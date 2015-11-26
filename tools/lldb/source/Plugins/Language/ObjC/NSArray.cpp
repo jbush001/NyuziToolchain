@@ -7,6 +7,12 @@
 //
 //===----------------------------------------------------------------------===//
 
+// C Includes
+// C++ Includes
+// Other libraries and framework includes
+#include "clang/AST/ASTContext.h"
+
+// Project includes
 #include "Cocoa.h"
 
 #include "lldb/Core/DataBufferHeap.h"
@@ -18,11 +24,10 @@
 #include "lldb/Expression/FunctionCaller.h"
 #include "lldb/Host/Endian.h"
 #include "lldb/Symbol/ClangASTContext.h"
+#include "lldb/Target/Language.h"
 #include "lldb/Target/ObjCLanguageRuntime.h"
 #include "Plugins/LanguageRuntime/ObjC/AppleObjCRuntime/AppleObjCRuntime.h"
 #include "lldb/Target/Target.h"
-
-#include "clang/AST/ASTContext.h"
 
 using namespace lldb;
 using namespace lldb_private;
@@ -34,24 +39,23 @@ namespace  lldb_private {
         {
         public:
             NSArrayMSyntheticFrontEnd (lldb::ValueObjectSP valobj_sp);
+
+            ~NSArrayMSyntheticFrontEnd() override = default;
+
+            size_t
+            CalculateNumChildren() override;
             
-            virtual size_t
-            CalculateNumChildren ();
+            lldb::ValueObjectSP
+            GetChildAtIndex(size_t idx) override;
             
-            virtual lldb::ValueObjectSP
-            GetChildAtIndex (size_t idx);
+            bool
+            Update() override = 0;
             
-            virtual bool
-            Update() = 0;
+            bool
+            MightHaveChildren() override;
             
-            virtual bool
-            MightHaveChildren ();
-            
-            virtual size_t
-            GetIndexOfChildWithName (const ConstString &name);
-            
-            virtual
-            ~NSArrayMSyntheticFrontEnd () {}
+            size_t
+            GetIndexOfChildWithName(const ConstString &name) override;
             
         protected:
             virtual lldb::addr_t
@@ -74,6 +78,27 @@ namespace  lldb_private {
         
         class NSArrayMSyntheticFrontEnd_109 : public NSArrayMSyntheticFrontEnd
         {
+        public:
+            NSArrayMSyntheticFrontEnd_109 (lldb::ValueObjectSP valobj_sp);
+
+            ~NSArrayMSyntheticFrontEnd_109() override;
+
+            bool
+            Update() override;
+            
+        protected:
+            lldb::addr_t
+            GetDataAddress() override;
+            
+            uint64_t
+            GetUsedCount() override;
+            
+            uint64_t
+            GetOffset() override;
+            
+            uint64_t
+            GetSize() override;
+            
         private:
             struct DataDescriptor_32
             {
@@ -85,6 +110,7 @@ namespace  lldb_private {
                 uint32_t _priv3;
                 uint32_t _data;
             };
+
             struct DataDescriptor_64
             {
                 uint64_t _used;
@@ -95,35 +121,34 @@ namespace  lldb_private {
                 uint32_t _priv3;
                 uint64_t _data;
             };
-        public:
-            NSArrayMSyntheticFrontEnd_109 (lldb::ValueObjectSP valobj_sp);
-            
-            virtual bool
-            Update();
-            
-            virtual
-            ~NSArrayMSyntheticFrontEnd_109 ();
-            
-        protected:
-            virtual lldb::addr_t
-            GetDataAddress ();
-            
-            virtual uint64_t
-            GetUsedCount ();
-            
-            virtual uint64_t
-            GetOffset ();
-            
-            virtual uint64_t
-            GetSize ();
-            
-        private:
+
             DataDescriptor_32 *m_data_32;
             DataDescriptor_64 *m_data_64;
         };
         
         class NSArrayMSyntheticFrontEnd_1010 : public NSArrayMSyntheticFrontEnd
         {
+        public:
+            NSArrayMSyntheticFrontEnd_1010 (lldb::ValueObjectSP valobj_sp);
+
+            ~NSArrayMSyntheticFrontEnd_1010() override;
+
+            bool
+            Update() override;
+            
+        protected:
+            lldb::addr_t
+            GetDataAddress() override;
+            
+            uint64_t
+            GetUsedCount() override;
+            
+            uint64_t
+            GetOffset() override;
+            
+            uint64_t
+            GetSize() override;
+            
         private:
             struct DataDescriptor_32
             {
@@ -134,6 +159,7 @@ namespace  lldb_private {
                 uint32_t _priv2;
                 uint32_t _data;
             };
+
             struct DataDescriptor_64
             {
                 uint64_t _used;
@@ -143,29 +169,7 @@ namespace  lldb_private {
                 uint32_t _priv2;
                 uint64_t _data;
             };
-        public:
-            NSArrayMSyntheticFrontEnd_1010 (lldb::ValueObjectSP valobj_sp);
-            
-            virtual bool
-            Update();
-            
-            virtual
-            ~NSArrayMSyntheticFrontEnd_1010 ();
-            
-        protected:
-            virtual lldb::addr_t
-            GetDataAddress ();
-            
-            virtual uint64_t
-            GetUsedCount ();
-            
-            virtual uint64_t
-            GetOffset ();
-            
-            virtual uint64_t
-            GetSize ();
-            
-        private:
+
             DataDescriptor_32 *m_data_32;
             DataDescriptor_64 *m_data_64;
         };
@@ -174,24 +178,24 @@ namespace  lldb_private {
         {
         public:
             NSArrayISyntheticFrontEnd (lldb::ValueObjectSP valobj_sp);
+
+            ~NSArrayISyntheticFrontEnd() override = default;
+
+            size_t
+            CalculateNumChildren() override;
             
-            virtual size_t
-            CalculateNumChildren ();
+            lldb::ValueObjectSP
+            GetChildAtIndex(size_t idx) override;
             
-            virtual lldb::ValueObjectSP
-            GetChildAtIndex (size_t idx);
+            bool
+            Update() override;
             
-            virtual bool
-            Update();
+            bool
+            MightHaveChildren() override;
             
-            virtual bool
-            MightHaveChildren ();
-            
-            virtual size_t
-            GetIndexOfChildWithName (const ConstString &name);
-            
-            virtual
-            ~NSArrayISyntheticFrontEnd ();
+            size_t
+            GetIndexOfChildWithName(const ConstString &name) override;
+
         private:
             ExecutionContextRef m_exe_ctx_ref;
             uint8_t m_ptr_size;
@@ -201,35 +205,59 @@ namespace  lldb_private {
             std::vector<lldb::ValueObjectSP> m_children;
         };
         
+        class NSArray0SyntheticFrontEnd : public SyntheticChildrenFrontEnd
+        {
+        public:
+            NSArray0SyntheticFrontEnd (lldb::ValueObjectSP valobj_sp);
+
+            ~NSArray0SyntheticFrontEnd() override = default;
+
+            size_t
+            CalculateNumChildren() override;
+            
+            lldb::ValueObjectSP
+            GetChildAtIndex(size_t idx) override;
+            
+            bool
+            Update() override;
+            
+            bool
+            MightHaveChildren() override;
+            
+            size_t
+            GetIndexOfChildWithName(const ConstString &name) override;
+        };
+        
         class NSArrayCodeRunningSyntheticFrontEnd : public SyntheticChildrenFrontEnd
         {
         public:
             NSArrayCodeRunningSyntheticFrontEnd (lldb::ValueObjectSP valobj_sp);
+
+            ~NSArrayCodeRunningSyntheticFrontEnd() override = default;
+
+            size_t
+            CalculateNumChildren() override;
             
-            virtual size_t
-            CalculateNumChildren ();
+            lldb::ValueObjectSP
+            GetChildAtIndex(size_t idx) override;
             
-            virtual lldb::ValueObjectSP
-            GetChildAtIndex (size_t idx);
+            bool
+            Update() override;
             
-            virtual bool
-            Update();
+            bool
+            MightHaveChildren() override;
             
-            virtual bool
-            MightHaveChildren ();
-            
-            virtual size_t
-            GetIndexOfChildWithName (const ConstString &name);
-            
-            virtual
-            ~NSArrayCodeRunningSyntheticFrontEnd ();
+            size_t
+            GetIndexOfChildWithName(const ConstString &name) override;
         };
-    }
-}
+    } // namespace formatters
+} // namespace lldb_private
 
 bool
 lldb_private::formatters::NSArraySummaryProvider (ValueObject& valobj, Stream& stream, const TypeSummaryOptions& options)
 {
+    static ConstString g_TypeHint("NSArray");
+    
     ProcessSP process_sp = valobj.GetProcessSP();
     if (!process_sp)
         return false;
@@ -272,6 +300,10 @@ lldb_private::formatters::NSArraySummaryProvider (ValueObject& valobj, Stream& s
         if (error.Fail())
             return false;
     }
+    else if (!strcmp(class_name,"__NSArray0"))
+    {
+        value = 0;
+    }
     else if (!strcmp(class_name,"__NSCFArray"))
     {
         Error error;
@@ -285,16 +317,29 @@ lldb_private::formatters::NSArraySummaryProvider (ValueObject& valobj, Stream& s
             return false;
     }
     
-    stream.Printf("@\"%" PRIu64 " object%s\"",
+    std::string prefix,suffix;
+    if (Language* language = Language::FindPlugin(options.GetLanguage()))
+    {
+        if (!language->GetFormatterPrefixSuffix(valobj, g_TypeHint, prefix, suffix))
+        {
+            prefix.clear();
+            suffix.clear();
+        }
+    }
+    
+    stream.Printf("%s%" PRIu64 " %s%s%s",
+                  prefix.c_str(),
                   value,
-                  value == 1 ? "" : "s");
+                  "element",
+                  value == 1 ? "" : "s",
+                  suffix.c_str());
     return true;
 }
 
 lldb_private::formatters::NSArrayMSyntheticFrontEnd::NSArrayMSyntheticFrontEnd (lldb::ValueObjectSP valobj_sp) :
 SyntheticChildrenFrontEnd(*valobj_sp),
-    m_exe_ctx_ref(),
-    m_ptr_size(8),
+m_exe_ctx_ref(),
+m_ptr_size(8),
 m_id_type(),
 m_children()
 {
@@ -435,6 +480,14 @@ lldb_private::formatters::NSArrayMSyntheticFrontEnd::GetIndexOfChildWithName (co
     return idx;
 }
 
+lldb_private::formatters::NSArrayMSyntheticFrontEnd_109::~NSArrayMSyntheticFrontEnd_109()
+{
+    delete m_data_32;
+    m_data_32 = NULL;
+    delete m_data_64;
+    m_data_64 = NULL;
+}
+
 lldb::addr_t
 lldb_private::formatters::NSArrayMSyntheticFrontEnd_109::GetDataAddress ()
 {
@@ -471,7 +524,7 @@ lldb_private::formatters::NSArrayMSyntheticFrontEnd_109::GetSize ()
     m_data_64->_size;
 }
 
-lldb_private::formatters::NSArrayMSyntheticFrontEnd_109::~NSArrayMSyntheticFrontEnd_109 ()
+lldb_private::formatters::NSArrayMSyntheticFrontEnd_1010::~NSArrayMSyntheticFrontEnd_1010()
 {
     delete m_data_32;
     m_data_32 = NULL;
@@ -515,20 +568,12 @@ lldb_private::formatters::NSArrayMSyntheticFrontEnd_1010::GetSize ()
     m_data_64->_size;
 }
 
-lldb_private::formatters::NSArrayMSyntheticFrontEnd_1010::~NSArrayMSyntheticFrontEnd_1010 ()
-{
-    delete m_data_32;
-    m_data_32 = NULL;
-    delete m_data_64;
-    m_data_64 = NULL;
-}
-
 lldb_private::formatters::NSArrayISyntheticFrontEnd::NSArrayISyntheticFrontEnd (lldb::ValueObjectSP valobj_sp) :
-    SyntheticChildrenFrontEnd (*valobj_sp.get()),
-    m_exe_ctx_ref (),
-    m_ptr_size (8),
-    m_items (0),
-    m_data_ptr (0)
+SyntheticChildrenFrontEnd (*valobj_sp.get()),
+m_exe_ctx_ref (),
+m_ptr_size (8),
+m_items (0),
+m_data_ptr (0)
 {
     if (valobj_sp)
     {
@@ -540,10 +585,6 @@ lldb_private::formatters::NSArrayISyntheticFrontEnd::NSArrayISyntheticFrontEnd (
                 m_id_type = CompilerType(ast->getASTContext(), ast->getASTContext()->ObjCBuiltinIdTy);
         }
     }
-}
-
-lldb_private::formatters::NSArrayISyntheticFrontEnd::~NSArrayISyntheticFrontEnd ()
-{
 }
 
 size_t
@@ -616,6 +657,41 @@ lldb_private::formatters::NSArrayISyntheticFrontEnd::GetChildAtIndex (size_t idx
     return retval_sp;
 }
 
+lldb_private::formatters::NSArray0SyntheticFrontEnd::NSArray0SyntheticFrontEnd (lldb::ValueObjectSP valobj_sp) :
+SyntheticChildrenFrontEnd (*valobj_sp.get())
+{
+}
+
+size_t
+lldb_private::formatters::NSArray0SyntheticFrontEnd::GetIndexOfChildWithName (const ConstString &name)
+{
+    return UINT32_MAX;
+}
+
+size_t
+lldb_private::formatters::NSArray0SyntheticFrontEnd::CalculateNumChildren ()
+{
+    return 0;
+}
+
+bool
+lldb_private::formatters::NSArray0SyntheticFrontEnd::Update()
+{
+    return false;
+}
+
+bool
+lldb_private::formatters::NSArray0SyntheticFrontEnd::MightHaveChildren ()
+{
+    return false;
+}
+
+lldb::ValueObjectSP
+lldb_private::formatters::NSArray0SyntheticFrontEnd::GetChildAtIndex (size_t idx)
+{
+    return lldb::ValueObjectSP();
+}
+
 SyntheticChildrenFrontEnd* lldb_private::formatters::NSArraySyntheticFrontEndCreator (CXXSyntheticChildren*, lldb::ValueObjectSP valobj_sp)
 {
     if (!valobj_sp)
@@ -653,6 +729,10 @@ SyntheticChildrenFrontEnd* lldb_private::formatters::NSArraySyntheticFrontEndCre
     {
         return (new NSArrayISyntheticFrontEnd(valobj_sp));
     }
+    else if (!strcmp(class_name,"__NSArray0"))
+    {
+        return (new NSArray0SyntheticFrontEnd(valobj_sp));
+    }
     else if (!strcmp(class_name,"__NSArrayM"))
     {
         if (runtime->GetFoundationVersion() >= 1100)
@@ -686,7 +766,10 @@ lldb_private::formatters::NSArrayCodeRunningSyntheticFrontEnd::GetChildAtIndex (
     idx_name.Printf("[%" PRIu64 "]", (uint64_t)idx);
     lldb::ValueObjectSP valobj_sp = CallSelectorOnObject(m_backend,"id","objectAtIndex:",idx);
     if (valobj_sp)
+    {
+        valobj_sp->SetPreferredDisplayLanguage(m_backend.GetPreferredDisplayLanguage());
         valobj_sp->SetName(ConstString(idx_name.GetData()));
+    }
     return valobj_sp;
 }
 
@@ -707,6 +790,3 @@ lldb_private::formatters::NSArrayCodeRunningSyntheticFrontEnd::GetIndexOfChildWi
 {
     return 0;
 }
-
-lldb_private::formatters::NSArrayCodeRunningSyntheticFrontEnd::~NSArrayCodeRunningSyntheticFrontEnd ()
-{}

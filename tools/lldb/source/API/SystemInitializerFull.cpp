@@ -45,11 +45,13 @@
 #include "Plugins/InstrumentationRuntime/AddressSanitizer/AddressSanitizerRuntime.h"
 #include "Plugins/JITLoader/GDB/JITLoaderGDB.h"
 #include "Plugins/Language/CPlusPlus/CPlusPlusLanguage.h"
+#include "Plugins/Language/Go/GoLanguage.h"
 #include "Plugins/Language/ObjC/ObjCLanguage.h"
 #include "Plugins/Language/ObjCPlusPlus/ObjCPlusPlusLanguage.h"
 #include "Plugins/LanguageRuntime/CPlusPlus/ItaniumABI/ItaniumABILanguageRuntime.h"
 #include "Plugins/LanguageRuntime/ObjC/AppleObjCRuntime/AppleObjCRuntimeV1.h"
 #include "Plugins/LanguageRuntime/ObjC/AppleObjCRuntime/AppleObjCRuntimeV2.h"
+#include "Plugins/LanguageRuntime/Go/GoLanguageRuntime.h"
 #include "Plugins/LanguageRuntime/RenderScript/RenderScriptRuntime/RenderScriptRuntime.h"
 #include "Plugins/MemoryHistory/asan/MemoryHistoryASan.h"
 #include "Plugins/Platform/gdb-server/PlatformRemoteGDBServer.h"
@@ -68,6 +70,10 @@
 #include "Plugins/Process/mach-core/ProcessMachCore.h"
 #include "Plugins/Process/MacOSX-Kernel/ProcessKDP.h"
 #include "Plugins/SymbolVendor/MacOSX/SymbolVendorMacOSX.h"
+#include "Plugins/Platform/MacOSX/PlatformAppleTVSimulator.h"
+#include "Plugins/Platform/MacOSX/PlatformAppleWatchSimulator.h"
+#include "Plugins/Platform/MacOSX/PlatformRemoteAppleTV.h"
+#include "Plugins/Platform/MacOSX/PlatformRemoteAppleWatch.h"
 #endif
 
 #if defined(__FreeBSD__)
@@ -76,7 +82,7 @@
 
 #if defined(_MSC_VER)
 #include "lldb/Host/windows/windows.h"
-#include "Plugins/Process/Windows/Live/ProcessWindows.h"
+#include "Plugins/Process/Windows/Live/ProcessWindowsLive.h"
 #include "Plugins/Process/Windows/MiniDump/ProcessWinMiniDump.h"
 #endif
 
@@ -89,8 +95,18 @@ using namespace lldb_private;
 #ifndef LLDB_DISABLE_PYTHON
 
 // Defined in the SWIG source file
+#if PY_MAJOR_VERSION >= 3
+extern "C" PyObject*
+PyInit__lldb(void);
+
+#define LLDBSwigPyInit PyInit__lldb
+
+#else
 extern "C" void 
 init_lldb(void);
+
+#define LLDBSwigPyInit init_lldb
+#endif
 
 // these are the Pythonic implementations of the required callbacks
 // these are scripting-language specific, which is why they belong here
@@ -139,7 +155,7 @@ LLDBSWIGPythonCallThreadPlan (void *implementor,
                               bool &got_error);
 
 extern "C" size_t
-LLDBSwigPython_CalculateNumChildren (void *implementor);
+LLDBSwigPython_CalculateNumChildren (void *implementor, uint32_t max);
 
 extern "C" void *
 LLDBSwigPython_GetChildAtIndex (void *implementor, uint32_t idx);
@@ -291,13 +307,15 @@ SystemInitializerFull::Initialize()
     AppleObjCRuntimeV1::Initialize();
     SystemRuntimeMacOSX::Initialize();
     RenderScriptRuntime::Initialize();
+    GoLanguageRuntime::Initialize();
     
     CPlusPlusLanguage::Initialize();
+    GoLanguage::Initialize();
     ObjCLanguage::Initialize();
     ObjCPlusPlusLanguage::Initialize();
 
 #if defined(_MSC_VER)
-    ProcessWindows::Initialize();
+    ProcessWindowsLive::Initialize();
 #endif
 #if defined(__FreeBSD__)
     ProcessFreeBSD::Initialize();
@@ -306,6 +324,10 @@ SystemInitializerFull::Initialize()
     SymbolVendorMacOSX::Initialize();
     ProcessKDP::Initialize();
     ProcessMachCore::Initialize();
+    PlatformAppleTVSimulator::Initialize();
+    PlatformAppleWatchSimulator::Initialize();
+    PlatformRemoteAppleTV::Initialize();
+    PlatformRemoteAppleWatch::Initialize();
 #endif
     //----------------------------------------------------------------------
     // Platform agnostic plugins
@@ -328,7 +350,7 @@ void SystemInitializerFull::InitializeSWIG()
 {
 #if !defined(LLDB_DISABLE_PYTHON)
     ScriptInterpreterPython::InitializeInterpreter(
-        init_lldb,
+        LLDBSwigPyInit,
         LLDBSwigPythonBreakpointCallbackFunction,
         LLDBSwigPythonWatchpointCallbackFunction,
         LLDBSwigPythonCallTypeScript,
@@ -405,6 +427,7 @@ SystemInitializerFull::Terminate()
     RenderScriptRuntime::Terminate();
 
     CPlusPlusLanguage::Terminate();
+    GoLanguage::Terminate();
     ObjCLanguage::Terminate();
     ObjCPlusPlusLanguage::Terminate();
     
@@ -412,6 +435,10 @@ SystemInitializerFull::Terminate()
     ProcessMachCore::Terminate();
     ProcessKDP::Terminate();
     SymbolVendorMacOSX::Terminate();
+    PlatformAppleTVSimulator::Terminate();
+    PlatformAppleWatchSimulator::Terminate();
+    PlatformRemoteAppleTV::Terminate();
+    PlatformRemoteAppleWatch::Terminate();
 #endif
 
 #if defined(__FreeBSD__)

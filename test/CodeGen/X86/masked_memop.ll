@@ -235,12 +235,49 @@ define <2 x i32> @test17(<2 x i32> %trigger, <2 x i32>* %addr, <2 x i32> %dst) {
 ; AVX2-LABEL: test18
 ; AVX2: vmaskmovps
 ; AVX2-NOT: blend
+; AVX2: ret
 define <2 x float> @test18(<2 x i32> %trigger, <2 x float>* %addr) {
   %mask = icmp eq <2 x i32> %trigger, zeroinitializer
   %res = call <2 x float> @llvm.masked.load.v2f32(<2 x float>* %addr, i32 4, <2 x i1>%mask, <2 x float>undef)
   ret <2 x float> %res
 }
 
+; AVX_SCALAR-LABEL: test19
+; AVX_SCALAR: load <4 x float>, <4 x float>* %addr, align 4
+
+define <4 x float> @test19(<4 x i32> %trigger, <4 x float>* %addr) {
+  %mask = icmp eq <4 x i32> %trigger, zeroinitializer
+  %res = call <4 x float> @llvm.masked.load.v4f32(<4 x float>* %addr, i32 4, <4 x i1><i1 true, i1 true, i1 true, i1 true>, <4 x float>undef)
+  ret <4 x float> %res
+}
+
+; AVX_SCALAR-LABEL: test20
+; AVX_SCALAR: load float, {{.*}}, align 4
+; AVX_SCALAR: insertelement <4 x float> undef, float
+; AVX_SCALAR: select <4 x i1> <i1 true, i1 false, i1 true, i1 true>
+
+define <4 x float> @test20(<4 x i32> %trigger, <4 x float>* %addr, <4 x float> %src0) {
+  %mask = icmp eq <4 x i32> %trigger, zeroinitializer
+  %res = call <4 x float> @llvm.masked.load.v4f32(<4 x float>* %addr, i32 16, <4 x i1><i1 true, i1 false, i1 true, i1 true>, <4 x float> %src0)
+  ret <4 x float> %res
+}
+
+; AVX_SCALAR-LABEL: test21
+; AVX_SCALAR: store <4 x i32> %val
+define void @test21(<4 x i32> %trigger, <4 x i32>* %addr, <4 x i32> %val) {
+  %mask = icmp eq <4 x i32> %trigger, zeroinitializer
+  call void @llvm.masked.store.v4i32(<4 x i32>%val, <4 x i32>* %addr, i32 4, <4 x i1><i1 true, i1 true, i1 true, i1 true>)
+  ret void
+}
+
+; AVX_SCALAR-LABEL: test22
+; AVX_SCALAR: extractelement <4 x i32> %val, i32 0
+; AVX_SCALAR:  store i32
+define void @test22(<4 x i32> %trigger, <4 x i32>* %addr, <4 x i32> %val) {
+  %mask = icmp eq <4 x i32> %trigger, zeroinitializer
+  call void @llvm.masked.store.v4i32(<4 x i32>%val, <4 x i32>* %addr, i32 4, <4 x i1><i1 true, i1 false, i1 false, i1 false>)
+  ret void
+}
 
 declare <16 x i32> @llvm.masked.load.v16i32(<16 x i32>*, i32, <16 x i1>, <16 x i32>)
 declare <4 x i32> @llvm.masked.load.v4i32(<4 x i32>*, i32, <4 x i1>, <4 x i32>)
@@ -263,3 +300,28 @@ declare void @llvm.masked.store.v8f64(<8 x double>, <8 x double>*, i32, <8 x i1>
 declare void @llvm.masked.store.v2f64(<2 x double>, <2 x double>*, i32, <2 x i1>)
 declare void @llvm.masked.store.v2i64(<2 x i64>, <2 x i64>*, i32, <2 x i1>)
 
+declare <16 x i32*> @llvm.masked.load.v16p0i32(<16 x i32*>*, i32, <16 x i1>, <16 x i32*>)
+
+; AVX512-LABEL: test23
+; AVX512: vmovdqu64       64(%rdi), %zmm1 {%k2} {z}
+; AVX512: vmovdqu64       (%rdi), %zmm0 {%k1} {z}
+
+define <16 x i32*> @test23(<16 x i32*> %trigger, <16 x i32*>* %addr) {
+  %mask = icmp eq <16 x i32*> %trigger, zeroinitializer
+  %res = call <16 x i32*> @llvm.masked.load.v16p0i32(<16 x i32*>* %addr, i32 4, <16 x i1>%mask, <16 x i32*>zeroinitializer)
+  ret <16 x i32*> %res
+}
+
+%mystruct = type { i16, i16, [1 x i8*] }
+
+declare <16 x %mystruct*> @llvm.masked.load.v16p0mystruct(<16 x %mystruct*>*, i32, <16 x i1>, <16 x %mystruct*>)
+
+; AVX512-LABEL: test24
+; AVX512: vmovdqu64       (%rdi), %zmm0 {%k1} {z}
+; AVX512: kshiftrw        $8, %k1, %k1
+; AVX512: vmovdqu64       64(%rdi), %zmm1 {%k1} {z}
+
+define <16 x %mystruct*> @test24(<16 x i1> %mask, <16 x %mystruct*>* %addr) {
+  %res = call <16 x %mystruct*> @llvm.masked.load.v16p0mystruct(<16 x %mystruct*>* %addr, i32 4, <16 x i1>%mask, <16 x %mystruct*>zeroinitializer)
+  ret <16 x %mystruct*> %res
+}

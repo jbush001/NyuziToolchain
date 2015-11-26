@@ -35,8 +35,8 @@ using namespace llvm;
 
 // Explicit instantiations of SymbolTableListTraits since some of the methods
 // are not in the public header file...
-template class llvm::SymbolTableListTraits<Argument, Function>;
-template class llvm::SymbolTableListTraits<BasicBlock, Function>;
+template class llvm::SymbolTableListTraits<Argument>;
+template class llvm::SymbolTableListTraits<BasicBlock>;
 
 //===----------------------------------------------------------------------===//
 // Argument Implementation
@@ -235,11 +235,11 @@ Type *Function::getReturnType() const {
 }
 
 void Function::removeFromParent() {
-  getParent()->getFunctionList().remove(this);
+  getParent()->getFunctionList().remove(getIterator());
 }
 
 void Function::eraseFromParent() {
-  getParent()->getFunctionList().erase(this);
+  getParent()->getFunctionList().erase(getIterator());
 }
 
 //===----------------------------------------------------------------------===//
@@ -492,7 +492,10 @@ static std::string getMangledTypeStr(Type* Ty) {
       Result += "vararg";
     // Ensure nested function types are distinguishable.
     Result += "f"; 
-  } else if (Ty)
+  } else if (isa<VectorType>(Ty))
+    Result += "v" + utostr(Ty->getVectorNumElements()) +
+      getMangledTypeStr(Ty->getVectorElementType());
+  else if (Ty)
     Result += EVT::getEVT(Ty).getEVTString();
   return Result;
 }
@@ -557,7 +560,9 @@ enum IIT_Info {
   IIT_SAME_VEC_WIDTH_ARG = 31,
   IIT_PTR_TO_ARG = 32,
   IIT_VEC_OF_PTRS_TO_ELT = 33,
-  IIT_I128 = 34
+  IIT_I128 = 34,
+  IIT_V512 = 35,
+  IIT_V1024 = 36
 };
 
 
@@ -636,6 +641,14 @@ static void DecodeIITType(unsigned &NextElt, ArrayRef<unsigned char> Infos,
     return;
   case IIT_V64:
     OutputTable.push_back(IITDescriptor::get(IITDescriptor::Vector, 64));
+    DecodeIITType(NextElt, Infos, OutputTable);
+    return;
+  case IIT_V512:
+    OutputTable.push_back(IITDescriptor::get(IITDescriptor::Vector, 512));
+    DecodeIITType(NextElt, Infos, OutputTable);
+    return;
+  case IIT_V1024:
+    OutputTable.push_back(IITDescriptor::get(IITDescriptor::Vector, 1024));
     DecodeIITType(NextElt, Infos, OutputTable);
     return;
   case IIT_PTR:
@@ -929,12 +942,36 @@ bool Function::callsFunctionThatReturnsTwice() const {
   return false;
 }
 
+static Constant *
+getFunctionData(const Function *F,
+                const LLVMContextImpl::FunctionDataMapTy &Map) {
+  const auto &Entry = Map.find(F);
+  assert(Entry != Map.end());
+  return cast<Constant>(Entry->second->getReturnValue());
+}
+
+/// setFunctionData - Set "Map[F] = Data". Return an updated SubclassData value
+/// in which Bit is low iff Data is null.
+static unsigned setFunctionData(Function *F,
+                                LLVMContextImpl::FunctionDataMapTy &Map,
+                                Constant *Data, unsigned SCData, unsigned Bit) {
+  ReturnInst *&Holder = Map[F];
+  if (Data) {
+    if (Holder)
+      Holder->setOperand(0, Data);
+    else
+      Holder = ReturnInst::Create(F->getContext(), Data);
+    return SCData | (1 << Bit);
+  } else {
+    delete Holder;
+    Map.erase(F);
+    return SCData & ~(1 << Bit);
+  }
+}
+
 Constant *Function::getPrefixData() const {
   assert(hasPrefixData());
-  const LLVMContextImpl::PrefixDataMapTy &PDMap =
-      getContext().pImpl->PrefixDataMap;
-  assert(PDMap.find(this) != PDMap.end());
-  return cast<Constant>(PDMap.find(this)->second->getReturnValue());
+  return getFunctionData(this, getContext().pImpl->PrefixDataMap);
 }
 
 void Function::setPrefixData(Constant *PrefixData) {
@@ -942,49 +979,24 @@ void Function::setPrefixData(Constant *PrefixData) {
     return;
 
   unsigned SCData = getSubclassDataFromValue();
-  LLVMContextImpl::PrefixDataMapTy &PDMap = getContext().pImpl->PrefixDataMap;
-  ReturnInst *&PDHolder = PDMap[this];
-  if (PrefixData) {
-    if (PDHolder)
-      PDHolder->setOperand(0, PrefixData);
-    else
-      PDHolder = ReturnInst::Create(getContext(), PrefixData);
-    SCData |= (1<<1);
-  } else {
-    delete PDHolder;
-    PDMap.erase(this);
-    SCData &= ~(1<<1);
-  }
+  SCData = setFunctionData(this, getContext().pImpl->PrefixDataMap, PrefixData,
+                           SCData, /*Bit=*/1);
   setValueSubclassData(SCData);
 }
 
 Constant *Function::getPrologueData() const {
   assert(hasPrologueData());
-  const LLVMContextImpl::PrologueDataMapTy &SOMap =
-      getContext().pImpl->PrologueDataMap;
-  assert(SOMap.find(this) != SOMap.end());
-  return cast<Constant>(SOMap.find(this)->second->getReturnValue());
+  return getFunctionData(this, getContext().pImpl->PrologueDataMap);
 }
 
 void Function::setPrologueData(Constant *PrologueData) {
   if (!PrologueData && !hasPrologueData())
     return;
 
-  unsigned PDData = getSubclassDataFromValue();
-  LLVMContextImpl::PrologueDataMapTy &PDMap = getContext().pImpl->PrologueDataMap;
-  ReturnInst *&PDHolder = PDMap[this];
-  if (PrologueData) {
-    if (PDHolder)
-      PDHolder->setOperand(0, PrologueData);
-    else
-      PDHolder = ReturnInst::Create(getContext(), PrologueData);
-    PDData |= (1<<2);
-  } else {
-    delete PDHolder;
-    PDMap.erase(this);
-    PDData &= ~(1<<2);
-  }
-  setValueSubclassData(PDData);
+  unsigned SCData = getSubclassDataFromValue();
+  SCData = setFunctionData(this, getContext().pImpl->PrologueDataMap,
+                           PrologueData, SCData, /*Bit=*/2);
+  setValueSubclassData(SCData);
 }
 
 void Function::setEntryCount(uint64_t Count) {

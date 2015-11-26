@@ -33,7 +33,7 @@
 using namespace llvm;
 
 void NyuziAsmPrinter::EmitInstruction(const MachineInstr *MI) {
-  MachineBasicBlock::const_instr_iterator I = MI;
+  MachineBasicBlock::const_instr_iterator I = MI->getIterator();
   MachineBasicBlock::const_instr_iterator E = MI->getParent()->instr_end();
 
   do {

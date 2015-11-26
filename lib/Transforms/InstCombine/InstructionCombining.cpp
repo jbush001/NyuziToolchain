@@ -1245,16 +1245,11 @@ Value *InstCombiner::Descale(Value *Val, APInt Scale, bool &NoSignedWrap) {
 /// specified one but with other operands.
 static Value *CreateBinOpAsGiven(BinaryOperator &Inst, Value *LHS, Value *RHS,
                                  InstCombiner::BuilderTy *B) {
-  Value *BORes = B->CreateBinOp(Inst.getOpcode(), LHS, RHS);
-  if (BinaryOperator *NewBO = dyn_cast<BinaryOperator>(BORes)) {
-    if (isa<OverflowingBinaryOperator>(NewBO)) {
-      NewBO->setHasNoSignedWrap(Inst.hasNoSignedWrap());
-      NewBO->setHasNoUnsignedWrap(Inst.hasNoUnsignedWrap());
-    }
-    if (isa<PossiblyExactOperator>(NewBO))
-      NewBO->setIsExact(Inst.isExact());
-  }
-  return BORes;
+  Value *BO = B->CreateBinOp(Inst.getOpcode(), LHS, RHS);
+  // If LHS and RHS are constant, BO won't be a binary operator.
+  if (BinaryOperator *NewBO = dyn_cast<BinaryOperator>(BO))
+    NewBO->copyIRFlags(&Inst);
+  return BO;
 }
 
 /// \brief Makes transformation of binary operation specific for vector types.
@@ -1288,9 +1283,8 @@ Value *InstCombiner::SimplifyVectorOp(BinaryOperator &Inst) {
         LShuf->getMask() == RShuf->getMask()) {
       Value *NewBO = CreateBinOpAsGiven(Inst, LShuf->getOperand(0),
           RShuf->getOperand(0), Builder);
-      Value *Res = Builder->CreateShuffleVector(NewBO,
+      return Builder->CreateShuffleVector(NewBO,
           UndefValue::get(NewBO->getType()), LShuf->getMask());
-      return Res;
     }
   }
 
@@ -1326,18 +1320,11 @@ Value *InstCombiner::SimplifyVectorOp(BinaryOperator &Inst) {
     }
     if (MayChange) {
       Constant *C2 = ConstantVector::get(C2M);
-      Value *NewLHS, *NewRHS;
-      if (isa<Constant>(LHS)) {
-        NewLHS = C2;
-        NewRHS = Shuffle->getOperand(0);
-      } else {
-        NewLHS = Shuffle->getOperand(0);
-        NewRHS = C2;
-      }
+      Value *NewLHS = isa<Constant>(LHS) ? C2 : Shuffle->getOperand(0);
+      Value *NewRHS = isa<Constant>(LHS) ? Shuffle->getOperand(0) : C2;
       Value *NewBO = CreateBinOpAsGiven(Inst, NewLHS, NewRHS, Builder);
-      Value *Res = Builder->CreateShuffleVector(NewBO,
+      return Builder->CreateShuffleVector(NewBO,
           UndefValue::get(Inst.getType()), Shuffle->getMask());
-      return Res;
     }
   }
 
@@ -1355,7 +1342,8 @@ Instruction *InstCombiner::visitGetElementPtrInst(GetElementPtrInst &GEP) {
   // Eliminate unneeded casts for indices, and replace indices which displace
   // by multiples of a zero size type with zero.
   bool MadeChange = false;
-  Type *IntPtrTy = DL.getIntPtrType(GEP.getPointerOperandType());
+  Type *IntPtrTy =
+    DL.getIntPtrType(GEP.getPointerOperandType()->getScalarType());
 
   gep_type_iterator GTI = gep_type_begin(GEP);
   for (User::op_iterator I = GEP.op_begin() + 1, E = GEP.op_end(); I != E;
@@ -1365,21 +1353,25 @@ Instruction *InstCombiner::visitGetElementPtrInst(GetElementPtrInst &GEP) {
     if (!SeqTy)
       continue;
 
+    // Index type should have the same width as IntPtr
+    Type *IndexTy = (*I)->getType();
+    Type *NewIndexType = IndexTy->isVectorTy() ?
+      VectorType::get(IntPtrTy, IndexTy->getVectorNumElements()) : IntPtrTy;
+ 
     // If the element type has zero size then any index over it is equivalent
     // to an index of zero, so replace it with zero if it is not zero already.
     if (SeqTy->getElementType()->isSized() &&
         DL.getTypeAllocSize(SeqTy->getElementType()) == 0)
       if (!isa<Constant>(*I) || !cast<Constant>(*I)->isNullValue()) {
-        *I = Constant::getNullValue(IntPtrTy);
+        *I = Constant::getNullValue(NewIndexType);
         MadeChange = true;
       }
 
-    Type *IndexTy = (*I)->getType();
-    if (IndexTy != IntPtrTy) {
+    if (IndexTy != NewIndexType) {
       // If we are using a wider index than needed for this platform, shrink
       // it to what we need.  If narrower, sign-extend it to what we need.
       // This explicit cast can make subsequent optimizations more obvious.
-      *I = Builder->CreateIntCast(*I, IntPtrTy, true);
+      *I = Builder->CreateIntCast(*I, NewIndexType, true);
       MadeChange = true;
     }
   }
@@ -1453,8 +1445,13 @@ Instruction *InstCombiner::visitGetElementPtrInst(GetElementPtrInst &GEP) {
       }
     }
 
-    GetElementPtrInst *NewGEP = cast<GetElementPtrInst>(Op1->clone());
+    // If not all GEPs are identical we'll have to create a new PHI node.
+    // Check that the old PHI node has only one use so that it will get
+    // removed.
+    if (DI != -1 && !PN->hasOneUse())
+      return nullptr;
 
+    GetElementPtrInst *NewGEP = cast<GetElementPtrInst>(Op1->clone());
     if (DI == -1) {
       // All the GEPs feeding the PHI are identical. Clone one down into our
       // BB so that it can be merged with the current GEP.
@@ -1464,11 +1461,13 @@ Instruction *InstCombiner::visitGetElementPtrInst(GetElementPtrInst &GEP) {
       // All the GEPs feeding the PHI differ at a single offset. Clone a GEP
       // into the current block so it can be merged, and create a new PHI to
       // set that index.
-      Instruction *InsertPt = Builder->GetInsertPoint();
-      Builder->SetInsertPoint(PN);
-      PHINode *NewPN = Builder->CreatePHI(Op1->getOperand(DI)->getType(),
-                                          PN->getNumOperands());
-      Builder->SetInsertPoint(InsertPt);
+      PHINode *NewPN;
+      {
+        IRBuilderBase::InsertPointGuard Guard(*Builder);
+        Builder->SetInsertPoint(PN);
+        NewPN = Builder->CreatePHI(Op1->getOperand(DI)->getType(),
+                                   PN->getNumOperands());
+      }
 
       for (auto &I : PN->operands())
         NewPN->addIncoming(cast<GEPOperator>(I)->getOperand(DI),
@@ -1822,7 +1821,7 @@ Instruction *InstCombiner::visitGetElementPtrInst(GetElementPtrInst &GEP) {
           if (Instruction *I = visitBitCast(*BCI)) {
             if (I != BCI) {
               I->takeName(BCI);
-              BCI->getParent()->getInstList().insert(BCI, I);
+              BCI->getParent()->getInstList().insert(BCI->getIterator(), I);
               ReplaceInstUsesWith(*BCI, I);
             }
             return &GEP;
@@ -2326,7 +2325,7 @@ Instruction *InstCombiner::visitExtractValueInst(ExtractValueInst &EV) {
 
       // We need to insert these at the location of the old load, not at that of
       // the extractvalue.
-      Builder->SetInsertPoint(L->getParent(), L);
+      Builder->SetInsertPoint(L);
       Value *GEP = Builder->CreateInBoundsGEP(L->getType(),
                                               L->getPointerOperand(), Indices);
       // Returning the load directly will cause the main loop to insert it in
@@ -2362,6 +2361,7 @@ static bool isCatchAll(EHPersonality Personality, Constant *TypeInfo) {
   case EHPersonality::MSVC_X86SEH:
   case EHPersonality::MSVC_Win64SEH:
   case EHPersonality::MSVC_CXX:
+  case EHPersonality::CoreCLR:
     return TypeInfo->isNullValue();
   }
   llvm_unreachable("invalid enum");
@@ -2473,10 +2473,24 @@ Instruction *InstCombiner::visitLandingPadInst(LandingPadInst &LI) {
             SawCatchAll = true;
             break;
           }
-          if (AlreadyCaught.count(TypeInfo))
-            // Already caught by an earlier clause, so having it in the filter
-            // is pointless.
-            continue;
+
+          // Even if we've seen a type in a catch clause, we don't want to
+          // remove it from the filter.  An unexpected type handler may be
+          // set up for a call site which throws an exception of the same
+          // type caught.  In order for the exception thrown by the unexpected
+          // handler to propogate correctly, the filter must be correctly
+          // described for the call site.
+          //
+          // Example:
+          //
+          // void unexpected() { throw 1;}
+          // void foo() throw (int) {
+          //   std::set_unexpected(unexpected);
+          //   try {
+          //     throw 2.0;
+          //   } catch (int i) {}
+          // }
+
           // There is no point in having multiple copies of the same typeinfo in
           // a filter, so only add it if we didn't already.
           if (SeenInFilter.insert(TypeInfo).second)
@@ -2686,17 +2700,24 @@ static bool TryToSinkInstruction(Instruction *I, BasicBlock *DestBlock) {
         &DestBlock->getParent()->getEntryBlock())
     return false;
 
+  // Do not sink convergent call instructions.
+  if (auto *CI = dyn_cast<CallInst>(I)) {
+    if (CI->isConvergent())
+      return false;
+  }
+
   // We can only sink load instructions if there is nothing between the load and
   // the end of block that could change the value.
   if (I->mayReadFromMemory()) {
-    for (BasicBlock::iterator Scan = I, E = I->getParent()->end();
+    for (BasicBlock::iterator Scan = I->getIterator(),
+                              E = I->getParent()->end();
          Scan != E; ++Scan)
       if (Scan->mayWriteToMemory())
         return false;
   }
 
   BasicBlock::iterator InsertPos = DestBlock->getFirstInsertionPt();
-  I->moveBefore(InsertPos);
+  I->moveBefore(&*InsertPos);
   ++NumSunkInst;
   return true;
 }
@@ -2720,6 +2741,27 @@ bool InstCombiner::run() {
         (I->getNumOperands() == 0 || isa<Constant>(I->getOperand(0)))) {
       if (Constant *C = ConstantFoldInstruction(I, DL, TLI)) {
         DEBUG(dbgs() << "IC: ConstFold to: " << *C << " from: " << *I << '\n');
+
+        // Add operands to the worklist.
+        ReplaceInstUsesWith(*I, C);
+        ++NumConstProp;
+        EraseInstFromFunction(*I);
+        MadeIRChange = true;
+        continue;
+      }
+    }
+
+    // In general, it is possible for computeKnownBits to determine all bits in a
+    // value even when the operands are not all constants.
+    if (!I->use_empty() && I->getType()->isIntegerTy()) {
+      unsigned BitWidth = I->getType()->getScalarSizeInBits();
+      APInt KnownZero(BitWidth, 0);
+      APInt KnownOne(BitWidth, 0);
+      computeKnownBits(I, KnownZero, KnownOne, /*Depth*/0, I);
+      if ((KnownZero | KnownOne).isAllOnesValue()) {
+        Constant *C = ConstantInt::get(I->getContext(), KnownOne);
+        DEBUG(dbgs() << "IC: ConstFold (all bits known) to: " << *C <<
+                        " from: " << *I << '\n');
 
         // Add operands to the worklist.
         ReplaceInstUsesWith(*I, C);
@@ -2770,7 +2812,7 @@ bool InstCombiner::run() {
     }
 
     // Now that we have an instruction, try combining it to simplify it.
-    Builder->SetInsertPoint(I->getParent(), I);
+    Builder->SetInsertPoint(I);
     Builder->SetCurrentDebugLocation(I->getDebugLoc());
 
 #ifndef NDEBUG
@@ -2800,7 +2842,7 @@ bool InstCombiner::run() {
 
         // Insert the new instruction into the basic block...
         BasicBlock *InstParent = I->getParent();
-        BasicBlock::iterator InsertPos = I;
+        BasicBlock::iterator InsertPos = I->getIterator();
 
         // If we replace a PHI with something that isn't a PHI, fix up the
         // insertion point.
@@ -2861,7 +2903,7 @@ static bool AddReachableCodeToWorklist(BasicBlock *BB, const DataLayout &DL,
       continue;
 
     for (BasicBlock::iterator BBI = BB->begin(), E = BB->end(); BBI != E; ) {
-      Instruction *Inst = BBI++;
+      Instruction *Inst = &*BBI++;
 
       // DCE instruction if trivially dead.
       if (isInstructionTriviallyDead(Inst, TLI)) {
@@ -2941,8 +2983,7 @@ static bool AddReachableCodeToWorklist(BasicBlock *BB, const DataLayout &DL,
   // of the function down.  This jives well with the way that it adds all uses
   // of instructions to the worklist after doing a transformation, thus avoiding
   // some N^2 behavior in pathological cases.
-  ICWorklist.AddInitialGroup(&InstrsForInstCombineWorklist[0],
-                             InstrsForInstCombineWorklist.size());
+  ICWorklist.AddInitialGroup(InstrsForInstCombineWorklist);
 
   return MadeIRChange;
 }
@@ -2962,13 +3003,13 @@ static bool prepareICWorklistFromFunction(Function &F, const DataLayout &DL,
   // track of which blocks we visit.
   SmallPtrSet<BasicBlock *, 64> Visited;
   MadeIRChange |=
-      AddReachableCodeToWorklist(F.begin(), DL, Visited, ICWorklist, TLI);
+      AddReachableCodeToWorklist(&F.front(), DL, Visited, ICWorklist, TLI);
 
   // Do a quick scan over the function.  If we find any blocks that are
   // unreachable, remove any instructions inside of them.  This prevents
   // the instcombine code from having to deal with some bad special cases.
   for (Function::iterator BB = F.begin(), E = F.end(); BB != E; ++BB) {
-    if (Visited.count(BB))
+    if (Visited.count(&*BB))
       continue;
 
     // Delete the instructions backwards, as it has a reduced likelihood of
@@ -2976,9 +3017,8 @@ static bool prepareICWorklistFromFunction(Function &F, const DataLayout &DL,
     Instruction *EndInst = BB->getTerminator(); // Last not to be deleted.
     while (EndInst != BB->begin()) {
       // Delete the next to last instruction.
-      BasicBlock::iterator I = EndInst;
-      Instruction *Inst = --I;
-      if (!Inst->use_empty())
+      Instruction *Inst = &*--EndInst->getIterator();
+      if (!Inst->use_empty() && !Inst->getType()->isTokenTy())
         Inst->replaceAllUsesWith(UndefValue::get(Inst->getType()));
       if (Inst->isEHPad()) {
         EndInst = Inst;
@@ -2988,7 +3028,8 @@ static bool prepareICWorklistFromFunction(Function &F, const DataLayout &DL,
         ++NumDeadInst;
         MadeIRChange = true;
       }
-      Inst->eraseFromParent();
+      if (!Inst->getType()->isTokenTy())
+        Inst->eraseFromParent();
     }
   }
 

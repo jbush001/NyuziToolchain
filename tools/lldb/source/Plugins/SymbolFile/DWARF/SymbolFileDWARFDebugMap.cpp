@@ -1,4 +1,4 @@
-//===-- SymbolFileDWARFDebugMap.cpp ----------------------------*- C++ -*-===//
+//===-- SymbolFileDWARFDebugMap.cpp -----------------------------*- C++ -*-===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -7,6 +7,10 @@
 //
 //===----------------------------------------------------------------------===//
 
+// C Includes
+// C++ Includes
+// Other libraries and framework includes
+// Project includes
 #include "SymbolFileDWARFDebugMap.h"
 
 #include "DWARFDebugAranges.h"
@@ -28,6 +32,7 @@
 #include "lldb/Symbol/LineTable.h"
 #include "lldb/Symbol/ObjectFile.h"
 #include "lldb/Symbol/SymbolVendor.h"
+#include "lldb/Symbol/TypeMap.h"
 #include "lldb/Symbol/VariableList.h"
 
 #include "LogChannelDWARF.h"
@@ -39,9 +44,6 @@ using namespace lldb_private;
 // Subclass lldb_private::Module so we can intercept the "Module::GetObjectFile()" 
 // (so we can fixup the object file sections) and also for "Module::GetSymbolVendor()"
 // (so we can fixup the symbol file id.
-
-
-
 
 const SymbolFileDWARFDebugMap::FileRangeMap &
 SymbolFileDWARFDebugMap::CompileUnitInfo::GetFileRangeMap(SymbolFileDWARFDebugMap *exe_symfile)
@@ -172,7 +174,6 @@ SymbolFileDWARFDebugMap::CompileUnitInfo::GetFileRangeMap(SymbolFileDWARFDebugMa
     return file_range_map;
 }
 
-
 class DebugMapModule : public Module
 {
 public:
@@ -189,14 +190,10 @@ public:
     {
     }
 
-    virtual
-    ~DebugMapModule ()
-    {
-    }
+    ~DebugMapModule() override = default;
 
-    
-    virtual SymbolVendor*
-    GetSymbolVendor(bool can_create = true, lldb_private::Stream *feedback_strm = NULL)
+    SymbolVendor*
+    GetSymbolVendor(bool can_create = true, lldb_private::Stream *feedback_strm = NULL) override
     {
         // Scope for locker
         if (m_symfile_ap.get() || can_create == false)
@@ -258,7 +255,6 @@ SymbolFileDWARFDebugMap::Terminate()
     PluginManager::UnregisterPlugin (CreateInstance);
 }
 
-
 lldb_private::ConstString
 SymbolFileDWARFDebugMap::GetPluginNameStatic()
 {
@@ -278,7 +274,6 @@ SymbolFileDWARFDebugMap::CreateInstance (ObjectFile* obj_file)
     return new SymbolFileDWARFDebugMap (obj_file);
 }
 
-
 SymbolFileDWARFDebugMap::SymbolFileDWARFDebugMap (ObjectFile* ofile) :
     SymbolFile(ofile),
     m_flags(),
@@ -288,7 +283,6 @@ SymbolFileDWARFDebugMap::SymbolFileDWARFDebugMap (ObjectFile* ofile) :
     m_supports_DW_AT_APPLE_objc_complete_type (eLazyBoolCalculate)
 {
 }
-
 
 SymbolFileDWARFDebugMap::~SymbolFileDWARFDebugMap()
 {
@@ -507,7 +501,6 @@ SymbolFileDWARFDebugMap::GetModuleByCompUnitInfo (CompileUnitInfo *comp_unit_inf
     return NULL;
 }
 
-
 bool
 SymbolFileDWARFDebugMap::GetFileSpecForSO (uint32_t oso_idx, FileSpec &file_spec)
 {
@@ -521,8 +514,6 @@ SymbolFileDWARFDebugMap::GetFileSpecForSO (uint32_t oso_idx, FileSpec &file_spec
     }
     return false;
 }
-
-
 
 ObjectFile *
 SymbolFileDWARFDebugMap::GetObjectFileByOSOIndex (uint32_t oso_idx)
@@ -550,7 +541,6 @@ SymbolFileDWARFDebugMap::GetObjectFileByCompUnitInfo (CompileUnitInfo *comp_unit
         return oso_module->GetObjectFile();
     return NULL;
 }
-
 
 uint32_t
 SymbolFileDWARFDebugMap::GetCompUnitInfoIndex (const CompileUnitInfo *comp_unit_info)
@@ -627,7 +617,6 @@ SymbolFileDWARFDebugMap::GetNumCompileUnits()
     return m_compile_unit_infos.size();
 }
 
-
 CompUnitSP
 SymbolFileDWARFDebugMap::ParseCompileUnitAtIndex(uint32_t cu_idx)
 {
@@ -677,7 +666,6 @@ SymbolFileDWARFDebugMap::GetCompUnitInfo (const SymbolContext& sc)
     }
     return NULL;
 }
-
 
 size_t
 SymbolFileDWARFDebugMap::GetCompUnitInfosForModule (const lldb_private::Module *module, std::vector<CompileUnitInfo *>& cu_infos)
@@ -745,7 +733,6 @@ SymbolFileDWARFDebugMap::ParseFunctionBlocks (const SymbolContext& sc)
     return 0;
 }
 
-
 size_t
 SymbolFileDWARFDebugMap::ParseTypes (const SymbolContext& sc)
 {
@@ -755,7 +742,6 @@ SymbolFileDWARFDebugMap::ParseTypes (const SymbolContext& sc)
     return 0;
 }
 
-
 size_t
 SymbolFileDWARFDebugMap::ParseVariablesForContext (const SymbolContext& sc)
 {
@@ -764,8 +750,6 @@ SymbolFileDWARFDebugMap::ParseVariablesForContext (const SymbolContext& sc)
         return oso_dwarf->ParseVariablesForContext (sc);
     return 0;
 }
-
-
 
 Type*
 SymbolFileDWARFDebugMap::ResolveTypeUID(lldb::user_id_t type_uid)
@@ -836,7 +820,6 @@ SymbolFileDWARFDebugMap::ResolveSymbolContext (const Address& exe_so_addr, uint3
     }
     return resolved_flags;
 }
-
 
 uint32_t
 SymbolFileDWARFDebugMap::ResolveSymbolContext (const FileSpec& file_spec, uint32_t line, bool check_inlines, uint32_t resolve_scope, SymbolContextList& sc_list)
@@ -948,7 +931,6 @@ SymbolFileDWARFDebugMap::FindGlobalVariables (const ConstString &name,
     return variables.GetSize() - original_size;
 }
 
-
 uint32_t
 SymbolFileDWARFDebugMap::FindGlobalVariables (const RegularExpression& regex, bool append, uint32_t max_matches, VariableList& variables)
 {
@@ -990,7 +972,6 @@ SymbolFileDWARFDebugMap::FindGlobalVariables (const RegularExpression& regex, bo
     return variables.GetSize() - original_size;
 }
 
-
 int
 SymbolFileDWARFDebugMap::SymbolContainsSymbolWithIndex (uint32_t *symbol_idx_ptr, const CompileUnitInfo *comp_unit_info)
 {
@@ -1005,7 +986,6 @@ SymbolFileDWARFDebugMap::SymbolContainsSymbolWithIndex (uint32_t *symbol_idx_ptr
     return 1;
 }
 
-
 int
 SymbolFileDWARFDebugMap::SymbolContainsSymbolWithID (user_id_t *symbol_idx_ptr, const CompileUnitInfo *comp_unit_info)
 {
@@ -1019,7 +999,6 @@ SymbolFileDWARFDebugMap::SymbolContainsSymbolWithID (user_id_t *symbol_idx_ptr, 
 
     return 1;
 }
-
 
 SymbolFileDWARFDebugMap::CompileUnitInfo*
 SymbolFileDWARFDebugMap::GetCompileUnitInfoForSymbolWithIndex (uint32_t symbol_idx, uint32_t *oso_idx_ptr)
@@ -1068,7 +1047,6 @@ SymbolFileDWARFDebugMap::GetCompileUnitInfoForSymbolWithID (user_id_t symbol_id,
     }
     return comp_unit_info;
 }
-
 
 static void
 RemoveFunctionsWithModuleNotEqualTo (const ModuleSP &module_sp, SymbolContextList &sc_list, uint32_t start_idx)
@@ -1127,7 +1105,6 @@ SymbolFileDWARFDebugMap::FindFunctions(const ConstString &name,
     return sc_list.GetSize() - initial_size;
 }
 
-
 uint32_t
 SymbolFileDWARFDebugMap::FindFunctions (const RegularExpression& regex, bool include_inlines, bool append, SymbolContextList& sc_list)
 {
@@ -1162,8 +1139,7 @@ SymbolFileDWARFDebugMap::GetTypes (SymbolContextScope *sc_scope,
     Timer scoped_timer (__PRETTY_FUNCTION__,
                         "SymbolFileDWARFDebugMap::GetTypes (type_mask = 0x%8.8x)",
                         type_mask);
-    
-    
+
     uint32_t initial_size = type_list.GetSize();
     SymbolFileDWARF *oso_dwarf = NULL;
     if (sc_scope)
@@ -1189,7 +1165,6 @@ SymbolFileDWARFDebugMap::GetTypes (SymbolContextScope *sc_scope,
     return type_list.GetSize() - initial_size;
 }
 
-
 TypeSP
 SymbolFileDWARFDebugMap::FindDefinitionTypeForDWARFDeclContext (const DWARFDeclContext &die_decl_ctx)
 {
@@ -1200,8 +1175,6 @@ SymbolFileDWARFDebugMap::FindDefinitionTypeForDWARFDeclContext (const DWARFDeclC
     });
     return type_sp;
 }
-
-
 
 bool
 SymbolFileDWARFDebugMap::Supports_DW_AT_APPLE_objc_complete_type (SymbolFileDWARF *skip_dwarf_oso)
@@ -1295,7 +1268,7 @@ SymbolFileDWARFDebugMap::FindTypes
     const CompilerDeclContext *parent_decl_ctx,
     bool append,
     uint32_t max_matches, 
-    TypeList& types
+    TypeMap& types
 )
 {
     if (!append)
@@ -1413,7 +1386,6 @@ SymbolFileDWARFDebugMap::GetCompileUnitInfo (SymbolFileDWARF *oso_dwarf)
     return NULL;
 }
 
-
 void
 SymbolFileDWARFDebugMap::SetCompileUnit (SymbolFileDWARF *oso_dwarf, const CompUnitSP &cu_sp)
 {
@@ -1457,6 +1429,15 @@ SymbolFileDWARFDebugMap::GetDeclContextContainingUID (lldb::user_id_t type_uid)
     if (oso_dwarf)
         return oso_dwarf->GetDeclContextContainingUID (type_uid);
     return CompilerDeclContext();
+}
+
+void
+SymbolFileDWARFDebugMap::ParseDeclsForContext (lldb_private::CompilerDeclContext decl_ctx)
+{
+    ForEachSymbolFile([&](SymbolFileDWARF *oso_dwarf) -> bool {
+        oso_dwarf->ParseDeclsForContext (decl_ctx);
+        return true; // Keep iterating
+    });
 }
 
 bool
@@ -1579,4 +1560,3 @@ SymbolFileDWARFDebugMap::AddOSOARanges (SymbolFileDWARF* dwarf2Data, DWARFDebugA
     }
     return num_line_entries_added;
 }
-

@@ -57,6 +57,7 @@ bool generateTargetCode(Module *TheModule)
                                           Reloc::Default, CodeModel::Default, 
                                           CodeGenOpt::Aggressive));
   TargetMachine &Target = *target.get();
+  TheModule->setDataLayout(Target.createDataLayout());
 
   raw_fd_ostream Raw("-", Error, llvm::sys::fs::F_Text);
   
@@ -86,8 +87,7 @@ int main(int argc, const char *argv[]) {
   InitializeAllAsmPrinters();
   InitializeAllAsmParsers();
 
-  LLVMContext &Context = getGlobalContext();
-  TheModule = new Module("my module", Context);
+  TheModule = new Module("my module", getGlobalContext());
 
   if (!parse(TheModule))
     return 1;

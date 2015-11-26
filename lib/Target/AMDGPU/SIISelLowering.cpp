@@ -20,6 +20,7 @@
 
 #include "SIISelLowering.h"
 #include "AMDGPU.h"
+#include "AMDGPUDiagnosticInfoUnsupported.h"
 #include "AMDGPUIntrinsicInfo.h"
 #include "AMDGPUSubtarget.h"
 #include "SIInstrInfo.h"
@@ -510,7 +511,14 @@ SDValue SITargetLowering::LowerFormalArguments(
   FunctionType *FType = MF.getFunction()->getFunctionType();
   SIMachineFunctionInfo *Info = MF.getInfo<SIMachineFunctionInfo>();
 
-  assert(CallConv == CallingConv::C);
+  if (Subtarget->isAmdHsaOS() && Info->getShaderType() != ShaderType::COMPUTE) {
+    const Function *Fn = MF.getFunction();
+    DiagnosticInfoUnsupported NoGraphicsHSA(*Fn, "non-compute shaders with HSA");
+    DAG.getContext()->diagnose(NoGraphicsHSA);
+    return SDValue();
+  }
+
+  // FIXME: We currently assume all calling conventions are kernels.
 
   SmallVector<ISD::InputArg, 16> Splits;
   BitVector Skipped(Ins.size());
@@ -1091,6 +1099,10 @@ SDValue SITargetLowering::LowerINTRINSIC_WO_CHAIN(SDValue Op,
                        DAG.getConstant(2, DL, MVT::i32), // P0
                        Op.getOperand(1), Op.getOperand(2), Glue);
   }
+  case AMDGPUIntrinsic::SI_packf16:
+    if (Op.getOperand(1).isUndef() && Op.getOperand(2).isUndef())
+      return DAG.getUNDEF(MVT::i32);
+    return Op;
   case AMDGPUIntrinsic::SI_fs_interp: {
     SDValue IJ = Op.getOperand(4);
     SDValue I = DAG.getNode(ISD::EXTRACT_VECTOR_ELT, DL, MVT::i32, IJ,
@@ -1166,16 +1178,21 @@ SDValue SITargetLowering::LowerLOAD(SDValue Op, SelectionDAG &DAG) const {
            "Custom lowering for non-i32 vectors hasn't been implemented.");
     unsigned NumElements = Op.getValueType().getVectorNumElements();
     assert(NumElements != 2 && "v2 loads are supported for all address spaces.");
+
     switch (Load->getAddressSpace()) {
       default: break;
       case AMDGPUAS::GLOBAL_ADDRESS:
       case AMDGPUAS::PRIVATE_ADDRESS:
+        if (NumElements >= 8)
+          return SplitVectorLoad(Op, DAG);
+
         // v4 loads are supported for private and global memory.
         if (NumElements <= 4)
           break;
         // fall-through
       case AMDGPUAS::LOCAL_ADDRESS:
-        return ScalarizeVectorLoad(Op, DAG);
+        // If properly aligned, if we split we might be able to use ds_read_b64.
+        return SplitVectorLoad(Op, DAG);
     }
   }
 
@@ -1397,7 +1414,7 @@ SDValue SITargetLowering::LowerSTORE(SDValue Op, SelectionDAG &DAG) const {
     return Ret;
 
   if (VT.isVector() && VT.getVectorNumElements() >= 8)
-      return ScalarizeVectorStore(Op, DAG);
+      return SplitVectorStore(Op, DAG);
 
   if (VT == MVT::i1)
     return DAG.getTruncStore(Store->getChain(), DL,
@@ -2144,9 +2161,14 @@ void SITargetLowering::AdjustInstrPostInstrSelection(MachineInstr *MI,
       static_cast<const SIInstrInfo *>(Subtarget->getInstrInfo());
 
   MachineRegisterInfo &MRI = MI->getParent()->getParent()->getRegInfo();
-  TII->legalizeOperands(MI);
 
-  if (TII->isMIMG(MI->getOpcode())) {
+  if (TII->isVOP3(MI->getOpcode())) {
+    // Make sure constant bus requirements are respected.
+    TII->legalizeOperandsVOP3(MRI, MI);
+    return;
+  }
+
+  if (TII->isMIMG(*MI)) {
     unsigned VReg = MI->getOperand(0).getReg();
     unsigned Writemask = MI->getOperand(1).getImm();
     unsigned BitsSet = 0;
@@ -2257,10 +2279,8 @@ MachineSDNode *SITargetLowering::buildScratchRSRC(SelectionDAG &DAG,
                                                   SDValue Ptr) const {
   const SIInstrInfo *TII =
       static_cast<const SIInstrInfo *>(Subtarget->getInstrInfo());
-  uint64_t Rsrc = TII->getDefaultRsrcDataFormat() | AMDGPU::RSRC_TID_ENABLE |
-                  0xffffffff; // Size
 
-  return buildRSRC(DAG, DL, Ptr, 0, Rsrc);
+  return buildRSRC(DAG, DL, Ptr, 0, TII->getScratchRsrcWords23());
 }
 
 SDValue SITargetLowering::CreateLiveInRegister(SelectionDAG &DAG,

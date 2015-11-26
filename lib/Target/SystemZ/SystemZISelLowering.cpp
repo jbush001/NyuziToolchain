@@ -114,8 +114,6 @@ SystemZTargetLowering::SystemZTargetLowering(const TargetMachine &TM,
   computeRegisterProperties(Subtarget.getRegisterInfo());
 
   // Set up special registers.
-  setExceptionPointerRegister(SystemZ::R6D);
-  setExceptionSelectorRegister(SystemZ::R7D);
   setStackPointerRegisterToSaveRestore(SystemZ::R15D);
 
   // TODO: It may be better to default to latency-oriented scheduling, however
@@ -777,9 +775,7 @@ bool SystemZTargetLowering::allowTruncateForTailCall(Type *FromType,
 }
 
 bool SystemZTargetLowering::mayBeEmittedAsTailCall(CallInst *CI) const {
-  if (!CI->isTailCall())
-    return false;
-  return true;
+  return CI->isTailCall();
 }
 
 // We do not yet support 128-bit single-element vector types.  If the user
@@ -3908,7 +3904,7 @@ static SDValue tryBuildVectorShuffle(SelectionDAG &DAG,
   // Create the BUILD_VECTOR for the remaining elements, if any.
   if (!ResidueOps.empty()) {
     while (ResidueOps.size() < NumElements)
-      ResidueOps.push_back(DAG.getUNDEF(VT.getVectorElementType()));
+      ResidueOps.push_back(DAG.getUNDEF(ResidueOps[0].getValueType()));
     for (auto &Op : GS.Ops) {
       if (!Op.getNode()) {
         Op = DAG.getNode(ISD::BUILD_VECTOR, SDLoc(BVN), VT, ResidueOps);
@@ -5618,6 +5614,31 @@ SystemZTargetLowering::emitTransactionBegin(MachineInstr *MI,
   return MBB;
 }
 
+MachineBasicBlock *
+SystemZTargetLowering::emitLoadAndTestCmp0(MachineInstr *MI,
+                                          MachineBasicBlock *MBB,
+                                          unsigned Opcode) const {
+  MachineFunction &MF = *MBB->getParent();
+  MachineRegisterInfo *MRI = &MF.getRegInfo();
+  const SystemZInstrInfo *TII =
+      static_cast<const SystemZInstrInfo *>(Subtarget.getInstrInfo());
+  DebugLoc DL = MI->getDebugLoc();
+
+  unsigned SrcReg = MI->getOperand(0).getReg();
+
+  // Create new virtual register of the same class as source.
+  const TargetRegisterClass *RC = MRI->getRegClass(SrcReg);
+  unsigned DstReg = MRI->createVirtualRegister(RC);
+
+  // Replace pseudo with a normal load-and-test that models the def as
+  // well.
+  BuildMI(*MBB, MI, DL, TII->get(Opcode), DstReg)
+    .addReg(SrcReg);
+  MI->eraseFromParent();
+
+  return MBB;
+}
+
 MachineBasicBlock *SystemZTargetLowering::
 EmitInstrWithCustomInserter(MachineInstr *MI, MachineBasicBlock *MBB) const {
   switch (MI->getOpcode()) {
@@ -5865,6 +5886,13 @@ EmitInstrWithCustomInserter(MachineInstr *MI, MachineBasicBlock *MBB) const {
     return emitTransactionBegin(MI, MBB, SystemZ::TBEGIN, true);
   case SystemZ::TBEGINC:
     return emitTransactionBegin(MI, MBB, SystemZ::TBEGINC, true);
+  case SystemZ::LTEBRCompare_VecPseudo:
+    return emitLoadAndTestCmp0(MI, MBB, SystemZ::LTEBR);
+  case SystemZ::LTDBRCompare_VecPseudo:
+    return emitLoadAndTestCmp0(MI, MBB, SystemZ::LTDBR);
+  case SystemZ::LTXBRCompare_VecPseudo:
+    return emitLoadAndTestCmp0(MI, MBB, SystemZ::LTXBR);
+
   default:
     llvm_unreachable("Unexpected instr type to insert");
   }

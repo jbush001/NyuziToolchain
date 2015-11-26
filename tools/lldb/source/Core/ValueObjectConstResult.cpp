@@ -270,9 +270,10 @@ ValueObjectConstResult::SetByteSize (size_t size)
 }
 
 size_t
-ValueObjectConstResult::CalculateNumChildren()
+ValueObjectConstResult::CalculateNumChildren(uint32_t max)
 {
-    return GetCompilerType().GetNumChildren (true);
+    auto children_count = GetCompilerType().GetNumChildren (true);
+    return children_count <= max ? children_count : max;
 }
 
 ConstString
@@ -374,5 +375,7 @@ ValueObjectConstResult::Cast (const CompilerType &compiler_type)
 lldb::LanguageType
 ValueObjectConstResult::GetPreferredDisplayLanguage ()
 {
-    return lldb::eLanguageTypeUnknown;
+    if (m_preferred_display_language != lldb::eLanguageTypeUnknown)
+        return m_preferred_display_language;
+    return GetCompilerTypeImpl().GetMinimumLanguage();
 }

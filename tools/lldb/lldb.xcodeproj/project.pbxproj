@@ -38,11 +38,8 @@
 			buildConfigurationList = 26CEF3B214FD592B007286B2 /* Build configuration list for PBXAggregateTarget "desktop" */;
 			buildPhases = (
 				AF90106415AB7D2900FF120D /* CopyFiles */,
-				AF030DA31A9C200000A2466A /* CopyFiles */,
 			);
 			dependencies = (
-				26CEF3B914FD5952007286B2 /* PBXTargetDependency */,
-				26CEF3B714FD594E007286B2 /* PBXTargetDependency */,
 				26CEF3BB14FD595B007286B2 /* PBXTargetDependency */,
 				26B391EF1A6DCCAF00456239 /* PBXTargetDependency */,
 				2687EACB1508115000DD8C2E /* PBXTargetDependency */,
@@ -71,6 +68,12 @@
 		23059A0719532B96007B8189 /* LinuxSignals.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 23059A0519532B96007B8189 /* LinuxSignals.cpp */; };
 		23059A101958B319007B8189 /* SBUnixSignals.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 23059A0F1958B319007B8189 /* SBUnixSignals.cpp */; };
 		23059A121958B3B2007B8189 /* SBUnixSignals.h in Headers */ = {isa = PBXBuildFile; fileRef = 23059A111958B37B007B8189 /* SBUnixSignals.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		2326CF441BDD643700A5CEAC /* liblldb-core.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 2689FFCA13353D7A00698AC0 /* liblldb-core.a */; };
+		2326CF491BDD67D800A5CEAC /* libncurses.dylib in Frameworks */ = {isa = PBXBuildFile; fileRef = 2326CF471BDD67C100A5CEAC /* libncurses.dylib */; };
+		2326CF4B1BDD681800A5CEAC /* libz.dylib in Frameworks */ = {isa = PBXBuildFile; fileRef = 2326CF4A1BDD681800A5CEAC /* libz.dylib */; };
+		2326CF4D1BDD684B00A5CEAC /* libedit.dylib in Frameworks */ = {isa = PBXBuildFile; fileRef = 2326CF4C1BDD684B00A5CEAC /* libedit.dylib */; };
+		2326CF4F1BDD687800A5CEAC /* libpanel.dylib in Frameworks */ = {isa = PBXBuildFile; fileRef = 2326CF4E1BDD687800A5CEAC /* libpanel.dylib */; };
+		2326CF521BDD693B00A5CEAC /* EditlineTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 2326CF511BDD693B00A5CEAC /* EditlineTest.cpp */; };
 		232CB615191E00CD00EF39FC /* NativeBreakpoint.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 232CB60B191E00CC00EF39FC /* NativeBreakpoint.cpp */; };
 		232CB617191E00CD00EF39FC /* NativeBreakpointList.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 232CB60D191E00CC00EF39FC /* NativeBreakpointList.cpp */; };
 		232CB619191E00CD00EF39FC /* NativeProcessProtocol.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 232CB60F191E00CC00EF39FC /* NativeProcessProtocol.cpp */; };
@@ -81,8 +84,15 @@
 		236124A41986B4E2004EFC37 /* IOObject.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 236124A21986B4E2004EFC37 /* IOObject.cpp */; };
 		236124A51986B4E2004EFC37 /* Socket.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 236124A31986B4E2004EFC37 /* Socket.cpp */; };
 		2377C2F819E613C100737875 /* PipePosix.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 2377C2F719E613C100737875 /* PipePosix.cpp */; };
+		239504DE1BDD453200963CEA /* SocketAddressTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 2321F9391BDD332400BA9A93 /* SocketAddressTest.cpp */; };
+		239504DF1BDD453200963CEA /* SocketTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 2321F93A1BDD332400BA9A93 /* SocketTest.cpp */; };
+		239504E01BDD453200963CEA /* SymbolsTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 2321F93B1BDD332400BA9A93 /* SymbolsTest.cpp */; };
+		239504E11BDD453E00963CEA /* TestArgs.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 2321F93E1BDD33CE00BA9A93 /* TestArgs.cpp */; };
+		239504E21BDD454500963CEA /* PythonDataObjectsTests.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 2321F94D1BDD360F00BA9A93 /* PythonDataObjectsTests.cpp */; };
+		239504E31BDD454B00963CEA /* StringExtractorTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 2321F9441BDD346100BA9A93 /* StringExtractorTest.cpp */; };
+		239504E41BDD454B00963CEA /* TaskPoolTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 2321F9451BDD346100BA9A93 /* TaskPoolTest.cpp */; };
+		239504E51BDD454B00963CEA /* UriParserTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 2321F9461BDD346100BA9A93 /* UriParserTest.cpp */; };
 		23DDF226196C3EE600BB8417 /* CommandOptionValidators.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 23DDF224196C3EE600BB8417 /* CommandOptionValidators.cpp */; };
-		23EDE33319269E7C00F6A132 /* NativeRegisterContext.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 23EDE3301926839700F6A132 /* NativeRegisterContext.cpp */; };
 		23EFE389193D1ABC00E54E54 /* SBTypeEnumMember.h in Headers */ = {isa = PBXBuildFile; fileRef = 23EFE388193D1ABC00E54E54 /* SBTypeEnumMember.h */; settings = {ATTRIBUTES = (Public, ); }; };
 		23EFE38B193D1AEC00E54E54 /* SBTypeEnumMember.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 23EFE38A193D1AEC00E54E54 /* SBTypeEnumMember.cpp */; };
 		23F4034D1926E0F60046DC9B /* NativeRegisterContextRegisterInfo.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 23F403481926CC250046DC9B /* NativeRegisterContextRegisterInfo.cpp */; };
@@ -100,6 +110,11 @@
 		256CBDBA1ADD107200BC6CDC /* RegisterContextLinux_arm.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 256CBDB61ADD107200BC6CDC /* RegisterContextLinux_arm.cpp */; };
 		256CBDBC1ADD107200BC6CDC /* RegisterContextLinux_mips64.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 256CBDB81ADD107200BC6CDC /* RegisterContextLinux_mips64.cpp */; };
 		256CBDC01ADD11C000BC6CDC /* RegisterContextPOSIX_arm.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 256CBDBE1ADD11C000BC6CDC /* RegisterContextPOSIX_arm.cpp */; };
+		2579065C1BD0488100178368 /* TCPSocket.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 2579065A1BD0488100178368 /* TCPSocket.cpp */; };
+		2579065D1BD0488100178368 /* UDPSocket.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 2579065B1BD0488100178368 /* UDPSocket.cpp */; };
+		2579065F1BD0488D00178368 /* DomainSocket.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 2579065E1BD0488D00178368 /* DomainSocket.cpp */; };
+		257906641BD5AFD000178368 /* Acceptor.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 257906621BD5AFD000178368 /* Acceptor.cpp */; };
+		257906651BD5AFD000178368 /* Acceptor.h in Headers */ = {isa = PBXBuildFile; fileRef = 257906631BD5AFD000178368 /* Acceptor.h */; };
 		257E47171AA56C2000A62F81 /* ModuleCache.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 257E47151AA56C2000A62F81 /* ModuleCache.cpp */; };
 		25EF23781AC09B3700908DF0 /* AdbClient.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 25EF23751AC09AD800908DF0 /* AdbClient.cpp */; };
 		260157C61885F51C00F875CF /* libpanel.dylib in Frameworks */ = {isa = PBXBuildFile; fileRef = 260157C41885F4FF00F875CF /* libpanel.dylib */; };
@@ -296,7 +311,6 @@
 		26744EF31338317700EF765A /* GDBRemoteCommunicationServer.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 26744EEF1338317700EF765A /* GDBRemoteCommunicationServer.cpp */; };
 		26780C611867C33D00234593 /* libncurses.dylib in Frameworks */ = {isa = PBXBuildFile; fileRef = 2670F8111862B44A006B332C /* libncurses.dylib */; };
 		267A47FB1B1411C40021A5BC /* NativeRegisterContext.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 267A47FA1B1411C40021A5BC /* NativeRegisterContext.cpp */; };
-		267A47FD1B1411CC0021A5BC /* NativeRegisterContextRegisterInfo.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 267A47FC1B1411CC0021A5BC /* NativeRegisterContextRegisterInfo.cpp */; };
 		267A47FF1B1411D90021A5BC /* NativeWatchpointList.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 267A47FE1B1411D90021A5BC /* NativeWatchpointList.cpp */; };
 		267A48011B1411E40021A5BC /* XML.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 267A48001B1411E40021A5BC /* XML.cpp */; };
 		267C012B136880DF006E963E /* OptionGroupValueObjectDisplay.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 267C012A136880DF006E963E /* OptionGroupValueObjectDisplay.cpp */; };
@@ -579,6 +593,8 @@
 		26BF51F61B3C754400016294 /* ABISysV_i386.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 26BF51EF1B3C754400016294 /* ABISysV_i386.cpp */; };
 		26C72C94124322890068DC16 /* SBStream.h in Headers */ = {isa = PBXBuildFile; fileRef = 26C72C93124322890068DC16 /* SBStream.h */; settings = {ATTRIBUTES = (Public, ); }; };
 		26C72C961243229A0068DC16 /* SBStream.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 26C72C951243229A0068DC16 /* SBStream.cpp */; };
+		26C7C4831BFFEA7E009BD01F /* WindowsMiniDump.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 26C7C4811BFFEA7E009BD01F /* WindowsMiniDump.cpp */; settings = {ASSET_TAGS = (); }; };
+		26C7C4841BFFEA7E009BD01F /* WindowsMiniDump.h in Headers */ = {isa = PBXBuildFile; fileRef = 26C7C4821BFFEA7E009BD01F /* WindowsMiniDump.h */; settings = {ASSET_TAGS = (); }; };
 		26CA97A1172B1FD5005DC71B /* RegisterContextThreadMemory.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 26CA979F172B1FD5005DC71B /* RegisterContextThreadMemory.cpp */; };
 		26CEB5EF18761CB2008F575A /* libedit.dylib in Frameworks */ = {isa = PBXBuildFile; fileRef = 26F5C32A10F3DFDD009D5894 /* libedit.dylib */; };
 		26CEB5F218762056008F575A /* CommandObjectGUI.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 26CEB5F018762056008F575A /* CommandObjectGUI.cpp */; };
@@ -618,6 +634,8 @@
 		26E152261419CAD4007967D0 /* ObjectFilePECOFF.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 26E152231419CACA007967D0 /* ObjectFilePECOFF.cpp */; };
 		26ECA04313665FED008D1F18 /* ARM_DWARF_Registers.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 26ECA04213665FED008D1F18 /* ARM_DWARF_Registers.cpp */; };
 		26ED3D6D13C563810017D45E /* OptionGroupVariable.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 26ED3D6C13C563810017D45E /* OptionGroupVariable.cpp */; };
+		26EFB61B1BFE8D3E00544801 /* PlatformNetBSD.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 26EFB6181BFE8D3E00544801 /* PlatformNetBSD.cpp */; settings = {ASSET_TAGS = (); }; };
+		26EFB61C1BFE8D3E00544801 /* PlatformNetBSD.h in Headers */ = {isa = PBXBuildFile; fileRef = 26EFB6191BFE8D3E00544801 /* PlatformNetBSD.h */; settings = {ASSET_TAGS = (); }; };
 		26EFC4CD18CFAF0D00865D87 /* ObjectFileJIT.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 26EFC4CA18CFAF0D00865D87 /* ObjectFileJIT.cpp */; };
 		26F006561B4DD86700B872E5 /* DynamicLoaderWindowsDYLD.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 26F006541B4DD86700B872E5 /* DynamicLoaderWindowsDYLD.cpp */; };
 		26F4A21C13FBA31A0064B613 /* ThreadMemory.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 26F4A21A13FBA31A0064B613 /* ThreadMemory.cpp */; };
@@ -639,6 +657,7 @@
 		3F8169311ABB7A6D001DA9DF /* SystemInitializer.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 3F81692E1ABB7A6D001DA9DF /* SystemInitializer.cpp */; };
 		3F8169321ABB7A6D001DA9DF /* SystemInitializerCommon.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 3F81692F1ABB7A6D001DA9DF /* SystemInitializerCommon.cpp */; };
 		3F8169331ABB7A6D001DA9DF /* SystemLifetimeManager.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 3F8169301ABB7A6D001DA9DF /* SystemLifetimeManager.cpp */; };
+		3FA093151BF65D3A0037DD08 /* PythonExceptionStateTests.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 3FA093141BF65D3A0037DD08 /* PythonExceptionStateTests.cpp */; };
 		3FBA69DF1B6067020008F44A /* ScriptInterpreterNone.cpp in CopyFiles */ = {isa = PBXBuildFile; fileRef = 3FBA69DD1B6067020008F44A /* ScriptInterpreterNone.cpp */; };
 		3FBA69E01B6067020008F44A /* ScriptInterpreterNone.h in CopyFiles */ = {isa = PBXBuildFile; fileRef = 3FBA69DE1B6067020008F44A /* ScriptInterpreterNone.h */; };
 		3FBA69E11B6067120008F44A /* ScriptInterpreterNone.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 3FBA69DD1B6067020008F44A /* ScriptInterpreterNone.cpp */; };
@@ -665,6 +684,7 @@
 		449ACC98197DEA0B008D175E /* FastDemangle.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 449ACC96197DE9EC008D175E /* FastDemangle.cpp */; };
 		490A36C0180F0E6F00BA31F8 /* PlatformWindows.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 490A36BD180F0E6F00BA31F8 /* PlatformWindows.cpp */; };
 		490A966B1628C3BF00F0002E /* SBDeclaration.h in Headers */ = {isa = PBXBuildFile; fileRef = 9452573816262CEF00325455 /* SBDeclaration.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		4939EA8D1BD56B6D00084382 /* REPL.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4939EA8C1BD56B6D00084382 /* REPL.cpp */; };
 		494260DA14579144003C1C78 /* VerifyDecl.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 494260D914579144003C1C78 /* VerifyDecl.cpp */; };
 		4959511F1A1BC4BC00F6F8FC /* ClangModulesDeclVendor.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4959511E1A1BC4BC00F6F8FC /* ClangModulesDeclVendor.cpp */; };
 		4966DCC4148978A10028481B /* ClangExternalASTSourceCommon.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4966DCC3148978A10028481B /* ClangExternalASTSourceCommon.cpp */; };
@@ -713,6 +733,9 @@
 		6D95DC001B9DC057000E318A /* DIERef.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 6D95DBFD1B9DC057000E318A /* DIERef.cpp */; };
 		6D95DC011B9DC057000E318A /* HashedNameToDIE.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 6D95DBFE1B9DC057000E318A /* HashedNameToDIE.cpp */; };
 		6D95DC021B9DC057000E318A /* SymbolFileDWARFDwo.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 6D95DBFF1B9DC057000E318A /* SymbolFileDWARFDwo.cpp */; };
+		6D99A3631BBC2F3200979793 /* ArmUnwindInfo.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 6D99A3621BBC2F3200979793 /* ArmUnwindInfo.cpp */; };
+		6D9AB3DD1BB2B74E003F2289 /* TypeMap.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 6D9AB3DC1BB2B74E003F2289 /* TypeMap.cpp */; };
+		6DEC6F391BD66D750091ABA6 /* TaskPool.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 6DEC6F381BD66D750091ABA6 /* TaskPool.cpp */; };
 		8C2D6A53197A1EAF006989C9 /* MemoryHistory.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 8C2D6A52197A1EAF006989C9 /* MemoryHistory.cpp */; };
 		8C2D6A5E197A250F006989C9 /* MemoryHistoryASan.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 8C2D6A5A197A1FDC006989C9 /* MemoryHistoryASan.cpp */; };
 		8CCB017E19BA28A80009FD44 /* ThreadCollection.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 8CCB017A19BA283D0009FD44 /* ThreadCollection.cpp */; };
@@ -721,10 +744,12 @@
 		8CF02AE919DCC01900B14BE0 /* InstrumentationRuntime.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 8CF02ADF19DCBF3B00B14BE0 /* InstrumentationRuntime.cpp */; };
 		8CF02AEA19DCC02100B14BE0 /* AddressSanitizerRuntime.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 8CF02AE519DCBF8400B14BE0 /* AddressSanitizerRuntime.cpp */; };
 		8CF02AEF19DD16B100B14BE0 /* InstrumentationRuntimeStopInfo.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 8CF02AED19DD15CF00B14BE0 /* InstrumentationRuntimeStopInfo.cpp */; };
+		9404957A1BEC497E00926025 /* NSError.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 940495781BEC497E00926025 /* NSError.cpp */; };
+		9404957B1BEC497E00926025 /* NSException.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 940495791BEC497E00926025 /* NSException.cpp */; };
 		94094C6B163B6F840083A547 /* ValueObjectCast.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 94094C69163B6CD90083A547 /* ValueObjectCast.cpp */; };
 		940B02F619DC96E700AD0F52 /* SBExecutionContext.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 940B02F519DC96E700AD0F52 /* SBExecutionContext.cpp */; };
 		940B04D91A8984FF0045D5F7 /* argdumper.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 940B04D81A8984FF0045D5F7 /* argdumper.cpp */; };
-		940B04E41A8987680045D5F7 /* argdumper in CopyFiles */ = {isa = PBXBuildFile; fileRef = 942829C01A89835300521B30 /* argdumper */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		940B04E41A8987680045D5F7 /* lldb-argdumper in CopyFiles */ = {isa = PBXBuildFile; fileRef = 942829C01A89835300521B30 /* lldb-argdumper */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 		94145431175E63B500284436 /* lldb-versioning.h in Headers */ = {isa = PBXBuildFile; fileRef = 94145430175D7FDE00284436 /* lldb-versioning.h */; settings = {ATTRIBUTES = (Public, ); }; };
 		9418EBCD1AA910910058B02E /* VectorType.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9418EBCC1AA910910058B02E /* VectorType.cpp */; };
 		941BCC7F14E48C4000BB969C /* SBTypeFilter.h in Headers */ = {isa = PBXBuildFile; fileRef = 9461568614E355F2003A195C /* SBTypeFilter.h */; settings = {ATTRIBUTES = (Public, ); }; };
@@ -742,6 +767,7 @@
 		944372DC171F6B4300E57C32 /* RegisterContextDummy.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 944372DA171F6B4300E57C32 /* RegisterContextDummy.cpp */; };
 		9443B122140C18C40013457C /* SBData.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9443B121140C18C10013457C /* SBData.cpp */; };
 		9443B123140C26AB0013457C /* SBData.h in Headers */ = {isa = PBXBuildFile; fileRef = 9443B120140C18A90013457C /* SBData.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		9447DE431BD5963300E67212 /* DumpValueObjectOptions.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9447DE421BD5963300E67212 /* DumpValueObjectOptions.cpp */; };
 		945215DF17F639EE00521C0B /* ValueObjectPrinter.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 945215DE17F639EE00521C0B /* ValueObjectPrinter.cpp */; };
 		9452573A16262D0200325455 /* SBDeclaration.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9452573916262D0200325455 /* SBDeclaration.cpp */; };
 		945261BF1B9A11FC00BF138D /* CxxStringTypes.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 945261B31B9A11E800BF138D /* CxxStringTypes.cpp */; };
@@ -753,6 +779,8 @@
 		945261C51B9A11FC00BF138D /* LibCxxVector.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 945261BB1B9A11E800BF138D /* LibCxxVector.cpp */; };
 		945261C61B9A11FC00BF138D /* LibStdcpp.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 945261BC1B9A11E800BF138D /* LibStdcpp.cpp */; };
 		945261C81B9A14D300BF138D /* CXXFunctionPointer.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 945261C71B9A14D300BF138D /* CXXFunctionPointer.cpp */; };
+		9455630F1BEAD0600073F75F /* PlatformAppleSimulator.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9455630A1BEAD0570073F75F /* PlatformAppleSimulator.cpp */; };
+		945563101BEAD0650073F75F /* PlatformiOSSimulatorCoreSimulatorSupport.mm in Sources */ = {isa = PBXBuildFile; fileRef = 9455630D1BEAD0570073F75F /* PlatformiOSSimulatorCoreSimulatorSupport.mm */; };
 		945759671534941F005A9070 /* PlatformPOSIX.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 945759651534941F005A9070 /* PlatformPOSIX.cpp */; };
 		945E8D80152F6AB40019BCCD /* StreamGDBRemote.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 945E8D7F152F6AB40019BCCD /* StreamGDBRemote.cpp */; };
 		9461569A14E358A6003A195C /* SBTypeFilter.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9461568A14E35621003A195C /* SBTypeFilter.cpp */; };
@@ -779,6 +807,7 @@
 		94B6385D1B8FB178004FE1E4 /* CPlusPlusLanguage.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 94B6385B1B8FB174004FE1E4 /* CPlusPlusLanguage.cpp */; };
 		94B638631B8FB7F1004FE1E4 /* ObjCPlusPlusLanguage.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 94B638621B8FB7F1004FE1E4 /* ObjCPlusPlusLanguage.cpp */; };
 		94B6E76213D88365005F417F /* ValueObjectSyntheticFilter.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 94B6E76113D88362005F417F /* ValueObjectSyntheticFilter.cpp */; };
+		94B9E5121BBF20F4000A48DC /* NSString.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 94B9E5111BBF20F4000A48DC /* NSString.cpp */; };
 		94BA8B6D176F8C9B005A91B5 /* Range.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 94BA8B6C176F8C9B005A91B5 /* Range.cpp */; };
 		94BA8B70176F97CE005A91B5 /* CommandHistory.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 94BA8B6F176F97CE005A91B5 /* CommandHistory.cpp */; };
 		94CB255C16B069770059775D /* DataVisualization.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 94CB255816B069770059775D /* DataVisualization.cpp */; };
@@ -819,9 +848,17 @@
 		9AC703AF117675410086C050 /* SBInstruction.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9AC703AE117675410086C050 /* SBInstruction.cpp */; };
 		9AC703B1117675490086C050 /* SBInstructionList.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9AC703B0117675490086C050 /* SBInstructionList.cpp */; };
 		A36FF33C17D8E94600244D40 /* OptionParser.cpp in Sources */ = {isa = PBXBuildFile; fileRef = A36FF33B17D8E94600244D40 /* OptionParser.cpp */; };
+		AE44FB301BB07EB20033EB62 /* GoUserExpression.cpp in Sources */ = {isa = PBXBuildFile; fileRef = AE44FB2C1BB07DD80033EB62 /* GoUserExpression.cpp */; };
+		AE44FB311BB07EB80033EB62 /* GoLexer.cpp in Sources */ = {isa = PBXBuildFile; fileRef = AE44FB2A1BB07DD80033EB62 /* GoLexer.cpp */; };
+		AE44FB321BB07EBC0033EB62 /* GoParser.cpp in Sources */ = {isa = PBXBuildFile; fileRef = AE44FB2B1BB07DD80033EB62 /* GoParser.cpp */; };
+		AE44FB3E1BB485960033EB62 /* GoLanguageRuntime.cpp in Sources */ = {isa = PBXBuildFile; fileRef = AE44FB3D1BB485960033EB62 /* GoLanguageRuntime.cpp */; };
+		AE44FB471BB4BB090033EB62 /* GoLanguage.cpp in Sources */ = {isa = PBXBuildFile; fileRef = AE44FB451BB4BB090033EB62 /* GoLanguage.cpp */; };
+		AE44FB4C1BB4BB540033EB62 /* GoFormatterFunctions.cpp in Sources */ = {isa = PBXBuildFile; fileRef = AE44FB4A1BB4BB540033EB62 /* GoFormatterFunctions.cpp */; };
 		AE6897281B94F6DE0018845D /* DWARFASTParserGo.cpp in Sources */ = {isa = PBXBuildFile; fileRef = AE6897261B94F6DE0018845D /* DWARFASTParserGo.cpp */; };
 		AE7F56291B8FE418001377A8 /* GoASTContext.cpp in Sources */ = {isa = PBXBuildFile; fileRef = AEFFBA7C1AC4835D0087B932 /* GoASTContext.cpp */; };
 		AE8F624919EF3E1E00326B21 /* OperatingSystemGo.cpp in Sources */ = {isa = PBXBuildFile; fileRef = AE8F624719EF3E1E00326B21 /* OperatingSystemGo.cpp */; };
+		AEB0E4591BD6E9F800B24093 /* LLVMUserExpression.cpp in Sources */ = {isa = PBXBuildFile; fileRef = AEB0E4581BD6E9F800B24093 /* LLVMUserExpression.cpp */; };
+		AEC6FFA01BE970A2007882C1 /* GoParserTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = AEC6FF9F1BE970A2007882C1 /* GoParserTest.cpp */; };
 		AEEA34051AC88A7400AB639D /* TypeSystem.cpp in Sources */ = {isa = PBXBuildFile; fileRef = AEEA34041AC88A7400AB639D /* TypeSystem.cpp */; };
 		AF061F87182C97ED00B6A19C /* RegisterContextHistory.cpp in Sources */ = {isa = PBXBuildFile; fileRef = AF061F85182C97ED00B6A19C /* RegisterContextHistory.cpp */; };
 		AF0C112818580CD800C4C45B /* QueueItem.cpp in Sources */ = {isa = PBXBuildFile; fileRef = AF0C112718580CD800C4C45B /* QueueItem.cpp */; };
@@ -848,16 +885,22 @@
 		AF2BA6EC1A707E3400C5248A /* UriParser.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 33064C991A5C7A330033D415 /* UriParser.cpp */; };
 		AF2BCA6C18C7EFDE005B4526 /* JITLoaderGDB.cpp in Sources */ = {isa = PBXBuildFile; fileRef = AF2BCA6918C7EFDE005B4526 /* JITLoaderGDB.cpp */; };
 		AF37E10A17C861F20061E18E /* ProcessRunLock.cpp in Sources */ = {isa = PBXBuildFile; fileRef = AF37E10917C861F20061E18E /* ProcessRunLock.cpp */; };
-		AF455D571A9C231700D6C4F7 /* com.apple.lldb.launcherXPCService.xpc in CopyFiles */ = {isa = PBXBuildFile; fileRef = EDC6D49914E5C19B001B75F8 /* com.apple.lldb.launcherXPCService.xpc */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
-		AF455D581A9C231700D6C4F7 /* com.apple.lldb.launcherRootXPCService.xpc in CopyFiles */ = {isa = PBXBuildFile; fileRef = EDE274EC14EDCE1F005B0F75 /* com.apple.lldb.launcherRootXPCService.xpc */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		AF45E1FE1BF57C8D000563EB /* PythonTestSuite.cpp in Sources */ = {isa = PBXBuildFile; fileRef = AF45E1FC1BF57C8D000563EB /* PythonTestSuite.cpp */; };
 		AF45FDE518A1F3AC0007051C /* AppleGetThreadItemInfoHandler.cpp in Sources */ = {isa = PBXBuildFile; fileRef = AF45FDE318A1F3AC0007051C /* AppleGetThreadItemInfoHandler.cpp */; };
 		AF77E08F1A033C700096C0EA /* ABISysV_ppc.cpp in Sources */ = {isa = PBXBuildFile; fileRef = AF77E08D1A033C700096C0EA /* ABISysV_ppc.cpp */; };
 		AF77E0931A033C7F0096C0EA /* ABISysV_ppc64.cpp in Sources */ = {isa = PBXBuildFile; fileRef = AF77E0911A033C7F0096C0EA /* ABISysV_ppc64.cpp */; };
 		AF77E0A11A033D360096C0EA /* RegisterContextFreeBSD_powerpc.cpp in Sources */ = {isa = PBXBuildFile; fileRef = AF77E09A1A033D360096C0EA /* RegisterContextFreeBSD_powerpc.cpp */; };
-		AF77E0A31A033D360096C0EA /* RegisterContextMacOSXFrameBackchain.cpp in Sources */ = {isa = PBXBuildFile; fileRef = AF77E09C1A033D360096C0EA /* RegisterContextMacOSXFrameBackchain.cpp */; };
 		AF77E0A41A033D360096C0EA /* RegisterContextPOSIX_powerpc.cpp in Sources */ = {isa = PBXBuildFile; fileRef = AF77E09D1A033D360096C0EA /* RegisterContextPOSIX_powerpc.cpp */; };
 		AF77E0A91A033D740096C0EA /* RegisterContextPOSIXCore_powerpc.cpp in Sources */ = {isa = PBXBuildFile; fileRef = AF77E0A71A033D740096C0EA /* RegisterContextPOSIXCore_powerpc.cpp */; };
 		AF81DEFA1828A23F0042CF19 /* SystemRuntime.cpp in Sources */ = {isa = PBXBuildFile; fileRef = AF81DEF91828A23F0042CF19 /* SystemRuntime.cpp */; };
+		AF8AD62E1BEC28A400150209 /* PlatformAppleTVSimulator.cpp in Sources */ = {isa = PBXBuildFile; fileRef = AF8AD62A1BEC28A400150209 /* PlatformAppleTVSimulator.cpp */; };
+		AF8AD62F1BEC28A400150209 /* PlatformAppleTVSimulator.h in Headers */ = {isa = PBXBuildFile; fileRef = AF8AD62B1BEC28A400150209 /* PlatformAppleTVSimulator.h */; };
+		AF8AD6301BEC28A400150209 /* PlatformAppleWatchSimulator.cpp in Sources */ = {isa = PBXBuildFile; fileRef = AF8AD62C1BEC28A400150209 /* PlatformAppleWatchSimulator.cpp */; };
+		AF8AD6311BEC28A400150209 /* PlatformAppleWatchSimulator.h in Headers */ = {isa = PBXBuildFile; fileRef = AF8AD62D1BEC28A400150209 /* PlatformAppleWatchSimulator.h */; };
+		AF8AD6371BEC28C400150209 /* PlatformRemoteAppleTV.cpp in Sources */ = {isa = PBXBuildFile; fileRef = AF8AD6331BEC28C400150209 /* PlatformRemoteAppleTV.cpp */; };
+		AF8AD6381BEC28C400150209 /* PlatformRemoteAppleTV.h in Headers */ = {isa = PBXBuildFile; fileRef = AF8AD6341BEC28C400150209 /* PlatformRemoteAppleTV.h */; };
+		AF8AD6391BEC28C400150209 /* PlatformRemoteAppleWatch.cpp in Sources */ = {isa = PBXBuildFile; fileRef = AF8AD6351BEC28C400150209 /* PlatformRemoteAppleWatch.cpp */; };
+		AF8AD63A1BEC28C400150209 /* PlatformRemoteAppleWatch.h in Headers */ = {isa = PBXBuildFile; fileRef = AF8AD6361BEC28C400150209 /* PlatformRemoteAppleWatch.h */; };
 		AF90106515AB7D3600FF120D /* lldb.1 in CopyFiles */ = {isa = PBXBuildFile; fileRef = AF90106315AB7C5700FF120D /* lldb.1 */; };
 		AF9107EE168570D200DBCD3C /* RegisterContextDarwin_arm64.cpp in Sources */ = {isa = PBXBuildFile; fileRef = AF9107EC168570D200DBCD3C /* RegisterContextDarwin_arm64.cpp */; };
 		AF9107EF168570D200DBCD3C /* RegisterContextDarwin_arm64.cpp in Sources */ = {isa = PBXBuildFile; fileRef = AF9107EC168570D200DBCD3C /* RegisterContextDarwin_arm64.cpp */; };
@@ -865,6 +908,8 @@
 		AFB3D2801AC262AB003B4B30 /* MICmdCmdGdbShow.cpp in Sources */ = {isa = PBXBuildFile; fileRef = AFB3D27E1AC262AB003B4B30 /* MICmdCmdGdbShow.cpp */; };
 		AFC234081AF85CE000CDE8B6 /* CommandObjectLanguage.cpp in CopyFiles */ = {isa = PBXBuildFile; fileRef = AFC234061AF85CE000CDE8B6 /* CommandObjectLanguage.cpp */; };
 		AFC234091AF85CE100CDE8B6 /* CommandObjectLanguage.cpp in Sources */ = {isa = PBXBuildFile; fileRef = AFC234061AF85CE000CDE8B6 /* CommandObjectLanguage.cpp */; };
+		AFCB2BBD1BF577F40018B553 /* PythonExceptionState.cpp in Sources */ = {isa = PBXBuildFile; fileRef = AFCB2BBB1BF577F40018B553 /* PythonExceptionState.cpp */; };
+		AFCB2BBE1BF577F40018B553 /* PythonExceptionState.h in Headers */ = {isa = PBXBuildFile; fileRef = AFCB2BBC1BF577F40018B553 /* PythonExceptionState.h */; };
 		AFDCDBCB19DD0F42005EA55E /* SBExecutionContext.h in Headers */ = {isa = PBXBuildFile; fileRef = 940B02F419DC96CB00AD0F52 /* SBExecutionContext.h */; settings = {ATTRIBUTES = (Public, ); }; };
 		AFDFDFD119E34D3400EAE509 /* ConnectionFileDescriptorPosix.cpp in Sources */ = {isa = PBXBuildFile; fileRef = AFDFDFD019E34D3400EAE509 /* ConnectionFileDescriptorPosix.cpp */; };
 		AFEC3362194A8ABA00FF05C6 /* StructuredData.cpp in Sources */ = {isa = PBXBuildFile; fileRef = AFEC3361194A8ABA00FF05C6 /* StructuredData.cpp */; };
@@ -888,11 +933,6 @@
 		E778E9A21B062D1700247609 /* EmulateInstructionMIPS.cpp in Sources */ = {isa = PBXBuildFile; fileRef = E778E99F1B062D1700247609 /* EmulateInstructionMIPS.cpp */; };
 		E7E94ABC1B54961F00D0AE30 /* GDBRemoteSignals.cpp in Sources */ = {isa = PBXBuildFile; fileRef = E73A15A41B548EC500786197 /* GDBRemoteSignals.cpp */; };
 		EB8375E71B553DE800BA907D /* ThreadPlanCallFunctionUsingABI.cpp in Sources */ = {isa = PBXBuildFile; fileRef = EB8375E61B553DE800BA907D /* ThreadPlanCallFunctionUsingABI.cpp */; };
-		ED88244E15114A9200BC98B9 /* Security.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = EDB919B414F6F10D008FF64B /* Security.framework */; };
-		ED88245015114CA200BC98B9 /* main.mm in Sources */ = {isa = PBXBuildFile; fileRef = ED88244F15114CA200BC98B9 /* main.mm */; };
-		ED88245115114CA200BC98B9 /* main.mm in Sources */ = {isa = PBXBuildFile; fileRef = ED88244F15114CA200BC98B9 /* main.mm */; };
-		ED88245315114CFC00BC98B9 /* LauncherRootXPCService.mm in Sources */ = {isa = PBXBuildFile; fileRef = ED88245215114CFC00BC98B9 /* LauncherRootXPCService.mm */; };
-		EDC6D4AA14E5C49E001B75F8 /* LauncherXPCService.mm in Sources */ = {isa = PBXBuildFile; fileRef = EDC6D49414E5C15C001B75F8 /* LauncherXPCService.mm */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -909,6 +949,20 @@
 			proxyType = 1;
 			remoteGlobalIDString = 235AFBB5199BC6AD00897A4B;
 			remoteInfo = Linux;
+		};
+		239504C41BDD3FD700963CEA /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 265E9BE1115C2BAA00D0DCCB /* debugserver.xcodeproj */;
+			proxyType = 2;
+			remoteGlobalIDString = 456F67721AD46CE9002850C2;
+			remoteInfo = "debugserver-mini";
+		};
+		23AB8B6A1BDF513B008BF3B0 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 08FB7793FE84155DC02AAC07 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 2689FFC913353D7A00698AC0;
+			remoteInfo = "lldb-core";
 		};
 		262CFC7111A450CB00946C6C /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -987,20 +1041,6 @@
 			remoteGlobalIDString = 26F5C26910F3D9A4009D5894;
 			remoteInfo = "lldb-tool";
 		};
-		26CEF3B614FD594E007286B2 /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = 08FB7793FE84155DC02AAC07 /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = EDC6D49814E5C19B001B75F8;
-			remoteInfo = launcherXPCService;
-		};
-		26CEF3B814FD5952007286B2 /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = 08FB7793FE84155DC02AAC07 /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = EDE274E214EDCE1F005B0F75;
-			remoteInfo = launcherRootXPCService;
-		};
 		26CEF3BA14FD595B007286B2 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 08FB7793FE84155DC02AAC07 /* Project object */;
@@ -1053,13 +1093,22 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
+		239504D21BDD451400963CEA /* CopyFiles */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = /usr/share/man/man1/;
+			dstSubfolderSpec = 0;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 1;
+		};
 		940B04E31A89875C0045D5F7 /* CopyFiles */ = {
 			isa = PBXCopyFilesBuildPhase;
 			buildActionMask = 2147483647;
 			dstPath = "";
 			dstSubfolderSpec = 7;
 			files = (
-				940B04E41A8987680045D5F7 /* argdumper in CopyFiles */,
+				940B04E41A8987680045D5F7 /* lldb-argdumper in CopyFiles */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1071,17 +1120,6 @@
 			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 1;
-		};
-		AF030DA31A9C200000A2466A /* CopyFiles */ = {
-			isa = PBXCopyFilesBuildPhase;
-			buildActionMask = 2147483647;
-			dstPath = "$(CONTENTS_FOLDER_PATH)/XPCServices";
-			dstSubfolderSpec = 16;
-			files = (
-				AF455D571A9C231700D6C4F7 /* com.apple.lldb.launcherXPCService.xpc in CopyFiles */,
-				AF455D581A9C231700D6C4F7 /* com.apple.lldb.launcherRootXPCService.xpc in CopyFiles */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
 		};
 		AF90106415AB7D2900FF120D /* CopyFiles */ = {
 			isa = PBXCopyFilesBuildPhase;
@@ -1126,6 +1164,26 @@
 		23059A0F1958B319007B8189 /* SBUnixSignals.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = SBUnixSignals.cpp; path = source/API/SBUnixSignals.cpp; sourceTree = "<group>"; };
 		23059A111958B37B007B8189 /* SBUnixSignals.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = SBUnixSignals.h; path = include/lldb/API/SBUnixSignals.h; sourceTree = "<group>"; };
 		23173F8B192BA93F005C708F /* lldb-x86-register-enums.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = "lldb-x86-register-enums.h"; path = "Utility/lldb-x86-register-enums.h"; sourceTree = "<group>"; };
+		2321F9381BDD332400BA9A93 /* CMakeLists.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = CMakeLists.txt; sourceTree = "<group>"; };
+		2321F9391BDD332400BA9A93 /* SocketAddressTest.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = SocketAddressTest.cpp; sourceTree = "<group>"; };
+		2321F93A1BDD332400BA9A93 /* SocketTest.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = SocketTest.cpp; sourceTree = "<group>"; };
+		2321F93B1BDD332400BA9A93 /* SymbolsTest.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = SymbolsTest.cpp; sourceTree = "<group>"; };
+		2321F93D1BDD33CE00BA9A93 /* CMakeLists.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = CMakeLists.txt; sourceTree = "<group>"; };
+		2321F93E1BDD33CE00BA9A93 /* TestArgs.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = TestArgs.cpp; sourceTree = "<group>"; };
+		2321F9401BDD340D00BA9A93 /* CMakeLists.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = CMakeLists.txt; sourceTree = "<group>"; };
+		2321F9431BDD346100BA9A93 /* CMakeLists.txt */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = CMakeLists.txt; sourceTree = "<group>"; };
+		2321F9441BDD346100BA9A93 /* StringExtractorTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = StringExtractorTest.cpp; sourceTree = "<group>"; };
+		2321F9451BDD346100BA9A93 /* TaskPoolTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = TaskPoolTest.cpp; sourceTree = "<group>"; };
+		2321F9461BDD346100BA9A93 /* UriParserTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = UriParserTest.cpp; sourceTree = "<group>"; };
+		2321F94C1BDD360F00BA9A93 /* CMakeLists.txt */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = CMakeLists.txt; sourceTree = "<group>"; };
+		2321F94D1BDD360F00BA9A93 /* PythonDataObjectsTests.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = PythonDataObjectsTests.cpp; sourceTree = "<group>"; };
+		2326CF3F1BDD613E00A5CEAC /* Python.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Python.framework; path = System/Library/Frameworks/Python.framework; sourceTree = SDKROOT; };
+		2326CF451BDD647400A5CEAC /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = System/Library/Frameworks/Foundation.framework; sourceTree = SDKROOT; };
+		2326CF471BDD67C100A5CEAC /* libncurses.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; name = libncurses.dylib; path = ../../../../../../usr/lib/libncurses.dylib; sourceTree = "<group>"; };
+		2326CF4A1BDD681800A5CEAC /* libz.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; name = libz.dylib; path = ../../../../../../usr/lib/libz.dylib; sourceTree = "<group>"; };
+		2326CF4C1BDD684B00A5CEAC /* libedit.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; name = libedit.dylib; path = ../../../../../../usr/lib/libedit.dylib; sourceTree = "<group>"; };
+		2326CF4E1BDD687800A5CEAC /* libpanel.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; name = libpanel.dylib; path = ../../../../../../usr/lib/libpanel.dylib; sourceTree = "<group>"; };
+		2326CF511BDD693B00A5CEAC /* EditlineTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = EditlineTest.cpp; sourceTree = "<group>"; };
 		232CB60B191E00CC00EF39FC /* NativeBreakpoint.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = NativeBreakpoint.cpp; path = source/Host/common/NativeBreakpoint.cpp; sourceTree = "<group>"; };
 		232CB60D191E00CC00EF39FC /* NativeBreakpointList.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = NativeBreakpointList.cpp; path = source/Host/common/NativeBreakpointList.cpp; sourceTree = "<group>"; };
 		232CB60F191E00CC00EF39FC /* NativeProcessProtocol.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; lineEnding = 0; name = NativeProcessProtocol.cpp; path = source/Host/common/NativeProcessProtocol.cpp; sourceTree = "<group>"; xcLanguageSpecificationIdentifier = xcode.lang.cpp; };
@@ -1151,6 +1209,9 @@
 		236124A71986B50E004EFC37 /* Socket.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = Socket.h; path = include/lldb/Host/Socket.h; sourceTree = "<group>"; };
 		2377C2F719E613C100737875 /* PipePosix.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = PipePosix.cpp; sourceTree = "<group>"; };
 		237C577A19AF9D9F00213D59 /* HostInfoLinux.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = HostInfoLinux.h; path = include/lldb/Host/linux/HostInfoLinux.h; sourceTree = SOURCE_ROOT; };
+		239504C21BDD3FD600963CEA /* gtest_common.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = gtest_common.h; sourceTree = "<group>"; };
+		239504C61BDD3FF300963CEA /* CMakeLists.txt */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = CMakeLists.txt; sourceTree = "<group>"; };
+		239504D41BDD451400963CEA /* lldb-gtest */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = "lldb-gtest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		23AB052D199FF639003B8084 /* FreeBSDThread.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = FreeBSDThread.cpp; sourceTree = "<group>"; };
 		23AB052E199FF639003B8084 /* FreeBSDThread.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = FreeBSDThread.h; sourceTree = "<group>"; };
 		23AB052F199FF639003B8084 /* ProcessFreeBSD.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = ProcessFreeBSD.cpp; sourceTree = "<group>"; };
@@ -1194,6 +1255,11 @@
 		256CBDB91ADD107200BC6CDC /* RegisterContextLinux_mips64.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = RegisterContextLinux_mips64.h; path = Utility/RegisterContextLinux_mips64.h; sourceTree = "<group>"; };
 		256CBDBE1ADD11C000BC6CDC /* RegisterContextPOSIX_arm.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = RegisterContextPOSIX_arm.cpp; path = Utility/RegisterContextPOSIX_arm.cpp; sourceTree = "<group>"; };
 		256CBDBF1ADD11C000BC6CDC /* RegisterContextPOSIX_arm.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = RegisterContextPOSIX_arm.h; path = Utility/RegisterContextPOSIX_arm.h; sourceTree = "<group>"; };
+		2579065A1BD0488100178368 /* TCPSocket.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = TCPSocket.cpp; sourceTree = "<group>"; };
+		2579065B1BD0488100178368 /* UDPSocket.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = UDPSocket.cpp; sourceTree = "<group>"; };
+		2579065E1BD0488D00178368 /* DomainSocket.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = DomainSocket.cpp; sourceTree = "<group>"; };
+		257906621BD5AFD000178368 /* Acceptor.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = Acceptor.cpp; path = "tools/lldb-server/Acceptor.cpp"; sourceTree = "<group>"; };
+		257906631BD5AFD000178368 /* Acceptor.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = Acceptor.h; path = "tools/lldb-server/Acceptor.h"; sourceTree = "<group>"; };
 		257E47151AA56C2000A62F81 /* ModuleCache.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = ModuleCache.cpp; path = source/Utility/ModuleCache.cpp; sourceTree = "<group>"; };
 		257E47161AA56C2000A62F81 /* ModuleCache.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = ModuleCache.h; path = source/Utility/ModuleCache.h; sourceTree = "<group>"; };
 		25EF23751AC09AD800908DF0 /* AdbClient.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = AdbClient.cpp; sourceTree = "<group>"; };
@@ -2036,6 +2102,8 @@
 		26C6886E137880C400407EDF /* RegisterValue.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = RegisterValue.cpp; path = source/Core/RegisterValue.cpp; sourceTree = "<group>"; };
 		26C72C93124322890068DC16 /* SBStream.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = SBStream.h; path = include/lldb/API/SBStream.h; sourceTree = "<group>"; };
 		26C72C951243229A0068DC16 /* SBStream.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = SBStream.cpp; path = source/API/SBStream.cpp; sourceTree = "<group>"; };
+		26C7C4811BFFEA7E009BD01F /* WindowsMiniDump.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = WindowsMiniDump.cpp; sourceTree = "<group>"; };
+		26C7C4821BFFEA7E009BD01F /* WindowsMiniDump.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = WindowsMiniDump.h; sourceTree = "<group>"; };
 		26C81CA411335651004BDC5A /* UUID.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = UUID.h; path = include/lldb/Core/UUID.h; sourceTree = "<group>"; };
 		26C81CA511335651004BDC5A /* UUID.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = UUID.cpp; path = source/Core/UUID.cpp; sourceTree = "<group>"; };
 		26CA979F172B1FD5005DC71B /* RegisterContextThreadMemory.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = RegisterContextThreadMemory.cpp; path = Utility/RegisterContextThreadMemory.cpp; sourceTree = "<group>"; };
@@ -2115,6 +2183,8 @@
 		26ECA04213665FED008D1F18 /* ARM_DWARF_Registers.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = ARM_DWARF_Registers.cpp; path = source/Utility/ARM_DWARF_Registers.cpp; sourceTree = "<group>"; };
 		26ED3D6C13C563810017D45E /* OptionGroupVariable.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = OptionGroupVariable.cpp; path = source/Interpreter/OptionGroupVariable.cpp; sourceTree = "<group>"; };
 		26ED3D6F13C5638A0017D45E /* OptionGroupVariable.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = OptionGroupVariable.h; path = include/lldb/Interpreter/OptionGroupVariable.h; sourceTree = "<group>"; };
+		26EFB6181BFE8D3E00544801 /* PlatformNetBSD.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = PlatformNetBSD.cpp; sourceTree = "<group>"; };
+		26EFB6191BFE8D3E00544801 /* PlatformNetBSD.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = PlatformNetBSD.h; sourceTree = "<group>"; };
 		26EFC4CA18CFAF0D00865D87 /* ObjectFileJIT.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ObjectFileJIT.cpp; sourceTree = "<group>"; };
 		26EFC4CB18CFAF0D00865D87 /* ObjectFileJIT.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = ObjectFileJIT.h; sourceTree = "<group>"; };
 		26F006541B4DD86700B872E5 /* DynamicLoaderWindowsDYLD.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = DynamicLoaderWindowsDYLD.cpp; sourceTree = "<group>"; };
@@ -2164,6 +2234,7 @@
 		3F8169341ABB7A80001DA9DF /* SystemInitializer.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = SystemInitializer.h; path = include/lldb/Initialization/SystemInitializer.h; sourceTree = "<group>"; };
 		3F8169351ABB7A80001DA9DF /* SystemInitializerCommon.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = SystemInitializerCommon.h; path = include/lldb/Initialization/SystemInitializerCommon.h; sourceTree = "<group>"; };
 		3F8169361ABB7A80001DA9DF /* SystemLifetimeManager.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = SystemLifetimeManager.h; path = include/lldb/Initialization/SystemLifetimeManager.h; sourceTree = "<group>"; };
+		3FA093141BF65D3A0037DD08 /* PythonExceptionStateTests.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = PythonExceptionStateTests.cpp; sourceTree = "<group>"; };
 		3FBA69DD1B6067020008F44A /* ScriptInterpreterNone.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = ScriptInterpreterNone.cpp; path = ScriptInterpreter/None/ScriptInterpreterNone.cpp; sourceTree = "<group>"; };
 		3FBA69DE1B6067020008F44A /* ScriptInterpreterNone.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = ScriptInterpreterNone.h; path = ScriptInterpreter/None/ScriptInterpreterNone.h; sourceTree = "<group>"; };
 		3FBA69E21B60672A0008F44A /* lldb-python.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = "lldb-python.h"; path = "ScriptInterpreter/Python/lldb-python.h"; sourceTree = "<group>"; };
@@ -2243,6 +2314,8 @@
 		491193501226386000578B7F /* ASTStructExtractor.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = ASTStructExtractor.cpp; path = ExpressionParser/Clang/ASTStructExtractor.cpp; sourceTree = "<group>"; };
 		49307AAD11DEA4D90081F992 /* IRForTarget.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = IRForTarget.cpp; path = ExpressionParser/Clang/IRForTarget.cpp; sourceTree = "<group>"; };
 		49307AB111DEA4F20081F992 /* IRForTarget.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = IRForTarget.h; path = ExpressionParser/Clang/IRForTarget.h; sourceTree = "<group>"; };
+		4939EA8B1BD56B3700084382 /* REPL.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = REPL.h; path = include/lldb/Expression/REPL.h; sourceTree = "<group>"; };
+		4939EA8C1BD56B6D00084382 /* REPL.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = REPL.cpp; path = source/Expression/REPL.cpp; sourceTree = "<group>"; };
 		494260D7145790D5003C1C78 /* VerifyDecl.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = VerifyDecl.h; path = include/lldb/Symbol/VerifyDecl.h; sourceTree = "<group>"; };
 		494260D914579144003C1C78 /* VerifyDecl.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = VerifyDecl.cpp; path = source/Symbol/VerifyDecl.cpp; sourceTree = "<group>"; };
 		49445C2512245E3600C11A81 /* ClangExpressionParser.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = ClangExpressionParser.cpp; path = ExpressionParser/Clang/ClangExpressionParser.cpp; sourceTree = "<group>"; };
@@ -2403,6 +2476,12 @@
 		6D95DBFF1B9DC057000E318A /* SymbolFileDWARFDwo.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = SymbolFileDWARFDwo.cpp; sourceTree = "<group>"; };
 		6D95DC031B9DC06F000E318A /* DIERef.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = DIERef.h; sourceTree = "<group>"; };
 		6D95DC041B9DC06F000E318A /* SymbolFileDWARFDwo.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = SymbolFileDWARFDwo.h; sourceTree = "<group>"; };
+		6D99A3611BBC2F1600979793 /* ArmUnwindInfo.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = ArmUnwindInfo.h; path = include/lldb/Symbol/ArmUnwindInfo.h; sourceTree = "<group>"; };
+		6D99A3621BBC2F3200979793 /* ArmUnwindInfo.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = ArmUnwindInfo.cpp; path = source/Symbol/ArmUnwindInfo.cpp; sourceTree = "<group>"; };
+		6D9AB3DC1BB2B74E003F2289 /* TypeMap.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = TypeMap.cpp; path = source/Symbol/TypeMap.cpp; sourceTree = "<group>"; };
+		6D9AB3DE1BB2B76B003F2289 /* TypeMap.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = TypeMap.h; path = include/lldb/Symbol/TypeMap.h; sourceTree = "<group>"; };
+		6DEC6F381BD66D750091ABA6 /* TaskPool.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = TaskPool.cpp; path = source/Utility/TaskPool.cpp; sourceTree = "<group>"; };
+		6DEC6F3A1BD66D950091ABA6 /* TaskPool.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = TaskPool.h; path = include/lldb/Utility/TaskPool.h; sourceTree = "<group>"; };
 		8C2D6A52197A1EAF006989C9 /* MemoryHistory.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = MemoryHistory.cpp; path = source/Target/MemoryHistory.cpp; sourceTree = "<group>"; };
 		8C2D6A54197A1EBE006989C9 /* MemoryHistory.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = MemoryHistory.h; path = include/lldb/Target/MemoryHistory.h; sourceTree = "<group>"; };
 		8C2D6A5A197A1FDC006989C9 /* MemoryHistoryASan.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = MemoryHistoryASan.cpp; sourceTree = "<group>"; };
@@ -2421,6 +2500,8 @@
 		94005E0313F438DF001EF42D /* python-wrapper.swig */ = {isa = PBXFileReference; lastKnownFileType = text; path = "python-wrapper.swig"; sourceTree = "<group>"; };
 		94005E0513F45A1B001EF42D /* embedded_interpreter.py */ = {isa = PBXFileReference; lastKnownFileType = text.script.python; name = embedded_interpreter.py; path = source/Interpreter/embedded_interpreter.py; sourceTree = "<group>"; };
 		94031A9F13CF5B3D00DCFF3C /* PriorityPointerPair.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = PriorityPointerPair.h; path = include/lldb/Utility/PriorityPointerPair.h; sourceTree = "<group>"; };
+		940495781BEC497E00926025 /* NSError.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = NSError.cpp; path = Language/ObjC/NSError.cpp; sourceTree = "<group>"; };
+		940495791BEC497E00926025 /* NSException.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = NSException.cpp; path = Language/ObjC/NSException.cpp; sourceTree = "<group>"; };
 		94094C68163B6CCC0083A547 /* ValueObjectCast.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = ValueObjectCast.h; path = include/lldb/Core/ValueObjectCast.h; sourceTree = "<group>"; };
 		94094C69163B6CD90083A547 /* ValueObjectCast.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = ValueObjectCast.cpp; path = source/Core/ValueObjectCast.cpp; sourceTree = "<group>"; };
 		940B02F419DC96CB00AD0F52 /* SBExecutionContext.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = SBExecutionContext.h; path = include/lldb/API/SBExecutionContext.h; sourceTree = "<group>"; };
@@ -2437,7 +2518,7 @@
 		942612F61B95000000EF842E /* LanguageCategory.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = LanguageCategory.cpp; path = source/DataFormatters/LanguageCategory.cpp; sourceTree = "<group>"; };
 		942829541A89614000521B30 /* JSON.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = JSON.h; path = include/lldb/Utility/JSON.h; sourceTree = "<group>"; };
 		942829551A89614C00521B30 /* JSON.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = JSON.cpp; path = source/Utility/JSON.cpp; sourceTree = "<group>"; };
-		942829C01A89835300521B30 /* argdumper */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = argdumper; sourceTree = BUILT_PRODUCTS_DIR; };
+		942829C01A89835300521B30 /* lldb-argdumper */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = "lldb-argdumper"; sourceTree = BUILT_PRODUCTS_DIR; };
 		94380B8019940B0300BFE4A8 /* StringLexer.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = StringLexer.h; path = include/lldb/Utility/StringLexer.h; sourceTree = "<group>"; };
 		94380B8119940B0A00BFE4A8 /* StringLexer.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = StringLexer.cpp; path = source/Utility/StringLexer.cpp; sourceTree = "<group>"; };
 		943B90FC1B991586007BA499 /* VectorIterator.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = VectorIterator.h; path = include/lldb/DataFormatters/VectorIterator.h; sourceTree = "<group>"; };
@@ -2447,6 +2528,8 @@
 		944372DB171F6B4300E57C32 /* RegisterContextDummy.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = RegisterContextDummy.h; path = Utility/RegisterContextDummy.h; sourceTree = "<group>"; };
 		9443B120140C18A90013457C /* SBData.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = SBData.h; path = include/lldb/API/SBData.h; sourceTree = "<group>"; };
 		9443B121140C18C10013457C /* SBData.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = SBData.cpp; path = source/API/SBData.cpp; sourceTree = "<group>"; };
+		9447DE411BD5962900E67212 /* DumpValueObjectOptions.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = DumpValueObjectOptions.h; path = include/lldb/DataFormatters/DumpValueObjectOptions.h; sourceTree = "<group>"; };
+		9447DE421BD5963300E67212 /* DumpValueObjectOptions.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = DumpValueObjectOptions.cpp; path = source/DataFormatters/DumpValueObjectOptions.cpp; sourceTree = "<group>"; };
 		9449B8031B30E0690019342B /* ThreadSafeDenseSet.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = ThreadSafeDenseSet.h; path = include/lldb/Core/ThreadSafeDenseSet.h; sourceTree = "<group>"; };
 		944DC3481774C99000D7D884 /* python-swigsafecast.swig */ = {isa = PBXFileReference; lastKnownFileType = text; path = "python-swigsafecast.swig"; sourceTree = "<group>"; };
 		945215DD17F639E600521C0B /* ValueObjectPrinter.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = ValueObjectPrinter.h; path = include/lldb/DataFormatters/ValueObjectPrinter.h; sourceTree = "<group>"; };
@@ -2467,6 +2550,10 @@
 		945261BD1B9A11E800BF138D /* LibStdcpp.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = LibStdcpp.h; path = Language/CPlusPlus/LibStdcpp.h; sourceTree = "<group>"; };
 		945261C71B9A14D300BF138D /* CXXFunctionPointer.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = CXXFunctionPointer.cpp; path = source/DataFormatters/CXXFunctionPointer.cpp; sourceTree = "<group>"; };
 		945261C91B9A14E000BF138D /* CXXFunctionPointer.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = CXXFunctionPointer.h; path = include/lldb/DataFormatters/CXXFunctionPointer.h; sourceTree = "<group>"; };
+		9455630A1BEAD0570073F75F /* PlatformAppleSimulator.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = PlatformAppleSimulator.cpp; sourceTree = "<group>"; };
+		9455630B1BEAD0570073F75F /* PlatformAppleSimulator.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = PlatformAppleSimulator.h; sourceTree = "<group>"; };
+		9455630C1BEAD0570073F75F /* PlatformiOSSimulatorCoreSimulatorSupport.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = PlatformiOSSimulatorCoreSimulatorSupport.h; sourceTree = "<group>"; };
+		9455630D1BEAD0570073F75F /* PlatformiOSSimulatorCoreSimulatorSupport.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = PlatformiOSSimulatorCoreSimulatorSupport.mm; sourceTree = "<group>"; };
 		945759651534941F005A9070 /* PlatformPOSIX.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = PlatformPOSIX.cpp; path = POSIX/PlatformPOSIX.cpp; sourceTree = "<group>"; };
 		945759661534941F005A9070 /* PlatformPOSIX.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = PlatformPOSIX.h; path = POSIX/PlatformPOSIX.h; sourceTree = "<group>"; };
 		945E8D7D152F6AA80019BCCD /* StreamGDBRemote.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = StreamGDBRemote.h; path = include/lldb/Core/StreamGDBRemote.h; sourceTree = "<group>"; };
@@ -2520,6 +2607,10 @@
 		94B638621B8FB7F1004FE1E4 /* ObjCPlusPlusLanguage.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = ObjCPlusPlusLanguage.cpp; path = Language/ObjCPlusPlus/ObjCPlusPlusLanguage.cpp; sourceTree = "<group>"; };
 		94B6E76013D8833C005F417F /* ValueObjectSyntheticFilter.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = ValueObjectSyntheticFilter.h; path = include/lldb/Core/ValueObjectSyntheticFilter.h; sourceTree = "<group>"; };
 		94B6E76113D88362005F417F /* ValueObjectSyntheticFilter.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = ValueObjectSyntheticFilter.cpp; path = source/Core/ValueObjectSyntheticFilter.cpp; sourceTree = "<group>"; };
+		94B9E50E1BBEFDFE000A48DC /* NSDictionary.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = NSDictionary.h; path = Language/ObjC/NSDictionary.h; sourceTree = "<group>"; };
+		94B9E50F1BBF0069000A48DC /* NSSet.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = NSSet.h; path = Language/ObjC/NSSet.h; sourceTree = "<group>"; };
+		94B9E5101BBF20B7000A48DC /* NSString.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = NSString.h; path = Language/ObjC/NSString.h; sourceTree = "<group>"; };
+		94B9E5111BBF20F4000A48DC /* NSString.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = NSString.cpp; path = Language/ObjC/NSString.cpp; sourceTree = "<group>"; };
 		94BA8B6C176F8C9B005A91B5 /* Range.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = Range.cpp; path = source/Utility/Range.cpp; sourceTree = "<group>"; };
 		94BA8B6E176F8CA0005A91B5 /* Range.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = Range.h; path = include/lldb/Utility/Range.h; sourceTree = "<group>"; };
 		94BA8B6F176F97CE005A91B5 /* CommandHistory.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = CommandHistory.cpp; path = source/Interpreter/CommandHistory.cpp; sourceTree = "<group>"; };
@@ -2630,10 +2721,26 @@
 		9AF16CC7114086A1007A7B3F /* SBBreakpointLocation.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = SBBreakpointLocation.cpp; path = source/API/SBBreakpointLocation.cpp; sourceTree = "<group>"; };
 		A36FF33B17D8E94600244D40 /* OptionParser.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = OptionParser.cpp; sourceTree = "<group>"; };
 		A36FF33D17D8E98800244D40 /* OptionParser.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = OptionParser.h; path = include/lldb/Host/OptionParser.h; sourceTree = "<group>"; };
+		AE44FB261BB07DC60033EB62 /* GoAST.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = GoAST.h; path = ExpressionParser/Go/GoAST.h; sourceTree = "<group>"; };
+		AE44FB271BB07DC60033EB62 /* GoLexer.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = GoLexer.h; path = ExpressionParser/Go/GoLexer.h; sourceTree = "<group>"; };
+		AE44FB281BB07DC60033EB62 /* GoParser.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = GoParser.h; path = ExpressionParser/Go/GoParser.h; sourceTree = "<group>"; };
+		AE44FB291BB07DC60033EB62 /* GoUserExpression.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = GoUserExpression.h; path = ExpressionParser/Go/GoUserExpression.h; sourceTree = "<group>"; };
+		AE44FB2A1BB07DD80033EB62 /* GoLexer.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = GoLexer.cpp; path = ExpressionParser/Go/GoLexer.cpp; sourceTree = "<group>"; };
+		AE44FB2B1BB07DD80033EB62 /* GoParser.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = GoParser.cpp; path = ExpressionParser/Go/GoParser.cpp; sourceTree = "<group>"; };
+		AE44FB2C1BB07DD80033EB62 /* GoUserExpression.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = GoUserExpression.cpp; path = ExpressionParser/Go/GoUserExpression.cpp; sourceTree = "<group>"; };
+		AE44FB3C1BB4858A0033EB62 /* GoLanguageRuntime.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = GoLanguageRuntime.h; path = Go/GoLanguageRuntime.h; sourceTree = "<group>"; };
+		AE44FB3D1BB485960033EB62 /* GoLanguageRuntime.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = GoLanguageRuntime.cpp; path = Go/GoLanguageRuntime.cpp; sourceTree = "<group>"; };
+		AE44FB451BB4BB090033EB62 /* GoLanguage.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = GoLanguage.cpp; path = Language/Go/GoLanguage.cpp; sourceTree = "<group>"; };
+		AE44FB461BB4BB090033EB62 /* GoLanguage.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = GoLanguage.h; path = Language/Go/GoLanguage.h; sourceTree = "<group>"; };
+		AE44FB4A1BB4BB540033EB62 /* GoFormatterFunctions.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = GoFormatterFunctions.cpp; path = Language/Go/GoFormatterFunctions.cpp; sourceTree = "<group>"; };
+		AE44FB4B1BB4BB540033EB62 /* GoFormatterFunctions.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = GoFormatterFunctions.h; path = Language/Go/GoFormatterFunctions.h; sourceTree = "<group>"; };
 		AE6897261B94F6DE0018845D /* DWARFASTParserGo.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = DWARFASTParserGo.cpp; sourceTree = "<group>"; };
 		AE6897271B94F6DE0018845D /* DWARFASTParserGo.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = DWARFASTParserGo.h; sourceTree = "<group>"; };
 		AE8F624719EF3E1E00326B21 /* OperatingSystemGo.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = OperatingSystemGo.cpp; path = Go/OperatingSystemGo.cpp; sourceTree = "<group>"; };
 		AE8F624819EF3E1E00326B21 /* OperatingSystemGo.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = OperatingSystemGo.h; path = Go/OperatingSystemGo.h; sourceTree = "<group>"; };
+		AEB0E4581BD6E9F800B24093 /* LLVMUserExpression.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = LLVMUserExpression.cpp; path = source/Expression/LLVMUserExpression.cpp; sourceTree = "<group>"; };
+		AEB0E45A1BD6EA1400B24093 /* LLVMUserExpression.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = LLVMUserExpression.h; path = include/lldb/Expression/LLVMUserExpression.h; sourceTree = "<group>"; };
+		AEC6FF9F1BE970A2007882C1 /* GoParserTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = GoParserTest.cpp; sourceTree = "<group>"; };
 		AEEA33F61AC74FE700AB639D /* TypeSystem.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = TypeSystem.h; path = include/lldb/Symbol/TypeSystem.h; sourceTree = "<group>"; };
 		AEEA34041AC88A7400AB639D /* TypeSystem.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = TypeSystem.cpp; path = source/Symbol/TypeSystem.cpp; sourceTree = "<group>"; };
 		AEEA340F1ACA08A000AB639D /* GoASTContext.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = GoASTContext.h; path = include/lldb/Symbol/GoASTContext.h; sourceTree = "<group>"; };
@@ -2690,6 +2797,8 @@
 		AF3F54BF1B3BA5D500186E73 /* RegisterContextPOSIXProcessMonitor_powerpc.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = RegisterContextPOSIXProcessMonitor_powerpc.h; sourceTree = "<group>"; };
 		AF3F54C01B3BA5D500186E73 /* RegisterContextPOSIXProcessMonitor_x86.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = RegisterContextPOSIXProcessMonitor_x86.cpp; sourceTree = "<group>"; };
 		AF3F54C11B3BA5D500186E73 /* RegisterContextPOSIXProcessMonitor_x86.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = RegisterContextPOSIXProcessMonitor_x86.h; sourceTree = "<group>"; };
+		AF45E1FC1BF57C8D000563EB /* PythonTestSuite.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = PythonTestSuite.cpp; sourceTree = "<group>"; };
+		AF45E1FD1BF57C8D000563EB /* PythonTestSuite.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = PythonTestSuite.h; sourceTree = "<group>"; };
 		AF45FDE318A1F3AC0007051C /* AppleGetThreadItemInfoHandler.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = AppleGetThreadItemInfoHandler.cpp; sourceTree = "<group>"; };
 		AF45FDE418A1F3AC0007051C /* AppleGetThreadItemInfoHandler.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = AppleGetThreadItemInfoHandler.h; sourceTree = "<group>"; };
 		AF68D2541255416E002FF25B /* RegisterContextLLDB.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = RegisterContextLLDB.cpp; path = Utility/RegisterContextLLDB.cpp; sourceTree = "<group>"; };
@@ -2710,6 +2819,14 @@
 		AF77E0A71A033D740096C0EA /* RegisterContextPOSIXCore_powerpc.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = RegisterContextPOSIXCore_powerpc.cpp; sourceTree = "<group>"; };
 		AF77E0A81A033D740096C0EA /* RegisterContextPOSIXCore_powerpc.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = RegisterContextPOSIXCore_powerpc.h; sourceTree = "<group>"; };
 		AF81DEF91828A23F0042CF19 /* SystemRuntime.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = SystemRuntime.cpp; path = source/Target/SystemRuntime.cpp; sourceTree = "<group>"; };
+		AF8AD62A1BEC28A400150209 /* PlatformAppleTVSimulator.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = PlatformAppleTVSimulator.cpp; sourceTree = "<group>"; };
+		AF8AD62B1BEC28A400150209 /* PlatformAppleTVSimulator.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = PlatformAppleTVSimulator.h; sourceTree = "<group>"; };
+		AF8AD62C1BEC28A400150209 /* PlatformAppleWatchSimulator.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = PlatformAppleWatchSimulator.cpp; sourceTree = "<group>"; };
+		AF8AD62D1BEC28A400150209 /* PlatformAppleWatchSimulator.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = PlatformAppleWatchSimulator.h; sourceTree = "<group>"; };
+		AF8AD6331BEC28C400150209 /* PlatformRemoteAppleTV.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = PlatformRemoteAppleTV.cpp; sourceTree = "<group>"; };
+		AF8AD6341BEC28C400150209 /* PlatformRemoteAppleTV.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = PlatformRemoteAppleTV.h; sourceTree = "<group>"; };
+		AF8AD6351BEC28C400150209 /* PlatformRemoteAppleWatch.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = PlatformRemoteAppleWatch.cpp; sourceTree = "<group>"; };
+		AF8AD6361BEC28C400150209 /* PlatformRemoteAppleWatch.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = PlatformRemoteAppleWatch.h; sourceTree = "<group>"; };
 		AF90106315AB7C5700FF120D /* lldb.1 */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.man; name = lldb.1; path = docs/lldb.1; sourceTree = "<group>"; };
 		AF9107E91685709A00DBCD3C /* ARM64_Stabs_Registers.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = ARM64_Stabs_Registers.h; path = source/Utility/ARM64_Stabs_Registers.h; sourceTree = "<group>"; };
 		AF9107EC168570D200DBCD3C /* RegisterContextDarwin_arm64.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = RegisterContextDarwin_arm64.cpp; path = Utility/RegisterContextDarwin_arm64.cpp; sourceTree = "<group>"; };
@@ -2723,6 +2840,8 @@
 		AFB3D27F1AC262AB003B4B30 /* MICmdCmdGdbShow.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = MICmdCmdGdbShow.h; path = "tools/lldb-mi/MICmdCmdGdbShow.h"; sourceTree = SOURCE_ROOT; };
 		AFC234061AF85CE000CDE8B6 /* CommandObjectLanguage.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = CommandObjectLanguage.cpp; path = source/Commands/CommandObjectLanguage.cpp; sourceTree = "<group>"; };
 		AFC234071AF85CE000CDE8B6 /* CommandObjectLanguage.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = CommandObjectLanguage.h; path = source/Commands/CommandObjectLanguage.h; sourceTree = "<group>"; };
+		AFCB2BBB1BF577F40018B553 /* PythonExceptionState.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = PythonExceptionState.cpp; path = ScriptInterpreter/Python/PythonExceptionState.cpp; sourceTree = "<group>"; };
+		AFCB2BBC1BF577F40018B553 /* PythonExceptionState.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = PythonExceptionState.h; path = ScriptInterpreter/Python/PythonExceptionState.h; sourceTree = "<group>"; };
 		AFDFDFD019E34D3400EAE509 /* ConnectionFileDescriptorPosix.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ConnectionFileDescriptorPosix.cpp; sourceTree = "<group>"; };
 		AFEC3361194A8ABA00FF05C6 /* StructuredData.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = StructuredData.cpp; path = source/Core/StructuredData.cpp; sourceTree = "<group>"; };
 		AFF87C86150FF669000E1742 /* com.apple.debugserver.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = com.apple.debugserver.plist; path = tools/debugserver/source/com.apple.debugserver.plist; sourceTree = "<group>"; };
@@ -2767,19 +2886,22 @@
 		E778E9A01B062D1700247609 /* EmulateInstructionMIPS.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = EmulateInstructionMIPS.h; sourceTree = "<group>"; };
 		EB8375E61B553DE800BA907D /* ThreadPlanCallFunctionUsingABI.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = ThreadPlanCallFunctionUsingABI.cpp; path = source/Target/ThreadPlanCallFunctionUsingABI.cpp; sourceTree = "<group>"; };
 		EB8375E81B553DFE00BA907D /* ThreadPlanCallFunctionUsingABI.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = ThreadPlanCallFunctionUsingABI.h; path = include/lldb/Target/ThreadPlanCallFunctionUsingABI.h; sourceTree = "<group>"; };
-		ED88244F15114CA200BC98B9 /* main.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; path = main.mm; sourceTree = "<group>"; };
-		ED88245215114CFC00BC98B9 /* LauncherRootXPCService.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; path = LauncherRootXPCService.mm; sourceTree = "<group>"; };
-		EDB919B214F6EC85008FF64B /* LauncherXPCService.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = LauncherXPCService.h; sourceTree = "<group>"; };
 		EDB919B414F6F10D008FF64B /* Security.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Security.framework; path = /System/Library/Frameworks/Security.framework; sourceTree = "<absolute>"; };
-		EDC6D49214E5C15C001B75F8 /* LauncherXPCService-Info.plist */ = {isa = PBXFileReference; explicitFileType = sourcecode.c.h; path = "LauncherXPCService-Info.plist"; sourceTree = "<group>"; };
-		EDC6D49314E5C15C001B75F8 /* LauncherXPCService.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = LauncherXPCService.entitlements; sourceTree = "<group>"; };
-		EDC6D49414E5C15C001B75F8 /* LauncherXPCService.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = LauncherXPCService.mm; sourceTree = "<group>"; };
-		EDC6D49914E5C19B001B75F8 /* com.apple.lldb.launcherXPCService.xpc */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = com.apple.lldb.launcherXPCService.xpc; sourceTree = BUILT_PRODUCTS_DIR; };
-		EDE274E114EDCE0D005B0F75 /* LauncherRootXPCService-Info.plist */ = {isa = PBXFileReference; explicitFileType = sourcecode.c.h; path = "LauncherRootXPCService-Info.plist"; sourceTree = "<group>"; };
-		EDE274EC14EDCE1F005B0F75 /* com.apple.lldb.launcherRootXPCService.xpc */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = com.apple.lldb.launcherRootXPCService.xpc; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		239504D11BDD451400963CEA /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				2326CF4F1BDD687800A5CEAC /* libpanel.dylib in Frameworks */,
+				2326CF4D1BDD684B00A5CEAC /* libedit.dylib in Frameworks */,
+				2326CF4B1BDD681800A5CEAC /* libz.dylib in Frameworks */,
+				2326CF491BDD67D800A5CEAC /* libncurses.dylib in Frameworks */,
+				2326CF441BDD643700A5CEAC /* liblldb-core.a in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		26579F66126A25920007C5CB /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -2852,33 +2974,25 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		EDC6D49614E5C19B001B75F8 /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		EDE274E514EDCE1F005B0F75 /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				ED88244E15114A9200BC98B9 /* Security.framework in Frameworks */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
 		08FB7794FE84155DC02AAC07 /* lldb */ = {
 			isa = PBXGroup;
 			children = (
+				2326CF4E1BDD687800A5CEAC /* libpanel.dylib */,
+				2326CF4C1BDD684B00A5CEAC /* libedit.dylib */,
+				2326CF4A1BDD681800A5CEAC /* libz.dylib */,
+				2326CF471BDD67C100A5CEAC /* libncurses.dylib */,
+				2326CF451BDD647400A5CEAC /* Foundation.framework */,
+				2326CF3F1BDD613E00A5CEAC /* Python.framework */,
 				26F5C32810F3DF7D009D5894 /* Libraries */,
 				264E8576159BE51A00E9D7A2 /* Resources */,
 				08FB7795FE84155DC02AAC07 /* Source */,
 				26F5C22410F3D950009D5894 /* Tools */,
 				2690CD181A6DC0D000E717C8 /* lldb-mi */,
 				1AB674ADFE9D54B511CA2CBB /* Products */,
+				2321F9331BDD326500BA9A93 /* unittests */,
 			);
 			name = lldb;
 			sourceTree = "<group>";
@@ -2917,10 +3031,9 @@
 				26680207115FD0ED008E1FE4 /* LLDB.framework */,
 				26579F68126A25920007C5CB /* darwin-debug */,
 				26DC6A101337FE6900FF7998 /* lldb-server */,
-				EDC6D49914E5C19B001B75F8 /* com.apple.lldb.launcherXPCService.xpc */,
-				EDE274EC14EDCE1F005B0F75 /* com.apple.lldb.launcherRootXPCService.xpc */,
 				2690CD171A6DC0D000E717C8 /* lldb-mi */,
-				942829C01A89835300521B30 /* argdumper */,
+				942829C01A89835300521B30 /* lldb-argdumper */,
+				239504D41BDD451400963CEA /* lldb-gtest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -2933,6 +3046,81 @@
 				23042D101976CA0A00621B2C /* PlatformKalimba.cpp */,
 			);
 			path = Kalimba;
+			sourceTree = "<group>";
+		};
+		2321F9331BDD326500BA9A93 /* unittests */ = {
+			isa = PBXGroup;
+			children = (
+				239504C61BDD3FF300963CEA /* CMakeLists.txt */,
+				239504C21BDD3FD600963CEA /* gtest_common.h */,
+				2321F9371BDD32ED00BA9A93 /* Host */,
+				2321F93C1BDD339A00BA9A93 /* Interpreter */,
+				2326CF501BDD68CA00A5CEAC /* Editline */,
+				AEC6FF9D1BE97035007882C1 /* Expression */,
+				2321F93F1BDD33D800BA9A93 /* ScriptInterpreter */,
+				2321F9421BDD343A00BA9A93 /* Utility */,
+			);
+			path = unittests;
+			sourceTree = "<group>";
+		};
+		2321F9371BDD32ED00BA9A93 /* Host */ = {
+			isa = PBXGroup;
+			children = (
+				2321F9381BDD332400BA9A93 /* CMakeLists.txt */,
+				2321F9391BDD332400BA9A93 /* SocketAddressTest.cpp */,
+				2321F93A1BDD332400BA9A93 /* SocketTest.cpp */,
+				2321F93B1BDD332400BA9A93 /* SymbolsTest.cpp */,
+			);
+			path = Host;
+			sourceTree = "<group>";
+		};
+		2321F93C1BDD339A00BA9A93 /* Interpreter */ = {
+			isa = PBXGroup;
+			children = (
+				2321F93D1BDD33CE00BA9A93 /* CMakeLists.txt */,
+				2321F93E1BDD33CE00BA9A93 /* TestArgs.cpp */,
+			);
+			path = Interpreter;
+			sourceTree = "<group>";
+		};
+		2321F93F1BDD33D800BA9A93 /* ScriptInterpreter */ = {
+			isa = PBXGroup;
+			children = (
+				2321F9401BDD340D00BA9A93 /* CMakeLists.txt */,
+				2321F94B1BDD35D500BA9A93 /* Python */,
+			);
+			path = ScriptInterpreter;
+			sourceTree = "<group>";
+		};
+		2321F9421BDD343A00BA9A93 /* Utility */ = {
+			isa = PBXGroup;
+			children = (
+				2321F9431BDD346100BA9A93 /* CMakeLists.txt */,
+				2321F9441BDD346100BA9A93 /* StringExtractorTest.cpp */,
+				2321F9451BDD346100BA9A93 /* TaskPoolTest.cpp */,
+				2321F9461BDD346100BA9A93 /* UriParserTest.cpp */,
+			);
+			path = Utility;
+			sourceTree = "<group>";
+		};
+		2321F94B1BDD35D500BA9A93 /* Python */ = {
+			isa = PBXGroup;
+			children = (
+				2321F94C1BDD360F00BA9A93 /* CMakeLists.txt */,
+				2321F94D1BDD360F00BA9A93 /* PythonDataObjectsTests.cpp */,
+				3FA093141BF65D3A0037DD08 /* PythonExceptionStateTests.cpp */,
+				AF45E1FC1BF57C8D000563EB /* PythonTestSuite.cpp */,
+				AF45E1FD1BF57C8D000563EB /* PythonTestSuite.h */,
+			);
+			path = Python;
+			sourceTree = "<group>";
+		};
+		2326CF501BDD68CA00A5CEAC /* Editline */ = {
+			isa = PBXGroup;
+			children = (
+				2326CF511BDD693B00A5CEAC /* EditlineTest.cpp */,
+			);
+			path = Editline;
 			sourceTree = "<group>";
 		};
 		233B008B196106E90090E598 /* Linux */ = {
@@ -3532,6 +3720,7 @@
 			isa = PBXGroup;
 			children = (
 				26CE05A0115C31E50022F371 /* debugserver */,
+				239504C51BDD3FD700963CEA /* debugserver */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -3599,6 +3788,8 @@
 		2682F168115ED9C800CCFF99 /* Utility */ = {
 			isa = PBXGroup;
 			children = (
+				6DEC6F3A1BD66D950091ABA6 /* TaskPool.h */,
+				6DEC6F381BD66D750091ABA6 /* TaskPool.cpp */,
 				257E47151AA56C2000A62F81 /* ModuleCache.cpp */,
 				257E47161AA56C2000A62F81 /* ModuleCache.h */,
 				33064C9B1A5C7A490033D415 /* UriParser.h */,
@@ -4207,6 +4398,10 @@
 		26BC7C4B10F1B6C100F91463 /* Symbol */ = {
 			isa = PBXGroup;
 			children = (
+				6D9AB3DE1BB2B76B003F2289 /* TypeMap.h */,
+				6D9AB3DC1BB2B74E003F2289 /* TypeMap.cpp */,
+				6D99A3621BBC2F3200979793 /* ArmUnwindInfo.cpp */,
+				6D99A3611BBC2F1600979793 /* ArmUnwindInfo.h */,
 				26BC7C5510F1B6E900F91463 /* Block.h */,
 				26BC7F1310F1B8EC00F91463 /* Block.cpp */,
 				26BC7C5610F1B6E900F91463 /* ClangASTContext.h */,
@@ -4401,6 +4596,8 @@
 				4C0083321B9A5DE200D5CF24 /* FunctionCaller.cpp */,
 				4C00832E1B9A58A700D5CF24 /* UserExpression.h */,
 				4C0083331B9A5DE200D5CF24 /* UserExpression.cpp */,
+				AEB0E45A1BD6EA1400B24093 /* LLVMUserExpression.h */,
+				AEB0E4581BD6E9F800B24093 /* LLVMUserExpression.cpp */,
 				4C00833D1B9F9B8400D5CF24 /* UtilityFunction.h */,
 				4C00833F1B9F9BA900D5CF24 /* UtilityFunction.cpp */,
 				49A1CAC11430E21D00306AC9 /* ExpressionSourceCode.h */,
@@ -4420,6 +4617,8 @@
 				496B01581406DE8900F830D5 /* IRInterpreter.cpp */,
 				49DCF6FF170E6FD90092F75E /* Materializer.h */,
 				49DCF700170E70120092F75E /* Materializer.cpp */,
+				4939EA8B1BD56B3700084382 /* REPL.h */,
+				4939EA8C1BD56B6D00084382 /* REPL.cpp */,
 			);
 			name = Expression;
 			sourceTree = "<group>";
@@ -4736,7 +4935,6 @@
 				3FDFE56719AF9BB2009756A7 /* HostThreadMacOSX.h */,
 				2689B0B5113EE47E00A4AEDB /* Symbols.cpp */,
 				3FDFED0619B7C898009756A7 /* ThisThread.cpp */,
-				EDC6D49114E5C15C001B75F8 /* launcherXPCService */,
 			);
 			name = MacOSX;
 			sourceTree = "<group>";
@@ -4768,6 +4966,7 @@
 				23042D0F1976C9D800621B2C /* Kalimba */,
 				2694E99F14FC0BBD0076DE67 /* Linux */,
 				26C5577F132575C8008FD8FE /* MacOSX */,
+				26EFB6151BFE8D3E00544801 /* NetBSD */,
 				9457596415349416005A9070 /* POSIX */,
 				490A36BA180F0E6F00BA31F8 /* Windows */,
 			);
@@ -4777,14 +4976,26 @@
 		26C5577F132575C8008FD8FE /* MacOSX */ = {
 			isa = PBXGroup;
 			children = (
+				9455630A1BEAD0570073F75F /* PlatformAppleSimulator.cpp */,
+				9455630B1BEAD0570073F75F /* PlatformAppleSimulator.h */,
+				AF8AD62A1BEC28A400150209 /* PlatformAppleTVSimulator.cpp */,
+				AF8AD62B1BEC28A400150209 /* PlatformAppleTVSimulator.h */,
+				AF8AD62C1BEC28A400150209 /* PlatformAppleWatchSimulator.cpp */,
+				AF8AD62D1BEC28A400150209 /* PlatformAppleWatchSimulator.h */,
 				AF254E2F170CCC33007AE5C9 /* PlatformDarwinKernel.cpp */,
 				AF254E30170CCC33007AE5C9 /* PlatformDarwinKernel.h */,
 				2697A54B133A6305004E4240 /* PlatformDarwin.cpp */,
 				2697A54C133A6305004E4240 /* PlatformDarwin.h */,
 				26B7564C14F89356008D9CB3 /* PlatformiOSSimulator.cpp */,
 				26B7564D14F89356008D9CB3 /* PlatformiOSSimulator.h */,
+				9455630C1BEAD0570073F75F /* PlatformiOSSimulatorCoreSimulatorSupport.h */,
+				9455630D1BEAD0570073F75F /* PlatformiOSSimulatorCoreSimulatorSupport.mm */,
 				26C5577B132575AD008FD8FE /* PlatformMacOSX.cpp */,
 				26C5577C132575AD008FD8FE /* PlatformMacOSX.h */,
+				AF8AD6331BEC28C400150209 /* PlatformRemoteAppleTV.cpp */,
+				AF8AD6341BEC28C400150209 /* PlatformRemoteAppleTV.h */,
+				AF8AD6351BEC28C400150209 /* PlatformRemoteAppleWatch.cpp */,
+				AF8AD6361BEC28C400150209 /* PlatformRemoteAppleWatch.h */,
 				2675F6FE1332BE690067997B /* PlatformRemoteiOS.cpp */,
 				2675F6FF1332BE690067997B /* PlatformRemoteiOS.h */,
 			);
@@ -4873,8 +5084,19 @@
 			children = (
 				26E152231419CACA007967D0 /* ObjectFilePECOFF.cpp */,
 				26E152241419CACA007967D0 /* ObjectFilePECOFF.h */,
+				26C7C4811BFFEA7E009BD01F /* WindowsMiniDump.cpp */,
+				26C7C4821BFFEA7E009BD01F /* WindowsMiniDump.h */,
 			);
 			path = PECOFF;
+			sourceTree = "<group>";
+		};
+		26EFB6151BFE8D3E00544801 /* NetBSD */ = {
+			isa = PBXGroup;
+			children = (
+				26EFB6181BFE8D3E00544801 /* PlatformNetBSD.cpp */,
+				26EFB6191BFE8D3E00544801 /* PlatformNetBSD.h */,
+			);
+			path = NetBSD;
 			sourceTree = "<group>";
 		};
 		26EFC4C718CFAF0D00865D87 /* JIT */ = {
@@ -4982,6 +5204,8 @@
 				3FBA69E21B60672A0008F44A /* lldb-python.h */,
 				3FBA69E31B60672A0008F44A /* PythonDataObjects.cpp */,
 				3FBA69E41B60672A0008F44A /* PythonDataObjects.h */,
+				AFCB2BBB1BF577F40018B553 /* PythonExceptionState.cpp */,
+				AFCB2BBC1BF577F40018B553 /* PythonExceptionState.h */,
 				3FBA69E51B60672A0008F44A /* ScriptInterpreterPython.cpp */,
 				3FBA69E61B60672A0008F44A /* ScriptInterpreterPython.h */,
 			);
@@ -5000,6 +5224,7 @@
 		3FDFDDC4199D37BE009756A7 /* posix */ = {
 			isa = PBXGroup;
 			children = (
+				2579065E1BD0488D00178368 /* DomainSocket.cpp */,
 				255EFF751AFABA950069F277 /* LockFilePosix.cpp */,
 				30DED5DC1B4ECB17004CC508 /* MainLoopPosix.cpp */,
 				AFDFDFD019E34D3400EAE509 /* ConnectionFileDescriptorPosix.cpp */,
@@ -5078,6 +5303,7 @@
 			isa = PBXGroup;
 			children = (
 				4984BA0C1B97620B008658D4 /* Clang */,
+				AE44FB371BB35A2E0033EB62 /* Go */,
 			);
 			name = ExpressionParser;
 			sourceTree = "<group>";
@@ -5119,6 +5345,7 @@
 		4CCA643A13B40B82003BDF98 /* LanguageRuntime */ = {
 			isa = PBXGroup;
 			children = (
+				AE44FB3B1BB485730033EB62 /* Go */,
 				49724D961AD6ECFA0033C538 /* RenderScript */,
 				4CCA643B13B40B82003BDF98 /* CPlusPlus */,
 				4CCA644013B40B82003BDF98 /* ObjC */,
@@ -5205,6 +5432,8 @@
 		69A01E1A1236C5D400C660B5 /* common */ = {
 			isa = PBXGroup;
 			children = (
+				2579065A1BD0488100178368 /* TCPSocket.cpp */,
+				2579065B1BD0488100178368 /* UDPSocket.cpp */,
 				255EFF731AFABA720069F277 /* LockFileBase.cpp */,
 				250D6AE11A9679270049CC70 /* FileSystem.cpp */,
 				33E5E8411A672A240024ED68 /* StringConvert.cpp */,
@@ -5337,9 +5566,15 @@
 				949EED9F1BA74B64008C63CF /* CoreMedia.h */,
 				949EED9E1BA74B64008C63CF /* CoreMedia.cpp */,
 				949EEDA41BA765B5008C63CF /* NSArray.cpp */,
+				94B9E50E1BBEFDFE000A48DC /* NSDictionary.h */,
 				949EEDA51BA765B5008C63CF /* NSDictionary.cpp */,
+				940495781BEC497E00926025 /* NSError.cpp */,
+				940495791BEC497E00926025 /* NSException.cpp */,
 				949EEDA61BA765B5008C63CF /* NSIndexPath.cpp */,
+				94B9E50F1BBF0069000A48DC /* NSSet.h */,
 				949EEDA71BA765B5008C63CF /* NSSet.cpp */,
+				94B9E5101BBF20B7000A48DC /* NSString.h */,
+				94B9E5111BBF20F4000A48DC /* NSString.cpp */,
 			);
 			name = Formatters;
 			sourceTree = "<group>";
@@ -5357,6 +5592,7 @@
 			isa = PBXGroup;
 			children = (
 				94B6385A1B8FB109004FE1E4 /* CPlusPlus */,
+				AE44FB431BB4BAC20033EB62 /* Go */,
 				94B638551B8FAC87004FE1E4 /* ObjC */,
 				94B638601B8FB7BE004FE1E4 /* ObjCPlusPlus */,
 			);
@@ -5399,6 +5635,8 @@
 				945261C71B9A14D300BF138D /* CXXFunctionPointer.cpp */,
 				94CB256016B069800059775D /* DataVisualization.h */,
 				94CB255816B069770059775D /* DataVisualization.cpp */,
+				9447DE411BD5962900E67212 /* DumpValueObjectOptions.h */,
+				9447DE421BD5963300E67212 /* DumpValueObjectOptions.cpp */,
 				94CB257516B1D3910059775D /* FormatCache.h */,
 				94CB257316B1D3870059775D /* FormatCache.cpp */,
 				94CB256116B069800059775D /* FormatClasses.h */,
@@ -5442,6 +5680,48 @@
 			name = "SysV-mips";
 			sourceTree = "<group>";
 		};
+		AE44FB371BB35A2E0033EB62 /* Go */ = {
+			isa = PBXGroup;
+			children = (
+				AE44FB261BB07DC60033EB62 /* GoAST.h */,
+				AE44FB271BB07DC60033EB62 /* GoLexer.h */,
+				AE44FB2A1BB07DD80033EB62 /* GoLexer.cpp */,
+				AE44FB281BB07DC60033EB62 /* GoParser.h */,
+				AE44FB2B1BB07DD80033EB62 /* GoParser.cpp */,
+				AE44FB291BB07DC60033EB62 /* GoUserExpression.h */,
+				AE44FB2C1BB07DD80033EB62 /* GoUserExpression.cpp */,
+			);
+			name = Go;
+			sourceTree = "<group>";
+		};
+		AE44FB3B1BB485730033EB62 /* Go */ = {
+			isa = PBXGroup;
+			children = (
+				AE44FB3C1BB4858A0033EB62 /* GoLanguageRuntime.h */,
+				AE44FB3D1BB485960033EB62 /* GoLanguageRuntime.cpp */,
+			);
+			name = Go;
+			sourceTree = "<group>";
+		};
+		AE44FB431BB4BAC20033EB62 /* Go */ = {
+			isa = PBXGroup;
+			children = (
+				AE44FB491BB4BB1B0033EB62 /* Formatters */,
+				AE44FB461BB4BB090033EB62 /* GoLanguage.h */,
+				AE44FB451BB4BB090033EB62 /* GoLanguage.cpp */,
+			);
+			name = Go;
+			sourceTree = "<group>";
+		};
+		AE44FB491BB4BB1B0033EB62 /* Formatters */ = {
+			isa = PBXGroup;
+			children = (
+				AE44FB4B1BB4BB540033EB62 /* GoFormatterFunctions.h */,
+				AE44FB4A1BB4BB540033EB62 /* GoFormatterFunctions.cpp */,
+			);
+			name = Formatters;
+			sourceTree = "<group>";
+		};
 		AE8F624519EF3DFC00326B21 /* Go */ = {
 			isa = PBXGroup;
 			children = (
@@ -5449,6 +5729,14 @@
 				AE8F624819EF3E1E00326B21 /* OperatingSystemGo.h */,
 			);
 			name = Go;
+			sourceTree = "<group>";
+		};
+		AEC6FF9D1BE97035007882C1 /* Expression */ = {
+			isa = PBXGroup;
+			children = (
+				AEC6FF9F1BE970A2007882C1 /* GoParserTest.cpp */,
+			);
+			path = Expression;
 			sourceTree = "<group>";
 		};
 		AF11CB34182CA85A00D9B618 /* SystemRuntime */ = {
@@ -5532,6 +5820,8 @@
 		E769331B1A94D10E00C73337 /* lldb-server */ = {
 			isa = PBXGroup;
 			children = (
+				257906621BD5AFD000178368 /* Acceptor.cpp */,
+				257906631BD5AFD000178368 /* Acceptor.h */,
 				6D762BEC1B1605CD006C929D /* LLDBServerUtilities.cpp */,
 				6D762BED1B1605CD006C929D /* LLDBServerUtilities.h */,
 				E769331D1A94D18100C73337 /* lldb-server.cpp */,
@@ -5548,21 +5838,6 @@
 				E778E9A01B062D1700247609 /* EmulateInstructionMIPS.h */,
 			);
 			path = MIPS;
-			sourceTree = "<group>";
-		};
-		EDC6D49114E5C15C001B75F8 /* launcherXPCService */ = {
-			isa = PBXGroup;
-			children = (
-				EDC6D49214E5C15C001B75F8 /* LauncherXPCService-Info.plist */,
-				EDE274E114EDCE0D005B0F75 /* LauncherRootXPCService-Info.plist */,
-				EDC6D49314E5C15C001B75F8 /* LauncherXPCService.entitlements */,
-				ED88244F15114CA200BC98B9 /* main.mm */,
-				EDB919B214F6EC85008FF64B /* LauncherXPCService.h */,
-				EDC6D49414E5C15C001B75F8 /* LauncherXPCService.mm */,
-				ED88245215114CFC00BC98B9 /* LauncherRootXPCService.mm */,
-			);
-			name = launcherXPCService;
-			path = source/Host/macosx/launcherXPCService;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -5646,8 +5921,16 @@
 			isa = PBXHeadersBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				AF8AD6381BEC28C400150209 /* PlatformRemoteAppleTV.h in Headers */,
+				26EFB61C1BFE8D3E00544801 /* PlatformNetBSD.h in Headers */,
 				4984BA181B979C08008658D4 /* ExpressionVariable.h in Headers */,
+				26C7C4841BFFEA7E009BD01F /* WindowsMiniDump.h in Headers */,
+				AF8AD62F1BEC28A400150209 /* PlatformAppleTVSimulator.h in Headers */,
+				AF8AD63A1BEC28C400150209 /* PlatformRemoteAppleWatch.h in Headers */,
+				257906651BD5AFD000178368 /* Acceptor.h in Headers */,
 				260A63171861008E00FECF8E /* IOHandler.h in Headers */,
+				AFCB2BBE1BF577F40018B553 /* PythonExceptionState.h in Headers */,
+				AF8AD6311BEC28A400150209 /* PlatformAppleWatchSimulator.h in Headers */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -5685,6 +5968,24 @@
 /* End PBXLegacyTarget section */
 
 /* Begin PBXNativeTarget section */
+		239504D31BDD451400963CEA /* lldb-gtest */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 239504DD1BDD451400963CEA /* Build configuration list for PBXNativeTarget "lldb-gtest" */;
+			buildPhases = (
+				239504D01BDD451400963CEA /* Sources */,
+				239504D11BDD451400963CEA /* Frameworks */,
+				239504D21BDD451400963CEA /* CopyFiles */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				23AB8B6B1BDF513B008BF3B0 /* PBXTargetDependency */,
+			);
+			name = "lldb-gtest";
+			productName = "lldb-gtest";
+			productReference = 239504D41BDD451400963CEA /* lldb-gtest */;
+			productType = "com.apple.product-type.tool";
+		};
 		26579F67126A25920007C5CB /* darwin-debug */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 26579F6D126A25BF0007C5CB /* Build configuration list for PBXNativeTarget "darwin-debug" */;
@@ -5705,7 +6006,7 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = 2668020B115FD0EE008E1FE4 /* Build configuration list for PBXNativeTarget "LLDB" */;
 			buildPhases = (
-				26DC6A5813380D4300FF7998 /* Build swig wrapper classes */,
+				26DC6A5813380D4300FF7998 /* Prepare Swig Bindings */,
 				26680202115FD0ED008E1FE4 /* Headers */,
 				26680203115FD0ED008E1FE4 /* Resources */,
 				26680204115FD0ED008E1FE4 /* Sources */,
@@ -5788,7 +6089,6 @@
 			buildPhases = (
 				26F5C26710F3D9A4009D5894 /* Sources */,
 				26F5C26810F3D9A4009D5894 /* Frameworks */,
-				25ED0ED41A70979C00E3DA2E /* ShellScript */,
 			);
 			buildRules = (
 			);
@@ -5800,9 +6100,9 @@
 			productReference = 26F5C26A10F3D9A4009D5894 /* lldb */;
 			productType = "com.apple.product-type.tool";
 		};
-		942829BF1A89835300521B30 /* argdumper */ = {
+		942829BF1A89835300521B30 /* lldb-argdumper */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 942829C41A89835400521B30 /* Build configuration list for PBXNativeTarget "argdumper" */;
+			buildConfigurationList = 942829C41A89835400521B30 /* Build configuration list for PBXNativeTarget "lldb-argdumper" */;
 			buildPhases = (
 				942829BC1A89835300521B30 /* Sources */,
 				942829BD1A89835300521B30 /* Frameworks */,
@@ -5814,44 +6114,10 @@
 			dependencies = (
 				942829CA1A89836A00521B30 /* PBXTargetDependency */,
 			);
-			name = argdumper;
+			name = "lldb-argdumper";
 			productName = argdumper;
-			productReference = 942829C01A89835300521B30 /* argdumper */;
+			productReference = 942829C01A89835300521B30 /* lldb-argdumper */;
 			productType = "com.apple.product-type.tool";
-		};
-		EDC6D49814E5C19B001B75F8 /* launcherXPCService */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = EDC6D4A614E5C19B001B75F8 /* Build configuration list for PBXNativeTarget "launcherXPCService" */;
-			buildPhases = (
-				EDC6D49514E5C19B001B75F8 /* Sources */,
-				EDC6D49614E5C19B001B75F8 /* Frameworks */,
-				EDC6D49714E5C19B001B75F8 /* Resources */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-			);
-			name = launcherXPCService;
-			productName = launcherXPCService;
-			productReference = EDC6D49914E5C19B001B75F8 /* com.apple.lldb.launcherXPCService.xpc */;
-			productType = "com.apple.product-type.bundle";
-		};
-		EDE274E214EDCE1F005B0F75 /* launcherRootXPCService */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = EDE274E814EDCE1F005B0F75 /* Build configuration list for PBXNativeTarget "launcherRootXPCService" */;
-			buildPhases = (
-				EDE274E314EDCE1F005B0F75 /* Sources */,
-				EDE274E514EDCE1F005B0F75 /* Frameworks */,
-				EDE274E714EDCE1F005B0F75 /* Resources */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-			);
-			name = launcherRootXPCService;
-			productName = launcherXPCService;
-			productReference = EDE274EC14EDCE1F005B0F75 /* com.apple.lldb.launcherRootXPCService.xpc */;
-			productType = "com.apple.product-type.bundle";
 		};
 /* End PBXNativeTarget section */
 
@@ -5860,8 +6126,11 @@
 			isa = PBXProject;
 			attributes = {
 				LastSwiftUpdateCheck = 0700;
-				LastUpgradeCheck = 0610;
+				LastUpgradeCheck = 0720;
 				TargetAttributes = {
+					239504D31BDD451400963CEA = {
+						CreatedOnToolsVersion = 7.1;
+					};
 					2690CD161A6DC0D000E717C8 = {
 						CreatedOnToolsVersion = 6.3;
 					};
@@ -5895,18 +6164,24 @@
 				26579F67126A25920007C5CB /* darwin-debug */,
 				2689FFC913353D7A00698AC0 /* lldb-core */,
 				26DC6A0F1337FE6900FF7998 /* lldb-server */,
-				EDC6D49814E5C19B001B75F8 /* launcherXPCService */,
-				EDE274E214EDCE1F005B0F75 /* launcherRootXPCService */,
 				2687EAC51508110B00DD8C2E /* install-headers */,
 				235AFBB5199BC6AD00897A4B /* Linux */,
 				235AFBBB199BC6FD00897A4B /* MacOSX and Linux */,
 				2690CD161A6DC0D000E717C8 /* lldb-mi */,
-				942829BF1A89835300521B30 /* argdumper */,
+				942829BF1A89835300521B30 /* lldb-argdumper */,
+				239504D31BDD451400963CEA /* lldb-gtest */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXReferenceProxy section */
+		239504C51BDD3FD700963CEA /* debugserver */ = {
+			isa = PBXReferenceProxy;
+			fileType = "compiled.mach-o.executable";
+			path = debugserver;
+			remoteRef = 239504C41BDD3FD700963CEA /* PBXContainerItemProxy */;
+			sourceTree = BUILT_PRODUCTS_DIR;
+		};
 		26CE05A0115C31E50022F371 /* debugserver */ = {
 			isa = PBXReferenceProxy;
 			fileType = "compiled.mach-o.executable";
@@ -5927,36 +6202,9 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		EDC6D49714E5C19B001B75F8 /* Resources */ = {
-			isa = PBXResourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		EDE274E714EDCE1F005B0F75 /* Resources */ = {
-			isa = PBXResourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
-		25ED0ED41A70979C00E3DA2E /* ShellScript */ = {
-			isa = PBXShellScriptBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputPaths = (
-			);
-			outputPaths = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "if [ \"${CONFIGURATION}\" != BuildAndIntegration ]\nthen\ncodesign -f -s lldb_codesign \"${TARGET_BUILD_DIR}/${PRODUCT_NAME}\"\nfi";
-		};
 		261B5A7511C3FA6F00AABD0A /* Fixup Framework Headers */ = {
 			isa = PBXShellScriptBuildPhase;
 			buildActionMask = 2147483647;
@@ -5988,19 +6236,19 @@
 			shellPath = /bin/sh;
 			shellScript = "perl $SRCROOT/scripts/build-llvm.pl";
 		};
-		26DC6A5813380D4300FF7998 /* Build swig wrapper classes */ = {
+		26DC6A5813380D4300FF7998 /* Prepare Swig Bindings */ = {
 			isa = PBXShellScriptBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
 			);
 			inputPaths = (
 			);
-			name = "Build swig wrapper classes";
+			name = "Prepare Swig Bindings";
 			outputPaths = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "$SRCROOT/scripts/build-swig-wrapper-classes.sh $SRCROOT $TARGET_BUILD_DIR $CONFIGURATION_BUILD_DIR \"\"\n";
+			shellPath = /bin/bash;
+			shellScript = "/usr/bin/python $SRCROOT/scripts/prepare_bindings.py --find-swig --framework --src-root $SRCROOT --target-dir $TARGET_BUILD_DIR --config-build-dir $CONFIGURATION_BUILD_DIR";
 		};
 		4959511A1A1ACE9500F6F8FC /* Install Clang compiler headers */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -6028,7 +6276,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "if [ \"${CONFIGURATION}\" != BuildAndIntegration ]\nthen\n    codesign -f -s lldb_codesign \"${TARGET_BUILD_DIR}/${TARGET_NAME}\"\nfi\n";
+			shellScript = "if [ \"${CONFIGURATION}\" != BuildAndIntegration ]\nthen\n    if [ \"${DEBUGSERVER_USE_FROM_SYSTEM}\" == \"\" ]\n    then\n        if [ \"${DEBUGSERVER_DISABLE_CODESIGN}\" == \"\" ]\n        then\n            codesign -f -s lldb_codesign \"${TARGET_BUILD_DIR}/${TARGET_NAME}\"\n        fi\n    fi\nfi\n";
 		};
 		940B04E21A89871F0045D5F7 /* ShellScript */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -6081,6 +6329,25 @@
 /* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		239504D01BDD451400963CEA /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AEC6FFA01BE970A2007882C1 /* GoParserTest.cpp in Sources */,
+				239504E51BDD454B00963CEA /* UriParserTest.cpp in Sources */,
+				AF45E1FE1BF57C8D000563EB /* PythonTestSuite.cpp in Sources */,
+				3FA093151BF65D3A0037DD08 /* PythonExceptionStateTests.cpp in Sources */,
+				239504DF1BDD453200963CEA /* SocketTest.cpp in Sources */,
+				239504E11BDD453E00963CEA /* TestArgs.cpp in Sources */,
+				239504E21BDD454500963CEA /* PythonDataObjectsTests.cpp in Sources */,
+				239504E01BDD453200963CEA /* SymbolsTest.cpp in Sources */,
+				239504E31BDD454B00963CEA /* StringExtractorTest.cpp in Sources */,
+				239504E41BDD454B00963CEA /* TaskPoolTest.cpp in Sources */,
+				239504DE1BDD453200963CEA /* SocketAddressTest.cpp in Sources */,
+				2326CF521BDD693B00A5CEAC /* EditlineTest.cpp in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		26579F65126A25920007C5CB /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -6165,6 +6432,7 @@
 				2689FFDA13353D9D00698AC0 /* lldb.cpp in Sources */,
 				4C0083401B9F9BA900D5CF24 /* UtilityFunction.cpp in Sources */,
 				26474CCD18D0CB5B0073DEBA /* RegisterContextPOSIX_x86.cpp in Sources */,
+				AEB0E4591BD6E9F800B24093 /* LLVMUserExpression.cpp in Sources */,
 				2689FFEF13353DB600698AC0 /* Breakpoint.cpp in Sources */,
 				267A47FB1B1411C40021A5BC /* NativeRegisterContext.cpp in Sources */,
 				2689FFF113353DB600698AC0 /* BreakpointID.cpp in Sources */,
@@ -6200,6 +6468,7 @@
 				2689001113353DB600698AC0 /* Watchpoint.cpp in Sources */,
 				2689001213353DDE00698AC0 /* CommandObjectApropos.cpp in Sources */,
 				4C88BC2A1BA3722B00AA0964 /* Expression.cpp in Sources */,
+				AE44FB4C1BB4BB540033EB62 /* GoFormatterFunctions.cpp in Sources */,
 				23042D121976CA1D00621B2C /* PlatformKalimba.cpp in Sources */,
 				2689001313353DDE00698AC0 /* CommandObjectArgs.cpp in Sources */,
 				2689001413353DDE00698AC0 /* CommandObjectBreakpoint.cpp in Sources */,
@@ -6210,6 +6479,7 @@
 				26474CAC18D0CB070073DEBA /* RegisterContextFreeBSD_x86_64.cpp in Sources */,
 				2689001713353DDE00698AC0 /* CommandObjectDisassemble.cpp in Sources */,
 				2689001813353DDE00698AC0 /* CommandObjectExpression.cpp in Sources */,
+				9404957B1BEC497E00926025 /* NSException.cpp in Sources */,
 				2689001A13353DDE00698AC0 /* CommandObjectFrame.cpp in Sources */,
 				2689001B13353DDE00698AC0 /* CommandObjectHelp.cpp in Sources */,
 				23F4034D1926E0F60046DC9B /* NativeRegisterContextRegisterInfo.cpp in Sources */,
@@ -6229,6 +6499,7 @@
 				2689002513353DDE00698AC0 /* CommandObjectSource.cpp in Sources */,
 				2689002613353DDE00698AC0 /* CommandObjectSyntax.cpp in Sources */,
 				267A48011B1411E40021A5BC /* XML.cpp in Sources */,
+				AF8AD6371BEC28C400150209 /* PlatformRemoteAppleTV.cpp in Sources */,
 				2666ADC61B3CB675001FAFD3 /* DynamicLoaderHexagonDYLD.cpp in Sources */,
 				3F8169331ABB7A6D001DA9DF /* SystemLifetimeManager.cpp in Sources */,
 				4959511F1A1BC4BC00F6F8FC /* ClangModulesDeclVendor.cpp in Sources */,
@@ -6253,7 +6524,9 @@
 				2689003213353E0400698AC0 /* Communication.cpp in Sources */,
 				2689003313353E0400698AC0 /* Connection.cpp in Sources */,
 				2689003513353E0400698AC0 /* ConstString.cpp in Sources */,
+				9404957A1BEC497E00926025 /* NSError.cpp in Sources */,
 				2689003613353E0400698AC0 /* DataBufferHeap.cpp in Sources */,
+				AFCB2BBD1BF577F40018B553 /* PythonExceptionState.cpp in Sources */,
 				2689003713353E0400698AC0 /* DataBufferMemoryMap.cpp in Sources */,
 				2689003813353E0400698AC0 /* DataExtractor.cpp in Sources */,
 				2689003913353E0400698AC0 /* Debugger.cpp in Sources */,
@@ -6274,24 +6547,29 @@
 				2689004313353E0400698AC0 /* Mangled.cpp in Sources */,
 				2689004413353E0400698AC0 /* Module.cpp in Sources */,
 				2689004513353E0400698AC0 /* ModuleChild.cpp in Sources */,
-				23EDE33319269E7C00F6A132 /* NativeRegisterContext.cpp in Sources */,
+				AF8AD6301BEC28A400150209 /* PlatformAppleWatchSimulator.cpp in Sources */,
 				266E829D1B8E542C008FCA06 /* DWARFAttribute.cpp in Sources */,
 				2689004613353E0400698AC0 /* ModuleList.cpp in Sources */,
 				2689004713353E0400698AC0 /* PluginManager.cpp in Sources */,
+				AE44FB3E1BB485960033EB62 /* GoLanguageRuntime.cpp in Sources */,
 				AF0C112818580CD800C4C45B /* QueueItem.cpp in Sources */,
 				AF254E31170CCC33007AE5C9 /* PlatformDarwinKernel.cpp in Sources */,
 				2689004813353E0400698AC0 /* RegularExpression.cpp in Sources */,
 				2689004913353E0400698AC0 /* Scalar.cpp in Sources */,
 				AF20F7701AF1902900751A6E /* RegisterContextLinux_arm64.cpp in Sources */,
 				263FDE601A79A01500E68013 /* FormatEntity.cpp in Sources */,
+				AF8AD62E1BEC28A400150209 /* PlatformAppleTVSimulator.cpp in Sources */,
 				2689004A13353E0400698AC0 /* SearchFilter.cpp in Sources */,
 				2689004B13353E0400698AC0 /* Section.cpp in Sources */,
 				4984BA161B979973008658D4 /* ExpressionVariable.cpp in Sources */,
 				2689004C13353E0400698AC0 /* SourceManager.cpp in Sources */,
 				2689004D13353E0400698AC0 /* State.cpp in Sources */,
+				6D99A3631BBC2F3200979793 /* ArmUnwindInfo.cpp in Sources */,
 				4984BA131B978C55008658D4 /* ClangExpressionVariable.cpp in Sources */,
 				3F81691A1ABA2419001DA9DF /* NameMatches.cpp in Sources */,
+				94B9E5121BBF20F4000A48DC /* NSString.cpp in Sources */,
 				AF0E22F018A09FB20009B7D1 /* AppleGetItemInfoHandler.cpp in Sources */,
+				AE44FB301BB07EB20033EB62 /* GoUserExpression.cpp in Sources */,
 				2689004E13353E0400698AC0 /* Stream.cpp in Sources */,
 				2689004F13353E0400698AC0 /* StreamFile.cpp in Sources */,
 				2689005013353E0400698AC0 /* StreamString.cpp in Sources */,
@@ -6322,6 +6600,7 @@
 				2689005F13353E0E00698AC0 /* ClangFunctionCaller.cpp in Sources */,
 				2689006013353E0E00698AC0 /* ClangExpressionDeclMap.cpp in Sources */,
 				2689006113353E0E00698AC0 /* ClangExpressionParser.cpp in Sources */,
+				4939EA8D1BD56B6D00084382 /* REPL.cpp in Sources */,
 				B5EFAE861AE53B1D007059F3 /* RegisterContextFreeBSD_arm.cpp in Sources */,
 				2689006313353E0E00698AC0 /* ClangPersistentVariables.cpp in Sources */,
 				2689006413353E0E00698AC0 /* ClangUserExpression.cpp in Sources */,
@@ -6371,6 +6650,7 @@
 				2689008013353E2200698AC0 /* CommandInterpreter.cpp in Sources */,
 				AF77E0A41A033D360096C0EA /* RegisterContextPOSIX_powerpc.cpp in Sources */,
 				AF9B8F33182DB52900DA866F /* SystemRuntimeMacOSX.cpp in Sources */,
+				9447DE431BD5963300E67212 /* DumpValueObjectOptions.cpp in Sources */,
 				2689008113353E2200698AC0 /* CommandObject.cpp in Sources */,
 				3F8160A61AB9F7DD001DA9DF /* Logging.cpp in Sources */,
 				26BF51F61B3C754400016294 /* ABISysV_i386.cpp in Sources */,
@@ -6386,6 +6666,7 @@
 				2689008D13353E4200698AC0 /* DynamicLoaderMacOSXDYLD.cpp in Sources */,
 				2689008E13353E4200698AC0 /* DynamicLoaderStatic.cpp in Sources */,
 				2689009613353E4200698AC0 /* ObjectContainerBSDArchive.cpp in Sources */,
+				2579065D1BD0488100178368 /* UDPSocket.cpp in Sources */,
 				AE8F624919EF3E1E00326B21 /* OperatingSystemGo.cpp in Sources */,
 				26BC179A18C7F2B300D2196D /* JITLoaderList.cpp in Sources */,
 				2689009713353E4200698AC0 /* ObjectContainerUniversalMachO.cpp in Sources */,
@@ -6407,9 +6688,9 @@
 				949EEDA31BA76577008C63CF /* Cocoa.cpp in Sources */,
 				3FDFE56C19AF9C44009756A7 /* HostProcessPosix.cpp in Sources */,
 				268900B413353E5000698AC0 /* RegisterContextMacOSXFrameBackchain.cpp in Sources */,
+				AE44FB321BB07EBC0033EB62 /* GoParser.cpp in Sources */,
 				3F8169311ABB7A6D001DA9DF /* SystemInitializer.cpp in Sources */,
 				949EEDB21BA76731008C63CF /* NSIndexPath.cpp in Sources */,
-				267A47FD1B1411CC0021A5BC /* NativeRegisterContextRegisterInfo.cpp in Sources */,
 				3FDFED2D19C257A0009756A7 /* HostProcess.cpp in Sources */,
 				268900B513353E5000698AC0 /* StopInfoMachException.cpp in Sources */,
 				268900B613353E5000698AC0 /* UnwindMacOSXFrameBackchain.cpp in Sources */,
@@ -6430,6 +6711,7 @@
 				25EF23781AC09B3700908DF0 /* AdbClient.cpp in Sources */,
 				94380B8219940B0A00BFE4A8 /* StringLexer.cpp in Sources */,
 				268900C413353E5F00698AC0 /* DWARFDefines.cpp in Sources */,
+				945563101BEAD0650073F75F /* PlatformiOSSimulatorCoreSimulatorSupport.mm in Sources */,
 				268900C513353E5F00698AC0 /* DWARFDIECollection.cpp in Sources */,
 				268900C613353E5F00698AC0 /* DWARFFormValue.cpp in Sources */,
 				3FDFE53119A292F0009756A7 /* HostInfoPosix.cpp in Sources */,
@@ -6455,7 +6737,9 @@
 				268900D313353E6F00698AC0 /* ClangExternalASTSourceCallbacks.cpp in Sources */,
 				268900D513353E6F00698AC0 /* CompileUnit.cpp in Sources */,
 				268900D613353E6F00698AC0 /* Declaration.cpp in Sources */,
+				2579065C1BD0488100178368 /* TCPSocket.cpp in Sources */,
 				268900D713353E6F00698AC0 /* DWARFCallFrameInfo.cpp in Sources */,
+				26C7C4831BFFEA7E009BD01F /* WindowsMiniDump.cpp in Sources */,
 				268900D813353E6F00698AC0 /* Function.cpp in Sources */,
 				268900D913353E6F00698AC0 /* FuncUnwinders.cpp in Sources */,
 				268900DA13353E6F00698AC0 /* LineEntry.cpp in Sources */,
@@ -6476,6 +6760,7 @@
 				268900E513353E6F00698AC0 /* UnwindTable.cpp in Sources */,
 				268900E613353E6F00698AC0 /* Variable.cpp in Sources */,
 				268900E713353E6F00698AC0 /* VariableList.cpp in Sources */,
+				257906641BD5AFD000178368 /* Acceptor.cpp in Sources */,
 				268900E813353E6F00698AC0 /* ABI.cpp in Sources */,
 				4C56543119D1EFAA002E9C44 /* ThreadPlanPython.cpp in Sources */,
 				26AB92121819D74600E63F3E /* DWARFDataExtractor.cpp in Sources */,
@@ -6513,6 +6798,7 @@
 				94B6385D1B8FB178004FE1E4 /* CPlusPlusLanguage.cpp in Sources */,
 				268900FE13353E6F00698AC0 /* ThreadPlanCallUserExpression.cpp in Sources */,
 				268900FF13353E6F00698AC0 /* ThreadPlanShouldStopHere.cpp in Sources */,
+				2579065F1BD0488D00178368 /* DomainSocket.cpp in Sources */,
 				2689010013353E6F00698AC0 /* ThreadPlanStepInstruction.cpp in Sources */,
 				232CB61B191E00CD00EF39FC /* NativeThreadProtocol.cpp in Sources */,
 				2689010113353E6F00698AC0 /* ThreadPlanStepOut.cpp in Sources */,
@@ -6566,6 +6852,7 @@
 				26D5E163135BB054006EA0A7 /* OptionGroupPlatform.cpp in Sources */,
 				94CD131A19BA33B400DB7BED /* TypeValidator.cpp in Sources */,
 				26BD407F135D2AE000237D80 /* FileLineResolver.cpp in Sources */,
+				AE44FB311BB07EB80033EB62 /* GoLexer.cpp in Sources */,
 				26A7A035135E6E4200FB369E /* OptionValue.cpp in Sources */,
 				9A22A161135E30370024DDC3 /* EmulateInstructionARM.cpp in Sources */,
 				AFDFDFD119E34D3400EAE509 /* ConnectionFileDescriptorPosix.cpp in Sources */,
@@ -6627,7 +6914,7 @@
 				945261C31B9A11FC00BF138D /* LibCxxMap.cpp in Sources */,
 				265205A813D3E3F700132FE2 /* RegisterContextKDP_arm.cpp in Sources */,
 				265205AA13D3E3F700132FE2 /* RegisterContextKDP_i386.cpp in Sources */,
-				AF77E0A31A033D360096C0EA /* RegisterContextMacOSXFrameBackchain.cpp in Sources */,
+				6DEC6F391BD66D750091ABA6 /* TaskPool.cpp in Sources */,
 				265205AC13D3E3F700132FE2 /* RegisterContextKDP_x86_64.cpp in Sources */,
 				2628A4D513D4977900F5487A /* ThreadKDP.cpp in Sources */,
 				26D7E45D13D5E30A007FD12B /* SocketAddress.cpp in Sources */,
@@ -6637,7 +6924,9 @@
 				26F4A21C13FBA31A0064B613 /* ThreadMemory.cpp in Sources */,
 				3FBA69E11B6067120008F44A /* ScriptInterpreterNone.cpp in Sources */,
 				266DFE9713FD656E00D0C574 /* OperatingSystem.cpp in Sources */,
+				AF8AD6391BEC28C400150209 /* PlatformRemoteAppleWatch.cpp in Sources */,
 				26954EBE1401EE8B00294D09 /* DynamicRegisterInfo.cpp in Sources */,
+				6D9AB3DD1BB2B74E003F2289 /* TypeMap.cpp in Sources */,
 				255EFF761AFABA950069F277 /* LockFilePosix.cpp in Sources */,
 				3FBA69EC1B6067430008F44A /* PythonDataObjects.cpp in Sources */,
 				26274FA714030F79006BA130 /* DynamicLoaderDarwinKernel.cpp in Sources */,
@@ -6675,11 +6964,13 @@
 				945759671534941F005A9070 /* PlatformPOSIX.cpp in Sources */,
 				26B1EFAE154638AF00E2DAC7 /* DWARFDeclContext.cpp in Sources */,
 				945215DF17F639EE00521C0B /* ValueObjectPrinter.cpp in Sources */,
+				26EFB61B1BFE8D3E00544801 /* PlatformNetBSD.cpp in Sources */,
 				260CC64815D0440D002BF2E0 /* OptionValueArgs.cpp in Sources */,
 				260CC64915D0440D002BF2E0 /* OptionValueArray.cpp in Sources */,
 				260CC64A15D0440D002BF2E0 /* OptionValueBoolean.cpp in Sources */,
 				260CC64B15D0440D002BF2E0 /* OptionValueProperties.cpp in Sources */,
 				3FDFED0C19B7C8E7009756A7 /* ThisThread.cpp in Sources */,
+				9455630F1BEAD0600073F75F /* PlatformAppleSimulator.cpp in Sources */,
 				6D86CEA01B440F8500A7FBFA /* CommandObjectBugreport.cpp in Sources */,
 				260CC64C15D0440D002BF2E0 /* OptionValueDictionary.cpp in Sources */,
 				49DCF6FE170E6B4A0092F75E /* IRMemoryMap.cpp in Sources */,
@@ -6709,6 +7000,7 @@
 				2698699B15E6CBD0002415FF /* OperatingSystemPython.cpp in Sources */,
 				947A1D641616476B0017C8D1 /* CommandObjectPlugin.cpp in Sources */,
 				2666ADC81B3CB675001FAFD3 /* HexagonDYLDRendezvous.cpp in Sources */,
+				AE44FB471BB4BB090033EB62 /* GoLanguage.cpp in Sources */,
 				262ED0081631FA3A00879631 /* OptionGroupString.cpp in Sources */,
 				94F48F251A01C687005C0EC6 /* StringPrinter.cpp in Sources */,
 				94094C6B163B6F840083A547 /* ValueObjectCast.cpp in Sources */,
@@ -6838,24 +7130,6 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		EDC6D49514E5C19B001B75F8 /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				ED88245015114CA200BC98B9 /* main.mm in Sources */,
-				EDC6D4AA14E5C49E001B75F8 /* LauncherXPCService.mm in Sources */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		EDE274E314EDCE1F005B0F75 /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				ED88245115114CA200BC98B9 /* main.mm in Sources */,
-				ED88245315114CFC00BC98B9 /* LauncherRootXPCService.mm in Sources */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -6868,6 +7142,11 @@
 			isa = PBXTargetDependency;
 			target = 235AFBB5199BC6AD00897A4B /* Linux */;
 			targetProxy = 235AFBC3199BC70B00897A4B /* PBXContainerItemProxy */;
+		};
+		23AB8B6B1BDF513B008BF3B0 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 2689FFC913353D7A00698AC0 /* lldb-core */;
+			targetProxy = 23AB8B6A1BDF513B008BF3B0 /* PBXContainerItemProxy */;
 		};
 		262CFC7211A450CB00946C6C /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
@@ -6919,16 +7198,6 @@
 			target = 26F5C26910F3D9A4009D5894 /* lldb-tool */;
 			targetProxy = 26CEF3AF14FD591F007286B2 /* PBXContainerItemProxy */;
 		};
-		26CEF3B714FD594E007286B2 /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = EDC6D49814E5C19B001B75F8 /* launcherXPCService */;
-			targetProxy = 26CEF3B614FD594E007286B2 /* PBXContainerItemProxy */;
-		};
-		26CEF3B914FD5952007286B2 /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = EDE274E214EDCE1F005B0F75 /* launcherRootXPCService */;
-			targetProxy = 26CEF3B814FD5952007286B2 /* PBXContainerItemProxy */;
-		};
 		26CEF3BB14FD595B007286B2 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = 26F5C26910F3D9A4009D5894 /* lldb-tool */;
@@ -6956,7 +7225,7 @@
 		};
 		942829CE1A89842900521B30 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			target = 942829BF1A89835300521B30 /* argdumper */;
+			target = 942829BF1A89835300521B30 /* lldb-argdumper */;
 			targetProxy = 942829CD1A89842900521B30 /* PBXContainerItemProxy */;
 		};
 		94E829C9152D33B4006F96A3 /* PBXTargetDependency */ = {
@@ -6992,6 +7261,7 @@
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				GCC_C_LANGUAGE_STANDARD = c99;
+				GCC_NO_COMMON_BLOCKS = YES;
 				GCC_OPTIMIZATION_LEVEL = 0;
 				GCC_PREPROCESSOR_DEFINITIONS = (
 					__STDC_CONSTANT_MACROS,
@@ -7048,6 +7318,9 @@
 					"$(LLDB_COMPRESSION_LDFLAGS)",
 					"$(LLDB_ZLIB_LDFLAGS)",
 				);
+				PYTHON_FRAMEWORK_PATH = /System/Library/Frameworks/Python.framework;
+				PYTHON_VERSION_MAJOR = 2;
+				PYTHON_VERSION_MINOR = 7;
 				SDKROOT = "";
 				STRIP_INSTALLED_PRODUCT = NO;
 				STRIP_STYLE = debugging;
@@ -7074,6 +7347,7 @@
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				GCC_C_LANGUAGE_STANDARD = c99;
+				GCC_NO_COMMON_BLOCKS = YES;
 				GCC_PREPROCESSOR_DEFINITIONS = (
 					__STDC_CONSTANT_MACROS,
 					__STDC_LIMIT_MACROS,
@@ -7129,6 +7403,9 @@
 					"$(LLDB_COMPRESSION_LDFLAGS)",
 					"$(LLDB_ZLIB_LDFLAGS)",
 				);
+				PYTHON_FRAMEWORK_PATH = /System/Library/Frameworks/Python.framework;
+				PYTHON_VERSION_MAJOR = 2;
+				PYTHON_VERSION_MINOR = 7;
 				SDKROOT = "";
 				STRIP_INSTALLED_PRODUCT = NO;
 				STRIP_STYLE = debugging;
@@ -7292,6 +7569,154 @@
 			};
 			name = BuildAndIntegration;
 		};
+		239504D81BDD451400963CEA /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"\"$(SYSTEM_LIBRARY_DIR)/PrivateFrameworks\"",
+					"$(SYSTEM_LIBRARY_DIR)/Frameworks/CoreServices.framework/Frameworks",
+				);
+				LLDB_GTESTS_CFLAGS = "-I $(LLVM_SOURCE_DIR)/utils/unittest/googletest/include -I $(LLVM_SOURCE_DIR)/include -I $(LLVM_BUILD_DIR)/x86_64/include -I include -I source -I $(PYTHON_FRAMEWORK_PATH)/Headers";
+				LLDB_GTESTS_LDFLAGS = "$(LLVM_BUILD_DIR)/x86_64/$(LLVM_CONFIGURATION)/lib/libgtest.a -L $(PYTHON_FRAMEWORK_PATH)/Versions/$(PYTHON_VERSION_MAJOR).$(PYTHON_VERSION_MINOR)/lib -l python$(PYTHON_VERSION_MAJOR).$(PYTHON_VERSION_MINOR)";
+				OTHER_CFLAGS = (
+					"-flimit-debug-info",
+					"-Wparentheses",
+					"$(LLDB_ZLIB_CFLAGS)",
+					"$(LLDB_COMPRESSION_CFLAGS)",
+					"$(LLDB_GTESTS_CFLAGS)",
+				);
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-filelist",
+					"$(LLVM_BUILD_DIR)/archives.txt",
+					"-framework",
+					Foundation,
+					"-framework",
+					DebugSymbols,
+					"-framework",
+					Security,
+					"-framework",
+					CoreServices,
+					"-framework",
+					ApplicationServices,
+					"$(LLDB_GTESTS_LDFLAGS)",
+				);
+				PRODUCT_NAME = "$(TARGET_NAME)";
+			};
+			name = Debug;
+		};
+		239504D91BDD451400963CEA /* DebugClang */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"\"$(SYSTEM_LIBRARY_DIR)/PrivateFrameworks\"",
+					"$(SYSTEM_LIBRARY_DIR)/Frameworks/CoreServices.framework/Frameworks",
+				);
+				LLDB_GTESTS_CFLAGS = "-I $(LLVM_SOURCE_DIR)/utils/unittest/googletest/include -I $(LLVM_SOURCE_DIR)/include -I $(LLVM_BUILD_DIR)/x86_64/include -I include -I source -I $(PYTHON_FRAMEWORK_PATH)/Headers";
+				LLDB_GTESTS_LDFLAGS = "$(LLVM_BUILD_DIR)/x86_64/$(LLVM_CONFIGURATION)/lib/libgtest.a -L $(PYTHON_FRAMEWORK_PATH)/Versions/$(PYTHON_VERSION_MAJOR).$(PYTHON_VERSION_MINOR)/lib -l python$(PYTHON_VERSION_MAJOR).$(PYTHON_VERSION_MINOR)";
+				OTHER_CFLAGS = (
+					"-flimit-debug-info",
+					"-Wparentheses",
+					"$(LLDB_ZLIB_CFLAGS)",
+					"$(LLDB_COMPRESSION_CFLAGS)",
+					"$(LLDB_GTESTS_CFLAGS)",
+				);
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-filelist",
+					"$(LLVM_BUILD_DIR)/archives.txt",
+					"-framework",
+					Foundation,
+					"-framework",
+					DebugSymbols,
+					"-framework",
+					Security,
+					"-framework",
+					CoreServices,
+					"-framework",
+					ApplicationServices,
+					"$(LLDB_GTESTS_LDFLAGS)",
+				);
+				PRODUCT_NAME = "$(TARGET_NAME)";
+			};
+			name = DebugClang;
+		};
+		239504DA1BDD451400963CEA /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"\"$(SYSTEM_LIBRARY_DIR)/PrivateFrameworks\"",
+					"$(SYSTEM_LIBRARY_DIR)/Frameworks/CoreServices.framework/Frameworks",
+				);
+				LLDB_GTESTS_CFLAGS = "-I $(LLVM_SOURCE_DIR)/utils/unittest/googletest/include -I $(LLVM_SOURCE_DIR)/include -I $(LLVM_BUILD_DIR)/x86_64/include -I include -I source -I $(PYTHON_FRAMEWORK_PATH)/Headers";
+				LLDB_GTESTS_LDFLAGS = "$(LLVM_BUILD_DIR)/x86_64/$(LLVM_CONFIGURATION)/lib/libgtest.a -L $(PYTHON_FRAMEWORK_PATH)/Versions/$(PYTHON_VERSION_MAJOR).$(PYTHON_VERSION_MINOR)/lib -l python$(PYTHON_VERSION_MAJOR).$(PYTHON_VERSION_MINOR)";
+				OTHER_CFLAGS = (
+					"-flimit-debug-info",
+					"-Wparentheses",
+					"$(LLDB_ZLIB_CFLAGS)",
+					"$(LLDB_COMPRESSION_CFLAGS)",
+					"$(LLDB_GTESTS_CFLAGS)",
+				);
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-filelist",
+					"$(LLVM_BUILD_DIR)/archives.txt",
+					"-framework",
+					Foundation,
+					"-framework",
+					DebugSymbols,
+					"-framework",
+					Security,
+					"-framework",
+					CoreServices,
+					"-framework",
+					ApplicationServices,
+					"$(LLDB_GTESTS_LDFLAGS)",
+				);
+				PRODUCT_NAME = "$(TARGET_NAME)";
+			};
+			name = Release;
+		};
+		239504DB1BDD451400963CEA /* BuildAndIntegration */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"\"$(SYSTEM_LIBRARY_DIR)/PrivateFrameworks\"",
+					"$(SYSTEM_LIBRARY_DIR)/Frameworks/CoreServices.framework/Frameworks",
+				);
+				LLDB_GTESTS_CFLAGS = "-I $(LLVM_SOURCE_DIR)/utils/unittest/googletest/include -I $(LLVM_SOURCE_DIR)/include -I $(LLVM_BUILD_DIR)/x86_64/include -I include -I source -I $(PYTHON_FRAMEWORK_PATH)/Headers";
+				LLDB_GTESTS_LDFLAGS = "$(LLVM_BUILD_DIR)/x86_64/$(LLVM_CONFIGURATION)/lib/libgtest.a -L $(PYTHON_FRAMEWORK_PATH)/Versions/$(PYTHON_VERSION_MAJOR).$(PYTHON_VERSION_MINOR)/lib -l python$(PYTHON_VERSION_MAJOR).$(PYTHON_VERSION_MINOR)";
+				OTHER_CFLAGS = (
+					"-flimit-debug-info",
+					"-Wparentheses",
+					"$(LLDB_ZLIB_CFLAGS)",
+					"$(LLDB_COMPRESSION_CFLAGS)",
+					"$(LLDB_GTESTS_CFLAGS)",
+				);
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-filelist",
+					"$(LLVM_BUILD_DIR)/archives.txt",
+					"-framework",
+					Foundation,
+					"-framework",
+					DebugSymbols,
+					"-framework",
+					Security,
+					"-framework",
+					CoreServices,
+					"-framework",
+					ApplicationServices,
+					"$(LLDB_GTESTS_LDFLAGS)",
+				);
+				PRODUCT_NAME = "$(TARGET_NAME)";
+			};
+			name = BuildAndIntegration;
+		};
 		26579F6A126A25920007C5CB /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -7399,7 +7824,7 @@
 					Foundation,
 				);
 				PRODUCT_NAME = LLDB;
-				USER_HEADER_SEARCH_PATHS = "$(SRCROOT)/include $(SRCROOT)/source $(LLVM_SOURCE_DIR)/include $(LLVM_SOURCE_DIR)/tools/clang/include $(LLVM_BUILD_DIR)/$(LLVM_BUILD_DIR_ARCH)/include $(LLVM_BUILD_DIR)/$(LLVM_BUILD_DIR_ARCH)/tools/clang/include";
+				USER_HEADER_SEARCH_PATHS = "$(SRCROOT)/include $(SRCROOT)/source $(LLVM_SOURCE_DIR)/include $(LLVM_SOURCE_DIR)/tools/clang/include $(LLVM_BUILD_DIR)/$(LLVM_BUILD_DIR_ARCH)/include $(LLVM_BUILD_DIR)/$(LLVM_BUILD_DIR_ARCH)/tools/clang/include $(LLVM_BUILD_DIR)/$(LLVM_BUILD_DIR_ARCH)/lib/Target/ARM";
 				VERSIONING_SYSTEM = "apple-generic";
 			};
 			name = Debug;
@@ -7472,7 +7897,7 @@
 					Foundation,
 				);
 				PRODUCT_NAME = LLDB;
-				USER_HEADER_SEARCH_PATHS = "$(SRCROOT)/include $(SRCROOT)/source $(LLVM_SOURCE_DIR)/include $(LLVM_SOURCE_DIR)/tools/clang/include $(LLVM_BUILD_DIR)/$(LLVM_BUILD_DIR_ARCH)/include $(LLVM_BUILD_DIR)/$(LLVM_BUILD_DIR_ARCH)/tools/clang/include";
+				USER_HEADER_SEARCH_PATHS = "$(SRCROOT)/include $(SRCROOT)/source $(LLVM_SOURCE_DIR)/include $(LLVM_SOURCE_DIR)/tools/clang/include $(LLVM_BUILD_DIR)/$(LLVM_BUILD_DIR_ARCH)/include $(LLVM_BUILD_DIR)/$(LLVM_BUILD_DIR_ARCH)/tools/clang/include $(LLVM_BUILD_DIR)/$(LLVM_BUILD_DIR_ARCH)/lib/Target/ARM";
 				VERSIONING_SYSTEM = "apple-generic";
 			};
 			name = Release;
@@ -7573,7 +7998,7 @@
 				PRODUCT_NAME = "lib$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				STANDARD_C_PLUS_PLUS_LIBRARY_TYPE = static;
-				USER_HEADER_SEARCH_PATHS = "$(SRCROOT)/include $(SRCROOT)/source $(LLVM_SOURCE_DIR)/include $(LLVM_SOURCE_DIR)/tools/clang/include $(LLVM_BUILD_DIR)/$(LLVM_BUILD_DIR_ARCH)/include $(LLVM_BUILD_DIR)/$(LLVM_BUILD_DIR_ARCH)/tools/clang/include";
+				USER_HEADER_SEARCH_PATHS = "$(SRCROOT)/include $(SRCROOT)/source $(LLVM_SOURCE_DIR)/include $(LLVM_SOURCE_DIR)/tools/clang/include $(LLVM_BUILD_DIR)/$(LLVM_BUILD_DIR_ARCH)/include $(LLVM_BUILD_DIR)/$(LLVM_BUILD_DIR_ARCH)/tools/clang/include $(LLVM_BUILD_DIR)/$(LLVM_BUILD_DIR_ARCH)/lib/Target/ARM";
 				VERSIONING_SYSTEM = "apple-generic";
 			};
 			name = Debug;
@@ -7618,7 +8043,7 @@
 				PRODUCT_NAME = "lib$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				STANDARD_C_PLUS_PLUS_LIBRARY_TYPE = static;
-				USER_HEADER_SEARCH_PATHS = "$(SRCROOT)/include $(SRCROOT)/source $(LLVM_SOURCE_DIR)/include $(LLVM_SOURCE_DIR)/tools/clang/include $(LLVM_BUILD_DIR)/$(LLVM_BUILD_DIR_ARCH)/include $(LLVM_BUILD_DIR)/$(LLVM_BUILD_DIR_ARCH)/tools/clang/include";
+				USER_HEADER_SEARCH_PATHS = "$(SRCROOT)/include $(SRCROOT)/source $(LLVM_SOURCE_DIR)/include $(LLVM_SOURCE_DIR)/tools/clang/include $(LLVM_BUILD_DIR)/$(LLVM_BUILD_DIR_ARCH)/include $(LLVM_BUILD_DIR)/$(LLVM_BUILD_DIR_ARCH)/tools/clang/include $(LLVM_BUILD_DIR)/$(LLVM_BUILD_DIR_ARCH)/lib/Target/ARM";
 				VERSIONING_SYSTEM = "apple-generic";
 			};
 			name = Release;
@@ -7663,7 +8088,7 @@
 				PRODUCT_NAME = "lib$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				STANDARD_C_PLUS_PLUS_LIBRARY_TYPE = static;
-				USER_HEADER_SEARCH_PATHS = "$(SRCROOT)/include $(SRCROOT)/source $(LLVM_SOURCE_DIR)/include $(LLVM_SOURCE_DIR)/tools/clang/include $(LLVM_BUILD_DIR)/$(LLVM_BUILD_DIR_ARCH)/include $(LLVM_BUILD_DIR)/$(LLVM_BUILD_DIR_ARCH)/tools/clang/include";
+				USER_HEADER_SEARCH_PATHS = "$(SRCROOT)/include $(SRCROOT)/source $(LLVM_SOURCE_DIR)/include $(LLVM_SOURCE_DIR)/tools/clang/include $(LLVM_BUILD_DIR)/$(LLVM_BUILD_DIR_ARCH)/include $(LLVM_BUILD_DIR)/$(LLVM_BUILD_DIR_ARCH)/tools/clang/include $(LLVM_BUILD_DIR)/$(LLVM_BUILD_DIR_ARCH)/lib/Target/ARM";
 				VERSIONING_SYSTEM = "apple-generic";
 			};
 			name = BuildAndIntegration;
@@ -7690,6 +8115,7 @@
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				GCC_C_LANGUAGE_STANDARD = c99;
+				GCC_NO_COMMON_BLOCKS = YES;
 				GCC_PREPROCESSOR_DEFINITIONS = (
 					__STDC_CONSTANT_MACROS,
 					__STDC_LIMIT_MACROS,
@@ -7746,6 +8172,9 @@
 					"$(LLDB_COMPRESSION_LDFLAGS)",
 					"$(LLDB_ZLIB_LDFLAGS)",
 				);
+				PYTHON_FRAMEWORK_PATH = /System/Library/Frameworks/Python.framework;
+				PYTHON_VERSION_MAJOR = 2;
+				PYTHON_VERSION_MINOR = 7;
 				SDKROOT = "";
 				STRIP_INSTALLED_PRODUCT = NO;
 				STRIP_STYLE = debugging;
@@ -7864,7 +8293,7 @@
 				);
 				PRODUCT_NAME = LLDB;
 				STRIP_INSTALLED_PRODUCT = YES;
-				USER_HEADER_SEARCH_PATHS = "$(SRCROOT)/include $(SRCROOT)/source $(LLVM_SOURCE_DIR)/include $(LLVM_SOURCE_DIR)/tools/clang/include $(LLVM_BUILD_DIR)/$(LLVM_BUILD_DIR_ARCH)/include $(LLVM_BUILD_DIR)/$(LLVM_BUILD_DIR_ARCH)/tools/clang/include";
+				USER_HEADER_SEARCH_PATHS = "$(SRCROOT)/include $(SRCROOT)/source $(LLVM_SOURCE_DIR)/include $(LLVM_SOURCE_DIR)/tools/clang/include $(LLVM_BUILD_DIR)/$(LLVM_BUILD_DIR_ARCH)/include $(LLVM_BUILD_DIR)/$(LLVM_BUILD_DIR_ARCH)/tools/clang/include $(LLVM_BUILD_DIR)/$(LLVM_BUILD_DIR_ARCH)/lib/Target/ARM";
 				VERSIONING_SYSTEM = "apple-generic";
 			};
 			name = BuildAndIntegration;
@@ -7901,7 +8330,7 @@
 				);
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = macosx;
-				USER_HEADER_SEARCH_PATHS = "$(SRCROOT)/include $(SRCROOT)/source $(LLVM_SOURCE_DIR)/include $(LLVM_SOURCE_DIR)/tools/clang/include $(LLVM_BUILD_DIR)/$(LLVM_BUILD_DIR_ARCH)/include $(LLVM_BUILD_DIR)/$(LLVM_BUILD_DIR_ARCH)/tools/clang/include";
+				USER_HEADER_SEARCH_PATHS = "$(SRCROOT)/include $(SRCROOT)/source $(LLVM_SOURCE_DIR)/include $(LLVM_SOURCE_DIR)/tools/clang/include $(LLVM_BUILD_DIR)/$(LLVM_BUILD_DIR_ARCH)/include $(LLVM_BUILD_DIR)/$(LLVM_BUILD_DIR_ARCH)/tools/clang/include $(LLVM_BUILD_DIR)/$(LLVM_BUILD_DIR_ARCH)/lib/Target/ARM";
 				VERSIONING_SYSTEM = "apple-generic";
 			};
 			name = Debug;
@@ -7938,7 +8367,7 @@
 				);
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = macosx;
-				USER_HEADER_SEARCH_PATHS = "$(SRCROOT)/include $(SRCROOT)/source $(LLVM_SOURCE_DIR)/include $(LLVM_SOURCE_DIR)/tools/clang/include $(LLVM_BUILD_DIR)/$(LLVM_BUILD_DIR_ARCH)/include $(LLVM_BUILD_DIR)/$(LLVM_BUILD_DIR_ARCH)/tools/clang/include";
+				USER_HEADER_SEARCH_PATHS = "$(SRCROOT)/include $(SRCROOT)/source $(LLVM_SOURCE_DIR)/include $(LLVM_SOURCE_DIR)/tools/clang/include $(LLVM_BUILD_DIR)/$(LLVM_BUILD_DIR_ARCH)/include $(LLVM_BUILD_DIR)/$(LLVM_BUILD_DIR_ARCH)/tools/clang/include $(LLVM_BUILD_DIR)/$(LLVM_BUILD_DIR_ARCH)/lib/Target/ARM";
 				VERSIONING_SYSTEM = "apple-generic";
 			};
 			name = DebugClang;
@@ -7971,7 +8400,7 @@
 				);
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = macosx;
-				USER_HEADER_SEARCH_PATHS = "$(SRCROOT)/include $(SRCROOT)/source $(LLVM_SOURCE_DIR)/include $(LLVM_SOURCE_DIR)/tools/clang/include $(LLVM_BUILD_DIR)/$(LLVM_BUILD_DIR_ARCH)/include $(LLVM_BUILD_DIR)/$(LLVM_BUILD_DIR_ARCH)/tools/clang/include";
+				USER_HEADER_SEARCH_PATHS = "$(SRCROOT)/include $(SRCROOT)/source $(LLVM_SOURCE_DIR)/include $(LLVM_SOURCE_DIR)/tools/clang/include $(LLVM_BUILD_DIR)/$(LLVM_BUILD_DIR_ARCH)/include $(LLVM_BUILD_DIR)/$(LLVM_BUILD_DIR_ARCH)/tools/clang/include $(LLVM_BUILD_DIR)/$(LLVM_BUILD_DIR_ARCH)/lib/Target/ARM";
 				VERSIONING_SYSTEM = "apple-generic";
 			};
 			name = Release;
@@ -8019,7 +8448,7 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = macosx;
 				STRIP_INSTALLED_PRODUCT = YES;
-				USER_HEADER_SEARCH_PATHS = "$(SRCROOT)/include $(SRCROOT)/source $(LLVM_SOURCE_DIR)/include $(LLVM_SOURCE_DIR)/tools/clang/include $(LLVM_BUILD_DIR)/$(LLVM_BUILD_DIR_ARCH)/include $(LLVM_BUILD_DIR)/$(LLVM_BUILD_DIR_ARCH)/tools/clang/include";
+				USER_HEADER_SEARCH_PATHS = "$(SRCROOT)/include $(SRCROOT)/source $(LLVM_SOURCE_DIR)/include $(LLVM_SOURCE_DIR)/tools/clang/include $(LLVM_BUILD_DIR)/$(LLVM_BUILD_DIR_ARCH)/include $(LLVM_BUILD_DIR)/$(LLVM_BUILD_DIR_ARCH)/tools/clang/include $(LLVM_BUILD_DIR)/$(LLVM_BUILD_DIR_ARCH)/lib/Target/ARM";
 				VERSIONING_SYSTEM = "apple-generic";
 			};
 			name = BuildAndIntegration;
@@ -8169,7 +8598,7 @@
 				);
 				PRODUCT_NAME = "lldb-server";
 				SKIP_INSTALL = YES;
-				USER_HEADER_SEARCH_PATHS = "$(SRCROOT)/include $(SRCROOT)/source $(LLVM_SOURCE_DIR)/include $(LLVM_SOURCE_DIR)/tools/clang/include $(LLVM_BUILD_DIR)/$(LLVM_BUILD_DIR_ARCH)/include $(LLVM_BUILD_DIR)/$(LLVM_BUILD_DIR_ARCH)/tools/clang/include";
+				USER_HEADER_SEARCH_PATHS = "$(SRCROOT)/include $(SRCROOT)/source $(LLVM_SOURCE_DIR)/include $(LLVM_SOURCE_DIR)/tools/clang/include $(LLVM_BUILD_DIR)/$(LLVM_BUILD_DIR_ARCH)/include $(LLVM_BUILD_DIR)/$(LLVM_BUILD_DIR_ARCH)/tools/clang/include $(LLVM_BUILD_DIR)/$(LLVM_BUILD_DIR_ARCH)/lib/Target/ARM";
 			};
 			name = Debug;
 		};
@@ -8242,7 +8671,7 @@
 				);
 				PRODUCT_NAME = "lldb-server";
 				SKIP_INSTALL = YES;
-				USER_HEADER_SEARCH_PATHS = "$(SRCROOT)/include $(SRCROOT)/source $(LLVM_SOURCE_DIR)/include $(LLVM_SOURCE_DIR)/tools/clang/include $(LLVM_BUILD_DIR)/$(LLVM_BUILD_DIR_ARCH)/include $(LLVM_BUILD_DIR)/$(LLVM_BUILD_DIR_ARCH)/tools/clang/include";
+				USER_HEADER_SEARCH_PATHS = "$(SRCROOT)/include $(SRCROOT)/source $(LLVM_SOURCE_DIR)/include $(LLVM_SOURCE_DIR)/tools/clang/include $(LLVM_BUILD_DIR)/$(LLVM_BUILD_DIR_ARCH)/include $(LLVM_BUILD_DIR)/$(LLVM_BUILD_DIR_ARCH)/tools/clang/include $(LLVM_BUILD_DIR)/$(LLVM_BUILD_DIR_ARCH)/lib/Target/ARM";
 			};
 			name = Release;
 		};
@@ -8316,7 +8745,7 @@
 				PRODUCT_NAME = "lldb-server";
 				SKIP_INSTALL = YES;
 				STRIP_INSTALLED_PRODUCT = YES;
-				USER_HEADER_SEARCH_PATHS = "$(SRCROOT)/include $(SRCROOT)/source $(LLVM_SOURCE_DIR)/include $(LLVM_SOURCE_DIR)/tools/clang/include $(LLVM_BUILD_DIR)/$(LLVM_BUILD_DIR_ARCH)/include $(LLVM_BUILD_DIR)/$(LLVM_BUILD_DIR_ARCH)/tools/clang/include";
+				USER_HEADER_SEARCH_PATHS = "$(SRCROOT)/include $(SRCROOT)/source $(LLVM_SOURCE_DIR)/include $(LLVM_SOURCE_DIR)/tools/clang/include $(LLVM_BUILD_DIR)/$(LLVM_BUILD_DIR_ARCH)/include $(LLVM_BUILD_DIR)/$(LLVM_BUILD_DIR_ARCH)/tools/clang/include $(LLVM_BUILD_DIR)/$(LLVM_BUILD_DIR_ARCH)/lib/Target/ARM";
 			};
 			name = BuildAndIntegration;
 		};
@@ -8404,6 +8833,7 @@
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				GCC_C_LANGUAGE_STANDARD = c99;
+				GCC_NO_COMMON_BLOCKS = YES;
 				GCC_OPTIMIZATION_LEVEL = 0;
 				GCC_PREPROCESSOR_DEFINITIONS = (
 					__STDC_CONSTANT_MACROS,
@@ -8460,6 +8890,9 @@
 					"$(LLDB_COMPRESSION_LDFLAGS)",
 					"$(LLDB_ZLIB_LDFLAGS)",
 				);
+				PYTHON_FRAMEWORK_PATH = /System/Library/Frameworks/Python.framework;
+				PYTHON_VERSION_MAJOR = 2;
+				PYTHON_VERSION_MINOR = 7;
 				SDKROOT = "";
 				STRIP_INSTALLED_PRODUCT = NO;
 				STRIP_STYLE = debugging;
@@ -8591,7 +9024,7 @@
 					Foundation,
 				);
 				PRODUCT_NAME = LLDB;
-				USER_HEADER_SEARCH_PATHS = "$(SRCROOT)/include $(SRCROOT)/source $(LLVM_SOURCE_DIR)/include $(LLVM_SOURCE_DIR)/tools/clang/include $(LLVM_BUILD_DIR)/$(LLVM_BUILD_DIR_ARCH)/include $(LLVM_BUILD_DIR)/$(LLVM_BUILD_DIR_ARCH)/tools/clang/include";
+				USER_HEADER_SEARCH_PATHS = "$(SRCROOT)/include $(SRCROOT)/source $(LLVM_SOURCE_DIR)/include $(LLVM_SOURCE_DIR)/tools/clang/include $(LLVM_BUILD_DIR)/$(LLVM_BUILD_DIR_ARCH)/include $(LLVM_BUILD_DIR)/$(LLVM_BUILD_DIR_ARCH)/tools/clang/include $(LLVM_BUILD_DIR)/$(LLVM_BUILD_DIR_ARCH)/lib/Target/ARM";
 				VERSIONING_SYSTEM = "apple-generic";
 			};
 			name = DebugClang;
@@ -8649,7 +9082,7 @@
 				PRODUCT_NAME = "lib$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				STANDARD_C_PLUS_PLUS_LIBRARY_TYPE = static;
-				USER_HEADER_SEARCH_PATHS = "$(SRCROOT)/include $(SRCROOT)/source $(LLVM_SOURCE_DIR)/include $(LLVM_SOURCE_DIR)/tools/clang/include $(LLVM_BUILD_DIR)/$(LLVM_BUILD_DIR_ARCH)/include $(LLVM_BUILD_DIR)/$(LLVM_BUILD_DIR_ARCH)/tools/clang/include";
+				USER_HEADER_SEARCH_PATHS = "$(SRCROOT)/include $(SRCROOT)/source $(LLVM_SOURCE_DIR)/include $(LLVM_SOURCE_DIR)/tools/clang/include $(LLVM_BUILD_DIR)/$(LLVM_BUILD_DIR_ARCH)/include $(LLVM_BUILD_DIR)/$(LLVM_BUILD_DIR_ARCH)/tools/clang/include $(LLVM_BUILD_DIR)/$(LLVM_BUILD_DIR_ARCH)/lib/Target/ARM";
 				VERSIONING_SYSTEM = "apple-generic";
 			};
 			name = DebugClang;
@@ -8725,72 +9158,7 @@
 				);
 				PRODUCT_NAME = "lldb-server";
 				SKIP_INSTALL = YES;
-				USER_HEADER_SEARCH_PATHS = "$(SRCROOT)/include $(SRCROOT)/source $(LLVM_SOURCE_DIR)/include $(LLVM_SOURCE_DIR)/tools/clang/include $(LLVM_BUILD_DIR)/$(LLVM_BUILD_DIR_ARCH)/include $(LLVM_BUILD_DIR)/$(LLVM_BUILD_DIR_ARCH)/tools/clang/include";
-			};
-			name = DebugClang;
-		};
-		49BB8F3D1611172B00BDD462 /* DebugClang */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				CLANG_LINK_OBJC_RUNTIME = NO;
-				CLANG_OBJC_RUNTIME = NO;
-				CODE_SIGN_IDENTITY = "-";
-				COMBINE_HIDPI_IMAGES = YES;
-				GCC_DYNAMIC_NO_PIC = NO;
-				GCC_ENABLE_OBJC_EXCEPTIONS = YES;
-				GCC_PRECOMPILE_PREFIX_HEADER = YES;
-				GCC_PREPROCESSOR_DEFINITIONS = (
-					"DEBUG=1",
-					"$(inherited)",
-				);
-				GCC_SYMBOLS_PRIVATE_EXTERN = NO;
-				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
-				INFOPLIST_FILE = "source/Host/macosx/launcherXPCService/LauncherXPCService-Info.plist";
-				INFOPLIST_PREPROCESS = YES;
-				INFOPLIST_PREPROCESSOR_DEFINITIONS = (
-					"NO0=0",
-					"YES0=1",
-					"RC_XBS=${RC_XBS}0",
-					"RC_BUILDIT=${RC_BUILDIT}0",
-				);
-				IS_APPLE_CODE_SIGNED = "(anchor apple or (anchor apple generic and certificate leaf[field.1.2.840.113635.100.6.1.9]) or (anchor apple generic and certificate leaf[field.1.2.840.113635.100.6.1.9.1]))";
-				MACH_O_TYPE = mh_execute;
-				PRODUCT_NAME = "com.apple.lldb.$(TARGET_NAME)";
-				PROVISIONING_PROFILE = "";
-				WRAPPER_EXTENSION = xpc;
-			};
-			name = DebugClang;
-		};
-		49BB8F3E1611172B00BDD462 /* DebugClang */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				CLANG_LINK_OBJC_RUNTIME = NO;
-				CLANG_OBJC_RUNTIME = NO;
-				CODE_SIGN_ENTITLEMENTS = source/Host/macosx/launcherXPCService/LauncherXPCService.entitlements;
-				CODE_SIGN_IDENTITY = "-";
-				COMBINE_HIDPI_IMAGES = YES;
-				GCC_DYNAMIC_NO_PIC = NO;
-				GCC_ENABLE_OBJC_EXCEPTIONS = YES;
-				GCC_PRECOMPILE_PREFIX_HEADER = YES;
-				GCC_PREPROCESSOR_DEFINITIONS = (
-					"DEBUG=1",
-					"$(inherited)",
-				);
-				GCC_SYMBOLS_PRIVATE_EXTERN = NO;
-				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
-				INFOPLIST_FILE = "source/Host/macosx/launcherXPCService/LauncherRootXPCService-Info.plist";
-				INFOPLIST_PREPROCESS = YES;
-				INFOPLIST_PREPROCESSOR_DEFINITIONS = (
-					"NO0=0",
-					"YES0=1",
-					"RC_XBS=${RC_XBS}0",
-					"RC_BUILDIT=${RC_BUILDIT}0",
-				);
-				IS_APPLE_CODE_SIGNED = "(anchor apple or (anchor apple generic and certificate leaf[field.1.2.840.113635.100.6.1.9]) or (anchor apple generic and certificate leaf[field.1.2.840.113635.100.6.1.9.1]))";
-				MACH_O_TYPE = mh_execute;
-				PRODUCT_NAME = "com.apple.lldb.$(TARGET_NAME)";
-				PROVISIONING_PROFILE = "";
-				WRAPPER_EXTENSION = xpc;
+				USER_HEADER_SEARCH_PATHS = "$(SRCROOT)/include $(SRCROOT)/source $(LLVM_SOURCE_DIR)/include $(LLVM_SOURCE_DIR)/tools/clang/include $(LLVM_BUILD_DIR)/$(LLVM_BUILD_DIR_ARCH)/include $(LLVM_BUILD_DIR)/$(LLVM_BUILD_DIR_ARCH)/tools/clang/include $(LLVM_BUILD_DIR)/$(LLVM_BUILD_DIR_ARCH)/lib/Target/ARM";
 			};
 			name = DebugClang;
 		};
@@ -8883,7 +9251,7 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = macosx;
 				SKIP_INSTALL = YES;
-				USER_HEADER_SEARCH_PATHS = "$(SRCROOT)/include $(SRCROOT)/source $(LLVM_SOURCE_DIR)/include $(LLVM_SOURCE_DIR)/tools/clang/include $(LLVM_BUILD_DIR)/$(LLVM_BUILD_DIR_ARCH)/include $(LLVM_BUILD_DIR)/$(LLVM_BUILD_DIR_ARCH)/tools/clang/include";
+				USER_HEADER_SEARCH_PATHS = "$(SRCROOT)/include $(SRCROOT)/source $(LLVM_SOURCE_DIR)/include $(LLVM_SOURCE_DIR)/tools/clang/include $(LLVM_BUILD_DIR)/$(LLVM_BUILD_DIR_ARCH)/include $(LLVM_BUILD_DIR)/$(LLVM_BUILD_DIR_ARCH)/tools/clang/include $(LLVM_BUILD_DIR)/$(LLVM_BUILD_DIR_ARCH)/lib/Target/ARM";
 			};
 			name = Debug;
 		};
@@ -8952,7 +9320,7 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = macosx;
 				SKIP_INSTALL = YES;
-				USER_HEADER_SEARCH_PATHS = "$(SRCROOT)/include $(SRCROOT)/source $(LLVM_SOURCE_DIR)/include $(LLVM_SOURCE_DIR)/tools/clang/include $(LLVM_BUILD_DIR)/$(LLVM_BUILD_DIR_ARCH)/include $(LLVM_BUILD_DIR)/$(LLVM_BUILD_DIR_ARCH)/tools/clang/include";
+				USER_HEADER_SEARCH_PATHS = "$(SRCROOT)/include $(SRCROOT)/source $(LLVM_SOURCE_DIR)/include $(LLVM_SOURCE_DIR)/tools/clang/include $(LLVM_BUILD_DIR)/$(LLVM_BUILD_DIR_ARCH)/include $(LLVM_BUILD_DIR)/$(LLVM_BUILD_DIR_ARCH)/tools/clang/include $(LLVM_BUILD_DIR)/$(LLVM_BUILD_DIR_ARCH)/lib/Target/ARM";
 			};
 			name = DebugClang;
 		};
@@ -9018,7 +9386,7 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = macosx;
 				SKIP_INSTALL = YES;
-				USER_HEADER_SEARCH_PATHS = "$(SRCROOT)/include $(SRCROOT)/source $(LLVM_SOURCE_DIR)/include $(LLVM_SOURCE_DIR)/tools/clang/include $(LLVM_BUILD_DIR)/$(LLVM_BUILD_DIR_ARCH)/include $(LLVM_BUILD_DIR)/$(LLVM_BUILD_DIR_ARCH)/tools/clang/include";
+				USER_HEADER_SEARCH_PATHS = "$(SRCROOT)/include $(SRCROOT)/source $(LLVM_SOURCE_DIR)/include $(LLVM_SOURCE_DIR)/tools/clang/include $(LLVM_BUILD_DIR)/$(LLVM_BUILD_DIR_ARCH)/include $(LLVM_BUILD_DIR)/$(LLVM_BUILD_DIR_ARCH)/tools/clang/include $(LLVM_BUILD_DIR)/$(LLVM_BUILD_DIR_ARCH)/lib/Target/ARM";
 			};
 			name = Release;
 		};
@@ -9087,182 +9455,7 @@
 				SDKROOT = macosx;
 				SKIP_INSTALL = YES;
 				STRIP_INSTALLED_PRODUCT = YES;
-				USER_HEADER_SEARCH_PATHS = "$(SRCROOT)/include $(SRCROOT)/source $(LLVM_SOURCE_DIR)/include $(LLVM_SOURCE_DIR)/tools/clang/include $(LLVM_BUILD_DIR)/$(LLVM_BUILD_DIR_ARCH)/include $(LLVM_BUILD_DIR)/$(LLVM_BUILD_DIR_ARCH)/tools/clang/include";
-			};
-			name = BuildAndIntegration;
-		};
-		EDC6D4A714E5C19B001B75F8 /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				CLANG_LINK_OBJC_RUNTIME = NO;
-				CLANG_OBJC_RUNTIME = NO;
-				CODE_SIGN_IDENTITY = "-";
-				COMBINE_HIDPI_IMAGES = YES;
-				GCC_DYNAMIC_NO_PIC = NO;
-				GCC_ENABLE_OBJC_EXCEPTIONS = YES;
-				GCC_PRECOMPILE_PREFIX_HEADER = YES;
-				GCC_PREPROCESSOR_DEFINITIONS = (
-					"DEBUG=1",
-					"$(inherited)",
-				);
-				GCC_SYMBOLS_PRIVATE_EXTERN = NO;
-				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
-				INFOPLIST_FILE = "source/Host/macosx/launcherXPCService/LauncherXPCService-Info.plist";
-				INFOPLIST_PREPROCESS = YES;
-				INFOPLIST_PREPROCESSOR_DEFINITIONS = (
-					"NO0=0",
-					"YES0=1",
-					"RC_XBS=${RC_XBS}0",
-					"RC_BUILDIT=${RC_BUILDIT}0",
-				);
-				IS_APPLE_CODE_SIGNED = "(anchor apple or (anchor apple generic and certificate leaf[field.1.2.840.113635.100.6.1.9]) or (anchor apple generic and certificate leaf[field.1.2.840.113635.100.6.1.9.1]))";
-				MACH_O_TYPE = mh_execute;
-				PRODUCT_NAME = "com.apple.lldb.$(TARGET_NAME)";
-				PROVISIONING_PROFILE = "";
-				WRAPPER_EXTENSION = xpc;
-			};
-			name = Debug;
-		};
-		EDC6D4A814E5C19B001B75F8 /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				CLANG_LINK_OBJC_RUNTIME = NO;
-				CLANG_OBJC_RUNTIME = NO;
-				CODE_SIGN_IDENTITY = "-";
-				COMBINE_HIDPI_IMAGES = YES;
-				COPY_PHASE_STRIP = YES;
-				GCC_ENABLE_OBJC_EXCEPTIONS = YES;
-				GCC_PRECOMPILE_PREFIX_HEADER = YES;
-				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
-				INFOPLIST_FILE = "source/Host/macosx/launcherXPCService/LauncherXPCService-Info.plist";
-				INFOPLIST_PREPROCESS = YES;
-				INFOPLIST_PREPROCESSOR_DEFINITIONS = (
-					"NO0=0",
-					"YES0=1",
-					"RC_XBS=${RC_XBS}0",
-					"RC_BUILDIT=${RC_BUILDIT}0",
-				);
-				IS_APPLE_CODE_SIGNED = "(anchor apple or (anchor apple generic and certificate leaf[field.1.2.840.113635.100.6.1.9]) or (anchor apple generic and certificate leaf[field.1.2.840.113635.100.6.1.9.1]))";
-				MACH_O_TYPE = mh_execute;
-				PRODUCT_NAME = "com.apple.lldb.$(TARGET_NAME)";
-				PROVISIONING_PROFILE = "";
-				WRAPPER_EXTENSION = xpc;
-			};
-			name = Release;
-		};
-		EDC6D4A914E5C19B001B75F8 /* BuildAndIntegration */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				CLANG_LINK_OBJC_RUNTIME = NO;
-				CLANG_OBJC_RUNTIME = NO;
-				CODE_SIGN_IDENTITY = "-";
-				COMBINE_HIDPI_IMAGES = YES;
-				COPY_PHASE_STRIP = YES;
-				GCC_ENABLE_OBJC_EXCEPTIONS = YES;
-				GCC_PRECOMPILE_PREFIX_HEADER = YES;
-				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
-				INFOPLIST_FILE = "source/Host/macosx/launcherXPCService/LauncherXPCService-Info.plist";
-				INFOPLIST_PREPROCESS = YES;
-				INFOPLIST_PREPROCESSOR_DEFINITIONS = (
-					"NO0=0",
-					"YES0=1",
-					"RC_XBS=${RC_XBS}0",
-					"RC_BUILDIT=${RC_BUILDIT}0",
-				);
-				IS_APPLE_CODE_SIGNED = "(anchor apple or (anchor apple generic and certificate leaf[field.1.2.840.113635.100.6.1.9]) or (anchor apple generic and certificate leaf[field.1.2.840.113635.100.6.1.9.1]))";
-				MACH_O_TYPE = mh_execute;
-				PRODUCT_NAME = "com.apple.lldb.$(TARGET_NAME)";
-				PROVISIONING_PROFILE = "";
-				WRAPPER_EXTENSION = xpc;
-			};
-			name = BuildAndIntegration;
-		};
-		EDE274E914EDCE1F005B0F75 /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				CLANG_LINK_OBJC_RUNTIME = NO;
-				CLANG_OBJC_RUNTIME = NO;
-				CODE_SIGN_ENTITLEMENTS = source/Host/macosx/launcherXPCService/LauncherXPCService.entitlements;
-				CODE_SIGN_IDENTITY = "-";
-				COMBINE_HIDPI_IMAGES = YES;
-				GCC_DYNAMIC_NO_PIC = NO;
-				GCC_ENABLE_OBJC_EXCEPTIONS = YES;
-				GCC_PRECOMPILE_PREFIX_HEADER = YES;
-				GCC_PREPROCESSOR_DEFINITIONS = (
-					"DEBUG=1",
-					"$(inherited)",
-				);
-				GCC_SYMBOLS_PRIVATE_EXTERN = NO;
-				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
-				INFOPLIST_FILE = "source/Host/macosx/launcherXPCService/LauncherRootXPCService-Info.plist";
-				INFOPLIST_PREPROCESS = YES;
-				INFOPLIST_PREPROCESSOR_DEFINITIONS = (
-					"NO0=0",
-					"YES0=1",
-					"RC_XBS=${RC_XBS}0",
-					"RC_BUILDIT=${RC_BUILDIT}0",
-				);
-				IS_APPLE_CODE_SIGNED = "(anchor apple or (anchor apple generic and certificate leaf[field.1.2.840.113635.100.6.1.9]) or (anchor apple generic and certificate leaf[field.1.2.840.113635.100.6.1.9.1]))";
-				MACH_O_TYPE = mh_execute;
-				PRODUCT_NAME = "com.apple.lldb.$(TARGET_NAME)";
-				PROVISIONING_PROFILE = "";
-				WRAPPER_EXTENSION = xpc;
-			};
-			name = Debug;
-		};
-		EDE274EA14EDCE1F005B0F75 /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				CLANG_LINK_OBJC_RUNTIME = NO;
-				CLANG_OBJC_RUNTIME = NO;
-				CODE_SIGN_ENTITLEMENTS = source/Host/macosx/launcherXPCService/LauncherXPCService.entitlements;
-				CODE_SIGN_IDENTITY = "-";
-				COMBINE_HIDPI_IMAGES = YES;
-				COPY_PHASE_STRIP = YES;
-				GCC_ENABLE_OBJC_EXCEPTIONS = YES;
-				GCC_PRECOMPILE_PREFIX_HEADER = YES;
-				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
-				INFOPLIST_FILE = "source/Host/macosx/launcherXPCService/LauncherRootXPCService-Info.plist";
-				INFOPLIST_PREPROCESS = YES;
-				INFOPLIST_PREPROCESSOR_DEFINITIONS = (
-					"NO0=0",
-					"YES0=1",
-					"RC_XBS=${RC_XBS}0",
-					"RC_BUILDIT=${RC_BUILDIT}0",
-				);
-				IS_APPLE_CODE_SIGNED = "(anchor apple or (anchor apple generic and certificate leaf[field.1.2.840.113635.100.6.1.9]) or (anchor apple generic and certificate leaf[field.1.2.840.113635.100.6.1.9.1]))";
-				MACH_O_TYPE = mh_execute;
-				PRODUCT_NAME = "com.apple.lldb.$(TARGET_NAME)";
-				PROVISIONING_PROFILE = "";
-				WRAPPER_EXTENSION = xpc;
-			};
-			name = Release;
-		};
-		EDE274EB14EDCE1F005B0F75 /* BuildAndIntegration */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				CLANG_LINK_OBJC_RUNTIME = NO;
-				CLANG_OBJC_RUNTIME = NO;
-				CODE_SIGN_ENTITLEMENTS = source/Host/macosx/launcherXPCService/LauncherXPCService.entitlements;
-				CODE_SIGN_IDENTITY = "-";
-				COMBINE_HIDPI_IMAGES = YES;
-				COPY_PHASE_STRIP = YES;
-				GCC_ENABLE_OBJC_EXCEPTIONS = YES;
-				GCC_PRECOMPILE_PREFIX_HEADER = YES;
-				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
-				INFOPLIST_FILE = "source/Host/macosx/launcherXPCService/LauncherRootXPCService-Info.plist";
-				INFOPLIST_PREPROCESS = YES;
-				INFOPLIST_PREPROCESSOR_DEFINITIONS = (
-					"NO0=0",
-					"YES0=1",
-					"RC_XBS=${RC_XBS}0",
-					"RC_BUILDIT=${RC_BUILDIT}0",
-				);
-				IS_APPLE_CODE_SIGNED = "(anchor apple or (anchor apple generic and certificate leaf[field.1.2.840.113635.100.6.1.9]) or (anchor apple generic and certificate leaf[field.1.2.840.113635.100.6.1.9.1]))";
-				MACH_O_TYPE = mh_execute;
-				PRODUCT_NAME = "com.apple.lldb.$(TARGET_NAME)";
-				PROVISIONING_PROFILE = "";
-				WRAPPER_EXTENSION = xpc;
+				USER_HEADER_SEARCH_PATHS = "$(SRCROOT)/include $(SRCROOT)/source $(LLVM_SOURCE_DIR)/include $(LLVM_SOURCE_DIR)/tools/clang/include $(LLVM_BUILD_DIR)/$(LLVM_BUILD_DIR_ARCH)/include $(LLVM_BUILD_DIR)/$(LLVM_BUILD_DIR_ARCH)/tools/clang/include $(LLVM_BUILD_DIR)/$(LLVM_BUILD_DIR_ARCH)/lib/Target/ARM";
 			};
 			name = BuildAndIntegration;
 		};
@@ -9298,6 +9491,17 @@
 				235AFBBE199BC6FD00897A4B /* DebugClang */,
 				235AFBBF199BC6FD00897A4B /* Release */,
 				235AFBC0199BC6FD00897A4B /* BuildAndIntegration */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = BuildAndIntegration;
+		};
+		239504DD1BDD451400963CEA /* Build configuration list for PBXNativeTarget "lldb-gtest" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				239504D81BDD451400963CEA /* Debug */,
+				239504D91BDD451400963CEA /* DebugClang */,
+				239504DA1BDD451400963CEA /* Release */,
+				239504DB1BDD451400963CEA /* BuildAndIntegration */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = BuildAndIntegration;
@@ -9412,35 +9616,13 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = BuildAndIntegration;
 		};
-		942829C41A89835400521B30 /* Build configuration list for PBXNativeTarget "argdumper" */ = {
+		942829C41A89835400521B30 /* Build configuration list for PBXNativeTarget "lldb-argdumper" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				942829C51A89835400521B30 /* Debug */,
 				942829C61A89835400521B30 /* DebugClang */,
 				942829C71A89835400521B30 /* Release */,
 				942829C81A89835400521B30 /* BuildAndIntegration */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = BuildAndIntegration;
-		};
-		EDC6D4A614E5C19B001B75F8 /* Build configuration list for PBXNativeTarget "launcherXPCService" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				EDC6D4A714E5C19B001B75F8 /* Debug */,
-				49BB8F3D1611172B00BDD462 /* DebugClang */,
-				EDC6D4A814E5C19B001B75F8 /* Release */,
-				EDC6D4A914E5C19B001B75F8 /* BuildAndIntegration */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = BuildAndIntegration;
-		};
-		EDE274E814EDCE1F005B0F75 /* Build configuration list for PBXNativeTarget "launcherRootXPCService" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				EDE274E914EDCE1F005B0F75 /* Debug */,
-				49BB8F3E1611172B00BDD462 /* DebugClang */,
-				EDE274EA14EDCE1F005B0F75 /* Release */,
-				EDE274EB14EDCE1F005B0F75 /* BuildAndIntegration */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = BuildAndIntegration;

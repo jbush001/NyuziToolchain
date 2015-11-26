@@ -421,6 +421,26 @@ public:
     return getModRefInfo(I, MemoryLocation(P, Size));
   }
 
+  /// getModRefInfo (for catchpads) - Return information about whether
+  /// a particular catchpad modifies or reads the specified memory location.
+  ModRefInfo getModRefInfo(const CatchPadInst *I, const MemoryLocation &Loc);
+
+  /// getModRefInfo (for catchpads) - A convenience wrapper.
+  ModRefInfo getModRefInfo(const CatchPadInst *I, const Value *P,
+                           uint64_t Size) {
+    return getModRefInfo(I, MemoryLocation(P, Size));
+  }
+
+  /// getModRefInfo (for catchrets) - Return information about whether
+  /// a particular catchret modifies or reads the specified memory location.
+  ModRefInfo getModRefInfo(const CatchReturnInst *I, const MemoryLocation &Loc);
+
+  /// getModRefInfo (for catchrets) - A convenience wrapper.
+  ModRefInfo getModRefInfo(const CatchReturnInst *I, const Value *P,
+                           uint64_t Size) {
+    return getModRefInfo(I, MemoryLocation(P, Size));
+  }
+
   /// Check whether or not an instruction may read or write memory (without
   /// regard to a specific location).
   ///
@@ -461,6 +481,10 @@ public:
       return getModRefInfo((const AtomicRMWInst*)I, Loc);
     case Instruction::Call:   return getModRefInfo((const CallInst*)I,  Loc);
     case Instruction::Invoke: return getModRefInfo((const InvokeInst*)I,Loc);
+    case Instruction::CatchPad:
+      return getModRefInfo((const CatchPadInst *)I, Loc);
+    case Instruction::CatchRet:
+      return getModRefInfo((const CatchReturnInst *)I, Loc);
     default:
       return MRI_NoModRef;
     }
@@ -759,8 +783,12 @@ public:
   }
 
   FunctionModRefBehavior getModRefBehavior(ImmutableCallSite CS) {
-    if (const Function *F = CS.getCalledFunction())
-      return getBestAAResults().getModRefBehavior(F);
+    if (!CS.hasOperandBundles())
+      // If CS has operand bundles then aliasing attributes from the function it
+      // calls do not directly apply to the CallSite.  This can be made more
+      // precise in the future.
+      if (const Function *F = CS.getCalledFunction())
+        return getBestAAResults().getModRefBehavior(F);
 
     return FMRB_UnknownModRefBehavior;
   }
@@ -1023,6 +1051,16 @@ public:
 };
 
 FunctionPass *createAAResultsWrapperPass();
+
+/// A wrapper pass around a callback which can be used to populate the
+/// AAResults in the AAResultsWrapperPass from an external AA.
+///
+/// The callback provided here will be used each time we prepare an AAResults
+/// object, and will receive a reference to the function wrapper pass, the
+/// function, and the AAResults object to populate. This should be used when
+/// setting up a custom pass pipeline to inject a hook into the AA results.
+ImmutablePass *createExternalAAWrapperPass(
+    std::function<void(Pass &, Function &, AAResults &)> Callback);
 
 /// A helper for the legacy pass manager to create a \c AAResults
 /// object populated to the best of our ability for a particular function when

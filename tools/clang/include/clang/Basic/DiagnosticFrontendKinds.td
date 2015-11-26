@@ -172,6 +172,9 @@ def warn_incompatible_analyzer_plugin_api : Warning<
 def note_incompatible_analyzer_plugin_api : Note<
     "current API version is '%0', but plugin was compiled with version '%1'">;
 
+def warn_module_config_mismatch : Warning<
+  "module file %0 cannot be loaded due to a configuration mismatch with the current "
+  "compilation">, InGroup<DiagGroup<"module-file-config-mismatch">>, DefaultError;
 def err_module_map_not_found : Error<"module map file '%0' not found">, 
   DefaultFatal;
 def err_missing_module_name : Error<
@@ -200,6 +203,10 @@ def remark_module_build_done : Remark<"finished building module '%0'">,
 def err_modules_embed_file_not_found :
   Error<"file '%0' specified by '-fmodules-embed-file=' not found">,
   DefaultFatal;
+
+def err_test_module_file_extension_version : Error<
+  "test module file extension '%0' has different version (%1.%2) than expected "
+  "(%3.%4)">;
 
 def err_conflicting_module_names : Error<
   "conflicting module names specified: '-fmodule-name=%0' and "

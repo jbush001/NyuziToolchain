@@ -152,6 +152,7 @@ RegistryMaps::RegistryMaps() {
   REGISTER_MATCHER(cxxThrowExpr);
   REGISTER_MATCHER(cxxTryStmt);
   REGISTER_MATCHER(cxxUnresolvedConstructExpr);
+  REGISTER_MATCHER(decayedType);
   REGISTER_MATCHER(decl);
   REGISTER_MATCHER(declaratorDecl);
   REGISTER_MATCHER(declCountIs);
@@ -193,12 +194,14 @@ RegistryMaps::RegistryMaps() {
   REGISTER_MATCHER(hasArgument);
   REGISTER_MATCHER(hasArgumentOfType);
   REGISTER_MATCHER(hasAttr);
+  REGISTER_MATCHER(hasAutomaticStorageDuration);
   REGISTER_MATCHER(hasBase);
   REGISTER_MATCHER(hasBody);
   REGISTER_MATCHER(hasCanonicalType);
   REGISTER_MATCHER(hasCaseConstant);
   REGISTER_MATCHER(hasCondition);
   REGISTER_MATCHER(hasConditionVariableStatement);
+  REGISTER_MATCHER(hasDecayedType);
   REGISTER_MATCHER(hasDeclaration);
   REGISTER_MATCHER(hasDeclContext);
   REGISTER_MATCHER(hasDeducedType);
@@ -236,9 +239,11 @@ RegistryMaps::RegistryMaps() {
   REGISTER_MATCHER(hasSize);
   REGISTER_MATCHER(hasSizeExpr);
   REGISTER_MATCHER(hasSourceExpression);
+  REGISTER_MATCHER(hasStaticStorageDuration);
   REGISTER_MATCHER(hasTargetDecl);
   REGISTER_MATCHER(hasTemplateArgument);
   REGISTER_MATCHER(hasThen);
+  REGISTER_MATCHER(hasThreadStorageDuration);
   REGISTER_MATCHER(hasTrueExpression);
   REGISTER_MATCHER(hasTypeLoc);
   REGISTER_MATCHER(hasUnaryOperand);
@@ -291,7 +296,9 @@ RegistryMaps::RegistryMaps() {
   REGISTER_MATCHER(isStruct);
   REGISTER_MATCHER(isTemplateInstantiation);
   REGISTER_MATCHER(isUnion);
+  REGISTER_MATCHER(isVariadic);
   REGISTER_MATCHER(isVirtual);
+  REGISTER_MATCHER(isVolatileQualified);
   REGISTER_MATCHER(isWritten);
   REGISTER_MATCHER(labelStmt);
   REGISTER_MATCHER(lambdaExpr);
@@ -519,7 +526,7 @@ Registry::getMatcherCompletions(ArrayRef<ArgKind> AcceptedTypes) {
 
 // static
 VariantMatcher Registry::constructMatcher(MatcherCtor Ctor,
-                                          const SourceRange &NameRange,
+                                          SourceRange NameRange,
                                           ArrayRef<ParserValue> Args,
                                           Diagnostics *Error) {
   return Ctor->create(NameRange, Args, Error);
@@ -527,7 +534,7 @@ VariantMatcher Registry::constructMatcher(MatcherCtor Ctor,
 
 // static
 VariantMatcher Registry::constructBoundMatcher(MatcherCtor Ctor,
-                                               const SourceRange &NameRange,
+                                               SourceRange NameRange,
                                                StringRef BindID,
                                                ArrayRef<ParserValue> Args,
                                                Diagnostics *Error) {

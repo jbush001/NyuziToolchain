@@ -1,5 +1,5 @@
-// RUN: %clang_cc1 -DUSE_64 -triple x86_64-unknown-unknown -emit-llvm -o %t %s
-// RUN: %clang_cc1 -DUSE_ALL -triple x86_64-unknown-unknown -fsyntax-only -o %t %s
+// RUN: %clang_cc1 -DUSE_64 -triple x86_64-unknown-unknown -target-feature +fxsr -target-feature +avx -target-feature +xsaveopt -target-feature +xsaves -target-feature +xsavec -emit-llvm -o %t %s
+// RUN: %clang_cc1 -DUSE_ALL -triple x86_64-unknown-unknown -target-feature +fxsr -target-feature +avx -target-feature +xsaveopt -target-feature +xsaves -target-feature +xsavec -fsyntax-only -o %t %s
 
 #ifdef USE_ALL
 #define USE_3DNOW
@@ -42,7 +42,7 @@ void f0() {
   signed int          tmp_i;
   unsigned int        tmp_Ui;
   signed long long    tmp_LLi;
-//  unsigned long long  tmp_ULLi;
+  unsigned long long  tmp_ULLi;
   float               tmp_f;
   double              tmp_d;
 
@@ -267,6 +267,20 @@ void f0() {
   (void)__builtin_ia32_fxsave64(tmp_vp);
   (void)__builtin_ia32_fxrstor(tmp_vp);
   (void)__builtin_ia32_fxrstor64(tmp_vp);
+
+  (void)__builtin_ia32_xsave(tmp_vp, tmp_ULLi);
+  (void)__builtin_ia32_xsave64(tmp_vp, tmp_ULLi);
+  (void)__builtin_ia32_xrstor(tmp_vp, tmp_ULLi);
+  (void)__builtin_ia32_xrstor64(tmp_vp, tmp_ULLi);
+  (void)__builtin_ia32_xsaveopt(tmp_vp, tmp_ULLi);
+  (void)__builtin_ia32_xsaveopt64(tmp_vp, tmp_ULLi);
+  (void)__builtin_ia32_xrstors(tmp_vp, tmp_ULLi);
+  (void)__builtin_ia32_xrstors64(tmp_vp, tmp_ULLi);
+  (void)__builtin_ia32_xsavec(tmp_vp, tmp_ULLi);
+  (void)__builtin_ia32_xsavec64(tmp_vp, tmp_ULLi);
+  (void)__builtin_ia32_xsaves(tmp_vp, tmp_ULLi);
+  (void)__builtin_ia32_xsaves64(tmp_vp, tmp_ULLi);
+
   tmp_V4f = __builtin_ia32_cvtpi2ps(tmp_V4f, tmp_V2i);
   tmp_V2i = __builtin_ia32_cvtps2pi(tmp_V4f);
   tmp_i = __builtin_ia32_cvtss2si(tmp_V4f);
@@ -451,14 +465,14 @@ void f0() {
   __builtin_ia32_movntdq256(tmp_V4LLip, tmp_V4LLi);
   __builtin_ia32_movntpd256(tmp_dp, tmp_V4d);
   __builtin_ia32_movntps256(tmp_fp, tmp_V8f);
-  tmp_V2d = __builtin_ia32_maskloadpd(tmp_V2dCp, tmp_V2d);
-  tmp_V4f = __builtin_ia32_maskloadps(tmp_V4fCp, tmp_V4f);
-  tmp_V4d = __builtin_ia32_maskloadpd256(tmp_V4dCp, tmp_V4d);
-  tmp_V8f = __builtin_ia32_maskloadps256(tmp_V8fCp, tmp_V8f);
-  __builtin_ia32_maskstorepd(tmp_V2dp, tmp_V2d, tmp_V2d);
-  __builtin_ia32_maskstoreps(tmp_V4fp, tmp_V4f, tmp_V4f);
-  __builtin_ia32_maskstorepd256(tmp_V4dp, tmp_V4d, tmp_V4d);
-  __builtin_ia32_maskstoreps256(tmp_V8fp, tmp_V8f, tmp_V8f);
+  tmp_V2d = __builtin_ia32_maskloadpd(tmp_V2dCp, tmp_V2LLi);
+  tmp_V4f = __builtin_ia32_maskloadps(tmp_V4fCp, tmp_V4i);
+  tmp_V4d = __builtin_ia32_maskloadpd256(tmp_V4dCp, tmp_V4LLi);
+  tmp_V8f = __builtin_ia32_maskloadps256(tmp_V8fCp, tmp_V8i);
+  __builtin_ia32_maskstorepd(tmp_V2dp, tmp_V2LLi, tmp_V2d);
+  __builtin_ia32_maskstoreps(tmp_V4fp, tmp_V4i, tmp_V4f);
+  __builtin_ia32_maskstorepd256(tmp_V4dp, tmp_V4LLi, tmp_V4d);
+  __builtin_ia32_maskstoreps256(tmp_V8fp, tmp_V8i, tmp_V8f);
 
 #ifdef USE_3DNOW
   tmp_V8c = __builtin_ia32_pavgusb(tmp_V8c, tmp_V8c);

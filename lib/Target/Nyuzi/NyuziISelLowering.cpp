@@ -437,6 +437,8 @@ NyuziTargetLowering::NyuziTargetLowering(const TargetMachine &TM,
   setOperationAction(ISD::SELECT, MVT::f32, Expand);
   setOperationAction(ISD::ROTL, MVT::i32, Expand);
   setOperationAction(ISD::ROTR, MVT::i32, Expand);
+  setOperationAction(ISD::ROTL, MVT::v16i32, Expand);
+  setOperationAction(ISD::ROTR, MVT::v16i32, Expand);
   setOperationAction(ISD::UDIVREM, MVT::i32, Expand);
   setOperationAction(ISD::SDIVREM, MVT::i32, Expand);
   setOperationAction(ISD::UMUL_LOHI, MVT::i32, Expand);
@@ -1229,7 +1231,7 @@ NyuziTargetLowering::EmitSelectCC(MachineInstr *MI,
   // destination vreg to set, the condition code register to branch on, the
   // true/false values to select between, and a branch opcode to use.
   const BasicBlock *LLVM_BB = BB->getBasicBlock();
-  MachineFunction::iterator It = BB;
+  MachineFunction::iterator It = BB->getIterator();
   ++It;
 
   //  ThisMBB:
@@ -1296,7 +1298,7 @@ NyuziTargetLowering::EmitAtomicBinary(MachineInstr *MI, MachineBasicBlock *BB,
 
   const BasicBlock *LLVM_BB = BB->getBasicBlock();
   MachineFunction *MF = BB->getParent();
-  MachineFunction::iterator It = BB;
+  MachineFunction::iterator It = BB->getIterator();
   ++It;
 
   MachineBasicBlock *LoopMBB = MF->CreateMachineBasicBlock(LLVM_BB);
@@ -1372,7 +1374,7 @@ NyuziTargetLowering::EmitAtomicCmpSwap(MachineInstr *MI,
   MachineBasicBlock *Loop1MBB = MF->CreateMachineBasicBlock(LLVM_BB);
   MachineBasicBlock *Loop2MBB = MF->CreateMachineBasicBlock(LLVM_BB);
   MachineBasicBlock *ExitMBB = MF->CreateMachineBasicBlock(LLVM_BB);
-  MachineFunction::iterator It = BB;
+  MachineFunction::iterator It = BB->getIterator();
   ++It;
   MF->insert(It, Loop1MBB);
   MF->insert(It, Loop2MBB);

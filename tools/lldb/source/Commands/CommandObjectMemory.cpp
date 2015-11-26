@@ -49,6 +49,7 @@ g_option_table[] =
     { LLDB_OPT_SET_1, false, "num-per-line" ,'l', OptionParser::eRequiredArgument, NULL, NULL, 0, eArgTypeNumberPerLine ,"The number of items per line to display."},
     { LLDB_OPT_SET_2, false, "binary"       ,'b', OptionParser::eNoArgument      , NULL, NULL, 0, eArgTypeNone          ,"If true, memory will be saved as binary. If false, the memory is saved save as an ASCII dump that uses the format, size, count and number per line settings."},
     { LLDB_OPT_SET_3, true , "type"         ,'t', OptionParser::eRequiredArgument, NULL, NULL, 0, eArgTypeNone          ,"The name of a type to view memory as."},
+    { LLDB_OPT_SET_3, false , "offset"      ,'E', OptionParser::eRequiredArgument, NULL, NULL, 0, eArgTypeCount         ,"How many elements of the specified type to skip before starting to display data."},
     { LLDB_OPT_SET_1|
       LLDB_OPT_SET_2|
       LLDB_OPT_SET_3, false, "force"        ,'r', OptionParser::eNoArgument,       NULL, NULL, 0, eArgTypeNone          ,"Necessary if reading over target.max-memory-read-size bytes."},
@@ -63,32 +64,32 @@ public:
     OptionGroupReadMemory () :
         m_num_per_line (1,1),
         m_output_as_binary (false),
-        m_view_as_type()
+        m_view_as_type(),
+        m_offset(0,0)
     {
     }
 
-    virtual
-    ~OptionGroupReadMemory ()
+    ~OptionGroupReadMemory () override
     {
     }
     
     
-    virtual uint32_t
-    GetNumDefinitions ()
+    uint32_t
+    GetNumDefinitions () override
     {
         return sizeof (g_option_table) / sizeof (OptionDefinition);
     }
     
-    virtual const OptionDefinition*
-    GetDefinitions ()
+    const OptionDefinition*
+    GetDefinitions () override
     {
         return g_option_table;
     }
     
-    virtual Error
+    Error
     SetOptionValue (CommandInterpreter &interpreter,
                     uint32_t option_idx,
-                    const char *option_arg)
+                    const char *option_arg) override
     {
         Error error;
         const int short_option = g_option_table[option_idx].short_option;
@@ -113,6 +114,10 @@ public:
                 m_force = true;
                 break;
                 
+            case 'E':
+                error = m_offset.SetValueFromString(option_arg);
+                break;
+                
             default:
                 error.SetErrorStringWithFormat("unrecognized short option '%c'", short_option);
                 break;
@@ -120,13 +125,14 @@ public:
         return error;
     }
     
-    virtual void
-    OptionParsingStarting (CommandInterpreter &interpreter)
+    void
+    OptionParsingStarting (CommandInterpreter &interpreter) override
     {
         m_num_per_line.Clear();
         m_output_as_binary = false;
         m_view_as_type.Clear();
         m_force = false;
+        m_offset.Clear();
     }
     
     Error
@@ -272,6 +278,7 @@ public:
             case eFormatVectorOfUInt32:
             case eFormatVectorOfSInt64:
             case eFormatVectorOfUInt64:
+            case eFormatVectorOfFloat16:
             case eFormatVectorOfFloat32:
             case eFormatVectorOfFloat64:
             case eFormatVectorOfUInt128:
@@ -291,13 +298,15 @@ public:
     {
         return m_num_per_line.OptionWasSet() ||
                m_output_as_binary ||
-               m_view_as_type.OptionWasSet();
+               m_view_as_type.OptionWasSet() ||
+               m_offset.OptionWasSet();
     }
     
     OptionValueUInt64 m_num_per_line;
     bool m_output_as_binary;
     OptionValueString m_view_as_type;
     bool m_force;
+    OptionValueUInt64 m_offset;
 };
 
 
@@ -367,25 +376,25 @@ public:
         m_option_group.Finalize();
     }
 
-    virtual
-    ~CommandObjectMemoryRead ()
+    ~CommandObjectMemoryRead () override
     {
     }
 
     Options *
-    GetOptions ()
+    GetOptions () override
     {
         return &m_option_group;
     }
 
-    virtual const char *GetRepeatCommand (Args &current_command_args, uint32_t index)
+    const char *
+    GetRepeatCommand (Args &current_command_args, uint32_t index) override
     {
         return m_cmd_name.c_str();
     }
 
 protected:
-    virtual bool
-    DoExecute (Args& command, CommandReturnObject &result)
+    bool
+    DoExecute (Args& command, CommandReturnObject &result) override
     {
         // No need to check "target" for validity as eCommandRequiresTarget ensures it is valid
         Target *target = m_exe_ctx.GetTargetPtr();
@@ -527,16 +536,21 @@ protected:
                                                1, 
                                                type_list);
             }
-            
+
             if (type_list.GetSize() == 0 && lookup_type_name.GetCString() && *lookup_type_name.GetCString() == '$')
             {
-                clang::TypeDecl *tdecl = target->GetPersistentVariables().GetPersistentType(ConstString(lookup_type_name));
-                if (tdecl)
+                if (ClangPersistentVariables *persistent_vars = llvm::dyn_cast_or_null<ClangPersistentVariables>(target->GetPersistentExpressionStateForLanguage(lldb::eLanguageTypeC)))
                 {
-                    clang_ast_type.SetCompilerType(ClangASTContext::GetASTContext(&tdecl->getASTContext()),(const lldb::opaque_compiler_type_t)tdecl->getTypeForDecl());
+                    clang::TypeDecl *tdecl = persistent_vars->GetPersistentType(ConstString(lookup_type_name));
+
+                    if (tdecl)
+                    {
+                        clang_ast_type.SetCompilerType(ClangASTContext::GetASTContext(&tdecl->getASTContext()),
+                                                       reinterpret_cast<lldb::opaque_compiler_type_t>(const_cast<clang::Type*>(tdecl->getTypeForDecl())));
+                    }
                 }
             }
-            
+
             if (clang_ast_type.IsValid() == false)
             {
                 if (type_list.GetSize() == 0)
@@ -692,6 +706,9 @@ protected:
                 m_format_options.GetFormatValue().SetCurrentValue(eFormatDefault);
 
             bytes_read = clang_ast_type.GetByteSize(nullptr) * m_format_options.GetCountValue().GetCurrentValue();
+                
+            if (argc > 0)
+                addr = addr + (clang_ast_type.GetByteSize(nullptr) * m_memory_options.m_offset.GetCurrentValue());
         }
         else if (m_format_options.GetFormatValue().GetCurrentValue() != eFormatCString)
         {
@@ -962,27 +979,26 @@ public:
     {
     }
     
-    virtual
-    ~OptionGroupFindMemory ()
+    ~OptionGroupFindMemory () override
     {
     }
     
-    virtual uint32_t
-    GetNumDefinitions ()
+    uint32_t
+    GetNumDefinitions () override
     {
       return sizeof (g_memory_find_option_table) / sizeof (OptionDefinition);
     }
     
-    virtual const OptionDefinition*
-    GetDefinitions ()
+    const OptionDefinition*
+    GetDefinitions () override
     {
       return g_memory_find_option_table;
     }
     
-    virtual Error
+    Error
     SetOptionValue (CommandInterpreter &interpreter,
                     uint32_t option_idx,
-                    const char *option_arg)
+                    const char *option_arg) override
     {
         Error error;
         const int short_option = g_memory_find_option_table[option_idx].short_option;
@@ -1014,8 +1030,8 @@ public:
         return error;
     }
     
-    virtual void
-    OptionParsingStarting (CommandInterpreter &interpreter)
+    void
+    OptionParsingStarting (CommandInterpreter &interpreter) override
     {
         m_expr.Clear();
         m_string.Clear();
@@ -1064,20 +1080,19 @@ public:
     m_option_group.Finalize();
   }
   
-  virtual
-  ~CommandObjectMemoryFind ()
+  ~CommandObjectMemoryFind () override
   {
   }
   
   Options *
-  GetOptions ()
+  GetOptions () override
   {
     return &m_option_group;
   }
   
 protected:
-  virtual bool
-  DoExecute (Args& command, CommandReturnObject &result)
+  bool
+  DoExecute (Args& command, CommandReturnObject &result) override
   {
       // No need to check "process" for validity as eCommandRequiresProcess ensures it is valid
       Process *process = m_exe_ctx.GetProcessPtr();
@@ -1254,27 +1269,26 @@ public:
         {
         }
 
-        virtual
-        ~OptionGroupWriteMemory ()
+        ~OptionGroupWriteMemory () override
         {
         }
 
-        virtual uint32_t
-        GetNumDefinitions ()
+        uint32_t
+        GetNumDefinitions () override
         {
             return sizeof (g_memory_write_option_table) / sizeof (OptionDefinition);
         }
       
-        virtual const OptionDefinition*
-        GetDefinitions ()
+        const OptionDefinition*
+        GetDefinitions () override
         {
             return g_memory_write_option_table;
         }
       
-        virtual Error
+        Error
         SetOptionValue (CommandInterpreter &interpreter,
                         uint32_t option_idx,
-                        const char *option_arg)
+                        const char *option_arg) override
         {
             Error error;
             const int short_option = g_memory_write_option_table[option_idx].short_option;
@@ -1308,8 +1322,8 @@ public:
             return error;
         }
         
-        virtual void
-        OptionParsingStarting (CommandInterpreter &interpreter)
+        void
+        OptionParsingStarting (CommandInterpreter &interpreter) override
         {
             m_infile.Clear();
             m_infile_offset = 0;
@@ -1359,13 +1373,12 @@ public:
 
     }
 
-    virtual
-    ~CommandObjectMemoryWrite ()
+    ~CommandObjectMemoryWrite () override
     {
     }
 
     Options *
-    GetOptions ()
+    GetOptions () override
     {
         return &m_option_group;
     }
@@ -1398,8 +1411,8 @@ public:
     }
 
 protected:
-    virtual bool
-    DoExecute (Args& command, CommandReturnObject &result)
+    bool
+    DoExecute (Args& command, CommandReturnObject &result) override
     {
         // No need to check "process" for validity as eCommandRequiresProcess ensures it is valid
         Process *process = m_exe_ctx.GetProcessPtr();
@@ -1519,6 +1532,7 @@ protected:
             case eFormatVectorOfUInt32:
             case eFormatVectorOfSInt64:
             case eFormatVectorOfUInt64:
+            case eFormatVectorOfFloat16:
             case eFormatVectorOfFloat32:
             case eFormatVectorOfFloat64:
             case eFormatVectorOfUInt128:
@@ -1707,19 +1721,19 @@ public:
         m_arguments.push_back (arg1);
     }
     
-    virtual
-    ~CommandObjectMemoryHistory ()
+    ~CommandObjectMemoryHistory () override
     {
     }
     
-    virtual const char *GetRepeatCommand (Args &current_command_args, uint32_t index)
+    const char *
+    GetRepeatCommand (Args &current_command_args, uint32_t index) override
     {
         return m_cmd_name.c_str();
     }
     
 protected:
-    virtual bool
-    DoExecute (Args& command, CommandReturnObject &result)
+    bool
+    DoExecute (Args& command, CommandReturnObject &result) override
     {
         const size_t argc = command.GetArgumentCount();
         

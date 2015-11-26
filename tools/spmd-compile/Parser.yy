@@ -72,7 +72,7 @@ funcdecl		:		TOK_FLOAT TOK_IDENTIFIER enter_scope '(' parameters ')'
 							for (auto Sym : ArgumentSyms)
 							{
 								Sym->Val = Builder->createLocalVariable(Sym->Name.c_str());
-								Builder->assignLocalVariable(Sym->Val, AI);
+								Builder->assignLocalVariable(Sym->Val, &*AI);
 								AI++;
 							}
 

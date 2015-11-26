@@ -75,8 +75,15 @@ ErrorOr<std::string> sys::findProgramByName(StringRef Name,
 
     do {
       U16Result.reserve(Len);
-      Len = ::SearchPathW(Path, c_str(U16Name),
-                          U16Ext.empty() ? nullptr : c_str(U16Ext),
+      // Lets attach the extension manually. That is needed for files
+      // with a point in name like aaa.bbb. SearchPathW will not add extension
+      // from its argument to such files because it thinks they already had one.
+      SmallVector<wchar_t, MAX_PATH> U16NameExt;
+      if (std::error_code EC =
+              windows::UTF8ToUTF16(Twine(Name + Ext).str(), U16NameExt))
+        return EC;
+
+      Len = ::SearchPathW(Path, c_str(U16NameExt), nullptr,
                           U16Result.capacity(), U16Result.data(), nullptr);
     } while (Len > U16Result.capacity());
 
@@ -132,7 +139,7 @@ static HANDLE RedirectIO(const StringRef *path, int fd, std::string* ErrMsg) {
                   FILE_ATTRIBUTE_NORMAL, NULL);
   if (h == INVALID_HANDLE_VALUE) {
     MakeErrMsg(ErrMsg, fname + ": Can't open file for " +
-        (fd ? "input: " : "output: "));
+        (fd ? "input" : "output"));
   }
 
   return h;
@@ -424,7 +431,7 @@ ProcessInfo sys::Wait(const ProcessInfo &PI, unsigned SecondsToWait,
     if (SecondsToWait) {
       if (!TerminateProcess(PI.ProcessHandle, 1)) {
         if (ErrMsg)
-          MakeErrMsg(ErrMsg, "Failed to terminate timed-out program.");
+          MakeErrMsg(ErrMsg, "Failed to terminate timed-out program");
 
         // -2 indicates a crash or timeout as opposed to failure to execute.
         WaitResult.ReturnCode = -2;
@@ -449,7 +456,7 @@ ProcessInfo sys::Wait(const ProcessInfo &PI, unsigned SecondsToWait,
   if (!rc) {
     SetLastError(err);
     if (ErrMsg)
-      MakeErrMsg(ErrMsg, "Failed getting status for program.");
+      MakeErrMsg(ErrMsg, "Failed getting status for program");
 
     // -2 indicates a crash or timeout as opposed to failure to execute.
     WaitResult.ReturnCode = -2;

@@ -26,6 +26,7 @@
 #include "clang/StaticAnalyzer/Core/CheckerManager.h"
 #include "clang/StaticAnalyzer/Core/PathSensitive/AnalysisManager.h"
 #include "clang/StaticAnalyzer/Core/PathSensitive/CallEvent.h"
+#include "clang/StaticAnalyzer/Core/PathSensitive/LoopWidening.h"
 #include "llvm/ADT/ImmutableList.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/Support/raw_ostream.h"
@@ -765,6 +766,10 @@ void ExprEngine::Visit(const Stmt *S, ExplodedNode *Pred,
     case Stmt::PackExpansionExprClass:
     case Stmt::SubstNonTypeTemplateParmPackExprClass:
     case Stmt::FunctionParmPackExprClass:
+    case Stmt::CoroutineBodyStmtClass:
+    case Stmt::CoawaitExprClass:
+    case Stmt::CoreturnStmtClass:
+    case Stmt::CoyieldExprClass:
     case Stmt::SEHTryStmtClass:
     case Stmt::SEHExceptStmtClass:
     case Stmt::SEHLeaveStmtClass:
@@ -1391,8 +1396,25 @@ void ExprEngine::processCFGBlockEntrance(const BlockEdge &L,
                                          ExplodedNode *Pred) {
   PrettyStackTraceLocationContext CrashInfo(Pred->getLocationContext());
 
+  // If this block is terminated by a loop and it has already been visited the
+  // maximum number of times, widen the loop.
+  unsigned int BlockCount = nodeBuilder.getContext().blockCount();
+  if (BlockCount == AMgr.options.maxBlockVisitOnPath - 1 &&
+      AMgr.options.shouldWidenLoops()) {
+    const Stmt *Term = nodeBuilder.getContext().getBlock()->getTerminator();
+    if (!(Term &&
+          (isa<ForStmt>(Term) || isa<WhileStmt>(Term) || isa<DoStmt>(Term))))
+      return;
+    // Widen.
+    const LocationContext *LCtx = Pred->getLocationContext();
+    ProgramStateRef WidenedState =
+        getWidenedLoopState(Pred->getState(), LCtx, BlockCount, Term);
+    nodeBuilder.generateNode(WidenedState, Pred);
+    return;
+  }
+
   // FIXME: Refactor this into a checker.
-  if (nodeBuilder.getContext().blockCount() >= AMgr.options.maxBlockVisitOnPath) {
+  if (BlockCount >= AMgr.options.maxBlockVisitOnPath) {
     static SimpleProgramPointTag tag(TagProviderName, "Block count exceeded");
     const ExplodedNode *Sink =
                    nodeBuilder.generateSink(Pred->getState(), Pred, &tag);
@@ -1845,7 +1867,7 @@ void ExprEngine::VisitCommonDeclRefExpr(const Expr *Ex, const NamedDecl *D,
     const auto *MD = D ? dyn_cast<CXXMethodDecl>(D) : nullptr;
     const auto *DeclRefEx = dyn_cast<DeclRefExpr>(Ex);
     SVal V;
-    bool CaptureByReference = false;
+    bool IsReference;
     if (AMgr.options.shouldInlineLambdas() && DeclRefEx &&
         DeclRefEx->refersToEnclosingVariableOrCapture() && MD &&
         MD->getParent()->isLambda()) {
@@ -1855,20 +1877,27 @@ void ExprEngine::VisitCommonDeclRefExpr(const Expr *Ex, const NamedDecl *D,
       FieldDecl *LambdaThisCaptureField;
       CXXRec->getCaptureFields(LambdaCaptureFields, LambdaThisCaptureField);
       const FieldDecl *FD = LambdaCaptureFields[VD];
-      Loc CXXThis =
-          svalBuilder.getCXXThis(MD, LocCtxt->getCurrentStackFrame());
-      SVal CXXThisVal = state->getSVal(CXXThis);
-      V = state->getLValue(FD, CXXThisVal);
-      if (FD->getType()->isReferenceType() &&
-          !VD->getType()->isReferenceType())
-        CaptureByReference = true;
+      if (!FD) {
+        // When a constant is captured, sometimes no corresponding field is
+        // created in the lambda object.
+        assert(VD->getType().isConstQualified());
+        V = state->getLValue(VD, LocCtxt);
+        IsReference = false;
+      } else {
+        Loc CXXThis =
+            svalBuilder.getCXXThis(MD, LocCtxt->getCurrentStackFrame());
+        SVal CXXThisVal = state->getSVal(CXXThis);
+        V = state->getLValue(FD, CXXThisVal);
+        IsReference = FD->getType()->isReferenceType();
+      }
     } else {
       V = state->getLValue(VD, LocCtxt);
+      IsReference = VD->getType()->isReferenceType();
     }
 
     // For references, the 'lvalue' is the pointer address stored in the
     // reference region.
-    if (VD->getType()->isReferenceType() || CaptureByReference) {
+    if (IsReference) {
       if (const MemRegion *R = V.getAsRegion())
         V = state->getSVal(R);
       else

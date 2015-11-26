@@ -1,4 +1,4 @@
-//===-- AppleObjCRuntimeV2.cpp --------------------------------------*- C++ -*-===//
+//===-- AppleObjCRuntimeV2.cpp ----------------------------------*- C++ -*-===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -7,10 +7,18 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include <string>
-#include <vector>
+// C Includes
 #include <stdint.h>
 
+// C++ Includes
+#include <string>
+#include <vector>
+
+// Other libraries and framework includes
+#include "clang/AST/ASTContext.h"
+#include "clang/AST/DeclObjC.h"
+
+// Project includes
 #include "lldb/lldb-enumerations.h"
 #include "lldb/Core/ClangForward.h"
 #include "lldb/Symbol/CompilerType.h"
@@ -52,12 +60,9 @@
 #include "AppleObjCDeclVendor.h"
 #include "AppleObjCTrampolineHandler.h"
 
-#include "clang/AST/ASTContext.h"
-#include "clang/AST/DeclObjC.h"
-
+#if defined(__APPLE__)
 #include "Plugins/Platform/MacOSX/PlatformiOSSimulator.h"
-
-#include <vector>
+#endif
 
 using namespace lldb;
 using namespace lldb_private;
@@ -202,6 +207,14 @@ struct objc_opt_t {
     int32_t clsopt_offset;
 };
 
+struct objc_opt_v14_t {
+    uint32_t version;
+    uint32_t flags;
+    int32_t selopt_offset;
+    int32_t headeropt_offset;
+    int32_t clsopt_offset;
+};
+
 struct ClassInfo
 {
     Class isa;
@@ -220,16 +233,34 @@ __lldb_apple_objc_v2_get_shared_cache_class_info (void *objc_opt_ro_ptr,
     if (objc_opt_ro_ptr)
     {
         const objc_opt_t *objc_opt = (objc_opt_t *)objc_opt_ro_ptr;
-        DEBUG_PRINTF ("objc_opt->version = %u\n", objc_opt->version);
-        DEBUG_PRINTF ("objc_opt->selopt_offset = %d\n", objc_opt->selopt_offset);
-        DEBUG_PRINTF ("objc_opt->headeropt_offset = %d\n", objc_opt->headeropt_offset);
-        DEBUG_PRINTF ("objc_opt->clsopt_offset = %d\n", objc_opt->clsopt_offset);
-        if (objc_opt->version == 12 || objc_opt->version == 13)
+        const objc_opt_v14_t* objc_opt_v14 = (objc_opt_v14_t*)objc_opt_ro_ptr;
+        const bool is_v14_format = objc_opt->version >= 14;
+        if (is_v14_format)
         {
-            const objc_clsopt_t* clsopt = (const objc_clsopt_t*)((uint8_t *)objc_opt + objc_opt->clsopt_offset);
+            DEBUG_PRINTF ("objc_opt->version = %u\n", objc_opt_v14->version);
+            DEBUG_PRINTF ("objc_opt->flags = %u\n", objc_opt_v14->flags);
+            DEBUG_PRINTF ("objc_opt->selopt_offset = %d\n", objc_opt_v14->selopt_offset);
+            DEBUG_PRINTF ("objc_opt->headeropt_offset = %d\n", objc_opt_v14->headeropt_offset);
+            DEBUG_PRINTF ("objc_opt->clsopt_offset = %d\n", objc_opt_v14->clsopt_offset);
+        }
+        else
+        {
+            DEBUG_PRINTF ("objc_opt->version = %u\n", objc_opt->version);
+            DEBUG_PRINTF ("objc_opt->selopt_offset = %d\n", objc_opt->selopt_offset);
+            DEBUG_PRINTF ("objc_opt->headeropt_offset = %d\n", objc_opt->headeropt_offset);
+            DEBUG_PRINTF ("objc_opt->clsopt_offset = %d\n", objc_opt->clsopt_offset);
+        }
+        if (objc_opt->version == 12 || objc_opt->version == 13 || objc_opt->version == 14)
+        {
+            const objc_clsopt_t* clsopt = NULL;
+            if (is_v14_format)
+                clsopt = (const objc_clsopt_t*)((uint8_t *)objc_opt_v14 + objc_opt_v14->clsopt_offset);
+            else
+                clsopt = (const objc_clsopt_t*)((uint8_t *)objc_opt + objc_opt->clsopt_offset);
             const size_t max_class_infos = class_infos_byte_size/sizeof(ClassInfo);
             ClassInfo *class_infos = (ClassInfo *)class_infos_ptr;
             int32_t invalidEntryOffset = 0;
+            // this is safe to do because the version field order is invariant
             if (objc_opt->version == 12)
                 invalidEntryOffset = 16;
             const uint8_t *checkbytes = &clsopt->tab[clsopt->mask+1];
@@ -342,7 +373,6 @@ ExtractRuntimeGlobalSymbol (Process* process,
         error.SetErrorString("no symbol");
         return default_value;
     }
-
 }
 
 AppleObjCRuntimeV2::AppleObjCRuntimeV2 (Process *process,
@@ -366,10 +396,6 @@ AppleObjCRuntimeV2::AppleObjCRuntimeV2 (Process *process,
 {
     static const ConstString g_gdb_object_getClass("gdb_object_getClass");
     m_has_object_getClass = (objc_module_sp->FindFirstSymbolWithNameAndType(g_gdb_object_getClass, eSymbolTypeCode) != NULL);
-}
-
-AppleObjCRuntimeV2::~AppleObjCRuntimeV2()
-{
 }
 
 bool
@@ -450,7 +476,6 @@ AppleObjCRuntimeV2::CreateInstance (Process *process, LanguageType language)
 class CommandObjectObjC_ClassTable_Dump : public CommandObjectParsed
 {
 public:
-    
     CommandObjectObjC_ClassTable_Dump (CommandInterpreter &interpreter) :
     CommandObjectParsed (interpreter,
                          "dump",
@@ -461,14 +486,12 @@ public:
                          eCommandProcessMustBePaused   )
     {
     }
-    
-    ~CommandObjectObjC_ClassTable_Dump ()
-    {
-    }
-    
+
+    ~CommandObjectObjC_ClassTable_Dump() override = default;
+
 protected:
     bool
-    DoExecute (Args& command, CommandReturnObject &result)
+    DoExecute(Args& command, CommandReturnObject &result) override
     {
         Process *process = m_exe_ctx.GetProcessPtr();
         ObjCLanguageRuntime *objc_runtime = process->GetObjCLanguageRuntime();
@@ -510,7 +533,6 @@ protected:
 class CommandObjectMultiwordObjC_TaggedPointer_Info : public CommandObjectParsed
 {
 public:
-    
     CommandObjectMultiwordObjC_TaggedPointer_Info (CommandInterpreter &interpreter) :
     CommandObjectParsed (interpreter,
                          "info",
@@ -533,14 +555,12 @@ public:
         // Push the data for the first argument into the m_arguments vector.
         m_arguments.push_back (arg);
     }
-    
-    ~CommandObjectMultiwordObjC_TaggedPointer_Info ()
-    {
-    }
-    
+
+    ~CommandObjectMultiwordObjC_TaggedPointer_Info() override = default;
+
 protected:
     bool
-    DoExecute (Args& command, CommandReturnObject &result)
+    DoExecute(Args& command, CommandReturnObject &result) override
     {
         if (command.GetArgumentCount() == 0)
         {
@@ -610,7 +630,6 @@ protected:
 class CommandObjectMultiwordObjC_ClassTable : public CommandObjectMultiword
 {
 public:
-    
     CommandObjectMultiwordObjC_ClassTable (CommandInterpreter &interpreter) :
     CommandObjectMultiword (interpreter,
                             "class-table",
@@ -619,11 +638,8 @@ public:
     {
         LoadSubCommand ("dump",   CommandObjectSP (new CommandObjectObjC_ClassTable_Dump (interpreter)));
     }
-    
-    virtual
-    ~CommandObjectMultiwordObjC_ClassTable ()
-    {
-    }
+
+    ~CommandObjectMultiwordObjC_ClassTable() override = default;
 };
 
 class CommandObjectMultiwordObjC_TaggedPointer : public CommandObjectMultiword
@@ -638,17 +654,13 @@ public:
     {
         LoadSubCommand ("info",   CommandObjectSP (new CommandObjectMultiwordObjC_TaggedPointer_Info (interpreter)));
     }
-    
-    virtual
-    ~CommandObjectMultiwordObjC_TaggedPointer ()
-    {
-    }
+
+    ~CommandObjectMultiwordObjC_TaggedPointer() override = default;
 };
 
 class CommandObjectMultiwordObjC : public CommandObjectMultiword
 {
 public:
-    
     CommandObjectMultiwordObjC (CommandInterpreter &interpreter) :
     CommandObjectMultiword (interpreter,
                             "objc",
@@ -658,11 +670,8 @@ public:
         LoadSubCommand ("class-table",   CommandObjectSP (new CommandObjectMultiwordObjC_ClassTable (interpreter)));
         LoadSubCommand ("tagged-pointer",   CommandObjectSP (new CommandObjectMultiwordObjC_TaggedPointer (interpreter)));
     }
-    
-    virtual
-    ~CommandObjectMultiwordObjC ()
-    {
-    }
+
+    ~CommandObjectMultiwordObjC() override = default;
 };
 
 void
@@ -688,7 +697,6 @@ AppleObjCRuntimeV2::GetPluginNameStatic()
     static ConstString g_name("apple-objc-v2");
     return g_name;
 }
-
 
 //------------------------------------------------------------------
 // PluginInterface protocol
@@ -836,7 +844,6 @@ AppleObjCRuntimeV2::GetByteOffsetForIvar (CompilerType &parent_ast_type, const c
     return ivar_offset;
 }
 
-
 // tagged pointers are special not-a-real-pointer values that contain both type and value information
 // this routine attempts to check with as little computational effort as possible whether something
 // could possibly be a tagged pointer - false positives are possible but false negatives shouldn't
@@ -851,7 +858,6 @@ AppleObjCRuntimeV2::IsTaggedPointer(addr_t ptr)
 class RemoteNXMapTable
 {
 public:
-    
     RemoteNXMapTable () :
         m_count (0),
         m_num_buckets_minus_one (0),
@@ -996,6 +1002,7 @@ public:
             
             return element(ConstString(key_string.c_str()), (ObjCLanguageRuntime::ObjCISA)value);
         }
+
     private:
         void AdvanceToValidIndex ()
         {
@@ -1071,8 +1078,6 @@ private:
     size_t m_map_pair_size;
     lldb::addr_t m_invalid_key;
 };
-
-
 
 AppleObjCRuntimeV2::HashTableSignature::HashTableSignature() :
     m_count (0),
@@ -1312,10 +1317,7 @@ AppleObjCRuntimeV2::UpdateISAToDescriptorMapDynamic(RemoteNXMapTable &hash_table
         }
         arguments = get_class_info_function->GetArgumentValues();
     }
-    
-    
-    
-    
+
     errors.Clear();
     
     const uint32_t class_info_byte_size = addr_size + 4;
@@ -1672,7 +1674,6 @@ AppleObjCRuntimeV2::UpdateISAToDescriptorMapSharedCache()
     return DescriptorMapUpdateResult(success, any_found);
 }
 
-
 bool
 AppleObjCRuntimeV2::UpdateISAToDescriptorMapFromMemory (RemoteNXMapTable &hash_table)
 {
@@ -1780,7 +1781,6 @@ AppleObjCRuntimeV2::UpdateISAToDescriptorMapIfNeeded()
             else
                 m_loaded_objc_opt = true;
         }
-        
     }
     else
     {
@@ -1793,7 +1793,8 @@ AppleObjCRuntimeV2::WarnIfNoClassesCached ()
 {
     if (m_noclasses_warning_emitted)
         return;
-    
+
+#if defined(__APPLE__)
     if (m_process &&
         m_process->GetTarget().GetPlatform() &&
         m_process->GetTarget().GetPlatform()->GetPluginName() == PlatformiOSSimulator::GetPluginNameStatic())
@@ -1803,7 +1804,8 @@ AppleObjCRuntimeV2::WarnIfNoClassesCached ()
         m_noclasses_warning_emitted = true;
         return;
     }
-    
+#endif
+
     Debugger &debugger(GetProcess()->GetTarget().GetDebugger());
     
     if (debugger.GetAsyncOutputStream())

@@ -1,4 +1,4 @@
-//===-- FormatManager.h -------------------------------------------*- C++ -*-===//
+//===-- FormatManager.h -----------------------------------------*- C++ -*-===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -12,13 +12,15 @@
 
 // C Includes
 // C++ Includes
+#include <atomic>
+#include <initializer_list>
+#include <map>
+#include <vector>
 
 // Other libraries and framework includes
 // Project includes
 #include "lldb/lldb-public.h"
 #include "lldb/lldb-enumerations.h"
-
-#include "lldb/Core/ThreadSafeDenseMap.h"
 
 #include "lldb/DataFormatters/FormatCache.h"
 #include "lldb/DataFormatters/FormatClasses.h"
@@ -26,10 +28,6 @@
 #include "lldb/DataFormatters/LanguageCategory.h"
 #include "lldb/DataFormatters/TypeCategory.h"
 #include "lldb/DataFormatters/TypeCategoryMap.h"
-
-#include <atomic>
-#include <functional>
-#include <memory>
 
 namespace lldb_private {
     
@@ -43,13 +41,12 @@ class FormatManager : public IFormatChangeListener
     typedef FormatMap<ConstString, TypeSummaryImpl> NamedSummariesMap;
     typedef TypeCategoryMap::MapType::iterator CategoryMapIterator;
 public:
-    
     typedef std::map<lldb::LanguageType, LanguageCategory::UniquePointer> LanguageCategories;
     
-    typedef TypeCategoryMap::CallbackType CategoryCallback;
+    FormatManager();
     
-    FormatManager ();
-    
+    ~FormatManager() override = default;
+
     NamedSummariesMap&
     GetNamedSummaryContainer ()
     {
@@ -141,11 +138,11 @@ public:
     }
     
     void
-    LoopThroughCategories (CategoryCallback callback, void* param);
-
+    ForEachCategory (TypeCategoryMap::ForEachCallback callback);
+    
     lldb::TypeCategoryImplSP
-    GetCategory (const char* category_name = NULL,
-                 bool can_create = true)
+    GetCategory(const char* category_name = nullptr,
+                bool can_create = true)
     {
         if (!category_name)
             return GetCategory(m_default_category_name);
@@ -197,11 +194,11 @@ public:
                   lldb::DynamicValueType use_dynamic);
     
     bool
-    AnyMatches (ConstString type_name,
-                TypeCategoryImpl::FormatCategoryItems items = TypeCategoryImpl::ALL_ITEM_TYPES,
-                bool only_enabled = true,
-                const char** matching_category = NULL,
-                TypeCategoryImpl::FormatCategoryItems* matching_type = NULL)
+    AnyMatches(ConstString type_name,
+               TypeCategoryImpl::FormatCategoryItems items = TypeCategoryImpl::ALL_ITEM_TYPES,
+               bool only_enabled = true,
+               const char** matching_category = nullptr,
+               TypeCategoryImpl::FormatCategoryItems* matching_type = nullptr)
     {
         return m_categories_map.AnyMatches(type_name,
                                            items,
@@ -252,11 +249,7 @@ public:
     {
         return m_last_revision;
     }
-    
-    ~FormatManager () override
-    {
-    }
-    
+
     static FormattersMatchVector
     GetPossibleMatches (ValueObject& valobj,
                         lldb::DynamicValueType use_dynamic)
@@ -284,7 +277,6 @@ public:
     GetCandidateLanguages (lldb::LanguageType lang_type);
 
 private:
-    
     static std::vector<lldb::LanguageType>
     GetCandidateLanguages (ValueObject& valobj);
     
@@ -311,16 +303,16 @@ private:
     ConstString m_vectortypes_category_name;
     
     lldb::TypeFormatImplSP
-    GetHardcodedFormat (ValueObject&,lldb::DynamicValueType);
+    GetHardcodedFormat (FormattersMatchData&);
     
     lldb::TypeSummaryImplSP
-    GetHardcodedSummaryFormat (ValueObject&,lldb::DynamicValueType);
+    GetHardcodedSummaryFormat (FormattersMatchData&);
 
     lldb::SyntheticChildrenSP
-    GetHardcodedSyntheticChildren (ValueObject&,lldb::DynamicValueType);
+    GetHardcodedSyntheticChildren (FormattersMatchData&);
     
     lldb::TypeValidatorImplSP
-    GetHardcodedValidator (ValueObject&,lldb::DynamicValueType);
+    GetHardcodedValidator (FormattersMatchData&);
     
     TypeCategoryMap&
     GetCategories ()
@@ -338,6 +330,8 @@ private:
     
     void
     LoadVectorFormatters ();
+    
+    friend class FormattersMatchData;
 };
     
 } // namespace lldb_private

@@ -126,6 +126,13 @@ testing::AssertionResult matchesC(const std::string &Code, const T &AMatcher) {
 }
 
 template <typename T>
+testing::AssertionResult notMatchesC(const std::string &Code,
+                                     const T &AMatcher) {
+  return matchesConditionally(Code, AMatcher, false, "", FileContentMappings(),
+                              "input.c");
+}
+
+template <typename T>
 testing::AssertionResult notMatchesObjC(const std::string &Code,
                                      const T &AMatcher) {
   return matchesConditionally(
@@ -171,6 +178,7 @@ testing::AssertionResult matchesConditionallyWithCuda(
   Args.push_back("-xcuda");
   Args.push_back("-fno-ms-extensions");
   Args.push_back("--cuda-host-only");
+  Args.push_back("-nocudainc");
   Args.push_back(CompileArg);
   if (!runToolOnCodeWithArgs(Factory->create(),
                              CudaHeader + Code, Args)) {

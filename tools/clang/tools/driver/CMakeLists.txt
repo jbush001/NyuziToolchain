@@ -54,11 +54,14 @@ add_dependencies(clang clang-headers)
 install(TARGETS clang
   RUNTIME DESTINATION bin
   COMPONENT clang)
-add_custom_target(install-clang
-  DEPENDS clang
-  COMMAND "${CMAKE_COMMAND}"
-          -DCMAKE_INSTALL_COMPONENT=clang
-          -P "${CMAKE_BINARY_DIR}/cmake_install.cmake")
+
+if(NOT CMAKE_CONFIGURATION_TYPES)
+  add_custom_target(install-clang
+    DEPENDS clang
+    COMMAND "${CMAKE_COMMAND}"
+            -DCMAKE_INSTALL_COMPONENT=clang
+            -P "${CMAKE_BINARY_DIR}/cmake_install.cmake")
+endif()
 
 if(NOT CLANG_LINKS_TO_CREATE)
   set(CLANG_LINKS_TO_CREATE clang++ clang-cl)
@@ -83,10 +86,7 @@ if (APPLE)
 
   set(TOOL_INFO_UTI "${CLANG_VENDOR_UTI}")
   set(TOOL_INFO_VERSION "${CLANG_VERSION}")
-  if (LLVM_SUBMIT_VERSION)
-    set(TOOL_INFO_BUILD_VERSION
-      "${LLVM_SUBMIT_VERSION}.${LLVM_SUBMIT_SUBVERSION}")
-  endif()
+  set(TOOL_INFO_BUILD_VERSION "${LLVM_MAJOR_VERSION}.${LLVM_MINOR_VERSION}")
   
   set(TOOL_INFO_PLIST_OUT "${CMAKE_CURRENT_BINARY_DIR}/${TOOL_INFO_PLIST}")
   target_link_libraries(clang

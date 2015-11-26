@@ -86,7 +86,7 @@ static int gettok() {
       LastChar = getchar();
     } while (isdigit(LastChar) || LastChar == '.');
 
-    NumVal = strtod(NumStr.c_str(), 0);
+    NumVal = strtod(NumStr.c_str(), nullptr);
     return tok_number;
   }
 
@@ -385,7 +385,6 @@ static std::unique_ptr<ForExprAST> ParseForExpr() {
   if (CurTok != '=')
     return ErrorU<ForExprAST>("expected '=' after for");
   getNextToken();  // eat '='.
-
 
   auto Start = ParseExpression();
   if (!Start)
@@ -747,7 +746,7 @@ static AllocaInst *CreateEntryBlockAlloca(Function *TheFunction,
                                           const std::string &VarName) {
   IRBuilder<> TmpB(&TheFunction->getEntryBlock(),
                  TheFunction->getEntryBlock().begin());
-  return TmpB.CreateAlloca(Type::getDoubleTy(getGlobalContext()), 0,
+  return TmpB.CreateAlloca(Type::getDoubleTy(getGlobalContext()), nullptr,
                            VarName.c_str());
 }
 
@@ -759,7 +758,7 @@ Value *VariableExprAST::IRGen(IRGenContext &C) const {
   // Look this variable up in the function.
   Value *V = C.NamedValues[Name];
 
-  if (V == 0)
+  if (!V)
     return ErrorP<Value>("Unknown variable name '" + Name + "'");
 
   // Load the value.
@@ -782,7 +781,7 @@ Value *BinaryExprAST::IRGen(IRGenContext &C) const {
   // Special case '=' because we don't want to emit the LHS as an expression.
   if (Op == '=') {
     // Assignment requires the LHS to be an identifier.
-    auto LHSVar = static_cast<VariableExprAST&>(*LHS);
+    auto &LHSVar = static_cast<VariableExprAST &>(*LHS);
     // Codegen the RHS.
     Value *Val = RHS->IRGen(C);
     if (!Val) return nullptr;
@@ -959,7 +958,7 @@ Value *ForExprAST::IRGen(IRGenContext &C) const {
 
   // Compute the end condition.
   Value *EndCond = End->IRGen(C);
-  if (EndCond == 0) return EndCond;
+  if (!EndCond) return nullptr;
 
   // Reload, increment, and restore the alloca.  This handles the case where
   // the body of the loop mutates the variable.
@@ -986,7 +985,6 @@ Value *ForExprAST::IRGen(IRGenContext &C) const {
     C.NamedValues[VarName] = OldVal;
   else
     C.NamedValues.erase(VarName);
-
 
   // for expr always returns 0.0.
   return Constant::getNullValue(Type::getDoubleTy(getGlobalContext()));
@@ -1086,7 +1084,7 @@ void PrototypeAST::CreateArgumentAllocas(Function *F, IRGenContext &C) {
     AllocaInst *Alloca = CreateEntryBlockAlloca(F, Args[Idx]);
 
     // Store the initial value into the alloca.
-    C.getBuilder().CreateStore(AI, Alloca);
+    C.getBuilder().CreateStore(&*AI, Alloca);
 
     // Add arguments to variable symbol table.
     C.NamedValues[Args[Idx]] = Alloca;
@@ -1223,7 +1221,7 @@ private:
   RuntimeDyld::SymbolInfo searchFunctionASTs(const std::string &Name) {
     auto DefI = FunctionDefs.find(Name);
     if (DefI == FunctionDefs.end())
-      return 0;
+      return nullptr;
 
     // Take the FunctionAST out of the map.
     auto FnAST = std::move(DefI->second);

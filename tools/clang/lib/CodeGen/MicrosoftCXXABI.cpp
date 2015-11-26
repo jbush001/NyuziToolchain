@@ -46,7 +46,7 @@ public:
       : CGCXXABI(CGM), BaseClassDescriptorType(nullptr),
         ClassHierarchyDescriptorType(nullptr),
         CompleteObjectLocatorType(nullptr), CatchableTypeType(nullptr),
-        ThrowInfoType(nullptr), CatchHandlerTypeType(nullptr) {}
+        ThrowInfoType(nullptr) {}
 
   bool HasThisReturn(GlobalDecl GD) const override;
   bool hasMostDerivedReturn(GlobalDecl GD) const override;
@@ -88,6 +88,25 @@ public:
         CD->getType()->castAs<FunctionProtoType>()->isVariadic())
       return 2;
     return 1;
+  }
+
+  std::vector<CharUnits> getVBPtrOffsets(const CXXRecordDecl *RD) override {
+    std::vector<CharUnits> VBPtrOffsets;
+    const ASTContext &Context = getContext();
+    const ASTRecordLayout &Layout = Context.getASTRecordLayout(RD);
+
+    const VBTableGlobals &VBGlobals = enumerateVBTables(RD);
+    for (const VPtrInfo *VBT : *VBGlobals.VBTables) {
+      const ASTRecordLayout &SubobjectLayout =
+          Context.getASTRecordLayout(VBT->BaseWithVPtr);
+      CharUnits Offs = VBT->NonVirtualOffset;
+      Offs += SubobjectLayout.getVBPtrOffset();
+      if (VBT->getVBaseWithVPtr())
+        Offs += Layout.getVBaseClassOffset(VBT->getVBaseWithVPtr());
+      VBPtrOffsets.push_back(Offs);
+    }
+    llvm::array_pod_sort(VBPtrOffsets.begin(), VBPtrOffsets.end());
+    return VBPtrOffsets;
   }
 
   StringRef GetPureVirtualCallName() override { return "_purecall"; }
@@ -534,14 +553,6 @@ private:
     return  llvm::Constant::getAllOnesValue(CGM.IntTy);
   }
 
-  llvm::Constant *getConstantOrZeroInt(llvm::Constant *C) {
-    return C ? C : getZeroInt();
-  }
-
-  llvm::Value *getValueOrZeroInt(llvm::Value *C) {
-    return C ? C : getZeroInt();
-  }
-
   CharUnits getVirtualFunctionPrologueThisAdjustment(GlobalDecl GD);
 
   void
@@ -659,18 +670,6 @@ public:
 
   void emitCXXStructor(const CXXMethodDecl *MD, StructorType Type) override;
 
-  llvm::StructType *getCatchHandlerTypeType() {
-    if (!CatchHandlerTypeType) {
-      llvm::Type *FieldTypes[] = {
-          CGM.IntTy,     // Flags
-          CGM.Int8PtrTy, // TypeDescriptor
-      };
-      CatchHandlerTypeType = llvm::StructType::create(
-          CGM.getLLVMContext(), FieldTypes, "eh.CatchHandlerType");
-    }
-    return CatchHandlerTypeType;
-  }
-
   llvm::StructType *getCatchableTypeType() {
     if (CatchableTypeType)
       return CatchableTypeType;
@@ -786,7 +785,6 @@ private:
   llvm::StructType *CatchableTypeType;
   llvm::DenseMap<uint32_t, llvm::StructType *> CatchableTypeArrayTypeMap;
   llvm::StructType *ThrowInfoType;
-  llvm::StructType *CatchHandlerTypeType;
 };
 
 }
@@ -879,20 +877,15 @@ void MicrosoftCXXABI::emitRethrow(CodeGenFunction &CGF, bool isNoReturn) {
 }
 
 namespace {
-struct CallEndCatchMSVC final : EHScopeStack::Cleanup {
+struct CatchRetScope final : EHScopeStack::Cleanup {
   llvm::CatchPadInst *CPI;
 
-  CallEndCatchMSVC(llvm::CatchPadInst *CPI) : CPI(CPI) {}
+  CatchRetScope(llvm::CatchPadInst *CPI) : CPI(CPI) {}
 
   void Emit(CodeGenFunction &CGF, Flags flags) override {
-    if (CGF.CGM.getCodeGenOpts().NewMSEH) {
-      llvm::BasicBlock *BB = CGF.createBasicBlock("catchret.dest");
-      CGF.Builder.CreateCatchRet(CPI, BB);
-      CGF.EmitBlock(BB);
-    } else {
-      CGF.EmitNounwindRuntimeCall(
-          CGF.CGM.getIntrinsic(llvm::Intrinsic::eh_endcatch));
-    }
+    llvm::BasicBlock *BB = CGF.createBasicBlock("catchret.dest");
+    CGF.Builder.CreateCatchRet(CPI, BB);
+    CGF.EmitBlock(BB);
   }
 };
 }
@@ -902,39 +895,21 @@ void MicrosoftCXXABI::emitBeginCatch(CodeGenFunction &CGF,
   // In the MS ABI, the runtime handles the copy, and the catch handler is
   // responsible for destruction.
   VarDecl *CatchParam = S->getExceptionDecl();
-  llvm::Value *Exn = nullptr;
-  llvm::Function *BeginCatch = nullptr;
-  llvm::CatchPadInst *CPI = nullptr;
-  bool NewEH = CGF.CGM.getCodeGenOpts().NewMSEH;
-  if (!NewEH) {
-    Exn = CGF.getExceptionFromSlot();
-    BeginCatch = CGF.CGM.getIntrinsic(llvm::Intrinsic::eh_begincatch);
-  } else {
-    llvm::BasicBlock *CatchPadBB =
-        CGF.Builder.GetInsertBlock()->getSinglePredecessor();
-    CPI = cast<llvm::CatchPadInst>(CatchPadBB->getFirstNonPHI());
-  }
+  llvm::BasicBlock *CatchPadBB =
+      CGF.Builder.GetInsertBlock()->getSinglePredecessor();
+  llvm::CatchPadInst *CPI =
+      cast<llvm::CatchPadInst>(CatchPadBB->getFirstNonPHI());
+
   // If this is a catch-all or the catch parameter is unnamed, we don't need to
   // emit an alloca to the object.
   if (!CatchParam || !CatchParam->getDeclName()) {
-    if (!NewEH) {
-      llvm::Value *Args[2] = {Exn, llvm::Constant::getNullValue(CGF.Int8PtrTy)};
-      CGF.EmitNounwindRuntimeCall(BeginCatch, Args);
-    }
-    CGF.EHStack.pushCleanup<CallEndCatchMSVC>(NormalCleanup, CPI);
+    CGF.EHStack.pushCleanup<CatchRetScope>(NormalCleanup, CPI);
     return;
   }
 
   CodeGenFunction::AutoVarEmission var = CGF.EmitAutoVarAlloca(*CatchParam);
-  if (!NewEH) {
-    Address ParamAddr =
-        CGF.Builder.CreateElementBitCast(var.getObjectAddress(CGF), CGF.Int8Ty);
-    llvm::Value *Args[2] = {Exn, ParamAddr.getPointer()};
-    CGF.EmitNounwindRuntimeCall(BeginCatch, Args);
-  } else {
-    CPI->setArgOperand(2, var.getObjectAddress(CGF).getPointer());
-  }
-  CGF.EHStack.pushCleanup<CallEndCatchMSVC>(NormalCleanup, CPI);
+  CPI->setArgOperand(2, var.getObjectAddress(CGF).getPointer());
+  CGF.EHStack.pushCleanup<CatchRetScope>(NormalCleanup, CPI);
   CGF.EmitAutoVarCleanups(var);
 }
 
@@ -2258,8 +2233,8 @@ void MicrosoftCXXABI::EmitThreadLocalInitFuncs(
     llvm::FunctionType *FTy =
         llvm::FunctionType::get(CGM.VoidTy, /*isVarArg=*/false);
     llvm::Function *InitFunc = CGM.CreateGlobalInitOrDestructFunction(
-        FTy, "__tls_init", SourceLocation(),
-        /*TLS=*/true);
+        FTy, "__tls_init", CGM.getTypes().arrangeNullaryFunction(),
+        SourceLocation(), /*TLS=*/true);
     CodeGenFunction(CGM).GenerateCXXGlobalInitFunc(InitFunc, NonComdatInits);
 
     AddToXDU(InitFunc);

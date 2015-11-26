@@ -35,6 +35,7 @@ using namespace CodeGen;
 
 void CodeGenFunction::EmitDecl(const Decl &D) {
   switch (D.getKind()) {
+  case Decl::BuiltinTemplate:
   case Decl::TranslationUnit:
   case Decl::ExternCContext:
   case Decl::Namespace:
@@ -143,7 +144,7 @@ void CodeGenFunction::EmitVarDecl(const VarDecl &D) {
     // Don't emit it now, allow it to be emitted lazily on its first use.
     return;
 
-  if (D.getStorageClass() == SC_OpenCLWorkGroupLocal)
+  if (D.getType().getAddressSpace() == LangAS::opencl_local)
     return CGM.getOpenCLRuntime().EmitWorkGroupLocalVarDecl(*this, D);
 
   assert(D.hasLocalStorage());
@@ -597,6 +598,57 @@ static bool isAccessedBy(const ValueDecl *decl, const Expr *e) {
   return isAccessedBy(*var, e);
 }
 
+static bool tryEmitARCCopyWeakInit(CodeGenFunction &CGF,
+                                   const LValue &destLV, const Expr *init) {
+  bool needsCast = false;
+
+  while (auto castExpr = dyn_cast<CastExpr>(init->IgnoreParens())) {
+    switch (castExpr->getCastKind()) {
+    // Look through casts that don't require representation changes.
+    case CK_NoOp:
+    case CK_BitCast:
+    case CK_BlockPointerToObjCPointerCast:
+      needsCast = true;
+      break;
+
+    // If we find an l-value to r-value cast from a __weak variable,
+    // emit this operation as a copy or move.
+    case CK_LValueToRValue: {
+      const Expr *srcExpr = castExpr->getSubExpr();
+      if (srcExpr->getType().getObjCLifetime() != Qualifiers::OCL_Weak)
+        return false;
+
+      // Emit the source l-value.
+      LValue srcLV = CGF.EmitLValue(srcExpr);
+
+      // Handle a formal type change to avoid asserting.
+      auto srcAddr = srcLV.getAddress();
+      if (needsCast) {
+        srcAddr = CGF.Builder.CreateElementBitCast(srcAddr,
+                                         destLV.getAddress().getElementType());
+      }
+
+      // If it was an l-value, use objc_copyWeak.
+      if (srcExpr->getValueKind() == VK_LValue) {
+        CGF.EmitARCCopyWeak(destLV.getAddress(), srcAddr);
+      } else {
+        assert(srcExpr->getValueKind() == VK_XValue);
+        CGF.EmitARCMoveWeak(destLV.getAddress(), srcAddr);
+      }
+      return true;
+    }
+
+    // Stop at anything else.
+    default:
+      return false;
+    }
+
+    init = castExpr->getSubExpr();
+    continue;
+  }
+  return false;
+}
+
 static void drillIntoBlockVariable(CodeGenFunction &CGF,
                                    LValue &lvalue,
                                    const VarDecl *var) {
@@ -673,6 +725,12 @@ void CodeGenFunction::EmitScalarInit(const Expr *init, const ValueDecl *D,
   }
 
   case Qualifiers::OCL_Weak: {
+    // If it's not accessed by the initializer, try to emit the
+    // initialization with a copy or move.
+    if (!accessedByInit && tryEmitARCCopyWeakInit(*this, lvalue, init)) {
+      return;
+    }
+
     // No way to optimize a producing initializer into this.  It's not
     // worth optimizing for, because the value will immediately
     // disappear in the common case.
@@ -974,9 +1032,15 @@ CodeGenFunction::EmitAutoVarAlloca(const VarDecl &D) {
       address = CreateTempAlloca(allocaTy, allocaAlignment);
       address.getPointer()->setName(D.getName());
 
+      // Don't emit lifetime markers for MSVC catch parameters. The lifetime of
+      // the catch parameter starts in the catchpad instruction, and we can't
+      // insert code in those basic blocks.
+      bool IsMSCatchParam =
+          D.isExceptionVariable() && getTarget().getCXXABI().isMicrosoft();
+
       // Emit a lifetime intrinsic if meaningful.  There's no point
       // in doing this if we don't have a valid insertion point (?).
-      if (HaveInsertPoint()) {
+      if (HaveInsertPoint() && !IsMSCatchParam) {
         uint64_t size = CGM.getDataLayout().getTypeAllocSize(allocaTy);
         emission.SizeForLifetimeMarkers =
           EmitLifetimeStart(size, address.getPointer());

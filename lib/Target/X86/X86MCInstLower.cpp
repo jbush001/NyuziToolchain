@@ -460,6 +460,7 @@ ReSimplify:
 
   // Commute operands to get a smaller encoding by using VEX.R instead of VEX.B
   // if one of the registers is extended, but other isn't.
+  case X86::VMOVZPQILo2PQIrr:
   case X86::VMOVAPDrr:
   case X86::VMOVAPDYrr:
   case X86::VMOVAPSrr:
@@ -477,18 +478,19 @@ ReSimplify:
       unsigned NewOpc;
       switch (OutMI.getOpcode()) {
       default: llvm_unreachable("Invalid opcode");
-      case X86::VMOVAPDrr:  NewOpc = X86::VMOVAPDrr_REV;  break;
-      case X86::VMOVAPDYrr: NewOpc = X86::VMOVAPDYrr_REV; break;
-      case X86::VMOVAPSrr:  NewOpc = X86::VMOVAPSrr_REV;  break;
-      case X86::VMOVAPSYrr: NewOpc = X86::VMOVAPSYrr_REV; break;
-      case X86::VMOVDQArr:  NewOpc = X86::VMOVDQArr_REV;  break;
-      case X86::VMOVDQAYrr: NewOpc = X86::VMOVDQAYrr_REV; break;
-      case X86::VMOVDQUrr:  NewOpc = X86::VMOVDQUrr_REV;  break;
-      case X86::VMOVDQUYrr: NewOpc = X86::VMOVDQUYrr_REV; break;
-      case X86::VMOVUPDrr:  NewOpc = X86::VMOVUPDrr_REV;  break;
-      case X86::VMOVUPDYrr: NewOpc = X86::VMOVUPDYrr_REV; break;
-      case X86::VMOVUPSrr:  NewOpc = X86::VMOVUPSrr_REV;  break;
-      case X86::VMOVUPSYrr: NewOpc = X86::VMOVUPSYrr_REV; break;
+      case X86::VMOVZPQILo2PQIrr: NewOpc = X86::VMOVPQI2QIrr;   break;
+      case X86::VMOVAPDrr:        NewOpc = X86::VMOVAPDrr_REV;  break;
+      case X86::VMOVAPDYrr:       NewOpc = X86::VMOVAPDYrr_REV; break;
+      case X86::VMOVAPSrr:        NewOpc = X86::VMOVAPSrr_REV;  break;
+      case X86::VMOVAPSYrr:       NewOpc = X86::VMOVAPSYrr_REV; break;
+      case X86::VMOVDQArr:        NewOpc = X86::VMOVDQArr_REV;  break;
+      case X86::VMOVDQAYrr:       NewOpc = X86::VMOVDQAYrr_REV; break;
+      case X86::VMOVDQUrr:        NewOpc = X86::VMOVDQUrr_REV;  break;
+      case X86::VMOVDQUYrr:       NewOpc = X86::VMOVDQUYrr_REV; break;
+      case X86::VMOVUPDrr:        NewOpc = X86::VMOVUPDrr_REV;  break;
+      case X86::VMOVUPDYrr:       NewOpc = X86::VMOVUPDYrr_REV; break;
+      case X86::VMOVUPSrr:        NewOpc = X86::VMOVUPSrr_REV;  break;
+      case X86::VMOVUPSYrr:       NewOpc = X86::VMOVUPSYrr_REV; break;
       }
       OutMI.setOpcode(NewOpc);
     }
@@ -528,6 +530,23 @@ ReSimplify:
   case X86::EH_RETURN64: {
     OutMI = MCInst();
     OutMI.setOpcode(getRetOpcode(AsmPrinter.getSubtarget()));
+    break;
+  }
+
+  case X86::CLEANUPRET: {
+    // Replace CATCHRET with the appropriate RET.
+    OutMI = MCInst();
+    OutMI.setOpcode(getRetOpcode(AsmPrinter.getSubtarget()));
+    break;
+  }
+
+  case X86::CATCHRET: {
+    // Replace CATCHRET with the appropriate RET.
+    const X86Subtarget &Subtarget = AsmPrinter.getSubtarget();
+    unsigned ReturnReg = Subtarget.is64Bit() ? X86::RAX : X86::EAX;
+    OutMI = MCInst();
+    OutMI.setOpcode(getRetOpcode(Subtarget));
+    OutMI.addOperand(MCOperand::createReg(ReturnReg));
     break;
   }
 
@@ -1076,6 +1095,18 @@ void X86AsmPrinter::EmitInstruction(const MachineInstr *MI) {
                             X86ATTInstPrinter::getRegisterName(Reg));
     break;
   }
+  case X86::CLEANUPRET: {
+    // Lower these as normal, but add some comments.
+    OutStreamer->AddComment("CLEANUPRET");
+    break;
+  }
+
+  case X86::CATCHRET: {
+    // Lower these as normal, but add some comments.
+    OutStreamer->AddComment("CATCHRET");
+    break;
+  }
+
   case X86::TAILJMPr:
   case X86::TAILJMPm:
   case X86::TAILJMPd:
@@ -1109,12 +1140,27 @@ void X86AsmPrinter::EmitInstruction(const MachineInstr *MI) {
     EmitAndCountInstruction(MCInstBuilder(X86::CALLpcrel32)
       .addExpr(MCSymbolRefExpr::create(PICBase, OutContext)));
 
+    const X86FrameLowering* FrameLowering =
+        MF->getSubtarget<X86Subtarget>().getFrameLowering();
+    bool hasFP = FrameLowering->hasFP(*MF);
+
+    bool NeedsDwarfCFI = MMI->usePreciseUnwindInfo();
+    int stackGrowth = -RI->getSlotSize();
+
+    if (NeedsDwarfCFI && !hasFP) {
+      OutStreamer->EmitCFIAdjustCfaOffset(-stackGrowth);
+    }
+
     // Emit the label.
     OutStreamer->EmitLabel(PICBase);
 
     // popl $reg
     EmitAndCountInstruction(MCInstBuilder(X86::POP32r)
                             .addReg(MI->getOperand(0).getReg()));
+
+    if (NeedsDwarfCFI && !hasFP) {
+      OutStreamer->EmitCFIAdjustCfaOffset(stackGrowth);
+    }
     return;
   }
 

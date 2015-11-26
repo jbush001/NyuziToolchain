@@ -335,6 +335,8 @@ void OMPClauseProfiler::VisitOMPSeqCstClause(const OMPSeqCstClause *) {}
 
 void OMPClauseProfiler::VisitOMPThreadsClause(const OMPThreadsClause *) {}
 
+void OMPClauseProfiler::VisitOMPSIMDClause(const OMPSIMDClause *) {}
+
 template<typename T>
 void OMPClauseProfiler::VisitOMPClauseList(T *Node) {
   for (auto *E : Node->varlists()) {
@@ -380,6 +382,9 @@ void OMPClauseProfiler::VisitOMPReductionClause(
       C->getQualifierLoc().getNestedNameSpecifier());
   Profiler->VisitName(C->getNameInfo().getName());
   VisitOMPClauseList(C);
+  for (auto *E : C->privates()) {
+    Profiler->VisitStmt(E);
+  }
   for (auto *E : C->lhs_exprs()) {
     Profiler->VisitStmt(E);
   }
@@ -444,6 +449,12 @@ void OMPClauseProfiler::VisitOMPDependClause(const OMPDependClause *C) {
 }
 void OMPClauseProfiler::VisitOMPDeviceClause(const OMPDeviceClause *C) {
   Profiler->VisitStmt(C->getDevice());
+}
+void OMPClauseProfiler::VisitOMPMapClause(const OMPMapClause *C) {
+  VisitOMPClauseList(C);
+}
+void OMPClauseProfiler::VisitOMPNumTeamsClause(const OMPNumTeamsClause *C) {
+  Profiler->VisitStmt(C->getNumTeams());
 }
 }
 
@@ -849,6 +860,7 @@ static Stmt::StmtClass DecodeOperatorCall(const CXXOperatorCallExpr *S,
   case OO_Arrow:
   case OO_Call:
   case OO_Conditional:
+  case OO_Coawait:
   case NUM_OVERLOADED_OPERATORS:
     llvm_unreachable("Invalid operator call kind");
       
@@ -1354,6 +1366,22 @@ void StmtProfiler::VisitMaterializeTemporaryExpr(
 void StmtProfiler::VisitCXXFoldExpr(const CXXFoldExpr *S) {
   VisitExpr(S);
   ID.AddInteger(S->getOperator());
+}
+
+void StmtProfiler::VisitCoroutineBodyStmt(const CoroutineBodyStmt *S) {
+  VisitStmt(S);
+}
+
+void StmtProfiler::VisitCoreturnStmt(const CoreturnStmt *S) {
+  VisitStmt(S);
+}
+
+void StmtProfiler::VisitCoawaitExpr(const CoawaitExpr *S) {
+  VisitExpr(S);
+}
+
+void StmtProfiler::VisitCoyieldExpr(const CoyieldExpr *S) {
+  VisitExpr(S);
 }
 
 void StmtProfiler::VisitOpaqueValueExpr(const OpaqueValueExpr *E) {

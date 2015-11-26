@@ -123,6 +123,15 @@ LLVMContext::LLVMContext() : pImpl(new LLVMContextImpl(*this)) {
          "invariant.group kind id drifted");
   (void)InvariantGroupId;
 
+  // Create the 'align' metadata kind.
+  unsigned AlignID = getMDKindID("align");
+  assert(AlignID == MD_align && "align kind id drifted");
+  (void)AlignID;
+
+  auto *DeoptEntry = pImpl->getOrInsertBundleTag("deopt");
+  assert(DeoptEntry->second == LLVMContext::OB_deopt &&
+         "deopt operand bundle id drifted!");
+  (void)DeoptEntry;
 }
 LLVMContext::~LLVMContext() { delete pImpl; }
 

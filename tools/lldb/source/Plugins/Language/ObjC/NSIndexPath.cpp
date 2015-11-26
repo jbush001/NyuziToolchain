@@ -1,4 +1,4 @@
-//===-- NSIndexPath.cpp ------------------------------------------*- C++ -*-===//
+//===-- NSIndexPath.cpp -----------------------------------------*- C++ -*-===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -7,15 +7,20 @@
 //
 //===----------------------------------------------------------------------===//
 
+// C Includes
+// C++ Includes
+// Other libraries and framework includes
+// Project includes
 #include "Cocoa.h"
 
 #include "lldb/Core/ValueObject.h"
 #include "lldb/Core/ValueObjectConstResult.h"
 #include "lldb/DataFormatters/FormattersHelpers.h"
 #include "lldb/DataFormatters/TypeSynthetic.h"
+#include "lldb/Symbol/ClangASTContext.h"
 #include "lldb/Target/ObjCLanguageRuntime.h"
 #include "lldb/Target/Process.h"
-#include "lldb/Symbol/ClangASTContext.h"
+#include "lldb/Target/Target.h"
 
 using namespace lldb;
 using namespace lldb_private;
@@ -31,21 +36,23 @@ public:
     {
         m_ptr_size = m_backend.GetTargetSP()->GetArchitecture().GetAddressByteSize();
     }
-    
-    virtual size_t
-    CalculateNumChildren ()
+
+    ~NSIndexPathSyntheticFrontEnd() override = default;
+
+    size_t
+    CalculateNumChildren() override
     {
         return m_impl.GetNumIndexes();
     }
     
-    virtual lldb::ValueObjectSP
-    GetChildAtIndex (size_t idx)
+    lldb::ValueObjectSP
+    GetChildAtIndex(size_t idx) override
     {
         return m_impl.GetIndexAtIndex(idx, m_uint_star_type);
     }
     
-    virtual bool
-    Update()
+    bool
+    Update() override
     {
         m_impl.Clear();
         
@@ -129,16 +136,16 @@ public:
         return false;
     }
     
-    virtual bool
-    MightHaveChildren ()
+    bool
+    MightHaveChildren() override
     {
         if (m_impl.m_mode == Mode::Invalid)
             return false;
         return true;
     }
     
-    virtual size_t
-    GetIndexOfChildWithName (const ConstString &name)
+    size_t
+    GetIndexOfChildWithName(const ConstString &name) override
     {
         const char* item_name = name.GetCString();
         uint32_t idx = ExtractIndexFromString(item_name);
@@ -147,12 +154,12 @@ public:
         return idx;
     }
     
-    virtual lldb::ValueObjectSP
-    GetSyntheticValue () { return nullptr; }
-    
-    virtual
-    ~NSIndexPathSyntheticFrontEnd () {}
-    
+    lldb::ValueObjectSP
+    GetSyntheticValue() override
+    {
+        return nullptr;
+    }
+
 protected:
     ObjCLanguageRuntime::ClassDescriptorSP m_descriptor_sp;
     
@@ -245,7 +252,7 @@ protected:
                 m_process = nullptr;
             }
                     
-          private:
+        private:
           uint64_t m_indexes;
           size_t m_count;
           uint32_t m_ptr_size;
@@ -337,5 +344,6 @@ namespace lldb_private {
                 return new NSIndexPathSyntheticFrontEnd(valobj_sp);
             return nullptr;
         }
-    }
-}
+
+    } // namespace formatters
+} // namespace lldb_private

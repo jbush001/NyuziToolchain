@@ -9,7 +9,6 @@
 
 #include "lldb/DataFormatters/StringPrinter.h"
 
-#include "lldb/Core/DataExtractor.h"
 #include "lldb/Core/Debugger.h"
 #include "lldb/Core/Error.h"
 #include "lldb/Core/ValueObject.h"
@@ -258,6 +257,7 @@ StringPrinter::GetDefaultEscapingHelper (GetPrintableElementType elem_type)
                 return GetPrintable(StringPrinter::StringElementType::ASCII, buffer, buffer_end, next);
             };
     }
+    llvm_unreachable("bad element type");
 }
 
 // use this call if you already have an LLDB-side buffer for the data
@@ -272,7 +272,7 @@ DumpUTFBufferToStream (ConversionResult (*ConvertFunction) (const SourceDataType
 {
     Stream &stream(*dump_options.GetStream());
     if (dump_options.GetPrefixToken() != 0)
-        stream.Printf("%c",dump_options.GetPrefixToken());
+        stream.Printf("%s",dump_options.GetPrefixToken());
     if (dump_options.GetQuote() != 0)
         stream.Printf("%c",dump_options.GetQuote());
     auto data(dump_options.GetData());
@@ -324,8 +324,8 @@ DumpUTFBufferToStream (ConversionResult (*ConvertFunction) (const SourceDataType
         {
             // just copy the pointers - the cast is necessary to make the compiler happy
             // but this should only happen if we are reading UTF8 data
-            utf8_data_ptr = (UTF8*)data_ptr;
-            utf8_data_end_ptr = (UTF8*)data_end_ptr;
+            utf8_data_ptr = const_cast<UTF8 *>(reinterpret_cast<const UTF8*>(data_ptr));
+            utf8_data_end_ptr = const_cast<UTF8 *>(reinterpret_cast<const UTF8*>(data_end_ptr));
         }
         
         const bool escape_non_printables = dump_options.GetEscapeNonPrintables();
@@ -372,6 +372,10 @@ DumpUTFBufferToStream (ConversionResult (*ConvertFunction) (const SourceDataType
     }
     if (dump_options.GetQuote() != 0)
         stream.Printf("%c",dump_options.GetQuote());
+    if (dump_options.GetSuffixToken() != 0)
+        stream.Printf("%s",dump_options.GetSuffixToken());
+    if (dump_options.GetIsTruncated())
+        stream.Printf("...");
     return true;
 }
 
@@ -392,6 +396,7 @@ lldb_private::formatters::StringPrinter::ReadBufferAndDumpToStreamOptions::ReadB
 {
     SetStream(options.GetStream());
     SetPrefixToken(options.GetPrefixToken());
+    SetSuffixToken(options.GetSuffixToken());
     SetQuote(options.GetQuote());
     SetEscapeNonPrintables(options.GetEscapeNonPrintables());
     SetBinaryZeroIsTerminator(options.GetBinaryZeroIsTerminator());
@@ -418,11 +423,20 @@ StringPrinter::ReadStringAndDumpToStream<StringPrinter::StringElementType::ASCII
         return false;
 
     size_t size;
+    const auto max_size = process_sp->GetTarget().GetMaximumSizeOfStringSummary();
+    bool is_truncated = false;
 
     if (options.GetSourceSize() == 0)
-        size = process_sp->GetTarget().GetMaximumSizeOfStringSummary();
+        size = max_size;
     else if (!options.GetIgnoreMaxLength())
-        size = std::min(options.GetSourceSize(),process_sp->GetTarget().GetMaximumSizeOfStringSummary());
+    {
+        size = options.GetSourceSize();
+        if (size > max_size)
+        {
+            size = max_size;
+            is_truncated = true;
+        }
+    }
     else
         size = options.GetSourceSize();
 
@@ -433,11 +447,11 @@ StringPrinter::ReadStringAndDumpToStream<StringPrinter::StringElementType::ASCII
     if (my_error.Fail())
         return false;
 
-    char prefix_token = options.GetPrefixToken();
+    const char* prefix_token = options.GetPrefixToken();
     char quote = options.GetQuote();
 
     if (prefix_token != 0)
-        options.GetStream()->Printf("%c%c",prefix_token,quote);
+        options.GetStream()->Printf("%s%c",prefix_token,quote);
     else if (quote != 0)
         options.GetStream()->Printf("%c",quote);
 
@@ -481,10 +495,17 @@ StringPrinter::ReadStringAndDumpToStream<StringPrinter::StringElementType::ASCII
             data++;
         }
     }
-
-    if (quote != 0)
+    
+    const char* suffix_token = options.GetSuffixToken();
+    
+    if (suffix_token != 0)
+        options.GetStream()->Printf("%c%s",quote, suffix_token);
+    else if (quote != 0)
         options.GetStream()->Printf("%c",quote);
 
+    if (is_truncated)
+        options.GetStream()->Printf("...");
+    
     return true;
 }
 
@@ -520,14 +541,23 @@ ReadUTFBufferAndDumpToStream (const StringPrinter::ReadStringAndDumpToStreamOpti
 
     uint32_t sourceSize = options.GetSourceSize();
     bool needs_zero_terminator = options.GetNeedsZeroTermination();
+    
+    bool is_truncated = false;
+    const auto max_size = process_sp->GetTarget().GetMaximumSizeOfStringSummary();
 
     if (!sourceSize)
     {
-        sourceSize = process_sp->GetTarget().GetMaximumSizeOfStringSummary();
+        sourceSize = max_size;
         needs_zero_terminator = true;
     }
     else if (!options.GetIgnoreMaxLength())
-        sourceSize = std::min(sourceSize,process_sp->GetTarget().GetMaximumSizeOfStringSummary());
+    {
+        if (sourceSize > max_size)
+        {
+            sourceSize = max_size;
+            is_truncated = true;
+        }
+    }
 
     const int bufferSPSize = sourceSize * type_width;
 
@@ -555,6 +585,7 @@ ReadUTFBufferAndDumpToStream (const StringPrinter::ReadStringAndDumpToStreamOpti
     StringPrinter::ReadBufferAndDumpToStreamOptions dump_options(options);
     dump_options.SetData(data);
     dump_options.SetSourceSize(sourceSize);
+    dump_options.SetIsTruncated(is_truncated);
 
     return DumpUTFBufferToStream(ConvertFunction, dump_options);
 }

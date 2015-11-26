@@ -87,7 +87,7 @@ static int gettok() {
       LastChar = getchar();
     } while (isdigit(LastChar) || LastChar == '.');
 
-    NumVal = strtod(NumStr.c_str(), 0);
+    NumVal = strtod(NumStr.c_str(), nullptr);
     return tok_number;
   }
 
@@ -386,7 +386,6 @@ static std::unique_ptr<ForExprAST> ParseForExpr() {
   if (CurTok != '=')
     return ErrorU<ForExprAST>("expected '=' after for");
   getNextToken();  // eat '='.
-
 
   auto Start = ParseExpression();
   if (!Start)
@@ -748,7 +747,7 @@ static AllocaInst *CreateEntryBlockAlloca(Function *TheFunction,
                                           const std::string &VarName) {
   IRBuilder<> TmpB(&TheFunction->getEntryBlock(),
                  TheFunction->getEntryBlock().begin());
-  return TmpB.CreateAlloca(Type::getDoubleTy(getGlobalContext()), 0,
+  return TmpB.CreateAlloca(Type::getDoubleTy(getGlobalContext()), nullptr,
                            VarName.c_str());
 }
 
@@ -760,7 +759,7 @@ Value *VariableExprAST::IRGen(IRGenContext &C) const {
   // Look this variable up in the function.
   Value *V = C.NamedValues[Name];
 
-  if (V == 0)
+  if (!V)
     return ErrorP<Value>("Unknown variable name '" + Name + "'");
 
   // Load the value.
@@ -783,7 +782,7 @@ Value *BinaryExprAST::IRGen(IRGenContext &C) const {
   // Special case '=' because we don't want to emit the LHS as an expression.
   if (Op == '=') {
     // Assignment requires the LHS to be an identifier.
-    auto LHSVar = static_cast<VariableExprAST&>(*LHS);
+    auto &LHSVar = static_cast<VariableExprAST &>(*LHS);
     // Codegen the RHS.
     Value *Val = RHS->IRGen(C);
     if (!Val) return nullptr;
@@ -960,7 +959,7 @@ Value *ForExprAST::IRGen(IRGenContext &C) const {
 
   // Compute the end condition.
   Value *EndCond = End->IRGen(C);
-  if (EndCond == 0) return EndCond;
+  if (!EndCond) return nullptr;
 
   // Reload, increment, and restore the alloca.  This handles the case where
   // the body of the loop mutates the variable.
@@ -987,7 +986,6 @@ Value *ForExprAST::IRGen(IRGenContext &C) const {
     C.NamedValues[VarName] = OldVal;
   else
     C.NamedValues.erase(VarName);
-
 
   // for expr always returns 0.0.
   return Constant::getNullValue(Type::getDoubleTy(getGlobalContext()));
@@ -1087,7 +1085,7 @@ void PrototypeAST::CreateArgumentAllocas(Function *F, IRGenContext &C) {
     AllocaInst *Alloca = CreateEntryBlockAlloca(F, Args[Idx]);
 
     // Store the initial value into the alloca.
-    C.getBuilder().CreateStore(AI, Alloca);
+    C.getBuilder().CreateStore(&*AI, Alloca);
 
     // Add arguments to variable symbol table.
     C.NamedValues[Args[Idx]] = Alloca;
@@ -1170,9 +1168,7 @@ public:
     : Session(Session),
       CompileLayer(ObjectLayer, SimpleCompiler(Session.getTarget())),
       LazyEmitLayer(CompileLayer),
-      CompileCallbacks(LazyEmitLayer, CCMgrMemMgr, Session.getLLVMContext(),
-                       reinterpret_cast<uintptr_t>(EarthShatteringKaboom),
-                       64) {}
+      CompileCallbacks(reinterpret_cast<uintptr_t>(EarthShatteringKaboom)) {}
 
   std::string mangle(const std::string &Name) {
     std::string MangledName;
@@ -1236,7 +1232,7 @@ private:
   RuntimeDyld::SymbolInfo searchFunctionASTs(const std::string &Name) {
     auto DefI = FunctionDefs.find(Name);
     if (DefI == FunctionDefs.end())
-      return 0;
+      return nullptr;
 
     // Return the address of the stub.
     // Take the FunctionAST out of the map.
@@ -1262,8 +1258,7 @@ private:
     //         the function. The resulting CallbackInfo type will let us set the
     //         compile and update actions for the callback, and get a pointer to
     //         the jit trampoline that we need to call to trigger those actions.
-    auto CallbackInfo =
-      CompileCallbacks.getCompileCallback(F->getContext());
+    auto CallbackInfo = CompileCallbacks.getCompileCallback();
 
     // Step 3) Create a stub that will indirectly call the body of this
     //         function once it is compiled. Initially, set the function
@@ -1313,7 +1308,7 @@ private:
 
   std::map<std::string, std::unique_ptr<FunctionAST>> FunctionDefs;
 
-  JITCompileCallbackManager<LazyEmitLayerT, OrcX86_64> CompileCallbacks;
+  JITCompileCallbackManager<OrcX86_64> CompileCallbacks;
 };
 
 static void HandleDefinition(SessionContext &S, KaleidoscopeJIT &J) {

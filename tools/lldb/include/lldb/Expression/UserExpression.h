@@ -1,4 +1,4 @@
-//===-- UserExpression.h -----------------------------------*- C++ -*-===//
+//===-- UserExpression.h ----------------------------------------*- C++ -*-===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -12,23 +12,19 @@
 
 // C Includes
 // C++ Includes
+#include <memory>
 #include <string>
-#include <map>
 #include <vector>
 
 // Other libraries and framework includes
-
-#include "llvm/ADT/ArrayRef.h"
-
 // Project includes
-
 #include "lldb/lldb-forward.h"
 #include "lldb/lldb-private.h"
 #include "lldb/Core/Address.h"
 #include "lldb/Expression/Expression.h"
 #include "lldb/Expression/Materializer.h"
-#include "lldb/Symbol/TaggedASTType.h"
 #include "lldb/Target/ExecutionContext.h"
+#include "lldb/Target/Target.h"
 
 namespace lldb_private
 {
@@ -47,8 +43,8 @@ namespace lldb_private
 class UserExpression : public Expression
 {
 public:
-
     enum { kDefaultTimeout = 500000u };
+
     //------------------------------------------------------------------
     /// Constructor
     ///
@@ -56,7 +52,7 @@ public:
     ///     The expression to parse.
     ///
     /// @param[in] expr_prefix
-    ///     If non-NULL, a C string containing translation-unit level
+    ///     If non-nullptr, a C string containing translation-unit level
     ///     definitions to be included when the expression is parsed.
     ///
     /// @param[in] language
@@ -72,7 +68,8 @@ public:
                     const char *expr,
                     const char *expr_prefix,
                     lldb::LanguageType language,
-                    ResultType desired_type);
+                    ResultType desired_type,
+                    const EvaluateExpressionOptions &options);
 
     //------------------------------------------------------------------
     /// Destructor
@@ -107,11 +104,7 @@ public:
            bool keep_result_in_memory,
            bool generate_debug_info) = 0;
 
-    bool
-    CanInterpret ()
-    {
-        return m_can_interpret;
-    }
+    virtual bool CanInterpret() = 0;
 
     bool
     MatchesContext (ExecutionContext &exe_ctx);
@@ -143,12 +136,10 @@ public:
     /// @return
     ///     A Process::Execution results value.
     //------------------------------------------------------------------
-    lldb::ExpressionResults
-    Execute (Stream &error_stream,
-             ExecutionContext &exe_ctx,
-             const EvaluateExpressionOptions& options,
-             lldb::UserExpressionSP &shared_ptr_to_me,
-             lldb::ExpressionVariableSP &result);
+    virtual lldb::ExpressionResults Execute(Stream &error_stream, ExecutionContext &exe_ctx,
+                                            const EvaluateExpressionOptions &options,
+                                            lldb::UserExpressionSP &shared_ptr_to_me,
+                                            lldb::ExpressionVariableSP &result) = 0;
 
     //------------------------------------------------------------------
     /// Apply the side effects of the function to program state.
@@ -173,21 +164,18 @@ public:
     /// @return
     ///     A Process::Execution results value.
     //------------------------------------------------------------------
-    bool
-    FinalizeJITExecution (Stream &error_stream,
-                          ExecutionContext &exe_ctx,
-                          lldb::ExpressionVariableSP &result,
-                          lldb::addr_t function_stack_bottom = LLDB_INVALID_ADDRESS,
-                          lldb::addr_t function_stack_top = LLDB_INVALID_ADDRESS);
+    virtual bool FinalizeJITExecution(Stream &error_stream, ExecutionContext &exe_ctx,
+                                      lldb::ExpressionVariableSP &result,
+                                      lldb::addr_t function_stack_bottom = LLDB_INVALID_ADDRESS,
+                                      lldb::addr_t function_stack_top = LLDB_INVALID_ADDRESS) = 0;
 
     //------------------------------------------------------------------
-    /// Return the string that the parser should parse.  Must be a full
-    /// translation unit.
+    /// Return the string that the parser should parse.
     //------------------------------------------------------------------
     const char *
     Text() override
     {
-        return m_transformed_text.c_str();
+        return m_expr_text.c_str();
     }
 
     //------------------------------------------------------------------
@@ -249,6 +237,24 @@ public:
     {
         return true;
     }
+    
+    EvaluateExpressionOptions *
+    GetOptions() override
+    {
+        return &m_options;
+    }
+    
+    virtual lldb::ExpressionVariableSP
+    GetResultAfterDematerialization(ExecutionContextScope *exe_scope)
+    {
+        return lldb::ExpressionVariableSP();
+    }
+
+    virtual lldb::ModuleSP
+    GetJITModule()
+    {
+        return lldb::ModuleSP();
+    }
 
     //------------------------------------------------------------------
     /// Evaluate one expression in the scratch context of the
@@ -266,28 +272,37 @@ public:
     ///     A C string containing the expression to be evaluated.
     ///
     /// @param[in] expr_prefix
-    ///     If non-NULL, a C string containing translation-unit level
+    ///     If non-nullptr, a C string containing translation-unit level
     ///     definitions to be included when the expression is parsed.
     ///
     /// @param[in,out] result_valobj_sp
     ///      If execution is successful, the result valobj is placed here.
     ///
-    /// @param[out]
+    /// @param[out] error
     ///     Filled in with an error in case the expression evaluation
     ///     fails to parse, run, or evaluated.
+    ///
+    /// @param[in] line_offset
+    ///     The offset of the first line of the expression from the "beginning" of a virtual source file used for error reporting and debug info.
+    ///
+    /// @param[out] jit_module_sp_ptr
+    ///     If non-nullptr, used to persist the generated IR module.
     ///
     /// @result
     ///      A Process::ExpressionResults value.  eExpressionCompleted for success.
     //------------------------------------------------------------------
     static lldb::ExpressionResults
-    Evaluate (ExecutionContext &exe_ctx,
-              const EvaluateExpressionOptions& options,
-              const char *expr_cstr,
-              const char *expr_prefix,
-              lldb::ValueObjectSP &result_valobj_sp,
-              Error &error);
+    Evaluate(ExecutionContext &exe_ctx,
+             const EvaluateExpressionOptions& options,
+             const char *expr_cstr,
+             const char *expr_prefix,
+             lldb::ValueObjectSP &result_valobj_sp,
+             Error &error,
+             uint32_t line_offset = 0,
+             lldb::ModuleSP *jit_module_sp_ptr = nullptr);
 
     static const Error::ValueType kNoResult = 0x1001; ///< ValueObject::GetError() returns this if there is no result from the expression.
+
 protected:
     static lldb::addr_t
     GetObjectPointer (lldb::StackFrameSP frame_sp,
@@ -297,23 +312,6 @@ protected:
     //------------------------------------------------------------------
     /// Populate m_in_cplusplus_method and m_in_objectivec_method based on the environment.
     //------------------------------------------------------------------
-
-    virtual void
-    ScanContext (ExecutionContext &exe_ctx,
-                 lldb_private::Error &err) = 0;
-
-    bool
-    PrepareToExecuteJITExpression (Stream &error_stream,
-                                   ExecutionContext &exe_ctx,
-                                   lldb::addr_t &struct_address);
-    
-    virtual bool
-    AddInitialArguments (ExecutionContext &exe_ctx,
-                         std::vector<lldb::addr_t> &args,
-                         Stream &error_stream)
-    {
-        return true;
-    }
 
     void
     InstallContext (ExecutionContext &exe_ctx);
@@ -325,31 +323,11 @@ protected:
                          lldb::StackFrameSP &frame_sp);
 
     Address                                     m_address;              ///< The address the process is stopped in.
-    lldb::addr_t                                m_stack_frame_bottom;   ///< The bottom of the allocated stack frame.
-    lldb::addr_t                                m_stack_frame_top;      ///< The top of the allocated stack frame.
-
     std::string                                 m_expr_text;            ///< The text of the expression, as typed by the user
     std::string                                 m_expr_prefix;          ///< The text of the translation-level definitions, as provided by the user
     lldb::LanguageType                          m_language;             ///< The language to use when parsing (eLanguageTypeUnknown means use defaults)
-    bool                                        m_allow_cxx;            ///< True if the language allows C++.
-    bool                                        m_allow_objc;           ///< True if the language allows Objective-C.
-    std::string                                 m_transformed_text;     ///< The text of the expression, as send to the parser
     ResultType                                  m_desired_type;         ///< The type to coerce the expression's result to.  If eResultTypeAny, inferred from the expression.
-
-    std::shared_ptr<IRExecutionUnit>            m_execution_unit_sp;    ///< The execution unit the expression is stored in.
-    std::unique_ptr<Materializer>               m_materializer_ap;      ///< The materializer to use when running the expression.
-    lldb::ModuleWP                              m_jit_module_wp;
-    bool                                        m_enforce_valid_object; ///< True if the expression parser should enforce the presence of a valid class pointer in order to generate the expression as a method.
-    bool                                        m_in_cplusplus_method;  ///< True if the expression is compiled as a C++ member function (true if it was parsed when exe_ctx was in a C++ method).
-    bool                                        m_in_objectivec_method; ///< True if the expression is compiled as an Objective-C method (true if it was parsed when exe_ctx was in an Objective-C method).
-    bool                                        m_in_static_method;     ///< True if the expression is compiled as a static (or class) method (currently true if it was parsed when exe_ctx was in an Objective-C class method).
-    bool                                        m_needs_object_ptr;     ///< True if "this" or "self" must be looked up and passed in.  False if the expression doesn't really use them and they can be NULL.
-    bool                                        m_const_object;         ///< True if "this" is const.
-    Target                                     *m_target;               ///< The target for storing persistent data like types and variables.
-
-    bool                                        m_can_interpret;        ///< True if the expression could be evaluated statically; false otherwise.
-    lldb::addr_t                                m_materialized_address; ///< The address at which the arguments to the expression have been materialized.
-    Materializer::DematerializerSP              m_dematerializer_sp;    ///< The dematerializer.
+    EvaluateExpressionOptions                   m_options;              ///< Additional options provided by the user.
 };
 
 } // namespace lldb_private

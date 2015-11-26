@@ -25,6 +25,7 @@
 
 namespace clang {
 
+enum BuiltinTemplateKind : int;
 class TemplateParameterList;
 class TemplateDecl;
 class RedeclarableTemplateDecl;
@@ -447,17 +448,8 @@ public:
   /// explicit instantiation declaration, or explicit instantiation
   /// definition.
   bool isExplicitInstantiationOrSpecialization() const {
-    switch (getTemplateSpecializationKind()) {
-    case TSK_ExplicitSpecialization:
-    case TSK_ExplicitInstantiationDeclaration:
-    case TSK_ExplicitInstantiationDefinition:
-      return true;
-
-    case TSK_Undeclared:
-    case TSK_ImplicitInstantiation:
-      return false;
-    }
-    llvm_unreachable("bad template specialization kind");
+    return isTemplateExplicitInstantiationOrSpecialization(
+        getTemplateSpecializationKind());
   }
 
   /// \brief Set the template specialization kind.
@@ -946,7 +938,7 @@ public:
     return const_cast<FunctionTemplateDecl*>(this)->getMostRecentDecl();
   }
 
-  FunctionTemplateDecl *getInstantiatedFromMemberTemplate() {
+  FunctionTemplateDecl *getInstantiatedFromMemberTemplate() const {
     return cast_or_null<FunctionTemplateDecl>(
              RedeclarableTemplateDecl::getInstantiatedFromMemberTemplate());
   }
@@ -1490,6 +1482,35 @@ public:
   friend TrailingObjects;
 };
 
+/// \brief Represents the builtin template declaration which is used to
+/// implement __make_integer_seq.  It serves no real purpose beyond existing as
+/// a place to hold template parameters.
+class BuiltinTemplateDecl : public TemplateDecl {
+  void anchor() override;
+
+  BuiltinTemplateDecl(const ASTContext &C, DeclContext *DC,
+                      DeclarationName Name, BuiltinTemplateKind BTK);
+
+  BuiltinTemplateKind BTK;
+
+public:
+  // Implement isa/cast/dyncast support
+  static bool classof(const Decl *D) { return classofKind(D->getKind()); }
+  static bool classofKind(Kind K) { return K == BuiltinTemplate; }
+
+  static BuiltinTemplateDecl *Create(const ASTContext &C, DeclContext *DC,
+                                     DeclarationName Name,
+                                     BuiltinTemplateKind BTK) {
+    return new (C, DC) BuiltinTemplateDecl(C, DC, Name, BTK);
+  }
+
+  SourceRange getSourceRange() const override LLVM_READONLY {
+    return SourceRange();
+  }
+
+  BuiltinTemplateKind getBuiltinTemplateKind() const { return BTK; }
+};
+
 /// \brief Represents a class template specialization, which refers to
 /// a class template with a given set of template arguments.
 ///
@@ -1614,17 +1635,8 @@ public:
   /// explicit instantiation declaration, or explicit instantiation
   /// definition.
   bool isExplicitInstantiationOrSpecialization() const {
-    switch (getTemplateSpecializationKind()) {
-    case TSK_ExplicitSpecialization:
-    case TSK_ExplicitInstantiationDeclaration:
-    case TSK_ExplicitInstantiationDefinition:
-      return true;
-
-    case TSK_Undeclared:
-    case TSK_ImplicitInstantiation:
-      return false;
-    }
-    llvm_unreachable("bad template specialization kind");
+    return isTemplateExplicitInstantiationOrSpecialization(
+        getTemplateSpecializationKind());
   }
 
   void setSpecializationKind(TemplateSpecializationKind TSK) {
@@ -1853,8 +1865,8 @@ public:
   /// template partial specialization \c Outer<T>::Inner<U*>. Given
   /// \c Outer<float>::Inner<U*>, this function would return
   /// \c Outer<T>::Inner<U*>.
-  ClassTemplatePartialSpecializationDecl *getInstantiatedFromMember() {
-    ClassTemplatePartialSpecializationDecl *First =
+  ClassTemplatePartialSpecializationDecl *getInstantiatedFromMember() const {
+    const ClassTemplatePartialSpecializationDecl *First =
         cast<ClassTemplatePartialSpecializationDecl>(getFirstDecl());
     return First->InstantiatedFromMember.getPointer();
   }
@@ -2034,7 +2046,7 @@ public:
     return const_cast<ClassTemplateDecl*>(this)->getMostRecentDecl();
   }
 
-  ClassTemplateDecl *getInstantiatedFromMemberTemplate() {
+  ClassTemplateDecl *getInstantiatedFromMemberTemplate() const {
     return cast_or_null<ClassTemplateDecl>(
              RedeclarableTemplateDecl::getInstantiatedFromMemberTemplate());
   }
@@ -2264,7 +2276,7 @@ public:
                this)->getPreviousDecl());
   }
 
-  TypeAliasTemplateDecl *getInstantiatedFromMemberTemplate() {
+  TypeAliasTemplateDecl *getInstantiatedFromMemberTemplate() const {
     return cast_or_null<TypeAliasTemplateDecl>(
              RedeclarableTemplateDecl::getInstantiatedFromMemberTemplate());
   }
@@ -2469,17 +2481,8 @@ public:
   /// explicit instantiation declaration, or explicit instantiation
   /// definition.
   bool isExplicitInstantiationOrSpecialization() const {
-    switch (getTemplateSpecializationKind()) {
-    case TSK_ExplicitSpecialization:
-    case TSK_ExplicitInstantiationDeclaration:
-    case TSK_ExplicitInstantiationDefinition:
-      return true;
-
-    case TSK_Undeclared:
-    case TSK_ImplicitInstantiation:
-      return false;
-    }
-    llvm_unreachable("bad template specialization kind");
+    return isTemplateExplicitInstantiationOrSpecialization(
+        getTemplateSpecializationKind());
   }
 
   void setSpecializationKind(TemplateSpecializationKind TSK) {
@@ -2702,8 +2705,8 @@ public:
   /// variable template partial specialization \c Outer<T>::Inner<U*>. Given
   /// \c Outer<float>::Inner<U*>, this function would return
   /// \c Outer<T>::Inner<U*>.
-  VarTemplatePartialSpecializationDecl *getInstantiatedFromMember() {
-    VarTemplatePartialSpecializationDecl *First =
+  VarTemplatePartialSpecializationDecl *getInstantiatedFromMember() const {
+    const VarTemplatePartialSpecializationDecl *First =
         cast<VarTemplatePartialSpecializationDecl>(getFirstDecl());
     return First->InstantiatedFromMember.getPointer();
   }
@@ -2867,7 +2870,7 @@ public:
     return const_cast<VarTemplateDecl *>(this)->getMostRecentDecl();
   }
 
-  VarTemplateDecl *getInstantiatedFromMemberTemplate() {
+  VarTemplateDecl *getInstantiatedFromMemberTemplate() const {
     return cast_or_null<VarTemplateDecl>(
         RedeclarableTemplateDecl::getInstantiatedFromMemberTemplate());
   }

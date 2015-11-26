@@ -1282,8 +1282,8 @@ SDNode *AArch64DAGToDAGISel::SelectLoadLane(SDNode *N, unsigned NumVecs,
   SDValue SuperReg = SDValue(Ld, 0);
 
   EVT WideVT = RegSeq.getOperand(1)->getValueType(0);
-  static unsigned QSubs[] = { AArch64::qsub0, AArch64::qsub1, AArch64::qsub2,
-                              AArch64::qsub3 };
+  static const unsigned QSubs[] = { AArch64::qsub0, AArch64::qsub1,
+                                    AArch64::qsub2, AArch64::qsub3 };
   for (unsigned i = 0; i < NumVecs; ++i) {
     SDValue NV = CurDAG->getTargetExtractSubreg(QSubs[i], dl, WideVT, SuperReg);
     if (Narrow)
@@ -1335,8 +1335,8 @@ SDNode *AArch64DAGToDAGISel::SelectPostLoadLane(SDNode *N, unsigned NumVecs,
                 Narrow ? NarrowVector(SuperReg, *CurDAG) : SuperReg);
   } else {
     EVT WideVT = RegSeq.getOperand(1)->getValueType(0);
-    static unsigned QSubs[] = { AArch64::qsub0, AArch64::qsub1, AArch64::qsub2,
-                                AArch64::qsub3 };
+    static const unsigned QSubs[] = { AArch64::qsub0, AArch64::qsub1,
+                                      AArch64::qsub2, AArch64::qsub3 };
     for (unsigned i = 0; i < NumVecs; ++i) {
       SDValue NV = CurDAG->getTargetExtractSubreg(QSubs[i], dl, WideVT,
                                                   SuperReg);
@@ -2265,7 +2265,15 @@ SDNode *AArch64DAGToDAGISel::SelectWriteRegister(SDNode *N) {
     assert (isa<ConstantSDNode>(N->getOperand(2))
               && "Expected a constant integer expression.");
     uint64_t Immed = cast<ConstantSDNode>(N->getOperand(2))->getZExtValue();
-    return CurDAG->getMachineNode(AArch64::MSRpstate, DL, MVT::Other,
+    unsigned State;
+    if (Reg == AArch64PState::PAN) {
+      assert(Immed < 2 && "Bad imm");
+      State = AArch64::MSRpstateImm1;
+    } else {
+      assert(Immed < 16 && "Bad imm");
+      State = AArch64::MSRpstateImm4;
+    }
+    return CurDAG->getMachineNode(State, DL, MVT::Other,
                                   CurDAG->getTargetConstant(Reg, DL, MVT::i32),
                                   CurDAG->getTargetConstant(Immed, DL, MVT::i16),
                                   N->getOperand(0));

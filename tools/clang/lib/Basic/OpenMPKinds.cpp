@@ -101,6 +101,11 @@ unsigned clang::getOpenMPSimpleClauseType(OpenMPClauseKind Kind,
 #define OPENMP_LINEAR_KIND(Name) .Case(#Name, OMPC_LINEAR_##Name)
 #include "clang/Basic/OpenMPKinds.def"
         .Default(OMPC_LINEAR_unknown);
+  case OMPC_map:
+    return llvm::StringSwitch<OpenMPMapClauseKind>(Str)
+#define OPENMP_MAP_KIND(Name) .Case(#Name, OMPC_MAP_##Name)
+#include "clang/Basic/OpenMPKinds.def"
+        .Default(OMPC_MAP_unknown);
   case OMPC_unknown:
   case OMPC_threadprivate:
   case OMPC_if:
@@ -129,6 +134,8 @@ unsigned clang::getOpenMPSimpleClauseType(OpenMPClauseKind Kind,
   case OMPC_seq_cst:
   case OMPC_device:
   case OMPC_threads:
+  case OMPC_simd:
+  case OMPC_num_teams:
     break;
   }
   llvm_unreachable("Invalid OpenMP simple clause kind");
@@ -186,6 +193,18 @@ const char *clang::getOpenMPSimpleClauseTypeName(OpenMPClauseKind Kind,
 #include "clang/Basic/OpenMPKinds.def"
     }
     llvm_unreachable("Invalid OpenMP 'linear' clause type");
+  case OMPC_map:
+    switch (Type) {
+    case OMPC_MAP_unknown:
+      return "unknown";
+#define OPENMP_MAP_KIND(Name)                                                \
+  case OMPC_MAP_##Name:                                                      \
+    return #Name;
+#include "clang/Basic/OpenMPKinds.def"
+    default:
+      break;
+    }
+    llvm_unreachable("Invalid OpenMP 'map' clause type");
   case OMPC_unknown:
   case OMPC_threadprivate:
   case OMPC_if:
@@ -214,6 +233,8 @@ const char *clang::getOpenMPSimpleClauseTypeName(OpenMPClauseKind Kind,
   case OMPC_seq_cst:
   case OMPC_device:
   case OMPC_threads:
+  case OMPC_simd:
+  case OMPC_num_teams:
     break;
   }
   llvm_unreachable("Invalid OpenMP simple clause kind");
@@ -420,6 +441,10 @@ bool clang::isOpenMPParallelDirective(OpenMPDirectiveKind DKind) {
   return DKind == OMPD_parallel || DKind == OMPD_parallel_for ||
          DKind == OMPD_parallel_for_simd ||
          DKind == OMPD_parallel_sections; // TODO add next directives.
+}
+
+bool clang::isOpenMPTargetDirective(OpenMPDirectiveKind DKind) {
+  return DKind == OMPD_target; // TODO add next directives.
 }
 
 bool clang::isOpenMPTeamsDirective(OpenMPDirectiveKind DKind) {

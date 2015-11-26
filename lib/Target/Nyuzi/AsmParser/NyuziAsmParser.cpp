@@ -27,7 +27,6 @@ class NyuziAsmParser : public MCTargetAsmParser {
   MCAsmParser &Parser;
   MCAsmParser &getParser() const { return Parser; }
   MCAsmLexer &getLexer() const { return Parser.getLexer(); }
-  MCSubtargetInfo &STI;
 
   virtual bool MatchAndEmitInstruction(SMLoc IDLoc, unsigned &Opcode,
                                        OperandVector &Operands, MCStreamer &Out,
@@ -54,10 +53,10 @@ class NyuziAsmParser : public MCTargetAsmParser {
   OperandMatchResultTy ParseMemoryOperand(OperandVector &Operands);
 
 public:
-  NyuziAsmParser(MCSubtargetInfo &sti, MCAsmParser &_Parser,
+  NyuziAsmParser(const MCSubtargetInfo &sti, MCAsmParser &_Parser,
                  const MCInstrInfo &MII, const MCTargetOptions &Options)
-      : MCTargetAsmParser(Options), Parser(_Parser), STI(sti) {
-    setAvailableFeatures(ComputeAvailableFeatures(STI.getFeatureBits()));
+      : MCTargetAsmParser(Options, sti), Parser(_Parser) {
+    setAvailableFeatures(ComputeAvailableFeatures(sti.getFeatureBits()));
   }
 };
 
@@ -261,7 +260,7 @@ bool NyuziAsmParser::MatchAndEmitInstruction(SMLoc IDLoc, unsigned &Opcode,
   default:
     break;
   case Match_Success:
-    Out.EmitInstruction(Inst, STI);
+    Out.EmitInstruction(Inst, getSTI());
     return false;
   case Match_MissingFeature:
     return Error(IDLoc, "Instruction use requires option to be enabled");

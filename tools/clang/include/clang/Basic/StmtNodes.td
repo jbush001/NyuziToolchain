@@ -48,6 +48,10 @@ def CXXCatchStmt : Stmt;
 def CXXTryStmt : Stmt;
 def CXXForRangeStmt : Stmt;
 
+// C++ Coroutines TS statements
+def CoroutineBodyStmt : Stmt;
+def CoreturnStmt : Stmt;
+
 // Expressions
 def Expr : Stmt<1>;
 def PredefinedExpr : DStmt<Expr>;
@@ -139,6 +143,11 @@ def FunctionParmPackExpr : DStmt<Expr>;
 def MaterializeTemporaryExpr : DStmt<Expr>;
 def LambdaExpr : DStmt<Expr>;
 def CXXFoldExpr : DStmt<Expr>;
+
+// C++ Coroutines TS expressions
+def CoroutineSuspendExpr : DStmt<Expr, 1>;
+def CoawaitExpr : DStmt<CoroutineSuspendExpr>;
+def CoyieldExpr : DStmt<CoroutineSuspendExpr>;
 
 // Obj-C Expressions.
 def ObjCStringLiteral : DStmt<Expr>;

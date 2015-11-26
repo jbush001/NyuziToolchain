@@ -55,6 +55,16 @@ public:
                               Address &address,
                               Value::ValueType &value_type) = 0;
     
+    // This call should return a CompilerType given a generic type name
+    // and an ExecutionContextScope in which one can actually fetch
+    // any specialization information required.
+    virtual CompilerType
+    GetConcreteType (ExecutionContextScope *exe_scope,
+                     ConstString abstract_type_name)
+    {
+        return CompilerType();
+    }
+    
     // This should be a fast test to determine whether it is likely that this value would
     // have a dynamic type.
     virtual bool
@@ -106,6 +116,9 @@ public:
     {
         return m_process;
     }
+    
+    static lldb::LanguageType
+    GetLanguageForSymbolByName (Target &target, const char *symbol_name);
     
     Target&
     GetTargetRef()

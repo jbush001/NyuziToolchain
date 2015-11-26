@@ -60,27 +60,16 @@ public:
     ~ProcessFreeBSD();
 
     virtual lldb_private::Error
-    WillResume();
+    WillResume() override;
 
     //------------------------------------------------------------------
     // PluginInterface protocol
     //------------------------------------------------------------------
     virtual lldb_private::ConstString
-    GetPluginName();
+    GetPluginName() override;
 
     virtual uint32_t
-    GetPluginVersion();
-
-    virtual void
-    GetPluginCommandHelp(const char *command, lldb_private::Stream *strm);
-
-    virtual lldb_private::Error
-    ExecutePluginCommand(lldb_private::Args &command,
-                         lldb_private::Stream *strm);
-
-    virtual lldb_private::Log *
-    EnablePluginLogging(lldb_private::Stream *strm,
-                        lldb_private::Args &command);
+    GetPluginVersion() override;
 
 public:
     //------------------------------------------------------------------

@@ -355,7 +355,7 @@ void VirtRegRewriter::rewrite() {
     DEBUG(MBBI->print(dbgs(), Indexes));
     for (MachineBasicBlock::instr_iterator
            MII = MBBI->instr_begin(), MIE = MBBI->instr_end(); MII != MIE;) {
-      MachineInstr *MI = MII;
+      MachineInstr *MI = &*MII;
       ++MII;
 
       for (MachineInstr::mop_iterator MOI = MI->operands_begin(),
@@ -400,14 +400,6 @@ void VirtRegRewriter::rewrite() {
                 MO.setIsUndef(true);
             } else if (!MO.isDead()) {
               assert(MO.isDef());
-              // Things get tricky when we ran out of lane mask bits and
-              // merged multiple lanes into the overflow bit: In this case
-              // our subregister liveness tracking isn't precise and we can't
-              // know what subregister parts are undefined, fall back to the
-              // implicit super-register def then.
-              LaneBitmask LaneMask = TRI->getSubRegIndexLaneMask(SubReg);
-              if (TargetRegisterInfo::isImpreciseLaneMask(LaneMask))
-                SuperDefs.push_back(PhysReg);
             }
           }
 

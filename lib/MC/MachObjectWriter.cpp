@@ -520,7 +520,7 @@ void MachObjectWriter::computeSymbolTable(
 
     StringTable.add(Symbol.getName());
   }
-  StringTable.finalize(StringTableBuilder::MachO);
+  StringTable.finalize();
 
   // Build the symbol arrays but only for non-local symbols.
   //
@@ -623,6 +623,18 @@ void MachObjectWriter::executePostLayoutBinding(MCAssembler &Asm,
 
   // Create symbol data for any indirect symbols.
   bindIndirectSymbols(Asm);
+}
+
+bool MachObjectWriter::isSymbolRefDifferenceFullyResolvedImpl(
+    const MCAssembler &Asm, const MCSymbol &A, const MCSymbol &B,
+    bool InSet) const {
+  // FIXME: We don't handle things like
+  // foo = .
+  // creating atoms.
+  if (A.isVariable() || B.isVariable())
+    return false;
+  return MCObjectWriter::isSymbolRefDifferenceFullyResolvedImpl(Asm, A, B,
+                                                                InSet);
 }
 
 bool MachObjectWriter::isSymbolRefDifferenceFullyResolvedImpl(
@@ -803,8 +815,22 @@ void MachObjectWriter::writeObject(MCAssembler &Asm,
     assert(VersionInfo.Major < 65536 && "unencodable major target version");
     uint32_t EncodedVersion = VersionInfo.Update | (VersionInfo.Minor << 8) |
       (VersionInfo.Major << 16);
-    write32(VersionInfo.Kind == MCVM_OSXVersionMin ? MachO::LC_VERSION_MIN_MACOSX :
-            MachO::LC_VERSION_MIN_IPHONEOS);
+    MachO::LoadCommandType LCType;
+    switch (VersionInfo.Kind) {
+    case MCVM_OSXVersionMin:
+      LCType = MachO::LC_VERSION_MIN_MACOSX;
+      break;
+    case MCVM_IOSVersionMin:
+      LCType = MachO::LC_VERSION_MIN_IPHONEOS;
+      break;
+    case MCVM_TvOSVersionMin:
+      LCType = MachO::LC_VERSION_MIN_TVOS;
+      break;
+    case MCVM_WatchOSVersionMin:
+      LCType = MachO::LC_VERSION_MIN_WATCHOS;
+      break;
+    }
+    write32(LCType);
     write32(sizeof(MachO::version_min_command));
     write32(EncodedVersion);
     write32(0);         // reserved.

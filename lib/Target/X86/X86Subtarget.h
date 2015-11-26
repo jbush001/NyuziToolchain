@@ -47,11 +47,11 @@ class X86Subtarget final : public X86GenSubtargetInfo {
 
 protected:
   enum X86SSEEnum {
-    NoMMXSSE, MMX, SSE1, SSE2, SSE3, SSSE3, SSE41, SSE42, AVX, AVX2, AVX512F
+    NoSSE, SSE1, SSE2, SSE3, SSSE3, SSE41, SSE42, AVX, AVX2, AVX512F
   };
 
   enum X863DNowEnum {
-    NoThreeDNow, ThreeDNow, ThreeDNowA
+    NoThreeDNow, MMX, ThreeDNow, ThreeDNowA
   };
 
   enum X86ProcFamilyEnum {
@@ -64,10 +64,10 @@ protected:
   /// Which PIC style to use
   PICStyles::Style PICStyle;
 
-  /// MMX, SSE1, SSE2, SSE3, SSSE3, SSE41, SSE42, or none supported.
+  /// SSE1, SSE2, SSE3, SSSE3, SSE41, SSE42, or none supported.
   X86SSEEnum X86SSELevel;
 
-  /// 3DNow, 3DNow Athlon, or none supported.
+  /// MMX, 3DNow, 3DNow Athlon, or none supported.
   X863DNowEnum X863DNowLevel;
 
   /// True if this processor has conditional move instructions
@@ -85,6 +85,18 @@ protected:
 
   /// Target has AES instructions
   bool HasAES;
+
+  /// Target has FXSAVE/FXRESTOR instructions
+  bool HasFXSR;
+
+  /// Target has XSAVE instructions
+  bool HasXSAVE;
+  /// Target has XSAVEOPT instructions
+  bool HasXSAVEOPT;
+  /// Target has XSAVEC instructions
+  bool HasXSAVEC;
+  /// Target has XSAVES instructions
+  bool HasXSAVES;
 
   /// Target has carry-less multiplication
   bool HasPCLMUL;
@@ -319,7 +331,6 @@ public:
   void setPICStyle(PICStyles::Style Style)  { PICStyle = Style; }
 
   bool hasCMov() const { return HasCMov; }
-  bool hasMMX() const { return X86SSELevel >= MMX; }
   bool hasSSE1() const { return X86SSELevel >= SSE1; }
   bool hasSSE2() const { return X86SSELevel >= SSE2; }
   bool hasSSE3() const { return X86SSELevel >= SSE3; }
@@ -332,10 +343,16 @@ public:
   bool hasFp256() const { return hasAVX(); }
   bool hasInt256() const { return hasAVX2(); }
   bool hasSSE4A() const { return HasSSE4A; }
+  bool hasMMX() const { return X863DNowLevel >= MMX; }
   bool has3DNow() const { return X863DNowLevel >= ThreeDNow; }
   bool has3DNowA() const { return X863DNowLevel >= ThreeDNowA; }
   bool hasPOPCNT() const { return HasPOPCNT; }
   bool hasAES() const { return HasAES; }
+  bool hasFXSR() const { return HasFXSR; }
+  bool hasXSAVE() const { return HasXSAVE; }
+  bool hasXSAVEOPT() const { return HasXSAVEOPT; }
+  bool hasXSAVEC() const { return HasXSAVEC; }
+  bool hasXSAVES() const { return HasXSAVES; }
   bool hasPCLMUL() const { return HasPCLMUL; }
   bool hasFMA() const { return HasFMA; }
   // FIXME: Favor FMA when both are enabled. Is this the right thing to do?
@@ -394,12 +411,11 @@ public:
   bool isTargetMachO() const { return TargetTriple.isOSBinFormatMachO(); }
 
   bool isTargetLinux() const { return TargetTriple.isOSLinux(); }
-  bool isTargetAndroid() const {
-    return TargetTriple.getEnvironment() == Triple::Android;
-  }
+  bool isTargetAndroid() const { return TargetTriple.isAndroid(); }
   bool isTargetNaCl() const { return TargetTriple.isOSNaCl(); }
   bool isTargetNaCl32() const { return isTargetNaCl() && !is64Bit(); }
   bool isTargetNaCl64() const { return isTargetNaCl() && is64Bit(); }
+  bool isTargetMCU() const { return TargetTriple.isOSIAMCU(); }
 
   bool isTargetWindowsMSVC() const {
     return TargetTriple.isWindowsMSVCEnvironment();

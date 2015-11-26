@@ -290,9 +290,8 @@ EmulateInstructionARM::GetRegisterInfo (lldb::RegisterKind reg_kind, uint32_t re
 uint32_t
 EmulateInstructionARM::GetFramePointerRegisterNumber () const
 {
-    if (m_arch.GetTriple().getEnvironment() == llvm::Triple::Android)
+    if (m_arch.GetTriple().isAndroid())
         return LLDB_INVALID_REGNUM; // Don't use frame pointer on android
-
     bool is_apple = false;
     if (m_arch.GetTriple().getVendor() == llvm::Triple::Apple)
         is_apple = true;
@@ -301,6 +300,8 @@ EmulateInstructionARM::GetFramePointerRegisterNumber () const
             case llvm::Triple::Darwin:
             case llvm::Triple::MacOSX:
             case llvm::Triple::IOS:
+            case llvm::Triple::TvOS:
+            case llvm::Triple::WatchOS:
                 is_apple = true;
                 break;
             default:

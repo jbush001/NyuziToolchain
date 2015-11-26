@@ -13,6 +13,10 @@
 // C Includes
 // C++ Includes
 #include <list>
+#include <map>
+#include <memory>
+#include <string>
+#include <vector>
 
 // Other libraries and framework includes
 // Project includes
@@ -25,6 +29,7 @@
 #include "lldb/Core/ModuleList.h"
 #include "lldb/Core/UserSettingsController.h"
 #include "lldb/Expression/Expression.h"
+#include "lldb/Symbol/TypeSystem.h"
 #include "lldb/Target/ExecutionContextScope.h"
 #include "lldb/Target/PathMappingList.h"
 #include "lldb/Target/ProcessLaunchInfo.h"
@@ -232,7 +237,6 @@ private:
     static void DisableASLRValueChangedCallback(void *target_property_ptr, OptionValue *);
     static void DisableSTDIOValueChangedCallback(void *target_property_ptr, OptionValue *);
 
-private:
     //------------------------------------------------------------------
     // Member variables.
     //------------------------------------------------------------------
@@ -298,9 +302,7 @@ public:
     const char *
     GetPrefix () const
     {
-        if (m_prefix.empty())
-            return NULL;
-        return m_prefix.c_str();
+        return (m_prefix.empty() ? nullptr : m_prefix.c_str());
     }
 
     void
@@ -441,6 +443,18 @@ public:
     }
     
     bool
+    GetColorizeErrors () const
+    {
+        return m_ansi_color_errors;
+    }
+    
+    void
+    SetColorizeErrors (bool b)
+    {
+        m_ansi_color_errors = b;
+    }
+    
+    bool
     GetTrapExceptions() const
     {
         return m_trap_exceptions;
@@ -450,6 +464,18 @@ public:
     SetTrapExceptions (bool b)
     {
         m_trap_exceptions = b;
+    }
+    
+    bool
+    GetREPLEnabled() const
+    {
+        return m_repl;
+    }
+    
+    void
+    SetREPLEnabled (bool b)
+    {
+        m_repl = b;
     }
     
     void
@@ -462,10 +488,36 @@ public:
     bool
     InvokeCancelCallback (lldb::ExpressionEvaluationPhase phase) const
     {
-        if (m_cancel_callback == nullptr)
-            return false;
+        return ((m_cancel_callback != nullptr) ? m_cancel_callback(phase, m_cancel_callback_baton) : false);
+    }
+    
+    // Allows the expression contents to be remapped to point to the specified file and line
+    // using #line directives.
+    void
+    SetPoundLine (const char *path, uint32_t line) const
+    {
+        if (path && path[0])
+        {
+            m_pound_line_file = path;
+            m_pound_line_line = line;
+        }
         else
-            return m_cancel_callback (phase, m_cancel_callback_baton);
+        {
+            m_pound_line_file.clear();
+            m_pound_line_line = 0;
+        }
+    }
+    
+    const char *
+    GetPoundLineFilePath () const
+    {
+        return (m_pound_line_file.empty() ? nullptr : m_pound_line_file.c_str());
+    }
+    
+    uint32_t
+    GetPoundLineLine () const
+    {
+        return m_pound_line_line;
     }
 
     void
@@ -492,13 +544,20 @@ private:
     bool m_stop_others;
     bool m_debug;
     bool m_trap_exceptions;
+    bool m_repl;
     bool m_generate_debug_info;
+    bool m_ansi_color_errors;
     bool m_result_is_internal;
     lldb::DynamicValueType m_use_dynamic;
     uint32_t m_timeout_usec;
     uint32_t m_one_thread_timeout_usec;
     lldb::ExpressionCancelCallback m_cancel_callback;
     void *m_cancel_callback_baton;
+    // If m_pound_line_file is not empty and m_pound_line_line is non-zero,
+    // use #line %u "%s" before the expression content to remap where the source
+    // originates
+    mutable std::string m_pound_line_file;
+    mutable uint32_t m_pound_line_line;
 };
 
 //----------------------------------------------------------------------
@@ -585,6 +644,8 @@ public:
         DISALLOW_COPY_AND_ASSIGN (TargetEventData);
     };
     
+    ~Target() override;
+
     static void
     SettingsInitialize ();
 
@@ -610,8 +671,8 @@ public:
 //    UpdateInstanceName ();
 
     lldb::ModuleSP
-    GetSharedModule (const ModuleSpec &module_spec,
-                     Error *error_ptr = NULL);
+    GetSharedModule(const ModuleSpec &module_spec,
+                    Error *error_ptr = nullptr);
 
     //----------------------------------------------------------------------
     // Settings accessors
@@ -619,35 +680,6 @@ public:
 
     static const lldb::TargetPropertiesSP &
     GetGlobalProperties();
-
-private:
-    //------------------------------------------------------------------
-    /// Construct with optional file and arch.
-    ///
-    /// This member is private. Clients must use
-    /// TargetList::CreateTarget(const FileSpec*, const ArchSpec*)
-    /// so all targets can be tracked from the central target list.
-    ///
-    /// @see TargetList::CreateTarget(const FileSpec*, const ArchSpec*)
-    //------------------------------------------------------------------
-    Target (Debugger &debugger,
-            const ArchSpec &target_arch,
-            const lldb::PlatformSP &platform_sp,
-            bool is_dummy_target);
-
-    // Helper function.
-    bool
-    ProcessIsValid ();
-
-    // Copy breakpoints, stop hooks and so forth from the dummy target:
-    void
-    PrimeFromDummyTarget(Target *dummy_target);
-
-    void
-    AddBreakpoint(lldb::BreakpointSP breakpoint_sp, bool internal);
-
-public:
-    ~Target() override;
 
     Mutex &
     GetAPIMutex ()
@@ -660,6 +692,7 @@ public:
 
     void
     CleanupProcess ();
+
     //------------------------------------------------------------------
     /// Dump a description of this object to a Stream.
     ///
@@ -719,7 +752,7 @@ public:
     lldb::BreakpointSP
     GetBreakpointByID (lldb::break_id_t break_id);
 
-    // Use this to create a file and line breakpoint to a given module or all module it is NULL
+    // Use this to create a file and line breakpoint to a given module or all module it is nullptr
     lldb::BreakpointSP
     CreateBreakpoint (const FileSpecList *containingModules,
                       const FileSpec &file,
@@ -745,24 +778,32 @@ public:
                       bool internal,
                       bool request_hardware);
 
+    // Use this to create a breakpoint from a load address and a module file spec
+    lldb::BreakpointSP
+    CreateAddressInModuleBreakpoint (lldb::addr_t file_addr,
+                                     bool internal,
+                                     const FileSpec *file_spec,
+                                     bool request_hardware);
+
     // Use this to create Address breakpoints:
     lldb::BreakpointSP
-    CreateBreakpoint (Address &addr,
+    CreateBreakpoint (const Address &addr,
                       bool internal,
                       bool request_hardware);
 
-    // Use this to create a function breakpoint by regexp in containingModule/containingSourceFiles, or all modules if it is NULL
+    // Use this to create a function breakpoint by regexp in containingModule/containingSourceFiles, or all modules if it is nullptr
     // When "skip_prologue is set to eLazyBoolCalculate, we use the current target 
     // setting, else we use the values passed in
     lldb::BreakpointSP
     CreateFuncRegexBreakpoint (const FileSpecList *containingModules,
                                const FileSpecList *containingSourceFiles,
                                RegularExpression &func_regexp,
+                               lldb::LanguageType requested_language,
                                LazyBool skip_prologue,
                                bool internal,
                                bool request_hardware);
 
-    // Use this to create a function breakpoint by name in containingModule, or all modules if it is NULL
+    // Use this to create a function breakpoint by name in containingModule, or all modules if it is nullptr
     // When "skip_prologue is set to eLazyBoolCalculate, we use the current target 
     // setting, else we use the values passed in.
     // func_name_type_mask is or'ed values from the FunctionNameType enum.
@@ -777,12 +818,12 @@ public:
                       bool request_hardware);
                       
     lldb::BreakpointSP
-    CreateExceptionBreakpoint (enum lldb::LanguageType language,
-                               bool catch_bp,
-                               bool throw_bp,
-                               bool internal,
-                               Args *additional_args = nullptr,
-                               Error *additional_args_error = nullptr);
+    CreateExceptionBreakpoint(enum lldb::LanguageType language,
+                              bool catch_bp,
+                              bool throw_bp,
+                              bool internal,
+                              Args *additional_args = nullptr,
+                              Error *additional_args_error = nullptr);
     
     // This is the same as the func_name breakpoint except that you can specify a vector of names.  This is cheaper
     // than a regular expression breakpoint in the case where you just want to set a breakpoint on a set of names
@@ -925,26 +966,6 @@ public:
     lldb::addr_t
     GetBreakableLoadAddress (lldb::addr_t addr);
 
-protected:
-    //------------------------------------------------------------------
-    /// Implementing of ModuleList::Notifier.
-    //------------------------------------------------------------------
-    
-    void
-    ModuleAdded(const ModuleList& module_list, const lldb::ModuleSP& module_sp) override;
-    
-    void
-    ModuleRemoved(const ModuleList& module_list, const lldb::ModuleSP& module_sp) override;
-    
-    void
-    ModuleUpdated(const ModuleList& module_list,
-		  const lldb::ModuleSP& old_module_sp,
-		  const lldb::ModuleSP& new_module_sp) override;
-    void
-    WillClearList(const ModuleList& module_list) override;
-
-public:
-    
     void
     ModulesDidLoad (ModuleList &module_list);
 
@@ -981,7 +1002,7 @@ public:
     ///
     /// @return
     ///     The shared pointer to the executable module which can
-    ///     contains a NULL Module object if no executable has been
+    ///     contains a nullptr Module object if no executable has been
     ///     set.
     ///
     /// @see DynamicLoader
@@ -1025,9 +1046,9 @@ public:
     SetExecutableModule (lldb::ModuleSP& module_sp, bool get_dependent_files);
 
     bool
-    LoadScriptingResources (std::list<Error>& errors,
-                            Stream* feedback_stream = NULL,
-                            bool continue_on_error = true)
+    LoadScriptingResources(std::list<Error>& errors,
+                           Stream* feedback_stream = nullptr,
+                           bool continue_on_error = true)
     {
         return m_images.LoadScriptingResourcesInTarget(this,errors,feedback_stream,continue_on_error);
     }
@@ -1157,12 +1178,12 @@ public:
     // 2 - if there is a valid process, try and read from its memory
     // 3 - if (prefer_file_cache == false) then read from object file cache
     size_t
-    ReadMemory (const Address& addr,
-                bool prefer_file_cache,
-                void *dst,
-                size_t dst_len,
-                Error &error,
-                lldb::addr_t *load_addr_ptr = NULL);
+    ReadMemory(const Address& addr,
+               bool prefer_file_cache,
+               void *dst,
+               size_t dst_len,
+               Error &error,
+               lldb::addr_t *load_addr_ptr = nullptr);
     
     size_t
     ReadCStringFromMemory (const Address& addr, std::string &out_str, Error &error);
@@ -1229,7 +1250,10 @@ public:
     GetImageSearchPathList ();
     
     TypeSystem *
-    GetScratchTypeSystemForLanguage (lldb::LanguageType language, bool create_on_demand = true);
+    GetScratchTypeSystemForLanguage (Error *error, lldb::LanguageType language, bool create_on_demand = true);
+    
+    PersistentExpressionState *
+    GetPersistentExpressionStateForLanguage (lldb::LanguageType language);
     
     // Creates a UserExpression for the given language, the rest of the parameters have the
     // same meaning as for the UserExpression constructor.
@@ -1240,6 +1264,7 @@ public:
                                  const char *expr_prefix,
                                  lldb::LanguageType language,
                                  Expression::ResultType desired_type,
+                                 const EvaluateExpressionOptions &options,
                                  Error &error);
     
     // Creates a FunctionCaller for the given language, the rest of the parameters have the
@@ -1269,7 +1294,7 @@ public:
     ClangASTContext *
     GetScratchClangASTContext(bool create_on_demand=true);
     
-    ClangASTImporter *
+    lldb::ClangASTImporterSP
     GetClangASTImporter();
     
     //----------------------------------------------------------------------
@@ -1315,23 +1340,26 @@ public:
     // in in th execution context. 
     lldb::ExpressionResults
     EvaluateExpression (const char *expression,
-                        StackFrame *frame,
+                        ExecutionContextScope *exe_scope,
                         lldb::ValueObjectSP &result_valobj_sp,
                         const EvaluateExpressionOptions& options = EvaluateExpressionOptions());
 
-    ClangPersistentVariables &
-    GetPersistentVariables();
-
+    lldb::ExpressionVariableSP
+    GetPersistentVariable(const ConstString &name);
+    
+    lldb::addr_t
+    GetPersistentSymbol(const ConstString &name);
+    
     //------------------------------------------------------------------
     // Target Stop Hooks
     //------------------------------------------------------------------
     class StopHook : public UserID
     {
     public:
-        ~StopHook ();
-        
         StopHook (const StopHook &rhs);
-                
+
+        ~StopHook ();
+
         StringList *
         GetCommandPointer ()
         {
@@ -1497,8 +1525,31 @@ public:
     
     lldb::SearchFilterSP
     GetSearchFilterForModuleAndCUList (const FileSpecList *containingModules, const FileSpecList *containingSourceFiles);
+    
+    lldb::REPLSP
+    GetREPL (Error &err, lldb::LanguageType language, const char *repl_options, bool can_create);
+    
+    void
+    SetREPL (lldb::LanguageType language, lldb::REPLSP repl_sp);
 
 protected:
+    //------------------------------------------------------------------
+    /// Implementing of ModuleList::Notifier.
+    //------------------------------------------------------------------
+    
+    void
+    ModuleAdded(const ModuleList& module_list, const lldb::ModuleSP& module_sp) override;
+    
+    void
+    ModuleRemoved(const ModuleList& module_list, const lldb::ModuleSP& module_sp) override;
+    
+    void
+    ModuleUpdated(const ModuleList& module_list,
+		  const lldb::ModuleSP& old_module_sp,
+		  const lldb::ModuleSP& new_module_sp) override;
+    void
+    WillClearList(const ModuleList& module_list) override;
+
     //------------------------------------------------------------------
     // Member variables.
     //------------------------------------------------------------------
@@ -1519,11 +1570,13 @@ protected:
     lldb::ProcessSP m_process_sp;
     lldb::SearchFilterSP  m_search_filter_sp;
     PathMappingList m_image_search_paths;
-    lldb::ClangASTContextUP m_scratch_ast_context_ap;
-    lldb::ClangASTSourceUP m_scratch_ast_source_ap;
-    lldb::ClangASTImporterUP m_ast_importer_ap;
+    TypeSystemMap m_scratch_type_system_map;
+    
+    typedef std::map<lldb::LanguageType, lldb::REPLSP> REPLMap;
+    REPLMap m_repl_map;
+    
+    lldb::ClangASTImporterSP m_ast_importer_sp;
     lldb::ClangModulesDeclVendorUP m_clang_modules_decl_vendor_ap;
-    lldb::ClangPersistentVariablesUP m_persistent_variables;      ///< These are the persistent variables associated with this process for the expression parser.
 
     lldb::SourceManagerUP m_source_manager_ap;
 
@@ -1539,6 +1592,31 @@ protected:
                              void *baton);
 
 private:
+    //------------------------------------------------------------------
+    /// Construct with optional file and arch.
+    ///
+    /// This member is private. Clients must use
+    /// TargetList::CreateTarget(const FileSpec*, const ArchSpec*)
+    /// so all targets can be tracked from the central target list.
+    ///
+    /// @see TargetList::CreateTarget(const FileSpec*, const ArchSpec*)
+    //------------------------------------------------------------------
+    Target (Debugger &debugger,
+            const ArchSpec &target_arch,
+            const lldb::PlatformSP &platform_sp,
+            bool is_dummy_target);
+
+    // Helper function.
+    bool
+    ProcessIsValid ();
+
+    // Copy breakpoints, stop hooks and so forth from the dummy target:
+    void
+    PrimeFromDummyTarget(Target *dummy_target);
+
+    void
+    AddBreakpoint(lldb::BreakpointSP breakpoint_sp, bool internal);
+
     DISALLOW_COPY_AND_ASSIGN (Target);
 };
 

@@ -105,6 +105,8 @@ StackFrameList::GetCurrentInlinedDepth ()
 void
 StackFrameList::ResetCurrentInlinedDepth ()
 {
+    Mutex::Locker locker (m_mutex);
+
     if (m_show_inlined_frames)
     {        
         GetFramesUpTo(0);
@@ -459,9 +461,9 @@ StackFrameList::GetFramesUpTo(uint32_t end_idx)
         }
         
 #if defined (DEBUG_STACK_FRAMES)
-            s.PutCString("\n\nNew frames:\n");
-            Dump (&s);
-            s.EOL();
+        s.PutCString("\n\nNew frames:\n");
+        Dump (&s);
+        s.EOL();
 #endif
     }
     else

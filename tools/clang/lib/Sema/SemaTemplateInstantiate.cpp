@@ -817,14 +817,6 @@ namespace {
     QualType TransformSubstTemplateTypeParmPackType(TypeLocBuilder &TLB,
                                            SubstTemplateTypeParmPackTypeLoc TL);
 
-    ExprResult TransformCallExpr(CallExpr *CE) {
-      getSema().CallsUndergoingInstantiation.push_back(CE);
-      ExprResult Result =
-          TreeTransform<TemplateInstantiator>::TransformCallExpr(CE);
-      getSema().CallsUndergoingInstantiation.pop_back();
-      return Result;
-    }
-
     ExprResult TransformLambdaExpr(LambdaExpr *E) {
       LocalInstantiationScope Scope(SemaRef, /*CombineWithOuterScope=*/true);
       return TreeTransform<TemplateInstantiator>::TransformLambdaExpr(E);
@@ -1231,7 +1223,7 @@ TemplateInstantiator::TransformFunctionParmPackExpr(FunctionParmPackExpr *E) {
 
   // Transform each of the parameter expansions into the corresponding
   // parameters in the instantiation of the function decl.
-  SmallVector<Decl *, 8> Parms;
+  SmallVector<ParmVarDecl *, 8> Parms;
   Parms.reserve(E->getNumExpansions());
   for (FunctionParmPackExpr::iterator I = E->begin(), End = E->end();
        I != End; ++I) {
@@ -2805,14 +2797,14 @@ void LocalInstantiationScope::InstantiatedLocal(const Decl *D, Decl *Inst) {
 #endif
     Stored = Inst;
   } else if (DeclArgumentPack *Pack = Stored.dyn_cast<DeclArgumentPack *>()) {
-    Pack->push_back(Inst);
+    Pack->push_back(cast<ParmVarDecl>(Inst));
   } else {
     assert(Stored.get<Decl *>() == Inst && "Already instantiated this local");
   }
 }
 
-void LocalInstantiationScope::InstantiatedLocalPackArg(const Decl *D, 
-                                                       Decl *Inst) {
+void LocalInstantiationScope::InstantiatedLocalPackArg(const Decl *D,
+                                                       ParmVarDecl *Inst) {
   D = getCanonicalParmVarDecl(D);
   DeclArgumentPack *Pack = LocalDecls[D].get<DeclArgumentPack *>();
   Pack->push_back(Inst);

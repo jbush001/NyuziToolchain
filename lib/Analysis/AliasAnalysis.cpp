@@ -247,6 +247,32 @@ ModRefInfo AAResults::getModRefInfo(const VAArgInst *V,
   return MRI_ModRef;
 }
 
+ModRefInfo AAResults::getModRefInfo(const CatchPadInst *CatchPad,
+                                    const MemoryLocation &Loc) {
+  if (Loc.Ptr) {
+    // If the pointer is a pointer to constant memory,
+    // then it could not have been modified by this catchpad.
+    if (pointsToConstantMemory(Loc))
+      return MRI_NoModRef;
+  }
+
+  // Otherwise, a catchpad reads and writes.
+  return MRI_ModRef;
+}
+
+ModRefInfo AAResults::getModRefInfo(const CatchReturnInst *CatchRet,
+                                    const MemoryLocation &Loc) {
+  if (Loc.Ptr) {
+    // If the pointer is a pointer to constant memory,
+    // then it could not have been modified by this catchpad.
+    if (pointsToConstantMemory(Loc))
+      return MRI_NoModRef;
+  }
+
+  // Otherwise, a catchret reads and writes.
+  return MRI_ModRef;
+}
+
 ModRefInfo AAResults::getModRefInfo(const AtomicCmpXchgInst *CX,
                                     const MemoryLocation &Loc) {
   // Acquire/Release cmpxchg has properties that matter for arbitrary addresses.
@@ -351,18 +377,51 @@ bool AAResults::canInstructionRangeModRef(const Instruction &I1,
                                           const ModRefInfo Mode) {
   assert(I1.getParent() == I2.getParent() &&
          "Instructions not in same basic block!");
-  BasicBlock::const_iterator I = &I1;
-  BasicBlock::const_iterator E = &I2;
+  BasicBlock::const_iterator I = I1.getIterator();
+  BasicBlock::const_iterator E = I2.getIterator();
   ++E;  // Convert from inclusive to exclusive range.
 
   for (; I != E; ++I) // Check every instruction in range
-    if (getModRefInfo(I, Loc) & Mode)
+    if (getModRefInfo(&*I, Loc) & Mode)
       return true;
   return false;
 }
 
 // Provide a definition for the root virtual destructor.
 AAResults::Concept::~Concept() {}
+
+namespace {
+/// A wrapper pass for external alias analyses. This just squirrels away the
+/// callback used to run any analyses and register their results.
+struct ExternalAAWrapperPass : ImmutablePass {
+  typedef std::function<void(Pass &, Function &, AAResults &)> CallbackT;
+
+  CallbackT CB;
+
+  static char ID;
+
+  ExternalAAWrapperPass() : ImmutablePass(ID) {
+    initializeExternalAAWrapperPassPass(*PassRegistry::getPassRegistry());
+  }
+  explicit ExternalAAWrapperPass(CallbackT CB)
+      : ImmutablePass(ID), CB(std::move(CB)) {
+    initializeExternalAAWrapperPassPass(*PassRegistry::getPassRegistry());
+  }
+
+  void getAnalysisUsage(AnalysisUsage &AU) const override {
+    AU.setPreservesAll();
+  }
+};
+}
+
+char ExternalAAWrapperPass::ID = 0;
+INITIALIZE_PASS(ExternalAAWrapperPass, "external-aa", "External Alias Analysis",
+                false, true)
+
+ImmutablePass *
+llvm::createExternalAAWrapperPass(ExternalAAWrapperPass::CallbackT Callback) {
+  return new ExternalAAWrapperPass(std::move(Callback));
+}
 
 AAResultsWrapperPass::AAResultsWrapperPass() : FunctionPass(ID) {
   initializeAAResultsWrapperPassPass(*PassRegistry::getPassRegistry());
@@ -374,6 +433,7 @@ INITIALIZE_PASS_BEGIN(AAResultsWrapperPass, "aa",
                       "Function Alias Analysis Results", false, true)
 INITIALIZE_PASS_DEPENDENCY(BasicAAWrapperPass)
 INITIALIZE_PASS_DEPENDENCY(CFLAAWrapperPass)
+INITIALIZE_PASS_DEPENDENCY(ExternalAAWrapperPass)
 INITIALIZE_PASS_DEPENDENCY(GlobalsAAWrapperPass)
 INITIALIZE_PASS_DEPENDENCY(ObjCARCAAWrapperPass)
 INITIALIZE_PASS_DEPENDENCY(SCEVAAWrapperPass)
@@ -424,6 +484,12 @@ bool AAResultsWrapperPass::runOnFunction(Function &F) {
     AAR->addAAResult(WrapperPass->getResult());
   if (auto *WrapperPass = getAnalysisIfAvailable<CFLAAWrapperPass>())
     AAR->addAAResult(WrapperPass->getResult());
+
+  // If available, run an external AA providing callback over the results as
+  // well.
+  if (auto *WrapperPass = getAnalysisIfAvailable<ExternalAAWrapperPass>())
+    if (WrapperPass->CB)
+      WrapperPass->CB(*this, F, *AAR);
 
   // Analyses don't mutate the IR, so return false.
   return false;

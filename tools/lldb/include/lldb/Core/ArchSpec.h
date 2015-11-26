@@ -343,9 +343,27 @@ public:
     }
 
     bool
+    TripleVendorIsUnspecifiedUnknown() const
+    {
+        return m_triple.getVendor() == llvm::Triple::UnknownVendor && m_triple.getVendorName().empty();
+    }
+
+    bool
     TripleOSWasSpecified() const
     {
         return !m_triple.getOSName().empty();
+    }
+    
+    bool
+    TripleEnvironmentWasSpecified () const
+    {
+        return !m_triple.getEnvironmentName().empty();
+    }
+
+    bool
+    TripleOSIsUnspecifiedUnknown() const
+    {
+        return m_triple.getOS() == llvm::Triple::UnknownOS && m_triple.getOSName().empty();
     }
 
     //------------------------------------------------------------------
@@ -486,6 +504,9 @@ public:
         return m_triple;
     }
 
+    void
+    DumpTriple(Stream &s) const;
+
     //------------------------------------------------------------------
     /// Architecture tripple setter.
     ///
@@ -570,7 +591,18 @@ public:
     //------------------------------------------------------------------
     StopInfoOverrideCallbackType
     GetStopInfoOverrideCallback () const;
+    
+    bool
+    IsFullySpecifiedTriple () const;
 
+    void
+    PiecewiseTripleCompare (const ArchSpec &other,
+                            bool &arch_different,
+                            bool &vendor_different,
+                            bool &os_different,
+                            bool &os_version_different,
+                            bool &env_different);
+    
     uint32_t
     GetFlags () const
     {

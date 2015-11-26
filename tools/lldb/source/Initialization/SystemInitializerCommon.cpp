@@ -31,13 +31,14 @@
 #include "Plugins/Platform/FreeBSD/PlatformFreeBSD.h"
 #include "Plugins/Platform/Kalimba/PlatformKalimba.h"
 #include "Plugins/Platform/Linux/PlatformLinux.h"
-#include "Plugins/Platform/MacOSX/PlatformiOSSimulator.h"
 #include "Plugins/Platform/MacOSX/PlatformMacOSX.h"
 #include "Plugins/Platform/MacOSX/PlatformRemoteiOS.h"
+#include "Plugins/Platform/NetBSD/PlatformNetBSD.h"
 #include "Plugins/Platform/Windows/PlatformWindows.h"
 #include "Plugins/Process/gdb-remote/ProcessGDBRemoteLog.h"
 
 #if defined(__APPLE__)
+#include "Plugins/Platform/MacOSX/PlatformiOSSimulator.h"
 #include "Plugins/DynamicLoader/Darwin-Kernel/DynamicLoaderDarwinKernel.h"
 #include "Plugins/ObjectFile/Mach-O/ObjectFileMachO.h"
 #include "Plugins/Platform/MacOSX/PlatformDarwinKernel.h"
@@ -49,7 +50,7 @@
 
 #if defined(_MSC_VER)
 #include "lldb/Host/windows/windows.h"
-#include "Plugins/Process/Windows/Live/ProcessWindowsLog.h"
+#include "Plugins/Process/Windows/Common/ProcessWindowsLog.h"
 #endif
 
 #include "llvm/Support/TargetSelect.h"
@@ -130,9 +131,9 @@ SystemInitializerCommon::Initialize()
 
     PlatformRemoteiOS::Initialize();
     PlatformMacOSX::Initialize();
-    PlatformiOSSimulator::Initialize();
 
 #if defined(__APPLE__)
+    PlatformiOSSimulator::Initialize();
     DynamicLoaderDarwinKernel::Initialize();
     PlatformDarwinKernel::Initialize();
     ObjectFileMachO::Initialize();
@@ -168,7 +169,6 @@ SystemInitializerCommon::Terminate()
     ObjectContainerUniversalMachO::Terminate();
     PlatformMacOSX::Terminate();
     PlatformRemoteiOS::Terminate();
-    PlatformiOSSimulator::Terminate();
 
     ClangASTContext::Terminate();
     GoASTContext::Terminate();
@@ -178,6 +178,7 @@ SystemInitializerCommon::Terminate()
     EmulateInstructionMIPS64::Terminate();
 
 #if defined(__APPLE__)
+    PlatformiOSSimulator::Terminate();
     DynamicLoaderDarwinKernel::Terminate();
     ObjectFileMachO::Terminate();
     PlatformDarwinKernel::Terminate();

@@ -79,7 +79,8 @@ DumpTargetInfo (uint32_t target_idx, Target *target, const char *prefix_cstr, bo
     uint32_t properties = 0;
     if (target_arch.IsValid())
     {
-        strm.Printf ("%sarch=%s", properties++ > 0 ? ", " : " ( ", target_arch.GetTriple().str().c_str());
+        strm.Printf ("%sarch=", properties++ > 0 ? ", " : " ( ");
+        target_arch.DumpTriple (strm);
         properties++;
     }
     PlatformSP platform_sp (target->GetPlatform());
@@ -187,17 +188,17 @@ public:
         m_option_group.Finalize();
     }
 
-    ~CommandObjectTargetCreate ()
+    ~CommandObjectTargetCreate () override
     {
     }
 
     Options *
-    GetOptions ()
+    GetOptions () override
     {
         return &m_option_group;
     }
 
-    virtual int
+    int
     HandleArgumentCompletion (Args &input,
                               int &cursor_index,
                               int &cursor_char_position,
@@ -205,7 +206,7 @@ public:
                               int match_start_point,
                               int max_return_elements,
                               bool &word_complete,
-                              StringList &matches)
+                              StringList &matches) override
     {
         std::string completion_str (input.GetArgumentAtIndex(cursor_index));
         completion_str.erase (cursor_char_position);
@@ -223,7 +224,7 @@ public:
 
 protected:
     bool
-    DoExecute (Args& command, CommandReturnObject &result)
+    DoExecute (Args& command, CommandReturnObject &result) override
     {
         const size_t argc = command.GetArgumentCount();
         FileSpec core_file (m_core_file.GetOptionValue().GetCurrentValue());
@@ -255,7 +256,7 @@ protected:
                 {
                     if (!symfile.Readable())
                     {
-                        result.AppendErrorWithFormat("symbol file '%s' is not readable", core_file.GetPath().c_str());
+                        result.AppendErrorWithFormat("symbol file '%s' is not readable", symfile.GetPath().c_str());
                         result.SetStatus (eReturnStatusFailed);
                         return false;
                     }
@@ -401,7 +402,7 @@ protected:
 
                         if (process_sp)
                         {
-                            // Seems wierd that we Launch a core file, but that is
+                            // Seems weird that we Launch a core file, but that is
                             // what we do!
                             error = process_sp->LoadCore();
 
@@ -477,14 +478,13 @@ public:
     {
     }
 
-    virtual
-    ~CommandObjectTargetList ()
+    ~CommandObjectTargetList () override
     {
     }
 
 protected:
-    virtual bool
-    DoExecute (Args& args, CommandReturnObject &result)
+    bool
+    DoExecute (Args& args, CommandReturnObject &result) override
     {
         if (args.GetArgumentCount() == 0)
         {
@@ -525,14 +525,13 @@ public:
     {
     }
 
-    virtual
-    ~CommandObjectTargetSelect ()
+    ~CommandObjectTargetSelect () override
     {
     }
 
 protected:
-    virtual bool
-    DoExecute (Args& args, CommandReturnObject &result)
+    bool
+    DoExecute (Args& args, CommandReturnObject &result) override
     {
         if (args.GetArgumentCount() == 1)
         {
@@ -622,20 +621,19 @@ public:
         m_option_group.Finalize();
     }
 
-    virtual
-    ~CommandObjectTargetDelete ()
+    ~CommandObjectTargetDelete () override
     {
     }
 
     Options *
-    GetOptions ()
+    GetOptions () override
     {
         return &m_option_group;
     }
 
 protected:
-    virtual bool
-    DoExecute (Args& args, CommandReturnObject &result)
+    bool
+    DoExecute (Args& args, CommandReturnObject &result) override
     {
         const size_t argc = args.GetArgumentCount();
         std::vector<TargetSP> delete_target_list;
@@ -777,8 +775,7 @@ public:
         m_option_group.Finalize();
     }
 
-    virtual
-    ~CommandObjectTargetVariable ()
+    ~CommandObjectTargetVariable () override
     {
     }
 
@@ -850,7 +847,7 @@ public:
     }
 
     Options *
-    GetOptions ()
+    GetOptions () override
     {
         return &m_option_group;
     }
@@ -896,8 +893,8 @@ protected:
         }
 
     }
-    virtual bool
-    DoExecute (Args& args, CommandReturnObject &result)
+    bool
+    DoExecute (Args& args, CommandReturnObject &result) override
     {
         Target *target = m_exe_ctx.GetTargetPtr();
         const size_t argc = args.GetArgumentCount();
@@ -1134,14 +1131,13 @@ public:
         m_arguments.push_back (arg);
     }
 
-    ~CommandObjectTargetModulesSearchPathsAdd ()
+    ~CommandObjectTargetModulesSearchPathsAdd () override
     {
     }
 
 protected:
     bool
-    DoExecute (Args& command,
-             CommandReturnObject &result)
+    DoExecute (Args& command, CommandReturnObject &result) override
     {
         Target *target = m_interpreter.GetDebugger().GetSelectedTarget().get();
         if (target)
@@ -1207,14 +1203,13 @@ public:
     {
     }
 
-    ~CommandObjectTargetModulesSearchPathsClear ()
+    ~CommandObjectTargetModulesSearchPathsClear () override
     {
     }
 
 protected:
     bool
-    DoExecute (Args& command,
-             CommandReturnObject &result)
+    DoExecute (Args& command, CommandReturnObject &result) override
     {
         Target *target = m_interpreter.GetDebugger().GetSelectedTarget().get();
         if (target)
@@ -1277,20 +1272,19 @@ public:
         m_arguments.push_back (arg2);
     }
 
-    ~CommandObjectTargetModulesSearchPathsInsert ()
+    ~CommandObjectTargetModulesSearchPathsInsert () override
     {
     }
 
 protected:
     bool
-    DoExecute (Args& command,
-             CommandReturnObject &result)
+    DoExecute (Args& command, CommandReturnObject &result) override
     {
         Target *target = m_interpreter.GetDebugger().GetSelectedTarget().get();
         if (target)
         {
             size_t argc = command.GetArgumentCount();
-            // check for at least 3 arguments and an odd nubmer of parameters
+            // check for at least 3 arguments and an odd number of parameters
             if (argc >= 3 && argc & 1)
             {
                 bool success = false;
@@ -1366,14 +1360,13 @@ public:
     {
     }
 
-    ~CommandObjectTargetModulesSearchPathsList ()
+    ~CommandObjectTargetModulesSearchPathsList () override
     {
     }
 
 protected:
     bool
-    DoExecute (Args& command,
-             CommandReturnObject &result)
+    DoExecute (Args& command, CommandReturnObject &result) override
     {
         Target *target = m_interpreter.GetDebugger().GetSelectedTarget().get();
         if (target)
@@ -1423,14 +1416,13 @@ public:
         m_arguments.push_back (arg);
     }
 
-    ~CommandObjectTargetModulesSearchPathsQuery ()
+    ~CommandObjectTargetModulesSearchPathsQuery () override
     {
     }
 
 protected:
     bool
-    DoExecute (Args& command,
-             CommandReturnObject &result)
+    DoExecute (Args& command, CommandReturnObject &result) override
     {
         Target *target = m_interpreter.GetDebugger().GetSelectedTarget().get();
         if (target)
@@ -1468,15 +1460,18 @@ DumpModuleArchitecture (Stream &strm, Module *module, bool full_triple, uint32_t
 {
     if (module)
     {
-        const char *arch_cstr;
+        StreamString arch_strm;
+
         if (full_triple)
-            arch_cstr = module->GetArchitecture().GetTriple().str().c_str();
+            module->GetArchitecture().DumpTriple(arch_strm);
         else
-            arch_cstr = module->GetArchitecture().GetArchitectureName();
+            arch_strm.PutCString(module->GetArchitecture().GetArchitectureName());
+        std::string arch_str = arch_strm.GetString();
+
         if (width)
-            strm.Printf("%-*s", width, arch_cstr);
+            strm.Printf("%-*s", width, arch_str.c_str());
         else
-            strm.PutCString(arch_cstr);
+            strm.PutCString(arch_str.c_str());
     }
 }
 
@@ -2062,12 +2057,11 @@ public:
         m_arguments.push_back (arg);
     }
 
-    virtual
-    ~CommandObjectTargetModulesModuleAutoComplete ()
+    ~CommandObjectTargetModulesModuleAutoComplete () override
     {
     }
 
-    virtual int
+    int
     HandleArgumentCompletion (Args &input,
                               int &cursor_index,
                               int &cursor_char_position,
@@ -2075,7 +2069,7 @@ public:
                               int match_start_point,
                               int max_return_elements,
                               bool &word_complete,
-                              StringList &matches)
+                              StringList &matches) override
     {
         // Arguments are the standard module completer.
         std::string completion_str (input.GetArgumentAtIndex(cursor_index));
@@ -2124,12 +2118,11 @@ public:
         m_arguments.push_back (arg);
     }
 
-    virtual
-    ~CommandObjectTargetModulesSourceFileAutoComplete ()
+    ~CommandObjectTargetModulesSourceFileAutoComplete () override
     {
     }
 
-    virtual int
+    int
     HandleArgumentCompletion (Args &input,
                               int &cursor_index,
                               int &cursor_char_position,
@@ -2137,7 +2130,7 @@ public:
                               int match_start_point,
                               int max_return_elements,
                               bool &word_complete,
-                              StringList &matches)
+                              StringList &matches) override
     {
         // Arguments are the standard source file completer.
         std::string completion_str (input.GetArgumentAtIndex(cursor_index));
@@ -2171,13 +2164,12 @@ public:
     {
     }
 
-    virtual
-    ~CommandObjectTargetModulesDumpSymtab ()
+    ~CommandObjectTargetModulesDumpSymtab () override
     {
     }
 
-    virtual Options *
-    GetOptions ()
+    Options *
+    GetOptions () override
     {
         return &m_options;
     }
@@ -2191,13 +2183,12 @@ public:
         {
         }
 
-        virtual
-        ~CommandOptions ()
+        ~CommandOptions () override
         {
         }
 
-        virtual Error
-        SetOptionValue (uint32_t option_idx, const char *option_arg)
+        Error
+        SetOptionValue (uint32_t option_idx, const char *option_arg) override
         {
             Error error;
             const int short_option = m_getopt_table[option_idx].val;
@@ -2220,13 +2211,13 @@ public:
         }
 
         void
-        OptionParsingStarting ()
+        OptionParsingStarting () override
         {
             m_sort_order = eSortOrderNone;
         }
 
         const OptionDefinition*
-        GetDefinitions ()
+        GetDefinitions () override
         {
             return g_option_table;
         }
@@ -2238,9 +2229,8 @@ public:
     };
 
 protected:
-    virtual bool
-    DoExecute (Args& command,
-             CommandReturnObject &result)
+    bool
+    DoExecute (Args& command, CommandReturnObject &result) override
     {
         Target *target = m_interpreter.GetDebugger().GetSelectedTarget().get();
         if (target == NULL)
@@ -2365,15 +2355,13 @@ public:
     {
     }
 
-    virtual
-    ~CommandObjectTargetModulesDumpSections ()
+    ~CommandObjectTargetModulesDumpSections () override
     {
     }
 
 protected:
-    virtual bool
-    DoExecute (Args& command,
-             CommandReturnObject &result)
+    bool
+    DoExecute (Args& command, CommandReturnObject &result) override
     {
         Target *target = m_interpreter.GetDebugger().GetSelectedTarget().get();
         if (target == NULL)
@@ -2471,15 +2459,13 @@ public:
     {
     }
 
-    virtual
-    ~CommandObjectTargetModulesDumpSymfile ()
+    ~CommandObjectTargetModulesDumpSymfile () override
     {
     }
 
 protected:
-    virtual bool
-    DoExecute (Args& command,
-             CommandReturnObject &result)
+    bool
+    DoExecute (Args& command, CommandReturnObject &result) override
     {
         Target *target = m_interpreter.GetDebugger().GetSelectedTarget().get();
         if (target == NULL)
@@ -2574,15 +2560,13 @@ public:
     {
     }
 
-    virtual
-    ~CommandObjectTargetModulesDumpLineTable ()
+    ~CommandObjectTargetModulesDumpLineTable () override
     {
     }
 
 protected:
-    virtual bool
-    DoExecute (Args& command,
-             CommandReturnObject &result)
+    bool
+    DoExecute (Args& command, CommandReturnObject &result) override
     {
         Target *target = m_exe_ctx.GetTargetPtr();
         uint32_t total_num_dumped = 0;
@@ -2663,8 +2647,7 @@ public:
         LoadSubCommand ("line-table",  CommandObjectSP (new CommandObjectTargetModulesDumpLineTable (interpreter)));
     }
 
-    virtual
-    ~CommandObjectTargetModulesDump()
+    ~CommandObjectTargetModulesDump() override
     {
     }
 };
@@ -2685,18 +2668,17 @@ public:
         m_option_group.Finalize();
     }
 
-    virtual
-    ~CommandObjectTargetModulesAdd ()
+    ~CommandObjectTargetModulesAdd () override
     {
     }
 
-    virtual Options *
-    GetOptions ()
+    Options *
+    GetOptions () override
     {
         return &m_option_group;
     }
 
-    virtual int
+    int
     HandleArgumentCompletion (Args &input,
                               int &cursor_index,
                               int &cursor_char_position,
@@ -2704,7 +2686,7 @@ public:
                               int match_start_point,
                               int max_return_elements,
                               bool &word_complete,
-                              StringList &matches)
+                              StringList &matches) override
     {
         std::string completion_str (input.GetArgumentAtIndex(cursor_index));
         completion_str.erase (cursor_char_position);
@@ -2725,9 +2707,8 @@ protected:
     OptionGroupUUID m_uuid_option_group;
     OptionGroupFile m_symbol_file;
 
-    virtual bool
-    DoExecute (Args& args,
-             CommandReturnObject &result)
+    bool
+    DoExecute (Args& args, CommandReturnObject &result) override
     {
         Target *target = m_interpreter.GetDebugger().GetSelectedTarget().get();
         if (target == NULL)
@@ -2888,21 +2869,19 @@ public:
         m_option_group.Finalize();
     }
 
-    virtual
-    ~CommandObjectTargetModulesLoad ()
+    ~CommandObjectTargetModulesLoad () override
     {
     }
 
-    virtual Options *
-    GetOptions ()
+    Options *
+    GetOptions () override
     {
         return &m_option_group;
     }
 
 protected:
-    virtual bool
-    DoExecute (Args& args,
-             CommandReturnObject &result)
+    bool
+    DoExecute (Args& args, CommandReturnObject &result) override
     {
         Target *target = m_interpreter.GetDebugger().GetSelectedTarget().get();
         if (target == NULL)
@@ -3145,13 +3124,12 @@ public:
         {
         }
 
-        virtual
-        ~CommandOptions ()
+        ~CommandOptions () override
         {
         }
 
-        virtual Error
-        SetOptionValue (uint32_t option_idx, const char *option_arg)
+        Error
+        SetOptionValue (uint32_t option_idx, const char *option_arg) override
         {
             Error error;
 
@@ -3176,7 +3154,7 @@ public:
         }
 
         void
-        OptionParsingStarting ()
+        OptionParsingStarting () override
         {
             m_format_array.clear();
             m_use_global_module_list = false;
@@ -3184,7 +3162,7 @@ public:
         }
 
         const OptionDefinition*
-        GetDefinitions ()
+        GetDefinitions () override
         {
             return g_option_table;
         }
@@ -3209,22 +3187,19 @@ public:
     {
     }
 
-    virtual
-    ~CommandObjectTargetModulesList ()
+    ~CommandObjectTargetModulesList () override
     {
     }
 
-    virtual
     Options *
-    GetOptions ()
+    GetOptions () override
     {
         return &m_options;
     }
 
 protected:
-    virtual bool
-    DoExecute (Args& command,
-             CommandReturnObject &result)
+    bool
+    DoExecute (Args& command, CommandReturnObject &result) override
     {
         Target *target = m_interpreter.GetDebugger().GetSelectedTarget().get();
         const bool use_global_module_list = m_options.m_use_global_module_list;
@@ -3590,13 +3565,12 @@ public:
         {
         }
 
-        virtual
-        ~CommandOptions ()
+        ~CommandOptions () override
         {
         }
 
-        virtual Error
-        SetOptionValue (uint32_t option_idx, const char *option_arg)
+        Error
+        SetOptionValue (uint32_t option_idx, const char *option_arg) override
         {
             Error error;
 
@@ -3631,7 +3605,7 @@ public:
         }
 
         void
-        OptionParsingStarting ()
+        OptionParsingStarting () override
         {
             m_type = eLookupTypeInvalid;
             m_str.clear();
@@ -3639,7 +3613,7 @@ public:
         }
 
         const OptionDefinition*
-        GetDefinitions ()
+        GetDefinitions () override
         {
             return g_option_table;
         }
@@ -3668,22 +3642,19 @@ public:
     {
     }
 
-    virtual
-    ~CommandObjectTargetModulesShowUnwind ()
+    ~CommandObjectTargetModulesShowUnwind () override
     {
     }
 
-    virtual
     Options *
-    GetOptions ()
+    GetOptions () override
     {
         return &m_options;
     }
 
 protected:
     bool
-    DoExecute (Args& command,
-             CommandReturnObject &result)
+    DoExecute (Args& command, CommandReturnObject &result) override
     {
         Target *target = m_exe_ctx.GetTargetPtr();
         Process *process = m_exe_ctx.GetProcessPtr();
@@ -3819,6 +3790,14 @@ protected:
                 result.GetOutputStream().Printf("\n");
             }
 
+            UnwindPlanSP arm_unwind_sp = func_unwinders_sp->GetArmUnwindUnwindPlan(*target, 0);
+            if (arm_unwind_sp)
+            {
+                result.GetOutputStream().Printf("ARM.exidx unwind UnwindPlan:\n");
+                arm_unwind_sp->Dump(result.GetOutputStream(), thread.get(), LLDB_INVALID_ADDRESS);
+                result.GetOutputStream().Printf("\n");
+            }
+
             UnwindPlanSP compact_unwind_sp = func_unwinders_sp->GetCompactUnwindUnwindPlan(*target, 0);
             if (compact_unwind_sp)
             {
@@ -3897,13 +3876,12 @@ public:
             OptionParsingStarting();
         }
 
-        virtual
-        ~CommandOptions ()
+        ~CommandOptions () override
         {
         }
 
-        virtual Error
-        SetOptionValue (uint32_t option_idx, const char *option_arg)
+        Error
+        SetOptionValue (uint32_t option_idx, const char *option_arg) override
         {
             Error error;
 
@@ -3980,7 +3958,7 @@ public:
         }
 
         void
-        OptionParsingStarting ()
+        OptionParsingStarting () override
         {
             m_type = eLookupTypeInvalid;
             m_str.clear();
@@ -3995,7 +3973,7 @@ public:
         }
 
         const OptionDefinition*
-        GetDefinitions ()
+        GetDefinitions () override
         {
             return g_option_table;
         }
@@ -4037,13 +4015,12 @@ public:
         m_arguments.push_back (arg);
     }
 
-    virtual
-    ~CommandObjectTargetModulesLookup ()
+    ~CommandObjectTargetModulesLookup () override
     {
     }
 
-    virtual Options *
-    GetOptions ()
+    Options *
+    GetOptions () override
     {
         return &m_options;
     }
@@ -4197,9 +4174,8 @@ public:
     }
 
 protected:
-    virtual bool
-    DoExecute (Args& command,
-             CommandReturnObject &result)
+    bool
+    DoExecute (Args& command, CommandReturnObject &result) override
     {
         Target *target = m_interpreter.GetDebugger().GetSelectedTarget().get();
         if (target == NULL)
@@ -4345,7 +4321,7 @@ public:
         LoadSubCommand ("query",   CommandObjectSP (new CommandObjectTargetModulesSearchPathsQuery (interpreter)));
     }
 
-    ~CommandObjectTargetModulesImageSearchPaths()
+    ~CommandObjectTargetModulesImageSearchPaths() override
     {
     }
 };
@@ -4379,8 +4355,8 @@ public:
         LoadSubCommand ("show-unwind",  CommandObjectSP (new CommandObjectTargetModulesShowUnwind (interpreter)));
 
     }
-    virtual
-    ~CommandObjectTargetModules()
+
+    ~CommandObjectTargetModules() override
     {
     }
 
@@ -4412,12 +4388,11 @@ public:
         m_option_group.Finalize();
     }
 
-    virtual
-    ~CommandObjectTargetSymbolsAdd ()
+    ~CommandObjectTargetSymbolsAdd () override
     {
     }
 
-    virtual int
+    int
     HandleArgumentCompletion (Args &input,
                               int &cursor_index,
                               int &cursor_char_position,
@@ -4425,7 +4400,7 @@ public:
                               int match_start_point,
                               int max_return_elements,
                               bool &word_complete,
-                              StringList &matches)
+                              StringList &matches) override
     {
         std::string completion_str (input.GetArgumentAtIndex(cursor_index));
         completion_str.erase (cursor_char_position);
@@ -4441,8 +4416,8 @@ public:
         return matches.GetSize();
     }
 
-    virtual Options *
-    GetOptions ()
+    Options *
+    GetOptions () override
     {
         return &m_option_group;
     }
@@ -4620,9 +4595,8 @@ protected:
         return false;
     }
 
-    virtual bool
-    DoExecute (Args& args,
-             CommandReturnObject &result)
+    bool
+    DoExecute (Args& args, CommandReturnObject &result) override
     {
         Target *target = m_exe_ctx.GetTargetPtr();
         result.SetStatus (eReturnStatusFailed);
@@ -4840,8 +4814,8 @@ public:
         LoadSubCommand ("add", CommandObjectSP (new CommandObjectTargetSymbolsAdd (interpreter)));
 
     }
-    virtual
-    ~CommandObjectTargetSymbols()
+
+    ~CommandObjectTargetSymbols() override
     {
     }
 
@@ -4880,16 +4854,16 @@ public:
         {
         }
 
-        ~CommandOptions () {}
+        ~CommandOptions () override {}
 
         const OptionDefinition*
-        GetDefinitions ()
+        GetDefinitions () override
         {
             return g_option_table;
         }
 
-        virtual Error
-        SetOptionValue (uint32_t option_idx, const char *option_arg)
+        Error
+        SetOptionValue (uint32_t option_idx, const char *option_arg) override
         {
             Error error;
             const int short_option = m_getopt_table[option_idx].val;
@@ -4976,7 +4950,7 @@ public:
         }
 
         void
-        OptionParsingStarting ()
+        OptionParsingStarting () override
         {
             m_class_name.clear();
             m_function_name.clear();
@@ -5021,7 +4995,7 @@ public:
     };
 
     Options *
-    GetOptions ()
+    GetOptions () override
     {
         return &m_options;
     }
@@ -5036,13 +5010,13 @@ public:
     {
     }
 
-    ~CommandObjectTargetStopHookAdd ()
+    ~CommandObjectTargetStopHookAdd () override
     {
     }
 
 protected:
-    virtual void
-    IOHandlerActivated (IOHandler &io_handler)
+    void
+    IOHandlerActivated (IOHandler &io_handler) override
     {
         StreamFileSP output_sp(io_handler.GetOutputStreamFile());
         if (output_sp)
@@ -5052,8 +5026,8 @@ protected:
         }
     }
 
-    virtual void
-    IOHandlerInputComplete (IOHandler &io_handler, std::string &line)
+    void
+    IOHandlerInputComplete (IOHandler &io_handler, std::string &line) override
     {
         if (m_stop_hook_sp)
         {
@@ -5085,7 +5059,7 @@ protected:
     }
 
     bool
-    DoExecute (Args& command, CommandReturnObject &result)
+    DoExecute (Args& command, CommandReturnObject &result) override
     {
         m_stop_hook_sp.reset();
 
@@ -5233,13 +5207,13 @@ public:
     {
     }
 
-    ~CommandObjectTargetStopHookDelete ()
+    ~CommandObjectTargetStopHookDelete () override
     {
     }
 
 protected:
     bool
-    DoExecute (Args& command, CommandReturnObject &result)
+    DoExecute (Args& command, CommandReturnObject &result) override
     {
         Target *target = GetSelectedOrDummyTarget();
         if (target)
@@ -5309,13 +5283,13 @@ public:
     {
     }
 
-    ~CommandObjectTargetStopHookEnableDisable ()
+    ~CommandObjectTargetStopHookEnableDisable () override
     {
     }
 
 protected:
     bool
-    DoExecute (Args& command, CommandReturnObject &result)
+    DoExecute (Args& command, CommandReturnObject &result) override
     {
         Target *target = GetSelectedOrDummyTarget();
         if (target)
@@ -5379,13 +5353,13 @@ public:
     {
     }
 
-    ~CommandObjectTargetStopHookList ()
+    ~CommandObjectTargetStopHookList () override
     {
     }
 
 protected:
     bool
-    DoExecute (Args& command, CommandReturnObject &result)
+    DoExecute (Args& command, CommandReturnObject &result) override
     {
         Target *target = GetSelectedOrDummyTarget();
         if (!target)
@@ -5445,7 +5419,7 @@ public:
         LoadSubCommand ("list",     CommandObjectSP (new CommandObjectTargetStopHookList (interpreter)));
     }
 
-    ~CommandObjectMultiwordTargetStopHooks()
+    ~CommandObjectMultiwordTargetStopHooks() override
     {
     }
 };

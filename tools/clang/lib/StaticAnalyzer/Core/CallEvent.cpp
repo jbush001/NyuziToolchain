@@ -50,11 +50,7 @@ QualType CallEvent::getResultType() const {
   return ResultTy;
 }
 
-static bool isCallbackArg(SVal V, QualType T) {
-  // If the parameter is 0, it's harmless.
-  if (V.isZeroConstant())
-    return false;
-
+static bool isCallback(QualType T) {
   // If a parameter is a block or a callback, assume it can modify pointer.
   if (T->isBlockPointerType() ||
       T->isFunctionPointerType() ||
@@ -75,30 +71,51 @@ static bool isCallbackArg(SVal V, QualType T) {
         return true;
     }
   }
-
   return false;
 }
 
-bool CallEvent::hasNonZeroCallbackArg() const {
+static bool isVoidPointerToNonConst(QualType T) {
+  if (const PointerType *PT = T->getAs<PointerType>()) {
+    QualType PointeeTy = PT->getPointeeType();
+    if (PointeeTy.isConstQualified())
+      return false;
+    return PointeeTy->isVoidType();
+  } else
+    return false;
+}
+
+bool CallEvent::hasNonNullArgumentsWithType(bool (*Condition)(QualType)) const {
   unsigned NumOfArgs = getNumArgs();
 
   // If calling using a function pointer, assume the function does not
-  // have a callback. TODO: We could check the types of the arguments here.
+  // satisfy the callback.
+  // TODO: We could check the types of the arguments here.
   if (!getDecl())
     return false;
 
   unsigned Idx = 0;
   for (CallEvent::param_type_iterator I = param_type_begin(),
-                                       E = param_type_end();
+                                      E = param_type_end();
        I != E && Idx < NumOfArgs; ++I, ++Idx) {
     if (NumOfArgs <= Idx)
       break;
 
-    if (isCallbackArg(getArgSVal(Idx), *I))
+    // If the parameter is 0, it's harmless.
+    if (getArgSVal(Idx).isZeroConstant())
+      continue;
+
+    if (Condition(*I))
       return true;
   }
-
   return false;
+}
+
+bool CallEvent::hasNonZeroCallbackArg() const {
+  return hasNonNullArgumentsWithType(isCallback);
+}
+
+bool CallEvent::hasVoidPointerToNonConstArg() const {
+  return hasNonNullArgumentsWithType(isVoidPointerToNonConst);
 }
 
 bool CallEvent::isGlobalCFunction(StringRef FunctionName) const {
@@ -148,7 +165,7 @@ ProgramStateRef CallEvent::invalidateRegions(unsigned BlockCount,
   SmallVector<SVal, 8> ValuesToInvalidate;
   RegionAndSymbolInvalidationTraits ETraits;
 
-  getExtraInvalidatedValues(ValuesToInvalidate);
+  getExtraInvalidatedValues(ValuesToInvalidate, &ETraits);
 
   // Indexes of arguments whose values will be preserved by the call.
   llvm::SmallSet<unsigned, 4> PreserveArgs;
@@ -326,7 +343,7 @@ void AnyFunctionCall::getInitialStackFrameContents(
 }
 
 bool AnyFunctionCall::argumentsMayEscape() const {
-  if (hasNonZeroCallbackArg())
+  if (CallEvent::argumentsMayEscape() || hasVoidPointerToNonConstArg())
     return true;
 
   const FunctionDecl *D = getDecl();
@@ -403,8 +420,30 @@ const FunctionDecl *CXXInstanceCall::getDecl() const {
   return getSVal(CE->getCallee()).getAsFunctionDecl();
 }
 
-void CXXInstanceCall::getExtraInvalidatedValues(ValueList &Values) const {
-  Values.push_back(getCXXThisVal());
+void CXXInstanceCall::getExtraInvalidatedValues(
+    ValueList &Values, RegionAndSymbolInvalidationTraits *ETraits) const {
+  SVal ThisVal = getCXXThisVal();
+  Values.push_back(ThisVal);
+
+  // Don't invalidate if the method is const and there are no mutable fields.
+  if (const CXXMethodDecl *D = cast_or_null<CXXMethodDecl>(getDecl())) {
+    if (!D->isConst())
+      return;
+    // Get the record decl for the class of 'This'. D->getParent() may return a
+    // base class decl, rather than the class of the instance which needs to be
+    // checked for mutable fields.
+    const Expr *Ex = getCXXThisExpr()->ignoreParenBaseCasts();
+    const CXXRecordDecl *ParentRecord = Ex->getType()->getAsCXXRecordDecl();
+    if (!ParentRecord || ParentRecord->hasMutableFields())
+      return;
+    // Preserve CXXThis.
+    const MemRegion *ThisRegion = ThisVal.getAsRegion();
+    if (!ThisRegion)
+      return;
+
+    ETraits->setTrait(ThisRegion->getBaseRegion(),
+                      RegionAndSymbolInvalidationTraits::TK_PreserveContents);
+  }
 }
 
 SVal CXXInstanceCall::getCXXThisVal() const {
@@ -550,7 +589,8 @@ ArrayRef<ParmVarDecl*> BlockCall::parameters() const {
   return D->parameters();
 }
 
-void BlockCall::getExtraInvalidatedValues(ValueList &Values) const {
+void BlockCall::getExtraInvalidatedValues(ValueList &Values,
+                  RegionAndSymbolInvalidationTraits *ETraits) const {
   // FIXME: This also needs to invalidate captured globals.
   if (const MemRegion *R = getBlockRegion())
     Values.push_back(loc::MemRegionVal(R));
@@ -571,7 +611,8 @@ SVal CXXConstructorCall::getCXXThisVal() const {
   return UnknownVal();
 }
 
-void CXXConstructorCall::getExtraInvalidatedValues(ValueList &Values) const {
+void CXXConstructorCall::getExtraInvalidatedValues(ValueList &Values,
+                           RegionAndSymbolInvalidationTraits *ETraits) const {
   if (Data)
     Values.push_back(loc::MemRegionVal(static_cast<const MemRegion *>(Data)));
 }
@@ -613,7 +654,8 @@ ArrayRef<ParmVarDecl*> ObjCMethodCall::parameters() const {
 }
 
 void
-ObjCMethodCall::getExtraInvalidatedValues(ValueList &Values) const {
+ObjCMethodCall::getExtraInvalidatedValues(ValueList &Values,
+                  RegionAndSymbolInvalidationTraits *ETraits) const {
   Values.push_back(getReceiverSVal());
 }
 

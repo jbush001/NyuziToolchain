@@ -21,6 +21,7 @@
 #include "clang/AST/Decl.h"
 #include "clang/AST/DeclCXX.h"
 #include "clang/AST/DeclObjC.h"
+#include "clang/Basic/TargetBuiltins.h"
 #include "clang/Basic/TargetInfo.h"
 #include "clang/CodeGen/CGFunctionInfo.h"
 #include "clang/Frontend/CodeGenOptions.h"
@@ -1390,8 +1391,19 @@ llvm::Type *CodeGenTypes::GetFunctionTypeForVTable(GlobalDecl GD) {
   return GetFunctionType(*Info);
 }
 
+static void AddAttributesFromFunctionProtoType(ASTContext &Ctx,
+                                               llvm::AttrBuilder &FuncAttrs,
+                                               const FunctionProtoType *FPT) {
+  if (!FPT)
+    return;
+
+  if (!isUnresolvedExceptionSpec(FPT->getExceptionSpecType()) &&
+      FPT->isNothrow(Ctx))
+    FuncAttrs.addAttribute(llvm::Attribute::NoUnwind);
+}
+
 void CodeGenModule::ConstructAttributeList(const CGFunctionInfo &FI,
-                                           const Decl *TargetDecl,
+                                           CGCalleeInfo CalleeInfo,
                                            AttributeListType &PAL,
                                            unsigned &CallingConv,
                                            bool AttrOnCallSite) {
@@ -1403,6 +1415,13 @@ void CodeGenModule::ConstructAttributeList(const CGFunctionInfo &FI,
 
   if (FI.isNoReturn())
     FuncAttrs.addAttribute(llvm::Attribute::NoReturn);
+
+  // If we have information about the function prototype, we can learn
+  // attributes form there.
+  AddAttributesFromFunctionProtoType(getContext(), FuncAttrs,
+                                     CalleeInfo.getCalleeFunctionProtoType());
+
+  const Decl *TargetDecl = CalleeInfo.getCalleeDecl();
 
   // FIXME: handle sseregparm someday...
   if (TargetDecl) {
@@ -1416,10 +1435,8 @@ void CodeGenModule::ConstructAttributeList(const CGFunctionInfo &FI,
       FuncAttrs.addAttribute(llvm::Attribute::NoDuplicate);
 
     if (const FunctionDecl *Fn = dyn_cast<FunctionDecl>(TargetDecl)) {
-      const FunctionProtoType *FPT = Fn->getType()->getAs<FunctionProtoType>();
-      if (FPT && !isUnresolvedExceptionSpec(FPT->getExceptionSpecType()) &&
-          FPT->isNothrow(getContext()))
-        FuncAttrs.addAttribute(llvm::Attribute::NoUnwind);
+      AddAttributesFromFunctionProtoType(
+          getContext(), FuncAttrs, Fn->getType()->getAs<FunctionProtoType>());
       // Don't use [[noreturn]] or _Noreturn for a call to a virtual function.
       // These attributes are not inherited by overloads.
       const CXXMethodDecl *MD = dyn_cast<CXXMethodDecl>(Fn);
@@ -1480,8 +1497,12 @@ void CodeGenModule::ConstructAttributeList(const CGFunctionInfo &FI,
       FuncAttrs.addAttribute("no-frame-pointer-elim-non-leaf");
     }
 
+    bool DisableTailCalls =
+        CodeGenOpts.DisableTailCalls ||
+        (TargetDecl && TargetDecl->hasAttr<DisableTailCallsAttr>());
     FuncAttrs.addAttribute("disable-tail-calls",
-                           llvm::toStringRef(CodeGenOpts.DisableTailCalls));
+                           llvm::toStringRef(DisableTailCalls));
+
     FuncAttrs.addAttribute("less-precise-fpmad",
                            llvm::toStringRef(CodeGenOpts.LessPreciseFPMAD));
     FuncAttrs.addAttribute("no-infs-fp-math",
@@ -1505,24 +1526,7 @@ void CodeGenModule::ConstructAttributeList(const CGFunctionInfo &FI,
     const FunctionDecl *FD = dyn_cast_or_null<FunctionDecl>(TargetDecl);
     if (FD && FD->hasAttr<TargetAttr>()) {
       llvm::StringMap<bool> FeatureMap;
-      const auto *TD = FD->getAttr<TargetAttr>();
-      TargetAttr::ParsedTargetAttr ParsedAttr = TD->parse();
-
-      // Make a copy of the features as passed on the command line into the
-      // beginning of the additional features from the function to override.
-      ParsedAttr.first.insert(
-          ParsedAttr.first.begin(),
-          getTarget().getTargetOpts().FeaturesAsWritten.begin(),
-          getTarget().getTargetOpts().FeaturesAsWritten.end());
-
-      if (ParsedAttr.second != "")
-	TargetCPU = ParsedAttr.second;
-
-      // Now populate the feature map, first with the TargetCPU which is either
-      // the default or a new one from the target attribute string. Then we'll
-      // use the passed in features (FeaturesAsWritten) along with the new ones
-      // from the attribute.
-      getTarget().initFeatureMap(FeatureMap, Diags, TargetCPU, ParsedAttr.first);
+      getFunctionFeatureMap(FeatureMap, FD);
 
       // Produce the canonical string for this set of features.
       std::vector<std::string> Features;
@@ -1532,6 +1536,13 @@ void CodeGenModule::ConstructAttributeList(const CGFunctionInfo &FI,
         Features.push_back((it->second ? "+" : "-") + it->first().str());
 
       // Now add the target-cpu and target-features to the function.
+      // While we populated the feature map above, we still need to
+      // get and parse the target attribute so we can get the cpu for
+      // the function.
+      const auto *TD = FD->getAttr<TargetAttr>();
+      TargetAttr::ParsedTargetAttr ParsedAttr = TD->parse();
+      if (ParsedAttr.second != "")
+        TargetCPU = ParsedAttr.second;
       if (TargetCPU != "")
         FuncAttrs.addAttribute("target-cpu", TargetCPU);
       if (!Features.empty()) {
@@ -2150,9 +2161,9 @@ static llvm::Value *tryEmitFusedAutoreleaseOfResult(CodeGenFunction &CGF,
 
   bool doRetainAutorelease;
 
-  if (call->getCalledValue() == CGF.CGM.getARCEntrypoints().objc_retain) {
+  if (call->getCalledValue() == CGF.CGM.getObjCEntrypoints().objc_retain) {
     doRetainAutorelease = true;
-  } else if (call->getCalledValue() == CGF.CGM.getARCEntrypoints()
+  } else if (call->getCalledValue() == CGF.CGM.getObjCEntrypoints()
                                           .objc_retainAutoreleasedReturnValue) {
     doRetainAutorelease = false;
 
@@ -2161,7 +2172,7 @@ static llvm::Value *tryEmitFusedAutoreleaseOfResult(CodeGenFunction &CGF,
     // for that call.  If we can't find it, we can't do this
     // optimization.  But it should always be the immediately previous
     // instruction, unless we needed bitcasts around the call.
-    if (CGF.CGM.getARCEntrypoints().retainAutoreleasedReturnValueMarker) {
+    if (CGF.CGM.getObjCEntrypoints().retainAutoreleasedReturnValueMarker) {
       llvm::Instruction *prev = call->getPrevNode();
       assert(prev);
       if (isa<llvm::BitCastInst>(prev)) {
@@ -2170,7 +2181,7 @@ static llvm::Value *tryEmitFusedAutoreleaseOfResult(CodeGenFunction &CGF,
       }
       assert(isa<llvm::CallInst>(prev));
       assert(cast<llvm::CallInst>(prev)->getCalledValue() ==
-               CGF.CGM.getARCEntrypoints().retainAutoreleasedReturnValueMarker);
+               CGF.CGM.getObjCEntrypoints().retainAutoreleasedReturnValueMarker);
       insnsToKill.push_back(prev);
     }
   } else {
@@ -2215,7 +2226,7 @@ static llvm::Value *tryRemoveRetainOfSelf(CodeGenFunction &CGF,
   llvm::CallInst *retainCall =
     dyn_cast<llvm::CallInst>(result->stripPointerCasts());
   if (!retainCall ||
-      retainCall->getCalledValue() != CGF.CGM.getARCEntrypoints().objc_retain)
+      retainCall->getCalledValue() != CGF.CGM.getObjCEntrypoints().objc_retain)
     return nullptr;
 
   // Look for an ordinary load of 'self'.
@@ -2349,7 +2360,7 @@ void CodeGenFunction::EmitFunctionEpilog(const CGFunctionInfo &FI,
     if (RetAI.getInAllocaSRet()) {
       llvm::Function::arg_iterator EI = CurFn->arg_end();
       --EI;
-      llvm::Value *ArgStruct = EI;
+      llvm::Value *ArgStruct = &*EI;
       llvm::Value *SRet = Builder.CreateStructGEP(
           nullptr, ArgStruct, RetAI.getInAllocaFieldIndex());
       RV = Builder.CreateAlignedLoad(SRet, getPointerAlign(), "sret");
@@ -2364,7 +2375,7 @@ void CodeGenFunction::EmitFunctionEpilog(const CGFunctionInfo &FI,
     case TEK_Complex: {
       ComplexPairTy RT =
         EmitLoadOfComplex(MakeAddrLValue(ReturnValue, RetTy), EndLoc);
-      EmitStoreOfComplex(RT, MakeNaturalAlignAddrLValue(AI, RetTy),
+      EmitStoreOfComplex(RT, MakeNaturalAlignAddrLValue(&*AI, RetTy),
                          /*isInit*/ true);
       break;
     }
@@ -2373,7 +2384,7 @@ void CodeGenFunction::EmitFunctionEpilog(const CGFunctionInfo &FI,
       break;
     case TEK_Scalar:
       EmitStoreOfScalar(Builder.CreateLoad(ReturnValue),
-                        MakeNaturalAlignAddrLValue(AI, RetTy),
+                        MakeNaturalAlignAddrLValue(&*AI, RetTy),
                         /*isInit*/ true);
       break;
     }
@@ -2752,25 +2763,12 @@ void CallArgList::allocateArgumentMemory(CodeGenFunction &CGF) {
   // Save the stack.
   llvm::Function *F = CGF.CGM.getIntrinsic(llvm::Intrinsic::stacksave);
   StackBase = CGF.Builder.CreateCall(F, {}, "inalloca.save");
-
-  // Control gets really tied up in landing pads, so we have to spill the
-  // stacksave to an alloca to avoid violating SSA form.
-  // TODO: This is dead if we never emit the cleanup.  We should create the
-  // alloca and store lazily on the first cleanup emission.
-  StackBaseMem = CGF.CreateTempAlloca(CGF.Int8PtrTy, CGF.getPointerAlign(),
-                                      "inalloca.spmem");
-  CGF.Builder.CreateStore(StackBase, StackBaseMem);
-  CGF.pushStackRestore(EHCleanup, StackBaseMem);
-  StackCleanup = CGF.EHStack.getInnermostEHScope();
-  assert(StackCleanup.isValid());
 }
 
 void CallArgList::freeArgumentMemory(CodeGenFunction &CGF) const {
   if (StackBase) {
-    CGF.DeactivateCleanupBlock(StackCleanup, StackBase);
+    // Restore the stack after the call.
     llvm::Value *F = CGF.CGM.getIntrinsic(llvm::Intrinsic::stackrestore);
-    // We could load StackBase from StackBaseMem, but in the non-exceptional
-    // case we can skip it.
     CGF.Builder.CreateCall(F, StackBase);
   }
 }
@@ -2859,8 +2857,6 @@ struct DestroyUnpassedArg final : EHScopeStack::Cleanup {
   }
 };
 
-}
-
 struct DisableDebugLocationUpdates {
   CodeGenFunction &CGF;
   bool disabledDebugInfo;
@@ -2873,6 +2869,8 @@ struct DisableDebugLocationUpdates {
       CGF.enableDebugInfo();
   }
 };
+
+} // end anonymous namespace
 
 void CodeGenFunction::EmitCallArg(CallArgList &args, const Expr *E,
                                   QualType type) {
@@ -3051,12 +3049,6 @@ CodeGenFunction::EmitRuntimeCallOrInvoke(llvm::Value *callee,
   return callSite;
 }
 
-llvm::CallSite
-CodeGenFunction::EmitCallOrInvoke(llvm::Value *Callee,
-                                  const Twine &Name) {
-  return EmitCallOrInvoke(Callee, None, Name);
-}
-
 /// Emits a call or invoke instruction to the given function, depending
 /// on the current state of the EH stack.
 llvm::CallSite
@@ -3101,7 +3093,7 @@ RValue CodeGenFunction::EmitCall(const CGFunctionInfo &CallInfo,
                                  llvm::Value *Callee,
                                  ReturnValueSlot ReturnValue,
                                  const CallArgList &CallArgs,
-                                 const Decl *TargetDecl,
+                                 CGCalleeInfo CalleeInfo,
                                  llvm::Instruction **callOrInvoke) {
   // FIXME: We no longer need the types from CallArgs; lift up and simplify.
 
@@ -3430,8 +3422,8 @@ RValue CodeGenFunction::EmitCall(const CGFunctionInfo &CallInfo,
 
   unsigned CallingConv;
   CodeGen::AttributeListType AttributeList;
-  CGM.ConstructAttributeList(CallInfo, TargetDecl, AttributeList,
-                             CallingConv, true);
+  CGM.ConstructAttributeList(CallInfo, CalleeInfo, AttributeList, CallingConv,
+                             true);
   llvm::AttributeSet Attrs = llvm::AttributeSet::get(getLLVMContext(),
                                                      AttributeList);
 
@@ -3458,8 +3450,14 @@ RValue CodeGenFunction::EmitCall(const CGFunctionInfo &CallInfo,
         Attrs.addAttribute(getLLVMContext(), llvm::AttributeSet::FunctionIndex,
                            llvm::Attribute::AlwaysInline);
 
-  // Disable inlining inside SEH __try blocks.
-  if (isSEHTryScope())
+  // Disable inlining inside SEH __try blocks and cleanup funclets. None of the
+  // funclet EH personalities that clang supports have tables that are
+  // expressive enough to describe catching an exception inside a cleanup.
+  // __CxxFrameHandler3, for example, will terminate the program without
+  // catching it.
+  // FIXME: Move this decision to the LLVM inliner. Before we can do that, the
+  // inliner needs to know if a given call site is part of a cleanuppad.
+  if (isSEHTryScope() || isCleanupPadScope())
     Attrs =
         Attrs.addAttribute(getLLVMContext(), llvm::AttributeSet::FunctionIndex,
                            llvm::Attribute::NoInline);
@@ -3504,6 +3502,12 @@ RValue CodeGenFunction::EmitCall(const CGFunctionInfo &CallInfo,
   // The stack cleanup for inalloca arguments has to run out of the normal
   // lexical order, so deactivate it and run it manually here.
   CallArgs.freeArgumentMemory(*this);
+
+  if (llvm::CallInst *Call = dyn_cast<llvm::CallInst>(CI)) {
+    const Decl *TargetDecl = CalleeInfo.getCalleeDecl();
+    if (TargetDecl && TargetDecl->hasAttr<NotTailCalledAttr>())
+      Call->setTailCallKind(llvm::CallInst::TCK_NoTail);
+  }
 
   RValue Ret = [&] {
     switch (RetAI.getKind()) {
@@ -3575,6 +3579,8 @@ RValue CodeGenFunction::EmitCall(const CGFunctionInfo &CallInfo,
 
     llvm_unreachable("Unhandled ABIArgInfo::Kind");
   } ();
+
+  const Decl *TargetDecl = CalleeInfo.getCalleeDecl();
 
   if (Ret.isScalar() && TargetDecl) {
     if (const auto *AA = TargetDecl->getAttr<AssumeAlignedAttr>()) {

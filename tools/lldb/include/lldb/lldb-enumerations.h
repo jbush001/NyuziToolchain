@@ -146,6 +146,7 @@ namespace lldb {
         eFormatVectorOfUInt32,
         eFormatVectorOfSInt64,
         eFormatVectorOfUInt64,
+        eFormatVectorOfFloat16,
         eFormatVectorOfFloat32,
         eFormatVectorOfFloat64,
         eFormatVectorOfUInt128,
@@ -616,6 +617,8 @@ namespace lldb {
         eSectionTypeELFRelocationEntries, // Elf SHT_REL or SHT_REL section
         eSectionTypeELFDynamicLinkInfo,   // Elf SHT_DYNAMIC section
         eSectionTypeEHFrame,
+        eSectionTypeARMexidx,
+        eSectionTypeARMextab,
         eSectionTypeCompactUnwind,        // compact unwind section in Mach-O, __TEXT,__unwind_info
         eSectionTypeGoSymtab,
         eSectionTypeOther
@@ -957,7 +960,8 @@ namespace lldb {
         eTypeIsInteger          = (1u << 18),
         eTypeIsFloat            = (1u << 19),
         eTypeIsComplex          = (1u << 20),
-        eTypeIsSigned           = (1u << 21)
+        eTypeIsSigned           = (1u << 21),
+        eTypeInstanceIsPointer  = (1u << 22)
     };
     
     FLAGS_ENUM(CommandFlags)

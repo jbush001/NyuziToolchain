@@ -40,7 +40,7 @@ target triple = "x86_64-unknown-linux-gnu"
 @.str = private unnamed_addr constant [24 x i8] c"foo(%d, %d, %ld) = %ld\0A\00", align 1
 
 ; Function Attrs: nounwind uwtable
-define i64 @_Z3fooiil(i32 %x, i32 %y, i64 %N) #0 {
+define i64 @_Z3fooiil(i32 %x, i32 %y, i64 %N) #0 !dbg !4 {
 entry:
   %retval = alloca i64, align 8
   %x.addr = alloca i32, align 4
@@ -73,8 +73,8 @@ for.cond:                                         ; preds = %for.inc16, %if.else
   %5 = load i64, i64* %N.addr, align 8, !dbg !15
   %cmp1 = icmp slt i64 %4, %5, !dbg !15
   br i1 %cmp1, label %for.body, label %for.end18, !dbg !15
-; CHECK: edge for.cond -> for.body probability is 0x80000000 / 0x80000000 = 100.00% [HOT edge]
-; CHECK: edge for.cond -> for.end18 probability is 0x00000000 / 0x80000000 = 0.00%
+; CHECK: edge for.cond -> for.body probability is 0x745d1746 / 0x80000000 = 90.91% [HOT edge]
+; CHECK: edge for.cond -> for.end18 probability is 0x0ba2e8ba / 0x80000000 = 9.09%
 
 for.body:                                         ; preds = %for.cond
   %6 = load i64, i64* %i, align 8, !dbg !18
@@ -119,8 +119,8 @@ for.cond8:                                        ; preds = %for.inc, %if.else7
   %14 = load i64, i64* %i, align 8, !dbg !28
   %cmp10 = icmp slt i64 %conv9, %14, !dbg !28
   br i1 %cmp10, label %for.body11, label %for.end, !dbg !28
-; CHECK: edge for.cond8 -> for.body11 probability is 0x80000000 / 0x80000000 = 100.00% [HOT edge]
-; CHECK: edge for.cond8 -> for.end probability is 0x00000000 / 0x80000000 = 0.00%
+; CHECK: edge for.cond8 -> for.body11 probability is 0x5bfc7472 / 0x80000000 = 71.86%
+; CHECK: edge for.cond8 -> for.end probability is 0x24038b8e / 0x80000000 = 28.14%
 
 for.body11:                                       ; preds = %for.cond8
   %15 = load i32, i32* %j, align 4, !dbg !31
@@ -167,7 +167,7 @@ return:                                           ; preds = %if.end19, %if.then
 }
 
 ; Function Attrs: uwtable
-define i32 @main() #1 {
+define i32 @main() #1 !dbg !7 {
 entry:
   %retval = alloca i32, align 4
   %x = alloca i32, align 4
@@ -202,10 +202,10 @@ attributes #2 = { "less-precise-fpmad"="false" "no-frame-pointer-elim"="true" "n
 !1 = !DIFile(filename: "propagate.cc", directory: ".")
 !2 = !{}
 !3 = !{!4, !7}
-!4 = distinct !DISubprogram(name: "foo", line: 3, isLocal: false, isDefinition: true, virtualIndex: 6, flags: DIFlagPrototyped, isOptimized: false, scopeLine: 3, file: !1, scope: !5, type: !6, function: i64 (i32, i32, i64)* @_Z3fooiil, variables: !2)
+!4 = distinct !DISubprogram(name: "foo", line: 3, isLocal: false, isDefinition: true, virtualIndex: 6, flags: DIFlagPrototyped, isOptimized: false, scopeLine: 3, file: !1, scope: !5, type: !6, variables: !2)
 !5 = !DIFile(filename: "propagate.cc", directory: ".")
 !6 = !DISubroutineType(types: !{null})
-!7 = distinct !DISubprogram(name: "main", line: 24, isLocal: false, isDefinition: true, virtualIndex: 6, flags: DIFlagPrototyped, isOptimized: false, scopeLine: 24, file: !1, scope: !5, type: !6, function: i32 ()* @main, variables: !2)
+!7 = distinct !DISubprogram(name: "main", line: 24, isLocal: false, isDefinition: true, virtualIndex: 6, flags: DIFlagPrototyped, isOptimized: false, scopeLine: 24, file: !1, scope: !5, type: !6, variables: !2)
 !8 = !{i32 2, !"Dwarf Version", i32 4}
 !9 = !{i32 1, !"Debug Info Version", i32 3}
 !10 = !{!"clang version 3.5 "}

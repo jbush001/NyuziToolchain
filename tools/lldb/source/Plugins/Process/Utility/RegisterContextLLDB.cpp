@@ -17,6 +17,7 @@
 #include "lldb/Core/RegisterValue.h"
 #include "lldb/Core/Value.h"
 #include "lldb/Expression/DWARFExpression.h"
+#include "lldb/Symbol/ArmUnwindInfo.h"
 #include "lldb/Symbol/DWARFCallFrameInfo.h"
 #include "lldb/Symbol/FuncUnwinders.h"
 #include "lldb/Symbol/Function.h"
@@ -794,24 +795,38 @@ RegisterContextLLDB::GetFullUnwindPlanForFrame ()
         func_unwinders_sp = pc_module_sp->GetObjectFile()->GetUnwindTable().GetFuncUnwindersContainingAddress (m_current_pc, m_sym_ctx);
     }
 
-    // No FuncUnwinders available for this pc (i.e. a stripped function symbol and -fomit-frame-pointer).
-    // Try using the eh_frame information relative to the current PC,
-    // and finally fall back on the architectural default unwind.
+    // No FuncUnwinders available for this pc (stripped function symbols, lldb could not augment its
+    // function table with another source, like LC_FUNCTION_STARTS or eh_frame in ObjectFileMachO).
+    // See if eh_frame or the .ARM.exidx tables have unwind information for this address, else fall
+    // back to the architectural default unwind.
     if (!func_unwinders_sp)
     {
-        DWARFCallFrameInfo *eh_frame = pc_module_sp && pc_module_sp->GetObjectFile() ? 
-            pc_module_sp->GetObjectFile()->GetUnwindTable().GetEHFrameInfo() : nullptr;
-
         m_frame_type = eNormalFrame;
-        if (eh_frame && m_current_pc.IsValid())
+
+        if (!pc_module_sp || !pc_module_sp->GetObjectFile() || !m_current_pc.IsValid())
+            return arch_default_unwind_plan_sp;
+
+        // Even with -fomit-frame-pointer, we can try eh_frame to get back on track.
+        DWARFCallFrameInfo *eh_frame = pc_module_sp->GetObjectFile()->GetUnwindTable().GetEHFrameInfo();
+        if (eh_frame)
         {
             unwind_plan_sp.reset (new UnwindPlan (lldb::eRegisterKindGeneric));
-            // Even with -fomit-frame-pointer, we can try eh_frame to get back on track.
             if (eh_frame->GetUnwindPlan (m_current_pc, *unwind_plan_sp))
                 return unwind_plan_sp;
             else
                 unwind_plan_sp.reset();
         }
+
+        ArmUnwindInfo *arm_exidx = pc_module_sp->GetObjectFile()->GetUnwindTable().GetArmUnwindInfo();
+        if (arm_exidx)
+        {
+            unwind_plan_sp.reset (new UnwindPlan (lldb::eRegisterKindGeneric));
+            if (arm_exidx->GetUnwindPlan (exe_ctx.GetTargetRef(), m_current_pc, *unwind_plan_sp))
+                return unwind_plan_sp;
+            else
+                unwind_plan_sp.reset();
+        }
+
         return arch_default_unwind_plan_sp;
     }
 
@@ -866,12 +881,12 @@ RegisterContextLLDB::GetFullUnwindPlanForFrame ()
                 // then the architecture default plan and for hand written assembly code it is often
                 // written in a way that it valid at all location what helps in the most common
                 // cases when the instruction emulation fails.
-                UnwindPlanSP eh_frame_unwind_plan = func_unwinders_sp->GetEHFrameUnwindPlan (process->GetTarget(), m_current_offset_backed_up_one);
-                if (eh_frame_unwind_plan &&
-                    eh_frame_unwind_plan.get() != unwind_plan_sp.get() &&
-                    eh_frame_unwind_plan->GetSourceName() != unwind_plan_sp->GetSourceName())
+                UnwindPlanSP call_site_unwind_plan = func_unwinders_sp->GetUnwindPlanAtCallSite(process->GetTarget(), m_current_offset_backed_up_one);
+                if (call_site_unwind_plan &&
+                    call_site_unwind_plan.get() != unwind_plan_sp.get() &&
+                    call_site_unwind_plan->GetSourceName() != unwind_plan_sp->GetSourceName())
                 {
-                    m_fallback_unwind_plan_sp = eh_frame_unwind_plan;
+                    m_fallback_unwind_plan_sp = call_site_unwind_plan;
                 }
                 else
                 {
@@ -911,12 +926,12 @@ RegisterContextLLDB::GetFullUnwindPlanForFrame ()
         // more reliable even on non call sites then the architecture default plan and for hand
         // written assembly code it is often written in a way that it valid at all location what
         // helps in the most common cases when the instruction emulation fails.
-        UnwindPlanSP eh_frame_unwind_plan = func_unwinders_sp->GetEHFrameUnwindPlan (process->GetTarget(), m_current_offset_backed_up_one);
-        if (eh_frame_unwind_plan &&
-            eh_frame_unwind_plan.get() != unwind_plan_sp.get() &&
-            eh_frame_unwind_plan->GetSourceName() != unwind_plan_sp->GetSourceName())
+        UnwindPlanSP call_site_unwind_plan = func_unwinders_sp->GetUnwindPlanAtCallSite(process->GetTarget(), m_current_offset_backed_up_one);
+        if (call_site_unwind_plan &&
+            call_site_unwind_plan.get() != unwind_plan_sp.get() &&
+            call_site_unwind_plan->GetSourceName() != unwind_plan_sp->GetSourceName())
         {
-            m_fallback_unwind_plan_sp = eh_frame_unwind_plan;
+            m_fallback_unwind_plan_sp = call_site_unwind_plan;
         }
         else
         {

@@ -1,4 +1,4 @@
-//===--- CGClass.cpp - Emit LLVM Code for C++ classes ---------------------===//
+//===--- CGClass.cpp - Emit LLVM Code for C++ classes -----------*- C++ -*-===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -508,7 +508,7 @@ namespace {
     // external code might potentially access the vtable.
     void VisitCXXThisExpr(const CXXThisExpr *E) { UsesThis = true; }
   };
-}
+} // end anonymous namespace
 
 static bool BaseInitializerUsesThis(ASTContext &C, const Expr *Init) {
   DynamicThisUseChecker Checker(C);
@@ -930,7 +930,7 @@ void CodeGenFunction::EmitConstructorBody(FunctionArgList &Args) {
     return;
   }
 
-  const FunctionDecl *Definition = 0;
+  const FunctionDecl *Definition = nullptr;
   Stmt *Body = Ctor->getBody(Definition);
   assert(Definition == Ctor && "emitting wrong constructor body");
 
@@ -987,7 +987,7 @@ namespace {
     SanitizerSet OldSanOpts;
   };
 }
-
+ 
 namespace {
   class FieldMemcpyizer {
   public:
@@ -1342,8 +1342,7 @@ namespace {
       emitAggregatedStmts();
     }
   };
-
-}
+} // end anonymous namespace
 
 static bool isInitializerOfDynamicClass(const CXXCtorInitializer *BaseInit) {
   const Type *BaseType = BaseInit->getBaseClass();
@@ -1375,13 +1374,14 @@ void CodeGenFunction::EmitCtorPrologue(const CXXConstructorDecl *CD,
     assert(BaseCtorContinueBB);
   }
 
-  bool BaseVPtrsInitialized = false;
+  llvm::Value *const OldThis = CXXThisValue;
   // Virtual base initializers first.
   for (; B != E && (*B)->isBaseInitializer() && (*B)->isBaseVirtual(); B++) {
-    CXXCtorInitializer *BaseInit = *B;
+    if (CGM.getCodeGenOpts().StrictVTablePointers &&
+        CGM.getCodeGenOpts().OptimizationLevel > 0 &&
+        isInitializerOfDynamicClass(*B))
+      CXXThisValue = Builder.CreateInvariantGroupBarrier(LoadCXXThis());
     EmitBaseInitializer(*this, ClassDecl, *B, CtorType);
-    BaseVPtrsInitialized |= BaseInitializerUsesThis(getContext(),
-                                                    BaseInit->getInit());
   }
 
   if (BaseCtorContinueBB) {
@@ -1393,15 +1393,15 @@ void CodeGenFunction::EmitCtorPrologue(const CXXConstructorDecl *CD,
   // Then, non-virtual base initializers.
   for (; B != E && (*B)->isBaseInitializer(); B++) {
     assert(!(*B)->isBaseVirtual());
+
+    if (CGM.getCodeGenOpts().StrictVTablePointers &&
+        CGM.getCodeGenOpts().OptimizationLevel > 0 &&
+        isInitializerOfDynamicClass(*B))
+      CXXThisValue = Builder.CreateInvariantGroupBarrier(LoadCXXThis());
     EmitBaseInitializer(*this, ClassDecl, *B, CtorType);
-    BaseVPtrsInitialized |= isInitializerOfDynamicClass(*B);
   }
 
-  // Pointer to this requires to be passed through invariant.group.barrier
-  // only if we've initialized any base vptrs.
-  if (CGM.getCodeGenOpts().StrictVTablePointers &&
-      CGM.getCodeGenOpts().OptimizationLevel > 0 && BaseVPtrsInitialized)
-    CXXThisValue = Builder.CreateInvariantGroupBarrier(LoadCXXThis());
+  CXXThisValue = OldThis;
 
   InitializeVTablePointers(ClassDecl);
 
@@ -1801,7 +1801,7 @@ namespace {
       EmitSanitizerDtorCallback(CGF, VTablePtr, PoisonSize);
     }
  };
-}
+} // end anonymous namespace
 
 /// \brief Emit all code that comes at the end of class's
 /// destructor. This is to call destructors on members and base classes
@@ -1940,7 +1940,6 @@ void CodeGenFunction::EmitCXXAggrConstructorCall(const CXXConstructorDecl *ctor,
                                                  Address arrayBase,
                                                  const CXXConstructExpr *E,
                                                  bool zeroInitialize) {
-
   // It's legal for numElements to be zero.  This can happen both
   // dynamically, because x can be zero in 'new A[x]', and statically,
   // because of GCC extensions that permit zero-length arrays.  There
@@ -2107,9 +2106,12 @@ void CodeGenFunction::EmitCXXConstructorCall(const CXXConstructorDecl *D,
   // FIXME: If vtable is used by ctor/dtor, or if vtable is external and we are
   // sure that definition of vtable is not hidden,
   // then we are always safe to refer to it.
+  // FIXME: It looks like InstCombine is very inefficient on dealing with
+  // assumes. Make assumption loads require -fstrict-vtable-pointers temporarily.
   if (CGM.getCodeGenOpts().OptimizationLevel > 0 &&
       ClassDecl->isDynamicClass() && Type != Ctor_Base &&
-      CGM.getCXXABI().canSpeculativelyEmitVTable(ClassDecl))
+      CGM.getCXXABI().canSpeculativelyEmitVTable(ClassDecl) &&
+      CGM.getCodeGenOpts().StrictVTablePointers)
     EmitVTableAssumptionLoads(ClassDecl, This);
 }
 
@@ -2236,7 +2238,7 @@ namespace {
                                 /*Delegating=*/true, Addr);
     }
   };
-}
+} // end anonymous namespace
 
 void
 CodeGenFunction::EmitDelegatingCXXConstructorCall(const CXXConstructorDecl *Ctor,
@@ -2516,7 +2518,7 @@ void CodeGenFunction::EmitVTablePtrCheckForCast(QualType T,
   if (!SanOpts.has(SanitizerKind::CFICastStrict))
     ClassDecl = LeastDerivedClassWithSameLayout(ClassDecl);
 
-  llvm::BasicBlock *ContBlock = 0;
+  llvm::BasicBlock *ContBlock = nullptr;
 
   if (MayBeNull) {
     llvm::Value *DerivedNotNull =

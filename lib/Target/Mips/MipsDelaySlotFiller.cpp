@@ -597,7 +597,7 @@ bool Filler::runOnMachineBasicBlock(MachineBasicBlock &MBB) {
         // Get instruction with delay slot.
         MachineBasicBlock::instr_iterator DSI(I);
 
-        if (InMicroMipsMode && TII->GetInstSizeInBytes(std::next(DSI)) == 2 &&
+        if (InMicroMipsMode && TII->GetInstSizeInBytes(&*std::next(DSI)) == 2 &&
             DSI->isCall()) {
           // If instruction in delay slot is 16b change opcode to
           // corresponding instruction with short delay slot.
@@ -801,11 +801,12 @@ MachineBasicBlock *Filler::selectSuccBB(MachineBasicBlock &B) const {
 
   // Select the successor with the larget edge weight.
   auto &Prob = getAnalysis<MachineBranchProbabilityInfo>();
-  MachineBasicBlock *S = *std::max_element(B.succ_begin(), B.succ_end(),
-                                           [&](const MachineBasicBlock *Dst0,
-                                               const MachineBasicBlock *Dst1) {
-    return Prob.getEdgeWeight(&B, Dst0) < Prob.getEdgeWeight(&B, Dst1);
-  });
+  MachineBasicBlock *S = *std::max_element(
+      B.succ_begin(), B.succ_end(),
+      [&](const MachineBasicBlock *Dst0, const MachineBasicBlock *Dst1) {
+        return Prob.getEdgeProbability(&B, Dst0) <
+               Prob.getEdgeProbability(&B, Dst1);
+      });
   return S->isEHPad() ? nullptr : S;
 }
 

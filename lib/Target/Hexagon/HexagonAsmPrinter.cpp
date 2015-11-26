@@ -178,27 +178,25 @@ bool HexagonAsmPrinter::PrintAsmMemoryOperand(const MachineInstr *MI,
 /// the current output stream.
 ///
 void HexagonAsmPrinter::EmitInstruction(const MachineInstr *MI) {
-  MCInst MCB;
-  MCB.setOpcode(Hexagon::BUNDLE);
-  MCB.addOperand(MCOperand::createImm(0));
+  MCInst MCB = HexagonMCInstrInfo::createBundle();
 
   if (MI->isBundle()) {
     const MachineBasicBlock* MBB = MI->getParent();
-    MachineBasicBlock::const_instr_iterator MII = MI;
+    MachineBasicBlock::const_instr_iterator MII = MI->getIterator();
     unsigned IgnoreCount = 0;
 
-    for (++MII; MII != MBB->end() && MII->isInsideBundle(); ++MII) {
+    for (++MII; MII != MBB->instr_end() && MII->isInsideBundle(); ++MII) {
       if (MII->getOpcode() == TargetOpcode::DBG_VALUE ||
           MII->getOpcode() == TargetOpcode::IMPLICIT_DEF)
         ++IgnoreCount;
       else {
-        HexagonLowerToMC(MII, MCB, *this);
+        HexagonLowerToMC(&*MII, MCB, *this);
       }
     }
   }
   else {
     HexagonLowerToMC(MI, MCB, *this);
-    HexagonMCInstrInfo::padEndloop(MCB);
+    HexagonMCInstrInfo::padEndloop(OutStreamer->getContext(), MCB);
   }
   // Examine the packet and try to find instructions that can be converted
   // to compounds.

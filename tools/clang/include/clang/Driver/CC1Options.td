@@ -132,6 +132,8 @@ def migrator_no_finalize_removal : Flag<["-"], "no-finalize-removal">,
 
 let Flags = [CC1Option, CC1AsOption, NoDriverOption] in {
 
+def debug_info_kind_EQ : Joined<["-"], "debug-info-kind=">;
+def dwarf_version_EQ : Joined<["-"], "dwarf-version=">;
 def fdebug_compilation_dir : Separate<["-"], "fdebug-compilation-dir">,
   HelpText<"The compilation directory to embed in the debug info.">;
 def dwarf_debug_flags : Separate<["-"], "dwarf-debug-flags">,
@@ -238,6 +240,9 @@ def mconstructor_aliases : Flag<["-"], "mconstructor-aliases">,
   HelpText<"Emit complete constructors and destructors as aliases when possible">;
 def mlink_bitcode_file : Separate<["-"], "mlink-bitcode-file">,
   HelpText<"Link the given bitcode file before performing optimizations.">;
+def mlink_cuda_bitcode : Separate<["-"], "mlink-cuda-bitcode">,
+  HelpText<"Link and internalize needed symbols from the given bitcode file "
+           "before performing optimizations.">;
 def vectorize_loops : Flag<["-"], "vectorize-loops">,
   HelpText<"Run the Loop vectorization passes">;
 def vectorize_slp : Flag<["-"], "vectorize-slp">,
@@ -376,6 +381,9 @@ def fmodules_embed_file_EQ : Joined<["-"], "fmodules-embed-file=">,
   MetaVarName<"<file>">,
   HelpText<"Embed the contents of the specified file into the module file "
            "being compiled.">;
+def fmodules_embed_all_files : Joined<["-"], "fmodules-embed-all-files">,
+  HelpText<"Embed the contents of all files read by this compilation into "
+           "the produced module file.">;
 def fmodules_local_submodule_visibility :
   Flag<["-"], "fmodules-local-submodule-visibility">,
   HelpText<"Enforce name visibility rules across submodules of the same "
@@ -383,10 +391,10 @@ def fmodules_local_submodule_visibility :
 def fmodule_format_EQ : Joined<["-"], "fmodule-format=">,
   HelpText<"Select the container format for clang modules and PCH. "
            "Supported options are 'raw' and 'obj'.">;
-def fno_modules_hide_internal_linkage :
-  Flag<["-"], "fno-modules-hide-internal-linkage">,
-  HelpText<"Make all declarations visible to redeclaration lookup, "
-           "even if they have internal linkage.">;
+def ftest_module_file_extension_EQ :
+  Joined<["-"], "ftest-module-file-extension=">,
+  HelpText<"introduce a module file extension for testing purposes. "
+           "The argument is parsed as blockname:major:minor:hashed:user info">;
 def fconcepts_ts : Flag<["-"], "fconcepts-ts">,
   HelpText<"Enable C++ Extensions for Concepts.">;
 
@@ -578,6 +586,10 @@ def fnative_half_type: Flag<["-"], "fnative-half-type">,
 def fallow_half_arguments_and_returns : Flag<["-"], "fallow-half-arguments-and-returns">,
   HelpText<"Allow function arguments and returns of type half">;
 
+// C++ TSes.
+def fcoroutines : Flag<["-"], "fcoroutines">,
+  HelpText<"Enable support for the C++ Coroutines TS">;
+
 //===----------------------------------------------------------------------===//
 // Header Search Options
 //===----------------------------------------------------------------------===//
@@ -663,8 +675,6 @@ def fcuda_include_gpubinary : Separate<["-"], "fcuda-include-gpubinary">,
   HelpText<"Incorporate CUDA device-side binary into host object file.">;
 def fcuda_target_overloads : Flag<["-"], "fcuda-target-overloads">,
   HelpText<"Enable function overloads based on CUDA target attributes.">;
-def fcuda_uses_libdevice : Flag<["-"], "fcuda-uses-libdevice">,
-  HelpText<"Selectively link and internalize bitcode.">;
 
 } // let Flags = [CC1Option]
 

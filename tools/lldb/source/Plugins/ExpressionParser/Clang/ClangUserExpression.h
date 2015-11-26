@@ -12,13 +12,10 @@
 
 // C Includes
 // C++ Includes
-#include <string>
-#include <map>
 #include <vector>
 
 // Other libraries and framework includes
 // Project includes
-
 #include "ASTStructExtractor.h"
 #include "ASTResultSynthesizer.h"
 #include "ClangExpressionDeclMap.h"
@@ -30,9 +27,8 @@
 #include "lldb/lldb-private.h"
 #include "lldb/Core/Address.h"
 #include "lldb/Core/ClangForward.h"
-#include "lldb/Expression/UserExpression.h"
+#include "lldb/Expression/LLVMUserExpression.h"
 #include "lldb/Expression/Materializer.h"
-#include "lldb/Symbol/TaggedASTType.h"
 #include "lldb/Target/ExecutionContext.h"
 
 namespace lldb_private
@@ -47,12 +43,10 @@ namespace lldb_private
 /// the objects needed to parse and interpret or JIT an expression.  It
 /// uses the Clang parser to produce LLVM IR from the expression.
 //----------------------------------------------------------------------
-class ClangUserExpression : public UserExpression
+class ClangUserExpression : public LLVMUserExpression
 {
 public:
-
     enum { kDefaultTimeout = 500000u };
-
 
     class ClangUserExpressionHelper : public ClangExpressionHelper
     {
@@ -62,7 +56,7 @@ public:
         {
         }
         
-        ~ClangUserExpressionHelper() {}
+        ~ClangUserExpressionHelper() override = default;
         
         //------------------------------------------------------------------
         /// Return the object that the parser should use when resolving external
@@ -81,7 +75,7 @@ public:
         }
         
         void
-        ResetDeclMap (ExecutionContext & exe_ctx, bool keep_result_in_memory);
+        ResetDeclMap (ExecutionContext & exe_ctx, Materializer::PersistentVariableDelegate &result_delegate, bool keep_result_in_memory);
         
         //------------------------------------------------------------------
         /// Return the object that the parser should allow to access ASTs.
@@ -93,6 +87,7 @@ public:
         //------------------------------------------------------------------
         clang::ASTConsumer *
         ASTTransformer(clang::ASTConsumer *passthrough) override;
+
     private:
         Target                                  &m_target;
         std::unique_ptr<ClangExpressionDeclMap> m_expr_decl_map_up;
@@ -123,11 +118,9 @@ public:
                          const char *expr,
                          const char *expr_prefix,
                          lldb::LanguageType language,
-                         ResultType desired_type);
+                         ResultType desired_type,
+                         const EvaluateExpressionOptions &options);
 
-    //------------------------------------------------------------------
-    /// Destructor
-    //------------------------------------------------------------------
     ~ClangUserExpression() override;
 
     //------------------------------------------------------------------
@@ -177,10 +170,13 @@ public:
     }
     
     void
-    ResetDeclMap (ExecutionContext & exe_ctx, bool keep_result_in_memory)
+    ResetDeclMap (ExecutionContext & exe_ctx, Materializer::PersistentVariableDelegate &result_delegate, bool keep_result_in_memory)
     {
-        m_type_system_helper.ResetDeclMap(exe_ctx, keep_result_in_memory);
+        m_type_system_helper.ResetDeclMap(exe_ctx, result_delegate, keep_result_in_memory);
     }
+
+    lldb::ExpressionVariableSP
+    GetResultAfterDematerialization(ExecutionContextScope *exe_scope) override;
     
 private:
     //------------------------------------------------------------------
@@ -192,11 +188,29 @@ private:
                  lldb_private::Error &err) override;
 
     bool
-    AddInitialArguments (ExecutionContext &exe_ctx,
-                         std::vector<lldb::addr_t> &args,
-                         Stream &error_stream) override;
+    AddArguments (ExecutionContext &exe_ctx,
+                  std::vector<lldb::addr_t> &args,
+                  lldb::addr_t struct_address,
+                  Stream &error_stream) override;
     
     ClangUserExpressionHelper   m_type_system_helper;
+    
+    class ResultDelegate : public Materializer::PersistentVariableDelegate
+    {
+    public:
+        ResultDelegate();
+        ConstString GetName() override;
+        void DidDematerialize(lldb::ExpressionVariableSP &variable) override;
+        
+        void RegisterPersistentState(PersistentExpressionState *persistent_state);
+        lldb::ExpressionVariableSP &GetVariable();
+
+    private:
+        PersistentExpressionState *m_persistent_state;
+        lldb::ExpressionVariableSP m_variable;
+    };
+    
+    ResultDelegate                                          m_result_delegate;
 };
 
 } // namespace lldb_private

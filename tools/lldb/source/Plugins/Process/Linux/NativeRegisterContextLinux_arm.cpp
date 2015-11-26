@@ -20,6 +20,10 @@
 
 #define REG_CONTEXT_SIZE (GetGPRSize() + sizeof (m_fpr))
 
+#ifndef PTRACE_GETVFPREGS
+  #define PTRACE_GETVFPREGS 27
+  #define PTRACE_SETVFPREGS 28
+#endif
 #ifndef PTRACE_GETHBPREGS
   #define PTRACE_GETHBPREGS 29
   #define PTRACE_SETHBPREGS 30
@@ -436,7 +440,7 @@ NativeRegisterContextLinux_arm::SetHardwareBreakpoint (lldb::addr_t addr, size_t
      if (bp_index == LLDB_INVALID_INDEX32)
          return LLDB_INVALID_INDEX32;
 
-    // Add new or update existing watchpoint
+    // Add new or update existing breakpoint
     if ((m_hbr_regs[bp_index].control & 1) == 0)
     {
         m_hbr_regs[bp_index].address = addr;
@@ -447,7 +451,13 @@ NativeRegisterContextLinux_arm::SetHardwareBreakpoint (lldb::addr_t addr, size_t
         error = WriteHardwareDebugRegs(eDREGTypeBREAK, bp_index);
 
         if (error.Fail())
+        {
+            m_hbr_regs[bp_index].address = 0;
+            m_hbr_regs[bp_index].control &= ~1;
+            m_hbr_regs[bp_index].refcount = 0;
+
             return LLDB_INVALID_INDEX32;
+        }
     }
     else
         m_hbr_regs[bp_index].refcount++;
@@ -469,7 +479,7 @@ NativeRegisterContextLinux_arm::ClearHardwareBreakpoint (uint32_t hw_idx)
     error = ReadHardwareDebugInfo ();
 
     if (error.Fail())
-        return LLDB_INVALID_INDEX32;
+        return false;
 
     if (hw_idx >= m_max_hbp_supported)
         return false;
@@ -482,6 +492,11 @@ NativeRegisterContextLinux_arm::ClearHardwareBreakpoint (uint32_t hw_idx)
     }
     else if (m_hbr_regs[hw_idx].refcount == 1)
     {
+        // Create a backup we can revert to in case of failure.
+        lldb::addr_t tempAddr = m_hbr_regs[hw_idx].address;
+        uint32_t tempControl = m_hbr_regs[hw_idx].control;
+        uint32_t tempRefCount = m_hbr_regs[hw_idx].refcount;
+
         m_hbr_regs[hw_idx].control &= ~1;
         m_hbr_regs[hw_idx].address = 0;
         m_hbr_regs[hw_idx].refcount = 0;
@@ -490,7 +505,13 @@ NativeRegisterContextLinux_arm::ClearHardwareBreakpoint (uint32_t hw_idx)
         WriteHardwareDebugRegs(eDREGTypeBREAK, hw_idx);
 
         if (error.Fail())
-            return LLDB_INVALID_INDEX32;
+        {
+            m_hbr_regs[hw_idx].control = tempControl;
+            m_hbr_regs[hw_idx].address = tempAddr;
+            m_hbr_regs[hw_idx].refcount = tempRefCount;
+
+            return false;
+        }
 
         return true;
     }
@@ -610,7 +631,13 @@ NativeRegisterContextLinux_arm::SetHardwareWatchpoint (lldb::addr_t addr, size_t
         error = WriteHardwareDebugRegs(eDREGTypeWATCH, wp_index);
 
         if (error.Fail())
+        {
+            m_hwp_regs[wp_index].address = 0;
+            m_hwp_regs[wp_index].control &= ~1;
+            m_hwp_regs[wp_index].refcount = 0;
+
             return LLDB_INVALID_INDEX32;
+        }
     }
     else
         m_hwp_regs[wp_index].refcount++;
@@ -632,7 +659,7 @@ NativeRegisterContextLinux_arm::ClearHardwareWatchpoint (uint32_t wp_index)
     error = ReadHardwareDebugInfo ();
 
     if (error.Fail())
-        return LLDB_INVALID_INDEX32;
+        return false;
 
     if (wp_index >= m_max_hwp_supported)
         return false;
@@ -645,6 +672,11 @@ NativeRegisterContextLinux_arm::ClearHardwareWatchpoint (uint32_t wp_index)
     }
     else if (m_hwp_regs[wp_index].refcount == 1)
     {
+        // Create a backup we can revert to in case of failure.
+        lldb::addr_t tempAddr = m_hwp_regs[wp_index].address;
+        uint32_t tempControl = m_hwp_regs[wp_index].control;
+        uint32_t tempRefCount = m_hwp_regs[wp_index].refcount;
+
         // Update watchpoint in local cache
         m_hwp_regs[wp_index].control &= ~1;
         m_hwp_regs[wp_index].address = 0;
@@ -654,7 +686,13 @@ NativeRegisterContextLinux_arm::ClearHardwareWatchpoint (uint32_t wp_index)
         error = WriteHardwareDebugRegs(eDREGTypeWATCH, wp_index);
 
         if (error.Fail())
+        {
+            m_hwp_regs[wp_index].control = tempControl;
+            m_hwp_regs[wp_index].address = tempAddr;
+            m_hwp_regs[wp_index].refcount = tempRefCount;
+
             return false;
+        }
 
         return true;
     }
@@ -678,10 +716,18 @@ NativeRegisterContextLinux_arm::ClearAllHardwareWatchpoints ()
     if (error.Fail())
         return error;
 
+    lldb::addr_t tempAddr = 0;
+    uint32_t tempControl = 0, tempRefCount = 0;
+
     for (uint32_t i = 0; i < m_max_hwp_supported; i++)
     {
         if (m_hwp_regs[i].control & 0x01)
         {
+            // Create a backup we can revert to in case of failure.
+            tempAddr = m_hwp_regs[i].address;
+            tempControl = m_hwp_regs[i].control;
+            tempRefCount = m_hwp_regs[i].refcount;
+
             // Clear watchpoints in local cache
             m_hwp_regs[i].control &= ~1;
             m_hwp_regs[i].address = 0;
@@ -691,7 +737,13 @@ NativeRegisterContextLinux_arm::ClearAllHardwareWatchpoints ()
             error = WriteHardwareDebugRegs(eDREGTypeWATCH, i);
 
             if (error.Fail())
+            {
+                m_hwp_regs[i].control = tempControl;
+                m_hwp_regs[i].address = tempAddr;
+                m_hwp_regs[i].refcount = tempRefCount;
+
                 return error;
+            }
         }
     }
 
@@ -851,6 +903,47 @@ uint32_t
 NativeRegisterContextLinux_arm::CalculateFprOffset(const RegisterInfo* reg_info) const
 {
     return reg_info->byte_offset - GetRegisterInfoAtIndex(m_reg_info.first_fpr)->byte_offset;
+}
+
+Error
+NativeRegisterContextLinux_arm::DoWriteRegisterValue(uint32_t offset,
+                                                     const char* reg_name,
+                                                     const RegisterValue &value)
+{
+    // PTRACE_POKEUSER don't work in the aarch64 liux kernel used on android devices (always return
+    // "Bad address"). To avoid using PTRACE_POKEUSER we read out the full GPR register set, modify
+    // the requested register and write it back. This approach is about 4 times slower but the
+    // performance overhead is negligible in comparision to processing time in lldb-server.
+    assert(offset % 4 == 0 && "Try to write a register with unaligned offset");
+    if (offset + sizeof(uint32_t) > sizeof(m_gpr_arm))
+        return Error("Register isn't fit into the size of the GPR area");
+
+    Error error = DoReadGPR(m_gpr_arm, sizeof(m_gpr_arm));
+    if (error.Fail())
+        return error;
+
+    m_gpr_arm[offset / sizeof(uint32_t)] = value.GetAsUInt32();
+    return DoWriteGPR(m_gpr_arm, sizeof(m_gpr_arm));
+}
+
+Error
+NativeRegisterContextLinux_arm::DoReadFPR(void *buf, size_t buf_size)
+{
+    return NativeProcessLinux::PtraceWrapper(PTRACE_GETVFPREGS,
+                                             m_thread.GetID(),
+                                             nullptr,
+                                             buf,
+                                             buf_size);
+}
+
+Error
+NativeRegisterContextLinux_arm::DoWriteFPR(void *buf, size_t buf_size)
+{
+    return NativeProcessLinux::PtraceWrapper(PTRACE_SETVFPREGS,
+                                             m_thread.GetID(),
+                                             nullptr,
+                                             buf,
+                                             buf_size);
 }
 
 #endif // defined(__arm__)

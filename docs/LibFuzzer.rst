@@ -21,7 +21,8 @@ This library is intended primarily for in-process coverage-guided fuzz testing
   optimizations options (e.g. -O0, -O1, -O2) to diversify testing.
 * Build a test driver using the same options as the library.
   The test driver is a C/C++ file containing interesting calls to the library
-  inside a single function  ``extern "C" void LLVMFuzzerTestOneInput(const uint8_t *Data, size_t Size);``
+  inside a single function  ``extern "C" int LLVMFuzzerTestOneInput(const uint8_t *Data, size_t Size);``.
+  Currently, the only expected return value is 0, others are reserved for future.
 * Link the Fuzzer, the library and the driver together into an executable
   using the same sanitizer options as for the library.
 * Collect the initial corpus of inputs for the
@@ -60,15 +61,18 @@ The most important flags are::
   cross_over                         	1	If 1, cross over inputs.
   mutate_depth                       	5	Apply this number of consecutive mutations to each input.
   timeout                            	1200	Timeout in seconds (if positive). If one unit runs more than this number of seconds the process will abort.
+  max_total_time                        0       If positive, indicates the maximal total time in seconds to run the fuzzer.
   help                               	0	Print help.
   save_minimized_corpus              	0	If 1, the minimized corpus is saved into the first input directory. Example: ./fuzzer -save_minimized_corpus=1 NEW_EMPTY_DIR OLD_CORPUS
+  merge                                 0       If 1, the 2-nd, 3-rd, etc corpora will be merged into the 1-st corpus. Only interesting units will be taken.
   jobs                               	0	Number of jobs to run. If jobs >= 1 we spawn this number of jobs in separate worker processes with stdout/stderr redirected to fuzz-JOB.log.
   workers                            	0	Number of simultaneous worker processes to run the jobs. If zero, "min(jobs,NumberOfCpuCores()/2)" is used.
   sync_command                       	0	Execute an external command "<sync_command> <test_corpus>" to synchronize the test corpus.
   sync_timeout                       	600	Minimum timeout between syncs.
   use_traces                            0       Experimental: use instruction traces
   only_ascii                            0       If 1, generate only ASCII (isprint+isspace) inputs.
-
+  test_single_input                     ""      Use specified file content as test input. Test will be run only once. Useful for debugging a particular case.
+  artifact_prefix                       ""      Write fuzzing artifacts (crash, timeout, or slow inputs) as $(artifact_prefix)file
 
 For the full list of flags run the fuzzer binary with ``-help=1``.
 
@@ -81,11 +85,12 @@ Toy example
 A simple function that does something interesting if it receives the input "HI!"::
 
   cat << EOF >> test_fuzzer.cc
-  extern "C" void LLVMFuzzerTestOneInput(const unsigned char *data, unsigned long size) {
+  extern "C" int LLVMFuzzerTestOneInput(const unsigned char *data, unsigned long size) {
     if (size > 0 && data[0] == 'H')
       if (size > 1 && data[1] == 'I')
          if (size > 2 && data[2] == '!')
          __builtin_trap();
+    return 0;
   }
   EOF
   # Get lib/Fuzzer. Assuming that you already have fresh clang in PATH.
@@ -117,8 +122,8 @@ Here we show how to use lib/Fuzzer on something real, yet simple: pcre2_::
   cat << EOF > pcre_fuzzer.cc
   #include <string.h>
   #include "pcre2posix.h"
-  extern "C" void LLVMFuzzerTestOneInput(const unsigned char *data, size_t size) {
-    if (size < 1) return;
+  extern "C" int LLVMFuzzerTestOneInput(const unsigned char *data, size_t size) {
+    if (size < 1) return 0;
     char *str = new char[size+1];
     memcpy(str, data, size);
     str[size] = 0;
@@ -128,6 +133,7 @@ Here we show how to use lib/Fuzzer on something real, yet simple: pcre2_::
       regfree(&preg);
     }
     delete [] str;
+    return 0;
   }
   EOF
   clang++ -g -fsanitize=address $COV_FLAGS -c -std=c++11  -I inst/include/ pcre_fuzzer.cc
@@ -225,7 +231,7 @@ to find Heartbleed with LibFuzzer::
     assert (SSL_CTX_use_PrivateKey_file(sctx, "server.key", SSL_FILETYPE_PEM));
     return 0;
   }
-  extern "C" void LLVMFuzzerTestOneInput(unsigned char *Data, size_t Size) {
+  extern "C" int LLVMFuzzerTestOneInput(unsigned char *Data, size_t Size) {
     static int unused = Init();
     SSL *server = SSL_new(sctx);
     BIO *sinbio = BIO_new(BIO_s_mem());
@@ -235,6 +241,7 @@ to find Heartbleed with LibFuzzer::
     BIO_write(sinbio, Data, Size);
     SSL_do_handshake(server);
     SSL_free(server);
+    return 0;
   }
   EOF
   # Build the fuzzer.
@@ -451,35 +458,27 @@ Trophies
   * http://git.musl-libc.org/cgit/musl/commit/?id=39dfd58417ef642307d90306e1c7e50aaec5a35c
   * http://www.openwall.com/lists/oss-security/2015/03/30/3
 
-* pugixml: https://github.com/zeux/pugixml/issues/39
+* `pugixml <https://github.com/zeux/pugixml/issues/39>`_
 
-* PCRE: Search for "LLVM fuzzer" in http://vcs.pcre.org/pcre2/code/trunk/ChangeLog?view=markup
+* PCRE: Search for "LLVM fuzzer" in http://vcs.pcre.org/pcre2/code/trunk/ChangeLog?view=markup;
+  also in `bugzilla <https://bugs.exim.org/buglist.cgi?bug_status=__all__&content=libfuzzer&no_redirect=1&order=Importance&product=PCRE&query_format=specific>`_
 
-* ICU: http://bugs.icu-project.org/trac/ticket/11838
+* `ICU <http://bugs.icu-project.org/trac/ticket/11838>`_
 
-* Freetype: https://savannah.nongnu.org/search/?words=LibFuzzer&type_of_search=bugs&Search=Search&exact=1#options
+* `Freetype <https://savannah.nongnu.org/search/?words=LibFuzzer&type_of_search=bugs&Search=Search&exact=1#options>`_
 
-* Linux Kernel's BPF verifier: https://github.com/iovisor/bpf-fuzzer
+* `Harfbuzz <https://github.com/behdad/harfbuzz/issues/139>`_
 
-* LLVM:
+* `SQLite <http://www3.sqlite.org/cgi/src/info/088009efdd56160b>`_
 
-  * Clang: https://llvm.org/bugs/show_bug.cgi?id=23057
+* `Python <http://bugs.python.org/issue25388>`_
 
-  * Clang-format: https://llvm.org/bugs/show_bug.cgi?id=23052
+* `Libxml2
+  <https://bugzilla.gnome.org/buglist.cgi?bug_status=__all__&content=libFuzzer&list_id=68957&order=Importance&product=libxml2&query_format=specific>`_
 
-  * libc++: https://llvm.org/bugs/show_bug.cgi?id=24411
+* `Linux Kernel's BPF verifier <https://github.com/iovisor/bpf-fuzzer>`_
 
-  * llvm-as: https://llvm.org/bugs/show_bug.cgi?id=24639
-
-  * Disassembler:
-
-    * Mips: Discovered a number of untested instructions for the Mips target
-      (see valid-mips*.s in http://reviews.llvm.org/rL247405,
-      http://reviews.llvm.org/rL247414, http://reviews.llvm.org/rL247416,
-      http://reviews.llvm.org/rL247417, http://reviews.llvm.org/rL247420,
-      and http://reviews.llvm.org/rL247422) as well some instructions that
-      successfully disassembled on ISA's where they were not valid (see
-      invalid-xfail.s files in the same commits).
+* LLVM: `Clang <https://llvm.org/bugs/show_bug.cgi?id=23057>`_, `Clang-format <https://llvm.org/bugs/show_bug.cgi?id=23052>`_, `libc++ <https://llvm.org/bugs/show_bug.cgi?id=24411>`_, `llvm-as <https://llvm.org/bugs/show_bug.cgi?id=24639>`_, Disassembler: http://reviews.llvm.org/rL247405, http://reviews.llvm.org/rL247414, http://reviews.llvm.org/rL247416, http://reviews.llvm.org/rL247417, http://reviews.llvm.org/rL247420, http://reviews.llvm.org/rL247422.
 
 .. _pcre2: http://www.pcre.org/
 

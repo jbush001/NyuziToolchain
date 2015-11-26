@@ -38,8 +38,7 @@ int
 LocateMacOSXFilesUsingDebugSymbols
 (
     const ModuleSpec &module_spec,
-    FileSpec *out_exec_fspec,   // If non-NULL, try and find the executable
-    FileSpec *out_dsym_fspec    // If non-NULL try and find the debug symbol file
+    ModuleSpec &return_module_spec
 );
 
 #else
@@ -48,8 +47,7 @@ int
 LocateMacOSXFilesUsingDebugSymbols
 (
     const ModuleSpec &module_spec,
-    FileSpec *out_exec_fspec,   // If non-NULL, try and find the executable
-    FileSpec *out_dsym_fspec    // If non-NULL try and find the debug symbol file
+    ModuleSpec &return_module_spec
 ) {
     // Cannot find MacOSX files using debug symbols on non MacOSX.
     return 0;
@@ -178,19 +176,25 @@ LocateExecutableSymbolFileDsym (const ModuleSpec &module_spec)
                         (const void*)uuid);
 
     FileSpec symbol_fspec;
+    ModuleSpec dsym_module_spec;
     // First try and find the dSYM in the same directory as the executable or in
     // an appropriate parent directory
     if (LocateDSYMInVincinityOfExecutable (module_spec, symbol_fspec) == false)
     {
         // We failed to easily find the dSYM above, so use DebugSymbols
-        LocateMacOSXFilesUsingDebugSymbols (module_spec, NULL, &symbol_fspec);
+        LocateMacOSXFilesUsingDebugSymbols (module_spec, dsym_module_spec);
     }
-    return symbol_fspec;
+    else
+    {
+        dsym_module_spec.GetSymbolFileSpec() = symbol_fspec;
+    }
+    return dsym_module_spec.GetSymbolFileSpec();
 }
 
-FileSpec
+ModuleSpec
 Symbols::LocateExecutableObjectFile (const ModuleSpec &module_spec)
 {
+    ModuleSpec result;
     const FileSpec *exec_fspec = module_spec.GetFileSpecPtr();
     const ArchSpec *arch = module_spec.GetArchitecturePtr();
     const UUID *uuid = module_spec.GetUUIDPtr();
@@ -200,20 +204,19 @@ Symbols::LocateExecutableObjectFile (const ModuleSpec &module_spec)
                         arch ? arch->GetArchitectureName() : "<NULL>",
                         (const void*)uuid);
 
-    FileSpec objfile_fspec;
     ModuleSpecList module_specs;
     ModuleSpec matched_module_spec;
     if (exec_fspec &&
         ObjectFile::GetModuleSpecifications(*exec_fspec, 0, 0, module_specs) &&
         module_specs.FindMatchingModuleSpec(module_spec, matched_module_spec))
     {
-        objfile_fspec = exec_fspec;
+        result.GetFileSpec() = exec_fspec;
     }
     else
     {
-        LocateMacOSXFilesUsingDebugSymbols (module_spec, &objfile_fspec, NULL);
+        LocateMacOSXFilesUsingDebugSymbols (module_spec, result);
     }
-    return objfile_fspec;
+    return result;
 }
 
 FileSpec
@@ -235,8 +238,10 @@ Symbols::LocateExecutableSymbolFile (const ModuleSpec &module_spec)
         // Add current working directory.
         debug_file_search_paths.AppendIfUnique (FileSpec(".", true));
 
+#ifndef LLVM_ON_WIN32
         // Add /usr/lib/debug directory.
         debug_file_search_paths.AppendIfUnique (FileSpec("/usr/lib/debug", true));
+#endif // LLVM_ON_WIN32
 
         std::string uuid_str;
         const UUID &module_uuid = module_spec.GetUUID();
@@ -248,10 +253,6 @@ Symbols::LocateExecutableSymbolFile (const ModuleSpec &module_spec)
             uuid_str.insert (2, 1, '/');
             uuid_str = uuid_str + ".debug";
         }
-
-        // Get directory of our module. Needed to check debug files like this:
-        //   /usr/lib/debug/usr/lib/library.so.debug
-        std::string module_directory = module_spec.GetFileSpec().GetDirectory().AsCString();
 
         size_t num_directories = debug_file_search_paths.GetSize();
         for (size_t idx = 0; idx < num_directories; ++idx)
@@ -267,7 +268,11 @@ Symbols::LocateExecutableSymbolFile (const ModuleSpec &module_spec)
             files.push_back (dirname + "/" + symbol_filename);
             files.push_back (dirname + "/.debug/" + symbol_filename);
             files.push_back (dirname + "/.build-id/" + uuid_str);
-            files.push_back (dirname + module_directory + "/" + symbol_filename);
+
+            // Some debug files may stored in the module directory like this:
+            //   /usr/lib/debug/usr/lib/library.so.debug
+            if (!file_dir.IsEmpty())
+                files.push_back (dirname + file_dir.AsCString() + "/" + symbol_filename);
 
             const uint32_t num_files = files.size();
             for (size_t idx_file = 0; idx_file < num_files; ++idx_file)

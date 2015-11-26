@@ -73,6 +73,10 @@ def SDT_ARMBFI : SDTypeProfile<1, 3, [SDTCisVT<0, i32>, SDTCisVT<1, i32>,
 
 def SDT_WIN__DBZCHK : SDTypeProfile<0, 1, [SDTCisVT<0, i32>]>;
 
+def SDT_ARMMEMCPY  : SDTypeProfile<2, 3, [SDTCisVT<0, i32>, SDTCisVT<1, i32>,
+                                          SDTCisVT<2, i32>, SDTCisVT<3, i32>,
+                                          SDTCisVT<4, i32>]>;
+
 def SDTBinaryArithWithFlags : SDTypeProfile<2, 2,
                                             [SDTCisSameAs<0, 2>,
                                              SDTCisSameAs<0, 3>,
@@ -172,12 +176,14 @@ def ARMMemBarrierMCR  : SDNode<"ARMISD::MEMBARRIER_MCR", SDT_ARMMEMBARRIER,
 def ARMPreload        : SDNode<"ARMISD::PRELOAD", SDT_ARMPREFETCH,
                                [SDNPHasChain, SDNPMayLoad, SDNPMayStore]>;
 
-def ARMrbit          : SDNode<"ARMISD::RBIT", SDTIntUnaryOp>;
-
 def ARMtcret         : SDNode<"ARMISD::TC_RETURN", SDT_ARMTCRET,
                         [SDNPHasChain,  SDNPOptInGlue, SDNPVariadic]>;
 
 def ARMbfi           : SDNode<"ARMISD::BFI", SDT_ARMBFI>;
+
+def ARMmemcopy : SDNode<"ARMISD::MEMCPY", SDT_ARMMEMCPY,
+                        [SDNPHasChain, SDNPInGlue, SDNPOutGlue,
+                         SDNPMayStore, SDNPMayLoad]>;
 
 //===----------------------------------------------------------------------===//
 // ARM Instruction Predicate Definitions.
@@ -2321,6 +2327,7 @@ def SMC : ABI<0b0001, (outs), (ins imm0_15:$opt), NoItinerary, "smc", "\t$opt",
   let Inst{23-4} = 0b01100000000000000111;
   let Inst{3-0} = opt;
 }
+def : MnemonicAlias<"smi", "smc">;
 
 // Supervisor Call (Software Interrupt)
 let isCall = 1, Uses = [SP] in {
@@ -3670,10 +3677,10 @@ def USAT16 : AI<(outs GPRnopc:$Rd),
   let Inst{3-0} = Rn;
 }
 
-def : ARMV6Pat<(int_arm_ssat GPRnopc:$a, imm:$pos),
-               (SSAT imm:$pos, GPRnopc:$a, 0)>;
-def : ARMV6Pat<(int_arm_usat GPRnopc:$a, imm:$pos),
-               (USAT imm:$pos, GPRnopc:$a, 0)>;
+def : ARMV6Pat<(int_arm_ssat GPRnopc:$a, imm1_32:$pos),
+               (SSAT imm1_32:$pos, GPRnopc:$a, 0)>;
+def : ARMV6Pat<(int_arm_usat GPRnopc:$a, imm0_31:$pos),
+               (USAT imm0_31:$pos, GPRnopc:$a, 0)>;
 
 //===----------------------------------------------------------------------===//
 //  Bitwise Instructions.
@@ -4185,7 +4192,7 @@ def CLZ  : AMiscA1I<0b00010110, 0b0001, (outs GPR:$Rd), (ins GPR:$Rm),
 
 def RBIT : AMiscA1I<0b01101111, 0b0011, (outs GPR:$Rd), (ins GPR:$Rm),
               IIC_iUNAr, "rbit", "\t$Rd, $Rm",
-              [(set GPR:$Rd, (ARMrbit GPR:$Rm))]>,
+              [(set GPR:$Rd, (bitreverse GPR:$Rm))]>,
            Requires<[IsARM, HasV6T2]>,
            Sched<[WriteALU]>;
 
@@ -4575,6 +4582,19 @@ let usesCustomInserter = 1 in {
       (outs), (ins GPR:$dst, GPR:$src, i32imm:$size, i32imm:$alignment),
       NoItinerary,
       [(ARMcopystructbyval GPR:$dst, GPR:$src, imm:$size, imm:$alignment)]>;
+}
+
+let hasPostISelHook = 1, Constraints = "$newdst = $dst, $newsrc = $src" in {
+    // %newsrc, %newdst = MEMCPY %dst, %src, N, ...N scratch regs...
+    // Copies N registers worth of memory from address %src to address %dst
+    // and returns the incremented addresses.  N scratch register will
+    // be attached for the copy to use.
+    def MEMCPY : PseudoInst<
+      (outs GPR:$newdst, GPR:$newsrc),
+      (ins GPR:$dst, GPR:$src, i32imm:$nreg, variable_ops),
+      NoItinerary,
+      [(set GPR:$newdst, GPR:$newsrc,
+            (ARMmemcopy GPR:$dst, GPR:$src, imm:$nreg))]>;
 }
 
 def ldrex_1 : PatFrag<(ops node:$ptr), (int_arm_ldrex node:$ptr), [{

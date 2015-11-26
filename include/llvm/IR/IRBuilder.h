@@ -75,7 +75,7 @@ public:
   /// inserted into a block.
   void ClearInsertionPoint() {
     BB = nullptr;
-    InsertPt = nullptr;
+    InsertPt.reset(nullptr);
   }
 
   BasicBlock *GetInsertBlock() const { return BB; }
@@ -93,8 +93,8 @@ public:
   /// the specified instruction.
   void SetInsertPoint(Instruction *I) {
     BB = I->getParent();
-    InsertPt = I;
-    assert(I != BB->end() && "Can't read debug loc from end()");
+    InsertPt = I->getIterator();
+    assert(InsertPt != BB->end() && "Can't read debug loc from end()");
     SetCurrentDebugLocation(I->getDebugLoc());
   }
 
@@ -426,7 +426,7 @@ public:
 
   /// \brief Create a call to Masked Load intrinsic
   CallInst *CreateMaskedLoad(Value *Ptr, unsigned Align, Value *Mask,
-                             Value *PassThru = 0, const Twine &Name = "");
+                             Value *PassThru = nullptr, const Twine &Name = "");
 
   /// \brief Create a call to Masked Store intrinsic
   CallInst *CreateMaskedStore(Value *Val, Value *Ptr, unsigned Align,
@@ -442,6 +442,16 @@ public:
                                    Value *ActualCallee,
                                    ArrayRef<Value *> CallArgs,
                                    ArrayRef<Value *> DeoptArgs,
+                                   ArrayRef<Value *> GCArgs,
+                                   const Twine &Name = "");
+
+  /// \brief Create a call to the experimental.gc.statepoint intrinsic to
+  /// start a new statepoint sequence.
+  CallInst *CreateGCStatepointCall(uint64_t ID, uint32_t NumPatchBytes,
+                                   Value *ActualCallee, uint32_t Flags,
+                                   ArrayRef<Use> CallArgs,
+                                   ArrayRef<Use> TransitionArgs,
+                                   ArrayRef<Use> DeoptArgs,
                                    ArrayRef<Value *> GCArgs,
                                    const Twine &Name = "");
 
@@ -462,6 +472,15 @@ public:
                            BasicBlock *UnwindDest, ArrayRef<Value *> InvokeArgs,
                            ArrayRef<Value *> DeoptArgs,
                            ArrayRef<Value *> GCArgs, const Twine &Name = "");
+
+  /// brief Create an invoke to the experimental.gc.statepoint intrinsic to
+  /// start a new statepoint sequence.
+  InvokeInst *CreateGCStatepointInvoke(
+      uint64_t ID, uint32_t NumPatchBytes, Value *ActualInvokee,
+      BasicBlock *NormalDest, BasicBlock *UnwindDest, uint32_t Flags,
+      ArrayRef<Use> InvokeArgs, ArrayRef<Use> TransitionArgs,
+      ArrayRef<Use> DeoptArgs, ArrayRef<Value *> GCArgs,
+      const Twine &Name = "");
 
   // Conveninence function for the common case when CallArgs are filled in using
   // makeArrayRef(CS.arg_begin(), CS.arg_end()); Use needs to be .get()'ed to
@@ -671,6 +690,13 @@ public:
                            const Twine &Name = "") {
     return Insert(InvokeInst::Create(Callee, NormalDest, UnwindDest, Args),
                   Name);
+  }
+  InvokeInst *CreateInvoke(Value *Callee, BasicBlock *NormalDest,
+                           BasicBlock *UnwindDest, ArrayRef<Value *> Args,
+                           ArrayRef<OperandBundleDef> OpBundles,
+                           const Twine &Name = "") {
+    return Insert(InvokeInst::Create(Callee, NormalDest, UnwindDest, Args,
+                                     OpBundles), Name);
   }
 
   ResumeInst *CreateResume(Value *Exn) {
@@ -1509,7 +1535,12 @@ public:
   }
 
   CallInst *CreateCall(Value *Callee, ArrayRef<Value *> Args = None,
+                       ArrayRef<OperandBundleDef> OpBundles = None,
                        const Twine &Name = "") {
+    return Insert(CallInst::Create(Callee, Args, OpBundles), Name);
+  }
+  CallInst *CreateCall(Value *Callee, ArrayRef<Value *> Args,
+                       const Twine &Name) {
     return Insert(CallInst::Create(Callee, Args), Name);
   }
 
@@ -1745,6 +1776,7 @@ public:
 
 // Create wrappers for C Binding types (see CBindingWrapping.h).
 DEFINE_SIMPLE_CONVERSION_FUNCTIONS(IRBuilder<>, LLVMBuilderRef)
-}
 
-#endif
+} // end namespace llvm
+
+#endif // LLVM_IR_IRBUILDER_H

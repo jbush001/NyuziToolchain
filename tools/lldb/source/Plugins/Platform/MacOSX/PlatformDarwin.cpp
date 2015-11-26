@@ -10,7 +10,12 @@
 #include "PlatformDarwin.h"
 
 // C Includes
+#include <string.h>
+
 // C++ Includes
+#include <algorithm>
+#include <mutex>
+
 // Other libraries and framework includes
 #include "clang/Basic/VersionTuple.h"
 // Project includes
@@ -26,12 +31,19 @@
 #include "lldb/Host/HostInfo.h"
 #include "lldb/Host/FileSystem.h"
 #include "lldb/Host/Symbols.h"
+#include "lldb/Host/StringConvert.h"
+#include "lldb/Host/XML.h"
 #include "lldb/Interpreter/CommandInterpreter.h"
 #include "lldb/Symbol/ObjectFile.h"
 #include "lldb/Symbol/SymbolFile.h"
 #include "lldb/Symbol/SymbolVendor.h"
+#include "lldb/Target/Process.h"
 #include "lldb/Target/Target.h"
 #include "llvm/ADT/STLExtras.h"
+
+#if defined (__APPLE__)
+#include <TargetConditionals.h> // for TARGET_OS_TV, TARGET_OS_WATCH
+#endif
 
 using namespace lldb;
 using namespace lldb_private;
@@ -761,35 +773,44 @@ PlatformDarwin::ARMGetSupportedArchitectureAtIndex (uint32_t idx, ArchSpec &arch
 {
     ArchSpec system_arch (GetSystemArchitecture());
 
+    // When lldb is running on a watch or tv, set the arch OS name appropriately.
+#if defined (TARGET_OS_TV) && TARGET_OS_TV == 1
+#define OSNAME "tvos"
+#elif defined (TARGET_OS_WATCH) && TARGET_OS_WATCH == 1
+#define OSNAME "watchos"
+#else
+#define OSNAME "ios"
+#endif
+
     const ArchSpec::Core system_core = system_arch.GetCore();
     switch (system_core)
     {
     default:
         switch (idx)
         {
-            case  0: arch.SetTriple ("arm64-apple-ios");    return true;
-            case  1: arch.SetTriple ("armv7-apple-ios");    return true;
-            case  2: arch.SetTriple ("armv7f-apple-ios");   return true;
-            case  3: arch.SetTriple ("armv7k-apple-ios");   return true;
-            case  4: arch.SetTriple ("armv7s-apple-ios");   return true;
-            case  5: arch.SetTriple ("armv7m-apple-ios");   return true;
-            case  6: arch.SetTriple ("armv7em-apple-ios");  return true;
-            case  7: arch.SetTriple ("armv6m-apple-ios");   return true;
-            case  8: arch.SetTriple ("armv6-apple-ios");    return true;
-            case  9: arch.SetTriple ("armv5-apple-ios");    return true;
-            case 10: arch.SetTriple ("armv4-apple-ios");    return true;
-            case 11: arch.SetTriple ("arm-apple-ios");      return true;
-            case 12: arch.SetTriple ("thumbv7-apple-ios");  return true;
-            case 13: arch.SetTriple ("thumbv7f-apple-ios"); return true;
-            case 14: arch.SetTriple ("thumbv7k-apple-ios"); return true;
-            case 15: arch.SetTriple ("thumbv7s-apple-ios"); return true;
-            case 16: arch.SetTriple ("thumbv7m-apple-ios"); return true;
-            case 17: arch.SetTriple ("thumbv7em-apple-ios"); return true;
-            case 18: arch.SetTriple ("thumbv6m-apple-ios"); return true;
-            case 19: arch.SetTriple ("thumbv6-apple-ios");  return true;
-            case 20: arch.SetTriple ("thumbv5-apple-ios");  return true;
-            case 21: arch.SetTriple ("thumbv4t-apple-ios"); return true;
-            case 22: arch.SetTriple ("thumb-apple-ios");    return true;
+            case  0: arch.SetTriple ("arm64-apple-" OSNAME);    return true;
+            case  1: arch.SetTriple ("armv7-apple-" OSNAME);    return true;
+            case  2: arch.SetTriple ("armv7f-apple-" OSNAME);   return true;
+            case  3: arch.SetTriple ("armv7k-apple-" OSNAME);   return true;
+            case  4: arch.SetTriple ("armv7s-apple-" OSNAME);   return true;
+            case  5: arch.SetTriple ("armv7m-apple-" OSNAME);   return true;
+            case  6: arch.SetTriple ("armv7em-apple-" OSNAME);  return true;
+            case  7: arch.SetTriple ("armv6m-apple-" OSNAME);   return true;
+            case  8: arch.SetTriple ("armv6-apple-" OSNAME);    return true;
+            case  9: arch.SetTriple ("armv5-apple-" OSNAME);    return true;
+            case 10: arch.SetTriple ("armv4-apple-" OSNAME);    return true;
+            case 11: arch.SetTriple ("arm-apple-" OSNAME);      return true;
+            case 12: arch.SetTriple ("thumbv7-apple-" OSNAME);  return true;
+            case 13: arch.SetTriple ("thumbv7f-apple-" OSNAME); return true;
+            case 14: arch.SetTriple ("thumbv7k-apple-" OSNAME); return true;
+            case 15: arch.SetTriple ("thumbv7s-apple-" OSNAME); return true;
+            case 16: arch.SetTriple ("thumbv7m-apple-" OSNAME); return true;
+            case 17: arch.SetTriple ("thumbv7em-apple-" OSNAME); return true;
+            case 18: arch.SetTriple ("thumbv6m-apple-" OSNAME); return true;
+            case 19: arch.SetTriple ("thumbv6-apple-" OSNAME);  return true;
+            case 20: arch.SetTriple ("thumbv5-apple-" OSNAME);  return true;
+            case 21: arch.SetTriple ("thumbv4t-apple-" OSNAME); return true;
+            case 22: arch.SetTriple ("thumb-apple-" OSNAME);    return true;
             default: break;
         }
         break;
@@ -797,28 +818,28 @@ PlatformDarwin::ARMGetSupportedArchitectureAtIndex (uint32_t idx, ArchSpec &arch
     case ArchSpec::eCore_arm_arm64:
         switch (idx)
         {
-            case  0: arch.SetTriple ("arm64-apple-ios");   return true;
-            case  1: arch.SetTriple ("armv7s-apple-ios");   return true;
-            case  2: arch.SetTriple ("armv7f-apple-ios");   return true;
-            case  3: arch.SetTriple ("armv7m-apple-ios");   return true;
-            case  4: arch.SetTriple ("armv7em-apple-ios");  return true;
-            case  5: arch.SetTriple ("armv7-apple-ios");    return true;
-            case  6: arch.SetTriple ("armv6m-apple-ios");   return true;
-            case  7: arch.SetTriple ("armv6-apple-ios");    return true;
-            case  8: arch.SetTriple ("armv5-apple-ios");    return true;
-            case  9: arch.SetTriple ("armv4-apple-ios");    return true;
-            case 10: arch.SetTriple ("arm-apple-ios");      return true;
-            case 11: arch.SetTriple ("thumbv7-apple-ios");  return true;
-            case 12: arch.SetTriple ("thumbv7f-apple-ios"); return true;
-            case 13: arch.SetTriple ("thumbv7k-apple-ios"); return true;
-            case 14: arch.SetTriple ("thumbv7s-apple-ios"); return true;
-            case 15: arch.SetTriple ("thumbv7m-apple-ios"); return true;
-            case 16: arch.SetTriple ("thumbv7em-apple-ios"); return true;
-            case 17: arch.SetTriple ("thumbv6m-apple-ios"); return true;
-            case 18: arch.SetTriple ("thumbv6-apple-ios");  return true;
-            case 19: arch.SetTriple ("thumbv5-apple-ios");  return true;
-            case 20: arch.SetTriple ("thumbv4t-apple-ios"); return true;
-            case 21: arch.SetTriple ("thumb-apple-ios");    return true;
+            case  0: arch.SetTriple ("arm64-apple-" OSNAME);   return true;
+            case  1: arch.SetTriple ("armv7s-apple-" OSNAME);   return true;
+            case  2: arch.SetTriple ("armv7f-apple-" OSNAME);   return true;
+            case  3: arch.SetTriple ("armv7m-apple-" OSNAME);   return true;
+            case  4: arch.SetTriple ("armv7em-apple-" OSNAME);  return true;
+            case  5: arch.SetTriple ("armv7-apple-" OSNAME);    return true;
+            case  6: arch.SetTriple ("armv6m-apple-" OSNAME);   return true;
+            case  7: arch.SetTriple ("armv6-apple-" OSNAME);    return true;
+            case  8: arch.SetTriple ("armv5-apple-" OSNAME);    return true;
+            case  9: arch.SetTriple ("armv4-apple-" OSNAME);    return true;
+            case 10: arch.SetTriple ("arm-apple-" OSNAME);      return true;
+            case 11: arch.SetTriple ("thumbv7-apple-" OSNAME);  return true;
+            case 12: arch.SetTriple ("thumbv7f-apple-" OSNAME); return true;
+            case 13: arch.SetTriple ("thumbv7k-apple-" OSNAME); return true;
+            case 14: arch.SetTriple ("thumbv7s-apple-" OSNAME); return true;
+            case 15: arch.SetTriple ("thumbv7m-apple-" OSNAME); return true;
+            case 16: arch.SetTriple ("thumbv7em-apple-" OSNAME); return true;
+            case 17: arch.SetTriple ("thumbv6m-apple-" OSNAME); return true;
+            case 18: arch.SetTriple ("thumbv6-apple-" OSNAME);  return true;
+            case 19: arch.SetTriple ("thumbv5-apple-" OSNAME);  return true;
+            case 20: arch.SetTriple ("thumbv4t-apple-" OSNAME); return true;
+            case 21: arch.SetTriple ("thumb-apple-" OSNAME);    return true;
         default: break;
         }
         break;
@@ -826,20 +847,20 @@ PlatformDarwin::ARMGetSupportedArchitectureAtIndex (uint32_t idx, ArchSpec &arch
     case ArchSpec::eCore_arm_armv7f:
         switch (idx)
         {
-            case  0: arch.SetTriple ("armv7f-apple-ios");   return true;
-            case  1: arch.SetTriple ("armv7-apple-ios");    return true;
-            case  2: arch.SetTriple ("armv6m-apple-ios");   return true;
-            case  3: arch.SetTriple ("armv6-apple-ios");    return true;
-            case  4: arch.SetTriple ("armv5-apple-ios");    return true;
-            case  5: arch.SetTriple ("armv4-apple-ios");    return true;
-            case  6: arch.SetTriple ("arm-apple-ios");      return true;
-            case  7: arch.SetTriple ("thumbv7f-apple-ios"); return true;
-            case  8: arch.SetTriple ("thumbv7-apple-ios");  return true;
-            case  9: arch.SetTriple ("thumbv6m-apple-ios"); return true;
-            case 10: arch.SetTriple ("thumbv6-apple-ios");  return true;
-            case 11: arch.SetTriple ("thumbv5-apple-ios");  return true;
-            case 12: arch.SetTriple ("thumbv4t-apple-ios"); return true;
-            case 13: arch.SetTriple ("thumb-apple-ios");    return true;
+            case  0: arch.SetTriple ("armv7f-apple-" OSNAME);   return true;
+            case  1: arch.SetTriple ("armv7-apple-" OSNAME);    return true;
+            case  2: arch.SetTriple ("armv6m-apple-" OSNAME);   return true;
+            case  3: arch.SetTriple ("armv6-apple-" OSNAME);    return true;
+            case  4: arch.SetTriple ("armv5-apple-" OSNAME);    return true;
+            case  5: arch.SetTriple ("armv4-apple-" OSNAME);    return true;
+            case  6: arch.SetTriple ("arm-apple-" OSNAME);      return true;
+            case  7: arch.SetTriple ("thumbv7f-apple-" OSNAME); return true;
+            case  8: arch.SetTriple ("thumbv7-apple-" OSNAME);  return true;
+            case  9: arch.SetTriple ("thumbv6m-apple-" OSNAME); return true;
+            case 10: arch.SetTriple ("thumbv6-apple-" OSNAME);  return true;
+            case 11: arch.SetTriple ("thumbv5-apple-" OSNAME);  return true;
+            case 12: arch.SetTriple ("thumbv4t-apple-" OSNAME); return true;
+            case 13: arch.SetTriple ("thumb-apple-" OSNAME);    return true;
             default: break;
         }
         break;
@@ -847,20 +868,20 @@ PlatformDarwin::ARMGetSupportedArchitectureAtIndex (uint32_t idx, ArchSpec &arch
     case ArchSpec::eCore_arm_armv7k:
         switch (idx)
         {
-            case  0: arch.SetTriple ("armv7k-apple-ios");   return true;
-            case  1: arch.SetTriple ("armv7-apple-ios");    return true;
-            case  2: arch.SetTriple ("armv6m-apple-ios");   return true;
-            case  3: arch.SetTriple ("armv6-apple-ios");    return true;
-            case  4: arch.SetTriple ("armv5-apple-ios");    return true;
-            case  5: arch.SetTriple ("armv4-apple-ios");    return true;
-            case  6: arch.SetTriple ("arm-apple-ios");      return true;
-            case  7: arch.SetTriple ("thumbv7k-apple-ios"); return true;
-            case  8: arch.SetTriple ("thumbv7-apple-ios");  return true;
-            case  9: arch.SetTriple ("thumbv6m-apple-ios"); return true;
-            case 10: arch.SetTriple ("thumbv6-apple-ios");  return true;
-            case 11: arch.SetTriple ("thumbv5-apple-ios");  return true;
-            case 12: arch.SetTriple ("thumbv4t-apple-ios"); return true;
-            case 13: arch.SetTriple ("thumb-apple-ios");    return true;
+            case  0: arch.SetTriple ("armv7k-apple-" OSNAME);   return true;
+            case  1: arch.SetTriple ("armv7-apple-" OSNAME);    return true;
+            case  2: arch.SetTriple ("armv6m-apple-" OSNAME);   return true;
+            case  3: arch.SetTriple ("armv6-apple-" OSNAME);    return true;
+            case  4: arch.SetTriple ("armv5-apple-" OSNAME);    return true;
+            case  5: arch.SetTriple ("armv4-apple-" OSNAME);    return true;
+            case  6: arch.SetTriple ("arm-apple-" OSNAME);      return true;
+            case  7: arch.SetTriple ("thumbv7k-apple-" OSNAME); return true;
+            case  8: arch.SetTriple ("thumbv7-apple-" OSNAME);  return true;
+            case  9: arch.SetTriple ("thumbv6m-apple-" OSNAME); return true;
+            case 10: arch.SetTriple ("thumbv6-apple-" OSNAME);  return true;
+            case 11: arch.SetTriple ("thumbv5-apple-" OSNAME);  return true;
+            case 12: arch.SetTriple ("thumbv4t-apple-" OSNAME); return true;
+            case 13: arch.SetTriple ("thumb-apple-" OSNAME);    return true;
             default: break;
         }
         break;
@@ -868,20 +889,20 @@ PlatformDarwin::ARMGetSupportedArchitectureAtIndex (uint32_t idx, ArchSpec &arch
     case ArchSpec::eCore_arm_armv7s:
         switch (idx)
         {
-            case  0: arch.SetTriple ("armv7s-apple-ios");   return true;
-            case  1: arch.SetTriple ("armv7-apple-ios");    return true;
-            case  2: arch.SetTriple ("armv6m-apple-ios");   return true;
-            case  3: arch.SetTriple ("armv6-apple-ios");    return true;
-            case  4: arch.SetTriple ("armv5-apple-ios");    return true;
-            case  5: arch.SetTriple ("armv4-apple-ios");    return true;
-            case  6: arch.SetTriple ("arm-apple-ios");      return true;
-            case  7: arch.SetTriple ("thumbv7s-apple-ios"); return true;
-            case  8: arch.SetTriple ("thumbv7-apple-ios");  return true;
-            case  9: arch.SetTriple ("thumbv6m-apple-ios"); return true;
-            case 10: arch.SetTriple ("thumbv6-apple-ios");  return true;
-            case 11: arch.SetTriple ("thumbv5-apple-ios");  return true;
-            case 12: arch.SetTriple ("thumbv4t-apple-ios"); return true;
-            case 13: arch.SetTriple ("thumb-apple-ios");    return true;
+            case  0: arch.SetTriple ("armv7s-apple-" OSNAME);   return true;
+            case  1: arch.SetTriple ("armv7-apple-" OSNAME);    return true;
+            case  2: arch.SetTriple ("armv6m-apple-" OSNAME);   return true;
+            case  3: arch.SetTriple ("armv6-apple-" OSNAME);    return true;
+            case  4: arch.SetTriple ("armv5-apple-" OSNAME);    return true;
+            case  5: arch.SetTriple ("armv4-apple-" OSNAME);    return true;
+            case  6: arch.SetTriple ("arm-apple-" OSNAME);      return true;
+            case  7: arch.SetTriple ("thumbv7s-apple-" OSNAME); return true;
+            case  8: arch.SetTriple ("thumbv7-apple-" OSNAME);  return true;
+            case  9: arch.SetTriple ("thumbv6m-apple-" OSNAME); return true;
+            case 10: arch.SetTriple ("thumbv6-apple-" OSNAME);  return true;
+            case 11: arch.SetTriple ("thumbv5-apple-" OSNAME);  return true;
+            case 12: arch.SetTriple ("thumbv4t-apple-" OSNAME); return true;
+            case 13: arch.SetTriple ("thumb-apple-" OSNAME);    return true;
             default: break;
         }
         break;
@@ -889,20 +910,20 @@ PlatformDarwin::ARMGetSupportedArchitectureAtIndex (uint32_t idx, ArchSpec &arch
     case ArchSpec::eCore_arm_armv7m:
         switch (idx)
         {
-            case  0: arch.SetTriple ("armv7m-apple-ios");   return true;
-            case  1: arch.SetTriple ("armv7-apple-ios");    return true;
-            case  2: arch.SetTriple ("armv6m-apple-ios");   return true;
-            case  3: arch.SetTriple ("armv6-apple-ios");    return true;
-            case  4: arch.SetTriple ("armv5-apple-ios");    return true;
-            case  5: arch.SetTriple ("armv4-apple-ios");    return true;
-            case  6: arch.SetTriple ("arm-apple-ios");      return true;
-            case  7: arch.SetTriple ("thumbv7m-apple-ios"); return true;
-            case  8: arch.SetTriple ("thumbv7-apple-ios");  return true;
-            case  9: arch.SetTriple ("thumbv6m-apple-ios"); return true;
-            case 10: arch.SetTriple ("thumbv6-apple-ios");  return true;
-            case 11: arch.SetTriple ("thumbv5-apple-ios");  return true;
-            case 12: arch.SetTriple ("thumbv4t-apple-ios"); return true;
-            case 13: arch.SetTriple ("thumb-apple-ios");    return true;
+            case  0: arch.SetTriple ("armv7m-apple-" OSNAME);   return true;
+            case  1: arch.SetTriple ("armv7-apple-" OSNAME);    return true;
+            case  2: arch.SetTriple ("armv6m-apple-" OSNAME);   return true;
+            case  3: arch.SetTriple ("armv6-apple-" OSNAME);    return true;
+            case  4: arch.SetTriple ("armv5-apple-" OSNAME);    return true;
+            case  5: arch.SetTriple ("armv4-apple-" OSNAME);    return true;
+            case  6: arch.SetTriple ("arm-apple-" OSNAME);      return true;
+            case  7: arch.SetTriple ("thumbv7m-apple-" OSNAME); return true;
+            case  8: arch.SetTriple ("thumbv7-apple-" OSNAME);  return true;
+            case  9: arch.SetTriple ("thumbv6m-apple-" OSNAME); return true;
+            case 10: arch.SetTriple ("thumbv6-apple-" OSNAME);  return true;
+            case 11: arch.SetTriple ("thumbv5-apple-" OSNAME);  return true;
+            case 12: arch.SetTriple ("thumbv4t-apple-" OSNAME); return true;
+            case 13: arch.SetTriple ("thumb-apple-" OSNAME);    return true;
             default: break;
         }
         break;
@@ -910,20 +931,20 @@ PlatformDarwin::ARMGetSupportedArchitectureAtIndex (uint32_t idx, ArchSpec &arch
     case ArchSpec::eCore_arm_armv7em:
         switch (idx)
         {
-            case  0: arch.SetTriple ("armv7em-apple-ios");  return true;
-            case  1: arch.SetTriple ("armv7-apple-ios");    return true;
-            case  2: arch.SetTriple ("armv6m-apple-ios");   return true;
-            case  3: arch.SetTriple ("armv6-apple-ios");    return true;
-            case  4: arch.SetTriple ("armv5-apple-ios");    return true;
-            case  5: arch.SetTriple ("armv4-apple-ios");    return true;
-            case  6: arch.SetTriple ("arm-apple-ios");      return true;
-            case  7: arch.SetTriple ("thumbv7em-apple-ios"); return true;
-            case  8: arch.SetTriple ("thumbv7-apple-ios");  return true;
-            case  9: arch.SetTriple ("thumbv6m-apple-ios"); return true;
-            case 10: arch.SetTriple ("thumbv6-apple-ios");  return true;
-            case 11: arch.SetTriple ("thumbv5-apple-ios");  return true;
-            case 12: arch.SetTriple ("thumbv4t-apple-ios"); return true;
-            case 13: arch.SetTriple ("thumb-apple-ios");    return true;
+            case  0: arch.SetTriple ("armv7em-apple-" OSNAME);  return true;
+            case  1: arch.SetTriple ("armv7-apple-" OSNAME);    return true;
+            case  2: arch.SetTriple ("armv6m-apple-" OSNAME);   return true;
+            case  3: arch.SetTriple ("armv6-apple-" OSNAME);    return true;
+            case  4: arch.SetTriple ("armv5-apple-" OSNAME);    return true;
+            case  5: arch.SetTriple ("armv4-apple-" OSNAME);    return true;
+            case  6: arch.SetTriple ("arm-apple-" OSNAME);      return true;
+            case  7: arch.SetTriple ("thumbv7em-apple-" OSNAME); return true;
+            case  8: arch.SetTriple ("thumbv7-apple-" OSNAME);  return true;
+            case  9: arch.SetTriple ("thumbv6m-apple-" OSNAME); return true;
+            case 10: arch.SetTriple ("thumbv6-apple-" OSNAME);  return true;
+            case 11: arch.SetTriple ("thumbv5-apple-" OSNAME);  return true;
+            case 12: arch.SetTriple ("thumbv4t-apple-" OSNAME); return true;
+            case 13: arch.SetTriple ("thumb-apple-" OSNAME);    return true;
             default: break;
         }
         break;
@@ -931,18 +952,18 @@ PlatformDarwin::ARMGetSupportedArchitectureAtIndex (uint32_t idx, ArchSpec &arch
     case ArchSpec::eCore_arm_armv7:
         switch (idx)
         {
-            case  0: arch.SetTriple ("armv7-apple-ios");    return true;
-            case  1: arch.SetTriple ("armv6m-apple-ios");   return true;
-            case  2: arch.SetTriple ("armv6-apple-ios");    return true;
-            case  3: arch.SetTriple ("armv5-apple-ios");    return true;
-            case  4: arch.SetTriple ("armv4-apple-ios");    return true;
-            case  5: arch.SetTriple ("arm-apple-ios");      return true;
-            case  6: arch.SetTriple ("thumbv7-apple-ios");  return true;
-            case  7: arch.SetTriple ("thumbv6m-apple-ios"); return true;
-            case  8: arch.SetTriple ("thumbv6-apple-ios");  return true;
-            case  9: arch.SetTriple ("thumbv5-apple-ios");  return true;
-            case 10: arch.SetTriple ("thumbv4t-apple-ios"); return true;
-            case 11: arch.SetTriple ("thumb-apple-ios");    return true;
+            case  0: arch.SetTriple ("armv7-apple-" OSNAME);    return true;
+            case  1: arch.SetTriple ("armv6m-apple-" OSNAME);   return true;
+            case  2: arch.SetTriple ("armv6-apple-" OSNAME);    return true;
+            case  3: arch.SetTriple ("armv5-apple-" OSNAME);    return true;
+            case  4: arch.SetTriple ("armv4-apple-" OSNAME);    return true;
+            case  5: arch.SetTriple ("arm-apple-" OSNAME);      return true;
+            case  6: arch.SetTriple ("thumbv7-apple-" OSNAME);  return true;
+            case  7: arch.SetTriple ("thumbv6m-apple-" OSNAME); return true;
+            case  8: arch.SetTriple ("thumbv6-apple-" OSNAME);  return true;
+            case  9: arch.SetTriple ("thumbv5-apple-" OSNAME);  return true;
+            case 10: arch.SetTriple ("thumbv4t-apple-" OSNAME); return true;
+            case 11: arch.SetTriple ("thumb-apple-" OSNAME);    return true;
             default: break;
         }
         break;
@@ -950,16 +971,16 @@ PlatformDarwin::ARMGetSupportedArchitectureAtIndex (uint32_t idx, ArchSpec &arch
     case ArchSpec::eCore_arm_armv6m:
         switch (idx)
         {
-            case 0: arch.SetTriple ("armv6m-apple-ios");   return true;
-            case 1: arch.SetTriple ("armv6-apple-ios");    return true;
-            case 2: arch.SetTriple ("armv5-apple-ios");    return true;
-            case 3: arch.SetTriple ("armv4-apple-ios");    return true;
-            case 4: arch.SetTriple ("arm-apple-ios");      return true;
-            case 5: arch.SetTriple ("thumbv6m-apple-ios"); return true;
-            case 6: arch.SetTriple ("thumbv6-apple-ios");  return true;
-            case 7: arch.SetTriple ("thumbv5-apple-ios");  return true;
-            case 8: arch.SetTriple ("thumbv4t-apple-ios"); return true;
-            case 9: arch.SetTriple ("thumb-apple-ios");    return true;
+            case 0: arch.SetTriple ("armv6m-apple-" OSNAME);   return true;
+            case 1: arch.SetTriple ("armv6-apple-" OSNAME);    return true;
+            case 2: arch.SetTriple ("armv5-apple-" OSNAME);    return true;
+            case 3: arch.SetTriple ("armv4-apple-" OSNAME);    return true;
+            case 4: arch.SetTriple ("arm-apple-" OSNAME);      return true;
+            case 5: arch.SetTriple ("thumbv6m-apple-" OSNAME); return true;
+            case 6: arch.SetTriple ("thumbv6-apple-" OSNAME);  return true;
+            case 7: arch.SetTriple ("thumbv5-apple-" OSNAME);  return true;
+            case 8: arch.SetTriple ("thumbv4t-apple-" OSNAME); return true;
+            case 9: arch.SetTriple ("thumb-apple-" OSNAME);    return true;
             default: break;
         }
         break;
@@ -967,14 +988,14 @@ PlatformDarwin::ARMGetSupportedArchitectureAtIndex (uint32_t idx, ArchSpec &arch
     case ArchSpec::eCore_arm_armv6:
         switch (idx)
         {
-            case 0: arch.SetTriple ("armv6-apple-ios");    return true;
-            case 1: arch.SetTriple ("armv5-apple-ios");    return true;
-            case 2: arch.SetTriple ("armv4-apple-ios");    return true;
-            case 3: arch.SetTriple ("arm-apple-ios");      return true;
-            case 4: arch.SetTriple ("thumbv6-apple-ios");  return true;
-            case 5: arch.SetTriple ("thumbv5-apple-ios");  return true;
-            case 6: arch.SetTriple ("thumbv4t-apple-ios"); return true;
-            case 7: arch.SetTriple ("thumb-apple-ios");    return true;
+            case 0: arch.SetTriple ("armv6-apple-" OSNAME);    return true;
+            case 1: arch.SetTriple ("armv5-apple-" OSNAME);    return true;
+            case 2: arch.SetTriple ("armv4-apple-" OSNAME);    return true;
+            case 3: arch.SetTriple ("arm-apple-" OSNAME);      return true;
+            case 4: arch.SetTriple ("thumbv6-apple-" OSNAME);  return true;
+            case 5: arch.SetTriple ("thumbv5-apple-" OSNAME);  return true;
+            case 6: arch.SetTriple ("thumbv4t-apple-" OSNAME); return true;
+            case 7: arch.SetTriple ("thumb-apple-" OSNAME);    return true;
             default: break;
         }
         break;
@@ -982,12 +1003,12 @@ PlatformDarwin::ARMGetSupportedArchitectureAtIndex (uint32_t idx, ArchSpec &arch
     case ArchSpec::eCore_arm_armv5:
         switch (idx)
         {
-            case 0: arch.SetTriple ("armv5-apple-ios");    return true;
-            case 1: arch.SetTriple ("armv4-apple-ios");    return true;
-            case 2: arch.SetTriple ("arm-apple-ios");      return true;
-            case 3: arch.SetTriple ("thumbv5-apple-ios");  return true;
-            case 4: arch.SetTriple ("thumbv4t-apple-ios"); return true;
-            case 5: arch.SetTriple ("thumb-apple-ios");    return true;
+            case 0: arch.SetTriple ("armv5-apple-" OSNAME);    return true;
+            case 1: arch.SetTriple ("armv4-apple-" OSNAME);    return true;
+            case 2: arch.SetTriple ("arm-apple-" OSNAME);      return true;
+            case 3: arch.SetTriple ("thumbv5-apple-" OSNAME);  return true;
+            case 4: arch.SetTriple ("thumbv4t-apple-" OSNAME); return true;
+            case 5: arch.SetTriple ("thumb-apple-" OSNAME);    return true;
             default: break;
         }
         break;
@@ -995,10 +1016,10 @@ PlatformDarwin::ARMGetSupportedArchitectureAtIndex (uint32_t idx, ArchSpec &arch
     case ArchSpec::eCore_arm_armv4:
         switch (idx)
         {
-            case 0: arch.SetTriple ("armv4-apple-ios");    return true;
-            case 1: arch.SetTriple ("arm-apple-ios");      return true;
-            case 2: arch.SetTriple ("thumbv4t-apple-ios"); return true;
-            case 3: arch.SetTriple ("thumb-apple-ios");    return true;
+            case 0: arch.SetTriple ("armv4-apple-" OSNAME);    return true;
+            case 1: arch.SetTriple ("arm-apple-" OSNAME);      return true;
+            case 2: arch.SetTriple ("thumbv4t-apple-" OSNAME); return true;
+            case 3: arch.SetTriple ("thumb-apple-" OSNAME);    return true;
             default: break;
         }
         break;
@@ -1217,58 +1238,96 @@ static const char *const sdk_strings[] = {
 };
 
 static FileSpec
+CheckPathForXcode(const FileSpec &fspec)
+{
+    if (fspec.Exists())
+    {
+        const char substr[] = ".app/Contents/";
+
+        std::string path_to_shlib = fspec.GetPath();
+        size_t pos = path_to_shlib.rfind(substr);
+        if (pos != std::string::npos)
+        {
+            path_to_shlib.erase(pos + strlen(substr));
+            FileSpec ret (path_to_shlib.c_str(), false);
+            
+            FileSpec xcode_binary_path = ret;
+            xcode_binary_path.AppendPathComponent("MacOS");
+            xcode_binary_path.AppendPathComponent("Xcode");
+            
+            if (xcode_binary_path.Exists())
+            {
+                return ret;
+            }
+        }
+    }
+    return FileSpec();
+}
+
+static FileSpec
 GetXcodeContentsPath ()
 {
-    const char substr[] = ".app/Contents/";
-    
-    // First, try based on the current shlib's location
-    
-    {
+    static FileSpec g_xcode_filespec;
+    static std::once_flag g_once_flag;
+    std::call_once(g_once_flag, []() {
+
+
         FileSpec fspec;
-        
-        if (HostInfo::GetLLDBPath (lldb::ePathTypeLLDBShlibDir, fspec))
+
+        // First get the program file spec. If lldb.so or LLDB.framework is running
+        // in a program and that program is Xcode, the path returned with be the path
+        // to Xcode.app/Contents/MacOS/Xcode, so this will be the correct Xcode to use.
+        fspec = HostInfo::GetProgramFileSpec();
+
+        if (fspec)
         {
-            std::string path_to_shlib = fspec.GetPath();
-            size_t pos = path_to_shlib.rfind(substr);
-            if (pos != std::string::npos)
+            // Ignore the current binary if it is python.
+            std::string basename_lower = fspec.GetFilename ().GetCString ();
+            std::transform(basename_lower.begin (), basename_lower.end (), basename_lower.begin (), tolower);
+            if (basename_lower != "python")
             {
-                path_to_shlib.erase(pos + strlen(substr));
-                return FileSpec(path_to_shlib.c_str(), false);
+                g_xcode_filespec = CheckPathForXcode(fspec);
             }
         }
-    }
-    
-    // Fall back to using xcrun
-    
-    {
-        int status = 0;
-        int signo = 0;
-        std::string output;
-        const char *command = "xcrun -sdk macosx --show-sdk-path";
-        lldb_private::Error error = Host::RunShellCommand (command,   // shell command to run
-                                                           NULL,      // current working directory
-                                                           &status,   // Put the exit status of the process in here
-                                                           &signo,    // Put the signal that caused the process to exit in here
-                                                           &output,   // Get the output from the command and place it in this string
-                                                           3);        // Timeout in seconds to wait for shell program to finish
-        if (status == 0 && !output.empty())
+
+        // Next check DEVELOPER_DIR environment variable
+        if (!g_xcode_filespec)
         {
-            size_t first_non_newline = output.find_last_not_of("\r\n");
-            if (first_non_newline != std::string::npos)
+            const char *developer_dir_env_var = getenv("DEVELOPER_DIR");
+            if (developer_dir_env_var && developer_dir_env_var[0])
             {
-                output.erase(first_non_newline+1);
+                g_xcode_filespec = CheckPathForXcode(FileSpec(developer_dir_env_var, true));
             }
-            
-            size_t pos = output.rfind(substr);
-            if (pos != std::string::npos)
+
+            // Fall back to using "xcrun" to find the selected Xcode
+            if (!g_xcode_filespec)
             {
-                output.erase(pos + strlen(substr));
-                return FileSpec(output.c_str(), false);
+                int status = 0;
+                int signo = 0;
+                std::string output;
+                const char *command = "/usr/bin/xcode-select -p";
+                lldb_private::Error error = Host::RunShellCommand (command,   // shell command to run
+                                                                   NULL,      // current working directory
+                                                                   &status,   // Put the exit status of the process in here
+                                                                   &signo,    // Put the signal that caused the process to exit in here
+                                                                   &output,   // Get the output from the command and place it in this string
+                                                                   3);        // Timeout in seconds to wait for shell program to finish
+                if (status == 0 && !output.empty())
+                {
+                    size_t first_non_newline = output.find_last_not_of("\r\n");
+                    if (first_non_newline != std::string::npos)
+                    {
+                        output.erase(first_non_newline+1);
+                    }
+                    output.append("/..");
+
+                    g_xcode_filespec = CheckPathForXcode(FileSpec(output.c_str(), false));
+                }
             }
         }
-    }
+    });
     
-    return FileSpec();
+    return g_xcode_filespec;
 }
 
 bool
@@ -1551,3 +1610,104 @@ PlatformDarwin::GetFullNameForDylib (ConstString basename)
     return ConstString(stream.GetData());
 }
 
+bool
+PlatformDarwin::GetOSVersion (uint32_t &major,
+                              uint32_t &minor,
+                              uint32_t &update,
+                              Process *process)
+{
+    if (process && strstr(GetPluginName().GetCString(), "-simulator"))
+    {
+        lldb_private::ProcessInstanceInfo proc_info;
+        if (Host::GetProcessInfo(process->GetID(), proc_info))
+        {
+            Args &env = proc_info.GetEnvironmentEntries();
+            const size_t n = env.GetArgumentCount();
+            const llvm::StringRef k_runtime_version("SIMULATOR_RUNTIME_VERSION=");
+            const llvm::StringRef k_dyld_root_path("DYLD_ROOT_PATH=");
+            std::string dyld_root_path;
+
+            for (size_t i=0; i<n; ++i)
+            {
+                const char *env_cstr = env.GetArgumentAtIndex(i);
+                if (env_cstr)
+                {
+                    llvm::StringRef env_str(env_cstr);
+                    if (env_str.startswith(k_runtime_version))
+                    {
+                        llvm::StringRef version_str(env_str.substr(k_runtime_version.size()));
+                        Args::StringToVersion (version_str.data(), major, minor, update);
+                        if (major != UINT32_MAX)
+                            return true;
+                    }
+                    else if (env_str.startswith(k_dyld_root_path))
+                    {
+                        dyld_root_path = env_str.substr(k_dyld_root_path.size()).str();
+                    }
+                }
+            }
+
+            if (!dyld_root_path.empty())
+            {
+                dyld_root_path += "/System/Library/CoreServices/SystemVersion.plist";
+                ApplePropertyList system_version_plist(dyld_root_path.c_str());
+                std::string product_version;
+                if (system_version_plist.GetValueAsString("ProductVersion", product_version))
+                {
+                    Args::StringToVersion (product_version.c_str(), major, minor, update);
+                    return major != UINT32_MAX;
+                }
+            }
+
+        }
+        // For simulator platforms, do NOT call back through Platform::GetOSVersion()
+        // as it might call Process::GetHostOSVersion() which we don't want as it will be
+        // incorrect
+        return false;
+    }
+
+    return Platform::GetOSVersion(major, minor, update, process);
+}
+
+lldb_private::FileSpec
+PlatformDarwin::LocateExecutable (const char *basename)
+{
+    // A collection of SBFileSpec whose SBFileSpec.m_directory members are filled in with
+    // any executable directories that should be searched.
+    static std::vector<FileSpec> g_executable_dirs;
+
+    // Find the global list of directories that we will search for
+    // executables once so we don't keep doing the work over and over.
+    static std::once_flag g_once_flag;
+    std::call_once(g_once_flag,  []() {
+
+        // When locating executables, trust the DEVELOPER_DIR first if it is set
+        FileSpec xcode_contents_dir = GetXcodeContentsPath();
+        if (xcode_contents_dir)
+        {
+            FileSpec xcode_lldb_resources = xcode_contents_dir;
+            xcode_lldb_resources.AppendPathComponent("SharedFrameworks");
+            xcode_lldb_resources.AppendPathComponent("LLDB.framework");
+            xcode_lldb_resources.AppendPathComponent("Resources");
+            if (xcode_lldb_resources.Exists())
+            {
+                FileSpec dir;
+                dir.GetDirectory().SetCString(xcode_lldb_resources.GetPath().c_str());
+                g_executable_dirs.push_back(dir);
+            }
+        }
+    });
+
+    // Now search the global list of executable directories for the executable we
+    // are looking for
+    for (const auto &executable_dir : g_executable_dirs)
+    {
+        FileSpec executable_file;
+        executable_file.GetDirectory() = executable_dir.GetDirectory();
+        executable_file.GetFilename().SetCString(basename);
+        if (executable_file.Exists())
+            return executable_file;
+    }
+
+    return FileSpec();
+}

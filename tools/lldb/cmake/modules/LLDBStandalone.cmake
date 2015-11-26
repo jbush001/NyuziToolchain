@@ -23,6 +23,7 @@ if (CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     else()
       get_filename_component(LLVM_MAIN_SRC_DIR ${LLDB_PATH_TO_LLVM_SOURCE}
                              ABSOLUTE)
+      set(LLVM_MAIN_INCLUDE_DIR "${LLVM_MAIN_SRC_DIR}/include")
       list(APPEND CMAKE_MODULE_PATH "${LLVM_MAIN_SRC_DIR}/cmake/modules")
     endif()
   endif()
@@ -30,15 +31,27 @@ if (CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
   if (LLDB_PATH_TO_CLANG_SOURCE)
       get_filename_component(CLANG_MAIN_SRC_DIR ${LLDB_PATH_TO_CLANG_SOURCE}
                              ABSOLUTE)
+      set(CLANG_MAIN_INCLUDE_DIR "${CLANG_MAIN_SRC_DIR}/include")
   endif()
 
   list(APPEND CMAKE_MODULE_PATH "${LLDB_PATH_TO_LLVM_BUILD}/share/llvm/cmake")
 
-  get_filename_component(PATH_TO_LLVM_BUILD ${LLDB_PATH_TO_LLVM_BUILD}
-                         ABSOLUTE)
+  if (LLDB_PATH_TO_LLVM_BUILD)
+    get_filename_component(PATH_TO_LLVM_BUILD ${LLDB_PATH_TO_LLVM_BUILD}
+                           ABSOLUTE)
+  else()
+    message(FATAL_ERROR "Please set LLDB_PATH_TO_LLVM_BUILD to the root "
+            "directory of LLVM build or install site.")
+  endif()
 
-  get_filename_component(PATH_TO_CLANG_BUILD ${LLDB_PATH_TO_CLANG_BUILD}
-                         ABSOLUTE)
+  if (LLDB_PATH_TO_CLANG_BUILD)
+    get_filename_component(PATH_TO_CLANG_BUILD ${LLDB_PATH_TO_CLANG_BUILD}
+                           ABSOLUTE)
+  else()
+    message(FATAL_ERROR "Please set LLDB_PATH_TO_CLANG_BUILD to the root "
+            "directory of Clang build or install site.")
+  endif()
+
 
   # These variables are used by add_llvm_library.
   set(LLVM_RUNTIME_OUTPUT_INTDIR ${CMAKE_BINARY_DIR}/${CMAKE_CFG_INTDIR}/bin)
@@ -48,9 +61,8 @@ if (CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
   include(AddLLVM)
   include(HandleLLVMOptions)
 
-  # Verify that we can find a Python 2 interpreter.  Python 3 is unsupported.
   if (PYTHON_EXECUTABLE STREQUAL "")
-    set(Python_ADDITIONAL_VERSIONS 2.7 2.6 2.5)
+    set(Python_ADDITIONAL_VERSIONS 3.5 3.4 3.3 3.2 3.1 3.0 2.7 2.6 2.5)
     include(FindPythonInterp)
     if( NOT PYTHONINTERP_FOUND )
       message(FATAL_ERROR
@@ -68,10 +80,7 @@ if (CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
 
   set(PACKAGE_VERSION "${LLVM_PACKAGE_VERSION}")
 
-  set(LLVM_MAIN_INCLUDE_DIR "${LLVM_MAIN_SRC_DIR}/include")
   set(LLVM_BINARY_DIR ${CMAKE_BINARY_DIR})
-
-  set(CLANG_MAIN_INCLUDE_DIR "${CLANG_MAIN_SRC_DIR}/include")
 
   set(CMAKE_INCLUDE_CURRENT_DIR ON)
   include_directories("${PATH_TO_LLVM_BUILD}/include"

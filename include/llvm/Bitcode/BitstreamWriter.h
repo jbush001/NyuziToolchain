@@ -47,9 +47,9 @@ class BitstreamWriter {
 
   struct Block {
     unsigned PrevCodeSize;
-    unsigned StartSizeWord;
+    size_t StartSizeWord;
     std::vector<IntrusiveRefCntPtr<BitCodeAbbrev>> PrevAbbrevs;
-    Block(unsigned PCS, unsigned SSW) : PrevCodeSize(PCS), StartSizeWord(SSW) {}
+    Block(unsigned PCS, size_t SSW) : PrevCodeSize(PCS), StartSizeWord(SSW) {}
   };
 
   /// BlockScope - This tracks the current blocks that we have entered.
@@ -73,12 +73,10 @@ class BitstreamWriter {
                reinterpret_cast<const char *>(&Value + 1));
   }
 
-  unsigned GetBufferOffset() const {
-    return Out.size();
-  }
+  size_t GetBufferOffset() const { return Out.size(); }
 
-  unsigned GetWordIndex() const {
-    unsigned Offset = GetBufferOffset();
+  size_t GetWordIndex() const {
+    size_t Offset = GetBufferOffset();
     assert((Offset & 3) == 0 && "Not 32-bit aligned");
     return Offset / 4;
   }
@@ -95,6 +93,9 @@ public:
   /// \brief Retrieve the current position in the stream, in bits.
   uint64_t GetCurrentBitNo() const { return GetBufferOffset() * 8 + CurBit; }
 
+  /// \brief Retrieve the number of bits currently used to encode an abbrev ID.
+  unsigned GetAbbrevIDWidth() const { return CurCodeSize; }
+
   //===--------------------------------------------------------------------===//
   // Basic Primitives for emitting bits to the stream.
   //===--------------------------------------------------------------------===//
@@ -102,18 +103,13 @@ public:
   /// Backpatch a 32-bit word in the output at the given bit offset
   /// with the specified value.
   void BackpatchWord(uint64_t BitNo, unsigned NewWord) {
+    using namespace llvm::support;
     unsigned ByteNo = BitNo / 8;
-    if ((BitNo & 7) == 0) {
-      // Already 8-bit aligned
-      support::endian::write32le(&Out[ByteNo], NewWord);
-    } else {
-      uint64_t CurDWord = support::endian::read64le(&Out[ByteNo]);
-      unsigned StartBit = BitNo & 7;
-      // Currently expect to backpatch 0-value placeholders.
-      assert(((CurDWord >> StartBit) & 0xffffffff) == 0);
-      CurDWord |= NewWord << StartBit;
-      support::endian::write64le(&Out[ByteNo], CurDWord);
-    }
+    assert((!endian::readAtBitAlignment<uint32_t, little, unaligned>(
+               &Out[ByteNo], BitNo & 7)) &&
+           "Expected to be patching over 0-value placeholders");
+    endian::writeAtBitAlignment<uint32_t, little, unaligned>(
+        &Out[ByteNo], NewWord, BitNo & 7);
   }
 
   void Emit(uint32_t Val, unsigned NumBits) {
@@ -213,7 +209,7 @@ public:
     EmitVBR(CodeLen, bitc::CodeLenWidth);
     FlushToWord();
 
-    unsigned BlockSizeWordIndex = GetWordIndex();
+    size_t BlockSizeWordIndex = GetWordIndex();
     unsigned OldCodeSize = CurCodeSize;
 
     // Emit a placeholder, which will be replaced when the block is popped.
@@ -244,8 +240,8 @@ public:
     FlushToWord();
 
     // Compute the size of the block, in words, not counting the size field.
-    unsigned SizeInWords = GetWordIndex() - B.StartSizeWord - 1;
-    uint64_t BitNo = B.StartSizeWord * 32;
+    size_t SizeInWords = GetWordIndex() - B.StartSizeWord - 1;
+    uint64_t BitNo = uint64_t(B.StartSizeWord) * 32;
 
     // Update the block size field in the header of this sub-block.
     BackpatchWord(BitNo, SizeInWords);

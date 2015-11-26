@@ -199,7 +199,8 @@ public:
   //  case Expr::ChooseExprClass:
   void VisitCXXThrowExpr(const CXXThrowExpr *E) { CGF.EmitCXXThrowExpr(E); }
   void VisitAtomicExpr(AtomicExpr *E) {
-    CGF.EmitAtomicExpr(E, EnsureSlot(E->getType()).getAddress());
+    RValue Res = CGF.EmitAtomicExpr(E);
+    EmitFinalDestCopy(E->getType(), Res);
   }
 };
 }  // end anonymous namespace.
@@ -571,6 +572,8 @@ static Expr *findPeephole(Expr *op, CastKind kind) {
 }
 
 void AggExprEmitter::VisitCastExpr(CastExpr *E) {
+  if (const auto *ECE = dyn_cast<ExplicitCastExpr>(E))
+    CGF.CGM.EmitExplicitCastExprType(ECE, &CGF);
   switch (E->getCastKind()) {
   case CK_Dynamic: {
     // FIXME: Can this actually happen? We have no test coverage for it.

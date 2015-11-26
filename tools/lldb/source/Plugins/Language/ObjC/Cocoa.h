@@ -18,19 +18,11 @@
 namespace lldb_private {
     namespace formatters
     {
-        template<bool name_entries>
-        bool
-        NSDictionarySummaryProvider (ValueObject& valobj, Stream& stream, const TypeSummaryOptions& options);
-        
         bool
         NSIndexSetSummaryProvider (ValueObject& valobj, Stream& stream, const TypeSummaryOptions& options);
         
         bool
         NSArraySummaryProvider (ValueObject& valobj, Stream& stream, const TypeSummaryOptions& options);
-        
-        template<bool cf_style>
-        bool
-        NSSetSummaryProvider (ValueObject& valobj, Stream& stream, const TypeSummaryOptions& options);
         
         template<bool needs_at>
         bool
@@ -55,25 +47,7 @@ namespace lldb_private {
         NSBundleSummaryProvider (ValueObject& valobj, Stream& stream, const TypeSummaryOptions& options);
         
         bool
-        NSStringSummaryProvider (ValueObject& valobj, Stream& stream, const TypeSummaryOptions& options);
-        
-        bool
-        NSTaggedString_SummaryProvider (ObjCLanguageRuntime::ClassDescriptorSP descriptor, Stream& stream);
-        
-        bool
-        NSAttributedStringSummaryProvider (ValueObject& valobj, Stream& stream, const TypeSummaryOptions& options);
-        
-        bool
-        NSMutableAttributedStringSummaryProvider (ValueObject& valobj, Stream& stream, const TypeSummaryOptions& options);
-        
-        bool
         NSURLSummaryProvider (ValueObject& valobj, Stream& stream, const TypeSummaryOptions& options);
-        
-        extern template bool
-        NSDictionarySummaryProvider<true> (ValueObject&, Stream&, const TypeSummaryOptions&) ;
-        
-        extern template bool
-        NSDictionarySummaryProvider<false> (ValueObject&, Stream&, const TypeSummaryOptions&) ;
         
         extern template bool
         NSDataSummaryProvider<true> (ValueObject&, Stream&, const TypeSummaryOptions&) ;
@@ -82,10 +56,6 @@ namespace lldb_private {
         NSDataSummaryProvider<false> (ValueObject&, Stream&, const TypeSummaryOptions&) ;
         
         SyntheticChildrenFrontEnd* NSArraySyntheticFrontEndCreator (CXXSyntheticChildren*, lldb::ValueObjectSP);
-        
-        SyntheticChildrenFrontEnd* NSDictionarySyntheticFrontEndCreator (CXXSyntheticChildren*, lldb::ValueObjectSP);
-        
-        SyntheticChildrenFrontEnd* NSSetSyntheticFrontEndCreator (CXXSyntheticChildren*, lldb::ValueObjectSP);
         
         SyntheticChildrenFrontEnd* NSIndexPathSyntheticFrontEndCreator (CXXSyntheticChildren*, lldb::ValueObjectSP);
         
@@ -109,6 +79,18 @@ namespace lldb_private {
         
         bool
         RuntimeSpecificDescriptionSummaryProvider (ValueObject& valobj, Stream& stream, const TypeSummaryOptions& options);
+        
+        bool
+        NSError_SummaryProvider (ValueObject& valobj, Stream& stream, const TypeSummaryOptions& options);
+        
+        bool
+        NSException_SummaryProvider (ValueObject& valobj, Stream& stream, const TypeSummaryOptions& options);
+        
+        SyntheticChildrenFrontEnd*
+        NSErrorSyntheticFrontEndCreator (CXXSyntheticChildren*, lldb::ValueObjectSP valobj_sp);
+        
+        SyntheticChildrenFrontEnd*
+        NSExceptionSyntheticFrontEndCreator (CXXSyntheticChildren*, lldb::ValueObjectSP valobj_sp);
     } // namespace formatters
 } // namespace lldb_private
 

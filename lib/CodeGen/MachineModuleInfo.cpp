@@ -9,12 +9,12 @@
 
 #include "llvm/CodeGen/MachineModuleInfo.h"
 #include "llvm/ADT/PointerUnion.h"
+#include "llvm/ADT/TinyPtrVector.h"
 #include "llvm/Analysis/LibCallSemantics.h"
 #include "llvm/Analysis/ValueTracking.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/CodeGen/Passes.h"
-#include "llvm/CodeGen/WinEHFuncInfo.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/GlobalVariable.h"
@@ -321,12 +321,6 @@ void MachineModuleInfo::addPersonality(const Function *Personality) {
   Personalities.push_back(Personality);
 }
 
-void MachineModuleInfo::addWinEHState(MachineBasicBlock *LandingPad,
-                                      int State) {
-  LandingPadInfo &LP = getOrCreateLandingPadInfo(LandingPad);
-  LP.WinEHState = State;
-}
-
 /// addCatchTypeInfo - Provide the catch typeinfo for a landing pad.
 ///
 void MachineModuleInfo::
@@ -465,19 +459,4 @@ try_next:;
   FilterEnds.push_back(FilterIds.size());
   FilterIds.push_back(0); // terminator
   return FilterID;
-}
-
-const Function *MachineModuleInfo::getWinEHParent(const Function *F) const {
-  StringRef WinEHParentName =
-      F->getFnAttribute("wineh-parent").getValueAsString();
-  if (WinEHParentName.empty() || WinEHParentName == F->getName())
-    return F;
-  return F->getParent()->getFunction(WinEHParentName);
-}
-
-WinEHFuncInfo &MachineModuleInfo::getWinEHFuncInfo(const Function *F) {
-  auto &Ptr = FuncInfoMap[getWinEHParent(F)];
-  if (!Ptr)
-    Ptr.reset(new WinEHFuncInfo);
-  return *Ptr;
 }

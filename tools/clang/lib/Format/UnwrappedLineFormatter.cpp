@@ -199,12 +199,12 @@ private:
       return MergeShortFunctions ? tryMergeSimpleBlock(I, E, Limit) : 0;
     }
     if (TheLine->Last->is(tok::l_brace)) {
-      return Style.BreakBeforeBraces == FormatStyle::BS_Attach
+      return !Style.BraceWrapping.AfterFunction
                  ? tryMergeSimpleBlock(I, E, Limit)
                  : 0;
     }
     if (I[1]->First->is(TT_FunctionLBrace) &&
-        Style.BreakBeforeBraces != FormatStyle::BS_Attach) {
+        Style.BraceWrapping.AfterFunction) {
       if (I[1]->Last->is(TT_LineComment))
         return 0;
 
@@ -263,8 +263,7 @@ private:
       SmallVectorImpl<AnnotatedLine *>::const_iterator E, unsigned Limit) {
     if (Limit == 0)
       return 0;
-    if ((Style.BreakBeforeBraces == FormatStyle::BS_Allman ||
-         Style.BreakBeforeBraces == FormatStyle::BS_GNU) &&
+    if (Style.BraceWrapping.AfterControlStatement &&
         (I[1]->First->is(tok::l_brace) && !Style.AllowShortBlocksOnASingleLine))
       return 0;
     if (I[1]->InPPDirective != (*I)->InPPDirective ||
@@ -710,7 +709,7 @@ private:
 
       // Cut off the analysis of certain solutions if the analysis gets too
       // complex. See description of IgnoreStackForComparison.
-      if (Count > 10000)
+      if (Count > 50000)
         Node->State.IgnoreStackForComparison = true;
 
       if (!Seen.insert(&Node->State).second)
@@ -813,13 +812,26 @@ UnwrappedLineFormatter::format(const SmallVectorImpl<AnnotatedLine *> &Lines,
                                    AdditionalIndent);
   const AnnotatedLine *PreviousLine = nullptr;
   const AnnotatedLine *NextLine = nullptr;
+
+  // The minimum level of consecutive lines that have been formatted.
+  unsigned RangeMinLevel = UINT_MAX;
+
   for (const AnnotatedLine *Line =
            Joiner.getNextMergedLine(DryRun, IndentTracker);
        Line; Line = NextLine) {
     const AnnotatedLine &TheLine = *Line;
     unsigned Indent = IndentTracker.getIndent();
-    bool FixIndentation =
-        FixBadIndentation && (Indent != TheLine.First->OriginalColumn);
+
+    // We continue formatting unchanged lines to adjust their indent, e.g. if a
+    // scope was added. However, we need to carefully stop doing this when we
+    // exit the scope of affected lines to prevent indenting a the entire
+    // remaining file if it currently missing a closing brace.
+    bool ContinueFormatting =
+        TheLine.Level > RangeMinLevel ||
+        (TheLine.Level == RangeMinLevel && !TheLine.startsWith(tok::r_brace));
+
+    bool FixIndentation = (FixBadIndentation || ContinueFormatting) &&
+                          Indent != TheLine.First->OriginalColumn;
     bool ShouldFormat = TheLine.Affected || FixIndentation;
     // We cannot format this line; if the reason is that the line had a
     // parsing error, remember that.
@@ -846,6 +858,7 @@ UnwrappedLineFormatter::format(const SmallVectorImpl<AnnotatedLine *> &Lines,
       else
         Penalty += OptimizingLineFormatter(Indenter, Whitespaces, Style, this)
                        .formatLine(TheLine, Indent, DryRun);
+      RangeMinLevel = std::min(RangeMinLevel, TheLine.Level);
     } else {
       // If no token in the current line is affected, we still need to format
       // affected children.
@@ -876,6 +889,7 @@ UnwrappedLineFormatter::format(const SmallVectorImpl<AnnotatedLine *> &Lines,
           Whitespaces->addUntouchableToken(*Tok, TheLine.InPPDirective);
       }
       NextLine = Joiner.getNextMergedLine(DryRun, IndentTracker);
+      RangeMinLevel = UINT_MAX;
     }
     if (!DryRun)
       markFinalized(TheLine.First);

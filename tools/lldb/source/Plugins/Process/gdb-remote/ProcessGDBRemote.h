@@ -11,12 +11,14 @@
 #define liblldb_ProcessGDBRemote_h_
 
 // C Includes
-
 // C++ Includes
-#include <list>
+#include <atomic>
+#include <map>
+#include <string>
 #include <vector>
 
 // Other libraries and framework includes
+// Project includes
 #include "lldb/Core/ArchSpec.h"
 #include "lldb/Core/Broadcaster.h"
 #include "lldb/Core/ConstString.h"
@@ -42,9 +44,10 @@ class ThreadGDBRemote;
 class ProcessGDBRemote : public Process
 {
 public:
-    //------------------------------------------------------------------
-    // Constructors and Destructors
-    //------------------------------------------------------------------
+    ProcessGDBRemote(lldb::TargetSP target_sp, Listener &listener);
+
+    ~ProcessGDBRemote() override;
+
     static lldb::ProcessSP
     CreateInstance (lldb::TargetSP target_sp,
                     Listener &listener,
@@ -64,14 +67,6 @@ public:
 
     static const char *
     GetPluginDescriptionStatic();
-
-    //------------------------------------------------------------------
-    // Constructors and Destructors
-    //------------------------------------------------------------------
-    ProcessGDBRemote(lldb::TargetSP target_sp, Listener &listener);
-
-    virtual
-    ~ProcessGDBRemote();
 
     //------------------------------------------------------------------
     // Check if a given Process
@@ -244,6 +239,11 @@ public:
                   const ArchSpec& arch,
                   ModuleSpec &module_spec) override;
 
+    bool
+    GetHostOSVersion(uint32_t &major,
+                     uint32_t &minor,
+                     uint32_t &update) override;
+
     size_t
     LoadModules() override;
 
@@ -262,84 +262,6 @@ protected:
     friend class GDBRemoteRegisterContext;
 
     class GDBLoadedModuleInfoList;
-
-    //----------------------------------------------------------------------
-    // Accessors
-    //----------------------------------------------------------------------
-    bool
-    IsRunning ( lldb::StateType state )
-    {
-        return    state == lldb::eStateRunning || IsStepping(state);
-    }
-
-    bool
-    IsStepping ( lldb::StateType state)
-    {
-        return    state == lldb::eStateStepping;
-    }
-    bool
-    CanResume ( lldb::StateType state)
-    {
-        return state == lldb::eStateStopped;
-    }
-
-    bool
-    HasExited (lldb::StateType state)
-    {
-        return state == lldb::eStateExited;
-    }
-
-    bool
-    ProcessIDIsValid ( ) const;
-
-    void
-    Clear ( );
-
-    Flags &
-    GetFlags ()
-    {
-        return m_flags;
-    }
-
-    const Flags &
-    GetFlags () const
-    {
-        return m_flags;
-    }
-
-    bool
-    UpdateThreadList (ThreadList &old_thread_list, 
-                      ThreadList &new_thread_list) override;
-
-    Error
-    LaunchAndConnectToDebugserver (const ProcessInfo &process_info);
-
-    void
-    KillDebugserverProcess ();
-
-    void
-    BuildDynamicRegisterInfo (bool force);
-
-    void
-    SetLastStopPacket (const StringExtractorGDBRemote &response);
-
-    bool
-    ParsePythonTargetDefinition(const FileSpec &target_definition_fspec);
-
-    const lldb::DataBufferSP
-    GetAuxvData() override;
-
-    StructuredData::ObjectSP
-    GetExtendedInfoForThread (lldb::tid_t tid);
-
-    void
-    GetMaxMemorySize();
-
-    bool
-    CalculateThreadStopInfo (ThreadGDBRemote *thread);
-
-    size_t
-    UpdateThreadIDsFromStopReplyThreadsValue (std::string &value);
 
     //------------------------------------------------------------------
     /// Broadcaster event bits definitions.
@@ -381,6 +303,88 @@ protected:
     lldb::CommandObjectSP m_command_sp;
     int64_t m_breakpoint_pc_offset;
     lldb::tid_t m_initial_tid; // The initial thread ID, given by stub on attach
+
+    //----------------------------------------------------------------------
+    // Accessors
+    //----------------------------------------------------------------------
+    bool
+    IsRunning ( lldb::StateType state )
+    {
+        return state == lldb::eStateRunning || IsStepping(state);
+    }
+
+    bool
+    IsStepping ( lldb::StateType state)
+    {
+        return state == lldb::eStateStepping;
+    }
+
+    bool
+    CanResume ( lldb::StateType state)
+    {
+        return state == lldb::eStateStopped;
+    }
+
+    bool
+    HasExited (lldb::StateType state)
+    {
+        return state == lldb::eStateExited;
+    }
+
+    bool
+    ProcessIDIsValid ( ) const;
+
+    void
+    Clear ( );
+
+    Flags &
+    GetFlags ()
+    {
+        return m_flags;
+    }
+
+    const Flags &
+    GetFlags () const
+    {
+        return m_flags;
+    }
+
+    bool
+    UpdateThreadList (ThreadList &old_thread_list, 
+                      ThreadList &new_thread_list) override;
+
+    Error
+    EstablishConnectionIfNeeded (const ProcessInfo &process_info);
+
+    Error
+    LaunchAndConnectToDebugserver (const ProcessInfo &process_info);
+
+    void
+    KillDebugserverProcess ();
+
+    void
+    BuildDynamicRegisterInfo (bool force);
+
+    void
+    SetLastStopPacket (const StringExtractorGDBRemote &response);
+
+    bool
+    ParsePythonTargetDefinition(const FileSpec &target_definition_fspec);
+
+    const lldb::DataBufferSP
+    GetAuxvData() override;
+
+    StructuredData::ObjectSP
+    GetExtendedInfoForThread (lldb::tid_t tid);
+
+    void
+    GetMaxMemorySize();
+
+    bool
+    CalculateThreadStopInfo (ThreadGDBRemote *thread);
+
+    size_t
+    UpdateThreadIDsFromStopReplyThreadsValue (std::string &value);
 
     bool
     HandleNotifyPacket(StringExtractorGDBRemote &packet);
@@ -469,10 +473,9 @@ private:
                          lldb::user_id_t break_loc_id);
 
     DISALLOW_COPY_AND_ASSIGN (ProcessGDBRemote);
-
 };
 
 } // namespace process_gdb_remote
 } // namespace lldb_private
 
-#endif  // liblldb_ProcessGDBRemote_h_
+#endif // liblldb_ProcessGDBRemote_h_

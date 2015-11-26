@@ -10,10 +10,7 @@
 // Other libraries and framework includes
 #include "lldb/Core/Error.h"
 #include "lldb/Core/Log.h"
-#include "lldb/Host/Socket.h"
-
-// Project includes
-#include "AdbClient.h"
+#include "lldb/Host/common/TCPSocket.h"
 #include "PlatformAndroidRemoteGDBServer.h"
 #include "Utility/UriParser.h"
 
@@ -26,7 +23,11 @@ using namespace platform_android;
 static const lldb::pid_t g_remote_platform_pid = 0; // Alias for the process id of lldb-platform
 
 static Error
-ForwardPortWithAdb (const uint16_t local_port, const uint16_t remote_port, std::string& device_id)
+ForwardPortWithAdb (const uint16_t local_port,
+                    const uint16_t remote_port,
+                    const char* remote_socket_name,
+                    const llvm::Optional<AdbClient::UnixSocketNamespace>& socket_namespace,
+                    std::string& device_id)
 {
     Log *log(GetLogIfAllCategoriesSet (LIBLLDB_LOG_PLATFORM));
 
@@ -39,7 +40,20 @@ ForwardPortWithAdb (const uint16_t local_port, const uint16_t remote_port, std::
     if (log)
         log->Printf("Connected to Android device \"%s\"", device_id.c_str ());
 
-    return adb.SetPortForwarding(local_port, remote_port);
+    if (remote_port != 0)
+    {
+        if (log)
+            log->Printf("Forwarding remote TCP port %d to local TCP port %d", remote_port, local_port);
+        return adb.SetPortForwarding(local_port, remote_port);
+    }
+
+    if (log)
+        log->Printf("Forwarding remote socket \"%s\" to local TCP port %d", remote_socket_name, local_port);
+
+    if (!socket_namespace)
+        return Error("Invalid socket namespace");
+
+    return adb.SetPortForwarding(local_port, remote_socket_name, *socket_namespace);
 }
 
 static Error
@@ -52,13 +66,15 @@ DeleteForwardPortWithAdb (uint16_t local_port, const std::string& device_id)
 static Error
 FindUnusedPort (uint16_t& port)
 {
-    Socket* socket = nullptr;
-    auto error = Socket::TcpListen ("localhost:0", false, socket, nullptr);
-    if (error.Success ())
-    {
-        port = socket->GetLocalPortNumber ();
-        delete socket;
-    }
+    Error error;
+    std::unique_ptr<TCPSocket> tcp_socket(new TCPSocket(false, error));
+    if (error.Fail())
+        return error;
+
+    error = tcp_socket->Listen("127.0.0.1:0", 1);
+    if (error.Success())
+        port = tcp_socket->GetLocalPortNumber();
+
     return error;
 }
 
@@ -72,16 +88,24 @@ PlatformAndroidRemoteGDBServer::~PlatformAndroidRemoteGDBServer ()
         DeleteForwardPortWithAdb(it.second, m_device_id);
 }
 
-uint16_t
-PlatformAndroidRemoteGDBServer::LaunchGDBserverAndGetPort (lldb::pid_t &pid)
+bool
+PlatformAndroidRemoteGDBServer::LaunchGDBServer (lldb::pid_t &pid, std::string &connect_url)
 {
-    uint16_t remote_port = m_gdb_client.LaunchGDBserverAndGetPort (pid, "127.0.0.1");
-    if (remote_port == 0)
-        return remote_port;
+    uint16_t remote_port = 0;
+    std::string socket_name;
+    if (!m_gdb_client.LaunchGDBServer ("127.0.0.1", pid, remote_port, socket_name))
+        return false;
 
-    uint16_t local_port = 0;
-    auto error = SetPortForwarding (pid, remote_port, local_port);
-    return error.Success() ? local_port : 0;
+    Log *log(GetLogIfAllCategoriesSet(LIBLLDB_LOG_PLATFORM));
+
+    auto error = MakeConnectURL (pid,
+                                 remote_port,
+                                 socket_name.c_str (),
+                                 connect_url);
+    if (error.Success() && log)
+        log->Printf("gdbserver connect URL: %s", connect_url.c_str());
+
+    return error.Success();
 }
 
 bool
@@ -106,21 +130,29 @@ PlatformAndroidRemoteGDBServer::ConnectRemote (Args& args)
         return Error("URL is null.");
     if (!UriParser::Parse (url, scheme, host, remote_port, path))
         return Error("Invalid URL: %s", url);
-    if (scheme == "adb")
+    if (host != "localhost")
         m_device_id = host;
 
-    uint16_t local_port = 0;
-    auto error = SetPortForwarding (g_remote_platform_pid, remote_port, local_port);
+    m_socket_namespace.reset();
+    if (scheme == ConnectionFileDescriptor::UNIX_CONNECT_SCHEME)
+        m_socket_namespace = AdbClient::UnixSocketNamespaceFileSystem;
+    else if (scheme == ConnectionFileDescriptor::UNIX_ABSTRACT_CONNECT_SCHEME)
+        m_socket_namespace = AdbClient::UnixSocketNamespaceAbstract;
+
+    std::string connect_url;
+    auto error = MakeConnectURL (g_remote_platform_pid,
+                                 (remote_port < 0) ? 0 : remote_port,
+                                 path.c_str (),
+                                 connect_url);
+
     if (error.Fail ())
         return error;
 
-    const std::string new_url = MakeUrl(
-        scheme.c_str(), host.c_str(), local_port, path.c_str());
-    args.ReplaceArgumentAtIndex (0, new_url.c_str ());
+    args.ReplaceArgumentAtIndex (0, connect_url.c_str ());
 
     Log *log(GetLogIfAllCategoriesSet(LIBLLDB_LOG_PLATFORM));
     if (log)
-        log->Printf("Rewritten URL: %s", new_url.c_str());
+        log->Printf("Rewritten platform connect URL: %s", connect_url.c_str());
 
     error = PlatformRemoteGDBServer::ConnectRemote(args);
     if (error.Fail ())
@@ -156,9 +188,10 @@ PlatformAndroidRemoteGDBServer::DeleteForwardPort (lldb::pid_t pid)
 }
 
 Error
-PlatformAndroidRemoteGDBServer::SetPortForwarding(const lldb::pid_t pid,
-                                                  const uint16_t remote_port,
-                                                  uint16_t &local_port)
+PlatformAndroidRemoteGDBServer::MakeConnectURL(const lldb::pid_t pid,
+                                               const uint16_t remote_port,
+                                               const char* remote_socket_name,
+                                               std::string& connect_url)
 {
     static const int kAttempsNum = 5;
 
@@ -168,35 +201,25 @@ PlatformAndroidRemoteGDBServer::SetPortForwarding(const lldb::pid_t pid,
     // adding the loop to mitigate such problem.
     for (auto i = 0; i < kAttempsNum; ++i)
     {
+        uint16_t local_port = 0;
         error = FindUnusedPort(local_port);
         if (error.Fail())
             return error;
 
-        error = ForwardPortWithAdb(local_port, remote_port, m_device_id);
+        error = ForwardPortWithAdb(local_port,
+                                   remote_port,
+                                   remote_socket_name,
+                                   m_socket_namespace,
+                                   m_device_id);
         if (error.Success())
         {
             m_port_forwards[pid] = local_port;
+            std::ostringstream url_str;
+            url_str << "connect://localhost:" << local_port;
+            connect_url = url_str.str();
             break;
         }
     }
 
     return error;
-}
-
-std::string
-PlatformAndroidRemoteGDBServer::MakeUrl(const char* scheme,
-                                        const char* hostname,
-                                        uint16_t port,
-                                        const char* path)
-{
-    std::ostringstream hostname_str;
-    if (!strcmp(scheme, "adb"))
-        hostname_str << "[" << hostname << "]";
-    else
-        hostname_str << hostname;
-
-    return PlatformRemoteGDBServer::MakeUrl(scheme,
-                                            hostname_str.str().c_str(),
-                                            port,
-                                            path);
 }

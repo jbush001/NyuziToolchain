@@ -42,6 +42,38 @@ class BEQZC_BNEZC_FM_MM16R6<bits<6> op> : MicroMipsR6Inst16 {
   let Inst{6-0}   = offset;
 }
 
+class POOL16C_JALRC_FM_MM16R6<bits<5> op> {
+  bits<5> rs;
+
+  bits<16> Inst;
+
+  let Inst{15-10} = 0x11;
+  let Inst{9-5}   = rs;
+  let Inst{4-0}   = op;
+}
+
+class POOL16C_JRCADDIUSP_FM_MM16R6<bits<5> op> {
+  bits<5> imm;
+
+  bits<16> Inst;
+
+  let Inst{15-10} = 0x11;
+  let Inst{9-5}   = imm;
+  let Inst{4-0}   = op;
+}
+
+class POOL16C_LWM_SWM_FM_MM16R6<bits<4> funct> {
+  bits<2> rt;
+  bits<4> addr;
+
+  bits<16> Inst;
+
+  let Inst{15-10} = 0x11;
+  let Inst{9-8}   = rt;
+  let Inst{7-4}   = addr;
+  let Inst{3-0}   = funct;
+}
+
 class POOL32A_BITSWAP_FM_MMR6<bits<6> funct> : MipsR6Inst {
   bits<5> rd;
   bits<5> rt;
@@ -113,6 +145,48 @@ class POOL32C_ST_EVA_FM_MMR6<bits<6> op, bits<3> funct> : MipsR6Inst {
   let Inst{8-0}  = offset;
 }
 
+class LB32_FM_MMR6 : MipsR6Inst {
+  bits<21> addr;
+  bits<5> rt;
+  bits<5> base = addr{20-16};
+  bits<16> offset = addr{15-0};
+
+  bits<32> Inst;
+
+  let Inst{31-26} = 0b000111;
+  let Inst{25-21} = rt;
+  let Inst{20-16} = base;
+  let Inst{15-0}  = offset;
+}
+
+class LBU32_FM_MMR6 : MipsR6Inst {
+  bits<21> addr;
+  bits<5> rt;
+  bits<5> base = addr{20-16};
+  bits<16> offset = addr{15-0};
+
+  bits<32> Inst;
+
+  let Inst{31-26} = 0b000101;
+  let Inst{25-21} = rt;
+  let Inst{20-16} = base;
+  let Inst{15-0}  = offset;
+}
+
+class POOL32C_LB_LBU_FM_MMR6<bits<3> funct> : MipsR6Inst {
+  bits<21> addr;
+  bits<5> rt;
+
+  bits<32> Inst;
+
+  let Inst{31-26} = 0b011000;
+  let Inst{25-21} = rt;
+  let Inst{20-16} = addr{20-16};
+  let Inst{15-12} = 0b0110;
+  let Inst{11-9} = funct;
+  let Inst{8-0}  = addr{8-0};
+}
+
 class SIGN_EXTEND_FM_MMR6<string instr_asm, bits<10> funct>
     : MMR6Arch<instr_asm> {
   bits<5> rd;
@@ -164,6 +238,69 @@ class POOL32A_FM_MMR6<bits<10> funct> : MipsR6Inst {
   let Inst{15-11} = rd;
   let Inst{10}    = 0;
   let Inst{9-0}   = funct;
+}
+
+class POOL32A_PAUSE_FM_MMR6<string instr_asm, bits<5> op> : MMR6Arch<instr_asm> {
+  bits<32> Inst;
+
+  let Inst{31-26} = 0;
+  let Inst{25-21} = 0;
+  let Inst{20-16} = 0;
+  let Inst{15-11} = op;
+  let Inst{10-6} = 0;
+  let Inst{5-0} = 0;
+}
+
+class POOL32A_RDPGPR_FM_MMR6<bits<10> funct> {
+  bits<5> rt;
+  bits<5> rd;
+  bits<32> Inst;
+
+  let Inst{31-26} = 0;
+  let Inst{25-21} = rt;
+  let Inst{20-16} = rd;
+  let Inst{15-6} = funct;
+  let Inst{5-0} = 0b111100;
+}
+
+class POOL32A_RDHWR_FM_MMR6 {
+  bits<5> rt;
+  bits<5> rs;
+  bits<3> sel;
+  bits<32> Inst;
+
+  let Inst{31-26} = 0;
+  let Inst{25-21} = rt;
+  let Inst{20-16} = rs;
+  let Inst{15-14} = 0;
+  let Inst{13-11} = sel;
+  let Inst{10} = 0;
+  let Inst{9-0} = 0b0111000000;
+}
+
+class POOL32A_SYNC_FM_MMR6 {
+  bits<5> stype;
+
+  bits<32> Inst;
+
+  let Inst{31-26} = 0;
+  let Inst{25-21} = 0;
+  let Inst{20-16} = stype;
+  let Inst{15-6}  = 0b0110101101;
+  let Inst{5-0}   = 0b111100;
+}
+
+class POOL32I_SYNCI_FM_MMR6 {
+  bits<21> addr;
+  bits<5> base = addr{20-16};
+  bits<16> immediate = addr{15-0};
+
+  bits<32> Inst;
+
+  let Inst{31-26} = 0b010000;
+  let Inst{25-21} = 0b01100;
+  let Inst{20-16} = base;
+  let Inst{15-0}  = immediate;
 }
 
 class POOL32A_2R_FM_MMR6<bits<10> funct> : MipsR6Inst {
@@ -612,7 +749,7 @@ class POOL16C_NOT16_FM_MMR6 : MicroMipsR6Inst16 {
   let Inst{3-0}   = 0b0000;
 }
 
-class POOL16C_OR16_FM_MMR6 : MicroMipsR6Inst16 {
+class POOL16C_OR16_XOR16_FM_MMR6<bits<4> op> {
   bits<3> rt;
   bits<3> rs;
 
@@ -621,5 +758,41 @@ class POOL16C_OR16_FM_MMR6 : MicroMipsR6Inst16 {
   let Inst{15-10} = 0b010001;
   let Inst{9-7}   = rt;
   let Inst{6-4}   = rs;
-  let Inst{3-0}   = 0b1001;
+  let Inst{3-0}   = op;
+}
+
+class POOL16C_BREAKPOINT_FM_MMR6<bits<6> op> {
+  bits<4> code_;
+  bits<16> Inst;
+
+  let Inst{15-10} = 0b010001;
+  let Inst{9-6}   = code_;
+  let Inst{5-0}   = op;
+}
+
+class POOL16A_SUBU16_FM_MMR6 {
+  bits<3> rs;
+  bits<3> rt;
+  bits<3> rd;
+
+  bits<16> Inst;
+
+  let Inst{15-10} = 0b000001;
+  let Inst{9-7}   = rs;
+  let Inst{6-4}   = rt;
+  let Inst{3-1}   = rd;
+  let Inst{0}     = 0b1;
+}
+
+class POOL32A_WRPGPR_WSBH_FM_MMR6<bits<10> funct> : MipsR6Inst {
+  bits<5> rt;
+  bits<5> rs;
+
+  bits<32> Inst;
+
+  let Inst{31-26} = 0x00;
+  let Inst{25-21} = rt;
+  let Inst{20-16} = rs;
+  let Inst{15-6}  = funct;
+  let Inst{5-0}   = 0x3c;
 }
