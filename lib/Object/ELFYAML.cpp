@@ -194,6 +194,7 @@ ScalarEnumerationTraits<ELFYAML::ELF_EM>::enumeration(IO &IO,
   ECase(EM_78KOR)
   ECase(EM_56800EX)
   ECase(EM_AMDGPU)
+  ECase(EM_NYUZI)
 #undef ECase
 }
 
@@ -506,6 +507,9 @@ void ScalarEnumerationTraits<ELFYAML::ELF_REL>::enumeration(
     break;
   case ELF::EM_ARM:
 #include "llvm/Support/ELFRelocs/ARM.def"
+    break;
+  case ELF::EM_NYUZI:
+#include "llvm/Support/ELFRelocs/Nyuzi.def"
     break;
   default:
     llvm_unreachable("Unsupported architecture");

@@ -34,8 +34,6 @@ ELSE()
    SET(CMAKE_BUILD_TYPE Debug CACHE STRING "Choose the type of build: Debug Release")
 ENDIF()
 
-project(LLVM C CXX ASM)
-
 if(NOT DEFINED LLVM_VERSION_MAJOR)
   set(LLVM_VERSION_MAJOR 3)
 endif()
