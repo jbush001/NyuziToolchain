@@ -12,7 +12,6 @@
 using namespace lldb;
 using namespace lldb_private;
 
-
 #if defined (__APPLE__)
 extern "C" const unsigned char liblldb_coreVersionString[];
 #else

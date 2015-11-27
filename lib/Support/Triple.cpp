@@ -20,6 +20,7 @@ using namespace llvm;
 const char *Triple::getArchTypeName(ArchType Kind) {
   switch (Kind) {
   case UnknownArch: return "unknown";
+
   case aarch64:     return "aarch64";
   case aarch64_be:  return "aarch64_be";
   case arm:         return "arm";

@@ -11,7 +11,6 @@ add_llvm_library(MCLDAArch64LDBackend
   AArch64LongBranchStub.cpp
   AArch64PLT.cpp
   AArch64Relocator.cpp
-  
   LINK_LIBS
     MCLDAArch64TargetInfo
     MCLDCore
