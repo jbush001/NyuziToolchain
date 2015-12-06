@@ -52,7 +52,7 @@ unsigned NyuziELFObjectWriter::GetRelocType(const MCValue &Target,
     break;
 
   // In normal cases, these types should not be emitted because they can be
-  // fixed up immediately. This generally happens if there is an undefined 
+  // fixed up immediately. This generally happens if there is an undefined
   // symbol.  This will cause an error later during linking.
   case Nyuzi::fixup_Nyuzi_PCRel_MemAccExt:
     Type = ELF::R_NYUZI_PCREL_MEM_EXT;
@@ -60,6 +60,9 @@ unsigned NyuziELFObjectWriter::GetRelocType(const MCValue &Target,
 
   case Nyuzi::fixup_Nyuzi_PCRel_MemAcc:
     Type = ELF::R_NYUZI_PCREL_MEM;
+    break;
+  case Nyuzi::fixup_Nyuzi_PCRel_ComputeLabelAddress:
+    Type = ELF::R_NYUZI_PCREL_LEA;
     break;
   }
   return Type;

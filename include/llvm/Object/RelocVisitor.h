@@ -199,6 +199,8 @@ private:
           return visitELF_NYUZI_ABS32(R, Value);
         case llvm::ELF::R_NYUZI_BRANCH:
           return visitELF_NYUZI_BRANCH(R, Value);
+        case llvm::ELF::R_NYUZI_PCREL_LEA:
+          return visitELF_NYUZI_PCREL_LEA(R, Value);
         default:
           HasError = true;
           return RelocToApply();
@@ -388,7 +390,15 @@ private:
 
     return RelocToApply(static_cast<uint32_t>(Res), 4);
   }
-  
+
+  RelocToApply visitELF_NYUZI_PCREL_LEA(RelocationRef R, uint64_t Value) {
+    int64_t Res =  Value + getELFAddend(R) - R.getOffset();
+
+    // XX bounds checking
+
+    return RelocToApply(static_cast<uint32_t>(Res), 4);
+  }
+
   RelocToApply visitELF_390_64(RelocationRef R, uint64_t Value) {
     int64_t Addend = getELFAddend(R);
     return RelocToApply(Value + Addend, 8);

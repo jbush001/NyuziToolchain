@@ -184,4 +184,18 @@ Relocator::Result memext(Relocation& pReloc, NyuziRelocator& pParent)
   return Relocator::OK;
 }
 
+Relocator::Result lea(Relocation& pReloc, NyuziRelocator& pParent)
+{
+  Relocator::Address S = pReloc.symValue();
+  Relocator::Address P = pReloc.place();
+  int offset = S - (P + 4);
+
+  if (helper_check_signed_overflow(offset, 13))
+    return Relocator::Overflow;
+
+  pReloc.target() = helper_replace_field(pReloc.target(), offset, 10, 13);
+
+  return Relocator::OK;
+}
+
 
