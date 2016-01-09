@@ -754,6 +754,15 @@ public:
                                      lldb::RunMode stop_other_threads,
                                      LazyBool step_out_avoids_code_without_debug_info = eLazyBoolCalculate);
 
+    // Helper function that takes a LineEntry to step, insted of an AddressRange.  This may combine multiple
+    // LineEntries of the same source line number to step over a longer address range in a single operation.
+    virtual lldb::ThreadPlanSP
+    QueueThreadPlanForStepOverRange (bool abort_other_plans,
+                                     const LineEntry &line_entry,
+                                     const SymbolContext &addr_context,
+                                     lldb::RunMode stop_other_threads,
+                                     LazyBool step_out_avoids_code_without_debug_info = eLazyBoolCalculate);
+
     //------------------------------------------------------------------
     /// Queues the plan used to step through an address range, stepping into functions.
     ///
@@ -794,6 +803,17 @@ public:
     virtual lldb::ThreadPlanSP
     QueueThreadPlanForStepInRange (bool abort_other_plans,
                                    const AddressRange &range,
+                                   const SymbolContext &addr_context,
+                                   const char *step_in_target,
+                                   lldb::RunMode stop_other_threads,
+                                   LazyBool step_in_avoids_code_without_debug_info = eLazyBoolCalculate,
+                                   LazyBool step_out_avoids_code_without_debug_info = eLazyBoolCalculate);
+
+    // Helper function that takes a LineEntry to step, insted of an AddressRange.  This may combine multiple
+    // LineEntries of the same source line number to step over a longer address range in a single operation.
+    virtual lldb::ThreadPlanSP
+    QueueThreadPlanForStepInRange (bool abort_other_plans,
+                                   const LineEntry &line_entry,
                                    const SymbolContext &addr_context,
                                    const char *step_in_target,
                                    lldb::RunMode stop_other_threads,
@@ -868,6 +888,16 @@ public:
     /// @param[in] run_vote
     ///    See standard meanings for the stop & run votes in ThreadPlan.h.
     ///
+    /// @param[in] continue_to_next_branch
+    ///    Normally this will enqueue a plan that will put a breakpoint on the return address and continue
+    ///    to there.  If continue_to_next_branch is true, this is an operation not involving the user -- 
+    ///    e.g. stepping "next" in a source line and we instruction stepped into another function -- 
+    ///    so instead of putting a breakpoint on the return address, advance the breakpoint to the 
+    ///    end of the source line that is doing the call, or until the next flow control instruction.
+    ///    If the return value from the function call is to be retrieved / displayed to the user, you must stop
+    ///    on the return address.  The return value may be stored in volatile registers which are overwritten
+    ///    before the next branch instruction.
+    ///
     /// @return
     ///     A shared pointer to the newly queued thread plan, or nullptr if the plan could not be queued.
     //------------------------------------------------------------------
@@ -878,7 +908,8 @@ public:
                                            bool stop_other_threads,
                                            Vote stop_vote, // = eVoteYes,
                                            Vote run_vote, // = eVoteNoOpinion);
-                                           uint32_t frame_idx);
+                                           uint32_t frame_idx,
+                                           bool continue_to_next_branch = false);
 
     //------------------------------------------------------------------
     /// Gets the plan used to step through the code that steps from a function

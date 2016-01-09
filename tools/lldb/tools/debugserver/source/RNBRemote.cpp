@@ -2700,6 +2700,88 @@ RNBRemote::SendStopReplyPacketForThread (nub_thread_t tid)
             }
         }
 
+        // If a 'QListThreadsInStopReply' was sent to enable this feature, we
+        // will send all thread IDs back in the "threads" key whose value is
+        // a list of hex thread IDs separated by commas:
+        //  "threads:10a,10b,10c;"
+        // This will save the debugger from having to send a pair of qfThreadInfo
+        // and qsThreadInfo packets, but it also might take a lot of room in the
+        // stop reply packet, so it must be enabled only on systems where there
+        // are no limits on packet lengths.
+        if (m_list_threads_in_stop_reply)
+        {
+            const nub_size_t numthreads = DNBProcessGetNumThreads (pid);
+            if (numthreads > 0)
+            {
+                std::vector<uint64_t> pc_values;
+                ostrm << std::hex << "threads:";
+                for (nub_size_t i = 0; i < numthreads; ++i)
+                {
+                    nub_thread_t th = DNBProcessGetThreadAtIndex (pid, i);
+                    if (i > 0)
+                        ostrm << ',';
+                    ostrm << std::hex << th;
+                    DNBRegisterValue pc_regval;
+                    if (DNBThreadGetRegisterValueByID (pid, th, REGISTER_SET_GENERIC, GENERIC_REGNUM_PC, &pc_regval))
+                    {
+                        uint64_t pc = INVALID_NUB_ADDRESS;
+                        if (pc_regval.value.uint64 != INVALID_NUB_ADDRESS)
+                        {
+                            if (pc_regval.info.size == 4)
+                            {
+                                pc = pc_regval.value.uint32;
+                            }
+                            else if (pc_regval.info.size == 8)
+                            {
+                                pc = pc_regval.value.uint64;
+                            }
+                            if (pc != INVALID_NUB_ADDRESS)
+                            {
+                                pc_values.push_back (pc);
+                            }
+                        }
+                    }
+                }
+                ostrm << ';';
+
+                // If we failed to get any of the thread pc values, the size of our vector will not
+                // be the same as the # of threads.  Don't provide any expedited thread pc values in
+                // that case.  This should not happen.
+                if (pc_values.size() == numthreads)
+                {
+                    ostrm << std::hex << "thread-pcs:";
+                    for (nub_size_t i = 0; i < numthreads; ++i)
+                    {
+                        if (i > 0)
+                            ostrm << ',';
+                        ostrm << std::hex << pc_values[i];
+                    }
+                    ostrm << ';';
+                }
+            }
+
+            // Include JSON info that describes the stop reason for any threads
+            // that actually have stop reasons. We use the new "jstopinfo" key
+            // whose values is hex ascii JSON that contains the thread IDs
+            // thread stop info only for threads that have stop reasons. Only send
+            // this if we have more than one thread otherwise this packet has all
+            // the info it needs.
+            if (numthreads > 1)
+            {
+                const bool threads_with_valid_stop_info_only = true;
+                JSONGenerator::ObjectSP threads_info_sp = GetJSONThreadsInfo(threads_with_valid_stop_info_only);
+                if (threads_info_sp)
+                {
+                    ostrm << std::hex << "jstopinfo:";
+                    std::ostringstream json_strm;
+                    threads_info_sp->Dump (json_strm);
+                    append_hexified_string (ostrm, json_strm.str());
+                    ostrm << ';';
+                }
+            }
+        }
+
+
         thread_identifier_info_data_t thread_ident_info;
         if (DNBThreadGetIdentifierInfo (pid, tid, &thread_ident_info))
         {
@@ -2725,56 +2807,10 @@ RNBRemote::SendStopReplyPacketForThread (nub_thread_t tid)
                         ostrm << "qkind:concurrent;";
 
                     if (queue_serialnum > 0)
-                        ostrm << "qserial:" << DECIMAL << queue_serialnum << ';';
+                        ostrm << "qserialnum:" << DECIMAL << queue_serialnum << ';';
                 }
             }
         }
-
-        // If a 'QListThreadsInStopReply' was sent to enable this feature, we
-        // will send all thread IDs back in the "threads" key whose value is
-        // a list of hex thread IDs separated by commas:
-        //  "threads:10a,10b,10c;"
-        // This will save the debugger from having to send a pair of qfThreadInfo
-        // and qsThreadInfo packets, but it also might take a lot of room in the
-        // stop reply packet, so it must be enabled only on systems where there
-        // are no limits on packet lengths.
-        if (m_list_threads_in_stop_reply)
-        {
-            const nub_size_t numthreads = DNBProcessGetNumThreads (pid);
-            if (numthreads > 0)
-            {
-                ostrm << std::hex << "threads:";
-                for (nub_size_t i = 0; i < numthreads; ++i)
-                {
-                    nub_thread_t th = DNBProcessGetThreadAtIndex (pid, i);
-                    if (i > 0)
-                        ostrm << ',';
-                    ostrm << std::hex << th;
-                }
-                ostrm << ';';
-            }
-
-            // Include JSON info that describes the stop reason for any threads
-            // that actually have stop reasons. We use the new "jstopinfo" key
-            // whose values is hex ascii JSON that contains the thread IDs
-            // thread stop info only for threads that have stop reasons. Only send
-            // this if we have more than one thread otherwise this packet has all
-            // the info it needs.
-            if (numthreads > 1)
-            {
-                const bool threads_with_valid_stop_info_only = true;
-                JSONGenerator::ObjectSP threads_info_sp = GetJSONThreadsInfo(threads_with_valid_stop_info_only);
-                if (threads_info_sp)
-                {
-                    ostrm << std::hex << "jstopinfo:";
-                    std::ostringstream json_strm;
-                    threads_info_sp->Dump (json_strm);
-                    append_hexified_string (ostrm, json_strm.str());
-                    ostrm << ';';
-                }
-            }
-        }
-
 
         if (g_num_reg_entries == 0)
             InitializeRegisters ();
@@ -2812,7 +2848,7 @@ RNBRemote::SendStopReplyPacketForThread (nub_thread_t tid)
         // Add expedited stack memory so stack backtracing doesn't need to read anything from the
         // frame pointer chain.
         StackMemoryMap stack_mmap;
-        ReadStackMemory (pid, tid, stack_mmap, 1);
+        ReadStackMemory (pid, tid, stack_mmap, 2);
         if (!stack_mmap.empty())
         {
             for (const auto &stack_memory : stack_mmap)
@@ -5162,7 +5198,7 @@ RNBRemote::GetJSONThreadsInfo(bool threads_with_valid_stop_info_only)
                             else if (queue_width > 1)
                                 thread_dict_sp->AddStringItem("qkind", "concurrent");
                             if (queue_serialnum > 0)
-                                thread_dict_sp->AddIntegerItem("qserial", queue_serialnum);
+                                thread_dict_sp->AddIntegerItem("qserialnum", queue_serialnum);
                         }
                     }
                 }

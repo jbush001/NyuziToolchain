@@ -533,7 +533,7 @@ SDValue NyuziTargetLowering::LowerGlobalAddress(SDValue Op,
   const GlobalValue *GV = cast<GlobalAddressSDNode>(Op)->getGlobal();
   SDValue CPIdx = DAG.getTargetConstantPool(GV, MVT::i32);
   return DAG.getLoad(MVT::i32, DL, DAG.getEntryNode(), CPIdx,
-                     MachinePointerInfo::getConstantPool(DAG.getMachineFunction()), 
+                     MachinePointerInfo::getConstantPool(DAG.getMachineFunction()),
 					 false, false, false, 4);
 }
 
@@ -554,25 +554,31 @@ SDValue NyuziTargetLowering::LowerConstantPool(SDValue Op,
   return Res;
 }
 
+//
+// XXX The intent of this function is to check if the immediate will fit in the
+// instruction or needs to be loaded from the constant pool. However, other
+// backends don't seem to need to do this. This may be overkill (it also
+// doens't work quite correctly, since we don't know which instruction this
+// will be used for, and thus don't know the capacity).
+//
 SDValue NyuziTargetLowering::LowerConstant(SDValue Op,
                                            SelectionDAG &DAG) const {
   SDLoc DL(Op);
   ConstantSDNode *C = cast<ConstantSDNode>(Op);
 
-  // The size of the immediate field is determined by the instruction format and
-  // whether a mask is present.  At this level of the tree, we cannot know that,
-  // so we use the smallest size.
   const int kMaxImmediateSize = 13;
 
   if (C->getAPIntValue().abs().ult((1 << (kMaxImmediateSize - 1)) - 1)) {
     // Don't need to convert to constant pool reference.  This will fit in
     // the immediate field of a single instruction, sign extended.
-    return SDValue();
+    return Op;
   }
 
+  // XXX New versions of LLVM will expand to a constant pool as the expand
+  // action, so this is probably unnecessary.
   SDValue CPIdx = DAG.getConstantPool(C->getConstantIntValue(), MVT::i32);
   return DAG.getLoad(MVT::i32, DL, DAG.getEntryNode(), CPIdx,
-                     MachinePointerInfo::getConstantPool(DAG.getMachineFunction()), 
+                     MachinePointerInfo::getConstantPool(DAG.getMachineFunction()),
 					 false, false, false, 4);
 }
 
@@ -582,7 +588,7 @@ SDValue NyuziTargetLowering::LowerBlockAddress(SDValue Op,
   const BlockAddress *BA = cast<BlockAddressSDNode>(Op)->getBlockAddress();
   SDValue CPIdx = DAG.getTargetConstantPool(BA, MVT::i32);
   return DAG.getLoad(MVT::i32, DL, DAG.getEntryNode(), CPIdx,
-                     MachinePointerInfo::getConstantPool(DAG.getMachineFunction()), 
+                     MachinePointerInfo::getConstantPool(DAG.getMachineFunction()),
 					 false, false, false, 4);
 }
 
@@ -687,9 +693,9 @@ bool NyuziTargetLowering::isShuffleMaskLegal(const SmallVectorImpl<int> &M,
 
 //
 // Look for patterns that built splats. isShuffleMaskLegal should ensure this
-// will only be called with splat masks, but I don't know if there are edge 
+// will only be called with splat masks, but I don't know if there are edge
 // cases where it will still be called. Perhaps need to check explicitly (note
-// that the shuffle mask doesn't appear to be an operand, but must be accessed 
+// that the shuffle mask doesn't appear to be an operand, but must be accessed
 // by casting the SDNode and using a separate accessor).
 //
 SDValue NyuziTargetLowering::LowerVECTOR_SHUFFLE(SDValue Op,
@@ -744,8 +750,8 @@ SDValue NyuziTargetLowering::LowerFDIV(SDValue Op, SelectionDAG &DAG) const {
       DAG.getNode(NyuziISD::RECIPROCAL_EST, DL, Type, Denominator);
 
   // Perform a series of Newton Raphson refinements to determine 1/divisor. Each
-  // iteration doubles the precision of the result. The initial estimate has 6 
-  // bits of precision, so two iterations results in 24 bits, which is larger 
+  // iteration doubles the precision of the result. The initial estimate has 6
+  // bits of precision, so two iterations results in 24 bits, which is larger
   // than the (23 bit) significand.
 
   for (int i = 0; i < 2; i++) {
@@ -816,7 +822,7 @@ SDValue morphSETCCNode(SDValue Op, ISD::CondCode code, SelectionDAG &DAG)
 {
   SDLoc DL(Op);
   return DAG.getNode(ISD::SETCC, DL, Op.getValueType().getSimpleVT(),
-                     Op.getOperand(0), Op.getOperand(1), 
+                     Op.getOperand(0), Op.getOperand(1),
                      DAG.getCondCode(code));
 }
 
@@ -824,10 +830,10 @@ SDValue morphSETCCNode(SDValue Op, ISD::CondCode code, SelectionDAG &DAG)
 
 // Convert unordered or don't-care floating point comparisions to ordered
 // - Two comparison values are ordered if neither operand is NaN, otherwise they
-//   are unordered. 
+//   are unordered.
 // - An ordered comparison *operation* is always false if either operand is NaN.
-//   Unordered is always true if either operand is NaN. 
-// - The hardware implements ordered comparisons.  
+//   Unordered is always true if either operand is NaN.
+// - The hardware implements ordered comparisons.
 // - Clang usually emits ordered comparisons.
 SDValue NyuziTargetLowering::LowerSETCC(SDValue Op, SelectionDAG &DAG) const {
   SDLoc DL(Op);
@@ -852,7 +858,7 @@ SDValue NyuziTargetLowering::LowerSETCC(SDValue Op, SelectionDAG &DAG) const {
       return morphSETCCNode(Op, ISD::SETOEQ, DAG);
     case ISD::SETNE:
       return morphSETCCNode(Op, ISD::SETONE, DAG);
-      
+
     // Check for ordered and unordered values by using ordered equality
     // (which will only be false if the values are unordered)
     case ISD::SETO:
@@ -933,7 +939,7 @@ SDValue NyuziTargetLowering::LowerUINT_TO_FP(SDValue Op,
                        0x4f800000); // UINT_MAX in float format
   SDValue CPIdx = DAG.getConstantPool(AdjustConst, MVT::f32);
   SDValue AdjustReg = DAG.getLoad(MVT::f32, DL, DAG.getEntryNode(), CPIdx,
-                                  MachinePointerInfo::getConstantPool(DAG.getMachineFunction()), 
+                                  MachinePointerInfo::getConstantPool(DAG.getMachineFunction()),
 								  false, false, false, 4);
   if (ResultVT.isVector()) {
     // Vector Result
@@ -1075,7 +1081,7 @@ static Intrinsic::ID intrinsicForVectorCompare(ISD::CondCode CC, bool isFloat) {
 
 //
 // This may be used to expand a vector comparison result into a vector.
-// Normally, vector compare results are a bitmask, so we need to do a 
+// Normally, vector compare results are a bitmask, so we need to do a
 // predicated transfer to expand it.
 // Note that clang seems to assume a vector lane should have 0xffffffff when the
 // result is true when folding constants, so we use that value here to be

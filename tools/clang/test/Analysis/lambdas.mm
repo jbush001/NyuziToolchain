@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -std=c++11 -fsyntax-only -Wno-objc-root-class -analyze -analyzer-checker=core,debug.ExprInspection -analyzer-config inline-lambdas=true -verify %s
+// RUN: %clang_cc1 -std=c++11 -fsyntax-only -fblocks -Wno-objc-root-class -analyze -analyzer-checker=core,deadcode,debug.ExprInspection -analyzer-config inline-lambdas=true -verify %s
 
 int clang_analyzer_eval(int);
 
@@ -44,3 +44,87 @@ int clang_analyzer_eval(int);
 }
 
 @end
+
+int getValue();
+void useValue(int v);
+
+void castToBlockNoDeadStore() {
+  int v = getValue(); // no-warning
+
+  (void)(void(^)())[v]() { // This capture should count as a use, so no dead store warning above.
+  };
+}
+
+void takesBlock(void(^block)());
+
+void passToFunctionTakingBlockNoDeadStore() {
+  int v = 7; // no-warning
+  int x = 8; // no-warning
+  takesBlock([&v, x]() {
+    (void)v;
+  });
+}
+
+void castToBlockAndInline() {
+  int result = ((int(^)(int))[](int p) {
+    return p;
+  })(7);
+
+  clang_analyzer_eval(result == 7); // expected-warning{{TRUE}}
+}
+
+void castToBlockWithCaptureAndInline() {
+  int y = 7;
+
+  auto lambda = [y]{ return y; };
+  int(^block)() = lambda;
+
+  int result = block();
+  clang_analyzer_eval(result == 7); // expected-warning{{TRUE}}
+}
+
+void castMutableLambdaToBlock() {
+  int x = 0;
+
+  auto lambda = [x]() mutable {
+    x = x + 1;
+    return x;
+   };
+
+  // The block should copy the lambda before capturing.
+  int(^block)() = lambda;
+
+  int r1 = block();
+  clang_analyzer_eval(r1 == 1); // expected-warning{{TRUE}}
+
+  int r2 = block();
+  clang_analyzer_eval(r2 == 2); // expected-warning{{TRUE}}
+
+  // Because block copied the lambda, r3 should be 1.
+  int r3 = lambda();
+  clang_analyzer_eval(r3 == 1); // expected-warning{{TRUE}}
+
+  // Aliasing the block shouldn't copy the lambda.
+  int(^blockAlias)() = block;
+
+  int r4 = blockAlias();
+  clang_analyzer_eval(r4 == 3); // expected-warning{{TRUE}}
+
+  int r5 = block();
+  clang_analyzer_eval(r5 == 4); // expected-warning{{TRUE}}
+
+  // Another copy of lambda
+  int(^blockSecondCopy)() = lambda;
+  int r6 = blockSecondCopy();
+  clang_analyzer_eval(r6 == 2); // expected-warning{{TRUE}}
+}
+
+void castLambdaInLocalBlock() {
+  // Make sure we don't emit a spurious diagnostic about the address of a block
+  // escaping in the implicit conversion operator method for lambda-to-block
+  // conversions.
+  auto lambda = []{ }; // no-warning
+
+  void(^block)() = lambda;
+  (void)block;
+}

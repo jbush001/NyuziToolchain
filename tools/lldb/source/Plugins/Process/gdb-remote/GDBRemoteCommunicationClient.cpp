@@ -101,6 +101,7 @@ GDBRemoteCommunicationClient::GDBRemoteCommunicationClient() :
     m_supports_QEnvironment (true),
     m_supports_QEnvironmentHexEncoded (true),
     m_supports_qSymbol (true),
+    m_supports_qModuleInfo (true),
     m_supports_jThreadsInfo (true),
     m_curr_pid (LLDB_INVALID_PROCESS_ID),
     m_curr_tid (LLDB_INVALID_THREAD_ID),
@@ -376,6 +377,7 @@ GDBRemoteCommunicationClient::ResetDiscoverableSettings (bool did_exec)
         m_supports_QEnvironment = true;
         m_supports_QEnvironmentHexEncoded = true;
         m_supports_qSymbol = true;
+        m_supports_qModuleInfo = true;
         m_host_arch.Clear();
         m_os_version_major = UINT32_MAX;
         m_os_version_minor = UINT32_MAX;
@@ -3383,6 +3385,43 @@ GDBRemoteCommunicationClient::LaunchGDBServer (const char *remote_accept_hostnam
     return false;
 }
 
+size_t
+GDBRemoteCommunicationClient::QueryGDBServer (std::vector<std::pair<uint16_t, std::string>>& connection_urls)
+{
+    connection_urls.clear();
+
+    StringExtractorGDBRemote response;
+    if (SendPacketAndWaitForResponse("qQueryGDBServer", response, false) != PacketResult::Success)
+        return 0;
+
+    StructuredData::ObjectSP data = StructuredData::ParseJSON(response.GetStringRef());
+    if (!data)
+        return 0;
+
+    StructuredData::Array* array = data->GetAsArray();
+    if (!array)
+        return 0;
+
+    for (size_t i = 0, count = array->GetSize(); i < count; ++i)
+    {
+        StructuredData::Dictionary* element = nullptr;
+        if (!array->GetItemAtIndexAsDictionary(i, element))
+            continue;
+
+        uint16_t port = 0;
+        if (StructuredData::ObjectSP port_osp = element->GetValueForKey(llvm::StringRef("port")))
+            port = port_osp->GetIntegerValue(0);
+
+        std::string socket_name;
+        if (StructuredData::ObjectSP socket_name_osp = element->GetValueForKey(llvm::StringRef("socket_name")))
+            socket_name = socket_name_osp->GetStringValue();
+
+        if (port != 0 || !socket_name.empty())
+            connection_urls.emplace_back(port, socket_name);
+    }
+    return connection_urls.size();
+}
+
 bool
 GDBRemoteCommunicationClient::KillSpawnedProcess (lldb::pid_t pid)
 {
@@ -4247,6 +4286,9 @@ GDBRemoteCommunicationClient::GetModuleInfo (const FileSpec& module_file_spec,
                                              const lldb_private::ArchSpec& arch_spec,
                                              ModuleSpec &module_spec)
 {
+    if (!m_supports_qModuleInfo)
+        return false;
+
     std::string module_path = module_file_spec.GetPath (false);
     if (module_path.empty ())
         return false;
@@ -4262,8 +4304,14 @@ GDBRemoteCommunicationClient::GetModuleInfo (const FileSpec& module_file_spec,
     if (SendPacketAndWaitForResponse (packet.GetData(), packet.GetSize(), response, false) != PacketResult::Success)
         return false;
 
-    if (response.IsErrorResponse () || response.IsUnsupportedResponse ())
+    if (response.IsErrorResponse ())
         return false;
+
+    if (response.IsUnsupportedResponse ())
+    {
+        m_supports_qModuleInfo = false;
+        return false;
+    }
 
     std::string name;
     std::string value;

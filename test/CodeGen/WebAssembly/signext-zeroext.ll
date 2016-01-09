@@ -2,7 +2,7 @@
 
 ; Test zeroext and signext ABI keywords
 
-target datalayout = "e-p:32:32-i64:64-n32:64-S128"
+target datalayout = "e-m:e-p:32:32-i64:64-n32:64-S128"
 target triple = "wasm32-unknown-unknown"
 
 ; CHECK-LABEL: z2s_func:
@@ -28,8 +28,8 @@ define zeroext i8 @s2z_func(i8 signext %t) {
 }
 
 ; CHECK-LABEL: z2s_call:
-; CHECK-NEXT: .param i32
-; CHECK-NEXT: .result i32
+; CHECK-NEXT: .param i32{{$}}
+; CHECK-NEXT: .result i32{{$}}
 ; CHECK-NEXT: i32.const $push[[NUM0:[0-9]+]]=, 255{{$}}
 ; CHECK-NEXT: i32.and $push[[NUM1:[0-9]+]]=, $0, $pop[[NUM0]]{{$}}
 ; CHECK-NEXT: call $push[[NUM2:[0-9]+]]=, z2s_func, $pop[[NUM1]]{{$}}
@@ -42,8 +42,8 @@ define i32 @z2s_call(i32 %t) {
 }
 
 ; CHECK-LABEL: s2z_call:
-; CHECK-NEXT: .param i32
-; CHECK-NEXT: .result i32
+; CHECK-NEXT: .param i32{{$}}
+; CHECK-NEXT: .result i32{{$}}
 ; CHECK-NEXT: .local i32{{$}}
 ; CHECK-NEXT: i32.const $[[NUM0:[0-9]+]]=, 24{{$}}
 ; CHECK-NEXT: i32.shl $push[[NUM1:[0-9]+]]=, $0, $[[NUM0]]{{$}}
