@@ -578,7 +578,7 @@ unsigned ARMFastISel::ARMMaterializeInt(const Constant *C, MVT VT) {
 
 unsigned ARMFastISel::ARMMaterializeGV(const GlobalValue *GV, MVT VT) {
   // For now 32-bit only.
-  if (VT != MVT::i32) return 0;
+  if (VT != MVT::i32 || GV->isThreadLocal()) return 0;
 
   Reloc::Model RelocM = TM.getRelocationModel();
   bool IsIndirect = Subtarget->GVIsIndirectSymbol(GV, RelocM);
@@ -3036,7 +3036,7 @@ bool ARMFastISel::fastLowerArguments() {
   }
 
 
-  static const uint16_t GPRArgRegs[] = {
+  static const MCPhysReg GPRArgRegs[] = {
     ARM::R0, ARM::R1, ARM::R2, ARM::R3
   };
 

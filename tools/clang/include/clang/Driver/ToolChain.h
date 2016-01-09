@@ -18,6 +18,7 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/Triple.h"
 #include "llvm/Support/Path.h"
+#include "llvm/Target/TargetOptions.h"
 #include <memory>
 #include <string>
 
@@ -133,7 +134,7 @@ public:
   StringRef getOS() const { return Triple.getOSName(); }
 
   /// \brief Provide the default architecture name (as expected by -arch) for
-  /// this toolchain. Note t
+  /// this toolchain.
   StringRef getDefaultUniversalArchName() const;
 
   std::string getTripleString() const {
@@ -186,7 +187,7 @@ public:
   /// Choose a tool to use to handle the action \p JA.
   ///
   /// This can be overridden when a particular ToolChain needs to use
-  /// a C compiler other than Clang.
+  /// a compiler other than Clang.
   virtual Tool *SelectTool(const JobAction &JA) const;
 
   // Helper methods
@@ -303,6 +304,11 @@ public:
   // provided that debugging was requested in the first place.
   // i.e. a value of 'true' does not imply that debugging is wanted.
   virtual bool GetDefaultStandaloneDebug() const { return false; }
+
+  // Return the default debugger "tuning."
+  virtual llvm::DebuggerKind getDefaultDebuggerTuning() const {
+    return llvm::DebuggerKind::GDB;
+  }
 
   /// UseSjLjExceptions - Does this tool chain use SjLj exceptions.
   virtual bool UseSjLjExceptions(const llvm::opt::ArgList &Args) const {

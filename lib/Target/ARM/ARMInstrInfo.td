@@ -215,6 +215,8 @@ def PreV8            : Predicate<"!Subtarget->hasV8Ops()">,
                                  AssemblerPredicate<"!HasV8Ops", "armv7 or earlier">;
 def HasV8_1a         : Predicate<"Subtarget->hasV8_1aOps()">,
                                  AssemblerPredicate<"HasV8_1aOps", "armv8.1a">;
+def HasV8_2a         : Predicate<"Subtarget->hasV8_2aOps()">,
+                                 AssemblerPredicate<"HasV8_2aOps", "armv8.2a">;
 def NoVFP            : Predicate<"!Subtarget->hasVFP2()">;
 def HasVFP2          : Predicate<"Subtarget->hasVFP2()">,
                                  AssemblerPredicate<"FeatureVFP2", "VFP2">;
@@ -234,7 +236,9 @@ def HasCrypto        : Predicate<"Subtarget->hasCrypto()">,
 def HasCRC           : Predicate<"Subtarget->hasCRC()">,
                                  AssemblerPredicate<"FeatureCRC", "crc">;
 def HasFP16          : Predicate<"Subtarget->hasFP16()">,
-                                 AssemblerPredicate<"FeatureFP16","half-float">;
+                                 AssemblerPredicate<"FeatureFP16","half-float conversions">;
+def HasFullFP16      : Predicate<"Subtarget->hasFullFP16()">,
+                                 AssemblerPredicate<"FeatureFullFP16","full half-float">;
 def HasDivide        : Predicate<"Subtarget->hasDivide()">,
                                  AssemblerPredicate<"FeatureHWDiv", "divide in THUMB">;
 def HasDivideInARM   : Predicate<"Subtarget->hasDivideInARMMode()">,
@@ -4724,7 +4728,7 @@ def STLEXD : AIstlex<0b01, (outs GPR:$Rd),
 
 def CLREX : AXI<(outs), (ins), MiscFrm, NoItinerary, "clrex",
                 [(int_arm_clrex)]>,
-            Requires<[IsARM, HasV7]>  {
+            Requires<[IsARM, HasV6K]>  {
   let Inst{31-0} = 0b11110101011111111111000000011111;
 }
 
@@ -5394,6 +5398,27 @@ def MOV_ga_pcrel_ldr : PseudoInst<(outs GPR:$dst), (ins i32imm:$addr),
                     Requires<[IsARM, UseMovt]>;
 } // isReMaterializable
 
+// The many different faces of TLS access.
+def : ARMPat<(ARMWrapper tglobaltlsaddr :$dst),
+             (MOVi32imm tglobaltlsaddr :$dst)>,
+      Requires<[IsARM, UseMovt]>;
+
+def : Pat<(ARMWrapper tglobaltlsaddr:$src),
+          (LDRLIT_ga_abs tglobaltlsaddr:$src)>,
+      Requires<[IsARM, DontUseMovt]>;
+
+def : Pat<(ARMWrapperPIC tglobaltlsaddr:$addr),
+          (MOV_ga_pcrel tglobaltlsaddr:$addr)>, Requires<[IsARM, UseMovt]>;
+
+def : Pat<(ARMWrapperPIC tglobaltlsaddr:$addr),
+          (LDRLIT_ga_pcrel tglobaltlsaddr:$addr)>,
+      Requires<[IsARM, DontUseMovt]>;
+let AddedComplexity = 10 in
+def : Pat<(load (ARMWrapperPIC tglobaltlsaddr:$addr)),
+          (MOV_ga_pcrel_ldr tglobaltlsaddr:$addr)>,
+      Requires<[IsARM, UseMovt]>;
+
+
 // ConstantPool, GlobalAddress, and JumpTable
 def : ARMPat<(ARMWrapper  tconstpool  :$dst), (LEApcrel tconstpool  :$dst)>;
 def : ARMPat<(ARMWrapper  tglobaladdr :$dst), (MOVi32imm tglobaladdr :$dst)>,
@@ -5651,16 +5676,16 @@ def : ARMInstAlias<"mvn${s}${p} $Rd, $imm",
                    (MOVi rGPR:$Rd, mod_imm_not:$imm, pred:$p, cc_out:$s)>;
 // Same for AND <--> BIC
 def : ARMInstAlias<"bic${s}${p} $Rd, $Rn, $imm",
-                   (ANDri rGPR:$Rd, rGPR:$Rn, mod_imm_not:$imm,
+                   (ANDri GPR:$Rd, GPR:$Rn, mod_imm_not:$imm,
                           pred:$p, cc_out:$s)>;
 def : ARMInstAlias<"bic${s}${p} $Rdn, $imm",
-                   (ANDri rGPR:$Rdn, rGPR:$Rdn, mod_imm_not:$imm,
+                   (ANDri GPR:$Rdn, GPR:$Rdn, mod_imm_not:$imm,
                           pred:$p, cc_out:$s)>;
 def : ARMInstAlias<"and${s}${p} $Rd, $Rn, $imm",
-                   (BICri rGPR:$Rd, rGPR:$Rn, mod_imm_not:$imm,
+                   (BICri GPR:$Rd, GPR:$Rn, mod_imm_not:$imm,
                           pred:$p, cc_out:$s)>;
 def : ARMInstAlias<"and${s}${p} $Rdn, $imm",
-                   (BICri rGPR:$Rdn, rGPR:$Rdn, mod_imm_not:$imm,
+                   (BICri GPR:$Rdn, GPR:$Rdn, mod_imm_not:$imm,
                           pred:$p, cc_out:$s)>;
 
 // Likewise, "add Rd, mod_imm_neg" -> sub

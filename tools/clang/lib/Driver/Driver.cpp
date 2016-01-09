@@ -699,11 +699,11 @@ void Driver::generateCompilationDiagnostics(Compilation &C,
 }
 
 void Driver::setUpResponseFiles(Compilation &C, Command &Cmd) {
-  // Since argumentsFitWithinSystemLimits() may underestimate system's capacity
+  // Since commandLineFitsWithinSystemLimits() may underestimate system's capacity
   // if the tool does not support response files, there is a chance/ that things
   // will just work without a response file, so we silently just skip it.
   if (Cmd.getCreator().getResponseFilesSupport() == Tool::RF_None ||
-      llvm::sys::argumentsFitWithinSystemLimits(Cmd.getArguments()))
+      llvm::sys::commandLineFitsWithinSystemLimits(Cmd.getExecutable(), Cmd.getArguments()))
     return;
 
   std::string TmpName = GetTemporaryPath("response", "txt");
@@ -1298,11 +1298,11 @@ buildCudaActions(Compilation &C, DerivedArgList &Args, const Arg *InputArg,
   SmallVector<const char *, 4> GpuArchList;
   llvm::StringSet<> GpuArchNames;
   for (Arg *A : Args) {
-    if (A->getOption().matches(options::OPT_cuda_gpu_arch_EQ)) {
-      A->claim();
-      if (GpuArchNames.insert(A->getValue()).second)
-        GpuArchList.push_back(A->getValue());
-    }
+    if (!A->getOption().matches(options::OPT_cuda_gpu_arch_EQ))
+      continue;
+    A->claim();
+    if (GpuArchNames.insert(A->getValue()).second)
+      GpuArchList.push_back(A->getValue());
   }
 
   // Default to sm_20 which is the lowest common denominator for supported GPUs.
@@ -1325,13 +1325,10 @@ buildCudaActions(Compilation &C, DerivedArgList &Args, const Arg *InputArg,
          "Failed to create actions for all devices");
 
   // Check whether any of device actions stopped before they could generate PTX.
-  bool PartialCompilation = false;
-  for (unsigned I = 0, E = GpuArchList.size(); I != E; ++I) {
-    if (CudaDeviceActions[I]->getKind() != Action::BackendJobClass) {
-      PartialCompilation = true;
-      break;
-    }
-  }
+  bool PartialCompilation =
+      llvm::any_of(CudaDeviceActions, [](const Action *a) {
+        return a->getKind() != Action::BackendJobClass;
+      });
 
   // Figure out what to do with device actions -- pass them as inputs to the
   // host action or run each of them independently.
@@ -1470,12 +1467,11 @@ void Driver::BuildActions(Compilation &C, const ToolChain &TC,
       continue;
     }
 
-    phases::ID CudaInjectionPhase = FinalPhase;
-    for (const auto &Phase : PL)
-      if (Phase <= FinalPhase && Phase == phases::Compile) {
-        CudaInjectionPhase = Phase;
-        break;
-      }
+    phases::ID CudaInjectionPhase =
+        (phases::Compile < FinalPhase &&
+         llvm::find(PL, phases::Compile) != PL.end())
+            ? phases::Compile
+            : FinalPhase;
 
     // Build the pipeline for this file.
     std::unique_ptr<Action> Current(new InputAction(*InputArg, InputType));

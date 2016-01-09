@@ -526,6 +526,8 @@ namespace llvm {
     SDValue LowerToTLSExecModels(GlobalAddressSDNode *GA,
                                  SelectionDAG &DAG,
                                  TLSModel::Model model) const;
+    SDValue LowerGlobalTLSAddressDarwin(SDValue Op, SelectionDAG &DAG) const;
+    SDValue LowerGLOBAL_OFFSET_TABLE(SDValue Op, SelectionDAG &DAG) const;
     SDValue LowerBR_JT(SDValue Op, SelectionDAG &DAG) const;
     SDValue LowerXALUO(SDValue Op, SelectionDAG &DAG) const;
     SDValue LowerSELECT(SDValue Op, SelectionDAG &DAG) const;
@@ -543,10 +545,10 @@ namespace llvm {
                               const ARMSubtarget *ST) const;
     SDValue LowerFSINCOS(SDValue Op, SelectionDAG &DAG) const;
     SDValue LowerDivRem(SDValue Op, SelectionDAG &DAG) const;
-    SDValue LowerDIV_Windows(SDValue Op, SelectionDAG &DAG) const;
-    void ExpandDIV_Windows(SDValue Op, SelectionDAG &DAG,
+    SDValue LowerDIV_Windows(SDValue Op, SelectionDAG &DAG, bool Signed) const;
+    void ExpandDIV_Windows(SDValue Op, SelectionDAG &DAG, bool Signed,
                            SmallVectorImpl<SDValue> &Results) const;
-    SDValue LowerWindowsDIVLibCall(SDValue Op, SelectionDAG &DAG,
+    SDValue LowerWindowsDIVLibCall(SDValue Op, SelectionDAG &DAG, bool Signed,
                                    SDValue &Chain) const;
     SDValue LowerREM(SDNode *N, SelectionDAG &DAG) const;
     SDValue LowerDYNAMIC_STACKALLOC(SDValue Op, SelectionDAG &DAG) const;

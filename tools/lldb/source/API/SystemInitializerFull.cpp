@@ -32,6 +32,7 @@
 #include "Plugins/ABI/MacOSX-arm64/ABIMacOSX_arm64.h"
 #include "Plugins/ABI/SysV-arm/ABISysV_arm.h"
 #include "Plugins/ABI/SysV-arm64/ABISysV_arm64.h"
+#include "Plugins/ABI/SysV-hexagon/ABISysV_hexagon.h"
 #include "Plugins/ABI/SysV-i386/ABISysV_i386.h"
 #include "Plugins/ABI/SysV-x86_64/ABISysV_x86_64.h"
 #include "Plugins/ABI/SysV-ppc/ABISysV_ppc.h"
@@ -101,7 +102,7 @@ PyInit__lldb(void);
 #define LLDBSwigPyInit PyInit__lldb
 
 #else
-extern "C" void 
+extern "C" void
 init_lldb(void);
 
 #define LLDBSwigPyInit init_lldb
@@ -277,6 +278,7 @@ SystemInitializerFull::Initialize()
     ABIMacOSX_arm64::Initialize();
     ABISysV_arm::Initialize();
     ABISysV_arm64::Initialize();
+    ABISysV_hexagon::Initialize();
     ABISysV_i386::Initialize();
     ABISysV_x86_64::Initialize();
     ABISysV_ppc::Initialize();
@@ -306,7 +308,7 @@ SystemInitializerFull::Initialize()
     SystemRuntimeMacOSX::Initialize();
     RenderScriptRuntime::Initialize();
     GoLanguageRuntime::Initialize();
-    
+
     CPlusPlusLanguage::Initialize();
     GoLanguage::Initialize();
     ObjCLanguage::Initialize();
@@ -395,6 +397,7 @@ SystemInitializerFull::Terminate()
     ABIMacOSX_arm64::Terminate();
     ABISysV_arm::Terminate();
     ABISysV_arm64::Terminate();
+    ABISysV_hexagon::Terminate();
     ABISysV_i386::Terminate();
     ABISysV_x86_64::Terminate();
     ABISysV_ppc::Terminate();
@@ -427,7 +430,7 @@ SystemInitializerFull::Terminate()
     GoLanguage::Terminate();
     ObjCLanguage::Terminate();
     ObjCPlusPlusLanguage::Terminate();
-    
+
 #if defined(__APPLE__)
     ProcessMachCore::Terminate();
     ProcessKDP::Terminate();

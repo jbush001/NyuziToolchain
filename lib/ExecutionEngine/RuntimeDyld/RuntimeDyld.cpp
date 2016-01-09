@@ -97,11 +97,11 @@ void RuntimeDyldImpl::resolveRelocations() {
     // The Section here (Sections[i]) refers to the section in which the
     // symbol for the relocation is located.  The SectionID in the relocation
     // entry provides the section to which the relocation will be applied.
-    int Idx = it->getFirst();
+    int Idx = it->first;
     uint64_t Addr = Sections[Idx].getLoadAddress();
     DEBUG(dbgs() << "Resolving relocations Section #" << Idx << "\t"
                  << format("%p", (uintptr_t)Addr) << "\n");
-    resolveRelocationList(it->getSecond(), Addr);
+    resolveRelocationList(it->second, Addr);
   }
   Relocations.clear();
 
@@ -966,6 +966,17 @@ void RuntimeDyld::mapSectionAddress(const void *LocalAddress,
 bool RuntimeDyld::hasError() { return Dyld->hasError(); }
 
 StringRef RuntimeDyld::getErrorString() { return Dyld->getErrorString(); }
+
+void RuntimeDyld::finalizeWithMemoryManagerLocking() {
+  bool MemoryFinalizationLocked = MemMgr.FinalizationLocked;
+  MemMgr.FinalizationLocked = true;
+  resolveRelocations();
+  registerEHFrames();
+  if (!MemoryFinalizationLocked) {
+    MemMgr.finalizeMemory();
+    MemMgr.FinalizationLocked = false;
+  }
+}
 
 void RuntimeDyld::registerEHFrames() {
   if (Dyld)

@@ -12,6 +12,7 @@ import lldb
 import lldbsuite.test.lldbutil as lldbutil
 from lldbsuite.test.lldbtest import *
 
+@skipIfDarwin  # llvm.org/pr25924, sometimes generating SIGSEGV
 class EventAPITestCase(TestBase):
 
     mydir = TestBase.compute_mydir(__file__)
@@ -175,7 +176,7 @@ class EventAPITestCase(TestBase):
 
     @skipIfFreeBSD # llvm.org/pr21325
     @add_test_categories(['pyapi'])
-    @expectedFlakeyLinux("llvm.org/pr23617")  # Flaky, fails ~1/10 cases
+    @expectedFailureLinux("llvm.org/pr23617")  # Flaky, fails ~1/10 cases
     @expectedFailureWindows("llvm.org/pr24778")
     def test_add_listener_to_broadcaster(self):
         """Exercise some SBBroadcaster APIs."""

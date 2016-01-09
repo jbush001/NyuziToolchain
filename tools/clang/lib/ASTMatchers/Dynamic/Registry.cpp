@@ -108,6 +108,7 @@ RegistryMaps::RegistryMaps() {
   REGISTER_MATCHER(autoType);
   REGISTER_MATCHER(binaryOperator);
   REGISTER_MATCHER(blockPointerType);
+  REGISTER_MATCHER(booleanType);
   REGISTER_MATCHER(breakStmt);
   REGISTER_MATCHER(builtinType);
   REGISTER_MATCHER(callExpr);
@@ -288,6 +289,7 @@ RegistryMaps::RegistryMaps() {
   REGISTER_MATCHER(isListInitialization);
   REGISTER_MATCHER(isMemberInitializer);
   REGISTER_MATCHER(isMoveConstructor);
+  REGISTER_MATCHER(isNoThrow);
   REGISTER_MATCHER(isOverride);
   REGISTER_MATCHER(isPrivate);
   REGISTER_MATCHER(isProtected);

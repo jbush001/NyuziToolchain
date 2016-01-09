@@ -21,7 +21,6 @@
 #include "lldb/Symbol/Function.h"
 #include "lldb/Symbol/Symbol.h"
 #include "lldb/Symbol/SymbolContext.h"
-#include "lldb/Target/LanguageRuntime.h"
 #include "Plugins/Language/ObjC/ObjCLanguage.h"
 
 using namespace lldb;
@@ -259,8 +258,6 @@ BreakpointResolverName::SearchCallback(SearchFilter &filter,
     // If the filter specifies a Compilation Unit, remove the ones that don't pass at this point.
     if (filter_by_cu || filter_by_language)
     {
-        Target &target = m_breakpoint->GetTarget();
-        
         uint32_t num_functions = func_list.GetSize();
         
         for (size_t idx = 0; idx < num_functions; idx++)
@@ -276,25 +273,12 @@ BreakpointResolverName::SearchCallback(SearchFilter &filter,
             
             if (filter_by_language)
             {
-                const char *name = sc.GetFunctionName(Mangled::ePreferMangled).AsCString();
-                if (name)
+                LanguageType sym_language = sc.GetLanguage();
+                if ((Language::GetPrimaryLanguage(sym_language) !=
+                     Language::GetPrimaryLanguage(m_language)) &&
+                    (sym_language != eLanguageTypeUnknown))
                 {
-                    LanguageType sym_language = LanguageRuntime::GetLanguageForSymbolByName(target, name);
-                    if (m_language == eLanguageTypeC)
-                    {
-                        // We don't currently have a way to say "This symbol name is C" so for now, C means
-                        // not ObjC and not C++, etc...
-                        if (sym_language == eLanguageTypeC_plus_plus
-                            || sym_language == eLanguageTypeObjC
-                            || sym_language == eLanguageTypeSwift)
-                        {
-                            remove_it = true;
-                        }
-                    }
-                    else if (sym_language != m_language)
-                    {
-                        remove_it = true;
-                    }
+                    remove_it = true;
                 }
             }
             

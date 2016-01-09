@@ -146,6 +146,12 @@ public:
                             FunctionNameRepresentation representation,
                             Stream& s);
     
+    virtual void
+    GetExceptionResolverDescription(bool catch_on, bool throw_on, Stream &s);
+    
+    static void
+    GetDefaultExceptionResolverDescription(bool catch_on, bool throw_on, Stream &s);
+    
     // These are accessors for general information about the Languages lldb knows about:
     
     static lldb::LanguageType
@@ -173,6 +179,10 @@ public:
     static bool
     LanguageIsPascal (lldb::LanguageType language);
     
+    // return the primary language, so if LanguageIsC(l), return eLanguageTypeC, etc.
+    static lldb::LanguageType
+    GetPrimaryLanguage (lldb::LanguageType language);
+
     static void
     GetLanguagesSupportingTypeSystems (std::set<lldb::LanguageType> &languages,
                                        std::set<lldb::LanguageType> &languages_for_expressions);

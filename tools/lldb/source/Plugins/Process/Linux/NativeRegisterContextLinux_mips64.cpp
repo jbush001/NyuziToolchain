@@ -20,6 +20,7 @@
 #include "lldb/Core/Log.h"
 #include "lldb/Core/DataBufferHeap.h"
 #include "lldb/Host/HostInfo.h"
+#include "lldb/Host/Host.h"
 #include "lldb/Core/EmulateInstruction.h"
 #include "lldb/lldb-enumerations.h"
 #include "lldb/lldb-private-enumerations.h"
@@ -416,14 +417,14 @@ CreateRegisterInfoInterface(const ArchSpec& target_arch)
     if (HostInfo::GetArchitecture().GetAddressByteSize() == 4)
     {
         // 32-bit hosts run with a RegisterContextLinux_mips context.
-        return new RegisterContextLinux_mips(target_arch);
+        return new RegisterContextLinux_mips(target_arch, NativeRegisterContextLinux_mips64::IsMSAAvailable());
     }
     else
     {
         assert((HostInfo::GetArchitecture().GetAddressByteSize() == 8) &&
                "Register setting path assumes this is a 64-bit host");
         // mips64 hosts know how to work with 64-bit and 32-bit EXEs using the mips64 register context.
-        return new RegisterContextLinux_mips64 (target_arch);
+        return new RegisterContextLinux_mips64 (target_arch, NativeRegisterContextLinux_mips64::IsMSAAvailable());
     }
 }
 
@@ -494,7 +495,7 @@ NativeRegisterContextLinux_mips64::GetPCfromBreakpointLocation (lldb::addr_t fai
         log->Printf ("NativeRegisterContextLinux_mips64::%s Reading PC from breakpoint location", __FUNCTION__);
 
     // PC register is at index 34 of the register array
-    const RegisterInfo *const pc_info_p = GetRegisterInfoAtIndex (34);
+    const RegisterInfo *const pc_info_p = GetRegisterInfoAtIndex (gpr_pc_mips64);
         
     error = ReadRegister (pc_info_p, pc_value);
     if (error.Success ())
@@ -502,7 +503,7 @@ NativeRegisterContextLinux_mips64::GetPCfromBreakpointLocation (lldb::addr_t fai
         pc = pc_value.GetAsUInt64 ();
         
         // CAUSE register is at index 37 of the register array
-        const RegisterInfo *const cause_info_p = GetRegisterInfoAtIndex (37);
+        const RegisterInfo *const cause_info_p = GetRegisterInfoAtIndex (gpr_cause_mips64);
         RegisterValue cause_value;
 
         ReadRegister (cause_info_p, cause_value);
@@ -1104,9 +1105,12 @@ NativeRegisterContextLinux_mips64::IsMSA(uint32_t reg_index) const
 bool
 NativeRegisterContextLinux_mips64::IsMSAAvailable()
 {
-    Error error = NativeRegisterContextLinux::ReadRegisterSet(&m_msa, sizeof(MSA_linux_mips), NT_MIPS_MSA);
+    MSA_linux_mips msa_buf;
+    unsigned int regset = NT_MIPS_MSA;
 
-    if (error.Success() && m_msa.mir)
+    Error error = NativeProcessLinux::PtraceWrapper(PTRACE_GETREGSET, Host::GetCurrentProcessID(), static_cast<void *>(&regset), &msa_buf, sizeof(MSA_linux_mips));
+
+    if (error.Success() && msa_buf.mir)
     {
         return true;
     }
@@ -1376,12 +1380,15 @@ NativeRegisterContextLinux_mips64::DoReadRegisterValue(uint32_t offset,
 {
     GPR_linux_mips regs;
     ::memset(&regs, 0, sizeof(GPR_linux_mips));
+
+    // Clear all bits in RegisterValue before writing actual value read from ptrace to avoid garbage value in 32-bit MSB 
+    value.SetBytes((void *)(((unsigned char *)&regs) + offset), 8, GetByteOrder());
     Error error = NativeProcessLinux::PtraceWrapper(PTRACE_GETREGS, m_thread.GetID(), NULL, &regs, sizeof regs);
     if (error.Success())
     {
         lldb_private::ArchSpec arch;
         if (m_thread.GetProcess()->GetArchitecture(arch))
-            value.SetBytes((void *)(((unsigned char *)&regs) + offset + 4 * (arch.GetMachine() == llvm::Triple::mips)), arch.GetAddressByteSize(), arch.GetByteOrder());
+            value.SetBytes((void *)(((unsigned char *)&regs) + offset + 4 * (arch.GetMachine() == llvm::Triple::mips)), arch.GetFlags() & lldb_private::ArchSpec::eMIPSABI_O32 ? 4 : 8, arch.GetByteOrder());
         else
             error.SetErrorString("failed to get architecture");
     }
@@ -1397,8 +1404,14 @@ NativeRegisterContextLinux_mips64::DoWriteRegisterValue(uint32_t offset,
     Error error = NativeProcessLinux::PtraceWrapper(PTRACE_GETREGS, m_thread.GetID(), NULL, &regs, sizeof regs);
     if (error.Success())
     {
-        ::memcpy((void *)(((unsigned char *)(&regs)) + offset), value.GetBytes(), 8);
-        error = NativeProcessLinux::PtraceWrapper(PTRACE_SETREGS, m_thread.GetID(), NULL, &regs, sizeof regs);
+        lldb_private::ArchSpec arch;
+        if (m_thread.GetProcess()->GetArchitecture(arch))
+        {
+            ::memcpy((void *)(((unsigned char *)(&regs)) + offset), value.GetBytes(), arch.GetFlags() & lldb_private::ArchSpec::eMIPSABI_O32 ? 4 : 8);
+            error = NativeProcessLinux::PtraceWrapper(PTRACE_SETREGS, m_thread.GetID(), NULL, &regs, sizeof regs);
+        }
+        else
+            error.SetErrorString("failed to get architecture");
     }
     return error;
 }

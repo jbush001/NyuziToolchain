@@ -3,7 +3,7 @@
 ; Test that basic 64-bit floating-point comparison operations assemble as
 ; expected.
 
-target datalayout = "e-p:32:32-i64:64-n32:64-S128"
+target datalayout = "e-m:e-p:32:32-i64:64-n32:64-S128"
 target triple = "wasm32-unknown-unknown"
 
 ; CHECK-LABEL: ord_f64:
@@ -106,8 +106,8 @@ define i32 @ueq_f64(double %x, double %y) {
 }
 
 ; CHECK-LABEL: one_f64:
-; CHECK-NEXT: .param f64
-; CHECK-NEXT: .result i32
+; CHECK-NEXT: .param f64, f64{{$}}
+; CHECK-NEXT: .result i32{{$}}
 ; CHECK-NEXT: f64.ne $push[[NUM0:[0-9]+]]=, $0, $1{{$}}
 ; CHECK-NEXT: f64.eq $push[[NUM1:[0-9]+]]=, $0, $0{{$}}
 ; CHECK-NEXT: f64.eq $push[[NUM2:[0-9]+]]=, $1, $1{{$}}

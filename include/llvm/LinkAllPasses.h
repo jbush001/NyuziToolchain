@@ -85,7 +85,10 @@ namespace {
       (void) llvm::createDomOnlyViewerPass();
       (void) llvm::createDomViewerPass();
       (void) llvm::createGCOVProfilerPass();
+      (void) llvm::createPGOInstrumentationGenPass();
+      (void) llvm::createPGOInstrumentationUsePass();
       (void) llvm::createInstrProfilingPass();
+      (void) llvm::createFunctionImportPass();
       (void) llvm::createFunctionInliningPass();
       (void) llvm::createAlwaysInlinerPass();
       (void) llvm::createGlobalDCEPass();
@@ -154,7 +157,8 @@ namespace {
       (void) llvm::createPostDomTree();
       (void) llvm::createInstructionNamerPass();
       (void) llvm::createMetaRenamerPass();
-      (void) llvm::createFunctionAttrsPass();
+      (void) llvm::createPostOrderFunctionAttrsPass();
+      (void) llvm::createReversePostOrderFunctionAttrsPass();
       (void) llvm::createMergeFunctionsPass();
       (void) llvm::createPrintModulePass(*(llvm::raw_ostream*)nullptr);
       (void) llvm::createPrintFunctionPass(*(llvm::raw_ostream*)nullptr);
