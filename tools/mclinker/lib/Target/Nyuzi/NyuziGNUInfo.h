@@ -21,7 +21,7 @@ public:
 
   uint32_t machine() const { return llvm::ELF::EM_NYUZI; }
 
-  uint64_t abiPageSize() const { return 32; }	// Cache line size
+  uint64_t abiPageSize() const { return 0x1000; }
 
   uint64_t defaultTextSegmentAddr() const { return 0; }
 
