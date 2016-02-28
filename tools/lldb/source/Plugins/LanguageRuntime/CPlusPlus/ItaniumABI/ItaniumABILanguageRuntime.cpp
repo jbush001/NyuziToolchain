@@ -20,6 +20,7 @@
 #include "lldb/Core/ValueObjectMemory.h"
 #include "lldb/Symbol/ClangASTContext.h"
 #include "lldb/Symbol/Symbol.h"
+#include "lldb/Symbol/SymbolFile.h"
 #include "lldb/Symbol/TypeList.h"
 #include "lldb/Target/Process.h"
 #include "lldb/Target/RegisterContext.h"
@@ -126,12 +127,14 @@ ItaniumABILanguageRuntime::GetDynamicTypeAndAddress (ValueObject &in_value,
                         uint32_t num_matches = 0;
                         // First look in the module that the vtable symbol came from
                         // and look for a single exact match.
+                        llvm::DenseSet<SymbolFile *> searched_symbol_files;
                         if (sc.module_sp)
                         {
                             num_matches = sc.module_sp->FindTypes (sc,
                                                                    ConstString(class_name),
                                                                    exact_match,
                                                                    1,
+                                                                   searched_symbol_files,
                                                                    class_types);
                         }
                         
@@ -144,6 +147,7 @@ ItaniumABILanguageRuntime::GetDynamicTypeAndAddress (ValueObject &in_value,
                                                                          ConstString(class_name),
                                                                          exact_match,
                                                                          UINT32_MAX,
+                                                                         searched_symbol_files,
                                                                          class_types);
                         }
                         
@@ -191,7 +195,7 @@ ItaniumABILanguageRuntime::GetDynamicTypeAndAddress (ValueObject &in_value,
                                 type_sp = class_types.GetTypeAtIndex(i);
                                 if (type_sp)
                                 {
-                                    if (ClangASTContext::IsCXXClassType(type_sp->GetFullCompilerType ()))
+                                    if (ClangASTContext::IsCXXClassType(type_sp->GetForwardCompilerType()))
                                     {
                                         if (log)
                                             log->Printf ("0x%16.16" PRIx64 ": static-type = '%s' has multiple matching dynamic types, picking this one: uid={0x%" PRIx64 "}, type-name='%s'\n",
@@ -224,7 +228,7 @@ ItaniumABILanguageRuntime::GetDynamicTypeAndAddress (ValueObject &in_value,
                         if (type_sp)
                         {
                             if (ClangASTContext::AreTypesSame (in_value.GetCompilerType(),
-                                                               type_sp->GetFullCompilerType ()))
+                                                               type_sp->GetForwardCompilerType ()))
                             {
                                 // The dynamic type we found was the same type,
                                 // so we don't have a dynamic type here...

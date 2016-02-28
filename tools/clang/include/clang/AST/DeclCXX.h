@@ -378,6 +378,10 @@ class CXXRecordDecl : public RecordDecl {
     /// even if the class has a trivial default constructor.
     bool HasUninitializedReferenceMember : 1;
 
+    /// \brief True if any non-mutable field whose type doesn't have a user-
+    /// provided default ctor also doesn't have an in-class initializer.
+    bool HasUninitializedFields : 1;
+
     /// \brief These flags are \c true if a defaulted corresponding special
     /// member can't be fully analyzed without performing overload resolution.
     /// @{
@@ -416,6 +420,10 @@ class CXXRecordDecl : public RecordDecl {
     /// \brief True when this class has at least one user-declared constexpr
     /// constructor which is neither the copy nor move constructor.
     bool HasConstexprNonCopyMoveConstructor : 1;
+
+    /// \brief True if this class has a (possibly implicit) defaulted default
+    /// constructor.
+    bool HasDefaultedDefaultConstructor : 1;
 
     /// \brief True if a defaulted default constructor for this class would
     /// be constexpr.
@@ -1268,6 +1276,14 @@ public:
   /// (C++ [class.dtor]p3)
   bool hasNonTrivialDestructor() const {
     return !(data().HasTrivialSpecialMembers & SMF_Destructor);
+  }
+
+  /// \brief Determine whether declaring a const variable with this type is ok
+  /// per core issue 253.
+  bool allowConstDefaultInit() const {
+    return !data().HasUninitializedFields ||
+           !(data().HasDefaultedDefaultConstructor ||
+             needsImplicitDefaultConstructor());
   }
 
   /// \brief Determine whether this class has a destructor which has no

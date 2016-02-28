@@ -530,38 +530,24 @@ AAResults llvm::createLegacyPMAAResults(Pass &P, Function &F,
     AAR.addAAResult(WrapperPass->getResult());
   if (auto *WrapperPass = P.getAnalysisIfAvailable<GlobalsAAWrapperPass>())
     AAR.addAAResult(WrapperPass->getResult());
-  if (auto *WrapperPass = P.getAnalysisIfAvailable<SCEVAAWrapperPass>())
-    AAR.addAAResult(WrapperPass->getResult());
   if (auto *WrapperPass = P.getAnalysisIfAvailable<CFLAAWrapperPass>())
     AAR.addAAResult(WrapperPass->getResult());
 
   return AAR;
 }
 
-/// isNoAliasCall - Return true if this pointer is returned by a noalias
-/// function.
 bool llvm::isNoAliasCall(const Value *V) {
   if (auto CS = ImmutableCallSite(V))
     return CS.paramHasAttr(0, Attribute::NoAlias);
   return false;
 }
 
-/// isNoAliasArgument - Return true if this is an argument with the noalias
-/// attribute.
-bool llvm::isNoAliasArgument(const Value *V)
-{
+bool llvm::isNoAliasArgument(const Value *V) {
   if (const Argument *A = dyn_cast<Argument>(V))
     return A->hasNoAliasAttr();
   return false;
 }
 
-/// isIdentifiedObject - Return true if this pointer refers to a distinct and
-/// identifiable object.  This returns true for:
-///    Global Variables and Functions (but not Global Aliases)
-///    Allocas and Mallocs
-///    ByVal and NoAlias Arguments
-///    NoAlias returns
-///
 bool llvm::isIdentifiedObject(const Value *V) {
   if (isa<AllocaInst>(V))
     return true;
@@ -574,12 +560,17 @@ bool llvm::isIdentifiedObject(const Value *V) {
   return false;
 }
 
-/// isIdentifiedFunctionLocal - Return true if V is umabigously identified
-/// at the function-level. Different IdentifiedFunctionLocals can't alias.
-/// Further, an IdentifiedFunctionLocal can not alias with any function
-/// arguments other than itself, which is not necessarily true for
-/// IdentifiedObjects.
-bool llvm::isIdentifiedFunctionLocal(const Value *V)
-{
+bool llvm::isIdentifiedFunctionLocal(const Value *V) {
   return isa<AllocaInst>(V) || isNoAliasCall(V) || isNoAliasArgument(V);
+}
+
+void llvm::addUsedAAAnalyses(AnalysisUsage &AU) {
+  // This function needs to be in sync with llvm::createLegacyPMAAResults -- if
+  // more alias analyses are added to llvm::createLegacyPMAAResults, they need
+  // to be added here also.
+  AU.addUsedIfAvailable<ScopedNoAliasAAWrapperPass>();
+  AU.addUsedIfAvailable<TypeBasedAAWrapperPass>();
+  AU.addUsedIfAvailable<objcarc::ObjCARCAAWrapperPass>();
+  AU.addUsedIfAvailable<GlobalsAAWrapperPass>();
+  AU.addUsedIfAvailable<CFLAAWrapperPass>();
 }

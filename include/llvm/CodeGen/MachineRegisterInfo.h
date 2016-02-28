@@ -105,6 +105,11 @@ private:
   /// started.
   BitVector ReservedRegs;
 
+#ifdef LLVM_BUILD_GLOBAL_ISEL
+  /// Map generic virtual registers to their actual size.
+  DenseMap<unsigned, unsigned> VRegToSize;
+#endif
+
   /// Keep track of the physical registers that are live in to the function.
   /// Live in values are typically arguments in registers.  LiveIn values are
   /// allowed to have virtual registers associated with them, stored in the
@@ -587,6 +592,16 @@ public:
   ///
   unsigned createVirtualRegister(const TargetRegisterClass *RegClass);
 
+#ifdef LLVM_BUILD_GLOBAL_ISEL
+  /// Get the size of \p VReg or 0 if VReg is not a generic
+  /// (target independent) virtual register.
+  unsigned getSize(unsigned VReg) const;
+
+  /// Create and return a new generic virtual register with a size of \p Size.
+  /// \pre Size > 0.
+  unsigned createGenericVirtualRegister(unsigned Size);
+#endif
+
   /// getNumVirtRegs - Return the number of virtual registers created.
   ///
   unsigned getNumVirtRegs() const { return VRegInfo.size(); }
@@ -820,10 +835,10 @@ public:
           advance();
         } while (Op && Op->getParent() == P);
       } else if (ByBundle) {
-        MachineInstr *P = getBundleStart(Op->getParent());
+        MachineInstr &P = getBundleStart(*Op->getParent());
         do {
           advance();
-        } while (Op && getBundleStart(Op->getParent()) == P);
+        } while (Op && &getBundleStart(*Op->getParent()) == &P);
       }
 
       return *this;
@@ -922,10 +937,10 @@ public:
           advance();
         } while (Op && Op->getParent() == P);
       } else if (ByBundle) {
-        MachineInstr *P = getBundleStart(Op->getParent());
+        MachineInstr &P = getBundleStart(*Op->getParent());
         do {
           advance();
-        } while (Op && getBundleStart(Op->getParent()) == P);
+        } while (Op && &getBundleStart(*Op->getParent()) == &P);
       }
 
       return *this;
@@ -937,15 +952,12 @@ public:
     // Retrieve a reference to the current operand.
     MachineInstr &operator*() const {
       assert(Op && "Cannot dereference end iterator!");
-      if (ByBundle) return *(getBundleStart(Op->getParent()));
+      if (ByBundle)
+        return getBundleStart(*Op->getParent());
       return *Op->getParent();
     }
 
-    MachineInstr *operator->() const {
-      assert(Op && "Cannot dereference end iterator!");
-      if (ByBundle) return getBundleStart(Op->getParent());
-      return Op->getParent();
-    }
+    MachineInstr *operator->() const { return &operator*(); }
   };
 };
 

@@ -90,7 +90,7 @@ bool NyuziInstrInfo::AnalyzeBranch(MachineBasicBlock &MBB,
       continue;
 
     // When we see a non-terminator, we are done.
-    if (!isUnpredicatedTerminator(I))
+    if (!isUnpredicatedTerminator(*I))
       break;
 
     // Terminator is not a branch.

@@ -77,7 +77,7 @@ void NyuziRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator MBBI,
 
   // Round stack size to multiple of 64, consistent with frame pointer info.
   int stackSize =
-      RoundUpToAlignment(MFI->getStackSize(), TFL.getStackAlignment());
+      alignTo(MFI->getStackSize(), TFL.getStackAlignment());
 
   // Frame index is relative to where SP is before it is decremented on
   // entry to the function.  Need to add stackSize to adjust for this.

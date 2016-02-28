@@ -3,12 +3,13 @@ Test basics of mini dump debugging.
 """
 
 from __future__ import print_function
-
+from six import iteritems
 
 
 import lldb
+from lldbsuite.test.decorators import *
 from lldbsuite.test.lldbtest import *
-import lldbsuite.test.lldbutil as lldbutil
+from lldbsuite.test import lldbutil
 
 class MiniDumpTestCase(TestBase):
 
@@ -83,8 +84,8 @@ class MiniDumpTestCase(TestBase):
             thread = process.GetThreadAtIndex(0)
 
             expected_stack = { 0: 'bar', 1: 'foo', 2: 'main' }
-            self.assertEqual(thread.GetNumFrames(), len(expected_stack))
-            for index, name in expected_stack.iteritems():
+            self.assertGreaterEqual(thread.GetNumFrames(), len(expected_stack))
+            for index, name in iteritems(expected_stack):
                 frame = thread.GetFrameAtIndex(index)
                 self.assertTrue(frame.IsValid())
                 function_name = frame.GetFunctionName()

@@ -185,6 +185,9 @@ CommandInterpreter::Initialize ()
 
     LoadCommandDictionary ();
 
+    // An alias arguments vector to reuse - reset it before use...
+    OptionArgVectorSP alias_arguments_vector_sp (new OptionArgVector);
+    
     // Set up some initial aliases.
     CommandObjectSP cmd_obj_sp = GetCommandSPExact ("quit", false);
     if (cmd_obj_sp)
@@ -239,6 +242,11 @@ CommandInterpreter::Initialize ()
     {
         AddAlias ("s", cmd_obj_sp);
         AddAlias ("step", cmd_obj_sp);
+        
+        alias_arguments_vector_sp.reset (new OptionArgVector);
+        ProcessAliasOptionsArgs (cmd_obj_sp, "--end-linenumber block --step-in-target %1", alias_arguments_vector_sp);
+        AddAlias ("sif", cmd_obj_sp);
+        AddOrReplaceAliasOptions("sif", alias_arguments_vector_sp);
     }
 
     cmd_obj_sp = GetCommandSPExact ("thread step-over", false);
@@ -329,8 +337,8 @@ CommandInterpreter::Initialize ()
         AddAlias ("image", cmd_obj_sp);
 
 
-    OptionArgVectorSP alias_arguments_vector_sp (new OptionArgVector);
-    
+    alias_arguments_vector_sp.reset(new OptionArgVector);
+
     cmd_obj_sp = GetCommandSPExact ("expression", false);
     if (cmd_obj_sp)
     {        
@@ -874,6 +882,9 @@ CommandInterpreter::GetCommandSP (const char *cmd_cstr, bool include_aliases, bo
 bool
 CommandInterpreter::AddCommand (const char *name, const lldb::CommandObjectSP &cmd_sp, bool can_replace)
 {
+    if (cmd_sp.get())
+        assert((this == &cmd_sp->GetCommandInterpreter()) && "tried to add a CommandObject from a different interpreter");
+
     if (name && name[0])
     {
         std::string name_sstr(name);
@@ -893,9 +904,11 @@ CommandInterpreter::AddUserCommand (std::string name,
                                     const lldb::CommandObjectSP &cmd_sp,
                                     bool can_replace)
 {
+    if (cmd_sp.get())
+        assert((this == &cmd_sp->GetCommandInterpreter()) && "tried to add a CommandObject from a different interpreter");
+
     if (!name.empty())
     {
-        
         const char* name_cstr = name.c_str();
         
         // do not allow replacement of internal commands
@@ -1110,6 +1123,9 @@ CommandInterpreter::UserCommandExists (const char *cmd)
 void
 CommandInterpreter::AddAlias (const char *alias_name, CommandObjectSP& command_obj_sp)
 {
+    if (command_obj_sp.get())
+        assert((this == &command_obj_sp->GetCommandInterpreter()) && "tried to add a CommandObject from a different interpreter");
+
     command_obj_sp->SetIsAlias (true);
     m_alias_dict[alias_name] = command_obj_sp;
 }
@@ -1617,6 +1633,7 @@ CommandInterpreter::PreprocessCommand (std::string &command)
                                     break;
                                 case eExpressionResultUnavailable:
                                     error.SetErrorStringWithFormat ("expression error fetching result for the expression '%s'", expr_str.c_str());
+                                    break;
                                 case eExpressionCompleted:
                                     break;
                                 case eExpressionDiscarded:
@@ -2311,12 +2328,44 @@ CommandInterpreter::SourceInitFile (bool in_cwd, CommandReturnObject &result)
     FileSpec init_file;
     if (in_cwd)
     {
-        // In the current working directory we don't load any program specific
-        // .lldbinit files, we only look for a "./.lldbinit" file.
-        if (m_skip_lldbinit_files)
-            return;
+        ExecutionContext exe_ctx(GetExecutionContext());
+        Target *target = exe_ctx.GetTargetPtr();
+        if (target)
+        {
+            // In the current working directory we don't load any program specific
+            // .lldbinit files, we only look for a ".lldbinit" file.
+            if (m_skip_lldbinit_files)
+                return;
 
-        init_file.SetFile ("./.lldbinit", true);
+            LoadCWDlldbinitFile should_load = target->TargetProperties::GetLoadCWDlldbinitFile ();
+            if (should_load == eLoadCWDlldbinitWarn)
+            {
+                FileSpec dot_lldb (".lldbinit", true);
+                llvm::SmallString<64> home_dir_path;
+                llvm::sys::path::home_directory (home_dir_path);
+                FileSpec homedir_dot_lldb (home_dir_path.c_str(), false);
+                homedir_dot_lldb.AppendPathComponent (".lldbinit");
+                homedir_dot_lldb.ResolvePath ();
+                if (dot_lldb.Exists ()
+                    && dot_lldb.GetDirectory() != homedir_dot_lldb.GetDirectory())
+                {
+                    result.AppendErrorWithFormat (
+                            "There is a .lldbinit file in the current directory which is not being read.\n"
+                            "To silence this warning without sourcing in the local .lldbinit,\n"
+                            "add the following to the lldbinit file in your home directory:\n"
+                            "    settings set target.load-cwd-lldbinit false\n"
+                            "To allow lldb to source .lldbinit files in the current working directory,\n"
+                            "set the value of this variable to true.  Only do so if you understand and\n"
+                            "accept the security risk.");
+                    result.SetStatus (eReturnStatusFailed);
+                    return;
+                }
+            }
+            else if (should_load == eLoadCWDlldbinitTrue)
+            {
+                init_file.SetFile ("./.lldbinit", true);
+            }
+        }
     }
     else
     {

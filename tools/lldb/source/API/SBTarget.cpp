@@ -49,6 +49,7 @@
 #include "lldb/Symbol/ClangASTContext.h"
 #include "lldb/Symbol/DeclVendor.h"
 #include "lldb/Symbol/ObjectFile.h"
+#include "lldb/Symbol/SymbolFile.h"
 #include "lldb/Symbol/SymbolVendor.h"
 #include "lldb/Symbol/VariableList.h"
 #include "lldb/Target/ABI.h"
@@ -372,9 +373,8 @@ SBTarget::Launch
 
     log = lldb_private::GetLogIfAllCategoriesSet (LIBLLDB_LOG_API);
     if (log)
-        log->Printf ("SBTarget(%p)::Launch (...) => SBProcess(%p)",
-                     static_cast<void*>(target_sp.get()),
-                     static_cast<void*>(sb_process.GetSP().get()));
+        log->Printf("SBTarget(%p)::Launch (...) => SBProcess(%p), SBError(%s)", static_cast<void *>(target_sp.get()),
+                    static_cast<void *>(sb_process.GetSP().get()), error.GetCString());
 
     return sb_process;
 }
@@ -1894,11 +1894,12 @@ SBTarget::FindTypes (const char* typename_cstr)
         bool exact_match = false;
         SymbolContext sc;
         TypeList type_list;
-        
+        llvm::DenseSet<SymbolFile *> searched_symbol_files;
         uint32_t num_matches = images.FindTypes (sc,
                                                  const_typename,
                                                  exact_match,
                                                  UINT32_MAX,
+                                                 searched_symbol_files,
                                                  type_list);
         
         if (num_matches > 0)

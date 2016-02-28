@@ -9,6 +9,8 @@
 
 // C Includes
 // C++ Includes
+#include <atomic>
+#include <mutex>
 // Other libraries and framework includes
 // Project includes
 #include "lldb/Target/Process.h"
@@ -831,10 +833,14 @@ Process::~Process()
 const ProcessPropertiesSP &
 Process::GetGlobalProperties()
 {
-    static ProcessPropertiesSP g_settings_sp;
-    if (!g_settings_sp)
-        g_settings_sp.reset (new ProcessProperties (NULL));
-    return g_settings_sp;
+    // NOTE: intentional leak so we don't crash if global destructor chain gets
+    // called as other threads still use the result of this function
+    static ProcessPropertiesSP *g_settings_sp_ptr = nullptr;
+    static std::once_flag g_once_flag;
+    std::call_once(g_once_flag,  []() {
+        g_settings_sp_ptr = new ProcessPropertiesSP(new ProcessProperties (NULL));
+    });
+    return *g_settings_sp_ptr;
 }
 
 void
@@ -1489,12 +1495,6 @@ Process::IsAlive ()
 {
     switch (m_private_state.GetValue())
     {
-        case eStateInvalid:
-        case eStateUnloaded:
-        case eStateDetached:
-        case eStateExited:
-            return false;
-
         case eStateConnected:
         case eStateAttaching:
         case eStateLaunching:
@@ -1504,6 +1504,8 @@ Process::IsAlive ()
         case eStateCrashed:
         case eStateSuspended:
             return true;
+        default:
+            return false;
     }
 }
 
@@ -3888,7 +3890,7 @@ Process::ShouldBroadcastEvent (Event *event_ptr)
             m_stdio_communication.StopReadThread();
             m_stdin_forward = false;
 
-            // fall-through
+            LLVM_FALLTHROUGH;
         case eStateConnected:
         case eStateAttaching:
         case eStateLaunching:
@@ -4069,8 +4071,8 @@ Process::StartPrivateStateThread (bool is_secondary_thread)
     }
 
     // Create the private state thread, and start it running.
-    PrivateStateThreadArgs args = {this, is_secondary_thread};
-    m_private_state_thread = ThreadLauncher::LaunchThread(thread_name, Process::PrivateStateThread, (void *) &args, NULL, 8 * 1024 * 1024);
+    PrivateStateThreadArgs *args_ptr = new PrivateStateThreadArgs(this, is_secondary_thread);
+    m_private_state_thread = ThreadLauncher::LaunchThread(thread_name, Process::PrivateStateThread, (void *) args_ptr, NULL, 8 * 1024 * 1024);
     if (m_private_state_thread.IsJoinable())
     {
         ResumePrivateStateThread();
@@ -4312,8 +4314,9 @@ Process::HaltPrivate()
 thread_result_t
 Process::PrivateStateThread (void *arg)
 {
-    PrivateStateThreadArgs *real_args = static_cast<PrivateStateThreadArgs *> (arg);
-    thread_result_t result = real_args->process->RunPrivateStateThread(real_args->is_secondary_thread);
+    PrivateStateThreadArgs real_args = *static_cast<PrivateStateThreadArgs *> (arg);
+    free (arg);
+    thread_result_t result = real_args.process->RunPrivateStateThread(real_args.is_secondary_thread);
     return result;
 }
 
@@ -4952,6 +4955,7 @@ public:
 // FD_ZERO, FD_SET are not supported on windows
 #ifndef _WIN32
         const int pipe_read_fd = m_pipe.GetReadFileDescriptor();
+        m_is_running = true;
         while (!GetIsDone())
         {
             fd_set read_fdset;
@@ -4960,6 +4964,7 @@ public:
             FD_SET (pipe_read_fd, &read_fdset);
             const int nfds = std::max<int>(read_fd, pipe_read_fd) + 1;
             int num_set_fds = select (nfds, &read_fdset, NULL, NULL, NULL);
+
             if (num_set_fds < 0)
             {
                 const int select_errno = errno;
@@ -5003,6 +5008,7 @@ public:
                 }
             }
         }
+        m_is_running = false;
 #endif
         terminal_state.Restore();
     }
@@ -5010,9 +5016,24 @@ public:
     void
     Cancel () override
     {
-        char ch = 'q';  // Send 'q' for quit
-        size_t bytes_written = 0;
-        m_pipe.Write(&ch, 1, bytes_written);
+        SetIsDone(true);
+        // Only write to our pipe to cancel if we are in IOHandlerProcessSTDIO::Run().
+        // We can end up with a python command that is being run from the command
+        // interpreter:
+        //
+        // (lldb) step_process_thousands_of_times
+        //
+        // In this case the command interpreter will be in the middle of handling
+        // the command and if the process pushes and pops the IOHandler thousands
+        // of times, we can end up writing to m_pipe without ever consuming the
+        // bytes from the pipe in IOHandlerProcessSTDIO::Run() and end up
+        // deadlocking when the pipe gets fed up and blocks until data is consumed.
+        if (m_is_running)
+        {
+            char ch = 'q';  // Send 'q' for quit
+            size_t bytes_written = 0;
+            m_pipe.Write(&ch, 1, bytes_written);
+        }
     }
 
     bool
@@ -5059,6 +5080,7 @@ protected:
     File m_read_file;   // Read from this file (usually actual STDIN for LLDB
     File m_write_file;  // Write to this file (usually the master pty for getting io to debuggee)
     Pipe m_pipe;
+    std::atomic<bool> m_is_running;
 };
 
 void

@@ -14,12 +14,12 @@
 #ifndef NYUZI_SUBTARGET_H
 #define NYUZI_SUBTARGET_H
 
+#include "llvm/CodeGen/SelectionDAGTargetInfo.h"
 #include "llvm/Target/TargetSubtargetInfo.h"
 #include "llvm/IR/DataLayout.h"
 #include "NyuziFrameLowering.h"
 #include "NyuziISelLowering.h"
 #include "NyuziInstrInfo.h"
-#include "NyuziSelectionDAGInfo.h"
 #include <string>
 
 #define GET_SUBTARGETINFO_HEADER
@@ -32,7 +32,7 @@ class NyuziSubtarget : public NyuziGenSubtargetInfo {
   virtual void anchor();
   std::unique_ptr<const NyuziInstrInfo> InstrInfo;
   std::unique_ptr<const NyuziTargetLowering> TLInfo;
-  NyuziSelectionDAGInfo TSInfo;
+  SelectionDAGTargetInfo TSInfo;
   std::unique_ptr<const NyuziFrameLowering> FrameLowering;
   InstrItineraryData InstrItins;
 
@@ -55,7 +55,7 @@ public:
   virtual const NyuziTargetLowering *getTargetLowering() const override {
     return TLInfo.get();
   }
-  virtual const NyuziSelectionDAGInfo *getSelectionDAGInfo() const override {
+  virtual const SelectionDAGTargetInfo *getSelectionDAGInfo() const override {
     return &TSInfo;
   }
 

@@ -14,6 +14,9 @@
 #include "AArch64TargetMachine.h"
 #include "AArch64TargetObjectFile.h"
 #include "AArch64TargetTransformInfo.h"
+#ifdef LLVM_BUILD_GLOBAL_ISEL
+#  include "llvm/CodeGen/GlobalISel/IRTranslator.h"
+#endif
 #include "llvm/CodeGen/Passes.h"
 #include "llvm/CodeGen/RegAllocRegistry.h"
 #include "llvm/IR/Function.h"
@@ -56,6 +59,11 @@ EnableDeadRegisterElimination("aarch64-dead-def-elimination", cl::Hidden,
                                        " them with stores to the zero"
                                        " register"),
                               cl::init(true));
+
+static cl::opt<bool>
+EnableRedundantCopyElimination("aarch64-redundant-copy-elim",
+              cl::desc("Enable the redundant copy elimination pass"),
+              cl::init(true), cl::Hidden);
 
 static cl::opt<bool>
 EnableLoadStoreOpt("aarch64-load-store-opt", cl::desc("Enable the load/store pair"
@@ -194,6 +202,9 @@ public:
   void addIRPasses()  override;
   bool addPreISel() override;
   bool addInstSelector() override;
+#ifdef LLVM_BUILD_GLOBAL_ISEL
+  bool addIRTranslator() override;
+#endif
   bool addILPOpts() override;
   void addPreRegAlloc() override;
   void addPostRegAlloc() override;
@@ -278,6 +289,13 @@ bool AArch64PassConfig::addInstSelector() {
   return false;
 }
 
+#ifdef LLVM_BUILD_GLOBAL_ISEL
+bool AArch64PassConfig::addIRTranslator() {
+  addPass(new IRTranslator());
+  return false;
+}
+#endif
+
 bool AArch64PassConfig::addILPOpts() {
   if (EnableCondOpt)
     addPass(createAArch64ConditionOptimizerPass());
@@ -303,6 +321,10 @@ void AArch64PassConfig::addPreRegAlloc() {
 }
 
 void AArch64PassConfig::addPostRegAlloc() {
+  // Remove redundant copy instructions.
+  if (TM->getOptLevel() != CodeGenOpt::None && EnableRedundantCopyElimination)
+    addPass(createAArch64RedundantCopyEliminationPass());
+
   // Change dead register definitions to refer to the zero register.
   if (TM->getOptLevel() != CodeGenOpt::None && EnableDeadRegisterElimination)
     addPass(createAArch64DeadRegisterDefinitions());

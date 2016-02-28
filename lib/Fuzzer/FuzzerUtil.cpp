@@ -12,6 +12,7 @@
 #include "FuzzerInternal.h"
 #include <sstream>
 #include <iomanip>
+#include <sys/resource.h>
 #include <sys/time.h>
 #include <cassert>
 #include <cstring>
@@ -21,20 +22,40 @@
 
 namespace fuzzer {
 
-void Print(const Unit &v, const char *PrintAfter) {
-  for (auto x : v)
-    Printf("0x%x,", (unsigned) x);
+void PrintHexArray(const uint8_t *Data, size_t Size,
+                   const char *PrintAfter) {
+  for (size_t i = 0; i < Size; i++)
+    Printf("0x%x,", (unsigned)Data[i]);
   Printf("%s", PrintAfter);
 }
 
-void PrintASCII(const Unit &U, const char *PrintAfter) {
-  for (auto X : U) {
-    if (isprint(X))
-      Printf("%c", X);
-    else
-      Printf("\\x%x", (unsigned)X);
-  }
+void Print(const Unit &v, const char *PrintAfter) {
+  PrintHexArray(v.data(), v.size(), PrintAfter);
+}
+
+void PrintASCIIByte(uint8_t Byte) {
+  if (Byte == '\\')
+    Printf("\\\\");
+  else if (Byte == '"')
+    Printf("\\\"");
+  else if (Byte >= 32 && Byte < 127)
+    Printf("%c", Byte);
+  else
+    Printf("\\x%02x", Byte);
+}
+
+void PrintASCII(const uint8_t *Data, size_t Size, const char *PrintAfter) {
+  for (size_t i = 0; i < Size; i++)
+    PrintASCIIByte(Data[i]);
   Printf("%s", PrintAfter);
+}
+
+void PrintASCII(const Word &W, const char *PrintAfter) {
+  PrintASCII(W.data(), W.size(), PrintAfter);
+}
+
+void PrintASCII(const Unit &U, const char *PrintAfter) {
+  PrintASCII(U.data(), U.size(), PrintAfter);
 }
 
 std::string Hash(const Unit &U) {
@@ -73,9 +94,10 @@ int ExecuteCommand(const std::string &Command) {
   return system(Command.c_str());
 }
 
-bool ToASCII(Unit &U) {
+bool ToASCII(uint8_t *Data, size_t Size) {
   bool Changed = false;
-  for (auto &X : U) {
+  for (size_t i = 0; i < Size; i++) {
+    uint8_t &X = Data[i];
     auto NewX = X;
     NewX &= 127;
     if (!isspace(NewX) && !isprint(NewX))
@@ -194,6 +216,13 @@ std::string Base64(const Unit &U) {
     Res += "=";
   }
   return Res;
+}
+
+size_t GetPeakRSSMb() {
+  struct rusage usage;
+  if (getrusage(RUSAGE_SELF, &usage))
+    return 0;
+  return usage.ru_maxrss >> 10;
 }
 
 }  // namespace fuzzer

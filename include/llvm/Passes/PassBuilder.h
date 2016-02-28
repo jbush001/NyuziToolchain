@@ -18,9 +18,11 @@
 
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Analysis/CGSCCPassManager.h"
+#include "llvm/Analysis/LoopPassManager.h"
 #include "llvm/IR/PassManager.h"
 
 namespace llvm {
+class AAManager;
 class TargetMachine;
 
 /// \brief This class provides access to building LLVM's passes.
@@ -39,22 +41,32 @@ public:
   ///
   /// This is an interface that can be used to populate a \c
   /// ModuleAnalysisManager with all registered module analyses. Callers can
-  /// still manually register any additional analyses.
+  /// still manually register any additional analyses. Callers can also
+  /// pre-register analyses and this will not override those.
   void registerModuleAnalyses(ModuleAnalysisManager &MAM);
 
   /// \brief Registers all available CGSCC analysis passes.
   ///
   /// This is an interface that can be used to populate a \c CGSCCAnalysisManager
   /// with all registered CGSCC analyses. Callers can still manually register any
-  /// additional analyses.
+  /// additional analyses. Callers can also pre-register analyses and this will
+  /// not override those.
   void registerCGSCCAnalyses(CGSCCAnalysisManager &CGAM);
 
   /// \brief Registers all available function analysis passes.
   ///
   /// This is an interface that can be used to populate a \c
   /// FunctionAnalysisManager with all registered function analyses. Callers can
-  /// still manually register any additional analyses.
+  /// still manually register any additional analyses. Callers can also
+  /// pre-register analyses and this will not override those.
   void registerFunctionAnalyses(FunctionAnalysisManager &FAM);
+
+  /// \brief Registers all available loop analysis passes.
+  ///
+  /// This is an interface that can be used to populate a \c LoopAnalysisManager
+  /// with all registered loop analyses. Callers can still manually register any
+  /// additional analyses.
+  void registerLoopAnalyses(LoopAnalysisManager &LAM);
 
   /// \brief Parse a textual pass pipeline description into a \c ModulePassManager.
   ///
@@ -87,10 +99,31 @@ public:
   bool parsePassPipeline(ModulePassManager &MPM, StringRef PipelineText,
                          bool VerifyEachPass = true, bool DebugLogging = false);
 
+  /// Parse a textual alias analysis pipeline into the provided AA manager.
+  ///
+  /// The format of the textual AA pipeline is a comma separated list of AA
+  /// pass names:
+  ///
+  ///   basic-aa,globals-aa,...
+  ///
+  /// The AA manager is set up such that the provided alias analyses are tried
+  /// in the order specified. See the \c AAManaager documentation for details
+  /// about the logic used. This routine just provides the textual mapping
+  /// between AA names and the analyses to register with the manager.
+  ///
+  /// Returns false if the text cannot be parsed cleanly. The specific state of
+  /// the \p AA manager is unspecified if such an error is encountered and this
+  /// returns false.
+  bool parseAAPipeline(AAManager &AA, StringRef PipelineText);
+
 private:
   bool parseModulePassName(ModulePassManager &MPM, StringRef Name);
   bool parseCGSCCPassName(CGSCCPassManager &CGPM, StringRef Name);
   bool parseFunctionPassName(FunctionPassManager &FPM, StringRef Name);
+  bool parseLoopPassName(LoopPassManager &LPM, StringRef Name);
+  bool parseAAPassName(AAManager &AA, StringRef Name);
+  bool parseLoopPassPipeline(LoopPassManager &LPM, StringRef &PipelineText,
+                             bool VerifyEachPass, bool DebugLogging);
   bool parseFunctionPassPipeline(FunctionPassManager &FPM,
                                  StringRef &PipelineText, bool VerifyEachPass,
                                  bool DebugLogging);
@@ -99,7 +132,6 @@ private:
   bool parseModulePassPipeline(ModulePassManager &MPM, StringRef &PipelineText,
                                bool VerifyEachPass, bool DebugLogging);
 };
-
 }
 
 #endif

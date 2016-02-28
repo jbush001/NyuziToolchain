@@ -23,8 +23,8 @@ public:
   virtual ~NyuziELFObjectWriter();
 
 protected:
-  virtual unsigned GetRelocType(const MCValue &Target, const MCFixup &Fixup,
-                                bool IsPCRel) const override;
+  virtual unsigned getRelocType(MCContext &Ctx, const MCValue &Target,
+                                const MCFixup &Fixup, bool IsPCRel) const override;
 };
 }
 
@@ -34,7 +34,8 @@ NyuziELFObjectWriter::NyuziELFObjectWriter(uint8_t OSABI)
 
 NyuziELFObjectWriter::~NyuziELFObjectWriter() {}
 
-unsigned NyuziELFObjectWriter::GetRelocType(const MCValue &Target,
+unsigned NyuziELFObjectWriter::getRelocType(MCContext &Ctx,
+                                            const MCValue &Target,
                                             const MCFixup &Fixup,
                                             bool IsPCRel) const {
   unsigned Type;

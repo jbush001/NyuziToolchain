@@ -15,11 +15,6 @@
 // Mips Operand, Complex Patterns and Transformations Definitions.
 //===----------------------------------------------------------------------===//
 
-// Unsigned Operand
-def uimm16_64      : Operand<i64> {
-  let PrintMethod = "printUnsignedImm";
-}
-
 // Signed Operand
 def simm10_64 : Operand<i64>;
 
@@ -113,7 +108,7 @@ def ORi64   : ArithLogicI<"ori", uimm16_64, GPR64Opnd, II_OR, immZExt16, or>,
               ADDI_FM<0xd>;
 def XORi64  : ArithLogicI<"xori", uimm16_64, GPR64Opnd, II_XOR, immZExt16, xor>,
               ADDI_FM<0xe>;
-def LUi64   : LoadUpper<"lui", GPR64Opnd, uimm16_64>, LUI_FM;
+def LUi64   : LoadUpper<"lui", GPR64Opnd, uimm16_64_relaxed>, LUI_FM;
 }
 
 /// Arithmetic Instructions (3-Operand, R-Type)
@@ -282,11 +277,13 @@ let AdditionalPredicates = [NotInMicroMips] in {
               EXT_FM<1>;
   def DEXTU : ExtBase<"dextu", GPR64Opnd, uimm5_plus32, uimm5_plus1,
                       MipsExt>, EXT_FM<2>;
+  def DINS : InsBase<"dins", GPR64Opnd, uimm6, uimm5_inssize_plus1, MipsIns>,
+             EXT_FM<7>;
+  def DINSU : InsBase<"dinsu", GPR64Opnd, uimm5_plus32, uimm5_inssize_plus1>,
+              EXT_FM<6>;
+  def DINSM : InsBase<"dinsm", GPR64Opnd, uimm5, uimm5_inssize_plus1>,
+              EXT_FM<5>;
 }
-
-def DINS : InsBase<"dins", GPR64Opnd, uimm6, MipsIns>, EXT_FM<7>;
-def DINSU : InsBase<"dinsu", GPR64Opnd, uimm5_plus32>, EXT_FM<6>;
-def DINSM : InsBase<"dinsm", GPR64Opnd, uimm5>, EXT_FM<5>;
 
 let isCodeGenOnly = 1, rs = 0, shamt = 0 in {
   def DSLL64_32 : FR<0x00, 0x3c, (outs GPR64:$rd), (ins GPR32:$rt),

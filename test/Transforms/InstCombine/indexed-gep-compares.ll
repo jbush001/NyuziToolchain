@@ -19,7 +19,7 @@ bb2:
 
 ; CHECK-LABEL: @test1(
 ; CHECK:  %[[INDEX:[0-9A-Za-z.]+]] = phi i32 [ %[[ADD:[0-9A-Za-z.]+]], %bb ], [ %Offset, %entry ]
-; CHECK:  %[[ADD]] = add i32 %[[INDEX]], 1
+; CHECK:  %[[ADD]] = add nsw i32 %[[INDEX]], 1
 ; CHECK:  %cond = icmp sgt i32 %[[INDEX]], 100
 ; CHECK:  br i1 %cond, label %bb2, label %bb
 ; CHECK:  %[[PTR:[0-9A-Za-z.]+]] = getelementptr inbounds i32, i32* %A, i32 %[[INDEX]]
@@ -45,11 +45,11 @@ bb2:
   ret i32* %RHS
 
 ; CHECK-LABEL: @test2(
-; CHECK:  %[[TOPTR:[0-9A-Za-z.]+]] = inttoptr i32 %[[ADD:[0-9A-Za-z.]+]] to i32*
 ; CHECK:  %[[INDEX:[0-9A-Za-z.]+]] = phi i32 [ %[[ADD:[0-9A-Za-z.]+]], %bb ], [ %Offset, %entry ]
-; CHECK:  %[[ADD]] = add i32 %[[INDEX]], 1
+; CHECK:  %[[ADD]] = add nsw i32 %[[INDEX]], 1
 ; CHECK:  %cond = icmp sgt i32 %[[INDEX]], 100
 ; CHECK:  br i1 %cond, label %bb2, label %bb
+; CHECK:  %[[TOPTR:[0-9A-Za-z.]+]] = inttoptr i32 %[[ADD:[0-9A-Za-z.]+]] to i32*
 ; CHECK:  %[[PTR:[0-9A-Za-z.]+]] = getelementptr inbounds i32, i32* %[[TOPTR]], i32 %[[INDEX]]
 ; CHECK:  ret i32* %[[PTR]]
 }
@@ -98,3 +98,73 @@ bb2:
 ; CHECK-LABEL: @test4(
 ; CHECK:  %cond = icmp sgt i32 %{{[0-9A-Za-z.]+}}, 100
 }
+
+declare i32* @fun_ptr()
+
+define i32 *@test5(i32 %Offset) personality i8* bitcast (i32 (...)* @__gxx_personality_v0 to i8*) {
+entry:
+ %A = invoke i32 *@fun_ptr() to label %cont unwind label %lpad
+
+cont:
+  %tmp = getelementptr inbounds i32, i32* %A, i32 %Offset
+  br label %bb
+
+bb:
+  %RHS = phi i32* [ %RHS.next, %bb ], [ %tmp, %cont ]
+  %LHS = getelementptr inbounds i32, i32* %A, i32 100
+  %RHS.next = getelementptr inbounds i32, i32* %RHS, i64 1
+  %cond = icmp ult i32 * %LHS, %RHS
+  br i1 %cond, label %bb2, label %bb
+
+bb2:
+  ret i32* %RHS
+
+lpad:
+  %l = landingpad { i8*, i32 } cleanup
+  ret i32* null
+
+; CHECK-LABEL: @test5(
+; CHECK:  %[[INDEX:[0-9A-Za-z.]+]] = phi i32 [ %[[ADD:[0-9A-Za-z.]+]], %bb ], [ %Offset, %cont ]
+; CHECK:  %[[ADD]] = add nsw i32 %[[INDEX]], 1
+; CHECK:  %cond = icmp sgt i32 %[[INDEX]], 100
+; CHECK:  br i1 %cond, label %bb2, label %bb
+; CHECK:  %[[PTR:[0-9A-Za-z.]+]] = getelementptr inbounds i32, i32* %A, i32 %[[INDEX]]
+; CHECK:  ret i32* %[[PTR]]
+}
+
+declare i32 @fun_i32()
+
+define i32 *@test6(i32 %Offset) personality i8* bitcast (i32 (...)* @__gxx_personality_v0 to i8*) {
+entry:
+ %A = invoke i32 @fun_i32() to label %cont unwind label %lpad
+
+cont:
+  %A.ptr = inttoptr i32 %A to i32*
+  %tmp = getelementptr inbounds i32, i32* %A.ptr, i32 %Offset
+  br label %bb
+
+bb:
+  %RHS = phi i32* [ %RHS.next, %bb ], [ %tmp, %cont ]
+  %LHS = getelementptr inbounds i32, i32* %A.ptr, i32 100
+  %RHS.next = getelementptr inbounds i32, i32* %RHS, i64 1
+  %cond = icmp ult i32 * %LHS, %RHS
+  br i1 %cond, label %bb2, label %bb
+
+bb2:
+  ret i32* %RHS
+
+lpad:
+  %l = landingpad { i8*, i32 } cleanup
+  ret i32* null
+
+; CHECK-LABEL: @test6(
+; CHECK:  %[[INDEX:[0-9A-Za-z.]+]] = phi i32 [ %[[ADD:[0-9A-Za-z.]+]], %bb ], [ %Offset, %cont ]
+; CHECK:  %[[ADD]] = add nsw i32 %[[INDEX]], 1
+; CHECK:  %cond = icmp sgt i32 %[[INDEX]], 100
+; CHECK:  br i1 %cond, label %bb2, label %bb
+; CHECK:  %[[TOPTR:[0-9A-Za-z.]+]] = inttoptr i32 %[[ADD:[0-9A-Za-z.]+]] to i32*
+; CHECK:  %[[PTR:[0-9A-Za-z.]+]] = getelementptr inbounds i32, i32* %[[TOPTR]], i32 %[[INDEX]]
+; CHECK:  ret i32* %[[PTR]]
+}
+
+declare i32 @__gxx_personality_v0(...)

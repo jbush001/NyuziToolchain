@@ -46,7 +46,7 @@ void NyuziFrameLowering::emitPrologue(MachineFunction &MF,
 
   // Compute stack size to allocate, keeping SP 64 byte aligned so we
   // can do block vector load/stores
-  int StackSize = RoundUpToAlignment(MFI->getStackSize(), getStackAlignment());
+  int StackSize = alignTo(MFI->getStackSize(), getStackAlignment());
 
   // Bail if there is no stack allocation
   if (StackSize == 0 && !MFI->adjustsStack())
@@ -117,7 +117,7 @@ void NyuziFrameLowering::emitEpilogue(MachineFunction &MF,
   }
 
   uint64_t StackSize =
-      RoundUpToAlignment(MFI->getStackSize(), getStackAlignment());
+      alignTo(MFI->getStackSize(), getStackAlignment());
   if (!StackSize)
     return;
 
@@ -179,7 +179,7 @@ NyuziFrameLowering::getWorstCaseStackSize(const MachineFunction &MF) const {
   // Conservatively assume all callee-saved registers will be saved.
   for (const uint16_t *R = TRI.getCalleeSavedRegs(&MF); *R; ++R) {
     unsigned Size = TRI.getMinimalPhysRegClass(*R)->getSize();
-    Offset = RoundUpToAlignment(Offset + Size, Size);
+    Offset = alignTo(Offset + Size, Size);
   }
 
   unsigned MaxAlign = MFI->getMaxAlignment();
@@ -190,14 +190,14 @@ NyuziFrameLowering::getWorstCaseStackSize(const MachineFunction &MF) const {
 
   // Iterate over other objects.
   for (unsigned I = 0, E = MFI->getObjectIndexEnd(); I != E; ++I)
-    Offset = RoundUpToAlignment(Offset + MFI->getObjectSize(I), MaxAlign);
+    Offset = alignTo(Offset + MFI->getObjectSize(I), MaxAlign);
 
   // Call frame.
   if (MFI->adjustsStack() && hasReservedCallFrame(MF))
-    Offset = RoundUpToAlignment(Offset + MFI->getMaxCallFrameSize(),
+    Offset = alignTo(Offset + MFI->getMaxCallFrameSize(),
                                 std::max(MaxAlign, getStackAlignment()));
 
-  return RoundUpToAlignment(Offset, getStackAlignment());
+  return alignTo(Offset, getStackAlignment());
 }
 
 void NyuziFrameLowering::determineCalleeSaves(MachineFunction &MF,
@@ -210,8 +210,8 @@ void NyuziFrameLowering::determineCalleeSaves(MachineFunction &MF,
 
   // The register scavenger allows us to allocate virtual registers during
   // epilogue/prologue insertion, after register allocation has run. We only
-  // need to do this if the frame is to large to be addressed by immediate 
-  // offsets. If it isn't, don't bother creating a stack slot for it.  Note 
+  // need to do this if the frame is to large to be addressed by immediate
+  // offsets. If it isn't, don't bother creating a stack slot for it.  Note
   // that we may in some cases create the scavenge slot when it isn't needed.
   if (getWorstCaseStackSize(MF) < 0x2000)
     return;

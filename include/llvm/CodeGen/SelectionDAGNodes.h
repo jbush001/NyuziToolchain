@@ -328,6 +328,7 @@ private:
   bool NoInfs : 1;
   bool NoSignedZeros : 1;
   bool AllowReciprocal : 1;
+  bool VectorReduction : 1;
 
 public:
   /// Default constructor turns off all optimization flags.
@@ -340,6 +341,7 @@ public:
     NoInfs = false;
     NoSignedZeros = false;
     AllowReciprocal = false;
+    VectorReduction = false;
   }
 
   // These are mutators for each flag.
@@ -351,6 +353,7 @@ public:
   void setNoInfs(bool b) { NoInfs = b; }
   void setNoSignedZeros(bool b) { NoSignedZeros = b; }
   void setAllowReciprocal(bool b) { AllowReciprocal = b; }
+  void setVectorReduction(bool b) { VectorReduction = b; }
 
   // These are accessors for each flag.
   bool hasNoUnsignedWrap() const { return NoUnsignedWrap; }
@@ -361,6 +364,7 @@ public:
   bool hasNoInfs() const { return NoInfs; }
   bool hasNoSignedZeros() const { return NoSignedZeros; }
   bool hasAllowReciprocal() const { return AllowReciprocal; }
+  bool hasVectorReduction() const { return VectorReduction; }
 
   /// Return a raw encoding of the flags.
   /// This function should only be used to add data to the NodeID value.
@@ -368,6 +372,18 @@ public:
     return (NoUnsignedWrap << 0) | (NoSignedWrap << 1) | (Exact << 2) |
     (UnsafeAlgebra << 3) | (NoNaNs << 4) | (NoInfs << 5) |
     (NoSignedZeros << 6) | (AllowReciprocal << 7);
+  }
+
+  /// Clear any flags in this flag set that aren't also set in Flags.
+  void intersectWith(const SDNodeFlags *Flags) {
+    NoUnsignedWrap &= Flags->NoUnsignedWrap;
+    NoSignedWrap &= Flags->NoSignedWrap;
+    Exact &= Flags->Exact;
+    UnsafeAlgebra &= Flags->UnsafeAlgebra;
+    NoNaNs &= Flags->NoNaNs;
+    NoInfs &= Flags->NoInfs;
+    NoSignedZeros &= Flags->NoSignedZeros;
+    AllowReciprocal &= Flags->AllowReciprocal;
   }
 };
 
@@ -681,6 +697,9 @@ public:
   /// This could be defined as a virtual function and implemented more simply
   /// and directly, but it is not to avoid creating a vtable for this class.
   const SDNodeFlags *getFlags() const;
+
+  /// Clear any flags in this node that aren't also set in Flags.
+  void intersectFlagsWith(const SDNodeFlags *Flags);
 
   /// Return the number of values defined/returned by this operator.
   unsigned getNumValues() const { return NumValues; }

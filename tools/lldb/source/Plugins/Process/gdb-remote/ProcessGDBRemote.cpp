@@ -173,118 +173,6 @@ namespace {
 
 } // anonymous namespace end
 
-class ProcessGDBRemote::GDBLoadedModuleInfoList
-{
-public:
-
-    class LoadedModuleInfo
-    {
-    public:
-
-        enum e_data_point
-        {
-            e_has_name      = 0,
-            e_has_base      ,
-            e_has_dynamic   ,
-            e_has_link_map  ,
-            e_num
-        };
-
-        LoadedModuleInfo ()
-        {
-            for (uint32_t i = 0; i < e_num; ++i)
-                m_has[i] = false;
-        }
-
-        void set_name (const std::string & name)
-        {
-            m_name = name;
-            m_has[e_has_name] = true;
-        }
-        bool get_name (std::string & out) const
-        {
-            out = m_name;
-            return m_has[e_has_name];
-        }
-
-        void set_base (const lldb::addr_t base)
-        {
-            m_base = base;
-            m_has[e_has_base] = true;
-        }
-        bool get_base (lldb::addr_t & out) const
-        {
-            out = m_base;
-            return m_has[e_has_base];
-        }
-
-        void set_base_is_offset (bool is_offset)
-        {
-            m_base_is_offset = is_offset;
-        }
-        bool get_base_is_offset(bool & out) const
-        {
-            out = m_base_is_offset;
-            return m_has[e_has_base];
-        }
-
-        void set_link_map (const lldb::addr_t addr)
-        {
-            m_link_map = addr;
-            m_has[e_has_link_map] = true;
-        }
-        bool get_link_map (lldb::addr_t & out) const
-        {
-            out = m_link_map;
-            return m_has[e_has_link_map];
-        }
-
-        void set_dynamic (const lldb::addr_t addr)
-        {
-            m_dynamic = addr;
-            m_has[e_has_dynamic] = true;
-        }
-        bool get_dynamic (lldb::addr_t & out) const
-        {
-            out = m_dynamic;
-            return m_has[e_has_dynamic];
-        }
-
-        bool has_info (e_data_point datum)
-        {
-            assert (datum < e_num);
-            return m_has[datum];
-        }
-
-    protected:
-
-        bool m_has[e_num];
-        std::string m_name;
-        lldb::addr_t m_link_map;
-        lldb::addr_t m_base;
-        bool m_base_is_offset;
-        lldb::addr_t m_dynamic;
-    };
-
-    GDBLoadedModuleInfoList ()
-        : m_list ()
-        , m_link_map (LLDB_INVALID_ADDRESS)
-    {}
-
-    void add (const LoadedModuleInfo & mod)
-    {
-        m_list.push_back (mod);
-    }
-
-    void clear ()
-    {
-        m_list.clear ();
-    }
-
-    std::vector<LoadedModuleInfo> m_list;
-    lldb::addr_t m_link_map;
-};
-
 // TODO Randomly assigning a port is unsafe.  We should get an unused
 // ephemeral port from the kernel and make sure we reserve it before passing
 // it to debugserver.
@@ -612,7 +500,21 @@ ProcessGDBRemote::BuildDynamicRegisterInfo (bool force)
         }
     }
 
-    if (GetGDBServerRegisterInfo ())
+    const ArchSpec &target_arch = GetTarget().GetArchitecture();
+    const ArchSpec &remote_host_arch = m_gdb_comm.GetHostArchitecture();
+    const ArchSpec &remote_process_arch = m_gdb_comm.GetProcessArchitecture();
+
+    // Use the process' architecture instead of the host arch, if available
+    ArchSpec arch_to_use;
+    if (remote_process_arch.IsValid ())
+        arch_to_use = remote_process_arch;
+    else
+        arch_to_use = remote_host_arch;
+    
+    if (!arch_to_use.IsValid())
+        arch_to_use = target_arch;
+
+    if (GetGDBServerRegisterInfo (arch_to_use))
         return;
 
     char packet[128];
@@ -752,7 +654,12 @@ ProcessGDBRemote::BuildDynamicRegisterInfo (bool force)
                     reg_info.invalidate_regs = invalidate_regs.data();
                 }
 
-                AugmentRegisterInfoViaABI (reg_info, reg_name, GetABI ());
+                // We have to make a temporary ABI here, and not use the GetABI because this code
+                // gets called in DidAttach, when the target architecture (and consequently the ABI we'll get from
+                // the process) may be wrong.
+                ABISP abi_to_use = ABI::FindPlugin(arch_to_use);
+
+                AugmentRegisterInfoViaABI (reg_info, reg_name, abi_to_use);
 
                 m_register_info.AddRegister(reg_info, reg_name, alt_name, set_name);
             }
@@ -780,22 +687,11 @@ ProcessGDBRemote::BuildDynamicRegisterInfo (bool force)
     // add composite registers to the existing primordial ones.
     bool from_scratch = (m_register_info.GetNumRegisters() == 0);
 
-    const ArchSpec &target_arch = GetTarget().GetArchitecture();
-    const ArchSpec &remote_host_arch = m_gdb_comm.GetHostArchitecture();
-    const ArchSpec &remote_process_arch = m_gdb_comm.GetProcessArchitecture();
-
-    // Use the process' architecture instead of the host arch, if available
-    ArchSpec remote_arch;
-    if (remote_process_arch.IsValid ())
-        remote_arch = remote_process_arch;
-    else
-        remote_arch = remote_host_arch;
-
     if (!target_arch.IsValid())
     {
-        if (remote_arch.IsValid()
-              && (remote_arch.GetMachine() == llvm::Triple::arm || remote_arch.GetMachine() == llvm::Triple::thumb)
-              && remote_arch.GetTriple().getVendor() == llvm::Triple::Apple)
+        if (arch_to_use.IsValid()
+              && (arch_to_use.GetMachine() == llvm::Triple::arm || arch_to_use.GetMachine() == llvm::Triple::thumb)
+              && arch_to_use.GetTriple().getVendor() == llvm::Triple::Apple)
             m_register_info.HardcodeARMRegisters(from_scratch);
     }
     else if (target_arch.GetMachine() == llvm::Triple::arm
@@ -2034,6 +1930,8 @@ ProcessGDBRemote::SetThreadStopInfo (lldb::tid_t tid,
                                      const std::vector<addr_t> &exc_data,
                                      addr_t thread_dispatch_qaddr,
                                      bool queue_vars_valid, // Set to true if queue_name, queue_kind and queue_serial are valid
+                                     LazyBool associated_with_dispatch_queue,
+                                     addr_t dispatch_queue_t,
                                      std::string &queue_name,
                                      QueueKind queue_kind,
                                      uint64_t queue_serial)
@@ -2074,9 +1972,14 @@ ProcessGDBRemote::SetThreadStopInfo (lldb::tid_t tid,
             gdb_thread->SetThreadDispatchQAddr (thread_dispatch_qaddr);
             // Check if the GDB server was able to provide the queue name, kind and serial number
             if (queue_vars_valid)
-                gdb_thread->SetQueueInfo(std::move(queue_name), queue_kind, queue_serial);
+                gdb_thread->SetQueueInfo(std::move(queue_name), queue_kind, queue_serial, dispatch_queue_t, associated_with_dispatch_queue);
             else
                 gdb_thread->ClearQueueInfo();
+
+            gdb_thread->SetAssociatedWithLibdispatchQueue (associated_with_dispatch_queue);
+
+            if (dispatch_queue_t != LLDB_INVALID_ADDRESS)
+                gdb_thread->SetQueueLibdispatchQueueAddress (dispatch_queue_t);
 
             // Make sure we update our thread stop reason just once
             if (!thread_sp->StopInfoIsUpToDate())
@@ -2106,7 +2009,18 @@ ProcessGDBRemote::SetThreadStopInfo (lldb::tid_t tid,
                     {
                         if (reason.compare("trace") == 0)
                         {
-                            thread_sp->SetStopInfo (StopInfo::CreateStopReasonToTrace (*thread_sp));
+                            addr_t pc = thread_sp->GetRegisterContext()->GetPC();
+                            lldb::BreakpointSiteSP bp_site_sp = thread_sp->GetProcess()->GetBreakpointSiteList().FindByAddress(pc);
+
+                            // If the current pc is a breakpoint site then the StopInfo should be set to Breakpoint
+                            // Otherwise, it will be set to Trace.
+                            if (bp_site_sp && bp_site_sp->ValidForThisThread(thread_sp.get()))
+                            {
+                                thread_sp->SetStopInfo(
+                                    StopInfo::CreateStopReasonWithBreakpointSiteID(*thread_sp, bp_site_sp->GetID()));
+                            }
+                            else
+                              thread_sp->SetStopInfo (StopInfo::CreateStopReasonToTrace (*thread_sp));
                             handled = true;
                         }
                         else if (reason.compare("breakpoint") == 0)
@@ -2248,6 +2162,8 @@ ProcessGDBRemote::SetThreadStopInfo (StructuredData::Dictionary *thread_dict)
     static ConstString g_key_metype("metype");
     static ConstString g_key_medata("medata");
     static ConstString g_key_qaddr("qaddr");
+    static ConstString g_key_dispatch_queue_t("dispatch_queue_t");
+    static ConstString g_key_associated_with_dispatch_queue("associated_with_dispatch_queue");
     static ConstString g_key_queue_name("qname");
     static ConstString g_key_queue_kind("qkind");
     static ConstString g_key_queue_serial_number("qserialnum");
@@ -2270,6 +2186,8 @@ ProcessGDBRemote::SetThreadStopInfo (StructuredData::Dictionary *thread_dict)
     addr_t thread_dispatch_qaddr = LLDB_INVALID_ADDRESS;
     ExpeditedRegisterMap expedited_register_map;
     bool queue_vars_valid = false;
+    addr_t dispatch_queue_t = LLDB_INVALID_ADDRESS;
+    LazyBool associated_with_dispatch_queue = eLazyBoolCalculate;
     std::string queue_name;
     QueueKind queue_kind = eQueueKindUnknown;
     uint64_t queue_serial_number = 0;
@@ -2286,6 +2204,8 @@ ProcessGDBRemote::SetThreadStopInfo (StructuredData::Dictionary *thread_dict)
                           &exc_data,
                           &thread_dispatch_qaddr,
                           &queue_vars_valid,
+                          &associated_with_dispatch_queue,
+                          &dispatch_queue_t,
                           &queue_name,
                           &queue_kind,
                           &queue_serial_number]
@@ -2345,6 +2265,21 @@ ProcessGDBRemote::SetThreadStopInfo (StructuredData::Dictionary *thread_dict)
             queue_serial_number = object->GetIntegerValue(0);
             if (queue_serial_number != 0)
                 queue_vars_valid = true;
+        }
+        else if (key == g_key_dispatch_queue_t)
+        {
+            dispatch_queue_t = object->GetIntegerValue(0);
+            if (dispatch_queue_t != 0 && dispatch_queue_t != LLDB_INVALID_ADDRESS)
+                queue_vars_valid = true;
+        }
+        else if (key == g_key_associated_with_dispatch_queue)
+        {
+            queue_vars_valid = true;
+            bool associated = object->GetBooleanValue ();
+            if (associated)
+                associated_with_dispatch_queue = eLazyBoolYes;
+            else
+                associated_with_dispatch_queue = eLazyBoolNo;
         }
         else if (key == g_key_reason)
         {
@@ -2416,6 +2351,8 @@ ProcessGDBRemote::SetThreadStopInfo (StructuredData::Dictionary *thread_dict)
                               exc_data,
                               thread_dispatch_qaddr,
                               queue_vars_valid,
+                              associated_with_dispatch_queue,
+                              dispatch_queue_t,
                               queue_name,
                               queue_kind,
                               queue_serial_number);
@@ -2461,6 +2398,8 @@ ProcessGDBRemote::SetThreadStopInfo (StringExtractor& stop_packet)
             std::vector<addr_t> exc_data;
             addr_t thread_dispatch_qaddr = LLDB_INVALID_ADDRESS;
             bool queue_vars_valid = false; // says if locals below that start with "queue_" are valid
+            addr_t dispatch_queue_t = LLDB_INVALID_ADDRESS;
+            LazyBool associated_with_dispatch_queue = eLazyBoolCalculate;
             std::string queue_name;
             QueueKind queue_kind = eQueueKindUnknown;
             uint64_t queue_serial_number = 0;
@@ -2553,6 +2492,11 @@ ProcessGDBRemote::SetThreadStopInfo (StringExtractor& stop_packet)
                 else if (key.compare("qaddr") == 0)
                 {
                     thread_dispatch_qaddr = StringConvert::ToUInt64 (value.c_str(), 0, 16);
+                }
+                else if (key.compare("dispatch_queue_t") == 0)
+                {
+                    queue_vars_valid = true;
+                    dispatch_queue_t = StringConvert::ToUInt64 (value.c_str(), 0, 16);
                 }
                 else if (key.compare("qname") == 0)
                 {
@@ -2678,6 +2622,8 @@ ProcessGDBRemote::SetThreadStopInfo (StringExtractor& stop_packet)
                                                     exc_data,
                                                     thread_dispatch_qaddr,
                                                     queue_vars_valid,
+                                                    associated_with_dispatch_queue,
+                                                    dispatch_queue_t,
                                                     queue_name,
                                                     queue_kind,
                                                     queue_serial_number);
@@ -3051,7 +2997,7 @@ ProcessGDBRemote::GetImageInfoAddress()
     // the loaded module list can also provides a link map address
     if (addr == LLDB_INVALID_ADDRESS)
     {
-        GDBLoadedModuleInfoList list;
+        LoadedModuleInfoList list;
         if (GetLoadedModuleList (list).Success())
             addr = list.m_link_map;
     }
@@ -3192,35 +3138,33 @@ ProcessGDBRemote::DoAllocateMemory (size_t size, uint32_t permissions, Error &er
     Log *log (GetLogIfAnyCategoriesSet (LIBLLDB_LOG_PROCESS|LIBLLDB_LOG_EXPRESSIONS));
     addr_t allocated_addr = LLDB_INVALID_ADDRESS;
 
-    LazyBool supported = m_gdb_comm.SupportsAllocDeallocMemory();
-    switch (supported)
+    if (m_gdb_comm.SupportsAllocDeallocMemory() != eLazyBoolNo)
     {
-        case eLazyBoolCalculate:
-        case eLazyBoolYes:
-            allocated_addr = m_gdb_comm.AllocateMemory (size, permissions);
-            if (allocated_addr != LLDB_INVALID_ADDRESS || supported == eLazyBoolYes)
-                return allocated_addr;
+        allocated_addr = m_gdb_comm.AllocateMemory (size, permissions);
+        if (allocated_addr != LLDB_INVALID_ADDRESS || m_gdb_comm.SupportsAllocDeallocMemory() == eLazyBoolYes)
+            return allocated_addr;
+    }
 
-        case eLazyBoolNo:
-            // Call mmap() to create memory in the inferior..
-            unsigned prot = 0;
-            if (permissions & lldb::ePermissionsReadable)
-                prot |= eMmapProtRead;
-            if (permissions & lldb::ePermissionsWritable)
-                prot |= eMmapProtWrite;
-            if (permissions & lldb::ePermissionsExecutable)
-                prot |= eMmapProtExec;
+    if (m_gdb_comm.SupportsAllocDeallocMemory() == eLazyBoolNo)
+    {
+        // Call mmap() to create memory in the inferior..
+        unsigned prot = 0;
+        if (permissions & lldb::ePermissionsReadable)
+            prot |= eMmapProtRead;
+        if (permissions & lldb::ePermissionsWritable)
+            prot |= eMmapProtWrite;
+        if (permissions & lldb::ePermissionsExecutable)
+            prot |= eMmapProtExec;
 
-            if (InferiorCallMmap(this, allocated_addr, 0, size, prot,
-                                 eMmapFlagsAnon | eMmapFlagsPrivate, -1, 0))
-                m_addr_to_mmap_size[allocated_addr] = size;
-            else
-            {
-                allocated_addr = LLDB_INVALID_ADDRESS;
-                if (log)
-                    log->Printf ("ProcessGDBRemote::%s no direct stub support for memory allocation, and InferiorCallMmap also failed - is stub missing register context save/restore capability?", __FUNCTION__);
-            }
-            break;
+        if (InferiorCallMmap(this, allocated_addr, 0, size, prot,
+                             eMmapFlagsAnon | eMmapFlagsPrivate, -1, 0))
+            m_addr_to_mmap_size[allocated_addr] = size;
+        else
+        {
+            allocated_addr = LLDB_INVALID_ADDRESS;
+            if (log)
+                log->Printf ("ProcessGDBRemote::%s no direct stub support for memory allocation, and InferiorCallMmap also failed - is stub missing register context save/restore capability?", __FUNCTION__);
+        }
     }
 
     if (allocated_addr == LLDB_INVALID_ADDRESS)
@@ -4593,7 +4537,7 @@ ParseRegisters (XMLNode feature_node, GdbServerTargetInfo &target_info, GDBRemot
 // return:  'true'  on success
 //          'false' on failure
 bool
-ProcessGDBRemote::GetGDBServerRegisterInfo ()
+ProcessGDBRemote::GetGDBServerRegisterInfo (ArchSpec &arch_to_use)
 {
     // Make sure LLDB has an XML parser it can use first
     if (!XMLDocument::XMLEnabled())
@@ -4672,9 +4616,12 @@ ProcessGDBRemote::GetGDBServerRegisterInfo ()
                 return true; // Keep iterating through all children of the target_node
             });
 
+            // Don't use Process::GetABI, this code gets called from DidAttach, and in that context we haven't
+            // set the Target's architecture yet, so the ABI is also potentially incorrect.
+            ABISP abi_to_use_sp = ABI::FindPlugin(arch_to_use);
             if (feature_node)
             {
-                ParseRegisters(feature_node, target_info, this->m_register_info, GetABI());
+                ParseRegisters(feature_node, target_info, this->m_register_info, abi_to_use_sp);
             }
 
             for (const auto &include : target_info.includes)
@@ -4692,10 +4639,10 @@ ProcessGDBRemote::GetGDBServerRegisterInfo ()
                 XMLNode include_feature_node = include_xml_document.GetRootElement("feature");
                 if (include_feature_node)
                 {
-                    ParseRegisters(include_feature_node, target_info, this->m_register_info, GetABI());
+                    ParseRegisters(include_feature_node, target_info, this->m_register_info, abi_to_use_sp);
                 }
             }
-            this->m_register_info.Finalize(GetTarget().GetArchitecture());
+            this->m_register_info.Finalize(arch_to_use);
         }
     }
 
@@ -4703,7 +4650,7 @@ ProcessGDBRemote::GetGDBServerRegisterInfo ()
 }
 
 Error
-ProcessGDBRemote::GetLoadedModuleList (GDBLoadedModuleInfoList & list)
+ProcessGDBRemote::GetLoadedModuleList (LoadedModuleInfoList & list)
 {
     // Make sure LLDB has an XML parser it can use first
     if (!XMLDocument::XMLEnabled())
@@ -4747,7 +4694,7 @@ ProcessGDBRemote::GetLoadedModuleList (GDBLoadedModuleInfoList & list)
 
         root_element.ForEachChildElementWithName("library", [log, &list](const XMLNode &library) -> bool {
 
-            GDBLoadedModuleInfoList::LoadedModuleInfo module;
+            LoadedModuleInfoList::LoadedModuleInfo module;
 
             library.ForEachAttribute([log, &module](const llvm::StringRef &name, const llvm::StringRef &value) -> bool {
 
@@ -4817,7 +4764,7 @@ ProcessGDBRemote::GetLoadedModuleList (GDBLoadedModuleInfoList & list)
             return Error();
 
         root_element.ForEachChildElementWithName("library", [log, &list](const XMLNode &library) -> bool {
-            GDBLoadedModuleInfoList::LoadedModuleInfo module;
+            LoadedModuleInfoList::LoadedModuleInfo module;
 
             llvm::StringRef name = library.GetAttributeValue("name");
             module.set_name(name.str());
@@ -4879,19 +4826,18 @@ ProcessGDBRemote::LoadModuleAtAddress (const FileSpec &file, lldb::addr_t base_a
 }
 
 size_t
-ProcessGDBRemote::LoadModules ()
+ProcessGDBRemote::LoadModules (LoadedModuleInfoList &module_list)
 {
     using lldb_private::process_gdb_remote::ProcessGDBRemote;
 
     // request a list of loaded libraries from GDBServer
-    GDBLoadedModuleInfoList module_list;
     if (GetLoadedModuleList (module_list).Fail())
         return 0;
 
     // get a list of all the modules
     ModuleList new_modules;
 
-    for (GDBLoadedModuleInfoList::LoadedModuleInfo & modInfo : module_list.m_list)
+    for (LoadedModuleInfoList::LoadedModuleInfo & modInfo : module_list.m_list)
     {
         std::string  mod_name;
         lldb::addr_t mod_base;
@@ -4942,6 +4888,14 @@ ProcessGDBRemote::LoadModules ()
     }
 
     return new_modules.GetSize();
+
+}
+
+size_t
+ProcessGDBRemote::LoadModules ()
+{
+    LoadedModuleInfoList module_list;
+    return LoadModules (module_list);
 }
 
 Error

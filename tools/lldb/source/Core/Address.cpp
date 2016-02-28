@@ -442,9 +442,13 @@ Address::Dump (Stream *s, ExecutionContextScope *exe_scope, DumpStyle style, Dum
     case DumpStyleModuleWithFileAddress:
         if (section_sp)
         {
-            s->Printf("%s[", section_sp->GetModule()->GetFileSpec().GetFilename().AsCString("<Unknown>"));
+            ModuleSP module_sp = section_sp->GetModule();
+            if (module_sp)
+                s->Printf("%s[", module_sp->GetFileSpec().GetFilename().AsCString("<Unknown>"));
+            else
+                s->Printf("%s[","<Unknown>");
         }
-        // Fall through
+        LLVM_FALLTHROUGH;
     case DumpStyleFileAddress:
         {
             addr_t file_addr = GetFileAddress();
@@ -756,10 +760,11 @@ Address::Dump (Stream *s, ExecutionContextScope *exe_scope, DumpStyle style, Dum
                     bool stop_if_block_is_inlined_function = false;
                     VariableList variable_list;
                     sc.block->AppendVariables (can_create,
-                                               get_parent_variables, 
-                                               stop_if_block_is_inlined_function, 
+                                               get_parent_variables,
+                                               stop_if_block_is_inlined_function,
+                                               [](Variable*) { return true; },
                                                &variable_list);
-                    
+
                     const size_t num_variables = variable_list.GetSize();
                     for (size_t var_idx = 0; var_idx < num_variables; ++var_idx)
                     {

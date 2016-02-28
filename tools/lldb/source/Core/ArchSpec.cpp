@@ -514,6 +514,56 @@ ArchSpec::GetArchitectureName () const
     return "unknown";
 }
 
+std::string
+ArchSpec::GetClangTargetCPU ()
+{
+    std::string cpu;
+    const llvm::Triple::ArchType machine = GetMachine();
+
+    if (machine == llvm::Triple::mips ||
+        machine == llvm::Triple::mipsel ||
+        machine == llvm::Triple::mips64 ||
+        machine == llvm::Triple::mips64el)
+    {
+        switch (m_core)
+        {
+        case ArchSpec::eCore_mips32:
+        case ArchSpec::eCore_mips32el:
+            cpu = "mips32"; break;
+        case ArchSpec::eCore_mips32r2:
+        case ArchSpec::eCore_mips32r2el:
+            cpu = "mips32r2"; break;
+        case ArchSpec::eCore_mips32r3:
+        case ArchSpec::eCore_mips32r3el:
+            cpu = "mips32r3"; break;
+        case ArchSpec::eCore_mips32r5:
+        case ArchSpec::eCore_mips32r5el:
+            cpu = "mips32r5"; break;
+        case ArchSpec::eCore_mips32r6:
+        case ArchSpec::eCore_mips32r6el:
+            cpu = "mips32r6"; break;
+        case ArchSpec::eCore_mips64:
+        case ArchSpec::eCore_mips64el:
+            cpu = "mips64"; break;
+        case ArchSpec::eCore_mips64r2:
+        case ArchSpec::eCore_mips64r2el:
+            cpu = "mips64r2"; break;
+        case ArchSpec::eCore_mips64r3:
+        case ArchSpec::eCore_mips64r3el:
+            cpu = "mips64r3"; break;
+        case ArchSpec::eCore_mips64r5:
+        case ArchSpec::eCore_mips64r5el:
+            cpu = "mips64r5"; break;
+        case ArchSpec::eCore_mips64r6:
+        case ArchSpec::eCore_mips64r6el:
+            cpu = "mips64r6"; break;
+        default:
+            break;
+        }
+    }
+    return cpu;
+}
+
 uint32_t
 ArchSpec::GetMachOCPUType () const
 {
@@ -1053,7 +1103,7 @@ cores_match (const ArchSpec::Core core1, const ArchSpec::Core core2, bool try_in
     case ArchSpec::eCore_arm_generic:
         if (enforce_exact_match)
             break;
-        // Fall through to case below
+        LLVM_FALLTHROUGH;
     case ArchSpec::kCore_arm_any:
         if (core2 >= ArchSpec::kCore_arm_first && core2 <= ArchSpec::kCore_arm_last)
             return true;
@@ -1210,6 +1260,7 @@ cores_match (const ArchSpec::Core core1, const ArchSpec::Core core2, bool try_in
                 return true;
             try_inverse = false;
         }
+        break;
 
     case ArchSpec::eCore_mips64:
         if (!enforce_exact_match)
@@ -1220,6 +1271,7 @@ cores_match (const ArchSpec::Core core1, const ArchSpec::Core core2, bool try_in
                 return true;
             try_inverse = false;
         }
+        break;
 
     case ArchSpec::eCore_mips64el:
         if (!enforce_exact_match)
@@ -1230,6 +1282,7 @@ cores_match (const ArchSpec::Core core1, const ArchSpec::Core core2, bool try_in
                 return true;
             try_inverse = false;
         }
+        break;
 
     case ArchSpec::eCore_mips64r2:
     case ArchSpec::eCore_mips64r3:

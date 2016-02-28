@@ -191,7 +191,7 @@ File::GetStream ()
 #ifdef _WIN32
                     m_descriptor = ::_dup(GetDescriptor());
 #else
-                    m_descriptor = ::fcntl(GetDescriptor(), F_DUPFD);
+                    m_descriptor = dup(GetDescriptor());
 #endif
                     m_should_close_fd = true;
                 }
@@ -237,7 +237,7 @@ File::Duplicate (const File &rhs)
 #ifdef _WIN32
         m_descriptor = ::_dup(rhs.GetDescriptor());
 #else
-        m_descriptor = ::fcntl(rhs.GetDescriptor(), F_DUPFD);
+        m_descriptor = dup(rhs.GetDescriptor());
 #endif
         if (!DescriptorIsValid())
             error.SetErrorToErrno();
@@ -399,6 +399,15 @@ File::Close ()
     return error;
 }
 
+void
+File::Clear ()
+{
+    m_stream = nullptr;
+    m_descriptor = -1;
+    m_options = 0;
+    m_own_stream = false;
+    m_is_interactive = m_supports_colors = m_is_real_terminal = eLazyBoolCalculate;
+}
 
 Error
 File::GetFileSpec (FileSpec &file_spec) const

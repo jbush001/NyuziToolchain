@@ -22,7 +22,6 @@ add_llvm_target(NyuziCodeGen
   NyuziRegisterInfo.cpp
   NyuziSubtarget.cpp
   NyuziTargetMachine.cpp
-  NyuziSelectionDAGInfo.cpp
   NyuziMCInstLower.cpp
   NyuziTargetObjectFile.cpp
   )

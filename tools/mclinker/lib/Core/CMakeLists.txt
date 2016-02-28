@@ -13,10 +13,10 @@ add_llvm_library(MCLDCore
     MCLDADT
     MCLDMC
     MCLDObject
-    MCLDAArch64LDBackend
-    MCLDARMLDBackend
-    MCLDHexagonLDBackend
-    MCLDMipsLDBackend
-    MCLDX86LDBackend
+#    MCLDAArch64LDBackend
+#    MCLDARMLDBackend
+#    MCLDHexagonLDBackend
+#    MCLDMipsLDBackend
+#    MCLDX86LDBackend
     MCLDNyuziLDBackend
   )

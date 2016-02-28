@@ -136,3 +136,45 @@ define %B @structB(%B* %b.ptr) {
   %1 = load %B, %B* %b.ptr, align 8
   ret %B %1
 }
+
+%struct.S = type <{ i8, %struct.T }>
+%struct.T = type { i32, i32 }
+
+; Make sure that we do not increase alignment of packed struct element
+define i32 @packed_alignment(%struct.S* dereferenceable(9) %s) {
+; CHECK-LABEL: packed_alignment
+; CHECK-NEXT: %tv.elt1 = getelementptr inbounds %struct.S, %struct.S* %s, i64 0, i32 1, i32 1
+; CHECK-NEXT: %tv.unpack2 = load i32, i32* %tv.elt1, align 1
+; CHECK-NEXT: ret i32 %tv.unpack2
+  %t = getelementptr inbounds %struct.S, %struct.S* %s, i32 0, i32 1
+  %tv = load %struct.T, %struct.T* %t, align 1
+  %v = extractvalue %struct.T %tv, 1
+  ret i32 %v
+}
+
+%struct.U = type {i8, i8, i8, i8, i8, i8, i8, i8, i64}
+
+define void @check_alignment(%struct.U* %u, %struct.U* %v) {
+; CHECK-LABEL: check_alignment
+; CHECK: load i8, i8* {{.*}}, align 8
+; CHECK: load i8, i8* {{.*}}, align 1
+; CHECK: load i8, i8* {{.*}}, align 2
+; CHECK: load i8, i8* {{.*}}, align 1
+; CHECK: load i8, i8* {{.*}}, align 4
+; CHECK: load i8, i8* {{.*}}, align 1
+; CHECK: load i8, i8* {{.*}}, align 2
+; CHECK: load i8, i8* {{.*}}, align 1
+; CHECK: load i64, i64* {{.*}}, align 8
+; CHECK: store i8 {{.*}}, i8* {{.*}}, align 8
+; CHECK: store i8 {{.*}}, i8* {{.*}}, align 1
+; CHECK: store i8 {{.*}}, i8* {{.*}}, align 2
+; CHECK: store i8 {{.*}}, i8* {{.*}}, align 1
+; CHECK: store i8 {{.*}}, i8* {{.*}}, align 4
+; CHECK: store i8 {{.*}}, i8* {{.*}}, align 1
+; CHECK: store i8 {{.*}}, i8* {{.*}}, align 2
+; CHECK: store i8 {{.*}}, i8* {{.*}}, align 1
+; CHECK: store i64 {{.*}}, i64* {{.*}}, align 8
+  %1 = load %struct.U, %struct.U* %u
+  store %struct.U %1, %struct.U* %v
+  ret void
+}

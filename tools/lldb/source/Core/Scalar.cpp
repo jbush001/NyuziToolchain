@@ -1875,7 +1875,7 @@ Scalar::operator>>= (const Scalar& rhs)
              case e_sint128:
              case e_uint128:
              {
-                 m_integer >> *rhs.m_integer.getRawData();
+                 m_integer = m_integer.ashr(*(const uint_t *)rhs.m_integer.getRawData());
                  break;
              }
         }
@@ -2630,6 +2630,7 @@ Scalar::ExtractBitfield (uint32_t bit_size,
         case e_double:
             result = SignedBits ((uint64_t )m_float.convertToDouble(), msbit, lsbit);
             m_float = llvm::APFloat((double_t)result);
+            return true;
         case e_long_double:
             m_integer = m_float.bitcastToAPInt();
             result = SignedBits (*m_integer.getRawData(), msbit, lsbit);
