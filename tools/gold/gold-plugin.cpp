@@ -344,7 +344,6 @@ static void diagnosticHandler(const DiagnosticInfo &DI) {
   case DS_Error:
     message(LDPL_FATAL, "LLVM gold plugin has failed to create LTO module: %s",
             ErrStorage.c_str());
-    llvm_unreachable("Fatal doesn't return.");
   case DS_Warning:
     Level = LDPL_WARNING;
     break;
@@ -907,7 +906,7 @@ static ld_plugin_status allSymbolsReadHook(raw_fd_ostream *ApiFile) {
     else if (M->getTargetTriple().empty())
       M->setTargetTriple(DefaultTriple);
 
-    if (L.move(*M, Keep, [](GlobalValue &, IRMover::ValueAdder) {}))
+    if (L.move(std::move(M), Keep, [](GlobalValue &, IRMover::ValueAdder) {}))
       message(LDPL_FATAL, "Failed to link module");
   }
 

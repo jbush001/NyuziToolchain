@@ -91,6 +91,25 @@ AMDGPUAsmPrinter::AMDGPUAsmPrinter(TargetMachine &TM,
                                    std::unique_ptr<MCStreamer> Streamer)
     : AsmPrinter(TM, std::move(Streamer)) {}
 
+void AMDGPUAsmPrinter::EmitStartOfAsmFile(Module &M) {
+  if (TM.getTargetTriple().getOS() != Triple::AMDHSA)
+    return;
+
+  // Need to construct an MCSubtargetInfo here in case we have no functions
+  // in the module.
+  std::unique_ptr<MCSubtargetInfo> STI(TM.getTarget().createMCSubtargetInfo(
+        TM.getTargetTriple().str(), TM.getTargetCPU(),
+        TM.getTargetFeatureString()));
+
+  AMDGPUTargetStreamer *TS =
+      static_cast<AMDGPUTargetStreamer *>(OutStreamer->getTargetStreamer());
+
+  TS->EmitDirectiveHSACodeObjectVersion(1, 0);
+  AMDGPU::IsaVersion ISA = AMDGPU::getIsaVersion(STI->getFeatureBits());
+  TS->EmitDirectiveHSACodeObjectISA(ISA.Major, ISA.Minor, ISA.Stepping,
+                                    "AMD", "AMDGPU");
+}
+
 void AMDGPUAsmPrinter::EmitFunctionBodyStart() {
   const AMDGPUSubtarget &STM = MF->getSubtarget<AMDGPUSubtarget>();
   SIProgramInfo KernelInfo;
@@ -182,13 +201,6 @@ bool AMDGPUAsmPrinter::runOnMachineFunction(MachineFunction &MF) {
     if (!STM.isAmdHsaOS()) {
       EmitProgramInfoSI(MF, KernelInfo);
     }
-    // Emit directives
-    AMDGPUTargetStreamer *TS =
-        static_cast<AMDGPUTargetStreamer *>(OutStreamer->getTargetStreamer());
-    TS->EmitDirectiveHSACodeObjectVersion(1, 0);
-    AMDGPU::IsaVersion ISA = STM.getIsaVersion();
-    TS->EmitDirectiveHSACodeObjectISA(ISA.Major, ISA.Minor, ISA.Stepping,
-                                      "AMD", "AMDGPU");
   } else {
     EmitProgramInfoR600(MF);
   }
@@ -315,7 +327,7 @@ void AMDGPUAsmPrinter::EmitProgramInfoR600(const MachineFunction &MF) {
 
   if (MFI->getShaderType() == ShaderType::COMPUTE) {
     OutStreamer->EmitIntValue(R_0288E8_SQ_LDS_ALLOC, 4);
-    OutStreamer->EmitIntValue(RoundUpToAlignment(MFI->LDSSize, 4) >> 2, 4);
+    OutStreamer->EmitIntValue(alignTo(MFI->LDSSize, 4) >> 2, 4);
   }
 }
 
@@ -464,11 +476,10 @@ void AMDGPUAsmPrinter::getSIProgramInfo(SIProgramInfo &ProgInfo,
   // register.
   ProgInfo.FloatMode = getFPMode(MF);
 
-  // XXX: Not quite sure what this does, but sc seems to unset this.
   ProgInfo.IEEEMode = 0;
 
-  // Do not clamp NAN to 0.
-  ProgInfo.DX10Clamp = 0;
+  // Make clamp modifier on NaN input returns 0.
+  ProgInfo.DX10Clamp = 1;
 
   const MachineFrameInfo *FrameInfo = MF.getFrameInfo();
   ProgInfo.ScratchSize = FrameInfo->estimateStackSize(MF);
@@ -491,7 +502,7 @@ void AMDGPUAsmPrinter::getSIProgramInfo(SIProgramInfo &ProgInfo,
 
   ProgInfo.LDSSize = MFI->LDSSize + LDSSpillSize;
   ProgInfo.LDSBlocks =
-     RoundUpToAlignment(ProgInfo.LDSSize, 1 << LDSAlignShift) >> LDSAlignShift;
+      alignTo(ProgInfo.LDSSize, 1 << LDSAlignShift) >> LDSAlignShift;
 
   // Scratch is allocated in 256 dword blocks.
   unsigned ScratchAlignShift = 10;
@@ -499,8 +510,9 @@ void AMDGPUAsmPrinter::getSIProgramInfo(SIProgramInfo &ProgInfo,
   // is used by the entire wave.  ProgInfo.ScratchSize is the amount of
   // scratch memory used per thread.
   ProgInfo.ScratchBlocks =
-    RoundUpToAlignment(ProgInfo.ScratchSize * STM.getWavefrontSize(),
-                       1 << ScratchAlignShift) >> ScratchAlignShift;
+      alignTo(ProgInfo.ScratchSize * STM.getWavefrontSize(),
+              1 << ScratchAlignShift) >>
+      ScratchAlignShift;
 
   ProgInfo.ComputePGMRSrc1 =
       S_00B848_VGPRS(ProgInfo.VGPRBlocks) |
@@ -575,7 +587,23 @@ void AMDGPUAsmPrinter::EmitProgramInfoSI(const MachineFunction &MF,
     OutStreamer->EmitIntValue(R_00B02C_SPI_SHADER_PGM_RSRC2_PS, 4);
     OutStreamer->EmitIntValue(S_00B02C_EXTRA_LDS_SIZE(KernelInfo.LDSBlocks), 4);
     OutStreamer->EmitIntValue(R_0286CC_SPI_PS_INPUT_ENA, 4);
-    OutStreamer->EmitIntValue(MFI->PSInputAddr, 4);
+    OutStreamer->EmitIntValue(MFI->PSInputEna, 4);
+    OutStreamer->EmitIntValue(R_0286D0_SPI_PS_INPUT_ADDR, 4);
+    OutStreamer->EmitIntValue(MFI->getPSInputAddr(), 4);
+  }
+}
+
+// This is supposed to be log2(Size)
+static amd_element_byte_size_t getElementByteSizeValue(unsigned Size) {
+  switch (Size) {
+  case 4:
+    return AMD_ELEMENT_4_BYTES;
+  case 8:
+    return AMD_ELEMENT_8_BYTES;
+  case 16:
+    return AMD_ELEMENT_16_BYTES;
+  default:
+    llvm_unreachable("invalid private_element_size");
   }
 }
 
@@ -591,6 +619,11 @@ void AMDGPUAsmPrinter::EmitAmdKernelCodeT(const MachineFunction &MF,
       KernelInfo.ComputePGMRSrc1 |
       (KernelInfo.ComputePGMRSrc2 << 32);
   header.code_properties = AMD_CODE_PROPERTY_IS_PTR64;
+
+
+  AMD_HSA_BITS_SET(header.code_properties,
+                   AMD_CODE_PROPERTY_PRIVATE_ELEMENT_SIZE,
+                   getElementByteSizeValue(STM.getMaxPrivateElementSize()));
 
   if (MFI->hasPrivateSegmentBuffer()) {
     header.code_properties |=

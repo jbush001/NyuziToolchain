@@ -1024,10 +1024,10 @@ DWARFCompileUnit::IndexPrivate (DWARFCompileUnit* dwarf_cu,
         case DW_TAG_union_type:
         case DW_TAG_typedef:
         case DW_TAG_unspecified_type:
-            if (name && is_declaration == false)
-            {
+            if (name && !is_declaration)
                 types.Insert (ConstString(name), DIERef(cu_offset, die.GetOffset()));
-            }
+            if (mangled_cstr && !is_declaration)
+                types.Insert (ConstString(mangled_cstr), DIERef(cu_offset, die.GetOffset()));
             break;
 
         case DW_TAG_namespace:
@@ -1180,7 +1180,7 @@ DWARFCompileUnit::LanguageTypeFromDWARF(uint64_t val)
     {
     case DW_LANG_Mips_Assembler:
         return eLanguageTypeMipsAssembler;
-    case 0x8e57: // FIXME: needs to be added to llvm
+    case DW_LANG_GOOGLE_RenderScript:
         return eLanguageTypeExtRenderScript;
     default:
         return static_cast<LanguageType>(val);
@@ -1258,4 +1258,10 @@ DWARFCompileUnit::SetAddrBase(dw_addr_t addr_base, dw_offset_t base_obj_offset)
 {
     m_addr_base = addr_base;
     m_base_obj_offset = base_obj_offset;
+}
+
+lldb::ByteOrder
+DWARFCompileUnit::GetByteOrder() const
+{
+    return m_dwarf2Data->GetObjectFile()->GetByteOrder();
 }

@@ -104,8 +104,7 @@ class SMEMe_vi <bits<8> op, bit imm> : Enc64 {
   let Inst{51-32} = offset;
 }
 
-class VOP3e_vi <bits<10> op> : Enc64 {
-  bits<8> vdst;
+class VOP3a_vi <bits<10> op> : Enc64 {
   bits<2> src0_modifiers;
   bits<9> src0;
   bits<2> src1_modifiers;
@@ -115,7 +114,6 @@ class VOP3e_vi <bits<10> op> : Enc64 {
   bits<1> clamp;
   bits<2> omod;
 
-  let Inst{7-0}   = vdst;
   let Inst{8}     = src0_modifiers{1};
   let Inst{9}     = src1_modifiers{1};
   let Inst{10}    = src2_modifiers{1};
@@ -129,6 +127,20 @@ class VOP3e_vi <bits<10> op> : Enc64 {
   let Inst{61} = src0_modifiers{0};
   let Inst{62} = src1_modifiers{0};
   let Inst{63} = src2_modifiers{0};
+}
+
+class VOP3e_vi <bits<10> op> : VOP3a_vi <op> {
+  bits<8> vdst;
+
+  let Inst{7-0} = vdst;
+}
+
+// Encoding used for VOPC instructions encoded as VOP3
+// Differs from VOP3e by destination name (sdst) as VOPC doesn't have vector dst
+class VOP3ce_vi <bits<10> op> : VOP3a_vi <op> {
+  bits<8> sdst;
+
+  let Inst{7-0} = sdst;
 }
 
 class VOP3be_vi <bits<10> op> : Enc64 {
@@ -155,6 +167,51 @@ class VOP3be_vi <bits<10> op> : Enc64 {
   let Inst{61} = src0_modifiers{0};
   let Inst{62} = src1_modifiers{0};
   let Inst{63} = src2_modifiers{0};
+}
+
+class VOP_DPP <dag outs, dag ins, string asm, list<dag> pattern> :
+    VOPAnyCommon <outs, ins, asm, pattern> {
+  let Size = 8;
+}
+
+class VOP_DPPe : Enc64 {
+  bits<2> src0_modifiers;
+  bits<8> src0;
+  bits<2> src1_modifiers;
+  bits<9> dpp_ctrl;
+  bits<1> bound_ctrl;
+  bits<4> bank_mask;
+  bits<4> row_mask;
+
+  let Inst{39-32} = src0;
+  let Inst{48-40} = dpp_ctrl;
+  let Inst{51}    = bound_ctrl;
+  let Inst{52}    = src0_modifiers{0}; // src0_neg
+  let Inst{53}    = src0_modifiers{1}; // src0_abs
+  let Inst{54}    = src1_modifiers{0}; // src1_neg
+  let Inst{55}    = src1_modifiers{1}; // src1_abs
+  let Inst{59-56} = bank_mask;
+  let Inst{63-60} = row_mask;
+}
+
+class VOP1_DPPe <bits<8> op> : VOP_DPPe {
+  bits<8> vdst;
+
+  let Inst{8-0} = 0xfa; // dpp
+  let Inst{16-9} = op;
+  let Inst{24-17} = vdst;
+  let Inst{31-25} = 0x3f; //encoding
+}
+
+class VOP2_DPPe <bits<6> op> : Enc32 {
+  bits<8> vdst;
+  bits<8> src1;
+
+  let Inst{8-0} = 0xfa; //dpp
+  let Inst{16-9} = src1;
+  let Inst{24-17} = vdst;
+  let Inst{30-25} = op;
+  let Inst{31} = 0x0; //encoding
 }
 
 class EXPe_vi : EXPe {

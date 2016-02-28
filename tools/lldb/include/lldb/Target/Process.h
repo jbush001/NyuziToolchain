@@ -30,6 +30,7 @@
 #include "lldb/Core/Communication.h"
 #include "lldb/Core/Error.h"
 #include "lldb/Core/Event.h"
+#include "lldb/Core/LoadedModuleInfoList.h"
 #include "lldb/Core/ThreadSafeValue.h"
 #include "lldb/Core/PluginInterface.h"
 #include "lldb/Core/StructuredData.h"
@@ -1150,6 +1151,12 @@ public:
     LoadModules ()
     {
         return 0;
+    }
+
+    virtual size_t
+    LoadModules (LoadedModuleInfoList &)
+    {
+       return 0;
     }
 
 protected:
@@ -3426,12 +3433,15 @@ protected:
     void
     ResumePrivateStateThread ();
 
+private:
     struct PrivateStateThreadArgs
     {
+        PrivateStateThreadArgs(Process *p, bool s) : process(p), is_secondary_thread(s) {};
         Process *process;
         bool is_secondary_thread;
     };
-
+    
+    // arg is a pointer to a new'ed PrivateStateThreadArgs structure.  PrivateStateThread will free it for you.
     static lldb::thread_result_t
     PrivateStateThread (void *arg);
 
@@ -3443,6 +3453,7 @@ protected:
     lldb::thread_result_t
     RunPrivateStateThread (bool is_secondary_thread);
 
+protected:
     void
     HandlePrivateEvent (lldb::EventSP &event_sp);
 

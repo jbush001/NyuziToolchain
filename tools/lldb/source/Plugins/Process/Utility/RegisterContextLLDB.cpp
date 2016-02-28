@@ -265,9 +265,32 @@ RegisterContextLLDB::InitializeZerothFrame()
 
     if (!ReadCFAValueForRow (row_register_kind, active_row, m_cfa))
     {
-        UnwindLogMsg ("could not read CFA register for this frame.");
-        m_frame_type = eNotAValidFrame;
-        return;
+        // Try the fall back unwind plan since the
+        // full unwind plan failed.
+        FuncUnwindersSP func_unwinders_sp;
+        UnwindPlanSP call_site_unwind_plan;
+        bool cfa_status = false;
+
+        if (m_sym_ctx_valid)
+        {
+            func_unwinders_sp = pc_module_sp->GetObjectFile()->GetUnwindTable().GetFuncUnwindersContainingAddress (m_current_pc, m_sym_ctx);
+        }
+
+        if(func_unwinders_sp.get() != nullptr)
+            call_site_unwind_plan = func_unwinders_sp->GetUnwindPlanAtCallSite(process->GetTarget(), m_current_offset_backed_up_one);
+
+        if (call_site_unwind_plan.get() != nullptr)
+        {
+            m_fallback_unwind_plan_sp = call_site_unwind_plan;
+            if(TryFallbackUnwindPlan())
+                cfa_status = true;
+        }
+        if (!cfa_status)
+        {
+            UnwindLogMsg ("could not read CFA value for first frame.");
+            m_frame_type = eNotAValidFrame;
+            return;
+        }
     }
 
     UnwindLogMsg ("initialized frame current pc is 0x%" PRIx64 " cfa is 0x%" PRIx64 " using %s UnwindPlan",
@@ -1513,7 +1536,7 @@ RegisterContextLLDB::SavedLocationForRegister (uint32_t lldb_regnum, lldb_privat
         dwarfexpr.SetRegisterKind (unwindplan_registerkind);
         Value result;
         Error error;
-        if (dwarfexpr.Evaluate (&exe_ctx, NULL, NULL, this, 0, NULL, result, &error))
+        if (dwarfexpr.Evaluate (&exe_ctx, nullptr, nullptr, this, 0, nullptr, nullptr, result, &error))
         {
             addr_t val;
             val = result.GetScalar().ULongLong();
@@ -1813,7 +1836,7 @@ RegisterContextLLDB::ReadCFAValueForRow (lldb::RegisterKind row_register_kind,
             dwarfexpr.SetRegisterKind (row_register_kind);
             Value result;
             Error error;
-            if (dwarfexpr.Evaluate (&exe_ctx, NULL, NULL, this, 0, NULL, result, &error))
+            if (dwarfexpr.Evaluate (&exe_ctx, nullptr, nullptr, this, 0, nullptr, nullptr, result, &error))
             {
                 cfa_value = result.GetScalar().ULongLong();
 

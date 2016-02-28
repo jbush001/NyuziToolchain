@@ -231,6 +231,10 @@ static bool Is32BitMemOperand(const MCInst &MI, unsigned Op) {
       (IndexReg.getReg() != 0 &&
        X86MCRegisterClasses[X86::GR32RegClassID].contains(IndexReg.getReg())))
     return true;
+  if (BaseReg.getReg() == X86::EIP) {
+    assert(IndexReg.getReg() == 0 && "Invalid eip-based address.");
+    return true;
+  }
   return false;
 }
 
@@ -373,7 +377,8 @@ void X86MCCodeEmitter::EmitMemModRMByte(const MCInst &MI, unsigned Op,
   bool HasEVEX = (TSFlags & X86II::EncodingMask) == X86II::EVEX;
 
   // Handle %rip relative addressing.
-  if (BaseReg == X86::RIP) {    // [disp32+RIP] in X86-64 mode
+  if (BaseReg == X86::RIP ||
+      BaseReg == X86::EIP) {    // [disp32+rIP] in X86-64 mode
     assert(is64BitMode(STI) && "Rip-relative addressing requires 64-bit mode");
     assert(IndexReg.getReg() == 0 && "Invalid rip-relative address");
     EmitByte(ModRMByte(0, RegOpcodeField, 5), CurByte, OS);
@@ -968,17 +973,17 @@ void X86MCCodeEmitter::EmitVEXOpcodePrefix(uint64_t TSFlags, unsigned &CurByte,
              VEX_PP, CurByte, OS);
     if (EncodeRC)
       EmitByte((EVEX_z  << 7) |
-              (EVEX_rc << 5) |
-              (EVEX_b  << 4) |
-              (EVEX_V2 << 3) |
-              EVEX_aaa, CurByte, OS);
+               (EVEX_rc << 5) |
+               (EVEX_b  << 4) |
+               (EVEX_V2 << 3) |
+               EVEX_aaa, CurByte, OS);
     else
       EmitByte((EVEX_z  << 7) |
-              (EVEX_L2 << 6) |
-              (VEX_L   << 5) |
-              (EVEX_b  << 4) |
-              (EVEX_V2 << 3) |
-              EVEX_aaa, CurByte, OS);
+               (EVEX_L2 << 6) |
+               (VEX_L   << 5) |
+               (EVEX_b  << 4) |
+               (EVEX_V2 << 3) |
+               EVEX_aaa, CurByte, OS);
   }
 }
 

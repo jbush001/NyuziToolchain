@@ -1550,7 +1550,8 @@ bool UnwrappedLineParser::parseEnum() {
   // In TypeScript, "enum" can also be used as property name, e.g. in interface
   // declarations. An "enum" keyword followed by a colon would be a syntax
   // error and thus assume it is just an identifier.
-  if (Style.Language == FormatStyle::LK_JavaScript && FormatTok->is(tok::colon))
+  if (Style.Language == FormatStyle::LK_JavaScript &&
+      FormatTok->isOneOf(tok::colon, tok::question))
     return false;
 
   // Eat up enum class ...
@@ -1809,8 +1810,13 @@ void UnwrappedLineParser::parseJavaScriptEs6ImportExport() {
     return;
   }
 
+  // Consume the "abstract" in "export abstract class".
+  if (FormatTok->is(Keywords.kw_abstract))
+    nextToken();
+
   if (FormatTok->isOneOf(tok::kw_const, tok::kw_class, tok::kw_enum,
-                         Keywords.kw_let, Keywords.kw_var))
+                         Keywords.kw_interface, Keywords.kw_let,
+                         Keywords.kw_var))
     return; // Fall through to parsing the corresponding structure.
 
   while (!eof() && FormatTok->isNot(tok::semi)) {

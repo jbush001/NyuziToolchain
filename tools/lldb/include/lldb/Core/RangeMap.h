@@ -202,7 +202,13 @@ namespace lldb_private {
         {
             m_entries.push_back (entry);
         }
-        
+
+        void
+        Append (B base, S size)
+        {
+            m_entries.emplace_back(base, size);
+        }
+
         bool
         RemoveEntrtAtIndex (uint32_t idx)
         {
@@ -471,7 +477,13 @@ namespace lldb_private {
         {
             m_entries.push_back (entry);
         }
-        
+
+        void
+        Append (B base, S size)
+        {
+            m_entries.emplace_back(base, size);
+        }
+
         bool
         RemoveEntrtAtIndex (uint32_t idx)
         {
@@ -1123,7 +1135,7 @@ namespace lldb_private {
         // Calculate the byte size of ranges with zero byte sizes by finding
         // the next entry with a base address > the current base address
         void
-        CalculateSizesOfZeroByteSizeRanges ()
+        CalculateSizesOfZeroByteSizeRanges (S full_size = 0)
         {
 #ifdef ASSERT_RANGEMAP_ARE_SORTED
             assert (IsSorted());
@@ -1148,6 +1160,8 @@ namespace lldb_private {
                             break;
                         }
                     }
+                    if (next == end && full_size > curr_base)
+                        pos->SetByteSize (full_size - curr_base);
                 }
             }
         }
@@ -1216,6 +1230,25 @@ namespace lldb_private {
             }
             return UINT32_MAX;
         }
+
+        uint32_t
+        FindEntryIndexesThatContain(B addr, std::vector<uint32_t> &indexes) const
+        {
+#ifdef ASSERT_RANGEMAP_ARE_SORTED
+            assert (IsSorted());
+#endif
+
+            if (!m_entries.empty())
+            {
+                typename Collection::const_iterator pos;
+                for (const auto &entry : m_entries)
+                {
+                    if (entry.Contains(addr))
+                        indexes.push_back(entry.data);
+                }
+            }
+            return indexes.size() ;
+        }
         
         Entry *
         FindEntryThatContains (B addr)
@@ -1281,6 +1314,22 @@ namespace lldb_private {
                     --pos;
 
                 if (pos != end && pos->Contains(range))
+                    return &(*pos);
+            }
+            return nullptr;
+        }
+        
+        const Entry*
+        FindEntryStartsAt (B addr) const
+        {
+#ifdef ASSERT_RANGEMAP_ARE_SORTED
+            assert (IsSorted());
+#endif
+            if (!m_entries.empty())
+            {
+                auto begin = m_entries.begin(), end = m_entries.end();
+                auto pos = std::lower_bound (begin, end, Entry(addr, 1), BaseLessThan);
+                if (pos != end && pos->base == addr)
                     return &(*pos);
             }
             return nullptr;

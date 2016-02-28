@@ -70,6 +70,7 @@ public:
     friend class DWARFCompileUnit;
     friend class DWARFASTParserClang;
     friend class DWARFASTParserGo;
+    friend class DWARFASTParserJava;
 
     //------------------------------------------------------------------
     // Static Functions
@@ -218,6 +219,7 @@ public:
                const lldb_private::CompilerDeclContext *parent_decl_ctx,
                bool append,
                uint32_t max_matches,
+               llvm::DenseSet<lldb_private::SymbolFile *> &searched_symbol_files,
                lldb_private::TypeMap& types) override;
 
     size_t

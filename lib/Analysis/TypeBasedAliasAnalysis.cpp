@@ -70,7 +70,7 @@
 //   A a;
 // } B;
 //
-// For an acess to B.a.s, we attach !5 (a path tag node) to the load/store
+// For an access to B.a.s, we attach !5 (a path tag node) to the load/store
 // instruction. The base type is !4 (struct B), the access type is !2 (scalar
 // type short) and the offset is 4.
 //
@@ -587,8 +587,6 @@ bool TypeBasedAAResult::PathAliases(const MDNode *A, const MDNode *B) const {
 TypeBasedAAResult TypeBasedAA::run(Function &F, AnalysisManager<Function> *AM) {
   return TypeBasedAAResult(AM->getResult<TargetLibraryAnalysis>(F));
 }
-
-char TypeBasedAA::PassID;
 
 char TypeBasedAAWrapperPass::ID = 0;
 INITIALIZE_PASS_BEGIN(TypeBasedAAWrapperPass, "tbaa",

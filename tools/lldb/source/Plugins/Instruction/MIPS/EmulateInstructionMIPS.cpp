@@ -17,7 +17,7 @@
 #include "llvm/MC/MCAsmInfo.h"
 #include "llvm/MC/MCInst.h"
 #include "llvm/MC/MCInstrInfo.h"
-#include "llvm/MC/MCDisassembler.h"
+#include "llvm/MC/MCDisassembler/MCDisassembler.h"
 #include "llvm/MC/MCRegisterInfo.h"
 #include "llvm/MC/MCSubtargetInfo.h"
 #include "llvm/MC/MCContext.h"
@@ -1142,7 +1142,7 @@ EmulateInstructionMIPS::Emulate_SWSP (llvm::MCInst& insn)
     // We look for sp based non-volatile register stores.
     if (base == dwarf_sp_mips && nonvolatile_reg_p (src))
     {
-        RegisterInfo reg_info_src;
+        RegisterInfo reg_info_src = {};
         Context context;
         RegisterValue data_src;
         context.type = eContextPushRegisterOnStack;
