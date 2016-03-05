@@ -24,8 +24,8 @@
 #include "llvm/IR/DataLayout.h"
 #include "llvm/IR/Function.h"
 #include "llvm/Support/CommandLine.h"
-#include "llvm/Target/TargetOptions.h"
 #include "llvm/Support/Debug.h"
+#include "llvm/Target/TargetOptions.h"
 
 using namespace llvm;
 
@@ -116,8 +116,7 @@ void NyuziFrameLowering::emitEpilogue(MachineFunction &MF,
         .addReg(Nyuzi::FP_REG);
   }
 
-  uint64_t StackSize =
-      alignTo(MFI->getStackSize(), getStackAlignment());
+  uint64_t StackSize = alignTo(MFI->getStackSize(), getStackAlignment());
   if (!StackSize)
     return;
 
@@ -195,7 +194,7 @@ NyuziFrameLowering::getWorstCaseStackSize(const MachineFunction &MF) const {
   // Call frame.
   if (MFI->adjustsStack() && hasReservedCallFrame(MF))
     Offset = alignTo(Offset + MFI->getMaxCallFrameSize(),
-                                std::max(MaxAlign, getStackAlignment()));
+                     std::max(MaxAlign, getStackAlignment()));
 
   return alignTo(Offset, getStackAlignment());
 }

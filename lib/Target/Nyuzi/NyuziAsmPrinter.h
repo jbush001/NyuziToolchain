@@ -20,10 +20,10 @@
 #ifndef NYUZIASMPRINTER_H
 #define NYUZIASMPRINTER_H
 
+#include "NyuziMCInstLower.h"
 #include "llvm/CodeGen/AsmPrinter.h"
 #include "llvm/Support/Compiler.h"
 #include "llvm/Target/TargetMachine.h"
-#include "NyuziMCInstLower.h"
 
 namespace llvm {
 class MCStreamer;

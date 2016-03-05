@@ -14,12 +14,12 @@
 #ifndef NYUZI_SUBTARGET_H
 #define NYUZI_SUBTARGET_H
 
-#include "llvm/CodeGen/SelectionDAGTargetInfo.h"
-#include "llvm/Target/TargetSubtargetInfo.h"
-#include "llvm/IR/DataLayout.h"
 #include "NyuziFrameLowering.h"
 #include "NyuziISelLowering.h"
 #include "NyuziInstrInfo.h"
+#include "llvm/CodeGen/SelectionDAGTargetInfo.h"
+#include "llvm/IR/DataLayout.h"
+#include "llvm/Target/TargetSubtargetInfo.h"
 #include <string>
 
 #define GET_SUBTARGETINFO_HEADER
@@ -59,13 +59,13 @@ public:
     return &TSInfo;
   }
 
-// Currently disabled because these cause bad code gen with large stack frames
-//  bool enableMachineScheduler() const override {
-//    return true;
-//  }
-//  bool enablePostRAScheduler() const override {
-//    return true;
-//  }
+  // Currently disabled because these cause bad code gen with large stack frames
+  //  bool enableMachineScheduler() const override {
+  //    return true;
+  //  }
+  //  bool enablePostRAScheduler() const override {
+  //    return true;
+  //  }
   const InstrItineraryData *getInstrItineraryData() const override {
     return &InstrItins;
   }

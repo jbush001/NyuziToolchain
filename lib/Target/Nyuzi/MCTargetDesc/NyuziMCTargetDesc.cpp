@@ -12,13 +12,13 @@
 //===----------------------------------------------------------------------===//
 
 #include "NyuziMCTargetDesc.h"
-#include "NyuziMCAsmInfo.h"
 #include "InstPrinter/NyuziInstPrinter.h"
+#include "NyuziMCAsmInfo.h"
 #include "llvm/MC/MCCodeGenInfo.h"
+#include "llvm/MC/MCELFStreamer.h"
 #include "llvm/MC/MCInstrInfo.h"
 #include "llvm/MC/MCRegisterInfo.h"
 #include "llvm/MC/MCSubtargetInfo.h"
-#include "llvm/MC/MCELFStreamer.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/TargetRegistry.h"
 

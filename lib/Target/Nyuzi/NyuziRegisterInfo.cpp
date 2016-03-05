@@ -13,8 +13,8 @@
 //===----------------------------------------------------------------------===//
 
 #include "NyuziRegisterInfo.h"
-#include "NyuziInstrInfo.h"
 #include "Nyuzi.h"
+#include "NyuziInstrInfo.h"
 #include "NyuziSubtarget.h"
 #include "llvm/ADT/BitVector.h"
 #include "llvm/ADT/STLExtras.h"
@@ -23,10 +23,10 @@
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
 #include "llvm/IR/Type.h"
-#include "llvm/Support/ErrorHandling.h"
-#include "llvm/Target/TargetInstrInfo.h"
-#include "llvm/Target/TargetFrameLowering.h"
 #include "llvm/Support/Debug.h"
+#include "llvm/Support/ErrorHandling.h"
+#include "llvm/Target/TargetFrameLowering.h"
+#include "llvm/Target/TargetInstrInfo.h"
 
 #define GET_REGINFO_TARGET_DESC
 #include "NyuziGenRegisterInfo.inc"
@@ -76,8 +76,7 @@ void NyuziRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator MBBI,
   MachineFrameInfo *MFI = MF.getFrameInfo();
 
   // Round stack size to multiple of 64, consistent with frame pointer info.
-  int stackSize =
-      alignTo(MFI->getStackSize(), TFL.getStackAlignment());
+  int stackSize = alignTo(MFI->getStackSize(), TFL.getStackAlignment());
 
   // Frame index is relative to where SP is before it is decremented on
   // entry to the function.  Need to add stackSize to adjust for this.

@@ -24,7 +24,8 @@ public:
 
 protected:
   virtual unsigned getRelocType(MCContext &Ctx, const MCValue &Target,
-                                const MCFixup &Fixup, bool IsPCRel) const override;
+                                const MCFixup &Fixup,
+                                bool IsPCRel) const override;
 };
 }
 

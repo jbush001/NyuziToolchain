@@ -23,17 +23,17 @@
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
-#include "llvm/CodeGen/MachineRegisterInfo.h"
 #include "llvm/CodeGen/MachineJumpTableInfo.h"
+#include "llvm/CodeGen/MachineRegisterInfo.h"
 #include "llvm/CodeGen/SelectionDAG.h"
 #include "llvm/CodeGen/TargetLoweringObjectFileImpl.h"
 #include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/Function.h"
+#include "llvm/IR/Intrinsics.h"
 #include "llvm/IR/Module.h"
+#include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/raw_ostream.h"
-#include "llvm/Support/Debug.h"
-#include "llvm/IR/Intrinsics.h"
 using namespace llvm;
 
 #include "NyuziGenCallingConv.inc"
@@ -531,9 +531,10 @@ SDValue NyuziTargetLowering::LowerGlobalAddress(SDValue Op,
   SDLoc DL(Op);
   const GlobalValue *GV = cast<GlobalAddressSDNode>(Op)->getGlobal();
   SDValue CPIdx = DAG.getTargetConstantPool(GV, MVT::i32);
-  return DAG.getLoad(MVT::i32, DL, DAG.getEntryNode(), CPIdx,
-                     MachinePointerInfo::getConstantPool(DAG.getMachineFunction()),
-					 false, false, false, 4);
+  return DAG.getLoad(
+      MVT::i32, DL, DAG.getEntryNode(), CPIdx,
+      MachinePointerInfo::getConstantPool(DAG.getMachineFunction()), false,
+      false, false, 4);
 }
 
 SDValue NyuziTargetLowering::LowerConstantPool(SDValue Op,
@@ -576,9 +577,10 @@ SDValue NyuziTargetLowering::LowerConstant(SDValue Op,
   // XXX New versions of LLVM will expand to a constant pool as the expand
   // action, so this is probably unnecessary.
   SDValue CPIdx = DAG.getConstantPool(C->getConstantIntValue(), MVT::i32);
-  return DAG.getLoad(MVT::i32, DL, DAG.getEntryNode(), CPIdx,
-                     MachinePointerInfo::getConstantPool(DAG.getMachineFunction()),
-					 false, false, false, 4);
+  return DAG.getLoad(
+      MVT::i32, DL, DAG.getEntryNode(), CPIdx,
+      MachinePointerInfo::getConstantPool(DAG.getMachineFunction()), false,
+      false, false, 4);
 }
 
 SDValue NyuziTargetLowering::LowerBlockAddress(SDValue Op,
@@ -586,9 +588,10 @@ SDValue NyuziTargetLowering::LowerBlockAddress(SDValue Op,
   SDLoc DL(Op);
   const BlockAddress *BA = cast<BlockAddressSDNode>(Op)->getBlockAddress();
   SDValue CPIdx = DAG.getTargetConstantPool(BA, MVT::i32);
-  return DAG.getLoad(MVT::i32, DL, DAG.getEntryNode(), CPIdx,
-                     MachinePointerInfo::getConstantPool(DAG.getMachineFunction()),
-					 false, false, false, 4);
+  return DAG.getLoad(
+      MVT::i32, DL, DAG.getEntryNode(), CPIdx,
+      MachinePointerInfo::getConstantPool(DAG.getMachineFunction()), false,
+      false, false, 4);
 }
 
 SDValue NyuziTargetLowering::LowerVASTART(SDValue Op, SelectionDAG &DAG) const {
@@ -817,14 +820,11 @@ SDValue NyuziTargetLowering::LowerFNEG(SDValue Op, SelectionDAG &DAG) const {
 
 namespace {
 
-SDValue morphSETCCNode(SDValue Op, ISD::CondCode code, SelectionDAG &DAG)
-{
+SDValue morphSETCCNode(SDValue Op, ISD::CondCode code, SelectionDAG &DAG) {
   SDLoc DL(Op);
   return DAG.getNode(ISD::SETCC, DL, Op.getValueType().getSimpleVT(),
-                     Op.getOperand(0), Op.getOperand(1),
-                     DAG.getCondCode(code));
+                     Op.getOperand(0), Op.getOperand(1), DAG.getCondCode(code));
 }
-
 }
 
 // Convert unordered or don't-care floating point comparisions to ordered
@@ -839,59 +839,60 @@ SDValue NyuziTargetLowering::LowerSETCC(SDValue Op, SelectionDAG &DAG) const {
   ISD::CondCode CC = cast<CondCodeSDNode>(Op.getOperand(2))->get();
   ISD::CondCode ComplementCompare;
   switch (CC) {
-    // Return this node unchanged
-    default:
-      return Op;
+  // Return this node unchanged
+  default:
+    return Op;
 
-    // These are "don't care" values. Convert them to ordered, which
-    // are natively supported
-    case ISD::SETGT:
-      return morphSETCCNode(Op, ISD::SETOGT, DAG);
-    case ISD::SETGE:
-      return morphSETCCNode(Op, ISD::SETOGE, DAG);
-    case ISD::SETLT:
-      return morphSETCCNode(Op, ISD::SETOLT, DAG);
-    case ISD::SETLE:
-      return morphSETCCNode(Op, ISD::SETOLE, DAG);
-    case ISD::SETEQ:
-      return morphSETCCNode(Op, ISD::SETOEQ, DAG);
-    case ISD::SETNE:
-      return morphSETCCNode(Op, ISD::SETONE, DAG);
+  // These are "don't care" values. Convert them to ordered, which
+  // are natively supported
+  case ISD::SETGT:
+    return morphSETCCNode(Op, ISD::SETOGT, DAG);
+  case ISD::SETGE:
+    return morphSETCCNode(Op, ISD::SETOGE, DAG);
+  case ISD::SETLT:
+    return morphSETCCNode(Op, ISD::SETOLT, DAG);
+  case ISD::SETLE:
+    return morphSETCCNode(Op, ISD::SETOLE, DAG);
+  case ISD::SETEQ:
+    return morphSETCCNode(Op, ISD::SETOEQ, DAG);
+  case ISD::SETNE:
+    return morphSETCCNode(Op, ISD::SETONE, DAG);
 
-    // Check for ordered and unordered values by using ordered equality
-    // (which will only be false if the values are unordered)
-    case ISD::SETO:
-    case ISD::SETUO: {
-      SDValue Op0 = Op.getOperand(0);
-      SDValue IsOrdered = DAG.getNode(ISD::SETCC, DL, Op.getValueType().getSimpleVT(),
-                                      Op0, Op0, DAG.getCondCode(ISD::SETOEQ));
-      if (CC == ISD::SETO)
-        return IsOrdered;
+  // Check for ordered and unordered values by using ordered equality
+  // (which will only be false if the values are unordered)
+  case ISD::SETO:
+  case ISD::SETUO: {
+    SDValue Op0 = Op.getOperand(0);
+    SDValue IsOrdered =
+        DAG.getNode(ISD::SETCC, DL, Op.getValueType().getSimpleVT(), Op0, Op0,
+                    DAG.getCondCode(ISD::SETOEQ));
+    if (CC == ISD::SETO)
+      return IsOrdered;
 
-      // SETUO
-      return DAG.getNode(ISD::XOR, DL, Op.getValueType().getSimpleVT(), IsOrdered,
-        DAG.getConstant(0xffff, DL, MVT::i32));
-    }
+    // SETUO
+    return DAG.getNode(ISD::XOR, DL, Op.getValueType().getSimpleVT(), IsOrdered,
+                       DAG.getConstant(0xffff, DL, MVT::i32));
+  }
 
-    // Convert unordered comparisions to ordered by explicitly checking for NaN
-    case ISD::SETUEQ:
-      ComplementCompare = ISD::SETONE;
-      break;
-    case ISD::SETUGT:
-      ComplementCompare = ISD::SETOLE;
-      break;
-    case ISD::SETUGE:
-      ComplementCompare = ISD::SETOLT;
-      break;
-    case ISD::SETULT:
-      ComplementCompare = ISD::SETOGE;
-      break;
-    case ISD::SETULE:
-      ComplementCompare = ISD::SETOGT;
-      break;
-    case ISD::SETUNE:
-      ComplementCompare = ISD::SETOEQ;
-      break;
+  // Convert unordered comparisions to ordered by explicitly checking for NaN
+  case ISD::SETUEQ:
+    ComplementCompare = ISD::SETONE;
+    break;
+  case ISD::SETUGT:
+    ComplementCompare = ISD::SETOLE;
+    break;
+  case ISD::SETUGE:
+    ComplementCompare = ISD::SETOLT;
+    break;
+  case ISD::SETULT:
+    ComplementCompare = ISD::SETOGE;
+    break;
+  case ISD::SETULE:
+    ComplementCompare = ISD::SETOGT;
+    break;
+  case ISD::SETUNE:
+    ComplementCompare = ISD::SETOEQ;
+    break;
   }
 
   // Take the complementary comparision and invert the result. This will
@@ -899,7 +900,7 @@ SDValue NyuziTargetLowering::LowerSETCC(SDValue Op, SelectionDAG &DAG) const {
   // values.
   SDValue Comp2 = morphSETCCNode(Op, ComplementCompare, DAG);
   return DAG.getNode(ISD::XOR, DL, Op.getValueType().getSimpleVT(), Comp2,
-     DAG.getConstant(0xffff, DL, MVT::i32));
+                     DAG.getConstant(0xffff, DL, MVT::i32));
 }
 
 SDValue NyuziTargetLowering::LowerCTLZ_ZERO_UNDEF(SDValue Op,
@@ -937,9 +938,10 @@ SDValue NyuziTargetLowering::LowerUINT_TO_FP(SDValue Op,
       ConstantInt::get(Type::getInt32Ty(*DAG.getContext()),
                        0x4f800000); // UINT_MAX in float format
   SDValue CPIdx = DAG.getConstantPool(AdjustConst, MVT::f32);
-  SDValue AdjustReg = DAG.getLoad(MVT::f32, DL, DAG.getEntryNode(), CPIdx,
-                                  MachinePointerInfo::getConstantPool(DAG.getMachineFunction()),
-								  false, false, false, 4);
+  SDValue AdjustReg =
+      DAG.getLoad(MVT::f32, DL, DAG.getEntryNode(), CPIdx,
+                  MachinePointerInfo::getConstantPool(DAG.getMachineFunction()),
+                  false, false, false, 4);
   if (ResultVT.isVector()) {
     // Vector Result
     SDValue ZeroVec = DAG.getNode(NyuziISD::SPLAT, DL, MVT::v16i32,
@@ -1475,4 +1477,3 @@ bool NyuziTargetLowering::isOffsetFoldingLegal(
 bool NyuziTargetLowering::isIntDivCheap(EVT, AttributeSet) const {
   return false;
 }
-

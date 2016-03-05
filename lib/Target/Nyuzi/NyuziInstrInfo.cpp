@@ -15,17 +15,17 @@
 #include "NyuziInstrInfo.h"
 #include "Nyuzi.h"
 #include "NyuziMachineFunctionInfo.h"
+#include "NyuziRegisterInfo.h"
 #include "NyuziSubtarget.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
-#include "llvm/CodeGen/MachineInstrBuilder.h"
-#include "llvm/CodeGen/MachineRegisterInfo.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
+#include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/CodeGen/MachineMemOperand.h"
+#include "llvm/CodeGen/MachineRegisterInfo.h"
+#include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/TargetRegistry.h"
-#include "llvm/Support/Debug.h"
-#include "NyuziRegisterInfo.h"
 
 #define GET_INSTRINFO_CTOR_DTOR
 #include "NyuziGenInstrInfo.inc"
@@ -199,8 +199,8 @@ MachineMemOperand *NyuziInstrInfo::getMemOperand(MachineBasicBlock &MBB, int FI,
   MachineFrameInfo &MFI = *MF.getFrameInfo();
   unsigned Align = MFI.getObjectAlignment(FI);
 
-  return MF.getMachineMemOperand(MachinePointerInfo::getFixedStack(MF, FI), Flag,
-                                 MFI.getObjectSize(FI), Align);
+  return MF.getMachineMemOperand(MachinePointerInfo::getFixedStack(MF, FI),
+                                 Flag, MFI.getObjectSize(FI), Align);
 }
 
 void NyuziInstrInfo::storeRegToStackSlot(MachineBasicBlock &MBB,
@@ -287,10 +287,7 @@ unsigned int NyuziInstrInfo::loadConstant(MachineBasicBlock &MBB,
     report_fatal_error("NyuziInstrInfo::loadConstant: value out of range");
 
   BuildMI(MBB, MBBI, DL, get(Nyuzi::MOVESimm), Reg).addImm(Value >> 12);
-  BuildMI(MBB, MBBI, DL, get(Nyuzi::SLLSSI))
-      .addReg(Reg)
-      .addReg(Reg)
-      .addImm(12);
+  BuildMI(MBB, MBBI, DL, get(Nyuzi::SLLSSI)).addReg(Reg).addReg(Reg).addImm(12);
 
   if ((Value & 0xfff) != 0) {
     // Load bits 11-0 into register (note we only load 12 bits because we
