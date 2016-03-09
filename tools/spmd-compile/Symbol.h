@@ -4,8 +4,7 @@
 #include "llvm/IR/IRBuilder.h"
 #include <string>
 
-struct Symbol
-{
+struct Symbol {
   llvm::Value *Val;
   std::string Name;
 };

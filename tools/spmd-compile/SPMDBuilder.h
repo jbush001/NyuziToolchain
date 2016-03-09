@@ -8,37 +8,40 @@ class SPMDBuilder {
 public:
   SPMDBuilder(llvm::Module *Mod);
   ~SPMDBuilder();
-	void startFunction(const char *name, const std::vector<std::string> &ArgNames);
+  void startFunction(const char *name,
+                     const std::vector<std::string> &ArgNames);
   void endFunction();
   llvm::Function::arg_iterator getFuncArguments();
-  
+
   void createReturn(llvm::Value *ReturnValue);
-  
+
   llvm::Value *createLocalVariable(const char *Name);
 
-  llvm::Value *readLocalVariable(llvm::Value*);
-  
-  /// Copy the value of the expression NewValue into the given variable (an alloca),
-  /// Applying a mask if one is active.
-  void assignLocalVariable(llvm::Value *Variable, llvm::Value *NewValue);
+  llvm::Value *readLocalVariable(llvm::Value *);
 
-  /// Save the current mask (if present), and it with the new mask, then cause the 
-  /// new one to affect all subsequent emitted instructions
+  /// Copy the value of the expression NewValue into the given variable (an
+  /// alloca), Applying a mask if one is active.
+  llvm::Value *assignLocalVariable(llvm::Value *Variable,
+                                   llvm::Value *NewValue);
+
+  /// Save the current mask (if present), and it with the new mask, then cause
+  /// the new one to affect all subsequent emitted instructions
   void pushMask(llvm::Value *mask);
 
-  /// Revert to the previous mask before pushMask (possibly having no mask if there 
-  /// wasn't one prior to that)
+  /// Revert to the previous mask before pushMask (possibly having no mask if
+  /// there wasn't one prior to that)
   void popMask();
 
-  /// This is basically for the else clause of if statements
+  /// Start the else clause of an if statement
   void invertLastPushedMask();
-  
+
   /// Emit a branch to skip the block if no mask bits are set.
   void shortCircuitZeroMask(llvm::BasicBlock *SkipTo, llvm::BasicBlock *Next);
-  
+
   void branch(llvm::BasicBlock *Dest);
-  
-  llvm::Value *createCompare(llvm::CmpInst::Predicate type, llvm::Value *lhs, llvm::Value *rhs);
+
+  llvm::Value *createCompare(llvm::CmpInst::Predicate type, llvm::Value *lhs,
+                             llvm::Value *rhs);
 
   llvm::Value *createSub(llvm::Value *lhs, llvm::Value *rhs);
   llvm::Value *createAdd(llvm::Value *lhs, llvm::Value *rhs);
@@ -46,9 +49,9 @@ public:
   llvm::Value *createDiv(llvm::Value *lhs, llvm::Value *rhs);
 
   llvm::BasicBlock *createBasicBlock(const char *Name);
-  
+
   void setInsertPoint(llvm::BasicBlock *Block);
-  
+
   llvm::Value *createConstant(float value);
 
 private:
