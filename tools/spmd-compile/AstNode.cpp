@@ -78,7 +78,7 @@ Value *IfAst::generate(SPMDBuilder &Builder) {
 Value *WhileAst::generate(SPMDBuilder &Builder) {
   llvm::BasicBlock *LoopTopBB = Builder.createBasicBlock("looptop");
   llvm::BasicBlock *LoopBodyBB = Builder.createBasicBlock("loopbody");
-  llvm::BasicBlock *LoopEndBB = Builder.createBasicBlock("loopbody");
+  llvm::BasicBlock *LoopEndBB = Builder.createBasicBlock("loopend");
 
   // Loop check
   Builder.branch(LoopTopBB);
