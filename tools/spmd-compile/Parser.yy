@@ -46,6 +46,8 @@ static vector<Symbol*> ArgumentSyms;
 
 %left TOK_OR
 %left TOK_AND
+%left TOK_INCR
+%left TOK_DECR
 %left	'+' '-'
 %left 	'*' '/' '%'
 
@@ -152,6 +154,14 @@ assignstmt		:		variable '=' expr
 						{
 							$$ = new AssignAst($1, $3);
 						}
+				|		variable TOK_INCR
+						{
+							$$ = new AssignAst($1, new AddAst($1, new ConstantAst(1)));
+						}
+				|		variable TOK_DECR
+						{
+							$$ = new AssignAst($1, new SubAst($1, new ConstantAst(1)));
+						}
 				;
 
 vardecl			:		TOK_FLOAT TOK_IDENTIFIER
@@ -187,6 +197,7 @@ vardecl			:		TOK_FLOAT TOK_IDENTIFIER
 							}
 						}
 				;
+
 
 enter_scope		:		/* nothing */
 						{

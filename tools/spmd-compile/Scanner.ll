@@ -29,6 +29,9 @@
 "=="					{ return TOK_EQUALS; }
 "!="					{ return TOK_NOT_EQUAL; }
 
+"++"                    { return TOK_INCR; }
+"--"                    { return TOK_DECR; }
+
 [\.\+\-\/\*/=\%()><:;,\[\]\{\}\!\&\~\!]	{	return yytext[0];	}
 
 
