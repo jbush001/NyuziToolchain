@@ -99,7 +99,7 @@ directory):
 ```
 export PATH=<BUILDDIR>/build/bin:$PATH
 llvm-lit test
-llvm-lit tools/clang/test/CodeGen/nyuzi*
+llvm-lit tools/clang/test/CodeGen/
 ```
 
 All tests should pass.

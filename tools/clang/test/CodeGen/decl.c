@@ -1,5 +1,9 @@
 // RUN: %clang_cc1 -w -emit-llvm < %s | FileCheck %s
 
+// Fails on nyuzi because double is 32 bits wide, so unions aren't padded.
+// XFAIL: nyuzi
+
+
 // CHECK: @test1.x = internal constant [12 x i32] [i32 1
 // CHECK: @test2.x = private unnamed_addr constant [13 x i32] [i32 1,
 // CHECK: @test5w = global { i32, [4 x i8] } { i32 2, [4 x i8] undef }

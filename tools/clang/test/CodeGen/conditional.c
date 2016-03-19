@@ -1,5 +1,8 @@
 // RUN: %clang_cc1 -emit-llvm %s -o - | FileCheck %s
 
+// Fails on nyuzi because double is 32 bits wide, so unions aren't padded.
+// XFAIL: nyuzi
+
 float test1(int cond, float a, float b) {
   return cond ? a : b;
 }
