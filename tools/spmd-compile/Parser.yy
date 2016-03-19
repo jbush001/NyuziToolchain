@@ -35,6 +35,7 @@ static vector<Symbol*> ArgumentSyms;
 %token TOK_THEN
 %token TOK_ELSE
 %token TOK_END
+%token TOK_FOR
 %token TOK_WHILE
 %token TOK_EQUALS
 %token TOK_NOT_EQUAL
@@ -54,7 +55,7 @@ static vector<Symbol*> ArgumentSyms;
 	char strval[1024];
 }
 
-%type <node> expr statement stmtseq ifstmt whilestmt assignstmt
+%type <node> expr statement stmtseq ifstmt forstmt whilestmt assignstmt
 %type <node> variable vardecl returnstmt
 %type <numVal> TOK_NUMBER
 %type <strval> TOK_STRING TOK_IDENTIFIER
@@ -77,15 +78,15 @@ funcdecl		:		TOK_FLOAT TOK_IDENTIFIER enter_scope '(' parameters ')'
 							}
 
 							$8->generate(*Builder);
-							Builder->endFunction();  
+							Builder->endFunction();
 							ArgumentNames.clear();
 						}
 				;
-	
+
 parameters		: 		paramlist
 				|		/* nothing */
 				;
-				
+
 paramlist		:		paramlist ',' paramdecl
 				|		paramdecl
 				;
@@ -100,8 +101,9 @@ paramdecl		:		TOK_FLOAT TOK_IDENTIFIER
 						}
 				;
 
-/* Statement types */	
+/* Statement types */
 statement		:		ifstmt
+				|		forstmt
 				|		whilestmt
 				|		returnstmt ';'
 				|		assignstmt ';'
@@ -124,6 +126,12 @@ returnstmt		:		TOK_RETURN expr
 						{
 							$$ = new ReturnAst($2);
 						}
+
+forstmt			:		TOK_FOR '(' assignstmt ';' expr ';' assignstmt ')' statement
+						{
+							$$ = new ForAst($3, $5, $7, $9);
+						}
+				;
 
 whilestmt		:		TOK_WHILE '(' expr ')' statement
 						{
@@ -185,7 +193,7 @@ enter_scope		:		/* nothing */
 							ScopeStack.push_back(Scope());
 						}
 				;
-				
+
 leave_scope		:		/* nothing */
 						{
 							ScopeStack.pop_back();
@@ -241,7 +249,7 @@ expr			:		expr '>' expr
 						}
 				|		variable
 				;
-	
+
 variable		:		TOK_IDENTIFIER
 						{
 							Symbol *Sym = lookupSymbol($1);
@@ -277,7 +285,7 @@ int parse(Module *TheModule)
 
 Symbol *lookupSymbol(const char *name)
 {
-	for (vector<Scope>::reverse_iterator I = ScopeStack.rbegin(); I != ScopeStack.rend(); 
+	for (vector<Scope>::reverse_iterator I = ScopeStack.rbegin(); I != ScopeStack.rend();
 		I++)
 	{
 		Scope::iterator J = (*I).find(name);

@@ -96,6 +96,29 @@ Value *WhileAst::generate(SPMDBuilder &Builder) {
   return nullptr;
 }
 
+Value *ForAst::generate(SPMDBuilder &Builder) {
+  llvm::BasicBlock *LoopTopBB = Builder.createBasicBlock("looptop");
+  llvm::BasicBlock *LoopBodyBB = Builder.createBasicBlock("loopbody");
+  llvm::BasicBlock *LoopEndBB = Builder.createBasicBlock("loopend");
+
+  Init->generate(Builder);
+
+  // Loop check
+  Builder.branch(LoopTopBB);
+  Builder.setInsertPoint(LoopTopBB);
+  Value *LoopCond = Cond->generate(Builder);
+  Builder.pushMask(LoopCond);
+  Builder.shortCircuitZeroMask(LoopEndBB, LoopBodyBB);
+
+  // Loop body
+  Builder.setInsertPoint(LoopBodyBB);
+  Body->generate(Builder);
+  Builder.branch(LoopTopBB);
+  Builder.popMask();
+  Builder.setInsertPoint(LoopEndBB);
+  return nullptr;
+}
+
 Value *VariableAst::generate(SPMDBuilder &Builder) {
   if (Sym->Val == nullptr)
     Sym->Val = Builder.createLocalVariable(Sym->Name.c_str());

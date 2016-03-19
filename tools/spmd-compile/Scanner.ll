@@ -36,6 +36,7 @@ float 					{ return TOK_FLOAT; }
 if						{ return TOK_IF; }
 else					{ return TOK_ELSE; }
 end						{ return TOK_END; }
+for                     { return TOK_FOR; }
 while					{ return TOK_WHILE; }
 return					{ return TOK_RETURN; }
 

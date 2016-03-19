@@ -64,6 +64,17 @@ private:
   AstNode *Rhs;
 };
 
+class SequenceAst : public AstNode {
+public:
+  SequenceAst(AstNode *_Stmt, AstNode *_Next) : Stmt(_Stmt), Next(_Next) {}
+
+  virtual llvm::Value *generate(SPMDBuilder &);
+
+private:
+  AstNode *Stmt;
+  AstNode *Next;
+};
+
 class IfAst : public AstNode {
 public:
   IfAst(AstNode *_Cond, AstNode *_Then, AstNode *_Else)
@@ -84,6 +95,19 @@ public:
   virtual llvm::Value *generate(SPMDBuilder &);
 
 private:
+  AstNode *Cond;
+  AstNode *Body;
+};
+
+class ForAst : public AstNode {
+public:
+  ForAst(AstNode *_Init, AstNode *_Cond, AstNode *_Incr,
+    AstNode *_Body) : Init(_Init), Cond(_Cond), Body(new SequenceAst(_Body, _Incr)) {}
+
+  virtual llvm::Value *generate(SPMDBuilder &);
+
+private:
+  AstNode *Init;
   AstNode *Cond;
   AstNode *Body;
 };
@@ -110,17 +134,6 @@ private:
   llvm::CmpInst::Predicate Type;
   AstNode *Op1;
   AstNode *Op2;
-};
-
-class SequenceAst : public AstNode {
-public:
-  SequenceAst(AstNode *_Stmt, AstNode *_Next) : Stmt(_Stmt), Next(_Next) {}
-
-  virtual llvm::Value *generate(SPMDBuilder &);
-
-private:
-  AstNode *Stmt;
-  AstNode *Next;
 };
 
 class ReturnAst : public AstNode {
