@@ -2174,14 +2174,20 @@ ValueObject::GetSyntheticBitFieldChild (uint32_t from, uint32_t to, bool can_cre
 }
 
 ValueObjectSP
-ValueObject::GetSyntheticChildAtOffset(uint32_t offset, const CompilerType& type, bool can_create)
+ValueObject::GetSyntheticChildAtOffset(uint32_t offset,
+                                       const CompilerType& type,
+                                       bool can_create,
+                                       ConstString name_const_str)
 {
     
     ValueObjectSP synthetic_child_sp;
     
-    char name_str[64];
-    snprintf(name_str, sizeof(name_str), "@%i", offset);
-    ConstString name_const_str(name_str);
+    if (name_const_str.IsEmpty())
+    {
+        char name_str[64];
+        snprintf(name_str, sizeof(name_str), "@%i", offset);
+        name_const_str.SetCString(name_str);
+    }
     
     // Check if we have already created a synthetic array member in this
     // valid object. If we have we will re-use it.
@@ -2530,7 +2536,7 @@ ValueObject::GetExpressionPath (Stream &s, bool qualify_cxx_base_classes, GetExp
         if (!is_deref_of_parent)
         {
             ValueObject *non_base_class_parent = GetNonBaseClassParent();
-            if (non_base_class_parent)
+            if (non_base_class_parent && !non_base_class_parent->GetName().IsEmpty())
             {
                 CompilerType non_base_class_parent_compiler_type = non_base_class_parent->GetCompilerType();
                 if (non_base_class_parent_compiler_type)

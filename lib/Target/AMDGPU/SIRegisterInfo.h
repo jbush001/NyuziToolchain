@@ -13,8 +13,8 @@
 //===----------------------------------------------------------------------===//
 
 
-#ifndef LLVM_LIB_TARGET_R600_SIREGISTERINFO_H
-#define LLVM_LIB_TARGET_R600_SIREGISTERINFO_H
+#ifndef LLVM_LIB_TARGET_AMDGPU_SIREGISTERINFO_H
+#define LLVM_LIB_TARGET_AMDGPU_SIREGISTERINFO_H
 
 #include "AMDGPURegisterInfo.h"
 #include "AMDGPUSubtarget.h"
@@ -23,7 +23,7 @@
 
 namespace llvm {
 
-struct SIRegisterInfo : public AMDGPURegisterInfo {
+struct SIRegisterInfo final : public AMDGPURegisterInfo {
 private:
   unsigned SGPR32SetID;
   unsigned VGPR32SetID;
@@ -48,6 +48,8 @@ public:
                                   unsigned Idx) const override;
 
   bool requiresRegisterScavenging(const MachineFunction &Fn) const override;
+
+  bool requiresFrameIndexScavenging(const MachineFunction &MF) const override;
 
   void eliminateFrameIndex(MachineBasicBlock::iterator MI, int SPAdj,
                            unsigned FIOperandNum,
@@ -162,7 +164,7 @@ private:
   void buildScratchLoadStore(MachineBasicBlock::iterator MI,
                              unsigned LoadStoreOp, unsigned Value,
                              unsigned ScratchRsrcReg, unsigned ScratchOffset,
-                             int64_t Offset, RegScavenger *RS) const;
+                             int64_t Offset) const;
 };
 
 } // End namespace llvm

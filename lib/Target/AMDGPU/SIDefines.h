@@ -10,8 +10,8 @@
 
 #include "llvm/MC/MCInstrDesc.h"
 
-#ifndef LLVM_LIB_TARGET_R600_SIDEFINES_H
-#define LLVM_LIB_TARGET_R600_SIDEFINES_H
+#ifndef LLVM_LIB_TARGET_AMDGPU_SIDEFINES_H
+#define LLVM_LIB_TARGET_AMDGPU_SIDEFINES_H
 
 namespace SIInstrFlags {
 // This needs to be kept in sync with the field bits in InstSI.
@@ -29,16 +29,17 @@ enum {
   VOP2 = 1 << 11,
   VOP3 = 1 << 12,
   VOPC = 1 << 13,
+  DPP = 1 << 14,
 
-  MUBUF = 1 << 14,
-  MTBUF = 1 << 15,
-  SMRD = 1 << 16,
-  DS = 1 << 17,
-  MIMG = 1 << 18,
-  FLAT = 1 << 19,
-  WQM = 1 << 20,
-  VGPRSpill = 1 << 21,
-  VOPAsmPrefer32Bit = 1 << 22
+  MUBUF = 1 << 15,
+  MTBUF = 1 << 16,
+  SMRD = 1 << 17,
+  DS = 1 << 18,
+  MIMG = 1 << 19,
+  FLAT = 1 << 20,
+  WQM = 1 << 21,
+  VGPRSpill = 1 << 22,
+  VOPAsmPrefer32Bit = 1 << 23
 };
 }
 

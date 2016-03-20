@@ -262,7 +262,7 @@ public:
 ///
 /// Note that this pass's result cannot be invalidated, it is immutable for the
 /// life of the module.
-class TargetLibraryAnalysis : public AnalysisBase<TargetLibraryAnalysis> {
+class TargetLibraryAnalysis : public AnalysisInfoMixin<TargetLibraryAnalysis> {
 public:
   typedef TargetLibraryInfo Result;
 
@@ -292,6 +292,9 @@ public:
   TargetLibraryInfo run(Function &F);
 
 private:
+  friend AnalysisInfoMixin<TargetLibraryAnalysis>;
+  static char PassID;
+
   Optional<TargetLibraryInfoImpl> PresetInfoImpl;
 
   StringMap<std::unique_ptr<TargetLibraryInfoImpl>> Impls;

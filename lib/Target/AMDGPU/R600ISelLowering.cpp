@@ -610,6 +610,7 @@ SDValue R600TargetLowering::LowerOperation(SDValue Op, SelectionDAG &DAG) const 
 
   case ISD::BRCOND: return LowerBRCOND(Op, DAG);
   case ISD::GlobalAddress: return LowerGlobalAddress(MFI, Op, DAG);
+  case ISD::FrameIndex: return lowerFrameIndex(Op, DAG);
   case ISD::INTRINSIC_VOID: {
     SDValue Chain = Op.getOperand(0);
     unsigned IntrinsicID =
@@ -1064,6 +1065,20 @@ bool R600TargetLowering::isZero(SDValue Op) const {
   } else {
     return false;
   }
+}
+
+bool R600TargetLowering::isHWTrueValue(SDValue Op) const {
+  if (ConstantFPSDNode * CFP = dyn_cast<ConstantFPSDNode>(Op)) {
+    return CFP->isExactlyValue(1.0);
+  }
+  return isAllOnesConstant(Op);
+}
+
+bool R600TargetLowering::isHWFalseValue(SDValue Op) const {
+  if (ConstantFPSDNode * CFP = dyn_cast<ConstantFPSDNode>(Op)) {
+    return CFP->getValueAPF().isZero();
+  }
+  return isNullConstant(Op);
 }
 
 SDValue R600TargetLowering::LowerSELECT_CC(SDValue Op, SelectionDAG &DAG) const {
@@ -1697,6 +1712,21 @@ SDValue R600TargetLowering::LowerBRCOND(SDValue Op, SelectionDAG &DAG) const {
                      Chain, Jump, Cond);
 }
 
+SDValue R600TargetLowering::lowerFrameIndex(SDValue Op,
+                                            SelectionDAG &DAG) const {
+  MachineFunction &MF = DAG.getMachineFunction();
+  const AMDGPUFrameLowering *TFL = Subtarget->getFrameLowering();
+
+  FrameIndexSDNode *FIN = cast<FrameIndexSDNode>(Op);
+
+  unsigned FrameIndex = FIN->getIndex();
+  unsigned IgnoredFrameReg;
+  unsigned Offset =
+    TFL->getFrameIndexReference(MF, FrameIndex, IgnoredFrameReg);
+  return DAG.getConstant(Offset * 4 * TFL->getStackWidth(MF), SDLoc(Op),
+                         Op.getValueType());
+}
+
 /// XXX Only kernel functions are supported, so we can assume for now that
 /// every function is a kernel function, but in the future we should use
 /// separate calling conventions for kernel and non-kernel functions.
@@ -1817,7 +1847,7 @@ static SDValue CompactSwizzlableVector(
   };
 
   for (unsigned i = 0; i < 4; i++) {
-    if (NewBldVec[i].getOpcode() == ISD::UNDEF)
+    if (NewBldVec[i].isUndef())
       // We mask write here to teach later passes that the ith element of this
       // vector is undef. Thus we can use it to reduce 128 bits reg usage,
       // break false dependencies and additionnaly make assembly easier to read.
@@ -1832,7 +1862,7 @@ static SDValue CompactSwizzlableVector(
       }
     }
 
-    if (NewBldVec[i].getOpcode() == ISD::UNDEF)
+    if (NewBldVec[i].isUndef())
       continue;
     for (unsigned j = 0; j < i; j++) {
       if (NewBldVec[i] == NewBldVec[j]) {
@@ -1971,7 +2001,7 @@ SDValue R600TargetLowering::PerformDAGCombine(SDNode *N,
     SDLoc dl(N);
 
     // If the inserted element is an UNDEF, just use the input vector.
-    if (InVal.getOpcode() == ISD::UNDEF)
+    if (InVal.isUndef())
       return InVec;
 
     EVT VT = InVec.getValueType();
@@ -1992,7 +2022,7 @@ SDValue R600TargetLowering::PerformDAGCombine(SDNode *N,
     if (InVec.getOpcode() == ISD::BUILD_VECTOR) {
       Ops.append(InVec.getNode()->op_begin(),
                  InVec.getNode()->op_end());
-    } else if (InVec.getOpcode() == ISD::UNDEF) {
+    } else if (InVec.isUndef()) {
       unsigned NElts = VT.getVectorNumElements();
       Ops.append(NElts, DAG.getUNDEF(InVal.getValueType()));
     } else {

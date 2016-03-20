@@ -162,7 +162,7 @@ public:
     Ctx = &Context;
     VMContext.reset(new llvm::LLVMContext());
     M.reset(new llvm::Module(MainFileName, *VMContext));
-    M->setDataLayout(Ctx->getTargetInfo().getDataLayoutString());
+    M->setDataLayout(Ctx->getTargetInfo().getDataLayout());
     Builder.reset(new CodeGen::CodeGenModule(
         *Ctx, HeaderSearchOpts, PreprocessorOpts, CodeGenOpts, *M, Diags));
 
@@ -201,6 +201,15 @@ public:
     if (D->getName().empty())
       return;
 
+    // Defer tag decls until their declcontext is complete.
+    auto *DeclCtx = D->getDeclContext();
+    while (DeclCtx) {
+      if (auto *D = dyn_cast<TagDecl>(DeclCtx))
+        if (!D->isCompleteDefinition())
+          return;
+      DeclCtx = DeclCtx->getParent();
+    }
+
     DebugTypeVisitor DTV(*Builder->getModuleDebugInfo(), *Ctx);
     DTV.TraverseDecl(D);
     Builder->UpdateCompletedType(D);
@@ -226,7 +235,7 @@ public:
       return;
 
     M->setTargetTriple(Ctx.getTargetInfo().getTriple().getTriple());
-    M->setDataLayout(Ctx.getTargetInfo().getDataLayoutString());
+    M->setDataLayout(Ctx.getTargetInfo().getDataLayout());
 
     // PCH files don't have a signature field in the control block,
     // but LLVM detects DWO CUs by looking for a non-zero DWO id.
@@ -272,15 +281,15 @@ public:
       llvm::SmallString<0> Buffer;
       llvm::raw_svector_ostream OS(Buffer);
       clang::EmitBackendOutput(Diags, CodeGenOpts, TargetOpts, LangOpts,
-                               Ctx.getTargetInfo().getDataLayoutString(),
-                               M.get(), BackendAction::Backend_EmitLL, &OS);
+                               Ctx.getTargetInfo().getDataLayout(), M.get(),
+                               BackendAction::Backend_EmitLL, &OS);
       llvm::dbgs() << Buffer;
     });
 
     // Use the LLVM backend to emit the pch container.
     clang::EmitBackendOutput(Diags, CodeGenOpts, TargetOpts, LangOpts,
-                             Ctx.getTargetInfo().getDataLayoutString(),
-                             M.get(), BackendAction::Backend_EmitObj, OS);
+                             Ctx.getTargetInfo().getDataLayout(), M.get(),
+                             BackendAction::Backend_EmitObj, OS);
 
     // Make sure the pch container hits disk.
     OS->flush();

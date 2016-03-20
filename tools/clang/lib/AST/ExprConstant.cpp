@@ -3647,7 +3647,10 @@ static EvalStmtResult EvaluateStmt(StmtResult &Result, EvalInfo &Info,
       return ESR;
 
     // Create the __begin and __end iterators.
-    ESR = EvaluateStmt(Result, Info, FS->getBeginEndStmt());
+    ESR = EvaluateStmt(Result, Info, FS->getBeginStmt());
+    if (ESR != ESR_Succeeded)
+      return ESR;
+    ESR = EvaluateStmt(Result, Info, FS->getEndStmt());
     if (ESR != ESR_Succeeded)
       return ESR;
 
@@ -5428,12 +5431,33 @@ bool RecordExprEvaluator::VisitInitListExpr(const InitListExpr *E) {
     return EvaluateInPlace(Result.getUnionValue(), Info, Subobject, InitExpr);
   }
 
-  assert((!isa<CXXRecordDecl>(RD) || !cast<CXXRecordDecl>(RD)->getNumBases()) &&
-         "initializer list for class with base classes");
-  Result = APValue(APValue::UninitStruct(), 0,
+  auto *CXXRD = dyn_cast<CXXRecordDecl>(RD);
+  Result = APValue(APValue::UninitStruct(), CXXRD ? CXXRD->getNumBases() : 0,
                    std::distance(RD->field_begin(), RD->field_end()));
   unsigned ElementNo = 0;
   bool Success = true;
+
+  // Initialize base classes.
+  if (CXXRD) {
+    for (const auto &Base : CXXRD->bases()) {
+      assert(ElementNo < E->getNumInits() && "missing init for base class");
+      const Expr *Init = E->getInit(ElementNo);
+
+      LValue Subobject = This;
+      if (!HandleLValueBase(Info, Init, Subobject, CXXRD, &Base))
+        return false;
+
+      APValue &FieldVal = Result.getStructBase(ElementNo);
+      if (!EvaluateInPlace(FieldVal, Info, Subobject, Init)) {
+        if (!Info.keepEvaluatingAfterFailure())
+          return false;
+        Success = false;
+      }
+      ++ElementNo;
+    }
+  }
+
+  // Initialize members.
   for (const auto *Field : RD->fields()) {
     // Anonymous bit-fields are not considered members of the class for
     // purposes of aggregate initialization.
@@ -8620,12 +8644,14 @@ bool ComplexExprEvaluator::VisitBinaryOperator(const BinaryOperator *E) {
         APFloat MaxCD = maxnum(abs(C), abs(D));
         if (MaxCD.isFinite()) {
           DenomLogB = ilogb(MaxCD);
-          C = scalbn(C, -DenomLogB);
-          D = scalbn(D, -DenomLogB);
+          C = scalbn(C, -DenomLogB, APFloat::rmNearestTiesToEven);
+          D = scalbn(D, -DenomLogB, APFloat::rmNearestTiesToEven);
         }
         APFloat Denom = C * C + D * D;
-        ResR = scalbn((A * C + B * D) / Denom, -DenomLogB);
-        ResI = scalbn((B * C - A * D) / Denom, -DenomLogB);
+        ResR = scalbn((A * C + B * D) / Denom, -DenomLogB,
+                      APFloat::rmNearestTiesToEven);
+        ResI = scalbn((B * C - A * D) / Denom, -DenomLogB,
+                      APFloat::rmNearestTiesToEven);
         if (ResR.isNaN() && ResI.isNaN()) {
           if (Denom.isPosZero() && (!A.isNaN() || !B.isNaN())) {
             ResR = APFloat::getInf(ResR.getSemantics(), C.isNegative()) * A;

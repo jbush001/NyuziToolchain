@@ -39,7 +39,6 @@
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/None.h"
 #include "llvm/ADT/Optional.h"
-#include "llvm/Analysis/TargetLibraryInfo.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/InstVisitor.h"
@@ -59,7 +58,7 @@ using namespace llvm;
 
 #define DEBUG_TYPE "cfl-aa"
 
-CFLAAResult::CFLAAResult(const TargetLibraryInfo &TLI) : AAResultBase(TLI) {}
+CFLAAResult::CFLAAResult() : AAResultBase() {}
 CFLAAResult::CFLAAResult(CFLAAResult &&Arg) : AAResultBase(std::move(Arg)) {}
 CFLAAResult::~CFLAAResult() {}
 
@@ -1089,16 +1088,15 @@ AliasResult CFLAAResult::query(const MemoryLocation &LocA,
   return NoAlias;
 }
 
-CFLAAResult CFLAA::run(Function &F, AnalysisManager<Function> *AM) {
-  return CFLAAResult(AM->getResult<TargetLibraryAnalysis>(F));
+char CFLAA::PassID;
+
+CFLAAResult CFLAA::run(Function &F, AnalysisManager<Function> &AM) {
+  return CFLAAResult();
 }
 
 char CFLAAWrapperPass::ID = 0;
-INITIALIZE_PASS_BEGIN(CFLAAWrapperPass, "cfl-aa", "CFL-Based Alias Analysis",
-                      false, true)
-INITIALIZE_PASS_DEPENDENCY(TargetLibraryInfoWrapperPass)
-INITIALIZE_PASS_END(CFLAAWrapperPass, "cfl-aa", "CFL-Based Alias Analysis",
-                    false, true)
+INITIALIZE_PASS(CFLAAWrapperPass, "cfl-aa", "CFL-Based Alias Analysis", false,
+                true)
 
 ImmutablePass *llvm::createCFLAAWrapperPass() { return new CFLAAWrapperPass(); }
 
@@ -1107,8 +1105,7 @@ CFLAAWrapperPass::CFLAAWrapperPass() : ImmutablePass(ID) {
 }
 
 bool CFLAAWrapperPass::doInitialization(Module &M) {
-  Result.reset(
-      new CFLAAResult(getAnalysis<TargetLibraryInfoWrapperPass>().getTLI()));
+  Result.reset(new CFLAAResult());
   return false;
 }
 
@@ -1119,5 +1116,4 @@ bool CFLAAWrapperPass::doFinalization(Module &M) {
 
 void CFLAAWrapperPass::getAnalysisUsage(AnalysisUsage &AU) const {
   AU.setPreservesAll();
-  AU.addRequired<TargetLibraryInfoWrapperPass>();
 }

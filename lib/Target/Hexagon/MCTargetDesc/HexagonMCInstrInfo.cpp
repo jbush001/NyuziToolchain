@@ -160,8 +160,8 @@ MCInst const *HexagonMCInstrInfo::extenderForIndex(MCInst const &MCB,
 
 void HexagonMCInstrInfo::extendIfNeeded(MCContext &Context,
                                         MCInstrInfo const &MCII, MCInst &MCB,
-                                        MCInst const &MCI, bool MustExtend) {
-  if (isConstExtended(MCII, MCI) || MustExtend)
+                                        MCInst const &MCI) {
+  if (isConstExtended(MCII, MCI))
     addConstExtender(Context, MCII, MCB, MCI);
 }
 
@@ -408,6 +408,12 @@ bool HexagonMCInstrInfo::isConstExtended(MCInstrInfo const &MCII,
                                          MCInst const &MCI) {
   if (HexagonMCInstrInfo::isExtended(MCII, MCI))
     return true;
+  if (!HexagonMCInstrInfo::isExtendable(MCII, MCI))
+    return false;
+  MCOperand const &MO = HexagonMCInstrInfo::getExtendableOperand(MCII, MCI);
+  if (isa<HexagonMCExpr>(MO.getExpr()) &&
+      HexagonMCInstrInfo::mustExtend(*MO.getExpr()))
+    return true;
   // Branch insns are handled as necessary by relaxation.
   if ((HexagonMCInstrInfo::getType(MCII, MCI) == HexagonII::TypeJ) ||
       (HexagonMCInstrInfo::getType(MCII, MCI) == HexagonII::TypeCOMPOUND &&
@@ -419,17 +425,7 @@ bool HexagonMCInstrInfo::isConstExtended(MCInstrInfo const &MCII,
   else if ((HexagonMCInstrInfo::getType(MCII, MCI) == HexagonII::TypeCR) &&
            (MCI.getOpcode() != Hexagon::C4_addipc))
     return false;
-  else if (!HexagonMCInstrInfo::isExtendable(MCII, MCI))
-    return false;
 
-  MCOperand const &MO = HexagonMCInstrInfo::getExtendableOperand(MCII, MCI);
-
-  // We could be using an instruction with an extendable immediate and shoehorn
-  // a global address into it. If it is a global address it will be constant
-  // extended. We do this for COMBINE.
-  // We currently only handle isGlobal() because it is the only kind of
-  // object we are going to end up with here for now.
-  // In the future we probably should add isSymbol(), etc.
   assert(!MO.isImm());
   if (isa<HexagonMCExpr>(MO.getExpr()) &&
       HexagonMCInstrInfo::mustNotExtend(*MO.getExpr()))
@@ -584,9 +580,9 @@ int64_t HexagonMCInstrInfo::minConstant(MCInst const &MCI, size_t Index) {
     return Sentinal;
   return Value;
 }
- 
-void HexagonMCInstrInfo::setMustExtend(MCExpr &Expr, bool Val) {
-  HexagonMCExpr &HExpr = cast<HexagonMCExpr>(Expr);
+
+void HexagonMCInstrInfo::setMustExtend(MCExpr const &Expr, bool Val) {
+  HexagonMCExpr &HExpr = const_cast<HexagonMCExpr &>(cast<HexagonMCExpr>(Expr));
   HExpr.setMustExtend(Val);
 }
 

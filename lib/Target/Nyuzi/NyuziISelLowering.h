@@ -67,6 +67,7 @@ public:
   unsigned getJumpTableEncoding() const override;
   bool isShuffleMaskLegal(const SmallVectorImpl<int> &M, EVT VT) const override;
   bool isIntDivCheap(EVT VT, AttributeSet Attr) const override;
+  bool shouldInsertFencesForAtomic(const Instruction *I) const override;
 
 private:
   MachineBasicBlock *EmitSelectCC(MachineInstr *MI,

@@ -1,4 +1,4 @@
-//===-- RegisterValue.cpp ----------------------------------------*- C++ -*-===//
+//===-- RegisterValue.cpp ---------------------------------------*- C++ -*-===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -11,7 +11,11 @@
 
 // C Includes
 // C++ Includes
+#include <vector>
+
 // Other libraries and framework includes
+#include "llvm/ADT/StringRef.h"
+
 // Project includes
 #include "lldb/Core/DataExtractor.h"
 #include "lldb/Core/Error.h"
@@ -23,7 +27,6 @@
 
 using namespace lldb;
 using namespace lldb_private;
-
 
 bool
 RegisterValue::Dump (Stream *s, 
@@ -98,13 +101,11 @@ RegisterValue::Dump (Stream *s,
     return false;
 }
 
-
 bool
 RegisterValue::GetData (DataExtractor &data) const
 {
     return data.SetData(GetBytes(), GetByteSize(), GetByteOrder()) > 0;
 }
-
 
 uint32_t
 RegisterValue::GetAsMemoryData (const RegisterInfo *reg_info,
@@ -113,7 +114,7 @@ RegisterValue::GetAsMemoryData (const RegisterInfo *reg_info,
                                 lldb::ByteOrder dst_byte_order,
                                 Error &error) const
 {    
-    if (reg_info == NULL)
+    if (reg_info == nullptr)
     {
         error.SetErrorString ("invalid register info argument.");
         return 0;
@@ -163,7 +164,7 @@ RegisterValue::SetFromMemoryData (const RegisterInfo *reg_info,
                                   lldb::ByteOrder src_byte_order,
                                   Error &error)
 {
-    if (reg_info == NULL)
+    if (reg_info == nullptr)
     {
         error.SetErrorString ("invalid register info argument.");
         return 0;
@@ -247,6 +248,16 @@ RegisterValue::GetScalarValue (Scalar &scalar) const
                 case 2:     scalar = *(const uint16_t *)buffer.bytes; return true;
                 case 4:     scalar = *(const uint32_t *)buffer.bytes; return true;
                 case 8:     scalar = *(const uint64_t *)buffer.bytes; return true;
+                case 16:
+                case 32:
+                            if (buffer.length % sizeof(uint64_t) == 0)
+                            {
+                                const auto length_in_bits = buffer.length * 8;
+                                const auto length_in_uint64 = buffer.length / sizeof(uint64_t);
+                                scalar = llvm::APInt(length_in_bits, llvm::ArrayRef<uint64_t>((const uint64_t *)buffer.bytes, length_in_uint64));
+                                return true;
+                            }
+                            break;
                 }
             }
             break;
@@ -374,6 +385,7 @@ RegisterValue::SetValueFromData (const RegisterInfo *reg_info, DataExtractor &sr
         case eTypeLongDouble:   SetFloat (src.GetLongDouble (&src_offset)); break;
         case eTypeBytes:
         {
+            m_type = eTypeBytes;
             buffer.length = reg_info->byte_size;
             buffer.byte_order = src.GetByteOrder();
             assert (buffer.length <= kMaxRegisterByteSize);
@@ -394,8 +406,6 @@ RegisterValue::SetValueFromData (const RegisterInfo *reg_info, DataExtractor &sr
     return error;
 }
 
-#include "llvm/ADT/StringRef.h"
-#include <vector>
 static inline void StripSpaces(llvm::StringRef &Str)
 {
     while (!Str.empty() && isspace(Str[0]))
@@ -403,16 +413,19 @@ static inline void StripSpaces(llvm::StringRef &Str)
     while (!Str.empty() && isspace(Str.back()))
         Str = Str.substr(0, Str.size()-1);
 }
+
 static inline void LStrip(llvm::StringRef &Str, char c)
 {
     if (!Str.empty() && Str.front() == c)
         Str = Str.substr(1);
 }
+
 static inline void RStrip(llvm::StringRef &Str, char c)
 {
     if (!Str.empty() && Str.back() == c)
         Str = Str.substr(0, Str.size()-1);
 }
+
 // Helper function for RegisterValue::SetValueFromCString()
 static bool
 ParseVectorEncoding(const RegisterInfo *reg_info, const char *vector_str, const uint32_t byte_size, RegisterValue *reg_value)
@@ -446,17 +459,18 @@ ParseVectorEncoding(const RegisterInfo *reg_info, const char *vector_str, const 
     reg_value->SetBytes(&(bytes.front()), byte_size, eByteOrderLittle);
     return true;
 }
+
 Error
 RegisterValue::SetValueFromCString (const RegisterInfo *reg_info, const char *value_str)
 {
     Error error;
-    if (reg_info == NULL)
+    if (reg_info == nullptr)
     {
         error.SetErrorString ("Invalid register info argument.");
         return error;
     }
 
-    if (value_str == NULL || value_str[0] == '\0')
+    if (value_str == nullptr || value_str[0] == '\0')
     {
         error.SetErrorString ("Invalid c-string value string.");
         return error;
@@ -562,7 +576,6 @@ RegisterValue::SetValueFromCString (const RegisterInfo *reg_info, const char *va
     
     return error;
 }
-
 
 bool
 RegisterValue::SignExtend (uint32_t sign_bitpos)
@@ -731,9 +744,7 @@ RegisterValue::GetAsUInt128 (const llvm::APInt& fail_value, bool *success_ptr) c
                 case 4:
                 case 8:
                 case 16:
-                {
                     return llvm::APInt(BITWIDTH_INT128, NUM_OF_WORDS_INT128, ((const type128 *)buffer.bytes)->x);
-                }
             }
         }
         break;
@@ -826,7 +837,7 @@ RegisterValue::GetBytes () const
         case eTypeLongDouble:   return m_scalar.GetBytes();
         case eTypeBytes:        return buffer.bytes;
     }
-    return NULL;
+    return nullptr;
 }
 
 void *
@@ -845,7 +856,7 @@ RegisterValue::GetBytes ()
         case eTypeLongDouble:   return m_scalar.GetBytes();
         case eTypeBytes:        return buffer.bytes;
     }
-    return NULL;
+    return nullptr;
 }
 
 uint32_t
@@ -866,7 +877,6 @@ RegisterValue::GetByteSize () const
     }
     return 0;
 }
-
 
 bool
 RegisterValue::SetUInt (uint64_t uint, uint32_t byte_size)
@@ -921,7 +931,6 @@ RegisterValue::SetBytes (const void *bytes, size_t length, lldb::ByteOrder byte_
         buffer.length = 0;
     }
 }
-
 
 bool
 RegisterValue::operator == (const RegisterValue &rhs) const
@@ -1033,7 +1042,6 @@ RegisterValue::ClearBit (uint32_t bit)
     return false;
 }
 
-
 bool
 RegisterValue::SetBit (uint32_t bit)
 {
@@ -1078,4 +1086,3 @@ RegisterValue::SetBit (uint32_t bit)
     }
     return false;
 }
-

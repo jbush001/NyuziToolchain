@@ -19,6 +19,7 @@
 #include <signal.h>
 #include <sstream>
 #include <unistd.h>
+#include <errno.h>
 
 namespace fuzzer {
 
@@ -71,21 +72,46 @@ static void AlarmHandler(int, siginfo_t *, void *) {
   Fuzzer::StaticAlarmCallback();
 }
 
-void SetTimer(int Seconds) {
-  struct itimerval T {{Seconds, 0}, {Seconds, 0}};
-  int Res = setitimer(ITIMER_REAL, &T, nullptr);
-  assert(Res == 0);
+static void CrashHandler(int, siginfo_t *, void *) {
+  Fuzzer::StaticCrashSignalCallback();
+}
+
+static void InterruptHandler(int, siginfo_t *, void *) {
+  Fuzzer::StaticInterruptCallback();
+}
+
+static void SetSigaction(int signum,
+                         void (*callback)(int, siginfo_t *, void *)) {
   struct sigaction sigact;
   memset(&sigact, 0, sizeof(sigact));
-  sigact.sa_sigaction = AlarmHandler;
-  Res = sigaction(SIGALRM, &sigact, 0);
-  assert(Res == 0);
+  sigact.sa_sigaction = callback;
+  if (sigaction(signum, &sigact, 0)) {
+    Printf("libFuzzer: sigaction failed with %d\n", errno);
+    exit(1);
+  }
 }
+
+void SetTimer(int Seconds) {
+  struct itimerval T {{Seconds, 0}, {Seconds, 0}};
+  if (setitimer(ITIMER_REAL, &T, nullptr)) {
+    Printf("libFuzzer: setitimer failed with %d\n", errno);
+    exit(1);
+  }
+  SetSigaction(SIGALRM, AlarmHandler);
+}
+
+void SetSigSegvHandler() { SetSigaction(SIGSEGV, CrashHandler); }
+void SetSigBusHandler() { SetSigaction(SIGBUS, CrashHandler); }
+void SetSigAbrtHandler() { SetSigaction(SIGABRT, CrashHandler); }
+void SetSigIllHandler() { SetSigaction(SIGILL, CrashHandler); }
+void SetSigFpeHandler() { SetSigaction(SIGFPE, CrashHandler); }
+void SetSigIntHandler() { SetSigaction(SIGINT, InterruptHandler); }
 
 int NumberOfCpuCores() {
   FILE *F = popen("nproc", "r");
   int N = 0;
-  fscanf(F, "%d", &N);
+  if (fscanf(F, "%d", &N) != 1)
+    N = 1;
   fclose(F);
   return N;
 }

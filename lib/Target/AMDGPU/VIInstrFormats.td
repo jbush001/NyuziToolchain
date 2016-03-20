@@ -91,17 +91,25 @@ class MTBUFe_vi <bits<4> op> : Enc64 {
 
 class SMEMe_vi <bits<8> op, bit imm> : Enc64 {
   bits<7>  sbase;
-  bits<7>  sdata;
+  bits<7>  sdst;
   bits<1>  glc;
-  bits<20> offset;
 
   let Inst{5-0}   = sbase{6-1};
-  let Inst{12-6}  = sdata;
+  let Inst{12-6}  = sdst;
   let Inst{16}    = glc;
   let Inst{17}    = imm;
   let Inst{25-18} = op;
   let Inst{31-26} = 0x30; //encoding
+}
+
+class SMEM_IMMe_vi <bits<8> op> : SMEMe_vi<op, 1> {
+  bits<20> offset;
   let Inst{51-32} = offset;
+}
+
+class SMEM_SOFFe_vi <bits<8> op> : SMEMe_vi<op, 0> {
+  bits<20> soff;
+  let Inst{51-32} = soff;
 }
 
 class VOP3a_vi <bits<10> op> : Enc64 {
@@ -169,9 +177,12 @@ class VOP3be_vi <bits<10> op> : Enc64 {
   let Inst{63} = src2_modifiers{0};
 }
 
-class VOP_DPP <dag outs, dag ins, string asm, list<dag> pattern> :
+class VOP_DPP <dag outs, dag ins, string asm, list<dag> pattern, bit HasMods = 0> :
     VOPAnyCommon <outs, ins, asm, pattern> {
+  let DPP = 1;
   let Size = 8;
+
+  let AsmMatchConverter = !if(!eq(HasMods,1), "cvtDPP_mod", "cvtDPP_nomod");
 }
 
 class VOP_DPPe : Enc64 {
@@ -203,7 +214,7 @@ class VOP1_DPPe <bits<8> op> : VOP_DPPe {
   let Inst{31-25} = 0x3f; //encoding
 }
 
-class VOP2_DPPe <bits<6> op> : Enc32 {
+class VOP2_DPPe <bits<6> op> : VOP_DPPe {
   bits<8> vdst;
   bits<8> src1;
 

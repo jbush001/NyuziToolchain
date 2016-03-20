@@ -479,8 +479,6 @@ NyuziTargetLowering::NyuziTargetLowering(const TargetMachine &TM,
   setCondCodeAction(ISD::SETULT, MVT::v16f32, Custom);
   setCondCodeAction(ISD::SETULE, MVT::v16f32, Custom);
 
-  setInsertFencesForAtomic(true);
-
   setOperationAction(ISD::FCOPYSIGN, MVT::f32, Expand);
   setOperationAction(ISD::FFLOOR, MVT::f32, Expand);
   setOperationAction(ISD::FFLOOR, MVT::v16f32, Expand);
@@ -1477,3 +1475,8 @@ bool NyuziTargetLowering::isOffsetFoldingLegal(
 bool NyuziTargetLowering::isIntDivCheap(EVT, AttributeSet) const {
   return false;
 }
+
+bool NyuziTargetLowering::shouldInsertFencesForAtomic(const Instruction *I) const {
+  return true;
+}
+

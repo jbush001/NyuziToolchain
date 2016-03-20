@@ -165,3 +165,36 @@ class HelpCommandTestCase(TestBase):
             substrs = ['The following subcommands are supported:'],
             patterns = ['expression +--',
                         'variable +--'])
+
+    @no_debug_info_test
+    def test_help_po_hides_options(self):
+        """Test that 'help po' does not show all the options for expression"""
+        self.expect("help po",
+            substrs = ['--show-all-children', '--object-description'], matching=False)
+
+    @no_debug_info_test
+    def test_help_run_hides_options(self):
+        """Test that 'help run' does not show all the options for process launch"""
+        self.expect("help run",
+            substrs = ['--arch', '--environment'], matching=False)
+
+    @no_debug_info_test
+    def test_help_next_shows_options(self):
+        """Test that 'help next' shows all the options for thread step-over"""
+        self.expect("help next",
+            substrs = ['--python-class','--run-mode'], matching=True)
+
+    @no_debug_info_test
+    def test_help_provides_alternatives(self):
+        """Test that help on commands that don't exist provides information on additional help avenues"""
+        self.expect("help thisisnotadebuggercommand",
+            substrs = ["'thisisnotadebuggercommand' is not a known command.",
+            "Try 'help' to see a current list of commands.",
+            "Try 'apropos thisisnotadebuggercommand' for a list of related commands.",
+            "Try 'type lookup thisisnotadebuggercommand' for information on types, methods, functions, modules, etc."], error=True)
+
+        self.expect("help process thisisnotadebuggercommand",
+            substrs = ["'process thisisnotadebuggercommand' is not a known command.",
+            "Try 'help' to see a current list of commands.",
+            "Try 'apropos thisisnotadebuggercommand' for a list of related commands.",
+            "Try 'type lookup thisisnotadebuggercommand' for information on types, methods, functions, modules, etc."])

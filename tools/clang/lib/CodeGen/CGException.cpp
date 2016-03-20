@@ -686,8 +686,10 @@ llvm::BasicBlock *CodeGenFunction::getInvokeDestImpl() {
   assert(EHStack.requiresLandingPad());
   assert(!EHStack.empty());
 
-  // If exceptions are disabled, there are usually no landingpads. However, when
-  // SEH is enabled, functions using SEH still get landingpads.
+  // If exceptions are disabled and SEH is not in use, then there is no invoke
+  // destination. SEH "works" even if exceptions are off. In practice, this
+  // means that C++ destructors and other EH cleanups don't run, which is
+  // consistent with MSVC's behavior.
   const LangOptions &LO = CGM.getLangOpts();
   if (!LO.Exceptions) {
     if (!LO.Borland && !LO.MicrosoftExt)
@@ -1424,12 +1426,8 @@ struct PerformSEHFinally final : EHScopeStack::Cleanup {
     Args.add(RValue::get(FP), ArgTys[1]);
 
     // Arrange a two-arg function info and type.
-    FunctionProtoType::ExtProtoInfo EPI;
-    const auto *FPT = cast<FunctionProtoType>(
-        Context.getFunctionType(Context.VoidTy, ArgTys, EPI));
     const CGFunctionInfo &FnInfo =
-        CGM.getTypes().arrangeFreeFunctionCall(Args, FPT,
-                                               /*chainCall=*/false);
+        CGM.getTypes().arrangeBuiltinFunctionCall(Context.VoidTy, Args);
 
     CGF.EmitCall(FnInfo, OutlinedFinally, ReturnValueSlot(), Args);
   }
@@ -1625,14 +1623,13 @@ void CodeGenFunction::startOutlinedSEHHelper(CodeGenFunction &ParentCGF,
   SmallString<128> Name;
   {
     llvm::raw_svector_ostream OS(Name);
-    const Decl *ParentCodeDecl = ParentCGF.CurCodeDecl;
-    const NamedDecl *Parent = dyn_cast_or_null<NamedDecl>(ParentCodeDecl);
-    assert(Parent && "FIXME: handle unnamed decls (lambdas, blocks) with SEH");
+    const FunctionDecl *ParentSEHFn = ParentCGF.CurSEHParent;
+    assert(ParentSEHFn && "No CurSEHParent!");
     MangleContext &Mangler = CGM.getCXXABI().getMangleContext();
     if (IsFilter)
-      Mangler.mangleSEHFilterExpression(Parent, OS);
+      Mangler.mangleSEHFilterExpression(ParentSEHFn, OS);
     else
-      Mangler.mangleSEHFinallyBlock(Parent, OS);
+      Mangler.mangleSEHFinallyBlock(ParentSEHFn, OS);
   }
 
   FunctionArgList Args;
@@ -1658,8 +1655,8 @@ void CodeGenFunction::startOutlinedSEHHelper(CodeGenFunction &ParentCGF,
   QualType RetTy = IsFilter ? getContext().LongTy : getContext().VoidTy;
 
   llvm::Function *ParentFn = ParentCGF.CurFn;
-  const CGFunctionInfo &FnInfo = CGM.getTypes().arrangeFreeFunctionDeclaration(
-      RetTy, Args, FunctionType::ExtInfo(), /*isVariadic=*/false);
+  const CGFunctionInfo &FnInfo =
+    CGM.getTypes().arrangeBuiltinFunctionDeclaration(RetTy, Args);
 
   llvm::FunctionType *FnTy = CGM.getTypes().GetFunctionType(FnInfo);
   llvm::Function *Fn = llvm::Function::Create(
@@ -1679,6 +1676,7 @@ void CodeGenFunction::startOutlinedSEHHelper(CodeGenFunction &ParentCGF,
 
   StartFunction(GlobalDecl(), RetTy, Fn, FnInfo, Args,
                 OutlinedStmt->getLocStart(), OutlinedStmt->getLocStart());
+  CurSEHParent = ParentCGF.CurSEHParent;
 
   CGM.SetLLVMFunctionAttributes(nullptr, FnInfo, CurFn);
   EmitCapturedLocals(ParentCGF, OutlinedStmt, IsFilter);
@@ -1709,12 +1707,6 @@ CodeGenFunction::GenerateSEHFinallyFunction(CodeGenFunction &ParentCGF,
                                             const SEHFinallyStmt &Finally) {
   const Stmt *FinallyBlock = Finally.getBlock();
   startOutlinedSEHHelper(ParentCGF, false, FinallyBlock);
-
-  // Mark finally block calls as nounwind and noinline to make LLVM's job a
-  // little easier.
-  // FIXME: Remove these restrictions in the future.
-  CurFn->addFnAttr(llvm::Attribute::NoUnwind);
-  CurFn->addFnAttr(llvm::Attribute::NoInline);
 
   // Emit the original filter expression, convert to i32, and return.
   EmitStmt(FinallyBlock);

@@ -195,6 +195,8 @@ static SDValue getCopyFromParts(SelectionDAG &DAG, SDLoc DL,
   }
 
   // There is now one part, held in Val.  Correct it to match ValueVT.
+  // PartEVT is the type of the register class that holds the value.
+  // ValueVT is the type of the inline asm operation.
   EVT PartEVT = Val.getValueType();
 
   if (PartEVT == ValueVT)
@@ -208,6 +210,11 @@ static SDValue getCopyFromParts(SelectionDAG &DAG, SDLoc DL,
     Val = DAG.getNode(ISD::TRUNCATE, DL, PartEVT, Val);
   }
 
+  // Handle types that have the same size.
+  if (PartEVT.getSizeInBits() == ValueVT.getSizeInBits())
+    return DAG.getNode(ISD::BITCAST, DL, ValueVT, Val);
+
+  // Handle types with different sizes.
   if (PartEVT.isInteger() && ValueVT.isInteger()) {
     if (ValueVT.bitsLT(PartEVT)) {
       // For a truncate, see if we have any information to
@@ -230,9 +237,6 @@ static SDValue getCopyFromParts(SelectionDAG &DAG, SDLoc DL,
 
     return DAG.getNode(ISD::FP_EXTEND, DL, ValueVT, Val);
   }
-
-  if (PartEVT.getSizeInBits() == ValueVT.getSizeInBits())
-    return DAG.getNode(ISD::BITCAST, DL, ValueVT, Val);
 
   llvm_unreachable("Unknown mismatch!");
 }
@@ -2897,8 +2901,8 @@ void SelectionDAGBuilder::visitShuffleVector(const User &I) {
 
     // Pad both vectors with undefs to make them the same length as the mask.
     unsigned NumConcat = MaskNumElts / SrcNumElts;
-    bool Src1U = Src1.getOpcode() == ISD::UNDEF;
-    bool Src2U = Src2.getOpcode() == ISD::UNDEF;
+    bool Src1U = Src1.isUndef();
+    bool Src2U = Src2.isUndef();
     SDValue UndefVal = DAG.getUNDEF(SrcVT);
 
     SmallVector<SDValue, 8> MOps1(NumConcat, UndefVal);
@@ -5360,7 +5364,7 @@ SelectionDAGBuilder::visitIntrinsicCall(const CallInst &I, unsigned Intrinsic) {
     return nullptr;
   }
   case Intrinsic::experimental_gc_statepoint: {
-    visitStatepoint(I);
+    LowerStatepoint(ImmutableStatepoint(&I));
     return nullptr;
   }
   case Intrinsic::experimental_gc_result: {
@@ -5552,9 +5556,11 @@ void SelectionDAGBuilder::LowerCallTo(ImmutableCallSite CS, SDValue Callee,
     isTailCall = false;
 
   TargetLowering::CallLoweringInfo CLI(DAG);
-  CLI.setDebugLoc(getCurSDLoc()).setChain(getRoot())
-    .setCallee(RetTy, FTy, Callee, std::move(Args), CS)
-    .setTailCall(isTailCall);
+  CLI.setDebugLoc(getCurSDLoc())
+      .setChain(getRoot())
+      .setCallee(RetTy, FTy, Callee, std::move(Args), CS)
+      .setTailCall(isTailCall)
+      .setConvergent(CS.isConvergent());
   std::pair<SDValue, SDValue> Result = lowerInvokable(CLI, EHPadBB);
 
   if (Result.first.getNode()) {
@@ -6890,16 +6896,16 @@ SDValue SelectionDAGBuilder::lowerRangeToAssertZExt(SelectionDAG &DAG,
   return DAG.getMergeValues(Ops, SL);
 }
 
-/// \brief Lower an argument list according to the target calling convention.
-///
-/// \return A tuple of <return-value, token-chain>
+/// \brief Populate a CallLowerinInfo (into \p CLI) based on the properties of
+/// the call being lowered.
 ///
 /// This is a helper for lowering intrinsics that follow a target calling
 /// convention or require stack pointer adjustment. Only a subset of the
 /// intrinsic's operands need to participate in the calling convention.
-std::pair<SDValue, SDValue> SelectionDAGBuilder::lowerCallOperands(
-    ImmutableCallSite CS, unsigned ArgIdx, unsigned NumArgs, SDValue Callee,
-    Type *ReturnTy, const BasicBlock *EHPadBB, bool IsPatchPoint) {
+void SelectionDAGBuilder::populateCallLoweringInfo(
+    TargetLowering::CallLoweringInfo &CLI, ImmutableCallSite CS,
+    unsigned ArgIdx, unsigned NumArgs, SDValue Callee, Type *ReturnTy,
+    bool IsPatchPoint) {
   TargetLowering::ArgListTy Args;
   Args.reserve(NumArgs);
 
@@ -6918,12 +6924,12 @@ std::pair<SDValue, SDValue> SelectionDAGBuilder::lowerCallOperands(
     Args.push_back(Entry);
   }
 
-  TargetLowering::CallLoweringInfo CLI(DAG);
-  CLI.setDebugLoc(getCurSDLoc()).setChain(getRoot())
-    .setCallee(CS.getCallingConv(), ReturnTy, Callee, std::move(Args), NumArgs)
-    .setDiscardResult(CS->use_empty()).setIsPatchPoint(IsPatchPoint);
-
-  return lowerInvokable(CLI, EHPadBB);
+  CLI.setDebugLoc(getCurSDLoc())
+      .setChain(getRoot())
+      .setCallee(CS.getCallingConv(), ReturnTy, Callee, std::move(Args),
+                 NumArgs)
+      .setDiscardResult(CS->use_empty())
+      .setIsPatchPoint(IsPatchPoint);
 }
 
 /// \brief Add a stack map intrinsic call's live variable operands to a stackmap
@@ -7064,8 +7070,11 @@ void SelectionDAGBuilder::visitPatchpoint(ImmutableCallSite CS,
   unsigned NumCallArgs = IsAnyRegCC ? 0 : NumArgs;
   Type *ReturnTy =
     IsAnyRegCC ? Type::getVoidTy(*DAG.getContext()) : CS->getType();
-  std::pair<SDValue, SDValue> Result = lowerCallOperands(
-      CS, NumMetaOpers, NumCallArgs, Callee, ReturnTy, EHPadBB, true);
+
+  TargetLowering::CallLoweringInfo CLI(DAG);
+  populateCallLoweringInfo(CLI, CS, NumMetaOpers, NumCallArgs, Callee, ReturnTy,
+                           true);
+  std::pair<SDValue, SDValue> Result = lowerInvokable(CLI, EHPadBB);
 
   SDNode *CallEnd = Result.second.getNode();
   if (HasDef && (CallEnd->getOpcode() == ISD::CopyFromReg))

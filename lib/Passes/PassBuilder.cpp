@@ -16,15 +16,19 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/Passes/PassBuilder.h"
+#include "llvm/ADT/StringSwitch.h"
 #include "llvm/Analysis/AliasAnalysis.h"
 #include "llvm/Analysis/AliasAnalysisEvaluator.h"
 #include "llvm/Analysis/AssumptionCache.h"
 #include "llvm/Analysis/BasicAliasAnalysis.h"
 #include "llvm/Analysis/CFLAliasAnalysis.h"
 #include "llvm/Analysis/CGSCCPassManager.h"
+#include "llvm/Analysis/CallGraph.h"
 #include "llvm/Analysis/DominanceFrontier.h"
+#include "llvm/Analysis/GlobalsModRef.h"
 #include "llvm/Analysis/LazyCallGraph.h"
 #include "llvm/Analysis/LoopInfo.h"
+#include "llvm/Analysis/MemoryDependenceAnalysis.h"
 #include "llvm/Analysis/PostDominators.h"
 #include "llvm/Analysis/RegionInfo.h"
 #include "llvm/Analysis/ScalarEvolution.h"
@@ -38,6 +42,7 @@
 #include "llvm/IR/PassManager.h"
 #include "llvm/IR/Verifier.h"
 #include "llvm/Support/Debug.h"
+#include "llvm/Support/Regex.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Transforms/IPO/ForceFunctionAttrs.h"
 #include "llvm/Transforms/IPO/FunctionAttrs.h"
@@ -47,11 +52,14 @@
 #include "llvm/Transforms/Scalar/ADCE.h"
 #include "llvm/Transforms/Scalar/EarlyCSE.h"
 #include "llvm/Transforms/Scalar/LowerExpectIntrinsic.h"
+#include "llvm/Transforms/Scalar/GVN.h"
 #include "llvm/Transforms/Scalar/SROA.h"
 #include "llvm/Transforms/Scalar/SimplifyCFG.h"
 #include <type_traits>
 
 using namespace llvm;
+
+static Regex DefaultAliasRegex("^(default|lto-pre-link|lto)<(O[0123sz])>$");
 
 namespace {
 
@@ -62,7 +70,11 @@ struct NoOpModulePass {
 };
 
 /// \brief No-op module analysis.
-struct NoOpModuleAnalysis : AnalysisBase<NoOpModuleAnalysis> {
+class NoOpModuleAnalysis : public AnalysisInfoMixin<NoOpModuleAnalysis> {
+  friend AnalysisInfoMixin<NoOpModuleAnalysis>;
+  static char PassID;
+
+public:
   struct Result {};
   Result run(Module &) { return Result(); }
   static StringRef name() { return "NoOpModuleAnalysis"; }
@@ -77,7 +89,11 @@ struct NoOpCGSCCPass {
 };
 
 /// \brief No-op CGSCC analysis.
-struct NoOpCGSCCAnalysis : AnalysisBase<NoOpCGSCCAnalysis> {
+class NoOpCGSCCAnalysis : public AnalysisInfoMixin<NoOpCGSCCAnalysis> {
+  friend AnalysisInfoMixin<NoOpCGSCCAnalysis>;
+  static char PassID;
+
+public:
   struct Result {};
   Result run(LazyCallGraph::SCC &) { return Result(); }
   static StringRef name() { return "NoOpCGSCCAnalysis"; }
@@ -90,7 +106,11 @@ struct NoOpFunctionPass {
 };
 
 /// \brief No-op function analysis.
-struct NoOpFunctionAnalysis : AnalysisBase<NoOpFunctionAnalysis> {
+class NoOpFunctionAnalysis : public AnalysisInfoMixin<NoOpFunctionAnalysis> {
+  friend AnalysisInfoMixin<NoOpFunctionAnalysis>;
+  static char PassID;
+
+public:
   struct Result {};
   Result run(Function &) { return Result(); }
   static StringRef name() { return "NoOpFunctionAnalysis"; }
@@ -103,11 +123,20 @@ struct NoOpLoopPass {
 };
 
 /// \brief No-op loop analysis.
-struct NoOpLoopAnalysis : AnalysisBase<NoOpLoopAnalysis> {
+class NoOpLoopAnalysis : public AnalysisInfoMixin<NoOpLoopAnalysis> {
+  friend AnalysisInfoMixin<NoOpLoopAnalysis>;
+  static char PassID;
+
+public:
   struct Result {};
   Result run(Loop &) { return Result(); }
   static StringRef name() { return "NoOpLoopAnalysis"; }
 };
+
+char NoOpModuleAnalysis::PassID;
+char NoOpCGSCCAnalysis::PassID;
+char NoOpFunctionAnalysis::PassID;
+char NoOpLoopAnalysis::PassID;
 
 } // End anonymous namespace.
 
@@ -135,8 +164,43 @@ void PassBuilder::registerLoopAnalyses(LoopAnalysisManager &LAM) {
 #include "PassRegistry.def"
 }
 
+void PassBuilder::addPerModuleDefaultPipeline(ModulePassManager &MPM,
+                                              OptimizationLevel Level,
+                                              bool DebugLogging) {
+  // FIXME: Finish fleshing this out to match the legacy pipelines.
+  FunctionPassManager EarlyFPM(DebugLogging);
+  EarlyFPM.addPass(SimplifyCFGPass());
+  EarlyFPM.addPass(SROA());
+  EarlyFPM.addPass(EarlyCSEPass());
+  EarlyFPM.addPass(LowerExpectIntrinsicPass());
+
+  MPM.addPass(createModuleToFunctionPassAdaptor(std::move(EarlyFPM)));
+}
+
+void PassBuilder::addLTOPreLinkDefaultPipeline(ModulePassManager &MPM,
+                                               OptimizationLevel Level,
+                                               bool DebugLogging) {
+  // FIXME: We should use a customized pre-link pipeline!
+  addPerModuleDefaultPipeline(MPM, Level, DebugLogging);
+}
+
+void PassBuilder::addLTODefaultPipeline(ModulePassManager &MPM,
+                                        OptimizationLevel Level,
+                                        bool DebugLogging) {
+  // FIXME: Finish fleshing this out to match the legacy LTO pipelines.
+  FunctionPassManager LateFPM(DebugLogging);
+  LateFPM.addPass(InstCombinePass());
+  LateFPM.addPass(SimplifyCFGPass());
+
+  MPM.addPass(createModuleToFunctionPassAdaptor(std::move(LateFPM)));
+}
+
 #ifndef NDEBUG
 static bool isModulePassName(StringRef Name) {
+  // Manually handle aliases for pre-configured pipeline fragments.
+  if (Name.startswith("default") || Name.startswith("lto"))
+    return DefaultAliasRegex.match(Name);
+
 #define MODULE_PASS(NAME, CREATE_PASS) if (Name == NAME) return true;
 #define MODULE_ANALYSIS(NAME, CREATE_PASS)                                     \
   if (Name == "require<" NAME ">" || Name == "invalidate<" NAME ">")           \
@@ -177,7 +241,34 @@ static bool isLoopPassName(StringRef Name) {
   return false;
 }
 
-bool PassBuilder::parseModulePassName(ModulePassManager &MPM, StringRef Name) {
+bool PassBuilder::parseModulePassName(ModulePassManager &MPM, StringRef Name,
+                                      bool DebugLogging) {
+  // Manually handle aliases for pre-configured pipeline fragments.
+  if (Name.startswith("default") || Name.startswith("lto")) {
+    SmallVector<StringRef, 3> Matches;
+    if (!DefaultAliasRegex.match(Name, &Matches))
+      return false;
+    assert(Matches.size() == 3 && "Must capture two matched strings!");
+
+    auto L = StringSwitch<OptimizationLevel>(Matches[2])
+                 .Case("O0", O0)
+                 .Case("O1", O1)
+                 .Case("O2", O2)
+                 .Case("O3", O3)
+                 .Case("Os", Os)
+                 .Case("Oz", Oz);
+
+    if (Matches[1] == "default") {
+      addPerModuleDefaultPipeline(MPM, L, DebugLogging);
+    } else if (Matches[1] == "lto-pre-link") {
+      addLTOPreLinkDefaultPipeline(MPM, L, DebugLogging);
+    } else {
+      assert(Matches[1] == "lto" && "Not one of the matched options!");
+      addLTODefaultPipeline(MPM, L, DebugLogging);
+    }
+    return true;
+  }
+
 #define MODULE_PASS(NAME, CREATE_PASS)                                         \
   if (Name == NAME) {                                                          \
     MPM.addPass(CREATE_PASS);                                                  \
@@ -268,6 +359,12 @@ bool PassBuilder::parseLoopPassName(LoopPassManager &FPM,
 }
 
 bool PassBuilder::parseAAPassName(AAManager &AA, StringRef Name) {
+#define MODULE_ALIAS_ANALYSIS(NAME, CREATE_PASS)                               \
+  if (Name == NAME) {                                                          \
+    AA.registerModuleAnalysis<                                                 \
+        std::remove_reference<decltype(CREATE_PASS)>::type>();                 \
+    return true;                                                               \
+  }
 #define FUNCTION_ALIAS_ANALYSIS(NAME, CREATE_PASS)                             \
   if (Name == NAME) {                                                          \
     AA.registerFunctionAnalysis<                                               \
@@ -475,7 +572,7 @@ bool PassBuilder::parseModulePassPipeline(ModulePassManager &MPM,
     } else {
       // Otherwise try to parse a pass name.
       size_t End = PipelineText.find_first_of(",)");
-      if (!parseModulePassName(MPM, PipelineText.substr(0, End)))
+      if (!parseModulePassName(MPM, PipelineText.substr(0, End), DebugLogging))
         return false;
       if (VerifyEachPass)
         MPM.addPass(VerifierPass());

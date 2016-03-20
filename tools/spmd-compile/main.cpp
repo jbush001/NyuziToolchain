@@ -61,7 +61,6 @@ bool generateTargetCode(Module *TheModule) {
   PM.add(createPromoteMemoryToRegisterPass());
   PM.add(createInstructionCombiningPass());
   PM.add(createReassociatePass());
-  PM.add(createGVNPass());
   PM.add(createCFGSimplificationPass());
 
   if (Target.addPassesToEmitFile(PM, Raw, TargetMachine::CGFT_AssemblyFile,

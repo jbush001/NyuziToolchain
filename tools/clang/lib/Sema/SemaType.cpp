@@ -100,20 +100,27 @@ static void diagnoseBadTypeAttribute(Sema &S, const AttributeList &attr,
     case AttributeList::AT_ObjCGC: \
     case AttributeList::AT_ObjCOwnership
 
-// Function type attributes.
-#define FUNCTION_TYPE_ATTRS_CASELIST \
-    case AttributeList::AT_NoReturn: \
+// Calling convention attributes.
+#define CALLING_CONV_ATTRS_CASELIST \
     case AttributeList::AT_CDecl: \
     case AttributeList::AT_FastCall: \
     case AttributeList::AT_StdCall: \
     case AttributeList::AT_ThisCall: \
     case AttributeList::AT_Pascal: \
+    case AttributeList::AT_SwiftCall: \
     case AttributeList::AT_VectorCall: \
     case AttributeList::AT_MSABI: \
     case AttributeList::AT_SysVABI: \
-    case AttributeList::AT_Regparm: \
     case AttributeList::AT_Pcs: \
-    case AttributeList::AT_IntelOclBicc
+    case AttributeList::AT_IntelOclBicc: \
+    case AttributeList::AT_PreserveMost: \
+    case AttributeList::AT_PreserveAll
+
+// Function type attributes.
+#define FUNCTION_TYPE_ATTRS_CASELIST \
+    case AttributeList::AT_NoReturn: \
+    case AttributeList::AT_Regparm: \
+    CALLING_CONV_ATTRS_CASELIST
 
 // Microsoft-specific type qualifiers.
 #define MS_TYPE_ATTRS_CASELIST  \
@@ -2264,6 +2271,74 @@ bool Sema::CheckFunctionReturnType(QualType T, SourceLocation Loc) {
   return false;
 }
 
+/// Check the extended parameter information.  Most of the necessary
+/// checking should occur when applying the parameter attribute; the
+/// only other checks required are positional restrictions.
+static void checkExtParameterInfos(Sema &S, ArrayRef<QualType> paramTypes,
+                    const FunctionProtoType::ExtProtoInfo &EPI,
+                    llvm::function_ref<SourceLocation(unsigned)> getParamLoc) {
+  assert(EPI.ExtParameterInfos && "shouldn't get here without param infos");
+
+  bool hasCheckedSwiftCall = false;
+  auto checkForSwiftCC = [&](unsigned paramIndex) {
+    // Only do this once.
+    if (hasCheckedSwiftCall) return;
+    hasCheckedSwiftCall = true;
+    if (EPI.ExtInfo.getCC() == CC_Swift) return;
+    S.Diag(getParamLoc(paramIndex), diag::err_swift_param_attr_not_swiftcall)
+      << getParameterABISpelling(EPI.ExtParameterInfos[paramIndex].getABI());
+  };
+
+  for (size_t paramIndex = 0, numParams = paramTypes.size();
+          paramIndex != numParams; ++paramIndex) {
+    switch (EPI.ExtParameterInfos[paramIndex].getABI()) {
+    // Nothing interesting to check for orindary-ABI parameters.
+    case ParameterABI::Ordinary:
+      continue;
+
+    // swift_indirect_result parameters must be a prefix of the function
+    // arguments.
+    case ParameterABI::SwiftIndirectResult:
+      checkForSwiftCC(paramIndex);
+      if (paramIndex != 0 &&
+          EPI.ExtParameterInfos[paramIndex - 1].getABI()
+            != ParameterABI::SwiftIndirectResult) {
+        S.Diag(getParamLoc(paramIndex),
+               diag::err_swift_indirect_result_not_first);
+      }
+      continue;
+
+    // swift_context parameters must be the last parameter except for
+    // a possible swift_error parameter.
+    case ParameterABI::SwiftContext:
+      checkForSwiftCC(paramIndex);
+      if (!(paramIndex == numParams - 1 ||
+            (paramIndex == numParams - 2 &&
+             EPI.ExtParameterInfos[numParams - 1].getABI()
+               == ParameterABI::SwiftErrorResult))) {
+        S.Diag(getParamLoc(paramIndex),
+               diag::err_swift_context_not_before_swift_error_result);
+      }
+      continue;
+
+    // swift_error parameters must be the last parameter.
+    case ParameterABI::SwiftErrorResult:
+      checkForSwiftCC(paramIndex);
+      if (paramIndex != numParams - 1) {
+        S.Diag(getParamLoc(paramIndex),
+               diag::err_swift_error_result_not_last);
+      } else if (paramIndex == 0 ||
+                 EPI.ExtParameterInfos[paramIndex - 1].getABI()
+                   != ParameterABI::SwiftContext) {
+        S.Diag(getParamLoc(paramIndex),
+               diag::err_swift_error_result_not_after_swift_context);
+      }
+      continue;
+    }
+    llvm_unreachable("bad ABI kind");
+  }
+}
+
 QualType Sema::BuildFunctionType(QualType T,
                                  MutableArrayRef<QualType> ParamTypes,
                                  SourceLocation Loc, DeclarationName Entity,
@@ -2286,6 +2361,11 @@ QualType Sema::BuildFunctionType(QualType T,
     }
 
     ParamTypes[Idx] = ParamType;
+  }
+
+  if (EPI.ExtParameterInfos) {
+    checkExtParameterInfos(*this, ParamTypes, EPI,
+                           [=](unsigned i) { return Loc; });
   }
 
   if (Invalid)
@@ -2956,6 +3036,26 @@ getCCForDeclaratorChunk(Sema &S, Declarator &D,
                         const DeclaratorChunk::FunctionTypeInfo &FTI,
                         unsigned ChunkIndex) {
   assert(D.getTypeObject(ChunkIndex).Kind == DeclaratorChunk::Function);
+
+  // Check for an explicit CC attribute.
+  for (auto Attr = FTI.AttrList; Attr; Attr = Attr->getNext()) {
+    switch (Attr->getKind()) {
+    CALLING_CONV_ATTRS_CASELIST: {
+      // Ignore attributes that don't validate or can't apply to the
+      // function type.  We'll diagnose the failure to apply them in
+      // handleFunctionTypeAttr.
+      CallingConv CC;
+      if (!S.CheckCallingConvAttr(*Attr, CC) &&
+          (!FTI.isVariadic || supportsVariadicCall(CC))) {
+        return CC;
+      }
+      break;
+    }
+
+    default:
+      break;
+    }
+  }
 
   bool IsCXXInstanceMethod = false;
 
@@ -3823,7 +3923,8 @@ static TypeSourceInfo *GetFullTypeForDeclarator(TypeProcessingState &state,
       if (T->isHalfType()) {
         if (S.getLangOpts().OpenCL) {
           if (!S.getOpenCLOptions().cl_khr_fp16) {
-            S.Diag(D.getIdentifierLoc(), diag::err_opencl_half_return) << T;
+            S.Diag(D.getIdentifierLoc(), diag::err_opencl_invalid_return)
+                << T << 0 /*pointer hint*/;
             D.setInvalidType(true);
           } 
         } else if (!S.getLangOpts().HalfArgsAndReturns) {
@@ -3831,6 +3932,14 @@ static TypeSourceInfo *GetFullTypeForDeclarator(TypeProcessingState &state,
             diag::err_parameters_retval_cannot_have_fp16_type) << 1;
           D.setInvalidType(true);
         }
+      }
+
+        // OpenCL v2.0 s6.12.5 - A block cannot be the return value of a
+        // function.
+      if (LangOpts.OpenCL && T->isBlockPointerType()) {
+        S.Diag(D.getIdentifierLoc(), diag::err_opencl_invalid_return)
+            << T << 1 /*hint off*/;
+        D.setInvalidType(true);
       }
 
       // Methods cannot return interface types. All ObjC objects are
@@ -3982,9 +4091,9 @@ static TypeSourceInfo *GetFullTypeForDeclarator(TypeProcessingState &state,
         SmallVector<QualType, 16> ParamTys;
         ParamTys.reserve(FTI.NumParams);
 
-        SmallVector<bool, 16> ConsumedParameters;
-        ConsumedParameters.reserve(FTI.NumParams);
-        bool HasAnyConsumedParameters = false;
+        SmallVector<FunctionProtoType::ExtParameterInfo, 16>
+          ExtParameterInfos(FTI.NumParams);
+        bool HasAnyInterestingExtParameterInfos = false;
 
         for (unsigned i = 0, e = FTI.NumParams; i != e; ++i) {
           ParmVarDecl *Param = cast<ParmVarDecl>(FTI.Params[i].Param);
@@ -4042,17 +4151,25 @@ static TypeSourceInfo *GetFullTypeForDeclarator(TypeProcessingState &state,
             }
           }
 
-          if (LangOpts.ObjCAutoRefCount) {
-            bool Consumed = Param->hasAttr<NSConsumedAttr>();
-            ConsumedParameters.push_back(Consumed);
-            HasAnyConsumedParameters |= Consumed;
+          if (LangOpts.ObjCAutoRefCount && Param->hasAttr<NSConsumedAttr>()) {
+            ExtParameterInfos[i] = ExtParameterInfos[i].withIsConsumed(true);
+            HasAnyInterestingExtParameterInfos = true;
+          }
+
+          if (auto attr = Param->getAttr<ParameterABIAttr>()) {
+            ExtParameterInfos[i] =
+              ExtParameterInfos[i].withABI(attr->getABI());
+            HasAnyInterestingExtParameterInfos = true;
           }
 
           ParamTys.push_back(ParamTy);
         }
 
-        if (HasAnyConsumedParameters)
-          EPI.ConsumedParameters = ConsumedParameters.data();
+        if (HasAnyInterestingExtParameterInfos) {
+          EPI.ExtParameterInfos = ExtParameterInfos.data();
+          checkExtParameterInfos(S, ParamTys, EPI,
+              [&](unsigned i) { return FTI.Params[i].Param->getLocation(); });
+        }
 
         SmallVector<QualType, 4> Exceptions;
         SmallVector<ParsedType, 2> DynamicExceptions;
@@ -4511,6 +4628,8 @@ static AttributeList::Kind getAttrListKind(AttributedType::Kind kind) {
     return AttributeList::AT_ThisCall;
   case AttributedType::attr_pascal:
     return AttributeList::AT_Pascal;
+  case AttributedType::attr_swiftcall:
+    return AttributeList::AT_SwiftCall;
   case AttributedType::attr_vectorcall:
     return AttributeList::AT_VectorCall;
   case AttributedType::attr_pcs:
@@ -4522,6 +4641,10 @@ static AttributeList::Kind getAttrListKind(AttributedType::Kind kind) {
     return AttributeList::AT_MSABI;
   case AttributedType::attr_sysv_abi:
     return AttributeList::AT_SysVABI;
+  case AttributedType::attr_preserve_most:
+    return AttributeList::AT_PreserveMost;
+  case AttributedType::attr_preserve_all:
+    return AttributeList::AT_PreserveAll;
   case AttributedType::attr_ptr32:
     return AttributeList::AT_Ptr32;
   case AttributedType::attr_ptr64:
@@ -5834,6 +5957,8 @@ static AttributedType::Kind getCCTypeAttrKind(AttributeList &Attr) {
     return AttributedType::attr_thiscall;
   case AttributeList::AT_Pascal:
     return AttributedType::attr_pascal;
+  case AttributeList::AT_SwiftCall:
+    return AttributedType::attr_swiftcall;
   case AttributeList::AT_VectorCall:
     return AttributedType::attr_vectorcall;
   case AttributeList::AT_Pcs: {
@@ -5855,6 +5980,10 @@ static AttributedType::Kind getCCTypeAttrKind(AttributeList &Attr) {
     return AttributedType::attr_ms_abi;
   case AttributeList::AT_SysVABI:
     return AttributedType::attr_sysv_abi;
+  case AttributeList::AT_PreserveMost:
+    return AttributedType::attr_preserve_most;
+  case AttributeList::AT_PreserveAll:
+    return AttributedType::attr_preserve_all;
   }
   llvm_unreachable("unexpected attribute kind!");
 }
@@ -5950,18 +6079,28 @@ static bool handleFunctionTypeAttr(TypeProcessingState &state,
     }
   }
 
-  // Diagnose use of callee-cleanup calling convention on variadic functions.
+  // Diagnose use of variadic functions with calling conventions that
+  // don't support them (e.g. because they're callee-cleanup).
+  // We delay warning about this on unprototyped function declarations
+  // until after redeclaration checking, just in case we pick up a
+  // prototype that way.  And apparently we also "delay" warning about
+  // unprototyped function types in general, despite not necessarily having
+  // much ability to diagnose it later.
   if (!supportsVariadicCall(CC)) {
     const FunctionProtoType *FnP = dyn_cast<FunctionProtoType>(fn);
     if (FnP && FnP->isVariadic()) {
       unsigned DiagID = diag::err_cconv_varargs;
+
       // stdcall and fastcall are ignored with a warning for GCC and MS
       // compatibility.
-      if (CC == CC_X86StdCall || CC == CC_X86FastCall)
+      bool IsInvalid = true;
+      if (CC == CC_X86StdCall || CC == CC_X86FastCall) {
         DiagID = diag::warn_cconv_varargs;
+        IsInvalid = false;
+      }
 
       S.Diag(attr.getLoc(), DiagID) << FunctionType::getNameForCallConv(CC);
-      attr.setInvalid();
+      if (IsInvalid) attr.setInvalid();
       return true;
     }
   }
@@ -5977,9 +6116,14 @@ static bool handleFunctionTypeAttr(TypeProcessingState &state,
   // Modify the CC from the wrapped function type, wrap it all back, and then
   // wrap the whole thing in an AttributedType as written.  The modified type
   // might have a different CC if we ignored the attribute.
-  FunctionType::ExtInfo EI = unwrapped.get()->getExtInfo().withCallingConv(CC);
-  QualType Equivalent =
+  QualType Equivalent;
+  if (CCOld == CC) {
+    Equivalent = type;
+  } else {
+    auto EI = unwrapped.get()->getExtInfo().withCallingConv(CC);
+    Equivalent =
       unwrapped.wrap(S, S.Context.adjustFunctionType(unwrapped.get(), EI));
+  }
   type = S.Context.getAttributedType(CCAttrKind, type, Equivalent);
   return true;
 }

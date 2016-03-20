@@ -3,6 +3,37 @@
 TODO: Instructions Need Implement Instrinstics or Map to LLVM IR
 
 Altivec:
+- Vector Compare Not Equal (Zero):
+  vcmpneb(.) vcmpneh(.) vcmpnew(.)
+  vcmpnezb(.) vcmpnezh(.) vcmpnezw(.)
+  . Same as other VCMP*, use VCMP/VCMPo form (support intrinsic)
+
+- Vector Extract Unsigned: vextractub vextractuh vextractuw vextractd
+  . Don't use llvm extractelement because they have different semantics
+  . Use instrinstics:
+    (set v2i64:$vD, (int_ppc_altivec_vextractub v16i8:$vA, imm:$UIMM))
+    (set v2i64:$vD, (int_ppc_altivec_vextractuh v8i16:$vA, imm:$UIMM))
+    (set v2i64:$vD, (int_ppc_altivec_vextractuw v4i32:$vA, imm:$UIMM))
+    (set v2i64:$vD, (int_ppc_altivec_vextractd  v2i64:$vA, imm:$UIMM))
+
+- Vector Extract Unsigned Byte Left/Right-Indexed:
+  vextublx vextubrx vextuhlx vextuhrx vextuwlx vextuwrx
+  . Use instrinstics:
+    // Left-Indexed
+    (set i64:$rD, (int_ppc_altivec_vextublx i64:$rA, v16i8:$vB))
+    (set i64:$rD, (int_ppc_altivec_vextuhlx i64:$rA, v8i16:$vB))
+    (set i64:$rD, (int_ppc_altivec_vextuwlx i64:$rA, v4i32:$vB))
+
+    // Right-Indexed
+    (set i64:$rD, (int_ppc_altivec_vextubrx i64:$rA, v16i8:$vB))
+    (set i64:$rD, (int_ppc_altivec_vextuhrx i64:$rA, v8i16:$vB))
+    (set i64:$rD, (int_ppc_altivec_vextuwrx i64:$rA, v4i32:$vB))
+
+- Vector Insert Element Instructions: vinsertb vinsertd vinserth vinsertw
+    (set v16i8:$vD, (int_ppc_altivec_vinsertb v16i8:$vA, imm:$UIMM))
+    (set v8i16:$vD, (int_ppc_altivec_vinsertd v8i16:$vA, imm:$UIMM))
+    (set v4i32:$vD, (int_ppc_altivec_vinserth v4i32:$vA, imm:$UIMM))
+    (set v2i64:$vD, (int_ppc_altivec_vinsertw v2i64:$vA, imm:$UIMM))
 
 VSX:
 
@@ -85,3 +116,82 @@ VSX:
   . Provide builtin?
     (set f128:$vT, (int_ppc_vsx_xsrqpxp f128:$vB))
 
+- Load/Store Vector: lxv stxv
+  . Has likely SDAG match:
+    (set v?:$XT, (load ix16addr:$src))
+    (set v?:$XT, (store ix16addr:$dst))
+
+  . Need define ix16addr in PPCInstrInfo.td
+    ix16addr: 16-byte aligned, see "def memrix16" in PPCInstrInfo.td
+
+- Load/Store Vector Indexed: lxvx stxvx
+  . Has likely SDAG match:
+    (set v?:$XT, (load xoaddr:$src))
+    (set v?:$XT, (store xoaddr:$dst))
+
+- Load/Store DWord: lxsd stxsd
+  . Similar to lxsdx/stxsdx:
+    def LXSDX : XX1Form<31, 588,
+                        (outs vsfrc:$XT), (ins memrr:$src),
+                        "lxsdx $XT, $src", IIC_LdStLFD,
+                        [(set f64:$XT, (load xoaddr:$src))]>;
+
+  . (set f64:$XT, (load ixaddr:$src))
+    (set f64:$XT, (store ixaddr:$dst))
+
+- Load/Store SP, with conversion from/to DP: lxssp stxssp
+  . Similar to lxsspx/stxsspx:
+    def LXSSPX : XX1Form<31, 524, (outs vssrc:$XT), (ins memrr:$src),
+                         "lxsspx $XT, $src", IIC_LdStLFD,
+                         [(set f32:$XT, (load xoaddr:$src))]>;
+
+  . (set f32:$XT, (load ixaddr:$src))
+    (set f32:$XT, (store ixaddr:$dst))
+
+- Load as Integer Byte/Halfword & Zero Indexed: lxsibzx lxsihzx
+  . Similar to lxsiwzx:
+    def LXSIWZX : XX1Form<31, 12, (outs vsfrc:$XT), (ins memrr:$src),
+                          "lxsiwzx $XT, $src", IIC_LdStLFD,
+                          [(set f64:$XT, (PPClfiwzx xoaddr:$src))]>;
+
+  . (set f64:$XT, (PPClfiwzx xoaddr:$src))
+
+- Store as Integer Byte/Halfword Indexed: stxsibx stxsihx
+  . Similar to stxsiwx:
+    def STXSIWX : XX1Form<31, 140, (outs), (ins vsfrc:$XT, memrr:$dst),
+                          "stxsiwx $XT, $dst", IIC_LdStSTFD,
+                          [(PPCstfiwx f64:$XT, xoaddr:$dst)]>;
+
+  . (PPCstfiwx f64:$XT, xoaddr:$dst)
+
+- Load Vector Halfword*8/Byte*16 Indexed: lxvh8x lxvb16x
+  . Similar to lxvd2x/lxvw4x:
+    def LXVD2X : XX1Form<31, 844,
+                         (outs vsrc:$XT), (ins memrr:$src),
+                         "lxvd2x $XT, $src", IIC_LdStLFD,
+                         [(set v2f64:$XT, (int_ppc_vsx_lxvd2x xoaddr:$src))]>;
+
+  . (set v8i16:$XT, (int_ppc_vsx_lxvh8x xoaddr:$src))
+    (set v16i8:$XT, (int_ppc_vsx_lxvb16x xoaddr:$src))
+
+- Store Vector Halfword*8/Byte*16 Indexed: stxvh8x stxvb16x
+  . Similar to stxvd2x/stxvw4x:
+    def STXVD2X : XX1Form<31, 972,
+                         (outs), (ins vsrc:$XT, memrr:$dst),
+                         "stxvd2x $XT, $dst", IIC_LdStSTFD,
+                         [(store v2f64:$XT, xoaddr:$dst)]>;
+
+  . (store v8i16:$XT, xoaddr:$dst)
+    (store v16i8:$XT, xoaddr:$dst)
+
+- Load/Store Vector (Left-justified) with Length: lxvl lxvll stxvl stxvll
+  . Likely needs an intrinsic
+  . (set v?:$XT, (int_ppc_vsx_lxvl xoaddr:$src))
+    (set v?:$XT, (int_ppc_vsx_lxvll xoaddr:$src))
+
+  . (int_ppc_vsx_stxvl xoaddr:$dst))
+    (int_ppc_vsx_stxvll xoaddr:$dst))
+
+- Load Vector Word & Splat Indexed: lxvwsx
+  . Likely needs an intrinsic
+  . (set v?:$XT, (int_ppc_vsx_lxvwsx xoaddr:$src))

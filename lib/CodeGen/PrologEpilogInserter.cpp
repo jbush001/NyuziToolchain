@@ -323,14 +323,13 @@ void PEI::assignCalleeSavedSpillSlots(MachineFunction &F,
 
     // Now that we know which registers need to be saved and restored, allocate
     // stack slots for them.
-    for (std::vector<CalleeSavedInfo>::iterator I = CSI.begin(), E = CSI.end();
-         I != E; ++I) {
-      unsigned Reg = I->getReg();
+    for (auto &CS : CSI) {
+      unsigned Reg = CS.getReg();
       const TargetRegisterClass *RC = RegInfo->getMinimalPhysRegClass(Reg);
 
       int FrameIdx;
       if (RegInfo->hasReservedSpillSlot(F, Reg, FrameIdx)) {
-        I->setFrameIdx(FrameIdx);
+        CS.setFrameIdx(FrameIdx);
         continue;
       }
 
@@ -359,7 +358,7 @@ void PEI::assignCalleeSavedSpillSlots(MachineFunction &F,
             MFI->CreateFixedSpillStackObject(RC->getSize(), FixedSlot->Offset);
       }
 
-      I->setFrameIdx(FrameIdx);
+      CS.setFrameIdx(FrameIdx);
     }
   }
 
@@ -709,6 +708,10 @@ void PEI::calculateFrameObjectOffsets(MachineFunction &Fn) {
 
   SmallVector<int, 8> ObjectsToAllocate;
 
+  int EHRegNodeFrameIndex = INT_MAX;
+  if (const WinEHFuncInfo *FuncInfo = Fn.getWinEHFuncInfo())
+    EHRegNodeFrameIndex = FuncInfo->EHRegNodeFrameIndex;
+
   // Then prepare to assign frame offsets to stack objects that are not used to
   // spill callee saved registers.
   for (unsigned i = 0, e = MFI->getObjectIndexEnd(); i != e; ++i) {
@@ -723,12 +726,20 @@ void PEI::calculateFrameObjectOffsets(MachineFunction &Fn) {
       continue;
     if (MFI->getStackProtectorIndex() == (int)i)
       continue;
+    if (EHRegNodeFrameIndex == (int)i)
+      continue;
     if (ProtectedObjs.count(i))
       continue;
 
     // Add the objects that we need to allocate to our working set.
     ObjectsToAllocate.push_back(i);
   }
+
+  // Allocate the EH registration node first if one is present.
+  if (EHRegNodeFrameIndex != INT_MAX)
+    AdjustStackOffset(MFI, EHRegNodeFrameIndex, StackGrowsDown, Offset,
+                      MaxAlign, Skew);
+
   // Give the targets a chance to order the objects the way they like it.
   if (Fn.getTarget().getOptLevel() != CodeGenOpt::None &&
       Fn.getTarget().Options.StackSymbolOrdering)

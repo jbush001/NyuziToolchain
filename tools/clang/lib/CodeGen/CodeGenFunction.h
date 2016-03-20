@@ -276,6 +276,8 @@ public:
   /// potentially set the return value.
   bool SawAsmBlock;
 
+  const FunctionDecl *CurSEHParent = nullptr;
+
   /// True if the current function is an outlined SEH helper. This can be a
   /// finally block or filter expression.
   bool IsOutlinedSEHHelper;
@@ -1150,10 +1152,7 @@ public:
     return getInvokeDestImpl();
   }
 
-  bool currentFunctionUsesSEHTry() const {
-    const auto *FD = dyn_cast_or_null<FunctionDecl>(CurCodeDecl);
-    return FD && FD->usesSEHTry();
-  }
+  bool currentFunctionUsesSEHTry() const { return CurSEHParent != nullptr; }
 
   const TargetInfo &getTarget() const { return Target; }
   llvm::LLVMContext &getLLVMContext() { return CGM.getLLVMContext(); }
@@ -2222,6 +2221,8 @@ public:
   llvm::Function *EmitCapturedStmt(const CapturedStmt &S, CapturedRegionKind K);
   llvm::Function *GenerateCapturedStmtFunction(const CapturedStmt &S);
   Address GenerateCapturedStmtArgument(const CapturedStmt &S);
+  llvm::Function *GenerateOpenMPCapturedStmtFunction(const CapturedStmt &S,
+                                                     QualType ReturnQTy);
   llvm::Function *GenerateOpenMPCapturedStmtFunction(const CapturedStmt &S);
   void GenerateOpenMPCapturedVars(const CapturedStmt &S,
                                   SmallVectorImpl<llvm::Value *> &CapturedVars);
@@ -2363,6 +2364,7 @@ public:
   void EmitOMPTaskLoopDirective(const OMPTaskLoopDirective &S);
   void EmitOMPTaskLoopSimdDirective(const OMPTaskLoopSimdDirective &S);
   void EmitOMPDistributeDirective(const OMPDistributeDirective &S);
+  void EmitOMPDistributeLoop(const OMPDistributeDirective &S);
 
   /// \brief Emit inner loop of the worksharing/simd construct.
   ///
@@ -2387,16 +2389,25 @@ private:
   /// Helpers for the OpenMP loop directives.
   void EmitOMPLoopBody(const OMPLoopDirective &D, JumpDest LoopExit);
   void EmitOMPSimdInit(const OMPLoopDirective &D, bool IsMonotonic = false);
-  void EmitOMPSimdFinal(const OMPLoopDirective &D);
+  void EmitOMPSimdFinal(
+      const OMPLoopDirective &D,
+      const llvm::function_ref<llvm::Value *(CodeGenFunction &)> &CondGen);
   /// \brief Emit code for the worksharing loop-based directive.
   /// \return true, if this construct has any lastprivate clause, false -
   /// otherwise.
   bool EmitOMPWorksharingLoop(const OMPLoopDirective &S);
+  void EmitOMPOuterLoop(bool IsMonotonic, bool DynamicOrOrdered,
+      const OMPLoopDirective &S, OMPPrivateScope &LoopScope, bool Ordered,
+      Address LB, Address UB, Address ST, Address IL, llvm::Value *Chunk);
   void EmitOMPForOuterLoop(OpenMPScheduleClauseKind ScheduleKind,
                            bool IsMonotonic, const OMPLoopDirective &S,
                            OMPPrivateScope &LoopScope, bool Ordered, Address LB,
                            Address UB, Address ST, Address IL,
                            llvm::Value *Chunk);
+  void EmitOMPDistributeOuterLoop(
+      OpenMPDistScheduleClauseKind ScheduleKind,
+      const OMPDistributeDirective &S, OMPPrivateScope &LoopScope,
+      Address LB, Address UB, Address ST, Address IL, llvm::Value *Chunk);
   /// \brief Emit code for sections directive.
   void EmitSections(const OMPExecutableDirective &S);
 
@@ -2699,11 +2710,10 @@ public:
                               ReturnValueSlot ReturnValue, llvm::Value *This,
                               llvm::Value *ImplicitParam,
                               QualType ImplicitParamTy, const CallExpr *E);
-  RValue EmitCXXStructorCall(const CXXMethodDecl *MD, llvm::Value *Callee,
-                             ReturnValueSlot ReturnValue, llvm::Value *This,
-                             llvm::Value *ImplicitParam,
-                             QualType ImplicitParamTy, const CallExpr *E,
-                             StructorType Type);
+  RValue EmitCXXDestructorCall(const CXXDestructorDecl *DD, llvm::Value *Callee,
+                               llvm::Value *This, llvm::Value *ImplicitParam,
+                               QualType ImplicitParamTy, const CallExpr *E,
+                               StructorType Type);
   RValue EmitCXXMemberCallExpr(const CXXMemberCallExpr *E,
                                ReturnValueSlot ReturnValue);
   RValue EmitCXXMemberOrOperatorMemberCallExpr(const CallExpr *CE,
@@ -2812,11 +2822,13 @@ public:
   llvm::Value *EmitARCStoreStrongCall(Address addr, llvm::Value *value,
                                       bool resultIgnored);
   llvm::Value *EmitARCRetain(QualType type, llvm::Value *value);
-  llvm::Value *EmitARCRetainNonBlock(llvm::Value *value);
+  llvm::Value *EmitARCRetainNonBlock(llvm::Value *value,
+                                     llvm::Type *returnType = nullptr);
   llvm::Value *EmitARCRetainBlock(llvm::Value *value, bool mandatory);
   void EmitARCDestroyStrong(Address addr, ARCPreciseLifetime_t precise);
   void EmitARCRelease(llvm::Value *value, ARCPreciseLifetime_t precise);
-  llvm::Value *EmitARCAutorelease(llvm::Value *value);
+  llvm::Value *EmitARCAutorelease(llvm::Value *value,
+                                  llvm::Type *returnType = nullptr);
   llvm::Value *EmitARCAutoreleaseReturnValue(llvm::Value *value);
   llvm::Value *EmitARCRetainAutoreleaseReturnValue(llvm::Value *value);
   llvm::Value *EmitARCRetainAutoreleasedReturnValue(llvm::Value *value);
@@ -2829,6 +2841,8 @@ public:
   std::pair<LValue,llvm::Value*>
   EmitARCStoreUnsafeUnretained(const BinaryOperator *e, bool ignored);
 
+  llvm::Value *EmitObjCAlloc(llvm::Value *value,
+                             llvm::Type *returnType = nullptr);
   llvm::Value *EmitObjCThrowOperand(const Expr *expr);
   llvm::Value *EmitObjCConsumeObject(QualType T, llvm::Value *Ptr);
   llvm::Value *EmitObjCExtendObjectLifetime(QualType T, llvm::Value *Ptr);

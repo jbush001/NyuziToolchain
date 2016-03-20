@@ -136,9 +136,16 @@ bool SILowerControlFlow::shouldSkip(MachineBasicBlock *From,
     for (MachineBasicBlock::iterator I = MBB->begin(), E = MBB->end();
          NumInstr < SkipThreshold && I != E; ++I) {
 
-      if (I->isBundle() || !I->isBundled())
+      if (I->isBundle() || !I->isBundled()) {
+        // When a uniform loop is inside non-uniform control flow, the branch
+        // leaving the loop might be an S_CBRANCH_VCCNZ, which is never taken
+        // when EXEC = 0. We should skip the loop lest it becomes infinite.
+        if (I->getOpcode() == AMDGPU::S_CBRANCH_VCCNZ)
+          return true;
+
         if (++NumInstr >= SkipThreshold)
           return true;
+      }
     }
   }
 
@@ -486,6 +493,7 @@ bool SILowerControlFlow::runOnMachineFunction(MachineFunction &MF) {
   for (MachineFunction::iterator BI = MF.begin(), BE = MF.end();
        BI != BE; ++BI) {
 
+    MachineBasicBlock *EmptyMBBAtEnd = NULL;
     MachineBasicBlock &MBB = *BI;
     MachineBasicBlock::iterator I, Next;
     for (I = MBB.begin(); I != MBB.end(); I = Next) {
@@ -562,6 +570,29 @@ bool SILowerControlFlow::runOnMachineFunction(MachineFunction &MF) {
         case AMDGPU::SI_INDIRECT_DST_V16:
           IndirectDst(MI);
           break;
+
+        case AMDGPU::S_ENDPGM: {
+          if (MF.getInfo<SIMachineFunctionInfo>()->returnsVoid())
+            break;
+
+          // Graphics shaders returning non-void shouldn't contain S_ENDPGM,
+          // because external bytecode will be appended at the end.
+          if (BI != --MF.end() || I != MBB.getFirstTerminator()) {
+            // S_ENDPGM is not the last instruction. Add an empty block at
+            // the end and jump there.
+            if (!EmptyMBBAtEnd) {
+              EmptyMBBAtEnd = MF.CreateMachineBasicBlock();
+              MF.insert(MF.end(), EmptyMBBAtEnd);
+            }
+
+            MBB.addSuccessor(EmptyMBBAtEnd);
+            BuildMI(*BI, I, MI.getDebugLoc(), TII->get(AMDGPU::S_BRANCH))
+                    .addMBB(EmptyMBBAtEnd);
+          }
+
+          I->eraseFromParent();
+          break;
+        }
       }
     }
   }

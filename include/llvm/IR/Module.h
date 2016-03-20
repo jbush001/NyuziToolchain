@@ -262,8 +262,7 @@ public:
   /// A trailing newline is added if the input doesn't have one.
   void setModuleInlineAsm(StringRef Asm) {
     GlobalScopeAsm = Asm;
-    if (!GlobalScopeAsm.empty() &&
-        GlobalScopeAsm[GlobalScopeAsm.size()-1] != '\n')
+    if (!GlobalScopeAsm.empty() && GlobalScopeAsm.back() != '\n')
       GlobalScopeAsm += '\n';
   }
 
@@ -271,8 +270,7 @@ public:
   /// A trailing newline is added if the input doesn't have one.
   void appendModuleInlineAsm(StringRef Asm) {
     GlobalScopeAsm += Asm;
-    if (!GlobalScopeAsm.empty() &&
-        GlobalScopeAsm[GlobalScopeAsm.size()-1] != '\n')
+    if (!GlobalScopeAsm.empty() && GlobalScopeAsm.back() != '\n')
       GlobalScopeAsm += '\n';
   }
 
@@ -639,7 +637,7 @@ public:
   void setPICLevel(PICLevel::Level PL);
 /// @}
 
-  /// @name Utility functions for querying and setting PGO counts
+  /// @name Utility functions for querying and setting PGO summary
   /// @{
 
   /// \brief Set maximum function count in PGO mode
@@ -647,6 +645,12 @@ public:
 
   /// \brief Returns maximum function count in PGO mode
   Optional<uint64_t> getMaximumFunctionCount();
+
+  /// \brief Attach profile summary metadata to this module.
+  void setProfileSummary(Metadata *M);
+
+  /// \brief Returns profile summary metadata
+  Metadata *getProfileSummary();
   /// @}
 };
 

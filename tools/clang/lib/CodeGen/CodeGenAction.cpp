@@ -174,7 +174,7 @@ namespace clang {
       }
 
       EmitBackendOutput(Diags, CodeGenOpts, TargetOpts, LangOpts,
-                        C.getTargetInfo().getDataLayoutString(),
+                        C.getTargetInfo().getDataLayout(),
                         getModule(), Action, AsmOutStream);
 
       Ctx.setInlineAsmDiagnosticHandler(OldHandler, OldContext);
@@ -203,19 +203,6 @@ namespace clang {
 
     void HandleVTable(CXXRecordDecl *RD) override {
       Gen->HandleVTable(RD);
-    }
-
-    void HandleLinkerOption(llvm::StringRef Opts) override {
-      Gen->HandleLinkerOption(Opts);
-    }
-
-    void HandleDetectMismatch(llvm::StringRef Name,
-                                      llvm::StringRef Value) override {
-      Gen->HandleDetectMismatch(Name, Value);
-    }
-
-    void HandleDependentLibrary(llvm::StringRef Opts) override {
-      Gen->HandleDependentLibrary(Opts);
     }
 
     static void InlineAsmDiagHandler(const llvm::SMDiagnostic &SM,void *Context,
@@ -826,7 +813,7 @@ void CodeGenAction::ExecuteAction() {
     LLVMContext &Ctx = TheModule->getContext();
     Ctx.setInlineAsmDiagnosticHandler(BitcodeInlineAsmDiagHandler);
     EmitBackendOutput(CI.getDiagnostics(), CI.getCodeGenOpts(), TargetOpts,
-                      CI.getLangOpts(), CI.getTarget().getDataLayoutString(),
+                      CI.getLangOpts(), CI.getTarget().getDataLayout(),
                       TheModule.get(), BA, OS);
     return;
   }

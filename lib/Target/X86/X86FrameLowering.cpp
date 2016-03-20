@@ -159,6 +159,7 @@ static unsigned findDeadCallerSavedReg(MachineBasicBlock &MBB,
   unsigned Opc = MBBI->getOpcode();
   switch (Opc) {
   default: return 0;
+  case X86::RET:
   case X86::RETL:
   case X86::RETQ:
   case X86::RETIL:
@@ -2446,7 +2447,8 @@ bool X86FrameLowering::adjustStackWithPops(MachineBasicBlock &MBB,
 
     bool IsDef = false;
     for (const MachineOperand &MO : Prev->implicit_operands()) {
-      if (MO.isReg() && MO.isDef() && MO.getReg() == Candidate) {
+      if (MO.isReg() && MO.isDef() &&
+          TRI->isSuperOrSubRegisterEq(MO.getReg(), Candidate)) {
         IsDef = true;
         break;
       }
@@ -2839,14 +2841,30 @@ void X86FrameLowering::processFunctionBeforeFrameFinalized(
   // were no fixed objects, use offset -SlotSize, which is immediately after the
   // return address. Fixed objects have negative frame indices.
   MachineFrameInfo *MFI = MF.getFrameInfo();
+  WinEHFuncInfo &EHInfo = *MF.getWinEHFuncInfo();
   int64_t MinFixedObjOffset = -SlotSize;
   for (int I = MFI->getObjectIndexBegin(); I < 0; ++I)
     MinFixedObjOffset = std::min(MinFixedObjOffset, MFI->getObjectOffset(I));
 
+  for (WinEHTryBlockMapEntry &TBME : EHInfo.TryBlockMap) {
+    for (WinEHHandlerType &H : TBME.HandlerArray) {
+      int FrameIndex = H.CatchObj.FrameIndex;
+      if (FrameIndex != INT_MAX) {
+        // Ensure alignment.
+        unsigned Align = MFI->getObjectAlignment(FrameIndex);
+        MinFixedObjOffset -= std::abs(MinFixedObjOffset) % Align;
+        MinFixedObjOffset -= MFI->getObjectSize(FrameIndex);
+        MFI->setObjectOffset(FrameIndex, MinFixedObjOffset);
+      }
+    }
+  }
+
+  // Ensure alignment.
+  MinFixedObjOffset -= std::abs(MinFixedObjOffset) % 8;
   int64_t UnwindHelpOffset = MinFixedObjOffset - SlotSize;
   int UnwindHelpFI =
       MFI->CreateFixedObject(SlotSize, UnwindHelpOffset, /*Immutable=*/false);
-  MF.getWinEHFuncInfo()->UnwindHelpFrameIdx = UnwindHelpFI;
+  EHInfo.UnwindHelpFrameIdx = UnwindHelpFI;
 
   // Store -2 into UnwindHelp on function entry. We have to scan forwards past
   // other frame setup instructions.

@@ -31,6 +31,7 @@ class InstSI <dag outs, dag ins, string asm, list<dag> pattern> :
   field bits<1> VOP2 = 0;
   field bits<1> VOP3 = 0;
   field bits<1> VOPC = 0;
+  field bits<1> DPP = 0;
 
   field bits<1> MUBUF = 0;
   field bits<1> MTBUF = 0;
@@ -63,16 +64,17 @@ class InstSI <dag outs, dag ins, string asm, list<dag> pattern> :
   let TSFlags{11} = VOP2;
   let TSFlags{12} = VOP3;
   let TSFlags{13} = VOPC;
+  let TSFlags{14} = DPP;
 
-  let TSFlags{14} = MUBUF;
-  let TSFlags{15} = MTBUF;
-  let TSFlags{16} = SMRD;
-  let TSFlags{17} = DS;
-  let TSFlags{18} = MIMG;
-  let TSFlags{19} = FLAT;
-  let TSFlags{20} = WQM;
-  let TSFlags{21} = VGPRSpill;
-  let TSFlags{22} = VOPAsmPrefer32Bit;
+  let TSFlags{15} = MUBUF;
+  let TSFlags{16} = MTBUF;
+  let TSFlags{17} = SMRD;
+  let TSFlags{18} = DS;
+  let TSFlags{19} = MIMG;
+  let TSFlags{20} = FLAT;
+  let TSFlags{21} = WQM;
+  let TSFlags{22} = VGPRSpill;
+  let TSFlags{23} = VOPAsmPrefer32Bit;
 
   let SchedRW = [Write32Bit];
 
@@ -163,9 +165,9 @@ class VOP3Common <dag outs, dag ins, string asm, list<dag> pattern, bit HasMods 
 
 class SOP1e <bits<8> op> : Enc32 {
   bits<7> sdst;
-  bits<8> ssrc0;
+  bits<8> src0;
 
-  let Inst{7-0} = ssrc0;
+  let Inst{7-0} = src0;
   let Inst{15-8} = op;
   let Inst{22-16} = sdst;
   let Inst{31-23} = 0x17d; //encoding;
@@ -173,22 +175,22 @@ class SOP1e <bits<8> op> : Enc32 {
 
 class SOP2e <bits<7> op> : Enc32 {
   bits<7> sdst;
-  bits<8> ssrc0;
-  bits<8> ssrc1;
+  bits<8> src0;
+  bits<8> src1;
 
-  let Inst{7-0} = ssrc0;
-  let Inst{15-8} = ssrc1;
+  let Inst{7-0} = src0;
+  let Inst{15-8} = src1;
   let Inst{22-16} = sdst;
   let Inst{29-23} = op;
   let Inst{31-30} = 0x2; // encoding
 }
 
 class SOPCe <bits<7> op> : Enc32 {
-  bits<8> ssrc0;
-  bits<8> ssrc1;
+  bits<8> src0;
+  bits<8> src1;
 
-  let Inst{7-0} = ssrc0;
-  let Inst{15-8} = ssrc1;
+  let Inst{7-0} = src0;
+  let Inst{15-8} = src1;
   let Inst{22-16} = op;
   let Inst{31-23} = 0x17e;
 }
@@ -227,15 +229,25 @@ class SOPPe <bits<7> op> : Enc32 {
 class SMRDe <bits<5> op, bits<1> imm> : Enc32 {
   bits<7> sdst;
   bits<7> sbase;
-  bits<8> offset;
 
-  let Inst{7-0} = offset;
   let Inst{8} = imm;
   let Inst{14-9} = sbase{6-1};
   let Inst{21-15} = sdst;
   let Inst{26-22} = op;
   let Inst{31-27} = 0x18; //encoding
 }
+
+class SMRD_IMMe <bits<5> op> : SMRDe<op, 1> {
+  bits<8> offset;
+  let Inst{7-0} = offset;
+}
+
+class SMRD_SOFFe <bits<5> op> : SMRDe<op, 0> {
+  bits<8> soff;
+  let Inst{7-0} = soff;
+}
+
+
 
 class SMRD_IMMe_ci <bits<5> op> : Enc64 {
   bits<7> sdst;
@@ -433,10 +445,10 @@ class VOP3be <bits<9> op> : Enc64 {
 
 class VOPCe <bits<8> op> : Enc32 {
   bits<9> src0;
-  bits<8> vsrc1;
+  bits<8> src1;
 
   let Inst{8-0} = src0;
-  let Inst{16-9} = vsrc1;
+  let Inst{16-9} = src1;
   let Inst{24-17} = op;
   let Inst{31-25} = 0x3e;
 }
@@ -700,8 +712,8 @@ class FLAT <bits<7> op, dag outs, dag ins, string asm, list<dag> pattern> :
   let SchedRW = [WriteVMEM];
 }
 
-class MIMG <bits<7> op, dag outs, dag ins, string asm, list<dag> pattern> :
-    InstSI <outs, ins, asm, pattern>, MIMGe <op> {
+class MIMG <dag outs, dag ins, string asm, list<dag> pattern> :
+    InstSI <outs, ins, asm, pattern> {
 
   let VM_CNT = 1;
   let EXP_CNT = 1;

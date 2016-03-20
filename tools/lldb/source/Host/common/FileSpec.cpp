@@ -390,19 +390,29 @@ FileSpec::operator!() const
     return !m_directory && !m_filename;
 }
 
+bool
+FileSpec::DirectoryEquals(const FileSpec &rhs) const
+{
+    const bool case_sensitive = IsCaseSensitive() || rhs.IsCaseSensitive();
+    return ConstString::Equals(m_directory, rhs.m_directory, case_sensitive);
+}
+
+bool
+FileSpec::FileEquals(const FileSpec &rhs) const
+{
+    const bool case_sensitive = IsCaseSensitive() || rhs.IsCaseSensitive();
+    return ConstString::Equals(m_filename, rhs.m_filename, case_sensitive);
+}
+
 //------------------------------------------------------------------
 // Equal to operator
 //------------------------------------------------------------------
 bool
 FileSpec::operator== (const FileSpec& rhs) const
 {
-    // case sensitivity of equality test
-    const bool case_sensitive = IsCaseSensitive() || rhs.IsCaseSensitive();
-
-    if (!ConstString::Equals(m_filename, rhs.m_filename, case_sensitive))
+    if (!FileEquals(rhs))
         return false;
-
-    if (ConstString::Equals(m_directory, rhs.m_directory, case_sensitive))
+    if (DirectoryEquals(rhs))
         return true;
 
     // TODO: determine if we want to keep this code in here.
@@ -451,7 +461,7 @@ FileSpec::operator== (const FileSpec& rhs) const
     // If we reach this point in the code we were able to resolve both paths
     // and since we only resolve the paths if the basenames are equal, then
     // we can just check if both directories are equal...
-    return ConstString::Equals(m_directory, rhs.m_directory, case_sensitive);
+    return DirectoryEquals(rhs);
 }
 
 //------------------------------------------------------------------
@@ -908,7 +918,7 @@ void
 FileSpec::GetPath(llvm::SmallVectorImpl<char> &path, bool denormalize) const
 {
     path.append(m_directory.GetStringRef().begin(), m_directory.GetStringRef().end());
-    if (m_directory)
+    if (m_directory && !(m_directory.GetLength() == 1 && m_directory.GetCString()[0] == '/'))
         path.insert(path.end(), '/');
     path.append(m_filename.GetStringRef().begin(), m_filename.GetStringRef().end());
     Normalize(path, m_syntax);
@@ -1321,17 +1331,9 @@ FileSpec::EnumerateDirectory
 FileSpec
 FileSpec::CopyByAppendingPathComponent (const char *new_path)  const
 {
-    const bool resolve = false;
-    if (m_filename.IsEmpty() && m_directory.IsEmpty())
-        return FileSpec(new_path,resolve);
-    StreamString stream;
-    if (m_filename.IsEmpty())
-        stream.Printf("%s/%s",m_directory.GetCString(),new_path);
-    else if (m_directory.IsEmpty())
-        stream.Printf("%s/%s",m_filename.GetCString(),new_path);
-    else
-        stream.Printf("%s/%s/%s",m_directory.GetCString(), m_filename.GetCString(),new_path);
-    return FileSpec(stream.GetData(),resolve);
+    FileSpec ret = *this;
+    ret.AppendPathComponent(new_path);
+    return ret;
 }
 
 FileSpec
@@ -1432,20 +1434,26 @@ void
 FileSpec::AppendPathComponent(const char *new_path)
 {
     if (!new_path) return;
-    const bool resolve = false;
-    if (m_filename.IsEmpty() && m_directory.IsEmpty())
-    {
-        SetFile(new_path, resolve);
-        return;
-    }
+
     StreamString stream;
-    if (m_filename.IsEmpty() || (m_filename.GetLength() == 1 && m_filename.GetCString()[0] == '.'))
-        stream.Printf("%s/%s", m_directory.GetCString(), new_path);
-    else if (m_directory.IsEmpty())
-        stream.Printf("%s/%s", m_filename.GetCString(), new_path);
-    else
-        stream.Printf("%s/%s/%s", m_directory.GetCString(), m_filename.GetCString(), new_path);
-    SetFile(stream.GetData(), resolve);
+    if (!m_directory.IsEmpty())
+    {
+        stream.PutCString(m_directory.GetCString());
+        if (m_directory.GetLength() != 1 || m_directory.GetCString()[0] != '/')
+            stream.PutChar('/');
+    }
+
+    if (!m_filename.IsEmpty())
+    {
+        stream.PutCString(m_filename.GetCString());
+        if (m_filename.GetLength() != 1 || m_filename.GetCString()[0] != '/')
+            stream.PutChar('/');
+    }
+
+    stream.PutCString(new_path);
+
+    const bool resolve = false;
+    SetFile(stream.GetData(), resolve, m_syntax);
 }
 
 void

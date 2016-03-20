@@ -16,6 +16,7 @@ add_llvm_unittest(SupportTests
   DwarfTest.cpp
   EndianStreamTest.cpp
   EndianTest.cpp
+  ErrorTest.cpp
   ErrorOrTest.cpp
   FileOutputBufferTest.cpp
   IteratorTest.cpp
@@ -38,6 +39,7 @@ add_llvm_unittest(SupportTests
   StreamingMemoryObject.cpp
   StringPool.cpp
   SwapByteOrderTest.cpp
+  TargetParserTest.cpp
   ThreadLocalTest.cpp
   ThreadPool.cpp
   TimerTest.cpp
@@ -53,6 +55,4 @@ add_llvm_unittest(SupportTests
   )
 
 # ManagedStatic.cpp uses <pthread>.
-if(LLVM_ENABLE_THREADS AND HAVE_LIBPTHREAD)
-  target_link_libraries(SupportTests pthread)
-endif()
+target_link_libraries(SupportTests ${PTHREAD_LIB})

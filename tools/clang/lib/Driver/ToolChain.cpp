@@ -342,19 +342,26 @@ std::string ToolChain::GetProgramPath(const char *Name) const {
 
 std::string ToolChain::GetLinkerPath() const {
   if (Arg *A = Args.getLastArg(options::OPT_fuse_ld_EQ)) {
-    StringRef Suffix = A->getValue();
+    StringRef UseLinker = A->getValue();
 
-    // If we're passed -fuse-ld= with no argument, or with the argument ld,
-    // then use whatever the default system linker is.
-    if (Suffix.empty() || Suffix == "ld")
-      return GetProgramPath("ld");
+    if (llvm::sys::path::is_absolute(UseLinker)) {
+      // If we're passed -fuse-ld= with what looks like an absolute path,
+      // don't attempt to second-guess that.
+      if (llvm::sys::fs::exists(UseLinker))
+        return UseLinker;
+    } else {
+      // If we're passed -fuse-ld= with no argument, or with the argument ld,
+      // then use whatever the default system linker is.
+      if (UseLinker.empty() || UseLinker == "ld")
+        return GetProgramPath("ld");
 
-    llvm::SmallString<8> LinkerName("ld.");
-    LinkerName.append(Suffix);
+      llvm::SmallString<8> LinkerName("ld.");
+      LinkerName.append(UseLinker);
 
-    std::string LinkerPath(GetProgramPath(LinkerName.c_str()));
-    if (llvm::sys::fs::exists(LinkerPath))
-      return LinkerPath;
+      std::string LinkerPath(GetProgramPath(LinkerName.c_str()));
+      if (llvm::sys::fs::exists(LinkerPath))
+        return LinkerPath;
+    }
 
     getDriver().Diag(diag::err_drv_invalid_linker_name) << A->getAsString(Args);
     return "";
@@ -548,16 +555,23 @@ static bool ParseCXXStdlibType(const StringRef& Name,
 ToolChain::CXXStdlibType ToolChain::GetCXXStdlibType(const ArgList &Args) const{
   ToolChain::CXXStdlibType Type;
   bool HasValidType = false;
+  bool ForcePlatformDefault = false;
 
   const Arg *A = Args.getLastArg(options::OPT_stdlib_EQ);
   if (A) {
-    HasValidType = ParseCXXStdlibType(A->getValue(), Type);
-    if (!HasValidType)
+    StringRef Value = A->getValue();
+    HasValidType = ParseCXXStdlibType(Value, Type);
+
+    // Only use in tests to override CLANG_DEFAULT_CXX_STDLIB!
+    if (Value == "platform")
+      ForcePlatformDefault = true;
+    else if (!HasValidType)
       getDriver().Diag(diag::err_drv_invalid_stdlib_name)
         << A->getAsString(Args);
   }
 
-  if (!HasValidType && !ParseCXXStdlibType(CLANG_DEFAULT_CXX_STDLIB, Type))
+  if (!HasValidType && (ForcePlatformDefault ||
+      !ParseCXXStdlibType(CLANG_DEFAULT_CXX_STDLIB, Type)))
     Type = GetDefaultCXXStdlibType();
 
   return Type;

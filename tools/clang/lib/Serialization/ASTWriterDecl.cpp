@@ -49,6 +49,8 @@ namespace clang {
     void Visit(Decl *D);
 
     void VisitDecl(Decl *D);
+    void VisitPragmaCommentDecl(PragmaCommentDecl *D);
+    void VisitPragmaDetectMismatchDecl(PragmaDetectMismatchDecl *D);
     void VisitTranslationUnitDecl(TranslationUnitDecl *D);
     void VisitNamedDecl(NamedDecl *D);
     void VisitLabelDecl(LabelDecl *LD);
@@ -131,6 +133,7 @@ namespace clang {
     void VisitObjCPropertyDecl(ObjCPropertyDecl *D);
     void VisitObjCPropertyImplDecl(ObjCPropertyImplDecl *D);
     void VisitOMPThreadPrivateDecl(OMPThreadPrivateDecl *D);
+    void VisitOMPDeclareReductionDecl(OMPDeclareReductionDecl *D);
     void VisitOMPCapturedExprDecl(OMPCapturedExprDecl *D);
 
     /// Add an Objective-C type parameter list to the given record.
@@ -313,6 +316,28 @@ void ASTDeclWriter::VisitDecl(Decl *D) {
       DC = NS->getParent();
     }
   }
+}
+
+void ASTDeclWriter::VisitPragmaCommentDecl(PragmaCommentDecl *D) {
+  StringRef Arg = D->getArg();
+  Record.push_back(Arg.size());
+  VisitDecl(D);
+  Writer.AddSourceLocation(D->getLocStart(), Record);
+  Record.push_back(D->getCommentKind());
+  Writer.AddString(Arg, Record);
+  Code = serialization::DECL_PRAGMA_COMMENT;
+}
+
+void ASTDeclWriter::VisitPragmaDetectMismatchDecl(
+    PragmaDetectMismatchDecl *D) {
+  StringRef Name = D->getName();
+  StringRef Value = D->getValue();
+  Record.push_back(Name.size() + 1 + Value.size());
+  VisitDecl(D);
+  Writer.AddSourceLocation(D->getLocStart(), Record);
+  Writer.AddString(Name, Record);
+  Writer.AddString(Value, Record);
+  Code = serialization::DECL_PRAGMA_DETECT_MISMATCH;
 }
 
 void ASTDeclWriter::VisitTranslationUnitDecl(TranslationUnitDecl *D) {
@@ -1627,6 +1652,15 @@ void ASTDeclWriter::VisitOMPThreadPrivateDecl(OMPThreadPrivateDecl *D) {
   for (auto *I : D->varlists())
     Writer.AddStmt(I);
   Code = serialization::DECL_OMP_THREADPRIVATE;
+}
+
+void ASTDeclWriter::VisitOMPDeclareReductionDecl(OMPDeclareReductionDecl *D) {
+  VisitValueDecl(D);
+  Writer.AddSourceLocation(D->getLocStart(), Record);
+  Writer.AddStmt(D->getCombiner());
+  Writer.AddStmt(D->getInitializer());
+  Writer.AddDeclRef(D->getPrevDeclInScope(), Record);
+  Code = serialization::DECL_OMP_DECLARE_REDUCTION;
 }
 
 void ASTDeclWriter::VisitOMPCapturedExprDecl(OMPCapturedExprDecl *D) {

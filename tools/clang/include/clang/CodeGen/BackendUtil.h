@@ -11,7 +11,7 @@
 #define LLVM_CLANG_CODEGEN_BACKENDUTIL_H
 
 #include "clang/Basic/LLVM.h"
-#include "llvm/IR/FunctionInfo.h"
+#include "llvm/IR/ModuleSummaryIndex.h"
 #include <memory>
 
 namespace llvm {
@@ -35,8 +35,8 @@ namespace clang {
 
   void EmitBackendOutput(DiagnosticsEngine &Diags, const CodeGenOptions &CGOpts,
                          const TargetOptions &TOpts, const LangOptions &LOpts,
-                         StringRef TDesc, llvm::Module *M, BackendAction Action,
-                         raw_pwrite_stream *OS);
+                         const llvm::DataLayout &TDesc, llvm::Module *M,
+                         BackendAction Action, raw_pwrite_stream *OS);
 }
 
 #endif

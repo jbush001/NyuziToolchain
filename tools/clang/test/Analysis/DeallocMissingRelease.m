@@ -1,7 +1,7 @@
-// RUN: %clang_cc1 -analyze -analyzer-checker=alpha.osx.cocoa.Dealloc -fblocks -verify %s
-// RUN: %clang_cc1 -analyze -analyzer-checker=alpha.osx.cocoa.Dealloc -fblocks -triple x86_64-apple-darwin10 -fobjc-arc -fobjc-runtime-has-weak -verify %s
+// RUN: %clang_cc1 -analyze -analyzer-checker=osx.cocoa.Dealloc -fblocks -verify %s
+// RUN: %clang_cc1 -analyze -analyzer-checker=osx.cocoa.Dealloc -fblocks -triple x86_64-apple-darwin10 -fobjc-arc -fobjc-runtime-has-weak -verify %s
 
-#define nil ((id)0)
+#include "Inputs/system-header-simulator-for-objc-dealloc.h"
 
 #define NON_ARC !__has_feature(objc_arc)
 
@@ -15,22 +15,6 @@
 #if !NON_ARC
   // expected-no-diagnostics
 #endif
-
-typedef signed char BOOL;
-@protocol NSObject
-- (BOOL)isEqual:(id)object;
-- (Class)class;
-@end
-
-@interface NSObject <NSObject> {}
-+ (instancetype)alloc;
-- (void)dealloc;
-- (id)init;
-- (id)retain;
-- (oneway void)release;
-@end
-
-typedef struct objc_selector *SEL;
 
 // Do not warn about missing release in -dealloc for ivars.
 
@@ -141,6 +125,9 @@ typedef struct objc_selector *SEL;
   void (^_blockPropertyIvar)(void);
 }
 @property (copy) void (^blockProperty)(void);
+@property (copy) void (^blockProperty2)(void);
+@property (copy) void (^blockProperty3)(void);
+
 @end
 
 @implementation MyPropertyClass4
@@ -148,6 +135,9 @@ typedef struct objc_selector *SEL;
 - (void)dealloc
 {
 #if NON_ARC
+  [_blockProperty2 release];
+  Block_release(_blockProperty3);
+
   [super dealloc]; // expected-warning {{The '_blockPropertyIvar' ivar in 'MyPropertyClass4' was copied by a synthesized property but not released before '[super dealloc]'}}
 #endif
 }
@@ -447,6 +437,50 @@ void NilOutPropertyHelper(ClassWithDeallocHelpers *o) {
 }
 @end
 
+
+// Don't treat calls to system headers as escapes
+
+@interface ClassWhereSelfEscapesViaCallToSystem : NSObject
+@property (retain) NSObject *ivar1;
+@property (retain) NSObject *ivar2;
+@property (retain) NSObject *ivar3;
+@property (retain) NSObject *ivar4;
+@property (retain) NSObject *ivar5;
+@property (retain) NSObject *ivar6;
+@end
+
+@implementation ClassWhereSelfEscapesViaCallToSystem
+- (void)dealloc; {
+#if NON_ARC
+  [_ivar2 release];
+  if (_ivar3) {
+    [_ivar3 release];
+  }
+#endif
+
+  [[NSRunLoop currentRunLoop] cancelPerformSelectorsWithTarget:self];
+  [[NSNotificationCenter defaultCenter] removeObserver:self];
+
+#if NON_ARC
+  [_ivar4 release];
+
+  if (_ivar5) {
+    [_ivar5 release];
+  }
+#endif
+
+  [[NSNotificationCenter defaultCenter] removeObserver:self];
+
+#if NON_ARC
+  if (_ivar6) {
+    [_ivar6 release];
+  }
+
+  [super dealloc];  // expected-warning {{The '_ivar1' ivar in 'ClassWhereSelfEscapesViaCallToSystem' was retained by a synthesized property but not released before '[super dealloc]'}}
+#endif
+}
+@end
+
 // Don't warn when value escapes.
 
 @interface ClassWhereIvarValueEscapes : NSObject
@@ -630,6 +664,25 @@ void ReleaseMe(id arg);
 @end
 #endif
 
+struct SomeStruct {
+  int f;
+};
+@interface ZeroOutStructWithSetter : NSObject
+  @property(assign) struct SomeStruct s;
+@end
+
+@implementation ZeroOutStructWithSetter
+- (void)dealloc {
+  struct SomeStruct zeroedS;
+  zeroedS.f = 0;
+
+  self.s = zeroedS;
+#if NON_ARC
+  [super dealloc];
+#endif
+}
+@end
+
 #if NON_ARC
 @interface ReleaseIvarInArray : NSObject {
   NSObject *_array[3];
@@ -680,3 +733,24 @@ __attribute__((objc_root_class))
 }
 @end
 
+// Warn about calling -dealloc rather than release by mistake.
+
+@interface CallDeallocOnRetainPropIvar : NSObject {
+  NSObject *okToDeallocDirectly;
+}
+
+@property (retain) NSObject *ivar;
+@end
+
+@implementation CallDeallocOnRetainPropIvar
+- (void)dealloc
+{
+#if NON_ARC
+  // Only warn for synthesized ivars.
+  [okToDeallocDirectly dealloc]; // now-warning
+  [_ivar dealloc];  // expected-warning {{'_ivar' should be released rather than deallocated}}
+
+  [super dealloc];
+#endif
+}
+@end
