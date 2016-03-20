@@ -1,5 +1,4 @@
-//===-- NyuziTargetMachine.cpp - Define TargetMachine for Nyuzi
-//-----------===//
+//===-- NyuziTargetMachine.cpp - Define TargetMachine for Nyuzi -----------===//
 //
 //                     The LLVM Compiler Infrastructure
 //

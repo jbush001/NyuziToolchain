@@ -1,5 +1,4 @@
-//===- NyuziMachineFunctionInfo.h - Nyuzi Machine Function Info -*-
-// C++ -*-===//
+//==- NyuziMachineFunctionInfo.h - Nyuzi Machine Function Info -*- C++ -*-==//
 //
 //                     The LLVM Compiler Infrastructure
 //

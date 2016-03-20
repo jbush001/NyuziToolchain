@@ -27,10 +27,8 @@ class TargetInstrInfo;
 class Type;
 
 struct NyuziRegisterInfo : public NyuziGenRegisterInfo {
-  NyuziSubtarget &Subtarget;
-  const TargetInstrInfo &TII;
-
-  NyuziRegisterInfo(NyuziSubtarget &st, const TargetInstrInfo &tii);
+public:
+  NyuziRegisterInfo();
   const uint16_t *
   getCalleeSavedRegs(const MachineFunction *MF = 0) const override;
   const uint32_t *getCallPreservedMask(const MachineFunction &MF,

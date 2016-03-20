@@ -1,5 +1,4 @@
-//===-- NyuziMCAsmInfo.h - Nyuzi asm properties ----------------*- C++
-//-*--===//
+//===-- NyuziMCAsmInfo.h - Nyuzi asm properties ----------------*- C++ -*--===//
 //
 //                     The LLVM Compiler Infrastructure
 //

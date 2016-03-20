@@ -1,5 +1,4 @@
-//===-- NyuziTargetInfo.cpp - Nyuzi Target Implementation
-//-----------------===//
+//===-- NyuziTargetInfo.cpp - Nyuzi Target Implementation -----------------===//
 //
 //                     The LLVM Compiler Infrastructure
 //

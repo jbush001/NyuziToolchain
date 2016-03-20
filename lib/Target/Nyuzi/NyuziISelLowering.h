@@ -1,5 +1,4 @@
-//===-- NyuziISelLowering.h - Nyuzi DAG Lowering Interface ------*-
-// C++ -*-===//
+//===-- NyuziISelLowering.h - Nyuzi DAG Lowering Interface -----*- C++ -*-===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -67,6 +66,7 @@ public:
                     SmallVectorImpl<SDValue> &InVals) const override;
   unsigned getJumpTableEncoding() const override;
   bool isShuffleMaskLegal(const SmallVectorImpl<int> &M, EVT VT) const override;
+  bool isIntDivCheap(EVT VT, AttributeSet Attr) const override;
 
 private:
   MachineBasicBlock *EmitSelectCC(MachineInstr *MI,
@@ -101,9 +101,6 @@ private:
   SDValue LowerVASTART(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerFABS(SDValue Op, SelectionDAG &DAG) const;
 
-  bool isIntDivCheap(EVT VT, AttributeSet Attr) const override;
-
-private:
   const NyuziSubtarget &Subtarget;
 };
 } // end namespace llvm

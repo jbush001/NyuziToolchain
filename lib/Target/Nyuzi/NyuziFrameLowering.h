@@ -1,5 +1,4 @@
-//===-- NyuziFrameLowering.h - Define frame lowering for Nyuzi --*-
-// C++ -*-===//
+//===- NyuziFrameLowering.h - Define frame lowering for Nyuzi --*- C++ -*-===//
 //
 //                     The LLVM Compiler Infrastructure
 //

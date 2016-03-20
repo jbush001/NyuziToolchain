@@ -1,5 +1,4 @@
-//===-- NyuziISelDAGToDAG.cpp - A dag to dag inst selector for Nyuzi
-//------===//
+//===-- NyuziISelDAGToDAG.cpp - A dag to dag inst selector for Nyuzi ------===//
 //
 //                     The LLVM Compiler Infrastructure
 //

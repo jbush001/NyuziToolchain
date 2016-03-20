@@ -1,4 +1,4 @@
-//===-- NyuziSubtarget.h - Define Subtarget for the Nyuzi -----*-//
+//===--------- NyuziSubtarget.h - Define Subtarget for the Nyuzi -----------*-//
 //
 //                     The LLVM Compiler Infrastructure
 //

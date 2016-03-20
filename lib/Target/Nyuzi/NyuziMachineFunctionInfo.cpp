@@ -1,5 +1,4 @@
-//===-- NyuziMachineFunctionInfo.cpp - Nyuzi Machine Function Info
-//--------===//
+//===-- NyuziMachineFunctionInfo.cpp - Nyuzi Machine Function Info --------===//
 //
 //                     The LLVM Compiler Infrastructure
 //

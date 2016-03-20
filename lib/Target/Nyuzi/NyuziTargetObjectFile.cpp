@@ -1,5 +1,4 @@
-//===-- NyuziTargetObjectFile.cpp - Nyuzi Object Info
-//-----------------===//
+//===------ NyuziTargetObjectFile.cpp - Nyuzi Object Info -----------------===//
 //
 //                     The LLVM Compiler Infrastructure
 //

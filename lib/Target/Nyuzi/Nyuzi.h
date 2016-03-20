@@ -1,5 +1,4 @@
-//===-- Nyuzi.h - Top-level interface for Nyuzi representation --*-
-// C++ -*-===//
+//===-- Nyuzi.h - Top-level interface for Nyuzi representation -*- C++ -*-===//
 //
 //                     The LLVM Compiler Infrastructure
 //

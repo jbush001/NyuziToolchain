@@ -1,17 +1,16 @@
-//===-- NyuziMCInstLower.h - Lower MachineInstr to MCInst -------*- C++
-//-*--===//
+//===-- NyuziMCInstLower.h - Lower MachineInstr to MCInst ----*- C++ -*--===//
 //
 //                     The LLVM Compiler Infrastructure
 //
 // This file is distributed under the University of Illinois Open Source
 // License. See LICENSE.TXT for details.
 //
-//===----------------------------------------------------------------------===//
+//===--------------------------------------------------------------------===//
 //
 // NyuziMCInstLower - Helper class used by NyuziAsmPrinter to convert
 // MachineInstrs into MCInsts
 //
-//===----------------------------------------------------------------------===//
+//===--------------------------------------------------------------------===//
 
 #ifndef NYUZIMCINSTLOWER_H
 #define NYUZIMCINSTLOWER_H

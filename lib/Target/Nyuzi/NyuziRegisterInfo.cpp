@@ -1,4 +1,4 @@
-//===-- NyuziRegisterInfo.cpp - Nyuzi Register Information ------===//
+//===------- NyuziRegisterInfo.cpp - Nyuzi Register Information -----------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -33,9 +33,7 @@
 
 using namespace llvm;
 
-NyuziRegisterInfo::NyuziRegisterInfo(NyuziSubtarget &st,
-                                     const TargetInstrInfo &tii)
-    : NyuziGenRegisterInfo(Nyuzi::FP_REG), Subtarget(st), TII(tii) {}
+NyuziRegisterInfo::NyuziRegisterInfo() : NyuziGenRegisterInfo(Nyuzi::FP_REG) {}
 
 const uint16_t *
 NyuziRegisterInfo::getCalleeSavedRegs(const MachineFunction *MF) const {
@@ -110,7 +108,7 @@ void NyuziRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator MBBI,
     DebugLoc DL = MBBI->getDebugLoc();
     MachineBasicBlock &MBB = *MBBI->getParent();
     const NyuziInstrInfo &TII =
-        *static_cast<const NyuziInstrInfo *>(Subtarget.getInstrInfo());
+        *static_cast<const NyuziInstrInfo *>(MF.getSubtarget().getInstrInfo());
 
     MachineRegisterInfo &RegInfo = MBB.getParent()->getRegInfo();
     unsigned Reg = RegInfo.createVirtualRegister(&Nyuzi::GPR32RegClass);

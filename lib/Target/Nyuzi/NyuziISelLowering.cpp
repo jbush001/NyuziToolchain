@@ -1,5 +1,4 @@
-//===-- NyuziISelLowering.cpp - Nyuzi DAG Lowering Implementation
-//---------===//
+//===-- NyuziISelLowering.cpp - Nyuzi DAG Lowering Implementation ---------===//
 //
 //                     The LLVM Compiler Infrastructure
 //

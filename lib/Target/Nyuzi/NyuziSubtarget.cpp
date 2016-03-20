@@ -1,4 +1,4 @@
-//===-- NyuziSubtarget.cpp - Nyuzi Subtarget Information  ------===//
+//===--------- NyuziSubtarget.cpp - Nyuzi Subtarget Information  ----------===//
 //
 //                     The LLVM Compiler Infrastructure
 //

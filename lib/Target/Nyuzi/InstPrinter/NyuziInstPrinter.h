@@ -1,5 +1,4 @@
-//=== NyuziInstPrinter.h - Convert Nyuzi MCInst to assembly syntax -*-
-// C++ -*-==//
+//= NyuziInstPrinter.h - Convert Nyuzi MCInst to assembly syntax -*- C++ -*-==//
 //
 //                     The LLVM Compiler Infrastructure
 //
