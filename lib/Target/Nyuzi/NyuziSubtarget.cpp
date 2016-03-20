@@ -34,6 +34,8 @@ NyuziSubtarget::NyuziSubtarget(const Triple &TT, const std::string &CPU,
       FrameLowering(NyuziFrameLowering::create(*this)) {
 
   std::string CPUName = CPU;
+
+  // CPUName is empty when invoked from tools like llc
   if (CPUName.empty())
     CPUName = "nyuzi";
 

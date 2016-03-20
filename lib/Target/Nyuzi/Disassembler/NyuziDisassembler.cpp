@@ -76,8 +76,7 @@ DecodeStatus DecodeVR512RegisterClass(MCInst &Inst, unsigned RegNo,
                                       uint64_t Address, const void *Decoder);
 
 namespace llvm {
-extern Target TheNyuzielTarget, TheNyuziTarget, TheNyuzi64Target,
-    TheNyuzi64elTarget;
+extern Target TheNyuziTarget;
 }
 
 static MCDisassembler *createNyuziDisassembler(const Target &T,

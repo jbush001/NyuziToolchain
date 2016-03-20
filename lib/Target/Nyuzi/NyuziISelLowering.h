@@ -22,16 +22,16 @@ namespace llvm {
 class NyuziSubtarget;
 
 namespace NyuziISD {
-enum {
-  FIRST_NUMBER = ISD::BUILTIN_OP_END,
-  CALL,     // A call instruction.
-  RET_FLAG, // Return with a flag operand.
-  SPLAT,    // Copy scalar register into all lanes of a vector
-  SEL_COND_RESULT,
-  RECIPROCAL_EST,
-  BR_JT,
-  JT_WRAPPER,
-};
+  enum {
+    FIRST_NUMBER = ISD::BUILTIN_OP_END,
+    CALL,     // A call instruction.
+    RET_FLAG, // Return with a flag operand.
+    SPLAT,    // Copy scalar register into all lanes of a vector
+    SEL_COND_RESULT,
+    RECIPROCAL_EST,
+    BR_JT,
+    JT_WRAPPER,
+  };
 }
 
 class NyuziTargetLowering : public TargetLowering {

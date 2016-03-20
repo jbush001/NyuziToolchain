@@ -32,7 +32,7 @@ class MachineBasicBlock;
 class Module;
 class raw_ostream;
 
-class NyuziAsmPrinter : public AsmPrinter {
+class LLVM_LIBRARY_VISIBILITY NyuziAsmPrinter : public AsmPrinter {
   NyuziMCInstLower MCInstLowering;
 
 public:

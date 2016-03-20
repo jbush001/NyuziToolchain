@@ -13,7 +13,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#define DEBUG_TYPE "isel"
+#define DEBUG_TYPE "nyuzi-isel-lowering"
+
 #include "NyuziISelLowering.h"
 #include "NyuziMachineFunctionInfo.h"
 #include "NyuziTargetMachine.h"

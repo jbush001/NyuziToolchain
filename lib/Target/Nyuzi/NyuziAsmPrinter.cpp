@@ -7,7 +7,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#define DEBUG_TYPE "asm-printer"
+#define DEBUG_TYPE "nyuzi-asm-printer"
 #include "NyuziAsmPrinter.h"
 #include "InstPrinter/NyuziInstPrinter.h"
 #include "Nyuzi.h"
