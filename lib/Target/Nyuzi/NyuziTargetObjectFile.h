@@ -22,7 +22,7 @@
 namespace llvm {
 
 class NyuziTargetObjectFile : public TargetLoweringObjectFileELF {
-  virtual void Initialize(MCContext &Ctx, const TargetMachine &TM) override;
+  void Initialize(MCContext &Ctx, const TargetMachine &TM) override;
 };
 
 } // end namespace llvm

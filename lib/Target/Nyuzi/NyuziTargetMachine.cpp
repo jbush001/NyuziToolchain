@@ -45,7 +45,7 @@ public:
     return getTM<NyuziTargetMachine>();
   }
 
-  virtual bool addInstSelector() override;
+  bool addInstSelector() override;
 };
 } // namespace
 

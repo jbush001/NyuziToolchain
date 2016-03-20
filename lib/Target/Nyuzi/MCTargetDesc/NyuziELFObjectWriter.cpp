@@ -23,9 +23,8 @@ public:
   virtual ~NyuziELFObjectWriter();
 
 protected:
-  virtual unsigned getRelocType(MCContext &Ctx, const MCValue &Target,
-                                const MCFixup &Fixup,
-                                bool IsPCRel) const override;
+  unsigned getRelocType(MCContext &Ctx, const MCValue &Target,
+                        const MCFixup &Fixup, bool IsPCRel) const override;
 };
 }
 

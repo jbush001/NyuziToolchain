@@ -42,34 +42,31 @@ public:
 
   explicit NyuziTargetLowering(const TargetMachine &TM,
                                const NyuziSubtarget &STI);
-  virtual SDValue LowerOperation(SDValue Op, SelectionDAG &DAG) const override;
-  virtual MachineBasicBlock *
+  SDValue LowerOperation(SDValue Op, SelectionDAG &DAG) const override;
+  MachineBasicBlock *
   EmitInstrWithCustomInserter(MachineInstr *MI,
                               MachineBasicBlock *MBB) const override;
-  virtual const char *getTargetNodeName(unsigned Opcode) const override;
-  virtual ConstraintType getConstraintType(StringRef Constraint) const override;
+  const char *getTargetNodeName(unsigned Opcode) const override;
+  ConstraintType getConstraintType(StringRef Constraint) const override;
   std::pair<unsigned, const TargetRegisterClass *>
   getRegForInlineAsmConstraint(const TargetRegisterInfo *TRI,
                                StringRef Constraint, MVT VT) const override;
-  virtual bool
-  isOffsetFoldingLegal(const GlobalAddressSDNode *GA) const override;
-  virtual EVT getSetCCResultType(const DataLayout &, LLVMContext &Context,
-                                 EVT VT) const override;
-  virtual SDValue LowerReturn(SDValue Chain, CallingConv::ID CallConv,
-                              bool isVarArg,
-                              const SmallVectorImpl<ISD::OutputArg> &Outs,
-                              const SmallVectorImpl<SDValue> &OutVals, SDLoc,
-                              SelectionDAG &DAG) const override;
-  virtual SDValue
-  LowerFormalArguments(SDValue Chain, CallingConv::ID CallConv, bool isVarArg,
-                       const SmallVectorImpl<ISD::InputArg> &Ins, SDLoc,
-                       SelectionDAG &DAG,
-                       SmallVectorImpl<SDValue> &InVals) const override;
-  virtual SDValue LowerCall(TargetLowering::CallLoweringInfo &CLI,
-                            SmallVectorImpl<SDValue> &InVals) const override;
-  virtual unsigned getJumpTableEncoding() const override;
-  virtual bool isShuffleMaskLegal(const SmallVectorImpl<int> &M,
-                                  EVT VT) const override;
+  bool isOffsetFoldingLegal(const GlobalAddressSDNode *GA) const override;
+  EVT getSetCCResultType(const DataLayout &, LLVMContext &Context,
+                         EVT VT) const override;
+  SDValue LowerReturn(SDValue Chain, CallingConv::ID CallConv, bool isVarArg,
+                      const SmallVectorImpl<ISD::OutputArg> &Outs,
+                      const SmallVectorImpl<SDValue> &OutVals, SDLoc,
+                      SelectionDAG &DAG) const override;
+  SDValue LowerFormalArguments(SDValue Chain, CallingConv::ID CallConv,
+                               bool isVarArg,
+                               const SmallVectorImpl<ISD::InputArg> &Ins, SDLoc,
+                               SelectionDAG &DAG,
+                               SmallVectorImpl<SDValue> &InVals) const override;
+  SDValue LowerCall(TargetLowering::CallLoweringInfo &CLI,
+                    SmallVectorImpl<SDValue> &InVals) const override;
+  unsigned getJumpTableEncoding() const override;
+  bool isShuffleMaskLegal(const SmallVectorImpl<int> &M, EVT VT) const override;
 
 private:
   MachineBasicBlock *EmitSelectCC(MachineInstr *MI,

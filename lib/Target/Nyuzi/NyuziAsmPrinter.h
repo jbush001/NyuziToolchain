@@ -40,22 +40,20 @@ public:
                            std::unique_ptr<MCStreamer> Streamer)
       : AsmPrinter(TM, std::move(Streamer)), MCInstLowering(*this) {}
 
-  virtual const char *getPassName() const override {
-    return "Nyuzi Assembly Printer";
-  }
+  const char *getPassName() const override { return "Nyuzi Assembly Printer"; }
 
-  virtual void EmitInstruction(const MachineInstr *MI) override;
-  virtual void EmitFunctionBodyStart() override;
-  virtual void EmitFunctionBodyEnd() override;
-  virtual void EmitConstantPool() override;
+  void EmitInstruction(const MachineInstr *MI) override;
+  void EmitFunctionBodyStart() override;
+  void EmitFunctionBodyEnd() override;
+  void EmitConstantPool() override;
 
   // Print operand for inline assembly
-  virtual bool PrintAsmOperand(const MachineInstr *MI, unsigned OpNo,
-                               unsigned AsmVariant, const char *ExtraCode,
-                               raw_ostream &O) override;
-  virtual bool PrintAsmMemoryOperand(const MachineInstr *MI, unsigned OpNum,
-                                     unsigned AsmVariant, const char *ExtraCode,
-                                     raw_ostream &O) override;
+  bool PrintAsmOperand(const MachineInstr *MI, unsigned OpNo,
+                       unsigned AsmVariant, const char *ExtraCode,
+                       raw_ostream &O) override;
+  bool PrintAsmMemoryOperand(const MachineInstr *MI, unsigned OpNum,
+                             unsigned AsmVariant, const char *ExtraCode,
+                             raw_ostream &O) override;
 
 private:
   MCSymbol *GetJumpTableLabel(unsigned uid) const;

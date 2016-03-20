@@ -33,9 +33,8 @@ public:
                      CodeGenOpt::Level OL);
 
   // Pass Pipeline Configuration
-  virtual TargetPassConfig *createPassConfig(PassManagerBase &PM) override;
-  virtual const NyuziSubtarget *
-  getSubtargetImpl(const Function &) const override {
+  TargetPassConfig *createPassConfig(PassManagerBase &PM) override;
+  const NyuziSubtarget *getSubtargetImpl(const Function &) const override {
     return &Subtarget;
   }
 

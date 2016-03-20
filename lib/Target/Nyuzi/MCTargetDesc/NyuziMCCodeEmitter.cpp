@@ -81,9 +81,9 @@ public:
     }
   }
 
-  virtual void encodeInstruction(const MCInst &MI, raw_ostream &OS,
-                                 SmallVectorImpl<MCFixup> &Fixups,
-                                 const MCSubtargetInfo &STI) const override;
+  void encodeInstruction(const MCInst &MI, raw_ostream &OS,
+                         SmallVectorImpl<MCFixup> &Fixups,
+                         const MCSubtargetInfo &STI) const override;
 
 private:
   NyuziMCCodeEmitter(const NyuziMCCodeEmitter &) = delete;
