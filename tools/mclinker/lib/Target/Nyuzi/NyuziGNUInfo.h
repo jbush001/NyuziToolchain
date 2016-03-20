@@ -14,10 +14,9 @@
 
 namespace mcld {
 
-class NyuziGNUInfo : public GNUInfo
-{
-public:
-  NyuziGNUInfo(const llvm::Triple& pTriple) : GNUInfo(pTriple) { }
+class NyuziGNUInfo : public GNUInfo {
+ public:
+  NyuziGNUInfo(const llvm::Triple& pTriple) : GNUInfo(pTriple) {}
 
   uint32_t machine() const { return llvm::ELF::EM_NYUZI; }
 
@@ -29,7 +28,6 @@ public:
   uint64_t flags() const { return 0x0; }
 };
 
-} // namespace of mcld
+}  // namespace of mcld
 
 #endif
-

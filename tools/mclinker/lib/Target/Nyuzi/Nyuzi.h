@@ -12,7 +12,7 @@
 
 namespace llvm {
 class Target;
-} // namespace of llvm
+}  // namespace of llvm
 
 namespace mcld {
 
@@ -21,10 +21,9 @@ class TargetLDBackend;
 
 extern mcld::Target TheNyuziTarget;
 
-TargetLDBackend *createNyuziLDBackend(const llvm::Target&,
-                                        const std::string&);
+TargetLDBackend *createNyuziLDBackend(const llvm::Target &,
+                                      const std::string &);
 
-} // namespace of mcld
+}  // namespace of mcld
 
 #endif
-

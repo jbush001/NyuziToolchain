@@ -7,12 +7,12 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include <mcld/LinkerConfig.h>
 #include <mcld/IRBuilder.h>
-#include <mcld/Support/MsgHandling.h>
-#include <mcld/LD/LDSymbol.h>
 #include <mcld/LD/ELFFileFormat.h>
+#include <mcld/LD/LDSymbol.h>
+#include <mcld/LinkerConfig.h>
 #include <mcld/Object/ObjectBuilder.h>
+#include <mcld/Support/MsgHandling.h>
 
 #include <llvm/ADT/Twine.h>
 #include <llvm/Support/DataTypes.h>
@@ -20,9 +20,9 @@
 #include <llvm/Support/Host.h>
 #include <mcld/Support/raw_ostream.h>
 
-#include "NyuziRelocator.h"
 #include "NyuziRelocationFunctions.h"
 #include "NyuziRelocationHelpers.h"
+#include "NyuziRelocator.h"
 
 using namespace mcld;
 
@@ -37,12 +37,11 @@ typedef Relocator::Result (*ApplyFunctionType)(Relocation& pReloc,
 
 // the table entry of applying functions
 class ApplyFunctionEntry {
-public:
+ public:
   ApplyFunctionEntry() {}
-  ApplyFunctionEntry(ApplyFunctionType pFunc,
-                     const char* pName,
+  ApplyFunctionEntry(ApplyFunctionType pFunc, const char* pName,
                      size_t pSize = 0)
-      : func(pFunc), name(pName), size(pSize) { }
+      : func(pFunc), name(pName), size(pSize) {}
   ApplyFunctionType func;
   const char* name;
   size_t size;
@@ -50,29 +49,25 @@ public:
 typedef std::map<Relocator::Type, ApplyFunctionEntry> ApplyFunctionMap;
 
 static const ApplyFunctionMap::value_type ApplyFunctionList[] = {
-  DECL_NYUZI_APPLY_RELOC_FUNC_PTRS(ApplyFunctionMap::value_type,
-                                     ApplyFunctionEntry)
-};
+    DECL_NYUZI_APPLY_RELOC_FUNC_PTRS(ApplyFunctionMap::value_type,
+                                     ApplyFunctionEntry)};
 
 // declare the table of applying functions
 static ApplyFunctionMap ApplyFunctions(ApplyFunctionList,
-    ApplyFunctionList + sizeof(ApplyFunctionList)/sizeof(ApplyFunctionList[0]));
+                                       ApplyFunctionList +
+                                           sizeof(ApplyFunctionList) /
+                                               sizeof(ApplyFunctionList[0]));
 
 //===----------------------------------------------------------------------===//
 // NyuziRelocator
 //===----------------------------------------------------------------------===//
 NyuziRelocator::NyuziRelocator(NyuziGNULDBackend& pParent,
-                                   const LinkerConfig& pConfig)
-  : Relocator(pConfig),
-    m_Target(pParent) {
-}
+                               const LinkerConfig& pConfig)
+    : Relocator(pConfig), m_Target(pParent) {}
 
-NyuziRelocator::~NyuziRelocator()
-{
-}
+NyuziRelocator::~NyuziRelocator() {}
 
-Relocator::Result NyuziRelocator::applyRelocation(Relocation& pRelocation)
-{
+Relocator::Result NyuziRelocator::applyRelocation(Relocation& pRelocation) {
   Relocation::Type type = pRelocation.type();
   assert(ApplyFunctions.find(type) != ApplyFunctions.end());
   return ApplyFunctions[type].func(pRelocation, *this);
@@ -82,8 +77,8 @@ uint32_t NyuziRelocator::getDebugStringOffset(Relocation& pReloc) const {
   if (pReloc.type() != llvm::ELF::R_NYUZI_ABS32)
     error(diag::unsupport_reloc_for_debug_string) << getName(pReloc.type());
 
-  return pReloc.symInfo()->outSymbol()->fragRef()->offset() +
-         pReloc.target() + pReloc.addend();
+  return pReloc.symInfo()->outSymbol()->fragRef()->offset() + pReloc.target() +
+         pReloc.addend();
 }
 
 void NyuziRelocator::applyDebugStringOffset(Relocation& pReloc,
@@ -91,30 +86,24 @@ void NyuziRelocator::applyDebugStringOffset(Relocation& pReloc,
   pReloc.target() = pOffset;
 }
 
-const char* NyuziRelocator::getName(Relocator::Type pType) const
-{
+const char* NyuziRelocator::getName(Relocator::Type pType) const {
   assert(ApplyFunctions.find(pType) != ApplyFunctions.end());
   return ApplyFunctions[pType].name;
 }
 
-Relocator::Size NyuziRelocator::getSize(Relocation::Type pType) const
-{
+Relocator::Size NyuziRelocator::getSize(Relocation::Type pType) const {
   return ApplyFunctions[pType].size;
 }
 
-void NyuziRelocator::scanRelocation(Relocation& pReloc,
-                                      IRBuilder& pBuilder,
-                                      Module& pModule,
-                                      LDSection& pSection,
-                                      Input& pInput)
-{
+void NyuziRelocator::scanRelocation(Relocation& pReloc, IRBuilder& pBuilder,
+                                    Module& pModule, LDSection& pSection,
+                                    Input& pInput) {
   ResolveInfo* rsym = pReloc.symInfo();
   assert(NULL != rsym &&
          "ResolveInfo of relocation not set while scanRelocation");
 
   assert(NULL != pSection.getLink());
-  if (0 == (pSection.getLink()->flag() & llvm::ELF::SHF_ALLOC))
-    return;
+  if (0 == (pSection.getLink()->flag() & llvm::ELF::SHF_ALLOC)) return;
 
   // check if we shoule issue undefined reference for the relocation target
   // symbol
@@ -126,14 +115,11 @@ void NyuziRelocator::scanRelocation(Relocation& pReloc,
 // Each relocation function implementation
 //===----------------------------------------------------------------------===//
 
-Relocator::Result none(Relocation& pReloc, NyuziRelocator& pParent)
-{
+Relocator::Result none(Relocation& pReloc, NyuziRelocator& pParent) {
   return Relocator::OK;
 }
 
-
-Relocator::Result abs(Relocation& pReloc, NyuziRelocator& pParent)
-{
+Relocator::Result abs(Relocation& pReloc, NyuziRelocator& pParent) {
   Relocator::DWord A = pReloc.addend();
   Relocator::DWord S = pReloc.symValue();
   pReloc.target() = S + A;
@@ -141,61 +127,51 @@ Relocator::Result abs(Relocation& pReloc, NyuziRelocator& pParent)
   return Relocator::OK;
 }
 
-Relocator::Result branch(Relocation& pReloc, NyuziRelocator& pParent)
-{
+Relocator::Result branch(Relocation& pReloc, NyuziRelocator& pParent) {
   Relocator::Address S = pReloc.symValue();
   Relocator::Address P = pReloc.place();
   int offset = S - (P + 4);
 
-  if (helper_check_signed_overflow(offset, 20))
-    return Relocator::Overflow;
+  if (helper_check_signed_overflow(offset, 20)) return Relocator::Overflow;
 
   pReloc.target() = helper_replace_field(pReloc.target(), offset, 5, 20);
 
   return Relocator::OK;
 }
 
-Relocator::Result mem(Relocation& pReloc, NyuziRelocator& pParent)
-{
+Relocator::Result mem(Relocation& pReloc, NyuziRelocator& pParent) {
   Relocator::Address S = pReloc.symValue();
   Relocator::Address P = pReloc.place();
   int offset = S - (P + 4);
 
-  if (helper_check_signed_overflow(offset, 10))
-    return Relocator::Overflow;
+  if (helper_check_signed_overflow(offset, 10)) return Relocator::Overflow;
 
   pReloc.target() = helper_replace_field(pReloc.target(), offset, 15, 10);
 
   return Relocator::OK;
 }
 
-Relocator::Result memext(Relocation& pReloc, NyuziRelocator& pParent)
-{
+Relocator::Result memext(Relocation& pReloc, NyuziRelocator& pParent) {
   Relocator::Address S = pReloc.symValue();
   Relocator::Address P = pReloc.place();
   Relocator::Address A = pReloc.addend();
   int offset = (S + A) - (P + 4);
 
-  if (helper_check_signed_overflow(offset, 15))
-    return Relocator::Overflow;
+  if (helper_check_signed_overflow(offset, 15)) return Relocator::Overflow;
 
   pReloc.target() = helper_replace_field(pReloc.target(), offset, 10, 15);
 
   return Relocator::OK;
 }
 
-Relocator::Result lea(Relocation& pReloc, NyuziRelocator& pParent)
-{
+Relocator::Result lea(Relocation& pReloc, NyuziRelocator& pParent) {
   Relocator::Address S = pReloc.symValue();
   Relocator::Address P = pReloc.place();
   int offset = S - (P + 4);
 
-  if (helper_check_signed_overflow(offset, 13))
-    return Relocator::Overflow;
+  if (helper_check_signed_overflow(offset, 13)) return Relocator::Overflow;
 
   pReloc.target() = helper_replace_field(pReloc.target(), offset, 10, 13);
 
   return Relocator::OK;
 }
-
-

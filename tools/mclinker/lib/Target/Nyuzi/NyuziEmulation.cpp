@@ -9,15 +9,13 @@
 #include "Nyuzi.h"
 #include <mcld/LinkerConfig.h>
 #include <mcld/LinkerScript.h>
-#include <mcld/Target/ELFEmulation.h>
 #include <mcld/Support/TargetRegistry.h>
+#include <mcld/Target/ELFEmulation.h>
 
 namespace mcld {
 
-static bool MCLDEmulateNyuziELF(LinkerScript& pScript, LinkerConfig& pConfig)
-{
-  if (!MCLDEmulateELF(pScript, pConfig))
-    return false;
+static bool MCLDEmulateNyuziELF(LinkerScript& pScript, LinkerConfig& pConfig) {
+  if (!MCLDEmulateELF(pScript, pConfig)) return false;
 
   // set up bitclass and endian
   pConfig.targets().setEndian(TargetOptions::Little);
@@ -32,19 +30,13 @@ static bool MCLDEmulateNyuziELF(LinkerScript& pScript, LinkerConfig& pConfig)
   pConfig.attribute().predefined().unsetWholeArchive();
   pConfig.attribute().predefined().unsetAsNeeded();
 
-  // set up section map
-  if (pConfig.options().getScriptList().empty() &&
-      pConfig.codeGenType() != LinkerConfig::Object) {
-    pScript.sectionMap().insert(".ARM.attributes*", ".ARM.attributes");
-  }
   return true;
 }
 
 //===----------------------------------------------------------------------===//
 // emulateNyuziLD - the help function to emulate Nyuzi ld
 //===----------------------------------------------------------------------===//
-bool emulateNyuziLD(LinkerScript& pScript, LinkerConfig& pConfig)
-{
+bool emulateNyuziLD(LinkerScript& pScript, LinkerConfig& pConfig) {
   if (pConfig.targets().triple().isOSDarwin()) {
     assert(0 && "MachO linker has not supported");
     return false;
@@ -57,7 +49,7 @@ bool emulateNyuziLD(LinkerScript& pScript, LinkerConfig& pConfig)
   return MCLDEmulateNyuziELF(pScript, pConfig);
 }
 
-} // namespace of mcld
+}  // namespace of mcld
 
 //===----------------------------------------------------------------------===//
 // NyuziEmulation
@@ -67,4 +59,3 @@ extern "C" void MCLDInitializeNyuziEmulation() {
   mcld::TargetRegistry::RegisterEmulation(mcld::TheNyuziTarget,
                                           mcld::emulateNyuziLD);
 }
-

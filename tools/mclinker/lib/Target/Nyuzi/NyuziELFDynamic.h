@@ -14,15 +14,15 @@
 namespace mcld {
 
 class NyuziELFDynamic : public ELFDynamic {
-public:
+ public:
   NyuziELFDynamic(const GNULDBackend& pParent, const LinkerConfig& pConfig);
   ~NyuziELFDynamic();
 
-private:
+ private:
   void reserveTargetEntries(const ELFFileFormat& pFormat);
   void applyTargetEntries(const ELFFileFormat& pFormat);
 };
 
-} // namespace of mcld
+}  // namespace of mcld
 
 #endif

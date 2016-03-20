@@ -16,29 +16,29 @@
 
 #include <llvm/ADT/Triple.h>
 #include <llvm/ADT/Twine.h>
-#include <llvm/Support/ELF.h>
 #include <llvm/Support/Casting.h>
+#include <llvm/Support/ELF.h>
 
-#include <mcld/IRBuilder.h>
-#include <mcld/LinkerConfig.h>
-#include <mcld/Fragment/FillFragment.h>
 #include <mcld/Fragment/AlignFragment.h>
+#include <mcld/Fragment/FillFragment.h>
+#include <mcld/Fragment/NullFragment.h>
 #include <mcld/Fragment/RegionFragment.h>
 #include <mcld/Fragment/Stub.h>
-#include <mcld/Fragment/NullFragment.h>
-#include <mcld/Support/MemoryRegion.h>
+#include <mcld/IRBuilder.h>
+#include <mcld/LD/BranchIslandFactory.h>
+#include <mcld/LD/ELFFileFormat.h>
+#include <mcld/LD/ELFSegment.h>
+#include <mcld/LD/ELFSegmentFactory.h>
+#include <mcld/LD/LDContext.h>
+#include <mcld/LD/StubFactory.h>
+#include <mcld/LinkerConfig.h>
+#include <mcld/Object/ObjectBuilder.h>
 #include <mcld/Support/MemoryArea.h>
+#include <mcld/Support/MemoryRegion.h>
 #include <mcld/Support/MsgHandling.h>
 #include <mcld/Support/TargetRegistry.h>
-#include <mcld/LD/BranchIslandFactory.h>
-#include <mcld/LD/StubFactory.h>
-#include <mcld/LD/LDContext.h>
-#include <mcld/LD/ELFFileFormat.h>
-#include <mcld/LD/ELFSegmentFactory.h>
-#include <mcld/LD/ELFSegment.h>
 #include <mcld/Target/ELFAttribute.h>
 #include <mcld/Target/GNUInfo.h>
-#include <mcld/Object/ObjectBuilder.h>
 
 using namespace mcld;
 
@@ -46,27 +46,20 @@ using namespace mcld;
 // NyuziGNULDBackend
 //===----------------------------------------------------------------------===//
 NyuziGNULDBackend::NyuziGNULDBackend(const LinkerConfig& pConfig,
-                                         GNUInfo* pInfo)
-  : GNULDBackend(pConfig, pInfo),
-    m_pRelocator(NULL),
-    m_pRelaDyn(NULL),
-    m_pDynamic(NULL)
-{
-}
+                                     GNUInfo* pInfo)
+    : GNULDBackend(pConfig, pInfo),
+      m_pRelocator(NULL),
+      m_pRelaDyn(NULL),
+      m_pDynamic(NULL) {}
 
-NyuziGNULDBackend::~NyuziGNULDBackend()
-{
-  if (m_pRelocator != NULL)
-    delete m_pRelocator;
-  if (m_pRelaDyn != NULL)
-    delete m_pRelaDyn;
-  if (m_pDynamic != NULL)
-    delete m_pDynamic;
+NyuziGNULDBackend::~NyuziGNULDBackend() {
+  if (m_pRelocator != NULL) delete m_pRelocator;
+  if (m_pRelaDyn != NULL) delete m_pRelaDyn;
+  if (m_pDynamic != NULL) delete m_pDynamic;
 }
 
 void NyuziGNULDBackend::initTargetSections(Module& pModule,
-                                             ObjectBuilder& pBuilder)
-{
+                                           ObjectBuilder& pBuilder) {
   // TODO
 
   if (LinkerConfig::Object != config().codeGenType()) {
@@ -79,32 +72,26 @@ void NyuziGNULDBackend::initTargetSections(Module& pModule,
 }
 
 void NyuziGNULDBackend::initTargetSymbols(IRBuilder& pBuilder,
-                                            Module& pModule)
-{
-}
+                                          Module& pModule) {}
 
-bool NyuziGNULDBackend::initRelocator()
-{
+bool NyuziGNULDBackend::initRelocator() {
   if (NULL == m_pRelocator) {
     m_pRelocator = new NyuziRelocator(*this, config());
   }
   return true;
 }
 
-const Relocator* NyuziGNULDBackend::getRelocator() const
-{
+const Relocator* NyuziGNULDBackend::getRelocator() const {
   assert(NULL != m_pRelocator);
   return m_pRelocator;
 }
 
-Relocator* NyuziGNULDBackend::getRelocator()
-{
+Relocator* NyuziGNULDBackend::getRelocator() {
   assert(NULL != m_pRelocator);
   return m_pRelocator;
 }
 
-void NyuziGNULDBackend::doPreLayout(IRBuilder& pBuilder)
-{
+void NyuziGNULDBackend::doPreLayout(IRBuilder& pBuilder) {
   // initialize .dynamic data
   if (!config().isCodeStatic() && NULL == m_pDynamic)
     m_pDynamic = new NyuziELFDynamic(*this, config());
@@ -113,93 +100,78 @@ void NyuziGNULDBackend::doPreLayout(IRBuilder& pBuilder)
     ELFFileFormat* file_format = getOutputFormat();
     // set .rela.dyn size
     if (!m_pRelaDyn->empty()) {
-      assert(!config().isCodeStatic() &&
-            "static linkage should not result in a dynamic relocation section");
-      file_format->getRelaDyn().setSize(
-                                m_pRelaDyn->numOfRelocs() * getRelaEntrySize());
+      assert(
+          !config().isCodeStatic() &&
+          "static linkage should not result in a dynamic relocation section");
+      file_format->getRelaDyn().setSize(m_pRelaDyn->numOfRelocs() *
+                                        getRelaEntrySize());
     }
   }
 }
 
-void NyuziGNULDBackend::doPostLayout(Module& pModule, IRBuilder& pBuilder)
-{
-}
+void NyuziGNULDBackend::doPostLayout(Module& pModule, IRBuilder& pBuilder) {}
 
-NyuziELFDynamic& NyuziGNULDBackend::dynamic()
-{
+NyuziELFDynamic& NyuziGNULDBackend::dynamic() {
   assert(NULL != m_pDynamic);
   return *m_pDynamic;
 }
 
-const NyuziELFDynamic& NyuziGNULDBackend::dynamic() const
-{
+const NyuziELFDynamic& NyuziGNULDBackend::dynamic() const {
   assert(NULL != m_pDynamic);
   return *m_pDynamic;
 }
 
 uint64_t NyuziGNULDBackend::emitSectionData(const LDSection& pSection,
-                                              MemoryRegion& pRegion) const
-{
+                                            MemoryRegion& pRegion) const {
   assert(pRegion.size() && "Size of MemoryRegion is zero!");
 
   return pRegion.size();
 }
 
-unsigned int
-NyuziGNULDBackend::getTargetSectionOrder(const LDSection& pSectHdr) const
-{
+unsigned int NyuziGNULDBackend::getTargetSectionOrder(
+    const LDSection& pSectHdr) const {
   const ELFFileFormat* file_format = getOutputFormat();
 
   return SHO_UNDEFINED;
 }
 
-bool NyuziGNULDBackend::doRelax(Module& pModule,
-                                  IRBuilder& pBuilder,
-                                  bool& pFinished)
-{
+bool NyuziGNULDBackend::doRelax(Module& pModule, IRBuilder& pBuilder,
+                                bool& pFinished) {
   // TODO
   return false;
 }
 
-bool NyuziGNULDBackend::initTargetStubs()
-{
+bool NyuziGNULDBackend::initTargetStubs() {
   // TODO
   return true;
 }
 
-void NyuziGNULDBackend::doCreateProgramHdrs(Module& pModule)
-{
+void NyuziGNULDBackend::doCreateProgramHdrs(Module& pModule) {
   // TODO
 }
 
-bool NyuziGNULDBackend::finalizeTargetSymbols()
-{
+bool NyuziGNULDBackend::finalizeTargetSymbols() {
   // TODO
   return true;
 }
 
-bool NyuziGNULDBackend::mergeSection(Module& pModule,
-                                       const Input& pInput,
-                                       LDSection& pSection)
-{
+bool NyuziGNULDBackend::mergeSection(Module& pModule, const Input& pInput,
+                                     LDSection& pSection) {
   // TODO
   return true;
 }
 
-bool NyuziGNULDBackend::readSection(Input& pInput, SectionData& pSD)
-{
+bool NyuziGNULDBackend::readSection(Input& pInput, SectionData& pSD) {
   // TODO
   return true;
 }
 
-OutputRelocSection& NyuziGNULDBackend::getRelaDyn()
-{
+OutputRelocSection& NyuziGNULDBackend::getRelaDyn() {
   assert(NULL != m_pRelaDyn && ".rela.dyn section not exist");
   return *m_pRelaDyn;
 }
 
-const OutputRelocSection& NyuziGNULDBackend::getRelaDyn() const
-{
+const OutputRelocSection& NyuziGNULDBackend::getRelaDyn() const {
   assert(NULL != m_pRelaDyn && ".rela.dyn section not exist");
   return *m_pRelaDyn;
 }
@@ -210,8 +182,7 @@ namespace mcld {
 //  createNyuziLDBackend - the help funtion to create corresponding
 //  NyuziLDBackend
 //===----------------------------------------------------------------------===//
-TargetLDBackend* createNyuziLDBackend(const LinkerConfig& pConfig)
-{
+TargetLDBackend* createNyuziLDBackend(const LinkerConfig& pConfig) {
   if (pConfig.targets().triple().isOSDarwin()) {
     assert(0 && "MachO linker is not supported");
   }
@@ -219,10 +190,10 @@ TargetLDBackend* createNyuziLDBackend(const LinkerConfig& pConfig)
     assert(0 && "COFF linker is not supported");
   }
   return new NyuziGNULDBackend(pConfig,
-     new NyuziGNUInfo(pConfig.targets().triple()));
+                               new NyuziGNUInfo(pConfig.targets().triple()));
 }
 
-} // namespace of mcld
+}  // namespace of mcld
 
 //===----------------------------------------------------------------------===//
 // Force static initialization.
@@ -232,4 +203,3 @@ extern "C" void MCLDInitializeNyuziLDBackend() {
   mcld::TargetRegistry::RegisterTargetLDBackend(TheNyuziTarget,
                                                 createNyuziLDBackend);
 }
-

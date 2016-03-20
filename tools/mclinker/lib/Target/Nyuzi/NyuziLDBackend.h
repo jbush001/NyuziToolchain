@@ -9,10 +9,10 @@
 #ifndef TARGET_NYUZI_NYUZILDBACKEND_H
 #define TARGET_NYUZI_NYUZILDBACKEND_H
 
-#include "NyuziELFDynamic.h"
 #include <mcld/LD/LDSection.h>
 #include <mcld/Target/GNULDBackend.h>
 #include <mcld/Target/OutputRelocSection.h>
+#include "NyuziELFDynamic.h"
 
 namespace mcld {
 
@@ -22,17 +22,16 @@ class GNUInfo;
 //===----------------------------------------------------------------------===//
 /// NyuziGNULDBackend - linker backend of Nyuzi target of GNU ELF format
 ///
-class NyuziGNULDBackend : public GNULDBackend
-{
-public:
+class NyuziGNULDBackend : public GNULDBackend {
+ public:
   static const int64_t NYUZI_MAX_FWD_BRANCH_OFFSET = (((1 << 25) - 1) << 2);
   static const int64_t NYUZI_MAX_BWD_BRANCH_OFFSET = (-((1 << 25) << 2));
 
-public:
+ public:
   NyuziGNULDBackend(const LinkerConfig& pConfig, GNUInfo* pInfo);
   ~NyuziGNULDBackend();
 
-public:
+ public:
   /// initTargetSections - initialize target dependent sections in output.
   void initTargetSections(Module& pModule, ObjectBuilder& pBuilder);
 
@@ -59,7 +58,6 @@ public:
   /// dynamic - the dynamic section of the target machine.
   /// Use co-variant return type to return its own dynamic section.
   const NyuziELFDynamic& dynamic() const;
-
 
   /// emitSectionData - write out the section data into the memory region.
   /// When writers get a LDSection whose kind is LDFileFormat::Target, writers
@@ -97,7 +95,7 @@ public:
   /// readSection - read target dependent sections
   bool readSection(Input& pInput, SectionData& pSD);
 
-private:
+ private:
   int64_t maxFwdBranchOffset() { return NYUZI_MAX_FWD_BRANCH_OFFSET; }
   int64_t maxBwdBranchOffset() { return NYUZI_MAX_BWD_BRANCH_OFFSET; }
 
@@ -114,35 +112,23 @@ private:
   bool initTargetStubs();
 
   /// getRelEntrySize - the size in BYTE of rel type relocation
-  size_t getRelEntrySize()
-  { return 16; }
+  size_t getRelEntrySize() { return 16; }
 
   /// getRelEntrySize - the size in BYTE of rela type relocation
-  size_t getRelaEntrySize()
-  { return 24; }
+  size_t getRelaEntrySize() { return 24; }
 
   /// doCreateProgramHdrs - backend can implement this function to create the
   /// target-dependent segments
   virtual void doCreateProgramHdrs(Module& pModule);
 
-private:
+ private:
   Relocator* m_pRelocator;
 
   /// m_RelDyn - dynamic relocation table of .rel.dyn
   OutputRelocSection* m_pRelaDyn;
 
-  /// m_pAttrData - attribute data in public ("aeabi") attribute subsection
-  // NyuziELFAttributeData* m_pAttrData;
-
   NyuziELFDynamic* m_pDynamic;
-
-  //     variable name           :  ELF
-  // LDSection* m_pAttributes;      // .ARM.attributes
-  // LDSection* m_pPreemptMap;      // .Nyuzi.preemptmap
-  // LDSection* m_pDebugOverlay;    // .Nyuzi.debug_overlay
-  // LDSection* m_pOverlayTable;    // .Nyuzi.overlay_table
 };
-} // namespace of mcld
+}  // namespace of mcld
 
 #endif
-

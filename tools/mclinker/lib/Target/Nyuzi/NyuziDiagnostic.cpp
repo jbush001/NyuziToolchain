@@ -6,9 +6,9 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#include <mcld/Support/TargetRegistry.h>
-#include <mcld/LD/DWARFLineInfo.h>
 #include "Nyuzi.h"
+#include <mcld/LD/DWARFLineInfo.h>
+#include <mcld/Support/TargetRegistry.h>
 
 using namespace mcld;
 
@@ -18,12 +18,11 @@ namespace mcld {
 // NyuziDiagnostic
 //===----------------------------------------------------------------------===//
 DiagnosticLineInfo* createNyuziDiagLineInfo(const mcld::Target& pTarget,
-                                              const std::string &pTriple)
-{
+                                            const std::string& pTriple) {
   return new DWARFLineInfo();
 }
 
-} // namespace of mcld
+}  // namespace of mcld
 
 //===----------------------------------------------------------------------===//
 // InitializeNyuziDiagnostic
@@ -33,4 +32,3 @@ extern "C" void MCLDInitializeNyuziDiagnosticLineInfo() {
   mcld::TargetRegistry::RegisterDiagnosticLineInfo(TheNyuziTarget,
                                                    createNyuziDiagLineInfo);
 }
-

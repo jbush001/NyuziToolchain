@@ -14,20 +14,11 @@
 using namespace mcld;
 
 NyuziELFDynamic::NyuziELFDynamic(const GNULDBackend& pParent,
-                                     const LinkerConfig& pConfig)
-  : ELFDynamic(pParent, pConfig)
-{
-}
+                                 const LinkerConfig& pConfig)
+    : ELFDynamic(pParent, pConfig) {}
 
-NyuziELFDynamic::~NyuziELFDynamic()
-{
-}
+NyuziELFDynamic::~NyuziELFDynamic() {}
 
-void NyuziELFDynamic::reserveTargetEntries(const ELFFileFormat& pFormat)
-{
-}
+void NyuziELFDynamic::reserveTargetEntries(const ELFFileFormat& pFormat) {}
 
-void NyuziELFDynamic::applyTargetEntries(const ELFFileFormat& pFormat)
-{
-}
-
+void NyuziELFDynamic::applyTargetEntries(const ELFFileFormat& pFormat) {}

@@ -20,13 +20,10 @@ namespace mcld {
  *  \brief NyuziRelocator creates and destroys the Nyuzi relocations.
  *
  */
-class NyuziRelocator : public Relocator
-{
-public:
+class NyuziRelocator : public Relocator {
+ public:
   typedef KeyEntryMap<Relocation, Relocation> RelRelMap;
 
-
-public:
   NyuziRelocator(NyuziGNULDBackend& pParent, const LinkerConfig& pConfig);
   ~NyuziRelocator();
 
@@ -35,31 +32,25 @@ public:
   uint32_t getDebugStringOffset(Relocation& pReloc) const;
   void applyDebugStringOffset(Relocation& pReloc, uint32_t pOffset);
 
-  NyuziGNULDBackend& getTarget()
-  { return m_Target; }
+  NyuziGNULDBackend& getTarget() { return m_Target; }
 
-  const NyuziGNULDBackend& getTarget() const
-  { return m_Target; }
+  const NyuziGNULDBackend& getTarget() const { return m_Target; }
 
   const char* getName(Relocation::Type pType) const;
 
   Size getSize(Relocation::Type pType) const;
 
   const RelRelMap& getRelRelMap() const { return m_RelRelMap; }
-  RelRelMap&       getRelRelMap()       { return m_RelRelMap; }
+  RelRelMap& getRelRelMap() { return m_RelRelMap; }
 
-  void scanRelocation(Relocation& pReloc,
-                      IRBuilder& pBuilder,
-                      Module& pModule,
-                      LDSection& pSection,
-                      Input& pInput);
+  void scanRelocation(Relocation& pReloc, IRBuilder& pBuilder, Module& pModule,
+                      LDSection& pSection, Input& pInput);
 
-private:
+ private:
   NyuziGNULDBackend& m_Target;
   RelRelMap m_RelRelMap;
 };
 
-} // namespace of mcld
+}  // namespace of mcld
 
 #endif
-
