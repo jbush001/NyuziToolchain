@@ -618,8 +618,8 @@ AArch64InstrInfo::areMemAccessesTriviallyDisjoint(MachineInstr *MIa,
                                                   AliasAnalysis *AA) const {
   const TargetRegisterInfo *TRI = &getRegisterInfo();
   unsigned BaseRegA = 0, BaseRegB = 0;
-  int OffsetA = 0, OffsetB = 0;
-  int WidthA = 0, WidthB = 0;
+  int64_t OffsetA = 0, OffsetB = 0;
+  unsigned WidthA = 0, WidthB = 0;
 
   assert(MIa && MIa->mayLoadOrStore() && "MIa must be a load or store.");
   assert(MIb && MIb->mayLoadOrStore() && "MIb must be a load or store.");
@@ -1313,13 +1313,69 @@ void AArch64InstrInfo::suppressLdStPair(MachineInstr *MI) const {
       ->setFlags(MOSuppressPair << MachineMemOperand::MOTargetStartBit);
 }
 
-bool
-AArch64InstrInfo::getMemOpBaseRegImmOfs(MachineInstr *LdSt, unsigned &BaseReg,
-                                        unsigned &Offset,
-                                        const TargetRegisterInfo *TRI) const {
+bool AArch64InstrInfo::isUnscaledLdSt(unsigned Opc) const {
+  switch (Opc) {
+  default:
+    return false;
+  case AArch64::STURSi:
+  case AArch64::STURDi:
+  case AArch64::STURQi:
+  case AArch64::STURBBi:
+  case AArch64::STURHHi:
+  case AArch64::STURWi:
+  case AArch64::STURXi:
+  case AArch64::LDURSi:
+  case AArch64::LDURDi:
+  case AArch64::LDURQi:
+  case AArch64::LDURWi:
+  case AArch64::LDURXi:
+  case AArch64::LDURSWi:
+  case AArch64::LDURHHi:
+  case AArch64::LDURBBi:
+  case AArch64::LDURSBWi:
+  case AArch64::LDURSHWi:
+    return true;
+  }
+}
+
+bool AArch64InstrInfo::isUnscaledLdSt(MachineInstr *MI) const {
+  return isUnscaledLdSt(MI->getOpcode());
+}
+
+// Is this a candidate for ld/st merging or pairing?  For example, we don't
+// touch volatiles or load/stores that have a hint to avoid pair formation.
+bool AArch64InstrInfo::isCandidateToMergeOrPair(MachineInstr *MI) const {
+  // If this is a volatile load/store, don't mess with it.
+  if (MI->hasOrderedMemoryRef())
+    return false;
+
+  // Make sure this is a reg+imm (as opposed to an address reloc).
+  assert(MI->getOperand(1).isReg() && "Expected a reg operand.");
+  if (!MI->getOperand(2).isImm())
+    return false;
+
+  // Can't merge/pair if the instruction modifies the base register.
+  // e.g., ldr x0, [x0]
+  unsigned BaseReg = MI->getOperand(1).getReg();
+  const TargetRegisterInfo *TRI = &getRegisterInfo();
+  if (MI->modifiesRegister(BaseReg, TRI))
+    return false;
+
+  // Check if this load/store has a hint to avoid pair formation.
+  // MachineMemOperands hints are set by the AArch64StorePairSuppress pass.
+  if (isLdStPairSuppressed(MI))
+    return false;
+
+  return true;
+}
+
+bool AArch64InstrInfo::getMemOpBaseRegImmOfs(
+    MachineInstr *LdSt, unsigned &BaseReg, int64_t &Offset,
+    const TargetRegisterInfo *TRI) const {
   switch (LdSt->getOpcode()) {
   default:
     return false;
+  // Scaled instructions.
   case AArch64::STRSui:
   case AArch64::STRDui:
   case AArch64::STRQui:
@@ -1330,18 +1386,21 @@ AArch64InstrInfo::getMemOpBaseRegImmOfs(MachineInstr *LdSt, unsigned &BaseReg,
   case AArch64::LDRQui:
   case AArch64::LDRXui:
   case AArch64::LDRWui:
-    if (!LdSt->getOperand(1).isReg() || !LdSt->getOperand(2).isImm())
-      return false;
-    BaseReg = LdSt->getOperand(1).getReg();
-    MachineFunction &MF = *LdSt->getParent()->getParent();
-    unsigned Width = getRegClass(LdSt->getDesc(), 0, TRI, MF)->getSize();
-    Offset = LdSt->getOperand(2).getImm() * Width;
-    return true;
+  case AArch64::LDRSWui:
+  // Unscaled instructions.
+  case AArch64::LDURSi:
+  case AArch64::LDURDi:
+  case AArch64::LDURQi:
+  case AArch64::LDURWi:
+  case AArch64::LDURXi:
+  case AArch64::LDURSWi:
+    unsigned Width;
+    return getMemOpBaseRegImmOfsWidth(LdSt, BaseReg, Offset, Width, TRI);
   };
 }
 
 bool AArch64InstrInfo::getMemOpBaseRegImmOfsWidth(
-    MachineInstr *LdSt, unsigned &BaseReg, int &Offset, int &Width,
+    MachineInstr *LdSt, unsigned &BaseReg, int64_t &Offset, unsigned &Width,
     const TargetRegisterInfo *TRI) const {
   // Handle only loads/stores with base register followed by immediate offset.
   if (LdSt->getNumOperands() != 3)
@@ -1351,7 +1410,7 @@ bool AArch64InstrInfo::getMemOpBaseRegImmOfsWidth(
 
   // Offset is calculated as the immediate operand multiplied by the scaling factor.
   // Unscaled instructions have scaling factor set to 1.
-  int Scale = 0;
+  unsigned Scale = 0;
   switch (LdSt->getOpcode()) {
   default:
     return false;
@@ -1405,6 +1464,7 @@ bool AArch64InstrInfo::getMemOpBaseRegImmOfsWidth(
     break;
   case AArch64::LDRWui:
   case AArch64::LDRSui:
+  case AArch64::LDRSWui:
   case AArch64::STRWui:
   case AArch64::STRSui:
     Scale = Width = 4;
@@ -1428,6 +1488,55 @@ bool AArch64InstrInfo::getMemOpBaseRegImmOfsWidth(
   return true;
 }
 
+// Scale the unscaled offsets.  Returns false if the unscaled offset can't be
+// scaled.
+static bool scaleOffset(unsigned Opc, int64_t &Offset) {
+  unsigned OffsetStride = 1;
+  switch (Opc) {
+  default:
+    return false;
+  case AArch64::LDURQi:
+    OffsetStride = 16;
+    break;
+  case AArch64::LDURXi:
+  case AArch64::LDURDi:
+    OffsetStride = 8;
+    break;
+  case AArch64::LDURWi:
+  case AArch64::LDURSi:
+  case AArch64::LDURSWi:
+    OffsetStride = 4;
+    break;
+  }
+  // If the byte-offset isn't a multiple of the stride, we can't scale this
+  // offset.
+  if (Offset % OffsetStride != 0)
+    return false;
+
+  // Convert the byte-offset used by unscaled into an "element" offset used
+  // by the scaled pair load/store instructions.
+  Offset /= OffsetStride;
+  return true;
+}
+
+static bool canPairLdStOpc(unsigned FirstOpc, unsigned SecondOpc) {
+  if (FirstOpc == SecondOpc)
+    return true;
+  // We can also pair sign-ext and zero-ext instructions.
+  switch (FirstOpc) {
+  default:
+    return false;
+  case AArch64::LDRWui:
+  case AArch64::LDURWi:
+    return SecondOpc == AArch64::LDRSWui || SecondOpc == AArch64::LDURSWi;
+  case AArch64::LDRSWui:
+  case AArch64::LDURSWi:
+    return SecondOpc == AArch64::LDRWui || SecondOpc == AArch64::LDURWi;
+  }
+  // These instructions can't be paired based on their opcodes.
+  return false;
+}
+
 /// Detect opportunities for ldp/stp formation.
 ///
 /// Only called for LdSt for which getMemOpBaseRegImmOfs returns true.
@@ -1437,16 +1546,35 @@ bool AArch64InstrInfo::shouldClusterLoads(MachineInstr *FirstLdSt,
   // Only cluster up to a single pair.
   if (NumLoads > 1)
     return false;
-  if (FirstLdSt->getOpcode() != SecondLdSt->getOpcode())
+
+  // Can we pair these instructions based on their opcodes?
+  unsigned FirstOpc = FirstLdSt->getOpcode();
+  unsigned SecondOpc = SecondLdSt->getOpcode();
+  if (!canPairLdStOpc(FirstOpc, SecondOpc))
     return false;
-  // getMemOpBaseRegImmOfs guarantees that oper 2 isImm.
-  unsigned Ofs1 = FirstLdSt->getOperand(2).getImm();
-  // Allow 6 bits of positive range.
-  if (Ofs1 > 64)
+
+  // Can't merge volatiles or load/stores that have a hint to avoid pair
+  // formation, for example.
+  if (!isCandidateToMergeOrPair(FirstLdSt) ||
+      !isCandidateToMergeOrPair(SecondLdSt))
     return false;
+
+  // isCandidateToMergeOrPair guarantees that operand 2 is an immediate.
+  int64_t Offset1 = FirstLdSt->getOperand(2).getImm();
+  if (isUnscaledLdSt(FirstOpc) && !scaleOffset(FirstOpc, Offset1))
+    return false;
+
+  int64_t Offset2 = SecondLdSt->getOperand(2).getImm();
+  if (isUnscaledLdSt(SecondOpc) && !scaleOffset(SecondOpc, Offset2))
+    return false;
+
+  // Pairwise instructions have a 7-bit signed offset field.
+  if (Offset1 > 63 || Offset1 < -64)
+    return false;
+
   // The caller should already have ordered First/SecondLdSt by offset.
-  unsigned Ofs2 = SecondLdSt->getOperand(2).getImm();
-  return Ofs1 + 1 == Ofs2;
+  assert(Offset1 <= Offset2 && "Caller should have ordered offsets.");
+  return Offset1 + 1 == Offset2;
 }
 
 bool AArch64InstrInfo::shouldScheduleAdjacent(MachineInstr *First,
@@ -2953,6 +3081,15 @@ void AArch64InstrInfo::genAlternativeCodeSequence(
 /// to
 ///   b.<condition code>
 ///
+/// \brief Replace compare and branch sequence by TBZ/TBNZ instruction when
+/// the compare's constant operand is power of 2.
+///
+/// Examples:
+///   and  w8, w8, #0x400
+///   cbnz w8, L1
+/// to
+///   tbnz w8, #10, L1
+///
 /// \param  MI Conditional Branch
 /// \return True when the simple conditional branch is generated
 ///
@@ -3003,34 +3140,82 @@ bool AArch64InstrInfo::optimizeCondBranch(MachineInstr *MI) const {
 
   MachineInstr *DefMI = MRI->getVRegDef(VReg);
 
+  // Look through COPY instructions to find definition.
+  while (DefMI->isCopy()) {
+    unsigned CopyVReg = DefMI->getOperand(1).getReg();
+    if (!MRI->hasOneNonDBGUse(CopyVReg))
+      return false;
+    if (!MRI->hasOneDef(CopyVReg))
+      return false;
+    DefMI = MRI->getVRegDef(CopyVReg);
+  }
+
+  switch (DefMI->getOpcode()) {
+  default:
+    return false;
+  // Fold AND into a TBZ/TBNZ if constant operand is power of 2.
+  case AArch64::ANDWri:
+  case AArch64::ANDXri: {
+    if (IsTestAndBranch)
+      return false;
+    if (DefMI->getParent() != MBB)
+      return false;
+    if (!MRI->hasOneNonDBGUse(VReg))
+      return false;
+
+    uint64_t Mask = AArch64_AM::decodeLogicalImmediate(
+        DefMI->getOperand(2).getImm(),
+        (DefMI->getOpcode() == AArch64::ANDWri) ? 32 : 64);
+    if (!isPowerOf2_64(Mask))
+      return false;
+
+    MachineOperand &MO = DefMI->getOperand(1);
+    unsigned NewReg = MO.getReg();
+    if (!TargetRegisterInfo::isVirtualRegister(NewReg))
+      return false;
+
+    assert(!MRI->def_empty(NewReg) && "Register must be defined.");
+
+    MachineBasicBlock &RefToMBB = *MBB;
+    MachineBasicBlock *TBB = MI->getOperand(1).getMBB();
+    DebugLoc DL = MI->getDebugLoc();
+    unsigned Imm = Log2_64(Mask);
+    unsigned Opc = (Imm < 32)
+                       ? (IsNegativeBranch ? AArch64::TBNZW : AArch64::TBZW)
+                       : (IsNegativeBranch ? AArch64::TBNZX : AArch64::TBZX);
+    BuildMI(RefToMBB, MI, DL, get(Opc)).addReg(NewReg).addImm(Imm).addMBB(TBB);
+    MI->eraseFromParent();
+    return true;
+  }
   // Look for CSINC
-  if (!(DefMI->getOpcode() == AArch64::CSINCWr &&
-        DefMI->getOperand(1).getReg() == AArch64::WZR &&
-        DefMI->getOperand(2).getReg() == AArch64::WZR) &&
-      !(DefMI->getOpcode() == AArch64::CSINCXr &&
-        DefMI->getOperand(1).getReg() == AArch64::XZR &&
-        DefMI->getOperand(2).getReg() == AArch64::XZR))
-    return false;
+  case AArch64::CSINCWr:
+  case AArch64::CSINCXr: {
+    if (!(DefMI->getOperand(1).getReg() == AArch64::WZR &&
+          DefMI->getOperand(2).getReg() == AArch64::WZR) &&
+        !(DefMI->getOperand(1).getReg() == AArch64::XZR &&
+          DefMI->getOperand(2).getReg() == AArch64::XZR))
+      return false;
 
-  if (DefMI->findRegisterDefOperandIdx(AArch64::NZCV, true) != -1)
-    return false;
+    if (DefMI->findRegisterDefOperandIdx(AArch64::NZCV, true) != -1)
+      return false;
 
-  AArch64CC::CondCode CC =
-      (AArch64CC::CondCode)DefMI->getOperand(3).getImm();
-  bool CheckOnlyCCWrites = true;
-  // Convert only when the condition code is not modified between
-  // the CSINC and the branch. The CC may be used by other
-  // instructions in between.
-  if (modifiesConditionCode(DefMI, MI, CheckOnlyCCWrites, &getRegisterInfo()))
-    return false;
-  MachineBasicBlock &RefToMBB = *MBB;
-  MachineBasicBlock *TBB = MI->getOperand(TargetBBInMI).getMBB();
-  DebugLoc DL = MI->getDebugLoc();
-  if (IsNegativeBranch)
-    CC = AArch64CC::getInvertedCondCode(CC);
-  BuildMI(RefToMBB, MI, DL, get(AArch64::Bcc)).addImm(CC).addMBB(TBB);
-  MI->eraseFromParent();
-  return true;
+    AArch64CC::CondCode CC = (AArch64CC::CondCode)DefMI->getOperand(3).getImm();
+    bool CheckOnlyCCWrites = true;
+    // Convert only when the condition code is not modified between
+    // the CSINC and the branch. The CC may be used by other
+    // instructions in between.
+    if (modifiesConditionCode(DefMI, MI, CheckOnlyCCWrites, &getRegisterInfo()))
+      return false;
+    MachineBasicBlock &RefToMBB = *MBB;
+    MachineBasicBlock *TBB = MI->getOperand(TargetBBInMI).getMBB();
+    DebugLoc DL = MI->getDebugLoc();
+    if (IsNegativeBranch)
+      CC = AArch64CC::getInvertedCondCode(CC);
+    BuildMI(RefToMBB, MI, DL, get(AArch64::Bcc)).addImm(CC).addMBB(TBB);
+    MI->eraseFromParent();
+    return true;
+  }
+  }
 }
 
 std::pair<unsigned, unsigned>

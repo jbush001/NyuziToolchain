@@ -65,9 +65,22 @@ const char* LTOCodeGenerator::getVersionString() {
 #endif
 }
 
+namespace llvm {
+cl::opt<bool> LTODiscardValueNames(
+    "lto-discard-value-names",
+    cl::desc("Strip names from Value during LTO (other than GlobalValue)."),
+#ifdef NDEBUG
+    cl::init(true),
+#else
+    cl::init(false),
+#endif
+    cl::Hidden);
+}
+
 LTOCodeGenerator::LTOCodeGenerator(LLVMContext &Context)
     : Context(Context), MergedModule(new Module("ld-temp.o", Context)),
       TheLinker(new Linker(*MergedModule)) {
+  Context.setDiscardValueNames(LTODiscardValueNames);
   initializeLTOPasses();
 }
 
@@ -98,7 +111,7 @@ void LTOCodeGenerator::initializeLTOPasses() {
   initializeGlobalsAAWrapperPassPass(R);
   initializeLICMPass(R);
   initializeMergedLoadStoreMotionPass(R);
-  initializeGVNPass(R);
+  initializeGVNLegacyPassPass(R);
   initializeMemCpyOptPass(R);
   initializeDCEPass(R);
   initializeCFGSimplifyPassPass(R);

@@ -33,6 +33,7 @@
 #include "llvm/Support/ErrorOr.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/LineIterator.h"
+#include "llvm/Support/MD5.h"
 #include "llvm/Support/ManagedStatic.h"
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/Path.h"
@@ -82,9 +83,8 @@ static cl::list<std::string>
     ClInputFiles(cl::Positional, cl::OneOrMore,
                  cl::desc("(<binary file>|<.sancov file>)..."));
 
-static cl::opt<bool>
-    ClDemangle("demangle", cl::init(true),
-        cl::desc("Print demangled function name."));
+static cl::opt<bool> ClDemangle("demangle", cl::init(true),
+                                cl::desc("Print demangled function name."));
 
 static cl::opt<std::string> ClStripPathPrefix(
     "strip_path_prefix", cl::init(""),
@@ -98,10 +98,9 @@ static cl::opt<bool> ClUseDefaultBlacklist(
     "use_default_blacklist", cl::init(true), cl::Hidden,
     cl::desc("Controls if default blacklist should be used."));
 
-static const char *const DefaultBlacklistStr = 
-      "fun:__sanitizer_.*\n"
-      "src:/usr/include/.*\n"
-      "src:.*/libc\\+\\+/.*\n";
+static const char *const DefaultBlacklistStr = "fun:__sanitizer_.*\n"
+                                               "src:/usr/include/.*\n"
+                                               "src:.*/libc\\+\\+/.*\n";
 
 // --------- FORMAT SPECIFICATION ---------
 
@@ -488,11 +487,26 @@ static std::string escapeHtml(const std::string &S) {
   return Result;
 }
 
+static std::string anchorName(std::string Anchor) {
+  llvm::MD5 Hasher;
+  llvm::MD5::MD5Result Hash;
+  Hasher.update(Anchor);
+  Hasher.final(Hash);
+
+  SmallString<32> HexString;
+  llvm::MD5::stringifyResult(Hash, HexString);
+  return HexString.str().str();
+}
+
 static ErrorOr<bool> isCoverageFile(std::string FileName) {
   ErrorOr<std::unique_ptr<MemoryBuffer>> BufOrErr =
       MemoryBuffer::getFile(FileName);
-  if (!BufOrErr)
+  if (!BufOrErr) {
+    errs() << "Warning: " << BufOrErr.getError().message() << "("
+           << BufOrErr.getError().value()
+           << "), filename: " << llvm::sys::path::filename(FileName) << "\n";
     return BufOrErr.getError();
+  }
   std::unique_ptr<MemoryBuffer> Buf = std::move(BufOrErr.get());
   if (Buf->getBufferSize() < 8) {
     return false;
@@ -503,43 +517,43 @@ static ErrorOr<bool> isCoverageFile(std::string FileName) {
 }
 
 class CoverageData {
- public:
+public:
   // Read single file coverage data.
-   static ErrorOr<std::unique_ptr<CoverageData>> read(std::string FileName) {
-     ErrorOr<std::unique_ptr<MemoryBuffer>> BufOrErr =
-         MemoryBuffer::getFile(FileName);
-     if (!BufOrErr)
-       return BufOrErr.getError();
-     std::unique_ptr<MemoryBuffer> Buf = std::move(BufOrErr.get());
-     if (Buf->getBufferSize() < 8) {
-       errs() << "File too small (<8): " << Buf->getBufferSize();
-       return make_error_code(errc::illegal_byte_sequence);
-     }
-     const FileHeader *Header =
-         reinterpret_cast<const FileHeader *>(Buf->getBufferStart());
+  static ErrorOr<std::unique_ptr<CoverageData>> read(std::string FileName) {
+    ErrorOr<std::unique_ptr<MemoryBuffer>> BufOrErr =
+        MemoryBuffer::getFile(FileName);
+    if (!BufOrErr)
+      return BufOrErr.getError();
+    std::unique_ptr<MemoryBuffer> Buf = std::move(BufOrErr.get());
+    if (Buf->getBufferSize() < 8) {
+      errs() << "File too small (<8): " << Buf->getBufferSize();
+      return make_error_code(errc::illegal_byte_sequence);
+    }
+    const FileHeader *Header =
+        reinterpret_cast<const FileHeader *>(Buf->getBufferStart());
 
-     if (Header->Magic != BinCoverageMagic) {
-       errs() << "Wrong magic: " << Header->Magic;
-       return make_error_code(errc::illegal_byte_sequence);
-     }
+    if (Header->Magic != BinCoverageMagic) {
+      errs() << "Wrong magic: " << Header->Magic;
+      return make_error_code(errc::illegal_byte_sequence);
+    }
 
-     auto Addrs = llvm::make_unique<std::set<uint64_t>>();
+    auto Addrs = llvm::make_unique<std::set<uint64_t>>();
 
-     switch (Header->Bitness) {
-     case Bitness64:
-       readInts<uint64_t>(Buf->getBufferStart() + 8, Buf->getBufferEnd(),
-                          Addrs.get());
-       break;
-     case Bitness32:
-       readInts<uint32_t>(Buf->getBufferStart() + 8, Buf->getBufferEnd(),
-                          Addrs.get());
-       break;
-     default:
-       errs() << "Unsupported bitness: " << Header->Bitness;
-       return make_error_code(errc::illegal_byte_sequence);
-     }
+    switch (Header->Bitness) {
+    case Bitness64:
+      readInts<uint64_t>(Buf->getBufferStart() + 8, Buf->getBufferEnd(),
+                         Addrs.get());
+      break;
+    case Bitness32:
+      readInts<uint32_t>(Buf->getBufferStart() + 8, Buf->getBufferEnd(),
+                         Addrs.get());
+      break;
+    default:
+      errs() << "Unsupported bitness: " << Header->Bitness;
+      return make_error_code(errc::illegal_byte_sequence);
+    }
 
-     return std::unique_ptr<CoverageData>(new CoverageData(std::move(Addrs)));
+    return std::unique_ptr<CoverageData>(new CoverageData(std::move(Addrs)));
   }
 
   // Merge multiple coverage data together.
@@ -613,32 +627,21 @@ public:
     CovAddrInfo = getAddrInfo(ObjectFile, Addrs, true);
   }
 
-  // Compute number of functions hit/total in a file.
-  // file_name -> <fn_coverage, all_fn_coverage>
-  std::map<std::string, std::pair<size_t, size_t>> computeFileFnCoverage() {
+  // Compute number of coverage points hit/total in a file.
+  // file_name -> <coverage, all_coverage>
+  std::map<std::string, std::pair<size_t, size_t>> computeFileCoverage() {
     std::map<std::string, std::pair<size_t, size_t>> FileCoverage;
     auto AllCovPointsByFile =
         group_by(AllAddrInfo, [](const AddrInfo &AI) { return AI.FileName; });
-    auto CovPointByFile =
+    auto CovPointsByFile =
         group_by(CovAddrInfo, [](const AddrInfo &AI) { return AI.FileName; });
 
-    for (auto P : AllCovPointsByFile) {
+    for (const auto &P : AllCovPointsByFile) {
       const std::string &FileName = P.first;
-      const auto &AllCovInfo = P.second;
 
-      auto AllFns = group_by(
-          AllCovInfo, [](const AddrInfo &AI) { return AI.FunctionName; });
-      size_t AllCoverage = AllFns.size();
-      size_t Coverage = 0;
-
-      auto It = CovPointByFile.find(FileName);
-      if (It != CovPointByFile.end()) {
-        const auto &CovInfo = It->second;
-        auto Fns = group_by(CovInfo,
-                            [](const AddrInfo &AI) { return AI.FunctionName; });
-        Coverage = Fns.size();
-      }
-      FileCoverage[FileName] = std::make_pair(Coverage, AllCoverage);
+      FileCoverage[FileName] =
+          std::make_pair(CovPointsByFile[FileName].size(),
+                         AllCovPointsByFile[FileName].size());
     }
     return FileCoverage;
   }
@@ -673,6 +676,14 @@ public:
     return StatusMap;
   }
 
+  std::set<FileFn> computeAllFunctions() const {
+    std::set<FileFn> Fns;
+    for (const auto &AI : AllAddrInfo) {
+      Fns.insert(FileFn{AI.FileName, AI.FunctionName});
+    }
+    return Fns;
+  }
+
   std::set<FileFn> computeCoveredFunctions() const {
     std::set<FileFn> Fns;
     auto CovFns = group_by(CovAddrInfo, [](const AddrInfo &AI) {
@@ -701,6 +712,25 @@ public:
       }
     }
     return Fns;
+  }
+
+  // Compute % coverage for each function.
+  std::map<FileFn, int> computeFunctionsCoverage() const {
+    std::map<FileFn, int> FnCoverage;
+    auto AllFns = group_by(AllAddrInfo, [](const AddrInfo &AI) {
+      return FileFn{AI.FileName, AI.FunctionName};
+    });
+
+    auto CovFns = group_by(CovAddrInfo, [](const AddrInfo &AI) {
+      return FileFn{AI.FileName, AI.FunctionName};
+    });
+
+    for (const auto &P : AllFns) {
+      FileFn F = P.first;
+      FnCoverage[F] = CovFns[F].size() * 100 / P.second.size();
+    }
+
+    return FnCoverage;
   }
 
   typedef std::map<FileLoc, std::set<std::string>> FunctionLocs;
@@ -797,13 +827,16 @@ public:
     SourceCoverageData SCovData(ObjectFile, *Addrs);
     auto LineStatusMap = SCovData.computeLineStatusMap();
 
-    // file_name -> [file_fn].
-    auto NotCoveredFns = SCovData.computeNotCoveredFunctions();
-    auto NotCoveredFnMap = group_by(
-        NotCoveredFns, [](const FileFn &FileFn) { return FileFn.FileName; });
+    std::set<FileFn> AllFns = SCovData.computeAllFunctions();
     // file_loc -> set[function_name]
-    auto NotCoveredFnByLoc = SCovData.resolveFunctions(NotCoveredFns);
-    auto FileFnCoverage = SCovData.computeFileFnCoverage();
+    auto AllFnsByLoc = SCovData.resolveFunctions(AllFns);
+    auto FileCoverage = SCovData.computeFileCoverage();
+
+    auto FnCoverage = SCovData.computeFunctionsCoverage();
+    auto FnCoverageByFile =
+        group_by(FnCoverage, [](const std::pair<FileFn, int> &FileFn) {
+          return FileFn.first.FileName;
+        });
 
     // TOC
 
@@ -813,17 +846,17 @@ public:
     // Covered Files.
     OS << "<details open><summary>Touched Files</summary>\n";
     OS << "<table>\n";
-    OS << "<tr><th>File</th><th>Hit Fns %</th>";
+    OS << "<tr><th>File</th><th>Coverage %</th>";
     OS << "<th>Hit (Total) Fns</th></tr>\n";
     for (auto FileName : Files) {
-      std::pair<size_t, size_t> FC = FileFnCoverage[FileName];
+      std::pair<size_t, size_t> FC = FileCoverage[FileName];
       if (FC.first == 0) {
         NotCoveredFilesCount++;
         continue;
       }
       size_t CovPct = FC.second == 0 ? 100 : 100 * FC.first / FC.second;
 
-      OS << "<tr><td><a href=\"#" << escapeHtml(FileName) << "\">"
+      OS << "<tr><td><a href=\"#" << anchorName(FileName) << "\">"
          << stripPathPrefix(FileName) << "</a></td>"
          << "<td>" << CovPct << "%</td>"
          << "<td>" << FC.first << " (" << FC.second << ")"
@@ -837,7 +870,7 @@ public:
       OS << "<details><summary>Not Touched Files</summary>\n";
       OS << "<table>\n";
       for (auto FileName : Files) {
-        std::pair<size_t, size_t> FC = FileFnCoverage[FileName];
+        std::pair<size_t, size_t> FC = FileCoverage[FileName];
         if (FC.first == 0)
           OS << "<tr><td>" << stripPathPrefix(FileName) << "</td>\n";
       }
@@ -849,25 +882,27 @@ public:
 
     // Source
     for (auto FileName : Files) {
-      std::pair<size_t, size_t> FC = FileFnCoverage[FileName];
+      std::pair<size_t, size_t> FC = FileCoverage[FileName];
       if (FC.first == 0)
         continue;
-      OS << "<a name=\"" << escapeHtml(FileName) << "\"></a>\n";
+      OS << "<a name=\"" << anchorName(FileName) << "\"></a>\n";
       OS << "<h2>" << stripPathPrefix(FileName) << "</h2>\n";
+      OS << "<details open><summary>Function Coverage</summary>";
+      OS << "<div class='fnlist'>\n";
 
-      auto NotCoveredFns = NotCoveredFnMap.find(FileName);
-      if (NotCoveredFns != NotCoveredFnMap.end()) {
-        OS << "<details open><summary>Not Covered Functions</summary>";
-        OS << "<table>\n";
-        for (auto FileFn : NotCoveredFns->second) {
-          OS << "<tr><td>";
-          OS << "<a href=\"#"
-             << escapeHtml(FileName + "::" + FileFn.FunctionName) << "\">";
-          OS << escapeHtml(FileFn.FunctionName) << "</a>";
-          OS << "</td></tr>\n";
-        }
-        OS << "</table></details>\n";
+      auto &FileFnCoverage = FnCoverageByFile[FileName];
+
+      for (const auto &P : FileFnCoverage) {
+        std::string FunctionName = P.first.FunctionName;
+
+        OS << "<div class='fn' style='order: " << P.second << "'>";
+        OS << "<span class='pct'>" << P.second << "%</span>&nbsp;";
+        OS << "<span class='name'><a href=\"#"
+           << anchorName(FileName + "::" + FunctionName) << "\">";
+        OS << escapeHtml(FunctionName) << "</a></span>";
+        OS << "</div>\n";
       }
+      OS << "</div></details>\n";
 
       ErrorOr<std::unique_ptr<MemoryBuffer>> BufOrErr =
           MemoryBuffer::getFile(FileName);
@@ -885,10 +920,10 @@ public:
         uint32_t Line = I.line_number();
         { // generate anchors (if any);
           FileLoc Loc = FileLoc{FileName, Line};
-          auto It = NotCoveredFnByLoc.find(Loc);
-          if (It != NotCoveredFnByLoc.end()) {
+          auto It = AllFnsByLoc.find(Loc);
+          if (It != AllFnsByLoc.end()) {
             for (std::string Fn : It->second) {
-              OS << "<a name=\"" << escapeHtml(FileName + "::" + Fn)
+              OS << "<a name=\"" << anchorName(FileName + "::" + Fn)
                  << "\"></a>";
             };
           }
@@ -940,7 +975,8 @@ public:
     // Partition input values into coverage/object files.
     for (const auto &FileName : FileNames) {
       auto ErrorOrIsCoverage = isCoverageFile(FileName);
-      FailIfError(ErrorOrIsCoverage);
+      if (!ErrorOrIsCoverage)
+        continue;
       if (ErrorOrIsCoverage.get()) {
         CovFiles.insert(FileName);
       } else {
@@ -1013,7 +1049,8 @@ public:
   }
 
   void printReport(raw_ostream &OS) const {
-    auto Title = llvm::sys::path::filename(MainObjFile) + " Coverage Report";
+    auto Title =
+        (llvm::sys::path::filename(MainObjFile) + " Coverage Report").str();
 
     OS << "<html>\n";
     OS << "<head>\n";
@@ -1025,6 +1062,10 @@ public:
     OS << ".mixed { background: #FF7; }\n";
     OS << "summary { font-weight: bold; }\n";
     OS << "details > summary + * { margin-left: 1em; }\n";
+    OS << ".fnlist { display: flex; flex-flow: column nowrap; }\n";
+    OS << ".fn { display: flex; flex-flow: row nowrap; }\n";
+    OS << ".pct { width: 3em; text-align: right; margin-right: 1em; }\n";
+    OS << ".name { flex: 2; }\n";
     OS << "</style>\n";
     OS << "<title>" << Title << "</title>\n";
     OS << "</head>\n";
@@ -1036,7 +1077,7 @@ public:
     // Modules TOC.
     if (Coverage.size() > 1) {
       for (const auto &CovData : Coverage) {
-        OS << "<li><a href=\"#module_" << escapeHtml(CovData->object_file())
+        OS << "<li><a href=\"#module_" << anchorName(CovData->object_file())
            << "\">" << llvm::sys::path::filename(CovData->object_file())
            << "</a></li>\n";
       }
@@ -1047,7 +1088,7 @@ public:
         OS << "<h2>" << llvm::sys::path::filename(CovData->object_file())
            << "</h2>\n";
       }
-      OS << "<a name=\"module_" << escapeHtml(CovData->object_file())
+      OS << "<a name=\"module_" << anchorName(CovData->object_file())
          << "\"></a>\n";
       CovData->printReport(OS);
     }

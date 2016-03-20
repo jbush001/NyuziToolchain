@@ -9,7 +9,7 @@
 
 #include "obj2yaml.h"
 #include "llvm/Object/COFF.h"
-#include "llvm/Object/COFFYAML.h"
+#include "llvm/ObjectYAML/COFFYAML.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/YAMLTraits.h"
 
@@ -109,6 +109,7 @@ void COFFDumper::dumpSections(unsigned NumSections) {
     NewYAMLSection.Header.VirtualAddress = ObjSection.getAddress();
     NewYAMLSection.Header.VirtualSize = COFFSection->VirtualSize;
     NewYAMLSection.Alignment = ObjSection.getAlignment();
+    assert(NewYAMLSection.Alignment <= 8192);
 
     ArrayRef<uint8_t> sectionData;
     if (!ObjSection.isBSS())

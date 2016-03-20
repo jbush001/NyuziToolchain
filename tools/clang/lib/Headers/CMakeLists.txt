@@ -12,6 +12,8 @@ set(files
   avx512vlintrin.h
   avx512dqintrin.h
   avx512vldqintrin.h
+  avx512vbmiintrin.h
+  avx512vbmivlintrin.h
   pkuintrin.h
   avxintrin.h
   bmi2intrin.h
@@ -74,6 +76,8 @@ set(files
   xsavecintrin.h
   xsavesintrin.h
   xtestintrin.h
+  avx512ifmaintrin.h
+  avx512ifmavlintrin.h
   )
 
 set(output_dir ${LLVM_LIBRARY_OUTPUT_INTDIR}/clang/${CLANG_VERSION}/include)

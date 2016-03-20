@@ -8,6 +8,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "llvm/IR/Metadata.h"
 #include "llvm/ProfileData/SampleProfReader.h"
 #include "llvm/ProfileData/SampleProfWriter.h"
 #include "gtest/gtest.h"
@@ -52,6 +53,7 @@ struct SampleProfTest : ::testing::Test {
 
     StringRef FooName("_Z3fooi");
     FunctionSamples FooSamples;
+    FooSamples.setName(FooName);
     FooSamples.addTotalSamples(7711);
     FooSamples.addHeadSamples(610);
     FooSamples.addBodySamples(1, 0, 610);
@@ -62,6 +64,7 @@ struct SampleProfTest : ::testing::Test {
 
     StringRef BarName("_Z3bari");
     FunctionSamples BarSamples;
+    BarSamples.setName(BarName);
     BarSamples.addTotalSamples(20301);
     BarSamples.addHeadSamples(1437);
     BarSamples.addBodySamples(1, 0, 1437);
@@ -93,31 +96,57 @@ struct SampleProfTest : ::testing::Test {
     ASSERT_EQ(20301u, ReadBarSamples.getTotalSamples());
     ASSERT_EQ(1437u, ReadBarSamples.getHeadSamples());
 
-    SampleProfileSummary &Summary = Reader->getSummary();
-    ASSERT_EQ(123603u, Summary.getTotalSamples());
-    ASSERT_EQ(6u, Summary.getNumLinesWithSamples());
-    ASSERT_EQ(2u, Summary.getNumFunctions());
-    ASSERT_EQ(1437u, Summary.getMaxHeadSamples());
-    ASSERT_EQ(60351u, Summary.getMaxSamplesPerLine());
+    auto VerifySummary = [](SampleProfileSummary &Summary) mutable {
+      ASSERT_EQ(123603u, Summary.getTotalSamples());
+      ASSERT_EQ(6u, Summary.getNumLinesWithSamples());
+      ASSERT_EQ(2u, Summary.getNumFunctions());
+      ASSERT_EQ(1437u, Summary.getMaxHeadSamples());
+      ASSERT_EQ(60351u, Summary.getMaxSamplesPerLine());
 
-    std::vector<ProfileSummaryEntry> &Details = Summary.getDetailedSummary();
-    uint32_t Cutoff = 800000;
-    auto Predicate = [&Cutoff](const ProfileSummaryEntry &PE) {
-      return PE.Cutoff == Cutoff;
+      uint32_t Cutoff = 800000;
+      auto Predicate = [&Cutoff](const ProfileSummaryEntry &PE) {
+        return PE.Cutoff == Cutoff;
+      };
+      std::vector<ProfileSummaryEntry> &Details = Summary.getDetailedSummary();
+      auto EightyPerc = std::find_if(Details.begin(), Details.end(), Predicate);
+      Cutoff = 900000;
+      auto NinetyPerc = std::find_if(Details.begin(), Details.end(), Predicate);
+      Cutoff = 950000;
+      auto NinetyFivePerc =
+          std::find_if(Details.begin(), Details.end(), Predicate);
+      Cutoff = 990000;
+      auto NinetyNinePerc =
+          std::find_if(Details.begin(), Details.end(), Predicate);
+      ASSERT_EQ(60000u, EightyPerc->MinCount);
+      ASSERT_EQ(60000u, NinetyPerc->MinCount);
+      ASSERT_EQ(60000u, NinetyFivePerc->MinCount);
+      ASSERT_EQ(610u, NinetyNinePerc->MinCount);
     };
-    auto EightyPerc = std::find_if(Details.begin(), Details.end(), Predicate);
-    Cutoff = 900000;
-    auto NinetyPerc = std::find_if(Details.begin(), Details.end(), Predicate);
-    Cutoff = 950000;
-    auto NinetyFivePerc =
-        std::find_if(Details.begin(), Details.end(), Predicate);
-    Cutoff = 990000;
-    auto NinetyNinePerc =
-        std::find_if(Details.begin(), Details.end(), Predicate);
-    ASSERT_EQ(60000u, EightyPerc->MinCount);
-    ASSERT_EQ(60000u, NinetyPerc->MinCount);
-    ASSERT_EQ(60000u, NinetyFivePerc->MinCount);
-    ASSERT_EQ(610u, NinetyNinePerc->MinCount);
+
+    SampleProfileSummary &Summary = Reader->getSummary();
+    VerifySummary(Summary);
+
+    // Test that conversion of summary to and from Metadata works.
+    Metadata *MD = Summary.getMD(getGlobalContext());
+    ASSERT_TRUE(MD);
+    ProfileSummary *PS = ProfileSummary::getFromMD(MD);
+    ASSERT_TRUE(PS);
+    ASSERT_TRUE(isa<SampleProfileSummary>(PS));
+    SampleProfileSummary *SPS = cast<SampleProfileSummary>(PS);
+    VerifySummary(*SPS);
+    delete SPS;
+
+    // Test that summary can be attached to and read back from module.
+    Module M("my_module", getGlobalContext());
+    M.setProfileSummary(MD);
+    MD = M.getProfileSummary();
+    ASSERT_TRUE(MD);
+    PS = ProfileSummary::getFromMD(MD);
+    ASSERT_TRUE(PS);
+    ASSERT_TRUE(isa<SampleProfileSummary>(PS));
+    SPS = cast<SampleProfileSummary>(PS);
+    VerifySummary(*SPS);
+    delete SPS;
   }
 };
 

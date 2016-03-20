@@ -24,6 +24,9 @@ from lldbsuite.test.lldbtest import *
 from lldbgdbserverutils import *
 import logging
 
+class _ConnectionRefused(IOError):
+    pass
+
 class GdbRemoteTestCaseBase(TestBase):
 
     _TIMEOUT_SECONDS = 7
@@ -73,6 +76,9 @@ class GdbRemoteTestCaseBase(TestBase):
         TestBase.setUp(self)
 
         self.setUpBaseLogging()
+        self._remote_server_log_file = None
+        self.debug_monitor_extra_args = []
+        self._pump_queues = socket_packet_pump.PumpQueues()
 
         if self.isVerboseLoggingRequested():
             # If requested, full logs go to a log file
@@ -104,9 +110,36 @@ class GdbRemoteTestCaseBase(TestBase):
             self.stub_hostname = "localhost"
 
     def tearDown(self):
+        self._pump_queues.verify_queues_empty()
+
+        if self._remote_server_log_file is not None:
+            lldb.remote_platform.Get(lldb.SBFileSpec(self._remote_server_log_file),
+                    lldb.SBFileSpec(self.getLocalServerLogFile()))
+            lldb.remote_platform.Run(lldb.SBPlatformShellCommand("rm " + self._remote_server_log_file))
+            self._remote_server_log_file = None
+
         self.logger.removeHandler(self._verbose_log_handler)
         self._verbose_log_handler = None
         TestBase.tearDown(self)
+
+    def getLocalServerLogFile(self):
+        return self.log_basename + "-server.log"
+
+    def setUpServerLogging(self, is_llgs):
+        if len(lldbtest_config.channels) == 0:
+            return # No logging requested
+
+        if lldb.remote_platform:
+            log_file = lldbutil.join_remote_paths(lldb.remote_platform.GetWorkingDirectory(), "server.log")
+            self._remote_server_log_file = log_file
+        else:
+            log_file = self.getLocalServerLogFile()
+
+        if is_llgs:
+            self.debug_monitor_extra_args.append("--log-file=" + log_file)
+            self.debug_monitor_extra_args.append("--log-channels={}".format(":".join(lldbtest_config.channels)))
+        else:
+            self.debug_monitor_extra_args = ["--log-file=" + self.log_file, "--log-flags=0x800000"]
 
     def get_next_port(self):
         return 12000 + random.randint(0,3999)
@@ -214,10 +247,7 @@ class GdbRemoteTestCaseBase(TestBase):
                 self.skipTest("lldb-server exe not found")
 
         self.debug_monitor_extra_args = ["gdbserver"]
-
-        if len(lldbtest_config.channels) > 0:
-            self.debug_monitor_extra_args.append("--log-file={}-server.log".format(self.log_basename))
-            self.debug_monitor_extra_args.append("--log-channels={}".format(":".join(lldbtest_config.channels)))
+        self.setUpServerLogging(is_llgs=True)
 
         if use_named_pipe:
             (self.named_pipe_path, self.named_pipe, self.named_pipe_fd) = self.create_named_pipe()
@@ -226,7 +256,7 @@ class GdbRemoteTestCaseBase(TestBase):
         self.debug_monitor_exe = get_debugserver_exe()
         if not self.debug_monitor_exe:
             self.skipTest("debugserver exe not found")
-        self.debug_monitor_extra_args = ["--log-file={}-server.log".format(self.log_basename), "--log-flags=0x800000"]
+        self.setUpServerLogging(is_llgs=False)
         if use_named_pipe:
             (self.named_pipe_path, self.named_pipe, self.named_pipe_fd) = self.create_named_pipe()
         # The debugserver stub has a race on handling the 'k' command, so it sends an X09 right away, then sends the real X notification
@@ -241,6 +271,22 @@ class GdbRemoteTestCaseBase(TestBase):
         subprocess.call(adb + [ "tcp:%d" % source, "tcp:%d" % target])
         self.addTearDownHook(remove_port_forward)
 
+    def _verify_socket(self, sock):
+        # Normally, when the remote stub is not ready, we will get ECONNREFUSED during the
+        # connect() attempt. However, due to the way how ADB forwarding works, on android targets
+        # the connect() will always be successful, but the connection will be immediately dropped
+        # if ADB could not connect on the remote side. This function tries to detect this
+        # situation, and report it as "connection refused" so that the upper layers attempt the
+        # connection again.
+        triple = self.dbg.GetSelectedPlatform().GetTriple()
+        if not re.match(".*-.*-.*-android", triple):
+            return # Not android.
+        can_read, _, _ = select.select([sock], [], [], 0.1)
+        if sock not in can_read:
+            return # Data is not available, but the connection is alive.
+        if len(sock.recv(1, socket.MSG_PEEK)) == 0:
+            raise _ConnectionRefused() # Got EOF, connection dropped.
+
     def create_socket(self):
         sock = socket.socket()
         logger = self.logger
@@ -249,8 +295,14 @@ class GdbRemoteTestCaseBase(TestBase):
         if re.match(".*-.*-.*-android", triple):
             self.forward_adb_port(self.port, self.port, "forward", self.stub_device)
 
+        logger.info("Connecting to debug monitor on %s:%d", self.stub_hostname, self.port)
         connect_info = (self.stub_hostname, self.port)
-        sock.connect(connect_info)
+        try:
+            sock.connect(connect_info)
+        except socket.error as serr:
+            if serr.errno == errno.ECONNREFUSED:
+                raise _ConnectionRefused()
+            raise serr
 
         def shutdown_socket():
             if sock:
@@ -266,6 +318,8 @@ class GdbRemoteTestCaseBase(TestBase):
                     logger.warning("failed to close socket to debug monitor: {}; ignoring".format(sys.exc_info()[0]))
 
         self.addTearDownHook(shutdown_socket)
+
+        self._verify_socket(sock)
 
         return sock
 
@@ -354,12 +408,12 @@ class GdbRemoteTestCaseBase(TestBase):
             while connect_attemps < MAX_CONNECT_ATTEMPTS:
                 # Create a socket to talk to the server
                 try:
+                    logger.info("Connect attempt %d", connect_attemps+1)
                     self.sock = self.create_socket()
                     return server
-                except socket.error as serr:
-                    # We're only trying to handle connection refused.
-                    if serr.errno != errno.ECONNREFUSED:
-                        raise serr
+                except _ConnectionRefused as serr:
+                    # Ignore, and try again.
+                    pass
                 time.sleep(0.5)
                 connect_attemps += 1
 
@@ -578,7 +632,8 @@ class GdbRemoteTestCaseBase(TestBase):
     def expect_gdbremote_sequence(self, timeout_seconds=None):
         if not timeout_seconds:
             timeout_seconds = self._TIMEOUT_SECONDS
-        return expect_lldb_gdbserver_replay(self, self.sock, self.test_sequence, timeout_seconds, self.logger)
+        return expect_lldb_gdbserver_replay(self, self.sock, self.test_sequence,
+                self._pump_queues, timeout_seconds, self.logger)
 
     _KNOWN_REGINFO_KEYS = [
         "name",

@@ -14,7 +14,7 @@
 // CHECK-V7: __ARM_ARCH 7
 // CHECK-V7: __ARM_ARCH_7A__ 1
 // CHECK-V7-NOT: __ARM_FEATURE_CRC32
-// CHECK-V7-NOT: __ARM_FEATURE_NUMERIC_MAXMIN                                   
+// CHECK-V7-NOT: __ARM_FEATURE_NUMERIC_MAXMIN
 // CHECK-V7-NOT: __ARM_FEATURE_DIRECTED_ROUNDING
 // CHECK-V7: __ARM_FP 0xC
 
@@ -94,6 +94,42 @@
 // RUN: %clang -target armv8a-eabi -x c -E -dM %s -o - | FileCheck --check-prefix=THUMBV8A-EABI %s
 // THUMBV8A-EABI:#define __ARM_ARCH_EXT_IDIV__ 1
 // THUMBV8A-EABI: #define __ARM_FP 0xE
+
+// RUN: %clang -target armv8m.base-none-linux-gnu -x c -E -dM %s -o - | FileCheck --check-prefix=V8M_BASELINE %s
+// V8M_BASELINE: __ARM_ARCH 8
+// V8M_BASELINE: __ARM_ARCH_8M_BASE__ 1
+// V8M_BASELINE: __ARM_ARCH_EXT_IDIV__ 1
+// V8M_BASELINE-NOT: __ARM_ARCH_ISA_ARM
+// V8M_BASELINE: __ARM_ARCH_ISA_THUMB 1
+// V8M_BASELINE: __ARM_ARCH_PROFILE 'M'
+// V8M_BASELINE-NOT: __ARM_FEATURE_CRC32
+// V8M_BASELINE-NOT: __ARM_FEATURE_DSP
+// V8M_BASELINE-NOT: __ARM_FP 0x{{.*}}
+// V8M_BASELINE-NOT: __GCC_HAVE_SYNC_COMPARE_AND_SWAP_1
+
+// RUN: %clang -target armv8m.main-none-linux-gnu -x c -E -dM %s -o - | FileCheck --check-prefix=V8M_MAINLINE %s
+// V8M_MAINLINE: __ARM_ARCH 8
+// V8M_MAINLINE: __ARM_ARCH_8M_MAIN__ 1
+// V8M_MAINLINE: __ARM_ARCH_EXT_IDIV__ 1
+// V8M_MAINLINE-NOT: __ARM_ARCH_ISA_ARM
+// V8M_MAINLINE: __ARM_ARCH_ISA_THUMB 2
+// V8M_MAINLINE: __ARM_ARCH_PROFILE 'M'
+// V8M_MAINLINE-NOT: __ARM_FEATURE_CRC32
+// V8M_MAINLINE-NOT: __ARM_FEATURE_DSP
+// V8M_MAINLINE: __ARM_FP 0xE
+// V8M_MAINLINE: __GCC_HAVE_SYNC_COMPARE_AND_SWAP_1 1
+
+// RUN: %clang -target arm-none-linux-gnu -march=armv8-m.main+dsp -x c -E -dM %s -o - | FileCheck --check-prefix=V8M_MAINLINE_DSP %s
+// V8M_MAINLINE_DSP: __ARM_ARCH 8
+// V8M_MAINLINE_DSP: __ARM_ARCH_8M_MAIN__ 1
+// V8M_MAINLINE_DSP: __ARM_ARCH_EXT_IDIV__ 1
+// V8M_MAINLINE_DSP-NOT: __ARM_ARCH_ISA_ARM
+// V8M_MAINLINE_DSP: __ARM_ARCH_ISA_THUMB 2
+// V8M_MAINLINE_DSP: __ARM_ARCH_PROFILE 'M'
+// V8M_MAINLINE_DSP-NOT: __ARM_FEATURE_CRC32
+// V8M_MAINLINE_DSP: __ARM_FEATURE_DSP 1
+// V8M_MAINLINE_DSP: __ARM_FP 0xE
+// V8M_MAINLINE_DSP: __GCC_HAVE_SYNC_COMPARE_AND_SWAP_1 1
 
 // RUN: %clang -target arm-none-linux-gnu -x c -E -dM %s -o - | FileCheck --check-prefix=CHECK-DEFS %s
 // CHECK-DEFS:#define __ARM_PCS 1
@@ -353,16 +389,18 @@
 // R5-THUMB:#define __ARM_FEATURE_DSP
 // R5-THUMB:#define __ARM_FP 0xC
 
-// Test whether predefines are as expected when targeting cortex-r7.
-// RUN: %clang -target armv7 -mcpu=cortex-r7 -x c -E -dM %s -o - | FileCheck --check-prefix=R7-ARM %s
-// R7-ARM:#define __ARM_ARCH_EXT_IDIV__ 1
-// R7-ARM:#define __ARM_FEATURE_DSP
-// R7-ARM:#define __ARM_FP 0xE
+// Test whether predefines are as expected when targeting cortex-r7 and cortex-r8.
+// RUN: %clang -target armv7 -mcpu=cortex-r7 -x c -E -dM %s -o - | FileCheck --check-prefix=R7-R8-ARM %s
+// RUN: %clang -target armv7 -mcpu=cortex-r8 -x c -E -dM %s -o - | FileCheck --check-prefix=R7-R8-ARM %s
+// R7-R8-ARM:#define __ARM_ARCH_EXT_IDIV__ 1
+// R7-R8-ARM:#define __ARM_FEATURE_DSP
+// R7-R8-ARM:#define __ARM_FP 0xE
 
-// RUN: %clang -target armv7 -mthumb -mcpu=cortex-r7 -x c -E -dM %s -o - | FileCheck --check-prefix=R7-THUMB %s
-// R7-THUMB:#define __ARM_ARCH_EXT_IDIV__ 1
-// R7-THUMB:#define __ARM_FEATURE_DSP
-// R7-THUMB:#define __ARM_FP 0xE
+// RUN: %clang -target armv7 -mthumb -mcpu=cortex-r7 -x c -E -dM %s -o - | FileCheck --check-prefix=R7-R8-THUMB %s
+// RUN: %clang -target armv7 -mthumb -mcpu=cortex-r8 -x c -E -dM %s -o - | FileCheck --check-prefix=R7-R8-THUMB %s
+// R7-R8-THUMB:#define __ARM_ARCH_EXT_IDIV__ 1
+// R7-R8-THUMB:#define __ARM_FEATURE_DSP
+// R7-R8-THUMB:#define __ARM_FP 0xE
 
 // Test whether predefines are as expected when targeting cortex-m0.
 // RUN: %clang -target armv7 -mthumb -mcpu=cortex-m0 -x c -E -dM %s -o - | FileCheck --check-prefix=M0-THUMB %s

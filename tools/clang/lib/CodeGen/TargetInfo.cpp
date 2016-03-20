@@ -160,6 +160,10 @@ LLVM_DUMP_METHOD void ABIArgInfo::dump() const {
   case Expand:
     OS << "Expand";
     break;
+  case CoerceAndExpand:
+    OS << "CoerceAndExpand Type=";
+    getCoerceAndExpandType()->print(OS);
+    break;
   }
   OS << ")\n";
 }
@@ -1570,6 +1574,7 @@ static bool isArgInAlloca(const ABIArgInfo &Info) {
   case ABIArgInfo::Direct:
   case ABIArgInfo::Extend:
   case ABIArgInfo::Expand:
+  case ABIArgInfo::CoerceAndExpand:
     if (Info.getInReg())
       return false;
     return true;
@@ -1855,6 +1860,17 @@ class X86_64ABIInfo : public ABIInfo {
   /// may need to exempt themselves.
   bool honorsRevision0_98() const {
     return !getTarget().getTriple().isOSDarwin();
+  }
+
+  /// GCC classifies <1 x long long> as SSE but compatibility with older clang
+  // compilers require us to classify it as INTEGER.
+  bool classifyIntegerMMXAsSSE() const {
+    const llvm::Triple &Triple = getTarget().getTriple();
+    if (Triple.isOSDarwin() || Triple.getOS() == llvm::Triple::PS4)
+      return false;
+    if (Triple.isOSFreeBSD() && Triple.getOSMajorVersion() >= 10)
+      return false;
+    return true;
   }
 
   X86AVXABILevel AVXLevel;
@@ -2298,15 +2314,20 @@ void X86_64ABIInfo::classify(QualType Ty, uint64_t OffsetBase,
       if (EB_Lo != EB_Hi)
         Hi = Lo;
     } else if (Size == 64) {
+      QualType ElementType = VT->getElementType();
+
       // gcc passes <1 x double> in memory. :(
-      if (VT->getElementType()->isSpecificBuiltinType(BuiltinType::Double))
+      if (ElementType->isSpecificBuiltinType(BuiltinType::Double))
         return;
 
-      // gcc passes <1 x long long> as INTEGER.
-      if (VT->getElementType()->isSpecificBuiltinType(BuiltinType::LongLong) ||
-          VT->getElementType()->isSpecificBuiltinType(BuiltinType::ULongLong) ||
-          VT->getElementType()->isSpecificBuiltinType(BuiltinType::Long) ||
-          VT->getElementType()->isSpecificBuiltinType(BuiltinType::ULong))
+      // gcc passes <1 x long long> as SSE but clang used to unconditionally
+      // pass them as integer.  For platforms where clang is the de facto
+      // platform compiler, we must continue to use integer.
+      if (!classifyIntegerMMXAsSSE() &&
+          (ElementType->isSpecificBuiltinType(BuiltinType::LongLong) ||
+           ElementType->isSpecificBuiltinType(BuiltinType::ULongLong) ||
+           ElementType->isSpecificBuiltinType(BuiltinType::Long) ||
+           ElementType->isSpecificBuiltinType(BuiltinType::ULong)))
         Current = Integer;
       else
         Current = SSE;
@@ -5085,7 +5106,7 @@ ABIArgInfo ARMABIInfo::classifyArgumentType(QualType Ty,
   // __fp16 gets passed as if it were an int or float, but with the top 16 bits
   // unspecified. This is not done for OpenCL as it handles the half type
   // natively, and does not need to interwork with AAPCS code.
-  if (Ty->isHalfType() && !getContext().getLangOpts().OpenCL) {
+  if (Ty->isHalfType() && !getContext().getLangOpts().NativeHalfArgsAndReturns) {
     llvm::Type *ResType = IsEffectivelyAAPCS_VFP ?
       llvm::Type::getFloatTy(getVMContext()) :
       llvm::Type::getInt32Ty(getVMContext());
@@ -5277,7 +5298,7 @@ ABIArgInfo ARMABIInfo::classifyReturnType(QualType RetTy,
   // __fp16 gets returned as if it were an int or float, but with the top 16
   // bits unspecified. This is not done for OpenCL as it handles the half type
   // natively, and does not need to interwork with AAPCS code.
-  if (RetTy->isHalfType() && !getContext().getLangOpts().OpenCL) {
+  if (RetTy->isHalfType() && !getContext().getLangOpts().NativeHalfArgsAndReturns) {
     llvm::Type *ResType = IsEffectivelyAAPCS_VFP ?
       llvm::Type::getFloatTy(getVMContext()) :
       llvm::Type::getInt32Ty(getVMContext());
@@ -6813,6 +6834,7 @@ Address SparcV9ABIInfo::EmitVAArg(CodeGenFunction &CGF, Address VAListAddr,
   CharUnits Stride;
   switch (AI.getKind()) {
   case ABIArgInfo::Expand:
+  case ABIArgInfo::CoerceAndExpand:
   case ABIArgInfo::InAlloca:
     llvm_unreachable("Unsupported ABI kind for va_arg");
 
@@ -7043,6 +7065,7 @@ Address XCoreABIInfo::EmitVAArg(CodeGenFunction &CGF, Address VAListAddr,
   CharUnits ArgSize = CharUnits::Zero();
   switch (AI.getKind()) {
   case ABIArgInfo::Expand:
+  case ABIArgInfo::CoerceAndExpand:
   case ABIArgInfo::InAlloca:
     llvm_unreachable("Unsupported ABI kind for va_arg");
   case ABIArgInfo::Ignore:

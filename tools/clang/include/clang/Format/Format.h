@@ -594,6 +594,20 @@ struct FormatStyle {
   /// \brief The way to use tab characters in the resulting file.
   UseTabStyle UseTab;
 
+  /// \brief Quotation styles for JavaScript strings. Does not affect template
+  /// strings.
+  enum JavaScriptQuoteStyle {
+    /// Leave string quotes as they are.
+    JSQS_Leave,
+    /// Always use single quotes.
+    JSQS_Single,
+    /// Always use double quotes.
+    JSQS_Double
+  };
+
+  /// \brief The JavaScriptQuoteStyle to use for JavaScript strings.
+  JavaScriptQuoteStyle JavaScriptQuotes;
+
   bool operator==(const FormatStyle &R) const {
     return AccessModifierOffset == R.AccessModifierOffset &&
            AlignAfterOpenBracket == R.AlignAfterOpenBracket &&
@@ -670,7 +684,8 @@ struct FormatStyle {
            SpacesInParentheses == R.SpacesInParentheses &&
            SpacesInSquareBrackets == R.SpacesInSquareBrackets &&
            Standard == R.Standard && TabWidth == R.TabWidth &&
-           UseTab == R.UseTab;
+           UseTab == R.UseTab &&
+           JavaScriptQuotes == R.JavaScriptQuotes;
   }
 };
 
@@ -730,6 +745,28 @@ tooling::Replacements sortIncludes(const FormatStyle &Style, StringRef Code,
                                    ArrayRef<tooling::Range> Ranges,
                                    StringRef FileName,
                                    unsigned *Cursor = nullptr);
+
+/// \brief Returns the replacements corresponding to applying and formatting
+/// \p Replaces.
+tooling::Replacements formatReplacements(StringRef Code,
+                                         const tooling::Replacements &Replaces,
+                                         const FormatStyle &Style);
+
+/// \brief In addition to applying all replacements in \p Replaces to \p Code,
+/// this function also reformats the changed code after applying replacements.
+///
+/// \pre Replacements must be for the same file and conflict-free.
+///
+/// Replacement applications happen independently of the success of
+/// other applications.
+///
+/// \returns the changed code with all replacements applied and formatted, if
+/// successful. An empty string otherwise.
+///
+/// See also "include/clang/Tooling/Core/Replacements.h".
+std::string applyAllReplacementsAndFormat(StringRef Code,
+                                          const tooling::Replacements &Replaces,
+                                          const FormatStyle &Style);
 
 /// \brief Reformats the given \p Ranges in the file \p ID.
 ///

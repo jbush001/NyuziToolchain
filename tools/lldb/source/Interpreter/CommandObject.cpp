@@ -53,7 +53,6 @@ CommandObject::CommandObject
     m_cmd_help_short (),
     m_cmd_help_long (),
     m_cmd_syntax (),
-    m_is_alias (false),
     m_flags (flags),
     m_arguments(),
     m_deprecated_command_override_callback (nullptr),
@@ -89,12 +88,12 @@ CommandObject::GetSyntax ()
     {
         StreamString syntax_str;
         syntax_str.Printf ("%s", GetCommandName());
-        if (GetOptions() != nullptr)
+        if (!IsDashDashCommand() && GetOptions() != nullptr)
             syntax_str.Printf (" <cmd-options>");
         if (m_arguments.size() > 0)
         {
             syntax_str.Printf (" ");
-            if (WantsRawCommandString() && GetOptions() && GetOptions()->NumCommandOptions())
+            if (!IsDashDashCommand() && WantsRawCommandString() && GetOptions() && GetOptions()->NumCommandOptions())
                 syntax_str.Printf("-- ");
             GetFormattedCommandArguments (syntax_str);
         }
@@ -344,45 +343,6 @@ CommandObject::Cleanup ()
 {
     m_exe_ctx.Clear();
     m_api_locker.Unlock();
-}
-
-
-class CommandDictCommandPartialMatch
-{
-    public:
-        CommandDictCommandPartialMatch (const char *match_str)
-        {
-            m_match_str = match_str;
-        }
-        bool operator() (const std::pair<std::string, lldb::CommandObjectSP> map_element) const
-        {
-            // A NULL or empty string matches everything.
-            if (m_match_str == nullptr || *m_match_str == '\0')
-                return true;
-
-            return map_element.first.find (m_match_str, 0) == 0;
-        }
-
-    private:
-        const char *m_match_str;
-};
-
-int
-CommandObject::AddNamesMatchingPartialString (CommandObject::CommandMap &in_map, const char *cmd_str,
-                                              StringList &matches)
-{
-    int number_added = 0;
-    CommandDictCommandPartialMatch matcher(cmd_str);
-
-    CommandObject::CommandMap::iterator matching_cmds = std::find_if (in_map.begin(), in_map.end(), matcher);
-
-    while (matching_cmds != in_map.end())
-    {
-        ++number_added;
-        matches.AppendString((*matching_cmds).first.c_str());
-        matching_cmds = std::find_if (++matching_cmds, in_map.end(), matcher);;
-    }
-    return number_added;
 }
 
 int
@@ -1067,6 +1027,31 @@ CommandObject::GetSelectedOrDummyTarget(bool prefer_dummy)
     return m_interpreter.GetDebugger().GetSelectedOrDummyTarget(prefer_dummy);
 }
 
+Thread *
+CommandObject::GetDefaultThread()
+{
+    Thread *thread_to_use = m_exe_ctx.GetThreadPtr();
+    if (thread_to_use)
+        return thread_to_use;
+    
+    Process *process = m_exe_ctx.GetProcessPtr();
+    if (!process)
+    {
+        Target *target = m_exe_ctx.GetTargetPtr();
+        if (!target)
+        {
+            target = m_interpreter.GetDebugger().GetSelectedTarget().get();
+        }
+        if (target)
+            process = target->GetProcessSP().get();
+    }
+
+    if (process)
+        return process->GetThreadList().GetSelectedThread().get();
+    else
+        return nullptr;
+}
+
 bool
 CommandObjectParsed::Execute (const char *args_string, CommandReturnObject &result)
 {
@@ -1170,7 +1155,7 @@ CommandObject::g_arguments_data[] =
     { eArgTypeGDBFormat, "gdb-format", CommandCompletions::eNoCompletion, { GDBFormatHelpTextCallback, true }, nullptr },
     { eArgTypeHelpText, "help-text", CommandCompletions::eNoCompletion, { nullptr, false }, "Text to be used as help for some other entity in LLDB" },
     { eArgTypeIndex, "index", CommandCompletions::eNoCompletion, { nullptr, false }, "An index into a list." },
-    { eArgTypeLanguage, "language", CommandCompletions::eNoCompletion, { LanguageTypeHelpTextCallback, true }, nullptr },
+    { eArgTypeLanguage, "source-language", CommandCompletions::eNoCompletion, { LanguageTypeHelpTextCallback, true }, nullptr },
     { eArgTypeLineNum, "linenum", CommandCompletions::eNoCompletion, { nullptr, false }, "Line number in a source file." },
     { eArgTypeLogCategory, "log-category", CommandCompletions::eNoCompletion, { nullptr, false }, "The name of a category within a log channel, e.g. all (try \"log list\" to see a list of all channels and their categories." },
     { eArgTypeLogChannel, "log-channel", CommandCompletions::eNoCompletion, { nullptr, false }, "The name of a log channel, e.g. process.gdb-remote (try \"log list\" to see a list of all channels and their categories)." },

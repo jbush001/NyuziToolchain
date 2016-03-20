@@ -61,6 +61,7 @@ private:
 // SymbolRef for the receiver.
 REGISTER_SET_WITH_PROGRAMSTATE(CalledSuperDealloc, SymbolRef)
 
+namespace {
 class SuperDeallocBRVisitor final
     : public BugReporterVisitorImpl<SuperDeallocBRVisitor> {
 
@@ -81,6 +82,7 @@ public:
     ID.Add(ReceiverSymbol);
   }
 };
+} // End anonymous namespace.
 
 void ObjCSuperDeallocChecker::checkPreObjCMessage(const ObjCMethodCall &M,
                                                   CheckerContext &C) const {
@@ -165,7 +167,7 @@ void ObjCSuperDeallocChecker::checkLocation(SVal L, bool IsLoad, const Stmt *S,
   std::string Buf;
   llvm::raw_string_ostream OS(Buf);
   if (IvarRegion) {
-    OS << "use of instance variable '" << *IvarRegion->getDecl() <<
+    OS << "Use of instance variable '" << *IvarRegion->getDecl() <<
           "' after 'self' has been deallocated";
     Desc = OS.str();
   }

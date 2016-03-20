@@ -2910,7 +2910,7 @@ Parser::DeclGroupPtrTy Parser::ParseCXXClassMemberDeclarationWithPragmas(
   }
 
   if (Tok.is(tok::annot_pragma_openmp))
-    return ParseOpenMPDeclarativeDirective();
+    return ParseOpenMPDeclarativeDirective(AS);
 
   // Parse all the comma separated declarators.
   return ParseCXXClassMemberDeclaration(AS, AccessAttrs.getList());
@@ -3635,7 +3635,10 @@ static bool IsBuiltInOrStandardCXX11Attribute(IdentifierInfo *AttrName,
   case AttributeList::AT_FallThrough:
   case AttributeList::AT_CXX11NoReturn:
     return true;
-
+  case AttributeList::AT_WarnUnusedResult:
+    return !ScopeName && AttrName->getName().equals("nodiscard");
+  case AttributeList::AT_Unused:
+    return !ScopeName && AttrName->getName().equals("maybe_unused");
   default:
     return false;
   }
@@ -3694,6 +3697,7 @@ bool Parser::ParseCXX11AttributeArgs(IdentifierInfo *AttrName,
         // The attribute was allowed to have arguments, but none were provided
         // even though the attribute parsed successfully. This is an error.
         Diag(LParenLoc, diag::err_attribute_requires_arguments) << AttrName;
+        Attr->setInvalid(true);
       } else if (!Attr->getMaxArgs()) {
         // The attribute parsed successfully, but was not allowed to have any
         // arguments. It doesn't matter whether any were provided -- the
@@ -3701,6 +3705,7 @@ bool Parser::ParseCXX11AttributeArgs(IdentifierInfo *AttrName,
         Diag(LParenLoc, diag::err_cxx11_attribute_forbids_arguments)
             << AttrName
             << FixItHint::CreateRemoval(SourceRange(LParenLoc, *EndLoc));
+        Attr->setInvalid(true);
       }
     }
   }

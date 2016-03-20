@@ -291,6 +291,7 @@ public:
 
   unsigned getTag() const { return SubclassData16; }
   StringRef getHeader() const { return getStringOperand(0); }
+  MDString *getRawHeader() const { return getOperandAs<MDString>(0); }
 
   op_iterator dwarf_op_begin() const { return op_begin() + 1; }
   op_iterator dwarf_op_end() const { return op_end(); }
@@ -1191,15 +1192,6 @@ public:
   /// DWARF discriminators distinguish identical file locations between
   /// instructions that are on different basic blocks.
   inline unsigned getDiscriminator() const;
-
-  /// \brief Compute new discriminator in the given context.
-  ///
-  /// This modifies the \a LLVMContext that \c this is in to increment the next
-  /// discriminator for \c this's line/filename combination.
-  ///
-  /// FIXME: Delete this.  See comments in implementation and at the only call
-  /// site in \a AddDiscriminators::runOnFunction().
-  unsigned computeNewDiscriminator() const;
 
   Metadata *getRawScope() const { return getOperand(0); }
   Metadata *getRawInlinedAt() const {

@@ -132,7 +132,7 @@ Pass *createIndVarSimplifyPass();
 // into:
 //    %Z = add int 2, %X
 //
-FunctionPass *createInstructionCombiningPass();
+FunctionPass *createInstructionCombiningPass(bool ExpensiveCombines = true);
 
 //===----------------------------------------------------------------------===//
 //
@@ -332,13 +332,6 @@ FunctionPass *createEarlyCSEPass();
 // are hoisted into the header, while stores sink into the footer.
 //
 FunctionPass *createMergedLoadStoreMotionPass();
-
-//===----------------------------------------------------------------------===//
-//
-// GVN - This pass performs global value numbering and redundant load
-// elimination cotemporaneously.
-//
-FunctionPass *createGVNPass(bool NoLoads = false);
 
 //===----------------------------------------------------------------------===//
 //

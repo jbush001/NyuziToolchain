@@ -11,9 +11,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-
-#ifndef LLVM_LIB_TARGET_R600_SIMACHINEFUNCTIONINFO_H
-#define LLVM_LIB_TARGET_R600_SIMACHINEFUNCTIONINFO_H
+#ifndef LLVM_LIB_TARGET_AMDGPU_SIMACHINEFUNCTIONINFO_H
+#define LLVM_LIB_TARGET_AMDGPU_SIMACHINEFUNCTIONINFO_H
 
 #include "AMDGPUMachineFunction.h"
 #include "SIRegisterInfo.h"
@@ -25,7 +24,7 @@ class MachineRegisterInfo;
 
 /// This class keeps track of the SPI_SP_INPUT_ADDR config register, which
 /// tells the hardware which interpolation parameters to load.
-class SIMachineFunctionInfo : public AMDGPUMachineFunction {
+class SIMachineFunctionInfo final : public AMDGPUMachineFunction {
   // FIXME: This should be removed and getPreloadedValue moved here.
   friend struct SIRegisterInfo;
   void anchor() override;
@@ -113,8 +112,9 @@ public:
     unsigned VGPR;
     int Lane;
     SpilledReg(unsigned R, int L) : VGPR (R), Lane (L) { }
-    SpilledReg() : VGPR(0), Lane(-1) { }
+    SpilledReg() : VGPR(AMDGPU::NoRegister), Lane(-1) { }
     bool hasLane() { return Lane != -1;}
+    bool hasReg() { return VGPR != AMDGPU::NoRegister;}
   };
 
   // SIMachineFunctionInfo definition
@@ -320,6 +320,5 @@ public:
 };
 
 } // End namespace llvm
-
 
 #endif

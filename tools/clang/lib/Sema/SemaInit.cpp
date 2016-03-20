@@ -238,6 +238,7 @@ class InitListChecker {
   Sema &SemaRef;
   bool hadError;
   bool VerifyOnly; // no diagnostics, no structure building
+  bool TreatUnavailableAsInvalid; // Used only in VerifyOnly mode.
   llvm::DenseMap<InitListExpr *, InitListExpr *> SyntacticToSemantic;
   InitListExpr *FullyStructuredList;
 
@@ -282,6 +283,7 @@ class InitListChecker {
                        unsigned &StructuredIndex);
   void CheckStructUnionTypes(const InitializedEntity &Entity,
                              InitListExpr *IList, QualType DeclType,
+                             CXXRecordDecl::base_class_range Bases,
                              RecordDecl::field_iterator Field,
                              bool SubobjectIsDesignatorContext, unsigned &Index,
                              InitListExpr *StructuredList,
@@ -319,7 +321,8 @@ class InitListChecker {
   static ExprResult PerformEmptyInit(Sema &SemaRef,
                                      SourceLocation Loc,
                                      const InitializedEntity &Entity,
-                                     bool VerifyOnly);
+                                     bool VerifyOnly,
+                                     bool TreatUnavailableAsInvalid);
 
   // Explanation on the "FillWithNoInit" mode:
   //
@@ -340,6 +343,10 @@ class InitListChecker {
   // in the InitListExpr, the "holes" in Case#1 are filled not with empty
   // initializers but with special "NoInitExpr" place holders, which tells the
   // CodeGen not to generate any initializers for these parts.
+  void FillInEmptyInitForBase(unsigned Init, const CXXBaseSpecifier &Base,
+                              const InitializedEntity &ParentEntity,
+                              InitListExpr *ILE, bool &RequiresSecondPass,
+                              bool FillWithNoInit);
   void FillInEmptyInitForField(unsigned Init, FieldDecl *Field,
                                const InitializedEntity &ParentEntity,
                                InitListExpr *ILE, bool &RequiresSecondPass,
@@ -355,7 +362,8 @@ class InitListChecker {
 
 public:
   InitListChecker(Sema &S, const InitializedEntity &Entity,
-                  InitListExpr *IL, QualType &T, bool VerifyOnly);
+                  InitListExpr *IL, QualType &T, bool VerifyOnly,
+                  bool TreatUnavailableAsInvalid);
   bool HadError() { return hadError; }
 
   // @brief Retrieves the fully-structured initializer list used for
@@ -368,7 +376,8 @@ public:
 ExprResult InitListChecker::PerformEmptyInit(Sema &SemaRef,
                                              SourceLocation Loc,
                                              const InitializedEntity &Entity,
-                                             bool VerifyOnly) {
+                                             bool VerifyOnly,
+                                             bool TreatUnavailableAsInvalid) {
   InitializationKind Kind = InitializationKind::CreateValue(Loc, Loc, Loc,
                                                             true);
   MultiExprArg SubInit;
@@ -438,7 +447,8 @@ ExprResult InitListChecker::PerformEmptyInit(Sema &SemaRef,
         InitSeq.InitializeFrom(
             SemaRef, Entity,
             InitializationKind::CreateValue(Loc, Loc, Loc, true),
-            MultiExprArg(), /*TopLevelOfInitList=*/false);
+            MultiExprArg(), /*TopLevelOfInitList=*/false,
+            TreatUnavailableAsInvalid);
         // Emit a warning for this.  System header warnings aren't shown
         // by default, but people working on system headers should see it.
         if (!VerifyOnly) {
@@ -475,8 +485,41 @@ void InitListChecker::CheckEmptyInitializable(const InitializedEntity &Entity,
                                               SourceLocation Loc) {
   assert(VerifyOnly &&
          "CheckEmptyInitializable is only inteded for verification mode.");
-  if (PerformEmptyInit(SemaRef, Loc, Entity, /*VerifyOnly*/true).isInvalid())
+  if (PerformEmptyInit(SemaRef, Loc, Entity, /*VerifyOnly*/true,
+                       TreatUnavailableAsInvalid).isInvalid())
     hadError = true;
+}
+
+void InitListChecker::FillInEmptyInitForBase(
+    unsigned Init, const CXXBaseSpecifier &Base,
+    const InitializedEntity &ParentEntity, InitListExpr *ILE,
+    bool &RequiresSecondPass, bool FillWithNoInit) {
+  assert(Init < ILE->getNumInits() && "should have been expanded");
+
+  InitializedEntity BaseEntity = InitializedEntity::InitializeBase(
+      SemaRef.Context, &Base, false, &ParentEntity);
+
+  if (!ILE->getInit(Init)) {
+    ExprResult BaseInit =
+        FillWithNoInit ? new (SemaRef.Context) NoInitExpr(Base.getType())
+                       : PerformEmptyInit(SemaRef, ILE->getLocEnd(), BaseEntity,
+                                          /*VerifyOnly*/ false,
+                                          TreatUnavailableAsInvalid);
+    if (BaseInit.isInvalid()) {
+      hadError = true;
+      return;
+    }
+
+    ILE->setInit(Init, BaseInit.getAs<Expr>());
+  } else if (InitListExpr *InnerILE =
+                 dyn_cast<InitListExpr>(ILE->getInit(Init))) {
+    FillInEmptyInitializations(BaseEntity, InnerILE,
+                               RequiresSecondPass, FillWithNoInit);
+  } else if (DesignatedInitUpdateExpr *InnerDIUE =
+               dyn_cast<DesignatedInitUpdateExpr>(ILE->getInit(Init))) {
+    FillInEmptyInitializations(BaseEntity, InnerDIUE->getUpdater(),
+                               RequiresSecondPass, /*FillWithNoInit =*/true);
+  }
 }
 
 void InitListChecker::FillInEmptyInitForField(unsigned Init, FieldDecl *Field,
@@ -536,7 +579,8 @@ void InitListChecker::FillInEmptyInitForField(unsigned Init, FieldDecl *Field,
     }
 
     ExprResult MemberInit = PerformEmptyInit(SemaRef, Loc, MemberEntity,
-                                             /*VerifyOnly*/false);
+                                             /*VerifyOnly*/false,
+                                             TreatUnavailableAsInvalid);
     if (MemberInit.isInvalid()) {
       hadError = true;
       return;
@@ -593,14 +637,25 @@ InitListChecker::FillInEmptyInitializations(const InitializedEntity &Entity,
       // The fields beyond ILE->getNumInits() are default initialized, so in
       // order to leave them uninitialized, the ILE is expanded and the extra
       // fields are then filled with NoInitExpr.
-      unsigned NumFields = 0;
-      for (auto *Field : RDecl->fields())
-        if (!Field->isUnnamedBitfield())
-          ++NumFields;
-      if (ILE->getNumInits() < NumFields)
-        ILE->resizeInits(SemaRef.Context, NumFields);
+      unsigned NumElems = numStructUnionElements(ILE->getType());
+      if (RDecl->hasFlexibleArrayMember())
+        ++NumElems;
+      if (ILE->getNumInits() < NumElems)
+        ILE->resizeInits(SemaRef.Context, NumElems);
 
       unsigned Init = 0;
+
+      if (auto *CXXRD = dyn_cast<CXXRecordDecl>(RDecl)) {
+        for (auto &Base : CXXRD->bases()) {
+          if (hadError)
+            return;
+
+          FillInEmptyInitForBase(Init, Base, Entity, ILE, RequiresSecondPass,
+                                 FillWithNoInit);
+          ++Init;
+        }
+      }
+
       for (auto *Field : RDecl->fields()) {
         if (Field->isUnnamedBitfield())
           continue;
@@ -662,7 +717,8 @@ InitListChecker::FillInEmptyInitializations(const InitializedEntity &Entity,
       else {
         ExprResult ElementInit = PerformEmptyInit(SemaRef, ILE->getLocEnd(),
                                                   ElementEntity,
-                                                  /*VerifyOnly*/false);
+                                                  /*VerifyOnly*/false,
+                                                  TreatUnavailableAsInvalid);
         if (ElementInit.isInvalid()) {
           hadError = true;
           return;
@@ -710,8 +766,10 @@ InitListChecker::FillInEmptyInitializations(const InitializedEntity &Entity,
 
 InitListChecker::InitListChecker(Sema &S, const InitializedEntity &Entity,
                                  InitListExpr *IL, QualType &T,
-                                 bool VerifyOnly)
-  : SemaRef(S), VerifyOnly(VerifyOnly) {
+                                 bool VerifyOnly,
+                                 bool TreatUnavailableAsInvalid)
+  : SemaRef(S), VerifyOnly(VerifyOnly),
+    TreatUnavailableAsInvalid(TreatUnavailableAsInvalid) {
   // FIXME: Check that IL isn't already the semantic form of some other
   // InitListExpr. If it is, we'd create a broken AST.
 
@@ -744,6 +802,8 @@ int InitListChecker::numArrayElements(QualType DeclType) {
 int InitListChecker::numStructUnionElements(QualType DeclType) {
   RecordDecl *structDecl = DeclType->getAs<RecordType>()->getDecl();
   int InitializableMembers = 0;
+  if (auto *CXXRD = dyn_cast<CXXRecordDecl>(structDecl))
+    InitializableMembers += CXXRD->getNumBases();
   for (const auto *Field : structDecl->fields())
     if (!Field->isUnnamedBitfield())
       ++InitializableMembers;
@@ -991,10 +1051,14 @@ void InitListChecker::CheckListElementTypes(const InitializedEntity &Entity,
     assert(DeclType->isAggregateType() &&
            "non-aggregate records should be handed in CheckSubElementType");
     RecordDecl *RD = DeclType->getAs<RecordType>()->getDecl();
-    CheckStructUnionTypes(Entity, IList, DeclType, RD->field_begin(),
-                          SubobjectIsDesignatorContext, Index,
-                          StructuredList, StructuredIndex,
-                          TopLevelObject);
+    auto Bases =
+        CXXRecordDecl::base_class_range(CXXRecordDecl::base_class_iterator(),
+                                        CXXRecordDecl::base_class_iterator());
+    if (auto *CXXRD = dyn_cast<CXXRecordDecl>(RD))
+      Bases = CXXRD->bases();
+    CheckStructUnionTypes(Entity, IList, DeclType, Bases, RD->field_begin(),
+                          SubobjectIsDesignatorContext, Index, StructuredList,
+                          StructuredIndex, TopLevelObject);
   } else if (DeclType->isArrayType()) {
     llvm::APSInt Zero(
                     SemaRef.Context.getTypeSize(SemaRef.Context.getSizeType()),
@@ -1670,16 +1734,13 @@ bool InitListChecker::CheckFlexibleArrayInit(const InitializedEntity &Entity,
   return FlexArrayDiag != diag::ext_flexible_array_init;
 }
 
-void InitListChecker::CheckStructUnionTypes(const InitializedEntity &Entity,
-                                            InitListExpr *IList,
-                                            QualType DeclType,
-                                            RecordDecl::field_iterator Field,
-                                            bool SubobjectIsDesignatorContext,
-                                            unsigned &Index,
-                                            InitListExpr *StructuredList,
-                                            unsigned &StructuredIndex,
-                                            bool TopLevelObject) {
-  RecordDecl* structDecl = DeclType->getAs<RecordType>()->getDecl();
+void InitListChecker::CheckStructUnionTypes(
+    const InitializedEntity &Entity, InitListExpr *IList, QualType DeclType,
+    CXXRecordDecl::base_class_range Bases, RecordDecl::field_iterator Field,
+    bool SubobjectIsDesignatorContext, unsigned &Index,
+    InitListExpr *StructuredList, unsigned &StructuredIndex,
+    bool TopLevelObject) {
+  RecordDecl *structDecl = DeclType->getAs<RecordType>()->getDecl();
 
   // If the record is invalid, some of it's members are invalid. To avoid
   // confusion, we forgo checking the intializer for the entire record.
@@ -1724,13 +1785,35 @@ void InitListChecker::CheckStructUnionTypes(const InitializedEntity &Entity,
     return;
   }
 
+  bool InitializedSomething = false;
+
+  // If we have any base classes, they are initialized prior to the fields.
+  for (auto &Base : Bases) {
+    Expr *Init = Index < IList->getNumInits() ? IList->getInit(Index) : nullptr;
+    SourceLocation InitLoc = Init ? Init->getLocStart() : IList->getLocEnd();
+
+    // Designated inits always initialize fields, so if we see one, all
+    // remaining base classes have no explicit initializer.
+    if (Init && isa<DesignatedInitExpr>(Init))
+      Init = nullptr;
+
+    InitializedEntity BaseEntity = InitializedEntity::InitializeBase(
+        SemaRef.Context, &Base, false, &Entity);
+    if (Init) {
+      CheckSubElementType(BaseEntity, IList, Base.getType(), Index,
+                          StructuredList, StructuredIndex);
+      InitializedSomething = true;
+    } else if (VerifyOnly) {
+      CheckEmptyInitializable(BaseEntity, InitLoc);
+    }
+  }
+
   // If structDecl is a forward declaration, this loop won't do
   // anything except look at designated initializers; That's okay,
   // because an error should get printed out elsewhere. It might be
   // worthwhile to skip over the rest of the initializer, though.
   RecordDecl *RD = DeclType->getAs<RecordType>()->getDecl();
   RecordDecl::field_iterator FieldEnd = RD->field_end();
-  bool InitializedSomething = false;
   bool CheckForMissingFields = true;
   while (Index < IList->getNumInits()) {
     Expr *Init = IList->getInit(Index);
@@ -1780,7 +1863,7 @@ void InitListChecker::CheckStructUnionTypes(const InitializedEntity &Entity,
     // Make sure we can use this declaration.
     bool InvalidUse;
     if (VerifyOnly)
-      InvalidUse = !SemaRef.CanUseDecl(*Field);
+      InvalidUse = !SemaRef.CanUseDecl(*Field, TreatUnavailableAsInvalid);
     else
       InvalidUse = SemaRef.DiagnoseUseOfDecl(*Field,
                                           IList->getInit(Index)->getLocStart());
@@ -2184,7 +2267,7 @@ InitListChecker::CheckDesignatedInitializer(const InitializedEntity &Entity,
     // Make sure we can use this declaration.
     bool InvalidUse;
     if (VerifyOnly)
-      InvalidUse = !SemaRef.CanUseDecl(*Field);
+      InvalidUse = !SemaRef.CanUseDecl(*Field, TreatUnavailableAsInvalid);
     else
       InvalidUse = SemaRef.DiagnoseUseOfDecl(*Field, D->getFieldLoc());
     if (InvalidUse) {
@@ -2302,8 +2385,11 @@ InitListChecker::CheckDesignatedInitializer(const InitializedEntity &Entity,
     // Check the remaining fields within this class/struct/union subobject.
     bool prevHadError = hadError;
 
-    CheckStructUnionTypes(Entity, IList, CurrentObjectType, Field, false, Index,
-                          StructuredList, FieldIndex);
+    auto NoBases =
+        CXXRecordDecl::base_class_range(CXXRecordDecl::base_class_iterator(),
+                                        CXXRecordDecl::base_class_iterator());
+    CheckStructUnionTypes(Entity, IList, CurrentObjectType, NoBases, Field,
+                          false, Index, StructuredList, FieldIndex);
     return hadError && !prevHadError;
   }
 
@@ -2785,10 +2871,11 @@ InitializedEntity::InitializedEntity(ASTContext &Context, unsigned Index,
 InitializedEntity
 InitializedEntity::InitializeBase(ASTContext &Context,
                                   const CXXBaseSpecifier *Base,
-                                  bool IsInheritedVirtualBase) {
+                                  bool IsInheritedVirtualBase,
+                                  const InitializedEntity *Parent) {
   InitializedEntity Result;
   Result.Kind = EK_Base;
-  Result.Parent = nullptr;
+  Result.Parent = Parent;
   Result.Base = reinterpret_cast<uintptr_t>(Base);
   if (IsInheritedVirtualBase)
     Result.Base |= 0x01;
@@ -3311,7 +3398,8 @@ static void TryListInitialization(Sema &S,
                                   const InitializedEntity &Entity,
                                   const InitializationKind &Kind,
                                   InitListExpr *InitList,
-                                  InitializationSequence &Sequence);
+                                  InitializationSequence &Sequence,
+                                  bool TreatUnavailableAsInvalid);
 
 /// \brief When initializing from init list via constructor, handle
 /// initialization of an object of type std::initializer_list<T>.
@@ -3321,7 +3409,8 @@ static void TryListInitialization(Sema &S,
 static bool TryInitializerListConstruction(Sema &S,
                                            InitListExpr *List,
                                            QualType DestType,
-                                           InitializationSequence &Sequence) {
+                                           InitializationSequence &Sequence,
+                                           bool TreatUnavailableAsInvalid) {
   QualType E;
   if (!S.isStdInitializerList(DestType, &E))
     return false;
@@ -3340,7 +3429,8 @@ static bool TryInitializerListConstruction(Sema &S,
       InitializedEntity::InitializeTemporary(ArrayType);
   InitializationKind Kind =
       InitializationKind::CreateDirectList(List->getExprLoc());
-  TryListInitialization(S, HiddenArray, Kind, List, Sequence);
+  TryListInitialization(S, HiddenArray, Kind, List, Sequence,
+                        TreatUnavailableAsInvalid);
   if (Sequence)
     Sequence.AddStdInitializerListConstructionStep(DestType);
   return true;
@@ -3594,7 +3684,8 @@ static void TryReferenceListInitialization(Sema &S,
                                            const InitializedEntity &Entity,
                                            const InitializationKind &Kind,
                                            InitListExpr *InitList,
-                                           InitializationSequence &Sequence) {
+                                           InitializationSequence &Sequence,
+                                           bool TreatUnavailableAsInvalid) {
   // First, catch C++03 where this isn't possible.
   if (!S.getLangOpts().CPlusPlus11) {
     Sequence.SetFailed(InitializationSequence::FK_ReferenceBindingToInitList);
@@ -3650,7 +3741,8 @@ static void TryReferenceListInitialization(Sema &S,
   // Not reference-related. Create a temporary and bind to that.
   InitializedEntity TempEntity = InitializedEntity::InitializeTemporary(cv1T1);
 
-  TryListInitialization(S, TempEntity, Kind, InitList, Sequence);
+  TryListInitialization(S, TempEntity, Kind, InitList, Sequence,
+                        TreatUnavailableAsInvalid);
   if (Sequence) {
     if (DestType->isRValueReferenceType() ||
         (T1Quals.hasConst() && !T1Quals.hasVolatile()))
@@ -3666,7 +3758,8 @@ static void TryListInitialization(Sema &S,
                                   const InitializedEntity &Entity,
                                   const InitializationKind &Kind,
                                   InitListExpr *InitList,
-                                  InitializationSequence &Sequence) {
+                                  InitializationSequence &Sequence,
+                                  bool TreatUnavailableAsInvalid) {
   QualType DestType = Entity.getType();
 
   // C++ doesn't allow scalar initialization with more than one argument.
@@ -3677,7 +3770,8 @@ static void TryListInitialization(Sema &S,
     return;
   }
   if (DestType->isReferenceType()) {
-    TryReferenceListInitialization(S, Entity, Kind, InitList, Sequence);
+    TryReferenceListInitialization(S, Entity, Kind, InitList, Sequence,
+                                   TreatUnavailableAsInvalid);
     return;
   }
 
@@ -3721,7 +3815,8 @@ static void TryListInitialization(Sema &S,
                                                    InitList->getRBraceLoc())
                 : Kind;
         Sequence.InitializeFrom(S, Entity, SubKind, SubInit,
-                                /*TopLevelOfInitList*/ true);
+                                /*TopLevelOfInitList*/ true,
+                                TreatUnavailableAsInvalid);
 
         // TryStringLiteralInitialization() (in InitializeFrom()) will fail if
         // the element is not an appropriately-typed string literal, in which
@@ -3753,7 +3848,8 @@ static void TryListInitialization(Sema &S,
 
       //   - Otherwise, if T is a specialization of std::initializer_list<E>,
       //     an initializer_list object constructed [...]
-      if (TryInitializerListConstruction(S, InitList, DestType, Sequence))
+      if (TryInitializerListConstruction(S, InitList, DestType, Sequence,
+                                         TreatUnavailableAsInvalid))
         return;
 
       //   - Otherwise, if T is a class type, constructors are considered.
@@ -3789,14 +3885,15 @@ static void TryListInitialization(Sema &S,
             : Kind;
     Expr *SubInit[1] = { InitList->getInit(0) };
     Sequence.InitializeFrom(S, Entity, SubKind, SubInit,
-                            /*TopLevelOfInitList*/true);
+                            /*TopLevelOfInitList*/true,
+                            TreatUnavailableAsInvalid);
     if (Sequence)
       Sequence.RewrapReferenceInitList(Entity.getType(), InitList);
     return;
   }
 
   InitListChecker CheckInitList(S, Entity, InitList,
-          DestType, /*VerifyOnly=*/true);
+          DestType, /*VerifyOnly=*/true, TreatUnavailableAsInvalid);
   if (CheckInitList.HadError()) {
     Sequence.SetFailed(InitializationSequence::FK_ListInitializationFailed);
     return;
@@ -4801,9 +4898,11 @@ InitializationSequence::InitializationSequence(Sema &S,
                                                const InitializedEntity &Entity,
                                                const InitializationKind &Kind,
                                                MultiExprArg Args,
-                                               bool TopLevelOfInitList)
+                                               bool TopLevelOfInitList,
+                                               bool TreatUnavailableAsInvalid)
     : FailedCandidateSet(Kind.getLocation(), OverloadCandidateSet::CSK_Normal) {
-  InitializeFrom(S, Entity, Kind, Args, TopLevelOfInitList);
+  InitializeFrom(S, Entity, Kind, Args, TopLevelOfInitList,
+                 TreatUnavailableAsInvalid);
 }
 
 /// Tries to get a FunctionDecl out of `E`. If it succeeds and we can take the
@@ -4821,7 +4920,8 @@ void InitializationSequence::InitializeFrom(Sema &S,
                                             const InitializedEntity &Entity,
                                             const InitializationKind &Kind,
                                             MultiExprArg Args,
-                                            bool TopLevelOfInitList) {
+                                            bool TopLevelOfInitList,
+                                            bool TreatUnavailableAsInvalid) {
   ASTContext &Context = S.Context;
 
   // Eliminate non-overload placeholder types in the arguments.  We
@@ -4875,7 +4975,8 @@ void InitializationSequence::InitializeFrom(Sema &S,
   //       object is list-initialized (8.5.4).
   if (Kind.getKind() != InitializationKind::IK_Direct) {
     if (InitListExpr *InitList = dyn_cast_or_null<InitListExpr>(Initializer)) {
-      TryListInitialization(S, Entity, Kind, InitList, *this);
+      TryListInitialization(S, Entity, Kind, InitList, *this,
+                            TreatUnavailableAsInvalid);
       return;
     }
   }
@@ -4959,7 +5060,7 @@ void InitializationSequence::InitializeFrom(Sema &S,
              Entity.getKind() == InitializedEntity::EK_Member &&
              Initializer && isa<InitListExpr>(Initializer)) {
       TryListInitialization(S, Entity, Kind, cast<InitListExpr>(Initializer),
-                            *this);
+                            *this, TreatUnavailableAsInvalid);
       AddParenthesizedArrayInitStep(DestType);
     } else if (DestAT->getElementType()->isCharType())
       SetFailed(FK_ArrayNeedsInitListOrStringLiteral);
@@ -5778,6 +5879,11 @@ static const InitializedEntity *getEntityForTemporaryLifetimeExtension(
                                                   FallbackDecl);
 
   case InitializedEntity::EK_Base:
+    // For subobjects, we look at the complete object.
+    if (Entity->getParent())
+      return getEntityForTemporaryLifetimeExtension(Entity->getParent(),
+                                                    Entity);
+    // Fall through.
   case InitializedEntity::EK_Delegating:
     // We can reach this case for aggregate initialization in a constructor:
     //   struct A { int &&r; };
@@ -6500,7 +6606,8 @@ InitializationSequence::Perform(Sema &S,
       InitializedEntity TempEntity = InitializedEntity::InitializeTemporary(Ty);
       InitializedEntity InitEntity = IsTemporary ? TempEntity : Entity;
       InitListChecker PerformInitList(S, InitEntity,
-          InitList, Ty, /*VerifyOnly=*/false);
+          InitList, Ty, /*VerifyOnly=*/false,
+          /*TreatUnavailableAsInvalid=*/false);
       if (PerformInitList.HadError())
         return ExprError();
 
@@ -6871,7 +6978,8 @@ static void diagnoseListInit(Sema &S, const InitializedEntity &Entity,
   }
 
   InitListChecker DiagnoseInitList(S, Entity, InitList, DestType,
-                                   /*VerifyOnly=*/false);
+                                   /*VerifyOnly=*/false,
+                                   /*TreatUnavailableAsInvalid=*/false);
   assert(DiagnoseInitList.HadError() &&
          "Inconsistent init list check result.");
 }

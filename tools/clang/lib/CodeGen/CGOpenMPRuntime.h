@@ -38,6 +38,8 @@ class Expr;
 class GlobalDecl;
 class OMPExecutableDirective;
 class VarDecl;
+class OMPDeclareReductionDecl;
+class IdentifierInfo;
 
 namespace CodeGen {
 class Address;
@@ -50,7 +52,7 @@ class CGOpenMPRuntime {
   CodeGenModule &CGM;
   /// \brief Default const ident_t object used for initialization of all other
   /// ident_t objects.
-  llvm::Constant *DefaultOpenMPPSource;
+  llvm::Constant *DefaultOpenMPPSource = nullptr;
   /// \brief Map of flags and corresponding default locations.
   typedef llvm::DenseMap<unsigned, llvm::Value *> OpenMPDefaultLocMapTy;
   OpenMPDefaultLocMapTy OpenMPDefaultLocMap;
@@ -73,6 +75,20 @@ class CGOpenMPRuntime {
   typedef llvm::DenseMap<llvm::Function *, DebugLocThreadIdTy>
       OpenMPLocThreadIDMapTy;
   OpenMPLocThreadIDMapTy OpenMPLocThreadIDMap;
+  /// Map of UDRs and corresponding combiner/initializer.
+  typedef llvm::DenseMap<const OMPDeclareReductionDecl *,
+                         std::pair<llvm::Function *, llvm::Function *>>
+      UDRMapTy;
+  UDRMapTy UDRMap;
+  /// Map of functions and locally defined UDRs.
+  typedef llvm::DenseMap<llvm::Function *,
+                         SmallVector<const OMPDeclareReductionDecl *, 4>>
+      FunctionUDRMapTy;
+  FunctionUDRMapTy FunctionUDRMap;
+  IdentifierInfo *In = nullptr;
+  IdentifierInfo *Out = nullptr;
+  IdentifierInfo *Priv = nullptr;
+  IdentifierInfo *Orig = nullptr;
   /// \brief Type kmp_critical_name, originally defined as typedef kmp_int32
   /// kmp_critical_name[8];
   llvm::ArrayType *KmpCriticalNameTy;
@@ -84,7 +100,7 @@ class CGOpenMPRuntime {
   llvm::StringMap<llvm::AssertingVH<llvm::Constant>, llvm::BumpPtrAllocator>
       InternalVars;
   /// \brief Type typedef kmp_int32 (* kmp_routine_entry_t)(kmp_int32, void *);
-  llvm::Type *KmpRoutineEntryPtrTy;
+  llvm::Type *KmpRoutineEntryPtrTy = nullptr;
   QualType KmpRoutineEntryPtrQTy;
   /// \brief Type typedef struct kmp_task {
   ///    void *              shareds; /**< pointer to block of pointers to
@@ -364,6 +380,12 @@ public:
   virtual ~CGOpenMPRuntime() {}
   virtual void clear();
 
+  /// Emit code for the specified user defined reduction construct.
+  virtual void emitUserDefinedReduction(CodeGenFunction *CGF,
+                                        const OMPDeclareReductionDecl *D);
+  /// Get combiner/initializer for the specified user-defined reduction, if any.
+  virtual std::pair<llvm::Function *, llvm::Function *>
+  getUserDefinedReduction(const OMPDeclareReductionDecl *D);
   /// \brief Emits outlined function for the specified OpenMP parallel directive
   /// \a D. This outlined function has type void(*)(kmp_int32 *ThreadID,
   /// kmp_int32 BoundID, struct context_vars*).
@@ -372,7 +394,7 @@ public:
   /// \param InnermostKind Kind of innermost directive (for simple directives it
   /// is a directive itself, for combined - its innermost directive).
   /// \param CodeGen Code generation sequence for the \a D directive.
-  virtual llvm::Value *emitParallelOutlinedFunction(
+  virtual llvm::Value *emitParallelOrTeamsOutlinedFunction(
       const OMPExecutableDirective &D, const VarDecl *ThreadIDVar,
       OpenMPDirectiveKind InnermostKind, const RegionCodeGenTy &CodeGen);
 
@@ -474,6 +496,14 @@ public:
   virtual bool isStaticNonchunked(OpenMPScheduleClauseKind ScheduleKind,
                                   bool Chunked) const;
 
+  /// \brief Check if the specified \a ScheduleKind is static non-chunked.
+  /// This kind of distribute directive is emitted without outer loop.
+  /// \param ScheduleKind Schedule kind specified in the 'dist_schedule' clause.
+  /// \param Chunked True if chunk is specified in the clause.
+  ///
+  virtual bool isStaticNonchunked(OpenMPDistScheduleClauseKind ScheduleKind,
+                                  bool Chunked) const;
+
   /// \brief Check if the specified \a ScheduleKind is dynamic.
   /// This kind of worksharing directive is emitted without outer loop.
   /// \param ScheduleKind Schedule Kind specified in the 'schedule' clause.
@@ -516,6 +546,31 @@ public:
                                  Address IL, Address LB,
                                  Address UB, Address ST,
                                  llvm::Value *Chunk = nullptr);
+
+  ///
+  /// \param CGF Reference to current CodeGenFunction.
+  /// \param Loc Clang source location.
+  /// \param SchedKind Schedule kind, specified by the 'dist_schedule' clause.
+  /// \param IVSize Size of the iteration variable in bits.
+  /// \param IVSigned Sign of the interation variable.
+  /// \param Ordered true if loop is ordered, false otherwise.
+  /// \param IL Address of the output variable in which the flag of the
+  /// last iteration is returned.
+  /// \param LB Address of the output variable in which the lower iteration
+  /// number is returned.
+  /// \param UB Address of the output variable in which the upper iteration
+  /// number is returned.
+  /// \param ST Address of the output variable in which the stride value is
+  /// returned nesessary to generated the static_chunked scheduled loop.
+  /// \param Chunk Value of the chunk for the static_chunked scheduled loop.
+  /// For the default (nullptr) value, the chunk 1 will be used.
+  ///
+  virtual void emitDistributeStaticInit(CodeGenFunction &CGF, SourceLocation Loc,
+                                        OpenMPDistScheduleClauseKind SchedKind,
+                                        unsigned IVSize, bool IVSigned,
+                                        bool Ordered, Address IL, Address LB,
+                                        Address UB, Address ST,
+                                        llvm::Value *Chunk = nullptr);
 
   /// \brief Call the appropriate runtime routine to notify that we finished
   /// iteration of the ordered loop with the dynamic scheduling.
@@ -782,6 +837,28 @@ public:
   /// was emitted in the current module and return the function that registers
   /// it.
   virtual llvm::Function *emitRegistrationFunction();
+
+  /// \brief Emits code for teams call of the \a OutlinedFn with
+  /// variables captured in a record which address is stored in \a
+  /// CapturedStruct.
+  /// \param OutlinedFn Outlined function to be run by team masters. Type of
+  /// this function is void(*)(kmp_int32 *, kmp_int32, struct context_vars*).
+  /// \param CapturedVars A pointer to the record with the references to
+  /// variables used in \a OutlinedFn function.
+  ///
+  virtual void emitTeamsCall(CodeGenFunction &CGF,
+                             const OMPExecutableDirective &D,
+                             SourceLocation Loc, llvm::Value *OutlinedFn,
+                             ArrayRef<llvm::Value *> CapturedVars);
+
+  /// \brief Emits call to void __kmpc_push_num_teams(ident_t *loc, kmp_int32
+  /// global_tid, kmp_int32 num_teams, kmp_int32 thread_limit) to generate code
+  /// for num_teams clause.
+  /// \param NumTeams An integer value of teams.
+  /// \param ThreadLimit An integer value of threads.
+  virtual void emitNumTeamsClause(CodeGenFunction &CGF, llvm::Value *NumTeams,
+                                  llvm::Value *ThreadLimit, SourceLocation Loc);
+
 };
 
 } // namespace CodeGen

@@ -83,6 +83,12 @@ class Driver {
     SaveTempsObj
   } SaveTemps;
 
+  enum BitcodeEmbedMode {
+    EmbedNone,
+    EmbedMarker,
+    EmbedBitcode
+  } BitcodeEmbed;
+
   /// LTO mode selected via -f(no-)?lto(=.*)? options.
   LTOKind LTOMode;
 
@@ -262,6 +268,9 @@ public:
   bool isSaveTempsEnabled() const { return SaveTemps != SaveTempsNone; }
   bool isSaveTempsObj() const { return SaveTemps == SaveTempsObj; }
 
+  bool embedBitcodeEnabled() const { return BitcodeEmbed == EmbedBitcode; }
+  bool embedBitcodeMarkerOnly() const { return BitcodeEmbed == EmbedMarker; }
+
   /// @}
   /// @name Primary Functionality
   /// @{
@@ -413,6 +422,9 @@ public:
   ///
   /// GCC goes to extra lengths here to be a bit more robust.
   std::string GetTemporaryPath(StringRef Prefix, const char *Suffix) const;
+
+  /// Return the pathname of the pch file in clang-cl mode.
+  std::string GetClPchPath(Compilation &C, StringRef BaseName) const;
 
   /// ShouldUseClangCompiler - Should the clang compiler be used to
   /// handle this action.

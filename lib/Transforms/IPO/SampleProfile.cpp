@@ -47,6 +47,7 @@
 #include "llvm/Support/Format.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Transforms/IPO.h"
+#include "llvm/Transforms/InstCombine/InstCombine.h"
 #include "llvm/Transforms/Utils/Cloning.h"
 #include <cctype>
 
@@ -121,7 +122,7 @@ public:
   bool runOnModule(Module &M) override;
 
   void getAnalysisUsage(AnalysisUsage &AU) const override {
-    AU.setPreservesCFG();
+    AU.addRequired<InstructionCombiningPass>();
   }
 
 protected:
@@ -284,7 +285,6 @@ bool callsiteIsHot(const FunctionSamples *CallerFS,
       (double)CallsiteTotalSamples / (double)ParentTotalSamples * 100.0;
   return PercentSamples >= SampleProfileHotThreshold;
 }
-
 }
 
 /// Mark as used the sample record for the given function samples at
@@ -548,19 +548,12 @@ SampleProfileLoader::findCalleeFunctionSamples(const CallInst &Inst) const {
   if (!SP)
     return nullptr;
 
-  Function *CalleeFunc = Inst.getCalledFunction();
-  if (!CalleeFunc) {
-    return nullptr;
-  }
-
-  StringRef CalleeName = CalleeFunc->getName();
   const FunctionSamples *FS = findFunctionSamples(Inst);
   if (FS == nullptr)
     return nullptr;
 
-  return FS->findFunctionSamplesAt(
-      CallsiteLocation(getOffset(DIL->getLine(), SP->getLine()),
-                       DIL->getDiscriminator(), CalleeName));
+  return FS->findFunctionSamplesAt(LineLocation(
+      getOffset(DIL->getLine(), SP->getLine()), DIL->getDiscriminator()));
 }
 
 /// \brief Get the FunctionSamples for an instruction.
@@ -574,7 +567,7 @@ SampleProfileLoader::findCalleeFunctionSamples(const CallInst &Inst) const {
 /// \returns the FunctionSamples pointer to the inlined instance.
 const FunctionSamples *
 SampleProfileLoader::findFunctionSamples(const Instruction &Inst) const {
-  SmallVector<CallsiteLocation, 10> S;
+  SmallVector<LineLocation, 10> S;
   const DILocation *DIL = Inst.getDebugLoc();
   if (!DIL) {
     return Samples;
@@ -586,8 +579,8 @@ SampleProfileLoader::findFunctionSamples(const Instruction &Inst) const {
     if (!SP)
       return nullptr;
     if (!CalleeName.empty()) {
-      S.push_back(CallsiteLocation(getOffset(DIL->getLine(), SP->getLine()),
-                                   DIL->getDiscriminator(), CalleeName));
+      S.push_back(LineLocation(getOffset(DIL->getLine(), SP->getLine()),
+                               DIL->getDiscriminator()));
     }
     CalleeName = SP->getLinkageName();
   }
@@ -1083,7 +1076,7 @@ void SampleProfileLoader::propagateWeights(Function &F) {
 /// \returns the line number where \p F is defined. If it returns 0,
 ///          it means that there is no debug information available for \p F.
 unsigned SampleProfileLoader::getFunctionLoc(Function &F) {
-  if (DISubprogram *S = getDISubprogram(&F))
+  if (DISubprogram *S = F.getSubprogram())
     return S->getLine();
 
   // If the start of \p F is missing, emit a diagnostic to inform the user
@@ -1189,7 +1182,7 @@ bool SampleProfileLoader::emitAnnotations(Function &F) {
     unsigned Coverage = CoverageTracker.computeCoverage(Used, Total);
     if (Coverage < SampleProfileRecordCoverage) {
       F.getContext().diagnose(DiagnosticInfoSampleProfile(
-          getDISubprogram(&F)->getFilename(), getFunctionLoc(F),
+          F.getSubprogram()->getFilename(), getFunctionLoc(F),
           Twine(Used) + " of " + Twine(Total) + " available profile records (" +
               Twine(Coverage) + "%) were applied",
           DS_Warning));
@@ -1202,7 +1195,7 @@ bool SampleProfileLoader::emitAnnotations(Function &F) {
     unsigned Coverage = CoverageTracker.computeCoverage(Used, Total);
     if (Coverage < SampleProfileSampleCoverage) {
       F.getContext().diagnose(DiagnosticInfoSampleProfile(
-          getDISubprogram(&F)->getFilename(), getFunctionLoc(F),
+          F.getSubprogram()->getFilename(), getFunctionLoc(F),
           Twine(Used) + " of " + Twine(Total) + " available profile samples (" +
               Twine(Coverage) + "%) were applied",
           DS_Warning));
@@ -1215,6 +1208,7 @@ char SampleProfileLoader::ID = 0;
 INITIALIZE_PASS_BEGIN(SampleProfileLoader, "sample-profile",
                       "Sample Profile loader", false, false)
 INITIALIZE_PASS_DEPENDENCY(AddDiscriminators)
+INITIALIZE_PASS_DEPENDENCY(InstructionCombiningPass)
 INITIALIZE_PASS_END(SampleProfileLoader, "sample-profile",
                     "Sample Profile loader", false, false)
 
@@ -1258,6 +1252,7 @@ bool SampleProfileLoader::runOnModule(Module &M) {
 
 bool SampleProfileLoader::runOnFunction(Function &F) {
   F.setEntryCount(0);
+  getAnalysis<InstructionCombiningPass>(F);
   Samples = Reader->getSamplesFor(F);
   if (!Samples->empty())
     return emitAnnotations(F);

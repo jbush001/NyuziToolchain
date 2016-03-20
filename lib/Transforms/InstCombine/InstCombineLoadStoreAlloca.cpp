@@ -523,7 +523,7 @@ static Instruction *unpackLoadToAggregate(InstCombiner &IC, LoadInst &LI) {
   if (!T->isAggregateType())
     return nullptr;
 
-  auto Name = LI.getName();
+  StringRef Name = LI.getName();
   assert(LI.getAlignment() && "Alignment must be set at this point");
 
   if (auto *ST = dyn_cast<StructType>(T)) {
@@ -547,11 +547,6 @@ static Instruction *unpackLoadToAggregate(InstCombiner &IC, LoadInst &LI) {
     if (!Align)
       Align = DL.getABITypeAlignment(ST);
 
-    SmallString<16> LoadName = Name;
-    LoadName += ".unpack";
-    SmallString<16> EltName = Name;
-    EltName += ".elt";
-
     auto *Addr = LI.getPointerOperand();
     auto *IdxType = Type::getInt32Ty(T->getContext());
     auto *Zero = ConstantInt::get(IdxType, 0);
@@ -563,9 +558,9 @@ static Instruction *unpackLoadToAggregate(InstCombiner &IC, LoadInst &LI) {
         ConstantInt::get(IdxType, i),
       };
       auto *Ptr = IC.Builder->CreateInBoundsGEP(ST, Addr, makeArrayRef(Indices),
-                                                EltName);
+                                                Name + ".elt");
       auto EltAlign = MinAlign(Align, SL->getElementOffset(i));
-      auto *L = IC.Builder->CreateAlignedLoad(Ptr, EltAlign, LoadName);
+      auto *L = IC.Builder->CreateAlignedLoad(Ptr, EltAlign, Name + ".unpack");
       V = IC.Builder->CreateInsertValue(V, L, i);
     }
 
@@ -574,13 +569,41 @@ static Instruction *unpackLoadToAggregate(InstCombiner &IC, LoadInst &LI) {
   }
 
   if (auto *AT = dyn_cast<ArrayType>(T)) {
-    // If the array only have one element, we unpack.
-    if (AT->getNumElements() == 1) {
-      LoadInst *NewLoad = combineLoadToNewType(IC, LI, AT->getElementType(),
-                                               ".unpack");
+    auto *ET = AT->getElementType();
+    auto NumElements = AT->getNumElements();
+    if (NumElements == 1) {
+      LoadInst *NewLoad = combineLoadToNewType(IC, LI, ET, ".unpack");
       return IC.replaceInstUsesWith(LI, IC.Builder->CreateInsertValue(
-        UndefValue::get(T), NewLoad, 0, LI.getName()));
+        UndefValue::get(T), NewLoad, 0, Name));
     }
+
+    const DataLayout &DL = IC.getDataLayout();
+    auto EltSize = DL.getTypeAllocSize(ET);
+    auto Align = LI.getAlignment();
+    if (!Align)
+      Align = DL.getABITypeAlignment(T);
+
+    auto *Addr = LI.getPointerOperand();
+    auto *IdxType = Type::getInt64Ty(T->getContext());
+    auto *Zero = ConstantInt::get(IdxType, 0);
+
+    Value *V = UndefValue::get(T);
+    uint64_t Offset = 0;
+    for (uint64_t i = 0; i < NumElements; i++) {
+      Value *Indices[2] = {
+        Zero,
+        ConstantInt::get(IdxType, i),
+      };
+      auto *Ptr = IC.Builder->CreateInBoundsGEP(AT, Addr, makeArrayRef(Indices),
+                                                Name + ".elt");
+      auto *L = IC.Builder->CreateAlignedLoad(Ptr, MinAlign(Align, Offset),
+                                              Name + ".unpack");
+      V = IC.Builder->CreateInsertValue(V, L, i);
+      Offset += EltSize;
+    }
+
+    V->setName(Name);
+    return IC.replaceInstUsesWith(LI, V);
   }
 
   return nullptr;
@@ -984,11 +1007,43 @@ static bool unpackStoreToAggregate(InstCombiner &IC, StoreInst &SI) {
 
   if (auto *AT = dyn_cast<ArrayType>(T)) {
     // If the array only have one element, we unpack.
-    if (AT->getNumElements() == 1) {
+    auto NumElements = AT->getNumElements();
+    if (NumElements == 1) {
       V = IC.Builder->CreateExtractValue(V, 0);
       combineStoreToNewValue(IC, SI, V);
       return true;
     }
+
+    const DataLayout &DL = IC.getDataLayout();
+    auto EltSize = DL.getTypeAllocSize(AT->getElementType());
+    auto Align = SI.getAlignment();
+    if (!Align)
+      Align = DL.getABITypeAlignment(T);
+
+    SmallString<16> EltName = V->getName();
+    EltName += ".elt";
+    auto *Addr = SI.getPointerOperand();
+    SmallString<16> AddrName = Addr->getName();
+    AddrName += ".repack";
+
+    auto *IdxType = Type::getInt64Ty(T->getContext());
+    auto *Zero = ConstantInt::get(IdxType, 0);
+
+    uint64_t Offset = 0;
+    for (uint64_t i = 0; i < NumElements; i++) {
+      Value *Indices[2] = {
+        Zero,
+        ConstantInt::get(IdxType, i),
+      };
+      auto *Ptr = IC.Builder->CreateInBoundsGEP(AT, Addr, makeArrayRef(Indices),
+                                                AddrName);
+      auto *Val = IC.Builder->CreateExtractValue(V, i, EltName);
+      auto EltAlign = MinAlign(Align, Offset);
+      IC.Builder->CreateAlignedStore(Val, Ptr, EltAlign);
+      Offset += EltSize;
+    }
+
+    return true;
   }
 
   return false;

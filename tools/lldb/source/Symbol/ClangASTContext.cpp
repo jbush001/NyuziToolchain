@@ -685,8 +685,9 @@ public:
     {
         m_log = lldb_private::GetLogIfAllCategoriesSet (LIBLLDB_LOG_EXPRESSIONS);
     }
-    
-    void HandleDiagnostic (DiagnosticsEngine::Level DiagLevel, const Diagnostic &info)
+
+    void
+    HandleDiagnostic(DiagnosticsEngine::Level DiagLevel, const clang::Diagnostic &info)
     {
         if (m_log)
         {
@@ -3185,7 +3186,7 @@ ClangASTContext::GetFunctionArgumentAtIndex (lldb::opaque_compiler_type_t type, 
 {
     if (type)
     {
-        clang::QualType qual_type (GetCanonicalQualType(type));
+        clang::QualType qual_type (GetQualType(type));
         const clang::FunctionProtoType* func = llvm::dyn_cast<clang::FunctionProtoType>(qual_type.getTypePtr());
         if (func)
         {
@@ -4639,6 +4640,20 @@ ClangASTContext::CreateTypedef (lldb::opaque_compiler_type_t type, const char *t
                                                                clang::SourceLocation(),
                                                                &clang_ast->Idents.get(typedef_name),
                                                                clang_ast->getTrivialTypeSourceInfo(qual_type));
+
+        clang::TagDecl *tdecl = nullptr;
+        if (!qual_type.isNull())
+        {
+            if (const clang::RecordType *rt = qual_type->getAs<clang::RecordType>())
+                tdecl = rt->getDecl();
+            if (const clang::EnumType *et = qual_type->getAs<clang::EnumType>())
+                tdecl = et->getDecl();
+        }
+
+        // Check whether this declaration is an anonymous struct, union, or enum, hidden behind a typedef. If so, we
+        // try to check whether we have a typedef tag to attach to the original record declaration
+        if (tdecl && !tdecl->getIdentifier() && !tdecl->getTypedefNameForAnonDecl())
+            tdecl->setTypedefNameForAnonDecl(decl);
 
         decl->setAccess(clang::AS_public); // TODO respect proper access specifier
 

@@ -81,8 +81,12 @@ public:
   }
   unsigned size() const { return getNumEntries(); }
 
-  /// Grow the densemap so that it has at least Size buckets. Does not shrink
+  /// Grow the densemap so that it can contain at least Size items before
+  /// resizing again. This means somewhat more than Size buckets because
+  /// densemap resizes upon reaching 3/4 full.
   void resize(size_type Size) {
+    // Size *= (4/3), rounding up.
+    Size = (Size * 4 + 2) / 3;
     incrementEpoch();
     if (Size > getNumBuckets())
       grow(Size);
@@ -190,6 +194,26 @@ public:
     // Otherwise, insert the new element.
     TheBucket = InsertIntoBucket(std::move(KV.first),
                                  std::move(KV.second),
+                                 TheBucket);
+    return std::make_pair(iterator(TheBucket, getBucketsEnd(), *this, true),
+                          true);
+  }
+
+  /// Alternate version of insert() which allows a different, and possibly
+  /// less expensive, key type.
+  /// The DenseMapInfo is responsible for supplying methods
+  /// getHashValue(LookupKeyT) and isEqual(LookupKeyT, KeyT) for each key
+  /// type used.
+  template <typename LookupKeyT>
+  std::pair<iterator, bool> insert_as(std::pair<KeyT, ValueT> &&KV,
+                                      const LookupKeyT &Val) {
+    BucketT *TheBucket;
+    if (LookupBucketFor(Val, TheBucket))
+      return std::make_pair(iterator(TheBucket, getBucketsEnd(), *this, true),
+                            false); // Already in map.
+
+    // Otherwise, insert the new element.
+    TheBucket = InsertIntoBucket(std::move(KV.first), std::move(KV.second), Val,
                                  TheBucket);
     return std::make_pair(iterator(TheBucket, getBucketsEnd(), *this, true),
                           true);
@@ -399,7 +423,7 @@ private:
 
   BucketT *InsertIntoBucket(const KeyT &Key, const ValueT &Value,
                             BucketT *TheBucket) {
-    TheBucket = InsertIntoBucketImpl(Key, TheBucket);
+    TheBucket = InsertIntoBucketImpl(Key, Key, TheBucket);
 
     TheBucket->getFirst() = Key;
     ::new (&TheBucket->getSecond()) ValueT(Value);
@@ -408,7 +432,7 @@ private:
 
   BucketT *InsertIntoBucket(const KeyT &Key, ValueT &&Value,
                             BucketT *TheBucket) {
-    TheBucket = InsertIntoBucketImpl(Key, TheBucket);
+    TheBucket = InsertIntoBucketImpl(Key, Key, TheBucket);
 
     TheBucket->getFirst() = Key;
     ::new (&TheBucket->getSecond()) ValueT(std::move(Value));
@@ -416,14 +440,26 @@ private:
   }
 
   BucketT *InsertIntoBucket(KeyT &&Key, ValueT &&Value, BucketT *TheBucket) {
-    TheBucket = InsertIntoBucketImpl(Key, TheBucket);
+    TheBucket = InsertIntoBucketImpl(Key, Key, TheBucket);
 
     TheBucket->getFirst() = std::move(Key);
     ::new (&TheBucket->getSecond()) ValueT(std::move(Value));
     return TheBucket;
   }
 
-  BucketT *InsertIntoBucketImpl(const KeyT &Key, BucketT *TheBucket) {
+  template <typename LookupKeyT>
+  BucketT *InsertIntoBucket(KeyT &&Key, ValueT &&Value, LookupKeyT &Lookup,
+                            BucketT *TheBucket) {
+    TheBucket = InsertIntoBucketImpl(Key, Lookup, TheBucket);
+
+    TheBucket->getFirst() = std::move(Key);
+    ::new (&TheBucket->getSecond()) ValueT(std::move(Value));
+    return TheBucket;
+  }
+
+  template <typename LookupKeyT>
+  BucketT *InsertIntoBucketImpl(const KeyT &Key, const LookupKeyT &Lookup,
+                                BucketT *TheBucket) {
     incrementEpoch();
 
     // If the load of the hash table is more than 3/4, or if fewer than 1/8 of
@@ -439,12 +475,12 @@ private:
     unsigned NumBuckets = getNumBuckets();
     if (LLVM_UNLIKELY(NewNumEntries * 4 >= NumBuckets * 3)) {
       this->grow(NumBuckets * 2);
-      LookupBucketFor(Key, TheBucket);
+      LookupBucketFor(Lookup, TheBucket);
       NumBuckets = getNumBuckets();
     } else if (LLVM_UNLIKELY(NumBuckets-(NewNumEntries+getNumTombstones()) <=
                              NumBuckets/8)) {
       this->grow(NumBuckets);
-      LookupBucketFor(Key, TheBucket);
+      LookupBucketFor(Lookup, TheBucket);
     }
     assert(TheBucket);
 

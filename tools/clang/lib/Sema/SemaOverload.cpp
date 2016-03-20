@@ -1150,7 +1150,16 @@ bool Sema::IsOverload(FunctionDecl *New, FunctionDecl *Old,
 /// \returns true if \arg FD is unavailable and current context is inside
 /// an available function, false otherwise.
 bool Sema::isFunctionConsideredUnavailable(FunctionDecl *FD) {
-  return FD->isUnavailable() && !cast<Decl>(CurContext)->isUnavailable();
+  if (!FD->isUnavailable())
+    return false;
+
+  // Walk up the context of the caller.
+  Decl *C = cast<Decl>(CurContext);
+  do {
+    if (C->isUnavailable())
+      return false;
+  } while ((C = cast_or_null<Decl>(C->getDeclContext())));
+  return true;
 }
 
 /// \brief Tries a user-defined conversion from From to ToType.
@@ -2541,9 +2550,8 @@ bool Sema::IsBlockPointerConversion(QualType FromType, QualType ToType,
        // Argument types are too different. Abort.
        return false;
    }
-   if (LangOpts.ObjCAutoRefCount && 
-       !Context.FunctionTypesMatchOnNSConsumedAttrs(FromFunctionType, 
-                                                    ToFunctionType))
+   if (!Context.doFunctionTypesMatchOnExtParameterInfos(FromFunctionType,
+                                                        ToFunctionType))
      return false;
    
    ConvertedType = ToType;
@@ -9132,10 +9140,13 @@ static void DiagnoseBadConversion(Sema &S, OverloadCandidate *Cand,
   if (const PointerType *PTy = TempFromTy->getAs<PointerType>())
     TempFromTy = PTy->getPointeeType();
   if (TempFromTy->isIncompleteType()) {
+    // Emit the generic diagnostic and, optionally, add the hints to it.
     S.Diag(Fn->getLocation(), diag::note_ovl_candidate_bad_conv_incomplete)
       << (unsigned) FnKind << FnDesc
       << (FromExpr ? FromExpr->getSourceRange() : SourceRange())
-      << FromTy << ToTy << (unsigned) isObjectArgument << I+1;
+      << FromTy << ToTy << (unsigned) isObjectArgument << I+1
+      << (unsigned) (Cand->Fix.Kind);
+      
     MaybeEmitInheritedConstructorNote(S, Fn);
     return;
   }
@@ -10408,7 +10419,7 @@ private:
         return false;
 
       QualType ResultTy;
-      if (Context.hasSameUnqualifiedType(TargetFunctionType, 
+      if (Context.hasSameUnqualifiedType(TargetFunctionType,
                                          FunDecl->getType()) ||
           S.IsNoReturnConversion(FunDecl->getType(), TargetFunctionType,
                                  ResultTy) ||
@@ -10638,6 +10649,42 @@ Sema::ResolveAddressOfOverloadedFunction(Expr *AddressOfExpr,
   if (pHadMultipleCandidates)
     *pHadMultipleCandidates = Resolver.hadMultipleCandidates();
   return Fn;
+}
+
+/// \brief Given an expression that refers to an overloaded function, try to
+/// resolve that function to a single function that can have its address taken.
+/// This will modify `Pair` iff it returns non-null.
+///
+/// This routine can only realistically succeed if all but one candidates in the
+/// overload set for SrcExpr cannot have their addresses taken.
+FunctionDecl *
+Sema::resolveAddressOfOnlyViableOverloadCandidate(Expr *E,
+                                                  DeclAccessPair &Pair) {
+  OverloadExpr::FindResult R = OverloadExpr::find(E);
+  OverloadExpr *Ovl = R.Expression;
+  FunctionDecl *Result = nullptr;
+  DeclAccessPair DAP;
+  // Don't use the AddressOfResolver because we're specifically looking for
+  // cases where we have one overload candidate that lacks
+  // enable_if/pass_object_size/...
+  for (auto I = Ovl->decls_begin(), E = Ovl->decls_end(); I != E; ++I) {
+    auto *FD = dyn_cast<FunctionDecl>(I->getUnderlyingDecl());
+    if (!FD)
+      return nullptr;
+
+    if (!checkAddressOfFunctionIsAvailable(FD))
+      continue;
+
+    // We have more than one result; quit.
+    if (Result)
+      return nullptr;
+    DAP = I.getPair();
+    Result = FD;
+  }
+
+  if (Result)
+    Pair = DAP;
+  return Result;
 }
 
 /// \brief Given an expression that refers to an overloaded function, try to

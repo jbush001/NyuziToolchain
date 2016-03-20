@@ -70,7 +70,7 @@ Target::GetStaticBroadcasterClass ()
 
 Target::Target(Debugger &debugger, const ArchSpec &target_arch, const lldb::PlatformSP &platform_sp, bool is_dummy_target) :
     TargetProperties (this),
-    Broadcaster (&debugger, Target::GetStaticBroadcasterClass().AsCString()),
+    Broadcaster (debugger.GetBroadcasterManager(), Target::GetStaticBroadcasterClass().AsCString()),
     ExecutionContextScope (),
     m_debugger (debugger),
     m_platform_sp (platform_sp),
@@ -194,10 +194,10 @@ Target::DeleteCurrentProcess ()
 }
 
 const lldb::ProcessSP &
-Target::CreateProcess (Listener &listener, const char *plugin_name, const FileSpec *crash_file)
+Target::CreateProcess (ListenerSP listener_sp, const char *plugin_name, const FileSpec *crash_file)
 {
     DeleteCurrentProcess ();
-    m_process_sp = Process::FindPlugin(shared_from_this(), plugin_name, listener, crash_file);
+    m_process_sp = Process::FindPlugin(shared_from_this(), plugin_name, listener_sp, crash_file);
     return m_process_sp;
 }
 
@@ -342,12 +342,20 @@ BreakpointSP
 Target::CreateBreakpoint (const FileSpecList *containingModules,
                           const FileSpec &file,
                           uint32_t line_no,
+                          lldb::addr_t offset,
                           LazyBool check_inlines,
                           LazyBool skip_prologue,
                           bool internal,
                           bool hardware,
                           LazyBool move_to_nearest_code)
 {
+    FileSpec remapped_file;
+    ConstString remapped_path;
+    if (GetSourcePathMap().ReverseRemapPath(ConstString(file.GetPath().c_str()), remapped_path))
+        remapped_file.SetFile(remapped_path.AsCString(), true);
+    else
+        remapped_file = file;
+
     if (check_inlines == eLazyBoolCalculate)
     {
         const InlineStrategy inline_strategy = GetInlineStrategy();
@@ -358,7 +366,7 @@ Target::CreateBreakpoint (const FileSpecList *containingModules,
                 break;
                 
             case eInlineBreakpointsHeaders:
-                if (file.IsSourceImplementationFile())
+                if (remapped_file.IsSourceImplementationFile())
                     check_inlines = eLazyBoolNo;
                 else
                     check_inlines = eLazyBoolYes;
@@ -374,7 +382,7 @@ Target::CreateBreakpoint (const FileSpecList *containingModules,
     {
         // Not checking for inlines, we are looking only for matching compile units
         FileSpecList compile_unit_list;
-        compile_unit_list.Append (file);
+        compile_unit_list.Append (remapped_file);
         filter_sp = GetSearchFilterForModuleAndCUList (containingModules, &compile_unit_list);
     }
     else
@@ -386,12 +394,13 @@ Target::CreateBreakpoint (const FileSpecList *containingModules,
     if (move_to_nearest_code == eLazyBoolCalculate)
         move_to_nearest_code = GetMoveToNearestCode() ? eLazyBoolYes : eLazyBoolNo;
 
-    BreakpointResolverSP resolver_sp(new BreakpointResolverFileLine(nullptr,
-                                                                    file,
-                                                                    line_no,
-                                                                    check_inlines,
-                                                                    skip_prologue,
-                                                                    !static_cast<bool>(move_to_nearest_code)));
+    BreakpointResolverSP resolver_sp(new BreakpointResolverFileLine (nullptr,
+                                                                     remapped_file,
+                                                                     line_no,
+                                                                     offset,
+                                                                     check_inlines,
+                                                                     skip_prologue,
+                                                                     !static_cast<bool>(move_to_nearest_code)));
     return CreateBreakpoint (filter_sp, resolver_sp, internal, hardware, true);
 }
 
@@ -440,8 +449,9 @@ BreakpointSP
 Target::CreateBreakpoint (const FileSpecList *containingModules,
                           const FileSpecList *containingSourceFiles,
                           const char *func_name, 
-                          uint32_t func_name_type_mask, 
+                          uint32_t func_name_type_mask,
                           LanguageType language,
+                          lldb::addr_t offset,
                           LazyBool skip_prologue,
                           bool internal,
                           bool hardware)
@@ -456,12 +466,13 @@ Target::CreateBreakpoint (const FileSpecList *containingModules,
         if (language == lldb::eLanguageTypeUnknown)
             language = GetLanguage();
 
-        BreakpointResolverSP resolver_sp(new BreakpointResolverName(nullptr, 
-                                                                    func_name, 
-                                                                    func_name_type_mask, 
-                                                                    language,
-                                                                    Breakpoint::Exact, 
-                                                                    skip_prologue));
+        BreakpointResolverSP resolver_sp (new BreakpointResolverName (nullptr, 
+                                                                      func_name, 
+                                                                      func_name_type_mask, 
+                                                                      language,
+                                                                      Breakpoint::Exact, 
+                                                                      offset,
+                                                                      skip_prologue));
         bp_sp = CreateBreakpoint (filter_sp, resolver_sp, internal, hardware, true);
     }
     return bp_sp;
@@ -473,6 +484,7 @@ Target::CreateBreakpoint (const FileSpecList *containingModules,
                           const std::vector<std::string> &func_names,
                           uint32_t func_name_type_mask,
                           LanguageType language,
+                          lldb::addr_t offset,
                           LazyBool skip_prologue,
                           bool internal,
                           bool hardware)
@@ -488,11 +500,13 @@ Target::CreateBreakpoint (const FileSpecList *containingModules,
         if (language == lldb::eLanguageTypeUnknown)
             language = GetLanguage();
 
-        BreakpointResolverSP resolver_sp(new BreakpointResolverName(nullptr,
-                                                                    func_names,
-                                                                    func_name_type_mask,
-                                                                    language,
-                                                                    skip_prologue));
+
+        BreakpointResolverSP resolver_sp (new BreakpointResolverName (nullptr,
+                                                                      func_names,
+                                                                      func_name_type_mask,
+                                                                      language,
+                                                                      offset,
+                                                                      skip_prologue));
         bp_sp = CreateBreakpoint (filter_sp, resolver_sp, internal, hardware, true);
     }
     return bp_sp;
@@ -503,8 +517,9 @@ Target::CreateBreakpoint (const FileSpecList *containingModules,
                           const FileSpecList *containingSourceFiles,
                           const char *func_names[],
                           size_t num_names, 
-                          uint32_t func_name_type_mask, 
+                          uint32_t func_name_type_mask,
                           LanguageType language,
+                          lldb::addr_t offset,
                           LazyBool skip_prologue,
                           bool internal,
                           bool hardware)
@@ -515,16 +530,23 @@ Target::CreateBreakpoint (const FileSpecList *containingModules,
         SearchFilterSP filter_sp(GetSearchFilterForModuleAndCUList (containingModules, containingSourceFiles));
         
         if (skip_prologue == eLazyBoolCalculate)
-            skip_prologue = GetSkipPrologue() ? eLazyBoolYes : eLazyBoolNo;
+        {
+            if (offset == 0)
+                skip_prologue = GetSkipPrologue() ? eLazyBoolYes : eLazyBoolNo;
+            else
+                skip_prologue = eLazyBoolNo;
+        }
         if (language == lldb::eLanguageTypeUnknown)
             language = GetLanguage();
 
-        BreakpointResolverSP resolver_sp(new BreakpointResolverName(nullptr,
-                                                                    func_names,
-                                                                    num_names, 
-                                                                    func_name_type_mask,
-                                                                    language,
-                                                                    skip_prologue));
+        BreakpointResolverSP resolver_sp (new BreakpointResolverName (nullptr,
+                                                                      func_names,
+                                                                      num_names, 
+                                                                      func_name_type_mask,
+                                                                      language,
+                                                                      offset,
+                                                                      skip_prologue));
+        resolver_sp->SetOffset(offset);
         bp_sp = CreateBreakpoint (filter_sp, resolver_sp, internal, hardware, true);
     }
     return bp_sp;
@@ -603,10 +625,11 @@ Target::CreateFuncRegexBreakpoint (const FileSpecList *containingModules,
     bool skip =
       (skip_prologue == eLazyBoolCalculate) ? GetSkipPrologue()
                                             : static_cast<bool>(skip_prologue);
-    BreakpointResolverSP resolver_sp(new BreakpointResolverName(nullptr, 
-                                                                func_regex,
-                                                                requested_language,
-                                                                skip));
+    BreakpointResolverSP resolver_sp(new BreakpointResolverName (nullptr, 
+                                                                 func_regex,
+                                                                 requested_language,
+                                                                 0,
+                                                                 skip));
 
     return CreateBreakpoint (filter_sp, resolver_sp, internal, hardware, true);
 }
@@ -3065,12 +3088,12 @@ Target::Launch (ProcessLaunchInfo &launch_info, Stream *stream)
             ListenerSP hijack_listener_sp (launch_info.GetHijackListener());
             if (!hijack_listener_sp)
             {
-                hijack_listener_sp.reset(new Listener("lldb.Target.Launch.hijack"));
+                hijack_listener_sp = Listener::MakeListener("lldb.Target.Launch.hijack");
                 launch_info.SetHijackListener(hijack_listener_sp);
-                m_process_sp->HijackProcessEvents(hijack_listener_sp.get());
+                m_process_sp->HijackProcessEvents(hijack_listener_sp);
             }
 
-            StateType state = m_process_sp->WaitForProcessToStop(nullptr, nullptr, false, hijack_listener_sp.get(), nullptr);
+            StateType state = m_process_sp->WaitForProcessToStop(nullptr, nullptr, false, hijack_listener_sp, nullptr);
             
             if (state == eStateStopped)
             {
@@ -3081,7 +3104,7 @@ Target::Launch (ProcessLaunchInfo &launch_info, Stream *stream)
                         error = m_process_sp->PrivateResume();
                         if (error.Success())
                         {
-                            state = m_process_sp->WaitForProcessToStop(nullptr, nullptr, true, hijack_listener_sp.get(), stream);
+                            state = m_process_sp->WaitForProcessToStop(nullptr, nullptr, true, hijack_listener_sp, stream);
                             const bool must_be_alive = false; // eStateExited is ok, so this must be false
                             if (!StateIsStoppedState(state, must_be_alive))
                             {
@@ -3175,7 +3198,7 @@ Target::Attach (ProcessAttachInfo &attach_info, Stream *stream)
     const bool async = attach_info.GetAsync();
     if (!async)
     {
-        hijack_listener_sp.reset (new Listener ("lldb.Target.Attach.attach.hijack"));
+        hijack_listener_sp = Listener::MakeListener("lldb.Target.Attach.attach.hijack");
         attach_info.SetHijackListener (hijack_listener_sp);
     }
 
@@ -3198,7 +3221,7 @@ Target::Attach (ProcessAttachInfo &attach_info, Stream *stream)
             }
         }
         if (hijack_listener_sp)
-            process_sp->HijackProcessEvents (hijack_listener_sp.get ());
+            process_sp->HijackProcessEvents (hijack_listener_sp);
         error = process_sp->Attach (attach_info);
     }
 
@@ -3210,7 +3233,7 @@ Target::Attach (ProcessAttachInfo &attach_info, Stream *stream)
         }
         else
         {
-            state = process_sp->WaitForProcessToStop (nullptr, nullptr, false, attach_info.GetHijackListener ().get (), stream);
+            state = process_sp->WaitForProcessToStop (nullptr, nullptr, false, attach_info.GetHijackListener(), stream);
             process_sp->RestoreProcessEvents ();
 
             if (state != eStateStopped)

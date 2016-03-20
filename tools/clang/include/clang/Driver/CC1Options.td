@@ -274,11 +274,14 @@ def fsanitize_coverage_trace_pc
     : Flag<["-"], "fsanitize-coverage-trace-pc">,
       HelpText<"Enable PC tracing in sanitizer coverage">;
 def fprofile_instrument_EQ : Joined<["-"], "fprofile-instrument=">,
-    HelpText<"Enable PGO instrumentation. The accepted values is clang or "
-             "none">;
+    HelpText<"Enable PGO instrumentation. The accepted value is clang, llvm, "
+             "or none">;
 def fprofile_instrument_path_EQ : Joined<["-"], "fprofile-instrument-path=">,
     HelpText<"Generate instrumented code to collect execution counts into "
              "<file> (overridden by LLVM_PROFILE_FILE env var)">;
+def fprofile_instrument_use_path_EQ :
+    Joined<["-"], "fprofile-instrument-use-path=">,
+    HelpText<"Specify the profile path in PGO use compilation">;
 
 //===----------------------------------------------------------------------===//
 // Dependency Output Options
@@ -364,6 +367,8 @@ def code_completion_brief_comments : Flag<["-"], "code-completion-brief-comments
   HelpText<"Include brief documentation comments in code-completion results.">;
 def disable_free : Flag<["-"], "disable-free">,
   HelpText<"Disable freeing of memory on exit">;
+def discard_value_names : Flag<["-"], "discard-value-names">,
+  HelpText<"Discard value names in LLVM IR">;
 def load : Separate<["-"], "load">, MetaVarName<"<dsopath>">,
   HelpText<"Load the named plugin (dynamic shared object)">;
 def plugin : Separate<["-"], "plugin">, MetaVarName<"<name>">,
@@ -495,6 +500,10 @@ def fixit_to_temp : Flag<["-"], "fixit-to-temporary">,
 
 def foverride_record_layout_EQ : Joined<["-"], "foverride-record-layout=">,
   HelpText<"Override record layouts with those in the given file">;
+def find_pch_source_EQ : Joined<["-"], "find-pch-source=">,
+  HelpText<"When building a pch, try to find the input file in include "
+           "directories, as if it had been included by the argument passed "
+           "to this flag.">;
   
 //===----------------------------------------------------------------------===//
 // Language Options
@@ -594,6 +603,8 @@ def fno_rtti_data : Flag<["-"], "fno-rtti-data">,
   HelpText<"Control emission of RTTI data">;
 def fnative_half_type: Flag<["-"], "fnative-half-type">,
   HelpText<"Use the native half type for __fp16 instead of promoting to float">;
+def fnative_half_arguments_and_returns : Flag<["-"], "fnative-half-arguments-and-returns">,
+  HelpText<"Use the native __fp16 type for arguments and returns (and skip ABI-specific lowering)">;
 def fallow_half_arguments_and_returns : Flag<["-"], "fallow-half-arguments-and-returns">,
   HelpText<"Allow function arguments and returns of type half">;
 
@@ -695,7 +706,7 @@ def fcuda_allow_variadic_functions : Flag<["-"], "fcuda-allow-variadic-functions
 
 def fopenmp_is_device : Flag<["-"], "fopenmp-is-device">,
   HelpText<"Generate code only for an OpenMP target device.">;
-def omp_host_ir_file_path : Separate<["-"], "omp-host-ir-file-path">,
+def fomp_host_ir_file_path : Separate<["-"], "fomp-host-ir-file-path">,
   HelpText<"Path to the IR file produced by the frontend for the host.">;
   
 } // let Flags = [CC1Option]

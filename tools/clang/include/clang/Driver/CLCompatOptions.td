@@ -252,6 +252,18 @@ def _SLASH_volatile_ms  : Option<["/", "-"], "volatile:ms", KIND_FLAG>,
 def _SLASH_Zl : CLFlag<"Zl">,
   HelpText<"Don't mention any default libraries in the object file">;
 
+def _SLASH_Yc : CLJoined<"Yc">,
+  HelpText<"Generate a pch file for all code up to and including <filename>">,
+  MetaVarName<"<filename>">;
+def _SLASH_Yu : CLJoined<"Yu">,
+  HelpText<"Load a pch file and use it instead of all code up to "
+           "and including <filename>">,
+  MetaVarName<"<filename>">;
+def _SLASH_Y_ : CLFlag<"Y-">,
+  HelpText<"Disable precompiled headers, overrides /Yc and /Yu">;
+def _SLASH_Fp : CLJoined<"Fp">,
+  HelpText<"Set pch filename (with /Yc and /Yu)">, MetaVarName<"<filename>">;
+
 // Ignored:
 
 def _SLASH_analyze_ : CLIgnoredFlag<"analyze-">;
@@ -294,7 +306,6 @@ def _SLASH_favor : CLJoined<"favor">;
 def _SLASH_FC : CLFlag<"FC">;
 def _SLASH_F : CLFlag<"F">;
 def _SLASH_Fm : CLJoined<"Fm">;
-def _SLASH_Fp : CLJoined<"Fp">;
 def _SLASH_Fr : CLJoined<"Fr">;
 def _SLASH_FR : CLJoined<"FR">;
 def _SLASH_FU : CLJoinedOrSeparate<"FU">;
@@ -332,11 +343,8 @@ def _SLASH_V : CLFlag<"V">;
 def _SLASH_WL : CLFlag<"WL">;
 def _SLASH_Wp64 : CLFlag<"Wp64">;
 def _SLASH_X : CLFlag<"X">;
-def _SLASH_Yc : CLJoined<"Yc">;
-def _SLASH_Y_ : CLFlag<"Y-">;
 def _SLASH_Yd : CLFlag<"Yd">;
 def _SLASH_Yl : CLJoined<"Yl">;
-def _SLASH_Yu : CLJoined<"Yu">;
 def _SLASH_Za : CLFlag<"Za">;
 def _SLASH_Zc : CLJoined<"Zc:">;
 def _SLASH_Ze : CLFlag<"Ze">;

@@ -901,10 +901,10 @@ ModRefInfo GlobalsAAResult::getModRefInfo(ImmutableCallSite CS,
 
 GlobalsAAResult::GlobalsAAResult(const DataLayout &DL,
                                  const TargetLibraryInfo &TLI)
-    : AAResultBase(TLI), DL(DL) {}
+    : AAResultBase(), DL(DL), TLI(TLI) {}
 
 GlobalsAAResult::GlobalsAAResult(GlobalsAAResult &&Arg)
-    : AAResultBase(std::move(Arg)), DL(Arg.DL),
+    : AAResultBase(std::move(Arg)), DL(Arg.DL), TLI(Arg.TLI),
       NonAddressTakenGlobals(std::move(Arg.NonAddressTakenGlobals)),
       IndirectGlobals(std::move(Arg.IndirectGlobals)),
       AllocsForIndirectGlobals(std::move(Arg.AllocsForIndirectGlobals)),
@@ -916,6 +916,8 @@ GlobalsAAResult::GlobalsAAResult(GlobalsAAResult &&Arg)
     H.GAR = this;
   }
 }
+
+GlobalsAAResult::~GlobalsAAResult() {}
 
 /*static*/ GlobalsAAResult
 GlobalsAAResult::analyzeModule(Module &M, const TargetLibraryInfo &TLI,
@@ -934,10 +936,12 @@ GlobalsAAResult::analyzeModule(Module &M, const TargetLibraryInfo &TLI,
   return Result;
 }
 
-GlobalsAAResult GlobalsAA::run(Module &M, AnalysisManager<Module> *AM) {
+char GlobalsAA::PassID;
+
+GlobalsAAResult GlobalsAA::run(Module &M, AnalysisManager<Module> &AM) {
   return GlobalsAAResult::analyzeModule(M,
-                                        AM->getResult<TargetLibraryAnalysis>(M),
-                                        AM->getResult<CallGraphAnalysis>(M));
+                                        AM.getResult<TargetLibraryAnalysis>(M),
+                                        AM.getResult<CallGraphAnalysis>(M));
 }
 
 char GlobalsAAWrapperPass::ID = 0;

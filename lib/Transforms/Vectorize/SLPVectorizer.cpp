@@ -85,11 +85,13 @@ static cl::opt<int>
 ScheduleRegionSizeBudget("slp-schedule-budget", cl::init(100000), cl::Hidden,
     cl::desc("Limit the size of the SLP scheduling region per block"));
 
+static cl::opt<int> MinVectorRegSizeOption(
+    "slp-min-reg-size", cl::init(128), cl::Hidden,
+    cl::desc("Attempt to vectorize for this register size in bits"));
+
 namespace {
 
 // FIXME: Set this via cl::opt to allow overriding.
-static const unsigned MinVecRegSize = 128;
-
 static const unsigned RecursionMaxDepth = 12;
 
 // Limit the number of alias checks. The limit is chosen so that
@@ -366,10 +368,11 @@ public:
 
   BoUpSLP(Function *Func, ScalarEvolution *Se, TargetTransformInfo *Tti,
           TargetLibraryInfo *TLi, AliasAnalysis *Aa, LoopInfo *Li,
-          DominatorTree *Dt, AssumptionCache *AC, DemandedBits *DB)
+          DominatorTree *Dt, AssumptionCache *AC, DemandedBits *DB,
+          const DataLayout *DL)
       : NumLoadsWantToKeepOrder(0), NumLoadsWantToChangeOrder(0), F(Func),
         SE(Se), TTI(Tti), TLI(TLi), AA(Aa), LI(Li), DT(Dt), AC(AC), DB(DB),
-        Builder(Se->getContext()) {
+        DL(DL), Builder(Se->getContext()) {
     CodeMetrics::collectEphemeralValues(F, AC, EphValues);
   }
 
@@ -923,6 +926,7 @@ private:
   DominatorTree *DT;
   AssumptionCache *AC;
   DemandedBits *DB;
+  const DataLayout *DL;
   /// Instruction builder to construct the vectorized tree.
   IRBuilder<> Builder;
 
@@ -1174,11 +1178,10 @@ void BoUpSLP::buildTree_rec(ArrayRef<Value *> VL, unsigned Depth) {
       // loading/storing it as an i8 struct. If we vectorize loads/stores from
       // such a struct we read/write packed bits disagreeing with the
       // unvectorized version.
-      const DataLayout &DL = F->getParent()->getDataLayout();
       Type *ScalarTy = VL[0]->getType();
 
-      if (DL.getTypeSizeInBits(ScalarTy) !=
-          DL.getTypeAllocSizeInBits(ScalarTy)) {
+      if (DL->getTypeSizeInBits(ScalarTy) !=
+          DL->getTypeAllocSizeInBits(ScalarTy)) {
         BS.cancelScheduling(VL);
         newTreeEntry(VL, false);
         DEBUG(dbgs() << "SLP: Gathering loads of non-packed type.\n");
@@ -1194,8 +1197,8 @@ void BoUpSLP::buildTree_rec(ArrayRef<Value *> VL, unsigned Depth) {
           return;
         }
 
-        if (!isConsecutiveAccess(VL[i], VL[i + 1], DL, *SE)) {
-          if (VL.size() == 2 && isConsecutiveAccess(VL[1], VL[0], DL, *SE)) {
+        if (!isConsecutiveAccess(VL[i], VL[i + 1], *DL, *SE)) {
+          if (VL.size() == 2 && isConsecutiveAccess(VL[1], VL[0], *DL, *SE)) {
             ++NumLoadsWantToChangeOrder;
           }
           BS.cancelScheduling(VL);
@@ -1364,10 +1367,9 @@ void BoUpSLP::buildTree_rec(ArrayRef<Value *> VL, unsigned Depth) {
       return;
     }
     case Instruction::Store: {
-      const DataLayout &DL = F->getParent()->getDataLayout();
       // Check if the stores are consecutive or of we need to swizzle them.
       for (unsigned i = 0, e = VL.size() - 1; i < e; ++i)
-        if (!isConsecutiveAccess(VL[i], VL[i + 1], DL, *SE)) {
+        if (!isConsecutiveAccess(VL[i], VL[i + 1], *DL, *SE)) {
           BS.cancelScheduling(VL);
           newTreeEntry(VL, false);
           DEBUG(dbgs() << "SLP: Non-consecutive store.\n");
@@ -1603,8 +1605,8 @@ int BoUpSLP::getEntryCost(TreeEntry *E) {
               CInt != cast<ConstantInt>(I->getOperand(1)))
             Op2VK = TargetTransformInfo::OK_NonUniformConstantValue;
         }
-        // FIXME: Currently cost of model modification for division by
-        // power of 2 is handled only for X86. Add support for other targets.
+        // FIXME: Currently cost of model modification for division by power of
+        // 2 is handled for X86 and AArch64. Add support for other targets.
         if (Op2VK == TargetTransformInfo::OK_UniformConstantValue && CInt &&
             CInt->getValue().isPowerOf2())
           Op2VP = TargetTransformInfo::OP_PowerOf2;
@@ -1870,8 +1872,6 @@ int BoUpSLP::getGatherCost(ArrayRef<Value *> VL) {
 void BoUpSLP::reorderAltShuffleOperands(ArrayRef<Value *> VL,
                                         SmallVectorImpl<Value *> &Left,
                                         SmallVectorImpl<Value *> &Right) {
-  const DataLayout &DL = F->getParent()->getDataLayout();
-
   // Push left and right operands of binary operation into Left and Right
   for (unsigned i = 0, e = VL.size(); i < e; ++i) {
     Left.push_back(cast<Instruction>(VL[i])->getOperand(0));
@@ -1885,10 +1885,11 @@ void BoUpSLP::reorderAltShuffleOperands(ArrayRef<Value *> VL,
       if (LoadInst *L1 = dyn_cast<LoadInst>(Right[j + 1])) {
         Instruction *VL1 = cast<Instruction>(VL[j]);
         Instruction *VL2 = cast<Instruction>(VL[j + 1]);
-        if (VL1->isCommutative() && isConsecutiveAccess(L, L1, DL, *SE)) {
+        if (VL1->isCommutative() && isConsecutiveAccess(L, L1, *DL, *SE)) {
           std::swap(Left[j], Right[j]);
           continue;
-        } else if (VL2->isCommutative() && isConsecutiveAccess(L, L1, DL, *SE)) {
+        } else if (VL2->isCommutative() &&
+                   isConsecutiveAccess(L, L1, *DL, *SE)) {
           std::swap(Left[j + 1], Right[j + 1]);
           continue;
         }
@@ -1899,10 +1900,11 @@ void BoUpSLP::reorderAltShuffleOperands(ArrayRef<Value *> VL,
       if (LoadInst *L1 = dyn_cast<LoadInst>(Left[j + 1])) {
         Instruction *VL1 = cast<Instruction>(VL[j]);
         Instruction *VL2 = cast<Instruction>(VL[j + 1]);
-        if (VL1->isCommutative() && isConsecutiveAccess(L, L1, DL, *SE)) {
+        if (VL1->isCommutative() && isConsecutiveAccess(L, L1, *DL, *SE)) {
           std::swap(Left[j], Right[j]);
           continue;
-        } else if (VL2->isCommutative() && isConsecutiveAccess(L, L1, DL, *SE)) {
+        } else if (VL2->isCommutative() &&
+                   isConsecutiveAccess(L, L1, *DL, *SE)) {
           std::swap(Left[j + 1], Right[j + 1]);
           continue;
         }
@@ -2032,8 +2034,6 @@ void BoUpSLP::reorderInputsAccordingToOpcode(ArrayRef<Value *> VL,
   if (SplatRight || SplatLeft)
     return;
 
-  const DataLayout &DL = F->getParent()->getDataLayout();
-
   // Finally check if we can get longer vectorizable chain by reordering
   // without breaking the good operand order detected above.
   // E.g. If we have something like-
@@ -2052,7 +2052,7 @@ void BoUpSLP::reorderInputsAccordingToOpcode(ArrayRef<Value *> VL,
   for (unsigned j = 0; j < VL.size() - 1; ++j) {
     if (LoadInst *L = dyn_cast<LoadInst>(Left[j])) {
       if (LoadInst *L1 = dyn_cast<LoadInst>(Right[j + 1])) {
-        if (isConsecutiveAccess(L, L1, DL, *SE)) {
+        if (isConsecutiveAccess(L, L1, *DL, *SE)) {
           std::swap(Left[j + 1], Right[j + 1]);
           continue;
         }
@@ -2060,7 +2060,7 @@ void BoUpSLP::reorderInputsAccordingToOpcode(ArrayRef<Value *> VL,
     }
     if (LoadInst *L = dyn_cast<LoadInst>(Right[j])) {
       if (LoadInst *L1 = dyn_cast<LoadInst>(Left[j + 1])) {
-        if (isConsecutiveAccess(L, L1, DL, *SE)) {
+        if (isConsecutiveAccess(L, L1, *DL, *SE)) {
           std::swap(Left[j + 1], Right[j + 1]);
           continue;
         }
@@ -2156,7 +2156,6 @@ Value *BoUpSLP::vectorizeTree(TreeEntry *E) {
     return Gather(E->Scalars, VecTy);
   }
 
-  const DataLayout &DL = F->getParent()->getDataLayout();
   unsigned Opcode = getSameOpcode(E->Scalars);
 
   switch (Opcode) {
@@ -2353,7 +2352,7 @@ Value *BoUpSLP::vectorizeTree(TreeEntry *E) {
       unsigned Alignment = LI->getAlignment();
       LI = Builder.CreateLoad(VecPtr);
       if (!Alignment) {
-        Alignment = DL.getABITypeAlignment(ScalarLoadTy);
+        Alignment = DL->getABITypeAlignment(ScalarLoadTy);
       }
       LI->setAlignment(Alignment);
       E->VectorizedValue = LI;
@@ -2384,7 +2383,7 @@ Value *BoUpSLP::vectorizeTree(TreeEntry *E) {
             ExternalUser(SI->getPointerOperand(), cast<User>(VecPtr), 0));
 
       if (!Alignment) {
-        Alignment = DL.getABITypeAlignment(SI->getValueOperand()->getType());
+        Alignment = DL->getABITypeAlignment(SI->getValueOperand()->getType());
       }
       S->setAlignment(Alignment);
       E->VectorizedValue = S;
@@ -3131,12 +3130,10 @@ void BoUpSLP::scheduleBlock(BlockScheduling *BS) {
 }
 
 unsigned BoUpSLP::getVectorElementSize(Value *V) {
-  auto &DL = F->getParent()->getDataLayout();
-
   // If V is a store, just return the width of the stored value without
   // traversing the expression tree. This is the common case.
   if (auto *Store = dyn_cast<StoreInst>(V))
-    return DL.getTypeSizeInBits(Store->getValueOperand()->getType());
+    return DL->getTypeSizeInBits(Store->getValueOperand()->getType());
 
   // If V is not a store, we can traverse the expression tree to find loads
   // that feed it. The type of the loaded value may indicate a more suitable
@@ -3164,7 +3161,7 @@ unsigned BoUpSLP::getVectorElementSize(Value *V) {
     // If the current instruction is a load, update MaxWidth to reflect the
     // width of the loaded value.
     else if (isa<LoadInst>(I))
-      MaxWidth = std::max<unsigned>(MaxWidth, DL.getTypeSizeInBits(Ty));
+      MaxWidth = std::max<unsigned>(MaxWidth, DL->getTypeSizeInBits(Ty));
 
     // Otherwise, we need to visit the operands of the instruction. We only
     // handle the interesting cases from buildTree here. If an operand is an
@@ -3185,7 +3182,7 @@ unsigned BoUpSLP::getVectorElementSize(Value *V) {
   // If we didn't encounter a memory access in the expression tree, or if we
   // gave up for some reason, just return the width of V.
   if (!MaxWidth || FoundUnknownInst)
-    return DL.getTypeSizeInBits(V->getType());
+    return DL->getTypeSizeInBits(V->getType());
 
   // Otherwise, return the maximum width we found.
   return MaxWidth;
@@ -3263,8 +3260,6 @@ static bool collectValuesToDemote(Value *V, SmallPtrSetImpl<Value *> &Expr,
 }
 
 void BoUpSLP::computeMinimumValueSizes() {
-  auto &DL = F->getParent()->getDataLayout();
-
   // If there are no external uses, the expression tree must be rooted by a
   // store. We can't demote in-memory values, so there is nothing to do here.
   if (ExternalUses.empty())
@@ -3332,11 +3327,11 @@ void BoUpSLP::computeMinimumValueSizes() {
   // We start by looking at each entry that can be demoted. We compute the
   // maximum bit width required to store the scalar by using ValueTracking to
   // compute the number of high-order bits we can truncate.
-  if (MaxBitWidth == DL.getTypeSizeInBits(TreeRoot[0]->getType())) {
+  if (MaxBitWidth == DL->getTypeSizeInBits(TreeRoot[0]->getType())) {
     MaxBitWidth = 8u;
     for (auto *Scalar : ToDemote) {
-      auto NumSignBits = ComputeNumSignBits(Scalar, DL, 0, AC, 0, DT);
-      auto NumTypeBits = DL.getTypeSizeInBits(Scalar->getType());
+      auto NumSignBits = ComputeNumSignBits(Scalar, *DL, 0, AC, 0, DT);
+      auto NumTypeBits = DL->getTypeSizeInBits(Scalar->getType());
       MaxBitWidth = std::max<unsigned>(NumTypeBits - NumSignBits, MaxBitWidth);
     }
   }
@@ -3383,6 +3378,12 @@ struct SLPVectorizer : public FunctionPass {
   DominatorTree *DT;
   AssumptionCache *AC;
   DemandedBits *DB;
+  const DataLayout *DL;
+
+  bool doInitialization(Module &M) override {
+    DL = &M.getDataLayout();
+    return false;
+  }
 
   bool runOnFunction(Function &F) override {
     if (skipOptnoneFunction(F))
@@ -3418,6 +3419,8 @@ struct SLPVectorizer : public FunctionPass {
     else
       MaxVecRegSize = TTI->getRegisterBitWidth(true);
 
+    MinVecRegSize = MinVectorRegSizeOption;
+
     // Don't vectorize when the attribute NoImplicitFloat is used.
     if (F.hasFnAttribute(Attribute::NoImplicitFloat))
       return false;
@@ -3426,7 +3429,7 @@ struct SLPVectorizer : public FunctionPass {
 
     // Use the bottom up slp vectorizer to construct chains that start with
     // store instructions.
-    BoUpSLP R(&F, SE, TTI, TLI, AA, LI, DT, AC, DB);
+    BoUpSLP R(&F, SE, TTI, TLI, AA, LI, DT, AC, DB, DL);
 
     // A general note: the vectorizer must use BoUpSLP::eraseInstruction() to
     // delete instructions.
@@ -3531,6 +3534,7 @@ private:
   unsigned NumGEPs;
 
   unsigned MaxVecRegSize; // This is set by TTI or overridden by cl::opt.
+  unsigned MinVecRegSize; // Set by cl::opt (default: 128).
 };
 
 /// \brief Check that the Values in the slice in VL array are still existent in
@@ -3606,7 +3610,6 @@ bool SLPVectorizer::vectorizeStores(ArrayRef<StoreInst *> Stores,
   // all of the pairs of stores that follow each other.
   SmallVector<unsigned, 16> IndexQueue;
   for (unsigned i = 0, e = Stores.size(); i < e; ++i) {
-    const DataLayout &DL = Stores[i]->getModule()->getDataLayout();
     IndexQueue.clear();
     // If a store has multiple consecutive store candidates, search Stores
     // array according to the sequence: from i+1 to e, then from i-1 to 0.
@@ -3619,7 +3622,7 @@ bool SLPVectorizer::vectorizeStores(ArrayRef<StoreInst *> Stores,
       IndexQueue.push_back(j - 1);
 
     for (auto &k : IndexQueue) {
-      if (isConsecutiveAccess(Stores[i], Stores[k], DL, *SE)) {
+      if (isConsecutiveAccess(Stores[i], Stores[k], *DL, *SE)) {
         Tails.insert(Stores[k]);
         Heads.insert(Stores[i]);
         ConsecutiveChain[Stores[i]] = Stores[k];
@@ -3668,7 +3671,6 @@ void SLPVectorizer::collectSeedInstructions(BasicBlock *BB) {
   Stores.clear();
   GEPs.clear();
   NumStores = NumGEPs = 0;
-  const DataLayout &DL = BB->getModule()->getDataLayout();
 
   // Visit the store and getelementptr instructions in BB and organize them in
   // Stores and GEPs according to the underlying objects of their pointer
@@ -3682,7 +3684,7 @@ void SLPVectorizer::collectSeedInstructions(BasicBlock *BB) {
         continue;
       if (!isValidElementType(SI->getValueOperand()->getType()))
         continue;
-      Stores[GetUnderlyingObject(SI->getPointerOperand(), DL)].push_back(SI);
+      Stores[GetUnderlyingObject(SI->getPointerOperand(), *DL)].push_back(SI);
       ++NumStores;
     }
 
@@ -3695,7 +3697,7 @@ void SLPVectorizer::collectSeedInstructions(BasicBlock *BB) {
         continue;
       if (!isValidElementType(Idx->getType()))
         continue;
-      GEPs[GetUnderlyingObject(GEP->getPointerOperand(), DL)].push_back(GEP);
+      GEPs[GetUnderlyingObject(GEP->getPointerOperand(), *DL)].push_back(GEP);
       ++NumGEPs;
     }
   }
@@ -3791,8 +3793,8 @@ bool SLPVectorizer::tryToVectorizeList(ArrayRef<Value *> VL, BoUpSLP &R,
         Instruction *InsertAfter = cast<Instruction>(BuildVectorSlice.back());
         unsigned VecIdx = 0;
         for (auto &V : BuildVectorSlice) {
-          IRBuilder<true, NoFolder> Builder(
-              InsertAfter->getParent(), ++BasicBlock::iterator(InsertAfter));
+          IRBuilder<NoFolder> Builder(InsertAfter->getParent(),
+                                      ++BasicBlock::iterator(InsertAfter));
           InsertElementInst *IE = cast<InsertElementInst>(V);
           Instruction *Extract = cast<Instruction>(Builder.CreateExtractElement(
               VectorizedRoot, Builder.getInt32(VecIdx++)));
@@ -3924,9 +3926,14 @@ public:
   /// The width of one full horizontal reduction operation.
   unsigned ReduxWidth;
 
-  HorizontalReduction()
-    : ReductionRoot(nullptr), ReductionPHI(nullptr), ReductionOpcode(0),
-    ReducedValueOpcode(0), IsPairwiseReduction(false), ReduxWidth(0) {}
+  /// Minimal width of available vector registers. It's used to determine
+  /// ReduxWidth.
+  unsigned MinVecRegSize;
+
+  HorizontalReduction(unsigned MinVecRegSize)
+      : ReductionRoot(nullptr), ReductionPHI(nullptr), ReductionOpcode(0),
+        ReducedValueOpcode(0), IsPairwiseReduction(false), ReduxWidth(0),
+        MinVecRegSize(MinVecRegSize) {}
 
   /// \brief Try to find a reduction tree.
   bool matchAssociativeReduction(PHINode *Phi, BinaryOperator *B) {
@@ -4254,11 +4261,12 @@ static Value *getReductionValue(const DominatorTree *DT, PHINode *P,
 /// \returns true if a horizontal reduction was matched and reduced.
 /// \returns false if a horizontal reduction was not matched.
 static bool canMatchHorizontalReduction(PHINode *P, BinaryOperator *BI,
-                                        BoUpSLP &R, TargetTransformInfo *TTI) {
+                                        BoUpSLP &R, TargetTransformInfo *TTI,
+                                        unsigned MinRegSize) {
   if (!ShouldVectorizeHor)
     return false;
 
-  HorizontalReduction HorRdx;
+  HorizontalReduction HorRdx(MinRegSize);
   if (!HorRdx.matchAssociativeReduction(P, BI))
     return false;
 
@@ -4346,7 +4354,7 @@ bool SLPVectorizer::vectorizeChainsInBlock(BasicBlock *BB, BoUpSLP &R) {
         continue;
 
       // Try to match and vectorize a horizontal reduction.
-      if (canMatchHorizontalReduction(P, BI, R, TTI)) {
+      if (canMatchHorizontalReduction(P, BI, R, TTI, MinVecRegSize)) {
         Changed = true;
         it = BB->begin();
         e = BB->end();
@@ -4373,7 +4381,8 @@ bool SLPVectorizer::vectorizeChainsInBlock(BasicBlock *BB, BoUpSLP &R) {
       if (StoreInst *SI = dyn_cast<StoreInst>(it))
         if (BinaryOperator *BinOp =
                 dyn_cast<BinaryOperator>(SI->getValueOperand())) {
-          if (canMatchHorizontalReduction(nullptr, BinOp, R, TTI) ||
+          if (canMatchHorizontalReduction(nullptr, BinOp, R, TTI,
+                                          MinVecRegSize) ||
               tryToVectorize(BinOp, R)) {
             Changed = true;
             it = BB->begin();
@@ -4563,6 +4572,7 @@ INITIALIZE_PASS_DEPENDENCY(TargetTransformInfoWrapperPass)
 INITIALIZE_PASS_DEPENDENCY(AssumptionCacheTracker)
 INITIALIZE_PASS_DEPENDENCY(ScalarEvolutionWrapperPass)
 INITIALIZE_PASS_DEPENDENCY(LoopSimplify)
+INITIALIZE_PASS_DEPENDENCY(DemandedBits)
 INITIALIZE_PASS_END(SLPVectorizer, SV_NAME, lv_name, false, false)
 
 namespace llvm {

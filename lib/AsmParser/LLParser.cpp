@@ -46,6 +46,11 @@ bool LLParser::Run() {
   // Prime the lexer.
   Lex.Lex();
 
+  if (Context.discardValueNames())
+    return Error(
+        Lex.getLoc(),
+        "Can't read textual IR with a Context that discards named Values");
+
   return ParseTopLevelEntities() ||
          ValidateEndOfModule();
 }
@@ -60,6 +65,22 @@ bool LLParser::parseStandaloneConstantValue(Constant *&C,
     return true;
   if (Lex.getKind() != lltok::Eof)
     return Error(Lex.getLoc(), "expected end of string");
+  return false;
+}
+
+bool LLParser::parseTypeAtBeginning(Type *&Ty, unsigned &Read,
+                                    const SlotMapping *Slots) {
+  restoreParsingState(Slots);
+  Lex.Lex();
+
+  Read = 0;
+  SMLoc Start = Lex.getLoc();
+  Ty = nullptr;
+  if (ParseType(Ty))
+    return true;
+  SMLoc End = Lex.getLoc();
+  Read = End.getPointer() - Start.getPointer();
+
   return false;
 }
 
@@ -1536,6 +1557,8 @@ bool LLParser::ParseOptionalDLLStorageClass(unsigned &Res) {
 ///   ::= 'arm_aapcscc'
 ///   ::= 'arm_aapcs_vfpcc'
 ///   ::= 'msp430_intrcc'
+///   ::= 'avr_intrcc'
+///   ::= 'avr_signalcc'
 ///   ::= 'ptx_kernel'
 ///   ::= 'ptx_device'
 ///   ::= 'spir_func'
@@ -1567,6 +1590,8 @@ bool LLParser::ParseOptionalCallingConv(unsigned &CC) {
   case lltok::kw_arm_aapcscc:    CC = CallingConv::ARM_AAPCS; break;
   case lltok::kw_arm_aapcs_vfpcc:CC = CallingConv::ARM_AAPCS_VFP; break;
   case lltok::kw_msp430_intrcc:  CC = CallingConv::MSP430_INTR; break;
+  case lltok::kw_avr_intrcc:     CC = CallingConv::AVR_INTR; break;
+  case lltok::kw_avr_signalcc:   CC = CallingConv::AVR_SIGNAL; break;
   case lltok::kw_ptx_kernel:     CC = CallingConv::PTX_Kernel; break;
   case lltok::kw_ptx_device:     CC = CallingConv::PTX_Device; break;
   case lltok::kw_spir_kernel:    CC = CallingConv::SPIR_KERNEL; break;
@@ -3328,7 +3353,7 @@ bool LLParser::ParseMDField(LocTy Loc, StringRef Name,
     return TokError("expected DWARF virtuality code");
 
   unsigned Virtuality = dwarf::getVirtuality(Lex.getStrVal());
-  if (!Virtuality)
+  if (Virtuality == dwarf::DW_VIRTUALITY_invalid)
     return TokError("invalid DWARF virtuality code" + Twine(" '") +
                     Lex.getStrVal() + "'");
   assert(Virtuality <= Result.Max && "Expected valid DWARF virtuality code");

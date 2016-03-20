@@ -94,11 +94,8 @@ ModuleMap::ModuleMap(SourceManager &SourceMgr, DiagnosticsEngine &Diags,
 }
 
 ModuleMap::~ModuleMap() {
-  for (llvm::StringMap<Module *>::iterator I = Modules.begin(), 
-                                        IEnd = Modules.end();
-       I != IEnd; ++I) {
-    delete I->getValue();
-  }
+  for (auto &M : Modules)
+    delete M.getValue();
 }
 
 void ModuleMap::setTarget(const TargetInfo &Target) {
@@ -154,6 +151,7 @@ static bool isBuiltinHeader(StringRef FileName) {
            .Case("limits.h", true)
            .Case("stdalign.h", true)
            .Case("stdarg.h", true)
+           .Case("stdatomic.h", true)
            .Case("stdbool.h", true)
            .Case("stddef.h", true)
            .Case("stdint.h", true)
@@ -241,6 +239,7 @@ static Module *getTopLevelOrNull(Module *M) {
 }
 
 void ModuleMap::diagnoseHeaderInclusion(Module *RequestingModule,
+                                        bool RequestingModuleIsModuleInterface,
                                         SourceLocation FilenameLoc,
                                         StringRef Filename,
                                         const FileEntry *File) {
@@ -303,7 +302,7 @@ void ModuleMap::diagnoseHeaderInclusion(Module *RequestingModule,
   if (LangOpts.ModulesStrictDeclUse) {
     Diags.Report(FilenameLoc, diag::err_undeclared_use_of_module)
         << RequestingModule->getFullModuleName() << Filename;
-  } else if (RequestingModule) {
+  } else if (RequestingModule && RequestingModuleIsModuleInterface) {
     diag::kind DiagID = RequestingModule->getTopLevelModule()->IsFramework ?
         diag::warn_non_modular_include_in_framework_module :
         diag::warn_non_modular_include_in_module;
@@ -1402,7 +1401,9 @@ void ModuleMapParser::parseModuleDecl() {
   
   // Parse the optional attribute list.
   Attributes Attrs;
-  parseOptionalAttributes(Attrs);
+  if (parseOptionalAttributes(Attrs))
+    return;
+
   
   // Parse the opening brace.
   if (!Tok.is(MMToken::LBrace)) {
@@ -2067,7 +2068,9 @@ void ModuleMapParser::parseConfigMacros() {
 
   // Parse the optional attributes.
   Attributes Attrs;
-  parseOptionalAttributes(Attrs);
+  if (parseOptionalAttributes(Attrs))
+    return;
+
   if (Attrs.IsExhaustive && !ActiveModule->Parent) {
     ActiveModule->ConfigMacrosExhaustive = true;
   }
@@ -2215,7 +2218,8 @@ void ModuleMapParser::parseInferredModuleDecl(bool Framework, bool Explicit) {
 
   // Parse optional attributes.
   Attributes Attrs;
-  parseOptionalAttributes(Attrs);
+  if (parseOptionalAttributes(Attrs))
+    return;
 
   if (ActiveModule) {
     // Note that we have an inferred submodule.

@@ -1161,7 +1161,8 @@ void ASTStmtWriter::VisitCXXForRangeStmt(CXXForRangeStmt *S) {
   Writer.AddSourceLocation(S->getColonLoc(), Record);
   Writer.AddSourceLocation(S->getRParenLoc(), Record);
   Writer.AddStmt(S->getRangeStmt());
-  Writer.AddStmt(S->getBeginEndStmt());
+  Writer.AddStmt(S->getBeginStmt());
+  Writer.AddStmt(S->getEndStmt());
   Writer.AddStmt(S->getCond());
   Writer.AddStmt(S->getInc());
   Writer.AddStmt(S->getLoopVarStmt());
@@ -1771,6 +1772,7 @@ void OMPClauseWriter::VisitOMPClauseWithPreInit(OMPClauseWithPreInit *C) {
 }
 
 void OMPClauseWriter::VisitOMPClauseWithPostUpdate(OMPClauseWithPostUpdate *C) {
+  VisitOMPClauseWithPreInit(C);
   Writer->Writer.AddStmt(C->getPostUpdateExpr());
 }
 
@@ -1887,7 +1889,6 @@ void OMPClauseWriter::VisitOMPFirstprivateClause(OMPFirstprivateClause *C) {
 
 void OMPClauseWriter::VisitOMPLastprivateClause(OMPLastprivateClause *C) {
   Record.push_back(C->varlist_size());
-  VisitOMPClauseWithPreInit(C);
   VisitOMPClauseWithPostUpdate(C);
   Writer->Writer.AddSourceLocation(C->getLParenLoc(), Record);
   for (auto *VE : C->varlists())
@@ -1911,6 +1912,7 @@ void OMPClauseWriter::VisitOMPSharedClause(OMPSharedClause *C) {
 
 void OMPClauseWriter::VisitOMPReductionClause(OMPReductionClause *C) {
   Record.push_back(C->varlist_size());
+  VisitOMPClauseWithPostUpdate(C);
   Writer->Writer.AddSourceLocation(C->getLParenLoc(), Record);
   Writer->Writer.AddSourceLocation(C->getColonLoc(), Record);
   Writer->Writer.AddNestedNameSpecifierLoc(C->getQualifierLoc(), Record);
@@ -1929,6 +1931,7 @@ void OMPClauseWriter::VisitOMPReductionClause(OMPReductionClause *C) {
 
 void OMPClauseWriter::VisitOMPLinearClause(OMPLinearClause *C) {
   Record.push_back(C->varlist_size());
+  VisitOMPClauseWithPostUpdate(C);
   Writer->Writer.AddSourceLocation(C->getLParenLoc(), Record);
   Writer->Writer.AddSourceLocation(C->getColonLoc(), Record);
   Record.push_back(C->getModifier());
@@ -2094,7 +2097,8 @@ void ASTStmtWriter::VisitOMPLoopDirective(OMPLoopDirective *D) {
   Writer.AddStmt(D->getInit());
   Writer.AddStmt(D->getInc());
   if (isOpenMPWorksharingDirective(D->getDirectiveKind()) ||
-      isOpenMPTaskLoopDirective(D->getDirectiveKind())) {
+      isOpenMPTaskLoopDirective(D->getDirectiveKind()) ||
+      isOpenMPDistributeDirective(D->getDirectiveKind())) {
     Writer.AddStmt(D->getIsLastIterVariable());
     Writer.AddStmt(D->getLowerBoundVariable());
     Writer.AddStmt(D->getUpperBoundVariable());

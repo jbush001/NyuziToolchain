@@ -78,6 +78,10 @@ STATISTIC(NumExpand,    "Number of expansions");
 STATISTIC(NumFactor   , "Number of factorizations");
 STATISTIC(NumReassoc  , "Number of reassociations");
 
+static cl::opt<bool>
+EnableExpensiveCombines("expensive-combines",
+                        cl::desc("Enable expensive instruction combines"));
+
 Value *InstCombiner::EmitGEPOffset(User *GEP) {
   return llvm::EmitGEPOffset(Builder, DL, GEP);
 }
@@ -1942,8 +1946,31 @@ Instruction *InstCombiner::visitAllocSite(Instruction &MI) {
   SmallVector<WeakVH, 64> Users;
   if (isAllocSiteRemovable(&MI, Users, TLI)) {
     for (unsigned i = 0, e = Users.size(); i != e; ++i) {
-      Instruction *I = cast_or_null<Instruction>(&*Users[i]);
-      if (!I) continue;
+      // Lowering all @llvm.objectsize calls first because they may
+      // use a bitcast/GEP of the alloca we are removing.
+      if (!Users[i])
+       continue;
+
+      Instruction *I = cast<Instruction>(&*Users[i]);
+
+      if (IntrinsicInst *II = dyn_cast<IntrinsicInst>(I)) {
+        if (II->getIntrinsicID() == Intrinsic::objectsize) {
+          uint64_t Size;
+          if (!getObjectSize(II->getArgOperand(0), Size, DL, TLI)) {
+            ConstantInt *CI = cast<ConstantInt>(II->getArgOperand(1));
+            Size = CI->isZero() ? -1ULL : 0;
+          }
+          replaceInstUsesWith(*I, ConstantInt::get(I->getType(), Size));
+          eraseInstFromFunction(*I);
+          Users[i] = nullptr; // Skip examining in the next loop.
+        }
+      }
+    }
+    for (unsigned i = 0, e = Users.size(); i != e; ++i) {
+      if (!Users[i])
+        continue;
+
+      Instruction *I = cast<Instruction>(&*Users[i]);
 
       if (ICmpInst *C = dyn_cast<ICmpInst>(I)) {
         replaceInstUsesWith(*C,
@@ -1951,12 +1978,6 @@ Instruction *InstCombiner::visitAllocSite(Instruction &MI) {
                                              C->isFalseWhenEqual()));
       } else if (isa<BitCastInst>(I) || isa<GetElementPtrInst>(I)) {
         replaceInstUsesWith(*I, UndefValue::get(I->getType()));
-      } else if (IntrinsicInst *II = dyn_cast<IntrinsicInst>(I)) {
-        if (II->getIntrinsicID() == Intrinsic::objectsize) {
-          ConstantInt *CI = cast<ConstantInt>(II->getArgOperand(1));
-          uint64_t DontKnow = CI->isZero() ? -1ULL : 0;
-          replaceInstUsesWith(*I, ConstantInt::get(I->getType(), DontKnow));
-        }
       }
       eraseInstFromFunction(*I);
     }
@@ -2349,8 +2370,9 @@ Instruction *InstCombiner::visitExtractValueInst(ExtractValueInst &EV) {
 static bool isCatchAll(EHPersonality Personality, Constant *TypeInfo) {
   switch (Personality) {
   case EHPersonality::GNU_C:
-    // The GCC C EH personality only exists to support cleanups, so it's not
-    // clear what the semantics of catch clauses are.
+  case EHPersonality::Rust:
+    // The GCC C EH and Rust personality only exists to support cleanups, so
+    // it's not clear what the semantics of catch clauses are.
     return false;
   case EHPersonality::Unknown:
     return false;
@@ -2753,9 +2775,9 @@ bool InstCombiner::run() {
       }
     }
 
-    // In general, it is possible for computeKnownBits to determine all bits in a
-    // value even when the operands are not all constants.
-    if (!I->use_empty() && I->getType()->isIntegerTy()) {
+    // In general, it is possible for computeKnownBits to determine all bits in
+    // a value even when the operands are not all constants.
+    if (ExpensiveCombines && !I->use_empty() && I->getType()->isIntegerTy()) {
       unsigned BitWidth = I->getType()->getScalarSizeInBits();
       APInt KnownZero(BitWidth, 0);
       APInt KnownOne(BitWidth, 0);
@@ -3026,12 +3048,14 @@ static bool
 combineInstructionsOverFunction(Function &F, InstCombineWorklist &Worklist,
                                 AliasAnalysis *AA, AssumptionCache &AC,
                                 TargetLibraryInfo &TLI, DominatorTree &DT,
+                                bool ExpensiveCombines = true,
                                 LoopInfo *LI = nullptr) {
   auto &DL = F.getParent()->getDataLayout();
+  ExpensiveCombines |= EnableExpensiveCombines;
 
   /// Builder - This is an IRBuilder that automatically inserts new
   /// instructions into the worklist when they are created.
-  IRBuilder<true, TargetFolder, InstCombineIRInserter> Builder(
+  IRBuilder<TargetFolder, InstCombineIRInserter> Builder(
       F.getContext(), TargetFolder(DL), InstCombineIRInserter(Worklist, &AC));
 
   // Lower dbg.declare intrinsics otherwise their value may be clobbered
@@ -3047,8 +3071,8 @@ combineInstructionsOverFunction(Function &F, InstCombineWorklist &Worklist,
 
     bool Changed = prepareICWorklistFromFunction(F, DL, &TLI, Worklist);
 
-    InstCombiner IC(Worklist, &Builder, F.optForMinSize(), AA, &AC, &TLI, &DT,
-                    DL, LI);
+    InstCombiner IC(Worklist, &Builder, F.optForMinSize(), ExpensiveCombines,
+                    AA, &AC, &TLI, &DT, DL, LI);
     Changed |= IC.run();
 
     if (!Changed)
@@ -3059,15 +3083,16 @@ combineInstructionsOverFunction(Function &F, InstCombineWorklist &Worklist,
 }
 
 PreservedAnalyses InstCombinePass::run(Function &F,
-                                       AnalysisManager<Function> *AM) {
-  auto &AC = AM->getResult<AssumptionAnalysis>(F);
-  auto &DT = AM->getResult<DominatorTreeAnalysis>(F);
-  auto &TLI = AM->getResult<TargetLibraryAnalysis>(F);
+                                       AnalysisManager<Function> &AM) {
+  auto &AC = AM.getResult<AssumptionAnalysis>(F);
+  auto &DT = AM.getResult<DominatorTreeAnalysis>(F);
+  auto &TLI = AM.getResult<TargetLibraryAnalysis>(F);
 
-  auto *LI = AM->getCachedResult<LoopAnalysis>(F);
+  auto *LI = AM.getCachedResult<LoopAnalysis>(F);
 
   // FIXME: The AliasAnalysis is not yet supported in the new pass manager
-  if (!combineInstructionsOverFunction(F, Worklist, nullptr, AC, TLI, DT, LI))
+  if (!combineInstructionsOverFunction(F, Worklist, nullptr, AC, TLI, DT,
+                                       ExpensiveCombines, LI))
     // No changes, all analyses are preserved.
     return PreservedAnalyses::all();
 
@@ -3076,26 +3101,6 @@ PreservedAnalyses InstCombinePass::run(Function &F,
   PreservedAnalyses PA;
   PA.preserve<DominatorTreeAnalysis>();
   return PA;
-}
-
-namespace {
-/// \brief The legacy pass manager's instcombine pass.
-///
-/// This is a basic whole-function wrapper around the instcombine utility. It
-/// will try to combine all instructions in the function.
-class InstructionCombiningPass : public FunctionPass {
-  InstCombineWorklist Worklist;
-
-public:
-  static char ID; // Pass identification, replacement for typeid
-
-  InstructionCombiningPass() : FunctionPass(ID) {
-    initializeInstructionCombiningPassPass(*PassRegistry::getPassRegistry());
-  }
-
-  void getAnalysisUsage(AnalysisUsage &AU) const override;
-  bool runOnFunction(Function &F) override;
-};
 }
 
 void InstructionCombiningPass::getAnalysisUsage(AnalysisUsage &AU) const {
@@ -3124,7 +3129,8 @@ bool InstructionCombiningPass::runOnFunction(Function &F) {
   auto *LIWP = getAnalysisIfAvailable<LoopInfoWrapperPass>();
   auto *LI = LIWP ? &LIWP->getLoopInfo() : nullptr;
 
-  return combineInstructionsOverFunction(F, Worklist, AA, AC, TLI, DT, LI);
+  return combineInstructionsOverFunction(F, Worklist, AA, AC, TLI, DT,
+                                         ExpensiveCombines, LI);
 }
 
 char InstructionCombiningPass::ID = 0;
@@ -3147,6 +3153,6 @@ void LLVMInitializeInstCombine(LLVMPassRegistryRef R) {
   initializeInstructionCombiningPassPass(*unwrap(R));
 }
 
-FunctionPass *llvm::createInstructionCombiningPass() {
-  return new InstructionCombiningPass();
+FunctionPass *llvm::createInstructionCombiningPass(bool ExpensiveCombines) {
+  return new InstructionCombiningPass(ExpensiveCombines);
 }

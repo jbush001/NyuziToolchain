@@ -24,6 +24,37 @@ using namespace lldb_private;
 // CommandObjectHelp
 //-------------------------------------------------------------------------
 
+void
+CommandObjectHelp::GenerateAdditionalHelpAvenuesMessage (Stream *s,
+                                                         const char* command,
+                                                         const char* prefix,
+                                                         const char* subcommand,
+                                                         bool include_apropos,
+                                                         bool include_type_lookup)
+{
+    if (s && command && *command)
+    {
+        s->Printf("'%s' is not a known command.\n", command);
+        if (prefix && *prefix)
+        {
+            s->Printf("Try '%shelp' to see a current list of commands.\n", prefix);
+        }
+        else
+        {
+            s->PutCString("Try 'help' to see a current list of commands.\n");
+        }
+        
+        if (include_apropos)
+        {
+            s->Printf("Try 'apropos %s' for a list of related commands.\n", subcommand ? subcommand : command);
+        }
+        if (include_type_lookup)
+        {
+            s->Printf("Try 'type lookup %s' for information on types, methods, functions, modules, etc.", subcommand ? subcommand : command);
+        }
+    }
+}
+
 CommandObjectHelp::CommandObjectHelp (CommandInterpreter &interpreter) :
     CommandObjectParsed (interpreter,
                          "help",
@@ -92,10 +123,13 @@ CommandObjectHelp::DoExecute (Args& command, CommandReturnObject &result)
             CommandObject *sub_cmd_obj = cmd_obj;
             // Loop down through sub_command dictionaries until we find the command object that corresponds
             // to the help command entered.
+            std::string sub_command;
             for (size_t i = 1; i < argc && all_okay; ++i)
             {
-                std::string sub_command = command.GetArgumentAtIndex(i);
+                sub_command = command.GetArgumentAtIndex(i);
                 matches.Clear();
+                if (sub_cmd_obj->IsAlias())
+                    sub_cmd_obj = ((CommandAlias*)sub_cmd_obj)->GetUnderlyingCommand().get();
                 if (! sub_cmd_obj->IsMultiwordObject ())
                 {
                     all_okay = false;
@@ -133,21 +167,22 @@ CommandObjectHelp::DoExecute (Args& command, CommandReturnObject &result)
                 }
                 else if (!sub_cmd_obj)
                 {
-                    result.AppendErrorWithFormat("'%s' is not a known command.\n"
-                                                 "Try '%shelp' to see a current list of commands.\n",
-                                                 cmd_string.c_str(),
-                                                 m_interpreter.GetCommandPrefix());
+                    StreamString error_msg_stream;
+                    GenerateAdditionalHelpAvenuesMessage(&error_msg_stream,
+                                                         cmd_string.c_str(),
+                                                         m_interpreter.GetCommandPrefix(),
+                                                         sub_command.c_str());
+                    result.AppendErrorWithFormat("%s",error_msg_stream.GetData());
                     result.SetStatus (eReturnStatusFailed);
                     return false;
                 }
                 else
                 {
-                    result.GetOutputStream().Printf("'%s' is not a known command.\n"
-                                                   "Try '%shelp' to see a current list of commands.\n"
-                                                    "The closest match is '%s'. Help on it follows.\n\n",
-                                                   cmd_string.c_str(),
-                                                   m_interpreter.GetCommandPrefix(),
-                                                   sub_cmd_obj->GetCommandName());
+                    GenerateAdditionalHelpAvenuesMessage(&result.GetOutputStream(),
+                                                         cmd_string.c_str(),
+                                                         m_interpreter.GetCommandPrefix(),
+                                                         sub_command.c_str());
+                    result.GetOutputStream().Printf("\nThe closest match is '%s'. Help on it follows.\n\n", sub_cmd_obj->GetCommandName());
                 }
             }
             
@@ -156,7 +191,7 @@ CommandObjectHelp::DoExecute (Args& command, CommandReturnObject &result)
             if (is_alias_command)
             {
                 StreamString sstr;
-                m_interpreter.GetAliasHelp (alias_name.c_str(), cmd_obj->GetCommandName(), sstr);
+                m_interpreter.GetAlias(alias_name.c_str())->GetAliasExpansion(sstr);
                 result.GetOutputStream().Printf ("\n'%s' is an abbreviation for %s\n", alias_name.c_str(), sstr.GetData());
             }
         }
@@ -182,10 +217,9 @@ CommandObjectHelp::DoExecute (Args& command, CommandReturnObject &result)
             }
             else
             {
-                result.AppendErrorWithFormat 
-                    ("'%s' is not a known command.\nTry '%shelp' to see a current list of commands.\n",
-                     command.GetArgumentAtIndex(0),
-                     m_interpreter.GetCommandPrefix());
+                StreamString error_msg_stream;
+                GenerateAdditionalHelpAvenuesMessage(&error_msg_stream, command.GetArgumentAtIndex(0), m_interpreter.GetCommandPrefix());
+                result.AppendErrorWithFormat("%s",error_msg_stream.GetData());
                 result.SetStatus (eReturnStatusFailed);
             }
         }

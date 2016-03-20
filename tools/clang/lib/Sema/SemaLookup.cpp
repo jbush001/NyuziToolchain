@@ -280,6 +280,10 @@ static inline unsigned getIDNS(Sema::LookupNameKind NameKind,
     IDNS = Decl::IDNS_ObjCProtocol;
     break;
 
+  case Sema::LookupOMPReductionName:
+    IDNS = Decl::IDNS_OMPReduction;
+    break;
+
   case Sema::LookupAnyName:
     IDNS = Decl::IDNS_Ordinary | Decl::IDNS_Tag | Decl::IDNS_Member
       | Decl::IDNS_Using | Decl::IDNS_Namespace | Decl::IDNS_ObjCProtocol
@@ -417,6 +421,18 @@ static bool isPreferredLookupResult(Sema &S, Sema::LookupNameKind Kind,
               DTD->getTemplateParameters()->getParam(I)))
         return true;
     }
+  }
+
+  // VarDecl can have incomplete array types, prefer the one with more complete
+  // array type.
+  if (VarDecl *DVD = dyn_cast<VarDecl>(DUnderlying)) {
+    VarDecl *EVD = cast<VarDecl>(EUnderlying);
+    if (EVD->getType()->isIncompleteType() &&
+        !DVD->getType()->isIncompleteType()) {
+      // Prefer the decl with a more complete type if visible.
+      return S.isVisible(DVD);
+    }
+    return false; // Avoid picking up a newer decl, just because it was newer.
   }
 
   // For most kinds of declaration, it doesn't really matter which one we pick.
@@ -2001,6 +2017,10 @@ bool Sema::LookupQualifiedName(LookupResult &R, DeclContext *LookupCtx,
 
     case LookupAnyName:
       BaseCallback = &LookupAnyMember;
+      break;
+
+    case LookupOMPReductionName:
+      BaseCallback = &CXXRecordDecl::FindOMPReductionMember;
       break;
 
     case LookupUsingDeclName:

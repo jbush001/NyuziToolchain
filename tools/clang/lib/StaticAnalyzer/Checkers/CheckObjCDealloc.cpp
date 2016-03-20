@@ -92,15 +92,18 @@ namespace {
 class ObjCDeallocChecker
     : public Checker<check::ASTDecl<ObjCImplementationDecl>,
                      check::PreObjCMessage, check::PostObjCMessage,
+                     check::PreCall,
                      check::BeginFunction, check::EndFunction,
+                     eval::Assume,
                      check::PointerEscape,
                      check::PreStmt<ReturnStmt>> {
 
-  mutable IdentifierInfo *NSObjectII, *SenTestCaseII;
+  mutable IdentifierInfo *NSObjectII, *SenTestCaseII, *Block_releaseII;
   mutable Selector DeallocSel, ReleaseSel;
 
   std::unique_ptr<BugType> MissingReleaseBugType;
   std::unique_ptr<BugType> ExtraReleaseBugType;
+  std::unique_ptr<BugType> MistakenDeallocBugType;
 
 public:
   ObjCDeallocChecker();
@@ -109,7 +112,11 @@ public:
                     BugReporter &BR) const;
   void checkBeginFunction(CheckerContext &Ctx) const;
   void checkPreObjCMessage(const ObjCMethodCall &M, CheckerContext &C) const;
+  void checkPreCall(const CallEvent &Call, CheckerContext &C) const;
   void checkPostObjCMessage(const ObjCMethodCall &M, CheckerContext &C) const;
+
+  ProgramStateRef evalAssume(ProgramStateRef State, SVal Cond,
+                             bool Assumption) const;
 
   ProgramStateRef checkPointerEscape(ProgramStateRef State,
                                      const InvalidatedSymbols &Escaped,
@@ -124,12 +131,19 @@ private:
   bool diagnoseExtraRelease(SymbolRef ReleasedValue, const ObjCMethodCall &M,
                             CheckerContext &C) const;
 
-  SymbolRef getValueExplicitlyReleased(const ObjCMethodCall &M,
-                                      CheckerContext &C) const;
+  bool diagnoseMistakenDealloc(SymbolRef DeallocedValue,
+                               const ObjCMethodCall &M,
+                               CheckerContext &C) const;
+
   SymbolRef getValueReleasedByNillingOut(const ObjCMethodCall &M,
                                          CheckerContext &C) const;
 
+  const ObjCIvarRegion *getIvarRegionForIvarSymbol(SymbolRef IvarSym) const;
   SymbolRef getInstanceSymbolFromIvarSymbol(SymbolRef IvarSym) const;
+
+  const ObjCPropertyImplDecl*
+  findPropertyOnDeallocatingInstance(SymbolRef IvarSym,
+                                     CheckerContext &C) const;
 
   ReleaseRequirement
   getDeallocReleaseRequirement(const ObjCPropertyImplDecl *PropImpl) const;
@@ -147,6 +161,7 @@ private:
   const ObjCPropertyDecl *
   findShadowedPropertyDecl(const ObjCPropertyImplDecl *PropImpl) const;
 
+  void transitionToReleaseValue(CheckerContext &C, SymbolRef Value) const;
   ProgramStateRef removeValueRequiringRelease(ProgramStateRef State,
                                               SymbolRef InstanceSym,
                                               SymbolRef ValueSym) const;
@@ -182,23 +197,27 @@ void ObjCDeallocChecker::checkASTDecl(const ObjCImplementationDecl *D,
   initIdentifierInfoAndSelectors(Mgr.getASTContext());
 
   const ObjCInterfaceDecl *ID = D->getClassInterface();
-
-  // Does the class contain any synthesized properties that are retainable?
-  // If not, skip the check entirely.
-  bool containsRetainedSynthesizedProperty = false;
-  for (const auto *I : D->property_impls()) {
-    if (getDeallocReleaseRequirement(I) == ReleaseRequirement::MustRelease) {
-      containsRetainedSynthesizedProperty = true;
-      break;
-    }
-  }
-
-  if (!containsRetainedSynthesizedProperty)
-    return;
-
   // If the class is known to have a lifecycle with a separate teardown method
   // then it may not require a -dealloc method.
   if (classHasSeparateTeardown(ID))
+    return;
+
+  // Does the class contain any synthesized properties that are retainable?
+  // If not, skip the check entirely.
+  const ObjCPropertyImplDecl *PropImplRequiringRelease = nullptr;
+  bool HasOthers = false;
+  for (const auto *I : D->property_impls()) {
+    if (getDeallocReleaseRequirement(I) == ReleaseRequirement::MustRelease) {
+      if (!PropImplRequiringRelease)
+        PropImplRequiringRelease = I;
+      else {
+        HasOthers = true;
+        break;
+      }
+    }
+  }
+
+  if (!PropImplRequiringRelease)
     return;
 
   const ObjCMethodDecl *MD = nullptr;
@@ -216,8 +235,12 @@ void ObjCDeallocChecker::checkASTDecl(const ObjCImplementationDecl *D,
 
     std::string Buf;
     llvm::raw_string_ostream OS(Buf);
-    OS << "Objective-C class '" << *D << "' lacks a 'dealloc' instance method";
+    OS << "'" << *D << "' lacks a 'dealloc' instance method but "
+       << "must release '" << *PropImplRequiringRelease->getPropertyIvarDecl()
+       << "'";
 
+    if (HasOthers)
+      OS << " and others";
     PathDiagnosticLocation DLoc =
         PathDiagnosticLocation::createBegin(D, BR.getSourceManager());
 
@@ -284,20 +307,31 @@ void ObjCDeallocChecker::checkBeginFunction(
   }
 }
 
+/// Given a symbol for an ivar, return the ivar region it was loaded from.
+/// Returns nullptr if the instance symbol cannot be found.
+const ObjCIvarRegion *
+ObjCDeallocChecker::getIvarRegionForIvarSymbol(SymbolRef IvarSym) const {
+  const MemRegion *RegionLoadedFrom = nullptr;
+  if (auto *DerivedSym = dyn_cast<SymbolDerived>(IvarSym))
+    RegionLoadedFrom = DerivedSym->getRegion();
+  else if (auto *RegionSym = dyn_cast<SymbolRegionValue>(IvarSym))
+    RegionLoadedFrom = RegionSym->getRegion();
+  else
+    return nullptr;
+
+  return dyn_cast<ObjCIvarRegion>(RegionLoadedFrom);
+}
+
 /// Given a symbol for an ivar, return a symbol for the instance containing
 /// the ivar. Returns nullptr if the instance symbol cannot be found.
 SymbolRef
 ObjCDeallocChecker::getInstanceSymbolFromIvarSymbol(SymbolRef IvarSym) const {
-  if (auto *SRV = dyn_cast<SymbolRegionValue>(IvarSym)) {
-    const TypedValueRegion *TVR = SRV->getRegion();
-    const ObjCIvarRegion *IvarRegion = dyn_cast_or_null<ObjCIvarRegion>(TVR);
-    if (!IvarRegion)
-      return nullptr;
 
-    return IvarRegion->getSymbolicBase()->getSymbol();
-  }
+  const ObjCIvarRegion *IvarRegion = getIvarRegionForIvarSymbol(IvarSym);
+  if (!IvarRegion)
+    return nullptr;
 
-  return nullptr;
+  return IvarRegion->getSymbolicBase()->getSymbol();
 }
 
 /// If we are in -dealloc or -dealloc is on the stack, handle the call if it is
@@ -309,7 +343,14 @@ void ObjCDeallocChecker::checkPreObjCMessage(
   if (!instanceDeallocIsOnStack(C, DeallocedInstance))
     return;
 
-  SymbolRef ReleasedValue = getValueExplicitlyReleased(M, C);
+  SymbolRef ReleasedValue = nullptr;
+
+  if (M.getSelector() == ReleaseSel) {
+    ReleasedValue = M.getReceiverSVal().getAsSymbol();
+  } else if (M.getSelector() == DeallocSel && !M.isReceiverSelfOrSuper()) {
+    if (diagnoseMistakenDealloc(M.getReceiverSVal().getAsSymbol(), M, C))
+      return;
+  }
 
   if (ReleasedValue) {
     // An instance variable symbol was released with -release:
@@ -325,19 +366,26 @@ void ObjCDeallocChecker::checkPreObjCMessage(
   if (!ReleasedValue)
     return;
 
-  SymbolRef InstanceSym = getInstanceSymbolFromIvarSymbol(ReleasedValue);
-  if (!InstanceSym)
-    return;
-  ProgramStateRef InitialState = C.getState();
-
-  ProgramStateRef ReleasedState =
-      removeValueRequiringRelease(InitialState, InstanceSym, ReleasedValue);
-
-  if (ReleasedState != InitialState) {
-    C.addTransition(ReleasedState);
-  }
+  transitionToReleaseValue(C, ReleasedValue);
 }
 
+/// If we are in -dealloc or -dealloc is on the stack, handle the call if it is
+/// call to Block_release().
+void ObjCDeallocChecker::checkPreCall(const CallEvent &Call,
+                                      CheckerContext &C) const {
+  const IdentifierInfo *II = Call.getCalleeIdentifier();
+  if (II != Block_releaseII)
+    return;
+
+  if (Call.getNumArgs() != 1)
+    return;
+
+  SymbolRef ReleasedValue = Call.getArgSVal(0).getAsSymbol();
+  if (!ReleasedValue)
+    return;
+
+  transitionToReleaseValue(C, ReleasedValue);
+}
 /// If the message was a call to '[super dealloc]', diagnose any missing
 /// releases.
 void ObjCDeallocChecker::checkPostObjCMessage(
@@ -362,10 +410,57 @@ void ObjCDeallocChecker::checkPreStmt(
   diagnoseMissingReleases(C);
 }
 
+/// When a symbol is assumed to be nil, remove it from the set of symbols
+/// require to be nil.
+ProgramStateRef ObjCDeallocChecker::evalAssume(ProgramStateRef State, SVal Cond,
+                                               bool Assumption) const {
+  if (State->get<UnreleasedIvarMap>().isEmpty())
+    return State;
+
+  auto *CondBSE = dyn_cast_or_null<BinarySymExpr>(Cond.getAsSymExpr());
+  if (!CondBSE)
+    return State;
+
+  BinaryOperator::Opcode OpCode = CondBSE->getOpcode();
+  if (Assumption) {
+    if (OpCode != BO_EQ)
+      return State;
+  } else {
+    if (OpCode != BO_NE)
+      return State;
+  }
+
+  SymbolRef NullSymbol = nullptr;
+  if (auto *SIE = dyn_cast<SymIntExpr>(CondBSE)) {
+    const llvm::APInt &RHS = SIE->getRHS();
+    if (RHS != 0)
+      return State;
+    NullSymbol = SIE->getLHS();
+  } else if (auto *SIE = dyn_cast<IntSymExpr>(CondBSE)) {
+    const llvm::APInt &LHS = SIE->getLHS();
+    if (LHS != 0)
+      return State;
+    NullSymbol = SIE->getRHS();
+  } else {
+    return State;
+  }
+
+  SymbolRef InstanceSymbol = getInstanceSymbolFromIvarSymbol(NullSymbol);
+  if (!InstanceSymbol)
+    return State;
+
+  State = removeValueRequiringRelease(State, InstanceSymbol, NullSymbol);
+
+  return State;
+}
+
 /// If a symbol escapes conservatively assume unseen code released it.
 ProgramStateRef ObjCDeallocChecker::checkPointerEscape(
     ProgramStateRef State, const InvalidatedSymbols &Escaped,
     const CallEvent *Call, PointerEscapeKind Kind) const {
+
+  if (State->get<UnreleasedIvarMap>().isEmpty())
+    return State;
 
   // Don't treat calls to '[super dealloc]' as escaping for the purposes
   // of this checker. Because the checker diagnoses missing releases in the
@@ -376,7 +471,17 @@ ProgramStateRef ObjCDeallocChecker::checkPointerEscape(
     return State;
 
   for (const auto &Sym : Escaped) {
-    State = State->remove<UnreleasedIvarMap>(Sym);
+    if (!Call || (Call && !Call->isInSystemHeader())) {
+      // If Sym is a symbol for an object with instance variables that
+      // must be released, remove these obligations when the object escapes
+      // unless via a call to a system function. System functions are
+      // very unlikely to release instance variables on objects passed to them,
+      // and are frequently called on 'self' in -dealloc (e.g., to remove
+      // observers) -- we want to avoid false negatives from escaping on
+      // them.
+      State = State->remove<UnreleasedIvarMap>(Sym);
+    }
+
 
     SymbolRef InstanceSymbol = getInstanceSymbolFromIvarSymbol(Sym);
     if (!InstanceSymbol)
@@ -424,9 +529,10 @@ void ObjCDeallocChecker::diagnoseMissingReleases(CheckerContext &C) const {
     if (SelfRegion != IvarRegion->getSuperRegion())
       continue;
 
+      const ObjCIvarDecl *IvarDecl = IvarRegion->getDecl();
     // Prevent an inlined call to -dealloc in a super class from warning
     // about the values the subclass's -dealloc should release.
-    if (IvarRegion->getDecl()->getContainingInterface() !=
+    if (IvarDecl->getContainingInterface() !=
         cast<ObjCMethodDecl>(LCtx->getDecl())->getClassInterface())
       continue;
 
@@ -452,7 +558,6 @@ void ObjCDeallocChecker::diagnoseMissingReleases(CheckerContext &C) const {
     std::string Buf;
     llvm::raw_string_ostream OS(Buf);
 
-    const ObjCIvarDecl *IvarDecl = IvarRegion->getDecl();
     const ObjCInterfaceDecl *Interface = IvarDecl->getContainingInterface();
     // If the class is known to have a lifecycle with teardown that is
     // separate from -dealloc, do not warn about missing releases. We
@@ -506,48 +611,55 @@ void ObjCDeallocChecker::diagnoseMissingReleases(CheckerContext &C) const {
   assert(!LCtx->inTopFrame() || State->get<UnreleasedIvarMap>().isEmpty());
 }
 
+/// Given a symbol, determine whether the symbol refers to an ivar on
+/// the top-most deallocating instance. If so, find the property for that
+/// ivar, if one exists. Otherwise return null.
+const ObjCPropertyImplDecl *
+ObjCDeallocChecker::findPropertyOnDeallocatingInstance(
+    SymbolRef IvarSym, CheckerContext &C) const {
+  SVal DeallocedInstance;
+  if (!isInInstanceDealloc(C, DeallocedInstance))
+    return nullptr;
+
+  // Try to get the region from which the ivar value was loaded.
+  auto *IvarRegion = getIvarRegionForIvarSymbol(IvarSym);
+  if (!IvarRegion)
+    return nullptr;
+
+  // Don't try to find the property if the ivar was not loaded from the
+  // given instance.
+  if (DeallocedInstance.castAs<loc::MemRegionVal>().getRegion() !=
+      IvarRegion->getSuperRegion())
+    return nullptr;
+
+  const LocationContext *LCtx = C.getLocationContext();
+  const ObjCIvarDecl *IvarDecl = IvarRegion->getDecl();
+
+  const ObjCImplDecl *Container = getContainingObjCImpl(LCtx);
+  const ObjCPropertyImplDecl *PropImpl =
+      Container->FindPropertyImplIvarDecl(IvarDecl->getIdentifier());
+  return PropImpl;
+}
+
 /// Emits a warning if the current context is -dealloc and ReleasedValue
 /// must not be directly released in a -dealloc. Returns true if a diagnostic
 /// was emitted.
 bool ObjCDeallocChecker::diagnoseExtraRelease(SymbolRef ReleasedValue,
                                               const ObjCMethodCall &M,
                                               CheckerContext &C) const {
-  SVal DeallocedInstance;
-  if (!isInInstanceDealloc(C, DeallocedInstance))
-    return false;
-
   // Try to get the region from which the the released value was loaded.
   // Note that, unlike diagnosing for missing releases, here we don't track
   // values that must not be released in the state. This is because even if
   // these values escape, it is still an error under the rules of MRR to
   // release them in -dealloc.
-  const MemRegion *RegionLoadedFrom = nullptr;
-  if (auto *DerivedSym = dyn_cast<SymbolDerived>(ReleasedValue))
-    RegionLoadedFrom = DerivedSym->getRegion();
-  else if (auto *RegionSym = dyn_cast<SymbolRegionValue>(ReleasedValue))
-    RegionLoadedFrom = RegionSym->getRegion();
-  else
-    return false;
-
-  auto *ReleasedIvar = dyn_cast<ObjCIvarRegion>(RegionLoadedFrom);
-  if (!ReleasedIvar)
-    return false;
-
-  if (DeallocedInstance.castAs<loc::MemRegionVal>().getRegion() !=
-      ReleasedIvar->getSuperRegion())
-    return false;
-
-  const LocationContext *LCtx = C.getLocationContext();
-  const ObjCIvarDecl *ReleasedIvarDecl = ReleasedIvar->getDecl();
-
-  // If the ivar belongs to a property that must not be released directly
-  // in dealloc, emit a warning.
-  const ObjCImplDecl *Container = getContainingObjCImpl(LCtx);
   const ObjCPropertyImplDecl *PropImpl =
-      Container->FindPropertyImplIvarDecl(ReleasedIvarDecl->getIdentifier());
+      findPropertyOnDeallocatingInstance(ReleasedValue, C);
+
   if (!PropImpl)
     return false;
 
+  // If the ivar belongs to a property that must not be released directly
+  // in dealloc, emit a warning.
   if (getDeallocReleaseRequirement(PropImpl) !=
       ReleaseRequirement::MustNotReleaseDirectly) {
     return false;
@@ -578,6 +690,7 @@ bool ObjCDeallocChecker::diagnoseExtraRelease(SymbolRef ReleasedValue,
          (PropDecl->getSetterKind() == ObjCPropertyDecl::Assign &&
           !PropDecl->isReadOnly()));
 
+  const ObjCImplDecl *Container = getContainingObjCImpl(C.getLocationContext());
   OS << "The '" << *PropImpl->getPropertyIvarDecl()
      << "' ivar in '" << *Container
      << "' was synthesized for ";
@@ -598,6 +711,43 @@ bool ObjCDeallocChecker::diagnoseExtraRelease(SymbolRef ReleasedValue,
   return true;
 }
 
+/// Emits a warning if the current context is -dealloc and DeallocedValue
+/// must not be directly dealloced in a -dealloc. Returns true if a diagnostic
+/// was emitted.
+bool ObjCDeallocChecker::diagnoseMistakenDealloc(SymbolRef DeallocedValue,
+                                                 const ObjCMethodCall &M,
+                                                 CheckerContext &C) const {
+
+  // Find the property backing the instance variable that M
+  // is dealloc'ing.
+  const ObjCPropertyImplDecl *PropImpl =
+      findPropertyOnDeallocatingInstance(DeallocedValue, C);
+  if (!PropImpl)
+    return false;
+
+  if (getDeallocReleaseRequirement(PropImpl) !=
+      ReleaseRequirement::MustRelease) {
+    return false;
+  }
+
+  ExplodedNode *ErrNode = C.generateErrorNode();
+  if (!ErrNode)
+    return false;
+
+  std::string Buf;
+  llvm::raw_string_ostream OS(Buf);
+
+  OS << "'" << *PropImpl->getPropertyIvarDecl()
+     << "' should be released rather than deallocated";
+
+  std::unique_ptr<BugReport> BR(
+      new BugReport(*MistakenDeallocBugType, OS.str(), ErrNode));
+  BR->addRange(M.getOriginExpr()->getSourceRange());
+
+  C.emitReport(std::move(BR));
+
+  return true;
+}
 
 ObjCDeallocChecker::
     ObjCDeallocChecker()
@@ -610,6 +760,10 @@ ObjCDeallocChecker::
   ExtraReleaseBugType.reset(
       new BugType(this, "Extra ivar release",
                   categories::MemoryCoreFoundationObjectiveC));
+
+  MistakenDeallocBugType.reset(
+      new BugType(this, "Mistaken dealloc",
+                  categories::MemoryCoreFoundationObjectiveC));
 }
 
 void ObjCDeallocChecker::initIdentifierInfoAndSelectors(
@@ -619,6 +773,7 @@ void ObjCDeallocChecker::initIdentifierInfoAndSelectors(
 
   NSObjectII = &Ctx.Idents.get("NSObject");
   SenTestCaseII = &Ctx.Idents.get("SenTestCase");
+  Block_releaseII = &Ctx.Idents.get("_Block_release");
 
   IdentifierInfo *DeallocII = &Ctx.Idents.get("dealloc");
   IdentifierInfo *ReleaseII = &Ctx.Idents.get("release");
@@ -674,12 +829,32 @@ const ObjCPropertyDecl *ObjCDeallocChecker::findShadowedPropertyDecl(
   return nullptr;
 }
 
+/// Add a transition noting the release of the given value.
+void ObjCDeallocChecker::transitionToReleaseValue(CheckerContext &C,
+                                                  SymbolRef Value) const {
+  assert(Value);
+  SymbolRef InstanceSym = getInstanceSymbolFromIvarSymbol(Value);
+  if (!InstanceSym)
+    return;
+  ProgramStateRef InitialState = C.getState();
+
+  ProgramStateRef ReleasedState =
+      removeValueRequiringRelease(InitialState, InstanceSym, Value);
+
+  if (ReleasedState != InitialState) {
+    C.addTransition(ReleasedState);
+  }
+}
+
 /// Remove the Value requiring a release from the tracked set for
 /// Instance and return the resultant state.
 ProgramStateRef ObjCDeallocChecker::removeValueRequiringRelease(
     ProgramStateRef State, SymbolRef Instance, SymbolRef Value) const {
   assert(Instance);
   assert(Value);
+  const ObjCIvarRegion *RemovedRegion = getIvarRegionForIvarSymbol(Value);
+  if (!RemovedRegion)
+    return State;
 
   const SymbolSet *Unreleased = State->get<UnreleasedIvarMap>(Instance);
   if (!Unreleased)
@@ -687,7 +862,14 @@ ProgramStateRef ObjCDeallocChecker::removeValueRequiringRelease(
 
   // Mark the value as no longer requiring a release.
   SymbolSet::Factory &F = State->getStateManager().get_context<SymbolSet>();
-  SymbolSet NewUnreleased = F.remove(*Unreleased, Value);
+  SymbolSet NewUnreleased = *Unreleased;
+  for (auto &Sym : *Unreleased) {
+    const ObjCIvarRegion *UnreleasedRegion = getIvarRegionForIvarSymbol(Sym);
+    assert(UnreleasedRegion);
+    if (RemovedRegion->getDecl() == UnreleasedRegion->getDecl()) {
+      NewUnreleased = F.remove(NewUnreleased, Sym);
+    }
+  }
 
   if (NewUnreleased.isEmpty()) {
     return State->remove<UnreleasedIvarMap>(Instance);
@@ -729,17 +911,6 @@ ReleaseRequirement ObjCDeallocChecker::getDeallocReleaseRequirement(
   llvm_unreachable("Unrecognized setter kind");
 }
 
-/// Returns the released value if M is a call to -release. Returns
-/// nullptr otherwise.
-SymbolRef
-ObjCDeallocChecker::getValueExplicitlyReleased(const ObjCMethodCall &M,
-                                              CheckerContext &C) const {
-  if (M.getSelector() != ReleaseSel)
-    return nullptr;
-
-  return M.getReceiverSVal().getAsSymbol();
-}
-
 /// Returns the released value if M is a call a setter that releases
 /// and nils out its underlying instance variable.
 SymbolRef
@@ -749,9 +920,13 @@ ObjCDeallocChecker::getValueReleasedByNillingOut(const ObjCMethodCall &M,
   if (!ReceiverVal.isValid())
     return nullptr;
 
-  // Is the first argument nil?
   if (M.getNumArgs() == 0)
     return nullptr;
+
+  if (!M.getArgExpr(0)->getType()->isObjCRetainableType())
+    return nullptr;
+
+  // Is the first argument nil?
   SVal Arg = M.getArgSVal(0);
   ProgramStateRef notNilState, nilState;
   std::tie(notNilState, nilState) =
