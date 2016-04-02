@@ -51,7 +51,6 @@ void NyuziAsmPrinter::EmitFunctionBodyStart() {
 }
 
 void NyuziAsmPrinter::EmitFunctionBodyEnd() {
-  OutStreamer->EmitDataRegion(MCDR_DataRegionEnd);
 }
 
 void NyuziAsmPrinter::EmitConstantPool() {
@@ -65,6 +64,7 @@ void NyuziAsmPrinter::EmitConstantPool() {
   const Function *F = MF->getFunction();
   OutStreamer->SwitchSection(
       getObjFileLowering().SectionForGlobal(F, *Mang, TM));
+  OutStreamer->EmitDataRegion(MCDR_DataRegion);
   for (unsigned i = 0, e = CP.size(); i != e; ++i) {
     const MachineConstantPoolEntry &CPE = CP[i];
     EmitAlignment(Log2_32(CPE.getAlignment()));
@@ -74,6 +74,8 @@ void NyuziAsmPrinter::EmitConstantPool() {
     else
       EmitGlobalConstant(MF->getDataLayout(), CPE.Val.ConstVal);
   }
+
+  OutStreamer->EmitDataRegion(MCDR_DataRegionEnd);
 }
 
 void NyuziAsmPrinter::EmitInlineJumpTable(const MachineInstr *MI) {
@@ -84,10 +86,13 @@ void NyuziAsmPrinter::EmitInlineJumpTable(const MachineInstr *MI) {
   const MachineJumpTableInfo *MJTI = MF->getJumpTableInfo();
   const std::vector<MachineJumpTableEntry> &JT = MJTI->getJumpTables();
   const std::vector<MachineBasicBlock *> &JTBBs = JT[JTI].MBBs;
+  OutStreamer->EmitDataRegion(MCDR_DataRegionJT32);
   for (const auto &MBB : JTBBs) {
     const MCExpr *Expr = MCSymbolRefExpr::create(MBB->getSymbol(), OutContext);
     OutStreamer->EmitValue(Expr, 4);
   }
+
+  OutStreamer->EmitDataRegion(MCDR_DataRegionEnd);
 }
 
 MCSymbol *NyuziAsmPrinter::GetJumpTableLabel(unsigned uid) const {
