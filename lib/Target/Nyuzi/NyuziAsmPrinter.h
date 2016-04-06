@@ -44,7 +44,6 @@ public:
 
   void EmitInstruction(const MachineInstr *MI) override;
   void EmitFunctionBodyStart() override;
-  void EmitFunctionBodyEnd() override;
   void EmitConstantPool() override;
 
   // Print operand for inline assembly

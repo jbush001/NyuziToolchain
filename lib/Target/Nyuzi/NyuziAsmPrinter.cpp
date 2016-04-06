@@ -50,9 +50,6 @@ void NyuziAsmPrinter::EmitFunctionBodyStart() {
   MCInstLowering.Initialize(&MF->getContext());
 }
 
-void NyuziAsmPrinter::EmitFunctionBodyEnd() {
-}
-
 void NyuziAsmPrinter::EmitConstantPool() {
   const MachineConstantPool *MCP = MF->getConstantPool();
   const std::vector<MachineConstantPoolEntry> &CP = MCP->getConstants();
