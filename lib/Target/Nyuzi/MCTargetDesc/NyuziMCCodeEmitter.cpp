@@ -64,17 +64,16 @@ public:
                                const MCSubtargetInfo &STI) const;
 
   // Emit one byte through output stream (from MCBlazeMCCodeEmitter)
-  void EmitByte(unsigned char C, unsigned &CurByte, raw_ostream &OS) const {
+  void EmitByte(unsigned char C, raw_ostream &OS) const {
     OS << (char)C;
-    ++CurByte;
   }
 
-  void EmitLEConstant(uint64_t Val, unsigned Size, unsigned &CurByte,
+  void EmitLEConstant(uint64_t Val, unsigned Size,
                       raw_ostream &OS) const {
     assert(Size <= 8 && "size too big in emit constant");
 
     for (unsigned i = 0; i != Size; ++i) {
-      EmitByte(Val & 255, CurByte, OS);
+      EmitByte(Val & 255, OS);
       Val >>= 8;
     }
   }
@@ -135,14 +134,10 @@ unsigned NyuziMCCodeEmitter::encodeBranchTargetOpValue(
 void NyuziMCCodeEmitter::encodeInstruction(const MCInst &MI, raw_ostream &OS,
                                            SmallVectorImpl<MCFixup> &Fixups,
                                            const MCSubtargetInfo &STI) const {
-
-  // Keep track of the current byte being emitted
-  unsigned CurByte = 0;
-
   // Get instruction encoding and emit it
   ++MCNumEmitted; // Keep track of the number of emitted insns.
   unsigned Value = getBinaryCodeForInstr(MI, Fixups, STI);
-  EmitLEConstant(Value, 4, CurByte, OS);
+  EmitLEConstant(Value, 4, OS);
 }
 
 unsigned
@@ -210,7 +205,8 @@ NyuziMCCodeEmitter::encodeMemoryOpValue(const MCInst &MI, unsigned Op,
   if (offsetOp.isExpr()) {
     // Load with a label. This is a PC relative load.  Add a fixup.
     // XXX Note that this assumes unmasked instructions.  A masked
-    // instruction will not work and should nto be used.
+    // instruction will not work and should not be used. Check for this
+    // and return an error.
     Fixups.push_back(
         MCFixup::create(0, offsetOp.getExpr(),
                         MCFixupKind(Nyuzi::fixup_Nyuzi_PCRel_MemAccExt)));
