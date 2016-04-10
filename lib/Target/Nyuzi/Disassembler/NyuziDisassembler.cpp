@@ -35,7 +35,6 @@ public:
   NyuziDisassembler(const MCSubtargetInfo &STI, MCContext &Ctx,
                     const MCRegisterInfo *Info)
       : MCDisassembler(STI, Ctx), RegInfo(Info) {}
-  ~NyuziDisassembler() {}
 
   const MCRegisterInfo *getRegInfo() const { return RegInfo; }
 

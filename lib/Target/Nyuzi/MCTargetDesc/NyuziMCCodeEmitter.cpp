@@ -35,8 +35,6 @@ class NyuziMCCodeEmitter : public MCCodeEmitter {
 public:
   NyuziMCCodeEmitter(const MCInstrInfo &mcii, MCContext &ctx) : Ctx(ctx) {}
 
-  ~NyuziMCCodeEmitter() {}
-
   // getBinaryCodeForInstr - TableGen'erated function for getting the
   // binary encoding for an instruction.
   uint64_t getBinaryCodeForInstr(const MCInst &MI,

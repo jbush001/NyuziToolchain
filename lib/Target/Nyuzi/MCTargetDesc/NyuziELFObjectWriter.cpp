@@ -20,8 +20,6 @@ class NyuziELFObjectWriter : public MCELFObjectTargetWriter {
 public:
   NyuziELFObjectWriter(uint8_t OSABI);
 
-  virtual ~NyuziELFObjectWriter();
-
 protected:
   unsigned getRelocType(MCContext &Ctx, const MCValue &Target,
                         const MCFixup &Fixup, bool IsPCRel) const override;
@@ -31,8 +29,6 @@ protected:
 NyuziELFObjectWriter::NyuziELFObjectWriter(uint8_t OSABI)
     : MCELFObjectTargetWriter(/*Is64Bit*/ false, OSABI, ELF::EM_NYUZI,
                               /*HasRelocationAddend*/ true) {}
-
-NyuziELFObjectWriter::~NyuziELFObjectWriter() {}
 
 unsigned NyuziELFObjectWriter::getRelocType(MCContext &Ctx,
                                             const MCValue &Target,
