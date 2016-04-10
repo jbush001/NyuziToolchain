@@ -37,8 +37,7 @@ const NyuziInstrInfo *NyuziInstrInfo::create(NyuziSubtarget &ST) {
 }
 
 NyuziInstrInfo::NyuziInstrInfo(NyuziSubtarget &ST)
-    : NyuziGenInstrInfo(Nyuzi::ADJCALLSTACKDOWN, Nyuzi::ADJCALLSTACKUP),
-      RI() {}
+    : NyuziGenInstrInfo(Nyuzi::ADJCALLSTACKDOWN, Nyuzi::ADJCALLSTACKUP), RI() {}
 
 /// isLoadFromStackSlot - If the specified machine instruction is a direct
 /// load from a stack slot, return the virtual or physical register number of

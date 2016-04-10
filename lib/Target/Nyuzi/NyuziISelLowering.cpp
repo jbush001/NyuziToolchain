@@ -34,6 +34,7 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/raw_ostream.h"
+
 using namespace llvm;
 
 #include "NyuziGenCallingConv.inc"
@@ -1476,7 +1477,7 @@ bool NyuziTargetLowering::isIntDivCheap(EVT, AttributeSet) const {
   return false;
 }
 
-bool NyuziTargetLowering::shouldInsertFencesForAtomic(const Instruction *I) const {
+bool NyuziTargetLowering::shouldInsertFencesForAtomic(
+    const Instruction *I) const {
   return true;
 }
-

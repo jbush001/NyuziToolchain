@@ -26,8 +26,8 @@ enum Fixups {
   fixup_Nyuzi_PCRel_MemAccExt = FirstTargetFixupKind, // PC relative offset
                                                       // for extended memory
                                                       // access
-  fixup_Nyuzi_PCRel_MemAcc,    // PC relative offset for memory access
-  fixup_Nyuzi_PCRel_Branch,    // PC relative for branch instruction
+  fixup_Nyuzi_PCRel_MemAcc,              // PC relative offset for memory access
+  fixup_Nyuzi_PCRel_Branch,              // PC relative for branch instruction
   fixup_Nyuzi_PCRel_ComputeLabelAddress, // For getting jump table
                                          // addresses
 

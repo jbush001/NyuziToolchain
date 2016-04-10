@@ -64,12 +64,9 @@ public:
                                const MCSubtargetInfo &STI) const;
 
   // Emit one byte through output stream (from MCBlazeMCCodeEmitter)
-  void EmitByte(unsigned char C, raw_ostream &OS) const {
-    OS << (char)C;
-  }
+  void EmitByte(unsigned char C, raw_ostream &OS) const { OS << (char)C; }
 
-  void EmitLEConstant(uint64_t Val, unsigned Size,
-                      raw_ostream &OS) const {
+  void EmitLEConstant(uint64_t Val, unsigned Size, raw_ostream &OS) const {
     assert(Size <= 8 && "size too big in emit constant");
 
     for (unsigned i = 0; i != Size; ++i) {
