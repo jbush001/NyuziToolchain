@@ -72,7 +72,6 @@ public:
         // NyuziFixupKinds.h.
         //
         // name                          offset  bits  flags
-        {"fixup_Nyuzi_Abs32", 0, 32, 0},
         {"fixup_Nyuzi_PCRel_MemAccExt", 10, 15, MCFixupKindInfo::FKF_IsPCRel},
         {"fixup_Nyuzi_PCRel_MemAcc", 15, 10, MCFixupKindInfo::FKF_IsPCRel},
         {"fixup_Nyuzi_PCRel_Branch", 5, 20, MCFixupKindInfo::FKF_IsPCRel},

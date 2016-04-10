@@ -40,7 +40,6 @@ unsigned NyuziELFObjectWriter::getRelocType(MCContext &Ctx,
   default:
     llvm_unreachable("Invalid fixup kind!");
   case FK_Data_4:
-  case Nyuzi::fixup_Nyuzi_Abs32:
     Type = ELF::R_NYUZI_ABS32;
     break;
 
@@ -49,8 +48,10 @@ unsigned NyuziELFObjectWriter::getRelocType(MCContext &Ctx,
     break;
 
   // In normal cases, these types should not be emitted because they can be
-  // fixed up immediately. This generally happens if there is an undefined
-  // symbol.  This will cause an error later during linking.
+  // fixed up immediately (the compiler uses it to access constant pool
+  // entries at the beginning of each function). We hit this code path
+  // if there is an undefined symbol in assembly code. This will cause
+  // an error later during linking.
   case Nyuzi::fixup_Nyuzi_PCRel_MemAccExt:
     Type = ELF::R_NYUZI_PCREL_MEM_EXT;
     break;
