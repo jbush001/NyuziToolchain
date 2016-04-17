@@ -19,6 +19,7 @@
 #include "SIISelLowering.h"
 #include "SIMachineFunctionInfo.h"
 #include "llvm/CodeGen/FunctionLoweringInfo.h"
+#include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/PseudoSourceValue.h"
 #include "llvm/CodeGen/SelectionDAG.h"
 #include "llvm/CodeGen/SelectionDAGISel.h"
@@ -80,16 +81,16 @@ private:
   static bool checkType(const Value *ptr, unsigned int addrspace);
   static bool checkPrivateAddress(const MachineMemOperand *Op);
 
-  static bool isGlobalStore(const StoreSDNode *N);
-  static bool isFlatStore(const StoreSDNode *N);
+  static bool isGlobalStore(const MemSDNode *N);
+  static bool isFlatStore(const MemSDNode *N);
   static bool isPrivateStore(const StoreSDNode *N);
   static bool isLocalStore(const StoreSDNode *N);
   static bool isRegionStore(const StoreSDNode *N);
 
   bool isCPLoad(const LoadSDNode *N) const;
-  bool isConstantLoad(const LoadSDNode *N, int cbID) const;
-  bool isGlobalLoad(const LoadSDNode *N) const;
-  bool isFlatLoad(const LoadSDNode *N) const;
+  bool isConstantLoad(const MemSDNode *N, int cbID) const;
+  bool isGlobalLoad(const MemSDNode *N) const;
+  bool isFlatLoad(const MemSDNode *N) const;
   bool isParamLoad(const LoadSDNode *N) const;
   bool isPrivateLoad(const LoadSDNode *N) const;
   bool isLocalLoad(const LoadSDNode *N) const;
@@ -127,6 +128,8 @@ private:
                          SDValue &TFE) const;
   bool SelectMUBUFOffset(SDValue Addr, SDValue &SRsrc, SDValue &Soffset,
                          SDValue &Offset, SDValue &GLC) const;
+  bool SelectMUBUFOffset(SDValue Addr, SDValue &SRsrc, SDValue &Soffset,
+                         SDValue &Offset) const;
   void SelectMUBUFConstant(SDValue Constant,
                            SDValue &SOffset,
                            SDValue &ImmOffset) const;
@@ -334,7 +337,8 @@ SDNode *AMDGPUDAGToDAGISel::Select(SDNode *N) {
     return nullptr;   // Already selected.
   }
 
-  if (isa<AtomicSDNode>(N))
+  if (isa<AtomicSDNode>(N) ||
+      (Opc == AMDGPUISD::ATOMIC_INC || Opc == AMDGPUISD::ATOMIC_DEC))
     N = glueCopyToM0(N);
 
   switch (Opc) {
@@ -557,7 +561,9 @@ bool AMDGPUDAGToDAGISel::checkPrivateAddress(const MachineMemOperand *Op) {
   return false;
 }
 
-bool AMDGPUDAGToDAGISel::isGlobalStore(const StoreSDNode *N) {
+bool AMDGPUDAGToDAGISel::isGlobalStore(const MemSDNode *N) {
+  if (!N->writeMem())
+    return false;
   return checkType(N->getMemOperand()->getValue(), AMDGPUAS::GLOBAL_ADDRESS);
 }
 
@@ -572,7 +578,9 @@ bool AMDGPUDAGToDAGISel::isLocalStore(const StoreSDNode *N) {
   return checkType(N->getMemOperand()->getValue(), AMDGPUAS::LOCAL_ADDRESS);
 }
 
-bool AMDGPUDAGToDAGISel::isFlatStore(const StoreSDNode *N) {
+bool AMDGPUDAGToDAGISel::isFlatStore(const MemSDNode *N) {
+  if (!N->writeMem())
+    return false;
   return checkType(N->getMemOperand()->getValue(), AMDGPUAS::FLAT_ADDRESS);
 }
 
@@ -580,7 +588,9 @@ bool AMDGPUDAGToDAGISel::isRegionStore(const StoreSDNode *N) {
   return checkType(N->getMemOperand()->getValue(), AMDGPUAS::REGION_ADDRESS);
 }
 
-bool AMDGPUDAGToDAGISel::isConstantLoad(const LoadSDNode *N, int CbId) const {
+bool AMDGPUDAGToDAGISel::isConstantLoad(const MemSDNode *N, int CbId) const {
+  if (!N->readMem())
+    return false;
   const Value *MemVal = N->getMemOperand()->getValue();
   if (CbId == -1)
     return checkType(MemVal, AMDGPUAS::CONSTANT_ADDRESS);
@@ -588,7 +598,9 @@ bool AMDGPUDAGToDAGISel::isConstantLoad(const LoadSDNode *N, int CbId) const {
   return checkType(MemVal, AMDGPUAS::CONSTANT_BUFFER_0 + CbId);
 }
 
-bool AMDGPUDAGToDAGISel::isGlobalLoad(const LoadSDNode *N) const {
+bool AMDGPUDAGToDAGISel::isGlobalLoad(const MemSDNode *N) const {
+  if (!N->readMem())
+    return false;
   if (N->getAddressSpace() == AMDGPUAS::CONSTANT_ADDRESS)
     if (Subtarget->getGeneration() < AMDGPUSubtarget::SOUTHERN_ISLANDS ||
         N->getMemoryVT().bitsLT(MVT::i32))
@@ -605,7 +617,9 @@ bool AMDGPUDAGToDAGISel::isLocalLoad(const  LoadSDNode *N) const {
   return checkType(N->getMemOperand()->getValue(), AMDGPUAS::LOCAL_ADDRESS);
 }
 
-bool AMDGPUDAGToDAGISel::isFlatLoad(const  LoadSDNode *N) const {
+bool AMDGPUDAGToDAGISel::isFlatLoad(const MemSDNode *N) const {
+  if (!N->readMem())
+    return false;
   return checkType(N->getMemOperand()->getValue(), AMDGPUAS::FLAT_ADDRESS);
 }
 
@@ -647,7 +661,9 @@ bool AMDGPUDAGToDAGISel::isPrivateLoad(const LoadSDNode *N) const {
 
 bool AMDGPUDAGToDAGISel::isUniformBr(const SDNode *N) const {
   const BasicBlock *BB = FuncInfo->MBB->getBasicBlock();
-  return BB->getTerminator()->getMetadata("amdgpu.uniform");
+  const Instruction *Term = BB->getTerminator();
+  return Term->getMetadata("amdgpu.uniform") ||
+         Term->getMetadata("structurizecfg.uniform");
 }
 
 const char *AMDGPUDAGToDAGISel::getPassName() const {
@@ -954,8 +970,10 @@ bool AMDGPUDAGToDAGISel::SelectMUBUF(SDValue Addr, SDValue &Ptr,
 
   SDLoc DL(Addr);
 
-  GLC = CurDAG->getTargetConstant(0, DL, MVT::i1);
-  SLC = CurDAG->getTargetConstant(0, DL, MVT::i1);
+  if (!GLC.getNode())
+    GLC = CurDAG->getTargetConstant(0, DL, MVT::i1);
+  if (!SLC.getNode())
+    SLC = CurDAG->getTargetConstant(0, DL, MVT::i1);
   TFE = CurDAG->getTargetConstant(0, DL, MVT::i1);
 
   Idxen = CurDAG->getTargetConstant(0, DL, MVT::i1);
@@ -1070,7 +1088,7 @@ bool AMDGPUDAGToDAGISel::SelectMUBUFScratch(SDValue Addr, SDValue &Rsrc,
 
     // Offsets in vaddr must be positive.
     ConstantSDNode *C1 = cast<ConstantSDNode>(N1);
-    if (isLegalMUBUFImmOffset(C1) && CurDAG->SignBitIsZero(N0)) {
+    if (isLegalMUBUFImmOffset(C1)) {
       VAddr = N0;
       ImmOffset = CurDAG->getTargetConstant(C1->getZExtValue(), DL, MVT::i16);
       return true;
@@ -1111,6 +1129,13 @@ bool AMDGPUDAGToDAGISel::SelectMUBUFOffset(SDValue Addr, SDValue &SRsrc,
   return false;
 }
 
+bool AMDGPUDAGToDAGISel::SelectMUBUFOffset(SDValue Addr, SDValue &SRsrc,
+                                           SDValue &Soffset, SDValue &Offset
+                                           ) const {
+  SDValue GLC, SLC, TFE;
+
+  return SelectMUBUFOffset(Addr, SRsrc, Soffset, Offset, GLC, SLC, TFE);
+}
 bool AMDGPUDAGToDAGISel::SelectMUBUFOffset(SDValue Addr, SDValue &SRsrc,
                                            SDValue &Soffset, SDValue &Offset,
                                            SDValue &GLC) const {
@@ -1556,6 +1581,61 @@ bool AMDGPUDAGToDAGISel::SelectVOP3Mods0Clamp0OMod(SDValue In, SDValue &Src,
 
 void AMDGPUDAGToDAGISel::PreprocessISelDAG() {
   bool Modified = false;
+
+  MachineFrameInfo *MFI = CurDAG->getMachineFunction().getFrameInfo();
+
+  // Handle the perverse case where a frame index is being stored. We don't
+  // want to see multiple frame index operands on the same instruction since
+  // it complicates things and violates some assumptions about frame index
+  // lowering.
+  for (int I = MFI->getObjectIndexBegin(), E = MFI->getObjectIndexEnd();
+       I != E; ++I) {
+    SDValue FI = CurDAG->getTargetFrameIndex(I, MVT::i32);
+
+    // It's possible that we have a frame index defined in the function that
+    // isn't used in this block.
+    if (FI.use_empty())
+      continue;
+
+    // Skip over the AssertZext inserted during lowering.
+    SDValue EffectiveFI = FI;
+    auto It = FI->use_begin();
+    if (It->getOpcode() == ISD::AssertZext && FI->hasOneUse()) {
+      EffectiveFI = SDValue(*It, 0);
+      It = EffectiveFI->use_begin();
+    }
+
+    for (auto It = EffectiveFI->use_begin(); !It.atEnd(); ) {
+      SDUse &Use = It.getUse();
+      SDNode *User = Use.getUser();
+      unsigned OpIdx = It.getOperandNo();
+      ++It;
+
+      if (MemSDNode *M = dyn_cast<MemSDNode>(User)) {
+        unsigned PtrIdx = M->getOpcode() == ISD::STORE ? 2 : 1;
+        if (OpIdx == PtrIdx)
+          continue;
+
+        unsigned OpN = M->getNumOperands();
+        SDValue NewOps[8];
+
+        assert(OpN < array_lengthof(NewOps));
+        for (unsigned Op = 0; Op != OpN; ++Op) {
+          if (Op != OpIdx) {
+            NewOps[Op] = M->getOperand(Op);
+            continue;
+          }
+
+          MachineSDNode *Mov = CurDAG->getMachineNode(AMDGPU::V_MOV_B32_e32,
+                                                      SDLoc(M), MVT::i32, FI);
+          NewOps[Op] = SDValue(Mov, 0);
+        }
+
+        CurDAG->UpdateNodeOperands(M, makeArrayRef(NewOps, OpN));
+        Modified = true;
+      }
+    }
+  }
 
   // XXX - Other targets seem to be able to do this without a worklist.
   SmallVector<LoadSDNode *, 8> LoadsToReplace;

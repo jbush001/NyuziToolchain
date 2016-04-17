@@ -33,6 +33,7 @@ class HelloWatchLocationTestCase(TestBase):
     @expectedFailureAndroid(archs=['arm', 'aarch64']) # Watchpoints not supported
     @expectedFailureAll(oslist=["windows"], bugnumber="llvm.org/pr24446: WINDOWS XFAIL TRIAGE - Watchpoints not supported on Windows")
     @expectedFailureAll(triple = re.compile('^mips')) # Most of the MIPS boards provide only one H/W watchpoints, and S/W watchpoints are not supported yet
+    @expectedFailureAll(archs=['s390x']) # SystemZ also currently supports only one H/W watchpoint
     @skipIfDarwin
     def test_hello_watchlocation(self):
         """Test watching a location with '-s size' option."""
@@ -54,9 +55,6 @@ class HelloWatchLocationTestCase(TestBase):
                        'stop reason = breakpoint'])
 
         # Now let's set a write-type watchpoint pointed to by 'g_char_ptr'.
-        # The main.cpp, by design, misbehaves by not following the agreed upon
-        # protocol of using a mutex while accessing the global pool and by not
-        # incrmenting the global pool by 2.
         self.expect("watchpoint set expression -w write -s 1 -- g_char_ptr", WATCHPOINT_CREATED,
             substrs = ['Watchpoint created', 'size = 1', 'type = w'])
         # Get a hold of the watchpoint id just created, it is used later on to

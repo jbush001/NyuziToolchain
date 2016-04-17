@@ -57,8 +57,9 @@ class SectionData {
   const FragmentListType& getFragmentList() const { return m_Fragments; }
   FragmentListType& getFragmentList() { return m_Fragments; }
 
-  static FragmentListType SectionData::*getSublistAccess(Fragment*) {
-    return &SectionData::m_Fragments;
+  /// Support for Fragment::getNextNode()
+  static FragmentListType SectionData::*getSublistAccess(Fragment *) {
+      return &SectionData::m_Fragments;
   }
 
   size_t size() const { return m_Fragments.size(); }

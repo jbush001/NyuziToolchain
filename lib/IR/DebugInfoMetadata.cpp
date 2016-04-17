@@ -194,15 +194,14 @@ void GenericDINode::recalculateHash() {
     }                                                                          \
   } while (false)
 #define DEFINE_GETIMPL_STORE(CLASS, ARGS, OPS)                                 \
-  return storeImpl(new (ArrayRef<Metadata *>(OPS).size())                      \
+  return storeImpl(new (array_lengthof(OPS))                                   \
                        CLASS(Context, Storage, UNWRAP_ARGS(ARGS), OPS),        \
                    Storage, Context.pImpl->CLASS##s)
 #define DEFINE_GETIMPL_STORE_NO_OPS(CLASS, ARGS)                               \
   return storeImpl(new (0u) CLASS(Context, Storage, UNWRAP_ARGS(ARGS)),        \
                    Storage, Context.pImpl->CLASS##s)
 #define DEFINE_GETIMPL_STORE_NO_CONSTRUCTOR_ARGS(CLASS, OPS)                   \
-  return storeImpl(new (ArrayRef<Metadata *>(OPS).size())                      \
-                       CLASS(Context, Storage, OPS),                           \
+  return storeImpl(new (array_lengthof(OPS)) CLASS(Context, Storage, OPS),     \
                    Storage, Context.pImpl->CLASS##s)
 
 DISubrange *DISubrange::getImpl(LLVMContext &Context, int64_t Count, int64_t Lo,
@@ -255,6 +254,7 @@ DICompositeType *DICompositeType::getImpl(
     Metadata *TemplateParams, MDString *Identifier, StorageType Storage,
     bool ShouldCreate) {
   assert(isCanonical(Name) && "Expected canonical MDString");
+
   DEFINE_GETIMPL_LOOKUP(
       DICompositeType, (Tag, Name, File, Line, Scope, BaseType, SizeInBits,
                         AlignInBits, OffsetInBits, Flags, Elements, RuntimeLang,
@@ -290,21 +290,39 @@ DICompileUnit *DICompileUnit::getImpl(
     MDString *Producer, bool IsOptimized, MDString *Flags,
     unsigned RuntimeVersion, MDString *SplitDebugFilename,
     unsigned EmissionKind, Metadata *EnumTypes, Metadata *RetainedTypes,
-    Metadata *Subprograms, Metadata *GlobalVariables,
-    Metadata *ImportedEntities, Metadata *Macros, uint64_t DWOId,
-    StorageType Storage, bool ShouldCreate) {
+    Metadata *GlobalVariables, Metadata *ImportedEntities, Metadata *Macros,
+    uint64_t DWOId, StorageType Storage, bool ShouldCreate) {
   assert(Storage != Uniqued && "Cannot unique DICompileUnit");
   assert(isCanonical(Producer) && "Expected canonical MDString");
   assert(isCanonical(Flags) && "Expected canonical MDString");
   assert(isCanonical(SplitDebugFilename) && "Expected canonical MDString");
 
-  Metadata *Ops[] = {File, Producer, Flags, SplitDebugFilename, EnumTypes,
-                     RetainedTypes, Subprograms, GlobalVariables,
-                     ImportedEntities, Macros};
-  return storeImpl(new (ArrayRef<Metadata *>(Ops).size()) DICompileUnit(
+  Metadata *Ops[] = {
+      File,      Producer,      Flags,           SplitDebugFilename,
+      EnumTypes, RetainedTypes, GlobalVariables, ImportedEntities,
+      Macros};
+  return storeImpl(new (array_lengthof(Ops)) DICompileUnit(
                        Context, Storage, SourceLanguage, IsOptimized,
                        RuntimeVersion, EmissionKind, DWOId, Ops),
                    Storage);
+}
+
+Optional<DICompileUnit::DebugEmissionKind>
+DICompileUnit::getEmissionKind(StringRef Str) {
+  return StringSwitch<Optional<DebugEmissionKind>>(Str)
+      .Case("NoDebug", NoDebug)
+      .Case("FullDebug", FullDebug)
+      .Case("LineTablesOnly", LineTablesOnly)
+      .Default(None);
+}
+
+const char *DICompileUnit::EmissionKindString(DebugEmissionKind EK) {
+  switch (EK) {
+  case NoDebug:        return "NoDebug";
+  case FullDebug:      return "FullDebug";
+  case LineTablesOnly: return "LineTablesOnly";
+  }
+  return nullptr;
 }
 
 DISubprogram *DILocalScope::getSubprogram() const {
@@ -318,7 +336,7 @@ DISubprogram *DISubprogram::getImpl(
     MDString *LinkageName, Metadata *File, unsigned Line, Metadata *Type,
     bool IsLocalToUnit, bool IsDefinition, unsigned ScopeLine,
     Metadata *ContainingType, unsigned Virtuality, unsigned VirtualIndex,
-    unsigned Flags, bool IsOptimized, Metadata *TemplateParams,
+    unsigned Flags, bool IsOptimized, Metadata *Unit, Metadata *TemplateParams,
     Metadata *Declaration, Metadata *Variables, StorageType Storage,
     bool ShouldCreate) {
   assert(isCanonical(Name) && "Expected canonical MDString");
@@ -326,11 +344,11 @@ DISubprogram *DISubprogram::getImpl(
   DEFINE_GETIMPL_LOOKUP(DISubprogram,
                         (Scope, Name, LinkageName, File, Line, Type,
                          IsLocalToUnit, IsDefinition, ScopeLine, ContainingType,
-                         Virtuality, VirtualIndex, Flags, IsOptimized,
+                         Virtuality, VirtualIndex, Flags, IsOptimized, Unit,
                          TemplateParams, Declaration, Variables));
-  Metadata *Ops[] = {File,        Scope,    Name,           Name,
-                     LinkageName, Type,     ContainingType, TemplateParams,
-                     Declaration, Variables};
+  Metadata *Ops[] = {File,           Scope,       Name,           Name,
+                     LinkageName,    Type,        ContainingType, Unit,
+                     TemplateParams, Declaration, Variables};
   DEFINE_GETIMPL_STORE(DISubprogram,
                        (Line, ScopeLine, Virtuality, VirtualIndex, Flags,
                         IsLocalToUnit, IsDefinition, IsOptimized),

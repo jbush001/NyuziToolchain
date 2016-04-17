@@ -199,9 +199,6 @@ class DwarfDebug : public DebugHandlerBase {
   /// Maps MDNode with its corresponding DwarfCompileUnit.
   MapVector<const MDNode *, DwarfCompileUnit *> CUMap;
 
-  /// Maps subprogram MDNode with its corresponding DwarfCompileUnit.
-  MapVector<const MDNode *, DwarfCompileUnit *> SPMap;
-
   /// Maps a CU DIE with its corresponding DwarfCompileUnit.
   DenseMap<const DIE *, DwarfCompileUnit *> CUDieMap;
 
@@ -319,9 +316,6 @@ class DwarfDebug : public DebugHandlerBase {
 
   /// Construct a DIE for this abstract scope.
   void constructAbstractSubprogramScopeDIE(LexicalScope *Scope);
-
-  /// Collect info for variables that were optimized out.
-  void collectDeadVariables();
 
   void finishVariableDefinitions();
 

@@ -5,8 +5,8 @@
 
 using namespace llvm;
 
-SPMDBuilder::SPMDBuilder(Module *Mod)
-    : Builder(getGlobalContext()), MainModule(Mod), CurrentFunction(nullptr) {
+SPMDBuilder::SPMDBuilder(Module *Mod, LLVMContext &_Context)
+    : Context(_Context), Builder(_Context), MainModule(Mod), CurrentFunction(nullptr) {
 
   VMixFInt = llvm::Intrinsic::getDeclaration(
       MainModule, (llvm::Intrinsic::ID)Intrinsic::nyuzi_vector_mixf, None);
@@ -16,14 +16,14 @@ SPMDBuilder::~SPMDBuilder() {}
 
 void SPMDBuilder::startFunction(const char *Name,
                                 const std::vector<std::string> &ArgNames) {
-  Type *VecF = VectorType::get(Type::getFloatTy(getGlobalContext()), 16);
+  Type *VecF = VectorType::get(Type::getFloatTy(Context), 16);
   std::vector<Type *> Params(ArgNames.size(), VecF);
   FunctionType *FT = FunctionType::get(VecF, Params, false);
   CurrentFunction =
       Function::Create(FT, Function::ExternalLinkage, Name, MainModule);
 
   BasicBlock *BB =
-      BasicBlock::Create(getGlobalContext(), "Entry", CurrentFunction);
+      BasicBlock::Create(Context, "Entry", CurrentFunction);
   Builder.SetInsertPoint(BB);
 
   unsigned Idx = 0;
@@ -49,7 +49,7 @@ void SPMDBuilder::createReturn(llvm::Value *ReturnValue) {
 
 llvm::Value *SPMDBuilder::createLocalVariable(const char *Name) {
   return Builder.CreateAlloca(
-      VectorType::get(Type::getFloatTy(getGlobalContext()), 16), 0, Name);
+      VectorType::get(Type::getFloatTy(Context), 16), 0, Name);
 }
 
 llvm::Value *SPMDBuilder::readLocalVariable(llvm::Value *Variable) {
@@ -103,7 +103,7 @@ Value *SPMDBuilder::getCurrentMask() { return MaskStack.back().CombinedValue; }
 void SPMDBuilder::shortCircuitZeroMask(llvm::BasicBlock *SkipTo,
                                        llvm::BasicBlock *Next) {
   llvm::Value *BoolCond = Builder.CreateICmpEQ(
-      getCurrentMask(), ConstantInt::get(getGlobalContext(), APInt(32, 0)));
+      getCurrentMask(), ConstantInt::get(Context, APInt(32, 0)));
   Builder.CreateCondBr(BoolCond, SkipTo, Next);
 }
 
@@ -214,12 +214,12 @@ Value *SPMDBuilder::createDiv(Value *Lhs, Value *Rhs) {
 }
 
 BasicBlock *SPMDBuilder::createBasicBlock(const char *name) {
-  return BasicBlock::Create(getGlobalContext(), name, CurrentFunction);
+  return BasicBlock::Create(Context, name, CurrentFunction);
 }
 
 void SPMDBuilder::setInsertPoint(BasicBlock *BB) { Builder.SetInsertPoint(BB); }
 
 Value *SPMDBuilder::createConstant(float Value) {
   return Builder.CreateVectorSplat(
-      16, ConstantFP::get(getGlobalContext(), APFloat(Value)), "const");
+      16, ConstantFP::get(Context, APFloat(Value)), "const");
 }

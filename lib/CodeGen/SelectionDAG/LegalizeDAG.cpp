@@ -11,7 +11,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "llvm/CodeGen/SelectionDAG.h"
 #include "llvm/ADT/SetVector.h"
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/SmallSet.h"
@@ -20,6 +19,8 @@
 #include "llvm/CodeGen/Analysis.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineJumpTableInfo.h"
+#include "llvm/CodeGen/SelectionDAG.h"
+#include "llvm/CodeGen/SelectionDAGNodes.h"
 #include "llvm/IR/CallingConv.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DataLayout.h"
@@ -326,6 +327,12 @@ static void ExpandUnalignedStore(StoreSDNode *ST, SelectionDAG &DAG,
       ST->getMemoryVT().isVector()) {
     EVT intVT = EVT::getIntegerVT(*DAG.getContext(), VT.getSizeInBits());
     if (TLI.isTypeLegal(intVT)) {
+      if (!TLI.isOperationLegalOrCustom(ISD::STORE, intVT)) {
+        // Scalarize the store and let the individual components be handled.
+        SDValue Result = TLI.scalarizeVectorStore(ST, DAG);
+        DAGLegalize->ReplaceNode(SDValue(ST, 0), Result);
+        return;
+      }
       // Expand to a bitconvert of the value to the integer type of the
       // same size, then a (misaligned) int store.
       // FIXME: Does not handle truncating floating point stores!
@@ -454,6 +461,14 @@ ExpandUnalignedLoad(LoadSDNode *LD, SelectionDAG &DAG,
   if (VT.isFloatingPoint() || VT.isVector()) {
     EVT intVT = EVT::getIntegerVT(*DAG.getContext(), LoadedVT.getSizeInBits());
     if (TLI.isTypeLegal(intVT) && TLI.isTypeLegal(LoadedVT)) {
+      if (!TLI.isOperationLegalOrCustom(ISD::LOAD, intVT)) {
+        // Scalarize the load and let the individual components be handled.
+        SDValue Scalarized = TLI.scalarizeVectorLoad(LD, DAG);
+        ValResult = Scalarized.getValue(0);
+        ChainResult = Scalarized.getValue(1);
+        return;
+      }
+
       // Expand to a (misaligned) integer load of the same size,
       // then bitconvert to floating point or vector.
       SDValue newLoad = DAG.getLoad(intVT, dl, Chain, Ptr,
@@ -1471,7 +1486,7 @@ SDValue SelectionDAGLegalize::ExpandExtractFromVectorThroughStack(SDValue Op) {
   // Caches for hasPredecessorHelper
   SmallPtrSet<const SDNode *, 32> Visited;
   SmallVector<const SDNode *, 16> Worklist;
-
+  Worklist.push_back(Idx.getNode());
   SDValue StackPtr, Ch;
   for (SDNode::use_iterator UI = Vec.getNode()->use_begin(),
        UE = Vec.getNode()->use_end(); UI != UE; ++UI) {
@@ -1489,7 +1504,7 @@ SDValue SelectionDAGLegalize::ExpandExtractFromVectorThroughStack(SDValue Op) {
       // If the index is dependent on the store we will introduce a cycle when
       // creating the load (the load uses the index, and by replacing the chain
       // we will make the index dependent on the load).
-      if (Idx.getNode()->hasPredecessorHelper(ST, Visited, Worklist))
+      if (SDNode::hasPredecessorHelper(ST, Visited, Worklist))
         continue;
 
       StackPtr = ST->getBasePtr();
@@ -2247,9 +2262,12 @@ SDValue SelectionDAGLegalize::ExpandLibCall(RTLIB::Libcall LC, SDNode *Node,
   SDValue InChain = DAG.getEntryNode();
 
   // isTailCall may be true since the callee does not reference caller stack
-  // frame. Check if it's in the right position.
+  // frame. Check if it's in the right position and that the return types match.
   SDValue TCChain = InChain;
-  bool isTailCall = TLI.isInTailCallPosition(DAG, Node, TCChain);
+  const Function *F = DAG.getMachineFunction().getFunction();
+  bool isTailCall =
+      TLI.isInTailCallPosition(DAG, Node, TCChain) &&
+      (RetTy == F->getReturnType() || F->getReturnType()->isVoidTy());
   if (isTailCall)
     InChain = TCChain;
 
@@ -3115,10 +3133,25 @@ bool SelectionDAGLegalize::ExpandNode(SDNode *Node) {
         cast<AtomicSDNode>(Node)->getFailureOrdering(),
         cast<AtomicSDNode>(Node)->getSynchScope());
 
-    SDValue Success = DAG.getSetCC(SDLoc(Node), Node->getValueType(1),
-                                   Res, Node->getOperand(2), ISD::SETEQ);
+    SDValue LHS = Res;
+    SDValue RHS = Node->getOperand(1);
 
-    Results.push_back(Res.getValue(0));
+    EVT AtomicType = cast<AtomicSDNode>(Node)->getMemoryVT();
+    EVT OuterType = Node->getValueType(0);
+    if (TLI.hasSignExtendedAtomicOps()) {
+      LHS = DAG.getNode(ISD::AssertSext, dl, OuterType, Res,
+                        DAG.getValueType(AtomicType));
+      RHS = DAG.getNode(ISD::SIGN_EXTEND_INREG, dl, OuterType,
+                        Node->getOperand(2), DAG.getValueType(AtomicType));
+    } else {
+      LHS = DAG.getNode(ISD::AssertZext, dl, OuterType, Res, DAG.getValueType(AtomicType));
+      RHS = DAG.getNode(ISD::ZERO_EXTEND, dl, OuterType, Node->getOperand(2));
+    }
+
+    SDValue Success =
+        DAG.getSetCC(dl, Node->getValueType(1), LHS, RHS, ISD::SETEQ);
+
+    Results.push_back(LHS.getValue(0));
     Results.push_back(Success);
     Results.push_back(Res.getValue(1));
     break;

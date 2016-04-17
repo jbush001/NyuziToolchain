@@ -101,10 +101,10 @@ static cl::opt<bool>
                                       "instructions"),
                              cl::Hidden, cl::init(false));
 
-static cl::opt<bool> ClPruneBlocks(
-    "sanitizer-coverage-prune-blocks",
-    cl::desc("Reduce the number of instrumented blocks (experimental)"),
-    cl::Hidden, cl::init(false));
+static cl::opt<bool>
+    ClPruneBlocks("sanitizer-coverage-prune-blocks",
+                  cl::desc("Reduce the number of instrumented blocks"),
+                  cl::Hidden, cl::init(true));
 
 // Experimental 8-bit counters used as an additional search heuristic during
 // coverage-guided fuzzing.
@@ -315,20 +315,39 @@ bool SanitizerCoverageModule::runOnModule(Module &M) {
   return true;
 }
 
-static bool shouldInstrumentBlock(const BasicBlock *BB,
-                                  const DominatorTree *DT) {
-  if (!ClPruneBlocks)
-    return true;
+// True if block has successors and it dominates all of them.
+static bool isFullDominator(const BasicBlock *BB, const DominatorTree *DT) {
   if (succ_begin(BB) == succ_end(BB))
-    return true;
+    return false;
 
-  // Check if BB dominates all its successors.
   for (const BasicBlock *SUCC : make_range(succ_begin(BB), succ_end(BB))) {
     if (!DT->dominates(BB, SUCC))
-      return true;
+      return false;
   }
 
-  return false;
+  return true;
+}
+
+// True if block has predecessors and it postdominates all of them.
+static bool isFullPostDominator(const BasicBlock *BB,
+                                const PostDominatorTree *PDT) {
+  if (pred_begin(BB) == pred_end(BB))
+    return false;
+
+  for (const BasicBlock *PRED : make_range(pred_begin(BB), pred_end(BB))) {
+    if (!PDT->dominates(BB, PRED))
+      return false;
+  }
+
+  return true;
+}
+
+static bool shouldInstrumentBlock(const Function& F, const BasicBlock *BB, const DominatorTree *DT,
+                                  const PostDominatorTree *PDT) {
+  if (!ClPruneBlocks || &F.getEntryBlock() == BB)
+    return true;
+
+  return !(isFullDominator(BB, DT) || isFullPostDominator(BB, PDT));
 }
 
 bool SanitizerCoverageModule::runOnFunction(Function &F) {
@@ -349,10 +368,13 @@ bool SanitizerCoverageModule::runOnFunction(Function &F) {
   SmallVector<Instruction *, 8> CmpTraceTargets;
   SmallVector<Instruction *, 8> SwitchTraceTargets;
 
-  DominatorTree DT;
-  DT.recalculate(F);
+  const DominatorTree *DT =
+      &getAnalysis<DominatorTreeWrapperPass>(F).getDomTree();
+  const PostDominatorTree *PDT =
+      &getAnalysis<PostDominatorTreeWrapperPass>(F).getPostDomTree();
+
   for (auto &BB : F) {
-    if (shouldInstrumentBlock(&BB, &DT))
+    if (shouldInstrumentBlock(F, &BB, DT, PDT))
       BlocksToInstrument.push_back(&BB);
     for (auto &Inst : BB) {
       if (Options.IndirectCalls) {
@@ -529,7 +551,7 @@ void SanitizerCoverageModule::InjectCoverageAtBlock(Function &F, BasicBlock &BB,
     IRB.CreateCall(SanCovWithCheckFunction, GuardP);
   } else {
     LoadInst *Load = IRB.CreateLoad(GuardP);
-    Load->setAtomic(Monotonic);
+    Load->setAtomic(AtomicOrdering::Monotonic);
     Load->setAlignment(4);
     SetNoSanitizeMetadata(Load);
     Value *Cmp =

@@ -158,6 +158,12 @@ DisableSLPVectorization("disable-slp-vectorization",
                         cl::desc("Disable the slp vectorization pass"),
                         cl::init(false));
 
+static cl::opt<bool> EmitSummaryIndex("module-summary",
+                                      cl::desc("Emit module summary index"),
+                                      cl::init(false));
+
+static cl::opt<bool> EmitModuleHash("module-hash", cl::desc("Emit module hash"),
+                                    cl::init(false));
 
 static cl::opt<bool>
 DisableSimplifyLibCalls("disable-simplify-libcalls",
@@ -310,7 +316,7 @@ int main(int argc, char **argv) {
   EnableDebugBuffering = true;
 
   llvm_shutdown_obj Y;  // Call llvm_shutdown() on exit.
-  LLVMContext &Context = getGlobalContext();
+  LLVMContext Context;
 
   InitializeAllTargets();
   InitializeAllTargetMCs();
@@ -614,10 +620,15 @@ int main(int argc, char **argv) {
       BOS = make_unique<raw_svector_ostream>(Buffer);
       OS = BOS.get();
     }
-    if (OutputAssembly)
+    if (OutputAssembly) {
+      if (EmitSummaryIndex)
+        report_fatal_error("Text output is incompatible with -module-summary");
+      if (EmitModuleHash)
+        report_fatal_error("Text output is incompatible with -module-hash");
       Passes.add(createPrintModulePass(*OS, "", PreserveAssemblyUseListOrder));
-    else
-      Passes.add(createBitcodeWriterPass(*OS, PreserveBitcodeUseListOrder));
+    } else
+      Passes.add(createBitcodeWriterPass(*OS, PreserveBitcodeUseListOrder,
+                                         EmitSummaryIndex, EmitModuleHash));
   }
 
   // Before executing passes, print the final values of the LLVM options.

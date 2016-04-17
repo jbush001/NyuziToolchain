@@ -396,16 +396,27 @@ void CGDebugInfo::CreateCompileUnit() {
   if (LO.ObjC1)
     RuntimeVers = LO.ObjCRuntime.isNonFragile() ? 2 : 1;
 
+  llvm::DICompileUnit::DebugEmissionKind EmissionKind;
+  switch (DebugKind) {
+  case codegenoptions::NoDebugInfo:
+  case codegenoptions::LocTrackingOnly:
+    EmissionKind = llvm::DICompileUnit::NoDebug;
+    break;
+  case codegenoptions::DebugLineTablesOnly:
+    EmissionKind = llvm::DICompileUnit::LineTablesOnly;
+    break;
+  case codegenoptions::LimitedDebugInfo:
+  case codegenoptions::FullDebugInfo:
+    EmissionKind = llvm::DICompileUnit::FullDebug;
+    break;
+  }
+
   // Create new compile unit.
   // FIXME - Eliminate TheCU.
   TheCU = DBuilder.createCompileUnit(
       LangTag, remapDIPath(MainFileName), remapDIPath(getCurrentDirname()),
       Producer, LO.Optimize, CGM.getCodeGenOpts().DwarfDebugFlags, RuntimeVers,
-      CGM.getCodeGenOpts().SplitDwarfFile,
-      DebugKind <= codegenoptions::DebugLineTablesOnly
-          ? llvm::DIBuilder::LineTablesOnly
-          : llvm::DIBuilder::FullDebug,
-      0 /* DWOid */, DebugKind != codegenoptions::LocTrackingOnly);
+      CGM.getCodeGenOpts().SplitDwarfFile, EmissionKind, 0 /* DWOid */);
 }
 
 llvm::DIType *CGDebugInfo::CreateType(const BuiltinType *BT) {
@@ -463,39 +474,11 @@ llvm::DIType *CGDebugInfo::CreateType(const BuiltinType *BT) {
     return SelTy;
   }
 
-  case BuiltinType::OCLImage1d:
-    return getOrCreateStructPtrType("opencl_image1d_t", OCLImage1dDITy);
-  case BuiltinType::OCLImage1dArray:
-    return getOrCreateStructPtrType("opencl_image1d_array_t",
-                                    OCLImage1dArrayDITy);
-  case BuiltinType::OCLImage1dBuffer:
-    return getOrCreateStructPtrType("opencl_image1d_buffer_t",
-                                    OCLImage1dBufferDITy);
-  case BuiltinType::OCLImage2d:
-    return getOrCreateStructPtrType("opencl_image2d_t", OCLImage2dDITy);
-  case BuiltinType::OCLImage2dArray:
-    return getOrCreateStructPtrType("opencl_image2d_array_t",
-                                    OCLImage2dArrayDITy);
-  case BuiltinType::OCLImage2dDepth:
-    return getOrCreateStructPtrType("opencl_image2d_depth_t",
-                                    OCLImage2dDepthDITy);
-  case BuiltinType::OCLImage2dArrayDepth:
-    return getOrCreateStructPtrType("opencl_image2d_array_depth_t",
-                                    OCLImage2dArrayDepthDITy);
-  case BuiltinType::OCLImage2dMSAA:
-    return getOrCreateStructPtrType("opencl_image2d_msaa_t",
-                                    OCLImage2dMSAADITy);
-  case BuiltinType::OCLImage2dArrayMSAA:
-    return getOrCreateStructPtrType("opencl_image2d_array_msaa_t",
-                                    OCLImage2dArrayMSAADITy);
-  case BuiltinType::OCLImage2dMSAADepth:
-    return getOrCreateStructPtrType("opencl_image2d_msaa_depth_t",
-                                    OCLImage2dMSAADepthDITy);
-  case BuiltinType::OCLImage2dArrayMSAADepth:
-    return getOrCreateStructPtrType("opencl_image2d_array_msaa_depth_t",
-                                    OCLImage2dArrayMSAADepthDITy);
-  case BuiltinType::OCLImage3d:
-    return getOrCreateStructPtrType("opencl_image3d_t", OCLImage3dDITy);
+#define IMAGE_TYPE(ImgType, Id, SingletonId, Access, Suffix) \
+  case BuiltinType::Id: \
+    return getOrCreateStructPtrType("opencl_" #ImgType "_" #Suffix "_t", \
+                                    SingletonId);
+#include "clang/Basic/OpenCLImageTypes.def"
   case BuiltinType::OCLSampler:
     return DBuilder.createBasicType(
         "opencl_sampler_t", CGM.getContext().getTypeSize(BT),
@@ -1136,6 +1119,11 @@ llvm::DISubprogram *CGDebugInfo::CreateCXXMemberFunction(
   // Since a single ctor/dtor corresponds to multiple functions, it doesn't
   // make sense to give a single ctor/dtor a linkage name.
   StringRef MethodLinkageName;
+  // FIXME: 'isFunctionLocalClass' seems like an arbitrary/unintentional
+  // property to use here. It may've been intended to model "is non-external
+  // type" but misses cases of non-function-local but non-external classes such
+  // as those in anonymous namespaces as well as the reverse - external types
+  // that are function local, such as those in (non-local) inline functions.
   if (!IsCtorOrDtor && !isFunctionLocalClass(Method->getParent()))
     MethodLinkageName = CGM.getMangledName(Method);
 
@@ -1746,7 +1734,7 @@ CGDebugInfo::getOrCreateModuleRef(ExternalASTSource::ASTSourceDescriptor Mod,
     DIB.createCompileUnit(TheCU->getSourceLanguage(), Mod.getModuleName(),
                           Mod.getPath(), TheCU->getProducer(), true,
                           StringRef(), 0, Mod.getASTFile(),
-                          llvm::DIBuilder::FullDebug, Signature);
+                          llvm::DICompileUnit::FullDebug, Signature);
     DIB.finalize();
   }
   llvm::DIModule *Parent =
@@ -2799,11 +2787,11 @@ void CGDebugInfo::EmitFunctionDecl(GlobalDecl GD, SourceLocation Loc,
   unsigned LineNo = getLineNumber(Loc);
   unsigned ScopeLine = 0;
 
-  DBuilder.createFunction(FDContext, Name, LinkageName, Unit, LineNo,
-                          getOrCreateFunctionType(D, FnType, Unit),
-                          false /*internalLinkage*/, true /*definition*/,
-                          ScopeLine, Flags, CGM.getLangOpts().Optimize,
-                          TParamsArray.get(), getFunctionDeclaration(D));
+  DBuilder.retainType(DBuilder.createFunction(
+      FDContext, Name, LinkageName, Unit, LineNo,
+      getOrCreateFunctionType(D, FnType, Unit), false /*internalLinkage*/,
+      false /*definition*/, ScopeLine, Flags, CGM.getLangOpts().Optimize,
+      TParamsArray.get(), getFunctionDeclaration(D)));
 }
 
 void CGDebugInfo::EmitLocation(CGBuilderTy &Builder, SourceLocation Loc) {

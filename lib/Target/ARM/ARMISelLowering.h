@@ -258,6 +258,7 @@ namespace llvm {
                                        SDNode *Node) const override;
 
     SDValue PerformCMOVCombine(SDNode *N, SelectionDAG &DAG) const;
+    SDValue PerformBRCONDCombine(SDNode *N, SelectionDAG &DAG) const;
     SDValue PerformCMOVToBFICombine(SDNode *N, SelectionDAG &DAG) const;
     SDValue PerformDAGCombine(SDNode *N, DAGCombinerInfo &DCI) const override;
 
@@ -468,6 +469,10 @@ namespace llvm {
 
     bool isCheapToSpeculateCttz() const override;
     bool isCheapToSpeculateCtlz() const override;
+
+    bool supportSwiftError() const override {
+      return true;
+    }
 
   protected:
     std::pair<const TargetRegisterClass *, uint8_t>

@@ -303,12 +303,9 @@ private:
     BranchProbability DefaultProb;
   };
 
-  /// Minimum jump table density, in percent.
-  enum { MinJumpTableDensity = 40 };
-
   /// Check whether a range of clusters is dense enough for a jump table.
   bool isDense(const CaseClusterVector &Clusters, unsigned *TotalCases,
-               unsigned First, unsigned Last);
+               unsigned First, unsigned Last, unsigned MinDensity);
 
   /// Build a jump table cluster from Clusters[First..Last]. Returns false if it
   /// decides it's not a good idea.
@@ -467,29 +464,25 @@ private:
   ///        the same function, use the same failure basic block).
   class StackProtectorDescriptor {
   public:
-    StackProtectorDescriptor() : ParentMBB(nullptr), SuccessMBB(nullptr),
-                                 FailureMBB(nullptr), Guard(nullptr),
-                                 GuardReg(0) { }
+    StackProtectorDescriptor()
+        : ParentMBB(nullptr), SuccessMBB(nullptr), FailureMBB(nullptr),
+          GuardReg(0) {}
 
     /// Returns true if all fields of the stack protector descriptor are
     /// initialized implying that we should/are ready to emit a stack protector.
     bool shouldEmitStackProtector() const {
-      return ParentMBB && SuccessMBB && FailureMBB && Guard;
+      return ParentMBB && SuccessMBB && FailureMBB;
     }
 
     /// Initialize the stack protector descriptor structure for a new basic
     /// block.
-    void initialize(const BasicBlock *BB,
-                    MachineBasicBlock *MBB,
-                    const CallInst &StackProtCheckCall) {
+    void initialize(const BasicBlock *BB, MachineBasicBlock *MBB) {
       // Make sure we are not initialized yet.
       assert(!shouldEmitStackProtector() && "Stack Protector Descriptor is "
              "already initialized!");
       ParentMBB = MBB;
       SuccessMBB = AddSuccessorMBB(BB, MBB, /* IsLikely */ true);
       FailureMBB = AddSuccessorMBB(BB, MBB, /* IsLikely */ false, FailureMBB);
-      if (!Guard)
-        Guard = StackProtCheckCall.getArgOperand(0);
     }
 
     /// Reset state that changes when we handle different basic blocks.
@@ -518,14 +511,12 @@ private:
     /// always the same.
     void resetPerFunctionState() {
       FailureMBB = nullptr;
-      Guard = nullptr;
       GuardReg = 0;
     }
 
     MachineBasicBlock *getParentMBB() { return ParentMBB; }
     MachineBasicBlock *getSuccessMBB() { return SuccessMBB; }
     MachineBasicBlock *getFailureMBB() { return FailureMBB; }
-    const Value *getGuard() { return Guard; }
 
     unsigned getGuardReg() const { return GuardReg; }
     void setGuardReg(unsigned R) { GuardReg = R; }
@@ -547,10 +538,6 @@ private:
     /// This basic block visited on stack protector check failure that will
     /// contain a call to __stack_chk_fail().
     MachineBasicBlock *FailureMBB;
-
-    /// The guard variable which we will compare against the stored value in the
-    /// stack protector stack slot.
-    const Value *Guard;
 
     /// The virtual register holding the stack guard value.
     unsigned GuardReg;
@@ -727,16 +714,15 @@ public:
   void UpdateSplitBlock(MachineBasicBlock *First, MachineBasicBlock *Last);
 
   /// Describes a gc.statepoint or a gc.statepoint like thing for the purposes
-  /// of lowering into a STATEPOINT node.  Right now it only abstracts an actual
-  /// gc.statepoint, but that will change in the future.
+  /// of lowering into a STATEPOINT node.
   struct StatepointLoweringInfo {
     /// Bases[i] is the base pointer for Ptrs[i].  Together they denote the set
     /// of gc pointers this STATEPOINT has to relocate.
-    ArrayRef<const Value *> Bases;
-    ArrayRef<const Value *> Ptrs;
+    SmallVector<const Value *, 16> Bases;
+    SmallVector<const Value *, 16> Ptrs;
 
     /// The set of gc.relocate calls associated with this gc.statepoint.
-    ArrayRef<const GCRelocateInst *> GCRelocates;
+    SmallVector<const GCRelocateInst *, 16> GCRelocates;
 
     /// The full list of gc arguments to the gc.statepoint being lowered.
     ArrayRef<const Use> GCArgs;
@@ -772,12 +758,24 @@ public:
   };
 
   /// Lower \p SLI into a STATEPOINT instruction.
-  SDValue LowerAsStatepoint(StatepointLoweringInfo &SLI);
+  SDValue LowerAsSTATEPOINT(StatepointLoweringInfo &SLI);
 
   // This function is responsible for the whole statepoint lowering process.
   // It uniformly handles invoke and call statepoints.
   void LowerStatepoint(ImmutableStatepoint Statepoint,
                        const BasicBlock *EHPadBB = nullptr);
+
+  void LowerCallSiteWithDeoptBundle(ImmutableCallSite CS, SDValue Callee,
+                                    const BasicBlock *EHPadBB);
+
+  void LowerDeoptimizeCall(const CallInst *CI);
+  void LowerDeoptimizingReturn();
+
+  void LowerCallSiteWithDeoptBundleImpl(ImmutableCallSite CS, SDValue Callee,
+                                        const BasicBlock *EHPadBB,
+                                        bool VarArgDisallowed,
+                                        bool ForceVoidReturnTy);
+
 private:
   // Terminator instructions.
   void visitRet(const ReturnInst &I);
@@ -889,6 +887,8 @@ private:
   bool visitBinaryFloatCall(const CallInst &I, unsigned Opcode);
   void visitAtomicLoad(const LoadInst &I);
   void visitAtomicStore(const StoreInst &I);
+  void visitLoadFromSwiftError(const LoadInst &I);
+  void visitStoreToSwiftError(const StoreInst &I);
 
   void visitInlineAsm(ImmutableCallSite CS);
   const char *visitIntrinsicCall(const CallInst &I, unsigned Intrinsic);
@@ -904,7 +904,7 @@ private:
 
   // These two are implemented in StatepointLowering.cpp
   void visitGCRelocate(const GCRelocateInst &I);
-  void visitGCResult(const CallInst &I);
+  void visitGCResult(const GCResultInst &I);
 
   void visitUserOp1(const Instruction &I) {
     llvm_unreachable("UserOp1 should not exist at instruction selection time!");

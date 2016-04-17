@@ -142,7 +142,8 @@ bool NyuziFrameLowering::hasFP(const MachineFunction &MF) const {
          MFI->hasVarSizedObjects() || MFI->isFrameAddressTaken();
 }
 
-void NyuziFrameLowering::eliminateCallFramePseudoInstr(
+MachineBasicBlock::iterator
+NyuziFrameLowering::eliminateCallFramePseudoInstr(
     MachineFunction &MF, MachineBasicBlock &MBB,
     MachineBasicBlock::iterator MBBI) const {
   MachineInstr &MI = *MBBI;
@@ -164,7 +165,7 @@ void NyuziFrameLowering::eliminateCallFramePseudoInstr(
     TII.adjustStackPointer(MBB, MBBI, Amount);
   }
 
-  MBB.erase(MBBI);
+  return MBB.erase(MBBI);
 }
 
 uint64_t

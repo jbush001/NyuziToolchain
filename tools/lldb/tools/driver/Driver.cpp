@@ -27,7 +27,6 @@
 
 #include <string>
 
-#include <thread>
 #include "lldb/API/SBBreakpoint.h"
 #include "lldb/API/SBCommandInterpreter.h"
 #include "lldb/API/SBCommandReturnObject.h"
@@ -37,11 +36,13 @@
 #include "lldb/API/SBHostOS.h"
 #include "lldb/API/SBLanguageRuntime.h"
 #include "lldb/API/SBListener.h"
+#include "lldb/API/SBProcess.h"
 #include "lldb/API/SBStream.h"
 #include "lldb/API/SBStringList.h"
 #include "lldb/API/SBTarget.h"
 #include "lldb/API/SBThread.h"
-#include "lldb/API/SBProcess.h"
+#include "llvm/Support/ConvertUTF.h"
+#include <thread>
 
 #if !defined(__APPLE__)
 #include "llvm/Support/DataTypes.h"
@@ -1036,7 +1037,12 @@ Driver::MainLoop ()
         atexit (reset_stdin_termios);
     }
 
+#ifndef _MSC_VER
+    // Disabling stdin buffering with MSVC's 2015 CRT exposes a bug in fgets
+    // which causes it to miss newlines depending on whether there have been an
+    // odd or even number of characters.  Bug has been reported to MS via Connect.
     ::setbuf (stdin, NULL);
+#endif
     ::setbuf (stdout, NULL);
 
     m_debugger.SetErrorFileHandle (stderr, false);
@@ -1282,7 +1288,9 @@ sigint_handler (int signo)
 void
 sigtstp_handler (int signo)
 {
-    g_driver->GetDebugger().SaveInputTerminalState();
+    if (g_driver)
+        g_driver->GetDebugger().SaveInputTerminalState();
+
     signal (signo, SIG_DFL);
     kill (getpid(), signo);
     signal (signo, sigtstp_handler);
@@ -1291,52 +1299,64 @@ sigtstp_handler (int signo)
 void
 sigcont_handler (int signo)
 {
-    g_driver->GetDebugger().RestoreInputTerminalState();
+    if (g_driver)
+        g_driver->GetDebugger().RestoreInputTerminalState();
+
     signal (signo, SIG_DFL);
     kill (getpid(), signo);
     signal (signo, sigcont_handler);
 }
 
 int
-main (int argc, char const *argv[], const char *envp[])
+#ifdef WIN32
+wmain(int argc, wchar_t const *wargv[])
+#else
+main(int argc, char const *argv[])
+#endif
 {
-#ifdef _MSC_VER
-	// disable buffering on windows
-	setvbuf(stdout, NULL, _IONBF, 0);
-	setvbuf(stdin , NULL, _IONBF, 0);
+#ifdef _WIN32
+        // Convert wide arguments to UTF-8
+        std::vector<std::string> argvStrings(argc);
+        std::vector<const char *> argvPointers(argc);
+        for (int i = 0; i != argc; ++i)
+        {
+            llvm::convertWideToUTF8(wargv[i], argvStrings[i]);
+            argvPointers[i] = argvStrings[i].c_str();
+        }
+        const char **argv = argvPointers.data();
 #endif
 
-    SBDebugger::Initialize();
-    
-    SBHostOS::ThreadCreated ("<lldb.driver.main-thread>");
+        SBDebugger::Initialize();
 
-    signal(SIGINT, sigint_handler);
-#ifndef _MSC_VER
-    signal (SIGPIPE, SIG_IGN);
-    signal (SIGWINCH, sigwinch_handler);
-    signal (SIGTSTP, sigtstp_handler);
-    signal (SIGCONT, sigcont_handler);
+        SBHostOS::ThreadCreated("<lldb.driver.main-thread>");
+
+        signal(SIGINT, sigint_handler);
+#if !defined(_MSC_VER)
+        signal(SIGPIPE, SIG_IGN);
+        signal(SIGWINCH, sigwinch_handler);
+        signal(SIGTSTP, sigtstp_handler);
+        signal(SIGCONT, sigcont_handler);
 #endif
 
-    // Create a scope for driver so that the driver object will destroy itself
-    // before SBDebugger::Terminate() is called.
-    {
-        Driver driver;
-
-        bool exiting = false;
-        SBError error (driver.ParseArgs (argc, argv, stdout, exiting));
-        if (error.Fail())
+        // Create a scope for driver so that the driver object will destroy itself
+        // before SBDebugger::Terminate() is called.
         {
-            const char *error_cstr = error.GetCString ();
-            if (error_cstr)
-                ::fprintf (stderr, "error: %s\n", error_cstr);
-        }
-        else if (!exiting)
-        {
-            driver.MainLoop ();
-        }
-    }
+            Driver driver;
 
-    SBDebugger::Terminate();
-    return 0;
+            bool exiting = false;
+            SBError error(driver.ParseArgs(argc, argv, stdout, exiting));
+            if (error.Fail())
+            {
+                const char *error_cstr = error.GetCString();
+                if (error_cstr)
+                    ::fprintf(stderr, "error: %s\n", error_cstr);
+            }
+            else if (!exiting)
+            {
+                driver.MainLoop();
+            }
+        }
+
+        SBDebugger::Terminate();
+        return 0;
 }

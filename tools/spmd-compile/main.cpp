@@ -30,7 +30,7 @@ using namespace llvm;
 
 static Module *TheModule;
 
-int parse(Module *);
+int parse(Module *, LLVMContext&);
 
 bool generateTargetCode(Module *TheModule) {
   std::string ErrStr;
@@ -83,9 +83,10 @@ int main(int argc, const char *argv[]) {
   InitializeAllAsmPrinters();
   InitializeAllAsmParsers();
 
-  TheModule = new Module("my module", getGlobalContext());
+  LLVMContext TheContext;
+  TheModule = new Module("my module", TheContext);
 
-  if (!parse(TheModule))
+  if (!parse(TheModule, TheContext))
     return 1;
 
   TheModule->dump();

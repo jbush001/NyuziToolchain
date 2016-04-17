@@ -10054,7 +10054,9 @@ TreeTransform<Derived>::TransformLambdaExpr(LambdaExpr *E) {
   CXXMethodDecl *NewCallOperator = getSema().startLambdaDefinition(
       Class, E->getIntroducerRange(), NewCallOpTSI,
       E->getCallOperator()->getLocEnd(),
-      NewCallOpTSI->getTypeLoc().castAs<FunctionProtoTypeLoc>().getParams());
+      NewCallOpTSI->getTypeLoc().castAs<FunctionProtoTypeLoc>().getParams(),
+      E->getCallOperator()->isConstexpr());
+
   LSI->CallOperator = NewCallOperator;
 
   getDerived().transformAttrs(E->getCallOperator(), NewCallOperator);
@@ -10089,7 +10091,9 @@ TreeTransform<Derived>::TransformLambdaExpr(LambdaExpr *E) {
 
     // Capturing 'this' is trivial.
     if (C->capturesThis()) {
-      getSema().CheckCXXThisCapture(C->getLocation(), C->isExplicit());
+      getSema().CheckCXXThisCapture(C->getLocation(), C->isExplicit(),
+                                    /*BuildAndDiagnose*/ true, nullptr,
+                                    C->getCaptureKind() == LCK_StarThis);
       continue;
     }
     // Captured expression will be recaptured during captured variables

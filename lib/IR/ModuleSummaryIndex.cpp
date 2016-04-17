@@ -23,7 +23,7 @@ void ModuleSummaryIndex::mergeFrom(std::unique_ptr<ModuleSummaryIndex> Other,
 
   StringRef ModPath;
   for (auto &OtherGlobalValInfoLists : *Other) {
-    uint64_t ValueGUID = OtherGlobalValInfoLists.first;
+    GlobalValue::GUID ValueGUID = OtherGlobalValInfoLists.first;
     GlobalValueInfoList &List = OtherGlobalValInfoLists.second;
 
     // Assert that the value info list only has one entry, since we shouldn't
@@ -37,9 +37,11 @@ void ModuleSummaryIndex::mergeFrom(std::unique_ptr<ModuleSummaryIndex> Other,
 
     // Add the module path string ref for this module if we haven't already
     // saved a reference to it.
-    if (ModPath.empty())
-      ModPath = addModulePath(Info->summary()->modulePath(), NextModuleId);
-    else
+    if (ModPath.empty()) {
+      auto Path = Info->summary()->modulePath();
+      ModPath = addModulePath(Path, NextModuleId, Other->getModuleHash(Path))
+                    ->first();
+    } else
       assert(ModPath == Info->summary()->modulePath() &&
              "Each module in the combined map should have a unique ID");
 
@@ -65,4 +67,48 @@ void ModuleSummaryIndex::removeEmptySummaryEntries() {
     else
       ++MI;
   }
+}
+
+// Collect for the given module the list of function it defines
+// (GUID -> Summary).
+void ModuleSummaryIndex::collectDefinedFunctionsForModule(
+    StringRef ModulePath,
+    std::map<GlobalValue::GUID, GlobalValueSummary *> &FunctionInfoMap) const {
+  for (auto &GlobalList : *this) {
+    auto GUID = GlobalList.first;
+    for (auto &GlobInfo : GlobalList.second) {
+      auto *Summary = dyn_cast_or_null<FunctionSummary>(GlobInfo->summary());
+      if (!Summary)
+        // Ignore global variable, focus on functions
+        continue;
+      // Ignore summaries from other modules.
+      if (Summary->modulePath() != ModulePath)
+        continue;
+      FunctionInfoMap[GUID] = Summary;
+    }
+  }
+}
+
+// Collect for each module the list of function it defines (GUID -> Summary).
+void ModuleSummaryIndex::collectDefinedGVSummariesPerModule(
+    StringMap<std::map<GlobalValue::GUID, GlobalValueSummary *>> &
+        Module2FunctionInfoMap) const {
+  for (auto &GlobalList : *this) {
+    auto GUID = GlobalList.first;
+    for (auto &GlobInfo : GlobalList.second) {
+      auto *Summary = GlobInfo->summary();
+      Module2FunctionInfoMap[Summary->modulePath()][GUID] = Summary;
+    }
+  }
+}
+
+GlobalValueInfo *
+ModuleSummaryIndex::getGlobalValueInfo(uint64_t ValueGUID,
+                                       bool PerModuleIndex) const {
+  auto InfoList = findGlobalValueInfoList(ValueGUID);
+  assert(InfoList != end() && "GlobalValue not found in index");
+  assert((!PerModuleIndex || InfoList->second.size() == 1) &&
+         "Expected a single entry per global value in per-module index");
+  auto &Info = InfoList->second[0];
+  return Info.get();
 }

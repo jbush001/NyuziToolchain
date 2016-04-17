@@ -30,6 +30,7 @@
 #include "llvm/IR/InstVisitor.h"
 #include "llvm/IR/IntrinsicInst.h"
 #include "llvm/IR/Operator.h"
+#include "llvm/ProfileData/ProfileCommon.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/raw_ostream.h"
 
@@ -153,6 +154,9 @@ class CallAnalyzer : public InstVisitor<CallAnalyzer, bool> {
   /// passed to support analyzing indirect calls whose target is inferred by
   /// analysis.
   void updateThreshold(CallSite CS, Function &Callee);
+
+  /// Return true if size growth is allowed when inlining the callee at CS.
+  bool allowSizeGrowth(CallSite CS);
 
   // Custom analysis routines.
   bool analyzeBlock(BasicBlock *BB, SmallPtrSetImpl<const Value *> &EphValues);
@@ -572,7 +576,39 @@ bool CallAnalyzer::isKnownNonNullInCallee(Value *V) {
   return false;
 }
 
+bool CallAnalyzer::allowSizeGrowth(CallSite CS) {
+  // If the normal destination of the invoke or the parent block of the call
+  // site is unreachable-terminated, there is little point in inlining this
+  // unless there is literally zero cost.
+  // FIXME: Note that it is possible that an unreachable-terminated block has a
+  // hot entry. For example, in below scenario inlining hot_call_X() may be
+  // beneficial :
+  // main() {
+  //   hot_call_1();
+  //   ...
+  //   hot_call_N()
+  //   exit(0);
+  // }
+  // For now, we are not handling this corner case here as it is rare in real
+  // code. In future, we should elaborate this based on BPI and BFI in more
+  // general threshold adjusting heuristics in updateThreshold().
+  Instruction *Instr = CS.getInstruction();
+  if (InvokeInst *II = dyn_cast<InvokeInst>(Instr)) {
+    if (isa<UnreachableInst>(II->getNormalDest()->getTerminator()))
+      return false;
+  } else if (isa<UnreachableInst>(Instr->getParent()->getTerminator()))
+    return false;
+
+  return true;
+}
+
 void CallAnalyzer::updateThreshold(CallSite CS, Function &Callee) {
+  // If no size growth is allowed for this inlining, set Threshold to 0.
+  if (!allowSizeGrowth(CS)) {
+    Threshold = 0;
+    return;
+  }
+
   // If -inline-threshold is not given, listen to the optsize and minsize
   // attributes when they would decrease the threshold.
   Function *Caller = CS.getCaller();
@@ -591,10 +627,11 @@ void CallAnalyzer::updateThreshold(CallSite CS, Function &Callee) {
   // a well-tuned heuristic based on *callsite* hotness and not callee hotness.
   uint64_t FunctionCount = 0, MaxFunctionCount = 0;
   bool HasPGOCounts = false;
-  if (Callee.getEntryCount() && Callee.getParent()->getMaximumFunctionCount()) {
+  ProfileSummary *PS = ProfileSummary::getProfileSummary(Callee.getParent());
+  if (Callee.getEntryCount() && PS) {
     HasPGOCounts = true;
     FunctionCount = Callee.getEntryCount().getValue();
-    MaxFunctionCount = Callee.getParent()->getMaximumFunctionCount().getValue();
+    MaxFunctionCount = PS->getMaxFunctionCount();
   }
 
   // Listen to the inlinehint attribute or profile based hotness information
@@ -620,6 +657,10 @@ void CallAnalyzer::updateThreshold(CallSite CS, Function &Callee) {
        ColdThreshold.getNumOccurrences() > 0) &&
       ColdCallee && ColdThreshold < Threshold)
     Threshold = ColdThreshold;
+
+  // Finally, take the target-specific inlining threshold multiplier into
+  // account.
+  Threshold *= TTI.getInliningThresholdMultiplier();
 }
 
 bool CallAnalyzer::visitCmpInst(CmpInst &I) {
@@ -1125,7 +1166,7 @@ ConstantInt *CallAnalyzer::stripAndComputeInBoundsConstantOffsets(Value *&V) {
     } else if (Operator::getOpcode(V) == Instruction::BitCast) {
       V = cast<Operator>(V)->getOperand(0);
     } else if (GlobalAlias *GA = dyn_cast<GlobalAlias>(V)) {
-      if (GA->mayBeOverridden())
+      if (GA->isInterposable())
         break;
       V = GA->getAliasee();
     } else {
@@ -1213,28 +1254,6 @@ bool CallAnalyzer::analyzeCall(CallSite CS) {
     &F == CS.getCalledFunction();
   if (OnlyOneCallAndLocalLinkage)
     Cost += InlineConstants::LastCallToStaticBonus;
-
-  // If the normal destination of the invoke or the parent block of the call
-  // site is unreachable-terminated, there is little point in inlining this
-  // unless there is literally zero cost.
-  // FIXME: Note that it is possible that an unreachable-terminated block has a
-  // hot entry. For example, in below scenario inlining hot_call_X() may be
-  // beneficial :
-  // main() {
-  //   hot_call_1();
-  //   ...
-  //   hot_call_N()
-  //   exit(0);
-  // }
-  // For now, we are not handling this corner case here as it is rare in real
-  // code. In future, we should elaborate this based on BPI and BFI in more
-  // general threshold adjusting heuristics in updateThreshold().
-  Instruction *Instr = CS.getInstruction();
-  if (InvokeInst *II = dyn_cast<InvokeInst>(Instr)) {
-    if (isa<UnreachableInst>(II->getNormalDest()->getTerminator()))
-      Threshold = 0;
-  } else if (isa<UnreachableInst>(Instr->getParent()->getTerminator()))
-    Threshold = 0;
 
   // If this function uses the coldcc calling convention, prefer not to inline
   // it.
@@ -1324,20 +1343,8 @@ bool CallAnalyzer::analyzeCall(CallSite CS) {
 
     // Analyze the cost of this block. If we blow through the threshold, this
     // returns false, and we can bail on out.
-    if (!analyzeBlock(BB, EphValues)) {
-      if (IsRecursiveCall || ExposesReturnsTwice || HasDynamicAlloca ||
-          HasIndirectBr || HasFrameEscape)
-        return false;
-
-      // If the caller is a recursive function then we don't want to inline
-      // functions which allocate a lot of stack space because it would increase
-      // the caller stack usage dramatically.
-      if (IsCallerRecursive &&
-          AllocatedSize > InlineConstants::TotalAllocaSizeRecursiveCaller)
-        return false;
-
-      break;
-    }
+    if (!analyzeBlock(BB, EphValues))
+      return false;
 
     TerminatorInst *TI = BB->getTerminator();
 
@@ -1477,10 +1484,11 @@ InlineCost llvm::getInlineCost(CallSite CS, Function *Callee,
   if (CS.getCaller()->hasFnAttribute(Attribute::OptimizeNone))
     return llvm::InlineCost::getNever();
 
-  // Don't inline functions which can be redefined at link-time to mean
-  // something else.  Don't inline functions marked noinline or call sites
-  // marked noinline.
-  if (Callee->mayBeOverridden() ||
+  // Don't inline functions which can be interposed at link-time.  Don't inline
+  // functions marked noinline or call sites marked noinline.
+  // Note: inlining non-exact non-interposable fucntions is fine, since we know
+  // we have *a* correct implementation of the source level function.
+  if (Callee->isInterposable() ||
       Callee->hasFnAttribute(Attribute::NoInline) || CS.isNoInline())
     return llvm::InlineCost::getNever();
 

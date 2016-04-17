@@ -1310,9 +1310,10 @@ public:
     ~CommandObjectTypeFormatterList() override = default;
 
 protected:
-    virtual void
+    virtual bool
     FormatterSpecificList (CommandReturnObject &result)
     {
+        return false;
     }
     
     bool
@@ -1346,10 +1347,13 @@ protected:
             }
         }
         
-        auto category_closure = [&result, &formatter_regex] (const lldb::TypeCategoryImplSP& category) -> void {
+        bool any_printed = false;
+        
+        auto category_closure = [&result, &formatter_regex, &any_printed] (const lldb::TypeCategoryImplSP& category) -> void {
             result.GetOutputStream().Printf("-----------------------\nCategory: %s\n-----------------------\n", category->GetName());
+
             TypeCategoryImpl::ForEachCallbacks<FormatterType> foreach;
-            foreach.SetExact([&result, &formatter_regex] (ConstString name, const FormatterSharedPointer& format_sp) -> bool {
+            foreach.SetExact([&result, &formatter_regex, &any_printed] (ConstString name, const FormatterSharedPointer& format_sp) -> bool {
                 if (formatter_regex)
                 {
                     bool escape = true;
@@ -1365,13 +1369,13 @@ protected:
                     if (escape)
                         return true;
                 }
-                
+
+                any_printed = true;
                 result.GetOutputStream().Printf ("%s: %s\n", name.AsCString(), format_sp->GetDescription().c_str());
-                
                 return true;
             });
             
-            foreach.SetWithRegex( [&result, &formatter_regex] (RegularExpressionSP regex_sp, const FormatterSharedPointer& format_sp) -> bool {
+            foreach.SetWithRegex([&result, &formatter_regex, &any_printed] (RegularExpressionSP regex_sp, const FormatterSharedPointer& format_sp) -> bool {
                 if (formatter_regex)
                 {
                     bool escape = true;
@@ -1388,8 +1392,8 @@ protected:
                         return true;
                 }
                 
+                any_printed = true;
                 result.GetOutputStream().Printf ("%s: %s\n", regex_sp->GetText(), format_sp->GetDescription().c_str());
-                
                 return true;
             });
             
@@ -1427,10 +1431,16 @@ protected:
                 return true;
             });
             
-            FormatterSpecificList(result);
+            any_printed = FormatterSpecificList(result) | any_printed;
         }
         
-        result.SetStatus(eReturnStatusSuccessFinishResult);
+        if (any_printed)
+            result.SetStatus(eReturnStatusSuccessFinishResult);
+        else
+        {
+            result.GetOutputStream().PutCString("no matching results found.\n");
+            result.SetStatus(eReturnStatusSuccessFinishNoResult);
+        }
         return result.Succeeded();
     }
 };
@@ -1708,20 +1718,23 @@ CommandObjectTypeSummaryAdd::Execute_StringSummary (Args& command, CommandReturn
         return false;
     }
     
-    Error error;
-    
-    lldb::TypeSummaryImplSP entry(new StringSummaryFormat(m_options.m_flags,
-                                                        format_cstr));
-    
-    if (error.Fail())
+    std::unique_ptr<StringSummaryFormat> string_format(new StringSummaryFormat(m_options.m_flags, format_cstr));
+    if (!string_format)
     {
-        result.AppendError(error.AsCString());
+        result.AppendError("summary creation failed");
         result.SetStatus(eReturnStatusFailed);
         return false;
     }
+    if (string_format->m_error.Fail())
+    {
+        result.AppendErrorWithFormat("syntax error: %s", string_format->m_error.AsCString("<unknown>"));
+        result.SetStatus(eReturnStatusFailed);
+        return false;
+    }
+    lldb::TypeSummaryImplSP entry(string_format.release());
     
     // now I have a valid format, let's add it to every type
-    
+    Error error;
     for (size_t i = 0; i < argc; i++)
     {
         const char* typeA = command.GetArgumentAtIndex(i);
@@ -2028,7 +2041,7 @@ public:
     }
     
 protected:
-    void
+    bool
     FormatterSpecificList (CommandReturnObject &result) override
     {
         if (DataVisualization::NamedSummaryFormats::GetCount() > 0)
@@ -2038,7 +2051,9 @@ protected:
                 result.GetOutputStream().Printf ("%s: %s\n", name.AsCString(), summary_sp->GetDescription().c_str());
                 return true;
             });
+            return true;
         }
+        return false;
     }
 };
 
@@ -3265,8 +3280,8 @@ public:
     CommandObjectTypeLookup (CommandInterpreter &interpreter) :
     CommandObjectRaw (interpreter,
                       "type lookup",
-                      "Lookup a type by name in the select target.",
-                      "type lookup <typename>",
+                      "Lookup types and declarations in the current target, following language-specific naming conventions.",
+                      "type lookup <type-specifier>",
                       eCommandRequiresTarget),
     m_option_group(interpreter),
     m_command_options()
@@ -3281,6 +3296,32 @@ public:
     GetOptions () override
     {
         return &m_option_group;
+    }
+    
+    const char*
+    GetHelpLong () override
+    {
+        if (m_cmd_help_long.empty())
+        {
+            StreamString stream;
+            // FIXME: hardcoding languages is not good
+            lldb::LanguageType languages[] = {eLanguageTypeObjC,eLanguageTypeC_plus_plus};
+            
+            for(const auto lang_type : languages)
+            {
+                if (auto language = Language::FindPlugin(lang_type))
+                {
+                    if (const char* help = language->GetLanguageSpecificTypeLookupHelp())
+                    {
+                        stream.Printf("%s\n", help);
+                    }
+                }
+            }
+            
+            if (stream.GetData())
+                m_cmd_help_long.assign(stream.GetString());
+        }
+        return this->CommandObject::GetHelpLong();
     }
     
     bool
@@ -3403,6 +3444,9 @@ public:
                     break;
             }
         }
+        
+        if (!any_found)
+            result.AppendMessageWithFormat("no type was found matching '%s'\n", name_of_type);
         
         result.SetStatus (any_found ? lldb::eReturnStatusSuccessFinishResult : lldb::eReturnStatusSuccessFinishNoResult);
         return true;

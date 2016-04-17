@@ -68,7 +68,7 @@ using namespace llvm;
 static cl::opt<bool>
     FixupBWInsts("fixup-byte-word-insts",
                  cl::desc("Change byte and word instructions to larger sizes"),
-                 cl::init(false), cl::Hidden);
+                 cl::init(true), cl::Hidden);
 
 namespace {
 class FixupBWInstPass : public MachineFunctionPass {
@@ -111,6 +111,11 @@ public:
   /// replacing byte and word instructions by equivalent 32 bit instructions
   /// where performance or code size can be improved.
   bool runOnMachineFunction(MachineFunction &MF) override;
+
+  MachineFunctionProperties getRequiredProperties() const override {
+    return MachineFunctionProperties().set(
+        MachineFunctionProperties::Property::AllVRegsAllocated);
+  }
 
 private:
   MachineFunction *MF;

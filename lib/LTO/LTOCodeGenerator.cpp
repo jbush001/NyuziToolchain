@@ -13,6 +13,8 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/LTO/LTOCodeGenerator.h"
+
+#include "UpdateCompilerUsed.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/Analysis/Passes.h"
@@ -52,6 +54,7 @@
 #include "llvm/Target/TargetRegisterInfo.h"
 #include "llvm/Target/TargetSubtargetInfo.h"
 #include "llvm/Transforms/IPO.h"
+#include "llvm/Transforms/IPO/Internalize.h"
 #include "llvm/Transforms/IPO/PassManagerBuilder.h"
 #include "llvm/Transforms/ObjCARC.h"
 #include <system_error>
@@ -81,6 +84,7 @@ LTOCodeGenerator::LTOCodeGenerator(LLVMContext &Context)
     : Context(Context), MergedModule(new Module("ld-temp.o", Context)),
       TheLinker(new Linker(*MergedModule)) {
   Context.setDiscardValueNames(LTODiscardValueNames);
+  Context.ensureDITypeMap();
   initializeLTOPasses();
 }
 
@@ -331,145 +335,47 @@ bool LTOCodeGenerator::determineTarget() {
   return true;
 }
 
-void LTOCodeGenerator::
-applyRestriction(GlobalValue &GV,
-                 ArrayRef<StringRef> Libcalls,
-                 std::vector<const char*> &MustPreserveList,
-                 SmallPtrSetImpl<GlobalValue*> &AsmUsed,
-                 Mangler &Mangler) {
-  // There are no restrictions to apply to declarations.
-  if (GV.isDeclaration())
-    return;
-
-  // There is nothing more restrictive than private linkage.
-  if (GV.hasPrivateLinkage())
-    return;
-
-  SmallString<64> Buffer;
-  TargetMach->getNameWithPrefix(Buffer, &GV, Mangler);
-
-  if (MustPreserveSymbols.count(Buffer))
-    MustPreserveList.push_back(GV.getName().data());
-  if (AsmUndefinedRefs.count(Buffer))
-    AsmUsed.insert(&GV);
-
-  // Conservatively append user-supplied runtime library functions to
-  // llvm.compiler.used.  These could be internalized and deleted by
-  // optimizations like -globalopt, causing problems when later optimizations
-  // add new library calls (e.g., llvm.memset => memset and printf => puts).
-  // Leave it to the linker to remove any dead code (e.g. with -dead_strip).
-  if (isa<Function>(GV) &&
-      std::binary_search(Libcalls.begin(), Libcalls.end(), GV.getName()))
-    AsmUsed.insert(&GV);
-
-  // Record the linkage type of non-local symbols so they can be restored prior
-  // to module splitting.
-  if (ShouldRestoreGlobalsLinkage && !GV.hasAvailableExternallyLinkage() &&
-      !GV.hasLocalLinkage() && GV.hasName())
-    ExternalSymbols.insert(std::make_pair(GV.getName(), GV.getLinkage()));
-}
-
-static void findUsedValues(GlobalVariable *LLVMUsed,
-                           SmallPtrSetImpl<GlobalValue*> &UsedValues) {
-  if (!LLVMUsed) return;
-
-  ConstantArray *Inits = cast<ConstantArray>(LLVMUsed->getInitializer());
-  for (unsigned i = 0, e = Inits->getNumOperands(); i != e; ++i)
-    if (GlobalValue *GV =
-        dyn_cast<GlobalValue>(Inits->getOperand(i)->stripPointerCasts()))
-      UsedValues.insert(GV);
-}
-
-// Collect names of runtime library functions. User-defined functions with the
-// same names are added to llvm.compiler.used to prevent them from being
-// deleted by optimizations.
-static void accumulateAndSortLibcalls(std::vector<StringRef> &Libcalls,
-                                      const TargetLibraryInfo& TLI,
-                                      const Module &Mod,
-                                      const TargetMachine &TM) {
-  // TargetLibraryInfo has info on C runtime library calls on the current
-  // target.
-  for (unsigned I = 0, E = static_cast<unsigned>(LibFunc::NumLibFuncs);
-       I != E; ++I) {
-    LibFunc::Func F = static_cast<LibFunc::Func>(I);
-    if (TLI.has(F))
-      Libcalls.push_back(TLI.getName(F));
-  }
-
-  SmallPtrSet<const TargetLowering *, 1> TLSet;
-
-  for (const Function &F : Mod) {
-    const TargetLowering *Lowering =
-        TM.getSubtargetImpl(F)->getTargetLowering();
-
-    if (Lowering && TLSet.insert(Lowering).second)
-      // TargetLowering has info on library calls that CodeGen expects to be
-      // available, both from the C runtime and compiler-rt.
-      for (unsigned I = 0, E = static_cast<unsigned>(RTLIB::UNKNOWN_LIBCALL);
-           I != E; ++I)
-        if (const char *Name =
-                Lowering->getLibcallName(static_cast<RTLIB::Libcall>(I)))
-          Libcalls.push_back(Name);
-  }
-
-  array_pod_sort(Libcalls.begin(), Libcalls.end());
-  Libcalls.erase(std::unique(Libcalls.begin(), Libcalls.end()),
-                 Libcalls.end());
-}
-
 void LTOCodeGenerator::applyScopeRestrictions() {
   if (ScopeRestrictionsDone || !ShouldInternalize)
     return;
 
-  // Start off with a verification pass.
-  legacy::PassManager passes;
-  passes.add(createVerifierPass());
-
-  // mark which symbols can not be internalized
-  Mangler Mangler;
-  std::vector<const char*> MustPreserveList;
-  SmallPtrSet<GlobalValue*, 8> AsmUsed;
-  std::vector<StringRef> Libcalls;
-  TargetLibraryInfoImpl TLII(Triple(TargetMach->getTargetTriple()));
-  TargetLibraryInfo TLI(TLII);
-
-  accumulateAndSortLibcalls(Libcalls, TLI, *MergedModule, *TargetMach);
-
-  for (Function &f : *MergedModule)
-    applyRestriction(f, Libcalls, MustPreserveList, AsmUsed, Mangler);
-  for (GlobalVariable &v : MergedModule->globals())
-    applyRestriction(v, Libcalls, MustPreserveList, AsmUsed, Mangler);
-  for (GlobalAlias &a : MergedModule->aliases())
-    applyRestriction(a, Libcalls, MustPreserveList, AsmUsed, Mangler);
-
-  GlobalVariable *LLVMCompilerUsed =
-    MergedModule->getGlobalVariable("llvm.compiler.used");
-  findUsedValues(LLVMCompilerUsed, AsmUsed);
-  if (LLVMCompilerUsed)
-    LLVMCompilerUsed->eraseFromParent();
-
-  if (!AsmUsed.empty()) {
-    llvm::Type *i8PTy = llvm::Type::getInt8PtrTy(Context);
-    std::vector<Constant*> asmUsed2;
-    for (auto *GV : AsmUsed) {
-      Constant *c = ConstantExpr::getBitCast(GV, i8PTy);
-      asmUsed2.push_back(c);
-    }
-
-    llvm::ArrayType *ATy = llvm::ArrayType::get(i8PTy, asmUsed2.size());
-    LLVMCompilerUsed =
-      new llvm::GlobalVariable(*MergedModule, ATy, false,
-                               llvm::GlobalValue::AppendingLinkage,
-                               llvm::ConstantArray::get(ATy, asmUsed2),
-                               "llvm.compiler.used");
-
-    LLVMCompilerUsed->setSection("llvm.metadata");
+  if (ShouldRestoreGlobalsLinkage) {
+    // Record the linkage type of non-local symbols so they can be restored
+    // prior
+    // to module splitting.
+    auto RecordLinkage = [&](const GlobalValue &GV) {
+      if (!GV.hasAvailableExternallyLinkage() && !GV.hasLocalLinkage() &&
+          GV.hasName())
+        ExternalSymbols.insert(std::make_pair(GV.getName(), GV.getLinkage()));
+    };
+    for (auto &GV : *MergedModule)
+      RecordLinkage(GV);
+    for (auto &GV : MergedModule->globals())
+      RecordLinkage(GV);
+    for (auto &GV : MergedModule->aliases())
+      RecordLinkage(GV);
   }
 
-  passes.add(createInternalizePass(MustPreserveList));
+  // Update the llvm.compiler_used globals to force preserving libcalls and
+  // symbols referenced from asm
+  UpdateCompilerUsed(*MergedModule, *TargetMach, AsmUndefinedRefs);
 
-  // apply scope restrictions
-  passes.run(*MergedModule);
+  // Declare a callback for the internalize pass that will ask for every
+  // candidate GlobalValue if it can be internalized or not.
+  Mangler Mangler;
+  SmallString<64> MangledName;
+  auto MustPreserveGV = [&](const GlobalValue &GV) -> bool {
+    // Need to mangle the GV as the "MustPreserveSymbols" StringSet is filled
+    // with the linker supplied name, which on Darwin includes a leading
+    // underscore.
+    MangledName.clear();
+    MangledName.reserve(GV.getName().size() + 1);
+    Mangler::getNameWithPrefix(MangledName, GV.getName(),
+                               MergedModule->getDataLayout());
+    return MustPreserveSymbols.count(MangledName);
+  };
+
+  internalizeModule(*MergedModule, MustPreserveGV);
 
   ScopeRestrictionsDone = true;
 }
@@ -509,6 +415,11 @@ bool LTOCodeGenerator::optimize(bool DisableVerify, bool DisableInline,
                                 bool DisableVectorization) {
   if (!this->determineTarget())
     return false;
+
+  // We always run the verifier once on the merged module, the `DisableVerify`
+  // parameter only applies to subsequent verify.
+  if (verifyModule(*MergedModule, &dbgs()))
+    report_fatal_error("Broken module found, compilation aborted!");
 
   // Mark which symbols can not be internalized
   this->applyScopeRestrictions();
@@ -562,10 +473,9 @@ bool LTOCodeGenerator::compileOptimized(ArrayRef<raw_pwrite_stream *> Out) {
   // parallelism level 1. This is achieved by having splitCodeGen return the
   // original module at parallelism level 1 which we then assign back to
   // MergedModule.
-  MergedModule =
-      splitCodeGen(std::move(MergedModule), Out, MCpu, FeatureStr, Options,
-                   RelocModel, CodeModel::Default, CGOptLevel, FileType,
-                   ShouldRestoreGlobalsLinkage);
+  MergedModule = splitCodeGen(
+      std::move(MergedModule), Out, {}, MCpu, FeatureStr, Options, RelocModel,
+      CodeModel::Default, CGOptLevel, FileType, ShouldRestoreGlobalsLinkage);
 
   // If statistics were requested, print them out after codegen.
   if (llvm::AreStatisticsEnabled())

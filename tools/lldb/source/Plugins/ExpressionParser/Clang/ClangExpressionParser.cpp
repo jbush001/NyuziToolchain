@@ -17,9 +17,12 @@
 #include "clang/Basic/FileManager.h"
 #include "clang/Basic/SourceLocation.h"
 #include "clang/Basic/TargetInfo.h"
-#include "clang/Basic/Version.h"
+#include "clang/Basic/Version.h" 
 #include "clang/CodeGen/CodeGenAction.h"
 #include "clang/CodeGen/ModuleBuilder.h"
+#include "clang/Edit/Commit.h"
+#include "clang/Edit/EditsReceiver.h"
+#include "clang/Edit/EditedSource.h"
 #include "clang/Frontend/CompilerInstance.h"
 #include "clang/Frontend/CompilerInvocation.h"
 #include "clang/Frontend/FrontendActions.h"
@@ -30,6 +33,7 @@
 #include "clang/Lex/Preprocessor.h"
 #include "clang/Parse/ParseAST.h"
 #include "clang/Rewrite/Frontend/FrontendActions.h"
+#include "clang/Rewrite/Core/Rewriter.h"
 #include "clang/Sema/SemaConsumer.h"
 #include "clang/StaticAnalyzer/Frontend/FrontendActions.h"
 
@@ -39,7 +43,11 @@
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/TargetSelect.h"
 
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wglobal-constructors"
 #include "llvm/ExecutionEngine/MCJIT.h"
+#pragma clang diagnostic pop
+
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Module.h"
 #include "llvm/Support/ErrorHandling.h"
@@ -50,6 +58,7 @@
 
 // Project includes
 #include "ClangExpressionParser.h"
+#include "ClangDiagnostic.h"
 
 #include "ClangASTSource.h"
 #include "ClangExpressionHelper.h"
@@ -80,6 +89,7 @@
 #include "lldb/Target/ObjCLanguageRuntime.h"
 #include "lldb/Target/Process.h"
 #include "lldb/Target/Target.h"
+#include "lldb/Target/ThreadPlanCallFunction.h"
 #include "lldb/Utility/LLDBAssert.h"
 
 using namespace clang;
@@ -170,24 +180,48 @@ public:
             diag_str.push_back('\0');
             const char *data = diag_str.data();
 
+            DiagnosticSeverity severity;
+            bool make_new_diagnostic = true;
+            
             switch (DiagLevel)
             {
                 case DiagnosticsEngine::Level::Fatal:
                 case DiagnosticsEngine::Level::Error:
-                    m_manager->AddDiagnostic(data, eDiagnosticSeverityError, eDiagnosticOriginClang, Info.getID());
+                    severity = eDiagnosticSeverityError;
                     break;
                 case DiagnosticsEngine::Level::Warning:
-                    m_manager->AddDiagnostic(data, eDiagnosticSeverityWarning, eDiagnosticOriginClang, Info.getID());
+                    severity = eDiagnosticSeverityWarning;
                     break;
                 case DiagnosticsEngine::Level::Remark:
                 case DiagnosticsEngine::Level::Ignored:
-                    m_manager->AddDiagnostic(data, eDiagnosticSeverityRemark, eDiagnosticOriginClang, Info.getID());
+                    severity = eDiagnosticSeverityRemark;
                     break;
                 case DiagnosticsEngine::Level::Note:
                     m_manager->AppendMessageToDiagnostic(data);
+                    make_new_diagnostic = false;
+            }
+            if (make_new_diagnostic)
+            {
+                ClangDiagnostic *new_diagnostic = new ClangDiagnostic(data, severity, Info.getID());
+                m_manager->AddDiagnostic(new_diagnostic);
+                
+                // Don't store away warning fixits, since the compiler doesn't have enough
+                // context in an expression for the warning to be useful.
+                // FIXME: Should we try to filter out FixIts that apply to our generated
+                // code, and not the user's expression?
+                if (severity == eDiagnosticSeverityError)
+                {
+                    size_t num_fixit_hints = Info.getNumFixItHints();
+                    for (size_t i = 0; i < num_fixit_hints; i++)
+                    {
+                        const clang::FixItHint &fixit = Info.getFixItHint(i);
+                        if (!fixit.isNull())
+                            new_diagnostic->AddFixitHint(fixit);
+                    }
+                }
             }
         }
-
+        
         m_passthrough->HandleDiagnostic(DiagLevel, Info);
     }
 
@@ -601,9 +635,95 @@ ClangExpressionParser::Parse(DiagnosticManager &diagnostic_manager)
         }
     }
 
+    if (!num_errors)
+    {
+        type_system_helper->CommitPersistentDecls();
+    }
+
     adapter->ResetManager();
 
     return num_errors;
+}
+
+bool
+ClangExpressionParser::RewriteExpression(DiagnosticManager &diagnostic_manager)
+{
+    clang::SourceManager &source_manager = m_compiler->getSourceManager();
+    clang::edit::EditedSource editor(source_manager, m_compiler->getLangOpts(), nullptr);
+    clang::edit::Commit commit(editor);
+    clang::Rewriter rewriter(source_manager, m_compiler->getLangOpts());
+    
+    class RewritesReceiver : public edit::EditsReceiver {
+      Rewriter &rewrite;
+
+    public:
+      RewritesReceiver(Rewriter &in_rewrite) : rewrite(in_rewrite) { }
+
+      void insert(SourceLocation loc, StringRef text) override {
+        rewrite.InsertText(loc, text);
+      }
+      void replace(CharSourceRange range, StringRef text) override {
+        rewrite.ReplaceText(range.getBegin(), rewrite.getRangeSize(range), text);
+      }
+    };
+    
+    RewritesReceiver rewrites_receiver(rewriter);
+    
+    const DiagnosticList &diagnostics = diagnostic_manager.Diagnostics();
+    size_t num_diags = diagnostics.size();
+    if (num_diags == 0)
+        return false;
+    
+    for (const Diagnostic *diag : diagnostic_manager.Diagnostics())
+    {
+        const ClangDiagnostic *diagnostic = llvm::dyn_cast<ClangDiagnostic>(diag);
+        if (diagnostic && diagnostic->HasFixIts())
+        {
+             for (const FixItHint &fixit : diagnostic->FixIts())
+             {
+                // This is cobbed from clang::Rewrite::FixItRewriter.
+                if (fixit.CodeToInsert.empty())
+                {
+                  if (fixit.InsertFromRange.isValid())
+                  {
+                      commit.insertFromRange(fixit.RemoveRange.getBegin(),
+                                             fixit.InsertFromRange, /*afterToken=*/false,
+                                             fixit.BeforePreviousInsertions);
+                  }
+                  else
+                    commit.remove(fixit.RemoveRange);
+                }
+                else
+                {
+                  if (fixit.RemoveRange.isTokenRange() ||
+                      fixit.RemoveRange.getBegin() != fixit.RemoveRange.getEnd())
+                    commit.replace(fixit.RemoveRange, fixit.CodeToInsert);
+                  else
+                    commit.insert(fixit.RemoveRange.getBegin(), fixit.CodeToInsert,
+                                /*afterToken=*/false, fixit.BeforePreviousInsertions);
+                }
+            }
+        }
+    }
+    
+    // FIXME - do we want to try to propagate specific errors here?
+    if (!commit.isCommitable())
+        return false;
+    else if (!editor.commit(commit))
+        return false;
+    
+    // Now play all the edits, and stash the result in the diagnostic manager.
+    editor.applyRewrites(rewrites_receiver);
+    RewriteBuffer &main_file_buffer = rewriter.getEditBuffer(source_manager.getMainFileID());
+
+    std::string fixed_expression;
+    llvm::raw_string_ostream out_stream(fixed_expression);
+    
+    main_file_buffer.write(out_stream);
+    out_stream.flush();
+    diagnostic_manager.SetFixedExpression(fixed_expression);
+    
+    return true;
 }
 
 static bool FindFunctionInModule (ConstString &mangled_name,
@@ -623,7 +743,7 @@ static bool FindFunctionInModule (ConstString &mangled_name,
     return false;
 }
 
-Error
+lldb_private::Error
 ClangExpressionParser::PrepareForExecution (lldb::addr_t &func_addr,
                                             lldb::addr_t &func_end,
                                             lldb::IRExecutionUnitSP &execution_unit_sp,
@@ -635,7 +755,7 @@ ClangExpressionParser::PrepareForExecution (lldb::addr_t &func_addr,
 	func_end = LLDB_INVALID_ADDRESS;
     Log *log(lldb_private::GetLogIfAllCategoriesSet (LIBLLDB_LOG_EXPRESSIONS));
 
-    Error err;
+    lldb_private::Error err;
 
     std::unique_ptr<llvm::Module> llvm_module_ap (m_code_generator->ReleaseModule());
 
@@ -646,24 +766,27 @@ ClangExpressionParser::PrepareForExecution (lldb::addr_t &func_addr,
         return err;
     }
 
-    // Find the actual name of the function (it's often mangled somehow)
-
     ConstString function_name;
 
-    if (!FindFunctionInModule(function_name, llvm_module_ap.get(), m_expr.FunctionName()))
+    if (execution_policy != eExecutionPolicyTopLevel)
     {
-        err.SetErrorToGenericError();
-        err.SetErrorStringWithFormat("Couldn't find %s() in the module", m_expr.FunctionName());
-        return err;
+        // Find the actual name of the function (it's often mangled somehow)
+
+        if (!FindFunctionInModule(function_name, llvm_module_ap.get(), m_expr.FunctionName()))
+        {
+            err.SetErrorToGenericError();
+            err.SetErrorStringWithFormat("Couldn't find %s() in the module", m_expr.FunctionName());
+            return err;
+        }
+        else
+        {
+            if (log)
+                log->Printf("Found function %s for %s", function_name.AsCString(), m_expr.FunctionName());
+        }
     }
-    else
-    {
-        if (log)
-            log->Printf("Found function %s for %s", function_name.AsCString(), m_expr.FunctionName());
-    }
-    
+
     SymbolContext sc;
-    
+
     if (lldb::StackFrameSP frame_sp = exe_ctx.GetFrameSP())
     {
         sc = frame_sp->GetSymbolContext(lldb::eSymbolContextEverything);
@@ -690,30 +813,32 @@ ClangExpressionParser::PrepareForExecution (lldb::addr_t &func_addr,
         if (target)
             error_stream = target->GetDebugger().GetErrorFile().get();
 
-        IRForTarget ir_for_target(decl_map,
-                                  m_expr.NeedsVariableResolution(),
-                                  *execution_unit_sp,
-                                  error_stream,
+        IRForTarget ir_for_target(decl_map, m_expr.NeedsVariableResolution(), *execution_unit_sp, error_stream,
                                   function_name.AsCString());
 
         bool ir_can_run = ir_for_target.runOnModule(*execution_unit_sp->GetModule());
 
-        Error interpret_error;
         Process *process = exe_ctx.GetProcessPtr();
 
-        bool interpret_function_calls = !process ? false : process->CanInterpretFunctionCalls();
-        can_interpret = IRInterpreter::CanInterpret(*execution_unit_sp->GetModule(), *execution_unit_sp->GetFunction(), interpret_error, interpret_function_calls);
+        if (execution_policy != eExecutionPolicyAlways && execution_policy != eExecutionPolicyTopLevel)
+        {
+            lldb_private::Error interpret_error;
 
+            bool interpret_function_calls = !process ? false : process->CanInterpretFunctionCalls();
+            can_interpret =
+                IRInterpreter::CanInterpret(*execution_unit_sp->GetModule(), *execution_unit_sp->GetFunction(),
+                                            interpret_error, interpret_function_calls);
+
+            if (!can_interpret && execution_policy == eExecutionPolicyNever)
+            {
+                err.SetErrorStringWithFormat("Can't run the expression locally: %s", interpret_error.AsCString());
+                return err;
+            }
+        }
 
         if (!ir_can_run)
         {
             err.SetErrorString("The expression could not be prepared to run in the target");
-            return err;
-        }
-
-        if (!can_interpret && execution_policy == eExecutionPolicyNever)
-        {
-            err.SetErrorStringWithFormat("Can't run the expression locally: %s", interpret_error.AsCString());
             return err;
         }
 
@@ -723,7 +848,15 @@ ClangExpressionParser::PrepareForExecution (lldb::addr_t &func_addr,
             return err;
         }
 
-        if (execution_policy == eExecutionPolicyAlways || !can_interpret)
+        if (!process && execution_policy == eExecutionPolicyTopLevel)
+        {
+            err.SetErrorString(
+                "Top-level code needs to be inserted into a runnable target, but the target can't be run");
+            return err;
+        }
+
+        if (execution_policy == eExecutionPolicyAlways ||
+            (execution_policy != eExecutionPolicyTopLevel && !can_interpret))
         {
             if (m_expr.NeedsValidation() && process)
             {
@@ -758,7 +891,11 @@ ClangExpressionParser::PrepareForExecution (lldb::addr_t &func_addr,
                     return err;
                 }
             }
+        }
 
+        if (execution_policy == eExecutionPolicyAlways || execution_policy == eExecutionPolicyTopLevel ||
+            !can_interpret)
+        {
             execution_unit_sp->GetRunnableInfo(err, func_addr, func_end);
         }
     }
@@ -767,5 +904,53 @@ ClangExpressionParser::PrepareForExecution (lldb::addr_t &func_addr,
         execution_unit_sp->GetRunnableInfo(err, func_addr, func_end);
     }
 
+    return err;
+}
+
+lldb_private::Error
+ClangExpressionParser::RunStaticInitializers (lldb::IRExecutionUnitSP &execution_unit_sp,
+                                              ExecutionContext &exe_ctx)
+{
+    lldb_private::Error err;
+    
+    lldbassert(execution_unit_sp.get());
+    lldbassert(exe_ctx.HasThreadScope());
+    
+    if (!execution_unit_sp.get())
+    {
+        err.SetErrorString ("can't run static initializers for a NULL execution unit");
+        return err;
+    }
+    
+    if (!exe_ctx.HasThreadScope())
+    {
+        err.SetErrorString ("can't run static initializers without a thread");
+        return err;
+    }
+    
+    std::vector<lldb::addr_t> static_initializers;
+    
+    execution_unit_sp->GetStaticInitializers(static_initializers);
+    
+    for (lldb::addr_t static_initializer : static_initializers)
+    {
+        EvaluateExpressionOptions options;
+                
+        lldb::ThreadPlanSP call_static_initializer(new ThreadPlanCallFunction(exe_ctx.GetThreadRef(),
+                                                                              Address(static_initializer),
+                                                                              CompilerType(),
+                                                                              llvm::ArrayRef<lldb::addr_t>(),
+                                                                              options));
+        
+        DiagnosticManager execution_errors;
+        lldb::ExpressionResults results = exe_ctx.GetThreadRef().GetProcess()->RunThreadPlan(exe_ctx, call_static_initializer, options, execution_errors);
+        
+        if (results != lldb::eExpressionCompleted)
+        {
+            err.SetErrorStringWithFormat ("couldn't run static initializer: %s", execution_errors.GetString().c_str());
+            return err;
+        }
+    }
+    
     return err;
 }

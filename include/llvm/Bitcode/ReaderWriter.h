@@ -107,7 +107,8 @@ namespace llvm {
   /// for use in ThinLTO optimization).
   void WriteBitcodeToFile(const Module *M, raw_ostream &Out,
                           bool ShouldPreserveUseListOrder = false,
-                          bool EmitSummaryIndex = false);
+                          const ModuleSummaryIndex *Index = nullptr,
+                          bool GenerateHash = false);
 
   /// Write the specified module summary index to the given raw output stream,
   /// where it will be written in a new bitcode block. This is used when
@@ -171,7 +172,7 @@ namespace llvm {
                                        const unsigned char *&BufEnd,
                                        bool VerifyBufferSize) {
     // Must contain the offset and size field!
-    if (BufEnd - BufPtr < BWH_SizeField + 4)
+    if (unsigned(BufEnd - BufPtr) < BWH_SizeField + 4)
       return true;
 
     unsigned Offset = support::endian::read32le(&BufPtr[BWH_OffsetField]);

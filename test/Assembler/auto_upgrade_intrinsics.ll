@@ -58,24 +58,16 @@ define i32 @test.objectsize() {
   ret i32 %s
 }
 
-declare <2 x double> @llvm.masked.load.v2f64(<2 x double>* %ptrs, i32, <2 x i1> %mask, <2 x double> %src0)
+@__stack_chk_guard = external global i8*
+declare void @llvm.stackprotectorcheck(i8**)
 
-define <2 x double> @tests.masked.load(<2 x double>* %ptr, <2 x i1> %mask, <2 x double> %passthru)  {
-; CHECK-LABEL: @tests.masked.load(
-; CHECK: @llvm.masked.load.v2f64.p0v2f64
-  %res = call <2 x double> @llvm.masked.load.v2f64(<2 x double>* %ptr, i32 1, <2 x i1> %mask, <2 x double> %passthru), !tbaa !0
-  ret <2 x double> %res
-}
-
-declare void @llvm.masked.store.v2f64(<2 x double> %val, <2 x double>* %ptrs, i32, <2 x i1> %mask)
-
-define void @tests.masked.store(<2 x double>* %ptr, <2 x i1> %mask, <2 x double> %val)  {
-; CHECK-LABEL: @tests.masked.store(
-; CHECK: @llvm.masked.store.v2f64.p0v2f64
-  call void @llvm.masked.store.v2f64(<2 x double> %val, <2 x double>* %ptr, i32 3, <2 x i1> %mask), !tbaa !0
+define void @test.stackprotectorcheck() {
+; CHECK-LABEL: @test.stackprotectorcheck(
+; CHECK-NEXT: ret void
+  call void @llvm.stackprotectorcheck(i8** @__stack_chk_guard)
   ret void
 }
 
-!0 = !{!"omnipotent char", !1}
-!1 = !{!"Simple C/C++ TBAA"}
-!2 = !{!"double", !0}
+; This is part of @test.objectsize(), since llvm.objectsize declaration gets
+; emitted at the end.
+; CHECK: declare i32 @llvm.objectsize.i32.p0i8

@@ -1573,7 +1573,7 @@ SDValue R600TargetLowering::LowerLOAD(SDValue Op, SelectionDAG &DAG) const {
 
   if (LoadNode->getAddressSpace() == AMDGPUAS::LOCAL_ADDRESS && VT.isVector()) {
     SDValue MergedValues[2] = {
-      ScalarizeVectorLoad(Op, DAG),
+      scalarizeVectorLoad(LoadNode, DAG),
       Chain
     };
     return DAG.getMergeValues(MergedValues, DL);
@@ -1759,7 +1759,7 @@ SDValue R600TargetLowering::LowerFormalArguments(
       MemVT = MemVT.getVectorElementType();
     }
 
-    if (MFI->getShaderType() != ShaderType::COMPUTE) {
+    if (AMDGPU::isShader(CallConv)) {
       unsigned Reg = MF.addLiveIn(VA.getLocReg(), &AMDGPU::R600_Reg128RegClass);
       SDValue Register = DAG.getCopyFromReg(Chain, DL, Reg, VT);
       InVals.push_back(Register);

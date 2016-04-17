@@ -283,10 +283,10 @@ int yyerror(const char *error)
 	return 0;
 }
 
-int parse(Module *TheModule)
+int parse(Module *TheModule, LLVMContext &TheContext)
 {
 	CurrentLine = 1;
-	Builder = new SPMDBuilder(TheModule);
+	Builder = new SPMDBuilder(TheModule, TheContext);
 	if (yyparse())
 		return 0;
 

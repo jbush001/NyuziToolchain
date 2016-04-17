@@ -35,12 +35,12 @@
 #include "lldb/Target/ThreadPlanStepRange.h"
 #include "lldb/Target/ThreadPlanStepInRange.h"
 
-
 #include "lldb/API/SBAddress.h"
 #include "lldb/API/SBDebugger.h"
 #include "lldb/API/SBEvent.h"
 #include "lldb/API/SBFrame.h"
 #include "lldb/API/SBProcess.h"
+#include "lldb/API/SBThreadCollection.h"
 #include "lldb/API/SBThreadPlan.h"
 #include "lldb/API/SBValue.h"
 
@@ -326,6 +326,30 @@ SBThread::GetStopReasonExtendedInfoAsJSON (lldb::SBStream &stream)
     info->Dump(strm);
     
     return true;
+}
+
+SBThreadCollection
+SBThread::GetStopReasonExtendedBacktraces (InstrumentationRuntimeType type)
+{
+    ThreadCollectionSP threads;
+    threads.reset(new ThreadCollection());
+    
+    // We currently only support ThreadSanitizer.
+    if (type != eInstrumentationRuntimeTypeThreadSanitizer)
+        return threads;
+    
+    ExecutionContext exe_ctx (m_opaque_sp.get());
+    if (! exe_ctx.HasThreadScope())
+        return threads;
+    
+    ProcessSP process_sp = exe_ctx.GetProcessSP();
+    
+    StopInfoSP stop_info = exe_ctx.GetThreadPtr()->GetStopInfo();
+    StructuredData::ObjectSP info = stop_info->GetExtendedInfo();
+    if (! info)
+        return threads;
+    
+    return process_sp->GetInstrumentationRuntime(type)->GetBacktracesFromExtendedStopInfo(info);
 }
 
 size_t

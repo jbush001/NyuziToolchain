@@ -16,16 +16,16 @@
 
 // Other libraries and framework includes
 // Project includes
-#include "lldb/lldb-private.h"
-#include "lldb/Core/Error.h"
 #include "lldb/Core/DataBufferHeap.h"
 #include "lldb/Core/DataExtractor.h"
 #include "lldb/Core/Debugger.h"
 #include "lldb/Core/EmulateInstruction.h"
+#include "lldb/Core/Error.h"
 #include "lldb/Core/Module.h"
 #include "lldb/Core/PluginManager.h"
 #include "lldb/Core/RegularExpression.h"
 #include "lldb/Core/Timer.h"
+#include "lldb/Host/FileSystem.h"
 #include "lldb/Interpreter/OptionValue.h"
 #include "lldb/Interpreter/OptionValueArray.h"
 #include "lldb/Interpreter/OptionValueDictionary.h"
@@ -38,6 +38,7 @@
 #include "lldb/Target/SectionLoadList.h"
 #include "lldb/Target/StackFrame.h"
 #include "lldb/Target/Target.h"
+#include "lldb/lldb-private.h"
 
 #define DEFAULT_DISASM_BYTE_SIZE 32
 
@@ -849,8 +850,7 @@ Instruction::TestEmulation (Stream *out_stream, const char *file_name)
         out_stream->Printf ("Instruction::TestEmulation:  Missing file_name.");
         return false;
     }
-        
-    FILE *test_file = fopen (file_name, "r");
+    FILE *test_file = FileSystem::Fopen(file_name, "r");
     if (!test_file)
     {
         out_stream->Printf ("Instruction::TestEmulation: Attempt to open test file failed.");
@@ -1236,10 +1236,7 @@ Disassembler::Disassembler(const ArchSpec& arch, const char *flavor) :
     // If this is an arm variant that can only include thumb (T16, T32)
     // instructions, force the arch triple to be "thumbv.." instead of
     // "armv..."
-    if ((arch.GetTriple().getArch() == llvm::Triple::arm || arch.GetTriple().getArch() == llvm::Triple::thumb)
-        && (arch.GetCore() == ArchSpec::Core::eCore_arm_armv7m
-            || arch.GetCore() == ArchSpec::Core::eCore_arm_armv7em
-            || arch.GetCore() == ArchSpec::Core::eCore_arm_armv6m))
+    if (arch.IsAlwaysThumbInstructions())
     {
         std::string thumb_arch_name (arch.GetTriple().getArchName().str());
         // Replace "arm" with "thumb" so we get all thumb variants correct

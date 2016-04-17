@@ -23,6 +23,7 @@
 #include "ClangExpressionParser.h"
 #include "ClangModulesDeclVendor.h"
 #include "ClangPersistentVariables.h"
+#include "ClangDiagnostic.h"
 
 #include "lldb/Core/ConstString.h"
 #include "lldb/Core/Log.h"
@@ -55,28 +56,25 @@
 
 using namespace lldb_private;
 
-ClangUserExpression::ClangUserExpression (ExecutionContextScope &exe_scope,
-                                          const char *expr,
-                                          const char *expr_prefix,
-                                          lldb::LanguageType language,
-                                          ResultType desired_type,
-                                          const EvaluateExpressionOptions &options) :
-    LLVMUserExpression (exe_scope, expr, expr_prefix, language, desired_type, options),
-    m_type_system_helper(*m_target_wp.lock().get())
+ClangUserExpression::ClangUserExpression(ExecutionContextScope &exe_scope, const char *expr, const char *expr_prefix,
+                                         lldb::LanguageType language, ResultType desired_type,
+                                         const EvaluateExpressionOptions &options)
+    : LLVMUserExpression(exe_scope, expr, expr_prefix, language, desired_type, options),
+      m_type_system_helper(*m_target_wp.lock().get(), options.GetExecutionPolicy() == eExecutionPolicyTopLevel)
 {
     switch (m_language)
     {
-    case lldb::eLanguageTypeC_plus_plus:
-        m_allow_cxx = true;
-        break;
-    case lldb::eLanguageTypeObjC:
-        m_allow_objc = true;
-        break;
-    case lldb::eLanguageTypeObjC_plus_plus:
-    default:
-        m_allow_cxx = true;
-        m_allow_objc = true;
-        break;
+        case lldb::eLanguageTypeC_plus_plus:
+            m_allow_cxx = true;
+            break;
+        case lldb::eLanguageTypeObjC:
+            m_allow_objc = true;
+            break;
+        case lldb::eLanguageTypeObjC_plus_plus:
+        default:
+            m_allow_cxx = true;
+            m_allow_objc = true;
+            break;
     }
 }
 
@@ -361,8 +359,6 @@ ClangUserExpression::Parse(DiagnosticManager &diagnostic_manager, ExecutionConte
         diagnostic_manager.PutCString(eDiagnosticSeverityWarning, err.AsCString());
     }
 
-    StreamString m_transformed_stream;
-
     ////////////////////////////////////
     // Generate the expression
     //
@@ -402,22 +398,30 @@ ClangUserExpression::Parse(DiagnosticManager &diagnostic_manager, ExecutionConte
             }
         }
     }
-    
-    std::unique_ptr<ExpressionSourceCode> source_code (ExpressionSourceCode::CreateWrapped(prefix.c_str(), m_expr_text.c_str()));
-    
-    lldb::LanguageType lang_type;
 
-    if (m_in_cplusplus_method)
-        lang_type = lldb::eLanguageTypeC_plus_plus;
-    else if (m_in_objectivec_method)
-        lang_type = lldb::eLanguageTypeObjC;
-    else
-        lang_type = lldb::eLanguageTypeC;
+    lldb::LanguageType lang_type = lldb::eLanguageTypeUnknown;
 
-    if (!source_code->GetText(m_transformed_text, lang_type, m_const_object, m_in_static_method, exe_ctx))
+    if (m_options.GetExecutionPolicy() == eExecutionPolicyTopLevel)
     {
-        diagnostic_manager.PutCString(eDiagnosticSeverityError, "couldn't construct expression body");
-        return false;
+        m_transformed_text = m_expr_text;
+    }
+    else
+    {
+        std::unique_ptr<ExpressionSourceCode> source_code(
+            ExpressionSourceCode::CreateWrapped(prefix.c_str(), m_expr_text.c_str()));
+
+        if (m_in_cplusplus_method)
+            lang_type = lldb::eLanguageTypeC_plus_plus;
+        else if (m_in_objectivec_method)
+            lang_type = lldb::eLanguageTypeObjC;
+        else
+            lang_type = lldb::eLanguageTypeC;
+
+        if (!source_code->GetText(m_transformed_text, lang_type, m_const_object, m_in_static_method, exe_ctx))
+        {
+            diagnostic_manager.PutCString(eDiagnosticSeverityError, "couldn't construct expression body");
+            return false;
+        }
     }
 
     if (log)
@@ -473,18 +477,39 @@ ClangUserExpression::Parse(DiagnosticManager &diagnostic_manager, ExecutionConte
         return false;
     }
 
+    if (m_options.GetExecutionPolicy() == eExecutionPolicyTopLevel)
+    {
+        DeclMap()->SetLookupsEnabled(true);
+    }
+
     Process *process = exe_ctx.GetProcessPtr();
     ExecutionContextScope *exe_scope = process;
 
     if (!exe_scope)
         exe_scope = exe_ctx.GetTargetPtr();
 
+    // We use a shared pointer here so we can use the original parser - if it succeeds
+    // or the rewrite parser we might make if it fails.  But the parser_sp will never be empty.
+    
     ClangExpressionParser parser(exe_scope, *this, generate_debug_info);
 
     unsigned num_errors = parser.Parse(diagnostic_manager);
 
+    // Check here for FixItHints.  If there are any try to apply the fixits and set the fixed text in m_fixed_text
+    // before returning an error.
     if (num_errors)
     {
+        if (diagnostic_manager.HasFixIts())
+        {
+            if (parser.RewriteExpression(diagnostic_manager))
+            {
+                size_t fixed_start;
+                size_t fixed_end;
+                const std::string &fixed_expression = diagnostic_manager.GetFixedExpression();
+                if (ExpressionSourceCode::GetOriginalBodyBounds(fixed_expression, lang_type, fixed_start, fixed_end))
+                    m_fixed_text = fixed_expression.substr(fixed_start, fixed_end - fixed_start);
+            }
+        }
         diagnostic_manager.Printf(eDiagnosticSeverityError, "%u error%s parsing expression", num_errors,
                                   num_errors == 1 ? "" : "s");
 
@@ -497,16 +522,70 @@ ClangUserExpression::Parse(DiagnosticManager &diagnostic_manager, ExecutionConte
     // Prepare the output of the parser for execution, evaluating it statically if possible
     //
 
-    Error jit_error = parser.PrepareForExecution (m_jit_start_addr,
-                                                  m_jit_end_addr,
-                                                  m_execution_unit_sp,
-                                                  exe_ctx,
-                                                  m_can_interpret,
-                                                  execution_policy);
+    {
+        Error jit_error = parser.PrepareForExecution(m_jit_start_addr,
+                                                     m_jit_end_addr,
+                                                     m_execution_unit_sp,
+                                                     exe_ctx,
+                                                     m_can_interpret,
+                                                     execution_policy);
+
+        if (!jit_error.Success())
+        {
+            const char *error_cstr = jit_error.AsCString();
+            if (error_cstr && error_cstr[0])
+                diagnostic_manager.PutCString(eDiagnosticSeverityError, error_cstr);
+            else
+                diagnostic_manager.PutCString(eDiagnosticSeverityError, "expression can't be interpreted or run");
+            return false;
+        }
+    }
+
+    if (exe_ctx.GetProcessPtr() && execution_policy == eExecutionPolicyTopLevel)
+    {
+        Error static_init_error = parser.RunStaticInitializers(m_execution_unit_sp, exe_ctx);
+
+        if (!static_init_error.Success())
+        {
+            const char *error_cstr = static_init_error.AsCString();
+            if (error_cstr && error_cstr[0])
+                diagnostic_manager.Printf(eDiagnosticSeverityError, "couldn't run static initializers: %s\n",
+                                          error_cstr);
+            else
+                diagnostic_manager.PutCString(eDiagnosticSeverityError, "couldn't run static initializers\n");
+            return false;
+        }
+    }
+
+    if (m_execution_unit_sp)
+    {
+        bool register_execution_unit = false;
+
+        if (m_options.GetExecutionPolicy() == eExecutionPolicyTopLevel)
+        {
+            register_execution_unit = true;
+        }
+        
+        // If there is more than one external function in the execution
+        // unit, it needs to keep living even if it's not top level, because
+        // the result could refer to that function.
+        
+        if (m_execution_unit_sp->GetJittedFunctions().size() > 1)
+        {
+            register_execution_unit = true;
+        }
+
+        if (register_execution_unit)
+        {
+            llvm::cast<PersistentExpressionState>(
+                exe_ctx.GetTargetPtr()->GetPersistentExpressionStateForLanguage(m_language))
+                ->RegisterExecutionUnit(m_execution_unit_sp);
+        }
+    }
 
     if (generate_debug_info)
     {
-        lldb::ModuleSP jit_module_sp ( m_execution_unit_sp->GetJITModule());
+        lldb::ModuleSP jit_module_sp(m_execution_unit_sp->GetJITModule());
 
         if (jit_module_sp)
         {
@@ -517,41 +596,14 @@ ClangUserExpression::Parse(DiagnosticManager &diagnostic_manager, ExecutionConte
             m_jit_module_wp = jit_module_sp;
             target->GetImages().Append(jit_module_sp);
         }
-//        lldb_private::ObjectFile *jit_obj_file = jit_module_sp->GetObjectFile();
-//        StreamFile strm (stdout, false);
-//        if (jit_obj_file)
-//        {
-//            jit_obj_file->GetSectionList();
-//            jit_obj_file->GetSymtab();
-//            jit_obj_file->Dump(&strm);
-//        }
-//        lldb_private::SymbolVendor *jit_sym_vendor = jit_module_sp->GetSymbolVendor();
-//        if (jit_sym_vendor)
-//        {
-//            lldb_private::SymbolContextList sc_list;
-//            jit_sym_vendor->FindFunctions(const_func_name, NULL, lldb::eFunctionNameTypeFull, true, false, sc_list);
-//            sc_list.Dump(&strm, target);
-//            jit_sym_vendor->Dump(&strm);
-//        }
     }
 
-    ResetDeclMap(); // Make this go away since we don't need any of its state after parsing.  This also gets rid of any ClangASTImporter::Minions.
+    ResetDeclMap(); // Make this go away since we don't need any of its state after parsing.  This also gets rid of any
+                    // ClangASTImporter::Minions.
 
-    if (jit_error.Success())
-    {
-        if (process && m_jit_start_addr != LLDB_INVALID_ADDRESS)
-            m_jit_process_wp = lldb::ProcessWP(process->shared_from_this());
-        return true;
-    }
-    else
-    {
-        const char *error_cstr = jit_error.AsCString();
-        if (error_cstr && error_cstr[0])
-            diagnostic_manager.PutCString(eDiagnosticSeverityError, error_cstr);
-        else
-            diagnostic_manager.Printf(eDiagnosticSeverityError, "expression can't be interpreted or run");
-        return false;
-    }
+    if (process && m_jit_start_addr != LLDB_INVALID_ADDRESS)
+        m_jit_process_wp = lldb::ProcessWP(process->shared_from_this());
+    return true;
 }
 
 bool
@@ -637,12 +689,20 @@ ClangUserExpression::ClangUserExpressionHelper::ResetDeclMap(ExecutionContext &e
 }
 
 clang::ASTConsumer *
-ClangUserExpression::ClangUserExpressionHelper::ASTTransformer (clang::ASTConsumer *passthrough)
+ClangUserExpression::ClangUserExpressionHelper::ASTTransformer(clang::ASTConsumer *passthrough)
 {
-    m_result_synthesizer_up.reset(new ASTResultSynthesizer(passthrough,
-                                                           m_target));
+    m_result_synthesizer_up.reset(new ASTResultSynthesizer(passthrough, m_top_level, m_target));
 
     return m_result_synthesizer_up.get();
+}
+
+void
+ClangUserExpression::ClangUserExpressionHelper::CommitPersistentDecls()
+{
+    if (m_result_synthesizer_up.get())
+    {
+        m_result_synthesizer_up->CommitPersistentDecls();
+    }
 }
 
 ClangUserExpression::ResultDelegate::ResultDelegate()

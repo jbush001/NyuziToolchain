@@ -414,6 +414,12 @@ if(CMAKE_CROSSCOMPILING OR (LLVM_OPTIMIZED_TABLEGEN AND LLVM_ENABLE_ASSERTIONS))
   set(LLVM_USE_HOST_TOOLS ON)
 endif()
 
+if (MSVC_IDE AND NOT (MSVC_VERSION LESS 1900))
+  option(LLVM_ADD_NATIVE_VISUALIZERS_TO_SOLUTION "Configure project to use Visual Studio native visualizers" TRUE)
+else()
+  set(LLVM_ADD_NATIVE_VISUALIZERS_TO_SOLUTION FALSE CACHE INTERNAL "For Visual Studio 2013, manually copy natvis files to Documents\\Visual Studio 2013\\Visualizers" FORCE)
+endif()
+
 # All options referred to from HandleLLVMOptions have to be specified
 # BEFORE this include, otherwise options will not be correctly set on
 # first cmake run
@@ -679,6 +685,11 @@ else()
   endif()
 endif()
 
+# Use LLVM_ADD_NATIVE_VISUALIZERS_TO_SOLUTION instead of LLVM_INCLUDE_UTILS because it is not really a util
+if (LLVM_ADD_NATIVE_VISUALIZERS_TO_SOLUTION)
+  add_subdirectory(utils/LLVMVisualizers)
+endif()
+
 if(LLVM_INCLUDE_TESTS)
   add_subdirectory(utils/unittest)
 endif()
@@ -735,6 +746,7 @@ if( LLVM_INCLUDE_TESTS )
     ARGS ${LLVM_LIT_EXTRA_ARGS}
     )
   add_custom_target(test-depends DEPENDS ${LLVM_LIT_DEPENDS})
+  set_target_properties(test-depends PROPERTIES FOLDER "Tests")
 endif()
 
 if (LLVM_INCLUDE_DOCS)

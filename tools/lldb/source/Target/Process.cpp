@@ -2437,7 +2437,7 @@ Process::ReadStringFromMemory (addr_t addr, char *dst, size_t max_bytes, Error &
             // Search for a null terminator of correct size and alignment in bytes_read
             size_t aligned_start = total_bytes_read - total_bytes_read % type_width;
             for (size_t i = aligned_start; i + type_width <= total_bytes_read + bytes_read; i += type_width)
-                if (::strncmp(&dst[i], terminator, type_width) == 0)
+                if (::memcmp(&dst[i], terminator, type_width) == 0)
                 {
                     error.Clear();
                     return i;
@@ -3379,7 +3379,7 @@ Process::Attach (ProcessAttachInfo &attach_info)
 void
 Process::CompleteAttach ()
 {
-    Log *log(lldb_private::GetLogIfAllCategoriesSet (LIBLLDB_LOG_PROCESS));
+    Log *log(lldb_private::GetLogIfAnyCategoriesSet (LIBLLDB_LOG_PROCESS | LIBLLDB_LOG_TARGET));
     if (log)
         log->Printf ("Process::%s()", __FUNCTION__);
 
@@ -3422,7 +3422,7 @@ Process::CompleteAttach ()
         else if (!process_arch.IsValid())
         {
             ProcessInstanceInfo process_info;
-            platform_sp->GetProcessInfo (GetID(), process_info);
+            GetProcessInfo(process_info);
             const ArchSpec &process_arch = process_info.GetArchitecture();
             if (process_arch.IsValid() && !GetTarget().GetArchitecture().IsExactMatch(process_arch))
             {
@@ -6479,6 +6479,18 @@ Process::PrintWarningOptimization (const SymbolContext &sc)
     {
         PrintWarning (Process::Warnings::eWarningsOptimization, sc.module_sp.get(), "%s was compiled with optimization - stepping may behave oddly; variables may not be available.\n", sc.module_sp->GetFileSpec().GetFilename().GetCString());
     }
+}
+
+bool
+Process::GetProcessInfo(ProcessInstanceInfo &info)
+{
+    info.Clear();
+
+    PlatformSP platform_sp = GetTarget().GetPlatform();
+    if (! platform_sp)
+        return false;
+
+    return platform_sp->GetProcessInfo(GetID(), info);
 }
 
 ThreadCollectionSP

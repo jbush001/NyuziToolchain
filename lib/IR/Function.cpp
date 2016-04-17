@@ -92,6 +92,16 @@ bool Argument::hasByValAttr() const {
   return hasAttribute(Attribute::ByVal);
 }
 
+bool Argument::hasSwiftSelfAttr() const {
+  return getParent()->getAttributes().
+    hasAttribute(getArgNo()+1, Attribute::SwiftSelf);
+}
+
+bool Argument::hasSwiftErrorAttr() const {
+  return getParent()->getAttributes().
+    hasAttribute(getArgNo()+1, Attribute::SwiftError);
+}
+
 /// \brief Return true if this argument has the inalloca attribute on it in
 /// its containing function.
 bool Argument::hasInAllocaAttr() const {
@@ -290,6 +300,28 @@ void Function::BuildLazyArguments() const {
   // Clear the lazy arguments bit.
   unsigned SDC = getSubclassDataFromValue();
   const_cast<Function*>(this)->setValueSubclassData(SDC &= ~(1<<0));
+}
+
+void Function::stealArgumentListFrom(Function &Src) {
+  assert(isDeclaration() && "Expected no references to current arguments");
+
+  // Drop the current arguments, if any, and set the lazy argument bit.
+  if (!hasLazyArguments()) {
+    assert(llvm::all_of(ArgumentList,
+                        [](const Argument &A) { return A.use_empty(); }) &&
+           "Expected arguments to be unused in declaration");
+    ArgumentList.clear();
+    setValueSubclassData(getSubclassDataFromValue() | (1 << 0));
+  }
+
+  // Nothing to steal if Src has lazy arguments.
+  if (Src.hasLazyArguments())
+    return;
+
+  // Steal arguments from Src, and fix the lazy argument bits.
+  ArgumentList.splice(ArgumentList.end(), Src.ArgumentList);
+  setValueSubclassData(getSubclassDataFromValue() & ~(1 << 0));
+  Src.setValueSubclassData(Src.getSubclassDataFromValue() | (1 << 0));
 }
 
 size_t Function::arg_size() const {

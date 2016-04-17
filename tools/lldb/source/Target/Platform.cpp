@@ -1241,7 +1241,11 @@ Platform::LaunchProcess (ProcessLaunchInfo &launch_info)
         {
             error = ShellExpandArguments(launch_info);
             if (error.Fail())
+            {
+                error.SetErrorStringWithFormat("shell expansion failed (reason: %s). consider launching with 'process launch'.",
+                                               error.AsCString("unknown"));
                 return error;
+            }
         }
 
         if (log)
@@ -2109,6 +2113,14 @@ Platform::GetSoftwareBreakpointTrapOpcode(Target &target, BreakpointSite *bp_sit
     case llvm::Triple::mips64el:
         {
             static const uint8_t g_hex_opcode[] = {0x0d, 0x00, 0x00, 0x00};
+            trap_opcode = g_hex_opcode;
+            trap_opcode_size = sizeof(g_hex_opcode);
+        }
+        break;
+
+    case llvm::Triple::systemz:
+        {
+            static const uint8_t g_hex_opcode[] = {0x00, 0x01};
             trap_opcode = g_hex_opcode;
             trap_opcode_size = sizeof(g_hex_opcode);
         }

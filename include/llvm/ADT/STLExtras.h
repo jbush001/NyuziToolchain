@@ -17,7 +17,6 @@
 #ifndef LLVM_ADT_STLEXTRAS_H
 #define LLVM_ADT_STLEXTRAS_H
 
-#include "llvm/Support/Compiler.h"
 #include <algorithm> // for std::all_of
 #include <cassert>
 #include <cstddef> // for std::size_t
@@ -26,6 +25,9 @@
 #include <iterator>
 #include <memory>
 #include <utility> // for std::pair
+
+#include "llvm/ADT/iterator_range.h"
+#include "llvm/Support/Compiler.h"
 
 namespace llvm {
 
@@ -117,7 +119,9 @@ public:
           iterator_category;
   typedef typename std::iterator_traits<RootIt>::difference_type
           difference_type;
-  typedef typename UnaryFunc::result_type value_type;
+  typedef typename std::result_of<
+            UnaryFunc(decltype(*std::declval<RootIt>()))>
+          ::type value_type;
 
   typedef void pointer;
   //typedef typename UnaryFunc::result_type *pointer;

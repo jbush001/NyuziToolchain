@@ -66,6 +66,10 @@ int TargetTransformInfo::getCallCost(const Function *F,
   return Cost;
 }
 
+unsigned TargetTransformInfo::getInliningThresholdMultiplier() const {
+  return TTIImpl->getInliningThresholdMultiplier();
+}
+
 int TargetTransformInfo::getIntrinsicCost(
     Intrinsic::ID IID, Type *RetTy, ArrayRef<const Value *> Arguments) const {
   int Cost = TTIImpl->getIntrinsicCost(IID, RetTy, Arguments);
@@ -170,6 +174,10 @@ bool TargetTransformInfo::enableAggressiveInterleaving(bool LoopHasReductions) c
 
 bool TargetTransformInfo::enableInterleavedAccessVectorization() const {
   return TTIImpl->enableInterleavedAccessVectorization();
+}
+
+bool TargetTransformInfo::isFPVectorizationPotentiallyUnsafe() const {
+  return TTIImpl->isFPVectorizationPotentiallyUnsafe();
 }
 
 TargetTransformInfo::PopcntSupportKind
@@ -315,15 +323,17 @@ int TargetTransformInfo::getInterleavedMemoryOpCost(
 }
 
 int TargetTransformInfo::getIntrinsicInstrCost(Intrinsic::ID ID, Type *RetTy,
-                                               ArrayRef<Type *> Tys) const {
-  int Cost = TTIImpl->getIntrinsicInstrCost(ID, RetTy, Tys);
+                                               ArrayRef<Type *> Tys,
+                                               FastMathFlags FMF) const {
+  int Cost = TTIImpl->getIntrinsicInstrCost(ID, RetTy, Tys, FMF);
   assert(Cost >= 0 && "TTI should not produce negative costs!");
   return Cost;
 }
 
 int TargetTransformInfo::getIntrinsicInstrCost(Intrinsic::ID ID, Type *RetTy,
-                                               ArrayRef<Value *> Args) const {
-  int Cost = TTIImpl->getIntrinsicInstrCost(ID, RetTy, Args);
+                                               ArrayRef<Value *> Args,
+                                               FastMathFlags FMF) const {
+  int Cost = TTIImpl->getIntrinsicInstrCost(ID, RetTy, Args, FMF);
   assert(Cost >= 0 && "TTI should not produce negative costs!");
   return Cost;
 }

@@ -6,7 +6,7 @@
 
 class SPMDBuilder {
 public:
-  SPMDBuilder(llvm::Module *Mod);
+  SPMDBuilder(llvm::Module *Mod, llvm::LLVMContext &Context);
   ~SPMDBuilder();
   void startFunction(const char *name,
                      const std::vector<std::string> &ArgNames);
@@ -64,6 +64,7 @@ private:
   // Returns pointer to alloca that contains value
   llvm::Value *getCurrentMask();
 
+  llvm::LLVMContext &Context;
   llvm::IRBuilder<> Builder;
   llvm::Module *MainModule;
   llvm::SmallVector<MaskStackEntry, 10> MaskStack;

@@ -25,16 +25,17 @@
 
 #include "clang/AST/ASTContext.h"
 
-#include "lldb/Core/dwarf.h"
 #include "lldb/Core/ConstString.h"
 #include "lldb/Core/DataBufferHeap.h"
 #include "lldb/Core/Log.h"
 #include "lldb/Core/Scalar.h"
 #include "lldb/Core/StreamString.h"
+#include "lldb/Core/dwarf.h"
 #include "lldb/Expression/IRExecutionUnit.h"
 #include "lldb/Expression/IRInterpreter.h"
 #include "lldb/Host/Endian.h"
 #include "lldb/Symbol/ClangASTContext.h"
+#include "lldb/Symbol/ClangUtil.h"
 #include "lldb/Symbol/CompilerType.h"
 
 #include <map>
@@ -1104,7 +1105,13 @@ IRForTarget::MaterializeInitializer (uint8_t *data, Constant *initializer)
 
     if (ConstantInt *int_initializer = dyn_cast<ConstantInt>(initializer))
     {
-        memcpy (data, int_initializer->getValue().getRawData(), m_target_data->getTypeStoreSize(initializer_type));
+        size_t constant_size = m_target_data->getTypeStoreSize(initializer_type);
+        lldb_private::Scalar scalar = int_initializer->getValue().zextOrTrunc(llvm::NextPowerOf2(constant_size) * 8);
+
+        lldb_private::Error get_data_error;
+        if (!scalar.GetAsMemoryData(data, constant_size, lldb_private::endian::InlHostByteOrder(), get_data_error))
+            return false;
+
         return true;
     }
     else if (ConstantDataArray *array_initializer = dyn_cast<ConstantDataArray>(initializer))
@@ -1235,11 +1242,8 @@ IRForTarget::MaybeHandleVariable (Value *llvm_value_ptr)
         if (log)
         {
             log->Printf("Type of \"%s\" is [clang \"%s\", llvm \"%s\"] [size %" PRIu64 ", align %" PRIu64 "]",
-                        name.c_str(),
-                        lldb_private::ClangASTContext::GetQualType(compiler_type).getAsString().c_str(),
-                        PrintType(value_type).c_str(),
-                        value_size,
-                        value_alignment);
+                        name.c_str(), lldb_private::ClangUtil::GetQualType(compiler_type).getAsString().c_str(),
+                        PrintType(value_type).c_str(), value_size, value_alignment);
         }
 
 
@@ -1957,25 +1961,29 @@ IRForTarget::runOnModule (Module &llvm_module)
         log->Printf("Module as passed in to IRForTarget: \n\"%s\"", s.c_str());
     }
 
-    Function* main_function = m_module->getFunction(StringRef(m_func_name.c_str()));
+    Function *const main_function = m_func_name.IsEmpty() ? nullptr : m_module->getFunction(m_func_name.GetStringRef());
 
-    if (!main_function)
+    if (!m_func_name.IsEmpty() && !main_function)
     {
         if (log)
-            log->Printf("Couldn't find \"%s()\" in the module", m_func_name.c_str());
+            log->Printf("Couldn't find \"%s()\" in the module", m_func_name.AsCString());
 
         if (m_error_stream)
-            m_error_stream->Printf("Internal error [IRForTarget]: Couldn't find wrapper '%s' in the module", m_func_name.c_str());
+            m_error_stream->Printf("Internal error [IRForTarget]: Couldn't find wrapper '%s' in the module",
+                                   m_func_name.AsCString());
 
         return false;
     }
 
-    if (!FixFunctionLinkage (*main_function))
+    if (main_function)
     {
-        if (log)
-            log->Printf("Couldn't fix the linkage for the function");
+        if (!FixFunctionLinkage(*main_function))
+        {
+            if (log)
+                log->Printf("Couldn't fix the linkage for the function");
 
-        return false;
+            return false;
+        }
     }
 
     llvm::Type *int8_ty = Type::getInt8Ty(m_module->getContext());
@@ -1994,14 +2002,17 @@ IRForTarget::runOnModule (Module &llvm_module)
     // Replace $__lldb_expr_result with a persistent variable
     //
 
-    if (!CreateResultVariable(*main_function))
+    if (main_function)
     {
-        if (log)
-            log->Printf("CreateResultVariable() failed");
+        if (!CreateResultVariable(*main_function))
+        {
+            if (log)
+                log->Printf("CreateResultVariable() failed");
 
-        // CreateResultVariable() reports its own errors, so we don't do so here
+            // CreateResultVariable() reports its own errors, so we don't do so here
 
-        return false;
+            return false;
+        }
     }
 
     if (log && log->GetVerbose())
@@ -2125,24 +2136,27 @@ IRForTarget::runOnModule (Module &llvm_module)
     // Run function-level passes that only make sense on the main function
     //
 
-    if (!ResolveExternals(*main_function))
+    if (main_function)
     {
-        if (log)
-            log->Printf("ResolveExternals() failed");
+        if (!ResolveExternals(*main_function))
+        {
+            if (log)
+                log->Printf("ResolveExternals() failed");
 
-        // ResolveExternals() reports its own errors, so we don't do so here
+            // ResolveExternals() reports its own errors, so we don't do so here
 
-        return false;
-    }
+            return false;
+        }
 
-    if (!ReplaceVariables(*main_function))
-    {
-        if (log)
-            log->Printf("ReplaceVariables() failed");
+        if (!ReplaceVariables(*main_function))
+        {
+            if (log)
+                log->Printf("ReplaceVariables() failed");
 
-        // ReplaceVariables() reports its own errors, so we don't do so here
+            // ReplaceVariables() reports its own errors, so we don't do so here
 
-        return false;
+            return false;
+        }
     }
 
     if (log && log->GetVerbose())

@@ -133,6 +133,9 @@ static bool ParseOneFlag(const char *Param) {
       PrintedWarning = true;
       Printf("INFO: libFuzzer ignores flags that start with '--'\n");
     }
+    for (size_t F = 0; F < kNumFlags; F++)
+      if (FlagValue(Param + 1, FlagDescriptions[F].Name))
+        Printf("WARNING: did you mean '%s' (single dash)?\n", Param + 1);
     return true;
   }
   for (size_t F = 0; F < kNumFlags; F++) {
@@ -203,7 +206,7 @@ static void WorkerThread(const std::string &Cmd, std::atomic<int> *Counter,
     std::string ToRun = Cmd + " > " + Log + " 2>&1\n";
     if (Flags.verbosity)
       Printf("%s", ToRun.c_str());
-    int ExitCode = ExecuteCommand(ToRun.c_str());
+    int ExitCode = ExecuteCommand(ToRun);
     if (ExitCode != 0)
       *HasErrors = true;
     std::lock_guard<std::mutex> Lock(Mu);
@@ -338,6 +341,7 @@ static int FuzzerDriver(const std::vector<std::string> &Args,
   if (Flags.handle_ill) SetSigIllHandler();
   if (Flags.handle_fpe) SetSigFpeHandler();
   if (Flags.handle_int) SetSigIntHandler();
+  if (Flags.handle_term) SetSigTermHandler();
 
   if (DoPlainRun) {
     Options.SaveArtifacts = false;

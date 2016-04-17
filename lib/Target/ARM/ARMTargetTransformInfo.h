@@ -54,11 +54,17 @@ public:
 
   bool enableInterleavedAccessVectorization() { return true; }
 
+  bool isFPVectorizationPotentiallyUnsafe() {
+    return !ST->hasFPARMv8() && !ST->isTargetDarwin();
+  }
+
   /// \name Scalar TTI Implementations
   /// @{
 
   using BaseT::getIntImmCost;
   int getIntImmCost(const APInt &Imm, Type *Ty);
+
+  int getIntImmCost(unsigned Opcode, unsigned Idx, const APInt &Imm, Type *Ty);
 
   /// @}
 

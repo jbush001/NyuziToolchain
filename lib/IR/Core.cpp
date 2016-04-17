@@ -73,20 +73,30 @@ void LLVMDisposeMessage(char *Message) {
 
 /*===-- Operations on contexts --------------------------------------------===*/
 
+static ManagedStatic<LLVMContext> GlobalContext;
+
 LLVMContextRef LLVMContextCreate() {
   return wrap(new LLVMContext());
 }
 
-LLVMContextRef LLVMGetGlobalContext() {
-  return wrap(&getGlobalContext());
-}
+LLVMContextRef LLVMGetGlobalContext() { return wrap(&*GlobalContext); }
 
 void LLVMContextSetDiagnosticHandler(LLVMContextRef C,
                                      LLVMDiagnosticHandler Handler,
                                      void *DiagnosticContext) {
   unwrap(C)->setDiagnosticHandler(
-      LLVM_EXTENSION reinterpret_cast<LLVMContext::DiagnosticHandlerTy>(Handler),
+      LLVM_EXTENSION reinterpret_cast<LLVMContext::DiagnosticHandlerTy>(
+          Handler),
       DiagnosticContext);
+}
+
+LLVMDiagnosticHandler LLVMContextGetDiagnosticHandler(LLVMContextRef C) {
+  return LLVM_EXTENSION reinterpret_cast<LLVMDiagnosticHandler>(
+      unwrap(C)->getDiagnosticHandler());
+}
+
+void *LLVMContextGetDiagnosticContext(LLVMContextRef C) {
+  return unwrap(C)->getDiagnosticContext();
 }
 
 void LLVMContextSetYieldCallback(LLVMContextRef C, LLVMYieldCallback Callback,
@@ -100,12 +110,12 @@ void LLVMContextDispose(LLVMContextRef C) {
   delete unwrap(C);
 }
 
-unsigned LLVMGetMDKindIDInContext(LLVMContextRef C, const char* Name,
+unsigned LLVMGetMDKindIDInContext(LLVMContextRef C, const char *Name,
                                   unsigned SLen) {
   return unwrap(C)->getMDKindID(StringRef(Name, SLen));
 }
 
-unsigned LLVMGetMDKindID(const char* Name, unsigned SLen) {
+unsigned LLVMGetMDKindID(const char *Name, unsigned SLen) {
   return LLVMGetMDKindIDInContext(LLVMGetGlobalContext(), Name, SLen);
 }
 
@@ -145,7 +155,7 @@ LLVMDiagnosticSeverity LLVMGetDiagInfoSeverity(LLVMDiagnosticInfoRef DI) {
 /*===-- Operations on modules ---------------------------------------------===*/
 
 LLVMModuleRef LLVMModuleCreateWithName(const char *ModuleID) {
-  return wrap(new Module(ModuleID, getGlobalContext()));
+  return wrap(new Module(ModuleID, *GlobalContext));
 }
 
 LLVMModuleRef LLVMModuleCreateWithNameInContext(const char *ModuleID,
@@ -156,6 +166,17 @@ LLVMModuleRef LLVMModuleCreateWithNameInContext(const char *ModuleID,
 void LLVMDisposeModule(LLVMModuleRef M) {
   delete unwrap(M);
 }
+
+const char *LLVMGetModuleIdentifier(LLVMModuleRef M, size_t *Len) {
+  auto &Str = unwrap(M)->getModuleIdentifier();
+  *Len = Str.length();
+  return Str.c_str();
+}
+
+void LLVMSetModuleIdentifier(LLVMModuleRef M, const char *Ident, size_t Len) {
+  unwrap(M)->setModuleIdentifier(StringRef(Ident, Len));
+}
+
 
 /*--.. Data layout .........................................................--*/
 const char *LLVMGetDataLayoutStr(LLVMModuleRef M) {
@@ -539,6 +560,17 @@ LLVMTypeRef LLVMTypeOf(LLVMValueRef Val) {
   return wrap(unwrap(Val)->getType());
 }
 
+LLVMValueKind LLVMGetValueKind(LLVMValueRef Val) {
+    switch(unwrap(Val)->getValueID()) {
+#define HANDLE_VALUE(Name) \
+  case Value::Name##Val: \
+    return LLVM##Name##ValueKind;
+#include "llvm/IR/Value.def"
+  default:
+    return LLVMInstructionValueKind;
+  }
+}
+
 const char *LLVMGetValueName(LLVMValueRef Val) {
   return unwrap(Val)->getName().data();
 }
@@ -769,13 +801,13 @@ LLVMValueRef LLVMMDNode(LLVMValueRef *Vals, unsigned Count) {
   return LLVMMDNodeInContext(LLVMGetGlobalContext(), Vals, Count);
 }
 
-const char *LLVMGetMDString(LLVMValueRef V, unsigned* Len) {
+const char *LLVMGetMDString(LLVMValueRef V, unsigned *Length) {
   if (const auto *MD = dyn_cast<MetadataAsValue>(unwrap(V)))
     if (const MDString *S = dyn_cast<MDString>(MD->getMetadata())) {
-      *Len = S->getString().size();
+      *Length = S->getString().size();
       return S->getString().data();
     }
-  *Len = 0;
+  *Length = 0;
   return nullptr;
 }
 
@@ -925,10 +957,10 @@ LLVMBool LLVMIsConstantString(LLVMValueRef C) {
   return unwrap<ConstantDataSequential>(C)->isString();
 }
 
-const char *LLVMGetAsString(LLVMValueRef C, size_t* Length) {
-  StringRef str = unwrap<ConstantDataSequential>(C)->getAsString();
-  *Length = str.size();
-  return str.data();
+const char *LLVMGetAsString(LLVMValueRef C, size_t *Length) {
+  StringRef Str = unwrap<ConstantDataSequential>(C)->getAsString();
+  *Length = Str.size();
+  return Str.data();
 }
 
 LLVMValueRef LLVMConstArray(LLVMTypeRef ElementTy,
@@ -2591,14 +2623,15 @@ LLVMValueRef LLVMBuildStore(LLVMBuilderRef B, LLVMValueRef Val,
 
 static AtomicOrdering mapFromLLVMOrdering(LLVMAtomicOrdering Ordering) {
   switch (Ordering) {
-    case LLVMAtomicOrderingNotAtomic: return NotAtomic;
-    case LLVMAtomicOrderingUnordered: return Unordered;
-    case LLVMAtomicOrderingMonotonic: return Monotonic;
-    case LLVMAtomicOrderingAcquire: return Acquire;
-    case LLVMAtomicOrderingRelease: return Release;
-    case LLVMAtomicOrderingAcquireRelease: return AcquireRelease;
+    case LLVMAtomicOrderingNotAtomic: return AtomicOrdering::NotAtomic;
+    case LLVMAtomicOrderingUnordered: return AtomicOrdering::Unordered;
+    case LLVMAtomicOrderingMonotonic: return AtomicOrdering::Monotonic;
+    case LLVMAtomicOrderingAcquire: return AtomicOrdering::Acquire;
+    case LLVMAtomicOrderingRelease: return AtomicOrdering::Release;
+    case LLVMAtomicOrderingAcquireRelease:
+      return AtomicOrdering::AcquireRelease;
     case LLVMAtomicOrderingSequentiallyConsistent:
-      return SequentiallyConsistent;
+      return AtomicOrdering::SequentiallyConsistent;
   }
 
   llvm_unreachable("Invalid LLVMAtomicOrdering value!");
@@ -2606,13 +2639,14 @@ static AtomicOrdering mapFromLLVMOrdering(LLVMAtomicOrdering Ordering) {
 
 static LLVMAtomicOrdering mapToLLVMOrdering(AtomicOrdering Ordering) {
   switch (Ordering) {
-    case NotAtomic: return LLVMAtomicOrderingNotAtomic;
-    case Unordered: return LLVMAtomicOrderingUnordered;
-    case Monotonic: return LLVMAtomicOrderingMonotonic;
-    case Acquire: return LLVMAtomicOrderingAcquire;
-    case Release: return LLVMAtomicOrderingRelease;
-    case AcquireRelease: return LLVMAtomicOrderingAcquireRelease;
-    case SequentiallyConsistent:
+    case AtomicOrdering::NotAtomic: return LLVMAtomicOrderingNotAtomic;
+    case AtomicOrdering::Unordered: return LLVMAtomicOrderingUnordered;
+    case AtomicOrdering::Monotonic: return LLVMAtomicOrderingMonotonic;
+    case AtomicOrdering::Acquire: return LLVMAtomicOrderingAcquire;
+    case AtomicOrdering::Release: return LLVMAtomicOrderingRelease;
+    case AtomicOrdering::AcquireRelease:
+      return LLVMAtomicOrderingAcquireRelease;
+    case AtomicOrdering::SequentiallyConsistent:
       return LLVMAtomicOrderingSequentiallyConsistent;
   }
 

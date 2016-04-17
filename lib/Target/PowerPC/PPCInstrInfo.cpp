@@ -1568,11 +1568,18 @@ bool PPCInstrInfo::optimizeCompareInstr(MachineInstr *CmpInstr,
       } else
         return false;
     } else if (is32BitUnsignedCompare) {
+      // 32-bit rotate and mask instructions are zero extending only if MB <= ME
+      bool isZeroExtendingRotate  =
+          (MIOpC == PPC::RLWINM || MIOpC == PPC::RLWINMo ||
+           MIOpC == PPC::RLWNM || MIOpC == PPC::RLWNMo)
+          && MI->getOperand(3).getImm() <= MI->getOperand(4).getImm();
+
       // We can perform this optimization, equality only, if MI is
       // zero-extending.
       if (MIOpC == PPC::CNTLZW || MIOpC == PPC::CNTLZWo ||
           MIOpC == PPC::SLW    || MIOpC == PPC::SLWo ||
-          MIOpC == PPC::SRW    || MIOpC == PPC::SRWo) {
+          MIOpC == PPC::SRW    || MIOpC == PPC::SRWo ||
+          isZeroExtendingRotate) {
         noSub = true;
         equalityOnly = true;
       } else
@@ -1755,6 +1762,10 @@ bool PPCInstrInfo::optimizeCompareInstr(MachineInstr *CmpInstr,
   BuildMI(*MI->getParent(), std::next(MII), MI->getDebugLoc(),
           get(TargetOpcode::COPY), CRReg)
     .addReg(PPC::CR0, MIOpC != NewOpC ? RegState::Kill : 0);
+
+  // Even if CR0 register were dead before, it is alive now since the
+  // instruction we just built uses it.
+  MI->clearRegisterDeads(PPC::CR0);
 
   if (MIOpC != NewOpC) {
     // We need to be careful here: we're replacing one instruction with

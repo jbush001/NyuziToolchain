@@ -444,8 +444,21 @@ static bool collectUsesWithPtrTypes(Value *Val, std::vector<Value*> &WorkList) {
       return false;
 
     if (StoreInst *SI = dyn_cast_or_null<StoreInst>(UseInst)) {
+      if (SI->isVolatile())
+        return false;
+
       // Reject if the stored value is not the pointer operand.
       if (SI->getPointerOperand() != Val)
+        return false;
+    } else if (LoadInst *LI = dyn_cast_or_null<LoadInst>(UseInst)) {
+      if (LI->isVolatile())
+        return false;
+    } else if (AtomicRMWInst *RMW = dyn_cast_or_null<AtomicRMWInst>(UseInst)) {
+      if (RMW->isVolatile())
+        return false;
+    } else if (AtomicCmpXchgInst *CAS
+               = dyn_cast_or_null<AtomicCmpXchgInst>(UseInst)) {
+      if (CAS->isVolatile())
         return false;
     }
 
@@ -483,10 +496,12 @@ void AMDGPUPromoteAlloca::handleAlloca(AllocaInst &I) {
 
   DEBUG(dbgs() << " alloca is not a candidate for vectorization.\n");
 
-  // FIXME: This is the maximum work group size.  We should try to get
-  // value from the reqd_work_group_size function attribute if it is
-  // available.
-  unsigned WorkGroupSize = 256;
+  const Function &ContainingFunction = *I.getParent()->getParent();
+
+  // FIXME: We should also try to get this value from the reqd_work_group_size
+  // function attribute if it is available.
+  unsigned WorkGroupSize = AMDGPU::getMaximumWorkGroupSize(ContainingFunction);
+
   int AllocaSize =
       WorkGroupSize * Mod->getDataLayout().getTypeAllocSize(AllocaTy);
 
@@ -507,7 +522,7 @@ void AMDGPUPromoteAlloca::handleAlloca(AllocaInst &I) {
 
   Function *F = I.getParent()->getParent();
 
-  Type *GVTy = ArrayType::get(I.getAllocatedType(), 256);
+  Type *GVTy = ArrayType::get(I.getAllocatedType(), WorkGroupSize);
   GlobalVariable *GV = new GlobalVariable(
       *Mod, GVTy, false, GlobalValue::InternalLinkage,
       UndefValue::get(GVTy),

@@ -34,9 +34,10 @@
   ins $2, $3, -1, 31       # CHECK: :[[@LINE]]:15: error: expected 5-bit unsigned immediate
   ins $2, $3, 32, 31       # CHECK: :[[@LINE]]:15: error: expected 5-bit unsigned immediate
   ei $32                   # CHECK: :[[@LINE]]:{{[0-9]+}}: error: invalid operand for instruction
-  swe $33, 8($4)           # CHECK: :[[@LINE]]:{{[0-9]+}}: error: invalid operand for instruction
-  swe $5, 8($34)           # CHECK: :[[@LINE]]:{{[0-9]+}}: error: invalid operand for instruction
-  swe $5, 512($4)          # CHECK: :[[@LINE]]:{{[0-9]+}}: error: invalid operand for instruction
+  swe $33, 8($4)           # CHECK: :[[@LINE]]:7: error: invalid operand for instruction
+                           # FIXME: This ought to point at the $34 but memory is treated as one operand.
+  swe $5, 8($34)           # CHECK: :[[@LINE]]:11: error: expected memory with $gp and 9-bit signed offset
+  swe $5, 512($4)          # CHECK: :[[@LINE]]:11: error: expected memory with $gp and 9-bit signed offset
   lbu16 $9, 8($16)         # CHECK: :[[@LINE]]:{{[0-9]+}}: error: invalid operand for instruction
   lbu16 $3, -2($16)        # CHECK: :[[@LINE]]:{{[0-9]+}}: error: immediate operand value out of range
   lbu16 $3, -2($16)        # CHECK: :[[@LINE]]:{{[0-9]+}}: error: immediate operand value out of range
@@ -45,6 +46,8 @@
   lhu16 $3, 64($16)        # CHECK: :[[@LINE]]:{{[0-9]+}}: error: immediate operand value out of range
   lhu16 $3, 64($16)        # CHECK: :[[@LINE]]:{{[0-9]+}}: error: immediate operand value out of range
   lhu16 $16, 4($9)         # CHECK: :[[@LINE]]:{{[0-9]+}}: error: invalid operand for instruction
+  li16 $4, -2              # CHECK: :[[@LINE]]:12: error: expected immediate in range -1 .. 126
+  li16 $4, 127             # CHECK: :[[@LINE]]:12: error: expected immediate in range -1 .. 126
   lsa   $4, $2, $3, 0      # CHECK: :[[@LINE]]:21: error: expected immediate in range 1 .. 4
   lsa   $4, $2, $3, 5      # CHECK: :[[@LINE]]:21: error: expected immediate in range 1 .. 4
   lw16  $9, 8($17)         # CHECK: :[[@LINE]]:{{[0-9]+}}: error: invalid operand for instruction
@@ -96,6 +99,8 @@
   sh16  $4, 68($17)        # CHECK: :[[@LINE]]:{{[0-9]+}}: error: immediate operand value out of range
   sh16  $16, 8($17)        # CHECK: :[[@LINE]]:{{[0-9]+}}: error: invalid operand for instruction
   sh16  $7, 8($9)          # CHECK: :[[@LINE]]:{{[0-9]+}}: error: invalid operand for instruction
+  sync -1                  # CHECK: :[[@LINE]]:8: error: expected 5-bit unsigned immediate
+  sync 32                  # CHECK: :[[@LINE]]:8: error: expected 5-bit unsigned immediate
   sw16  $9, 4($17)         # CHECK: :[[@LINE]]:{{[0-9]+}}: error: invalid operand for instruction
   sw16  $4, 64($17)        # CHECK: :[[@LINE]]:{{[0-9]+}}: error: immediate operand value out of range
   sw16  $16, 4($17)        # CHECK: :[[@LINE]]:{{[0-9]+}}: error: invalid operand for instruction
@@ -108,3 +113,11 @@
   swm16 $16-$20, 8($sp)       # CHECK: :[[@LINE]]:{{[0-9]+}}: error: invalid operand for instruction
   swm16 $16, $17, $ra, 8($fp)  # CHECK: :[[@LINE]]:{{[0-9]+}}: error: invalid operand for instruction
   swm16 $16, $17, $ra, 64($sp) # CHECK: :[[@LINE]]:{{[0-9]+}}: error: invalid operand for instruction
+  mtc0  $4, $3, -1         # CHECK: :[[@LINE]]:17: error: expected 3-bit unsigned immediate
+  mtc0  $4, $3, 8          # CHECK: :[[@LINE]]:17: error: expected 3-bit unsigned immediate
+  mthc0 $4, $3, -1         # CHECK: :[[@LINE]]:17: error: expected 3-bit unsigned immediate
+  mthc0 $4, $3, 8          # CHECK: :[[@LINE]]:17: error: expected 3-bit unsigned immediate
+  mfc0  $4, $3, -1         # CHECK: :[[@LINE]]:17: error: expected 3-bit unsigned immediate
+  mfc0  $4, $3, 8          # CHECK: :[[@LINE]]:17: error: expected 3-bit unsigned immediate
+  mfhc0 $4, $3, -1         # CHECK: :[[@LINE]]:17: error: expected 3-bit unsigned immediate
+  mfhc0 $4, $3, 8          # CHECK: :[[@LINE]]:17: error: expected 3-bit unsigned immediate

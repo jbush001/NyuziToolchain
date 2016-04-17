@@ -14,6 +14,7 @@
 
 #include "llvm/ADT/APFloat.h"
 #include "llvm/ADT/APSInt.h"
+#include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/FoldingSet.h"
 #include "llvm/ADT/Hashing.h"
 #include "llvm/ADT/StringExtras.h"
@@ -3942,7 +3943,12 @@ APFloat::makeZero(bool Negative) {
   category = fcZero;
   sign = Negative;
   exponent = semantics->minExponent-1;
-  APInt::tcSet(significandParts(), 0, partCount());  
+  APInt::tcSet(significandParts(), 0, partCount());
+}
+
+void APFloat::makeQuiet() {
+  assert(isNaN());
+  APInt::tcSetBit(significandParts(), semantics->precision - 2);
 }
 
 int llvm::ilogb(const APFloat &Arg) {
@@ -3979,5 +3985,26 @@ APFloat llvm::scalbn(APFloat X, int Exp, APFloat::roundingMode RoundingMode) {
   // Clamp to one past the range ends to let normalize handle overlflow.
   X.exponent += std::min(std::max(Exp, -MaxIncrement - 1), MaxIncrement);
   X.normalize(RoundingMode, lfExactlyZero);
+  if (X.isNaN())
+    X.makeQuiet();
   return X;
+}
+
+APFloat llvm::frexp(const APFloat &Val, int &Exp, APFloat::roundingMode RM) {
+  Exp = ilogb(Val);
+
+  // Quiet signalling nans.
+  if (Exp == APFloat::IEK_NaN) {
+    APFloat Quiet(Val);
+    Quiet.makeQuiet();
+    return Quiet;
+  }
+
+  if (Exp == APFloat::IEK_Inf)
+    return Val;
+
+  // 1 is added because frexp is defined to return a normalized fraction in
+  // +/-[0.5, 1.0), rather than the usual +/-[1.0, 2.0).
+  Exp = Exp == APFloat::IEK_Zero ? 0 : Exp + 1;
+  return scalbn(Val, -Exp, RM);
 }

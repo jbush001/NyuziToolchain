@@ -35,6 +35,12 @@ public:
   /// Print an error message to an output stream.
   virtual void log(raw_ostream &OS) const = 0;
 
+  /// Convert this error to a std::error_code.
+  ///
+  /// This is a temporary crutch to enable interaction with code still
+  /// using std::error_code. It will be removed in the future.
+  virtual std::error_code convertToErrorCode() const = 0;
+
   // Check whether this instance is a subclass of the class identified by
   // ClassID.
   virtual bool isA(const void *const ClassID) const {
@@ -124,6 +130,10 @@ class Error {
   // handleErrors needs to be able to set the Checked flag.
   template <typename... HandlerTs>
   friend Error handleErrors(Error E, HandlerTs &&... Handlers);
+
+  // Expected<T> needs to be able to steal the payload when constructed from an
+  // error.
+  template <typename T> class Expected;
 
 public:
   /// Create a success value. Prefer using 'Error::success()' for readability
@@ -279,14 +289,8 @@ public:
     return ClassID == classID() || ParentErrT::isA(ClassID);
   }
 
-  static const void *classID() { return &ID; }
-
-private:
-  static char ID;
+  static const void *classID() { return &ThisErrT::ID; }
 };
-
-template <typename MyErrT, typename ParentErrT>
-char ErrorInfo<MyErrT, ParentErrT>::ID = 0;
 
 /// Special ErrorInfo subclass representing a list of ErrorInfos.
 /// Instances of this class are constructed by joinError.
@@ -308,6 +312,11 @@ public:
       OS << "\n";
     }
   }
+
+  std::error_code convertToErrorCode() const override;
+
+  // Used by ErrorInfo::classID.
+  static char ID;
 
 private:
   ErrorList(std::unique_ptr<ErrorInfoBase> Payload1,
@@ -540,6 +549,37 @@ inline void consumeError(Error Err) {
   handleAllErrors(std::move(Err), [](const ErrorInfoBase &) {});
 }
 
+/// Helper for Errors used as out-parameters.
+///
+/// This helper is for use with the Error-as-out-parameter idiom, where an error
+/// is passed to a function or method by reference, rather than being returned.
+/// In such cases it is helpful to set the checked bit on entry to the function
+/// so that the error can be written to (unchecked Errors abort on assignment)
+/// and clear the checked bit on exit so that clients cannot accidentally forget
+/// to check the result. This helper performs these actions automatically using
+/// RAII:
+///
+/// Result foo(Error &Err) {
+///   ErrorAsOutParameter ErrAsOutParam(Err); // 'Checked' flag set
+///   // <body of foo>
+///   // <- 'Checked' flag auto-cleared when ErrAsOutParam is destructed.
+/// }
+class ErrorAsOutParameter {
+public:
+  ErrorAsOutParameter(Error &Err) : Err(Err) {
+    // Raise the checked bit if Err is success.
+    (void)!!Err;
+  }
+  ~ErrorAsOutParameter() {
+    // Clear the checked bit.
+    if (!Err)
+      Err = Error::success();
+  }
+
+private:
+  Error &Err;
+};
+
 /// Tagged union holding either a T or a Error.
 ///
 /// This class parallels ErrorOr, but replaces error_code with Error. Since
@@ -550,6 +590,8 @@ template <class T> class Expected {
   template <class OtherT> friend class Expected;
   static const bool isRef = std::is_reference<T>::value;
   typedef ReferenceStorage<typename std::remove_reference<T>::type> wrap;
+
+  typedef std::unique_ptr<ErrorInfoBase> error_type;
 
 public:
   typedef typename std::conditional<isRef, wrap, T>::type storage_type;
@@ -562,8 +604,14 @@ private:
 
 public:
   /// Create an Expected<T> error value from the given Error.
-  Expected(Error Err) : HasError(true) {
-    assert(Err && "Cannot create Expected from Error success value.");
+  Expected(Error Err)
+      : HasError(true)
+#ifndef NDEBUG
+        ,
+        Checked(false)
+#endif
+  {
+    assert(Err && "Cannot create Expected<T> from Error success value.");
     new (getErrorStorage()) Error(std::move(Err));
   }
 
@@ -573,7 +621,12 @@ public:
   Expected(OtherT &&Val,
            typename std::enable_if<std::is_convertible<OtherT, T>::value>::type
                * = nullptr)
-      : HasError(false) {
+      : HasError(false)
+#ifndef NDEBUG
+        ,
+        Checked(false)
+#endif
+  {
     new (getStorage()) storage_type(std::move(Val));
   }
 
@@ -607,20 +660,32 @@ public:
 
   /// Destroy an Expected<T>.
   ~Expected() {
+    assertIsChecked();
     if (!HasError)
       getStorage()->~storage_type();
     else
-      getErrorStorage()->~Error();
+      getErrorStorage()->~error_type();
   }
 
   /// \brief Return false if there is an error.
-  explicit operator bool() const { return !HasError; }
+  explicit operator bool() {
+#ifndef NDEBUG
+    Checked = !HasError;
+#endif
+    return !HasError;
+  }
 
   /// \brief Returns a reference to the stored T value.
-  reference get() { return *getStorage(); }
+  reference get() {
+    assertIsChecked();
+    return *getStorage();
+  }
 
   /// \brief Returns a const reference to the stored T value.
-  const_reference get() const { return const_cast<Expected<T> *>(this)->get(); }
+  const_reference get() const {
+    assertIsChecked();
+    return const_cast<Expected<T> *>(this)->get();
+  }
 
   /// \brief Check that this Expected<T> is an error of type ErrT.
   template <typename ErrT> bool errorIsA() const {
@@ -632,20 +697,35 @@ public:
   /// only be safely destructed. No further calls (beside the destructor) should
   /// be made on the Expected<T> vaule.
   Error takeError() {
-    return HasError ? std::move(*getErrorStorage()) : Error();
+#ifndef NDEBUG
+    Checked = true;
+#endif
+    return HasError ? Error(std::move(*getErrorStorage())) : Error::success();
   }
 
   /// \brief Returns a pointer to the stored T value.
-  pointer operator->() { return toPointer(getStorage()); }
+  pointer operator->() {
+    assertIsChecked();
+    return toPointer(getStorage());
+  }
 
   /// \brief Returns a const pointer to the stored T value.
-  const_pointer operator->() const { return toPointer(getStorage()); }
+  const_pointer operator->() const {
+    assertIsChecked();
+    return toPointer(getStorage());
+  }
 
   /// \brief Returns a reference to the stored T value.
-  reference operator*() { return *getStorage(); }
+  reference operator*() {
+    assertIsChecked();
+    return *getStorage();
+  }
 
   /// \brief Returns a const reference to the stored T value.
-  const_reference operator*() const { return *getStorage(); }
+  const_reference operator*() const {
+    assertIsChecked();
+    return *getStorage();
+  }
 
 private:
   template <class T1>
@@ -659,18 +739,22 @@ private:
   }
 
   template <class OtherT> void moveConstruct(Expected<OtherT> &&Other) {
-    if (!Other.HasError) {
-      // Get the other value.
-      HasError = false;
+    HasError = Other.HasError;
+
+#ifndef NDEBUG
+    Checked = false;
+    Other.Checked = true;
+#endif
+
+    if (!HasError)
       new (getStorage()) storage_type(std::move(*Other.getStorage()));
-    } else {
-      // Get other's error.
-      HasError = true;
-      new (getErrorStorage()) Error(Other.takeError());
-    }
+    else
+      new (getErrorStorage()) error_type(std::move(*Other.getErrorStorage()));
   }
 
   template <class OtherT> void moveAssign(Expected<OtherT> &&Other) {
+    assertIsChecked();
+
     if (compareThisIfSameType(*this, Other))
       return;
 
@@ -696,16 +780,35 @@ private:
     return reinterpret_cast<const storage_type *>(TStorage.buffer);
   }
 
-  Error *getErrorStorage() {
+  error_type *getErrorStorage() {
     assert(HasError && "Cannot get error when a value exists!");
-    return reinterpret_cast<Error *>(ErrorStorage.buffer);
+    return reinterpret_cast<error_type *>(ErrorStorage.buffer);
+  }
+
+  void assertIsChecked() {
+#ifndef NDEBUG
+    if (!Checked) {
+      dbgs() << "Expected<T> must be checked before access or destruction.\n";
+      if (HasError) {
+        dbgs() << "Unchecked Expected<T> contained error:\n";
+        (*getErrorStorage())->log(dbgs());
+      } else
+        dbgs() << "Expected<T> value was in success state. (Note: Expected<T> "
+                  "values in success mode must still be checked prior to being "
+                  "destroyed).\n";
+      abort();
+    }
+#endif
   }
 
   union {
     AlignedCharArrayUnion<storage_type> TStorage;
-    AlignedCharArrayUnion<Error> ErrorStorage;
+    AlignedCharArrayUnion<error_type> ErrorStorage;
   };
   bool HasError : 1;
+#ifndef NDEBUG
+  bool Checked : 1;
+#endif
 };
 
 /// This class wraps a std::error_code in a Error.
@@ -717,8 +820,12 @@ class ECError : public ErrorInfo<ECError> {
 public:
   ECError() = default;
   ECError(std::error_code EC) : EC(EC) {}
-  std::error_code getErrorCode() const { return EC; }
+  void setErrorCode(std::error_code EC) { this->EC = EC; }
+  std::error_code convertToErrorCode() const override { return EC; }
   void log(raw_ostream &OS) const override { OS << EC.message(); }
+
+  // Used by ErrorInfo::classID.
+  static char ID;
 
 protected:
   std::error_code EC;
@@ -737,9 +844,24 @@ inline Error errorCodeToError(std::error_code EC) {
 /// will trigger a call to abort().
 inline std::error_code errorToErrorCode(Error Err) {
   std::error_code EC;
-  handleAllErrors(std::move(Err),
-                  [&](const ECError &ECE) { EC = ECE.getErrorCode(); });
+  handleAllErrors(std::move(Err), [&](const ErrorInfoBase &EI) {
+    EC = EI.convertToErrorCode();
+  });
   return EC;
+}
+
+/// Convert an ErrorOr<T> to an Expected<T>.
+template <typename T> Expected<T> errorOrToExpected(ErrorOr<T> &&EO) {
+  if (auto EC = EO.getError())
+    return errorCodeToError(EC);
+  return std::move(*EO);
+}
+
+/// Convert an Expected<T> to an ErrorOr<T>.
+template <typename T> ErrorOr<T> expectedToErrorOr(Expected<T> &&E) {
+  if (auto Err = E.takeError())
+    return errorToErrorCode(std::move(Err));
+  return std::move(*E);
 }
 
 /// Helper for check-and-exit error handling.
@@ -748,37 +870,30 @@ inline std::error_code errorToErrorCode(Error Err) {
 ///
 class ExitOnError {
 public:
-
   /// Create an error on exit helper.
   ExitOnError(std::string Banner = "", int DefaultErrorExitCode = 1)
-    : Banner(std::move(Banner)),
-      GetExitCode([=](const Error&) { return DefaultErrorExitCode; }) {}
+      : Banner(std::move(Banner)),
+        GetExitCode([=](const Error &) { return DefaultErrorExitCode; }) {}
 
   /// Set the banner string for any errors caught by operator().
-  void setBanner(std::string Banner) {
-    this->Banner = std::move(Banner);
-  }
+  void setBanner(std::string Banner) { this->Banner = std::move(Banner); }
 
   /// Set the exit-code mapper function.
-  void setExitCodeMapper(std::function<int(const Error&)> GetExitCode) {
+  void setExitCodeMapper(std::function<int(const Error &)> GetExitCode) {
     this->GetExitCode = std::move(GetExitCode);
   }
 
   /// Check Err. If it's in a failure state log the error(s) and exit.
-  void operator()(Error Err) const {
-    checkError(std::move(Err));
-  }
+  void operator()(Error Err) const { checkError(std::move(Err)); }
 
   /// Check E. If it's in a success state return the contained value. If it's
   /// in a failure state log the error(s) and exit.
-  template <typename T>
-  T operator()(Expected<T> &&E) const {
+  template <typename T> T operator()(Expected<T> &&E) const {
     checkError(E.takeError());
     return std::move(*E);
   }
 
 private:
-
   void checkError(Error Err) const {
     if (Err) {
       int ExitCode = GetExitCode(Err);
@@ -788,7 +903,7 @@ private:
   }
 
   std::string Banner;
-  std::function<int(const Error&)> GetExitCode;
+  std::function<int(const Error &)> GetExitCode;
 };
 
 } // namespace llvm
