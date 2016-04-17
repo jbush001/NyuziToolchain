@@ -1101,6 +1101,16 @@ TEST(HasType, MatchesTypedefDecl) {
                       typedefDecl(hasType(asString("foo")), hasName("bar"))));
 }
 
+TEST(HasType, MatchesTypedefNameDecl) {
+  EXPECT_TRUE(matches("using X = int;", typedefNameDecl(hasType(asString("int")))));
+  EXPECT_TRUE(matches("using T = const int;",
+                      typedefNameDecl(hasType(asString("const int")))));
+  EXPECT_TRUE(notMatches("using T = const int;",
+                         typedefNameDecl(hasType(asString("int")))));
+  EXPECT_TRUE(matches("using foo = int; using bar = foo;",
+                      typedefNameDecl(hasType(asString("foo")), hasName("bar"))));
+}
+
 TEST(HasTypeLoc, MatchesDeclaratorDecls) {
   EXPECT_TRUE(matches("int x;",
                       varDecl(hasName("x"), hasTypeLoc(loc(asString("int"))))));
@@ -1633,10 +1643,15 @@ TEST(Matcher, Argument) {
 
 TEST(Matcher, AnyArgument) {
   StatementMatcher CallArgumentY = callExpr(
-      hasAnyArgument(declRefExpr(to(varDecl(hasName("y"))))));
+      hasAnyArgument(
+          ignoringParenImpCasts(declRefExpr(to(varDecl(hasName("y")))))));
   EXPECT_TRUE(matches("void x(int, int) { int y; x(1, y); }", CallArgumentY));
   EXPECT_TRUE(matches("void x(int, int) { int y; x(y, 42); }", CallArgumentY));
   EXPECT_TRUE(notMatches("void x(int, int) { x(1, 2); }", CallArgumentY));
+  
+  StatementMatcher ImplicitCastedArgument = callExpr(
+      hasAnyArgument(implicitCastExpr()));
+  EXPECT_TRUE(matches("void x(long) { int y; x(y); }", ImplicitCastedArgument));
 }
 
 TEST(ForEachArgumentWithParam, ReportsNoFalsePositives) {
@@ -2322,6 +2337,32 @@ TEST(ConstructorDeclaration, Kinds) {
                       cxxConstructorDecl(isMoveConstructor())));
 }
 
+TEST(ConstructorDeclaration, IsUserProvided) {
+  EXPECT_TRUE(notMatches("struct S { int X = 0; };",
+                         cxxConstructorDecl(isUserProvided())));
+  EXPECT_TRUE(notMatches("struct S { S() = default; };",
+                         cxxConstructorDecl(isUserProvided())));
+  EXPECT_TRUE(notMatches("struct S { S() = delete; };",
+                         cxxConstructorDecl(isUserProvided())));
+  EXPECT_TRUE(
+      matches("struct S { S(); };", cxxConstructorDecl(isUserProvided())));
+  EXPECT_TRUE(matches("struct S { S(); }; S::S(){}",
+                      cxxConstructorDecl(isUserProvided())));
+}
+
+TEST(ConstructorDeclaration, IsDelegatingConstructor) {
+  EXPECT_TRUE(notMatches("struct S { S(); S(int); int X; };",
+                         cxxConstructorDecl(isDelegatingConstructor())));
+  EXPECT_TRUE(notMatches("struct S { S(){} S(int X) : X(X) {} int X; };",
+                         cxxConstructorDecl(isDelegatingConstructor())));
+  EXPECT_TRUE(matches(
+      "struct S { S() : S(0) {} S(int X) : X(X) {} int X; };",
+      cxxConstructorDecl(isDelegatingConstructor(), parameterCountIs(0))));
+  EXPECT_TRUE(matches(
+      "struct S { S(); S(int X); int X; }; S::S(int X) : S() {}",
+      cxxConstructorDecl(isDelegatingConstructor(), parameterCountIs(1))));
+}
+
 TEST(DestructorDeclaration, MatchesVirtualDestructor) {
   EXPECT_TRUE(matches("class Foo { virtual ~Foo(); };",
                       cxxDestructorDecl(ofClass(hasName("Foo")))));
@@ -3000,6 +3041,9 @@ TEST(Matcher, HasAnyName) {
   EXPECT_TRUE(notMatches(Code, recordDecl(hasAnyName("::C", "::b::C"))));
   EXPECT_TRUE(
       matches(Code, recordDecl(hasAnyName("::C", "::b::C", "::a::b::C"))));
+
+  std::vector<StringRef> Names = {"::C", "::b::C", "::a::b::C"};
+  EXPECT_TRUE(matches(Code, recordDecl(hasAnyName(Names))));
 }
 
 TEST(Matcher, IsDefinition) {
@@ -5370,9 +5414,25 @@ TEST(EqualsBoundNodeMatcher, UnlessDescendantsOfAncestorsMatch) {
           .bind("data")));
 }
 
-TEST(TypeDefDeclMatcher, Match) {
+TEST(TypedefDeclMatcher, Match) {
   EXPECT_TRUE(matches("typedef int typedefDeclTest;",
                       typedefDecl(hasName("typedefDeclTest"))));
+  EXPECT_TRUE(notMatches("using typedefDeclTest2 = int;",
+                         typedefDecl(hasName("typedefDeclTest2"))));
+}
+
+TEST(TypeAliasDeclMatcher, Match) {
+  EXPECT_TRUE(matches("using typeAliasTest2 = int;",
+                      typeAliasDecl(hasName("typeAliasTest2"))));
+  EXPECT_TRUE(notMatches("typedef int typeAliasTest;",
+                         typeAliasDecl(hasName("typeAliasTest"))));
+}
+
+TEST(TypedefNameDeclMatcher, Match) {
+  EXPECT_TRUE(matches("typedef int typedefNameDeclTest1;",
+                      typedefNameDecl(hasName("typedefNameDeclTest1"))));
+  EXPECT_TRUE(matches("using typedefNameDeclTest2 = int;",
+                      typedefNameDecl(hasName("typedefNameDeclTest2"))));
 }
 
 TEST(IsInlineMatcher, IsInline) {
@@ -5486,6 +5546,13 @@ TEST(NullPointerConstants, Basic) {
   EXPECT_TRUE(matches("char *cp = (char *)0;", expr(nullPointerConstant())));
   EXPECT_TRUE(matches("int *ip = 0;", expr(nullPointerConstant())));
   EXPECT_TRUE(notMatches("int i = 0;", expr(nullPointerConstant())));
+}
+
+TEST(StatementMatcher, HasReturnValue) {
+  StatementMatcher RetVal = returnStmt(hasReturnValue(binaryOperator()));
+  EXPECT_TRUE(matches("int F() { int a, b; return a + b; }", RetVal));
+  EXPECT_FALSE(matches("int F() { int a; return a; }", RetVal));
+  EXPECT_FALSE(matches("void F() { return; }", RetVal));
 }
 
 } // end namespace ast_matchers

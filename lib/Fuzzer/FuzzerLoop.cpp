@@ -164,7 +164,7 @@ void Fuzzer::AlarmCallback() {
       __sanitizer_print_stack_trace();
     Printf("SUMMARY: libFuzzer: timeout\n");
     PrintFinalStats();
-    exit(Options.TimeoutExitCode);
+    _Exit(Options.TimeoutExitCode); // Stop right now.
   }
 }
 
@@ -503,8 +503,9 @@ void Fuzzer::MutateAndTestOne() {
 
   auto &U = ChooseUnitToMutate();
   MutateInPlaceHere.resize(Options.MaxLen);
-  memcpy(MutateInPlaceHere.data(), U.data(), U.size());
   size_t Size = U.size();
+  assert(Size <= Options.MaxLen && "Oversized Unit");
+  memcpy(MutateInPlaceHere.data(), U.data(), Size);
 
   for (int i = 0; i < Options.MutateDepth; i++) {
     size_t NewSize = 0;

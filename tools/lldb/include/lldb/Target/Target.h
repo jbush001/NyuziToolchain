@@ -149,6 +149,12 @@ public:
     GetEnableAutoImportClangModules () const;
     
     bool
+    GetEnableAutoApplyFixIts () const;
+    
+    bool
+    GetEnableNotifyAboutFixIts () const;
+    
+    bool
     GetEnableSyntheticValue () const;
     
     uint32_t
@@ -257,8 +263,10 @@ class EvaluateExpressionOptions
 {
 public:
     static const uint32_t default_timeout = 500000;
+    static const ExecutionPolicy default_execution_policy = eExecutionPolicyOnlyWhenNeeded;
+    
     EvaluateExpressionOptions() :
-        m_execution_policy(eExecutionPolicyOnlyWhenNeeded),
+        m_execution_policy(default_execution_policy),
         m_language (lldb::eLanguageTypeUnknown),
         m_prefix (), // A prefix specific to this expression that is added after the prefix from the settings (if any)
         m_coerce_to_id (false),
@@ -271,6 +279,7 @@ public:
         m_trap_exceptions (true),
         m_generate_debug_info (false),
         m_result_is_internal (false),
+        m_auto_apply_fixits (true),
         m_use_dynamic (lldb::eNoDynamicValues),
         m_timeout_usec (default_timeout),
         m_one_thread_timeout_usec (0),
@@ -541,6 +550,18 @@ public:
     {
         return m_result_is_internal;
     }
+    
+    void
+    SetAutoApplyFixIts(bool b)
+    {
+        m_auto_apply_fixits = b;
+    }
+    
+    bool
+    GetAutoApplyFixIts() const
+    {
+        return m_auto_apply_fixits;
+    }
 
 private:
     ExecutionPolicy m_execution_policy;
@@ -558,6 +579,7 @@ private:
     bool m_generate_debug_info;
     bool m_ansi_color_errors;
     bool m_result_is_internal;
+    bool m_auto_apply_fixits;
     lldb::DynamicValueType m_use_dynamic;
     uint32_t m_timeout_usec;
     uint32_t m_one_thread_timeout_usec;
@@ -1356,7 +1378,8 @@ public:
     EvaluateExpression (const char *expression,
                         ExecutionContextScope *exe_scope,
                         lldb::ValueObjectSP &result_valobj_sp,
-                        const EvaluateExpressionOptions& options = EvaluateExpressionOptions());
+                        const EvaluateExpressionOptions& options = EvaluateExpressionOptions(),
+                        std::string *fixed_expression = nullptr);
 
     lldb::ExpressionVariableSP
     GetPersistentVariable(const ConstString &name);

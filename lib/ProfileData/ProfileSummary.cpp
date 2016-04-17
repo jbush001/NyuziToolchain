@@ -15,6 +15,7 @@
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/Metadata.h"
+#include "llvm/IR/Module.h"
 #include "llvm/IR/Type.h"
 #include "llvm/ProfileData/InstrProf.h"
 #include "llvm/ProfileData/ProfileCommon.h"
@@ -32,6 +33,10 @@ const std::vector<uint32_t> ProfileSummary::DefaultCutoffs(
      900000, 950000, 990000, 999000, 999900, 999990, 999999});
 const char *ProfileSummary::KindStr[2] = {"InstrProf", "SampleProfile"};
 
+ManagedStatic<std::pair<Module *, std::unique_ptr<ProfileSummary>>>
+    ProfileSummary::CachedSummary;
+ManagedStatic<sys::SmartMutex<true>> ProfileSummary::CacheMutex;
+
 void InstrProfSummary::addRecord(const InstrProfRecord &R) {
   addEntryCount(R.Counts[0]);
   for (size_t I = 1, E = R.Counts.size(); I < E; ++I)
@@ -42,8 +47,8 @@ void InstrProfSummary::addRecord(const InstrProfRecord &R) {
 // equivalent to a block with a count in the instrumented profile.
 void SampleProfileSummary::addRecord(const sampleprof::FunctionSamples &FS) {
   NumFunctions++;
-  if (FS.getHeadSamples() > MaxHeadSamples)
-    MaxHeadSamples = FS.getHeadSamples();
+  if (FS.getHeadSamples() > MaxFunctionCount)
+    MaxFunctionCount = FS.getHeadSamples();
   for (const auto &I : FS.getBodySamples())
     addCount(I.second.getSamples());
 }
@@ -82,6 +87,39 @@ void ProfileSummary::computeDetailedSummary() {
   }
 }
 
+bool ProfileSummary::operator==(ProfileSummary &Other) {
+  if (getKind() != Other.getKind())
+    return false;
+  if (TotalCount != Other.TotalCount)
+    return false;
+  if (MaxCount != Other.MaxCount)
+    return false;
+  if (MaxFunctionCount != Other.MaxFunctionCount)
+    return false;
+  if (NumFunctions != Other.NumFunctions)
+    return false;
+  if (NumCounts != Other.NumCounts)
+    return false;
+  std::vector<ProfileSummaryEntry> DS1 = getDetailedSummary();
+  std::vector<ProfileSummaryEntry> DS2 = Other.getDetailedSummary();
+  auto CompareSummaryEntry = [](ProfileSummaryEntry &E1,
+                                ProfileSummaryEntry &E2) {
+    return E1.Cutoff == E2.Cutoff && E1.MinCount == E2.MinCount &&
+           E1.NumCounts == E2.NumCounts;
+  };
+  if (!std::equal(DS1.begin(), DS1.end(), DS2.begin(), CompareSummaryEntry))
+    return false;
+  return true;
+}
+
+bool InstrProfSummary::operator==(ProfileSummary &Other) {
+  InstrProfSummary *OtherIPS = dyn_cast<InstrProfSummary>(&Other);
+  if (!OtherIPS)
+    return false;
+  return MaxInternalBlockCount == OtherIPS->MaxInternalBlockCount &&
+         ProfileSummary::operator==(Other);
+}
+
 // Returns true if the function is a hot function.
 bool ProfileSummary::isFunctionHot(const Function *F) {
   // FIXME: update when summary data is stored in module's metadata.
@@ -103,13 +141,13 @@ bool ProfileSummary::isFunctionUnlikely(const Function *F) {
 InstrProfSummary::InstrProfSummary(const IndexedInstrProf::Summary &S)
     : ProfileSummary(PSK_Instr),
       MaxInternalBlockCount(
-          S.get(IndexedInstrProf::Summary::MaxInternalBlockCount)),
-      MaxFunctionCount(S.get(IndexedInstrProf::Summary::MaxFunctionCount)),
-      NumFunctions(S.get(IndexedInstrProf::Summary::TotalNumFunctions)) {
+          S.get(IndexedInstrProf::Summary::MaxInternalBlockCount)) {
 
   TotalCount = S.get(IndexedInstrProf::Summary::TotalBlockCount);
   MaxCount = S.get(IndexedInstrProf::Summary::MaxBlockCount);
+  MaxFunctionCount = S.get(IndexedInstrProf::Summary::MaxFunctionCount);
   NumCounts = S.get(IndexedInstrProf::Summary::TotalNumBlocks);
+  NumFunctions = S.get(IndexedInstrProf::Summary::TotalNumFunctions);
 
   for (unsigned I = 0; I < S.NumCutoffEntries; I++) {
     const IndexedInstrProf::Summary::Entry &Ent = S.getEntry(I);
@@ -117,6 +155,7 @@ InstrProfSummary::InstrProfSummary(const IndexedInstrProf::Summary &S)
                                  Ent.NumBlocks);
   }
 }
+
 void InstrProfSummary::addEntryCount(uint64_t Count) {
   addCount(Count);
   NumFunctions++;
@@ -213,7 +252,7 @@ SampleProfileSummary::getFormatSpecificMD(LLVMContext &Context) {
   Components.push_back(
       getKeyValMD(Context, "MaxSamplesPerLine", getMaxSamplesPerLine()));
   Components.push_back(
-      getKeyValMD(Context, "MaxHeadSamples", getMaxHeadSamples()));
+      getKeyValMD(Context, "MaxFunctionCount", getMaxFunctionCount()));
   Components.push_back(
       getKeyValMD(Context, "NumLinesWithSamples", getNumLinesWithSamples()));
   Components.push_back(getKeyValMD(Context, "NumFunctions", NumFunctions));
@@ -317,8 +356,8 @@ static ProfileSummary *getInstrProfSummaryFromMD(MDTuple *Tuple) {
 
 // Parse an MDTuple representing a SampleProfileSummary object.
 static ProfileSummary *getSampleProfileSummaryFromMD(MDTuple *Tuple) {
-  uint64_t TotalSamples, MaxSamplesPerLine, MaxHeadSamples, NumLinesWithSamples,
-      NumFunctions;
+  uint64_t TotalSamples, MaxSamplesPerLine, MaxFunctionCount,
+      NumLinesWithSamples, NumFunctions;
   SummaryEntryVector Summary;
 
   if (Tuple->getNumOperands() != 7)
@@ -331,8 +370,8 @@ static ProfileSummary *getSampleProfileSummaryFromMD(MDTuple *Tuple) {
   if (!getVal(dyn_cast<MDTuple>(Tuple->getOperand(2)), "MaxSamplesPerLine",
               MaxSamplesPerLine))
     return nullptr;
-  if (!getVal(dyn_cast<MDTuple>(Tuple->getOperand(3)), "MaxHeadSamples",
-              MaxHeadSamples))
+  if (!getVal(dyn_cast<MDTuple>(Tuple->getOperand(3)), "MaxFunctionCount",
+              MaxFunctionCount))
     return nullptr;
   if (!getVal(dyn_cast<MDTuple>(Tuple->getOperand(4)), "NumLinesWithSamples",
               NumLinesWithSamples))
@@ -343,7 +382,7 @@ static ProfileSummary *getSampleProfileSummaryFromMD(MDTuple *Tuple) {
   if (!getSummaryFromMD(dyn_cast<MDTuple>(Tuple->getOperand(6)), Summary))
     return nullptr;
   return new SampleProfileSummary(TotalSamples, MaxSamplesPerLine,
-                                  MaxHeadSamples, NumLinesWithSamples,
+                                  MaxFunctionCount, NumLinesWithSamples,
                                   NumFunctions, Summary);
 }
 
@@ -360,4 +399,10 @@ ProfileSummary *ProfileSummary::getFromMD(Metadata *MD) {
     return getInstrProfSummaryFromMD(Tuple);
   else
     return nullptr;
+}
+
+ProfileSummary *ProfileSummary::computeProfileSummary(Module *M) {
+  if (Metadata *MD = M->getProfileSummary())
+    return getFromMD(MD);
+  return nullptr;
 }

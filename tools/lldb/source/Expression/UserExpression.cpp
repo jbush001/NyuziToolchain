@@ -160,6 +160,7 @@ UserExpression::Evaluate (ExecutionContext &exe_ctx,
                                lldb::ValueObjectSP &result_valobj_sp,
                                Error &error,
                                uint32_t line_offset,
+                               std::string *fixed_expression,
                                lldb::ModuleSP *jit_module_sp_ptr)
 {
     Log *log(lldb_private::GetLogIfAnyCategoriesSet (LIBLLDB_LOG_EXPRESSIONS | LIBLLDB_LOG_STEP));
@@ -194,6 +195,11 @@ UserExpression::Evaluate (ExecutionContext &exe_ctx,
 
     if (process == NULL || !process->CanJIT())
         execution_policy = eExecutionPolicyNever;
+    
+    // We need to set the expression execution thread here, turns out parse can call functions in the process of
+    // looking up symbols, which will escape the context set by exe_ctx passed to Execute.
+    lldb::ThreadSP thread_sp = exe_ctx.GetThreadSP();
+    ThreadList::ExpressionExecutionThreadPusher execution_thread_pusher(thread_sp);
 
     const char *full_prefix = NULL;
     const char *option_prefix = options.GetPrefix();
@@ -249,16 +255,69 @@ UserExpression::Evaluate (ExecutionContext &exe_ctx,
 
     DiagnosticManager diagnostic_manager;
 
-    if (!user_expression_sp->Parse(diagnostic_manager, exe_ctx, execution_policy, keep_expression_in_memory,
-                                   generate_debug_info))
+    bool parse_success = user_expression_sp->Parse(diagnostic_manager,
+                                                   exe_ctx,
+                                                   execution_policy,
+                                                   keep_expression_in_memory,
+                                                   generate_debug_info);
+    
+    // Calculate the fixed expression always, since we need it for errors.
+    std::string tmp_fixed_expression;
+    if (fixed_expression == nullptr)
+        fixed_expression = &tmp_fixed_expression;
+
+    const char *fixed_text = user_expression_sp->GetFixedText();
+    if (fixed_text != nullptr)
+            fixed_expression->append(fixed_text);
+    
+    // If there is a fixed expression, try to parse it:
+    if (!parse_success)
     {
         execution_results = lldb::eExpressionParseError;
-        if (!diagnostic_manager.Diagnostics().size())
-            error.SetExpressionError(execution_results, "expression failed to parse, unknown error");
-        else
-            error.SetExpressionError(execution_results, diagnostic_manager.GetString().c_str());
+        if (fixed_expression && !fixed_expression->empty() && options.GetAutoApplyFixIts())
+        {
+            lldb::UserExpressionSP fixed_expression_sp(target->GetUserExpressionForLanguage (fixed_expression->c_str(),
+                                                                                             full_prefix,
+                                                                                             language,
+                                                                                             desired_type,
+                                                                                             options,
+                                                                                             error));
+            DiagnosticManager fixed_diagnostic_manager;
+            parse_success = fixed_expression_sp->Parse(fixed_diagnostic_manager,
+                                                       exe_ctx,
+                                                       execution_policy,
+                                                       keep_expression_in_memory,
+                                                       generate_debug_info);
+            if (parse_success)
+            {
+                diagnostic_manager.Clear();
+                user_expression_sp = fixed_expression_sp;
+            }
+            else
+            {
+                // If the fixed expression failed to parse, don't tell the user about, that won't help.
+                fixed_expression->clear();
+            }
+        }
+        
+        if (!parse_success)
+        {
+            if (!fixed_expression->empty() && target->GetEnableNotifyAboutFixIts())
+            {
+                error.SetExpressionErrorWithFormat(execution_results, "expression failed to parse, fixed expression suggested:\n  %s",
+                                                   fixed_expression->c_str());
+            }
+            else
+            {
+                if (!diagnostic_manager.Diagnostics().size())
+                    error.SetExpressionError(execution_results, "expression failed to parse, unknown error");
+                else
+                    error.SetExpressionError(execution_results, diagnostic_manager.GetString().c_str());
+            }
+        }
     }
-    else
+    
+    if (parse_success)
     {
         // If a pointer to a lldb::ModuleSP was passed in, return the JIT'ed module if one was created
         if (jit_module_sp_ptr)
@@ -274,6 +333,11 @@ UserExpression::Evaluate (ExecutionContext &exe_ctx,
 
             if (!diagnostic_manager.Diagnostics().size())
                 error.SetExpressionError(lldb::eExpressionSetupError, "expression needed to run but couldn't");
+        }
+        else if (execution_policy == eExecutionPolicyTopLevel)
+        {
+            error.SetError(UserExpression::kNoResult, lldb::eErrorTypeGeneric);
+            return lldb::eExpressionCompleted;
         }
         else
         {
@@ -291,11 +355,6 @@ UserExpression::Evaluate (ExecutionContext &exe_ctx,
 
             execution_results =
                 user_expression_sp->Execute(diagnostic_manager, exe_ctx, options, user_expression_sp, expr_result);
-
-            if (options.GetResultIsInternal() && expr_result && process)
-            {
-                process->GetTarget().GetPersistentExpressionStateForLanguage(language)->RemovePersistentVariable (expr_result);
-            }
 
             if (execution_results != lldb::eExpressionCompleted)
             {
@@ -341,3 +400,21 @@ UserExpression::Evaluate (ExecutionContext &exe_ctx,
 
     return execution_results;
 }
+
+lldb::ExpressionResults
+UserExpression::Execute(DiagnosticManager &diagnostic_manager,
+                        ExecutionContext &exe_ctx,
+                        const EvaluateExpressionOptions &options,
+                        lldb::UserExpressionSP &shared_ptr_to_me,
+                        lldb::ExpressionVariableSP &result_var)
+{
+    lldb::ExpressionResults expr_result = DoExecute(diagnostic_manager, exe_ctx, options, shared_ptr_to_me, result_var);
+    Target *target = exe_ctx.GetTargetPtr();
+    if (options.GetResultIsInternal() && result_var && target)
+    {
+        target->GetPersistentExpressionStateForLanguage(m_language)->RemovePersistentVariable (result_var);
+    }
+    return expr_result;
+}
+
+

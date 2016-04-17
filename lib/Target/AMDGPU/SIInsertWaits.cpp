@@ -519,7 +519,7 @@ void SIInsertWaits::insertDPPWaitStates(MachineBasicBlock::iterator DPP,
         continue;
 
       if (DPP->readsRegister(Op.getReg(), TRI)) {
-        TII->insertWaitStates(DPP, WaitStates);
+        TII->insertWaitStates(*DPP->getParent(), DPP, WaitStates);
         return;
       }
     }
@@ -600,6 +600,12 @@ bool SIInsertWaits::runOnMachineFunction(MachineFunction &MF) {
       if (TII->isDPP(*I)) {
         insertDPPWaitStates(I);
       }
+
+      // Insert required wait states for SMRD reading an SGPR written by a VALU
+      // instruction.
+      if (ST.getGeneration() <= AMDGPUSubtarget::SOUTHERN_ISLANDS &&
+          I->getOpcode() == AMDGPU::V_READFIRSTLANE_B32)
+        TII->insertWaitStates(MBB, std::next(I), 4);
 
       // Wait for everything before a barrier.
       if (I->getOpcode() == AMDGPU::S_BARRIER)

@@ -16,6 +16,7 @@
 
 #include "llvm/ADT/Statistic.h"
 #include "llvm/ADT/StringExtras.h"
+#include "llvm/Analysis/ModuleSummaryAnalysis.h"
 #include "llvm/Analysis/TargetLibraryInfo.h"
 #include "llvm/Analysis/TargetTransformInfo.h"
 #include "llvm/Bitcode/BitcodeWriterPass.h"
@@ -29,6 +30,7 @@
 #include "llvm/Linker/Linker.h"
 #include "llvm/MC/SubtargetFeature.h"
 #include "llvm/Object/ModuleSummaryIndexObjectFile.h"
+#include "llvm/Support/Debug.h"
 #include "llvm/Support/SourceMgr.h"
 #include "llvm/Support/TargetRegistry.h"
 #include "llvm/Support/ThreadPool.h"
@@ -40,6 +42,8 @@
 #include "llvm/Transforms/Utils/FunctionImportUtils.h"
 
 using namespace llvm;
+
+#define DEBUG_TYPE "thinlto"
 
 namespace llvm {
 // Flags -discard-value-names, defined in LTOCodeGenerator.cpp
@@ -91,7 +95,124 @@ static void saveTempBitcode(const Module &TheModule, StringRef TempDir,
   if (EC)
     report_fatal_error(Twine("Failed to open ") + SaveTempPath +
                        " to save optimized bitcode\n");
-  WriteBitcodeToFile(&TheModule, OS, true, false);
+  WriteBitcodeToFile(&TheModule, OS, /* ShouldPreserveUseListOrder */ true);
+}
+
+bool IsFirstDefinitionForLinker(const GlobalValueInfoList &GVInfo,
+                                const ModuleSummaryIndex &Index,
+                                StringRef ModulePath) {
+  // Get the first *linker visible* definition for this global in the summary
+  // list.
+  auto FirstDefForLinker = llvm::find_if(
+      GVInfo, [](const std::unique_ptr<GlobalValueInfo> &FuncInfo) {
+        auto Linkage = FuncInfo->summary()->linkage();
+        return !GlobalValue::isAvailableExternallyLinkage(Linkage);
+      });
+  // If \p GV is not the first definition, give up...
+  if ((*FirstDefForLinker)->summary()->modulePath() != ModulePath)
+    return false;
+  // If there is any strong definition anywhere, do not bother emitting this.
+  if (llvm::any_of(
+          GVInfo, [](const std::unique_ptr<GlobalValueInfo> &FuncInfo) {
+            auto Linkage = FuncInfo->summary()->linkage();
+            return !GlobalValue::isAvailableExternallyLinkage(Linkage) &&
+                   !GlobalValue::isWeakForLinker(Linkage);
+          }))
+    return false;
+  return true;
+}
+
+static GlobalValue::LinkageTypes ResolveODR(const ModuleSummaryIndex &Index,
+                                            StringRef ModuleIdentifier,
+                                            GlobalValue::GUID GUID,
+                                            const GlobalValueSummary &GV) {
+  auto HasMultipleCopies =
+      [&](const GlobalValueInfoList &GVInfo) { return GVInfo.size() > 1; };
+
+  auto OriginalLinkage = GV.linkage();
+  switch (OriginalLinkage) {
+  case GlobalValue::ExternalLinkage:
+  case GlobalValue::AvailableExternallyLinkage:
+  case GlobalValue::AppendingLinkage:
+  case GlobalValue::InternalLinkage:
+  case GlobalValue::PrivateLinkage:
+  case GlobalValue::ExternalWeakLinkage:
+  case GlobalValue::CommonLinkage:
+  case GlobalValue::LinkOnceAnyLinkage:
+  case GlobalValue::WeakAnyLinkage:
+    break;
+  case GlobalValue::LinkOnceODRLinkage:
+  case GlobalValue::WeakODRLinkage: {
+    auto &GVInfo = Index.findGlobalValueInfoList(GUID)->second;
+    // We need to emit only one of these, the first module will keep
+    // it, but turned into a weak while the others will drop it.
+    if (!HasMultipleCopies(GVInfo))
+      break;
+    if (IsFirstDefinitionForLinker(GVInfo, Index, ModuleIdentifier))
+      return GlobalValue::WeakODRLinkage;
+    else
+      return GlobalValue::AvailableExternallyLinkage;
+    break;
+  }
+  }
+  return OriginalLinkage;
+}
+
+/// Resolve LinkOnceODR and WeakODR.
+///
+/// We'd like to drop these function if they are no longer referenced in the
+/// current module. However there is a chance that another module is still
+/// referencing them because of the import. We make sure we always emit at least
+/// one copy.
+static void ResolveODR(
+    const ModuleSummaryIndex &Index,
+    const std::map<GlobalValue::GUID, GlobalValueSummary *> &DefinedGlobals,
+    StringRef ModuleIdentifier,
+    DenseMap<GlobalValue::GUID, GlobalValue::LinkageTypes> &ResolvedODR) {
+  if (Index.modulePaths().size() == 1)
+    // Nothing to do if we don't have multiple modules
+    return;
+
+  // We won't optimize the globals that are referenced by an alias for now
+  // Ideally we should turn the alias into a global and duplicate the definition
+  // when needed.
+  DenseSet<GlobalValueSummary *> GlobalInvolvedWithAlias;
+  for (auto &GA : DefinedGlobals) {
+    if (auto AS = dyn_cast<AliasSummary>(GA.second))
+      GlobalInvolvedWithAlias.insert(&AS->getAliasee());
+  }
+
+  for (auto &GV : DefinedGlobals) {
+    if (GlobalInvolvedWithAlias.count(GV.second))
+      continue;
+    auto NewLinkage = ResolveODR(Index, ModuleIdentifier, GV.first, *GV.second);
+    if (NewLinkage != GV.second->linkage()) {
+      ResolvedODR[GV.first] = NewLinkage;
+    }
+  }
+}
+
+/// Fixup linkage, see ResolveODR() above.
+void fixupODR(
+    Module &TheModule,
+    const DenseMap<GlobalValue::GUID, GlobalValue::LinkageTypes> &ResolvedODR) {
+  // Process functions and global now
+  for (auto &GV : TheModule) {
+    auto NewLinkage = ResolvedODR.find(GV.getGUID());
+    if (NewLinkage == ResolvedODR.end())
+      continue;
+    DEBUG(dbgs() << "ODR fixing up linkage for `" << GV.getName() << "` from "
+                 << GV.getLinkage() << " to " << NewLinkage->second << "\n");
+    GV.setLinkage(NewLinkage->second);
+  }
+  for (auto &GV : TheModule.globals()) {
+    auto NewLinkage = ResolvedODR.find(GV.getGUID());
+    if (NewLinkage == ResolvedODR.end())
+      continue;
+    DEBUG(dbgs() << "ODR fixing up linkage for `" << GV.getName() << "` from "
+                 << GV.getLinkage() << " to " << NewLinkage->second << "\n");
+    GV.setLinkage(NewLinkage->second);
+  }
 }
 
 static StringMap<MemoryBufferRef>
@@ -131,12 +252,13 @@ static void promoteModule(Module &TheModule, const ModuleSummaryIndex &Index) {
     report_fatal_error("renameModuleForThinLTO failed");
 }
 
-static void crossImportIntoModule(Module &TheModule,
-                                  const ModuleSummaryIndex &Index,
-                                  StringMap<MemoryBufferRef> &ModuleMap) {
+static void
+crossImportIntoModule(Module &TheModule, const ModuleSummaryIndex &Index,
+                      StringMap<MemoryBufferRef> &ModuleMap,
+                      const FunctionImporter::ImportMapTy &ImportList) {
   ModuleLoader Loader(TheModule.getContext(), ModuleMap);
   FunctionImporter Importer(Index, Loader);
-  Importer.importFunctions(TheModule);
+  Importer.importFunctions(TheModule, ImportList);
 }
 
 static void optimizeModule(Module &TheModule, TargetMachine &TM) {
@@ -159,7 +281,6 @@ static void optimizeModule(Module &TheModule, TargetMachine &TM) {
 
   // Add optimizations
   PMB.populateThinLTOPassManager(PM);
-  PM.add(createObjCARCContractPass());
 
   PM.run(TheModule);
 }
@@ -172,6 +293,12 @@ std::unique_ptr<MemoryBuffer> codegenModule(Module &TheModule,
   {
     raw_svector_ostream OS(OutputBuffer);
     legacy::PassManager PM;
+
+    // If the bitcode files contain ARC code and were compiled with optimization,
+    // the ObjCARCContractPass must be run, so do it unconditionally here.
+    PM.add(createObjCARCContractPass());
+
+    // Setup the codegen now.
     if (TM.addPassesToEmitFile(PM, OS, TargetMachine::CGFT_ObjectFile,
                                /* DisableVerify */ true))
       report_fatal_error("Failed to setup codegen");
@@ -182,11 +309,13 @@ std::unique_ptr<MemoryBuffer> codegenModule(Module &TheModule,
   return make_unique<ObjectMemoryBuffer>(std::move(OutputBuffer));
 }
 
-static std::unique_ptr<MemoryBuffer>
-ProcessThinLTOModule(Module &TheModule, const ModuleSummaryIndex &Index,
-                     StringMap<MemoryBufferRef> &ModuleMap, TargetMachine &TM,
-                     ThinLTOCodeGenerator::CachingOptions CacheOptions,
-                     StringRef SaveTempsDir, unsigned count) {
+static std::unique_ptr<MemoryBuffer> ProcessThinLTOModule(
+    Module &TheModule, const ModuleSummaryIndex &Index,
+    StringMap<MemoryBufferRef> &ModuleMap, TargetMachine &TM,
+    const FunctionImporter::ImportMapTy &ImportList,
+    DenseMap<GlobalValue::GUID, GlobalValue::LinkageTypes> &ResolvedODR,
+    ThinLTOCodeGenerator::CachingOptions CacheOptions, bool DisableCodeGen,
+    StringRef SaveTempsDir, unsigned count) {
 
   // Save temps: after IPO.
   saveTempBitcode(TheModule, SaveTempsDir, count, ".1.IPO.bc");
@@ -197,10 +326,15 @@ ProcessThinLTOModule(Module &TheModule, const ModuleSummaryIndex &Index,
   if (!SingleModule) {
     promoteModule(TheModule, Index);
 
+    // Resolve the LinkOnce/Weak ODR, trying to turn them into
+    // "available_externally" when possible.
+    // This is a compile-time optimization.
+    fixupODR(TheModule, ResolvedODR);
+
     // Save temps: after promotion.
     saveTempBitcode(TheModule, SaveTempsDir, count, ".2.promoted.bc");
 
-    crossImportIntoModule(TheModule, Index, ModuleMap);
+    crossImportIntoModule(TheModule, Index, ModuleMap, ImportList);
 
     // Save temps: after cross-module import.
     saveTempBitcode(TheModule, SaveTempsDir, count, ".3.imported.bc");
@@ -209,6 +343,17 @@ ProcessThinLTOModule(Module &TheModule, const ModuleSummaryIndex &Index,
   optimizeModule(TheModule, TM);
 
   saveTempBitcode(TheModule, SaveTempsDir, count, ".3.opt.bc");
+
+  if (DisableCodeGen) {
+    // Configured to stop before CodeGen, serialize the bitcode and return.
+    SmallVector<char, 128> OutputBuffer;
+    {
+      raw_svector_ostream OS(OutputBuffer);
+      ModuleSummaryIndexBuilder IndexBuilder(&TheModule);
+      WriteBitcodeToFile(&TheModule, OS, true, &IndexBuilder.getIndex());
+    }
+    return make_unique<ObjectMemoryBuffer>(std::move(OutputBuffer));
+  }
 
   return codegenModule(TheModule, TM);
 }
@@ -308,6 +453,20 @@ std::unique_ptr<ModuleSummaryIndex> ThinLTOCodeGenerator::linkCombinedIndex() {
  */
 void ThinLTOCodeGenerator::promote(Module &TheModule,
                                    ModuleSummaryIndex &Index) {
+  auto ModuleIdentifier = TheModule.getModuleIdentifier();
+  // Collect for each module the list of function it defines (GUID -> Summary).
+  StringMap<std::map<GlobalValue::GUID, GlobalValueSummary *>>
+      ModuleToDefinedGVSummaries;
+  Index.collectDefinedGVSummariesPerModule(ModuleToDefinedGVSummaries);
+
+  // Resolve the LinkOnceODR, trying to turn them into "available_externally"
+  // where possible.
+  // This is a compile-time optimization.
+  DenseMap<GlobalValue::GUID, GlobalValue::LinkageTypes> ResolvedODR;
+  ResolveODR(Index, ModuleToDefinedGVSummaries[ModuleIdentifier],
+             ModuleIdentifier, ResolvedODR);
+  fixupODR(TheModule, ResolvedODR);
+
   promoteModule(TheModule, Index);
 }
 
@@ -317,7 +476,21 @@ void ThinLTOCodeGenerator::promote(Module &TheModule,
 void ThinLTOCodeGenerator::crossModuleImport(Module &TheModule,
                                              ModuleSummaryIndex &Index) {
   auto ModuleMap = generateModuleMap(Modules);
-  crossImportIntoModule(TheModule, Index, ModuleMap);
+  auto ModuleCount = Index.modulePaths().size();
+
+  // Collect for each module the list of function it defines (GUID -> Summary).
+  StringMap<std::map<GlobalValue::GUID, GlobalValueSummary *>>
+      ModuleToDefinedGVSummaries(ModuleCount);
+  Index.collectDefinedGVSummariesPerModule(ModuleToDefinedGVSummaries);
+
+  // Generate import/export list
+  StringMap<FunctionImporter::ImportMapTy> ImportLists(ModuleCount);
+  StringMap<FunctionImporter::ExportSetTy> ExportLists(ModuleCount);
+  ComputeCrossModuleImport(Index, ModuleToDefinedGVSummaries, ImportLists,
+                           ExportLists);
+  auto &ImportList = ImportLists[TheModule.getModuleIdentifier()];
+
+  crossImportIntoModule(TheModule, Index, ModuleMap, ImportList);
 }
 
 /**
@@ -338,6 +511,28 @@ std::unique_ptr<MemoryBuffer> ThinLTOCodeGenerator::codegen(Module &TheModule) {
 
 // Main entry point for the ThinLTO processing
 void ThinLTOCodeGenerator::run() {
+  if (CodeGenOnly) {
+    // Perform only parallel codegen and return.
+    ThreadPool Pool;
+    assert(ProducedBinaries.empty() && "The generator should not be reused");
+    ProducedBinaries.resize(Modules.size());
+    int count = 0;
+    for (auto &ModuleBuffer : Modules) {
+      Pool.async([&](int count) {
+        LLVMContext Context;
+        Context.setDiscardValueNames(LTODiscardValueNames);
+
+        // Parse module now
+        auto TheModule = loadModuleFromBuffer(ModuleBuffer, Context, false);
+
+        // CodeGen
+        ProducedBinaries[count] = codegen(*TheModule);
+      }, count++);
+    }
+
+    return;
+  }
+
   // Sequential linking phase
   auto Index = linkCombinedIndex();
 
@@ -358,6 +553,19 @@ void ThinLTOCodeGenerator::run() {
 
   // Prepare the module map.
   auto ModuleMap = generateModuleMap(Modules);
+  auto ModuleCount = Modules.size();
+
+  // Collect for each module the list of function it defines (GUID -> Summary).
+  StringMap<std::map<GlobalValue::GUID, GlobalValueSummary *>>
+      ModuleToDefinedGVSummaries(ModuleCount);
+  Index->collectDefinedGVSummariesPerModule(ModuleToDefinedGVSummaries);
+
+  // Collect the import/export lists for all modules from the call-graph in the
+  // combined index.
+  StringMap<FunctionImporter::ImportMapTy> ImportLists(ModuleCount);
+  StringMap<FunctionImporter::ExportSetTy> ExportLists(ModuleCount);
+  ComputeCrossModuleImport(*Index, ModuleToDefinedGVSummaries, ImportLists,
+                           ExportLists);
 
   // Parallel optimizer + codegen
   {
@@ -367,6 +575,11 @@ void ThinLTOCodeGenerator::run() {
       Pool.async([&](int count) {
         LLVMContext Context;
         Context.setDiscardValueNames(LTODiscardValueNames);
+        auto ModuleIdentifier = ModuleBuffer.getBufferIdentifier();
+
+        DenseMap<GlobalValue::GUID, GlobalValue::LinkageTypes> ResolvedODR;
+        ResolveODR(*Index, ModuleToDefinedGVSummaries[ModuleIdentifier],
+                   ModuleIdentifier, ResolvedODR);
 
         // Parse module now
         auto TheModule = loadModuleFromBuffer(ModuleBuffer, Context, false);
@@ -376,9 +589,10 @@ void ThinLTOCodeGenerator::run() {
           saveTempBitcode(*TheModule, SaveTempsDir, count, ".0.original.bc");
         }
 
+        auto &ImportList = ImportLists[ModuleIdentifier];
         ProducedBinaries[count] = ProcessThinLTOModule(
-            *TheModule, *Index, ModuleMap, *TMBuilder.create(), CacheOptions,
-            SaveTempsDir, count);
+            *TheModule, *Index, ModuleMap, *TMBuilder.create(), ImportList,
+            ResolvedODR, CacheOptions, DisableCodeGen, SaveTempsDir, count);
       }, count);
       count++;
     }

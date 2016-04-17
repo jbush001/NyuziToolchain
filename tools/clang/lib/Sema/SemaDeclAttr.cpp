@@ -1548,6 +1548,28 @@ static void handleWeakRefAttr(Sema &S, Decl *D, const AttributeList &Attr) {
                          Attr.getAttributeSpellingListIndex()));
 }
 
+static void handleIFuncAttr(Sema &S, Decl *D, const AttributeList &Attr) {
+  StringRef Str;
+  if (!S.checkStringLiteralArgumentAttr(Attr, 0, Str))
+    return;
+
+  // Aliases should be on declarations, not definitions.
+  const auto *FD = cast<FunctionDecl>(D);
+  if (FD->isThisDeclarationADefinition()) {
+    S.Diag(Attr.getLoc(), diag::err_alias_is_definition) << FD << 1;
+    return;
+  }
+  // FIXME: it should be handled as a target specific attribute.
+  if (S.Context.getTargetInfo().getTriple().getObjectFormat() !=
+          llvm::Triple::ELF) {
+    S.Diag(Attr.getLoc(), diag::warn_attribute_ignored) << Attr.getName();
+    return;
+  }
+
+  D->addAttr(::new (S.Context) IFuncAttr(Attr.getRange(), S.Context, Str,
+                                         Attr.getAttributeSpellingListIndex()));
+}
+
 static void handleAliasAttr(Sema &S, Decl *D, const AttributeList &Attr) {
   StringRef Str;
   if (!S.checkStringLiteralArgumentAttr(Attr, 0, Str))
@@ -1564,13 +1586,13 @@ static void handleAliasAttr(Sema &S, Decl *D, const AttributeList &Attr) {
   // Aliases should be on declarations, not definitions.
   if (const auto *FD = dyn_cast<FunctionDecl>(D)) {
     if (FD->isThisDeclarationADefinition()) {
-      S.Diag(Attr.getLoc(), diag::err_alias_is_definition) << FD;
+      S.Diag(Attr.getLoc(), diag::err_alias_is_definition) << FD << 0;
       return;
     }
   } else {
     const auto *VD = cast<VarDecl>(D);
     if (VD->isThisDeclarationADefinition() && VD->isExternallyVisible()) {
-      S.Diag(Attr.getLoc(), diag::err_alias_is_definition) << VD;
+      S.Diag(Attr.getLoc(), diag::err_alias_is_definition) << VD << 0;
       return;
     }
   }
@@ -1941,6 +1963,7 @@ AvailabilityAttr *Sema::mergeAvailabilityAttr(NamedDecl *D, SourceRange Range,
                                               bool IsUnavailable,
                                               StringRef Message,
                                               bool IsStrict,
+                                              StringRef Replacement,
                                               AvailabilityMergeKind AMK,
                                               unsigned AttrSpellingListIndex) {
   VersionTuple MergedIntroduced = Introduced;
@@ -2087,7 +2110,8 @@ AvailabilityAttr *Sema::mergeAvailabilityAttr(NamedDecl *D, SourceRange Range,
     return ::new (Context) AvailabilityAttr(Range, Context, Platform,
                                             Introduced, Deprecated,
                                             Obsoleted, IsUnavailable, Message,
-                                            IsStrict, AttrSpellingListIndex);
+                                            IsStrict, Replacement,
+                                            AttrSpellingListIndex);
   }
   return nullptr;
 }
@@ -2119,13 +2143,17 @@ static void handleAvailabilityAttr(Sema &S, Decl *D,
   if (const StringLiteral *SE =
           dyn_cast_or_null<StringLiteral>(Attr.getMessageExpr()))
     Str = SE->getString();
+  StringRef Replacement;
+  if (const StringLiteral *SE =
+          dyn_cast_or_null<StringLiteral>(Attr.getReplacementExpr()))
+    Replacement = SE->getString();
 
   AvailabilityAttr *NewAttr = S.mergeAvailabilityAttr(ND, Attr.getRange(), II,
                                                       Introduced.Version,
                                                       Deprecated.Version,
                                                       Obsoleted.Version,
                                                       IsUnavailable, Str,
-                                                      IsStrict,
+                                                      IsStrict, Replacement,
                                                       Sema::AMK_None,
                                                       Index);
   if (NewAttr)
@@ -2171,6 +2199,7 @@ static void handleAvailabilityAttr(Sema &S, Decl *D,
                                                             NewObsoleted,
                                                             IsUnavailable, Str,
                                                             IsStrict,
+                                                            Replacement,
                                                             Sema::AMK_None,
                                                             Index);
         if (NewAttr)
@@ -2194,6 +2223,7 @@ static void handleAvailabilityAttr(Sema &S, Decl *D,
                                                             Obsoleted.Version,
                                                             IsUnavailable, Str,
                                                             IsStrict,
+                                                            Replacement,
                                                             Sema::AMK_None,
                                                             Index);
         if (NewAttr)
@@ -5206,6 +5236,15 @@ static void handleInternalLinkageAttr(Sema &S, Decl *D,
     D->addAttr(Internal);
 }
 
+static void handleOpenCLNoSVMAttr(Sema &S, Decl *D, const AttributeList &Attr) {
+  if (S.LangOpts.OpenCLVersion != 200)
+    S.Diag(Attr.getLoc(), diag::err_attribute_requires_opencl_version)
+        << Attr.getName() << "2.0" << 0;
+  else
+    S.Diag(Attr.getLoc(), diag::warn_opencl_attr_deprecated_ignored)
+        << Attr.getName() << "2.0";
+}
+
 /// Handles semantic checking for features that are common to all attributes,
 /// such as checking whether a parameter was properly specified, or the correct
 /// number of arguments were passed, etc.
@@ -5355,6 +5394,9 @@ static void ProcessDeclAttribute(Sema &S, Scope *scope, Decl *D,
     break;
   case AttributeList::AT_IBOutletCollection:
     handleIBOutletCollection(S, D, Attr);
+    break;
+  case AttributeList::AT_IFunc:
+    handleIFuncAttr(S, D, Attr);
     break;
   case AttributeList::AT_Alias:
     handleAliasAttr(S, D, Attr);
@@ -5531,6 +5573,9 @@ static void ProcessDeclAttribute(Sema &S, Scope *scope, Decl *D,
   case AttributeList::AT_ObjCRuntimeName:
     handleObjCRuntimeName(S, D, Attr);
     break;
+   case AttributeList::AT_ObjCRuntimeVisible:
+    handleSimpleAttribute<ObjCRuntimeVisibleAttr>(S, D, Attr);
+    break;
   case AttributeList::AT_ObjCBoxable:
     handleObjCBoxable(S, D, Attr);
     break;
@@ -5688,6 +5733,9 @@ static void ProcessDeclAttribute(Sema &S, Scope *scope, Decl *D,
     break;
   case AttributeList::AT_OpenCLAccess:
     handleOpenCLAccessAttr(S, D, Attr);
+    break;
+  case AttributeList::AT_OpenCLNoSVM:
+    handleOpenCLNoSVMAttr(S, D, Attr);
     break;
   case AttributeList::AT_SwiftContext:
     handleParameterABIAttr(S, D, Attr, ParameterABI::SwiftContext);
@@ -6228,6 +6276,8 @@ static void DoEmitAvailabilityWarning(Sema &S, Sema::AvailabilityDiagnostic K,
   StringRef Replacement;
   if (K == Sema::AD_Deprecation) {
     if (auto attr = D->getAttr<DeprecatedAttr>())
+      Replacement = attr->getReplacement();
+    if (auto attr = D->getAttr<AvailabilityAttr>())
       Replacement = attr->getReplacement();
 
     if (!Replacement.empty())

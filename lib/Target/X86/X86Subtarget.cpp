@@ -83,7 +83,7 @@ ClassifyGlobalReference(const GlobalValue *GV, const TargetMachine &TM) const {
     } else if (!isTargetWin64()) {
       assert(isTargetELF() && "Unknown rip-relative target");
 
-      // Extra load is needed for all externally visible.
+      // Extra load is needed for all externally visible globals.
       if (!GV->hasLocalLinkage() && GV->hasDefaultVisibility())
         return X86II::MO_GOTPCREL;
     }
@@ -239,6 +239,7 @@ void X86Subtarget::initSubtargetFeatures(StringRef CPU, StringRef FS) {
 void X86Subtarget::initializeEnvironment() {
   X86SSELevel = NoSSE;
   X863DNowLevel = NoThreeDNow;
+  HasX87 = false;
   HasCMov = false;
   HasX86_64 = false;
   HasPOPCNT = false;

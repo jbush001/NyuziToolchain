@@ -58,6 +58,7 @@ class DWARFDeclContext;
 class DWARFDIECollection;
 class DWARFFormValue;
 class SymbolFileDWARFDebugMap;
+class SymbolFileDWARFDwo;
 
 #define DIE_IS_BEING_PARSED ((lldb_private::Type*)1)
 
@@ -67,7 +68,9 @@ public:
     friend class SymbolFileDWARFDebugMap;
     friend class SymbolFileDWARFDwo;
     friend class DebugMapModule;
+    friend struct DIERef;
     friend class DWARFCompileUnit;
+    friend class DWARFDIE;
     friend class DWARFASTParserClang;
     friend class DWARFASTParserGo;
     friend class DWARFASTParserJava;
@@ -301,12 +304,6 @@ public:
     GetCompUnitForDWARFCompUnit(DWARFCompileUnit* dwarf_cu,
                                 uint32_t cu_idx = UINT32_MAX);
 
-    lldb::user_id_t
-    MakeUserID (dw_offset_t die_offset) const
-    {
-        return GetID() | die_offset;
-    }
-
     size_t
     GetObjCMethodDIEOffsets (lldb_private::ConstString class_name,
                              DIEArray &method_die_offsets);
@@ -328,6 +325,12 @@ public:
 
     lldb::ModuleSP
     GetDWOModule (lldb_private::ConstString name);
+
+    virtual DWARFDIE
+    GetDIE(const DIERef &die_ref);
+
+    virtual std::unique_ptr<SymbolFileDWARFDwo>
+    GetDwoSymbolFileForCompileUnit(DWARFCompileUnit &dwarf_cu, const DWARFDebugInfoEntry &cu_die);
 
 protected:
     typedef llvm::DenseMap<const DWARFDebugInfoEntry *, lldb_private::Type *> DIEToTypePtr;
@@ -389,8 +392,10 @@ protected:
                bool *type_is_new);
 
     lldb_private::Type *
-    ResolveTypeUID (const DWARFDIE &die,
-                    bool assert_not_being_parsed);
+    ResolveTypeUID(const DWARFDIE &die, bool assert_not_being_parsed);
+
+    lldb_private::Type *
+    ResolveTypeUID(const DIERef &die_ref);
 
     lldb::VariableSP
     ParseVariableDIE(const lldb_private::SymbolContext& sc,
@@ -483,15 +488,6 @@ protected:
     
     virtual UniqueDWARFASTTypeMap &
     GetUniqueDWARFASTTypeMap ();
-    
-    bool
-    UserIDMatches (lldb::user_id_t uid) const
-    {
-        const lldb::user_id_t high_uid = uid & 0xffffffff00000000ull;
-        if (high_uid != 0 && GetID() != 0)
-            return high_uid == GetID();
-        return true;
-    }
     
     bool
     DIEDeclContextsMatch (const DWARFDIE &die1,

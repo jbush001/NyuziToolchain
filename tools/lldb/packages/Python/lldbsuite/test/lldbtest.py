@@ -1049,23 +1049,13 @@ class Base(unittest2.TestCase):
                         # it silently replaces the destination.  Ultimately this means that atomic renames are not
                         # guaranteed to be possible on Windows, but we need this to work anyway, so just remove the
                         # destination first if it already exists.
-                        os.remove(dst)
+                        remove_file(dst)
 
                     os.rename(src, dst)
         else:
             # success!  (and we don't want log files) delete log files
             for log_file in log_files_for_this_test:
-                try:
-                    os.unlink(log_file)
-                except:
-                    # We've seen consistent unlink failures on Windows, perhaps because the
-                    # just-created log file is being scanned by anti-virus.  Empirically, this
-                    # sleep-and-retry approach allows tests to succeed much more reliably.
-                    # Attempts to figure out exactly what process was still holding a file handle
-                    # have failed because running instrumentation like Process Monitor seems to
-                    # slow things down enough that the problem becomes much less consistent.
-                    time.sleep(0.5)
-                    os.unlink(log_file)
+                remove_file(log_file)
 
     # ====================================================
     # Config. methods supported through a plugin interface
@@ -1422,9 +1412,15 @@ class Base(unittest2.TestCase):
 # Metaclass for TestBase to change the list of test metods when a new TestCase is loaded.
 # We change the test methods to create a new test method for each test for each debug info we are
 # testing. The name of the new test method will be '<original-name>_<debug-info>' and with adding
-# the new test method we remove the old method at the same time.
+# the new test method we remove the old method at the same time. This functionality can be
+# supressed by at test case level setting the class attribute NO_DEBUG_INFO_TESTCASE or at test
+# level by using the decorator @no_debug_info_test.
 class LLDBTestCaseFactory(type):
     def __new__(cls, name, bases, attrs):
+        original_testcase = super(LLDBTestCaseFactory, cls).__new__(cls, name, bases, attrs)
+        if original_testcase.NO_DEBUG_INFO_TESTCASE:
+            return original_testcase
+
         newattrs = {}
         for attrname, attrvalue in attrs.items():
             if attrname.startswith("test") and not getattr(attrvalue, "__no_debug_info_test__", False):
@@ -1525,6 +1521,10 @@ class TestBase(Base):
           should be provided for the sys.platform running the test suite.  The
           Mac OS X implementation is located in plugins/darwin.py.
     """
+
+    # Subclasses can set this to true (if they don't depend on debug info) to avoid running the
+    # test multiple times with various debug info types.
+    NO_DEBUG_INFO_TESTCASE = False
 
     # Maximum allowed attempts when launching the inferior process.
     # Can be overridden by the LLDB_MAX_LAUNCH_COUNT environment variable.
@@ -1936,6 +1936,12 @@ class TestBase(Base):
         else:
             self.fail("Can't build for debug info: %s" % self.debug_info)
 
+    def run_platform_command(self, cmd):
+        platform = self.dbg.GetSelectedPlatform()
+        shell_command = lldb.SBPlatformShellCommand(cmd)
+        err = platform.Run(shell_command)
+        return (err, shell_command.GetStatus(), shell_command.GetOutput())
+
     # =================================================
     # Misc. helper methods for debugging test execution
     # =================================================
@@ -1980,4 +1986,17 @@ class TestBase(Base):
     @classmethod
     def RemoveTempFile(cls, file):
         if os.path.exists(file):
+            remove_file(file)
+
+# On Windows, the first attempt to delete a recently-touched file can fail
+# because of a race with antimalware scanners.  This function will detect a
+# failure and retry.
+def remove_file(file, num_retries = 1, sleep_duration = 0.5):
+    for i in range(num_retries+1):
+        try:
             os.remove(file)
+            return True
+        except:
+            time.sleep(sleep_duration)
+            continue
+    return False

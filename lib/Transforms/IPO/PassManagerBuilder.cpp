@@ -158,11 +158,11 @@ static ManagedStatic<SmallVector<std::pair<PassManagerBuilder::ExtensionPointTy,
 void PassManagerBuilder::addGlobalExtension(
     PassManagerBuilder::ExtensionPointTy Ty,
     PassManagerBuilder::ExtensionFn Fn) {
-  GlobalExtensions->push_back(std::make_pair(Ty, Fn));
+  GlobalExtensions->push_back(std::make_pair(Ty, std::move(Fn)));
 }
 
 void PassManagerBuilder::addExtension(ExtensionPointTy Ty, ExtensionFn Fn) {
-  Extensions.push_back(std::make_pair(Ty, Fn));
+  Extensions.push_back(std::make_pair(Ty, std::move(Fn)));
 }
 
 void PassManagerBuilder::addExtensionsToPM(ExtensionPointTy ETy,
@@ -234,6 +234,8 @@ void PassManagerBuilder::addFunctionSimplificationPasses(
   else
     MPM.add(createScalarReplAggregatesPass(-1, false));
   MPM.add(createEarlyCSEPass());              // Catch trivial redundancies
+  // Speculative execution if the target has divergent branches; otherwise nop.
+  MPM.add(createSpeculativeExecutionIfHasBranchDivergencePass());
   MPM.add(createJumpThreadingPass());         // Thread jumps.
   MPM.add(createCorrelatedValuePropagationPass()); // Propagate conditionals
   MPM.add(createCFGSimplificationPass());     // Merge & remove BBs
@@ -247,6 +249,8 @@ void PassManagerBuilder::addFunctionSimplificationPasses(
   if (PrepareForThinLTO) {
     MPM.add(createAggressiveDCEPass());        // Delete dead instructions
     addInstructionCombiningPass(MPM);          // Combine silly seq's
+    // Rename anon function to export them
+    MPM.add(createNameAnonFunctionPass());
     return;
   }
   // Rotate Loop - disable header duplication at -Oz

@@ -18,9 +18,11 @@
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/Analysis/InstructionSimplify.h"
+#include "llvm/Analysis/LoopInfo.h"
 #include "llvm/Analysis/TargetLibraryInfo.h"
 #include "llvm/Analysis/TargetTransformInfo.h"
 #include "llvm/Analysis/ValueTracking.h"
+#include "llvm/Analysis/MemoryBuiltins.h"
 #include "llvm/IR/CallSite.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DataLayout.h"
@@ -111,6 +113,10 @@ static cl::opt<bool> StressExtLdPromotion(
     cl::desc("Stress test ext(promotable(ld)) -> promoted(ext(ld)) "
              "optimization in CodeGenPrepare"));
 
+static cl::opt<bool> DisablePreheaderProtect(
+    "disable-preheader-prot", cl::Hidden, cl::init(false),
+    cl::desc("Disable protection against removing loop preheaders"));
+
 namespace {
 typedef SmallPtrSet<Instruction *, 16> SetOfInstrs;
 typedef PointerIntPair<Type *, 1, bool> TypeIsSExt;
@@ -122,6 +128,7 @@ class TypePromotionTransaction;
     const TargetLowering *TLI;
     const TargetTransformInfo *TTI;
     const TargetLibraryInfo *TLInfo;
+    const LoopInfo *LI;
 
     /// As we scan instructions optimizing them, this is the next instruction
     /// to optimize. Transforms that can invalidate this should update it.
@@ -158,9 +165,10 @@ class TypePromotionTransaction;
     const char *getPassName() const override { return "CodeGen Prepare"; }
 
     void getAnalysisUsage(AnalysisUsage &AU) const override {
-      AU.addPreserved<DominatorTreeWrapperPass>();
+      // FIXME: When we can selectively preserve passes, preserve the domtree.
       AU.addRequired<TargetLibraryInfoWrapperPass>();
       AU.addRequired<TargetTransformInfoWrapperPass>();
+      AU.addRequired<LoopInfoWrapperPass>();
     }
 
   private:
@@ -218,6 +226,7 @@ bool CodeGenPrepare::runOnFunction(Function &F) {
     TLI = TM->getSubtargetImpl(F)->getTargetLowering();
   TLInfo = &getAnalysis<TargetLibraryInfoWrapperPass>().getTLI();
   TTI = &getAnalysis<TargetTransformInfoWrapperPass>().getTTI(F);
+  LI = &getAnalysis<LoopInfoWrapperPass>().getLoopInfo();
   OptSize = F.optForSize();
 
   /// This optimization identifies DIV instructions that can be
@@ -359,6 +368,15 @@ bool CodeGenPrepare::eliminateFallThrough(Function &F) {
 /// edges in ways that are non-optimal for isel. Start by eliminating these
 /// blocks so we can split them the way we want them.
 bool CodeGenPrepare::eliminateMostlyEmptyBlocks(Function &F) {
+  SmallPtrSet<BasicBlock *, 16> Preheaders;
+  SmallVector<Loop *, 16> LoopList(LI->begin(), LI->end());
+  while (!LoopList.empty()) {
+    Loop *L = LoopList.pop_back_val();
+    LoopList.insert(LoopList.end(), L->begin(), L->end());
+    if (BasicBlock *Preheader = L->getLoopPreheader())
+      Preheaders.insert(Preheader);
+  }
+
   bool MadeChange = false;
   // Note that this intentionally skips the entry block.
   for (Function::iterator I = std::next(F.begin()), E = F.end(); I != E;) {
@@ -390,6 +408,14 @@ bool CodeGenPrepare::eliminateMostlyEmptyBlocks(Function &F) {
 
     if (!canMergeBlocks(BB, DestBB))
       continue;
+
+    // Do not delete loop preheaders if doing so would create a critical edge.
+    // Loop preheaders can be good locations to spill registers. If the
+    // preheader is deleted and we create a critical edge, registers may be
+    // spilled in the loop body instead.
+    if (!DisablePreheaderProtect && Preheaders.count(BB) &&
+        !(BB->getSinglePredecessor() && BB->getSinglePredecessor()->getSingleSuccessor()))
+     continue;
 
     eliminateMostlyEmptyBlock(BB);
     MadeChange = true;
@@ -855,10 +881,14 @@ static bool CombineUAddWithOverflow(CmpInst *CI) {
 /// lose; some adjustment may be wanted there.
 ///
 /// Return true if any changes are made.
-static bool SinkCmpExpression(CmpInst *CI) {
+static bool SinkCmpExpression(CmpInst *CI, const TargetLowering *TLI) {
   BasicBlock *DefBB = CI->getParent();
 
-  /// Only insert a cmp in each block once.
+  // Avoid sinking soft-FP comparisons, since this can move them into a loop.
+  if (TLI && TLI->useSoftFloat() && isa<FCmpInst>(CI))
+    return false;
+
+  // Only insert a cmp in each block once.
   DenseMap<BasicBlock*, CmpInst*> InsertedCmps;
 
   bool MadeChange = false;
@@ -906,8 +936,8 @@ static bool SinkCmpExpression(CmpInst *CI) {
   return MadeChange;
 }
 
-static bool OptimizeCmpExpression(CmpInst *CI) {
-  if (SinkCmpExpression(CI))
+static bool OptimizeCmpExpression(CmpInst *CI, const TargetLowering *TLI) {
+  if (SinkCmpExpression(CI, TLI))
     return true;
 
   if (CombineUAddWithOverflow(CI))
@@ -1778,10 +1808,18 @@ bool CodeGenPrepare::optimizeCallInst(CallInst *CI, bool& ModifiedDT) {
     default: break;
     case Intrinsic::objectsize: {
       // Lower all uses of llvm.objectsize.*
-      bool Min = (cast<ConstantInt>(II->getArgOperand(1))->getZExtValue() == 1);
+      uint64_t Size;
       Type *ReturnTy = CI->getType();
-      Constant *RetVal = ConstantInt::get(ReturnTy, Min ? 0 : -1ULL);
-
+      Constant *RetVal = nullptr;
+      ConstantInt *Op1 = cast<ConstantInt>(II->getArgOperand(1));
+      ObjSizeMode Mode = Op1->isZero() ? ObjSizeMode::Max : ObjSizeMode::Min;
+      if (getObjectSize(II->getArgOperand(0),
+                        Size, *DL, TLInfo, false, Mode)) {
+        RetVal = ConstantInt::get(ReturnTy, Size);
+      } else {
+        RetVal = ConstantInt::get(ReturnTy,
+                                  Mode == ObjSizeMode::Min ? 0 : -1ULL);
+      }
       // Substituting this can cause recursive simplifications, which can
       // invalidate our iterator.  Use a WeakVH to hold onto it in case this
       // happens.
@@ -5173,7 +5211,7 @@ bool CodeGenPrepare::optimizeInst(Instruction *I, bool& ModifiedDT) {
 
   if (CmpInst *CI = dyn_cast<CmpInst>(I))
     if (!TLI || !TLI->hasMultipleConditionRegisters())
-      return OptimizeCmpExpression(CI);
+      return OptimizeCmpExpression(CI, TLI);
 
   if (LoadInst *LI = dyn_cast<LoadInst>(I)) {
     stripInvariantGroupMetadata(*LI);
@@ -5277,6 +5315,7 @@ bool CodeGenPrepare::optimizeBlock(BasicBlock &BB, bool& ModifiedDT) {
     for (auto &I : reverse(BB)) {
       if (makeBitReverse(I, *DL, *TLI)) {
         MadeBitReverse = MadeChange = true;
+        ModifiedDT = true;
         break;
       }
     }
@@ -5338,43 +5377,38 @@ bool CodeGenPrepare::sinkAndCmp(Function &F) {
   if (!TLI || !TLI->isMaskAndBranchFoldingLegal())
     return false;
   bool MadeChange = false;
-  for (Function::iterator I = F.begin(), E = F.end(); I != E; ) {
-    BasicBlock *BB = &*I++;
-
+  for (BasicBlock &BB : F) {
     // Does this BB end with the following?
     //   %andVal = and %val, #single-bit-set
     //   %icmpVal = icmp %andResult, 0
     //   br i1 %cmpVal label %dest1, label %dest2"
-    BranchInst *Brcc = dyn_cast<BranchInst>(BB->getTerminator());
+    BranchInst *Brcc = dyn_cast<BranchInst>(BB.getTerminator());
     if (!Brcc || !Brcc->isConditional())
       continue;
     ICmpInst *Cmp = dyn_cast<ICmpInst>(Brcc->getOperand(0));
-    if (!Cmp || Cmp->getParent() != BB)
+    if (!Cmp || Cmp->getParent() != &BB)
       continue;
     ConstantInt *Zero = dyn_cast<ConstantInt>(Cmp->getOperand(1));
     if (!Zero || !Zero->isZero())
       continue;
     Instruction *And = dyn_cast<Instruction>(Cmp->getOperand(0));
-    if (!And || And->getOpcode() != Instruction::And || And->getParent() != BB)
+    if (!And || And->getOpcode() != Instruction::And || And->getParent() != &BB)
       continue;
     ConstantInt* Mask = dyn_cast<ConstantInt>(And->getOperand(1));
     if (!Mask || !Mask->getUniqueInteger().isPowerOf2())
       continue;
-    DEBUG(dbgs() << "found and; icmp ?,0; brcc\n"); DEBUG(BB->dump());
+    DEBUG(dbgs() << "found and; icmp ?,0; brcc\n"); DEBUG(BB.dump());
 
     // Push the "and; icmp" for any users that are conditional branches.
     // Since there can only be one branch use per BB, we don't need to keep
     // track of which BBs we insert into.
-    for (Value::use_iterator UI = Cmp->use_begin(), E = Cmp->use_end();
-         UI != E; ) {
-      Use &TheUse = *UI;
+    for (Use &TheUse : Cmp->uses()) {
       // Find brcc use.
-      BranchInst *BrccUser = dyn_cast<BranchInst>(*UI);
-      ++UI;
+      BranchInst *BrccUser = dyn_cast<BranchInst>(TheUse);
       if (!BrccUser || !BrccUser->isConditional())
         continue;
       BasicBlock *UserBB = BrccUser->getParent();
-      if (UserBB == BB) continue;
+      if (UserBB == &BB) continue;
       DEBUG(dbgs() << "found Brcc use\n");
 
       // Sink the "and; icmp" to use.

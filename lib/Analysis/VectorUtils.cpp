@@ -121,10 +121,10 @@ llvm::checkBinaryFloatSignature(const CallInst &I,
 /// \brief Returns intrinsic ID for call.
 /// For the input call instruction it finds mapping intrinsic and returns
 /// its ID, in case it does not found it return not_intrinsic.
-Intrinsic::ID llvm::getIntrinsicIDForCall(CallInst *CI,
+Intrinsic::ID llvm::getIntrinsicIDForCall(const CallInst *CI,
                                           const TargetLibraryInfo *TLI) {
   // If we have an intrinsic call, check if it is trivially vectorizable.
-  if (IntrinsicInst *II = dyn_cast<IntrinsicInst>(CI)) {
+  if (const auto *II = dyn_cast<IntrinsicInst>(CI)) {
     Intrinsic::ID ID = II->getIntrinsicID();
     if (isTriviallyVectorizable(ID) || ID == Intrinsic::lifetime_start ||
         ID == Intrinsic::lifetime_end || ID == Intrinsic::assume)
@@ -220,6 +220,12 @@ Intrinsic::ID llvm::getIntrinsicIDForCall(CallInst *CI,
   case LibFunc::powf:
   case LibFunc::powl:
     return checkBinaryFloatSignature(*CI, Intrinsic::pow);
+  case LibFunc::sqrt:
+  case LibFunc::sqrtf:
+  case LibFunc::sqrtl:
+    if (CI->hasNoNaNs())
+      return checkUnaryFloatSignature(*CI, Intrinsic::sqrt);
+    return Intrinsic::not_intrinsic;
   }
 
   return Intrinsic::not_intrinsic;
@@ -499,6 +505,7 @@ llvm::computeMinimumValueSizes(ArrayRef<BasicBlock *> Blocks, DemandedBits &DB,
 
     uint64_t V = DB.getDemandedBits(I).getZExtValue();
     DBits[Leader] |= V;
+    DBits[I] = V;
 
     // Casts, loads and instructions outside of our range terminate a chain
     // successfully.
@@ -549,6 +556,20 @@ llvm::computeMinimumValueSizes(ArrayRef<BasicBlock *> Blocks, DemandedBits &DB,
     // Round up to a power of 2
     if (!isPowerOf2_64((uint64_t)MinBW))
       MinBW = NextPowerOf2(MinBW);
+
+    // We don't modify the types of PHIs. Reductions will already have been
+    // truncated if possible, and inductions' sizes will have been chosen by
+    // indvars.
+    // If we are required to shrink a PHI, abandon this entire equivalence class.
+    bool Abort = false;
+    for (auto MI = ECs.member_begin(I), ME = ECs.member_end(); MI != ME; ++MI)
+      if (isa<PHINode>(*MI) && MinBW < (*MI)->getType()->getScalarSizeInBits()) {
+        Abort = true;
+        break;
+      }
+    if (Abort)
+      continue;
+
     for (auto MI = ECs.member_begin(I), ME = ECs.member_end(); MI != ME; ++MI) {
       if (!isa<Instruction>(*MI))
         continue;

@@ -948,6 +948,15 @@ public:
   }
 
   template <unsigned Bits>
+  void addSImmOperands(MCInst &Inst, unsigned N) const {
+    if (isImm() && !isConstantImm()) {
+      addExpr(Inst, getImm());
+      return;
+    }
+    addConstantSImmOperands<Bits, 0, 0>(Inst, N);
+  }
+
+  template <unsigned Bits>
   void addUImmOperands(MCInst &Inst, unsigned N) const {
     if (isImm() && !isConstantImm()) {
       addExpr(Inst, getImm());
@@ -1031,6 +1040,9 @@ public:
   template <unsigned Bits, int Offset = 0> bool isConstantUImm() const {
     return isConstantImm() && isUInt<Bits>(getConstantImm() - Offset);
   }
+  template <unsigned Bits> bool isSImm() const {
+    return isConstantImm() ? isInt<Bits>(getConstantImm()) : isImm();
+  }
   template <unsigned Bits> bool isUImm() const {
     return isConstantImm() ? isUInt<Bits>(getConstantImm()) : isImm();
   }
@@ -1055,9 +1067,11 @@ public:
   bool isConstantMemOff() const {
     return isMem() && isa<MCConstantExpr>(getMemOff());
   }
-  template <unsigned Bits> bool isMemWithSimmOffset() const {
-    return isMem() && isConstantMemOff() && isInt<Bits>(getConstantMemOff())
-      && getMemBase()->isGPRAsmReg();
+  template <unsigned Bits, unsigned ShiftAmount = 0>
+  bool isMemWithSimmOffset() const {
+    return isMem() && isConstantMemOff() &&
+           isShiftedInt<Bits, ShiftAmount>(getConstantMemOff()) &&
+           getMemBase()->isGPRAsmReg();
   }
   template <unsigned Bits> bool isMemWithSimmOffsetGPR() const {
     return isMem() && isConstantMemOff() && isInt<Bits>(getConstantMemOff()) &&
@@ -1079,6 +1093,11 @@ public:
   bool isScaledUImm() const {
     return isConstantImm() &&
            isShiftedUInt<Bits, ShiftLeftAmount>(getConstantImm());
+  }
+  template <unsigned Bits, unsigned ShiftLeftAmount>
+  bool isScaledSImm() const {
+    return isConstantImm() &&
+           isShiftedInt<Bits, ShiftLeftAmount>(getConstantImm());
   }
   bool isRegList16() const {
     if (!isRegList())
@@ -3729,6 +3748,9 @@ bool MipsAsmParser::MatchAndEmitInstruction(SMLoc IDLoc, unsigned &Opcode,
   case Match_UImm5_0:
     return Error(RefineErrorLoc(IDLoc, Operands, ErrorInfo),
                  "expected 5-bit unsigned immediate");
+  case Match_SImm5_0:
+    return Error(RefineErrorLoc(IDLoc, Operands, ErrorInfo),
+                 "expected 5-bit signed immediate");
   case Match_UImm5_1:
     return Error(RefineErrorLoc(IDLoc, Operands, ErrorInfo),
                  "expected immediate in range 1 .. 32");
@@ -3761,19 +3783,66 @@ bool MipsAsmParser::MatchAndEmitInstruction(SMLoc IDLoc, unsigned &Opcode,
   case Match_UImm7_0:
     return Error(RefineErrorLoc(IDLoc, Operands, ErrorInfo),
                  "expected 7-bit unsigned immediate");
+  case Match_UImm7_N1:
+    return Error(RefineErrorLoc(IDLoc, Operands, ErrorInfo),
+                 "expected immediate in range -1 .. 126");
+  case Match_SImm7_Lsl2:
+    return Error(RefineErrorLoc(IDLoc, Operands, ErrorInfo),
+                 "expected both 9-bit signed immediate and multiple of 4");
   case Match_UImm8_0:
     return Error(RefineErrorLoc(IDLoc, Operands, ErrorInfo),
                  "expected 8-bit unsigned immediate");
   case Match_UImm10_0:
     return Error(RefineErrorLoc(IDLoc, Operands, ErrorInfo),
                  "expected 10-bit unsigned immediate");
+  case Match_SImm10_0:
+    return Error(RefineErrorLoc(IDLoc, Operands, ErrorInfo),
+                 "expected 10-bit signed immediate");
+  case Match_SImm11_0:
+    return Error(RefineErrorLoc(IDLoc, Operands, ErrorInfo),
+                 "expected 11-bit signed immediate");
   case Match_UImm16:
   case Match_UImm16_Relaxed:
     return Error(RefineErrorLoc(IDLoc, Operands, ErrorInfo),
                  "expected 16-bit unsigned immediate");
+  case Match_SImm16:
+  case Match_SImm16_Relaxed:
+    return Error(RefineErrorLoc(IDLoc, Operands, ErrorInfo),
+                 "expected 16-bit signed immediate");
   case Match_UImm20_0:
     return Error(RefineErrorLoc(IDLoc, Operands, ErrorInfo),
                  "expected 20-bit unsigned immediate");
+  case Match_UImm26_0:
+    return Error(RefineErrorLoc(IDLoc, Operands, ErrorInfo),
+                 "expected 26-bit unsigned immediate");
+  case Match_SImm32:
+  case Match_SImm32_Relaxed:
+    return Error(RefineErrorLoc(IDLoc, Operands, ErrorInfo),
+                 "expected 32-bit signed immediate");
+  case Match_MemSImm9:
+    return Error(RefineErrorLoc(IDLoc, Operands, ErrorInfo),
+                 "expected memory with 9-bit signed offset");
+  case Match_MemGPSImm9:
+    return Error(RefineErrorLoc(IDLoc, Operands, ErrorInfo),
+                 "expected memory with $gp and 9-bit signed offset");
+  case Match_MemSImm10:
+    return Error(RefineErrorLoc(IDLoc, Operands, ErrorInfo),
+                 "expected memory with 10-bit signed offset");
+  case Match_MemSImm10Lsl1:
+    return Error(RefineErrorLoc(IDLoc, Operands, ErrorInfo),
+                 "expected memory with 11-bit signed offset and multiple of 2");
+  case Match_MemSImm10Lsl2:
+    return Error(RefineErrorLoc(IDLoc, Operands, ErrorInfo),
+                 "expected memory with 12-bit signed offset and multiple of 4");
+  case Match_MemSImm10Lsl3:
+    return Error(RefineErrorLoc(IDLoc, Operands, ErrorInfo),
+                 "expected memory with 13-bit signed offset and multiple of 8");
+  case Match_MemSImm11:
+    return Error(RefineErrorLoc(IDLoc, Operands, ErrorInfo),
+                 "expected memory with 11-bit signed offset");
+  case Match_MemSImm16:
+    return Error(RefineErrorLoc(IDLoc, Operands, ErrorInfo),
+                 "expected memory with 16-bit signed offset");
   }
 
   llvm_unreachable("Implement any new match types added!");
@@ -5281,7 +5350,7 @@ bool MipsAsmParser::parseSetArchDirective() {
           .Case("mips64r3", "mips64r3")
           .Case("mips64r5", "mips64r5")
           .Case("mips64r6", "mips64r6")
-          .Case("cnmips", "cnmips")
+          .Case("octeon", "cnmips")
           .Case("r4000", "mips3") // This is an implementation of Mips3.
           .Default("");
 

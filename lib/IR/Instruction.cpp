@@ -271,13 +271,18 @@ const char *Instruction::getOpcodeName(unsigned OpCode) {
   }
 }
 
-/// Return true if both instructions have the same special state
-/// This must be kept in sync with lib/Transforms/IPO/MergeFunctions.cpp.
+/// Return true if both instructions have the same special state This must be
+/// kept in sync with FunctionComparator::cmpOperations in
+/// lib/Transforms/IPO/MergeFunctions.cpp.
 static bool haveSameSpecialState(const Instruction *I1, const Instruction *I2,
                                  bool IgnoreAlignment = false) {
   assert(I1->getOpcode() == I2->getOpcode() &&
          "Can not compare special state of different instructions");
 
+  if (const AllocaInst *AI = dyn_cast<AllocaInst>(I1))
+    return AI->getAllocatedType() == cast<AllocaInst>(I2)->getAllocatedType() &&
+           (AI->getAlignment() == cast<AllocaInst>(I2)->getAlignment() ||
+            IgnoreAlignment);
   if (const LoadInst *LI = dyn_cast<LoadInst>(I1))
     return LI->isVolatile() == cast<LoadInst>(I2)->isVolatile() &&
            (LI->getAlignment() == cast<LoadInst>(I2)->getAlignment() ||
@@ -360,8 +365,7 @@ bool Instruction::isIdenticalToWhenDefined(const Instruction *I) const {
   return haveSameSpecialState(this, I);
 }
 
-// isSameOperationAs
-// This should be kept in sync with isEquivalentOperation in
+// Keep this in sync with FunctionComparator::cmpOperations in
 // lib/Transforms/IPO/MergeFunctions.cpp.
 bool Instruction::isSameOperationAs(const Instruction *I,
                                     unsigned flags) const {
@@ -461,9 +465,9 @@ bool Instruction::isAtomic() const {
   case Instruction::Fence:
     return true;
   case Instruction::Load:
-    return cast<LoadInst>(this)->getOrdering() != NotAtomic;
+    return cast<LoadInst>(this)->getOrdering() != AtomicOrdering::NotAtomic;
   case Instruction::Store:
-    return cast<StoreInst>(this)->getOrdering() != NotAtomic;
+    return cast<StoreInst>(this)->getOrdering() != AtomicOrdering::NotAtomic;
   }
 }
 

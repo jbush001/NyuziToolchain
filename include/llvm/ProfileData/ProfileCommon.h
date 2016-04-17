@@ -22,6 +22,8 @@
 #include <vector>
 
 #include "llvm/Support/Casting.h"
+#include "llvm/Support/ManagedStatic.h"
+#include "llvm/Support/Mutex.h"
 
 namespace llvm {
 class Function;
@@ -36,6 +38,7 @@ class LLVMContext;
 class Metadata;
 class MDTuple;
 class MDNode;
+class Module;
 
 inline const char *getHotSectionPrefix() { return ".hot"; }
 inline const char *getUnlikelySectionPrefix() { return ".unlikely"; }
@@ -68,27 +71,38 @@ private:
   // appears in the profile. The map is kept sorted in the descending order of
   // counts.
   std::map<uint64_t, uint32_t, std::greater<uint64_t>> CountFrequencies;
+  // Compute profile summary for a module.
+  static ProfileSummary *computeProfileSummary(Module *M);
+  // Cache of last seen module and its profile summary.
+  static ManagedStatic<std::pair<Module *, std::unique_ptr<ProfileSummary>>>
+      CachedSummary;
+  // Mutex to access summary cache
+  static ManagedStatic<sys::SmartMutex<true>> CacheMutex;
+
 protected:
   SummaryEntryVector DetailedSummary;
   std::vector<uint32_t> DetailedSummaryCutoffs;
-  uint64_t TotalCount, MaxCount;
-  uint32_t NumCounts;
+  uint64_t TotalCount, MaxCount, MaxFunctionCount;
+  uint32_t NumCounts, NumFunctions;
   ProfileSummary(Kind K, std::vector<uint32_t> Cutoffs)
       : PSK(K), DetailedSummaryCutoffs(Cutoffs), TotalCount(0), MaxCount(0),
-        NumCounts(0) {}
-  ProfileSummary(Kind K) : PSK(K), TotalCount(0), MaxCount(0), NumCounts(0) {}
+        MaxFunctionCount(0), NumCounts(0), NumFunctions(0) {}
+  ProfileSummary(Kind K)
+      : PSK(K), TotalCount(0), MaxCount(0), MaxFunctionCount(0), NumCounts(0),
+        NumFunctions(0) {}
   ProfileSummary(Kind K, SummaryEntryVector DetailedSummary,
-                 uint64_t TotalCount, uint64_t MaxCount, uint32_t NumCounts)
+                 uint64_t TotalCount, uint64_t MaxCount,
+                 uint64_t MaxFunctionCount, uint32_t NumCounts,
+                 uint32_t NumFunctions)
       : PSK(K), DetailedSummary(DetailedSummary), TotalCount(TotalCount),
-        MaxCount(MaxCount), NumCounts(NumCounts) {}
-  ~ProfileSummary() = default;
+        MaxCount(MaxCount), MaxFunctionCount(MaxFunctionCount),
+        NumCounts(NumCounts), NumFunctions(NumFunctions) {}
   inline void addCount(uint64_t Count);
   /// \brief Return metadata specific to the profile format.
   /// Derived classes implement this method to return a vector of Metadata.
   virtual std::vector<Metadata *> getFormatSpecificMD(LLVMContext &Context) = 0;
   /// \brief Return detailed summary as metadata.
   Metadata *getDetailedSummaryMD(LLVMContext &Context);
-
 public:
   static const int Scale = 1000000;
   Kind getKind() const { return PSK; }
@@ -105,11 +119,16 @@ public:
   Metadata *getMD(LLVMContext &Context);
   /// \brief Construct profile summary from metdata.
   static ProfileSummary *getFromMD(Metadata *MD);
+  uint32_t getNumFunctions() { return NumFunctions; }
+  uint64_t getMaxFunctionCount() { return MaxFunctionCount; }
+  /// \brief Get profile summary associated with module \p M
+  static inline ProfileSummary *getProfileSummary(Module *M);
+  virtual ~ProfileSummary() = default;
+  virtual bool operator==(ProfileSummary &Other);
 };
 
 class InstrProfSummary final : public ProfileSummary {
-  uint64_t MaxInternalBlockCount, MaxFunctionCount;
-  uint32_t NumFunctions;
+  uint64_t MaxInternalBlockCount;
   inline void addEntryCount(uint64_t Count);
   inline void addInternalCount(uint64_t Count);
 
@@ -118,53 +137,44 @@ protected:
 
 public:
   InstrProfSummary(std::vector<uint32_t> Cutoffs)
-      : ProfileSummary(PSK_Instr, Cutoffs), MaxInternalBlockCount(0),
-        MaxFunctionCount(0), NumFunctions(0) {}
+      : ProfileSummary(PSK_Instr, Cutoffs), MaxInternalBlockCount(0) {}
   InstrProfSummary(const IndexedInstrProf::Summary &S);
   InstrProfSummary(uint64_t TotalCount, uint64_t MaxBlockCount,
                    uint64_t MaxInternalBlockCount, uint64_t MaxFunctionCount,
                    uint32_t NumBlocks, uint32_t NumFunctions,
                    SummaryEntryVector Summary)
       : ProfileSummary(PSK_Instr, Summary, TotalCount, MaxBlockCount,
-                       NumBlocks),
-        MaxInternalBlockCount(MaxInternalBlockCount),
-        MaxFunctionCount(MaxFunctionCount), NumFunctions(NumFunctions) {}
+                       MaxFunctionCount, NumBlocks, NumFunctions),
+        MaxInternalBlockCount(MaxInternalBlockCount) {}
   static bool classof(const ProfileSummary *PS) {
     return PS->getKind() == PSK_Instr;
   }
   void addRecord(const InstrProfRecord &);
   uint32_t getNumBlocks() { return NumCounts; }
   uint64_t getTotalCount() { return TotalCount; }
-  uint32_t getNumFunctions() { return NumFunctions; }
-  uint64_t getMaxFunctionCount() { return MaxFunctionCount; }
   uint64_t getMaxBlockCount() { return MaxCount; }
   uint64_t getMaxInternalBlockCount() { return MaxInternalBlockCount; }
+  bool operator==(ProfileSummary &Other) override;
 };
 
 class SampleProfileSummary final : public ProfileSummary {
-  uint64_t MaxHeadSamples;
-  uint32_t NumFunctions;
-
 protected:
   std::vector<Metadata *> getFormatSpecificMD(LLVMContext &Context) override;
 
 public:
   uint32_t getNumLinesWithSamples() { return NumCounts; }
   uint64_t getTotalSamples() { return TotalCount; }
-  uint32_t getNumFunctions() { return NumFunctions; }
-  uint64_t getMaxHeadSamples() { return MaxHeadSamples; }
   uint64_t getMaxSamplesPerLine() { return MaxCount; }
   void addRecord(const sampleprof::FunctionSamples &FS);
   SampleProfileSummary(std::vector<uint32_t> Cutoffs)
-      : ProfileSummary(PSK_Sample, Cutoffs), MaxHeadSamples(0),
-        NumFunctions(0) {}
+      : ProfileSummary(PSK_Sample, Cutoffs) {}
   SampleProfileSummary(uint64_t TotalSamples, uint64_t MaxSamplesPerLine,
-                       uint64_t MaxHeadSamples, int32_t NumLinesWithSamples,
+                       uint64_t MaxFunctionCount, int32_t NumLinesWithSamples,
                        uint32_t NumFunctions,
                        SummaryEntryVector DetailedSummary)
       : ProfileSummary(PSK_Sample, DetailedSummary, TotalSamples,
-                       MaxSamplesPerLine, NumLinesWithSamples),
-        MaxHeadSamples(MaxHeadSamples), NumFunctions(NumFunctions) {}
+                       MaxSamplesPerLine, MaxFunctionCount, NumLinesWithSamples,
+                       NumFunctions) {}
   static bool classof(const ProfileSummary *PS) {
     return PS->getKind() == PSK_Sample;
   }
@@ -185,18 +195,24 @@ SummaryEntryVector &ProfileSummary::getDetailedSummary() {
   return DetailedSummary;
 }
 
-/// Helper to compute the profile count for a block, based on the
-/// ratio of its frequency to the entry block frequency, multiplied
-/// by the entry block count.
-inline uint64_t getBlockProfileCount(uint64_t BlockFreq, uint64_t EntryFreq,
-                                     uint64_t EntryCount) {
-  APInt ScaledCount(128, EntryCount);
-  APInt BlockFreqAPInt(128, BlockFreq);
-  APInt EntryFreqAPInt(128, EntryFreq);
-  ScaledCount *= BlockFreqAPInt;
-  ScaledCount = ScaledCount.udiv(EntryFreqAPInt);
-  return ScaledCount.getLimitedValue();
+ProfileSummary *ProfileSummary::getProfileSummary(Module *M) {
+  if (!M)
+    return nullptr;
+  sys::SmartScopedLock<true> Lock(*CacheMutex);
+  // Computing profile summary for a module involves parsing a fairly large
+  // metadata and could be expensive. We use a simple cache of the last seen
+  // module and its profile summary.
+  if (CachedSummary->first != M) {
+    auto *Summary = computeProfileSummary(M);
+    // Do not cache if the summary is empty. This is because a later pass
+    // (sample profile loader, for example) could attach the summary metadata on
+    // the module.
+    if (!Summary)
+      return nullptr;
+    CachedSummary->first = M;
+    CachedSummary->second.reset(Summary);
+  }
+  return CachedSummary->second.get();
 }
-
 } // end namespace llvm
 #endif

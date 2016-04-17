@@ -2089,6 +2089,23 @@ ProcessGDBRemote::SetThreadStopInfo (lldb::tid_t tid,
                             handled = true;
                         }
                     }
+                    else if (!signo)
+                    {
+                        addr_t pc = thread_sp->GetRegisterContext()->GetPC();
+                        lldb::BreakpointSiteSP bp_site_sp =
+                            thread_sp->GetProcess()->GetBreakpointSiteList().FindByAddress(pc);
+
+                        // If the current pc is a breakpoint site then the StopInfo should be set to Breakpoint
+                        // even though the remote stub did not set it as such. This can happen when
+                        // the thread is involuntarily interrupted (e.g. due to stops on other
+                        // threads) just as it is about to execute the breakpoint instruction.
+                        if (bp_site_sp && bp_site_sp->ValidForThisThread(thread_sp.get()))
+                        {
+                            thread_sp->SetStopInfo(
+                                StopInfo::CreateStopReasonWithBreakpointSiteID(*thread_sp, bp_site_sp->GetID()));
+                            handled = true;
+                        }
+                    }
 
                     if (!handled && signo && did_exec == false)
                     {
@@ -4170,6 +4187,7 @@ ProcessGDBRemote::GetExtendedInfoForThread (lldb::tid_t tid)
         packet << (char) (0x7d ^ 0x20);
 
         StringExtractorGDBRemote response;
+        response.SetResponseValidatorToJSON();
         if (m_gdb_comm.SendPacketAndWaitForResponse(packet.GetData(), packet.GetSize(), response, false) == GDBRemoteCommunication::PacketResult::Success)
         {
             StringExtractorGDBRemote::ResponseType response_type = response.GetResponseType();
@@ -4211,6 +4229,7 @@ ProcessGDBRemote::GetLoadedDynamicLibrariesInfos (lldb::addr_t image_list_addres
         packet << (char) (0x7d ^ 0x20);
 
         StringExtractorGDBRemote response;
+        response.SetResponseValidatorToJSON();
         if (m_gdb_comm.SendPacketAndWaitForResponse(packet.GetData(), packet.GetSize(), response, false) == GDBRemoteCommunication::PacketResult::Success)
         {
             StringExtractorGDBRemote::ResponseType response_type = response.GetResponseType();
@@ -4804,25 +4823,14 @@ ProcessGDBRemote::GetLoadedModuleList (LoadedModuleInfoList & list)
 }
 
 lldb::ModuleSP
-ProcessGDBRemote::LoadModuleAtAddress (const FileSpec &file, lldb::addr_t base_addr, bool value_is_offset)
+ProcessGDBRemote::LoadModuleAtAddress (const FileSpec &file, lldb::addr_t link_map,
+                                       lldb::addr_t base_addr, bool value_is_offset)
 {
-    Target &target = m_process->GetTarget();
-    ModuleList &modules = target.GetImages();
-    ModuleSP module_sp;
+    DynamicLoader *loader = GetDynamicLoader();
+    if (!loader)
+        return nullptr;
 
-    bool changed = false;
-
-    ModuleSpec module_spec (file, target.GetArchitecture());
-    if ((module_sp = modules.FindFirstModule (module_spec)))
-    {
-        module_sp->SetLoadAddress (target, base_addr, value_is_offset, changed);
-    }
-    else if ((module_sp = target.GetSharedModule (module_spec)))
-    {
-        module_sp->SetLoadAddress (target, base_addr, value_is_offset, changed);
-    }
-
-    return module_sp;
+    return loader->LoadModuleAtAddress(file, link_map, base_addr, value_is_offset);
 }
 
 size_t
@@ -4841,6 +4849,7 @@ ProcessGDBRemote::LoadModules (LoadedModuleInfoList &module_list)
     {
         std::string  mod_name;
         lldb::addr_t mod_base;
+        lldb::addr_t link_map;
         bool         mod_base_is_offset;
 
         bool valid = true;
@@ -4850,6 +4859,9 @@ ProcessGDBRemote::LoadModules (LoadedModuleInfoList &module_list)
         if (!valid)
             continue;
 
+        if (!modInfo.get_link_map (link_map))
+            link_map = LLDB_INVALID_ADDRESS;
+
         // hack (cleaner way to get file name only?) (win/unix compat?)
         size_t marker = mod_name.rfind ('/');
         if (marker == std::string::npos)
@@ -4858,7 +4870,8 @@ ProcessGDBRemote::LoadModules (LoadedModuleInfoList &module_list)
             marker += 1;
 
         FileSpec file (mod_name.c_str()+marker, true);
-        lldb::ModuleSP module_sp = LoadModuleAtAddress (file, mod_base, mod_base_is_offset);
+        lldb::ModuleSP module_sp = LoadModuleAtAddress (file, link_map, mod_base,
+                                                        mod_base_is_offset);
 
         if (module_sp.get())
             new_modules.Append (module_sp);

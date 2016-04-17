@@ -46,6 +46,7 @@
 #include "llvm/Support/ToolOutputFile.h"
 #include "llvm/Support/raw_ostream.h"
 
+#include <algorithm>
 #include <set>
 #include <stdio.h>
 #include <string>
@@ -63,7 +64,8 @@ enum ActionType {
   PrintCovPointsAction,
   CoveredFunctionsAction,
   NotCoveredFunctionsAction,
-  HtmlReportAction
+  HtmlReportAction,
+  StatsAction
 };
 
 cl::opt<ActionType> Action(
@@ -77,6 +79,8 @@ cl::opt<ActionType> Action(
                           "Print all not covered funcions."),
                clEnumValN(HtmlReportAction, "html-report",
                           "Print HTML coverage report."),
+               clEnumValN(StatsAction, "print-coverage-stats",
+                          "Print coverage statistics."),
                clEnumValEnd));
 
 static cl::list<std::string>
@@ -418,9 +422,10 @@ visitObjectFiles(const object::Archive &A,
 static void
 visitObjectFiles(std::string FileName,
                  std::function<void(const object::ObjectFile &)> Fn) {
-  ErrorOr<object::OwningBinary<object::Binary>> BinaryOrErr =
+  Expected<object::OwningBinary<object::Binary>> BinaryOrErr =
       object::createBinary(FileName);
-  FailIfError(BinaryOrErr);
+  if (!BinaryOrErr)
+    FailIfError(errorToErrorCode(BinaryOrErr.takeError()));
 
   object::Binary &Binary = *BinaryOrErr.get().getBinary();
   if (object::Archive *A = dyn_cast<object::Archive>(&Binary))
@@ -487,6 +492,19 @@ static std::string escapeHtml(const std::string &S) {
   return Result;
 }
 
+// Adds leading zeroes wrapped in 'lz' style.
+// Leading zeroes help locate 000% coverage.
+static std::string formatHtmlPct(size_t Pct) {
+  Pct = std::max(std::size_t{0}, std::min(std::size_t{100}, Pct));
+
+  std::string Num = std::to_string(Pct);
+  std::string Zeroes(3 - Num.size(), '0');
+  if (!Zeroes.empty())
+    Zeroes = "<span class='lz'>" + Zeroes + "</span>";
+
+  return Zeroes + Num;
+}
+
 static std::string anchorName(std::string Anchor) {
   llvm::MD5 Hasher;
   llvm::MD5::MD5Result Hash;
@@ -514,6 +532,23 @@ static ErrorOr<bool> isCoverageFile(std::string FileName) {
   const FileHeader *Header =
       reinterpret_cast<const FileHeader *>(Buf->getBufferStart());
   return Header->Magic == BinCoverageMagic;
+}
+
+struct CoverageStats {
+  CoverageStats() : AllPoints(0), CovPoints(0), AllFns(0), CovFns(0) {}
+
+  size_t AllPoints;
+  size_t CovPoints;
+  size_t AllFns;
+  size_t CovFns;
+};
+
+static raw_ostream &operator<<(raw_ostream &OS, const CoverageStats &Stats) {
+  OS << "all-edges: " << Stats.AllPoints << "\n";
+  OS << "cov-edges: " << Stats.CovPoints << "\n";
+  OS << "all-functions: " << Stats.AllFns << "\n";
+  OS << "cov-functions: " << Stats.CovFns << "\n";
+  return OS;
 }
 
 class CoverageData {
@@ -615,9 +650,8 @@ public:
     MIXED = 3
   };
 
-  SourceCoverageData(std::string ObjectFile, const std::set<uint64_t> &Addrs) {
-    std::set<uint64_t> AllCovPoints = getCoveragePoints(ObjectFile);
-
+  SourceCoverageData(std::string ObjectFile, const std::set<uint64_t> &Addrs)
+      : AllCovPoints(getCoveragePoints(ObjectFile)) {
     if (!std::includes(AllCovPoints.begin(), AllCovPoints.end(), Addrs.begin(),
                        Addrs.end())) {
       Fail("Coverage points in binary and .sancov file do not match.");
@@ -776,7 +810,15 @@ public:
     return Files;
   }
 
+  void collectStats(CoverageStats *Stats) const {
+    Stats->AllPoints += AllCovPoints.size();
+    Stats->AllFns += computeAllFunctions().size();
+    Stats->CovFns += computeCoveredFunctions().size();
+  }
+
 private:
+  const std::set<uint64_t> AllCovPoints;
+
   std::vector<AddrInfo> AllAddrInfo;
   std::vector<AddrInfo> CovAddrInfo;
 };
@@ -858,7 +900,7 @@ public:
 
       OS << "<tr><td><a href=\"#" << anchorName(FileName) << "\">"
          << stripPathPrefix(FileName) << "</a></td>"
-         << "<td>" << CovPct << "%</td>"
+         << "<td>" << formatHtmlPct(CovPct) << "%</td>"
          << "<td>" << FC.first << " (" << FC.second << ")"
          << "</tr>\n";
     }
@@ -896,7 +938,8 @@ public:
         std::string FunctionName = P.first.FunctionName;
 
         OS << "<div class='fn' style='order: " << P.second << "'>";
-        OS << "<span class='pct'>" << P.second << "%</span>&nbsp;";
+        OS << "<span class='pct'>" << formatHtmlPct(P.second)
+           << "%</span>&nbsp;";
         OS << "<span class='name'><a href=\"#"
            << anchorName(FileName + "::" + FunctionName) << "\">";
         OS << escapeHtml(FunctionName) << "</a></span>";
@@ -952,6 +995,13 @@ public:
       }
       OS << "</pre>\n";
     }
+  }
+
+  void collectStats(CoverageStats *Stats) const {
+    Stats->CovPoints += Addrs->size();
+
+    SourceCoverageData SCovData(ObjectFile, *Addrs);
+    SCovData.collectStats(Stats);
   }
 
 private:
@@ -1048,6 +1098,14 @@ public:
     }
   }
 
+  void printStats(raw_ostream &OS) const {
+    CoverageStats Stats;
+    for (const auto &Cov : Coverage) {
+      Cov->collectStats(&Stats);
+    }
+    OS << Stats;
+  }
+
   void printReport(raw_ostream &OS) const {
     auto Title =
         (llvm::sys::path::filename(MainObjFile) + " Coverage Report").str();
@@ -1066,6 +1124,7 @@ public:
     OS << ".fn { display: flex; flex-flow: row nowrap; }\n";
     OS << ".pct { width: 3em; text-align: right; margin-right: 1em; }\n";
     OS << ".name { flex: 2; }\n";
+    OS << ".lz { color: lightgray; }\n";
     OS << "</style>\n";
     OS << "<title>" << Title << "</title>\n";
     OS << "</head>\n";
@@ -1170,6 +1229,10 @@ int main(int argc, char **argv) {
   }
   case HtmlReportAction: {
     CovDataSet.get()->printReport(outs());
+    return 0;
+  }
+  case StatsAction: {
+    CovDataSet.get()->printStats(outs());
     return 0;
   }
   case PrintAction:

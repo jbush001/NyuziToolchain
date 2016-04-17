@@ -113,6 +113,8 @@ class BreakpointConditionsTestCase(TestBase):
             self.runCmd("breakpoint modify -c ($r0&&i)")
         elif re.match("mips",arch):
             self.runCmd("breakpoint modify -c ($r2&&i)")
+        elif arch in ['s390x']:
+            self.runCmd("breakpoint modify -c ($r2&&i)")
         self.runCmd("run")
 
         self.expect("process status", PROCESS_STOPPED,
@@ -179,4 +181,8 @@ class BreakpointConditionsTestCase(TestBase):
         # The hit count for the breakpoint should be 1.
         self.assertTrue(breakpoint.GetHitCount() == 1)
 
+        # Test that the condition expression didn't create a result variable:
+        options = lldb.SBExpressionOptions()
+        value = frame0.EvaluateExpression("$0", options)
+        self.assertTrue(value.GetError().Fail(), "Conditions should not make result variables.")
         process.Continue()

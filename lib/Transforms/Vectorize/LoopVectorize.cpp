@@ -314,13 +314,13 @@ public:
   InnerLoopVectorizer(Loop *OrigLoop, PredicatedScalarEvolution &PSE,
                       LoopInfo *LI, DominatorTree *DT,
                       const TargetLibraryInfo *TLI,
-                      const TargetTransformInfo *TTI, unsigned VecWidth,
-                      unsigned UnrollFactor)
+                      const TargetTransformInfo *TTI, AssumptionCache *AC,
+                      unsigned VecWidth, unsigned UnrollFactor)
       : OrigLoop(OrigLoop), PSE(PSE), LI(LI), DT(DT), TLI(TLI), TTI(TTI),
-        VF(VecWidth), UF(UnrollFactor), Builder(PSE.getSE()->getContext()),
-        Induction(nullptr), OldInduction(nullptr), WidenMap(UnrollFactor),
-        TripCount(nullptr), VectorTripCount(nullptr), Legal(nullptr),
-        AddedSafetyChecks(false) {}
+        AC(AC), VF(VecWidth), UF(UnrollFactor),
+        Builder(PSE.getSE()->getContext()), Induction(nullptr),
+        OldInduction(nullptr), WidenMap(UnrollFactor), TripCount(nullptr),
+        VectorTripCount(nullptr), Legal(nullptr), AddedSafetyChecks(false) {}
 
   // Perform the actual loop widening (vectorization).
   // MinimumBitWidths maps scalar integer values to the smallest bitwidth they
@@ -524,6 +524,8 @@ protected:
   const TargetLibraryInfo *TLI;
   /// Target Transform Info.
   const TargetTransformInfo *TTI;
+  /// Assumption Cache.
+  AssumptionCache *AC;
 
   /// \brief LoopVersioning.  It's only set up (non-null) if memchecks were
   /// used.
@@ -591,8 +593,10 @@ public:
   InnerLoopUnroller(Loop *OrigLoop, PredicatedScalarEvolution &PSE,
                     LoopInfo *LI, DominatorTree *DT,
                     const TargetLibraryInfo *TLI,
-                    const TargetTransformInfo *TTI, unsigned UnrollFactor)
-      : InnerLoopVectorizer(OrigLoop, PSE, LI, DT, TLI, TTI, 1, UnrollFactor) {}
+                    const TargetTransformInfo *TTI, AssumptionCache *AC,
+                    unsigned UnrollFactor)
+      : InnerLoopVectorizer(OrigLoop, PSE, LI, DT, TLI, TTI, AC, 1,
+                            UnrollFactor) {}
 
 private:
   void scalarizeInstruction(Instruction *Instr,
@@ -959,6 +963,9 @@ class LoopVectorizeHints {
   /// Return the loop metadata prefix.
   static StringRef Prefix() { return "llvm.loop."; }
 
+  /// True if there is any unsafe math in the loop.
+  bool PotentiallyUnsafe;
+
 public:
   enum ForceKind {
     FK_Undefined = -1, ///< Not selected.
@@ -971,7 +978,7 @@ public:
               HK_WIDTH),
         Interleave("interleave.count", DisableInterleaving, HK_UNROLL),
         Force("vectorize.enable", FK_Undefined, HK_FORCE),
-        TheLoop(L) {
+        PotentiallyUnsafe(false), TheLoop(L) {
     // Populate values with existing loop metadata.
     getHintsFromMetadata();
 
@@ -1067,6 +1074,19 @@ public:
     // reordering floating-point operations will change the way round-off
     // error accumulates in the loop.
     return getForce() == LoopVectorizeHints::FK_Enabled || getWidth() > 1;
+  }
+
+  bool isPotentiallyUnsafe() const {
+    // Avoid FP vectorization if the target is unsure about proper support.
+    // This may be related to the SIMD unit in the target not handling
+    // IEEE 754 FP ops properly, or bad single-to-double promotions.
+    // Otherwise, a sequence of vectorized loops, even without reduction,
+    // could lead to different end results on the destination vectors.
+    return getForce() != LoopVectorizeHints::FK_Enabled && PotentiallyUnsafe;
+  }
+
+  void setPotentiallyUnsafe() {
+    PotentiallyUnsafe = true;
   }
 
 private:
@@ -1230,7 +1250,7 @@ public:
                             const TargetTransformInfo *TTI,
                             LoopAccessAnalysis *LAA,
                             LoopVectorizationRequirements *R,
-                            const LoopVectorizeHints *H)
+                            LoopVectorizeHints *H)
       : NumPredStores(0), TheLoop(L), PSE(PSE), TLI(TLI), TheFunction(F),
         TTI(TTI), DT(DT), LAA(LAA), LAI(nullptr), InterleaveInfo(PSE, L, DT),
         Induction(nullptr), WidestIndTy(nullptr), HasFunNoNaNAttr(false),
@@ -1456,7 +1476,7 @@ private:
   LoopVectorizationRequirements *Requirements;
 
   /// Used to emit an analysis of any legality issues.
-  const LoopVectorizeHints *Hints;
+  LoopVectorizeHints *Hints;
 
   ValueToValueMap Strides;
   SmallPtrSet<Value *, 8> StrideSet;
@@ -1532,15 +1552,26 @@ public:
   calculateRegisterUsage(const SmallVector<unsigned, 8> &VFs);
 
 private:
+  /// The vectorization cost is a combination of the cost itself and a boolean
+  /// indicating whether any of the contributing operations will actually operate on
+  /// vector values after type legalization in the backend. If this latter value is
+  /// false, then all operations will be scalarized (i.e. no vectorization has
+  /// actually taken place).
+  typedef std::pair<unsigned, bool> VectorizationCostTy;
+
   /// Returns the expected execution cost. The unit of the cost does
   /// not matter because we use the 'cost' units to compare different
   /// vector widths. The cost that is returned is *not* normalized by
   /// the factor width.
-  unsigned expectedCost(unsigned VF);
+  VectorizationCostTy expectedCost(unsigned VF);
 
   /// Returns the execution time cost of an instruction for a given vector
   /// width. Vector width of one means scalar.
-  unsigned getInstructionCost(Instruction *I, unsigned VF);
+  VectorizationCostTy getInstructionCost(Instruction *I, unsigned VF);
+
+  /// The cost-computation logic from getInstructionCost which provides
+  /// the vector type as an output parameter.
+  unsigned getInstructionCost(Instruction *I, unsigned VF, Type *&VectorTy);
 
   /// Returns whether the instruction is a load or store and will be a emitted
   /// as a vector operation.
@@ -1869,6 +1900,21 @@ struct LoopVectorize : public FunctionPass {
       return false;
     }
 
+    // Check if the target supports potentially unsafe FP vectorization.
+    // FIXME: Add a check for the type of safety issue (denormal, signaling)
+    // for the target we're vectorizing for, to make sure none of the
+    // additional fp-math flags can help.
+    if (Hints.isPotentiallyUnsafe() &&
+        TTI->isFPVectorizationPotentiallyUnsafe()) {
+      DEBUG(dbgs() << "LV: Potentially unsafe FP op prevents vectorization.\n");
+      emitAnalysisDiag(
+          F, L, Hints,
+          VectorizationReport()
+             << "loop not vectorized due to unsafe FP support.");
+      emitMissedWarning(F, L, Hints);
+      return false;
+    }
+
     // Select the optimal vectorization factor.
     const LoopVectorizationCostModel::VectorizationFactor VF =
         CM.selectVectorizationFactor(OptForSize);
@@ -1946,7 +1992,7 @@ struct LoopVectorize : public FunctionPass {
       assert(IC > 1 && "interleave count should not be 1 or 0");
       // If we decided that it is not legal to vectorize the loop then
       // interleave it.
-      InnerLoopUnroller Unroller(L, PSE, LI, DT, TLI, TTI, IC);
+      InnerLoopUnroller Unroller(L, PSE, LI, DT, TLI, TTI, AC, IC);
       Unroller.vectorize(&LVL, CM.MinBWs);
 
       emitOptimizationRemark(F->getContext(), LV_NAME, *F, L->getStartLoc(),
@@ -1954,7 +2000,7 @@ struct LoopVectorize : public FunctionPass {
                                  Twine(IC) + ")");
     } else {
       // If we decided that it is *legal* to vectorize the loop then do it.
-      InnerLoopVectorizer LB(L, PSE, LI, DT, TLI, TTI, VF.Width, IC);
+      InnerLoopVectorizer LB(L, PSE, LI, DT, TLI, TTI, AC, VF.Width, IC);
       LB.vectorize(&LVL, CM.MinBWs);
       ++LoopsVectorized;
 
@@ -2717,6 +2763,11 @@ void InnerLoopVectorizer::scalarizeInstruction(Instruction *Instr,
       // Place the cloned scalar in the new loop.
       Builder.Insert(Cloned);
 
+      // If we just cloned a new assumption, add it the assumption cache.
+      if (auto *II = dyn_cast<IntrinsicInst>(Cloned))
+        if (II->getIntrinsicID() == Intrinsic::assume)
+          AC->registerAssumption(II);
+
       // If the original scalar returns a value we need to place it in a vector
       // so that future users will be able to use it.
       if (!IsVoidRetTy)
@@ -2767,7 +2818,7 @@ Value *InnerLoopVectorizer::getOrCreateTripCount(Loop *L) {
   IRBuilder<> Builder(L->getLoopPreheader()->getTerminator());
   // Find the loop boundaries.
   ScalarEvolution *SE = PSE.getSE();
-  const SCEV *BackedgeTakenCount = SE->getBackedgeTakenCount(OrigLoop);
+  const SCEV *BackedgeTakenCount = PSE.getBackedgeTakenCount();
   assert(BackedgeTakenCount != SE->getCouldNotCompute() &&
          "Invalid loop count");
 
@@ -3282,7 +3333,11 @@ static unsigned getVectorIntrinsicCost(CallInst *CI, unsigned VF,
   for (unsigned i = 0, ie = CI->getNumArgOperands(); i != ie; ++i)
     Tys.push_back(ToVectorTy(CI->getArgOperand(i)->getType(), VF));
 
-  return TTI.getIntrinsicInstrCost(ID, RetTy, Tys);
+  FastMathFlags FMF;
+  if (auto *FPMO = dyn_cast<FPMathOperator>(CI))
+    FMF = FPMO->getFastMathFlags();
+
+  return TTI.getIntrinsicInstrCost(ID, RetTy, Tys, FMF);
 }
 
 static Type *smallestIntegerVectorType(Type *T1, Type *T2) {
@@ -4249,7 +4304,13 @@ void InnerLoopVectorizer::vectorizeBlockInLoop(BasicBlock *BB, PhiVector *PV) {
           }
         }
         assert(VectorF && "Can't create vector function.");
-        Entry[Part] = Builder.CreateCall(VectorF, Args);
+
+        CallInst *V = Builder.CreateCall(VectorF, Args);
+
+        if (isa<FPMathOperator>(V))
+          V->copyFastMathFlags(CI);
+
+        Entry[Part] = V;
       }
 
       addMetadata(Entry, &*it);
@@ -4414,7 +4475,7 @@ bool LoopVectorizationLegality::canVectorize() {
   }
 
   // ScalarEvolution needs to be able to find the exit count.
-  const SCEV *ExitCount = PSE.getSE()->getBackedgeTakenCount(TheLoop);
+  const SCEV *ExitCount = PSE.getBackedgeTakenCount();
   if (ExitCount == PSE.getSE()->getCouldNotCompute()) {
     emitAnalysis(VectorizationReport()
                  << "could not determine number of loop iterations");
@@ -4516,9 +4577,8 @@ bool LoopVectorizationLegality::canVectorizeInstrs() {
   // Look for the attribute signaling the absence of NaNs.
   Function &F = *Header->getParent();
   const DataLayout &DL = F.getParent()->getDataLayout();
-  if (F.hasFnAttribute("no-nans-fp-math"))
-    HasFunNoNaNAttr =
-        F.getFnAttribute("no-nans-fp-math").getValueAsString() == "true";
+  HasFunNoNaNAttr =
+      F.getFnAttribute("no-nans-fp-math").getValueAsString() == "true";
 
   // For each block in the loop.
   for (Loop::block_iterator bb = TheLoop->block_begin(),
@@ -4666,11 +4726,22 @@ bool LoopVectorizationLegality::canVectorizeInstrs() {
         }
         if (EnableMemAccessVersioning)
           collectStridedAccess(ST);
-      }
 
-      if (EnableMemAccessVersioning)
-        if (LoadInst *LI = dyn_cast<LoadInst>(it))
+      } else if (LoadInst *LI = dyn_cast<LoadInst>(it)) {
+        if (EnableMemAccessVersioning)
           collectStridedAccess(LI);
+
+      // FP instructions can allow unsafe algebra, thus vectorizable by
+      // non-IEEE-754 compliant SIMD units.
+      // This applies to floating-point math operations and calls, not memory
+      // operations, shuffles, or casts, as they don't change precision or
+      // semantics.
+      } else if (it->getType()->isFloatingPointTy() &&
+                (CI || it->isBinaryOp()) &&
+                !it->hasUnsafeAlgebra()) {
+        DEBUG(dbgs() << "LV: Found FP op with unsafe algebra.\n");
+        Hints->setPotentiallyUnsafe();
+      }
 
       // Reduction instructions are allowed to have exit users.
       // All other instructions must not have external users.
@@ -5146,7 +5217,7 @@ LoopVectorizationCostModel::selectVectorizationFactor(bool OptForSize) {
     return Factor;
   }
 
-  float Cost = expectedCost(1);
+  float Cost = expectedCost(1).first;
 #ifndef NDEBUG
   const float ScalarCost = Cost;
 #endif /* NDEBUG */
@@ -5157,16 +5228,22 @@ LoopVectorizationCostModel::selectVectorizationFactor(bool OptForSize) {
   // Ignore scalar width, because the user explicitly wants vectorization.
   if (ForceVectorization && VF > 1) {
     Width = 2;
-    Cost = expectedCost(Width) / (float)Width;
+    Cost = expectedCost(Width).first / (float)Width;
   }
 
   for (unsigned i=2; i <= VF; i*=2) {
     // Notice that the vector loop needs to be executed less times, so
     // we need to divide the cost of the vector loops by the width of
     // the vector elements.
-    float VectorCost = expectedCost(i) / (float)i;
+    VectorizationCostTy C = expectedCost(i);
+    float VectorCost = C.first / (float)i;
     DEBUG(dbgs() << "LV: Vector loop of width " << i << " costs: " <<
           (int)VectorCost << ".\n");
+    if (!C.second && !ForceVectorization) {
+      DEBUG(dbgs() << "LV: Not considering vector loop of width " << i <<
+            " because it will not generate any vector instructions.\n");
+      continue;
+    }
     if (VectorCost < Cost) {
       Cost = VectorCost;
       Width = i;
@@ -5314,7 +5391,7 @@ unsigned LoopVectorizationCostModel::selectInterleaveCount(bool OptForSize,
   // If we did not calculate the cost for VF (because the user selected the VF)
   // then we calculate the cost of VF here.
   if (LoopCost == 0)
-    LoopCost = expectedCost(VF);
+    LoopCost = expectedCost(VF).first;
 
   // Clamp the calculated IC to be between the 1 and the max interleave count
   // that the target allows.
@@ -5541,13 +5618,14 @@ LoopVectorizationCostModel::calculateRegisterUsage(
   return RUs;
 }
 
-unsigned LoopVectorizationCostModel::expectedCost(unsigned VF) {
-  unsigned Cost = 0;
+LoopVectorizationCostModel::VectorizationCostTy
+LoopVectorizationCostModel::expectedCost(unsigned VF) {
+  VectorizationCostTy Cost;
 
   // For each block.
   for (Loop::block_iterator bb = TheLoop->block_begin(),
        be = TheLoop->block_end(); bb != be; ++bb) {
-    unsigned BlockCost = 0;
+    VectorizationCostTy BlockCost;
     BasicBlock *BB = *bb;
 
     // For each instruction in the old loop.
@@ -5560,24 +5638,26 @@ unsigned LoopVectorizationCostModel::expectedCost(unsigned VF) {
       if (ValuesToIgnore.count(&*it))
         continue;
 
-      unsigned C = getInstructionCost(&*it, VF);
+      VectorizationCostTy C = getInstructionCost(&*it, VF);
 
       // Check if we should override the cost.
       if (ForceTargetInstructionCost.getNumOccurrences() > 0)
-        C = ForceTargetInstructionCost;
+        C.first = ForceTargetInstructionCost;
 
-      BlockCost += C;
-      DEBUG(dbgs() << "LV: Found an estimated cost of " << C << " for VF " <<
-            VF << " For instruction: " << *it << '\n');
+      BlockCost.first += C.first;
+      BlockCost.second |= C.second;
+      DEBUG(dbgs() << "LV: Found an estimated cost of " << C.first <<
+            " for VF " << VF << " For instruction: " << *it << '\n');
     }
 
     // We assume that if-converted blocks have a 50% chance of being executed.
     // When the code is scalar then some of the blocks are avoided due to CF.
     // When the code is vectorized we execute all code paths.
     if (VF == 1 && Legal->blockNeedsPredication(*bb))
-      BlockCost /= 2;
+      BlockCost.first /= 2;
 
-    Cost += BlockCost;
+    Cost.first += BlockCost.first;
+    Cost.second |= BlockCost.second;
   }
 
   return Cost;
@@ -5654,17 +5734,28 @@ static bool isStrideMul(Instruction *I, LoopVectorizationLegality *Legal) {
          Legal->hasStride(I->getOperand(1));
 }
 
-unsigned
+LoopVectorizationCostModel::VectorizationCostTy
 LoopVectorizationCostModel::getInstructionCost(Instruction *I, unsigned VF) {
   // If we know that this instruction will remain uniform, check the cost of
   // the scalar version.
   if (Legal->isUniformAfterVectorization(I))
     VF = 1;
 
+  Type *VectorTy;
+  unsigned C = getInstructionCost(I, VF, VectorTy);
+
+  bool TypeNotScalarized = VF > 1 && !VectorTy->isVoidTy() &&
+                           TTI.getNumberOfParts(VectorTy) < VF;
+  return VectorizationCostTy(C, TypeNotScalarized);
+}
+
+unsigned
+LoopVectorizationCostModel::getInstructionCost(Instruction *I, unsigned VF,
+                                               Type *&VectorTy) {
   Type *RetTy = I->getType();
   if (VF > 1 && MinBWs.count(I))
     RetTy = IntegerType::get(RetTy->getContext(), MinBWs[I]);
-  Type *VectorTy = ToVectorTy(RetTy, VF);
+  VectorTy = ToVectorTy(RetTy, VF);
 
   // TODO: We need to estimate the cost of intrinsic calls.
   switch (I->getOpcode()) {
@@ -5779,6 +5870,15 @@ LoopVectorizationCostModel::getInstructionCost(Instruction *I, unsigned VF) {
     if (VF == 1)
       return TTI.getAddressComputationCost(VectorTy) +
         TTI.getMemoryOpCost(I->getOpcode(), VectorTy, Alignment, AS);
+
+    if (LI && Legal->isUniform(Ptr)) {
+      // Scalar load + broadcast
+      unsigned Cost = TTI.getAddressComputationCost(ValTy->getScalarType());
+      Cost += TTI.getMemoryOpCost(I->getOpcode(), ValTy->getScalarType(),
+                                  Alignment, AS);
+      return Cost + TTI.getShuffleCost(TargetTransformInfo::SK_Broadcast,
+                                       ValTy);
+    }
 
     // For an interleaved access, calculate the total cost of the whole
     // interleave group.
@@ -6065,6 +6165,11 @@ void InnerLoopUnroller::scalarizeInstruction(Instruction *Instr,
 
       // Place the cloned scalar in the new loop.
       Builder.Insert(Cloned);
+
+      // If we just cloned a new assumption, add it the assumption cache.
+      if (auto *II = dyn_cast<IntrinsicInst>(Cloned))
+        if (II->getIntrinsicID() == Intrinsic::assume)
+          AC->registerAssumption(II);
 
       // If the original scalar returns a value we need to place it in a vector
       // so that future users will be able to use it.

@@ -12,9 +12,11 @@ set(IRSources
   ConstantsTest.cpp
   DebugInfoTest.cpp
   DominatorTreeTest.cpp
+  FunctionTest.cpp
   IRBuilderTest.cpp
   InstructionsTest.cpp
   IntrinsicsTest.cpp
+  LLVMContextTest.cpp
   LegacyPassManagerTest.cpp
   MDBuilderTest.cpp
   MetadataTest.cpp

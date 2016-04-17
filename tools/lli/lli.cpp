@@ -312,6 +312,7 @@ private:
   }
 };
 
+static LLVMContext Context;
 static ExecutionEngine *EE = nullptr;
 static LLIObjectCache *CacheManager = nullptr;
 
@@ -385,7 +386,6 @@ int main(int argc, char **argv, char * const *envp) {
   sys::PrintStackTraceOnErrorSignal();
   PrettyStackTraceProgram X(argc, argv);
 
-  LLVMContext &Context = getGlobalContext();
   atexit(do_shutdown);  // Call llvm_shutdown() on exit.
 
   // If we have a native target, initialize it to ensure it is linked in and
@@ -501,9 +501,11 @@ int main(int argc, char **argv, char * const *envp) {
   }
 
   for (unsigned i = 0, e = ExtraObjects.size(); i != e; ++i) {
-    ErrorOr<object::OwningBinary<object::ObjectFile>> Obj =
+    Expected<object::OwningBinary<object::ObjectFile>> Obj =
         object::ObjectFile::createObjectFile(ExtraObjects[i]);
     if (!Obj) {
+      // TODO: Actually report errors helpfully.
+      consumeError(Obj.takeError());
       Err.print(argv[0], errs());
       return 1;
     }

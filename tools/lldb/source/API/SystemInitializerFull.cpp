@@ -39,11 +39,16 @@
 #include "Plugins/ABI/SysV-mips64/ABISysV_mips64.h"
 #include "Plugins/ABI/SysV-ppc/ABISysV_ppc.h"
 #include "Plugins/ABI/SysV-ppc64/ABISysV_ppc64.h"
+#include "Plugins/ABI/SysV-s390x/ABISysV_s390x.h"
 #include "Plugins/ABI/SysV-x86_64/ABISysV_x86_64.h"
 #include "Plugins/Disassembler/llvm/DisassemblerLLVMC.h"
 #include "Plugins/DynamicLoader/Static/DynamicLoaderStatic.h"
+#include "Plugins/DynamicLoader/MacOSX-DYLD/DynamicLoaderMacOSXDYLD.h"
+#include "Plugins/DynamicLoader/POSIX-DYLD/DynamicLoaderPOSIXDYLD.h"
+#include "Plugins/DynamicLoader/Windows-DYLD/DynamicLoaderWindowsDYLD.h"
 #include "Plugins/Instruction/ARM64/EmulateInstructionARM64.h"
 #include "Plugins/InstrumentationRuntime/AddressSanitizer/AddressSanitizerRuntime.h"
+#include "Plugins/InstrumentationRuntime/ThreadSanitizer/ThreadSanitizerRuntime.h"
 #include "Plugins/JITLoader/GDB/JITLoaderGDB.h"
 #include "Plugins/Language/CPlusPlus/CPlusPlusLanguage.h"
 #include "Plugins/Language/Go/GoLanguage.h"
@@ -80,6 +85,7 @@
 #include "Plugins/Platform/MacOSX/PlatformAppleWatchSimulator.h"
 #include "Plugins/Platform/MacOSX/PlatformRemoteAppleTV.h"
 #include "Plugins/Platform/MacOSX/PlatformRemoteAppleWatch.h"
+#include "Plugins/DynamicLoader/Darwin-Kernel/DynamicLoaderDarwinKernel.h"
 #endif
 
 #if defined(__FreeBSD__)
@@ -297,6 +303,7 @@ SystemInitializerFull::Initialize()
     ABISysV_ppc64::Initialize();
     ABISysV_mips::Initialize();
     ABISysV_mips64::Initialize();
+    ABISysV_s390x::Initialize();
     DisassemblerLLVMC::Initialize();
 
     JITLoaderGDB::Initialize();
@@ -306,6 +313,7 @@ SystemInitializerFull::Initialize()
 #endif
     MemoryHistoryASan::Initialize();
     AddressSanitizerRuntime::Initialize();
+    ThreadSanitizerRuntime::Initialize();
 
     SymbolVendorELF::Initialize();
     SymbolFileDWARF::Initialize();
@@ -343,6 +351,7 @@ SystemInitializerFull::Initialize()
     PlatformAppleWatchSimulator::Initialize();
     PlatformRemoteAppleTV::Initialize();
     PlatformRemoteAppleWatch::Initialize();
+    DynamicLoaderDarwinKernel::Initialize();
 #endif
     //----------------------------------------------------------------------
     // Platform agnostic plugins
@@ -350,7 +359,10 @@ SystemInitializerFull::Initialize()
     platform_gdb_server::PlatformRemoteGDBServer::Initialize();
 
     process_gdb_remote::ProcessGDBRemote::Initialize();
+    DynamicLoaderMacOSXDYLD::Initialize();
+    DynamicLoaderPOSIXDYLD::Initialize();
     DynamicLoaderStatic::Initialize();
+    DynamicLoaderWindowsDYLD::Initialize();
 
     // Scan for any system or user LLDB plug-ins
     PluginManager::Initialize();
@@ -420,6 +432,7 @@ SystemInitializerFull::Terminate()
     ABISysV_ppc64::Terminate();
     ABISysV_mips::Terminate();
     ABISysV_mips64::Terminate();
+    ABISysV_s390x::Terminate();
     DisassemblerLLVMC::Terminate();
 
     JITLoaderGDB::Terminate();
@@ -429,6 +442,7 @@ SystemInitializerFull::Terminate()
 #endif
     MemoryHistoryASan::Terminate();
     AddressSanitizerRuntime::Terminate();
+    ThreadSanitizerRuntime::Terminate();
     SymbolVendorELF::Terminate();
     SymbolFileDWARF::Terminate();
     SymbolFilePDB::Terminate();
@@ -451,6 +465,7 @@ SystemInitializerFull::Terminate()
     ObjCPlusPlusLanguage::Terminate();
 
 #if defined(__APPLE__)
+    DynamicLoaderDarwinKernel::Terminate();
     ProcessMachCore::Terminate();
     ProcessKDP::Terminate();
     SymbolVendorMacOSX::Terminate();
@@ -467,7 +482,10 @@ SystemInitializerFull::Terminate()
 
     platform_gdb_server::PlatformRemoteGDBServer::Terminate();
     process_gdb_remote::ProcessGDBRemote::Terminate();
+    DynamicLoaderMacOSXDYLD::Terminate();
+    DynamicLoaderPOSIXDYLD::Terminate();
     DynamicLoaderStatic::Terminate();
+    DynamicLoaderWindowsDYLD::Terminate();
 
 #ifndef LLDB_DISABLE_PYTHON
     OperatingSystemPython::Terminate();

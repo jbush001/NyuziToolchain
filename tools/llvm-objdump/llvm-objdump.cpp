@@ -270,6 +270,17 @@ LLVM_ATTRIBUTE_NORETURN void llvm::report_error(StringRef File,
   exit(1);
 }
 
+LLVM_ATTRIBUTE_NORETURN void llvm::report_error(StringRef File,
+                                                llvm::Error E) {
+  assert(E);
+  std::string Buf;
+  raw_string_ostream OS(Buf);
+  logAllUnhandledErrors(std::move(E), OS, "");
+  OS.flush();
+  errs() << ToolName << ": " << Buf;
+  exit(1);
+}
+
 static const Target *getTarget(const ObjectFile *Obj = nullptr) {
   // Figure out the target triple.
   llvm::Triple TheTriple("unknown-unknown-unknown");
@@ -384,12 +395,43 @@ public:
   }
 };
 HexagonPrettyPrinter HexagonPrettyPrinterInst;
+
+class AMDGCNPrettyPrinter : public PrettyPrinter {
+public:
+  void printInst(MCInstPrinter &IP,
+                 const MCInst *MI,
+                 ArrayRef<uint8_t> Bytes,
+                 uint64_t Address,
+                 raw_ostream &OS,
+                 StringRef Annot,
+                 MCSubtargetInfo const &STI) override {
+    SmallString<40> InstStr;
+    raw_svector_ostream IS(InstStr);
+
+    IP.printInst(MI, IS, "", STI);
+
+    OS << left_justify(IS.str(), 60) << format("// %012" PRIX64 ": ", Address);
+    typedef support::ulittle32_t U32;
+    for (auto D : makeArrayRef(reinterpret_cast<const U32*>(Bytes.data()),
+                               Bytes.size() / sizeof(U32)))
+      // D should be explicitly casted to uint32_t here as it is passed
+      // by format to snprintf as vararg.
+      OS << format("%08" PRIX32 " ", static_cast<uint32_t>(D));
+
+    if (!Annot.empty())
+      OS << "// " << Annot;
+  }
+};
+AMDGCNPrettyPrinter AMDGCNPrettyPrinterInst;
+
 PrettyPrinter &selectPrettyPrinter(Triple const &Triple) {
   switch(Triple.getArch()) {
   default:
     return PrettyPrinterInst;
   case Triple::hexagon:
     return HexagonPrettyPrinterInst;
+  case Triple::amdgcn:
+    return AMDGCNPrettyPrinterInst;
   }
 }
 }
@@ -1046,6 +1088,18 @@ static void DisassembleObject(const ObjectFile *Obj, bool InlineRelocs) {
       if (Start >= End)
         continue;
 
+      if (Obj->isELF() && Obj->getArch() == Triple::amdgcn) {
+        // make size 4 bytes folded
+        End = Start + ((End - Start) & ~0x3ull);
+        Start += 256; // add sizeof(amd_kernel_code_t)
+        // cut trailing zeroes - up to 256 bytes (align)
+        const uint64_t EndAlign = 256;
+        const auto Limit = End - (std::min)(EndAlign, End - Start);
+        while (End > Limit &&
+          *reinterpret_cast<const support::ulittle32_t*>(&Bytes[End - 4]) == 0)
+          End -= 4;
+      }
+
       outs() << '\n' << Symbols[si].second << ":\n";
 
 #ifndef NDEBUG
@@ -1293,7 +1347,9 @@ void llvm::PrintSymbolTable(const ObjectFile *o) {
     ErrorOr<uint64_t> AddressOrError = Symbol.getAddress();
     error(AddressOrError.getError());
     uint64_t Address = *AddressOrError;
-    SymbolRef::Type Type = Symbol.getType();
+    ErrorOr<SymbolRef::Type> TypeOrError = Symbol.getType();
+    error(TypeOrError.getError());
+    SymbolRef::Type Type = *TypeOrError;
     uint32_t Flags = Symbol.getFlags();
     ErrorOr<section_iterator> SectionOrErr = Symbol.getSection();
     error(SectionOrErr.getError());
@@ -1609,9 +1665,9 @@ static void DumpInput(StringRef file) {
   }
 
   // Attempt to open the binary.
-  ErrorOr<OwningBinary<Binary>> BinaryOrErr = createBinary(file);
-  if (std::error_code EC = BinaryOrErr.getError())
-    report_error(file, EC);
+  Expected<OwningBinary<Binary>> BinaryOrErr = createBinary(file);
+  if (!BinaryOrErr)
+    report_error(file, errorToErrorCode(BinaryOrErr.takeError()));
   Binary &Binary = *BinaryOrErr.get().getBinary();
 
   if (Archive *a = dyn_cast<Archive>(&Binary))

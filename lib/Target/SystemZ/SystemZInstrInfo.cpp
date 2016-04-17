@@ -69,8 +69,8 @@ void SystemZInstrInfo::splitMove(MachineBasicBlock::iterator MI,
   MachineOperand &LowOffsetOp = MI->getOperand(2);
   LowOffsetOp.setImm(LowOffsetOp.getImm() + 8);
 
- // Clear the kill flags for the base and index registers in the first
- // instruction.
+  // Clear the kill flags for the base and index registers in the first
+  // instruction.
   EarlierMI->getOperand(1).setIsKill(false);
   EarlierMI->getOperand(3).setIsKill(false);
 
@@ -508,13 +508,26 @@ static unsigned getConditionalMove(unsigned Opcode) {
 
 bool SystemZInstrInfo::isPredicable(MachineInstr &MI) const {
   unsigned Opcode = MI.getOpcode();
-  return STI.hasLoadStoreOnCond() && getConditionalMove(Opcode);
+  if (STI.hasLoadStoreOnCond() && getConditionalMove(Opcode))
+    return true;
+  if (Opcode == SystemZ::Return ||
+      Opcode == SystemZ::CallJG ||
+      Opcode == SystemZ::CallBR)
+    return true;
+  return false;
 }
 
 bool SystemZInstrInfo::
 isProfitableToIfCvt(MachineBasicBlock &MBB,
                     unsigned NumCycles, unsigned ExtraPredCycles,
                     BranchProbability Probability) const {
+  // Avoid using conditional returns at the end of a loop (since then
+  // we'd need to emit an unconditional branch to the beginning anyway,
+  // making the loop body longer).  This doesn't apply for low-probability
+  // loops (eg. compare-and-swap retry), so just decide based on branch
+  // probability instead of looping structure.
+  if (MBB.succ_empty() && Probability < BranchProbability(1, 8))
+    return false;
   // For now only convert single instructions.
   return NumCycles == 1;
 }
@@ -527,6 +540,13 @@ isProfitableToIfCvt(MachineBasicBlock &TMBB,
                     BranchProbability Probability) const {
   // For now avoid converting mutually-exclusive cases.
   return false;
+}
+
+bool SystemZInstrInfo::
+isProfitableToDupForIfCvt(MachineBasicBlock &MBB, unsigned NumCycles,
+                          BranchProbability Probability) const {
+  // For now only duplicate single instructions.
+  return NumCycles == 1;
 }
 
 bool SystemZInstrInfo::PredicateInstruction(
@@ -545,6 +565,36 @@ bool SystemZInstrInfo::PredicateInstruction(
           .addReg(SystemZ::CC, RegState::Implicit);
       return true;
     }
+  }
+  if (Opcode == SystemZ::Return) {
+    MI.setDesc(get(SystemZ::CondReturn));
+    MachineInstrBuilder(*MI.getParent()->getParent(), MI)
+      .addImm(CCValid).addImm(CCMask)
+      .addReg(SystemZ::CC, RegState::Implicit);
+    return true;
+  }
+  if (Opcode == SystemZ::CallJG) {
+    const GlobalValue *Global = MI.getOperand(0).getGlobal();
+    const uint32_t *RegMask = MI.getOperand(1).getRegMask();
+    MI.RemoveOperand(1);
+    MI.RemoveOperand(0);
+    MI.setDesc(get(SystemZ::CallBRCL));
+    MachineInstrBuilder(*MI.getParent()->getParent(), MI)
+      .addImm(CCValid).addImm(CCMask)
+      .addGlobalAddress(Global)
+      .addRegMask(RegMask)
+      .addReg(SystemZ::CC, RegState::Implicit);
+    return true;
+  }
+  if (Opcode == SystemZ::CallBR) {
+    const uint32_t *RegMask = MI.getOperand(0).getRegMask();
+    MI.RemoveOperand(0);
+    MI.setDesc(get(SystemZ::CallBCR));
+    MachineInstrBuilder(*MI.getParent()->getParent(), MI)
+      .addImm(CCValid).addImm(CCMask)
+      .addRegMask(RegMask)
+      .addReg(SystemZ::CC, RegState::Implicit);
+    return true;
   }
   return false;
 }
@@ -1253,27 +1303,85 @@ bool SystemZInstrInfo::isRxSBGMask(uint64_t Mask, unsigned BitSize,
 }
 
 unsigned SystemZInstrInfo::getCompareAndBranch(unsigned Opcode,
+                                               SystemZII::CompareAndBranchType Type,
                                                const MachineInstr *MI) const {
   switch (Opcode) {
-  case SystemZ::CR:
-    return SystemZ::CRJ;
-  case SystemZ::CGR:
-    return SystemZ::CGRJ;
   case SystemZ::CHI:
-    return MI && isInt<8>(MI->getOperand(1).getImm()) ? SystemZ::CIJ : 0;
   case SystemZ::CGHI:
-    return MI && isInt<8>(MI->getOperand(1).getImm()) ? SystemZ::CGIJ : 0;
-  case SystemZ::CLR:
-    return SystemZ::CLRJ;
-  case SystemZ::CLGR:
-    return SystemZ::CLGRJ;
+    if (!(MI && isInt<8>(MI->getOperand(1).getImm())))
+      return 0;
+    break;
   case SystemZ::CLFI:
-    return MI && isUInt<8>(MI->getOperand(1).getImm()) ? SystemZ::CLIJ : 0;
   case SystemZ::CLGFI:
-    return MI && isUInt<8>(MI->getOperand(1).getImm()) ? SystemZ::CLGIJ : 0;
-  default:
-    return 0;
+    if (!(MI && isUInt<8>(MI->getOperand(1).getImm())))
+      return 0;
   }
+  switch (Type) {
+  case SystemZII::CompareAndBranch:
+    switch (Opcode) {
+    case SystemZ::CR:
+      return SystemZ::CRJ;
+    case SystemZ::CGR:
+      return SystemZ::CGRJ;
+    case SystemZ::CHI:
+      return SystemZ::CIJ;
+    case SystemZ::CGHI:
+      return SystemZ::CGIJ;
+    case SystemZ::CLR:
+      return SystemZ::CLRJ;
+    case SystemZ::CLGR:
+      return SystemZ::CLGRJ;
+    case SystemZ::CLFI:
+      return SystemZ::CLIJ;
+    case SystemZ::CLGFI:
+      return SystemZ::CLGIJ;
+    default:
+      return 0;
+    }
+  case SystemZII::CompareAndReturn:
+    switch (Opcode) {
+    case SystemZ::CR:
+      return SystemZ::CRBReturn;
+    case SystemZ::CGR:
+      return SystemZ::CGRBReturn;
+    case SystemZ::CHI:
+      return SystemZ::CIBReturn;
+    case SystemZ::CGHI:
+      return SystemZ::CGIBReturn;
+    case SystemZ::CLR:
+      return SystemZ::CLRBReturn;
+    case SystemZ::CLGR:
+      return SystemZ::CLGRBReturn;
+    case SystemZ::CLFI:
+      return SystemZ::CLIBReturn;
+    case SystemZ::CLGFI:
+      return SystemZ::CLGIBReturn;
+    default:
+      return 0;
+    }
+  case SystemZII::CompareAndSibcall:
+    switch (Opcode) {
+    case SystemZ::CR:
+      return SystemZ::CRBCall;
+    case SystemZ::CGR:
+      return SystemZ::CGRBCall;
+    case SystemZ::CHI:
+      return SystemZ::CIBCall;
+    case SystemZ::CGHI:
+      return SystemZ::CGIBCall;
+    case SystemZ::CLR:
+      return SystemZ::CLRBCall;
+    case SystemZ::CLGR:
+      return SystemZ::CLGRBCall;
+    case SystemZ::CLFI:
+      return SystemZ::CLIBCall;
+    case SystemZ::CLGFI:
+      return SystemZ::CLGIBCall;
+    default:
+      return 0;
+    }
+  }
+  return 0;
 }
 
 void SystemZInstrInfo::loadImmediate(MachineBasicBlock &MBB,

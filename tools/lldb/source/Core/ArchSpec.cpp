@@ -130,6 +130,8 @@ static const CoreDefinition g_core_definitions[] =
     { eByteOrderBig   , 8, 4, 4, llvm::Triple::ppc64  , ArchSpec::eCore_ppc64_generic   , "powerpc64" },
     { eByteOrderBig   , 8, 4, 4, llvm::Triple::ppc64  , ArchSpec::eCore_ppc64_ppc970_64 , "ppc970-64" },
     
+    { eByteOrderBig   , 8, 2, 6, llvm::Triple::systemz, ArchSpec::eCore_s390x_generic   , "s390x"     },
+
     { eByteOrderLittle, 4, 4, 4, llvm::Triple::sparc  , ArchSpec::eCore_sparc_generic   , "sparc"     },
     { eByteOrderLittle, 8, 4, 4, llvm::Triple::sparcv9, ArchSpec::eCore_sparc9_generic  , "sparcv9"   },
 
@@ -285,6 +287,7 @@ static const ArchDefinitionEntry g_elf_arch_entries[] =
     { ArchSpec::eCore_ppc64_generic   , llvm::ELF::EM_PPC64  , LLDB_INVALID_CPUTYPE, 0xFFFFFFFFu, 0xFFFFFFFFu }, // PowerPC64
     { ArchSpec::eCore_arm_generic     , llvm::ELF::EM_ARM    , LLDB_INVALID_CPUTYPE, 0xFFFFFFFFu, 0xFFFFFFFFu }, // ARM
     { ArchSpec::eCore_arm_aarch64     , llvm::ELF::EM_AARCH64, LLDB_INVALID_CPUTYPE, 0xFFFFFFFFu, 0xFFFFFFFFu }, // ARM64
+    { ArchSpec::eCore_s390x_generic   , llvm::ELF::EM_S390   , LLDB_INVALID_CPUTYPE, 0xFFFFFFFFu, 0xFFFFFFFFu }, // SystemZ
     { ArchSpec::eCore_sparc9_generic  , llvm::ELF::EM_SPARCV9, LLDB_INVALID_CPUTYPE, 0xFFFFFFFFu, 0xFFFFFFFFu }, // SPARC V9
     { ArchSpec::eCore_x86_64_x86_64   , llvm::ELF::EM_X86_64 , LLDB_INVALID_CPUTYPE, 0xFFFFFFFFu, 0xFFFFFFFFu }, // AMD64
     { ArchSpec::eCore_mips32          , llvm::ELF::EM_MIPS   , ArchSpec::eMIPSSubType_mips32,     0xFFFFFFFFu, 0xFFFFFFFFu }, // mips32
@@ -898,6 +901,17 @@ ArchSpec::MergeFrom(const ArchSpec &other)
         if (other.TripleVendorWasSpecified())
             GetTriple().setEnvironment(other.GetTriple().getEnvironment());
     }
+    // If this and other are both arm ArchSpecs and this ArchSpec is a generic "some kind of arm"
+    // spec but the other ArchSpec is a specific arm core, adopt the specific arm core.
+    if (GetTriple().getArch() == llvm::Triple::arm
+        && other.GetTriple().getArch() == llvm::Triple::arm
+        && IsCompatibleMatch (other)
+        && GetCore() == ArchSpec::eCore_arm_generic
+        && other.GetCore() != ArchSpec::eCore_arm_generic)
+    {
+        m_core = other.GetCore();
+        CoreUpdated (true);
+    }
 }
 
 bool
@@ -1333,7 +1347,6 @@ cores_match (const ArchSpec::Core core1, const ArchSpec::Core core2, bool try_in
         {
             if (core2 == ArchSpec::eCore_mips32el || core2 == ArchSpec::eCore_mips32r6el)
                 return true;
-                return true;
         }
         break;
 
@@ -1522,6 +1535,31 @@ ArchSpec::PiecewiseTripleCompare (const ArchSpec &other,
     env_different = (me.getEnvironment() != them.getEnvironment());
 }
 
+bool
+ArchSpec::IsAlwaysThumbInstructions () const
+{
+    std::string Error;
+    if (GetTriple().getArch() == llvm::Triple::arm || GetTriple().getArch() == llvm::Triple::thumb)
+    {
+        // v. https://en.wikipedia.org/wiki/ARM_Cortex-M
+        //
+        // Cortex-M0 through Cortex-M7 are ARM processor cores which can only
+        // execute thumb instructions.  We map the cores to arch names like this:
+        //
+        // Cortex-M0, Cortex-M0+, Cortex-M1:  armv6m
+        // Cortex-M3: armv7m
+        // Cortex-M4, Cortex-M7: armv7em
+
+        if (GetCore() == ArchSpec::Core::eCore_arm_armv7m
+            || GetCore() == ArchSpec::Core::eCore_arm_armv7em
+            || GetCore() == ArchSpec::Core::eCore_arm_armv6m)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
 void
 ArchSpec::DumpTriple(Stream &s) const
 {
@@ -1529,10 +1567,14 @@ ArchSpec::DumpTriple(Stream &s) const
     llvm::StringRef arch_str = triple.getArchName();
     llvm::StringRef vendor_str = triple.getVendorName();
     llvm::StringRef os_str = triple.getOSName();
+    llvm::StringRef environ_str = triple.getEnvironmentName();
 
     s.Printf("%s-%s-%s",
              arch_str.empty() ? "*" : arch_str.str().c_str(),
              vendor_str.empty() ? "*" : vendor_str.str().c_str(),
              os_str.empty() ? "*" : os_str.str().c_str()
              );
+
+    if (!environ_str.empty())
+        s.Printf("-%s", environ_str.str().c_str());
 }

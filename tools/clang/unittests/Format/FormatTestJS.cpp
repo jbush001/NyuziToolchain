@@ -686,6 +686,8 @@ TEST_F(FormatTestJS, AutomaticSemicolonInsertionHeuristic) {
   verifyFormat("x instanceof String", "x\n"
                                       "instanceof\n"
                                       "String");
+  verifyFormat("function f(@Foo bar) {}", "function f(@Foo\n"
+                                          "  bar) {}");
 }
 
 TEST_F(FormatTestJS, ClosureStyleCasts) {
@@ -847,6 +849,14 @@ TEST_F(FormatTestJS, TypeAnnotations) {
                getGoogleJSStyleWithColumns(60));
 }
 
+TEST_F(FormatTestJS, UnionIntersectionTypes) {
+  verifyFormat("let x: A|B = A | B;");
+  verifyFormat("let x: A&B|C = A & B;");
+  verifyFormat("let x: Foo<A|B> = new Foo<A|B>();");
+  verifyFormat("function(x: A|B): C&D {}");
+  verifyFormat("function(x: A|B = A | B): C&D {}");
+}
+
 TEST_F(FormatTestJS, ClassDeclarations) {
   verifyFormat("class C {\n  x: string = 12;\n}");
   verifyFormat("class C {\n  x(): string => 12;\n}");
@@ -926,6 +936,9 @@ TEST_F(FormatTestJS, MetadataAnnotations) {
                "    return 'y';\n"
                "  }\n"
                "}");
+  verifyFormat("class C {\n"
+               "  private x(@A x: string) {}\n"
+               "}");
   verifyFormat("class X {}\n"
                "class Y {}");
 }
@@ -934,21 +947,10 @@ TEST_F(FormatTestJS, Modules) {
   verifyFormat("import SomeThing from 'some/module.js';");
   verifyFormat("import {X, Y} from 'some/module.js';");
   verifyFormat("import a, {X, Y} from 'some/module.js';");
-  verifyFormat("import {\n"
-               "  VeryLongImportsAreAnnoying,\n"
-               "  VeryLongImportsAreAnnoying,\n"
-               "  VeryLongImportsAreAnnoying,\n"
-               "  VeryLongImportsAreAnnoying\n"
+  verifyFormat("import {VeryLongImportsAreAnnoying, VeryLongImportsAreAnnoying,"
+               " VeryLongImportsAreAnnoying, VeryLongImportsAreAnnoying"
                "} from 'some/module.js';");
-  verifyFormat("import {\n"
-               "  X,\n"
-               "  Y,\n"
-               "} from 'some/module.js';");
-  verifyFormat("import {\n"
-               "  X,\n"
-               "  Y,\n"
-               "} from\n    'some/long/module.js';",
-               getGoogleJSStyleWithColumns(20));
+  verifyFormat("import {X, Y,} from 'some/module.js';");
   verifyFormat("import {X as myLocalX, Y as myLocalY} from 'some/module.js';");
   verifyFormat("import * as lib from 'some/module.js';");
   verifyFormat("var x = {import: 1};\nx.import = 2;");
@@ -962,10 +964,19 @@ TEST_F(FormatTestJS, Modules) {
   verifyFormat("export const x = 12;");
   verifyFormat("export default class X {}");
   verifyFormat("export {X, Y} from 'some/module.js';");
+  verifyFormat("export {X, Y,} from 'some/module.js';");
+  verifyFormat("export {SomeVeryLongExport as X, "
+               "SomeOtherVeryLongExport as Y} from 'some/module.js';");
+  // export without 'from' is wrapped.
+  verifyFormat("export let someRatherLongVariableName =\n"
+               "    someSurprisinglyLongVariable + someOtherRatherLongVar;");
+  // ... but not if from is just an identifier.
   verifyFormat("export {\n"
-               "  X,\n"
-               "  Y,\n"
-               "} from 'some/module.js';");
+               "  from as from,\n"
+               "  someSurprisinglyLongVariable\n"
+               "      as from\n"
+               "};",
+               getGoogleJSStyleWithColumns(20));
   verifyFormat("export class C {\n"
                "  x: number;\n"
                "  y: string;\n"
