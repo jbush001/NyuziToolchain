@@ -100,20 +100,11 @@ public:
     assert(0 && "relaxInstruction() unimplemented");
   }
 
-  /// WriteNopData - Write an (optimal) nop sequence of Count bytes
-  /// to the given output. If the target cannot generate such a sequence,
-  /// it should return an error.
-  ///
-  /// \return - True on success.
+  // This gets called to align. If strings are emitted in the text area,
+  // this may not be a multiple of the instruction size. Just fill with
+  // zeroes.
   bool writeNopData(uint64_t Count, MCObjectWriter *OW) const override {
-    // Check for a less than instruction size number of bytes
-    if (Count % 4)
-      return false;
-
-    uint64_t NumNops = Count / 4;
-    for (uint64_t i = 0; i != NumNops; ++i)
-      OW->writeLE32(0);
-
+    OW->WriteZeros(Count);
     return true;
   }
 
