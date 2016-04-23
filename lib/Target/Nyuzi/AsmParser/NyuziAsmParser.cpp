@@ -416,8 +416,7 @@ bool NyuziAsmParser::ParseInstruction(ParseInstructionInfo &Info,
   Operands.push_back(NyuziOperand::createToken(Mnemonic, NameLoc));
 
   // If there are no more operands, then finish
-  // XXX hash should start a comment, should the lexer just be consuming that?
-  if (getLexer().is(AsmToken::EndOfStatement) || getLexer().is(AsmToken::Hash))
+  if (getLexer().is(AsmToken::EndOfStatement))
     return false;
 
   // parse operands

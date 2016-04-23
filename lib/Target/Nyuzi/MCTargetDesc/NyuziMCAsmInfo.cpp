@@ -20,7 +20,6 @@ void NyuziMCAsmInfo::anchor() {}
 
 NyuziMCAsmInfo::NyuziMCAsmInfo(const Triple &TT) {
   IsLittleEndian = true;
-  CommentString = ";";
   SupportsDebugInformation = true;
 
   // Even though this target doesn't support exceptions, this must be enabled
