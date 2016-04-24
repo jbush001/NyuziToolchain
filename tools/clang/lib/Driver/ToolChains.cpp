@@ -2753,22 +2753,22 @@ NyuziToolChain::~NyuziToolChain()
 
 bool NyuziToolChain::IsIntegratedAssemblerDefault() const
 {
-	return true;
+  return true;
 }
 
 bool NyuziToolChain::isPICDefault() const
 {
-	return false;
+  return false;
 }
 
 bool NyuziToolChain::isPIEDefault() const
 {
-	return false;
+  return false;
 }
 
 bool NyuziToolChain::isPICDefaultForced() const
 {
-	return false;
+  return false;
 }
 
 void NyuziToolChain::addClangTargetOptions(const ArgList &DriverArgs,
@@ -2784,7 +2784,7 @@ void NyuziToolChain::addClangTargetOptions(const ArgList &DriverArgs,
 
 // Emit .eh_frame to allow stack unwinding.
 bool NyuziToolChain::IsUnwindTablesDefault() const {
-	return true;
+  return true;
 }
 
 Tool *NyuziToolChain::buildLinker() const {

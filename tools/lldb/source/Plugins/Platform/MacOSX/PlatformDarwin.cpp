@@ -643,7 +643,7 @@ PlatformDarwin::GetSoftwareBreakpointTrapOpcode (Target &target, BreakpointSite 
             trap_opcode_size = sizeof(g_nyuzi_breakpoint_opcode);
         }
         break;
-        
+  
     default:
         return Platform::GetSoftwareBreakpointTrapOpcode(target, bp_site);
     }

@@ -1862,7 +1862,7 @@ static std::string getCPUName(const ArgList &Args, const llvm::Triple &T,
   case llvm::Triple::wasm32:
   case llvm::Triple::wasm64:
     return getWebAssemblyTargetCPU(Args);
-    
+
   case llvm::Triple::nyuzi:
     return "nyuzi";
   }

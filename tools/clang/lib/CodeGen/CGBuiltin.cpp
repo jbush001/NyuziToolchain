@@ -6821,18 +6821,18 @@ Value *CodeGenFunction::EmitNyuziBuiltinExpr(unsigned BuiltinID,
   for (unsigned i = 0; i < E->getNumArgs(); i++)
     Ops.push_back(EmitScalarExpr(E->getArg(i)));
 
-	switch (BuiltinID)
-	{
+  switch (BuiltinID)
+  {
     case Nyuzi::BI__builtin_nyuzi_makevectori:
     case Nyuzi::BI__builtin_nyuzi_makevectorf:
       return Builder.CreateVectorSplat(16, Ops[0]);
-	}
+  }
 
 	// This maps directly to an LLVM intrinsic.  Look up the function name and create
 	// a call (which will be transformed automatically in the appropriate
 	// instruction in the backend).
-	llvm::Function *F;
-	switch (BuiltinID) {
+  llvm::Function *F;
+  switch (BuiltinID) {
     case Nyuzi::BI__builtin_nyuzi_read_control_reg:
       F = CGM.getIntrinsic(Intrinsic::nyuzi_read_control_reg);
       break;
@@ -6889,28 +6889,28 @@ Value *CodeGenFunction::EmitNyuziBuiltinExpr(unsigned BuiltinID,
       break;
 
     // Vector comparisions
-    case Nyuzi::BI__builtin_nyuzi_mask_cmpi_ugt: 
+    case Nyuzi::BI__builtin_nyuzi_mask_cmpi_ugt:
       F = CGM.getIntrinsic(Intrinsic::nyuzi_mask_cmpi_ugt);
       break;
-    case Nyuzi::BI__builtin_nyuzi_mask_cmpi_uge: 
+    case Nyuzi::BI__builtin_nyuzi_mask_cmpi_uge:
       F = CGM.getIntrinsic(Intrinsic::nyuzi_mask_cmpi_uge);
       break;
-    case Nyuzi::BI__builtin_nyuzi_mask_cmpi_ult: 
+    case Nyuzi::BI__builtin_nyuzi_mask_cmpi_ult:
       F = CGM.getIntrinsic(Intrinsic::nyuzi_mask_cmpi_ult);
       break;
-    case Nyuzi::BI__builtin_nyuzi_mask_cmpi_ule: 
+    case Nyuzi::BI__builtin_nyuzi_mask_cmpi_ule:
       F = CGM.getIntrinsic(Intrinsic::nyuzi_mask_cmpi_ule);
       break;
-    case Nyuzi::BI__builtin_nyuzi_mask_cmpi_sgt: 
+    case Nyuzi::BI__builtin_nyuzi_mask_cmpi_sgt:
       F = CGM.getIntrinsic(Intrinsic::nyuzi_mask_cmpi_sgt);
       break;
-    case Nyuzi::BI__builtin_nyuzi_mask_cmpi_sge: 
+    case Nyuzi::BI__builtin_nyuzi_mask_cmpi_sge:
       F = CGM.getIntrinsic(Intrinsic::nyuzi_mask_cmpi_sge);
       break;
-    case Nyuzi::BI__builtin_nyuzi_mask_cmpi_slt: 
+    case Nyuzi::BI__builtin_nyuzi_mask_cmpi_slt:
       F = CGM.getIntrinsic(Intrinsic::nyuzi_mask_cmpi_slt);
       break;
-    case Nyuzi::BI__builtin_nyuzi_mask_cmpi_sle: 
+    case Nyuzi::BI__builtin_nyuzi_mask_cmpi_sle:
       F = CGM.getIntrinsic(Intrinsic::nyuzi_mask_cmpi_sle);
       break;
     case Nyuzi::BI__builtin_nyuzi_mask_cmpi_eq:

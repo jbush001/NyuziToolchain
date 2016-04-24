@@ -174,7 +174,7 @@ public:
         eCore_kalimba3,
         eCore_kalimba4,
         eCore_kalimba5,
-		
+
         eCore_nyuzi,
 
         kNumCores,
