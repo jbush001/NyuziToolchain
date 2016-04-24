@@ -77,11 +77,6 @@ static void printExpr(const MCExpr *Expr, const MCAsmInfo *MAI,
     OS << ')';
 }
 
-void NyuziInstPrinter::printCPURegs(const MCInst *MI, unsigned OpNo,
-                                    raw_ostream &O) {
-  printRegName(O, MI->getOperand(OpNo).getReg());
-}
-
 void NyuziInstPrinter::printOperand(const MCInst *MI, unsigned OpNo,
                                     raw_ostream &O) {
   const MCOperand &Op = MI->getOperand(OpNo);
@@ -97,15 +92,6 @@ void NyuziInstPrinter::printOperand(const MCInst *MI, unsigned OpNo,
 
   assert(Op.isExpr() && "unknown operand kind in printOperand");
   printExpr(Op.getExpr(), &MAI, O);
-}
-
-void NyuziInstPrinter::printUnsignedImm(const MCInst *MI, int opNum,
-                                        raw_ostream &O) {
-  const MCOperand &MO = MI->getOperand(opNum);
-  if (MO.isImm())
-    O << (unsigned short int)MO.getImm();
-  else
-    printOperand(MI, opNum, O);
 }
 
 void NyuziInstPrinter::printMemOperand(const MCInst *MI, int opNum,

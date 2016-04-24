@@ -35,10 +35,7 @@ public:
                  const MCSubtargetInfo &STI) override;
 
 private:
-  void printCPURegs(const MCInst *MI, unsigned OpNo, raw_ostream &O);
-  bool printAliasInstr(const MCInst *MI, raw_ostream &OS);
   void printOperand(const MCInst *MI, unsigned OpNo, raw_ostream &O);
-  void printUnsignedImm(const MCInst *MI, int opNum, raw_ostream &O);
   void printMemOperand(const MCInst *MI, int opNum, raw_ostream &O);
   void printJumpTableOperand(const MCInst *MI, int opNum, raw_ostream &O);
 };
