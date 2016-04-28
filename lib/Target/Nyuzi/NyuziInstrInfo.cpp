@@ -75,55 +75,110 @@ unsigned NyuziInstrInfo::isStoreToStackSlot(const MachineInstr *MI,
   return 0;
 }
 
+static bool isUncondBranchOpcode(int opc)
+{
+  return opc == Nyuzi::GOTO;
+}
+
+static bool isCondBranchOpcode(int opc)
+{
+  return opc == Nyuzi::BTRUE
+    || opc == Nyuzi::BFALSE;
+
+  // BALL/BNALL/etc. can't be analyzed
+}
+
+static bool isJumpTableBranchOpcode(int opc)
+{
+  return opc == Nyuzi::JUMP_TABLE;
+}
+
 bool NyuziInstrInfo::AnalyzeBranch(MachineBasicBlock &MBB,
                                    MachineBasicBlock *&TBB,
                                    MachineBasicBlock *&FBB,
                                    SmallVectorImpl<MachineOperand> &Cond,
                                    bool AllowModify) const {
+  TBB = nullptr;
+  FBB = nullptr;
+
   MachineBasicBlock::iterator I = MBB.end();
-  MachineBasicBlock::iterator UnCondBrIter = MBB.end();
-  while (I != MBB.begin()) {
-    --I;
+  if (I == MBB.begin())
+    return false; // Empty blocks are easy.
+  --I;
 
-    if (I->isDebugValue())
-      continue;
+  // Walk backwards from the end of the basic block until the branch is
+  // analyzed or we give up.
+  while (I->isTerminator() || I->isDebugValue()) {
+    // Flag to be raised on unanalyzeable instructions. This is useful in cases
+    // where we want to clean up on the end of the basic block before we bail
+    // out.
+    bool CantAnalyze = false;
 
-    // When we see a non-terminator, we are done.
-    if (!isUnpredicatedTerminator(*I))
-      break;
-
-    // Terminator is not a branch.
-    if (!I->isBranch())
-      return true;
-
-    // Handle Unconditional branches.
-    if (I->getOpcode() == Nyuzi::GOTO) {
-      UnCondBrIter = I;
-
-      if (!AllowModify) {
-        TBB = I->getOperand(0).getMBB();
-        continue;
-      }
-
-      while (std::next(I) != MBB.end())
-        std::next(I)->eraseFromParent();
-
-      FBB = nullptr;
-      if (MBB.isLayoutSuccessor(I->getOperand(0).getMBB())) {
-        TBB = nullptr;
-        I->eraseFromParent();
-        I = MBB.end();
-        UnCondBrIter = MBB.end();
-        continue;
-      }
-
-      TBB = I->getOperand(0).getMBB();
-      continue;
+    // Skip over DEBUG values
+    while (I->isDebugValue()) {
+      if (I == MBB.begin())
+        return false;
+      --I;
     }
 
-    return true;
+    if (isJumpTableBranchOpcode(I->getOpcode())) {
+      // Jump tables can't be analyzed, but we still want
+      // to clean up any instructions at the tail of the basic block.
+      CantAnalyze = true;
+    } else if (isUncondBranchOpcode(I->getOpcode())) {
+      TBB = I->getOperand(0).getMBB();
+    } else if (isCondBranchOpcode(I->getOpcode())) {
+      // Bail out if we encounter multiple conditional branches.
+      if (!Cond.empty())
+        return true;
+
+      assert(!FBB && "FBB should have been null.");
+      // The goto at the end is only the false fall through.
+      FBB = TBB;
+      TBB = I->getOperand(1).getMBB();
+
+      Cond.push_back(MachineOperand::CreateImm(I->getOpcode()));
+      Cond.push_back(I->getOperand(0));
+    } else if (I->isReturn()) {
+      // Returns can't be analyzed, but we should run cleanup.
+      CantAnalyze = true;
+    } else {
+      // We encountered other unrecognized terminator. Bail out immediately.
+      return true;
+    }
+
+    // Cleanup code - to be run for unconditional branches and
+    //                returns.
+    if (isUncondBranchOpcode(I->getOpcode()) ||
+           isJumpTableBranchOpcode(I->getOpcode()) ||
+           I->isReturn()) {
+      // Forget any previous condition branch information - it no longer applies.
+      Cond.clear();
+      FBB = nullptr;
+
+      // If we can modify the function, delete everything below this
+      // unconditional branch.
+      if (AllowModify) {
+        MachineBasicBlock::iterator DI = std::next(I);
+        while (DI != MBB.end()) {
+          MachineInstr *InstToDelete = DI;
+          ++DI;
+          InstToDelete->eraseFromParent();
+        }
+      }
+    }
+
+    if (CantAnalyze)
+      return true;
+
+    if (I == MBB.begin())
+      return false;
+
+    --I;
   }
 
+  // We made it past the terminators without bailing out - we must have
+  // analyzed this branch successfully.
   return false;
 }
 
@@ -135,7 +190,7 @@ unsigned NyuziInstrInfo::InsertBranch(MachineBasicBlock &MBB,
   assert(TBB);
   if (FBB) {
     // Has a false block, this is a two way conditional branch
-    BuildMI(&MBB, DL, get(Nyuzi::BTRUE)).addMBB(TBB);
+    BuildMI(&MBB, DL, get(Cond[0].getImm())).addOperand(Cond[1]).addMBB(TBB);
     BuildMI(&MBB, DL, get(Nyuzi::GOTO)).addMBB(FBB);
     return 2;
   }
@@ -147,27 +202,29 @@ unsigned NyuziInstrInfo::InsertBranch(MachineBasicBlock &MBB,
   }
 
   // One-way conditional branch
-  BuildMI(&MBB, DL, get(Nyuzi::BTRUE)).addMBB(TBB);
+  BuildMI(&MBB, DL, get(Cond[0].getImm())).addOperand(Cond[1]).addMBB(TBB);
   return 1;
 }
 
 unsigned NyuziInstrInfo::RemoveBranch(MachineBasicBlock &MBB) const {
   MachineBasicBlock::iterator I = MBB.end();
   unsigned Count = 0;
+
   while (I != MBB.begin()) {
     --I;
 
     if (I->isDebugValue())
       continue;
 
-    if (I->getOpcode() != Nyuzi::GOTO && I->getOpcode() != Nyuzi::BTRUE &&
-        I->getOpcode() != Nyuzi::BFALSE)
+    if (!isUncondBranchOpcode(I->getOpcode())
+      && !isCondBranchOpcode(I->getOpcode()))
       break; // Not a branch
 
     I->eraseFromParent();
     I = MBB.end();
     ++Count;
   }
+
   return Count;
 }
 
