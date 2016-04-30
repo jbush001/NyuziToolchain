@@ -11,8 +11,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef NYUZIMCTARGETDESC_H
-#define NYUZIMCTARGETDESC_H
+#ifndef LLVM_LIB_TARGET_NYUZI_NYUZIMCTARGETDESC_H
+#define LLVM_LIB_TARGET_NYUZI_NYUZIMCTARGETDESC_H
 
 #include "llvm/Support/DataTypes.h"
 #include "llvm/Support/raw_ostream.h"

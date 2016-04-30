@@ -12,8 +12,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef NYUZI_ISELLOWERING_H
-#define NYUZI_ISELLOWERING_H
+#ifndef LLVM_LIB_TARGET_NYUZI_NYUZIISELLOWERING_H
+#define LLVM_LIB_TARGET_NYUZI_NYUZIISELLOWERING_H
 
 #include "Nyuzi.h"
 #include "llvm/Target/TargetLowering.h"

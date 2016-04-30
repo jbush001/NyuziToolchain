@@ -11,6 +11,8 @@
 //
 //===----------------------------------------------------------------------===//
 
+#define DEBUG_TYPE "nyuzi-disassembler"
+
 #include "Nyuzi.h"
 #include "NyuziRegisterInfo.h"
 #include "NyuziSubtarget.h"
@@ -21,8 +23,6 @@
 #include "llvm/Support/MathExtras.h"
 #include "llvm/Support/MemoryObject.h"
 #include "llvm/Support/TargetRegistry.h"
-
-#define DEBUG_TYPE "nyuzi-disassembler"
 
 using namespace llvm;
 

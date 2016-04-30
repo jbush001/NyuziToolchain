@@ -7,8 +7,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_MIPS_NYUZIFIXUPKINDS_H
-#define LLVM_MIPS_NYUZIFIXUPKINDS_H
+#ifndef LLVM_LIB_TARGET_NYUZI_NYUZIFIXUPKINDS_H
+#define LLVM_LIB_TARGET_NYUZI_NYUZIFIXUPKINDS_H
 
 #include "llvm/MC/MCFixup.h"
 

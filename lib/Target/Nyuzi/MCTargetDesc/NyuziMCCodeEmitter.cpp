@@ -12,6 +12,7 @@
 //===----------------------------------------------------------------------===//
 
 #define DEBUG_TYPE "mccodeemitter"
+
 #include "MCTargetDesc/NyuziFixupKinds.h"
 #include "MCTargetDesc/NyuziMCTargetDesc.h"
 #include "llvm/ADT/Statistic.h"
@@ -26,6 +27,7 @@
 #include "llvm/MC/MCSymbol.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/raw_ostream.h"
+
 using namespace llvm;
 
 STATISTIC(MCNumEmitted, "Number of MC instructions emitted");

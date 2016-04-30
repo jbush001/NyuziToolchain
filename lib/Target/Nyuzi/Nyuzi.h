@@ -12,8 +12,10 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef TARGET_NYUZI_H
-#define TARGET_NYUZI_H
+
+
+#ifndef LLVM_LIB_TARGET_NYUZI_NYUZI_H
+#define LLVM_LIB_TARGET_NYUZI_NYUZI_H
 
 #include "MCTargetDesc/NyuziMCTargetDesc.h"
 #include "llvm/Support/ErrorHandling.h"

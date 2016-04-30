@@ -12,8 +12,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef NYUZIINSTRUCTIONINFO_H
-#define NYUZIINSTRUCTIONINFO_H
+#ifndef LLVM_LIB_TARGET_NYUZI_NYUZIINSTRINFO_H
+#define LLVM_LIB_TARGET_NYUZI_NYUZIINSTRINFO_H
 
 #include "NyuziRegisterInfo.h"
 #include "llvm/Target/TargetInstrInfo.h"

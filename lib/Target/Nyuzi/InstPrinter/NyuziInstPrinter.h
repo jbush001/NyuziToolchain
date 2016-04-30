@@ -11,8 +11,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef NYUZIINSTPRINTER_H
-#define NYUZIINSTPRINTER_H
+#ifndef LLVM_LIB_TARGET_NYUZI_NYUZIINSTPRINTER_H
+#define LLVM_LIB_TARGET_NYUZI_NYUZIINSTPRINTER_H
 #include "llvm/MC/MCInstPrinter.h"
 #include "llvm/Support/Compiler.h"
 

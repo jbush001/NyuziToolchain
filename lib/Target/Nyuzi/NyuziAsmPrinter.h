@@ -17,8 +17,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef NYUZIASMPRINTER_H
-#define NYUZIASMPRINTER_H
+#ifndef LLVM_LIB_TARGET_NYUZI_NYUZIASMPRINTER_H
+#define LLVM_LIB_TARGET_NYUZI_NYUZIASMPRINTER_H
 
 #include "NyuziMCInstLower.h"
 #include "llvm/CodeGen/AsmPrinter.h"

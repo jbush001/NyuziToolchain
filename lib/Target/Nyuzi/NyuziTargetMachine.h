@@ -11,8 +11,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef NYUZITARGETMACHINE_H
-#define NYUZITARGETMACHINE_H
+#ifndef LLVM_LIB_TARGET_NYUZI_NYUZITARGETMACHINE_H
+#define LLVM_LIB_TARGET_NYUZI_NYUZITARGETMACHINE_H
 
 #include "NyuziSubtarget.h"
 #include "NyuziTargetObjectFile.h"

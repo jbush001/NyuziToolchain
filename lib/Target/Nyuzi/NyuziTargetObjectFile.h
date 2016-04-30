@@ -11,8 +11,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_TARGET_NYUZI_TARGETOBJECTFILE_H
-#define LLVM_TARGET_NYUZI_TARGETOBJECTFILE_H
+#ifndef LLVM_TARGET_NYUZI_NYUZITARGETOBJECTFILE_H
+#define LLVM_TARGET_NYUZI_NYUZITARGETOBJECTFILE_H
 
 #include "llvm/CodeGen/TargetLoweringObjectFileImpl.h"
 #include "llvm/Target/TargetLoweringObjectFile.h"

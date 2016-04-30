@@ -11,6 +11,8 @@
 //
 //===----------------------------------------------------------------------===//
 
+#define DEBUG_TYPE "nyuzi-subtarget"
+
 #include "NyuziSubtarget.h"
 #include "Nyuzi.h"
 #include "NyuziTargetMachine.h"
@@ -18,7 +20,6 @@
 
 #define GET_SUBTARGETINFO_TARGET_DESC
 #define GET_SUBTARGETINFO_CTOR
-#define DEBUG_TYPE "nyuzi-subtarget"
 #include "NyuziGenSubtargetInfo.inc"
 
 using namespace llvm;

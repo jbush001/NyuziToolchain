@@ -12,8 +12,8 @@
 //
 //===--------------------------------------------------------------------===//
 
-#ifndef NYUZIMCINSTLOWER_H
-#define NYUZIMCINSTLOWER_H
+#ifndef LLVM_LIB_TARGET_NYUZI_NYUZIMCINSTLOWER_H
+#define LLVM_LIB_TARGET_NYUZI_NYUZIMCINSTLOWER_H
 
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/CodeGen/MachineOperand.h"

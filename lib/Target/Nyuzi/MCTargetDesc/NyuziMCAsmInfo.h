@@ -11,8 +11,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef NYUZITARGETASMINFO_H
-#define NYUZITARGETASMINFO_H
+#ifndef LLVM_LIB_TARGET_NYUZI_NYUZIMCASMINFO_H
+#define LLVM_LIB_TARGET_NYUZI_NYUZIMCASMINFO_H
 
 #include "llvm/MC/MCAsmInfoELF.h"
 

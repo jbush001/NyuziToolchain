@@ -10,8 +10,8 @@
 // This file declares  Nyuzi specific per-machine-function information.
 //
 //===----------------------------------------------------------------------===//
-#ifndef NYUZIMACHINEFUNCTIONINFO_H
-#define NYUZIMACHINEFUNCTIONINFO_H
+#ifndef LLVM_LIB_TARGET_NYUZI_NYUZIMACHINEFUNCTIONINFO_H
+#define LLVM_LIB_TARGET_NYUZI_NYUZIMACHINEFUNCTIONINFO_H
 
 #include "llvm/CodeGen/MachineFunction.h"
 

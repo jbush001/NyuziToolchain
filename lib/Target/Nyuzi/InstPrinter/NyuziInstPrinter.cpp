@@ -12,6 +12,7 @@
 //===----------------------------------------------------------------------===//
 
 #define DEBUG_TYPE "asm-printer"
+
 #include "NyuziInstPrinter.h"
 #include "MCTargetDesc/NyuziMCTargetDesc.h"
 #include "NyuziInstrInfo.h"
@@ -24,6 +25,7 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/raw_ostream.h"
+
 using namespace llvm;
 
 #include "NyuziGenAsmWriter.inc"

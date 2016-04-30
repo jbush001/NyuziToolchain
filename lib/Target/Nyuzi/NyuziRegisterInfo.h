@@ -12,8 +12,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef NYUZIREGISTERINFO_H
-#define NYUZIREGISTERINFO_H
+#ifndef LLVM_LIB_TARGET_NYUZI_NYUZIREGISTERINFO_H
+#define LLVM_LIB_TARGET_NYUZI_NYUZIREGISTERINFO_H
 
 #include "llvm/Target/TargetRegisterInfo.h"
 

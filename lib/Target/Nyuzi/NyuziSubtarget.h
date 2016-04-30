@@ -11,8 +11,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef NYUZI_SUBTARGET_H
-#define NYUZI_SUBTARGET_H
+#ifndef LLVM_LIB_TARGET_NYUZI_NYUZISUBTARGET_H
+#define LLVM_LIB_TARGET_NYUZI_NYUZISUBTARGET_H
 
 #include "NyuziFrameLowering.h"
 #include "NyuziISelLowering.h"
