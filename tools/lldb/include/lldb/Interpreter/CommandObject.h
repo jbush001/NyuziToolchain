@@ -23,7 +23,6 @@
 #include "lldb/Interpreter/CommandCompletions.h"
 #include "lldb/Core/StringList.h"
 #include "lldb/Core/Flags.h"
-#include "lldb/Host/Mutex.h"
 #include "lldb/Target/ExecutionContext.h"
 
 namespace lldb_private {
@@ -172,6 +171,9 @@ public:
     virtual bool
     IsMultiwordObject () { return false; }
     
+    virtual CommandObjectMultiword*
+    GetAsMultiwordCommand () { return nullptr; }
+
     virtual bool
     IsAlias () { return false; }
     
@@ -514,7 +516,7 @@ protected:
 
     CommandInterpreter &m_interpreter;
     ExecutionContext m_exe_ctx;
-    Mutex::Locker m_api_locker;
+    std::unique_lock<std::recursive_mutex> m_api_locker;
     std::string m_cmd_name;
     std::string m_cmd_help_short;
     std::string m_cmd_help_long;

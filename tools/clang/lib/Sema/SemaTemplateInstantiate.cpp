@@ -1859,8 +1859,19 @@ static bool DiagnoseUninstantiableTemplate(Sema &S,
                                            TagDecl *PatternDef,
                                            TemplateSpecializationKind TSK,
                                            bool Complain = true) {
-  if (PatternDef && !PatternDef->isBeingDefined())
+  if (PatternDef && !PatternDef->isBeingDefined()) {
+    NamedDecl *SuggestedDef = nullptr;
+    if (!S.hasVisibleDefinition(PatternDef, &SuggestedDef,
+                                /*OnlyNeedComplete*/false)) {
+      // If we're allowed to diagnose this and recover, do so.
+      bool Recover = Complain && !S.isSFINAEContext();
+      if (Complain)
+        S.diagnoseMissingImport(PointOfInstantiation, SuggestedDef,
+                                Sema::MissingImportKind::Definition, Recover);
+      return !Recover;
+    }
     return false;
+  }
 
   if (!Complain || (PatternDef && PatternDef->isInvalidDecl())) {
     // Say nothing
@@ -2310,8 +2321,9 @@ bool Sema::InstantiateClassTemplateSpecialization(
                                     Info)) {
       // Store the failed-deduction information for use in diagnostics, later.
       // TODO: Actually use the failed-deduction info?
-      FailedCandidates.addCandidate()
-          .set(Partial, MakeDeductionFailureInfo(Context, Result, Info));
+      FailedCandidates.addCandidate().set(
+          DeclAccessPair::make(Template, AS_public), Partial,
+          MakeDeductionFailureInfo(Context, Result, Info));
       (void)Result;
     } else {
       Matched.push_back(PartialSpecMatchResult());
@@ -2591,7 +2603,7 @@ Sema::InstantiateClassMembers(SourceLocation PointOfInstantiation,
       if (Enum->getDefinition())
         continue;
 
-      EnumDecl *Pattern = Enum->getInstantiatedFromMemberEnum();
+      EnumDecl *Pattern = Enum->getTemplateInstantiationPattern();
       assert(Pattern && "Missing instantiated-from-template information");
 
       if (TSK == TSK_ExplicitInstantiationDefinition) {

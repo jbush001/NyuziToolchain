@@ -119,9 +119,9 @@ std::error_code SymbolizableObjectFile::addSymbol(const SymbolRef &Symbol,
                                                   uint64_t SymbolSize,
                                                   DataExtractor *OpdExtractor,
                                                   uint64_t OpdAddress) {
-  ErrorOr<SymbolRef::Type> SymbolTypeOrErr = Symbol.getType();
-  if (auto EC = SymbolTypeOrErr.getError())
-    return EC;
+  Expected<SymbolRef::Type> SymbolTypeOrErr = Symbol.getType();
+  if (!SymbolTypeOrErr)
+    return errorToErrorCode(SymbolTypeOrErr.takeError());
   SymbolRef::Type SymbolType = *SymbolTypeOrErr;
   if (SymbolType != SymbolRef::ST_Function && SymbolType != SymbolRef::ST_Data)
     return std::error_code();
@@ -141,9 +141,9 @@ std::error_code SymbolizableObjectFile::addSymbol(const SymbolRef &Symbol,
         OpdExtractor->isValidOffsetForAddress(OpdOffset32))
       SymbolAddress = OpdExtractor->getAddress(&OpdOffset32);
   }
-  ErrorOr<StringRef> SymbolNameOrErr = Symbol.getName();
-  if (auto EC = SymbolNameOrErr.getError())
-    return EC;
+  Expected<StringRef> SymbolNameOrErr = Symbol.getName();
+  if (!SymbolNameOrErr)
+    return errorToErrorCode(SymbolNameOrErr.takeError());
   StringRef SymbolName = *SymbolNameOrErr;
   // Mach-O symbol table names have leading underscore, skip it.
   if (Module->isMachO() && SymbolName.size() > 0 && SymbolName[0] == '_')

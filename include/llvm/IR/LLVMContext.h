@@ -26,12 +26,14 @@ class Twine;
 class Instruction;
 class Module;
 class MDString;
-class DIType;
+class DICompositeType;
 class SMDiagnostic;
 class DiagnosticInfo;
+enum DiagnosticSeverity : char;
 template <typename T> class SmallVectorImpl;
 class Function;
 class DebugLoc;
+class OptBisect;
 
 /// This is an important class for using LLVM in a threaded context.  It
 /// (opaquely) owns and manages the core "global" data of LLVM's core
@@ -115,22 +117,11 @@ public:
   /// especially in release mode.
   void setDiscardValueNames(bool Discard);
 
-  /// Whether there is a string map for uniquing debug info types with
+  /// Whether there is a string map for uniquing debug info
   /// identifiers across the context.  Off by default.
-  bool hasDITypeMap() const;
-  void ensureDITypeMap();
-  void destroyDITypeMap();
-
-  /// Get or insert the DIType mapped to the given string.
-  ///
-  /// Returns the address of the current \a DIType pointer mapped to \c S,
-  /// inserting a mapping to \c nullptr if \c S was not previously mapped.
-  /// This method has no effect (and returns \c nullptr instead of a valid
-  /// address) if \a hasDITypeMap() is \c false.
-  ///
-  /// \post If \a hasDITypeMap(), \c S will have a (possibly null) mapping.
-  /// \note The returned address is only valid until the next call.
-  DIType **getOrInsertDITypeMapping(const MDString &S);
+  bool isODRUniquingDebugTypes() const;
+  void enableDebugTypeODRUniquing();
+  void disableDebugTypeODRUniquing();
 
   typedef void (*InlineAsmDiagHandlerTy)(const SMDiagnostic&, void *Context,
                                          unsigned LocCookie);
@@ -181,6 +172,10 @@ public:
   /// getDiagnosticContext - Return the diagnostic context set by
   /// setDiagnosticContext.
   void *getDiagnosticContext() const;
+
+  /// \brief Get the prefix that should be printed in front of a diagnostic of
+  ///        the given \p Severity
+  static const char *getDiagnosticMessagePrefix(DiagnosticSeverity Severity);
 
   /// \brief Report a message to the currently installed diagnostic handler.
   ///
@@ -237,6 +232,9 @@ public:
     return OptionRegistry::instance().template get<ValT, Base, Mem>();
   }
 
+  /// \brief Access the object which manages optimization bisection for failure
+  /// analysis.
+  OptBisect &getOptBisect();
 private:
   LLVMContext(LLVMContext&) = delete;
   void operator=(LLVMContext&) = delete;

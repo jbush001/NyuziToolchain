@@ -17,11 +17,10 @@
 
 #include "AMDGPU.h"
 #include "AMDGPUFrameLowering.h"
-#include "AMDGPUInstrInfo.h"
 #include "AMDGPUISelLowering.h"
+#include "AMDGPUInstrInfo.h"
 #include "AMDGPUSubtarget.h"
 #include "Utils/AMDGPUBaseInfo.h"
-#include "llvm/ADT/StringRef.h"
 #include "llvm/CodeGen/GlobalISel/GISelAccessor.h"
 #include "llvm/Target/TargetSubtargetInfo.h"
 
@@ -30,6 +29,7 @@
 
 namespace llvm {
 
+class StringRef;
 class SIMachineFunctionInfo;
 
 class AMDGPUSubtarget : public AMDGPUGenSubtargetInfo {
@@ -95,6 +95,8 @@ private:
   int LDSBankCount;
   unsigned IsaVersion;
   bool EnableSIScheduler;
+  bool DebuggerInsertNops;
+  bool DebuggerReserveTrapVGPRs;
 
   std::unique_ptr<AMDGPUFrameLowering> FrameLowering;
   std::unique_ptr<AMDGPUTargetLowering> TLInfo;
@@ -267,6 +269,15 @@ public:
     return CFALUBug;
   }
 
+  /// Return the amount of LDS that can be used that will not restrict the
+  /// occupancy lower than WaveCount.
+  unsigned getMaxLocalMemSizeWithWaveCount(unsigned WaveCount) const;
+
+  /// Inverse of getMaxLocalMemWithWaveCount. Return the maximum wavecount if
+  /// the given LDS memory size is the only constraint.
+  unsigned getOccupancyWithLocalMemSize(uint32_t Bytes) const;
+
+
   int getLocalMemorySize() const {
     return LocalMemorySize;
   }
@@ -304,6 +315,14 @@ public:
     return EnableSIScheduler;
   }
 
+  bool debuggerInsertNops() const {
+    return DebuggerInsertNops;
+  }
+
+  bool debuggerReserveTrapVGPRs() const {
+    return DebuggerReserveTrapVGPRs;
+  }
+
   bool dumpCode() const {
     return DumpCode;
   }
@@ -324,7 +343,7 @@ public:
       return 10;
 
     // FIXME: Not sure what this is for other subtagets.
-    llvm_unreachable("do not know max waves per CU for this subtarget.");
+    return 8;
   }
 
   bool enableSubRegLiveness() const override {

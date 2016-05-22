@@ -187,20 +187,15 @@ namespace {
                   cl::desc("Disable JIT lazy compilation"),
                   cl::init(false));
 
-  cl::opt<Reloc::Model>
-  RelocModel("relocation-model",
-             cl::desc("Choose relocation model"),
-             cl::init(Reloc::Default),
-             cl::values(
-            clEnumValN(Reloc::Default, "default",
-                       "Target default relocation model"),
-            clEnumValN(Reloc::Static, "static",
-                       "Non-relocatable code"),
-            clEnumValN(Reloc::PIC_, "pic",
-                       "Fully relocatable, position independent code"),
-            clEnumValN(Reloc::DynamicNoPIC, "dynamic-no-pic",
-                       "Relocatable external references, non-relocatable code"),
-            clEnumValEnd));
+  cl::opt<Reloc::Model> RelocModel(
+      "relocation-model", cl::desc("Choose relocation model"),
+      cl::values(
+          clEnumValN(Reloc::Static, "static", "Non-relocatable code"),
+          clEnumValN(Reloc::PIC_, "pic",
+                     "Fully relocatable, position independent code"),
+          clEnumValN(Reloc::DynamicNoPIC, "dynamic-no-pic",
+                     "Relocatable external references, non-relocatable code"),
+          clEnumValEnd));
 
   cl::opt<llvm::CodeModel::Model>
   CMModel("code-model",
@@ -235,6 +230,8 @@ namespace {
                      clEnumValN(FloatABI::Hard, "hard",
                                 "Hard float ABI (uses FP registers)"),
                      clEnumValEnd));
+
+  ExitOnError ExitOnErr;
 }
 
 //===----------------------------------------------------------------------===//
@@ -312,27 +309,12 @@ private:
   }
 };
 
-static LLVMContext Context;
-static ExecutionEngine *EE = nullptr;
-static LLIObjectCache *CacheManager = nullptr;
-
-static void do_shutdown() {
-  // Cygwin-1.5 invokes DLL's dtors before atexit handler.
-#ifndef DO_NOTHING_ATEXIT
-  delete EE;
-  if (CacheManager)
-    delete CacheManager;
-  llvm_shutdown();
-#endif
-}
-
 // On Mingw and Cygwin, an external symbol named '__main' is called from the
 // generated 'main' function to allow static intialization.  To avoid linking
 // problems with remote targets (because lli's remote target support does not
 // currently handle external linking) we add a secondary module which defines
 // an empty '__main' function.
-static void addCygMingExtraModule(ExecutionEngine *EE,
-                                  LLVMContext &Context,
+static void addCygMingExtraModule(ExecutionEngine &EE, LLVMContext &Context,
                                   StringRef TargetTripleStr) {
   IRBuilder<> Builder(Context);
   Triple TargetTriple(TargetTripleStr);
@@ -362,7 +344,7 @@ static void addCygMingExtraModule(ExecutionEngine *EE,
   Builder.CreateRet(ReturnVal);
 
   // Add this new module to the ExecutionEngine.
-  EE->addModule(std::move(M));
+  EE.addModule(std::move(M));
 }
 
 CodeGenOpt::Level getOptLevel() {
@@ -386,7 +368,10 @@ int main(int argc, char **argv, char * const *envp) {
   sys::PrintStackTraceOnErrorSignal();
   PrettyStackTraceProgram X(argc, argv);
 
-  atexit(do_shutdown);  // Call llvm_shutdown() on exit.
+  atexit(llvm_shutdown); // Call llvm_shutdown() on exit.
+
+  if (argc > 1)
+    ExitOnErr.setBanner(std::string(argv[0]) + ": ");
 
   // If we have a native target, initialize it to ensure it is linked in and
   // usable by the JIT.
@@ -400,6 +385,8 @@ int main(int argc, char **argv, char * const *envp) {
   // If the user doesn't want core files, disable them.
   if (DisableCoreFiles)
     sys::Process::PreventCoreFiles();
+
+  LLVMContext Context;
 
   // Load the bitcode...
   SMDiagnostic Err;
@@ -433,7 +420,8 @@ int main(int argc, char **argv, char * const *envp) {
   builder.setMArch(MArch);
   builder.setMCPU(MCPU);
   builder.setMAttrs(MAttrs);
-  builder.setRelocationModel(RelocModel);
+  if (RelocModel.getNumOccurrences())
+    builder.setRelocationModel(RelocModel);
   builder.setCodeModel(CMModel);
   builder.setErrorStr(&ErrorMsg);
   builder.setEngineKind(ForceInterpreter
@@ -471,7 +459,7 @@ int main(int argc, char **argv, char * const *envp) {
 
   builder.setTargetOptions(Options);
 
-  EE = builder.create();
+  std::unique_ptr<ExecutionEngine> EE(builder.create());
   if (!EE) {
     if (!ErrorMsg.empty())
       errs() << argv[0] << ": error creating EE: " << ErrorMsg << "\n";
@@ -480,9 +468,10 @@ int main(int argc, char **argv, char * const *envp) {
     exit(1);
   }
 
+  std::unique_ptr<LLIObjectCache> CacheManager;
   if (EnableCacheManager) {
-    CacheManager = new LLIObjectCache(ObjectCacheDir);
-    EE->setObjectCache(CacheManager);
+    CacheManager.reset(new LLIObjectCache(ObjectCacheDir));
+    EE->setObjectCache(CacheManager.get());
   }
 
   // Load any additional modules specified on the command line.
@@ -538,7 +527,7 @@ int main(int argc, char **argv, char * const *envp) {
   // If the target is Cygwin/MingW and we are generating remote code, we
   // need an extra module to help out with linking.
   if (RemoteMCJIT && Triple(Mod->getTargetTriple()).isOSCygMing()) {
-    addCygMingExtraModule(EE, Context, Mod->getTargetTriple());
+    addCygMingExtraModule(*EE, Context, Mod->getTargetTriple());
   }
 
   // The following functions have no effect if their respective profiling
@@ -582,7 +571,7 @@ int main(int argc, char **argv, char * const *envp) {
   // Reset errno to zero on entry to main.
   errno = 0;
 
-  int Result;
+  int Result = -1;
 
   // Sanity check use of remote-jit: LLI currently only supports use of the
   // remote JIT on Unix platforms.
@@ -660,18 +649,11 @@ int main(int argc, char **argv, char * const *envp) {
 
     // Create a remote target client running over the channel.
     typedef orc::remote::OrcRemoteTargetClient<orc::remote::RPCChannel> MyRemote;
-    ErrorOr<MyRemote> R = MyRemote::Create(*C);
-    if (!R) {
-      errs() << "Could not create remote: " << R.getError().message() << "\n";
-      exit(1);
-    }
+    MyRemote R = ExitOnErr(MyRemote::Create(*C));
 
     // Create a remote memory manager.
     std::unique_ptr<MyRemote::RCMemoryManager> RemoteMM;
-    if (auto EC = R->createRemoteMemoryManager(RemoteMM)) {
-      errs() << "Could not create remote memory manager: " << EC.message() << "\n";
-      exit(1);
-    }
+    ExitOnErr(R.createRemoteMemoryManager(RemoteMM));
 
     // Forward MCJIT's memory manager calls to the remote memory manager.
     static_cast<ForwardingMemoryManager*>(RTDyldMM)->setMemMgr(
@@ -681,12 +663,9 @@ int main(int argc, char **argv, char * const *envp) {
     static_cast<ForwardingMemoryManager*>(RTDyldMM)->setResolver(
       orc::createLambdaResolver(
         [&](const std::string &Name) {
-          orc::TargetAddress Addr = 0;
-          if (auto EC = R->getSymbolAddress(Addr, Name)) {
-            errs() << "Failure during symbol lookup: " << EC.message() << "\n";
-            exit(1);
-          }
-          return RuntimeDyld::SymbolInfo(Addr, JITSymbolFlags::Exported);
+          if (auto Addr = ExitOnErr(R.getSymbolAddress(Name)))
+	    return RuntimeDyld::SymbolInfo(Addr, JITSymbolFlags::Exported);
+          return RuntimeDyld::SymbolInfo(nullptr);
         },
         [](const std::string &Name) { return nullptr; }
       ));
@@ -698,8 +677,7 @@ int main(int argc, char **argv, char * const *envp) {
     EE->finalizeObject();
     DEBUG(dbgs() << "Executing '" << EntryFn->getName() << "' at 0x"
                  << format("%llx", Entry) << "\n");
-    if (auto EC = R->callIntVoid(Result, Entry))
-      errs() << "ERROR: " << EC.message() << "\n";
+    Result = ExitOnErr(R.callIntVoid(Entry));
 
     // Like static constructors, the remote target MCJIT support doesn't handle
     // this yet. It could. FIXME.
@@ -707,11 +685,10 @@ int main(int argc, char **argv, char * const *envp) {
     // Delete the EE - we need to tear it down *before* we terminate the session
     // with the remote, otherwise it'll crash when it tries to release resources
     // on a remote that has already been disconnected.
-    delete EE;
-    EE = nullptr;
+    EE.reset();
 
     // Signal the remote target that we're done JITing.
-    R->terminateSession();
+    ExitOnErr(R.terminateSession());
   }
 
   return Result;

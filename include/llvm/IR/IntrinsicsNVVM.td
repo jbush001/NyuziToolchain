@@ -720,13 +720,13 @@ def llvm_anyi64ptr_ty     : LLVMAnyPointerType<llvm_i64_ty>;     // (space)i64*
 // Atomic not available as an llvm intrinsic.
   def int_nvvm_atomic_load_add_f32 : Intrinsic<[llvm_float_ty],
           [LLVMAnyPointerType<llvm_float_ty>, llvm_float_ty],
-                                      [IntrReadWriteArgMem, NoCapture<0>]>;
+                                      [IntrArgMemOnly, NoCapture<0>]>;
   def int_nvvm_atomic_load_inc_32 : Intrinsic<[llvm_i32_ty],
           [LLVMAnyPointerType<llvm_i32_ty>, llvm_i32_ty],
-                                      [IntrReadWriteArgMem, NoCapture<0>]>;
+                                      [IntrArgMemOnly, NoCapture<0>]>;
   def int_nvvm_atomic_load_dec_32 : Intrinsic<[llvm_i32_ty],
           [LLVMAnyPointerType<llvm_i32_ty>, llvm_i32_ty],
-                                      [IntrReadWriteArgMem, NoCapture<0>]>;
+                                      [IntrArgMemOnly, NoCapture<0>]>;
 
 // Bar.Sync
   def int_cuda_syncthreads : GCCBuiltin<"__syncthreads">,
@@ -795,32 +795,34 @@ def llvm_anyi64ptr_ty     : LLVMAnyPointerType<llvm_i64_ty>;     // (space)i64*
       GCCBuiltin<"__nvvm_read_ptx_sreg_warpsize">;
 
 
-// Generated within nvvm. Use for ldu on sm_20 or later
+// Generated within nvvm. Use for ldu on sm_20 or later.  Second arg is the
+// pointer's alignment.
 def int_nvvm_ldu_global_i : Intrinsic<[llvm_anyint_ty],
   [LLVMAnyPointerType<LLVMMatchType<0>>, llvm_i32_ty],
-  [IntrReadMem, NoCapture<0>],
+  [IntrReadMem, IntrArgMemOnly, NoCapture<0>],
   "llvm.nvvm.ldu.global.i">;
 def int_nvvm_ldu_global_f : Intrinsic<[llvm_anyfloat_ty],
   [LLVMAnyPointerType<LLVMMatchType<0>>, llvm_i32_ty],
-  [IntrReadMem, NoCapture<0>],
+  [IntrReadMem, IntrArgMemOnly, NoCapture<0>],
   "llvm.nvvm.ldu.global.f">;
 def int_nvvm_ldu_global_p : Intrinsic<[llvm_anyptr_ty],
   [LLVMAnyPointerType<LLVMMatchType<0>>, llvm_i32_ty],
-  [IntrReadMem, NoCapture<0>],
+  [IntrReadMem, IntrArgMemOnly, NoCapture<0>],
   "llvm.nvvm.ldu.global.p">;
 
-// Generated within nvvm. Use for ldg on sm_35 or later
+// Generated within nvvm. Use for ldg on sm_35 or later.  Second arg is the
+// pointer's alignment.
 def int_nvvm_ldg_global_i : Intrinsic<[llvm_anyint_ty],
   [LLVMAnyPointerType<LLVMMatchType<0>>, llvm_i32_ty],
-  [IntrReadMem, NoCapture<0>],
+  [IntrReadMem, IntrArgMemOnly, NoCapture<0>],
   "llvm.nvvm.ldg.global.i">;
 def int_nvvm_ldg_global_f : Intrinsic<[llvm_anyfloat_ty],
   [LLVMAnyPointerType<LLVMMatchType<0>>, llvm_i32_ty],
-  [IntrReadMem, NoCapture<0>],
+  [IntrReadMem, IntrArgMemOnly, NoCapture<0>],
   "llvm.nvvm.ldg.global.f">;
 def int_nvvm_ldg_global_p : Intrinsic<[llvm_anyptr_ty],
   [LLVMAnyPointerType<LLVMMatchType<0>>, llvm_i32_ty],
-  [IntrReadMem, NoCapture<0>],
+  [IntrReadMem, IntrArgMemOnly, NoCapture<0>],
   "llvm.nvvm.ldg.global.p">;
 
 // Use for generic pointers

@@ -10,6 +10,7 @@
 // This file implements the MemorySSA class.
 //
 //===----------------------------------------------------------------===//
+#include "llvm/Transforms/Utils/MemorySSA.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/DepthFirstIterator.h"
@@ -35,11 +36,9 @@
 #include "llvm/IR/Metadata.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/PatternMatch.h"
-#include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/FormattedStream.h"
 #include "llvm/Transforms/Scalar.h"
-#include "llvm/Transforms/Utils/MemorySSA.h"
 #include <algorithm>
 
 #define DEBUG_TYPE "memoryssa"
@@ -305,7 +304,7 @@ MemorySSAWalker *MemorySSA::buildMemorySSA(AliasAnalysis *AA,
   }
 
   // Determine where our MemoryPhi's should go
-  IDFCalculator IDFs(*DT);
+  ForwardIDFCalculator IDFs(*DT);
   IDFs.setDefiningBlocks(DefiningBlocks);
   IDFs.setLiveInBlocks(LiveInBlocks);
   SmallVector<BasicBlock *, 32> IDFBlocks;
@@ -800,19 +799,16 @@ void CachingMemorySSAWalker::invalidateInfo(MemoryAccess *MA) {
     if (!Q.IsCall)
       Q.StartingLoc = MemoryLocation::get(I);
     doCacheRemove(MA, Q, Q.StartingLoc);
-    return;
-  }
-  // If it is not a use, the best we can do right now is destroy the cache.
-  bool IsCall = false;
-
-  if (auto *MUD = dyn_cast<MemoryUseOrDef>(MA)) {
-    Instruction *I = MUD->getMemoryInst();
-    IsCall = bool(ImmutableCallSite(I));
-  }
-  if (IsCall)
+  } else {
+    // If it is not a use, the best we can do right now is destroy the cache.
     CachedUpwardsClobberingCall.clear();
-  else
     CachedUpwardsClobberingAccess.clear();
+  }
+
+#ifdef EXPENSIVE_CHECKS
+  // Run this only when expensive checks are enabled.
+  verifyRemoved(MA);
+#endif
 }
 
 void CachingMemorySSAWalker::doCacheRemove(const MemoryAccess *M,
@@ -828,6 +824,10 @@ void CachingMemorySSAWalker::doCacheInsert(const MemoryAccess *M,
                                            MemoryAccess *Result,
                                            const UpwardsMemoryQuery &Q,
                                            const MemoryLocation &Loc) {
+  // This is fine for Phis, since there are times where we can't optimize them.
+  // Making a def its own clobber is never correct, though.
+  assert((Result != M || isa<MemoryPhi>(M)) &&
+         "Something can't clobber itself!");
   ++NumClobberCacheInserts;
   if (Q.IsCall)
     CachedUpwardsClobberingCall[M] = Result;
@@ -877,9 +877,11 @@ MemoryAccessPair CachingMemorySSAWalker::UpwardsDFSWalk(
     MemoryAccess *CurrAccess = *DFI;
     if (MSSA->isLiveOnEntryDef(CurrAccess))
       return {CurrAccess, Loc};
-    if (auto CacheResult = doCacheLookup(CurrAccess, Q, Loc))
-      return {CacheResult, Loc};
-    // If this is a MemoryDef, check whether it clobbers our current query.
+    // If this is a MemoryDef, check whether it clobbers our current query. This
+    // needs to be done before consulting the cache, because the cache reports
+    // the clobber for CurrAccess. If CurrAccess is a clobber for this query,
+    // and we ask the cache for information first, then we might skip this
+    // clobber, which is bad.
     if (auto *MD = dyn_cast<MemoryDef>(CurrAccess)) {
       // If we hit the top, stop following this path.
       // While we can do lookups, we can't sanely do inserts here unless we were
@@ -890,6 +892,8 @@ MemoryAccessPair CachingMemorySSAWalker::UpwardsDFSWalk(
         break;
       }
     }
+    if (auto CacheResult = doCacheLookup(CurrAccess, Q, Loc))
+      return {CacheResult, Loc};
 
     // We need to know whether it is a phi so we can track backedges.
     // Otherwise, walk all upward defs.
@@ -961,8 +965,15 @@ MemoryAccessPair CachingMemorySSAWalker::UpwardsDFSWalk(
     return {MSSA->getLiveOnEntryDef(), Q.StartingLoc};
 
   const BasicBlock *OriginalBlock = StartingAccess->getBlock();
+  assert(DFI.getPathLength() > 0 && "We dropped our path?");
   unsigned N = DFI.getPathLength();
-  for (; N != 0; --N) {
+  // If we found a clobbering def, the last element in the path will be our
+  // clobber, so we don't want to cache that to itself. OTOH, if we optimized a
+  // phi, we can add the last thing in the path to the cache, since that won't
+  // be the result.
+  if (DFI.getPath(N - 1) == ModifyingAccess)
+    --N;
+  for (; N > 1; --N) {
     MemoryAccess *CacheAccess = DFI.getPath(N - 1);
     BasicBlock *CurrBlock = CacheAccess->getBlock();
     if (!FollowingBackedge)
@@ -974,8 +985,8 @@ MemoryAccessPair CachingMemorySSAWalker::UpwardsDFSWalk(
   }
 
   // Cache everything else on the way back. The caller should cache
-  // Q.OriginalAccess for us.
-  for (; N != 0; --N) {
+  // StartingAccess for us.
+  for (; N > 1; --N) {
     MemoryAccess *CacheAccess = DFI.getPath(N - 1);
     doCacheInsert(CacheAccess, ModifyingAccess, Q, Loc);
   }
@@ -1028,7 +1039,9 @@ CachingMemorySSAWalker::getClobberingMemoryAccess(MemoryAccess *StartingAccess,
                                      : StartingUseOrDef;
 
   MemoryAccess *Clobber = getClobberingMemoryAccess(DefiningAccess, Q);
-  doCacheInsert(Q.OriginalAccess, Clobber, Q, Q.StartingLoc);
+  // Only cache this if it wouldn't make Clobber point to itself.
+  if (Clobber != StartingAccess)
+    doCacheInsert(Q.OriginalAccess, Clobber, Q, Q.StartingLoc);
   DEBUG(dbgs() << "Starting Memory SSA clobber for " << *I << " is ");
   DEBUG(dbgs() << *StartingUseOrDef << "\n");
   DEBUG(dbgs() << "Final Memory SSA clobber for " << *I << " is ");
@@ -1067,12 +1080,17 @@ CachingMemorySSAWalker::getClobberingMemoryAccess(const Instruction *I) {
     return DefiningAccess;
 
   MemoryAccess *Result = getClobberingMemoryAccess(DefiningAccess, Q);
+  // DFS won't cache a result for DefiningAccess. So, if DefiningAccess isn't
+  // our clobber, be sure that it gets a cache entry, too.
+  if (Result != DefiningAccess)
+    doCacheInsert(DefiningAccess, Result, Q, Q.StartingLoc);
   doCacheInsert(Q.OriginalAccess, Result, Q, Q.StartingLoc);
   // TODO: When this implementation is more mature, we may want to figure out
   // what this additional caching buys us. It's most likely A Good Thing.
   if (Q.IsCall)
     for (const MemoryAccess *MA : Q.VisitedCalls)
-      doCacheInsert(MA, Result, Q, Q.StartingLoc);
+      if (MA != Result)
+        doCacheInsert(MA, Result, Q, Q.StartingLoc);
 
   DEBUG(dbgs() << "Starting Memory SSA clobber for " << *I << " is ");
   DEBUG(dbgs() << *DefiningAccess << "\n");
@@ -1080,6 +1098,18 @@ CachingMemorySSAWalker::getClobberingMemoryAccess(const Instruction *I) {
   DEBUG(dbgs() << *Result << "\n");
 
   return Result;
+}
+
+// Verify that MA doesn't exist in any of the caches.
+void CachingMemorySSAWalker::verifyRemoved(MemoryAccess *MA) {
+#ifndef NDEBUG
+  for (auto &P : CachedUpwardsClobberingAccess)
+    assert(P.first.first != MA && P.second != MA &&
+           "Found removed MemoryAccess in cache.");
+  for (auto &P : CachedUpwardsClobberingCall)
+    assert(P.first != MA && P.second != MA &&
+           "Found removed MemoryAccess in cache.");
+#endif // !NDEBUG
 }
 
 MemoryAccess *

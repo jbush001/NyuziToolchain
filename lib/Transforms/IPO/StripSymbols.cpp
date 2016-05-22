@@ -21,7 +21,6 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/Transforms/IPO.h"
-#include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DebugInfo.h"
@@ -230,6 +229,9 @@ static bool StripSymbolNames(Module &M, bool PreserveDbgInfo) {
 }
 
 bool StripSymbols::runOnModule(Module &M) {
+  if (skipModule(M))
+    return false;
+
   bool Changed = false;
   Changed |= StripDebugInfo(M);
   if (!OnlyDebugInfo)
@@ -238,10 +240,15 @@ bool StripSymbols::runOnModule(Module &M) {
 }
 
 bool StripNonDebugSymbols::runOnModule(Module &M) {
+  if (skipModule(M))
+    return false;
+
   return StripSymbolNames(M, true);
 }
 
 bool StripDebugDeclare::runOnModule(Module &M) {
+  if (skipModule(M))
+    return false;
 
   Function *Declare = M.getFunction("llvm.dbg.declare");
   std::vector<Constant*> DeadConstants;
@@ -287,6 +294,9 @@ bool StripDebugDeclare::runOnModule(Module &M) {
 /// optimized away by the optimizer. This special pass removes debug info for
 /// such symbols.
 bool StripDeadDebugInfo::runOnModule(Module &M) {
+  if (skipModule(M))
+    return false;
+
   bool Changed = false;
 
   LLVMContext &C = M.getContext();

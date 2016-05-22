@@ -461,6 +461,10 @@ protected:
   /// bottom of the DAG region without covereing any unscheduled instruction.
   void buildDAGWithRegPressure();
 
+  /// Release ExitSU predecessors and setup scheduler queues. Re-position
+  /// the Top RP tracker in case the region beginning has changed.
+  void initQueues(ArrayRef<SUnit*> TopRoots, ArrayRef<SUnit*> BotRoots);
+
   /// Move an instruction and update register pressure.
   void scheduleMI(SUnit *SU, bool IsTopNode);
 
@@ -903,11 +907,13 @@ public:
 protected:
   void checkAcyclicLatency();
 
+  void initCandidate(SchedCandidate &Cand, SUnit *SU, bool AtTop,
+                     const RegPressureTracker &RPTracker,
+                     RegPressureTracker &TempTracker);
+
   void tryCandidate(SchedCandidate &Cand,
                     SchedCandidate &TryCand,
-                    SchedBoundary &Zone,
-                    const RegPressureTracker &RPTracker,
-                    RegPressureTracker &TempTracker);
+                    SchedBoundary &Zone);
 
   SUnit *pickNodeBidirectional(bool &IsTopNode);
 

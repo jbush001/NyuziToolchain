@@ -57,8 +57,8 @@ RUN: echo bbb > %tmp/SINGLE_INPUTS/bbb
 RUN: LLVMFuzzer-SimpleTest %tmp/SINGLE_INPUTS/aaa %tmp/SINGLE_INPUTS/bbb 2>&1 | FileCheck %s --check-prefix=SINGLE_INPUTS
 RUN: rm -rf  %tmp/SINGLE_INPUTS
 SINGLE_INPUTS: LLVMFuzzer-SimpleTest: Running 2 inputs 1 time(s) each.
-SINGLE_INPUTS: aaa:
-SINGLE_INPUTS: bbb:
+SINGLE_INPUTS: aaa ...
+SINGLE_INPUTS: bbb ...
 
 RUN: rm -rf %t/SUB1
 RUN: mkdir -p %t/SUB1/SUB2/SUB3
@@ -86,6 +86,10 @@ FINAL_STATS: stat::average_exec_per_sec:     0
 FINAL_STATS: stat::new_units_added:
 FINAL_STATS: stat::slowest_unit_time_sec:    0
 FINAL_STATS: stat::peak_rss_mb:
+
+RUN: LLVMFuzzer-SimpleTest %S/dict1.txt -runs=33 -print_final_stats=1 2>&1 | FileCheck %s --check-prefix=FINAL_STATS1
+FINAL_STATS1: stat::number_of_executed_units: 33
+FINAL_STATS1: stat::peak_rss_mb:
 
 RUN: LLVMFuzzer-SpamyTest -runs=1                  2>&1 | FileCheck %s --check-prefix=FD_MASK_0
 RUN: LLVMFuzzer-SpamyTest -runs=1 -close_fd_mask=0 2>&1 | FileCheck %s --check-prefix=FD_MASK_0
@@ -118,3 +122,4 @@ FD_MASK_3: INITED
 
 RUN: LLVMFuzzer-SimpleTest -runs=10 --max_len=100 2>&1 | FileCheck %s --check-prefix=DASH_DASH
 DASH_DASH: WARNING: did you mean '-max_len=100' (single dash)?
+DASH_DASH: INFO: A corpus is not provided, starting from an empty corpus

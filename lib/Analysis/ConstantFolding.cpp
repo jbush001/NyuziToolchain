@@ -78,20 +78,23 @@ Constant *FoldBitCast(Constant *C, Type *DestTy, const DataLayout &DL) {
       C = ConstantExpr::getBitCast(C, SrcIVTy);
     }
 
-    ConstantDataVector *CDV = dyn_cast<ConstantDataVector>(C);
-    if (!CDV)
-      return ConstantExpr::getBitCast(C, DestTy);
-
     // Now that we know that the input value is a vector of integers, just shift
     // and insert them into our result.
     unsigned BitShift = DL.getTypeAllocSizeInBits(SrcEltTy);
     APInt Result(IT->getBitWidth(), 0);
     for (unsigned i = 0; i != NumSrcElts; ++i) {
-      Result <<= BitShift;
+      Constant *Element;
       if (DL.isLittleEndian())
-        Result |= CDV->getElementAsInteger(NumSrcElts-i-1);
+        Element = C->getAggregateElement(NumSrcElts-i-1);
       else
-        Result |= CDV->getElementAsInteger(i);
+        Element = C->getAggregateElement(i);
+
+      auto *ElementCI = dyn_cast_or_null<ConstantInt>(Element);
+      if (!ElementCI)
+        return ConstantExpr::getBitCast(C, DestTy);
+
+      Result <<= BitShift;
+      Result |= ElementCI->getValue().zextOrSelf(IT->getBitWidth());
     }
 
     return ConstantInt::get(IT, Result);
@@ -231,10 +234,12 @@ Constant *FoldBitCast(Constant *C, Type *DestTy, const DataLayout &DL) {
   return ConstantVector::get(Result);
 }
 
+} // end anonymous namespace
+
 /// If this constant is a constant offset from a global, return the global and
 /// the constant. Because of constantexprs, this function is recursive.
-bool IsConstantOffsetFromGlobal(Constant *C, GlobalValue *&GV, APInt &Offset,
-                                const DataLayout &DL) {
+bool llvm::IsConstantOffsetFromGlobal(Constant *C, GlobalValue *&GV,
+                                      APInt &Offset, const DataLayout &DL) {
   // Trivial case, constant is the global.
   if ((GV = dyn_cast<GlobalValue>(C))) {
     unsigned BitWidth = DL.getPointerTypeSizeInBits(GV->getType());
@@ -270,6 +275,8 @@ bool IsConstantOffsetFromGlobal(Constant *C, GlobalValue *&GV, APInt &Offset,
   Offset = TmpOffset;
   return true;
 }
+
+namespace {
 
 /// Recursive helper to read bits out of global. C is the constant being copied
 /// out of. ByteOffset is an offset into C. CurPtr is the pointer to copy

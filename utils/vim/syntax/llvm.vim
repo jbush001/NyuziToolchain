@@ -1,7 +1,7 @@
 " Vim syntax file
 " Language:   llvm
 " Maintainer: The LLVM team, http://llvm.org/
-" Version:      $Revision: 265572 $
+" Version:      $Revision: 266705 $
 
 if version < 600
   syntax clear
@@ -53,9 +53,9 @@ syn keyword llvmKeyword private protected ptx_device ptx_kernel readnone
 syn keyword llvmKeyword readonly release returns_twice sanitize_thread
 syn keyword llvmKeyword sanitize_memory section seq_cst sideeffect signext
 syn keyword llvmKeyword singlethread source_filename spir_func spir_kernel sret
-syn keyword llvmKeyword ssp sspreq sspstrong tail target thread_local to triple
-syn keyword llvmKeyword unnamed_addr unordered uwtable volatile weak weak_odr
-syn keyword llvmKeyword x86_fastcallcc x86_stdcallcc x86_thiscallcc
+syn keyword llvmKeyword ssp sspreq sspstrong swiftcc tail target thread_local to
+syn keyword llvmKeyword triple unnamed_addr unordered uwtable volatile weak
+syn keyword llvmKeyword weak_odr x86_fastcallcc x86_stdcallcc x86_thiscallcc
 syn keyword llvmKeyword x86_64_sysvcc x86_64_win64cc zeroext uselistorder
 syn keyword llvmKeyword uselistorder_bb musttail
 

@@ -68,6 +68,8 @@ defm int_amdgcn_workgroup_id : AMDGPUReadPreloadRegisterIntrinsic_xyz <
 def int_amdgcn_s_barrier : GCCBuiltin<"__builtin_amdgcn_s_barrier">,
   Intrinsic<[], [], [IntrConvergent]>;
 
+def int_amdgcn_s_waitcnt : Intrinsic<[], [llvm_i32_ty], []>;
+
 def int_amdgcn_div_scale : Intrinsic<
   // 1st parameter: Numerator
   // 2nd parameter: Denominator
@@ -154,12 +156,12 @@ def int_amdgcn_cubetc : GCCBuiltin<"__builtin_amdgcn_cubetc">,
 // TODO: Do we want an ordering for these?
 def int_amdgcn_atomic_inc : Intrinsic<[llvm_anyint_ty],
   [llvm_anyptr_ty, LLVMMatchType<0>],
-  [IntrReadWriteArgMem, NoCapture<0>]
+  [IntrArgMemOnly, NoCapture<0>]
 >;
 
 def int_amdgcn_atomic_dec : Intrinsic<[llvm_anyint_ty],
   [llvm_anyptr_ty, LLVMMatchType<0>],
-  [IntrReadWriteArgMem, NoCapture<0>]
+  [IntrArgMemOnly, NoCapture<0>]
 >;
 
 class AMDGPUImageLoad : Intrinsic <
@@ -243,7 +245,7 @@ class AMDGPUBufferStore : Intrinsic <
    llvm_i32_ty,       // offset(SGPR/VGPR/imm)
    llvm_i1_ty,        // glc(imm)
    llvm_i1_ty],       // slc(imm)
-  []>;
+  [IntrWriteMem]>;
 def int_amdgcn_buffer_store_format : AMDGPUBufferStore;
 def int_amdgcn_buffer_store : AMDGPUBufferStore;
 
@@ -312,6 +314,14 @@ def int_amdgcn_dispatch_ptr :
   GCCBuiltin<"__builtin_amdgcn_dispatch_ptr">,
   Intrinsic<[LLVMQualPointerType<llvm_i8_ty, 2>], [], [IntrNoMem]>;
 
+def int_amdgcn_queue_ptr :
+  GCCBuiltin<"__builtin_amdgcn_queue_ptr">,
+  Intrinsic<[LLVMQualPointerType<llvm_i8_ty, 2>], [], [IntrNoMem]>;
+
+def int_amdgcn_kernarg_segment_ptr :
+  GCCBuiltin<"__builtin_amdgcn_kernarg_segment_ptr">,
+  Intrinsic<[LLVMQualPointerType<llvm_i8_ty, 2>], [], [IntrNoMem]>;
+
 // __builtin_amdgcn_interp_p1 <i>, <attr_chan>, <attr>, <m0>
 def int_amdgcn_interp_p1 :
   GCCBuiltin<"__builtin_amdgcn_interp_p1">,
@@ -327,6 +337,13 @@ def int_amdgcn_interp_p2 :
             [llvm_float_ty, llvm_i32_ty, llvm_i32_ty, llvm_i32_ty, llvm_i32_ty],
             [IntrNoMem]>;  // See int_amdgcn_v_interp_p1 for why this is
                            // IntrNoMem.
+
+// Pixel shaders only: whether the current pixel is live (i.e. not a helper
+// invocation for derivative computation).
+def int_amdgcn_ps_live : Intrinsic <
+  [llvm_i1_ty],
+  [],
+  [IntrNoMem]>;
 
 def int_amdgcn_mbcnt_lo :
   GCCBuiltin<"__builtin_amdgcn_mbcnt_lo">,

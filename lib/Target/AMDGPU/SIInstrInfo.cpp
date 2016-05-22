@@ -15,11 +15,13 @@
 
 #include "SIInstrInfo.h"
 #include "AMDGPUTargetMachine.h"
+#include "GCNHazardRecognizer.h"
 #include "SIDefines.h"
 #include "SIMachineFunctionInfo.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
+#include "llvm/CodeGen/ScheduleDAG.h"
 #include "llvm/IR/Function.h"
 #include "llvm/CodeGen/RegisterScavenging.h"
 #include "llvm/MC/MCInstrDesc.h"
@@ -224,10 +226,6 @@ bool SIInstrInfo::getMemOpBaseRegImmOfs(MachineInstr *LdSt, unsigned &BaseReg,
     // will use this for some partially aligned loads.
     const MachineOperand *Offset0Imm = getNamedOperand(*LdSt,
                                                        AMDGPU::OpName::offset0);
-    // DS_PERMUTE does not have Offset0Imm (and Offset1Imm).
-    if (!Offset0Imm)
-      return false;
-
     const MachineOperand *Offset1Imm = getNamedOperand(*LdSt,
                                                        AMDGPU::OpName::offset1);
 
@@ -303,7 +301,7 @@ bool SIInstrInfo::shouldClusterMemOps(MachineInstr *FirstLdSt,
     SecondDst = getNamedOperand(*SecondLdSt, AMDGPU::OpName::vdst);
   }
 
-  if (isSMRD(*FirstLdSt) && isSMRD(*FirstLdSt)) {
+  if (isSMRD(*FirstLdSt) && isSMRD(*SecondLdSt)) {
     FirstDst = getNamedOperand(*FirstLdSt, AMDGPU::OpName::sdst);
     SecondDst = getNamedOperand(*SecondLdSt, AMDGPU::OpName::sdst);
   }
@@ -586,6 +584,12 @@ void SIInstrInfo::storeRegToStackSlot(MachineBasicBlock &MBB,
   if (RI.isSGPRClass(RC)) {
     MFI->setHasSpilledSGPRs();
 
+    if (TargetRegisterInfo::isVirtualRegister(SrcReg) && RC->getSize() == 4) {
+      // m0 may not be allowed for readlane.
+      MachineRegisterInfo &MRI = MF->getRegInfo();
+      MRI.constrainRegClass(SrcReg, &AMDGPU::SReg_32_XM0RegClass);
+    }
+
     // We are only allowed to create one new instruction when spilling
     // registers, so we need to use pseudo instruction for spilling
     // SGPRs.
@@ -679,6 +683,13 @@ void SIInstrInfo::loadRegFromStackSlot(MachineBasicBlock &MBB,
     // FIXME: Maybe this should not include a memoperand because it will be
     // lowered to non-memory instructions.
     unsigned Opcode = getSGPRSpillRestoreOpcode(RC->getSize());
+
+    if (TargetRegisterInfo::isVirtualRegister(DestReg) && RC->getSize() == 4) {
+      // m0 may not be allowed for readlane.
+      MachineRegisterInfo &MRI = MF->getRegInfo();
+      MRI.constrainRegClass(DestReg, &AMDGPU::SReg_32_XM0RegClass);
+    }
+
     BuildMI(MBB, MI, DL, get(Opcode), DestReg)
       .addFrameIndex(FrameIndex) // frame_idx
       .addMemOperand(MMO);
@@ -808,6 +819,7 @@ unsigned SIInstrInfo::calculateLDSSpillAddress(MachineBasicBlock &MBB,
 void SIInstrInfo::insertWaitStates(MachineBasicBlock &MBB,
                                    MachineBasicBlock::iterator MI,
                                    int Count) const {
+  DebugLoc DL = MBB.findDebugLoc(MI);
   while (Count > 0) {
     int Arg;
     if (Count >= 8)
@@ -815,8 +827,22 @@ void SIInstrInfo::insertWaitStates(MachineBasicBlock &MBB,
     else
       Arg = Count - 1;
     Count -= 8;
-    BuildMI(MBB, MI, MI->getDebugLoc(), get(AMDGPU::S_NOP))
+    BuildMI(MBB, MI, DL, get(AMDGPU::S_NOP))
             .addImm(Arg);
+  }
+}
+
+void SIInstrInfo::insertNoop(MachineBasicBlock &MBB,
+                             MachineBasicBlock::iterator MI) const {
+  insertWaitStates(MBB, MI, 1);
+}
+
+unsigned SIInstrInfo::getNumWaitStates(const MachineInstr &MI) const {
+  switch (MI.getOpcode()) {
+  default: return 1; // FIXME: Do wait states equal cycles?
+
+  case AMDGPU::S_NOP:
+    return MI.getOperand(0).getImm() + 1;
   }
 }
 
@@ -944,10 +970,10 @@ MachineInstr *SIInstrInfo::commuteInstructionImpl(MachineInstr *MI,
   MachineOperand &Src1 = MI->getOperand(Src1Idx);
 
 
-  if (isVOP2(*MI)) {
+  if (isVOP2(*MI) || isVOPC(*MI)) {
     const MCInstrDesc &InstrDesc = MI->getDesc();
-    // For VOP2 instructions, any operand type is valid to use for src0.  Make
-    // sure we can use the src1 as src0.
+    // For VOP2 and VOPC instructions, any operand type is valid to use for
+    // src0.  Make sure we can use the src0 as src1.
     //
     // We could be stricter here and only allow commuting if there is a reason
     // to do so. i.e. if both operands are VGPRs there is no real benefit,
@@ -1042,6 +1068,138 @@ bool SIInstrInfo::findCommutedOpIndices(MachineInstr *MI,
     return false;
 
   return fixCommutedOpIndices(SrcOpIdx0, SrcOpIdx1, Src0Idx, Src1Idx);
+}
+
+unsigned SIInstrInfo::getBranchOpcode(SIInstrInfo::BranchPredicate Cond) {
+  switch (Cond) {
+  case SIInstrInfo::SCC_TRUE:
+    return AMDGPU::S_CBRANCH_SCC1;
+  case SIInstrInfo::SCC_FALSE:
+    return AMDGPU::S_CBRANCH_SCC0;
+  case SIInstrInfo::VCCNZ:
+    return AMDGPU::S_CBRANCH_VCCNZ;
+  case SIInstrInfo::VCCZ:
+    return AMDGPU::S_CBRANCH_VCCZ;
+  case SIInstrInfo::EXECNZ:
+    return AMDGPU::S_CBRANCH_EXECNZ;
+  case SIInstrInfo::EXECZ:
+    return AMDGPU::S_CBRANCH_EXECZ;
+  default:
+    llvm_unreachable("invalid branch predicate");
+  }
+}
+
+SIInstrInfo::BranchPredicate SIInstrInfo::getBranchPredicate(unsigned Opcode) {
+  switch (Opcode) {
+  case AMDGPU::S_CBRANCH_SCC0:
+    return SCC_FALSE;
+  case AMDGPU::S_CBRANCH_SCC1:
+    return SCC_TRUE;
+  case AMDGPU::S_CBRANCH_VCCNZ:
+    return VCCNZ;
+  case AMDGPU::S_CBRANCH_VCCZ:
+    return VCCZ;
+  case AMDGPU::S_CBRANCH_EXECNZ:
+    return EXECNZ;
+  case AMDGPU::S_CBRANCH_EXECZ:
+    return EXECZ;
+  default:
+    return INVALID_BR;
+  }
+}
+
+bool SIInstrInfo::AnalyzeBranch(MachineBasicBlock &MBB,
+                                MachineBasicBlock *&TBB,
+                                MachineBasicBlock *&FBB,
+                                SmallVectorImpl<MachineOperand> &Cond,
+                                bool AllowModify) const {
+  MachineBasicBlock::iterator I = MBB.getFirstTerminator();
+
+  if (I == MBB.end())
+    return false;
+
+  if (I->getOpcode() == AMDGPU::S_BRANCH) {
+    // Unconditional Branch
+    TBB = I->getOperand(0).getMBB();
+    return false;
+  }
+
+  BranchPredicate Pred = getBranchPredicate(I->getOpcode());
+  if (Pred == INVALID_BR)
+    return true;
+
+  MachineBasicBlock *CondBB = I->getOperand(0).getMBB();
+  Cond.push_back(MachineOperand::CreateImm(Pred));
+
+  ++I;
+
+  if (I == MBB.end()) {
+    // Conditional branch followed by fall-through.
+    TBB = CondBB;
+    return false;
+  }
+
+  if (I->getOpcode() == AMDGPU::S_BRANCH) {
+    TBB = CondBB;
+    FBB = I->getOperand(0).getMBB();
+    return false;
+  }
+
+  return true;
+}
+
+unsigned SIInstrInfo::RemoveBranch(MachineBasicBlock &MBB) const {
+  MachineBasicBlock::iterator I = MBB.getFirstTerminator();
+
+  unsigned Count = 0;
+  while (I != MBB.end()) {
+    MachineBasicBlock::iterator Next = std::next(I);
+    I->eraseFromParent();
+    ++Count;
+    I = Next;
+  }
+
+  return Count;
+}
+
+unsigned SIInstrInfo::InsertBranch(MachineBasicBlock &MBB,
+                                   MachineBasicBlock *TBB,
+                                   MachineBasicBlock *FBB,
+                                   ArrayRef<MachineOperand> Cond,
+                                   DebugLoc DL) const {
+
+  if (!FBB && Cond.empty()) {
+    BuildMI(&MBB, DL, get(AMDGPU::S_BRANCH))
+      .addMBB(TBB);
+    return 1;
+  }
+
+  assert(TBB && Cond[0].isImm());
+
+  unsigned Opcode
+    = getBranchOpcode(static_cast<BranchPredicate>(Cond[0].getImm()));
+
+  if (!FBB) {
+    BuildMI(&MBB, DL, get(Opcode))
+      .addMBB(TBB);
+    return 1;
+  }
+
+  assert(TBB && FBB);
+
+  BuildMI(&MBB, DL, get(Opcode))
+    .addMBB(TBB);
+  BuildMI(&MBB, DL, get(AMDGPU::S_BRANCH))
+    .addMBB(FBB);
+
+  return 2;
+}
+
+bool SIInstrInfo::ReverseBranchCondition(
+  SmallVectorImpl<MachineOperand> &Cond) const {
+  assert(Cond.size() == 1);
+  Cond[0].setImm(-Cond[0].getImm());
+  return false;
 }
 
 static void removeModOperands(MachineInstr &MI) {
@@ -1192,8 +1350,11 @@ bool SIInstrInfo::checkInstOffsetsDoNotOverlap(MachineInstr *MIa,
 
   if (getMemOpBaseRegImmOfs(MIa, BaseReg0, Offset0, &RI) &&
       getMemOpBaseRegImmOfs(MIb, BaseReg1, Offset1, &RI)) {
-    assert(MIa->hasOneMemOperand() && MIb->hasOneMemOperand() &&
-           "read2 / write2 not expected here yet");
+
+    if (!MIa->hasOneMemOperand() || !MIb->hasOneMemOperand()) {
+      // FIXME: Handle ds_read2 / ds_write2.
+      return false;
+    }
     unsigned Width0 = (*MIa->memoperands_begin())->getSize();
     unsigned Width1 = (*MIb->memoperands_begin())->getSize();
     if (BaseReg0 == BaseReg1 &&
@@ -1473,16 +1634,6 @@ bool SIInstrInfo::verifyInstruction(const MachineInstr *MI,
   int Src1Idx = AMDGPU::getNamedOperandIdx(Opcode, AMDGPU::OpName::src1);
   int Src2Idx = AMDGPU::getNamedOperandIdx(Opcode, AMDGPU::OpName::src2);
 
-  // Make sure we don't have SCC live-ins to basic blocks.  moveToVALU assumes
-  // all SCC users are in the same blocks as their defs.
-  const MachineBasicBlock *MBB = MI->getParent();
-  if (MI == &MBB->front()) {
-    if (MBB->isLiveIn(AMDGPU::SCC)) {
-      ErrInfo = "scc register cannot be live across blocks.";
-      return false;
-    }
-  }
-
   // Make sure the number of operands is correct.
   const MCInstrDesc &Desc = get(Opcode);
   if (!Desc.isVariadic() &&
@@ -1597,8 +1748,7 @@ bool SIInstrInfo::verifyInstruction(const MachineInstr *MI,
   // Make sure we aren't losing exec uses in the td files. This mostly requires
   // being careful when using let Uses to try to add other use registers.
   if (!isGenericOpcode(Opcode) && !isSALU(Opcode) && !isSMRD(Opcode)) {
-    const MachineOperand *Exec = MI->findRegisterUseOperand(AMDGPU::EXEC);
-    if (!Exec || !Exec->isImplicit()) {
+    if (!MI->hasRegisterImplicitUseOperand(AMDGPU::EXEC)) {
       ErrInfo = "VALU instruction does not implicitly read exec mask";
       return false;
     }
@@ -2968,4 +3118,19 @@ SIInstrInfo::getSerializableTargetIndices() const {
       {AMDGPU::TI_SCRATCH_RSRC_DWORD2, "amdgpu-scratch-rsrc-dword2"},
       {AMDGPU::TI_SCRATCH_RSRC_DWORD3, "amdgpu-scratch-rsrc-dword3"}};
   return makeArrayRef(TargetIndices);
+}
+
+/// This is used by the post-RA scheduler (SchedulePostRAList.cpp).  The
+/// post-RA version of misched uses CreateTargetMIHazardRecognizer.
+ScheduleHazardRecognizer *
+SIInstrInfo::CreateTargetPostRAHazardRecognizer(const InstrItineraryData *II,
+                                            const ScheduleDAG *DAG) const {
+  return new GCNHazardRecognizer(DAG->MF);
+}
+
+/// This is the hazard recognizer used at -O0 by the PostRAHazardRecognizer
+/// pass.
+ScheduleHazardRecognizer *
+SIInstrInfo::CreateTargetPostRAHazardRecognizer(const MachineFunction &MF) const {
+  return new GCNHazardRecognizer(MF);
 }

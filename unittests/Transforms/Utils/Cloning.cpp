@@ -8,7 +8,6 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/Transforms/Utils/Cloning.h"
-#include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/IR/Argument.h"
@@ -275,8 +274,7 @@ protected:
 
   void CreateNewFunc() {
     ValueToValueMapTy VMap;
-    NewFunc = CloneFunction(OldFunc, VMap, true, nullptr);
-    M->getFunctionList().push_back(NewFunc);
+    NewFunc = CloneFunction(OldFunc, VMap, nullptr);
   }
 
   void SetupFinder() {
@@ -302,16 +300,13 @@ TEST_F(CloneFunc, Subprogram) {
   EXPECT_FALSE(verifyModule(*M));
 
   unsigned SubprogramCount = Finder->subprogram_count();
-  EXPECT_EQ(2U, SubprogramCount);
+  EXPECT_EQ(1U, SubprogramCount);
 
   auto Iter = Finder->subprograms().begin();
-  auto *Sub1 = cast<DISubprogram>(*Iter);
-  Iter++;
-  auto *Sub2 = cast<DISubprogram>(*Iter);
+  auto *Sub = cast<DISubprogram>(*Iter);
 
-  EXPECT_TRUE(
-      (Sub1 == OldFunc->getSubprogram() && Sub2 == NewFunc->getSubprogram()) ||
-      (Sub1 == NewFunc->getSubprogram() && Sub2 == OldFunc->getSubprogram()));
+  EXPECT_TRUE(Sub == OldFunc->getSubprogram());
+  EXPECT_TRUE(Sub == NewFunc->getSubprogram());
 }
 
 // Test that instructions in the old function still belong to it in the

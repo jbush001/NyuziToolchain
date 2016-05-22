@@ -173,6 +173,8 @@ namespace clang {
           return;
       }
 
+      EmbedBitcode(getModule(), CodeGenOpts, llvm::MemoryBufferRef());
+
       EmitBackendOutput(Diags, CodeGenOpts, TargetOpts, LangOpts,
                         C.getTargetInfo().getDataLayout(),
                         getModule(), Action, AsmOutStream);
@@ -454,7 +456,7 @@ const FullSourceLoc BackendConsumer::getBestLocationFromDebugLoc(
     // we could not translate this location. This can happen in the
     // case of #line directives.
     Diags.Report(Loc, diag::note_fe_backend_invalid_loc)
-        << Filename << Line;
+        << Filename << Line << Column;
 
   return Loc;
 }
@@ -794,6 +796,11 @@ void CodeGenAction::ExecuteAction() {
     if (Invalid)
       return;
 
+    // For ThinLTO backend invocations, ensure that the context
+    // merges types based on ODR identifiers.
+    if (!CI.getCodeGenOpts().ThinLTOIndexFile.empty())
+      VMContext->enableDebugTypeODRUniquing();
+
     llvm::SMDiagnostic Err;
     TheModule = parseIR(MainFile->getMemBufferRef(), Err, *VMContext);
     if (!TheModule) {
@@ -826,9 +833,13 @@ void CodeGenAction::ExecuteAction() {
       TheModule->setTargetTriple(TargetOpts.Triple);
     }
 
+    EmbedBitcode(TheModule.get(), CI.getCodeGenOpts(),
+                 MainFile->getMemBufferRef());
+
     LLVMContext &Ctx = TheModule->getContext();
     Ctx.setInlineAsmDiagnosticHandler(BitcodeInlineAsmDiagHandler,
                                       &CI.getDiagnostics());
+
     EmitBackendOutput(CI.getDiagnostics(), CI.getCodeGenOpts(), TargetOpts,
                       CI.getLangOpts(), CI.getTarget().getDataLayout(),
                       TheModule.get(), BA, OS);

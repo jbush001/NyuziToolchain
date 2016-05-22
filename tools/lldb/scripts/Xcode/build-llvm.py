@@ -3,6 +3,7 @@
 import errno
 import hashlib
 import os
+import platform
 import subprocess
 import sys
 
@@ -243,13 +244,30 @@ def find_cmake ():
         "/opt/local/bin",
         os.path.join(os.path.expanduser("~"), "bin")
     ]
+
+    if platform.system() == "Darwin":
+        # Add locations where an official CMake.app package may be installed.
+        extra_cmake_dirs.extend([
+           os.path.join(
+               os.path.expanduser("~"),
+               "Applications",
+               "CMake.app",
+               "Contents",
+               "bin"),
+           os.path.join(
+               os.sep,
+               "Applications",
+               "CMake.app",
+               "Contents",
+               "bin")])
+
     cmake_binary = find_executable_in_paths("cmake", extra_cmake_dirs)
     if cmake_binary:
         # We found it in one of the usual places.  Use that.
         return cmake_binary
 
     # We couldn't find cmake.  Tell the user what to do.
-    raise(
+    raise Exception(
         "could not find cmake in PATH ({}) or in any of these locations ({}), "
         "please install cmake or add a link to it in one of those locations".format(
             os.environ["PATH"],

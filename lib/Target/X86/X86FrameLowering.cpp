@@ -1381,6 +1381,18 @@ void X86FrameLowering::emitPrologue(MachineFunction &MF,
     if (PushedRegs)
       emitCalleeSavedFrameMoves(MBB, MBBI, DL);
   }
+
+  // X86 Interrupt handling function cannot assume anything about the direction
+  // flag (DF in EFLAGS register). Clear this flag by creating "cld" instruction
+  // in each prologue of interrupt handler function.
+  //
+  // FIXME: Create "cld" instruction only in these cases:
+  // 1. The interrupt handling function uses any of the "rep" instructions.
+  // 2. Interrupt handling function calls another function.
+  //
+  if (Fn->getCallingConv() == CallingConv::X86_INTR)
+    BuildMI(MBB, MBBI, DL, TII.get(X86::CLD))
+        .setMIFlag(MachineInstr::FrameSetup);
 }
 
 bool X86FrameLowering::canUseLEAForSPInEpilogue(
@@ -2279,7 +2291,7 @@ void X86FrameLowering::adjustForSegmentedStacks(
   checkMBB->addSuccessor(allocMBB);
   checkMBB->addSuccessor(&PrologueMBB);
 
-#ifdef XDEBUG
+#ifdef EXPENSIVE_CHECKS
   MF.verify();
 #endif
 }
@@ -2423,7 +2435,7 @@ void X86FrameLowering::adjustForHiPEPrologue(
     incStackMBB->addSuccessor(&PrologueMBB, {99, 100});
     incStackMBB->addSuccessor(incStackMBB, {1, 100});
   }
-#ifdef XDEBUG
+#ifdef EXPENSIVE_CHECKS
   MF.verify();
 #endif
 }
@@ -2607,6 +2619,12 @@ eliminateCallFramePseudoInstr(MachineFunction &MF, MachineBasicBlock &MBB,
   }
 
   return I;
+}
+
+bool X86FrameLowering::canUseAsPrologue(const MachineBasicBlock &MBB) const {
+  assert(MBB.getParent() && "Block is not attached to a function!");
+  const MachineFunction &MF = *MBB.getParent();
+  return !TRI->needsStackRealignment(MF) || !MBB.isLiveIn(X86::EFLAGS);
 }
 
 bool X86FrameLowering::canUseAsEpilogue(const MachineBasicBlock &MBB) const {

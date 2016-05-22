@@ -94,7 +94,7 @@ static void ConnectProlog(Loop *L, Value *BECount, unsigned Count,
       Value *V = PN->getIncomingValueForBlock(Latch);
       if (Instruction *I = dyn_cast<Instruction>(V)) {
         if (L->contains(I)) {
-          V = VMap[I];
+          V = VMap.lookup(I);
         }
       }
       // Adding a value to the new PHI node from the last prolog block
@@ -199,7 +199,7 @@ static void ConnectEpilog(Loop *L, Value *ModVal, BasicBlock *NewExit,
     Instruction *I = dyn_cast<Instruction>(V);
     if (I && L->contains(I))
       // If value comes from an instruction in the loop add VMap value.
-      V = VMap[I];
+      V = VMap.lookup(I);
     // For the instruction out of the loop, constant or undefined value
     // insert value itself.
     EpilogPN->addIncoming(V, EpilogLatch);
@@ -246,7 +246,7 @@ static void ConnectEpilog(Loop *L, Value *ModVal, BasicBlock *NewExit,
 
   Instruction *InsertPt = NewExit->getTerminator();
   IRBuilder<> B(InsertPt);
-  Value *BrLoopExit = B.CreateIsNotNull(ModVal);
+  Value *BrLoopExit = B.CreateIsNotNull(ModVal, "lcmp.mod");
   assert(Exit && "Loop must have a single exit block only");
   // Split the exit to maintain loop canonicalization guarantees
   SmallVector<BasicBlock*, 4> Preds(predecessors(Exit));
@@ -353,8 +353,8 @@ static void CloneLoopBlocks(Loop *L, Value *NewIter,
       idx = NewPHI->getBasicBlockIndex(Latch);
       Value *InVal = NewPHI->getIncomingValue(idx);
       NewPHI->setIncomingBlock(idx, NewLatch);
-      if (VMap[InVal])
-        NewPHI->setIncomingValue(idx, VMap[InVal]);
+      if (Value *V = VMap.lookup(InVal))
+        NewPHI->setIncomingValue(idx, V);
     }
   }
   if (NewLoop) {
@@ -416,7 +416,7 @@ static void CloneLoopBlocks(Loop *L, Value *NewIter,
 ///
 /// ***Epilog case***
 ///        extraiters = tripcount % loopfactor
-///        if (extraiters == tripcount) jump LoopExit:
+///        if (tripcount < loopfactor) jump LoopExit:
 ///        unroll_iters = tripcount - extraiters
 /// Loop:  LoopBody; (executes unroll_iter times);
 ///        unroll_iter -= 1
@@ -575,14 +575,15 @@ bool llvm::UnrollRuntimeLoopRemainder(Loop *L, unsigned Count,
                           ConstantInt::get(BECount->getType(), Count),
                           "xtraiter");
   }
-  Value *CmpOperand =
-      UseEpilogRemainder ? TripCount :
-                           ConstantInt::get(TripCount->getType(), 0);
-  Value *BranchVal = B.CreateICmpNE(ModVal, CmpOperand, "lcmp.mod");
-  BasicBlock *FirstLoop = UseEpilogRemainder ? NewPreHeader : PrologPreHeader;
-  BasicBlock *SecondLoop = UseEpilogRemainder ? NewExit : PrologExit;
+  Value *BranchVal =
+      UseEpilogRemainder ? B.CreateICmpULT(BECount,
+                                           ConstantInt::get(BECount->getType(),
+                                                            Count - 1)) :
+                           B.CreateIsNotNull(ModVal, "lcmp.mod");
+  BasicBlock *RemainderLoop = UseEpilogRemainder ? NewExit : PrologPreHeader;
+  BasicBlock *UnrollingLoop = UseEpilogRemainder ? NewPreHeader : PrologExit;
   // Branch to either remainder (extra iterations) loop or unrolling loop.
-  B.CreateCondBr(BranchVal, FirstLoop, SecondLoop);
+  B.CreateCondBr(BranchVal, RemainderLoop, UnrollingLoop);
   PreHeaderBR->eraseFromParent();
   Function *F = Header->getParent();
   // Get an ordered list of blocks in the loop to help with the ordering of the

@@ -504,6 +504,19 @@ public:
     return const_cast<Value*>(this)->stripInBoundsOffsets();
   }
 
+  /// \brief Returns the number of bytes known to be dereferenceable for the
+  /// pointer value.
+  ///
+  /// If CanBeNull is set by this function the pointer can either be null or be
+  /// dereferenceable up to the returned number of bytes.
+  unsigned getPointerDereferenceableBytes(bool &CanBeNull) const;
+
+  /// \brief Returns true if the pointer value is fully dereferenceable.
+  ///
+  /// Sets CanBeNull to true if the pointer is either null or can be fully
+  /// dereferenceable.
+  bool isPointerDereferenceable(bool &CanBeNull) const;
+
   /// \brief Returns an alignment of the pointer value.
   ///
   /// Returns an alignment which is either specified explicitly, e.g. via
@@ -790,8 +803,7 @@ public:
 // Create wrappers for C Binding types (see CBindingWrapping.h).
 DEFINE_ISA_CONVERSION_FUNCTIONS(Value, LLVMValueRef)
 
-/* Specialized opaque value conversions.
- */
+// Specialized opaque value conversions.
 inline Value **unwrap(LLVMValueRef *Vals) {
   return reinterpret_cast<Value**>(Vals);
 }

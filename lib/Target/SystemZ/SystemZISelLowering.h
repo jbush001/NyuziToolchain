@@ -311,6 +311,19 @@ enum NodeType : unsigned {
   // Operand 5: the width of the field in bits (8 or 16)
   ATOMIC_CMP_SWAPW,
 
+  // Byte swapping load.
+  //
+  // Operand 0: the address to load from
+  // Operand 1: the type of load (i16, i32, i64)
+  LRV,
+
+  // Byte swapping store.
+  //
+  // Operand 0: the value to store
+  // Operand 1: the address to store to
+  // Operand 2: the type of store (i16, i32, i64)
+  STRV,
+
   // Prefetch from the second operand using the 4-bit control code in
   // the first operand.  The code is 1 for a load prefetch and 2 for
   // a store prefetch.
@@ -426,6 +439,13 @@ public:
     return SystemZ::R7D;
   }
 
+  /// Override to support customized stack guard loading.
+  bool useLoadStackGuardNode() const override {
+    return true;
+  }
+  void insertSSPDeclarations(Module &M) const override {
+  }
+
   MachineBasicBlock *EmitInstrWithCustomInserter(MachineInstr *MI,
                                                  MachineBasicBlock *BB) const
     override;
@@ -452,6 +472,14 @@ public:
                                       SelectionDAG &DAG) const override;
   SDValue PerformDAGCombine(SDNode *N, DAGCombinerInfo &DCI) const override;
 
+  ISD::NodeType getExtendForAtomicOps() const override {
+    return ISD::ANY_EXTEND;
+  }
+
+  bool supportSwiftError() const override {
+    return true;
+  }
+
 private:
   const SystemZSubtarget &Subtarget;
 
@@ -464,6 +492,7 @@ private:
   SDValue lowerTLSGetOffset(GlobalAddressSDNode *Node,
                             SelectionDAG &DAG, unsigned Opcode,
                             SDValue GOTOffset) const;
+  SDValue lowerThreadPointer(const SDLoc &DL, SelectionDAG &DAG) const;
   SDValue lowerGlobalTLSAddress(GlobalAddressSDNode *Node,
                                 SelectionDAG &DAG) const;
   SDValue lowerBlockAddress(BlockAddressSDNode *Node,
@@ -475,6 +504,7 @@ private:
   SDValue lowerVASTART(SDValue Op, SelectionDAG &DAG) const;
   SDValue lowerVACOPY(SDValue Op, SelectionDAG &DAG) const;
   SDValue lowerDYNAMIC_STACKALLOC(SDValue Op, SelectionDAG &DAG) const;
+  SDValue lowerGET_DYNAMIC_AREA_OFFSET(SDValue Op, SelectionDAG &DAG) const;
   SDValue lowerSMUL_LOHI(SDValue Op, SelectionDAG &DAG) const;
   SDValue lowerUMUL_LOHI(SDValue Op, SelectionDAG &DAG) const;
   SDValue lowerSDIVREM(SDValue Op, SelectionDAG &DAG) const;

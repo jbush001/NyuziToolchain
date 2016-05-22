@@ -767,8 +767,8 @@ function(canonicalize_tool_name name output)
 endfunction(canonicalize_tool_name)
 
 # Custom add_subdirectory wrapper
-# Takes in a project name (i.e. LLVM), the the subdirectory name, and an
-# and an optional path if it differs from the name.
+# Takes in a project name (i.e. LLVM), the subdirectory name, and an optional
+# path if it differs from the name.
 macro(add_llvm_subdirectory project type name)
   set(add_llvm_external_dir "${ARGN}")
   if("${add_llvm_external_dir}" STREQUAL "")
@@ -1050,13 +1050,27 @@ endfunction()
 function(add_lit_testsuites project directory)
   if (NOT CMAKE_CONFIGURATION_TYPES)
     cmake_parse_arguments(ARG "" "" "PARAMS;DEPENDS;ARGS" ${ARGN})
-    file(GLOB_RECURSE litCfg ${directory}/lit*.cfg)
+
+    # Search recursively for test directories by assuming anything not
+    # in a directory called Inputs contains tests.
     set(lit_suites)
-    foreach(f ${litCfg})
-      get_filename_component(dir ${f} DIRECTORY)
-      set(lit_suites ${lit_suites} ${dir})
-    endforeach()
-    list(REMOVE_DUPLICATES lit_suites)
+    file(GLOB to_process ${directory}/*)
+    while(to_process)
+      set(cur_to_process ${to_process})
+      set(to_process)
+      foreach(lit_suite ${cur_to_process})
+        if(IS_DIRECTORY ${lit_suite})
+          string(FIND ${lit_suite} Inputs is_inputs)
+          if (is_inputs EQUAL -1)
+            list(APPEND lit_suites "${lit_suite}")
+            file(GLOB subdirs ${lit_suite}/*)
+            list(APPEND to_process ${subdirs})
+          endif()
+        endif()
+      endforeach()
+    endwhile()
+
+    # Now create a check- target for each test directory.
     foreach(dir ${lit_suites})
       string(REPLACE ${directory} "" name_slash ${dir})
       if (name_slash)

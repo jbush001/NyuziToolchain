@@ -75,24 +75,9 @@ namespace llvm {
                              DiagnosticHandlerFunction DiagnosticHandler);
 
   /// Parse the specified bitcode buffer, returning the module summary index.
-  /// If IsLazy is true, parse the entire module summary into
-  /// the index. Otherwise skip the module summary section, and only create
-  /// an index object with a map from value name to the value's summary offset.
-  /// The index is used to perform lazy summary reading later.
   ErrorOr<std::unique_ptr<ModuleSummaryIndex>>
   getModuleSummaryIndex(MemoryBufferRef Buffer,
-                        DiagnosticHandlerFunction DiagnosticHandler,
-                        bool IsLazy = false);
-
-  /// This method supports lazy reading of summary data from the
-  /// combined index during function importing. When reading the combined index
-  /// file, getModuleSummaryIndex is first invoked with IsLazy=true.
-  /// Then this method is called for each value considered for importing,
-  /// to parse the summary information for the given value name into
-  /// the index.
-  std::error_code readGlobalValueSummary(
-      MemoryBufferRef Buffer, DiagnosticHandlerFunction DiagnosticHandler,
-      StringRef ValueName, std::unique_ptr<ModuleSummaryIndex> Index);
+                        DiagnosticHandlerFunction DiagnosticHandler);
 
   /// \brief Write the specified module to the specified raw output stream.
   ///
@@ -112,8 +97,12 @@ namespace llvm {
 
   /// Write the specified module summary index to the given raw output stream,
   /// where it will be written in a new bitcode block. This is used when
-  /// writing the combined index file for ThinLTO.
-  void WriteIndexToFile(const ModuleSummaryIndex &Index, raw_ostream &Out);
+  /// writing the combined index file for ThinLTO. When writing a subset of the
+  /// index for a distributed backend, provide the \p ModuleToSummariesForIndex
+  /// map.
+  void WriteIndexToFile(const ModuleSummaryIndex &Index, raw_ostream &Out,
+                        std::map<std::string, GVSummaryMapTy>
+                            *ModuleToSummariesForIndex = nullptr);
 
   /// isBitcodeWrapper - Return true if the given bytes are the magic bytes
   /// for an LLVM IR bitcode wrapper.
@@ -177,9 +166,10 @@ namespace llvm {
 
     unsigned Offset = support::endian::read32le(&BufPtr[BWH_OffsetField]);
     unsigned Size = support::endian::read32le(&BufPtr[BWH_SizeField]);
+    uint64_t BitcodeOffsetEnd = (uint64_t)Offset + (uint64_t)Size;
 
     // Verify that Offset+Size fits in the file.
-    if (VerifyBufferSize && Offset+Size > unsigned(BufEnd-BufPtr))
+    if (VerifyBufferSize && BitcodeOffsetEnd > uint64_t(BufEnd-BufPtr))
       return true;
     BufPtr += Offset;
     BufEnd = BufPtr+Size;

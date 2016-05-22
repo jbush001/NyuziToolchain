@@ -1,6 +1,6 @@
 ; REQUIRES: object-emission
 
-; RUN: %llc_dwarf -O0 -filetype=obj -dwarf-linkage-names=Enable < %s | llvm-dwarfdump - | FileCheck %s
+; RUN: %llc_dwarf -O0 -filetype=obj -dwarf-linkage-names=All < %s | llvm-dwarfdump - | FileCheck %s
 ; CHECK: debug_info contents
 ; CHECK: [[NS1:0x[0-9a-f]*]]:{{ *}}DW_TAG_namespace
 ; CHECK-NEXT: DW_AT_name{{.*}} = "A"
@@ -327,12 +327,12 @@ attributes #1 = { nounwind readnone }
 !38 = distinct !DILexicalBlock(line: 22, column: 10, file: !5, scope: !39)
 !39 = distinct !DILexicalBlock(line: 22, column: 7, file: !5, scope: !21)
 !40 = !DIImportedEntity(tag: DW_TAG_imported_module, line: 26, scope: !21, entity: !7)
-!41 = !DIImportedEntity(tag: DW_TAG_imported_declaration, line: 27, scope: !21, entity: !"_ZTSN1A1B3fooE")
-!42 = !DIImportedEntity(tag: DW_TAG_imported_declaration, line: 28, scope: !21, entity: !"_ZTSN1A1B3barE")
+!41 = !DIImportedEntity(tag: DW_TAG_imported_declaration, line: 27, scope: !21, entity: !4)
+!42 = !DIImportedEntity(tag: DW_TAG_imported_declaration, line: 28, scope: !21, entity: !8)
 !43 = !DIImportedEntity(tag: DW_TAG_imported_declaration, line: 29, scope: !21, entity: !14)
 !44 = !DIImportedEntity(tag: DW_TAG_imported_declaration, line: 30, scope: !21, entity: !31)
 !45 = !DIImportedEntity(tag: DW_TAG_imported_declaration, line: 31, scope: !21, entity: !46)
-!46 = !DIDerivedType(tag: DW_TAG_typedef, name: "baz", line: 7, file: !5, scope: !6, baseType: !"_ZTSN1A1B3barE")
+!46 = !DIDerivedType(tag: DW_TAG_typedef, name: "baz", line: 7, file: !5, scope: !6, baseType: !8)
 !47 = !DIImportedEntity(tag: DW_TAG_imported_declaration, line: 32, name: "X", scope: !21, entity: !7)
 !48 = !DIImportedEntity(tag: DW_TAG_imported_declaration, line: 33, name: "Y", scope: !21, entity: !47)
 !49 = !DIImportedEntity(tag: DW_TAG_imported_declaration, line: 34, scope: !21, entity: !50)

@@ -1507,7 +1507,7 @@ HexagonTargetLowering::LowerGLOBALADDRESS(SDValue Op, SelectionDAG &DAG) const {
 
   if (RM == Reloc::Static) {
     SDValue GA = DAG.getTargetGlobalAddress(GV, dl, PtrVT, Offset);
-    if (HLOF.IsGlobalInSmallSection(GV, HTM))
+    if (HLOF.isGlobalInSmallSection(GV, HTM))
       return DAG.getNode(HexagonISD::CONST32_GP, dl, PtrVT, GA);
     return DAG.getNode(HexagonISD::CONST32, dl, PtrVT, GA);
   }
@@ -1868,10 +1868,6 @@ HexagonTargetLowering::HexagonTargetLowering(const TargetMachine &TM,
   setOperationAction(ISD::CTLZ, MVT::i16, Promote);
   setOperationAction(ISD::CTTZ, MVT::i8,  Promote);
   setOperationAction(ISD::CTTZ, MVT::i16, Promote);
-  setOperationAction(ISD::CTLZ_ZERO_UNDEF, MVT::i8,  Promote);
-  setOperationAction(ISD::CTLZ_ZERO_UNDEF, MVT::i16, Promote);
-  setOperationAction(ISD::CTTZ_ZERO_UNDEF, MVT::i8,  Promote);
-  setOperationAction(ISD::CTTZ_ZERO_UNDEF, MVT::i16, Promote);
 
   // In V5, popcount can count # of 1s in i64 but returns i32.
   // On V4 it will be expanded (set later).
@@ -1951,8 +1947,7 @@ HexagonTargetLowering::HexagonTargetLowering(const TargetMachine &TM,
     ISD::SMUL_LOHI,             ISD::UMUL_LOHI,
     // Logical/bit:
     ISD::AND,     ISD::OR,      ISD::XOR,     ISD::ROTL,    ISD::ROTR,
-    ISD::CTPOP,   ISD::CTLZ,    ISD::CTTZ,    ISD::CTLZ_ZERO_UNDEF,
-    ISD::CTTZ_ZERO_UNDEF,
+    ISD::CTPOP,   ISD::CTLZ,    ISD::CTTZ,
     // Floating point arithmetic/math functions:
     ISD::FADD,    ISD::FSUB,    ISD::FMUL,    ISD::FMA,     ISD::FDIV,
     ISD::FREM,    ISD::FNEG,    ISD::FABS,    ISD::FSQRT,   ISD::FSIN,
@@ -2843,6 +2838,20 @@ HexagonTargetLowering::EmitInstrWithCustomInserter(MachineInstr *MI,
 //===----------------------------------------------------------------------===//
 // Inline Assembly Support
 //===----------------------------------------------------------------------===//
+
+TargetLowering::ConstraintType
+HexagonTargetLowering::getConstraintType(StringRef Constraint) const {
+  if (Constraint.size() == 1) {
+    switch (Constraint[0]) {
+      case 'q':
+      case 'v':
+        if (Subtarget.useHVXOps())
+          return C_Register;
+        break;
+    }
+  }
+  return TargetLowering::getConstraintType(Constraint);
+}
 
 std::pair<unsigned, const TargetRegisterClass *>
 HexagonTargetLowering::getRegForInlineAsmConstraint(

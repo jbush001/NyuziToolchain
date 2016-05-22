@@ -276,8 +276,10 @@ static bool importFunctions(const char *argv0, LLVMContext &Context,
     if (renameModuleForThinLTO(*SrcModule, *Index, &GlobalsToImport))
       return true;
 
-    if (L.linkInModule(std::move(SrcModule), Linker::Flags::None,
-                       &GlobalsToImport))
+    // Instruct the linker to not automatically import linkonce defintion.
+    unsigned Flags = Linker::Flags::DontForceLinkLinkonceODR;
+
+    if (L.linkInModule(std::move(SrcModule), Flags, &GlobalsToImport))
       return false;
   }
 
@@ -342,7 +344,7 @@ int main(int argc, char **argv) {
   cl::ParseCommandLineOptions(argc, argv, "llvm linker\n");
 
   if (!DisableDITypeMap)
-    Context.ensureDITypeMap();
+    Context.enableDebugTypeODRUniquing();
 
   auto Composite = make_unique<Module>("llvm-link", Context);
   Linker L(*Composite);

@@ -45,21 +45,23 @@ namespace llvm {
 
 template <typename T> class Optional;
 
-/// \brief Pointer union between a subclass of DINode and MDString.
+/// Holds a subclass of DINode.
 ///
-/// \a DICompositeType can be referenced via an \a MDString unique identifier.
-/// This class allows some type safety in the face of that, requiring either a
-/// node of a particular type or an \a MDString.
+/// FIXME: This class doesn't currently make much sense.  Previously it was a
+/// union beteen MDString (for ODR-uniqued types) and things like DIType.  To
+/// support CodeView work, it wasn't deleted outright when MDString-based type
+/// references were deleted; we'll soon need a similar concept for CodeView
+/// DITypeIndex.
 template <class T> class TypedDINodeRef {
   const Metadata *MD = nullptr;
 
 public:
   TypedDINodeRef() = default;
   TypedDINodeRef(std::nullptr_t) {}
+  TypedDINodeRef(const T *MD) : MD(MD) {}
 
-  /// \brief Construct from a raw pointer.
   explicit TypedDINodeRef(const Metadata *MD) : MD(MD) {
-    assert((!MD || isa<MDString>(MD) || isa<T>(MD)) && "Expected valid ref");
+    assert((!MD || isa<T>(MD)) && "Expected valid type ref");
   }
 
   template <class U>
@@ -71,26 +73,10 @@ public:
 
   operator Metadata *() const { return const_cast<Metadata *>(MD); }
 
+  T *resolve() const { return const_cast<T *>(cast_or_null<T>(MD)); }
+
   bool operator==(const TypedDINodeRef<T> &X) const { return MD == X.MD; }
   bool operator!=(const TypedDINodeRef<T> &X) const { return MD != X.MD; }
-
-  /// \brief Create a reference.
-  ///
-  /// Get a reference to \c N, using an \a MDString reference if available.
-  static TypedDINodeRef get(const T *N);
-
-  template <class MapTy> T *resolve(const MapTy &Map) const {
-    if (!MD)
-      return nullptr;
-
-    if (auto *Typed = dyn_cast<T>(MD))
-      return const_cast<T *>(Typed);
-
-    auto *S = cast<MDString>(MD);
-    auto I = Map.find(S);
-    assert(I != Map.end() && "Missing identifier in type map");
-    return cast<T>(I->second);
-  }
 };
 
 typedef TypedDINodeRef<DINode> DINodeRef;
@@ -175,6 +161,9 @@ protected:
     return MDString::get(Context, S);
   }
 
+  /// Allow subclasses to mutate the tag.
+  void setTag(unsigned Tag) { SubclassData16 = Tag; }
+
 public:
   unsigned getTag() const { return SubclassData16; }
 
@@ -197,8 +186,6 @@ public:
   /// any remaining (unrecognized) bits.
   static unsigned splitFlags(unsigned Flags,
                              SmallVectorImpl<unsigned> &SplitFlags);
-
-  DINodeRef getRef() const { return DINodeRef::get(this); }
 
   static bool classof(const Metadata *MD) {
     switch (MD->getMetadataID()) {
@@ -434,8 +421,6 @@ public:
                              : static_cast<Metadata *>(getOperand(0));
   }
 
-  DIScopeRef getRef() const { return DIScopeRef::get(this); }
-
   static bool classof(const Metadata *MD) {
     switch (MD->getMetadataID()) {
     default:
@@ -530,10 +515,27 @@ protected:
   DIType(LLVMContext &C, unsigned ID, StorageType Storage, unsigned Tag,
          unsigned Line, uint64_t SizeInBits, uint64_t AlignInBits,
          uint64_t OffsetInBits, unsigned Flags, ArrayRef<Metadata *> Ops)
-      : DIScope(C, ID, Storage, Tag, Ops), Line(Line), Flags(Flags),
-        SizeInBits(SizeInBits), AlignInBits(AlignInBits),
-        OffsetInBits(OffsetInBits) {}
+      : DIScope(C, ID, Storage, Tag, Ops) {
+    init(Line, SizeInBits, AlignInBits, OffsetInBits, Flags);
+  }
   ~DIType() = default;
+
+  void init(unsigned Line, uint64_t SizeInBits, uint64_t AlignInBits,
+            uint64_t OffsetInBits, unsigned Flags) {
+    this->Line = Line;
+    this->Flags = Flags;
+    this->SizeInBits = SizeInBits;
+    this->AlignInBits = AlignInBits;
+    this->OffsetInBits = OffsetInBits;
+  }
+
+  /// Change fields in place.
+  void mutate(unsigned Tag, unsigned Line, uint64_t SizeInBits,
+              uint64_t AlignInBits, uint64_t OffsetInBits, unsigned Flags) {
+    assert(isDistinct() && "Only distinct nodes can mutate");
+    setTag(Tag);
+    init(Line, SizeInBits, AlignInBits, OffsetInBits, Flags);
+  }
 
 public:
   TempDIType clone() const {
@@ -581,8 +583,6 @@ public:
   bool isLValueReference() const { return getFlags() & FlagLValueReference; }
   bool isRValueReference() const { return getFlags() & FlagRValueReference; }
   bool isExternalTypeRef() const { return getFlags() & FlagExternalTypeRef; }
-
-  DITypeRef getRef() const { return DITypeRef::get(this); }
 
   static bool classof(const Metadata *MD) {
     switch (MD->getMetadataID()) {
@@ -770,6 +770,16 @@ class DICompositeType : public DIType {
         RuntimeLang(RuntimeLang) {}
   ~DICompositeType() = default;
 
+  /// Change fields in place.
+  void mutate(unsigned Tag, unsigned Line, unsigned RuntimeLang,
+              uint64_t SizeInBits, uint64_t AlignInBits, uint64_t OffsetInBits,
+              unsigned Flags) {
+    assert(isDistinct() && "Only distinct nodes can mutate");
+    assert(getRawIdentifier() && "Only ODR-uniqued nodes should mutate");
+    this->RuntimeLang = RuntimeLang;
+    DIType::mutate(Tag, Line, SizeInBits, AlignInBits, OffsetInBits, Flags);
+  }
+
   static DICompositeType *
   getImpl(LLVMContext &Context, unsigned Tag, StringRef Name, Metadata *File,
           unsigned Line, DIScopeRef Scope, DITypeRef BaseType,
@@ -825,6 +835,40 @@ public:
 
   TempDICompositeType clone() const { return cloneImpl(); }
 
+  /// Get a DICompositeType with the given ODR identifier.
+  ///
+  /// If \a LLVMContext::isODRUniquingDebugTypes(), gets the mapped
+  /// DICompositeType for the given ODR \c Identifier.  If none exists, creates
+  /// a new node.
+  ///
+  /// Else, returns \c nullptr.
+  static DICompositeType *
+  getODRType(LLVMContext &Context, MDString &Identifier, unsigned Tag,
+             MDString *Name, Metadata *File, unsigned Line, Metadata *Scope,
+             Metadata *BaseType, uint64_t SizeInBits, uint64_t AlignInBits,
+             uint64_t OffsetInBits, unsigned Flags, Metadata *Elements,
+             unsigned RuntimeLang, Metadata *VTableHolder,
+             Metadata *TemplateParams);
+  static DICompositeType *getODRTypeIfExists(LLVMContext &Context,
+                                             MDString &Identifier);
+
+  /// Build a DICompositeType with the given ODR identifier.
+  ///
+  /// Looks up the mapped DICompositeType for the given ODR \c Identifier.  If
+  /// it doesn't exist, creates a new one.  If it does exist and \a
+  /// isForwardDecl(), and the new arguments would be a definition, mutates the
+  /// the type in place.  In either case, returns the type.
+  ///
+  /// If not \a LLVMContext::isODRUniquingDebugTypes(), this function returns
+  /// nullptr.
+  static DICompositeType *
+  buildODRType(LLVMContext &Context, MDString &Identifier, unsigned Tag,
+               MDString *Name, Metadata *File, unsigned Line, Metadata *Scope,
+               Metadata *BaseType, uint64_t SizeInBits, uint64_t AlignInBits,
+               uint64_t OffsetInBits, unsigned Flags, Metadata *Elements,
+               unsigned RuntimeLang, Metadata *VTableHolder,
+               Metadata *TemplateParams);
+
   DITypeRef getBaseType() const { return DITypeRef(getRawBaseType()); }
   DINodeArray getElements() const {
     return cast_or_null<MDTuple>(getRawElements());
@@ -868,14 +912,6 @@ public:
     return MD->getMetadataID() == DICompositeTypeKind;
   }
 };
-
-template <class T> TypedDINodeRef<T> TypedDINodeRef<T>::get(const T *N) {
-  if (N)
-    if (auto *Composite = dyn_cast<DICompositeType>(N))
-      if (auto *S = Composite->getRawIdentifier())
-        return TypedDINodeRef<T>(S);
-  return TypedDINodeRef<T>(N);
-}
 
 /// \brief Type array for a subprogram.
 ///
@@ -1098,6 +1134,12 @@ public:
   /// Return this if it's an \a DISubprogram; otherwise, look up the scope
   /// chain.
   DISubprogram *getSubprogram() const;
+
+  /// Get the first non DILexicalBlockFile scope of this scope.
+  ///
+  /// Return this if it's not a \a DILexicalBlockFIle; otherwise, look up the
+  /// scope chain.
+  DILocalScope *getNonLexicalBlockFileScope() const;
 
   static bool classof(const Metadata *MD) {
     return MD->getMetadataID() == DISubprogramKind ||

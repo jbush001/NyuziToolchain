@@ -121,6 +121,9 @@ public:
 
     bool
     IsFunctionPointerType(lldb::opaque_compiler_type_t type) override;
+    
+    bool
+    IsBlockPointerType (lldb::opaque_compiler_type_t type, CompilerType *function_pointer_type_ptr) override;
 
     bool
     IsIntegerType(lldb::opaque_compiler_type_t type, bool &is_signed) override;
@@ -332,8 +335,8 @@ public:
     CreateObjectType(const ConstString &name, const ConstString &linkage_name, uint32_t byte_size);
 
     CompilerType
-    CreateArrayType(const CompilerType &element_type, const DWARFExpression &length_expression,
-                    const lldb::addr_t data_offset);
+    CreateArrayType(const ConstString &linkage_name, const CompilerType &element_type,
+                    const DWARFExpression &length_expression, const lldb::addr_t data_offset);
 
     CompilerType
     CreateReferenceType(const CompilerType &pointee_type);
@@ -356,6 +359,12 @@ public:
 
     static ConstString
     GetLinkageName(const CompilerType &type);
+
+    static uint32_t
+    CalculateArraySize(const CompilerType &type, ValueObject &in_value);
+
+    static uint64_t
+    CalculateArrayElementOffset(const CompilerType &type, size_t index);
 
     //------------------------------------------------------------------
     // llvm casting support

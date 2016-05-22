@@ -188,7 +188,10 @@ static inline __device__ void __brkpt(int __c) { __brkpt(); }
 // sm_30_intrinsics.h has declarations that use default argument, so
 // we have to include it and it will in turn include .hpp
 #include "sm_30_intrinsics.h"
-#include "sm_32_intrinsics.hpp"
+
+// Don't include sm_32_intrinsics.h.  That header defines __ldg using inline
+// asm, but we want to define it using builtins, because we can't use the
+// [addr+imm] addressing mode if we use the inline asm in the header.
 
 #undef __MATH_FUNCTIONS_HPP__
 
@@ -215,16 +218,6 @@ static inline __device__ void __brkpt(int __c) { __brkpt(); }
 // Set up compiler macros expected to be seen during compilation.
 #undef __CUDABE__
 #define __CUDACC__
-
-#if defined(__CUDA_ARCH__)
-// We need to emit IR declaration for non-existing __nvvm_reflect() to
-// let backend know that it should be treated as const nothrow
-// function which is what NVVMReflect pass expects to see.
-extern "C" __device__ __attribute__((const)) int __nvvm_reflect(const void *);
-static __device__ __attribute__((used)) int __nvvm_reflect_anchor() {
-  return __nvvm_reflect("NONE");
-}
-#endif
 
 extern "C" {
 // Device-side CUDA system calls.
@@ -288,6 +281,7 @@ __device__ inline __cuda_builtin_gridDim_t::operator dim3() const {
 }
 
 #include <__clang_cuda_cmath.h>
+#include <__clang_cuda_intrinsics.h>
 
 // curand_mtgp32_kernel helpfully redeclares blockDim and threadIdx in host
 // mode, giving them their "proper" types of dim3 and uint3.  This is

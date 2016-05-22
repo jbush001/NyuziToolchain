@@ -127,6 +127,44 @@ ConstantRange ConstantRange::makeSatisfyingICmpRegion(CmpInst::Predicate Pred,
       .inverse();
 }
 
+ConstantRange ConstantRange::makeExactICmpRegion(CmpInst::Predicate Pred,
+                                                 const APInt &C) {
+  // Computes the exact range that is equal to both the constant ranges returned
+  // by makeAllowedICmpRegion and makeSatisfyingICmpRegion. This is always true
+  // when RHS is a singleton such as an APInt and so the assert is valid.
+  // However for non-singleton RHS, for example ult [2,5) makeAllowedICmpRegion
+  // returns [0,4) but makeSatisfyICmpRegion returns [0,2).
+  //
+  assert(makeAllowedICmpRegion(Pred, C) == makeSatisfyingICmpRegion(Pred, C));
+  return makeAllowedICmpRegion(Pred, C);
+}
+
+bool ConstantRange::getEquivalentICmp(CmpInst::Predicate &Pred,
+                                      APInt &RHS) const {
+  bool Success = false;
+
+  if (isFullSet() || isEmptySet()) {
+    Pred = isEmptySet() ? CmpInst::ICMP_ULT : CmpInst::ICMP_UGE;
+    RHS = APInt(getBitWidth(), 0);
+    Success = true;
+  } else if (getLower().isMinSignedValue() || getLower().isMinValue()) {
+    Pred =
+        getLower().isMinSignedValue() ? CmpInst::ICMP_SLT : CmpInst::ICMP_ULT;
+    RHS = getUpper();
+    Success = true;
+  } else if (getUpper().isMinSignedValue() || getUpper().isMinValue()) {
+    Pred =
+        getUpper().isMinSignedValue() ? CmpInst::ICMP_SGE : CmpInst::ICMP_UGE;
+    RHS = getLower();
+    Success = true;
+  }
+
+  assert((!Success || ConstantRange::makeExactICmpRegion(Pred, RHS) == *this) &&
+         "Bad result!");
+
+  return Success;
+}
+
 ConstantRange
 ConstantRange::makeGuaranteedNoWrapRegion(Instruction::BinaryOps BinOp,
                                           const ConstantRange &Other,

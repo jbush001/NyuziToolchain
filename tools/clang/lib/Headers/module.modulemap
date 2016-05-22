@@ -60,6 +60,7 @@ module _Builtin_intrinsics [system] [extern_c] {
     textual header "lzcntintrin.h"
     textual header "xopintrin.h"
     textual header "fma4intrin.h"
+    textual header "mwaitxintrin.h"
 
     explicit module mm_malloc {
       header "mm_malloc.h"

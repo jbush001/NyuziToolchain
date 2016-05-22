@@ -111,7 +111,7 @@ MaxBruteForceIterations("scalar-evolution-max-iterations", cl::ReallyHidden,
                                  "derived loop"),
                         cl::init(100));
 
-// FIXME: Enable this with XDEBUG when the test suite is clean.
+// FIXME: Enable this with EXPENSIVE_CHECKS when the test suite is clean.
 static cl::opt<bool>
 VerifySCEV("verify-scev",
            cl::desc("Verify ScalarEvolution's backedge taken counts (slow)"));
@@ -1521,11 +1521,22 @@ const SCEV *ScalarEvolution::getZeroExtendExpr(const SCEV *Op,
                 getSignExtendExpr(Step, Ty), L, AR->getNoWrapFlags());
           }
         }
+      }
 
-        // If the backedge is guarded by a comparison with the pre-inc value
-        // the addrec is safe. Also, if the entry is guarded by a comparison
-        // with the start value and the backedge is guarded by a comparison
-        // with the post-inc value, the addrec is safe.
+      // Normally, in the cases we can prove no-overflow via a
+      // backedge guarding condition, we can also compute a backedge
+      // taken count for the loop.  The exceptions are assumptions and
+      // guards present in the loop -- SCEV is not great at exploiting
+      // these to compute max backedge taken counts, but can still use
+      // these to prove lack of overflow.  Use this fact to avoid
+      // doing extra work that may not pay off.
+      if (!isa<SCEVCouldNotCompute>(MaxBECount) || HasGuards ||
+          !AC.assumptions().empty()) {
+        // If the backedge is guarded by a comparison with the pre-inc
+        // value the addrec is safe. Also, if the entry is guarded by
+        // a comparison with the start value and the backedge is
+        // guarded by a comparison with the post-inc value, the addrec
+        // is safe.
         if (isKnownPositive(Step)) {
           const SCEV *N = getConstant(APInt::getMinValue(BitWidth) -
                                       getUnsignedRange(Step).getUnsignedMax());
@@ -1533,7 +1544,8 @@ const SCEV *ScalarEvolution::getZeroExtendExpr(const SCEV *Op,
               (isLoopEntryGuardedByCond(L, ICmpInst::ICMP_ULT, Start, N) &&
                isLoopBackedgeGuardedByCond(L, ICmpInst::ICMP_ULT,
                                            AR->getPostIncExpr(*this), N))) {
-            // Cache knowledge of AR NUW, which is propagated to this AddRec.
+            // Cache knowledge of AR NUW, which is propagated to this
+            // AddRec.
             const_cast<SCEVAddRecExpr *>(AR)->setNoWrapFlags(SCEV::FlagNUW);
             // Return the expression with the addrec on the outside.
             return getAddRecExpr(
@@ -1547,8 +1559,9 @@ const SCEV *ScalarEvolution::getZeroExtendExpr(const SCEV *Op,
               (isLoopEntryGuardedByCond(L, ICmpInst::ICMP_UGT, Start, N) &&
                isLoopBackedgeGuardedByCond(L, ICmpInst::ICMP_UGT,
                                            AR->getPostIncExpr(*this), N))) {
-            // Cache knowledge of AR NW, which is propagated to this AddRec.
-            // Negative step causes unsigned wrap, but it still can't self-wrap.
+            // Cache knowledge of AR NW, which is propagated to this
+            // AddRec.  Negative step causes unsigned wrap, but it
+            // still can't self-wrap.
             const_cast<SCEVAddRecExpr *>(AR)->setNoWrapFlags(SCEV::FlagNW);
             // Return the expression with the addrec on the outside.
             return getAddRecExpr(
@@ -1742,11 +1755,23 @@ const SCEV *ScalarEvolution::getSignExtendExpr(const SCEV *Op,
                 getZeroExtendExpr(Step, Ty), L, AR->getNoWrapFlags());
           }
         }
+      }
 
-        // If the backedge is guarded by a comparison with the pre-inc value
-        // the addrec is safe. Also, if the entry is guarded by a comparison
-        // with the start value and the backedge is guarded by a comparison
-        // with the post-inc value, the addrec is safe.
+      // Normally, in the cases we can prove no-overflow via a
+      // backedge guarding condition, we can also compute a backedge
+      // taken count for the loop.  The exceptions are assumptions and
+      // guards present in the loop -- SCEV is not great at exploiting
+      // these to compute max backedge taken counts, but can still use
+      // these to prove lack of overflow.  Use this fact to avoid
+      // doing extra work that may not pay off.
+
+      if (!isa<SCEVCouldNotCompute>(MaxBECount) || HasGuards ||
+          !AC.assumptions().empty()) {
+        // If the backedge is guarded by a comparison with the pre-inc
+        // value the addrec is safe. Also, if the entry is guarded by
+        // a comparison with the start value and the backedge is
+        // guarded by a comparison with the post-inc value, the addrec
+        // is safe.
         ICmpInst::Predicate Pred;
         const SCEV *OverflowLimit =
             getSignedOverflowLimitForStep(Step, &Pred, this);
@@ -1762,6 +1787,7 @@ const SCEV *ScalarEvolution::getSignExtendExpr(const SCEV *Op,
               getSignExtendExpr(Step, Ty), L, AR->getNoWrapFlags());
         }
       }
+
       // If Start and Step are constants, check if we can apply this
       // transformation:
       // sext{C1,+,C2} --> C1 + sext{0,+,C2} if C1 < C2
@@ -4767,46 +4793,58 @@ SCEV::NoWrapFlags ScalarEvolution::getNoWrapFlagsFromUB(const Value *V) {
   if (Flags == SCEV::FlagAnyWrap)
     return SCEV::FlagAnyWrap;
 
-  // Here we check that BinOp is in the header of the innermost loop
-  // containing BinOp, since we only deal with instructions in the loop
-  // header. The actual loop we need to check later will come from an add
-  // recurrence, but getting that requires computing the SCEV of the operands,
-  // which can be expensive. This check we can do cheaply to rule out some
-  // cases early.
-  Loop *InnermostContainingLoop = LI.getLoopFor(BinOp->getParent());
+  return isSCEVExprNeverPoison(BinOp) ? Flags : SCEV::FlagAnyWrap;
+}
+
+bool ScalarEvolution::isSCEVExprNeverPoison(const Instruction *I) {
+  // Here we check that I is in the header of the innermost loop containing I,
+  // since we only deal with instructions in the loop header. The actual loop we
+  // need to check later will come from an add recurrence, but getting that
+  // requires computing the SCEV of the operands, which can be expensive. This
+  // check we can do cheaply to rule out some cases early.
+  Loop *InnermostContainingLoop = LI.getLoopFor(I->getParent());
   if (InnermostContainingLoop == nullptr ||
-      InnermostContainingLoop->getHeader() != BinOp->getParent())
-    return SCEV::FlagAnyWrap;
+      InnermostContainingLoop->getHeader() != I->getParent())
+    return false;
 
-  // Only proceed if we can prove that BinOp does not yield poison.
-  if (!isKnownNotFullPoison(BinOp)) return SCEV::FlagAnyWrap;
+  // Only proceed if we can prove that I does not yield poison.
+  if (!isKnownNotFullPoison(I)) return false;
 
-  // At this point we know that if V is executed, then it does not wrap
-  // according to at least one of NSW or NUW. If V is not executed, then we do
-  // not know if the calculation that V represents would wrap. Multiple
-  // instructions can map to the same SCEV. If we apply NSW or NUW from V to
+  // At this point we know that if I is executed, then it does not wrap
+  // according to at least one of NSW or NUW. If I is not executed, then we do
+  // not know if the calculation that I represents would wrap. Multiple
+  // instructions can map to the same SCEV. If we apply NSW or NUW from I to
   // the SCEV, we must guarantee no wrapping for that SCEV also when it is
   // derived from other instructions that map to the same SCEV. We cannot make
-  // that guarantee for cases where V is not executed. So we need to find the
-  // loop that V is considered in relation to and prove that V is executed for
-  // every iteration of that loop. That implies that the value that V
+  // that guarantee for cases where I is not executed. So we need to find the
+  // loop that I is considered in relation to and prove that I is executed for
+  // every iteration of that loop. That implies that the value that I
   // calculates does not wrap anywhere in the loop, so then we can apply the
   // flags to the SCEV.
   //
-  // We check isLoopInvariant to disambiguate in case we are adding two
-  // recurrences from different loops, so that we know which loop to prove
-  // that V is executed in.
-  for (int OpIndex = 0; OpIndex < 2; ++OpIndex) {
-    const SCEV *Op = getSCEV(BinOp->getOperand(OpIndex));
+  // We check isLoopInvariant to disambiguate in case we are adding recurrences
+  // from different loops, so that we know which loop to prove that I is
+  // executed in.
+  for (unsigned OpIndex = 0; OpIndex < I->getNumOperands(); ++OpIndex) {
+    const SCEV *Op = getSCEV(I->getOperand(OpIndex));
     if (auto *AddRec = dyn_cast<SCEVAddRecExpr>(Op)) {
-      const int OtherOpIndex = 1 - OpIndex;
-      const SCEV *OtherOp = getSCEV(BinOp->getOperand(OtherOpIndex));
-      if (isLoopInvariant(OtherOp, AddRec->getLoop()) &&
-          isGuaranteedToExecuteForEveryIteration(BinOp, AddRec->getLoop()))
-        return Flags;
+      bool AllOtherOpsLoopInvariant = true;
+      for (unsigned OtherOpIndex = 0; OtherOpIndex < I->getNumOperands();
+           ++OtherOpIndex) {
+        if (OtherOpIndex != OpIndex) {
+          const SCEV *OtherOp = getSCEV(I->getOperand(OtherOpIndex));
+          if (!isLoopInvariant(OtherOp, AddRec->getLoop())) {
+            AllOtherOpsLoopInvariant = false;
+            break;
+          }
+        }
+      }
+      if (AllOtherOpsLoopInvariant &&
+          isGuaranteedToExecuteForEveryIteration(I, AddRec->getLoop()))
+        return true;
     }
   }
-  return SCEV::FlagAnyWrap;
+  return false;
 }
 
 /// createSCEV - We know that there is no SCEV for the specified value.  Analyze
@@ -5541,6 +5579,8 @@ ScalarEvolution::BackedgeTakenInfo::BackedgeTakenInfo(
 
   if (NumExits == 1)
     return;
+
+  assert(ENT && "ExitNotTakenExtras is NULL while having more than one exit");
 
   auto &Exits = ExitNotTaken.ExtraInfo->Exits;
 
@@ -7793,6 +7833,23 @@ bool ScalarEvolution::isKnownPredicateViaSplitting(ICmpInst::Predicate Pred,
          isKnownPredicate(CmpInst::ICMP_SLT, LHS, RHS);
 }
 
+bool ScalarEvolution::isImpliedViaGuard(BasicBlock *BB,
+                                        ICmpInst::Predicate Pred,
+                                        const SCEV *LHS, const SCEV *RHS) {
+  // No need to even try if we know the module has no guards.
+  if (!HasGuards)
+    return false;
+
+  return any_of(*BB, [&](Instruction &I) {
+    using namespace llvm::PatternMatch;
+
+    Value *Condition;
+    return match(&I, m_Intrinsic<Intrinsic::experimental_guard>(
+                         m_Value(Condition))) &&
+           isImpliedCond(Pred, LHS, RHS, Condition, false);
+  });
+}
+
 /// isLoopBackedgeGuardedByCond - Test whether the backedge of the loop is
 /// protected by a conditional between LHS and RHS.  This is used to
 /// to eliminate casts.
@@ -7860,12 +7917,18 @@ ScalarEvolution::isLoopBackedgeGuardedByCond(const Loop *L,
   if (!DT.isReachableFromEntry(L->getHeader()))
     return false;
 
+  if (isImpliedViaGuard(Latch, Pred, LHS, RHS))
+    return true;
+
   for (DomTreeNode *DTN = DT[Latch], *HeaderDTN = DT[L->getHeader()];
        DTN != HeaderDTN; DTN = DTN->getIDom()) {
 
     assert(DTN && "should reach the loop header before reaching the root!");
 
     BasicBlock *BB = DTN->getBlock();
+    if (isImpliedViaGuard(BB, Pred, LHS, RHS))
+      return true;
+
     BasicBlock *PBB = BB->getSinglePredecessor();
     if (!PBB)
       continue;
@@ -7917,6 +7980,9 @@ ScalarEvolution::isLoopEntryGuardedByCond(const Loop *L,
          Pair(L->getLoopPredecessor(), L->getHeader());
        Pair.first;
        Pair = getPredecessorWithUniqueSuccessorForBB(Pair.first)) {
+
+    if (isImpliedViaGuard(Pair.first, Pred, LHS, RHS))
+      return true;
 
     BranchInst *LoopEntryPredicate =
       dyn_cast<BranchInst>(Pair.first->getTerminator());
@@ -9450,11 +9516,26 @@ ScalarEvolution::ScalarEvolution(Function &F, TargetLibraryInfo &TLI,
       CouldNotCompute(new SCEVCouldNotCompute()),
       WalkingBEDominatingConds(false), ProvingSplitPredicate(false),
       ValuesAtScopes(64), LoopDispositions(64), BlockDispositions(64),
-      FirstUnknown(nullptr) {}
+      FirstUnknown(nullptr) {
+
+  // To use guards for proving predicates, we need to scan every instruction in
+  // relevant basic blocks, and not just terminators.  Doing this is a waste of
+  // time if the IR does not actually contain any calls to
+  // @llvm.experimental.guard, so do a quick check and remember this beforehand.
+  //
+  // This pessimizes the case where a pass that preserves ScalarEvolution wants
+  // to _add_ guards to the module when there weren't any before, and wants
+  // ScalarEvolution to optimize based on those guards.  For now we prefer to be
+  // efficient in lieu of being smart in that rather obscure case.
+
+  auto *GuardDecl = F.getParent()->getFunction(
+      Intrinsic::getName(Intrinsic::experimental_guard));
+  HasGuards = GuardDecl && !GuardDecl->use_empty();
+}
 
 ScalarEvolution::ScalarEvolution(ScalarEvolution &&Arg)
-    : F(Arg.F), TLI(Arg.TLI), AC(Arg.AC), DT(Arg.DT), LI(Arg.LI),
-      CouldNotCompute(std::move(Arg.CouldNotCompute)),
+    : F(Arg.F), HasGuards(Arg.HasGuards), TLI(Arg.TLI), AC(Arg.AC), DT(Arg.DT),
+      LI(Arg.LI), CouldNotCompute(std::move(Arg.CouldNotCompute)),
       ValueExprMap(std::move(Arg.ValueExprMap)),
       WalkingBEDominatingConds(false), ProvingSplitPredicate(false),
       BackedgeTakenCounts(std::move(Arg.BackedgeTakenCounts)),
@@ -9553,6 +9634,18 @@ static void PrintLoopInfo(raw_ostream &OS, ScalarEvolution *SE,
   OS << "\n";
 }
 
+static StringRef loopDispositionToStr(ScalarEvolution::LoopDisposition LD) {
+  switch (LD) {
+  case ScalarEvolution::LoopVariant:
+    return "Variant";
+  case ScalarEvolution::LoopInvariant:
+    return "Invariant";
+  case ScalarEvolution::LoopComputable:
+    return "Computable";
+  }
+  llvm_unreachable("Unknown ScalarEvolution::LoopDisposition kind!");
+}
+
 void ScalarEvolution::print(raw_ostream &OS) const {
   // ScalarEvolution's implementation of the print method is to print
   // out SCEV values of all instructions that are interesting. Doing
@@ -9600,6 +9693,35 @@ void ScalarEvolution::print(raw_ostream &OS) const {
         } else {
           OS << *ExitValue;
         }
+
+        bool First = true;
+        for (auto *Iter = L; Iter; Iter = Iter->getParentLoop()) {
+          if (First) {
+            OS << "\t\t" "LoopDispositions: { ";
+            First = false;
+          } else {
+            OS << ", ";
+          }
+
+          Iter->getHeader()->printAsOperand(OS, /*PrintType=*/false);
+          OS << ": " << loopDispositionToStr(SE.getLoopDisposition(SV, Iter));
+        }
+
+        for (auto *InnerL : depth_first(L)) {
+          if (InnerL == L)
+            continue;
+          if (First) {
+            OS << "\t\t" "LoopDispositions: { ";
+            First = false;
+          } else {
+            OS << ", ";
+          }
+
+          InnerL->getHeader()->printAsOperand(OS, /*PrintType=*/false);
+          OS << ": " << loopDispositionToStr(SE.getLoopDisposition(SV, InnerL));
+        }
+
+        OS << " }";
       }
 
       OS << "\n";

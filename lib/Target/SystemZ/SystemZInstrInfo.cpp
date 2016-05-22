@@ -15,6 +15,7 @@
 #include "SystemZInstrBuilder.h"
 #include "SystemZTargetMachine.h"
 #include "llvm/CodeGen/LiveVariables.h"
+#include "llvm/CodeGen/LiveIntervalAnalysis.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
 
 using namespace llvm;
@@ -158,6 +159,37 @@ void SystemZInstrInfo::expandZExtPseudo(MachineInstr *MI, unsigned LowOpcode,
                 MI->getOperand(0).getReg(), MI->getOperand(1).getReg(),
                 LowOpcode, Size, MI->getOperand(1).isKill());
   MI->eraseFromParent();
+}
+
+void SystemZInstrInfo::expandLoadStackGuard(MachineInstr *MI) const {
+  MachineBasicBlock *MBB = MI->getParent();
+  MachineFunction &MF = *MBB->getParent();
+  const unsigned Reg = MI->getOperand(0).getReg();
+
+  // Conveniently, all 4 instructions are cloned from LOAD_STACK_GUARD,
+  // so they already have operand 0 set to reg.
+
+  // ear <reg>, %a0
+  MachineInstr *Ear1MI = MF.CloneMachineInstr(MI);
+  MBB->insert(MI, Ear1MI);
+  Ear1MI->setDesc(get(SystemZ::EAR));
+  MachineInstrBuilder(MF, Ear1MI).addImm(0);
+
+  // sllg <reg>, <reg>, 32
+  MachineInstr *SllgMI = MF.CloneMachineInstr(MI);
+  MBB->insert(MI, SllgMI);
+  SllgMI->setDesc(get(SystemZ::SLLG));
+  MachineInstrBuilder(MF, SllgMI).addReg(Reg).addReg(0).addImm(32);
+
+  // ear <reg>, %a1
+  MachineInstr *Ear2MI = MF.CloneMachineInstr(MI);
+  MBB->insert(MI, Ear2MI);
+  Ear2MI->setDesc(get(SystemZ::EAR));
+  MachineInstrBuilder(MF, Ear2MI).addImm(1);
+
+  // lg <reg>, 40(<reg>)
+  MI->setDesc(get(SystemZ::LG));
+  MachineInstrBuilder(MF, MI).addReg(Reg).addImm(40).addReg(0);
 }
 
 // Emit a zero-extending move from 32-bit GPR SrcReg to 32-bit GPR
@@ -706,6 +738,14 @@ static LogicOp interpretAndImmediate(unsigned Opcode) {
   }
 }
 
+static void transferDeadCC(MachineInstr *OldMI, MachineInstr *NewMI) {
+  if (OldMI->registerDefIsDead(SystemZ::CC)) {
+    MachineOperand *CCDef = NewMI->findRegisterDefOperand(SystemZ::CC);
+    if (CCDef != nullptr)
+      CCDef->setIsDead(true);
+  }
+}
+
 // Used to return from convertToThreeAddress after replacing two-address
 // instruction OldMI with three-address instruction NewMI.
 static MachineInstr *finishConvertToThreeAddress(MachineInstr *OldMI,
@@ -719,6 +759,7 @@ static MachineInstr *finishConvertToThreeAddress(MachineInstr *OldMI,
         LV->replaceKillInstruction(Op.getReg(), OldMI, NewMI);
     }
   }
+  transferDeadCC(OldMI, NewMI);
   return NewMI;
 }
 
@@ -806,21 +847,39 @@ SystemZInstrInfo::convertToThreeAddress(MachineFunction::iterator &MFI,
 
 MachineInstr *SystemZInstrInfo::foldMemoryOperandImpl(
     MachineFunction &MF, MachineInstr *MI, ArrayRef<unsigned> Ops,
-    MachineBasicBlock::iterator InsertPt, int FrameIndex) const {
+    MachineBasicBlock::iterator InsertPt, int FrameIndex,
+    LiveIntervals *LIS) const {
+  const TargetRegisterInfo *TRI = MF.getSubtarget().getRegisterInfo();
   const MachineFrameInfo *MFI = MF.getFrameInfo();
   unsigned Size = MFI->getObjectSize(FrameIndex);
   unsigned Opcode = MI->getOpcode();
 
   if (Ops.size() == 2 && Ops[0] == 0 && Ops[1] == 1) {
-    if ((Opcode == SystemZ::LA || Opcode == SystemZ::LAY) &&
+    if (LIS != nullptr &&
+        (Opcode == SystemZ::LA || Opcode == SystemZ::LAY) &&
         isInt<8>(MI->getOperand(2).getImm()) &&
         !MI->getOperand(3).getReg()) {
-      // LA(Y) %reg, CONST(%reg) -> AGSI %mem, CONST
-      return BuildMI(*InsertPt->getParent(), InsertPt, MI->getDebugLoc(),
-                     get(SystemZ::AGSI))
+
+      // Check CC liveness, since new instruction introduces a dead
+      // def of CC.
+      MCRegUnitIterator CCUnit(SystemZ::CC, TRI);
+      LiveRange &CCLiveRange = LIS->getRegUnit(*CCUnit);
+      ++CCUnit;
+      assert (!CCUnit.isValid() && "CC only has one reg unit.");
+      SlotIndex MISlot =
+        LIS->getSlotIndexes()->getInstructionIndex(*MI).getRegSlot();
+      if (!CCLiveRange.liveAt(MISlot)) {
+        // LA(Y) %reg, CONST(%reg) -> AGSI %mem, CONST
+        MachineInstr *BuiltMI =
+          BuildMI(*InsertPt->getParent(), InsertPt, MI->getDebugLoc(),
+                  get(SystemZ::AGSI))
           .addFrameIndex(FrameIndex)
           .addImm(0)
           .addImm(MI->getOperand(2).getImm());
+        BuiltMI->findRegisterDefOperand(SystemZ::CC)->setIsDead(true);
+        CCLiveRange.createDeadDef(MISlot, LIS->getVNInfoAllocator());
+        return BuiltMI;
+      }
     }
     return nullptr;
   }
@@ -839,11 +898,14 @@ MachineInstr *SystemZInstrInfo::foldMemoryOperandImpl(
       isInt<8>(MI->getOperand(2).getImm())) {
     // A(G)HI %reg, CONST -> A(G)SI %mem, CONST
     Opcode = (Opcode == SystemZ::AHI ? SystemZ::ASI : SystemZ::AGSI);
-    return BuildMI(*InsertPt->getParent(), InsertPt, MI->getDebugLoc(),
+    MachineInstr *BuiltMI =
+      BuildMI(*InsertPt->getParent(), InsertPt, MI->getDebugLoc(),
                    get(Opcode))
         .addFrameIndex(FrameIndex)
         .addImm(0)
         .addImm(MI->getOperand(2).getImm());
+    transferDeadCC(MI, BuiltMI);
+    return BuiltMI;
   }
 
   if (Opcode == SystemZ::LGDR || Opcode == SystemZ::LDGR) {
@@ -932,6 +994,7 @@ MachineInstr *SystemZInstrInfo::foldMemoryOperandImpl(
       MIB.addFrameIndex(FrameIndex).addImm(Offset);
       if (MemDesc.TSFlags & SystemZII::HasIndex)
         MIB.addReg(0);
+      transferDeadCC(MI, MIB);
       return MIB;
     }
   }
@@ -941,7 +1004,8 @@ MachineInstr *SystemZInstrInfo::foldMemoryOperandImpl(
 
 MachineInstr *SystemZInstrInfo::foldMemoryOperandImpl(
     MachineFunction &MF, MachineInstr *MI, ArrayRef<unsigned> Ops,
-    MachineBasicBlock::iterator InsertPt, MachineInstr *LoadMI) const {
+    MachineBasicBlock::iterator InsertPt, MachineInstr *LoadMI,
+    LiveIntervals *LIS) const {
   return nullptr;
 }
 
@@ -1098,6 +1162,10 @@ SystemZInstrInfo::expandPostRAPseudo(MachineBasicBlock::iterator MI) const {
 
   case SystemZ::ADJDYNALLOC:
     splitAdjDynAlloc(MI);
+    return true;
+
+  case TargetOpcode::LOAD_STACK_GUARD:
+    expandLoadStackGuard(MI);
     return true;
 
   default:

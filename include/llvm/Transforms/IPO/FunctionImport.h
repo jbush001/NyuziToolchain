@@ -12,6 +12,7 @@
 
 #include "llvm/ADT/StringMap.h"
 #include "llvm/IR/GlobalValue.h"
+#include "llvm/IR/ModuleSummaryIndex.h"
 
 #include <functional>
 #include <map>
@@ -21,7 +22,6 @@ namespace llvm {
 class LLVMContext;
 class GlobalValueSummary;
 class Module;
-class ModuleSummaryIndex;
 
 /// The function importer is automatically importing function from other modules
 /// based on the provided summary informations.
@@ -48,7 +48,11 @@ public:
       : Index(Index), ModuleLoader(ModuleLoader) {}
 
   /// Import functions in Module \p M based on the supplied import list.
-  bool importFunctions(Module &M, const ImportMapTy &ImportList);
+  /// \p ForceImportReferencedDiscardableSymbols will set the ModuleLinker in
+  /// a mode where referenced discarable symbols in the source modules will be
+  /// imported as well even if they are not present in the ImportList.
+  bool importFunctions(Module &M, const ImportMapTy &ImportList,
+                       bool ForceImportReferencedDiscardableSymbols = false);
 
 private:
   /// The summaries index used to trigger importing.
@@ -72,8 +76,7 @@ private:
 /// is the set of globals that need to be promoted/renamed appropriately.
 void ComputeCrossModuleImport(
     const ModuleSummaryIndex &Index,
-    const StringMap<std::map<GlobalValue::GUID, GlobalValueSummary *>> &
-        ModuleToDefinedGVSummaries,
+    const StringMap<GVSummaryMapTy> &ModuleToDefinedGVSummaries,
     StringMap<FunctionImporter::ImportMapTy> &ImportLists,
     StringMap<FunctionImporter::ExportSetTy> &ExportLists);
 
@@ -84,6 +87,26 @@ void ComputeCrossModuleImport(
 void ComputeCrossModuleImportForModule(
     StringRef ModulePath, const ModuleSummaryIndex &Index,
     FunctionImporter::ImportMapTy &ImportList);
+
+/// Compute the set of summaries needed for a ThinLTO backend compilation of
+/// \p ModulePath.
+//
+/// This includes summaries from that module (in case any global summary based
+/// optimizations were recorded) and from any definitions in other modules that
+/// should be imported.
+//
+/// \p ModuleToSummariesForIndex will be populated with the needed summaries
+/// from each required module path. Use a std::map instead of StringMap to get
+/// stable order for bitcode emission.
+void gatherImportedSummariesForModule(
+    StringRef ModulePath,
+    const StringMap<GVSummaryMapTy> &ModuleToDefinedGVSummaries,
+    const StringMap<FunctionImporter::ImportMapTy> &ImportLists,
+    std::map<std::string, GVSummaryMapTy> &ModuleToSummariesForIndex);
+
+std::error_code
+EmitImportsFiles(StringRef ModulePath, StringRef OutputFilename,
+                 const StringMap<FunctionImporter::ImportMapTy> &ImportLists);
 }
 
 #endif // LLVM_FUNCTIONIMPORT_H

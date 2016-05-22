@@ -53,7 +53,7 @@ define void @mask16_mem(i16* %ptr) {
 define void @mask8_mem(i8* %ptr) {
 ; KNL-LABEL: mask8_mem:
 ; KNL:       ## BB#0:
-; KNL-NEXT:    movb (%rdi), %al
+; KNL-NEXT:    movzbw (%rdi), %ax
 ; KNL-NEXT:    kmovw %eax, %k0
 ; KNL-NEXT:    knotw %k0, %k0
 ; KNL-NEXT:    kmovw %k0, %eax
@@ -81,7 +81,7 @@ define i16 @mand16(i16 %x, i16 %y) {
 ; CHECK-NEXT:    xorl %esi, %eax
 ; CHECK-NEXT:    andl %esi, %edi
 ; CHECK-NEXT:    orl %eax, %edi
-; CHECK-NEXT:    movw %di, %ax
+; CHECK-NEXT:    movl %edi, %eax
 ; CHECK-NEXT:    retq
   %ma = bitcast i16 %x to <16 x i1>
   %mb = bitcast i16 %y to <16 x i1>
@@ -951,7 +951,7 @@ define <16 x i32> @load_16i1(<16 x i1>* %a) {
 define <2 x i16> @load_2i1(<2 x i1>* %a) {
 ; KNL-LABEL: load_2i1:
 ; KNL:       ## BB#0:
-; KNL-NEXT:    movb (%rdi), %al
+; KNL-NEXT:    movzbw (%rdi), %ax
 ; KNL-NEXT:    kmovw %eax, %k1
 ; KNL-NEXT:    vpbroadcastq {{.*}}(%rip), %zmm0 {%k1} {z}
 ; KNL-NEXT:    retq
@@ -969,7 +969,7 @@ define <2 x i16> @load_2i1(<2 x i1>* %a) {
 define <4 x i16> @load_4i1(<4 x i1>* %a) {
 ; KNL-LABEL: load_4i1:
 ; KNL:       ## BB#0:
-; KNL-NEXT:    movb (%rdi), %al
+; KNL-NEXT:    movzbw (%rdi), %ax
 ; KNL-NEXT:    kmovw %eax, %k1
 ; KNL-NEXT:    vpbroadcastq {{.*}}(%rip), %zmm0 {%k1} {z}
 ; KNL-NEXT:    vpmovqd %zmm0, %ymm0

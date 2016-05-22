@@ -31,6 +31,7 @@
 
 #include "llvm/ADT/PointerUnion.h"
 #include "llvm/ADT/StringRef.h"
+#include "llvm/Support/ARMBuildAttributes.h"
 #include "llvm/Support/MathExtras.h"
 
 #define CASE_AND_STREAM(s, def, width)                  \
@@ -1516,6 +1517,80 @@ ObjectFileELF::RefineModuleDetailsFromNote (lldb_private::DataExtractor &data, l
     return error;
 }
 
+void
+ObjectFileELF::ParseARMAttributes(DataExtractor &data, uint64_t length, ArchSpec &arch_spec)
+{
+    lldb::offset_t Offset = 0;
+
+    uint8_t FormatVersion = data.GetU8(&Offset);
+    if (FormatVersion != llvm::ARMBuildAttrs::Format_Version)
+      return;
+
+    Offset = Offset + sizeof(uint32_t); // Section Length
+    llvm::StringRef VendorName = data.GetCStr(&Offset);
+
+    if (VendorName != "aeabi")
+      return;
+
+    if (arch_spec.GetTriple().getEnvironment() == llvm::Triple::UnknownEnvironment)
+        arch_spec.GetTriple().setEnvironment(llvm::Triple::EABI);
+
+    while (Offset < length)
+    {
+        uint8_t Tag = data.GetU8(&Offset);
+        uint32_t Size = data.GetU32(&Offset);
+
+        if (Tag != llvm::ARMBuildAttrs::File || Size == 0)
+            continue;
+
+        while (Offset < length)
+        {
+            uint64_t Tag = data.GetULEB128(&Offset);
+            switch (Tag)
+            {
+                default:
+                    if (Tag < 32)
+                        data.GetULEB128(&Offset);
+                    else if (Tag % 2 == 0)
+                        data.GetULEB128(&Offset);
+                    else
+                        data.GetCStr(&Offset);
+
+                    break;
+
+                case llvm::ARMBuildAttrs::CPU_raw_name:
+                case llvm::ARMBuildAttrs::CPU_name:
+                    data.GetCStr(&Offset);
+
+                    break;
+
+                case llvm::ARMBuildAttrs::ABI_VFP_args:
+                {
+                    uint64_t VFPArgs = data.GetULEB128(&Offset);
+
+                    if (VFPArgs == llvm::ARMBuildAttrs::BaseAAPCS)
+                    {
+                        if (arch_spec.GetTriple().getEnvironment() == llvm::Triple::UnknownEnvironment ||
+                            arch_spec.GetTriple().getEnvironment() == llvm::Triple::EABIHF)
+                            arch_spec.GetTriple().setEnvironment(llvm::Triple::EABI);
+
+                        arch_spec.SetFlags(ArchSpec::eARM_abi_soft_float);
+                    }
+                    else if (VFPArgs == llvm::ARMBuildAttrs::HardFPAAPCS)
+                    {
+                        if (arch_spec.GetTriple().getEnvironment() == llvm::Triple::UnknownEnvironment ||
+                            arch_spec.GetTriple().getEnvironment() == llvm::Triple::EABI)
+                            arch_spec.GetTriple().setEnvironment(llvm::Triple::EABIHF);
+
+                        arch_spec.SetFlags(ArchSpec::eARM_abi_hard_float);
+                    }
+
+                    break;
+                }
+            }
+        }
+    }
+}
 
 //----------------------------------------------------------------------
 // GetSectionHeaderInfo
@@ -1622,8 +1697,7 @@ ObjectFileELF::GetSectionHeaderInfo(SectionHeaderColl &section_headers,
 
                 I->section_name = name;
 
-                if (arch_spec.GetMachine() == llvm::Triple::mips || arch_spec.GetMachine() == llvm::Triple::mipsel
-                    || arch_spec.GetMachine() == llvm::Triple::mips64 || arch_spec.GetMachine() == llvm::Triple::mips64el)
+                if (arch_spec.IsMIPS())
                 {
                     uint32_t arch_flags = arch_spec.GetFlags ();
                     DataExtractor data;
@@ -1637,15 +1711,38 @@ ObjectFileELF::GetSectionHeaderInfo(SectionHeaderColl &section_headers,
                         }
                     }
                     // Settings appropriate ArchSpec ABI Flags
-                    if (header.e_flags & llvm::ELF::EF_MIPS_ABI2)
+                    switch(header.e_flags & llvm::ELF::EF_MIPS_ABI)
                     {
-                        arch_flags |= lldb_private::ArchSpec::eMIPSABI_N32;
-                    }
-                    else if (header.e_flags & llvm::ELF::EF_MIPS_ABI_O32)
-                    {
-                         arch_flags |= lldb_private::ArchSpec::eMIPSABI_O32;
+                        case llvm::ELF::EF_MIPS_ABI_O32:
+                            arch_flags |= lldb_private::ArchSpec::eMIPSABI_O32;
+                            break;
+                        case EF_MIPS_ABI_O64:
+                            arch_flags |= lldb_private::ArchSpec::eMIPSABI_O64;
+                            break;
+                        case EF_MIPS_ABI_EABI32:
+                            arch_flags |= lldb_private::ArchSpec::eMIPSABI_EABI32;
+                            break;
+                        case EF_MIPS_ABI_EABI64:
+                            arch_flags |= lldb_private::ArchSpec::eMIPSABI_EABI64;
+                            break;
+                        default:
+                            // ABI Mask doesn't cover N32 and N64 ABI.
+                            if (header.e_ident[EI_CLASS] == llvm::ELF::ELFCLASS64)
+                                arch_flags |= lldb_private::ArchSpec::eMIPSABI_N64;
+                            else if (header.e_flags && llvm::ELF::EF_MIPS_ABI2)
+                                arch_flags |= lldb_private::ArchSpec::eMIPSABI_N32;
+                                break;                    
                     }
                     arch_spec.SetFlags (arch_flags);
+                }
+
+                if (arch_spec.GetMachine() == llvm::Triple::arm || arch_spec.GetMachine() == llvm::Triple::thumb)
+                {
+                    DataExtractor data;
+
+                    if (sheader.sh_type == SHT_ARM_ATTRIBUTES && section_size != 0 && 
+                        set_data(data, sheader.sh_offset, section_size) == section_size)
+                        ParseARMAttributes(data, section_size, arch_spec);
                 }
 
                 if (name == g_sect_name_gnu_debuglink)
@@ -2148,7 +2245,7 @@ ObjectFileELF::ParseSymbols (Symtab *symtab,
             }
         }
 
-        if (symbol_type == eSymbolTypeInvalid)
+        if (symbol_type == eSymbolTypeInvalid && symbol.getType() != STT_SECTION)
         {
             if (symbol_section_sp)
             {
@@ -2510,7 +2607,10 @@ GetPltEntrySizeAndOffset(const ELFSectionHeader* rel_hdr, const ELFSectionHeader
     elf_xword plt_entsize = plt_hdr->sh_addralign ?
         llvm::alignTo (plt_hdr->sh_entsize, plt_hdr->sh_addralign) : plt_hdr->sh_entsize;
 
-    if (plt_entsize == 0)
+    // Some linkers e.g ld for arm, fill plt_hdr->sh_entsize field incorrectly.
+    // PLT entries relocation code in general requires multiple instruction and
+    // should be greater than 4 bytes in most cases. Try to guess correct size just in case.
+    if (plt_entsize <= 4)
     {
         // The linker haven't set the plt_hdr->sh_entsize field. Try to guess the size of the plt
         // entries based on the number of entries and the size of the plt section with the
@@ -2838,7 +2938,7 @@ ObjectFileELF::GetSymtab()
             return NULL;
 
         uint64_t symbol_id = 0;
-        lldb_private::Mutex::Locker locker(module_sp->GetMutex());
+        std::lock_guard<std::recursive_mutex> guard(module_sp->GetMutex());
 
         // Sharable objects and dynamic executables usually have 2 distinct symbol
         // tables, one named ".symtab", and the other ".dynsym". The dynsym is a smaller
@@ -3002,7 +3102,7 @@ ObjectFileELF::Dump(Stream *s)
         return;
     }
 
-    lldb_private::Mutex::Locker locker(module_sp->GetMutex());
+    std::lock_guard<std::recursive_mutex> guard(module_sp->GetMutex());
     s->Printf("%p: ", static_cast<void *>(this));
     s->Indent();
     s->PutCString("ObjectFileELF");
