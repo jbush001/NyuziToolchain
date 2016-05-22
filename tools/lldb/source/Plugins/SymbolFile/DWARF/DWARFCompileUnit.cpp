@@ -755,20 +755,21 @@ DWARFCompileUnit::IndexPrivate (DWARFCompileUnit* dwarf_cu,
     
         switch (tag)
         {
-        case DW_TAG_subprogram:
-        case DW_TAG_inlined_subroutine:
+        case DW_TAG_array_type:
         case DW_TAG_base_type:
         case DW_TAG_class_type:
         case DW_TAG_constant:
         case DW_TAG_enumeration_type:
-        case DW_TAG_string_type:
-        case DW_TAG_subroutine_type:
-        case DW_TAG_structure_type:
-        case DW_TAG_union_type:
-        case DW_TAG_typedef:
+        case DW_TAG_inlined_subroutine:
         case DW_TAG_namespace:
-        case DW_TAG_variable:
+        case DW_TAG_string_type:
+        case DW_TAG_structure_type:
+        case DW_TAG_subprogram:
+        case DW_TAG_subroutine_type:
+        case DW_TAG_typedef:
+        case DW_TAG_union_type:
         case DW_TAG_unspecified_type:
+        case DW_TAG_variable:
             break;
             
         default:
@@ -943,7 +944,7 @@ DWARFCompileUnit::IndexPrivate (DWARFCompileUnit* dwarf_cu,
                     // as our name. If it starts with '_', then it is ok, else compare
                     // the string to make sure it isn't the same and we don't end up
                     // with duplicate entries
-                    if (name != mangled_cstr && ((mangled_cstr[0] == '_') || (name && ::strcmp(name, mangled_cstr) != 0)))
+                    if (name && name != mangled_cstr && ((mangled_cstr[0] == '_') || (::strcmp(name, mangled_cstr) != 0)))
                     {
                         Mangled mangled (ConstString(mangled_cstr), true);
                         func_fullnames.Insert (mangled.GetMangledName(), DIERef(cu_offset, die.GetOffset()));
@@ -966,7 +967,7 @@ DWARFCompileUnit::IndexPrivate (DWARFCompileUnit* dwarf_cu,
                     // as our name. If it starts with '_', then it is ok, else compare
                     // the string to make sure it isn't the same and we don't end up
                     // with duplicate entries
-                    if (name != mangled_cstr && ((mangled_cstr[0] == '_') || (::strcmp(name, mangled_cstr) != 0)))
+                    if (name && name != mangled_cstr && ((mangled_cstr[0] == '_') || (::strcmp(name, mangled_cstr) != 0)))
                     {
                         Mangled mangled (ConstString(mangled_cstr), true);
                         func_fullnames.Insert (mangled.GetMangledName(), DIERef(cu_offset, die.GetOffset()));
@@ -980,15 +981,16 @@ DWARFCompileUnit::IndexPrivate (DWARFCompileUnit* dwarf_cu,
             }
             break;
         
+        case DW_TAG_array_type:
         case DW_TAG_base_type:
         case DW_TAG_class_type:
         case DW_TAG_constant:
         case DW_TAG_enumeration_type:
         case DW_TAG_string_type:
-        case DW_TAG_subroutine_type:
         case DW_TAG_structure_type:
-        case DW_TAG_union_type:
+        case DW_TAG_subroutine_type:
         case DW_TAG_typedef:
+        case DW_TAG_union_type:
         case DW_TAG_unspecified_type:
             if (name && !is_declaration)
                 types.Insert (ConstString(name), DIERef(cu_offset, die.GetOffset()));

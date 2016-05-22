@@ -12,11 +12,10 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/CodeGen/AsmPrinter.h"
+#include "CodeViewDebug.h"
 #include "DwarfDebug.h"
 #include "DwarfException.h"
 #include "WinException.h"
-#include "CodeViewDebug.h"
-#include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/Analysis/ConstantFolding.h"
 #include "llvm/CodeGen/Analysis.h"
@@ -254,6 +253,7 @@ bool AsmPrinter::doInitialization(Module &M) {
     }
     if (!EmitCodeView || MMI->getModule()->getDwarfVersion()) {
       DD = new DwarfDebug(this, &M);
+      DD->beginModule();
       Handlers.push_back(HandlerInfo(DD, DbgTimerName, DWARFGroupName));
     }
   }
@@ -319,21 +319,17 @@ void AsmPrinter::EmitLinkage(const GlobalValue *GV, MCSymbol *GVSym) const {
       OutStreamer->EmitSymbolAttribute(GVSym, MCSA_Weak);
     }
     return;
-  case GlobalValue::AppendingLinkage:
-    // FIXME: appending linkage variables should go into a section of
-    // their name or something.  For now, just emit them as external.
   case GlobalValue::ExternalLinkage:
-    // If external or appending, declare as a global symbol.
-    // .globl _foo
+    // If external, declare as a global symbol: .globl _foo
     OutStreamer->EmitSymbolAttribute(GVSym, MCSA_Global);
     return;
   case GlobalValue::PrivateLinkage:
   case GlobalValue::InternalLinkage:
     return;
+  case GlobalValue::AppendingLinkage:
   case GlobalValue::AvailableExternallyLinkage:
-    llvm_unreachable("Should never emit this");
   case GlobalValue::ExternalWeakLinkage:
-    llvm_unreachable("Don't know how to emit these");
+    llvm_unreachable("Should never emit this");
   }
   llvm_unreachable("Unknown linkage type!");
 }
@@ -1530,7 +1526,7 @@ bool AsmPrinter::EmitSpecialLLVMGlobal(const GlobalVariable *GV) {
   }
 
   // Ignore debug and non-emitted data.  This handles llvm.compiler.used.
-  if (StringRef(GV->getSection()) == "llvm.metadata" ||
+  if (GV->getSection() == "llvm.metadata" ||
       GV->hasAvailableExternallyLinkage())
     return true;
 
@@ -1564,7 +1560,7 @@ bool AsmPrinter::EmitSpecialLLVMGlobal(const GlobalVariable *GV) {
     return true;
   }
 
-  return false;
+  report_fatal_error("unknown special variable");
 }
 
 /// EmitLLVMUsedList - For targets that define a MAI::UsedDirective, mark each
@@ -1764,10 +1760,6 @@ const MCExpr *AsmPrinter::lowerConstant(const Constant *CV) {
     llvm_unreachable("Unknown constant value to lower!");
   }
 
-  if (const MCExpr *RelocExpr
-      = getObjFileLowering().getExecutableRelativeSymbol(CE, *Mang, TM))
-    return RelocExpr;
-
   switch (CE->getOpcode()) {
   default:
     // If the code isn't optimized, there may be outstanding folding
@@ -1843,10 +1835,34 @@ const MCExpr *AsmPrinter::lowerConstant(const Constant *CV) {
     return MCBinaryExpr::createAnd(OpExpr, MaskExpr, Ctx);
   }
 
+  case Instruction::Sub: {
+    GlobalValue *LHSGV;
+    APInt LHSOffset;
+    if (IsConstantOffsetFromGlobal(CE->getOperand(0), LHSGV, LHSOffset,
+                                   getDataLayout())) {
+      GlobalValue *RHSGV;
+      APInt RHSOffset;
+      if (IsConstantOffsetFromGlobal(CE->getOperand(1), RHSGV, RHSOffset,
+                                     getDataLayout())) {
+        const MCExpr *RelocExpr = getObjFileLowering().lowerRelativeReference(
+            LHSGV, RHSGV, *Mang, TM);
+        if (!RelocExpr)
+          RelocExpr = MCBinaryExpr::createSub(
+              MCSymbolRefExpr::create(getSymbol(LHSGV), Ctx),
+              MCSymbolRefExpr::create(getSymbol(RHSGV), Ctx), Ctx);
+        int64_t Addend = (LHSOffset - RHSOffset).getSExtValue();
+        if (Addend != 0)
+          RelocExpr = MCBinaryExpr::createAdd(
+              RelocExpr, MCConstantExpr::create(Addend, Ctx), Ctx);
+        return RelocExpr;
+      }
+    }
+  }
+  // else fallthrough
+
   // The MC library also has a right-shift operator, but it isn't consistently
   // signed or unsigned between different targets.
   case Instruction::Add:
-  case Instruction::Sub:
   case Instruction::Mul:
   case Instruction::SDiv:
   case Instruction::SRem:

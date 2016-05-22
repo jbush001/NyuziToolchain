@@ -326,8 +326,7 @@ public:
                              unsigned AddrSpace = 0) const;
 
   /// \brief Return true if the target supports masked load/store
-  /// AVX2 and AVX-512 targets allow masks for consecutive load and store for
-  /// 32 and 64 bit elements.
+  /// AVX2 and AVX-512 targets allow masks for consecutive load and store
   bool isLegalMaskedStore(Type *DataType) const;
   bool isLegalMaskedLoad(Type *DataType) const;
 
@@ -476,6 +475,11 @@ public:
   /// \return The expected cost of cast instructions, such as bitcast, trunc,
   /// zext, etc.
   int getCastInstrCost(unsigned Opcode, Type *Dst, Type *Src) const;
+
+  /// \return The expected cost of a sign- or zero-extended vector extract. Use
+  /// -1 to indicate that there is no information about the index value.
+  int getExtractWithExtendCost(unsigned Opcode, Type *Dst, VectorType *VecTy,
+                               unsigned Index = -1) const;
 
   /// \return The expected cost of control-flow related instructions such as
   /// Phi, Ret, Br.
@@ -663,6 +667,8 @@ public:
   virtual int getShuffleCost(ShuffleKind Kind, Type *Tp, int Index,
                              Type *SubTp) = 0;
   virtual int getCastInstrCost(unsigned Opcode, Type *Dst, Type *Src) = 0;
+  virtual int getExtractWithExtendCost(unsigned Opcode, Type *Dst,
+                                       VectorType *VecTy, unsigned Index) = 0;
   virtual int getCFInstrCost(unsigned Opcode) = 0;
   virtual int getCmpSelInstrCost(unsigned Opcode, Type *ValTy,
                                  Type *CondTy) = 0;
@@ -855,6 +861,10 @@ public:
   }
   int getCastInstrCost(unsigned Opcode, Type *Dst, Type *Src) override {
     return Impl.getCastInstrCost(Opcode, Dst, Src);
+  }
+  int getExtractWithExtendCost(unsigned Opcode, Type *Dst, VectorType *VecTy,
+                               unsigned Index) override {
+    return Impl.getExtractWithExtendCost(Opcode, Dst, VecTy, Index);
   }
   int getCFInstrCost(unsigned Opcode) override {
     return Impl.getCFInstrCost(Opcode);

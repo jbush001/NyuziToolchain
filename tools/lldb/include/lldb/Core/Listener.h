@@ -14,14 +14,15 @@
 // C++ Includes
 #include <list>
 #include <map>
+#include <mutex>
 #include <string>
 #include <vector>
 
 // Other libraries and framework includes
 // Project includes
 #include "lldb/lldb-private.h"
-#include "lldb/Host/Predicate.h"
 #include "lldb/Core/Broadcaster.h"
+#include "lldb/Host/Condition.h"
 #include "lldb/Core/Event.h"
 
 namespace lldb_private {
@@ -150,7 +151,8 @@ private:
     typedef std::vector<lldb::BroadcasterManagerWP> broadcaster_manager_collection;
 
     bool
-    FindNextEventInternal(Broadcaster *broadcaster,   // nullptr for any broadcaster
+    FindNextEventInternal(Mutex::Locker& lock,
+                          Broadcaster *broadcaster,   // nullptr for any broadcaster
                           const ConstString *sources, // nullptr for any event
                           uint32_t num_sources,
                           uint32_t event_type_mask,
@@ -174,10 +176,10 @@ private:
 
     std::string m_name;
     broadcaster_collection m_broadcasters;
-    Mutex m_broadcasters_mutex; // Protects m_broadcasters
+    std::recursive_mutex m_broadcasters_mutex; // Protects m_broadcasters
     event_collection m_events;
     Mutex m_events_mutex; // Protects m_broadcasters and m_events
-    Predicate<bool> m_cond_wait;
+    Condition m_events_condition;
     broadcaster_manager_collection m_broadcaster_managers;
 
     void

@@ -2,6 +2,7 @@
 #include "SPMDBuilder.h"
 #include "llvm/ADT/Triple.h"
 #include "llvm/Analysis/Passes.h"
+#include "llvm/CodeGen/CommandFlags.h"
 #include "llvm/ExecutionEngine/ExecutionEngine.h"
 #include "llvm/IR/DataLayout.h"
 #include "llvm/IR/DerivedTypes.h"
@@ -19,7 +20,6 @@
 #include "llvm/Support/TargetRegistry.h"
 #include "llvm/Support/TargetSelect.h"
 #include "llvm/Support/raw_ostream.h"
-#include "llvm/Transforms/Scalar.h"
 #include "llvm/Transforms/Scalar.h"
 #include <cctype>
 #include <cstdio>
@@ -51,7 +51,7 @@ bool generateTargetCode(Module *TheModule) {
   TargetOptions Options;
   Options.MCOptions.AsmVerbose = true;
   std::unique_ptr<TargetMachine> target(TheTarget->createTargetMachine(
-      TheTriple.getTriple(), "", "", Options, Reloc::Default,
+      TheTriple.getTriple(), "", "", Options, getRelocModel(),
       CodeModel::Default, CodeGenOpt::Aggressive));
   TargetMachine &Target = *target.get();
   TheModule->setDataLayout(Target.createDataLayout());

@@ -321,8 +321,12 @@ bool llvm::isInstructionTriviallyDead(Instruction *I,
         II->getIntrinsicID() == Intrinsic::lifetime_end)
       return isa<UndefValue>(II->getArgOperand(1));
 
-    // Assumptions are dead if their condition is trivially true.
-    if (II->getIntrinsicID() == Intrinsic::assume) {
+    // Assumptions are dead if their condition is trivially true.  Guards on
+    // true are operationally no-ops.  In the future we can consider more
+    // sophisticated tradeoffs for guards considering potential for check
+    // widening, but for now we keep things simple.
+    if (II->getIntrinsicID() == Intrinsic::assume ||
+        II->getIntrinsicID() == Intrinsic::experimental_guard) {
       if (ConstantInt *Cond = dyn_cast<ConstantInt>(II->getArgOperand(0)))
         return !Cond->isZero();
 
@@ -486,7 +490,8 @@ bool llvm::SimplifyInstructionsInBlock(BasicBlock *BB,
   // Iterate over the original function, only adding insts to the worklist
   // if they actually need to be revisited. This avoids having to pre-init
   // the worklist with the entire function's worth of instructions.
-  for (BasicBlock::iterator BI = BB->begin(), E = std::prev(BB->end()); BI != E;) {
+  for (BasicBlock::iterator BI = BB->begin(), E = std::prev(BB->end());
+       BI != E;) {
     assert(!BI->isTerminator());
     Instruction *I = &*BI;
     ++BI;
@@ -1310,7 +1315,7 @@ static bool markAliveBlocks(Function &F,
       // Assumptions that are known to be false are equivalent to unreachable.
       // Also, if the condition is undefined, then we make the choice most
       // beneficial to the optimizer, and choose that to also be unreachable.
-      if (IntrinsicInst *II = dyn_cast<IntrinsicInst>(BBI))
+      if (IntrinsicInst *II = dyn_cast<IntrinsicInst>(BBI)) {
         if (II->getIntrinsicID() == Intrinsic::assume) {
           bool MakeUnreachable = false;
           if (isa<UndefValue>(II->getArgOperand(0)))
@@ -1326,6 +1331,24 @@ static bool markAliveBlocks(Function &F,
             break;
           }
         }
+
+        if (II->getIntrinsicID() == Intrinsic::experimental_guard) {
+          // A call to the guard intrinsic bails out of the current compilation
+          // unit if the predicate passed to it is false.  If the predicate is a
+          // constant false, then we know the guard will bail out of the current
+          // compile unconditionally, so all code following it is dead.
+          //
+          // Note: unlike in llvm.assume, it is not "obviously profitable" for
+          // guards to treat `undef` as `false` since a guard on `undef` can
+          // still be useful for widening.
+          if (auto *CI = dyn_cast<ConstantInt>(II->getArgOperand(0)))
+            if (CI->isZero() && !isa<UnreachableInst>(II->getNextNode())) {
+              changeToUnreachable(II->getNextNode(), /*UseLLVMTrap=*/ false);
+              Changed = true;
+              break;
+            }
+        }
+      }
 
       if (CallInst *CI = dyn_cast<CallInst>(BBI)) {
         if (CI->doesNotReturn()) {
@@ -1521,6 +1544,7 @@ void llvm::combineMetadata(Instruction *K, const Instruction *J,
         K->setMetadata(Kind, MDNode::getMostGenericAliasScope(JMD, KMD));
         break;
       case LLVMContext::MD_noalias:
+      case LLVMContext::MD_mem_parallel_loop_access:
         K->setMetadata(Kind, MDNode::intersect(JMD, KMD));
         break;
       case LLVMContext::MD_range:

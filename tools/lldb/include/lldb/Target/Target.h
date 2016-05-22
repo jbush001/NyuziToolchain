@@ -713,8 +713,8 @@ public:
     static const lldb::TargetPropertiesSP &
     GetGlobalProperties();
 
-    Mutex &
-    GetAPIMutex ()
+    std::recursive_mutex &
+    GetAPIMutex()
     {
         return m_mutex;
     }
@@ -797,9 +797,11 @@ public:
                       LazyBool move_to_nearest_code);
 
     // Use this to create breakpoint that matches regex against the source lines in files given in source_file_list:
+    // If function_names is non-empty, also filter by function after the matches are made.
     lldb::BreakpointSP
     CreateSourceRegexBreakpoint (const FileSpecList *containingModules,
                                  const FileSpecList *source_file_list,
+                                 const std::unordered_set<std::string> &function_names,
                                  RegularExpression &source_regex,
                                  bool internal,
                                  bool request_hardware,
@@ -1592,7 +1594,8 @@ protected:
     //------------------------------------------------------------------
     Debugger &      m_debugger;
     lldb::PlatformSP m_platform_sp;     ///< The platform for this target.
-    Mutex           m_mutex;            ///< An API mutex that is used by the lldb::SB* classes make the SB interface thread safe
+    std::recursive_mutex
+        m_mutex; ///< An API mutex that is used by the lldb::SB* classes make the SB interface thread safe
     ArchSpec        m_arch;
     ModuleList      m_images;           ///< The list of images for this process (shared libraries and anything dynamically loaded).
     SectionLoadHistory m_section_load_history;

@@ -2124,6 +2124,29 @@ RValue CodeGenFunction::EmitBuiltinExpr(const FunctionDecl *FD,
         Builder.CreateCall(CGM.CreateRuntimeFunction(FTy, Name), {Arg0}));
   }
 
+  // OpenCL v2.0 s6.13.9 - Address space qualifier functions.
+  case Builtin::BIto_global:
+  case Builtin::BIto_local:
+  case Builtin::BIto_private: {
+    auto Arg0 = EmitScalarExpr(E->getArg(0));
+    auto NewArgT = llvm::PointerType::get(Int8Ty,
+      CGM.getContext().getTargetAddressSpace(LangAS::opencl_generic));
+    auto NewRetT = llvm::PointerType::get(Int8Ty,
+      CGM.getContext().getTargetAddressSpace(
+        E->getType()->getPointeeType().getAddressSpace()));
+    auto FTy = llvm::FunctionType::get(NewRetT, {NewArgT}, false);
+    llvm::Value *NewArg;
+    if (Arg0->getType()->getPointerAddressSpace() !=
+        NewArgT->getPointerAddressSpace())
+      NewArg = Builder.CreateAddrSpaceCast(Arg0, NewArgT);
+    else
+      NewArg = Builder.CreateBitOrPointerCast(Arg0, NewArgT);
+    auto NewCall = Builder.CreateCall(CGM.CreateRuntimeFunction(FTy,
+      E->getDirectCallee()->getName()), {NewArg});
+    return RValue::get(Builder.CreateBitOrPointerCast(NewCall,
+      ConvertType(E->getType())));
+  }
+
   case Builtin::BIprintf:
     if (getLangOpts().CUDA && getLangOpts().CUDAIsDevice)
       return EmitCUDADevicePrintfCallExpr(E, ReturnValue);
@@ -4649,11 +4672,6 @@ Value *CodeGenFunction::EmitAArch64BuiltinExpr(unsigned BuiltinID,
     return Builder.CreateCall(F);
   }
 
-  if (BuiltinID == AArch64::BI__builtin_thread_pointer) {
-    Function *F = CGM.getIntrinsic(Intrinsic::aarch64_thread_pointer);
-    return Builder.CreateCall(F);
-  }
-
   // CRC32
   Intrinsic::ID CRCIntrinsicID = Intrinsic::not_intrinsic;
   switch (BuiltinID) {
@@ -5320,22 +5338,6 @@ Value *CodeGenFunction::EmitAArch64BuiltinExpr(unsigned BuiltinID,
     Value *F = CGM.getIntrinsic(Intrinsic::fma, Ty);
     Ops[2] = Builder.CreateExtractElement(Ops[2], Ops[3], "extract");
     return Builder.CreateCall(F, {Ops[1], Ops[2], Ops[0]});
-  }
-  case NEON::BI__builtin_neon_vfms_v:
-  case NEON::BI__builtin_neon_vfmsq_v: {  // Only used for FP types
-    // FIXME: probably remove when we no longer support aarch64_simd.h
-    // (arm_neon.h delegates to vfma).
-
-    // The ARM builtins (and instructions) have the addend as the first
-    // operand, but the 'fma' intrinsics have it last. Swap it around here.
-    Value *Subtrahend = Ops[0];
-    Value *Multiplicand = Ops[2];
-    Ops[0] = Multiplicand;
-    Ops[2] = Subtrahend;
-    Ops[1] = Builder.CreateBitCast(Ops[1], VTy);
-    Ops[1] = Builder.CreateFNeg(Ops[1]);
-    Int = Intrinsic::fma;
-    return EmitNeonCall(CGM.getIntrinsic(Int, Ty), Ops, "fmls");
   }
   case NEON::BI__builtin_neon_vmull_v:
     // FIXME: improve sharing scheme to cope with 3 alternative LLVM intrinsics.
@@ -6359,6 +6361,16 @@ Value *CodeGenFunction::EmitX86BuiltinExpr(unsigned BuiltinID,
       AVX512F,
       BMI,
       BMI2,
+      AES,
+      PCLMUL,
+      AVX512VL,
+      AVX512BW,
+      AVX512DQ,
+      AVX512CD,
+      AVX512ER,
+      AVX512PF,
+      AVX512VBMI,
+      AVX512IFMA,
       MAX
     };
 
@@ -6369,6 +6381,7 @@ Value *CodeGenFunction::EmitX86BuiltinExpr(unsigned BuiltinID,
                               .Case("sse", X86Features::SSE)
                               .Case("sse2", X86Features::SSE2)
                               .Case("sse3", X86Features::SSE3)
+                              .Case("ssse3", X86Features::SSSE3)
                               .Case("sse4.1", X86Features::SSE4_1)
                               .Case("sse4.2", X86Features::SSE4_2)
                               .Case("avx", X86Features::AVX)
@@ -6380,6 +6393,16 @@ Value *CodeGenFunction::EmitX86BuiltinExpr(unsigned BuiltinID,
                               .Case("avx512f", X86Features::AVX512F)
                               .Case("bmi", X86Features::BMI)
                               .Case("bmi2", X86Features::BMI2)
+                              .Case("aes", X86Features::AES)
+                              .Case("pclmul", X86Features::PCLMUL)
+                              .Case("avx512vl", X86Features::AVX512VL)
+                              .Case("avx512bw", X86Features::AVX512BW)
+                              .Case("avx512dq", X86Features::AVX512DQ)
+                              .Case("avx512cd", X86Features::AVX512CD)
+                              .Case("avx512er", X86Features::AVX512ER)
+                              .Case("avx512pf", X86Features::AVX512PF)
+                              .Case("avx512vbmi", X86Features::AVX512VBMI)
+                              .Case("avx512ifma", X86Features::AVX512IFMA)
                               .Default(X86Features::MAX);
     assert(Feature != X86Features::MAX && "Invalid feature!");
 
@@ -7501,6 +7524,17 @@ Value *CodeGenFunction::EmitSystemZBuiltinExpr(unsigned BuiltinID,
 
 Value *CodeGenFunction::EmitNVPTXBuiltinExpr(unsigned BuiltinID,
                                              const CallExpr *E) {
+  auto MakeLdg = [&](unsigned IntrinsicID) {
+    Value *Ptr = EmitScalarExpr(E->getArg(0));
+    AlignmentSource AlignSource;
+    clang::CharUnits Align =
+        getNaturalPointeeTypeAlignment(E->getArg(0)->getType(), &AlignSource);
+    return Builder.CreateCall(
+        CGM.getIntrinsic(IntrinsicID, {Ptr->getType()->getPointerElementType(),
+                                       Ptr->getType()}),
+        {Ptr, ConstantInt::get(Builder.getInt32Ty(), Align.getQuantity())});
+  };
+
   switch (BuiltinID) {
   case NVPTX::BI__nvvm_atom_add_gen_i:
   case NVPTX::BI__nvvm_atom_add_gen_l:
@@ -7585,6 +7619,40 @@ Value *CodeGenFunction::EmitNVPTXBuiltinExpr(unsigned BuiltinID,
     return Builder.CreateCall(FnALD32, {Ptr, Val});
   }
 
+  case NVPTX::BI__nvvm_ldg_c:
+  case NVPTX::BI__nvvm_ldg_c2:
+  case NVPTX::BI__nvvm_ldg_c4:
+  case NVPTX::BI__nvvm_ldg_s:
+  case NVPTX::BI__nvvm_ldg_s2:
+  case NVPTX::BI__nvvm_ldg_s4:
+  case NVPTX::BI__nvvm_ldg_i:
+  case NVPTX::BI__nvvm_ldg_i2:
+  case NVPTX::BI__nvvm_ldg_i4:
+  case NVPTX::BI__nvvm_ldg_l:
+  case NVPTX::BI__nvvm_ldg_ll:
+  case NVPTX::BI__nvvm_ldg_ll2:
+  case NVPTX::BI__nvvm_ldg_uc:
+  case NVPTX::BI__nvvm_ldg_uc2:
+  case NVPTX::BI__nvvm_ldg_uc4:
+  case NVPTX::BI__nvvm_ldg_us:
+  case NVPTX::BI__nvvm_ldg_us2:
+  case NVPTX::BI__nvvm_ldg_us4:
+  case NVPTX::BI__nvvm_ldg_ui:
+  case NVPTX::BI__nvvm_ldg_ui2:
+  case NVPTX::BI__nvvm_ldg_ui4:
+  case NVPTX::BI__nvvm_ldg_ul:
+  case NVPTX::BI__nvvm_ldg_ull:
+  case NVPTX::BI__nvvm_ldg_ull2:
+    // PTX Interoperability section 2.2: "For a vector with an even number of
+    // elements, its alignment is set to number of elements times the alignment
+    // of its member: n*alignof(t)."
+    return MakeLdg(Intrinsic::nvvm_ldg_global_i);
+  case NVPTX::BI__nvvm_ldg_f:
+  case NVPTX::BI__nvvm_ldg_f2:
+  case NVPTX::BI__nvvm_ldg_f4:
+  case NVPTX::BI__nvvm_ldg_d:
+  case NVPTX::BI__nvvm_ldg_d2:
+    return MakeLdg(Intrinsic::nvvm_ldg_global_f);
   default:
     return nullptr;
   }
@@ -7593,9 +7661,9 @@ Value *CodeGenFunction::EmitNVPTXBuiltinExpr(unsigned BuiltinID,
 Value *CodeGenFunction::EmitWebAssemblyBuiltinExpr(unsigned BuiltinID,
                                                    const CallExpr *E) {
   switch (BuiltinID) {
-  case WebAssembly::BI__builtin_wasm_memory_size: {
+  case WebAssembly::BI__builtin_wasm_current_memory: {
     llvm::Type *ResultType = ConvertType(E->getType());
-    Value *Callee = CGM.getIntrinsic(Intrinsic::wasm_memory_size, ResultType);
+    Value *Callee = CGM.getIntrinsic(Intrinsic::wasm_current_memory, ResultType);
     return Builder.CreateCall(Callee);
   }
   case WebAssembly::BI__builtin_wasm_grow_memory: {

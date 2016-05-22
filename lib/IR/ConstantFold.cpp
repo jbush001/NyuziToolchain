@@ -28,11 +28,9 @@
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/Operator.h"
 #include "llvm/IR/PatternMatch.h"
-#include "llvm/Support/Compiler.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/ManagedStatic.h"
 #include "llvm/Support/MathExtras.h"
-#include <limits>
 using namespace llvm;
 using namespace llvm::PatternMatch;
 
@@ -533,7 +531,8 @@ Constant *llvm::ConstantFoldCastInstruction(unsigned opc, Constant *V,
     return UndefValue::get(DestTy);
   }
 
-  if (V->isNullValue() && !DestTy->isX86_MMXTy())
+  if (V->isNullValue() && !DestTy->isX86_MMXTy() &&
+      opc != Instruction::AddrSpaceCast)
     return Constant::getNullValue(DestTy);
 
   // If the cast operand is a constant expression, there's a few things we can
@@ -1531,6 +1530,10 @@ static ICmpInst::Predicate evaluateICmpRelation(Constant *V1, Constant *V2,
     case Instruction::BitCast:
     case Instruction::ZExt:
     case Instruction::SExt:
+      // We can't evaluate floating point casts or truncations.
+      if (CE1Op0->getType()->isFloatingPointTy())
+        break;
+
       // If the cast is not actually changing bits, and the second operand is a
       // null pointer, do the comparison with the pre-casted value.
       if (V2->isNullValue() &&

@@ -420,7 +420,7 @@ static Value *FindLIVLoopCondition(Value *Cond, Loop *L, bool &Changed) {
 }
 
 bool LoopUnswitch::runOnLoop(Loop *L, LPPassManager &LPM_Ref) {
-  if (skipOptnoneFunction(L))
+  if (skipLoop(L))
     return false;
 
   AC = &getAnalysis<AssumptionCacheTracker>().getAssumptionCache(
@@ -500,6 +500,11 @@ bool LoopUnswitch::processCurrentLoop() {
       if (!CS) continue;
       if (CS.hasFnAttr(Attribute::Convergent))
         return false;
+      // Return false if any loop blocks contain invokes whose predecessor edges
+      // we cannot split.
+      if (auto *II = dyn_cast<InvokeInst>(&I))
+        if (!II->getUnwindDest()->canSplitPredecessors())
+          return false;
     }
   }
 

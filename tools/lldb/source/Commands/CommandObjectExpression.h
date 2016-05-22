@@ -57,6 +57,7 @@ public:
         bool        top_level;
         bool        unwind_on_error;
         bool        ignore_breakpoints;
+        bool        allow_jit;
         bool        show_types;
         bool        show_summary;
         bool        debug;
@@ -82,12 +83,11 @@ protected:
     void
     IOHandlerInputComplete(IOHandler &io_handler,
 			   std::string &line) override;
-
-    virtual LineStatus
-    IOHandlerLinesUpdated (IOHandler &io_handler,
-                           StringList &lines,
-                           uint32_t line_idx,
-                           Error &error);
+    
+    bool
+    IOHandlerIsInputComplete (IOHandler &io_handler,
+                              StringList &lines) override;
+    
     bool
     DoExecute(const char *command,
 	      CommandReturnObject &result) override;

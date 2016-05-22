@@ -29,7 +29,7 @@ class NyuziDAGToDAGISel : public SelectionDAGISel {
 public:
   explicit NyuziDAGToDAGISel(NyuziTargetMachine &tm) : SelectionDAGISel(tm) {}
 
-  SDNode *Select(SDNode *N) override;
+  void Select(SDNode *N) override;
 
   bool SelectInlineAsmMemoryOperand(const SDValue &Op, unsigned ConstraintCode,
                                     std::vector<SDValue> &OutOps) override;
@@ -79,11 +79,11 @@ bool NyuziDAGToDAGISel::SelectADDRri(SDValue Addr, SDValue &Base,
   return true;
 }
 
-SDNode *NyuziDAGToDAGISel::Select(SDNode *N) {
+void NyuziDAGToDAGISel::Select(SDNode *N) {
   if (N->isMachineOpcode())
-    return nullptr; // Already selected.
+    return; // Already selected.
 
-  return SelectCode(N);
+  SelectCode(N);
 }
 
 /// SelectInlineAsmMemoryOperand - Implement addressing mode selection for

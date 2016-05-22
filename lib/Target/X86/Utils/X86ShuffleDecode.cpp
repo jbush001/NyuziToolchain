@@ -13,6 +13,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "X86ShuffleDecode.h"
+#include "llvm/ADT/ArrayRef.h"
 #include "llvm/CodeGen/MachineValueType.h"
 
 //===----------------------------------------------------------------------===//
@@ -366,7 +367,7 @@ void DecodeVPPERMMask(ArrayRef<uint64_t> RawMask,
       continue;
     }
 
-    uint64_t PermuteOp = (M >> 5) & 0x3;
+    uint64_t PermuteOp = (M >> 5) & 0x7;
     if (PermuteOp == 4) {
       ShuffleMask.push_back(SM_SentinelZero);
       continue;

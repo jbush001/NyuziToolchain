@@ -16,6 +16,7 @@
 
 #include "llvm/ADT/PointerIntPair.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/StringExtras.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorOr.h"
 #include "llvm/Support/raw_ostream.h"
@@ -34,6 +35,14 @@ public:
 
   /// Print an error message to an output stream.
   virtual void log(raw_ostream &OS) const = 0;
+
+  /// Return the error message as a string.
+  virtual std::string message() const {
+    std::string Msg;
+    raw_string_ostream OS(Msg);
+    log(OS);
+    return OS.str();
+  }
 
   /// Convert this error to a std::error_code.
   ///
@@ -87,7 +96,7 @@ private:
 /// without testing the return value will raise a runtime error, even if foo
 /// returns success.
 ///
-/// For Error instances representing failure, you must use the either the
+/// For Error instances representing failure, you must use either the
 /// handleErrors or handleAllErrors function with a typed handler. E.g.:
 ///
 ///   class MyErrorInfo : public ErrorInfo<MyErrorInfo> {
@@ -98,7 +107,7 @@ private:
 ///
 ///   auto E = foo(<...>); // <- foo returns failure with MyErrorInfo.
 ///   auto NewE =
-///     checkErrors(E,
+///     handleErrors(E,
 ///       [](const MyErrorInfo &M) {
 ///         // Deal with the error.
 ///       },
@@ -526,9 +535,8 @@ inline void handleAllErrors(Error E) {
 /// This is useful in the base level of your program to allow clean termination
 /// (allowing clean deallocation of resources, etc.), while reporting error
 /// information to the user.
-template <typename... HandlerTs>
-void logAllUnhandledErrors(Error E, raw_ostream &OS,
-                           const std::string &ErrorBanner) {
+inline void logAllUnhandledErrors(Error E, raw_ostream &OS,
+                                  const std::string &ErrorBanner) {
   if (!E)
     return;
   OS << ErrorBanner;
@@ -536,6 +544,16 @@ void logAllUnhandledErrors(Error E, raw_ostream &OS,
     EI.log(OS);
     OS << "\n";
   });
+}
+
+/// Write all error messages (if any) in E to a string. The newline character
+/// is used to separate error messages.
+inline std::string toString(Error E) {
+  SmallVector<std::string, 2> Errors;
+  handleAllErrors(std::move(E), [&Errors](const ErrorInfoBase &EI) {
+    Errors.push_back(EI.message());
+  });
+  return join(Errors.begin(), Errors.end(), "\n");
 }
 
 /// Consume a Error without doing anything. This method should be used
@@ -627,7 +645,7 @@ public:
         Checked(false)
 #endif
   {
-    new (getStorage()) storage_type(std::move(Val));
+    new (getStorage()) storage_type(std::forward<OtherT>(Val));
   }
 
   /// Move construct an Expected<T> value.
@@ -886,11 +904,18 @@ public:
   /// Check Err. If it's in a failure state log the error(s) and exit.
   void operator()(Error Err) const { checkError(std::move(Err)); }
 
-  /// Check E. If it's in a success state return the contained value. If it's
-  /// in a failure state log the error(s) and exit.
+  /// Check E. If it's in a success state then return the contained value. If
+  /// it's in a failure state log the error(s) and exit.
   template <typename T> T operator()(Expected<T> &&E) const {
     checkError(E.takeError());
     return std::move(*E);
+  }
+
+  /// Check E. If it's in a success state then return the contained reference. If
+  /// it's in a failure state log the error(s) and exit.
+  template <typename T> T& operator()(Expected<T&> &&E) const {
+    checkError(E.takeError());
+    return *E;
   }
 
 private:

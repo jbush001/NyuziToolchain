@@ -34,6 +34,7 @@
 #include "lldb/Interpreter/OptionValueBoolean.h"
 #include "lldb/Interpreter/OptionValueLanguage.h"
 #include "lldb/Interpreter/OptionValueString.h"
+#include "lldb/Symbol/Symbol.h"
 #include "lldb/Target/Language.h"
 #include "lldb/Target/Process.h"
 #include "lldb/Target/StackFrame.h"
@@ -1350,7 +1351,9 @@ protected:
         bool any_printed = false;
         
         auto category_closure = [&result, &formatter_regex, &any_printed] (const lldb::TypeCategoryImplSP& category) -> void {
-            result.GetOutputStream().Printf("-----------------------\nCategory: %s\n-----------------------\n", category->GetName());
+            result.GetOutputStream().Printf("-----------------------\nCategory: %s%s\n-----------------------\n",
+                                            category->GetName(),
+                                            category->IsEnabled() ? "" : " (disabled)");
 
             TypeCategoryImpl::ForEachCallbacks<FormatterType> foreach;
             foreach.SetExact([&result, &formatter_regex, &any_printed] (ConstString name, const FormatterSharedPointer& format_sp) -> bool {
@@ -3209,6 +3212,27 @@ CommandObjectTypeFilterAdd::CommandOptions::g_option_table[] =
 class CommandObjectTypeLookup : public CommandObjectRaw
 {
 protected:
+    // this function is allowed to do a more aggressive job at guessing languages than the expression parser
+    // is comfortable with - so leave the original call alone and add one that is specific to type lookup
+    lldb::LanguageType
+    GuessLanguage (StackFrame *frame)
+    {
+        lldb::LanguageType lang_type = lldb::eLanguageTypeUnknown;
+
+        if (!frame)
+            return lang_type;
+        
+        lang_type = frame->GuessLanguage();
+        if (lang_type != lldb::eLanguageTypeUnknown)
+            return lang_type;
+        
+        Symbol *s = frame->GetSymbolContext(eSymbolContextSymbol).symbol;
+        if (s)
+            lang_type = s->GetMangled().GuessLanguage();
+
+        return lang_type;
+    }
+    
     class CommandOptions : public OptionGroup
     {
     public:
@@ -3403,7 +3427,7 @@ public:
         // so the cost of the sort is going to be dwarfed by the actual lookup anyway
         if (StackFrame* frame = m_exe_ctx.GetFramePtr())
         {
-            LanguageType lang = frame->GuessLanguage();
+            LanguageType lang = GuessLanguage(frame);
             if (lang != eLanguageTypeUnknown)
             {
                 std::sort(languages.begin(),

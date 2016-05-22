@@ -4,13 +4,18 @@
 ; RUN: llvm-lto -thinlto -print-summary-global-ids -o %t3 %t.bc %t2.bc 2>&1 | FileCheck %s --check-prefix=GUID
 
 ; Do the import now
-; RUN: opt -function-import -stats -print-imports -summary-file %t3.thinlto.bc %t.bc -S 2>&1 | FileCheck %s --check-prefix=CHECK --check-prefix=INSTLIMDEF
+; RUN: opt -disable-force-link-odr -function-import -stats -print-imports -summary-file %t3.thinlto.bc %t.bc -S 2>&1 | FileCheck %s --check-prefix=CHECK --check-prefix=INSTLIMDEF
 ; "-stats" requires +Asserts.
 ; REQUIRES: asserts
 
 ; Test import with smaller instruction limit
-; RUN: opt -function-import -summary-file %t3.thinlto.bc %t.bc -import-instr-limit=5 -S | FileCheck %s --check-prefix=CHECK --check-prefix=INSTLIM5
+; RUN: opt -disable-force-link-odr -function-import -summary-file %t3.thinlto.bc %t.bc -import-instr-limit=5 -S | FileCheck %s --check-prefix=CHECK --check-prefix=INSTLIM5
 ; INSTLIM5-NOT: @staticfunc.llvm.
+
+; Test import with smaller instruction limit and without the -disable-force-link-odr
+; RUN: opt -function-import -summary-file %t3.thinlto.bc %t.bc -import-instr-limit=5 -S | FileCheck %s --check-prefix=INSTLIM5ODR
+; INSTLIM5ODR: define linkonce_odr void @linkonceodr()
+
 
 define i32 @main() #0 {
 entry:
@@ -23,6 +28,8 @@ entry:
   call void (...) @setfuncptr()
   call void (...) @callfuncptr()
   call void (...) @weakfunc()
+  call void (...) @linkoncefunc2()
+  call void (...) @referencelargelinkonce()
   ret i32 0
 }
 
@@ -78,16 +85,26 @@ declare void @callfuncptr(...) #1
 ; CHECK-DAG: %0 = load void ()*, void ()** @P.llvm.
 ; CHECK-DAG: store void ()* @staticfunc2.llvm.{{.*}}, void ()** @P.llvm.
 
+; Ensure that @referencelargelinkonce definition is pulled in, but later we
+; also check that the linkonceodr function is not.
+; CHECK-DAG: define available_externally void @referencelargelinkonce()
+; INSTLIM5-DAG: declare void @linkonceodr()
+declare void @referencelargelinkonce(...)
+
 ; Won't import weak func
 ; CHECK-DAG: declare void @weakfunc(...)
 declare void @weakfunc(...) #1
+
+; Won't import linkonce func
+; CHECK-DAG: declare void @linkoncefunc2(...)
+declare void @linkoncefunc2(...) #1
 
 ; INSTLIMDEF-DAG: Import funcwithpersonality
 ; INSTLIMDEF-DAG: define available_externally hidden void @funcwithpersonality.llvm.{{.*}}() personality i8* bitcast (i32 (...)* @__gxx_personality_v0 to i8*) {
 ; INSTLIM5-DAG: declare hidden void @funcwithpersonality.llvm.{{.*}}()
 
 ; INSTLIMDEF-DAG: Import globalfunc2
-; INSTLIMDEF-DAG: 11 function-import - Number of functions imported
+; INSTLIMDEF-DAG: 13 function-import - Number of functions imported
 
 ; The actual GUID values will depend on path to test.
 ; GUID-DAG: GUID {{.*}} is weakalias

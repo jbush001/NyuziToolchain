@@ -734,6 +734,7 @@ static void diagnoseAndRemoveTypeQualifiers(Sema &S, const DeclSpec &DS,
   // it; they probably didn't mean to specify a redundant qualifier.
   typedef std::pair<DeclSpec::TQ, SourceLocation> QualLoc;
   for (QualLoc Qual : {QualLoc(DeclSpec::TQ_const, DS.getConstSpecLoc()),
+                       QualLoc(DeclSpec::TQ_restrict, DS.getRestrictSpecLoc()),
                        QualLoc(DeclSpec::TQ_volatile, DS.getVolatileSpecLoc()),
                        QualLoc(DeclSpec::TQ_atomic, DS.getAtomicSpecLoc())}) {
     if (!(RemoveTQs & Qual.first))
@@ -748,6 +749,47 @@ static void diagnoseAndRemoveTypeQualifiers(Sema &S, const DeclSpec &DS,
 
     TypeQuals &= ~Qual.first;
   }
+}
+
+/// Return true if this is omitted block return type. Also check type
+/// attributes and type qualifiers when returning true.
+static bool checkOmittedBlockReturnType(Sema &S, Declarator &declarator,
+                                        QualType Result) {
+  if (!isOmittedBlockReturnType(declarator))
+    return false;
+
+  // Warn if we see type attributes for omitted return type on a block literal.
+  AttributeList *&attrs =
+      declarator.getMutableDeclSpec().getAttributes().getListRef();
+  AttributeList *prev = nullptr;
+  for (AttributeList *cur = attrs; cur; cur = cur->getNext()) {
+    AttributeList &attr = *cur;
+    // Skip attributes that were marked to be invalid or non-type
+    // attributes.
+    if (attr.isInvalid() || !attr.isTypeAttr()) {
+      prev = cur;
+      continue;
+    }
+    S.Diag(attr.getLoc(),
+           diag::warn_block_literal_attributes_on_omitted_return_type)
+        << attr.getName();
+    // Remove cur from the list.
+    if (prev) {
+      prev->setNext(cur->getNext());
+      prev = cur;
+    } else {
+      attrs = cur->getNext();
+    }
+  }
+
+  // Warn if we see type qualifiers for omitted return type on a block literal.
+  const DeclSpec &DS = declarator.getDeclSpec();
+  unsigned TypeQuals = DS.getTypeQualifiers();
+  diagnoseAndRemoveTypeQualifiers(S, DS, TypeQuals, Result, (unsigned)-1,
+      diag::warn_block_literal_qualifiers_on_omitted_return_type);
+  declarator.getMutableDeclSpec().ClearTypeQualifiers();
+
+  return true;
 }
 
 /// Apply Objective-C type arguments to the given type.
@@ -1266,7 +1308,8 @@ static QualType ConvertDeclSpecToType(TypeProcessingState &state) {
       Result = Context.getAutoDeductType();
       break;
     } else if (declarator.getContext() == Declarator::LambdaExprContext ||
-               isOmittedBlockReturnType(declarator)) {
+               checkOmittedBlockReturnType(S, declarator,
+                                           Context.DependentTy)) {
       Result = Context.DependentTy;
       break;
     }
@@ -1354,7 +1397,8 @@ static QualType ConvertDeclSpecToType(TypeProcessingState &state) {
   }
   case DeclSpec::TST_int128:
     if (!S.Context.getTargetInfo().hasInt128Type())
-      S.Diag(DS.getTypeSpecTypeLoc(), diag::err_int128_unsupported);
+      S.Diag(DS.getTypeSpecTypeLoc(), diag::err_type_unsupported)
+        << "__int128";
     if (DS.getTypeSpecSign() == DeclSpec::TSS_unsigned)
       Result = Context.UnsignedInt128Ty;
     else
@@ -1375,6 +1419,12 @@ static QualType ConvertDeclSpecToType(TypeProcessingState &state) {
           << Result << "cl_khr_fp64";
       declarator.setInvalidType(true);
     }
+    break;
+  case DeclSpec::TST_float128:
+    if (!S.Context.getTargetInfo().hasFloat128Type())
+      S.Diag(DS.getTypeSpecTypeLoc(), diag::err_type_unsupported)
+        << "__float128";
+    Result = Context.Float128Ty;
     break;
   case DeclSpec::TST_bool: Result = Context.BoolTy; break; // _Bool or bool
     break;
@@ -1735,12 +1785,13 @@ QualType Sema::BuildQualifiedType(QualType T, SourceLocation Loc,
 }
 
 QualType Sema::BuildQualifiedType(QualType T, SourceLocation Loc,
-                                  unsigned CVRA, const DeclSpec *DS) {
+                                  unsigned CVRAU, const DeclSpec *DS) {
   if (T.isNull())
     return QualType();
 
-  // Convert from DeclSpec::TQ to Qualifiers::TQ by just dropping TQ_atomic.
-  unsigned CVR = CVRA & ~DeclSpec::TQ_atomic;
+  // Convert from DeclSpec::TQ to Qualifiers::TQ by just dropping TQ_atomic and
+  // TQ_unaligned;
+  unsigned CVR = CVRAU & ~(DeclSpec::TQ_atomic | DeclSpec::TQ_unaligned);
 
   // C11 6.7.3/5:
   //   If the same qualifier appears more than once in the same
@@ -1750,7 +1801,7 @@ QualType Sema::BuildQualifiedType(QualType T, SourceLocation Loc,
   // It's not specified what happens when the _Atomic qualifier is applied to
   // a type specified with the _Atomic specifier, but we assume that this
   // should be treated as if the _Atomic qualifier appeared multiple times.
-  if (CVRA & DeclSpec::TQ_atomic && !T->isAtomicType()) {
+  if (CVRAU & DeclSpec::TQ_atomic && !T->isAtomicType()) {
     // C11 6.7.3/5:
     //   If other qualifiers appear along with the _Atomic qualifier in a
     //   specifier-qualifier-list, the resulting type is the so-qualified
@@ -1767,7 +1818,9 @@ QualType Sema::BuildQualifiedType(QualType T, SourceLocation Loc,
     return BuildQualifiedType(T, Loc, Split.Quals);
   }
 
-  return BuildQualifiedType(T, Loc, Qualifiers::fromCVRMask(CVR), DS);
+  Qualifiers Q = Qualifiers::fromCVRMask(CVR);
+  Q.setUnaligned(CVRAU & DeclSpec::TQ_unaligned);
+  return BuildQualifiedType(T, Loc, Q, DS);
 }
 
 /// \brief Build a paren type including \p T.
@@ -2191,15 +2244,8 @@ QualType Sema::BuildArrayType(QualType T, ArrayType::ArraySizeModifier ASM,
   // If this is not C99, extwarn about VLA's and C99 array size modifiers.
   if (!getLangOpts().C99) {
     if (T->isVariableArrayType()) {
-      // Prohibit the use of non-POD types in VLAs.
-      QualType BaseT = Context.getBaseElementType(T);
-      if (!T->isDependentType() && isCompleteType(Loc, BaseT) &&
-          !BaseT.isPODType(Context) && !BaseT->isObjCLifetimeType()) {
-        Diag(Loc, diag::err_vla_non_pod) << BaseT;
-        return QualType();
-      }
       // Prohibit the use of VLAs during template argument deduction.
-      else if (isSFINAEContext()) {
+      if (isSFINAEContext()) {
         Diag(Loc, diag::err_vla_in_sfinae);
         return QualType();
       }
@@ -2609,7 +2655,8 @@ void Sema::diagnoseIgnoredQualifiers(unsigned DiagID, unsigned Quals,
                                      SourceLocation ConstQualLoc,
                                      SourceLocation VolatileQualLoc,
                                      SourceLocation RestrictQualLoc,
-                                     SourceLocation AtomicQualLoc) {
+                                     SourceLocation AtomicQualLoc,
+                                     SourceLocation UnalignedQualLoc) {
   if (!Quals)
     return;
 
@@ -2617,26 +2664,27 @@ void Sema::diagnoseIgnoredQualifiers(unsigned DiagID, unsigned Quals,
     const char *Name;
     unsigned Mask;
     SourceLocation Loc;
-  } const QualKinds[4] = {
+  } const QualKinds[5] = {
     { "const", DeclSpec::TQ_const, ConstQualLoc },
     { "volatile", DeclSpec::TQ_volatile, VolatileQualLoc },
     { "restrict", DeclSpec::TQ_restrict, RestrictQualLoc },
-    { "_Atomic", DeclSpec::TQ_atomic, AtomicQualLoc }
+    { "_Atomic", DeclSpec::TQ_atomic, AtomicQualLoc },
+    { "__unaligned", DeclSpec::TQ_unaligned, UnalignedQualLoc }
   };
 
   SmallString<32> QualStr;
   unsigned NumQuals = 0;
   SourceLocation Loc;
-  FixItHint FixIts[4];
+  FixItHint FixIts[5];
 
   // Build a string naming the redundant qualifiers.
-  for (unsigned I = 0; I != 4; ++I) {
-    if (Quals & QualKinds[I].Mask) {
+  for (auto &E : QualKinds) {
+    if (Quals & E.Mask) {
       if (!QualStr.empty()) QualStr += ' ';
-      QualStr += QualKinds[I].Name;
+      QualStr += E.Name;
 
       // If we have a location for the qualifier, offer a fixit.
-      SourceLocation QualLoc = QualKinds[I].Loc;
+      SourceLocation QualLoc = E.Loc;
       if (QualLoc.isValid()) {
         FixIts[NumQuals] = FixItHint::CreateRemoval(QualLoc);
         if (Loc.isInvalid() ||
@@ -2682,7 +2730,8 @@ static void diagnoseRedundantReturnTypeQualifiers(Sema &S, QualType RetTy,
           SourceLocation::getFromRawEncoding(PTI.ConstQualLoc),
           SourceLocation::getFromRawEncoding(PTI.VolatileQualLoc),
           SourceLocation::getFromRawEncoding(PTI.RestrictQualLoc),
-          SourceLocation::getFromRawEncoding(PTI.AtomicQualLoc));
+          SourceLocation::getFromRawEncoding(PTI.AtomicQualLoc),
+          SourceLocation::getFromRawEncoding(PTI.UnalignedQualLoc));
       return;
     }
 
@@ -2718,7 +2767,8 @@ static void diagnoseRedundantReturnTypeQualifiers(Sema &S, QualType RetTy,
                               D.getDeclSpec().getConstSpecLoc(),
                               D.getDeclSpec().getVolatileSpecLoc(),
                               D.getDeclSpec().getRestrictSpecLoc(),
-                              D.getDeclSpec().getAtomicSpecLoc());
+                              D.getDeclSpec().getAtomicSpecLoc(),
+                              D.getDeclSpec().getUnalignedSpecLoc());
 }
 
 static QualType GetDeclSpecTypeForDeclarator(TypeProcessingState &state,
@@ -5850,10 +5900,11 @@ bool Sema::checkObjCKindOfType(QualType &type, SourceLocation loc) {
 
   // Rebuild the "equivalent" type, which pushes __kindof down into
   // the object type.
-  QualType equivType = Context.getObjCObjectType(objType->getBaseType(),
-                                                 objType->getTypeArgsAsWritten(),
-                                                 objType->getProtocols(),
-                                                 /*isKindOf=*/true);
+  // There is no need to apply kindof on an unqualified id type.
+  QualType equivType = Context.getObjCObjectType(
+      objType->getBaseType(), objType->getTypeArgsAsWritten(),
+      objType->getProtocols(),
+      /*isKindOf=*/objType->isObjCUnqualifiedId() ? false : true);
 
   // If we started with an object pointer type, rebuild it.
   if (ptrType) {
@@ -6763,8 +6814,8 @@ bool Sema::hasVisibleDefinition(NamedDecl *D, NamedDecl **Suggested,
       RD = Pattern;
     D = RD->getDefinition();
   } else if (auto *ED = dyn_cast<EnumDecl>(D)) {
-    while (auto *NewED = ED->getInstantiatedFromMemberEnum())
-      ED = NewED;
+    if (auto *Pattern = ED->getTemplateInstantiationPattern())
+      ED = Pattern;
     if (OnlyNeedComplete && ED->isFixed()) {
       // If the enum has a fixed underlying type, and we're only looking for a
       // complete type (not a definition), any visible declaration of it will
@@ -6851,9 +6902,16 @@ bool Sema::RequireCompleteTypeImpl(SourceLocation Loc, QualType T,
     }
   }
 
-  // If we have a complete type, we're done.
   NamedDecl *Def = nullptr;
-  if (!T->isIncompleteType(&Def)) {
+  bool Incomplete = T->isIncompleteType(&Def);
+
+  // Check that any necessary explicit specializations are visible. For an
+  // enum, we just need the declaration, so don't check this.
+  if (Def && !isa<EnumDecl>(Def))
+    checkSpecializationVisibility(Loc, Def);
+
+  // If we have a complete type, we're done.
+  if (!Incomplete) {
     // If we know about the definition but it is not visible, complain.
     NamedDecl *SuggestedDef = nullptr;
     if (Def &&
@@ -6862,7 +6920,7 @@ bool Sema::RequireCompleteTypeImpl(SourceLocation Loc, QualType T,
       // definition visible.
       bool TreatAsComplete = Diagnoser && !isSFINAEContext();
       if (Diagnoser)
-        diagnoseMissingImport(Loc, SuggestedDef, /*NeedDefinition*/true,
+        diagnoseMissingImport(Loc, SuggestedDef, MissingImportKind::Definition,
                               /*Recover*/TreatAsComplete);
       return !TreatAsComplete;
     }
@@ -6955,15 +7013,11 @@ bool Sema::RequireCompleteTypeImpl(SourceLocation Loc, QualType T,
     }
   }
 
+  // FIXME: If we didn't instantiate a definition because of an explicit
+  // specialization declaration, check that it's visible.
+
   if (!Diagnoser)
     return true;
-
-  // We have an incomplete type. Produce a diagnostic.
-  if (Ident___float128 &&
-      T == Context.getTypeDeclType(Context.getFloat128StubType())) {
-    Diag(Loc, diag::err_typecheck_decl_incomplete_type___float128);
-    return true;
-  }
 
   Diagnoser->diagnose(*this, Loc, T);
 

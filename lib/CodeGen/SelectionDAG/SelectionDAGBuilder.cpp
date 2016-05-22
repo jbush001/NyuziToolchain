@@ -109,7 +109,7 @@ OptsizeJumpTableDensity("optsize-jump-table-density", cl::init(40), cl::Hidden,
 // MaxParallelChains default is arbitrarily high to avoid affecting
 // optimization, but could be lowered to improve compile time. Any ld-ld-st-st
 // sequence over this should have been converted to llvm.memcpy by the
-// frontend. It easy to induce this behavior with .ll code such as:
+// frontend. It is easy to induce this behavior with .ll code such as:
 // %buffer = alloca [4096 x i8]
 // %data = load [4096 x i8]* %argPtr
 // store [4096 x i8] %data, [4096 x i8]* %buffer
@@ -121,7 +121,7 @@ static SDValue getCopyFromPartsVector(SelectionDAG &DAG, SDLoc DL,
 
 /// getCopyFromParts - Create a value that contains the specified legal parts
 /// combined into the value they represent.  If the parts combine to a type
-/// larger then ValueVT then AssertOp can be used to specify whether the extra
+/// larger than ValueVT then AssertOp can be used to specify whether the extra
 /// bits are known to be zero (ISD::AssertZext) or sign extended from ValueVT
 /// (ISD::AssertSext).
 static SDValue getCopyFromParts(SelectionDAG &DAG, SDLoc DL,
@@ -270,7 +270,7 @@ static void diagnosePossiblyInvalidConstraint(LLVMContext &Ctx, const Value *V,
 
 /// getCopyFromPartsVector - Create a value that contains the specified legal
 /// parts combined into the value they represent.  If the parts combine to a
-/// type larger then ValueVT then AssertOp can be used to specify whether the
+/// type larger than ValueVT then AssertOp can be used to specify whether the
 /// extra bits are known to be zero (ISD::AssertZext) or sign extended from
 /// ValueVT (ISD::AssertSext).
 static SDValue getCopyFromPartsVector(SelectionDAG &DAG, SDLoc DL,
@@ -1998,6 +1998,26 @@ void SelectionDAGBuilder::visitJumpTableHeader(JumpTable &JT,
   DAG.setRoot(BrCond);
 }
 
+/// Create a LOAD_STACK_GUARD node, and let it carry the target specific global
+/// variable if there exists one.
+static SDValue getLoadStackGuard(SelectionDAG &DAG, SDLoc DL, SDValue &Chain) {
+  const TargetLowering &TLI = DAG.getTargetLoweringInfo();
+  EVT PtrTy = TLI.getPointerTy(DAG.getDataLayout());
+  MachineFunction &MF = DAG.getMachineFunction();
+  Value *Global = TLI.getSDagStackGuard(*MF.getFunction()->getParent());
+  MachineSDNode *Node =
+      DAG.getMachineNode(TargetOpcode::LOAD_STACK_GUARD, DL, PtrTy, Chain);
+  if (Global) {
+    MachinePointerInfo MPInfo(Global);
+    MachineInstr::mmo_iterator MemRefs = MF.allocateMemRefsArray(1);
+    unsigned Flags = MachineMemOperand::MOLoad | MachineMemOperand::MOInvariant;
+    *MemRefs = MF.getMachineMemOperand(MPInfo, Flags, PtrTy.getSizeInBits() / 8,
+                                       DAG.getEVTAlignment(PtrTy));
+    Node->setMemRefs(MemRefs, MemRefs + 1);
+  }
+  return SDValue(Node, 0);
+}
+
 /// Codegen a new tail for a stack protector check ParentMBB which has had its
 /// tail spliced into a stack protector check success bb.
 ///
@@ -2014,30 +2034,25 @@ void SelectionDAGBuilder::visitSPDescriptorParent(StackProtectorDescriptor &SPD,
   MachineFrameInfo *MFI = ParentBB->getParent()->getFrameInfo();
   int FI = MFI->getStackProtectorIndex();
 
-  const Module &M = *ParentBB->getParent()->getFunction()->getParent();
-  const Value *IRGuard = TLI.getSDStackGuard(M);
-  assert(IRGuard && "Currently there must be an IR guard in order to use "
-                    "SelectionDAG SSP");
-  SDValue GuardPtr = getValue(IRGuard);
-  SDValue StackSlotPtr = DAG.getFrameIndex(FI, PtrTy);
-
-  unsigned Align = DL->getPrefTypeAlignment(IRGuard->getType());
-
   SDValue Guard;
   SDLoc dl = getCurSDLoc();
+  SDValue StackSlotPtr = DAG.getFrameIndex(FI, PtrTy);
+  const Module &M = *ParentBB->getParent()->getFunction()->getParent();
+  unsigned Align = DL->getPrefTypeAlignment(Type::getInt8PtrTy(M.getContext()));
 
-  // If GuardReg is set and useLoadStackGuardNode returns true, retrieve the
-  // guard value from the virtual register holding the value. Otherwise, emit a
-  // volatile load to retrieve the stack guard value.
-  unsigned GuardReg = SPD.getGuardReg();
+  // If useLoadStackGuardNode returns true, generate LOAD_STACK_GUARD.
+  // Otherwise, emit a volatile load to retrieve the stack guard value.
+  SDValue Chain = DAG.getEntryNode();
+  if (TLI.useLoadStackGuardNode()) {
+    Guard = getLoadStackGuard(DAG, dl, Chain);
+  } else {
+    const Value *IRGuard = TLI.getSDagStackGuard(M);
+    SDValue GuardPtr = getValue(IRGuard);
 
-  if (GuardReg && TLI.useLoadStackGuardNode())
-    Guard = DAG.getCopyFromReg(DAG.getEntryNode(), dl, GuardReg,
-                               PtrTy);
-  else
-    Guard = DAG.getLoad(PtrTy, dl, DAG.getEntryNode(),
-                        GuardPtr, MachinePointerInfo(IRGuard, 0),
-                        true, false, false, Align);
+    Guard =
+        DAG.getLoad(PtrTy, dl, Chain, GuardPtr, MachinePointerInfo(IRGuard, 0),
+                    true, false, false, Align);
+  }
 
   SDValue StackSlot = DAG.getLoad(
       PtrTy, dl, DAG.getEntryNode(), StackSlotPtr,
@@ -2682,6 +2697,14 @@ void SelectionDAGBuilder::visitFCmp(const User &I) {
   setValue(&I, DAG.getSetCC(getCurSDLoc(), DestVT, Op1, Op2, Condition));
 }
 
+// Check if the condition of the select has one use or two users that are both
+// selects with the same condition.
+bool hasOnlySelectUsers(const Value *Cond) {
+  return std::all_of(Cond->user_begin(), Cond->user_end(), [](const Value *V) {
+    return isa<SelectInst>(V);
+  });
+}
+
 void SelectionDAGBuilder::visitSelect(const User &I) {
   SmallVector<EVT, 4> ValueVTs;
   ComputeValueVTs(DAG.getTargetLoweringInfo(), DAG.getDataLayout(), I.getType(),
@@ -2767,7 +2790,7 @@ void SelectionDAGBuilder::visitSelect(const User &I) {
         // If the underlying comparison instruction is used by any other
         // instruction, the consumed instructions won't be destroyed, so it is
         // not profitable to convert to a min/max.
-        cast<SelectInst>(&I)->getCondition()->hasOneUse()) {
+        hasOnlySelectUsers(cast<SelectInst>(I).getCondition())) {
       OpCode = Opc;
       LHSVal = getValue(LHS);
       RHSVal = getValue(RHS);
@@ -3230,7 +3253,8 @@ void SelectionDAGBuilder::visitGetElementPtr(const User &I) {
     cast<VectorType>(I.getType())->getVectorNumElements() : 0;
 
   if (VectorWidth && !N.getValueType().isVector()) {
-    MVT VT = MVT::getVectorVT(N.getValueType().getSimpleVT(), VectorWidth);
+    LLVMContext &Context = *DAG.getContext();
+    EVT VT = EVT::getVectorVT(Context, N.getValueType(), VectorWidth);
     SmallVector<SDValue, 16> Ops(VectorWidth, N);
     N = DAG.getNode(ISD::BUILD_VECTOR, dl, VT, Ops);
   }
@@ -5288,47 +5312,35 @@ SelectionDAGBuilder::visitIntrinsicCall(const CallInst &I, unsigned Intrinsic) {
     setValue(&I, Res);
     return nullptr;
   }
+  case Intrinsic::stackguard: {
+    EVT PtrTy = TLI.getPointerTy(DAG.getDataLayout());
+    MachineFunction &MF = DAG.getMachineFunction();
+    const Module &M = *MF.getFunction()->getParent();
+    SDValue Chain = getRoot();
+    if (TLI.useLoadStackGuardNode()) {
+      Res = getLoadStackGuard(DAG, sdl, Chain);
+    } else {
+      const Value *Global = TLI.getSDagStackGuard(M);
+      unsigned Align = DL->getPrefTypeAlignment(Global->getType());
+      Res =
+          DAG.getLoad(PtrTy, sdl, Chain, getValue(Global),
+                      MachinePointerInfo(Global, 0), true, false, false, Align);
+    }
+    DAG.setRoot(Chain);
+    setValue(&I, Res);
+    return nullptr;
+  }
   case Intrinsic::stackprotector: {
     // Emit code into the DAG to store the stack guard onto the stack.
     MachineFunction &MF = DAG.getMachineFunction();
     MachineFrameInfo *MFI = MF.getFrameInfo();
     EVT PtrTy = TLI.getPointerTy(DAG.getDataLayout());
     SDValue Src, Chain = getRoot();
-    const Value *Ptr = cast<LoadInst>(I.getArgOperand(0))->getPointerOperand();
-    const GlobalVariable *GV = dyn_cast<GlobalVariable>(Ptr);
 
-    // See if Ptr is a bitcast. If it is, look through it and see if we can get
-    // global variable __stack_chk_guard.
-    if (!GV)
-      if (const Operator *BC = dyn_cast<Operator>(Ptr))
-        if (BC->getOpcode() == Instruction::BitCast)
-          GV = dyn_cast<GlobalVariable>(BC->getOperand(0));
-
-    if (GV && TLI.useLoadStackGuardNode()) {
-      // Emit a LOAD_STACK_GUARD node.
-      MachineSDNode *Node = DAG.getMachineNode(TargetOpcode::LOAD_STACK_GUARD,
-                                               sdl, PtrTy, Chain);
-      MachinePointerInfo MPInfo(GV);
-      MachineInstr::mmo_iterator MemRefs = MF.allocateMemRefsArray(1);
-      unsigned Flags = MachineMemOperand::MOLoad |
-                       MachineMemOperand::MOInvariant;
-      *MemRefs = MF.getMachineMemOperand(MPInfo, Flags,
-                                         PtrTy.getSizeInBits() / 8,
-                                         DAG.getEVTAlignment(PtrTy));
-      Node->setMemRefs(MemRefs, MemRefs + 1);
-
-      // Copy the guard value to a virtual register so that it can be
-      // retrieved in the epilogue.
-      Src = SDValue(Node, 0);
-      const TargetRegisterClass *RC =
-          TLI.getRegClassFor(Src.getSimpleValueType());
-      unsigned Reg = MF.getRegInfo().createVirtualRegister(RC);
-
-      SPDescriptor.setGuardReg(Reg);
-      Chain = DAG.getCopyToReg(Chain, sdl, Reg, Src);
-    } else {
+    if (TLI.useLoadStackGuardNode())
+      Src = getLoadStackGuard(DAG, sdl, Chain);
+    else
       Src = getValue(I.getArgOperand(0));   // The guard's value.
-    }
 
     AllocaInst *Slot = cast<AllocaInst>(I.getArgOperand(1));
 
@@ -6786,10 +6798,9 @@ void SelectionDAGBuilder::visitInlineAsm(ImmutableCallSite CS) {
       // Copy the output from the appropriate register.  Find a register that
       // we can use.
       if (OpInfo.AssignedRegs.Regs.empty()) {
-        LLVMContext &Ctx = *DAG.getContext();
-        Ctx.emitError(CS.getInstruction(),
-                      "couldn't allocate output register for constraint '" +
-                          Twine(OpInfo.ConstraintCode) + "'");
+        emitInlineAsmError(
+            CS, "couldn't allocate output register for constraint '" +
+                    Twine(OpInfo.ConstraintCode) + "'");
         return;
       }
 
@@ -6842,10 +6853,9 @@ void SelectionDAGBuilder::visitInlineAsm(ImmutableCallSite CS) {
           // Add (OpFlag&0xffff)>>3 registers to MatchedRegs.
           if (OpInfo.isIndirect) {
             // This happens on gcc/testsuite/gcc.dg/pr8788-1.c
-            LLVMContext &Ctx = *DAG.getContext();
-            Ctx.emitError(CS.getInstruction(), "inline asm not supported yet:"
-                                               " don't know how to handle tied "
-                                               "indirect register inputs");
+            emitInlineAsmError(CS, "inline asm not supported yet:"
+                                   " don't know how to handle tied "
+                                   "indirect register inputs");
             return;
           }
 
@@ -6859,10 +6869,9 @@ void SelectionDAGBuilder::visitInlineAsm(ImmutableCallSite CS) {
             if (const TargetRegisterClass *RC = TLI.getRegClassFor(RegVT))
               MatchedRegs.Regs.push_back(RegInfo.createVirtualRegister(RC));
             else {
-              LLVMContext &Ctx = *DAG.getContext();
-              Ctx.emitError(CS.getInstruction(),
-                            "inline asm error: This value"
-                            " type register class is not natively supported!");
+              emitInlineAsmError(
+                  CS, "inline asm error: This value"
+                      " type register class is not natively supported!");
               return;
             }
           }
@@ -6900,10 +6909,8 @@ void SelectionDAGBuilder::visitInlineAsm(ImmutableCallSite CS) {
         TLI.LowerAsmOperandForConstraint(InOperandVal, OpInfo.ConstraintCode,
                                           Ops, DAG);
         if (Ops.empty()) {
-          LLVMContext &Ctx = *DAG.getContext();
-          Ctx.emitError(CS.getInstruction(),
-                        "invalid operand for inline asm constraint '" +
-                            Twine(OpInfo.ConstraintCode) + "'");
+          emitInlineAsmError(CS, "invalid operand for inline asm constraint '" +
+                                     Twine(OpInfo.ConstraintCode) + "'");
           return;
         }
 
@@ -6943,20 +6950,17 @@ void SelectionDAGBuilder::visitInlineAsm(ImmutableCallSite CS) {
 
       // TODO: Support this.
       if (OpInfo.isIndirect) {
-        LLVMContext &Ctx = *DAG.getContext();
-        Ctx.emitError(CS.getInstruction(),
-                      "Don't know how to handle indirect register inputs yet "
-                      "for constraint '" +
-                          Twine(OpInfo.ConstraintCode) + "'");
+        emitInlineAsmError(
+            CS, "Don't know how to handle indirect register inputs yet "
+                "for constraint '" +
+                    Twine(OpInfo.ConstraintCode) + "'");
         return;
       }
 
       // Copy the input into the appropriate registers.
       if (OpInfo.AssignedRegs.Regs.empty()) {
-        LLVMContext &Ctx = *DAG.getContext();
-        Ctx.emitError(CS.getInstruction(),
-                      "couldn't allocate input reg for constraint '" +
-                          Twine(OpInfo.ConstraintCode) + "'");
+        emitInlineAsmError(CS, "couldn't allocate input reg for constraint '" +
+                                   Twine(OpInfo.ConstraintCode) + "'");
         return;
       }
 
@@ -7052,6 +7056,17 @@ void SelectionDAGBuilder::visitInlineAsm(ImmutableCallSite CS) {
     Chain = DAG.getNode(ISD::TokenFactor, getCurSDLoc(), MVT::Other, OutChains);
 
   DAG.setRoot(Chain);
+}
+
+void SelectionDAGBuilder::emitInlineAsmError(ImmutableCallSite CS,
+                                             const Twine &Message) {
+  LLVMContext &Ctx = *DAG.getContext();
+  Ctx.emitError(CS.getInstruction(), Message);
+
+  // Make sure we leave the DAG in a valid state
+  const TargetLowering &TLI = DAG.getTargetLoweringInfo();
+  auto VT = TLI.getValueType(DAG.getDataLayout(), CS.getType());
+  setValue(CS.getInstruction(), DAG.getUNDEF(VT));
 }
 
 void SelectionDAGBuilder::visitVAStart(const CallInst &I) {

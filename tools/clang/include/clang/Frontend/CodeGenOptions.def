@@ -34,6 +34,7 @@ CODEGENOPT(AsmVerbose        , 1, 0) ///< -dA, -fverbose-asm.
 CODEGENOPT(AssumeSaneOperatorNew , 1, 1) ///< implicit __attribute__((malloc)) operator new
 CODEGENOPT(Autolink          , 1, 1) ///< -fno-autolink
 CODEGENOPT(ObjCAutoRefCountExceptions , 1, 0) ///< Whether ARC should be EH-safe.
+CODEGENOPT(Backchain         , 1, 0) ///< -mbackchain
 CODEGENOPT(CoverageExtraChecksum, 1, 0) ///< Whether we need a second checksum for functions in GCNO files.
 CODEGENOPT(CoverageNoFunctionNamesInData, 1, 0) ///< Do not include function names in GCDA files.
 CODEGENOPT(CoverageExitBlockBeforeBody, 1, 0) ///< Whether to emit the exit block before the body blocks in GCNO files.
@@ -65,6 +66,8 @@ CODEGENOPT(EmitOpenCLArgMetadata , 1, 0) ///< Emit OpenCL kernel arg metadata.
 CODEGENOPT(EmulatedTLS       , 1, 0) ///< Set when -femulated-tls is enabled.
 /// \brief FP_CONTRACT mode (on/off/fast).
 ENUM_CODEGENOPT(FPContractMode, FPContractModeKind, 2, FPC_On)
+/// \brief Embed Bitcode mode (off/all/bitcode/marker).
+ENUM_CODEGENOPT(EmbedBitcode, EmbedBitcodeKind, 2, Embed_Off)
 CODEGENOPT(ForbidGuardVariables , 1, 0) ///< Issue errors if C++ guard variables
                                         ///< are required.
 CODEGENOPT(FunctionSections  , 1, 0) ///< Set when -ffunction-sections is enabled.
@@ -187,6 +190,10 @@ CODEGENOPT(EmitLLVMUseLists, 1, 0) ///< Control whether to serialize use-lists.
 CODEGENOPT(WholeProgramVTables, 1, 0) ///< Whether to apply whole-program
                                       ///  vtable optimization.
 
+/// Whether to use public LTO visibility for entities in std and stdext
+/// namespaces. This is enabled by clang-cl's /MT and /MTd flags.
+CODEGENOPT(LTOVisibilityPublicStd, 1, 0)
+
 /// The user specified number of registers to be used for integral arguments,
 /// or 0 if unspecified.
 VALUE_CODEGENOPT(NumRegisterParameters, 32, 0)
@@ -217,6 +224,10 @@ ENUM_CODEGENOPT(VecLib, VectorLibrary, 1, NoLibrary)
 
 /// The default TLS model to use.
 ENUM_CODEGENOPT(DefaultTLSModel, TLSModel, 2, GeneralDynamicTLSModel)
+
+/// Number of path components to strip when emitting checks. (0 == full
+/// filename)
+VALUE_CODEGENOPT(EmitCheckPathComponentsToStrip, 32, 0)
 
 #undef CODEGENOPT
 #undef ENUM_CODEGENOPT

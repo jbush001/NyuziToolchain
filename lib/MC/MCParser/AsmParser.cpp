@@ -34,7 +34,6 @@
 #include "llvm/MC/MCStreamer.h"
 #include "llvm/MC/MCSymbol.h"
 #include "llvm/MC/MCValue.h"
-#include "llvm/Support/CommandLine.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/MathExtras.h"
 #include "llvm/Support/MemoryBuffer.h"
@@ -42,7 +41,6 @@
 #include "llvm/Support/raw_ostream.h"
 #include <cctype>
 #include <deque>
-#include <set>
 #include <string>
 #include <vector>
 using namespace llvm;
@@ -158,9 +156,9 @@ private:
   /// The values from the last parsed cpp hash file line comment if any.
   struct CppHashInfoTy {
     StringRef Filename;
-    int64_t LineNumber;
+    int64_t LineNumber = 0;
     SMLoc Loc;
-    unsigned Buf;
+    unsigned Buf = 0;
   };
   CppHashInfoTy CppHashInfo;
 

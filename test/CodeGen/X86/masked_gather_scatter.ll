@@ -291,7 +291,7 @@ define <8 x i32> @test7(i32* %base, <8 x i32> %ind, i8 %mask) {
 ; KNL_32-LABEL: test7:
 ; KNL_32:       # BB#0:
 ; KNL_32-NEXT:    movl {{[0-9]+}}(%esp), %eax
-; KNL_32-NEXT:    movb {{[0-9]+}}(%esp), %cl
+; KNL_32-NEXT:    movzbw {{[0-9]+}}(%esp), %cx
 ; KNL_32-NEXT:    kmovw %ecx, %k1
 ; KNL_32-NEXT:    vpmovsxdq %ymm0, %zmm0
 ; KNL_32-NEXT:    kmovw %k1, %k2
@@ -1486,7 +1486,7 @@ define <3 x i32> @test30(<3 x i32*> %base, <3 x i32> %ind, <3 x i1> %mask, <3 x 
 ; SKX-NEXT:    testb %al, %al
 ; SKX-NEXT:    je .LBB29_6
 ; SKX-NEXT:  # BB#5: # %cond.load4
-; SKX-NEXT:    vextracti128 $1, %ymm1, %xmm1
+; SKX-NEXT:    vextracti64x2 $1, %ymm1, %xmm1
 ; SKX-NEXT:    vmovq %xmm1, %rax
 ; SKX-NEXT:    vpinsrd $2, (%rax), %xmm0, %xmm0
 ; SKX-NEXT:  .LBB29_6: # %else5

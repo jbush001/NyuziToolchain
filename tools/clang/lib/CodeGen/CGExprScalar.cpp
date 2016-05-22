@@ -984,8 +984,7 @@ Value *ScalarExprEmitter::VisitExpr(Expr *E) {
 
 Value *ScalarExprEmitter::VisitShuffleVectorExpr(ShuffleVectorExpr *E) {
   // Vector Mask Case
-  if (E->getNumSubExprs() == 2 ||
-      (E->getNumSubExprs() == 3 && E->getExpr(2)->getType()->isVectorType())) {
+  if (E->getNumSubExprs() == 2) {
     Value *LHS = CGF.EmitScalarExpr(E->getExpr(0));
     Value *RHS = CGF.EmitScalarExpr(E->getExpr(1));
     Value *Mask;
@@ -993,22 +992,7 @@ Value *ScalarExprEmitter::VisitShuffleVectorExpr(ShuffleVectorExpr *E) {
     llvm::VectorType *LTy = cast<llvm::VectorType>(LHS->getType());
     unsigned LHSElts = LTy->getNumElements();
 
-    if (E->getNumSubExprs() == 3) {
-      Mask = CGF.EmitScalarExpr(E->getExpr(2));
-
-      // Shuffle LHS & RHS into one input vector.
-      SmallVector<llvm::Constant*, 32> concat;
-      for (unsigned i = 0; i != LHSElts; ++i) {
-        concat.push_back(Builder.getInt32(2*i));
-        concat.push_back(Builder.getInt32(2*i+1));
-      }
-
-      Value* CV = llvm::ConstantVector::get(concat);
-      LHS = Builder.CreateShuffleVector(LHS, RHS, CV, "concat");
-      LHSElts *= 2;
-    } else {
-      Mask = RHS;
-    }
+    Mask = RHS;
 
     llvm::VectorType *MTy = cast<llvm::VectorType>(Mask->getType());
 
@@ -1796,15 +1780,19 @@ ScalarExprEmitter::EmitScalarPrePostIncDec(const UnaryOperator *E, LValue LV,
       amt = llvm::ConstantFP::get(VMContext,
                                   llvm::APFloat(static_cast<double>(amount)));
     else {
-      // Remaining types are either Half or LongDouble.  Convert from float.
+      // Remaining types are Half, LongDouble or __float128. Convert from float.
       llvm::APFloat F(static_cast<float>(amount));
       bool ignored;
+      const llvm::fltSemantics *FS;
       // Don't use getFloatTypeSemantics because Half isn't
       // necessarily represented using the "half" LLVM type.
-      F.convert(value->getType()->isHalfTy()
-                    ? CGF.getTarget().getHalfFormat()
-                    : CGF.getTarget().getLongDoubleFormat(),
-                llvm::APFloat::rmTowardZero, &ignored);
+      if (value->getType()->isFP128Ty())
+        FS = &CGF.getTarget().getFloat128Format();
+      else if (value->getType()->isHalfTy())
+        FS = &CGF.getTarget().getHalfFormat();
+      else
+        FS = &CGF.getTarget().getLongDoubleFormat();
+      F.convert(*FS, llvm::APFloat::rmTowardZero, &ignored);
       amt = llvm::ConstantFP::get(VMContext, F);
     }
     value = Builder.CreateFAdd(value, amt, isInc ? "inc" : "dec");

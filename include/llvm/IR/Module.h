@@ -35,6 +35,7 @@ class GVMaterializer;
 class LLVMContext;
 class RandomNumberGenerator;
 class StructType;
+template <class PtrType> class SmallPtrSetImpl;
 
 template<> struct ilist_traits<NamedMDNode>
   : public ilist_default_traits<NamedMDNode> {
@@ -731,6 +732,17 @@ public:
   void setPICLevel(PICLevel::Level PL);
 /// @}
 
+/// @}
+/// @name Utility functions for querying and setting PIE level
+/// @{
+
+  /// \brief Returns the PIE level (small or large model)
+  PIELevel::Level getPIELevel() const;
+
+  /// \brief Set the PIE level (small or large model)
+  void setPIELevel(PIELevel::Level PL);
+/// @}
+
   /// @name Utility functions for querying and setting PGO summary
   /// @{
 
@@ -747,6 +759,12 @@ public:
   Metadata *getProfileSummary();
   /// @}
 };
+
+/// \brief Given "llvm.used" or "llvm.compiler.used" as a global name, collect
+/// the initializer elements of that global in Set and return the global itself.
+GlobalVariable *collectUsedGlobalVariables(const Module &M,
+                                           SmallPtrSetImpl<GlobalValue *> &Set,
+                                           bool CompilerUsed);
 
 /// An raw_ostream inserter for modules.
 inline raw_ostream &operator<<(raw_ostream &O, const Module &M) {

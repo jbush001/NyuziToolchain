@@ -332,6 +332,7 @@ static void PrintCallingConv(unsigned cc, raw_ostream &Out) {
   case CallingConv::AMDGPU_GS:     Out << "amdgpu_gs"; break;
   case CallingConv::AMDGPU_PS:     Out << "amdgpu_ps"; break;
   case CallingConv::AMDGPU_CS:     Out << "amdgpu_cs"; break;
+  case CallingConv::AMDGPU_KERNEL: Out << "amdgpu_kernel"; break;
   }
 }
 
@@ -697,14 +698,25 @@ ModuleSlotTracker::ModuleSlotTracker(SlotTracker &Machine, const Module *M,
 
 ModuleSlotTracker::ModuleSlotTracker(const Module *M,
                                      bool ShouldInitializeAllMetadata)
-    : MachineStorage(M ? new SlotTracker(M, ShouldInitializeAllMetadata)
-                       : nullptr),
-      M(M), Machine(MachineStorage.get()) {}
+    : ShouldCreateStorage(M),
+      ShouldInitializeAllMetadata(ShouldInitializeAllMetadata), M(M) {}
 
 ModuleSlotTracker::~ModuleSlotTracker() {}
 
+SlotTracker *ModuleSlotTracker::getMachine() {
+  if (!ShouldCreateStorage)
+    return Machine;
+
+  ShouldCreateStorage = false;
+  MachineStorage =
+      llvm::make_unique<SlotTracker>(M, ShouldInitializeAllMetadata);
+  Machine = MachineStorage.get();
+  return Machine;
+}
+
 void ModuleSlotTracker::incorporateFunction(const Function &F) {
-  if (!Machine)
+  // Using getMachine() may lazily create the slot tracker.
+  if (!getMachine())
     return;
 
   // Nothing to do if this is the right function already.
@@ -2340,23 +2352,32 @@ void AssemblyWriter::printNamedMDNode(const NamedMDNode *NMD) {
   Out << "}\n";
 }
 
-static void PrintLinkage(GlobalValue::LinkageTypes LT,
-                         formatted_raw_ostream &Out) {
+static const char *getLinkagePrintName(GlobalValue::LinkageTypes LT) {
   switch (LT) {
-  case GlobalValue::ExternalLinkage: break;
-  case GlobalValue::PrivateLinkage:       Out << "private ";        break;
-  case GlobalValue::InternalLinkage:      Out << "internal ";       break;
-  case GlobalValue::LinkOnceAnyLinkage:   Out << "linkonce ";       break;
-  case GlobalValue::LinkOnceODRLinkage:   Out << "linkonce_odr ";   break;
-  case GlobalValue::WeakAnyLinkage:       Out << "weak ";           break;
-  case GlobalValue::WeakODRLinkage:       Out << "weak_odr ";       break;
-  case GlobalValue::CommonLinkage:        Out << "common ";         break;
-  case GlobalValue::AppendingLinkage:     Out << "appending ";      break;
-  case GlobalValue::ExternalWeakLinkage:  Out << "extern_weak ";    break;
+  case GlobalValue::ExternalLinkage:
+    return "";
+  case GlobalValue::PrivateLinkage:
+    return "private ";
+  case GlobalValue::InternalLinkage:
+    return "internal ";
+  case GlobalValue::LinkOnceAnyLinkage:
+    return "linkonce ";
+  case GlobalValue::LinkOnceODRLinkage:
+    return "linkonce_odr ";
+  case GlobalValue::WeakAnyLinkage:
+    return "weak ";
+  case GlobalValue::WeakODRLinkage:
+    return "weak_odr ";
+  case GlobalValue::CommonLinkage:
+    return "common ";
+  case GlobalValue::AppendingLinkage:
+    return "appending ";
+  case GlobalValue::ExternalWeakLinkage:
+    return "extern_weak ";
   case GlobalValue::AvailableExternallyLinkage:
-    Out << "available_externally ";
-    break;
+    return "available_externally ";
   }
+  llvm_unreachable("invalid linkage");
 }
 
 static void PrintVisibility(GlobalValue::VisibilityTypes Vis,
@@ -2425,7 +2446,7 @@ void AssemblyWriter::printGlobal(const GlobalVariable *GV) {
   if (!GV->hasInitializer() && GV->hasExternalLinkage())
     Out << "external ";
 
-  PrintLinkage(GV->getLinkage(), Out);
+  Out << getLinkagePrintName(GV->getLinkage());
   PrintVisibility(GV->getVisibility(), Out);
   PrintDLLStorageClass(GV->getDLLStorageClass(), Out);
   PrintThreadLocalModel(GV->getThreadLocalMode(), Out);
@@ -2462,7 +2483,7 @@ void AssemblyWriter::printIndirectSymbol(const GlobalIndirectSymbol *GIS) {
   WriteAsOperandInternal(Out, GIS, &TypePrinter, &Machine, GIS->getParent());
   Out << " = ";
 
-  PrintLinkage(GIS->getLinkage(), Out);
+  Out << getLinkagePrintName(GIS->getLinkage());
   PrintVisibility(GIS->getVisibility(), Out);
   PrintDLLStorageClass(GIS->getDLLStorageClass(), Out);
   PrintThreadLocalModel(GIS->getThreadLocalMode(), Out);
@@ -2574,7 +2595,7 @@ void AssemblyWriter::printFunction(const Function *F) {
   else
     Out << "define ";
 
-  PrintLinkage(F->getLinkage(), Out);
+  Out << getLinkagePrintName(F->getLinkage());
   PrintVisibility(F->getVisibility(), Out);
   PrintDLLStorageClass(F->getDLLStorageClass(), Out);
 
@@ -3266,6 +3287,22 @@ void NamedMDNode::print(raw_ostream &ROS, bool IsForDebug) const {
   SlotTracker SlotTable(getParent());
   formatted_raw_ostream OS(ROS);
   AssemblyWriter W(OS, SlotTable, getParent(), nullptr, IsForDebug);
+  W.printNamedMDNode(this);
+}
+
+void NamedMDNode::print(raw_ostream &ROS, ModuleSlotTracker &MST,
+                        bool IsForDebug) const {
+  Optional<SlotTracker> LocalST;
+  SlotTracker *SlotTable;
+  if (auto *ST = MST.getMachine())
+    SlotTable = ST;
+  else {
+    LocalST.emplace(getParent());
+    SlotTable = &*LocalST;
+  }
+
+  formatted_raw_ostream OS(ROS);
+  AssemblyWriter W(OS, *SlotTable, getParent(), nullptr, IsForDebug);
   W.printNamedMDNode(this);
 }
 

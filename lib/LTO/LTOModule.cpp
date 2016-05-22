@@ -33,7 +33,6 @@
 #include "llvm/MC/SubtargetFeature.h"
 #include "llvm/Object/IRObjectFile.h"
 #include "llvm/Object/ObjectFile.h"
-#include "llvm/Support/CommandLine.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/Host.h"
 #include "llvm/Support/MemoryBuffer.h"
@@ -231,8 +230,8 @@ LTOModule::makeLTOModule(MemoryBufferRef Buffer, TargetOptions options,
       CPU = "cyclone";
   }
 
-  TargetMachine *target = march->createTargetMachine(TripleStr, CPU, FeatureStr,
-                                                     options);
+  TargetMachine *target =
+      march->createTargetMachine(TripleStr, CPU, FeatureStr, options, None);
   M->setDataLayout(target->createDataLayout());
 
   std::unique_ptr<object::IRObjectFile> IRObj(

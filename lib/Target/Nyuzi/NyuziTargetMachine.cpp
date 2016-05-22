@@ -13,6 +13,7 @@
 #include "NyuziTargetMachine.h"
 #include "Nyuzi.h"
 #include "llvm/CodeGen/Passes.h"
+#include "llvm/CodeGen/TargetPassConfig.h"
 #include "llvm/IR/LegacyPassManager.h"
 #include "llvm/Support/TargetRegistry.h"
 
@@ -23,12 +24,21 @@ extern "C" void LLVMInitializeNyuziTarget() {
   RegisterTargetMachine<NyuziTargetMachine> X(TheNyuziTarget);
 }
 
+static Reloc::Model getEffectiveRelocModel(const Triple &TT,
+                                           Optional<Reloc::Model> RM) {
+  if (!RM.hasValue())
+    return Reloc::PIC_;
+  return *RM;
+}
+
 NyuziTargetMachine::NyuziTargetMachine(const Target &T, const Triple &TT,
                                        StringRef CPU, StringRef FS,
                                        const TargetOptions &Options,
-                                       Reloc::Model RM, CodeModel::Model CM,
+                                       Optional<Reloc::Model> RM,
+                                       CodeModel::Model CM,
                                        CodeGenOpt::Level OL)
-    : LLVMTargetMachine(T, "e-m:e-p:32:32", TT, CPU, FS, Options, RM, CM, OL),
+    : LLVMTargetMachine(T, "e-m:e-p:32:32", TT, CPU, FS, Options,
+                        getEffectiveRelocModel(TT, RM), CM, OL),
       TLOF(make_unique<NyuziTargetObjectFile>()),
       Subtarget(TT, CPU, FS, *this) {
   initAsmInfo();

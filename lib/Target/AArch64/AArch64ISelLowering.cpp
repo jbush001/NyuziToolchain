@@ -40,12 +40,6 @@ using namespace llvm;
 STATISTIC(NumTailCalls, "Number of tail calls");
 STATISTIC(NumShiftInserts, "Number of vector shift inserts");
 
-// Place holder until extr generation is tested fully.
-static cl::opt<bool>
-EnableAArch64ExtrGeneration("aarch64-extr-generation", cl::Hidden,
-                          cl::desc("Allow AArch64 (or (shift)(shift))->extract"),
-                          cl::init(true));
-
 static cl::opt<bool>
 EnableAArch64SlrGeneration("aarch64-shift-insert-generation", cl::Hidden,
                            cl::desc("Allow AArch64 SLI/SRI formation"),
@@ -234,13 +228,6 @@ AArch64TargetLowering::AArch64TargetLowering(const TargetMachine &TM,
   setOperationAction(ISD::UMUL_LOHI, MVT::i64, Expand);
   setOperationAction(ISD::SMUL_LOHI, MVT::i64, Expand);
 
-
-  // Expand the undefined-at-zero variants to cttz/ctlz to their defined-at-zero
-  // counterparts, which AArch64 supports directly.
-  setOperationAction(ISD::CTTZ_ZERO_UNDEF, MVT::i32, Expand);
-  setOperationAction(ISD::CTLZ_ZERO_UNDEF, MVT::i32, Expand);
-  setOperationAction(ISD::CTTZ_ZERO_UNDEF, MVT::i64, Expand);
-  setOperationAction(ISD::CTLZ_ZERO_UNDEF, MVT::i64, Expand);
 
   setOperationAction(ISD::CTPOP, MVT::i32, Custom);
   setOperationAction(ISD::CTPOP, MVT::i64, Custom);
@@ -594,6 +581,18 @@ AArch64TargetLowering::AArch64TargetLowering(const TargetMachine &TM,
     // conversion happens in two steps: v4i32 -> v4f32 -> v4f16
     setOperationAction(ISD::SINT_TO_FP, MVT::v4i32, Custom);
     setOperationAction(ISD::UINT_TO_FP, MVT::v4i32, Custom);
+
+    setOperationAction(ISD::CTLZ,       MVT::v1i64, Expand);
+    setOperationAction(ISD::CTLZ,       MVT::v2i64, Expand);
+
+    setOperationAction(ISD::CTTZ,       MVT::v2i8,  Expand);
+    setOperationAction(ISD::CTTZ,       MVT::v4i16, Expand);
+    setOperationAction(ISD::CTTZ,       MVT::v2i32, Expand);
+    setOperationAction(ISD::CTTZ,       MVT::v1i64, Expand);
+    setOperationAction(ISD::CTTZ,       MVT::v16i8, Expand);
+    setOperationAction(ISD::CTTZ,       MVT::v8i16, Expand);
+    setOperationAction(ISD::CTTZ,       MVT::v4i32, Expand);
+    setOperationAction(ISD::CTTZ,       MVT::v2i64, Expand);
 
     // AArch64 doesn't have MUL.2d:
     setOperationAction(ISD::MUL, MVT::v2i64, Expand);
@@ -965,6 +964,8 @@ const char *AArch64TargetLowering::getTargetNodeName(unsigned Opcode) const {
   case AArch64ISD::ST4LANEpost:       return "AArch64ISD::ST4LANEpost";
   case AArch64ISD::SMULL:             return "AArch64ISD::SMULL";
   case AArch64ISD::UMULL:             return "AArch64ISD::UMULL";
+  case AArch64ISD::FRSQRTE:           return "AArch64ISD::FRSQRTE";
+  case AArch64ISD::FRECPE:            return "AArch64ISD::FRECPE";
   }
   return nullptr;
 }
@@ -1222,6 +1223,7 @@ static SDValue emitComparison(SDValue LHS, SDValue RHS, ISD::CondCode CC,
     if (VT == MVT::f16) {
       LHS = DAG.getNode(ISD::FP_EXTEND, dl, MVT::f32, LHS);
       RHS = DAG.getNode(ISD::FP_EXTEND, dl, MVT::f32, RHS);
+      VT = MVT::f32;
     }
     return DAG.getNode(AArch64ISD::FCMP, dl, VT, LHS, RHS);
   }
@@ -2209,8 +2211,7 @@ static SDValue skipExtensionForVectorMULL(SDNode *N, SelectionDAG &DAG) {
     // The values are implicitly truncated so sext vs. zext doesn't matter.
     Ops.push_back(DAG.getConstant(CInt.zextOrTrunc(32), dl, MVT::i32));
   }
-  return DAG.getNode(ISD::BUILD_VECTOR, dl,
-                     MVT::getVectorVT(TruncVT, NumElts), Ops);
+  return DAG.getBuildVector(MVT::getVectorVT(TruncVT, NumElts), dl, Ops);
 }
 
 static bool isSignExtended(SDNode *N, SelectionDAG &DAG) {
@@ -2326,7 +2327,7 @@ SDValue AArch64TargetLowering::LowerINTRINSIC_WO_CHAIN(SDValue Op,
   SDLoc dl(Op);
   switch (IntNo) {
   default: return SDValue();    // Don't custom lower most intrinsics.
-  case Intrinsic::aarch64_thread_pointer: {
+  case Intrinsic::thread_pointer: {
     EVT PtrVT = getPointerTy(DAG.getDataLayout());
     return DAG.getNode(AArch64ISD::THREAD_POINTER, dl, PtrVT);
   }
@@ -4620,6 +4621,40 @@ bool AArch64TargetLowering::isFPImmLegal(const APFloat &Imm, EVT VT) const {
 //                          AArch64 Optimization Hooks
 //===----------------------------------------------------------------------===//
 
+/// getEstimate - Return the appropriate estimate DAG for either the reciprocal
+/// or the reciprocal square root.
+static SDValue getEstimate(const AArch64Subtarget &ST,
+  const AArch64TargetLowering::DAGCombinerInfo &DCI, unsigned Opcode,
+  const SDValue &Operand, unsigned &ExtraSteps) {
+  if (!ST.hasNEON())
+    return SDValue();
+
+  EVT VT = Operand.getValueType();
+
+  std::string RecipOp;
+  RecipOp = Opcode == (AArch64ISD::FRECPE) ? "div": "sqrt";
+  RecipOp = ((VT.isVector()) ? "vec-": "") + RecipOp;
+  RecipOp += (VT.getScalarType() == MVT::f64) ? "d": "f";
+
+  TargetRecip Recips = DCI.DAG.getTarget().Options.Reciprocals;
+  if (!Recips.isEnabled(RecipOp))
+    return SDValue();
+
+  ExtraSteps = Recips.getRefinementSteps(RecipOp);
+  return DCI.DAG.getNode(Opcode, SDLoc(Operand), VT, Operand);
+}
+
+SDValue AArch64TargetLowering::getRecipEstimate(SDValue Operand,
+  DAGCombinerInfo &DCI, unsigned &ExtraSteps) const {
+  return getEstimate(*Subtarget, DCI, AArch64ISD::FRECPE, Operand, ExtraSteps);
+}
+
+SDValue AArch64TargetLowering::getRsqrtEstimate(SDValue Operand,
+  DAGCombinerInfo &DCI, unsigned &ExtraSteps, bool &UseOneConst) const {
+  UseOneConst = true;
+  return getEstimate(*Subtarget, DCI, AArch64ISD::FRSQRTE, Operand, ExtraSteps);
+}
+
 //===----------------------------------------------------------------------===//
 //                          AArch64 Inline Assembly Support
 //===----------------------------------------------------------------------===//
@@ -4647,6 +4682,27 @@ bool AArch64TargetLowering::isFPImmLegal(const APFloat &Imm, EVT VT) const {
 // is prefixed by the %w modifier. Floating-point and SIMD register operands
 // will be output with the v prefix unless prefixed by the %b, %h, %s, %d or
 // %q modifier.
+const char *AArch64TargetLowering::LowerXConstraint(EVT ConstraintVT) const {
+  // At this point, we have to lower this constraint to something else, so we
+  // lower it to an "r" or "w". However, by doing this we will force the result
+  // to be in register, while the X constraint is much more permissive.
+  //
+  // Although we are correct (we are free to emit anything, without
+  // constraints), we might break use cases that would expect us to be more
+  // efficient and emit something else.
+  if (!Subtarget->hasFPARMv8())
+    return "r";
+
+  if (ConstraintVT.isFloatingPoint())
+    return "w";
+
+  if (ConstraintVT.isVector() &&
+     (ConstraintVT.getSizeInBits() == 64 ||
+      ConstraintVT.getSizeInBits() == 128))
+    return "w";
+
+  return "r";
+}
 
 /// getConstraintType - Given a constraint letter, return the type of
 /// constraint it is for this target.
@@ -4741,11 +4797,16 @@ AArch64TargetLowering::getRegForInlineAsmConstraint(
       int RegNo;
       bool Failed = Constraint.slice(2, Size - 1).getAsInteger(10, RegNo);
       if (!Failed && RegNo >= 0 && RegNo <= 31) {
-        // v0 - v31 are aliases of q0 - q31.
+        // v0 - v31 are aliases of q0 - q31 or d0 - d31 depending on size.
         // By default we'll emit v0-v31 for this unless there's a modifier where
         // we'll emit the correct register as well.
-        Res.first = AArch64::FPR128RegClass.getRegister(RegNo);
-        Res.second = &AArch64::FPR128RegClass;
+        if (VT != MVT::Other && VT.getSizeInBits() == 64) {
+          Res.first = AArch64::FPR64RegClass.getRegister(RegNo);
+          Res.second = &AArch64::FPR64RegClass;
+        } else {
+          Res.first = AArch64::FPR128RegClass.getRegister(RegNo);
+          Res.second = &AArch64::FPR128RegClass;
+        }
       }
     }
   }
@@ -5539,29 +5600,28 @@ static SDValue GenerateTBL(SDValue Op, ArrayRef<int> ShuffleMask,
     Shuffle = DAG.getNode(
         ISD::INTRINSIC_WO_CHAIN, DL, IndexVT,
         DAG.getConstant(Intrinsic::aarch64_neon_tbl1, DL, MVT::i32), V1Cst,
-        DAG.getNode(ISD::BUILD_VECTOR, DL, IndexVT,
-                    makeArrayRef(TBLMask.data(), IndexLen)));
+        DAG.getBuildVector(IndexVT, DL,
+                           makeArrayRef(TBLMask.data(), IndexLen)));
   } else {
     if (IndexLen == 8) {
       V1Cst = DAG.getNode(ISD::CONCAT_VECTORS, DL, MVT::v16i8, V1Cst, V2Cst);
       Shuffle = DAG.getNode(
           ISD::INTRINSIC_WO_CHAIN, DL, IndexVT,
           DAG.getConstant(Intrinsic::aarch64_neon_tbl1, DL, MVT::i32), V1Cst,
-          DAG.getNode(ISD::BUILD_VECTOR, DL, IndexVT,
-                      makeArrayRef(TBLMask.data(), IndexLen)));
+          DAG.getBuildVector(IndexVT, DL,
+                             makeArrayRef(TBLMask.data(), IndexLen)));
     } else {
       // FIXME: We cannot, for the moment, emit a TBL2 instruction because we
       // cannot currently represent the register constraints on the input
       // table registers.
       //  Shuffle = DAG.getNode(AArch64ISD::TBL2, DL, IndexVT, V1Cst, V2Cst,
-      //                   DAG.getNode(ISD::BUILD_VECTOR, DL, IndexVT,
-      //                               &TBLMask[0], IndexLen));
+      //                   DAG.getBuildVector(IndexVT, DL, &TBLMask[0],
+      //                   IndexLen));
       Shuffle = DAG.getNode(
           ISD::INTRINSIC_WO_CHAIN, DL, IndexVT,
-          DAG.getConstant(Intrinsic::aarch64_neon_tbl2, DL, MVT::i32),
-          V1Cst, V2Cst,
-          DAG.getNode(ISD::BUILD_VECTOR, DL, IndexVT,
-                      makeArrayRef(TBLMask.data(), IndexLen)));
+          DAG.getConstant(Intrinsic::aarch64_neon_tbl2, DL, MVT::i32), V1Cst,
+          V2Cst, DAG.getBuildVector(IndexVT, DL,
+                                    makeArrayRef(TBLMask.data(), IndexLen)));
     }
   }
   return DAG.getNode(ISD::BITCAST, DL, Op.getValueType(), Shuffle);
@@ -6069,7 +6129,7 @@ static SDValue NormalizeBuildVector(SDValue Op,
     }
     Ops.push_back(Lane);
   }
-  return DAG.getNode(ISD::BUILD_VECTOR, dl, VT, Ops);
+  return DAG.getBuildVector(VT, dl, Ops);
 }
 
 SDValue AArch64TargetLowering::LowerBUILD_VECTOR(SDValue Op,
@@ -6370,7 +6430,7 @@ FailedModImm:
       for (unsigned i = 0; i < NumElts; ++i)
         Ops.push_back(DAG.getNode(ISD::BITCAST, dl, NewType, Op.getOperand(i)));
       EVT VecVT = EVT::getVectorVT(*DAG.getContext(), NewType, NumElts);
-      SDValue Val = DAG.getNode(ISD::BUILD_VECTOR, dl, VecVT, Ops);
+      SDValue Val = DAG.getBuildVector(VecVT, dl, Ops);
       Val = LowerBUILD_VECTOR(Val, DAG);
       if (Val.getNode())
         return DAG.getNode(ISD::BITCAST, dl, VT, Val);
@@ -7926,8 +7986,6 @@ static SDValue tryCombineToBSL(SDNode *N,
 static SDValue performORCombine(SDNode *N, TargetLowering::DAGCombinerInfo &DCI,
                                 const AArch64Subtarget *Subtarget) {
   // Attempt to form an EXTR from (or (shl VAL1, #N), (srl VAL2, #RegWidth-N))
-  if (!EnableAArch64ExtrGeneration)
-    return SDValue();
   SelectionDAG &DAG = DCI.DAG;
   EVT VT = N->getValueType(0);
 
@@ -10114,7 +10172,9 @@ void AArch64TargetLowering::ReplaceNodeResults(
 }
 
 bool AArch64TargetLowering::useLoadStackGuardNode() const {
-  return true;
+  if (!Subtarget->isTargetAndroid())
+    return true;
+  return TargetLowering::useLoadStackGuardNode();
 }
 
 unsigned AArch64TargetLowering::combineRepeatedFPDivisors() const {
@@ -10263,7 +10323,7 @@ Value *AArch64TargetLowering::getIRStackGuard(IRBuilder<> &IRB) const {
   const unsigned TlsOffset = 0x28;
   Module *M = IRB.GetInsertBlock()->getParent()->getParent();
   Function *ThreadPointerFunc =
-      Intrinsic::getDeclaration(M, Intrinsic::aarch64_thread_pointer);
+      Intrinsic::getDeclaration(M, Intrinsic::thread_pointer);
   return IRB.CreatePointerCast(
       IRB.CreateConstGEP1_32(IRB.CreateCall(ThreadPointerFunc), TlsOffset),
       Type::getInt8PtrTy(IRB.getContext())->getPointerTo(0));
@@ -10279,7 +10339,7 @@ Value *AArch64TargetLowering::getSafeStackPointerLocation(IRBuilder<> &IRB) cons
   const unsigned TlsOffset = 0x48;
   Module *M = IRB.GetInsertBlock()->getParent()->getParent();
   Function *ThreadPointerFunc =
-      Intrinsic::getDeclaration(M, Intrinsic::aarch64_thread_pointer);
+      Intrinsic::getDeclaration(M, Intrinsic::thread_pointer);
   return IRB.CreatePointerCast(
       IRB.CreateConstGEP1_32(IRB.CreateCall(ThreadPointerFunc), TlsOffset),
       Type::getInt8PtrTy(IRB.getContext())->getPointerTo(0));

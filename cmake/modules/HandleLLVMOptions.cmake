@@ -44,6 +44,11 @@ if( LLVM_ENABLE_ASSERTIONS )
   endif()
 endif()
 
+if(LLVM_ENABLE_EXPENSIVE_CHECKS)
+  add_definitions(-DEXPENSIVE_CHECKS)
+  add_definitions(-D_GLIBCXX_DEBUG)
+endif()
+
 string(TOUPPER "${LLVM_ABI_BREAKING_CHECKS}" uppercase_LLVM_ABI_BREAKING_CHECKS)
 
 if( uppercase_LLVM_ABI_BREAKING_CHECKS STREQUAL "WITH_ASSERTS" )
@@ -138,25 +143,6 @@ function(add_flag_or_print_warning flag name)
     message(WARNING "${flag} is not supported.")
   endif()
 endfunction()
-
-if (LLVM_ENABLE_MODULES)
-  set(OLD_CMAKE_REQUIRED_FLAGS ${CMAKE_REQUIRED_FLAGS})
-  set(CMAKE_REQUIRED_FLAGS "${CMAKE_REQUIRED_FLAGS} -fmodules -Xclang -fmodules-local-submodule-visibility")
-  # Check that we can build code with modules enabled, and that repeatedly
-  # including <cassert> still manages to respect NDEBUG properly.
-  CHECK_CXX_SOURCE_COMPILES("#undef NDEBUG
-                             #include <cassert>
-                             #define NDEBUG
-                             #include <cassert>
-                             int main() { assert(this code is not compiled); }"
-                             CXX_SUPPORTS_MODULES)
-  set(CMAKE_REQUIRED_FLAGS ${OLD_CMAKE_REQUIRED_FLAGS})
-  if (CXX_SUPPORTS_MODULES)
-    append_if(CXX_SUPPORTS_MODULES "-fmodules -Xclang -fmodules-local-submodule-visibility" CMAKE_CXX_FLAGS)
-  else()
-    message(FATAL_ERROR "LLVM_ENABLE_MODULES is not supported by this compiler")
-  endif()
-endif(LLVM_ENABLE_MODULES)
 
 if( LLVM_ENABLE_PIC )
   if( XCODE )
@@ -379,17 +365,15 @@ if( MSVC )
       CMAKE_C_FLAGS CMAKE_CXX_FLAGS)
   endif()
 
-  if (NOT LLVM_ENABLE_TIMESTAMPS AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+  if (CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     # clang-cl and cl by default produce non-deterministic binaries because
     # link.exe /incremental requires a timestamp in the .obj file.  clang-cl
-    # has the flag /Brepro to force deterministic binaries, so pass that when
-    # LLVM_ENABLE_TIMESTAMPS is turned off.
+    # has the flag /Brepro to force deterministic binaries. We want to pass that
+    # whenever you're building with clang unless you're passing /incremental.
     # This checks CMAKE_CXX_COMPILER_ID in addition to check_cxx_compiler_flag()
     # because cl.exe does not emit an error on flags it doesn't understand,
     # letting check_cxx_compiler_flag() claim it understands all flags.
     check_cxx_compiler_flag("/Brepro" SUPPORTS_BREPRO)
-    append_if(SUPPORTS_BREPRO "/Brepro" CMAKE_C_FLAGS CMAKE_CXX_FLAGS)
-
     if (SUPPORTS_BREPRO)
       # Check if /INCREMENTAL is passed to the linker and complain that it
       # won't work with /Brepro.
@@ -397,14 +381,13 @@ if( MSVC )
       string(TOUPPER "${CMAKE_MODULE_LINKER_FLAGS}" upper_module_flags)
       string(TOUPPER "${CMAKE_SHARED_LINKER_FLAGS}" upper_shared_flags)
 
-      string(FIND "${upper_exe_flags}" "/INCREMENTAL" exe_index)
-      string(FIND "${upper_module_flags}" "/INCREMENTAL" module_index)
-      string(FIND "${upper_shared_flags}" "/INCREMENTAL" shared_index)
+      string(FIND "${upper_exe_flags} ${upper_module_flags} ${upper_shared_flags}"
+        "/INCREMENTAL" linker_flag_idx)
       
-      if (${exe_index} GREATER -1 OR
-          ${module_index} GREATER -1 OR
-          ${shared_index} GREATER -1)
-        message(FATAL_ERROR "LLVM_ENABLE_TIMESTAMPS not compatible with /INCREMENTAL linking")
+      if (${linker_flag_idx} GREATER -1)
+        message(WARNING "/Brepro not compatible with /INCREMENTAL linking - builds will be non-deterministic")
+      else()
+        append("/Brepro" CMAKE_C_FLAGS CMAKE_CXX_FLAGS)
       endif()
     endif()
   endif()
@@ -470,9 +453,7 @@ elseif( LLVM_COMPILER_IS_GCC_COMPATIBLE )
     endif()
   endif (LLVM_ENABLE_WARNINGS)
   append_if(LLVM_ENABLE_WERROR "-Werror" CMAKE_C_FLAGS CMAKE_CXX_FLAGS)
-  if (NOT LLVM_ENABLE_TIMESTAMPS)
-    add_flag_if_supported("-Werror=date-time" WERROR_DATE_TIME)
-  endif ()
+  add_flag_if_supported("-Werror=date-time" WERROR_DATE_TIME)
   if (LLVM_ENABLE_CXX1Y)
     check_cxx_compiler_flag("-std=c++1y" CXX_SUPPORTS_CXX1Y)
     append_if(CXX_SUPPORTS_CXX1Y "-std=c++1y" CMAKE_CXX_FLAGS)
@@ -490,6 +471,24 @@ elseif( LLVM_COMPILER_IS_GCC_COMPATIBLE )
       message(FATAL_ERROR "LLVM requires C++11 support but the '-std=c++11' flag isn't supported.")
     endif()
   endif()
+  if (LLVM_ENABLE_MODULES)
+    set(OLD_CMAKE_REQUIRED_FLAGS ${CMAKE_REQUIRED_FLAGS})
+    set(CMAKE_REQUIRED_FLAGS "${CMAKE_REQUIRED_FLAGS} -fmodules -Xclang -fmodules-local-submodule-visibility -fmodules-cache-path=module.cache")
+    # Check that we can build code with modules enabled, and that repeatedly
+    # including <cassert> still manages to respect NDEBUG properly.
+    CHECK_CXX_SOURCE_COMPILES("#undef NDEBUG
+                               #include <cassert>
+                               #define NDEBUG
+                               #include <cassert>
+                               int main() { assert(this code is not compiled); }"
+                               CXX_SUPPORTS_MODULES)
+    set(CMAKE_REQUIRED_FLAGS ${OLD_CMAKE_REQUIRED_FLAGS})
+    if (CXX_SUPPORTS_MODULES)
+      append_if(CXX_SUPPORTS_MODULES "-fmodules -Xclang -fmodules-local-submodule-visibility -fmodules-cache-path=module.cache" CMAKE_CXX_FLAGS)
+    else()
+      message(FATAL_ERROR "LLVM_ENABLE_MODULES is not supported by this compiler")
+    endif()
+  endif(LLVM_ENABLE_MODULES)
 endif( MSVC )
 
 macro(append_common_sanitizer_flags)

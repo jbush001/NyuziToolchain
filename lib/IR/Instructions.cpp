@@ -343,6 +343,12 @@ void CallInst::addAttribute(unsigned i, StringRef Kind, StringRef Value) {
   setAttributes(PAL);
 }
 
+void CallInst::removeAttribute(unsigned i, Attribute::AttrKind attr) {
+  AttributeSet PAL = getAttributes();
+  PAL = PAL.removeAttribute(getContext(), i, attr);
+  setAttributes(PAL);
+}
+
 void CallInst::removeAttribute(unsigned i, Attribute attr) {
   AttributeSet PAL = getAttributes();
   AttrBuilder B(attr);
@@ -402,9 +408,10 @@ static bool IsConstantOne(Value *val) {
 
 static Instruction *createMalloc(Instruction *InsertBefore,
                                  BasicBlock *InsertAtEnd, Type *IntPtrTy,
-                                 Type *AllocTy, Value *AllocSize, 
-                                 Value *ArraySize, Function *MallocF,
-                                 const Twine &Name) {
+                                 Type *AllocTy, Value *AllocSize,
+                                 Value *ArraySize,
+                                 ArrayRef<OperandBundleDef> OpB,
+                                 Function *MallocF, const Twine &Name) {
   assert(((!InsertBefore && InsertAtEnd) || (InsertBefore && !InsertAtEnd)) &&
          "createMalloc needs either InsertBefore or InsertAtEnd");
 
@@ -455,13 +462,14 @@ static Instruction *createMalloc(Instruction *InsertBefore,
   CallInst *MCall = nullptr;
   Instruction *Result = nullptr;
   if (InsertBefore) {
-    MCall = CallInst::Create(MallocFunc, AllocSize, "malloccall", InsertBefore);
+    MCall = CallInst::Create(MallocFunc, AllocSize, OpB, "malloccall",
+                             InsertBefore);
     Result = MCall;
     if (Result->getType() != AllocPtrType)
       // Create a cast instruction to convert to the right type...
       Result = new BitCastInst(MCall, AllocPtrType, Name, InsertBefore);
   } else {
-    MCall = CallInst::Create(MallocFunc, AllocSize, "malloccall");
+    MCall = CallInst::Create(MallocFunc, AllocSize, OpB, "malloccall");
     Result = MCall;
     if (Result->getType() != AllocPtrType) {
       InsertAtEnd->getInstList().push_back(MCall);
@@ -491,8 +499,18 @@ Instruction *CallInst::CreateMalloc(Instruction *InsertBefore,
                                     Function *MallocF,
                                     const Twine &Name) {
   return createMalloc(InsertBefore, nullptr, IntPtrTy, AllocTy, AllocSize,
-                      ArraySize, MallocF, Name);
+                      ArraySize, None, MallocF, Name);
 }
+Instruction *CallInst::CreateMalloc(Instruction *InsertBefore,
+                                    Type *IntPtrTy, Type *AllocTy,
+                                    Value *AllocSize, Value *ArraySize,
+                                    ArrayRef<OperandBundleDef> OpB,
+                                    Function *MallocF,
+                                    const Twine &Name) {
+  return createMalloc(InsertBefore, nullptr, IntPtrTy, AllocTy, AllocSize,
+                      ArraySize, OpB, MallocF, Name);
+}
+
 
 /// CreateMalloc - Generate the IR for a call to malloc:
 /// 1. Compute the malloc call's argument as the specified type's size,
@@ -507,10 +525,20 @@ Instruction *CallInst::CreateMalloc(BasicBlock *InsertAtEnd,
                                     Value *AllocSize, Value *ArraySize, 
                                     Function *MallocF, const Twine &Name) {
   return createMalloc(nullptr, InsertAtEnd, IntPtrTy, AllocTy, AllocSize,
-                      ArraySize, MallocF, Name);
+                      ArraySize, None, MallocF, Name);
+}
+Instruction *CallInst::CreateMalloc(BasicBlock *InsertAtEnd,
+                                    Type *IntPtrTy, Type *AllocTy,
+                                    Value *AllocSize, Value *ArraySize,
+                                    ArrayRef<OperandBundleDef> OpB,
+                                    Function *MallocF, const Twine &Name) {
+  return createMalloc(nullptr, InsertAtEnd, IntPtrTy, AllocTy, AllocSize,
+                      ArraySize, OpB, MallocF, Name);
 }
 
-static Instruction *createFree(Value *Source, Instruction *InsertBefore,
+static Instruction *createFree(Value *Source,
+                               ArrayRef<OperandBundleDef> Bundles,
+                               Instruction *InsertBefore,
                                BasicBlock *InsertAtEnd) {
   assert(((!InsertBefore && InsertAtEnd) || (InsertBefore && !InsertAtEnd)) &&
          "createFree needs either InsertBefore or InsertAtEnd");
@@ -529,11 +557,11 @@ static Instruction *createFree(Value *Source, Instruction *InsertBefore,
   if (InsertBefore) {
     if (Source->getType() != IntPtrTy)
       PtrCast = new BitCastInst(Source, IntPtrTy, "", InsertBefore);
-    Result = CallInst::Create(FreeFunc, PtrCast, "", InsertBefore);
+    Result = CallInst::Create(FreeFunc, PtrCast, Bundles, "", InsertBefore);
   } else {
     if (Source->getType() != IntPtrTy)
       PtrCast = new BitCastInst(Source, IntPtrTy, "", InsertAtEnd);
-    Result = CallInst::Create(FreeFunc, PtrCast, "");
+    Result = CallInst::Create(FreeFunc, PtrCast, Bundles, "");
   }
   Result->setTailCall();
   if (Function *F = dyn_cast<Function>(FreeFunc))
@@ -544,14 +572,26 @@ static Instruction *createFree(Value *Source, Instruction *InsertBefore,
 
 /// CreateFree - Generate the IR for a call to the builtin free function.
 Instruction *CallInst::CreateFree(Value *Source, Instruction *InsertBefore) {
-  return createFree(Source, InsertBefore, nullptr);
+  return createFree(Source, None, InsertBefore, nullptr);
+}
+Instruction *CallInst::CreateFree(Value *Source,
+                                  ArrayRef<OperandBundleDef> Bundles,
+                                  Instruction *InsertBefore) {
+  return createFree(Source, Bundles, InsertBefore, nullptr);
 }
 
 /// CreateFree - Generate the IR for a call to the builtin free function.
 /// Note: This function does not add the call to the basic block, that is the
 /// responsibility of the caller.
 Instruction *CallInst::CreateFree(Value *Source, BasicBlock *InsertAtEnd) {
-  Instruction *FreeCall = createFree(Source, nullptr, InsertAtEnd);
+  Instruction *FreeCall = createFree(Source, None, nullptr, InsertAtEnd);
+  assert(FreeCall && "CreateFree did not create a CallInst");
+  return FreeCall;
+}
+Instruction *CallInst::CreateFree(Value *Source,
+                                  ArrayRef<OperandBundleDef> Bundles,
+                                  BasicBlock *InsertAtEnd) {
+  Instruction *FreeCall = createFree(Source, Bundles, nullptr, InsertAtEnd);
   assert(FreeCall && "CreateFree did not create a CallInst");
   return FreeCall;
 }
@@ -660,6 +700,12 @@ bool InvokeInst::dataOperandHasImpliedAttr(unsigned i,
 void InvokeInst::addAttribute(unsigned i, Attribute::AttrKind attr) {
   AttributeSet PAL = getAttributes();
   PAL = PAL.addAttribute(getContext(), i, attr);
+  setAttributes(PAL);
+}
+
+void InvokeInst::removeAttribute(unsigned i, Attribute::AttrKind attr) {
+  AttributeSet PAL = getAttributes();
+  PAL = PAL.removeAttribute(getContext(), i, attr);
   setAttributes(PAL);
 }
 
@@ -2189,62 +2235,6 @@ bool BinaryOperator::swapOperands() {
   return false;
 }
 
-void BinaryOperator::setHasNoUnsignedWrap(bool b) {
-  cast<OverflowingBinaryOperator>(this)->setHasNoUnsignedWrap(b);
-}
-
-void BinaryOperator::setHasNoSignedWrap(bool b) {
-  cast<OverflowingBinaryOperator>(this)->setHasNoSignedWrap(b);
-}
-
-void BinaryOperator::setIsExact(bool b) {
-  cast<PossiblyExactOperator>(this)->setIsExact(b);
-}
-
-bool BinaryOperator::hasNoUnsignedWrap() const {
-  return cast<OverflowingBinaryOperator>(this)->hasNoUnsignedWrap();
-}
-
-bool BinaryOperator::hasNoSignedWrap() const {
-  return cast<OverflowingBinaryOperator>(this)->hasNoSignedWrap();
-}
-
-bool BinaryOperator::isExact() const {
-  return cast<PossiblyExactOperator>(this)->isExact();
-}
-
-void BinaryOperator::copyIRFlags(const Value *V) {
-  // Copy the wrapping flags.
-  if (auto *OB = dyn_cast<OverflowingBinaryOperator>(V)) {
-    setHasNoSignedWrap(OB->hasNoSignedWrap());
-    setHasNoUnsignedWrap(OB->hasNoUnsignedWrap());
-  }
-
-  // Copy the exact flag.
-  if (auto *PE = dyn_cast<PossiblyExactOperator>(V))
-    setIsExact(PE->isExact());
-  
-  // Copy the fast-math flags.
-  if (auto *FP = dyn_cast<FPMathOperator>(V))
-    copyFastMathFlags(FP->getFastMathFlags());
-}
-
-void BinaryOperator::andIRFlags(const Value *V) {
-  if (auto *OB = dyn_cast<OverflowingBinaryOperator>(V)) {
-    setHasNoSignedWrap(hasNoSignedWrap() & OB->hasNoSignedWrap());
-    setHasNoUnsignedWrap(hasNoUnsignedWrap() & OB->hasNoUnsignedWrap());
-  }
-  
-  if (auto *PE = dyn_cast<PossiblyExactOperator>(V))
-    setIsExact(isExact() & PE->isExact());
-  
-  if (auto *FP = dyn_cast<FPMathOperator>(V)) {
-    FastMathFlags FM = getFastMathFlags();
-    FM &= FP->getFastMathFlags();
-    copyFastMathFlags(FM);
-  }
-}
-
 
 //===----------------------------------------------------------------------===//
 //                             FPMathOperator Class
@@ -3597,6 +3587,34 @@ bool CmpInst::isFalseWhenEqual(Predicate predicate) {
   }
 }
 
+bool CmpInst::isImpliedTrueByMatchingCmp(Predicate Pred1, Predicate Pred2) {
+  // If the predicates match, then we know the first condition implies the
+  // second is true.
+  if (Pred1 == Pred2)
+    return true;
+
+  switch (Pred1) {
+  default:
+    break;
+  case ICMP_EQ:
+    // A == B implies A >=u B, A <=u B, A >=s B, and A <=s B are true.
+    return Pred2 == ICMP_UGE || Pred2 == ICMP_ULE || Pred2 == ICMP_SGE ||
+           Pred2 == ICMP_SLE;
+  case ICMP_UGT: // A >u B implies A != B and A >=u B are true.
+    return Pred2 == ICMP_NE || Pred2 == ICMP_UGE;
+  case ICMP_ULT: // A <u B implies A != B and A <=u B are true.
+    return Pred2 == ICMP_NE || Pred2 == ICMP_ULE;
+  case ICMP_SGT: // A >s B implies A != B and A >=s B are true.
+    return Pred2 == ICMP_NE || Pred2 == ICMP_SGE;
+  case ICMP_SLT: // A <s B implies A != B and A <=s B are true.
+    return Pred2 == ICMP_NE || Pred2 == ICMP_SLE;
+  }
+  return false;
+}
+
+bool CmpInst::isImpliedFalseByMatchingCmp(Predicate Pred1, Predicate Pred2) {
+  return isImpliedTrueByMatchingCmp(Pred1, getInversePredicate(Pred2));
+}
 
 //===----------------------------------------------------------------------===//
 //                        SwitchInst Implementation

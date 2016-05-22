@@ -87,13 +87,21 @@ TEST(QualTypeNameTest, getFullyQualifiedName) {
   Visitor.ExpectedQualTypeNames["non_dependent_type_var"] =
       "Foo<X>::non_dependent_type";
   Visitor.ExpectedQualTypeNames["AnEnumVar"] = "EnumScopeClass::AnEnum";
+  Visitor.ExpectedQualTypeNames["AliasTypeVal"] = "A::B::C::InnerAlias<int>";
+  Visitor.ExpectedQualTypeNames["CheckM"] = "const A::B::Class0 *";
+  Visitor.ExpectedQualTypeNames["CheckN"] = "const X *";
   Visitor.runOver(
       "int CheckInt;\n"
+      "template <typename T>\n"
+      "class OuterTemplateClass { };\n"
       "namespace A {\n"
       " namespace B {\n"
       "   class Class0 { };\n"
       "   namespace C {\n"
       "     typedef int MyInt;"
+      "     template <typename T>\n"
+      "     using InnerAlias = OuterTemplateClass<T>;\n"
+      "     InnerAlias<int> AliasTypeVal;\n"
       "   }\n"
       "   template<class X, class Y> class Template0;"
       "   template<class X, class Y> class Template1;"
@@ -102,6 +110,7 @@ TEST(QualTypeNameTest, getFullyQualifiedName) {
       "                  AnotherClass> CheckC);\n"
       "   void Function2(Template0<Template1<C::MyInt, AnotherClass>,\n"
       "                            Template0<int, long> > CheckD);\n"
+      "   void Function3(const B::Class0* CheckM);\n"
       "  }\n"
       "template<typename... Values> class Variadic {};\n"
       "Variadic<int, B::Template0<int, char>, "
@@ -117,6 +126,8 @@ TEST(QualTypeNameTest, getFullyQualifiedName) {
       "void f() {\n"
       "  struct X {} CheckH;\n"
       "}\n"
+      "struct X;\n"
+      "void f(const ::X* CheckN) {}\n"
       "namespace {\n"
       "  class aClass {};\n"
       "   aClass CheckI;\n"
@@ -148,7 +159,8 @@ TEST(QualTypeNameTest, getFullyQualifiedName) {
       "public:\n"
       "  enum AnEnum { ZERO, ONE };\n"
       "};\n"
-      "EnumScopeClass::AnEnum AnEnumVar;\n"
+      "EnumScopeClass::AnEnum AnEnumVar;\n",
+      TypeNameVisitor::Lang_CXX11
 );
 
   TypeNameVisitor Complex;

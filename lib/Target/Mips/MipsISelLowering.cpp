@@ -341,10 +341,6 @@ MipsTargetLowering::MipsTargetLowering(const MipsTargetMachine &TM,
   }
   setOperationAction(ISD::CTTZ,              MVT::i32,   Expand);
   setOperationAction(ISD::CTTZ,              MVT::i64,   Expand);
-  setOperationAction(ISD::CTTZ_ZERO_UNDEF,   MVT::i32,   Expand);
-  setOperationAction(ISD::CTTZ_ZERO_UNDEF,   MVT::i64,   Expand);
-  setOperationAction(ISD::CTLZ_ZERO_UNDEF,   MVT::i32,   Expand);
-  setOperationAction(ISD::CTLZ_ZERO_UNDEF,   MVT::i64,   Expand);
   setOperationAction(ISD::ROTL,              MVT::i32,   Expand);
   setOperationAction(ISD::ROTL,              MVT::i64,   Expand);
   setOperationAction(ISD::DYNAMIC_STACKALLOC, MVT::i32,  Expand);
@@ -1229,6 +1225,9 @@ MachineBasicBlock *MipsTargetLowering::emitAtomicBinaryPartword(
   MachineFunction *MF = BB->getParent();
   MachineRegisterInfo &RegInfo = MF->getRegInfo();
   const TargetRegisterClass *RC = getRegClassFor(MVT::i32);
+  bool ArePtrs64bit = ABI.ArePtrs64bit();
+  const TargetRegisterClass *RCp =
+    getRegClassFor(ArePtrs64bit ? MVT::i64 : MVT::i32);
   const TargetInstrInfo *TII = Subtarget.getInstrInfo();
   DebugLoc DL = MI->getDebugLoc();
 
@@ -1236,14 +1235,14 @@ MachineBasicBlock *MipsTargetLowering::emitAtomicBinaryPartword(
   unsigned Ptr = MI->getOperand(1).getReg();
   unsigned Incr = MI->getOperand(2).getReg();
 
-  unsigned AlignedAddr = RegInfo.createVirtualRegister(RC);
+  unsigned AlignedAddr = RegInfo.createVirtualRegister(RCp);
   unsigned ShiftAmt = RegInfo.createVirtualRegister(RC);
   unsigned Mask = RegInfo.createVirtualRegister(RC);
   unsigned Mask2 = RegInfo.createVirtualRegister(RC);
   unsigned NewVal = RegInfo.createVirtualRegister(RC);
   unsigned OldVal = RegInfo.createVirtualRegister(RC);
   unsigned Incr2 = RegInfo.createVirtualRegister(RC);
-  unsigned MaskLSB2 = RegInfo.createVirtualRegister(RC);
+  unsigned MaskLSB2 = RegInfo.createVirtualRegister(RCp);
   unsigned PtrLSB2 = RegInfo.createVirtualRegister(RC);
   unsigned MaskUpper = RegInfo.createVirtualRegister(RC);
   unsigned AndRes = RegInfo.createVirtualRegister(RC);
@@ -1285,11 +1284,12 @@ MachineBasicBlock *MipsTargetLowering::emitAtomicBinaryPartword(
   //    sll     incr2,incr,shiftamt
 
   int64_t MaskImm = (Size == 1) ? 255 : 65535;
-  BuildMI(BB, DL, TII->get(Mips::ADDiu), MaskLSB2)
-    .addReg(Mips::ZERO).addImm(-4);
-  BuildMI(BB, DL, TII->get(Mips::AND), AlignedAddr)
+  BuildMI(BB, DL, TII->get(ABI.GetPtrAddiuOp()), MaskLSB2)
+    .addReg(ABI.GetNullPtr()).addImm(-4);
+  BuildMI(BB, DL, TII->get(ABI.GetPtrAndOp()), AlignedAddr)
     .addReg(Ptr).addReg(MaskLSB2);
-  BuildMI(BB, DL, TII->get(Mips::ANDi), PtrLSB2).addReg(Ptr).addImm(3);
+  BuildMI(BB, DL, TII->get(Mips::ANDi), PtrLSB2)
+      .addReg(Ptr, 0, ArePtrs64bit ? Mips::sub_32 : 0).addImm(3);
   if (Subtarget.isLittle()) {
     BuildMI(BB, DL, TII->get(Mips::SLL), ShiftAmt).addReg(PtrLSB2).addImm(3);
   } else {
@@ -1746,7 +1746,7 @@ SDValue MipsTargetLowering::lowerGlobalAddress(SDValue Op,
 
   return getAddrGlobal(
       N, SDLoc(N), Ty, DAG,
-      (ABI.IsN32() || ABI.IsN64()) ? MipsII::MO_GOT_DISP : MipsII::MO_GOT16,
+      (ABI.IsN32() || ABI.IsN64()) ? MipsII::MO_GOT_DISP : MipsII::MO_GOT,
       DAG.getEntryNode(), MachinePointerInfo::getGOT(DAG.getMachineFunction()));
 }
 

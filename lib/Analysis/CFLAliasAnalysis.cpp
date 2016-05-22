@@ -35,7 +35,6 @@
 
 #include "llvm/Analysis/CFLAliasAnalysis.h"
 #include "StratifiedSets.h"
-#include "llvm/ADT/BitVector.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/None.h"
 #include "llvm/ADT/Optional.h"
@@ -44,7 +43,6 @@
 #include "llvm/IR/InstVisitor.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/Pass.h"
-#include "llvm/Support/Allocator.h"
 #include "llvm/Support/Compiler.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
@@ -996,7 +994,12 @@ void CFLAAResult::scan(Function *Fn) {
   assert(InsertPair.second &&
          "Trying to scan a function that has already been cached");
 
-  Cache[Fn] = buildSetsFrom(Fn);
+  // Note that we can't do Cache[Fn] = buildSetsFrom(Fn) here: the function call
+  // may get evaluated after operator[], potentially triggering a DenseMap
+  // resize and invalidating the reference returned by operator[]
+  auto FunInfo = buildSetsFrom(Fn);
+  Cache[Fn] = std::move(FunInfo);
+
   Handles.push_front(FunctionHandle(Fn, this));
 }
 

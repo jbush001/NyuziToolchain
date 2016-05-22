@@ -14,6 +14,7 @@
 #include "PPCISelLowering.h"
 #include "MCTargetDesc/PPCPredicates.h"
 #include "PPCCallingConv.h"
+#include "PPCCCState.h"
 #include "PPCMachineFunctionInfo.h"
 #include "PPCPerfectShuffle.h"
 #include "PPCTargetMachine.h"
@@ -41,6 +42,7 @@
 #include "llvm/Support/MathExtras.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Target/TargetOptions.h"
+#include <list>
 
 using namespace llvm;
 
@@ -55,7 +57,7 @@ cl::desc("disable setting the node scheduling preference to ILP on PPC"), cl::Hi
 static cl::opt<bool> DisablePPCUnaligned("disable-ppc-unaligned",
 cl::desc("disable unaligned load/store generation on PPC"), cl::Hidden);
 
-static cl::opt<bool> DisableSCO("disable-ppc-sco", cl::init(true),
+static cl::opt<bool> DisableSCO("disable-ppc-sco",
 cl::desc("disable sibling call optimization on ppc"), cl::Hidden);
 
 STATISTIC(NumTailCalls, "Number of tail calls");
@@ -217,12 +219,8 @@ PPCTargetLowering::PPCTargetLowering(const PPCTargetMachine &TM,
   // PowerPC does not have BSWAP, CTPOP or CTTZ
   setOperationAction(ISD::BSWAP, MVT::i32  , Expand);
   setOperationAction(ISD::CTTZ , MVT::i32  , Expand);
-  setOperationAction(ISD::CTTZ_ZERO_UNDEF, MVT::i32, Expand);
-  setOperationAction(ISD::CTLZ_ZERO_UNDEF, MVT::i32, Expand);
   setOperationAction(ISD::BSWAP, MVT::i64  , Expand);
   setOperationAction(ISD::CTTZ , MVT::i64  , Expand);
-  setOperationAction(ISD::CTTZ_ZERO_UNDEF, MVT::i64, Expand);
-  setOperationAction(ISD::CTLZ_ZERO_UNDEF, MVT::i64, Expand);
 
   if (Subtarget.hasPOPCNTD() == PPCSubtarget::POPCNTD_Fast) {
     setOperationAction(ISD::CTPOP, MVT::i32  , Legal);
@@ -489,9 +487,7 @@ PPCTargetLowering::PPCTargetLowering(const PPCTargetMachine &TM,
       setOperationAction(ISD::SCALAR_TO_VECTOR, VT, Expand);
       setOperationAction(ISD::FPOW, VT, Expand);
       setOperationAction(ISD::BSWAP, VT, Expand);
-      setOperationAction(ISD::CTLZ_ZERO_UNDEF, VT, Expand);
       setOperationAction(ISD::CTTZ, VT, Expand);
-      setOperationAction(ISD::CTTZ_ZERO_UNDEF, VT, Expand);
       setOperationAction(ISD::VSELECT, VT, Expand);
       setOperationAction(ISD::SIGN_EXTEND_INREG, VT, Expand);
       setOperationAction(ISD::ROTL, VT, Expand);
@@ -921,6 +917,7 @@ PPCTargetLowering::PPCTargetLowering(const PPCTargetMachine &TM,
   case PPC::DIR_PWR6X:
   case PPC::DIR_PWR7:
   case PPC::DIR_PWR8:
+  case PPC::DIR_PWR9:
     setPrefFunctionAlignment(4);
     setPrefLoopAlignment(4);
     break;
@@ -1020,6 +1017,7 @@ const char *PPCTargetLowering::getTargetNodeName(unsigned Opcode) const {
   case PPCISD::VMADDFP:         return "PPCISD::VMADDFP";
   case PPCISD::VNMSUBFP:        return "PPCISD::VNMSUBFP";
   case PPCISD::VPERM:           return "PPCISD::VPERM";
+  case PPCISD::XXSPLT:          return "PPCISD::XXSPLT";
   case PPCISD::CMPB:            return "PPCISD::CMPB";
   case PPCISD::Hi:              return "PPCISD::Hi";
   case PPCISD::Lo:              return "PPCISD::Lo";
@@ -2847,14 +2845,17 @@ PPCTargetLowering::LowerFormalArguments_32SVR4(
 
   // Assign locations to all of the incoming arguments.
   SmallVector<CCValAssign, 16> ArgLocs;
-  CCState CCInfo(CallConv, isVarArg, DAG.getMachineFunction(), ArgLocs,
+  PPCCCState CCInfo(CallConv, isVarArg, DAG.getMachineFunction(), ArgLocs,
                  *DAG.getContext());
 
   // Reserve space for the linkage area on the stack.
   unsigned LinkageSize = Subtarget.getFrameLowering()->getLinkageSize();
   CCInfo.AllocateStack(LinkageSize, PtrByteSize);
+  if (Subtarget.useSoftFloat())
+    CCInfo.PreAnalyzeFormalArguments(Ins);
 
   CCInfo.AnalyzeFormalArguments(Ins, CC_PPC32_SVR4);
+  CCInfo.clearWasPPCF128();
 
   for (unsigned i = 0, e = ArgLocs.size(); i != e; ++i) {
     CCValAssign &VA = ArgLocs[i];
@@ -4741,12 +4742,14 @@ PPCTargetLowering::LowerCall_32SVR4(SDValue Chain, SDValue Callee,
 
   // Assign locations to all of the outgoing arguments.
   SmallVector<CCValAssign, 16> ArgLocs;
-  CCState CCInfo(CallConv, isVarArg, DAG.getMachineFunction(), ArgLocs,
+  PPCCCState CCInfo(CallConv, isVarArg, DAG.getMachineFunction(), ArgLocs,
                  *DAG.getContext());
 
   // Reserve space for the linkage area on the stack.
   CCInfo.AllocateStack(Subtarget.getFrameLowering()->getLinkageSize(),
                        PtrByteSize);
+  if (Subtarget.useSoftFloat())
+    CCInfo.PreAnalyzeCallOperands(Outs);
 
   if (isVarArg) {
     // Handle fixed and variable vector arguments differently.
@@ -4779,7 +4782,8 @@ PPCTargetLowering::LowerCall_32SVR4(SDValue Chain, SDValue Callee,
     // All arguments are treated the same.
     CCInfo.AnalyzeCallOperands(Outs, CC_PPC32_SVR4);
   }
-
+  CCInfo.clearWasPPCF128();
+  
   // Assign locations to all of the outgoing aggregate by value arguments.
   SmallVector<CCValAssign, 16> ByValArgLocs;
   CCState CCByValInfo(CallConv, isVarArg, DAG.getMachineFunction(),
@@ -7425,6 +7429,16 @@ SDValue PPCTargetLowering::LowerVECTOR_SHUFFLE(SDValue Op,
   EVT VT = Op.getValueType();
   bool isLittleEndian = Subtarget.isLittleEndian();
 
+  if (Subtarget.hasVSX()) {
+    if (V2.isUndef() && PPC::isSplatShuffleMask(SVOp, 4)) {
+      int SplatIdx = PPC::getVSPLTImmediate(SVOp, 4, DAG);
+      SDValue Conv = DAG.getNode(ISD::BITCAST, dl, MVT::v4i32, V1);
+      SDValue Splat = DAG.getNode(PPCISD::XXSPLT, dl, MVT::v4i32, Conv,
+                                  DAG.getConstant(SplatIdx, dl, MVT::i32));
+      return DAG.getNode(ISD::BITCAST, dl, MVT::v16i8, Splat);
+    }
+  }
+
   if (Subtarget.hasQPX()) {
     if (VT.getVectorNumElements() != 4)
       return SDValue();
@@ -7587,8 +7601,7 @@ SDValue PPCTargetLowering::LowerVECTOR_SHUFFLE(SDValue Op,
                                              MVT::i32));
   }
 
-  SDValue VPermMask = DAG.getNode(ISD::BUILD_VECTOR, dl, MVT::v16i8,
-                                  ResultMask);
+  SDValue VPermMask = DAG.getBuildVector(MVT::v16i8, dl, ResultMask);
   if (isLittleEndian)
     return DAG.getNode(PPCISD::VPERM, dl, V1.getValueType(),
                        V2, V1, VPermMask);
@@ -7715,6 +7728,16 @@ static bool getVectorCompareInfo(SDValue Intrin, int &CompareOpc,
 /// lower, do it, otherwise return null.
 SDValue PPCTargetLowering::LowerINTRINSIC_WO_CHAIN(SDValue Op,
                                                    SelectionDAG &DAG) const {
+  unsigned IntrinsicID =
+    cast<ConstantSDNode>(Op.getOperand(0))->getZExtValue();
+
+  if (IntrinsicID == Intrinsic::thread_pointer) {
+    // Reads the thread pointer register, used for __builtin_thread_pointer.
+    bool is64bit = Subtarget.isPPC64();
+    return DAG.getRegister(is64bit ? PPC::X13 : PPC::R2,
+                           is64bit ? MVT::i64 : MVT::i32);
+  }
+
   // If this is a lowered altivec predicate compare, CompareOpc is set to the
   // opcode number of the comparison.
   SDLoc dl(Op);
@@ -7942,8 +7965,7 @@ SDValue PPCTargetLowering::LowerVectorLoad(SDValue Op,
     }
 
     SDValue TF =  DAG.getNode(ISD::TokenFactor, dl, MVT::Other, LoadChains);
-    SDValue Value = DAG.getNode(ISD::BUILD_VECTOR, dl,
-                                Op.getValueType(), Vals);
+    SDValue Value = DAG.getBuildVector(Op.getValueType(), dl, Vals);
 
     if (LN->isIndexed()) {
       SDValue RetOps[] = { Value, Vals[0].getValue(1), TF };
@@ -7976,7 +7998,7 @@ SDValue PPCTargetLowering::LowerVectorLoad(SDValue Op,
   }
 
   LoadChain = DAG.getNode(ISD::TokenFactor, dl, MVT::Other, VectElmtChains);
-  SDValue Value = DAG.getNode(ISD::BUILD_VECTOR, dl, MVT::v4i1, VectElmts);
+  SDValue Value = DAG.getBuildVector(MVT::v4i1, dl, VectElmts);
 
   SDValue RVals[] = { Value, LoadChain };
   return DAG.getMergeValues(RVals, dl);
@@ -9893,14 +9915,18 @@ SDValue PPCTargetLowering::DAGCombineTruncBoolExt(SDNode *N,
       DAG.ReplaceAllUsesOfValueWith(Inputs[i], Inputs[i].getOperand(0));
   }
 
+  std::list<HandleSDNode> PromOpHandles;
+  for (auto &PromOp : PromOps)
+    PromOpHandles.emplace_back(PromOp); 
+
   // Replace all operations (these are all the same, but have a different
   // (i1) return type). DAG.getNode will validate that the types of
   // a binary operator match, so go through the list in reverse so that
   // we've likely promoted both operands first. Any intermediate truncations or
   // extensions disappear.
-  while (!PromOps.empty()) {
-    SDValue PromOp = PromOps.back();
-    PromOps.pop_back();
+  while (!PromOpHandles.empty()) {
+    SDValue PromOp = PromOpHandles.back().getValue();
+    PromOpHandles.pop_back();
 
     if (PromOp.getOpcode() == ISD::TRUNCATE ||
         PromOp.getOpcode() == ISD::SIGN_EXTEND ||
@@ -9909,7 +9935,7 @@ SDValue PPCTargetLowering::DAGCombineTruncBoolExt(SDNode *N,
       if (!isa<ConstantSDNode>(PromOp.getOperand(0)) &&
           PromOp.getOperand(0).getValueType() != MVT::i1) {
         // The operand is not yet ready (see comment below).
-        PromOps.insert(PromOps.begin(), PromOp);
+        PromOpHandles.emplace_front(PromOp);
         continue;
       }
 
@@ -9936,7 +9962,7 @@ SDValue PPCTargetLowering::DAGCombineTruncBoolExt(SDNode *N,
       // promoted (this should be rare because we're going through the
       // list backward, but if one of the operands has several users in
       // this cluster of to-be-promoted nodes, it is possible).
-      PromOps.insert(PromOps.begin(), PromOp);
+      PromOpHandles.emplace_front(PromOp);
       continue;
     }
 
@@ -10143,13 +10169,17 @@ SDValue PPCTargetLowering::DAGCombineExtBoolTrunc(SDNode *N,
         DAG.getAnyExtOrTrunc(InSrc, dl, N->getValueType(0)));
   }
 
+  std::list<HandleSDNode> PromOpHandles;
+  for (auto &PromOp : PromOps)
+    PromOpHandles.emplace_back(PromOp); 
+
   // Replace all operations (these are all the same, but have a different
   // (promoted) return type). DAG.getNode will validate that the types of
   // a binary operator match, so go through the list in reverse so that
   // we've likely promoted both operands first.
-  while (!PromOps.empty()) {
-    SDValue PromOp = PromOps.back();
-    PromOps.pop_back();
+  while (!PromOpHandles.empty()) {
+    SDValue PromOp = PromOpHandles.back().getValue();
+    PromOpHandles.pop_back();
 
     unsigned C;
     switch (PromOp.getOpcode()) {
@@ -10166,7 +10196,7 @@ SDValue PPCTargetLowering::DAGCombineExtBoolTrunc(SDNode *N,
       // promoted (this should be rare because we're going through the
       // list backward, but if one of the operands has several users in
       // this cluster of to-be-promoted nodes, it is possible).
-      PromOps.insert(PromOps.begin(), PromOp);
+      PromOpHandles.emplace_front(PromOp);
       continue;
     }
 
@@ -10178,7 +10208,7 @@ SDValue PPCTargetLowering::DAGCombineExtBoolTrunc(SDNode *N,
            PromOp.getOperand(0).getValueType() != N->getValueType(0)) ||
           (SelectTruncOp[1].count(PromOp.getNode()) &&
            PromOp.getOperand(1).getValueType() != N->getValueType(0))) {
-        PromOps.insert(PromOps.begin(), PromOp);
+        PromOpHandles.emplace_front(PromOp);
         continue;
       }
     }
@@ -11167,7 +11197,8 @@ unsigned PPCTargetLowering::getPrefLoopAlignment(MachineLoop *ML) const {
   case PPC::DIR_PWR6:
   case PPC::DIR_PWR6X:
   case PPC::DIR_PWR7:
-  case PPC::DIR_PWR8: {
+  case PPC::DIR_PWR8:
+  case PPC::DIR_PWR9: {
     if (!ML)
       break;
 
@@ -11938,10 +11969,8 @@ PPCTargetLowering::shouldExpandBuildVectorWithShuffles(
   if (VT == MVT::v2i64)
     return Subtarget.hasDirectMove(); // Don't need stack ops with direct moves
 
-  if (Subtarget.hasQPX()) {
-    if (VT == MVT::v4f32 || VT == MVT::v4f64 || VT == MVT::v4i1)
-      return true;
-  }
+  if (Subtarget.hasVSX() || Subtarget.hasQPX())
+    return true;
 
   return TargetLowering::shouldExpandBuildVectorWithShuffles(VT, DefinedValues);
 }
@@ -12012,4 +12041,17 @@ void PPCTargetLowering::insertCopiesSplitCSR(
               TII->get(TargetOpcode::COPY), *I)
         .addReg(NewVR);
   }
+}
+
+// Override to enable LOAD_STACK_GUARD lowering on Linux.
+bool PPCTargetLowering::useLoadStackGuardNode() const {
+  if (!Subtarget.isTargetLinux())
+    return TargetLowering::useLoadStackGuardNode();
+  return true;
+}
+
+// Override to disable global variable loading on Linux.
+void PPCTargetLowering::insertSSPDeclarations(Module &M) const {
+  if (!Subtarget.isTargetLinux())
+    return TargetLowering::insertSSPDeclarations(M);
 }

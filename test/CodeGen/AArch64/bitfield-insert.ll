@@ -1,4 +1,4 @@
-; RUN: llc -mtriple=aarch64-none-linux-gnu < %s | FileCheck %s --check-prefix=CHECK
+; RUN: llc -mtriple=aarch64-none-linux-gnu < %s | FileCheck %s
 
 ; First, a simple example from Clang. The registers could plausibly be
 ; different, but probably won't be.
@@ -236,4 +236,145 @@ define i32 @test_nouseful_bits(i8 %a, i32 %b) {
   %or.3 = or i32 %conv, %shl.3  ;   A A A A
   %shl.4 = shl i32 %or.3, 8     ;   A A A 0
   ret i32 %shl.4
+}
+
+define void @test_nouseful_strb(i32* %ptr32, i8* %ptr8, i32 %x)  {
+entry:
+; CHECK-LABEL: @test_nouseful_strb
+; CHECK: ldr [[REG1:w[0-9]+]],
+; CHECK-NOT:  and {{w[0-9]+}}, {{w[0-9]+}}, #0xf8
+; CHECK-NEXT: bfxil [[REG1]], w2, #16, #3
+; CHECK-NEXT: strb [[REG1]],
+; CHECK-NEXT: ret
+  %0 = load i32, i32* %ptr32, align 8
+  %and = and i32 %0, -8
+  %shr = lshr i32 %x, 16
+  %and1 = and i32 %shr, 7
+  %or = or i32 %and, %and1
+  %trunc = trunc i32 %or to i8
+  store i8 %trunc, i8* %ptr8
+  ret void
+}
+
+define void @test_nouseful_strh(i32* %ptr32, i16* %ptr16, i32 %x)  {
+entry:
+; CHECK-LABEL: @test_nouseful_strh
+; CHECK: ldr [[REG1:w[0-9]+]],
+; CHECK-NOT:  and {{w[0-9]+}}, {{w[0-9]+}}, #0xfff0
+; CHECK-NEXT: bfxil [[REG1]], w2, #16, #4
+; CHECK-NEXT: strh [[REG1]],
+; CHECK-NEXT: ret
+  %0 = load i32, i32* %ptr32, align 8
+  %and = and i32 %0, -16
+  %shr = lshr i32 %x, 16
+  %and1 = and i32 %shr, 15
+  %or = or i32 %and, %and1
+  %trunc = trunc i32 %or to i16
+  store i16 %trunc, i16* %ptr16
+  ret void
+}
+
+define void @test_nouseful_sturb(i32* %ptr32, i8* %ptr8, i32 %x)  {
+entry:
+; CHECK-LABEL: @test_nouseful_sturb
+; CHECK: ldr [[REG1:w[0-9]+]],
+; CHECK-NOT:  and {{w[0-9]+}}, {{w[0-9]+}}, #0xf8
+; CHECK-NEXT: bfxil [[REG1]], w2, #16, #3
+; CHECK-NEXT: sturb [[REG1]],
+; CHECK-NEXT: ret
+  %0 = load i32, i32* %ptr32, align 8
+  %and = and i32 %0, -8
+  %shr = lshr i32 %x, 16
+  %and1 = and i32 %shr, 7
+  %or = or i32 %and, %and1
+  %trunc = trunc i32 %or to i8
+  %gep = getelementptr i8, i8* %ptr8, i64 -1
+  store i8 %trunc, i8* %gep
+  ret void
+}
+
+define void @test_nouseful_sturh(i32* %ptr32, i16* %ptr16, i32 %x)  {
+entry:
+; CHECK-LABEL: @test_nouseful_sturh
+; CHECK: ldr [[REG1:w[0-9]+]],
+; CHECK-NOT:  and {{w[0-9]+}}, {{w[0-9]+}}, #0xfff0
+; CHECK-NEXT: bfxil [[REG1]], w2, #16, #4
+; CHECK-NEXT: sturh [[REG1]],
+; CHECK-NEXT: ret
+  %0 = load i32, i32* %ptr32, align 8
+  %and = and i32 %0, -16
+  %shr = lshr i32 %x, 16
+  %and1 = and i32 %shr, 15
+  %or = or i32 %and, %and1
+  %trunc = trunc i32 %or to i16
+  %gep = getelementptr i16, i16* %ptr16, i64 -1
+  store i16 %trunc, i16* %gep
+  ret void
+}
+
+; The next set of tests generate a BFXIL from 'or (and X, Mask0Imm),
+; (and Y, Mask1Imm)' iff Mask0Imm and ~Mask1Imm are equivalent and one of the
+; MaskImms is a shifted mask (e.g., 0x000ffff0).
+
+; CHECK-LABEL: @test_or_and_and1
+; CHECK: lsr w8, w1, #4
+; CHECK: bfi w0, w8, #4, #12
+define i32 @test_or_and_and1(i32 %a, i32 %b) {
+entry:
+  %and = and i32 %a, -65521 ; 0xffff000f
+  %and1 = and i32 %b, 65520 ; 0x0000fff0
+  %or = or i32 %and1, %and
+  ret i32 %or
+}
+
+; CHECK-LABEL: @test_or_and_and2
+; CHECK: lsr w8, w0, #4
+; CHECK: bfi w1, w8, #4, #12
+define i32 @test_or_and_and2(i32 %a, i32 %b) {
+entry:
+  %and = and i32 %a, 65520   ; 0x0000fff0
+  %and1 = and i32 %b, -65521 ; 0xffff000f
+  %or = or i32 %and1, %and
+  ret i32 %or
+}
+
+; CHECK-LABEL: @test_or_and_and3
+; CHECK: lsr x8, x1, #16
+; CHECK: bfi x0, x8, #16, #32
+define i64 @test_or_and_and3(i64 %a, i64 %b) {
+entry:
+  %and = and i64 %a, -281474976645121 ; 0xffff00000000ffff
+  %and1 = and i64 %b, 281474976645120 ; 0x0000ffffffff0000
+  %or = or i64 %and1, %and
+  ret i64 %or
+}
+
+; Don't convert 'and' with multiple uses.
+; CHECK-LABEL: @test_or_and_and4
+; CHECK: and w8, w0, #0xffff000f
+; CHECK: and w9, w1, #0xfff0
+; CHECK: orr w0, w9, w8
+; CHECK: str w8, [x2
+define i32 @test_or_and_and4(i32 %a, i32 %b, i32* %ptr) {
+entry:
+  %and = and i32 %a, -65521
+  store i32 %and, i32* %ptr, align 4
+  %and2 = and i32 %b, 65520
+  %or = or i32 %and2, %and
+  ret i32 %or
+}
+
+; Don't convert 'and' with multiple uses.
+; CHECK-LABEL: @test_or_and_and5
+; CHECK: and w8, w1, #0xfff0
+; CHECK: and w9, w0, #0xffff000f
+; CHECK: orr w0, w8, w9
+; CHECK: str w8, [x2]
+define i32 @test_or_and_and5(i32 %a, i32 %b, i32* %ptr) {
+entry:
+  %and = and i32 %b, 65520
+  store i32 %and, i32* %ptr, align 4
+  %and1 = and i32 %a, -65521
+  %or = or i32 %and, %and1
+  ret i32 %or
 }

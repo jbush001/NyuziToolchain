@@ -107,7 +107,7 @@ MipsInstrInfo::BuildCondBr(MachineBasicBlock &MBB, MachineBasicBlock *TBB,
     else if (Cond[i].isImm())
       MIB.addImm(Cond[i].getImm());
     else
-       assert(true && "Cannot copy operand");
+       assert(false && "Cannot copy operand");
   }
   MIB.addMBB(TBB);
 }
@@ -216,7 +216,7 @@ MipsInstrInfo::BranchType MipsInstrInfo::AnalyzeBranch(
   // If there is only one terminator instruction, process it.
   if (!SecondLastOpc) {
     // Unconditional branch.
-    if (LastOpc == UncondBrOpc) {
+    if (LastInst->isUnconditionalBranch()) {
       TBB = LastInst->getOperand(0).getMBB();
       return BT_Uncond;
     }
@@ -235,7 +235,7 @@ MipsInstrInfo::BranchType MipsInstrInfo::AnalyzeBranch(
 
   // If second to last instruction is an unconditional branch,
   // analyze it and remove the last instruction.
-  if (SecondLastOpc == UncondBrOpc) {
+  if (SecondLastInst->isUnconditionalBranch()) {
     // Return if the last instruction cannot be removed.
     if (!AllowModify)
       return BT_None;
@@ -248,7 +248,7 @@ MipsInstrInfo::BranchType MipsInstrInfo::AnalyzeBranch(
 
   // Conditional branch followed by an unconditional branch.
   // The last one must be unconditional.
-  if (LastOpc != UncondBrOpc)
+  if (!LastInst->isUnconditionalBranch())
     return BT_None;
 
   AnalyzeCondBr(SecondLastInst, SecondLastOpc, TBB, Cond);
@@ -282,6 +282,16 @@ unsigned MipsInstrInfo::getEquivalentCompactForm(
     }
   }
 
+  // MIPSR6 forbids both operands being the zero register.
+  if (Subtarget.hasMips32r6() && (I->getNumOperands() > 1) &&
+      (I->getOperand(0).isReg() &&
+       (I->getOperand(0).getReg() == Mips::ZERO ||
+        I->getOperand(0).getReg() == Mips::ZERO_64)) &&
+      (I->getOperand(1).isReg() &&
+       (I->getOperand(1).getReg() == Mips::ZERO ||
+        I->getOperand(1).getReg() == Mips::ZERO_64)))
+    return 0;
+
   if (Subtarget.hasMips32r6() || canUseShortMicroMipsCTI) {
     switch (Opcode) {
     case Mips::B:
@@ -299,8 +309,12 @@ unsigned MipsInstrInfo::getEquivalentCompactForm(
       else
         return Mips::BNEC;
     case Mips::BGE:
+      if (I->getOperand(0).getReg() == I->getOperand(1).getReg())
+        return 0;
       return Mips::BGEC;
     case Mips::BGEU:
+      if (I->getOperand(0).getReg() == I->getOperand(1).getReg())
+        return 0;
       return Mips::BGEUC;
     case Mips::BGEZ:
       return Mips::BGEZC;
@@ -309,8 +323,12 @@ unsigned MipsInstrInfo::getEquivalentCompactForm(
     case Mips::BLEZ:
       return Mips::BLEZC;
     case Mips::BLT:
+      if (I->getOperand(0).getReg() == I->getOperand(1).getReg())
+        return 0;
       return Mips::BLTC;
     case Mips::BLTU:
+      if (I->getOperand(0).getReg() == I->getOperand(1).getReg())
+        return 0;
       return Mips::BLTUC;
     case Mips::BLTZ:
       return Mips::BLTZC;
@@ -330,7 +348,7 @@ unsigned MipsInstrInfo::getEquivalentCompactForm(
       return Mips::JIC64;
     case Mips::JALR64Pseudo:
       return Mips::JIALC64;
-     default:
+    default:
       return 0;
     }
   }

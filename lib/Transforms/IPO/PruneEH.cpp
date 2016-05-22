@@ -16,7 +16,6 @@
 
 #include "llvm/Transforms/IPO.h"
 #include "llvm/ADT/SmallPtrSet.h"
-#include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Analysis/CallGraph.h"
@@ -64,6 +63,9 @@ Pass *llvm::createPruneEHPass() { return new PruneEH(); }
 
 
 bool PruneEH::runOnSCC(CallGraphSCC &SCC) {
+  if (skipSCC(SCC))
+    return false;
+
   SmallPtrSet<CallGraphNode *, 8> SCCNodes;
   CallGraph &CG = getAnalysis<CallGraphWrapperPass>().getCallGraph();
   bool MadeChange = false;

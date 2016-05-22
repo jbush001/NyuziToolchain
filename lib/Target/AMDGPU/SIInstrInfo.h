@@ -26,6 +26,20 @@ class SIInstrInfo final : public AMDGPUInstrInfo {
 private:
   const SIRegisterInfo RI;
 
+  // The the inverse predicate should have the negative value.
+  enum BranchPredicate {
+    INVALID_BR = 0,
+    SCC_TRUE = 1,
+    SCC_FALSE = -1,
+    VCCNZ = 2,
+    VCCZ = -2,
+    EXECNZ = -3,
+    EXECZ = 3
+  };
+
+  static unsigned getBranchOpcode(BranchPredicate Cond);
+  static BranchPredicate getBranchPredicate(unsigned Opcode);
+
   unsigned buildExtractSubReg(MachineBasicBlock::iterator MI,
                               MachineRegisterInfo &MRI,
                               MachineOperand &SuperReg,
@@ -136,6 +150,20 @@ public:
                              unsigned &SrcOpIdx1,
                              unsigned &SrcOpIdx2) const override;
 
+  bool AnalyzeBranch(MachineBasicBlock &MBB, MachineBasicBlock *&TBB,
+                     MachineBasicBlock *&FBB,
+                     SmallVectorImpl<MachineOperand> &Cond,
+                     bool AllowModify) const override;
+
+  unsigned RemoveBranch(MachineBasicBlock &MBB) const override;
+
+  unsigned InsertBranch(MachineBasicBlock &MBB, MachineBasicBlock *TBB,
+                        MachineBasicBlock *FBB, ArrayRef<MachineOperand> Cond,
+                        DebugLoc DL) const override;
+
+  bool ReverseBranchCondition(
+    SmallVectorImpl<MachineOperand> &Cond) const override;
+
   bool areMemAccessesTriviallyDisjoint(
     MachineInstr *MIa, MachineInstr *MIb,
     AliasAnalysis *AA = nullptr) const override;
@@ -167,6 +195,14 @@ public:
 
   bool isVALU(uint16_t Opcode) const {
     return get(Opcode).TSFlags & SIInstrFlags::VALU;
+  }
+
+  static bool isVMEM(const MachineInstr &MI) {
+    return isMUBUF(MI) || isMTBUF(MI) || isMIMG(MI);
+  }
+
+  bool isVMEM(uint16_t Opcode) const {
+    return isMUBUF(Opcode) || isMTBUF(Opcode) || isMIMG(Opcode);
   }
 
   static bool isSOP1(const MachineInstr &MI) {
@@ -440,6 +476,13 @@ public:
   void insertWaitStates(MachineBasicBlock &MBB,MachineBasicBlock::iterator MI,
                         int Count) const;
 
+  void insertNoop(MachineBasicBlock &MBB,
+                  MachineBasicBlock::iterator MI) const override;
+
+  /// \brief Return the number of wait states that result from executing this
+  /// instruction.
+  unsigned getNumWaitStates(const MachineInstr &MI) const;
+
   /// \brief Returns the operand named \p Op.  If \p MI does not have an
   /// operand named \c Op, this function returns nullptr.
   LLVM_READONLY
@@ -472,6 +515,12 @@ public:
   ArrayRef<std::pair<int, const char *>>
   getSerializableTargetIndices() const override;
 
+  ScheduleHazardRecognizer *
+  CreateTargetPostRAHazardRecognizer(const InstrItineraryData *II,
+                                 const ScheduleDAG *DAG) const override;
+
+  ScheduleHazardRecognizer *
+  CreateTargetPostRAHazardRecognizer(const MachineFunction &MF) const override;
 };
 
 namespace AMDGPU {

@@ -817,18 +817,21 @@ Decl *Sema::ActOnTemplateTemplateParameter(Scope* S,
   return Param;
 }
 
-/// ActOnTemplateParameterList - Builds a TemplateParameterList that
-/// contains the template parameters in Params/NumParams.
+/// ActOnTemplateParameterList - Builds a TemplateParameterList, optionally
+/// constrained by RequiresClause, that contains the template parameters in
+/// Params.
 TemplateParameterList *
 Sema::ActOnTemplateParameterList(unsigned Depth,
                                  SourceLocation ExportLoc,
                                  SourceLocation TemplateLoc,
                                  SourceLocation LAngleLoc,
                                  ArrayRef<Decl *> Params,
-                                 SourceLocation RAngleLoc) {
+                                 SourceLocation RAngleLoc,
+                                 Expr *RequiresClause) {
   if (ExportLoc.isValid())
     Diag(ExportLoc, diag::warn_template_export_unsupported);
 
+  // FIXME: store RequiresClause
   return TemplateParameterList::Create(
       Context, TemplateLoc, LAngleLoc,
       llvm::makeArrayRef((NamedDecl *const *)Params.data(), Params.size()),
@@ -2743,9 +2746,11 @@ Sema::CheckVarTemplateId(VarTemplateDecl *Template, SourceLocation TemplateLoc,
   // corresponds to these arguments.
   void *InsertPos = nullptr;
   if (VarTemplateSpecializationDecl *Spec = Template->findSpecialization(
-          Converted, InsertPos))
+          Converted, InsertPos)) {
+    checkSpecializationVisibility(TemplateNameLoc, Spec);
     // If we already have a variable template specialization, return it.
     return Spec;
+  }
 
   // This is the first time we have referenced this variable template
   // specialization. Create the canonical declaration and add it to
@@ -2786,8 +2791,9 @@ Sema::CheckVarTemplateId(VarTemplateDecl *Template, SourceLocation TemplateLoc,
               DeduceTemplateArguments(Partial, TemplateArgList, Info)) {
         // Store the failed-deduction information for use in diagnostics, later.
         // TODO: Actually use the failed-deduction info?
-        FailedCandidates.addCandidate()
-            .set(Partial, MakeDeductionFailureInfo(Context, Result, Info));
+        FailedCandidates.addCandidate().set(
+            DeclAccessPair::make(Template, AS_public), Partial,
+            MakeDeductionFailureInfo(Context, Result, Info));
         (void)Result;
       } else {
         Matched.push_back(PartialSpecMatchResult());
@@ -2844,8 +2850,8 @@ Sema::CheckVarTemplateId(VarTemplateDecl *Template, SourceLocation TemplateLoc,
   }
 
   // 2. Create the canonical declaration.
-  // Note that we do not instantiate the variable just yet, since
-  // instantiation is handled in DoMarkVarDeclReferenced().
+  // Note that we do not instantiate a definition until we see an odr-use
+  // in DoMarkVarDeclReferenced().
   // FIXME: LateAttrs et al.?
   VarTemplateSpecializationDecl *Decl = BuildVarTemplateInstantiation(
       Template, InstantiationPattern, *InstantiationArgs, TemplateArgs,
@@ -2872,6 +2878,8 @@ Sema::CheckVarTemplateId(VarTemplateDecl *Template, SourceLocation TemplateLoc,
   if (VarTemplatePartialSpecializationDecl *D =
           dyn_cast<VarTemplatePartialSpecializationDecl>(InstantiationPattern))
     Decl->setInstantiationOf(D, InstantiationArgs);
+
+  checkSpecializationVisibility(TemplateNameLoc, Decl);
 
   assert(Decl && "No variable template specialization?");
   return Decl;
@@ -3738,7 +3746,7 @@ static bool diagnoseMissingArgument(Sema &S, SourceLocation Loc,
     S.diagnoseMissingImport(Loc, cast<NamedDecl>(TD),
                             D->getDefaultArgumentLoc(), Modules,
                             Sema::MissingImportKind::DefaultArgument,
-                            /*Recover*/ true);
+                            /*Recover*/true);
     return true;
   }
 
@@ -6888,12 +6896,13 @@ bool Sema::CheckFunctionTemplateSpecialization(
       FunctionDecl *Specialization = nullptr;
       if (TemplateDeductionResult TDK = DeduceTemplateArguments(
               cast<FunctionTemplateDecl>(FunTmpl->getFirstDecl()),
-              ExplicitTemplateArgs ? &Args : nullptr, FT, Specialization, Info)) {
+              ExplicitTemplateArgs ? &Args : nullptr, FT, Specialization,
+              Info)) {
         // Template argument deduction failed; record why it failed, so
         // that we can provide nifty diagnostics.
-        FailedCandidates.addCandidate()
-            .set(FunTmpl->getTemplatedDecl(),
-                 MakeDeductionFailureInfo(Context, TDK, Info));
+        FailedCandidates.addCandidate().set(
+            I.getPair(), FunTmpl->getTemplatedDecl(),
+            MakeDeductionFailureInfo(Context, TDK, Info));
         (void)TDK;
         continue;
       }
@@ -6978,6 +6987,13 @@ bool Sema::CheckFunctionTemplateSpecialization(
   // Mark the prior declaration as an explicit specialization, so that later
   // clients know that this is an explicit specialization.
   if (!isFriend) {
+    // Explicit specializations do not inherit '=delete' from their primary
+    // function template.
+    if (Specialization->isDeleted()) {
+      assert(!SpecInfo->isExplicitSpecialization());
+      assert(Specialization->getCanonicalDecl() == Specialization);
+      Specialization->setDeletedAsWritten(false);
+    }
     SpecInfo->setTemplateSpecializationKind(TSK_ExplicitSpecialization);
     MarkUnusedFileScopedDecl(Specialization);
   }
@@ -7137,6 +7153,13 @@ Sema::CheckMemberSpecialization(NamedDecl *Member, LookupResult &Previous) {
       InstantiationFunction->setTemplateSpecializationKind(
                                                   TSK_ExplicitSpecialization);
       InstantiationFunction->setLocation(Member->getLocation());
+      // Explicit specializations of member functions of class templates do not
+      // inherit '=delete' from the member function they are specializing.
+      if (InstantiationFunction->isDeleted()) {
+        assert(InstantiationFunction->getCanonicalDecl() ==
+               InstantiationFunction);
+        InstantiationFunction->setDeletedAsWritten(false);
+      }
     }
 
     cast<FunctionDecl>(Member)->setInstantiationOfMemberFunction(
@@ -7904,7 +7927,7 @@ DeclResult Sema::ActOnExplicitInstantiation(Scope *S,
                                     R, Specialization, Info)) {
       // Keep track of almost-matches.
       FailedCandidates.addCandidate()
-          .set(FunTmpl->getTemplatedDecl(),
+          .set(P.getPair(), FunTmpl->getTemplatedDecl(),
                MakeDeductionFailureInfo(Context, TDK, Info));
       (void)TDK;
       continue;
@@ -8526,4 +8549,150 @@ bool Sema::IsInsideALocalClassWithinATemplateFunction() {
     DC = DC->getParent();
   }
   return false;
+}
+
+/// \brief Walk the path from which a declaration was instantiated, and check
+/// that every explicit specialization along that path is visible. This enforces
+/// C++ [temp.expl.spec]/6:
+///
+///   If a template, a member template or a member of a class template is
+///   explicitly specialized then that specialization shall be declared before
+///   the first use of that specialization that would cause an implicit
+///   instantiation to take place, in every translation unit in which such a
+///   use occurs; no diagnostic is required.
+///
+/// and also C++ [temp.class.spec]/1:
+///
+///   A partial specialization shall be declared before the first use of a
+///   class template specialization that would make use of the partial
+///   specialization as the result of an implicit or explicit instantiation
+///   in every translation unit in which such a use occurs; no diagnostic is
+///   required.
+class ExplicitSpecializationVisibilityChecker {
+  Sema &S;
+  SourceLocation Loc;
+  llvm::SmallVector<Module *, 8> Modules;
+
+public:
+  ExplicitSpecializationVisibilityChecker(Sema &S, SourceLocation Loc)
+      : S(S), Loc(Loc) {}
+
+  void check(NamedDecl *ND) {
+    if (auto *FD = dyn_cast<FunctionDecl>(ND))
+      return checkImpl(FD);
+    if (auto *RD = dyn_cast<CXXRecordDecl>(ND))
+      return checkImpl(RD);
+    if (auto *VD = dyn_cast<VarDecl>(ND))
+      return checkImpl(VD);
+    if (auto *ED = dyn_cast<EnumDecl>(ND))
+      return checkImpl(ED);
+  }
+
+private:
+  void diagnose(NamedDecl *D, bool IsPartialSpec) {
+    auto Kind = IsPartialSpec ? Sema::MissingImportKind::PartialSpecialization
+                              : Sema::MissingImportKind::ExplicitSpecialization;
+    const bool Recover = true;
+
+    // If we got a custom set of modules (because only a subset of the
+    // declarations are interesting), use them, otherwise let
+    // diagnoseMissingImport intelligently pick some.
+    if (Modules.empty())
+      S.diagnoseMissingImport(Loc, D, Kind, Recover);
+    else
+      S.diagnoseMissingImport(Loc, D, D->getLocation(), Modules, Kind, Recover);
+  }
+
+  // Check a specific declaration. There are three problematic cases:
+  //
+  //  1) The declaration is an explicit specialization of a template
+  //     specialization.
+  //  2) The declaration is an explicit specialization of a member of an
+  //     templated class.
+  //  3) The declaration is an instantiation of a template, and that template
+  //     is an explicit specialization of a member of a templated class.
+  //
+  // We don't need to go any deeper than that, as the instantiation of the
+  // surrounding class / etc is not triggered by whatever triggered this
+  // instantiation, and thus should be checked elsewhere.
+  template<typename SpecDecl>
+  void checkImpl(SpecDecl *Spec) {
+    bool IsHiddenExplicitSpecialization = false;
+    if (Spec->getTemplateSpecializationKind() == TSK_ExplicitSpecialization) {
+      IsHiddenExplicitSpecialization =
+          Spec->getMemberSpecializationInfo()
+              ? !S.hasVisibleMemberSpecialization(Spec, &Modules)
+              : !S.hasVisibleDeclaration(Spec);
+    } else {
+      checkInstantiated(Spec);
+    }
+
+    if (IsHiddenExplicitSpecialization)
+      diagnose(Spec->getMostRecentDecl(), false);
+  }
+
+  void checkInstantiated(FunctionDecl *FD) {
+    if (auto *TD = FD->getPrimaryTemplate())
+      checkTemplate(TD);
+  }
+
+  void checkInstantiated(CXXRecordDecl *RD) {
+    auto *SD = dyn_cast<ClassTemplateSpecializationDecl>(RD);
+    if (!SD)
+      return;
+
+    auto From = SD->getSpecializedTemplateOrPartial();
+    if (auto *TD = From.dyn_cast<ClassTemplateDecl *>())
+      checkTemplate(TD);
+    else if (auto *TD =
+                 From.dyn_cast<ClassTemplatePartialSpecializationDecl *>()) {
+      if (!S.hasVisibleDeclaration(TD))
+        diagnose(TD, true);
+      checkTemplate(TD);
+    }
+  }
+
+  void checkInstantiated(VarDecl *RD) {
+    auto *SD = dyn_cast<VarTemplateSpecializationDecl>(RD);
+    if (!SD)
+      return;
+
+    auto From = SD->getSpecializedTemplateOrPartial();
+    if (auto *TD = From.dyn_cast<VarTemplateDecl *>())
+      checkTemplate(TD);
+    else if (auto *TD =
+                 From.dyn_cast<VarTemplatePartialSpecializationDecl *>()) {
+      if (!S.hasVisibleDeclaration(TD))
+        diagnose(TD, true);
+      checkTemplate(TD);
+    }
+  }
+
+  void checkInstantiated(EnumDecl *FD) {}
+
+  template<typename TemplDecl>
+  void checkTemplate(TemplDecl *TD) {
+    if (TD->isMemberSpecialization()) {
+      if (!S.hasVisibleMemberSpecialization(TD, &Modules))
+        diagnose(TD->getMostRecentDecl(), false);
+    }
+  }
+};
+
+void Sema::checkSpecializationVisibility(SourceLocation Loc, NamedDecl *Spec) {
+  if (!getLangOpts().Modules)
+    return;
+
+  ExplicitSpecializationVisibilityChecker(*this, Loc).check(Spec);
+}
+
+/// \brief Check whether a template partial specialization that we've discovered
+/// is hidden, and produce suitable diagnostics if so.
+void Sema::checkPartialSpecializationVisibility(SourceLocation Loc,
+                                                NamedDecl *Spec) {
+  llvm::SmallVector<Module *, 8> Modules;
+  if (!hasVisibleDeclaration(Spec, &Modules))
+    diagnoseMissingImport(Loc, Spec, Spec->getLocation(), Modules,
+                          MissingImportKind::PartialSpecialization,
+                          /*Recover*/true);
 }

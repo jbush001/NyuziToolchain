@@ -305,6 +305,22 @@ public:
     CALLSITE_DELEGATE_SETTER(setAttributes(PAL));
   }
 
+  void addAttribute(unsigned i, Attribute::AttrKind attr) {
+    CALLSITE_DELEGATE_SETTER(addAttribute(i, attr));
+  }
+
+  void addAttribute(unsigned i, StringRef Kind, StringRef Value) {
+    CALLSITE_DELEGATE_SETTER(addAttribute(i, Kind, Value));
+  }
+
+  void removeAttribute(unsigned i, Attribute::AttrKind attr) {
+    CALLSITE_DELEGATE_SETTER(removeAttribute(i, attr));
+  }
+
+  void removeAttribute(unsigned i, Attribute attr) {
+    CALLSITE_DELEGATE_SETTER(removeAttribute(i, attr));
+  }
+
   /// \brief Return true if this function has the given attribute.
   bool hasFnAttr(Attribute::AttrKind A) const {
     CALLSITE_DELEGATE_GETTER(hasFnAttr(A));
@@ -408,6 +424,14 @@ public:
   }
   void setDoesNotThrow() {
     CALLSITE_DELEGATE_SETTER(setDoesNotThrow());
+  }
+
+  /// @brief Determine if the call can be duplicated.
+  bool cannotDuplicate() const {
+    CALLSITE_DELEGATE_GETTER(cannotDuplicate());
+  }
+  void setCannotDuplicate() {
+    CALLSITE_DELEGATE_GETTER(setCannotDuplicate());
   }
 
   /// @brief Determine if the call is convergent.

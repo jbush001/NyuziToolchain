@@ -41,6 +41,7 @@
 #include <vector>
 
 namespace llvm {
+  class BranchProbability;
   class CallInst;
   class CCState;
   class CCValAssign;
@@ -261,6 +262,10 @@ public:
     return PredictableSelectIsExpensive;
   }
 
+  /// If a branch or a select condition is skewed in one direction by more than
+  /// this factor, it is very likely to be predicted correctly.
+  virtual BranchProbability getPredictableBranchThreshold() const;
+
   /// isLoadBitCastBeneficial() - Return true if the following transform
   /// is beneficial.
   /// fold (conv (load x)) -> (load (conv*)x)
@@ -268,9 +273,31 @@ public:
   /// efficiently, casting the load to a smaller vector of larger types and
   /// loading is more efficient, however, this can be undone by optimizations in
   /// dag combiner.
-  virtual bool isLoadBitCastBeneficial(EVT /* Load */,
-                                       EVT /* Bitcast */) const {
+  virtual bool isLoadBitCastBeneficial(EVT LoadVT,
+                                       EVT BitcastVT) const {
+    // Don't do if we could do an indexed load on the original type, but not on
+    // the new one.
+    if (!LoadVT.isSimple() || !BitcastVT.isSimple())
+      return true;
+
+    MVT LoadMVT = LoadVT.getSimpleVT();
+
+    // Don't bother doing this if it's just going to be promoted again later, as
+    // doing so might interfere with other combines.
+    if (getOperationAction(ISD::LOAD, LoadMVT) == Promote &&
+        getTypeToPromoteTo(ISD::LOAD, LoadMVT) == BitcastVT.getSimpleVT())
+      return false;
+
     return true;
+  }
+
+  /// isStoreBitCastBeneficial() - Mirror of isLoadBitCastBeneficial(). Return
+  /// true if the following transform is beneficial.
+  ///
+  /// (store (y (conv x)), y*)) -> (store x, (x*))
+  virtual bool isStoreBitCastBeneficial(EVT StoreVT, EVT BitcastVT) const {
+    // Default to the same logic as loads.
+    return isLoadBitCastBeneficial(StoreVT, BitcastVT);
   }
 
   /// Return true if it is expected to be cheaper to do a store of a non-zero
@@ -305,6 +332,22 @@ public:
   /// \endcode
   bool isMaskAndBranchFoldingLegal() const {
     return MaskAndBranchFoldingIsLegal;
+  }
+
+  /// Return true if the target should transform:
+  /// (X & Y) == Y ---> (~X & Y) == 0
+  /// (X & Y) != Y ---> (~X & Y) != 0
+  ///
+  /// This may be profitable if the target has a bitwise and-not operation that
+  /// sets comparison flags. A target may want to limit the transformation based
+  /// on the type of Y or if Y is a constant.
+  ///
+  /// Note that the transform will not occur if Y is known to be a power-of-2
+  /// because a mask and compare of a single bit can be handled by inverting the
+  /// predicate, for example:
+  /// (X & 8) == 8 ---> (X & 8) != 0
+  virtual bool hasAndNotCompare(SDValue Y) const {
+    return false;
   }
 
   /// \brief Return true if the target wants to use the optimization that
@@ -573,7 +616,17 @@ public:
        getOperationAction(Op, VT) == Promote);
   }
 
-  /// Return true if the specified operation is ilegal but has a custom lowering
+  /// Return true if the specified operation is legal on this target or can be
+  /// made legal with custom lowering or using promotion. This is used to help
+  /// guide high-level lowering decisions.
+  bool isOperationLegalOrCustomOrPromote(unsigned Op, EVT VT) const {
+    return (VT == MVT::Other || isTypeLegal(VT)) &&
+      (getOperationAction(Op, VT) == Legal ||
+       getOperationAction(Op, VT) == Custom ||
+       getOperationAction(Op, VT) == Promote);
+  }
+
+  /// Return true if the specified operation is illegal but has a custom lowering
   /// on that type. This is used to help guide high-level lowering
   /// decisions.
   bool isOperationCustom(unsigned Op, EVT VT) const {
@@ -1013,6 +1066,8 @@ public:
 
   /// If the target has a standard location for the stack protector guard,
   /// returns the address of that location. Otherwise, returns nullptr.
+  /// DEPRECATED: please override useLoadStackGuardNode and customize
+  ///             LOAD_STACK_GUARD, or customize @llvm.stackguard().
   virtual Value *getIRStackGuard(IRBuilder<> &IRB) const;
 
   /// Inserts necessary declarations for SSP purpose. Should be used only when
@@ -1022,7 +1077,7 @@ public:
   /// Return the variable that's previously inserted by insertSSPDeclarations,
   /// if any, otherwise return nullptr. Should be used only when
   /// getIRStackGuard returns nullptr.
-  virtual Value *getSDStackGuard(const Module &M) const;
+  virtual Value *getSDagStackGuard(const Module &M) const;
 
   /// If the target has a standard location for the unsafe stack pointer,
   /// returns the address of that location. Otherwise, returns nullptr.
@@ -1193,9 +1248,10 @@ public:
     return nullptr;
   }
 
-  /// Returns true if the platform's atomic operations are sign extended.
-  virtual bool hasSignExtendedAtomicOps() const {
-    return false;
+  /// Returns how the platform's atomic operations are extended (ZERO_EXTEND,
+  /// SIGN_EXTEND, or ANY_EXTEND).
+  virtual ISD::NodeType getExtendForAtomicOps() const {
+    return ISD::ZERO_EXTEND;
   }
 
   /// @}
@@ -2464,7 +2520,10 @@ public:
       RetTy = ResultType;
 
       IsInReg = Call.paramHasAttr(0, Attribute::InReg);
-      DoesNotReturn = Call.doesNotReturn();
+      DoesNotReturn =
+          Call.doesNotReturn() ||
+          (!Call.isInvoke() &&
+           isa<UnreachableInst>(Call.getInstruction()->getNextNode()));
       IsVarArg = FTy->isVarArg();
       IsReturnValueUsed = !Call.getInstruction()->use_empty();
       RetSExt = Call.paramHasAttr(0, Attribute::SExt);
@@ -2923,6 +2982,15 @@ public:
   /// \returns MERGE_VALUs of the individual store chains.
   SDValue scalarizeVectorStore(StoreSDNode *ST, SelectionDAG &DAG) const;
 
+  /// Expands an unaligned load to 2 half-size loads for an integer, and
+  /// possibly more for vectors.
+  std::pair<SDValue, SDValue> expandUnalignedLoad(LoadSDNode *LD,
+                                                  SelectionDAG &DAG) const;
+
+  /// Expands an unaligned store to 2 half-size stores for integer values, and
+  /// possibly more for vectors.
+  SDValue expandUnalignedStore(StoreSDNode *ST, SelectionDAG &DAG) const;
+
   //===--------------------------------------------------------------------===//
   // Instruction Emitting Hooks
   //
@@ -2954,6 +3022,11 @@ public:
   /// Lower TLS global address SDNode for target independent emulated TLS model.
   virtual SDValue LowerToTLSEmulatedModel(const GlobalAddressSDNode *GA,
                                           SelectionDAG &DAG) const;
+
+private:
+  SDValue simplifySetCCWithAnd(EVT VT, SDValue N0, SDValue N1,
+                               ISD::CondCode Cond, DAGCombinerInfo &DCI,
+                               SDLoc DL) const;
 };
 
 /// Given an LLVM IR type and return type attributes, compute the return value

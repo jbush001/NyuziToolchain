@@ -82,6 +82,7 @@ if(LLVM_BUILD_EXTERNAL_COMPILER_RT AND EXISTS ${COMPILER_RT_SRC_ROOT}/)
                -DCOMPILER_RT_INSTALL_PATH:STRING=lib${LLVM_LIBDIR_SUFFIX}/clang/${CLANG_VERSION}
                -DCOMPILER_RT_INCLUDE_TESTS=${LLVM_INCLUDE_TESTS}
                -DCMAKE_INSTALL_PREFIX=${CMAKE_INSTALL_PREFIX}
+               -LLVM_LIBDIR_SUFFIX=${LLVM_LIBDIR_SUFFIX}
                -Dcmake_3_2_USES_TERMINAL=${cmake_3_2_USES_TERMINAL}
                ${COMPILER_RT_PASSTHROUGH_VARIABLES}
     INSTALL_COMMAND ""
@@ -148,16 +149,3 @@ if(LLVM_BUILD_EXTERNAL_COMPILER_RT AND EXISTS ${COMPILER_RT_SRC_ROOT}/)
       VERBATIM)
   endif()
 endif()
-
-set(src "${CMAKE_CURRENT_SOURCE_DIR}/vtables_blacklist.txt")
-set(dst "${LLVM_LIBRARY_OUTPUT_INTDIR}/clang/${CLANG_VERSION}/vtables_blacklist.txt")
-add_custom_command(OUTPUT ${dst}
-                   DEPENDS ${src}
-                   COMMAND ${CMAKE_COMMAND} -E copy_if_different ${src} ${dst}
-                   COMMENT "Copying vtables blacklist")
-add_custom_target(vtables_blacklist DEPENDS ${dst})
-set_target_properties(vtables_blacklist PROPERTIES FOLDER "Misc")
-if(TARGET clang)
-  add_dependencies(clang vtables_blacklist)
-endif()
-install(FILES ${src} DESTINATION lib${LLVM_LIBDIR_SUFFIX}/clang/${CLANG_VERSION})

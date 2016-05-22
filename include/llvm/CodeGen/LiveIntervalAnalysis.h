@@ -31,7 +31,6 @@
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Target/TargetRegisterInfo.h"
 #include <cmath>
-#include <iterator>
 
 namespace llvm {
 
@@ -410,6 +409,11 @@ extern cl::opt<bool> UseSegmentSetForPhysRegs;
     /// This calls ConnectedSubRegClasses::splitSeparateSubRegComponent()
     /// on each virtual register.
     void renameDisconnectedComponents();
+
+    /// For live interval \p LI with correct SubRanges construct matching
+    /// information for the main live range. Expects the main live range to not
+    /// have any segments or value numbers.
+    void constructMainRangeFromSubranges(LiveInterval &LI);
 
   private:
     /// Compute live intervals for all virtual registers.

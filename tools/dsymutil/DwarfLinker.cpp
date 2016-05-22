@@ -595,8 +595,7 @@ bool DwarfStreamer::init(Triple TheTriple, StringRef OutputFilename) {
 
   MOFI.reset(new MCObjectFileInfo);
   MC.reset(new MCContext(MAI.get(), MRI.get(), MOFI.get()));
-  MOFI->InitMCObjectFileInfo(TheTriple, Reloc::Default, CodeModel::Default,
-                             *MC);
+  MOFI->InitMCObjectFileInfo(TheTriple, /*PIC*/ false, CodeModel::Default, *MC);
 
   MAB = TheTarget->createMCAsmBackend(*MRI, TripleName, "");
   if (!MAB)
@@ -630,7 +629,8 @@ bool DwarfStreamer::init(Triple TheTriple, StringRef OutputFilename) {
     return error("no object streamer for target " + TripleName, Context);
 
   // Finally create the AsmPrinter we'll use to emit the DIEs.
-  TM.reset(TheTarget->createTargetMachine(TripleName, "", "", TargetOptions()));
+  TM.reset(TheTarget->createTargetMachine(TripleName, "", "", TargetOptions(),
+                                          None));
   if (!TM)
     return error("no target machine for target " + TripleName, Context);
 
@@ -1951,8 +1951,9 @@ findValidRelocsMachO(const object::SectionRef &Section,
 
     auto Sym = Reloc.getSymbol();
     if (Sym != Obj.symbol_end()) {
-      ErrorOr<StringRef> SymbolName = Sym->getName();
+      Expected<StringRef> SymbolName = Sym->getName();
       if (!SymbolName) {
+        consumeError(SymbolName.takeError());
         Linker.reportWarning("error getting relocation symbol name.");
         continue;
       }
@@ -3248,7 +3249,10 @@ bool DwarfLinker::registerModuleReference(
 
   auto Cached = ClangModules.find(PCMfile);
   if (Cached != ClangModules.end()) {
-    if (Cached->second != DwoId)
+    // FIXME: Until PR27449 (https://llvm.org/bugs/show_bug.cgi?id=27449) is
+    // fixed in clang, only warn about DWO_id mismatches in verbose mode.
+    // ASTFileSignatures will change randomly when a module is rebuilt.
+    if (Options.Verbose && (Cached->second != DwoId))
       reportWarning(Twine("hash mismatch: this object file was built against a "
                           "different version of the module ") + PCMfile);
     if (Options.Verbose)
@@ -3298,7 +3302,6 @@ void DwarfLinker::loadClangModule(StringRef Filename, StringRef ModulePath,
     bool isClangModule = sys::path::extension(Filename).equals(".pcm");
     bool isArchive = ObjFile.endswith(")");
     if (isClangModule) {
-      sys::path::remove_filename(Path);
       StringRef ModuleCacheDir = sys::path::parent_path(Path);
       if (sys::fs::exists(ModuleCacheDir)) {
         // If the module's parent directory exists, we assume that the module
@@ -3316,8 +3319,11 @@ void DwarfLinker::loadClangModule(StringRef Filename, StringRef ModulePath,
         // was built on a different machine. We don't want to discourage module
         // debugging for convenience libraries within a project though.
         if (!ArchiveHintDisplayed) {
-          errs() << "note: Module debugging should be disabled when shipping "
-                    "static libraries.\n";
+          errs() << "note: Linking a static library that was built with "
+                    "-gmodules, but the module cache was not found.  "
+                    "Redistributable static libraries should never be built "
+                    "with module debugging enabled.  The debug experience will "
+                    "be degraded due to incomplete debug information.\n";
           ArchiveHintDisplayed = true;
         }
       }
@@ -3339,10 +3345,18 @@ void DwarfLinker::loadClangModule(StringRef Filename, StringRef ModulePath,
                << " 1 compile unit.\n";
         exitDsymutil(1);
       }
-      if (getDwoId(*CUDie, *CU) != DwoId)
-        reportWarning(
-            Twine("hash mismatch: this object file was built against a "
-                  "different version of the module ") + Filename);
+      // FIXME: Until PR27449 (https://llvm.org/bugs/show_bug.cgi?id=27449) is
+      // fixed in clang, only warn about DWO_id mismatches in verbose mode.
+      // ASTFileSignatures will change randomly when a module is rebuilt.
+      uint64_t PCMDwoId = getDwoId(*CUDie, *CU);
+      if (PCMDwoId != DwoId) {
+        if (Options.Verbose)
+          reportWarning(
+              Twine("hash mismatch: this object file was built against a "
+                    "different version of the module ") + Filename);
+        // Update the cache entry with the DwoId of the module loaded from disk.
+        ClangModules[Filename] = PCMDwoId;
+      }
 
       // Add this module.
       Unit = llvm::make_unique<CompileUnit>(*CU, UnitID++, !Options.NoODR,

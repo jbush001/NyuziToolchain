@@ -326,7 +326,8 @@ static LoadInst *combineLoadToNewType(InstCombiner &IC, LoadInst &LI, Type *NewT
 
   LoadInst *NewLoad = IC.Builder->CreateAlignedLoad(
       IC.Builder->CreateBitCast(Ptr, NewTy->getPointerTo(AS)),
-      LI.getAlignment(), LI.getName() + Suffix);
+      LI.getAlignment(), LI.isVolatile(), LI.getName() + Suffix);
+  NewLoad->setAtomic(LI.getOrdering(), LI.getSynchScope());
   MDBuilder MDB(NewLoad->getContext());
   for (const auto &MDPair : MD) {
     unsigned ID = MDPair.first;
@@ -398,7 +399,8 @@ static StoreInst *combineStoreToNewValue(InstCombiner &IC, StoreInst &SI, Value 
 
   StoreInst *NewStore = IC.Builder->CreateAlignedStore(
       V, IC.Builder->CreateBitCast(Ptr, V->getType()->getPointerTo(AS)),
-      SI.getAlignment());
+      SI.getAlignment(), SI.isVolatile());
+  NewStore->setAtomic(SI.getOrdering(), SI.getSynchScope());
   for (const auto &MDPair : MD) {
     unsigned ID = MDPair.first;
     MDNode *N = MDPair.second;
@@ -438,7 +440,7 @@ static StoreInst *combineStoreToNewValue(InstCombiner &IC, StoreInst &SI, Value 
   return NewStore;
 }
 
-/// \brief Combine loads to match the type of value their uses after looking
+/// \brief Combine loads to match the type of their uses' value after looking
 /// through intervening bitcasts.
 ///
 /// The core idea here is that if the result of a load is used in an operation,
@@ -456,9 +458,9 @@ static StoreInst *combineStoreToNewValue(InstCombiner &IC, StoreInst &SI, Value 
 /// later. However, it is risky in case some backend or other part of LLVM is
 /// relying on the exact type loaded to select appropriate atomic operations.
 static Instruction *combineLoadToOperationType(InstCombiner &IC, LoadInst &LI) {
-  // FIXME: We could probably with some care handle both volatile and atomic
-  // loads here but it isn't clear that this is important.
-  if (!LI.isSimple())
+  // FIXME: We could probably with some care handle both volatile and ordered
+  // atomic loads here but it isn't clear that this is important.
+  if (!LI.isUnordered())
     return nullptr;
 
   if (LI.use_empty())
@@ -640,7 +642,7 @@ static bool isObjectSizeLessThanOrEq(Value *V, uint64_t MaxSize,
     }
 
     if (GlobalAlias *GA = dyn_cast<GlobalAlias>(P)) {
-      if (!GA->isInterposable())
+      if (GA->isInterposable())
         return false;
       Worklist.push_back(GA->getAliasee());
       continue;
@@ -809,10 +811,6 @@ Instruction *InstCombiner::visitLoadInst(LoadInst &LI) {
       return &LI;
   }
 
-  // None of the following transforms are legal for volatile/atomic loads.
-  // FIXME: Some of it is okay for atomic loads; needs refactoring.
-  if (!LI.isSimple()) return nullptr;
-
   if (Instruction *Res = unpackLoadToAggregate(*this, LI))
     return Res;
 
@@ -839,6 +837,10 @@ Instruction *InstCombiner::visitLoadInst(LoadInst &LI) {
         LI, Builder->CreateBitOrPointerCast(AvailableVal, LI.getType(),
                                             LI.getName() + ".cast"));
   }
+
+  // None of the following transforms are legal for volatile/ordered atomic
+  // loads.  Most of them do apply for unordered atomics.
+  if (!LI.isUnordered()) return nullptr;
 
   // load(gep null, ...) -> unreachable
   if (GetElementPtrInst *GEPI = dyn_cast<GetElementPtrInst>(Op)) {
@@ -881,14 +883,17 @@ Instruction *InstCombiner::visitLoadInst(LoadInst &LI) {
     if (SelectInst *SI = dyn_cast<SelectInst>(Op)) {
       // load (select (Cond, &V1, &V2))  --> select(Cond, load &V1, load &V2).
       unsigned Align = LI.getAlignment();
-      if (isSafeToLoadUnconditionally(SI->getOperand(1), Align, SI) &&
-          isSafeToLoadUnconditionally(SI->getOperand(2), Align, SI)) {
+      if (isSafeToLoadUnconditionally(SI->getOperand(1), Align, DL, SI) &&
+          isSafeToLoadUnconditionally(SI->getOperand(2), Align, DL, SI)) {
         LoadInst *V1 = Builder->CreateLoad(SI->getOperand(1),
                                            SI->getOperand(1)->getName()+".val");
         LoadInst *V2 = Builder->CreateLoad(SI->getOperand(2),
                                            SI->getOperand(2)->getName()+".val");
+        assert(LI.isUnordered() && "implied by above");
         V1->setAlignment(Align);
+        V1->setAtomic(LI.getOrdering(), LI.getSynchScope());
         V2->setAlignment(Align);
+        V2->setAtomic(LI.getOrdering(), LI.getSynchScope());
         return SelectInst::Create(SI->getCondition(), V1, V2);
       }
 
@@ -908,6 +913,61 @@ Instruction *InstCombiner::visitLoadInst(LoadInst &LI) {
     }
   }
   return nullptr;
+}
+
+/// \brief Look for extractelement/insertvalue sequence that acts like a bitcast.
+///
+/// \returns underlying value that was "cast", or nullptr otherwise.
+///
+/// For example, if we have:
+///
+///     %E0 = extractelement <2 x double> %U, i32 0
+///     %V0 = insertvalue [2 x double] undef, double %E0, 0
+///     %E1 = extractelement <2 x double> %U, i32 1
+///     %V1 = insertvalue [2 x double] %V0, double %E1, 1
+///
+/// and the layout of a <2 x double> is isomorphic to a [2 x double],
+/// then %V1 can be safely approximated by a conceptual "bitcast" of %U.
+/// Note that %U may contain non-undef values where %V1 has undef.
+static Value *likeBitCastFromVector(InstCombiner &IC, Value *V) {
+  Value *U = nullptr;
+  while (auto *IV = dyn_cast<InsertValueInst>(V)) {
+    auto *E = dyn_cast<ExtractElementInst>(IV->getInsertedValueOperand());
+    if (!E)
+      return nullptr;
+    auto *W = E->getVectorOperand();
+    if (!U)
+      U = W;
+    else if (U != W)
+      return nullptr;
+    auto *CI = dyn_cast<ConstantInt>(E->getIndexOperand());
+    if (!CI || IV->getNumIndices() != 1 || CI->getZExtValue() != *IV->idx_begin())
+      return nullptr;
+    V = IV->getAggregateOperand();
+  }
+  if (!isa<UndefValue>(V) ||!U)
+    return nullptr;
+
+  auto *UT = cast<VectorType>(U->getType());
+  auto *VT = V->getType();
+  // Check that types UT and VT are bitwise isomorphic.
+  const auto &DL = IC.getDataLayout();
+  if (DL.getTypeStoreSizeInBits(UT) != DL.getTypeStoreSizeInBits(VT)) {
+    return nullptr;
+  }
+  if (auto *AT = dyn_cast<ArrayType>(VT)) {
+    if (AT->getNumElements() != UT->getNumElements())
+      return nullptr;
+  } else {
+    auto *ST = cast<StructType>(VT);
+    if (ST->getNumElements() != UT->getNumElements())
+      return nullptr;
+    for (const auto *EltT : ST->elements()) {
+      if (EltT != UT->getElementType())
+        return nullptr;
+    }
+  }
+  return U;
 }
 
 /// \brief Combine stores to match the type of value being stored.
@@ -931,9 +991,9 @@ Instruction *InstCombiner::visitLoadInst(LoadInst &LI) {
 /// the store instruction as otherwise there is no way to signal whether it was
 /// combined or not: IC.EraseInstFromFunction returns a null pointer.
 static bool combineStoreToValueType(InstCombiner &IC, StoreInst &SI) {
-  // FIXME: We could probably with some care handle both volatile and atomic
-  // stores here but it isn't clear that this is important.
-  if (!SI.isSimple())
+  // FIXME: We could probably with some care handle both volatile and ordered
+  // atomic stores here but it isn't clear that this is important.
+  if (!SI.isUnordered())
     return false;
 
   Value *V = SI.getValueOperand();
@@ -945,8 +1005,13 @@ static bool combineStoreToValueType(InstCombiner &IC, StoreInst &SI) {
     return true;
   }
 
-  // FIXME: We should also canonicalize loads of vectors when their elements are
-  // cast to other types.
+  if (Value *U = likeBitCastFromVector(IC, V)) {
+    combineStoreToNewValue(IC, SI, U);
+    return true;
+  }
+
+  // FIXME: We should also canonicalize stores of vectors when their elements
+  // are cast to other types.
   return false;
 }
 
@@ -1185,10 +1250,6 @@ Instruction *InstCombiner::visitStoreInst(StoreInst &SI) {
   if (isa<UndefValue>(Val))
     return eraseInstFromFunction(SI);
 
-  // The code below needs to be audited and adjusted for unordered atomics
-  if (!SI.isSimple())
-    return nullptr;
-
   // If this store is the last instruction in the basic block (possibly
   // excepting debug info instructions), and if the block ends with an
   // unconditional branch, try to move it to the successor block.
@@ -1214,6 +1275,9 @@ Instruction *InstCombiner::visitStoreInst(StoreInst &SI) {
 /// into a phi node with a store in the successor.
 ///
 bool InstCombiner::SimplifyStoreAtEndOfBlock(StoreInst &SI) {
+  assert(SI.isUnordered() &&
+         "this code has not been auditted for volatile or ordered store case");
+  
   BasicBlock *StoreBB = SI.getParent();
 
   // Check to see if the successor block has exactly two incoming edges.  If

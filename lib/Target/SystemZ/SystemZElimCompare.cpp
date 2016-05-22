@@ -18,7 +18,6 @@
 #include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/IR/Function.h"
-#include "llvm/Support/CommandLine.h"
 #include "llvm/Support/MathExtras.h"
 #include "llvm/Target/TargetInstrInfo.h"
 #include "llvm/Target/TargetMachine.h"
@@ -217,7 +216,7 @@ SystemZElimCompare::convertToBRCT(MachineInstr *MI, MachineInstr *Compare,
     .addOperand(MI->getOperand(0))
     .addOperand(MI->getOperand(1))
     .addOperand(Target)
-    .addReg(SystemZ::CC, RegState::ImplicitDefine);
+    .addReg(SystemZ::CC, RegState::ImplicitDefine | RegState::Dead);
   MI->eraseFromParent();
   return true;
 }
@@ -449,7 +448,7 @@ fuseCompareAndBranch(MachineInstr *Compare,
     // to a non-fused branch because of a long displacement.  Conditional
     // returns don't have that problem.
     MIB.addOperand(Target)
-       .addReg(SystemZ::CC, RegState::ImplicitDefine);
+       .addReg(SystemZ::CC, RegState::ImplicitDefine | RegState::Dead);
   }
 
   if (Type == SystemZII::CompareAndSibcall)
@@ -501,6 +500,9 @@ bool SystemZElimCompare::processBlock(MachineBasicBlock &MBB) {
 }
 
 bool SystemZElimCompare::runOnMachineFunction(MachineFunction &F) {
+  if (skipFunction(*F.getFunction()))
+    return false;
+
   TII = static_cast<const SystemZInstrInfo *>(F.getSubtarget().getInstrInfo());
   TRI = &TII->getRegisterInfo();
 

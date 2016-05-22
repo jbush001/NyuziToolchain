@@ -110,8 +110,6 @@ XCoreTargetLowering::XCoreTargetLowering(const TargetMachine &TM,
   setOperationAction(ISD::CTPOP, MVT::i32, Expand);
   setOperationAction(ISD::ROTL , MVT::i32, Expand);
   setOperationAction(ISD::ROTR , MVT::i32, Expand);
-  setOperationAction(ISD::CTTZ_ZERO_UNDEF, MVT::i32, Expand);
-  setOperationAction(ISD::CTLZ_ZERO_UNDEF, MVT::i32, Expand);
 
   setOperationAction(ISD::TRAP, MVT::Other, Legal);
 
@@ -260,7 +258,7 @@ SDValue XCoreTargetLowering::getGlobalAddressWrapper(SDValue GA,
     return DAG.getNode(XCoreISD::PCRelativeWrapper, dl, MVT::i32, GA);
 
   const auto *GVar = dyn_cast<GlobalVariable>(GV);
-  if ((GV->hasSection() && StringRef(GV->getSection()).startswith(".cp.")) ||
+  if ((GV->hasSection() && GV->getSection().startswith(".cp.")) ||
       (GVar && GVar->isConstant() && GV->hasLocalLinkage()))
     return DAG.getNode(XCoreISD::CPRelativeWrapper, dl, MVT::i32, GA);
 
@@ -1332,7 +1330,7 @@ XCoreTargetLowering::LowerCCCArguments(SDValue Chain,
         {
 #ifndef NDEBUG
           errs() << "LowerFormalArguments Unhandled argument type: "
-                 << RegVT.getSimpleVT().SimpleTy << "\n";
+                 << RegVT.getEVTString() << "\n";
 #endif
           llvm_unreachable(nullptr);
         }

@@ -261,55 +261,30 @@ void CodeViewDebug::emitTypeInformation() {
   // This type info currently only holds function ids for use with inline call
   // frame info. All functions are assigned a simple 'void ()' type. Emit that
   // type here.
-  unsigned ArgListIndex = getNextTypeIndex();
-  OS.AddComment("Type record length");
-  OS.EmitIntValue(2 + sizeof(ArgList), 2);
-  OS.AddComment("Leaf type: LF_ARGLIST");
-  OS.EmitIntValue(LF_ARGLIST, 2);
-  OS.AddComment("Number of arguments");
-  OS.EmitIntValue(0, 4);
+  ArrayRef<TypeIndex> NoArgs;
+  ArgListRecord ArgListRec(TypeRecordKind::ArgList, NoArgs);
+  TypeIndex ArgListIndex = TypeTable.writeArgList(ArgListRec);
 
-  unsigned VoidFnTyIdx = getNextTypeIndex();
-  OS.AddComment("Type record length");
-  OS.EmitIntValue(2 + sizeof(ProcedureType), 2);
-  OS.AddComment("Leaf type: LF_PROCEDURE");
-  OS.EmitIntValue(LF_PROCEDURE, 2);
-  OS.AddComment("Return type index");
-  OS.EmitIntValue(TypeIndex::Void().getIndex(), 4);
-  OS.AddComment("Calling convention");
-  OS.EmitIntValue(char(CallingConvention::NearC), 1);
-  OS.AddComment("Function options");
-  OS.EmitIntValue(char(FunctionOptions::None), 1);
-  OS.AddComment("# of parameters");
-  OS.EmitIntValue(0, 2);
-  OS.AddComment("Argument list type index");
-  OS.EmitIntValue(ArgListIndex, 4);
+  ProcedureRecord Procedure(TypeIndex::Void(), CallingConvention::NearC,
+                            FunctionOptions::None, 0, ArgListIndex);
+  TypeIndex VoidFnTyIdx = TypeTable.writeProcedure(Procedure);
 
   // Emit LF_FUNC_ID records for all inlined subprograms to the type stream.
   // Allocate one type index for each func id.
-  unsigned NextIdx = getNextTypeIndex(InlinedSubprograms.size());
-  (void)NextIdx;
-  assert(NextIdx == FuncIdTypeIndexStart && "func id type indices broken");
   for (auto *SP : InlinedSubprograms) {
+    TypeIndex ParentScope = TypeIndex(0);
     StringRef DisplayName = SP->getDisplayName();
-    OS.AddComment("Type record length");
-    MCSymbol *FuncBegin = MMI->getContext().createTempSymbol(),
-             *FuncEnd = MMI->getContext().createTempSymbol();
-    OS.emitAbsoluteSymbolDiff(FuncEnd, FuncBegin, 2);
-    OS.EmitLabel(FuncBegin);
-    OS.AddComment("Leaf type: LF_FUNC_ID");
-    OS.EmitIntValue(LF_FUNC_ID, 2);
-
-    OS.AddComment("Scope type index");
-    OS.EmitIntValue(0, 4);
-    OS.AddComment("Function type");
-    OS.EmitIntValue(VoidFnTyIdx, 4);
-    {
-      OS.AddComment("Function name");
-      emitNullTerminatedSymbolName(OS, DisplayName);
-    }
-    OS.EmitLabel(FuncEnd);
+    FuncIdRecord FuncId(ParentScope, VoidFnTyIdx, DisplayName);
+    TypeTable.writeFuncId(FuncId);
   }
+
+  TypeTable.ForEachRecord(
+      [&](TypeIndex Index, const MemoryTypeTableBuilder::Record *R) {
+        OS.AddComment("Type record length");
+        OS.EmitIntValue(R->size(), 2);
+        OS.AddComment("Type record data");
+        OS.EmitBytes(StringRef(R->data(), R->size()));
+      });
 }
 
 void CodeViewDebug::emitInlineeFuncIdsAndLines() {
@@ -379,7 +354,7 @@ void CodeViewDebug::emitInlinedCallSite(const FunctionInfo &FI,
   OS.emitAbsoluteSymbolDiff(InlineEnd, InlineBegin, 2);   // RecordLength
   OS.EmitLabel(InlineBegin);
   OS.AddComment("Record kind: S_INLINESITE");
-  OS.EmitIntValue(SymbolRecordKind::S_INLINESITE, 2); // RecordKind
+  OS.EmitIntValue(SymbolKind::S_INLINESITE, 2); // RecordKind
 
   OS.AddComment("PtrParent");
   OS.EmitIntValue(0, 4);
@@ -413,7 +388,7 @@ void CodeViewDebug::emitInlinedCallSite(const FunctionInfo &FI,
   OS.AddComment("Record length");
   OS.EmitIntValue(2, 2);                                  // RecordLength
   OS.AddComment("Record kind: S_INLINESITE_END");
-  OS.EmitIntValue(SymbolRecordKind::S_INLINESITE_END, 2); // RecordKind
+  OS.EmitIntValue(SymbolKind::S_INLINESITE_END, 2); // RecordKind
 }
 
 void CodeViewDebug::emitDebugInfoForFunction(const Function *GV,
@@ -447,7 +422,7 @@ void CodeViewDebug::emitDebugInfoForFunction(const Function *GV,
     OS.EmitLabel(ProcRecordBegin);
 
     OS.AddComment("Record kind: S_GPROC32_ID");
-    OS.EmitIntValue(unsigned(SymbolRecordKind::S_GPROC32_ID), 2);
+    OS.EmitIntValue(unsigned(SymbolKind::S_GPROC32_ID), 2);
 
     // These fields are filled in by tools like CVPACK which run after the fact.
     OS.AddComment("PtrParent");
@@ -495,7 +470,7 @@ void CodeViewDebug::emitDebugInfoForFunction(const Function *GV,
     OS.AddComment("Record length");
     OS.EmitIntValue(0x0002, 2);
     OS.AddComment("Record kind: S_PROC_ID_END");
-    OS.EmitIntValue(unsigned(SymbolRecordKind::S_PROC_ID_END), 2);
+    OS.EmitIntValue(unsigned(SymbolKind::S_PROC_ID_END), 2);
   }
   OS.EmitLabel(SymbolsEnd);
   // Every subsection must be aligned to a 4-byte boundary.
@@ -707,18 +682,18 @@ void CodeViewDebug::emitLocalVariable(const LocalVariable &Var) {
   OS.EmitLabel(LocalBegin);
 
   OS.AddComment("Record kind: S_LOCAL");
-  OS.EmitIntValue(unsigned(SymbolRecordKind::S_LOCAL), 2);
+  OS.EmitIntValue(unsigned(SymbolKind::S_LOCAL), 2);
 
-  uint16_t Flags = 0;
+  LocalSymFlags Flags = LocalSymFlags::None;
   if (Var.DIVar->isParameter())
-    Flags |= LocalSym::IsParameter;
+    Flags |= LocalSymFlags::IsParameter;
   if (Var.DefRanges.empty())
-    Flags |= LocalSym::IsOptimizedOut;
+    Flags |= LocalSymFlags::IsOptimizedOut;
 
   OS.AddComment("TypeIndex");
   OS.EmitIntValue(TypeIndex::Int32().getIndex(), 4);
   OS.AddComment("Flags");
-  OS.EmitIntValue(Flags, 2);
+  OS.EmitIntValue(static_cast<uint16_t>(Flags), 2);
   // Truncate the name so we won't overflow the record length field.
   emitNullTerminatedSymbolName(OS, Var.DIVar->getName());
   OS.EmitLabel(LocalEnd);

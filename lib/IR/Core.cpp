@@ -13,6 +13,8 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm-c/Core.h"
+#include "llvm/ADT/StringSwitch.h"
+#include "AttributeImpl.h"
 #include "llvm/Bitcode/ReaderWriter.h"
 #include "llvm/IR/Attributes.h"
 #include "llvm/IR/CallSite.h"
@@ -117,6 +119,18 @@ unsigned LLVMGetMDKindIDInContext(LLVMContextRef C, const char *Name,
 
 unsigned LLVMGetMDKindID(const char *Name, unsigned SLen) {
   return LLVMGetMDKindIDInContext(LLVMGetGlobalContext(), Name, SLen);
+}
+
+#define GET_ATTR_KIND_FROM_NAME
+#include "AttributesCompatFunc.inc"
+
+unsigned LLVMGetAttrKindID(const char *Name, size_t SLen) {
+  auto K = getAttrKindFromName(StringRef(Name, SLen));
+  if (K == Attribute::None) {
+    return 0;
+  }
+
+  return AttributeImpl::getAttrMask(K);
 }
 
 char *LLVMGetDiagInfoDescription(LLVMDiagnosticInfoRef DI) {
@@ -753,8 +767,7 @@ LLVMBool LLVMIsUndef(LLVMValueRef Val) {
 }
 
 LLVMValueRef LLVMConstPointerNull(LLVMTypeRef Ty) {
-  return
-      wrap(ConstantPointerNull::get(unwrap<PointerType>(Ty)));
+  return wrap(ConstantPointerNull::get(unwrap<PointerType>(Ty)));
 }
 
 /*--.. Operations on metadata nodes ........................................--*/
@@ -811,16 +824,14 @@ const char *LLVMGetMDString(LLVMValueRef V, unsigned *Length) {
   return nullptr;
 }
 
-unsigned LLVMGetMDNodeNumOperands(LLVMValueRef V)
-{
+unsigned LLVMGetMDNodeNumOperands(LLVMValueRef V) {
   auto *MD = cast<MetadataAsValue>(unwrap(V));
   if (isa<ValueAsMetadata>(MD->getMetadata()))
     return 1;
   return cast<MDNode>(MD->getMetadata())->getNumOperands();
 }
 
-void LLVMGetMDNodeOperands(LLVMValueRef V, LLVMValueRef *Dest)
-{
+void LLVMGetMDNodeOperands(LLVMValueRef V, LLVMValueRef *Dest) {
   auto *MD = cast<MetadataAsValue>(unwrap(V));
   if (auto *MDV = dyn_cast<ValueAsMetadata>(MD->getMetadata())) {
     *Dest = wrap(MDV->getValue());
@@ -833,17 +844,16 @@ void LLVMGetMDNodeOperands(LLVMValueRef V, LLVMValueRef *Dest)
     Dest[i] = getMDNodeOperandImpl(Context, N, i);
 }
 
-unsigned LLVMGetNamedMetadataNumOperands(LLVMModuleRef M, const char* name)
-{
-  if (NamedMDNode *N = unwrap(M)->getNamedMetadata(name)) {
+unsigned LLVMGetNamedMetadataNumOperands(LLVMModuleRef M, const char *Name) {
+  if (NamedMDNode *N = unwrap(M)->getNamedMetadata(Name)) {
     return N->getNumOperands();
   }
   return 0;
 }
 
-void LLVMGetNamedMetadataOperands(LLVMModuleRef M, const char* name, LLVMValueRef *Dest)
-{
-  NamedMDNode *N = unwrap(M)->getNamedMetadata(name);
+void LLVMGetNamedMetadataOperands(LLVMModuleRef M, const char *Name,
+                                  LLVMValueRef *Dest) {
+  NamedMDNode *N = unwrap(M)->getNamedMetadata(Name);
   if (!N)
     return;
   LLVMContext &Context = unwrap(M)->getContext();
@@ -851,10 +861,9 @@ void LLVMGetNamedMetadataOperands(LLVMModuleRef M, const char* name, LLVMValueRe
     Dest[i] = wrap(MetadataAsValue::get(Context, N->getOperand(i)));
 }
 
-void LLVMAddNamedMetadataOperand(LLVMModuleRef M, const char* name,
-                                 LLVMValueRef Val)
-{
-  NamedMDNode *N = unwrap(M)->getOrInsertNamedMetadata(name);
+void LLVMAddNamedMetadataOperand(LLVMModuleRef M, const char *Name,
+                                 LLVMValueRef Val) {
+  NamedMDNode *N = unwrap(M)->getOrInsertNamedMetadata(Name);
   if (!N)
     return;
   if (!Val)
@@ -1476,7 +1485,9 @@ void LLVMSetLinkage(LLVMValueRef Global, LLVMLinkage Linkage) {
 }
 
 const char *LLVMGetSection(LLVMValueRef Global) {
-  return unwrap<GlobalValue>(Global)->getSection();
+  // Using .data() is safe because of how GlobalObject::setSection is
+  // implemented.
+  return unwrap<GlobalValue>(Global)->getSection().data();
 }
 
 void LLVMSetSection(LLVMValueRef Global, const char *Section) {
@@ -2206,8 +2217,8 @@ LLVMBool LLVMIsInBounds(LLVMValueRef GEP) {
   return unwrap<GetElementPtrInst>(GEP)->isInBounds();
 }
 
-void LLVMSetIsInBounds(LLVMValueRef GEP, LLVMBool b) {
-  return unwrap<GetElementPtrInst>(GEP)->setIsInBounds(b);
+void LLVMSetIsInBounds(LLVMValueRef GEP, LLVMBool InBounds) {
+  return unwrap<GetElementPtrInst>(GEP)->setIsInBounds(InBounds);
 }
 
 /*--.. Operations on phi nodes .............................................--*/

@@ -1,5 +1,5 @@
-; RUN: llc -verify-machineinstrs -march=amdgcn -mcpu=SI < %s | FileCheck -check-prefix=SI %s
-; RUN: llc -verify-machineinstrs -march=amdgcn -mcpu=tonga < %s | FileCheck -check-prefix=SI %s
+; RUN: llc -verify-machineinstrs -march=amdgcn -mattr=+max-private-element-size-16 < %s | FileCheck -check-prefix=SI %s
+; RUN: llc -verify-machineinstrs -march=amdgcn -mcpu=tonga -mattr=+max-private-element-size-16 < %s | FileCheck -check-prefix=SI %s
 
 ; FIXME: Broken on evergreen
 ; FIXME: For some reason the 8 and 16 vectors are being stored as
@@ -208,10 +208,10 @@ endif:
 ; SI-DAG: s_lshl_b32 [[SCALEDIDX:s[0-9]+]], [[IDX]], 1{{$}}
 ; SI-DAG: v_mov_b32_e32 [[ELT0:v[0-9]+]], 0{{$}}
 
-; SI: v_mov_b32_e32 v{{[0-9]+}}, s{{[0-9]+}}
-; SI: v_mov_b32_e32 v{{[0-9]+}}, s{{[0-9]+}}
-; SI: v_mov_b32_e32 v{{[0-9]+}}, s{{[0-9]+}}
-; SI: v_mov_b32_e32 v{{[0-9]+}}, s{{[0-9]+}}
+; SI-DAG: v_mov_b32_e32 v{{[0-9]+}}, s{{[0-9]+}}
+; SI-DAG: v_mov_b32_e32 v{{[0-9]+}}, s{{[0-9]+}}
+; SI-DAG: v_mov_b32_e32 v{{[0-9]+}}, s{{[0-9]+}}
+; SI-DAG: v_mov_b32_e32 v{{[0-9]+}}, s{{[0-9]+}}
 
 ; SI: s_mov_b32 m0, [[SCALEDIDX]]
 ; SI: v_movreld_b32_e32 v{{[0-9]+}}, [[ELT0]]

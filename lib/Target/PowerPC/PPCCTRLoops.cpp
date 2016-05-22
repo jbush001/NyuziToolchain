@@ -54,9 +54,6 @@
 #include "llvm/CodeGen/MachineRegisterInfo.h"
 #endif
 
-#include <algorithm>
-#include <vector>
-
 using namespace llvm;
 
 #define DEBUG_TYPE "ctrloops"
@@ -169,6 +166,9 @@ FunctionPass *llvm::createPPCCTRLoopsVerify() {
 #endif // NDEBUG
 
 bool PPCCTRLoops::runOnFunction(Function &F) {
+  if (skipFunction(F))
+    return false;
+
   LI = &getAnalysis<LoopInfoWrapperPass>().getLoopInfo();
   SE = &getAnalysis<ScalarEvolutionWrapperPass>().getSE();
   DT = &getAnalysis<DominatorTreeWrapperPass>().getDomTree();

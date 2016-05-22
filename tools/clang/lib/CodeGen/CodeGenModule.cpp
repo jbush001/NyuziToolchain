@@ -88,9 +88,7 @@ CodeGenModule::CodeGenModule(ASTContext &C, const HeaderSearchOptions &HSO,
       PreprocessorOpts(PPO), CodeGenOpts(CGO), TheModule(M), Diags(diags),
       Target(C.getTargetInfo()), ABI(createCXXABI(*this)),
       VMContext(M.getContext()), Types(*this), VTables(*this),
-      SanitizerMD(new SanitizerMetadata(*this)),
-      WholeProgramVTablesBlacklist(CGO.WholeProgramVTablesBlacklistFiles,
-                                   C.getSourceManager()) {
+      SanitizerMD(new SanitizerMetadata(*this)) {
 
   // Initialize the type cache.
   llvm::LLVMContext &LLVMContext = M.getContext();
@@ -143,11 +141,13 @@ CodeGenModule::CodeGenModule(ASTContext &C, const HeaderSearchOptions &HSO,
   if (CodeGenOpts.hasProfileClangUse()) {
     auto ReaderOrErr = llvm::IndexedInstrProfReader::create(
         CodeGenOpts.ProfileInstrumentUsePath);
-    if (std::error_code EC = ReaderOrErr.getError()) {
+    if (auto E = ReaderOrErr.takeError()) {
       unsigned DiagID = Diags.getCustomDiagID(DiagnosticsEngine::Error,
                                               "Could not read profile %0: %1");
-      getDiags().Report(DiagID) << CodeGenOpts.ProfileInstrumentUsePath
-                                << EC.message();
+      llvm::handleAllErrors(std::move(E), [&](const llvm::ErrorInfoBase &EI) {
+        getDiags().Report(DiagID) << CodeGenOpts.ProfileInstrumentUsePath
+                                  << EI.message();
+      });
     } else
       PGOReader = std::move(ReaderOrErr.get());
   }
@@ -479,15 +479,13 @@ void CodeGenModule::Release() {
   }
 
   if (uint32_t PLevel = Context.getLangOpts().PICLevel) {
-    llvm::PICLevel::Level PL = llvm::PICLevel::Default;
-    switch (PLevel) {
-    case 0: break;
-    case 1: PL = llvm::PICLevel::Small; break;
-    case 2: PL = llvm::PICLevel::Large; break;
-    default: llvm_unreachable("Invalid PIC Level");
-    }
+    assert(PLevel < 3 && "Invalid PIC Level");
+    getModule().setPICLevel(static_cast<llvm::PICLevel::Level>(PLevel));
+  }
 
-    getModule().setPICLevel(PL);
+  if (uint32_t PLevel = Context.getLangOpts().PIELevel) {
+    assert(PLevel < 3 && "Invalid PIE Level");
+    getModule().setPIELevel(static_cast<llvm::PIELevel::Level>(PLevel));
   }
 
   SimplifyPersonality();
@@ -2084,7 +2082,7 @@ CodeGenModule::GetOrCreateLLVMGlobal(StringRef MangledName,
 
       // Check that D is not yet in DiagnosedConflictingDefinitions is required
       // to make sure that we issue an error only once.
-      if (lookupRepresentativeDecl(MangledName, OtherGD) &&
+      if (D && lookupRepresentativeDecl(MangledName, OtherGD) &&
           (D->getCanonicalDecl() != OtherGD.getCanonicalDecl().getDecl()) &&
           (OtherD = dyn_cast<VarDecl>(OtherGD.getDecl())) &&
           OtherD->hasInit() &&
@@ -2303,7 +2301,7 @@ CharUnits CodeGenModule::GetTargetTypeStoreSize(llvm::Type *Ty) const {
 
 unsigned CodeGenModule::GetGlobalVarAddressSpace(const VarDecl *D,
                                                  unsigned AddrSpace) {
-  if (LangOpts.CUDA && LangOpts.CUDAIsDevice) {
+  if (D && LangOpts.CUDA && LangOpts.CUDAIsDevice) {
     if (D->hasAttr<CUDAConstantAttr>())
       AddrSpace = getContext().getTargetAddressSpace(LangAS::cuda_constant);
     else if (D->hasAttr<CUDASharedAttr>())

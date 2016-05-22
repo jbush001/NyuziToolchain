@@ -937,39 +937,6 @@ bool llvm::expandAtomicRMWToCmpXchg(AtomicRMWInst *AI,
   return true;
 }
 
-// This converts from LLVM's internal AtomicOrdering enum to the
-// memory_order_* value required by the __atomic_* libcalls.
-static int libcallAtomicModel(AtomicOrdering AO) {
-  enum {
-    AO_ABI_memory_order_relaxed = 0,
-    AO_ABI_memory_order_consume = 1,
-    AO_ABI_memory_order_acquire = 2,
-    AO_ABI_memory_order_release = 3,
-    AO_ABI_memory_order_acq_rel = 4,
-    AO_ABI_memory_order_seq_cst = 5
-  };
-
-  switch (AO) {
-  case AtomicOrdering::NotAtomic:
-    llvm_unreachable("Expected atomic memory order.");
-  case AtomicOrdering::Unordered:
-  case AtomicOrdering::Monotonic:
-    return AO_ABI_memory_order_relaxed;
-  // Not implemented yet in llvm:
-  // case AtomicOrdering::Consume:
-  //  return AO_ABI_memory_order_consume;
-  case AtomicOrdering::Acquire:
-    return AO_ABI_memory_order_acquire;
-  case AtomicOrdering::Release:
-    return AO_ABI_memory_order_release;
-  case AtomicOrdering::AcquireRelease:
-    return AO_ABI_memory_order_acq_rel;
-  case AtomicOrdering::SequentiallyConsistent:
-    return AO_ABI_memory_order_seq_cst;
-  }
-  llvm_unreachable("Unknown atomic memory order.");
-}
-
 // In order to use one of the sized library calls such as
 // __atomic_fetch_add_4, the alignment must be sufficient, the size
 // must be one of the potentially-specialized sizes, and the value
@@ -984,7 +951,7 @@ static bool canUseSizedAtomicCall(unsigned Size, unsigned Align,
   // call a sized libcall that doesn't actually exist. There should
   // really be some more reliable way in LLVM of determining integer
   // sizes which are valid in the target's C ABI...
-  unsigned LargestSize = DL.getLargestLegalIntTypeSize() >= 64 ? 16 : 8;
+  unsigned LargestSize = DL.getLargestLegalIntTypeSizeInBits() >= 64 ? 16 : 8;
   return Align >= Size &&
          (Size == 1 || Size == 2 || Size == 4 || Size == 8 || Size == 16) &&
          Size <= LargestSize;
@@ -1151,12 +1118,15 @@ bool AtomicExpand::expandAtomicOpToLibcall(
   // TODO: the "order" argument type is "int", not int32. So
   // getInt32Ty may be wrong if the arch uses e.g. 16-bit ints.
   ConstantInt *SizeVal64 = ConstantInt::get(Type::getInt64Ty(Ctx), Size);
+  assert(Ordering != AtomicOrdering::NotAtomic && "expect atomic MO");
   Constant *OrderingVal =
-      ConstantInt::get(Type::getInt32Ty(Ctx), libcallAtomicModel(Ordering));
-  Constant *Ordering2Val = CASExpected
-                               ? ConstantInt::get(Type::getInt32Ty(Ctx),
-                                                  libcallAtomicModel(Ordering2))
-                               : nullptr;
+      ConstantInt::get(Type::getInt32Ty(Ctx), (int)toCABI(Ordering));
+  Constant *Ordering2Val = nullptr;
+  if (CASExpected) {
+    assert(Ordering2 != AtomicOrdering::NotAtomic && "expect atomic MO");
+    Ordering2Val =
+        ConstantInt::get(Type::getInt32Ty(Ctx), (int)toCABI(Ordering2));
+  }
   bool HasResult = I->getType() != Type::getVoidTy(Ctx);
 
   RTLIB::Libcall RTLibType;

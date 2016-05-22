@@ -89,13 +89,10 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "llvm/Transforms/IPO.h"
-#include "llvm/ADT/DenseSet.h"
-#include "llvm/ADT/FoldingSet.h"
+#include "llvm/ADT/Hashing.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/Statistic.h"
-#include "llvm/ADT/Hashing.h"
 #include "llvm/IR/CallSite.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DataLayout.h"
@@ -112,6 +109,7 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/Transforms/IPO.h"
 #include <vector>
 
 using namespace llvm;
@@ -1052,6 +1050,17 @@ int FunctionComparator::cmpOperations(const Instruction *L,
     return cmpNumbers(RMWI->getSynchScope(),
                       cast<AtomicRMWInst>(R)->getSynchScope());
   }
+  if (const PHINode *PNL = dyn_cast<PHINode>(L)) {
+    const PHINode *PNR = cast<PHINode>(R);
+    // Ensure that in addition to the incoming values being identical
+    // (checked by the caller of this function), the incoming blocks
+    // are also identical.
+    for (unsigned i = 0, e = PNL->getNumIncomingValues(); i != e; ++i) {
+      if (int Res =
+              cmpValues(PNL->getIncomingBlock(i), PNR->getIncomingBlock(i)))
+        return Res;
+    }
+  }
   return 0;
 }
 
@@ -1527,6 +1536,9 @@ bool MergeFunctions::doSanityCheck(std::vector<WeakVH> &Worklist) {
 }
 
 bool MergeFunctions::runOnModule(Module &M) {
+  if (skipModule(M))
+    return false;
+
   bool Changed = false;
 
   // All functions in the module, ordered by hash. Functions with a unique

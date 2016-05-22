@@ -48,9 +48,9 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "llvm/Transforms/PGOInstrumentation.h"
 #include "CFGMST.h"
 #include "IndirectCallSiteVisitor.h"
-#include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/ADT/Triple.h"
@@ -72,6 +72,7 @@
 #include "llvm/Support/JamCRC.h"
 #include "llvm/Transforms/Instrumentation.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
+#include <algorithm>
 #include <string>
 #include <utility>
 #include <vector>
@@ -104,20 +105,30 @@ static cl::opt<bool> DisableValueProfiling("disable-vp", cl::init(false),
                                            cl::desc("Disable Value Profiling"));
 
 // Command line option to set the maximum number of VP annotations to write to
-// the metada for a single indirect call callsite.
-static cl::opt<unsigned>
-    MaxNumAnnotations("icp-max-annotations", cl::init(3), cl::Hidden,
-                     cl::ZeroOrMore,
-                     cl::desc("Max number of annotations for a single indirect "
-                              "call callsite"));
+// the metadata for a single indirect call callsite.
+static cl::opt<unsigned> MaxNumAnnotations(
+    "icp-max-annotations", cl::init(3), cl::Hidden, cl::ZeroOrMore,
+    cl::desc("Max number of annotations for a single indirect "
+             "call callsite"));
+
+// Command line option to enable/disable the warning about missing profile
+// information.
+static cl::opt<bool> NoPGOWarnMissing("no-pgo-warn-missing", cl::init(false),
+                                      cl::Hidden);
+
+// Command line option to enable/disable the warning about a hash mismatch in
+// the profile data.
+static cl::opt<bool> NoPGOWarnMismatch("no-pgo-warn-mismatch", cl::init(false),
+                                       cl::Hidden);
 
 namespace {
-class PGOInstrumentationGen : public ModulePass {
+class PGOInstrumentationGenLegacyPass : public ModulePass {
 public:
   static char ID;
 
-  PGOInstrumentationGen() : ModulePass(ID) {
-    initializePGOInstrumentationGenPass(*PassRegistry::getPassRegistry());
+  PGOInstrumentationGenLegacyPass() : ModulePass(ID) {
+    initializePGOInstrumentationGenLegacyPassPass(
+        *PassRegistry::getPassRegistry());
   }
 
   const char *getPassName() const override {
@@ -132,16 +143,17 @@ private:
   }
 };
 
-class PGOInstrumentationUse : public ModulePass {
+class PGOInstrumentationUseLegacyPass : public ModulePass {
 public:
   static char ID;
 
   // Provide the profile filename as the parameter.
-  PGOInstrumentationUse(std::string Filename = "")
+  PGOInstrumentationUseLegacyPass(std::string Filename = "")
       : ModulePass(ID), ProfileFileName(Filename) {
     if (!PGOTestProfileFile.empty())
       ProfileFileName = PGOTestProfileFile;
-    initializePGOInstrumentationUsePass(*PassRegistry::getPassRegistry());
+    initializePGOInstrumentationUseLegacyPassPass(
+        *PassRegistry::getPassRegistry());
   }
 
   const char *getPassName() const override {
@@ -150,37 +162,36 @@ public:
 
 private:
   std::string ProfileFileName;
-  std::unique_ptr<IndexedInstrProfReader> PGOReader;
-  bool runOnModule(Module &M) override;
 
+  bool runOnModule(Module &M) override;
   void getAnalysisUsage(AnalysisUsage &AU) const override {
     AU.addRequired<BlockFrequencyInfoWrapperPass>();
   }
 };
 } // end anonymous namespace
 
-char PGOInstrumentationGen::ID = 0;
-INITIALIZE_PASS_BEGIN(PGOInstrumentationGen, "pgo-instr-gen",
+char PGOInstrumentationGenLegacyPass::ID = 0;
+INITIALIZE_PASS_BEGIN(PGOInstrumentationGenLegacyPass, "pgo-instr-gen",
                       "PGO instrumentation.", false, false)
 INITIALIZE_PASS_DEPENDENCY(BlockFrequencyInfoWrapperPass)
 INITIALIZE_PASS_DEPENDENCY(BranchProbabilityInfoWrapperPass)
-INITIALIZE_PASS_END(PGOInstrumentationGen, "pgo-instr-gen",
+INITIALIZE_PASS_END(PGOInstrumentationGenLegacyPass, "pgo-instr-gen",
                     "PGO instrumentation.", false, false)
 
-ModulePass *llvm::createPGOInstrumentationGenPass() {
-  return new PGOInstrumentationGen();
+ModulePass *llvm::createPGOInstrumentationGenLegacyPass() {
+  return new PGOInstrumentationGenLegacyPass();
 }
 
-char PGOInstrumentationUse::ID = 0;
-INITIALIZE_PASS_BEGIN(PGOInstrumentationUse, "pgo-instr-use",
+char PGOInstrumentationUseLegacyPass::ID = 0;
+INITIALIZE_PASS_BEGIN(PGOInstrumentationUseLegacyPass, "pgo-instr-use",
                       "Read PGO instrumentation profile.", false, false)
 INITIALIZE_PASS_DEPENDENCY(BlockFrequencyInfoWrapperPass)
 INITIALIZE_PASS_DEPENDENCY(BranchProbabilityInfoWrapperPass)
-INITIALIZE_PASS_END(PGOInstrumentationUse, "pgo-instr-use",
+INITIALIZE_PASS_END(PGOInstrumentationUseLegacyPass, "pgo-instr-use",
                     "Read PGO instrumentation profile.", false, false)
 
-ModulePass *llvm::createPGOInstrumentationUsePass(StringRef Filename) {
-  return new PGOInstrumentationUse(Filename.str());
+ModulePass *llvm::createPGOInstrumentationUseLegacyPass(StringRef Filename) {
+  return new PGOInstrumentationUseLegacyPass(Filename.str());
 }
 
 namespace {
@@ -464,10 +475,8 @@ public:
   // The hotness of the function from the profile count.
   enum FuncFreqAttr { FFA_Normal, FFA_Cold, FFA_Hot };
 
-  // Return the funtion hotness from the profile.
-  FuncFreqAttr getFuncFreqAttr() const {
-    return FreqAttr;
-  }
+  // Return the function hotness from the profile.
+  FuncFreqAttr getFuncFreqAttr() const { return FreqAttr; }
 
 private:
   Function &F;
@@ -573,18 +582,28 @@ void PGOUseFunc::setEdgeCount(DirectEdges &Edges, uint64_t Value) {
 // Return true if the profile are successfully read, and false on errors.
 bool PGOUseFunc::readCounters(IndexedInstrProfReader *PGOReader) {
   auto &Ctx = M->getContext();
-  ErrorOr<InstrProfRecord> Result =
+  Expected<InstrProfRecord> Result =
       PGOReader->getInstrProfRecord(FuncInfo.FuncName, FuncInfo.FunctionHash);
-  if (std::error_code EC = Result.getError()) {
-    if (EC == instrprof_error::unknown_function)
-      NumOfPGOMissing++;
-    else if (EC == instrprof_error::hash_mismatch ||
-             EC == llvm::instrprof_error::malformed)
-      NumOfPGOMismatch++;
+  if (Error E = Result.takeError()) {
+    handleAllErrors(std::move(E), [&](const InstrProfError &IPE) {
+      auto Err = IPE.get();
+      bool SkipWarning = false;
+      if (Err == instrprof_error::unknown_function) {
+        NumOfPGOMissing++;
+        SkipWarning = NoPGOWarnMissing;
+      } else if (Err == instrprof_error::hash_mismatch ||
+                 Err == instrprof_error::malformed) {
+        NumOfPGOMismatch++;
+        SkipWarning = NoPGOWarnMismatch;
+      }
 
-    std::string Msg = EC.message() + std::string(" ") + F.getName().str();
-    Ctx.diagnose(
-        DiagnosticInfoPGOProfile(M->getName().data(), Msg, DS_Warning));
+      if (SkipWarning)
+        return;
+
+      std::string Msg = IPE.message() + std::string(" ") + F.getName().str();
+      Ctx.diagnose(
+          DiagnosticInfoPGOProfile(M->getName().data(), Msg, DS_Warning));
+    });
     return false;
   }
   ProfileRecord = std::move(Result.get());
@@ -733,7 +752,7 @@ void PGOUseFunc::annotateIndirectCallSites() {
     return;
 
   // Create the PGOFuncName meta data.
-  createPGOFuncNameMetadata(F);
+  createPGOFuncNameMetadata(F, FuncInfo.FuncName);
 
   unsigned IndirectCallSiteIndex = 0;
   auto IndirectCallSites = findIndirectCallSites(F);
@@ -772,24 +791,55 @@ static void createIRLevelProfileFlagVariable(Module &M) {
   IRLevelVersionVariable->setVisibility(GlobalValue::DefaultVisibility);
   Triple TT(M.getTargetTriple());
   if (TT.isOSBinFormatMachO())
-    IRLevelVersionVariable->setLinkage(GlobalValue::LinkOnceODRLinkage);
+    IRLevelVersionVariable->setLinkage(GlobalValue::WeakAnyLinkage);
   else
     IRLevelVersionVariable->setComdat(M.getOrInsertComdat(
         StringRef(INSTR_PROF_QUOTE(IR_LEVEL_PROF_VERSION_VAR))));
 }
 
-bool PGOInstrumentationGen::runOnModule(Module &M) {
+static bool InstrumentAllFunctions(
+    Module &M, function_ref<BranchProbabilityInfo *(Function &)> LookupBPI,
+    function_ref<BlockFrequencyInfo *(Function &)> LookupBFI) {
   createIRLevelProfileFlagVariable(M);
   for (auto &F : M) {
     if (F.isDeclaration())
       continue;
-    BranchProbabilityInfo *BPI =
-        &(getAnalysis<BranchProbabilityInfoWrapperPass>(F).getBPI());
-    BlockFrequencyInfo *BFI =
-        &(getAnalysis<BlockFrequencyInfoWrapperPass>(F).getBFI());
+    auto *BPI = LookupBPI(F);
+    auto *BFI = LookupBFI(F);
     instrumentOneFunc(F, &M, BPI, BFI);
   }
   return true;
+}
+
+bool PGOInstrumentationGenLegacyPass::runOnModule(Module &M) {
+  if (skipModule(M))
+    return false;
+
+  auto LookupBPI = [this](Function &F) {
+    return &this->getAnalysis<BranchProbabilityInfoWrapperPass>(F).getBPI();
+  };
+  auto LookupBFI = [this](Function &F) {
+    return &this->getAnalysis<BlockFrequencyInfoWrapperPass>(F).getBFI();
+  };
+  return InstrumentAllFunctions(M, LookupBPI, LookupBFI);
+}
+
+PreservedAnalyses PGOInstrumentationGen::run(Module &M,
+                                             AnalysisManager<Module> &AM) {
+
+  auto &FAM = AM.getResult<FunctionAnalysisManagerModuleProxy>(M).getManager();
+  auto LookupBPI = [&FAM](Function &F) {
+    return &FAM.getResult<BranchProbabilityAnalysis>(F);
+  };
+
+  auto LookupBFI = [&FAM](Function &F) {
+    return &FAM.getResult<BlockFrequencyAnalysis>(F);
+  };
+
+  if (!InstrumentAllFunctions(M, LookupBPI, LookupBFI))
+    return PreservedAnalyses::all();
+
+  return PreservedAnalyses::none();
 }
 
 static void setPGOCountOnFunc(PGOUseFunc &Func,
@@ -801,21 +851,27 @@ static void setPGOCountOnFunc(PGOUseFunc &Func,
   }
 }
 
-bool PGOInstrumentationUse::runOnModule(Module &M) {
+static bool annotateAllFunctions(
+    Module &M, StringRef ProfileFileName,
+    function_ref<BranchProbabilityInfo *(Function &)> LookupBPI,
+    function_ref<BlockFrequencyInfo *(Function &)> LookupBFI) {
   DEBUG(dbgs() << "Read in profile counters: ");
   auto &Ctx = M.getContext();
   // Read the counter array from file.
   auto ReaderOrErr = IndexedInstrProfReader::create(ProfileFileName);
-  if (std::error_code EC = ReaderOrErr.getError()) {
-    Ctx.diagnose(
-        DiagnosticInfoPGOProfile(ProfileFileName.data(), EC.message()));
+  if (Error E = ReaderOrErr.takeError()) {
+    handleAllErrors(std::move(E), [&](const ErrorInfoBase &EI) {
+      Ctx.diagnose(
+          DiagnosticInfoPGOProfile(ProfileFileName.data(), EI.message()));
+    });
     return false;
   }
 
-  PGOReader = std::move(ReaderOrErr.get());
+  std::unique_ptr<IndexedInstrProfReader> PGOReader =
+      std::move(ReaderOrErr.get());
   if (!PGOReader) {
     Ctx.diagnose(DiagnosticInfoPGOProfile(ProfileFileName.data(),
-                                          "Cannot get PGOReader"));
+                                          StringRef("Cannot get PGOReader")));
     return false;
   }
   // TODO: might need to change the warning once the clang option is finalized.
@@ -830,10 +886,8 @@ bool PGOInstrumentationUse::runOnModule(Module &M) {
   for (auto &F : M) {
     if (F.isDeclaration())
       continue;
-    BranchProbabilityInfo *BPI =
-        &(getAnalysis<BranchProbabilityInfoWrapperPass>(F).getBPI());
-    BlockFrequencyInfo *BFI =
-        &(getAnalysis<BlockFrequencyInfoWrapperPass>(F).getBFI());
+    auto *BPI = LookupBPI(F);
+    auto *BFI = LookupBFI(F);
     PGOUseFunc Func(F, &M, BPI, BFI);
     setPGOCountOnFunc(Func, PGOReader.get());
     PGOUseFunc::FuncFreqAttr FreqAttr = Func.getFuncFreqAttr();
@@ -855,4 +909,42 @@ bool PGOInstrumentationUse::runOnModule(Module &M) {
   }
 
   return true;
+}
+
+PGOInstrumentationUse::PGOInstrumentationUse(std::string Filename)
+    : ProfileFileName(Filename) {
+  if (!PGOTestProfileFile.empty())
+    ProfileFileName = PGOTestProfileFile;
+}
+
+PreservedAnalyses PGOInstrumentationUse::run(Module &M,
+                                             AnalysisManager<Module> &AM) {
+
+  auto &FAM = AM.getResult<FunctionAnalysisManagerModuleProxy>(M).getManager();
+  auto LookupBPI = [&FAM](Function &F) {
+    return &FAM.getResult<BranchProbabilityAnalysis>(F);
+  };
+
+  auto LookupBFI = [&FAM](Function &F) {
+    return &FAM.getResult<BlockFrequencyAnalysis>(F);
+  };
+
+  if (!annotateAllFunctions(M, ProfileFileName, LookupBPI, LookupBFI))
+    return PreservedAnalyses::all();
+
+  return PreservedAnalyses::none();
+}
+
+bool PGOInstrumentationUseLegacyPass::runOnModule(Module &M) {
+  if (skipModule(M))
+    return false;
+
+  auto LookupBPI = [this](Function &F) {
+    return &this->getAnalysis<BranchProbabilityInfoWrapperPass>(F).getBPI();
+  };
+  auto LookupBFI = [this](Function &F) {
+    return &this->getAnalysis<BlockFrequencyInfoWrapperPass>(F).getBFI();
+  };
+
+  return annotateAllFunctions(M, ProfileFileName, LookupBPI, LookupBFI);
 }

@@ -15,10 +15,8 @@
 #include "LLVMContextImpl.h"
 #include "MetadataImpl.h"
 #include "SymbolTableListTraitsImpl.h"
-#include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallSet.h"
-#include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/StringMap.h"
 #include "llvm/IR/ConstantRange.h"
 #include "llvm/IR/DebugInfoMetadata.h"
@@ -128,6 +126,12 @@ bool MetadataTracking::track(void *Ref, Metadata &MD, OwnerTy Owner) {
     R->addRef(Ref, Owner);
     return true;
   }
+  if (auto *PH = dyn_cast<DistinctMDOperandPlaceholder>(&MD)) {
+    assert(!PH->Use && "Placeholders can only be used once");
+    assert(!Owner && "Unexpected callback to owner");
+    PH->Use = static_cast<Metadata **>(Ref);
+    return true;
+  }
   return false;
 }
 
@@ -135,6 +139,8 @@ void MetadataTracking::untrack(void *Ref, Metadata &MD) {
   assert(Ref && "Expected live reference");
   if (auto *R = ReplaceableMetadataImpl::getIfExists(MD))
     R->dropRef(Ref);
+  else if (auto *PH = dyn_cast<DistinctMDOperandPlaceholder>(&MD))
+    PH->Use = nullptr;
 }
 
 bool MetadataTracking::retrack(void *Ref, Metadata &MD, void *New) {
@@ -145,6 +151,8 @@ bool MetadataTracking::retrack(void *Ref, Metadata &MD, void *New) {
     R->moveRef(Ref, New, MD);
     return true;
   }
+  assert(!isa<DistinctMDOperandPlaceholder>(MD) &&
+         "Unexpected move of an MDOperand");
   assert(!isReplaceable(MD) &&
          "Expected un-replaceable metadata, since we didn't move a reference");
   return false;
@@ -808,7 +816,7 @@ void MDNode::storeDistinctInContext() {
 #include "llvm/IR/Metadata.def"
   }
 
-  getContext().pImpl->DistinctMDNodes.insert(this);
+  getContext().pImpl->DistinctMDNodes.push_back(this);
 }
 
 void MDNode::replaceOperandWith(unsigned I, Metadata *New) {
@@ -1241,6 +1249,30 @@ void Instruction::getAllMetadataOtherThanDebugLocImpl(
   const auto &Info = getContext().pImpl->InstructionMetadata.find(this)->second;
   assert(!Info.empty() && "Shouldn't have called this");
   Info.getAll(Result);
+}
+
+bool Instruction::extractProfMetadata(uint64_t &TrueVal, uint64_t &FalseVal) {
+  assert((getOpcode() == Instruction::Br ||
+          getOpcode() == Instruction::Select) &&
+         "Looking for branch weights on something besides branch or select");
+
+  auto *ProfileData = getMetadata(LLVMContext::MD_prof);
+  if (!ProfileData || ProfileData->getNumOperands() != 3)
+    return false;
+
+  auto *ProfDataName = dyn_cast<MDString>(ProfileData->getOperand(0));
+  if (!ProfDataName || !ProfDataName->getString().equals("branch_weights"))
+    return false;
+
+  auto *CITrue = mdconst::dyn_extract<ConstantInt>(ProfileData->getOperand(1));
+  auto *CIFalse = mdconst::dyn_extract<ConstantInt>(ProfileData->getOperand(2));
+  if (!CITrue || !CIFalse)
+    return false;
+
+  TrueVal = CITrue->getValue().getZExtValue();
+  FalseVal = CIFalse->getValue().getZExtValue();
+
+  return true;
 }
 
 void Instruction::clearMetadataHashEntries() {

@@ -126,6 +126,10 @@ static bool UpgradeIntrinsicFunction1(Function *F, Function *&NewFn) {
                                           StoreLaneInts[fArgs.size() - 5], Tys);
       return true;
     }
+    if (Name == "aarch64.thread.pointer" || Name == "arm.thread.pointer") {
+      NewFn = Intrinsic::getDeclaration(F->getParent(), Intrinsic::thread_pointer);
+      return true;
+    }
     break;
   }
 
@@ -799,24 +803,28 @@ void llvm::UpgradeIntrinsicCall(CallInst *CI, Function *NewFn) {
     CI->eraseFromParent();
     return;
   }
+
+  case Intrinsic::thread_pointer: {
+    CI->replaceAllUsesWith(Builder.CreateCall(NewFn, {}));
+    CI->eraseFromParent();
+    return;
+  }
   }
 }
 
-// This tests each Function to determine if it needs upgrading. When we find
-// one we are interested in, we then upgrade all calls to reflect the new
-// function.
-void llvm::UpgradeCallsToIntrinsic(Function* F) {
+void llvm::UpgradeCallsToIntrinsic(Function *F) {
   assert(F && "Illegal attempt to upgrade a non-existent intrinsic.");
 
-  // Upgrade the function and check if it is a totaly new function.
+  // Check if this function should be upgraded and get the replacement function
+  // if there is one.
   Function *NewFn;
   if (UpgradeIntrinsicFunction(F, NewFn)) {
-    // Replace all uses to the old function with the new one if necessary.
-    for (Value::user_iterator UI = F->user_begin(), UE = F->user_end();
-         UI != UE;) {
+    // Replace all users of the old function with the new function or new
+    // instructions. This is not a range loop because the call is deleted.
+    for (auto UI = F->user_begin(), UE = F->user_end(); UI != UE; )
       if (CallInst *CI = dyn_cast<CallInst>(*UI++))
         UpgradeIntrinsicCall(CI, NewFn);
-    }
+
     // Remove old function, no longer used, from the module.
     F->eraseFromParent();
   }

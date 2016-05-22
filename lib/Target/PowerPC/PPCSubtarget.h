@@ -56,6 +56,7 @@ namespace PPC {
     DIR_PWR6X,
     DIR_PWR7,
     DIR_PWR8,
+    DIR_PWR9,
     DIR_64
   };
 }
@@ -286,6 +287,7 @@ public:
 
   bool isTargetELF() const { return TargetTriple.isOSBinFormatELF(); }
   bool isTargetMachO() const { return TargetTriple.isOSBinFormatMachO(); }
+  bool isTargetLinux() const { return TargetTriple.isOSLinux(); }
 
   bool isDarwinABI() const { return isTargetMachO() || isDarwin(); }
   bool isSVR4ABI() const { return !isDarwinABI(); }

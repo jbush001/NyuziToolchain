@@ -26,7 +26,6 @@
 #include "llvm/IR/DiagnosticPrinter.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/Intrinsics.h"
-#include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/raw_ostream.h"
@@ -155,9 +154,11 @@ MVT WebAssemblyTargetLowering::getScalarShiftAmountTy(const DataLayout & /*DL*/,
   if (BitWidth > 1 && BitWidth < 8) BitWidth = 8;
 
   if (BitWidth > 64) {
-    BitWidth = 64;
+    // The shift will be lowered to a libcall, and compiler-rt libcalls expect
+    // the count to be an i32.
+    BitWidth = 32;
     assert(BitWidth >= Log2_32_Ceil(VT.getSizeInBits()) &&
-           "64-bit shift counts ought to be enough for anyone");
+           "32-bit shift counts ought to be enough for anyone");
   }
 
   MVT Result = MVT::getIntegerVT(BitWidth);
@@ -239,6 +240,12 @@ bool WebAssemblyTargetLowering::allowsMisalignedMemoryAccesses(
   // of constants, etc.), WebAssembly implementations will either want the
   // unaligned access or they'll split anyway.
   if (Fast) *Fast = true;
+  return true;
+}
+
+bool WebAssemblyTargetLowering::isIntDivCheap(EVT VT, AttributeSet Attr) const {
+  // The current thinking is that wasm engines will perform this optimization,
+  // so we can save on code size.
   return true;
 }
 

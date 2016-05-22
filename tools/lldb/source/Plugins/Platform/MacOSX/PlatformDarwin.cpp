@@ -1023,7 +1023,7 @@ PlatformDarwin::ARMGetSupportedArchitectureAtIndex (uint32_t idx, ArchSpec &arch
 const char *
 PlatformDarwin::GetDeveloperDirectory()
 {
-    Mutex::Locker locker (m_mutex);
+    std::lock_guard<std::mutex> guard(m_mutex);
     if (m_developer_directory.empty())
     {
         bool developer_dir_path_valid = false;
@@ -1580,10 +1580,10 @@ PlatformDarwin::AddClangModuleCompilationOptionsForSDKType (Target *target, std:
     FileSpec sysroot_spec;
     // Scope for mutex locker below
     {
-        Mutex::Locker locker (m_mutex);
+        std::lock_guard<std::mutex> guard(m_mutex);
         sysroot_spec = GetSDKDirectoryForModules(sdk_type);
     }
-    
+
     if (sysroot_spec.IsDirectory())
     {
         options.push_back("-isysroot");

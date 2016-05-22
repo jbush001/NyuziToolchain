@@ -16,9 +16,6 @@
 /* Define if position independent code is enabled */
 #cmakedefine ENABLE_PIC
 
-/* Define if timestamp information (e.g., __DATE__) is allowed */
-#cmakedefine ENABLE_TIMESTAMPS ${ENABLE_TIMESTAMPS}
-
 /* Define to 1 if you have the `arc4random' function. */
 #cmakedefine HAVE_DECL_ARC4RANDOM ${HAVE_DECL_ARC4RANDOM}
 
@@ -251,6 +248,9 @@
 /* Define if you have the shl_load function. */
 #undef HAVE_SHL_LOAD
 
+/* Define to 1 if you have the `sigaltstack' function. */
+#cmakedefine HAVE_SIGALTSTACK ${HAVE_SIGALTSTACK}
+
 /* Define to 1 if you have the `siglongjmp' function. */
 #cmakedefine HAVE_SIGLONGJMP ${HAVE_SIGLONGJMP}
 
@@ -330,6 +330,9 @@
 
 /* Define to 1 if you have the <unistd.h> header file. */
 #cmakedefine HAVE_UNISTD_H ${HAVE_UNISTD_H}
+
+/* Define to 1 if you have the `_Unwind_Backtrace' function. */
+#cmakedefine HAVE_UNWIND_BACKTRACE ${HAVE_UNWIND_BACKTRACE}
 
 /* Define to 1 if you have the <utime.h> header file. */
 #cmakedefine HAVE_UTIME_H ${HAVE_UTIME_H}
@@ -498,6 +501,9 @@
 
 /* LLVM version string */
 #define LLVM_VERSION_STRING "${PACKAGE_VERSION}"
+
+/* LLVM version information */
+#cmakedefine LLVM_VERSION_INFO "${LLVM_VERSION_INFO}"
 
 /* Define if we link Polly to the tools */
 #cmakedefine LINK_POLLY_INTO_TOOLS

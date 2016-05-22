@@ -53,6 +53,7 @@ CXXRecordDecl::DefinitionData::DefinitionData(CXXRecordDecl *D)
       HasPublicFields(false), HasMutableFields(false), HasVariantMembers(false),
       HasOnlyCMembers(true), HasInClassInitializer(false),
       HasUninitializedReferenceMember(false), HasUninitializedFields(false),
+      HasInheritedConstructor(false), HasInheritedAssignment(false),
       NeedOverloadResolutionForMoveConstructor(false),
       NeedOverloadResolutionForMoveAssignment(false),
       NeedOverloadResolutionForDestructor(false),
@@ -87,7 +88,7 @@ CXXRecordDecl::CXXRecordDecl(Kind K, TagKind TK, const ASTContext &C,
                              CXXRecordDecl *PrevDecl)
     : RecordDecl(K, TK, C, DC, StartLoc, IdLoc, Id, PrevDecl),
       DefinitionData(PrevDecl ? PrevDecl->DefinitionData
-                              : DefinitionDataPtr(this)),
+                              : nullptr),
       TemplateOrInstantiation() {}
 
 CXXRecordDecl *CXXRecordDecl::Create(const ASTContext &C, TagKind TK,
@@ -954,6 +955,15 @@ void CXXRecordDecl::addedMember(Decl *D) {
       ASTContext &Ctx = getASTContext();
       data().Conversions.get(Ctx).addDecl(Ctx, Shadow, Shadow->getAccess());
     }
+  }
+
+  if (UsingDecl *Using = dyn_cast<UsingDecl>(D)) {
+    if (Using->getDeclName().getNameKind() ==
+        DeclarationName::CXXConstructorName)
+      data().HasInheritedConstructor = true;
+
+    if (Using->getDeclName().getCXXOverloadedOperator() == OO_Equal)
+      data().HasInheritedAssignment = true;
   }
 }
 

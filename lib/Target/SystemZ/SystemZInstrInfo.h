@@ -141,6 +141,7 @@ class SystemZInstrInfo : public SystemZGenInstrInfo {
                        unsigned HighOpcode) const;
   void expandZExtPseudo(MachineInstr *MI, unsigned LowOpcode,
                         unsigned Size) const;
+  void expandLoadStackGuard(MachineInstr *MI) const;
   void emitGRX32Move(MachineBasicBlock &MBB, MachineBasicBlock::iterator MBBI,
                      DebugLoc DL, unsigned DestReg, unsigned SrcReg,
                      unsigned LowLowOpcode, unsigned Size, bool KillSrc) const;
@@ -201,11 +202,13 @@ public:
   MachineInstr *foldMemoryOperandImpl(MachineFunction &MF, MachineInstr *MI,
                                       ArrayRef<unsigned> Ops,
                                       MachineBasicBlock::iterator InsertPt,
-                                      int FrameIndex) const override;
+                                      int FrameIndex,
+                                      LiveIntervals *LIS = nullptr) const override;
   MachineInstr *foldMemoryOperandImpl(MachineFunction &MF, MachineInstr *MI,
                                       ArrayRef<unsigned> Ops,
                                       MachineBasicBlock::iterator InsertPt,
-                                      MachineInstr *LoadMI) const override;
+                                      MachineInstr *LoadMI,
+                                      LiveIntervals *LIS = nullptr) const override;
   bool expandPostRAPseudo(MachineBasicBlock::iterator MBBI) const override;
   bool ReverseBranchCondition(SmallVectorImpl<MachineOperand> &Cond) const
     override;

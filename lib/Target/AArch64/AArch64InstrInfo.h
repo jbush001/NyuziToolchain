@@ -143,7 +143,8 @@ public:
   MachineInstr *foldMemoryOperandImpl(MachineFunction &MF, MachineInstr *MI,
                                       ArrayRef<unsigned> Ops,
                                       MachineBasicBlock::iterator InsertPt,
-                                      int FrameIndex) const override;
+                                      int FrameIndex,
+                                      LiveIntervals *LIS = nullptr) const override;
 
   bool AnalyzeBranch(MachineBasicBlock &MBB, MachineBasicBlock *&TBB,
                      MachineBasicBlock *&FBB,
@@ -174,6 +175,11 @@ public:
                             unsigned SrcReg2, int CmpMask, int CmpValue,
                             const MachineRegisterInfo *MRI) const override;
   bool optimizeCondBranch(MachineInstr *MI) const override;
+
+  /// Return true when a code sequence can improve throughput. It
+  /// should be called only for instructions in loops.
+  /// \param Pattern - combiner pattern
+  bool isThroughputPattern(MachineCombinerPattern Pattern) const override;
   /// Return true when there is potentially a faster code sequence
   /// for an instruction chain ending in <Root>. All potential patterns are
   /// listed in the <Patterns> array.
@@ -190,7 +196,7 @@ public:
       SmallVectorImpl<MachineInstr *> &InsInstrs,
       SmallVectorImpl<MachineInstr *> &DelInstrs,
       DenseMap<unsigned, unsigned> &InstrIdxForVirtReg) const override;
-  /// useMachineCombiner - AArch64 supports MachineCombiner
+  /// AArch64 supports MachineCombiner.
   bool useMachineCombiner() const override;
 
   bool expandPostRAPseudo(MachineBasicBlock::iterator MI) const override;
@@ -206,8 +212,8 @@ private:
   void instantiateCondBranch(MachineBasicBlock &MBB, DebugLoc DL,
                              MachineBasicBlock *TBB,
                              ArrayRef<MachineOperand> Cond) const;
-  bool substituteCmpInstr(MachineInstr *CmpInstr,
-                          unsigned SrcReg, const MachineRegisterInfo *MRI) const;
+  bool substituteCmpToZero(MachineInstr *CmpInstr,
+                        unsigned SrcReg, const MachineRegisterInfo *MRI) const;
 };
 
 /// emitFrameOffset - Emit instructions as needed to set DestReg to SrcReg

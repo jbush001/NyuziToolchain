@@ -16,12 +16,12 @@
 #ifndef LLVM_PASSES_PASSBUILDER_H
 #define LLVM_PASSES_PASSBUILDER_H
 
-#include "llvm/ADT/StringRef.h"
 #include "llvm/Analysis/CGSCCPassManager.h"
 #include "llvm/Analysis/LoopPassManager.h"
 #include "llvm/IR/PassManager.h"
 
 namespace llvm {
+class StringRef;
 class AAManager;
 class TargetMachine;
 
@@ -122,6 +122,15 @@ public:
   };
 
   explicit PassBuilder(TargetMachine *TM = nullptr) : TM(TM) {}
+
+  /// \brief Cross register the analysis managers through their proxies.
+  ///
+  /// This is an interface that can be used to cross register each
+  // AnalysisManager with all the others analysis managers.
+  void crossRegisterProxies(LoopAnalysisManager &LAM,
+                            FunctionAnalysisManager &FAM,
+                            CGSCCAnalysisManager &CGAM,
+                            ModuleAnalysisManager &MAM);
 
   /// \brief Registers all available module analysis passes.
   ///

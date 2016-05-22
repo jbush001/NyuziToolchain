@@ -1551,10 +1551,12 @@ ScriptInterpreterPython::OSPlugin_RegisterInfo(StructuredData::ObjectSP os_plugi
         PyErr_Print();
         PyErr_Clear();
     }
-    assert(PythonDictionary::Check(py_return.get()) && "get_register_info returned unknown object type!");
-
-    PythonDictionary result_dict(PyRefType::Borrowed, py_return.get());
-    return result_dict.CreateStructuredDictionary();
+    if (py_return.get())
+    {
+        PythonDictionary result_dict(PyRefType::Borrowed, py_return.get());
+        return result_dict.CreateStructuredDictionary();
+    }
+    return StructuredData::DictionarySP();
 }
 
 StructuredData::ArraySP
@@ -1607,10 +1609,12 @@ ScriptInterpreterPython::OSPlugin_ThreadsInfo(StructuredData::ObjectSP os_plugin
         PyErr_Clear();
     }
 
-    assert(PythonList::Check(py_return.get()) && "get_thread_info returned unknown object type!");
-
-    PythonList result_list(PyRefType::Borrowed, py_return.get());
-    return result_list.CreateStructuredArray();
+    if (py_return.get())
+    {
+        PythonList result_list(PyRefType::Borrowed, py_return.get());
+        return result_list.CreateStructuredArray();
+    }
+    return StructuredData::ArraySP();
 }
 
 // GetPythonValueFormatString provides a system independent type safe way to
@@ -1688,10 +1692,12 @@ ScriptInterpreterPython::OSPlugin_RegisterContextData(StructuredData::ObjectSP o
         PyErr_Clear();
     }
 
-    assert(PythonBytes::Check(py_return.get()) && "get_register_data returned unknown object type!");
-
-    PythonBytes result(PyRefType::Borrowed, py_return.get());
-    return result.CreateStructuredString();
+    if (py_return.get())
+    {
+        PythonBytes result(PyRefType::Borrowed, py_return.get());
+        return result.CreateStructuredString();
+    }
+    return StructuredData::StringSP();
 }
 
 StructuredData::DictionarySP
@@ -1746,10 +1752,12 @@ ScriptInterpreterPython::OSPlugin_CreateThread(StructuredData::ObjectSP os_plugi
         PyErr_Clear();
     }
 
-    assert(PythonDictionary::Check(py_return.get()) && "create_thread returned unknown object type!");
-
-    PythonDictionary result_dict(PyRefType::Borrowed, py_return.get());
-    return result_dict.CreateStructuredDictionary();
+    if (py_return.get())
+    {
+        PythonDictionary result_dict(PyRefType::Borrowed, py_return.get());
+        return result_dict.CreateStructuredDictionary();
+    }
+    return StructuredData::DictionarySP();
 }
 
 StructuredData::ObjectSP
@@ -2345,6 +2353,72 @@ ScriptInterpreterPython::GetSyntheticValue(const StructuredData::ObjectSP &imple
             Py_XDECREF(child_ptr);
         }
     }
+    
+    return ret_val;
+}
+
+ConstString
+ScriptInterpreterPython::GetSyntheticTypeName (const StructuredData::ObjectSP &implementor_sp)
+{
+    Locker py_lock(this, Locker::AcquireLock | Locker::InitSession | Locker::NoSTDIN);
+
+    static char callee_name[] = "get_type_name";
+
+    ConstString ret_val;
+    bool got_string = false;
+    std::string buffer;
+
+    if (!implementor_sp)
+        return ret_val;
+    
+    StructuredData::Generic *generic = implementor_sp->GetAsGeneric();
+    if (!generic)
+        return ret_val;
+    PythonObject implementor(PyRefType::Borrowed, (PyObject *)generic->GetValue());
+    if (!implementor.IsAllocated())
+        return ret_val;
+    
+    PythonObject pmeth(PyRefType::Owned, PyObject_GetAttrString(implementor.get(), callee_name));
+    
+    if (PyErr_Occurred())
+        PyErr_Clear();
+    
+    if (!pmeth.IsAllocated())
+        return ret_val;
+    
+    if (PyCallable_Check(pmeth.get()) == 0)
+    {
+        if (PyErr_Occurred())
+            PyErr_Clear();
+        return ret_val;
+    }
+    
+    if (PyErr_Occurred())
+        PyErr_Clear();
+    
+    // right now we know this function exists and is callable..
+    PythonObject py_return(PyRefType::Owned, PyObject_CallMethod(implementor.get(), callee_name, nullptr));
+    
+    // if it fails, print the error but otherwise go on
+    if (PyErr_Occurred())
+    {
+        PyErr_Print();
+        PyErr_Clear();
+    }
+    
+    if (py_return.IsAllocated() && PythonString::Check(py_return.get()))
+    {
+        PythonString py_string(PyRefType::Borrowed, py_return.get());
+        llvm::StringRef return_data(py_string.GetString());
+        if (!return_data.empty())
+        {
+            buffer.assign(return_data.data(), return_data.size());
+            got_string = true;
+        }
+    }
+    
+    if (got_string)
+        ret_val.SetCStringWithLength(buffer.c_str(), buffer.size());
     
     return ret_val;
 }

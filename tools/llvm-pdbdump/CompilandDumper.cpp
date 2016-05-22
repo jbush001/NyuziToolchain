@@ -33,9 +33,9 @@
 #include "FunctionDumper.h"
 
 #include <utility>
-#include <vector>
 
 using namespace llvm;
+using namespace llvm::pdb;
 
 CompilandDumper::CompilandDumper(LinePrinter &P)
     : PDBSymDumper(true), Printer(P) {}

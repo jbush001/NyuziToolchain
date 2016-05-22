@@ -99,6 +99,11 @@ static cl::opt<bool>
                         cl::desc("Model the cost of loop rotation more "
                                  "precisely by using profile data."),
                         cl::init(false), cl::Hidden);
+static cl::opt<bool>
+    ForcePreciseRotationCost("force-precise-rotation-cost",
+                             cl::desc("Force the use of precise cost "
+                                      "loop rotation strategy."),
+                             cl::init(false), cl::Hidden);
 
 static cl::opt<unsigned> MisfetchCost(
     "misfetch-cost",
@@ -300,6 +305,7 @@ class MachineBlockPlacement : public MachineFunctionPass {
   void rotateLoopWithProfile(BlockChain &LoopChain, MachineLoop &L,
                              const BlockFilterSet &LoopBlockSet);
   void buildCFGChains(MachineFunction &F);
+  void alignBlocks(MachineFunction &F);
 
 public:
   static char ID; // Pass identification, replacement for typeid
@@ -1125,7 +1131,8 @@ void MachineBlockPlacement::buildLoopChains(MachineFunction &F,
   // this loop by modeling costs more precisely which requires the profile data
   // for better layout.
   bool RotateLoopWithProfile =
-      PreciseRotationCost && F.getFunction()->getEntryCount();
+      ForcePreciseRotationCost ||
+      (PreciseRotationCost && F.getFunction()->getEntryCount());
 
   // First check to see if there is an obviously preferable top block for the
   // loop. This will default to the header, but may end up as one of the
@@ -1358,14 +1365,29 @@ void MachineBlockPlacement::buildCFGChains(MachineFunction &F) {
   if (!TII->AnalyzeBranch(F.back(), TBB, FBB, Cond))
     F.back().updateTerminator();
 
+  // Now that all the basic blocks in the chain have the proper layout,
+  // make a final call to AnalyzeBranch with AllowModify set.
+  // Indeed, the target may be able to optimize the branches in a way we
+  // cannot because all branches may not be analyzable.
+  // E.g., the target may be able to remove an unconditional branch to
+  // a fallthrough when it occurs after predicated terminators.
+  for (MachineBasicBlock *ChainBB : FunctionChain) {
+    Cond.clear();
+    TBB = nullptr;
+    FBB = nullptr; // For AnalyzeBranch.
+    (void)TII->AnalyzeBranch(*ChainBB, TBB, FBB, Cond, /*AllowModify*/ true);
+  }
+}
+
+void MachineBlockPlacement::alignBlocks(MachineFunction &F) {
   // Walk through the backedges of the function now that we have fully laid out
   // the basic blocks and align the destination of each backedge. We don't rely
   // exclusively on the loop info here so that we can align backedges in
   // unnatural CFGs and backedges that were introduced purely because of the
   // loop rotations done during this layout pass.
-  // FIXME: Use Function::optForSize().
-  if (F.getFunction()->hasFnAttribute(Attribute::OptimizeForSize))
+  if (F.getFunction()->optForSize())
     return;
+  BlockChain &FunctionChain = *BlockToChain[&F.front()];
   if (FunctionChain.begin() == FunctionChain.end())
     return; // Empty chain.
 
@@ -1426,11 +1448,11 @@ void MachineBlockPlacement::buildCFGChains(MachineFunction &F) {
 }
 
 bool MachineBlockPlacement::runOnMachineFunction(MachineFunction &F) {
-  // Check for single-block functions and skip them.
-  if (std::next(F.begin()) == F.end())
+  if (skipFunction(*F.getFunction()))
     return false;
 
-  if (skipOptnoneFunction(*F.getFunction()))
+  // Check for single-block functions and skip them.
+  if (std::next(F.begin()) == F.end())
     return false;
 
   MBPI = &getAnalysis<MachineBranchProbabilityInfo>();
@@ -1442,6 +1464,7 @@ bool MachineBlockPlacement::runOnMachineFunction(MachineFunction &F) {
   assert(BlockToChain.empty());
 
   buildCFGChains(F);
+  alignBlocks(F);
 
   BlockToChain.clear();
   ChainAllocator.DestroyAll();

@@ -948,7 +948,7 @@ void CodeGenFunction::ExpandTypeFromArgs(
     }
     for (auto FD : RExp->Fields) {
       // FIXME: What are the right qualifiers here?
-      LValue SubLV = EmitLValueForField(LV, FD);
+      LValue SubLV = EmitLValueForFieldInitialization(LV, FD);
       ExpandTypeFromArgs(FD->getType(), SubLV, AI);
     }
   } else if (isa<ComplexExpansion>(Exp.get())) {
@@ -1714,6 +1714,8 @@ void CodeGenModule::ConstructAttributeList(
 
     if (CodeGenOpts.StackRealignment)
       FuncAttrs.addAttribute("stackrealign");
+    if (CodeGenOpts.Backchain)
+      FuncAttrs.addAttribute("backchain");
 
     // Add target-cpu and target-features attributes to functions. If
     // we have a decl for the function and it has a target attribute then

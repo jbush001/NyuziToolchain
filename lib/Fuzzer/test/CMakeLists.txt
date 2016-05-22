@@ -13,6 +13,7 @@ set(DFSanTests
   )
 
 set(Tests
+  AccumulateAllocationsTest
   BufferOverflowOnInput
   CallerCalleeTest
   CounterTest
@@ -25,6 +26,7 @@ set(Tests
   LeakTimeoutTest
   NullDerefTest
   NthRunCrashTest
+  OutOfMemoryTest
   RepeatedMemcmp
   SimpleCmpTest
   SimpleDictionaryTest
@@ -53,6 +55,10 @@ set(TraceBBTests
 set(TracePCTests
   FourIndependentBranchesTest
   FullCoverageSetTest
+  )
+
+set(UbsanTests
+  SignedIntOverflowTest
   )
 
 set(TestBinaries)
@@ -114,6 +120,12 @@ add_subdirectory(uninstrumented)
 
 foreach(Test ${UninstrumentedTests})
   set(TestBinaries ${TestBinaries} LLVMFuzzer-${Test}-Uninstrumented)
+endforeach()
+
+add_subdirectory(ubsan)
+
+foreach(Test ${UbsanTests})
+  set(TestBinaries ${TestBinaries} LLVMFuzzer-${Test}-Ubsan)
 endforeach()
 
 add_subdirectory(trace-bb)

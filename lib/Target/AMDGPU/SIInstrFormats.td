@@ -31,6 +31,7 @@ class InstSI <dag outs, dag ins, string asm, list<dag> pattern> :
   field bits<1> VOP2 = 0;
   field bits<1> VOP3 = 0;
   field bits<1> VOPC = 0;
+  field bits<1> SDWA = 0;
   field bits<1> DPP = 0;
 
   field bits<1> MUBUF = 0;
@@ -64,17 +65,18 @@ class InstSI <dag outs, dag ins, string asm, list<dag> pattern> :
   let TSFlags{11} = VOP2;
   let TSFlags{12} = VOP3;
   let TSFlags{13} = VOPC;
-  let TSFlags{14} = DPP;
+  let TSFlags{14} = SDWA;
+  let TSFlags{15} = DPP;
 
-  let TSFlags{15} = MUBUF;
-  let TSFlags{16} = MTBUF;
-  let TSFlags{17} = SMRD;
-  let TSFlags{18} = DS;
-  let TSFlags{19} = MIMG;
-  let TSFlags{20} = FLAT;
-  let TSFlags{21} = WQM;
-  let TSFlags{22} = VGPRSpill;
-  let TSFlags{23} = VOPAsmPrefer32Bit;
+  let TSFlags{16} = MUBUF;
+  let TSFlags{17} = MTBUF;
+  let TSFlags{18} = SMRD;
+  let TSFlags{19} = DS;
+  let TSFlags{20} = MIMG;
+  let TSFlags{21} = FLAT;
+  let TSFlags{22} = WQM;
+  let TSFlags{23} = VGPRSpill;
+  let TSFlags{24} = VOPAsmPrefer32Bit;
 
   let SchedRW = [Write32Bit];
 
@@ -145,8 +147,9 @@ class VOP3Common <dag outs, dag ins, string asm, list<dag> pattern, bit HasMods 
 
   let AsmMatchConverter =
     !if(!eq(VOP3Only,1),
-        "cvtVOP3_only",
-        !if(!eq(HasMods,1), "cvtVOP3_2_mod", "cvtVOP3_2_nomod"));
+        "cvtVOP3",
+        !if(!eq(HasMods,1), "cvtVOP3_2_mod", ""));
+
   let isCodeGenOnly = 0;
 
   int Size = 8;
@@ -708,7 +711,6 @@ class FLAT <bits<7> op, dag outs, dag ins, string asm, list<dag> pattern> :
 
   let UseNamedOperandTable = 1;
   let hasSideEffects = 0;
-  let AsmMatchConverter = "cvtFlat";
   let SchedRW = [WriteVMEM];
 }
 

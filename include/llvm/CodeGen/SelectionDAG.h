@@ -631,6 +631,38 @@ public:
     return getVectorShuffle(VT, dl, N1, N2, MaskElts.data());
   }
 
+  /// Return an ISD::BUILD_VECTOR node. The number of elements in VT,
+  /// which must be a vector type, must match the number of operands in Ops.
+  /// The operands must have the same type as (or, for integers, a type wider
+  /// than) VT's element type.
+  SDValue getBuildVector(EVT VT, SDLoc DL, ArrayRef<SDValue> Ops) {
+    // VerifySDNode (via InsertNode) checks BUILD_VECTOR later.
+    return getNode(ISD::BUILD_VECTOR, DL, VT, Ops);
+  }
+
+  /// Return a splat ISD::BUILD_VECTOR node, consisting of Op splatted to all
+  /// elements. VT must be a vector type. Op's type must be the same as (or,
+  /// for integers, a type wider than) VT's element type.
+  SDValue getSplatBuildVector(EVT VT, SDLoc DL, SDValue Op) {
+    // VerifySDNode (via InsertNode) checks BUILD_VECTOR later.
+    if (Op.getOpcode() == ISD::UNDEF) {
+      assert((VT.getVectorElementType() == Op.getValueType() ||
+              (VT.isInteger() &&
+               VT.getVectorElementType().bitsLE(Op.getValueType()))) &&
+             "A splatted value must have a width equal or (for integers) "
+             "greater than the vector element type!");
+      return getNode(ISD::UNDEF, SDLoc(), VT);
+    }
+
+    SmallVector<SDValue, 16> Ops(VT.getVectorNumElements(), Op);
+    return getNode(ISD::BUILD_VECTOR, DL, VT, Ops);
+  }
+
+  /// Return a splat ISD::BUILD_VECTOR node, but with Op's SDLoc.
+  SDValue getSplatBuildVector(EVT VT, SDValue Op) {
+    return getSplatBuildVector(VT, SDLoc(Op), Op);
+  }
+
   /// \brief Returns an ISD::VECTOR_SHUFFLE node semantically equivalent to
   /// the shuffle node in input but with swapped operands.
   ///
@@ -1244,6 +1276,11 @@ public:
   void computeKnownBits(SDValue Op, APInt &KnownZero, APInt &KnownOne,
                         unsigned Depth = 0) const;
 
+  /// Test if the given value is known to have exactly one bit set. This differs
+  /// from computeKnownBits in that it doesn't necessarily determine which bit
+  /// is set.
+  bool isKnownToBeAPowerOfTwo(SDValue Val) const;
+
   /// Return the number of times the sign bit of the
   /// register is replicated into the other bits.  We know that at least 1 bit
   /// is always equal to the sign bit (itself), but other cases can give us
@@ -1356,7 +1393,7 @@ private:
   /// Look up the node specified by ID in CSEMap.  If it exists, return it.  If
   /// not, return the insertion token that will make insertion faster.  Performs
   /// additional processing for constant nodes.
-  SDNode *FindNodeOrInsertPos(const FoldingSetNodeID &ID, DebugLoc DL,
+  SDNode *FindNodeOrInsertPos(const FoldingSetNodeID &ID, SDLoc DL,
                               void *&InsertPos);
 
   /// List of non-single value types.

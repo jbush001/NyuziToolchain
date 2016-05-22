@@ -1,4 +1,4 @@
-//===- ScalarEvolutionExpander.cpp - Scalar Evolution Analysis --*- C++ -*-===//
+//===- ScalarEvolutionExpander.cpp - Scalar Evolution Analysis ------------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -1777,8 +1777,8 @@ unsigned SCEVExpander::replaceCongruentIVs(Loop *L, const DominatorTree *DT,
     PHINode *&OrigPhiRef = ExprToIVMap[SE.getSCEV(Phi)];
     if (!OrigPhiRef) {
       OrigPhiRef = Phi;
-      if (Phi->getType()->isIntegerTy() && TTI
-          && TTI->isTruncateFree(Phi->getType(), Phis.back()->getType())) {
+      if (Phi->getType()->isIntegerTy() && TTI &&
+          TTI->isTruncateFree(Phi->getType(), Phis.back()->getType())) {
         // This phi can be freely truncated to the narrowest phi type. Map the
         // truncated expression to it so it will be reused for narrow types.
         const SCEV *TruncExpr =
@@ -1794,57 +1794,59 @@ unsigned SCEVExpander::replaceCongruentIVs(Loop *L, const DominatorTree *DT,
       continue;
 
     if (BasicBlock *LatchBlock = L->getLoopLatch()) {
-      Instruction *OrigInc =
-        cast<Instruction>(OrigPhiRef->getIncomingValueForBlock(LatchBlock));
+      Instruction *OrigInc = dyn_cast<Instruction>(
+          OrigPhiRef->getIncomingValueForBlock(LatchBlock));
       Instruction *IsomorphicInc =
-        cast<Instruction>(Phi->getIncomingValueForBlock(LatchBlock));
+          dyn_cast<Instruction>(Phi->getIncomingValueForBlock(LatchBlock));
 
-      // If this phi has the same width but is more canonical, replace the
-      // original with it. As part of the "more canonical" determination,
-      // respect a prior decision to use an IV chain.
-      if (OrigPhiRef->getType() == Phi->getType()
-          && !(ChainedPhis.count(Phi)
-               || isExpandedAddRecExprPHI(OrigPhiRef, OrigInc, L))
-          && (ChainedPhis.count(Phi)
-              || isExpandedAddRecExprPHI(Phi, IsomorphicInc, L))) {
-        std::swap(OrigPhiRef, Phi);
-        std::swap(OrigInc, IsomorphicInc);
-      }
-      // Replacing the congruent phi is sufficient because acyclic redundancy
-      // elimination, CSE/GVN, should handle the rest. However, once SCEV proves
-      // that a phi is congruent, it's often the head of an IV user cycle that
-      // is isomorphic with the original phi. It's worth eagerly cleaning up the
-      // common case of a single IV increment so that DeleteDeadPHIs can remove
-      // cycles that had postinc uses.
-      const SCEV *TruncExpr = SE.getTruncateOrNoop(SE.getSCEV(OrigInc),
-                                                   IsomorphicInc->getType());
-      if (OrigInc != IsomorphicInc
-          && TruncExpr == SE.getSCEV(IsomorphicInc)
-          && SE.LI.replacementPreservesLCSSAForm(IsomorphicInc, OrigInc)
-          && ((isa<PHINode>(OrigInc) && isa<PHINode>(IsomorphicInc))
-              || hoistIVInc(OrigInc, IsomorphicInc))) {
-        DEBUG_WITH_TYPE(DebugType, dbgs()
-                        << "INDVARS: Eliminated congruent iv.inc: "
-                        << *IsomorphicInc << '\n');
-        Value *NewInc = OrigInc;
-        if (OrigInc->getType() != IsomorphicInc->getType()) {
-          Instruction *IP = nullptr;
-          if (PHINode *PN = dyn_cast<PHINode>(OrigInc))
-            IP = &*PN->getParent()->getFirstInsertionPt();
-          else
-            IP = OrigInc->getNextNode();
-
-          IRBuilder<> Builder(IP);
-          Builder.SetCurrentDebugLocation(IsomorphicInc->getDebugLoc());
-          NewInc = Builder.
-            CreateTruncOrBitCast(OrigInc, IsomorphicInc->getType(), IVName);
+      if (OrigInc && IsomorphicInc) {
+        // If this phi has the same width but is more canonical, replace the
+        // original with it. As part of the "more canonical" determination,
+        // respect a prior decision to use an IV chain.
+        if (OrigPhiRef->getType() == Phi->getType() &&
+            !(ChainedPhis.count(Phi) ||
+              isExpandedAddRecExprPHI(OrigPhiRef, OrigInc, L)) &&
+            (ChainedPhis.count(Phi) ||
+             isExpandedAddRecExprPHI(Phi, IsomorphicInc, L))) {
+          std::swap(OrigPhiRef, Phi);
+          std::swap(OrigInc, IsomorphicInc);
         }
-        IsomorphicInc->replaceAllUsesWith(NewInc);
-        DeadInsts.emplace_back(IsomorphicInc);
+        // Replacing the congruent phi is sufficient because acyclic
+        // redundancy elimination, CSE/GVN, should handle the
+        // rest. However, once SCEV proves that a phi is congruent,
+        // it's often the head of an IV user cycle that is isomorphic
+        // with the original phi. It's worth eagerly cleaning up the
+        // common case of a single IV increment so that DeleteDeadPHIs
+        // can remove cycles that had postinc uses.
+        const SCEV *TruncExpr =
+            SE.getTruncateOrNoop(SE.getSCEV(OrigInc), IsomorphicInc->getType());
+        if (OrigInc != IsomorphicInc &&
+            TruncExpr == SE.getSCEV(IsomorphicInc) &&
+            SE.LI.replacementPreservesLCSSAForm(IsomorphicInc, OrigInc) &&
+            hoistIVInc(OrigInc, IsomorphicInc)) {
+          DEBUG_WITH_TYPE(DebugType,
+                          dbgs() << "INDVARS: Eliminated congruent iv.inc: "
+                                 << *IsomorphicInc << '\n');
+          Value *NewInc = OrigInc;
+          if (OrigInc->getType() != IsomorphicInc->getType()) {
+            Instruction *IP = nullptr;
+            if (PHINode *PN = dyn_cast<PHINode>(OrigInc))
+              IP = &*PN->getParent()->getFirstInsertionPt();
+            else
+              IP = OrigInc->getNextNode();
+
+            IRBuilder<> Builder(IP);
+            Builder.SetCurrentDebugLocation(IsomorphicInc->getDebugLoc());
+            NewInc = Builder.CreateTruncOrBitCast(
+                OrigInc, IsomorphicInc->getType(), IVName);
+          }
+          IsomorphicInc->replaceAllUsesWith(NewInc);
+          DeadInsts.emplace_back(IsomorphicInc);
+        }
       }
     }
-    DEBUG_WITH_TYPE(DebugType, dbgs()
-                    << "INDVARS: Eliminated congruent iv: " << *Phi << '\n');
+    DEBUG_WITH_TYPE(DebugType, dbgs() << "INDVARS: Eliminated congruent iv: "
+                                      << *Phi << '\n');
     ++NumElim;
     Value *NewIV = OrigPhiRef;
     if (OrigPhiRef->getType() != Phi->getType()) {
@@ -2007,37 +2009,81 @@ Value *SCEVExpander::generateOverflowCheck(const SCEVAddRecExpr *AR,
   SCEVUnionPredicate Pred;
   const SCEV *ExitCount =
       SE.getPredicatedBackedgeTakenCount(AR->getLoop(), Pred);
-  const SCEV *Step = AR->getStepRecurrence(SE);
-  const SCEV *Start = AR->getStart();
-
-  unsigned DstBits = SE.getTypeSizeInBits(AR->getType());
-  unsigned SrcBits = SE.getTypeSizeInBits(ExitCount->getType());
-  unsigned MaxBits = 2 * std::max(DstBits, SrcBits);
-
-  auto *TripCount = SE.getTruncateOrZeroExtend(ExitCount, AR->getType());
-  IntegerType *MaxTy = IntegerType::get(Loc->getContext(), MaxBits);
 
   assert(ExitCount != SE.getCouldNotCompute() && "Invalid loop count");
 
-  const auto *ExtendedTripCount = SE.getZeroExtendExpr(ExitCount, MaxTy);
-  const auto *ExtendedStep = SE.getSignExtendExpr(Step, MaxTy);
-  const auto *ExtendedStart = Signed ? SE.getSignExtendExpr(Start, MaxTy)
-                                     : SE.getZeroExtendExpr(Start, MaxTy);
+  const SCEV *Step = AR->getStepRecurrence(SE);
+  const SCEV *Start = AR->getStart();
 
-  const SCEV *End = SE.getAddExpr(Start, SE.getMulExpr(TripCount, Step));
-  const SCEV *RHS = Signed ? SE.getSignExtendExpr(End, MaxTy)
-                           : SE.getZeroExtendExpr(End, MaxTy);
+  unsigned SrcBits = SE.getTypeSizeInBits(ExitCount->getType());
+  unsigned DstBits = SE.getTypeSizeInBits(AR->getType());
 
-  const SCEV *LHS = SE.getAddExpr(
-      ExtendedStart, SE.getMulExpr(ExtendedTripCount, ExtendedStep));
+  // The expression {Start,+,Step} has nusw/nssw if
+  //   Step < 0, Start - |Step| * Backedge <= Start
+  //   Step >= 0, Start + |Step| * Backedge > Start
+  // and |Step| * Backedge doesn't unsigned overflow.
 
-  // Do all SCEV expansions now.
-  Value *LHSVal = expandCodeFor(LHS, MaxTy, Loc);
-  Value *RHSVal = expandCodeFor(RHS, MaxTy, Loc);
+  IntegerType *CountTy = IntegerType::get(Loc->getContext(), SrcBits);
+  Builder.SetInsertPoint(Loc);
+  Value *TripCountVal = expandCodeFor(ExitCount, CountTy, Loc);
+
+  IntegerType *Ty =
+      IntegerType::get(Loc->getContext(), SE.getTypeSizeInBits(AR->getType()));
+
+  Value *StepValue = expandCodeFor(Step, Ty, Loc);
+  Value *NegStepValue = expandCodeFor(SE.getNegativeSCEV(Step), Ty, Loc);
+  Value *StartValue = expandCodeFor(Start, Ty, Loc);
+
+  ConstantInt *Zero =
+      ConstantInt::get(Loc->getContext(), APInt::getNullValue(DstBits));
 
   Builder.SetInsertPoint(Loc);
+  // Compute |Step|
+  Value *StepCompare = Builder.CreateICmp(ICmpInst::ICMP_SLT, StepValue, Zero);
+  Value *AbsStep = Builder.CreateSelect(StepCompare, NegStepValue, StepValue);
 
-  return Builder.CreateICmp(ICmpInst::ICMP_NE, RHSVal, LHSVal);
+  // Get the backedge taken count and truncate or extended to the AR type.
+  Value *TruncTripCount = Builder.CreateZExtOrTrunc(TripCountVal, Ty);
+  auto *MulF = Intrinsic::getDeclaration(Loc->getModule(),
+                                         Intrinsic::umul_with_overflow, Ty);
+
+  // Compute |Step| * Backedge
+  CallInst *Mul = Builder.CreateCall(MulF, {AbsStep, TruncTripCount}, "mul");
+  Value *MulV = Builder.CreateExtractValue(Mul, 0, "mul.result");
+  Value *OfMul = Builder.CreateExtractValue(Mul, 1, "mul.overflow");
+
+  // Compute:
+  //   Start + |Step| * Backedge < Start
+  //   Start - |Step| * Backedge > Start
+  Value *Add = Builder.CreateAdd(StartValue, MulV);
+  Value *Sub = Builder.CreateSub(StartValue, MulV);
+
+  Value *EndCompareGT = Builder.CreateICmp(
+      Signed ? ICmpInst::ICMP_SGT : ICmpInst::ICMP_UGT, Sub, StartValue);
+
+  Value *EndCompareLT = Builder.CreateICmp(
+      Signed ? ICmpInst::ICMP_SLT : ICmpInst::ICMP_ULT, Add, StartValue);
+
+  // Select the answer based on the sign of Step.
+  Value *EndCheck =
+      Builder.CreateSelect(StepCompare, EndCompareGT, EndCompareLT);
+
+  // If the backedge taken count type is larger than the AR type,
+  // check that we don't drop any bits by truncating it. If we are
+  // droping bits, then we have overflow (unless the step is zero).
+  if (SE.getTypeSizeInBits(CountTy) > SE.getTypeSizeInBits(Ty)) {
+    auto MaxVal = APInt::getMaxValue(DstBits).zext(SrcBits);
+    auto *BackedgeCheck =
+        Builder.CreateICmp(ICmpInst::ICMP_UGT, TripCountVal,
+                           ConstantInt::get(Loc->getContext(), MaxVal));
+    BackedgeCheck = Builder.CreateAnd(
+        BackedgeCheck, Builder.CreateICmp(ICmpInst::ICMP_NE, StepValue, Zero));
+
+    EndCheck = Builder.CreateOr(EndCheck, BackedgeCheck);
+  }
+
+  EndCheck = Builder.CreateOr(EndCheck, OfMul);
+  return EndCheck;
 }
 
 Value *SCEVExpander::expandWrapPredicate(const SCEVWrapPredicate *Pred,

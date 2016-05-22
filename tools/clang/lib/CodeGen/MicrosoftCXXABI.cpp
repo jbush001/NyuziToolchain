@@ -1467,16 +1467,18 @@ unsigned MicrosoftCXXABI::addImplicitConstructorArgs(
 
   // Add the 'most_derived' argument second if we are variadic or last if not.
   const FunctionProtoType *FPT = D->getType()->castAs<FunctionProtoType>();
-  llvm::Value *MostDerivedArg =
-      llvm::ConstantInt::get(CGM.Int32Ty, Type == Ctor_Complete);
-  RValue RV = RValue::get(MostDerivedArg);
-  if (MostDerivedArg) {
-    if (FPT->isVariadic())
-      Args.insert(Args.begin() + 1,
-                  CallArg(RV, getContext().IntTy, /*needscopy=*/false));
-    else
-      Args.add(RV, getContext().IntTy);
+  llvm::Value *MostDerivedArg;
+  if (Delegating) {
+    MostDerivedArg = getStructorImplicitParamValue(CGF);
+  } else {
+    MostDerivedArg = llvm::ConstantInt::get(CGM.Int32Ty, Type == Ctor_Complete);
   }
+  RValue RV = RValue::get(MostDerivedArg);
+  if (FPT->isVariadic())
+    Args.insert(Args.begin() + 1,
+                CallArg(RV, getContext().IntTy, /*needscopy=*/false));
+  else
+    Args.add(RV, getContext().IntTy);
 
   return 1;  // Added one arg.
 }
@@ -1503,7 +1505,7 @@ void MicrosoftCXXABI::EmitDestructorCall(CodeGenFunction &CGF,
 void MicrosoftCXXABI::emitVTableBitSetEntries(VPtrInfo *Info,
                                               const CXXRecordDecl *RD,
                                               llvm::GlobalVariable *VTable) {
-  if (!CGM.NeedVTableBitSets())
+  if (!CGM.getCodeGenOpts().PrepareForLTO)
     return;
 
   llvm::NamedMDNode *BitsetsMD =
@@ -1519,15 +1521,13 @@ void MicrosoftCXXABI::emitVTableBitSetEntries(VPtrInfo *Info,
           : CharUnits::Zero();
 
   if (Info->PathToBaseWithVPtr.empty()) {
-    if (!CGM.IsBitSetBlacklistedRecord(RD))
-      CGM.CreateVTableBitSetEntry(BitsetsMD, VTable, AddressPoint, RD);
+    CGM.CreateVTableBitSetEntry(BitsetsMD, VTable, AddressPoint, RD);
     return;
   }
 
   // Add a bitset entry for the least derived base belonging to this vftable.
-  if (!CGM.IsBitSetBlacklistedRecord(Info->PathToBaseWithVPtr.back()))
-    CGM.CreateVTableBitSetEntry(BitsetsMD, VTable, AddressPoint,
-                                Info->PathToBaseWithVPtr.back());
+  CGM.CreateVTableBitSetEntry(BitsetsMD, VTable, AddressPoint,
+                              Info->PathToBaseWithVPtr.back());
 
   // Add a bitset entry for each derived class that is laid out at the same
   // offset as the least derived base.
@@ -1545,12 +1545,11 @@ void MicrosoftCXXABI::emitVTableBitSetEntries(VPtrInfo *Info,
       Offset = VBI->second.VBaseOffset;
     if (!Offset.isZero())
       return;
-    if (!CGM.IsBitSetBlacklistedRecord(DerivedRD))
-      CGM.CreateVTableBitSetEntry(BitsetsMD, VTable, AddressPoint, DerivedRD);
+    CGM.CreateVTableBitSetEntry(BitsetsMD, VTable, AddressPoint, DerivedRD);
   }
 
   // Finally do the same for the most derived class.
-  if (Info->FullOffsetInMDC.isZero() && !CGM.IsBitSetBlacklistedRecord(RD))
+  if (Info->FullOffsetInMDC.isZero())
     CGM.CreateVTableBitSetEntry(BitsetsMD, VTable, AddressPoint, RD);
 }
 
@@ -1819,7 +1818,7 @@ llvm::Value *MicrosoftCXXABI::getVirtualFunctionPointer(CodeGenFunction &CGF,
 
   MicrosoftVTableContext::MethodVFTableLocation ML =
       CGM.getMicrosoftVTableContext().getMethodVFTableLocation(GD);
-  if (CGM.NeedVTableBitSets())
+  if (CGM.getCodeGenOpts().PrepareForLTO)
     CGF.EmitBitSetCodeForVCall(getClassAtVTableLocation(getContext(), GD, ML),
                                VTable, Loc);
 
