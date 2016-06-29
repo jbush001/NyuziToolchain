@@ -22,7 +22,7 @@ separately.
 The following sections describe how to install these packages.
 
 - gcc 4.8+ or Apple clang 4.2+
-- cmake 2.8.12+
+- cmake 3.4.3+
 - python 2.7
 - libxml (including headers)
 - zlib (including headers)
