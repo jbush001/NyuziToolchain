@@ -136,10 +136,33 @@ void CodeGenFunction::GenerateOpenMPCapturedVars(
       CapturedVars.push_back(Val);
     } else if (CurCap->capturesThis())
       CapturedVars.push_back(CXXThisValue);
-    else if (CurCap->capturesVariableByCopy())
-      CapturedVars.push_back(
-          EmitLoadOfLValue(EmitLValue(*I), SourceLocation()).getScalarVal());
-    else {
+    else if (CurCap->capturesVariableByCopy()) {
+      llvm::Value *CV =
+          EmitLoadOfLValue(EmitLValue(*I), SourceLocation()).getScalarVal();
+
+      // If the field is not a pointer, we need to save the actual value
+      // and load it as a void pointer.
+      if (!CurField->getType()->isAnyPointerType()) {
+        auto &Ctx = getContext();
+        auto DstAddr = CreateMemTemp(
+            Ctx.getUIntPtrType(),
+            Twine(CurCap->getCapturedVar()->getName()) + ".casted");
+        LValue DstLV = MakeAddrLValue(DstAddr, Ctx.getUIntPtrType());
+
+        auto *SrcAddrVal = EmitScalarConversion(
+            DstAddr.getPointer(), Ctx.getPointerType(Ctx.getUIntPtrType()),
+            Ctx.getPointerType(CurField->getType()), SourceLocation());
+        LValue SrcLV =
+            MakeNaturalAlignAddrLValue(SrcAddrVal, CurField->getType());
+
+        // Store the value using the source type pointer.
+        EmitStoreThroughLValue(RValue::get(CV), SrcLV);
+
+        // Load the value using the destination type pointer.
+        CV = EmitLoadOfLValue(DstLV, SourceLocation()).getScalarVal();
+      }
+      CapturedVars.push_back(CV);
+    } else {
       assert(CurCap->capturesVariable() && "Expected capture by reference.");
       CapturedVars.push_back(EmitLValue(*I).getAddress().getPointer());
     }
@@ -172,8 +195,7 @@ static Address castValueFromUintptr(CodeGenFunction &CGF, QualType DstType,
 }
 
 llvm::Function *
-CodeGenFunction::GenerateOpenMPCapturedStmtFunction(const CapturedStmt &S,
-                                                    bool CastValToPtr) {
+CodeGenFunction::GenerateOpenMPCapturedStmtFunction(const CapturedStmt &S) {
   assert(
       CapturedStmtInfo &&
       "CapturedStmtInfo should be set when generating the captured function");
@@ -197,11 +219,9 @@ CodeGenFunction::GenerateOpenMPCapturedStmtFunction(const CapturedStmt &S,
     // uintptr. This is necessary given that the runtime library is only able to
     // deal with pointers. We can pass in the same way the VLA type sizes to the
     // outlined function.
-    if (CastValToPtr) {
-      if ((I->capturesVariableByCopy() && !ArgType->isAnyPointerType()) ||
-          I->capturesVariableArrayType())
-        ArgType = Ctx.getUIntPtrType();
-    }
+    if ((I->capturesVariableByCopy() && !ArgType->isAnyPointerType()) ||
+        I->capturesVariableArrayType())
+      ArgType = Ctx.getUIntPtrType();
 
     if (I->capturesVariable() || I->capturesVariableByCopy()) {
       CapVar = I->getCapturedVar();
@@ -255,12 +275,9 @@ CodeGenFunction::GenerateOpenMPCapturedStmtFunction(const CapturedStmt &S,
                        AlignmentSource::Decl);
     if (FD->hasCapturedVLAType()) {
       LValue CastedArgLVal =
-          CastValToPtr
-              ? MakeAddrLValue(castValueFromUintptr(*this, FD->getType(),
-                                                    Args[Cnt]->getName(),
-                                                    ArgLVal),
-                               FD->getType(), AlignmentSource::Decl)
-              : ArgLVal;
+          MakeAddrLValue(castValueFromUintptr(*this, FD->getType(),
+                                              Args[Cnt]->getName(), ArgLVal),
+                         FD->getType(), AlignmentSource::Decl);
       auto *ExprArg =
           EmitLoadOfLValue(CastedArgLVal, SourceLocation()).getScalarVal();
       auto VAT = FD->getCapturedVLAType();
@@ -280,16 +297,9 @@ CodeGenFunction::GenerateOpenMPCapturedStmtFunction(const CapturedStmt &S,
              "Not expecting a captured pointer.");
       auto *Var = I->getCapturedVar();
       QualType VarTy = Var->getType();
-      if (!CastValToPtr && VarTy->isReferenceType()) {
-        Address Temp = CreateMemTemp(VarTy);
-        Builder.CreateStore(ArgLVal.getPointer(), Temp);
-        ArgLVal = MakeAddrLValue(Temp, VarTy);
-      }
-      setAddrOfLocalVar(Var, CastValToPtr ? castValueFromUintptr(
-                                                *this, FD->getType(),
-                                                Args[Cnt]->getName(), ArgLVal,
-                                                VarTy->isReferenceType())
-                                          : ArgLVal.getAddress());
+      setAddrOfLocalVar(Var, castValueFromUintptr(*this, FD->getType(),
+                                                  Args[Cnt]->getName(), ArgLVal,
+                                                  VarTy->isReferenceType()));
     } else {
       // If 'this' is captured, load it into CXXThisValue.
       assert(I->capturesThis());
@@ -571,6 +581,7 @@ bool CodeGenFunction::EmitOMPFirstprivateClause(const OMPExecutableDirective &D,
           cast<VarDecl>(cast<DeclRefExpr>(D)->getDecl())->getCanonicalDecl());
   }
   llvm::DenseSet<const VarDecl *> EmittedAsFirstprivate;
+  CGCapturedStmtInfo CapturesInfo(cast<CapturedStmt>(*D.getAssociatedStmt()));
   for (const auto *C : D.getClausesOfKind<OMPFirstprivateClause>()) {
     auto IRef = C->varlist_begin();
     auto InitsRef = C->inits().begin();
@@ -578,8 +589,9 @@ bool CodeGenFunction::EmitOMPFirstprivateClause(const OMPExecutableDirective &D,
       auto *OrigVD = cast<VarDecl>(cast<DeclRefExpr>(*IRef)->getDecl());
       bool ThisFirstprivateIsLastprivate =
           Lastprivates.count(OrigVD->getCanonicalDecl()) > 0;
+      auto *CapFD = CapturesInfo.lookup(OrigVD);
       auto *FD = CapturedStmtInfo->lookup(OrigVD);
-      if (!ThisFirstprivateIsLastprivate && FD &&
+      if (!ThisFirstprivateIsLastprivate && FD && (FD == CapFD) &&
           !FD->getType()->isReferenceType()) {
         EmittedAsFirstprivate.insert(OrigVD->getCanonicalDecl());
         ++IRef;
@@ -1269,7 +1281,7 @@ void CodeGenFunction::EmitOMPInnerLoop(
   // Start the loop with a block that tests the condition.
   auto CondBlock = createBasicBlock("omp.inner.for.cond");
   EmitBlock(CondBlock);
-  LoopStack.push(CondBlock);
+  LoopStack.push(CondBlock, Builder.getCurrentDebugLocation());
 
   // If there are any cleanups between here and the loop-exit scope,
   // create a block to stage a loop exit along.
@@ -1670,7 +1682,7 @@ void CodeGenFunction::EmitOMPOuterLoop(bool DynamicOrOrdered, bool IsMonotonic,
   // Start the loop with a block that tests the condition.
   auto CondBlock = createBasicBlock("omp.dispatch.cond");
   EmitBlock(CondBlock);
-  LoopStack.push(CondBlock);
+  LoopStack.push(CondBlock, Builder.getCurrentDebugLocation());
 
   llvm::Value *BoolCondVal = nullptr;
   if (!DynamicOrOrdered) {
@@ -1853,6 +1865,18 @@ void CodeGenFunction::EmitOMPDistributeOuterLoop(
                    S, LoopScope, /* Ordered = */ false, LB, UB, ST, IL, Chunk);
 }
 
+void CodeGenFunction::EmitOMPDistributeParallelForDirective(
+    const OMPDistributeParallelForDirective &S) {
+  OMPLexicalScope Scope(*this, S, /*AsInlined=*/true);
+  CGM.getOpenMPRuntime().emitInlinedDirective(
+      *this, OMPD_distribute_parallel_for,
+      [&S](CodeGenFunction &CGF, PrePostActionTy &) {
+        OMPLoopScope PreInitScope(CGF, S);
+        CGF.EmitStmt(
+            cast<CapturedStmt>(S.getAssociatedStmt())->getCapturedStmt());
+      });
+}
+
 /// \brief Emit a helper variable and return corresponding lvalue.
 static LValue EmitOMPHelperVar(CodeGenFunction &CGF,
                                const DeclRefExpr *Helper) {
@@ -1911,6 +1935,14 @@ bool CodeGenFunction::EmitOMPWorksharingLoop(const OMPLoopDirective &S) {
       incrementProfileCounter(&S);
     }
 
+    bool Ordered = false;
+    if (auto *OrderedClause = S.getSingleClause<OMPOrderedClause>()) {
+      if (OrderedClause->getNumForLoops())
+        RT.emitDoacrossInit(*this, S);
+      else
+        Ordered = true;
+    }
+
     llvm::DenseSet<const Expr *> EmittedFinals;
     emitAlignedClause(*this, S);
     EmitOMPLinearClauseInit(S);
@@ -1958,7 +1990,6 @@ bool CodeGenFunction::EmitOMPWorksharingLoop(const OMPLoopDirective &S) {
       }
       const unsigned IVSize = getContext().getTypeSize(IVExpr->getType());
       const bool IVSigned = IVExpr->getType()->hasSignedIntegerRepresentation();
-      const bool Ordered = S.getSingleClause<OMPOrderedClause>() != nullptr;
       // OpenMP 4.5, 2.7.1 Loop Construct, Description.
       // If the static schedule kind is specified or if the ordered clause is
       // specified, and if no monotonic modifier is specified, the effect will
@@ -2362,6 +2393,10 @@ void CodeGenFunction::EmitOMPTaskBasedDirective(const OMPExecutableDirective &S,
     // TODO: Add codegen for priority clause arg when runtime lib support it.
     auto *Prio = Clause->getPriority();
     Data.Priority.setInt(Prio);
+    Data.Priority.setPointer(EmitScalarConversion(
+        EmitScalarExpr(Prio), Prio->getType(),
+        getContext().getIntTypeForBitwidth(/*DestWidth=*/32, /*Signed=*/1),
+        Prio->getExprLoc()));
   }
   // The first function argument for tasks is a thread id, the second one is a
   // part id (0 for tied tasks, >=0 for untied task).
@@ -2683,8 +2718,11 @@ static llvm::Function *emitOutlinedOrderedFunction(CodeGenModule &CGM,
 }
 
 void CodeGenFunction::EmitOMPOrderedDirective(const OMPOrderedDirective &S) {
-  if (!S.getAssociatedStmt())
+  if (!S.getAssociatedStmt()) {
+    for (const auto *DC : S.getClausesOfKind<OMPDependClause>())
+      CGM.getOpenMPRuntime().emitDoacrossOrdered(*this, DC);
     return;
+  }
   auto *C = S.getSingleClause<OMPSIMDClause>();
   auto &&CodeGen = [&S, C, this](CodeGenFunction &CGF,
                                  PrePostActionTy &Action) {
@@ -3122,6 +3160,8 @@ static void EmitOMPAtomicExpr(CodeGenFunction &CGF, OpenMPClauseKind Kind,
   case OMPC_dist_schedule:
   case OMPC_defaultmap:
   case OMPC_uniform:
+  case OMPC_to:
+  case OMPC_from:
     llvm_unreachable("Clause is not allowed in 'omp atomic'.");
   }
 }
@@ -3352,8 +3392,7 @@ void CodeGenFunction::EmitOMPTargetEnterDataDirective(
   if (auto *C = S.getSingleClause<OMPDeviceClause>())
     Device = C->getDevice();
 
-  CGM.getOpenMPRuntime().emitTargetEnterOrExitDataCall(*this, S, IfCond,
-                                                       Device);
+  CGM.getOpenMPRuntime().emitTargetDataStandAloneCall(*this, S, IfCond, Device);
 }
 
 void CodeGenFunction::EmitOMPTargetExitDataDirective(
@@ -3373,8 +3412,7 @@ void CodeGenFunction::EmitOMPTargetExitDataDirective(
   if (auto *C = S.getSingleClause<OMPDeviceClause>())
     Device = C->getDevice();
 
-  CGM.getOpenMPRuntime().emitTargetEnterOrExitDataCall(*this, S, IfCond,
-                                                       Device);
+  CGM.getOpenMPRuntime().emitTargetDataStandAloneCall(*this, S, IfCond, Device);
 }
 
 void CodeGenFunction::EmitOMPTargetParallelDirective(
@@ -3531,4 +3569,25 @@ void CodeGenFunction::EmitOMPTaskLoopDirective(const OMPTaskLoopDirective &S) {
 void CodeGenFunction::EmitOMPTaskLoopSimdDirective(
     const OMPTaskLoopSimdDirective &S) {
   EmitOMPTaskLoopBasedDirective(S);
+}
+
+// Generate the instructions for '#pragma omp target update' directive.
+void CodeGenFunction::EmitOMPTargetUpdateDirective(
+    const OMPTargetUpdateDirective &S) {
+  // If we don't have target devices, don't bother emitting the data mapping
+  // code.
+  if (CGM.getLangOpts().OMPTargetTriples.empty())
+    return;
+
+  // Check if we have any if clause associated with the directive.
+  const Expr *IfCond = nullptr;
+  if (auto *C = S.getSingleClause<OMPIfClause>())
+    IfCond = C->getCondition();
+
+  // Check if we have any device clause associated with the directive.
+  const Expr *Device = nullptr;
+  if (auto *C = S.getSingleClause<OMPDeviceClause>())
+    Device = C->getDevice();
+
+  CGM.getOpenMPRuntime().emitTargetDataStandAloneCall(*this, S, IfCond, Device);
 }

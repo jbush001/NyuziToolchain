@@ -291,6 +291,7 @@ enum class FloatABI {
 };
 
 NanEncoding getSupportedNanEncoding(StringRef &CPU);
+bool hasCompactBranches(StringRef &CPU);
 void getMipsCPUAndABI(const llvm::opt::ArgList &Args,
                       const llvm::Triple &Triple, StringRef &CPUName,
                       StringRef &ABIName);
@@ -776,6 +777,16 @@ enum class FloatABI {
 
 FloatABI getPPCFloatABI(const Driver &D, const llvm::opt::ArgList &Args);
 } // end namespace ppc
+
+namespace sparc {
+enum class FloatABI {
+  Invalid,
+  Soft,
+  Hard,
+};
+
+FloatABI getSparcFloatABI(const Driver &D, const llvm::opt::ArgList &Args);
+} // end namespace sparc
 
 namespace XCore {
 // For XCore, we do not need to instantiate tools for PreProcess, PreCompile and

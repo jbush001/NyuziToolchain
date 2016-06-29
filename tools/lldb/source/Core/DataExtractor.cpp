@@ -1237,7 +1237,7 @@ DataExtractor::GetULEB128 (offset_t *offset_ptr) const
             while (src < end)
             {
                 uint8_t byte = *src++;
-                result |= (byte & 0x7f) << shift;
+                result |= (uint64_t)(byte & 0x7f) << shift;
                 if ((byte & 0x80) == 0)
                     break;
                 shift += 7;
@@ -1280,7 +1280,7 @@ DataExtractor::GetSLEB128 (offset_t *offset_ptr) const
         {
             bytecount++;
             byte = *src++;
-            result |= (byte & 0x7f) << shift;
+            result |= (int64_t)(byte & 0x7f) << shift;
             shift += 7;
             if ((byte & 0x80) == 0)
                 break;
@@ -1475,10 +1475,6 @@ DataExtractor::Dump (Stream *s,
                     ExecutionContext exe_ctx;
                     exe_scope->CalculateExecutionContext(exe_ctx);
                     disassembler_sp->GetInstructionList().Dump (s,  show_address, show_bytes, &exe_ctx);
-                    
-                    // FIXME: The DisassemblerLLVMC has a reference cycle and won't go away if it has any active instructions.
-                    // I'll fix that but for now, just clear the list and it will go away nicely.
-                    disassembler_sp->GetInstructionList().Clear();
                 }
             }
         }

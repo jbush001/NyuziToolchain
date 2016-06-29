@@ -236,11 +236,13 @@ CoverageMapping::load(CoverageMappingReader &CoverageReader,
 Expected<std::unique_ptr<CoverageMapping>>
 CoverageMapping::load(StringRef ObjectFilename, StringRef ProfileFilename,
                       StringRef Arch) {
-  auto CounterMappingBuff = MemoryBuffer::getFileOrSTDIN(ObjectFilename);
-  if (std::error_code EC = CounterMappingBuff.getError())
+  auto CounterMappingBufOrErr = MemoryBuffer::getFileOrSTDIN(ObjectFilename);
+  if (std::error_code EC = CounterMappingBufOrErr.getError())
     return errorCodeToError(EC);
+  std::unique_ptr<MemoryBuffer> ObjectBuffer =
+      std::move(CounterMappingBufOrErr.get());
   auto CoverageReaderOrErr =
-      BinaryCoverageReader::create(CounterMappingBuff.get(), Arch);
+      BinaryCoverageReader::create(*ObjectBuffer.get(), Arch);
   if (Error E = CoverageReaderOrErr.takeError())
     return std::move(E);
   auto CoverageReader = std::move(CoverageReaderOrErr.get());
@@ -556,6 +558,9 @@ std::string getCoverageMapErrString(coveragemap_error Err) {
   llvm_unreachable("A value of coveragemap_error has no message.");
 }
 
+// FIXME: This class is only here to support the transition to llvm::Error. It
+// will be removed once this transition is complete. Clients should prefer to
+// deal with the Error value directly, rather than converting to error_code.
 class CoverageMappingErrorCategoryType : public std::error_category {
   const char *name() const LLVM_NOEXCEPT override { return "llvm.coveragemap"; }
   std::string message(int IE) const override {

@@ -184,7 +184,7 @@ public:
 
     // Delete the instructions backwards, as it has a reduced likelihood of
     // having to update as many def-use and use-def chains.
-    for (auto *Inst : make_range(Unused.rbegin(), Unused.rend())) {
+    for (auto *Inst : reverse(Unused)) {
       if (!Inst->use_empty())
         Inst->replaceAllUsesWith(UndefValue::get(Inst->getType()));
       Inst->eraseFromParent();
@@ -608,7 +608,7 @@ public:
       return fail("multiple exit blocks");
 
     // LAA will check that we only have a single exiting block.
-    LAI = &LAA->getInfo(L, ValueToValueMap());
+    LAI = &LAA->getInfo(L);
 
     // Currently, we only distribute to isolate the part of the loop with
     // dependence cycles to enable partial vectorization.

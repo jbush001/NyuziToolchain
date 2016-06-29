@@ -58,6 +58,17 @@ static cl::opt<bool>
 ReMatPICStubLoad("remat-pic-stub-load",
                  cl::desc("Re-materialize load from stub in PIC mode"),
                  cl::init(false), cl::Hidden);
+static cl::opt<unsigned>
+PartialRegUpdateClearance("partial-reg-update-clearance",
+                          cl::desc("Clearance between two register writes "
+                                   "for inserting XOR to avoid partial "
+                                   "register update"),
+                          cl::init(64), cl::Hidden);
+static cl::opt<unsigned>
+UndefRegClearance("undef-reg-clearance",
+                  cl::desc("How many idle instructions we would like before "
+                           "certain undef register reads"),
+                  cl::init(64), cl::Hidden);
 
 enum {
   // Select which memory operand is being unfolded.
@@ -1029,7 +1040,7 @@ X86InstrInfo::X86InstrInfo(X86Subtarget &STI)
     { X86::PADDUSBrr,       X86::PADDUSBrm,     TB_ALIGN_16 },
     { X86::PADDUSWrr,       X86::PADDUSWrm,     TB_ALIGN_16 },
     { X86::PADDWrr,         X86::PADDWrm,       TB_ALIGN_16 },
-    { X86::PALIGNR128rr,    X86::PALIGNR128rm,  TB_ALIGN_16 },
+    { X86::PALIGNRrri,      X86::PALIGNRrmi,    TB_ALIGN_16 },
     { X86::PANDNrr,         X86::PANDNrm,       TB_ALIGN_16 },
     { X86::PANDrr,          X86::PANDrm,        TB_ALIGN_16 },
     { X86::PAVGBrr,         X86::PAVGBrm,       TB_ALIGN_16 },
@@ -1326,7 +1337,7 @@ X86InstrInfo::X86InstrInfo(X86Subtarget &STI)
     { X86::VPADDUSBrr,        X86::VPADDUSBrm,         0 },
     { X86::VPADDUSWrr,        X86::VPADDUSWrm,         0 },
     { X86::VPADDWrr,          X86::VPADDWrm,           0 },
-    { X86::VPALIGNR128rr,     X86::VPALIGNR128rm,      0 },
+    { X86::VPALIGNRrri,       X86::VPALIGNRrmi,        0 },
     { X86::VPANDNrr,          X86::VPANDNrm,           0 },
     { X86::VPANDrr,           X86::VPANDrm,            0 },
     { X86::VPAVGBrr,          X86::VPAVGBrm,           0 },
@@ -1482,7 +1493,7 @@ X86InstrInfo::X86InstrInfo(X86Subtarget &STI)
     { X86::VPADDUSBYrr,       X86::VPADDUSBYrm,        0 },
     { X86::VPADDUSWYrr,       X86::VPADDUSWYrm,        0 },
     { X86::VPADDWYrr,         X86::VPADDWYrm,          0 },
-    { X86::VPALIGNR256rr,     X86::VPALIGNR256rm,      0 },
+    { X86::VPALIGNRYrri,      X86::VPALIGNRYrmi,       0 },
     { X86::VPANDNYrr,         X86::VPANDNYrm,          0 },
     { X86::VPANDYrr,          X86::VPANDYrm,           0 },
     { X86::VPAVGBYrr,         X86::VPAVGBYrm,          0 },
@@ -1547,6 +1558,8 @@ X86InstrInfo::X86InstrInfo(X86Subtarget &STI)
     { X86::VPSRAWYrr,         X86::VPSRAWYrm,          0 },
     { X86::VPSRAVDrr,         X86::VPSRAVDrm,          0 },
     { X86::VPSRAVDYrr,        X86::VPSRAVDYrm,         0 },
+    { X86::VPSRAVD_Intrr,     X86::VPSRAVD_Intrm,      0 },
+    { X86::VPSRAVD_IntYrr,    X86::VPSRAVD_IntYrm,     0 },
     { X86::VPSRLDYrr,         X86::VPSRLDYrm,          0 },
     { X86::VPSRLQYrr,         X86::VPSRLQYrm,          0 },
     { X86::VPSRLWYrr,         X86::VPSRLWYrm,          0 },
@@ -2504,7 +2517,7 @@ void X86InstrInfo::reMaterialize(MachineBasicBlock &MBB,
       llvm_unreachable("Unexpected instruction!");
     }
 
-    DebugLoc DL = Orig->getDebugLoc();
+    const DebugLoc &DL = Orig->getDebugLoc();
     BuildMI(MBB, I, DL, get(X86::MOV32ri)).addOperand(Orig->getOperand(0))
       .addImm(Value);
   } else {
@@ -4207,10 +4220,11 @@ unsigned X86InstrInfo::RemoveBranch(MachineBasicBlock &MBB) const {
   return Count;
 }
 
-unsigned
-X86InstrInfo::InsertBranch(MachineBasicBlock &MBB, MachineBasicBlock *TBB,
-                           MachineBasicBlock *FBB, ArrayRef<MachineOperand> Cond,
-                           DebugLoc DL) const {
+unsigned X86InstrInfo::InsertBranch(MachineBasicBlock &MBB,
+                                    MachineBasicBlock *TBB,
+                                    MachineBasicBlock *FBB,
+                                    ArrayRef<MachineOperand> Cond,
+                                    const DebugLoc &DL) const {
   // Shouldn't be a fall through.
   assert(TBB && "InsertBranch must not be told to insert a fallthrough");
   assert((Cond.size() == 1 || Cond.size() == 0) &&
@@ -4302,15 +4316,16 @@ canInsertSelect(const MachineBasicBlock &MBB,
 }
 
 void X86InstrInfo::insertSelect(MachineBasicBlock &MBB,
-                                MachineBasicBlock::iterator I, DebugLoc DL,
-                                unsigned DstReg, ArrayRef<MachineOperand> Cond,
-                                unsigned TrueReg, unsigned FalseReg) const {
-   MachineRegisterInfo &MRI = MBB.getParent()->getRegInfo();
-   assert(Cond.size() == 1 && "Invalid Cond array");
-   unsigned Opc = getCMovFromCond((X86::CondCode)Cond[0].getImm(),
-                                  MRI.getRegClass(DstReg)->getSize(),
-                                  false/*HasMemoryOperand*/);
-   BuildMI(MBB, I, DL, get(Opc), DstReg).addReg(FalseReg).addReg(TrueReg);
+                                MachineBasicBlock::iterator I,
+                                const DebugLoc &DL, unsigned DstReg,
+                                ArrayRef<MachineOperand> Cond, unsigned TrueReg,
+                                unsigned FalseReg) const {
+  MachineRegisterInfo &MRI = MBB.getParent()->getRegInfo();
+  assert(Cond.size() == 1 && "Invalid Cond array");
+  unsigned Opc = getCMovFromCond((X86::CondCode)Cond[0].getImm(),
+                                 MRI.getRegClass(DstReg)->getSize(),
+                                 false /*HasMemoryOperand*/);
+  BuildMI(MBB, I, DL, get(Opc), DstReg).addReg(FalseReg).addReg(TrueReg);
 }
 
 /// Test if the given register is a physical h register.
@@ -4435,9 +4450,9 @@ unsigned copyPhysRegOpcode_AVX512(unsigned& DestReg, unsigned& SrcReg,
 }
 
 void X86InstrInfo::copyPhysReg(MachineBasicBlock &MBB,
-                               MachineBasicBlock::iterator MI, DebugLoc DL,
-                               unsigned DestReg, unsigned SrcReg,
-                               bool KillSrc) const {
+                               MachineBasicBlock::iterator MI,
+                               const DebugLoc &DL, unsigned DestReg,
+                               unsigned SrcReg, bool KillSrc) const {
   // First deal with the normal symmetric copies.
   bool HasAVX = Subtarget.hasAVX();
   bool HasAVX512 = Subtarget.hasAVX512();
@@ -5968,10 +5983,10 @@ getPartialRegUpdateClearance(const MachineInstr *MI, unsigned OpNum,
       return 0;
   }
 
-  // If any of the preceding 16 instructions are reading Reg, insert a
-  // dependency breaking instruction.  The magic number is based on a few
-  // Nehalem experiments.
-  return 16;
+  // If any instructions in the clearance range are reading Reg, insert a
+  // dependency breaking instruction, which is inexpensive and is likely to
+  // be hidden in other instruction's cycles.
+  return PartialRegUpdateClearance;
 }
 
 // Return true for any instruction the copies the high bits of the first source
@@ -6056,8 +6071,7 @@ getUndefRegClearance(const MachineInstr *MI, unsigned &OpNum,
 
   const MachineOperand &MO = MI->getOperand(OpNum);
   if (MO.isUndef() && TargetRegisterInfo::isPhysicalRegister(MO.getReg())) {
-    // Use the same magic number as getPartialRegUpdateClearance.
-    return 16;
+    return UndefRegClearance;
   }
   return 0;
 }
@@ -6282,7 +6296,7 @@ MachineInstr *X86InstrInfo::foldMemoryOperandImpl(
 
     // x86-32 PIC requires a PIC base register for constant pools.
     unsigned PICBase = 0;
-    if (MF.getTarget().getRelocationModel() == Reloc::PIC_) {
+    if (MF.getTarget().isPositionIndependent()) {
       if (Subtarget.is64Bit())
         PICBase = X86::RIP;
       else
@@ -7357,7 +7371,7 @@ namespace {
         return false;
 
       // Only emit a global base reg in PIC mode.
-      if (TM->getRelocationModel() != Reloc::PIC_)
+      if (!TM->isPositionIndependent())
         return false;
 
       X86MachineFunctionInfo *X86FI = MF.getInfo<X86MachineFunctionInfo>();

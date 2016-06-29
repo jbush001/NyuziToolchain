@@ -178,22 +178,6 @@ define i32 @test_x86_sse2_comineq_sd(<2 x double> %a0, <2 x double> %a1) {
 declare i32 @llvm.x86.sse2.comineq.sd(<2 x double>, <2 x double>) nounwind readnone
 
 
-define <2 x double> @test_x86_sse2_cvtdq2pd(<4 x i32> %a0) {
-; SSE-LABEL: test_x86_sse2_cvtdq2pd:
-; SSE:       ## BB#0:
-; SSE-NEXT:    cvtdq2pd %xmm0, %xmm0
-; SSE-NEXT:    retl
-;
-; KNL-LABEL: test_x86_sse2_cvtdq2pd:
-; KNL:       ## BB#0:
-; KNL-NEXT:    vcvtdq2pd %xmm0, %xmm0
-; KNL-NEXT:    retl
-  %res = call <2 x double> @llvm.x86.sse2.cvtdq2pd(<4 x i32> %a0) ; <<2 x double>> [#uses=1]
-  ret <2 x double> %res
-}
-declare <2 x double> @llvm.x86.sse2.cvtdq2pd(<4 x i32>) nounwind readnone
-
-
 define <4 x float> @test_x86_sse2_cvtdq2ps(<4 x i32> %a0) {
 ; SSE-LABEL: test_x86_sse2_cvtdq2ps:
 ; SSE:       ## BB#0:
@@ -258,22 +242,6 @@ define <4 x i32> @test_x86_sse2_cvtps2dq(<4 x float> %a0) {
 declare <4 x i32> @llvm.x86.sse2.cvtps2dq(<4 x float>) nounwind readnone
 
 
-define <2 x double> @test_x86_sse2_cvtps2pd(<4 x float> %a0) {
-; SSE-LABEL: test_x86_sse2_cvtps2pd:
-; SSE:       ## BB#0:
-; SSE-NEXT:    cvtps2pd %xmm0, %xmm0
-; SSE-NEXT:    retl
-;
-; KNL-LABEL: test_x86_sse2_cvtps2pd:
-; KNL:       ## BB#0:
-; KNL-NEXT:    vcvtps2pd %xmm0, %xmm0
-; KNL-NEXT:    retl
-  %res = call <2 x double> @llvm.x86.sse2.cvtps2pd(<4 x float> %a0) ; <<2 x double>> [#uses=1]
-  ret <2 x double> %res
-}
-declare <2 x double> @llvm.x86.sse2.cvtps2pd(<4 x float>) nounwind readnone
-
-
 define i32 @test_x86_sse2_cvtsd2si(<2 x double> %a0) {
 ; SSE-LABEL: test_x86_sse2_cvtsd2si:
 ; SSE:       ## BB#0:
@@ -306,19 +274,17 @@ define <4 x float> @test_x86_sse2_cvtsd2ss(<4 x float> %a0, <2 x double> %a1) {
 declare <4 x float> @llvm.x86.sse2.cvtsd2ss(<4 x float>, <2 x double>) nounwind readnone
 
 
-define <2 x double> @test_x86_sse2_cvtsi2sd(<2 x double> %a0) {
+define <2 x double> @test_x86_sse2_cvtsi2sd(<2 x double> %a0, i32 %a1) {
 ; SSE-LABEL: test_x86_sse2_cvtsi2sd:
 ; SSE:       ## BB#0:
-; SSE-NEXT:    movl $7, %eax
-; SSE-NEXT:    cvtsi2sdl %eax, %xmm0
+; SSE-NEXT:    cvtsi2sdl {{[0-9]+}}(%esp), %xmm0
 ; SSE-NEXT:    retl
 ;
 ; KNL-LABEL: test_x86_sse2_cvtsi2sd:
 ; KNL:       ## BB#0:
-; KNL-NEXT:    movl $7, %eax
-; KNL-NEXT:    vcvtsi2sdl %eax, %xmm0, %xmm0
+; KNL-NEXT:    vcvtsi2sdl {{[0-9]+}}(%esp), %xmm0, %xmm0
 ; KNL-NEXT:    retl
-  %res = call <2 x double> @llvm.x86.sse2.cvtsi2sd(<2 x double> %a0, i32 7) ; <<2 x double>> [#uses=1]
+  %res = call <2 x double> @llvm.x86.sse2.cvtsi2sd(<2 x double> %a0, i32 %a1) ; <<2 x double>> [#uses=1]
   ret <2 x double> %res
 }
 declare <2 x double> @llvm.x86.sse2.cvtsi2sd(<2 x double>, i32) nounwind readnone
@@ -354,22 +320,6 @@ define <4 x i32> @test_x86_sse2_cvttpd2dq(<2 x double> %a0) {
   ret <4 x i32> %res
 }
 declare <4 x i32> @llvm.x86.sse2.cvttpd2dq(<2 x double>) nounwind readnone
-
-
-define <4 x i32> @test_x86_sse2_cvttps2dq(<4 x float> %a0) {
-; SSE-LABEL: test_x86_sse2_cvttps2dq:
-; SSE:       ## BB#0:
-; SSE-NEXT:    cvttps2dq %xmm0, %xmm0
-; SSE-NEXT:    retl
-;
-; KNL-LABEL: test_x86_sse2_cvttps2dq:
-; KNL:       ## BB#0:
-; KNL-NEXT:    vcvttps2dq %xmm0, %xmm0
-; KNL-NEXT:    retl
-  %res = call <4 x i32> @llvm.x86.sse2.cvttps2dq(<4 x float> %a0) ; <<4 x i32>> [#uses=1]
-  ret <4 x i32> %res
-}
-declare <4 x i32> @llvm.x86.sse2.cvttps2dq(<4 x float>) nounwind readnone
 
 
 define i32 @test_x86_sse2_cvttsd2si(<2 x double> %a0) {
@@ -1159,72 +1109,6 @@ define <2 x double> @test_x86_sse2_sqrt_sd(<2 x double> %a0) {
 declare <2 x double> @llvm.x86.sse2.sqrt.sd(<2 x double>) nounwind readnone
 
 
-define void @test_x86_sse2_storel_dq(i8* %a0, <4 x i32> %a1) {
-; SSE-LABEL: test_x86_sse2_storel_dq:
-; SSE:       ## BB#0:
-; SSE-NEXT:    movl {{[0-9]+}}(%esp), %eax
-; SSE-NEXT:    movlps %xmm0, (%eax)
-; SSE-NEXT:    retl
-;
-; KNL-LABEL: test_x86_sse2_storel_dq:
-; KNL:       ## BB#0:
-; KNL-NEXT:    movl {{[0-9]+}}(%esp), %eax
-; KNL-NEXT:    vmovlps %xmm0, (%eax)
-; KNL-NEXT:    retl
-  call void @llvm.x86.sse2.storel.dq(i8* %a0, <4 x i32> %a1)
-  ret void
-}
-declare void @llvm.x86.sse2.storel.dq(i8*, <4 x i32>) nounwind
-
-
-define void @test_x86_sse2_storeu_dq(i8* %a0, <16 x i8> %a1) {
-  ; add operation forces the execution domain.
-; SSE-LABEL: test_x86_sse2_storeu_dq:
-; SSE:       ## BB#0:
-; SSE-NEXT:    movl {{[0-9]+}}(%esp), %eax
-; SSE-NEXT:    paddb LCPI71_0, %xmm0
-; SSE-NEXT:    movdqu %xmm0, (%eax)
-; SSE-NEXT:    retl
-;
-; KNL-LABEL: test_x86_sse2_storeu_dq:
-; KNL:       ## BB#0:
-; KNL-NEXT:    movl {{[0-9]+}}(%esp), %eax
-; KNL-NEXT:    vpaddb LCPI71_0, %xmm0, %xmm0
-; KNL-NEXT:    vmovdqu %xmm0, (%eax)
-; KNL-NEXT:    retl
-  %a2 = add <16 x i8> %a1, <i8 1, i8 1, i8 1, i8 1, i8 1, i8 1, i8 1, i8 1, i8 1, i8 1, i8 1, i8 1, i8 1, i8 1, i8 1, i8 1>
-  call void @llvm.x86.sse2.storeu.dq(i8* %a0, <16 x i8> %a2)
-  ret void
-}
-declare void @llvm.x86.sse2.storeu.dq(i8*, <16 x i8>) nounwind
-
-
-define void @test_x86_sse2_storeu_pd(i8* %a0, <2 x double> %a1) {
-  ; fadd operation forces the execution domain.
-; SSE-LABEL: test_x86_sse2_storeu_pd:
-; SSE:       ## BB#0:
-; SSE-NEXT:    movl {{[0-9]+}}(%esp), %eax
-; SSE-NEXT:    movsd {{.*#+}} xmm1 = mem[0],zero
-; SSE-NEXT:    pslldq {{.*#+}} xmm1 = zero,zero,zero,zero,zero,zero,zero,zero,xmm1[0,1,2,3,4,5,6,7]
-; SSE-NEXT:    addpd %xmm0, %xmm1
-; SSE-NEXT:    movupd %xmm1, (%eax)
-; SSE-NEXT:    retl
-;
-; KNL-LABEL: test_x86_sse2_storeu_pd:
-; KNL:       ## BB#0:
-; KNL-NEXT:    movl {{[0-9]+}}(%esp), %eax
-; KNL-NEXT:    vmovsd {{.*#+}} xmm1 = mem[0],zero
-; KNL-NEXT:    vpslldq {{.*#+}} xmm1 = zero,zero,zero,zero,zero,zero,zero,zero,xmm1[0,1,2,3,4,5,6,7]
-; KNL-NEXT:    vaddpd %xmm1, %xmm0, %xmm0
-; KNL-NEXT:    vmovupd %xmm0, (%eax)
-; KNL-NEXT:    retl
-  %a2 = fadd <2 x double> %a1, <double 0x0, double 0x4200000000000000>
-  call void @llvm.x86.sse2.storeu.pd(i8* %a0, <2 x double> %a2)
-  ret void
-}
-declare void @llvm.x86.sse2.storeu.pd(i8*, <2 x double>) nounwind
-
-
 define <2 x double> @test_x86_sse2_sub_sd(<2 x double> %a0, <2 x double> %a1) {
 ; SSE-LABEL: test_x86_sse2_sub_sd:
 ; SSE:       ## BB#0:
@@ -1382,51 +1266,3 @@ define void @test_x86_sse2_pause() {
   ret void
 }
 declare void @llvm.x86.sse2.pause() nounwind
-
-define <4 x i32> @test_x86_sse2_pshuf_d(<4 x i32> %a) {
-; SSE-LABEL: test_x86_sse2_pshuf_d:
-; SSE:       ## BB#0: ## %entry
-; SSE-NEXT:    pshufd {{.*#+}} xmm0 = xmm0[3,2,1,0]
-; SSE-NEXT:    retl
-;
-; KNL-LABEL: test_x86_sse2_pshuf_d:
-; KNL:       ## BB#0: ## %entry
-; KNL-NEXT:    vpshufd {{.*#+}} xmm0 = xmm0[3,2,1,0]
-; KNL-NEXT:    retl
-entry:
-   %res = call <4 x i32> @llvm.x86.sse2.pshuf.d(<4 x i32> %a, i8 27) nounwind readnone
-   ret <4 x i32> %res
-}
-declare <4 x i32> @llvm.x86.sse2.pshuf.d(<4 x i32>, i8) nounwind readnone
-
-define <8 x i16> @test_x86_sse2_pshufl_w(<8 x i16> %a) {
-; SSE-LABEL: test_x86_sse2_pshufl_w:
-; SSE:       ## BB#0: ## %entry
-; SSE-NEXT:    pshuflw {{.*#+}} xmm0 = xmm0[3,2,1,0,4,5,6,7]
-; SSE-NEXT:    retl
-;
-; KNL-LABEL: test_x86_sse2_pshufl_w:
-; KNL:       ## BB#0: ## %entry
-; KNL-NEXT:    vpshuflw {{.*#+}} xmm0 = xmm0[3,2,1,0,4,5,6,7]
-; KNL-NEXT:    retl
-entry:
-   %res = call <8 x i16> @llvm.x86.sse2.pshufl.w(<8 x i16> %a, i8 27) nounwind readnone
-   ret <8 x i16> %res
-}
-declare <8 x i16> @llvm.x86.sse2.pshufl.w(<8 x i16>, i8) nounwind readnone
-
-define <8 x i16> @test_x86_sse2_pshufh_w(<8 x i16> %a) {
-; SSE-LABEL: test_x86_sse2_pshufh_w:
-; SSE:       ## BB#0: ## %entry
-; SSE-NEXT:    pshufhw {{.*#+}} xmm0 = xmm0[0,1,2,3,7,6,5,4]
-; SSE-NEXT:    retl
-;
-; KNL-LABEL: test_x86_sse2_pshufh_w:
-; KNL:       ## BB#0: ## %entry
-; KNL-NEXT:    vpshufhw {{.*#+}} xmm0 = xmm0[0,1,2,3,7,6,5,4]
-; KNL-NEXT:    retl
-entry:
-   %res = call <8 x i16> @llvm.x86.sse2.pshufh.w(<8 x i16> %a, i8 27) nounwind readnone
-   ret <8 x i16> %res
-}
-declare <8 x i16> @llvm.x86.sse2.pshufh.w(<8 x i16>, i8) nounwind readnone

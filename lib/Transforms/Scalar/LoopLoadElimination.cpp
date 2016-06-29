@@ -119,6 +119,11 @@ bool doesStoreDominatesAllLatches(BasicBlock *StoreBlock, Loop *L,
                      });
 }
 
+/// \brief Return true if the load is not executed on all paths in the loop.
+static bool isLoadConditional(LoadInst *Load, Loop *L) {
+  return Load->getParent() != L->getHeader();
+}
+
 /// \brief The per-loop class that does most of the work.
 class LoadEliminationForLoop {
 public:
@@ -450,6 +455,12 @@ public:
       if (!doesStoreDominatesAllLatches(Cand.Store->getParent(), L, DT))
         continue;
 
+      // If the load is conditional we can't hoist its 0-iteration instance to
+      // the preheader because that would make it unconditional.  Thus we would
+      // access a memory location that the original loop did not access.
+      if (isLoadConditional(Cand.Load, L))
+        continue;
+
       // Check whether the SCEV difference is the same as the induction step,
       // thus we load the value in the next iteration.
       if (!Cand.isDependenceDistanceOfOne(PSE, L))
@@ -552,7 +563,7 @@ public:
     // Now walk the identified inner loops.
     bool Changed = false;
     for (Loop *L : Worklist) {
-      const LoopAccessInfo &LAI = LAA->getInfo(L, ValueToValueMap());
+      const LoopAccessInfo &LAI = LAA->getInfo(L);
       // The actual work is performed by LoadEliminationForLoop.
       LoadEliminationForLoop LEL(L, LI, LAI, DT);
       Changed |= LEL.processLoop();

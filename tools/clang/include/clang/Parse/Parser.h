@@ -647,6 +647,8 @@ private:
   /// Should only be used in Objective-C language modes.
   bool isObjCInstancetype() {
     assert(getLangOpts().ObjC1);
+    if (Tok.isAnnotation())
+      return false;
     if (!Ident_instancetype)
       Ident_instancetype = PP.getIdentifierInfo("instancetype");
     return Tok.getIdentifierInfo() == Ident_instancetype;
@@ -1586,8 +1588,8 @@ private:
 
   //===--------------------------------------------------------------------===//
   // C++ if/switch/while condition expression.
-  bool ParseCXXCondition(ExprResult &ExprResult, Decl *&DeclResult,
-                         SourceLocation Loc, bool ConvertToBoolean);
+  Sema::ConditionResult ParseCXXCondition(SourceLocation Loc,
+                                          Sema::ConditionKind CK);
 
   //===--------------------------------------------------------------------===//
   // C++ Coroutines
@@ -1678,10 +1680,9 @@ private:
                                     unsigned ScopeFlags);
   void ParseCompoundStatementLeadingPragmas();
   StmtResult ParseCompoundStatementBody(bool isStmtExpr = false);
-  bool ParseParenExprOrCondition(ExprResult &ExprResult,
-                                 Decl *&DeclResult,
+  bool ParseParenExprOrCondition(Sema::ConditionResult &CondResult,
                                  SourceLocation Loc,
-                                 bool ConvertToBoolean);
+                                 Sema::ConditionKind CK);
   StmtResult ParseIfStatement(SourceLocation *TrailingElseLoc);
   StmtResult ParseSwitchStatement(SourceLocation *TrailingElseLoc);
   StmtResult ParseWhileStatement(SourceLocation *TrailingElseLoc);

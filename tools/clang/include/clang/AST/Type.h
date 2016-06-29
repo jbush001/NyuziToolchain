@@ -215,6 +215,12 @@ public:
     return Qs;
   }
 
+  static Qualifiers fromCVRUMask(unsigned CVRU) {
+    Qualifiers Qs;
+    Qs.addCVRUQualifiers(CVRU);
+    return Qs;
+  }
+
   // Deserialize qualifiers from an opaque representation.
   static Qualifiers fromOpaqueValue(unsigned opaque) {
     Qualifiers Qs;
@@ -263,6 +269,10 @@ public:
   }
   void addCVRQualifiers(unsigned mask) {
     assert(!(mask & ~CVRMask) && "bitmask contains non-CVR bits");
+    Mask |= mask;
+  }
+  void addCVRUQualifiers(unsigned mask) {
+    assert(!(mask & ~CVRMask & ~UMask) && "bitmask contains non-CVRU bits");
     Mask |= mask;
   }
 
@@ -1080,6 +1090,9 @@ public:
   /// Strip Objective-C "__kindof" types from the given type.
   QualType stripObjCKindOfType(const ASTContext &ctx) const;
 
+  /// Remove all qualifiers including _Atomic.
+  QualType getAtomicUnqualifiedType() const;
+
 private:
   // These methods are implemented in a separate translation unit;
   // "static"-ize them to avoid creating temporary QualTypes in the
@@ -1372,7 +1385,7 @@ protected:
     ///
     /// C++ 8.3.5p4: The return type, the parameter type list and the
     /// cv-qualifier-seq, [...], are part of the function type.
-    unsigned TypeQuals : 3;
+    unsigned TypeQuals : 4;
 
     /// \brief The ref-qualifier associated with a \c FunctionProtoType.
     ///
@@ -5344,7 +5357,8 @@ inline void QualType::removeLocalVolatile() {
 
 inline void QualType::removeLocalCVRQualifiers(unsigned Mask) {
   assert(!(Mask & ~Qualifiers::CVRMask) && "mask has non-CVR bits");
-  assert((int)Qualifiers::CVRMask == (int)Qualifiers::FastMask);
+  static_assert((int)Qualifiers::CVRMask == (int)Qualifiers::FastMask,
+                "Fast bits differ from CVR bits!");
 
   // Fast path: we don't need to touch the slow qualifiers.
   removeLocalFastQualifiers(Mask);

@@ -1,3 +1,11 @@
+//===- afl_driver.cpp - a glue between AFL and libFuzzer --------*- C++ -* ===//
+//
+//                     The LLVM Compiler Infrastructure
+//
+// This file is distributed under the University of Illinois Open Source
+// License. See LICENSE.TXT for details.
+//===----------------------------------------------------------------------===//
+
 /* This file allows to fuzz libFuzzer-style target functions
  (LLVMFuzzerTestOneInput) with AFL using AFL's persistent (in-process) mode.
 
@@ -52,6 +60,25 @@ static volatile char suppress_warning1 = AFL_DEFER_FORKSVR[0];
 static const size_t kMaxAflInputSize = 1 << 20;
 static uint8_t AflInputBuf[kMaxAflInputSize];
 
+// If the user asks us to duplicate stderr, then do it.
+static void maybe_duplicate_stderr() {
+  char* stderr_duplicate_filename =
+      getenv("AFL_DRIVER_STDERR_DUPLICATE_FILENAME");
+
+  if (!stderr_duplicate_filename)
+    return;
+
+  FILE* stderr_duplicate_stream =
+      freopen(stderr_duplicate_filename, "a+", stderr);
+
+  if (!stderr_duplicate_stream) {
+    fprintf(stderr,
+            "Failed to duplicate stderr to AFL_DRIVER_STDERR_DUPLICATE_FILENAME"
+            );
+    abort();
+  }
+}
+
 int main(int argc, char **argv) {
   fprintf(stderr, "Running in AFl-fuzz mode\nUsage:\n"
                   "afl-fuzz [afl-flags] %s [N] "
@@ -61,6 +88,8 @@ int main(int argc, char **argv) {
   if (LLVMFuzzerInitialize)
     LLVMFuzzerInitialize(&argc, &argv);
   // Do any other expensive one-time initialization here.
+
+  maybe_duplicate_stderr();
 
   __afl_manual_init();
 

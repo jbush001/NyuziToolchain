@@ -36,8 +36,7 @@ protected:
   explicit ARMBaseInstrInfo(const ARMSubtarget &STI);
 
   void expandLoadStackGuardBase(MachineBasicBlock::iterator MI,
-                                unsigned LoadImmOpc, unsigned LoadOpc,
-                                Reloc::Model RM) const;
+                                unsigned LoadImmOpc, unsigned LoadOpc) const;
 
   /// Build the equivalent inputs of a REG_SEQUENCE for the given \p MI
   /// and \p DefIdx.
@@ -129,7 +128,7 @@ public:
   unsigned RemoveBranch(MachineBasicBlock &MBB) const override;
   unsigned InsertBranch(MachineBasicBlock &MBB, MachineBasicBlock *TBB,
                         MachineBasicBlock *FBB, ArrayRef<MachineOperand> Cond,
-                        DebugLoc DL) const override;
+                        const DebugLoc &DL) const override;
 
   bool
   ReverseBranchCondition(SmallVectorImpl<MachineOperand> &Cond) const override;
@@ -175,7 +174,7 @@ public:
                     const ARMSubtarget &Subtarget) const;
 
   void copyPhysReg(MachineBasicBlock &MBB, MachineBasicBlock::iterator I,
-                   DebugLoc DL, unsigned DestReg, unsigned SrcReg,
+                   const DebugLoc &DL, unsigned DestReg, unsigned SrcReg,
                    bool KillSrc) const override;
 
   void storeRegToStackSlot(MachineBasicBlock &MBB,
@@ -349,8 +348,7 @@ private:
   bool verifyInstruction(const MachineInstr *MI,
                          StringRef &ErrInfo) const override;
 
-  virtual void expandLoadStackGuard(MachineBasicBlock::iterator MI,
-                                    Reloc::Model RM) const = 0;
+  virtual void expandLoadStackGuard(MachineBasicBlock::iterator MI) const = 0;
 
   void expandMEMCPY(MachineBasicBlock::iterator) const;
 
@@ -466,21 +464,24 @@ unsigned convertAddSubFlagsOpcode(unsigned OldOpc);
 /// instructions to materializea destreg = basereg + immediate in ARM / Thumb2
 /// code.
 void emitARMRegPlusImmediate(MachineBasicBlock &MBB,
-                             MachineBasicBlock::iterator &MBBI, DebugLoc dl,
-                             unsigned DestReg, unsigned BaseReg, int NumBytes,
+                             MachineBasicBlock::iterator &MBBI,
+                             const DebugLoc &dl, unsigned DestReg,
+                             unsigned BaseReg, int NumBytes,
                              ARMCC::CondCodes Pred, unsigned PredReg,
                              const ARMBaseInstrInfo &TII, unsigned MIFlags = 0);
 
 void emitT2RegPlusImmediate(MachineBasicBlock &MBB,
-                            MachineBasicBlock::iterator &MBBI, DebugLoc dl,
-                            unsigned DestReg, unsigned BaseReg, int NumBytes,
+                            MachineBasicBlock::iterator &MBBI,
+                            const DebugLoc &dl, unsigned DestReg,
+                            unsigned BaseReg, int NumBytes,
                             ARMCC::CondCodes Pred, unsigned PredReg,
                             const ARMBaseInstrInfo &TII, unsigned MIFlags = 0);
 void emitThumbRegPlusImmediate(MachineBasicBlock &MBB,
-                               MachineBasicBlock::iterator &MBBI, DebugLoc dl,
-                               unsigned DestReg, unsigned BaseReg,
-                               int NumBytes, const TargetInstrInfo &TII,
-                               const ARMBaseRegisterInfo& MRI,
+                               MachineBasicBlock::iterator &MBBI,
+                               const DebugLoc &dl, unsigned DestReg,
+                               unsigned BaseReg, int NumBytes,
+                               const TargetInstrInfo &TII,
+                               const ARMBaseRegisterInfo &MRI,
                                unsigned MIFlags = 0);
 
 /// Tries to add registers to the reglist of a given base-updating

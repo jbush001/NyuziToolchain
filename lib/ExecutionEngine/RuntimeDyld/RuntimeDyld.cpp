@@ -34,6 +34,9 @@ enum RuntimeDyldErrorCode {
   GenericRTDyldError = 1
 };
 
+// FIXME: This class is only here to support the transition to llvm::Error. It
+// will be removed once this transition is complete. Clients should prefer to
+// deal with the Error value directly, rather than converting to error_code.
 class RuntimeDyldErrorCategory : public std::error_category {
 public:
   const char *name() const LLVM_NOEXCEPT override { return "runtimedyld"; }
@@ -160,9 +163,9 @@ void RuntimeDyldImpl::mapSectionAddress(const void *LocalAddress,
 
 static Error getOffset(const SymbolRef &Sym, SectionRef Sec,
                        uint64_t &Result) {
-  ErrorOr<uint64_t> AddressOrErr = Sym.getAddress();
-  if (std::error_code EC = AddressOrErr.getError())
-    return errorCodeToError(EC);
+  Expected<uint64_t> AddressOrErr = Sym.getAddress();
+  if (!AddressOrErr)
+    return AddressOrErr.takeError();
   Result = *AddressOrErr - Sec.getAddress();
   return Error::success();
 }
@@ -233,7 +236,7 @@ RuntimeDyldImpl::loadObjectImpl(const object::ObjectFile &Obj) {
         if (auto AddrOrErr = I->getAddress())
           Addr = *AddrOrErr;
         else
-          return errorCodeToError(AddrOrErr.getError());
+          return AddrOrErr.takeError();
 
         unsigned SectionID = AbsoluteSymbolSection;
 
@@ -913,7 +916,11 @@ void RuntimeDyldImpl::resolveExternalSymbols() {
       if (Loc == GlobalSymbolTable.end()) {
         // This is an external symbol, try to get its address from the symbol
         // resolver.
-        Addr = Resolver.findSymbol(Name.data()).getAddress();
+        // First search for the symbol in this logical dylib.
+        Addr = Resolver.findSymbolInLogicalDylib(Name.data()).getAddress();
+        // If that fails, try searching for an external symbol.
+        if (!Addr)
+          Addr = Resolver.findSymbol(Name.data()).getAddress();
         // The call to getSymbolAddress may have caused additional modules to
         // be loaded, which may have added new entries to the
         // ExternalSymbolRelocations map.  Consquently, we need to update our

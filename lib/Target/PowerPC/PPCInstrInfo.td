@@ -262,7 +262,7 @@ def HI16 : SDNodeXForm<imm, [{
 
 def HA16 : SDNodeXForm<imm, [{
   // Transformation function: shift the immediate value down into the low bits.
-  signed int Val = N->getZExtValue();
+  int Val = N->getZExtValue();
   return getI32Imm((Val - (signed short)Val) >> 16, SDLoc(N));
 }]>;
 def MB : SDNodeXForm<imm, [{
@@ -2344,6 +2344,10 @@ let isCodeGenOnly = 1 in {
                                 "mfspr $rT, 256", IIC_IntGeneral>,
                   PPC970_DGroup_First, PPC970_Unit_FXU;
 }
+
+// Aliases for mtvrsave/mfvrsave to mfspr/mtspr.
+def : InstAlias<"mtvrsave $rS", (MTVRSAVE gprc:$rS)>;
+def : InstAlias<"mfvrsave $rS", (MFVRSAVE gprc:$rS)>;
 
 // SPILL_VRSAVE - Indicate that we're dumping the VRSAVE register,
 // so we'll need to scavenge a register for it.

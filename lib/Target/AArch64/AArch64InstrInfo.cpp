@@ -244,7 +244,7 @@ unsigned AArch64InstrInfo::RemoveBranch(MachineBasicBlock &MBB) const {
 }
 
 void AArch64InstrInfo::instantiateCondBranch(
-    MachineBasicBlock &MBB, DebugLoc DL, MachineBasicBlock *TBB,
+    MachineBasicBlock &MBB, const DebugLoc &DL, MachineBasicBlock *TBB,
     ArrayRef<MachineOperand> Cond) const {
   if (Cond[0].getImm() != -1) {
     // Regular Bcc
@@ -260,9 +260,11 @@ void AArch64InstrInfo::instantiateCondBranch(
   }
 }
 
-unsigned AArch64InstrInfo::InsertBranch(
-    MachineBasicBlock &MBB, MachineBasicBlock *TBB, MachineBasicBlock *FBB,
-    ArrayRef<MachineOperand> Cond, DebugLoc DL) const {
+unsigned AArch64InstrInfo::InsertBranch(MachineBasicBlock &MBB,
+                                        MachineBasicBlock *TBB,
+                                        MachineBasicBlock *FBB,
+                                        ArrayRef<MachineOperand> Cond,
+                                        const DebugLoc &DL) const {
   // Shouldn't be a fall through.
   assert(TBB && "InsertBranch must not be told to insert a fallthrough");
 
@@ -400,8 +402,8 @@ bool AArch64InstrInfo::canInsertSelect(
 }
 
 void AArch64InstrInfo::insertSelect(MachineBasicBlock &MBB,
-                                    MachineBasicBlock::iterator I, DebugLoc DL,
-                                    unsigned DstReg,
+                                    MachineBasicBlock::iterator I,
+                                    const DebugLoc &DL, unsigned DstReg,
                                     ArrayRef<MachineOperand> Cond,
                                     unsigned TrueReg, unsigned FalseReg) const {
   MachineRegisterInfo &MRI = MBB.getParent()->getRegInfo();
@@ -544,8 +546,7 @@ static bool canBeExpandedToORR(const MachineInstr *MI, unsigned BitSize) {
 // FIXME: this implementation should be micro-architecture dependent, so a
 // micro-architecture target hook should be introduced here in future.
 bool AArch64InstrInfo::isAsCheapAsAMove(const MachineInstr *MI) const {
-  if (!Subtarget.isCortexA57() && !Subtarget.isCortexA53() &&
-      !Subtarget.isExynosM1() && !Subtarget.isKryo())
+  if (!Subtarget.hasCustomCheapAsMoveHandling())
     return MI->isAsCheapAsAMove();
 
   unsigned Imm;
@@ -559,7 +560,7 @@ bool AArch64InstrInfo::isAsCheapAsAMove(const MachineInstr *MI) const {
   case AArch64::ADDXri:
   case AArch64::SUBWri:
   case AArch64::SUBXri:
-    return (Subtarget.isExynosM1() ||
+    return (Subtarget.getProcFamily() == AArch64Subtarget::ExynosM1 ||
             MI->getOperand(3).getImm() == 0);
 
   // add/sub on register with shift
@@ -568,7 +569,7 @@ bool AArch64InstrInfo::isAsCheapAsAMove(const MachineInstr *MI) const {
   case AArch64::SUBWrs:
   case AArch64::SUBXrs:
     Imm = MI->getOperand(3).getImm();
-    return (Subtarget.isExynosM1() &&
+    return (Subtarget.getProcFamily() == AArch64Subtarget::ExynosM1 &&
             AArch64_AM::getArithShiftValue(Imm) < 4);
 
   // logical ops on immediate
@@ -609,7 +610,7 @@ bool AArch64InstrInfo::isAsCheapAsAMove(const MachineInstr *MI) const {
   case AArch64::ORRWrs:
   case AArch64::ORRXrs:
     Imm = MI->getOperand(3).getImm();
-    return (Subtarget.isExynosM1() &&
+    return (Subtarget.getProcFamily() == AArch64Subtarget::ExynosM1 &&
             AArch64_AM::getShiftValue(Imm) < 4 &&
             AArch64_AM::getShiftType(Imm) == AArch64_AM::LSL);
 
@@ -1447,8 +1448,8 @@ bool AArch64InstrInfo::isScaledAddr(const MachineInstr *MI) const {
 
 /// Check all MachineMemOperands for a hint to suppress pairing.
 bool AArch64InstrInfo::isLdStPairSuppressed(const MachineInstr *MI) const {
-  assert(MOSuppressPair < (1 << MachineMemOperand::MOTargetNumBits) &&
-         "Too many target MO flags");
+  static_assert(MOSuppressPair < (1 << MachineMemOperand::MOTargetNumBits),
+                "Too many target MO flags");
   for (auto *MM : MI->memoperands()) {
     if (MM->getFlags() &
         (MOSuppressPair << MachineMemOperand::MOTargetStartBit)) {
@@ -1463,8 +1464,8 @@ void AArch64InstrInfo::suppressLdStPair(MachineInstr *MI) const {
   if (MI->memoperands_empty())
     return;
 
-  assert(MOSuppressPair < (1 << MachineMemOperand::MOTargetNumBits) &&
-         "Too many target MO flags");
+  static_assert(MOSuppressPair < (1 << MachineMemOperand::MOTargetNumBits),
+                "Too many target MO flags");
   (*MI->memoperands_begin())
       ->setFlags(MOSuppressPair << MachineMemOperand::MOTargetStartBit);
 }
@@ -1522,19 +1523,19 @@ bool AArch64InstrInfo::isCandidateToMergeOrPair(MachineInstr *MI) const {
   if (isLdStPairSuppressed(MI))
     return false;
 
-  // Do not pair quad ld/st for Exynos.
-  if (Subtarget.isExynosM1()) {
-      switch (MI->getOpcode()) {
-        default:
-          break;
+  // On some CPUs quad load/store pairs are slower than two single load/stores.
+  if (Subtarget.avoidQuadLdStPairs()) {
+    switch (MI->getOpcode()) {
+    default:
+      break;
 
-        case AArch64::LDURQi:
-        case AArch64::STURQi:
-        case AArch64::LDRQui:
-        case AArch64::STRQui:
-          return false;
-        }
+    case AArch64::LDURQi:
+    case AArch64::STURQi:
+    case AArch64::LDRQui:
+    case AArch64::STRQui:
+      return false;
     }
+  }
 
   return true;
 }
@@ -1801,8 +1802,8 @@ bool AArch64InstrInfo::shouldClusterMemOps(MachineInstr *FirstLdSt,
 
 bool AArch64InstrInfo::shouldScheduleAdjacent(MachineInstr *First,
                                               MachineInstr *Second) const {
-  if (Subtarget.isCyclone()) {
-    // Cyclone can fuse CMN, CMP, TST followed by Bcc.
+  if (Subtarget.hasMacroOpFusion()) {
+    // Fuse CMN, CMP, TST followed by Bcc.
     unsigned SecondOpcode = Second->getOpcode();
     if (SecondOpcode == AArch64::Bcc) {
       switch (First->getOpcode()) {
@@ -1817,7 +1818,7 @@ bool AArch64InstrInfo::shouldScheduleAdjacent(MachineInstr *First,
         return true;
       }
     }
-    // Cyclone B0 also supports ALU operations followed by CBZ/CBNZ.
+    // Fuse ALU operations followed by CBZ/CBNZ.
     if (SecondOpcode == AArch64::CBNZW || SecondOpcode == AArch64::CBNZX ||
         SecondOpcode == AArch64::CBZW || SecondOpcode == AArch64::CBZX) {
       switch (First->getOpcode()) {
@@ -1842,7 +1843,7 @@ bool AArch64InstrInfo::shouldScheduleAdjacent(MachineInstr *First,
 
 MachineInstr *AArch64InstrInfo::emitFrameIndexDebugValue(
     MachineFunction &MF, int FrameIx, uint64_t Offset, const MDNode *Var,
-    const MDNode *Expr, DebugLoc DL) const {
+    const MDNode *Expr, const DebugLoc &DL) const {
   MachineInstrBuilder MIB = BuildMI(MF, DL, get(AArch64::DBG_VALUE))
                                 .addFrameIndex(FrameIx)
                                 .addImm(0)
@@ -1872,7 +1873,7 @@ static bool forwardCopyWillClobberTuple(unsigned DestReg, unsigned SrcReg,
 }
 
 void AArch64InstrInfo::copyPhysRegTuple(
-    MachineBasicBlock &MBB, MachineBasicBlock::iterator I, DebugLoc DL,
+    MachineBasicBlock &MBB, MachineBasicBlock::iterator I, const DebugLoc &DL,
     unsigned DestReg, unsigned SrcReg, bool KillSrc, unsigned Opcode,
     llvm::ArrayRef<unsigned> Indices) const {
   assert(Subtarget.hasNEON() &&
@@ -1898,9 +1899,9 @@ void AArch64InstrInfo::copyPhysRegTuple(
 }
 
 void AArch64InstrInfo::copyPhysReg(MachineBasicBlock &MBB,
-                                   MachineBasicBlock::iterator I, DebugLoc DL,
-                                   unsigned DestReg, unsigned SrcReg,
-                                   bool KillSrc) const {
+                                   MachineBasicBlock::iterator I,
+                                   const DebugLoc &DL, unsigned DestReg,
+                                   unsigned SrcReg, bool KillSrc) const {
   if (AArch64::GPR32spRegClass.contains(DestReg) &&
       (AArch64::GPR32spRegClass.contains(SrcReg) || SrcReg == AArch64::WZR)) {
     const TargetRegisterInfo *TRI = &getRegisterInfo();
@@ -2386,7 +2387,7 @@ void AArch64InstrInfo::loadRegFromStackSlot(
 }
 
 void llvm::emitFrameOffset(MachineBasicBlock &MBB,
-                           MachineBasicBlock::iterator MBBI, DebugLoc DL,
+                           MachineBasicBlock::iterator MBBI, const DebugLoc &DL,
                            unsigned DestReg, unsigned SrcReg, int Offset,
                            const TargetInstrInfo *TII,
                            MachineInstr::MIFlag Flag, bool SetNZCV) {
@@ -3992,7 +3993,6 @@ AArch64InstrInfo::getSerializableBitmaskMachineOperandTargetFlags() const {
   static const std::pair<unsigned, const char *> TargetFlags[] = {
       {MO_GOT, "aarch64-got"},
       {MO_NC, "aarch64-nc"},
-      {MO_TLS, "aarch64-tls"},
-      {MO_CONSTPOOL, "aarch64-constant-pool"}};
+      {MO_TLS, "aarch64-tls"}};
   return makeArrayRef(TargetFlags);
 }

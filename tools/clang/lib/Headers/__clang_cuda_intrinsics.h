@@ -26,6 +26,76 @@
 #error "This file is for CUDA compilation only."
 #endif
 
+// sm_30 intrinsics: __shfl_{up,down,xor}.
+
+#define __SM_30_INTRINSICS_H__
+#define __SM_30_INTRINSICS_HPP__
+
+#if !defined(__CUDA_ARCH__) || __CUDA_ARCH__ >= 300
+
+#pragma push_macro("__MAKE_SHUFFLES")
+#define __MAKE_SHUFFLES(__FnName, __IntIntrinsic, __FloatIntrinsic, __Mask)    \
+  inline __device__ int __FnName(int __in, int __offset,                       \
+                                 int __width = warpSize) {                     \
+    return __IntIntrinsic(__in, __offset,                                      \
+                          ((warpSize - __width) << 8) | (__Mask));             \
+  }                                                                            \
+  inline __device__ float __FnName(float __in, int __offset,                   \
+                                   int __width = warpSize) {                   \
+    return __FloatIntrinsic(__in, __offset,                                    \
+                            ((warpSize - __width) << 8) | (__Mask));           \
+  }                                                                            \
+  inline __device__ unsigned int __FnName(unsigned int __in, int __offset,     \
+                                          int __width = warpSize) {            \
+    return static_cast<unsigned int>(                                          \
+        ::__FnName(static_cast<int>(__in), __offset, __width));                \
+  }                                                                            \
+  inline __device__ long long __FnName(long long __in, int __offset,           \
+                                       int __width = warpSize) {               \
+    struct __Bits {                                                            \
+      int __a, __b;                                                            \
+    };                                                                         \
+    _Static_assert(sizeof(__in) == sizeof(__Bits));                            \
+    _Static_assert(sizeof(__Bits) == 2 * sizeof(int));                         \
+    __Bits __tmp;                                                              \
+    memcpy(&__in, &__tmp, sizeof(__in));                                       \
+    __tmp.__a = ::__FnName(__tmp.__a, __offset, __width);                      \
+    __tmp.__b = ::__FnName(__tmp.__b, __offset, __width);                      \
+    long long __out;                                                           \
+    memcpy(&__out, &__tmp, sizeof(__tmp));                                     \
+    return __out;                                                              \
+  }                                                                            \
+  inline __device__ unsigned long long __FnName(                               \
+      unsigned long long __in, int __offset, int __width = warpSize) {         \
+    return static_cast<unsigned long long>(                                    \
+        ::__FnName(static_cast<unsigned long long>(__in), __offset, __width)); \
+  }                                                                            \
+  inline __device__ double __FnName(double __in, int __offset,                 \
+                                    int __width = warpSize) {                  \
+    long long __tmp;                                                           \
+    _Static_assert(sizeof(__tmp) == sizeof(__in));                             \
+    memcpy(&__tmp, &__in, sizeof(__in));                                       \
+    __tmp = ::__FnName(__tmp, __offset, __width);                              \
+    double __out;                                                              \
+    memcpy(&__out, &__tmp, sizeof(__out));                                     \
+    return __out;                                                              \
+  }
+
+__MAKE_SHUFFLES(__shfl, __builtin_ptx_shfl_idx_i32, __builtin_ptx_shfl_idx_f32,
+                0x1f);
+// We use 0 rather than 31 as our mask, because shfl.up applies to lanes >=
+// maxLane.
+__MAKE_SHUFFLES(__shfl_up, __builtin_ptx_shfl_up_i32, __builtin_ptx_shfl_up_f32,
+                0);
+__MAKE_SHUFFLES(__shfl_down, __builtin_ptx_shfl_down_i32,
+                __builtin_ptx_shfl_down_f32, 0x1f);
+__MAKE_SHUFFLES(__shfl_xor, __builtin_ptx_shfl_bfly_i32,
+                __builtin_ptx_shfl_bfly_f32, 0x1f);
+
+#pragma pop_macro("__MAKE_SHUFFLES")
+
+#endif // !defined(__CUDA_ARCH__) || __CUDA_ARCH__ >= 300
+
 // sm_32 intrinsics: __ldg and __funnelshift_{l,lc,r,rc}.
 
 // Prevent the vanilla sm_32 intrinsics header from being included.
@@ -74,10 +144,10 @@ inline __device__ char4 __ldg(const char4 *ptr) {
   typedef char c4 __attribute__((ext_vector_type(4)));
   c4 rv = __nvvm_ldg_c4(reinterpret_cast<const c4 *>(ptr));
   char4 ret;
-  ret.w = rv[0];
-  ret.x = rv[1];
-  ret.y = rv[2];
-  ret.z = rv[3];
+  ret.x = rv[0];
+  ret.y = rv[1];
+  ret.z = rv[2];
+  ret.w = rv[3];
   return ret;
 }
 inline __device__ short2 __ldg(const short2 *ptr) {
@@ -92,10 +162,10 @@ inline __device__ short4 __ldg(const short4 *ptr) {
   typedef short s4 __attribute__((ext_vector_type(4)));
   s4 rv = __nvvm_ldg_s4(reinterpret_cast<const s4 *>(ptr));
   short4 ret;
-  ret.w = rv[0];
-  ret.x = rv[1];
-  ret.y = rv[2];
-  ret.z = rv[3];
+  ret.x = rv[0];
+  ret.y = rv[1];
+  ret.z = rv[2];
+  ret.w = rv[3];
   return ret;
 }
 inline __device__ int2 __ldg(const int2 *ptr) {
@@ -110,10 +180,10 @@ inline __device__ int4 __ldg(const int4 *ptr) {
   typedef int i4 __attribute__((ext_vector_type(4)));
   i4 rv = __nvvm_ldg_i4(reinterpret_cast<const i4 *>(ptr));
   int4 ret;
-  ret.w = rv[0];
-  ret.x = rv[1];
-  ret.y = rv[2];
-  ret.z = rv[3];
+  ret.x = rv[0];
+  ret.y = rv[1];
+  ret.z = rv[2];
+  ret.w = rv[3];
   return ret;
 }
 inline __device__ longlong2 __ldg(const longlong2 *ptr) {
@@ -137,10 +207,10 @@ inline __device__ uchar4 __ldg(const uchar4 *ptr) {
   typedef unsigned char uc4 __attribute__((ext_vector_type(4)));
   uc4 rv = __nvvm_ldg_uc4(reinterpret_cast<const uc4 *>(ptr));
   uchar4 ret;
-  ret.w = rv[0];
-  ret.x = rv[1];
-  ret.y = rv[2];
-  ret.z = rv[3];
+  ret.x = rv[0];
+  ret.y = rv[1];
+  ret.z = rv[2];
+  ret.w = rv[3];
   return ret;
 }
 inline __device__ ushort2 __ldg(const ushort2 *ptr) {
@@ -155,10 +225,10 @@ inline __device__ ushort4 __ldg(const ushort4 *ptr) {
   typedef unsigned short us4 __attribute__((ext_vector_type(4)));
   us4 rv = __nvvm_ldg_us4(reinterpret_cast<const us4 *>(ptr));
   ushort4 ret;
-  ret.w = rv[0];
-  ret.x = rv[1];
-  ret.y = rv[2];
-  ret.z = rv[3];
+  ret.x = rv[0];
+  ret.y = rv[1];
+  ret.z = rv[2];
+  ret.w = rv[3];
   return ret;
 }
 inline __device__ uint2 __ldg(const uint2 *ptr) {
@@ -173,10 +243,10 @@ inline __device__ uint4 __ldg(const uint4 *ptr) {
   typedef unsigned int ui4 __attribute__((ext_vector_type(4)));
   ui4 rv = __nvvm_ldg_ui4(reinterpret_cast<const ui4 *>(ptr));
   uint4 ret;
-  ret.w = rv[0];
-  ret.x = rv[1];
-  ret.y = rv[2];
-  ret.z = rv[3];
+  ret.x = rv[0];
+  ret.y = rv[1];
+  ret.z = rv[2];
+  ret.w = rv[3];
   return ret;
 }
 inline __device__ ulonglong2 __ldg(const ulonglong2 *ptr) {
@@ -200,10 +270,10 @@ inline __device__ float4 __ldg(const float4 *ptr) {
   typedef float f4 __attribute__((ext_vector_type(4)));
   f4 rv = __nvvm_ldg_f4(reinterpret_cast<const f4 *>(ptr));
   float4 ret;
-  ret.w = rv[0];
-  ret.x = rv[1];
-  ret.y = rv[2];
-  ret.z = rv[3];
+  ret.x = rv[0];
+  ret.y = rv[1];
+  ret.z = rv[2];
+  ret.w = rv[3];
   return ret;
 }
 inline __device__ double2 __ldg(const double2 *ptr) {

@@ -234,6 +234,8 @@ DwarfDebug::DwarfDebug(AsmPrinter *A, Module *M)
   else
     HasDwarfAccelTables = DwarfAccelTables == Enable;
 
+  HasAppleExtensionAttributes = tuneForLLDB();
+
   // Handle split DWARF. Off by default for now.
   if (SplitDwarf == Default)
     HasSplitDwarf = false;
@@ -419,16 +421,18 @@ DwarfDebug::constructDwarfCompileUnit(const DICompileUnit *DIUnit) {
     addGnuPubAttributes(NewCU, Die);
   }
 
-  if (DIUnit->isOptimized())
-    NewCU.addFlag(Die, dwarf::DW_AT_APPLE_optimized);
+  if (useAppleExtensionAttributes()) {
+    if (DIUnit->isOptimized())
+      NewCU.addFlag(Die, dwarf::DW_AT_APPLE_optimized);
 
-  StringRef Flags = DIUnit->getFlags();
-  if (!Flags.empty())
-    NewCU.addString(Die, dwarf::DW_AT_APPLE_flags, Flags);
+    StringRef Flags = DIUnit->getFlags();
+    if (!Flags.empty())
+      NewCU.addString(Die, dwarf::DW_AT_APPLE_flags, Flags);
 
-  if (unsigned RVer = DIUnit->getRuntimeVersion())
-    NewCU.addUInt(Die, dwarf::DW_AT_APPLE_major_runtime_vers,
-                  dwarf::DW_FORM_data1, RVer);
+    if (unsigned RVer = DIUnit->getRuntimeVersion())
+      NewCU.addUInt(Die, dwarf::DW_AT_APPLE_major_runtime_vers,
+                    dwarf::DW_FORM_data1, RVer);
+  }
 
   if (useSplitDwarf())
     NewCU.initSection(Asm->getObjFileLowering().getDwarfInfoDWOSection());
@@ -466,12 +470,8 @@ void DwarfDebug::beginModule() {
 
   const Module *M = MMI->getModule();
 
-  unsigned NumDebugCUs = 0;
-  for (DICompileUnit *CUNode : M->debug_compile_units()) {
-    (void)CUNode;
-    ++NumDebugCUs;
-  }
-
+  unsigned NumDebugCUs = std::distance(M->debug_compile_units_begin(),
+                                       M->debug_compile_units_end());
   // Tell MMI whether we have debug info.
   MMI->setDebugInfoAvailability(NumDebugCUs > 0);
   SingleCU = NumDebugCUs == 1;
@@ -998,7 +998,7 @@ void DwarfDebug::beginInstruction(const MachineInstr *MI) {
 
   // Check if source location changes, but ignore DBG_VALUE locations.
   if (!MI->isDebugValue()) {
-    DebugLoc DL = MI->getDebugLoc();
+    const DebugLoc &DL = MI->getDebugLoc();
     if (DL != PrevInstLoc) {
       if (DL) {
         unsigned Flags = 0;
@@ -1662,7 +1662,7 @@ void DwarfDebug::emitDebugARanges() {
     Asm->OutStreamer->AddComment("Segment Size (in bytes)");
     Asm->EmitInt8(0);
 
-    Asm->OutStreamer->EmitFill(Padding, 0xff);
+    Asm->OutStreamer->emitFill(Padding, 0xff);
 
     for (const ArangeSpan &Span : List) {
       Asm->EmitLabelReference(Span.Start, PtrSize);

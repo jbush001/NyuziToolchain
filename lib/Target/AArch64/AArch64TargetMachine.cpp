@@ -133,8 +133,8 @@ static std::string computeDataLayout(const Triple &TT, bool LittleEndian) {
   if (TT.isOSBinFormatMachO())
     return "e-m:o-i64:64-i128:128-n32:64-S128";
   if (LittleEndian)
-    return "e-m:e-i64:64-i128:128-n32:64-S128";
-  return "E-m:e-i64:64-i128:128-n32:64-S128";
+    return "e-m:e-i8:8:32-i16:16:32-i64:64-i128:128-n32:64-S128";
+  return "E-m:e-i8:8:32-i16:16:32-i64:64-i128:128-n32:64-S128";
 }
 
 // Helper function to set up the defaults for reciprocals.
@@ -147,8 +147,7 @@ static void initReciprocals(AArch64TargetMachine& TM, AArch64Subtarget& ST)
   // (52 mantissa bits) are 2 and 3, respectively.
   unsigned ExtraStepsF = 2,
            ExtraStepsD = ExtraStepsF + 1;
-  // FIXME: Enable x^-1/2 only for Exynos M1 at the moment.
-  bool UseRsqrt = ST.isExynosM1();
+  bool UseRsqrt = ST.useRSqrt();
 
   TM.Options.Reciprocals.setDefaults("sqrtf", UseRsqrt, ExtraStepsF);
   TM.Options.Reciprocals.setDefaults("sqrtd", UseRsqrt, ExtraStepsD);

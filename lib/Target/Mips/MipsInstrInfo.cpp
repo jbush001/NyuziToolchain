@@ -94,9 +94,9 @@ bool MipsInstrInfo::AnalyzeBranch(MachineBasicBlock &MBB,
   return (BT == BT_None) || (BT == BT_Indirect);
 }
 
-void
-MipsInstrInfo::BuildCondBr(MachineBasicBlock &MBB, MachineBasicBlock *TBB,
-                           DebugLoc DL, ArrayRef<MachineOperand> Cond) const {
+void MipsInstrInfo::BuildCondBr(MachineBasicBlock &MBB, MachineBasicBlock *TBB,
+                                const DebugLoc &DL,
+                                ArrayRef<MachineOperand> Cond) const {
   unsigned Opc = Cond[0].getImm();
   const MCInstrDesc &MCID = get(Opc);
   MachineInstrBuilder MIB = BuildMI(&MBB, DL, MCID);
@@ -112,9 +112,11 @@ MipsInstrInfo::BuildCondBr(MachineBasicBlock &MBB, MachineBasicBlock *TBB,
   MIB.addMBB(TBB);
 }
 
-unsigned MipsInstrInfo::InsertBranch(
-    MachineBasicBlock &MBB, MachineBasicBlock *TBB, MachineBasicBlock *FBB,
-    ArrayRef<MachineOperand> Cond, DebugLoc DL) const {
+unsigned MipsInstrInfo::InsertBranch(MachineBasicBlock &MBB,
+                                     MachineBasicBlock *TBB,
+                                     MachineBasicBlock *FBB,
+                                     ArrayRef<MachineOperand> Cond,
+                                     const DebugLoc &DL) const {
   // Shouldn't be a fall through.
   assert(TBB && "InsertBranch must not be told to insert a fallthrough");
 
@@ -301,13 +303,15 @@ unsigned MipsInstrInfo::getEquivalentCompactForm(
     case Mips::BEQ:
       if (canUseShortMicroMipsCTI)
         return Mips::BEQZC_MM;
-      else
-        return Mips::BEQC;
+      else if (I->getOperand(0).getReg() == I->getOperand(1).getReg())
+        return 0;
+      return Mips::BEQC;
     case Mips::BNE:
       if (canUseShortMicroMipsCTI)
         return Mips::BNEZC_MM;
-      else
-        return Mips::BNEC;
+      else if (I->getOperand(0).getReg() == I->getOperand(1).getReg())
+        return 0;
+      return Mips::BNEC;
     case Mips::BGE:
       if (I->getOperand(0).getReg() == I->getOperand(1).getReg())
         return 0;

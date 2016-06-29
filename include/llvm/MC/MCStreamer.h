@@ -523,6 +523,10 @@ public:
   /// etc.
   virtual void EmitBytes(StringRef Data);
 
+  /// Functionally identical to EmitBytes. When emitting textual assembly, this
+  /// method uses .byte directives instead of .ascii or .asciz for readability.
+  virtual void EmitBinaryData(StringRef Data);
+
   /// \brief Emit the expression \p Value into the output as a native
   /// integer of the given \p Size bytes.
   ///
@@ -575,7 +579,29 @@ public:
 
   /// \brief Emit NumBytes bytes worth of the value specified by FillValue.
   /// This implements directives such as '.space'.
-  virtual void EmitFill(uint64_t NumBytes, uint8_t FillValue);
+  virtual void emitFill(uint64_t NumBytes, uint8_t FillValue);
+
+  /// \brief Emit \p Size bytes worth of the value specified by \p FillValue.
+  ///
+  /// This is used to implement assembler directives such as .space or .skip.
+  ///
+  /// \param NumBytes - The number of bytes to emit.
+  /// \param FillValue - The value to use when filling bytes.
+  /// \param Loc - The location of the expression for error reporting.
+  virtual void emitFill(const MCExpr &NumBytes, uint64_t FillValue,
+                        SMLoc Loc = SMLoc());
+
+  /// \brief Emit \p NumValues copies of \p Size bytes. Each \p Size bytes is
+  /// taken from the lowest order 4 bytes of \p Expr expression.
+  ///
+  /// This is used to implement assembler directives such as .fill.
+  ///
+  /// \param NumValues - The number of copies of \p Size bytes to emit.
+  /// \param Size - The size (in bytes) of each repeated value.
+  /// \param Expr - The expression from which \p Size bytes are used.
+  virtual void emitFill(uint64_t NumValues, int64_t Size, int64_t Expr);
+  virtual void emitFill(const MCExpr &NumValues, int64_t Size, int64_t Expr,
+                        SMLoc Loc = SMLoc());
 
   /// \brief Emit NumBytes worth of zeros.
   /// This function properly handles data in virtual sections.

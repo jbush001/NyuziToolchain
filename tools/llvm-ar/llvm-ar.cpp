@@ -19,6 +19,7 @@
 #include "llvm/LibDriver/LibDriver.h"
 #include "llvm/Object/Archive.h"
 #include "llvm/Object/ArchiveWriter.h"
+#include "llvm/Object/MachO.h"
 #include "llvm/Object/ObjectFile.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Errc.h"
@@ -70,6 +71,7 @@ static cl::list<std::string>
                cl::desc("[relpos] [count] <archive-file> [members]..."));
 
 static cl::opt<bool> MRI("M", cl::desc(""));
+static cl::opt<std::string> Plugin("plugin", cl::desc("plugin (ignored for compatibility"));
 
 namespace {
 enum Format { Default, GNU, BSD };
@@ -77,7 +79,7 @@ enum Format { Default, GNU, BSD };
 
 static cl::opt<Format>
     FormatOpt("format", cl::desc("Archive format to create"),
-              cl::values(clEnumValN(Default, "defalut", "default"),
+              cl::values(clEnumValN(Default, "default", "default"),
                          clEnumValN(GNU, "gnu", "gnu"),
                          clEnumValN(BSD, "bsd", "bsd"), clEnumValEnd));
 
@@ -575,21 +577,78 @@ computeNewArchiveMembers(ArchiveOperation Operation,
   return Ret;
 }
 
+static object::Archive::Kind getDefaultForHost() {
+  return Triple(sys::getProcessTriple()).isOSDarwin() ? object::Archive::K_BSD
+                                                      : object::Archive::K_GNU;
+}
+
+static object::Archive::Kind
+getKindFromMember(const NewArchiveIterator &Member) {
+  auto getKindFromMemberInner =
+      [](MemoryBufferRef Buffer) -> object::Archive::Kind {
+    Expected<std::unique_ptr<object::ObjectFile>> OptionalObject =
+        object::ObjectFile::createObjectFile(Buffer);
+
+    if (OptionalObject)
+      return isa<object::MachOObjectFile>(**OptionalObject)
+                 ? object::Archive::K_BSD
+                 : object::Archive::K_GNU;
+
+    // squelch the error in case we had a non-object file
+    consumeError(OptionalObject.takeError());
+    return getDefaultForHost();
+  };
+
+  if (Member.isNewMember()) {
+    object::Archive::Kind Kind = getDefaultForHost();
+
+    sys::fs::file_status Status;
+    if (auto OptionalFD = Member.getFD(Status)) {
+      if (auto MB = MemoryBuffer::getOpenFile(*OptionalFD, Member.getName(),
+                                              Status.getSize(), false))
+        Kind = getKindFromMemberInner((*MB)->getMemBufferRef());
+
+      if (close(*OptionalFD) != 0)
+        failIfError(std::error_code(errno, std::generic_category()),
+                    "failed to close file");
+    }
+
+    return Kind;
+  } else {
+    const object::Archive::Child &OldMember = Member.getOld();
+    if (OldMember.getParent()->isThin())
+      return object::Archive::Kind::K_GNU;
+
+    auto OptionalMB = OldMember.getMemoryBufferRef();
+    failIfError(OptionalMB.getError());
+
+    return getKindFromMemberInner(*OptionalMB);
+  }
+}
+
 static void
 performWriteOperation(ArchiveOperation Operation,
                       object::Archive *OldArchive,
                       std::unique_ptr<MemoryBuffer> OldArchiveBuf,
                       std::vector<NewArchiveIterator> *NewMembersP) {
+  std::vector<NewArchiveIterator> NewMembers;
+  if (!NewMembersP)
+    NewMembers = computeNewArchiveMembers(Operation, OldArchive);
+
   object::Archive::Kind Kind;
   switch (FormatOpt) {
-  case Default: {
-    Triple T(sys::getProcessTriple());
-    if (T.isOSDarwin() && !Thin)
-      Kind = object::Archive::K_BSD;
-    else
+  case Default:
+    if (Thin)
       Kind = object::Archive::K_GNU;
+    else if (OldArchive)
+      Kind = OldArchive->kind();
+    else if (NewMembersP)
+      Kind = NewMembersP->size() ? getKindFromMember(NewMembersP->front())
+                                 : getDefaultForHost();
+    else
+      Kind = NewMembers.size() ? getKindFromMember(NewMembers.front())
+                               : getDefaultForHost();
     break;
-  }
   case GNU:
     Kind = object::Archive::K_GNU;
     break;
@@ -599,18 +658,10 @@ performWriteOperation(ArchiveOperation Operation,
     Kind = object::Archive::K_BSD;
     break;
   }
-  if (NewMembersP) {
-    std::pair<StringRef, std::error_code> Result = writeArchive(
-        ArchiveName, *NewMembersP, Symtab, Kind, Deterministic, Thin,
-        std::move(OldArchiveBuf));
-    failIfError(Result.second, Result.first);
-    return;
-  }
-  std::vector<NewArchiveIterator> NewMembers =
-      computeNewArchiveMembers(Operation, OldArchive);
-  auto Result =
-      writeArchive(ArchiveName, NewMembers, Symtab, Kind, Deterministic, Thin,
-      std::move(OldArchiveBuf));
+
+  std::pair<StringRef, std::error_code> Result =
+      writeArchive(ArchiveName, NewMembersP ? *NewMembersP : NewMembers, Symtab,
+                   Kind, Deterministic, Thin, std::move(OldArchiveBuf));
   failIfError(Result.second, Result.first);
 }
 
@@ -773,7 +824,7 @@ static int ranlib_main() {
 int main(int argc, char **argv) {
   ToolName = argv[0];
   // Print a stack trace if we signal out.
-  sys::PrintStackTraceOnErrorSignal();
+  sys::PrintStackTraceOnErrorSignal(argv[0]);
   PrettyStackTraceProgram X(argc, argv);
   llvm_shutdown_obj Y;  // Call llvm_shutdown() on exit.
 

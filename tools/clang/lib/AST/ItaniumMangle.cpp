@@ -316,7 +316,6 @@ private:
   bool mangleSubstitution(TemplateName Template);
   bool mangleSubstitution(uintptr_t Ptr);
 
-  void mangleExistingSubstitution(QualType type);
   void mangleExistingSubstitution(TemplateName name);
 
   bool mangleStandardSubstitution(const NamedDecl *ND);
@@ -398,7 +397,7 @@ private:
   void mangleCastExpression(const Expr *E, StringRef CastEncoding);
   void mangleInitListElements(const InitListExpr *InitList);
   void mangleExpression(const Expr *E, unsigned Arity = UnknownArity);
-  void mangleCXXCtorType(CXXCtorType T);
+  void mangleCXXCtorType(CXXCtorType T, const CXXRecordDecl *InheritedFrom);
   void mangleCXXDtorType(CXXDtorType T);
 
   void mangleTemplateArgs(const TemplateArgumentLoc *TemplateArgs,
@@ -503,6 +502,12 @@ void CXXNameMangler::mangleFunctionEncoding(const FunctionDecl *FD) {
     FunctionTypeDepth.pop(Saved);
   }
 
+  // When mangling an inheriting constructor, the bare function type used is
+  // that of the inherited constructor.
+  if (auto *CD = dyn_cast<CXXConstructorDecl>(FD))
+    if (auto Inherited = CD->getInheritedConstructor())
+      FD = Inherited.getConstructor();
+
   // Whether the mangling of a function type includes the return type depends on
   // the context and the nature of the function. The rules for deciding whether
   // the return type is included are:
@@ -563,7 +568,7 @@ static bool isStdNamespace(const DeclContext *DC) {
 static const TemplateDecl *
 isTemplate(const NamedDecl *ND, const TemplateArgumentList *&TemplateArgs) {
   // Check if we have a function template.
-  if (const FunctionDecl *FD = dyn_cast<FunctionDecl>(ND)){
+  if (const FunctionDecl *FD = dyn_cast<FunctionDecl>(ND)) {
     if (const TemplateDecl *TD = FD->getPrimaryTemplate()) {
       TemplateArgs = FD->getTemplateSpecializationArgs();
       return TD;
@@ -1049,16 +1054,31 @@ void CXXNameMangler::mangleUnqualifiedName(const NamedDecl *ND,
   case DeclarationName::ObjCMultiArgSelector:
     llvm_unreachable("Can't mangle Objective-C selector names here!");
 
-  case DeclarationName::CXXConstructorName:
+  case DeclarationName::CXXConstructorName: {
+    const CXXRecordDecl *InheritedFrom = nullptr;
+    const TemplateArgumentList *InheritedTemplateArgs = nullptr;
+    if (auto Inherited =
+            cast<CXXConstructorDecl>(ND)->getInheritedConstructor()) {
+      InheritedFrom = Inherited.getConstructor()->getParent();
+      InheritedTemplateArgs =
+          Inherited.getConstructor()->getTemplateSpecializationArgs();
+    }
+
     if (ND == Structor)
       // If the named decl is the C++ constructor we're mangling, use the type
       // we were given.
-      mangleCXXCtorType(static_cast<CXXCtorType>(StructorType));
+      mangleCXXCtorType(static_cast<CXXCtorType>(StructorType), InheritedFrom);
     else
       // Otherwise, use the complete constructor name. This is relevant if a
       // class with a constructor is declared within a constructor.
-      mangleCXXCtorType(Ctor_Complete);
+      mangleCXXCtorType(Ctor_Complete, InheritedFrom);
+
+    // FIXME: The template arguments are part of the enclosing prefix or
+    // nested-name, but it's more convenient to mangle them here.
+    if (InheritedTemplateArgs)
+      mangleTemplateArgs(*InheritedTemplateArgs);
     break;
+  }
 
   case DeclarationName::CXXDestructorName:
     if (ND == Structor)
@@ -2243,7 +2263,7 @@ void CXXNameMangler::mangleBareFunctionType(const FunctionProtoType *Proto,
     FunctionTypeDepth.enterResultType();
 
     // Mangle ns_returns_retained as an order-sensitive qualifier here.
-    if (Proto->getExtInfo().getProducesResult())
+    if (Proto->getExtInfo().getProducesResult() && FD == nullptr)
       mangleVendorQualifier("ns_returns_retained");
 
     // Mangle the return type without any direct ARC ownership qualifiers.
@@ -2269,7 +2289,7 @@ void CXXNameMangler::mangleBareFunctionType(const FunctionProtoType *Proto,
   assert(!FD || FD->getNumParams() == Proto->getNumParams());
   for (unsigned I = 0, E = Proto->getNumParams(); I != E; ++I) {
     // Mangle extended parameter info as order-sensitive qualifiers here.
-    if (Proto->hasExtParameterInfos()) {
+    if (Proto->hasExtParameterInfos() && FD == nullptr) {
       mangleExtParameterInfo(Proto->getExtParameterInfo(I));
     }
 
@@ -2736,7 +2756,7 @@ void CXXNameMangler::mangleType(const UnaryTransformType *T) {
     }
   }
 
-  mangleType(T->getUnderlyingType());
+  mangleType(T->getBaseType());
 }
 
 void CXXNameMangler::mangleType(const AutoType *T) {
@@ -2910,6 +2930,7 @@ recurse:
   case Expr::MSPropertySubscriptExprClass:
   case Expr::TypoExprClass:  // This should no longer exist in the AST by now.
   case Expr::OMPArraySectionExprClass:
+  case Expr::CXXInheritedCtorInitExprClass:
     llvm_unreachable("unexpected statement kind");
 
   // FIXME: invent manglings for all these.
@@ -3689,25 +3710,33 @@ void CXXNameMangler::mangleFunctionParam(const ParmVarDecl *parm) {
   Out << '_';
 }
 
-void CXXNameMangler::mangleCXXCtorType(CXXCtorType T) {
+void CXXNameMangler::mangleCXXCtorType(CXXCtorType T,
+                                       const CXXRecordDecl *InheritedFrom) {
   // <ctor-dtor-name> ::= C1  # complete object constructor
   //                  ::= C2  # base object constructor
+  //                  ::= CI1 <type> # complete inheriting constructor
+  //                  ::= CI2 <type> # base inheriting constructor
   //
   // In addition, C5 is a comdat name with C1 and C2 in it.
+  Out << 'C';
+  if (InheritedFrom)
+    Out << 'I';
   switch (T) {
   case Ctor_Complete:
-    Out << "C1";
+    Out << '1';
     break;
   case Ctor_Base:
-    Out << "C2";
+    Out << '2';
     break;
   case Ctor_Comdat:
-    Out << "C5";
+    Out << '5';
     break;
   case Ctor_DefaultClosure:
   case Ctor_CopyingClosure:
     llvm_unreachable("closure constructors don't exist for the Itanium ABI!");
   }
+  if (InheritedFrom)
+    mangleName(InheritedFrom);
 }
 
 void CXXNameMangler::mangleCXXDtorType(CXXDtorType T) {
@@ -3819,7 +3848,7 @@ void CXXNameMangler::mangleTemplateArg(TemplateArgument A) {
 
     Out << 'L';
     // References to external entities use the mangled name; if the name would
-    // not normally be manged then mangle it as unqualified.
+    // not normally be mangled then mangle it as unqualified.
     mangle(D);
     Out << 'E';
 
@@ -3873,12 +3902,6 @@ void CXXNameMangler::mangleSeqID(unsigned SeqID) {
     Out.write(I.base(), I - BufferRef.rbegin());
   }
   Out << '_';
-}
-
-void CXXNameMangler::mangleExistingSubstitution(QualType type) {
-  bool result = mangleSubstitution(type);
-  assert(result && "no existing substitution for type");
-  (void) result;
 }
 
 void CXXNameMangler::mangleExistingSubstitution(TemplateName tname) {

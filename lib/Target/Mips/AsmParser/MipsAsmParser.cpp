@@ -158,7 +158,6 @@ class MipsAsmParser : public MCTargetAsmParser {
   OperandMatchResultTy parseImm(OperandVector &Operands);
   OperandMatchResultTy parseJumpTarget(OperandVector &Operands);
   OperandMatchResultTy parseInvNum(OperandVector &Operands);
-  OperandMatchResultTy parseLSAImm(OperandVector &Operands);
   OperandMatchResultTy parseRegisterPair(OperandVector &Operands);
   OperandMatchResultTy parseMovePRegPair(OperandVector &Operands);
   OperandMatchResultTy parseRegisterList(OperandVector &Operands);
@@ -246,9 +245,6 @@ class MipsAsmParser : public MCTargetAsmParser {
   bool expandAbs(MCInst &Inst, SMLoc IDLoc, MCStreamer &Out,
                  const MCSubtargetInfo *STI);
 
-  void createCpRestoreMemOp(bool IsLoad, int StackOffset, SMLoc IDLoc,
-                            MCStreamer &Out, const MCSubtargetInfo *STI);
-
   bool reportParseError(Twine ErrorMsg);
   bool reportParseError(SMLoc Loc, Twine ErrorMsg);
 
@@ -309,8 +305,6 @@ class MipsAsmParser : public MCTargetAsmParser {
 
   int matchHWRegsRegisterName(StringRef Symbol);
 
-  int matchRegisterByNumber(unsigned RegNum, unsigned RegClass);
-
   int matchFPURegisterName(StringRef Name);
 
   int matchFCCRegisterName(StringRef Name);
@@ -322,8 +316,6 @@ class MipsAsmParser : public MCTargetAsmParser {
   int matchMSA128CtrlRegisterName(StringRef Name);
 
   unsigned getReg(int RC, int RegNo);
-
-  unsigned getGPR(int RegNo);
 
   /// Returns the internal register number for the current AT. Also checks if
   /// the current AT is unavailable (set to $0) and gives an error if it is.
@@ -401,6 +393,8 @@ class MipsAsmParser : public MCTargetAsmParser {
 public:
   enum MipsMatchResultTy {
     Match_RequiresDifferentSrcAndDst = FIRST_TARGET_MATCH_RESULT_TY,
+    Match_RequiresDifferentOperands,
+    Match_RequiresNoZeroRegister,
 #define GET_OPERAND_DIAGNOSTIC_TYPES
 #include "MipsGenAsmMatcher.inc"
 #undef GET_OPERAND_DIAGNOSTIC_TYPES
@@ -438,7 +432,7 @@ public:
     IsCpRestoreSet = false;
     CpRestoreOffset = -1;
 
-    Triple TheTriple(sti.getTargetTriple());
+    const Triple &TheTriple = sti.getTargetTriple();
     if ((TheTriple.getArch() == Triple::mips) ||
         (TheTriple.getArch() == Triple::mips64))
       IsLittleEndian = false;
@@ -1073,11 +1067,15 @@ public:
   bool isConstantMemOff() const {
     return isMem() && isa<MCConstantExpr>(getMemOff());
   }
+  // Allow relocation operators.
+  // FIXME: This predicate and others need to look through binary expressions
+  //        and determine whether a Value is a constant or not.
   template <unsigned Bits, unsigned ShiftAmount = 0>
   bool isMemWithSimmOffset() const {
-    return isMem() && isConstantMemOff() &&
-           isShiftedInt<Bits, ShiftAmount>(getConstantMemOff()) &&
-           getMemBase()->isGPRAsmReg();
+    return isMem() && getMemBase()->isGPRAsmReg() &&
+           (isa<MCTargetExpr>(getMemOff()) ||
+            (isConstantMemOff() &&
+             isShiftedInt<Bits, ShiftAmount>(getConstantMemOff())));
   }
   bool isMemWithGRPMM16Base() const {
     return isMem() && getMemBase()->isMM16AsmReg();
@@ -2370,15 +2368,85 @@ bool MipsAsmParser::loadAndAddSymbolAddress(const MCExpr *SymExpr,
                                             MCStreamer &Out,
                                             const MCSubtargetInfo *STI) {
   MipsTargetStreamer &TOut = getTargetStreamer();
+  bool UseSrcReg = SrcReg != Mips::NoRegister;
   warnIfNoMacro(IDLoc);
 
-  const MCExpr *Symbol = cast<MCExpr>(SymExpr);
-  const MipsMCExpr *HiExpr =
-      MipsMCExpr::create(MipsMCExpr::MEK_HI, Symbol, getContext());
-  const MipsMCExpr *LoExpr =
-      MipsMCExpr::create(MipsMCExpr::MEK_LO, Symbol, getContext());
+  if (inPicMode() && ABI.IsO32()) {
+    MCValue Res;
+    if (!SymExpr->evaluateAsRelocatable(Res, nullptr, nullptr)) {
+      Error(IDLoc, "expected relocatable expression");
+      return true;
+    }
+    if (Res.getSymB() != nullptr) {
+      Error(IDLoc, "expected relocatable expression with only one symbol");
+      return true;
+    }
 
-  bool UseSrcReg = SrcReg != Mips::NoRegister;
+    // The case where the result register is $25 is somewhat special. If the
+    // symbol in the final relocation is external and not modified with a
+    // constant then we must use R_MIPS_CALL16 instead of R_MIPS_GOT16.
+    if ((DstReg == Mips::T9 || DstReg == Mips::T9_64) && !UseSrcReg &&
+        Res.getConstant() == 0 && !Res.getSymA()->getSymbol().isInSection() &&
+        !Res.getSymA()->getSymbol().isTemporary()) {
+      const MCExpr *CallExpr =
+          MipsMCExpr::create(MipsMCExpr::MEK_GOT_CALL, SymExpr, getContext());
+      TOut.emitRRX(Mips::LW, DstReg, ABI.GetGlobalPtr(),
+                   MCOperand::createExpr(CallExpr), IDLoc, STI);
+      return false;
+    }
+
+    // The remaining cases are:
+    //   External GOT: lw $tmp, %got(symbol+offset)($gp)
+    //                >addiu $tmp, $tmp, %lo(offset)
+    //                >addiu $rd, $tmp, $rs
+    //   Local GOT:    lw $tmp, %got(symbol+offset)($gp)
+    //                 addiu $tmp, $tmp, %lo(symbol+offset)($gp)
+    //                >addiu $rd, $tmp, $rs
+    // The addiu's marked with a '>' may be omitted if they are redundant. If
+    // this happens then the last instruction must use $rd as the result
+    // register.
+    const MipsMCExpr *GotExpr =
+        MipsMCExpr::create(MipsMCExpr::MEK_GOT, SymExpr, getContext());
+    const MCExpr *LoExpr = nullptr;
+    if (Res.getSymA()->getSymbol().isInSection() ||
+        Res.getSymA()->getSymbol().isTemporary())
+      LoExpr = MipsMCExpr::create(MipsMCExpr::MEK_LO, SymExpr, getContext());
+    else if (Res.getConstant() != 0) {
+      // External symbols fully resolve the symbol with just the %got(symbol)
+      // but we must still account for any offset to the symbol for expressions
+      // like symbol+8.
+      LoExpr = MCConstantExpr::create(Res.getConstant(), getContext());
+    }
+
+    unsigned TmpReg = DstReg;
+    if (UseSrcReg &&
+        getContext().getRegisterInfo()->isSuperOrSubRegisterEq(DstReg,
+                                                               SrcReg)) {
+      // If $rs is the same as $rd, we need to use AT.
+      // If it is not available we exit.
+      unsigned ATReg = getATReg(IDLoc);
+      if (!ATReg)
+        return true;
+      TmpReg = ATReg;
+    }
+
+    TOut.emitRRX(Mips::LW, TmpReg, ABI.GetGlobalPtr(),
+                 MCOperand::createExpr(GotExpr), IDLoc, STI);
+
+    if (LoExpr)
+      TOut.emitRRX(Mips::ADDiu, TmpReg, TmpReg, MCOperand::createExpr(LoExpr),
+                   IDLoc, STI);
+
+    if (UseSrcReg)
+      TOut.emitRRR(Mips::ADDu, DstReg, TmpReg, SrcReg, IDLoc, STI);
+
+    return false;
+  }
+
+  const MipsMCExpr *HiExpr =
+      MipsMCExpr::create(MipsMCExpr::MEK_HI, SymExpr, getContext());
+  const MipsMCExpr *LoExpr =
+      MipsMCExpr::create(MipsMCExpr::MEK_LO, SymExpr, getContext());
 
   // This is the 64-bit symbol address expansion.
   if (ABI.ArePtrs64bit() && isGP64bit()) {
@@ -2389,9 +2457,9 @@ bool MipsAsmParser::loadAndAddSymbolAddress(const MCExpr *SymExpr,
       return true;
 
     const MipsMCExpr *HighestExpr =
-        MipsMCExpr::create(MipsMCExpr::MEK_HIGHEST, Symbol, getContext());
+        MipsMCExpr::create(MipsMCExpr::MEK_HIGHEST, SymExpr, getContext());
     const MipsMCExpr *HigherExpr =
-        MipsMCExpr::create(MipsMCExpr::MEK_HIGHER, Symbol, getContext());
+        MipsMCExpr::create(MipsMCExpr::MEK_HIGHER, SymExpr, getContext());
 
     if (UseSrcReg &&
         getContext().getRegisterInfo()->isSuperOrSubRegisterEq(DstReg,
@@ -3623,36 +3691,60 @@ bool MipsAsmParser::expandAbs(MCInst &Inst, SMLoc IDLoc, MCStreamer &Out,
   return false;
 }
 
-void MipsAsmParser::createCpRestoreMemOp(bool IsLoad, int StackOffset,
-                                         SMLoc IDLoc, MCStreamer &Out,
-                                         const MCSubtargetInfo *STI) {
-  MipsTargetStreamer &TOut = getTargetStreamer();
-
-  if (IsLoad) {
-    TOut.emitLoadWithImmOffset(Mips::LW, Mips::GP, Mips::SP, StackOffset,
-                               Mips::GP, IDLoc, STI);
-    return;
-  }
-
-  TOut.emitStoreWithImmOffset(Mips::SW, Mips::GP, Mips::SP, StackOffset,
-                              [&]() { return getATReg(IDLoc); }, IDLoc, STI);
-}
-
 unsigned MipsAsmParser::checkTargetMatchPredicate(MCInst &Inst) {
+  switch (Inst.getOpcode()) {
   // As described by the Mips32r2 spec, the registers Rd and Rs for
   // jalr.hb must be different.
   // It also applies for registers Rt and Rs of microMIPSr6 jalrc.hb instruction
   // and registers Rd and Base for microMIPS lwp instruction
-  unsigned Opcode = Inst.getOpcode();
-
-  if ((Opcode == Mips::JALR_HB || Opcode == Mips::JALRC_HB_MMR6) &&
-      (Inst.getOperand(0).getReg() == Inst.getOperand(1).getReg()))
-    return Match_RequiresDifferentSrcAndDst;
-  else if ((Opcode == Mips::LWP_MM || Opcode == Mips::LWP_MMR6) &&
-           (Inst.getOperand(0).getReg() == Inst.getOperand(2).getReg()))
-    return Match_RequiresDifferentSrcAndDst;
-
-  return Match_Success;
+  case Mips::JALR_HB:
+  case Mips::JALRC_HB_MMR6:
+  case Mips::JALRC_MMR6:
+    if (Inst.getOperand(0).getReg() == Inst.getOperand(1).getReg())
+      return Match_RequiresDifferentSrcAndDst;
+    return Match_Success;
+  case Mips::LWP_MM:
+  case Mips::LWP_MMR6:
+    if (Inst.getOperand(0).getReg() == Inst.getOperand(2).getReg())
+      return Match_RequiresDifferentSrcAndDst;
+    return Match_Success;
+  // As described the MIPSR6 spec, the compact branches that compare registers
+  // must:
+  // a) Not use the zero register.
+  // b) Not use the same register twice.
+  // c) rs < rt for bnec, beqc.
+  //    NB: For this case, the encoding will swap the operands as their
+  //    ordering doesn't matter. GAS performs this transformation  too.
+  //    Hence, that constraint does not have to be enforced.
+  //
+  // The compact branches that branch iff the signed addition of two registers
+  // would overflow must have rs >= rt. That can be handled like beqc/bnec with
+  // operand swapping. They do not have restriction of using the zero register.
+  case Mips::BLEZC:
+  case Mips::BGEZC:
+  case Mips::BGTZC:
+  case Mips::BLTZC:
+  case Mips::BEQZC:
+  case Mips::BNEZC:
+    if (Inst.getOperand(0).getReg() == Mips::ZERO)
+      return Match_RequiresNoZeroRegister;
+    return Match_Success;
+  case Mips::BGEC:
+  case Mips::BLTC:
+  case Mips::BGEUC:
+  case Mips::BLTUC:
+  case Mips::BEQC:
+  case Mips::BNEC:
+    if (Inst.getOperand(0).getReg() == Mips::ZERO)
+      return Match_RequiresNoZeroRegister;
+    if (Inst.getOperand(1).getReg() == Mips::ZERO)
+      return Match_RequiresNoZeroRegister;
+    if (Inst.getOperand(0).getReg() == Inst.getOperand(1).getReg())
+      return Match_RequiresDifferentOperands;
+    return Match_Success;
+  default:
+    return Match_Success;
+  }
 }
 
 static SMLoc RefineErrorLoc(const SMLoc Loc, const OperandVector &Operands,
@@ -3702,6 +3794,10 @@ bool MipsAsmParser::MatchAndEmitInstruction(SMLoc IDLoc, unsigned &Opcode,
     return Error(IDLoc, "invalid instruction");
   case Match_RequiresDifferentSrcAndDst:
     return Error(IDLoc, "source and destination must be different");
+  case Match_RequiresDifferentOperands:
+    return Error(IDLoc, "registers must be different");
+  case Match_RequiresNoZeroRegister:
+    return Error(IDLoc, "invalid operand ($zero) for instruction");
   case Match_Immz:
     return Error(RefineErrorLoc(IDLoc, Operands, ErrorInfo), "expected '0'");
   case Match_UImm1_0:
@@ -4021,19 +4117,6 @@ unsigned MipsAsmParser::getATReg(SMLoc Loc) {
 
 unsigned MipsAsmParser::getReg(int RC, int RegNo) {
   return *(getContext().getRegisterInfo()->getRegClass(RC).begin() + RegNo);
-}
-
-unsigned MipsAsmParser::getGPR(int RegNo) {
-  return getReg(isGP64bit() ? Mips::GPR64RegClassID : Mips::GPR32RegClassID,
-                RegNo);
-}
-
-int MipsAsmParser::matchRegisterByNumber(unsigned RegNum, unsigned RegClass) {
-  if (RegNum >
-      getContext().getRegisterInfo()->getRegClass(RegClass).getNumRegs() - 1)
-    return -1;
-
-  return getReg(RegClass, RegNum);
 }
 
 bool MipsAsmParser::parseOperand(OperandVector &Operands, StringRef Mnemonic) {
@@ -4378,12 +4461,6 @@ bool MipsAsmParser::searchSymbolAlias(OperandVector &Operands) {
           llvm_unreachable("Should never ParseFail");
         return false;
       }
-    } else if (Expr->getKind() == MCExpr::Constant) {
-      Parser.Lex();
-      const MCConstantExpr *Const = static_cast<const MCConstantExpr *>(Expr);
-      Operands.push_back(
-          MipsOperand::CreateImm(Const, S, Parser.getTok().getLoc(), *this));
-      return true;
     }
   }
   return false;
@@ -4565,46 +4642,6 @@ MipsAsmParser::parseInvNum(OperandVector &Operands) {
   SMLoc E = SMLoc::getFromPointer(Parser.getTok().getLoc().getPointer() - 1);
   Operands.push_back(MipsOperand::CreateImm(
       MCConstantExpr::create(0 - Val, getContext()), S, E, *this));
-  return MatchOperand_Success;
-}
-
-MipsAsmParser::OperandMatchResultTy
-MipsAsmParser::parseLSAImm(OperandVector &Operands) {
-  MCAsmParser &Parser = getParser();
-  switch (getLexer().getKind()) {
-  default:
-    return MatchOperand_NoMatch;
-  case AsmToken::LParen:
-  case AsmToken::Plus:
-  case AsmToken::Minus:
-  case AsmToken::Integer:
-    break;
-  }
-
-  const MCExpr *Expr;
-  SMLoc S = Parser.getTok().getLoc();
-
-  if (getParser().parseExpression(Expr))
-    return MatchOperand_ParseFail;
-
-  int64_t Val;
-  if (!Expr->evaluateAsAbsolute(Val)) {
-    Error(S, "expected immediate value");
-    return MatchOperand_ParseFail;
-  }
-
-  // The LSA instruction allows a 2-bit unsigned immediate. For this reason
-  // and because the CPU always adds one to the immediate field, the allowed
-  // range becomes 1..4. We'll only check the range here and will deal
-  // with the addition/subtraction when actually decoding/encoding
-  // the instruction.
-  if (Val < 1 || Val > 4) {
-    Error(S, "immediate not in range (1..4)");
-    return MatchOperand_ParseFail;
-  }
-
-  Operands.push_back(
-      MipsOperand::CreateImm(Expr, S, Parser.getTok().getLoc(), *this));
   return MatchOperand_Success;
 }
 

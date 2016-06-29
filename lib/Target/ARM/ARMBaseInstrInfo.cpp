@@ -390,11 +390,11 @@ unsigned ARMBaseInstrInfo::RemoveBranch(MachineBasicBlock &MBB) const {
   return 2;
 }
 
-unsigned
-ARMBaseInstrInfo::InsertBranch(MachineBasicBlock &MBB, MachineBasicBlock *TBB,
-                               MachineBasicBlock *FBB,
-                               ArrayRef<MachineOperand> Cond,
-                               DebugLoc DL) const {
+unsigned ARMBaseInstrInfo::InsertBranch(MachineBasicBlock &MBB,
+                                        MachineBasicBlock *TBB,
+                                        MachineBasicBlock *FBB,
+                                        ArrayRef<MachineOperand> Cond,
+                                        const DebugLoc &DL) const {
   ARMFunctionInfo *AFI = MBB.getParent()->getInfo<ARMFunctionInfo>();
   int BOpc   = !AFI->isThumbFunction()
     ? ARM::B : (AFI->isThumb2Function() ? ARM::t2B : ARM::tB);
@@ -701,9 +701,9 @@ void ARMBaseInstrInfo::copyToCPSR(MachineBasicBlock &MBB,
 }
 
 void ARMBaseInstrInfo::copyPhysReg(MachineBasicBlock &MBB,
-                                   MachineBasicBlock::iterator I, DebugLoc DL,
-                                   unsigned DestReg, unsigned SrcReg,
-                                   bool KillSrc) const {
+                                   MachineBasicBlock::iterator I,
+                                   const DebugLoc &DL, unsigned DestReg,
+                                   unsigned SrcReg, bool KillSrc) const {
   bool GPRDest = ARM::GPRRegClass.contains(DestReg);
   bool GPRSrc = ARM::GPRRegClass.contains(SrcReg);
 
@@ -1276,13 +1276,10 @@ void ARMBaseInstrInfo::expandMEMCPY(MachineBasicBlock::iterator MBBI) const {
 
 bool
 ARMBaseInstrInfo::expandPostRAPseudo(MachineBasicBlock::iterator MI) const {
-  MachineFunction &MF = *MI->getParent()->getParent();
-  Reloc::Model RM = MF.getTarget().getRelocationModel();
-
   if (MI->getOpcode() == TargetOpcode::LOAD_STACK_GUARD) {
     assert(getSubtarget().getTargetTriple().isOSBinFormatMachO() &&
            "LOAD_STACK_GUARD currently supported only for MachO.");
-    expandLoadStackGuard(MI, RM);
+    expandLoadStackGuard(MI);
     MI->getParent()->erase(MI);
     return true;
   }
@@ -1766,9 +1763,9 @@ isProfitableToIfCvt(MachineBasicBlock &TMBB,
 bool
 ARMBaseInstrInfo::isProfitableToUnpredicate(MachineBasicBlock &TMBB,
                                             MachineBasicBlock &FMBB) const {
-  // Reduce false anti-dependencies to let Swift's out-of-order execution
+  // Reduce false anti-dependencies to let the target's out-of-order execution
   // engine do its thing.
-  return Subtarget.isSwift();
+  return Subtarget.isProfitableToUnpredicate();
 }
 
 /// getInstrPredicate - If instruction is predicated, returns its predicate
@@ -1995,10 +1992,12 @@ unsigned llvm::convertAddSubFlagsOpcode(unsigned OldOpc) {
 }
 
 void llvm::emitARMRegPlusImmediate(MachineBasicBlock &MBB,
-                               MachineBasicBlock::iterator &MBBI, DebugLoc dl,
-                               unsigned DestReg, unsigned BaseReg, int NumBytes,
-                               ARMCC::CondCodes Pred, unsigned PredReg,
-                               const ARMBaseInstrInfo &TII, unsigned MIFlags) {
+                                   MachineBasicBlock::iterator &MBBI,
+                                   const DebugLoc &dl, unsigned DestReg,
+                                   unsigned BaseReg, int NumBytes,
+                                   ARMCC::CondCodes Pred, unsigned PredReg,
+                                   const ARMBaseInstrInfo &TII,
+                                   unsigned MIFlags) {
   if (NumBytes == 0 && DestReg != BaseReg) {
     BuildMI(MBB, MBBI, dl, TII.get(ARM::MOVr), DestReg)
       .addReg(BaseReg, RegState::Kill)
@@ -3022,6 +3021,45 @@ unsigned ARMBaseInstrInfo::getNumLDMAddresses(const MachineInstr *MI) const {
   return Size / 4;
 }
 
+static unsigned getNumMicroOpsSingleIssuePlusExtras(unsigned Opc,
+                                                    unsigned NumRegs) {
+  unsigned UOps = 1 + NumRegs; // 1 for address computation.
+  switch (Opc) {
+  default:
+    break;
+  case ARM::VLDMDIA_UPD:
+  case ARM::VLDMDDB_UPD:
+  case ARM::VLDMSIA_UPD:
+  case ARM::VLDMSDB_UPD:
+  case ARM::VSTMDIA_UPD:
+  case ARM::VSTMDDB_UPD:
+  case ARM::VSTMSIA_UPD:
+  case ARM::VSTMSDB_UPD:
+  case ARM::LDMIA_UPD:
+  case ARM::LDMDA_UPD:
+  case ARM::LDMDB_UPD:
+  case ARM::LDMIB_UPD:
+  case ARM::STMIA_UPD:
+  case ARM::STMDA_UPD:
+  case ARM::STMDB_UPD:
+  case ARM::STMIB_UPD:
+  case ARM::tLDMIA_UPD:
+  case ARM::tSTMIA_UPD:
+  case ARM::t2LDMIA_UPD:
+  case ARM::t2LDMDB_UPD:
+  case ARM::t2STMIA_UPD:
+  case ARM::t2STMDB_UPD:
+    ++UOps; // One for base register writeback.
+    break;
+  case ARM::LDMIA_RET:
+  case ARM::tPOP_RET:
+  case ARM::t2LDMIA_RET:
+    UOps += 2; // One for base reg wb, one for write to pc.
+    break;
+  }
+  return UOps;
+}
+
 unsigned
 ARMBaseInstrInfo::getNumMicroOps(const InstrItineraryData *ItinData,
                                  const MachineInstr *MI) const {
@@ -3105,65 +3143,35 @@ ARMBaseInstrInfo::getNumMicroOps(const InstrItineraryData *ItinData,
   case ARM::t2STMIA_UPD:
   case ARM::t2STMDB_UPD: {
     unsigned NumRegs = MI->getNumOperands() - Desc.getNumOperands() + 1;
-    if (Subtarget.isSwift()) {
-      int UOps = 1 + NumRegs;  // One for address computation, one for each ld / st.
-      switch (Opc) {
-      default: break;
-      case ARM::VLDMDIA_UPD:
-      case ARM::VLDMDDB_UPD:
-      case ARM::VLDMSIA_UPD:
-      case ARM::VLDMSDB_UPD:
-      case ARM::VSTMDIA_UPD:
-      case ARM::VSTMDDB_UPD:
-      case ARM::VSTMSIA_UPD:
-      case ARM::VSTMSDB_UPD:
-      case ARM::LDMIA_UPD:
-      case ARM::LDMDA_UPD:
-      case ARM::LDMDB_UPD:
-      case ARM::LDMIB_UPD:
-      case ARM::STMIA_UPD:
-      case ARM::STMDA_UPD:
-      case ARM::STMDB_UPD:
-      case ARM::STMIB_UPD:
-      case ARM::tLDMIA_UPD:
-      case ARM::tSTMIA_UPD:
-      case ARM::t2LDMIA_UPD:
-      case ARM::t2LDMDB_UPD:
-      case ARM::t2STMIA_UPD:
-      case ARM::t2STMDB_UPD:
-        ++UOps; // One for base register writeback.
-        break;
-      case ARM::LDMIA_RET:
-      case ARM::tPOP_RET:
-      case ARM::t2LDMIA_RET:
-        UOps += 2; // One for base reg wb, one for write to pc.
-        break;
-      }
-      return UOps;
-    } else if (Subtarget.isCortexA8() || Subtarget.isCortexA7()) {
+    switch (Subtarget.getLdStMultipleTiming()) {
+    case ARMSubtarget::SingleIssuePlusExtras:
+      return getNumMicroOpsSingleIssuePlusExtras(Opc, NumRegs);
+    case ARMSubtarget::SingleIssue:
+      // Assume the worst.
+      return NumRegs;
+    case ARMSubtarget::DoubleIssue: {
       if (NumRegs < 4)
         return 2;
       // 4 registers would be issued: 2, 2.
       // 5 registers would be issued: 2, 2, 1.
-      int A8UOps = (NumRegs / 2);
+      unsigned UOps = (NumRegs / 2);
       if (NumRegs % 2)
-        ++A8UOps;
-      return A8UOps;
-    } else if (Subtarget.isLikeA9() || Subtarget.isSwift()) {
-      int A9UOps = (NumRegs / 2);
+        ++UOps;
+      return UOps;
+    }
+    case ARMSubtarget::DoubleIssueCheckUnalignedAccess: {
+      unsigned UOps = (NumRegs / 2);
       // If there are odd number of registers or if it's not 64-bit aligned,
       // then it takes an extra AGU (Address Generation Unit) cycle.
-      if ((NumRegs % 2) ||
-          !MI->hasOneMemOperand() ||
+      if ((NumRegs % 2) || !MI->hasOneMemOperand() ||
           (*MI->memoperands_begin())->getAlignment() < 8)
-        ++A9UOps;
-      return A9UOps;
-    } else {
-      // Assume the worst.
-      return NumRegs;
+        ++UOps;
+      return UOps;
+      }
     }
   }
   }
+  llvm_unreachable("Didn't find the number of microops");
 }
 
 int
@@ -3540,7 +3548,7 @@ static int adjustDefLatency(const ARMSubtarget &Subtarget,
     }
   }
 
-  if (DefAlign < 8 && Subtarget.isLikeA9()) {
+  if (DefAlign < 8 && Subtarget.checkVLDnAccessAlignment()) {
     switch (DefMCID->getOpcode()) {
     default: break;
     case ARM::VLD1q8:
@@ -3765,10 +3773,9 @@ ARMBaseInstrInfo::getOperandLatency(const InstrItineraryData *ItinData,
 
   if (!UseNode->isMachineOpcode()) {
     int Latency = ItinData->getOperandCycle(DefMCID.getSchedClass(), DefIdx);
-    if (Subtarget.isLikeA9() || Subtarget.isSwift())
-      return Latency <= 2 ? 1 : Latency - 1;
-    else
-      return Latency <= 3 ? 1 : Latency - 2;
+    int Adj = Subtarget.getPreISelOperandLatencyAdjustment();
+    int Threshold = 1 + Adj;
+    return Latency <= Threshold ? 1 : Latency - Adj;
   }
 
   const MCInstrDesc &UseMCID = get(UseNode->getMachineOpcode());
@@ -3839,7 +3846,7 @@ ARMBaseInstrInfo::getOperandLatency(const InstrItineraryData *ItinData,
     }
   }
 
-  if (DefAlign < 8 && Subtarget.isLikeA9())
+  if (DefAlign < 8 && Subtarget.checkVLDnAccessAlignment())
     switch (DefMCID.getOpcode()) {
     default: break;
     case ARM::VLD1q8:
@@ -4058,9 +4065,8 @@ hasHighOperandLatency(const TargetSchedModel &SchedModel,
                       const MachineInstr *UseMI, unsigned UseIdx) const {
   unsigned DDomain = DefMI->getDesc().TSFlags & ARMII::DomainMask;
   unsigned UDomain = UseMI->getDesc().TSFlags & ARMII::DomainMask;
-  if (Subtarget.isCortexA8() &&
+  if (Subtarget.nonpipelinedVFP() &&
       (DDomain == ARMII::DomainVFP || UDomain == ARMII::DomainVFP))
-    // CortexA8 VFP instructions are not pipelined.
     return true;
 
   // Hoist VFP / NEON instructions with 4 or higher latency.
@@ -4101,8 +4107,7 @@ bool ARMBaseInstrInfo::verifyInstruction(const MachineInstr *MI,
 // sequence is needed for other targets.
 void ARMBaseInstrInfo::expandLoadStackGuardBase(MachineBasicBlock::iterator MI,
                                                 unsigned LoadImmOpc,
-                                                unsigned LoadOpc,
-                                                Reloc::Model RM) const {
+                                                unsigned LoadOpc) const {
   MachineBasicBlock &MBB = *MI->getParent();
   DebugLoc DL = MI->getDebugLoc();
   unsigned Reg = MI->getOperand(0).getReg();
@@ -4113,7 +4118,7 @@ void ARMBaseInstrInfo::expandLoadStackGuardBase(MachineBasicBlock::iterator MI,
   BuildMI(MBB, MI, DL, get(LoadImmOpc), Reg)
       .addGlobalAddress(GV, 0, ARMII::MO_NONLAZY);
 
-  if (Subtarget.GVIsIndirectSymbol(GV, RM)) {
+  if (Subtarget.isGVIndirectSymbol(GV)) {
     MIB = BuildMI(MBB, MI, DL, get(LoadOpc), Reg);
     MIB.addReg(Reg, RegState::Kill).addImm(0);
     unsigned Flag = MachineMemOperand::MOLoad | MachineMemOperand::MOInvariant;
@@ -4176,7 +4181,7 @@ ARMBaseInstrInfo::getExecutionDomain(const MachineInstr *MI) const {
 
     // CortexA9 is particularly picky about mixing the two and wants these
     // converted.
-    if (Subtarget.isCortexA9() && !isPredicated(*MI) &&
+    if (Subtarget.useNEONForFPMovs() && !isPredicated(*MI) &&
         (MI->getOpcode() == ARM::VMOVRS || MI->getOpcode() == ARM::VMOVSR ||
          MI->getOpcode() == ARM::VMOVS))
       return std::make_pair(ExeVFP, (1 << ExeVFP) | (1 << ExeNEON));

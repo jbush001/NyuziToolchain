@@ -14,6 +14,7 @@
 #include "X86Subtarget.h"
 #include "X86InstrInfo.h"
 #include "X86TargetMachine.h"
+#include "llvm/CodeGen/Analysis.h"
 #include "llvm/IR/Attributes.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/GlobalValue.h"
@@ -50,49 +51,6 @@ unsigned char X86Subtarget::classifyBlockAddressReference() const {
   return classifyLocalReference(nullptr);
 }
 
-// FIXME: make this a proper option
-static bool CanUseCopyRelocWithPIE = false;
-
-static bool shouldAssumeDSOLocal(Reloc::Model RM, const Triple &TT,
-                                 const Module &M, const GlobalValue *GV) {
-  // DLLImport explicitly marks the GV as external.
-  if (GV && GV->hasDLLImportStorageClass())
-    return false;
-
-  // Every other GV is local on COFF
-  if (TT.isOSBinFormatCOFF())
-    return true;
-
-  if (RM == Reloc::Static)
-    return true;
-
-  if (GV && (GV->hasInternalLinkage() || !GV->hasDefaultVisibility()))
-    return true;
-
-  if (TT.isOSBinFormatELF()) {
-    assert(RM != Reloc::DynamicNoPIC);
-    // Some linkers can use copy relocations with pie executables.
-    if (M.getPIELevel() != PIELevel::Default) {
-      if (CanUseCopyRelocWithPIE)
-        return true;
-
-      // If the symbol is defined, it cannot be preempted.
-      if (GV && !GV->isDeclarationForLinker())
-        return true;
-      return false;
-    }
-
-    // ELF supports preemption of other symbols.
-    return false;
-  }
-
-  assert(TT.isOSBinFormatMachO());
-  if (GV && GV->isStrongDefinitionForLinker())
-    return true;
-
-  return false;
-}
-
 /// Classify a global variable reference for the current subtarget according to
 /// how we should reference it in a non-pcrel context.
 unsigned char
@@ -108,7 +66,7 @@ X86Subtarget::classifyLocalReference(const GlobalValue *GV) const {
 
   // If this is for a position dependent executable, the static linker can
   // figure it out.
-  if (TM.getRelocationModel() != Reloc::PIC_)
+  if (!isPositionIndependent())
     return X86II::MO_NO_FLAG;
 
   // The COFF dynamic linker just patches the executable sections.
@@ -135,8 +93,7 @@ unsigned char X86Subtarget::classifyGlobalReference(const GlobalValue *GV,
   if (TM.getCodeModel() == CodeModel::Large)
     return X86II::MO_NO_FLAG;
 
-  Reloc::Model RM = TM.getRelocationModel();
-  if (shouldAssumeDSOLocal(RM, TargetTriple, M, GV))
+  if (TM.shouldAssumeDSOLocal(M, GV))
     return classifyLocalReference(GV);
 
   if (isTargetCOFF())
@@ -146,7 +103,7 @@ unsigned char X86Subtarget::classifyGlobalReference(const GlobalValue *GV,
     return X86II::MO_GOTPCREL;
 
   if (isTargetDarwin()) {
-    if (RM != Reloc::PIC_)
+    if (!isPositionIndependent())
       return X86II::MO_DARWIN_NONLAZY;
     return X86II::MO_DARWIN_NONLAZY_PIC_BASE;
   }
@@ -162,7 +119,7 @@ X86Subtarget::classifyGlobalFunctionReference(const GlobalValue *GV) const {
 unsigned char
 X86Subtarget::classifyGlobalFunctionReference(const GlobalValue *GV,
                                               const Module &M) const {
-  if (shouldAssumeDSOLocal(TM.getRelocationModel(), TargetTriple, M, GV))
+  if (TM.shouldAssumeDSOLocal(M, GV))
     return X86II::MO_NO_FLAG;
 
   assert(!isTargetCOFF());
@@ -367,24 +324,16 @@ X86Subtarget::X86Subtarget(const Triple &TT, StringRef CPU, StringRef FS,
       TSInfo(), InstrInfo(initializeSubtargetDependencies(CPU, FS)),
       TLInfo(TM, *this), FrameLowering(*this, getStackAlignment()) {
   // Determine the PICStyle based on the target selected.
-  if (TM.getRelocationModel() == Reloc::Static) {
-    // Unless we're in PIC or DynamicNoPIC mode, set the PIC style to None.
+  if (!isPositionIndependent())
     setPICStyle(PICStyles::None);
-  } else if (is64Bit()) {
-    // PIC in 64 bit mode is always rip-rel.
+  else if (is64Bit())
     setPICStyle(PICStyles::RIPRel);
-  } else if (isTargetCOFF()) {
+  else if (isTargetCOFF())
     setPICStyle(PICStyles::None);
-  } else if (isTargetDarwin()) {
-    if (TM.getRelocationModel() == Reloc::PIC_)
-      setPICStyle(PICStyles::StubPIC);
-    else {
-      assert(TM.getRelocationModel() == Reloc::DynamicNoPIC);
-      setPICStyle(PICStyles::StubDynamicNoPIC);
-    }
-  } else if (isTargetELF()) {
+  else if (isTargetDarwin())
+    setPICStyle(PICStyles::StubPIC);
+  else if (isTargetELF())
     setPICStyle(PICStyles::GOT);
-  }
 }
 
 bool X86Subtarget::enableEarlyIfConversion() const {

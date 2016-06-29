@@ -561,10 +561,11 @@ unsigned HexagonInstrInfo::RemoveBranch(MachineBasicBlock &MBB) const {
   return Count;
 }
 
-
 unsigned HexagonInstrInfo::InsertBranch(MachineBasicBlock &MBB,
-      MachineBasicBlock *TBB, MachineBasicBlock *FBB,
-      ArrayRef<MachineOperand> Cond, DebugLoc DL) const {
+                                        MachineBasicBlock *TBB,
+                                        MachineBasicBlock *FBB,
+                                        ArrayRef<MachineOperand> Cond,
+                                        const DebugLoc &DL) const {
   unsigned BOpc   = Hexagon::J2_jump;
   unsigned BccOpc = Hexagon::J2_jumpt;
   assert(validateBranchCond(Cond) && "Invalid branching condition");
@@ -677,21 +678,16 @@ bool HexagonInstrInfo::isProfitableToDupForIfCvt(MachineBasicBlock &MBB,
   return NumInstrs <= 4;
 }
 
-
 void HexagonInstrInfo::copyPhysReg(MachineBasicBlock &MBB,
-      MachineBasicBlock::iterator I, DebugLoc DL, unsigned DestReg,
-      unsigned SrcReg, bool KillSrc) const {
+                                   MachineBasicBlock::iterator I,
+                                   const DebugLoc &DL, unsigned DestReg,
+                                   unsigned SrcReg, bool KillSrc) const {
   auto &HRI = getRegisterInfo();
   unsigned KillFlag = getKillRegState(KillSrc);
 
   if (Hexagon::IntRegsRegClass.contains(SrcReg, DestReg)) {
-    auto MIB = BuildMI(MBB, I, DL, get(Hexagon::A2_tfr), DestReg)
+    BuildMI(MBB, I, DL, get(Hexagon::A2_tfr), DestReg)
       .addReg(SrcReg, KillFlag);
-    // We could have a R12 = COPY R2, D1<imp-use, kill> instruction.
-    // Transfer the kill flags.
-    for (auto &Op : I->operands())
-      if (Op.isReg() && Op.isKill() && Op.isImplicit() && Op.isUse())
-        MIB.addReg(Op.getReg(), RegState::Kill | RegState::Implicit);
     return;
   }
   if (Hexagon::DoubleRegsRegClass.contains(SrcReg, DestReg)) {
@@ -920,6 +916,16 @@ bool HexagonInstrInfo::expandPostRAPseudo(MachineBasicBlock::iterator MI)
   bool Is128B = false;
 
   switch (Opc) {
+    case TargetOpcode::COPY: {
+      MachineOperand &MD = MI->getOperand(0);
+      MachineOperand &MS = MI->getOperand(1);
+      if (MD.getReg() != MS.getReg() && !MS.isUndef()) {
+        copyPhysReg(MBB, MI, DL, MD.getReg(), MS.getReg(), MS.isKill());
+        std::prev(MI)->copyImplicitOps(*MBB.getParent(), *MI);
+      }
+      MBB.erase(MI);
+      return true;
+    }
     case Hexagon::ALIGNA:
       BuildMI(MBB, MI, DL, get(Hexagon::A2_andir), MI->getOperand(0).getReg())
           .addReg(HRI.getFrameRegister())
@@ -1010,10 +1016,9 @@ bool HexagonInstrInfo::expandPostRAPseudo(MachineBasicBlock::iterator MI)
       unsigned NewOpc = Is128B ? Hexagon::V6_vL32b_ai_128B
                                : Hexagon::V6_vL32b_ai;
       int32_t Off = MI->getOperand(2).getImm();
-      int32_t Idx = Off;
       BuildMI(MBB, MI, DL, get(NewOpc), DstReg)
         .addOperand(MI->getOperand(1))
-        .addImm(Idx)
+        .addImm(Off)
         .setMemRefs(MI->memoperands_begin(), MI->memoperands_end());
       MBB.erase(MI);
       return true;
@@ -1024,10 +1029,9 @@ bool HexagonInstrInfo::expandPostRAPseudo(MachineBasicBlock::iterator MI)
       unsigned NewOpc = Is128B ? Hexagon::V6_vS32b_ai_128B
                                : Hexagon::V6_vS32b_ai;
       int32_t Off = MI->getOperand(1).getImm();
-      int32_t Idx = Is128B ? (Off >> 7) : (Off >> 6);
       BuildMI(MBB, MI, DL, get(NewOpc))
         .addOperand(MI->getOperand(0))
-        .addImm(Idx)
+        .addImm(Off)
         .addOperand(MI->getOperand(2))
         .setMemRefs(MI->memoperands_begin(), MI->memoperands_end());
       MBB.erase(MI);
@@ -1526,7 +1530,7 @@ bool HexagonInstrInfo::areMemAccessesTriviallyDisjoint(MachineInstr *MIa,
   unsigned SizeA = 0, SizeB = 0;
 
   if (MIa->hasUnmodeledSideEffects() || MIb->hasUnmodeledSideEffects() ||
-      MIa->hasOrderedMemoryRef() || MIa->hasOrderedMemoryRef())
+      MIa->hasOrderedMemoryRef() || MIb->hasOrderedMemoryRef())
     return false;
 
   // Instructions that are pure loads, not loads and stores like memops are not
@@ -3669,8 +3673,8 @@ HexagonII::SubInstructionGroup HexagonInstrInfo::getDuplexCandidateGroup(
   case Hexagon::S4_storeirb_io:
     // memb(Rs+#u4) = #U1
     Src1Reg = MI->getOperand(0).getReg();
-    if (isIntRegForSubInst(Src1Reg) && MI->getOperand(1).isImm() &&
-        isUInt<4>(MI->getOperand(1).getImm()) && MI->getOperand(2).isImm() &&
+    if (isIntRegForSubInst(Src1Reg) &&
+        MI->getOperand(1).isImm() && isUInt<4>(MI->getOperand(1).getImm()) &&
         MI->getOperand(2).isImm() && isUInt<1>(MI->getOperand(2).getImm()))
       return HexagonII::HSIG_S2;
     break;

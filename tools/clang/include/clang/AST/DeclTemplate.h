@@ -22,6 +22,7 @@
 #include "llvm/Support/Compiler.h"
 #include "llvm/Support/TrailingObjects.h"
 #include <limits>
+#include <utility>
 
 namespace clang {
 
@@ -2332,9 +2333,9 @@ class ClassScopeFunctionSpecializationDecl : public Decl {
   ClassScopeFunctionSpecializationDecl(DeclContext *DC, SourceLocation Loc,
                                        CXXMethodDecl *FD, bool Args,
                                        TemplateArgumentListInfo TemplArgs)
-    : Decl(Decl::ClassScopeFunctionSpecialization, DC, Loc),
-      Specialization(FD), HasExplicitTemplateArgs(Args),
-      TemplateArgs(TemplArgs) {}
+      : Decl(Decl::ClassScopeFunctionSpecialization, DC, Loc),
+        Specialization(FD), HasExplicitTemplateArgs(Args),
+        TemplateArgs(std::move(TemplArgs)) {}
 
   ClassScopeFunctionSpecializationDecl(EmptyShell Empty)
     : Decl(Decl::ClassScopeFunctionSpecialization, Empty) {}
@@ -2355,7 +2356,7 @@ public:
                                                    bool HasExplicitTemplateArgs,
                                         TemplateArgumentListInfo TemplateArgs) {
     return new (C, DC) ClassScopeFunctionSpecializationDecl(
-        DC, Loc, FD, HasExplicitTemplateArgs, TemplateArgs);
+        DC, Loc, FD, HasExplicitTemplateArgs, std::move(TemplateArgs));
   }
 
   static ClassScopeFunctionSpecializationDecl *

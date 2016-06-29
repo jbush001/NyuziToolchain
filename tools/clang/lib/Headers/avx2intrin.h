@@ -81,25 +81,25 @@ _mm256_packus_epi32(__m256i __V1, __m256i __V2)
 static __inline__ __m256i __DEFAULT_FN_ATTRS
 _mm256_add_epi8(__m256i __a, __m256i __b)
 {
-  return (__m256i)((__v32qi)__a + (__v32qi)__b);
+  return (__m256i)((__v32qu)__a + (__v32qu)__b);
 }
 
 static __inline__ __m256i __DEFAULT_FN_ATTRS
 _mm256_add_epi16(__m256i __a, __m256i __b)
 {
-  return (__m256i)((__v16hi)__a + (__v16hi)__b);
+  return (__m256i)((__v16hu)__a + (__v16hu)__b);
 }
 
 static __inline__ __m256i __DEFAULT_FN_ATTRS
 _mm256_add_epi32(__m256i __a, __m256i __b)
 {
-  return (__m256i)((__v8si)__a + (__v8si)__b);
+  return (__m256i)((__v8su)__a + (__v8su)__b);
 }
 
 static __inline__ __m256i __DEFAULT_FN_ATTRS
 _mm256_add_epi64(__m256i __a, __m256i __b)
 {
-  return (__m256i)((__v4di)__a + (__v4di)__b);
+  return (__m256i)((__v4du)__a + (__v4du)__b);
 }
 
 static __inline__ __m256i __DEFAULT_FN_ATTRS
@@ -133,13 +133,13 @@ _mm256_adds_epu16(__m256i __a, __m256i __b)
 static __inline__ __m256i __DEFAULT_FN_ATTRS
 _mm256_and_si256(__m256i __a, __m256i __b)
 {
-  return (__m256i)((__v4di)__a & (__v4di)__b);
+  return (__m256i)((__v4du)__a & (__v4du)__b);
 }
 
 static __inline__ __m256i __DEFAULT_FN_ATTRS
 _mm256_andnot_si256(__m256i __a, __m256i __b)
 {
-  return (__m256i)(~(__v4di)__a & (__v4di)__b);
+  return (__m256i)(~(__v4du)__a & (__v4du)__b);
 }
 
 static __inline__ __m256i __DEFAULT_FN_ATTRS
@@ -360,73 +360,79 @@ _mm256_movemask_epi8(__m256i __a)
 static __inline__ __m256i __DEFAULT_FN_ATTRS
 _mm256_cvtepi8_epi16(__m128i __V)
 {
-  return (__m256i)__builtin_ia32_pmovsxbw256((__v16qi)__V);
+  /* This function always performs a signed extension, but __v16qi is a char
+     which may be signed or unsigned, so use __v16qs. */
+  return (__m256i)__builtin_convertvector((__v16qs)__V, __v16hi);
 }
 
 static __inline__ __m256i __DEFAULT_FN_ATTRS
 _mm256_cvtepi8_epi32(__m128i __V)
 {
-  return (__m256i)__builtin_ia32_pmovsxbd256((__v16qi)__V);
+  /* This function always performs a signed extension, but __v16qi is a char
+     which may be signed or unsigned, so use __v16qs. */
+  return (__m256i)__builtin_convertvector(__builtin_shufflevector((__v16qs)__V, (__v16qs)__V, 0, 1, 2, 3, 4, 5, 6, 7), __v8si);
 }
 
 static __inline__ __m256i __DEFAULT_FN_ATTRS
 _mm256_cvtepi8_epi64(__m128i __V)
 {
-  return (__m256i)__builtin_ia32_pmovsxbq256((__v16qi)__V);
+  /* This function always performs a signed extension, but __v16qi is a char
+     which may be signed or unsigned, so use __v16qs. */
+  return (__m256i)__builtin_convertvector(__builtin_shufflevector((__v16qs)__V, (__v16qs)__V, 0, 1, 2, 3), __v4di);
 }
 
 static __inline__ __m256i __DEFAULT_FN_ATTRS
 _mm256_cvtepi16_epi32(__m128i __V)
 {
-  return (__m256i)__builtin_ia32_pmovsxwd256((__v8hi)__V);
+  return (__m256i)__builtin_convertvector((__v8hi)__V, __v8si);
 }
 
 static __inline__ __m256i __DEFAULT_FN_ATTRS
 _mm256_cvtepi16_epi64(__m128i __V)
 {
-  return (__m256i)__builtin_ia32_pmovsxwq256((__v8hi)__V);
+  return (__m256i)__builtin_convertvector(__builtin_shufflevector((__v8hi)__V, (__v8hi)__V, 0, 1, 2, 3), __v4di);
 }
 
 static __inline__ __m256i __DEFAULT_FN_ATTRS
 _mm256_cvtepi32_epi64(__m128i __V)
 {
-  return (__m256i)__builtin_ia32_pmovsxdq256((__v4si)__V);
+  return (__m256i)__builtin_convertvector((__v4si)__V, __v4di);
 }
 
 static __inline__ __m256i __DEFAULT_FN_ATTRS
 _mm256_cvtepu8_epi16(__m128i __V)
 {
-  return (__m256i)__builtin_ia32_pmovzxbw256((__v16qi)__V);
+  return (__m256i)__builtin_convertvector((__v16qu)__V, __v16hi);
 }
 
 static __inline__ __m256i __DEFAULT_FN_ATTRS
 _mm256_cvtepu8_epi32(__m128i __V)
 {
-  return (__m256i)__builtin_ia32_pmovzxbd256((__v16qi)__V);
+  return (__m256i)__builtin_convertvector(__builtin_shufflevector((__v16qu)__V, (__v16qu)__V, 0, 1, 2, 3, 4, 5, 6, 7), __v8si);
 }
 
 static __inline__ __m256i __DEFAULT_FN_ATTRS
 _mm256_cvtepu8_epi64(__m128i __V)
 {
-  return (__m256i)__builtin_ia32_pmovzxbq256((__v16qi)__V);
+  return (__m256i)__builtin_convertvector(__builtin_shufflevector((__v16qu)__V, (__v16qu)__V, 0, 1, 2, 3), __v4di);
 }
 
 static __inline__ __m256i __DEFAULT_FN_ATTRS
 _mm256_cvtepu16_epi32(__m128i __V)
 {
-  return (__m256i)__builtin_ia32_pmovzxwd256((__v8hi)__V);
+  return (__m256i)__builtin_convertvector((__v8hu)__V, __v8si);
 }
 
 static __inline__ __m256i __DEFAULT_FN_ATTRS
 _mm256_cvtepu16_epi64(__m128i __V)
 {
-  return (__m256i)__builtin_ia32_pmovzxwq256((__v8hi)__V);
+  return (__m256i)__builtin_convertvector(__builtin_shufflevector((__v8hu)__V, (__v8hu)__V, 0, 1, 2, 3), __v4di);
 }
 
 static __inline__ __m256i __DEFAULT_FN_ATTRS
 _mm256_cvtepu32_epi64(__m128i __V)
 {
-  return (__m256i)__builtin_ia32_pmovzxdq256((__v4si)__V);
+  return (__m256i)__builtin_convertvector((__v4su)__V, __v4di);
 }
 
 static __inline__  __m256i __DEFAULT_FN_ATTRS
@@ -456,13 +462,13 @@ _mm256_mulhi_epi16(__m256i __a, __m256i __b)
 static __inline__ __m256i __DEFAULT_FN_ATTRS
 _mm256_mullo_epi16(__m256i __a, __m256i __b)
 {
-  return (__m256i)((__v16hi)__a * (__v16hi)__b);
+  return (__m256i)((__v16hu)__a * (__v16hu)__b);
 }
 
 static __inline__  __m256i __DEFAULT_FN_ATTRS
 _mm256_mullo_epi32 (__m256i __a, __m256i __b)
 {
-  return (__m256i)((__v8si)__a * (__v8si)__b);
+  return (__m256i)((__v8su)__a * (__v8su)__b);
 }
 
 static __inline__ __m256i __DEFAULT_FN_ATTRS
@@ -474,7 +480,7 @@ _mm256_mul_epu32(__m256i __a, __m256i __b)
 static __inline__ __m256i __DEFAULT_FN_ATTRS
 _mm256_or_si256(__m256i __a, __m256i __b)
 {
-  return (__m256i)((__v4di)__a | (__v4di)__b);
+  return (__m256i)((__v4du)__a | (__v4du)__b);
 }
 
 static __inline__ __m256i __DEFAULT_FN_ATTRS
@@ -516,8 +522,10 @@ _mm256_shuffle_epi8(__m256i __a, __m256i __b)
 #define _mm256_shufflelo_epi16(a, imm) __extension__ ({ \
   (__m256i)__builtin_shufflevector((__v16hi)(__m256i)(a), \
                                    (__v16hi)_mm256_setzero_si256(), \
-                                   (imm) & 0x3,((imm) & 0xc) >> 2, \
-                                   ((imm) & 0x30) >> 4, ((imm) & 0xc0) >> 6, \
+                                   0 + (((imm) & 0x03) >> 0), \
+                                   0 + (((imm) & 0x0c) >> 2), \
+                                   0 + (((imm) & 0x30) >> 4), \
+                                   0 + (((imm) & 0xc0) >> 6), \
                                    4, 5, 6, 7, \
                                    8 + (((imm) & 0x03) >> 0), \
                                    8 + (((imm) & 0x0c) >> 2), \
@@ -543,8 +551,42 @@ _mm256_sign_epi32(__m256i __a, __m256i __b)
     return (__m256i)__builtin_ia32_psignd256((__v8si)__a, (__v8si)__b);
 }
 
-#define _mm256_slli_si256(a, count) __extension__ ({ \
-  (__m256i)__builtin_ia32_pslldqi256((__m256i)(a), (count)*8); })
+#define _mm256_slli_si256(a, imm) __extension__ ({ \
+  (__m256i)__builtin_shufflevector(                                          \
+        (__v32qi)_mm256_setzero_si256(),                                     \
+        (__v32qi)(__m256i)(a),                                               \
+        ((char)(imm)&0xF0) ?  0 : ((char)(imm)>0x0 ? 16 : 32) - (char)(imm), \
+        ((char)(imm)&0xF0) ?  1 : ((char)(imm)>0x1 ? 17 : 33) - (char)(imm), \
+        ((char)(imm)&0xF0) ?  2 : ((char)(imm)>0x2 ? 18 : 34) - (char)(imm), \
+        ((char)(imm)&0xF0) ?  3 : ((char)(imm)>0x3 ? 19 : 35) - (char)(imm), \
+        ((char)(imm)&0xF0) ?  4 : ((char)(imm)>0x4 ? 20 : 36) - (char)(imm), \
+        ((char)(imm)&0xF0) ?  5 : ((char)(imm)>0x5 ? 21 : 37) - (char)(imm), \
+        ((char)(imm)&0xF0) ?  6 : ((char)(imm)>0x6 ? 22 : 38) - (char)(imm), \
+        ((char)(imm)&0xF0) ?  7 : ((char)(imm)>0x7 ? 23 : 39) - (char)(imm), \
+        ((char)(imm)&0xF0) ?  8 : ((char)(imm)>0x8 ? 24 : 40) - (char)(imm), \
+        ((char)(imm)&0xF0) ?  9 : ((char)(imm)>0x9 ? 25 : 41) - (char)(imm), \
+        ((char)(imm)&0xF0) ? 10 : ((char)(imm)>0xA ? 26 : 42) - (char)(imm), \
+        ((char)(imm)&0xF0) ? 11 : ((char)(imm)>0xB ? 27 : 43) - (char)(imm), \
+        ((char)(imm)&0xF0) ? 12 : ((char)(imm)>0xC ? 28 : 44) - (char)(imm), \
+        ((char)(imm)&0xF0) ? 13 : ((char)(imm)>0xD ? 29 : 45) - (char)(imm), \
+        ((char)(imm)&0xF0) ? 14 : ((char)(imm)>0xE ? 30 : 46) - (char)(imm), \
+        ((char)(imm)&0xF0) ? 15 : ((char)(imm)>0xF ? 31 : 47) - (char)(imm), \
+        ((char)(imm)&0xF0) ? 16 : ((char)(imm)>0x0 ? 32 : 48) - (char)(imm), \
+        ((char)(imm)&0xF0) ? 17 : ((char)(imm)>0x1 ? 33 : 49) - (char)(imm), \
+        ((char)(imm)&0xF0) ? 18 : ((char)(imm)>0x2 ? 34 : 50) - (char)(imm), \
+        ((char)(imm)&0xF0) ? 19 : ((char)(imm)>0x3 ? 35 : 51) - (char)(imm), \
+        ((char)(imm)&0xF0) ? 20 : ((char)(imm)>0x4 ? 36 : 52) - (char)(imm), \
+        ((char)(imm)&0xF0) ? 21 : ((char)(imm)>0x5 ? 37 : 53) - (char)(imm), \
+        ((char)(imm)&0xF0) ? 22 : ((char)(imm)>0x6 ? 38 : 54) - (char)(imm), \
+        ((char)(imm)&0xF0) ? 23 : ((char)(imm)>0x7 ? 39 : 55) - (char)(imm), \
+        ((char)(imm)&0xF0) ? 24 : ((char)(imm)>0x8 ? 40 : 56) - (char)(imm), \
+        ((char)(imm)&0xF0) ? 25 : ((char)(imm)>0x9 ? 41 : 57) - (char)(imm), \
+        ((char)(imm)&0xF0) ? 26 : ((char)(imm)>0xA ? 42 : 58) - (char)(imm), \
+        ((char)(imm)&0xF0) ? 27 : ((char)(imm)>0xB ? 43 : 59) - (char)(imm), \
+        ((char)(imm)&0xF0) ? 28 : ((char)(imm)>0xC ? 44 : 60) - (char)(imm), \
+        ((char)(imm)&0xF0) ? 29 : ((char)(imm)>0xD ? 45 : 61) - (char)(imm), \
+        ((char)(imm)&0xF0) ? 30 : ((char)(imm)>0xE ? 46 : 62) - (char)(imm), \
+        ((char)(imm)&0xF0) ? 31 : ((char)(imm)>0xF ? 47 : 63) - (char)(imm)); })
 
 #define _mm256_bslli_epi128(a, count) _mm256_slli_si256((a), (count))
 
@@ -608,8 +650,42 @@ _mm256_sra_epi32(__m256i __a, __m128i __count)
   return (__m256i)__builtin_ia32_psrad256((__v8si)__a, (__v4si)__count);
 }
 
-#define _mm256_srli_si256(a, count) __extension__ ({ \
-  (__m256i)__builtin_ia32_psrldqi256((__m256i)(a), (count)*8); })
+#define _mm256_srli_si256(a, imm) __extension__ ({ \
+  (__m256i)__builtin_shufflevector(                                           \
+        (__v32qi)(__m256i)(a),                                               \
+        (__v32qi)_mm256_setzero_si256(),                                     \
+        ((char)(imm)&0xF0) ? 32 : (char)(imm) + ((char)(imm)>0xF ? 16 : 0),  \
+        ((char)(imm)&0xF0) ? 33 : (char)(imm) + ((char)(imm)>0xE ? 17 : 1),  \
+        ((char)(imm)&0xF0) ? 34 : (char)(imm) + ((char)(imm)>0xD ? 18 : 2),  \
+        ((char)(imm)&0xF0) ? 35 : (char)(imm) + ((char)(imm)>0xC ? 19 : 3),  \
+        ((char)(imm)&0xF0) ? 36 : (char)(imm) + ((char)(imm)>0xB ? 20 : 4),  \
+        ((char)(imm)&0xF0) ? 37 : (char)(imm) + ((char)(imm)>0xA ? 21 : 5),  \
+        ((char)(imm)&0xF0) ? 38 : (char)(imm) + ((char)(imm)>0x9 ? 22 : 6),  \
+        ((char)(imm)&0xF0) ? 39 : (char)(imm) + ((char)(imm)>0x8 ? 23 : 7),  \
+        ((char)(imm)&0xF0) ? 40 : (char)(imm) + ((char)(imm)>0x7 ? 24 : 8),  \
+        ((char)(imm)&0xF0) ? 41 : (char)(imm) + ((char)(imm)>0x6 ? 25 : 9),  \
+        ((char)(imm)&0xF0) ? 42 : (char)(imm) + ((char)(imm)>0x5 ? 26 : 10), \
+        ((char)(imm)&0xF0) ? 43 : (char)(imm) + ((char)(imm)>0x4 ? 27 : 11), \
+        ((char)(imm)&0xF0) ? 44 : (char)(imm) + ((char)(imm)>0x3 ? 28 : 12), \
+        ((char)(imm)&0xF0) ? 45 : (char)(imm) + ((char)(imm)>0x2 ? 29 : 13), \
+        ((char)(imm)&0xF0) ? 46 : (char)(imm) + ((char)(imm)>0x1 ? 30 : 14), \
+        ((char)(imm)&0xF0) ? 47 : (char)(imm) + ((char)(imm)>0x0 ? 31 : 15), \
+        ((char)(imm)&0xF0) ? 48 : (char)(imm) + ((char)(imm)>0xF ? 32 : 16), \
+        ((char)(imm)&0xF0) ? 49 : (char)(imm) + ((char)(imm)>0xE ? 33 : 17), \
+        ((char)(imm)&0xF0) ? 50 : (char)(imm) + ((char)(imm)>0xD ? 34 : 18), \
+        ((char)(imm)&0xF0) ? 51 : (char)(imm) + ((char)(imm)>0xC ? 35 : 19), \
+        ((char)(imm)&0xF0) ? 52 : (char)(imm) + ((char)(imm)>0xB ? 36 : 20), \
+        ((char)(imm)&0xF0) ? 53 : (char)(imm) + ((char)(imm)>0xA ? 37 : 21), \
+        ((char)(imm)&0xF0) ? 54 : (char)(imm) + ((char)(imm)>0x9 ? 38 : 22), \
+        ((char)(imm)&0xF0) ? 55 : (char)(imm) + ((char)(imm)>0x8 ? 39 : 23), \
+        ((char)(imm)&0xF0) ? 56 : (char)(imm) + ((char)(imm)>0x7 ? 40 : 24), \
+        ((char)(imm)&0xF0) ? 57 : (char)(imm) + ((char)(imm)>0x6 ? 41 : 25), \
+        ((char)(imm)&0xF0) ? 58 : (char)(imm) + ((char)(imm)>0x5 ? 42 : 26), \
+        ((char)(imm)&0xF0) ? 59 : (char)(imm) + ((char)(imm)>0x4 ? 43 : 27), \
+        ((char)(imm)&0xF0) ? 60 : (char)(imm) + ((char)(imm)>0x3 ? 44 : 28), \
+        ((char)(imm)&0xF0) ? 61 : (char)(imm) + ((char)(imm)>0x2 ? 45 : 29), \
+        ((char)(imm)&0xF0) ? 62 : (char)(imm) + ((char)(imm)>0x1 ? 46 : 30), \
+        ((char)(imm)&0xF0) ? 63 : (char)(imm) + ((char)(imm)>0x0 ? 47 : 31)); })
 
 #define _mm256_bsrli_epi128(a, count) _mm256_srli_si256((a), (count))
 
@@ -652,25 +728,25 @@ _mm256_srl_epi64(__m256i __a, __m128i __count)
 static __inline__ __m256i __DEFAULT_FN_ATTRS
 _mm256_sub_epi8(__m256i __a, __m256i __b)
 {
-  return (__m256i)((__v32qi)__a - (__v32qi)__b);
+  return (__m256i)((__v32qu)__a - (__v32qu)__b);
 }
 
 static __inline__ __m256i __DEFAULT_FN_ATTRS
 _mm256_sub_epi16(__m256i __a, __m256i __b)
 {
-  return (__m256i)((__v16hi)__a - (__v16hi)__b);
+  return (__m256i)((__v16hu)__a - (__v16hu)__b);
 }
 
 static __inline__ __m256i __DEFAULT_FN_ATTRS
 _mm256_sub_epi32(__m256i __a, __m256i __b)
 {
-  return (__m256i)((__v8si)__a - (__v8si)__b);
+  return (__m256i)((__v8su)__a - (__v8su)__b);
 }
 
 static __inline__ __m256i __DEFAULT_FN_ATTRS
 _mm256_sub_epi64(__m256i __a, __m256i __b)
 {
-  return (__m256i)((__v4di)__a - (__v4di)__b);
+  return (__m256i)((__v4du)__a - (__v4du)__b);
 }
 
 static __inline__ __m256i __DEFAULT_FN_ATTRS
@@ -748,7 +824,7 @@ _mm256_unpacklo_epi64(__m256i __a, __m256i __b)
 static __inline__ __m256i __DEFAULT_FN_ATTRS
 _mm256_xor_si256(__m256i __a, __m256i __b)
 {
-  return (__m256i)((__v4di)__a ^ (__v4di)__b);
+  return (__m256i)((__v4du)__a ^ (__v4du)__b);
 }
 
 static __inline__ __m256i __DEFAULT_FN_ATTRS

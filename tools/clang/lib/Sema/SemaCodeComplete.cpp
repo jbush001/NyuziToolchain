@@ -3044,6 +3044,7 @@ CXCursorKind clang::getCursorKindForDecl(const Decl *D) {
     case Decl::ClassTemplatePartialSpecialization:
       return CXCursor_ClassTemplatePartialSpecialization;
     case Decl::UsingDirective:     return CXCursor_UsingDirective;
+    case Decl::StaticAssert:       return CXCursor_StaticAssert;
     case Decl::TranslationUnit:    return CXCursor_TranslationUnit;
       
     case Decl::Using:
@@ -3207,7 +3208,7 @@ static void MaybeAddOverrideCalls(Sema &S, DeclContext *InContext,
   
   // We need to have names for all of the parameters, if we're going to 
   // generate a forwarding call.
-  for (auto P : Method->params())
+  for (auto P : Method->parameters())
     if (!P->getDeclName())
       return;
 
@@ -3239,7 +3240,7 @@ static void MaybeAddOverrideCalls(Sema &S, DeclContext *InContext,
                                          Overridden->getNameAsString()));
     Builder.AddChunk(CodeCompletionString::CK_LeftParen);
     bool FirstParam = true;
-    for (auto P : Method->params()) {
+    for (auto P : Method->parameters()) {
       if (FirstParam)
         FirstParam = false;
       else

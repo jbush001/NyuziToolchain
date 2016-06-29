@@ -106,7 +106,7 @@ template <> struct DenseMapInfo<GVN::Expression> {
 
   static inline GVN::Expression getTombstoneKey() { return ~1U; }
 
-  static unsigned getHashValue(const GVN::Expression e) {
+  static unsigned getHashValue(const GVN::Expression &e) {
     using llvm::hash_value;
     return static_cast<unsigned>(hash_value(e));
   }
@@ -594,10 +594,15 @@ PreservedAnalyses GVN::run(Function &F, AnalysisManager<Function> &AM) {
   auto &AA = AM.getResult<AAManager>(F);
   auto &MemDep = AM.getResult<MemoryDependenceAnalysis>(F);
   bool Changed = runImpl(F, AC, DT, TLI, AA, &MemDep);
-  return Changed ? PreservedAnalyses::none() : PreservedAnalyses::all();
+  if (!Changed)
+    return PreservedAnalyses::all();
+  PreservedAnalyses PA;
+  PA.preserve<DominatorTreeAnalysis>();
+  PA.preserve<GlobalsAA>();
+  return PA;
 }
 
-#if !defined(NDEBUG) || defined(LLVM_ENABLE_DUMP)
+LLVM_DUMP_METHOD
 void GVN::dump(DenseMap<uint32_t, Value*>& d) {
   errs() << "{\n";
   for (DenseMap<uint32_t, Value*>::iterator I = d.begin(),
@@ -607,7 +612,6 @@ void GVN::dump(DenseMap<uint32_t, Value*>& d) {
   }
   errs() << "}\n";
 }
-#endif
 
 /// Return true if we can prove that the value
 /// we're analyzing is fully available in the specified block.  As we go, keep
@@ -1567,6 +1571,8 @@ bool GVN::PerformLoadPRE(LoadInst *LI, AvailValInBlkVect &ValuesPerBlock,
       NewLoad->setMetadata(LLVMContext::MD_invariant_load, MD);
     if (auto *InvGroupMD = LI->getMetadata(LLVMContext::MD_invariant_group))
       NewLoad->setMetadata(LLVMContext::MD_invariant_group, InvGroupMD);
+    if (auto *RangeMD = LI->getMetadata(LLVMContext::MD_range))
+      NewLoad->setMetadata(LLVMContext::MD_range, RangeMD);
 
     // Transfer DebugLoc.
     NewLoad->setDebugLoc(LI->getDebugLoc());
@@ -2050,12 +2056,21 @@ bool GVN::processInstruction(Instruction *I) {
   // "%z = and i32 %x, %y" becomes "%z = and i32 %x, %x" which we now simplify.
   const DataLayout &DL = I->getModule()->getDataLayout();
   if (Value *V = SimplifyInstruction(I, DL, TLI, DT, AC)) {
-    I->replaceAllUsesWith(V);
-    if (MD && V->getType()->getScalarType()->isPointerTy())
-      MD->invalidateCachedPointerInfo(V);
-    markInstructionForDeletion(I);
-    ++NumGVNSimpl;
-    return true;
+    bool Changed = false;
+    if (!I->use_empty()) {
+      I->replaceAllUsesWith(V);
+      Changed = true;
+    }
+    if (isInstructionTriviallyDead(I, TLI)) {
+      markInstructionForDeletion(I);
+      Changed = true;
+    }
+    if (Changed) {
+      if (MD && V->getType()->getScalarType()->isPointerTy())
+        MD->invalidateCachedPointerInfo(V);
+      ++NumGVNSimpl;
+      return true;
+    }
   }
 
   if (IntrinsicInst *IntrinsicI = dyn_cast<IntrinsicInst>(I))

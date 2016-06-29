@@ -40,6 +40,7 @@ main_body:
 ;CHECK: s_and_b64 exec, exec, [[ORIG]]
 ;CHECK: store
 ;CHECK-NOT: exec
+;CHECK: .size test3
 define amdgpu_ps <4 x float> @test3(<8 x i32> inreg %rsrc, <4 x i32> inreg %sampler, float addrspace(1)* inreg %ptr, <4 x i32> %c) {
 main_body:
   %tex = call <4 x float> @llvm.SI.image.sample.v4i32(<4 x i32> %c, <8 x i32> %rsrc, <4 x i32> %sampler, i32 15, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0)
@@ -121,9 +122,13 @@ END:
 ;CHECK-NEXT: s_and_b64 exec, exec, [[ORIG]]
 ;CHECK-NEXT: s_and_b64 [[SAVED]], exec, [[SAVED]]
 ;CHECK-NEXT: s_xor_b64 exec, exec, [[SAVED]]
-;CHECK-NEXT: %ELSE
-;CHECK: store
-;CHECK: %END
+;CHECK-NEXT: mask branch [[END_BB:BB[0-9]+_[0-9]+]]
+;CHECK-NEXT: ; BB#3: ; %ELSE
+;CHECK: store_dword
+;CHECK: [[END_BB]]: ; %END
+;CHECK: s_or_b64 exec, exec,
+;CHECK: v_mov_b32_e32 v0
+;CHECK: ; return
 define amdgpu_ps float @test_control_flow_1(<8 x i32> inreg %rsrc, <4 x i32> inreg %sampler, float addrspace(1)* inreg %ptr, i32 %c, i32 %z, float %data) {
 main_body:
   %cmp = icmp eq i32 %z, 0
@@ -332,6 +337,19 @@ main_body:
   ret <4 x float> %tex
 }
 
+; Check prolog shaders.
+;
+; CHECK-LABEL: {{^}}test_prolog_1:
+; CHECK: s_mov_b64 [[ORIG:s\[[0-9]+:[0-9]+\]]], exec
+; CHECK: s_wqm_b64 exec, exec
+; CHECK: v_add_f32_e32 v0,
+; CHECK: s_and_b64 exec, exec, [[ORIG]]
+define amdgpu_ps float @test_prolog_1(float %a, float %b) #4 {
+main_body:
+  %s = fadd float %a, %b
+  ret float %s
+}
+
 declare void @llvm.amdgcn.image.store.v4i32(<4 x float>, <4 x i32>, <8 x i32>, i32, i1, i1, i1, i1) #1
 
 declare <4 x float> @llvm.amdgcn.image.load.v4i32(<4 x i32>, <8 x i32>, i32, i1, i1, i1, i1) #2
@@ -345,3 +363,4 @@ declare void @llvm.SI.export(i32, i32, i32, i32, i32, float, float, float, float
 attributes #1 = { nounwind }
 attributes #2 = { nounwind readonly }
 attributes #3 = { nounwind readnone }
+attributes #4 = { "amdgpu-ps-wqm-outputs" }

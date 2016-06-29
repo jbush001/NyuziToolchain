@@ -48,6 +48,7 @@
 #include <sys/stat.h>
 #include <system_error>
 #include <time.h>
+#include <utility>
 
 using namespace clang;
 
@@ -55,7 +56,8 @@ CompilerInstance::CompilerInstance(
     std::shared_ptr<PCHContainerOperations> PCHContainerOps,
     bool BuildingModule)
     : ModuleLoader(BuildingModule), Invocation(new CompilerInvocation()),
-      ModuleManager(nullptr), ThePCHContainerOperations(PCHContainerOps),
+      ModuleManager(nullptr),
+      ThePCHContainerOperations(std::move(PCHContainerOps)),
       BuildGlobalModuleIndex(false), HaveFullGlobalModuleIndex(false),
       ModuleBuildFailed(false) {}
 
@@ -125,7 +127,7 @@ IntrusiveRefCntPtr<ASTReader> CompilerInstance::getModuleManager() const {
   return ModuleManager;
 }
 void CompilerInstance::setModuleManager(IntrusiveRefCntPtr<ASTReader> Reader) {
-  ModuleManager = Reader;
+  ModuleManager = std::move(Reader);
 }
 
 std::shared_ptr<ModuleDependencyCollector>
@@ -135,7 +137,7 @@ CompilerInstance::getModuleDepCollector() const {
 
 void CompilerInstance::setModuleDepCollector(
     std::shared_ptr<ModuleDependencyCollector> Collector) {
-  ModuleDepCollector = Collector;
+  ModuleDepCollector = std::move(Collector);
 }
 
 // Diagnostics
@@ -1084,7 +1086,7 @@ static bool compileAndLoadModule(CompilerInstance &ImportingInstance,
     switch (Locked) {
     case llvm::LockFileManager::LFS_Error:
       Diags.Report(ModuleNameLoc, diag::err_module_lock_failure)
-          << Module->Name;
+          << Module->Name << Locked.getErrorMessage();
       return false;
 
     case llvm::LockFileManager::LFS_Owned:

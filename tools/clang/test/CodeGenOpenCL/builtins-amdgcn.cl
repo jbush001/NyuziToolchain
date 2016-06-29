@@ -178,6 +178,20 @@ void test_frexp_exp_f64(global int* out, double a)
   *out = __builtin_amdgcn_frexp_exp(a);
 }
 
+// CHECK-LABEL: @test_fract_f32
+// CHECK: call float @llvm.amdgcn.fract.f32
+void test_fract_f32(global int* out, float a)
+{
+  *out = __builtin_amdgcn_fractf(a);
+}
+
+// CHECK-LABEL: @test_fract_f64
+// CHECK: call double @llvm.amdgcn.fract.f64
+void test_fract_f64(global int* out, double a)
+{
+  *out = __builtin_amdgcn_fract(a);
+}
+
 // CHECK-LABEL: @test_class_f32
 // CHECK: call i1 @llvm.amdgcn.class.f32
 void test_class_f32(global float* out, float a, int b)
@@ -204,13 +218,6 @@ void test_s_barrier()
 void test_s_memtime(global ulong* out)
 {
   *out = __builtin_amdgcn_s_memtime();
-}
-
-// CHECK-LABEL: @test_s_memrealtime
-// CHECK: call i64 @llvm.amdgcn.s.memrealtime()
-void test_s_memrealtime(global ulong* out)
-{
-  *out = __builtin_amdgcn_s_memrealtime();
 }
 
 // CHECK-LABEL: @test_s_sleep
@@ -246,6 +253,14 @@ void test_cubema(global float* out, float a, float b, float c) {
   *out = __builtin_amdgcn_cubema(a, b, c);
 }
 
+// CHECK-LABEL: @test_read_exec(
+// CHECK: call i64 @llvm.read_register.i64(metadata ![[EXEC:[0-9]+]]) #[[READ_EXEC_ATTRS:[0-9]+]]
+void test_read_exec(global ulong* out) {
+  *out = __builtin_amdgcn_read_exec();
+}
+
+// CHECK: declare i64 @llvm.read_register.i64(metadata) #[[NOUNWIND_READONLY:[0-9]+]]
+
 // Legacy intrinsics with AMDGPU prefix
 
 // CHECK-LABEL: @test_legacy_rsq_f32
@@ -275,3 +290,7 @@ void test_legacy_ldexp_f64(global double* out, double a, int b)
 {
   *out = __builtin_amdgpu_ldexp(a, b);
 }
+
+// CHECK-DAG: attributes #[[NOUNWIND_READONLY:[0-9]+]] = { nounwind readonly }
+// CHECK-DAG: attributes #[[READ_EXEC_ATTRS]] = { convergent }
+// CHECK: ![[EXEC]] = !{!"exec"}

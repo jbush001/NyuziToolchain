@@ -311,12 +311,10 @@ public:
     TQ_const       = 1,
     TQ_restrict    = 2,
     TQ_volatile    = 4,
+    TQ_unaligned   = 8,
     // This has no corresponding Qualifiers::TQ value, because it's not treated
     // as a qualifier in our type system.
-    TQ_atomic      = 8,
-    // There is no corresponding Qualifiers::TQ value, but it's kept separately
-    // in a dedicated Qualifiers::Mask bit.
-    TQ_unaligned   = 16
+    TQ_atomic      = 16
   };
 
   /// ParsedSpecifiers - Flags to query which specifiers were applied.  This is
@@ -1120,7 +1118,7 @@ struct DeclaratorChunk {
   };
 
   struct PointerTypeInfo : TypeInfoCommon {
-    /// The type qualifiers: const/volatile/restrict/atomic/unaligned.
+    /// The type qualifiers: const/volatile/restrict/unaligned/atomic.
     unsigned TypeQuals : 5;
 
     /// The location of the const-qualifier, if any.
@@ -1152,14 +1150,15 @@ struct DeclaratorChunk {
   };
 
   struct ArrayTypeInfo : TypeInfoCommon {
-    /// The type qualifiers for the array: const/volatile/restrict/_Atomic.
-    unsigned TypeQuals : 4;
+    /// The type qualifiers for the array:
+    /// const/volatile/restrict/__unaligned/_Atomic.
+    unsigned TypeQuals : 5;
 
     /// True if this dimension included the 'static' keyword.
-    bool hasStatic : 1;
+    unsigned hasStatic : 1;
 
     /// True if this dimension was [*].  In this case, NumElts is null.
-    bool isStar : 1;
+    unsigned isStar : 1;
 
     /// This is the size of the array, or null if [] or [*] was specified.
     /// Since the parser is multi-purpose, and we don't want to impose a root
@@ -1219,9 +1218,9 @@ struct DeclaratorChunk {
     /// Otherwise, it's an rvalue reference.
     unsigned RefQualifierIsLValueRef : 1;
 
-    /// The type qualifiers: const/volatile/restrict.
+    /// The type qualifiers: const/volatile/restrict/__unaligned
     /// The qualifier bitmask values are the same as in QualType.
-    unsigned TypeQuals : 3;
+    unsigned TypeQuals : 4;
 
     /// ExceptionSpecType - An ExceptionSpecificationType value.
     unsigned ExceptionSpecType : 4;
@@ -1405,16 +1404,16 @@ struct DeclaratorChunk {
 
   struct BlockPointerTypeInfo : TypeInfoCommon {
     /// For now, sema will catch these as invalid.
-    /// The type qualifiers: const/volatile/restrict/_Atomic.
-    unsigned TypeQuals : 4;
+    /// The type qualifiers: const/volatile/restrict/__unaligned/_Atomic.
+    unsigned TypeQuals : 5;
 
     void destroy() {
     }
   };
 
   struct MemberPointerTypeInfo : TypeInfoCommon {
-    /// The type qualifiers: const/volatile/restrict/_Atomic.
-    unsigned TypeQuals : 4;
+    /// The type qualifiers: const/volatile/restrict/__unaligned/_Atomic.
+    unsigned TypeQuals : 5;
     // CXXScopeSpec has a constructor, so it can't be a direct member.
     // So we need some pointer-aligned storage and a bit of trickery.
     union {
@@ -1664,10 +1663,10 @@ private:
   SmallVector<DeclaratorChunk, 8> DeclTypeInfo;
 
   /// InvalidType - Set by Sema::GetTypeForDeclarator().
-  bool InvalidType : 1;
+  unsigned InvalidType : 1;
 
   /// GroupingParens - Set by Parser::ParseParenDeclarator().
-  bool GroupingParens : 1;
+  unsigned GroupingParens : 1;
 
   /// FunctionDefinition - Is this Declarator for a function or member 
   /// definition and, if so, what kind?
@@ -1676,7 +1675,7 @@ private:
   unsigned FunctionDefinition : 2;
 
   /// \brief Is this Declarator a redeclaration?
-  bool Redeclaration : 1;
+  unsigned Redeclaration : 1;
 
   /// Attrs - Attributes.
   ParsedAttributes Attrs;
@@ -2120,9 +2119,9 @@ public:
     case FileContext:
     case MemberContext:
     case BlockContext:
+    case ForContext:
       return true;
 
-    case ForContext:
     case ConditionContext:
     case KNRTypeListContext:
     case TypeNameContext:

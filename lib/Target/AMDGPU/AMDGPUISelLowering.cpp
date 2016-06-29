@@ -31,13 +31,15 @@
 #include "SIInstrInfo.h"
 using namespace llvm;
 
-static bool allocateStack(unsigned ValNo, MVT ValVT, MVT LocVT,
-                      CCValAssign::LocInfo LocInfo,
-                      ISD::ArgFlagsTy ArgFlags, CCState &State) {
-  unsigned Offset = State.AllocateStack(ValVT.getStoreSize(),
-                                        ArgFlags.getOrigAlign());
-  State.addLoc(CCValAssign::getMem(ValNo, ValVT, Offset, LocVT, LocInfo));
+static bool allocateKernArg(unsigned ValNo, MVT ValVT, MVT LocVT,
+                            CCValAssign::LocInfo LocInfo,
+                            ISD::ArgFlagsTy ArgFlags, CCState &State) {
+  MachineFunction &MF = State.getMachineFunction();
+  AMDGPUMachineFunction *MFI = MF.getInfo<AMDGPUMachineFunction>();
 
+  uint64_t Offset = MFI->allocateKernArg(ValVT.getStoreSize(),
+                                         ArgFlags.getOrigAlign());
+  State.addLoc(CCValAssign::getCustomMem(ValNo, ValVT, Offset, LocVT, LocInfo));
   return true;
 }
 
@@ -62,7 +64,7 @@ EVT AMDGPUTargetLowering::getEquivalentLoadRegType(LLVMContext &Ctx, EVT VT) {
   return EVT::getVectorVT(Ctx, MVT::i32, StoreSize / 32);
 }
 
-AMDGPUTargetLowering::AMDGPUTargetLowering(TargetMachine &TM,
+AMDGPUTargetLowering::AMDGPUTargetLowering(const TargetMachine &TM,
                                            const AMDGPUSubtarget &STI)
     : TargetLowering(TM), Subtarget(&STI) {
   // Lower floating point store/load to integer store/load to reduce the number
@@ -424,12 +426,20 @@ AMDGPUTargetLowering::AMDGPUTargetLowering(TargetMachine &TM,
     setOperationAction(ISD::FSIN, VT, Expand);
     setOperationAction(ISD::FSUB, VT, Expand);
     setOperationAction(ISD::FNEG, VT, Expand);
-    setOperationAction(ISD::SELECT, VT, Expand);
     setOperationAction(ISD::VSELECT, VT, Expand);
     setOperationAction(ISD::SELECT_CC, VT, Expand);
     setOperationAction(ISD::FCOPYSIGN, VT, Expand);
     setOperationAction(ISD::VECTOR_SHUFFLE, VT, Expand);
   }
+
+  // This causes using an unrolled select operation rather than expansion with
+  // bit operations. This is in general better, but the alternative using BFI
+  // instructions may be better if the select sources are SGPRs.
+  setOperationAction(ISD::SELECT, MVT::v2f32, Promote);
+  AddPromotedToType(ISD::SELECT, MVT::v2f32, MVT::v2i32);
+
+  setOperationAction(ISD::SELECT, MVT::v4f32, Promote);
+  AddPromotedToType(ISD::SELECT, MVT::v4f32, MVT::v4i32);
 
   setBooleanContents(ZeroOrNegativeOneBooleanContent);
   setBooleanVectorContents(ZeroOrNegativeOneBooleanContent);
@@ -636,14 +646,13 @@ void AMDGPUTargetLowering::AnalyzeReturn(CCState &State,
   State.AnalyzeReturn(Outs, RetCC_SI);
 }
 
-SDValue AMDGPUTargetLowering::LowerReturn(
-                                     SDValue Chain,
-                                     CallingConv::ID CallConv,
-                                     bool isVarArg,
-                                     const SmallVectorImpl<ISD::OutputArg> &Outs,
-                                     const SmallVectorImpl<SDValue> &OutVals,
-                                     SDLoc DL, SelectionDAG &DAG) const {
-  return DAG.getNode(AMDGPUISD::RET_FLAG, DL, MVT::Other, Chain);
+SDValue
+AMDGPUTargetLowering::LowerReturn(SDValue Chain, CallingConv::ID CallConv,
+                                  bool isVarArg,
+                                  const SmallVectorImpl<ISD::OutputArg> &Outs,
+                                  const SmallVectorImpl<SDValue> &OutVals,
+                                  const SDLoc &DL, SelectionDAG &DAG) const {
+  return DAG.getNode(AMDGPUISD::ENDPGM, DL, MVT::Other, Chain);
 }
 
 //===---------------------------------------------------------------------===//
@@ -681,7 +690,8 @@ SDValue AMDGPUTargetLowering::LowerDYNAMIC_STACKALLOC(SDValue Op,
   DiagnosticInfoUnsupported NoDynamicAlloca(Fn, "unsupported dynamic alloca",
                                             SDLoc(Op).getDebugLoc());
   DAG.getContext()->diagnose(NoDynamicAlloca);
-  return SDValue();
+  auto Ops = {DAG.getConstant(0, SDLoc(), Op.getValueType()), Op.getOperand(0)};
+  return DAG.getMergeValues(Ops, SDLoc());
 }
 
 SDValue AMDGPUTargetLowering::LowerOperation(SDValue Op,
@@ -941,12 +951,9 @@ SDValue AMDGPUTargetLowering::LowerINTRINSIC_WO_CHAIN(SDValue Op,
 }
 
 /// \brief Generate Min/Max node
-SDValue AMDGPUTargetLowering::CombineFMinMaxLegacy(SDLoc DL,
-                                                   EVT VT,
-                                                   SDValue LHS,
-                                                   SDValue RHS,
-                                                   SDValue True,
-                                                   SDValue False,
+SDValue AMDGPUTargetLowering::CombineFMinMaxLegacy(const SDLoc &DL, EVT VT,
+                                                   SDValue LHS, SDValue RHS,
+                                                   SDValue True, SDValue False,
                                                    SDValue CC,
                                                    DAGCombinerInfo &DCI) const {
   if (Subtarget->getGeneration() >= AMDGPUSubtarget::VOLCANIC_ISLANDS)
@@ -1621,7 +1628,8 @@ SDValue AMDGPUTargetLowering::LowerFCEIL(SDValue Op, SelectionDAG &DAG) const {
   return DAG.getNode(ISD::FADD, SL, MVT::f64, Trunc, Add);
 }
 
-static SDValue extractF64Exponent(SDValue Hi, SDLoc SL, SelectionDAG &DAG) {
+static SDValue extractF64Exponent(SDValue Hi, const SDLoc &SL,
+                                  SelectionDAG &DAG) {
   const unsigned FractBits = 52;
   const unsigned ExpBits = 11;
 
@@ -2142,8 +2150,8 @@ static void simplifyI24(SDValue Op, TargetLowering::DAGCombinerInfo &DCI) {
 }
 
 template <typename IntTy>
-static SDValue constantFoldBFE(SelectionDAG &DAG, IntTy Src0,
-                               uint32_t Offset, uint32_t Width, SDLoc DL) {
+static SDValue constantFoldBFE(SelectionDAG &DAG, IntTy Src0, uint32_t Offset,
+                               uint32_t Width, const SDLoc &DL) {
   if (Width + Offset < 32) {
     uint32_t Shl = static_cast<uint32_t>(Src0) << (32 - Offset - Width);
     IntTy Result = static_cast<IntTy>(Shl) >> (32 - Width);
@@ -2184,6 +2192,8 @@ SDValue AMDGPUTargetLowering::performStoreCombine(SDNode *N,
     return SDValue();
 
   EVT MemVT = LoadVal->getMemoryVT();
+  if (!MemVT.isRound())
+    return SDValue();
 
   SDLoc SL(N);
   SelectionDAG &DAG = DCI.DAG;
@@ -2395,8 +2405,8 @@ static bool isCtlzOpc(unsigned Opc) {
 // type VT.
 // Need to match pre-legalized type because the generic legalization inserts the
 // add/sub between the select and compare.
-static SDValue getFFBH_U32(const TargetLowering &TLI,
-                           SelectionDAG &DAG, SDLoc SL, SDValue Op) {
+static SDValue getFFBH_U32(const TargetLowering &TLI, SelectionDAG &DAG,
+                           const SDLoc &SL, SDValue Op) {
   EVT VT = Op.getValueType();
   EVT LegalVT = TLI.getTypeToTransformTo(*DAG.getContext(), VT);
   if (LegalVT != MVT::i32)
@@ -2419,10 +2429,8 @@ static SDValue getFFBH_U32(const TargetLowering &TLI,
 // against the bitwidth.
 //
 // TODO: Should probably combine against FFBH_U32 instead of ctlz directly.
-SDValue AMDGPUTargetLowering::performCtlzCombine(SDLoc SL,
-                                                 SDValue Cond,
-                                                 SDValue LHS,
-                                                 SDValue RHS,
+SDValue AMDGPUTargetLowering::performCtlzCombine(const SDLoc &SL, SDValue Cond,
+                                                 SDValue LHS, SDValue RHS,
                                                  DAGCombinerInfo &DCI) const {
   ConstantSDNode *CmpRhs = dyn_cast<ConstantSDNode>(Cond.getOperand(1));
   if (!CmpRhs || !CmpRhs->isNullValue())
@@ -2715,10 +2723,11 @@ const char* AMDGPUTargetLowering::getTargetNodeName(unsigned Opcode) const {
   // AMDIL DAG nodes
   NODE_NAME_CASE(CALL);
   NODE_NAME_CASE(UMUL);
-  NODE_NAME_CASE(RET_FLAG);
   NODE_NAME_CASE(BRANCH_COND);
 
   // AMDGPU DAG nodes
+  NODE_NAME_CASE(ENDPGM)
+  NODE_NAME_CASE(RETURN)
   NODE_NAME_CASE(DWORDADDR)
   NODE_NAME_CASE(FRACT)
   NODE_NAME_CASE(CLAMP)
@@ -2774,6 +2783,7 @@ const char* AMDGPUTargetLowering::getTargetNodeName(unsigned Opcode) const {
   NODE_NAME_CASE(CVT_F32_UBYTE3)
   NODE_NAME_CASE(BUILD_VERTICAL_VECTOR)
   NODE_NAME_CASE(CONST_DATA_PTR)
+  NODE_NAME_CASE(PC_ADD_REL_OFFSET)
   case AMDGPUISD::FIRST_MEM_OPCODE_NUMBER: break;
   NODE_NAME_CASE(SENDMSG)
   NODE_NAME_CASE(INTERP_MOV)

@@ -28,12 +28,8 @@ using namespace llvm;
 #define GET_INSTRINFO_CTOR_DTOR
 #include "AMDGPUGenDFAPacketizer.inc"
 
-R600InstrInfo::R600InstrInfo(const AMDGPUSubtarget &st)
-    : AMDGPUInstrInfo(st), RI() {}
-
-const R600RegisterInfo &R600InstrInfo::getRegisterInfo() const {
-  return RI;
-}
+R600InstrInfo::R600InstrInfo(const R600Subtarget &ST)
+  : AMDGPUInstrInfo(ST), RI(), ST(ST) {}
 
 bool R600InstrInfo::isTrig(const MachineInstr &MI) const {
   return get(MI.getOpcode()).TSFlags & R600_InstFlag::TRIG;
@@ -43,11 +39,10 @@ bool R600InstrInfo::isVector(const MachineInstr &MI) const {
   return get(MI.getOpcode()).TSFlags & R600_InstFlag::VECTOR;
 }
 
-void
-R600InstrInfo::copyPhysReg(MachineBasicBlock &MBB,
-                           MachineBasicBlock::iterator MI, DebugLoc DL,
-                           unsigned DestReg, unsigned SrcReg,
-                           bool KillSrc) const {
+void R600InstrInfo::copyPhysReg(MachineBasicBlock &MBB,
+                                MachineBasicBlock::iterator MI,
+                                const DebugLoc &DL, unsigned DestReg,
+                                unsigned SrcReg, bool KillSrc) const {
   unsigned VectorComponents = 0;
   if ((AMDGPU::R600_Reg128RegClass.contains(DestReg) ||
       AMDGPU::R600_Reg128VerticalRegClass.contains(DestReg)) &&
@@ -91,10 +86,9 @@ bool R600InstrInfo::isLegalToSplitMBBAt(MachineBasicBlock &MBB,
 }
 
 bool R600InstrInfo::isMov(unsigned Opcode) const {
-
-
   switch(Opcode) {
-  default: return false;
+  default:
+    return false;
   case AMDGPU::MOV:
   case AMDGPU::MOV_IMM_F32:
   case AMDGPU::MOV_IMM_I32:
@@ -652,7 +646,7 @@ R600InstrInfo::fitsConstReadLimitations(const std::vector<MachineInstr *> &MIs)
 DFAPacketizer *
 R600InstrInfo::CreateTargetScheduleState(const TargetSubtargetInfo &STI) const {
   const InstrItineraryData *II = STI.getInstrItineraryData();
-  return static_cast<const AMDGPUSubtarget &>(STI).createDFAPacketizer(II);
+  return static_cast<const R600Subtarget &>(STI).createDFAPacketizer(II);
 }
 
 static bool
@@ -772,12 +766,11 @@ MachineBasicBlock::iterator FindLastAluClause(MachineBasicBlock &MBB) {
   return MBB.end();
 }
 
-unsigned
-R600InstrInfo::InsertBranch(MachineBasicBlock &MBB,
-                            MachineBasicBlock *TBB,
-                            MachineBasicBlock *FBB,
-                            ArrayRef<MachineOperand> Cond,
-                            DebugLoc DL) const {
+unsigned R600InstrInfo::InsertBranch(MachineBasicBlock &MBB,
+                                     MachineBasicBlock *TBB,
+                                     MachineBasicBlock *FBB,
+                                     ArrayRef<MachineOperand> Cond,
+                                     const DebugLoc &DL) const {
   assert(TBB && "InsertBranch must not be told to insert a fallthrough");
 
   if (!FBB) {
@@ -1115,8 +1108,8 @@ bool R600InstrInfo::expandPostRAPseudo(MachineBasicBlock::iterator MI) const {
 
 void  R600InstrInfo::reserveIndirectRegisters(BitVector &Reserved,
                                              const MachineFunction &MF) const {
-  const AMDGPUFrameLowering *TFL = static_cast<const AMDGPUFrameLowering *>(
-      MF.getSubtarget().getFrameLowering());
+  const R600Subtarget &ST = MF.getSubtarget<R600Subtarget>();
+  const R600FrameLowering *TFL = ST.getFrameLowering();
 
   unsigned StackWidth = TFL->getStackWidth(MF);
   int End = getIndirectIndexEnd(MF);
@@ -1292,7 +1285,7 @@ MachineInstr *R600InstrInfo::buildSlotOfVectorInstruction(
     const {
   assert (MI->getOpcode() == AMDGPU::DOT_4 && "Not Implemented");
   unsigned Opcode;
-  if (ST.getGeneration() <= AMDGPUSubtarget::R700)
+  if (ST.getGeneration() <= R600Subtarget::R700)
     Opcode = AMDGPU::DOT4_r600;
   else
     Opcode = AMDGPU::DOT4_eg;

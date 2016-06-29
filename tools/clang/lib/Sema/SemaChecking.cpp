@@ -1525,12 +1525,6 @@ bool Sema::CheckX86BuiltinFunctionCall(unsigned BuiltinID, CallExpr *TheCall) {
   case X86::BI__builtin_ia32_prord256_mask:
   case X86::BI__builtin_ia32_prorq128_mask:
   case X86::BI__builtin_ia32_prorq256_mask:
-  case X86::BI__builtin_ia32_pshufhw512_mask:
-  case X86::BI__builtin_ia32_pshuflw512_mask:
-  case X86::BI__builtin_ia32_pshufhw128_mask:
-  case X86::BI__builtin_ia32_pshufhw256_mask:
-  case X86::BI__builtin_ia32_pshuflw128_mask:
-  case X86::BI__builtin_ia32_pshuflw256_mask:
   case X86::BI__builtin_ia32_psllwi512_mask:
   case X86::BI__builtin_ia32_psllwi128_mask:
   case X86::BI__builtin_ia32_psllwi256_mask:
@@ -1572,9 +1566,6 @@ bool Sema::CheckX86BuiltinFunctionCall(unsigned BuiltinID, CallExpr *TheCall) {
   case X86::BI__builtin_ia32_fpclasspd512_mask:
   case X86::BI__builtin_ia32_fpclasssd_mask:
   case X86::BI__builtin_ia32_fpclassss_mask:
-  case X86::BI__builtin_ia32_pshufd512_mask:
-  case X86::BI__builtin_ia32_pshufd256_mask:
-  case X86::BI__builtin_ia32_pshufd128_mask:
     i = 1; l = 0; u = 255;
     break;
   case X86::BI__builtin_ia32_palignr:
@@ -2970,11 +2961,11 @@ bool Sema::SemaBuiltinVAStartImpl(CallExpr *TheCall) {
       // Get the last formal in the current function.
       const ParmVarDecl *LastArg;
       if (CurBlock)
-        LastArg = *(CurBlock->TheDecl->param_end()-1);
+        LastArg = CurBlock->TheDecl->parameters().back();
       else if (FunctionDecl *FD = getCurFunctionDecl())
-        LastArg = *(FD->param_end()-1);
+        LastArg = FD->parameters().back();
       else
-        LastArg = *(getCurMethodDecl()->param_end()-1);
+        LastArg = getCurMethodDecl()->parameters().back();
       SecondArgIsLastNamedArgument = PV == LastArg;
 
       Type = PV->getType();
@@ -3994,12 +3985,11 @@ public:
   void HandleNullChar(const char *nullCharacter) override;
 
   template <typename Range>
-  static void EmitFormatDiagnostic(Sema &S, bool inFunctionCall,
-                                   const Expr *ArgumentExpr,
-                                   PartialDiagnostic PDiag,
-                                   SourceLocation StringLoc,
-                                   bool IsStringLocation, Range StringRange,
-                                   ArrayRef<FixItHint> Fixit = None);
+  static void
+  EmitFormatDiagnostic(Sema &S, bool inFunctionCall, const Expr *ArgumentExpr,
+                       const PartialDiagnostic &PDiag, SourceLocation StringLoc,
+                       bool IsStringLocation, Range StringRange,
+                       ArrayRef<FixItHint> Fixit = None);
 
 protected:
   bool HandleInvalidConversionSpecifier(unsigned argIndex, SourceLocation Loc,
@@ -4356,14 +4346,11 @@ void CheckFormatHandler::EmitFormatDiagnostic(PartialDiagnostic PDiag,
 /// templated so it can accept either a CharSourceRange or a SourceRange.
 ///
 /// \param FixIt optional fix it hint for the format string.
-template<typename Range>
-void CheckFormatHandler::EmitFormatDiagnostic(Sema &S, bool InFunctionCall,
-                                              const Expr *ArgumentExpr,
-                                              PartialDiagnostic PDiag,
-                                              SourceLocation Loc,
-                                              bool IsStringLocation,
-                                              Range StringRange,
-                                              ArrayRef<FixItHint> FixIt) {
+template <typename Range>
+void CheckFormatHandler::EmitFormatDiagnostic(
+    Sema &S, bool InFunctionCall, const Expr *ArgumentExpr,
+    const PartialDiagnostic &PDiag, SourceLocation Loc, bool IsStringLocation,
+    Range StringRange, ArrayRef<FixItHint> FixIt) {
   if (InFunctionCall) {
     const Sema::SemaDiagnosticBuilder &D = S.Diag(Loc, PDiag);
     D << StringRange;
@@ -7234,9 +7221,8 @@ void CheckTrivialUnsignedComparison(Sema &S, BinaryOperator *E) {
   }
 }
 
-void DiagnoseOutOfRangeComparison(Sema &S, BinaryOperator *E,
-                                  Expr *Constant, Expr *Other,
-                                  llvm::APSInt Value,
+void DiagnoseOutOfRangeComparison(Sema &S, BinaryOperator *E, Expr *Constant,
+                                  Expr *Other, const llvm::APSInt &Value,
                                   bool RhsConstant) {
   // Disable warning in template instantiations.
   if (!S.ActiveTemplateInstantiations.empty())
@@ -8374,7 +8360,7 @@ void AnalyzeImplicitConversions(Sema &S, Expr *OrigE, SourceLocation CC) {
 // Helper function for Sema::DiagnoseAlwaysNonNullPointer.
 // Returns true when emitting a warning about taking the address of a reference.
 static bool CheckForReference(Sema &SemaRef, const Expr *E,
-                              PartialDiagnostic PD) {
+                              const PartialDiagnostic &PD) {
   E = E->IgnoreParenImpCasts();
 
   const FunctionDecl *FD = nullptr;
@@ -8469,7 +8455,8 @@ void Sema::DiagnoseAlwaysNonNullPointer(Expr *E,
     }
   }
 
-  auto ComplainAboutNonnullParamOrCall = [&](bool IsParam) {
+  auto ComplainAboutNonnullParamOrCall = [&](const Attr *NonnullAttr) {
+    bool IsParam = isa<NonNullAttr>(NonnullAttr);
     std::string Str;
     llvm::raw_string_ostream S(Str);
     E->printPretty(S, nullptr, getPrintingPolicy());
@@ -8477,13 +8464,14 @@ void Sema::DiagnoseAlwaysNonNullPointer(Expr *E,
                                 : diag::warn_cast_nonnull_to_bool;
     Diag(E->getExprLoc(), DiagID) << IsParam << S.str()
       << E->getSourceRange() << Range << IsEqual;
+    Diag(NonnullAttr->getLocation(), diag::note_declared_nonnull) << IsParam;
   };
 
   // If we have a CallExpr that is tagged with returns_nonnull, we can complain.
   if (auto *Call = dyn_cast<CallExpr>(E->IgnoreParenImpCasts())) {
     if (auto *Callee = Call->getDirectCallee()) {
-      if (Callee->hasAttr<ReturnsNonNullAttr>()) {
-        ComplainAboutNonnullParamOrCall(false);
+      if (const Attr *A = Callee->getAttr<ReturnsNonNullAttr>()) {
+        ComplainAboutNonnullParamOrCall(A);
         return;
       }
     }
@@ -8505,25 +8493,25 @@ void Sema::DiagnoseAlwaysNonNullPointer(Expr *E,
   if (const auto* PV = dyn_cast<ParmVarDecl>(D)) {
     if (getCurFunction() &&
         !getCurFunction()->ModifiedNonNullParams.count(PV)) {
-      if (PV->hasAttr<NonNullAttr>()) {
-        ComplainAboutNonnullParamOrCall(true);
+      if (const Attr *A = PV->getAttr<NonNullAttr>()) {
+        ComplainAboutNonnullParamOrCall(A);
         return;
       }
 
       if (const auto *FD = dyn_cast<FunctionDecl>(PV->getDeclContext())) {
-        auto ParamIter = std::find(FD->param_begin(), FD->param_end(), PV);
+        auto ParamIter = llvm::find(FD->parameters(), PV);
         assert(ParamIter != FD->param_end());
         unsigned ParamNo = std::distance(FD->param_begin(), ParamIter);
 
         for (const auto *NonNull : FD->specific_attrs<NonNullAttr>()) {
           if (!NonNull->args_size()) {
-              ComplainAboutNonnullParamOrCall(true);
+              ComplainAboutNonnullParamOrCall(NonNull);
               return;
           }
 
           for (unsigned ArgNo : NonNull->args()) {
             if (ArgNo == ParamNo) {
-              ComplainAboutNonnullParamOrCall(true);
+              ComplainAboutNonnullParamOrCall(NonNull);
               return;
             }
           }
@@ -8782,12 +8770,11 @@ class SequenceChecker : public EvaluatedExprVisitor<SequenceChecker> {
       Self.ModAsSideEffect = &ModAsSideEffect;
     }
     ~SequencedSubexpression() {
-      for (auto MI = ModAsSideEffect.rbegin(), ME = ModAsSideEffect.rend();
-           MI != ME; ++MI) {
-        UsageInfo &U = Self.UsageMap[MI->first];
+      for (auto &M : llvm::reverse(ModAsSideEffect)) {
+        UsageInfo &U = Self.UsageMap[M.first];
         auto &SideEffectUsage = U.Uses[UK_ModAsSideEffect];
-        Self.addUsage(U, MI->first, SideEffectUsage.Use, UK_ModAsValue);
-        SideEffectUsage = MI->second;
+        Self.addUsage(U, M.first, SideEffectUsage.Use, UK_ModAsValue);
+        SideEffectUsage = M.second;
       }
       Self.ModAsSideEffect = OldModAsSideEffect;
     }
@@ -9199,13 +9186,10 @@ static void diagnoseArrayStarInParamType(Sema &S, QualType PType,
 /// takes care of any checks that cannot be performed on the
 /// declaration itself, e.g., that the types of each of the function
 /// parameters are complete.
-bool Sema::CheckParmsForFunctionDef(ParmVarDecl *const *P,
-                                    ParmVarDecl *const *PEnd,
+bool Sema::CheckParmsForFunctionDef(ArrayRef<ParmVarDecl *> Parameters,
                                     bool CheckParameterNames) {
   bool HasInvalidParm = false;
-  for (; P != PEnd; ++P) {
-    ParmVarDecl *Param = *P;
-    
+  for (ParmVarDecl *Param : Parameters) {
     // C99 6.7.5.3p4: the parameters in a parameter type list in a
     // function declarator that is part of a function definition of
     // that function shall not have incomplete type.
@@ -9327,7 +9311,7 @@ static const Type* getElementType(const Expr *BaseExpr) {
 ///
 /// We avoid emitting out-of-bounds access warnings for such arrays as they are
 /// commonly used to emulate flexible arrays in C89 code.
-static bool IsTailPaddedMemberArray(Sema &S, llvm::APInt Size,
+static bool IsTailPaddedMemberArray(Sema &S, const llvm::APInt &Size,
                                     const NamedDecl *ND) {
   if (Size != 1 || !ND) return false;
 

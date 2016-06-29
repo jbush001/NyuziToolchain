@@ -59,6 +59,16 @@
 // RUN: %clang_cl /GR- -### -- %s 2>&1 | FileCheck -check-prefix=GR_ %s
 // GR_: -fno-rtti
 
+// Security Buffer Check is on by default.
+// RUN: %clang_cl -### -- %s 2>&1 | FileCheck -check-prefix=GS-default %s
+// GS-default: "-stack-protector" "2"
+
+// RUN: %clang_cl /GS -### -- %s 2>&1 | FileCheck -check-prefix=GS %s
+// GS: "-stack-protector" "2"
+
+// RUN: %clang_cl /GS- -### -- %s 2>&1 | FileCheck -check-prefix=GS_ %s
+// GS_-NOT: -stack-protector
+
 // RUN: %clang_cl /Gy -### -- %s 2>&1 | FileCheck -check-prefix=Gy %s
 // Gy: -ffunction-sections
 
@@ -96,6 +106,16 @@
 
 // RUN: %clang_cl /Ob0 -### -- %s 2>&1 | FileCheck -check-prefix=Ob0 %s
 // Ob0: -fno-inline
+
+// RUN: %clang_cl /Ob2 -### -- %s 2>&1 | FileCheck -check-prefix=Ob2 %s
+// RUN: %clang_cl /Odb2 -### -- %s 2>&1 | FileCheck -check-prefix=Ob2 %s
+// RUN: %clang_cl /O2 /Ob2 -### -- %s 2>&1 | FileCheck -check-prefix=Ob2 %s
+// Ob2-NOT: warning: argument unused during compilation: '/O2'
+// Ob2: -finline-functions
+
+// RUN: %clang_cl /Ob1 -### -- %s 2>&1 | FileCheck -check-prefix=Ob1 %s
+// RUN: %clang_cl /Odb1 -### -- %s 2>&1 | FileCheck -check-prefix=Ob1 %s
+// Ob1: -finline-hint-functions
 
 // RUN: %clang_cl /Od -### -- %s 2>&1 | FileCheck -check-prefix=Od %s
 // Od: -O0
@@ -264,8 +284,6 @@
 // RUN:    /GS- \
 // RUN:    /kernel- \
 // RUN:    /nologo \
-// RUN:    /Ob1 \
-// RUN:    /Ob2 \
 // RUN:    /openmp- \
 // RUN:    /RTC1 \
 // RUN:    /sdl \
@@ -434,6 +452,12 @@
 // RUN: %clang_cl -fmsc-version=1900 -TP -### -- %s 2>&1 | FileCheck -check-prefix=CXX14 %s
 // CXX14: -std=c++14
 
+// RUN: %clang_cl -fmsc-version=1900 -TP -std:c++14 -### -- %s 2>&1 | FileCheck -check-prefix=STDCXX14 %s
+// STDCXX14: -std=c++14
+
+// RUN: %clang_cl -fmsc-version=1900 -TP -std:c++latest -### -- %s 2>&1 | FileCheck -check-prefix=STDCXXLATEST %s
+// STDCXXLATEST: -std=c++1z
+
 // RUN: env CL="/Gy" %clang_cl -### -- %s 2>&1 | FileCheck -check-prefix=ENV-CL %s
 // ENV-CL: "-ffunction-sections"
 
@@ -459,6 +483,7 @@
 // RUN:     -fms-extensions \
 // RUN:     -fno-ms-extensions \
 // RUN:     -mllvm -disable-llvm-optzns \
+// RUN:     -resource-dir \
 // RUN:     -Wunused-variable \
 // RUN:     -fmacro-backtrace-limit=0 \
 // RUN:     -Werror /Zs -- %s 2>&1
