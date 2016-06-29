@@ -19,10 +19,10 @@ int P20 = 1;
 def INTERP : InterpSlots;
 
 def isGCN : Predicate<"Subtarget->getGeneration() "
-                      ">= AMDGPUSubtarget::SOUTHERN_ISLANDS">,
+                      ">= SISubtarget::SOUTHERN_ISLANDS">,
             AssemblerPredicate<"FeatureGCN">;
 def isSI : Predicate<"Subtarget->getGeneration() "
-                      "== AMDGPUSubtarget::SOUTHERN_ISLANDS">,
+                      "== SISubtarget::SOUTHERN_ISLANDS">,
            AssemblerPredicate<"FeatureSouthernIslands">;
 
 
@@ -426,10 +426,11 @@ def S_NOP : SOPP <0x00000000, (ins i16imm:$simm16), "s_nop $simm16">;
 let isTerminator = 1 in {
 
 def S_ENDPGM : SOPP <0x00000001, (ins), "s_endpgm",
-  [(IL_retflag)]> {
+  [(AMDGPUendpgm)]> {
   let simm16 = 0;
   let isBarrier = 1;
   let hasCtrlDep = 1;
+  let hasSideEffects = 1;
 }
 
 let isBranch = 1 in {
@@ -822,7 +823,11 @@ defm DS_CMPST_RTN_B32 : DS_1A2D_RET <0x30, "ds_cmpst_rtn_b32", VGPR_32, "ds_cmps
 defm DS_CMPST_RTN_F32 : DS_1A2D_RET <0x31, "ds_cmpst_rtn_f32", VGPR_32, "ds_cmpst_f32">;
 defm DS_MIN_RTN_F32 : DS_1A2D_RET <0x32, "ds_min_rtn_f32", VGPR_32, "ds_min_f32">;
 defm DS_MAX_RTN_F32 : DS_1A2D_RET <0x33, "ds_max_rtn_f32", VGPR_32, "ds_max_f32">;
+
+let Uses = [EXEC], mayLoad =0, mayStore = 0, isConvergent = 1 in {
 defm DS_SWIZZLE_B32 : DS_1A_RET <0x35, "ds_swizzle_b32", VGPR_32>;
+}
+
 let mayStore = 0 in {
 defm DS_READ_B32 : DS_1A_RET <0x36, "ds_read_b32", VGPR_32>;
 defm DS_READ2_B32 : DS_1A_Off8_RET <0x37, "ds_read2_b32", VReg_64>;
@@ -1367,7 +1372,7 @@ defm V_FREXP_MANT_F64 : VOP1Inst <vop1<0x3d, 0x31>, "v_frexp_mant_f64",
 >;
 
 defm V_FRACT_F64 : VOP1Inst <vop1<0x3e, 0x32>, "v_fract_f64",
-  VOP_F64_F64
+  VOP_F64_F64, AMDGPUfract
 >;
 } // End SchedRW = [WriteDoubleAdd]
 
@@ -1473,15 +1478,9 @@ defm V_INTERP_MOV_F32 : VINTRP_m <
 // VOP2 Instructions
 //===----------------------------------------------------------------------===//
 
-multiclass V_CNDMASK <vop2 op, string name> {
-  defm _e32 : VOP2_m <op, name, VOP_CNDMASK, [], name>;
-
-  defm _e64  : VOP3_m <
-      op, VOP_CNDMASK.Outs, VOP_CNDMASK.Ins64,
-      name#!cast<string>(VOP_CNDMASK.Asm64), [], name, 3, 0>;
-}
-
-defm V_CNDMASK_B32 : V_CNDMASK<vop2<0x0>, "v_cndmask_b32">;
+defm V_CNDMASK_B32 : VOP2eInst <vop2<0x0, 0x0>, "v_cndmask_b32",
+  VOP2e_I32_I32_I32_I1
+>;
 
 let isCommutable = 1 in {
 defm V_ADD_F32 : VOP2Inst <vop2<0x3, 0x1>, "v_add_f32",
@@ -1587,7 +1586,8 @@ defm V_SUBBREV_U32 : VOP2bInst <vop2<0x2a, 0x1e>, "v_subbrev_u32",
 
 } // End isCommutable = 1
 
-let isConvergent = 1 in {
+// These are special and do not read the exec mask.
+let isConvergent = 1, Uses = []<Register> in {
 
 defm V_READLANE_B32 : VOP2SI_3VI_m <
   vop3 <0x001, 0x289>,
@@ -1913,7 +1913,7 @@ def V_MOV_B64_PSEUDO : InstSI <(outs VReg_64:$vdst), (ins VSrc_64:$src0), "", []
 } // End let hasSideEffects = 0, mayLoad = 0, mayStore = 0
 
 let hasSideEffects = 1, SALU = 1 in {
-def SGPR_USE : InstSI <(outs),(ins), "", []>;
+def SGPR_USE : InstSI <(outs), (ins)>;
 }
 
 let usesCustomInserter = 1, SALU = 1 in {
@@ -1924,61 +1924,57 @@ def GET_GROUPSTATICSIZE : InstSI <(outs SReg_32:$sdst), (ins), "",
 // SI pseudo instructions. These are used by the CFG structurizer pass
 // and should be lowered to ISA instructions prior to codegen.
 
-let mayLoad = 1, mayStore = 1, hasSideEffects = 1 in {
+let hasSideEffects = 1, isPseudo = 1, isCodeGenOnly = 1 in {
+
+// Dummy terminator instruction to use after control flow instructions
+// replaced with exec mask operations.
+def SI_MASK_BRANCH : InstSI <
+  (outs SReg_64:$dst), (ins brtarget:$target)> {
+  let isBranch = 1;
+  let isTerminator = 1;
+  let isBarrier = 1;
+  let SALU = 1;
+}
+
 let Uses = [EXEC], Defs = [EXEC] in {
 
 let isBranch = 1, isTerminator = 1 in {
 
 def SI_IF: InstSI <
-  (outs SReg_64:$dst),
-  (ins SReg_64:$vcc, brtarget:$target),
-  "",
+  (outs SReg_64:$dst), (ins SReg_64:$vcc, brtarget:$target), "",
   [(set i64:$dst, (int_amdgcn_if i1:$vcc, bb:$target))]
 >;
 
 def SI_ELSE : InstSI <
-  (outs SReg_64:$dst),
-  (ins SReg_64:$src, brtarget:$target),
-  "",
-  [(set i64:$dst, (int_amdgcn_else i64:$src, bb:$target))]
-> {
+  (outs SReg_64:$dst), (ins SReg_64:$src, brtarget:$target), "",
+  [(set i64:$dst, (int_amdgcn_else i64:$src, bb:$target))]> {
   let Constraints = "$src = $dst";
 }
 
 def SI_LOOP : InstSI <
-  (outs),
-  (ins SReg_64:$saved, brtarget:$target),
-  "si_loop $saved, $target",
+  (outs), (ins SReg_64:$saved, brtarget:$target), "",
   [(int_amdgcn_loop i64:$saved, bb:$target)]
 >;
 
 } // End isBranch = 1, isTerminator = 1
 
 def SI_BREAK : InstSI <
-  (outs SReg_64:$dst),
-  (ins SReg_64:$src),
-  "si_else $dst, $src",
+  (outs SReg_64:$dst), (ins SReg_64:$src), "",
   [(set i64:$dst, (int_amdgcn_break i64:$src))]
 >;
 
 def SI_IF_BREAK : InstSI <
-  (outs SReg_64:$dst),
-  (ins SReg_64:$vcc, SReg_64:$src),
-  "si_if_break $dst, $vcc, $src",
+  (outs SReg_64:$dst),   (ins SReg_64:$vcc, SReg_64:$src), "",
   [(set i64:$dst, (int_amdgcn_if_break i1:$vcc, i64:$src))]
 >;
 
 def SI_ELSE_BREAK : InstSI <
-  (outs SReg_64:$dst),
-  (ins SReg_64:$src0, SReg_64:$src1),
-  "si_else_break $dst, $src0, $src1",
+  (outs SReg_64:$dst), (ins SReg_64:$src0, SReg_64:$src1), "",
   [(set i64:$dst, (int_amdgcn_else_break i64:$src0, i64:$src1))]
 >;
 
 def SI_END_CF : InstSI <
-  (outs),
-  (ins SReg_64:$saved),
-  "si_end_cf $saved",
+  (outs), (ins SReg_64:$saved), "",
   [(int_amdgcn_end_cf i64:$saved)]
 >;
 
@@ -1986,30 +1982,24 @@ def SI_END_CF : InstSI <
 
 let Uses = [EXEC], Defs = [EXEC,VCC] in {
 def SI_KILL : InstSI <
-  (outs),
-  (ins VSrc_32:$src),
-  "si_kill $src",
+  (outs), (ins VSrc_32:$src), "",
   [(int_AMDGPU_kill f32:$src)]
 >;
 } // End Uses = [EXEC], Defs = [EXEC,VCC]
 
 } // End mayLoad = 1, mayStore = 1, hasSideEffects = 1
 
-let SALU = 1 in
 def SI_PS_LIVE : InstSI <
-  (outs SReg_64:$dst),
-  (ins),
-  "si_ps_live $dst",
-  [(set i1:$dst, (int_amdgcn_ps_live))]
->;
+  (outs SReg_64:$dst), (ins), "",
+  [(set i1:$dst, (int_amdgcn_ps_live))]> {
+  let SALU = 1;
+}
 
 // Used as an isel pseudo to directly emit initialization with an
 // s_mov_b32 rather than a copy of another initialized
 // register. MachineCSE skips copies, and we don't want to have to
 // fold operands before it runs.
-def SI_INIT_M0 : InstSI <
-  (outs),
-  (ins SSrc_32:$src), "", []> {
+def SI_INIT_M0 : InstSI <(outs), (ins SSrc_32:$src)> {
   let Defs = [M0];
   let usesCustomInserter = 1;
   let isPseudo = 1;
@@ -2019,22 +2009,30 @@ def SI_INIT_M0 : InstSI <
   let isReMaterializable = 1;
 }
 
-let Uses = [EXEC], Defs = [EXEC, VCC, M0] in {
+def SI_RETURN : InstSI <
+  (outs), (ins variable_ops), "", [(AMDGPUreturn)]> {
+  let isTerminator = 1;
+  let isBarrier = 1;
+  let isReturn = 1;
+  let isPseudo = 1;
+  let isCodeGenOnly = 1;
+  let hasSideEffects = 1;
+  let SALU = 1;
+  let hasNoSchedulingInfo = 1;
+}
+
+let Uses = [EXEC], Defs = [EXEC, VCC, M0],
+  UseNamedOperandTable = 1 in {
 
 class SI_INDIRECT_SRC<RegisterClass rc> : InstSI <
-  (outs VGPR_32:$dst, SReg_64:$temp),
-  (ins rc:$src, VSrc_32:$idx, i32imm:$off),
-  "si_indirect_src $dst, $temp, $src, $idx, $off",
-  []
+  (outs VGPR_32:$vdst, SReg_64:$sdst),
+  (ins rc:$src, VSrc_32:$idx, i32imm:$offset)
 >;
 
 class SI_INDIRECT_DST<RegisterClass rc> : InstSI <
-  (outs rc:$dst, SReg_64:$temp),
-  (ins unknown:$src, VSrc_32:$idx, i32imm:$off, VGPR_32:$val),
-  "si_indirect_dst $dst, $temp, $src, $idx, $off, $val",
-  []
-> {
-  let Constraints = "$src = $dst";
+  (outs rc:$vdst, SReg_64:$sdst),
+  (ins unknown:$src, VSrc_32:$idx, i32imm:$offset, VGPR_32:$val)> {
+  let Constraints = "$src = $vdst";
 }
 
 // TODO: We can support indirect SGPR access.
@@ -2057,16 +2055,14 @@ multiclass SI_SPILL_SGPR <RegisterClass sgpr_class> {
   let UseNamedOperandTable = 1, Uses = [EXEC] in {
     def _SAVE : InstSI <
       (outs),
-      (ins sgpr_class:$src, i32imm:$frame_idx),
-      "", []> {
+      (ins sgpr_class:$src, i32imm:$frame_idx)> {
       let mayStore = 1;
       let mayLoad = 0;
     }
 
     def _RESTORE : InstSI <
       (outs sgpr_class:$dst),
-      (ins i32imm:$frame_idx),
-      "", []> {
+      (ins i32imm:$frame_idx)> {
       let mayStore = 0;
       let mayLoad = 1;
     }
@@ -2087,8 +2083,7 @@ multiclass SI_SPILL_VGPR <RegisterClass vgpr_class> {
     def _SAVE : InstSI <
       (outs),
       (ins vgpr_class:$src, i32imm:$frame_idx, SReg_128:$scratch_rsrc,
-           SReg_32:$scratch_offset, i32imm:$offset),
-      "", []> {
+           SReg_32:$scratch_offset, i32imm:$offset)> {
       let mayStore = 1;
       let mayLoad = 0;
     }
@@ -2096,8 +2091,7 @@ multiclass SI_SPILL_VGPR <RegisterClass vgpr_class> {
     def _RESTORE : InstSI <
       (outs vgpr_class:$dst),
       (ins i32imm:$frame_idx, SReg_128:$scratch_rsrc, SReg_32:$scratch_offset,
-           i32imm:$offset),
-      "", []> {
+           i32imm:$offset)> {
       let mayStore = 0;
       let mayLoad = 1;
     }
@@ -2113,10 +2107,10 @@ defm SI_SPILL_V512 : SI_SPILL_VGPR <VReg_512>;
 
 let Defs = [SCC] in {
 
-def SI_CONSTDATA_PTR : InstSI <
+def SI_PC_ADD_REL_OFFSET : InstSI <
   (outs SReg_64:$dst),
-  (ins const_ga:$ptr),
-  "", [(set SReg_64:$dst, (i64 (AMDGPUconstdata_ptr (tglobaladdr:$ptr))))]
+  (ins si_ga:$ptr),
+  "", [(set SReg_64:$dst, (i64 (SIpc_add_rel_offset (tglobaladdr:$ptr))))]
 > {
   let SALU = 1;
 }
@@ -2351,6 +2345,14 @@ def : Pat <
 >;
 
 //===----------------------------------------------------------------------===//
+// DS_SWIZZLE Intrinsic Pattern.
+//===----------------------------------------------------------------------===//
+def : Pat <
+  (int_amdgcn_ds_swizzle i32:$src, imm:$offset16),
+  (DS_SWIZZLE_B32 $src, (as_i16imm $offset16), (i1 0))
+>;
+
+//===----------------------------------------------------------------------===//
 // SMRD Patterns
 //===----------------------------------------------------------------------===//
 
@@ -2469,7 +2471,22 @@ let Predicates = [UnsafeFPMath] in {
 
 def : RsqPat<V_RSQ_F32_e32, f32>;
 def : RsqPat<V_RSQ_F64_e32, f64>;
-}
+
+// Convert (x - floor(x)) to fract(x)
+def : Pat <
+  (f32 (fsub (f32 (VOP3Mods f32:$x, i32:$mods)),
+             (f32 (ffloor (f32 (VOP3Mods f32:$x, i32:$mods)))))),
+  (V_FRACT_F32_e64 $mods, $x, DSTCLAMP.NONE, DSTOMOD.NONE)
+>;
+
+// Convert (x + (-floor(x))) to fract(x)
+def : Pat <
+  (f64 (fadd (f64 (VOP3Mods f64:$x, i32:$mods)),
+             (f64 (fneg (f64 (ffloor (f64 (VOP3Mods f64:$x, i32:$mods)))))))),
+  (V_FRACT_F64_e64 $mods, $x, DSTCLAMP.NONE, DSTOMOD.NONE)
+>;
+
+} // End Predicates = [UnsafeFPMath]
 
 //===----------------------------------------------------------------------===//
 // VOP2 Patterns
@@ -2873,6 +2890,8 @@ def : BitConvert <v2f64, v4f32, VReg_128>;
 def : BitConvert <v2f64, v4i32, VReg_128>;
 def : BitConvert <v4f32, v2f64, VReg_128>;
 def : BitConvert <v4i32, v2f64, VReg_128>;
+def : BitConvert <v2i64, v2f64, VReg_128>;
+def : BitConvert <v2f64, v2i64, VReg_128>;
 
 // 256-bit bitcast
 def : BitConvert <v8i32, v8f32, SReg_256>;
@@ -3040,12 +3059,6 @@ def : Pat <
   (V_CVT_U32_F32_e32
     (V_MUL_F32_e32 CONST.FP_UINT_MAX_PLUS_1,
                    (V_RCP_IFLAG_F32_e32 (V_CVT_F32_U32_e32 $src0))))
->;
-
-def : Pat <
-  (int_SI_tid),
-  (V_MBCNT_HI_U32_B32_e64 0xffffffff,
-                          (V_MBCNT_LO_U32_B32_e64 0xffffffff, 0))
 >;
 
 //===----------------------------------------------------------------------===//
@@ -3273,37 +3286,6 @@ def : MUBUFScratchStorePat <BUFFER_STORE_SHORT_OFFEN, i32, truncstorei16_private
 def : MUBUFScratchStorePat <BUFFER_STORE_DWORD_OFFEN, i32, store_private>;
 def : MUBUFScratchStorePat <BUFFER_STORE_DWORDX2_OFFEN, v2i32, store_private>;
 def : MUBUFScratchStorePat <BUFFER_STORE_DWORDX4_OFFEN, v4i32, store_private>;
-
-
-multiclass MUBUFCmpSwapPat <Instruction inst_addr64, Instruction inst_offset,
-                            SDPatternOperator node, ValueType data_vt,
-                            ValueType node_vt> {
-
-let Predicates = [isSI] in {
-  def : Pat <
-    (node_vt (node (MUBUFAddr64Atomic v4i32:$srsrc, i64:$vaddr, i32:$soffset,
-	                           i16:$offset, i1:$slc), data_vt:$vdata_in)),
-    (EXTRACT_SUBREG
-      (inst_addr64  $vdata_in, $vaddr, $srsrc, $soffset, $offset, $slc), sub0)
-  >;
-
-}
-
-  def : Pat <
-    (node_vt (node (MUBUFOffsetAtomic v4i32:$srsrc, i32:$soffset, i16:$offset,
-                                   i1:$slc), data_vt:$vdata_in)),
-    (EXTRACT_SUBREG
-      (inst_offset $vdata_in, $srsrc, $soffset, $offset, $slc), sub0)
-  >;
-}
-
-defm : MUBUFCmpSwapPat <BUFFER_ATOMIC_CMPSWAP_RTN_ADDR64,
-                        BUFFER_ATOMIC_CMPSWAP_RTN_OFFSET,
-                        atomic_cmp_swap_global, v2i32, i32>;
-
-defm : MUBUFCmpSwapPat <BUFFER_ATOMIC_CMPSWAP_X2_RTN_ADDR64,
-                        BUFFER_ATOMIC_CMPSWAP_X2_RTN_OFFSET,
-                        atomic_cmp_swap_global, v2i64, i64>;
 
 //===----------------------------------------------------------------------===//
 // MTBUF Patterns
@@ -3546,21 +3528,6 @@ let Predicates = [isSI] in {
 // way to implement it is using V_FRACT_F64.
 // The workaround for the V_FRACT bug is:
 //    fract(x) = isnan(x) ? x : min(V_FRACT(x), 0.99999999999999999)
-
-// Convert (x + (-floor(x)) to fract(x)
-def : Pat <
-  (f64 (fadd (f64 (VOP3Mods f64:$x, i32:$mods)),
-             (f64 (fneg (f64 (ffloor (f64 (VOP3Mods f64:$x, i32:$mods)))))))),
-  (V_CNDMASK_B64_PSEUDO
-      (V_MIN_F64
-          SRCMODS.NONE,
-          (V_FRACT_F64_e64 $mods, $x, DSTCLAMP.NONE, DSTOMOD.NONE),
-          SRCMODS.NONE,
-          (V_MOV_B64_PSEUDO 0x3fefffffffffffff),
-          DSTCLAMP.NONE, DSTOMOD.NONE),
-      $x,
-      (V_CMP_CLASS_F64_e64 SRCMODS.NONE, $x, 3/*NaN*/))
->;
 
 // Convert floor(x) to (x - fract(x))
 def : Pat <

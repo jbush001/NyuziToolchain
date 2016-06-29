@@ -937,6 +937,7 @@ static void PrintCursor(CXCursor Cursor, const char *CommentSchemaFile) {
         PRINT_PROP_ATTR(weak);
         PRINT_PROP_ATTR(strong);
         PRINT_PROP_ATTR(unsafe_unretained);
+        PRINT_PROP_ATTR(class);
         printf("]");
       }
     }
@@ -4439,11 +4440,8 @@ int main(int argc, const char **argv) {
   client_data.argc = argc;
   client_data.argv = argv;
 
-  if (argc > 1 && strcmp(argv[1], "core") == 0) {
+  if (argc > 1 && strcmp(argv[1], "core") == 0)
     client_data.main_func = indextest_core_main;
-    --client_data.argc;
-    ++client_data.argv;
-  }
 
   if (getenv("CINDEXTEST_NOTHREADS"))
     return client_data.main_func(client_data.argc, client_data.argv);

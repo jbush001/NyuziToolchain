@@ -67,6 +67,21 @@ TEST_F(SortImportsTestJS, BasicSorting) {
              "let x = 1;");
 }
 
+TEST_F(SortImportsTestJS, WrappedImportStatements) {
+  verifySort("import {sym1, sym2} from 'a';\n"
+             "import {sym} from 'b';\n"
+             "\n"
+             "1;",
+             "import\n"
+             "  {sym}\n"
+             "  from 'b';\n"
+             "import {\n"
+             "  sym1,\n"
+             "  sym2\n"
+             "} from 'a';\n"
+             "1;");
+}
+
 TEST_F(SortImportsTestJS, SeparateMainCodeBody) {
   verifySort("import {sym} from 'a';"
              "\n"
@@ -77,12 +92,12 @@ TEST_F(SortImportsTestJS, SeparateMainCodeBody) {
 TEST_F(SortImportsTestJS, Comments) {
   verifySort("/** @fileoverview This is a great file. */\n"
              "// A very important import follows.\n"
-             "import {sym} from 'a'; /* more comments */\n"
-             "import {sym} from 'b'; // from //foo:bar\n",
+             "import {sym} from 'a';  /* more comments */\n"
+             "import {sym} from 'b';  // from //foo:bar\n",
              "/** @fileoverview This is a great file. */\n"
-             "import {sym} from 'b'; // from //foo:bar\n"
+             "import {sym} from 'b';  // from //foo:bar\n"
              "// A very important import follows.\n"
-             "import {sym} from 'a'; /* more comments */\n");
+             "import {sym} from 'a';  /* more comments */\n");
 }
 
 TEST_F(SortImportsTestJS, SortStar) {
@@ -99,6 +114,18 @@ TEST_F(SortImportsTestJS, AliasesSymbols) {
              "import {sym2 as alias2, sym3 as alias3} from 'c';\n",
              "import {sym2 as alias2, sym3 as alias3} from 'c';\n"
              "import {sym1 as alias1} from 'b';\n");
+}
+
+TEST_F(SortImportsTestJS, SortSymbols) {
+  verifySort("import {sym1, sym2 as a, sym3} from 'b';\n",
+             "import {sym2 as a, sym1, sym3} from 'b';\n");
+  verifySort("import {sym1 /* important! */, /*!*/ sym2 as a} from 'b';\n",
+             "import {/*!*/ sym2 as a, sym1 /* important! */} from 'b';\n");
+  verifySort("import {sym1, sym2} from 'b';\n", "import {\n"
+                                                "  sym2 \n"
+                                                ",\n"
+                                                " sym1 \n"
+                                                "} from 'b';\n");
 }
 
 TEST_F(SortImportsTestJS, GroupImports) {
@@ -194,6 +221,19 @@ TEST_F(SortImportsTestJS, AffectedRange) {
              "import {sym} from 'c';\n"
              "let x = 1;",
              24, 30);
+}
+
+TEST_F(SortImportsTestJS, SortingCanShrink) {
+  // Sort excluding a suffix.
+  verifySort("import {B} from 'a';\n"
+             "import {A} from 'b';\n"
+             "\n"
+             "1;",
+             "import {A} from 'b';\n"
+             "\n"
+             "import {B} from 'a';\n"
+             "\n"
+             "1;");
 }
 
 } // end namespace

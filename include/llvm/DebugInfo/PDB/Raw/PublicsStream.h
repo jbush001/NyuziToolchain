@@ -10,11 +10,12 @@
 #ifndef LLVM_DEBUGINFO_PDB_RAW_PUBLICSSTREAM_H
 #define LLVM_DEBUGINFO_PDB_RAW_PUBLICSSTREAM_H
 
-#include "llvm/DebugInfo/CodeView/TypeStream.h"
+#include "llvm/DebugInfo/CodeView/StreamArray.h"
+#include "llvm/DebugInfo/CodeView/SymbolRecord.h"
 #include "llvm/DebugInfo/PDB/PDBTypes.h"
-#include "llvm/DebugInfo/PDB/Raw/ByteStream.h"
 #include "llvm/DebugInfo/PDB/Raw/MappedBlockStream.h"
 #include "llvm/DebugInfo/PDB/Raw/RawConstants.h"
+#include "llvm/DebugInfo/PDB/Raw/RawTypes.h"
 
 #include "llvm/Support/Error.h"
 
@@ -25,40 +26,45 @@ class PDBFile;
 
 class PublicsStream {
   struct GSIHashHeader;
-  struct HashRecord;
   struct HeaderInfo;
 
 public:
-  PublicsStream(PDBFile &File, uint32_t StreamNum);
+  PublicsStream(PDBFile &File, std::unique_ptr<MappedBlockStream> Stream);
   ~PublicsStream();
   Error reload();
 
-  uint32_t getStreamNum() const { return StreamNum; }
   uint32_t getSymHash() const;
   uint32_t getAddrMap() const;
   uint32_t getNumBuckets() const { return NumBuckets; }
-  std::vector<std::string> getSymbols() const;
-  ArrayRef<uint32_t> getHashBuckets() const { return HashBuckets; }
-  ArrayRef<uint32_t> getAddressMap() const { return AddressMap; }
-  ArrayRef<uint32_t> getThunkMap() const { return ThunkMap; }
-  ArrayRef<uint32_t> getSectionOffsets() const { return SectionOffsets; }
+  iterator_range<codeview::CVSymbolArray::Iterator>
+  getSymbols(bool *HadError) const;
+  codeview::FixedStreamArray<support::ulittle32_t> getHashBuckets() const {
+    return HashBuckets;
+  }
+  codeview::FixedStreamArray<support::ulittle32_t> getAddressMap() const {
+    return AddressMap;
+  }
+  codeview::FixedStreamArray<support::ulittle32_t> getThunkMap() const {
+    return ThunkMap;
+  }
+  codeview::FixedStreamArray<SectionOffset> getSectionOffsets() const {
+    return SectionOffsets;
+  }
 
 private:
-  Error readSymbols();
-
   PDBFile &Pdb;
 
-  uint32_t StreamNum;
-  MappedBlockStream Stream;
+  std::unique_ptr<MappedBlockStream> Stream;
   uint32_t NumBuckets = 0;
-  std::vector<HashRecord> HashRecords;
-  std::vector<uint32_t> HashBuckets;
-  std::vector<uint32_t> AddressMap;
-  std::vector<uint32_t> ThunkMap;
-  std::vector<uint32_t> SectionOffsets;
+  ArrayRef<uint8_t> Bitmap;
+  codeview::FixedStreamArray<PSHashRecord> HashRecords;
+  codeview::FixedStreamArray<support::ulittle32_t> HashBuckets;
+  codeview::FixedStreamArray<support::ulittle32_t> AddressMap;
+  codeview::FixedStreamArray<support::ulittle32_t> ThunkMap;
+  codeview::FixedStreamArray<SectionOffset> SectionOffsets;
 
-  std::unique_ptr<HeaderInfo> Header;
-  std::unique_ptr<GSIHashHeader> HashHdr;
+  const HeaderInfo *Header;
+  const GSIHashHeader *HashHdr;
 };
 }
 }

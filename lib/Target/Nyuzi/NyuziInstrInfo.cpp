@@ -186,7 +186,7 @@ unsigned NyuziInstrInfo::InsertBranch(MachineBasicBlock &MBB,
                                       MachineBasicBlock *TBB, // If true
                                       MachineBasicBlock *FBB, // If false
                                       ArrayRef<MachineOperand> Cond,
-                                      DebugLoc DL) const {
+                                      const DebugLoc &DL) const {
   assert(TBB);
   if (FBB) {
     // Has a false block, this is a two way conditional branch
@@ -229,7 +229,8 @@ unsigned NyuziInstrInfo::RemoveBranch(MachineBasicBlock &MBB) const {
 }
 
 void NyuziInstrInfo::copyPhysReg(MachineBasicBlock &MBB,
-                                 MachineBasicBlock::iterator I, DebugLoc DL,
+                                 MachineBasicBlock::iterator I,
+                                 const DebugLoc &DL,
                                  unsigned DestReg, unsigned SrcReg,
                                  bool KillSrc) const {
   bool destIsScalar = Nyuzi::GPR32RegClass.contains(DestReg);

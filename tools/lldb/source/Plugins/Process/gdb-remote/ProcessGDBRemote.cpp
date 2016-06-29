@@ -1840,7 +1840,7 @@ ProcessGDBRemote::UpdateThreadList (ThreadList &old_thread_list, ThreadList &new
                     }
                 }
             }
-            new_thread_list.AddThread(thread_sp);
+            new_thread_list.AddThreadSortedByIndexID (thread_sp);
         }
     }
 
@@ -2059,7 +2059,8 @@ ProcessGDBRemote::SetThreadStopInfo (lldb::tid_t tid,
                             {
                                 WatchpointSP wp_sp;
                                 ArchSpec::Core core = GetTarget().GetArchitecture().GetCore();
-                                if (core >= ArchSpec::kCore_mips_first && core <= ArchSpec::kCore_mips_last)
+                                if ((core >= ArchSpec::kCore_mips_first && core <= ArchSpec::kCore_mips_last) ||
+                                    (core >= ArchSpec::eCore_arm_generic && core <= ArchSpec::eCore_arm_aarch64))
                                     wp_sp = GetTarget().GetWatchpointList().FindByAddress(wp_hit_addr);
                                 if (!wp_sp)
                                     wp_sp = GetTarget().GetWatchpointList().FindByAddress(wp_addr);
@@ -4875,11 +4876,10 @@ ProcessGDBRemote::LoadModules (LoadedModuleInfoList &module_list)
                     found = true;
             }
 
-            if (!found)
+            // The main executable will never be included in libraries-svr4, don't remove it
+            if (!found && loaded_module.get() != target.GetExecutableModulePointer())
             {
-                lldb_private::ObjectFile * obj = loaded_module->GetObjectFile ();
-                if (obj && obj->GetType () != ObjectFile::Type::eTypeExecutable)
-                    removed_modules.Append (loaded_module);
+                removed_modules.Append (loaded_module);
             }
         }
 

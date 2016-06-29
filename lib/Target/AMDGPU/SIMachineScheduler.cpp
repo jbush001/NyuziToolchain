@@ -12,8 +12,8 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "AMDGPU.h"
 #include "SIMachineScheduler.h"
-#include "AMDGPUSubtarget.h"
 #include "llvm/CodeGen/LiveInterval.h"
 #include "llvm/CodeGen/LiveIntervalAnalysis.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
@@ -522,12 +522,9 @@ void SIScheduleBlock::addPred(SIScheduleBlock *Pred) {
   }
   Preds.push_back(Pred);
 
-#ifndef NDEBUG
-  for (SIScheduleBlock* S : Succs) {
-    if (PredID == S->getID())
-      assert(!"Loop in the Block Graph!\n");
-  }
-#endif
+  assert(none_of(Succs,
+                 [=](SIScheduleBlock *S) { return PredID == S->getID(); }) &&
+         "Loop in the Block Graph!");
 }
 
 void SIScheduleBlock::addSucc(SIScheduleBlock *Succ) {
@@ -541,12 +538,9 @@ void SIScheduleBlock::addSucc(SIScheduleBlock *Succ) {
   if (Succ->isHighLatencyBlock())
     ++NumHighLatencySuccessors;
   Succs.push_back(Succ);
-#ifndef NDEBUG
-  for (SIScheduleBlock* P : Preds) {
-    if (SuccID == P->getID())
-      assert(!"Loop in the Block Graph!\n");
-  }
-#endif
+  assert(none_of(Preds,
+                 [=](SIScheduleBlock *P) { return SuccID == P->getID(); }) &&
+         "Loop in the Block Graph!");
 }
 
 #ifndef NDEBUG
@@ -1676,70 +1670,10 @@ ScheduleDAGInstrs *llvm::createSIMachineScheduler(MachineSchedContext *C) {
 // Does a topological sort over the SUs.
 // Both TopDown and BottomUp
 void SIScheduleDAGMI::topologicalSort() {
-  std::vector<int> TopDownSU2Index;
-  unsigned DAGSize = SUnits.size();
-  std::vector<SUnit*> WorkList;
+  Topo.InitDAGTopologicalSorting();
 
-  DEBUG(dbgs() << "Topological Sort\n");
-  WorkList.reserve(DAGSize);
-
-  TopDownIndex2SU.resize(DAGSize);
-  TopDownSU2Index.resize(DAGSize);
-  BottomUpIndex2SU.resize(DAGSize);
-
-  WorkList.push_back(&getExitSU());
-  for (unsigned i = 0, e = DAGSize; i != e; ++i) {
-    SUnit *SU = &SUnits[i];
-    int NodeNum = SU->NodeNum;
-    unsigned Degree = SU->Succs.size();
-    TopDownSU2Index[NodeNum] = Degree;
-    if (Degree == 0) {
-      assert(SU->Succs.empty() && "SUnit should have no successors");
-      WorkList.push_back(SU);
-    }
-  }
-
-  int Id = DAGSize;
-  while (!WorkList.empty()) {
-    SUnit *SU = WorkList.back();
-    WorkList.pop_back();
-    if (SU->NodeNum < DAGSize) {
-      TopDownSU2Index[SU->NodeNum] = --Id;
-      TopDownIndex2SU[Id] = SU->NodeNum;
-    }
-    for (SDep& Pred : SU->Preds) {
-      SUnit *SU = Pred.getSUnit();
-      if (SU->NodeNum < DAGSize && !--TopDownSU2Index[SU->NodeNum])
-        WorkList.push_back(SU);
-    }
-  }
-
-  BottomUpIndex2SU = std::vector<int>(TopDownIndex2SU.rbegin(),
-                                      TopDownIndex2SU.rend());
-
-#ifndef NDEBUG
-  // Check correctness of the ordering
-  for (unsigned i = 0, e = DAGSize; i != e; ++i) {
-    SUnit *SU = &SUnits[i];
-    for (SDep& Pred : SU->Preds) {
-      if (Pred.getSUnit()->NodeNum >= DAGSize)
-        continue;
-      assert(TopDownSU2Index[SU->NodeNum] >
-             TopDownSU2Index[Pred.getSUnit()->NodeNum] &&
-             "Wrong Top Down topological sorting");
-    }
-  }
-  for (unsigned i = 0, e = DAGSize; i != e; ++i) {
-    SUnit *SU = &SUnits[i];
-    for (SDep& Succ : SU->Succs) {
-      if (Succ.getSUnit()->NodeNum >= DAGSize)
-        continue;
-      assert(TopDownSU2Index[SU->NodeNum] <
-             TopDownSU2Index[Succ.getSUnit()->NodeNum] &&
-             "Wrong Bottom Up topological sorting");
-    }
-  }
-#endif
+  TopDownIndex2SU = std::vector<int>(Topo.begin(), Topo.end());
+  BottomUpIndex2SU = std::vector<int>(Topo.rbegin(), Topo.rend());
 }
 
 // Move low latencies further from their user without
@@ -1856,7 +1790,6 @@ void SIScheduleDAGMI::schedule()
        SU.dumpAll(this)
   );
 
-  Topo.InitDAGTopologicalSorting();
   topologicalSort();
   findRootsAndBiasEdges(TopRoots, BotRoots);
   // We reuse several ScheduleDAGMI and ScheduleDAGMILive

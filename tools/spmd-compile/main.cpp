@@ -75,7 +75,7 @@ bool generateTargetCode(Module *TheModule) {
 }
 
 int main(int argc, const char *argv[]) {
-  sys::PrintStackTraceOnErrorSignal();
+  sys::PrintStackTraceOnErrorSignal(argv[0]);
   PrettyStackTraceProgram X(argc, argv);
 
   InitializeAllTargets();

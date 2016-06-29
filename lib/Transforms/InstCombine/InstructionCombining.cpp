@@ -126,33 +126,23 @@ bool InstCombiner::ShouldChangeType(Type *From, Type *To) const {
 // all other opcodes, the function conservatively returns false.
 static bool MaintainNoSignedWrap(BinaryOperator &I, Value *B, Value *C) {
   OverflowingBinaryOperator *OBO = dyn_cast<OverflowingBinaryOperator>(&I);
-  if (!OBO || !OBO->hasNoSignedWrap()) {
+  if (!OBO || !OBO->hasNoSignedWrap())
     return false;
-  }
 
   // We reason about Add and Sub Only.
   Instruction::BinaryOps Opcode = I.getOpcode();
-  if (Opcode != Instruction::Add &&
-      Opcode != Instruction::Sub) {
+  if (Opcode != Instruction::Add && Opcode != Instruction::Sub)
     return false;
-  }
 
-  ConstantInt *CB = dyn_cast<ConstantInt>(B);
-  ConstantInt *CC = dyn_cast<ConstantInt>(C);
-
-  if (!CB || !CC) {
+  const APInt *BVal, *CVal;
+  if (!match(B, m_APInt(BVal)) || !match(C, m_APInt(CVal)))
     return false;
-  }
 
-  const APInt &BVal = CB->getValue();
-  const APInt &CVal = CC->getValue();
   bool Overflow = false;
-
-  if (Opcode == Instruction::Add) {
-    BVal.sadd_ov(CVal, Overflow);
-  } else {
-    BVal.ssub_ov(CVal, Overflow);
-  }
+  if (Opcode == Instruction::Add)
+    BVal->sadd_ov(*CVal, Overflow);
+  else
+    BVal->ssub_ov(*CVal, Overflow);
 
   return !Overflow;
 }
@@ -1398,7 +1388,7 @@ Instruction *InstCombiner::visitGetElementPtrInst(GetElementPtrInst &GEP) {
     if (Op1 == &GEP)
       return nullptr;
 
-    signed DI = -1;
+    int DI = -1;
 
     for (auto I = PN->op_begin()+1, E = PN->op_end(); I !=E; ++I) {
       GetElementPtrInst *Op2 = dyn_cast<GetElementPtrInst>(*I);
@@ -2388,6 +2378,7 @@ Instruction *InstCombiner::visitExtractValueInst(ExtractValueInst &EV) {
 static bool isCatchAll(EHPersonality Personality, Constant *TypeInfo) {
   switch (Personality) {
   case EHPersonality::GNU_C:
+  case EHPersonality::GNU_C_SjLj:
   case EHPersonality::Rust:
     // The GCC C EH and Rust personality only exists to support cleanups, so
     // it's not clear what the semantics of catch clauses are.
@@ -2399,6 +2390,7 @@ static bool isCatchAll(EHPersonality Personality, Constant *TypeInfo) {
     // match foreign exceptions (or didn't, before gcc-4.7).
     return false;
   case EHPersonality::GNU_CXX:
+  case EHPersonality::GNU_CXX_SjLj:
   case EHPersonality::GNU_ObjC:
   case EHPersonality::MSVC_X86SEH:
   case EHPersonality::MSVC_Win64SEH:
@@ -3054,11 +3046,11 @@ static bool prepareICWorklistFromFunction(Function &F, const DataLayout &DL,
   // Do a quick scan over the function.  If we find any blocks that are
   // unreachable, remove any instructions inside of them.  This prevents
   // the instcombine code from having to deal with some bad special cases.
-  for (Function::iterator BB = F.begin(), E = F.end(); BB != E; ++BB) {
-    if (Visited.count(&*BB))
+  for (BasicBlock &BB : F) {
+    if (Visited.count(&BB))
       continue;
 
-    unsigned NumDeadInstInBB = removeAllNonTerminatorAndEHPadInstructions(&*BB);
+    unsigned NumDeadInstInBB = removeAllNonTerminatorAndEHPadInstructions(&BB);
     MadeIRChange |= NumDeadInstInBB > 0;
     NumDeadInst += NumDeadInstInBB;
   }
@@ -3119,7 +3111,7 @@ PreservedAnalyses InstCombinePass::run(Function &F,
     return PreservedAnalyses::all();
 
   // Mark all the analyses that instcombine updates as preserved.
-  // FIXME: Need a way to preserve CFG analyses here!
+  // FIXME: This should also 'preserve the CFG'.
   PreservedAnalyses PA;
   PA.preserve<DominatorTreeAnalysis>();
   return PA;

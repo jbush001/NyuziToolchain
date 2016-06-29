@@ -66,6 +66,14 @@ def thumb_immshifted_shamt : SDNodeXForm<imm, [{
   return CurDAG->getTargetConstant(V, SDLoc(N), MVT::i32);
 }]>;
 
+def imm256_510 : ImmLeaf<i32, [{
+  return Imm >= 256 && Imm < 511;
+}]>;
+
+def thumb_imm256_510_addend : SDNodeXForm<imm, [{
+  return CurDAG->getTargetConstant(N->getZExtValue() - 255, SDLoc(N), MVT::i32);
+}]>;
+
 // Scaled 4 immediate.
 def t_imm0_1020s4_asmoperand: AsmOperandClass { let Name = "Imm0_1020s4"; }
 def t_imm0_1020s4 : Operand<i32> {
@@ -274,16 +282,17 @@ def tHINT : T1pI<(outs), (ins imm0_15:$imm), NoItinerary, "hint", "\t$imm",
   let Inst{7-4} = imm;
 }
 
-class tHintAlias<string Asm, dag Result> : tInstAlias<Asm, Result> {
+// Note: When EmitPriority == 1, the alias will be used for printing
+class tHintAlias<string Asm, dag Result, bit EmitPriority = 0> : tInstAlias<Asm, Result, EmitPriority> {
   let Predicates = [IsThumb, HasV6M];
 }
 
-def : tHintAlias<"nop$p", (tHINT 0, pred:$p)>; // A8.6.110
-def : tHintAlias<"yield$p", (tHINT 1, pred:$p)>; // A8.6.410
-def : tHintAlias<"wfe$p", (tHINT 2, pred:$p)>; // A8.6.408
-def : tHintAlias<"wfi$p", (tHINT 3, pred:$p)>; // A8.6.409
-def : tHintAlias<"sev$p", (tHINT 4, pred:$p)>; // A8.6.157
-def : tInstAlias<"sevl$p", (tHINT 5, pred:$p)> {
+def : tHintAlias<"nop$p", (tHINT 0, pred:$p), 1>; // A8.6.110
+def : tHintAlias<"yield$p", (tHINT 1, pred:$p), 1>; // A8.6.410
+def : tHintAlias<"wfe$p", (tHINT 2, pred:$p), 1>; // A8.6.408
+def : tHintAlias<"wfi$p", (tHINT 3, pred:$p), 1>; // A8.6.409
+def : tHintAlias<"sev$p", (tHINT 4, pred:$p), 1>; // A8.6.157
+def : tInstAlias<"sevl$p", (tHINT 5, pred:$p), 1> {
   let Predicates = [IsThumb2, HasV8];
 }
 
@@ -298,7 +307,7 @@ def tBKPT : T1I<(outs), (ins imm0_255:$val), NoItinerary, "bkpt\t$val",
   let Inst{7-0} = val;
 }
 // default immediate for breakpoint mnemonic
-def : InstAlias<"bkpt", (tBKPT 0)>, Requires<[IsThumb]>;
+def : InstAlias<"bkpt", (tBKPT 0), 0>, Requires<[IsThumb]>;
 
 def tHLT : T1I<(outs), (ins imm0_63:$val), NoItinerary, "hlt\t$val",
                 []>, T1Encoding<0b101110>, Requires<[IsThumb, HasV8]> {
@@ -784,7 +793,7 @@ def tSTMIA_UPD : Thumb1I<(outs GPR:$wb),
 } // hasSideEffects
 
 def : InstAlias<"ldm${p} $Rn!, $regs",
-                (tLDMIA tGPR:$Rn, pred:$p, reglist:$regs)>,
+                (tLDMIA tGPR:$Rn, pred:$p, reglist:$regs), 0>,
         Requires<[IsThumb, IsThumb1Only]>;
 
 let mayLoad = 1, Uses = [SP], Defs = [SP], hasExtraDefRegAllocReq = 1 in
@@ -1404,11 +1413,6 @@ def : T1Pat<(ARMWrapperJT tjumptable:$dst),
 def : T1Pat<(ARMcall texternalsym:$func), (tBL texternalsym:$func)>,
       Requires<[IsThumb]>;
 
-
-// Indirect calls to ARM routines
-def : Tv5Pat<(ARMcall GPR:$dst), (tBLXr GPR:$dst)>,
-      Requires<[IsThumb, HasV5T]>;
-
 // zextload i1 -> zextload i8
 def : T1Pat<(zextloadi1 t_addrmode_is1:$addr),
             (tLDRBi t_addrmode_is1:$addr)>;
@@ -1493,6 +1497,10 @@ def : T1Pat<(i32 thumb_immshifted:$src),
 def : T1Pat<(i32 imm0_255_comp:$src),
             (tMVN (tMOVi8 (imm_comp_XFORM imm:$src)))>;
 
+def : T1Pat<(i32 imm256_510:$src),
+            (tADDi8 (tMOVi8 255),
+                    (thumb_imm256_510_addend imm:$src))>;
+
 // Pseudo instruction that combines ldr from constpool and add pc. This should
 // be expanded into two instructions late to allow if-conversion and
 // scheduling.
@@ -1521,7 +1529,7 @@ let isBranch = 1, isTerminator = 1, isBarrier = 1, isIndirectBranch = 1 in {
 
 // In Thumb1, "nop" is encoded as a "mov r8, r8". Technically, the bf00
 // encoding is available on ARMv6K, but we don't differentiate that finely.
-def : InstAlias<"nop", (tMOVr R8, R8, 14, 0)>,Requires<[IsThumb, IsThumb1Only]>;
+def : InstAlias<"nop", (tMOVr R8, R8, 14, 0), 0>, Requires<[IsThumb, IsThumb1Only]>;
 
 
 // For round-trip assembly/disassembly, we have to handle a CPS instruction

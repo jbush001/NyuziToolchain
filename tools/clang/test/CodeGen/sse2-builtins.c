@@ -183,7 +183,10 @@ __m128i test_mm_cmpeq_epi32(__m128i A, __m128i B) {
 
 __m128d test_mm_cmpeq_pd(__m128d A, __m128d B) {
   // CHECK-LABEL: test_mm_cmpeq_pd
-  // CHECK: call <2 x double> @llvm.x86.sse2.cmp.pd(<2 x double> %{{.*}}, <2 x double> %{{.*}}, i8 0)
+  // CHECK:         [[CMP:%.*]] = fcmp oeq <2 x double>
+  // CHECK-NEXT:    [[SEXT:%.*]] = sext <2 x i1> [[CMP]] to <2 x i64>
+  // CHECK-NEXT:    [[BC:%.*]] = bitcast <2 x i64> [[SEXT]] to <2 x double>
+  // CHECK-NEXT:    ret <2 x double> [[BC]]
   return _mm_cmpeq_pd(A, B);
 }
 
@@ -195,7 +198,10 @@ __m128d test_mm_cmpeq_sd(__m128d A, __m128d B) {
 
 __m128d test_mm_cmpge_pd(__m128d A, __m128d B) {
   // CHECK-LABEL: test_mm_cmpge_pd
-  // CHECK: call <2 x double> @llvm.x86.sse2.cmp.pd(<2 x double> %{{.*}}, <2 x double> %{{.*}}, i8 2)
+  // CHECK:         [[CMP:%.*]] = fcmp ole <2 x double>
+  // CHECK-NEXT:    [[SEXT:%.*]] = sext <2 x i1> [[CMP]] to <2 x i64>
+  // CHECK-NEXT:    [[BC:%.*]] = bitcast <2 x i64> [[SEXT]] to <2 x double>
+  // CHECK-NEXT:    ret <2 x double> [[BC]]
   return _mm_cmpge_pd(A, B);
 }
 
@@ -229,7 +235,10 @@ __m128i test_mm_cmpgt_epi32(__m128i A, __m128i B) {
 
 __m128d test_mm_cmpgt_pd(__m128d A, __m128d B) {
   // CHECK-LABEL: test_mm_cmpgt_pd
-  // CHECK: call <2 x double> @llvm.x86.sse2.cmp.pd(<2 x double> %{{.*}}, <2 x double> %{{.*}}, i8 1)
+  // CHECK:         [[CMP:%.*]] = fcmp olt <2 x double>
+  // CHECK-NEXT:    [[SEXT:%.*]] = sext <2 x i1> [[CMP]] to <2 x i64>
+  // CHECK-NEXT:    [[BC:%.*]] = bitcast <2 x i64> [[SEXT]] to <2 x double>
+  // CHECK-NEXT:    ret <2 x double> [[BC]]
   return _mm_cmpgt_pd(A, B);
 }
 
@@ -245,7 +254,10 @@ __m128d test_mm_cmpgt_sd(__m128d A, __m128d B) {
 
 __m128d test_mm_cmple_pd(__m128d A, __m128d B) {
   // CHECK-LABEL: test_mm_cmple_pd
-  // CHECK: call <2 x double> @llvm.x86.sse2.cmp.pd(<2 x double> %{{.*}}, <2 x double> %{{.*}}, i8 2)
+  // CHECK:         [[CMP:%.*]] = fcmp ole <2 x double>
+  // CHECK-NEXT:    [[SEXT:%.*]] = sext <2 x i1> [[CMP]] to <2 x i64>
+  // CHECK-NEXT:    [[BC:%.*]] = bitcast <2 x i64> [[SEXT]] to <2 x double>
+  // CHECK-NEXT:    ret <2 x double> [[BC]]
   return _mm_cmple_pd(A, B);
 }
 
@@ -275,7 +287,10 @@ __m128i test_mm_cmplt_epi32(__m128i A, __m128i B) {
 
 __m128d test_mm_cmplt_pd(__m128d A, __m128d B) {
   // CHECK-LABEL: test_mm_cmplt_pd
-  // CHECK: call <2 x double> @llvm.x86.sse2.cmp.pd(<2 x double> %{{.*}}, <2 x double> %{{.*}}, i8 1)
+  // CHECK:         [[CMP:%.*]] = fcmp olt <2 x double>
+  // CHECK-NEXT:    [[SEXT:%.*]] = sext <2 x i1> [[CMP]] to <2 x i64>
+  // CHECK-NEXT:    [[BC:%.*]] = bitcast <2 x i64> [[SEXT]] to <2 x double>
+  // CHECK-NEXT:    ret <2 x double> [[BC]]
   return _mm_cmplt_pd(A, B);
 }
 
@@ -287,7 +302,10 @@ __m128d test_mm_cmplt_sd(__m128d A, __m128d B) {
 
 __m128d test_mm_cmpneq_pd(__m128d A, __m128d B) {
   // CHECK-LABEL: test_mm_cmpneq_pd
-  // CHECK: call <2 x double> @llvm.x86.sse2.cmp.pd(<2 x double> %{{.*}}, <2 x double> %{{.*}}, i8 4)
+  // CHECK:         [[CMP:%.*]] = fcmp une <2 x double>
+  // CHECK-NEXT:    [[SEXT:%.*]] = sext <2 x i1> [[CMP]] to <2 x i64>
+  // CHECK-NEXT:    [[BC:%.*]] = bitcast <2 x i64> [[SEXT]] to <2 x double>
+  // CHECK-NEXT:    ret <2 x double> [[BC]]
   return _mm_cmpneq_pd(A, B);
 }
 
@@ -299,7 +317,10 @@ __m128d test_mm_cmpneq_sd(__m128d A, __m128d B) {
 
 __m128d test_mm_cmpnge_pd(__m128d A, __m128d B) {
   // CHECK-LABEL: test_mm_cmpnge_pd
-  // CHECK: call <2 x double> @llvm.x86.sse2.cmp.pd(<2 x double> %{{.*}}, <2 x double> %{{.*}}, i8 6)
+  // CHECK:         [[CMP:%.*]] = fcmp ugt <2 x double>
+  // CHECK-NEXT:    [[SEXT:%.*]] = sext <2 x i1> [[CMP]] to <2 x i64>
+  // CHECK-NEXT:    [[BC:%.*]] = bitcast <2 x i64> [[SEXT]] to <2 x double>
+  // CHECK-NEXT:    ret <2 x double> [[BC]]
   return _mm_cmpnge_pd(A, B);
 }
 
@@ -315,7 +336,10 @@ __m128d test_mm_cmpnge_sd(__m128d A, __m128d B) {
 
 __m128d test_mm_cmpngt_pd(__m128d A, __m128d B) {
   // CHECK-LABEL: test_mm_cmpngt_pd
-  // CHECK: call <2 x double> @llvm.x86.sse2.cmp.pd(<2 x double> %{{.*}}, <2 x double> %{{.*}}, i8 5)
+  // CHECK:         [[CMP:%.*]] = fcmp uge <2 x double>
+  // CHECK-NEXT:    [[SEXT:%.*]] = sext <2 x i1> [[CMP]] to <2 x i64>
+  // CHECK-NEXT:    [[BC:%.*]] = bitcast <2 x i64> [[SEXT]] to <2 x double>
+  // CHECK-NEXT:    ret <2 x double> [[BC]]
   return _mm_cmpngt_pd(A, B);
 }
 
@@ -331,7 +355,10 @@ __m128d test_mm_cmpngt_sd(__m128d A, __m128d B) {
 
 __m128d test_mm_cmpnle_pd(__m128d A, __m128d B) {
   // CHECK-LABEL: test_mm_cmpnle_pd
-  // CHECK: call <2 x double> @llvm.x86.sse2.cmp.pd(<2 x double> %{{.*}}, <2 x double> %{{.*}}, i8 6)
+  // CHECK:         [[CMP:%.*]] = fcmp ugt <2 x double>
+  // CHECK-NEXT:    [[SEXT:%.*]] = sext <2 x i1> [[CMP]] to <2 x i64>
+  // CHECK-NEXT:    [[BC:%.*]] = bitcast <2 x i64> [[SEXT]] to <2 x double>
+  // CHECK-NEXT:    ret <2 x double> [[BC]]
   return _mm_cmpnle_pd(A, B);
 }
 
@@ -343,7 +370,10 @@ __m128d test_mm_cmpnle_sd(__m128d A, __m128d B) {
 
 __m128d test_mm_cmpnlt_pd(__m128d A, __m128d B) {
   // CHECK-LABEL: test_mm_cmpnlt_pd
-  // CHECK: call <2 x double> @llvm.x86.sse2.cmp.pd(<2 x double> %{{.*}}, <2 x double> %{{.*}}, i8 5)
+  // CHECK:         [[CMP:%.*]] = fcmp uge <2 x double>
+  // CHECK-NEXT:    [[SEXT:%.*]] = sext <2 x i1> [[CMP]] to <2 x i64>
+  // CHECK-NEXT:    [[BC:%.*]] = bitcast <2 x i64> [[SEXT]] to <2 x double>
+  // CHECK-NEXT:    ret <2 x double> [[BC]]
   return _mm_cmpnlt_pd(A, B);
 }
 
@@ -355,7 +385,10 @@ __m128d test_mm_cmpnlt_sd(__m128d A, __m128d B) {
 
 __m128d test_mm_cmpord_pd(__m128d A, __m128d B) {
   // CHECK-LABEL: test_mm_cmpord_pd
-  // CHECK: call <2 x double> @llvm.x86.sse2.cmp.pd(<2 x double> %{{.*}}, <2 x double> %{{.*}}, i8 7)
+  // CHECK:         [[CMP:%.*]] = fcmp ord <2 x double>
+  // CHECK-NEXT:    [[SEXT:%.*]] = sext <2 x i1> [[CMP]] to <2 x i64>
+  // CHECK-NEXT:    [[BC:%.*]] = bitcast <2 x i64> [[SEXT]] to <2 x double>
+  // CHECK-NEXT:    ret <2 x double> [[BC]]
   return _mm_cmpord_pd(A, B);
 }
 
@@ -367,7 +400,10 @@ __m128d test_mm_cmpord_sd(__m128d A, __m128d B) {
 
 __m128d test_mm_cmpunord_pd(__m128d A, __m128d B) {
   // CHECK-LABEL: test_mm_cmpunord_pd
-  // CHECK: call <2 x double> @llvm.x86.sse2.cmp.pd(<2 x double> %{{.*}}, <2 x double> %{{.*}}, i8 3)
+  // CHECK:         [[CMP:%.*]] = fcmp uno <2 x double>
+  // CHECK-NEXT:    [[SEXT:%.*]] = sext <2 x i1> [[CMP]] to <2 x i64>
+  // CHECK-NEXT:    [[BC:%.*]] = bitcast <2 x i64> [[SEXT]] to <2 x double>
+  // CHECK-NEXT:    ret <2 x double> [[BC]]
   return _mm_cmpunord_pd(A, B);
 }
 
@@ -415,7 +451,8 @@ int test_mm_comineq_sd(__m128d A, __m128d B) {
 
 __m128d test_mm_cvtepi32_pd(__m128i A) {
   // CHECK-LABEL: test_mm_cvtepi32_pd
-  // CHECK: call <2 x double> @llvm.x86.sse2.cvtdq2pd(<4 x i32> %{{.*}})
+  // CHECK: shufflevector <4 x i32> %{{.*}}, <4 x i32> %{{.*}}, <2 x i32> <i32 0, i32 1>
+  // CHECK: sitofp <2 x i32> %{{.*}} to <2 x double>
   return _mm_cvtepi32_pd(A);
 }
 
@@ -445,7 +482,8 @@ __m128i test_mm_cvtps_epi32(__m128 A) {
 
 __m128d test_mm_cvtps_pd(__m128 A) {
   // CHECK-LABEL: test_mm_cvtps_pd
-  // CHECK: call <2 x double> @llvm.x86.sse2.cvtps2pd(<4 x float> %{{.*}})
+  // CHECK: shufflevector <4 x float> %{{.*}}, <4 x float> %{{.*}}, <2 x i32> <i32 0, i32 1>
+  // CHECK: fpext <2 x float> %{{.*}} to <2 x double>
   return _mm_cvtps_pd(A);
 }
 
@@ -531,7 +569,7 @@ __m128i test_mm_cvttpd_epi32(__m128d A) {
 
 __m128i test_mm_cvttps_epi32(__m128 A) {
   // CHECK-LABEL: test_mm_cvttps_epi32
-  // CHECK: call <4 x i32> @llvm.x86.sse2.cvttps2dq(<4 x float> %{{.*}})
+  // CHECK: fptosi <4 x float> %{{.*}} to <4 x i32>
   return _mm_cvttps_epi32(A);
 }
 
@@ -602,7 +640,7 @@ __m128d test_mm_load_pd1(double const* A) {
 
 __m128d test_mm_load_sd(double const* A) {
   // CHECK-LABEL: test_mm_load_sd
-  // CHECK: load double, double* %{{.*}}, align 1
+  // CHECK: load double, double* %{{.*}}, align 1{{$}}
   return _mm_load_sd(A);
 }
 
@@ -653,13 +691,13 @@ __m128d test_mm_loadr_pd(double const* A) {
 
 __m128d test_mm_loadu_pd(double const* A) {
   // CHECK-LABEL: test_mm_loadu_pd
-  // CHECK: load <2 x double>, <2 x double>* %{{.*}}, align 1
+  // CHECK: load <2 x double>, <2 x double>* %{{.*}}, align 1{{$}}
   return _mm_loadu_pd(A);
 }
 
 __m128i test_mm_loadu_si128(__m128i const* A) {
   // CHECK-LABEL: test_mm_loadu_si128
-  // CHECK: load <2 x i64>, <2 x i64>* %{{.*}}, align 1
+  // CHECK: load <2 x i64>, <2 x i64>* %{{.*}}, align 1{{$}}
   return _mm_loadu_si128(A);
 }
 
@@ -677,13 +715,15 @@ void test_mm_maskmoveu_si128(__m128i A, __m128i B, char* C) {
 
 __m128i test_mm_max_epi16(__m128i A, __m128i B) {
   // CHECK-LABEL: test_mm_max_epi16
-  // CHECK: call <8 x i16> @llvm.x86.sse2.pmaxs.w(<8 x i16> %{{.*}}, <8 x i16> %{{.*}})
+  // CHECK:       [[CMP:%.*]] = icmp sgt <8 x i16> [[X:%.*]], [[Y:%.*]]
+  // CHECK-NEXT:  select <8 x i1> [[CMP]], <8 x i16> [[X]], <8 x i16> [[Y]]
   return _mm_max_epi16(A, B);
 }
 
 __m128i test_mm_max_epu8(__m128i A, __m128i B) {
   // CHECK-LABEL: test_mm_max_epu8
-  // CHECK: call <16 x i8> @llvm.x86.sse2.pmaxu.b(<16 x i8> %{{.*}}, <16 x i8> %{{.*}})
+  // CHECK:       [[CMP:%.*]] = icmp ugt <16 x i8> [[X:%.*]], [[Y:%.*]]
+  // CHECK-NEXT:  select <16 x i1> [[CMP]], <16 x i8> [[X]], <16 x i8> [[Y]]
   return _mm_max_epu8(A, B);
 }
 
@@ -707,13 +747,15 @@ void test_mm_mfence() {
 
 __m128i test_mm_min_epi16(__m128i A, __m128i B) {
   // CHECK-LABEL: test_mm_min_epi16
-  // CHECK: call <8 x i16> @llvm.x86.sse2.pmins.w(<8 x i16> %{{.*}}, <8 x i16> %{{.*}})
+  // CHECK:       [[CMP:%.*]] = icmp slt <8 x i16> [[X:%.*]], [[Y:%.*]]
+  // CHECK-NEXT:  select <8 x i1> [[CMP]], <8 x i16> [[X]], <8 x i16> [[Y]]
   return _mm_min_epi16(A, B);
 }
 
 __m128i test_mm_min_epu8(__m128i A, __m128i B) {
   // CHECK-LABEL: test_mm_min_epu8
-  // CHECK: call <16 x i8> @llvm.x86.sse2.pminu.b(<16 x i8> %{{.*}}, <16 x i8> %{{.*}})
+  // CHECK:       [[CMP:%.*]] = icmp ult <16 x i8> [[X:%.*]], [[Y:%.*]]
+  // CHECK-NEXT:  select <16 x i1> [[CMP]], <16 x i8> [[X]], <16 x i8> [[Y]]
   return _mm_min_epu8(A, B);
 }
 
@@ -1115,6 +1157,12 @@ __m128i test_mm_slli_si128(__m128i A) {
   return _mm_slli_si128(A, 5);
 }
 
+__m128i test_mm_slli_si128_2(__m128i A) {
+  // CHECK-LABEL: test_mm_slli_si128_2
+  // CHECK: shufflevector <16 x i8> %{{.*}}, <16 x i8> %{{.*}}, <16 x i32> <i32 0, i32 1, i32 2, i32 3, i32 4, i32 5, i32 6, i32 7, i32 8, i32 9, i32 10, i32 11, i32 12, i32 13, i32 14, i32 15>
+  return _mm_slli_si128(A, 17);
+}
+
 __m128d test_mm_sqrt_pd(__m128d A) {
   // CHECK-LABEL: test_mm_sqrt_pd
   // CHECK: call <2 x double> @llvm.x86.sse2.sqrt.pd(<2 x double> %{{.*}})
@@ -1197,10 +1245,23 @@ __m128i test_mm_srli_si128(__m128i A) {
   return _mm_srli_si128(A, 5);
 }
 
+__m128i test_mm_srli_si128_2(__m128i A) {
+  // CHECK-LABEL: test_mm_srli_si128_2
+  // CHECK: shufflevector <16 x i8> %{{.*}}, <16 x i8> %{{.*}}, <16 x i32> <i32 16, i32 17, i32 18, i32 19, i32 20, i32 21, i32 22, i32 23, i32 24, i32 25, i32 26, i32 27, i32 28, i32 29, i32 30, i32 31>
+  return _mm_srli_si128(A, 17);
+}
+
 void test_mm_store_pd(double* A, __m128d B) {
   // CHECK-LABEL: test_mm_store_pd
   // CHECK: store <2 x double> %{{.*}}, <2 x double>* %{{.*}}, align 16
   _mm_store_pd(A, B);
+}
+
+void test_mm_store_pd1(double* x, __m128d y) {
+  // CHECK-LABEL: test_mm_store_pd1
+  // CHECK: shufflevector <2 x double> %{{.*}}, <2 x double> %{{.*}}, <2 x i32> zeroinitializer
+  // CHECK: store <2 x double> %{{.*}}, <2 x double>* {{.*}}, align 16
+  _mm_store_pd1(x, y);
 }
 
 void test_mm_store_sd(double* A, __m128d B) {
@@ -1218,16 +1279,15 @@ void test_mm_store_si128(__m128i* A, __m128i B) {
 
 void test_mm_store1_pd(double* x, __m128d y) {
   // CHECK-LABEL: test_mm_store1_pd
-  // CHECK: extractelement <2 x double> %{{.*}}, i32 0
-  // CHECK: store {{.*}} double* {{.*}}, align 1{{$}}
-  // CHECK: store {{.*}} double* {{.*}}, align 1{{$}}
+  // CHECK: shufflevector <2 x double> %{{.*}}, <2 x double> %{{.*}}, <2 x i32> zeroinitializer
+  // CHECK: store <2 x double> %{{.*}}, <2 x double>* %{{.*}}, align 16
   _mm_store1_pd(x, y);
 }
 
 void test_mm_storeh_pd(double* A, __m128d B) {
   // CHECK-LABEL: test_mm_storeh_pd
   // CHECK: extractelement <2 x double> %{{.*}}, i32 1
-  // CHECK: store double %{{.*}}, double* %{{.*}}, align 1
+  // CHECK: store double %{{.*}}, double* %{{.*}}, align 1{{$}}
   _mm_storeh_pd(A, B);
 }
 
@@ -1241,7 +1301,7 @@ void test_mm_storel_epi64(__m128i x, void* y) {
 void test_mm_storel_pd(double* A, __m128d B) {
   // CHECK-LABEL: test_mm_storel_pd
   // CHECK: extractelement <2 x double> %{{.*}}, i32 0
-  // CHECK: store double %{{.*}}, double* %{{.*}}, align 1
+  // CHECK: store double %{{.*}}, double* %{{.*}}, align 1{{$}}
   _mm_storel_pd(A, B);
 }
 
@@ -1254,13 +1314,15 @@ void test_mm_storer_pd(__m128d A, double* B) {
 
 void test_mm_storeu_pd(double* A, __m128d B) {
   // CHECK-LABEL: test_mm_storeu_pd
-  // CHECK: store <2 x double> %{{.*}}, <2 x double>* %{{.*}}, align 1
+  // CHECK: store {{.*}} <2 x double>* {{.*}}, align 1{{$}}
+  // CHECK-NEXT: ret void
   _mm_storeu_pd(A, B);
 }
 
 void test_mm_storeu_si128(__m128i* A, __m128i B) {
   // CHECK-LABEL: test_mm_storeu_si128
-  // CHECK: store <2 x i64> %{{.*}}, <2 x i64>* %{{.*}}, align 1
+  // CHECK: store <2 x i64> %{{.*}}, <2 x i64>* %{{.*}}, align 1{{$}}
+  // CHECK-NEXT: ret void
   _mm_storeu_si128(A, B);
 }
 
@@ -1470,3 +1532,12 @@ __m128i test_mm_xor_si128(__m128i A, __m128i B) {
   // CHECK: xor <2 x i64> %{{.*}}, %{{.*}}
   return _mm_xor_si128(A, B);
 }
+
+__m128i test_mm_loadu_si64(void const* A) {
+  // CHECK-LABEL: test_mm_loadu_si64
+  // CHECK: load i64, i64* %{{.*}}, align 1{{$}}
+  // CHECK: insertelement <2 x i64> undef, i64 %{{.*}}, i32 0
+  // CHECK: insertelement <2 x i64> %{{.*}}, i64 0, i32 1
+  return _mm_loadu_si64(A);
+}
+

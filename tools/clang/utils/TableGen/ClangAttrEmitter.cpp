@@ -194,6 +194,11 @@ namespace {
         lowerName[0] = std::tolower(lowerName[0]);
         upperName[0] = std::toupper(upperName[0]);
       }
+      // Work around MinGW's macro definition of 'interface' to 'struct'. We
+      // have an attribute argument called 'Interface', so only the lower case
+      // name conflicts with the macro definition.
+      if (lowerName == "interface")
+        lowerName = "interface_";
     }
     virtual ~Argument() = default;
 
@@ -241,8 +246,7 @@ namespace {
 
   public:
     SimpleArgument(const Record &Arg, StringRef Attr, std::string T)
-      : Argument(Arg, Attr), type(T)
-    {}
+        : Argument(Arg, Attr), type(std::move(T)) {}
 
     std::string getType() const { return type; }
 
@@ -586,8 +590,9 @@ namespace {
 
   public:
     VariadicArgument(const Record &Arg, StringRef Attr, std::string T)
-        : Argument(Arg, Attr), Type(T), ArgName(getLowerName().str() + "_"),
-          ArgSizeName(ArgName + "Size"), RangeName(getLowerName()) {}
+        : Argument(Arg, Attr), Type(std::move(T)),
+          ArgName(getLowerName().str() + "_"), ArgSizeName(ArgName + "Size"),
+          RangeName(getLowerName()) {}
 
     const std::string &getType() const { return Type; }
     const std::string &getArgName() const { return ArgName; }
@@ -1207,7 +1212,7 @@ createArgument(const Record &Arg, StringRef Attr,
   if (!Ptr) {
     // Search in reverse order so that the most-derived type is handled first.
     ArrayRef<std::pair<Record*, SMRange>> Bases = Search->getSuperClasses();
-    for (const auto &Base : llvm::make_range(Bases.rbegin(), Bases.rend())) {
+    for (const auto &Base : llvm::reverse(Bases)) {
       if ((Ptr = createArgument(Arg, Attr, Base.first)))
         break;
     }
@@ -1449,9 +1454,9 @@ CreateSemanticSpellings(const std::vector<FlattenedSpelling> &Spellings,
   unsigned Idx = 0;
   for (auto I = Spellings.begin(), E = Spellings.end(); I != E; ++I, ++Idx) {
     const FlattenedSpelling &S = *I;
-    std::string Variety = S.variety();
-    std::string Spelling = S.name();
-    std::string Namespace = S.nameSpace();
+    const std::string &Variety = S.variety();
+    const std::string &Spelling = S.name();
+    const std::string &Namespace = S.nameSpace();
     std::string EnumName;
 
     EnumName += (Variety + "_");
@@ -1625,7 +1630,7 @@ void EmitClangAttrClass(RecordKeeper &Records, raw_ostream &OS) {
     ArrayRef<std::pair<Record *, SMRange>> Supers = R.getSuperClasses();
     assert(!Supers.empty() && "Forgot to specify a superclass for the attr");
     std::string SuperName;
-    for (const auto &Super : llvm::make_range(Supers.rbegin(), Supers.rend())) {
+    for (const auto &Super : llvm::reverse(Supers)) {
       const Record *R = Super.first;
       if (R->getName() != "TargetSpecificAttr" && SuperName.empty())
         SuperName = R->getName();
@@ -2298,7 +2303,7 @@ void EmitClangAttrHasAttrImpl(RecordKeeper &Records, raw_ostream &OS) {
   for (auto *R : Attrs) {
     std::vector<FlattenedSpelling> Spellings = GetFlattenedSpellings(*R);
     for (const auto &SI : Spellings) {
-      std::string Variety = SI.variety();
+      const std::string &Variety = SI.variety();
       if (Variety == "GNU")
         GNU.push_back(R);
       else if (Variety == "Declspec")
@@ -2998,9 +3003,10 @@ void EmitClangAttrParsedAttrKinds(RecordKeeper &Records, raw_ostream &OS) {
 
       std::vector<FlattenedSpelling> Spellings = GetFlattenedSpellings(Attr);
       for (const auto &S : Spellings) {
-        std::string RawSpelling = S.name();
+        const std::string &RawSpelling = S.name();
         std::vector<StringMatcher::StringPair> *Matches = nullptr;
-        std::string Spelling, Variety = S.variety();
+        std::string Spelling;
+        const std::string &Variety = S.variety();
         if (Variety == "CXX11") {
           Matches = &CXX11;
           Spelling += S.nameSpace();

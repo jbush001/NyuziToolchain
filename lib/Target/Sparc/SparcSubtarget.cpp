@@ -39,6 +39,10 @@ SparcSubtarget &SparcSubtarget::initializeSubtargetDependencies(StringRef CPU,
   // Leon features
   HasLeonCasa = false;
   HasUmacSmac = false;
+  InsertNOPLoad = false;
+  FixFSMULD = false;
+  ReplaceFMULS = false;
+  FixAllFDIVSQRT = false;
 
   // Determine default and user specified characteristics
   std::string CPUName = CPU;

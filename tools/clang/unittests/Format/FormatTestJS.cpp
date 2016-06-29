@@ -62,6 +62,11 @@ protected:
   }
 };
 
+TEST_F(FormatTestJS, BlockComments) {
+  verifyFormat("/* aaaaaaaaaaaaa */ aaaaaaaaaaaaaaaaaaaaaaaaaaa(\n"
+               "    aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa);");
+}
+
 TEST_F(FormatTestJS, UnderstandsJavaScriptOperators) {
   verifyFormat("a == = b;");
   verifyFormat("a != = b;");
@@ -310,6 +315,15 @@ TEST_F(FormatTestJS, GoogModules) {
       "    goog.module.get('my.long.module.name.followedBy.MyLongClassName');");
 }
 
+TEST_F(FormatTestJS, FormatsNamespaces) {
+  verifyFormat("namespace Foo {\n"
+               "  export let x = 1;\n"
+               "}\n");
+  verifyFormat("declare namespace Foo {\n"
+               "  export let x: number;\n"
+               "}\n");
+}
+
 TEST_F(FormatTestJS, FormatsFreestandingFunctions) {
   verifyFormat("function outer1(a, b) {\n"
                "  function inner1(a, b) { return a; }\n"
@@ -354,6 +368,10 @@ TEST_F(FormatTestJS, AsyncFunctions) {
   verifyFormat("class X {\n"
                "  async asyncMethod() { return fetch(1); }\n"
                "}");
+  verifyFormat("function initialize() {\n"
+               "  // Comment.\n"
+               "  return async.then();\n"
+               "}\n");
 }
 
 TEST_F(FormatTestJS, ArrayLiterals) {
@@ -894,6 +912,14 @@ TEST_F(FormatTestJS, UnionIntersectionTypes) {
   verifyFormat("let x: Foo<A|B> = new Foo<A|B>();");
   verifyFormat("function(x: A|B): C&D {}");
   verifyFormat("function(x: A|B = A | B): C&D {}");
+  verifyFormat("function x(path: number|string) {}");
+  verifyFormat("function x(): string|number {}");
+  verifyFormat("type Foo = Bar|Baz;");
+  verifyFormat("type Foo = Bar<X>|Baz;");
+  verifyFormat("type Foo = (Bar<X>|Baz);");
+  verifyFormat("let x: Bar|Baz;");
+  verifyFormat("let x: Bar<X>|Baz;");
+  verifyFormat("let x: (Foo|Bar)[];");
 }
 
 TEST_F(FormatTestJS, ClassDeclarations) {
@@ -927,6 +953,11 @@ TEST_F(FormatTestJS, ClassDeclarations) {
                "      'c': 1,\n"
                "    },\n"
                "  };\n"
+               "}");
+  verifyFormat("@Component({\n"
+               "  moduleId: module.id,\n"
+               "})\n"
+               "class SessionListComponent implements OnDestroy, OnInit {\n"
                "}");
 }
 
@@ -996,11 +1027,11 @@ TEST_F(FormatTestJS, Modules) {
   verifyFormat("import SomeThing from 'some/module.js';");
   verifyFormat("import {X, Y} from 'some/module.js';");
   verifyFormat("import a, {X, Y} from 'some/module.js';");
-  verifyFormat("import {VeryLongImportsAreAnnoying, VeryLongImportsAreAnnoying,"
-               " VeryLongImportsAreAnnoying, VeryLongImportsAreAnnoying"
-               "} from 'some/module.js';");
   verifyFormat("import {X, Y,} from 'some/module.js';");
   verifyFormat("import {X as myLocalX, Y as myLocalY} from 'some/module.js';");
+  // Ensure Automatic Semicolon Insertion does not break on "as\n".
+  verifyFormat("import {X as myX} from 'm';", "import {X as\n"
+                                              " myX} from 'm';");
   verifyFormat("import * as lib from 'some/module.js';");
   verifyFormat("var x = {import: 1};\nx.import = 2;");
 
@@ -1026,8 +1057,8 @@ TEST_F(FormatTestJS, Modules) {
   // ... but not if from is just an identifier.
   verifyFormat("export {\n"
                "  from as from,\n"
-               "  someSurprisinglyLongVariable\n"
-               "      as from\n"
+               "  someSurprisinglyLongVariable as\n"
+               "      from\n"
                "};",
                getGoogleJSStyleWithColumns(20));
   verifyFormat("export class C {\n"
@@ -1062,6 +1093,30 @@ TEST_F(FormatTestJS, Modules) {
                "export class Bar {\n"
                "  blah(): string { return this.blah; };\n"
                "}");
+}
+
+TEST_F(FormatTestJS, ImportWrapping) {
+  verifyFormat("import {VeryLongImportsAreAnnoying, VeryLongImportsAreAnnoying,"
+               " VeryLongImportsAreAnnoying, VeryLongImportsAreAnnoying"
+               "} from 'some/module.js';");
+  FormatStyle Style = getGoogleJSStyleWithColumns(80);
+  Style.JavaScriptWrapImports = true;
+  verifyFormat("import {\n"
+               "  VeryLongImportsAreAnnoying,\n"
+               "  VeryLongImportsAreAnnoying,\n"
+               "  VeryLongImportsAreAnnoying,\n"
+               "} from 'some/module.js';",
+               Style);
+  verifyFormat("import {\n"
+               "  A,\n"
+               "  A,\n"
+               "} from 'some/module.js';",
+               Style);
+  verifyFormat("export {\n"
+               "  A,\n"
+               "  A,\n"
+               "} from 'some/module.js';",
+               Style);
 }
 
 TEST_F(FormatTestJS, TemplateStrings) {
@@ -1156,6 +1211,13 @@ TEST_F(FormatTestJS, TemplateStrings) {
 TEST_F(FormatTestJS, CastSyntax) {
   verifyFormat("var x = <type>foo;");
   verifyFormat("var x = foo as type;");
+  verifyFormat("let x = (a + b) as\n"
+               "    LongTypeIsLong;",
+               getGoogleJSStyleWithColumns(20));
+  verifyFormat("foo = <Bar[]>[\n"
+               "  1,  //\n"
+               "  2\n"
+               "];");
 }
 
 TEST_F(FormatTestJS, TypeArguments) {
@@ -1191,7 +1253,6 @@ TEST_F(FormatTestJS, OptionalTypes) {
   verifyFormat("interface X {\n"
                "  y?(): z;\n"
                "}");
-  verifyFormat("x ? 1 : 2;");
   verifyFormat("constructor({aa}: {\n"
                "  aa?: string,\n"
                "  aaaaaaaa?: string,\n"
@@ -1270,6 +1331,31 @@ TEST_F(FormatTestJS, RequoteStringsLeave) {
   LeaveQuotes.JavaScriptQuotes = FormatStyle::JSQS_Leave;
   verifyFormat("var x = \"foo\";", LeaveQuotes);
   verifyFormat("var x = 'foo';", LeaveQuotes);
+}
+
+TEST_F(FormatTestJS, SupportShebangLines) {
+  verifyFormat("#!/usr/bin/env node\n"
+               "var x = hello();",
+               "#!/usr/bin/env node\n"
+               "var x   =  hello();");
+}
+
+TEST_F(FormatTestJS, NonNullAssertionOperator) {
+  verifyFormat("let x = foo!.bar();\n");
+  verifyFormat("let x = foo ? bar! : baz;\n");
+  verifyFormat("let x = !foo;\n");
+  verifyFormat("let x = foo[0]!;\n");
+  verifyFormat("let x = (foo)!;\n");
+  verifyFormat("let x = {foo: 1}!;\n");
+}
+
+TEST_F(FormatTestJS, Conditional) {
+  verifyFormat("y = x ? 1 : 2;");
+  verifyFormat("x ? 1: 2;"); // Known issue with top level conditionals.
+  verifyFormat("class Foo {\n"
+               "  field = true ? 1 : 2;\n"
+               "  method(a = true ? 1 : 2) {}\n"
+               "}");
 }
 
 } // end namespace tooling

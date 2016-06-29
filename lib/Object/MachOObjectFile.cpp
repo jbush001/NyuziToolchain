@@ -473,7 +473,7 @@ uint64_t MachOObjectFile::getSymbolValueImpl(DataRefImpl Sym) const {
   return getNValue(Sym);
 }
 
-ErrorOr<uint64_t> MachOObjectFile::getSymbolAddress(DataRefImpl Sym) const {
+Expected<uint64_t> MachOObjectFile::getSymbolAddress(DataRefImpl Sym) const {
   return getSymbolValue(Sym);
 }
 
@@ -651,6 +651,10 @@ uint64_t MachOObjectFile::getSectionAlignment(DataRefImpl Sec) const {
   }
 
   return uint64_t(1) << Align;
+}
+
+bool MachOObjectFile::isSectionCompressed(DataRefImpl Sec) const {
+  return false;
 }
 
 bool MachOObjectFile::isSectionText(DataRefImpl Sec) const {

@@ -284,15 +284,14 @@ void CodeGenFunction::EmitCallAndReturnForThunk(llvm::Value *Callee,
     CGM.getCXXABI().adjustCallArgsForDestructorThunk(*this, CurGD, CallArgs);
 
   // Add the rest of the arguments.
-  for (const ParmVarDecl *PD : MD->params())
+  for (const ParmVarDecl *PD : MD->parameters())
     EmitDelegateCallArg(CallArgs, PD, PD->getLocStart());
 
   const FunctionProtoType *FPT = MD->getType()->getAs<FunctionProtoType>();
 
 #ifndef NDEBUG
-  const CGFunctionInfo &CallFnInfo =
-    CGM.getTypes().arrangeCXXMethodCall(CallArgs, FPT,
-                                       RequiredArgs::forPrototypePlus(FPT, 1));
+  const CGFunctionInfo &CallFnInfo = CGM.getTypes().arrangeCXXMethodCall(
+      CallArgs, FPT, RequiredArgs::forPrototypePlus(FPT, 1, MD));
   assert(CallFnInfo.getRegParm() == CurFnInfo->getRegParm() &&
          CallFnInfo.isNoReturn() == CurFnInfo->isNoReturn() &&
          CallFnInfo.getCallingConvention() == CurFnInfo->getCallingConvention());
@@ -606,7 +605,7 @@ llvm::Constant *CodeGenVTables::CreateVTableInitializer(
           StringRef PureCallName = CGM.getCXXABI().GetPureVirtualCallName();
           PureVirtualFn = CGM.CreateRuntimeFunction(Ty, PureCallName);
           if (auto *F = dyn_cast<llvm::Function>(PureVirtualFn))
-            F->setUnnamedAddr(true);
+            F->setUnnamedAddr(llvm::GlobalValue::UnnamedAddr::Global);
           PureVirtualFn = llvm::ConstantExpr::getBitCast(PureVirtualFn,
                                                          CGM.Int8PtrTy);
         }
@@ -619,7 +618,7 @@ llvm::Constant *CodeGenVTables::CreateVTableInitializer(
             CGM.getCXXABI().GetDeletedVirtualCallName();
           DeletedVirtualFn = CGM.CreateRuntimeFunction(Ty, DeletedCallName);
           if (auto *F = dyn_cast<llvm::Function>(DeletedVirtualFn))
-            F->setUnnamedAddr(true);
+            F->setUnnamedAddr(llvm::GlobalValue::UnnamedAddr::Global);
           DeletedVirtualFn = llvm::ConstantExpr::getBitCast(DeletedVirtualFn,
                                                          CGM.Int8PtrTy);
         }
@@ -698,7 +697,7 @@ CodeGenVTables::GenerateConstructionVTable(const CXXRecordDecl *RD,
   CGM.setGlobalVisibility(VTable, RD);
 
   // V-tables are always unnamed_addr.
-  VTable->setUnnamedAddr(true);
+  VTable->setUnnamedAddr(llvm::GlobalValue::UnnamedAddr::Global);
 
   llvm::Constant *RTTI = CGM.GetAddrOfRTTIDescriptor(
       CGM.getContext().getTagDeclType(Base.getBase()));
@@ -710,7 +709,7 @@ CodeGenVTables::GenerateConstructionVTable(const CXXRecordDecl *RD,
       VTLayout->getNumVTableThunks(), RTTI);
   VTable->setInitializer(Init);
   
-  CGM.EmitVTableBitSetEntries(VTable, *VTLayout.get());
+  CGM.EmitVTableTypeMetadata(VTable, *VTLayout.get());
 
   return VTable;
 }
@@ -934,8 +933,8 @@ bool CodeGenModule::HasHiddenLTOVisibility(const CXXRecordDecl *RD) {
   return true;
 }
 
-void CodeGenModule::EmitVTableBitSetEntries(llvm::GlobalVariable *VTable,
-                                            const VTableLayout &VTLayout) {
+void CodeGenModule::EmitVTableTypeMetadata(llvm::GlobalVariable *VTable,
+                                           const VTableLayout &VTLayout) {
   if (!getCodeGenOpts().PrepareForLTO)
     return;
 
@@ -974,10 +973,7 @@ void CodeGenModule::EmitVTableBitSetEntries(llvm::GlobalVariable *VTable,
     return E1.second < E2.second;
   });
 
-  llvm::NamedMDNode *BitsetsMD =
-      getModule().getOrInsertNamedMetadata("llvm.bitsets");
   for (auto BitsetEntry : BitsetEntries)
-    CreateVTableBitSetEntry(BitsetsMD, VTable,
-                            PointerWidth * BitsetEntry.second,
-                            BitsetEntry.first);
+    AddVTableTypeMetadata(VTable, PointerWidth * BitsetEntry.second,
+                          BitsetEntry.first);
 }

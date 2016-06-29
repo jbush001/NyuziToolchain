@@ -68,6 +68,8 @@ static void (*InterruptFunction)() = nullptr;
 
 static ManagedStatic<std::vector<std::string>> FilesToRemove;
 
+static StringRef Argv0;
+
 // IntSigs - Signals that represent requested termination. There's no bug
 // or failure, or if there is, it's not our direct responsibility. For whatever
 // reason, our continued execution is no longer desirable.
@@ -107,7 +109,7 @@ static void RegisterHandler(int Signal) {
   struct sigaction NewHandler;
 
   NewHandler.sa_handler = SignalHandler;
-  NewHandler.sa_flags = SA_NODEFER|SA_RESETHAND;
+  NewHandler.sa_flags = SA_NODEFER | SA_RESETHAND | SA_ONSTACK;
   sigemptyset(&NewHandler.sa_mask);
 
   // Install the new handler, save the old one in RegisteredSignalInfo.
@@ -408,7 +410,7 @@ void llvm::sys::PrintStackTrace(raw_ostream &OS) {
   if (!depth)
     return;
 
-  if (printSymbolizedStackTrace(StackTrace, depth, OS))
+  if (printSymbolizedStackTrace(Argv0, StackTrace, depth, OS))
     return;
 #if HAVE_DLFCN_H && __GNUG__
   int width = 0;
@@ -471,7 +473,10 @@ void llvm::sys::DisableSystemDialogsOnCrash() {}
 
 /// PrintStackTraceOnErrorSignal - When an error signal (such as SIGABRT or
 /// SIGSEGV) is delivered to the process, print a stack trace and then exit.
-void llvm::sys::PrintStackTraceOnErrorSignal(bool DisableCrashReporting) {
+void llvm::sys::PrintStackTraceOnErrorSignal(StringRef Argv0,
+                                             bool DisableCrashReporting) {
+  ::Argv0 = Argv0;
+
   AddSignalHandler(PrintStackTraceSignalHandler, nullptr);
 
 #if defined(__APPLE__) && defined(ENABLE_CRASH_OVERRIDES)
@@ -490,42 +495,3 @@ void llvm::sys::PrintStackTraceOnErrorSignal(bool DisableCrashReporting) {
   }
 #endif
 }
-
-
-/***/
-
-// On Darwin, raise sends a signal to the main thread instead of the current
-// thread. This has the unfortunate effect that assert() and abort() will end up
-// bypassing our crash recovery attempts. We work around this for anything in
-// the same linkage unit by just defining our own versions of the assert handler
-// and abort.
-
-#if defined(__APPLE__) && defined(ENABLE_CRASH_OVERRIDES)
-
-#include <signal.h>
-#include <pthread.h>
-
-int raise(int sig) {
-  return pthread_kill(pthread_self(), sig);
-}
-
-void __assert_rtn(const char *func,
-                  const char *file,
-                  int line,
-                  const char *expr) {
-  if (func)
-    fprintf(stderr, "Assertion failed: (%s), function %s, file %s, line %d.\n",
-            expr, func, file, line);
-  else
-    fprintf(stderr, "Assertion failed: (%s), file %s, line %d.\n",
-            expr, file, line);
-  abort();
-}
-
-void abort() {
-  raise(SIGABRT);
-  usleep(1000);
-  __builtin_trap();
-}
-
-#endif

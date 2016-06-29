@@ -991,8 +991,7 @@ static void computeKnownBitsFromOperator(Operator *I, APInt &KnownZero,
   }
   case Instruction::BitCast: {
     Type *SrcTy = I->getOperand(0)->getType();
-    if ((SrcTy->isIntegerTy() || SrcTy->isPointerTy() ||
-         SrcTy->isFloatingPointTy()) &&
+    if ((SrcTy->isIntegerTy() || SrcTy->isPointerTy()) &&
         // TODO: For now, not handling conversions like:
         // (bitcast i64 %x to <2 x i32>)
         !I->getType()->isVectorTy()) {
@@ -1121,7 +1120,7 @@ static void computeKnownBitsFromOperator(Operator *I, APInt &KnownZero,
     break;
   case Instruction::URem: {
     if (ConstantInt *Rem = dyn_cast<ConstantInt>(I->getOperand(1))) {
-      APInt RA = Rem->getValue();
+      const APInt &RA = Rem->getValue();
       if (RA.isPowerOf2()) {
         APInt LowBits = (RA - 1);
         computeKnownBits(I->getOperand(0), KnownZero, KnownOne, Depth + 1, Q);
@@ -1316,12 +1315,6 @@ static void computeKnownBitsFromOperator(Operator *I, APInt &KnownZero,
         // of bits which might be set provided by popcnt KnownOne2.
         break;
       }
-      case Intrinsic::fabs: {
-        Type *Ty = II->getType();
-        APInt SignBit = APInt::getSignBit(Ty->getScalarSizeInBits());
-        KnownZero |= APInt::getSplat(Ty->getPrimitiveSizeInBits(), SignBit);
-        break;
-      }
       case Intrinsic::x86_sse42_crc32_64_64:
         KnownZero |= APInt::getHighBitsSet(64, 32);
         break;
@@ -1381,9 +1374,8 @@ void computeKnownBits(Value *V, APInt &KnownZero, APInt &KnownOne,
   unsigned BitWidth = KnownZero.getBitWidth();
 
   assert((V->getType()->isIntOrIntVectorTy() ||
-          V->getType()->isFPOrFPVectorTy() ||
           V->getType()->getScalarType()->isPointerTy()) &&
-         "Not integer, floating point, or pointer type!");
+         "Not integer or pointer type!");
   assert((Q.DL.getTypeSizeInBits(V->getType()->getScalarType()) == BitWidth) &&
          (!V->getType()->isIntOrIntVectorTy() ||
           V->getType()->getScalarSizeInBits() == BitWidth) &&
@@ -1398,8 +1390,7 @@ void computeKnownBits(Value *V, APInt &KnownZero, APInt &KnownOne,
     return;
   }
   // Null and aggregate-zero are all-zeros.
-  if (isa<ConstantPointerNull>(V) ||
-      isa<ConstantAggregateZero>(V)) {
+  if (isa<ConstantPointerNull>(V) || isa<ConstantAggregateZero>(V)) {
     KnownOne.clearAllBits();
     KnownZero = APInt::getAllOnesValue(BitWidth);
     return;
@@ -1500,9 +1491,10 @@ bool isKnownToBeAPowerOfTwo(Value *V, bool OrZero, unsigned Depth,
   if (Constant *C = dyn_cast<Constant>(V)) {
     if (C->isNullValue())
       return OrZero;
-    if (ConstantInt *CI = dyn_cast<ConstantInt>(C))
-      return CI->getValue().isPowerOf2();
-    // TODO: Handle vector constants.
+
+    const APInt *ConstIntOrConstSplatInt;
+    if (match(C, m_APInt(ConstIntOrConstSplatInt)))
+      return ConstIntOrConstSplatInt->isPowerOf2();
   }
 
   // 1 << X is clearly a power of two if the one is not shifted off the end.  If
@@ -1652,8 +1644,7 @@ static bool isGEPKnownNonNull(GEPOperator *GEP, unsigned Depth,
 /// Does the 'Range' metadata (which must be a valid MD_range operand list)
 /// ensure that the value it's attached to is never Value?  'RangeType' is
 /// is the type of the value described by the range.
-static bool rangeMetadataExcludesValue(MDNode* Ranges,
-                                       const APInt& Value) {
+static bool rangeMetadataExcludesValue(MDNode* Ranges, const APInt& Value) {
   const unsigned NumRanges = Ranges->getNumOperands() / 2;
   assert(NumRanges >= 1);
   for (unsigned i = 0; i < NumRanges; ++i) {
@@ -1673,21 +1664,34 @@ static bool rangeMetadataExcludesValue(MDNode* Ranges,
 /// defined. Supports values with integer or pointer type and vectors of
 /// integers.
 bool isKnownNonZero(Value *V, unsigned Depth, const Query &Q) {
-  if (Constant *C = dyn_cast<Constant>(V)) {
+  if (auto *C = dyn_cast<Constant>(V)) {
     if (C->isNullValue())
       return false;
     if (isa<ConstantInt>(C))
       // Must be non-zero due to null test above.
       return true;
-    // TODO: Handle vectors
+
+    // For constant vectors, check that all elements are undefined or known
+    // non-zero to determine that the whole vector is known non-zero.
+    if (auto *VecTy = dyn_cast<VectorType>(C->getType())) {
+      for (unsigned i = 0, e = VecTy->getNumElements(); i != e; ++i) {
+        Constant *Elt = C->getAggregateElement(i);
+        if (!Elt || Elt->isNullValue())
+          return false;
+        if (!isa<UndefValue>(Elt) && !isa<ConstantInt>(Elt))
+          return false;
+      }
+      return true;
+    }
+
     return false;
   }
 
-  if (Instruction* I = dyn_cast<Instruction>(V)) {
+  if (auto *I = dyn_cast<Instruction>(V)) {
     if (MDNode *Ranges = I->getMetadata(LLVMContext::MD_range)) {
       // If the possible ranges don't contain zero, then the value is
       // definitely non-zero.
-      if (IntegerType* Ty = dyn_cast<IntegerType>(V->getType())) {
+      if (auto *Ty = dyn_cast<IntegerType>(V->getType())) {
         const APInt ZeroValue(Ty->getBitWidth(), 0);
         if (rangeMetadataExcludesValue(Ranges, ZeroValue))
           return true;
@@ -1914,16 +1918,39 @@ bool MaskedValueIsZero(Value *V, const APInt &Mask, unsigned Depth,
   return (KnownZero & Mask) == Mask;
 }
 
+/// For vector constants, loop over the elements and find the constant with the
+/// minimum number of sign bits. Return 0 if the value is not a vector constant
+/// or if any element was not analyzed; otherwise, return the count for the
+/// element with the minimum number of sign bits.
+static unsigned computeNumSignBitsVectorConstant(Value *V, unsigned TyBits) {
+  auto *CV = dyn_cast<Constant>(V);
+  if (!CV || !CV->getType()->isVectorTy())
+    return 0;
 
+  unsigned MinSignBits = TyBits;
+  unsigned NumElts = CV->getType()->getVectorNumElements();
+  for (unsigned i = 0; i != NumElts; ++i) {
+    // If we find a non-ConstantInt, bail out.
+    auto *Elt = dyn_cast_or_null<ConstantInt>(CV->getAggregateElement(i));
+    if (!Elt)
+      return 0;
+
+    // If the sign bit is 1, flip the bits, so we always count leading zeros.
+    APInt EltVal = Elt->getValue();
+    if (EltVal.isNegative())
+      EltVal = ~EltVal;
+    MinSignBits = std::min(MinSignBits, EltVal.countLeadingZeros());
+  }
+
+  return MinSignBits;
+}
 
 /// Return the number of times the sign bit of the register is replicated into
 /// the other bits. We know that at least 1 bit is always equal to the sign bit
 /// (itself), but other cases can give us information. For example, immediately
 /// after an "ashr X, 2", we know that the top 3 bits are all equal to each
-/// other, so we return 3.
-///
-/// 'Op' must have a scalar integer type.
-///
+/// other, so we return 3. For vectors, return the number of sign bits for the
+/// vector element with the mininum number of known sign bits.
 unsigned ComputeNumSignBits(Value *V, unsigned Depth, const Query &Q) {
   unsigned TyBits = Q.DL.getTypeSizeInBits(V->getType()->getScalarType());
   unsigned Tmp, Tmp2;
@@ -2119,26 +2146,25 @@ unsigned ComputeNumSignBits(Value *V, unsigned Depth, const Query &Q) {
 
   // Finally, if we can prove that the top bits of the result are 0's or 1's,
   // use this information.
+
+  // If we can examine all elements of a vector constant successfully, we're
+  // done (we can't do any better than that). If not, keep trying.
+  if (unsigned VecSignBits = computeNumSignBitsVectorConstant(V, TyBits))
+    return VecSignBits;
+
   APInt KnownZero(TyBits, 0), KnownOne(TyBits, 0);
-  APInt Mask;
   computeKnownBits(V, KnownZero, KnownOne, Depth, Q);
 
-  if (KnownZero.isNegative()) {        // sign bit is 0
-    Mask = KnownZero;
-  } else if (KnownOne.isNegative()) {  // sign bit is 1;
-    Mask = KnownOne;
-  } else {
-    // Nothing known.
-    return FirstAnswer;
-  }
+  // If we know that the sign bit is either zero or one, determine the number of
+  // identical bits in the top of the input value.
+  if (KnownZero.isNegative())
+    return std::max(FirstAnswer, KnownZero.countLeadingOnes());
 
-  // Okay, we know that the sign bit in Mask is set.  Use CLZ to determine
-  // the number of identical bits in the top of the input value.
-  Mask = ~Mask;
-  Mask <<= Mask.getBitWidth()-TyBits;
-  // Return # leading zeros.  We use 'min' here in case Val was zero before
-  // shifting.  We don't want to return '64' as for an i32 "0".
-  return std::max(FirstAnswer, std::min(TyBits, Mask.countLeadingZeros()));
+  if (KnownOne.isNegative())
+    return std::max(FirstAnswer, KnownOne.countLeadingOnes());
+
+  // computeKnownBits gave us no extra information about the top bits.
+  return FirstAnswer;
 }
 
 /// This function computes the integer multiple of Base that equals V.
@@ -2815,7 +2841,7 @@ bool llvm::getConstantStringInfo(const Value *V, StringRef &Str,
   if (!GV || !GV->isConstant() || !GV->hasDefinitiveInitializer())
     return false;
 
-  // Handle the all-zeros case
+  // Handle the all-zeros case.
   if (GV->getInitializer()->isNullValue()) {
     // This is a degenerate case. The initializer is constant zero so the
     // length of the string must be zero.
@@ -2823,13 +2849,12 @@ bool llvm::getConstantStringInfo(const Value *V, StringRef &Str,
     return true;
   }
 
-  // Must be a Constant Array
-  const ConstantDataArray *Array =
-    dyn_cast<ConstantDataArray>(GV->getInitializer());
+  // This must be a ConstantDataArray.
+  const auto *Array = dyn_cast<ConstantDataArray>(GV->getInitializer());
   if (!Array || !Array->isString())
     return false;
 
-  // Get the number of elements in the array
+  // Get the number of elements in the array.
   uint64_t NumElts = Array->getType()->getArrayNumElements();
 
   // Start out with the entire array in the StringRef.
@@ -3362,6 +3387,67 @@ static OverflowResult computeOverflowForSignedAdd(
   return OverflowResult::MayOverflow;
 }
 
+bool llvm::isOverflowIntrinsicNoWrap(IntrinsicInst *II, DominatorTree &DT) {
+#ifndef NDEBUG
+  auto IID = II->getIntrinsicID();
+  assert((IID == Intrinsic::sadd_with_overflow ||
+          IID == Intrinsic::uadd_with_overflow ||
+          IID == Intrinsic::ssub_with_overflow ||
+          IID == Intrinsic::usub_with_overflow ||
+          IID == Intrinsic::smul_with_overflow ||
+          IID == Intrinsic::umul_with_overflow) &&
+         "Not an overflow intrinsic!");
+#endif
+
+  SmallVector<BranchInst *, 2> GuardingBranches;
+  SmallVector<ExtractValueInst *, 2> Results;
+
+  for (User *U : II->users()) {
+    if (auto *EVI = dyn_cast<ExtractValueInst>(U)) {
+      assert(EVI->getNumIndices() == 1 && "Obvious from CI's type");
+
+      if (EVI->getIndices()[0] == 0)
+        Results.push_back(EVI);
+      else {
+        assert(EVI->getIndices()[0] == 1 && "Obvious from CI's type");
+
+        for (auto *U : EVI->users())
+          if (auto *B = dyn_cast<BranchInst>(U)) {
+            assert(B->isConditional() && "How else is it using an i1?");
+            GuardingBranches.push_back(B);
+          }
+      }
+    } else {
+      // We are using the aggregate directly in a way we don't want to analyze
+      // here (storing it to a global, say).
+      return false;
+    }
+  }
+
+  auto AllUsesGuardedByBranch = [&](BranchInst *BI) {
+    BasicBlockEdge NoWrapEdge(BI->getParent(), BI->getSuccessor(1));
+    if (!NoWrapEdge.isSingleEdge())
+      return false;
+
+    // Check if all users of the add are provably no-wrap.
+    for (auto *Result : Results) {
+      // If the extractvalue itself is not executed on overflow, the we don't
+      // need to check each use separately, since domination is transitive.
+      if (DT.dominates(NoWrapEdge, Result->getParent()))
+        continue;
+
+      for (auto &RU : Result->uses())
+        if (!DT.dominates(NoWrapEdge, RU))
+          return false;
+    }
+
+    return true;
+  };
+
+  return any_of(GuardingBranches, AllUsesGuardedByBranch);
+}
+
+
 OverflowResult llvm::computeOverflowForSignedAdd(AddOperator *Add,
                                                  const DataLayout &DL,
                                                  AssumptionCache *AC,
@@ -3380,16 +3466,46 @@ OverflowResult llvm::computeOverflowForSignedAdd(Value *LHS, Value *RHS,
 }
 
 bool llvm::isGuaranteedToTransferExecutionToSuccessor(const Instruction *I) {
-  // FIXME: This conservative implementation can be relaxed. E.g. most
-  // atomic operations are guaranteed to terminate on most platforms
-  // and most functions terminate.
+  // A memory operation returns normally if it isn't volatile. A volatile
+  // operation is allowed to trap.
+  //
+  // An atomic operation isn't guaranteed to return in a reasonable amount of
+  // time because it's possible for another thread to interfere with it for an
+  // arbitrary length of time, but programs aren't allowed to rely on that.
+  if (const LoadInst *LI = dyn_cast<LoadInst>(I))
+    return !LI->isVolatile();
+  if (const StoreInst *SI = dyn_cast<StoreInst>(I))
+    return !SI->isVolatile();
+  if (const AtomicCmpXchgInst *CXI = dyn_cast<AtomicCmpXchgInst>(I))
+    return !CXI->isVolatile();
+  if (const AtomicRMWInst *RMWI = dyn_cast<AtomicRMWInst>(I))
+    return !RMWI->isVolatile();
+  if (const MemIntrinsic *MII = dyn_cast<MemIntrinsic>(I))
+    return !MII->isVolatile();
 
-  return !I->isAtomic() &&       // atomics may never succeed on some platforms
-         !isa<CallInst>(I) &&    // could throw and might not terminate
-         !isa<InvokeInst>(I) &&  // might not terminate and could throw to
-                                 //   non-successor (see bug 24185 for details).
-         !isa<ResumeInst>(I) &&  // has no successors
-         !isa<ReturnInst>(I);    // has no successors
+  // If there is no successor, then execution can't transfer to it.
+  if (const auto *CRI = dyn_cast<CleanupReturnInst>(I))
+    return !CRI->unwindsToCaller();
+  if (const auto *CatchSwitch = dyn_cast<CatchSwitchInst>(I))
+    return !CatchSwitch->unwindsToCaller();
+  if (isa<ResumeInst>(I))
+    return false;
+  if (isa<ReturnInst>(I))
+    return false;
+
+  // Calls can throw, or contain an infinite loop, or kill the process.
+  if (CallSite CS = CallSite(const_cast<Instruction*>(I))) {
+    // Calls which don't write to arbitrary memory are safe.
+    // FIXME: Ignoring infinite loops without any side-effects is too aggressive,
+    // but it's consistent with other passes. See http://llvm.org/PR965 .
+    // FIXME: This isn't aggressive enough; a call which only writes to a
+    // global is guaranteed to return.
+    return CS.onlyReadsMemory() || CS.onlyAccessesArgMemory() ||
+           match(I, m_Intrinsic<Intrinsic::assume>());
+  }
+
+  // Other instructions return normally.
+  return true;
 }
 
 bool llvm::isGuaranteedToExecuteForEveryIteration(const Instruction *I,
@@ -3465,6 +3581,11 @@ bool llvm::propagatesFullPoison(const Instruction *I) {
       }
       return false;
     }
+
+    case Instruction::ICmp:
+      // Comparing poison with any value yields poison.  This is why, for
+      // instance, x s< (x +nsw 1) can be folded to true.
+      return true;
 
     case Instruction::GetElementPtr:
       // A GEP implicitly represents a sequence of additions, subtractions,
@@ -3767,8 +3888,7 @@ static Value *lookThroughCast(CmpInst *CmpI, Value *V1, Value *V2,
   return CastedTo;
 }
 
-SelectPatternResult llvm::matchSelectPattern(Value *V,
-                                             Value *&LHS, Value *&RHS,
+SelectPatternResult llvm::matchSelectPattern(Value *V, Value *&LHS, Value *&RHS,
                                              Instruction::CastOps *CastOp) {
   SelectInst *SI = dyn_cast<SelectInst>(V);
   if (!SI) return {SPF_UNKNOWN, SPNB_NA, false};

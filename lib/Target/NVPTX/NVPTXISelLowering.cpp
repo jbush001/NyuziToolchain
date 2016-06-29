@@ -1311,9 +1311,9 @@ SDValue NVPTXTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
                                  InFlag };
 
       unsigned opcode = NVPTXISD::StoreParam;
-      if (Outs[OIdx].Flags.isZExt())
+      if (Outs[OIdx].Flags.isZExt() && VT.getSizeInBits() < 32)
         opcode = NVPTXISD::StoreParamU32;
-      else if (Outs[OIdx].Flags.isSExt())
+      else if (Outs[OIdx].Flags.isSExt() && VT.getSizeInBits() < 32)
         opcode = NVPTXISD::StoreParamS32;
       Chain = DAG.getMemIntrinsicNode(opcode, dl, CopyParamVTs, CopyParamOps,
                                       VT, MachinePointerInfo());
@@ -2065,8 +2065,8 @@ static bool isImageOrSamplerVal(const Value *arg, const Module *context) {
 
 SDValue NVPTXTargetLowering::LowerFormalArguments(
     SDValue Chain, CallingConv::ID CallConv, bool isVarArg,
-    const SmallVectorImpl<ISD::InputArg> &Ins, SDLoc dl, SelectionDAG &DAG,
-    SmallVectorImpl<SDValue> &InVals) const {
+    const SmallVectorImpl<ISD::InputArg> &Ins, const SDLoc &dl,
+    SelectionDAG &DAG, SmallVectorImpl<SDValue> &InVals) const {
   MachineFunction &MF = DAG.getMachineFunction();
   const DataLayout &DL = DAG.getDataLayout();
   auto PtrVT = getPointerTy(DAG.getDataLayout());
@@ -2078,7 +2078,6 @@ SDValue NVPTXTargetLowering::LowerFormalArguments(
   SDValue Root = DAG.getRoot();
   std::vector<SDValue> OutChains;
 
-  bool isKernel = llvm::isKernelFunction(*F);
   bool isABI = (STI.getSmVersion() >= 20);
   assert(isABI && "Non-ABI compilation is not supported");
   if (!isABI)
@@ -2112,7 +2111,8 @@ SDValue NVPTXTargetLowering::LowerFormalArguments(
             theArgs[i],
             (theArgs[i]->getParent() ? theArgs[i]->getParent()->getParent()
                                      : nullptr))) {
-      assert(isKernel && "Only kernels can have image/sampler params");
+      assert(llvm::isKernelFunction(*F) &&
+             "Only kernels can have image/sampler params");
       InVals.push_back(DAG.getConstant(i + 1, dl, MVT::i32));
       continue;
     }
@@ -2334,6 +2334,11 @@ SDValue NVPTXTargetLowering::LowerFormalArguments(
     // machine instruction fails because TargetExternalSymbol
     // (not lowered) is target dependent, and CopyToReg assumes
     // the source is lowered.
+    //
+    // Byval arguments for regular function are lowered the same way
+    // as for kernels in order to generate better code and work around
+    // a known issue in ptxas. See comments in
+    // NVPTXDAGToDAGISel::SelectAddrSpaceCast() for the gory details.
     EVT ObjectVT = getValueType(DL, Ty);
     assert(ObjectVT == Ins[InsIdx].VT &&
            "Ins type did not match function type");
@@ -2341,14 +2346,7 @@ SDValue NVPTXTargetLowering::LowerFormalArguments(
     SDValue p = DAG.getNode(NVPTXISD::MoveParam, dl, ObjectVT, Arg);
     if (p.getNode())
       p.getNode()->setIROrder(idx + 1);
-    if (isKernel)
-      InVals.push_back(p);
-    else {
-      SDValue p2 = DAG.getNode(
-          ISD::INTRINSIC_WO_CHAIN, dl, ObjectVT,
-          DAG.getConstant(Intrinsic::nvvm_ptr_local_to_gen, dl, MVT::i32), p);
-      InVals.push_back(p2);
-    }
+    InVals.push_back(p);
   }
 
   // Clang will check explicit VarArg and issue error if any. However, Clang
@@ -2365,13 +2363,12 @@ SDValue NVPTXTargetLowering::LowerFormalArguments(
   return Chain;
 }
 
-
 SDValue
 NVPTXTargetLowering::LowerReturn(SDValue Chain, CallingConv::ID CallConv,
                                  bool isVarArg,
                                  const SmallVectorImpl<ISD::OutputArg> &Outs,
                                  const SmallVectorImpl<SDValue> &OutVals,
-                                 SDLoc dl, SelectionDAG &DAG) const {
+                                 const SDLoc &dl, SelectionDAG &DAG) const {
   MachineFunction &MF = DAG.getMachineFunction();
   const Function *F = MF.getFunction();
   Type *RetTy = F->getReturnType();
@@ -4153,7 +4150,7 @@ static bool AreMulWideOperandsDemotable(SDValue LHS, SDValue RHS,
 
   // The RHS can be a demotable op or a constant
   if (ConstantSDNode *CI = dyn_cast<ConstantSDNode>(RHS)) {
-    APInt Val = CI->getAPIntValue();
+    const APInt &Val = CI->getAPIntValue();
     if (LHSSign == Unsigned) {
       return Val.isIntN(OptSize);
     } else {

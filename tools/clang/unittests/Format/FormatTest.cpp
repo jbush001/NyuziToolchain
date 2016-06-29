@@ -1143,6 +1143,8 @@ TEST_F(FormatTest, UnderstandsBlockComments) {
              "                      aaaaaaaaaaaaaaaaaa  ,\n"
              "    aaaaaaaaaaaaaaaaaa) {   /*aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa*/\n"
              "}"));
+  verifyFormat("f(/* aaaaaaaaaaaaaaaaaa = */\n"
+               "  aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa);");
 
   FormatStyle NoBinPacking = getLLVMStyle();
   NoBinPacking.BinPackParameters = false;
@@ -5492,6 +5494,7 @@ TEST_F(FormatTest, UnderstandsTemplateParameters) {
 
 TEST_F(FormatTest, UnderstandsBinaryOperators) {
   verifyFormat("COMPARE(a, ==, b);");
+  verifyFormat("auto s = sizeof...(Ts) - 1;");
 }
 
 TEST_F(FormatTest, UnderstandsPointersToMembers) {
@@ -5624,9 +5627,11 @@ TEST_F(FormatTest, UnderstandsFunctionRefQualification) {
   verifyFormat("SomeType MemberFunction(const Deleted &) && {}");
   verifyFormat("SomeType MemberFunction(const Deleted &) && final {}");
   verifyFormat("SomeType MemberFunction(const Deleted &) && override {}");
+  verifyFormat("SomeType MemberFunction(const Deleted &) const &;");
 
   FormatStyle AlignLeft = getLLVMStyle();
   AlignLeft.PointerAlignment = FormatStyle::PAS_Left;
+  verifyFormat("void A::b() && {}", AlignLeft);
   verifyFormat("Deleted& operator=(const Deleted&) & = default;", AlignLeft);
   verifyFormat("SomeType MemberFunction(const Deleted&) & = delete;",
                AlignLeft);
@@ -5636,6 +5641,7 @@ TEST_F(FormatTest, UnderstandsFunctionRefQualification) {
   verifyFormat("auto Function(T... t) & -> void {}", AlignLeft);
   verifyFormat("auto Function(T) & -> void {}", AlignLeft);
   verifyFormat("auto Function(T) & -> void;", AlignLeft);
+  verifyFormat("SomeType MemberFunction(const Deleted&) const &;", AlignLeft);
 
   FormatStyle Spaces = getLLVMStyle();
   Spaces.SpacesInCStyleCastParentheses = true;
@@ -5749,6 +5755,7 @@ TEST_F(FormatTest, UnderstandsUsesOfStarAndAmp) {
       "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa(\n"
       "    aaaaaaaaaaaaaaaaaaaaaaaaaaaa, *aaaaaaaaaaaaaaaaaaaaaaaaaaaaa);");
 
+  verifyGoogleFormat("int const* a = &b;");
   verifyGoogleFormat("**outparam = 1;");
   verifyGoogleFormat("*outparam = a * b;");
   verifyGoogleFormat("int main(int argc, char** argv) {}");
@@ -6091,6 +6098,7 @@ TEST_F(FormatTest, FormatsFunctionTypes) {
   verifyFormat("some_var = function(*some_pointer_var)[0];");
   verifyFormat("void f() { function(*some_pointer_var)[0] = 10; }");
   verifyFormat("int x = f(&h)();");
+  verifyFormat("returnsFunction(&param1, &param2)(param);");
 }
 
 TEST_F(FormatTest, FormatsPointersToArrayTypes) {
@@ -7021,6 +7029,14 @@ TEST_F(FormatTest, BlockComments) {
                    "* aaaaaa aaaaaa\n"
                    "*/",
                    getLLVMStyleWithColumns(10)));
+  EXPECT_EQ("int aaaaaaaaaaaaaaaaaaaaaaaaaaaa =\n"
+            "    /* line 1\n"
+            "       bbbbbbbbbbbb */\n"
+            "    bbbbbbbbbbbbbbbbbbbbbbbbbbbb;",
+            format("int aaaaaaaaaaaaaaaaaaaaaaaaaaaa =\n"
+                   "    /* line 1\n"
+                   "       bbbbbbbbbbbb */ bbbbbbbbbbbbbbbbbbbbbbbbbbbb;",
+            getLLVMStyleWithColumns(50)));
 
   FormatStyle NoBinPacking = getLLVMStyle();
   NoBinPacking.BinPackParameters = false;
@@ -10986,6 +11002,10 @@ TEST_F(FormatTest, FormatsLambdas) {
       "      return aaaaaaaaaaaaaaaaa;\n"
       "    });",
       getLLVMStyleWithColumns(70));
+  verifyFormat("[]() //\n"
+               "    -> int {\n"
+               "  return 1; //\n"
+               "};");
 
   // Multiple lambdas in the same parentheses change indentation rules.
   verifyFormat("SomeFunction(\n"
@@ -11535,35 +11555,6 @@ TEST_F(ReplacementTest, FormatCodeAfterReplacements) {
   Style.ColumnLimit = 20; // Set column limit to 20 to increase readibility.
   EXPECT_EQ(Expected, applyAllReplacements(
                           Code, formatReplacements(Code, Replaces, Style)));
-}
-
-TEST_F(ReplacementTest, FixOnlyAffectedCodeAfterReplacements) {
-  std::string Code = "namespace A {\n"
-                     "namespace B {\n"
-                     "  int x;\n"
-                     "} // namespace B\n"
-                     "} // namespace A\n"
-                     "\n"
-                     "namespace C {\n"
-                     "namespace D { int i; }\n"
-                     "inline namespace E { namespace { int y; } }\n"
-                     "int x=     0;"
-                     "}";
-  std::string Expected = "\n\nnamespace C {\n"
-                         "namespace D { int i; }\n\n"
-                         "int x=     0;"
-                         "}";
-  FileID ID = Context.createInMemoryFile("fix.cpp", Code);
-  tooling::Replacements Replaces;
-  Replaces.insert(tooling::Replacement(
-      Context.Sources, Context.getLocation(ID, 3, 3), 6, ""));
-  Replaces.insert(tooling::Replacement(
-      Context.Sources, Context.getLocation(ID, 9, 34), 6, ""));
-
-  format::FormatStyle Style = format::getLLVMStyle();
-  auto FinalReplaces = formatReplacements(
-      Code, cleanupAroundReplacements(Code, Replaces, Style), Style);
-  EXPECT_EQ(Expected, applyAllReplacements(Code, FinalReplaces));
 }
 
 TEST_F(ReplacementTest, SortIncludesAfterReplacement) {

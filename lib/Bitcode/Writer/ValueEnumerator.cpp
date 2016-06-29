@@ -344,6 +344,15 @@ ValueEnumerator::ValueEnumerator(const Module &M,
   EnumerateNamedMetadata(M);
 
   SmallVector<std::pair<unsigned, MDNode *>, 8> MDs;
+  for (const GlobalVariable &GV : M.globals()) {
+    MDs.clear();
+    GV.getAllMetadata(MDs);
+    for (const auto &I : MDs)
+      // FIXME: Pass GV to EnumerateMetadata and arrange for the bitcode writer
+      // to write metadata to the global variable's own metadata block
+      // (PR28134).
+      EnumerateMetadata(nullptr, I.second);
+  }
 
   // Enumerate types used by function bodies and argument lists.
   for (const Function &F : M) {
@@ -351,9 +360,10 @@ ValueEnumerator::ValueEnumerator(const Module &M,
       EnumerateType(A.getType());
 
     // Enumerate metadata attached to this function.
+    MDs.clear();
     F.getAllMetadata(MDs);
     for (const auto &I : MDs)
-      EnumerateMetadata(&F, I.second);
+      EnumerateMetadata(F.isDeclaration() ? nullptr : &F, I.second);
 
     for (const BasicBlock &BB : F)
       for (const Instruction &I : BB) {

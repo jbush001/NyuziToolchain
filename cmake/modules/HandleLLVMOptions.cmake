@@ -166,7 +166,8 @@ if( CMAKE_SIZEOF_VOID_P EQUAL 8 AND NOT WIN32 )
   # TODO: support other platforms and toolchains.
   if( LLVM_BUILD_32_BITS )
     message(STATUS "Building 32 bits executables and libraries.")
-    add_llvm_definitions( -m32 )
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -m32")
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -m32")
     set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -m32")
     set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -m32")
     set(CMAKE_MODULE_LINKER_FLAGS "${CMAKE_MODULE_LINKER_FLAGS} -m32")
@@ -226,14 +227,12 @@ if( MSVC )
   
   include(ChooseMSVCCRT)
 
-  if( NOT (${CMAKE_VERSION} VERSION_LESS 2.8.11) )
-    # set stack reserved size to ~10MB
-    # CMake previously automatically set this value for MSVC builds, but the
-    # behavior was changed in CMake 2.8.11 (Issue 12437) to use the MSVC default
-    # value (1 MB) which is not enough for us in tasks such as parsing recursive
-    # C++ templates in Clang.
-    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} /STACK:10000000")
-  endif()
+  # set stack reserved size to ~10MB
+  # CMake previously automatically set this value for MSVC builds, but the
+  # behavior was changed in CMake 2.8.11 (Issue 12437) to use the MSVC default
+  # value (1 MB) which is not enough for us in tasks such as parsing recursive
+  # C++ templates in Clang.
+  set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} /STACK:10000000")
 
   if( MSVC11 )
     add_llvm_definitions(-D_VARIADIC_MAX=10)
@@ -249,6 +248,12 @@ if( MSVC )
     -D_SCL_SECURE_NO_DEPRECATE
     -D_SCL_SECURE_NO_WARNINGS
     )
+
+  # Tell MSVC to use the Unicode version of the Win32 APIs instead of ANSI.
+  add_llvm_definitions(
+    -DUNICODE
+    -D_UNICODE
+  )
 
   set(msvc_warning_flags
     # Disabled warnings.
@@ -351,19 +356,6 @@ if( MSVC )
 
   # "Enforce type conversion rules".
   append("/Zc:rvalueCast" CMAKE_CXX_FLAGS)
-
-  if (CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-    # Find and run MSVC (not clang-cl) and get its version. This will tell
-    # clang-cl what version of MSVC to pretend to be so that the STL works.
-    execute_process(COMMAND "$ENV{VSINSTALLDIR}/VC/bin/cl.exe"
-      OUTPUT_QUIET
-      ERROR_VARIABLE MSVC_COMPAT_VERSION
-      )
-    string(REGEX REPLACE "^.*Compiler Version ([0-9.]+) for .*$" "\\1"
-      MSVC_COMPAT_VERSION "${MSVC_COMPAT_VERSION}")
-    append("-fms-compatibility-version=${MSVC_COMPAT_VERSION}"
-      CMAKE_C_FLAGS CMAKE_CXX_FLAGS)
-  endif()
 
   if (CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     # clang-cl and cl by default produce non-deterministic binaries because
@@ -572,7 +564,7 @@ add_llvm_definitions( -D__STDC_LIMIT_MACROS )
 
 # clang doesn't print colored diagnostics when invoked from Ninja
 if (UNIX AND
-    CMAKE_CXX_COMPILER_ID STREQUAL "Clang" AND
+    CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND
     CMAKE_GENERATOR STREQUAL "Ninja")
   append("-fcolor-diagnostics" CMAKE_C_FLAGS CMAKE_CXX_FLAGS)
 endif()
@@ -594,15 +586,6 @@ if(NOT CYGWIN AND NOT WIN32)
   endif()
 endif()
 
-if(CYGWIN OR MINGW)
-  # Prune --out-implib from executables. It doesn't make sense even
-  # with --export-all-symbols.
-  string(REGEX REPLACE "-Wl,--out-implib,[^ ]+ " " "
-    CMAKE_C_LINK_EXECUTABLE "${CMAKE_C_LINK_EXECUTABLE}")
-  string(REGEX REPLACE "-Wl,--out-implib,[^ ]+ " " "
-    CMAKE_CXX_LINK_EXECUTABLE "${CMAKE_CXX_LINK_EXECUTABLE}")
-endif()
-
 if(MSVC)
   # Remove flags here, for exceptions and RTTI.
   # Each target property or source property should be responsible to control
@@ -621,7 +604,15 @@ endif()
 
 option(LLVM_BUILD_INSTRUMENTED "Build LLVM and tools with PGO instrumentation (experimental)" Off)
 mark_as_advanced(LLVM_BUILD_INSTRUMENTED)
-append_if(LLVM_BUILD_INSTRUMENTED "-fprofile-instr-generate"
+append_if(LLVM_BUILD_INSTRUMENTED "-fprofile-instr-generate='${LLVM_PROFILE_FILE_PATTERN}'"
+  CMAKE_CXX_FLAGS
+  CMAKE_C_FLAGS
+  CMAKE_EXE_LINKER_FLAGS
+  CMAKE_SHARED_LINKER_FLAGS)
+
+option(LLVM_BUILD_INSTRUMENTED_COVERAGE "Build LLVM and tools with Code Coverage instrumentation (experimental)" Off)
+mark_as_advanced(LLVM_BUILD_INSTRUMENTED_COVERAGE)
+append_if(LLVM_BUILD_INSTRUMENTED_COVERAGE "-fprofile-instr-generate='${LLVM_PROFILE_FILE_PATTERN}' -fcoverage-mapping"
   CMAKE_CXX_FLAGS
   CMAKE_C_FLAGS
   CMAKE_EXE_LINKER_FLAGS
@@ -638,6 +629,19 @@ elseif(uppercase_LLVM_ENABLE_LTO STREQUAL "FULL")
 elseif(LLVM_ENABLE_LTO)
   append("-flto" CMAKE_CXX_FLAGS CMAKE_C_FLAGS
                  CMAKE_EXE_LINKER_FLAGS CMAKE_SHARED_LINKER_FLAGS)
+endif()
+
+# This option makes utils/extract_symbols.py be used to determine the list of
+# symbols to export from LLVM tools. This is necessary when using MSVC if you
+# want to allow plugins, though note that the plugin has to explicitly link
+# against (exactly one) tool so we can't unilaterally turn on
+# LLVM_ENABLE_PLUGINS when it's enabled.
+option(LLVM_EXPORT_SYMBOLS_FOR_PLUGINS "Export symbols from LLVM tools so that plugins can import them" OFF)
+if(BUILD_SHARED_LIBS AND LLVM_EXPORT_SYMBOLS_FOR_PLUGINS)
+  message(FATAL_ERROR "BUILD_SHARED_LIBS not compatible with LLVM_EXPORT_SYMBOLS_FOR_PLUGINS")
+endif()
+if(LLVM_LINK_LLVM_DYLIB AND LLVM_EXPORT_SYMBOLS_FOR_PLUGINS)
+  message(FATAL_ERROR "LLVM_LINK_LLVM_DYLIB not compatible with LLVM_EXPORT_SYMBOLS_FOR_PLUGINS")
 endif()
 
 # Plugin support

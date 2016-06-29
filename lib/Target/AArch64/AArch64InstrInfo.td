@@ -26,6 +26,8 @@ def HasCrypto        : Predicate<"Subtarget->hasCrypto()">,
                                  AssemblerPredicate<"FeatureCrypto", "crypto">;
 def HasCRC           : Predicate<"Subtarget->hasCRC()">,
                                  AssemblerPredicate<"FeatureCRC", "crc">;
+def HasRAS           : Predicate<"Subtarget->hasRAS()">,
+                                 AssemblerPredicate<"FeatureRAS", "ras">;
 def HasPerfMon       : Predicate<"Subtarget->hasPerfMon()">;
 def HasFullFP16      : Predicate<"Subtarget->hasFullFP16()">,
                                  AssemblerPredicate<"FeatureFullFP16", "fullfp16">;
@@ -34,7 +36,8 @@ def HasSPE           : Predicate<"Subtarget->hasSPE()">,
 
 def IsLE             : Predicate<"Subtarget->isLittleEndian()">;
 def IsBE             : Predicate<"!Subtarget->isLittleEndian()">;
-def IsCyclone        : Predicate<"Subtarget->isCyclone()">;
+def UseAlternateSExtLoadCVTF32
+    : Predicate<"Subtarget->useAlternateSExtLoadCVTF32Pattern()">;
 
 //===----------------------------------------------------------------------===//
 // AArch64-specific DAG Nodes.
@@ -389,6 +392,7 @@ def : InstAlias<"wfe",  (HINT 0b010)>;
 def : InstAlias<"wfi",  (HINT 0b011)>;
 def : InstAlias<"sev",  (HINT 0b100)>;
 def : InstAlias<"sevl", (HINT 0b101)>;
+def : InstAlias<"esb",  (HINT 0b10000)>, Requires<[HasRAS]>;
 
 // v8.2a Statistical Profiling extension
 def : InstAlias<"psb $op",  (HINT psbhint_op:$op)>, Requires<[HasSPE]>;
@@ -4957,7 +4961,8 @@ class SExtLoadi8CVTf32Pat<dag addrmode, dag INST>
                                     0),
                                   dsub)),
                                0),
-                             ssub)))>, Requires<[NotForCodeSize, IsCyclone]>;
+                             ssub)))>,
+    Requires<[NotForCodeSize, UseAlternateSExtLoadCVTF32]>;
 
 def : SExtLoadi8CVTf32Pat<(ro8.Wpat GPR64sp:$Rn, GPR32:$Rm, ro8.Wext:$ext),
                           (LDRBroW  GPR64sp:$Rn, GPR32:$Rm, ro8.Wext:$ext)>;
@@ -5010,7 +5015,8 @@ class SExtLoadi16CVTf64Pat<dag addrmode, dag INST>
                                      0),
                                    dsub)),
                                0),
-                             dsub)))>, Requires<[NotForCodeSize, IsCyclone]>;
+                             dsub)))>,
+    Requires<[NotForCodeSize, UseAlternateSExtLoadCVTF32]>;
  
 def : SExtLoadi16CVTf64Pat<(ro16.Wpat GPR64sp:$Rn, GPR32:$Rm, ro16.Wext:$ext),
                            (LDRHroW GPR64sp:$Rn, GPR32:$Rm, ro16.Wext:$ext)>;

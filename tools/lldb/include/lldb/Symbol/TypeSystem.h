@@ -127,12 +127,6 @@ public:
     virtual ConstString
     DeclGetMangledName (void *opaque_decl);
 
-    virtual lldb::VariableSP
-    DeclGetVariable (void *opaque_decl) = 0;
-
-    virtual void
-    DeclLinkToObject (void *opaque_decl, std::shared_ptr<void> object) = 0;
-
     virtual CompilerDeclContext
     DeclGetDeclContext (void *opaque_decl);
 
@@ -214,7 +208,14 @@ public:
     
     virtual bool
     IsIntegerType (lldb::opaque_compiler_type_t type, bool &is_signed) = 0;
-    
+
+    virtual bool
+    IsEnumerationType (lldb::opaque_compiler_type_t type, bool &is_signed)
+    {
+        is_signed = false;
+        return false;
+    }
+
     virtual bool
     IsPossibleDynamicType (lldb::opaque_compiler_type_t type,
                            CompilerType *target_type, // Can pass NULL

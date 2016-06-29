@@ -21,9 +21,10 @@
 
 namespace llvm {
 namespace pdb {
+class PDBFile;
 class InfoStream {
 public:
-  InfoStream(PDBFile &File);
+  InfoStream(std::unique_ptr<MappedBlockStream> Stream);
 
   Error reload();
 
@@ -33,12 +34,10 @@ public:
   PDB_UniqueId getGuid() const;
 
   uint32_t getNamedStreamIndex(llvm::StringRef Name) const;
-
-  PDBFile &getFile() { return Pdb; }
+  iterator_range<StringMapConstIterator<uint32_t>> named_streams() const;
 
 private:
-  PDBFile &Pdb;
-  MappedBlockStream Stream;
+  std::unique_ptr<MappedBlockStream> Stream;
 
   // PDB file format version.  We only support VC70.  See the enumeration
   // `PdbRaw_ImplVer` for the other possible values.

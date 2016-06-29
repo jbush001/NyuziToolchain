@@ -166,19 +166,19 @@ void DwarfExpression::AddStackValue() {
     EmitOp(dwarf::DW_OP_stack_value);
 }
 
-void DwarfExpression::AddSignedConstant(int Value) {
+void DwarfExpression::AddSignedConstant(int64_t Value) {
   EmitOp(dwarf::DW_OP_consts);
   EmitSigned(Value);
   AddStackValue();
 }
 
-void DwarfExpression::AddUnsignedConstant(unsigned Value) {
+void DwarfExpression::AddUnsignedConstant(uint64_t Value) {
   EmitOp(dwarf::DW_OP_constu);
   EmitUnsigned(Value);
   AddStackValue();
 }
 
-void DwarfExpression::AddUnsignedConstant(APInt Value) {
+void DwarfExpression::AddUnsignedConstant(const APInt &Value) {
   unsigned Size = Value.getBitWidth();
   const uint64_t *Data = Value.getRawData();
 

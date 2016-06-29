@@ -557,12 +557,6 @@ public:
     //----------------------------------------------------------------------
     // CompilerDecl override functions
     //----------------------------------------------------------------------
-    lldb::VariableSP
-    DeclGetVariable (void *opaque_decl) override;
-
-    void
-    DeclLinkToObject (void *opaque_decl, std::shared_ptr<void> object) override;
-    
     ConstString
     DeclGetName (void *opaque_decl) override;
 
@@ -695,7 +689,10 @@ public:
     
     bool
     IsIntegerType (lldb::opaque_compiler_type_t type, bool &is_signed) override;
-    
+
+    bool
+    IsEnumerationType (lldb::opaque_compiler_type_t type, bool &is_signed) override;
+
     static bool
     IsObjCClassType (const CompilerType& type);
     
@@ -1044,7 +1041,8 @@ public:
                                const char *name,  // the full symbol name as seen in the symbol table (lldb::opaque_compiler_type_t type, "-[NString stringWithCString:]")
                                const CompilerType &method_compiler_type,
                                lldb::AccessType access,
-                               bool is_artificial);
+                               bool is_artificial,
+                               bool is_variadic);
     
     static bool
     SetHasExternalStorage (lldb::opaque_compiler_type_t type, bool has_extern);
@@ -1218,7 +1216,6 @@ protected:
     uint32_t                                        m_pointer_byte_size;
     bool                                            m_ast_owned;
     bool                                            m_can_evaluate_expressions;
-    std::map<void *, std::shared_ptr<void>>         m_decl_objects;
     // clang-format on
 private:
     //------------------------------------------------------------------

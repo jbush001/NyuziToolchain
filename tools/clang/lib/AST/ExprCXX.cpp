@@ -432,12 +432,6 @@ SourceLocation CXXConstructExpr::getLocEnd() const {
   return End;
 }
 
-NamedDecl *CXXConstructExpr::getFoundDecl() const {
-  if (auto *Template = Constructor->getPrimaryTemplate())
-    return Template;
-  return Constructor;
-}
-
 SourceRange CXXOperatorCallExpr::getSourceRangeImpl() const {
   OverloadedOperatorKind Kind = getOperator();
   if (Kind == OO_PlusPlus || Kind == OO_MinusMinus) {
@@ -723,7 +717,6 @@ CXXBindTemporaryExpr *CXXBindTemporaryExpr::Create(const ASTContext &C,
 }
 
 CXXTemporaryObjectExpr::CXXTemporaryObjectExpr(const ASTContext &C,
-                                               NamedDecl *Found,
                                                CXXConstructorDecl *Cons,
                                                TypeSourceInfo *Type,
                                                ArrayRef<Expr*> Args,
@@ -735,7 +728,7 @@ CXXTemporaryObjectExpr::CXXTemporaryObjectExpr(const ASTContext &C,
   : CXXConstructExpr(C, CXXTemporaryObjectExprClass, 
                      Type->getType().getNonReferenceType(), 
                      Type->getTypeLoc().getBeginLoc(),
-                     Found, Cons, false, Args,
+                     Cons, false, Args,
                      HadMultipleCandidates,
                      ListInitialization,
                      StdInitListInitialization,
@@ -757,7 +750,6 @@ SourceLocation CXXTemporaryObjectExpr::getLocEnd() const {
 
 CXXConstructExpr *CXXConstructExpr::Create(const ASTContext &C, QualType T,
                                            SourceLocation Loc,
-                                           NamedDecl *Found,
                                            CXXConstructorDecl *Ctor,
                                            bool Elidable,
                                            ArrayRef<Expr*> Args,
@@ -768,7 +760,7 @@ CXXConstructExpr *CXXConstructExpr::Create(const ASTContext &C, QualType T,
                                            ConstructionKind ConstructKind,
                                            SourceRange ParenOrBraceRange) {
   return new (C) CXXConstructExpr(C, CXXConstructExprClass, T, Loc,
-                                  Found, Ctor, Elidable, Args,
+                                  Ctor, Elidable, Args,
                                   HadMultipleCandidates, ListInitialization,
                                   StdInitListInitialization,
                                   ZeroInitialization, ConstructKind,
@@ -777,7 +769,7 @@ CXXConstructExpr *CXXConstructExpr::Create(const ASTContext &C, QualType T,
 
 CXXConstructExpr::CXXConstructExpr(const ASTContext &C, StmtClass SC,
                                    QualType T, SourceLocation Loc,
-                                   NamedDecl *Found, CXXConstructorDecl *Ctor,
+                                   CXXConstructorDecl *Ctor,
                                    bool Elidable,
                                    ArrayRef<Expr*> Args,
                                    bool HadMultipleCandidates,
@@ -798,8 +790,6 @@ CXXConstructExpr::CXXConstructExpr(const ASTContext &C, StmtClass SC,
     ZeroInitialization(ZeroInitialization),
     ConstructKind(ConstructKind), Args(nullptr)
 {
-  assert(declaresSameEntity(Found, Ctor) ||
-         declaresSameEntity(Found, Ctor->getPrimaryTemplate()));
   if (NumArgs) {
     this->Args = new (C) Stmt*[Args.size()];
     
@@ -818,13 +808,10 @@ CXXConstructExpr::CXXConstructExpr(const ASTContext &C, StmtClass SC,
   }
 }
 
-LambdaCapture::OpaqueCapturedEntity LambdaCapture::ThisSentinel;
-LambdaCapture::OpaqueCapturedEntity LambdaCapture::VLASentinel;
-
 LambdaCapture::LambdaCapture(SourceLocation Loc, bool Implicit,
                              LambdaCaptureKind Kind, VarDecl *Var,
                              SourceLocation EllipsisLoc)
-  : CapturedEntityAndBits(Var, 0), Loc(Loc), EllipsisLoc(EllipsisLoc)
+  : DeclAndBits(Var, 0), Loc(Loc), EllipsisLoc(EllipsisLoc)
 {
   unsigned Bits = 0;
   if (Implicit)
@@ -836,7 +823,7 @@ LambdaCapture::LambdaCapture(SourceLocation Loc, bool Implicit,
     // Fall through
   case LCK_This:
     assert(!Var && "'this' capture cannot have a variable!");
-    CapturedEntityAndBits.setPointer(&ThisSentinel);
+    Bits |= Capture_This;
     break;
 
   case LCK_ByCopy:
@@ -847,19 +834,16 @@ LambdaCapture::LambdaCapture(SourceLocation Loc, bool Implicit,
     break;
   case LCK_VLAType:
     assert(!Var && "VLA type capture cannot have a variable!");
-    CapturedEntityAndBits.setPointer(&VLASentinel);
     break;
   }
-  CapturedEntityAndBits.setInt(Bits);
+  DeclAndBits.setInt(Bits);
 }
 
 LambdaCaptureKind LambdaCapture::getCaptureKind() const {
-  void *Ptr = CapturedEntityAndBits.getPointer();
-  if (Ptr == &VLASentinel)
+  if (capturesVLAType())
     return LCK_VLAType;
-  const unsigned Bits = CapturedEntityAndBits.getInt();
-  bool CapByCopy = Bits & Capture_ByCopy;
-  if (Ptr == &ThisSentinel)
+  bool CapByCopy = DeclAndBits.getInt() & Capture_ByCopy;
+  if (capturesThis())
     return CapByCopy ? LCK_StarThis : LCK_This;
   return CapByCopy ? LCK_ByCopy : LCK_ByRef;
 }
@@ -1039,6 +1023,7 @@ bool LambdaExpr::isMutable() const {
 }
 
 ExprWithCleanups::ExprWithCleanups(Expr *subexpr,
+                                   bool CleanupsHaveSideEffects,
                                    ArrayRef<CleanupObject> objects)
   : Expr(ExprWithCleanupsClass, subexpr->getType(),
          subexpr->getValueKind(), subexpr->getObjectKind(),
@@ -1046,16 +1031,19 @@ ExprWithCleanups::ExprWithCleanups(Expr *subexpr,
          subexpr->isInstantiationDependent(),
          subexpr->containsUnexpandedParameterPack()),
     SubExpr(subexpr) {
+  ExprWithCleanupsBits.CleanupsHaveSideEffects = CleanupsHaveSideEffects;
   ExprWithCleanupsBits.NumObjects = objects.size();
   for (unsigned i = 0, e = objects.size(); i != e; ++i)
     getTrailingObjects<CleanupObject>()[i] = objects[i];
 }
 
 ExprWithCleanups *ExprWithCleanups::Create(const ASTContext &C, Expr *subexpr,
+                                           bool CleanupsHaveSideEffects,
                                            ArrayRef<CleanupObject> objects) {
   void *buffer = C.Allocate(totalSizeToAlloc<CleanupObject>(objects.size()),
                             llvm::alignOf<ExprWithCleanups>());
-  return new (buffer) ExprWithCleanups(subexpr, objects);
+  return new (buffer)
+      ExprWithCleanups(subexpr, CleanupsHaveSideEffects, objects);
 }
 
 ExprWithCleanups::ExprWithCleanups(EmptyShell empty, unsigned numObjects)

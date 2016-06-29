@@ -1463,8 +1463,12 @@ void SelectionDAGISel::SelectAllBasicBlocks(const Function &Fn) {
         LowerArguments(Fn);
       }
     }
-    if (getAnalysis<StackProtector>().shouldEmitSDCheck(*LLVMBB))
-      SDB->SPDescriptor.initialize(LLVMBB, FuncInfo->MBBMap[LLVMBB]);
+    if (getAnalysis<StackProtector>().shouldEmitSDCheck(*LLVMBB)) {
+      bool FunctionBasedInstrumentation =
+          TLI->getSSPStackGuardCheck(*Fn.getParent());
+      SDB->SPDescriptor.initialize(LLVMBB, FuncInfo->MBBMap[LLVMBB],
+                                   FunctionBasedInstrumentation);
+    }
 
     if (Begin != BI)
       ++NumDAGBlocks;
@@ -1552,7 +1556,7 @@ static bool MIIsInTerminatorSequence(const MachineInstr *MI) {
 /// terminator, but additionally the copies that move the vregs into the
 /// physical registers.
 static MachineBasicBlock::iterator
-FindSplitPointForStackProtector(MachineBasicBlock *BB, DebugLoc DL) {
+FindSplitPointForStackProtector(MachineBasicBlock *BB) {
   MachineBasicBlock::iterator SplitPoint = BB->getFirstTerminator();
   //
   if (SplitPoint == BB->begin())
@@ -1593,7 +1597,23 @@ SelectionDAGISel::FinishBasicBlock() {
   }
 
   // Handle stack protector.
-  if (SDB->SPDescriptor.shouldEmitStackProtector()) {
+  if (SDB->SPDescriptor.shouldEmitFunctionBasedCheckStackProtector()) {
+    // The target provides a guard check function. There is no need to
+    // generate error handling code or to split current basic block.
+    MachineBasicBlock *ParentMBB = SDB->SPDescriptor.getParentMBB();
+
+    // Add load and check to the basicblock.
+    FuncInfo->MBB = ParentMBB;
+    FuncInfo->InsertPt =
+        FindSplitPointForStackProtector(ParentMBB);
+    SDB->visitSPDescriptorParent(SDB->SPDescriptor, ParentMBB);
+    CurDAG->setRoot(SDB->getRoot());
+    SDB->clear();
+    CodeGenAndEmitDAG();
+
+    // Clear the Per-BB State.
+    SDB->SPDescriptor.resetPerBBState();
+  } else if (SDB->SPDescriptor.shouldEmitStackProtector()) {
     MachineBasicBlock *ParentMBB = SDB->SPDescriptor.getParentMBB();
     MachineBasicBlock *SuccessMBB = SDB->SPDescriptor.getSuccessMBB();
 
@@ -1604,7 +1624,7 @@ SelectionDAGISel::FinishBasicBlock() {
     // register allocation issues caused by us splitting the parent mbb. The
     // register allocator will clean up said virtual copies later on.
     MachineBasicBlock::iterator SplitPoint =
-      FindSplitPointForStackProtector(ParentMBB, SDB->getCurDebugLoc());
+        FindSplitPointForStackProtector(ParentMBB);
 
     // Splice the terminator of ParentMBB into SuccessMBB.
     SuccessMBB->splice(SuccessMBB->end(), ParentMBB,
@@ -1893,8 +1913,8 @@ bool SelectionDAGISel::CheckOrMask(SDValue LHS, ConstantSDNode *RHS,
 
 /// SelectInlineAsmMemoryOperands - Calls to this are automatically generated
 /// by tblgen.  Others should not call it.
-void SelectionDAGISel::
-SelectInlineAsmMemoryOperands(std::vector<SDValue> &Ops, SDLoc DL) {
+void SelectionDAGISel::SelectInlineAsmMemoryOperands(std::vector<SDValue> &Ops,
+                                                     const SDLoc &DL) {
   std::vector<SDValue> InOps;
   std::swap(InOps, Ops);
 
@@ -2163,10 +2183,8 @@ void SelectionDAGISel::UpdateChains(
     // Replace all the chain results with the final chain we ended up with.
     for (unsigned i = 0, e = ChainNodesMatched.size(); i != e; ++i) {
       SDNode *ChainNode = ChainNodesMatched[i];
-
-      // If this node was already deleted, don't look at it.
-      if (ChainNode->getOpcode() == ISD::DELETED_NODE)
-        continue;
+      assert(ChainNode->getOpcode() != ISD::DELETED_NODE &&
+             "Deleted node left in chain");
 
       // Don't replace the results of the root node if we're doing a
       // MorphNodeTo.
@@ -2437,8 +2455,10 @@ MorphNode(SDNode *Node, unsigned TargetOpc, SDVTList VTList,
 
   // Otherwise, no replacement happened because the node already exists. Replace
   // Uses of the old node with the new one.
-  if (Res != Node)
+  if (Res != Node) {
     CurDAG->ReplaceAllUsesWith(Node, Res);
+    CurDAG->RemoveDeadNode(Node);
+  }
 
   return Res;
 }
@@ -3363,13 +3383,17 @@ void SelectionDAGISel::SelectCodeCommon(SDNode *NodeToMatch,
                                                              nullptr));
         }
 
-      } else if (NodeToMatch->getOpcode() != ISD::DELETED_NODE) {
-        Res = MorphNode(NodeToMatch, TargetOpc, VTList, Ops, EmitNodeInfo);
       } else {
-        // NodeToMatch was eliminated by CSE when the target changed the DAG.
-        // We will visit the equivalent node later.
-        DEBUG(dbgs() << "Node was eliminated by CSE\n");
-        return;
+        assert(NodeToMatch->getOpcode() != ISD::DELETED_NODE &&
+               "NodeToMatch was removed partway through selection");
+        SelectionDAG::DAGNodeDeletedListener NDL(*CurDAG, [&](SDNode *N,
+                                                              SDNode *E) {
+          auto &Chain = ChainNodesMatched;
+          assert((!E || llvm::find(Chain, N) == Chain.end()) &&
+                 "Chain node replaced during MorphNode");
+          Chain.erase(std::remove(Chain.begin(), Chain.end(), N), Chain.end());
+        });
+        Res = MorphNode(NodeToMatch, TargetOpc, VTList, Ops, EmitNodeInfo);
       }
 
       // If the node had chain/glue results, update our notion of the current
@@ -3436,11 +3460,7 @@ void SelectionDAGISel::SelectCodeCommon(SDNode *NodeToMatch,
       // If this was a MorphNodeTo then we're completely done!
       if (IsMorphNodeTo) {
         // Update chain uses.
-        UpdateChains(NodeToMatch, InputChain, ChainNodesMatched, true);
-        if (Res != NodeToMatch) {
-          ReplaceUses(NodeToMatch, Res);
-          CurDAG->RemoveDeadNode(NodeToMatch);
-        }
+        UpdateChains(Res, InputChain, ChainNodesMatched, true);
         return;
       }
       continue;

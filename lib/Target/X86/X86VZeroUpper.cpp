@@ -188,6 +188,13 @@ void VZeroUpperInserter::processBasicBlock(MachineBasicBlock &MBB) {
     bool IsReturnFromX86INTR = IsX86INTR && MI->isReturn();
     bool IsControlFlow = MI->isCall() || MI->isReturn();
 
+    // An existing VZERO* instruction resets the state.
+    if (MI->getOpcode() == X86::VZEROALL ||
+        MI->getOpcode() == X86::VZEROUPPER) {
+      CurState = EXITS_CLEAN;
+      continue;
+    }
+
     // Shortcut: don't need to check regular instructions in dirty state.
     if ((!IsControlFlow || IsReturnFromX86INTR) && CurState == EXITS_DIRTY)
       continue;
@@ -294,7 +301,7 @@ bool VZeroUpperInserter::runOnMachineFunction(MachineFunction &MF) {
   if (FnHasLiveInYmm)
     addDirtySuccessor(MF.front());
 
-  // Re-visit all blocks that are successors of EXITS_DIRTY bsocks. Add
+  // Re-visit all blocks that are successors of EXITS_DIRTY blocks. Add
   // vzeroupper instructions to unguarded calls, and propagate EXITS_DIRTY
   // through PASS_THROUGH blocks.
   while (!DirtySuccessors.empty()) {
@@ -313,10 +320,8 @@ bool VZeroUpperInserter::runOnMachineFunction(MachineFunction &MF) {
     if (BBState.ExitState == PASS_THROUGH) {
       DEBUG(dbgs() << "MBB #" << MBB.getNumber()
                    << " was Pass-through, is now Dirty-out.\n");
-      for (MachineBasicBlock::succ_iterator SI = MBB.succ_begin(),
-                                            SE = MBB.succ_end();
-           SI != SE; ++SI)
-        addDirtySuccessor(**SI);
+      for (MachineBasicBlock *Succ : MBB.successors())
+        addDirtySuccessor(*Succ);
     }
   }
 

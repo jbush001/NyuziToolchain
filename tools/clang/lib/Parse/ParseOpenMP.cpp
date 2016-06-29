@@ -38,7 +38,9 @@ enum OpenMPDirectiveKindEx {
   OMPD_point,
   OMPD_reduction,
   OMPD_target_enter,
-  OMPD_target_exit
+  OMPD_target_exit,
+  OMPD_update,
+  OMPD_distribute_parallel
 };
 
 class ThreadprivateListParserHelper final {
@@ -73,6 +75,7 @@ static unsigned getOpenMPDirectiveKindEx(StringRef S) {
       .Case("exit", OMPD_exit)
       .Case("point", OMPD_point)
       .Case("reduction", OMPD_reduction)
+      .Case("update", OMPD_update)
       .Default(OMPD_unknown);
 }
 
@@ -85,11 +88,14 @@ static OpenMPDirectiveKind ParseOpenMPDirectiveKind(Parser &P) {
     { OMPD_declare, OMPD_reduction, OMPD_declare_reduction },
     { OMPD_declare, OMPD_simd, OMPD_declare_simd },
     { OMPD_declare, OMPD_target, OMPD_declare_target },
+    { OMPD_distribute, OMPD_parallel, OMPD_distribute_parallel },
+    { OMPD_distribute_parallel, OMPD_for, OMPD_distribute_parallel_for },
     { OMPD_end, OMPD_declare, OMPD_end_declare },
     { OMPD_end_declare, OMPD_target, OMPD_end_declare_target },
     { OMPD_target, OMPD_data, OMPD_target_data },
     { OMPD_target, OMPD_enter, OMPD_target_enter },
     { OMPD_target, OMPD_exit, OMPD_target_exit },
+    { OMPD_target, OMPD_update, OMPD_target_update },
     { OMPD_target_enter, OMPD_data, OMPD_target_enter_data },
     { OMPD_target_exit, OMPD_data, OMPD_target_exit_data },
     { OMPD_for, OMPD_simd, OMPD_for_simd },
@@ -726,6 +732,8 @@ Parser::DeclGroupPtrTy Parser::ParseOpenMPDeclarativeDirectiveWithExtDecl(
   case OMPD_taskloop_simd:
   case OMPD_distribute:
   case OMPD_end_declare_target:
+  case OMPD_target_update:
+  case OMPD_distribute_parallel_for:
     Diag(Tok, diag::err_omp_unexpected_directive)
         << getOpenMPDirectiveName(DKind);
     break;
@@ -756,7 +764,8 @@ Parser::DeclGroupPtrTy Parser::ParseOpenMPDeclarativeDirectiveWithExtDecl(
 ///         'for simd' | 'parallel for simd' | 'target' | 'target data' |
 ///         'taskgroup' | 'teams' | 'taskloop' | 'taskloop simd' |
 ///         'distribute' | 'target enter data' | 'target exit data' |
-///         'target parallel' | 'target parallel for' {clause}
+///         'target parallel' | 'target parallel for' |
+///         'target update' | 'distribute parallel for' {clause}
 ///         annot_pragma_openmp_end
 ///
 StmtResult Parser::ParseOpenMPDeclarativeOrExecutableDirective(
@@ -830,6 +839,7 @@ StmtResult Parser::ParseOpenMPDeclarativeOrExecutableDirective(
   case OMPD_cancel:
   case OMPD_target_enter_data:
   case OMPD_target_exit_data:
+  case OMPD_target_update:
     if (Allowed == ACK_StatementsOpenMPNonStandalone) {
       Diag(Tok, diag::err_omp_immediate_directive)
           << getOpenMPDirectiveName(DKind) << 0;
@@ -859,7 +869,8 @@ StmtResult Parser::ParseOpenMPDeclarativeOrExecutableDirective(
   case OMPD_target_parallel_for:
   case OMPD_taskloop:
   case OMPD_taskloop_simd:
-  case OMPD_distribute: {
+  case OMPD_distribute:
+  case OMPD_distribute_parallel_for: {
     ConsumeToken();
     // Parse directive name of the 'critical' directive if any.
     if (DKind == OMPD_critical) {
@@ -1037,7 +1048,8 @@ bool Parser::ParseOpenMPSimpleVarList(
 ///       update-clause | capture-clause | seq_cst-clause | device-clause |
 ///       simdlen-clause | threads-clause | simd-clause | num_teams-clause |
 ///       thread_limit-clause | priority-clause | grainsize-clause |
-///       nogroup-clause | num_tasks-clause | hint-clause
+///       nogroup-clause | num_tasks-clause | hint-clause | to-clause |
+///       from-clause
 ///
 OMPClause *Parser::ParseOpenMPClause(OpenMPDirectiveKind DKind,
                                      OpenMPClauseKind CKind, bool FirstClause) {
@@ -1161,6 +1173,8 @@ OMPClause *Parser::ParseOpenMPClause(OpenMPDirectiveKind DKind,
   case OMPC_flush:
   case OMPC_depend:
   case OMPC_map:
+  case OMPC_to:
+  case OMPC_from:
     Clause = ParseOpenMPVarListClause(DKind, CKind);
     break;
   case OMPC_unknown:
@@ -1721,6 +1735,10 @@ bool Parser::ParseOpenMPVarList(OpenMPDirectiveKind DKind,
 ///    map-clause:
 ///       'map' '(' [ [ always , ]
 ///          to | from | tofrom | alloc | release | delete ':' ] list ')';
+///    to-clause:
+///       'to' '(' list ')'
+///    from-clause:
+///       'from' '(' list ')'
 ///
 /// For 'linear' clause linear-list may have the following forms:
 ///  list

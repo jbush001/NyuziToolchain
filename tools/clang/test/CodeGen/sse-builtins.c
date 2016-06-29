@@ -37,7 +37,10 @@ __m128 test_mm_andnot_ps(__m128 A, __m128 B) {
 
 __m128 test_mm_cmpeq_ps(__m128 __a, __m128 __b) {
   // CHECK-LABEL: @test_mm_cmpeq_ps
-  // CHECK: @llvm.x86.sse.cmp.ps(<4 x float> %{{.*}}, <4 x float> %{{.*}}, i8 0)
+  // CHECK:         [[CMP:%.*]] = fcmp oeq <4 x float>
+  // CHECK-NEXT:    [[SEXT:%.*]] = sext <4 x i1> [[CMP]] to <4 x i32>
+  // CHECK-NEXT:    [[BC:%.*]] = bitcast <4 x i32> [[SEXT]] to <4 x float>
+  // CHECK-NEXT:    ret <4 x float> [[BC]]
   return _mm_cmpeq_ps(__a, __b);
 }
 
@@ -49,7 +52,10 @@ __m128 test_mm_cmpeq_ss(__m128 __a, __m128 __b) {
 
 __m128 test_mm_cmpge_ps(__m128 __a, __m128 __b) {
   // CHECK-LABEL: @test_mm_cmpge_ps
-  // CHECK: @llvm.x86.sse.cmp.ps(<4 x float> %{{.*}}, <4 x float> %{{.*}}, i8 2)
+  // CHECK:         [[CMP:%.*]] = fcmp ole <4 x float>
+  // CHECK-NEXT:    [[SEXT:%.*]] = sext <4 x i1> [[CMP]] to <4 x i32>
+  // CHECK-NEXT:    [[BC:%.*]] = bitcast <4 x i32> [[SEXT]] to <4 x float>
+  // CHECK-NEXT:    ret <4 x float> [[BC]]
   return _mm_cmpge_ps(__a, __b);
 }
 
@@ -62,7 +68,10 @@ __m128 test_mm_cmpge_ss(__m128 __a, __m128 __b) {
 
 __m128 test_mm_cmpgt_ps(__m128 __a, __m128 __b) {
   // CHECK-LABEL: @test_mm_cmpgt_ps
-  // CHECK: @llvm.x86.sse.cmp.ps(<4 x float> %{{.*}}, <4 x float> %{{.*}}, i8 1)
+  // CHECK:         [[CMP:%.*]] = fcmp olt <4 x float>
+  // CHECK-NEXT:    [[SEXT:%.*]] = sext <4 x i1> [[CMP]] to <4 x i32>
+  // CHECK-NEXT:    [[BC:%.*]] = bitcast <4 x i32> [[SEXT]] to <4 x float>
+  // CHECK-NEXT:    ret <4 x float> [[BC]]
   return _mm_cmpgt_ps(__a, __b);
 }
 
@@ -75,7 +84,10 @@ __m128 test_mm_cmpgt_ss(__m128 __a, __m128 __b) {
 
 __m128 test_mm_cmple_ps(__m128 __a, __m128 __b) {
   // CHECK-LABEL: @test_mm_cmple_ps
-  // CHECK: @llvm.x86.sse.cmp.ps(<4 x float> %{{.*}}, <4 x float> %{{.*}}, i8 2)
+  // CHECK:         [[CMP:%.*]] = fcmp ole <4 x float>
+  // CHECK-NEXT:    [[SEXT:%.*]] = sext <4 x i1> [[CMP]] to <4 x i32>
+  // CHECK-NEXT:    [[BC:%.*]] = bitcast <4 x i32> [[SEXT]] to <4 x float>
+  // CHECK-NEXT:    ret <4 x float> [[BC]]
   return _mm_cmple_ps(__a, __b);
 }
 
@@ -87,7 +99,10 @@ __m128 test_mm_cmple_ss(__m128 __a, __m128 __b) {
 
 __m128 test_mm_cmplt_ps(__m128 __a, __m128 __b) {
   // CHECK-LABEL: @test_mm_cmplt_ps
-  // CHECK: @llvm.x86.sse.cmp.ps(<4 x float> %{{.*}}, <4 x float> %{{.*}}, i8 1)
+  // CHECK:         [[CMP:%.*]] = fcmp olt <4 x float>
+  // CHECK-NEXT:    [[SEXT:%.*]] = sext <4 x i1> [[CMP]] to <4 x i32>
+  // CHECK-NEXT:    [[BC:%.*]] = bitcast <4 x i32> [[SEXT]] to <4 x float>
+  // CHECK-NEXT:    ret <4 x float> [[BC]]
   return _mm_cmplt_ps(__a, __b);
 }
 
@@ -99,7 +114,10 @@ __m128 test_mm_cmplt_ss(__m128 __a, __m128 __b) {
 
 __m128 test_mm_cmpneq_ps(__m128 __a, __m128 __b) {
   // CHECK-LABEL: @test_mm_cmpneq_ps
-  // CHECK: @llvm.x86.sse.cmp.ps(<4 x float> %{{.*}}, <4 x float> %{{.*}}, i8 4)
+  // CHECK:         [[CMP:%.*]] = fcmp une <4 x float>
+  // CHECK-NEXT:    [[SEXT:%.*]] = sext <4 x i1> [[CMP]] to <4 x i32>
+  // CHECK-NEXT:    [[BC:%.*]] = bitcast <4 x i32> [[SEXT]] to <4 x float>
+  // CHECK-NEXT:    ret <4 x float> [[BC]]
   return _mm_cmpneq_ps(__a, __b);
 }
 
@@ -111,7 +129,10 @@ __m128 test_mm_cmpneq_ss(__m128 __a, __m128 __b) {
 
 __m128 test_mm_cmpnge_ps(__m128 __a, __m128 __b) {
   // CHECK-LABEL: @test_mm_cmpnge_ps
-  // CHECK: @llvm.x86.sse.cmp.ps(<4 x float> %{{.*}}, <4 x float> %{{.*}}, i8 6)
+  // CHECK:         [[CMP:%.*]] = fcmp ugt <4 x float>
+  // CHECK-NEXT:    [[SEXT:%.*]] = sext <4 x i1> [[CMP]] to <4 x i32>
+  // CHECK-NEXT:    [[BC:%.*]] = bitcast <4 x i32> [[SEXT]] to <4 x float>
+  // CHECK-NEXT:    ret <4 x float> [[BC]]
   return _mm_cmpnge_ps(__a, __b);
 }
 
@@ -124,7 +145,10 @@ __m128 test_mm_cmpnge_ss(__m128 __a, __m128 __b) {
 
 __m128 test_mm_cmpngt_ps(__m128 __a, __m128 __b) {
   // CHECK-LABEL: @test_mm_cmpngt_ps
-  // CHECK: @llvm.x86.sse.cmp.ps(<4 x float> %{{.*}}, <4 x float> %{{.*}}, i8 5)
+  // CHECK:         [[CMP:%.*]] = fcmp uge <4 x float>
+  // CHECK-NEXT:    [[SEXT:%.*]] = sext <4 x i1> [[CMP]] to <4 x i32>
+  // CHECK-NEXT:    [[BC:%.*]] = bitcast <4 x i32> [[SEXT]] to <4 x float>
+  // CHECK-NEXT:    ret <4 x float> [[BC]]
   return _mm_cmpngt_ps(__a, __b);
 }
 
@@ -137,7 +161,10 @@ __m128 test_mm_cmpngt_ss(__m128 __a, __m128 __b) {
 
 __m128 test_mm_cmpnle_ps(__m128 __a, __m128 __b) {
   // CHECK-LABEL: @test_mm_cmpnle_ps
-  // CHECK: @llvm.x86.sse.cmp.ps(<4 x float> %{{.*}}, <4 x float> %{{.*}}, i8 6)
+  // CHECK:         [[CMP:%.*]] = fcmp ugt <4 x float>
+  // CHECK-NEXT:    [[SEXT:%.*]] = sext <4 x i1> [[CMP]] to <4 x i32>
+  // CHECK-NEXT:    [[BC:%.*]] = bitcast <4 x i32> [[SEXT]] to <4 x float>
+  // CHECK-NEXT:    ret <4 x float> [[BC]]
   return _mm_cmpnle_ps(__a, __b);
 }
 
@@ -149,7 +176,10 @@ __m128 test_mm_cmpnle_ss(__m128 __a, __m128 __b) {
 
 __m128 test_mm_cmpnlt_ps(__m128 __a, __m128 __b) {
   // CHECK-LABEL: @test_mm_cmpnlt_ps
-  // CHECK: @llvm.x86.sse.cmp.ps(<4 x float> %{{.*}}, <4 x float> %{{.*}}, i8 5)
+  // CHECK:         [[CMP:%.*]] = fcmp uge <4 x float>
+  // CHECK-NEXT:    [[SEXT:%.*]] = sext <4 x i1> [[CMP]] to <4 x i32>
+  // CHECK-NEXT:    [[BC:%.*]] = bitcast <4 x i32> [[SEXT]] to <4 x float>
+  // CHECK-NEXT:    ret <4 x float> [[BC]]
   return _mm_cmpnlt_ps(__a, __b);
 }
 
@@ -161,7 +191,10 @@ __m128 test_mm_cmpnlt_ss(__m128 __a, __m128 __b) {
 
 __m128 test_mm_cmpord_ps(__m128 __a, __m128 __b) {
   // CHECK-LABEL: @test_mm_cmpord_ps
-  // CHECK: @llvm.x86.sse.cmp.ps(<4 x float> %{{.*}}, <4 x float> %{{.*}}, i8 7)
+  // CHECK:         [[CMP:%.*]] = fcmp ord <4 x float>
+  // CHECK-NEXT:    [[SEXT:%.*]] = sext <4 x i1> [[CMP]] to <4 x i32>
+  // CHECK-NEXT:    [[BC:%.*]] = bitcast <4 x i32> [[SEXT]] to <4 x float>
+  // CHECK-NEXT:    ret <4 x float> [[BC]]
   return _mm_cmpord_ps(__a, __b);
 }
 
@@ -173,7 +206,10 @@ __m128 test_mm_cmpord_ss(__m128 __a, __m128 __b) {
 
 __m128 test_mm_cmpunord_ps(__m128 __a, __m128 __b) {
   // CHECK-LABEL: @test_mm_cmpunord_ps
-  // CHECK: @llvm.x86.sse.cmp.ps(<4 x float> %{{.*}}, <4 x float> %{{.*}}, i8 3)
+  // CHECK:         [[CMP:%.*]] = fcmp uno <4 x float>
+  // CHECK-NEXT:    [[SEXT:%.*]] = sext <4 x i1> [[CMP]] to <4 x i32>
+  // CHECK-NEXT:    [[BC:%.*]] = bitcast <4 x i32> [[SEXT]] to <4 x float>
+  // CHECK-NEXT:    ret <4 x float> [[BC]]
   return _mm_cmpunord_ps(__a, __b);
 }
 
@@ -346,7 +382,7 @@ __m128 test_mm_load_ps1(float* y) {
 
 __m128 test_mm_load_ss(float* y) {
   // CHECK-LABEL: test_mm_load_ss
-  // CHECK: load float, float* {{.*}}, align 1
+  // CHECK: load float, float* {{.*}}, align 1{{$}}
   // CHECK: insertelement <4 x float> undef, float %{{.*}}, i32 0
   // CHECK: insertelement <4 x float> %{{.*}}, float 0.000000e+00, i32 1
   // CHECK: insertelement <4 x float> %{{.*}}, float 0.000000e+00, i32 2
@@ -389,7 +425,7 @@ __m128 test_mm_loadr_ps(float* A) {
 
 __m128 test_mm_loadu_ps(float* A) {
   // CHECK-LABEL: test_mm_loadu_ps
-  // CHECK: load <4 x float>, <4 x float>* %{{.*}}, align 1
+  // CHECK: load <4 x float>, <4 x float>* %{{.*}}, align 1{{$}}
   return _mm_loadu_ps(A);
 }
 
@@ -651,7 +687,7 @@ void test_mm_store_ps(float* x, __m128 y) {
 void test_mm_store_ps1(float* x, __m128 y) {
   // CHECK-LABEL: test_mm_store_ps1
   // CHECK: shufflevector <4 x float> %{{.*}}, <4 x float> %{{.*}}, <4 x i32> zeroinitializer
-  // CHECK: store <4 x float> %{{.*}}, <4 x float>* {{.*}}, align 16
+  // CHECK: store <4 x float> %{{.*}}, <4 x float>* %{{.*}}, align 16
   _mm_store_ps1(x, y);
 }
 
@@ -665,7 +701,7 @@ void test_mm_store_ss(float* x, __m128 y) {
 void test_mm_store1_ps(float* x, __m128 y) {
   // CHECK-LABEL: test_mm_store1_ps
   // CHECK: shufflevector <4 x float> %{{.*}}, <4 x float> %{{.*}}, <4 x i32> zeroinitializer
-  // CHECK: store <4 x float> %{{.*}}, <4 x float>* {{.*}}, align 16
+  // CHECK: store <4 x float> %{{.*}}, <4 x float>* %{{.*}}, align 16
   _mm_store1_ps(x, y);
 }
 
@@ -694,7 +730,8 @@ void test_mm_storer_ps(float* x,  __m128 y) {
 
 void test_mm_storeu_ps(float* x,  __m128 y) {
   // CHECK-LABEL: test_mm_storeu_ps
-  // CHECK: store <4 x float> %{{.*}}, <4 x float>* {{.*}}, align 1
+  // CHECK: store <4 x float> %{{.*}}, <4 x float>* %{{.*}}, align 1{{$}}
+  // CHECK-NEXT: ret void
   _mm_storeu_ps(x, y);
 }
 

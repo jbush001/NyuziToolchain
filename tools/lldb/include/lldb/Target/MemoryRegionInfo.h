@@ -92,6 +92,50 @@ namespace lldb_private
         {
             m_execute = val;
         }
+
+        //----------------------------------------------------------------------
+        // Get permissions as a uint32_t that is a mask of one or more bits from
+        // the lldb::Permissions
+        //----------------------------------------------------------------------
+        uint32_t
+        GetLLDBPermissions() const
+        {
+            uint32_t permissions = 0;
+            if (m_read)
+                permissions |= lldb::ePermissionsReadable;
+            if (m_write)
+                permissions |= lldb::ePermissionsWritable;
+            if (m_execute)
+                permissions |= lldb::ePermissionsExecutable;
+            return permissions;
+        }
+
+        //----------------------------------------------------------------------
+        // Set permissions from a uint32_t that contains one or more bits from
+        // the lldb::Permissions
+        //----------------------------------------------------------------------
+        void
+        SetLLDBPermissions(uint32_t permissions)
+        {
+            m_read = (permissions & lldb::ePermissionsReadable) ? eYes : eNo;
+            m_write = (permissions & lldb::ePermissionsWritable) ? eYes : eNo;
+            m_execute = (permissions & lldb::ePermissionsExecutable) ? eYes : eNo;
+        }
+
+        bool
+        operator == (const MemoryRegionInfo &rhs) const
+        {
+            return m_range == rhs.m_range &&
+                   m_read == rhs.m_read &&
+                   m_write == rhs.m_write &&
+                   m_execute == rhs.m_execute;
+        }
+        
+        bool
+        operator != (const MemoryRegionInfo &rhs) const
+        {
+            return !(*this == rhs);
+        }
         
     protected:
         RangeType m_range;

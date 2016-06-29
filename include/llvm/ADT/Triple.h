@@ -180,6 +180,9 @@ public:
     EABI,
     EABIHF,
     Android,
+    Musl,
+    MuslEABI,
+    MuslEABIHF,
 
     MSVC,
     Itanium,
@@ -470,6 +473,12 @@ public:
     return getOS() == Triple::ELFIAMCU;
   }
 
+  bool isGNUEnvironment() const {
+    EnvironmentType Env = getEnvironment();
+    return Env == Triple::GNU || Env == Triple::GNUEABI ||
+           Env == Triple::GNUEABIHF || Env == Triple::GNUX32;
+  }
+
   /// Checks if the environment could be MSVC.
   bool isWindowsMSVCEnvironment() const {
     return getOS() == Triple::Win32 &&
@@ -565,10 +574,20 @@ public:
   /// Tests whether the target is Android
   bool isAndroid() const { return getEnvironment() == Triple::Android; }
 
+  /// Tests whether the environment is musl-libc
+  bool isMusl() const {
+    return getEnvironment() == Triple::Musl ||
+           getEnvironment() == Triple::MuslEABI ||
+           getEnvironment() == Triple::MuslEABIHF;
+  }
+
   /// Tests whether the target is NVPTX (32- or 64-bit).
   bool isNVPTX() const {
     return getArch() == Triple::nvptx || getArch() == Triple::nvptx64;
   }
+
+  /// Tests wether the target supports comdat
+  bool supportsCOMDAT() const { return !isOSBinFormatMachO(); }
 
   /// @}
   /// @name Mutators

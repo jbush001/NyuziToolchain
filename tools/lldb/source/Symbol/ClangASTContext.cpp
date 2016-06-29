@@ -2013,10 +2013,33 @@ ClangASTContext::CreateFunctionType (ASTContext *ast,
                                      bool is_variadic, 
                                      unsigned type_quals)
 {
-    assert (ast != nullptr);
+    if (ast == nullptr)
+        return CompilerType(); // invalid AST
+
+    if (!result_type || !ClangUtil::IsClangType(result_type))
+        return CompilerType(); // invalid return type
+
     std::vector<QualType> qual_type_args;
+    if (num_args > 0 && args == nullptr)
+        return CompilerType(); // invalid argument array passed in
+
+    // Verify that all arguments are valid and the right type
     for (unsigned i=0; i<num_args; ++i)
-        qual_type_args.push_back(ClangUtil::GetQualType(args[i]));
+    {
+        if (args[i])
+        {
+            // Make sure we have a clang type in args[i] and not a type from another
+            // language whose name might match
+            const bool is_clang_type = ClangUtil::IsClangType(args[i]);
+            lldbassert(is_clang_type);
+            if (is_clang_type)
+                qual_type_args.push_back(ClangUtil::GetQualType(args[i]));
+            else
+                return CompilerType(); //  invalid argument type (must be a clang type)
+        }
+        else
+            return CompilerType(); // invalid argument type (empty)
+    }
 
     // TODO: Detect calling convention in DWARF?
     FunctionProtoType::ExtProtoInfo proto_info;
@@ -3270,6 +3293,23 @@ ClangASTContext::IsIntegerType (lldb::opaque_compiler_type_t type, bool &is_sign
 }
 
 bool
+ClangASTContext::IsEnumerationType(lldb::opaque_compiler_type_t type, bool &is_signed)
+{
+    if (type)
+    {
+        const clang::EnumType *enum_type = llvm::dyn_cast<clang::EnumType>(GetCanonicalQualType(type)->getCanonicalTypeInternal());
+
+        if (enum_type)
+        {
+            IsIntegerType(enum_type->getDecl()->getIntegerType().getAsOpaquePtr(), is_signed);
+            return true;
+        }
+    }
+
+    return false;
+}
+
+bool
 ClangASTContext::IsPointerType (lldb::opaque_compiler_type_t type, CompilerType *pointee_type)
 {
     if (type)
@@ -3592,6 +3632,14 @@ ClangASTContext::IsPossibleDynamicType (lldb::opaque_compiler_type_t type, Compi
             case clang::Type::ObjCObjectPointer:
                 if (check_objc)
                 {
+                    if (auto objc_pointee_type = qual_type->getPointeeType().getTypePtrOrNull())
+                    {
+                        if (auto objc_object_type = llvm::dyn_cast_or_null<clang::ObjCObjectType>(objc_pointee_type))
+                        {
+                            if (objc_object_type->isObjCClass())
+                                return false;
+                        }
+                    }
                     if (dynamic_pointee_type)
                         dynamic_pointee_type->SetCompilerType(getASTContext(), llvm::cast<clang::ObjCObjectPointerType>(qual_type)->getPointeeType());
                     return true;
@@ -7725,8 +7773,7 @@ ClangASTContext::BuildIndirectFields (const CompilerType& type)
                                                                                                 clang::SourceLocation(),
                                                                                                 nested_field_decl->getIdentifier(),
                                                                                                 nested_field_decl->getType(),
-                                                                                                chain,
-                                                                                                2);
+                                                                                                {chain, 2});
                     
                     indirect_field->setImplicit();
                     
@@ -7737,7 +7784,7 @@ ClangASTContext::BuildIndirectFields (const CompilerType& type)
                 }
                 else if (clang::IndirectFieldDecl *nested_indirect_field_decl = llvm::dyn_cast<clang::IndirectFieldDecl>(*di))
                 {
-                    int nested_chain_size = nested_indirect_field_decl->getChainingSize();
+                    size_t nested_chain_size = nested_indirect_field_decl->getChainingSize();
                     clang::NamedDecl **chain = new (*ast->getASTContext()) clang::NamedDecl*[nested_chain_size + 1];
                     chain[0] = *field_pos;
                     
@@ -7756,8 +7803,7 @@ ClangASTContext::BuildIndirectFields (const CompilerType& type)
                                                                                                 clang::SourceLocation(),
                                                                                                 nested_indirect_field_decl->getIdentifier(),
                                                                                                 nested_indirect_field_decl->getType(),
-                                                                                                chain,
-                                                                                                nested_chain_size + 1);
+                                                                                                {chain, nested_chain_size + 1});
                     
                     indirect_field->setImplicit();
                     
@@ -8308,7 +8354,8 @@ ClangASTContext::AddMethodToObjCObjectType (const CompilerType& type,
                                             const char *name,  // the full symbol name as seen in the symbol table (lldb::opaque_compiler_type_t type, "-[NString stringWithCString:]")
                                             const CompilerType &method_clang_type,
                                             lldb::AccessType access,
-                                            bool is_artificial)
+                                            bool is_artificial,
+                                            bool is_variadic)
 {
     if (!type || !method_clang_type.IsValid())
         return nullptr;
@@ -8368,7 +8415,6 @@ ClangASTContext::AddMethodToObjCObjectType (const CompilerType& type,
         return nullptr;
     
     
-    bool is_variadic = false;
     bool is_synthesized = false;
     bool is_defined = false;
     clang::ObjCMethodDecl::ImplementationControl imp_control = clang::ObjCMethodDecl::None;
@@ -8594,18 +8640,28 @@ ClangASTContext::CompleteTagDeclarationDefinition (const CompilerType& type)
     clang::QualType qual_type(ClangUtil::GetQualType(type));
     if (!qual_type.isNull())
     {
-        clang::CXXRecordDecl *cxx_record_decl = qual_type->getAsCXXRecordDecl();
-        
-        if (cxx_record_decl)
+        // Make sure we use the same methodology as ClangASTContext::StartTagDeclarationDefinition()
+        // as to how we start/end the definition. Previously we were calling 
+        const clang::TagType *tag_type = qual_type->getAs<clang::TagType>();
+        if (tag_type)
         {
-            if (!cxx_record_decl->isCompleteDefinition())
-                cxx_record_decl->completeDefinition();
-            cxx_record_decl->setHasLoadedFieldsFromExternalStorage(true);
-            cxx_record_decl->setHasExternalLexicalStorage (false);
-            cxx_record_decl->setHasExternalVisibleStorage (false);
-            return true;
+            clang::TagDecl *tag_decl = tag_type->getDecl();
+            if (tag_decl)
+            {
+                clang::CXXRecordDecl *cxx_record_decl = llvm::dyn_cast_or_null<clang::CXXRecordDecl>(tag_decl);
+                
+                if (cxx_record_decl)
+                {
+                    if (!cxx_record_decl->isCompleteDefinition())
+                        cxx_record_decl->completeDefinition();
+                    cxx_record_decl->setHasLoadedFieldsFromExternalStorage(true);
+                    cxx_record_decl->setHasExternalLexicalStorage (false);
+                    cxx_record_decl->setHasExternalVisibleStorage (false);
+                    return true;
+                }
+            }
         }
-        
+
         const clang::EnumType *enutype = qual_type->getAs<clang::EnumType>();
         
         if (enutype)
@@ -9595,24 +9651,6 @@ ClangASTContext::LayoutRecordType(void *baton,
 //----------------------------------------------------------------------
 // CompilerDecl override functions
 //----------------------------------------------------------------------
-lldb::VariableSP
-ClangASTContext::DeclGetVariable (void *opaque_decl)
-{
-    if (llvm::dyn_cast<clang::VarDecl>((clang::Decl *)opaque_decl))
-    {
-        auto decl_search_it = m_decl_objects.find(opaque_decl);
-        if (decl_search_it != m_decl_objects.end())
-            return std::static_pointer_cast<Variable>(decl_search_it->second);
-    }
-    return VariableSP();
-}
-
-void
-ClangASTContext::DeclLinkToObject (void *opaque_decl, std::shared_ptr<void> object)
-{
-    if (m_decl_objects.find(opaque_decl) == m_decl_objects.end())
-        m_decl_objects.insert(std::make_pair(opaque_decl, object));
-}
 
 ConstString
 ClangASTContext::DeclGetName (void *opaque_decl)

@@ -178,8 +178,19 @@ static void addAddDiscriminatorsPass(const PassManagerBuilder &Builder,
   PM.add(createAddDiscriminatorsPass());
 }
 
+static void addCleanupPassesForSampleProfiler(
+    const PassManagerBuilder &Builder, legacy::PassManagerBase &PM) {
+  // instcombine is needed before sample profile annotation because it converts
+  // certain function calls to be inlinable. simplifycfg and sroa are needed
+  // before instcombine for necessary preparation. E.g. load store is eliminated
+  // properly so that instcombine will not introduce unecessary liverange.
+  PM.add(createCFGSimplificationPass());
+  PM.add(createSROAPass());
+  PM.add(createInstructionCombiningPass());
+}
+
 static void addBoundsCheckingPass(const PassManagerBuilder &Builder,
-                                    legacy::PassManagerBase &PM) {
+                                  legacy::PassManagerBase &PM) {
   PM.add(createBoundsCheckingPass());
 }
 
@@ -205,14 +216,17 @@ static void addAddressSanitizerPasses(const PassManagerBuilder &Builder,
       static_cast<const PassManagerBuilderWrapper&>(Builder);
   const CodeGenOptions &CGOpts = BuilderWrapper.getCGOpts();
   bool Recover = CGOpts.SanitizeRecover.has(SanitizerKind::Address);
-  PM.add(createAddressSanitizerFunctionPass(/*CompileKernel*/false, Recover));
+  bool UseAfterScope = CGOpts.SanitizeAddressUseAfterScope;
+  PM.add(createAddressSanitizerFunctionPass(/*CompileKernel*/ false, Recover,
+                                            UseAfterScope));
   PM.add(createAddressSanitizerModulePass(/*CompileKernel*/false, Recover));
 }
 
 static void addKernelAddressSanitizerPasses(const PassManagerBuilder &Builder,
                                             legacy::PassManagerBase &PM) {
-  PM.add(createAddressSanitizerFunctionPass(/*CompileKernel*/true,
-                                            /*Recover*/true));
+  PM.add(createAddressSanitizerFunctionPass(
+      /*CompileKernel*/ true,
+      /*Recover*/ true, /*UseAfterScope*/ false));
   PM.add(createAddressSanitizerModulePass(/*CompileKernel*/true,
                                           /*Recover*/true));
 }
@@ -258,6 +272,8 @@ static void addEfficiencySanitizerPass(const PassManagerBuilder &Builder,
   EfficiencySanitizerOptions Opts;
   if (LangOpts.Sanitize.has(SanitizerKind::EfficiencyCacheFrag))
     Opts.ToolType = EfficiencySanitizerOptions::ESAN_CacheFrag;
+  else if (LangOpts.Sanitize.has(SanitizerKind::EfficiencyWorkingSet))
+    Opts.ToolType = EfficiencySanitizerOptions::ESAN_WorkingSet;
   PM.add(createEfficiencySanitizerPass(Opts));
 }
 
@@ -318,7 +334,8 @@ void EmitAssemblyHelper::CreatePasses(ModuleSummaryIndex *ModuleSummary) {
   switch (Inlining) {
   case CodeGenOptions::NoInlining:
     break;
-  case CodeGenOptions::NormalInlining: {
+  case CodeGenOptions::NormalInlining:
+  case CodeGenOptions::OnlyHintInlining: {
     PMBuilder.Inliner =
         createFunctionInliningPass(OptLevel, CodeGenOpts.OptimizeSize);
     break;
@@ -439,7 +456,6 @@ void EmitAssemblyHelper::CreatePasses(ModuleSummaryIndex *ModuleSummary) {
   legacy::FunctionPassManager *FPM = getPerFunctionPasses();
   if (CodeGenOpts.VerifyModule)
     FPM->add(createVerifierPass());
-  PMBuilder.populateFunctionPassManager(*FPM);
 
   // Set up the per-module pass manager.
   if (!CodeGenOpts.RewriteMapFiles.empty())
@@ -478,9 +494,14 @@ void EmitAssemblyHelper::CreatePasses(ModuleSummaryIndex *ModuleSummary) {
   if (CodeGenOpts.hasProfileIRUse())
     PMBuilder.PGOInstrUse = CodeGenOpts.ProfileInstrumentUsePath;
 
-  if (!CodeGenOpts.SampleProfileFile.empty())
+  if (!CodeGenOpts.SampleProfileFile.empty()) {
+    MPM->add(createPruneEHPass());
     MPM->add(createSampleProfileLoaderPass(CodeGenOpts.SampleProfileFile));
+    PMBuilder.addExtension(PassManagerBuilder::EP_EarlyAsPossible,
+                           addCleanupPassesForSampleProfiler);
+  }
 
+  PMBuilder.populateFunctionPassManager(*FPM);
   PMBuilder.populateModulePassManager(*MPM);
 }
 
@@ -583,6 +604,7 @@ TargetMachine *EmitAssemblyHelper::CreateTargetMachine(bool MustCreateTM) {
   Options.UseInitArray = CodeGenOpts.UseInitArray;
   Options.DisableIntegratedAS = CodeGenOpts.DisableIntegratedAS;
   Options.CompressDebugSections = CodeGenOpts.CompressDebugSections;
+  Options.RelaxELFRelocations = CodeGenOpts.RelaxELFRelocations;
 
   // Set EABI version.
   Options.EABIVersion = llvm::StringSwitch<llvm::EABI>(TargetOpts.EABIVersion)
@@ -590,6 +612,9 @@ TargetMachine *EmitAssemblyHelper::CreateTargetMachine(bool MustCreateTM) {
                             .Case("5", llvm::EABI::EABI5)
                             .Case("gnu", llvm::EABI::GNU)
                             .Default(llvm::EABI::Default);
+
+  if (LangOpts.SjLjExceptions)
+    Options.ExceptionModel = llvm::ExceptionHandling::SjLj;
 
   Options.LessPreciseFPMADOption = CodeGenOpts.LessPreciseFPMAD;
   Options.NoInfsFPMath = CodeGenOpts.NoInfsFPMath;

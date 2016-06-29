@@ -13,6 +13,7 @@
 #include "SparcTargetMachine.h"
 #include "SparcTargetObjectFile.h"
 #include "Sparc.h"
+#include "LeonPasses.h"
 #include "llvm/CodeGen/Passes.h"
 #include "llvm/CodeGen/TargetPassConfig.h"
 #include "llvm/IR/LegacyPassManager.h"
@@ -60,7 +61,6 @@ static Reloc::Model getEffectiveRelocModel(Optional<Reloc::Model> RM) {
 }
 
 /// Create an ILP32 architecture model
-///
 SparcTargetMachine::SparcTargetMachine(const Target &T, const Triple &TT,
                                        StringRef CPU, StringRef FS,
                                        const TargetOptions &Options,
@@ -69,9 +69,9 @@ SparcTargetMachine::SparcTargetMachine(const Target &T, const Triple &TT,
                                        CodeGenOpt::Level OL, bool is64bit)
     : LLVMTargetMachine(T, computeDataLayout(TT, is64bit), TT, CPU, FS, Options,
                         getEffectiveRelocModel(RM), CM, OL),
-      TLOF(make_unique<SparcELFTargetObjectFile>()) {
+      TLOF(make_unique<SparcELFTargetObjectFile>()),
+      Subtarget(TT, CPU, FS, *this, is64bit), is64Bit(is64bit) {
   initAsmInfo();
-  this->is64Bit = is64bit;
 }
 
 SparcTargetMachine::~SparcTargetMachine() {}
@@ -144,6 +144,23 @@ bool SparcPassConfig::addInstSelector() {
 
 void SparcPassConfig::addPreEmitPass(){
   addPass(createSparcDelaySlotFillerPass(getSparcTargetMachine()));
+
+  if (this->getSparcTargetMachine().getSubtargetImpl()->insertNOPLoad())
+  {
+    addPass(new InsertNOPLoad(getSparcTargetMachine()));
+  }
+  if (this->getSparcTargetMachine().getSubtargetImpl()->fixFSMULD())
+  {
+    addPass(new FixFSMULD(getSparcTargetMachine()));
+  }
+  if (this->getSparcTargetMachine().getSubtargetImpl()->replaceFMULS())
+  {
+    addPass(new ReplaceFMULS(getSparcTargetMachine()));
+  }
+  if (this->getSparcTargetMachine().getSubtargetImpl()->fixAllFDIVSQRT())
+  {
+    addPass(new FixAllFDIVSQRT(getSparcTargetMachine()));
+  }
 }
 
 void SparcV8TargetMachine::anchor() { }

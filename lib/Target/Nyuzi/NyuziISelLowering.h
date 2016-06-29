@@ -55,11 +55,11 @@ public:
                          EVT VT) const override;
   SDValue LowerReturn(SDValue Chain, CallingConv::ID CallConv, bool isVarArg,
                       const SmallVectorImpl<ISD::OutputArg> &Outs,
-                      const SmallVectorImpl<SDValue> &OutVals, SDLoc,
+                      const SmallVectorImpl<SDValue> &OutVals, const SDLoc&,
                       SelectionDAG &DAG) const override;
   SDValue LowerFormalArguments(SDValue Chain, CallingConv::ID CallConv,
                                bool isVarArg,
-                               const SmallVectorImpl<ISD::InputArg> &Ins, SDLoc,
+                               const SmallVectorImpl<ISD::InputArg> &Ins, const SDLoc&,
                                SelectionDAG &DAG,
                                SmallVectorImpl<SDValue> &InVals) const override;
   SDValue LowerCall(TargetLowering::CallLoweringInfo &CLI,

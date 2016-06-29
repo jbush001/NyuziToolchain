@@ -21,6 +21,7 @@
 #include "llvm/MC/MCObjectStreamer.h"
 #include "llvm/MC/MCValue.h"
 #include "llvm/Support/COFF.h"
+#include "llvm/Support/EndianStream.h"
 
 using namespace llvm;
 using namespace llvm::codeview;
@@ -118,6 +119,11 @@ void CodeViewContext::emitStringTable(MCObjectStreamer &OS) {
 }
 
 void CodeViewContext::emitFileChecksums(MCObjectStreamer &OS) {
+  // Do nothing if there are no file checksums. Microsoft's linker rejects empty
+  // CodeView substreams.
+  if (Filenames.empty())
+    return;
+
   MCContext &Ctx = OS.getContext();
   MCSymbol *FileBegin = Ctx.createTempSymbol("filechecksums_begin", false),
            *FileEnd = Ctx.createTempSymbol("filechecksums_end", false);

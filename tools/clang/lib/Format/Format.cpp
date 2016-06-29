@@ -34,6 +34,7 @@
 #include "llvm/Support/Path.h"
 #include "llvm/Support/Regex.h"
 #include "llvm/Support/YAMLTraits.h"
+#include <algorithm>
 #include <memory>
 #include <queue>
 #include <string>
@@ -313,6 +314,8 @@ template <> struct MappingTraits<FormatStyle> {
     IO.mapOptional("IndentWidth", Style.IndentWidth);
     IO.mapOptional("IndentWrappedFunctionNames",
                    Style.IndentWrappedFunctionNames);
+    IO.mapOptional("JavaScriptQuotes", Style.JavaScriptQuotes);
+    IO.mapOptional("JavaScriptWrapImports", Style.JavaScriptWrapImports);
     IO.mapOptional("KeepEmptyLinesAtTheStartOfBlocks",
                    Style.KeepEmptyLinesAtTheStartOfBlocks);
     IO.mapOptional("MacroBlockBegin", Style.MacroBlockBegin);
@@ -352,7 +355,6 @@ template <> struct MappingTraits<FormatStyle> {
     IO.mapOptional("Standard", Style.Standard);
     IO.mapOptional("TabWidth", Style.TabWidth);
     IO.mapOptional("UseTab", Style.UseTab);
-    IO.mapOptional("JavaScriptQuotes", Style.JavaScriptQuotes);
   }
 };
 
@@ -530,6 +532,8 @@ FormatStyle getLLVMStyle() {
   LLVMStyle.IndentCaseLabels = false;
   LLVMStyle.IndentWrappedFunctionNames = false;
   LLVMStyle.IndentWidth = 2;
+  LLVMStyle.JavaScriptQuotes = FormatStyle::JSQS_Leave;
+  LLVMStyle.JavaScriptWrapImports = true;
   LLVMStyle.TabWidth = 8;
   LLVMStyle.MaxEmptyLinesToKeep = 1;
   LLVMStyle.KeepEmptyLinesAtTheStartOfBlocks = true;
@@ -608,10 +612,12 @@ FormatStyle getGoogleStyle(FormatStyle::LanguageKind Language) {
     GoogleStyle.AllowShortFunctionsOnASingleLine = FormatStyle::SFS_Inline;
     GoogleStyle.AlwaysBreakBeforeMultilineStrings = false;
     GoogleStyle.BreakBeforeTernaryOperators = false;
-    GoogleStyle.CommentPragmas = "@(export|return|see|visibility) ";
+    GoogleStyle.CommentPragmas = "@(export|requirecss|return|see|visibility) ";
     GoogleStyle.MaxEmptyLinesToKeep = 3;
+    GoogleStyle.NamespaceIndentation = FormatStyle::NI_All;
     GoogleStyle.SpacesInContainerLiterals = false;
     GoogleStyle.JavaScriptQuotes = FormatStyle::JSQS_Single;
+    GoogleStyle.JavaScriptWrapImports = false;
   } else if (Language == FormatStyle::LK_Proto) {
     GoogleStyle.AllowShortFunctionsOnASingleLine = FormatStyle::SFS_None;
     GoogleStyle.SpacesInContainerLiterals = false;
@@ -1225,14 +1231,7 @@ static void sortCppIncludes(const FormatStyle &Style,
 
   // If the #includes are out of order, we generate a single replacement fixing
   // the entire block. Otherwise, no replacement is generated.
-  bool OutOfOrder = false;
-  for (unsigned i = 1, e = Indices.size(); i != e; ++i) {
-    if (Indices[i] != i) {
-      OutOfOrder = true;
-      break;
-    }
-  }
-  if (!OutOfOrder)
+  if (std::is_sorted(Indices.begin(), Indices.end()))
     return;
 
   std::string result;
@@ -1262,6 +1261,65 @@ static void sortCppIncludes(const FormatStyle &Style,
                                        result.size(), result));
 }
 
+namespace {
+
+// This class manages priorities of #include categories and calculates
+// priorities for headers.
+class IncludeCategoryManager {
+public:
+  IncludeCategoryManager(const FormatStyle &Style, StringRef FileName)
+      : Style(Style), FileName(FileName) {
+    FileStem = llvm::sys::path::stem(FileName);
+    for (const auto &Category : Style.IncludeCategories)
+      CategoryRegexs.emplace_back(Category.Regex);
+    IsMainFile = FileName.endswith(".c") || FileName.endswith(".cc") ||
+                 FileName.endswith(".cpp") || FileName.endswith(".c++") ||
+                 FileName.endswith(".cxx") || FileName.endswith(".m") ||
+                 FileName.endswith(".mm");
+  }
+
+  // Returns the priority of the category which \p IncludeName belongs to.
+  // If \p CheckMainHeader is true and \p IncludeName is a main header, returns
+  // 0. Otherwise, returns the priority of the matching category or INT_MAX.
+  int getIncludePriority(StringRef IncludeName, bool CheckMainHeader) {
+    int Ret = INT_MAX;
+    for (unsigned i = 0, e = CategoryRegexs.size(); i != e; ++i)
+      if (CategoryRegexs[i].match(IncludeName)) {
+        Ret = Style.IncludeCategories[i].Priority;
+        break;
+      }
+    if (CheckMainHeader && IsMainFile && Ret > 0 && isMainHeader(IncludeName))
+      Ret = 0;
+    return Ret;
+  }
+
+private:
+  bool isMainHeader(StringRef IncludeName) const {
+    if (!IncludeName.startswith("\""))
+      return false;
+    StringRef HeaderStem =
+        llvm::sys::path::stem(IncludeName.drop_front(1).drop_back(1));
+    if (FileStem.startswith(HeaderStem)) {
+      llvm::Regex MainIncludeRegex(
+          (HeaderStem + Style.IncludeIsMainRegex).str());
+      if (MainIncludeRegex.match(FileStem))
+        return true;
+    }
+    return false;
+  }
+
+  const FormatStyle &Style;
+  bool IsMainFile;
+  StringRef FileName;
+  StringRef FileStem;
+  SmallVector<llvm::Regex, 4> CategoryRegexs;
+};
+
+const char IncludeRegexPattern[] =
+    R"(^[\t\ ]*#[\t\ ]*(import|include)[^"<]*(["<][^">]*[">]))";
+
+} // anonymous namespace
+
 tooling::Replacements sortCppIncludes(const FormatStyle &Style, StringRef Code,
                                       ArrayRef<tooling::Range> Ranges,
                                       StringRef FileName,
@@ -1269,8 +1327,7 @@ tooling::Replacements sortCppIncludes(const FormatStyle &Style, StringRef Code,
                                       unsigned *Cursor) {
   unsigned Prev = 0;
   unsigned SearchFrom = 0;
-  llvm::Regex IncludeRegex(
-      R"(^[\t\ ]*#[\t\ ]*(import|include)[^"<]*(["<][^">]*[">]))");
+  llvm::Regex IncludeRegex(IncludeRegexPattern);
   SmallVector<StringRef, 4> Matches;
   SmallVector<IncludeDirective, 16> IncludesInBlock;
 
@@ -1281,19 +1338,9 @@ tooling::Replacements sortCppIncludes(const FormatStyle &Style, StringRef Code,
   //
   // FIXME: Do some sanity checking, e.g. edit distance of the base name, to fix
   // cases where the first #include is unlikely to be the main header.
-  bool IsSource = FileName.endswith(".c") || FileName.endswith(".cc") ||
-                  FileName.endswith(".cpp") || FileName.endswith(".c++") ||
-                  FileName.endswith(".cxx") || FileName.endswith(".m") ||
-                  FileName.endswith(".mm");
-  StringRef FileStem = llvm::sys::path::stem(FileName);
+  IncludeCategoryManager Categories(Style, FileName);
   bool FirstIncludeBlock = true;
   bool MainIncludeFound = false;
-
-  // Create pre-compiled regular expressions for the #include categories.
-  SmallVector<llvm::Regex, 4> CategoryRegexs;
-  for (const auto &Category : Style.IncludeCategories)
-    CategoryRegexs.emplace_back(Category.Regex);
-
   bool FormattingOff = false;
 
   for (;;) {
@@ -1310,26 +1357,11 @@ tooling::Replacements sortCppIncludes(const FormatStyle &Style, StringRef Code,
     if (!FormattingOff && !Line.endswith("\\")) {
       if (IncludeRegex.match(Line, &Matches)) {
         StringRef IncludeName = Matches[2];
-        int Category = INT_MAX;
-        for (unsigned i = 0, e = CategoryRegexs.size(); i != e; ++i) {
-          if (CategoryRegexs[i].match(IncludeName)) {
-            Category = Style.IncludeCategories[i].Priority;
-            break;
-          }
-        }
-        if (IsSource && !MainIncludeFound && Category > 0 &&
-            FirstIncludeBlock && IncludeName.startswith("\"")) {
-          StringRef HeaderStem =
-              llvm::sys::path::stem(IncludeName.drop_front(1).drop_back(1));
-          if (FileStem.startswith(HeaderStem)) {
-            llvm::Regex MainIncludeRegex(
-                (HeaderStem + Style.IncludeIsMainRegex).str());
-            if (MainIncludeRegex.match(FileStem)) {
-              Category = 0;
-              MainIncludeFound = true;
-            }
-          }
-        }
+        int Category = Categories.getIncludePriority(
+            IncludeName,
+            /*CheckMainHeader=*/!MainIncludeFound && FirstIncludeBlock);
+        if (Category == 0)
+          MainIncludeFound = true;
         IncludesInBlock.push_back({IncludeName, Line, Prev, Category});
       } else if (!IncludesInBlock.empty()) {
         sortCppIncludes(Style, IncludesInBlock, Ranges, FileName, Replaces,
@@ -1402,6 +1434,163 @@ tooling::Replacements formatReplacements(StringRef Code,
   return processReplacements(Reformat, Code, SortedReplaces, Style);
 }
 
+namespace {
+
+inline bool isHeaderInsertion(const tooling::Replacement &Replace) {
+  return Replace.getOffset() == UINT_MAX &&
+         llvm::Regex(IncludeRegexPattern).match(Replace.getReplacementText());
+}
+
+void skipComments(Lexer &Lex, Token &Tok) {
+  while (Tok.is(tok::comment))
+    if (Lex.LexFromRawLexer(Tok))
+      return;
+}
+
+// Check if a sequence of tokens is like "#<Name> <raw_identifier>". If it is,
+// \p Tok will be the token after this directive; otherwise, it can be any token
+// after the given \p Tok (including \p Tok).
+bool checkAndConsumeDirectiveWithName(Lexer &Lex, StringRef Name, Token &Tok) {
+  bool Matched = Tok.is(tok::hash) && !Lex.LexFromRawLexer(Tok) &&
+                 Tok.is(tok::raw_identifier) &&
+                 Tok.getRawIdentifier() == Name && !Lex.LexFromRawLexer(Tok) &&
+                 Tok.is(tok::raw_identifier);
+  if (Matched)
+    Lex.LexFromRawLexer(Tok);
+  return Matched;
+}
+
+unsigned getOffsetAfterHeaderGuardsAndComments(StringRef FileName,
+                                               StringRef Code,
+                                               const FormatStyle &Style) {
+  std::unique_ptr<Environment> Env =
+      Environment::CreateVirtualEnvironment(Code, FileName, /*Ranges=*/{});
+  const SourceManager &SourceMgr = Env->getSourceManager();
+  Lexer Lex(Env->getFileID(), SourceMgr.getBuffer(Env->getFileID()), SourceMgr,
+            getFormattingLangOpts(Style));
+  Token Tok;
+  // Get the first token.
+  Lex.LexFromRawLexer(Tok);
+  skipComments(Lex, Tok);
+  unsigned AfterComments = SourceMgr.getFileOffset(Tok.getLocation());
+  if (checkAndConsumeDirectiveWithName(Lex, "ifndef", Tok)) {
+    skipComments(Lex, Tok);
+    if (checkAndConsumeDirectiveWithName(Lex, "define", Tok))
+      return SourceMgr.getFileOffset(Tok.getLocation());
+  }
+  return AfterComments;
+}
+
+// FIXME: we also need to insert a '\n' at the end of the code if we have an
+// insertion with offset Code.size(), and there is no '\n' at the end of the
+// code.
+// FIXME: do not insert headers into conditional #include blocks, e.g. #includes
+// surrounded by compile condition "#if...".
+// FIXME: insert empty lines between newly created blocks.
+tooling::Replacements
+fixCppIncludeInsertions(StringRef Code, const tooling::Replacements &Replaces,
+                        const FormatStyle &Style) {
+  if (Style.Language != FormatStyle::LanguageKind::LK_Cpp)
+    return Replaces;
+
+  tooling::Replacements HeaderInsertions;
+  for (const auto &R : Replaces) {
+    if (isHeaderInsertion(R))
+      HeaderInsertions.insert(R);
+    else if (R.getOffset() == UINT_MAX)
+      llvm::errs() << "Insertions other than header #include insertion are "
+                      "not supported! "
+                   << R.getReplacementText() << "\n";
+  }
+  if (HeaderInsertions.empty())
+    return Replaces;
+  tooling::Replacements Result;
+  std::set_difference(Replaces.begin(), Replaces.end(),
+                      HeaderInsertions.begin(), HeaderInsertions.end(),
+                      std::inserter(Result, Result.begin()));
+
+  llvm::Regex IncludeRegex(IncludeRegexPattern);
+  llvm::Regex DefineRegex(R"(^[\t\ ]*#[\t\ ]*define[\t\ ]*[^\\]*$)");
+  SmallVector<StringRef, 4> Matches;
+
+  StringRef FileName = Replaces.begin()->getFilePath();
+  IncludeCategoryManager Categories(Style, FileName);
+
+  // Record the offset of the end of the last include in each category.
+  std::map<int, int> CategoryEndOffsets;
+  // All possible priorities.
+  // Add 0 for main header and INT_MAX for headers that are not in any category.
+  std::set<int> Priorities = {0, INT_MAX};
+  for (const auto &Category : Style.IncludeCategories)
+    Priorities.insert(Category.Priority);
+  int FirstIncludeOffset = -1;
+  // All new headers should be inserted after this offset.
+  unsigned MinInsertOffset =
+      getOffsetAfterHeaderGuardsAndComments(FileName, Code, Style);
+  StringRef TrimmedCode = Code.drop_front(MinInsertOffset);
+  SmallVector<StringRef, 32> Lines;
+  TrimmedCode.split(Lines, '\n');
+  unsigned Offset = MinInsertOffset;
+  unsigned NextLineOffset;
+  std::set<StringRef> ExistingIncludes;
+  for (auto Line : Lines) {
+    NextLineOffset = std::min(Code.size(), Offset + Line.size() + 1);
+    if (IncludeRegex.match(Line, &Matches)) {
+      StringRef IncludeName = Matches[2];
+      ExistingIncludes.insert(IncludeName);
+      int Category = Categories.getIncludePriority(
+          IncludeName, /*CheckMainHeader=*/FirstIncludeOffset < 0);
+      CategoryEndOffsets[Category] = NextLineOffset;
+      if (FirstIncludeOffset < 0)
+        FirstIncludeOffset = Offset;
+    }
+    Offset = NextLineOffset;
+  }
+
+  // Populate CategoryEndOfssets:
+  // - Ensure that CategoryEndOffset[Highest] is always populated.
+  // - If CategoryEndOffset[Priority] isn't set, use the next higher value that
+  //   is set, up to CategoryEndOffset[Highest].
+  auto Highest = Priorities.begin();
+  if (CategoryEndOffsets.find(*Highest) == CategoryEndOffsets.end()) {
+    if (FirstIncludeOffset >= 0)
+      CategoryEndOffsets[*Highest] = FirstIncludeOffset;
+    else
+      CategoryEndOffsets[*Highest] = MinInsertOffset;
+  }
+  // By this point, CategoryEndOffset[Highest] is always set appropriately:
+  //  - to an appropriate location before/after existing #includes, or
+  //  - to right after the header guard, or
+  //  - to the beginning of the file.
+  for (auto I = ++Priorities.begin(), E = Priorities.end(); I != E; ++I)
+    if (CategoryEndOffsets.find(*I) == CategoryEndOffsets.end())
+      CategoryEndOffsets[*I] = CategoryEndOffsets[*std::prev(I)];
+
+  for (const auto &R : HeaderInsertions) {
+    auto IncludeDirective = R.getReplacementText();
+    bool Matched = IncludeRegex.match(IncludeDirective, &Matches);
+    assert(Matched && "Header insertion replacement must have replacement text "
+                      "'#include ...'");
+    (void)Matched;
+    auto IncludeName = Matches[2];
+    if (ExistingIncludes.find(IncludeName) != ExistingIncludes.end()) {
+      DEBUG(llvm::dbgs() << "Skip adding existing include : " << IncludeName
+                         << "\n");
+      continue;
+    }
+    int Category =
+        Categories.getIncludePriority(IncludeName, /*CheckMainHeader=*/true);
+    Offset = CategoryEndOffsets[Category];
+    std::string NewInclude = !IncludeDirective.endswith("\n")
+                                 ? (IncludeDirective + "\n").str()
+                                 : IncludeDirective.str();
+    Result.insert(tooling::Replacement(FileName, Offset, 0, NewInclude));
+  }
+  return Result;
+}
+
+} // anonymous namespace
+
 tooling::Replacements
 cleanupAroundReplacements(StringRef Code, const tooling::Replacements &Replaces,
                           const FormatStyle &Style) {
@@ -1412,7 +1601,10 @@ cleanupAroundReplacements(StringRef Code, const tooling::Replacements &Replaces,
                     StringRef FileName) -> tooling::Replacements {
     return cleanup(Style, Code, Ranges, FileName);
   };
-  return processReplacements(Cleanup, Code, Replaces, Style);
+  // Make header insertion replacements insert new headers into correct blocks.
+  tooling::Replacements NewReplaces =
+      fixCppIncludeInsertions(Code, Replaces, Style);
+  return processReplacements(Cleanup, Code, NewReplaces, Style);
 }
 
 tooling::Replacements reformat(const FormatStyle &Style, SourceManager &SM,
