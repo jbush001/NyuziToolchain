@@ -7,7 +7,7 @@ While this project includes a C/C++ compiler, the LLVM backend can support
 any language.  There is a small, experimental SPMD parallel compiler in
 tools/spmd_compiler.
 
-Questions or issues can be directed to the [mailing list](https://groups.google.com/forum/#!forum/nyuzi-processor-dev) or...   
+Questions or issues can be directed to the [mailing list](https://groups.google.com/forum/#!forum/nyuzi-processor-dev) or...
 [![Chat at https://gitter.im/jbush001/NyuziProcessor](https://badges.gitter.im/Join%20Chat.svg)](https://gitter.im/jbush001/NyuziProcessor?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
 
 
@@ -32,15 +32,15 @@ The following sections describe how to install these packages.
 - libedit (http://thrysoee.dk/editline/)
 - ncurses
 
-## Building on Linux 
+## Building on Linux
 
 You can install required packages using the built-in package manager (apt-get,
 yum, etc). As LLVM needs newer versions of many packages, you should be on
 a recent version of your Linux distribution. Instructions are below are for Ubuntu
-(which must be on at least version 14). You may need to change the package names
+(which must be on at least version 16). You may need to change the package names
 for other distributions:
 
-    sudo apt-get install libxml2-dev cmake gcc g++ python bison flex zlib1g-dev swig python-dev libedit-dev ncurses-dev
+    sudo apt-get install libxml2-dev cmake gcc g++ python bison flex zlib1g-dev swig python-dev libedit-dev libncurses5-dev
 
     git clone git@github.com:jbush001/NyuziToolchain.git
     cd NyuziToolchain
@@ -71,13 +71,13 @@ and updates the PATH. Once you have done this:
     cmake ..
     make
     sudo make install
-    
+
 **Upgrading 'flex' using the package manager may cause build errors. I
 would recommend using the system supplied version.**
 
 ## Building on Windows
 
-I have not tested this natively on Windows. Many of the libraries are already cross 
+I have not tested this natively on Windows. Many of the libraries are already cross
 platform, so it should theoretically be possible.
 
 ## Other Notes
@@ -92,8 +92,8 @@ platform, so it should theoretically be possible.
 
 ## Running Regression Tests
 
-Change PATH environment variable to include the binary directory (build/bin). This is only required 
-for llvm-lit based tests. Run the tests as follows (assuming you are at the top of the project 
+Change PATH environment variable to include the binary directory (build/bin). This is only required
+for llvm-lit based tests. Run the tests as follows (assuming you are at the top of the project
 directory):
 
 ```
