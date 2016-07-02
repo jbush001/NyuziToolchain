@@ -15,10 +15,11 @@
 #define LLVM_TARGET_NYUZI_NYUZITARGETOBJECTFILE_H
 
 #include "llvm/CodeGen/TargetLoweringObjectFileImpl.h"
-#include "llvm/Target/TargetLoweringObjectFile.h"
 #include "llvm/Target/TargetMachine.h"
 
 namespace llvm {
+
+class TargetMachine;
 
 class NyuziTargetObjectFile : public TargetLoweringObjectFileELF {
   void Initialize(MCContext &Ctx, const TargetMachine &TM) override;

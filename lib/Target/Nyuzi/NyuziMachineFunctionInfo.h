@@ -7,9 +7,10 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// This file declares  Nyuzi specific per-machine-function information.
+// This file declares Nyuzi specific per-machine-function information.
 //
 //===----------------------------------------------------------------------===//
+
 #ifndef LLVM_LIB_TARGET_NYUZI_NYUZIMACHINEFUNCTIONINFO_H
 #define LLVM_LIB_TARGET_NYUZI_NYUZIMACHINEFUNCTIONINFO_H
 

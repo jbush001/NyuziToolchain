@@ -12,6 +12,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "MCTargetDesc/NyuziMCTargetDesc.h"
 #include "NyuziInstrInfo.h"
 #include "Nyuzi.h"
 #include "NyuziMachineFunctionInfo.h"

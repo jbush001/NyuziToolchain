@@ -15,9 +15,6 @@
 #define LLVM_LIB_TARGET_NYUZI_NYUZITARGETMACHINE_H
 
 #include "NyuziSubtarget.h"
-#include "NyuziTargetObjectFile.h"
-#include "llvm/IR/DataLayout.h"
-#include "llvm/Target/TargetFrameLowering.h"
 #include "llvm/Target/TargetMachine.h"
 
 namespace llvm {

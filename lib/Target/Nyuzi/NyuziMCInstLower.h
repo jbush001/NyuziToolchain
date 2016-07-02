@@ -15,9 +15,7 @@
 #ifndef LLVM_LIB_TARGET_NYUZI_NYUZIMCINSTLOWER_H
 #define LLVM_LIB_TARGET_NYUZI_NYUZIMCINSTLOWER_H
 
-#include "llvm/ADT/SmallVector.h"
 #include "llvm/CodeGen/MachineOperand.h"
-#include "llvm/MC/MCStreamer.h"
 #include "llvm/Support/Compiler.h"
 
 namespace llvm {
@@ -25,8 +23,6 @@ class MCContext;
 class MCInst;
 class MCOperand;
 class MachineInstr;
-class MachineFunction;
-class Mangler;
 class NyuziAsmPrinter;
 
 class LLVM_LIBRARY_VISIBILITY NyuziMCInstLower {

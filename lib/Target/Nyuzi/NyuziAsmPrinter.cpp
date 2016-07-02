@@ -8,11 +8,13 @@
 //===----------------------------------------------------------------------===//
 
 #define DEBUG_TYPE "nyuzi-asm-printer"
+
 #include "NyuziAsmPrinter.h"
 #include "InstPrinter/NyuziInstPrinter.h"
 #include "Nyuzi.h"
 #include "NyuziInstrInfo.h"
 #include "NyuziMCInstLower.h"
+#include "MCTargetDesc/NyuziMCTargetDesc.h"
 #include "NyuziTargetMachine.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/CodeGen/AsmPrinter.h"
@@ -29,6 +31,7 @@
 #include "llvm/Support/TargetRegistry.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Target/TargetLoweringObjectFile.h"
+
 using namespace llvm;
 
 void NyuziAsmPrinter::EmitInstruction(const MachineInstr *MI) {

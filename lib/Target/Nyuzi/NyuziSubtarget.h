@@ -18,7 +18,6 @@
 #include "NyuziISelLowering.h"
 #include "NyuziInstrInfo.h"
 #include "llvm/CodeGen/SelectionDAGTargetInfo.h"
-#include "llvm/IR/DataLayout.h"
 #include "llvm/Target/TargetSubtargetInfo.h"
 #include <string>
 

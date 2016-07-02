@@ -14,6 +14,7 @@
 #define DEBUG_TYPE "nyuzi-disassembler"
 
 #include "Nyuzi.h"
+#include "MCTargetDesc/NyuziMCTargetDesc.h"
 #include "NyuziRegisterInfo.h"
 #include "NyuziSubtarget.h"
 #include "llvm/MC/MCDisassembler/MCDisassembler.h"

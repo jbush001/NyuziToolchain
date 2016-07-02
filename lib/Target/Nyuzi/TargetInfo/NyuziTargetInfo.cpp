@@ -10,6 +10,7 @@
 #include "Nyuzi.h"
 #include "llvm/IR/Module.h"
 #include "llvm/Support/TargetRegistry.h"
+#include "MCTargetDesc/NyuziMCTargetDesc.h"
 
 using namespace llvm;
 

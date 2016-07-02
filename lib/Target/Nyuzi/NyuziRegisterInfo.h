@@ -23,8 +23,6 @@
 namespace llvm {
 
 class NyuziSubtarget;
-class TargetInstrInfo;
-class Type;
 
 struct NyuziRegisterInfo : public NyuziGenRegisterInfo {
 public:

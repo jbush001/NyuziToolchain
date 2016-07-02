@@ -15,6 +15,7 @@
 #include "NyuziFrameLowering.h"
 #include "NyuziInstrInfo.h"
 #include "NyuziMachineFunctionInfo.h"
+#include "MCTargetDesc/NyuziMCTargetDesc.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"

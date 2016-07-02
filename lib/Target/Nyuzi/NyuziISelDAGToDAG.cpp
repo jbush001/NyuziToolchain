@@ -14,6 +14,7 @@
 
 #define DEBUG_TYPE "nyuzi-isel"
 
+#include "MCTargetDesc/NyuziMCTargetDesc.h"
 #include "NyuziTargetMachine.h"
 #include "llvm/CodeGen/SelectionDAGISel.h"
 #include "llvm/IR/Intrinsics.h"

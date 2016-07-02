@@ -17,6 +17,7 @@
 
 #include "NyuziISelLowering.h"
 #include "NyuziMachineFunctionInfo.h"
+#include "MCTargetDesc/NyuziMCTargetDesc.h"
 #include "NyuziTargetMachine.h"
 #include "NyuziTargetObjectFile.h"
 #include "llvm/CodeGen/CallingConvLower.h"

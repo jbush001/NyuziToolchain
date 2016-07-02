@@ -12,19 +12,14 @@
 //
 //===----------------------------------------------------------------------===//
 
-
-
 #ifndef LLVM_LIB_TARGET_NYUZI_NYUZI_H
 #define LLVM_LIB_TARGET_NYUZI_NYUZI_H
 
-#include "MCTargetDesc/NyuziMCTargetDesc.h"
-#include "llvm/Support/ErrorHandling.h"
-#include "llvm/Target/TargetMachine.h"
+#include "llvm/Support/CodeGen.h"
 
 namespace llvm {
 class FunctionPass;
 class NyuziTargetMachine;
-class formatted_raw_ostream;
 
 FunctionPass *createNyuziISelDag(NyuziTargetMachine &TM);
 
