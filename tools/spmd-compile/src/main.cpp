@@ -28,18 +28,20 @@
 #include <vector>
 using namespace llvm;
 
-static Module *TheModule;
-
 int parse(Module *, LLVMContext&);
 
-bool generateTargetCode(Module *TheModule) {
+static Module *TheModule;
+extern FILE *yyin;
+static cl::opt<std::string>
+InputFilename(cl::Positional, cl::desc("<input source file>"), cl::Required);
+
+bool generateTargetCode(Module *TheModule, raw_fd_ostream &Output) {
   std::string ErrStr;
   llvm::legacy::PassManager PM;
 
   Triple TheTriple;
   TheTriple.setTriple(sys::getDefaultTargetTriple());
 
-  std::error_code Error;
   std::string ErrString;
   const Target *TheTarget =
       TargetRegistry::lookupTarget(std::string(""), TheTriple, ErrString);
@@ -56,14 +58,12 @@ bool generateTargetCode(Module *TheModule) {
   TargetMachine &Target = *target.get();
   TheModule->setDataLayout(Target.createDataLayout());
 
-  raw_fd_ostream Raw("-", Error, llvm::sys::fs::F_Text);
-
   PM.add(createPromoteMemoryToRegisterPass());
   PM.add(createInstructionCombiningPass());
   PM.add(createReassociatePass());
   PM.add(createCFGSimplificationPass());
 
-  if (Target.addPassesToEmitFile(PM, Raw, TargetMachine::CGFT_AssemblyFile,
+  if (Target.addPassesToEmitFile(PM, Output, TargetMachine::CGFT_AssemblyFile,
                                  true, 0, 0)) {
     errs() << "target does not support generation of this"
            << " file type!\n";
@@ -75,8 +75,15 @@ bool generateTargetCode(Module *TheModule) {
 }
 
 int main(int argc, const char *argv[]) {
+  std::error_code Error;
+
+  raw_fd_ostream Raw("-", Error, llvm::sys::fs::F_Text);
+
   sys::PrintStackTraceOnErrorSignal(argv[0]);
   PrettyStackTraceProgram X(argc, argv);
+
+  cl::ParseCommandLineOptions(argc, argv, "SPMD Compiler\n");
+  yyin = fopen(InputFilename.c_str(), "r");
 
   InitializeAllTargets();
   InitializeAllTargetMCs();
@@ -89,8 +96,7 @@ int main(int argc, const char *argv[]) {
   if (!parse(TheModule, TheContext))
     return 1;
 
-  TheModule->dump();
-  if (!generateTargetCode(TheModule))
+  if (!generateTargetCode(TheModule, Raw))
     return 1;
 
   return 0;
