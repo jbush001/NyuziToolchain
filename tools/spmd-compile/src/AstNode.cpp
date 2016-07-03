@@ -32,7 +32,11 @@ Value *DivAst::generate(SPMDBuilder &Builder) {
 }
 
 Value *AssignAst::generate(SPMDBuilder &Builder) {
-  return Builder.assignLocalVariable(static_cast<VariableAst *>(Lhs)->Sym->Val,
+  Symbol *Sym = static_cast<VariableAst *>(Lhs)->Sym;
+  if (Sym->Val == nullptr)
+    Sym->Val = Builder.createLocalVariable(Sym->Name.c_str());
+
+  return Builder.assignLocalVariable(Sym->Val,
                                      Rhs->generate(Builder));
 }
 

@@ -58,6 +58,9 @@ llvm::Value *SPMDBuilder::readLocalVariable(llvm::Value *Variable) {
 
 llvm::Value *SPMDBuilder::assignLocalVariable(Value *Variable,
                                               Value *NewValue) {
+  assert(Variable);
+  assert(NewValue);
+
   if (MaskStack.empty()) {
     Builder.CreateStore(NewValue, Variable);
   } else {
