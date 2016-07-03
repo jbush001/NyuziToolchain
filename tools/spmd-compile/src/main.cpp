@@ -15,6 +15,7 @@
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/FormattedStream.h"
 #include "llvm/Support/Host.h"
+#include "llvm/Support/Path.h"
 #include "llvm/Support/PrettyStackTrace.h"
 #include "llvm/Support/Signals.h"
 #include "llvm/Support/TargetRegistry.h"
@@ -26,14 +27,20 @@
 #include <map>
 #include <string>
 #include <vector>
+
 using namespace llvm;
 
 int parse(Module *, LLVMContext&);
 
 static Module *TheModule;
 extern FILE *yyin;
-static cl::opt<std::string>
-InputFilename(cl::Positional, cl::desc("<input source file>"), cl::Required);
+static cl::opt<std::string> InputFilename(cl::Positional,
+                                          cl::desc("<input source file>"),
+                                          cl::Required);
+static cl::opt<std::string> OutputOption("o", cl::desc("Output filename"),
+                                           cl::value_desc("filename"));
+static cl::opt<bool> OutputSource("S", cl::desc("Output source code"));
+static cl::opt<bool> EmitLLVM("emit-llvm", cl::desc("Output LLVM source"));
 
 bool generateTargetCode(Module *TheModule, raw_fd_ostream &Output) {
   std::string ErrStr;
@@ -58,12 +65,18 @@ bool generateTargetCode(Module *TheModule, raw_fd_ostream &Output) {
   TargetMachine &Target = *target.get();
   TheModule->setDataLayout(Target.createDataLayout());
 
+  // XXX find a way to add all necessary passes automatically. This probably
+  // doesn't cover them all, and there's probably a function somewhere that
+  // does the right thing.
   PM.add(createPromoteMemoryToRegisterPass());
   PM.add(createInstructionCombiningPass());
   PM.add(createReassociatePass());
   PM.add(createCFGSimplificationPass());
 
-  if (Target.addPassesToEmitFile(PM, Output, TargetMachine::CGFT_AssemblyFile,
+  TargetMachine::CodeGenFileType FileType = OutputSource
+    ? TargetMachine::CGFT_AssemblyFile
+    : TargetMachine::CGFT_ObjectFile;
+  if (Target.addPassesToEmitFile(PM, Output, FileType,
                                  true, 0, 0)) {
     errs() << "target does not support generation of this"
            << " file type!\n";
@@ -76,8 +89,7 @@ bool generateTargetCode(Module *TheModule, raw_fd_ostream &Output) {
 
 int main(int argc, const char *argv[]) {
   std::error_code Error;
-
-  raw_fd_ostream Raw("-", Error, llvm::sys::fs::F_Text);
+  SmallString<128> OutputPath;
 
   sys::PrintStackTraceOnErrorSignal(argv[0]);
   PrettyStackTraceProgram X(argc, argv);
@@ -96,7 +108,25 @@ int main(int argc, const char *argv[]) {
   if (!parse(TheModule, TheContext))
     return 1;
 
-  if (!generateTargetCode(TheModule, Raw))
+  if (OutputOption == "")
+  {
+    OutputPath = InputFilename;
+    if (EmitLLVM)
+      sys::path::replace_extension(OutputPath, ".ll");
+    else if (OutputSource)
+      sys::path::replace_extension(OutputPath, ".S");
+    else
+      sys::path::replace_extension(OutputPath, ".o");
+  }
+  else
+    OutputPath = OutputOption;
+
+  errs() << "output path is " << OutputPath.c_str() << "\n";
+  raw_fd_ostream OutputStream(OutputPath.c_str(), Error, llvm::sys::fs::F_Text);
+
+  if (EmitLLVM)
+    TheModule->print(OutputStream, nullptr);
+  else if (!generateTargetCode(TheModule, OutputStream))
     return 1;
 
   return 0;

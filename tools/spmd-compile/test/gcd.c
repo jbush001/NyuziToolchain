@@ -1,4 +1,4 @@
-// RUN: spmd-compile %s | FileCheck %s
+// RUN: spmd-compile %s -S -o - | FileCheck %s
 
 float gcd(float a, float b)
 {
