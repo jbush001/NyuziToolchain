@@ -121,7 +121,6 @@ int main(int argc, const char *argv[]) {
   else
     OutputPath = OutputOption;
 
-  errs() << "output path is " << OutputPath.c_str() << "\n";
   raw_fd_ostream OutputStream(OutputPath.c_str(), Error, llvm::sys::fs::F_Text);
 
   if (EmitLLVM)
