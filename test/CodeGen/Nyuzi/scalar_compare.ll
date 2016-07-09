@@ -211,10 +211,9 @@ entry:
   ret i32 %lnot.ext
 }
 
-; XXX broken
-;define i32 @check_nan(float %a) #0 {	; NCHECK: check_nan:
-;entry:
-;  %lnot = fcmp uno float %a, 0.000000e+00
-;  %lnot.ext = zext i1 %lnot to i32			; NCHECK: cmpeq_f
-;  ret i32 %lnot.ext
-;}
+define i32 @check_nan(float %a) #0 {	; CHECK: check_nan:
+entry:
+  %lnot = fcmp uno float %a, 0.000000e+00
+  %lnot.ext = zext i1 %lnot to i32			; CHECK: cmpeq_f
+  ret i32 %lnot.ext
+}
