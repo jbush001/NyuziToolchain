@@ -62,6 +62,74 @@ define i32 @cmpine(i32 %a, i32 %b) #0 {	; CHECK: cmpine:
 	ret i32 %ret
 }
 
+; Immediate forms
+
+define i32 @cmpisgtI(i32 %a, i32 %b) #0 {	; CHECK: cmpisgtI:
+	%cmp = icmp sgt i32 %a, 27			; CHECK: cmpgt_i s{{[0-9]+}}, s0, 27
+	%ret = zext i1 %cmp to i32
+	ret i32 %ret
+}
+
+define i32 @cmpiugtI(i32 %a, i32 %b) #0 {	; CHECK: cmpiugtI:
+	%cmp = icmp ugt i32 %a, 27			; CHECK: cmpgt_u s{{[0-9]+}}, s0, 27
+	%ret = zext i1 %cmp to i32
+	ret i32 %ret
+}
+
+define i32 @cmpisgeI(i32 %a, i32 %b) #0 {	; CHECK: cmpisgeI:
+
+    ; XXX for some reason, LLVM converts this to gt...
+	%cmp = icmp sge i32 %a, 27			; CHECK: cmpgt_i s{{[0-9]+}}, s0, 26
+	%ret = zext i1 %cmp to i32
+	ret i32 %ret
+}
+
+define i32 @cmpiugeI(i32 %a, i32 %b) #0 {	; CHECK: cmpiugeI:
+	%cmp = icmp uge i32 %a, 27			; CHECK: cmpgt_u s{{[0-9]+}}, s0, 26
+	%ret = zext i1 %cmp to i32
+	ret i32 %ret
+}
+
+define i32 @cmpisltI(i32 %a, i32 %b) #0 {	; CHECK: cmpisltI:
+    ; XXX for some reason, LLVM converts this to lt...
+	%cmp = icmp slt i32 %a, 27			; CHECK: cmplt_i s{{[0-9]+}}, s0, 27
+	%ret = zext i1 %cmp to i32
+	ret i32 %ret
+}
+
+define i32 @cmpiultI(i32 %a, i32 %b) #0 {	; CHECK: cmpiultI:
+	%cmp = icmp ult i32 %a, 27			; CHECK: cmplt_u s{{[0-9]+}}, s0, 27
+	%ret = zext i1 %cmp to i32
+	ret i32 %ret
+}
+
+define i32 @cmpisleI(i32 %a, i32 %b) #0 {	; CHECK: cmpisleI:
+    ; XXX for some reason, LLVM converts this to lt...
+	%cmp = icmp sle i32 %a, 27			; CHECK: cmplt_i s{{[0-9]+}}, s0, 28
+	%ret = zext i1 %cmp to i32
+	ret i32 %ret
+}
+
+define i32 @cmpiuleI(i32 %a, i32 %b) #0 {	; CHECK: cmpiuleI:
+    ; XXX for some reason, LLVM converts this to lt...
+	%cmp = icmp ule i32 %a, 27			; CHECK: cmplt_u s{{[0-9]+}}, s0, 28
+	%ret = zext i1 %cmp to i32
+	ret i32 %ret
+}
+
+define i32 @cmpieqI(i32 %a, i32 %b) #0 {	; CHECK: cmpieqI:
+	%cmp = icmp eq i32 %a, 27			; CHECK: cmpeq_i s{{[0-9]+}}, s0, 27
+	%ret = zext i1 %cmp to i32
+	ret i32 %ret
+}
+
+define i32 @cmpineI(i32 %a, i32 %b) #0 {	; CHECK: cmpineI:
+	%cmp = icmp ne i32 %a, 27			; CHECK: cmpne_i s{{[0-9]+}}, s0, 27
+	%ret = zext i1 %cmp to i32
+	ret i32 %ret
+}
+
+
 ; Floating point
 
 define i32 @cmpfgt(float %a, float %b) #0 {	; CHECK: cmpfgt:
@@ -107,19 +175,19 @@ define i32 @cmpfgtu(float %a, float %b) #0 {	; CHECK: cmpfgtu:
 }
 
 define i32 @cmpfgeu(float %a, float %b) #0 {	; CHECK: cmpfgeu:
-	%cmp = fcmp uge float %a, %b			
+	%cmp = fcmp uge float %a, %b
 	%ret = zext i1 %cmp to i32
 	ret i32 %ret
 }
 
 define i32 @cmpfltu(float %a, float %b) #0 {	; CHECK: cmpfltu:
-	%cmp = fcmp ult float %a, %b			
+	%cmp = fcmp ult float %a, %b
 	%ret = zext i1 %cmp to i32
 	ret i32 %ret
 }
 
 define i32 @cmpfleu(float %a, float %b) #0 {	; CHECK: cmpfleu:
-	%cmp = fcmp ule float %a, %b	
+	%cmp = fcmp ule float %a, %b
 	%ret = zext i1 %cmp to i32
 	ret i32 %ret
 }
