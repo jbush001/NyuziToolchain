@@ -56,9 +56,6 @@ unsigned NyuziELFObjectWriter::getRelocType(MCContext &Ctx,
     Type = ELF::R_NYUZI_PCREL_MEM_EXT;
     break;
 
-  case Nyuzi::fixup_Nyuzi_PCRel_MemAcc:
-    Type = ELF::R_NYUZI_PCREL_MEM;
-    break;
   case Nyuzi::fixup_Nyuzi_PCRel_ComputeLabelAddress:
     Type = ELF::R_NYUZI_PCREL_LEA;
     break;
