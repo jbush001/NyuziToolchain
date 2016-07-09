@@ -139,18 +139,6 @@ Relocator::Result branch(Relocation& pReloc, NyuziRelocator& pParent) {
   return Relocator::OK;
 }
 
-Relocator::Result mem(Relocation& pReloc, NyuziRelocator& pParent) {
-  Relocator::Address S = pReloc.symValue();
-  Relocator::Address P = pReloc.place();
-  int offset = S - (P + 4);
-
-  if (helper_check_signed_overflow(offset, 10)) return Relocator::Overflow;
-
-  pReloc.target() = helper_replace_field(pReloc.target(), offset, 15, 10);
-
-  return Relocator::OK;
-}
-
 Relocator::Result memext(Relocation& pReloc, NyuziRelocator& pParent) {
   Relocator::Address S = pReloc.symValue();
   Relocator::Address P = pReloc.place();
