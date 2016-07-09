@@ -174,8 +174,7 @@ define <16 x float> @shufflef(<16 x float> %a, <16 x i32> %b) {	; CHECK: shuffle
 	ret <16 x float> %shuffled
 }
 
-; Shuffle, masked
-define <16 x i32> @test19(i32 %mask, <16 x i32> %a, <16 x i32> %b) {	; CHECK: test19
+define <16 x i32> @shufflei_mask(i32 %mask, <16 x i32> %a, <16 x i32> %b) {	; CHECK: shufflei_mask:
 	%shuffled = call <16 x i32> @llvm.nyuzi.__builtin_nyuzi_shufflei(<16 x i32> %a, <16 x i32> %b)
 	%blended = call <16 x i32> @llvm.nyuzi.__builtin_nyuzi_vector_mixi(i32 %mask, <16 x i32> %shuffled, <16 x i32> %b)
 
@@ -184,7 +183,7 @@ define <16 x i32> @test19(i32 %mask, <16 x i32> %a, <16 x i32> %b) {	; CHECK: te
 	ret <16 x i32> %blended
 }
 
-define <16 x float> @test20(i32 %mask, <16 x float> %a, <16 x i32> %b) {	; CHECK: test19
+define <16 x float> @shufflef_mask(i32 %mask, <16 x float> %a, <16 x i32> %b) {	; CHECK: shufflef_mask:
 	%shuffled = call <16 x float> @llvm.nyuzi.__builtin_nyuzi_shufflef(<16 x float> %a, <16 x i32> %b)
 	%blended = call <16 x float> @llvm.nyuzi.__builtin_nyuzi_vector_mixf(i32 %mask, <16 x float> %shuffled, <16 x float> %a)
 
