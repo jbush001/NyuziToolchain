@@ -8,24 +8,28 @@ declare <16 x i32> @llvm.nyuzi.__builtin_nyuzi_gather_loadi(<16 x i32> %a)
 declare <16 x float> @llvm.nyuzi.__builtin_nyuzi_gather_loadf(<16 x i32> %a)
 declare <16 x i32> @llvm.nyuzi.__builtin_nyuzi_gather_loadi_masked(<16 x i32> %a, i32 %mask)
 declare <16 x float> @llvm.nyuzi.__builtin_nyuzi_gather_loadf_masked(<16 x i32> %a, i32 %mask)
-declare void @llvm.nyuzi.__builtin_nyuzi_scatter_storei(<16 x i32> %ptr, 
+declare void @llvm.nyuzi.__builtin_nyuzi_scatter_storei(<16 x i32> %ptr,
 	<16 x i32> %value)
-declare void @llvm.nyuzi.__builtin_nyuzi_scatter_storef(<16 x i32> %ptr, 
+declare void @llvm.nyuzi.__builtin_nyuzi_scatter_storef(<16 x i32> %ptr,
 	<16 x float> %value)
-declare void @llvm.nyuzi.__builtin_nyuzi_scatter_storei_masked(<16 x i32> %ptr, 
+declare void @llvm.nyuzi.__builtin_nyuzi_scatter_storei_masked(<16 x i32> %ptr,
 	<16 x i32> %value, i32 %mask)
-declare void @llvm.nyuzi.__builtin_nyuzi_scatter_storef_masked(<16 x i32> %ptr, 
+declare void @llvm.nyuzi.__builtin_nyuzi_scatter_storef_masked(<16 x i32> %ptr,
 	<16 x float> %value, i32 %mask)
-declare <16 x i32> @llvm.nyuzi.__builtin_nyuzi_block_loadi_masked(<16 x i32>* %ptr, 
+declare <16 x i32> @llvm.nyuzi.__builtin_nyuzi_block_loadi_masked(<16 x i32>* %ptr,
 	i32 %mask)
-declare <16 x float> @llvm.nyuzi.__builtin_nyuzi_block_loadf_masked(<16 x i32>* %ptr, 
+declare <16 x float> @llvm.nyuzi.__builtin_nyuzi_block_loadf_masked(<16 x i32>* %ptr,
 	i32 %mask)
-declare void @llvm.nyuzi.__builtin_nyuzi_block_storei_masked(<16 x i32>* %ptr, 
+declare void @llvm.nyuzi.__builtin_nyuzi_block_storei_masked(<16 x i32>* %ptr,
 	<16 x i32> %value, i32 %mask)
-declare void @llvm.nyuzi.__builtin_nyuzi_block_storef_masked(<16 x i32>* %ptr, 
+declare void @llvm.nyuzi.__builtin_nyuzi_block_storef_masked(<16 x i32>* %ptr,
 	<16 x float> %value, i32 %mask)
 declare i32 @llvm.ctlz.i32(i32 %val)
 declare i32 @llvm.cttz.i32(i32 %val)
+declare <16 x i32> @llvm.nyuzi.__builtin_nyuzi_shufflei(<16 x i32> %a, <16 x i32> %b)
+declare <16 x float> @llvm.nyuzi.__builtin_nyuzi_shufflef(<16 x float> %a, <16 x i32> %b)
+declare <16 x i32> @llvm.nyuzi.__builtin_nyuzi_vector_mixi(i32 %mask, <16 x i32> %a, <16 x i32> %b)
+declare <16 x float> @llvm.nyuzi.__builtin_nyuzi_vector_mixf(i32 %mask, <16 x float> %a, <16 x float> %b)
 
 define i32 @get_control_reg() {	; CHECK: get_control_reg:
 	%1 = call i32 @llvm.nyuzi.__builtin_nyuzi_read_control_reg(i32 7)
@@ -121,7 +125,7 @@ define <16 x float> @test_block_loadf_masked(<16 x i32>* %ptr, i32 %mask) {
 }
 
 define void @test_block_storei_masked(<16 x i32>* %ptr, <16 x i32> %value, i32 %mask) {
-	call void @llvm.nyuzi.__builtin_nyuzi_block_storei_masked(<16 x i32>* %ptr, 
+	call void @llvm.nyuzi.__builtin_nyuzi_block_storei_masked(<16 x i32>* %ptr,
 		<16 x i32> %value, i32 %mask)
 
 	; CHECK: store_v_mask v0, s1, (s0)
@@ -130,7 +134,7 @@ define void @test_block_storei_masked(<16 x i32>* %ptr, <16 x i32> %value, i32 %
 }
 
 define void @test_block_storef_masked(<16 x i32>* %ptr, <16 x float> %value, i32 %mask) {
-  call void @llvm.nyuzi.__builtin_nyuzi_block_storef_masked(<16 x i32>* %ptr, 
+  call void @llvm.nyuzi.__builtin_nyuzi_block_storef_masked(<16 x i32>* %ptr,
   	<16 x float> %value, i32 %mask)
 
   ; CHECK: store_v_mask v0, s1, (s0)
@@ -142,7 +146,7 @@ define void @test_block_storef_masked(<16 x i32>* %ptr, <16 x float> %value, i32
 define i32 @test_builtin_ctlz(i32 %val) {	; CHECK: test_builtin_ctlz:
 	%ret = call i32 @llvm.ctlz.i32(i32 %val)
 	; CHECK: clz s0, s0
-	
+
 	ret i32 %ret
 }
 
@@ -150,7 +154,41 @@ define i32 @test_builtin_ctlz(i32 %val) {	; CHECK: test_builtin_ctlz:
 define i32 @test_builtin_cttz(i32 %val) {	; CHECK: test_builtin_cttz:
 	%ret = call i32 @llvm.cttz.i32(i32 %val)
 	; CHECK: ctz s0, s0
-	
+
 	ret i32 %ret
 }
 
+define <16 x i32> @shufflei(<16 x i32> %a, <16 x i32> %b) {	; CHECK: shufflei:
+	%shuffled = call <16 x i32> @llvm.nyuzi.__builtin_nyuzi_shufflei(<16 x i32> %a, <16 x i32> %b)
+
+	; CHECK: shuffle v{{[0-9]+}}, v0, v1
+
+	ret <16 x i32> %shuffled
+}
+
+define <16 x float> @shufflef(<16 x float> %a, <16 x i32> %b) {	; CHECK: shufflef:
+	%shuffled = call <16 x float> @llvm.nyuzi.__builtin_nyuzi_shufflef(<16 x float> %a, <16 x i32> %b)
+
+	; CHECK: shuffle v{{[0-9]+}}, v0, v1
+
+	ret <16 x float> %shuffled
+}
+
+; Shuffle, masked
+define <16 x i32> @test19(i32 %mask, <16 x i32> %a, <16 x i32> %b) {	; CHECK: test19
+	%shuffled = call <16 x i32> @llvm.nyuzi.__builtin_nyuzi_shufflei(<16 x i32> %a, <16 x i32> %b)
+	%blended = call <16 x i32> @llvm.nyuzi.__builtin_nyuzi_vector_mixi(i32 %mask, <16 x i32> %shuffled, <16 x i32> %b)
+
+	; CHECK: shuffle_mask v{{[0-9]+}}, s0, v0
+
+	ret <16 x i32> %blended
+}
+
+define <16 x float> @test20(i32 %mask, <16 x float> %a, <16 x i32> %b) {	; CHECK: test19
+	%shuffled = call <16 x float> @llvm.nyuzi.__builtin_nyuzi_shufflef(<16 x float> %a, <16 x i32> %b)
+	%blended = call <16 x float> @llvm.nyuzi.__builtin_nyuzi_vector_mixf(i32 %mask, <16 x float> %shuffled, <16 x float> %a)
+
+	; CHECK: shuffle_mask v{{[0-9]+}}, s0, v0
+
+	ret <16 x float> %blended
+}
