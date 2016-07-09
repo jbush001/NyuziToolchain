@@ -191,3 +191,73 @@ define <16 x float> @shufflef_mask(i32 %mask, <16 x float> %a, <16 x i32> %b) {	
 
 	ret <16 x float> %blended
 }
+
+; Various mix/moves
+
+define <16 x i32> @movevvm_i(i32 %mask, <16 x i32> %a, <16 x i32> %b) {	; CHECK: movevvm_i:
+	%blended = call <16 x i32> @llvm.nyuzi.__builtin_nyuzi_vector_mixi(i32 %mask, <16 x i32> %a, <16 x i32> %b)
+
+	; CHECK: move_mask v{{[0-9]+}}, s0, v0
+
+	ret <16 x i32> %blended
+}
+
+define <16 x i32> @movevIm_i(i32 %mask, <16 x i32> %a) {	; CHECK: movevIm_i:
+	%blended = call <16 x i32> @llvm.nyuzi.__builtin_nyuzi_vector_mixi(i32 %mask, <16 x i32> %a,
+        <16 x i32> <i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27>)
+
+    ; CHECK: move [[DEST:v[0-9]+]], 27
+	; CHECK: move_mask [[DEST]], s0, v0
+
+	ret <16 x i32> %blended
+}
+
+define <16 x i32> @movevs_i(i32 %a) {	; CHECK: movevs_i:
+    %single = insertelement <16 x i32> undef, i32 %a, i32 0
+    %splat = shufflevector <16 x i32> %single, <16 x i32> undef, <16 x i32> zeroinitializer
+
+    ; CHECK: move [[DEST:v[0-9]+]], s0
+
+	ret <16 x i32> %splat
+}
+
+define <16 x i32> @movevsm_i(i32 %mask, <16 x i32> %a, i32 %b) {	; CHECK: movevsm_i:
+    %single = insertelement <16 x i32> undef, i32 %b, i32 0
+    %splat = shufflevector <16 x i32> %single, <16 x i32> undef, <16 x i32> zeroinitializer
+
+	%blended = call <16 x i32> @llvm.nyuzi.__builtin_nyuzi_vector_mixi(i32 %mask, <16 x i32> %a, <16 x i32> %splat)
+
+    ; CHECK: move [[DEST:v[0-9]+]], s1
+	; CHECK: move_mask [[DEST]], s0, v0
+
+	ret <16 x i32> %blended
+}
+
+define <16 x float> @movevvm_f(i32 %mask, <16 x float> %a, <16 x float> %b) {	; CHECK: movevvm_f:
+	%blended = call <16 x float> @llvm.nyuzi.__builtin_nyuzi_vector_mixf(i32 %mask, <16 x float> %a, <16 x float> %b)
+
+	; CHECK: move_mask v{{[0-9]+}}, s0, v0
+
+	ret <16 x float> %blended
+}
+
+define <16 x float> @movevs_f(float %a) {	; CHECK: movevs_f:
+    %single = insertelement <16 x float> undef, float %a, i32 0
+    %splat = shufflevector <16 x float> %single, <16 x float> undef, <16 x i32> zeroinitializer
+
+    ; CHECK: move [[DEST:v[0-9]+]], s0
+
+	ret <16 x float> %splat
+}
+
+define <16 x float> @movevsm_f(i32 %mask, <16 x float> %a, float %b) {	; CHECK: movevsm_f:
+    %single = insertelement <16 x float> undef, float %b, i32 0
+    %splat = shufflevector <16 x float> %single, <16 x float> undef, <16 x i32> zeroinitializer
+
+	%blended = call <16 x float> @llvm.nyuzi.__builtin_nyuzi_vector_mixf(i32 %mask, <16 x float> %a, <16 x float> %splat)
+
+    ; CHECK: move [[DEST:v[0-9]+]], s1
+	; CHECK: move_mask [[DEST]], s0, v0
+
+	ret <16 x float> %blended
+}
