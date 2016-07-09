@@ -12,3 +12,7 @@ call exit
 	# CHECK: 00000008 R_NYUZI_BRANCH exit
 .long ioctl
 	# CHECK: 0000000c R_NYUZI_ABS32 ioctl
+load_32 s0, bar
+    # CHECK: 00000010 R_NYUZI_PCREL_MEM_EXT bar
+lea s1, baz
+    # CHECK: 00000014 R_NYUZI_PCREL_LEA baz

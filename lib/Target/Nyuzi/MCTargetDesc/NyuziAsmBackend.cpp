@@ -73,7 +73,7 @@ public:
         //
         // name                          offset  bits  flags
         {"fixup_Nyuzi_PCRel_MemAccExt", 10, 15, MCFixupKindInfo::FKF_IsPCRel},
-        {"fixup_Nyuzi_PCRel_MemAcc", 15, 10, MCFixupKindInfo::FKF_IsPCRel},
+        {"fixup_Nyuzi_PCRel_MemAcc", 15, 10, MCFixupKindInfo::FKF_IsPCRel}, // XXX unused, remove?
         {"fixup_Nyuzi_PCRel_Branch", 5, 20, MCFixupKindInfo::FKF_IsPCRel},
         {"fixup_Nyuzi_PCRel_ComputeLabelAddress", 10, 13,
          MCFixupKindInfo::FKF_IsPCRel}};
