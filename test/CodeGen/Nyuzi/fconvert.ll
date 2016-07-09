@@ -1,20 +1,39 @@
-; Floating point conversion 
 ; RUN: llc -mtriple nyuzi-elf %s -o - | FileCheck %s
 
 target triple = "nyuzi"
 
-@i = common global i32 0, align 4
+; Floating point conversion tests
 
-define void @test() #0 {
-entry:
-  %0 = load i32, i32* @i, align 4
-  %conv1 = sitofp i32 %0 to float
-  %conv2 = fptosi float %conv1 to i32
-  store i32 %conv2, i32* @i, align 4
-  ret void
+define float @test_sitofp(i32 %a) {  ; CHECK: test_sitofp:
+    %conv = sitofp i32 %a to float ; CHECK: itof
+    ret float %conv
 }
 
-; CHECK: itof [[DEST1:s[0-9]+]], s{{[0-9]}}
-; CHECK: ftoi s{{[0-9]+}}, [[DEST1]]
+define i32 @test_sftoip(float %a) { ; CHECK: test_sftoip:
+    %conv = fptosi float %a to i32 ; CHECK: ftoi
+    ret i32 %conv
+}
 
-; XXX do this with vectors too...
+define <16 x float> @test_sitofpv(<16 x i32> %a) {  ; CHECK: test_sitofpv:
+    %conv = sitofp <16 x i32> %a to <16 x float> ; CHECK: itof
+    ret <16 x float> %conv
+}
+
+define <16 x i32> @test_sftoipv(<16 x float> %a) { ; CHECK: test_sftoipv:
+    %conv = fptosi <16 x float> %a to <16 x i32> ; CHECK: ftoi
+    ret <16 x i32> %conv
+}
+
+define <16 x float> @test_sitofpvs(i32 %a) {  ; CHECK: test_sitofpvs:
+    %single = insertelement <16 x i32> undef, i32 %a, i32 0
+    %splat = shufflevector <16 x i32> %single, <16 x i32> undef, <16 x i32> zeroinitializer
+    %conv = sitofp <16 x i32> %splat to <16 x float> ; CHECK: itof v{{[0-9]+}}, s{{[0-9]+}}
+    ret <16 x float> %conv
+}
+
+define <16 x i32> @test_sftoipvs(float %a) {  ; CHECK: test_sftoipvs:
+    %single = insertelement <16 x float> undef, float %a, i32 0
+    %splat = shufflevector <16 x float> %single, <16 x float> undef, <16 x i32> zeroinitializer
+    %conv = fptosi <16 x float> %splat to <16 x i32> ; CHECK: ftoi v{{[0-9]+}}, s{{[0-9]+}}
+    ret <16 x i32> %conv
+}
