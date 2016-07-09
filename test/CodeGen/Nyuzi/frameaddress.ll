@@ -3,10 +3,9 @@
 ; Built-in frameaddress
 declare i8* @llvm.frameaddress(i32) nounwind readnone
 
-define i8* @f() nounwind uwtable {
-entry:
-  %0 = call i8* @llvm.frameaddress(i32 0)
-  ret i8* %0
+define i8* @f() {
+  %1 = call i8* @llvm.frameaddress(i32 0)
+  ret i8* %1
 
 ; CHECK: .cfi_startproc
 ; CHECK: .cfi_def_cfa_offset 64
