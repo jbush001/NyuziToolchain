@@ -2,76 +2,142 @@
 
 target triple = "nyuzi"
 
-define i32 @loads8(i8* %p) { 		; CHECK: loads8
-        %tmp = load i8, i8* %p           
-        %tmp1 = sext i8 %tmp to i32  ; CHECK: load_s8 s0, (s0)
-        ret i32 %tmp1
+%struct.foo = type { i32, i16, i16, i8, i8, i8, i8, float }
+
+define i32 @test_load_u32(%struct.foo* %f) {    ; CHECK: test_load_u32:
+  %a = getelementptr inbounds %struct.foo, %struct.foo* %f, i32 0, i32 0
+  %1 = load i32, i32* %a, align 4
+
+  ; CHECK: load_32 s0, (s0)
+
+  ret i32 %1
 }
 
-define i32 @loadu8(i8* %p) { 		; CHECK: loadu8
-        %tmp = load i8, i8* %p           
-        %tmp1 = zext i8 %tmp to i32  ; CHECK: load_u8 s0, (s0)
-        ret i32 %tmp1
+define i32 @test_load_u16(%struct.foo* %f) {    ; CHECK: test_load_u16:
+  %b = getelementptr inbounds %struct.foo, %struct.foo* %f, i32 0, i32 1
+  %1 = load i16, i16* %b, align 4
+  %conv = zext i16 %1 to i32
+
+  ; CHECK: load_u16 s0, 4(s0)
+
+  ret i32 %conv
 }
 
-define i32 @loads16(i16* %p) { 		; CHECK: loads16
-        %tmp = load i16, i16* %p           
-        %tmp1 = sext i16 %tmp to i32  ; CHECK: load_s16 s0, (s0)
-        ret i32 %tmp1
+define i32 @test_load_s16(%struct.foo* %f) {    ; CHECK: test_load_s16:
+  %c = getelementptr inbounds %struct.foo, %struct.foo* %f, i32 0, i32 2
+  %1 = load i16, i16* %c, align 2
+  %conv = sext i16 %1 to i32
+
+  ; CHECK: load_s16 s0, 6(s0)
+
+  ret i32 %conv
 }
 
-define i32 @loadu16(i16* %p) { 		; CHECK: loadu16
-        %tmp = load i16, i16* %p     
-        %tmp1 = zext i16 %tmp to i32  ; CHECK: load_u16 s0, (s0)
-        ret i32 %tmp1
+define i32 @test_load_u8(%struct.foo* %f) {     ; CHECK: test_load_u8:
+  %d = getelementptr inbounds %struct.foo, %struct.foo* %f, i32 0, i32 3
+  %1 = load i8, i8* %d, align 4
+  %conv = zext i8 %1 to i32
+
+  ; CHECK: load_u8 s0, 8(s0)
+
+  ret i32 %conv
 }
 
-define i32 @loadi32(i32* %p) { 		; CHECK: loadi32
-        %tmp = load i32, i32* %p     ; CHECK: load_32 s0, (s0)
-        ret i32 %tmp
+define i32 @test_load_s8(%struct.foo* %f) {     ; CHECK: test_load_s8:
+  %e = getelementptr inbounds %struct.foo, %struct.foo* %f, i32 0, i32 4
+  %1 = load i8, i8* %e, align 1
+  %conv = sext i8 %1 to i32
+
+  ; CHECK: load_s8 s0, 9(s0)
+
+  ret i32 %conv
 }
 
-define float @loadf32(float* %p) { 		; CHECK: loadf32
-        %tmp = load float, float* %p     ; CHECK: load_32 s0, (s0)
-        ret float %tmp
+define float @test_load_float(%struct.foo* %f) {     ; CHECK: test_load_float:
+  %e = getelementptr inbounds %struct.foo, %struct.foo* %f, i32 0, i32 7
+  %1 = load float, float* %e, align 4
+
+  ; CHECK: load_32 s0, 12(s0)
+
+  ret float %1
 }
 
-define void @store8(i8* %p, i8 %v) { 		; CHECK: store8
-	store i8 %v, i8* %p, align 4	; store_8 s1, (s0)
-    ret void
+define void @test_store_u32(%struct.foo* nocapture %f, i32 %value) {    ; CHECK: test_store_u32:
+  %a = getelementptr inbounds %struct.foo, %struct.foo* %f, i32 0, i32 0
+  store i32 %value, i32* %a, align 4
+
+  ; CHECK: store_32 s1, (s0)
+
+  ret void
 }
 
-define void @store16(i16* %p, i16 %v) { 	; CHECK: store16
-	store i16 %v, i16* %p, align 4			; store_16 s1, (s0)
-    ret void
+define void @test_store_u16(%struct.foo* nocapture %f, i16 zeroext %value) {      ; CHECK: test_store_u16:
+  %b = getelementptr inbounds %struct.foo, %struct.foo* %f, i32 0, i32 2
+  store i16 %value, i16* %b, align 4
+
+  ; CHECK: store_16 s1, 6(s0)
+
+  ret void
 }
 
-define void @storei32(i32* %p, i32 %v) { 		; CHECK: storei32
-	store i32 %v, i32* %p, align 4		; store_32 s1, (s0)
-    ret void
+define void @test_store_u8(%struct.foo* nocapture %f, i8 zeroext %value) {       ; CHECK: test_store_u8:
+  %d = getelementptr inbounds %struct.foo, %struct.foo* %f, i32 0, i32 4
+  store i8 %value, i8* %d, align 4
+
+  ; CHECK: store_8 s1, 9(s0)
+
+  ret void
 }
 
-define void @storef32(float* %p, float %v) { 		; CHECK: storef32
-	store float %v, float* %p, align 4		; store_32 s1, (s0)
-    ret void
+define void @test_store_float(%struct.foo* nocapture %f, float %value) {    ; CHECK: test_store_float:
+  %a = getelementptr inbounds %struct.foo, %struct.foo* %f, i32 0, i32 7
+  store float %value, float* %a, align 4
+
+  ; CHECK: store_32 s1, 12(s0)
+
+  ret void
 }
 
-define void @storeivec(<16 x i32>* %ptr, <16 x i32> %val) {	; CHECK: storeivec
-	store <16 x i32> %val, <16 x i32>* %ptr, align 64	; store_v v0, (s0)
-	ret void
+define void @storeivec(<16 x i32>* %array, <16 x i32> %val1, <16 x i32> %val2) { ; CHECK: storeivec:
+  store <16 x i32> %val1, <16 x i32>* %array, align 64
+
+  ; CHECK: store_v v0, (s0)
+
+  %arrayidx1 = getelementptr inbounds <16 x i32>, <16 x i32>* %array, i32 1
+  store <16 x i32> %val2, <16 x i32>* %arrayidx1, align 64
+
+  ; CHECK: store_v v1, 64(s0)
+
+  ret void
 }
 
-define <16 x i32> @loadivec(<16 x i32>* %ptr) { ; CHECK: loadivec
-	%tmp = load <16 x i32>, <16 x i32>* %ptr	; load_v v0, (s0)
+define void @storefvec(<16 x float>* %array, <16 x float> %val1, <16 x float> %val2) { ; CHECK: storefvec:
+  store <16 x float> %val1, <16 x float>* %array, align 64
+
+  ; CHECK: store_v v0, (s0)
+
+  %arrayidx1 = getelementptr inbounds <16 x float>, <16 x float>* %array, i32 1
+  store <16 x float> %val2, <16 x float>* %arrayidx1, align 64
+
+  ; CHECK: store_v v1, 64(s0)
+
+  ret void
+}
+
+define <16 x i32> @loadivec(<16 x i32>* %array) { ; CHECK: loadivec:
+  %ptr = getelementptr inbounds <16 x i32>, <16 x i32>* %array, i32 1
+	%tmp = load <16 x i32>, <16 x i32>* %ptr
+
+  ; CHECK: load_v v0, 64(s0)
+
 	ret <16 x i32> %tmp
 }
 
-define void @storefvec(<16 x float>* %ptr, <16 x float> %val) { ; CHECK: storefvec
-	store <16 x float> %val, <16 x float>* %ptr, align 64 ; store_v v0, (s0)
-	ret void
-}
+define <16 x float> @loadfvec(<16 x float>* %array) { ; CHECK: loadfvec:
+  %ptr = getelementptr inbounds <16 x float>, <16 x float>* %array, i32 1
+	%tmp = load <16 x float>, <16 x float>* %ptr
 
-define <16 x float> @loadfvec(<16 x float>* %ptr) { ; CHECK: loadfvec
-	%tmp = load <16 x float>, <16 x float>* %ptr	 ; load_v v0, (s0)
+  ; CHECK: load_v v0, 64(s0)
+
 	ret <16 x float> %tmp
 }
