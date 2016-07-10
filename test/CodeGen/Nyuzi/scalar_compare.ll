@@ -2,9 +2,10 @@
 
 target triple = "nyuzi-elf-none"
 
-; XXX for many of these tests, LLVM performs transforms that change to a different
-; compare. For example, checking if a number is greater than or equal to 27 might
-; be converted to greater than 26.
+; Scalar only comparison tests
+; These tests are not included in operator_tests because LLVM performs transforms
+; that change to a different compare. For example, checking if a number is greater
+; than or equal to 27 might be converted to greater than 26.
 
 define i32 @cmpisgt(i32 %a, i32 %b) {  ; CHECK: cmpisgt:
   %cmp = icmp sgt i32 %a, %b

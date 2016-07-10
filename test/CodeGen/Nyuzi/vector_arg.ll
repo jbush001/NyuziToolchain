@@ -2,7 +2,11 @@
 
 target triple = "nyuzi-elf-none"
 
-; Test passing vector arguments.
+;
+; Test passing vector arguments. These are all passed via registers
+; XXX should perhaps validate with more than 8 vector parameters, which would
+; start passing them via the stack.
+;
 
 define <16 x i32> @somefunc(i32 %a, <16 x i32> %b, <16 x i32> %c, <16 x i32> %d,
   <16 x i32> %e, <16 x i32> %f, <16 x i32> %g, <16 x i32> %h) { ; CHECK: somefunc:

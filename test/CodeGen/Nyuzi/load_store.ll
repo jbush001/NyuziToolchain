@@ -2,6 +2,16 @@
 
 target triple = "nyuzi-elf-none"
 
+;
+; Validate all variants of loads/stores:
+; - 8, 16, and 32 bit integer values with and without sign extension
+; - Floating point values (they use the same registers/instructions, but ensure
+;   LLVM matches types properly).
+; - Immediate pointer offset values
+; - Vector/Scalar types
+;
+
+; The struct is used to validate different pointer offsets (via getlementptr)
 %struct.foo = type { i32, i16, i16, i8, i8, i8, i8, float }
 
 define i32 @test_load_u32(%struct.foo* %f) {    ; CHECK: test_load_u32:
@@ -97,6 +107,9 @@ define void @test_store_float(%struct.foo* nocapture %f, float %value) {    ; CH
 
   ret void
 }
+
+; Vector moves take an array of vectors as the pointer to validate immediate
+; offsets.
 
 define void @storeivec(<16 x i32>* %array, <16 x i32> %val1, <16 x i32> %val2) { ; CHECK: storeivec:
   store <16 x i32> %val1, <16 x i32>* %array, align 64

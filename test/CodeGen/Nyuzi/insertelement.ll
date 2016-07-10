@@ -5,7 +5,7 @@ target triple = "nyuzi-elf-none"
 define <16 x i32> @inserti(<16 x i32> %orig, i32 %value, i32 %lane) {	; CHECK: inserti
   %result = insertelement <16 x i32> %orig, i32 %value, i32 %lane
 
-  ; This should do a predicated move
+  ; This does a predicated move
 
   ; CHECK: move_mask v{{[0-9]+}},
 
@@ -15,7 +15,7 @@ define <16 x i32> @inserti(<16 x i32> %orig, i32 %value, i32 %lane) {	; CHECK: i
 define <16 x float> @insertf(<16 x float> %orig, float %value, i32 %lane) { ; CHECK: insertf
   %result = insertelement <16 x float> %orig, float %value, i32 %lane
 
-  ; This should do a predicated move
+  ; This does a predicated move
 
   ; CHECK: move_mask v{{[0-9]+}},
 

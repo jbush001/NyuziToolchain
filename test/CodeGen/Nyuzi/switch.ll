@@ -2,6 +2,8 @@
 
 target triple = "nyuzi-elf-none"
 
+; Test creating a jump table
+
 define i32 @foo(i32 %i, i32 %j) {
 entry:
   switch i32 %i, label %return [

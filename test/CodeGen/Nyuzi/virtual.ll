@@ -2,6 +2,10 @@
 
 target triple = "nyuzi-elf-none"
 
+;
+; Virtual function call. This mainly validates calling via a register.
+;
+
 %class.Foo = type { i32 (...)** }
 
 define void @_Z3barP3Foo(%class.Foo* %f) {

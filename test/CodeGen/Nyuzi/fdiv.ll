@@ -2,6 +2,12 @@
 
 target triple = "nyuzi-elf-none"
 
+;
+; This architecture doesn't have a native divide instruction, so it uses an
+; instruction to compute the initial estimate (with less precision) and two
+; Newton-Raphson iterations.
+;
+
 define float @divide_float(float %a, float %b) { 	; CHECK: divide_float:
   %1 = fdiv float %a, %b
 
