@@ -626,8 +626,8 @@ SDValue NyuziTargetLowering::LowerFABS(SDValue Op, SelectionDAG &DAG) const {
 // all the same.
 static bool isSplatVector(SDNode *N) {
   SDValue SplatValue = N->getOperand(0);
-  for (unsigned i = 1, e = N->getNumOperands(); i != e; ++i)
-    if (N->getOperand(i) != SplatValue)
+  for (auto lane : N->op_values())
+    if (lane != SplatValue)
       return false;
 
   return true;

@@ -142,10 +142,8 @@ void NyuziMCInstLower::Lower(const MachineInstr *MI, MCInst &OutMI) const {
     MCOperand MCOp = MCOperand::createExpr(MCSym);
     OutMI.addOperand(MCOp);
   } else {
-    for (unsigned i = 0, e = MI->getNumOperands(); i != e; ++i) {
-      const MachineOperand &MO = MI->getOperand(i);
+    for (const MachineOperand &MO : MI->operands()) {
       MCOperand MCOp = LowerOperand(MO);
-
       if (MCOp.isValid())
         OutMI.addOperand(MCOp);
     }
