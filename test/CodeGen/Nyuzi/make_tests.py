@@ -8,6 +8,7 @@ import sys
 # python make_tests.py
 #
 
+
 def get_type_string(is_vector, is_float):
     if is_float:
         rettype = 'float'
@@ -87,26 +88,31 @@ for llvmop, mnemonic in binary_ops:
         rettype = get_type_string(is_vector, is_float)
         funcname = 'test_' + llvmop + s1regt + \
             s2regt + ('m' if is_masked else '')
-        op_test_fp.write('define ' + rettype + ' @' + funcname + '(' + rettype + ' %a, ')
-        op_test_fp.write(get_type_string(s2regt == 'v', is_float) + ' %b' + (', i32 %mask' if is_masked else '') + ') { ; CHECK: ' + funcname + ':\n')
+        op_test_fp.write('define ' + rettype + ' @' +
+                         funcname + '(' + rettype + ' %a, ')
+        op_test_fp.write(get_type_string(s2regt == 'v', is_float) + ' %b' +
+                         (', i32 %mask' if is_masked else '') + ') { ; CHECK: ' + funcname + ':\n')
 
         # Expand scalar to vector type
         if s1regt == 'v' and s2regt == 's':
-            op_test_fp.write('  %single = insertelement ' + rettype + ' undef, ' + get_type_string(s2regt == 'v', is_float) + ' %b, i32 0\n')
-            op_test_fp.write('  %splat = shufflevector ' + rettype + ' %single, ' + rettype + ' undef, <16 x i32> zeroinitializer\n')
-            op_test_fp.write('  %1 = ' + llvmop + ' ' + rettype + ' %a,%splat\n')
+            op_test_fp.write('  %single = insertelement ' + rettype + ' undef, ' +
+                             get_type_string(s2regt == 'v', is_float) + ' %b, i32 0\n')
+            op_test_fp.write('  %splat = shufflevector ' + rettype +
+                             ' %single, ' + rettype + ' undef, <16 x i32> zeroinitializer\n')
+            op_test_fp.write('  %1 = ' + llvmop + ' ' +
+                             rettype + ' %a,%splat\n')
         else:
             op_test_fp.write('  %1 = ' + llvmop + ' ' + rettype + ' %a,%b\n')
 
         if is_masked:
             op_test_fp.write('  %2 = call ' + rettype +
-                  ' @llvm.nyuzi.__builtin_nyuzi_vector_mix' + ('f' if is_float else 'i') + '(i32 %mask, ' + rettype + ' %1, ' + rettype + ' %a)\n')
+                             ' @llvm.nyuzi.__builtin_nyuzi_vector_mix' + ('f' if is_float else 'i') + '(i32 %mask, ' + rettype + ' %1, ' + rettype + ' %a)\n')
             op_test_fp.write('  ; CHECK: ' + mnemonic + '_mask ' + s1regt +
-                  '{{[0-9]+}}, s{{[0-9]+}}, ' + s1regt + '{{[0-9]+}}, ' + s2regt + '{{[0-9]+}}\n')
+                             '{{[0-9]+}}, s{{[0-9]+}}, ' + s1regt + '{{[0-9]+}}, ' + s2regt + '{{[0-9]+}}\n')
             op_test_fp.write('  ret ' + rettype + ' %2\n}\n\n')
         else:
             op_test_fp.write('  ; CHECK: ' + mnemonic + ' ' + s1regt +
-                  '{{[0-9]+}}, ' + s1regt + '{{[0-9]+}}, ' + s2regt + '{{[0-9]+}}\n')
+                             '{{[0-9]+}}, ' + s1regt + '{{[0-9]+}}, ' + s2regt + '{{[0-9]+}}\n')
             op_test_fp.write('  ret ' + rettype + ' %1\n}\n\n')
 
     if is_float:
@@ -120,8 +126,10 @@ for llvmop, mnemonic in binary_ops:
             continue
 
         rettype = get_type_string(dregt == 'v', is_float)
-        funcname = 'test_' + llvmop + dregt + s1regt + 'I' + ('m' if is_masked else '')
-        op_test_fp.write('define ' + rettype + ' @' + funcname + '(' + get_type_string(s1regt == 'v', is_float) + ' %a')
+        funcname = 'test_' + llvmop + dregt + \
+            s1regt + 'I' + ('m' if is_masked else '')
+        op_test_fp.write('define ' + rettype + ' @' + funcname +
+                         '(' + get_type_string(s1regt == 'v', is_float) + ' %a')
         if is_masked:
             op_test_fp.write(', i32 %mask) { ')
         else:
@@ -130,32 +138,34 @@ for llvmop, mnemonic in binary_ops:
         op_test_fp.write('; CHECK ' + funcname + ':\n')
 
         if dregt == 'v' and s1regt == 's':
-            op_test_fp.write('  %single = insertelement ' + rettype + ' undef, i32 %a, i32 0\n')
-            op_test_fp.write('  %splat = shufflevector ' + rettype + ' %single, ' + rettype + ' undef, <16 x i32> zeroinitializer\n')
+            op_test_fp.write('  %single = insertelement ' +
+                             rettype + ' undef, i32 %a, i32 0\n')
+            op_test_fp.write('  %splat = shufflevector ' + rettype +
+                             ' %single, ' + rettype + ' undef, <16 x i32> zeroinitializer\n')
             op_test_fp.write('  %1 = ' + llvmop + ' ' + rettype + ' %splat, ')
         else:
             op_test_fp.write('  %1 = ' + llvmop + ' ' + rettype + ' %a, ')
 
-
         if dregt == 'v':
-            op_test_fp.write('<i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27>\n')
+            op_test_fp.write(
+                '<i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27>\n')
         else:
             op_test_fp.write('27\n')
 
         if is_masked:
             op_test_fp.write('  %2 = call ' + rettype +
-                  ' @llvm.nyuzi.__builtin_nyuzi_vector_mixi(i32 %mask, ' + rettype + ' %1, ' + rettype)
+                             ' @llvm.nyuzi.__builtin_nyuzi_vector_mixi(i32 %mask, ' + rettype + ' %1, ' + rettype)
             if dregt == 'v' and s1regt == 's':
                 op_test_fp.write(' %splat)\n')
             else:
                 op_test_fp.write(' %a)\n')
 
             op_test_fp.write('  ; CHECK: ' + mnemonic + '_mask ' + dregt +
-                  '{{[0-9]+}}, s{{[0-9]+}}, ' + s1regt + '{{[0-9]+}}, ' + '27\n')
+                             '{{[0-9]+}}, s{{[0-9]+}}, ' + s1regt + '{{[0-9]+}}, ' + '27\n')
             op_test_fp.write('  ret ' + rettype + ' %2\n}\n\n')
         else:
             op_test_fp.write('  ; CHECK: ' + mnemonic + ' ' + dregt +
-                  '{{[0-9]+}}, ' + s1regt + '{{[0-9]+}}, ' + '27\n')
+                             '{{[0-9]+}}, ' + s1regt + '{{[0-9]+}}, ' + '27\n')
             op_test_fp.write('  ret ' + rettype + ' %1\n}\n\n')
 
 ########################################
@@ -183,19 +193,27 @@ for intr_suffix, instr_suffix in compare_tests:
     # Vector op vector
     etype = 'float' if instr_suffix[-2:] == '_f' else 'i32'
 
-    op_test_fp.write('define i32 @cmp' + intr_suffix + 'vv(<16 x ' + etype + '> %a, <16 x ' + etype + '> %b) {	; CHECK: cmp' + intr_suffix + 'vv:\n')
-    op_test_fp.write('  %c = call i32 @llvm.nyuzi.__builtin_nyuzi_mask_cmp' + intr_suffix + '(<16 x ' + etype + '> %a, <16 x ' + etype + '> %b)\n')
-    op_test_fp.write('  ; CHECK: cmp' + instr_suffix + ' s{{[0-9]+}}, v{{[0-9]+}}, v{{[0-9]+}}\n')
+    op_test_fp.write('define i32 @cmp' + intr_suffix + 'vv(<16 x ' + etype +
+                     '> %a, <16 x ' + etype + '> %b) {	; CHECK: cmp' + intr_suffix + 'vv:\n')
+    op_test_fp.write('  %c = call i32 @llvm.nyuzi.__builtin_nyuzi_mask_cmp' +
+                     intr_suffix + '(<16 x ' + etype + '> %a, <16 x ' + etype + '> %b)\n')
+    op_test_fp.write('  ; CHECK: cmp' + instr_suffix +
+                     ' s{{[0-9]+}}, v{{[0-9]+}}, v{{[0-9]+}}\n')
     op_test_fp.write('  ret i32 %c\n')
     op_test_fp.write('}\n\n')
 
     # Vector op scalar
-    op_test_fp.write('define i32 @cmp' + intr_suffix + 'vs(<16 x ' + etype + '> %a, ' + etype + ' %b) {	; CHECK: cmp' + intr_suffix + 'vs:\n')
-    op_test_fp.write('  %single = insertelement <16 x ' + etype + '> undef, ' + etype + ' %b, i32 0\n')
-    op_test_fp.write('  %splat = shufflevector <16 x ' + etype + '> %single, <16 x ' + etype + '> undef, <16 x i32> zeroinitializer\n')
+    op_test_fp.write('define i32 @cmp' + intr_suffix + 'vs(<16 x ' + etype +
+                     '> %a, ' + etype + ' %b) {	; CHECK: cmp' + intr_suffix + 'vs:\n')
+    op_test_fp.write('  %single = insertelement <16 x ' +
+                     etype + '> undef, ' + etype + ' %b, i32 0\n')
+    op_test_fp.write('  %splat = shufflevector <16 x ' + etype +
+                     '> %single, <16 x ' + etype + '> undef, <16 x i32> zeroinitializer\n')
 
-    op_test_fp.write('  %c = call i32 @llvm.nyuzi.__builtin_nyuzi_mask_cmp' + intr_suffix + '(<16 x ' + etype + '> %a, <16 x ' + etype + '> %splat)\n')
-    op_test_fp.write('  ; CHECK: cmp' + instr_suffix + ' s{{[0-9]+}}, v{{[0-9]+}}, s{{[0-9]+}}\n')
+    op_test_fp.write('  %c = call i32 @llvm.nyuzi.__builtin_nyuzi_mask_cmp' +
+                     intr_suffix + '(<16 x ' + etype + '> %a, <16 x ' + etype + '> %splat)\n')
+    op_test_fp.write('  ; CHECK: cmp' + instr_suffix +
+                     ' s{{[0-9]+}}, v{{[0-9]+}}, s{{[0-9]+}}\n')
     op_test_fp.write('  ret i32 %c\n')
     op_test_fp.write('}\n\n')
 
@@ -203,14 +221,11 @@ for intr_suffix, instr_suffix in compare_tests:
         continue
 
     # Vector op immediate
-    op_test_fp.write('define i32 @cmp' + intr_suffix + 'vI(<16 x ' + etype + '> %a, <16 x ' + etype + '> %b) {	; CHECK: cmp' + intr_suffix + 'vI:\n')
-    op_test_fp.write('  %c = call i32 @llvm.nyuzi.__builtin_nyuzi_mask_cmp' + intr_suffix + '(<16 x ' + etype + '> %a, <16 x i32> <i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27>)\n')
-    op_test_fp.write('  ; CHECK: cmp' + instr_suffix + ' s{{[0-9]+}}, v{{[0-9]+}}, 27\n')
+    op_test_fp.write('define i32 @cmp' + intr_suffix + 'vI(<16 x ' + etype +
+                     '> %a, <16 x ' + etype + '> %b) {	; CHECK: cmp' + intr_suffix + 'vI:\n')
+    op_test_fp.write('  %c = call i32 @llvm.nyuzi.__builtin_nyuzi_mask_cmp' + intr_suffix + '(<16 x ' + etype +
+                     '> %a, <16 x i32> <i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27>)\n')
+    op_test_fp.write('  ; CHECK: cmp' + instr_suffix +
+                     ' s{{[0-9]+}}, v{{[0-9]+}}, 27\n')
     op_test_fp.write('  ret i32 %c\n')
     op_test_fp.write('}\n\n')
-
-
-
-
-
-

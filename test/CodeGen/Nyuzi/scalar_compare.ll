@@ -63,8 +63,8 @@ define i32 @cmpiult(i32 %a, i32 %b) {  ; CHECK: cmpiult:
 define i32 @cmpisle(i32 %a, i32 %b) {  ; CHECK: cmpisle:
   %cmp = icmp sle i32 %a, %b
   %ret = zext i1 %cmp to i32
-  ; CHECK: cmple_i s{{[0-9]+}}, s0, s1
 
+  ; CHECK: cmple_i s{{[0-9]+}}, s0, s1
 
   ret i32 %ret
 }
