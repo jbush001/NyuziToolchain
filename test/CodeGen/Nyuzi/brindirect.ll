@@ -1,6 +1,6 @@
-; RUN: llc -mtriple nyuzi-elf %s -o - | FileCheck %s
+; RUN: llc %s -o - | FileCheck %s
 
-target triple = "nyuzi"
+target triple = "nyuzi-elf-none"
 
 declare i8* @dummy_func()
 
@@ -9,7 +9,6 @@ declare i8* @dummy_func()
 define void @test_brindirect() {
   %call = tail call i8* @dummy_func()
   indirectbr i8* %call, [label %label1, label %label2]
-
 
   ; Ensure we create an indirect goto
   ; CHECK: goto s{{[0-9]+}}

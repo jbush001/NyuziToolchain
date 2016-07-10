@@ -1,4 +1,6 @@
-; RUN: llc -mtriple nyuzi-elf %s -o - | FileCheck %s
+; RUN: llc %s -o - | FileCheck %s
+
+target triple = "nyuzi-elf-none"
 
 ; Built-in frameaddress
 declare i8* @llvm.frameaddress(i32) nounwind readnone
@@ -15,4 +17,3 @@ define i8* @f() {
 ; CHECK: move s0, fp
 ; CHECK: .cfi_endproc
 }
-

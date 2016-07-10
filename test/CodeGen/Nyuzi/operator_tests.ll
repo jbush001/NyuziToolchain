@@ -21,936 +21,936 @@ declare i32 @llvm.nyuzi.__builtin_nyuzi_mask_cmpf_lt(<16 x float> %a, <16 x floa
 declare i32 @llvm.nyuzi.__builtin_nyuzi_mask_cmpf_le(<16 x float> %a, <16 x float> %b)
 
 define i32 @test_orss(i32 %a, i32 %b) { ; CHECK: test_orss:
-    %1 = or i32 %a,%b
-    ; CHECK: or s{{[0-9]+}}, s{{[0-9]+}}, s{{[0-9]+}}
-    ret i32 %1
+  %1 = or i32 %a,%b
+  ; CHECK: or s{{[0-9]+}}, s{{[0-9]+}}, s{{[0-9]+}}
+  ret i32 %1
 }
 
 define <16 x i32> @test_orvs(<16 x i32> %a, i32 %b) { ; CHECK: test_orvs:
-    %single = insertelement <16 x i32> undef, i32 %b, i32 0
-    %splat = shufflevector <16 x i32> %single, <16 x i32> undef, <16 x i32> zeroinitializer
-    %1 = or <16 x i32> %a,%splat
-    ; CHECK: or v{{[0-9]+}}, v{{[0-9]+}}, s{{[0-9]+}}
-    ret <16 x i32> %1
+  %single = insertelement <16 x i32> undef, i32 %b, i32 0
+  %splat = shufflevector <16 x i32> %single, <16 x i32> undef, <16 x i32> zeroinitializer
+  %1 = or <16 x i32> %a,%splat
+  ; CHECK: or v{{[0-9]+}}, v{{[0-9]+}}, s{{[0-9]+}}
+  ret <16 x i32> %1
 }
 
 define <16 x i32> @test_orvsm(<16 x i32> %a, i32 %b, i32 %mask) { ; CHECK: test_orvsm:
-    %single = insertelement <16 x i32> undef, i32 %b, i32 0
-    %splat = shufflevector <16 x i32> %single, <16 x i32> undef, <16 x i32> zeroinitializer
-    %1 = or <16 x i32> %a,%splat
-    %2 = call <16 x i32> @llvm.nyuzi.__builtin_nyuzi_vector_mixi(i32 %mask, <16 x i32> %1, <16 x i32> %a)
-    ; CHECK: or_mask v{{[0-9]+}}, s{{[0-9]+}}, v{{[0-9]+}}, s{{[0-9]+}}
-    ret <16 x i32> %2
+  %single = insertelement <16 x i32> undef, i32 %b, i32 0
+  %splat = shufflevector <16 x i32> %single, <16 x i32> undef, <16 x i32> zeroinitializer
+  %1 = or <16 x i32> %a,%splat
+  %2 = call <16 x i32> @llvm.nyuzi.__builtin_nyuzi_vector_mixi(i32 %mask, <16 x i32> %1, <16 x i32> %a)
+  ; CHECK: or_mask v{{[0-9]+}}, s{{[0-9]+}}, v{{[0-9]+}}, s{{[0-9]+}}
+  ret <16 x i32> %2
 }
 
 define <16 x i32> @test_orvv(<16 x i32> %a, <16 x i32> %b) { ; CHECK: test_orvv:
-    %1 = or <16 x i32> %a,%b
-    ; CHECK: or v{{[0-9]+}}, v{{[0-9]+}}, v{{[0-9]+}}
-    ret <16 x i32> %1
+  %1 = or <16 x i32> %a,%b
+  ; CHECK: or v{{[0-9]+}}, v{{[0-9]+}}, v{{[0-9]+}}
+  ret <16 x i32> %1
 }
 
 define <16 x i32> @test_orvvm(<16 x i32> %a, <16 x i32> %b, i32 %mask) { ; CHECK: test_orvvm:
-    %1 = or <16 x i32> %a,%b
-    %2 = call <16 x i32> @llvm.nyuzi.__builtin_nyuzi_vector_mixi(i32 %mask, <16 x i32> %1, <16 x i32> %a)
-    ; CHECK: or_mask v{{[0-9]+}}, s{{[0-9]+}}, v{{[0-9]+}}, v{{[0-9]+}}
-    ret <16 x i32> %2
+  %1 = or <16 x i32> %a,%b
+  %2 = call <16 x i32> @llvm.nyuzi.__builtin_nyuzi_vector_mixi(i32 %mask, <16 x i32> %1, <16 x i32> %a)
+  ; CHECK: or_mask v{{[0-9]+}}, s{{[0-9]+}}, v{{[0-9]+}}, v{{[0-9]+}}
+  ret <16 x i32> %2
 }
 
 define i32 @test_orssI(i32 %a) { ; CHECK test_orssI:
-    %1 = or i32 %a, 27
-    ; CHECK: or s{{[0-9]+}}, s{{[0-9]+}}, 27
-    ret i32 %1
+  %1 = or i32 %a, 27
+  ; CHECK: or s{{[0-9]+}}, s{{[0-9]+}}, 27
+  ret i32 %1
 }
 
 define <16 x i32> @test_orvvI(<16 x i32> %a) { ; CHECK test_orvvI:
-    %1 = or <16 x i32> %a, <i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27>
-    ; CHECK: or v{{[0-9]+}}, v{{[0-9]+}}, 27
-    ret <16 x i32> %1
+  %1 = or <16 x i32> %a, <i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27>
+  ; CHECK: or v{{[0-9]+}}, v{{[0-9]+}}, 27
+  ret <16 x i32> %1
 }
 
 define <16 x i32> @test_orvvIm(<16 x i32> %a, i32 %mask) { ; CHECK test_orvvIm:
-    %1 = or <16 x i32> %a, <i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27>
-    %2 = call <16 x i32> @llvm.nyuzi.__builtin_nyuzi_vector_mixi(i32 %mask, <16 x i32> %1, <16 x i32> %a)
-    ; CHECK: or_mask v{{[0-9]+}}, s{{[0-9]+}}, v{{[0-9]+}}, 27
-    ret <16 x i32> %2
+  %1 = or <16 x i32> %a, <i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27>
+  %2 = call <16 x i32> @llvm.nyuzi.__builtin_nyuzi_vector_mixi(i32 %mask, <16 x i32> %1, <16 x i32> %a)
+  ; CHECK: or_mask v{{[0-9]+}}, s{{[0-9]+}}, v{{[0-9]+}}, 27
+  ret <16 x i32> %2
 }
 
 define <16 x i32> @test_orvsI(i32 %a) { ; CHECK test_orvsI:
-    %single = insertelement <16 x i32> undef, i32 %a, i32 0
-    %splat = shufflevector <16 x i32> %single, <16 x i32> undef, <16 x i32> zeroinitializer
-    %1 = or <16 x i32> %splat, <i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27>
-    ; CHECK: or v{{[0-9]+}}, s{{[0-9]+}}, 27
-    ret <16 x i32> %1
+  %single = insertelement <16 x i32> undef, i32 %a, i32 0
+  %splat = shufflevector <16 x i32> %single, <16 x i32> undef, <16 x i32> zeroinitializer
+  %1 = or <16 x i32> %splat, <i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27>
+  ; CHECK: or v{{[0-9]+}}, s{{[0-9]+}}, 27
+  ret <16 x i32> %1
 }
 
 define <16 x i32> @test_orvsIm(i32 %a, i32 %mask) { ; CHECK test_orvsIm:
-    %single = insertelement <16 x i32> undef, i32 %a, i32 0
-    %splat = shufflevector <16 x i32> %single, <16 x i32> undef, <16 x i32> zeroinitializer
-    %1 = or <16 x i32> %splat, <i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27>
-    %2 = call <16 x i32> @llvm.nyuzi.__builtin_nyuzi_vector_mixi(i32 %mask, <16 x i32> %1, <16 x i32> %splat)
-    ; CHECK: or_mask v{{[0-9]+}}, s{{[0-9]+}}, s{{[0-9]+}}, 27
-    ret <16 x i32> %2
+  %single = insertelement <16 x i32> undef, i32 %a, i32 0
+  %splat = shufflevector <16 x i32> %single, <16 x i32> undef, <16 x i32> zeroinitializer
+  %1 = or <16 x i32> %splat, <i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27>
+  %2 = call <16 x i32> @llvm.nyuzi.__builtin_nyuzi_vector_mixi(i32 %mask, <16 x i32> %1, <16 x i32> %splat)
+  ; CHECK: or_mask v{{[0-9]+}}, s{{[0-9]+}}, s{{[0-9]+}}, 27
+  ret <16 x i32> %2
 }
 
 define i32 @test_andss(i32 %a, i32 %b) { ; CHECK: test_andss:
-    %1 = and i32 %a,%b
-    ; CHECK: and s{{[0-9]+}}, s{{[0-9]+}}, s{{[0-9]+}}
-    ret i32 %1
+  %1 = and i32 %a,%b
+  ; CHECK: and s{{[0-9]+}}, s{{[0-9]+}}, s{{[0-9]+}}
+  ret i32 %1
 }
 
 define <16 x i32> @test_andvs(<16 x i32> %a, i32 %b) { ; CHECK: test_andvs:
-    %single = insertelement <16 x i32> undef, i32 %b, i32 0
-    %splat = shufflevector <16 x i32> %single, <16 x i32> undef, <16 x i32> zeroinitializer
-    %1 = and <16 x i32> %a,%splat
-    ; CHECK: and v{{[0-9]+}}, v{{[0-9]+}}, s{{[0-9]+}}
-    ret <16 x i32> %1
+  %single = insertelement <16 x i32> undef, i32 %b, i32 0
+  %splat = shufflevector <16 x i32> %single, <16 x i32> undef, <16 x i32> zeroinitializer
+  %1 = and <16 x i32> %a,%splat
+  ; CHECK: and v{{[0-9]+}}, v{{[0-9]+}}, s{{[0-9]+}}
+  ret <16 x i32> %1
 }
 
 define <16 x i32> @test_andvsm(<16 x i32> %a, i32 %b, i32 %mask) { ; CHECK: test_andvsm:
-    %single = insertelement <16 x i32> undef, i32 %b, i32 0
-    %splat = shufflevector <16 x i32> %single, <16 x i32> undef, <16 x i32> zeroinitializer
-    %1 = and <16 x i32> %a,%splat
-    %2 = call <16 x i32> @llvm.nyuzi.__builtin_nyuzi_vector_mixi(i32 %mask, <16 x i32> %1, <16 x i32> %a)
-    ; CHECK: and_mask v{{[0-9]+}}, s{{[0-9]+}}, v{{[0-9]+}}, s{{[0-9]+}}
-    ret <16 x i32> %2
+  %single = insertelement <16 x i32> undef, i32 %b, i32 0
+  %splat = shufflevector <16 x i32> %single, <16 x i32> undef, <16 x i32> zeroinitializer
+  %1 = and <16 x i32> %a,%splat
+  %2 = call <16 x i32> @llvm.nyuzi.__builtin_nyuzi_vector_mixi(i32 %mask, <16 x i32> %1, <16 x i32> %a)
+  ; CHECK: and_mask v{{[0-9]+}}, s{{[0-9]+}}, v{{[0-9]+}}, s{{[0-9]+}}
+  ret <16 x i32> %2
 }
 
 define <16 x i32> @test_andvv(<16 x i32> %a, <16 x i32> %b) { ; CHECK: test_andvv:
-    %1 = and <16 x i32> %a,%b
-    ; CHECK: and v{{[0-9]+}}, v{{[0-9]+}}, v{{[0-9]+}}
-    ret <16 x i32> %1
+  %1 = and <16 x i32> %a,%b
+  ; CHECK: and v{{[0-9]+}}, v{{[0-9]+}}, v{{[0-9]+}}
+  ret <16 x i32> %1
 }
 
 define <16 x i32> @test_andvvm(<16 x i32> %a, <16 x i32> %b, i32 %mask) { ; CHECK: test_andvvm:
-    %1 = and <16 x i32> %a,%b
-    %2 = call <16 x i32> @llvm.nyuzi.__builtin_nyuzi_vector_mixi(i32 %mask, <16 x i32> %1, <16 x i32> %a)
-    ; CHECK: and_mask v{{[0-9]+}}, s{{[0-9]+}}, v{{[0-9]+}}, v{{[0-9]+}}
-    ret <16 x i32> %2
+  %1 = and <16 x i32> %a,%b
+  %2 = call <16 x i32> @llvm.nyuzi.__builtin_nyuzi_vector_mixi(i32 %mask, <16 x i32> %1, <16 x i32> %a)
+  ; CHECK: and_mask v{{[0-9]+}}, s{{[0-9]+}}, v{{[0-9]+}}, v{{[0-9]+}}
+  ret <16 x i32> %2
 }
 
 define i32 @test_andssI(i32 %a) { ; CHECK test_andssI:
-    %1 = and i32 %a, 27
-    ; CHECK: and s{{[0-9]+}}, s{{[0-9]+}}, 27
-    ret i32 %1
+  %1 = and i32 %a, 27
+  ; CHECK: and s{{[0-9]+}}, s{{[0-9]+}}, 27
+  ret i32 %1
 }
 
 define <16 x i32> @test_andvvI(<16 x i32> %a) { ; CHECK test_andvvI:
-    %1 = and <16 x i32> %a, <i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27>
-    ; CHECK: and v{{[0-9]+}}, v{{[0-9]+}}, 27
-    ret <16 x i32> %1
+  %1 = and <16 x i32> %a, <i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27>
+  ; CHECK: and v{{[0-9]+}}, v{{[0-9]+}}, 27
+  ret <16 x i32> %1
 }
 
 define <16 x i32> @test_andvvIm(<16 x i32> %a, i32 %mask) { ; CHECK test_andvvIm:
-    %1 = and <16 x i32> %a, <i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27>
-    %2 = call <16 x i32> @llvm.nyuzi.__builtin_nyuzi_vector_mixi(i32 %mask, <16 x i32> %1, <16 x i32> %a)
-    ; CHECK: and_mask v{{[0-9]+}}, s{{[0-9]+}}, v{{[0-9]+}}, 27
-    ret <16 x i32> %2
+  %1 = and <16 x i32> %a, <i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27>
+  %2 = call <16 x i32> @llvm.nyuzi.__builtin_nyuzi_vector_mixi(i32 %mask, <16 x i32> %1, <16 x i32> %a)
+  ; CHECK: and_mask v{{[0-9]+}}, s{{[0-9]+}}, v{{[0-9]+}}, 27
+  ret <16 x i32> %2
 }
 
 define <16 x i32> @test_andvsI(i32 %a) { ; CHECK test_andvsI:
-    %single = insertelement <16 x i32> undef, i32 %a, i32 0
-    %splat = shufflevector <16 x i32> %single, <16 x i32> undef, <16 x i32> zeroinitializer
-    %1 = and <16 x i32> %splat, <i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27>
-    ; CHECK: and v{{[0-9]+}}, s{{[0-9]+}}, 27
-    ret <16 x i32> %1
+  %single = insertelement <16 x i32> undef, i32 %a, i32 0
+  %splat = shufflevector <16 x i32> %single, <16 x i32> undef, <16 x i32> zeroinitializer
+  %1 = and <16 x i32> %splat, <i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27>
+  ; CHECK: and v{{[0-9]+}}, s{{[0-9]+}}, 27
+  ret <16 x i32> %1
 }
 
 define <16 x i32> @test_andvsIm(i32 %a, i32 %mask) { ; CHECK test_andvsIm:
-    %single = insertelement <16 x i32> undef, i32 %a, i32 0
-    %splat = shufflevector <16 x i32> %single, <16 x i32> undef, <16 x i32> zeroinitializer
-    %1 = and <16 x i32> %splat, <i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27>
-    %2 = call <16 x i32> @llvm.nyuzi.__builtin_nyuzi_vector_mixi(i32 %mask, <16 x i32> %1, <16 x i32> %splat)
-    ; CHECK: and_mask v{{[0-9]+}}, s{{[0-9]+}}, s{{[0-9]+}}, 27
-    ret <16 x i32> %2
+  %single = insertelement <16 x i32> undef, i32 %a, i32 0
+  %splat = shufflevector <16 x i32> %single, <16 x i32> undef, <16 x i32> zeroinitializer
+  %1 = and <16 x i32> %splat, <i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27>
+  %2 = call <16 x i32> @llvm.nyuzi.__builtin_nyuzi_vector_mixi(i32 %mask, <16 x i32> %1, <16 x i32> %splat)
+  ; CHECK: and_mask v{{[0-9]+}}, s{{[0-9]+}}, s{{[0-9]+}}, 27
+  ret <16 x i32> %2
 }
 
 define i32 @test_xorss(i32 %a, i32 %b) { ; CHECK: test_xorss:
-    %1 = xor i32 %a,%b
-    ; CHECK: xor s{{[0-9]+}}, s{{[0-9]+}}, s{{[0-9]+}}
-    ret i32 %1
+  %1 = xor i32 %a,%b
+  ; CHECK: xor s{{[0-9]+}}, s{{[0-9]+}}, s{{[0-9]+}}
+  ret i32 %1
 }
 
 define <16 x i32> @test_xorvs(<16 x i32> %a, i32 %b) { ; CHECK: test_xorvs:
-    %single = insertelement <16 x i32> undef, i32 %b, i32 0
-    %splat = shufflevector <16 x i32> %single, <16 x i32> undef, <16 x i32> zeroinitializer
-    %1 = xor <16 x i32> %a,%splat
-    ; CHECK: xor v{{[0-9]+}}, v{{[0-9]+}}, s{{[0-9]+}}
-    ret <16 x i32> %1
+  %single = insertelement <16 x i32> undef, i32 %b, i32 0
+  %splat = shufflevector <16 x i32> %single, <16 x i32> undef, <16 x i32> zeroinitializer
+  %1 = xor <16 x i32> %a,%splat
+  ; CHECK: xor v{{[0-9]+}}, v{{[0-9]+}}, s{{[0-9]+}}
+  ret <16 x i32> %1
 }
 
 define <16 x i32> @test_xorvsm(<16 x i32> %a, i32 %b, i32 %mask) { ; CHECK: test_xorvsm:
-    %single = insertelement <16 x i32> undef, i32 %b, i32 0
-    %splat = shufflevector <16 x i32> %single, <16 x i32> undef, <16 x i32> zeroinitializer
-    %1 = xor <16 x i32> %a,%splat
-    %2 = call <16 x i32> @llvm.nyuzi.__builtin_nyuzi_vector_mixi(i32 %mask, <16 x i32> %1, <16 x i32> %a)
-    ; CHECK: xor_mask v{{[0-9]+}}, s{{[0-9]+}}, v{{[0-9]+}}, s{{[0-9]+}}
-    ret <16 x i32> %2
+  %single = insertelement <16 x i32> undef, i32 %b, i32 0
+  %splat = shufflevector <16 x i32> %single, <16 x i32> undef, <16 x i32> zeroinitializer
+  %1 = xor <16 x i32> %a,%splat
+  %2 = call <16 x i32> @llvm.nyuzi.__builtin_nyuzi_vector_mixi(i32 %mask, <16 x i32> %1, <16 x i32> %a)
+  ; CHECK: xor_mask v{{[0-9]+}}, s{{[0-9]+}}, v{{[0-9]+}}, s{{[0-9]+}}
+  ret <16 x i32> %2
 }
 
 define <16 x i32> @test_xorvv(<16 x i32> %a, <16 x i32> %b) { ; CHECK: test_xorvv:
-    %1 = xor <16 x i32> %a,%b
-    ; CHECK: xor v{{[0-9]+}}, v{{[0-9]+}}, v{{[0-9]+}}
-    ret <16 x i32> %1
+  %1 = xor <16 x i32> %a,%b
+  ; CHECK: xor v{{[0-9]+}}, v{{[0-9]+}}, v{{[0-9]+}}
+  ret <16 x i32> %1
 }
 
 define <16 x i32> @test_xorvvm(<16 x i32> %a, <16 x i32> %b, i32 %mask) { ; CHECK: test_xorvvm:
-    %1 = xor <16 x i32> %a,%b
-    %2 = call <16 x i32> @llvm.nyuzi.__builtin_nyuzi_vector_mixi(i32 %mask, <16 x i32> %1, <16 x i32> %a)
-    ; CHECK: xor_mask v{{[0-9]+}}, s{{[0-9]+}}, v{{[0-9]+}}, v{{[0-9]+}}
-    ret <16 x i32> %2
+  %1 = xor <16 x i32> %a,%b
+  %2 = call <16 x i32> @llvm.nyuzi.__builtin_nyuzi_vector_mixi(i32 %mask, <16 x i32> %1, <16 x i32> %a)
+  ; CHECK: xor_mask v{{[0-9]+}}, s{{[0-9]+}}, v{{[0-9]+}}, v{{[0-9]+}}
+  ret <16 x i32> %2
 }
 
 define i32 @test_xorssI(i32 %a) { ; CHECK test_xorssI:
-    %1 = xor i32 %a, 27
-    ; CHECK: xor s{{[0-9]+}}, s{{[0-9]+}}, 27
-    ret i32 %1
+  %1 = xor i32 %a, 27
+  ; CHECK: xor s{{[0-9]+}}, s{{[0-9]+}}, 27
+  ret i32 %1
 }
 
 define <16 x i32> @test_xorvvI(<16 x i32> %a) { ; CHECK test_xorvvI:
-    %1 = xor <16 x i32> %a, <i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27>
-    ; CHECK: xor v{{[0-9]+}}, v{{[0-9]+}}, 27
-    ret <16 x i32> %1
+  %1 = xor <16 x i32> %a, <i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27>
+  ; CHECK: xor v{{[0-9]+}}, v{{[0-9]+}}, 27
+  ret <16 x i32> %1
 }
 
 define <16 x i32> @test_xorvvIm(<16 x i32> %a, i32 %mask) { ; CHECK test_xorvvIm:
-    %1 = xor <16 x i32> %a, <i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27>
-    %2 = call <16 x i32> @llvm.nyuzi.__builtin_nyuzi_vector_mixi(i32 %mask, <16 x i32> %1, <16 x i32> %a)
-    ; CHECK: xor_mask v{{[0-9]+}}, s{{[0-9]+}}, v{{[0-9]+}}, 27
-    ret <16 x i32> %2
+  %1 = xor <16 x i32> %a, <i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27>
+  %2 = call <16 x i32> @llvm.nyuzi.__builtin_nyuzi_vector_mixi(i32 %mask, <16 x i32> %1, <16 x i32> %a)
+  ; CHECK: xor_mask v{{[0-9]+}}, s{{[0-9]+}}, v{{[0-9]+}}, 27
+  ret <16 x i32> %2
 }
 
 define <16 x i32> @test_xorvsI(i32 %a) { ; CHECK test_xorvsI:
-    %single = insertelement <16 x i32> undef, i32 %a, i32 0
-    %splat = shufflevector <16 x i32> %single, <16 x i32> undef, <16 x i32> zeroinitializer
-    %1 = xor <16 x i32> %splat, <i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27>
-    ; CHECK: xor v{{[0-9]+}}, s{{[0-9]+}}, 27
-    ret <16 x i32> %1
+  %single = insertelement <16 x i32> undef, i32 %a, i32 0
+  %splat = shufflevector <16 x i32> %single, <16 x i32> undef, <16 x i32> zeroinitializer
+  %1 = xor <16 x i32> %splat, <i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27>
+  ; CHECK: xor v{{[0-9]+}}, s{{[0-9]+}}, 27
+  ret <16 x i32> %1
 }
 
 define <16 x i32> @test_xorvsIm(i32 %a, i32 %mask) { ; CHECK test_xorvsIm:
-    %single = insertelement <16 x i32> undef, i32 %a, i32 0
-    %splat = shufflevector <16 x i32> %single, <16 x i32> undef, <16 x i32> zeroinitializer
-    %1 = xor <16 x i32> %splat, <i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27>
-    %2 = call <16 x i32> @llvm.nyuzi.__builtin_nyuzi_vector_mixi(i32 %mask, <16 x i32> %1, <16 x i32> %splat)
-    ; CHECK: xor_mask v{{[0-9]+}}, s{{[0-9]+}}, s{{[0-9]+}}, 27
-    ret <16 x i32> %2
+  %single = insertelement <16 x i32> undef, i32 %a, i32 0
+  %splat = shufflevector <16 x i32> %single, <16 x i32> undef, <16 x i32> zeroinitializer
+  %1 = xor <16 x i32> %splat, <i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27>
+  %2 = call <16 x i32> @llvm.nyuzi.__builtin_nyuzi_vector_mixi(i32 %mask, <16 x i32> %1, <16 x i32> %splat)
+  ; CHECK: xor_mask v{{[0-9]+}}, s{{[0-9]+}}, s{{[0-9]+}}, 27
+  ret <16 x i32> %2
 }
 
 define i32 @test_addss(i32 %a, i32 %b) { ; CHECK: test_addss:
-    %1 = add i32 %a,%b
-    ; CHECK: add_i s{{[0-9]+}}, s{{[0-9]+}}, s{{[0-9]+}}
-    ret i32 %1
+  %1 = add i32 %a,%b
+  ; CHECK: add_i s{{[0-9]+}}, s{{[0-9]+}}, s{{[0-9]+}}
+  ret i32 %1
 }
 
 define <16 x i32> @test_addvs(<16 x i32> %a, i32 %b) { ; CHECK: test_addvs:
-    %single = insertelement <16 x i32> undef, i32 %b, i32 0
-    %splat = shufflevector <16 x i32> %single, <16 x i32> undef, <16 x i32> zeroinitializer
-    %1 = add <16 x i32> %a,%splat
-    ; CHECK: add_i v{{[0-9]+}}, v{{[0-9]+}}, s{{[0-9]+}}
-    ret <16 x i32> %1
+  %single = insertelement <16 x i32> undef, i32 %b, i32 0
+  %splat = shufflevector <16 x i32> %single, <16 x i32> undef, <16 x i32> zeroinitializer
+  %1 = add <16 x i32> %a,%splat
+  ; CHECK: add_i v{{[0-9]+}}, v{{[0-9]+}}, s{{[0-9]+}}
+  ret <16 x i32> %1
 }
 
 define <16 x i32> @test_addvsm(<16 x i32> %a, i32 %b, i32 %mask) { ; CHECK: test_addvsm:
-    %single = insertelement <16 x i32> undef, i32 %b, i32 0
-    %splat = shufflevector <16 x i32> %single, <16 x i32> undef, <16 x i32> zeroinitializer
-    %1 = add <16 x i32> %a,%splat
-    %2 = call <16 x i32> @llvm.nyuzi.__builtin_nyuzi_vector_mixi(i32 %mask, <16 x i32> %1, <16 x i32> %a)
-    ; CHECK: add_i_mask v{{[0-9]+}}, s{{[0-9]+}}, v{{[0-9]+}}, s{{[0-9]+}}
-    ret <16 x i32> %2
+  %single = insertelement <16 x i32> undef, i32 %b, i32 0
+  %splat = shufflevector <16 x i32> %single, <16 x i32> undef, <16 x i32> zeroinitializer
+  %1 = add <16 x i32> %a,%splat
+  %2 = call <16 x i32> @llvm.nyuzi.__builtin_nyuzi_vector_mixi(i32 %mask, <16 x i32> %1, <16 x i32> %a)
+  ; CHECK: add_i_mask v{{[0-9]+}}, s{{[0-9]+}}, v{{[0-9]+}}, s{{[0-9]+}}
+  ret <16 x i32> %2
 }
 
 define <16 x i32> @test_addvv(<16 x i32> %a, <16 x i32> %b) { ; CHECK: test_addvv:
-    %1 = add <16 x i32> %a,%b
-    ; CHECK: add_i v{{[0-9]+}}, v{{[0-9]+}}, v{{[0-9]+}}
-    ret <16 x i32> %1
+  %1 = add <16 x i32> %a,%b
+  ; CHECK: add_i v{{[0-9]+}}, v{{[0-9]+}}, v{{[0-9]+}}
+  ret <16 x i32> %1
 }
 
 define <16 x i32> @test_addvvm(<16 x i32> %a, <16 x i32> %b, i32 %mask) { ; CHECK: test_addvvm:
-    %1 = add <16 x i32> %a,%b
-    %2 = call <16 x i32> @llvm.nyuzi.__builtin_nyuzi_vector_mixi(i32 %mask, <16 x i32> %1, <16 x i32> %a)
-    ; CHECK: add_i_mask v{{[0-9]+}}, s{{[0-9]+}}, v{{[0-9]+}}, v{{[0-9]+}}
-    ret <16 x i32> %2
+  %1 = add <16 x i32> %a,%b
+  %2 = call <16 x i32> @llvm.nyuzi.__builtin_nyuzi_vector_mixi(i32 %mask, <16 x i32> %1, <16 x i32> %a)
+  ; CHECK: add_i_mask v{{[0-9]+}}, s{{[0-9]+}}, v{{[0-9]+}}, v{{[0-9]+}}
+  ret <16 x i32> %2
 }
 
 define i32 @test_addssI(i32 %a) { ; CHECK test_addssI:
-    %1 = add i32 %a, 27
-    ; CHECK: add_i s{{[0-9]+}}, s{{[0-9]+}}, 27
-    ret i32 %1
+  %1 = add i32 %a, 27
+  ; CHECK: add_i s{{[0-9]+}}, s{{[0-9]+}}, 27
+  ret i32 %1
 }
 
 define <16 x i32> @test_addvvI(<16 x i32> %a) { ; CHECK test_addvvI:
-    %1 = add <16 x i32> %a, <i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27>
-    ; CHECK: add_i v{{[0-9]+}}, v{{[0-9]+}}, 27
-    ret <16 x i32> %1
+  %1 = add <16 x i32> %a, <i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27>
+  ; CHECK: add_i v{{[0-9]+}}, v{{[0-9]+}}, 27
+  ret <16 x i32> %1
 }
 
 define <16 x i32> @test_addvvIm(<16 x i32> %a, i32 %mask) { ; CHECK test_addvvIm:
-    %1 = add <16 x i32> %a, <i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27>
-    %2 = call <16 x i32> @llvm.nyuzi.__builtin_nyuzi_vector_mixi(i32 %mask, <16 x i32> %1, <16 x i32> %a)
-    ; CHECK: add_i_mask v{{[0-9]+}}, s{{[0-9]+}}, v{{[0-9]+}}, 27
-    ret <16 x i32> %2
+  %1 = add <16 x i32> %a, <i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27>
+  %2 = call <16 x i32> @llvm.nyuzi.__builtin_nyuzi_vector_mixi(i32 %mask, <16 x i32> %1, <16 x i32> %a)
+  ; CHECK: add_i_mask v{{[0-9]+}}, s{{[0-9]+}}, v{{[0-9]+}}, 27
+  ret <16 x i32> %2
 }
 
 define <16 x i32> @test_addvsI(i32 %a) { ; CHECK test_addvsI:
-    %single = insertelement <16 x i32> undef, i32 %a, i32 0
-    %splat = shufflevector <16 x i32> %single, <16 x i32> undef, <16 x i32> zeroinitializer
-    %1 = add <16 x i32> %splat, <i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27>
-    ; CHECK: add_i v{{[0-9]+}}, s{{[0-9]+}}, 27
-    ret <16 x i32> %1
+  %single = insertelement <16 x i32> undef, i32 %a, i32 0
+  %splat = shufflevector <16 x i32> %single, <16 x i32> undef, <16 x i32> zeroinitializer
+  %1 = add <16 x i32> %splat, <i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27>
+  ; CHECK: add_i v{{[0-9]+}}, s{{[0-9]+}}, 27
+  ret <16 x i32> %1
 }
 
 define <16 x i32> @test_addvsIm(i32 %a, i32 %mask) { ; CHECK test_addvsIm:
-    %single = insertelement <16 x i32> undef, i32 %a, i32 0
-    %splat = shufflevector <16 x i32> %single, <16 x i32> undef, <16 x i32> zeroinitializer
-    %1 = add <16 x i32> %splat, <i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27>
-    %2 = call <16 x i32> @llvm.nyuzi.__builtin_nyuzi_vector_mixi(i32 %mask, <16 x i32> %1, <16 x i32> %splat)
-    ; CHECK: add_i_mask v{{[0-9]+}}, s{{[0-9]+}}, s{{[0-9]+}}, 27
-    ret <16 x i32> %2
+  %single = insertelement <16 x i32> undef, i32 %a, i32 0
+  %splat = shufflevector <16 x i32> %single, <16 x i32> undef, <16 x i32> zeroinitializer
+  %1 = add <16 x i32> %splat, <i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27>
+  %2 = call <16 x i32> @llvm.nyuzi.__builtin_nyuzi_vector_mixi(i32 %mask, <16 x i32> %1, <16 x i32> %splat)
+  ; CHECK: add_i_mask v{{[0-9]+}}, s{{[0-9]+}}, s{{[0-9]+}}, 27
+  ret <16 x i32> %2
 }
 
 define i32 @test_subss(i32 %a, i32 %b) { ; CHECK: test_subss:
-    %1 = sub i32 %a,%b
-    ; CHECK: sub_i s{{[0-9]+}}, s{{[0-9]+}}, s{{[0-9]+}}
-    ret i32 %1
+  %1 = sub i32 %a,%b
+  ; CHECK: sub_i s{{[0-9]+}}, s{{[0-9]+}}, s{{[0-9]+}}
+  ret i32 %1
 }
 
 define <16 x i32> @test_subvs(<16 x i32> %a, i32 %b) { ; CHECK: test_subvs:
-    %single = insertelement <16 x i32> undef, i32 %b, i32 0
-    %splat = shufflevector <16 x i32> %single, <16 x i32> undef, <16 x i32> zeroinitializer
-    %1 = sub <16 x i32> %a,%splat
-    ; CHECK: sub_i v{{[0-9]+}}, v{{[0-9]+}}, s{{[0-9]+}}
-    ret <16 x i32> %1
+  %single = insertelement <16 x i32> undef, i32 %b, i32 0
+  %splat = shufflevector <16 x i32> %single, <16 x i32> undef, <16 x i32> zeroinitializer
+  %1 = sub <16 x i32> %a,%splat
+  ; CHECK: sub_i v{{[0-9]+}}, v{{[0-9]+}}, s{{[0-9]+}}
+  ret <16 x i32> %1
 }
 
 define <16 x i32> @test_subvsm(<16 x i32> %a, i32 %b, i32 %mask) { ; CHECK: test_subvsm:
-    %single = insertelement <16 x i32> undef, i32 %b, i32 0
-    %splat = shufflevector <16 x i32> %single, <16 x i32> undef, <16 x i32> zeroinitializer
-    %1 = sub <16 x i32> %a,%splat
-    %2 = call <16 x i32> @llvm.nyuzi.__builtin_nyuzi_vector_mixi(i32 %mask, <16 x i32> %1, <16 x i32> %a)
-    ; CHECK: sub_i_mask v{{[0-9]+}}, s{{[0-9]+}}, v{{[0-9]+}}, s{{[0-9]+}}
-    ret <16 x i32> %2
+  %single = insertelement <16 x i32> undef, i32 %b, i32 0
+  %splat = shufflevector <16 x i32> %single, <16 x i32> undef, <16 x i32> zeroinitializer
+  %1 = sub <16 x i32> %a,%splat
+  %2 = call <16 x i32> @llvm.nyuzi.__builtin_nyuzi_vector_mixi(i32 %mask, <16 x i32> %1, <16 x i32> %a)
+  ; CHECK: sub_i_mask v{{[0-9]+}}, s{{[0-9]+}}, v{{[0-9]+}}, s{{[0-9]+}}
+  ret <16 x i32> %2
 }
 
 define <16 x i32> @test_subvv(<16 x i32> %a, <16 x i32> %b) { ; CHECK: test_subvv:
-    %1 = sub <16 x i32> %a,%b
-    ; CHECK: sub_i v{{[0-9]+}}, v{{[0-9]+}}, v{{[0-9]+}}
-    ret <16 x i32> %1
+  %1 = sub <16 x i32> %a,%b
+  ; CHECK: sub_i v{{[0-9]+}}, v{{[0-9]+}}, v{{[0-9]+}}
+  ret <16 x i32> %1
 }
 
 define <16 x i32> @test_subvvm(<16 x i32> %a, <16 x i32> %b, i32 %mask) { ; CHECK: test_subvvm:
-    %1 = sub <16 x i32> %a,%b
-    %2 = call <16 x i32> @llvm.nyuzi.__builtin_nyuzi_vector_mixi(i32 %mask, <16 x i32> %1, <16 x i32> %a)
-    ; CHECK: sub_i_mask v{{[0-9]+}}, s{{[0-9]+}}, v{{[0-9]+}}, v{{[0-9]+}}
-    ret <16 x i32> %2
+  %1 = sub <16 x i32> %a,%b
+  %2 = call <16 x i32> @llvm.nyuzi.__builtin_nyuzi_vector_mixi(i32 %mask, <16 x i32> %1, <16 x i32> %a)
+  ; CHECK: sub_i_mask v{{[0-9]+}}, s{{[0-9]+}}, v{{[0-9]+}}, v{{[0-9]+}}
+  ret <16 x i32> %2
 }
 
 define <16 x i32> @test_subvvI(<16 x i32> %a) { ; CHECK test_subvvI:
-    %1 = sub <16 x i32> %a, <i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27>
-    ; CHECK: sub_i v{{[0-9]+}}, v{{[0-9]+}}, 27
-    ret <16 x i32> %1
+  %1 = sub <16 x i32> %a, <i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27>
+  ; CHECK: sub_i v{{[0-9]+}}, v{{[0-9]+}}, 27
+  ret <16 x i32> %1
 }
 
 define <16 x i32> @test_subvvIm(<16 x i32> %a, i32 %mask) { ; CHECK test_subvvIm:
-    %1 = sub <16 x i32> %a, <i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27>
-    %2 = call <16 x i32> @llvm.nyuzi.__builtin_nyuzi_vector_mixi(i32 %mask, <16 x i32> %1, <16 x i32> %a)
-    ; CHECK: sub_i_mask v{{[0-9]+}}, s{{[0-9]+}}, v{{[0-9]+}}, 27
-    ret <16 x i32> %2
+  %1 = sub <16 x i32> %a, <i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27>
+  %2 = call <16 x i32> @llvm.nyuzi.__builtin_nyuzi_vector_mixi(i32 %mask, <16 x i32> %1, <16 x i32> %a)
+  ; CHECK: sub_i_mask v{{[0-9]+}}, s{{[0-9]+}}, v{{[0-9]+}}, 27
+  ret <16 x i32> %2
 }
 
 define <16 x i32> @test_subvsI(i32 %a) { ; CHECK test_subvsI:
-    %single = insertelement <16 x i32> undef, i32 %a, i32 0
-    %splat = shufflevector <16 x i32> %single, <16 x i32> undef, <16 x i32> zeroinitializer
-    %1 = sub <16 x i32> %splat, <i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27>
-    ; CHECK: sub_i v{{[0-9]+}}, s{{[0-9]+}}, 27
-    ret <16 x i32> %1
+  %single = insertelement <16 x i32> undef, i32 %a, i32 0
+  %splat = shufflevector <16 x i32> %single, <16 x i32> undef, <16 x i32> zeroinitializer
+  %1 = sub <16 x i32> %splat, <i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27>
+  ; CHECK: sub_i v{{[0-9]+}}, s{{[0-9]+}}, 27
+  ret <16 x i32> %1
 }
 
 define <16 x i32> @test_subvsIm(i32 %a, i32 %mask) { ; CHECK test_subvsIm:
-    %single = insertelement <16 x i32> undef, i32 %a, i32 0
-    %splat = shufflevector <16 x i32> %single, <16 x i32> undef, <16 x i32> zeroinitializer
-    %1 = sub <16 x i32> %splat, <i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27>
-    %2 = call <16 x i32> @llvm.nyuzi.__builtin_nyuzi_vector_mixi(i32 %mask, <16 x i32> %1, <16 x i32> %splat)
-    ; CHECK: sub_i_mask v{{[0-9]+}}, s{{[0-9]+}}, s{{[0-9]+}}, 27
-    ret <16 x i32> %2
+  %single = insertelement <16 x i32> undef, i32 %a, i32 0
+  %splat = shufflevector <16 x i32> %single, <16 x i32> undef, <16 x i32> zeroinitializer
+  %1 = sub <16 x i32> %splat, <i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27>
+  %2 = call <16 x i32> @llvm.nyuzi.__builtin_nyuzi_vector_mixi(i32 %mask, <16 x i32> %1, <16 x i32> %splat)
+  ; CHECK: sub_i_mask v{{[0-9]+}}, s{{[0-9]+}}, s{{[0-9]+}}, 27
+  ret <16 x i32> %2
 }
 
 define i32 @test_ashrss(i32 %a, i32 %b) { ; CHECK: test_ashrss:
-    %1 = ashr i32 %a,%b
-    ; CHECK: ashr s{{[0-9]+}}, s{{[0-9]+}}, s{{[0-9]+}}
-    ret i32 %1
+  %1 = ashr i32 %a,%b
+  ; CHECK: ashr s{{[0-9]+}}, s{{[0-9]+}}, s{{[0-9]+}}
+  ret i32 %1
 }
 
 define <16 x i32> @test_ashrvs(<16 x i32> %a, i32 %b) { ; CHECK: test_ashrvs:
-    %single = insertelement <16 x i32> undef, i32 %b, i32 0
-    %splat = shufflevector <16 x i32> %single, <16 x i32> undef, <16 x i32> zeroinitializer
-    %1 = ashr <16 x i32> %a,%splat
-    ; CHECK: ashr v{{[0-9]+}}, v{{[0-9]+}}, s{{[0-9]+}}
-    ret <16 x i32> %1
+  %single = insertelement <16 x i32> undef, i32 %b, i32 0
+  %splat = shufflevector <16 x i32> %single, <16 x i32> undef, <16 x i32> zeroinitializer
+  %1 = ashr <16 x i32> %a,%splat
+  ; CHECK: ashr v{{[0-9]+}}, v{{[0-9]+}}, s{{[0-9]+}}
+  ret <16 x i32> %1
 }
 
 define <16 x i32> @test_ashrvsm(<16 x i32> %a, i32 %b, i32 %mask) { ; CHECK: test_ashrvsm:
-    %single = insertelement <16 x i32> undef, i32 %b, i32 0
-    %splat = shufflevector <16 x i32> %single, <16 x i32> undef, <16 x i32> zeroinitializer
-    %1 = ashr <16 x i32> %a,%splat
-    %2 = call <16 x i32> @llvm.nyuzi.__builtin_nyuzi_vector_mixi(i32 %mask, <16 x i32> %1, <16 x i32> %a)
-    ; CHECK: ashr_mask v{{[0-9]+}}, s{{[0-9]+}}, v{{[0-9]+}}, s{{[0-9]+}}
-    ret <16 x i32> %2
+  %single = insertelement <16 x i32> undef, i32 %b, i32 0
+  %splat = shufflevector <16 x i32> %single, <16 x i32> undef, <16 x i32> zeroinitializer
+  %1 = ashr <16 x i32> %a,%splat
+  %2 = call <16 x i32> @llvm.nyuzi.__builtin_nyuzi_vector_mixi(i32 %mask, <16 x i32> %1, <16 x i32> %a)
+  ; CHECK: ashr_mask v{{[0-9]+}}, s{{[0-9]+}}, v{{[0-9]+}}, s{{[0-9]+}}
+  ret <16 x i32> %2
 }
 
 define <16 x i32> @test_ashrvv(<16 x i32> %a, <16 x i32> %b) { ; CHECK: test_ashrvv:
-    %1 = ashr <16 x i32> %a,%b
-    ; CHECK: ashr v{{[0-9]+}}, v{{[0-9]+}}, v{{[0-9]+}}
-    ret <16 x i32> %1
+  %1 = ashr <16 x i32> %a,%b
+  ; CHECK: ashr v{{[0-9]+}}, v{{[0-9]+}}, v{{[0-9]+}}
+  ret <16 x i32> %1
 }
 
 define <16 x i32> @test_ashrvvm(<16 x i32> %a, <16 x i32> %b, i32 %mask) { ; CHECK: test_ashrvvm:
-    %1 = ashr <16 x i32> %a,%b
-    %2 = call <16 x i32> @llvm.nyuzi.__builtin_nyuzi_vector_mixi(i32 %mask, <16 x i32> %1, <16 x i32> %a)
-    ; CHECK: ashr_mask v{{[0-9]+}}, s{{[0-9]+}}, v{{[0-9]+}}, v{{[0-9]+}}
-    ret <16 x i32> %2
+  %1 = ashr <16 x i32> %a,%b
+  %2 = call <16 x i32> @llvm.nyuzi.__builtin_nyuzi_vector_mixi(i32 %mask, <16 x i32> %1, <16 x i32> %a)
+  ; CHECK: ashr_mask v{{[0-9]+}}, s{{[0-9]+}}, v{{[0-9]+}}, v{{[0-9]+}}
+  ret <16 x i32> %2
 }
 
 define i32 @test_ashrssI(i32 %a) { ; CHECK test_ashrssI:
-    %1 = ashr i32 %a, 27
-    ; CHECK: ashr s{{[0-9]+}}, s{{[0-9]+}}, 27
-    ret i32 %1
+  %1 = ashr i32 %a, 27
+  ; CHECK: ashr s{{[0-9]+}}, s{{[0-9]+}}, 27
+  ret i32 %1
 }
 
 define <16 x i32> @test_ashrvvI(<16 x i32> %a) { ; CHECK test_ashrvvI:
-    %1 = ashr <16 x i32> %a, <i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27>
-    ; CHECK: ashr v{{[0-9]+}}, v{{[0-9]+}}, 27
-    ret <16 x i32> %1
+  %1 = ashr <16 x i32> %a, <i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27>
+  ; CHECK: ashr v{{[0-9]+}}, v{{[0-9]+}}, 27
+  ret <16 x i32> %1
 }
 
 define <16 x i32> @test_ashrvvIm(<16 x i32> %a, i32 %mask) { ; CHECK test_ashrvvIm:
-    %1 = ashr <16 x i32> %a, <i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27>
-    %2 = call <16 x i32> @llvm.nyuzi.__builtin_nyuzi_vector_mixi(i32 %mask, <16 x i32> %1, <16 x i32> %a)
-    ; CHECK: ashr_mask v{{[0-9]+}}, s{{[0-9]+}}, v{{[0-9]+}}, 27
-    ret <16 x i32> %2
+  %1 = ashr <16 x i32> %a, <i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27>
+  %2 = call <16 x i32> @llvm.nyuzi.__builtin_nyuzi_vector_mixi(i32 %mask, <16 x i32> %1, <16 x i32> %a)
+  ; CHECK: ashr_mask v{{[0-9]+}}, s{{[0-9]+}}, v{{[0-9]+}}, 27
+  ret <16 x i32> %2
 }
 
 define <16 x i32> @test_ashrvsI(i32 %a) { ; CHECK test_ashrvsI:
-    %single = insertelement <16 x i32> undef, i32 %a, i32 0
-    %splat = shufflevector <16 x i32> %single, <16 x i32> undef, <16 x i32> zeroinitializer
-    %1 = ashr <16 x i32> %splat, <i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27>
-    ; CHECK: ashr v{{[0-9]+}}, s{{[0-9]+}}, 27
-    ret <16 x i32> %1
+  %single = insertelement <16 x i32> undef, i32 %a, i32 0
+  %splat = shufflevector <16 x i32> %single, <16 x i32> undef, <16 x i32> zeroinitializer
+  %1 = ashr <16 x i32> %splat, <i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27>
+  ; CHECK: ashr v{{[0-9]+}}, s{{[0-9]+}}, 27
+  ret <16 x i32> %1
 }
 
 define <16 x i32> @test_ashrvsIm(i32 %a, i32 %mask) { ; CHECK test_ashrvsIm:
-    %single = insertelement <16 x i32> undef, i32 %a, i32 0
-    %splat = shufflevector <16 x i32> %single, <16 x i32> undef, <16 x i32> zeroinitializer
-    %1 = ashr <16 x i32> %splat, <i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27>
-    %2 = call <16 x i32> @llvm.nyuzi.__builtin_nyuzi_vector_mixi(i32 %mask, <16 x i32> %1, <16 x i32> %splat)
-    ; CHECK: ashr_mask v{{[0-9]+}}, s{{[0-9]+}}, s{{[0-9]+}}, 27
-    ret <16 x i32> %2
+  %single = insertelement <16 x i32> undef, i32 %a, i32 0
+  %splat = shufflevector <16 x i32> %single, <16 x i32> undef, <16 x i32> zeroinitializer
+  %1 = ashr <16 x i32> %splat, <i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27>
+  %2 = call <16 x i32> @llvm.nyuzi.__builtin_nyuzi_vector_mixi(i32 %mask, <16 x i32> %1, <16 x i32> %splat)
+  ; CHECK: ashr_mask v{{[0-9]+}}, s{{[0-9]+}}, s{{[0-9]+}}, 27
+  ret <16 x i32> %2
 }
 
 define i32 @test_lshrss(i32 %a, i32 %b) { ; CHECK: test_lshrss:
-    %1 = lshr i32 %a,%b
-    ; CHECK: shr s{{[0-9]+}}, s{{[0-9]+}}, s{{[0-9]+}}
-    ret i32 %1
+  %1 = lshr i32 %a,%b
+  ; CHECK: shr s{{[0-9]+}}, s{{[0-9]+}}, s{{[0-9]+}}
+  ret i32 %1
 }
 
 define <16 x i32> @test_lshrvs(<16 x i32> %a, i32 %b) { ; CHECK: test_lshrvs:
-    %single = insertelement <16 x i32> undef, i32 %b, i32 0
-    %splat = shufflevector <16 x i32> %single, <16 x i32> undef, <16 x i32> zeroinitializer
-    %1 = lshr <16 x i32> %a,%splat
-    ; CHECK: shr v{{[0-9]+}}, v{{[0-9]+}}, s{{[0-9]+}}
-    ret <16 x i32> %1
+  %single = insertelement <16 x i32> undef, i32 %b, i32 0
+  %splat = shufflevector <16 x i32> %single, <16 x i32> undef, <16 x i32> zeroinitializer
+  %1 = lshr <16 x i32> %a,%splat
+  ; CHECK: shr v{{[0-9]+}}, v{{[0-9]+}}, s{{[0-9]+}}
+  ret <16 x i32> %1
 }
 
 define <16 x i32> @test_lshrvsm(<16 x i32> %a, i32 %b, i32 %mask) { ; CHECK: test_lshrvsm:
-    %single = insertelement <16 x i32> undef, i32 %b, i32 0
-    %splat = shufflevector <16 x i32> %single, <16 x i32> undef, <16 x i32> zeroinitializer
-    %1 = lshr <16 x i32> %a,%splat
-    %2 = call <16 x i32> @llvm.nyuzi.__builtin_nyuzi_vector_mixi(i32 %mask, <16 x i32> %1, <16 x i32> %a)
-    ; CHECK: shr_mask v{{[0-9]+}}, s{{[0-9]+}}, v{{[0-9]+}}, s{{[0-9]+}}
-    ret <16 x i32> %2
+  %single = insertelement <16 x i32> undef, i32 %b, i32 0
+  %splat = shufflevector <16 x i32> %single, <16 x i32> undef, <16 x i32> zeroinitializer
+  %1 = lshr <16 x i32> %a,%splat
+  %2 = call <16 x i32> @llvm.nyuzi.__builtin_nyuzi_vector_mixi(i32 %mask, <16 x i32> %1, <16 x i32> %a)
+  ; CHECK: shr_mask v{{[0-9]+}}, s{{[0-9]+}}, v{{[0-9]+}}, s{{[0-9]+}}
+  ret <16 x i32> %2
 }
 
 define <16 x i32> @test_lshrvv(<16 x i32> %a, <16 x i32> %b) { ; CHECK: test_lshrvv:
-    %1 = lshr <16 x i32> %a,%b
-    ; CHECK: shr v{{[0-9]+}}, v{{[0-9]+}}, v{{[0-9]+}}
-    ret <16 x i32> %1
+  %1 = lshr <16 x i32> %a,%b
+  ; CHECK: shr v{{[0-9]+}}, v{{[0-9]+}}, v{{[0-9]+}}
+  ret <16 x i32> %1
 }
 
 define <16 x i32> @test_lshrvvm(<16 x i32> %a, <16 x i32> %b, i32 %mask) { ; CHECK: test_lshrvvm:
-    %1 = lshr <16 x i32> %a,%b
-    %2 = call <16 x i32> @llvm.nyuzi.__builtin_nyuzi_vector_mixi(i32 %mask, <16 x i32> %1, <16 x i32> %a)
-    ; CHECK: shr_mask v{{[0-9]+}}, s{{[0-9]+}}, v{{[0-9]+}}, v{{[0-9]+}}
-    ret <16 x i32> %2
+  %1 = lshr <16 x i32> %a,%b
+  %2 = call <16 x i32> @llvm.nyuzi.__builtin_nyuzi_vector_mixi(i32 %mask, <16 x i32> %1, <16 x i32> %a)
+  ; CHECK: shr_mask v{{[0-9]+}}, s{{[0-9]+}}, v{{[0-9]+}}, v{{[0-9]+}}
+  ret <16 x i32> %2
 }
 
 define i32 @test_lshrssI(i32 %a) { ; CHECK test_lshrssI:
-    %1 = lshr i32 %a, 27
-    ; CHECK: shr s{{[0-9]+}}, s{{[0-9]+}}, 27
-    ret i32 %1
+  %1 = lshr i32 %a, 27
+  ; CHECK: shr s{{[0-9]+}}, s{{[0-9]+}}, 27
+  ret i32 %1
 }
 
 define <16 x i32> @test_lshrvvI(<16 x i32> %a) { ; CHECK test_lshrvvI:
-    %1 = lshr <16 x i32> %a, <i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27>
-    ; CHECK: shr v{{[0-9]+}}, v{{[0-9]+}}, 27
-    ret <16 x i32> %1
+  %1 = lshr <16 x i32> %a, <i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27>
+  ; CHECK: shr v{{[0-9]+}}, v{{[0-9]+}}, 27
+  ret <16 x i32> %1
 }
 
 define <16 x i32> @test_lshrvvIm(<16 x i32> %a, i32 %mask) { ; CHECK test_lshrvvIm:
-    %1 = lshr <16 x i32> %a, <i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27>
-    %2 = call <16 x i32> @llvm.nyuzi.__builtin_nyuzi_vector_mixi(i32 %mask, <16 x i32> %1, <16 x i32> %a)
-    ; CHECK: shr_mask v{{[0-9]+}}, s{{[0-9]+}}, v{{[0-9]+}}, 27
-    ret <16 x i32> %2
+  %1 = lshr <16 x i32> %a, <i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27>
+  %2 = call <16 x i32> @llvm.nyuzi.__builtin_nyuzi_vector_mixi(i32 %mask, <16 x i32> %1, <16 x i32> %a)
+  ; CHECK: shr_mask v{{[0-9]+}}, s{{[0-9]+}}, v{{[0-9]+}}, 27
+  ret <16 x i32> %2
 }
 
 define <16 x i32> @test_lshrvsI(i32 %a) { ; CHECK test_lshrvsI:
-    %single = insertelement <16 x i32> undef, i32 %a, i32 0
-    %splat = shufflevector <16 x i32> %single, <16 x i32> undef, <16 x i32> zeroinitializer
-    %1 = lshr <16 x i32> %splat, <i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27>
-    ; CHECK: shr v{{[0-9]+}}, s{{[0-9]+}}, 27
-    ret <16 x i32> %1
+  %single = insertelement <16 x i32> undef, i32 %a, i32 0
+  %splat = shufflevector <16 x i32> %single, <16 x i32> undef, <16 x i32> zeroinitializer
+  %1 = lshr <16 x i32> %splat, <i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27>
+  ; CHECK: shr v{{[0-9]+}}, s{{[0-9]+}}, 27
+  ret <16 x i32> %1
 }
 
 define <16 x i32> @test_lshrvsIm(i32 %a, i32 %mask) { ; CHECK test_lshrvsIm:
-    %single = insertelement <16 x i32> undef, i32 %a, i32 0
-    %splat = shufflevector <16 x i32> %single, <16 x i32> undef, <16 x i32> zeroinitializer
-    %1 = lshr <16 x i32> %splat, <i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27>
-    %2 = call <16 x i32> @llvm.nyuzi.__builtin_nyuzi_vector_mixi(i32 %mask, <16 x i32> %1, <16 x i32> %splat)
-    ; CHECK: shr_mask v{{[0-9]+}}, s{{[0-9]+}}, s{{[0-9]+}}, 27
-    ret <16 x i32> %2
+  %single = insertelement <16 x i32> undef, i32 %a, i32 0
+  %splat = shufflevector <16 x i32> %single, <16 x i32> undef, <16 x i32> zeroinitializer
+  %1 = lshr <16 x i32> %splat, <i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27>
+  %2 = call <16 x i32> @llvm.nyuzi.__builtin_nyuzi_vector_mixi(i32 %mask, <16 x i32> %1, <16 x i32> %splat)
+  ; CHECK: shr_mask v{{[0-9]+}}, s{{[0-9]+}}, s{{[0-9]+}}, 27
+  ret <16 x i32> %2
 }
 
 define i32 @test_shlss(i32 %a, i32 %b) { ; CHECK: test_shlss:
-    %1 = shl i32 %a,%b
-    ; CHECK: shl s{{[0-9]+}}, s{{[0-9]+}}, s{{[0-9]+}}
-    ret i32 %1
+  %1 = shl i32 %a,%b
+  ; CHECK: shl s{{[0-9]+}}, s{{[0-9]+}}, s{{[0-9]+}}
+  ret i32 %1
 }
 
 define <16 x i32> @test_shlvs(<16 x i32> %a, i32 %b) { ; CHECK: test_shlvs:
-    %single = insertelement <16 x i32> undef, i32 %b, i32 0
-    %splat = shufflevector <16 x i32> %single, <16 x i32> undef, <16 x i32> zeroinitializer
-    %1 = shl <16 x i32> %a,%splat
-    ; CHECK: shl v{{[0-9]+}}, v{{[0-9]+}}, s{{[0-9]+}}
-    ret <16 x i32> %1
+  %single = insertelement <16 x i32> undef, i32 %b, i32 0
+  %splat = shufflevector <16 x i32> %single, <16 x i32> undef, <16 x i32> zeroinitializer
+  %1 = shl <16 x i32> %a,%splat
+  ; CHECK: shl v{{[0-9]+}}, v{{[0-9]+}}, s{{[0-9]+}}
+  ret <16 x i32> %1
 }
 
 define <16 x i32> @test_shlvsm(<16 x i32> %a, i32 %b, i32 %mask) { ; CHECK: test_shlvsm:
-    %single = insertelement <16 x i32> undef, i32 %b, i32 0
-    %splat = shufflevector <16 x i32> %single, <16 x i32> undef, <16 x i32> zeroinitializer
-    %1 = shl <16 x i32> %a,%splat
-    %2 = call <16 x i32> @llvm.nyuzi.__builtin_nyuzi_vector_mixi(i32 %mask, <16 x i32> %1, <16 x i32> %a)
-    ; CHECK: shl_mask v{{[0-9]+}}, s{{[0-9]+}}, v{{[0-9]+}}, s{{[0-9]+}}
-    ret <16 x i32> %2
+  %single = insertelement <16 x i32> undef, i32 %b, i32 0
+  %splat = shufflevector <16 x i32> %single, <16 x i32> undef, <16 x i32> zeroinitializer
+  %1 = shl <16 x i32> %a,%splat
+  %2 = call <16 x i32> @llvm.nyuzi.__builtin_nyuzi_vector_mixi(i32 %mask, <16 x i32> %1, <16 x i32> %a)
+  ; CHECK: shl_mask v{{[0-9]+}}, s{{[0-9]+}}, v{{[0-9]+}}, s{{[0-9]+}}
+  ret <16 x i32> %2
 }
 
 define <16 x i32> @test_shlvv(<16 x i32> %a, <16 x i32> %b) { ; CHECK: test_shlvv:
-    %1 = shl <16 x i32> %a,%b
-    ; CHECK: shl v{{[0-9]+}}, v{{[0-9]+}}, v{{[0-9]+}}
-    ret <16 x i32> %1
+  %1 = shl <16 x i32> %a,%b
+  ; CHECK: shl v{{[0-9]+}}, v{{[0-9]+}}, v{{[0-9]+}}
+  ret <16 x i32> %1
 }
 
 define <16 x i32> @test_shlvvm(<16 x i32> %a, <16 x i32> %b, i32 %mask) { ; CHECK: test_shlvvm:
-    %1 = shl <16 x i32> %a,%b
-    %2 = call <16 x i32> @llvm.nyuzi.__builtin_nyuzi_vector_mixi(i32 %mask, <16 x i32> %1, <16 x i32> %a)
-    ; CHECK: shl_mask v{{[0-9]+}}, s{{[0-9]+}}, v{{[0-9]+}}, v{{[0-9]+}}
-    ret <16 x i32> %2
+  %1 = shl <16 x i32> %a,%b
+  %2 = call <16 x i32> @llvm.nyuzi.__builtin_nyuzi_vector_mixi(i32 %mask, <16 x i32> %1, <16 x i32> %a)
+  ; CHECK: shl_mask v{{[0-9]+}}, s{{[0-9]+}}, v{{[0-9]+}}, v{{[0-9]+}}
+  ret <16 x i32> %2
 }
 
 define i32 @test_shlssI(i32 %a) { ; CHECK test_shlssI:
-    %1 = shl i32 %a, 27
-    ; CHECK: shl s{{[0-9]+}}, s{{[0-9]+}}, 27
-    ret i32 %1
+  %1 = shl i32 %a, 27
+  ; CHECK: shl s{{[0-9]+}}, s{{[0-9]+}}, 27
+  ret i32 %1
 }
 
 define <16 x i32> @test_shlvvI(<16 x i32> %a) { ; CHECK test_shlvvI:
-    %1 = shl <16 x i32> %a, <i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27>
-    ; CHECK: shl v{{[0-9]+}}, v{{[0-9]+}}, 27
-    ret <16 x i32> %1
+  %1 = shl <16 x i32> %a, <i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27>
+  ; CHECK: shl v{{[0-9]+}}, v{{[0-9]+}}, 27
+  ret <16 x i32> %1
 }
 
 define <16 x i32> @test_shlvvIm(<16 x i32> %a, i32 %mask) { ; CHECK test_shlvvIm:
-    %1 = shl <16 x i32> %a, <i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27>
-    %2 = call <16 x i32> @llvm.nyuzi.__builtin_nyuzi_vector_mixi(i32 %mask, <16 x i32> %1, <16 x i32> %a)
-    ; CHECK: shl_mask v{{[0-9]+}}, s{{[0-9]+}}, v{{[0-9]+}}, 27
-    ret <16 x i32> %2
+  %1 = shl <16 x i32> %a, <i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27>
+  %2 = call <16 x i32> @llvm.nyuzi.__builtin_nyuzi_vector_mixi(i32 %mask, <16 x i32> %1, <16 x i32> %a)
+  ; CHECK: shl_mask v{{[0-9]+}}, s{{[0-9]+}}, v{{[0-9]+}}, 27
+  ret <16 x i32> %2
 }
 
 define <16 x i32> @test_shlvsI(i32 %a) { ; CHECK test_shlvsI:
-    %single = insertelement <16 x i32> undef, i32 %a, i32 0
-    %splat = shufflevector <16 x i32> %single, <16 x i32> undef, <16 x i32> zeroinitializer
-    %1 = shl <16 x i32> %splat, <i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27>
-    ; CHECK: shl v{{[0-9]+}}, s{{[0-9]+}}, 27
-    ret <16 x i32> %1
+  %single = insertelement <16 x i32> undef, i32 %a, i32 0
+  %splat = shufflevector <16 x i32> %single, <16 x i32> undef, <16 x i32> zeroinitializer
+  %1 = shl <16 x i32> %splat, <i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27>
+  ; CHECK: shl v{{[0-9]+}}, s{{[0-9]+}}, 27
+  ret <16 x i32> %1
 }
 
 define <16 x i32> @test_shlvsIm(i32 %a, i32 %mask) { ; CHECK test_shlvsIm:
-    %single = insertelement <16 x i32> undef, i32 %a, i32 0
-    %splat = shufflevector <16 x i32> %single, <16 x i32> undef, <16 x i32> zeroinitializer
-    %1 = shl <16 x i32> %splat, <i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27>
-    %2 = call <16 x i32> @llvm.nyuzi.__builtin_nyuzi_vector_mixi(i32 %mask, <16 x i32> %1, <16 x i32> %splat)
-    ; CHECK: shl_mask v{{[0-9]+}}, s{{[0-9]+}}, s{{[0-9]+}}, 27
-    ret <16 x i32> %2
+  %single = insertelement <16 x i32> undef, i32 %a, i32 0
+  %splat = shufflevector <16 x i32> %single, <16 x i32> undef, <16 x i32> zeroinitializer
+  %1 = shl <16 x i32> %splat, <i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27>
+  %2 = call <16 x i32> @llvm.nyuzi.__builtin_nyuzi_vector_mixi(i32 %mask, <16 x i32> %1, <16 x i32> %splat)
+  ; CHECK: shl_mask v{{[0-9]+}}, s{{[0-9]+}}, s{{[0-9]+}}, 27
+  ret <16 x i32> %2
 }
 
 define float @test_faddss(float %a, float %b) { ; CHECK: test_faddss:
-    %1 = fadd float %a,%b
-    ; CHECK: add_f s{{[0-9]+}}, s{{[0-9]+}}, s{{[0-9]+}}
-    ret float %1
+  %1 = fadd float %a,%b
+  ; CHECK: add_f s{{[0-9]+}}, s{{[0-9]+}}, s{{[0-9]+}}
+  ret float %1
 }
 
 define <16 x float> @test_faddvs(<16 x float> %a, float %b) { ; CHECK: test_faddvs:
-    %single = insertelement <16 x float> undef, float %b, i32 0
-    %splat = shufflevector <16 x float> %single, <16 x float> undef, <16 x i32> zeroinitializer
-    %1 = fadd <16 x float> %a,%splat
-    ; CHECK: add_f v{{[0-9]+}}, v{{[0-9]+}}, s{{[0-9]+}}
-    ret <16 x float> %1
+  %single = insertelement <16 x float> undef, float %b, i32 0
+  %splat = shufflevector <16 x float> %single, <16 x float> undef, <16 x i32> zeroinitializer
+  %1 = fadd <16 x float> %a,%splat
+  ; CHECK: add_f v{{[0-9]+}}, v{{[0-9]+}}, s{{[0-9]+}}
+  ret <16 x float> %1
 }
 
 define <16 x float> @test_faddvsm(<16 x float> %a, float %b, i32 %mask) { ; CHECK: test_faddvsm:
-    %single = insertelement <16 x float> undef, float %b, i32 0
-    %splat = shufflevector <16 x float> %single, <16 x float> undef, <16 x i32> zeroinitializer
-    %1 = fadd <16 x float> %a,%splat
-    %2 = call <16 x float> @llvm.nyuzi.__builtin_nyuzi_vector_mixf(i32 %mask, <16 x float> %1, <16 x float> %a)
-    ; CHECK: add_f_mask v{{[0-9]+}}, s{{[0-9]+}}, v{{[0-9]+}}, s{{[0-9]+}}
-    ret <16 x float> %2
+  %single = insertelement <16 x float> undef, float %b, i32 0
+  %splat = shufflevector <16 x float> %single, <16 x float> undef, <16 x i32> zeroinitializer
+  %1 = fadd <16 x float> %a,%splat
+  %2 = call <16 x float> @llvm.nyuzi.__builtin_nyuzi_vector_mixf(i32 %mask, <16 x float> %1, <16 x float> %a)
+  ; CHECK: add_f_mask v{{[0-9]+}}, s{{[0-9]+}}, v{{[0-9]+}}, s{{[0-9]+}}
+  ret <16 x float> %2
 }
 
 define <16 x float> @test_faddvv(<16 x float> %a, <16 x float> %b) { ; CHECK: test_faddvv:
-    %1 = fadd <16 x float> %a,%b
-    ; CHECK: add_f v{{[0-9]+}}, v{{[0-9]+}}, v{{[0-9]+}}
-    ret <16 x float> %1
+  %1 = fadd <16 x float> %a,%b
+  ; CHECK: add_f v{{[0-9]+}}, v{{[0-9]+}}, v{{[0-9]+}}
+  ret <16 x float> %1
 }
 
 define <16 x float> @test_faddvvm(<16 x float> %a, <16 x float> %b, i32 %mask) { ; CHECK: test_faddvvm:
-    %1 = fadd <16 x float> %a,%b
-    %2 = call <16 x float> @llvm.nyuzi.__builtin_nyuzi_vector_mixf(i32 %mask, <16 x float> %1, <16 x float> %a)
-    ; CHECK: add_f_mask v{{[0-9]+}}, s{{[0-9]+}}, v{{[0-9]+}}, v{{[0-9]+}}
-    ret <16 x float> %2
+  %1 = fadd <16 x float> %a,%b
+  %2 = call <16 x float> @llvm.nyuzi.__builtin_nyuzi_vector_mixf(i32 %mask, <16 x float> %1, <16 x float> %a)
+  ; CHECK: add_f_mask v{{[0-9]+}}, s{{[0-9]+}}, v{{[0-9]+}}, v{{[0-9]+}}
+  ret <16 x float> %2
 }
 
 define float @test_fsubss(float %a, float %b) { ; CHECK: test_fsubss:
-    %1 = fsub float %a,%b
-    ; CHECK: sub_f s{{[0-9]+}}, s{{[0-9]+}}, s{{[0-9]+}}
-    ret float %1
+  %1 = fsub float %a,%b
+  ; CHECK: sub_f s{{[0-9]+}}, s{{[0-9]+}}, s{{[0-9]+}}
+  ret float %1
 }
 
 define <16 x float> @test_fsubvs(<16 x float> %a, float %b) { ; CHECK: test_fsubvs:
-    %single = insertelement <16 x float> undef, float %b, i32 0
-    %splat = shufflevector <16 x float> %single, <16 x float> undef, <16 x i32> zeroinitializer
-    %1 = fsub <16 x float> %a,%splat
-    ; CHECK: sub_f v{{[0-9]+}}, v{{[0-9]+}}, s{{[0-9]+}}
-    ret <16 x float> %1
+  %single = insertelement <16 x float> undef, float %b, i32 0
+  %splat = shufflevector <16 x float> %single, <16 x float> undef, <16 x i32> zeroinitializer
+  %1 = fsub <16 x float> %a,%splat
+  ; CHECK: sub_f v{{[0-9]+}}, v{{[0-9]+}}, s{{[0-9]+}}
+  ret <16 x float> %1
 }
 
 define <16 x float> @test_fsubvsm(<16 x float> %a, float %b, i32 %mask) { ; CHECK: test_fsubvsm:
-    %single = insertelement <16 x float> undef, float %b, i32 0
-    %splat = shufflevector <16 x float> %single, <16 x float> undef, <16 x i32> zeroinitializer
-    %1 = fsub <16 x float> %a,%splat
-    %2 = call <16 x float> @llvm.nyuzi.__builtin_nyuzi_vector_mixf(i32 %mask, <16 x float> %1, <16 x float> %a)
-    ; CHECK: sub_f_mask v{{[0-9]+}}, s{{[0-9]+}}, v{{[0-9]+}}, s{{[0-9]+}}
-    ret <16 x float> %2
+  %single = insertelement <16 x float> undef, float %b, i32 0
+  %splat = shufflevector <16 x float> %single, <16 x float> undef, <16 x i32> zeroinitializer
+  %1 = fsub <16 x float> %a,%splat
+  %2 = call <16 x float> @llvm.nyuzi.__builtin_nyuzi_vector_mixf(i32 %mask, <16 x float> %1, <16 x float> %a)
+  ; CHECK: sub_f_mask v{{[0-9]+}}, s{{[0-9]+}}, v{{[0-9]+}}, s{{[0-9]+}}
+  ret <16 x float> %2
 }
 
 define <16 x float> @test_fsubvv(<16 x float> %a, <16 x float> %b) { ; CHECK: test_fsubvv:
-    %1 = fsub <16 x float> %a,%b
-    ; CHECK: sub_f v{{[0-9]+}}, v{{[0-9]+}}, v{{[0-9]+}}
-    ret <16 x float> %1
+  %1 = fsub <16 x float> %a,%b
+  ; CHECK: sub_f v{{[0-9]+}}, v{{[0-9]+}}, v{{[0-9]+}}
+  ret <16 x float> %1
 }
 
 define <16 x float> @test_fsubvvm(<16 x float> %a, <16 x float> %b, i32 %mask) { ; CHECK: test_fsubvvm:
-    %1 = fsub <16 x float> %a,%b
-    %2 = call <16 x float> @llvm.nyuzi.__builtin_nyuzi_vector_mixf(i32 %mask, <16 x float> %1, <16 x float> %a)
-    ; CHECK: sub_f_mask v{{[0-9]+}}, s{{[0-9]+}}, v{{[0-9]+}}, v{{[0-9]+}}
-    ret <16 x float> %2
+  %1 = fsub <16 x float> %a,%b
+  %2 = call <16 x float> @llvm.nyuzi.__builtin_nyuzi_vector_mixf(i32 %mask, <16 x float> %1, <16 x float> %a)
+  ; CHECK: sub_f_mask v{{[0-9]+}}, s{{[0-9]+}}, v{{[0-9]+}}, v{{[0-9]+}}
+  ret <16 x float> %2
 }
 
 define float @test_fmulss(float %a, float %b) { ; CHECK: test_fmulss:
-    %1 = fmul float %a,%b
-    ; CHECK: mul_f s{{[0-9]+}}, s{{[0-9]+}}, s{{[0-9]+}}
-    ret float %1
+  %1 = fmul float %a,%b
+  ; CHECK: mul_f s{{[0-9]+}}, s{{[0-9]+}}, s{{[0-9]+}}
+  ret float %1
 }
 
 define <16 x float> @test_fmulvs(<16 x float> %a, float %b) { ; CHECK: test_fmulvs:
-    %single = insertelement <16 x float> undef, float %b, i32 0
-    %splat = shufflevector <16 x float> %single, <16 x float> undef, <16 x i32> zeroinitializer
-    %1 = fmul <16 x float> %a,%splat
-    ; CHECK: mul_f v{{[0-9]+}}, v{{[0-9]+}}, s{{[0-9]+}}
-    ret <16 x float> %1
+  %single = insertelement <16 x float> undef, float %b, i32 0
+  %splat = shufflevector <16 x float> %single, <16 x float> undef, <16 x i32> zeroinitializer
+  %1 = fmul <16 x float> %a,%splat
+  ; CHECK: mul_f v{{[0-9]+}}, v{{[0-9]+}}, s{{[0-9]+}}
+  ret <16 x float> %1
 }
 
 define <16 x float> @test_fmulvsm(<16 x float> %a, float %b, i32 %mask) { ; CHECK: test_fmulvsm:
-    %single = insertelement <16 x float> undef, float %b, i32 0
-    %splat = shufflevector <16 x float> %single, <16 x float> undef, <16 x i32> zeroinitializer
-    %1 = fmul <16 x float> %a,%splat
-    %2 = call <16 x float> @llvm.nyuzi.__builtin_nyuzi_vector_mixf(i32 %mask, <16 x float> %1, <16 x float> %a)
-    ; CHECK: mul_f_mask v{{[0-9]+}}, s{{[0-9]+}}, v{{[0-9]+}}, s{{[0-9]+}}
-    ret <16 x float> %2
+  %single = insertelement <16 x float> undef, float %b, i32 0
+  %splat = shufflevector <16 x float> %single, <16 x float> undef, <16 x i32> zeroinitializer
+  %1 = fmul <16 x float> %a,%splat
+  %2 = call <16 x float> @llvm.nyuzi.__builtin_nyuzi_vector_mixf(i32 %mask, <16 x float> %1, <16 x float> %a)
+  ; CHECK: mul_f_mask v{{[0-9]+}}, s{{[0-9]+}}, v{{[0-9]+}}, s{{[0-9]+}}
+  ret <16 x float> %2
 }
 
 define <16 x float> @test_fmulvv(<16 x float> %a, <16 x float> %b) { ; CHECK: test_fmulvv:
-    %1 = fmul <16 x float> %a,%b
-    ; CHECK: mul_f v{{[0-9]+}}, v{{[0-9]+}}, v{{[0-9]+}}
-    ret <16 x float> %1
+  %1 = fmul <16 x float> %a,%b
+  ; CHECK: mul_f v{{[0-9]+}}, v{{[0-9]+}}, v{{[0-9]+}}
+  ret <16 x float> %1
 }
 
 define <16 x float> @test_fmulvvm(<16 x float> %a, <16 x float> %b, i32 %mask) { ; CHECK: test_fmulvvm:
-    %1 = fmul <16 x float> %a,%b
-    %2 = call <16 x float> @llvm.nyuzi.__builtin_nyuzi_vector_mixf(i32 %mask, <16 x float> %1, <16 x float> %a)
-    ; CHECK: mul_f_mask v{{[0-9]+}}, s{{[0-9]+}}, v{{[0-9]+}}, v{{[0-9]+}}
-    ret <16 x float> %2
+  %1 = fmul <16 x float> %a,%b
+  %2 = call <16 x float> @llvm.nyuzi.__builtin_nyuzi_vector_mixf(i32 %mask, <16 x float> %1, <16 x float> %a)
+  ; CHECK: mul_f_mask v{{[0-9]+}}, s{{[0-9]+}}, v{{[0-9]+}}, v{{[0-9]+}}
+  ret <16 x float> %2
 }
 
 define i32 @cmpi_sgtvv(<16 x i32> %a, <16 x i32> %b) {	; CHECK: cmpi_sgtvv:
-    %c = call i32 @llvm.nyuzi.__builtin_nyuzi_mask_cmpi_sgt(<16 x i32> %a, <16 x i32> %b)
-    ; CHECK: cmpgt_i s{{[0-9]+}}, v{{[0-9]+}}, v{{[0-9]+}}
-    ret i32 %c
+  %c = call i32 @llvm.nyuzi.__builtin_nyuzi_mask_cmpi_sgt(<16 x i32> %a, <16 x i32> %b)
+  ; CHECK: cmpgt_i s{{[0-9]+}}, v{{[0-9]+}}, v{{[0-9]+}}
+  ret i32 %c
 }
 
 define i32 @cmpi_sgtvs(<16 x i32> %a, i32 %b) {	; CHECK: cmpi_sgtvs:
-    %single = insertelement <16 x i32> undef, i32 %b, i32 0
-    %splat = shufflevector <16 x i32> %single, <16 x i32> undef, <16 x i32> zeroinitializer
-    %c = call i32 @llvm.nyuzi.__builtin_nyuzi_mask_cmpi_sgt(<16 x i32> %a, <16 x i32> %splat)
-    ; CHECK: cmpgt_i s{{[0-9]+}}, v{{[0-9]+}}, s{{[0-9]+}}
-    ret i32 %c
+  %single = insertelement <16 x i32> undef, i32 %b, i32 0
+  %splat = shufflevector <16 x i32> %single, <16 x i32> undef, <16 x i32> zeroinitializer
+  %c = call i32 @llvm.nyuzi.__builtin_nyuzi_mask_cmpi_sgt(<16 x i32> %a, <16 x i32> %splat)
+  ; CHECK: cmpgt_i s{{[0-9]+}}, v{{[0-9]+}}, s{{[0-9]+}}
+  ret i32 %c
 }
 
 define i32 @cmpi_sgtvI(<16 x i32> %a, <16 x i32> %b) {	; CHECK: cmpi_sgtvI:
-    %c = call i32 @llvm.nyuzi.__builtin_nyuzi_mask_cmpi_sgt(<16 x i32> %a, <16 x i32> <i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27>)
-    ; CHECK: cmpgt_i s{{[0-9]+}}, v{{[0-9]+}}, 27
-    ret i32 %c
+  %c = call i32 @llvm.nyuzi.__builtin_nyuzi_mask_cmpi_sgt(<16 x i32> %a, <16 x i32> <i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27>)
+  ; CHECK: cmpgt_i s{{[0-9]+}}, v{{[0-9]+}}, 27
+  ret i32 %c
 }
 
 define i32 @cmpi_sgevv(<16 x i32> %a, <16 x i32> %b) {	; CHECK: cmpi_sgevv:
-    %c = call i32 @llvm.nyuzi.__builtin_nyuzi_mask_cmpi_sge(<16 x i32> %a, <16 x i32> %b)
-    ; CHECK: cmpge_i s{{[0-9]+}}, v{{[0-9]+}}, v{{[0-9]+}}
-    ret i32 %c
+  %c = call i32 @llvm.nyuzi.__builtin_nyuzi_mask_cmpi_sge(<16 x i32> %a, <16 x i32> %b)
+  ; CHECK: cmpge_i s{{[0-9]+}}, v{{[0-9]+}}, v{{[0-9]+}}
+  ret i32 %c
 }
 
 define i32 @cmpi_sgevs(<16 x i32> %a, i32 %b) {	; CHECK: cmpi_sgevs:
-    %single = insertelement <16 x i32> undef, i32 %b, i32 0
-    %splat = shufflevector <16 x i32> %single, <16 x i32> undef, <16 x i32> zeroinitializer
-    %c = call i32 @llvm.nyuzi.__builtin_nyuzi_mask_cmpi_sge(<16 x i32> %a, <16 x i32> %splat)
-    ; CHECK: cmpge_i s{{[0-9]+}}, v{{[0-9]+}}, s{{[0-9]+}}
-    ret i32 %c
+  %single = insertelement <16 x i32> undef, i32 %b, i32 0
+  %splat = shufflevector <16 x i32> %single, <16 x i32> undef, <16 x i32> zeroinitializer
+  %c = call i32 @llvm.nyuzi.__builtin_nyuzi_mask_cmpi_sge(<16 x i32> %a, <16 x i32> %splat)
+  ; CHECK: cmpge_i s{{[0-9]+}}, v{{[0-9]+}}, s{{[0-9]+}}
+  ret i32 %c
 }
 
 define i32 @cmpi_sgevI(<16 x i32> %a, <16 x i32> %b) {	; CHECK: cmpi_sgevI:
-    %c = call i32 @llvm.nyuzi.__builtin_nyuzi_mask_cmpi_sge(<16 x i32> %a, <16 x i32> <i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27>)
-    ; CHECK: cmpge_i s{{[0-9]+}}, v{{[0-9]+}}, 27
-    ret i32 %c
+  %c = call i32 @llvm.nyuzi.__builtin_nyuzi_mask_cmpi_sge(<16 x i32> %a, <16 x i32> <i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27>)
+  ; CHECK: cmpge_i s{{[0-9]+}}, v{{[0-9]+}}, 27
+  ret i32 %c
 }
 
 define i32 @cmpi_sltvv(<16 x i32> %a, <16 x i32> %b) {	; CHECK: cmpi_sltvv:
-    %c = call i32 @llvm.nyuzi.__builtin_nyuzi_mask_cmpi_slt(<16 x i32> %a, <16 x i32> %b)
-    ; CHECK: cmplt_i s{{[0-9]+}}, v{{[0-9]+}}, v{{[0-9]+}}
-    ret i32 %c
+  %c = call i32 @llvm.nyuzi.__builtin_nyuzi_mask_cmpi_slt(<16 x i32> %a, <16 x i32> %b)
+  ; CHECK: cmplt_i s{{[0-9]+}}, v{{[0-9]+}}, v{{[0-9]+}}
+  ret i32 %c
 }
 
 define i32 @cmpi_sltvs(<16 x i32> %a, i32 %b) {	; CHECK: cmpi_sltvs:
-    %single = insertelement <16 x i32> undef, i32 %b, i32 0
-    %splat = shufflevector <16 x i32> %single, <16 x i32> undef, <16 x i32> zeroinitializer
-    %c = call i32 @llvm.nyuzi.__builtin_nyuzi_mask_cmpi_slt(<16 x i32> %a, <16 x i32> %splat)
-    ; CHECK: cmplt_i s{{[0-9]+}}, v{{[0-9]+}}, s{{[0-9]+}}
-    ret i32 %c
+  %single = insertelement <16 x i32> undef, i32 %b, i32 0
+  %splat = shufflevector <16 x i32> %single, <16 x i32> undef, <16 x i32> zeroinitializer
+  %c = call i32 @llvm.nyuzi.__builtin_nyuzi_mask_cmpi_slt(<16 x i32> %a, <16 x i32> %splat)
+  ; CHECK: cmplt_i s{{[0-9]+}}, v{{[0-9]+}}, s{{[0-9]+}}
+  ret i32 %c
 }
 
 define i32 @cmpi_sltvI(<16 x i32> %a, <16 x i32> %b) {	; CHECK: cmpi_sltvI:
-    %c = call i32 @llvm.nyuzi.__builtin_nyuzi_mask_cmpi_slt(<16 x i32> %a, <16 x i32> <i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27>)
-    ; CHECK: cmplt_i s{{[0-9]+}}, v{{[0-9]+}}, 27
-    ret i32 %c
+  %c = call i32 @llvm.nyuzi.__builtin_nyuzi_mask_cmpi_slt(<16 x i32> %a, <16 x i32> <i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27>)
+  ; CHECK: cmplt_i s{{[0-9]+}}, v{{[0-9]+}}, 27
+  ret i32 %c
 }
 
 define i32 @cmpi_slevv(<16 x i32> %a, <16 x i32> %b) {	; CHECK: cmpi_slevv:
-    %c = call i32 @llvm.nyuzi.__builtin_nyuzi_mask_cmpi_sle(<16 x i32> %a, <16 x i32> %b)
-    ; CHECK: cmple_i s{{[0-9]+}}, v{{[0-9]+}}, v{{[0-9]+}}
-    ret i32 %c
+  %c = call i32 @llvm.nyuzi.__builtin_nyuzi_mask_cmpi_sle(<16 x i32> %a, <16 x i32> %b)
+  ; CHECK: cmple_i s{{[0-9]+}}, v{{[0-9]+}}, v{{[0-9]+}}
+  ret i32 %c
 }
 
 define i32 @cmpi_slevs(<16 x i32> %a, i32 %b) {	; CHECK: cmpi_slevs:
-    %single = insertelement <16 x i32> undef, i32 %b, i32 0
-    %splat = shufflevector <16 x i32> %single, <16 x i32> undef, <16 x i32> zeroinitializer
-    %c = call i32 @llvm.nyuzi.__builtin_nyuzi_mask_cmpi_sle(<16 x i32> %a, <16 x i32> %splat)
-    ; CHECK: cmple_i s{{[0-9]+}}, v{{[0-9]+}}, s{{[0-9]+}}
-    ret i32 %c
+  %single = insertelement <16 x i32> undef, i32 %b, i32 0
+  %splat = shufflevector <16 x i32> %single, <16 x i32> undef, <16 x i32> zeroinitializer
+  %c = call i32 @llvm.nyuzi.__builtin_nyuzi_mask_cmpi_sle(<16 x i32> %a, <16 x i32> %splat)
+  ; CHECK: cmple_i s{{[0-9]+}}, v{{[0-9]+}}, s{{[0-9]+}}
+  ret i32 %c
 }
 
 define i32 @cmpi_slevI(<16 x i32> %a, <16 x i32> %b) {	; CHECK: cmpi_slevI:
-    %c = call i32 @llvm.nyuzi.__builtin_nyuzi_mask_cmpi_sle(<16 x i32> %a, <16 x i32> <i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27>)
-    ; CHECK: cmple_i s{{[0-9]+}}, v{{[0-9]+}}, 27
-    ret i32 %c
+  %c = call i32 @llvm.nyuzi.__builtin_nyuzi_mask_cmpi_sle(<16 x i32> %a, <16 x i32> <i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27>)
+  ; CHECK: cmple_i s{{[0-9]+}}, v{{[0-9]+}}, 27
+  ret i32 %c
 }
 
 define i32 @cmpi_eqvv(<16 x i32> %a, <16 x i32> %b) {	; CHECK: cmpi_eqvv:
-    %c = call i32 @llvm.nyuzi.__builtin_nyuzi_mask_cmpi_eq(<16 x i32> %a, <16 x i32> %b)
-    ; CHECK: cmpeq_i s{{[0-9]+}}, v{{[0-9]+}}, v{{[0-9]+}}
-    ret i32 %c
+  %c = call i32 @llvm.nyuzi.__builtin_nyuzi_mask_cmpi_eq(<16 x i32> %a, <16 x i32> %b)
+  ; CHECK: cmpeq_i s{{[0-9]+}}, v{{[0-9]+}}, v{{[0-9]+}}
+  ret i32 %c
 }
 
 define i32 @cmpi_eqvs(<16 x i32> %a, i32 %b) {	; CHECK: cmpi_eqvs:
-    %single = insertelement <16 x i32> undef, i32 %b, i32 0
-    %splat = shufflevector <16 x i32> %single, <16 x i32> undef, <16 x i32> zeroinitializer
-    %c = call i32 @llvm.nyuzi.__builtin_nyuzi_mask_cmpi_eq(<16 x i32> %a, <16 x i32> %splat)
-    ; CHECK: cmpeq_i s{{[0-9]+}}, v{{[0-9]+}}, s{{[0-9]+}}
-    ret i32 %c
+  %single = insertelement <16 x i32> undef, i32 %b, i32 0
+  %splat = shufflevector <16 x i32> %single, <16 x i32> undef, <16 x i32> zeroinitializer
+  %c = call i32 @llvm.nyuzi.__builtin_nyuzi_mask_cmpi_eq(<16 x i32> %a, <16 x i32> %splat)
+  ; CHECK: cmpeq_i s{{[0-9]+}}, v{{[0-9]+}}, s{{[0-9]+}}
+  ret i32 %c
 }
 
 define i32 @cmpi_eqvI(<16 x i32> %a, <16 x i32> %b) {	; CHECK: cmpi_eqvI:
-    %c = call i32 @llvm.nyuzi.__builtin_nyuzi_mask_cmpi_eq(<16 x i32> %a, <16 x i32> <i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27>)
-    ; CHECK: cmpeq_i s{{[0-9]+}}, v{{[0-9]+}}, 27
-    ret i32 %c
+  %c = call i32 @llvm.nyuzi.__builtin_nyuzi_mask_cmpi_eq(<16 x i32> %a, <16 x i32> <i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27>)
+  ; CHECK: cmpeq_i s{{[0-9]+}}, v{{[0-9]+}}, 27
+  ret i32 %c
 }
 
 define i32 @cmpi_nevv(<16 x i32> %a, <16 x i32> %b) {	; CHECK: cmpi_nevv:
-    %c = call i32 @llvm.nyuzi.__builtin_nyuzi_mask_cmpi_ne(<16 x i32> %a, <16 x i32> %b)
-    ; CHECK: cmpne_i s{{[0-9]+}}, v{{[0-9]+}}, v{{[0-9]+}}
-    ret i32 %c
+  %c = call i32 @llvm.nyuzi.__builtin_nyuzi_mask_cmpi_ne(<16 x i32> %a, <16 x i32> %b)
+  ; CHECK: cmpne_i s{{[0-9]+}}, v{{[0-9]+}}, v{{[0-9]+}}
+  ret i32 %c
 }
 
 define i32 @cmpi_nevs(<16 x i32> %a, i32 %b) {	; CHECK: cmpi_nevs:
-    %single = insertelement <16 x i32> undef, i32 %b, i32 0
-    %splat = shufflevector <16 x i32> %single, <16 x i32> undef, <16 x i32> zeroinitializer
-    %c = call i32 @llvm.nyuzi.__builtin_nyuzi_mask_cmpi_ne(<16 x i32> %a, <16 x i32> %splat)
-    ; CHECK: cmpne_i s{{[0-9]+}}, v{{[0-9]+}}, s{{[0-9]+}}
-    ret i32 %c
+  %single = insertelement <16 x i32> undef, i32 %b, i32 0
+  %splat = shufflevector <16 x i32> %single, <16 x i32> undef, <16 x i32> zeroinitializer
+  %c = call i32 @llvm.nyuzi.__builtin_nyuzi_mask_cmpi_ne(<16 x i32> %a, <16 x i32> %splat)
+  ; CHECK: cmpne_i s{{[0-9]+}}, v{{[0-9]+}}, s{{[0-9]+}}
+  ret i32 %c
 }
 
 define i32 @cmpi_nevI(<16 x i32> %a, <16 x i32> %b) {	; CHECK: cmpi_nevI:
-    %c = call i32 @llvm.nyuzi.__builtin_nyuzi_mask_cmpi_ne(<16 x i32> %a, <16 x i32> <i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27>)
-    ; CHECK: cmpne_i s{{[0-9]+}}, v{{[0-9]+}}, 27
-    ret i32 %c
+  %c = call i32 @llvm.nyuzi.__builtin_nyuzi_mask_cmpi_ne(<16 x i32> %a, <16 x i32> <i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27>)
+  ; CHECK: cmpne_i s{{[0-9]+}}, v{{[0-9]+}}, 27
+  ret i32 %c
 }
 
 define i32 @cmpi_ugtvv(<16 x i32> %a, <16 x i32> %b) {	; CHECK: cmpi_ugtvv:
-    %c = call i32 @llvm.nyuzi.__builtin_nyuzi_mask_cmpi_ugt(<16 x i32> %a, <16 x i32> %b)
-    ; CHECK: cmpgt_u s{{[0-9]+}}, v{{[0-9]+}}, v{{[0-9]+}}
-    ret i32 %c
+  %c = call i32 @llvm.nyuzi.__builtin_nyuzi_mask_cmpi_ugt(<16 x i32> %a, <16 x i32> %b)
+  ; CHECK: cmpgt_u s{{[0-9]+}}, v{{[0-9]+}}, v{{[0-9]+}}
+  ret i32 %c
 }
 
 define i32 @cmpi_ugtvs(<16 x i32> %a, i32 %b) {	; CHECK: cmpi_ugtvs:
-    %single = insertelement <16 x i32> undef, i32 %b, i32 0
-    %splat = shufflevector <16 x i32> %single, <16 x i32> undef, <16 x i32> zeroinitializer
-    %c = call i32 @llvm.nyuzi.__builtin_nyuzi_mask_cmpi_ugt(<16 x i32> %a, <16 x i32> %splat)
-    ; CHECK: cmpgt_u s{{[0-9]+}}, v{{[0-9]+}}, s{{[0-9]+}}
-    ret i32 %c
+  %single = insertelement <16 x i32> undef, i32 %b, i32 0
+  %splat = shufflevector <16 x i32> %single, <16 x i32> undef, <16 x i32> zeroinitializer
+  %c = call i32 @llvm.nyuzi.__builtin_nyuzi_mask_cmpi_ugt(<16 x i32> %a, <16 x i32> %splat)
+  ; CHECK: cmpgt_u s{{[0-9]+}}, v{{[0-9]+}}, s{{[0-9]+}}
+  ret i32 %c
 }
 
 define i32 @cmpi_ugtvI(<16 x i32> %a, <16 x i32> %b) {	; CHECK: cmpi_ugtvI:
-    %c = call i32 @llvm.nyuzi.__builtin_nyuzi_mask_cmpi_ugt(<16 x i32> %a, <16 x i32> <i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27>)
-    ; CHECK: cmpgt_u s{{[0-9]+}}, v{{[0-9]+}}, 27
-    ret i32 %c
+  %c = call i32 @llvm.nyuzi.__builtin_nyuzi_mask_cmpi_ugt(<16 x i32> %a, <16 x i32> <i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27>)
+  ; CHECK: cmpgt_u s{{[0-9]+}}, v{{[0-9]+}}, 27
+  ret i32 %c
 }
 
 define i32 @cmpi_ugevv(<16 x i32> %a, <16 x i32> %b) {	; CHECK: cmpi_ugevv:
-    %c = call i32 @llvm.nyuzi.__builtin_nyuzi_mask_cmpi_uge(<16 x i32> %a, <16 x i32> %b)
-    ; CHECK: cmpge_u s{{[0-9]+}}, v{{[0-9]+}}, v{{[0-9]+}}
-    ret i32 %c
+  %c = call i32 @llvm.nyuzi.__builtin_nyuzi_mask_cmpi_uge(<16 x i32> %a, <16 x i32> %b)
+  ; CHECK: cmpge_u s{{[0-9]+}}, v{{[0-9]+}}, v{{[0-9]+}}
+  ret i32 %c
 }
 
 define i32 @cmpi_ugevs(<16 x i32> %a, i32 %b) {	; CHECK: cmpi_ugevs:
-    %single = insertelement <16 x i32> undef, i32 %b, i32 0
-    %splat = shufflevector <16 x i32> %single, <16 x i32> undef, <16 x i32> zeroinitializer
-    %c = call i32 @llvm.nyuzi.__builtin_nyuzi_mask_cmpi_uge(<16 x i32> %a, <16 x i32> %splat)
-    ; CHECK: cmpge_u s{{[0-9]+}}, v{{[0-9]+}}, s{{[0-9]+}}
-    ret i32 %c
+  %single = insertelement <16 x i32> undef, i32 %b, i32 0
+  %splat = shufflevector <16 x i32> %single, <16 x i32> undef, <16 x i32> zeroinitializer
+  %c = call i32 @llvm.nyuzi.__builtin_nyuzi_mask_cmpi_uge(<16 x i32> %a, <16 x i32> %splat)
+  ; CHECK: cmpge_u s{{[0-9]+}}, v{{[0-9]+}}, s{{[0-9]+}}
+  ret i32 %c
 }
 
 define i32 @cmpi_ugevI(<16 x i32> %a, <16 x i32> %b) {	; CHECK: cmpi_ugevI:
-    %c = call i32 @llvm.nyuzi.__builtin_nyuzi_mask_cmpi_uge(<16 x i32> %a, <16 x i32> <i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27>)
-    ; CHECK: cmpge_u s{{[0-9]+}}, v{{[0-9]+}}, 27
-    ret i32 %c
+  %c = call i32 @llvm.nyuzi.__builtin_nyuzi_mask_cmpi_uge(<16 x i32> %a, <16 x i32> <i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27>)
+  ; CHECK: cmpge_u s{{[0-9]+}}, v{{[0-9]+}}, 27
+  ret i32 %c
 }
 
 define i32 @cmpi_ultvv(<16 x i32> %a, <16 x i32> %b) {	; CHECK: cmpi_ultvv:
-    %c = call i32 @llvm.nyuzi.__builtin_nyuzi_mask_cmpi_ult(<16 x i32> %a, <16 x i32> %b)
-    ; CHECK: cmplt_u s{{[0-9]+}}, v{{[0-9]+}}, v{{[0-9]+}}
-    ret i32 %c
+  %c = call i32 @llvm.nyuzi.__builtin_nyuzi_mask_cmpi_ult(<16 x i32> %a, <16 x i32> %b)
+  ; CHECK: cmplt_u s{{[0-9]+}}, v{{[0-9]+}}, v{{[0-9]+}}
+  ret i32 %c
 }
 
 define i32 @cmpi_ultvs(<16 x i32> %a, i32 %b) {	; CHECK: cmpi_ultvs:
-    %single = insertelement <16 x i32> undef, i32 %b, i32 0
-    %splat = shufflevector <16 x i32> %single, <16 x i32> undef, <16 x i32> zeroinitializer
-    %c = call i32 @llvm.nyuzi.__builtin_nyuzi_mask_cmpi_ult(<16 x i32> %a, <16 x i32> %splat)
-    ; CHECK: cmplt_u s{{[0-9]+}}, v{{[0-9]+}}, s{{[0-9]+}}
-    ret i32 %c
+  %single = insertelement <16 x i32> undef, i32 %b, i32 0
+  %splat = shufflevector <16 x i32> %single, <16 x i32> undef, <16 x i32> zeroinitializer
+  %c = call i32 @llvm.nyuzi.__builtin_nyuzi_mask_cmpi_ult(<16 x i32> %a, <16 x i32> %splat)
+  ; CHECK: cmplt_u s{{[0-9]+}}, v{{[0-9]+}}, s{{[0-9]+}}
+  ret i32 %c
 }
 
 define i32 @cmpi_ultvI(<16 x i32> %a, <16 x i32> %b) {	; CHECK: cmpi_ultvI:
-    %c = call i32 @llvm.nyuzi.__builtin_nyuzi_mask_cmpi_ult(<16 x i32> %a, <16 x i32> <i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27>)
-    ; CHECK: cmplt_u s{{[0-9]+}}, v{{[0-9]+}}, 27
-    ret i32 %c
+  %c = call i32 @llvm.nyuzi.__builtin_nyuzi_mask_cmpi_ult(<16 x i32> %a, <16 x i32> <i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27>)
+  ; CHECK: cmplt_u s{{[0-9]+}}, v{{[0-9]+}}, 27
+  ret i32 %c
 }
 
 define i32 @cmpi_ulevv(<16 x i32> %a, <16 x i32> %b) {	; CHECK: cmpi_ulevv:
-    %c = call i32 @llvm.nyuzi.__builtin_nyuzi_mask_cmpi_ule(<16 x i32> %a, <16 x i32> %b)
-    ; CHECK: cmple_u s{{[0-9]+}}, v{{[0-9]+}}, v{{[0-9]+}}
-    ret i32 %c
+  %c = call i32 @llvm.nyuzi.__builtin_nyuzi_mask_cmpi_ule(<16 x i32> %a, <16 x i32> %b)
+  ; CHECK: cmple_u s{{[0-9]+}}, v{{[0-9]+}}, v{{[0-9]+}}
+  ret i32 %c
 }
 
 define i32 @cmpi_ulevs(<16 x i32> %a, i32 %b) {	; CHECK: cmpi_ulevs:
-    %single = insertelement <16 x i32> undef, i32 %b, i32 0
-    %splat = shufflevector <16 x i32> %single, <16 x i32> undef, <16 x i32> zeroinitializer
-    %c = call i32 @llvm.nyuzi.__builtin_nyuzi_mask_cmpi_ule(<16 x i32> %a, <16 x i32> %splat)
-    ; CHECK: cmple_u s{{[0-9]+}}, v{{[0-9]+}}, s{{[0-9]+}}
-    ret i32 %c
+  %single = insertelement <16 x i32> undef, i32 %b, i32 0
+  %splat = shufflevector <16 x i32> %single, <16 x i32> undef, <16 x i32> zeroinitializer
+  %c = call i32 @llvm.nyuzi.__builtin_nyuzi_mask_cmpi_ule(<16 x i32> %a, <16 x i32> %splat)
+  ; CHECK: cmple_u s{{[0-9]+}}, v{{[0-9]+}}, s{{[0-9]+}}
+  ret i32 %c
 }
 
 define i32 @cmpi_ulevI(<16 x i32> %a, <16 x i32> %b) {	; CHECK: cmpi_ulevI:
-    %c = call i32 @llvm.nyuzi.__builtin_nyuzi_mask_cmpi_ule(<16 x i32> %a, <16 x i32> <i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27>)
-    ; CHECK: cmple_u s{{[0-9]+}}, v{{[0-9]+}}, 27
-    ret i32 %c
+  %c = call i32 @llvm.nyuzi.__builtin_nyuzi_mask_cmpi_ule(<16 x i32> %a, <16 x i32> <i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27>)
+  ; CHECK: cmple_u s{{[0-9]+}}, v{{[0-9]+}}, 27
+  ret i32 %c
 }
 
 define i32 @cmpf_gtvv(<16 x float> %a, <16 x float> %b) {	; CHECK: cmpf_gtvv:
-    %c = call i32 @llvm.nyuzi.__builtin_nyuzi_mask_cmpf_gt(<16 x float> %a, <16 x float> %b)
-    ; CHECK: cmpgt_f s{{[0-9]+}}, v{{[0-9]+}}, v{{[0-9]+}}
-    ret i32 %c
+  %c = call i32 @llvm.nyuzi.__builtin_nyuzi_mask_cmpf_gt(<16 x float> %a, <16 x float> %b)
+  ; CHECK: cmpgt_f s{{[0-9]+}}, v{{[0-9]+}}, v{{[0-9]+}}
+  ret i32 %c
 }
 
 define i32 @cmpf_gtvs(<16 x float> %a, float %b) {	; CHECK: cmpf_gtvs:
-    %single = insertelement <16 x float> undef, float %b, i32 0
-    %splat = shufflevector <16 x float> %single, <16 x float> undef, <16 x i32> zeroinitializer
-    %c = call i32 @llvm.nyuzi.__builtin_nyuzi_mask_cmpf_gt(<16 x float> %a, <16 x float> %splat)
-    ; CHECK: cmpgt_f s{{[0-9]+}}, v{{[0-9]+}}, s{{[0-9]+}}
-    ret i32 %c
+  %single = insertelement <16 x float> undef, float %b, i32 0
+  %splat = shufflevector <16 x float> %single, <16 x float> undef, <16 x i32> zeroinitializer
+  %c = call i32 @llvm.nyuzi.__builtin_nyuzi_mask_cmpf_gt(<16 x float> %a, <16 x float> %splat)
+  ; CHECK: cmpgt_f s{{[0-9]+}}, v{{[0-9]+}}, s{{[0-9]+}}
+  ret i32 %c
 }
 
 define i32 @cmpf_gevv(<16 x float> %a, <16 x float> %b) {	; CHECK: cmpf_gevv:
-    %c = call i32 @llvm.nyuzi.__builtin_nyuzi_mask_cmpf_ge(<16 x float> %a, <16 x float> %b)
-    ; CHECK: cmpge_f s{{[0-9]+}}, v{{[0-9]+}}, v{{[0-9]+}}
-    ret i32 %c
+  %c = call i32 @llvm.nyuzi.__builtin_nyuzi_mask_cmpf_ge(<16 x float> %a, <16 x float> %b)
+  ; CHECK: cmpge_f s{{[0-9]+}}, v{{[0-9]+}}, v{{[0-9]+}}
+  ret i32 %c
 }
 
 define i32 @cmpf_gevs(<16 x float> %a, float %b) {	; CHECK: cmpf_gevs:
-    %single = insertelement <16 x float> undef, float %b, i32 0
-    %splat = shufflevector <16 x float> %single, <16 x float> undef, <16 x i32> zeroinitializer
-    %c = call i32 @llvm.nyuzi.__builtin_nyuzi_mask_cmpf_ge(<16 x float> %a, <16 x float> %splat)
-    ; CHECK: cmpge_f s{{[0-9]+}}, v{{[0-9]+}}, s{{[0-9]+}}
-    ret i32 %c
+  %single = insertelement <16 x float> undef, float %b, i32 0
+  %splat = shufflevector <16 x float> %single, <16 x float> undef, <16 x i32> zeroinitializer
+  %c = call i32 @llvm.nyuzi.__builtin_nyuzi_mask_cmpf_ge(<16 x float> %a, <16 x float> %splat)
+  ; CHECK: cmpge_f s{{[0-9]+}}, v{{[0-9]+}}, s{{[0-9]+}}
+  ret i32 %c
 }
 
 define i32 @cmpf_ltvv(<16 x float> %a, <16 x float> %b) {	; CHECK: cmpf_ltvv:
-    %c = call i32 @llvm.nyuzi.__builtin_nyuzi_mask_cmpf_lt(<16 x float> %a, <16 x float> %b)
-    ; CHECK: cmplt_f s{{[0-9]+}}, v{{[0-9]+}}, v{{[0-9]+}}
-    ret i32 %c
+  %c = call i32 @llvm.nyuzi.__builtin_nyuzi_mask_cmpf_lt(<16 x float> %a, <16 x float> %b)
+  ; CHECK: cmplt_f s{{[0-9]+}}, v{{[0-9]+}}, v{{[0-9]+}}
+  ret i32 %c
 }
 
 define i32 @cmpf_ltvs(<16 x float> %a, float %b) {	; CHECK: cmpf_ltvs:
-    %single = insertelement <16 x float> undef, float %b, i32 0
-    %splat = shufflevector <16 x float> %single, <16 x float> undef, <16 x i32> zeroinitializer
-    %c = call i32 @llvm.nyuzi.__builtin_nyuzi_mask_cmpf_lt(<16 x float> %a, <16 x float> %splat)
-    ; CHECK: cmplt_f s{{[0-9]+}}, v{{[0-9]+}}, s{{[0-9]+}}
-    ret i32 %c
+  %single = insertelement <16 x float> undef, float %b, i32 0
+  %splat = shufflevector <16 x float> %single, <16 x float> undef, <16 x i32> zeroinitializer
+  %c = call i32 @llvm.nyuzi.__builtin_nyuzi_mask_cmpf_lt(<16 x float> %a, <16 x float> %splat)
+  ; CHECK: cmplt_f s{{[0-9]+}}, v{{[0-9]+}}, s{{[0-9]+}}
+  ret i32 %c
 }
 
 define i32 @cmpf_levv(<16 x float> %a, <16 x float> %b) {	; CHECK: cmpf_levv:
-    %c = call i32 @llvm.nyuzi.__builtin_nyuzi_mask_cmpf_le(<16 x float> %a, <16 x float> %b)
-    ; CHECK: cmple_f s{{[0-9]+}}, v{{[0-9]+}}, v{{[0-9]+}}
-    ret i32 %c
+  %c = call i32 @llvm.nyuzi.__builtin_nyuzi_mask_cmpf_le(<16 x float> %a, <16 x float> %b)
+  ; CHECK: cmple_f s{{[0-9]+}}, v{{[0-9]+}}, v{{[0-9]+}}
+  ret i32 %c
 }
 
 define i32 @cmpf_levs(<16 x float> %a, float %b) {	; CHECK: cmpf_levs:
-    %single = insertelement <16 x float> undef, float %b, i32 0
-    %splat = shufflevector <16 x float> %single, <16 x float> undef, <16 x i32> zeroinitializer
-    %c = call i32 @llvm.nyuzi.__builtin_nyuzi_mask_cmpf_le(<16 x float> %a, <16 x float> %splat)
-    ; CHECK: cmple_f s{{[0-9]+}}, v{{[0-9]+}}, s{{[0-9]+}}
-    ret i32 %c
+  %single = insertelement <16 x float> undef, float %b, i32 0
+  %splat = shufflevector <16 x float> %single, <16 x float> undef, <16 x i32> zeroinitializer
+  %c = call i32 @llvm.nyuzi.__builtin_nyuzi_mask_cmpf_le(<16 x float> %a, <16 x float> %splat)
+  ; CHECK: cmple_f s{{[0-9]+}}, v{{[0-9]+}}, s{{[0-9]+}}
+  ret i32 %c
 }
 

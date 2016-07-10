@@ -1,6 +1,6 @@
-; RUN: llc -mtriple nyuzi-elf %s -o - | FileCheck %s
+; RUN: llc %s -o - | FileCheck %s
 
-target triple = "nyuzi"
+target triple = "nyuzi-elf-none"
 
 %struct.foo = type { i32, i16, i16, i8, i8, i8, i8, float }
 

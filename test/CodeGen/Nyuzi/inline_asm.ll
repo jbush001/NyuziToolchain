@@ -1,13 +1,13 @@
-; RUN: llc -mtriple nyuzi-elf %s -o - | FileCheck %s
+; RUN: llc %s -o - | FileCheck %s
 
-target triple = "nyuzi"
+target triple = "nyuzi-elf-none"
 
 define void @dflush(i32 %ptr) {
-	call void asm sideeffect "dflush $0", "s" (i32 %ptr)
+  call void asm sideeffect "dflush $0", "s" (i32 %ptr)
 
-	; CHECK: dflush s0
+  ; CHECK: dflush s0
 
-	ret void
+  ret void
 }
 
 define <16 x i32> @test_vadd(<16 x i32> %a, i32 %b)  { ; CHECK: test_vadd:
