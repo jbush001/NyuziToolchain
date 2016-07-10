@@ -14,8 +14,10 @@
 
 #include "MCTargetDesc/NyuziMCTargetDesc.h"
 #include "NyuziFixupKinds.h"
+#include "llvm/ADT/APInt.h"
 #include "llvm/MC/MCAsmBackend.h"
 #include "llvm/MC/MCAssembler.h"
+#include "llvm/MC/MCContext.h"
 #include "llvm/MC/MCDirectives.h"
 #include "llvm/MC/MCELFObjectWriter.h"
 #include "llvm/MC/MCExpr.h"
@@ -41,10 +43,32 @@ public:
         OS, MCELFObjectTargetWriter::getOSABI(OSType));
   }
 
+   unsigned adjustFixupValue(const MCFixup &Fixup, uint64_t Value,
+                             MCContext *Ctx) const {
+    const MCFixupKindInfo &Info = getFixupKindInfo(Fixup.getKind());
+    APInt OffsetVal(64, Value);
+    if (!OffsetVal.isSignedIntN(Info.TargetSize) && Ctx != 0) {
+        Ctx->reportError(Fixup.getLoc(), "fixup out of range");
+        return 0;
+    }
+
+    switch ((unsigned int) Fixup.getKind()) {
+    case Nyuzi::fixup_Nyuzi_PCRel_MemAccExt:
+    case Nyuzi::fixup_Nyuzi_PCRel_Branch:
+    case Nyuzi::fixup_Nyuzi_PCRel_ComputeLabelAddress:
+      Value -= 4; // source location is PC + 4
+      break;
+    default:
+      ;
+    }
+
+    return Value;
+  }
+
   void applyFixup(const MCFixup &Fixup, char *Data, unsigned DataSize,
                   uint64_t Value, bool IsPCRel) const override {
-    MCFixupKind Kind = Fixup.getKind();
-    Value = adjustFixupValue((unsigned)Kind, Value);
+    const MCFixupKindInfo &Info = getFixupKindInfo(Fixup.getKind());
+    Value = adjustFixupValue(Fixup, Value, nullptr);
     unsigned Offset = Fixup.getOffset();
     unsigned NumBytes = 4;
 
@@ -54,10 +78,10 @@ public:
     }
 
     uint64_t Mask =
-        ((uint64_t)(-1) >> (64 - getFixupKindInfo(Kind).TargetSize));
+        ((uint64_t)(-1) >> (64 - Info.TargetSize));
 
-    Value <<= getFixupKindInfo(Kind).TargetOffset;
-    Mask <<= getFixupKindInfo(Kind).TargetOffset;
+    Value <<= Info.TargetOffset;
+    Mask <<= Info.TargetOffset;
     CurVal |= Value & Mask;
 
     // Write out the fixed up bytes back to the code/data bits.
@@ -107,20 +131,20 @@ public:
     return true;
   }
 
+  void processFixupValue(const MCAssembler &Asm, const MCAsmLayout &Layout,
+                         const MCFixup &Fixup, const MCFragment *DF,
+                         const MCValue &Target, uint64_t &Value,
+                         bool &IsResolved) override {
+    // Ignore the value returned from adjustFixupValue (it is also called from
+    // applyFixup, which does the work of patching it). It is only called
+    // from here to report errors if it is out of range (because MCContext
+    // is only available here).
+    (void)adjustFixupValue(Fixup, Value, &Asm.getContext());
+  }
+
 private:
   unsigned getNumFixupKinds() const { return Nyuzi::NumTargetFixupKinds; }
 
-  static unsigned adjustFixupValue(unsigned Kind, uint64_t Value) {
-    switch (Kind) {
-    case Nyuzi::fixup_Nyuzi_PCRel_MemAccExt:
-    case Nyuzi::fixup_Nyuzi_PCRel_Branch:
-    case Nyuzi::fixup_Nyuzi_PCRel_ComputeLabelAddress:
-      Value -= 4; // source location is PC + 4
-      break;
-    }
-
-    return Value;
-  }
 }; // class NyuziAsmBackend
 
 } // namespace

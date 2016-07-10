@@ -124,9 +124,8 @@ unsigned NyuziMCCodeEmitter::encodeBranchTargetOpValue(
   assert(MO.isExpr() &&
          "encodeBranchTargetOpValue expects only expressions or an immediate");
 
-  const MCExpr *Expr = MO.getExpr();
   Fixups.push_back(
-      MCFixup::create(0, Expr, MCFixupKind(Nyuzi::fixup_Nyuzi_PCRel_Branch)));
+      MCFixup::create(0, MO.getExpr(), MCFixupKind(Nyuzi::fixup_Nyuzi_PCRel_Branch), MI.getLoc()));
   return 0;
 }
 
@@ -146,7 +145,7 @@ NyuziMCCodeEmitter::encodeJumpTableAddr(const MCInst &MI, unsigned Op,
   MCOperand label = MI.getOperand(2);
   Fixups.push_back(MCFixup::create(
       0, label.getExpr(),
-      MCFixupKind(Nyuzi::fixup_Nyuzi_PCRel_ComputeLabelAddress)));
+      MCFixupKind(Nyuzi::fixup_Nyuzi_PCRel_ComputeLabelAddress), MI.getLoc()));
   return 0;
 }
 
@@ -164,7 +163,7 @@ unsigned NyuziMCCodeEmitter::encodeLEAValue(const MCInst &MI, unsigned Op,
     // Load with a label. This is a PC relative load.  Add a fixup.
     Fixups.push_back(MCFixup::create(
         0, offsetOp.getExpr(),
-        MCFixupKind(Nyuzi::fixup_Nyuzi_PCRel_ComputeLabelAddress)));
+        MCFixupKind(Nyuzi::fixup_Nyuzi_PCRel_ComputeLabelAddress), MI.getLoc()));
   } else if (offsetOp.isImm())
     encoding |= static_cast<short>(offsetOp.getImm()) << 5;
   else
@@ -208,7 +207,7 @@ NyuziMCCodeEmitter::encodeMemoryOpValue(const MCInst &MI, unsigned Op,
     // and return an error.
     Fixups.push_back(
         MCFixup::create(0, offsetOp.getExpr(),
-                        MCFixupKind(Nyuzi::fixup_Nyuzi_PCRel_MemAccExt)));
+                        MCFixupKind(Nyuzi::fixup_Nyuzi_PCRel_MemAccExt), MI.getLoc()));
   } else if (offsetOp.isImm())
     encoding |= static_cast<short>(offsetOp.getImm()) << 5;
   else

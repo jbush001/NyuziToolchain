@@ -259,6 +259,7 @@ bool NyuziAsmParser::MatchAndEmitInstruction(SMLoc IDLoc, unsigned &Opcode,
   default:
     break;
   case Match_Success:
+    Inst.setLoc(IDLoc);
     Out.EmitInstruction(Inst, getSTI());
     return false;
   case Match_MissingFeature:
