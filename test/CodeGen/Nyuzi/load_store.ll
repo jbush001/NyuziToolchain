@@ -139,18 +139,18 @@ define void @storefvec(<16 x float>* %array, <16 x float> %val1, <16 x float> %v
 
 define <16 x i32> @loadivec(<16 x i32>* %array) { ; CHECK: loadivec:
   %ptr = getelementptr inbounds <16 x i32>, <16 x i32>* %array, i32 1
-	%tmp = load <16 x i32>, <16 x i32>* %ptr
+  %tmp = load <16 x i32>, <16 x i32>* %ptr
 
   ; CHECK: load_v v0, 64(s0)
 
-	ret <16 x i32> %tmp
+  ret <16 x i32> %tmp
 }
 
 define <16 x float> @loadfvec(<16 x float>* %array) { ; CHECK: loadfvec:
   %ptr = getelementptr inbounds <16 x float>, <16 x float>* %array, i32 1
-	%tmp = load <16 x float>, <16 x float>* %ptr
+  %tmp = load <16 x float>, <16 x float>* %ptr
 
   ; CHECK: load_v v0, 64(s0)
 
-	ret <16 x float> %tmp
+  ret <16 x float> %tmp
 }

@@ -14,8 +14,7 @@ define i32 @_Z3fibi(i32 %n) {
   ; CHECK: btrue {{s[0-9]+}}, [[TRUELABEL:[\.A-Z0-9a-z_]+]]
 
   ; CHECK: [[TRUELABEL]]:
-  ; CHECK:	goto [[EXITLABEL:[\.A-Z0-9a-z_]+]]
-
+  ; CHECK: goto [[EXITLABEL:[\.A-Z0-9a-z_]+]]
 
 if.else:
   %sub = add nsw i32 %n, -1
@@ -23,7 +22,7 @@ if.else:
   %sub1 = add nsw i32 %n, -2
   %call2 = call i32 @_Z3fibi(i32 %sub1)
 
-  ; CHECK:	call _Z3fibi
+  ; CHECK: call _Z3fibi
 
   %add = add nsw i32 %call2, %call
 

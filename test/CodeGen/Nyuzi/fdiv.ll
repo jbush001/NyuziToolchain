@@ -23,7 +23,7 @@ define float @divide_float(float %a, float %b) { 	; CHECK: divide_float:
   ; CHECK: sub_f [[ERROR2:s[0-9]+]], [[TWO]], [[TRIAL2]]
   ; CHECK: mul_f [[ESTIMATE3:s[0-9]+]], [[ESTIMATE2]], [[ERROR2]]
 
-
+  ; Multiply recriprocal by dividend to compute result
   ; CHECK: mul_f {{s[0-9]+}}, {{s[0-9]+}}, [[ESTIMATE3]]
 
   ret float %1
