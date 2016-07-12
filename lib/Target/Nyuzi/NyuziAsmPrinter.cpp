@@ -44,7 +44,7 @@ void NyuziAsmPrinter::EmitInstruction(const MachineInstr *MI) {
     EmitToStreamer(*OutStreamer, TmpInst);
     if (MI->getOpcode() == Nyuzi::JUMP_TABLE)
       EmitInlineJumpTable(MI);
-  } while ((I != E) && I->isInsideBundle());
+  } while ((++I != E) && I->isInsideBundle());
 }
 
 void NyuziAsmPrinter::EmitFunctionBodyStart() {
