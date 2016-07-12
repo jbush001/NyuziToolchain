@@ -948,7 +948,7 @@ SDValue NyuziTargetLowering::LowerUINT_TO_FP(SDValue Op,
     SDValue ZeroVec = DAG.getNode(NyuziISD::SPLAT, DL, MVT::v16i32,
                                   DAG.getConstant(0, DL, MVT::i32));
     SDValue LtIntrinsic =
-        DAG.getConstant(Intrinsic::nyuzi_mask_cmpi_ult, DL, MVT::i32);
+        DAG.getConstant(Intrinsic::nyuzi_mask_cmpi_slt, DL, MVT::i32);
     SDValue IsNegativeMask = DAG.getNode(ISD::INTRINSIC_WO_CHAIN, DL, MVT::i32,
                                          LtIntrinsic, RVal, ZeroVec);
     SDValue AdjustVec =

@@ -12,6 +12,19 @@ define float @test_sitofp(i32 %a) {  ; CHECK: test_sitofp:
   ret float %conv
 }
 
+; The native itof instruction is signed. We emulate unsigned by checking for
+; wrap and adjusting.
+define float @test_uitofp(i32 %a) {  ; CHECK: test_uitofp:
+  %conv = uitofp i32 %a to float
+
+  ; CHECK: itof [[CONV:s[0-9]+]], [[SRCVAL:s[0-9]+]]
+	; CHECK: cmplt_i [[CMPVAL:s[0-9]+]], [[SRCVAL]], 0
+	; CHECK: btrue [[CMPVAL]],
+	; CHECK: add_f s{{[0-9]+}}, [[CONV]],
+
+  ret float %conv
+}
+
 define i32 @test_sftoip(float %a) { ; CHECK: test_sftoip:
   %conv = fptosi float %a to i32
 
@@ -24,6 +37,18 @@ define <16 x float> @test_sitofpv(<16 x i32> %a) {  ; CHECK: test_sitofpv:
   %conv = sitofp <16 x i32> %a to <16 x float>
 
   ; CHECK: itof
+
+  ret <16 x float> %conv
+}
+
+; This must adjust signed results like uitofp, but does it with a predicated
+; instruction because it's working on vectors.
+define <16 x float> @test_uitofpv(<16 x i32> %a) {  ; CHECK: test_uitofpv:
+  %conv = uitofp <16 x i32> %a to <16 x float>
+
+  ; CHECK: itof [[CONV:v[0-9]+]], [[SRCVAL:v[0-9]+]]
+	; CHECK: cmplt_i [[CMPVAL:s[0-9]+]], [[SRCVAL]], 0
+	; CHECK: add_f_mask v{{[0-9]+}}, [[CMPVAL]], [[CONV]],
 
   ret <16 x float> %conv
 }
