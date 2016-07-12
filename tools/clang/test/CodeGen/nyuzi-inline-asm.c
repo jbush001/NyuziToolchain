@@ -5,14 +5,22 @@ typedef int veci16 __attribute__((__vector_size__(16 * sizeof(int))));
 int sdata;
 veci16 vdata;
 
-void test_load_32() {
-  asm("load_32 $1, %0" :: "m"(sdata));
-  // CHECK: call void asm sideeffect "load_32 $$1, $0", "*m"(i32* @sdata)
+int test_load_32() {
+  int result;
+
+  asm("load_32 %0, %1" : "=s"(result) : "m"(sdata));
+  // CHECK: call i32 asm "load_32 $0, $1", "=s,*m"(i32* @sdata)
+
+  return result;
 }
 
-void test_load_vector() {
-  asm("load_v $1, %0" :: "m"(vdata));
-  // CHECK: call void asm sideeffect "load_v $$1, $0", "*m"(<16 x i32>* @vdata)
+veci16 test_load_vector() {
+  veci16 result;
+
+  asm("load_v %0, %1" : "=v"(result) : "m"(vdata));
+  // CHECK: call <16 x i32> asm "load_v $0, $1", "=v,*m"(<16 x i32>* @vdata)
+
+  return result;
 }
 
 unsigned int test_scalar_register_op(unsigned int a, unsigned int b)
@@ -20,9 +28,9 @@ unsigned int test_scalar_register_op(unsigned int a, unsigned int b)
     unsigned int result;
 
     // r and s constraints are equivalent, test both
-    asm("add_i $0, $1, $2" : "=r" (result) : "r" (a), "r" (b));
+    asm("add_i %0, %1, %2" : "=r" (result) : "r" (a), "r" (b));
 
-    // CHECK: call i32 asm "add_i $$0, $$1, $$2", "=r,r,r"(i32 %0, i32 %1)
+    // CHECK: call i32 asm "add_i $0, $1, $2", "=r,r,r"(i32 %0, i32 %1)
 
     return result;
 }
@@ -32,9 +40,9 @@ veci16 test_vector_register_op(veci16 a, veci16 b)
     veci16 result;
 
     // r and s constraints are equivalent, test both
-    asm("add_i $0, $1, $2" : "=v" (result) : "v" (a), "v" (b));
+    asm("add_i %0, %1, %2" : "=v" (result) : "v" (a), "v" (b));
 
-  // CHECK: call <16 x i32> asm "add_i $$0, $$1, $$2", "=v,v,v"(<16 x i32> %0, <16 x i32> %1)
+  // CHECK: call <16 x i32> asm "add_i $0, $1, $2", "=v,v,v"(<16 x i32> %0, <16 x i32> %1)
 
     return result;
 }

@@ -19,3 +19,26 @@ define <16 x i32> @test_vadd(<16 x i32> %a, i32 %b)  { ; CHECK: test_vadd:
 
   ret <16 x i32> %1
 }
+
+@sdata = common global i32 0, align 4
+@vdata = common global <16 x i32> zeroinitializer, align 64
+
+define void @test_scalar_memory_operand() { ; CHECK: test_scalar_memory_operand:
+  call i32 asm "load_32 $0, $1", "=s,*m"(i32* @sdata)
+
+  ; CHECK: #APP
+  ; CHECK: load_32 s{{[0-9]+}}, (s{{[0-9]+}})
+  ; CHECK: #NO_APP
+
+  ret void
+}
+
+define void @test_vector_memory_operand() { ; CHECK: test_vector_memory_operand:
+  call <16 x i32> asm sideeffect "load_v $0, $1", "=v,*m"(<16 x i32>* @vdata)
+
+  ; CHECK: #APP
+  ; CHECK: load_v v{{[0-9]+}}, (s{{[0-9]+}})
+  ; CHECK: #NO_APP
+
+  ret void
+}

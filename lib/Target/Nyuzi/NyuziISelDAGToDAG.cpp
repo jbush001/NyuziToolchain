@@ -95,8 +95,10 @@ bool NyuziDAGToDAGISel::SelectInlineAsmMemoryOperand(
   switch (ConstraintCode) {
   default:
     return true;
-  case 'm': // memory
-    SelectADDRri(Op, Op0, Op1);
+  case InlineAsm::Constraint_m: // memory
+    if (!SelectADDRri(Op, Op0, Op1))
+      return true;
+
     break;
   }
 
