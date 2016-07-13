@@ -2,7 +2,7 @@
 
 target triple = "nyuzi-elf-none"
 
-define i32 @fib(i32 %a) {  ; CHECK: fib:
+define i32 @fib(i32 %a) { ; CHECK-LABEL: fib:
 entry:
   ; CHECK: add_i sp, sp, -
 

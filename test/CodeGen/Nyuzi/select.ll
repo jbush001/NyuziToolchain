@@ -2,7 +2,7 @@
 
 target triple = "nyuzi-elf-none"
 
-define i32 @seli(i32 %a) {  ;CHECK: seli:
+define i32 @seli(i32 %a) {  ; CHECK-LABEL: seli:
   %cmp = icmp eq i32 %a, 4
 
   ; CHECK: cmpeq_i [[PRED:s[0-9]+]], s0, 4
@@ -16,7 +16,7 @@ define i32 @seli(i32 %a) {  ;CHECK: seli:
   ret i32 %val
 }
 
-define float @self(float %a, float %b, float %c) {  ;CHECK: self:
+define float @self(float %a, float %b, float %c) {  ; CHECK-LABEL: self:
   %cmp = fcmp oeq float %a, %b
 
   ; CHECK: cmpeq_f [[PRED:s[0-9]+]], s0, s1
@@ -29,7 +29,7 @@ define float @self(float %a, float %b, float %c) {  ;CHECK: self:
   ret float %val
 }
 
-define <16 x i32> @selvi(i32 %a, <16 x i32> %b, <16 x i32> %c) {  ; CHECK: selvi:
+define <16 x i32> @selvi(i32 %a, <16 x i32> %b, <16 x i32> %c) { ; CHECK-LABEL: selvi:
   %cmp = icmp eq i32 %a, 4
 
   ; CHECK: cmpeq_i [[PRED:s[0-9]+]], s0, 4
@@ -43,7 +43,7 @@ define <16 x i32> @selvi(i32 %a, <16 x i32> %b, <16 x i32> %c) {  ; CHECK: selvi
   ret <16 x i32> %val
 }
 
-define <16 x float> @selvf(i32 %a, <16 x float> %b, <16 x float> %c) {  ; CHECK: selvf:
+define <16 x float> @selvf(i32 %a, <16 x float> %b, <16 x float> %c) { ; CHECK-LABEL: selvf:
   %cmp = icmp eq i32 %a, 4
   ; CHECK: cmpeq_i [[PRED:s[0-9]+]], s0, 4
 

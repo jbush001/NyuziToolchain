@@ -2,7 +2,7 @@
 
 target triple = "nyuzi-elf-none"
 
-define i32 @urem32(i32 %a, i32 %b) {   ; CHECK: urem32:
+define i32 @urem32(i32 %a, i32 %b) { ; CHECK-LABEL: urem32:
   %1 = urem i32 %a, %b
 
   ; CHECK: call __umodsi3
@@ -10,7 +10,7 @@ define i32 @urem32(i32 %a, i32 %b) {   ; CHECK: urem32:
   ret i32 %1
 }
 
-define i32 @srem32(i32 %a, i32 %b) {   ; CHECK: srem32:
+define i32 @srem32(i32 %a, i32 %b) { ; CHECK-LABEL: srem32:
   %1 = srem i32 %a, %b
 
   ; CHECK: call __modsi3
@@ -18,7 +18,7 @@ define i32 @srem32(i32 %a, i32 %b) {   ; CHECK: srem32:
   ret i32 %1
 }
 
-define i32 @udiv32(i32 %a, i32 %b) {   ; CHECK: udiv32:
+define i32 @udiv32(i32 %a, i32 %b) { ; CHECK-LABEL: udiv32:
   %1 = udiv i32 %a, %b
 
   ; CHECK: call __udivsi3
@@ -26,7 +26,7 @@ define i32 @udiv32(i32 %a, i32 %b) {   ; CHECK: udiv32:
   ret i32 %1
 }
 
-define i32 @sdiv32(i32 %a, i32 %b) {   ; CHECK: sdiv32:
+define i32 @sdiv32(i32 %a, i32 %b) { ; CHECK-LABEL: sdiv32:
   %1 = sdiv i32 %a, %b
 
   ; CHECK: call __divsi3
@@ -34,7 +34,7 @@ define i32 @sdiv32(i32 %a, i32 %b) {   ; CHECK: sdiv32:
   ret i32 %1
 }
 
-define i64 @urem64(i64 %a, i64 %b) {   ; CHECK: urem64:
+define i64 @urem64(i64 %a, i64 %b) { ; CHECK-LABEL: urem64:
   %1 = urem i64 %a, %b
 
   ; CHECK: call __umoddi3
@@ -42,7 +42,7 @@ define i64 @urem64(i64 %a, i64 %b) {   ; CHECK: urem64:
   ret i64 %1
 }
 
-define i64 @srem64(i64 %a, i64 %b) {   ; CHECK: srem64:
+define i64 @srem64(i64 %a, i64 %b) { ; CHECK-LABEL: srem64:
   %1 = srem i64 %a, %b
 
   ; CHECK: call __moddi3
@@ -50,7 +50,7 @@ define i64 @srem64(i64 %a, i64 %b) {   ; CHECK: srem64:
   ret i64 %1
 }
 
-define i64 @udiv64(i64 %a, i64 %b) {   ; CHECK: udiv64:
+define i64 @udiv64(i64 %a, i64 %b) { ; CHECK-LABEL: udiv64:
   %1 = udiv i64 %a, %b
 
   ; CHECK: call __udivdi3
@@ -58,7 +58,7 @@ define i64 @udiv64(i64 %a, i64 %b) {   ; CHECK: udiv64:
   ret i64 %1
 }
 
-define i64 @sdiv64(i64 %a, i64 %b) {   ; CHECK: sdiv64:
+define i64 @sdiv64(i64 %a, i64 %b) { ; CHECK-LABEL: sdiv64:
   %1 = sdiv i64 %a, %b
 
   ; CHECK: call __divdi3

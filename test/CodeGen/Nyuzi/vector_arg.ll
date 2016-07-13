@@ -9,7 +9,7 @@ target triple = "nyuzi-elf-none"
 
 define <16 x i32> @somefunc(i32 %arg0, <16 x i32> %arg1, <16 x i32> %arg2, <16 x i32> %arg3,
   <16 x i32> %arg4, <16 x i32> %arg5, <16 x i32> %arg6, <16 x i32> %arg7, <16 x i32> %arg8,
-  <16 x i32> %arg9, <16 x i32> %arg10) { ; CHECK: somefunc:
+  <16 x i32> %arg9, <16 x i32> %arg10) { ; CHECK-LABEL: somefunc:
 
   %result = alloca <16 x i32>
 
@@ -61,7 +61,7 @@ define <16 x i32> @somefunc(i32 %arg0, <16 x i32> %arg1, <16 x i32> %arg2, <16 x
   ret <16 x i32> %9
 }
 
-define <16 x i32> @main() {	; CHECK: main:
+define <16 x i32> @main() {	; CHECK-LABEL: main:
 
   %result = call <16 x i32> @somefunc(i32 123,
     <16 x i32> <i32 1, i32 1, i32 1, i32 1, i32 1, i32 1, i32 1, i32 1, i32 1, i32 1, i32 1, i32 1, i32 1, i32 1, i32 1, i32 1>,

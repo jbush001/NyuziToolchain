@@ -7,7 +7,7 @@ target triple = "nyuzi-elf-none"
 ; that change to a different compare. For example, checking if a number is greater
 ; than or equal to 27 might be converted to greater than 26.
 
-define i32 @cmpisgt(i32 %a, i32 %b) {  ; CHECK: cmpisgt:
+define i32 @cmpisgt(i32 %a, i32 %b) { ; CHECK-LABEL: cmpisgt:
   %cmp = icmp sgt i32 %a, %b
   %ret = zext i1 %cmp to i32
 
@@ -16,7 +16,7 @@ define i32 @cmpisgt(i32 %a, i32 %b) {  ; CHECK: cmpisgt:
   ret i32 %ret
 }
 
-define i32 @cmpiugt(i32 %a, i32 %b) {  ; CHECK: cmpiugt:
+define i32 @cmpiugt(i32 %a, i32 %b) { ; CHECK-LABEL: cmpiugt:
   %cmp = icmp ugt i32 %a, %b
   %ret = zext i1 %cmp to i32
 
@@ -25,7 +25,7 @@ define i32 @cmpiugt(i32 %a, i32 %b) {  ; CHECK: cmpiugt:
   ret i32 %ret
 }
 
-define i32 @cmpisge(i32 %a, i32 %b) {  ; CHECK: cmpisge:
+define i32 @cmpisge(i32 %a, i32 %b) { ; CHECK-LABEL: cmpisge:
   %cmp = icmp sge i32 %a, %b
   %ret = zext i1 %cmp to i32
 
@@ -34,7 +34,7 @@ define i32 @cmpisge(i32 %a, i32 %b) {  ; CHECK: cmpisge:
   ret i32 %ret
 }
 
-define i32 @cmpiuge(i32 %a, i32 %b) {  ; CHECK: cmpiuge:
+define i32 @cmpiuge(i32 %a, i32 %b) { ; CHECK-LABEL: cmpiuge:
   %cmp = icmp uge i32 %a, %b
   %ret = zext i1 %cmp to i32
 
@@ -43,7 +43,7 @@ define i32 @cmpiuge(i32 %a, i32 %b) {  ; CHECK: cmpiuge:
   ret i32 %ret
 }
 
-define i32 @cmpislt(i32 %a, i32 %b) {  ; CHECK: cmpislt:
+define i32 @cmpislt(i32 %a, i32 %b) { ; CHECK-LABEL: cmpislt:
   %cmp = icmp slt i32 %a, %b
   %ret = zext i1 %cmp to i32
 
@@ -52,7 +52,7 @@ define i32 @cmpislt(i32 %a, i32 %b) {  ; CHECK: cmpislt:
   ret i32 %ret
 }
 
-define i32 @cmpiult(i32 %a, i32 %b) {  ; CHECK: cmpiult:
+define i32 @cmpiult(i32 %a, i32 %b) { ; CHECK-LABEL: cmpiult:
   %cmp = icmp ult i32 %a, %b
   %ret = zext i1 %cmp to i32
 
@@ -61,7 +61,7 @@ define i32 @cmpiult(i32 %a, i32 %b) {  ; CHECK: cmpiult:
   ret i32 %ret
 }
 
-define i32 @cmpisle(i32 %a, i32 %b) {  ; CHECK: cmpisle:
+define i32 @cmpisle(i32 %a, i32 %b) { ; CHECK-LABEL: cmpisle:
   %cmp = icmp sle i32 %a, %b
   %ret = zext i1 %cmp to i32
 
@@ -70,7 +70,7 @@ define i32 @cmpisle(i32 %a, i32 %b) {  ; CHECK: cmpisle:
   ret i32 %ret
 }
 
-define i32 @cmpiule(i32 %a, i32 %b) {  ; CHECK: cmpiule:
+define i32 @cmpiule(i32 %a, i32 %b) { ; CHECK-LABEL: cmpiule:
   %cmp = icmp ule i32 %a, %b
   %ret = zext i1 %cmp to i32
 
@@ -79,7 +79,7 @@ define i32 @cmpiule(i32 %a, i32 %b) {  ; CHECK: cmpiule:
   ret i32 %ret
 }
 
-define i32 @cmpieq(i32 %a, i32 %b) {  ; CHECK: cmpieq:
+define i32 @cmpieq(i32 %a, i32 %b) { ; CHECK-LABEL: cmpieq:
   %cmp = icmp eq i32 %a, %b
   %ret = zext i1 %cmp to i32
 
@@ -88,7 +88,7 @@ define i32 @cmpieq(i32 %a, i32 %b) {  ; CHECK: cmpieq:
   ret i32 %ret
 }
 
-define i32 @cmpine(i32 %a, i32 %b) {  ; CHECK: cmpine:
+define i32 @cmpine(i32 %a, i32 %b) { ; CHECK-LABEL: cmpine:
   %cmp = icmp ne i32 %a, %b
   %ret = zext i1 %cmp to i32
 
@@ -99,7 +99,7 @@ define i32 @cmpine(i32 %a, i32 %b) {  ; CHECK: cmpine:
 
 ; Immediate forms
 
-define i32 @cmpisgtI(i32 %a, i32 %b) {  ; CHECK: cmpisgtI:
+define i32 @cmpisgtI(i32 %a, i32 %b) { ; CHECK-LABEL: cmpisgtI:
   %cmp = icmp sgt i32 %a, 27
   %ret = zext i1 %cmp to i32
 
@@ -108,7 +108,7 @@ define i32 @cmpisgtI(i32 %a, i32 %b) {  ; CHECK: cmpisgtI:
   ret i32 %ret
 }
 
-define i32 @cmpiugtI(i32 %a, i32 %b) {  ; CHECK: cmpiugtI:
+define i32 @cmpiugtI(i32 %a, i32 %b) { ; CHECK-LABEL: cmpiugtI:
   %cmp = icmp ugt i32 %a, 27
   %ret = zext i1 %cmp to i32
 
@@ -117,7 +117,7 @@ define i32 @cmpiugtI(i32 %a, i32 %b) {  ; CHECK: cmpiugtI:
   ret i32 %ret
 }
 
-define i32 @cmpisgeI(i32 %a, i32 %b) {  ; CHECK: cmpisgeI:
+define i32 @cmpisgeI(i32 %a, i32 %b) { ; CHECK-LABEL: cmpisgeI:
 
   %cmp = icmp sge i32 %a, 27
   %ret = zext i1 %cmp to i32
@@ -127,7 +127,7 @@ define i32 @cmpisgeI(i32 %a, i32 %b) {  ; CHECK: cmpisgeI:
   ret i32 %ret
 }
 
-define i32 @cmpiugeI(i32 %a, i32 %b) {  ; CHECK: cmpiugeI:
+define i32 @cmpiugeI(i32 %a, i32 %b) { ; CHECK-LABEL: cmpiugeI:
   %cmp = icmp uge i32 %a, 27
   %ret = zext i1 %cmp to i32
 
@@ -136,7 +136,7 @@ define i32 @cmpiugeI(i32 %a, i32 %b) {  ; CHECK: cmpiugeI:
   ret i32 %ret
 }
 
-define i32 @cmpisltI(i32 %a, i32 %b) {  ; CHECK: cmpisltI:
+define i32 @cmpisltI(i32 %a, i32 %b) { ; CHECK-LABEL: cmpisltI:
   %cmp = icmp slt i32 %a, 27
   %ret = zext i1 %cmp to i32
 
@@ -145,7 +145,7 @@ define i32 @cmpisltI(i32 %a, i32 %b) {  ; CHECK: cmpisltI:
   ret i32 %ret
 }
 
-define i32 @cmpiultI(i32 %a, i32 %b) {  ; CHECK: cmpiultI:
+define i32 @cmpiultI(i32 %a, i32 %b) { ; CHECK-LABEL: cmpiultI:
   %cmp = icmp ult i32 %a, 27
   %ret = zext i1 %cmp to i32
 
@@ -154,7 +154,7 @@ define i32 @cmpiultI(i32 %a, i32 %b) {  ; CHECK: cmpiultI:
   ret i32 %ret
 }
 
-define i32 @cmpisleI(i32 %a, i32 %b) {  ; CHECK: cmpisleI:
+define i32 @cmpisleI(i32 %a, i32 %b) { ; CHECK-LABEL: cmpisleI:
   %cmp = icmp sle i32 %a, 27
   %ret = zext i1 %cmp to i32
 
@@ -163,7 +163,7 @@ define i32 @cmpisleI(i32 %a, i32 %b) {  ; CHECK: cmpisleI:
   ret i32 %ret
 }
 
-define i32 @cmpiuleI(i32 %a, i32 %b) {  ; CHECK: cmpiuleI:
+define i32 @cmpiuleI(i32 %a, i32 %b) { ; CHECK-LABEL: cmpiuleI:
   %cmp = icmp ule i32 %a, 27
   %ret = zext i1 %cmp to i32
 
@@ -172,7 +172,7 @@ define i32 @cmpiuleI(i32 %a, i32 %b) {  ; CHECK: cmpiuleI:
   ret i32 %ret
 }
 
-define i32 @cmpieqI(i32 %a, i32 %b) {  ; CHECK: cmpieqI:
+define i32 @cmpieqI(i32 %a, i32 %b) { ; CHECK-LABEL: cmpieqI:
   %cmp = icmp eq i32 %a, 27
   %ret = zext i1 %cmp to i32
 
@@ -181,7 +181,7 @@ define i32 @cmpieqI(i32 %a, i32 %b) {  ; CHECK: cmpieqI:
   ret i32 %ret
 }
 
-define i32 @cmpineI(i32 %a, i32 %b) {  ; CHECK: cmpineI:
+define i32 @cmpineI(i32 %a, i32 %b) { ; CHECK-LABEL: cmpineI:
   %cmp = icmp ne i32 %a, 27
   %ret = zext i1 %cmp to i32
 
@@ -192,13 +192,13 @@ define i32 @cmpineI(i32 %a, i32 %b) {  ; CHECK: cmpineI:
 
 ; Floating point
 
-define i32 @cmpfgt(float %a, float %b) {  ; CHECK: cmpfgt:
+define i32 @cmpfgt(float %a, float %b) { ; CHECK-LABEL: cmpfgt:
   %cmp = fcmp ogt float %a, %b      ; CHECK: cmpgt_f s{{[0-9]+}}, s0, s1
   %ret = zext i1 %cmp to i32
   ret i32 %ret
 }
 
-define i32 @cmpfge(float %a, float %b) {  ; CHECK: cmpfge:
+define i32 @cmpfge(float %a, float %b) { ; CHECK-LABEL: cmpfge:
   %cmp = fcmp oge float %a, %b
   %ret = zext i1 %cmp to i32
 
@@ -207,7 +207,7 @@ define i32 @cmpfge(float %a, float %b) {  ; CHECK: cmpfge:
   ret i32 %ret
 }
 
-define i32 @cmpflt(float %a, float %b) {  ; CHECK: cmpflt:
+define i32 @cmpflt(float %a, float %b) { ; CHECK-LABEL: cmpflt:
   %cmp = fcmp olt float %a, %b
   %ret = zext i1 %cmp to i32
 
@@ -216,7 +216,7 @@ define i32 @cmpflt(float %a, float %b) {  ; CHECK: cmpflt:
   ret i32 %ret
 }
 
-define i32 @cmpfle(float %a, float %b) {  ; CHECK: cmpfle:
+define i32 @cmpfle(float %a, float %b) { ; CHECK-LABEL: cmpfle:
   %cmp = fcmp ole float %a, %b
   %ret = zext i1 %cmp to i32
 
@@ -225,7 +225,7 @@ define i32 @cmpfle(float %a, float %b) {  ; CHECK: cmpfle:
   ret i32 %ret
 }
 
-define i32 @cmpfeq(float %a, float %b) {  ; CHECK: cmpfeq:
+define i32 @cmpfeq(float %a, float %b) { ; CHECK-LABEL: cmpfeq:
   %cmp = fcmp oeq float %a, %b
   %ret = zext i1 %cmp to i32
 
@@ -234,7 +234,7 @@ define i32 @cmpfeq(float %a, float %b) {  ; CHECK: cmpfeq:
   ret i32 %ret
 }
 
-define i32 @cmpfne(float %a, float %b) {  ; CHECK: cmpfne:
+define i32 @cmpfne(float %a, float %b) { ; CHECK-LABEL: cmpfne:
   %cmp = fcmp one float %a, %b
   %ret = zext i1 %cmp to i32
 
@@ -243,7 +243,7 @@ define i32 @cmpfne(float %a, float %b) {  ; CHECK: cmpfne:
   ret i32 %ret
 }
 
-define i32 @cmpfgtu(float %a, float %b) {  ; CHECK: cmpfgtu:
+define i32 @cmpfgtu(float %a, float %b) { ; CHECK-LABEL: cmpfgtu:
   %cmp = fcmp ugt float %a, %b
   %ret = zext i1 %cmp to i32
 
@@ -253,7 +253,7 @@ define i32 @cmpfgtu(float %a, float %b) {  ; CHECK: cmpfgtu:
   ret i32 %ret
 }
 
-define i32 @cmpfgeu(float %a, float %b) {  ; CHECK: cmpfgeu:
+define i32 @cmpfgeu(float %a, float %b) { ; CHECK-LABEL: cmpfgeu:
   %cmp = fcmp uge float %a, %b
   %ret = zext i1 %cmp to i32
 
@@ -263,7 +263,7 @@ define i32 @cmpfgeu(float %a, float %b) {  ; CHECK: cmpfgeu:
   ret i32 %ret
 }
 
-define i32 @cmpfltu(float %a, float %b) {  ; CHECK: cmpfltu:
+define i32 @cmpfltu(float %a, float %b) { ; CHECK-LABEL: cmpfltu:
   %cmp = fcmp ult float %a, %b
   %ret = zext i1 %cmp to i32
 
@@ -273,7 +273,7 @@ define i32 @cmpfltu(float %a, float %b) {  ; CHECK: cmpfltu:
   ret i32 %ret
 }
 
-define i32 @cmpfleu(float %a, float %b) {  ; CHECK: cmpfleu:
+define i32 @cmpfleu(float %a, float %b) { ; CHECK-LABEL: cmpfleu:
   %cmp = fcmp ule float %a, %b
   %ret = zext i1 %cmp to i32
 
@@ -283,7 +283,7 @@ define i32 @cmpfleu(float %a, float %b) {  ; CHECK: cmpfleu:
   ret i32 %ret
 }
 
-define i32 @cmpfequ(float %a, float %b) {  ; CHECK: cmpfequ:
+define i32 @cmpfequ(float %a, float %b) { ; CHECK-LABEL: cmpfequ:
   %cmp = fcmp ueq float %a, %b
   %ret = zext i1 %cmp to i32
 
@@ -293,7 +293,7 @@ define i32 @cmpfequ(float %a, float %b) {  ; CHECK: cmpfequ:
   ret i32 %ret
 }
 
-define i32 @cmpfneu(float %a, float %b) {  ; CHECK: cmpfneu:
+define i32 @cmpfneu(float %a, float %b) { ; CHECK-LABEL: cmpfneu:
   %cmp = fcmp une float %a, %b
   %ret = zext i1 %cmp to i32
 
@@ -303,7 +303,7 @@ define i32 @cmpfneu(float %a, float %b) {  ; CHECK: cmpfneu:
   ret i32 %ret
 }
 
-define i32 @check_notnan(float %a) {  ; CHECK: check_notnan:
+define i32 @check_notnan(float %a) { ; CHECK-LABEL: check_notnan:
   %lnot = fcmp ord float %a, 0.000000e+00
   %lnot.ext = zext i1 %lnot to i32
 
@@ -312,7 +312,7 @@ define i32 @check_notnan(float %a) {  ; CHECK: check_notnan:
   ret i32 %lnot.ext
 }
 
-define i32 @check_nan(float %a) {  ; CHECK: check_nan:
+define i32 @check_nan(float %a) { ; CHECK-LABEL: check_nan:
   %lnot = fcmp uno float %a, 0.000000e+00
   %lnot.ext = zext i1 %lnot to i32
 

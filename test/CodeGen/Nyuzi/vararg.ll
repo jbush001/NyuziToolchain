@@ -10,7 +10,7 @@ declare void @llvm.va_end(i8*)
 @glob2 = common local_unnamed_addr global float 0.000000e+00, align 4
 @glob3 = common local_unnamed_addr global <16 x i32> zeroinitializer, align 64
 
-define void @test_callee_vararg(i32 %foo, ...) {
+define void @test_callee_vararg(i32 %foo, ...) { ; CHECK-LABEL: test_callee_vararg:
   %ap = alloca i8*, align 4
   %1 = bitcast i8** %ap to i8*
   call void @llvm.va_start(i8* %1)
@@ -28,7 +28,7 @@ define void @test_callee_vararg(i32 %foo, ...) {
   ; CHECK: load_v v0, (s0)
 }
 
-define void @test_caller_vararg(i32 %val1, float %val2, i8* %val3, <16 x i32> %val4) {
+define void @test_caller_vararg(i32 %val1, float %val2, i8* %val3, <16 x i32> %val4) { ; CHECK-LABEL: test_caller_vararg:
   ; CHECK: test_caller_vararg
 
   tail call void (i32, ...) @test_callee_vararg(i32 1, i32 %val1, float %val2, i8* %val3, <16 x i32> %val4)

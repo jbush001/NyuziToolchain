@@ -2,7 +2,7 @@
 
 target triple = "nyuzi-elf-none"
 
-define i32 @testi(<16 x i32> %a, i32 %b) {  ; CHECK: testi:
+define i32 @testi(<16 x i32> %a, i32 %b) { ; CHECK-LABEL: testi:
   %elem = extractelement <16 x i32> %a, i32 %b
 
   ; CHECK: getlane s{{[0-9]+}}, v{{[0-9]+}}, s{{[0-9]+}}
@@ -10,7 +10,7 @@ define i32 @testi(<16 x i32> %a, i32 %b) {  ; CHECK: testi:
   ret i32 %elem
 }
 
-define i32 @testiimm(<16 x i32> %a, i32 %b) {  ; CHECK: testiimm:
+define i32 @testiimm(<16 x i32> %a, i32 %b) { ; CHECK-LABEL: testiimm:
   %elem = extractelement <16 x i32> %a, i32 7
 
   ; CHECK: getlane s{{[0-9]+}}, v{{[0-9]+}}, 7
@@ -18,7 +18,7 @@ define i32 @testiimm(<16 x i32> %a, i32 %b) {  ; CHECK: testiimm:
   ret i32 %elem
 }
 
-define float @testf(<16 x float> %a, i32 %b) {  ; CHECK: testf:
+define float @testf(<16 x float> %a, i32 %b) { ; CHECK-LABEL: testf:
   %elem = extractelement <16 x float> %a, i32 %b
 
   ; CHECK: getlane s{{[0-9]+}}, v{{[0-9]+}}, s{{[0-9]+}}
@@ -26,7 +26,7 @@ define float @testf(<16 x float> %a, i32 %b) {  ; CHECK: testf:
   ret float %elem
 }
 
-define float @testfimm(<16 x float> %a, i32 %b) {  ; CHECK: testfimm:
+define float @testfimm(<16 x float> %a, i32 %b) { ; CHECK-LABEL: testfimm:
   %elem = extractelement <16 x float> %a, i32 9
 
   ; CHECK: getlane s{{[0-9]+}}, v{{[0-9]+}}, 9

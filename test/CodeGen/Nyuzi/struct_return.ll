@@ -10,7 +10,7 @@ target triple = "nyuzi-elf-none"
 
 ; Validate callee
 
-define void @return_struct(%struct.foo* sret %retval, i32 %param1) {
+define void @return_struct(%struct.foo* sret %retval, i32 %param1) { ; CHECK-LABEL: return_struct:
   %elem0ptr = getelementptr %struct.foo, %struct.foo* %retval, i32 0, i32 0
   store i32 %param1, i32* %elem0ptr, align 4
 
@@ -30,7 +30,7 @@ define void @return_struct(%struct.foo* sret %retval, i32 %param1) {
 
 declare void @another_struct_return(%struct.foo* sret %retval, i32 %param1)
 
-define void @call_return_struct() {
+define void @call_return_struct() { ; CHECK-LABEL: call_return_struct:
   %tmp = alloca %struct.foo, align 4
   call void @another_struct_return(%struct.foo* sret %tmp, i32 2)
 

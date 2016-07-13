@@ -96,7 +96,7 @@ for llvmop, mnemonic in binary_ops:
         op_test_fp.write('define ' + rettype + ' @' +
                          funcname + '(' + rettype + ' %a, ')
         op_test_fp.write(get_type_string(s2regt == 'v', is_float) + ' %b' +
-                         (', i32 %mask' if is_masked else '') + ') { ; CHECK: ' + funcname + ':\n')
+                         (', i32 %mask' if is_masked else '') + ') { ; CHECK-LABEL: ' + funcname + ':\n')
 
         # Expand scalar to vector type
         if s1regt == 'v' and s2regt == 's':
@@ -140,7 +140,7 @@ for llvmop, mnemonic in binary_ops:
         else:
             op_test_fp.write(') { ')
 
-        op_test_fp.write('; CHECK ' + funcname + ':\n')
+        op_test_fp.write('; CHECK-LABEL: ' + funcname + ':\n')
 
         if dregt == 'v' and s1regt == 's':
             op_test_fp.write('  %single = insertelement ' +
@@ -199,7 +199,7 @@ for intr_suffix, instr_suffix in compare_tests:
     etype = 'float' if instr_suffix[-2:] == '_f' else 'i32'
 
     op_test_fp.write('define i32 @cmp' + intr_suffix + 'vv(<16 x ' + etype +
-                     '> %a, <16 x ' + etype + '> %b) {	; CHECK: cmp' + intr_suffix + 'vv:\n')
+                     '> %a, <16 x ' + etype + '> %b) {	; CHECK-LABEL: cmp' + intr_suffix + 'vv:\n')
     op_test_fp.write('  %c = call i32 @llvm.nyuzi.__builtin_nyuzi_mask_cmp' +
                      intr_suffix + '(<16 x ' + etype + '> %a, <16 x ' + etype + '> %b)\n')
     op_test_fp.write('  ; CHECK: cmp' + instr_suffix +
@@ -209,7 +209,7 @@ for intr_suffix, instr_suffix in compare_tests:
 
     # Vector op scalar
     op_test_fp.write('define i32 @cmp' + intr_suffix + 'vs(<16 x ' + etype +
-                     '> %a, ' + etype + ' %b) {	; CHECK: cmp' + intr_suffix + 'vs:\n')
+                     '> %a, ' + etype + ' %b) {	; CHECK-LABEL: cmp' + intr_suffix + 'vs:\n')
     op_test_fp.write('  %single = insertelement <16 x ' +
                      etype + '> undef, ' + etype + ' %b, i32 0\n')
     op_test_fp.write('  %splat = shufflevector <16 x ' + etype +
@@ -227,7 +227,7 @@ for intr_suffix, instr_suffix in compare_tests:
 
     # Vector op immediate
     op_test_fp.write('define i32 @cmp' + intr_suffix + 'vI(<16 x ' + etype +
-                     '> %a, <16 x ' + etype + '> %b) {	; CHECK: cmp' + intr_suffix + 'vI:\n')
+                     '> %a, <16 x ' + etype + '> %b) {	; CHECK-LABEL: cmp' + intr_suffix + 'vI:\n')
     op_test_fp.write('  %c = call i32 @llvm.nyuzi.__builtin_nyuzi_mask_cmp' + intr_suffix + '(<16 x ' + etype +
                      '> %a, <16 x i32> <i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27>)\n')
     op_test_fp.write('  ; CHECK: cmp' + instr_suffix +
