@@ -7128,13 +7128,6 @@ Value *CodeGenFunction::EmitNyuziBuiltinExpr(unsigned BuiltinID,
   for (unsigned i = 0; i < E->getNumArgs(); i++)
     Ops.push_back(EmitScalarExpr(E->getArg(i)));
 
-  switch (BuiltinID)
-  {
-    case Nyuzi::BI__builtin_nyuzi_makevectori:
-    case Nyuzi::BI__builtin_nyuzi_makevectorf:
-      return Builder.CreateVectorSplat(16, Ops[0]);
-  }
-
 	// This maps directly to an LLVM intrinsic.  Look up the function name and create
 	// a call (which will be transformed automatically in the appropriate
 	// instruction in the backend).
