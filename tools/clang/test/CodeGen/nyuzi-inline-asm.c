@@ -1,9 +1,10 @@
 // RUN: %clang_cc1 -triple nyuzi-none-none -emit-llvm -o - %s | FileCheck %s
 
-typedef int veci16 __attribute__((__vector_size__(16 * sizeof(int))));
+typedef int veci16_t __attribute__((ext_vector_type(16)));
+
 
 int sdata;
-veci16 vdata;
+veci16_t vdata;
 
 int test_load_32() {
   int result;
@@ -14,8 +15,8 @@ int test_load_32() {
   return result;
 }
 
-veci16 test_load_vector() {
-  veci16 result;
+veci16_t test_load_vector() {
+  veci16_t result;
 
   asm("load_v %0, %1" : "=v"(result) : "m"(vdata));
   // CHECK: call <16 x i32> asm "load_v $0, $1", "=v,*m"(<16 x i32>* @vdata)
@@ -35,9 +36,9 @@ unsigned int test_scalar_register_op(unsigned int a, unsigned int b)
     return result;
 }
 
-veci16 test_vector_register_op(veci16 a, veci16 b)
+veci16_t test_vector_register_op(veci16_t a, veci16_t b)
 {
-    veci16 result;
+    veci16_t result;
 
     // r and s constraints are equivalent, test both
     asm("add_i %0, %1, %2" : "=v" (result) : "v" (a), "v" (b));
