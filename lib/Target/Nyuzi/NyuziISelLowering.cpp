@@ -8,16 +8,15 @@
 //===----------------------------------------------------------------------===//
 //
 // This file implements the interfaces that Nyuzi uses to lower LLVM code
-// into a
-// selection DAG.
+// into a selection DAG.
 //
 //===----------------------------------------------------------------------===//
 
 #define DEBUG_TYPE "nyuzi-isel-lowering"
 
 #include "NyuziISelLowering.h"
-#include "NyuziMachineFunctionInfo.h"
 #include "MCTargetDesc/NyuziMCTargetDesc.h"
+#include "NyuziMachineFunctionInfo.h"
 #include "NyuziTargetMachine.h"
 #include "NyuziTargetObjectFile.h"
 #include "llvm/CodeGen/CallingConvLower.h"
@@ -104,8 +103,7 @@ NyuziTargetLowering::LowerReturn(SDValue Chain, CallingConv::ID CallConv,
 SDValue NyuziTargetLowering::LowerFormalArguments(
     SDValue Chain, CallingConv::ID CallConv, bool isVarArg,
     const SmallVectorImpl<ISD::InputArg> &Ins, const SDLoc &DL,
-    SelectionDAG &DAG,
-    SmallVectorImpl<SDValue> &InVals) const {
+    SelectionDAG &DAG, SmallVectorImpl<SDValue> &InVals) const {
   MachineFunction &MF = DAG.getMachineFunction();
   MachineRegisterInfo &RegInfo = MF.getRegInfo();
 

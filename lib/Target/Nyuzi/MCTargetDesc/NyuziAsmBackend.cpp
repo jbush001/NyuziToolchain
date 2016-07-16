@@ -43,23 +43,22 @@ public:
         OS, MCELFObjectTargetWriter::getOSABI(OSType));
   }
 
-   unsigned adjustFixupValue(const MCFixup &Fixup, uint64_t Value,
-                             MCContext *Ctx) const {
+  unsigned adjustFixupValue(const MCFixup &Fixup, uint64_t Value,
+                            MCContext *Ctx) const {
     const MCFixupKindInfo &Info = getFixupKindInfo(Fixup.getKind());
     APInt OffsetVal(64, Value);
     if (!OffsetVal.isSignedIntN(Info.TargetSize) && Ctx != 0) {
-        Ctx->reportError(Fixup.getLoc(), "fixup out of range");
-        return 0;
+      Ctx->reportError(Fixup.getLoc(), "fixup out of range");
+      return 0;
     }
 
-    switch ((unsigned int) Fixup.getKind()) {
+    switch ((unsigned int)Fixup.getKind()) {
     case Nyuzi::fixup_Nyuzi_PCRel_MemAccExt:
     case Nyuzi::fixup_Nyuzi_PCRel_Branch:
     case Nyuzi::fixup_Nyuzi_PCRel_ComputeLabelAddress:
       Value -= 4; // source location is PC + 4
       break;
-    default:
-      ;
+    default:;
     }
 
     return Value;
@@ -77,8 +76,7 @@ public:
       CurVal |= (uint64_t)((uint8_t)Data[Offset + i]) << (i * 8);
     }
 
-    uint64_t Mask =
-        ((uint64_t)(-1) >> (64 - Info.TargetSize));
+    uint64_t Mask = ((uint64_t)(-1) >> (64 - Info.TargetSize));
 
     Value <<= Info.TargetOffset;
     Mask <<= Info.TargetOffset;

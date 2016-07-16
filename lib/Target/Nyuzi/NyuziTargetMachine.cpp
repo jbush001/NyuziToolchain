@@ -10,10 +10,10 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "MCTargetDesc/NyuziMCTargetDesc.h"
 #include "NyuziTargetMachine.h"
-#include "NyuziTargetObjectFile.h"
+#include "MCTargetDesc/NyuziMCTargetDesc.h"
 #include "Nyuzi.h"
+#include "NyuziTargetObjectFile.h"
 #include "llvm/CodeGen/Passes.h"
 #include "llvm/CodeGen/TargetPassConfig.h"
 #include "llvm/IR/LegacyPassManager.h"

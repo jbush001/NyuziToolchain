@@ -296,8 +296,7 @@ def STORE_SYNC : FormatMUnmaskedInst<
   "store_sync $srcDest, $addr  ",
   [],
   FmtM_Sync,
-  0>
-{
+  0> {
   let Constraints = "$result = $srcDest";
 }
 
@@ -316,8 +315,7 @@ def BLOCK_STOREI : FormatMUnmaskedInst<
   "store_v $srcDest, $addr",
   [(store v16i32:$srcDest, ADDRri:$addr)],
   FmtM_Block,
-  0>
-{
+  0> {
   let hasSideEffects = 1;
   let mayStore = 1;
 }
@@ -479,8 +477,7 @@ let isTerminator = 1 in {
     (ins brtarget:$dest),
     "goto $dest",
     [(br bb:$dest)],
-    BT_Uncond>
-  {
+    BT_Uncond> {
     let isBarrier = 1;
   }
 
@@ -518,8 +515,7 @@ let isTerminator = 1 in {
     (ins GPR32:$dest),
     "goto $dest",
     [(brind i32:$dest)],
-    II_BRANCH>
-  {
+    II_BRANCH> {
     bits<5> dest;
 
     let Inst{31-30} = 3;
@@ -541,8 +537,7 @@ let isTerminator = 1 in {
     (ins GPR32:$tableptr, GPR32:$jt),
     "load_32 pc, ( $tableptr )",
     [(brjt i32:$tableptr, tjumptable:$jt)],
-    II_MEMORY>
-  {
+    II_MEMORY> {
     let isBranch = 1;
     let isIndirectBranch = 1;
     let isBarrier = 1;
@@ -568,8 +563,7 @@ def RET : NyuziInstruction<
   (ins),
   "ret",
   [(return)],
-  II_BRANCH>
-{
+  II_BRANCH> {
   // This is encoded as move pc, ra
   let Inst{31-29} = 6;  // format A instruction
   let Inst{25-20} = 0xf;  // opcode
@@ -587,8 +581,7 @@ def ERET : NyuziInstruction<
   (ins),
   "eret",
   [],
-  II_BRANCH>
-{
+  II_BRANCH> {
   let Inst{31-28} = 0xf;
   let Inst{27-25} = 7;  // Eret branch type
 
@@ -627,8 +620,7 @@ let isCall = 1, Defs = [ RA_REG ] in {
     (ins GPR32:$targetreg, variable_ops),
     "call $targetreg",
     [(call i32:$targetreg)],
-    BT_CallReg>
-  {
+    BT_CallReg> {
     bits<5> targetreg;
 
     let Inst{4-0} = targetreg;
@@ -676,8 +668,7 @@ def SYSCALL : NyuziInstruction<
   (ins),
   "syscall",
   [],
-  II_INT>
-{
+  II_INT> {
   let Inst{31-29} = 6;
   let Inst{25-20} = 0x3f;
 }
@@ -688,8 +679,7 @@ def READ_CONTROL_REG : FormatMInst<
   "getcr $dest, $cr",
   [(set i32:$dest, (int_nyuzi_read_control_reg imm:$cr))],
   FmtM_ControlReg,
-  1>
-{
+  1> {
   bits <5> cr;
   bits <5> dest;
 
@@ -703,8 +693,7 @@ def WRITE_CONTROL_REG : FormatMInst<
   "setcr $src, $cr",
   [(int_nyuzi_write_control_reg imm:$cr, i32:$src)],
   FmtM_ControlReg,
-  0>
-{
+  0> {
   bits <5> cr;
   bits <5> src;
 
@@ -717,8 +706,7 @@ def LOAD_EFFECTIVE_ADDR : NyuziInstruction<
   (ins LEAri:$addr),
   "lea $dest, $addr",
   [(set i32:$dest, ADDRri:$addr)],
-  II_INT>
-{
+  II_INT> {
   let isAsmParserOnly = 1;   // Don't disassemble
 
   bits<20> addr;
@@ -741,8 +729,7 @@ def LOAD_JTABLE_ADDR : NyuziInstruction<
   (ins JTADDR:$addr),
   "lea $dest, $addr",
   [(set i32:$dest, (jtwrapper tjumptable:$addr))],
-  II_INT>
-{
+  II_INT> {
   let isCodeGenOnly = 1;  // Don't use for assembler or disassembler
 
   bits<13> addr;

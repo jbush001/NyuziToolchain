@@ -35,7 +35,7 @@ def NyuziAsmWriter : AsmWriter {
 }
 
 // Currently disabled because it causes bad code gen with large stack frames
-//def : Processor<"nyuzi", NyuziItineraries, []>;
+// def : Processor<"nyuzi", NyuziItineraries, []>;
 def : Processor<"nyuzi", NoItineraries, []>;
 
 def Nyuzi : Target {

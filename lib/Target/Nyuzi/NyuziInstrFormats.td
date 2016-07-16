@@ -27,7 +27,7 @@ def wrapper : SDNode<"NyuziISD::WRAPPER", SDTIntUnaryOp>;
 def reciprocal : SDNode<"NyuziISD::RECIPROCAL_EST", SDTFPUnaryOp>;
 def jtwrapper : SDNode<"NyuziISD::JT_WRAPPER", SDTIntUnaryOp>;
 
-def SDT_BRJT    : SDTypeProfile<0, 2, [SDTCisPtrTy<0>, SDTCisVT<1, i32>]>;
+def SDT_BRJT : SDTypeProfile<0, 2, [SDTCisPtrTy<0>, SDTCisVT<1, i32>]>;
 def brjt : SDNode<"NyuziISD::BR_JT", SDT_BRJT, [SDNPHasChain]>;
 
 def return : SDNode<"NyuziISD::RET_FLAG",
@@ -79,14 +79,12 @@ def cpooladdr : Operand<iPTR> {
   let EncoderMethod = "encodeMemoryOpValue";
 }
 
-def brtarget : Operand<OtherVT>
-{
+def brtarget : Operand<OtherVT> {
   let EncoderMethod = "encodeBranchTargetOpValue";
   let DecoderMethod = "decodeBranchTargetOpValue";
 }
 
-def calltarget : Operand<iPTR>
-{
+def calltarget : Operand<iPTR> {
   let EncoderMethod = "encodeBranchTargetOpValue";
   let DecoderMethod = "decodeBranchTargetOpValue";
 }
@@ -107,16 +105,15 @@ def callseq_end   : SDNode<"ISD::CALLSEQ_END",   SDT_SPCallSeqEnd,
                            [SDNPHasChain, SDNPSideEffect, SDNPOptInGlue, SDNPOutGlue]>;
 def SDT_SPCall : SDTypeProfile<0, -1, [SDTCisVT<0, i32>]>;
 def call       : SDNode<"NyuziISD::CALL", SDT_SPCall,
-                           [SDNPHasChain, SDNPOptInGlue, SDNPOutGlue,
-                            SDNPVariadic]>;
+                        [SDNPHasChain, SDNPOptInGlue, SDNPOutGlue,
+                        SDNPVariadic]>;
 
 //////////////////////////////////////////////////////////////////
 // Instruction Classes
 //////////////////////////////////////////////////////////////////
 
 class NyuziInstruction<dag outputs, dag inputs, string asmString, list<dag> pattern, InstrItinClass itin>
-  : Instruction
-{
+  : Instruction {
   let Namespace = "Nyuzi";
   dag OutOperandList = outputs;
   dag InOperandList = inputs;
@@ -130,15 +127,13 @@ class NyuziInstruction<dag outputs, dag inputs, string asmString, list<dag> patt
 }
 
 class Pseudo<dag outputs, dag inputs, list<dag> pattern>
-  : NyuziInstruction<outputs, inputs, "Pseudo", pattern, II_PSEUDO>
-{
+  : NyuziInstruction<outputs, inputs, "Pseudo", pattern, II_PSEUDO> {
   let isCodeGenOnly = 1;
   let isPseudo = 1;
   let Inst{31-0} = 0;
 }
 
-multiclass AtomicBinary<SDNode OpNode>
-{
+multiclass AtomicBinary<SDNode OpNode> {
   def R : Pseudo<
     (outs GPR32:$dest),
     (ins GPR32:$ptr, GPR32:$amt),
@@ -166,8 +161,7 @@ def FmtR_VVVM : FmtR<5>;
 
 class FormatRInst<dag outputs, dag inputs, string asmString, list<dag> pattern,
   bits<6> opcode, FmtR fmt, InstrItinClass itin>
-  : NyuziInstruction<outputs, inputs, asmString, pattern, itin>
-{
+  : NyuziInstruction<outputs, inputs, asmString, pattern, itin> {
   bits <5> dest;
   bits <5> src2;
 
@@ -180,15 +174,13 @@ class FormatRInst<dag outputs, dag inputs, string asmString, list<dag> pattern,
 
 class FormatRUnmaskedOneOpInst<dag outputs, dag inputs, string asmString, list<dag> pattern,
   bits<6> opcode, FmtR fmt, InstrItinClass itin>
-  : FormatRInst<outputs, inputs, asmString, pattern, opcode, fmt, itin>
-{
+  : FormatRInst<outputs, inputs, asmString, pattern, opcode, fmt, itin> {
   let Inst{4-0} = 0;
 }
 
 class FormatRMaskedOneOpInst<dag outputs, dag inputs, string asmString, list<dag> pattern,
   bits<6> opcode, FmtR fmt, InstrItinClass itin>
-  : FormatRInst<outputs, inputs, asmString, pattern, opcode, fmt, itin>
-{
+  : FormatRInst<outputs, inputs, asmString, pattern, opcode, fmt, itin> {
   bits <5> mask;
   let Inst{14-10} = mask;
   let Inst{4-0} = 0;
@@ -196,16 +188,14 @@ class FormatRMaskedOneOpInst<dag outputs, dag inputs, string asmString, list<dag
 
 class FormatRUnmaskedTwoOpInst<dag outputs, dag inputs, string asmString, list<dag> pattern,
   bits<6> opcode, FmtR fmt, InstrItinClass itin>
-  : FormatRInst<outputs, inputs, asmString, pattern, opcode, fmt, itin>
-{
+  : FormatRInst<outputs, inputs, asmString, pattern, opcode, fmt, itin> {
   bits <5> src1;
   let Inst{4-0} = src1;
 }
 
 class FormatRMaskedTwoOpInst<dag outputs, dag inputs, string asmString, list<dag> pattern,
   bits<6> opcode, FmtR fmt, InstrItinClass itin>
-  : FormatRInst<outputs, inputs, asmString, pattern, opcode, fmt, itin>
-{
+  : FormatRInst<outputs, inputs, asmString, pattern, opcode, fmt, itin> {
   bits <5> src1;
   bits <5> mask;
   let Inst{14-10} = mask;
@@ -228,8 +218,7 @@ def FmtI_VSM : FmtI<5>;
 
 class FormatIInst<dag outputs, dag inputs, string asmString, list<dag> pattern,
   bits<5> opcode, FmtI fmt, InstrItinClass itin>
-  : NyuziInstruction<outputs, inputs, asmString, pattern, itin>
-{
+  : NyuziInstruction<outputs, inputs, asmString, pattern, itin> {
   bits <5> dest;
   bits <5> src1;
 
@@ -242,8 +231,7 @@ class FormatIInst<dag outputs, dag inputs, string asmString, list<dag> pattern,
 
 class FormatIMaskedInst<dag outputs, dag inputs, string asmString, list<dag> pattern,
   bits<5> opcode, FmtI fmt, InstrItinClass itin>
-  : FormatIInst<outputs, inputs, asmString, pattern, opcode, fmt, itin>
-{
+  : FormatIInst<outputs, inputs, asmString, pattern, opcode, fmt, itin> {
   bits <5> mask;
   bits <8> imm;
   let Inst{22-15} = imm;
@@ -252,8 +240,7 @@ class FormatIMaskedInst<dag outputs, dag inputs, string asmString, list<dag> pat
 
 class FormatIUnmaskedInst<dag outputs, dag inputs, string asmString, list<dag> pattern,
   bits<5> opcode, FmtI fmt, InstrItinClass itin>
-  : FormatIInst<outputs, inputs, asmString, pattern, opcode, fmt, itin>
-{
+  : FormatIInst<outputs, inputs, asmString, pattern, opcode, fmt, itin> {
   bits <13> imm;
   let Inst{22-10} = imm;
 }
@@ -366,8 +353,7 @@ multiclass TwoOpIntArith<string operator, SDNode OpNode, bits<6> opcode> {
   }
 }
 
-multiclass TwoOpFloatArith<string operator, SDNode OpNode, bits<6> opcode>
-{
+multiclass TwoOpFloatArith<string operator, SDNode OpNode, bits<6> opcode> {
   // Scalar = Scalar Op Scalar
   def SSS : FormatRUnmaskedTwoOpInst<
     (outs GPR32:$dest),
@@ -630,8 +616,7 @@ def FmtM_ScGathMasked : FmtM<14>;
 
 class FormatMInst<dag outputs, dag inputs, string asmString, list<dag> pattern,
   FmtM fmt, bits <1> isLoad>
-  : NyuziInstruction<outputs, inputs, asmString, pattern, II_MEMORY>
-{
+  : NyuziInstruction<outputs, inputs, asmString, pattern, II_MEMORY> {
   bits <5> srcDest;
 
   let Inst{31} = 1;
@@ -644,8 +629,7 @@ class FormatMInst<dag outputs, dag inputs, string asmString, list<dag> pattern,
 
 class FormatMMaskedInst<dag outputs, dag inputs, string asmString, list<dag> pattern,
   FmtM fmt, bits <1> isLoad>
-  : FormatMInst<outputs, inputs, asmString, pattern, fmt, isLoad>
-{
+  : FormatMInst<outputs, inputs, asmString, pattern, fmt, isLoad> {
   bits <20> addr;  // Is offset/ptr, this is set up by encodeMemoryOpValue.
   bits <5> mask;
 
@@ -656,8 +640,7 @@ class FormatMMaskedInst<dag outputs, dag inputs, string asmString, list<dag> pat
 
 class FormatMUnmaskedInst<dag outputs, dag inputs, string asmString, list<dag> pattern,
   FmtM fmt, bits <1> isLoad>
-  : FormatMInst<outputs, inputs, asmString, pattern, fmt, isLoad>
-{
+  : FormatMInst<outputs, inputs, asmString, pattern, fmt, isLoad> {
   bits <20> addr;  // Is offset/ptr, this is set up by encodeMemoryOpValue.
 
   let Inst{24-10} = addr{19-5};
@@ -680,8 +663,7 @@ class ScalarStoreInst<string suffix, PatFrag op, FmtM fmt>
       "store_" # suffix # " $srcDest, $addr",
       [(op i32:$srcDest, ADDRri:$addr)],
       fmt,
-      0>
-{
+      0> {
   let hasSideEffects = 1;
   let mayStore = 1;
 }
@@ -706,8 +688,7 @@ def FmtC_ITLBInsert : FmtC<7>;
 
 class FormatCInst<dag outputs, dag inputs, string asmString, list<dag> pattern,
   FmtC fmt>
-  : NyuziInstruction<outputs, inputs, asmString, pattern, II_MEMORY>
-{
+  : NyuziInstruction<outputs, inputs, asmString, pattern, II_MEMORY> {
   let Inst{31-28} = 0xe;
   let Inst{27-25} = fmt.Value;
 }
@@ -715,8 +696,7 @@ class FormatCInst<dag outputs, dag inputs, string asmString, list<dag> pattern,
 // XXX Haven't implemented adding an offset
 class FormatCOneOp<dag outputs, dag inputs, string asmString, list<dag> pattern,
   FmtC fmt>
-  : FormatCInst<outputs, inputs, asmString, pattern, fmt>
-{
+  : FormatCInst<outputs, inputs, asmString, pattern, fmt> {
   bits<5> ptr;
 
   let Inst{4-0} = ptr;
@@ -724,8 +704,7 @@ class FormatCOneOp<dag outputs, dag inputs, string asmString, list<dag> pattern,
 
 class FormatCTwoOp<dag outputs, dag inputs, string asmString, list<dag> pattern,
   FmtC fmt>
-  : FormatCOneOp<outputs, inputs, asmString, pattern, fmt>
-{
+  : FormatCOneOp<outputs, inputs, asmString, pattern, fmt> {
   bits<5> physAddr;
 
   let Inst{9-5} = physAddr;
@@ -750,8 +729,7 @@ def BT_Eret : BranchType<7>;
 
 class BranchInst<dag outputs, dag inputs, string asmString, list<dag> pattern,
   BranchType type>
-  : NyuziInstruction<outputs, inputs, asmString, pattern, II_BRANCH>
-{
+  : NyuziInstruction<outputs, inputs, asmString, pattern, II_BRANCH> {
   let isBranch = 1;
 
   bits<20> dest;
@@ -763,8 +741,7 @@ class BranchInst<dag outputs, dag inputs, string asmString, list<dag> pattern,
 
 class ConditionalBranchInst<dag outputs, dag inputs, string asmString, list<dag> pattern,
   BranchType type>
-  : BranchInst<outputs, inputs, asmString, pattern, type>
-{
+  : BranchInst<outputs, inputs, asmString, pattern, type> {
   bits<5> test;
 
   let Inst{4-0} = test;
@@ -772,6 +749,4 @@ class ConditionalBranchInst<dag outputs, dag inputs, string asmString, list<dag>
 
 class UnconditionalBranchInst<dag outputs, dag inputs, string asmString, list<dag> pattern,
   BranchType type>
-  : BranchInst<outputs, inputs, asmString, pattern, type>
-{
-}
+  : BranchInst<outputs, inputs, asmString, pattern, type> {}

@@ -124,8 +124,9 @@ unsigned NyuziMCCodeEmitter::encodeBranchTargetOpValue(
   assert(MO.isExpr() &&
          "encodeBranchTargetOpValue expects only expressions or an immediate");
 
-  Fixups.push_back(
-      MCFixup::create(0, MO.getExpr(), MCFixupKind(Nyuzi::fixup_Nyuzi_PCRel_Branch), MI.getLoc()));
+  Fixups.push_back(MCFixup::create(0, MO.getExpr(),
+                                   MCFixupKind(Nyuzi::fixup_Nyuzi_PCRel_Branch),
+                                   MI.getLoc()));
   return 0;
 }
 
@@ -163,7 +164,8 @@ unsigned NyuziMCCodeEmitter::encodeLEAValue(const MCInst &MI, unsigned Op,
     // Load with a label. This is a PC relative load.  Add a fixup.
     Fixups.push_back(MCFixup::create(
         0, offsetOp.getExpr(),
-        MCFixupKind(Nyuzi::fixup_Nyuzi_PCRel_ComputeLabelAddress), MI.getLoc()));
+        MCFixupKind(Nyuzi::fixup_Nyuzi_PCRel_ComputeLabelAddress),
+        MI.getLoc()));
   } else if (offsetOp.isImm())
     encoding |= static_cast<short>(offsetOp.getImm()) << 5;
   else
@@ -205,9 +207,9 @@ NyuziMCCodeEmitter::encodeMemoryOpValue(const MCInst &MI, unsigned Op,
     // XXX Note that this assumes unmasked instructions.  A masked
     // instruction will not work and should not be used. Check for this
     // and return an error.
-    Fixups.push_back(
-        MCFixup::create(0, offsetOp.getExpr(),
-                        MCFixupKind(Nyuzi::fixup_Nyuzi_PCRel_MemAccExt), MI.getLoc()));
+    Fixups.push_back(MCFixup::create(
+        0, offsetOp.getExpr(), MCFixupKind(Nyuzi::fixup_Nyuzi_PCRel_MemAccExt),
+        MI.getLoc()));
   } else if (offsetOp.isImm())
     encoding |= static_cast<short>(offsetOp.getImm()) << 5;
   else

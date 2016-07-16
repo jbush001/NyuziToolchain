@@ -13,9 +13,9 @@
 //===----------------------------------------------------------------------===//
 
 #include "NyuziFrameLowering.h"
+#include "MCTargetDesc/NyuziMCTargetDesc.h"
 #include "NyuziInstrInfo.h"
 #include "NyuziMachineFunctionInfo.h"
-#include "MCTargetDesc/NyuziMCTargetDesc.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
@@ -143,8 +143,7 @@ bool NyuziFrameLowering::hasFP(const MachineFunction &MF) const {
          MFI->hasVarSizedObjects() || MFI->isFrameAddressTaken();
 }
 
-MachineBasicBlock::iterator
-NyuziFrameLowering::eliminateCallFramePseudoInstr(
+MachineBasicBlock::iterator NyuziFrameLowering::eliminateCallFramePseudoInstr(
     MachineFunction &MF, MachineBasicBlock &MBB,
     MachineBasicBlock::iterator MBBI) const {
   MachineInstr &MI = *MBBI;

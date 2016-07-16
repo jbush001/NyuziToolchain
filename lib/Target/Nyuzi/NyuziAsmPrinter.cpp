@@ -11,10 +11,10 @@
 
 #include "NyuziAsmPrinter.h"
 #include "InstPrinter/NyuziInstPrinter.h"
+#include "MCTargetDesc/NyuziMCTargetDesc.h"
 #include "Nyuzi.h"
 #include "NyuziInstrInfo.h"
 #include "NyuziMCInstLower.h"
-#include "MCTargetDesc/NyuziMCTargetDesc.h"
 #include "NyuziTargetMachine.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/CodeGen/AsmPrinter.h"

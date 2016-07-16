@@ -12,8 +12,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "MCTargetDesc/NyuziMCTargetDesc.h"
 #include "NyuziInstrInfo.h"
+#include "MCTargetDesc/NyuziMCTargetDesc.h"
 #include "Nyuzi.h"
 #include "NyuziMachineFunctionInfo.h"
 #include "NyuziRegisterInfo.h"
@@ -76,21 +76,15 @@ unsigned NyuziInstrInfo::isStoreToStackSlot(const MachineInstr *MI,
   return 0;
 }
 
-static bool isUncondBranchOpcode(int opc)
-{
-  return opc == Nyuzi::GOTO;
-}
+static bool isUncondBranchOpcode(int opc) { return opc == Nyuzi::GOTO; }
 
-static bool isCondBranchOpcode(int opc)
-{
-  return opc == Nyuzi::BTRUE
-    || opc == Nyuzi::BFALSE;
+static bool isCondBranchOpcode(int opc) {
+  return opc == Nyuzi::BTRUE || opc == Nyuzi::BFALSE;
 
   // BALL/BNALL/etc. can't be analyzed
 }
 
-static bool isJumpTableBranchOpcode(int opc)
-{
+static bool isJumpTableBranchOpcode(int opc) {
   return opc == Nyuzi::JUMP_TABLE;
 }
 
@@ -151,9 +145,9 @@ bool NyuziInstrInfo::AnalyzeBranch(MachineBasicBlock &MBB,
     // Cleanup code - to be run for unconditional branches and
     //                returns.
     if (isUncondBranchOpcode(I->getOpcode()) ||
-           isJumpTableBranchOpcode(I->getOpcode()) ||
-           I->isReturn()) {
-      // Forget any previous condition branch information - it no longer applies.
+        isJumpTableBranchOpcode(I->getOpcode()) || I->isReturn()) {
+      // Forget any previous condition branch information - it no longer
+      // applies.
       Cond.clear();
       FBB = nullptr;
 
@@ -217,8 +211,8 @@ unsigned NyuziInstrInfo::RemoveBranch(MachineBasicBlock &MBB) const {
     if (I->isDebugValue())
       continue;
 
-    if (!isUncondBranchOpcode(I->getOpcode())
-      && !isCondBranchOpcode(I->getOpcode()))
+    if (!isUncondBranchOpcode(I->getOpcode()) &&
+        !isCondBranchOpcode(I->getOpcode()))
       break; // Not a branch
 
     I->eraseFromParent();
@@ -231,9 +225,8 @@ unsigned NyuziInstrInfo::RemoveBranch(MachineBasicBlock &MBB) const {
 
 void NyuziInstrInfo::copyPhysReg(MachineBasicBlock &MBB,
                                  MachineBasicBlock::iterator I,
-                                 const DebugLoc &DL,
-                                 unsigned DestReg, unsigned SrcReg,
-                                 bool KillSrc) const {
+                                 const DebugLoc &DL, unsigned DestReg,
+                                 unsigned SrcReg, bool KillSrc) const {
   bool destIsScalar = Nyuzi::GPR32RegClass.contains(DestReg);
   bool srcIsScalar = Nyuzi::GPR32RegClass.contains(SrcReg);
   unsigned operation;
