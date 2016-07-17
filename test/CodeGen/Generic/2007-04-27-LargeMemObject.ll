@@ -1,5 +1,4 @@
 ; RUN: llc -no-integrated-as < %s
-; XFAIL: nyuzi
 
         %struct..0anon = type { [100 x i32] }
 
