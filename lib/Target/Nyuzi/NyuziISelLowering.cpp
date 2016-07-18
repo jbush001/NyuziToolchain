@@ -774,7 +774,7 @@ SDValue NyuziTargetLowering::LowerVECTOR_SHUFFLE(SDValue Op,
     // This is just a mix
     SDValue MaskVal = DAG.getConstant(Mask, DL, MVT::i32);
     return DAG.getNode(ISD::INTRINSIC_WO_CHAIN, DL, MVT::v16i32, MixIntr,
-                       MaskVal, Op.getOperand(0), Op.getOperand(1));
+                       MaskVal, Op.getOperand(1), Op.getOperand(0));
   } else {
     // Need to shuffle both vectors and mix
     SDValue MaskVal = DAG.getConstant(Mask, DL, MVT::i32);
@@ -785,7 +785,7 @@ SDValue NyuziTargetLowering::LowerVECTOR_SHUFFLE(SDValue Op,
         DAG.getNode(ISD::INTRINSIC_WO_CHAIN, DL, MVT::v16i32, NativeShuffleIntr,
                     Op.getOperand(1), ShuffleVector);
     return DAG.getNode(ISD::INTRINSIC_WO_CHAIN, DL, MVT::v16i32, MixIntr,
-                       MaskVal, Shuffled0, Shuffled1);
+                       MaskVal, Shuffled1, Shuffled0);
   }
 }
 

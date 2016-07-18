@@ -89,7 +89,7 @@ define <16 x i32> @masked_move(<16 x i32> %a, <16 x i32> %b) { ; CHECK-LABEL: ma
   %res = shufflevector <16 x i32> %a, <16 x i32> %b, <16 x i32> < i32 0, i32 17, i32 2, i32 19, i32 4, i32 21, i32 6, i32 23, i32 8, i32 25, i32 10, i32 27, i32 12, i32 29, i32 14, i32 31>
 
   ; CHECK: load_32 [[MM_SREG:s[0-9]+]], [[MM_CPE]]
-  ; CHECK-NEXT: move_mask {{v[0-9]+}}, [[MM_SREG]], v0
+  ; CHECK-NEXT: move_mask {{v[0-9]+}}, [[MM_SREG]], v1
   ; CHECK-NOT: shuffle
 
   ret <16 x i32> %res
@@ -177,9 +177,9 @@ define <16 x i32> @test_shuffle_mix(<16 x i32> %a, <16 x i32> %b) { ; CHECK-LABE
   %res = shufflevector <16 x i32> %a, <16 x i32> %b, <16 x i32> < i32 31, i32 14, i32 29, i32 12, i32 27, i32 10, i32 25, i32 8, i32 23, i32 6, i32 21, i32 4, i32 19, i32 2, i32 17, i32 0 >
 
   ; CHECK: load_v [[SM_SHUFFLEVEC:v[0-9]+]], [[SM_SHUFFLEVECCP]]
-  ; CHECK: shuffle v1, v1, [[SM_SHUFFLEVEC]]
+  ; CHECK: shuffle v0, v0, [[SM_SHUFFLEVEC]]
   ; CHECK: load_32 [[SM_MASK:s[0-9]+]], [[SM_MASKCP]]
-  ; CHECK: shuffle_mask {{v[0-9]+}}, [[SM_MASK]], v0, [[SM_SHUFFLEVEC]]
+  ; CHECK: shuffle_mask {{v[0-9]+}}, [[SM_MASK]], v1, [[SM_SHUFFLEVEC]]
 
   ret <16 x i32> %res
 }
