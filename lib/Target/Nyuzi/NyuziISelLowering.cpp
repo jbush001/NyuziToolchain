@@ -624,16 +624,11 @@ SDValue NyuziTargetLowering::LowerFABS(SDValue Op, SelectionDAG &DAG) const {
 // all the same.
 static bool isSplatVector(SDNode *N) {
   SDValue SplatValue = N->getOperand(0);
-  for (auto lane : N->op_values())
-    if (lane != SplatValue)
+  for (auto Lane : N->op_values())
+    if (Lane != SplatValue)
       return false;
 
   return true;
-}
-
-static bool isZero(SDValue V) {
-  ConstantSDNode *C = dyn_cast<ConstantSDNode>(V);
-  return C && C->isNullValue();
 }
 
 SDValue NyuziTargetLowering::LowerBUILD_VECTOR(SDValue Op,
@@ -679,45 +674,119 @@ SDValue NyuziTargetLowering::LowerINSERT_VECTOR_ELT(SDValue Op,
       Op.getOperand(0));
 }
 
+// This is called to determine if a VECTOR_SHUFFLE should be lowered by this
+// file.
 bool NyuziTargetLowering::isShuffleMaskLegal(const SmallVectorImpl<int> &M,
                                              EVT VT) const {
   if (M.size() != 16)
     return false;
 
   for (int val : M) {
-    if (val != 0)
+    if (val > 31)
       return false;
   }
 
   return true;
 }
 
-//
-// Look for patterns that built splats. isShuffleMaskLegal should ensure this
-// will only be called with splat masks, but I don't know if there are edge
-// cases where it will still be called. Perhaps need to check explicitly (note
-// that the shuffle mask doesn't appear to be an operand, but must be accessed
-// by casting the SDNode and using a separate accessor).
-//
+// VECTOR_SHUFFLE(vec1, vec2, shuffle_indices)
 SDValue NyuziTargetLowering::LowerVECTOR_SHUFFLE(SDValue Op,
                                                  SelectionDAG &DAG) const {
   MVT VT = Op.getValueType().getSimpleVT();
   SDLoc DL(Op);
+  ShuffleVectorSDNode *ShuffleNode = dyn_cast<ShuffleVectorSDNode>(Op);
 
-  // Using shufflevector to build a splat like this:
+  // Check if this builds a splat (all elements of vector are the same)
+  // using shufflevector like this:
   // %vector = shufflevector <16 x i32> %single, <16 x i32> (don't care),
-  //                       <16 x i32> zeroinitializer
-
+  //                         <16 x i32> zeroinitializer
   // %single = insertelement <16 x i32> (don't care), i32 %value, i32 0
-  if (Op.getOperand(0).getOpcode() == ISD::INSERT_VECTOR_ELT &&
-      isZero(Op.getOperand(0).getOperand(2)))
+  if (ShuffleNode->isSplat() &&
+      Op.getOperand(0).getOpcode() == ISD::INSERT_VECTOR_ELT &&
+      ShuffleNode->getSplatIndex() ==
+          dyn_cast<ConstantSDNode>(Op.getOperand(0).getOperand(2))
+              ->getSExtValue())
     return DAG.getNode(NyuziISD::SPLAT, DL, VT, Op.getOperand(0).getOperand(1));
 
+  // scalar_to_vector loads a scalar element into the lowest lane of the vector.
+  // The higher lanes are undefined (which means we can load the same value into
+  // them using splat).
   // %single = scalar_to_vector i32 %b
   if (Op.getOperand(0).getOpcode() == ISD::SCALAR_TO_VECTOR)
     return DAG.getNode(NyuziISD::SPLAT, DL, VT, Op.getOperand(0).getOperand(0));
 
-  return SDValue();
+  if (ShuffleNode->isSplat()) {
+    // This is a splat where the element is taken from another vector that
+    // we don't know the value of. First extract element, then broadcast it.
+    int SplatIndex = ShuffleNode->getSplatIndex();
+    SDValue SourceVector =
+        SplatIndex < 16 ? Op.getOperand(0) : Op.getOperand(1);
+    SDValue LaneIndexValue = DAG.getConstant(SplatIndex % 16, DL, MVT::i32);
+    SDValue LaneValue = DAG.getNode(ISD::EXTRACT_VECTOR_ELT, DL, MVT::i32,
+                                    SourceVector, LaneIndexValue);
+    return DAG.getNode(NyuziISD::SPLAT, DL, VT, LaneValue);
+  }
+
+  SDValue NativeShuffleIntr =
+      DAG.getConstant(Intrinsic::nyuzi_shufflei, DL, MVT::i32);
+  SDValue MixIntr = DAG.getConstant(Intrinsic::nyuzi_vector_mixi, DL, MVT::i32);
+
+  // Analyze the vector indices.
+  unsigned int Mask = 0;
+  bool IsIdentityShuffle = true;
+  Constant *ShuffleIndexValues[16];
+
+  for (unsigned int SourceLane = 0; SourceLane < 16; SourceLane++) {
+    unsigned int DestLaneIndex = ShuffleNode->getMaskElt(SourceLane);
+    Mask <<= 1;
+    if (DestLaneIndex > 15)
+      Mask |= 1;
+
+    if ((DestLaneIndex & 15) != SourceLane)
+      IsIdentityShuffle = false;
+
+    ShuffleIndexValues[SourceLane] = ConstantInt::get(
+        Type::getInt32Ty(*DAG.getContext()), DestLaneIndex & 15);
+  }
+
+  Constant *ShuffleConstVector = ConstantVector::get(ShuffleIndexValues);
+  SDValue ShuffleVectorCP =
+      DAG.getTargetConstantPool(ShuffleConstVector, MVT::v16i32);
+  SDValue ShuffleVector =
+      DAG.getLoad(MVT::v16i32, DL, DAG.getEntryNode(), ShuffleVectorCP,
+                  MachinePointerInfo::getConstantPool(DAG.getMachineFunction()),
+                  false, false, false, 64);
+
+  // Check if the operands are equal
+  if (Op.getOperand(0) == Op.getOperand(1))
+    Mask = 0;
+
+  if (Mask == 0xffff || Mask == 0) {
+    // Only one of the vectors is referenced.
+    SDValue ShuffleSource = Mask == 0 ? Op.getOperand(0) : Op.getOperand(1);
+
+    if (IsIdentityShuffle)
+      return ShuffleSource; // Is just a copy
+    else
+      return DAG.getNode(ISD::INTRINSIC_WO_CHAIN, DL, MVT::v16i32,
+                         NativeShuffleIntr, ShuffleSource, ShuffleVector);
+  } else if (IsIdentityShuffle) {
+    // This is just a mix
+    SDValue MaskVal = DAG.getConstant(Mask, DL, MVT::i32);
+    return DAG.getNode(ISD::INTRINSIC_WO_CHAIN, DL, MVT::v16i32, MixIntr,
+                       MaskVal, Op.getOperand(0), Op.getOperand(1));
+  } else {
+    // Need to shuffle both vectors and mix
+    SDValue MaskVal = DAG.getConstant(Mask, DL, MVT::i32);
+    SDValue Shuffled0 =
+        DAG.getNode(ISD::INTRINSIC_WO_CHAIN, DL, MVT::v16i32, NativeShuffleIntr,
+                    Op.getOperand(0), ShuffleVector);
+    SDValue Shuffled1 =
+        DAG.getNode(ISD::INTRINSIC_WO_CHAIN, DL, MVT::v16i32, NativeShuffleIntr,
+                    Op.getOperand(1), ShuffleVector);
+    return DAG.getNode(ISD::INTRINSIC_WO_CHAIN, DL, MVT::v16i32, MixIntr,
+                       MaskVal, Shuffled0, Shuffled1);
+  }
 }
 
 // This architecture does not support conditional moves for scalar registers.
@@ -937,6 +1006,9 @@ SDValue NyuziTargetLowering::LowerUINT_TO_FP(SDValue Op,
       ConstantInt::get(Type::getInt32Ty(*DAG.getContext()),
                        0x4f800000); // UINT_MAX in float format
   SDValue CPIdx = DAG.getConstantPool(AdjustConst, MVT::f32);
+
+  // XXX is this necessary, or will codegen call LowerConstantPool to convert
+  // to a load?
   SDValue AdjustReg =
       DAG.getLoad(MVT::f32, DL, DAG.getEntryNode(), CPIdx,
                   MachinePointerInfo::getConstantPool(DAG.getMachineFunction()),
