@@ -17,19 +17,19 @@ define void @func1(%struct.foo* byval %f) {
   call void @func2(%struct.foo* byval %f)
 
   ; f parameter becomes src for memcpy call
-	; CHECK: move s1, s0
+  ; CHECK: move s1, s0
 
   ; locally allocated stack space is dest parameter for memcpy
-	; CHECK: lea [[SAVENV:s[0-9]+]], 48(sp)
+  ; CHECK: lea [[SAVENV:s[0-9]+]], 48(sp)
 
   ; size of structure
-	; CHECK: move s2, 264
+  ; CHECK: move s2, 264
 
   ; Copy to local stack object
-	; CHECK: call memcpy
+  ; CHECK: call memcpy
 
   ; Now restore the pointer to the new stack object
-	; CHECK: move s0, [[SAVENV]]
+  ; CHECK: move s0, [[SAVENV]]
 
   ; And pass a pointer to func2
   ; CHECK: call func2

@@ -18,9 +18,9 @@ define float @test_uitofp(i32 %a) { ; CHECK-LABEL: test_uitofp:
   %conv = uitofp i32 %a to float
 
   ; CHECK: itof [[CONV:s[0-9]+]], [[SRCVAL:s[0-9]+]]
-	; CHECK: cmplt_i [[CMPVAL:s[0-9]+]], [[SRCVAL]], 0
-	; CHECK: btrue [[CMPVAL]],
-	; CHECK: add_f s{{[0-9]+}}, [[CONV]],
+  ; CHECK: cmplt_i [[CMPVAL:s[0-9]+]], [[SRCVAL]], 0
+  ; CHECK: btrue [[CMPVAL]],
+  ; CHECK: add_f s{{[0-9]+}}, [[CONV]],
 
   ret float %conv
 }
@@ -47,8 +47,8 @@ define <16 x float> @test_uitofpv(<16 x i32> %a) { ; CHECK-LABEL: test_uitofpv:
   %conv = uitofp <16 x i32> %a to <16 x float>
 
   ; CHECK: itof [[CONV:v[0-9]+]], [[SRCVAL:v[0-9]+]]
-	; CHECK: cmplt_i [[CMPVAL:s[0-9]+]], [[SRCVAL]], 0
-	; CHECK: add_f_mask v{{[0-9]+}}, [[CMPVAL]], [[CONV]],
+  ; CHECK: cmplt_i [[CMPVAL:s[0-9]+]], [[SRCVAL]], 0
+  ; CHECK: add_f_mask v{{[0-9]+}}, [[CMPVAL]], [[CONV]],
 
   ret <16 x float> %conv
 }

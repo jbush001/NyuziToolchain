@@ -2,10 +2,18 @@
 
 target triple = "nyuzi-elf-none"
 
+;
 ; Scalar only comparison tests
 ; These tests are not included in operator_tests because LLVM performs transforms
-; that change to a different compare. For example, checking if a number is greater
-; than or equal to 27 might be converted to greater than 26.
+; that change to a different compare:
+; - In some cases, LLVM does this for integer comparisions. For example, checking
+;   if a number is greater than or equal to 27 might be converted to greater
+;   than 26.
+; - We do this explicitly to support unordered floating point comparisions.
+;   Hardware comparisons are ordered (if either component is NaN, the comparison
+;   is false). For unordered comparisons, pick the opposite comparision and XOR
+;   the result with 0xffff to invert it.
+;
 
 define i32 @cmpisgt(i32 %a, i32 %b) { ; CHECK-LABEL: cmpisgt:
   %cmp = icmp sgt i32 %a, %b

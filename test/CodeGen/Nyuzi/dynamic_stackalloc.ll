@@ -15,15 +15,15 @@ define void @dynamic_stackalloc(i32 %size) {
   call void @callee(i8* %ptr);
 
   ; This aligns the size to a 64 byte size
-	; CHECK: add_i s0, s0, 63
-	; CHECK: and s0, s0, -64
+  ; CHECK: add_i s0, s0, 63
+  ; CHECK: and s0, s0, -64
 
   ; Decrement stack pointer
-	; CHECK: sub_i s0, sp, s0
+  ; CHECK: sub_i s0, sp, s0
 
   ; Pass argument to callee
-	; CHECK: move sp, s0
-	; CHECK: call callee
+  ; CHECK: move sp, s0
+  ; CHECK: call callee
 
   ret void
 }

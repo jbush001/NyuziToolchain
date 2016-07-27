@@ -18,12 +18,12 @@ define void @bad(i32 %i) {
   %rem = srem i32 13, %i
   tail call void (i8*, ...) @printf(i8* getelementptr inbounds ([13 x i8], [13 x i8]* @.str, i32 0, i32 0), i32 %i, i32 %rem)
 
-	; CHECK: move s0, 13
-	; CHECK: call __modsi3
-	; CHECK: load_32 s1, .LCPI
-	; CHECK: store_32 s1, (sp)
-	; CHECK: store_32 s0, 8(sp)
-	; CHECK: call printf
+  ; CHECK: move s0, 13
+  ; CHECK: call __modsi3
+  ; CHECK: load_32 s1, .LCPI
+  ; CHECK: store_32 s1, (sp)
+  ; CHECK: store_32 s0, 8(sp)
+  ; CHECK: call printf
 
   ret void
 }

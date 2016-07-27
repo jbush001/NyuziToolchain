@@ -10,14 +10,22 @@ entry:
   br i1 %cmp, label %if.then, label %return
 
 if.then:
-  %sub = sub nsw i32 %a, 1        ; CHECK: add_i s0, s{{[0-9]+}}, -1
-  %call = call i32 @fib(i32 %sub)    ; CHECK: call fib
+  %sub = sub nsw i32 %a, 1
 
+  ; CHECK: add_i s0, s{{[0-9]+}}, -1
+
+  %call = call i32 @fib(i32 %sub)
+
+  ; CHECK: call fib
   ; CHECK: move s{{[0-9]+}}, s0
 
-  %sub1 = sub nsw i32 %a, 2        ; CHECK: add_i s0, s{{[0-9]+}}, -2
-  %call2 = call i32 @fib(i32 %sub1)    ; CHECK: call fib
+  %sub1 = sub nsw i32 %a, 2
 
+  ; CHECK: add_i s0, s{{[0-9]+}}, -2
+
+  %call2 = call i32 @fib(i32 %sub1)
+
+  ; CHECK: call fib
 
   %sum = add nsw i32 %call, %call2
   br label %return
