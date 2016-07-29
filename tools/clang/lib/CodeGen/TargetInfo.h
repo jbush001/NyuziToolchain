@@ -217,6 +217,12 @@ public:
   virtual void getDetectMismatchOption(llvm::StringRef Name,
                                        llvm::StringRef Value,
                                        llvm::SmallString<32> &Opt) const {}
+
+  /// Get LLVM calling convention for OpenCL kernel.
+  virtual unsigned getOpenCLKernelCallingConv() const;
+
+  /// Get LLVM Image Address Space for OpenCL kernel.
+  virtual unsigned getOpenCLImageAddrSpace(CodeGen::CodeGenModule &CGM) const;
 };
 
 } // namespace CodeGen

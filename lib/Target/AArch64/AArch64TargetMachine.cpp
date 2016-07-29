@@ -12,11 +12,15 @@
 
 #include "AArch64.h"
 #include "AArch64CallLowering.h"
+#include "AArch64InstructionSelector.h"
+#include "AArch64MachineLegalizer.h"
 #include "AArch64RegisterBankInfo.h"
 #include "AArch64TargetMachine.h"
 #include "AArch64TargetObjectFile.h"
 #include "AArch64TargetTransformInfo.h"
 #include "llvm/CodeGen/GlobalISel/IRTranslator.h"
+#include "llvm/CodeGen/GlobalISel/InstructionSelect.h"
+#include "llvm/CodeGen/GlobalISel/MachineLegalizePass.h"
 #include "llvm/CodeGen/GlobalISel/RegBankSelect.h"
 #include "llvm/CodeGen/Passes.h"
 #include "llvm/CodeGen/RegAllocRegistry.h"
@@ -116,6 +120,7 @@ extern "C" void LLVMInitializeAArch64Target() {
   auto PR = PassRegistry::getPassRegistry();
   initializeGlobalISel(*PR);
   initializeAArch64ExpandPseudoPass(*PR);
+  initializeAArch64LoadStoreOptPass(*PR);
 }
 
 //===----------------------------------------------------------------------===//
@@ -195,9 +200,17 @@ AArch64TargetMachine::~AArch64TargetMachine() {}
 namespace {
 struct AArch64GISelActualAccessor : public GISelAccessor {
   std::unique_ptr<CallLowering> CallLoweringInfo;
+  std::unique_ptr<InstructionSelector> InstSelector;
+  std::unique_ptr<MachineLegalizer> Legalizer;
   std::unique_ptr<RegisterBankInfo> RegBankInfo;
   const CallLowering *getCallLowering() const override {
     return CallLoweringInfo.get();
+  }
+  const InstructionSelector *getInstructionSelector() const override {
+    return InstSelector.get();
+  }
+  const class MachineLegalizer *getMachineLegalizer() const override {
+    return Legalizer.get();
   }
   const RegisterBankInfo *getRegBankInfo() const override {
     return RegBankInfo.get();
@@ -233,8 +246,16 @@ AArch64TargetMachine::getSubtargetImpl(const Function &F) const {
         new AArch64GISelActualAccessor();
     GISel->CallLoweringInfo.reset(
         new AArch64CallLowering(*I->getTargetLowering()));
-    GISel->RegBankInfo.reset(
-        new AArch64RegisterBankInfo(*I->getRegisterInfo()));
+    GISel->Legalizer.reset(new AArch64MachineLegalizer());
+
+    auto *RBI = new AArch64RegisterBankInfo(*I->getRegisterInfo());
+
+    // FIXME: At this point, we can't rely on Subtarget having RBI.
+    // It's awkward to mix passing RBI and the Subtarget; should we pass
+    // TII/TRI as well?
+    GISel->InstSelector.reset(new AArch64InstructionSelector(*I, *RBI));
+
+    GISel->RegBankInfo.reset(RBI);
 #endif
     I->setGISelAccessor(*GISel);
   }
@@ -276,7 +297,9 @@ public:
   bool addInstSelector() override;
 #ifdef LLVM_BUILD_GLOBAL_ISEL
   bool addIRTranslator() override;
+  bool addLegalizeMachineIR() override;
   bool addRegBankSelect() override;
+  bool addGlobalInstructionSelect() override;
 #endif
   bool addILPOpts() override;
   void addPreRegAlloc() override;
@@ -307,8 +330,7 @@ void AArch64PassConfig::addIRPasses() {
   if (TM->getOptLevel() != CodeGenOpt::None && EnableAtomicTidy)
     addPass(createCFGSimplificationPass());
 
-  // Run LoopDataPrefetch for Cyclone (the only subtarget that defines a
-  // non-zero getPrefetchDistance).
+  // Run LoopDataPrefetch
   //
   // Run this before LSR to remove the multiplies involved in computing the
   // pointer values N iterations ahead.
@@ -375,8 +397,16 @@ bool AArch64PassConfig::addIRTranslator() {
   addPass(new IRTranslator());
   return false;
 }
+bool AArch64PassConfig::addLegalizeMachineIR() {
+  addPass(new MachineLegalizePass());
+  return false;
+}
 bool AArch64PassConfig::addRegBankSelect() {
   addPass(new RegBankSelect());
+  return false;
+}
+bool AArch64PassConfig::addGlobalInstructionSelect() {
+  addPass(new InstructionSelect());
   return false;
 }
 #endif

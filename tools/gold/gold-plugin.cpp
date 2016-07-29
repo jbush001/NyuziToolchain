@@ -188,6 +188,16 @@ namespace options {
   // the import decisions, and exit afterwards. The assumption is
   // that the build system will launch the backend processes.
   static bool thinlto_index_only = false;
+  // If non-empty, holds the name of a file in which to write the list of
+  // oject files gold selected for inclusion in the link after symbol
+  // resolution (i.e. they had selected symbols). This will only be non-empty
+  // in the thinlto_index_only case. It is used to identify files, which may
+  // have originally been within archive libraries specified via
+  // --start-lib/--end-lib pairs, that should be included in the final
+  // native link process (since intervening function importing and inlining
+  // may change the symbol resolution detected in the final link and which
+  // files to include out of --start-lib/--end-lib libraries as a result).
+  static std::string thinlto_linked_objects_file;
   // If true, when generating individual index files for distributed backends,
   // also generate a "${bitcodefile}.imports" file at the same location for each
   // bitcode file, listing the files it imports from in plain text. This is to
@@ -233,6 +243,9 @@ namespace options {
       thinlto = true;
     } else if (opt == "thinlto-index-only") {
       thinlto_index_only = true;
+    } else if (opt.startswith("thinlto-index-only=")) {
+      thinlto_index_only = true;
+      thinlto_linked_objects_file = opt.substr(strlen("thinlto-index-only="));
     } else if (opt == "thinlto-emit-imports-files") {
       thinlto_emit_imports_files = true;
     } else if (opt.startswith("thinlto-prefix-replace=")) {
@@ -524,11 +537,6 @@ static ld_plugin_status claim_file_hook(const ld_plugin_input_file *file,
     cf.name += ".llvm." + std::to_string(file->offset) + "." +
                sys::path::filename(Obj->getModule().getSourceFileName()).str();
 
-  // If we are doing ThinLTO compilation, don't need to process the symbols.
-  // Later we simply build a combined index file after all files are claimed.
-  if (options::thinlto && options::thinlto_index_only)
-    return LDPS_OK;
-
   for (auto &Sym : Obj->symbols()) {
     uint32_t Symflags = Sym.getFlags();
     if (shouldSkip(Symflags))
@@ -738,16 +746,6 @@ getModuleForFile(LLVMContext &Context, claimed_file &F, const void *View,
 
     ResolutionInfo &Res = ResInfo[Sym.name];
     if (Resolution == LDPR_PREVAILING_DEF_IRONLY_EXP && !Res.IsLinkonceOdr)
-      Resolution = LDPR_PREVAILING_DEF;
-
-    // In ThinLTO mode change all prevailing resolutions to LDPR_PREVAILING_DEF.
-    // For ThinLTO the IR files are compiled through the backend independently,
-    // so we need to ensure that any prevailing linkonce copy will be emitted
-    // into the object file by making it weak. Additionally, we can skip the
-    // IRONLY handling for internalization, which isn't performed in ThinLTO
-    // mode currently anyway.
-    if (options::thinlto && (Resolution == LDPR_PREVAILING_DEF_IRONLY_EXP ||
-                             Resolution == LDPR_PREVAILING_DEF_IRONLY))
       Resolution = LDPR_PREVAILING_DEF;
 
     GV->setUnnamedAddr(Res.UnnamedAddr);
@@ -1003,6 +1001,9 @@ void CodeGen::runLTOPasses() {
   M->setDataLayout(TM->createDataLayout());
 
   if (CombinedIndex) {
+    // Apply summary-based LinkOnce/Weak resolution decisions.
+    thinLTOResolveWeakForLinkerModule(*M, *DefinedGlobals);
+
     // Apply summary-based internalization decisions. Skip if there are no
     // defined globals from the summary since not only is it unnecessary, but
     // if this module did not have a summary section the internalizer will
@@ -1323,10 +1324,13 @@ static ld_plugin_status thinLTOLink(raw_fd_ostream *ApiFile) {
   // interfaces with gold.
   DenseMap<void *, std::unique_ptr<PluginInputFile>> HandleToInputFile;
 
-  // Keep track of internalization candidates as well as those that may not
-  // be internalized because they are refereneced from other IR modules.
-  DenseSet<GlobalValue::GUID> Internalize;
-  DenseSet<GlobalValue::GUID> CrossReferenced;
+  // Keep track of symbols that must not be internalized because they
+  // are referenced outside of a single IR module.
+  DenseSet<GlobalValue::GUID> Preserve;
+
+  // Keep track of the prevailing copy for each GUID, for use in resolving
+  // weak linkages.
+  DenseMap<GlobalValue::GUID, const GlobalValueSummary *> PrevailingCopy;
 
   ModuleSummaryIndex CombinedIndex;
   uint64_t NextModuleId = 0;
@@ -1348,26 +1352,28 @@ static ld_plugin_status thinLTOLink(raw_fd_ostream *ApiFile) {
 
     std::unique_ptr<ModuleSummaryIndex> Index = getModuleSummaryIndexForFile(F);
 
-    // Skip files without a module summary.
-    if (Index)
-      CombinedIndex.mergeFrom(std::move(Index), ++NextModuleId);
-
-    // Look for internalization candidates based on gold's symbol resolution
-    // information. Also track symbols referenced from other IR modules.
+    // Use gold's symbol resolution information to identify symbols referenced
+    // by more than a single IR module (i.e. referenced by multiple IR modules
+    // or by a non-IR module). Cross references introduced by importing are
+    // checked separately via the export lists. Also track the prevailing copy
+    // for later symbol resolution.
     for (auto &Sym : F.syms) {
       ld_plugin_symbol_resolution Resolution =
           (ld_plugin_symbol_resolution)Sym.resolution;
-      if (Resolution == LDPR_PREVAILING_DEF_IRONLY)
-        Internalize.insert(GlobalValue::getGUID(Sym.name));
-      if (Resolution == LDPR_RESOLVED_IR || Resolution == LDPR_PREEMPTED_IR)
-        CrossReferenced.insert(GlobalValue::getGUID(Sym.name));
-    }
-  }
+      GlobalValue::GUID SymGUID = GlobalValue::getGUID(Sym.name);
+      if (Resolution != LDPR_PREVAILING_DEF_IRONLY)
+        Preserve.insert(SymGUID);
 
-  // Remove symbols referenced from other IR modules from the internalization
-  // candidate set.
-  for (auto &S : CrossReferenced)
-    Internalize.erase(S);
+      if (Index && (Resolution == LDPR_PREVAILING_DEF ||
+                    Resolution == LDPR_PREVAILING_DEF_IRONLY ||
+                    Resolution == LDPR_PREVAILING_DEF_IRONLY_EXP))
+        PrevailingCopy[SymGUID] = Index->getGlobalValueSummary(SymGUID);
+    }
+
+    // Skip files without a module summary.
+    if (Index)
+      CombinedIndex.mergeFrom(std::move(Index), ++NextModuleId);
+  }
 
   // Collect for each module the list of function it defines (GUID ->
   // Summary).
@@ -1380,6 +1386,12 @@ static ld_plugin_status thinLTOLink(raw_fd_ostream *ApiFile) {
   ComputeCrossModuleImport(CombinedIndex, ModuleToDefinedGVSummaries,
                            ImportLists, ExportLists);
 
+  auto isPrevailing = [&](GlobalValue::GUID GUID, const GlobalValueSummary *S) {
+    const auto &Prevailing = PrevailingCopy.find(GUID);
+    assert(Prevailing != PrevailingCopy.end());
+    return Prevailing->second == S;
+  };
+
   // Callback for internalization, to prevent internalization of symbols
   // that were not candidates initially, and those that are being imported
   // (which introduces new cross references).
@@ -1387,8 +1399,13 @@ static ld_plugin_status thinLTOLink(raw_fd_ostream *ApiFile) {
     const auto &ExportList = ExportLists.find(ModuleIdentifier);
     return (ExportList != ExportLists.end() &&
             ExportList->second.count(GUID)) ||
-           !Internalize.count(GUID);
+           Preserve.count(GUID);
   };
+
+  thinLTOResolveWeakForLinkerInIndex(
+      CombinedIndex, isPrevailing,
+      [](StringRef ModuleIdentifier, GlobalValue::GUID GUID,
+         GlobalValue::LinkageTypes NewLinkage) {});
 
   // Use global summary-based analysis to identify symbols that can be
   // internalized (because they aren't exported or preserved as per callback).
@@ -1405,6 +1422,18 @@ static ld_plugin_status thinLTOLink(raw_fd_ostream *ApiFile) {
     std::string OldPrefix, NewPrefix;
     getThinLTOOldAndNewPrefix(OldPrefix, NewPrefix);
 
+    // If the user requested a list of objects gold included in the link,
+    // create and open the requested file.
+    raw_fd_ostream *ObjFileOS = nullptr;
+    if (!options::thinlto_linked_objects_file.empty()) {
+      std::error_code EC;
+      ObjFileOS = new raw_fd_ostream(options::thinlto_linked_objects_file, EC,
+                                     sys::fs::OpenFlags::F_None);
+      if (EC)
+        message(LDPL_FATAL, "Unable to open %s for writing: %s",
+                options::thinlto_linked_objects_file.c_str(),
+                EC.message().c_str());
+    }
     // For each input bitcode file, generate an individual index that
     // contains summaries only for its own global values, and for any that
     // should be imported.
@@ -1413,6 +1442,18 @@ static ld_plugin_status thinLTOLink(raw_fd_ostream *ApiFile) {
 
       std::string NewModulePath =
           getThinLTOOutputFile(F.name, OldPrefix, NewPrefix);
+
+      if (!options::thinlto_linked_objects_file.empty()) {
+        // If gold included any symbols from ths file in the link, emit path
+        // to the final object file, which should be included in the final
+        // native link.
+        if (get_symbols(F.handle, F.syms.size(), F.syms.data()) !=
+            LDPS_NO_SYMS) {
+          assert(ObjFileOS);
+          *ObjFileOS << NewModulePath << "\n";
+        }
+      }
+
       raw_fd_ostream OS((Twine(NewModulePath) + ".thinlto.bc").str(), EC,
                         sys::fs::OpenFlags::F_None);
       if (EC)
@@ -1433,6 +1474,9 @@ static ld_plugin_status thinLTOLink(raw_fd_ostream *ApiFile) {
                   NewModulePath.c_str(), EC.message().c_str());
       }
     }
+
+    if (ObjFileOS)
+      ObjFileOS->close();
 
     cleanup_hook();
     exit(0);

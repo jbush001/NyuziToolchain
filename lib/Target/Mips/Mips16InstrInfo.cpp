@@ -41,7 +41,7 @@ const MipsRegisterInfo &Mips16InstrInfo::getRegisterInfo() const {
 /// the destination along with the FrameIndex of the loaded stack slot.  If
 /// not, return 0.  This predicate must return 0 if the instruction has
 /// any side effects other than loading from the stack slot.
-unsigned Mips16InstrInfo::isLoadFromStackSlot(const MachineInstr *MI,
+unsigned Mips16InstrInfo::isLoadFromStackSlot(const MachineInstr &MI,
                                               int &FrameIndex) const {
   return 0;
 }
@@ -51,7 +51,7 @@ unsigned Mips16InstrInfo::isLoadFromStackSlot(const MachineInstr *MI,
 /// the source reg along with the FrameIndex of the loaded stack slot.  If
 /// not, return 0.  This predicate must return 0 if the instruction has
 /// any side effects other than storing to the stack slot.
-unsigned Mips16InstrInfo::isStoreToStackSlot(const MachineInstr *MI,
+unsigned Mips16InstrInfo::isStoreToStackSlot(const MachineInstr &MI,
                                              int &FrameIndex) const {
   return 0;
 }
@@ -124,9 +124,9 @@ void Mips16InstrInfo::loadRegFromStack(MachineBasicBlock &MBB,
     .addMemOperand(MMO);
 }
 
-bool Mips16InstrInfo::expandPostRAPseudo(MachineBasicBlock::iterator MI) const {
-  MachineBasicBlock &MBB = *MI->getParent();
-  switch(MI->getDesc().getOpcode()) {
+bool Mips16InstrInfo::expandPostRAPseudo(MachineInstr &MI) const {
+  MachineBasicBlock &MBB = *MI.getParent();
+  switch (MI.getDesc().getOpcode()) {
   default:
     return false;
   case Mips::RetRA16:
@@ -134,7 +134,7 @@ bool Mips16InstrInfo::expandPostRAPseudo(MachineBasicBlock::iterator MI) const {
     break;
   }
 
-  MBB.erase(MI);
+  MBB.erase(MI.getIterator());
   return true;
 }
 
@@ -172,7 +172,7 @@ static void addSaveRestoreRegs(MachineInstrBuilder &MIB,
   for (unsigned i = 0, e = CSI.size(); i != e; ++i) {
     // Add the callee-saved register as live-in. Do not add if the register is
     // RA and return address is taken, because it has already been added in
-    // method MipsTargetLowering::LowerRETURNADDR.
+    // method MipsTargetLowering::lowerRETURNADDR.
     // It's killed at the spill, unless the register is RA and return address
     // is taken.
     unsigned Reg = CSI[e-i-1].getReg();

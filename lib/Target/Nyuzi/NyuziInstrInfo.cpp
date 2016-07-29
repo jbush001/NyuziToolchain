@@ -45,13 +45,13 @@ NyuziInstrInfo::NyuziInstrInfo(NyuziSubtarget &ST)
 /// the destination along with the FrameIndex of the loaded stack slot.  If
 /// not, return 0.  This predicate must return 0 if the instruction has
 /// any side effects other than loading from the stack slot.
-unsigned NyuziInstrInfo::isLoadFromStackSlot(const MachineInstr *MI,
+unsigned NyuziInstrInfo::isLoadFromStackSlot(const MachineInstr &MI,
                                              int &FrameIndex) const {
-  if (MI->getOpcode() == Nyuzi::LW || MI->getOpcode() == Nyuzi::BLOCK_LOADI) {
-    if (MI->getOperand(1).isFI() && MI->getOperand(2).isImm() &&
-        MI->getOperand(2).getImm() == 0) {
-      FrameIndex = MI->getOperand(1).getIndex();
-      return MI->getOperand(0).getReg();
+  if (MI.getOpcode() == Nyuzi::LW || MI.getOpcode() == Nyuzi::BLOCK_LOADI) {
+    if (MI.getOperand(1).isFI() && MI.getOperand(2).isImm() &&
+        MI.getOperand(2).getImm() == 0) {
+      FrameIndex = MI.getOperand(1).getIndex();
+      return MI.getOperand(0).getReg();
     }
   }
 
@@ -63,13 +63,13 @@ unsigned NyuziInstrInfo::isLoadFromStackSlot(const MachineInstr *MI,
 /// the source reg along with the FrameIndex of the loaded stack slot.  If
 /// not, return 0.  This predicate must return 0 if the instruction has
 /// any side effects other than storing to the stack slot.
-unsigned NyuziInstrInfo::isStoreToStackSlot(const MachineInstr *MI,
+unsigned NyuziInstrInfo::isStoreToStackSlot(const MachineInstr &MI,
                                             int &FrameIndex) const {
-  if (MI->getOpcode() == Nyuzi::SW || MI->getOpcode() == Nyuzi::BLOCK_STOREI) {
-    if (MI->getOperand(1).isFI() && MI->getOperand(2).isImm() &&
-        MI->getOperand(2).getImm() == 0) {
-      FrameIndex = MI->getOperand(1).getIndex();
-      return MI->getOperand(0).getReg();
+  if (MI.getOpcode() == Nyuzi::SW || MI.getOpcode() == Nyuzi::BLOCK_STOREI) {
+    if (MI.getOperand(1).isFI() && MI.getOperand(2).isImm() &&
+        MI.getOperand(2).getImm() == 0) {
+      FrameIndex = MI.getOperand(1).getIndex();
+      return MI.getOperand(0).getReg();
     }
   }
 
@@ -88,7 +88,7 @@ static bool isJumpTableBranchOpcode(int opc) {
   return opc == Nyuzi::JUMP_TABLE;
 }
 
-bool NyuziInstrInfo::AnalyzeBranch(MachineBasicBlock &MBB,
+bool NyuziInstrInfo::analyzeBranch(MachineBasicBlock &MBB,
                                    MachineBasicBlock *&TBB,
                                    MachineBasicBlock *&FBB,
                                    SmallVectorImpl<MachineOperand> &Cond,
@@ -156,9 +156,9 @@ bool NyuziInstrInfo::AnalyzeBranch(MachineBasicBlock &MBB,
       if (AllowModify) {
         MachineBasicBlock::iterator DI = std::next(I);
         while (DI != MBB.end()) {
-          MachineInstr *InstToDelete = DI;
+          MachineInstr &InstToDelete = *DI;
           ++DI;
-          InstToDelete->eraseFromParent();
+          InstToDelete.eraseFromParent();
         }
       }
     }
@@ -245,13 +245,13 @@ void NyuziInstrInfo::copyPhysReg(MachineBasicBlock &MBB,
 }
 
 MachineMemOperand *NyuziInstrInfo::getMemOperand(MachineBasicBlock &MBB, int FI,
-                                                 unsigned Flag) const {
+                                                 MachineMemOperand::Flags Flags) const {
   MachineFunction &MF = *MBB.getParent();
   MachineFrameInfo &MFI = *MF.getFrameInfo();
   unsigned Align = MFI.getObjectAlignment(FI);
 
   return MF.getMachineMemOperand(MachinePointerInfo::getFixedStack(MF, FI),
-                                 Flag, MFI.getObjectSize(FI), Align);
+                                 Flags, MFI.getObjectSize(FI), Align);
 }
 
 void NyuziInstrInfo::storeRegToStackSlot(MachineBasicBlock &MBB,

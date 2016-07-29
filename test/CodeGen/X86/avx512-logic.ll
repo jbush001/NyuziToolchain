@@ -17,6 +17,22 @@ entry:
   ret <16 x i32> %x
 }
 
+define <16 x i32> @vpandnd(<16 x i32> %a, <16 x i32> %b) nounwind uwtable readnone ssp {
+; ALL-LABEL: vpandnd:
+; ALL:       ## BB#0: ## %entry
+; ALL-NEXT:    vpaddd {{.*}}(%rip){1to16}, %zmm0, %zmm0
+; ALL-NEXT:    vpandnd %zmm0, %zmm1, %zmm0
+; ALL-NEXT:    retq
+entry:
+  ; Force the execution domain with an add.
+  %a2 = add <16 x i32> %a, <i32 1, i32 1, i32 1, i32 1, i32 1, i32 1, i32 1, i32 1,
+                            i32 1, i32 1, i32 1, i32 1, i32 1, i32 1, i32 1, i32 1>
+  %b2 = xor <16 x i32> %b, <i32 -1, i32 -1, i32 -1, i32 -1, i32 -1, i32 -1, i32 -1, i32 -1,
+                            i32 -1, i32 -1, i32 -1, i32 -1, i32 -1, i32 -1, i32 -1, i32 -1>
+  %x = and <16 x i32> %a2, %b2
+  ret <16 x i32> %x
+}
+
 define <16 x i32> @vpord(<16 x i32> %a, <16 x i32> %b) nounwind uwtable readnone ssp {
 ; ALL-LABEL: vpord:
 ; ALL:       ## BB#0: ## %entry
@@ -55,6 +71,20 @@ entry:
   ; Force the execution domain with an add.
   %a2 = add <8 x i64> %a, <i64 1, i64 1, i64 1, i64 1, i64 1, i64 1, i64 1, i64 1>
   %x = and <8 x i64> %a2, %b
+  ret <8 x i64> %x
+}
+
+define <8 x i64> @vpandnq(<8 x i64> %a, <8 x i64> %b) nounwind uwtable readnone ssp {
+; ALL-LABEL: vpandnq:
+; ALL:       ## BB#0: ## %entry
+; ALL-NEXT:    vpaddq {{.*}}(%rip){1to8}, %zmm0, %zmm0
+; ALL-NEXT:    vpandnq %zmm0, %zmm1, %zmm0
+; ALL-NEXT:    retq
+entry:
+  ; Force the execution domain with an add.
+  %a2 = add <8 x i64> %a, <i64 1, i64 1, i64 1, i64 1, i64 1, i64 1, i64 1, i64 1>
+  %b2 = xor <8 x i64> %b, <i64 -1, i64 -1, i64 -1, i64 -1, i64 -1, i64 -1, i64 -1, i64 -1>
+  %x = and <8 x i64> %a2, %b2
   ret <8 x i64> %x
 }
 
@@ -127,9 +157,28 @@ define <64 x i8> @and_v64i8(<64 x i8> %a, <64 x i8> %b) {
 ;
 ; SKX-LABEL: and_v64i8:
 ; SKX:       ## BB#0:
-; SKX-NEXT:    vpandq %zmm1, %zmm0, %zmm0
+; SKX-NEXT:    vandps %zmm1, %zmm0, %zmm0
 ; SKX-NEXT:    retq
   %res = and <64 x i8> %a, %b
+  ret <64 x i8> %res
+}
+
+define <64 x i8> @andn_v64i8(<64 x i8> %a, <64 x i8> %b) {
+; KNL-LABEL: andn_v64i8:
+; KNL:       ## BB#0:
+; KNL-NEXT:    vandnps %ymm0, %ymm2, %ymm0
+; KNL-NEXT:    vandnps %ymm1, %ymm3, %ymm1
+; KNL-NEXT:    retq
+;
+; SKX-LABEL: andn_v64i8:
+; SKX:       ## BB#0:
+; SKX-NEXT:    vandnps %zmm0, %zmm1, %zmm0
+; SKX-NEXT:    retq
+  %b2 = xor <64 x i8> %b, <i8 -1, i8 -1, i8 -1, i8 -1, i8 -1, i8 -1, i8 -1, i8 -1, i8 -1, i8 -1, i8 -1, i8 -1, i8 -1, i8 -1, i8 -1, i8 -1,
+                           i8 -1, i8 -1, i8 -1, i8 -1, i8 -1, i8 -1, i8 -1, i8 -1, i8 -1, i8 -1, i8 -1, i8 -1, i8 -1, i8 -1, i8 -1, i8 -1,
+                           i8 -1, i8 -1, i8 -1, i8 -1, i8 -1, i8 -1, i8 -1, i8 -1, i8 -1, i8 -1, i8 -1, i8 -1, i8 -1, i8 -1, i8 -1, i8 -1,
+                           i8 -1, i8 -1, i8 -1, i8 -1, i8 -1, i8 -1, i8 -1, i8 -1, i8 -1, i8 -1, i8 -1, i8 -1, i8 -1, i8 -1, i8 -1, i8 -1>
+  %res = and <64 x i8> %a, %b2
   ret <64 x i8> %res
 }
 
@@ -142,7 +191,7 @@ define <64 x i8> @or_v64i8(<64 x i8> %a, <64 x i8> %b) {
 ;
 ; SKX-LABEL: or_v64i8:
 ; SKX:       ## BB#0:
-; SKX-NEXT:    vporq %zmm1, %zmm0, %zmm0
+; SKX-NEXT:    vorps %zmm1, %zmm0, %zmm0
 ; SKX-NEXT:    retq
   %res = or <64 x i8> %a, %b
   ret <64 x i8> %res
@@ -157,7 +206,7 @@ define <64 x i8> @xor_v64i8(<64 x i8> %a, <64 x i8> %b) {
 ;
 ; SKX-LABEL: xor_v64i8:
 ; SKX:       ## BB#0:
-; SKX-NEXT:    vpxorq %zmm1, %zmm0, %zmm0
+; SKX-NEXT:    vxorps %zmm1, %zmm0, %zmm0
 ; SKX-NEXT:    retq
   %res = xor <64 x i8> %a, %b
   ret <64 x i8> %res
@@ -172,9 +221,26 @@ define <32 x i16> @and_v32i16(<32 x i16> %a, <32 x i16> %b) {
 ;
 ; SKX-LABEL: and_v32i16:
 ; SKX:       ## BB#0:
-; SKX-NEXT:    vpandq %zmm1, %zmm0, %zmm0
+; SKX-NEXT:    vandps %zmm1, %zmm0, %zmm0
 ; SKX-NEXT:    retq
   %res = and <32 x i16> %a, %b
+  ret <32 x i16> %res
+}
+
+define <32 x i16> @andn_v32i16(<32 x i16> %a, <32 x i16> %b) {
+; KNL-LABEL: andn_v32i16:
+; KNL:       ## BB#0:
+; KNL-NEXT:    vandnps %ymm0, %ymm2, %ymm0
+; KNL-NEXT:    vandnps %ymm1, %ymm3, %ymm1
+; KNL-NEXT:    retq
+;
+; SKX-LABEL: andn_v32i16:
+; SKX:       ## BB#0:
+; SKX-NEXT:    vandnps %zmm0, %zmm1, %zmm0
+; SKX-NEXT:    retq
+  %b2 = xor <32 x i16> %b, <i16 -1, i16 -1, i16 -1, i16 -1, i16 -1, i16 -1, i16 -1, i16 -1, i16 -1, i16 -1, i16 -1, i16 -1, i16 -1, i16 -1, i16 -1, i16 -1,
+                            i16 -1, i16 -1, i16 -1, i16 -1, i16 -1, i16 -1, i16 -1, i16 -1, i16 -1, i16 -1, i16 -1, i16 -1, i16 -1, i16 -1, i16 -1, i16 -1>
+  %res = and <32 x i16> %a, %b2
   ret <32 x i16> %res
 }
 
@@ -187,7 +253,7 @@ define <32 x i16> @or_v32i16(<32 x i16> %a, <32 x i16> %b) {
 ;
 ; SKX-LABEL: or_v32i16:
 ; SKX:       ## BB#0:
-; SKX-NEXT:    vporq %zmm1, %zmm0, %zmm0
+; SKX-NEXT:    vorps %zmm1, %zmm0, %zmm0
 ; SKX-NEXT:    retq
   %res = or <32 x i16> %a, %b
   ret <32 x i16> %res
@@ -202,7 +268,7 @@ define <32 x i16> @xor_v32i16(<32 x i16> %a, <32 x i16> %b) {
 ;
 ; SKX-LABEL: xor_v32i16:
 ; SKX:       ## BB#0:
-; SKX-NEXT:    vpxorq %zmm1, %zmm0, %zmm0
+; SKX-NEXT:    vxorps %zmm1, %zmm0, %zmm0
 ; SKX-NEXT:    retq
   %res = xor <32 x i16> %a, %b
   ret <32 x i16> %res

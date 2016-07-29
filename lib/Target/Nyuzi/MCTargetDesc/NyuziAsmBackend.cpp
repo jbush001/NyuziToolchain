@@ -117,7 +117,8 @@ public:
     return false;
   }
 
-  void relaxInstruction(const MCInst &Inst, MCInst &Res) const override {
+  void relaxInstruction(const MCInst &Inst, const MCSubtargetInfo &STI,
+                        MCInst &Res) const override {
     assert(0 && "relaxInstruction() unimplemented");
   }
 
@@ -150,6 +151,7 @@ private:
 // MCAsmBackend
 MCAsmBackend *llvm::createNyuziAsmBackend(const Target &T,
                                           const MCRegisterInfo &MRI,
-                                          const Triple &TT, StringRef CPU) {
+                                          const Triple &TT, StringRef CPU,
+                                          const MCTargetOptions &Options) {
   return new NyuziAsmBackend(T, Triple(TT).getOS());
 }

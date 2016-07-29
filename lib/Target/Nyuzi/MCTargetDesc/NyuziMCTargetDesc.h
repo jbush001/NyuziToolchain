@@ -26,6 +26,7 @@ class MCInstrInfo;
 class MCObjectWriter;
 class MCRegisterInfo;
 class MCSubtargetInfo;
+class MCTargetOptions;
 class raw_ostream;
 class StringRef;
 class Triple;
@@ -40,7 +41,8 @@ MCObjectWriter *createNyuziELFObjectWriter(raw_pwrite_stream &OS,
                                            uint8_t OSABI);
 
 MCAsmBackend *createNyuziAsmBackend(const Target &T, const MCRegisterInfo &MRI,
-                                    const Triple &TT, StringRef CPU);
+                                    const Triple &TT, StringRef CPU,
+                                    const MCTargetOptions &Options);
 
 } // End llvm namespace
 

@@ -404,7 +404,7 @@ public:
     /// This is a unique identifier for the libdispatch/GCD queue in a 
     /// process.  Often starting at 1 for the initial system-created 
     /// queues and incrementing, a QueueID will not be reused for a
-    /// different queue during the lifetime of a proces.
+    /// different queue during the lifetime of a process.
     ///
     /// @return
     ///     A QueueID if the Thread subclass implements this, else
@@ -708,13 +708,15 @@ public:
     /// @param[in] module
     ///     The module to query TLS data for.
     ///
+    /// @param[in] tls_file_addr
+    ///     The thread local address in module
     /// @return
     ///     If the thread has TLS data allocated for the
     ///     module, the address of the TLS block. Otherwise
     ///     LLDB_INVALID_ADDRESS is returned.
     //------------------------------------------------------------------
     virtual lldb::addr_t
-    GetThreadLocalData (const lldb::ModuleSP module);
+    GetThreadLocalData(const lldb::ModuleSP module, lldb::addr_t tls_file_addr);
 
     //------------------------------------------------------------------
     /// Check whether this thread is safe to run functions

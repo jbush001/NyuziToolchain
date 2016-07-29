@@ -172,7 +172,7 @@ static void foldImmediates(MachineInstr &MI, const SIInstrInfo *TII,
   }
 
   // We have failed to fold src0, so commute the instruction and try again.
-  if (TryToCommute && MI.isCommutable() && TII->commuteInstruction(&MI))
+  if (TryToCommute && MI.isCommutable() && TII->commuteInstruction(MI))
     foldImmediates(MI, TII, MRI, false);
 
 }
@@ -312,7 +312,7 @@ bool SIShrinkInstructions::runOnMachineFunction(MachineFunction &MF) {
       if (!canShrink(MI, TII, TRI, MRI)) {
         // Try commuting the instruction and see if that enables us to shrink
         // it.
-        if (!MI.isCommutable() || !TII->commuteInstruction(&MI) ||
+        if (!MI.isCommutable() || !TII->commuteInstruction(MI) ||
             !canShrink(MI, TII, TRI, MRI))
           continue;
       }
@@ -398,9 +398,13 @@ bool SIShrinkInstructions::runOnMachineFunction(MachineFunction &MF) {
       }
 
       ++NumInstructionsShrunk;
-      MI.eraseFromParent();
 
+      // Copy extra operands not present in the instruction definition.
+      Inst32->copyImplicitOps(MF, MI);
+
+      MI.eraseFromParent();
       foldImmediates(*Inst32, TII, MRI);
+
       DEBUG(dbgs() << "e32 MI = " << *Inst32 << '\n');
 
 

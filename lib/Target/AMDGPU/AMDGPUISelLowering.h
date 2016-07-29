@@ -28,10 +28,6 @@ class AMDGPUTargetLowering : public TargetLowering {
 protected:
   const AMDGPUSubtarget *Subtarget;
 
-  SDValue LowerConstantInitializer(const Constant* Init, const GlobalValue *GV,
-                                   const SDValue &InitPtr,
-                                   SDValue Chain,
-                                   SelectionDAG &DAG) const;
   SDValue LowerEXTRACT_SUBVECTOR(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerCONCAT_VECTORS(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerINTRINSIC_WO_CHAIN(SDValue Op, SelectionDAG &DAG) const;
@@ -66,6 +62,8 @@ protected:
   SDValue LowerSIGN_EXTEND_INREG(SDValue Op, SelectionDAG &DAG) const;
 
 protected:
+  bool shouldCombineMemoryType(EVT VT) const;
+  SDValue performLoadCombine(SDNode *N, DAGCombinerInfo &DCI) const;
   SDValue performStoreCombine(SDNode *N, DAGCombinerInfo &DCI) const;
   SDValue performAndCombine(SDNode *N, DAGCombinerInfo &DCI) const;
   SDValue performShlCombine(SDNode *N, DAGCombinerInfo &DCI) const;
@@ -77,7 +75,6 @@ protected:
   SDValue performSelectCombine(SDNode *N, DAGCombinerInfo &DCI) const;
 
   static EVT getEquivalentMemType(LLVMContext &Context, EVT VT);
-  static EVT getEquivalentLoadRegType(LLVMContext &Context, EVT VT);
 
   virtual SDValue LowerGlobalAddress(AMDGPUMachineFunction *MFI, SDValue Op,
                                      SelectionDAG &DAG) const;
@@ -138,7 +135,7 @@ public:
                              ISD::LoadExtType ExtType,
                              EVT ExtVT) const override;
 
-  bool isLoadBitCastBeneficial(EVT, EVT) const override;
+  bool isLoadBitCastBeneficial(EVT, EVT) const final;
 
   bool storeOfVectorConstantIsCheap(EVT MemVT,
                                     unsigned NumElem,
@@ -252,7 +249,9 @@ enum NodeType : unsigned {
   //            For f64, max error 2^29 ULP, handles denormals.
   RCP,
   RSQ,
+  RCP_LEGACY,
   RSQ_LEGACY,
+  FMUL_LEGACY,
   RSQ_CLAMP,
   LDEXP,
   FP_CLASS,
@@ -264,6 +263,7 @@ enum NodeType : unsigned {
   BFI, // (src0 & src1) | (~src0 & src2)
   BFM, // Insert a range of bits into a 32-bit word.
   FFBH_U32, // ctlz with -1 if input is zero.
+  FFBH_I32,
   MUL_U24,
   MUL_I24,
   MAD_U24,
@@ -300,6 +300,7 @@ enum NodeType : unsigned {
   INTERP_P1,
   INTERP_P2,
   PC_ADD_REL_OFFSET,
+  KILL,
   FIRST_MEM_OPCODE_NUMBER = ISD::FIRST_TARGET_MEMORY_OPCODE,
   STORE_MSKOR,
   LOAD_CONSTANT,

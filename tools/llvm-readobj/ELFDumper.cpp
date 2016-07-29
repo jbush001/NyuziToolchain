@@ -956,7 +956,8 @@ static const EnumEntry<unsigned> ElfMachineType[] = {
   ENUM_ENT(EM_AMDGPU,        "EM_AMDGPU"),
   ENUM_ENT(EM_WEBASSEMBLY,   "EM_WEBASSEMBLY"),
   ENUM_ENT(EM_LANAI,         "EM_LANAI"),
-  ENUM_ENT(EM_NYUZI,         "EM_NYUZI")
+  ENUM_ENT(EM_NYUZI,         "EM_NYUZI"),
+  ENUM_ENT(EM_BPF,           "EM_BPF"),
 };
 
 static const EnumEntry<unsigned> ElfSymbolBindings[] = {

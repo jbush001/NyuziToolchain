@@ -18,9 +18,7 @@
 #include "CodeGenModule.h"
 #include "CodeGenTypes.h"
 #include "clang/Frontend/CodeGenOptions.h"
-#include "llvm/ADT/StringMap.h"
 #include "llvm/ProfileData/InstrProfReader.h"
-#include "llvm/Support/MemoryBuffer.h"
 #include <array>
 #include <memory>
 
@@ -103,6 +101,7 @@ private:
                                llvm::Function *Fn);
   void loadRegionCounts(llvm::IndexedInstrProfReader *PGOReader,
                         bool IsInMainFile);
+  bool skipRegionMappingForDecl(const Decl *D);
   void emitCounterRegionMapping(const Decl *D);
 
 public:

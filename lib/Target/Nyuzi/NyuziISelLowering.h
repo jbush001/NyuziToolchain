@@ -43,7 +43,7 @@ public:
                                const NyuziSubtarget &STI);
   SDValue LowerOperation(SDValue Op, SelectionDAG &DAG) const override;
   MachineBasicBlock *
-  EmitInstrWithCustomInserter(MachineInstr *MI,
+  EmitInstrWithCustomInserter(MachineInstr &MI,
                               MachineBasicBlock *MBB) const override;
   const char *getTargetNodeName(unsigned Opcode) const override;
   ConstraintType getConstraintType(StringRef Constraint) const override;
@@ -70,11 +70,11 @@ public:
   bool shouldInsertFencesForAtomic(const Instruction *I) const override;
 
 private:
-  MachineBasicBlock *EmitSelectCC(MachineInstr *MI,
+  MachineBasicBlock *EmitSelectCC(MachineInstr &MI,
                                   MachineBasicBlock *BB) const;
-  MachineBasicBlock *EmitAtomicBinary(MachineInstr *MI, MachineBasicBlock *BB,
+  MachineBasicBlock *EmitAtomicBinary(MachineInstr &MI, MachineBasicBlock *BB,
                                       unsigned Opcode) const;
-  MachineBasicBlock *EmitAtomicCmpSwap(MachineInstr *MI,
+  MachineBasicBlock *EmitAtomicCmpSwap(MachineInstr &MI,
                                        MachineBasicBlock *BB) const;
 
   SDValue LowerBUILD_VECTOR(SDValue Op, SelectionDAG &DAG) const;

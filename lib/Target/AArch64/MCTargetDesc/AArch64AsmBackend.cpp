@@ -78,7 +78,8 @@ public:
   bool fixupNeedsRelaxation(const MCFixup &Fixup, uint64_t Value,
                             const MCRelaxableFragment *DF,
                             const MCAsmLayout &Layout) const override;
-  void relaxInstruction(const MCInst &Inst, MCInst &Res) const override;
+  void relaxInstruction(const MCInst &Inst, const MCSubtargetInfo &STI,
+                        MCInst &Res) const override;
   bool writeNopData(uint64_t Count, MCObjectWriter *OW) const override;
 
   void HandleAssemblerFlag(MCAssemblerFlag Flag) {}
@@ -313,6 +314,7 @@ bool AArch64AsmBackend::fixupNeedsRelaxation(const MCFixup &Fixup,
 }
 
 void AArch64AsmBackend::relaxInstruction(const MCInst &Inst,
+                                         const MCSubtargetInfo &STI,
                                          MCInst &Res) const {
   llvm_unreachable("AArch64AsmBackend::relaxInstruction() unimplemented");
 }
@@ -572,7 +574,8 @@ void ELFAArch64AsmBackend::processFixupValue(
 MCAsmBackend *llvm::createAArch64leAsmBackend(const Target &T,
                                               const MCRegisterInfo &MRI,
                                               const Triple &TheTriple,
-                                              StringRef CPU) {
+                                              StringRef CPU,
+                                              const MCTargetOptions &Options) {
   if (TheTriple.isOSBinFormatMachO())
     return new DarwinAArch64AsmBackend(T, MRI);
 
@@ -584,10 +587,10 @@ MCAsmBackend *llvm::createAArch64leAsmBackend(const Target &T,
 MCAsmBackend *llvm::createAArch64beAsmBackend(const Target &T,
                                               const MCRegisterInfo &MRI,
                                               const Triple &TheTriple,
-                                              StringRef CPU) {
+                                              StringRef CPU,
+                                              const MCTargetOptions &Options) {
   assert(TheTriple.isOSBinFormatELF() &&
          "Big endian is only supported for ELF targets!");
   uint8_t OSABI = MCELFObjectTargetWriter::getOSABI(TheTriple.getOS());
-  return new ELFAArch64AsmBackend(T, OSABI,
-                                  /*IsLittleEndian=*/false);
+  return new ELFAArch64AsmBackend(T, OSABI, /*IsLittleEndian=*/false);
 }

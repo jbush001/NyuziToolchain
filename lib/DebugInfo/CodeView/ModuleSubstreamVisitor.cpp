@@ -8,9 +8,12 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/DebugInfo/CodeView/ModuleSubstreamVisitor.h"
+#include "llvm/DebugInfo/Msf/StreamReader.h"
+#include "llvm/DebugInfo/Msf/StreamRef.h"
 
 using namespace llvm;
 using namespace llvm::codeview;
+using namespace llvm::msf;
 
 Error IModuleSubstreamVisitor::visitSymbols(StreamRef Data) {
   return visitUnknown(ModuleSubstreamKind::Symbols, Data);

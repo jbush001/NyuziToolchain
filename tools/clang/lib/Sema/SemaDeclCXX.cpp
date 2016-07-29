@@ -11,7 +11,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "clang/Sema/SemaInternal.h"
 #include "clang/AST/ASTConsumer.h"
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/ASTLambda.h"
@@ -36,6 +35,7 @@
 #include "clang/Sema/ParsedTemplate.h"
 #include "clang/Sema/Scope.h"
 #include "clang/Sema/ScopeInfo.h"
+#include "clang/Sema/SemaInternal.h"
 #include "clang/Sema/Template.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallString.h"
@@ -2192,7 +2192,8 @@ Sema::ActOnCXXMemberDeclarator(Scope *S, AccessSpecifier AS, Declarator &D,
     } else {
       Member = HandleField(S, cast<CXXRecordDecl>(CurContext), Loc, D,
                                 BitWidth, InitStyle, AS);
-      assert(Member && "HandleField never returns null");
+      if (!Member)
+        return nullptr;
     }
   } else {
     Member = HandleDeclarator(S, D, TemplateParameterLists);
@@ -8885,9 +8886,7 @@ Decl *Sema::ActOnAliasDeclaration(Scope *S,
     NewND = NewTD;
   }
 
-  if (!Redeclaration)
-    PushOnScopeChains(NewND, S);
-
+  PushOnScopeChains(NewND, S);
   ActOnDocumentableDecl(NewND);
   return NewND;
 }
@@ -12676,10 +12675,9 @@ Decl *Sema::ActOnFriendTypeDecl(Scope *S, const DeclSpec &DS,
   // friend a member of an arbitrary specialization of your template).
 
   Decl *D;
-  if (unsigned NumTempParamLists = TempParams.size())
+  if (!TempParams.empty())
     D = FriendTemplateDecl::Create(Context, CurContext, Loc,
-                                   NumTempParamLists,
-                                   TempParams.data(),
+                                   TempParams,
                                    TSI,
                                    DS.getFriendSpecLoc());
   else
@@ -13425,20 +13423,18 @@ void Sema::MarkVTableUsed(SourceLocation Loc, CXXRecordDecl *Class,
     // checks (i.e. operator delete() lookup) when the vtable is marked used, as
     // the deleting destructor is emitted with the vtable, not with the
     // destructor definition as in the Itanium ABI.
-    // If it has a definition, we do the check at that point instead.
     if (Context.getTargetInfo().getCXXABI().isMicrosoft()) {
-      if (Class->hasUserDeclaredDestructor() &&
-          !Class->getDestructor()->isDefined() &&
-          !Class->getDestructor()->isDeleted()) {
-        CXXDestructorDecl *DD = Class->getDestructor();
-        ContextRAII SavedContext(*this, DD);
-        CheckDestructor(DD);
-      } else if (Class->hasAttr<DLLImportAttr>()) {
-        // We always synthesize vtables on the import side. To make sure
-        // CheckDestructor gets called, mark the destructor referenced.
-        assert(Class->getDestructor() &&
-               "The destructor has always been declared on a dllimport class");
-        MarkFunctionReferenced(Loc, Class->getDestructor());
+      CXXDestructorDecl *DD = Class->getDestructor();
+      if (DD && DD->isVirtual() && !DD->isDeleted()) {
+        if (Class->hasUserDeclaredDestructor() && !DD->isDefined()) {
+          // If this is an out-of-line declaration, marking it referenced will
+          // not do anything. Manually call CheckDestructor to look up operator
+          // delete().
+          ContextRAII SavedContext(*this, DD);
+          CheckDestructor(DD);
+        } else {
+          MarkFunctionReferenced(Loc, Class->getDestructor());
+        }
       }
     }
   }

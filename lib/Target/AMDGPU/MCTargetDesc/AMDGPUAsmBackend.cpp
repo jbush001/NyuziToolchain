@@ -53,7 +53,8 @@ public:
                             const MCAsmLayout &Layout) const override {
     return false;
   }
-  void relaxInstruction(const MCInst &Inst, MCInst &Res) const override {
+  void relaxInstruction(const MCInst &Inst, const MCSubtargetInfo &STI,
+                        MCInst &Res) const override {
     assert(!"Not implemented");
   }
   bool mayNeedRelaxation(const MCInst &Inst) const override { return false; }
@@ -170,7 +171,8 @@ public:
 
 MCAsmBackend *llvm::createAMDGPUAsmBackend(const Target &T,
                                            const MCRegisterInfo &MRI,
-                                           const Triple &TT, StringRef CPU) {
+                                           const Triple &TT, StringRef CPU,
+                                           const MCTargetOptions &Options) {
   // Use 64-bit ELF for amdgcn
   return new ELFAMDGPUAsmBackend(T, TT);
 }

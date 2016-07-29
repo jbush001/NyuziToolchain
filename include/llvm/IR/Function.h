@@ -137,7 +137,13 @@ public:
   /// The particular intrinsic functions which correspond to this value are
   /// defined in llvm/Intrinsics.h.
   Intrinsic::ID getIntrinsicID() const LLVM_READONLY { return IntID; }
-  bool isIntrinsic() const { return getName().startswith("llvm."); }
+  bool isIntrinsic() const {
+    // Intrinsic::not_intrinsic must be 0.
+    return IntID != 0;
+  }
+  /// Return true if the function's name starts with "llvm.".  All intrinsics
+  /// have this prefix.
+  bool hasLLVMReservedName() const { return getName().startswith("llvm."); }
 
   /// \brief Recalculate the ID for this function if it is an Intrinsic defined
   /// in llvm/Intrinsics.h.  Sets the intrinsic ID to Intrinsic::not_intrinsic
@@ -298,6 +304,14 @@ public:
     addFnAttr(Attribute::ReadOnly);
   }
 
+  /// @brief Determine if the function does not access or only writes memory.
+  bool doesNotReadMemory() const {
+    return doesNotAccessMemory() || hasFnAttribute(Attribute::WriteOnly);
+  }
+  void setDoesNotReadMemory() {
+    addFnAttr(Attribute::WriteOnly);
+  }
+
   /// @brief Determine if the call can access memmory only using pointers based
   /// on its arguments.
   bool onlyAccessesArgMemory() const {
@@ -423,7 +437,7 @@ public:
   }
 
   /// Optimize this function for minimum size (-Oz).
-  bool optForMinSize() const { return hasFnAttribute(Attribute::MinSize); };
+  bool optForMinSize() const { return hasFnAttribute(Attribute::MinSize); }
 
   /// Optimize this function for size (-Os) or minimum size (-Oz).
   bool optForSize() const {

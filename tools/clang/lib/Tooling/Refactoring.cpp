@@ -11,6 +11,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "clang/Tooling/Refactoring.h"
 #include "clang/Basic/DiagnosticOptions.h"
 #include "clang/Basic/FileManager.h"
 #include "clang/Basic/SourceManager.h"
@@ -18,8 +19,6 @@
 #include "clang/Frontend/TextDiagnosticPrinter.h"
 #include "clang/Lex/Lexer.h"
 #include "clang/Rewrite/Core/Rewriter.h"
-#include "clang/Tooling/Refactoring.h"
-#include "llvm/Support/FileSystem.h"
 #include "llvm/Support/Path.h"
 #include "llvm/Support/raw_os_ostream.h"
 
@@ -79,9 +78,13 @@ bool formatAndApplyAllReplacements(const Replacements &Replaces,
     StringRef Code = SM.getBufferData(ID);
 
     format::FormatStyle CurStyle = format::getStyle(Style, FilePath, "LLVM");
-    Replacements NewReplacements =
+    auto NewReplacements =
         format::formatReplacements(Code, CurReplaces, CurStyle);
-    Result = applyAllReplacements(NewReplacements, Rewrite) && Result;
+    if (!NewReplacements) {
+      llvm::errs() << llvm::toString(NewReplacements.takeError()) << "\n";
+      return false;
+    }
+    Result = applyAllReplacements(*NewReplacements, Rewrite) && Result;
   }
   return Result;
 }

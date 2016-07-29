@@ -33,7 +33,6 @@ class TailDuplicator {
   const MachineBranchProbabilityInfo *MBPI;
   const MachineModuleInfo *MMI;
   MachineRegisterInfo *MRI;
-  std::unique_ptr<RegScavenger> RS;
   bool PreRegAlloc;
 
   // A list of virtual registers for which to update SSA form.
@@ -52,6 +51,8 @@ public:
   static bool isSimpleBB(MachineBasicBlock *TailBB);
   bool shouldTailDuplicate(const MachineFunction &MF, bool IsSimple,
                            MachineBasicBlock &TailBB);
+  /// Returns true if TailBB can successfully be duplicated into PredBB
+  bool canTailDuplicate(MachineBasicBlock *TailBB, MachineBasicBlock *PredBB);
   bool tailDuplicateAndUpdate(MachineFunction &MF, bool IsSimple,
                               MachineBasicBlock *MBB);
 

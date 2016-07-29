@@ -14,7 +14,6 @@
 #include "NyuziMCTargetDesc.h"
 #include "InstPrinter/NyuziInstPrinter.h"
 #include "NyuziMCAsmInfo.h"
-#include "llvm/MC/MCCodeGenInfo.h"
 #include "llvm/MC/MCELFStreamer.h"
 #include "llvm/MC/MCInstrInfo.h"
 #include "llvm/MC/MCRegisterInfo.h"
@@ -50,15 +49,6 @@ createNyuziMCSubtargetInfo(const Triple &TT, StringRef CPU, StringRef FS) {
   return createNyuziMCSubtargetInfoImpl(TT, CPU, FS);
 }
 
-static MCCodeGenInfo *createNyuziMCCodeGenInfo(const Triple &TT,
-                                               Reloc::Model RM,
-                                               CodeModel::Model CM,
-                                               CodeGenOpt::Level OL) {
-  MCCodeGenInfo *X = new MCCodeGenInfo();
-  X->initMCCodeGenInfo(RM, CM, OL);
-  return X;
-}
-
 static MCAsmInfo *createNyuziMCAsmInfo(const MCRegisterInfo &MRI,
                                        const Triple &TT) {
   MCAsmInfo *MAI = new NyuziMCAsmInfo(TT);
@@ -92,10 +82,6 @@ static MCInstPrinter *createNyuziMCInstPrinter(const Triple &T,
 extern "C" void LLVMInitializeNyuziTargetMC() {
   // Register the MC asm info.
   RegisterMCAsmInfoFn A(TheNyuziTarget, createNyuziMCAsmInfo);
-
-  // Register the MC codegen info.
-  TargetRegistry::RegisterMCCodeGenInfo(TheNyuziTarget,
-                                        createNyuziMCCodeGenInfo);
 
   // Register the MC instruction info.
   TargetRegistry::RegisterMCInstrInfo(TheNyuziTarget, createNyuziMCInstrInfo);

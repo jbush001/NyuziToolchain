@@ -1918,6 +1918,9 @@ public:
 
     //------------------------------------------------------------------
     /// Retrieve the list of shared libraries that are loaded for this process
+    /// This method is used on pre-macOS 10.12, pre-iOS 10, pre-tvOS 10, 
+    /// pre-watchOS 3 systems.  The following two methods are for newer versions
+    /// of those OSes.
     /// 
     /// For certain platforms, the time it takes for the DynamicLoader plugin to
     /// read all of the shared libraries out of memory over a slow communication
@@ -1942,6 +1945,35 @@ public:
     //------------------------------------------------------------------
     virtual lldb_private::StructuredData::ObjectSP
     GetLoadedDynamicLibrariesInfos (lldb::addr_t image_list_address, lldb::addr_t image_count)
+    {
+        return StructuredData::ObjectSP();
+    }
+
+    // On macOS 10.12, tvOS 10, iOS 10, watchOS 3 and newer, debugserver can return
+    // the full list of loaded shared libraries without needing any input.
+    virtual lldb_private::StructuredData::ObjectSP
+    GetLoadedDynamicLibrariesInfos ()
+    {
+        return StructuredData::ObjectSP();
+    }
+
+    // On macOS 10.12, tvOS 10, iOS 10, watchOS 3 and newer, debugserver can return
+    // information about binaries given their load addresses.
+    virtual lldb_private::StructuredData::ObjectSP
+    GetLoadedDynamicLibrariesInfos (const std::vector<lldb::addr_t> &load_addresses)
+    {
+        return StructuredData::ObjectSP();
+    }
+
+    //------------------------------------------------------------------
+    // Get information about the library shared cache, if that exists
+    //
+    // On macOS 10.12, tvOS 10, iOS 10, watchOS 3 and newer, debugserver can return
+    // information about the library shared cache (a set of standard libraries that are
+    // loaded at the same location for all processes on a system) in use.
+    //------------------------------------------------------------------
+    virtual lldb_private::StructuredData::ObjectSP
+    GetSharedCacheInfo ()
     {
         return StructuredData::ObjectSP();
     }
@@ -2437,6 +2469,32 @@ public:
     virtual lldb::addr_t
     ResolveIndirectFunction(const Address *address, Error &error);
 
+    //------------------------------------------------------------------
+    /// Locate the memory region that contains load_addr.
+    ///
+    /// If load_addr is within the address space the process has mapped
+    /// range_info will be filled in with the start and end of that range
+    /// as well as the permissions for that range and range_info.GetMapped
+    /// will return true.
+    ///
+    /// If load_addr is outside any mapped region then range_info will
+    /// have its start address set to load_addr and the end of the
+    /// range will indicate the start of the next mapped range or be
+    /// set to LLDB_INVALID_ADDRESS if there are no valid mapped ranges
+    /// between load_addr and the end of the process address space.
+    ///
+    /// GetMemoryRegionInfo will only return an error if it is
+    /// unimplemented for the current process.
+    ///
+    /// @param[in] load_addr
+    ///     The load address to query the range_info for.
+    ///
+    /// @param[out] range_info
+    ///     An range_info value containing the details of the range.
+    ///
+    /// @return
+    ///     An error value.
+    //------------------------------------------------------------------
     virtual Error
     GetMemoryRegionInfo (lldb::addr_t load_addr,
                          MemoryRegionInfo &range_info)
@@ -2446,13 +2504,18 @@ public:
         return error;
     }
 
+    //------------------------------------------------------------------
+    /// Obtain all the mapped memory regions within this process.
+    ///
+    /// @param[out] region_list
+    ///     A vector to contain MemoryRegionInfo objects for all mapped
+    ///     ranges.
+    ///
+    /// @return
+    ///     An error value.
+    //------------------------------------------------------------------
     virtual Error
-    GetMemoryRegions (std::vector<lldb::MemoryRegionInfoSP>&)
-    {
-        Error error;
-        error.SetErrorString ("Process::GetMemoryRegions() not supported");
-        return error;
-    }
+    GetMemoryRegions (std::vector<lldb::MemoryRegionInfoSP>& region_list);
 
     virtual Error
     GetWatchpointSupportInfo (uint32_t &num)

@@ -196,6 +196,7 @@ ScalarEnumerationTraits<ELFYAML::ELF_EM>::enumeration(IO &IO,
   ECase(EM_AMDGPU)
   ECase(EM_NYUZI)
   ECase(EM_LANAI)
+  ECase(EM_BPF)
 #undef ECase
 }
 
@@ -537,6 +538,9 @@ void ScalarEnumerationTraits<ELFYAML::ELF_REL>::enumeration(
     break;
   case ELF::EM_AMDGPU:
 #include "llvm/Support/ELFRelocs/AMDGPU.def"
+    break;
+  case ELF::EM_BPF:
+#include "llvm/Support/ELFRelocs/BPF.def"
     break;
   default:
     llvm_unreachable("Unsupported architecture");

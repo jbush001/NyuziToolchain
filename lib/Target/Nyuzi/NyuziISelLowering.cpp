@@ -149,8 +149,7 @@ SDValue NyuziTargetLowering::LowerFormalArguments(
     if (VA.getValVT() == MVT::i32 || VA.getValVT() == MVT::f32 ||
         VA.getValVT() == MVT::v16i32) {
       // Primitive Types are loaded directly from the stack
-      Load = DAG.getLoad(VA.getValVT(), DL, Chain, FIPtr, MachinePointerInfo(),
-                         false, false, false, 0);
+      Load = DAG.getLoad(VA.getValVT(), DL, Chain, FIPtr, MachinePointerInfo());
     } else {
       // This is a smaller Type (char, etc).  Sign extend.
       ISD::LoadExtType LoadOp = ISD::SEXTLOAD;
@@ -158,8 +157,7 @@ SDValue NyuziTargetLowering::LowerFormalArguments(
       FIPtr = DAG.getNode(ISD::ADD, DL, MVT::i32, FIPtr,
                           DAG.getConstant(Offset, DL, MVT::i32));
       Load = DAG.getExtLoad(LoadOp, DL, MVT::i32, Chain, FIPtr,
-                            MachinePointerInfo(), VA.getValVT(), false, false,
-                            false, 0);
+                            MachinePointerInfo(), VA.getValVT());
       Load = DAG.getNode(ISD::TRUNCATE, DL, VA.getValVT(), Load);
     }
 
@@ -310,7 +308,7 @@ SDValue NyuziTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
     SDValue PtrOff = DAG.getIntPtrConstant(VA.getLocMemOffset(), DL);
     PtrOff = DAG.getNode(ISD::ADD, DL, MVT::i32, StackPtr, PtrOff);
     MemOpChains.push_back(DAG.getStore(Chain, DL, Arg, PtrOff,
-                                       MachinePointerInfo(), false, false, 0));
+                                       MachinePointerInfo()));
   }
 
   // Emit all stores, make sure the occur before any copies into physregs.
@@ -532,8 +530,7 @@ SDValue NyuziTargetLowering::LowerGlobalAddress(SDValue Op,
   SDValue CPIdx = DAG.getTargetConstantPool(GV, MVT::i32);
   return DAG.getLoad(
       MVT::i32, DL, DAG.getEntryNode(), CPIdx,
-      MachinePointerInfo::getConstantPool(DAG.getMachineFunction()), false,
-      false, false, 4);
+      MachinePointerInfo::getConstantPool(DAG.getMachineFunction()), 4);
 }
 
 SDValue NyuziTargetLowering::LowerConstantPool(SDValue Op,
@@ -578,8 +575,7 @@ SDValue NyuziTargetLowering::LowerConstant(SDValue Op,
   SDValue CPIdx = DAG.getConstantPool(C->getConstantIntValue(), MVT::i32);
   return DAG.getLoad(
       MVT::i32, DL, DAG.getEntryNode(), CPIdx,
-      MachinePointerInfo::getConstantPool(DAG.getMachineFunction()), false,
-      false, false, 4);
+      MachinePointerInfo::getConstantPool(DAG.getMachineFunction()), 4);
 }
 
 SDValue NyuziTargetLowering::LowerBlockAddress(SDValue Op,
@@ -589,8 +585,7 @@ SDValue NyuziTargetLowering::LowerBlockAddress(SDValue Op,
   SDValue CPIdx = DAG.getTargetConstantPool(BA, MVT::i32);
   return DAG.getLoad(
       MVT::i32, DL, DAG.getEntryNode(), CPIdx,
-      MachinePointerInfo::getConstantPool(DAG.getMachineFunction()), false,
-      false, false, 4);
+      MachinePointerInfo::getConstantPool(DAG.getMachineFunction()), 4);
 }
 
 SDValue NyuziTargetLowering::LowerVASTART(SDValue Op, SelectionDAG &DAG) const {
@@ -601,7 +596,7 @@ SDValue NyuziTargetLowering::LowerVASTART(SDValue Op, SelectionDAG &DAG) const {
                                  getPointerTy(DAG.getDataLayout()));
   const Value *SV = cast<SrcValueSDNode>(Op.getOperand(2))->getValue();
   return DAG.getStore(Op.getOperand(0), DL, FI, Op.getOperand(1),
-                      MachinePointerInfo(SV), false, false, 0);
+                      MachinePointerInfo(SV));
 }
 
 // Mask off the sign bit
@@ -754,8 +749,7 @@ SDValue NyuziTargetLowering::LowerVECTOR_SHUFFLE(SDValue Op,
       DAG.getTargetConstantPool(ShuffleConstVector, MVT::v16i32);
   SDValue ShuffleVector =
       DAG.getLoad(MVT::v16i32, DL, DAG.getEntryNode(), ShuffleVectorCP,
-                  MachinePointerInfo::getConstantPool(DAG.getMachineFunction()),
-                  false, false, false, 64);
+                  MachinePointerInfo::getConstantPool(DAG.getMachineFunction()), 64);
 
   // Check if the operands are equal
   if (Op.getOperand(0) == Op.getOperand(1))
@@ -1011,8 +1005,7 @@ SDValue NyuziTargetLowering::LowerUINT_TO_FP(SDValue Op,
   // to a load?
   SDValue AdjustReg =
       DAG.getLoad(MVT::f32, DL, DAG.getEntryNode(), CPIdx,
-                  MachinePointerInfo::getConstantPool(DAG.getMachineFunction()),
-                  false, false, false, 4);
+                  MachinePointerInfo::getConstantPool(DAG.getMachineFunction()), 4);
   if (ResultVT.isVector()) {
     // Vector Result
     SDValue ZeroVec = DAG.getNode(NyuziISD::SPLAT, DL, MVT::v16i32,
@@ -1243,9 +1236,9 @@ EVT NyuziTargetLowering::getSetCCResultType(const DataLayout &,
 }
 
 MachineBasicBlock *
-NyuziTargetLowering::EmitInstrWithCustomInserter(MachineInstr *MI,
+NyuziTargetLowering::EmitInstrWithCustomInserter(MachineInstr &MI,
                                                  MachineBasicBlock *BB) const {
-  switch (MI->getOpcode()) {
+  switch (MI.getOpcode()) {
   case Nyuzi::SELECTI:
   case Nyuzi::SELECTF:
   case Nyuzi::SELECTVI:
@@ -1296,10 +1289,10 @@ NyuziTargetLowering::EmitInstrWithCustomInserter(MachineInstr *MI,
 }
 
 MachineBasicBlock *
-NyuziTargetLowering::EmitSelectCC(MachineInstr *MI,
+NyuziTargetLowering::EmitSelectCC(MachineInstr &MI,
                                   MachineBasicBlock *BB) const {
   const TargetInstrInfo *TII = Subtarget.getInstrInfo();
-  DebugLoc DL = MI->getDebugLoc();
+  DebugLoc DL = MI.getDebugLoc();
 
   // The instruction we are replacing is SELECTI (Dest, predicate, trueval,
   // falseval)
@@ -1335,7 +1328,7 @@ NyuziTargetLowering::EmitSelectCC(MachineInstr *MI,
   BB->addSuccessor(SinkMBB);
 
   BuildMI(BB, DL, TII->get(Nyuzi::BTRUE))
-      .addReg(MI->getOperand(1).getReg())
+      .addReg(MI.getOperand(1).getReg())
       .addMBB(SinkMBB);
 
   //  Copy0MBB:
@@ -1352,24 +1345,24 @@ NyuziTargetLowering::EmitSelectCC(MachineInstr *MI,
   BB = SinkMBB;
 
   BuildMI(*BB, BB->begin(), DL, TII->get(Nyuzi::PHI),
-          MI->getOperand(0).getReg())
-      .addReg(MI->getOperand(2).getReg())
+          MI.getOperand(0).getReg())
+      .addReg(MI.getOperand(2).getReg())
       .addMBB(ThisMBB)
-      .addReg(MI->getOperand(3).getReg())
+      .addReg(MI.getOperand(3).getReg())
       .addMBB(Copy0MBB);
 
-  MI->eraseFromParent(); // The pseudo instruction is gone now.
+  MI.eraseFromParent(); // The pseudo instruction is gone now.
   return BB;
 }
 
 MachineBasicBlock *
-NyuziTargetLowering::EmitAtomicBinary(MachineInstr *MI, MachineBasicBlock *BB,
+NyuziTargetLowering::EmitAtomicBinary(MachineInstr &MI, MachineBasicBlock *BB,
                                       unsigned Opcode) const {
   const TargetInstrInfo *TII = Subtarget.getInstrInfo();
 
-  unsigned Dest = MI->getOperand(0).getReg();
-  unsigned Ptr = MI->getOperand(1).getReg();
-  DebugLoc DL = MI->getDebugLoc();
+  unsigned Dest = MI.getOperand(0).getReg();
+  unsigned Ptr = MI.getOperand(1).getReg();
+  DebugLoc DL = MI.getDebugLoc();
   MachineRegisterInfo &MRI = BB->getParent()->getRegInfo();
   unsigned OldValue = MRI.createVirtualRegister(&Nyuzi::GPR32RegClass);
   unsigned Success = MRI.createVirtualRegister(&Nyuzi::GPR32RegClass);
@@ -1401,14 +1394,14 @@ NyuziTargetLowering::EmitAtomicBinary(MachineInstr *MI, MachineBasicBlock *BB,
   if (Opcode != 0) {
     // Perform an operation
     NewValue = MRI.createVirtualRegister(&Nyuzi::GPR32RegClass);
-    if (MI->getOperand(2).getType() == MachineOperand::MO_Register)
+    if (MI.getOperand(2).getType() == MachineOperand::MO_Register)
       BuildMI(BB, DL, TII->get(Opcode), NewValue)
           .addReg(OldValue)
-          .addReg(MI->getOperand(2).getReg());
-    else if (MI->getOperand(2).getType() == MachineOperand::MO_Immediate)
+          .addReg(MI.getOperand(2).getReg());
+    else if (MI.getOperand(2).getType() == MachineOperand::MO_Immediate)
       BuildMI(BB, DL, TII->get(Opcode), NewValue)
           .addReg(OldValue)
-          .addImm(MI->getOperand(2).getImm());
+          .addImm(MI.getOperand(2).getImm());
     else
       llvm_unreachable("Unknown operand type");
   } else
@@ -1425,24 +1418,24 @@ NyuziTargetLowering::EmitAtomicBinary(MachineInstr *MI, MachineBasicBlock *BB,
   //  ExitMBB:
   BB = ExitMBB;
 
-  MI->eraseFromParent(); // The instruction is gone now.
+  MI.eraseFromParent(); // The instruction is gone now.
 
   return BB;
 }
 
 MachineBasicBlock *
-NyuziTargetLowering::EmitAtomicCmpSwap(MachineInstr *MI,
+NyuziTargetLowering::EmitAtomicCmpSwap(MachineInstr &MI,
                                        MachineBasicBlock *BB) const {
   MachineFunction *MF = BB->getParent();
   MachineRegisterInfo &RegInfo = MF->getRegInfo();
   const TargetRegisterClass *RC = getRegClassFor(MVT::i32);
   const TargetInstrInfo *TII = Subtarget.getInstrInfo();
-  DebugLoc DL = MI->getDebugLoc();
+  DebugLoc DL = MI.getDebugLoc();
 
-  unsigned Dest = MI->getOperand(0).getReg();
-  unsigned Ptr = MI->getOperand(1).getReg();
-  unsigned OldVal = MI->getOperand(2).getReg();
-  unsigned NewVal = MI->getOperand(3).getReg();
+  unsigned Dest = MI.getOperand(0).getReg();
+  unsigned Ptr = MI.getOperand(1).getReg();
+  unsigned OldVal = MI.getOperand(2).getReg();
+  unsigned NewVal = MI.getOperand(3).getReg();
 
   unsigned Success = RegInfo.createVirtualRegister(RC);
   unsigned CmpResult = RegInfo.createVirtualRegister(RC);
@@ -1494,7 +1487,7 @@ NyuziTargetLowering::EmitAtomicCmpSwap(MachineInstr *MI,
       .addImm(0);
   BuildMI(BB, DL, TII->get(Nyuzi::BFALSE)).addReg(Success).addMBB(Loop1MBB);
 
-  MI->eraseFromParent(); // The instruction is gone now.
+  MI.eraseFromParent(); // The instruction is gone now.
 
   return ExitMBB;
 }

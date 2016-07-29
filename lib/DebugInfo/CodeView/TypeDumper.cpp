@@ -12,7 +12,7 @@
 #include "llvm/DebugInfo/CodeView/CVTypeVisitor.h"
 #include "llvm/DebugInfo/CodeView/TypeIndex.h"
 #include "llvm/DebugInfo/CodeView/TypeRecord.h"
-#include "llvm/DebugInfo/CodeView/ByteStream.h"
+#include "llvm/DebugInfo/Msf/ByteStream.h"
 #include "llvm/Support/ScopedPrinter.h"
 
 using namespace llvm;
@@ -286,12 +286,15 @@ Error CVTypeDumper::visitUnion(UnionRecord &Union) {
 }
 
 Error CVTypeDumper::visitEnum(EnumRecord &Enum) {
+  uint16_t Props = static_cast<uint16_t>(Enum.getOptions());
   W->printNumber("NumEnumerators", Enum.getMemberCount());
   W->printFlags("Properties", uint16_t(Enum.getOptions()),
                 makeArrayRef(ClassOptionNames));
   printTypeIndex("UnderlyingType", Enum.getUnderlyingType());
   printTypeIndex("FieldListType", Enum.getFieldList());
   W->printString("Name", Enum.getName());
+  if (Props & uint16_t(ClassOptions::HasUniqueName))
+    W->printString("LinkageName", Enum.getUniqueName());
   Name = Enum.getName();
   return Error::success();
 }
@@ -678,9 +681,9 @@ Error CVTypeDumper::dump(const CVTypeArray &Types) {
 }
 
 Error CVTypeDumper::dump(ArrayRef<uint8_t> Data) {
-  ByteStream<> Stream(Data);
+  msf::ByteStream<> Stream(Data);
   CVTypeArray Types;
-  StreamReader Reader(Stream);
+  msf::StreamReader Reader(Stream);
   if (auto EC = Reader.readArray(Types, Reader.getLength()))
     return EC;
 

@@ -96,7 +96,7 @@ MachOUniversalBinary::ObjectForArch::getAsArchive() const {
     ObjectData = ParentData.substr(Header64.offset, Header64.size);
   StringRef ObjectName = Parent->getFileName();
   MemoryBufferRef ObjBuffer(ObjectData, ObjectName);
-  return errorOrToExpected(Archive::create(ObjBuffer));
+  return Archive::create(ObjBuffer);
 }
 
 void MachOUniversalBinary::anchor() { }
@@ -114,7 +114,7 @@ MachOUniversalBinary::create(MemoryBufferRef Source) {
 MachOUniversalBinary::MachOUniversalBinary(MemoryBufferRef Source, Error &Err)
     : Binary(Binary::ID_MachOUniversalBinary, Source), Magic(0),
       NumberOfObjects(0) {
-  ErrorAsOutParameter ErrAsOutParam(Err);
+  ErrorAsOutParameter ErrAsOutParam(&Err);
   if (Data.getBufferSize() < sizeof(MachO::fat_header)) {
     Err = make_error<GenericBinaryError>("File too small to be a Mach-O "
                                          "universal file",

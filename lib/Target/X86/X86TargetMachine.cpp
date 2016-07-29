@@ -285,7 +285,6 @@ bool X86PassConfig::addInstSelector() {
     addPass(createCleanupLocalDynamicTLSPass());
 
   addPass(createX86GlobalBaseRegPass());
-
   return false;
 }
 
@@ -305,10 +304,12 @@ bool X86PassConfig::addPreISel() {
 }
 
 void X86PassConfig::addPreRegAlloc() {
-  if (getOptLevel() != CodeGenOpt::None)
+  if (getOptLevel() != CodeGenOpt::None) {
+    addPass(createX86FixupSetCC());
     addPass(createX86OptimizeLEAs());
+    addPass(createX86CallFrameOptimization());
+  }
 
-  addPass(createX86CallFrameOptimization());
   addPass(createX86WinAllocaExpander());
 }
 
@@ -320,7 +321,7 @@ void X86PassConfig::addPreSched2() { addPass(createX86ExpandPseudoPass()); }
 
 void X86PassConfig::addPreEmitPass() {
   if (getOptLevel() != CodeGenOpt::None)
-    addPass(createExecutionDependencyFixPass(&X86::VR128RegClass));
+    addPass(createExecutionDependencyFixPass(&X86::VR128XRegClass));
 
   if (UseVZeroUpper)
     addPass(createX86IssueVZeroUpperPass());

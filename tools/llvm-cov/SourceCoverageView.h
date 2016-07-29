@@ -99,8 +99,6 @@ struct LineCoverageStats {
 
 /// \brief A file manager that handles format-aware file creation.
 class CoveragePrinter {
-  const CoverageViewOptions &Opts;
-
 public:
   struct StreamDestructor {
     void operator()(raw_ostream *OS) const;
@@ -109,11 +107,15 @@ public:
   using OwnedStream = std::unique_ptr<raw_ostream, StreamDestructor>;
 
 protected:
+  const CoverageViewOptions &Opts;
+
   CoveragePrinter(const CoverageViewOptions &Opts) : Opts(Opts) {}
 
-  /// \brief Return `OutputDir/ToplevelDir/Path.Extension`.
+  /// \brief Return `OutputDir/ToplevelDir/Path.Extension`. If \p InToplevel is
+  /// false, skip the ToplevelDir component. If \p Relative is false, skip the
+  /// OutputDir component.
   std::string getOutputPath(StringRef Path, StringRef Extension,
-                            bool InToplevel);
+                            bool InToplevel, bool Relative = true);
 
   /// \brief If directory output is enabled, create a file in that directory
   /// at the path given by getOutputPath(). Otherwise, return stdout.

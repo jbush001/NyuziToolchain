@@ -84,13 +84,15 @@ __m256 test_mm256_blendv_ps(__m256 V1, __m256 V2, __m256 V3) {
 
 __m256d test_mm256_broadcast_pd(__m128d* A) {
   // CHECK-LABEL: test_mm256_broadcast_pd
-  // CHECK: call <4 x double> @llvm.x86.avx.vbroadcastf128.pd.256(i8* %{{.*}})
+  // CHECK: load <2 x double>, <2 x double>* %{{.*}}, align 16
+  // CHECK: shufflevector <2 x double> %{{.*}}, <2 x double> %{{.*}}, <4 x i32> <i32 0, i32 1, i32 0, i32 1>
   return _mm256_broadcast_pd(A);
 }
 
 __m256 test_mm256_broadcast_ps(__m128* A) {
   // CHECK-LABEL: test_mm256_broadcast_ps
-  // CHECK: call <8 x float> @llvm.x86.avx.vbroadcastf128.ps.256(i8* %{{.*}})
+  // CHECK: load <4 x float>, <4 x float>* %{{.*}}, align 16
+  // CHECK: shufflevector <4 x float> %{{.*}}, <4 x float> %{{.*}}, <8 x i32> <i32 0, i32 1, i32 2, i32 3, i32 0, i32 1, i32 2, i32 3>
   return _mm256_broadcast_ps(A);
 }
 
@@ -286,13 +288,13 @@ __m256d test_mm256_cvtps_pd(__m128 A) {
 
 __m128i test_mm256_cvttpd_epi32(__m256d A) {
   // CHECK-LABEL: test_mm256_cvttpd_epi32
-  // CHECK: fptosi <4 x double> %{{.*}} to <4 x i32>
+  // CHECK: call <4 x i32> @llvm.x86.avx.cvtt.pd2dq.256(<4 x double> %{{.*}})
   return _mm256_cvttpd_epi32(A);
 }
 
 __m256i test_mm256_cvttps_epi32(__m256 A) {
   // CHECK-LABEL: test_mm256_cvttps_epi32
-  // CHECK: fptosi <8 x float> %{{.*}} to <8 x i32>
+  // CHECK: call <8 x i32> @llvm.x86.avx.cvtt.ps2dq.256(<8 x float> %{{.*}})
   return _mm256_cvttps_epi32(A);
 }
 
@@ -346,19 +348,19 @@ long long test_mm256_extract_epi64(__m256i A) {
 
 __m128d test_mm256_extractf128_pd(__m256d A) {
   // CHECK-LABEL: test_mm256_extractf128_pd
-  // CHECK: shufflevector <4 x double> %{{.*}}, <4 x double> %{{.*}}, <2 x i32> <i32 2, i32 3>
+  // CHECK: shufflevector <4 x double> %{{.*}}, <4 x double> undef, <2 x i32> <i32 2, i32 3>
   return _mm256_extractf128_pd(A, 1);
 }
 
 __m128 test_mm256_extractf128_ps(__m256 A) {
   // CHECK-LABEL: test_mm256_extractf128_ps
-  // CHECK: shufflevector <8 x float> %{{.*}}, <8 x float> %{{.*}}, <4 x i32> <i32 4, i32 5, i32 6, i32 7>
+  // CHECK: shufflevector <8 x float> %{{.*}}, <8 x float> undef, <4 x i32> <i32 4, i32 5, i32 6, i32 7>
   return _mm256_extractf128_ps(A, 1);
 }
 
 __m128i test_mm256_extractf128_si256(__m256i A) {
   // CHECK-LABEL: test_mm256_extractf128_si256
-  // CHECK: shufflevector <4 x i64> %{{.*}}, <4 x i64> %{{.*}}, <2 x i32> <i32 2, i32 3>
+  // CHECK: shufflevector <4 x i64> %{{.*}}, <4 x i64> undef, <2 x i32> <i32 2, i32 3>
   return _mm256_extractf128_si256(A, 1);
 }
 
@@ -647,32 +649,32 @@ __m256 test_mm256_or_ps(__m256 A, __m256 B) {
 
 __m128d test_mm_permute_pd(__m128d A) {
   // CHECK-LABEL: test_mm_permute_pd
-  // CHECK: shufflevector <2 x double> %{{.*}}, <2 x double> %{{.*}}, <2 x i32> <i32 1, i32 0>
+  // CHECK: shufflevector <2 x double> %{{.*}}, <2 x double> undef, <2 x i32> <i32 1, i32 0>
   return _mm_permute_pd(A, 1);
 }
 
 __m256d test_mm256_permute_pd(__m256d A) {
   // CHECK-LABEL: test_mm256_permute_pd
-  // CHECK: shufflevector <4 x double> %{{.*}}, <4 x double> %{{.*}}, <4 x i32> <i32 1, i32 0, i32 3, i32 2>
+  // CHECK: shufflevector <4 x double> %{{.*}}, <4 x double> undef, <4 x i32> <i32 1, i32 0, i32 3, i32 2>
   return _mm256_permute_pd(A, 5);
 }
 
 __m128 test_mm_permute_ps(__m128 A) {
   // CHECK-LABEL: test_mm_permute_ps
-  // CHECK: shufflevector <4 x float> %{{.*}}, <4 x float> %{{.*}}, <4 x i32> <i32 3, i32 2, i32 1, i32 0>
+  // CHECK: shufflevector <4 x float> %{{.*}}, <4 x float> undef, <4 x i32> <i32 3, i32 2, i32 1, i32 0>
   return _mm_permute_ps(A, 0x1b);
 }
 
 // Test case for PR12401
 __m128 test2_mm_permute_ps(__m128 a) {
   // CHECK-LABEL: test2_mm_permute_ps
-  // CHECK: shufflevector <4 x float> %{{.*}}, <4 x float> %{{.*}}, <4 x i32> <i32 2, i32 1, i32 2, i32 3>
+  // CHECK: shufflevector <4 x float> %{{.*}}, <4 x float> undef, <4 x i32> <i32 2, i32 1, i32 2, i32 3>
   return _mm_permute_ps(a, 0xe6);
 }
 
 __m256 test_mm256_permute_ps(__m256 A) {
   // CHECK-LABEL: test_mm256_permute_ps
-  // CHECK: shufflevector <8 x float> %{{.*}}, <8 x float> %{{.*}}, <8 x i32> <i32 3, i32 2, i32 1, i32 0, i32 7, i32 6, i32 5, i32 4>
+  // CHECK: shufflevector <8 x float> %{{.*}}, <8 x float> undef, <8 x i32> <i32 3, i32 2, i32 1, i32 0, i32 7, i32 6, i32 5, i32 4>
   return _mm256_permute_ps(A, 0x1b);
 }
 
@@ -1177,7 +1179,7 @@ void test_mm256_storeu2_m128(float* A, float* B, __m256 C) {
   // CHECK-LABEL: test_mm256_storeu2_m128
   // CHECK: shufflevector <8 x float> %{{.*}}, <8 x float> %{{.*}}, <4 x i32> <i32 0, i32 1, i32 2, i32 3>
   // CHECK: store <4 x float> %{{.*}}, <4 x float>* %{{.*}}, align 1{{$}}
-  // CHECK: shufflevector <8 x float> %{{.*}}, <8 x float> %{{.*}}, <4 x i32> <i32 4, i32 5, i32 6, i32 7>
+  // CHECK: shufflevector <8 x float> %{{.*}}, <8 x float> undef, <4 x i32> <i32 4, i32 5, i32 6, i32 7>
   // CHECK: store <4 x float> %{{.*}}, <4 x float>* %{{.*}}, align 1{{$}}
   _mm256_storeu2_m128(A, B, C);
 }
@@ -1186,7 +1188,7 @@ void test_mm256_storeu2_m128d(double* A, double* B, __m256d C) {
   // CHECK-LABEL: test_mm256_storeu2_m128d
   // CHECK: shufflevector <4 x double> %{{.*}}, <4 x double> %{{.*}}, <2 x i32> <i32 0, i32 1>
   // CHECK: store <2 x double> %{{.*}}, <2 x double>* %{{.*}}, align 1{{$}}
-  // CHECK: shufflevector <4 x double> %{{.*}}, <4 x double> %{{.*}}, <2 x i32> <i32 2, i32 3>
+  // CHECK: shufflevector <4 x double> %{{.*}}, <4 x double> undef, <2 x i32> <i32 2, i32 3>
   // CHECK: store <2 x double> %{{.*}}, <2 x double>* %{{.*}}, align 1{{$}}
   _mm256_storeu2_m128d(A, B, C);
 }
@@ -1195,7 +1197,7 @@ void test_mm256_storeu2_m128i(__m128i* A, __m128i* B, __m256i C) {
   // CHECK-LABEL: test_mm256_storeu2_m128i
   // CHECK: shufflevector <4 x i64> %{{.*}}, <4 x i64> %{{.*}}, <2 x i32> <i32 0, i32 1>
   // CHECK: store <2 x i64> %{{.*}}, <2 x i64>* %{{.*}}, align 1{{$}}
-  // CHECK: shufflevector <4 x i64> %{{.*}}, <4 x i64> %{{.*}}, <2 x i32> <i32 2, i32 3>
+  // CHECK: shufflevector <4 x i64> %{{.*}}, <4 x i64> undef, <2 x i32> <i32 2, i32 3>
   // CHECK: store <2 x i64> %{{.*}}, <2 x i64>* %{{.*}}, align 1{{$}}
   _mm256_storeu2_m128i(A, B, C);
 }

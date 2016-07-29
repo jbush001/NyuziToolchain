@@ -48,6 +48,7 @@ add_llvm_library(LLVMCodeGen
   LiveVariables.cpp
   LLVMTargetMachine.cpp
   LocalStackSlotAllocation.cpp
+  LowLevelType.cpp
   LowerEmuTLS.cpp
   MachineBasicBlock.cpp
   MachineBlockFrequencyInfo.cpp
@@ -105,6 +106,8 @@ add_llvm_library(LLVMCodeGen
   RegUsageInfoCollector.cpp
   RegUsageInfoPropagate.cpp
   SafeStack.cpp
+  SafeStackColoring.cpp
+  SafeStackLayout.cpp
   ScheduleDAG.cpp
   ScheduleDAGInstrs.cpp
   ScheduleDAGPrinter.cpp
@@ -134,6 +137,7 @@ add_llvm_library(LLVMCodeGen
   UnreachableBlockElim.cpp
   VirtRegMap.cpp
   WinEHPrepare.cpp
+  XRayInstrumentation.cpp
 
   ADDITIONAL_HEADER_DIRS
   ${LLVM_MAIN_INCLUDE_DIR}/llvm/CodeGen

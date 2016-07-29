@@ -42,6 +42,7 @@ using namespace llvm;
 STATISTIC(NumReadNone, "Number of functions marked readnone");
 STATISTIC(NumReadOnly, "Number of functions marked readonly");
 STATISTIC(NumNoCapture, "Number of arguments marked nocapture");
+STATISTIC(NumReturned, "Number of arguments marked returned");
 STATISTIC(NumReadNoneArg, "Number of arguments marked readnone");
 STATISTIC(NumReadOnlyArg, "Number of arguments marked readonly");
 STATISTIC(NumNoAlias, "Number of function returns marked noalias");
@@ -483,6 +484,54 @@ determinePointerReadAttrs(Argument *A,
   return IsRead ? Attribute::ReadOnly : Attribute::ReadNone;
 }
 
+/// Deduce returned attributes for the SCC.
+static bool addArgumentReturnedAttrs(const SCCNodeSet &SCCNodes) {
+  bool Changed = false;
+
+  AttrBuilder B;
+  B.addAttribute(Attribute::Returned);
+
+  // Check each function in turn, determining if an argument is always returned.
+  for (Function *F : SCCNodes) {
+    // We can infer and propagate function attributes only when we know that the
+    // definition we'll get at link time is *exactly* the definition we see now.
+    // For more details, see GlobalValue::mayBeDerefined.
+    if (!F->hasExactDefinition())
+      continue;
+
+    if (F->getReturnType()->isVoidTy())
+      continue;
+
+    auto FindRetArg = [&]() -> Value * {
+      Value *RetArg = nullptr;
+      for (BasicBlock &BB : *F)
+        if (auto *Ret = dyn_cast<ReturnInst>(BB.getTerminator())) {
+          // Note that stripPointerCasts should look through functions with
+          // returned arguments.
+          Value *RetVal = Ret->getReturnValue()->stripPointerCasts();
+          if (!isa<Argument>(RetVal) || RetVal->getType() != F->getReturnType())
+            return nullptr;
+
+          if (!RetArg)
+            RetArg = RetVal;
+          else if (RetArg != RetVal)
+            return nullptr;
+        }
+
+      return RetArg;
+    };
+
+    if (Value *RetArg = FindRetArg()) {
+      auto *A = cast<Argument>(RetArg);
+      A->addAttr(AttributeSet::get(F->getContext(), A->getArgNo() + 1, B));
+      ++NumReturned;
+      Changed = true;
+    }
+  }
+
+  return Changed;
+}
+
 /// Deduce nocapture attributes for the SCC.
 static bool addArgumentAttrs(const SCCNodeSet &SCCNodes) {
   bool Changed = false;
@@ -782,7 +831,7 @@ static bool addNoAliasAttrs(const SCCNodeSet &SCCNodes) {
 /// \p Speculative based on whether the returned conclusion is a speculative
 /// conclusion due to SCC calls.
 static bool isReturnNonNull(Function *F, const SCCNodeSet &SCCNodes,
-                            const TargetLibraryInfo &TLI, bool &Speculative) {
+                            bool &Speculative) {
   assert(F->getReturnType()->isPointerTy() &&
          "nonnull only meaningful on pointer types");
   Speculative = false;
@@ -796,7 +845,7 @@ static bool isReturnNonNull(Function *F, const SCCNodeSet &SCCNodes,
     Value *RetVal = FlowsToReturn[i];
 
     // If this value is locally known to be non-null, we're good
-    if (isKnownNonNull(RetVal, &TLI))
+    if (isKnownNonNull(RetVal))
       continue;
 
     // Otherwise, we need to look upwards since we can't make any local
@@ -845,8 +894,7 @@ static bool isReturnNonNull(Function *F, const SCCNodeSet &SCCNodes,
 }
 
 /// Deduce nonnull attributes for the SCC.
-static bool addNonNullAttrs(const SCCNodeSet &SCCNodes,
-                            const TargetLibraryInfo &TLI) {
+static bool addNonNullAttrs(const SCCNodeSet &SCCNodes) {
   // Speculative that all functions in the SCC return only nonnull
   // pointers.  We may refute this as we analyze functions.
   bool SCCReturnsNonNull = true;
@@ -873,7 +921,7 @@ static bool addNonNullAttrs(const SCCNodeSet &SCCNodes,
       continue;
 
     bool Speculative = false;
-    if (isReturnNonNull(F, SCCNodes, TLI, Speculative)) {
+    if (isReturnNonNull(F, SCCNodes, Speculative)) {
       if (!Speculative) {
         // Mark the function eagerly since we may discover a function
         // which prevents us from speculating about the entire SCC
@@ -987,15 +1035,8 @@ static bool addNoRecurseAttrs(const SCCNodeSet &SCCNodes) {
 
 PreservedAnalyses PostOrderFunctionAttrsPass::run(LazyCallGraph::SCC &C,
                                                   CGSCCAnalysisManager &AM) {
-  Module &M = *C.begin()->getFunction().getParent();
-  const ModuleAnalysisManager &MAM =
-      AM.getResult<ModuleAnalysisManagerCGSCCProxy>(C).getManager();
   FunctionAnalysisManager &FAM =
       AM.getResult<FunctionAnalysisManagerCGSCCProxy>(C).getManager();
-
-  // FIXME: Need some way to make it more reasonable to assume that this is
-  // always cached.
-  TargetLibraryInfo &TLI = *MAM.getCachedResult<TargetLibraryAnalysis>(M);
 
   // We pass a lambda into functions to wire them up to the analysis manager
   // for getting function analyses.
@@ -1032,6 +1073,7 @@ PreservedAnalyses PostOrderFunctionAttrsPass::run(LazyCallGraph::SCC &C,
   }
 
   bool Changed = false;
+  Changed |= addArgumentReturnedAttrs(SCCNodes);
   Changed |= addReadAttrs(SCCNodes, AARGetter);
   Changed |= addArgumentAttrs(SCCNodes);
 
@@ -1039,7 +1081,7 @@ PreservedAnalyses PostOrderFunctionAttrsPass::run(LazyCallGraph::SCC &C,
   // more precise attributes as well.
   if (!HasUnknownCall) {
     Changed |= addNoAliasAttrs(SCCNodes);
-    Changed |= addNonNullAttrs(SCCNodes, TLI);
+    Changed |= addNonNullAttrs(SCCNodes);
     Changed |= removeConvergentAttrs(SCCNodes);
     Changed |= addNoRecurseAttrs(SCCNodes);
   }
@@ -1059,13 +1101,9 @@ struct PostOrderFunctionAttrsLegacyPass : public CallGraphSCCPass {
   void getAnalysisUsage(AnalysisUsage &AU) const override {
     AU.setPreservesCFG();
     AU.addRequired<AssumptionCacheTracker>();
-    AU.addRequired<TargetLibraryInfoWrapperPass>();
     getAAResultsAnalysisUsage(AU);
     CallGraphSCCPass::getAnalysisUsage(AU);
   }
-
-private:
-  TargetLibraryInfo *TLI;
 };
 }
 
@@ -1074,29 +1112,14 @@ INITIALIZE_PASS_BEGIN(PostOrderFunctionAttrsLegacyPass, "functionattrs",
                       "Deduce function attributes", false, false)
 INITIALIZE_PASS_DEPENDENCY(AssumptionCacheTracker)
 INITIALIZE_PASS_DEPENDENCY(CallGraphWrapperPass)
-INITIALIZE_PASS_DEPENDENCY(TargetLibraryInfoWrapperPass)
 INITIALIZE_PASS_END(PostOrderFunctionAttrsLegacyPass, "functionattrs",
                     "Deduce function attributes", false, false)
 
 Pass *llvm::createPostOrderFunctionAttrsLegacyPass() { return new PostOrderFunctionAttrsLegacyPass(); }
 
-bool PostOrderFunctionAttrsLegacyPass::runOnSCC(CallGraphSCC &SCC) {
-  if (skipSCC(SCC))
-    return false;
-
-  TLI = &getAnalysis<TargetLibraryInfoWrapperPass>().getTLI();
+template <typename AARGetterT>
+static bool runImpl(CallGraphSCC &SCC, AARGetterT AARGetter) {
   bool Changed = false;
-
-  // We compute dedicated AA results for each function in the SCC as needed. We
-  // use a lambda referencing external objects so that they live long enough to
-  // be queried, but we re-use them each time.
-  Optional<BasicAAResult> BAR;
-  Optional<AAResults> AAR;
-  auto AARGetter = [&](Function &F) -> AAResults & {
-    BAR.emplace(createLegacyPMBasicAAResult(*this, F));
-    AAR.emplace(createLegacyPMAAResults(*this, F, *BAR));
-    return *AAR;
-  };
 
   // Fill SCCNodes with the elements of the SCC. Used for quickly looking up
   // whether a given CallGraphNode is in this SCC. Also track whether there are
@@ -1116,6 +1139,7 @@ bool PostOrderFunctionAttrsLegacyPass::runOnSCC(CallGraphSCC &SCC) {
     SCCNodes.insert(F);
   }
 
+  Changed |= addArgumentReturnedAttrs(SCCNodes);
   Changed |= addReadAttrs(SCCNodes, AARGetter);
   Changed |= addArgumentAttrs(SCCNodes);
 
@@ -1123,12 +1147,30 @@ bool PostOrderFunctionAttrsLegacyPass::runOnSCC(CallGraphSCC &SCC) {
   // more precise attributes as well.
   if (!ExternalNode) {
     Changed |= addNoAliasAttrs(SCCNodes);
-    Changed |= addNonNullAttrs(SCCNodes, *TLI);
+    Changed |= addNonNullAttrs(SCCNodes);
     Changed |= removeConvergentAttrs(SCCNodes);
     Changed |= addNoRecurseAttrs(SCCNodes);
   }
 
   return Changed;
+}
+
+bool PostOrderFunctionAttrsLegacyPass::runOnSCC(CallGraphSCC &SCC) {
+  if (skipSCC(SCC))
+    return false;
+
+  // We compute dedicated AA results for each function in the SCC as needed. We
+  // use a lambda referencing external objects so that they live long enough to
+  // be queried, but we re-use them each time.
+  Optional<BasicAAResult> BAR;
+  Optional<AAResults> AAR;
+  auto AARGetter = [&](Function &F) -> AAResults & {
+    BAR.emplace(createLegacyPMBasicAAResult(*this, F));
+    AAR.emplace(createLegacyPMAAResults(*this, F, *BAR));
+    return *AAR;
+  };
+
+  return runImpl(SCC, AARGetter);
 }
 
 namespace {

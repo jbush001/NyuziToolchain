@@ -17,6 +17,7 @@
 #include "llvm/ADT/PointerIntPair.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/StringExtras.h"
+#include "llvm/ADT/Twine.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorOr.h"
 #include "llvm/Support/raw_ostream.h"
@@ -26,7 +27,6 @@ namespace llvm {
 
 class Error;
 class ErrorList;
-class Twine;
 
 /// Base class for error info classes. Do not extend this directly: Extend
 /// the ErrorInfo template subclass instead.
@@ -345,7 +345,8 @@ private:
     if (E1.isA<ErrorList>()) {
       auto &E1List = static_cast<ErrorList &>(*E1.getPtr());
       if (E2.isA<ErrorList>()) {
-        auto &E2List = static_cast<ErrorList &>(*E2.getPtr());
+        auto E2Payload = E2.takePayload();
+        auto &E2List = static_cast<ErrorList &>(*E2Payload);
         for (auto &Payload : E2List.Payloads)
           E1List.Payloads.push_back(std::move(Payload));
       } else
@@ -536,16 +537,7 @@ inline void handleAllErrors(Error E) {
 /// This is useful in the base level of your program to allow clean termination
 /// (allowing clean deallocation of resources, etc.), while reporting error
 /// information to the user.
-inline void logAllUnhandledErrors(Error E, raw_ostream &OS,
-                                  const std::string &ErrorBanner) {
-  if (!E)
-    return;
-  OS << ErrorBanner;
-  handleAllErrors(std::move(E), [&](const ErrorInfoBase &EI) {
-    EI.log(OS);
-    OS << "\n";
-  });
-}
+void logAllUnhandledErrors(Error E, raw_ostream &OS, Twine ErrorBanner);
 
 /// Write all error messages (if any) in E to a string. The newline character
 /// is used to separate error messages.
@@ -579,24 +571,32 @@ inline void consumeError(Error Err) {
 /// RAII:
 ///
 /// Result foo(Error &Err) {
-///   ErrorAsOutParameter ErrAsOutParam(Err); // 'Checked' flag set
+///   ErrorAsOutParameter ErrAsOutParam(&Err); // 'Checked' flag set
 ///   // <body of foo>
 ///   // <- 'Checked' flag auto-cleared when ErrAsOutParam is destructed.
 /// }
+///
+/// ErrorAsOutParameter takes an Error* rather than Error& so that it can be
+/// used with optional Errors (Error pointers that are allowed to be null). If
+/// ErrorAsOutParameter took an Error reference, an instance would have to be
+/// created inside every condition that verified that Error was non-null. By
+/// taking an Error pointer we can just create one instance at the top of the
+/// function.
 class ErrorAsOutParameter {
 public:
-  ErrorAsOutParameter(Error &Err) : Err(Err) {
+  ErrorAsOutParameter(Error *Err) : Err(Err) {
     // Raise the checked bit if Err is success.
-    (void)!!Err;
+    if (Err)
+      (void)!!*Err;
   }
   ~ErrorAsOutParameter() {
     // Clear the checked bit.
-    if (!Err)
-      Err = Error::success();
+    if (Err && !*Err)
+      *Err = Error::success();
   }
 
 private:
-  Error &Err;
+  Error *Err;
 };
 
 /// Tagged union holding either a T or a Error.
@@ -947,6 +947,11 @@ private:
   std::string Banner;
   std::function<int(const Error &)> GetExitCode;
 };
+
+/// Report a serious error, calling any installed error handler. See
+/// ErrorHandling.h.
+LLVM_ATTRIBUTE_NORETURN void report_fatal_error(Error Err,
+                                                bool gen_crash_diag = true);
 
 } // namespace llvm
 

@@ -793,6 +793,7 @@ public:
   };
 
   /// PropertyAttributeKind - list of property attributes.
+  /// Keep this list in sync with LLVM's Dwarf.h ApplePropertyAttributes.
   enum ObjCPropertyAttributeKind {
     DQ_PR_noattr = 0x0,
     DQ_PR_readonly = 0x01,
@@ -1187,7 +1188,7 @@ struct DeclaratorChunk {
     /// complete. Non-NULL indicates that there is a default argument.
     CachedTokens *DefaultArgTokens;
 
-    ParamInfo() {}
+    ParamInfo() = default;
     ParamInfo(IdentifierInfo *ident, SourceLocation iloc,
               Decl *param,
               CachedTokens *DefArgTokens = nullptr)
@@ -1599,6 +1600,58 @@ struct DeclaratorChunk {
   }
 };
 
+/// A parsed C++17 decomposition declarator of the form
+///   '[' identifier-list ']'
+class DecompositionDeclarator {
+public:
+  struct Binding {
+    IdentifierInfo *Name;
+    SourceLocation NameLoc;
+  };
+
+private:
+  /// The locations of the '[' and ']' tokens.
+  SourceLocation LSquareLoc, RSquareLoc;
+
+  /// The bindings.
+  Binding *Bindings;
+  unsigned NumBindings : 31;
+  unsigned DeleteBindings : 1;
+
+  friend class Declarator;
+
+public:
+  DecompositionDeclarator()
+      : Bindings(nullptr), NumBindings(0), DeleteBindings(false) {}
+  DecompositionDeclarator(const DecompositionDeclarator &G) = delete;
+  DecompositionDeclarator &operator=(const DecompositionDeclarator &G) = delete;
+  ~DecompositionDeclarator() {
+    if (DeleteBindings)
+      delete[] Bindings;
+  }
+
+  void clear() {
+    LSquareLoc = RSquareLoc = SourceLocation();
+    if (DeleteBindings)
+      delete[] Bindings;
+    Bindings = nullptr;
+    NumBindings = 0;
+    DeleteBindings = false;
+  }
+
+  ArrayRef<Binding> bindings() const {
+    return llvm::makeArrayRef(Bindings, NumBindings);
+  }
+
+  bool isSet() const { return LSquareLoc.isValid(); }
+
+  SourceLocation getLSquareLoc() const { return LSquareLoc; }
+  SourceLocation getRSquareLoc() const { return RSquareLoc; }
+  SourceRange getSourceRange() const {
+    return SourceRange(LSquareLoc, RSquareLoc);
+  }
+};
+
 /// \brief Described the kind of function definition (if any) provided for
 /// a function.
 enum FunctionDefinitionKind {
@@ -1632,6 +1685,7 @@ public:
     MemberContext,       // Struct/Union field.
     BlockContext,        // Declaration within a block in a function.
     ForContext,          // Declaration within first part of a for loop.
+    InitStmtContext,     // Declaration within optional init stmt of if/switch.
     ConditionContext,    // Condition declaration in a C++ if/switch/while/for.
     TemplateParamContext,// Within a template parameter list.
     CXXNewContext,       // C++ new-expression.
@@ -1656,6 +1710,9 @@ private:
   /// \brief Where we are parsing this declarator.
   TheContext Context;
 
+  /// The C++17 structured binding, if any. This is an alternative to a Name.
+  DecompositionDeclarator BindingGroup;
+
   /// DeclTypeInfo - This holds each type that the declarator includes as it is
   /// parsed.  This is pushed from the identifier out, which means that element
   /// #0 will be the most closely bound to the identifier, and
@@ -1677,18 +1734,6 @@ private:
   /// \brief Is this Declarator a redeclaration?
   unsigned Redeclaration : 1;
 
-  /// Attrs - Attributes.
-  ParsedAttributes Attrs;
-
-  /// \brief The asm label, if specified.
-  Expr *AsmLabel;
-
-  /// InlineParams - This is a local array used for the first function decl
-  /// chunk to avoid going to the heap for the common case when we have one
-  /// function chunk in the declarator.
-  DeclaratorChunk::ParamInfo InlineParams[16];
-  bool InlineParamsUsed;
-
   /// \brief true if the declaration is preceded by \c __extension__.
   unsigned Extension : 1;
 
@@ -1697,6 +1742,27 @@ private:
     
   /// Indicates whether this is an Objective-C 'weak' property.
   unsigned ObjCWeakProperty : 1;
+
+  /// Indicates whether the InlineParams / InlineBindings storage has been used.
+  unsigned InlineStorageUsed : 1;
+
+  /// Attrs - Attributes.
+  ParsedAttributes Attrs;
+
+  /// \brief The asm label, if specified.
+  Expr *AsmLabel;
+
+#ifndef _MSC_VER
+  union {
+#endif
+    /// InlineParams - This is a local array used for the first function decl
+    /// chunk to avoid going to the heap for the common case when we have one
+    /// function chunk in the declarator.
+    DeclaratorChunk::ParamInfo InlineParams[16];
+    DecompositionDeclarator::Binding InlineBindings[16];
+#ifndef _MSC_VER
+  };
+#endif
 
   /// \brief If this is the second or subsequent declarator in this declaration,
   /// the location of the comma before this declarator.
@@ -1710,14 +1776,12 @@ private:
 
 public:
   Declarator(const DeclSpec &ds, TheContext C)
-    : DS(ds), Range(ds.getSourceRange()), Context(C),
-      InvalidType(DS.getTypeSpecType() == DeclSpec::TST_error),
-      GroupingParens(false), FunctionDefinition(FDK_Declaration), 
-      Redeclaration(false),
-      Attrs(ds.getAttributePool().getFactory()), AsmLabel(nullptr),
-      InlineParamsUsed(false), Extension(false), ObjCIvar(false),
-      ObjCWeakProperty(false) {
-  }
+      : DS(ds), Range(ds.getSourceRange()), Context(C),
+        InvalidType(DS.getTypeSpecType() == DeclSpec::TST_error),
+        GroupingParens(false), FunctionDefinition(FDK_Declaration),
+        Redeclaration(false), Extension(false), ObjCIvar(false),
+        ObjCWeakProperty(false), InlineStorageUsed(false),
+        Attrs(ds.getAttributePool().getFactory()), AsmLabel(nullptr) {}
 
   ~Declarator() {
     clear();
@@ -1744,6 +1808,10 @@ public:
 
   /// \brief Retrieve the name specified by this declarator.
   UnqualifiedId &getName() { return Name; }
+
+  const DecompositionDeclarator &getDecompositionDeclarator() const {
+    return BindingGroup;
+  }
   
   TheContext getContext() const { return Context; }
 
@@ -1787,13 +1855,14 @@ public:
     SS.clear();
     Name.clear();
     Range = DS.getSourceRange();
-    
+    BindingGroup.clear();
+
     for (unsigned i = 0, e = DeclTypeInfo.size(); i != e; ++i)
       DeclTypeInfo[i].destroy();
     DeclTypeInfo.clear();
     Attrs.clear();
     AsmLabel = nullptr;
-    InlineParamsUsed = false;
+    InlineStorageUsed = false;
     ObjCIvar = false;
     ObjCWeakProperty = false;
     CommaLoc = SourceLocation();
@@ -1810,6 +1879,7 @@ public:
     case MemberContext:
     case BlockContext:
     case ForContext:
+    case InitStmtContext:
     case ConditionContext:
       return false;
 
@@ -1844,6 +1914,7 @@ public:
     case MemberContext:
     case BlockContext:
     case ForContext:
+    case InitStmtContext:
     case ConditionContext:
     case PrototypeContext:
     case LambdaExprParameterContext:
@@ -1877,6 +1948,7 @@ public:
     case MemberContext:
     case BlockContext:
     case ForContext:
+    case InitStmtContext:
     case ConditionContext:
     case PrototypeContext:
     case LambdaExprParameterContext:
@@ -1901,6 +1973,45 @@ public:
     llvm_unreachable("unknown context kind!");
   }
 
+  /// Return true if the context permits a C++17 decomposition declarator.
+  bool mayHaveDecompositionDeclarator() const {
+    switch (Context) {
+    case FileContext:
+      // FIXME: It's not clear that the proposal meant to allow file-scope
+      // structured bindings, but it does.
+    case BlockContext:
+    case ForContext:
+    case InitStmtContext:
+      return true;
+
+    case ConditionContext:
+    case MemberContext:
+    case PrototypeContext:
+    case TemplateParamContext:
+      // Maybe one day...
+      return false;
+
+    // These contexts don't allow any kind of non-abstract declarator.
+    case KNRTypeListContext:
+    case TypeNameContext:
+    case AliasDeclContext:
+    case AliasTemplateContext:
+    case LambdaExprParameterContext:
+    case ObjCParameterContext:
+    case ObjCResultContext:
+    case CXXNewContext:
+    case CXXCatchContext:
+    case ObjCCatchContext:
+    case BlockLiteralContext:
+    case LambdaExprContext:
+    case ConversionIdContext:
+    case TemplateTypeArgContext:
+    case TrailingReturnContext:
+      return false;
+    }
+    llvm_unreachable("unknown context kind!");
+  }
+
   /// mayBeFollowedByCXXDirectInit - Return true if the declarator can be
   /// followed by a C++ direct initializer, e.g. "int x(1);".
   bool mayBeFollowedByCXXDirectInit() const {
@@ -1921,6 +2032,7 @@ public:
     case FileContext:
     case BlockContext:
     case ForContext:
+    case InitStmtContext:
       return true;
 
     case ConditionContext:
@@ -1953,14 +2065,22 @@ public:
   }
 
   /// isPastIdentifier - Return true if we have parsed beyond the point where
-  /// the
+  /// the name would appear. (This may happen even if we haven't actually parsed
+  /// a name, perhaps because this context doesn't require one.)
   bool isPastIdentifier() const { return Name.isValid(); }
 
   /// hasName - Whether this declarator has a name, which might be an
   /// identifier (accessible via getIdentifier()) or some kind of
-  /// special C++ name (constructor, destructor, etc.).
-  bool hasName() const { 
-    return Name.getKind() != UnqualifiedId::IK_Identifier || Name.Identifier;
+  /// special C++ name (constructor, destructor, etc.), or a structured
+  /// binding (which is not exactly a name, but occupies the same position).
+  bool hasName() const {
+    return Name.getKind() != UnqualifiedId::IK_Identifier || Name.Identifier ||
+           isDecompositionDeclarator();
+  }
+
+  /// Return whether this declarator is a decomposition declarator.
+  bool isDecompositionDeclarator() const {
+    return BindingGroup.isSet();
   }
 
   IdentifierInfo *getIdentifier() const { 
@@ -1975,7 +2095,13 @@ public:
   void SetIdentifier(IdentifierInfo *Id, SourceLocation IdLoc) {
     Name.setIdentifier(Id, IdLoc);
   }
-  
+
+  /// Set the decomposition bindings for this declarator.
+  void
+  setDecompositionBindings(SourceLocation LSquareLoc,
+                           ArrayRef<DecompositionDeclarator::Binding> Bindings,
+                           SourceLocation RSquareLoc);
+
   /// AddTypeInfo - Add a chunk to this declarator. Also extend the range to
   /// EndLoc, which should be the last token of the chunk.
   void AddTypeInfo(const DeclaratorChunk &TI,
@@ -2120,6 +2246,7 @@ public:
     case MemberContext:
     case BlockContext:
     case ForContext:
+    case InitStmtContext:
       return true;
 
     case ConditionContext:

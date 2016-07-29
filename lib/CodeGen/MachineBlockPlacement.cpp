@@ -78,10 +78,14 @@ static cl::opt<unsigned> ExitBlockBias(
              "over the original exit to be considered the new exit."),
     cl::init(0), cl::Hidden);
 
+// Definition:
+// - Outlining: placement of a basic block outside the chain or hot path.
+
 static cl::opt<bool> OutlineOptionalBranches(
     "outline-optional-branches",
-    cl::desc("Put completely optional branches, i.e. branches with a common "
-             "post dominator, out of line."),
+    cl::desc("Outlining optional branches will place blocks that are optional "
+              "branches, i.e. branches with a common post dominator, outside "
+              "the hot path or chain"),
     cl::init(false), cl::Hidden);
 
 static cl::opt<unsigned> OutlineOptionalThreshold(
@@ -109,7 +113,7 @@ static cl::opt<bool>
 
 static cl::opt<unsigned> MisfetchCost(
     "misfetch-cost",
-    cl::desc("Cost that models the probablistic risk of an instruction "
+    cl::desc("Cost that models the probabilistic risk of an instruction "
              "misfetch due to a jump comparing to falling through, whose cost "
              "is zero."),
     cl::init(1), cl::Hidden);
@@ -237,6 +241,10 @@ class MachineBlockPlacement : public MachineFunctionPass {
   /// \brief A typedef for a block filter set.
   typedef SmallPtrSet<MachineBasicBlock *, 16> BlockFilterSet;
 
+  /// \brief work lists of blocks that are ready to be laid out
+  SmallVector<MachineBasicBlock *, 16> BlockWorkList;
+  SmallVector<MachineBasicBlock *, 16> EHPadWorkList;
+
   /// \brief Machine Function
   MachineFunction *F;
 
@@ -280,8 +288,6 @@ class MachineBlockPlacement : public MachineFunctionPass {
   DenseMap<MachineBasicBlock *, BlockChain *> BlockToChain;
 
   void markChainSuccessors(BlockChain &Chain, MachineBasicBlock *LoopHeaderBB,
-                           SmallVectorImpl<MachineBasicBlock *> &BlockWorkList,
-                           SmallVectorImpl<MachineBasicBlock *> &EHPadWorkList,
                            const BlockFilterSet *BlockFilter = nullptr);
   BranchProbability
   collectViableSuccessors(MachineBasicBlock *BB, BlockChain &Chain,
@@ -308,19 +314,15 @@ class MachineBlockPlacement : public MachineFunctionPass {
                         MachineFunction::iterator &PrevUnplacedBlockIt,
                         const BlockFilterSet *BlockFilter);
 
-  /// \brief Add a basic block to the work list if it is apropriate.
+  /// \brief Add a basic block to the work list if it is appropriate.
   ///
   /// If the optional parameter BlockFilter is provided, only MBB
   /// present in the set will be added to the worklist. If nullptr
   /// is provided, no filtering occurs.
   void fillWorkLists(MachineBasicBlock *MBB,
                      SmallPtrSetImpl<BlockChain *> &UpdatedPreds,
-                     SmallVectorImpl<MachineBasicBlock *> &BlockWorkList,
-                     SmallVectorImpl<MachineBasicBlock *> &EHPadWorkList,
                      const BlockFilterSet *BlockFilter);
   void buildChain(MachineBasicBlock *BB, BlockChain &Chain,
-                  SmallVectorImpl<MachineBasicBlock *> &BlockWorkList,
-                  SmallVectorImpl<MachineBasicBlock *> &EHPadWorkList,
                   const BlockFilterSet *BlockFilter = nullptr);
   MachineBasicBlock *findBestLoopTop(MachineLoop &L,
                                      const BlockFilterSet &LoopBlockSet);
@@ -389,8 +391,6 @@ static std::string getBlockName(MachineBasicBlock *BB) {
 /// chain which reach the zero-predecessor state to the worklist passed in.
 void MachineBlockPlacement::markChainSuccessors(
     BlockChain &Chain, MachineBasicBlock *LoopHeaderBB,
-    SmallVectorImpl<MachineBasicBlock *> &BlockWorkList,
-    SmallVectorImpl<MachineBasicBlock *> &EHPadWorkList,
     const BlockFilterSet *BlockFilter) {
   // Walk all the blocks in this chain, marking their successors as having
   // a predecessor placed.
@@ -442,7 +442,7 @@ BranchProbability MachineBlockPlacement::collectViableSuccessors(
   // Assume A->C is very hot (>90%), and C->D has a 50% probability, then after
   // A->C is chosen as a fall-through, D won't be selected as a successor of C
   // due to CFG constraint (the probability of C->D is not greater than
-  // HotProb to break top-oorder). If we exclude E that is not in BlockFilter
+  // HotProb to break top-order). If we exclude E that is not in BlockFilter
   // when calculating the  probability of C->D, D will be selected and we
   // will get A C D B as the layout of this loop.
   auto AdjustedSumProb = BranchProbability::getOne();
@@ -470,7 +470,6 @@ BranchProbability MachineBlockPlacement::collectViableSuccessors(
 
 /// The helper function returns the branch probability that is adjusted
 /// or normalized over the new total \p AdjustedSumProb.
-
 static BranchProbability
 getAdjustedProbability(BranchProbability OrigProb,
                        BranchProbability AdjustedSumProb) {
@@ -488,7 +487,7 @@ getAdjustedProbability(BranchProbability OrigProb,
 /// When the option OutlineOptionalBranches is on, this method
 /// checks if the fallthrough candidate block \p Succ (of block
 /// \p BB) also has other unscheduled predecessor blocks which
-/// are also successors of \p BB (forming triagular shape CFG).
+/// are also successors of \p BB (forming triangular shape CFG).
 /// If none of such predecessors are small, it returns true.
 /// The caller can choose to select \p Succ as the layout successors
 /// so that \p Succ's predecessors (optional branches) can be
@@ -554,13 +553,13 @@ bool MachineBlockPlacement::hasBetterLayoutPredecessor(
     BranchProbability SuccProb, BranchProbability RealSuccProb,
     BlockChain &Chain, const BlockFilterSet *BlockFilter) {
 
-  // This is no global conflict, just return false.
+  // There isn't a better layout when there are no unscheduled predecessors.
   if (SuccChain.UnscheduledPredecessors == 0)
     return false;
 
   // There are two basic scenarios here:
   // -------------------------------------
-  // Case 1: triagular shape CFG:
+  // Case 1: triangular shape CFG (if-then):
   //     BB
   //     | \
   //     |  \
@@ -569,11 +568,13 @@ bool MachineBlockPlacement::hasBetterLayoutPredecessor(
   //     Succ
   // In this case, we are evaluating whether to select edge -> Succ, e.g.
   // set Succ as the layout successor of BB. Picking Succ as BB's
-  // successor breaks the  CFG constraints. With this layout, Pred BB
+  // successor breaks the CFG constraints (FIXME: define these constraints).
+  // With this layout, Pred BB
   // is forced to be outlined, so the overall cost will be cost of the
   // branch taken from BB to Pred, plus the cost of back taken branch
-  // from Pred to Succ, as well as the additional cost asssociated
+  // from Pred to Succ, as well as the additional cost associated
   // with the needed unconditional jump instruction from Pred To Succ.
+
   // The cost of the topological order layout is the taken branch cost
   // from BB to Succ, so to make BB->Succ a viable candidate, the following
   // must hold:
@@ -583,12 +584,12 @@ bool MachineBlockPlacement::hasBetterLayoutPredecessor(
   //    freq(BB->Succ) > 2 * freq(BB->Pred), i.e.,
   //    prob(BB->Succ) > 2 * prob(BB->Pred)
   //
-  // When real profile data is available, we can precisely compute the the
-  // probabililty threshold that is needed for edge BB->Succ to be considered.
-  // With out profile data, the heuristic requires the branch bias to be
+  // When real profile data is available, we can precisely compute the
+  // probability threshold that is needed for edge BB->Succ to be considered.
+  // Without profile data, the heuristic requires the branch bias to be
   // a lot larger to make sure the signal is very strong (e.g. 80% default).
   // -----------------------------------------------------------------
-  // Case 2: diamond like CFG:
+  // Case 2: diamond like CFG (if-then-else):
   //     S
   //    / \
   //   |   \
@@ -596,18 +597,38 @@ bool MachineBlockPlacement::hasBetterLayoutPredecessor(
   //   \    /
   //    Succ
   //    ..
-  // In this case, edge S->BB has already been selected, and we are evaluating
-  // candidate edge BB->Succ. Edge S->BB is selected because prob(S->BB)
-  // is no less than prob(S->Pred). When real profile data is *available*, if
-  // the condition is true, it will be always better to continue the trace with
-  // edge BB->Succ instead of laying out with topological order (i.e. laying
-  // Pred first).  The cost of S->BB->Succ is 2 * freq (S->Pred), while with
-  // the topo order, the cost is freq(S-> Pred) + Pred(S->BB) which is larger.
+  //
+  // The current block is BB and edge BB->Succ is now being evaluated.
+  // Note that edge S->BB was previously already selected because
+  // prob(S->BB) > prob(S->Pred).
+  // At this point, 2 blocks can be placed after BB: Pred or Succ. If we
+  // choose Pred, we will have a topological ordering as shown on the left
+  // in the picture below. If we choose Succ, we have the solution as shown
+  // on the right:
+  //
+  //   topo-order:
+  //
+  //       S-----                             ---S
+  //       |    |                             |  |
+  //    ---BB   |                             |  BB
+  //    |       |                             |  |
+  //    |  pred--                             |  Succ--
+  //    |  |                                  |       |
+  //    ---succ                               ---pred--
+  //
+  // cost = freq(S->Pred) + freq(BB->Succ)    cost = 2 * freq (S->Pred)
+  //      = freq(S->Pred) + freq(S->BB)
+  //
+  // If we have profile data (i.e, branch probabilities can be trusted), the
+  // cost (number of taken branches) with layout S->BB->Succ->Pred is 2 *
+  // freq(S->Pred) while the cost of topo order is freq(S->Pred) + freq(S->BB).
+  // We know Prob(S->BB) > Prob(S->Pred), so freq(S->BB) > freq(S->Pred), which
+  // means the cost of topological order is greater.
   // When profile data is not available, however, we need to be more
   // conservative. If the branch prediction is wrong, breaking the topo-order
   // will actually yield a layout with large cost. For this reason, we need
-  // strong biaaed branch at block S with Prob(S->BB) in order to select
-  // BB->Succ. This is equialant to looking the CFG backward with backward
+  // strong biased branch at block S with Prob(S->BB) in order to select
+  // BB->Succ. This is equivalent to looking the CFG backward with backward
   // edge: Prob(Succ->BB) needs to >= HotProb in order to be selected (without
   // profile data).
 
@@ -615,8 +636,10 @@ bool MachineBlockPlacement::hasBetterLayoutPredecessor(
 
   // Forward checking. For case 2, SuccProb will be 1.
   if (SuccProb < HotProb) {
-    DEBUG(dbgs() << "    " << getBlockName(Succ) << " -> " << SuccProb
-                 << " (prob) (CFG conflict)\n");
+    DEBUG(dbgs() << "    Not a candidate: " << getBlockName(Succ) << " "
+                 << "Respecting topological ordering because "
+                 << "probability is less than prob treshold: "
+                 << SuccProb << "\n");
     return true;
   }
 
@@ -638,7 +661,7 @@ bool MachineBlockPlacement::hasBetterLayoutPredecessor(
     // BB  Pred
     //  \ /
     //  Succ
-    // We select edgee BB->Succ if
+    // We select edge BB->Succ if
     //      freq(BB->Succ) > freq(Succ) * HotProb
     //      i.e. freq(BB->Succ) > freq(BB->Succ) * HotProb + freq(Pred->Succ) *
     //      HotProb
@@ -652,7 +675,7 @@ bool MachineBlockPlacement::hasBetterLayoutPredecessor(
   }
 
   if (BadCFGConflict) {
-    DEBUG(dbgs() << "    " << getBlockName(Succ) << " -> " << SuccProb
+    DEBUG(dbgs() << "    Not a candidate: " << getBlockName(Succ) << " -> " << SuccProb
                  << " (prob) (non-cold CFG conflict)\n");
     return true;
   }
@@ -682,7 +705,7 @@ MachineBlockPlacement::selectBestSuccessor(MachineBasicBlock *BB,
   auto AdjustedSumProb =
       collectViableSuccessors(BB, Chain, BlockFilter, Successors);
 
-  DEBUG(dbgs() << "Attempting merge from: " << getBlockName(BB) << "\n");
+  DEBUG(dbgs() << "Selecting best successor for: " << getBlockName(BB) << "\n");
   for (MachineBasicBlock *Succ : Successors) {
     auto RealSuccProb = MBPI->getEdgeProbability(BB, Succ);
     BranchProbability SuccProb =
@@ -701,15 +724,23 @@ MachineBlockPlacement::selectBestSuccessor(MachineBasicBlock *BB,
       continue;
 
     DEBUG(
-        dbgs() << "    " << getBlockName(Succ) << " -> " << SuccProb
-               << " (prob)"
+        dbgs() << "    Candidate: " << getBlockName(Succ) << ", probability: "
+               << SuccProb
                << (SuccChain.UnscheduledPredecessors != 0 ? " (CFG break)" : "")
                << "\n");
-    if (BestSucc && BestProb >= SuccProb)
+
+    if (BestSucc && BestProb >= SuccProb) {
+      DEBUG(dbgs() << "    Not the best candidate, continuing\n");
       continue;
+    }
+
+    DEBUG(dbgs() << "    Setting it as best candidate\n");
     BestSucc = Succ;
     BestProb = SuccProb;
   }
+  if (BestSucc)
+    DEBUG(dbgs() << "    Selected: " << getBlockName(BestSucc) << "\n");
+
   return BestSucc;
 }
 
@@ -720,7 +751,7 @@ MachineBlockPlacement::selectBestSuccessor(MachineBasicBlock *BB,
 /// profitable only really makes sense in the context of a loop. This returns
 /// the most frequently visited block in the worklist, which in the case of
 /// a loop, is the one most desirable to be physically close to the rest of the
-/// loop body in order to improve icache behavior.
+/// loop body in order to improve i-cache behavior.
 ///
 /// \returns The best block found, or null if none are viable.
 MachineBasicBlock *MachineBlockPlacement::selectBestCandidateBlock(
@@ -812,8 +843,6 @@ MachineBasicBlock *MachineBlockPlacement::getFirstUnplacedBlock(
 void MachineBlockPlacement::fillWorkLists(
     MachineBasicBlock *MBB,
     SmallPtrSetImpl<BlockChain *> &UpdatedPreds,
-    SmallVectorImpl<MachineBasicBlock *> &BlockWorkList,
-    SmallVectorImpl<MachineBasicBlock *> &EHPadWorkList,
     const BlockFilterSet *BlockFilter = nullptr) {
   BlockChain &Chain = *BlockToChain[MBB];
   if (!UpdatedPreds.insert(&Chain).second)
@@ -843,16 +872,13 @@ void MachineBlockPlacement::fillWorkLists(
 
 void MachineBlockPlacement::buildChain(
     MachineBasicBlock *BB, BlockChain &Chain,
-    SmallVectorImpl<MachineBasicBlock *> &BlockWorkList,
-    SmallVectorImpl<MachineBasicBlock *> &EHPadWorkList,
     const BlockFilterSet *BlockFilter) {
   assert(BB && "BB must not be null.\n");
   assert(BlockToChain[BB] == &Chain && "BlockToChainMap mis-match.\n");
   MachineFunction::iterator PrevUnplacedBlockIt = F->begin();
 
   MachineBasicBlock *LoopHeaderBB = BB;
-  markChainSuccessors(Chain, LoopHeaderBB, BlockWorkList, EHPadWorkList,
-                      BlockFilter);
+  markChainSuccessors(Chain, LoopHeaderBB, BlockFilter);
   BB = *std::prev(Chain.end());
   for (;;) {
     assert(BB && "null block found at end of chain in loop.");
@@ -888,8 +914,7 @@ void MachineBlockPlacement::buildChain(
     SuccChain.UnscheduledPredecessors = 0;
     DEBUG(dbgs() << "Merging from " << getBlockName(BB) << " to "
                  << getBlockName(BestSucc) << "\n");
-    markChainSuccessors(SuccChain, LoopHeaderBB, BlockWorkList, EHPadWorkList,
-                        BlockFilter);
+    markChainSuccessors(SuccChain, LoopHeaderBB, BlockFilter);
     Chain.merge(BestSucc, &SuccChain);
     BB = *std::prev(Chain.end());
   }
@@ -926,7 +951,7 @@ MachineBlockPlacement::findBestLoopTop(MachineLoop &L,
   for (MachineBasicBlock *Pred : L.getHeader()->predecessors()) {
     if (!LoopBlockSet.count(Pred))
       continue;
-    DEBUG(dbgs() << "    header pred: " << getBlockName(Pred) << ", "
+    DEBUG(dbgs() << "    header pred: " << getBlockName(Pred) << ", has "
                  << Pred->succ_size() << " successors, ";
           MBFI->printBlockFreq(dbgs(), Pred) << " freq\n");
     if (Pred->succ_size() > 1)
@@ -981,7 +1006,7 @@ MachineBlockPlacement::findBestLoopExit(MachineLoop &L,
   unsigned BestExitLoopDepth = 0;
   MachineBasicBlock *ExitingBB = nullptr;
   // If there are exits to outer loops, loop rotation can severely limit
-  // fallthrough opportunites unless it selects such an exit. Keep a set of
+  // fallthrough opportunities unless it selects such an exit. Keep a set of
   // blocks where rotating to exit with that block will reach an outer loop.
   SmallPtrSet<MachineBasicBlock *, 4> BlocksExitingToOuterLoop;
 
@@ -1055,8 +1080,14 @@ MachineBlockPlacement::findBestLoopExit(MachineLoop &L,
   }
   // Without a candidate exiting block or with only a single block in the
   // loop, just use the loop header to layout the loop.
-  if (!ExitingBB || L.getNumBlocks() == 1)
+  if (!ExitingBB) {
+    DEBUG(dbgs() << "    No other candidate exit blocks, using loop header\n");
     return nullptr;
+  }
+  if (L.getNumBlocks() == 1) {
+    DEBUG(dbgs() << "    Loop has 1 block, using loop header as exit\n");
+    return nullptr;
+  }
 
   // Also, if we have exit blocks which lead to outer loops but didn't select
   // one of them as the exiting block we are rotating toward, disable loop
@@ -1307,8 +1338,8 @@ void MachineBlockPlacement::buildLoopChains(MachineLoop &L) {
   for (MachineLoop *InnerLoop : L)
     buildLoopChains(*InnerLoop);
 
-  SmallVector<MachineBasicBlock *, 16> BlockWorkList;
-  SmallVector<MachineBasicBlock *, 16> EHPadWorkList;
+  assert(BlockWorkList.empty());
+  assert(EHPadWorkList.empty());
   BlockFilterSet LoopBlockSet = collectLoopBlockSet(L);
 
   // Check if we have profile data for this function. If yes, we will rotate
@@ -1343,10 +1374,9 @@ void MachineBlockPlacement::buildLoopChains(MachineLoop &L) {
   UpdatedPreds.insert(&LoopChain);
 
   for (MachineBasicBlock *LoopBB : LoopBlockSet)
-    fillWorkLists(LoopBB, UpdatedPreds, BlockWorkList, EHPadWorkList,
-                  &LoopBlockSet);
+    fillWorkLists(LoopBB, UpdatedPreds, &LoopBlockSet);
 
-  buildChain(LoopTop, LoopChain, BlockWorkList, EHPadWorkList, &LoopBlockSet);
+  buildChain(LoopTop, LoopChain, &LoopBlockSet);
 
   if (RotateLoopWithProfile)
     rotateLoopWithProfile(LoopChain, L, LoopBlockSet);
@@ -1385,9 +1415,12 @@ void MachineBlockPlacement::buildLoopChains(MachineLoop &L) {
     }
     assert(!BadLoop && "Detected problems with the placement of this loop.");
   });
+
+  BlockWorkList.clear();
+  EHPadWorkList.clear();
 }
 
-/// When OutlineOpitonalBranches is on, this method colects BBs that
+/// When OutlineOpitonalBranches is on, this method collects BBs that
 /// dominates all terminator blocks of the function \p F.
 void MachineBlockPlacement::collectMustExecuteBBs() {
   if (OutlineOptionalBranches) {
@@ -1426,7 +1459,7 @@ void MachineBlockPlacement::buildCFGChains() {
     for (;;) {
       Cond.clear();
       MachineBasicBlock *TBB = nullptr, *FBB = nullptr; // For AnalyzeBranch.
-      if (!TII->AnalyzeBranch(*BB, TBB, FBB, Cond) || !FI->canFallThrough())
+      if (!TII->analyzeBranch(*BB, TBB, FBB, Cond) || !FI->canFallThrough())
         break;
 
       MachineFunction::iterator NextFI = std::next(FI);
@@ -1450,15 +1483,15 @@ void MachineBlockPlacement::buildCFGChains() {
   for (MachineLoop *L : *MLI)
     buildLoopChains(*L);
 
-  SmallVector<MachineBasicBlock *, 16> BlockWorkList;
-  SmallVector<MachineBasicBlock *, 16> EHPadWorkList;
+  assert(BlockWorkList.empty());
+  assert(EHPadWorkList.empty());
 
   SmallPtrSet<BlockChain *, 4> UpdatedPreds;
   for (MachineBasicBlock &MBB : *F)
-    fillWorkLists(&MBB, UpdatedPreds, BlockWorkList, EHPadWorkList);
+    fillWorkLists(&MBB, UpdatedPreds);
 
   BlockChain &FunctionChain = *BlockToChain[&F->front()];
-  buildChain(&F->front(), FunctionChain, BlockWorkList, EHPadWorkList);
+  buildChain(&F->front(), FunctionChain);
 
 #ifndef NDEBUG
   typedef SmallPtrSet<MachineBasicBlock *, 16> FunctionBlockSetType;
@@ -1510,11 +1543,11 @@ void MachineBlockPlacement::buildCFGChains() {
     MachineBasicBlock *TBB = nullptr, *FBB = nullptr; // For AnalyzeBranch.
 
     // The "PrevBB" is not yet updated to reflect current code layout, so,
-    //   o. it may fall-through to a block without explict "goto" instruction
+    //   o. it may fall-through to a block without explicit "goto" instruction
     //      before layout, and no longer fall-through it after layout; or
     //   o. just opposite.
     //
-    // AnalyzeBranch() may return erroneous value for FBB when these two
+    // analyzeBranch() may return erroneous value for FBB when these two
     // situations take place. For the first scenario FBB is mistakenly set NULL;
     // for the 2nd scenario, the FBB, which is expected to be NULL, is
     // mistakenly pointing to "*BI".
@@ -1525,20 +1558,23 @@ void MachineBlockPlacement::buildCFGChains() {
     //   PrevBB->updateTerminator();
     //   Cond.clear();
     //   TBB = FBB = nullptr;
-    //   if (TII->AnalyzeBranch(*PrevBB, TBB, FBB, Cond)) {
+    //   if (TII->analyzeBranch(*PrevBB, TBB, FBB, Cond)) {
     //     // FIXME: This should never take place.
     //     TBB = FBB = nullptr;
     //   }
     // }
-    if (!TII->AnalyzeBranch(*PrevBB, TBB, FBB, Cond))
+    if (!TII->analyzeBranch(*PrevBB, TBB, FBB, Cond))
       PrevBB->updateTerminator();
   }
 
   // Fixup the last block.
   Cond.clear();
   MachineBasicBlock *TBB = nullptr, *FBB = nullptr; // For AnalyzeBranch.
-  if (!TII->AnalyzeBranch(F->back(), TBB, FBB, Cond))
+  if (!TII->analyzeBranch(F->back(), TBB, FBB, Cond))
     F->back().updateTerminator();
+
+  BlockWorkList.clear();
+  EHPadWorkList.clear();
 }
 
 void MachineBlockPlacement::optimizeBranches() {
@@ -1554,7 +1590,7 @@ void MachineBlockPlacement::optimizeBranches() {
   for (MachineBasicBlock *ChainBB : FunctionChain) {
     Cond.clear();
     MachineBasicBlock *TBB = nullptr, *FBB = nullptr; // For AnalyzeBranch.
-    if (!TII->AnalyzeBranch(*ChainBB, TBB, FBB, Cond, /*AllowModify*/ true)) {
+    if (!TII->analyzeBranch(*ChainBB, TBB, FBB, Cond, /*AllowModify*/ true)) {
       // If PrevBB has a two-way branch, try to re-order the branches
       // such that we branch to the successor with higher probability first.
       if (TBB && !Cond.empty() && FBB &&
@@ -1666,7 +1702,7 @@ bool MachineBlockPlacement::runOnMachineFunction(MachineFunction &MF) {
   // Changing the layout can create new tail merging opportunities.
   TargetPassConfig *PassConfig = &getAnalysis<TargetPassConfig>();
   // TailMerge can create jump into if branches that make CFG irreducible for
-  // HW that requires structurized CFG.
+  // HW that requires structured CFG.
   bool EnableTailMerge = !MF.getTarget().requiresStructuredCFG() &&
                          PassConfig->getEnableTailMerge() &&
                          BranchFoldPlacement;

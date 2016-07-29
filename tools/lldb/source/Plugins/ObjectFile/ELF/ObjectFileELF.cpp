@@ -2184,7 +2184,7 @@ ObjectFileELF::ParseSymbols (Symtab *symtab,
     static ConstString bss_section_name(".bss");
     static ConstString opd_section_name(".opd");    // For ppc64
 
-    // On Android the oatdata and the oatexec symbols in system@framework@boot.oat covers the full
+    // On Android the oatdata and the oatexec symbols in the oat and odex files covers the full
     // .text section what causes issues with displaying unusable symbol name to the user and very
     // slow unwinding speed because the instruction emulation based unwind plans try to emulate all
     // instructions in these symbols. Don't add these symbols to the symbol list as they have no
@@ -2192,7 +2192,8 @@ ObjectFileELF::ParseSymbols (Symtab *symtab,
     // Filtering can't be restricted to Android because this special object file don't contain the
     // note section specifying the environment to Android but the custom extension and file name
     // makes it highly unlikely that this will collide with anything else.
-    bool skip_oatdata_oatexec = m_file.GetFilename() == ConstString("system@framework@boot.oat");
+    ConstString file_extension = m_file.GetFileNameExtension();
+    bool skip_oatdata_oatexec = file_extension == ConstString("oat") || file_extension == ConstString("odex");
 
     ArchSpec arch;
     GetArchitecture(arch);
@@ -2210,10 +2211,12 @@ ObjectFileELF::ParseSymbols (Symtab *symtab,
             break;
 
         const char *symbol_name = strtab_data.PeekCStr(symbol.st_name);
+        if (!symbol_name)
+            symbol_name = "";
 
         // No need to add non-section symbols that have no names
         if (symbol.getType() != STT_SECTION &&
-            (symbol_name == NULL || symbol_name[0] == '\0'))
+            (symbol_name == nullptr || symbol_name[0] == '\0'))
             continue;
 
         // Skipping oatdata and oatexec sections if it is requested. See details above the
@@ -2389,7 +2392,7 @@ ObjectFileELF::ParseSymbols (Symtab *symtab,
             /*
              * MIPS:
              * The bit #0 of an address is used for ISA mode (1 for microMIPS, 0 for MIPS).
-             * This allows processer to switch between microMIPS and MIPS without any need
+             * This allows processor to switch between microMIPS and MIPS without any need
              * for special mode-control register. However, apart from .debug_line, none of
              * the ELF/DWARF sections set the ISA bit (for symbol or section). Use st_other
              * flag to check whether the symbol is microMIPS and then set the address class
@@ -2460,7 +2463,7 @@ ObjectFileELF::ParseSymbols (Symtab *symtab,
 
         bool is_global = symbol.getBinding() == STB_GLOBAL;
         uint32_t flags = symbol.st_other << 8 | symbol.st_info | additional_flags;
-        bool is_mangled = symbol_name ? (symbol_name[0] == '_' && symbol_name[1] == 'Z') : false;
+        bool is_mangled = (symbol_name[0] == '_' && symbol_name[1] == 'Z');
 
         llvm::StringRef symbol_ref(symbol_name);
 
