@@ -11,9 +11,9 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "clang/Sema/SemaInternal.h"
 #include "clang/AST/ASTConsumer.h"
 #include "clang/AST/ASTContext.h"
+#include "clang/AST/ASTMutationListener.h"
 #include "clang/AST/CXXInheritance.h"
 #include "clang/AST/DeclCXX.h"
 #include "clang/AST/DeclObjC.h"
@@ -21,7 +21,6 @@
 #include "clang/AST/Expr.h"
 #include "clang/AST/ExprCXX.h"
 #include "clang/AST/Mangle.h"
-#include "clang/AST/ASTMutationListener.h"
 #include "clang/Basic/CharInfo.h"
 #include "clang/Basic/SourceManager.h"
 #include "clang/Basic/TargetInfo.h"
@@ -31,6 +30,7 @@
 #include "clang/Sema/Initialization.h"
 #include "clang/Sema/Lookup.h"
 #include "clang/Sema/Scope.h"
+#include "clang/Sema/SemaInternal.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/Support/MathExtras.h"
 
@@ -4713,10 +4713,6 @@ static void handleAbiTagAttr(Sema &S, Decl *D, const AttributeList &Attr) {
   D->addAttr(::new (S.Context)
              AbiTagAttr(Attr.getRange(), S.Context, Tags.data(), Tags.size(),
                         Attr.getAttributeSpellingListIndex()));
-
-  // FIXME: remove this warning as soon as mangled part is ready.
-  S.Diag(Attr.getRange().getBegin(), diag::warn_attribute_ignored)
-        << Attr.getName();
 }
 
 static void handleARMInterruptAttr(Sema &S, Decl *D,
@@ -5913,9 +5909,12 @@ static void ProcessDeclAttribute(Sema &S, Scope *scope, Decl *D,
   case AttributeList::AT_TypeTagForDatatype:
     handleTypeTagForDatatypeAttr(S, D, Attr);
     break;
-
   case AttributeList::AT_RenderScriptKernel:
     handleSimpleAttribute<RenderScriptKernelAttr>(S, D, Attr);
+    break;
+  // XRay attributes.
+  case AttributeList::AT_XRayInstrument:
+    handleSimpleAttribute<XRayInstrumentAttr>(S, D, Attr);
     break;
   }
 }

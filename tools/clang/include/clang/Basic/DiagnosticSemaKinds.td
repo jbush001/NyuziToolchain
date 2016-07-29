@@ -365,6 +365,26 @@ def warn_modifying_shadowing_decl :
           "field of %1">,
   InGroup<ShadowFieldInConstructorModified>, DefaultIgnore;
 
+// C++ decomposition declarations
+def err_decomp_decl_context : Error<
+  "decomposition declaration not permitted in this context">;
+def warn_cxx14_compat_decomp_decl : Warning<
+  "decomposition declarations are incompatible with "
+  "C++ standards before C++1z">, DefaultIgnore, InGroup<CXXPre1zCompat>;
+def ext_decomp_decl : ExtWarn<
+  "decomposition declarations are a C++1z extension">, InGroup<CXX1z>;
+def err_decomp_decl_spec : Error<
+  "decomposition declaration cannot be declared "
+  "%plural{1:'%1'|:with '%1' specifiers}0">;
+def err_decomp_decl_type : Error<
+  "decomposition declaration cannot be declared with type %0; "
+  "declared type must be 'auto' or reference to 'auto'">;
+def err_decomp_decl_parens : Error<
+  "decomposition declaration cannot be declared with parentheses">;
+def err_decomp_decl_template : Error<
+  "decomposition declaration template not supported">;
+def err_decomp_decl_not_alone : Error<
+  "decomposition declaration must be the only declaration in its group">;
 
 // C++ using declarations
 def err_using_requires_qualname : Error<
@@ -1756,6 +1776,9 @@ def warn_cxx98_compat_auto_type_specifier : Warning<
 def err_auto_variable_cannot_appear_in_own_initializer : Error<
   "variable %0 declared with %select{'auto'|'decltype(auto)'|'__auto_type'}1 "
   "type cannot appear in its own initializer">;
+def err_binding_cannot_appear_in_own_initializer : Error<
+  "binding %0 cannot appear in the initializer of its own "
+  "decomposition declaration">;
 def err_illegal_decl_array_of_auto : Error<
   "'%0' declared as array of %1">;
 def err_new_array_of_auto : Error<
@@ -2128,6 +2151,10 @@ def err_integer_sequence_negative_length : Error<
 def err_integer_sequence_integral_element_type : Error<
   "integer sequences must have integral element type">;
 
+// __type_pack_element
+def err_type_pack_element_out_of_bounds : Error<
+  "a parameter pack may not be accessed at an out of bounds index">;
+
 // Objective-C++
 def err_objc_decls_may_only_appear_in_global_scope : Error<
   "Objective-C declarations may only appear in global scope">;
@@ -2499,15 +2526,19 @@ def err_ifunc_resolver_params : Error<
   "ifunc resolver function must have no parameters">;
 def warn_attribute_wrong_decl_type : Warning<
   "%0 attribute only applies to %select{functions|unions|"
-  "variables and functions|functions and methods|parameters|"
+  "variables and functions|"
+  "functions, variables, and Objective-C interfaces|"
+  "functions and methods|parameters|"
   "functions, methods and blocks|functions, methods, and classes|"
   "functions, methods, and parameters|classes|enums|variables|methods|"
-  "fields and global variables|structs|variables and typedefs|thread-local variables|"
-  "variables and fields|variables, data members and tag types|"
+  "fields and global variables|structs|parameters and typedefs|variables and typedefs|"
+  "thread-local variables|variables and fields|variables, data members and tag types|"
   "types and namespaces|Objective-C interfaces|methods and properties|"
   "struct or union|struct, union or class|types|"
   "Objective-C instance methods|init methods of interface or class extension declarations|"
-  "variables, functions and classes|Objective-C protocols|"
+  "variables, functions and classes|"
+  "functions, variables, classes, and Objective-C interfaces|"
+  "Objective-C protocols|"
   "functions and global variables|structs, unions, and typedefs|structs and typedefs|"
   "interface or protocol declarations|kernel functions|non-K&R-style functions|"
   "variables, enums, fields and typedefs|functions, methods, enums, and classes|"
@@ -2590,6 +2621,9 @@ def note_overridden_method : Note<
   "overridden method is here">;
 def note_protocol_method : Note<
   "protocol method is here">;
+
+def warn_available_using_star_case : Warning<
+  "using '*' case here, platform %0 is not accounted for">, InGroup<UnguardedAvailability>;
 
 // Thread Safety Attributes
 def warn_invalid_capability_name : Warning<
@@ -6340,6 +6374,24 @@ def ext_typecheck_convert_incompatible_pointer : ExtWarn<
   "; remove *|"
   "; remove &}3">,
   InGroup<IncompatiblePointerTypes>;
+def ext_typecheck_convert_incompatible_function_pointer : ExtWarn<
+  "incompatible function pointer types "
+  "%select{%diff{assigning to $ from $|assigning to different types}0,1"
+  "|%diff{passing $ to parameter of type $|"
+  "passing to parameter of different type}0,1"
+  "|%diff{returning $ from a function with result type $|"
+  "returning from function with different return type}0,1"
+  "|%diff{converting $ to type $|converting between types}0,1"
+  "|%diff{initializing $ with an expression of type $|"
+  "initializing with expression of different type}0,1"
+  "|%diff{sending $ to parameter of type $|"
+  "sending to parameter of different type}0,1"
+  "|%diff{casting $ to type $|casting between types}0,1}2"
+  "%select{|; dereference with *|"
+  "; take the address with &|"
+  "; remove *|"
+  "; remove &}3">,
+  InGroup<IncompatibleFunctionPointerTypes>;
 def ext_typecheck_convert_discards_qualifiers : ExtWarn<
   "%select{%diff{assigning to $ from $|assigning to different types}0,1"
   "|%diff{passing $ to parameter of type $|"
@@ -7886,8 +7938,6 @@ def err_atomic_init_constant : Error<
   " in the declaration statement in the program scope">;
 def err_opencl_implicit_vector_conversion : Error<
   "implicit conversions between vector types (%0 and %1) are not permitted">;
-def err_opencl_dereferencing : Error<
-  "dereferencing pointer of type %0 is not allowed in OpenCL">;
 def err_opencl_block_proto_variadic : Error<
   "invalid block prototype, variadic arguments are not allowed in OpenCL">;
 def err_opencl_invalid_type_array : Error<
@@ -7901,8 +7951,6 @@ def err_opencl_type_can_only_be_used_as_function_parameter : Error <
 def warn_opencl_attr_deprecated_ignored : Warning <
   "%0 attribute is deprecated and ignored in OpenCL version %1">,
   InGroup<IgnoredAttributes>;
-def err_opencl_builtin_requires_version : Error<
-  "%0 requires OpenCL version %1%select{| or above}2">;
 
 // OpenCL v2.0 s6.13.6 -- Builtin Pipe Functions
 def err_opencl_builtin_pipe_first_arg : Error<
@@ -7918,9 +7966,11 @@ def err_opencl_builtin_pipe_invalid_access_modifier : Error<
 def err_opencl_invalid_access_qualifier : Error<
   "access qualifier can only be used for pipe and image type">;
 def err_opencl_invalid_read_write : Error<
-  "access qualifier %0 can not be used for %1 %select{|earlier than OpenCL version 2.0}2">;
+  "access qualifier %0 can not be used for %1 %select{|prior to OpenCL version 2.0}2">;
 def err_opencl_multiple_access_qualifiers : Error<
   "multiple access qualifiers">;
+def note_opencl_typedef_access_qualifier : Note<
+  "previously declared '%0' here">;
 
 // OpenCL Section 6.8.g
 def err_opencl_unknown_type_specifier : Error<
@@ -7939,6 +7989,25 @@ def err_opencl_builtin_to_addr_arg_num : Error<
   "invalid number of arguments to function: %0">;
 def err_opencl_builtin_to_addr_invalid_arg : Error<
   "invalid argument %0 to function: %1, expecting a generic pointer argument">;
+
+// OpenCL v2.0 s6.13.17 Enqueue kernel restrictions.
+def err_opencl_enqueue_kernel_incorrect_args : Error<
+  "illegal call to enqueue_kernel, incorrect argument types">;
+def err_opencl_enqueue_kernel_expected_type : Error<
+  "illegal call to enqueue_kernel, expected %0 argument type">;
+def err_opencl_enqueue_kernel_local_size_args : Error<
+  "mismatch in number of block parameters and local size arguments passed">;
+def err_opencl_enqueue_kernel_invalid_local_size_type : Error<
+  "local memory sizes need to be specified as uint">;
+def err_opencl_enqueue_kernel_blocks_non_local_void_args : Error<
+  "blocks used in device side enqueue are expected to have parameters of type 'local void*'">;
+def err_opencl_enqueue_kernel_blocks_no_args : Error<
+  "blocks in this form of device side enqueue call are expected to have have no parameters">;
+
+// OpenCL v2.2 s2.1.2.3 - Vector Component Access
+def ext_opencl_ext_vector_type_rgba_selector: ExtWarn<
+  "vector component name '%0' is an OpenCL version 2.2 feature">,
+  InGroup<OpenCLUnsupportedRGBA>;
 } // end of sema category
 
 let CategoryName = "OpenMP Issue" in {
@@ -8219,8 +8288,10 @@ def warn_omp_section_is_char : Warning<"array section %select{lower bound|length
   InGroup<CharSubscript>, DefaultIgnore;
 def err_omp_section_incomplete_type : Error<
   "section of pointer to incomplete type %0">;
-def err_omp_section_negative : Error<
-  "section %select{lower bound|length}0 is evaluated to a negative value %1">;
+def err_omp_section_not_subset_of_array : Error<
+  "array section must be a subset of the original array">;
+def err_omp_section_length_negative : Error<
+  "section length is evaluated to a negative value %0">;
 def err_omp_section_length_undefined : Error<
   "section length is unspecified and cannot be inferred because subscripted value is %select{not an array|an array of unknown bound}0">;
 def err_omp_wrong_linear_modifier : Error<
@@ -8311,6 +8382,16 @@ def err_omp_expected_int_param : Error<
   "expected a reference to an integer-typed parameter">;
 def err_omp_at_least_one_motion_clause_required : Error<
   "expected at least one 'to' clause or 'from' clause specified to '#pragma omp target update'">;
+def  err_omp_usedeviceptr_not_a_pointer : Error<
+  "expected pointer or reference to pointer in 'use_device_ptr' clause">;
+def err_omp_argument_type_isdeviceptr : Error <
+  "expected pointer, array, reference to pointer, or reference to array in 'is_device_ptr clause'">;
+def warn_omp_nesting_simd : Warning<
+  "OpenMP only allows an ordered construct with the simd clause nested in a simd construct">,
+  InGroup<SourceUsesOpenMP>;
+def err_omp_orphaned_device_directive : Error<
+  "orphaned 'omp %0' directives are prohibited"
+  "; perhaps you forget to enclose the directive into a %select{|||target |teams }1region?">;
 } // end of OpenMP category
 
 let CategoryName = "Related Result Type Issue" in {

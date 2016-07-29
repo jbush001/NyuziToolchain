@@ -915,12 +915,8 @@ SymbolFileDWARF::ParseCompileUnit (DWARFCompileUnit* dwarf_cu, uint32_t cu_idx)
                         LanguageType cu_language = DWARFCompileUnit::LanguageTypeFromDWARF(cu_die.GetAttributeValueAsUnsigned(DW_AT_language, 0));
 
                         bool is_optimized = dwarf_cu->GetIsOptimized ();
-                        cu_sp.reset(new CompileUnit (module_sp,
-                                                     dwarf_cu,
-                                                     cu_file_spec, 
-                                                     dwarf_cu->GetID(),
-                                                     cu_language,
-                                                     is_optimized));
+                        cu_sp.reset(new CompileUnit(module_sp, dwarf_cu, cu_file_spec, dwarf_cu->GetID(), cu_language,
+                                                    is_optimized ? eLazyBoolYes : eLazyBoolNo));
                         if (cu_sp)
                         {
                             // If we just created a compile unit with an invalid file spec, try and get the
@@ -1070,7 +1066,17 @@ SymbolFileDWARF::ParseCompileUnitSupportFiles (const SymbolContext& sc, FileSpec
 }
 
 bool
-SymbolFileDWARF::ParseImportedModules (const lldb_private::SymbolContext &sc, std::vector<lldb_private::ConstString> &imported_modules)
+SymbolFileDWARF::ParseCompileUnitIsOptimized(const lldb_private::SymbolContext &sc)
+{
+    DWARFCompileUnit *dwarf_cu = GetDWARFCompileUnit(sc.comp_unit);
+    if (dwarf_cu)
+        return dwarf_cu->GetIsOptimized();
+    return false;
+}
+
+bool
+SymbolFileDWARF::ParseImportedModules(const lldb_private::SymbolContext &sc,
+                                      std::vector<lldb_private::ConstString> &imported_modules)
 {
     assert (sc.comp_unit);
     DWARFCompileUnit* dwarf_cu = GetDWARFCompileUnit(sc.comp_unit);
@@ -1561,7 +1567,7 @@ SymbolFileDWARF::ResolveTypeUID (const DWARFDIE &die, bool assert_not_being_pars
                                                       die.GetName());
 
         // We might be coming in in the middle of a type tree (a class
-        // withing a class, an enum within a class), so parse any needed
+        // within a class, an enum within a class), so parse any needed
         // parent DIEs before we get to this one...
         DWARFDIE decl_ctx_die = GetDeclContextDIEContainingDIE (die);
         if (decl_ctx_die)
@@ -4286,7 +4292,7 @@ SymbolFileDWARF::ParseVariableDIE
                         {
                             location_is_const_value_data = false;
                             has_explicit_location = true;
-                            if (form_value.BlockData())
+                            if (DWARFFormValue::IsBlockForm(form_value.Form()))
                             {
                                 const DWARFDataExtractor& debug_info_data = get_debug_info_data();
 
@@ -4414,6 +4420,7 @@ SymbolFileDWARF::ParseVariableDIE
                         GetObjectFile()->GetModule()->ReportError ("0x%8.8x: %s has an invalid location: %s", die.GetOffset(), die.GetTagAsCString(), strm.GetString().c_str());
                     }
                 }
+                SymbolFileDWARFDebugMap *debug_map_symfile = GetDebugMapSymfile();
 
                 if (location_DW_OP_addr != LLDB_INVALID_ADDRESS)
                 {
@@ -4421,9 +4428,6 @@ SymbolFileDWARF::ParseVariableDIE
                         scope = eValueTypeVariableGlobal;
                     else
                         scope = eValueTypeVariableStatic;
-                    
-                    
-                    SymbolFileDWARFDebugMap *debug_map_symfile = GetDebugMapSymfile();
                     
                     if (debug_map_symfile)
                     {
@@ -4502,7 +4506,22 @@ SymbolFileDWARF::ParseVariableDIE
                     if (location_is_const_value_data)
                         scope = eValueTypeVariableStatic;
                     else
+                    {
                         scope = eValueTypeVariableLocal;
+                        if (debug_map_symfile)
+                        {
+                            // We need to check for TLS addresses that we need to fixup
+                            if (location.ContainsThreadLocalStorage())
+                            {
+                                location.LinkThreadLocalStorage(
+                                    debug_map_symfile->GetObjectFile()->GetModule(),
+                                    [this, debug_map_symfile](lldb::addr_t unlinked_file_addr) -> lldb::addr_t {
+                                        return debug_map_symfile->LinkOSOFileAddress(this, unlinked_file_addr);
+                                    });
+                                scope = eValueTypeVariableThreadLocal;
+                            }
+                        }
+                    }
                 }
             }
 

@@ -114,12 +114,15 @@ void CodeGenFunction::EmitDecl(const Decl &D) {
     if (CGDebugInfo *DI = getDebugInfo())
       DI->EmitUsingDirective(cast<UsingDirectiveDecl>(D));
     return;
-  case Decl::Var: {
+  case Decl::Var:
+  case Decl::Decomposition: {
     const VarDecl &VD = cast<VarDecl>(D);
     assert(VD.isLocalVarDecl() &&
            "Should not see file-scope variables inside a function!");
     return EmitVarDecl(VD);
   }
+  case Decl::Binding:
+    return CGM.ErrorUnsupported(&D, "structured binding");
 
   case Decl::OMPDeclareReduction:
     return CGM.EmitOMPDeclareReduction(cast<OMPDeclareReductionDecl>(&D), this);
@@ -527,19 +530,6 @@ namespace {
       Args.add(RValue::get(Arg),
                CGF.getContext().getPointerType(Var.getType()));
       CGF.EmitCall(FnInfo, CleanupFn, ReturnValueSlot(), Args);
-    }
-  };
-
-  /// A cleanup to call @llvm.lifetime.end.
-  class CallLifetimeEnd final : public EHScopeStack::Cleanup {
-    llvm::Value *Addr;
-    llvm::Value *Size;
-  public:
-    CallLifetimeEnd(Address addr, llvm::Value *size)
-      : Addr(addr.getPointer()), Size(size) {}
-
-    void Emit(CodeGenFunction &CGF, Flags flags) override {
-      CGF.EmitLifetimeEnd(Size, Addr);
     }
   };
 } // end anonymous namespace
@@ -1406,13 +1396,10 @@ void CodeGenFunction::EmitAutoVarCleanups(const AutoVarEmission &emission) {
 
   // Make sure we call @llvm.lifetime.end.  This needs to happen
   // *last*, so the cleanup needs to be pushed *first*.
-  if (emission.useLifetimeMarkers()) {
-    EHStack.pushCleanup<CallLifetimeEnd>(NormalAndEHCleanup,
+  if (emission.useLifetimeMarkers())
+    EHStack.pushCleanup<CallLifetimeEnd>(NormalEHLifetimeMarker,
                                          emission.getAllocatedAddress(),
                                          emission.getSizeForLifetimeMarkers());
-    EHCleanupScope &cleanup = cast<EHCleanupScope>(*EHStack.begin());
-    cleanup.setLifetimeMarker();
-  }
 
   // Check the type for a cleanup.
   if (QualType::DestructionKind dtorKind = D.getType().isDestructedType())

@@ -11,12 +11,12 @@
 
 #include "llvm/DebugInfo/CodeView/CVTypeVisitor.h"
 #include "llvm/DebugInfo/CodeView/CodeView.h"
-#include "llvm/DebugInfo/CodeView/StreamReader.h"
 #include "llvm/DebugInfo/CodeView/TypeIndex.h"
 #include "llvm/DebugInfo/CodeView/TypeRecord.h"
+#include "llvm/DebugInfo/Msf/IndexedStreamData.h"
+#include "llvm/DebugInfo/Msf/MappedBlockStream.h"
+#include "llvm/DebugInfo/Msf/StreamReader.h"
 #include "llvm/DebugInfo/PDB/Raw/Hash.h"
-#include "llvm/DebugInfo/PDB/Raw/IndexedStreamData.h"
-#include "llvm/DebugInfo/PDB/Raw/MappedBlockStream.h"
 #include "llvm/DebugInfo/PDB/Raw/PDBFile.h"
 #include "llvm/DebugInfo/PDB/Raw/RawConstants.h"
 #include "llvm/DebugInfo/PDB/Raw/RawError.h"
@@ -27,6 +27,7 @@
 using namespace llvm;
 using namespace llvm::codeview;
 using namespace llvm::support;
+using namespace llvm::msf;
 using namespace llvm::pdb;
 
 namespace {
@@ -66,7 +67,7 @@ TpiStream::~TpiStream() {}
 
 // Corresponds to `fUDTAnon`.
 template <typename T> static bool isAnonymous(T &Rec) {
-  StringRef Name = Rec.getUniqueName();
+  StringRef Name = Rec.getName();
   return Name == "<unnamed-tag>" || Name == "__unnamed" ||
       Name.endswith("::<unnamed-tag>") || Name.endswith("::__unnamed");
 }
@@ -118,7 +119,7 @@ private:
   template <typename T> Error verify(T &Rec) {
     uint32_t Hash = getTpiHash(Rec, *RawRecord);
     if (Hash % NumHashBuckets != HashValues[Index])
-      return make_error<RawError>(raw_error_code::invalid_tpi_hash);
+      return errorInvalidHash();
     return Error::success();
   }
 
@@ -127,8 +128,14 @@ private:
     support::endian::write32le(Buf, Rec.getUDT().getIndex());
     uint32_t Hash = hashStringV1(StringRef(Buf, 4));
     if (Hash % NumHashBuckets != HashValues[Index])
-      return make_error<RawError>(raw_error_code::invalid_tpi_hash);
+      return errorInvalidHash();
     return Error::success();
+  }
+
+  Error errorInvalidHash() {
+    return make_error<RawError>(
+        raw_error_code::invalid_tpi_hash,
+        "Type index is 0x" + utohexstr(TypeIndex::FirstNonSimpleIndex + Index));
   }
 
   FixedStreamArray<support::ulittle32_t> HashValues;
@@ -263,3 +270,5 @@ iterator_range<CVTypeArray::Iterator>
 TpiStream::types(bool *HadError) const {
   return llvm::make_range(TypeRecords.begin(HadError), TypeRecords.end());
 }
+
+Error TpiStream::commit() { return Error::success(); }

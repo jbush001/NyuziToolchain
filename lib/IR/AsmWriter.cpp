@@ -905,7 +905,7 @@ void SlotTracker::processInstructionMetadata(const Instruction &I) {
   // Process metadata used directly by intrinsics.
   if (const CallInst *CI = dyn_cast<CallInst>(&I))
     if (Function *F = CI->getCalledFunction())
-      if (F->isIntrinsic())
+      if (F->hasLLVMReservedName())
         for (auto &Op : I.operands())
           if (auto *V = dyn_cast_or_null<MetadataAsValue>(Op))
             if (MDNode *N = dyn_cast<MDNode>(V->getMetadata()))
@@ -1720,6 +1720,7 @@ static void writeDISubprogram(raw_ostream &Out, const DISubprogram *N,
   if (N->getVirtuality() != dwarf::DW_VIRTUALITY_none ||
       N->getVirtualIndex() != 0)
     Printer.printInt("virtualIndex", N->getVirtualIndex(), false);
+  Printer.printInt("thisAdjustment", N->getThisAdjustment());
   Printer.printDIFlags("flags", N->getFlags());
   Printer.printBool("isOptimized", N->isOptimized());
   Printer.printMetadata("unit", N->getRawUnit());
@@ -3377,7 +3378,7 @@ void Type::print(raw_ostream &OS, bool /*IsForDebug*/, bool NoDetails) const {
 static bool isReferencingMDNode(const Instruction &I) {
   if (const auto *CI = dyn_cast<CallInst>(&I))
     if (Function *F = CI->getCalledFunction())
-      if (F->isIntrinsic())
+      if (F->hasLLVMReservedName())
         for (auto &Op : I.operands())
           if (auto *V = dyn_cast_or_null<MetadataAsValue>(Op))
             if (isa<MDNode>(V->getMetadata()))

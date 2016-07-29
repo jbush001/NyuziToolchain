@@ -2010,17 +2010,8 @@ InputFile ASTReader::getInputFile(ModuleFile &F, unsigned ID, bool Complain) {
   // For an overridden file, there is nothing to validate.
   if (!Overridden && //
       (StoredSize != File->getSize() ||
-#if defined(LLVM_ON_WIN32)
-       false
-#else
-       // In our regression testing, the Windows file system seems to
-       // have inconsistent modification times that sometimes
-       // erroneously trigger this error-handling path.
-       //
-       // FIXME: This probably also breaks HeaderFileInfo lookups on Windows.
        (StoredTime && StoredTime != File->getModificationTime() &&
         !DisableValidation)
-#endif
        )) {
     if (Complain) {
       // Build a list of the PCH imports that got us here (in reverse).
@@ -2093,7 +2084,7 @@ static bool isDiagnosedResult(ASTReader::ASTReadResult ARR, unsigned Caps) {
 ASTReader::ASTReadResult ASTReader::ReadOptionsBlock(
     BitstreamCursor &Stream, unsigned ClientLoadCapabilities,
     bool AllowCompatibleConfigurationMismatch, ASTReaderListener &Listener,
-    std::string &SuggestedPredefines) {
+    std::string &SuggestedPredefines, bool ValidateDiagnosticOptions) {
   if (Stream.EnterSubBlock(OPTIONS_BLOCK_ID))
     return Failure;
 
@@ -2137,7 +2128,8 @@ ASTReader::ASTReadResult ASTReader::ReadOptionsBlock(
 
     case DIAGNOSTIC_OPTIONS: {
       bool Complain = (ClientLoadCapabilities & ARR_OutOfDate) == 0;
-      if (!AllowCompatibleConfigurationMismatch &&
+      if (ValidateDiagnosticOptions &&
+          !AllowCompatibleConfigurationMismatch &&
           ParseDiagnosticOptions(Record, Complain, Listener))
         return OutOfDate;
       break;
@@ -2264,10 +2256,13 @@ ASTReader::ReadControlBlock(ModuleFile &F,
           // FIXME: Allow this for files explicitly specified with -include-pch.
           bool AllowCompatibleConfigurationMismatch =
               F.Kind == MK_ExplicitModule;
+          const HeaderSearchOptions &HSOpts =
+              PP.getHeaderSearchInfo().getHeaderSearchOpts();
 
           Result = ReadOptionsBlock(Stream, ClientLoadCapabilities,
                                     AllowCompatibleConfigurationMismatch,
-                                    *Listener, SuggestedPredefines);
+                                    *Listener, SuggestedPredefines,
+                                    HSOpts.ModulesValidateDiagnosticOptions);
           if (Result == Failure) {
             Error("malformed block record in AST file");
             return Result;
@@ -2317,6 +2312,11 @@ ASTReader::ReadControlBlock(ModuleFile &F,
       if (hasErrors && !DisableValidation && !AllowASTWithCompilerErrors) {
         Diag(diag::err_pch_with_compiler_errors);
         return HadErrors;
+      }
+      if (hasErrors) {
+        Diags.ErrorOccurred = true;
+        Diags.UncompilableErrorOccurred = true;
+        Diags.UnrecoverableErrorOccurred = true;
       }
 
       F.RelocatablePCH = Record[4];
@@ -4199,7 +4199,7 @@ bool ASTReader::readASTFileControlBlock(
     StringRef Filename, FileManager &FileMgr,
     const PCHContainerReader &PCHContainerRdr,
     bool FindModuleFileExtensions,
-    ASTReaderListener &Listener) {
+    ASTReaderListener &Listener, bool ValidateDiagnosticOptions) {
   // Open the AST file.
   // FIXME: This allows use of the VFS; we do not allow use of the
   // VFS when actually loading a module.
@@ -4239,7 +4239,8 @@ bool ASTReader::readASTFileControlBlock(
         std::string IgnoredSuggestedPredefines;
         if (ReadOptionsBlock(Stream, ARR_ConfigurationMismatch | ARR_OutOfDate,
                              /*AllowCompatibleConfigurationMismatch*/ false,
-                             Listener, IgnoredSuggestedPredefines) != Success)
+                             Listener, IgnoredSuggestedPredefines,
+                             ValidateDiagnosticOptions) != Success)
           return true;
         break;
       }
@@ -4412,7 +4413,8 @@ bool ASTReader::isAcceptableASTFile(
                                ExistingModuleCachePath, FileMgr);
   return !readASTFileControlBlock(Filename, FileMgr, PCHContainerRdr,
                                   /*FindModuleFileExtensions=*/false,
-                                  validator);
+                                  validator,
+                                  /*ValidateDiagnosticOptions=*/true);
 }
 
 ASTReader::ASTReadResult
@@ -4677,6 +4679,13 @@ ASTReader::ReadSubmoduleBlock(ModuleFile &F, unsigned ClientLoadCapabilities) {
       UnresolvedModuleRefs.push_back(Unresolved);
       break;
     }
+
+    case SUBMODULE_INITIALIZERS:
+      SmallVector<uint32_t, 16> Inits;
+      for (auto &ID : Record)
+        Inits.push_back(getGlobalDeclID(F, ID));
+      Context.addLazyModuleInitializers(CurrentModule, Inits);
+      break;
     }
   }
 }
@@ -5624,7 +5633,7 @@ QualType ASTReader::readTypeRecord(unsigned Index) {
     while (NumArgs--)
       Args.push_back(ReadTemplateArgument(*Loc.F, Record, Idx));
     return Context.getDependentTemplateSpecializationType(Keyword, NNS, Name,
-                                                      Args.size(), Args.data());
+                                                          Args);
   }
 
   case TYPE_DEPENDENT_SIZED_ARRAY: {
@@ -5653,11 +5662,9 @@ QualType ASTReader::readTypeRecord(unsigned Index) {
     QualType Underlying = readType(*Loc.F, Record, Idx);
     QualType T;
     if (Underlying.isNull())
-      T = Context.getCanonicalTemplateSpecializationType(Name, Args.data(),
-                                                          Args.size());
+      T = Context.getCanonicalTemplateSpecializationType(Name, Args);
     else
-      T = Context.getTemplateSpecializationType(Name, Args.data(),
-                                                 Args.size(), Underlying);
+      T = Context.getTemplateSpecializationType(Name, Args, Underlying);
     const_cast<Type*>(T.getTypePtr())->setDependent(IsDependent);
     return T;
   }
@@ -6428,6 +6435,9 @@ static Decl *getPredefinedDecl(ASTContext &Context, PredefinedDeclIDs ID) {
 
   case PREDEF_DECL_CF_CONSTANT_STRING_TAG_ID:
     return Context.getCFConstantStringTagDecl();
+
+  case PREDEF_DECL_TYPE_PACK_ELEMENT_ID:
+    return Context.getTypePackElementDecl();
   }
   llvm_unreachable("PredefinedDeclIDs unknown enum value");
 }
@@ -8640,6 +8650,7 @@ void ASTReader::FinishedDeserializing() {
       auto Updates = std::move(PendingExceptionSpecUpdates);
       PendingExceptionSpecUpdates.clear();
       for (auto Update : Updates) {
+        ProcessingUpdatesRAIIObj ProcessingUpdates(*this);
         auto *FPT = Update.second->getType()->castAs<FunctionProtoType>();
         auto ESI = FPT->getExtProtoInfo().ExceptionSpec;
         if (auto *Listener = Context.getASTMutationListener())
@@ -8710,6 +8721,7 @@ ASTReader::ASTReader(
       AllowConfigurationMismatch(AllowConfigurationMismatch),
       ValidateSystemInputs(ValidateSystemInputs),
       UseGlobalIndex(UseGlobalIndex), TriedLoadingGlobalIndex(false),
+      ProcessingUpdateRecords(false),
       CurrSwitchCaseStmts(&SwitchCaseStmts), NumSLocEntriesRead(0),
       TotalNumSLocEntries(0), NumStatementsRead(0), TotalNumStatements(0),
       NumMacrosRead(0), TotalNumMacros(0), NumIdentifierLookups(0),

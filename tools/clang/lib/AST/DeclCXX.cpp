@@ -1651,6 +1651,13 @@ unsigned CXXMethodDecl::size_overridden_methods() const {
   return getASTContext().overridden_methods_size(this);
 }
 
+CXXMethodDecl::overridden_method_range
+CXXMethodDecl::overridden_methods() const {
+  if (isa<CXXConstructorDecl>(this))
+    return overridden_method_range(nullptr, nullptr);
+  return getASTContext().overridden_methods(this);
+}
+
 QualType CXXMethodDecl::getThisType(ASTContext &C) const {
   // C++ 9.3.2p1: The type of this in a member function of a class X is X*.
   // If the member function is declared const, the type of this is const X*,
@@ -2297,6 +2304,44 @@ StaticAssertDecl *StaticAssertDecl::CreateDeserialized(ASTContext &C,
                                                        unsigned ID) {
   return new (C, ID) StaticAssertDecl(nullptr, SourceLocation(), nullptr,
                                       nullptr, SourceLocation(), false);
+}
+
+void BindingDecl::anchor() {}
+
+BindingDecl *BindingDecl::Create(ASTContext &C, DeclContext *DC,
+                                 SourceLocation IdLoc, IdentifierInfo *Id) {
+  return new (C, DC) BindingDecl(DC, IdLoc, Id);
+}
+
+BindingDecl *BindingDecl::CreateDeserialized(ASTContext &C, unsigned ID) {
+  return new (C, ID) BindingDecl(nullptr, SourceLocation(), nullptr);
+}
+
+void DecompositionDecl::anchor() {}
+
+DecompositionDecl *DecompositionDecl::Create(ASTContext &C, DeclContext *DC,
+                                             SourceLocation StartLoc,
+                                             SourceLocation LSquareLoc,
+                                             QualType T, TypeSourceInfo *TInfo,
+                                             StorageClass SC,
+                                             ArrayRef<BindingDecl *> Bindings) {
+  size_t Extra = additionalSizeToAlloc<BindingDecl *>(Bindings.size());
+  return new (C, DC, Extra)
+      DecompositionDecl(C, DC, StartLoc, LSquareLoc, T, TInfo, SC, Bindings);
+}
+
+DecompositionDecl *DecompositionDecl::CreateDeserialized(ASTContext &C,
+                                                         unsigned ID,
+                                                         unsigned NumBindings) {
+  size_t Extra = additionalSizeToAlloc<BindingDecl *>(NumBindings);
+  auto *Result = new (C, ID, Extra) DecompositionDecl(
+      C, nullptr, SourceLocation(), SourceLocation(), QualType(), nullptr, StorageClass(), None);
+  // Set up and clean out the bindings array.
+  Result->NumBindings = NumBindings;
+  auto *Trail = Result->getTrailingObjects<BindingDecl *>();
+  for (unsigned I = 0; I != NumBindings; ++I)
+    new (Trail + I) BindingDecl*(nullptr);
+  return Result;
 }
 
 MSPropertyDecl *MSPropertyDecl::Create(ASTContext &C, DeclContext *DC,

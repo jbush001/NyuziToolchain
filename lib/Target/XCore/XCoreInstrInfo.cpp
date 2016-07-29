@@ -60,17 +60,16 @@ static bool isZeroImm(const MachineOperand &op) {
 /// the destination along with the FrameIndex of the loaded stack slot.  If
 /// not, return 0.  This predicate must return 0 if the instruction has
 /// any side effects other than loading from the stack slot.
-unsigned
-XCoreInstrInfo::isLoadFromStackSlot(const MachineInstr *MI, int &FrameIndex) const{
-  int Opcode = MI->getOpcode();
+unsigned XCoreInstrInfo::isLoadFromStackSlot(const MachineInstr &MI,
+                                             int &FrameIndex) const {
+  int Opcode = MI.getOpcode();
   if (Opcode == XCore::LDWFI) 
   {
-    if ((MI->getOperand(1).isFI()) && // is a stack slot
-        (MI->getOperand(2).isImm()) &&  // the imm is zero
-        (isZeroImm(MI->getOperand(2)))) 
-    {
-      FrameIndex = MI->getOperand(1).getIndex();
-      return MI->getOperand(0).getReg();
+    if ((MI.getOperand(1).isFI()) &&  // is a stack slot
+        (MI.getOperand(2).isImm()) && // the imm is zero
+        (isZeroImm(MI.getOperand(2)))) {
+      FrameIndex = MI.getOperand(1).getIndex();
+      return MI.getOperand(0).getReg();
     }
   }
   return 0;
@@ -81,18 +80,16 @@ XCoreInstrInfo::isLoadFromStackSlot(const MachineInstr *MI, int &FrameIndex) con
   /// the source reg along with the FrameIndex of the loaded stack slot.  If
   /// not, return 0.  This predicate must return 0 if the instruction has
   /// any side effects other than storing to the stack slot.
-unsigned
-XCoreInstrInfo::isStoreToStackSlot(const MachineInstr *MI,
-                                   int &FrameIndex) const {
-  int Opcode = MI->getOpcode();
+unsigned XCoreInstrInfo::isStoreToStackSlot(const MachineInstr &MI,
+                                            int &FrameIndex) const {
+  int Opcode = MI.getOpcode();
   if (Opcode == XCore::STWFI)
   {
-    if ((MI->getOperand(1).isFI()) && // is a stack slot
-        (MI->getOperand(2).isImm()) &&  // the imm is zero
-        (isZeroImm(MI->getOperand(2))))
-    {
-      FrameIndex = MI->getOperand(1).getIndex();
-      return MI->getOperand(0).getReg();
+    if ((MI.getOperand(1).isFI()) &&  // is a stack slot
+        (MI.getOperand(2).isImm()) && // the imm is zero
+        (isZeroImm(MI.getOperand(2)))) {
+      FrameIndex = MI.getOperand(1).getIndex();
+      return MI.getOperand(0).getReg();
     }
   }
   return 0;
@@ -190,11 +187,11 @@ static inline XCore::CondCode GetOppositeBranchCondition(XCore::CondCode CC)
 /// Note that RemoveBranch and InsertBranch must be implemented to support
 /// cases where this method returns success.
 ///
-bool
-XCoreInstrInfo::AnalyzeBranch(MachineBasicBlock &MBB, MachineBasicBlock *&TBB,
-                              MachineBasicBlock *&FBB,
-                              SmallVectorImpl<MachineOperand> &Cond,
-                              bool AllowModify) const {
+bool XCoreInstrInfo::analyzeBranch(MachineBasicBlock &MBB,
+                                   MachineBasicBlock *&TBB,
+                                   MachineBasicBlock *&FBB,
+                                   SmallVectorImpl<MachineOperand> &Cond,
+                                   bool AllowModify) const {
   // If the block has no terminators, it just falls into the block after it.
   MachineBasicBlock::iterator I = MBB.getLastNonDebugInstr();
   if (I == MBB.end())
@@ -204,8 +201,8 @@ XCoreInstrInfo::AnalyzeBranch(MachineBasicBlock &MBB, MachineBasicBlock *&TBB,
     return false;
 
   // Get the last instruction in the block.
-  MachineInstr *LastInst = I;
-  
+  MachineInstr *LastInst = &*I;
+
   // If there is only one terminator instruction, process it.
   if (I == MBB.begin() || !isUnpredicatedTerminator(*--I)) {
     if (IsBRU(LastInst->getOpcode())) {
@@ -227,7 +224,7 @@ XCoreInstrInfo::AnalyzeBranch(MachineBasicBlock &MBB, MachineBasicBlock *&TBB,
   }
   
   // Get the instruction before it if it's a terminator.
-  MachineInstr *SecondLastInst = I;
+  MachineInstr *SecondLastInst = &*I;
 
   // If there are three terminators, we don't know what sort of block this is.
   if (SecondLastInst && I != MBB.begin() && isUnpredicatedTerminator(*--I))

@@ -106,6 +106,16 @@ SBMemoryRegionInfo::IsExecutable () {
 }
 
 bool
+SBMemoryRegionInfo::IsMapped () {
+    return m_opaque_ap->GetMapped() == MemoryRegionInfo::eYes;
+}
+
+const char *
+SBMemoryRegionInfo::GetName () {
+    return m_opaque_ap->GetName().AsCString();
+}
+
+bool
 SBMemoryRegionInfo::GetDescription (SBStream &description)
 {
     Stream &strm = description.ref();

@@ -10,28 +10,31 @@
 #ifndef LLVM_DEBUGINFO_PDB_RAW_PDBSYMBOLSTREAM_H
 #define LLVM_DEBUGINFO_PDB_RAW_PDBSYMBOLSTREAM_H
 
-#include "llvm/DebugInfo/CodeView/StreamArray.h"
 #include "llvm/DebugInfo/CodeView/SymbolRecord.h"
-#include "llvm/DebugInfo/PDB/Raw/MappedBlockStream.h"
 
 #include "llvm/Support/Error.h"
 
 namespace llvm {
+namespace msf {
+class MappedBlockStream;
+}
 namespace pdb {
 class PDBFile;
 
 class SymbolStream {
 public:
-  SymbolStream(std::unique_ptr<MappedBlockStream> Stream);
+  SymbolStream(std::unique_ptr<msf::MappedBlockStream> Stream);
   ~SymbolStream();
   Error reload();
 
   iterator_range<codeview::CVSymbolArray::Iterator>
   getSymbols(bool *HadError) const;
 
+  Error commit();
+
 private:
   codeview::CVSymbolArray SymbolRecords;
-  std::unique_ptr<MappedBlockStream> Stream;
+  std::unique_ptr<msf::MappedBlockStream> Stream;
 };
 }
 }

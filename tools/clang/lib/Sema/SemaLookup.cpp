@@ -12,9 +12,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "clang/Sema/Lookup.h"
 #include "clang/AST/ASTContext.h"
-#include "clang/AST/ASTMutationListener.h"
 #include "clang/AST/CXXInheritance.h"
 #include "clang/AST/Decl.h"
 #include "clang/AST/DeclCXX.h"
@@ -29,6 +27,7 @@
 #include "clang/Lex/ModuleLoader.h"
 #include "clang/Lex/Preprocessor.h"
 #include "clang/Sema/DeclSpec.h"
+#include "clang/Sema/Lookup.h"
 #include "clang/Sema/Overload.h"
 #include "clang/Sema/Scope.h"
 #include "clang/Sema/ScopeInfo.h"
@@ -37,17 +36,13 @@
 #include "clang/Sema/TemplateDeduction.h"
 #include "clang/Sema/TypoCorrection.h"
 #include "llvm/ADT/STLExtras.h"
-#include "llvm/ADT/SetVector.h"
 #include "llvm/ADT/SmallPtrSet.h"
-#include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/TinyPtrVector.h"
 #include "llvm/ADT/edit_distance.h"
 #include "llvm/Support/ErrorHandling.h"
 #include <algorithm>
 #include <iterator>
-#include <limits>
 #include <list>
-#include <map>
 #include <set>
 #include <utility>
 #include <vector>
@@ -680,10 +675,14 @@ static bool LookupBuiltin(Sema &S, LookupResult &R) {
       NameKind == Sema::LookupRedeclarationWithLinkage) {
     IdentifierInfo *II = R.getLookupName().getAsIdentifierInfo();
     if (II) {
-      if (S.getLangOpts().CPlusPlus && NameKind == Sema::LookupOrdinaryName &&
-          II == S.getASTContext().getMakeIntegerSeqName()) {
-        R.addDecl(S.getASTContext().getMakeIntegerSeqDecl());
-        return true;
+      if (S.getLangOpts().CPlusPlus && NameKind == Sema::LookupOrdinaryName) {
+        if (II == S.getASTContext().getMakeIntegerSeqName()) {
+          R.addDecl(S.getASTContext().getMakeIntegerSeqDecl());
+          return true;
+        } else if (II == S.getASTContext().getTypePackElementName()) {
+          R.addDecl(S.getASTContext().getTypePackElementDecl());
+          return true;
+        }
       }
 
       // If this is a builtin on this (or all) targets, create the decl.
@@ -1368,8 +1367,9 @@ Module *Sema::getOwningModule(Decl *Entity) {
       auto &SrcMgr = PP.getSourceManager();
       SourceLocation StartLoc =
           SrcMgr.getLocForStartOfFile(SrcMgr.getMainFileID());
-      auto &TopLevel =
-          VisibleModulesStack.empty() ? VisibleModules : VisibleModulesStack[0];
+      auto &TopLevel = ModuleScopes.empty()
+                           ? VisibleModules
+                           : ModuleScopes[0].OuterVisibleModules;
       TopLevel.setVisible(CachedFakeTopLevelModule, StartLoc);
     }
 
@@ -4932,8 +4932,8 @@ void Sema::diagnoseTypo(const TypoCorrection &Correction,
 static NamedDecl *getDefinitionToImport(NamedDecl *D) {
   if (VarDecl *VD = dyn_cast<VarDecl>(D))
     return VD->getDefinition();
-  if (const FunctionDecl *FD = dyn_cast<FunctionDecl>(D))
-    return FD->isDefined(FD) ? const_cast<FunctionDecl*>(FD) : nullptr;
+  if (FunctionDecl *FD = dyn_cast<FunctionDecl>(D))
+    return FD->getDefinition();
   if (TagDecl *TD = dyn_cast<TagDecl>(D))
     return TD->getDefinition();
   if (ObjCInterfaceDecl *ID = dyn_cast<ObjCInterfaceDecl>(D))

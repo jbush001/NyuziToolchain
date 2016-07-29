@@ -69,6 +69,9 @@ function(add_llvm_symbol_exports target_name export_file)
       COMMENT "Creating export file for ${target_name}")
     set_property(TARGET ${target_name} APPEND_STRING PROPERTY
                  LINK_FLAGS " -Wl,-exported_symbols_list,${CMAKE_CURRENT_BINARY_DIR}/${native_export_file}")
+  elseif(${CMAKE_SYSTEM_NAME} MATCHES "AIX")
+    set_property(TARGET ${target_name} APPEND_STRING PROPERTY
+                 LINK_FLAGS " -Wl,-bE:${export_file}")
   elseif(LLVM_HAVE_LINK_VERSION_SCRIPT)
     # Gold and BFD ld require a version script rather than a plain list.
     set(native_export_file "${target_name}.exports")
@@ -156,7 +159,7 @@ function(add_link_opts target_name)
 
     # Pass -O3 to the linker. This enabled different optimizations on different
     # linkers.
-    if(NOT (${CMAKE_SYSTEM_NAME} MATCHES "Darwin|SunOS" OR WIN32))
+    if(NOT (${CMAKE_SYSTEM_NAME} MATCHES "Darwin|SunOS|AIX" OR WIN32))
       set_property(TARGET ${target_name} APPEND_STRING PROPERTY
                    LINK_FLAGS " -Wl,-O3")
     endif()
@@ -695,20 +698,22 @@ function(export_executable_symbols target)
     set(link_libs ${new_libs})
     while(NOT "${new_libs}" STREQUAL "")
       foreach(lib ${new_libs})
-        get_target_property(lib_type ${lib} TYPE)
-        if("${lib_type}" STREQUAL "STATIC_LIBRARY")
-          list(APPEND static_libs ${lib})
-        else()
-          list(APPEND other_libs ${lib})
-        endif()
-        get_target_property(transitive_libs ${lib} INTERFACE_LINK_LIBRARIES)
-        foreach(transitive_lib ${transitive_libs})
-          list(FIND link_libs ${transitive_lib} idx)
-          if(TARGET ${transitive_lib} AND idx EQUAL -1)
-            list(APPEND newer_libs ${transitive_lib})
-            list(APPEND link_libs ${transitive_lib})
+        if(TARGET ${lib})
+          get_target_property(lib_type ${lib} TYPE)
+          if("${lib_type}" STREQUAL "STATIC_LIBRARY")
+            list(APPEND static_libs ${lib})
+          else()
+            list(APPEND other_libs ${lib})
           endif()
-        endforeach(transitive_lib)
+          get_target_property(transitive_libs ${lib} INTERFACE_LINK_LIBRARIES)
+          foreach(transitive_lib ${transitive_libs})
+            list(FIND link_libs ${transitive_lib} idx)
+            if(TARGET ${transitive_lib} AND idx EQUAL -1)
+              list(APPEND newer_libs ${transitive_lib})
+              list(APPEND link_libs ${transitive_lib})
+            endif()
+          endforeach(transitive_lib)
+        endif()
       endforeach(lib)
       set(new_libs ${newer_libs})
       set(newer_libs "")
@@ -798,11 +803,16 @@ macro(add_llvm_example name)
   set_target_properties(${name} PROPERTIES FOLDER "Examples")
 endmacro(add_llvm_example name)
 
-
+# This is a macro that is used to create targets for executables that are needed
+# for development, but that are not intended to be installed by default.
 macro(add_llvm_utility name)
+  if ( NOT LLVM_BUILD_UTILS )
+    set(EXCLUDE_FROM_ALL ON)
+  endif()
+
   add_llvm_executable(${name} DISABLE_LLVM_LINK_LLVM_DYLIB ${ARGN})
   set_target_properties(${name} PROPERTIES FOLDER "Utils")
-  if( LLVM_INSTALL_UTILS )
+  if( LLVM_INSTALL_UTILS AND LLVM_BUILD_UTILS )
     install (TARGETS ${name}
       RUNTIME DESTINATION bin
       COMPONENT ${name})
@@ -987,7 +997,7 @@ function(llvm_add_go_executable binary pkgpath)
     endforeach(d)
     set(ldflags "${CMAKE_EXE_LINKER_FLAGS}")
     add_custom_command(OUTPUT ${binpath}
-      COMMAND ${CMAKE_BINARY_DIR}/bin/llvm-go "go=${GO_EXECUTABLE}" "cc=${cc}" "cxx=${cxx}" "cppflags=${cppflags}" "ldflags=${ldflags}"
+      COMMAND ${CMAKE_BINARY_DIR}/bin/llvm-go "go=${GO_EXECUTABLE}" "cc=${cc}" "cxx=${cxx}" "cppflags=${cppflags}" "ldflags=${ldflags}" "packages=${LLVM_GO_PACKAGES}"
               ${ARG_GOFLAGS} build -o ${binpath} ${pkgpath}
       DEPENDS llvm-config ${CMAKE_BINARY_DIR}/bin/llvm-go${CMAKE_EXECUTABLE_SUFFIX}
               ${llvmlibs} ${ARG_DEPENDS}
@@ -1128,7 +1138,8 @@ function(add_lit_testsuites project directory)
         continue()
       endif()
       string(FIND ${lit_suite} Inputs is_inputs)
-      if (NOT is_inputs EQUAL -1)
+      string(FIND ${lit_suite} Output is_output)
+      if (NOT (is_inputs EQUAL -1 AND is_output EQUAL -1))
         continue()
       endif()
 

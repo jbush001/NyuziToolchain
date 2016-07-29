@@ -892,6 +892,10 @@
 		AF25AB26188F685C0030DEC3 /* AppleGetQueuesHandler.cpp in Sources */ = {isa = PBXBuildFile; fileRef = AF25AB24188F685C0030DEC3 /* AppleGetQueuesHandler.cpp */; };
 		AF26703A1852D01E00B6CC36 /* Queue.cpp in Sources */ = {isa = PBXBuildFile; fileRef = AF2670381852D01E00B6CC36 /* Queue.cpp */; };
 		AF26703B1852D01E00B6CC36 /* QueueList.cpp in Sources */ = {isa = PBXBuildFile; fileRef = AF2670391852D01E00B6CC36 /* QueueList.cpp */; };
+		AF27AD551D3603EA00CF2833 /* DynamicLoaderDarwin.cpp in Sources */ = {isa = PBXBuildFile; fileRef = AF27AD531D3603EA00CF2833 /* DynamicLoaderDarwin.cpp */; };
+		AF27AD561D3603EA00CF2833 /* DynamicLoaderDarwin.h in Headers */ = {isa = PBXBuildFile; fileRef = AF27AD541D3603EA00CF2833 /* DynamicLoaderDarwin.h */; };
+		AF2907BF1D3F082400E10654 /* DynamicLoaderMacOS.cpp in Sources */ = {isa = PBXBuildFile; fileRef = AF2907BD1D3F082400E10654 /* DynamicLoaderMacOS.cpp */; };
+		AF2907C01D3F082400E10654 /* DynamicLoaderMacOS.h in Headers */ = {isa = PBXBuildFile; fileRef = AF2907BE1D3F082400E10654 /* DynamicLoaderMacOS.h */; };
 		AF2BA6EC1A707E3400C5248A /* UriParser.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 33064C991A5C7A330033D415 /* UriParser.cpp */; };
 		AF2BCA6C18C7EFDE005B4526 /* JITLoaderGDB.cpp in Sources */ = {isa = PBXBuildFile; fileRef = AF2BCA6918C7EFDE005B4526 /* JITLoaderGDB.cpp */; };
 		AF33B4BE1C1FA441001B28D9 /* NetBSDSignals.cpp in Sources */ = {isa = PBXBuildFile; fileRef = AF33B4BC1C1FA441001B28D9 /* NetBSDSignals.cpp */; };
@@ -2532,6 +2536,7 @@
 		940495791BEC497E00926025 /* NSException.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = NSException.cpp; path = Language/ObjC/NSException.cpp; sourceTree = "<group>"; };
 		94094C68163B6CCC0083A547 /* ValueObjectCast.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = ValueObjectCast.h; path = include/lldb/Core/ValueObjectCast.h; sourceTree = "<group>"; };
 		94094C69163B6CD90083A547 /* ValueObjectCast.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = ValueObjectCast.cpp; path = source/Core/ValueObjectCast.cpp; sourceTree = "<group>"; };
+		940B01FE1D2D82220058795E /* ThreadSafeSTLVector.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = ThreadSafeSTLVector.h; path = include/lldb/Core/ThreadSafeSTLVector.h; sourceTree = "<group>"; };
 		940B02F419DC96CB00AD0F52 /* SBExecutionContext.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = SBExecutionContext.h; path = include/lldb/API/SBExecutionContext.h; sourceTree = "<group>"; };
 		940B02F519DC96E700AD0F52 /* SBExecutionContext.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = SBExecutionContext.cpp; path = source/API/SBExecutionContext.cpp; sourceTree = "<group>"; };
 		940B02F719DC970900AD0F52 /* SBExecutionContext.i */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c.preprocessed; path = SBExecutionContext.i; sourceTree = "<group>"; };
@@ -2812,6 +2817,10 @@
 		AF25AB25188F685C0030DEC3 /* AppleGetQueuesHandler.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = AppleGetQueuesHandler.h; sourceTree = "<group>"; };
 		AF2670381852D01E00B6CC36 /* Queue.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = Queue.cpp; path = source/Target/Queue.cpp; sourceTree = "<group>"; };
 		AF2670391852D01E00B6CC36 /* QueueList.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = QueueList.cpp; path = source/Target/QueueList.cpp; sourceTree = "<group>"; };
+		AF27AD531D3603EA00CF2833 /* DynamicLoaderDarwin.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = DynamicLoaderDarwin.cpp; sourceTree = "<group>"; };
+		AF27AD541D3603EA00CF2833 /* DynamicLoaderDarwin.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = DynamicLoaderDarwin.h; sourceTree = "<group>"; };
+		AF2907BD1D3F082400E10654 /* DynamicLoaderMacOS.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = DynamicLoaderMacOS.cpp; sourceTree = "<group>"; };
+		AF2907BE1D3F082400E10654 /* DynamicLoaderMacOS.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = DynamicLoaderMacOS.h; sourceTree = "<group>"; };
 		AF2BCA6918C7EFDE005B4526 /* JITLoaderGDB.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = JITLoaderGDB.cpp; sourceTree = "<group>"; };
 		AF2BCA6A18C7EFDE005B4526 /* JITLoaderGDB.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = JITLoaderGDB.h; sourceTree = "<group>"; };
 		AF33B4BC1C1FA441001B28D9 /* NetBSDSignals.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = NetBSDSignals.cpp; path = Utility/NetBSDSignals.cpp; sourceTree = "<group>"; };
@@ -3290,6 +3299,10 @@
 		260C897910F57C5600BB2B04 /* MacOSX-DYLD */ = {
 			isa = PBXGroup;
 			children = (
+				AF27AD531D3603EA00CF2833 /* DynamicLoaderDarwin.cpp */,
+				AF27AD541D3603EA00CF2833 /* DynamicLoaderDarwin.h */,
+				AF2907BD1D3F082400E10654 /* DynamicLoaderMacOS.cpp */,
+				AF2907BE1D3F082400E10654 /* DynamicLoaderMacOS.h */,
 				260C897A10F57C5600BB2B04 /* DynamicLoaderMacOSXDYLD.cpp */,
 				260C897B10F57C5600BB2B04 /* DynamicLoaderMacOSXDYLD.h */,
 			);
@@ -4422,6 +4435,7 @@
 				AFEC3361194A8ABA00FF05C6 /* StructuredData.cpp */,
 				26B167A41123BF5500DC7B4F /* ThreadSafeValue.h */,
 				263FEDA5112CC1DA00E4C208 /* ThreadSafeSTLMap.h */,
+				940B01FE1D2D82220058795E /* ThreadSafeSTLVector.h */,
 				26BC7D7E10F1B77400F91463 /* Timer.h */,
 				26BC7E9610F1B85900F91463 /* Timer.cpp */,
 				94ED54A119C8A822007BE2EA /* ThreadSafeDenseMap.h */,
@@ -6070,6 +6084,7 @@
 				260A63171861008E00FECF8E /* IOHandler.h in Headers */,
 				267F68581CC02EAE0086832B /* RegisterContextPOSIX_s390x.h in Headers */,
 				6D0F614F1C80AB0C00A4ECEE /* JavaLanguageRuntime.h in Headers */,
+				AF27AD561D3603EA00CF2833 /* DynamicLoaderDarwin.h in Headers */,
 				AFCB2BBE1BF577F40018B553 /* PythonExceptionState.h in Headers */,
 				267F684B1CC02DED0086832B /* ABISysV_s390x.h in Headers */,
 				AF8AD6311BEC28A400150209 /* PlatformAppleWatchSimulator.h in Headers */,
@@ -6081,7 +6096,7 @@
 /* Begin PBXLegacyTarget section */
 		2387551E1C24974600CCE8C3 /* lldb-python-test-suite */ = {
 			isa = PBXLegacyTarget;
-			buildArgumentsString = "-u $(SRCROOT)/test/dotest.py --apple-sdk $(PLATFORM_NAME) --executable=$(BUILD_DIR)/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)/lldb -C $(LLDB_PYTHON_TESTSUITE_CC) --results-formatter lldbsuite.test_event.formatter.xunit.XunitFormatter --results-file $(BUILD_DIR)/test-results.xml --rerun-all-issues --env TERM=vt100 -O--xpass=ignore";
+			buildArgumentsString = "-u $(SRCROOT)/test/dotest.py --apple-sdk $(PLATFORM_NAME) --executable=$(BUILD_DIR)/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)/lldb -C $(LLDB_PYTHON_TESTSUITE_CC) --session-file-format fm --results-formatter lldbsuite.test_event.formatter.xunit.XunitFormatter --results-file $(BUILD_DIR)/test-results.xml --rerun-all-issues --env TERM=vt100 -O--xpass=ignore";
 			buildConfigurationList = 238755241C24974600CCE8C3 /* Build configuration list for PBXLegacyTarget "lldb-python-test-suite" */;
 			buildPhases = (
 			);
@@ -6407,7 +6422,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/bash;
-			shellScript = "/usr/bin/python $SRCROOT/scripts/prepare_bindings.py --find-swig --framework --src-root $SRCROOT --target-dir $TARGET_BUILD_DIR --config-build-dir $CONFIGURATION_BUILD_DIR --target-platform Darwin";
+			shellScript = "/usr/bin/python $SRCROOT/scripts/prepare_bindings.py --find-swig --framework --src-root $SRCROOT --target-dir $TARGET_BUILD_DIR --config-build-dir $BUILT_PRODUCTS_DIR --target-platform Darwin";
 		};
 		4959511A1A1ACE9500F6F8FC /* Install Clang compiler headers */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -6823,6 +6838,7 @@
 				2689008413353E2200698AC0 /* CommandObjectRegexCommand.cpp in Sources */,
 				2689008513353E2200698AC0 /* CommandReturnObject.cpp in Sources */,
 				6D95DC001B9DC057000E318A /* DIERef.cpp in Sources */,
+				AF27AD551D3603EA00CF2833 /* DynamicLoaderDarwin.cpp in Sources */,
 				3FDFE53519A29327009756A7 /* HostInfoBase.cpp in Sources */,
 				26474CBE18D0CB2D0073DEBA /* RegisterContextMach_i386.cpp in Sources */,
 				2689008613353E2200698AC0 /* Options.cpp in Sources */,
@@ -6940,6 +6956,7 @@
 				268900ED13353E6F00698AC0 /* ObjCLanguageRuntime.cpp in Sources */,
 				268900EE13353E6F00698AC0 /* PathMappingList.cpp in Sources */,
 				4C2479BD1BA39295009C9A7B /* FunctionCaller.cpp in Sources */,
+				AF2907BF1D3F082400E10654 /* DynamicLoaderMacOS.cpp in Sources */,
 				268900EF13353E6F00698AC0 /* Platform.cpp in Sources */,
 				268900F013353E6F00698AC0 /* Process.cpp in Sources */,
 				26BC17AD18C7F4CB00D2196D /* RegisterContextPOSIXCore_mips64.cpp in Sources */,

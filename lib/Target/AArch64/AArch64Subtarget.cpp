@@ -14,7 +14,6 @@
 #include "AArch64Subtarget.h"
 #include "AArch64InstrInfo.h"
 #include "AArch64PBQPRegAlloc.h"
-#include "llvm/CodeGen/Analysis.h"
 #include "llvm/CodeGen/MachineScheduler.h"
 #include "llvm/IR/GlobalValue.h"
 #include "llvm/Support/TargetRegistry.h"
@@ -75,7 +74,9 @@ void AArch64Subtarget::initializeProperties() {
     MinPrefetchStride = 1024;
     MaxPrefetchIterationsAhead = 11;
     break;
-  case Vulcan: break;
+  case Vulcan:
+    MaxInterleaveFactor = 4;
+    break;
   case CortexA35: break;
   case CortexA53: break;
   case CortexA72: break;
@@ -95,6 +96,16 @@ AArch64Subtarget::AArch64Subtarget(const Triple &TT, const std::string &CPU,
 const CallLowering *AArch64Subtarget::getCallLowering() const {
   assert(GISel && "Access to GlobalISel APIs not set");
   return GISel->getCallLowering();
+}
+
+const InstructionSelector *AArch64Subtarget::getInstructionSelector() const {
+  assert(GISel && "Access to GlobalISel APIs not set");
+  return GISel->getInstructionSelector();
+}
+
+const MachineLegalizer *AArch64Subtarget::getMachineLegalizer() const {
+  assert(GISel && "Access to GlobalISel APIs not set");
+  return GISel->getMachineLegalizer();
 }
 
 const RegisterBankInfo *AArch64Subtarget::getRegBankInfo() const {
@@ -137,8 +148,7 @@ const char *AArch64Subtarget::getBZeroEntry() const {
 }
 
 void AArch64Subtarget::overrideSchedPolicy(MachineSchedPolicy &Policy,
-                                         MachineInstr *begin, MachineInstr *end,
-                                         unsigned NumRegionInstrs) const {
+                                           unsigned NumRegionInstrs) const {
   // LNT run (at least on Cyclone) showed reasonably significant gains for
   // bi-directional scheduling. 253.perlbmk.
   Policy.OnlyTopDown = false;

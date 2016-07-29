@@ -67,6 +67,34 @@ TLS models are mutually exclusive.
   }];
 }
 
+def DLLExportDocs : Documentation {
+  let Category = DocCatVariable;
+  let Content = [{
+The ``__declspec(dllexport)`` attribute declares a variable, function, or
+Objective-C interface to be exported from the module.  It is available under the
+``-fdeclspec`` flag for compatibility with various compilers.  The primary use
+is for COFF object files which explicitly specify what interfaces are available
+for external use.  See the dllexport_ documentation on MSDN for more
+information.
+
+.. _dllexport: https://msdn.microsoft.com/en-us/library/3y1sfaz2.aspx
+  }];
+}
+
+def DLLImportDocs : Documentation {
+  let Category = DocCatVariable;
+  let Content = [{
+The ``__declspec(dllimport)`` attribute declares a variable, function, or
+Objective-C interface to be imported from an external module.  It is available
+under the ``-fdeclspec`` flag for compatibility with various compilers.  The
+primary use is for COFF object files which explicitly specify what interfaces
+are imported from external modules.  See the dllimport_ documentation on MSDN
+for more information.
+
+.. _dllimport: https://msdn.microsoft.com/en-us/library/3y1sfaz2.aspx
+  }];
+}
+
 def ThreadDocs : Documentation {
   let Category = DocCatVariable;
   let Content = [{
@@ -746,6 +774,8 @@ are:
 ``macos``
   Apple's Mac OS X operating system.  The minimum deployment target is
   specified by the ``-mmacosx-version-min=*version*`` command-line argument.
+  ``macosx`` is supported for backward-compatibility reasons, but it is
+  deprecated.
 
 ``tvos``
   Apple's tvOS operating system.  The minimum deployment target is specified by
@@ -2446,5 +2476,17 @@ functions to run on computational resources such as multi-core CPUs and GPUs.
 See the RenderScript_ documentation for more information.
 
 .. _RenderScript: https://developer.android.com/guide/topics/renderscript/compute.html
+  }];
+}
+
+def XRayDocs : Documentation {
+  let Category = DocCatFunction;
+  let Heading = "xray_always_instrument (clang::xray_always_instrument), xray_never_instrument (clang::xray_never_instrument)";
+  let Content = [{
+``__attribute__((xray_always_instrument))`` or ``[[clang::xray_always_instrument]]`` is used to mark member functions (in C++), methods (in Objective C), and free functions (in C, C++, and Objective C) to be instrumented with XRay. This will cause the function to always have space at the beginning and exit points to allow for runtime patching.
+
+Conversely, ``__attribute__((xray_never_instrument))`` or ``[[clang::xray_never_instrument]]`` will inhibit the insertion of these instrumentation points.
+
+If a function has neither of these attributes, they become subject to the XRay heuristics used to determine whether a function should be instrumented or otherwise.
   }];
 }

@@ -575,6 +575,10 @@ private:
     TypeIndex UnderlyingType;
     TypeIndex FieldListType;
     // Name: The null-terminated name follows.
+
+    bool hasUniqueName() const {
+      return Properties & uint16_t(ClassOptions::HasUniqueName);
+    }
   };
 
   TypeIndex UnderlyingType;
@@ -1191,7 +1195,7 @@ private:
 };
 
 typedef CVRecord<TypeLeafKind> CVType;
-typedef VarStreamArray<CVType> CVTypeArray;
+typedef msf::VarStreamArray<CVType> CVTypeArray;
 }
 }
 

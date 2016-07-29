@@ -40,6 +40,8 @@ def AMDGPUFmasOp : SDTypeProfile<1, 4,
   [SDTCisFP<0>, SDTCisSameAs<0, 1>, SDTCisSameAs<0, 2>, SDTCisSameAs<0, 3>, SDTCisInt<4>]
 >;
 
+def AMDGPUKillSDT : SDTypeProfile<0, 1, [SDTCisInt<0>]>;
+
 //===----------------------------------------------------------------------===//
 // AMDGPU DAG Nodes
 //
@@ -65,6 +67,7 @@ def AMDGPUrcp : SDNode<"AMDGPUISD::RCP", SDTFPUnaryOp>;
 def AMDGPUrsq : SDNode<"AMDGPUISD::RSQ", SDTFPUnaryOp>;
 
 // out = 1.0 / sqrt(a)
+def AMDGPUrcp_legacy : SDNode<"AMDGPUISD::RCP_LEGACY", SDTFPUnaryOp>;
 def AMDGPUrsq_legacy : SDNode<"AMDGPUISD::RSQ_LEGACY", SDTFPUnaryOp>;
 
 // out = 1.0 / sqrt(a) result clamped to +/- max_float.
@@ -80,6 +83,10 @@ def AMDGPUfp_class : SDNode<"AMDGPUISD::FP_CLASS", AMDGPUFPClassOp>;
 //   nan < x ? nan : x -> x
 def AMDGPUfmax_legacy : SDNode<"AMDGPUISD::FMAX_LEGACY", SDTFPBinOp,
   []
+>;
+
+def AMDGPUfmul_legacy : SDNode<"AMDGPUISD::FMUL_LEGACY", SDTFPBinOp,
+  [SDNPCommutative, SDNPAssociative]
 >;
 
 def AMDGPUclamp : SDNode<"AMDGPUISD::CLAMP", SDTFPTernaryOp, []>;
@@ -202,6 +209,7 @@ def AMDGPUbfi : SDNode<"AMDGPUISD::BFI", AMDGPUDTIntTernaryOp>;
 def AMDGPUbfm : SDNode<"AMDGPUISD::BFM", SDTIntBinOp>;
 
 def AMDGPUffbh_u32 : SDNode<"AMDGPUISD::FFBH_U32", SDTIntUnaryOp>;
+def AMDGPUffbh_i32 : SDNode<"AMDGPUISD::FFBH_I32", SDTIntUnaryOp>;
 
 // Signed and unsigned 24-bit mulitply.  The highest 8-bits are ignore when
 // performing the mulitply.  The result is a 32-bit value.
@@ -244,6 +252,9 @@ def AMDGPUinterp_p1 : SDNode<"AMDGPUISD::INTERP_P1",
 def AMDGPUinterp_p2 : SDNode<"AMDGPUISD::INTERP_P2",
                       SDTypeProfile<1, 4, [SDTCisFP<0>]>,
                       [SDNPInGlue]>;
+
+def AMDGPUkill : SDNode<"AMDGPUISD::KILL", AMDGPUKillSDT,
+  [SDNPHasChain, SDNPSideEffect]>;
 
 //===----------------------------------------------------------------------===//
 // Flow Control Profile Types

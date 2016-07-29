@@ -40,17 +40,21 @@ namespace {
         ListEntry
         next ()
         {
+            static ConstString g_next("__next_");
+            
             if (!m_entry_sp)
                 return ListEntry();
-            return ListEntry(m_entry_sp->GetChildAtIndexPath({0,1}));
+            return ListEntry(m_entry_sp->GetChildMemberWithName(g_next, true));
         }
 
         ListEntry
         prev ()
         {
+            static ConstString g_prev("__prev_");
+
             if (!m_entry_sp)
                 return ListEntry();
-            return ListEntry(m_entry_sp->GetChildAtIndexPath({0,0}));
+            return ListEntry(m_entry_sp->GetChildMemberWithName(g_prev, true));
         }
 
         uint64_t
@@ -200,7 +204,6 @@ namespace lldb_private {
             ValueObject* m_tail;
             CompilerType m_element_type;
             size_t m_count;
-            std::map<size_t,lldb::ValueObjectSP> m_children;
             std::map<size_t, ListIterator> m_iterators;
         };
     } // namespace formatters
@@ -215,7 +218,6 @@ lldb_private::formatters::LibcxxStdListSyntheticFrontEnd::LibcxxStdListSynthetic
     m_tail(nullptr),
     m_element_type(),
     m_count(UINT32_MAX),
-    m_children(),
     m_iterators()
 {
     if (valobj_sp)
@@ -306,15 +308,14 @@ lldb_private::formatters::LibcxxStdListSyntheticFrontEnd::CalculateNumChildren (
 lldb::ValueObjectSP
 lldb_private::formatters::LibcxxStdListSyntheticFrontEnd::GetChildAtIndex (size_t idx)
 {
+    static ConstString g_value("__value_");
+    static ConstString g_next("__next_");
+
     if (idx >= CalculateNumChildren())
         return lldb::ValueObjectSP();
     
     if (!m_head || !m_tail || m_node_address == 0)
         return lldb::ValueObjectSP();
-    
-    auto cached = m_children.find(idx);
-    if (cached != m_children.end())
-        return cached->second;
     
     if (HasLoop(idx+1))
         return lldb::ValueObjectSP();
@@ -341,6 +342,23 @@ lldb_private::formatters::LibcxxStdListSyntheticFrontEnd::GetChildAtIndex (size_
     current_sp = current_sp->GetChildAtIndex(1, true); // get the __value_ child
     if (!current_sp)
         return lldb::ValueObjectSP();
+    
+    if (current_sp->GetName() == g_next)
+    {
+        ProcessSP process_sp(current_sp->GetProcessSP());
+        if (!process_sp)
+            return nullptr;
+
+        // if we grabbed the __next_ pointer, then the child is one pointer deep-er
+        lldb::addr_t addr = current_sp->GetParent()->GetPointerValue();
+        addr = addr + 2*process_sp->GetAddressByteSize();
+        ExecutionContext exe_ctx(process_sp);
+        current_sp = CreateValueObjectFromAddress("__value_",
+                                                  addr,
+                                                  exe_ctx,
+                                                  m_element_type);
+    }
+    
     // we need to copy current_sp into a new object otherwise we will end up with all items named __value_
     DataExtractor data;
     Error error;
@@ -350,13 +368,15 @@ lldb_private::formatters::LibcxxStdListSyntheticFrontEnd::GetChildAtIndex (size_
     
     StreamString name;
     name.Printf("[%" PRIu64 "]", (uint64_t)idx);
-    return (m_children[idx] = CreateValueObjectFromData(name.GetData(), data, m_backend.GetExecutionContextRef(), m_element_type));
+    return CreateValueObjectFromData(name.GetData(),
+                                     data,
+                                     m_backend.GetExecutionContextRef(),
+                                     m_element_type);
 }
 
 bool
 lldb_private::formatters::LibcxxStdListSyntheticFrontEnd::Update()
 {
-    m_children.clear();
     m_iterators.clear();
     m_head = m_tail = nullptr;
     m_node_address = 0;

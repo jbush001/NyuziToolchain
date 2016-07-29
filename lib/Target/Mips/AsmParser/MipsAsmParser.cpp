@@ -129,6 +129,9 @@ class MipsAsmParser : public MCTargetAsmParser {
 #define GET_ASSEMBLER_HEADER
 #include "MipsGenAsmMatcher.inc"
 
+  unsigned
+  checkEarlyTargetMatchPredicate(MCInst &Inst,
+                                 const OperandVector &Operands) override;
   unsigned checkTargetMatchPredicate(MCInst &Inst) override;
 
   bool MatchAndEmitInstruction(SMLoc IDLoc, unsigned &Opcode,
@@ -395,6 +398,7 @@ public:
     Match_RequiresDifferentSrcAndDst = FIRST_TARGET_MATCH_RESULT_TY,
     Match_RequiresDifferentOperands,
     Match_RequiresNoZeroRegister,
+    Match_RequiresSameSrcAndDst,
 #define GET_OPERAND_DIAGNOSTIC_TYPES
 #include "MipsGenAsmMatcher.inc"
 #undef GET_OPERAND_DIAGNOSTIC_TYPES
@@ -583,7 +587,6 @@ private:
   enum KindTy {
     k_Immediate,     /// An immediate (possibly involving symbol references)
     k_Memory,        /// Base + Offset Memory Address
-    k_PhysRegister,  /// A physical register from the Mips namespace
     k_RegisterIndex, /// A register index in one or more RegKind.
     k_Token,         /// A simple token
     k_RegList,       /// A physical register list
@@ -603,13 +606,10 @@ private:
     unsigned Length;
   };
 
-  struct PhysRegOp {
-    unsigned Num; /// Register Number
-  };
-
   struct RegIdxOp {
     unsigned Index; /// Index into the register class
     RegKind Kind;   /// Bitfield of the kinds it could possibly be
+    struct Token Tok; /// The input token this operand originated from.
     const MCRegisterInfo *RegInfo;
   };
 
@@ -628,7 +628,6 @@ private:
 
   union {
     struct Token Tok;
-    struct PhysRegOp PhysReg;
     struct RegIdxOp RegIdx;
     struct ImmOp Imm;
     struct MemOp Mem;
@@ -638,7 +637,8 @@ private:
   SMLoc StartLoc, EndLoc;
 
   /// Internal constructor for register kinds
-  static std::unique_ptr<MipsOperand> CreateReg(unsigned Index, RegKind RegKind,
+  static std::unique_ptr<MipsOperand> CreateReg(unsigned Index, StringRef Str,
+                                                RegKind RegKind,
                                                 const MCRegisterInfo *RegInfo,
                                                 SMLoc S, SMLoc E,
                                                 MipsAsmParser &Parser) {
@@ -646,6 +646,8 @@ private:
     Op->RegIdx.Index = Index;
     Op->RegIdx.RegInfo = RegInfo;
     Op->RegIdx.Kind = RegKind;
+    Op->RegIdx.Tok.Data = Str.data();
+    Op->RegIdx.Tok.Length = Str.size();
     Op->StartLoc = S;
     Op->EndLoc = E;
     return Op;
@@ -1022,12 +1024,9 @@ public:
   }
 
   bool isReg() const override {
-    // As a special case until we sort out the definition of div/divu, pretend
-    // that $0/$zero are k_PhysRegister so that MCK_ZERO works correctly.
-    if (isGPRAsmReg() && RegIdx.Index == 0)
-      return true;
-
-    return Kind == k_PhysRegister;
+    // As a special case until we sort out the definition of div/divu, accept
+    // $0/$zero here so that MCK_ZERO works correctly.
+    return isGPRAsmReg() && RegIdx.Index == 0;
   }
   bool isRegIdx() const { return Kind == k_RegisterIndex; }
   bool isImm() const override { return Kind == k_Immediate; }
@@ -1072,10 +1071,17 @@ public:
   //        and determine whether a Value is a constant or not.
   template <unsigned Bits, unsigned ShiftAmount = 0>
   bool isMemWithSimmOffset() const {
-    return isMem() && getMemBase()->isGPRAsmReg() &&
-           (isa<MCTargetExpr>(getMemOff()) ||
-            (isConstantMemOff() &&
-             isShiftedInt<Bits, ShiftAmount>(getConstantMemOff())));
+    if (!isMem())
+      return false;
+    if (!getMemBase()->isGPRAsmReg())
+      return false;
+    if (isa<MCTargetExpr>(getMemOff()) ||
+        (isConstantMemOff() &&
+         isShiftedInt<Bits, ShiftAmount>(getConstantMemOff())))
+      return true;
+    MCValue Res;
+    bool IsReloc = getMemOff()->evaluateAsRelocatable(Res, nullptr, nullptr);
+    return IsReloc && isShiftedInt<Bits, ShiftAmount>(Res.getConstant());
   }
   bool isMemWithGRPMM16Base() const {
     return isMem() && getMemBase()->isMM16AsmReg();
@@ -1173,14 +1179,14 @@ public:
   }
 
   unsigned getReg() const override {
-    // As a special case until we sort out the definition of div/divu, pretend
-    // that $0/$zero are k_PhysRegister so that MCK_ZERO works correctly.
+    // As a special case until we sort out the definition of div/divu, accept
+    // $0/$zero here so that MCK_ZERO works correctly.
     if (Kind == k_RegisterIndex && RegIdx.Index == 0 &&
         RegIdx.Kind & RegKind_GPR)
       return getGPR32Reg(); // FIXME: GPR64 too
 
-    assert(Kind == k_PhysRegister && "Invalid access!");
-    return PhysReg.Num;
+    llvm_unreachable("Invalid access!");
+    return 0;
   }
 
   const MCExpr *getImm() const {
@@ -1230,66 +1236,66 @@ public:
   /// Create a numeric register (e.g. $1). The exact register remains
   /// unresolved until an instruction successfully matches
   static std::unique_ptr<MipsOperand>
-  createNumericReg(unsigned Index, const MCRegisterInfo *RegInfo, SMLoc S,
-                   SMLoc E, MipsAsmParser &Parser) {
+  createNumericReg(unsigned Index, StringRef Str, const MCRegisterInfo *RegInfo,
+                   SMLoc S, SMLoc E, MipsAsmParser &Parser) {
     DEBUG(dbgs() << "createNumericReg(" << Index << ", ...)\n");
-    return CreateReg(Index, RegKind_Numeric, RegInfo, S, E, Parser);
+    return CreateReg(Index, Str, RegKind_Numeric, RegInfo, S, E, Parser);
   }
 
   /// Create a register that is definitely a GPR.
   /// This is typically only used for named registers such as $gp.
   static std::unique_ptr<MipsOperand>
-  createGPRReg(unsigned Index, const MCRegisterInfo *RegInfo, SMLoc S, SMLoc E,
-               MipsAsmParser &Parser) {
-    return CreateReg(Index, RegKind_GPR, RegInfo, S, E, Parser);
+  createGPRReg(unsigned Index, StringRef Str, const MCRegisterInfo *RegInfo,
+               SMLoc S, SMLoc E, MipsAsmParser &Parser) {
+    return CreateReg(Index, Str, RegKind_GPR, RegInfo, S, E, Parser);
   }
 
   /// Create a register that is definitely a FGR.
   /// This is typically only used for named registers such as $f0.
   static std::unique_ptr<MipsOperand>
-  createFGRReg(unsigned Index, const MCRegisterInfo *RegInfo, SMLoc S, SMLoc E,
-               MipsAsmParser &Parser) {
-    return CreateReg(Index, RegKind_FGR, RegInfo, S, E, Parser);
+  createFGRReg(unsigned Index, StringRef Str, const MCRegisterInfo *RegInfo,
+               SMLoc S, SMLoc E, MipsAsmParser &Parser) {
+    return CreateReg(Index, Str, RegKind_FGR, RegInfo, S, E, Parser);
   }
 
   /// Create a register that is definitely a HWReg.
   /// This is typically only used for named registers such as $hwr_cpunum.
   static std::unique_ptr<MipsOperand>
-  createHWRegsReg(unsigned Index, const MCRegisterInfo *RegInfo,
+  createHWRegsReg(unsigned Index, StringRef Str, const MCRegisterInfo *RegInfo,
                   SMLoc S, SMLoc E, MipsAsmParser &Parser) {
-    return CreateReg(Index, RegKind_HWRegs, RegInfo, S, E, Parser);
+    return CreateReg(Index, Str, RegKind_HWRegs, RegInfo, S, E, Parser);
   }
 
   /// Create a register that is definitely an FCC.
   /// This is typically only used for named registers such as $fcc0.
   static std::unique_ptr<MipsOperand>
-  createFCCReg(unsigned Index, const MCRegisterInfo *RegInfo, SMLoc S, SMLoc E,
-               MipsAsmParser &Parser) {
-    return CreateReg(Index, RegKind_FCC, RegInfo, S, E, Parser);
+  createFCCReg(unsigned Index, StringRef Str, const MCRegisterInfo *RegInfo,
+               SMLoc S, SMLoc E, MipsAsmParser &Parser) {
+    return CreateReg(Index, Str, RegKind_FCC, RegInfo, S, E, Parser);
   }
 
   /// Create a register that is definitely an ACC.
   /// This is typically only used for named registers such as $ac0.
   static std::unique_ptr<MipsOperand>
-  createACCReg(unsigned Index, const MCRegisterInfo *RegInfo, SMLoc S, SMLoc E,
-               MipsAsmParser &Parser) {
-    return CreateReg(Index, RegKind_ACC, RegInfo, S, E, Parser);
+  createACCReg(unsigned Index, StringRef Str, const MCRegisterInfo *RegInfo,
+               SMLoc S, SMLoc E, MipsAsmParser &Parser) {
+    return CreateReg(Index, Str, RegKind_ACC, RegInfo, S, E, Parser);
   }
 
   /// Create a register that is definitely an MSA128.
   /// This is typically only used for named registers such as $w0.
   static std::unique_ptr<MipsOperand>
-  createMSA128Reg(unsigned Index, const MCRegisterInfo *RegInfo, SMLoc S,
-                  SMLoc E, MipsAsmParser &Parser) {
-    return CreateReg(Index, RegKind_MSA128, RegInfo, S, E, Parser);
+  createMSA128Reg(unsigned Index, StringRef Str, const MCRegisterInfo *RegInfo,
+                  SMLoc S, SMLoc E, MipsAsmParser &Parser) {
+    return CreateReg(Index, Str, RegKind_MSA128, RegInfo, S, E, Parser);
   }
 
   /// Create a register that is definitely an MSACtrl.
   /// This is typically only used for named registers such as $msaaccess.
   static std::unique_ptr<MipsOperand>
-  createMSACtrlReg(unsigned Index, const MCRegisterInfo *RegInfo, SMLoc S,
-                   SMLoc E, MipsAsmParser &Parser) {
-    return CreateReg(Index, RegKind_MSACtrl, RegInfo, S, E, Parser);
+  createMSACtrlReg(unsigned Index, StringRef Str, const MCRegisterInfo *RegInfo,
+                   SMLoc S, SMLoc E, MipsAsmParser &Parser) {
+    return CreateReg(Index, Str, RegKind_MSACtrl, RegInfo, S, E, Parser);
   }
 
   static std::unique_ptr<MipsOperand>
@@ -1408,7 +1414,6 @@ public:
       break;
     case k_RegList:
       delete RegList.List;
-    case k_PhysRegister:
     case k_RegisterIndex:
     case k_Token:
     case k_RegPair:
@@ -1430,14 +1435,12 @@ public:
       OS << *Mem.Off;
       OS << ">";
       break;
-    case k_PhysRegister:
-      OS << "PhysReg<" << PhysReg.Num << ">";
-      break;
     case k_RegisterIndex:
-      OS << "RegIdx<" << RegIdx.Index << ":" << RegIdx.Kind << ">";
+      OS << "RegIdx<" << RegIdx.Index << ":" << RegIdx.Kind << ", "
+         << StringRef(RegIdx.Tok.Data, RegIdx.Tok.Length) << ">";
       break;
     case k_Token:
-      OS << Tok.Data;
+      OS << getToken();
       break;
     case k_RegList:
       OS << "RegList< ";
@@ -1448,6 +1451,22 @@ public:
     case k_RegPair:
       OS << "RegPair<" << RegIdx.Index << "," << RegIdx.Index + 1 << ">";
       break;
+    }
+  }
+
+  bool isValidForTie(const MipsOperand &Other) const {
+    if (Kind != Other.Kind)
+      return false;
+
+    switch (Kind) {
+    default:
+      llvm_unreachable("Unexpected kind");
+      return false;
+    case k_RegisterIndex: {
+      StringRef Token(RegIdx.Tok.Data, RegIdx.Tok.Length);
+      StringRef OtherToken(Other.RegIdx.Tok.Data, Other.RegIdx.Tok.Length);
+      return Token == OtherToken;
+    }
     }
   }
 }; // class MipsOperand
@@ -3691,6 +3710,20 @@ bool MipsAsmParser::expandAbs(MCInst &Inst, SMLoc IDLoc, MCStreamer &Out,
   return false;
 }
 
+unsigned
+MipsAsmParser::checkEarlyTargetMatchPredicate(MCInst &Inst,
+                                              const OperandVector &Operands) {
+  switch (Inst.getOpcode()) {
+  default:
+    return Match_Success;
+  case Mips::DATI:
+  case Mips::DAHI:
+    return static_cast<MipsOperand &>(*Operands[1])
+                   .isValidForTie(static_cast<MipsOperand &>(*Operands[2]))
+               ? Match_Success
+               : Match_RequiresSameSrcAndDst;
+  }
+}
 unsigned MipsAsmParser::checkTargetMatchPredicate(MCInst &Inst) {
   switch (Inst.getOpcode()) {
   // As described by the Mips32r2 spec, the registers Rd and Rs for
@@ -3726,7 +3759,14 @@ unsigned MipsAsmParser::checkTargetMatchPredicate(MCInst &Inst) {
   case Mips::BLTZC:
   case Mips::BEQZC:
   case Mips::BNEZC:
-    if (Inst.getOperand(0).getReg() == Mips::ZERO)
+  case Mips::BLEZC64:
+  case Mips::BGEZC64:
+  case Mips::BGTZC64:
+  case Mips::BLTZC64:
+  case Mips::BEQZC64:
+  case Mips::BNEZC64:
+    if (Inst.getOperand(0).getReg() == Mips::ZERO ||
+        Inst.getOperand(0).getReg() == Mips::ZERO_64)
       return Match_RequiresNoZeroRegister;
     return Match_Success;
   case Mips::BGEC:
@@ -3735,9 +3775,17 @@ unsigned MipsAsmParser::checkTargetMatchPredicate(MCInst &Inst) {
   case Mips::BLTUC:
   case Mips::BEQC:
   case Mips::BNEC:
-    if (Inst.getOperand(0).getReg() == Mips::ZERO)
+  case Mips::BGEC64:
+  case Mips::BLTC64:
+  case Mips::BGEUC64:
+  case Mips::BLTUC64:
+  case Mips::BEQC64:
+  case Mips::BNEC64:
+    if (Inst.getOperand(0).getReg() == Mips::ZERO ||
+        Inst.getOperand(0).getReg() == Mips::ZERO_64)
       return Match_RequiresNoZeroRegister;
-    if (Inst.getOperand(1).getReg() == Mips::ZERO)
+    if (Inst.getOperand(1).getReg() == Mips::ZERO ||
+        Inst.getOperand(1).getReg() == Mips::ZERO_64)
       return Match_RequiresNoZeroRegister;
     if (Inst.getOperand(0).getReg() == Inst.getOperand(1).getReg())
       return Match_RequiresDifferentOperands;
@@ -3798,6 +3846,8 @@ bool MipsAsmParser::MatchAndEmitInstruction(SMLoc IDLoc, unsigned &Opcode,
     return Error(IDLoc, "registers must be different");
   case Match_RequiresNoZeroRegister:
     return Error(IDLoc, "invalid operand ($zero) for instruction");
+  case Match_RequiresSameSrcAndDst:
+    return Error(IDLoc, "source and destination must match");
   case Match_Immz:
     return Error(RefineErrorLoc(IDLoc, Operands, ErrorInfo), "expected '0'");
   case Match_UImm1_0:
@@ -4389,8 +4439,8 @@ MipsAsmParser::parseMemOperand(OperandVector &Operands) {
 
         // Zero register assumed, add a memory operand with ZERO as its base.
         // "Base" will be managed by k_Memory.
-        auto Base = MipsOperand::createGPRReg(0, getContext().getRegisterInfo(),
-                                              S, E, *this);
+        auto Base = MipsOperand::createGPRReg(
+            0, "0", getContext().getRegisterInfo(), S, E, *this);
         Operands.push_back(
             MipsOperand::CreateMem(std::move(Base), IdVal, S, E, *this));
         return MatchOperand_Success;
@@ -4473,49 +4523,56 @@ MipsAsmParser::matchAnyRegisterNameWithoutDollar(OperandVector &Operands,
   int Index = matchCPURegisterName(Identifier);
   if (Index != -1) {
     Operands.push_back(MipsOperand::createGPRReg(
-        Index, getContext().getRegisterInfo(), S, getLexer().getLoc(), *this));
+        Index, Identifier, getContext().getRegisterInfo(), S,
+        getLexer().getLoc(), *this));
     return MatchOperand_Success;
   }
 
   Index = matchHWRegsRegisterName(Identifier);
   if (Index != -1) {
     Operands.push_back(MipsOperand::createHWRegsReg(
-        Index, getContext().getRegisterInfo(), S, getLexer().getLoc(), *this));
+        Index, Identifier, getContext().getRegisterInfo(), S,
+        getLexer().getLoc(), *this));
     return MatchOperand_Success;
   }
 
   Index = matchFPURegisterName(Identifier);
   if (Index != -1) {
     Operands.push_back(MipsOperand::createFGRReg(
-        Index, getContext().getRegisterInfo(), S, getLexer().getLoc(), *this));
+        Index, Identifier, getContext().getRegisterInfo(), S,
+        getLexer().getLoc(), *this));
     return MatchOperand_Success;
   }
 
   Index = matchFCCRegisterName(Identifier);
   if (Index != -1) {
     Operands.push_back(MipsOperand::createFCCReg(
-        Index, getContext().getRegisterInfo(), S, getLexer().getLoc(), *this));
+        Index, Identifier, getContext().getRegisterInfo(), S,
+        getLexer().getLoc(), *this));
     return MatchOperand_Success;
   }
 
   Index = matchACRegisterName(Identifier);
   if (Index != -1) {
     Operands.push_back(MipsOperand::createACCReg(
-        Index, getContext().getRegisterInfo(), S, getLexer().getLoc(), *this));
+        Index, Identifier, getContext().getRegisterInfo(), S,
+        getLexer().getLoc(), *this));
     return MatchOperand_Success;
   }
 
   Index = matchMSA128RegisterName(Identifier);
   if (Index != -1) {
     Operands.push_back(MipsOperand::createMSA128Reg(
-        Index, getContext().getRegisterInfo(), S, getLexer().getLoc(), *this));
+        Index, Identifier, getContext().getRegisterInfo(), S,
+        getLexer().getLoc(), *this));
     return MatchOperand_Success;
   }
 
   Index = matchMSA128CtrlRegisterName(Identifier);
   if (Index != -1) {
     Operands.push_back(MipsOperand::createMSACtrlReg(
-        Index, getContext().getRegisterInfo(), S, getLexer().getLoc(), *this));
+        Index, Identifier, getContext().getRegisterInfo(), S,
+        getLexer().getLoc(), *this));
     return MatchOperand_Success;
   }
 
@@ -4536,8 +4593,8 @@ MipsAsmParser::matchAnyRegisterWithoutDollar(OperandVector &Operands, SMLoc S) {
   } else if (Token.is(AsmToken::Integer)) {
     DEBUG(dbgs() << ".. integer\n");
     Operands.push_back(MipsOperand::createNumericReg(
-        Token.getIntVal(), getContext().getRegisterInfo(), S, Token.getLoc(),
-        *this));
+        Token.getIntVal(), Token.getString(), getContext().getRegisterInfo(), S,
+        Token.getLoc(), *this));
     return MatchOperand_Success;
   }
 

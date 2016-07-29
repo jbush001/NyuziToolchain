@@ -646,7 +646,8 @@ static int ReadInt(Process *process, addr_t addr)
 }
 
 lldb::addr_t
-DynamicLoaderHexagonDYLD::GetThreadLocalData (const lldb::ModuleSP module, const lldb::ThreadSP thread)
+DynamicLoaderHexagonDYLD::GetThreadLocalData(const lldb::ModuleSP module, const lldb::ThreadSP thread,
+                                             lldb::addr_t tls_file_addr)
 {
     auto it = m_loaded_modules.find (module);
     if (it == m_loaded_modules.end())
@@ -670,7 +671,7 @@ DynamicLoaderHexagonDYLD::GetThreadLocalData (const lldb::ModuleSP module, const
     if (modid == -1)
         return LLDB_INVALID_ADDRESS;
 
-    // Lookup the DTV stucture for this thread.
+    // Lookup the DTV structure for this thread.
     addr_t dtv_ptr = tp + metadata.dtv_offset;
     addr_t dtv = ReadPointer (dtv_ptr);
     if (dtv == LLDB_INVALID_ADDRESS)
@@ -687,5 +688,8 @@ DynamicLoaderHexagonDYLD::GetThreadLocalData (const lldb::ModuleSP module, const
                     "module=%s, link_map=0x%" PRIx64 ", tp=0x%" PRIx64 ", modid=%i, tls_block=0x%" PRIx64,
                     mod->GetObjectName().AsCString(""), link_map, tp, modid, tls_block);
 
-    return tls_block;
+    if (tls_block == LLDB_INVALID_ADDRESS)
+        return LLDB_INVALID_ADDRESS;
+    else
+        return tls_block + tls_file_addr;
 }

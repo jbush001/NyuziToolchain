@@ -14,6 +14,7 @@
 
 #include "llvm/ProfileData/InstrProf.h"
 #include "llvm/ADT/StringExtras.h"
+#include "llvm/ADT/Triple.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/GlobalVariable.h"
@@ -23,8 +24,14 @@
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/LEB128.h"
 #include "llvm/Support/ManagedStatic.h"
+#include "llvm/Support/Path.h"
 
 using namespace llvm;
+
+static cl::opt<bool> StaticFuncFullModulePrefix(
+    "static-func-full-module-prefix", cl::init(false),
+    cl::desc("Use full module build paths in the profile counter names for "
+             "static functions."));
 
 namespace {
 std::string getInstrProfErrString(instrprof_error Err) {
@@ -135,9 +142,12 @@ std::string getPGOFuncName(StringRef RawFuncName,
 // (PGOUseFunc::annotateIndirectCallSites). If a symbol does not have the meta
 // data, its original linkage must be non-internal.
 std::string getPGOFuncName(const Function &F, bool InLTO, uint64_t Version) {
-  if (!InLTO)
-    return getPGOFuncName(F.getName(), F.getLinkage(), F.getParent()->getName(),
-                          Version);
+  if (!InLTO) {
+    StringRef FileName = (StaticFuncFullModulePrefix
+                              ? F.getParent()->getName()
+                              : sys::path::filename(F.getParent()->getName()));
+    return getPGOFuncName(F.getName(), F.getLinkage(), FileName, Version);
+  }
 
   // In LTO mode (when InLTO is true), first check if there is a meta data.
   if (MDNode *MD = getPGOFuncNameMetadata(F)) {
@@ -771,4 +781,29 @@ void createPGOFuncNameMetadata(Function &F, StringRef PGOFuncName) {
   F.setMetadata(getPGOFuncNameMetadataName(), N);
 }
 
+bool needsComdatForCounter(const Function &F, const Module &M) {
+  if (F.hasComdat())
+    return true;
+
+  Triple TT(M.getTargetTriple());
+  if (!TT.isOSBinFormatELF())
+    return false;
+
+  // See createPGOFuncNameVar for more details. To avoid link errors, profile
+  // counters for function with available_externally linkage needs to be changed
+  // to linkonce linkage. On ELF based systems, this leads to weak symbols to be
+  // created. Without using comdat, duplicate entries won't be removed by the
+  // linker leading to increased data segement size and raw profile size. Even
+  // worse, since the referenced counter from profile per-function data object
+  // will be resolved to the common strong definition, the profile counts for
+  // available_externally functions will end up being duplicated in raw profile
+  // data. This can result in distorted profile as the counts of those dups
+  // will be accumulated by the profile merger.
+  GlobalValue::LinkageTypes Linkage = F.getLinkage();
+  if (Linkage != GlobalValue::ExternalWeakLinkage &&
+      Linkage != GlobalValue::AvailableExternallyLinkage)
+    return false;
+
+  return true;
+}
 } // end namespace llvm

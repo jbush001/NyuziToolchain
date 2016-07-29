@@ -18,6 +18,7 @@
 
 #include "llvm/MC/MCDirectives.h"
 #include "llvm/MC/MCDwarf.h"
+#include "llvm/MC/MCTargetOptions.h"
 #include <cassert>
 #include <vector>
 
@@ -40,14 +41,6 @@ enum class EncodingType {
   MIPS = Alpha,
 };
 }
-
-enum class ExceptionHandling {
-  None,     /// No exception support
-  DwarfCFI, /// DWARF-like instruction based exceptions
-  SjLj,     /// setjmp/longjmp based exceptions
-  ARM,      /// ARM EHABI
-  WinEH,    /// Windows Exception Handling
-};
 
 namespace LCOMM {
 enum LCOMMType { NoAlignment, ByteAlignment, Log2Alignment };
@@ -362,6 +355,9 @@ protected:
   /// construction (see LLVMTargetMachine::initAsmInfo()).
   bool UseIntegratedAssembler;
 
+  /// Preserve Comments in assembly
+  bool PreserveAsmComments;
+
   /// Compress DWARF debug sections. Defaults to no compression.
   DebugCompressionType CompressDebugSections;
 
@@ -573,6 +569,14 @@ public:
   /// Set whether assembly (inline or otherwise) should be parsed.
   virtual void setUseIntegratedAssembler(bool Value) {
     UseIntegratedAssembler = Value;
+  }
+
+  /// Return true if assembly (inline or otherwise) should be parsed.
+  bool preserveAsmComments() const { return PreserveAsmComments; }
+
+  /// Set whether assembly (inline or otherwise) should be parsed.
+  virtual void setPreserveAsmComments(bool Value) {
+    PreserveAsmComments = Value;
   }
 
   DebugCompressionType compressDebugSections() const {

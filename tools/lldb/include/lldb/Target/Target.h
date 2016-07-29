@@ -63,6 +63,12 @@ typedef enum LoadCWDlldbinitFile
 //----------------------------------------------------------------------
 // TargetProperties
 //----------------------------------------------------------------------
+class TargetExperimentalProperties : public Properties
+{
+public:
+    TargetExperimentalProperties();
+};
+
 class TargetProperties : public Properties
 {
 public:
@@ -237,6 +243,12 @@ public:
 
     void
     SetProcessLaunchInfo(const ProcessLaunchInfo &launch_info);
+    
+    bool
+    GetInjectLocalVariables(ExecutionContext *exe_ctx) const;
+    
+    void
+    SetInjectLocalVariables(ExecutionContext *exe_ctx, bool b);
 
 private:
     //------------------------------------------------------------------
@@ -257,6 +269,7 @@ private:
     // Member variables.
     //------------------------------------------------------------------
     ProcessLaunchInfo m_launch_info;
+    std::unique_ptr<TargetExperimentalProperties> m_experimental_properties_up;
 };
 
 class EvaluateExpressionOptions
@@ -1061,7 +1074,7 @@ public:
     /// dependent modules that are discovered from the object files, or
     /// discovered at runtime as things are dynamically loaded.
     ///
-    /// Setting the executable causes any of the current dependant
+    /// Setting the executable causes any of the current dependent
     /// image information to be cleared and replaced with the static
     /// dependent image information found by calling
     /// ObjectFile::GetDependentModules (FileSpecList&) on the main

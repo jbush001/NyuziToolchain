@@ -15,14 +15,13 @@
 //  "Loop-Aware SLP in GCC" by Ira Rosen, Dorit Nuzman, Ayal Zaks.
 //
 //===----------------------------------------------------------------------===//
-#include "llvm/Transforms/Scalar/SLPVectorizer.h"
+#include "llvm/Transforms/Vectorize/SLPVectorizer.h"
 #include "llvm/ADT/Optional.h"
 #include "llvm/ADT/PostOrderIterator.h"
 #include "llvm/ADT/SetVector.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/Analysis/CodeMetrics.h"
 #include "llvm/Analysis/GlobalsModRef.h"
-#include "llvm/Analysis/LoopAccessAnalysis.h"
 #include "llvm/Analysis/LoopAccessAnalysis.h"
 #include "llvm/Analysis/ScalarEvolutionExpressions.h"
 #include "llvm/Analysis/ValueTracking.h"
@@ -218,46 +217,6 @@ static void propagateIRFlags(Value *I, ArrayRef<Value *> VL) {
       VecOp->copyIRFlags(Intersection);
     }
   }
-}
-
-/// \returns \p I after propagating metadata from \p VL.
-static Instruction *propagateMetadata(Instruction *I, ArrayRef<Value *> VL) {
-  Instruction *I0 = cast<Instruction>(VL[0]);
-  SmallVector<std::pair<unsigned, MDNode *>, 4> Metadata;
-  I0->getAllMetadataOtherThanDebugLoc(Metadata);
-
-  for (unsigned i = 0, n = Metadata.size(); i != n; ++i) {
-    unsigned Kind = Metadata[i].first;
-    MDNode *MD = Metadata[i].second;
-
-    for (int i = 1, e = VL.size(); MD && i != e; i++) {
-      Instruction *I = cast<Instruction>(VL[i]);
-      MDNode *IMD = I->getMetadata(Kind);
-
-      switch (Kind) {
-      default:
-        MD = nullptr; // Remove unknown metadata
-        break;
-      case LLVMContext::MD_tbaa:
-        MD = MDNode::getMostGenericTBAA(MD, IMD);
-        break;
-      case LLVMContext::MD_alias_scope:
-        MD = MDNode::getMostGenericAliasScope(MD, IMD);
-        break;
-      case LLVMContext::MD_noalias:
-        MD = MDNode::intersect(MD, IMD);
-        break;
-      case LLVMContext::MD_fpmath:
-        MD = MDNode::getMostGenericFPMath(MD, IMD);
-        break;
-      case LLVMContext::MD_nontemporal:
-        MD = MDNode::intersect(MD, IMD);
-        break;
-      }
-    }
-    I->setMetadata(Kind, MD);
-  }
-  return I;
 }
 
 /// \returns The type that all of the values in \p VL have or null if there
@@ -919,10 +878,10 @@ private:
   /// List of users to ignore during scheduling and that don't need extracting.
   ArrayRef<Value *> UserIgnoreList;
 
-  // Number of load-bundles, which contain consecutive loads.
+  // Number of load bundles that contain consecutive loads.
   int NumLoadsWantToKeepOrder;
 
-  // Number of load-bundles of size 2, which are consecutive loads if reversed.
+  // Number of load bundles that contain consecutive loads in reversed order.
   int NumLoadsWantToChangeOrder;
 
   // Analysis and block reference.
@@ -1195,7 +1154,9 @@ void BoUpSLP::buildTree_rec(ArrayRef<Value *> VL, unsigned Depth) {
         DEBUG(dbgs() << "SLP: Gathering loads of non-packed type.\n");
         return;
       }
-      // Check if the loads are consecutive or of we need to swizzle them.
+
+      // Make sure all loads in the bundle are simple - we can't vectorize
+      // atomic or volatile loads.
       for (unsigned i = 0, e = VL.size() - 1; i < e; ++i) {
         LoadInst *L = cast<LoadInst>(VL[i]);
         if (!L->isSimple()) {
@@ -1204,20 +1165,47 @@ void BoUpSLP::buildTree_rec(ArrayRef<Value *> VL, unsigned Depth) {
           DEBUG(dbgs() << "SLP: Gathering non-simple loads.\n");
           return;
         }
+      }
 
+      // Check if the loads are consecutive, reversed, or neither.
+      // TODO: What we really want is to sort the loads, but for now, check
+      // the two likely directions.
+      bool Consecutive = true;
+      bool ReverseConsecutive = true;
+      for (unsigned i = 0, e = VL.size() - 1; i < e; ++i) {
         if (!isConsecutiveAccess(VL[i], VL[i + 1], *DL, *SE)) {
-          if (VL.size() == 2 && isConsecutiveAccess(VL[1], VL[0], *DL, *SE)) {
-            ++NumLoadsWantToChangeOrder;
-          }
-          BS.cancelScheduling(VL);
-          newTreeEntry(VL, false);
-          DEBUG(dbgs() << "SLP: Gathering non-consecutive loads.\n");
-          return;
+          Consecutive = false;
+          break;
+        } else {
+          ReverseConsecutive = false;
         }
       }
-      ++NumLoadsWantToKeepOrder;
-      newTreeEntry(VL, true);
-      DEBUG(dbgs() << "SLP: added a vector of loads.\n");
+
+      if (Consecutive) {
+        ++NumLoadsWantToKeepOrder;
+        newTreeEntry(VL, true);
+        DEBUG(dbgs() << "SLP: added a vector of loads.\n");
+        return;
+      }
+
+      // If none of the load pairs were consecutive when checked in order,
+      // check the reverse order.
+      if (ReverseConsecutive)
+        for (unsigned i = VL.size() - 1; i > 0; --i)
+          if (!isConsecutiveAccess(VL[i], VL[i - 1], *DL, *SE)) {
+            ReverseConsecutive = false;
+            break;
+          }
+
+      BS.cancelScheduling(VL);
+      newTreeEntry(VL, false);
+
+      if (ReverseConsecutive) {
+        ++NumLoadsWantToChangeOrder;
+        DEBUG(dbgs() << "SLP: Gathering reversed loads.\n");
+      } else {
+        DEBUG(dbgs() << "SLP: Gathering non-consecutive loads.\n");
+      }
       return;
     }
     case Instruction::ZExt:
@@ -3467,6 +3455,7 @@ void BoUpSLP::computeMinimumValueSizes() {
     MinBWs[Scalar] = MaxBitWidth;
 }
 
+namespace {
 /// The SLPVectorizer Pass.
 struct SLPVectorizer : public FunctionPass {
   SLPVectorizerPass Impl;
@@ -3516,6 +3505,7 @@ struct SLPVectorizer : public FunctionPass {
     AU.setPreservesCFG();
   }
 };
+} // end anonymous namespace
 
 PreservedAnalyses SLPVectorizerPass::run(Function &F, FunctionAnalysisManager &AM) {
   auto *SE = &AM.getResult<ScalarEvolutionAnalysis>(F);
@@ -3837,9 +3827,12 @@ bool SLPVectorizerPass::tryToVectorizeList(ArrayRef<Value *> VL, BoUpSLP &R,
       BuildVectorSlice = BuildVector.slice(i, OpsWidth);
 
     R.buildTree(Ops, BuildVectorSlice);
-    // TODO: check if we can allow reordering also for other cases than
-    // tryToVectorizePair()
+    // TODO: check if we can allow reordering for more cases.
     if (allowReorder && R.shouldReorder()) {
+      // Conceptually, there is nothing actually preventing us from trying to
+      // reorder a larger list. In fact, we do exactly this when vectorizing
+      // reductions. However, at this point, we only expect to get here from
+      // tryToVectorizePair().
       assert(Ops.size() == 2);
       assert(BuildVectorSlice.empty());
       Value *ReorderedOps[] = { Ops[1], Ops[0] };
@@ -4117,7 +4110,12 @@ public:
     unsigned i = 0;
 
     for (; i < NumReducedVals - ReduxWidth + 1; i += ReduxWidth) {
-      V.buildTree(makeArrayRef(&ReducedVals[i], ReduxWidth), ReductionOps);
+      auto VL = makeArrayRef(&ReducedVals[i], ReduxWidth);
+      V.buildTree(VL, ReductionOps);
+      if (V.shouldReorder()) {
+        SmallVector<Value *, 8> Reversed(VL.rbegin(), VL.rend());
+        V.buildTree(Reversed, ReductionOps);
+      }      
       V.computeMinimumValueSizes();
 
       // Estimate cost.

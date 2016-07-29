@@ -1,5 +1,5 @@
 ; RUN: opt < %s -functionattrs -S | FileCheck %s
-; RUN: opt < %s -aa-pipeline=basic-aa -passes='require<targetlibinfo>,cgscc(function-attrs)' -S | FileCheck %s
+; RUN: opt < %s -aa-pipeline=basic-aa -passes='cgscc(function-attrs)' -S | FileCheck %s
 @x = global i32 0
 
 declare void @test1_1(i8* %x1_1, i8* readonly %y1_1, ...)
@@ -11,7 +11,7 @@ define void @test1_2(i8* %x1_2, i8* %y1_2, i8* %z1_2) {
   ret void
 }
 
-; CHECK: define i8* @test2(i8* readnone %p)
+; CHECK: define i8* @test2(i8* readnone returned %p)
 define i8* @test2(i8* %p) {
   store i32 0, i32* @x
   ret i8* %p
@@ -53,7 +53,7 @@ define void @test7_1(i32* inalloca %a) {
   ret void
 }
 
-; CHECK: define i32* @test8_1(i32* readnone %p)
+; CHECK: define i32* @test8_1(i32* readnone returned %p)
 define i32* @test8_1(i32* %p) {
 entry:
   ret i32* %p

@@ -634,8 +634,8 @@ public:
     llvm_unreachable("Handled by fixupNeedsRelaxationAdvanced");
   }
 
-  void relaxInstruction(MCInst const & Inst,
-                        MCInst & Res) const override {
+  void relaxInstruction(const MCInst &Inst, const MCSubtargetInfo &STI,
+                        MCInst &Res) const override {
     assert(HexagonMCInstrInfo::isBundle(Inst) &&
            "Hexagon relaxInstruction only works on bundles");
 
@@ -745,7 +745,8 @@ public:
 namespace llvm {
 MCAsmBackend *createHexagonAsmBackend(Target const &T,
                                       MCRegisterInfo const & /*MRI*/,
-                                      const Triple &TT, StringRef CPU) {
+                                      const Triple &TT, StringRef CPU,
+                                      const MCTargetOptions &Options) {
   uint8_t OSABI = MCELFObjectTargetWriter::getOSABI(TT.getOS());
   return new HexagonAsmBackend(T, OSABI, CPU);
 }

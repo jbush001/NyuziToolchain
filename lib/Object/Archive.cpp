@@ -27,38 +27,97 @@ static const char *const ThinMagic = "!<thin>\n";
 
 void Archive::anchor() { }
 
+static Error
+malformedError(Twine Msg) {
+  std::string StringMsg = "truncated or malformed archive (" + Msg.str() + ")";
+  return make_error<GenericBinaryError>(std::move(StringMsg),
+                                        object_error::parse_failed);
+}
+
+ArchiveMemberHeader::ArchiveMemberHeader(const Archive *Parent,
+                                         const char *RawHeaderPtr,
+                                         uint64_t Size, Error *Err)
+    : Parent(Parent),
+      ArMemHdr(reinterpret_cast<const ArMemHdrType *>(RawHeaderPtr)) {
+  if (RawHeaderPtr == nullptr)
+    return;
+  ErrorAsOutParameter ErrAsOutParam(Err);
+
+  // TODO: For errors messages with the ArchiveMemberHeader class use the
+  // archive member name instead of the the offset to the archive member header.
+  // When there is also error getting the member name then use the offset to
+  // the member in the message.
+
+  if (Size < sizeof(ArMemHdrType)) {
+    if (Err) {
+      uint64_t Offset = RawHeaderPtr - Parent->getData().data();
+      *Err = malformedError("remaining size of archive too small for next "
+                            "archive member header at offset " +
+                            Twine(Offset));
+    }
+    return;
+  }
+  if (ArMemHdr->Terminator[0] != '`' || ArMemHdr->Terminator[1] != '\n') {
+    if (Err) {
+      std::string Buf;
+      raw_string_ostream OS(Buf);
+      OS.write_escaped(llvm::StringRef(ArMemHdr->Terminator,
+                                       sizeof(ArMemHdr->Terminator)));
+      OS.flush();
+      uint64_t Offset = RawHeaderPtr - Parent->getData().data();
+      *Err = malformedError("terminator characters in archive member \"" + Buf +
+                            "\" not the correct \"`\\n\" values for the "
+                            "archive member header at offset " + Twine(Offset));
+    }
+    return;
+  }
+}
+
 StringRef ArchiveMemberHeader::getName() const {
   char EndCond;
-  if (Name[0] == '/' || Name[0] == '#')
+  if (ArMemHdr->Name[0] == '/' || ArMemHdr->Name[0] == '#')
     EndCond = ' ';
   else
     EndCond = '/';
   llvm::StringRef::size_type end =
-      llvm::StringRef(Name, sizeof(Name)).find(EndCond);
+      llvm::StringRef(ArMemHdr->Name, sizeof(ArMemHdr->Name)).find(EndCond);
   if (end == llvm::StringRef::npos)
-    end = sizeof(Name);
-  assert(end <= sizeof(Name) && end > 0);
+    end = sizeof(ArMemHdr->Name);
+  assert(end <= sizeof(ArMemHdr->Name) && end > 0);
   // Don't include the EndCond if there is one.
-  return llvm::StringRef(Name, end);
+  return llvm::StringRef(ArMemHdr->Name, end);
 }
 
-ErrorOr<uint32_t> ArchiveMemberHeader::getSize() const {
+Expected<uint32_t> ArchiveMemberHeader::getSize() const {
   uint32_t Ret;
-  if (llvm::StringRef(Size, sizeof(Size)).rtrim(" ").getAsInteger(10, Ret))
-    return object_error::parse_failed; // Size is not a decimal number.
+  if (llvm::StringRef(ArMemHdr->Size,
+        sizeof(ArMemHdr->Size)).rtrim(" ").getAsInteger(10, Ret)) {
+    std::string Buf;
+    raw_string_ostream OS(Buf);
+    OS.write_escaped(llvm::StringRef(ArMemHdr->Size,
+                                     sizeof(ArMemHdr->Size)).rtrim(" "));
+    OS.flush();
+    uint64_t Offset = reinterpret_cast<const char *>(ArMemHdr) -
+                      Parent->getData().data();
+    return malformedError("characters in size field in archive header are not "
+                          "all decimal numbers: '" + Buf + "' for archive "
+                          "member header at offset " + Twine(Offset));
+  }
   return Ret;
 }
 
 sys::fs::perms ArchiveMemberHeader::getAccessMode() const {
   unsigned Ret;
-  if (StringRef(AccessMode, sizeof(AccessMode)).rtrim(' ').getAsInteger(8, Ret))
+  if (StringRef(ArMemHdr->AccessMode,
+                sizeof(ArMemHdr->AccessMode)).rtrim(' ').getAsInteger(8, Ret))
     llvm_unreachable("Access mode is not an octal number.");
   return static_cast<sys::fs::perms>(Ret);
 }
 
 sys::TimeValue ArchiveMemberHeader::getLastModified() const {
   unsigned Seconds;
-  if (StringRef(LastModified, sizeof(LastModified)).rtrim(' ')
+  if (StringRef(ArMemHdr->LastModified,
+                sizeof(ArMemHdr->LastModified)).rtrim(' ')
           .getAsInteger(10, Seconds))
     llvm_unreachable("Last modified time not a decimal number.");
 
@@ -69,40 +128,57 @@ sys::TimeValue ArchiveMemberHeader::getLastModified() const {
 
 unsigned ArchiveMemberHeader::getUID() const {
   unsigned Ret;
-  if (StringRef(UID, sizeof(UID)).rtrim(' ').getAsInteger(10, Ret))
+  StringRef User = StringRef(ArMemHdr->UID, sizeof(ArMemHdr->UID)).rtrim(' ');
+  if (User.empty())
+    return 0;
+  if (User.getAsInteger(10, Ret))
     llvm_unreachable("UID time not a decimal number.");
   return Ret;
 }
 
 unsigned ArchiveMemberHeader::getGID() const {
   unsigned Ret;
-  if (StringRef(GID, sizeof(GID)).rtrim(' ').getAsInteger(10, Ret))
+  StringRef Group = StringRef(ArMemHdr->GID, sizeof(ArMemHdr->GID)).rtrim(' ');
+  if (Group.empty())
+    return 0;
+  if (Group.getAsInteger(10, Ret))
     llvm_unreachable("GID time not a decimal number.");
   return Ret;
 }
 
 Archive::Child::Child(const Archive *Parent, StringRef Data,
                       uint16_t StartOfFile)
-    : Parent(Parent), Data(Data), StartOfFile(StartOfFile) {}
+    : Parent(Parent), Header(Parent, Data.data(), Data.size(), nullptr),
+      Data(Data), StartOfFile(StartOfFile) {
+}
 
-Archive::Child::Child(const Archive *Parent, const char *Start,
-                      std::error_code *EC)
-    : Parent(Parent) {
+Archive::Child::Child(const Archive *Parent, const char *Start, Error *Err)
+    : Parent(Parent), Header(Parent, Start, Parent->getData().size() -
+                             (Start - Parent->getData().data()), Err) {
   if (!Start)
     return;
+  ErrorAsOutParameter ErrAsOutParam(Err);
 
-  uint64_t Size = sizeof(ArchiveMemberHeader);
+  // If there was an error in the construction of the Header and we were passed
+  // Err that is not nullptr then just return with the error now set.
+  if (Err && *Err)
+    return;
+
+  uint64_t Size = Header.getSizeOf();
   Data = StringRef(Start, Size);
   if (!isThinMember()) {
-    ErrorOr<uint64_t> MemberSize = getRawSize();
-    if ((*EC = MemberSize.getError()))
+    Expected<uint64_t> MemberSize = getRawSize();
+    if (!MemberSize) {
+      if (Err)
+        *Err = MemberSize.takeError();
       return;
+    }
     Size += MemberSize.get();
     Data = StringRef(Start, Size);
   }
 
   // Setup StartOfFile and PaddingBytes.
-  StartOfFile = sizeof(ArchiveMemberHeader);
+  StartOfFile = Header.getSizeOf();
   // Don't include attached name.
   StringRef Name = getRawName();
   if (Name.startswith("#1/")) {
@@ -113,25 +189,22 @@ Archive::Child::Child(const Archive *Parent, const char *Start,
   }
 }
 
-ErrorOr<uint64_t> Archive::Child::getSize() const {
+Expected<uint64_t> Archive::Child::getSize() const {
   if (Parent->IsThin) {
-    ErrorOr<uint32_t> Size = getHeader()->getSize();
-    if (std::error_code EC = Size.getError())
-      return EC;
+    Expected<uint32_t> Size = Header.getSize();
+    if (!Size)
+      return Size.takeError();
     return Size.get();
   }
   return Data.size() - StartOfFile;
 }
 
-ErrorOr<uint64_t> Archive::Child::getRawSize() const {
-  ErrorOr<uint32_t> Size = getHeader()->getSize();
-  if (std::error_code EC = Size.getError())
-    return EC;
-  return Size.get();
+Expected<uint64_t> Archive::Child::getRawSize() const {
+  return Header.getSize();
 }
 
 bool Archive::Child::isThinMember() const {
-  StringRef Name = getHeader()->getName();
+  StringRef Name = Header.getName();
   return Parent->IsThin && Name != "/" && Name != "//";
 }
 
@@ -152,9 +225,9 @@ ErrorOr<std::string> Archive::Child::getFullName() const {
 
 ErrorOr<StringRef> Archive::Child::getBuffer() const {
   if (!isThinMember()) {
-    ErrorOr<uint32_t> Size = getSize();
-    if (std::error_code EC = Size.getError())
-      return EC;
+    Expected<uint32_t> Size = getSize();
+    if (!Size)
+      return errorToErrorCode(Size.takeError());
     return StringRef(Data.data() + StartOfFile, Size.get());
   }
   ErrorOr<std::string> FullNameOrEr = getFullName();
@@ -168,7 +241,7 @@ ErrorOr<StringRef> Archive::Child::getBuffer() const {
   return Parent->ThinBuffers.back()->getBuffer();
 }
 
-ErrorOr<Archive::Child> Archive::Child::getNext() const {
+Expected<Archive::Child> Archive::Child::getNext() const {
   size_t SpaceToSkip = Data.size();
   // If it's odd, add 1 to make it even.
   if (SpaceToSkip & 1)
@@ -181,13 +254,21 @@ ErrorOr<Archive::Child> Archive::Child::getNext() const {
     return Child(Parent, nullptr, nullptr);
 
   // Check to see if this is past the end of the archive.
-  if (NextLoc > Parent->Data.getBufferEnd())
-    return object_error::parse_failed;
+  if (NextLoc > Parent->Data.getBufferEnd()) {
+    Twine Msg("offset to next archive member past the end of the archive after "
+              "member ");
+    ErrorOr<StringRef> NameOrErr = getName();
+    if (NameOrErr.getError()) {
+      uint64_t Offset = Data.data() - Parent->getData().data();
+      return malformedError(Msg + "at offset " + Twine(Offset));
+    } else
+      return malformedError(Msg + Twine(NameOrErr.get()));
+  }
 
-  std::error_code EC;
-  Child Ret(Parent, NextLoc, &EC);
-  if (EC)
-    return EC;
+  Error Err;
+  Child Ret(Parent, NextLoc, &Err);
+  if (Err)
+    return std::move(Err);
   return Ret;
 }
 
@@ -227,7 +308,7 @@ ErrorOr<StringRef> Archive::Child::getName() const {
     uint64_t name_size;
     if (name.substr(3).rtrim(' ').getAsInteger(10, name_size))
       llvm_unreachable("Long name length is not an ingeter");
-    return Data.substr(sizeof(ArchiveMemberHeader), name_size).rtrim('\0');
+    return Data.substr(Header.getSizeOf(), name_size).rtrim('\0');
   } else {
     // It is not a long name so trim the blanks at the end of the name.
     if (name[name.size() - 1] != '/') {
@@ -263,11 +344,11 @@ Archive::Child::getAsBinary(LLVMContext *Context) const {
   return BinaryOrErr.takeError();
 }
 
-ErrorOr<std::unique_ptr<Archive>> Archive::create(MemoryBufferRef Source) {
-  std::error_code EC;
-  std::unique_ptr<Archive> Ret(new Archive(Source, EC));
-  if (EC)
-    return EC;
+Expected<std::unique_ptr<Archive>> Archive::create(MemoryBufferRef Source) {
+  Error Err;
+  std::unique_ptr<Archive> Ret(new Archive(Source, Err));
+  if (Err)
+    return std::move(Err);
   return std::move(Ret);
 }
 
@@ -276,8 +357,9 @@ void Archive::setFirstRegular(const Child &C) {
   FirstRegularStartOfFile = C.StartOfFile;
 }
 
-Archive::Archive(MemoryBufferRef Source, std::error_code &ec)
+Archive::Archive(MemoryBufferRef Source, Error &Err)
     : Binary(Binary::ID_Archive, Source) {
+  ErrorAsOutParameter ErrAsOutParam(&Err);
   StringRef Buffer = Data.getBuffer();
   // Check for sufficient magic.
   if (Buffer.startswith(ThinMagic)) {
@@ -285,13 +367,14 @@ Archive::Archive(MemoryBufferRef Source, std::error_code &ec)
   } else if (Buffer.startswith(Magic)) {
     IsThin = false;
   } else {
-    ec = object_error::invalid_file_type;
+    Err = make_error<GenericBinaryError>("File too small to be an archive",
+                                         object_error::invalid_file_type);
     return;
   }
 
   // Get the special members.
-  child_iterator I = child_begin(false);
-  if ((ec = I->getError()))
+  child_iterator I = child_begin(Err, false);
+  if (Err)
     return;
   child_iterator E = child_end();
 
@@ -301,16 +384,16 @@ Archive::Archive(MemoryBufferRef Source, std::error_code &ec)
   Format = K_GNU;
 
   if (I == E) {
-    ec = std::error_code();
+    Err = Error::success();
     return;
   }
-  const Child *C = &**I;
+  const Child *C = &*I;
 
   auto Increment = [&]() {
     ++I;
-    if ((ec = I->getError()))
+    if (Err)
       return true;
-    C = &**I;
+    C = &*I;
     return false;
   };
 
@@ -347,7 +430,7 @@ Archive::Archive(MemoryBufferRef Source, std::error_code &ec)
       return;
     setFirstRegular(*C);
 
-    ec = std::error_code();
+    Err = Error::success();
     return;
   }
 
@@ -355,9 +438,10 @@ Archive::Archive(MemoryBufferRef Source, std::error_code &ec)
     Format = K_BSD;
     // We know this is BSD, so getName will work since there is no string table.
     ErrorOr<StringRef> NameOrErr = C->getName();
-    ec = NameOrErr.getError();
-    if (ec)
+    if (auto ec = NameOrErr.getError()) {
+      Err = errorCodeToError(ec);
       return;
+    }
     Name = NameOrErr.get();
     if (Name == "__.SYMDEF SORTED" || Name == "__.SYMDEF") {
       // We know that the symbol table is not an external file, so we just
@@ -394,7 +478,7 @@ Archive::Archive(MemoryBufferRef Source, std::error_code &ec)
     if (Increment())
       return;
     if (I == E) {
-      ec = std::error_code();
+      Err = Error::success();
       return;
     }
     Name = C->getRawName();
@@ -408,19 +492,19 @@ Archive::Archive(MemoryBufferRef Source, std::error_code &ec)
     if (Increment())
       return;
     setFirstRegular(*C);
-    ec = std::error_code();
+    Err = Error::success();
     return;
   }
 
   if (Name[0] != '/') {
     Format = has64SymTable ? K_MIPS64 : K_GNU;
     setFirstRegular(*C);
-    ec = std::error_code();
+    Err = Error::success();
     return;
   }
 
   if (Name != "/") {
-    ec = object_error::parse_failed;
+    Err = errorCodeToError(object_error::parse_failed);
     return;
   }
 
@@ -434,7 +518,7 @@ Archive::Archive(MemoryBufferRef Source, std::error_code &ec)
 
   if (I == E) {
     setFirstRegular(*C);
-    ec = std::error_code();
+    Err = Error::success();
     return;
   }
 
@@ -449,26 +533,28 @@ Archive::Archive(MemoryBufferRef Source, std::error_code &ec)
   }
 
   setFirstRegular(*C);
-  ec = std::error_code();
+  Err = Error::success();
 }
 
-Archive::child_iterator Archive::child_begin(bool SkipInternal) const {
+Archive::child_iterator Archive::child_begin(Error &Err,
+                                             bool SkipInternal) const {
   if (Data.getBufferSize() == 8) // empty archive.
     return child_end();
 
   if (SkipInternal)
-    return Child(this, FirstRegularData, FirstRegularStartOfFile);
+    return child_iterator(Child(this, FirstRegularData,
+                                FirstRegularStartOfFile),
+                          &Err);
 
   const char *Loc = Data.getBufferStart() + strlen(Magic);
-  std::error_code EC;
-  Child c(this, Loc, &EC);
-  if (EC)
-    return child_iterator(EC);
-  return child_iterator(c);
+  Child C(this, Loc, &Err);
+  if (Err)
+    return child_end();
+  return child_iterator(C, &Err);
 }
 
 Archive::child_iterator Archive::child_end() const {
-  return Child(this, nullptr, nullptr);
+  return child_iterator(Child(this, nullptr, nullptr), nullptr);
 }
 
 StringRef Archive::Symbol::getName() const {
@@ -528,10 +614,10 @@ ErrorOr<Archive::Child> Archive::Symbol::getMember() const {
   }
 
   const char *Loc = Parent->getData().begin() + Offset;
-  std::error_code EC;
-  Child C(Parent, Loc, &EC);
-  if (EC)
-    return EC;
+  Error Err;
+  Child C(Parent, Loc, &Err);
+  if (Err)
+    return errorToErrorCode(std::move(Err));
   return C;
 }
 
@@ -652,21 +738,20 @@ uint32_t Archive::getNumberOfSymbols() const {
   return read32le(buf);
 }
 
-Archive::child_iterator Archive::findSym(StringRef name) const {
+Expected<Optional<Archive::Child>> Archive::findSym(StringRef name) const {
   Archive::symbol_iterator bs = symbol_begin();
   Archive::symbol_iterator es = symbol_end();
 
   for (; bs != es; ++bs) {
     StringRef SymName = bs->getName();
     if (SymName == name) {
-      ErrorOr<Archive::child_iterator> ResultOrErr = bs->getMember();
-      // FIXME: Should we really eat the error?
-      if (ResultOrErr.getError())
-        return child_end();
-      return ResultOrErr.get();
+      if (auto MemberOrErr = bs->getMember())
+        return Child(*MemberOrErr);
+      else
+        return errorCodeToError(MemberOrErr.getError());
     }
   }
-  return child_end();
+  return Optional<Child>();
 }
 
 bool Archive::hasSymbolTable() const { return !SymbolTable.empty(); }

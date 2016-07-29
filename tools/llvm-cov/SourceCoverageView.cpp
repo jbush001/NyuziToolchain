@@ -12,6 +12,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "SourceCoverageView.h"
+#include "SourceCoverageViewHTML.h"
 #include "SourceCoverageViewText.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/StringExtras.h"
@@ -28,15 +29,20 @@ void CoveragePrinter::StreamDestructor::operator()(raw_ostream *OS) const {
 }
 
 std::string CoveragePrinter::getOutputPath(StringRef Path, StringRef Extension,
-                                           bool InToplevel) {
+                                           bool InToplevel, bool Relative) {
   assert(Extension.size() && "The file extension may not be empty");
 
-  SmallString<256> FullPath(Opts.ShowOutputDirectory);
+  SmallString<256> FullPath;
+
+  if (!Relative)
+    FullPath.append(Opts.ShowOutputDirectory);
+
   if (!InToplevel)
     sys::path::append(FullPath, getCoverageDir());
 
-  auto PathBaseDir = sys::path::relative_path(sys::path::parent_path(Path));
-  sys::path::append(FullPath, PathBaseDir);
+  SmallString<256> ParentPath = sys::path::parent_path(Path);
+  sys::path::remove_dots(ParentPath, /*remove_dot_dots=*/true);
+  sys::path::append(FullPath, sys::path::relative_path(ParentPath));
 
   auto PathFilename = (sys::path::filename(Path) + "." + Extension).str();
   sys::path::append(FullPath, PathFilename);
@@ -50,7 +56,7 @@ CoveragePrinter::createOutputStream(StringRef Path, StringRef Extension,
   if (!Opts.hasOutputDirectory())
     return OwnedStream(&outs());
 
-  std::string FullPath = getOutputPath(Path, Extension, InToplevel);
+  std::string FullPath = getOutputPath(Path, Extension, InToplevel, false);
 
   auto ParentDir = sys::path::parent_path(FullPath);
   if (auto E = sys::fs::create_directories(ParentDir))
@@ -69,6 +75,8 @@ CoveragePrinter::create(const CoverageViewOptions &Opts) {
   switch (Opts.Format) {
   case CoverageViewOptions::OutputFormat::Text:
     return llvm::make_unique<CoveragePrinterText>(Opts);
+  case CoverageViewOptions::OutputFormat::HTML:
+    return llvm::make_unique<CoveragePrinterHTML>(Opts);
   }
   llvm_unreachable("Unknown coverage output format!");
 }
@@ -105,6 +113,9 @@ SourceCoverageView::create(StringRef SourceName, const MemoryBuffer &File,
   switch (Options.Format) {
   case CoverageViewOptions::OutputFormat::Text:
     return llvm::make_unique<SourceCoverageViewText>(SourceName, File, Options,
+                                                     std::move(CoverageInfo));
+  case CoverageViewOptions::OutputFormat::HTML:
+    return llvm::make_unique<SourceCoverageViewHTML>(SourceName, File, Options,
                                                      std::move(CoverageInfo));
   }
   llvm_unreachable("Unknown coverage output format!");

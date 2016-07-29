@@ -213,7 +213,7 @@ namespace {
     void report(const char *msg, const MachineOperand *MO, unsigned MONum);
 
     void report_context(const LiveInterval &LI) const;
-    void report_context(const LiveRange &LR, unsigned Reg,
+    void report_context(const LiveRange &LR, unsigned VRegUnit,
                         LaneBitmask LaneMask) const;
     void report_context(const LiveRange::Segment &S) const;
     void report_context(const VNInfo &VNI) const;
@@ -474,10 +474,10 @@ void MachineVerifier::report_context(const LiveInterval &LI) const {
   errs() << "- interval:    " << LI << '\n';
 }
 
-void MachineVerifier::report_context(const LiveRange &LR, unsigned Reg,
+void MachineVerifier::report_context(const LiveRange &LR, unsigned VRegUnit,
                                      LaneBitmask LaneMask) const {
   report_context_liverange(LR);
-  errs() << "- register:    " << PrintReg(Reg, TRI) << '\n';
+  report_context_vreg_regunit(VRegUnit);
   if (LaneMask != 0)
     report_context_lanemask(LaneMask);
 }
@@ -622,8 +622,8 @@ MachineVerifier::visitMachineBasicBlockBefore(const MachineBasicBlock *MBB) {
   // Call AnalyzeBranch. If it succeeds, there several more conditions to check.
   MachineBasicBlock *TBB = nullptr, *FBB = nullptr;
   SmallVector<MachineOperand, 4> Cond;
-  if (!TII->AnalyzeBranch(*const_cast<MachineBasicBlock *>(MBB),
-                          TBB, FBB, Cond)) {
+  if (!TII->analyzeBranch(*const_cast<MachineBasicBlock *>(MBB), TBB, FBB,
+                          Cond)) {
     // Ok, AnalyzeBranch thinks it knows what's going on with this block. Let's
     // check whether its answers match up with reality.
     if (!TBB && !FBB) {
@@ -880,7 +880,7 @@ void MachineVerifier::visitMachineInstrBefore(const MachineInstr *MI) {
   }
 
   StringRef ErrorInfo;
-  if (!TII->verifyInstruction(MI, ErrorInfo))
+  if (!TII->verifyInstruction(*MI, ErrorInfo))
     report(ErrorInfo.data(), MI);
 }
 

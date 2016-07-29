@@ -10,6 +10,7 @@
 #ifndef lldb_MemoryRegionInfo_h
 #define lldb_MemoryRegionInfo_h
 
+#include "lldb/Core/ConstString.h"
 #include "lldb/Core/RangeMap.h"
 #include "lldb/Utility/Range.h"
 
@@ -30,7 +31,8 @@ namespace lldb_private
         m_range (),
         m_read (eDontKnow),
         m_write (eDontKnow),
-        m_execute (eDontKnow)
+        m_execute (eDontKnow),
+        m_mapped (eDontKnow)
         {
         }
         
@@ -75,6 +77,18 @@ namespace lldb_private
             return m_execute;
         }
         
+        OptionalBool
+        GetMapped () const
+        {
+            return m_mapped;
+        }
+
+        const ConstString&
+        GetName () const
+        {
+            return m_name;
+        }
+        
         void
         SetReadable (OptionalBool val)
         {
@@ -91,6 +105,18 @@ namespace lldb_private
         SetExecutable (OptionalBool val)
         {
             m_execute = val;
+        }
+        
+        void
+        SetMapped (OptionalBool val)
+        {
+            m_mapped = val;
+        }
+
+        void
+        SetName (const char* name)
+        {
+            m_name = ConstString(name);
         }
 
         //----------------------------------------------------------------------
@@ -128,7 +154,8 @@ namespace lldb_private
             return m_range == rhs.m_range &&
                    m_read == rhs.m_read &&
                    m_write == rhs.m_write &&
-                   m_execute == rhs.m_execute;
+                   m_execute == rhs.m_execute &&
+                   m_mapped == rhs.m_mapped;
         }
         
         bool
@@ -142,6 +169,8 @@ namespace lldb_private
         OptionalBool m_read;
         OptionalBool m_write;
         OptionalBool m_execute;
+        OptionalBool m_mapped;
+        ConstString m_name;
     };
 }
 

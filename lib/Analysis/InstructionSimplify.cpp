@@ -69,7 +69,8 @@ static Value *SimplifyCmpInst(unsigned, Value *, Value *, const Query &,
                               unsigned);
 static Value *SimplifyOrInst(Value *, Value *, const Query &, unsigned);
 static Value *SimplifyXorInst(Value *, Value *, const Query &, unsigned);
-static Value *SimplifyTruncInst(Value *, Type *, const Query &, unsigned);
+static Value *SimplifyCastInst(unsigned, Value *, Type *,
+                               const Query &, unsigned);
 
 /// For a boolean type, or a vector of boolean type, return false, or
 /// a vector with every element false, as appropriate for the type.
@@ -621,6 +622,11 @@ static Constant *stripAndComputeConstantOffsets(const DataLayout &DL, Value *&V,
         break;
       V = GA->getAliasee();
     } else {
+      if (auto CS = CallSite(V))
+        if (Value *RV = CS.getReturnedArgOperand()) {
+          V = RV;
+          continue;
+        }
       break;
     }
     assert(V->getType()->getScalarType()->isPointerTy() &&
@@ -742,7 +748,8 @@ static Value *SimplifySubInst(Value *Op0, Value *Op1, bool isNSW, bool isNUW,
       // See if "V === X - Y" simplifies.
       if (Value *V = SimplifyBinOp(Instruction::Sub, X, Y, Q, MaxRecurse-1))
         // It does!  Now see if "trunc V" simplifies.
-        if (Value *W = SimplifyTruncInst(V, Op0->getType(), Q, MaxRecurse-1))
+        if (Value *W = SimplifyCastInst(Instruction::Trunc, V, Op0->getType(),
+                                        Q, MaxRecurse - 1))
           // It does, return the simplified "trunc V".
           return W;
 
@@ -1975,7 +1982,7 @@ computePointerICmp(const DataLayout &DL, const TargetLibraryInfo *TLI,
   RHS = RHS->stripPointerCasts();
 
   // A non-null pointer is not equal to a null pointer.
-  if (llvm::isKnownNonNull(LHS, TLI) && isa<ConstantPointerNull>(RHS) &&
+  if (llvm::isKnownNonNull(LHS) && isa<ConstantPointerNull>(RHS) &&
       (Pred == CmpInst::ICMP_EQ || Pred == CmpInst::ICMP_NE))
     return ConstantInt::get(GetCompareTy(LHS),
                             !CmpInst::isTrueWhenEqual(Pred));
@@ -2130,10 +2137,9 @@ computePointerICmp(const DataLayout &DL, const TargetLibraryInfo *TLI,
     // cannot be elided. We cannot fold malloc comparison to null. Also, the
     // dynamic allocation call could be either of the operands.
     Value *MI = nullptr;
-    if (isAllocLikeFn(LHS, TLI) && llvm::isKnownNonNullAt(RHS, CxtI, DT, TLI))
+    if (isAllocLikeFn(LHS, TLI) && llvm::isKnownNonNullAt(RHS, CxtI, DT))
       MI = LHS;
-    else if (isAllocLikeFn(RHS, TLI) &&
-             llvm::isKnownNonNullAt(LHS, CxtI, DT, TLI))
+    else if (isAllocLikeFn(RHS, TLI) && llvm::isKnownNonNullAt(LHS, CxtI, DT))
       MI = RHS;
     // FIXME: We should also fold the compare when the pointer escapes, but the
     // compare dominates the pointer escape
@@ -3367,6 +3373,150 @@ static const Value *SimplifyWithOpReplaced(Value *V, Value *Op, Value *RepOp,
   return nullptr;
 }
 
+/// Try to simplify a select instruction when its condition operand is an
+/// integer comparison where one operand of the compare is a constant.
+static Value *simplifySelectBitTest(Value *TrueVal, Value *FalseVal, Value *X,
+                                    const APInt *Y, bool TrueWhenUnset) {
+  const APInt *C;
+
+  // (X & Y) == 0 ? X & ~Y : X  --> X
+  // (X & Y) != 0 ? X & ~Y : X  --> X & ~Y
+  if (FalseVal == X && match(TrueVal, m_And(m_Specific(X), m_APInt(C))) &&
+      *Y == ~*C)
+    return TrueWhenUnset ? FalseVal : TrueVal;
+
+  // (X & Y) == 0 ? X : X & ~Y  --> X & ~Y
+  // (X & Y) != 0 ? X : X & ~Y  --> X
+  if (TrueVal == X && match(FalseVal, m_And(m_Specific(X), m_APInt(C))) &&
+      *Y == ~*C)
+    return TrueWhenUnset ? FalseVal : TrueVal;
+
+  if (Y->isPowerOf2()) {
+    // (X & Y) == 0 ? X | Y : X  --> X | Y
+    // (X & Y) != 0 ? X | Y : X  --> X
+    if (FalseVal == X && match(TrueVal, m_Or(m_Specific(X), m_APInt(C))) &&
+        *Y == *C)
+      return TrueWhenUnset ? TrueVal : FalseVal;
+
+    // (X & Y) == 0 ? X : X | Y  --> X
+    // (X & Y) != 0 ? X : X | Y  --> X | Y
+    if (TrueVal == X && match(FalseVal, m_Or(m_Specific(X), m_APInt(C))) &&
+        *Y == *C)
+      return TrueWhenUnset ? TrueVal : FalseVal;
+  }
+  
+  return nullptr;
+}
+
+/// An alternative way to test if a bit is set or not uses sgt/slt instead of
+/// eq/ne.
+static Value *simplifySelectWithFakeICmpEq(Value *CmpLHS, Value *TrueVal,
+                                           Value *FalseVal,
+                                           bool TrueWhenUnset) {
+  unsigned BitWidth = TrueVal->getType()->getScalarSizeInBits();
+  if (!BitWidth)
+    return nullptr;
+  
+  APInt MinSignedValue;
+  Value *X;
+  if (match(CmpLHS, m_Trunc(m_Value(X))) && (X == TrueVal || X == FalseVal)) {
+    // icmp slt (trunc X), 0  <--> icmp ne (and X, C), 0
+    // icmp sgt (trunc X), -1 <--> icmp eq (and X, C), 0
+    unsigned DestSize = CmpLHS->getType()->getScalarSizeInBits();
+    MinSignedValue = APInt::getSignedMinValue(DestSize).zext(BitWidth);
+  } else {
+    // icmp slt X, 0  <--> icmp ne (and X, C), 0
+    // icmp sgt X, -1 <--> icmp eq (and X, C), 0
+    X = CmpLHS;
+    MinSignedValue = APInt::getSignedMinValue(BitWidth);
+  }
+
+  if (Value *V = simplifySelectBitTest(TrueVal, FalseVal, X, &MinSignedValue,
+                                       TrueWhenUnset))
+    return V;
+
+  return nullptr;
+}
+
+/// Try to simplify a select instruction when its condition operand is an
+/// integer comparison.
+static Value *simplifySelectWithICmpCond(Value *CondVal, Value *TrueVal,
+                                         Value *FalseVal, const Query &Q,
+                                         unsigned MaxRecurse) {
+  ICmpInst::Predicate Pred;
+  Value *CmpLHS, *CmpRHS;
+  if (!match(CondVal, m_ICmp(Pred, m_Value(CmpLHS), m_Value(CmpRHS))))
+    return nullptr;
+
+  // FIXME: This code is nearly duplicated in InstCombine. Using/refactoring
+  // decomposeBitTestICmp() might help.
+  if (ICmpInst::isEquality(Pred) && match(CmpRHS, m_Zero())) {
+    Value *X;
+    const APInt *Y;
+    if (match(CmpLHS, m_And(m_Value(X), m_APInt(Y))))
+      if (Value *V = simplifySelectBitTest(TrueVal, FalseVal, X, Y,
+                                           Pred == ICmpInst::ICMP_EQ))
+        return V;
+  } else if (Pred == ICmpInst::ICMP_SLT && match(CmpRHS, m_Zero())) {
+    // Comparing signed-less-than 0 checks if the sign bit is set.
+    if (Value *V = simplifySelectWithFakeICmpEq(CmpLHS, TrueVal, FalseVal,
+                                                false))
+      return V;
+  } else if (Pred == ICmpInst::ICMP_SGT && match(CmpRHS, m_AllOnes())) {
+    // Comparing signed-greater-than -1 checks if the sign bit is not set.
+    if (Value *V = simplifySelectWithFakeICmpEq(CmpLHS, TrueVal, FalseVal,
+                                                true))
+      return V;
+  }
+
+  if (CondVal->hasOneUse()) {
+    const APInt *C;
+    if (match(CmpRHS, m_APInt(C))) {
+      // X < MIN ? T : F  -->  F
+      if (Pred == ICmpInst::ICMP_SLT && C->isMinSignedValue())
+        return FalseVal;
+      // X < MIN ? T : F  -->  F
+      if (Pred == ICmpInst::ICMP_ULT && C->isMinValue())
+        return FalseVal;
+      // X > MAX ? T : F  -->  F
+      if (Pred == ICmpInst::ICMP_SGT && C->isMaxSignedValue())
+        return FalseVal;
+      // X > MAX ? T : F  -->  F
+      if (Pred == ICmpInst::ICMP_UGT && C->isMaxValue())
+        return FalseVal;
+    }
+  }
+
+  // If we have an equality comparison, then we know the value in one of the
+  // arms of the select. See if substituting this value into the arm and
+  // simplifying the result yields the same value as the other arm.
+  if (Pred == ICmpInst::ICMP_EQ) {
+    if (SimplifyWithOpReplaced(FalseVal, CmpLHS, CmpRHS, Q, MaxRecurse) ==
+            TrueVal ||
+        SimplifyWithOpReplaced(FalseVal, CmpRHS, CmpLHS, Q, MaxRecurse) ==
+            TrueVal)
+      return FalseVal;
+    if (SimplifyWithOpReplaced(TrueVal, CmpLHS, CmpRHS, Q, MaxRecurse) ==
+            FalseVal ||
+        SimplifyWithOpReplaced(TrueVal, CmpRHS, CmpLHS, Q, MaxRecurse) ==
+            FalseVal)
+      return FalseVal;
+  } else if (Pred == ICmpInst::ICMP_NE) {
+    if (SimplifyWithOpReplaced(TrueVal, CmpLHS, CmpRHS, Q, MaxRecurse) ==
+            FalseVal ||
+        SimplifyWithOpReplaced(TrueVal, CmpRHS, CmpLHS, Q, MaxRecurse) ==
+            FalseVal)
+      return TrueVal;
+    if (SimplifyWithOpReplaced(FalseVal, CmpLHS, CmpRHS, Q, MaxRecurse) ==
+            TrueVal ||
+        SimplifyWithOpReplaced(FalseVal, CmpRHS, CmpLHS, Q, MaxRecurse) ==
+            TrueVal)
+      return TrueVal;
+  }
+
+  return nullptr;
+}
+
 /// Given operands for a SelectInst, see if we can fold the result.
 /// If not, this returns null.
 static Value *SimplifySelectInst(Value *CondVal, Value *TrueVal,
@@ -3395,103 +3545,9 @@ static Value *SimplifySelectInst(Value *CondVal, Value *TrueVal,
   if (isa<UndefValue>(FalseVal))   // select C, X, undef -> X
     return TrueVal;
 
-  if (const auto *ICI = dyn_cast<ICmpInst>(CondVal)) {
-    unsigned BitWidth = Q.DL.getTypeSizeInBits(TrueVal->getType());
-    ICmpInst::Predicate Pred = ICI->getPredicate();
-    Value *CmpLHS = ICI->getOperand(0);
-    Value *CmpRHS = ICI->getOperand(1);
-    APInt MinSignedValue = APInt::getSignBit(BitWidth);
-    Value *X;
-    const APInt *Y;
-    bool TrueWhenUnset;
-    bool IsBitTest = false;
-    if (ICmpInst::isEquality(Pred) &&
-        match(CmpLHS, m_And(m_Value(X), m_APInt(Y))) &&
-        match(CmpRHS, m_Zero())) {
-      IsBitTest = true;
-      TrueWhenUnset = Pred == ICmpInst::ICMP_EQ;
-    } else if (Pred == ICmpInst::ICMP_SLT && match(CmpRHS, m_Zero())) {
-      X = CmpLHS;
-      Y = &MinSignedValue;
-      IsBitTest = true;
-      TrueWhenUnset = false;
-    } else if (Pred == ICmpInst::ICMP_SGT && match(CmpRHS, m_AllOnes())) {
-      X = CmpLHS;
-      Y = &MinSignedValue;
-      IsBitTest = true;
-      TrueWhenUnset = true;
-    }
-    if (IsBitTest) {
-      const APInt *C;
-      // (X & Y) == 0 ? X & ~Y : X  --> X
-      // (X & Y) != 0 ? X & ~Y : X  --> X & ~Y
-      if (FalseVal == X && match(TrueVal, m_And(m_Specific(X), m_APInt(C))) &&
-          *Y == ~*C)
-        return TrueWhenUnset ? FalseVal : TrueVal;
-      // (X & Y) == 0 ? X : X & ~Y  --> X & ~Y
-      // (X & Y) != 0 ? X : X & ~Y  --> X
-      if (TrueVal == X && match(FalseVal, m_And(m_Specific(X), m_APInt(C))) &&
-          *Y == ~*C)
-        return TrueWhenUnset ? FalseVal : TrueVal;
-
-      if (Y->isPowerOf2()) {
-        // (X & Y) == 0 ? X | Y : X  --> X | Y
-        // (X & Y) != 0 ? X | Y : X  --> X
-        if (FalseVal == X && match(TrueVal, m_Or(m_Specific(X), m_APInt(C))) &&
-            *Y == *C)
-          return TrueWhenUnset ? TrueVal : FalseVal;
-        // (X & Y) == 0 ? X : X | Y  --> X
-        // (X & Y) != 0 ? X : X | Y  --> X | Y
-        if (TrueVal == X && match(FalseVal, m_Or(m_Specific(X), m_APInt(C))) &&
-            *Y == *C)
-          return TrueWhenUnset ? TrueVal : FalseVal;
-      }
-    }
-    if (ICI->hasOneUse()) {
-      const APInt *C;
-      if (match(CmpRHS, m_APInt(C))) {
-        // X < MIN ? T : F  -->  F
-        if (Pred == ICmpInst::ICMP_SLT && C->isMinSignedValue())
-          return FalseVal;
-        // X < MIN ? T : F  -->  F
-        if (Pred == ICmpInst::ICMP_ULT && C->isMinValue())
-          return FalseVal;
-        // X > MAX ? T : F  -->  F
-        if (Pred == ICmpInst::ICMP_SGT && C->isMaxSignedValue())
-          return FalseVal;
-        // X > MAX ? T : F  -->  F
-        if (Pred == ICmpInst::ICMP_UGT && C->isMaxValue())
-          return FalseVal;
-      }
-    }
-
-    // If we have an equality comparison then we know the value in one of the
-    // arms of the select. See if substituting this value into the arm and
-    // simplifying the result yields the same value as the other arm.
-    if (Pred == ICmpInst::ICMP_EQ) {
-      if (SimplifyWithOpReplaced(FalseVal, CmpLHS, CmpRHS, Q, MaxRecurse) ==
-              TrueVal ||
-          SimplifyWithOpReplaced(FalseVal, CmpRHS, CmpLHS, Q, MaxRecurse) ==
-              TrueVal)
-        return FalseVal;
-      if (SimplifyWithOpReplaced(TrueVal, CmpLHS, CmpRHS, Q, MaxRecurse) ==
-              FalseVal ||
-          SimplifyWithOpReplaced(TrueVal, CmpRHS, CmpLHS, Q, MaxRecurse) ==
-              FalseVal)
-        return FalseVal;
-    } else if (Pred == ICmpInst::ICMP_NE) {
-      if (SimplifyWithOpReplaced(TrueVal, CmpLHS, CmpRHS, Q, MaxRecurse) ==
-              FalseVal ||
-          SimplifyWithOpReplaced(TrueVal, CmpRHS, CmpLHS, Q, MaxRecurse) ==
-              FalseVal)
-        return TrueVal;
-      if (SimplifyWithOpReplaced(FalseVal, CmpLHS, CmpRHS, Q, MaxRecurse) ==
-              TrueVal ||
-          SimplifyWithOpReplaced(FalseVal, CmpRHS, CmpLHS, Q, MaxRecurse) ==
-              TrueVal)
-        return TrueVal;
-    }
-  }
+  if (Value *V =
+          simplifySelectWithICmpCond(CondVal, TrueVal, FalseVal, Q, MaxRecurse))
+    return V;
 
   return nullptr;
 }
@@ -3735,19 +3791,47 @@ static Value *SimplifyPHINode(PHINode *PN, const Query &Q) {
   return CommonValue;
 }
 
-static Value *SimplifyTruncInst(Value *Op, Type *Ty, const Query &Q, unsigned) {
-  if (Constant *C = dyn_cast<Constant>(Op))
-    return ConstantFoldCastOperand(Instruction::Trunc, C, Ty, Q.DL);
+static Value *SimplifyCastInst(unsigned CastOpc, Value *Op,
+                               Type *Ty, const Query &Q, unsigned MaxRecurse) {
+  if (auto *C = dyn_cast<Constant>(Op))
+    return ConstantFoldCastOperand(CastOpc, C, Ty, Q.DL);
+
+  if (auto *CI = dyn_cast<CastInst>(Op)) {
+    auto *Src = CI->getOperand(0);
+    Type *SrcTy = Src->getType();
+    Type *MidTy = CI->getType();
+    Type *DstTy = Ty;
+    if (Src->getType() == Ty) {
+      auto FirstOp = static_cast<Instruction::CastOps>(CI->getOpcode());
+      auto SecondOp = static_cast<Instruction::CastOps>(CastOpc);
+      Type *SrcIntPtrTy =
+          SrcTy->isPtrOrPtrVectorTy() ? Q.DL.getIntPtrType(SrcTy) : nullptr;
+      Type *MidIntPtrTy =
+          MidTy->isPtrOrPtrVectorTy() ? Q.DL.getIntPtrType(MidTy) : nullptr;
+      Type *DstIntPtrTy =
+          DstTy->isPtrOrPtrVectorTy() ? Q.DL.getIntPtrType(DstTy) : nullptr;
+      if (CastInst::isEliminableCastPair(FirstOp, SecondOp, SrcTy, MidTy, DstTy,
+                                         SrcIntPtrTy, MidIntPtrTy,
+                                         DstIntPtrTy) == Instruction::BitCast)
+        return Src;
+    }
+  }
+
+  // bitcast x -> x
+  if (CastOpc == Instruction::BitCast)
+    if (Op->getType() == Ty)
+      return Op;
 
   return nullptr;
 }
 
-Value *llvm::SimplifyTruncInst(Value *Op, Type *Ty, const DataLayout &DL,
-                               const TargetLibraryInfo *TLI,
-                               const DominatorTree *DT, AssumptionCache *AC,
-                               const Instruction *CxtI) {
-  return ::SimplifyTruncInst(Op, Ty, Query(DL, TLI, DT, AC, CxtI),
-                             RecursionLimit);
+Value *llvm::SimplifyCastInst(unsigned CastOpc, Value *Op, Type *Ty,
+                              const DataLayout &DL,
+                              const TargetLibraryInfo *TLI,
+                              const DominatorTree *DT, AssumptionCache *AC,
+                              const Instruction *CxtI) {
+  return ::SimplifyCastInst(CastOpc, Op, Ty, Query(DL, TLI, DT, AC, CxtI),
+                            RecursionLimit);
 }
 
 //=== Helper functions for higher up the class hierarchy.
@@ -3940,6 +4024,22 @@ static Value *SimplifyRelativeLoad(Constant *Ptr, Constant *Offset,
   return ConstantExpr::getBitCast(LoadedLHSPtr, Int8PtrTy);
 }
 
+static bool maskIsAllZeroOrUndef(Value *Mask) {
+  auto *ConstMask = dyn_cast<Constant>(Mask);
+  if (!ConstMask)
+    return false;
+  if (ConstMask->isNullValue() || isa<UndefValue>(ConstMask))
+    return true;
+  for (unsigned I = 0, E = ConstMask->getType()->getVectorNumElements(); I != E;
+       ++I) {
+    if (auto *MaskElt = ConstMask->getAggregateElement(I))
+      if (MaskElt->isNullValue() || isa<UndefValue>(MaskElt))
+        continue;
+    return false;
+  }
+  return true;
+}
+
 template <typename IterTy>
 static Value *SimplifyIntrinsic(Function *F, IterTy ArgBegin, IterTy ArgEnd,
                                 const Query &Q, unsigned MaxRecurse) {
@@ -3985,6 +4085,15 @@ static Value *SimplifyIntrinsic(Function *F, IterTy ArgBegin, IterTy ArgEnd,
         isa<Constant>(RHS))
       return SimplifyRelativeLoad(cast<Constant>(LHS), cast<Constant>(RHS),
                                   Q.DL);
+  }
+
+  // Simplify calls to llvm.masked.load.*
+  if (IID == Intrinsic::masked_load) {
+    Value *MaskArg = ArgBegin[2];
+    Value *PassthruArg = ArgBegin[3];
+    // If the mask is all zeros or undef, the "passthru" argument is the result.
+    if (maskIsAllZeroOrUndef(MaskArg))
+      return PassthruArg;
   }
 
   // Perform idempotent optimizations
@@ -4191,9 +4300,11 @@ Value *llvm::SimplifyInstruction(Instruction *I, const DataLayout &DL,
                           TLI, DT, AC, I);
     break;
   }
-  case Instruction::Trunc:
-    Result =
-        SimplifyTruncInst(I->getOperand(0), I->getType(), DL, TLI, DT, AC, I);
+#define HANDLE_CAST_INST(num, opc, clas) case Instruction::opc:
+#include "llvm/IR/Instruction.def"
+#undef HANDLE_CAST_INST
+    Result = SimplifyCastInst(I->getOpcode(), I->getOperand(0), I->getType(),
+                              DL, TLI, DT, AC, I);
     break;
   }
 
