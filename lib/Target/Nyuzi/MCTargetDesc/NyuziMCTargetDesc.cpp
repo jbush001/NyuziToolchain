@@ -15,6 +15,7 @@
 #include "InstPrinter/NyuziInstPrinter.h"
 #include "NyuziMCAsmInfo.h"
 #include "llvm/MC/MCELFStreamer.h"
+#include "llvm/MC/MCInstrAnalysis.h"
 #include "llvm/MC/MCInstrInfo.h"
 #include "llvm/MC/MCRegisterInfo.h"
 #include "llvm/MC/MCSubtargetInfo.h"
@@ -79,6 +80,35 @@ static MCInstPrinter *createNyuziMCInstPrinter(const Triple &T,
   return new NyuziInstPrinter(MAI, MII, MRI);
 }
 
+namespace {
+
+class NyuziMCInstrAnalysis : public MCInstrAnalysis {
+public:
+  NyuziMCInstrAnalysis(const MCInstrInfo *Info) : MCInstrAnalysis(Info) {}
+
+  bool evaluateBranch(const MCInst &Inst, uint64_t Addr, uint64_t Size,
+                      uint64_t &Target) const override {
+
+    unsigned NumOps = Inst.getNumOperands();
+    if (NumOps == 0)
+      return false;
+    switch (Info->get(Inst.getOpcode()).OpInfo[NumOps - 1].OperandType) {
+    case MCOI::OPERAND_UNKNOWN:
+    case MCOI::OPERAND_IMMEDIATE:
+      Target = Addr + 4 + Inst.getOperand(NumOps - 1).getImm();
+      return true;
+    default:
+      return false;
+    }
+  }
+};
+
+}
+
+static MCInstrAnalysis *createNyuziMCInstrAnalysis(const MCInstrInfo *Info) {
+  return new NyuziMCInstrAnalysis(Info);
+}
+
 extern "C" void LLVMInitializeNyuziTargetMC() {
   // Register the MC asm info.
   RegisterMCAsmInfoFn A(TheNyuziTarget, createNyuziMCAsmInfo);
@@ -95,6 +125,10 @@ extern "C" void LLVMInitializeNyuziTargetMC() {
   // Register the MC subtarget info.
   TargetRegistry::RegisterMCSubtargetInfo(TheNyuziTarget,
                                           createNyuziMCSubtargetInfo);
+
+  // Register the MC instruction analyzer.
+  TargetRegistry::RegisterMCInstrAnalysis(TheNyuziTarget,
+                                          createNyuziMCInstrAnalysis);
 
   // Register the ASM Backend
   TargetRegistry::RegisterMCAsmBackend(TheNyuziTarget, createNyuziAsmBackend);
