@@ -1,10 +1,9 @@
 ; RUN: llc %s -o - | FileCheck %s
-
-target triple = "nyuzi-elf-none"
-
 ;
 ; Virtual function call. This mainly validates calling via a register.
 ;
+
+target triple = "nyuzi-elf-none"
 
 %class.Foo = type { i32 (...)** }
 

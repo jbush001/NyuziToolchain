@@ -1,4 +1,8 @@
 ; RUN: llc %s -o - | FileCheck %s
+;
+; Test integer modulus/division. There are no native instructions for these, so
+; they are converted to runtime library calls.
+;
 
 target triple = "nyuzi-elf-none"
 

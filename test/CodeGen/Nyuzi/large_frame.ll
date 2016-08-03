@@ -1,15 +1,14 @@
 ; RUN: llc %s -o - | FileCheck %s
-
-target triple = "nyuzi-elf-none"
-
-declare void @dummy_func(i32*)
-
 ;
 ; If the frame is large enough, the prologue cannot do a subtract with
 ; an immediate instruction to decrement the stack pointer. Instead, it
 ; loads the frame size into a register with shifts/ors and uses that
 ; register result to decrement the stack pointer.
 ;
+
+target triple = "nyuzi-elf-none"
+
+declare void @dummy_func(i32*)
 
 define void @large_frame() {
   %1 = alloca [1024 x i32], align 4

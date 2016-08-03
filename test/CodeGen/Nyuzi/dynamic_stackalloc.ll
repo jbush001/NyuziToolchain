@@ -1,10 +1,11 @@
 ; RUN: llc %s -o - | FileCheck %s
+;
+; Calling alloca with a variable amount will adjust stack pointer
+;
 
 target triple = "nyuzi-elf-none"
 
 declare void @callee(i8* %arg);
-
-; Calling alloca with a variable amount will adjust stack pointer
 
 define void @dynamic_stackalloc(i32 %size) {
 

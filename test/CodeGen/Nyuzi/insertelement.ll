@@ -1,4 +1,8 @@
 ; RUN: llc %s -o - | FileCheck %s
+;
+; Test inserting a scalar element into a vector lane using insertlement
+; instruction
+;
 
 target triple = "nyuzi-elf-none"
 

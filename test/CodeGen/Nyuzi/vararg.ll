@@ -1,4 +1,7 @@
 ; RUN: llc %s -o - | FileCheck %s
+;
+; Test variable argument functions work correctly
+;
 
 target triple = "nyuzi-elf-none"
 

@@ -1,11 +1,10 @@
 ; RUN: llc %s -o - | FileCheck %s
-
-target triple = "nyuzi-elf-none"
-
 ;
 ; Tail calls are not supported on this architecture: they are converted to normal
 ; calls. Ensure the backend doesn't assert when it encounters one.
 ;
+
+target triple = "nyuzi-elf-none"
 
 declare i32 @doSomething(i32, i32)
 

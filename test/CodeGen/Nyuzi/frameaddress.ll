@@ -1,8 +1,10 @@
 ; RUN: llc %s -o - | FileCheck %s
+;
+; Test that __builtin_frameaddress works properly
+;
 
 target triple = "nyuzi-elf-none"
 
-; Built-in frameaddress
 declare i8* @llvm.frameaddress(i32) nounwind readnone
 
 define i8* @f() {

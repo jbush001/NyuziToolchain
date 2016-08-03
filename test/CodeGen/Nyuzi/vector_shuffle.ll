@@ -1,11 +1,12 @@
 ; RUN: llc -mtriple nyuzi-elf %s -o - | FileCheck %s
+;
+; This test validates NyuziISelLowering::LowerVECTOR_SHUFFLE, which
+; has a bunch of special case optimizations for various shuffle types.
+;
 
 target triple = "nyuzi"
 
-;
-; This test validates NyuziISelLowering::LowerVECTOR_SHUFFLE
-;
-
+; Test that splat works okay for element 0
 define <16 x i32> @test_insertelement_splat0(i32 %a) { ; CHECK-LABEL: test_insertelement_splat0:
   %single = insertelement <16 x i32> undef, i32 %a, i32 0
   %splat = shufflevector <16 x i32> %single, <16 x i32> undef, <16 x i32> zeroinitializer
@@ -16,6 +17,7 @@ define <16 x i32> @test_insertelement_splat0(i32 %a) { ; CHECK-LABEL: test_inser
   ret <16 x i32> %splat
 }
 
+; Test splat for a different vector lane (7)
 define <16 x i32> @test_insertelement_splat7(i32 %a) { ; CHECK-LABEL: test_insertelement_splat7:
   %single = insertelement <16 x i32> undef, i32 %a, i32 7
   %splat = shufflevector <16 x i32> %single, <16 x i32> undef, <16 x i32> <i32 7, i32 7, i32 7, i32 7, i32 7, i32 7, i32 7, i32 7, i32 7, i32 7, i32 7, i32 7, i32 7, i32 7, i32 7, i32 7>
@@ -50,7 +52,7 @@ define <16 x i32> @test_splat_elem2(<16 x i32> %a, <16 x i32> %b) { ; CHECK-LABE
   ret <16 x i32> %res
 }
 
-; Perform a shuffle where both arguments are the same. Ensure this detects that.
+; Perform a shuffle where both arguments are the same. Ensure it detects that.
 define <16 x i32> @identity_shuffle_same_ops(<16 x i32> %a) { ; CHECK-LABEL: identity_shuffle_same_ops:
   %res = shufflevector <16 x i32> %a, <16 x i32> %a, <16 x i32> <i32 0, i32 17, i32 2, i32 19, i32 4, i32 21, i32 6, i32 23, i32 8, i32 25, i32 10, i32 27, i32 12, i32 29, i32 14, i32 31>
 

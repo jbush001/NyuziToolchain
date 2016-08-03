@@ -1,7 +1,4 @@
 ; RUN: llc %s -o - | FileCheck %s
-
-target triple = "nyuzi-elf-none"
-
 ;
 ; Scalar only comparison tests
 ; These tests are not included in operator_tests because LLVM performs transforms
@@ -14,6 +11,8 @@ target triple = "nyuzi-elf-none"
 ;   is false). For unordered comparisons, pick the opposite comparision and XOR
 ;   the result with 0xffff to invert it.
 ;
+
+target triple = "nyuzi-elf-none"
 
 define i32 @cmpisgt(i32 %a, i32 %b) { ; CHECK-LABEL: cmpisgt:
   %cmp = icmp sgt i32 %a, %b

@@ -1,4 +1,7 @@
 ; RUN: llc %s -o - | FileCheck %s
+;
+; Test switch instruction
+;
 
 target triple = "nyuzi-elf-none"
 

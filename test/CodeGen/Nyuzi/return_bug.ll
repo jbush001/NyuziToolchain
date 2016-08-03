@@ -1,10 +1,12 @@
 ; RUN: llc %s -o - | FileCheck %s
-
-target triple = "nyuzi-elf-none"
-
+;
+; Regression test
 ; The original bug was that call was treated as a terminator and thus
 ; considered part of the return sequence.  The callee-saved registers
 ; would end up getting restored before the call instead of after it.
+;
+
+target triple = "nyuzi-elf-none"
 
 @foo = global i32 12, align 4
 

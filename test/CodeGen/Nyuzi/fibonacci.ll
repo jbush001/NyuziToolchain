@@ -1,4 +1,7 @@
 ; RUN: llc %s -o - | FileCheck %s
+;
+; Recursive fibonacci function. Tests a few things.
+;
 
 target triple = "nyuzi-elf-none"
 

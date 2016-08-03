@@ -1,4 +1,7 @@
 ; RUN: llc %s -o - | FileCheck %s
+;
+; Test vector extractelement instruction
+;
 
 target triple = "nyuzi-elf-none"
 

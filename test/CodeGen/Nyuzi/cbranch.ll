@@ -1,8 +1,10 @@
 ; RUN: llc %s -o - | FileCheck %s
+;
+; Conditional branch test
+;
 
 target triple = "nyuzi-elf-none"
 
-; Do a scalar comparison and branch on the result.
 define i32 @max(i32 %a, i32 %b) {
   %cmp = icmp sgt i32 %a, %b
 

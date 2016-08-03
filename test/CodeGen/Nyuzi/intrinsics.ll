@@ -1,4 +1,7 @@
 ; RUN: llc %s -o - | FileCheck %s
+;
+; Test Nyuzi specific intrinsics
+;
 
 target triple = "nyuzi-elf-none"
 

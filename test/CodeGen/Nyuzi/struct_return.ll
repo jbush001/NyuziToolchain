@@ -1,10 +1,12 @@
 ; RUN: llc %s -o - | FileCheck %s
-
-target triple = "nyuzi-elf-none"
-
+;
 ; If a function returns a structure, the compiler passes a pointer to it
 ; (allocated in the caller frame) as the first parameter. Ensure the
 ; backend treats this parameter specially (it is tagged as an sret type)
+;
+
+target triple = "nyuzi-elf-none"
+
 
 %struct.foo = type { i32, i32 }
 

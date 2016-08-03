@@ -1,4 +1,7 @@
 ; RUN: llc %s -o - | FileCheck %s
+;
+; Test integer sign extension
+;
 
 target triple = "nyuzi-elf-none"
 

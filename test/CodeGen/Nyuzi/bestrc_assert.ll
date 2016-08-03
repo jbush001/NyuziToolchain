@@ -1,14 +1,13 @@
 ; RUN: llc %s -o - | FileCheck %s
-
-target triple = "nyuzi-elf-none"
-
 ;
-; Regression test for issue #11. The following code was causing an assertion:
+; Regression test for issue #11:
 ; Assertion failed: (BestRC && "Couldn't find the register class"), function getMinimalPhysRegClass,
 ;      file NyuziToolchain/lib/CodeGen/TargetRegisterInfo.cpp, line 124.
 ; The problem was never directly fixed, but went away when the call to
 ; "setSchedulingPreference(Sched::RegPressure)" was removed from NyuziTargetLowering.
 ;
+
+target triple = "nyuzi-elf-none"
 
 declare void @printf(i8* nocapture readonly, ...)
 

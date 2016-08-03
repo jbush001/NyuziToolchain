@@ -1,9 +1,10 @@
 ; RUN: llc %s -o - | FileCheck %s
-
-target triple = "nyuzi-elf-none"
-
+;
 ; The native vector compare instructions return a bitmask, but the C operators
 ; return another vector. Ensure the backend properly expands the former to the latter.
+;
+
+target triple = "nyuzi-elf-none"
 
 define <16 x i32> @test_vector_sgt(<16 x i32> %a, <16 x i32> %b) { ; CHECK-LABEL: test_vector_sgt:
   %cmp = icmp sgt <16 x i32> %a, %b

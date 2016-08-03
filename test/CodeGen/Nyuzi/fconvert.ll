@@ -1,8 +1,9 @@
 ; RUN: llc %s -o - | FileCheck %s
+;
+; Floating point <-> integer conversion tests
+;
 
 target triple = "nyuzi-elf-none"
-
-; Floating point conversion tests
 
 define float @test_sitofp(i32 %a) { ; CHECK-LABEL: test_sitofp:
   %conv = sitofp i32 %a to float

@@ -1,4 +1,7 @@
 ; RUN: llc %s -o - | FileCheck %s
+;
+; Test loading vector and scalar values from the constant pool
+;
 
 target triple = "nyuzi-elf-none"
 

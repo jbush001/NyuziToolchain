@@ -1,4 +1,7 @@
 ; RUN: llc %s -o - | FileCheck %s
+;
+; Test brindirect (indirect branch) instruction
+;
 
 target triple = "nyuzi-elf-none"
 

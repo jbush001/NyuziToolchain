@@ -1,7 +1,4 @@
 ; RUN: llc %s -o - | FileCheck %s
-
-target triple = "nyuzi-elf-none"
-
 ;
 ; Validate all variants of loads/stores:
 ; - 8, 16, and 32 bit integer values with and without sign extension
@@ -10,6 +7,8 @@ target triple = "nyuzi-elf-none"
 ; - Immediate pointer offset values
 ; - Vector/Scalar types
 ;
+
+target triple = "nyuzi-elf-none"
 
 ; The struct is used to validate different pointer offsets (via getlementptr)
 %struct.foo = type { i32, i16, i16, i8, i8, i8, i8, float }

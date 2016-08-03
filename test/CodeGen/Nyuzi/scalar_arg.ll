@@ -1,10 +1,9 @@
 ; RUN: llc %s -o - | FileCheck %s
+;
+; Test passing scalar arguments to a called function.
+;
 
 target triple = "nyuzi-elf-none"
-
-;
-; Test passing scalar arguments.
-;
 
 define i32 @somefunc(i32 %arg1, i32 %arg2, i32 %arg3,
   i32 %arg4, i32 %arg5, i32 %arg6, i32 %arg7, i32 %arg8,

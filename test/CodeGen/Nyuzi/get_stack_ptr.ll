@@ -1,4 +1,7 @@
 ; RUN: llc %s -o - | FileCheck %s
+;
+; Test getting a pointer to a stack allocated variable works.
+;
 
 target triple = "nyuzi-elf-none"
 

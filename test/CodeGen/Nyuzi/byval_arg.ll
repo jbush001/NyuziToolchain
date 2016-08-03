@@ -1,12 +1,13 @@
 ; RUN: llc %s -o - | FileCheck %s
-
-target triple = "nyuzi-elf-none"
-
+;
 ; When a structure argument is passed by value, the caller
 ; will allocate space and copy data into it. @func1 is called
 ; with a byval struct arg. It in turn calls another function,
 ; passing the structure by value to it.
 ; NyuziTargetLowering::LowerCall perfoms the copy out
+;
+
+target triple = "nyuzi-elf-none"
 
 ; Make the struct big enough that a memcpy is required
 %struct.foo = type { i32, i32, [256 x i8] }

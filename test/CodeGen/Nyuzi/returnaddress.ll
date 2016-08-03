@@ -1,8 +1,10 @@
 ; RUN: llc %s -o - | FileCheck %s
+;
+; Test __builtin_returnaddress
+;
 
 target triple = "nyuzi-elf-none"
 
-; Built-in returnaddress
 declare i8 *@llvm.returnaddress(i32)
 declare void @somefunc()
 

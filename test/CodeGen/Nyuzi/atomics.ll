@@ -1,4 +1,7 @@
 ; RUN: llc %s -o - | FileCheck %s
+;
+; Test atomic memory operations
+;
 
 target triple = "nyuzi-elf-none"
 

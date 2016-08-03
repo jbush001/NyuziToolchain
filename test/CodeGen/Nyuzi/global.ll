@@ -1,4 +1,7 @@
 ; RUN: llc %s -o - | FileCheck %s
+;
+; Test global variable accesses
+;
 
 target triple = "nyuzi-elf-none"
 
