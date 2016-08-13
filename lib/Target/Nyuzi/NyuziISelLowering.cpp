@@ -392,6 +392,9 @@ NyuziTargetLowering::NyuziTargetLowering(const TargetMachine &TM,
   addRegisterClass(MVT::v16i32, &Nyuzi::VR512RegClass);
   addRegisterClass(MVT::v16f32, &Nyuzi::VR512RegClass);
 
+  for (MVT VT : MVT::integer_valuetypes())
+    setLoadExtAction(ISD::SEXTLOAD, VT, MVT::i1, Promote);
+
   setOperationAction(ISD::BUILD_VECTOR, MVT::v16f32, Custom);
   setOperationAction(ISD::BUILD_VECTOR, MVT::v16i32, Custom);
   setOperationAction(ISD::INSERT_VECTOR_ELT, MVT::v16f32, Custom);

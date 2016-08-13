@@ -277,7 +277,6 @@ def SW : ScalarStoreInst<"32", store, FmtM_Word>;
 
 def : Pat<(i32 (zextloadi1 ADDRri:$addr)), (LBU ADDRri:$addr)>;
 def : Pat<(i32 (extloadi1 ADDRri:$addr)), (LBU ADDRri:$addr)>;
-def : Pat<(i32 (sextloadi1 ADDRri:$addr)), (LBS ADDRri:$addr)>;
 def : Pat<(i32 (extloadi8 ADDRri:$addr)), (LBU ADDRri:$addr)>;
 def : Pat<(i32 (extloadi16 ADDRri:$addr)), (LSS ADDRri:$addr)>;
 def : Pat<(f32 (load ADDRri:$addr)), (LW ADDRri:$addr)>;
