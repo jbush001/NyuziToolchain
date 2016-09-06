@@ -209,6 +209,13 @@ public:
   void relocateOne(uint8_t *Loc, uint32_t Type, uint64_t Val) const override;
   bool usesOnlyLowPageBits(uint32_t Type) const override;
 };
+
+class NyuziTargetInfo final : public TargetInfo {
+public:
+  NyuziTargetInfo();
+  void relocateOne(uint8_t *Loc, uint32_t Type, uint64_t Val) const override;
+  RelExpr getRelExpr(uint32_t Type, const SymbolBody &S) const override;
+};
 } // anonymous namespace
 
 TargetInfo *createTarget() {
@@ -242,6 +249,8 @@ TargetInfo *createTarget() {
     if (Config->EKind == ELF32LEKind)
       return new X86_64TargetInfo<ELF32LE>();
     return new X86_64TargetInfo<ELF64LE>();
+  case EM_NYUZI:
+    return new NyuziTargetInfo();
   }
   fatal("unknown target machine");
 }
@@ -2161,5 +2170,53 @@ template <class ELFT>
 bool MipsTargetInfo<ELFT>::usesOnlyLowPageBits(uint32_t Type) const {
   return Type == R_MIPS_LO16 || Type == R_MIPS_GOT_OFST;
 }
+
+template <uint8_t SIZE, uint8_t BASE>
+static void applyNyuziReloc(uint8_t *Loc, uint32_t Type, uint64_t V) {
+  uint32_t Mask = (0xffffffff >> (32 - SIZE)) << BASE;
+  checkInt<SIZE>(V, Type);
+  write32le(Loc, (read32le(Loc) & ~Mask) | ((V << BASE) & Mask));
+}
+
+NyuziTargetInfo::NyuziTargetInfo() {
+  PageSize = 0x1000;
+  DefaultImageBase = 0;
+}
+
+void NyuziTargetInfo::relocateOne(uint8_t *Loc, uint32_t Type, uint64_t Val) const {
+  switch (Type) {
+  default:
+    fatal("unrecognized reloc " + Twine(Type));
+  case R_NYUZI_ABS32:
+    write32le(Loc, Val);
+    break;
+  case R_NYUZI_BRANCH:
+    applyNyuziReloc<20, 5>(Loc, Type, Val - 4);
+    break;
+  case R_NYUZI_PCREL_MEM_EXT:
+    applyNyuziReloc<15, 10>(Loc, Type, Val - 4);
+    break;
+  case R_NYUZI_PCREL_LEA:
+    applyNyuziReloc<13, 10>(Loc, Type, Val - 4);
+    break;
+  }
+}
+
+RelExpr NyuziTargetInfo::getRelExpr(uint32_t Type, const SymbolBody &S) const {
+  switch (Type) {
+  default:
+    fatal("unrecognized reloc " + Twine(Type));
+  case R_NYUZI_ABS32:
+    return R_ABS;
+  case R_NYUZI_BRANCH:
+    return R_PC;
+  case R_NYUZI_PCREL_MEM_EXT:
+    return R_PC;
+  case R_NYUZI_PCREL_LEA:
+    return R_PC;
+  }
+}
+
+
 }
 }
