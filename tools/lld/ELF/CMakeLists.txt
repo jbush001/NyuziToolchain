@@ -38,6 +38,7 @@ add_lld_library(lldELF
   Option
   Passes
   MC
+  MCDisassembler
   Support
   Target
   TransformUtils
