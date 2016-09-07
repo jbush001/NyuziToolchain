@@ -1,9 +1,0 @@
-add_llvm_library(MCLDObject
-  ObjectBuilder.cpp
-  ObjectLinker.cpp
-  SectionMap.cpp
-  LINK_LIBS
-    MCLDFragment
-    MCLDLD
-    MCLDScript
-  )
