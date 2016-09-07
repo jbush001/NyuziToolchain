@@ -10611,7 +10611,7 @@ void Nyuzi::Link::ConstructJob(Compilation &C, const JobAction &JA,
 
   AddLinkerInputs(getToolChain(), Inputs, Args, CmdArgs);
 
-  const char *Exec = Args.MakeArgString(getToolChain().GetProgramPath("ld.mcld"));
+  const char *Exec = Args.MakeArgString(getToolChain().GetProgramPath("ld.lld"));
   C.addCommand(llvm::make_unique<Command>(JA, *this, Exec, CmdArgs, Inputs));
 }
 
