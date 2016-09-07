@@ -40,7 +40,8 @@ a recent version of your Linux distribution. Instructions are below are for Ubun
 (which must be on at least version 16). You may need to change the package names
 for other distributions:
 
-    sudo apt-get install libxml2-dev cmake gcc g++ python bison flex zlib1g-dev swig python-dev libedit-dev libncurses5-dev
+    sudo apt-get install libxml2-dev cmake gcc g++ python bison flex \
+        zlib1g-dev swig python-dev libedit-dev libncurses5-dev
 
     git clone git@github.com:jbush001/NyuziToolchain.git
     cd NyuziToolchain
@@ -84,8 +85,7 @@ platform, so it should theoretically be possible.
 
 * The toolchain is installed into /usr/local/llvm-nyuzi/
 * The triple for this target is 'nyuzi-'.
-* There are also bits of an autoconf based build system in this project.  It doesn't work.
-* Using sudo on make install as described leaves files with root ownership in
+* Using sudo on make install as described may leave files with root ownership in
   the build directory. This causes cryptic build errors later when building as
   non-root. Doing 'sudo chown -R &#x60;whoami&#x60; .' in the build directory
   will fix this.
