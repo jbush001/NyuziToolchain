@@ -137,7 +137,7 @@ template <class ELFT> bool ICF<ELFT>::isEligible(InputSectionBase<ELFT> *Sec) {
   // .init and .fini contains instructions that must be executed to
   // initialize and finalize the process. They cannot and should not
   // be merged.
-  StringRef Name = S->getSectionName();
+  StringRef Name = S->Name;
   if (Name == ".init" || Name == ".fini")
     return false;
 
@@ -302,7 +302,11 @@ template <class ELFT> void ICF<ELFT>::run() {
   // the same group are consecutive in the vector.
   std::stable_sort(V.begin(), V.end(),
                    [](InputSection<ELFT> *A, InputSection<ELFT> *B) {
-                     return A->GroupId < B->GroupId;
+                     if (A->GroupId != B->GroupId)
+                       return A->GroupId < B->GroupId;
+                     // Within a group, put the highest alignment
+                     // requirement first, so that's the one we'll keep.
+                     return B->Alignment < A->Alignment;
                    });
 
   // Compare static contents and assign unique IDs for each static content.
@@ -327,10 +331,10 @@ template <class ELFT> void ICF<ELFT>::run() {
     });
     if (I == Bound)
       continue;
-    log("selected " + Head->getSectionName());
+    log("selected " + Head->Name);
     while (I != Bound) {
       InputSection<ELFT> *S = *I++;
-      log("  removed " + S->getSectionName());
+      log("  removed " + S->Name);
       Head->replace(S);
     }
   }

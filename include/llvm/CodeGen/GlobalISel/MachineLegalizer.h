@@ -17,6 +17,7 @@
 
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/CodeGen/LowLevelType.h"
+#include "llvm/Target/TargetOpcodes.h"
 
 #include <cstdint>
 #include <functional>
@@ -24,8 +25,26 @@
 namespace llvm {
 class LLVMContext;
 class MachineInstr;
+class MachineRegisterInfo;
 class Type;
 class VectorType;
+
+/// Legalization is decided based on an instruction's opcode, which type slot
+/// we're considering, and what the existing type is. These aspects are gathered
+/// together for convenience in the InstrAspect class.
+struct InstrAspect {
+  unsigned Opcode;
+  unsigned Idx;
+  LLT Type;
+
+  InstrAspect(unsigned Opcode, LLT Type) : Opcode(Opcode), Idx(0), Type(Type) {}
+  InstrAspect(unsigned Opcode, unsigned Idx, LLT Type)
+      : Opcode(Opcode), Idx(Idx), Type(Type) {}
+
+  bool operator==(const InstrAspect &RHS) const {
+    return Opcode == RHS.Opcode && Idx == RHS.Idx && Type == RHS.Type;
+  }
+};
 
 class MachineLegalizer {
 public:
@@ -55,6 +74,10 @@ public:
     /// the first two results.
     MoreElements,
 
+    /// The operation itself must be expressed in terms of simpler actions on
+    /// this target. E.g. a SREM replaced by an SDIV and subtraction.
+    Lower,
+
     /// The operation should be implemented as a call to some kind of runtime
     /// support library. For example this usually happens on machines that don't
     /// support floating-point operations natively.
@@ -67,6 +90,9 @@ public:
     /// This operation is completely unsupported on the target. A programming
     /// error has occurred.
     Unsupported,
+
+    /// Sentinel value for when no action was found in the specified table.
+    NotFound,
   };
 
   MachineLegalizer();
@@ -78,9 +104,12 @@ public:
 
   /// More friendly way to set an action for common types that have an LLT
   /// representation.
-  void setAction(unsigned Opcode, LLT Ty, LegalizeAction Action) {
+  void setAction(const InstrAspect &Aspect, LegalizeAction Action) {
     TablesInitialized = false;
-    Actions[std::make_pair(Opcode, Ty)] = Action;
+    unsigned Opcode = Aspect.Opcode - FirstOp;
+    if (Actions[Opcode].size() <= Aspect.Idx)
+      Actions[Opcode].resize(Aspect.Idx + 1);
+    Actions[Aspect.Opcode - FirstOp][Aspect.Idx][Aspect.Type] = Action;
   }
 
   /// If an operation on a given vector type (say <M x iN>) isn't explicitly
@@ -96,23 +125,34 @@ public:
 
 
   /// Determine what action should be taken to legalize the given generic
-  /// instruction and type. Requires computeTables to have been called.
+  /// instruction opcode, type-index and type. Requires computeTables to have
+  /// been called.
   ///
   /// \returns a pair consisting of the kind of legalization that should be
   /// performed and the destination type.
-  std::pair<LegalizeAction, LLT> getAction(unsigned Opcode, LLT) const;
-  std::pair<LegalizeAction, LLT> getAction(MachineInstr &MI) const;
+  std::pair<LegalizeAction, LLT> getAction(const InstrAspect &Aspect) const;
+
+  /// Determine what action should be taken to legalize the given generic
+  /// instruction.
+  ///
+  /// \returns a tuple consisting of the LegalizeAction that should be
+  /// performed, the type-index it should be performed on and the destination
+  /// type.
+  std::tuple<LegalizeAction, unsigned, LLT>
+  getAction(const MachineInstr &MI, const MachineRegisterInfo &MRI) const;
 
   /// Iterate the given function (typically something like doubling the width)
   /// on Ty until we find a legal type for this operation.
-  LLT findLegalType(unsigned Opcode, LLT Ty,
-                      std::function<LLT(LLT)> NextType) const {
+  LLT findLegalType(const InstrAspect &Aspect,
+                    std::function<LLT(LLT)> NextType) const {
     LegalizeAction Action;
+    const TypeMap &Map = Actions[Aspect.Opcode - FirstOp][Aspect.Idx];
+    LLT Ty = Aspect.Type;
     do {
       Ty = NextType(Ty);
-      auto ActionIt = Actions.find(std::make_pair(Opcode, Ty));
-      if (ActionIt == Actions.end())
-        Action = DefaultActions.find(Opcode)->second;
+      auto ActionIt = Map.find(Ty);
+      if (ActionIt == Map.end())
+        Action = DefaultActions.find(Aspect.Opcode)->second;
       else
         Action = ActionIt->second;
     } while(Action != Legal);
@@ -121,25 +161,46 @@ public:
 
   /// Find what type it's actually OK to perform the given operation on, given
   /// the general approach we've decided to take.
-  LLT findLegalType(unsigned Opcode, LLT Ty, LegalizeAction Action) const;
+  LLT findLegalType(const InstrAspect &Aspect, LegalizeAction Action) const;
 
-  std::pair<LegalizeAction, LLT> findLegalAction(unsigned Opcode, LLT Ty,
+  std::pair<LegalizeAction, LLT> findLegalAction(const InstrAspect &Aspect,
                                                  LegalizeAction Action) const {
-    return std::make_pair(Action, findLegalType(Opcode, Ty, Action));
+    return std::make_pair(Action, findLegalType(Aspect, Action));
   }
 
-  bool isLegal(MachineInstr &MI) const;
+  /// Find the specified \p Aspect in the primary (explicitly set) Actions
+  /// table. Returns either the action the target requested or NotFound if there
+  /// was no setAction call.
+  LegalizeAction findInActions(const InstrAspect &Aspect) const {
+    if (Aspect.Opcode < FirstOp || Aspect.Opcode > LastOp)
+      return NotFound;
+    if (Aspect.Idx >= Actions[Aspect.Opcode - FirstOp].size())
+      return NotFound;
+    const TypeMap &Map = Actions[Aspect.Opcode - FirstOp][Aspect.Idx];
+    auto ActionIt =  Map.find(Aspect.Type);
+    if (ActionIt == Map.end())
+      return NotFound;
+
+    return ActionIt->second;
+  }
+
+  bool isLegal(const MachineInstr &MI, const MachineRegisterInfo &MRI) const;
 
 private:
-  typedef DenseMap<std::pair<unsigned, LLT>, LegalizeAction> ActionMap;
+  static const int FirstOp = TargetOpcode::PRE_ISEL_GENERIC_OPCODE_START;
+  static const int LastOp = TargetOpcode::PRE_ISEL_GENERIC_OPCODE_END;
 
-  ActionMap Actions;
-  ActionMap ScalarInVectorActions;
+  typedef DenseMap<LLT, LegalizeAction> TypeMap;
+  typedef DenseMap<std::pair<unsigned, LLT>, LegalizeAction> SIVActionMap;
+
+  SmallVector<TypeMap, 1> Actions[LastOp - FirstOp + 1];
+  SIVActionMap ScalarInVectorActions;
   DenseMap<std::pair<unsigned, LLT>, uint16_t> MaxLegalVectorElts;
   DenseMap<unsigned, LegalizeAction> DefaultActions;
 
   bool TablesInitialized;
 };
+
 
 } // End namespace llvm.
 

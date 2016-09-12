@@ -602,14 +602,17 @@ def int_experimental_gc_relocate : Intrinsic<[llvm_any_ty],
 
 // Coroutine Structure Intrinsics.
 
-def int_coro_alloc : Intrinsic<[llvm_ptr_ty], [], []>;
-def int_coro_begin : Intrinsic<[llvm_ptr_ty], [llvm_ptr_ty, llvm_i32_ty,
-                                llvm_ptr_ty, llvm_ptr_ty],
-                               [WriteOnly<0>, ReadNone<2>, ReadOnly<3>,
-                                NoCapture<3>]>;
+def int_coro_id : Intrinsic<[llvm_token_ty], [llvm_i32_ty, llvm_ptr_ty, 
+                             llvm_ptr_ty, llvm_ptr_ty], 
+                            [IntrArgMemOnly, IntrReadMem, 
+                             ReadNone<1>, ReadOnly<2>, NoCapture<2>]>;
+def int_coro_alloc : Intrinsic<[llvm_i1_ty], [llvm_token_ty], []>;
+def int_coro_begin : Intrinsic<[llvm_ptr_ty], [llvm_token_ty, llvm_ptr_ty],
+                               [WriteOnly<1>]>;
 
-def int_coro_free : Intrinsic<[llvm_ptr_ty], [llvm_ptr_ty],
-                              [IntrArgMemOnly, ReadOnly<0>, NoCapture<0>]>;
+def int_coro_free : Intrinsic<[llvm_ptr_ty], [llvm_token_ty, llvm_ptr_ty], 
+                              [IntrReadMem, IntrArgMemOnly, ReadOnly<1>, 
+                               NoCapture<1>]>;
 def int_coro_end : Intrinsic<[], [llvm_ptr_ty, llvm_i1_ty], []>;
 
 def int_coro_frame : Intrinsic<[llvm_ptr_ty], [], [IntrNoMem]>;
@@ -634,7 +637,7 @@ def int_coro_promise : Intrinsic<[llvm_ptr_ty],
 // Coroutine Lowering Intrinsics. Used internally by coroutine passes.
 
 def int_coro_subfn_addr : Intrinsic<[llvm_ptr_ty], [llvm_ptr_ty, llvm_i8_ty],
-                                    [IntrArgMemOnly, ReadOnly<0>,
+                                    [IntrReadMem, IntrArgMemOnly, ReadOnly<0>,
                                      NoCapture<0>]>;
 
 ///===-------------------------- Other Intrinsics --------------------------===//
@@ -708,13 +711,12 @@ def int_masked_gather: Intrinsic<[llvm_anyvector_ty],
                                  [LLVMVectorOfPointersToElt<0>, llvm_i32_ty,
                                   LLVMVectorSameWidth<0, llvm_i1_ty>,
                                   LLVMMatchType<0>],
-                                 [IntrReadMem, IntrArgMemOnly]>;
+				  [IntrReadMem]>;
 
 def int_masked_scatter: Intrinsic<[],
                                   [llvm_anyvector_ty,
                                    LLVMVectorOfPointersToElt<0>, llvm_i32_ty,
-                                   LLVMVectorSameWidth<0, llvm_i1_ty>],
-                                  [IntrArgMemOnly]>;
+                                   LLVMVectorSameWidth<0, llvm_i1_ty>]>;
 
 // Test whether a pointer is associated with a type metadata identifier.
 def int_type_test : Intrinsic<[llvm_i1_ty], [llvm_ptr_ty, llvm_metadata_ty],

@@ -870,10 +870,12 @@ llvm::Error Util::synthesizeDebugNotes(NormalizedFile &file) {
 
       // If newDirPath doesn't end with a '/' we need to add one:
       if (newDirPath.back() != '/') {
-        std::string *p = file.ownedAllocations.Allocate<std::string>();
-        new (p) std::string();
-        *p = (newDirPath + "/").str();
-        newDirPath = *p;
+        char *p =
+          file.ownedAllocations.Allocate<char>(newDirPath.size() + 2);
+        memcpy(p, newDirPath.data(), newDirPath.size());
+        p[newDirPath.size()] = '/';
+        p[newDirPath.size() + 1] = '\0';
+        newDirPath = p;
       }
 
       // New translation unit, emit start SOs:
@@ -881,24 +883,24 @@ llvm::Error Util::synthesizeDebugNotes(NormalizedFile &file) {
       _stabs.push_back(mach_o::Stab(nullptr, N_SO, 0, 0, 0, newFileName));
 
       // Synthesize OSO for start of file.
-      std::string *fullPath = file.ownedAllocations.Allocate<std::string>();
-      new (fullPath) std::string();
+      char *fullPath = nullptr;
       {
         SmallString<1024> pathBuf(atomFile.path());
         if (auto EC = llvm::sys::fs::make_absolute(pathBuf))
           return llvm::errorCodeToError(EC);
-        *fullPath = pathBuf.str();
+        fullPath = file.ownedAllocations.Allocate<char>(pathBuf.size() + 1);
+        memcpy(fullPath, pathBuf.c_str(), pathBuf.size() + 1);
       }
 
       // Get mod time.
       uint32_t modTime = 0;
       llvm::sys::fs::file_status stat;
-      if (!llvm::sys::fs::status(*fullPath, stat))
+      if (!llvm::sys::fs::status(fullPath, stat))
         if (llvm::sys::fs::exists(stat))
           modTime = stat.getLastModificationTime().toEpochTime();
 
       _stabs.push_back(mach_o::Stab(nullptr, N_OSO, _ctx.getCPUSubType(), 1,
-                                    modTime, *fullPath));
+                                    modTime, fullPath));
       // <rdar://problem/6337329> linker should put cpusubtype in n_sect field
       // of nlist entry for N_OSO debug note entries.
       wroteStartSO = true;
@@ -961,7 +963,8 @@ uint16_t Util::descBits(const DefinedAtom* atom) {
     desc |= REFERENCED_DYNAMICALLY;
   if (_archHandler.isThumbFunction(*atom))
     desc |= N_ARM_THUMB_DEF;
-  if (atom->deadStrip() == DefinedAtom::deadStripNever) {
+  if (atom->deadStrip() == DefinedAtom::deadStripNever &&
+      _ctx.outputMachOType() == llvm::MachO::MH_OBJECT) {
     if ((atom->contentType() != DefinedAtom::typeInitializerPtr)
      && (atom->contentType() != DefinedAtom::typeTerminatorPtr))
     desc |= N_NO_DEAD_STRIP;
@@ -1211,15 +1214,15 @@ void Util::addIndirectSymbols(const lld::File &atomFile, NormalizedFile &file) {
   }
 }
 
-void Util::addDependentDylibs(const lld::File &atomFile,NormalizedFile &nFile) {
+void Util::addDependentDylibs(const lld::File &atomFile,
+                              NormalizedFile &nFile) {
   // Scan all imported symbols and build up list of dylibs they are from.
   int ordinal = 1;
-  for (const SharedLibraryAtom *slAtom : atomFile.sharedLibrary()) {
-    StringRef loadPath = slAtom->loadName();
-    DylibPathToInfo::iterator pos = _dylibInfo.find(loadPath);
+  for (const auto *dylib : _ctx.allDylibs()) {
+    DylibPathToInfo::iterator pos = _dylibInfo.find(dylib->installName());
     if (pos == _dylibInfo.end()) {
       DylibInfo info;
-      bool flatNamespaceAtom = &slAtom->file() == _ctx.flatNamespaceFile();
+      bool flatNamespaceAtom = dylib == _ctx.flatNamespaceFile();
 
       // If we're in -flat_namespace mode (or this atom came from the flat
       // namespace file under -undefined dynamic_lookup) then use the flat
@@ -1228,24 +1231,22 @@ void Util::addDependentDylibs(const lld::File &atomFile,NormalizedFile &nFile) {
         info.ordinal = BIND_SPECIAL_DYLIB_FLAT_LOOKUP;
       else
         info.ordinal = ordinal++;
-      info.hasWeak = slAtom->canBeNullAtRuntime();
+      info.hasWeak = false;
       info.hasNonWeak = !info.hasWeak;
-      _dylibInfo[loadPath] = info;
+      _dylibInfo[dylib->installName()] = info;
 
       // Unless this was a flat_namespace atom, record the source dylib.
       if (!flatNamespaceAtom) {
         DependentDylib depInfo;
-        depInfo.path = loadPath;
+        depInfo.path = dylib->installName();
         depInfo.kind = llvm::MachO::LC_LOAD_DYLIB;
-        depInfo.currentVersion = _ctx.dylibCurrentVersion(loadPath);
-        depInfo.compatVersion = _ctx.dylibCompatVersion(loadPath);
+        depInfo.currentVersion = _ctx.dylibCurrentVersion(dylib->path());
+        depInfo.compatVersion = _ctx.dylibCompatVersion(dylib->path());
         nFile.dependentDylibs.push_back(depInfo);
       }
     } else {
-      if ( slAtom->canBeNullAtRuntime() )
-        pos->second.hasWeak = true;
-      else
-        pos->second.hasNonWeak = true;
+      pos->second.hasWeak = false;
+      pos->second.hasNonWeak = !pos->second.hasWeak;
     }
   }
   // Automatically weak link dylib in which all symbols are weak (canBeNull).

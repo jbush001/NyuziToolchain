@@ -58,13 +58,15 @@ static typename ELFT::uint getSymVA(const SymbolBody &Body,
       Offset += Addend;
       Addend = 0;
     }
-    uintX_t VA = SC->OutSec->getVA() + SC->getOffset(Offset);
+    uintX_t VA = (SC->OutSec ? SC->OutSec->getVA() : 0) + SC->getOffset(Offset);
     if (D.isTls())
       return VA - Out<ELFT>::TlsPhdr->p_vaddr;
     return VA;
   }
   case SymbolBody::DefinedCommonKind:
-    return Out<ELFT>::Bss->getVA() + cast<DefinedCommon>(Body).OffsetInBss;
+    return CommonInputSection<ELFT>::X->OutSec->getVA() +
+           CommonInputSection<ELFT>::X->OutSecOff +
+           cast<DefinedCommon>(Body).Offset;
   case SymbolBody::SharedKind: {
     auto &SS = cast<SharedSymbol<ELFT>>(Body);
     if (!SS.NeedsCopyOrPltAddr)
@@ -79,8 +81,6 @@ static typename ELFT::uint getSymVA(const SymbolBody &Body,
   case SymbolBody::LazyObjectKind:
     assert(Body.symbol()->IsUsedInRegularObj && "lazy symbol reached writer");
     return 0;
-  case SymbolBody::DefinedBitcodeKind:
-    llvm_unreachable("should have been replaced");
   }
   llvm_unreachable("invalid symbol kind");
 }
@@ -189,16 +189,6 @@ Defined::Defined(Kind K, StringRef Name, uint8_t StOther, uint8_t Type)
 
 Defined::Defined(Kind K, uint32_t NameOffset, uint8_t StOther, uint8_t Type)
     : SymbolBody(K, NameOffset, StOther, Type) {}
-
-DefinedBitcode::DefinedBitcode(StringRef Name, uint8_t StOther, uint8_t Type,
-                               BitcodeFile *F)
-    : Defined(DefinedBitcodeKind, Name, StOther, Type) {
-  this->File = F;
-}
-
-bool DefinedBitcode::classof(const SymbolBody *S) {
-  return S->kind() == DefinedBitcodeKind;
-}
 
 Undefined::Undefined(StringRef Name, uint8_t StOther, uint8_t Type,
                      InputFile *File)

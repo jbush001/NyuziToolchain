@@ -211,6 +211,7 @@ static MIToken::TokenKind getIdentifierKind(StringRef Identifier) {
       .Case("def_cfa_offset", MIToken::kw_cfi_def_cfa_offset)
       .Case("def_cfa", MIToken::kw_cfi_def_cfa)
       .Case("blockaddress", MIToken::kw_blockaddress)
+      .Case("intrinsic", MIToken::kw_intrinsic)
       .Case("target-index", MIToken::kw_target_index)
       .Case("half", MIToken::kw_half)
       .Case("float", MIToken::kw_float)
@@ -221,6 +222,7 @@ static MIToken::TokenKind getIdentifierKind(StringRef Identifier) {
       .Case("target-flags", MIToken::kw_target_flags)
       .Case("volatile", MIToken::kw_volatile)
       .Case("non-temporal", MIToken::kw_non_temporal)
+      .Case("dereferenceable", MIToken::kw_dereferenceable)
       .Case("invariant", MIToken::kw_invariant)
       .Case("align", MIToken::kw_align)
       .Case("stack", MIToken::kw_stack)
@@ -233,6 +235,8 @@ static MIToken::TokenKind getIdentifierKind(StringRef Identifier) {
       .Case("landing-pad", MIToken::kw_landing_pad)
       .Case("liveins", MIToken::kw_liveins)
       .Case("successors", MIToken::kw_successors)
+      .Case("floatpred", MIToken::kw_floatpred)
+      .Case("intpred", MIToken::kw_intpred)
       .Default(MIToken::Identifier);
 }
 

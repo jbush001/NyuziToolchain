@@ -1056,6 +1056,10 @@ namespace clang {
       DECL_IMPLICIT_PARAM,
       /// \brief A ParmVarDecl record.
       DECL_PARM_VAR,
+      /// \brief A DecompositionDecl record.
+      DECL_DECOMPOSITION,
+      /// \brief A BindingDecl record.
+      DECL_BINDING,
       /// \brief A FileScopeAsmDecl record.
       DECL_FILE_SCOPE_ASM,
       /// \brief A BlockDecl record.
@@ -1099,6 +1103,8 @@ namespace clang {
       DECL_UNRESOLVED_USING_TYPENAME,
       /// \brief A LinkageSpecDecl record.
       DECL_LINKAGE_SPEC,
+      /// \brief An ExportDecl record.
+      DECL_EXPORT,
       /// \brief A CXXRecordDecl record.
       DECL_CXX_RECORD,
       /// \brief A CXXMethodDecl record.
@@ -1485,6 +1491,7 @@ namespace clang {
       STMT_OMP_DISTRIBUTE_SIMD_DIRECTIVE,
       STMT_OMP_TARGET_PARALLEL_FOR_SIMD_DIRECTIVE,
       STMT_OMP_TARGET_SIMD_DIRECTIVE,
+      STMT_OMP_TEAMS_DISTRIBUTE_DIRECTIVE,
       EXPR_OMP_ARRAY_SECTION,
 
       // ARC

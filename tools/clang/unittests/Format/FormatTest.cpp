@@ -9,7 +9,7 @@
 
 #include "clang/Format/Format.h"
 
-#include "../Tooling/RewriterTestContext.h"
+#include "../Tooling/ReplacementTest.h"
 #include "FormatTestUtils.h"
 
 #include "clang/Frontend/TextDiagnosticPrinter.h"
@@ -18,6 +18,9 @@
 #include "gtest/gtest.h"
 
 #define DEBUG_TYPE "format-test"
+
+using clang::tooling::ReplacementTest;
+using clang::tooling::toReplacements;
 
 namespace clang {
 namespace format {
@@ -10188,6 +10191,7 @@ TEST_F(FormatTest, ParsesConfigurationBools) {
   CHECK_PARSE_BOOL(SpacesInContainerLiterals);
   CHECK_PARSE_BOOL(SpacesInCStyleCastParentheses);
   CHECK_PARSE_BOOL(SpaceAfterCStyleCast);
+  CHECK_PARSE_BOOL(SpaceAfterTemplateKeyword);
   CHECK_PARSE_BOOL(SpaceBeforeAssignmentOperators);
 
   CHECK_PARSE_NESTED_BOOL(BraceWrapping, AfterClass);
@@ -11326,6 +11330,12 @@ TEST_F(FormatTest, SpacesInAngles) {
   verifyFormat("A<A<int>>();", Spaces);
 }
 
+TEST_F(FormatTest, SpaceAfterTemplateKeyword) {
+  FormatStyle Style = getLLVMStyle();
+  Style.SpaceAfterTemplateKeyword = false;
+  verifyFormat("template<int> void foo();", Style);
+}
+
 TEST_F(FormatTest, TripleAngleBrackets) {
   verifyFormat("f<<<1, 1>>>();");
   verifyFormat("f<<<1, 1, 1, s>>>();");
@@ -11520,17 +11530,6 @@ TEST(FormatStyle, GetStyleOfFile) {
 
 #endif // _MSC_VER
 
-class ReplacementTest : public ::testing::Test {
-protected:
-  tooling::Replacement createReplacement(SourceLocation Start, unsigned Length,
-                                         llvm::StringRef ReplacementText) {
-    return tooling::Replacement(Context.Sources, Start, Length,
-                                ReplacementText);
-  }
-
-  RewriterTestContext Context;
-};
-
 TEST_F(ReplacementTest, FormatCodeAfterReplacements) {
   // Column limit is 20.
   std::string Code = "Type *a =\n"
@@ -11545,15 +11544,15 @@ TEST_F(ReplacementTest, FormatCodeAfterReplacements) {
                          "  mm);\n"
                          "int  bad     = format   ;";
   FileID ID = Context.createInMemoryFile("format.cpp", Code);
-  tooling::Replacements Replaces;
-  Replaces.insert(tooling::Replacement(
-      Context.Sources, Context.getLocation(ID, 1, 1), 6, "auto "));
-  Replaces.insert(tooling::Replacement(
-      Context.Sources, Context.getLocation(ID, 3, 10), 1, "nullptr"));
-  Replaces.insert(tooling::Replacement(
-      Context.Sources, Context.getLocation(ID, 4, 3), 1, "nullptr"));
-  Replaces.insert(tooling::Replacement(
-      Context.Sources, Context.getLocation(ID, 4, 13), 1, "nullptr"));
+  tooling::Replacements Replaces = toReplacements(
+      {tooling::Replacement(Context.Sources, Context.getLocation(ID, 1, 1), 6,
+                            "auto "),
+       tooling::Replacement(Context.Sources, Context.getLocation(ID, 3, 10), 1,
+                            "nullptr"),
+       tooling::Replacement(Context.Sources, Context.getLocation(ID, 4, 3), 1,
+                            "nullptr"),
+       tooling::Replacement(Context.Sources, Context.getLocation(ID, 4, 13), 1,
+                            "nullptr")});
 
   format::FormatStyle Style = format::getLLVMStyle();
   Style.ColumnLimit = 20; // Set column limit to 20 to increase readibility.
@@ -11580,9 +11579,9 @@ TEST_F(ReplacementTest, SortIncludesAfterReplacement) {
                          "  return 0;\n"
                          "}";
   FileID ID = Context.createInMemoryFile("fix.cpp", Code);
-  tooling::Replacements Replaces;
-  Replaces.insert(tooling::Replacement(
-      Context.Sources, Context.getLocation(ID, 1, 1), 0, "#include \"b.h\"\n"));
+  tooling::Replacements Replaces = toReplacements(
+      {tooling::Replacement(Context.Sources, Context.getLocation(ID, 1, 1), 0,
+                            "#include \"b.h\"\n")});
 
   format::FormatStyle Style = format::getLLVMStyle();
   Style.SortIncludes = true;

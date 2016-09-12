@@ -110,7 +110,7 @@ define i1 @ashr_icmp1(i64 %X) nounwind {
   ret i1 %B
 }
 
-define i1 @ashr_icmp2(i64 %X) nounwind {
+define i1 @ashr_icmp2(i64 %X) {
 ; CHECK-LABEL: @ashr_icmp2(
 ; CHECK-NEXT:    [[Z:%.*]] = icmp slt i64 %X, 16
 ; CHECK-NEXT:    ret i1 [[Z]]
@@ -118,6 +118,16 @@ define i1 @ashr_icmp2(i64 %X) nounwind {
   %Y = ashr exact i64 %X, 2  ; x / 4
   %Z = icmp slt i64 %Y, 4    ; x < 16
   ret i1 %Z
+}
+
+define <2 x i1> @ashr_icmp2_vec(<2 x i64> %X) {
+; CHECK-LABEL: @ashr_icmp2_vec(
+; CHECK-NEXT:    [[Z:%.*]] = icmp slt <2 x i64> %X, <i64 16, i64 16>
+; CHECK-NEXT:    ret <2 x i1> [[Z]]
+;
+  %Y = ashr exact <2 x i64> %X, <i64 2, i64 2>
+  %Z = icmp slt <2 x i64> %Y, <i64 4, i64 4>
+  ret <2 x i1> %Z
 }
 
 ; PR9998
@@ -145,6 +155,16 @@ define i1 @udiv_icmp1(i64 %X) {
   ret i1 %B
 }
 
+define <2 x i1> @udiv_icmp1_vec(<2 x i64> %X) {
+; CHECK-LABEL: @udiv_icmp1_vec(
+; CHECK-NEXT:    [[TMP1:%.*]] = icmp ne <2 x i64> %X, zeroinitializer
+; CHECK-NEXT:    ret <2 x i1> [[TMP1]]
+;
+  %A = udiv exact <2 x i64> %X, <i64 5, i64 5>
+  %B = icmp ne <2 x i64> %A, zeroinitializer
+  ret <2 x i1> %B
+}
+
 define i1 @udiv_icmp2(i64 %X) {
 ; CHECK-LABEL: @udiv_icmp2(
 ; CHECK-NEXT:    [[TMP1:%.*]] = icmp eq i64 %X, 0
@@ -153,6 +173,16 @@ define i1 @udiv_icmp2(i64 %X) {
   %A = udiv exact i64 %X, 5   ; X/5 == 0 --> x == 0
   %B = icmp eq i64 %A, 0
   ret i1 %B
+}
+
+define <2 x i1> @udiv_icmp2_vec(<2 x i64> %X) {
+; CHECK-LABEL: @udiv_icmp2_vec(
+; CHECK-NEXT:    [[TMP1:%.*]] = icmp eq <2 x i64> %X, zeroinitializer
+; CHECK-NEXT:    ret <2 x i1> [[TMP1]]
+;
+  %A = udiv exact <2 x i64> %X, <i64 5, i64 5>
+  %B = icmp eq <2 x i64> %A, zeroinitializer
+  ret <2 x i1> %B
 }
 
 define i1 @sdiv_icmp1(i64 %X) {
@@ -165,6 +195,16 @@ define i1 @sdiv_icmp1(i64 %X) {
   ret i1 %B
 }
 
+define <2 x i1> @sdiv_icmp1_vec(<2 x i64> %X) {
+; CHECK-LABEL: @sdiv_icmp1_vec(
+; CHECK-NEXT:    [[TMP1:%.*]] = icmp eq <2 x i64> %X, zeroinitializer
+; CHECK-NEXT:    ret <2 x i1> [[TMP1]]
+;
+  %A = sdiv exact <2 x i64> %X, <i64 5, i64 5>
+  %B = icmp eq <2 x i64> %A, zeroinitializer
+  ret <2 x i1> %B
+}
+
 define i1 @sdiv_icmp2(i64 %X) {
 ; CHECK-LABEL: @sdiv_icmp2(
 ; CHECK-NEXT:    [[TMP1:%.*]] = icmp eq i64 %X, 5
@@ -173,6 +213,16 @@ define i1 @sdiv_icmp2(i64 %X) {
   %A = sdiv exact i64 %X, 5   ; X/5 == 1 --> x == 5
   %B = icmp eq i64 %A, 1
   ret i1 %B
+}
+
+define <2 x i1> @sdiv_icmp2_vec(<2 x i64> %X) {
+; CHECK-LABEL: @sdiv_icmp2_vec(
+; CHECK-NEXT:    [[TMP1:%.*]] = icmp eq <2 x i64> %X, <i64 5, i64 5>
+; CHECK-NEXT:    ret <2 x i1> [[TMP1]]
+;
+  %A = sdiv exact <2 x i64> %X, <i64 5, i64 5>
+  %B = icmp eq <2 x i64> %A, <i64 1, i64 1>
+  ret <2 x i1> %B
 }
 
 define i1 @sdiv_icmp3(i64 %X) {
@@ -185,6 +235,16 @@ define i1 @sdiv_icmp3(i64 %X) {
   ret i1 %B
 }
 
+define <2 x i1> @sdiv_icmp3_vec(<2 x i64> %X) {
+; CHECK-LABEL: @sdiv_icmp3_vec(
+; CHECK-NEXT:    [[TMP1:%.*]] = icmp eq <2 x i64> %X, <i64 -5, i64 -5>
+; CHECK-NEXT:    ret <2 x i1> [[TMP1]]
+;
+  %A = sdiv exact <2 x i64> %X, <i64 5, i64 5>
+  %B = icmp eq <2 x i64> %A, <i64 -1, i64 -1>
+  ret <2 x i1> %B
+}
+
 define i1 @sdiv_icmp4(i64 %X) {
 ; CHECK-LABEL: @sdiv_icmp4(
 ; CHECK-NEXT:    [[TMP1:%.*]] = icmp eq i64 %X, 0
@@ -193,6 +253,16 @@ define i1 @sdiv_icmp4(i64 %X) {
   %A = sdiv exact i64 %X, -5   ; X/-5 == 0 --> x == 0
   %B = icmp eq i64 %A, 0
   ret i1 %B
+}
+
+define <2 x i1> @sdiv_icmp4_vec(<2 x i64> %X) {
+; CHECK-LABEL: @sdiv_icmp4_vec(
+; CHECK-NEXT:    [[TMP1:%.*]] = icmp eq <2 x i64> %X, zeroinitializer
+; CHECK-NEXT:    ret <2 x i1> [[TMP1]]
+;
+  %A = sdiv exact <2 x i64> %X, <i64 -5, i64 -5>
+  %B = icmp eq <2 x i64> %A, zeroinitializer
+  ret <2 x i1> %B
 }
 
 define i1 @sdiv_icmp5(i64 %X) {
@@ -205,13 +275,33 @@ define i1 @sdiv_icmp5(i64 %X) {
   ret i1 %B
 }
 
+define <2 x i1> @sdiv_icmp5_vec(<2 x i64> %X) {
+; CHECK-LABEL: @sdiv_icmp5_vec(
+; CHECK-NEXT:    [[TMP1:%.*]] = icmp eq <2 x i64> %X, <i64 -5, i64 -5>
+; CHECK-NEXT:    ret <2 x i1> [[TMP1]]
+;
+  %A = sdiv exact <2 x i64> %X, <i64 -5, i64 -5>
+  %B = icmp eq <2 x i64> %A, <i64 1, i64 1>
+  ret <2 x i1> %B
+}
+
 define i1 @sdiv_icmp6(i64 %X) {
 ; CHECK-LABEL: @sdiv_icmp6(
 ; CHECK-NEXT:    [[TMP1:%.*]] = icmp eq i64 %X, 5
 ; CHECK-NEXT:    ret i1 [[TMP1]]
 ;
-  %A = sdiv exact i64 %X, -5   ; X/-5 == 1 --> x == 5
+  %A = sdiv exact i64 %X, -5   ; X/-5 == -1 --> x == 5
   %B = icmp eq i64 %A, -1
   ret i1 %B
+}
+
+define <2 x i1> @sdiv_icmp6_vec(<2 x i64> %X) {
+; CHECK-LABEL: @sdiv_icmp6_vec(
+; CHECK-NEXT:    [[TMP1:%.*]] = icmp eq <2 x i64> %X, <i64 5, i64 5>
+; CHECK-NEXT:    ret <2 x i1> [[TMP1]]
+;
+  %A = sdiv exact <2 x i64> %X, <i64 -5, i64 -5>
+  %B = icmp eq <2 x i64> %A, <i64 -1, i64 -1>
+  ret <2 x i1> %B
 }
 

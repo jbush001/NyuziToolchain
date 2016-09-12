@@ -9,8 +9,10 @@
 //
 // This pass hoists expressions from branches to a common dominator. It uses
 // GVN (global value numbering) to discover expressions computing the same
-// values. The primary goal is to reduce the code size, and in some
-// cases reduce critical path (by exposing more ILP).
+// values. The primary goals of code-hoisting are:
+// 1. To reduce the code size.
+// 2. In some cases reduce critical path (by exposing more ILP).
+//
 // Hoisting may affect the performance in some cases. To mitigate that, hoisting
 // is disabled in the following cases.
 // 1. Scalars across calls.
@@ -53,6 +55,11 @@ static cl::opt<int> MaxDepthInBB(
     cl::desc("Hoist instructions from the beginning of the BB up to the "
              "maximum specified depth (default = 100, unlimited = -1)"));
 
+static cl::opt<int> MaxChainLength(
+    "gvn-hoist-max-chain-length", cl::Hidden, cl::init(10),
+    cl::desc("Maximum length of dependent chains to hoist "
+             "(default = 10, unlimited = -1)"));
+
 namespace {
 
 // Provides a sorting function based on the execution order of two instructions.
@@ -72,8 +79,16 @@ public:
     //
     // assert(A != B);
 
-    unsigned ADFS = DFSNumber.lookup(A);
-    unsigned BDFS = DFSNumber.lookup(B);
+    const BasicBlock *BA = A->getParent();
+    const BasicBlock *BB = B->getParent();
+    unsigned ADFS, BDFS;
+    if (BA == BB) {
+      ADFS = DFSNumber.lookup(A);
+      BDFS = DFSNumber.lookup(B);
+    } else {
+      ADFS = DFSNumber.lookup(BA);
+      BDFS = DFSNumber.lookup(BB);
+    }
     assert (ADFS && BDFS);
     return ADFS < BDFS;
   }
@@ -184,43 +199,42 @@ static void combineKnownMetadata(Instruction *ReplInst, Instruction *I) {
 // cases reduce critical path (by exposing more ILP).
 class GVNHoist {
 public:
-  GVNHoist(DominatorTree *Dt, AliasAnalysis *Aa, MemoryDependenceResults *Md,
-           bool OptForMinSize)
-      : DT(Dt), AA(Aa), MD(Md), OptForMinSize(OptForMinSize),
+  GVNHoist(DominatorTree *DT, AliasAnalysis *AA, MemoryDependenceResults *MD,
+           MemorySSA *MSSA, bool OptForMinSize)
+      : DT(DT), AA(AA), MD(MD), MSSA(MSSA), OptForMinSize(OptForMinSize),
         HoistingGeps(OptForMinSize), HoistedCtr(0) {}
   bool run(Function &F) {
     VN.setDomTree(DT);
     VN.setAliasAnalysis(AA);
     VN.setMemDep(MD);
     bool Res = false;
+    // Perform DFS Numbering of instructions.
+    unsigned BBI = 0;
+    for (const BasicBlock *BB : depth_first(&F.getEntryBlock())) {
+      DFSNumber[BB] = ++BBI;
+      unsigned I = 0;
+      for (auto &Inst: *BB)
+        DFSNumber[&Inst] = ++I;
+    }
+
+    int ChainLength = 0;
 
     // FIXME: use lazy evaluation of VN to avoid the fix-point computation.
     while (1) {
-      // FIXME: only compute MemorySSA once. We need to update the analysis in
-      // the same time as transforming the code.
-      MemorySSA M(F, AA, DT);
-      MSSA = &M;
-
-      // Perform DFS Numbering of instructions.
-      unsigned I = 0;
-      for (const BasicBlock *BB : depth_first(&F.getEntryBlock()))
-        for (auto &Inst: *BB)
-          DFSNumber.insert({&Inst, ++I});
+      if (MaxChainLength != -1 && ++ChainLength >= MaxChainLength)
+        return Res;
 
       auto HoistStat = hoistExpressions(F);
-      if (HoistStat.first + HoistStat.second == 0) {
+      if (HoistStat.first + HoistStat.second == 0)
         return Res;
-      }
-      if (HoistStat.second > 0) {
-        // To address a limitation of the current GVN, we need to rerun the
-        // hoisting after we hoisted loads in order to be able to hoist all
-        // scalars dependent on the hoisted loads. Same for stores.
-        VN.clear();
-      }
-      Res = true;
 
-      // DFS numbers change when instructions are hoisted: clear and recompute.
-      DFSNumber.clear();
+      if (HoistStat.second > 0)
+        // To address a limitation of the current GVN, we need to rerun the
+        // hoisting after we hoisted loads or stores in order to be able to
+        // hoist all scalars dependent on the hoisted ld/st.
+        VN.clear();
+
+      Res = true;
     }
 
     return Res;
@@ -230,11 +244,11 @@ private:
   DominatorTree *DT;
   AliasAnalysis *AA;
   MemoryDependenceResults *MD;
+  MemorySSA *MSSA;
   const bool OptForMinSize;
   const bool HoistingGeps;
   DenseMap<const Value *, unsigned> DFSNumber;
   BBSideEffectsSet BBSideEffects;
-  MemorySSA *MSSA;
   int HoistedCtr;
 
   enum InsKind { Unknown, Scalar, Load, Store };
@@ -259,24 +273,32 @@ private:
     return false;
   }
 
-  // Return true when all paths from A to the end of the function pass through
-  // either B or C.
-  bool hoistingFromAllPaths(const BasicBlock *A, const BasicBlock *B,
-                            const BasicBlock *C) {
-    // We fully copy the WL in order to be able to remove items from it.
-    SmallPtrSet<const BasicBlock *, 2> WL;
-    WL.insert(B);
-    WL.insert(C);
+  // Return true when a successor of BB dominates A.
+  bool successorDominate(const BasicBlock *BB, const BasicBlock *A) {
+    for (const BasicBlock *Succ : BB->getTerminator()->successors())
+      if (DT->dominates(Succ, A))
+        return true;
 
-    for (auto It = df_begin(A), E = df_end(A); It != E;) {
-      // There exists a path from A to the exit of the function if we are still
-      // iterating in DF traversal and we removed all instructions from the work
-      // list.
-      if (WL.empty())
+    return false;
+  }
+
+  // Return true when all paths from HoistBB to the end of the function pass
+  // through one of the blocks in WL.
+  bool hoistingFromAllPaths(const BasicBlock *HoistBB,
+                            SmallPtrSetImpl<const BasicBlock *> &WL) {
+
+    // Copy WL as the loop will remove elements from it.
+    SmallPtrSet<const BasicBlock *, 2> WorkList(WL.begin(), WL.end());
+
+    for (auto It = df_begin(HoistBB), E = df_end(HoistBB); It != E;) {
+      // There exists a path from HoistBB to the exit of the function if we are
+      // still iterating in DF traversal and we removed all instructions from
+      // the work list.
+      if (WorkList.empty())
         return false;
 
       const BasicBlock *BB = *It;
-      if (WL.erase(BB)) {
+      if (WorkList.erase(BB)) {
         // Stop DFS traversal when BB is in the work list.
         It.skipChildren();
         continue;
@@ -284,6 +306,11 @@ private:
 
       // Check for end of function, calls that do not return, etc.
       if (!isGuaranteedToTransferExecutionToSuccessor(BB->getTerminator()))
+        return false;
+
+      // When reaching the back-edge of a loop, there may be a path through the
+      // loop that does not pass through B or C before exiting the loop.
+      if (successorDominate(BB, HoistBB))
         return false;
 
       // Increment DFS traversal when not skipping children.
@@ -310,7 +337,8 @@ private:
 
     for (User *U : Def->users())
       if (auto *MU = dyn_cast<MemoryUse>(U)) {
-        BasicBlock *UBB = MU->getBlock();
+        // FIXME: MU->getBlock() does not get updated when we move the instruction.
+        BasicBlock *UBB = MU->getMemoryInst()->getParent();
         // Only analyze uses in BB.
         if (BB != UBB)
           continue;
@@ -461,23 +489,21 @@ private:
     return true;
   }
 
-  // Return true when it is safe to hoist scalar instructions from BB1 and BB2
-  // to HoistBB.
-  bool safeToHoistScalar(const BasicBlock *HoistBB, const BasicBlock *BB1,
-                         const BasicBlock *BB2, int &NBBsOnAllPaths) {
-    // Check that the hoisted expression is needed on all paths.  When HoistBB
-    // already contains an instruction to be hoisted, the expression is needed
-    // on all paths.  Enable scalar hoisting at -Oz as it is safe to hoist
-    // scalars to a place where they are partially needed.
-    if (!OptForMinSize && BB1 != HoistBB &&
-        !hoistingFromAllPaths(HoistBB, BB1, BB2))
+  // Return true when it is safe to hoist scalar instructions from all blocks in
+  // WL to HoistBB.
+  bool safeToHoistScalar(const BasicBlock *HoistBB,
+                         SmallPtrSetImpl<const BasicBlock *> &WL,
+                         int &NBBsOnAllPaths) {
+    // Check that the hoisted expression is needed on all paths.  Enable scalar
+    // hoisting at -Oz as it is safe to hoist scalars to a place where they are
+    // partially needed.
+    if (!OptForMinSize && !hoistingFromAllPaths(HoistBB, WL))
       return false;
 
-    if (hasEHOnPath(HoistBB, BB1, NBBsOnAllPaths) ||
-        hasEHOnPath(HoistBB, BB2, NBBsOnAllPaths))
-      return false;
+    for (const BasicBlock *BB : WL)
+      if (hasEHOnPath(HoistBB, BB, NBBsOnAllPaths))
+        return false;
 
-    // Safe to hoist scalars from BB1 and BB2 to HoistBB.
     return true;
   }
 
@@ -527,8 +553,12 @@ private:
           NewHoistPt = NewHoistBB->getTerminator();
       }
 
+      SmallPtrSet<const BasicBlock *, 2> WL;
+      WL.insert(HoistBB);
+      WL.insert(BB);
+
       if (K == InsKind::Scalar) {
-        if (safeToHoistScalar(NewHoistBB, HoistBB, BB, NBBsOnAllPaths)) {
+        if (safeToHoistScalar(NewHoistBB, WL, NBBsOnAllPaths)) {
           // Extend HoistPt to NewHoistPt.
           HoistPt = NewHoistPt;
           HoistBB = NewHoistBB;
@@ -542,7 +572,7 @@ private:
         // loading from the same address: for instance there may be a branch on
         // which the address of the load may not be initialized.
         if ((HoistBB == NewHoistBB || BB == NewHoistBB ||
-             hoistingFromAllPaths(NewHoistBB, HoistBB, BB)) &&
+             hoistingFromAllPaths(NewHoistBB, WL)) &&
             // Also check that it is safe to move the load or store from HoistPt
             // to NewHoistPt, and from Insn to NewHoistPt.
             safeToHoistLdSt(NewHoistPt, HoistPt, UD, K, NBBsOnAllPaths) &&
@@ -666,7 +696,7 @@ private:
       else
         OtherGep = cast<GetElementPtrInst>(
             cast<StoreInst>(OtherInst)->getPointerOperand());
-      ClonedGep->intersectOptionalDataWith(OtherGep);
+      ClonedGep->andIRFlags(OtherGep);
     }
 
     // Replace uses of Gep with ClonedGep in Repl.
@@ -725,24 +755,54 @@ private:
           if (!Repl || firstInBB(I, Repl))
             Repl = I;
 
+      // Keep track of whether we moved the instruction so we know whether we
+      // should move the MemoryAccess.
+      bool MoveAccess = true;
       if (Repl) {
         // Repl is already in HoistPt: it remains in place.
         assert(allOperandsAvailable(Repl, HoistPt) &&
                "instruction depends on operands that are not available");
+        MoveAccess = false;
       } else {
         // When we do not find Repl in HoistPt, select the first in the list
         // and move it to HoistPt.
         Repl = InstructionsToHoist.front();
 
         // We can move Repl in HoistPt only when all operands are available.
-        // When not HoistingGeps we need to copy the GEPs now.
         // The order in which hoistings are done may influence the availability
         // of operands.
-        if (!allOperandsAvailable(Repl, HoistPt) && !HoistingGeps &&
-            !makeGepOperandsAvailable(Repl, HoistPt, InstructionsToHoist))
-          continue;
+        if (!allOperandsAvailable(Repl, HoistPt)) {
 
-        Repl->moveBefore(HoistPt->getTerminator());
+          // When HoistingGeps there is nothing more we can do to make the
+          // operands available: just continue.
+          if (HoistingGeps)
+            continue;
+
+          // When not HoistingGeps we need to copy the GEPs.
+          if (!makeGepOperandsAvailable(Repl, HoistPt, InstructionsToHoist))
+            continue;
+        }
+
+        // Move the instruction at the end of HoistPt.
+        Instruction *Last = HoistPt->getTerminator();
+        Repl->moveBefore(Last);
+
+        DFSNumber[Repl] = DFSNumber[Last]++;
+      }
+
+      MemoryAccess *NewMemAcc = MSSA->getMemoryAccess(Repl);
+
+      if (MoveAccess) {
+        if (MemoryUseOrDef *OldMemAcc =
+                dyn_cast_or_null<MemoryUseOrDef>(NewMemAcc)) {
+          // The definition of this ld/st will not change: ld/st hoisting is
+          // legal when the ld/st is not moved past its current definition.
+          MemoryAccess *Def = OldMemAcc->getDefiningAccess();
+          NewMemAcc =
+              MSSA->createMemoryAccessInBB(Repl, Def, HoistPt, MemorySSA::End);
+          OldMemAcc->replaceAllUsesWith(NewMemAcc);
+          MSSA->removeMemoryAccess(OldMemAcc);
+        }
       }
 
       if (isa<LoadInst>(Repl))
@@ -775,11 +835,37 @@ private:
           } else if (isa<CallInst>(Repl)) {
             ++NumCallsRemoved;
           }
-          Repl->intersectOptionalDataWith(I);
+
+          if (NewMemAcc) {
+            // Update the uses of the old MSSA access with NewMemAcc.
+            MemoryAccess *OldMA = MSSA->getMemoryAccess(I);
+            OldMA->replaceAllUsesWith(NewMemAcc);
+            MSSA->removeMemoryAccess(OldMA);
+          }
+
+          Repl->andIRFlags(I);
           combineKnownMetadata(Repl, I);
           I->replaceAllUsesWith(Repl);
+          // Also invalidate the Alias Analysis cache.
+          MD->removeInstruction(I);
           I->eraseFromParent();
         }
+
+      // Remove MemorySSA phi nodes with the same arguments.
+      if (NewMemAcc) {
+        SmallPtrSet<MemoryPhi *, 4> UsePhis;
+        for (User *U : NewMemAcc->users())
+          if (MemoryPhi *Phi = dyn_cast<MemoryPhi>(U))
+            UsePhis.insert(Phi);
+
+        for (auto *Phi : UsePhis) {
+          auto In = Phi->incoming_values();
+          if (all_of(In, [&](Use &U) { return U == NewMemAcc; })) {
+            Phi->replaceAllUsesWith(NewMemAcc);
+            MSSA->removeMemoryAccess(Phi);
+          }
+        }
+      }
     }
 
     NumHoisted += NL + NS + NC + NI;
@@ -822,6 +908,10 @@ private:
             if (Call->mayThrow())
               break;
           }
+
+          if (Call->isConvergent())
+            break;
+
           CI.insert(Call, VN);
         } else if (HoistingGeps || !isa<GetElementPtrInst>(&I1))
           // Do not hoist scalars past calls that may write to memory because
@@ -857,8 +947,9 @@ public:
     auto &DT = getAnalysis<DominatorTreeWrapperPass>().getDomTree();
     auto &AA = getAnalysis<AAResultsWrapperPass>().getAAResults();
     auto &MD = getAnalysis<MemoryDependenceWrapperPass>().getMemDep();
+    auto &MSSA = getAnalysis<MemorySSAWrapperPass>().getMSSA();
 
-    GVNHoist G(&DT, &AA, &MD, F.optForMinSize());
+    GVNHoist G(&DT, &AA, &MD, &MSSA, F.optForMinSize());
     return G.run(F);
   }
 
@@ -866,23 +957,26 @@ public:
     AU.addRequired<DominatorTreeWrapperPass>();
     AU.addRequired<AAResultsWrapperPass>();
     AU.addRequired<MemoryDependenceWrapperPass>();
+    AU.addRequired<MemorySSAWrapperPass>();
     AU.addPreserved<DominatorTreeWrapperPass>();
+    AU.addPreserved<MemorySSAWrapperPass>();
   }
 };
 } // namespace
 
 PreservedAnalyses GVNHoistPass::run(Function &F,
-                                    AnalysisManager<Function> &AM) {
+                                    FunctionAnalysisManager &AM) {
   DominatorTree &DT = AM.getResult<DominatorTreeAnalysis>(F);
   AliasAnalysis &AA = AM.getResult<AAManager>(F);
   MemoryDependenceResults &MD = AM.getResult<MemoryDependenceAnalysis>(F);
-
-  GVNHoist G(&DT, &AA, &MD, F.optForMinSize());
+  MemorySSA &MSSA = AM.getResult<MemorySSAAnalysis>(F).getMSSA();
+  GVNHoist G(&DT, &AA, &MD, &MSSA, F.optForMinSize());
   if (!G.run(F))
     return PreservedAnalyses::all();
 
   PreservedAnalyses PA;
   PA.preserve<DominatorTreeAnalysis>();
+  PA.preserve<MemorySSAAnalysis>();
   return PA;
 }
 
@@ -890,6 +984,7 @@ char GVNHoistLegacyPass::ID = 0;
 INITIALIZE_PASS_BEGIN(GVNHoistLegacyPass, "gvn-hoist",
                       "Early GVN Hoisting of Expressions", false, false)
 INITIALIZE_PASS_DEPENDENCY(MemoryDependenceWrapperPass)
+INITIALIZE_PASS_DEPENDENCY(MemorySSAWrapperPass)
 INITIALIZE_PASS_DEPENDENCY(DominatorTreeWrapperPass)
 INITIALIZE_PASS_DEPENDENCY(AAResultsWrapperPass)
 INITIALIZE_PASS_END(GVNHoistLegacyPass, "gvn-hoist",

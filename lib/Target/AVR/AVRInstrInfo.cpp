@@ -111,7 +111,7 @@ void AVRInstrInfo::storeRegToStackSlot(MachineBasicBlock &MBB,
     DL = MI->getDebugLoc();
   }
 
-  const MachineFrameInfo &MFI = *MF.getFrameInfo();
+  const MachineFrameInfo &MFI = MF.getFrameInfo();
 
   MachineMemOperand *MMO = MF.getMachineMemOperand(
       MachinePointerInfo::getFixedStack(MF, FrameIndex),
@@ -145,7 +145,7 @@ void AVRInstrInfo::loadRegFromStackSlot(MachineBasicBlock &MBB,
   }
 
   MachineFunction &MF = *MBB.getParent();
-  const MachineFrameInfo &MFI = *MF.getFrameInfo();
+  const MachineFrameInfo &MFI = MF.getFrameInfo();
 
   MachineMemOperand *MMO = MF.getMachineMemOperand(
       MachinePointerInfo::getFixedStack(MF, FrameIndex),
@@ -439,8 +439,8 @@ bool AVRInstrInfo::ReverseBranchCondition(
   return false;
 }
 
-unsigned AVRInstrInfo::GetInstSizeInBytes(const MachineInstr *MI) const {
-  unsigned Opcode = MI->getOpcode();
+unsigned AVRInstrInfo::getInstSizeInBytes(const MachineInstr &MI) const {
+  unsigned Opcode = MI.getOpcode();
 
   switch (Opcode) {
   // A regular instruction
@@ -454,10 +454,10 @@ unsigned AVRInstrInfo::GetInstSizeInBytes(const MachineInstr *MI) const {
   case TargetOpcode::DBG_VALUE:
     return 0;
   case TargetOpcode::INLINEASM: {
-    const MachineFunction *MF = MI->getParent()->getParent();
+    const MachineFunction *MF = MI.getParent()->getParent();
     const AVRTargetMachine &TM = static_cast<const AVRTargetMachine&>(MF->getTarget());
     const TargetInstrInfo &TII = *TM.getSubtargetImpl()->getInstrInfo();
-    return TII.getInlineAsmLength(MI->getOperand(0).getSymbolName(),
+    return TII.getInlineAsmLength(MI.getOperand(0).getSymbolName(),
                                   *TM.getMCAsmInfo());
   }
   }

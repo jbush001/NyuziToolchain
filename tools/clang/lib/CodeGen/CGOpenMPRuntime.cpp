@@ -5014,13 +5014,20 @@ public:
 
 private:
   /// \brief Directive from where the map clauses were extracted.
-  const OMPExecutableDirective &Directive;
+  const OMPExecutableDirective &CurDir;
 
   /// \brief Function the directive is being generated for.
   CodeGenFunction &CGF;
 
   /// \brief Set of all first private variables in the current directive.
   llvm::SmallPtrSet<const VarDecl *, 8> FirstPrivateDecls;
+
+  /// Map between device pointer declarations and their expression components.
+  /// The key value for declarations in 'this' is null.
+  llvm::DenseMap<
+      const ValueDecl *,
+      SmallVector<OMPClauseMappableExprCommon::MappableExprComponentListRef, 4>>
+      DevPointersMap;
 
   llvm::Value *getExprTypeSize(const Expr *E) const {
     auto ExprTy = E->getType().getCanonicalType();
@@ -5412,12 +5419,16 @@ private:
 
 public:
   MappableExprsHandler(const OMPExecutableDirective &Dir, CodeGenFunction &CGF)
-      : Directive(Dir), CGF(CGF) {
+      : CurDir(Dir), CGF(CGF) {
     // Extract firstprivate clause information.
     for (const auto *C : Dir.getClausesOfKind<OMPFirstprivateClause>())
       for (const auto *D : C->varlists())
         FirstPrivateDecls.insert(
             cast<VarDecl>(cast<DeclRefExpr>(D)->getDecl())->getCanonicalDecl());
+    // Extract device pointer clause information.
+    for (const auto *C : Dir.getClausesOfKind<OMPIsDevicePtrClause>())
+      for (auto L : C->component_lists())
+        DevPointersMap[L.first].push_back(L.second);
   }
 
   /// \brief Generate all the base pointers, section pointers, sizes and map
@@ -5445,9 +5456,13 @@ public:
         RPK_MemberReference,
       };
       OMPClauseMappableExprCommon::MappableExprComponentListRef Components;
-      OpenMPMapClauseKind MapType = OMPC_MAP_unknown;
-      OpenMPMapClauseKind MapTypeModifier = OMPC_MAP_unknown;
-      ReturnPointerKind ReturnDevicePointer = RPK_None;
+      OpenMPMapClauseKind MapType;
+      OpenMPMapClauseKind MapTypeModifier;
+      ReturnPointerKind ReturnDevicePointer;
+
+      MapInfo()
+          : MapType(OMPC_MAP_unknown), MapTypeModifier(OMPC_MAP_unknown),
+            ReturnDevicePointer(RPK_None) {}
       MapInfo(
           OMPClauseMappableExprCommon::MappableExprComponentListRef Components,
           OpenMPMapClauseKind MapType, OpenMPMapClauseKind MapTypeModifier,
@@ -5468,27 +5483,32 @@ public:
         const ValueDecl *D,
         OMPClauseMappableExprCommon::MappableExprComponentListRef L,
         OpenMPMapClauseKind MapType, OpenMPMapClauseKind MapModifier,
-        MapInfo::ReturnPointerKind ReturnDevicePointer = MapInfo::RPK_None) {
+        MapInfo::ReturnPointerKind ReturnDevicePointer) {
       const ValueDecl *VD =
           D ? cast<ValueDecl>(D->getCanonicalDecl()) : nullptr;
       Info[VD].push_back({L, MapType, MapModifier, ReturnDevicePointer});
     };
 
-    for (auto *C : Directive.getClausesOfKind<OMPMapClause>())
+    // FIXME: MSVC 2013 seems to require this-> to find member CurDir.
+    for (auto *C : this->CurDir.getClausesOfKind<OMPMapClause>())
       for (auto L : C->component_lists())
-        InfoGen(L.first, L.second, C->getMapType(), C->getMapTypeModifier());
-    for (auto *C : Directive.getClausesOfKind<OMPToClause>())
+        InfoGen(L.first, L.second, C->getMapType(), C->getMapTypeModifier(),
+                MapInfo::RPK_None);
+    for (auto *C : this->CurDir.getClausesOfKind<OMPToClause>())
       for (auto L : C->component_lists())
-        InfoGen(L.first, L.second, OMPC_MAP_to, OMPC_MAP_unknown);
-    for (auto *C : Directive.getClausesOfKind<OMPFromClause>())
+        InfoGen(L.first, L.second, OMPC_MAP_to, OMPC_MAP_unknown,
+                MapInfo::RPK_None);
+    for (auto *C : this->CurDir.getClausesOfKind<OMPFromClause>())
       for (auto L : C->component_lists())
-        InfoGen(L.first, L.second, OMPC_MAP_from, OMPC_MAP_unknown);
+        InfoGen(L.first, L.second, OMPC_MAP_from, OMPC_MAP_unknown,
+                MapInfo::RPK_None);
 
     // Look at the use_device_ptr clause information and mark the existing map
     // entries as such. If there is no map information for an entry in the
     // use_device_ptr list, we create one with map type 'alloc' and zero size
     // section. It is the user fault if that was not mapped before.
-    for (auto *C : Directive.getClausesOfKind<OMPUseDevicePtrClause>())
+    // FIXME: MSVC 2013 seems to require this-> to find member CurDir.
+    for (auto *C : this->CurDir.getClausesOfKind<OMPUseDevicePtrClause>())
       for (auto L : C->component_lists()) {
         assert(!L.second.empty() && "Not expecting empty list of components!");
         const ValueDecl *VD = L.second.back().getAssociatedDeclaration();
@@ -5520,12 +5540,14 @@ public:
 
         // We didn't find any match in our map information - generate a zero
         // size array section.
+        // FIXME: MSVC 2013 seems to require this-> to find member CGF.
         llvm::Value *Ptr =
-            CGF.EmitLoadOfLValue(CGF.EmitLValue(IE), SourceLocation())
+            this->CGF
+                .EmitLoadOfLValue(this->CGF.EmitLValue(IE), SourceLocation())
                 .getScalarVal();
         BasePointers.push_back({Ptr, VD});
         Pointers.push_back(Ptr);
-        Sizes.push_back(llvm::Constant::getNullValue(CGF.SizeTy));
+        Sizes.push_back(llvm::Constant::getNullValue(this->CGF.SizeTy));
         Types.push_back(OMP_MAP_RETURN_PTR | OMP_MAP_FIRST_REF);
       }
 
@@ -5539,9 +5561,10 @@ public:
 
         // Remember the current base pointer index.
         unsigned CurrentBasePointersIdx = BasePointers.size();
-        generateInfoForComponentList(L.MapType, L.MapTypeModifier, L.Components,
-                                     BasePointers, Pointers, Sizes, Types,
-                                     IsFirstComponentList);
+        // FIXME: MSVC 2013 seems to require this-> to find the member method.
+        this->generateInfoForComponentList(L.MapType, L.MapTypeModifier,
+                                           L.Components, BasePointers, Pointers,
+                                           Sizes, Types, IsFirstComponentList);
 
         // If this entry relates with a device pointer, set the relevant
         // declaration and add the 'return pointer' flag.
@@ -5573,6 +5596,7 @@ public:
   /// \brief Generate the base pointers, section pointers, sizes and map types
   /// associated to a given capture.
   void generateInfoForCapture(const CapturedStmt::Capture *Cap,
+                              llvm::Value *Arg,
                               MapBaseValuesArrayTy &BasePointers,
                               MapValuesArrayTy &Pointers,
                               MapValuesArrayTy &Sizes,
@@ -5585,15 +5609,40 @@ public:
     Sizes.clear();
     Types.clear();
 
+    // We need to know when we generating information for the first component
+    // associated with a capture, because the mapping flags depend on it.
+    bool IsFirstComponentList = true;
+
     const ValueDecl *VD =
         Cap->capturesThis()
             ? nullptr
             : cast<ValueDecl>(Cap->getCapturedVar()->getCanonicalDecl());
 
-    // We need to know when we generating information for the first component
-    // associated with a capture, because the mapping flags depend on it.
-    bool IsFirstComponentList = true;
-    for (auto *C : Directive.getClausesOfKind<OMPMapClause>())
+    // If this declaration appears in a is_device_ptr clause we just have to
+    // pass the pointer by value. If it is a reference to a declaration, we just
+    // pass its value, otherwise, if it is a member expression, we need to map
+    // 'to' the field.
+    if (!VD) {
+      auto It = DevPointersMap.find(VD);
+      if (It != DevPointersMap.end()) {
+        for (auto L : It->second) {
+          generateInfoForComponentList(
+              /*MapType=*/OMPC_MAP_to, /*MapTypeModifier=*/OMPC_MAP_unknown, L,
+              BasePointers, Pointers, Sizes, Types, IsFirstComponentList);
+          IsFirstComponentList = false;
+        }
+        return;
+      }
+    } else if (DevPointersMap.count(VD)) {
+      BasePointers.push_back({Arg, VD});
+      Pointers.push_back(Arg);
+      Sizes.push_back(CGF.getTypeSize(CGF.getContext().VoidPtrTy));
+      Types.push_back(OMP_MAP_PRIVATE_VAL | OMP_MAP_FIRST_REF);
+      return;
+    }
+
+    // FIXME: MSVC 2013 seems to require this-> to find member CurDir.
+    for (auto *C : this->CurDir.getClausesOfKind<OMPMapClause>())
       for (auto L : C->decl_component_lists(VD)) {
         assert(L.first == VD &&
                "We got information for the wrong declaration??");
@@ -5883,7 +5932,7 @@ void CGOpenMPRuntime::emitTargetCall(CodeGenFunction &CGF,
     } else {
       // If we have any information in the map clause, we use it, otherwise we
       // just do a default mapping.
-      MEHandler.generateInfoForCapture(CI, CurBasePointers, CurPointers,
+      MEHandler.generateInfoForCapture(CI, *CV, CurBasePointers, CurPointers,
                                        CurSizes, CurMapTypes);
       if (CurBasePointers.empty())
         MEHandler.generateDefaultMapInfo(*CI, **RI, *CV, CurBasePointers,

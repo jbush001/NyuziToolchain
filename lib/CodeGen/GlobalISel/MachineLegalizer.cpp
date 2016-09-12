@@ -17,26 +17,43 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "llvm/CodeGen/MachineInstr.h"
-#include "llvm/CodeGen/ValueTypes.h"
 #include "llvm/CodeGen/GlobalISel/MachineLegalizer.h"
+
+#include "llvm/ADT/SmallBitVector.h"
+#include "llvm/CodeGen/MachineInstr.h"
+#include "llvm/CodeGen/MachineRegisterInfo.h"
+#include "llvm/CodeGen/ValueTypes.h"
 #include "llvm/IR/Type.h"
 #include "llvm/Target/TargetOpcodes.h"
 using namespace llvm;
 
 MachineLegalizer::MachineLegalizer() : TablesInitialized(false) {
+  // FIXME: these two can be legalized to the fundamental load/store Jakob
+  // proposed. Once loads & stores are supported.
+  DefaultActions[TargetOpcode::G_ANYEXT] = Legal;
+  DefaultActions[TargetOpcode::G_TRUNC] = Legal;
+
+  DefaultActions[TargetOpcode::G_INTRINSIC] = Legal;
+  DefaultActions[TargetOpcode::G_INTRINSIC_W_SIDE_EFFECTS] = Legal;
+
   DefaultActions[TargetOpcode::G_ADD] = NarrowScalar;
+
+  DefaultActions[TargetOpcode::G_BRCOND] = WidenScalar;
 }
 
 void MachineLegalizer::computeTables() {
-  for (auto &Op : Actions) {
-    LLT Ty = Op.first.second;
-    if (!Ty.isVector())
-      continue;
+  for (unsigned Opcode = 0; Opcode <= LastOp - FirstOp; ++Opcode) {
+    for (unsigned Idx = 0; Idx != Actions[Opcode].size(); ++Idx) {
+      for (auto &Action : Actions[Opcode][Idx]) {
+        LLT Ty = Action.first;
+        if (!Ty.isVector())
+          continue;
 
-    auto &Entry =
-        MaxLegalVectorElts[std::make_pair(Op.first.first, Ty.getElementType())];
-    Entry = std::max(Entry, Ty.getNumElements());
+        auto &Entry = MaxLegalVectorElts[std::make_pair(Opcode + FirstOp,
+                                                        Ty.getElementType())];
+        Entry = std::max(Entry, Ty.getNumElements());
+      }
+    }
   }
 
   TablesInitialized = true;
@@ -47,27 +64,30 @@ void MachineLegalizer::computeTables() {
 // we have any hope of doing well with something like <13 x i3>. Even the common
 // cases should do better than what we have now.
 std::pair<MachineLegalizer::LegalizeAction, LLT>
-MachineLegalizer::getAction(unsigned Opcode, LLT Ty) const {
+MachineLegalizer::getAction(const InstrAspect &Aspect) const {
   assert(TablesInitialized && "backend forgot to call computeTables");
   // These *have* to be implemented for now, they're the fundamental basis of
   // how everything else is transformed.
 
   // FIXME: the long-term plan calls for expansion in terms of load/store (if
   // they're not legal).
-  if (Opcode == TargetOpcode::G_SEQUENCE || Opcode == TargetOpcode::G_EXTRACT)
-    return std::make_pair(Legal, Ty);
+  if (Aspect.Opcode == TargetOpcode::G_SEQUENCE ||
+      Aspect.Opcode == TargetOpcode::G_EXTRACT)
+    return std::make_pair(Legal, Aspect.Type);
 
-  auto ActionIt = Actions.find(std::make_pair(Opcode, Ty));
-  if (ActionIt != Actions.end())
-    return findLegalAction(Opcode, Ty, ActionIt->second);
+  LegalizeAction Action = findInActions(Aspect);
+  if (Action != NotFound)
+    return findLegalAction(Aspect, Action);
 
+  unsigned Opcode = Aspect.Opcode;
+  LLT Ty = Aspect.Type;
   if (!Ty.isVector()) {
-    auto DefaultAction = DefaultActions.find(Opcode);
+    auto DefaultAction = DefaultActions.find(Aspect.Opcode);
     if (DefaultAction != DefaultActions.end() && DefaultAction->second == Legal)
       return std::make_pair(Legal, Ty);
 
     assert(DefaultAction->second == NarrowScalar && "unexpected default");
-    return findLegalAction(Opcode, Ty, NarrowScalar);
+    return findLegalAction(Aspect, NarrowScalar);
   }
 
   LLT EltTy = Ty.getElementType();
@@ -76,13 +96,13 @@ MachineLegalizer::getAction(unsigned Opcode, LLT Ty) const {
   auto ScalarAction = ScalarInVectorActions.find(std::make_pair(Opcode, EltTy));
   if (ScalarAction != ScalarInVectorActions.end() &&
       ScalarAction->second != Legal)
-    return findLegalAction(Opcode, EltTy, ScalarAction->second);
+    return findLegalAction(Aspect, ScalarAction->second);
 
   // The element type is legal in principle, but the number of elements is
   // wrong.
   auto MaxLegalElts = MaxLegalVectorElts.lookup(std::make_pair(Opcode, EltTy));
   if (MaxLegalElts > NumElts)
-    return findLegalAction(Opcode, Ty, MoreElements);
+    return findLegalAction(Aspect, MoreElements);
 
   if (MaxLegalElts == 0) {
     // Scalarize if there's no legal vector type, which is just a special case
@@ -90,40 +110,64 @@ MachineLegalizer::getAction(unsigned Opcode, LLT Ty) const {
     return std::make_pair(FewerElements, EltTy);
   }
 
-  return findLegalAction(Opcode, Ty, FewerElements);
+  return findLegalAction(Aspect, FewerElements);
 }
 
-std::pair<MachineLegalizer::LegalizeAction, LLT>
-MachineLegalizer::getAction(MachineInstr &MI) const {
-  return getAction(MI.getOpcode(), MI.getType());
+std::tuple<MachineLegalizer::LegalizeAction, unsigned, LLT>
+MachineLegalizer::getAction(const MachineInstr &MI,
+                            const MachineRegisterInfo &MRI) const {
+  SmallBitVector SeenTypes(8);
+  const MCOperandInfo *OpInfo = MI.getDesc().OpInfo;
+  for (unsigned i = 0; i < MI.getDesc().getNumOperands(); ++i) {
+    if (!OpInfo[i].isGenericType())
+      continue;
+
+    // We don't want to repeatedly check the same operand index, that
+    // could get expensive.
+    unsigned TypeIdx = OpInfo[i].getGenericTypeIndex();
+    if (SeenTypes[TypeIdx])
+      continue;
+
+    SeenTypes.set(TypeIdx);
+
+    LLT Ty = MRI.getType(MI.getOperand(i).getReg());
+    auto Action = getAction({MI.getOpcode(), TypeIdx, Ty});
+    if (Action.first != Legal)
+      return std::make_tuple(Action.first, TypeIdx, Action.second);
+  }
+  return std::make_tuple(Legal, 0, LLT{});
 }
 
-bool MachineLegalizer::isLegal(MachineInstr &MI) const {
-  return getAction(MI).first == Legal;
+bool MachineLegalizer::isLegal(const MachineInstr &MI,
+                               const MachineRegisterInfo &MRI) const {
+  return std::get<0>(getAction(MI, MRI)) == Legal;
 }
 
-LLT MachineLegalizer::findLegalType(unsigned Opcode, LLT Ty,
+LLT MachineLegalizer::findLegalType(const InstrAspect &Aspect,
                                     LegalizeAction Action) const {
   switch(Action) {
   default:
     llvm_unreachable("Cannot find legal type");
   case Legal:
-    return Ty;
+  case Lower:
+  case Libcall:
+    return Aspect.Type;
   case NarrowScalar: {
-    return findLegalType(Opcode, Ty,
+    return findLegalType(Aspect,
                          [&](LLT Ty) -> LLT { return Ty.halfScalarSize(); });
   }
   case WidenScalar: {
-    return findLegalType(Opcode, Ty,
-                         [&](LLT Ty) -> LLT { return Ty.doubleScalarSize(); });
+    return findLegalType(Aspect, [&](LLT Ty) -> LLT {
+      return Ty.getSizeInBits() < 8 ? LLT::scalar(8) : Ty.doubleScalarSize();
+    });
   }
   case FewerElements: {
-    return findLegalType(Opcode, Ty,
+    return findLegalType(Aspect,
                          [&](LLT Ty) -> LLT { return Ty.halfElements(); });
   }
   case MoreElements: {
-    return findLegalType(
-        Opcode, Ty, [&](LLT Ty) -> LLT { return Ty.doubleElements(); });
+    return findLegalType(Aspect,
+                         [&](LLT Ty) -> LLT { return Ty.doubleElements(); });
   }
   }
 }

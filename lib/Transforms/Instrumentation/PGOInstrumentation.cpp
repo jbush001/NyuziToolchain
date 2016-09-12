@@ -124,8 +124,9 @@ static cl::opt<bool> DoComdatRenaming(
 
 // Command line option to enable/disable the warning about missing profile
 // information.
-static cl::opt<bool> NoPGOWarnMissing("no-pgo-warn-missing", cl::init(false),
-                                      cl::Hidden);
+static cl::opt<bool> PGOWarnMissing("pgo-warn-missing-function",
+                                     cl::init(false),
+                                     cl::Hidden);
 
 // Command line option to enable/disable the warning about a hash mismatch in
 // the profile data.
@@ -299,6 +300,16 @@ public:
     if (CreateGlobalVar)
       FuncNameVar = createPGOFuncNameVar(F, FuncName);
   }
+
+  // Return the number of profile counters needed for the function.
+  unsigned getNumCounters() {
+    unsigned NumCounters = 0;
+    for (auto &E : this->MST.AllEdges) {
+      if (!E->InMST && !E->Removed)
+        NumCounters++;
+    }
+    return NumCounters;
+  }
 };
 
 // Compute Hash value for the CFG: the lower 32 bits are CRC32 of the index
@@ -442,13 +453,10 @@ BasicBlock *FuncPGOInstrumentation<Edge, BBInfo>::getInstrBB(Edge *E) {
 static void instrumentOneFunc(
     Function &F, Module *M, BranchProbabilityInfo *BPI, BlockFrequencyInfo *BFI,
     std::unordered_multimap<Comdat *, GlobalValue *> &ComdatMembers) {
-  unsigned NumCounters = 0;
   FuncPGOInstrumentation<PGOEdge, BBInfo> FuncInfo(F, ComdatMembers, true, BPI,
                                                    BFI);
-  for (auto &E : FuncInfo.MST.AllEdges) {
-    if (!E->InMST && !E->Removed)
-      NumCounters++;
-  }
+  unsigned NumCounters = FuncInfo.getNumCounters();
+
   uint32_t I = 0;
   Type *I8PtrTy = Type::getInt8PtrTy(M->getContext());
   for (auto &E : FuncInfo.MST.AllEdges) {
@@ -465,6 +473,7 @@ static void instrumentOneFunc(
          Builder.getInt64(FuncInfo.FunctionHash), Builder.getInt32(NumCounters),
          Builder.getInt32(I++)});
   }
+  assert(I == NumCounters);
 
   if (DisableValueProfiling)
     return;
@@ -638,6 +647,7 @@ private:
 void PGOUseFunc::setInstrumentedCounts(
     const std::vector<uint64_t> &CountFromProfile) {
 
+  assert(FuncInfo.getNumCounters() == CountFromProfile.size());
   // Use a worklist as we will update the vector during the iteration.
   std::vector<PGOUseEdge *> WorkList;
   for (auto &E : FuncInfo.MST.AllEdges)
@@ -667,6 +677,7 @@ void PGOUseFunc::setInstrumentedCounts(
     NewEdge1.InMST = true;
     getBBInfo(InstrBB).setBBInfoCount(CountValue);
   }
+  assert(I == CountFromProfile.size());
 }
 
 // Set the count value for the unknown edge. There should be one and only one
@@ -697,7 +708,7 @@ bool PGOUseFunc::readCounters(IndexedInstrProfReader *PGOReader) {
       bool SkipWarning = false;
       if (Err == instrprof_error::unknown_function) {
         NumOfPGOMissing++;
-        SkipWarning = NoPGOWarnMissing;
+        SkipWarning = !PGOWarnMissing;
       } else if (Err == instrprof_error::hash_mismatch ||
                  Err == instrprof_error::malformed) {
         NumOfPGOMismatch++;
@@ -809,11 +820,25 @@ void PGOUseFunc::populateCounters() {
   DEBUG(FuncInfo.dumpInfo("after reading profile."));
 }
 
+static void setProfMetadata(Module *M, TerminatorInst *TI,
+                            ArrayRef<uint64_t> EdgeCounts, uint64_t MaxCount) {
+  MDBuilder MDB(M->getContext());
+  assert(MaxCount > 0 && "Bad max count");
+  uint64_t Scale = calculateCountScale(MaxCount);
+  SmallVector<unsigned, 4> Weights;
+  for (const auto &ECI : EdgeCounts)
+    Weights.push_back(scaleBranchCount(ECI, Scale));
+
+  DEBUG(dbgs() << "Weight is: ";
+        for (const auto &W : Weights) { dbgs() << W << " "; } 
+        dbgs() << "\n";);
+  TI->setMetadata(llvm::LLVMContext::MD_prof, MDB.createBranchWeights(Weights));
+}
+
 // Assign the scaled count values to the BB with multiple out edges.
 void PGOUseFunc::setBranchWeights() {
   // Generate MD_prof metadata for every branch instruction.
   DEBUG(dbgs() << "\nSetting branch weights.\n");
-  MDBuilder MDB(M->getContext());
   for (auto &BB : F) {
     TerminatorInst *TI = BB.getTerminator();
     if (TI->getNumSuccessors() < 2)
@@ -826,7 +851,7 @@ void PGOUseFunc::setBranchWeights() {
     // We have a non-zero Branch BB.
     const UseBBInfo &BBCountInfo = getBBInfo(&BB);
     unsigned Size = BBCountInfo.OutEdges.size();
-    SmallVector<unsigned, 2> EdgeCounts(Size, 0);
+    SmallVector<uint64_t, 2> EdgeCounts(Size, 0);
     uint64_t MaxCount = 0;
     for (unsigned s = 0; s < Size; s++) {
       const PGOUseEdge *E = BBCountInfo.OutEdges[s];
@@ -840,17 +865,7 @@ void PGOUseFunc::setBranchWeights() {
         MaxCount = EdgeCount;
       EdgeCounts[SuccNum] = EdgeCount;
     }
-    assert(MaxCount > 0 && "Bad max count");
-    uint64_t Scale = calculateCountScale(MaxCount);
-    SmallVector<unsigned, 4> Weights;
-    for (const auto &ECI : EdgeCounts)
-      Weights.push_back(scaleBranchCount(ECI, Scale));
-
-    TI->setMetadata(llvm::LLVMContext::MD_prof,
-                    MDB.createBranchWeights(Weights));
-    DEBUG(dbgs() << "Weight is: ";
-          for (const auto &W : Weights) { dbgs() << W << " "; }
-          dbgs() << "\n";);
+    setProfMetadata(M, TI, EdgeCounts, MaxCount);
   }
 }
 
@@ -954,7 +969,7 @@ bool PGOInstrumentationGenLegacyPass::runOnModule(Module &M) {
 }
 
 PreservedAnalyses PGOInstrumentationGen::run(Module &M,
-                                             AnalysisManager<Module> &AM) {
+                                             ModuleAnalysisManager &AM) {
 
   auto &FAM = AM.getResult<FunctionAnalysisManagerModuleProxy>(M).getManager();
   auto LookupBPI = [&FAM](Function &F) {
@@ -1046,7 +1061,7 @@ PGOInstrumentationUse::PGOInstrumentationUse(std::string Filename)
 }
 
 PreservedAnalyses PGOInstrumentationUse::run(Module &M,
-                                             AnalysisManager<Module> &AM) {
+                                             ModuleAnalysisManager &AM) {
 
   auto &FAM = AM.getResult<FunctionAnalysisManagerModuleProxy>(M).getManager();
   auto LookupBPI = [&FAM](Function &F) {

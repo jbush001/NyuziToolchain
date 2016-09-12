@@ -73,7 +73,7 @@ void RegScavenger::init(MachineBasicBlock &MBB) {
   RegUnitsAvailable.set();
 
   // Pristine CSRs are not available.
-  BitVector PR = MF.getFrameInfo()->getPristineRegs(MF);
+  BitVector PR = MF.getFrameInfo().getPristineRegs(MF);
   for (int I = PR.find_first(); I>0; I = PR.find_next(I))
     setRegUsed(I);
 
@@ -419,7 +419,8 @@ unsigned RegScavenger::scavengeRegister(const TargetRegisterClass *RC,
   for (const MachineOperand &MO : MI.operands()) {
     if (MO.isReg() && MO.getReg() != 0 && !(MO.isUse() && MO.isUndef()) &&
         !TargetRegisterInfo::isVirtualRegister(MO.getReg()))
-      Candidates.reset(MO.getReg());
+      for (MCRegAliasIterator AI(MO.getReg(), TRI, true); AI.isValid(); ++AI)
+        Candidates.reset(*AI);
   }
 
   // Try to find a register that's unused if there is one, as then we won't
@@ -441,7 +442,7 @@ unsigned RegScavenger::scavengeRegister(const TargetRegisterClass *RC,
 
   // Find an available scavenging slot with size and alignment matching
   // the requirements of the class RC.
-  const MachineFrameInfo &MFI = *MF.getFrameInfo();
+  const MachineFrameInfo &MFI = MF.getFrameInfo();
   unsigned NeedSize = RC->getSize();
   unsigned NeedAlign = RC->getAlignment();
 

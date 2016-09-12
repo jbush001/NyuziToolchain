@@ -34,10 +34,6 @@ class FunctionType;
 class LLVMContext;
 class DISubprogram;
 
-template <>
-struct SymbolTableListSentinelTraits<Argument>
-    : public ilist_half_embedded_sentinel_traits<Argument> {};
-
 class Function : public GlobalObject, public ilist_node<Function> {
 public:
   typedef SymbolTableList<Argument> ArgumentListType;
@@ -137,13 +133,9 @@ public:
   /// The particular intrinsic functions which correspond to this value are
   /// defined in llvm/Intrinsics.h.
   Intrinsic::ID getIntrinsicID() const LLVM_READONLY { return IntID; }
-  bool isIntrinsic() const {
-    // Intrinsic::not_intrinsic must be 0.
-    return IntID != 0;
-  }
-  /// Return true if the function's name starts with "llvm.".  All intrinsics
-  /// have this prefix.
-  bool hasLLVMReservedName() const { return getName().startswith("llvm."); }
+  bool isIntrinsic() const { return getName().startswith("llvm."); }
+
+  static Intrinsic::ID lookupIntrinsicID(StringRef Name);
 
   /// \brief Recalculate the ID for this function if it is an Intrinsic defined
   /// in llvm/Intrinsics.h.  Sets the intrinsic ID to Intrinsic::not_intrinsic
@@ -172,27 +164,29 @@ public:
   void setAttributes(AttributeSet Attrs) { AttributeSets = Attrs; }
 
   /// @brief Add function attributes to this function.
-  void addFnAttr(Attribute::AttrKind N) {
-    setAttributes(AttributeSets.addAttribute(getContext(),
-                                             AttributeSet::FunctionIndex, N));
+  void addFnAttr(Attribute::AttrKind Kind) {
+    addAttribute(AttributeSet::FunctionIndex, Kind);
+  }
+
+  /// @brief Add function attributes to this function.
+  void addFnAttr(StringRef Kind, StringRef Val = StringRef()) {
+    addAttribute(AttributeSet::FunctionIndex,
+                 Attribute::get(getContext(), Kind, Val));
+  }
+
+  void addFnAttr(Attribute Attr) {
+    addAttribute(AttributeSet::FunctionIndex, Attr);
   }
 
   /// @brief Remove function attributes from this function.
   void removeFnAttr(Attribute::AttrKind Kind) {
-    setAttributes(AttributeSets.removeAttribute(
-        getContext(), AttributeSet::FunctionIndex, Kind));
+    removeAttribute(AttributeSet::FunctionIndex, Kind);
   }
 
-  /// @brief Add function attributes to this function.
-  void addFnAttr(StringRef Kind) {
-    setAttributes(
-      AttributeSets.addAttribute(getContext(),
-                                 AttributeSet::FunctionIndex, Kind));
-  }
-  void addFnAttr(StringRef Kind, StringRef Value) {
-    setAttributes(
-      AttributeSets.addAttribute(getContext(),
-                                 AttributeSet::FunctionIndex, Kind, Value));
+  /// @brief Remove function attribute from this function.
+  void removeFnAttr(StringRef Kind) {
+    setAttributes(AttributeSets.removeAttribute(
+        getContext(), AttributeSet::FunctionIndex, Kind));
   }
 
   /// Set the entry count for this function.
@@ -206,7 +200,7 @@ public:
     return AttributeSets.hasFnAttribute(Kind);
   }
   bool hasFnAttribute(StringRef Kind) const {
-    return AttributeSets.hasAttribute(AttributeSet::FunctionIndex, Kind);
+    return AttributeSets.hasFnAttribute(Kind);
   }
 
   /// @brief Return the attribute for the given attribute kind.

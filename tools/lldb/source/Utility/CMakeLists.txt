@@ -10,7 +10,9 @@ add_lldb_library(lldbUtility
   PseudoTerminal.cpp
   Range.cpp
   RegisterNumber.cpp
+  SelectHelper.cpp
   SharingPtr.cpp
+  StdStringExtractor.cpp
   StringExtractor.cpp
   StringExtractorGDBRemote.cpp
   StringLexer.cpp

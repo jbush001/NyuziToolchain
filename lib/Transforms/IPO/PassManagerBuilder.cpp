@@ -19,6 +19,7 @@
 #include "llvm/Analysis/CFLAndersAliasAnalysis.h"
 #include "llvm/Analysis/CFLSteensAliasAnalysis.h"
 #include "llvm/Analysis/GlobalsModRef.h"
+#include "llvm/Analysis/InlineCost.h"
 #include "llvm/Analysis/Passes.h"
 #include "llvm/Analysis/ScopedNoAliasAA.h"
 #include "llvm/Analysis/TargetLibraryInfo.h"
@@ -138,8 +139,8 @@ static cl::opt<int> PreInlineThreshold(
              "(default = 75)"));
 
 static cl::opt<bool> EnableGVNHoist(
-    "enable-gvn-hoist", cl::init(false), cl::Hidden,
-    cl::desc("Enable the experimental GVN Hoisting pass"));
+    "enable-gvn-hoist", cl::init(true), cl::Hidden,
+    cl::desc("Enable the GVN hoisting pass (default = on)"));
 
 PassManagerBuilder::PassManagerBuilder() {
     OptLevel = 2;
@@ -252,8 +253,17 @@ void PassManagerBuilder::addPGOInstrPasses(legacy::PassManagerBase &MPM) {
   // Perform the preinline and cleanup passes for O1 and above.
   // And avoid doing them if optimizing for size.
   if (OptLevel > 0 && SizeLevel == 0 && !DisablePreInliner) {
-    // Create preinline pass.
-    MPM.add(createFunctionInliningPass(PreInlineThreshold));
+    // Create preinline pass. We construct an InlineParams object and specify
+    // the threshold here to avoid the command line options of the regular
+    // inliner to influence pre-inlining. The only fields of InlineParams we
+    // care about are DefaultThreshold and HintThreshold.
+    InlineParams IP;
+    IP.DefaultThreshold = PreInlineThreshold;
+    // FIXME: The hint threshold has the same value used by the regular inliner.
+    // This should probably be lowered after performance testing.
+    IP.HintThreshold = 325;
+
+    MPM.add(createFunctionInliningPass(IP));
     MPM.add(createSROAPass());
     MPM.add(createEarlyCSEPass());             // Catch trivial redundancies
     MPM.add(createCFGSimplificationPass());    // Merge & remove BBs
@@ -395,6 +405,16 @@ void PassManagerBuilder::populateModulePassManager(
 
   addInitialAliasAnalysisPasses(MPM);
 
+  // For ThinLTO there are two passes of indirect call promotion. The
+  // first is during the compile phase when PerformThinLTO=false and
+  // intra-module indirect call targets are promoted. The second is during
+  // the ThinLTO backend when PerformThinLTO=true, when we promote imported
+  // inter-module indirect calls. For that we perform indirect call promotion
+  // earlier in the pass pipeline, here before globalopt. Otherwise imported
+  // available_externally functions look unreferenced and are removed.
+  if (PerformThinLTO)
+    MPM.add(createPGOIndirectCallPromotionLegacyPass(/*InLTO = */ true));
+
   if (!DisableUnitAtATime) {
     // Infer attributes about declarations if possible.
     MPM.add(createInferFunctionAttrsLegacyPass());
@@ -417,10 +437,11 @@ void PassManagerBuilder::populateModulePassManager(
     /// PGO instrumentation is added during the compile phase for ThinLTO, do
     /// not run it a second time
     addPGOInstrPasses(MPM);
+    // Indirect call promotion that promotes intra-module targets only.
+    // For ThinLTO this is done earlier due to interactions with globalopt
+    // for imported functions.
+    MPM.add(createPGOIndirectCallPromotionLegacyPass());
   }
-
-  // Indirect call promotion that promotes intra-module targets only.
-  MPM.add(createPGOIndirectCallPromotionLegacyPass());
 
   if (EnableNonLTOGlobalsModRef)
     // We add a module alias analysis pass here. In part due to bugs in the

@@ -23,7 +23,6 @@
 #include "llvm/ADT/iterator_range.h"
 #include "llvm/Analysis/AliasAnalysis.h"
 #include "llvm/CodeGen/MachineOperand.h"
-#include "llvm/CodeGen/LowLevelType.h"
 #include "llvm/IR/DebugLoc.h"
 #include "llvm/IR/InlineAsm.h"
 #include "llvm/MC/MCInstrDesc.h"
@@ -51,7 +50,8 @@ class MachineMemOperand;
 /// without having their destructor called.
 ///
 class MachineInstr
-    : public ilist_node_with_parent<MachineInstr, MachineBasicBlock> {
+    : public ilist_node_with_parent<MachineInstr, MachineBasicBlock,
+                                    ilist_sentinel_tracking<true>> {
 public:
   typedef MachineMemOperand **mmo_iterator;
 
@@ -104,13 +104,6 @@ private:
 
   DebugLoc debugLoc;                    // Source line information.
 
-#ifdef LLVM_BUILD_GLOBAL_ISEL
-  /// Type of the instruction in case of a generic opcode.
-  /// \invariant This must be LLT{} if getOpcode() is not
-  /// in the range of generic opcodes.
-  SmallVector<LLT, 1>  Tys;
-#endif
-
   MachineInstr(const MachineInstr&) = delete;
   void operator=(const MachineInstr&) = delete;
   // Use MachineFunction::DeleteMachineInstr() instead.
@@ -118,7 +111,7 @@ private:
 
   // Intrusive list support
   friend struct ilist_traits<MachineInstr>;
-  friend struct ilist_traits<MachineBasicBlock>;
+  friend struct ilist_callback_traits<MachineBasicBlock>;
   void setParent(MachineBasicBlock *P) { Parent = P; }
 
   /// This constructor creates a copy of the given
@@ -185,11 +178,6 @@ public:
     Flags &= ~((uint8_t)Flag);
   }
 
-  /// Set the type of the instruction.
-  /// \pre getOpcode() is in the range of the generic opcodes.
-  void setType(LLT Ty, unsigned Idx = 0);
-  LLT getType(int unsigned = 0) const;
-  unsigned getNumTypes() const;
 
   /// Return true if MI is in a bundle (but not the first MI in a bundle).
   ///
@@ -1123,12 +1111,14 @@ public:
   /// ordered or volatile memory references.
   bool hasOrderedMemoryRef() const;
 
-  /// Return true if this instruction is loading from a
-  /// location whose value is invariant across the function.  For example,
-  /// loading a value from the constant pool or from the argument area of
-  /// a function if it does not change.  This should only return true of *all*
-  /// loads the instruction does are invariant (if it does multiple loads).
-  bool isInvariantLoad(AliasAnalysis *AA) const;
+  /// Return true if this load instruction never traps and points to a memory
+  /// location whose value doesn't change during the execution of this function.
+  ///
+  /// Examples include loading a value from the constant pool or from the
+  /// argument area of a function (if it does not change).  If the instruction
+  /// does multiple loads, this returns true only if all of the loads are
+  /// dereferenceable and invariant.
+  bool isDereferenceableInvariantLoad(AliasAnalysis *AA) const;
 
   /// If the specified instruction is a PHI that always merges together the
   /// same virtual register, return the register, otherwise return 0.

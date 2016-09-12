@@ -34,6 +34,10 @@
 #include <x86intrin.h>
 #endif
 
+#if defined(__arm__)
+#include <armintr.h>
+#endif
+
 /* For the definition of jmp_buf. */
 #if __STDC_HOSTED__
 #include <setjmp.h>
@@ -93,6 +97,7 @@ static __inline__
 void __movsd(unsigned long *, unsigned long const *, size_t);
 static __inline__
 void __movsw(unsigned short *, unsigned short const *, size_t);
+static __inline__
 void __nop(void);
 void __nvreg_restore_fence(void);
 void __nvreg_save_fence(void);
@@ -440,61 +445,6 @@ __emul(int __in1, int __in2) {
 static __inline__ unsigned __int64 __DEFAULT_FN_ATTRS
 __emulu(unsigned int __in1, unsigned int __in2) {
   return (unsigned __int64)__in1 * (unsigned __int64)__in2;
-}
-/*----------------------------------------------------------------------------*\
-|* Bit Twiddling
-\*----------------------------------------------------------------------------*/
-static __inline__ unsigned char __DEFAULT_FN_ATTRS
-_rotl8(unsigned char _Value, unsigned char _Shift) {
-  _Shift &= 0x7;
-  return _Shift ? (_Value << _Shift) | (_Value >> (8 - _Shift)) : _Value;
-}
-static __inline__ unsigned char __DEFAULT_FN_ATTRS
-_rotr8(unsigned char _Value, unsigned char _Shift) {
-  _Shift &= 0x7;
-  return _Shift ? (_Value >> _Shift) | (_Value << (8 - _Shift)) : _Value;
-}
-static __inline__ unsigned short __DEFAULT_FN_ATTRS
-_rotl16(unsigned short _Value, unsigned char _Shift) {
-  _Shift &= 0xf;
-  return _Shift ? (_Value << _Shift) | (_Value >> (16 - _Shift)) : _Value;
-}
-static __inline__ unsigned short __DEFAULT_FN_ATTRS
-_rotr16(unsigned short _Value, unsigned char _Shift) {
-  _Shift &= 0xf;
-  return _Shift ? (_Value >> _Shift) | (_Value << (16 - _Shift)) : _Value;
-}
-static __inline__ unsigned int __DEFAULT_FN_ATTRS
-_rotl(unsigned int _Value, int _Shift) {
-  _Shift &= 0x1f;
-  return _Shift ? (_Value << _Shift) | (_Value >> (32 - _Shift)) : _Value;
-}
-static __inline__ unsigned int __DEFAULT_FN_ATTRS
-_rotr(unsigned int _Value, int _Shift) {
-  _Shift &= 0x1f;
-  return _Shift ? (_Value >> _Shift) | (_Value << (32 - _Shift)) : _Value;
-}
-static __inline__ unsigned long __DEFAULT_FN_ATTRS
-_lrotl(unsigned long _Value, int _Shift) {
-  _Shift &= 0x1f;
-  return _Shift ? (_Value << _Shift) | (_Value >> (32 - _Shift)) : _Value;
-}
-static __inline__ unsigned long __DEFAULT_FN_ATTRS
-_lrotr(unsigned long _Value, int _Shift) {
-  _Shift &= 0x1f;
-  return _Shift ? (_Value >> _Shift) | (_Value << (32 - _Shift)) : _Value;
-}
-static
-__inline__ unsigned __int64 __DEFAULT_FN_ATTRS
-_rotl64(unsigned __int64 _Value, int _Shift) {
-  _Shift &= 0x3f;
-  return _Shift ? (_Value << _Shift) | (_Value >> (64 - _Shift)) : _Value;
-}
-static
-__inline__ unsigned __int64 __DEFAULT_FN_ATTRS
-_rotr64(unsigned __int64 _Value, int _Shift) {
-  _Shift &= 0x3f;
-  return _Shift ? (_Value >> _Shift) | (_Value << (64 - _Shift)) : _Value;
 }
 /*----------------------------------------------------------------------------*\
 |* Bit Counting and Testing
@@ -913,6 +863,10 @@ _xgetbv(unsigned int __xcr_no) {
 static __inline__ void __DEFAULT_FN_ATTRS
 __halt(void) {
   __asm__ volatile ("hlt");
+}
+static __inline__ void __DEFAULT_FN_ATTRS
+__nop(void) {
+  __asm__ volatile ("nop");
 }
 #endif
 

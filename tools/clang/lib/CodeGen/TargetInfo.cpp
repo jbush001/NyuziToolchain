@@ -401,10 +401,6 @@ unsigned TargetCodeGenInfo::getOpenCLKernelCallingConv() const {
   return llvm::CallingConv::C;
 }
 
-unsigned TargetCodeGenInfo::getOpenCLImageAddrSpace(CodeGen::CodeGenModule &CGM) const {
-  return CGM.getContext().getTargetAddressSpace(LangAS::opencl_global);
-}
-
 static bool isEmptyRecord(ASTContext &Context, QualType T, bool AllowArrays);
 
 /// isEmptyField - Return true iff a the field is "empty", that is it
@@ -2496,8 +2492,8 @@ void X86_64ABIInfo::classify(QualType Ty, uint64_t OffsetBase,
     uint64_t Size = getContext().getTypeSize(Ty);
 
     // AMD64-ABI 3.2.3p2: Rule 1. If the size of an object is larger
-    // than four eightbytes, ..., it has class MEMORY.
-    if (Size > 256)
+    // than eight eightbytes, ..., it has class MEMORY.
+    if (Size > 512)
       return;
 
     // AMD64-ABI 3.2.3p2: Rule 1. If ..., or it contains unaligned
@@ -2516,7 +2512,9 @@ void X86_64ABIInfo::classify(QualType Ty, uint64_t OffsetBase,
     // The only case a 256-bit wide vector could be used is when the array
     // contains a single 256-bit element. Since Lo and Hi logic isn't extended
     // to work for sizes wider than 128, early check and fallback to memory.
-    if (Size > 128 && EltSize != 256)
+    //
+    if (Size > 128 &&
+        (Size != EltSize || Size > getNativeVectorSizeForAVXABI(AVXLevel)))
       return;
 
     for (uint64_t i=0, Offset=OffsetBase; i<ArraySize; ++i, Offset += EltSize) {
@@ -2537,8 +2535,8 @@ void X86_64ABIInfo::classify(QualType Ty, uint64_t OffsetBase,
     uint64_t Size = getContext().getTypeSize(Ty);
 
     // AMD64-ABI 3.2.3p2: Rule 1. If the size of an object is larger
-    // than four eightbytes, ..., it has class MEMORY.
-    if (Size > 256)
+    // than eight eightbytes, ..., it has class MEMORY.
+    if (Size > 512)
       return;
 
     // AMD64-ABI 3.2.3p2: Rule 2. If a C++ object has either a non-trivial
@@ -2591,6 +2589,10 @@ void X86_64ABIInfo::classify(QualType Ty, uint64_t OffsetBase,
       uint64_t Offset = OffsetBase + Layout.getFieldOffset(idx);
       bool BitField = i->isBitField();
 
+      // Ignore padding bit-fields.
+      if (BitField && i->isUnnamedBitfield())
+        continue;
+
       // AMD64-ABI 3.2.3p2: Rule 1. If the size of an object is larger than
       // four eightbytes, or it contains unaligned fields, it has class MEMORY.
       //
@@ -2598,7 +2600,8 @@ void X86_64ABIInfo::classify(QualType Ty, uint64_t OffsetBase,
       // contains a single 256-bit element. Since Lo and Hi logic isn't extended
       // to work for sizes wider than 128, early check and fallback to memory.
       //
-      if (Size > 128 && getContext().getTypeSize(i->getType()) != 256) {
+      if (Size > 128 && (Size != getContext().getTypeSize(i->getType()) ||
+                         Size > getNativeVectorSizeForAVXABI(AVXLevel))) {
         Lo = Memory;
         postMerge(Size, Lo, Hi);
         return;
@@ -2622,10 +2625,7 @@ void X86_64ABIInfo::classify(QualType Ty, uint64_t OffsetBase,
       // structure to be passed in memory even if unaligned, and
       // therefore they can straddle an eightbyte.
       if (BitField) {
-        // Ignore padding bit-fields.
-        if (i->isUnnamedBitfield())
-          continue;
-
+        assert(!i->isUnnamedBitfield());
         uint64_t Offset = OffsetBase + Layout.getFieldOffset(idx);
         uint64_t Size = i->getBitWidthValue(getContext());
 
@@ -2753,7 +2753,7 @@ llvm::Type *X86_64ABIInfo::GetByteVectorType(QualType Ty) const {
 
   // We couldn't find the preferred IR vector type for 'Ty'.
   uint64_t Size = getContext().getTypeSize(Ty);
-  assert((Size == 128 || Size == 256) && "Invalid type found!");
+  assert((Size == 128 || Size == 256 || Size == 512) && "Invalid type found!");
 
   // Return a LLVM IR vector type based on the size of 'Ty'.
   return llvm::VectorType::get(llvm::Type::getDoubleTy(getVMContext()),
@@ -3651,7 +3651,17 @@ void WinX86_64ABIInfo::computeInfo(CGFunctionInfo &FI) const {
 
 Address WinX86_64ABIInfo::EmitVAArg(CodeGenFunction &CGF, Address VAListAddr,
                                     QualType Ty) const {
-  return emitVoidPtrVAArg(CGF, VAListAddr, Ty, /*indirect*/ false,
+
+  bool IsIndirect = false;
+
+  // MS x64 ABI requirement: "Any argument that doesn't fit in 8 bytes, or is
+  // not 1, 2, 4, or 8 bytes, must be passed by reference."
+  if (isAggregateTypeForABI(Ty) || Ty->isMemberPointerType()) {
+    uint64_t Width = getContext().getTypeSize(Ty);
+    IsIndirect = Width > 64 || !llvm::isPowerOf2_64(Width);
+  }
+
+  return emitVoidPtrVAArg(CGF, VAListAddr, Ty, IsIndirect,
                           CGF.getContext().getTypeInfoInChars(Ty),
                           CharUnits::fromQuantity(8),
                           /*allowHigherAlign*/ false);
@@ -4403,14 +4413,17 @@ PPC64_initDwarfEHRegSizeTable(CodeGen::CodeGenFunction &CGF,
   // 32-63: fp0-31, the 8-byte floating-point registers
   AssignToArrayRange(Builder, Address, Eight8, 32, 63);
 
-  // 64-76 are various 4-byte special-purpose registers:
+  // 64-67 are various 8-byte special-purpose registers:
   // 64: mq
   // 65: lr
   // 66: ctr
   // 67: ap
+  AssignToArrayRange(Builder, Address, Eight8, 64, 67);
+
+  // 68-76 are various 4-byte special-purpose registers:
   // 68-75 cr0-7
   // 76: xer
-  AssignToArrayRange(Builder, Address, Four8, 64, 76);
+  AssignToArrayRange(Builder, Address, Four8, 68, 76);
 
   // 77-108: v0-31, the 16-byte vector registers
   AssignToArrayRange(Builder, Address, Sixteen8, 77, 108);
@@ -4420,7 +4433,10 @@ PPC64_initDwarfEHRegSizeTable(CodeGen::CodeGenFunction &CGF,
   // 111: spe_acc
   // 112: spefscr
   // 113: sfp
-  AssignToArrayRange(Builder, Address, Four8, 109, 113);
+  // 114: tfhar
+  // 115: tfiar
+  // 116: texasr
+  AssignToArrayRange(Builder, Address, Eight8, 109, 116);
 
   return false;
 }
@@ -6876,14 +6892,53 @@ public:
 
 namespace {
 
+class AMDGPUABIInfo final : public DefaultABIInfo {
+public:
+  explicit AMDGPUABIInfo(CodeGen::CodeGenTypes &CGT) : DefaultABIInfo(CGT) {}
+
+private:
+  ABIArgInfo classifyArgumentType(QualType Ty) const;
+
+  void computeInfo(CGFunctionInfo &FI) const override;
+};
+
+void AMDGPUABIInfo::computeInfo(CGFunctionInfo &FI) const {
+  if (!getCXXABI().classifyReturnType(FI))
+    FI.getReturnInfo() = classifyReturnType(FI.getReturnType());
+
+  unsigned CC = FI.getCallingConvention();
+  for (auto &Arg : FI.arguments())
+    if (CC == llvm::CallingConv::AMDGPU_KERNEL)
+      Arg.info = classifyArgumentType(Arg.type);
+    else
+      Arg.info = DefaultABIInfo::classifyArgumentType(Arg.type);
+}
+
+/// \brief Classify argument of given type \p Ty.
+ABIArgInfo AMDGPUABIInfo::classifyArgumentType(QualType Ty) const {
+  llvm::StructType *StrTy = dyn_cast<llvm::StructType>(CGT.ConvertType(Ty));
+  if (!StrTy) {
+    return DefaultABIInfo::classifyArgumentType(Ty);
+  }
+
+  // Coerce single element structs to its element.
+  if (StrTy->getNumElements() == 1) {
+    return ABIArgInfo::getDirect();
+  }
+
+  // If we set CanBeFlattened to true, CodeGen will expand the struct to its
+  // individual elements, which confuses the Clover OpenCL backend; therefore we
+  // have to set it to false here. Other args of getDirect() are just defaults.
+  return ABIArgInfo::getDirect(nullptr, 0, nullptr, false);
+}
+
 class AMDGPUTargetCodeGenInfo : public TargetCodeGenInfo {
 public:
   AMDGPUTargetCodeGenInfo(CodeGenTypes &CGT)
-    : TargetCodeGenInfo(new DefaultABIInfo(CGT)) {}
+    : TargetCodeGenInfo(new AMDGPUABIInfo(CGT)) {}
   void setTargetAttributes(const Decl *D, llvm::GlobalValue *GV,
                            CodeGen::CodeGenModule &M) const override;
   unsigned getOpenCLKernelCallingConv() const override;
-  unsigned getOpenCLImageAddrSpace(CodeGen::CodeGenModule &CGM) const override;
 };
 
 }
@@ -6915,13 +6970,8 @@ void AMDGPUTargetCodeGenInfo::setTargetAttributes(
   appendOpenCLVersionMD(M);
 }
 
-
 unsigned AMDGPUTargetCodeGenInfo::getOpenCLKernelCallingConv() const {
   return llvm::CallingConv::AMDGPU_KERNEL;
-}
-
-unsigned AMDGPUTargetCodeGenInfo::getOpenCLImageAddrSpace(CodeGen::CodeGenModule &CGM) const {
-  return CGM.getContext().getTargetAddressSpace(LangAS::opencl_constant);
 }
 
 //===----------------------------------------------------------------------===//
@@ -7593,7 +7643,7 @@ void SPIRTargetCodeGenInfo::emitTargetMD(const Decl *D, llvm::GlobalValue *GV,
   appendOpenCLVersionMD(CGM);
 }
 
-static void appendOpenCLVersionMD (CodeGen::CodeGenModule &CGM) {
+static void appendOpenCLVersionMD(CodeGen::CodeGenModule &CGM) {
   llvm::LLVMContext &Ctx = CGM.getModule().getContext();
   llvm::Type *Int32Ty = llvm::Type::getInt32Ty(Ctx);
   llvm::Module &M = CGM.getModule();

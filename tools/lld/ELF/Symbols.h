@@ -45,7 +45,6 @@ public:
     DefinedRegularKind = DefinedFirst,
     SharedKind,
     DefinedCommonKind,
-    DefinedBitcodeKind,
     DefinedSyntheticKind,
     DefinedLast = DefinedSyntheticKind,
     UndefinedKind,
@@ -159,14 +158,6 @@ public:
   static bool classof(const SymbolBody *S) { return S->isDefined(); }
 };
 
-// The defined symbol in LLVM bitcode files.
-class DefinedBitcode : public Defined {
-public:
-  DefinedBitcode(StringRef Name, uint8_t StOther, uint8_t Type, BitcodeFile *F);
-  static bool classof(const SymbolBody *S);
-  BitcodeFile *file() { return (BitcodeFile *)this->File; }
-};
-
 class DefinedCommon : public Defined {
 public:
   DefinedCommon(StringRef N, uint64_t Size, uint64_t Alignment, uint8_t StOther,
@@ -178,7 +169,7 @@ public:
 
   // The output offset of this common symbol in the output bss. Computed by the
   // writer.
-  uint64_t OffsetInBss;
+  uint64_t Offset;
 
   // The maximum alignment we have seen for this symbol.
   uint64_t Alignment;
@@ -216,6 +207,12 @@ public:
       : Defined(SymbolBody::DefinedRegularKind, Name, StOther,
                 llvm::ELF::STT_NOTYPE),
         Value(0), Size(0), Section(NullInputSection) {}
+
+  DefinedRegular(StringRef Name, uint8_t StOther, uint8_t Type, BitcodeFile *F)
+      : Defined(SymbolBody::DefinedRegularKind, Name, StOther, Type), Value(0),
+        Size(0), Section(NullInputSection) {
+    this->File = F;
+  }
 
   static bool classof(const SymbolBody *S) {
     return S->kind() == SymbolBody::DefinedRegularKind;
@@ -366,6 +363,9 @@ public:
 // Some linker-generated symbols need to be created as
 // DefinedRegular symbols.
 template <class ELFT> struct ElfSym {
+  // The content for __ehdr_start symbol.
+  static DefinedRegular<ELFT> *EhdrStart;
+
   // The content for _etext and etext symbols.
   static DefinedRegular<ELFT> *Etext;
   static DefinedRegular<ELFT> *Etext2;
@@ -382,6 +382,7 @@ template <class ELFT> struct ElfSym {
   static SymbolBody *MipsGpDisp;
 };
 
+template <class ELFT> DefinedRegular<ELFT> *ElfSym<ELFT>::EhdrStart;
 template <class ELFT> DefinedRegular<ELFT> *ElfSym<ELFT>::Etext;
 template <class ELFT> DefinedRegular<ELFT> *ElfSym<ELFT>::Etext2;
 template <class ELFT> DefinedRegular<ELFT> *ElfSym<ELFT>::Edata;
@@ -409,6 +410,9 @@ struct Symbol {
   // observed non-DSO symbols.
   unsigned Visibility : 2;
 
+  // True if the symbol has unnamed_addr.
+  unsigned HasUnnamedAddr : 1;
+
   // True if the symbol was used for linking and thus need to be added to the
   // output file's symbol table. This is true for all symbols except for
   // unreferenced DSO symbols and bitcode symbols that are unreferenced except
@@ -433,7 +437,7 @@ struct Symbol {
   // assume that the size and alignment of ELF64LE symbols is sufficient for any
   // ELFT, and we verify this with the static_asserts in replaceBody.
   llvm::AlignedCharArrayUnion<
-      DefinedBitcode, DefinedCommon, DefinedRegular<llvm::object::ELF64LE>,
+      DefinedCommon, DefinedRegular<llvm::object::ELF64LE>,
       DefinedSynthetic<llvm::object::ELF64LE>, Undefined,
       SharedSymbol<llvm::object::ELF64LE>, LazyArchive, LazyObject>
       Body;

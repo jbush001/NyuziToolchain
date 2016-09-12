@@ -631,17 +631,45 @@ bool MachineBlockPlacement::hasBetterLayoutPredecessor(
   // BB->Succ. This is equivalent to looking the CFG backward with backward
   // edge: Prob(Succ->BB) needs to >= HotProb in order to be selected (without
   // profile data).
-
+  // --------------------------------------------------------------------------
+  // Case 3: forked diamond
+  //       S
+  //      / \
+  //     /   \
+  //   BB    Pred
+  //   | \   / |
+  //   |  \ /  |
+  //   |   X   |
+  //   |  / \  |
+  //   | /   \ |
+  //   S1     S2
+  //
+  // The current block is BB and edge BB->S1 is now being evaluated.
+  // As above S->BB was already selected because
+  // prob(S->BB) > prob(S->Pred). Assume that prob(BB->S1) >= prob(BB->S2).
+  //
+  // topo-order:
+  //
+  //     S-------|                     ---S
+  //     |       |                     |  |
+  //  ---BB      |                     |  BB
+  //  |          |                     |  |
+  //  |  Pred----|                     |  S1----
+  //  |  |                             |       |
+  //  --(S1 or S2)                     ---Pred--
+  //
+  // topo-cost = freq(S->Pred) + freq(BB->S1) + freq(BB->S2)
+  //    + min(freq(Pred->S1), freq(Pred->S2))
+  // Non-topo-order cost:
+  // In the worst case, S2 will not get laid out after Pred.
+  // non-topo-cost = 2 * freq(S->Pred) + freq(BB->S2).
+  // To be conservative, we can assume that min(freq(Pred->S1), freq(Pred->S2))
+  // is 0. Then the non topo layout is better when
+  // freq(S->Pred) < freq(BB->S1).
+  // This is exactly what is checked below.
+  // Note there are other shapes that apply (Pred may not be a single block,
+  // but they all fit this general pattern.)
   BranchProbability HotProb = getLayoutSuccessorProbThreshold(BB);
-
-  // Forward checking. For case 2, SuccProb will be 1.
-  if (SuccProb < HotProb) {
-    DEBUG(dbgs() << "    Not a candidate: " << getBlockName(Succ) << " "
-                 << "Respecting topological ordering because "
-                 << "probability is less than prob treshold: "
-                 << SuccProb << "\n");
-    return true;
-  }
 
   // Make sure that a hot successor doesn't have a globally more
   // important predecessor.
@@ -653,11 +681,11 @@ bool MachineBlockPlacement::hasBetterLayoutPredecessor(
         (BlockFilter && !BlockFilter->count(Pred)) ||
         BlockToChain[Pred] == &Chain)
       continue;
-    // Do backward checking. For case 1, it is actually redundant check. For
-    // case 2 above, we need a backward checking to filter out edges that are
-    // not 'strongly' biased. With profile data available, the check is mostly
-    // redundant too (when threshold prob is set at 50%) unless S has more than
-    // two successors.
+    // Do backward checking.
+    // For all cases above, we need a backward checking to filter out edges that
+    // are not 'strongly' biased. With profile data available, the check is
+    // mostly redundant for case 2 (when threshold prob is set at 50%) unless S
+    // has more than two successors.
     // BB  Pred
     //  \ /
     //  Succ
@@ -666,6 +694,8 @@ bool MachineBlockPlacement::hasBetterLayoutPredecessor(
     //      i.e. freq(BB->Succ) > freq(BB->Succ) * HotProb + freq(Pred->Succ) *
     //      HotProb
     //      i.e. freq((BB->Succ) * (1 - HotProb) > freq(Pred->Succ) * HotProb
+    // Case 1 is covered too, because the first equation reduces to:
+    // prob(BB->Succ) > HotProb. (freq(Succ) = freq(BB) for a triangle)
     BlockFrequency PredEdgeFreq =
         MBFI->getBlockFreq(Pred) * MBPI->getEdgeProbability(Pred, Succ);
     if (PredEdgeFreq * HotProb >= CandidateEdgeFreq * HotProb.getCompl()) {
@@ -760,10 +790,10 @@ MachineBasicBlock *MachineBlockPlacement::selectBestCandidateBlock(
   // worklist of already placed entries.
   // FIXME: If this shows up on profiles, it could be folded (at the cost of
   // some code complexity) into the loop below.
-  WorkList.erase(std::remove_if(WorkList.begin(), WorkList.end(),
-                                [&](MachineBasicBlock *BB) {
-                                  return BlockToChain.lookup(BB) == &Chain;
-                                }),
+  WorkList.erase(remove_if(WorkList,
+                           [&](MachineBasicBlock *BB) {
+                             return BlockToChain.lookup(BB) == &Chain;
+                           }),
                  WorkList.end());
 
   if (WorkList.empty())
@@ -936,6 +966,16 @@ void MachineBlockPlacement::buildChain(
 MachineBasicBlock *
 MachineBlockPlacement::findBestLoopTop(MachineLoop &L,
                                        const BlockFilterSet &LoopBlockSet) {
+  // Placing the latch block before the header may introduce an extra branch
+  // that skips this block the first time the loop is executed, which we want
+  // to avoid when optimising for size.
+  // FIXME: in theory there is a case that does not introduce a new branch,
+  // i.e. when the layout predecessor does not fallthrough to the loop header.
+  // In practice this never happens though: there always seems to be a preheader
+  // that can fallthrough and that is also placed before the header.
+  if (F->getFunction()->optForSize())
+    return L.getHeader();
+
   // Check that the header hasn't been fused with a preheader block due to
   // crazy branches. If it has, we need to start with the header at the top to
   // prevent pulling the preheader into the loop body.
@@ -1136,8 +1176,7 @@ void MachineBlockPlacement::rotateLoop(BlockChain &LoopChain,
     }
   }
 
-  BlockChain::iterator ExitIt =
-      std::find(LoopChain.begin(), LoopChain.end(), ExitingBB);
+  BlockChain::iterator ExitIt = find(LoopChain, ExitingBB);
   if (ExitIt == LoopChain.end())
     return;
 
@@ -1160,7 +1199,7 @@ void MachineBlockPlacement::rotateLoop(BlockChain &LoopChain,
 void MachineBlockPlacement::rotateLoopWithProfile(
     BlockChain &LoopChain, MachineLoop &L, const BlockFilterSet &LoopBlockSet) {
   auto HeaderBB = L.getHeader();
-  auto HeaderIter = std::find(LoopChain.begin(), LoopChain.end(), HeaderBB);
+  auto HeaderIter = find(LoopChain, HeaderBB);
   auto RotationPos = LoopChain.end();
 
   BlockFrequency SmallestRotationCost = BlockFrequency::getMaxFrequency();
@@ -1708,8 +1747,10 @@ bool MachineBlockPlacement::runOnMachineFunction(MachineFunction &MF) {
                          BranchFoldPlacement;
   // No tail merging opportunities if the block number is less than four.
   if (MF.size() > 3 && EnableTailMerge) {
+    // Default to the standard tail-merge-size option.
+    unsigned TailMergeSize = 0;
     BranchFolder BF(/*EnableTailMerge=*/true, /*CommonHoist=*/false, *MBFI,
-                    *MBPI);
+                    *MBPI, TailMergeSize);
 
     if (BF.OptimizeFunction(MF, TII, MF.getSubtarget().getRegisterInfo(),
                             getAnalysisIfAvailable<MachineModuleInfo>(), MLI,

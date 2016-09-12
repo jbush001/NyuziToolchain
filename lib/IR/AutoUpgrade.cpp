@@ -267,6 +267,29 @@ static bool UpgradeIntrinsicFunction1(Function *F, Function *&NewFn) {
          Name.startswith("avx512.mask.pandn.") ||
          Name.startswith("avx512.mask.por.") ||
          Name.startswith("avx512.mask.pxor.") ||
+         Name.startswith("avx512.mask.and.") ||
+         Name.startswith("avx512.mask.andn.") ||
+         Name.startswith("avx512.mask.or.") ||
+         Name.startswith("avx512.mask.xor.") ||
+         Name.startswith("avx512.mask.padd.") ||
+         Name.startswith("avx512.mask.psub.") ||
+         Name.startswith("avx512.mask.pmull.") ||
+         Name.startswith("avx512.mask.add.pd.128") ||
+         Name.startswith("avx512.mask.add.pd.256") ||
+         Name.startswith("avx512.mask.add.ps.128") ||
+         Name.startswith("avx512.mask.add.ps.256") ||
+         Name.startswith("avx512.mask.div.pd.128") ||
+         Name.startswith("avx512.mask.div.pd.256") ||
+         Name.startswith("avx512.mask.div.ps.128") ||
+         Name.startswith("avx512.mask.div.ps.256") ||
+         Name.startswith("avx512.mask.mul.pd.128") ||
+         Name.startswith("avx512.mask.mul.pd.256") ||
+         Name.startswith("avx512.mask.mul.ps.128") ||
+         Name.startswith("avx512.mask.mul.ps.256") ||
+         Name.startswith("avx512.mask.sub.pd.128") ||
+         Name.startswith("avx512.mask.sub.pd.256") ||
+         Name.startswith("avx512.mask.sub.ps.128") ||
+         Name.startswith("avx512.mask.sub.ps.256") ||
          Name.startswith("sse41.pmovsx") ||
          Name.startswith("sse41.pmovzx") ||
          Name.startswith("avx2.pmovsx") ||
@@ -286,26 +309,14 @@ static bool UpgradeIntrinsicFunction1(Function *F, Function *&NewFn) {
          Name.startswith("sse.storeu.") ||
          Name.startswith("sse2.storeu.") ||
          Name.startswith("avx.storeu.") ||
-         Name.startswith("avx512.mask.storeu.p") ||
-         Name.startswith("avx512.mask.storeu.b.") ||
-         Name.startswith("avx512.mask.storeu.w.") ||
-         Name.startswith("avx512.mask.storeu.d.") ||
-         Name.startswith("avx512.mask.storeu.q.") ||
+         Name.startswith("avx512.mask.storeu.") ||
          Name.startswith("avx512.mask.store.p") ||
          Name.startswith("avx512.mask.store.b.") ||
          Name.startswith("avx512.mask.store.w.") ||
          Name.startswith("avx512.mask.store.d.") ||
          Name.startswith("avx512.mask.store.q.") ||
-         Name.startswith("avx512.mask.loadu.p") ||
-         Name.startswith("avx512.mask.loadu.b.") ||
-         Name.startswith("avx512.mask.loadu.w.") ||
-         Name.startswith("avx512.mask.loadu.d.") ||
-         Name.startswith("avx512.mask.loadu.q.") ||
-         Name.startswith("avx512.mask.load.p") ||
-         Name.startswith("avx512.mask.load.b.") ||
-         Name.startswith("avx512.mask.load.w.") ||
-         Name.startswith("avx512.mask.load.d.") ||
-         Name.startswith("avx512.mask.load.q.") ||
+         Name.startswith("avx512.mask.loadu.") ||
+         Name.startswith("avx512.mask.load.") ||
          Name == "sse42.crc32.64.8" ||
          Name.startswith("avx.vbroadcast.s") ||
          Name.startswith("avx512.mask.palignr.") ||
@@ -811,41 +822,25 @@ void llvm::UpgradeIntrinsicCall(CallInst *CI, Function *NewFn) {
       // Remove intrinsic.
       CI->eraseFromParent();
       return;
-    } else if (IsX86 && (Name.startswith("avx512.mask.storeu.p") ||
-                         Name.startswith("avx512.mask.storeu.b.") ||
-                         Name.startswith("avx512.mask.storeu.w.") ||
-                         Name.startswith("avx512.mask.storeu.d.") ||
-                         Name.startswith("avx512.mask.storeu.q."))) {
+    } else if (IsX86 && (Name.startswith("avx512.mask.storeu."))) {
       UpgradeMaskedStore(Builder, CI->getArgOperand(0), CI->getArgOperand(1),
                          CI->getArgOperand(2), /*Aligned*/false);
 
       // Remove intrinsic.
       CI->eraseFromParent();
       return;
-    } else if (IsX86 && (Name.startswith("avx512.mask.store.p") ||
-                         Name.startswith("avx512.mask.store.b.") ||
-                         Name.startswith("avx512.mask.store.w.") ||
-                         Name.startswith("avx512.mask.store.d.") ||
-                         Name.startswith("avx512.mask.store.q."))) {
+    } else if (IsX86 && (Name.startswith("avx512.mask.store."))) {
       UpgradeMaskedStore(Builder, CI->getArgOperand(0), CI->getArgOperand(1),
                          CI->getArgOperand(2), /*Aligned*/true);
 
       // Remove intrinsic.
       CI->eraseFromParent();
       return;
-    } else if (IsX86 && (Name.startswith("avx512.mask.loadu.p") ||
-                         Name.startswith("avx512.mask.loadu.b.") ||
-                         Name.startswith("avx512.mask.loadu.w.") ||
-                         Name.startswith("avx512.mask.loadu.d.") ||
-                         Name.startswith("avx512.mask.loadu.q."))) {
+    } else if (IsX86 && (Name.startswith("avx512.mask.loadu."))) {
       Rep = UpgradeMaskedLoad(Builder, CI->getArgOperand(0),
                               CI->getArgOperand(1), CI->getArgOperand(2),
                               /*Aligned*/false);
-    } else if (IsX86 && (Name.startswith("avx512.mask.load.p") ||
-                         Name.startswith("avx512.mask.load.b.") ||
-                         Name.startswith("avx512.mask.load.w.") ||
-                         Name.startswith("avx512.mask.load.d.") ||
-                         Name.startswith("avx512.mask.load.q."))) {
+    } else if (IsX86 && (Name.startswith("avx512.mask.load."))) {
       Rep = UpgradeMaskedLoad(Builder, CI->getArgOperand(0),
                               CI->getArgOperand(1),CI->getArgOperand(2),
                               /*Aligned*/true);
@@ -951,7 +946,7 @@ void llvm::UpgradeIntrinsicCall(CallInst *CI, Function *NewFn) {
       Type *VT = VectorType::get(EltTy, NumSrcElts);
       Value *Op = Builder.CreatePointerCast(CI->getArgOperand(0),
                                             PointerType::getUnqual(VT));
-      Value *Load = Builder.CreateLoad(VT, Op);
+      Value *Load = Builder.CreateAlignedLoad(Op, 1);
       if (NumSrcElts == 2)
         Rep = Builder.CreateShuffleVector(Load, UndefValue::get(Load->getType()),
                                           { 0, 1, 0, 1 });
@@ -1223,6 +1218,79 @@ void llvm::UpgradeIntrinsicCall(CallInst *CI, Function *NewFn) {
                           CI->getArgOperand(2));
     } else if (IsX86 && Name.startswith("avx512.mask.pxor.")) {
       Rep = Builder.CreateXor(CI->getArgOperand(0), CI->getArgOperand(1));
+      Rep = EmitX86Select(Builder, CI->getArgOperand(3), Rep,
+                          CI->getArgOperand(2));
+    } else if (IsX86 && Name.startswith("avx512.mask.and.")) {
+      VectorType *FTy = cast<VectorType>(CI->getType());
+      VectorType *ITy = VectorType::getInteger(FTy);
+      Rep = Builder.CreateAnd(Builder.CreateBitCast(CI->getArgOperand(0), ITy),
+                              Builder.CreateBitCast(CI->getArgOperand(1), ITy));
+      Rep = Builder.CreateBitCast(Rep, FTy);
+      Rep = EmitX86Select(Builder, CI->getArgOperand(3), Rep,
+                          CI->getArgOperand(2));
+    } else if (IsX86 && Name.startswith("avx512.mask.andn.")) {
+      VectorType *FTy = cast<VectorType>(CI->getType());
+      VectorType *ITy = VectorType::getInteger(FTy);
+      Rep = Builder.CreateNot(Builder.CreateBitCast(CI->getArgOperand(0), ITy));
+      Rep = Builder.CreateAnd(Rep,
+                              Builder.CreateBitCast(CI->getArgOperand(1), ITy));
+      Rep = Builder.CreateBitCast(Rep, FTy);
+      Rep = EmitX86Select(Builder, CI->getArgOperand(3), Rep,
+                          CI->getArgOperand(2));
+    } else if (IsX86 && Name.startswith("avx512.mask.or.")) {
+      VectorType *FTy = cast<VectorType>(CI->getType());
+      VectorType *ITy = VectorType::getInteger(FTy);
+      Rep = Builder.CreateOr(Builder.CreateBitCast(CI->getArgOperand(0), ITy),
+                             Builder.CreateBitCast(CI->getArgOperand(1), ITy));
+      Rep = Builder.CreateBitCast(Rep, FTy);
+      Rep = EmitX86Select(Builder, CI->getArgOperand(3), Rep,
+                          CI->getArgOperand(2));
+    } else if (IsX86 && Name.startswith("avx512.mask.xor.")) {
+      VectorType *FTy = cast<VectorType>(CI->getType());
+      VectorType *ITy = VectorType::getInteger(FTy);
+      Rep = Builder.CreateXor(Builder.CreateBitCast(CI->getArgOperand(0), ITy),
+                              Builder.CreateBitCast(CI->getArgOperand(1), ITy));
+      Rep = Builder.CreateBitCast(Rep, FTy);
+      Rep = EmitX86Select(Builder, CI->getArgOperand(3), Rep,
+                          CI->getArgOperand(2));
+    } else if (IsX86 && Name.startswith("avx512.mask.padd.")) {
+      Rep = Builder.CreateAdd(CI->getArgOperand(0), CI->getArgOperand(1));
+      Rep = EmitX86Select(Builder, CI->getArgOperand(3), Rep,
+                          CI->getArgOperand(2));
+    } else if (IsX86 && Name.startswith("avx512.mask.psub.")) {
+      Rep = Builder.CreateSub(CI->getArgOperand(0), CI->getArgOperand(1));
+      Rep = EmitX86Select(Builder, CI->getArgOperand(3), Rep,
+                          CI->getArgOperand(2));
+    } else if (IsX86 && Name.startswith("avx512.mask.pmull.")) {
+      Rep = Builder.CreateMul(CI->getArgOperand(0), CI->getArgOperand(1));
+      Rep = EmitX86Select(Builder, CI->getArgOperand(3), Rep,
+                          CI->getArgOperand(2));
+    } else if (IsX86 && (Name.startswith("avx512.mask.add.pd.128") ||
+                         Name.startswith("avx512.mask.add.pd.256") ||
+                         Name.startswith("avx512.mask.add.ps.128") ||
+                         Name.startswith("avx512.mask.add.ps.256"))) {
+      Rep = Builder.CreateFAdd(CI->getArgOperand(0), CI->getArgOperand(1));
+      Rep = EmitX86Select(Builder, CI->getArgOperand(3), Rep,
+                          CI->getArgOperand(2));
+    } else if (IsX86 && (Name.startswith("avx512.mask.div.pd.128") ||
+                         Name.startswith("avx512.mask.div.pd.256") ||
+                         Name.startswith("avx512.mask.div.ps.128") ||
+                         Name.startswith("avx512.mask.div.ps.256"))) {
+      Rep = Builder.CreateFDiv(CI->getArgOperand(0), CI->getArgOperand(1));
+      Rep = EmitX86Select(Builder, CI->getArgOperand(3), Rep,
+                          CI->getArgOperand(2));
+    } else if (IsX86 && (Name.startswith("avx512.mask.mul.pd.128") ||
+                         Name.startswith("avx512.mask.mul.pd.256") ||
+                         Name.startswith("avx512.mask.mul.ps.128") ||
+                         Name.startswith("avx512.mask.mul.ps.256"))) {
+      Rep = Builder.CreateFMul(CI->getArgOperand(0), CI->getArgOperand(1));
+      Rep = EmitX86Select(Builder, CI->getArgOperand(3), Rep,
+                          CI->getArgOperand(2));
+    } else if (IsX86 && (Name.startswith("avx512.mask.sub.pd.128") ||
+                         Name.startswith("avx512.mask.sub.pd.256") ||
+                         Name.startswith("avx512.mask.sub.ps.128") ||
+                         Name.startswith("avx512.mask.sub.ps.256"))) {
+      Rep = Builder.CreateFSub(CI->getArgOperand(0), CI->getArgOperand(1));
       Rep = EmitX86Select(Builder, CI->getArgOperand(3), Rep,
                           CI->getArgOperand(2));
     } else {
@@ -1557,7 +1625,7 @@ MDNode *llvm::upgradeInstructionLoopAttachment(MDNode &N) {
   if (!T)
     return &N;
 
-  if (!llvm::any_of(T->operands(), isOldLoopArgument))
+  if (none_of(T->operands(), isOldLoopArgument))
     return &N;
 
   SmallVector<Metadata *, 8> Ops;

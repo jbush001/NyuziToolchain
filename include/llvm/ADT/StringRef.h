@@ -337,6 +337,11 @@ namespace llvm {
     /// Complexity: O(size() + Chars.size())
     size_t find_last_not_of(StringRef Chars, size_t From = npos) const;
 
+    /// Return true if the given string is a substring of *this, and false
+    /// otherwise.
+    LLVM_ATTRIBUTE_ALWAYS_INLINE
+    bool contains(StringRef Other) const { return find(Other) != npos; }
+
     /// @}
     /// @name Helpful Algorithms
     /// @{
@@ -428,6 +433,28 @@ namespace llvm {
       return StringRef(Data + Start, std::min(N, Length - Start));
     }
 
+    /// Return a StringRef equal to 'this' but with only the first \p N
+    /// elements remaining.  If \p N is greater than the length of the
+    /// string, the entire string is returned.
+    LLVM_ATTRIBUTE_ALWAYS_INLINE
+    LLVM_ATTRIBUTE_UNUSED_RESULT
+    StringRef take_front(size_t N = 1) const {
+      if (N >= size())
+        return *this;
+      return drop_back(size() - N);
+    }
+
+    /// Return a StringRef equal to 'this' but with only the first \p N
+    /// elements remaining.  If \p N is greater than the length of the
+    /// string, the entire string is returned.
+    LLVM_ATTRIBUTE_ALWAYS_INLINE
+    LLVM_ATTRIBUTE_UNUSED_RESULT
+    StringRef take_back(size_t N = 1) const {
+      if (N >= size())
+        return *this;
+      return drop_front(size() - N);
+    }
+
     /// Return a StringRef equal to 'this' but with the first \p N elements
     /// dropped.
     LLVM_ATTRIBUTE_ALWAYS_INLINE
@@ -444,6 +471,30 @@ namespace llvm {
     StringRef drop_back(size_t N = 1) const {
       assert(size() >= N && "Dropping more elements than exist");
       return substr(0, size()-N);
+    }
+
+    /// Returns true if this StringRef has the given prefix and removes that
+    /// prefix.
+    LLVM_ATTRIBUTE_ALWAYS_INLINE
+    LLVM_ATTRIBUTE_UNUSED_RESULT
+    bool consume_front(StringRef Prefix) {
+      if (!startswith(Prefix))
+        return false;
+
+      *this = drop_front(Prefix.size());
+      return true;
+    }
+
+    /// Returns true if this StringRef has the given suffix and removes that
+    /// suffix.
+    LLVM_ATTRIBUTE_ALWAYS_INLINE
+    LLVM_ATTRIBUTE_UNUSED_RESULT
+    bool consume_back(StringRef Suffix) {
+      if (!endswith(Suffix))
+        return false;
+
+      *this = drop_back(Suffix.size());
+      return true;
     }
 
     /// Return a reference to the substring from [Start, End).

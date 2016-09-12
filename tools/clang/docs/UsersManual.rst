@@ -2,6 +2,8 @@
 Clang Compiler User's Manual
 ============================
 
+.. include:: <isonum.txt>
+
 .. contents::
    :local:
 
@@ -1073,6 +1075,15 @@ are listed below.
      ``Inf``, and
    * ``+0`` and ``-0`` are interchangeable.
 
+.. option:: -fdenormal-fp-math=[values]
+
+   Select which denormal numbers the code is permitted to require.
+
+   Valid values are: ``ieee``, ``preserve-sign``, and ``positive-zero``,
+   which correspond to IEEE 754 denormal numbers, the sign of a
+   flushed-to-zero number is preserved in the sign of 0, denormals are
+   flushed to positive zero, respectively.
+
 .. option:: -fwhole-program-vtables
 
    Enable whole-program vtable optimizations, such as single-implementation
@@ -1650,7 +1661,7 @@ features. You can "tune" the debug info for one of several different debuggers.
 
 .. option:: -ggdb, -glldb, -gsce
 
-  Tune the debug info for the ``gdb``, ``lldb``, or Sony Computer Entertainment
+  Tune the debug info for the ``gdb``, ``lldb``, or Sony PlayStation\ |reg|
   debugger, respectively. Each of these options implies **-g**. (Therefore, if
   you want both **-gline-tables-only** and debugger tuning, the tuning option
   must come first.)

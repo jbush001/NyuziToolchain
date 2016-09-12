@@ -1395,6 +1395,10 @@ static LinkageInfo getLVForDecl(const NamedDecl *D,
   return clang::LinkageComputer::getLVForDecl(D, computation);
 }
 
+void NamedDecl::printName(raw_ostream &os) const {
+  os << Name;
+}
+
 std::string NamedDecl::getQualifiedNameAsString() const {
   std::string QualName;
   llvm::raw_string_ostream OS(QualName);
@@ -1481,7 +1485,7 @@ void NamedDecl::printQualifiedName(raw_ostream &OS,
     OS << "::";
   }
 
-  if (getDeclName())
+  if (getDeclName() || isa<DecompositionDecl>(this))
     OS << *this;
   else
     OS << "(anonymous)";
@@ -2653,9 +2657,14 @@ bool FunctionDecl::isGlobal() const {
 }
 
 bool FunctionDecl::isNoReturn() const {
-  return hasAttr<NoReturnAttr>() || hasAttr<CXX11NoReturnAttr>() ||
-         hasAttr<C11NoReturnAttr>() ||
-         getType()->getAs<FunctionType>()->getNoReturnAttr();
+  if (hasAttr<NoReturnAttr>() || hasAttr<CXX11NoReturnAttr>() ||
+      hasAttr<C11NoReturnAttr>())
+    return true;
+
+  if (auto *FnTy = getType()->getAs<FunctionType>())
+    return FnTy->getNoReturnAttr();
+
+  return false;
 }
 
 void
@@ -3408,6 +3417,10 @@ unsigned FunctionDecl::getMemoryFunctionKind() const {
   case Builtin::BIstrlen:
     return Builtin::BIstrlen;
 
+  case Builtin::BI__builtin_bzero:
+  case Builtin::BIbzero:
+    return Builtin::BIbzero;
+
   default:
     if (isExternC()) {
       if (FnInfo->isStr("memset"))
@@ -3430,10 +3443,26 @@ unsigned FunctionDecl::getMemoryFunctionKind() const {
         return Builtin::BIstrndup;
       else if (FnInfo->isStr("strlen"))
         return Builtin::BIstrlen;
+      else if (FnInfo->isStr("bzero"))
+        return Builtin::BIbzero;
     }
     break;
   }
   return 0;
+}
+
+void FunctionDecl::addDeferredDiag(PartialDiagnosticAt PD) {
+  getASTContext().getDeferredDiags()[this].push_back(std::move(PD));
+}
+
+std::vector<PartialDiagnosticAt> FunctionDecl::takeDeferredDiags() const {
+  auto &DD = getASTContext().getDeferredDiags();
+  auto It = DD.find(this);
+  if (It == DD.end())
+    return {};
+  auto Ret = std::move(It->second);
+  DD.erase(It);
+  return Ret;
 }
 
 //===----------------------------------------------------------------------===//
@@ -4280,4 +4309,19 @@ SourceRange ImportDecl::getSourceRange() const {
     return SourceRange(getLocation(), *getTrailingObjects<SourceLocation>());
 
   return SourceRange(getLocation(), getIdentifierLocs().back());
+}
+
+//===----------------------------------------------------------------------===//
+// ExportDecl Implementation
+//===----------------------------------------------------------------------===//
+
+void ExportDecl::anchor() {}
+
+ExportDecl *ExportDecl::Create(ASTContext &C, DeclContext *DC,
+                               SourceLocation ExportLoc) {
+  return new (C, DC) ExportDecl(DC, ExportLoc);
+}
+
+ExportDecl *ExportDecl::CreateDeserialized(ASTContext &C, unsigned ID) {
+  return new (C, ID) ExportDecl(nullptr, SourceLocation());
 }

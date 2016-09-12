@@ -251,7 +251,7 @@ public:
   // FIXME: Deprecated, move clients to getName().
   std::string getNameAsString() const { return Name.getAsString(); }
 
-  void printName(raw_ostream &os) const { os << Name; }
+  virtual void printName(raw_ostream &os) const;
 
   /// getDeclName - Get the actual, stored name of the declaration,
   /// which may be a special name.
@@ -789,7 +789,7 @@ public:
 
 protected:
   // A pointer union of Stmt * and EvaluatedStmt *. When an EvaluatedStmt, we
-  // have allocated the auxilliary struct of information there.
+  // have allocated the auxiliary struct of information there.
   //
   // TODO: It is a bit unfortunate to use a PointerUnion inside the VarDecl for
   // this as *many* VarDecls are ParmVarDecls that don't have default
@@ -1025,7 +1025,7 @@ public:
   ///   void foo() { int x; static int y; extern int z; }
   ///
   bool isLocalVarDecl() const {
-    if (getKind() != Decl::Var)
+    if (getKind() != Decl::Var && getKind() != Decl::Decomposition)
       return false;
     if (const DeclContext *DC = getLexicalDeclContext())
       return DC->getRedeclContext()->isFunctionOrMethod();
@@ -1040,7 +1040,7 @@ public:
   /// isFunctionOrMethodVarDecl - Similar to isLocalVarDecl, but
   /// excludes variables declared in blocks.
   bool isFunctionOrMethodVarDecl() const {
-    if (getKind() != Decl::Var)
+    if (getKind() != Decl::Var && getKind() != Decl::Decomposition)
       return false;
     const DeclContext *DC = getLexicalDeclContext()->getRedeclContext();
     return DC->isFunctionOrMethod() && DC->getDeclKind() != Decl::Block;
@@ -2270,6 +2270,14 @@ public:
   /// the corresponding Builtin ID. If the function is not a memory function,
   /// returns 0.
   unsigned getMemoryFunctionKind() const;
+
+  /// Add a diagnostic to be emitted if and when this function is codegen'ed.
+  void addDeferredDiag(PartialDiagnosticAt PD);
+
+  /// Gets this object's list of deferred diagnostics, if there are any.
+  ///
+  /// Although this is logically const, it clears our list of deferred diags.
+  std::vector<PartialDiagnosticAt> takeDeferredDiags() const;
 
   // Implement isa/cast/dyncast/etc.
   static bool classof(const Decl *D) { return classofKind(D->getKind()); }
@@ -3782,6 +3790,55 @@ public:
 
   static bool classof(const Decl *D) { return classofKind(D->getKind()); }
   static bool classofKind(Kind K) { return K == Import; }
+};
+
+/// \brief Represents a C++ Modules TS module export declaration.
+///
+/// For example:
+/// \code
+///   export void foo();
+/// \endcode
+class ExportDecl final : public Decl, public DeclContext {
+  virtual void anchor();
+private:
+  /// \brief The source location for the right brace (if valid).
+  SourceLocation RBraceLoc;
+
+  ExportDecl(DeclContext *DC, SourceLocation ExportLoc)
+    : Decl(Export, DC, ExportLoc), DeclContext(Export),
+      RBraceLoc(SourceLocation()) { }
+
+  friend class ASTDeclReader;
+
+public:
+  static ExportDecl *Create(ASTContext &C, DeclContext *DC,
+                            SourceLocation ExportLoc);
+  static ExportDecl *CreateDeserialized(ASTContext &C, unsigned ID);
+  
+  SourceLocation getExportLoc() const { return getLocation(); }
+  SourceLocation getRBraceLoc() const { return RBraceLoc; }
+  void setRBraceLoc(SourceLocation L) { RBraceLoc = L; }
+
+  SourceLocation getLocEnd() const LLVM_READONLY {
+    if (RBraceLoc.isValid())
+      return RBraceLoc;
+    // No braces: get the end location of the (only) declaration in context
+    // (if present).
+    return decls_empty() ? getLocation() : decls_begin()->getLocEnd();
+  }
+
+  SourceRange getSourceRange() const override LLVM_READONLY {
+    return SourceRange(getLocation(), getLocEnd());
+  }
+
+  static bool classof(const Decl *D) { return classofKind(D->getKind()); }
+  static bool classofKind(Kind K) { return K == Export; }
+  static DeclContext *castToDeclContext(const ExportDecl *D) {
+    return static_cast<DeclContext *>(const_cast<ExportDecl*>(D));
+  }
+  static ExportDecl *castFromDeclContext(const DeclContext *DC) {
+    return static_cast<ExportDecl *>(const_cast<DeclContext*>(DC));
+  }
 };
 
 /// \brief Represents an empty-declaration.

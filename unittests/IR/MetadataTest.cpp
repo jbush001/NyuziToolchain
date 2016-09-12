@@ -80,12 +80,13 @@ protected:
 
   MDTuple *getTuple() { return MDTuple::getDistinct(Context, None); }
   DISubroutineType *getSubroutineType() {
-    return DISubroutineType::getDistinct(Context, 0, 0, getNode(nullptr));
+    return DISubroutineType::getDistinct(Context, DINode::FlagZero, 0,
+                                         getNode(nullptr));
   }
   DISubprogram *getSubprogram() {
     return DISubprogram::getDistinct(Context, nullptr, "", "", nullptr, 0,
-                                     nullptr, false, false, 0, nullptr,
-                                     0, 0, 0, 0, false, nullptr);
+                                     nullptr, false, false, 0, nullptr, 0, 0, 0,
+                                     DINode::FlagZero, false, nullptr);
   }
   DIFile *getFile() {
     return DIFile::getDistinct(Context, "file.c", "/path/to/dir");
@@ -94,15 +95,15 @@ protected:
     return DICompileUnit::getDistinct(Context, 1, getFile(), "clang", false,
                                       "-g", 2, "", DICompileUnit::FullDebug,
                                       getTuple(), getTuple(), getTuple(),
-                                      getTuple(), getTuple(), 0);
+                                      getTuple(), getTuple(), 0, true);
   }
   DIType *getBasicType(StringRef Name) {
     return DIBasicType::get(Context, dwarf::DW_TAG_unspecified_type, Name);
   }
   DIType *getDerivedType() {
-    return DIDerivedType::getDistinct(Context, dwarf::DW_TAG_pointer_type, "",
-                                      nullptr, 0, nullptr,
-                                      getBasicType("basictype"), 1, 2, 0, 0);
+    return DIDerivedType::getDistinct(
+        Context, dwarf::DW_TAG_pointer_type, "", nullptr, 0, nullptr,
+        getBasicType("basictype"), 1, 2, 0, DINode::FlagZero);
   }
   Constant *getConstant() {
     return ConstantInt::get(Type::getInt32Ty(Context), Counter++);
@@ -113,7 +114,7 @@ protected:
   DIType *getCompositeType() {
     return DICompositeType::getDistinct(
         Context, dwarf::DW_TAG_structure_type, "", nullptr, 0, nullptr, nullptr,
-        32, 32, 0, 0, nullptr, 0, nullptr, nullptr, "");
+        32, 32, 0, DINode::FlagZero, nullptr, 0, nullptr, nullptr, "");
   }
   Function *getFunction(StringRef Name) {
     return cast<Function>(M.getOrInsertFunction(
@@ -449,6 +450,40 @@ TEST_F(MDNodeTest, DistinctOnUniquingCollision) {
   EXPECT_FALSE(Wrapped1->isDistinct());
 }
 
+TEST_F(MDNodeTest, UniquedOnDeletedOperand) {
+  // temp !{}
+  TempMDTuple T = MDTuple::getTemporary(Context, None);
+
+  // !{temp !{}}
+  Metadata *Ops[] = {T.get()};
+  MDTuple *N = MDTuple::get(Context, Ops);
+
+  // !{temp !{}} => !{null}
+  T.reset();
+  ASSERT_TRUE(N->isUniqued());
+  Metadata *NullOps[] = {nullptr};
+  ASSERT_EQ(N, MDTuple::get(Context, NullOps));
+}
+
+TEST_F(MDNodeTest, DistinctOnDeletedValueOperand) {
+  // i1* @GV
+  Type *Ty = Type::getInt1PtrTy(Context);
+  std::unique_ptr<GlobalVariable> GV(
+      new GlobalVariable(Ty, false, GlobalValue::ExternalLinkage));
+  ConstantAsMetadata *Op = ConstantAsMetadata::get(GV.get());
+
+  // !{i1* @GV}
+  Metadata *Ops[] = {Op};
+  MDTuple *N = MDTuple::get(Context, Ops);
+
+  // !{i1* @GV} => !{null}
+  GV.reset();
+  ASSERT_TRUE(N->isDistinct());
+  ASSERT_EQ(nullptr, N->getOperand(0));
+  Metadata *NullOps[] = {nullptr};
+  ASSERT_NE(N, MDTuple::get(Context, NullOps));
+}
+
 TEST_F(MDNodeTest, getDistinct) {
   // !{}
   MDNode *Empty = MDNode::get(Context, None);
@@ -669,7 +704,7 @@ TEST_F(MDNodeTest, replaceWithUniquedResolvingOperand) {
   EXPECT_TRUE(N->isResolved());
 }
 
-TEST_F(MDNodeTest, replaceWithUniquedChangingOperand) {
+TEST_F(MDNodeTest, replaceWithUniquedDeletedOperand) {
   // i1* @GV
   Type *Ty = Type::getInt1PtrTy(Context);
   std::unique_ptr<GlobalVariable> GV(
@@ -686,8 +721,33 @@ TEST_F(MDNodeTest, replaceWithUniquedChangingOperand) {
 
   // !{i1* @GV} => !{null}
   GV.reset();
-  ASSERT_TRUE(N->isUniqued());
+  ASSERT_TRUE(N->isDistinct());
+  ASSERT_EQ(nullptr, N->getOperand(0));
   Metadata *NullOps[] = {nullptr};
+  ASSERT_NE(N, MDTuple::get(Context, NullOps));
+}
+
+TEST_F(MDNodeTest, replaceWithUniquedChangedOperand) {
+  // i1* @GV
+  Type *Ty = Type::getInt1PtrTy(Context);
+  std::unique_ptr<GlobalVariable> GV(
+      new GlobalVariable(Ty, false, GlobalValue::ExternalLinkage));
+  ConstantAsMetadata *Op = ConstantAsMetadata::get(GV.get());
+
+  // temp !{i1* @GV}
+  Metadata *Ops[] = {Op};
+  MDTuple *N = MDTuple::getTemporary(Context, Ops).release();
+
+  // temp !{i1* @GV} => !{i1* @GV}
+  ASSERT_EQ(N, MDNode::replaceWithUniqued(TempMDTuple(N)));
+  ASSERT_TRUE(N->isUniqued());
+
+  // !{i1* @GV} => !{i1* @GV2}
+  std::unique_ptr<GlobalVariable> GV2(
+      new GlobalVariable(Ty, false, GlobalValue::ExternalLinkage));
+  GV->replaceAllUsesWith(GV2.get());
+  ASSERT_TRUE(N->isUniqued());
+  Metadata *NullOps[] = {ConstantAsMetadata::get(GV2.get())};
   ASSERT_EQ(N, MDTuple::get(Context, NullOps));
 }
 
@@ -969,19 +1029,21 @@ TEST_F(DITypeTest, setFlags) {
   Metadata *TypesOps[] = {nullptr};
   Metadata *Types = MDTuple::get(Context, TypesOps);
 
-  DIType *D = DISubroutineType::getDistinct(Context, 0u, 0, Types);
-  EXPECT_EQ(0u, D->getFlags());
+  DIType *D =
+      DISubroutineType::getDistinct(Context, DINode::FlagZero, 0, Types);
+  EXPECT_EQ(DINode::FlagZero, D->getFlags());
   D->setFlags(DINode::FlagRValueReference);
   EXPECT_EQ(DINode::FlagRValueReference, D->getFlags());
-  D->setFlags(0u);
-  EXPECT_EQ(0u, D->getFlags());
+  D->setFlags(DINode::FlagZero);
+  EXPECT_EQ(DINode::FlagZero, D->getFlags());
 
-  TempDIType T = DISubroutineType::getTemporary(Context, 0u, 0, Types);
-  EXPECT_EQ(0u, T->getFlags());
+  TempDIType T =
+      DISubroutineType::getTemporary(Context, DINode::FlagZero, 0, Types);
+  EXPECT_EQ(DINode::FlagZero, T->getFlags());
   T->setFlags(DINode::FlagRValueReference);
   EXPECT_EQ(DINode::FlagRValueReference, T->getFlags());
-  T->setFlags(0u);
-  EXPECT_EQ(0u, T->getFlags());
+  T->setFlags(DINode::FlagZero);
+  EXPECT_EQ(DINode::FlagZero, T->getFlags());
 }
 
 typedef MetadataTest DIDerivedTypeTest;
@@ -991,9 +1053,12 @@ TEST_F(DIDerivedTypeTest, get) {
   DIScope *Scope = getSubprogram();
   DIType *BaseType = getBasicType("basic");
   MDTuple *ExtraData = getTuple();
+  DINode::DIFlags Flags5 = static_cast<DINode::DIFlags>(5);
+  DINode::DIFlags Flags4 = static_cast<DINode::DIFlags>(4);
 
-  auto *N = DIDerivedType::get(Context, dwarf::DW_TAG_pointer_type, "something",
-                               File, 1, Scope, BaseType, 2, 3, 4, 5, ExtraData);
+  auto *N =
+      DIDerivedType::get(Context, dwarf::DW_TAG_pointer_type, "something", File,
+                         1, Scope, BaseType, 2, 3, 4, Flags5, ExtraData);
   EXPECT_EQ(dwarf::DW_TAG_pointer_type, N->getTag());
   EXPECT_EQ("something", N->getName());
   EXPECT_EQ(File, N->getFile());
@@ -1007,41 +1072,41 @@ TEST_F(DIDerivedTypeTest, get) {
   EXPECT_EQ(ExtraData, N->getExtraData());
   EXPECT_EQ(N, DIDerivedType::get(Context, dwarf::DW_TAG_pointer_type,
                                   "something", File, 1, Scope, BaseType, 2, 3,
-                                  4, 5, ExtraData));
+                                  4, Flags5, ExtraData));
 
   EXPECT_NE(N, DIDerivedType::get(Context, dwarf::DW_TAG_reference_type,
                                   "something", File, 1, Scope, BaseType, 2, 3,
-                                  4, 5, ExtraData));
+                                  4, Flags5, ExtraData));
   EXPECT_NE(N, DIDerivedType::get(Context, dwarf::DW_TAG_pointer_type, "else",
-                                  File, 1, Scope, BaseType, 2, 3, 4, 5,
+                                  File, 1, Scope, BaseType, 2, 3, 4, Flags5,
                                   ExtraData));
   EXPECT_NE(N, DIDerivedType::get(Context, dwarf::DW_TAG_pointer_type,
                                   "something", getFile(), 1, Scope, BaseType, 2,
-                                  3, 4, 5, ExtraData));
+                                  3, 4, Flags5, ExtraData));
   EXPECT_NE(N, DIDerivedType::get(Context, dwarf::DW_TAG_pointer_type,
                                   "something", File, 2, Scope, BaseType, 2, 3,
-                                  4, 5, ExtraData));
+                                  4, Flags5, ExtraData));
   EXPECT_NE(N, DIDerivedType::get(Context, dwarf::DW_TAG_pointer_type,
                                   "something", File, 1, getSubprogram(),
-                                  BaseType, 2, 3, 4, 5, ExtraData));
+                                  BaseType, 2, 3, 4, Flags5, ExtraData));
   EXPECT_NE(N, DIDerivedType::get(
                    Context, dwarf::DW_TAG_pointer_type, "something", File, 1,
-                   Scope, getBasicType("basic2"), 2, 3, 4, 5, ExtraData));
+                   Scope, getBasicType("basic2"), 2, 3, 4, Flags5, ExtraData));
   EXPECT_NE(N, DIDerivedType::get(Context, dwarf::DW_TAG_pointer_type,
                                   "something", File, 1, Scope, BaseType, 3, 3,
-                                  4, 5, ExtraData));
+                                  4, Flags5, ExtraData));
   EXPECT_NE(N, DIDerivedType::get(Context, dwarf::DW_TAG_pointer_type,
                                   "something", File, 1, Scope, BaseType, 2, 2,
-                                  4, 5, ExtraData));
+                                  4, Flags5, ExtraData));
   EXPECT_NE(N, DIDerivedType::get(Context, dwarf::DW_TAG_pointer_type,
                                   "something", File, 1, Scope, BaseType, 2, 3,
-                                  5, 5, ExtraData));
+                                  5, Flags5, ExtraData));
   EXPECT_NE(N, DIDerivedType::get(Context, dwarf::DW_TAG_pointer_type,
                                   "something", File, 1, Scope, BaseType, 2, 3,
-                                  4, 4, ExtraData));
+                                  4, Flags4, ExtraData));
   EXPECT_NE(N, DIDerivedType::get(Context, dwarf::DW_TAG_pointer_type,
                                   "something", File, 1, Scope, BaseType, 2, 3,
-                                  4, 5, getTuple()));
+                                  4, Flags5, getTuple()));
 
   TempDIDerivedType Temp = N->clone();
   EXPECT_EQ(N, MDNode::replaceWithUniqued(std::move(Temp)));
@@ -1052,10 +1117,11 @@ TEST_F(DIDerivedTypeTest, getWithLargeValues) {
   DIScope *Scope = getSubprogram();
   DIType *BaseType = getBasicType("basic");
   MDTuple *ExtraData = getTuple();
+  DINode::DIFlags Flags = static_cast<DINode::DIFlags>(5);
 
-  auto *N = DIDerivedType::get(Context, dwarf::DW_TAG_pointer_type, "something",
-                               File, 1, Scope, BaseType, UINT64_MAX,
-                               UINT64_MAX - 1, UINT64_MAX - 2, 5, ExtraData);
+  auto *N = DIDerivedType::get(
+      Context, dwarf::DW_TAG_pointer_type, "something", File, 1, Scope,
+      BaseType, UINT64_MAX, UINT64_MAX - 1, UINT64_MAX - 2, Flags, ExtraData);
   EXPECT_EQ(UINT64_MAX, N->getSizeInBits());
   EXPECT_EQ(UINT64_MAX - 1, N->getAlignInBits());
   EXPECT_EQ(UINT64_MAX - 2, N->getOffsetInBits());
@@ -1073,7 +1139,7 @@ TEST_F(DICompositeTypeTest, get) {
   uint64_t SizeInBits = 2;
   uint64_t AlignInBits = 3;
   uint64_t OffsetInBits = 4;
-  unsigned Flags = 5;
+  DINode::DIFlags Flags = static_cast<DINode::DIFlags>(5);
   MDTuple *Elements = getTuple();
   unsigned RuntimeLang = 6;
   DIType *VTableHolder = getCompositeType();
@@ -1141,9 +1207,10 @@ TEST_F(DICompositeTypeTest, get) {
                    Context, Tag, Name, File, Line, Scope, BaseType, SizeInBits,
                    AlignInBits, OffsetInBits + 1, Flags, Elements, RuntimeLang,
                    VTableHolder, TemplateParams, Identifier));
+  DINode::DIFlags FlagsPOne = static_cast<DINode::DIFlags>(Flags + 1);
   EXPECT_NE(N, DICompositeType::get(
                    Context, Tag, Name, File, Line, Scope, BaseType, SizeInBits,
-                   AlignInBits, OffsetInBits, Flags + 1, Elements, RuntimeLang,
+                   AlignInBits, OffsetInBits, FlagsPOne, Elements, RuntimeLang,
                    VTableHolder, TemplateParams, Identifier));
   EXPECT_NE(N, DICompositeType::get(
                    Context, Tag, Name, File, Line, Scope, BaseType, SizeInBits,
@@ -1192,7 +1259,7 @@ TEST_F(DICompositeTypeTest, getWithLargeValues) {
   uint64_t SizeInBits = UINT64_MAX;
   uint64_t AlignInBits = UINT64_MAX - 1;
   uint64_t OffsetInBits = UINT64_MAX - 2;
-  unsigned Flags = 5;
+  DINode::DIFlags Flags = static_cast<DINode::DIFlags>(5);
   MDTuple *Elements = getTuple();
   unsigned RuntimeLang = 6;
   DIType *VTableHolder = getCompositeType();
@@ -1218,7 +1285,7 @@ TEST_F(DICompositeTypeTest, replaceOperands) {
   uint64_t SizeInBits = 2;
   uint64_t AlignInBits = 3;
   uint64_t OffsetInBits = 4;
-  unsigned Flags = 5;
+  DINode::DIFlags Flags = static_cast<DINode::DIFlags>(5);
   unsigned RuntimeLang = 6;
   StringRef Identifier = "some id";
 
@@ -1251,7 +1318,8 @@ TEST_F(DICompositeTypeTest, replaceOperands) {
 typedef MetadataTest DISubroutineTypeTest;
 
 TEST_F(DISubroutineTypeTest, get) {
-  unsigned Flags = 1;
+  DINode::DIFlags Flags = static_cast<DINode::DIFlags>(1);
+  DINode::DIFlags FlagsPOne = static_cast<DINode::DIFlags>(Flags + 1);
   MDTuple *TypeArray = getTuple();
 
   auto *N = DISubroutineType::get(Context, Flags, 0, TypeArray);
@@ -1260,7 +1328,7 @@ TEST_F(DISubroutineTypeTest, get) {
   EXPECT_EQ(TypeArray, N->getTypeArray().get());
   EXPECT_EQ(N, DISubroutineType::get(Context, Flags, 0, TypeArray));
 
-  EXPECT_NE(N, DISubroutineType::get(Context, Flags + 1, 0, TypeArray));
+  EXPECT_NE(N, DISubroutineType::get(Context, FlagsPOne, 0, TypeArray));
   EXPECT_NE(N, DISubroutineType::get(Context, Flags, 0, getTuple()));
 
   // Test the hashing of calling conventions.
@@ -1332,8 +1400,7 @@ TEST_F(DICompileUnitTest, get) {
   auto *N = DICompileUnit::getDistinct(
       Context, SourceLanguage, File, Producer, IsOptimized, Flags,
       RuntimeVersion, SplitDebugFilename, EmissionKind, EnumTypes,
-      RetainedTypes, GlobalVariables, ImportedEntities, Macros,
-      DWOId);
+      RetainedTypes, GlobalVariables, ImportedEntities, Macros, DWOId, true);
 
   EXPECT_EQ(dwarf::DW_TAG_compile_unit, N->getTag());
   EXPECT_EQ(SourceLanguage, N->getSourceLanguage());
@@ -1390,7 +1457,7 @@ TEST_F(DICompileUnitTest, replaceArrays) {
   auto *N = DICompileUnit::getDistinct(
       Context, SourceLanguage, File, Producer, IsOptimized, Flags,
       RuntimeVersion, SplitDebugFilename, EmissionKind, EnumTypes,
-      RetainedTypes, nullptr, ImportedEntities, nullptr, DWOId);
+      RetainedTypes, nullptr, ImportedEntities, nullptr, DWOId, true);
 
   auto *GlobalVariables = MDTuple::getDistinct(Context, None);
   EXPECT_EQ(nullptr, N->getGlobalVariables().get());
@@ -1423,8 +1490,7 @@ TEST_F(DISubprogramTest, get) {
   unsigned Virtuality = 2;
   unsigned VirtualIndex = 5;
   int ThisAdjustment = -3;
-  unsigned Flags = 6;
-  unsigned NotFlags = (~Flags) & ((1 << 27) - 1);
+  DINode::DIFlags Flags = static_cast<DINode::DIFlags>(6);
   bool IsOptimized = false;
   MDTuple *TemplateParams = getTuple();
   DISubprogram *Declaration = getSubprogram();
@@ -1523,11 +1589,6 @@ TEST_F(DISubprogramTest, get) {
                                  Type, IsLocalToUnit, IsDefinition, ScopeLine,
                                  ContainingType, Virtuality, VirtualIndex + 1,
                                  ThisAdjustment, Flags, IsOptimized, Unit,
-                                 TemplateParams, Declaration, Variables));
-  EXPECT_NE(N, DISubprogram::get(Context, Scope, Name, LinkageName, File, Line,
-                                 Type, IsLocalToUnit, IsDefinition, ScopeLine,
-                                 ContainingType, Virtuality, VirtualIndex,
-                                 ThisAdjustment, NotFlags, IsOptimized, Unit,
                                  TemplateParams, Declaration, Variables));
   EXPECT_NE(N, DISubprogram::get(Context, Scope, Name, LinkageName, File, Line,
                                  Type, IsLocalToUnit, IsDefinition, ScopeLine,
@@ -1831,8 +1892,7 @@ TEST_F(DILocalVariableTest, get) {
   unsigned Line = 5;
   DIType *Type = getDerivedType();
   unsigned Arg = 6;
-  unsigned Flags = 7;
-  unsigned NotFlags = (~Flags) & ((1 << 16) - 1);
+  DINode::DIFlags Flags = static_cast<DINode::DIFlags>(7);
 
   auto *N =
       DILocalVariable::get(Context, Scope, Name, File, Line, Type, Arg, Flags);
@@ -1862,8 +1922,6 @@ TEST_F(DILocalVariableTest, get) {
                                     getDerivedType(), Arg, Flags));
   EXPECT_NE(N, DILocalVariable::get(Context, Scope, Name, File, Line, Type,
                                     Arg + 1, Flags));
-  EXPECT_NE(N, DILocalVariable::get(Context, Scope, Name, File, Line, Type, Arg,
-                                    NotFlags));
 
   TempDILocalVariable Temp = N->clone();
   EXPECT_EQ(N, MDNode::replaceWithUniqued(std::move(Temp)));
@@ -1871,17 +1929,17 @@ TEST_F(DILocalVariableTest, get) {
 
 TEST_F(DILocalVariableTest, getArg256) {
   EXPECT_EQ(255u, DILocalVariable::get(Context, getSubprogram(), "", getFile(),
-                                       0, nullptr, 255, 0)
+                                       0, nullptr, 255, DINode::FlagZero)
                       ->getArg());
   EXPECT_EQ(256u, DILocalVariable::get(Context, getSubprogram(), "", getFile(),
-                                       0, nullptr, 256, 0)
+                                       0, nullptr, 256, DINode::FlagZero)
                       ->getArg());
   EXPECT_EQ(257u, DILocalVariable::get(Context, getSubprogram(), "", getFile(),
-                                       0, nullptr, 257, 0)
+                                       0, nullptr, 257, DINode::FlagZero)
                       ->getArg());
   unsigned Max = UINT16_MAX;
   EXPECT_EQ(Max, DILocalVariable::get(Context, getSubprogram(), "", getFile(),
-                                      0, nullptr, Max, 0)
+                                      0, nullptr, Max, DINode::FlagZero)
                      ->getArg());
 }
 

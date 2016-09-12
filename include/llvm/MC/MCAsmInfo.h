@@ -85,12 +85,6 @@ protected:
   /// directive for emitting thread local BSS Symbols.  Default is false.
   bool HasMachoTBSSDirective;
 
-  /// True if the compiler should emit a ".reference .constructors_used" or
-  /// ".reference .destructors_used" directive after the static ctor/dtor
-  /// list.  This directive is only emitted in Static relocation model.  Default
-  /// is false.
-  bool HasStaticCtorDtorReferenceInStaticMode;
-
   /// This is the maximum possible length of an instruction, which is needed to
   /// compute the size of an inline asm.  Defaults to 4.
   unsigned MaxInstLength;
@@ -198,6 +192,14 @@ protected:
   /// relocated as a 32-bit GP-relative offset, e.g. .gpword on Mips or .gprel32
   /// on Alpha.  Defaults to NULL.
   const char *GPRel32Directive;
+
+  /// If non-null, directives that are used to emit a word/dword which should
+  /// be relocated as a 32/64-bit DTP/TP-relative offset, e.g. .dtprelword/
+  /// .dtpreldword/.tprelword/.tpreldword on Mips.
+  const char *DTPRel32Directive = nullptr;
+  const char *DTPRel64Directive = nullptr;
+  const char *TPRel32Directive = nullptr;
+  const char *TPRel64Directive = nullptr;
 
   /// This is true if this target uses "Sun Style" syntax for section switching
   /// ("#alloc,#write" etc) instead of the normal ELF syntax (,"a,w") in
@@ -369,6 +371,10 @@ protected:
   // X86_64 ELF.
   bool RelaxELFRelocations = true;
 
+  // If true, then the lexer and expression parser will support %neg(),
+  // %hi(), and similar unary operators.
+  bool HasMipsExpressions = false;
+
 public:
   explicit MCAsmInfo();
   virtual ~MCAsmInfo();
@@ -398,6 +404,10 @@ public:
   const char *getData64bitsDirective() const { return Data64bitsDirective; }
   const char *getGPRel64Directive() const { return GPRel64Directive; }
   const char *getGPRel32Directive() const { return GPRel32Directive; }
+  const char *getDTPRel64Directive() const { return DTPRel64Directive; }
+  const char *getDTPRel32Directive() const { return DTPRel32Directive; }
+  const char *getTPRel64Directive() const { return TPRel64Directive; }
+  const char *getTPRel32Directive() const { return TPRel32Directive; }
 
   /// Targets can implement this method to specify a section to switch to if the
   /// translation unit doesn't have any trampolines that require an executable
@@ -449,9 +459,6 @@ public:
 
   bool hasMachoZeroFillDirective() const { return HasMachoZeroFillDirective; }
   bool hasMachoTBSSDirective() const { return HasMachoTBSSDirective; }
-  bool hasStaticCtorDtorReferenceInStaticMode() const {
-    return HasStaticCtorDtorReferenceInStaticMode;
-  }
   unsigned getMaxInstLength() const { return MaxInstLength; }
   unsigned getMinInstAlignment() const { return MinInstAlignment; }
   bool getDollarIsPC() const { return DollarIsPC; }
@@ -591,6 +598,7 @@ public:
 
   bool canRelaxRelocations() const { return RelaxELFRelocations; }
   void setRelaxELFRelocations(bool V) { RelaxELFRelocations = V; }
+  bool hasMipsExpressions() const { return HasMipsExpressions; }
 };
 }
 

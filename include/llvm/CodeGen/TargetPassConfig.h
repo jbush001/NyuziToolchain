@@ -281,6 +281,16 @@ public:
   /// verification is enabled.
   void addVerifyPass(const std::string &Banner);
 
+  /// Check whether or not GlobalISel should abort on error.
+  /// When this is disable, GlobalISel will fall back on SDISel instead of
+  /// erroring out.
+  virtual bool isGlobalISelAbortEnabled() const;
+
+  /// Check whether or not a diagnostic should be emitted when GlobalISel
+  /// uses the fallback path. In other words, it will emit a diagnostic
+  /// when GlobalISel failed and isGlobalISelAbortEnabled is false.
+  virtual bool reportDiagnosticWhenGlobalISelFallback() const;
+
 protected:
   // Helper to verify the analysis is really immutable.
   void setOpt(bool &Opt, bool Val);

@@ -828,8 +828,6 @@ def warn_availability_and_unavailable : Warning<
   InGroup<Availability>;
 
 // @available(...)
-def err_avail_query_expected_condition : Error<
-  "expected an availability condition here">;
 def err_avail_query_expected_platform_name : Error<
   "expected a platform name here">;
 
@@ -912,6 +910,10 @@ def warn_pragma_invalid_action : Warning<
   InGroup<IgnoredPragmas>;
 def warn_pragma_pack_malformed : Warning<
   "expected integer or identifier in '#pragma pack' - ignored">,
+  InGroup<IgnoredPragmas>;
+// - #pragma intrinsic
+def warn_pragma_intrinsic_builtin : Warning<
+  "%0 is not a recognized builtin%select{|; consider including <intrin.h> to access non-builtin intrinsics}1">,
   InGroup<IgnoredPragmas>;
 // - #pragma unused
 def warn_pragma_unused_expected_var : Warning<
@@ -1023,11 +1025,23 @@ def warn_pragma_unroll_cuda_value_in_parens : Warning<
 } // end of Parse Issue category.
 
 let CategoryName = "Modules Issue" in {
+def err_expected_module_interface_decl : Error<
+  "expected module declaration at start of module interface">;
+def err_unexpected_module_decl : Error<
+  "module declaration must be the first declaration in the translation unit">;
 def err_module_expected_ident : Error<
-  "expected a module name after module import">;
+  "expected a module name after module%select{| import}0">;
+def err_unexpected_module_kind : Error<
+  "unexpected module kind %0; expected 'implementation' or 'partition'">;
+def err_attribute_not_module_attr : Error<
+  "%0 attribute cannot be applied to a module">;
+def err_attribute_not_import_attr : Error<
+  "%0 attribute cannot be applied to a module import">;
 def err_module_expected_semi : Error<
   "expected ';' after module name">;
 def err_missing_before_module_end : Error<"expected %0 at end of module">;
+
+def err_export_empty : Error<"export declaration cannot be empty">;
 }
 
 let CategoryName = "Generics Issue" in {

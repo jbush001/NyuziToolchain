@@ -842,6 +842,12 @@ TEST(IsExternC, MatchesExternCFunctionDeclarations) {
   EXPECT_TRUE(notMatches("void f() {}", functionDecl(isExternC())));
 }
 
+TEST(IsExternC, MatchesExternCVariableDeclarations) {
+  EXPECT_TRUE(matches("extern \"C\" int i;", varDecl(isExternC())));
+  EXPECT_TRUE(matches("extern \"C\" { int i; }", varDecl(isExternC())));
+  EXPECT_TRUE(notMatches("int i;", varDecl(isExternC())));
+}
+
 TEST(IsDefaulted, MatchesDefaultedFunctionDeclarations) {
   EXPECT_TRUE(notMatches("class A { ~A(); };",
                          functionDecl(hasName("~A"), isDefaulted())));
@@ -1929,6 +1935,22 @@ TEST(NullPointerConstants, Basic) {
   EXPECT_TRUE(matches("char *cp = (char *)0;", expr(nullPointerConstant())));
   EXPECT_TRUE(matches("int *ip = 0;", expr(nullPointerConstant())));
   EXPECT_TRUE(notMatches("int i = 0;", expr(nullPointerConstant())));
+}
+
+TEST(HasExternalFormalLinkage, Basic) {
+  EXPECT_TRUE(matches("int a = 0;", namedDecl(hasExternalFormalLinkage())));
+  EXPECT_TRUE(
+      notMatches("static int a = 0;", namedDecl(hasExternalFormalLinkage())));
+  EXPECT_TRUE(notMatches("static void f(void) { int a = 0; }",
+                         namedDecl(hasExternalFormalLinkage())));
+  EXPECT_TRUE(matches("void f(void) { int a = 0; }",
+                      namedDecl(hasExternalFormalLinkage())));
+
+  // Despite having internal semantic linkage, the anonymous namespace member
+  // has external linkage because the member has a unique name in all
+  // translation units.
+  EXPECT_TRUE(matches("namespace { int a = 0; }",
+                      namedDecl(hasExternalFormalLinkage())));
 }
 
 } // namespace ast_matchers

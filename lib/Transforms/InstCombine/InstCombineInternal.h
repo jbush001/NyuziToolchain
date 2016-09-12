@@ -135,28 +135,6 @@ IntrinsicIDToOverflowCheckFlavor(unsigned ID) {
   }
 }
 
-/// \brief An IRBuilder inserter that adds new instructions to the instcombine
-/// worklist.
-class LLVM_LIBRARY_VISIBILITY InstCombineIRInserter
-    : public IRBuilderDefaultInserter {
-  InstCombineWorklist &Worklist;
-  AssumptionCache *AC;
-
-public:
-  InstCombineIRInserter(InstCombineWorklist &WL, AssumptionCache *AC)
-      : Worklist(WL), AC(AC) {}
-
-  void InsertHelper(Instruction *I, const Twine &Name, BasicBlock *BB,
-                    BasicBlock::iterator InsertPt) const {
-    IRBuilderDefaultInserter::InsertHelper(I, Name, BB, InsertPt);
-    Worklist.Add(I);
-
-    using namespace llvm::PatternMatch;
-    if (match(I, m_Intrinsic<Intrinsic::assume>()))
-      AC->registerAssumption(cast<CallInst>(I));
-  }
-};
-
 /// \brief The core instruction combiner logic.
 ///
 /// This class provides both the logic to recursively visit instructions and
@@ -171,7 +149,7 @@ public:
 
   /// \brief An IRBuilder that automatically inserts new instructions into the
   /// worklist.
-  typedef IRBuilder<TargetFolder, InstCombineIRInserter> BuilderTy;
+  typedef IRBuilder<TargetFolder, IRBuilderCallbackInserter> BuilderTy;
   BuilderTy *Builder;
 
 private:
@@ -183,10 +161,9 @@ private:
   AliasAnalysis *AA;
 
   // Required analyses.
-  // FIXME: These can never be null and should be references.
-  AssumptionCache *AC;
-  TargetLibraryInfo *TLI;
-  DominatorTree *DT;
+  AssumptionCache &AC;
+  TargetLibraryInfo &TLI;
+  DominatorTree &DT;
   const DataLayout &DL;
 
   // Optional analyses. When non-null, these can both be used to do better
@@ -198,8 +175,8 @@ private:
 public:
   InstCombiner(InstCombineWorklist &Worklist, BuilderTy *Builder,
                bool MinimizeSize, bool ExpensiveCombines, AliasAnalysis *AA,
-               AssumptionCache *AC, TargetLibraryInfo *TLI,
-               DominatorTree *DT, const DataLayout &DL, LoopInfo *LI)
+               AssumptionCache &AC, TargetLibraryInfo &TLI,
+               DominatorTree &DT, const DataLayout &DL, LoopInfo *LI)
       : Worklist(Worklist), Builder(Builder), MinimizeSize(MinimizeSize),
         ExpensiveCombines(ExpensiveCombines), AA(AA), AC(AC), TLI(TLI), DT(DT),
         DL(DL), LI(LI), MadeIRChange(false) {}
@@ -209,15 +186,15 @@ public:
   /// \returns true if the IR is changed.
   bool run();
 
-  AssumptionCache *getAssumptionCache() const { return AC; }
+  AssumptionCache &getAssumptionCache() const { return AC; }
 
   const DataLayout &getDataLayout() const { return DL; }
 
-  DominatorTree *getDominatorTree() const { return DT; }
+  DominatorTree &getDominatorTree() const { return DT; }
 
   LoopInfo *getLoopInfo() const { return LI; }
 
-  TargetLibraryInfo *getTargetLibraryInfo() const { return TLI; }
+  TargetLibraryInfo &getTargetLibraryInfo() const { return TLI; }
 
   // Visitation implementation - Implement instruction combining for different
   // instruction types.  The semantics are as follows:
@@ -484,30 +461,30 @@ public:
 
   void computeKnownBits(Value *V, APInt &KnownZero, APInt &KnownOne,
                         unsigned Depth, Instruction *CxtI) const {
-    return llvm::computeKnownBits(V, KnownZero, KnownOne, DL, Depth, AC, CxtI,
-                                  DT);
+    return llvm::computeKnownBits(V, KnownZero, KnownOne, DL, Depth, &AC, CxtI,
+                                  &DT);
   }
 
   bool MaskedValueIsZero(Value *V, const APInt &Mask, unsigned Depth = 0,
                          Instruction *CxtI = nullptr) const {
-    return llvm::MaskedValueIsZero(V, Mask, DL, Depth, AC, CxtI, DT);
+    return llvm::MaskedValueIsZero(V, Mask, DL, Depth, &AC, CxtI, &DT);
   }
   unsigned ComputeNumSignBits(Value *Op, unsigned Depth = 0,
                               Instruction *CxtI = nullptr) const {
-    return llvm::ComputeNumSignBits(Op, DL, Depth, AC, CxtI, DT);
+    return llvm::ComputeNumSignBits(Op, DL, Depth, &AC, CxtI, &DT);
   }
   void ComputeSignBit(Value *V, bool &KnownZero, bool &KnownOne,
                       unsigned Depth = 0, Instruction *CxtI = nullptr) const {
-    return llvm::ComputeSignBit(V, KnownZero, KnownOne, DL, Depth, AC, CxtI,
-                                DT);
+    return llvm::ComputeSignBit(V, KnownZero, KnownOne, DL, Depth, &AC, CxtI,
+                                &DT);
   }
   OverflowResult computeOverflowForUnsignedMul(Value *LHS, Value *RHS,
                                                const Instruction *CxtI) {
-    return llvm::computeOverflowForUnsignedMul(LHS, RHS, DL, AC, CxtI, DT);
+    return llvm::computeOverflowForUnsignedMul(LHS, RHS, DL, &AC, CxtI, &DT);
   }
   OverflowResult computeOverflowForUnsignedAdd(Value *LHS, Value *RHS,
                                                const Instruction *CxtI) {
-    return llvm::computeOverflowForUnsignedAdd(LHS, RHS, DL, AC, CxtI, DT);
+    return llvm::computeOverflowForUnsignedAdd(LHS, RHS, DL, &AC, CxtI, &DT);
   }
 
 private:
@@ -564,16 +541,13 @@ private:
 
   Instruction *foldGEPICmp(GEPOperator *GEPLHS, Value *RHS,
                            ICmpInst::Predicate Cond, Instruction &I);
-  Instruction *foldAllocaCmp(ICmpInst &ICI, AllocaInst *Alloca, Value *Other);
+  Instruction *foldAllocaCmp(ICmpInst &ICI, const AllocaInst *Alloca,
+                             const Value *Other);
   Instruction *foldCmpLoadFromIndexedGlobal(GetElementPtrInst *GEP,
                                             GlobalVariable *GV, CmpInst &ICI,
                                             ConstantInt *AndCst = nullptr);
   Instruction *foldFCmpIntToFPConst(FCmpInst &I, Instruction *LHSI,
                                     Constant *RHSC);
-  Instruction *foldICmpDivConst(ICmpInst &ICI, BinaryOperator *DivI,
-                                ConstantInt *DivRHS);
-  Instruction *foldICmpShrConst(ICmpInst &ICI, BinaryOperator *DivI,
-                                ConstantInt *DivRHS);
   Instruction *foldICmpCstShrConst(ICmpInst &I, Value *Op, Value *A,
                                    ConstantInt *CI1, ConstantInt *CI2);
   Instruction *foldICmpCstShlConst(ICmpInst &I, Value *Op, Value *A,
@@ -581,19 +555,48 @@ private:
   Instruction *foldICmpAddOpConst(Instruction &ICI, Value *X, ConstantInt *CI,
                                   ICmpInst::Predicate Pred);
   Instruction *foldICmpWithCastAndCast(ICmpInst &ICI);
-  Instruction *foldICmpWithConstant(ICmpInst &ICI, Instruction *LHS,
-                                    ConstantInt *RHS);
-  Instruction *foldICmpEqualityWithConstant(ICmpInst &ICI, Instruction *LHS,
-                                            ConstantInt *RHS);
-  Instruction *foldICmpIntrinsicWithConstant(ICmpInst &ICI);
+
+  Instruction *foldICmpInstWithConstant(ICmpInst &Cmp);
+
+  Instruction *foldICmpTruncConstant(ICmpInst &Cmp, Instruction *Trunc,
+                                     const APInt *C);
+  Instruction *foldICmpAndConstant(ICmpInst &Cmp, BinaryOperator *And,
+                                   const APInt *C);
+  Instruction *foldICmpXorConstant(ICmpInst &Cmp, BinaryOperator *Xor,
+                                   const APInt *C);
+  Instruction *foldICmpOrConstant(ICmpInst &Cmp, BinaryOperator *Or,
+                                  const APInt *C);
+  Instruction *foldICmpMulConstant(ICmpInst &Cmp, BinaryOperator *Mul,
+                                   const APInt *C);
+  Instruction *foldICmpShlConstant(ICmpInst &Cmp, BinaryOperator *Shl,
+                                   const APInt *C);
+  Instruction *foldICmpShrConstant(ICmpInst &Cmp, BinaryOperator *Shr,
+                                   const APInt *C);
+  Instruction *foldICmpUDivConstant(ICmpInst &Cmp, BinaryOperator *UDiv,
+                                    const APInt *C);
+  Instruction *foldICmpDivConstant(ICmpInst &Cmp, BinaryOperator *Div,
+                                   const APInt *C);
+  Instruction *foldICmpSubConstant(ICmpInst &Cmp, BinaryOperator *Sub,
+                                   const APInt *C);
+  Instruction *foldICmpAddConstant(ICmpInst &Cmp, BinaryOperator *Add,
+                                   const APInt *C);
+  Instruction *foldICmpAndConstConst(ICmpInst &Cmp, BinaryOperator *And,
+                                     const APInt *C1);
+  Instruction *foldICmpAndShift(ICmpInst &Cmp, BinaryOperator *And,
+                                const APInt *C1, const APInt *C2);
+
+  Instruction *foldICmpBinOpEqualityWithConstant(ICmpInst &Cmp,
+                                                 BinaryOperator *BO,
+                                                 const APInt *C);
+  Instruction *foldICmpIntrinsicWithConstant(ICmpInst &ICI, const APInt *C);
 
   Instruction *OptAndOp(Instruction *Op, ConstantInt *OpRHS,
                         ConstantInt *AndRHS, BinaryOperator &TheAnd);
 
   Value *FoldLogicalPlusAnd(Value *LHS, Value *RHS, ConstantInt *Mask,
                             bool isSub, Instruction &I);
-  Value *InsertRangeTest(Value *V, Constant *Lo, Constant *Hi, bool isSigned,
-                         bool Inside);
+  Value *insertRangeTest(Value *V, const APInt &Lo, const APInt &Hi,
+                         bool isSigned, bool Inside);
   Instruction *PromoteCastOfAllocation(BitCastInst &CI, AllocaInst &AI);
   Instruction *MatchBSwap(BinaryOperator &I);
   bool SimplifyStoreAtEndOfBlock(StoreInst &SI);

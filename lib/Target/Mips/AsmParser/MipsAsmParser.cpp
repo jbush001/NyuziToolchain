@@ -13,6 +13,7 @@
 #include "MipsRegisterInfo.h"
 #include "MipsTargetObjectFile.h"
 #include "MipsTargetStreamer.h"
+#include "MCTargetDesc/MipsBaseInfo.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringSwitch.h"
 #include "llvm/MC/MCContext.h"
@@ -252,9 +253,6 @@ class MipsAsmParser : public MCTargetAsmParser {
   bool reportParseError(SMLoc Loc, Twine ErrorMsg);
 
   bool parseMemOffset(const MCExpr *&Res, bool isParenExpr);
-  bool parseRelocOperand(const MCExpr *&Res);
-
-  const MCExpr *evaluateRelocExpr(const MCExpr *Expr, StringRef RelocStr);
 
   bool isEvaluated(const MCExpr *Expr);
   bool parseSetMips0Directive();
@@ -295,6 +293,10 @@ class MipsAsmParser : public MCTargetAsmParser {
   bool parseDataDirective(unsigned Size, SMLoc L);
   bool parseDirectiveGpWord();
   bool parseDirectiveGpDWord();
+  bool parseDirectiveDtpRelWord();
+  bool parseDirectiveDtpRelDWord();
+  bool parseDirectiveTpRelWord();
+  bool parseDirectiveTpRelDWord();
   bool parseDirectiveModule();
   bool parseDirectiveModuleFP();
   bool parseFpABIValue(MipsABIFlagsSection::FpABIKind &FpABI,
@@ -552,6 +554,64 @@ public:
   void warnIfNoMacro(SMLoc Loc);
 
   bool isLittle() const { return IsLittleEndian; }
+
+  const MCExpr *createTargetUnaryExpr(const MCExpr *E,
+                                      AsmToken::TokenKind OperatorToken,
+                                      MCContext &Ctx) override {
+    switch(OperatorToken) {
+    default:
+      llvm_unreachable("Unknown token");
+      return nullptr;
+    case AsmToken::PercentCall16:
+      return MipsMCExpr::create(MipsMCExpr::MEK_GOT_CALL, E, Ctx);
+    case AsmToken::PercentCall_Hi:
+      return MipsMCExpr::create(MipsMCExpr::MEK_CALL_HI16, E, Ctx);
+    case AsmToken::PercentCall_Lo:
+      return MipsMCExpr::create(MipsMCExpr::MEK_CALL_LO16, E, Ctx);
+    case AsmToken::PercentDtprel_Hi:
+      return MipsMCExpr::create(MipsMCExpr::MEK_DTPREL_HI, E, Ctx);
+    case AsmToken::PercentDtprel_Lo:
+      return MipsMCExpr::create(MipsMCExpr::MEK_DTPREL_LO, E, Ctx);
+    case AsmToken::PercentGot:
+      return MipsMCExpr::create(MipsMCExpr::MEK_GOT, E, Ctx);
+    case AsmToken::PercentGot_Disp:
+      return MipsMCExpr::create(MipsMCExpr::MEK_GOT_DISP, E, Ctx);
+    case AsmToken::PercentGot_Hi:
+      return MipsMCExpr::create(MipsMCExpr::MEK_GOT_HI16, E, Ctx);
+    case AsmToken::PercentGot_Lo:
+      return MipsMCExpr::create(MipsMCExpr::MEK_GOT_LO16, E, Ctx);
+    case AsmToken::PercentGot_Ofst:
+      return MipsMCExpr::create(MipsMCExpr::MEK_GOT_OFST, E, Ctx);
+    case AsmToken::PercentGot_Page:
+      return MipsMCExpr::create(MipsMCExpr::MEK_GOT_PAGE, E, Ctx);
+    case AsmToken::PercentGottprel:
+      return MipsMCExpr::create(MipsMCExpr::MEK_GOTTPREL, E, Ctx);
+    case AsmToken::PercentGp_Rel:
+      return MipsMCExpr::create(MipsMCExpr::MEK_GPREL, E, Ctx);
+    case AsmToken::PercentHi:
+      return MipsMCExpr::create(MipsMCExpr::MEK_HI, E, Ctx);
+    case AsmToken::PercentHigher:
+      return MipsMCExpr::create(MipsMCExpr::MEK_HIGHER, E, Ctx);
+    case AsmToken::PercentHighest:
+      return MipsMCExpr::create(MipsMCExpr::MEK_HIGHEST, E, Ctx);
+    case AsmToken::PercentLo:
+      return MipsMCExpr::create(MipsMCExpr::MEK_LO, E, Ctx);
+    case AsmToken::PercentNeg:
+      return MipsMCExpr::create(MipsMCExpr::MEK_NEG, E, Ctx);
+    case AsmToken::PercentPcrel_Hi:
+      return MipsMCExpr::create(MipsMCExpr::MEK_PCREL_HI16, E, Ctx);
+    case AsmToken::PercentPcrel_Lo:
+      return MipsMCExpr::create(MipsMCExpr::MEK_PCREL_LO16, E, Ctx);
+    case AsmToken::PercentTlsgd:
+      return MipsMCExpr::create(MipsMCExpr::MEK_TLSGD, E, Ctx);
+    case AsmToken::PercentTlsldm:
+      return MipsMCExpr::create(MipsMCExpr::MEK_TLSLDM, E, Ctx);
+    case AsmToken::PercentTprel_Hi:
+      return MipsMCExpr::create(MipsMCExpr::MEK_TPREL_HI, E, Ctx);
+    case AsmToken::PercentTprel_Lo:
+      return MipsMCExpr::create(MipsMCExpr::MEK_TPREL_LO, E, Ctx);
+    }
+  }
 };
 }
 
@@ -1107,8 +1167,14 @@ public:
   }
   template <unsigned Bits, unsigned ShiftLeftAmount>
   bool isScaledSImm() const {
-    return isConstantImm() &&
-           isShiftedInt<Bits, ShiftLeftAmount>(getConstantImm());
+    if (isConstantImm() && isShiftedInt<Bits, ShiftLeftAmount>(getConstantImm()))
+      return true;
+    // Operand can also be a symbol or symbol plus offset in case of relocations.
+    if (Kind != k_Immediate)
+      return false;
+    MCValue Res;
+    bool Success = getImm()->evaluateAsRelocatable(Res, nullptr, nullptr);
+    return Success && isShiftedInt<Bits, ShiftLeftAmount>(Res.getConstant());
   }
   bool isRegList16() const {
     if (!isRegList())
@@ -1551,7 +1617,7 @@ bool MipsAsmParser::processInstruction(MCInst &Inst, SMLoc IDLoc,
     case Mips::BBIT1:
     case Mips::BBIT132:
       assert(hasCnMips() && "instruction only valid for octeon cpus");
-      // Fall through
+      LLVM_FALLTHROUGH;
 
     case Mips::BEQ:
     case Mips::BNE:
@@ -1595,6 +1661,45 @@ bool MipsAsmParser::processInstruction(MCInst &Inst, SMLoc IDLoc,
         return Error(IDLoc, "branch target out of range");
       if (OffsetToAlignment(Offset.getImm(),
                             1LL << (inMicroMipsMode() ? 1 : 2)))
+        return Error(IDLoc, "branch to misaligned address");
+      break;
+    case Mips::BGEC:    case Mips::BGEC_MMR6:
+    case Mips::BLTC:    case Mips::BLTC_MMR6:
+    case Mips::BGEUC:   case Mips::BGEUC_MMR6:
+    case Mips::BLTUC:   case Mips::BLTUC_MMR6:
+    case Mips::BEQC:    case Mips::BEQC_MMR6:
+    case Mips::BNEC:    case Mips::BNEC_MMR6:
+      assert(MCID.getNumOperands() == 3 && "unexpected number of operands");
+      Offset = Inst.getOperand(2);
+      if (!Offset.isImm())
+        break; // We'll deal with this situation later on when applying fixups.
+      if (!isIntN(18, Offset.getImm()))
+        return Error(IDLoc, "branch target out of range");
+      if (OffsetToAlignment(Offset.getImm(), 1LL << 2))
+        return Error(IDLoc, "branch to misaligned address");
+      break;
+    case Mips::BLEZC:   case Mips::BLEZC_MMR6:
+    case Mips::BGEZC:   case Mips::BGEZC_MMR6:
+    case Mips::BGTZC:   case Mips::BGTZC_MMR6:
+    case Mips::BLTZC:   case Mips::BLTZC_MMR6:
+      assert(MCID.getNumOperands() == 2 && "unexpected number of operands");
+      Offset = Inst.getOperand(1);
+      if (!Offset.isImm())
+        break; // We'll deal with this situation later on when applying fixups.
+      if (!isIntN(18, Offset.getImm()))
+        return Error(IDLoc, "branch target out of range");
+      if (OffsetToAlignment(Offset.getImm(), 1LL << 2))
+        return Error(IDLoc, "branch to misaligned address");
+      break;
+    case Mips::BEQZC:   case Mips::BEQZC_MMR6:
+    case Mips::BNEZC:   case Mips::BNEZC_MMR6:
+      assert(MCID.getNumOperands() == 2 && "unexpected number of operands");
+      Offset = Inst.getOperand(1);
+      if (!Offset.isImm())
+        break; // We'll deal with this situation later on when applying fixups.
+      if (!isIntN(23, Offset.getImm()))
+        return Error(IDLoc, "branch target out of range");
+      if (OffsetToAlignment(Offset.getImm(), 1LL << 2))
         return Error(IDLoc, "branch to misaligned address");
       break;
     case Mips::BEQZ16_MM:
@@ -1741,7 +1846,8 @@ bool MipsAsmParser::processInstruction(MCInst &Inst, SMLoc IDLoc,
     ExpandedJalSym = true;
   }
 
-  if (MCID.mayLoad() || MCID.mayStore()) {
+  bool IsPCRelativeLoad = (MCID.TSFlags & MipsII::IsPCRelativeLoad) != 0;
+  if ((MCID.mayLoad() || MCID.mayStore()) && !IsPCRelativeLoad) {
     // Check the offset of memory operand, if it is a symbol
     // reference or immediate we may have to expand instructions.
     for (unsigned i = 0; i < MCID.getNumOperands(); i++) {
@@ -3718,10 +3824,10 @@ MipsAsmParser::checkEarlyTargetMatchPredicate(MCInst &Inst,
     return Match_Success;
   case Mips::DATI:
   case Mips::DAHI:
-    return static_cast<MipsOperand &>(*Operands[1])
-                   .isValidForTie(static_cast<MipsOperand &>(*Operands[2]))
-               ? Match_Success
-               : Match_RequiresSameSrcAndDst;
+    if (static_cast<MipsOperand &>(*Operands[1])
+            .isValidForTie(static_cast<MipsOperand &>(*Operands[2])))
+      return Match_Success;
+    return Match_RequiresSameSrcAndDst;
   }
 }
 unsigned MipsAsmParser::checkTargetMatchPredicate(MCInst &Inst) {
@@ -3753,12 +3859,12 @@ unsigned MipsAsmParser::checkTargetMatchPredicate(MCInst &Inst) {
   // The compact branches that branch iff the signed addition of two registers
   // would overflow must have rs >= rt. That can be handled like beqc/bnec with
   // operand swapping. They do not have restriction of using the zero register.
-  case Mips::BLEZC:
-  case Mips::BGEZC:
-  case Mips::BGTZC:
-  case Mips::BLTZC:
-  case Mips::BEQZC:
-  case Mips::BNEZC:
+  case Mips::BLEZC:   case Mips::BLEZC_MMR6:
+  case Mips::BGEZC:   case Mips::BGEZC_MMR6:
+  case Mips::BGTZC:   case Mips::BGTZC_MMR6:
+  case Mips::BLTZC:   case Mips::BLTZC_MMR6:
+  case Mips::BEQZC:   case Mips::BEQZC_MMR6:
+  case Mips::BNEZC:   case Mips::BNEZC_MMR6:
   case Mips::BLEZC64:
   case Mips::BGEZC64:
   case Mips::BGTZC64:
@@ -3769,12 +3875,12 @@ unsigned MipsAsmParser::checkTargetMatchPredicate(MCInst &Inst) {
         Inst.getOperand(0).getReg() == Mips::ZERO_64)
       return Match_RequiresNoZeroRegister;
     return Match_Success;
-  case Mips::BGEC:
-  case Mips::BLTC:
-  case Mips::BGEUC:
-  case Mips::BLTUC:
-  case Mips::BEQC:
-  case Mips::BNEC:
+  case Mips::BGEC:    case Mips::BGEC_MMR6:
+  case Mips::BLTC:    case Mips::BLTC_MMR6:
+  case Mips::BGEUC:   case Mips::BGEUC_MMR6:
+  case Mips::BLTUC:   case Mips::BLTUC_MMR6:
+  case Mips::BEQC:    case Mips::BEQC_MMR6:
+  case Mips::BNEC:    case Mips::BNEC_MMR6:
   case Mips::BGEC64:
   case Mips::BLTC64:
   case Mips::BGEUC64:
@@ -3932,6 +4038,9 @@ bool MipsAsmParser::MatchAndEmitInstruction(SMLoc IDLoc, unsigned &Opcode,
   case Match_SImm16_Relaxed:
     return Error(RefineErrorLoc(IDLoc, Operands, ErrorInfo),
                  "expected 16-bit signed immediate");
+  case Match_SImm19_Lsl2:
+    return Error(RefineErrorLoc(IDLoc, Operands, ErrorInfo),
+                 "expected both 19-bit signed immediate and multiple of 4");
   case Match_UImm20_0:
     return Error(RefineErrorLoc(IDLoc, Operands, ErrorInfo),
                  "expected 20-bit unsigned immediate");
@@ -4187,9 +4296,6 @@ bool MipsAsmParser::parseOperand(OperandVector &Operands, StringRef Mnemonic) {
   DEBUG(dbgs() << ".. Generic Parser\n");
 
   switch (getLexer().getKind()) {
-  default:
-    Error(Parser.getTok().getLoc(), "unexpected token in operand");
-    return true;
   case AsmToken::Dollar: {
     // Parse the register.
     SMLoc S = Parser.getTok().getLoc();
@@ -4216,70 +4322,21 @@ bool MipsAsmParser::parseOperand(OperandVector &Operands, StringRef Mnemonic) {
     Operands.push_back(MipsOperand::CreateImm(Res, S, E, *this));
     return false;
   }
-  // Else drop to expression parsing.
-  case AsmToken::LParen:
-  case AsmToken::Minus:
-  case AsmToken::Plus:
-  case AsmToken::Integer:
-  case AsmToken::Tilde:
-  case AsmToken::String: {
-    DEBUG(dbgs() << ".. generic integer\n");
-    OperandMatchResultTy ResTy = parseImm(Operands);
-    return ResTy != MatchOperand_Success;
-  }
-  case AsmToken::Percent: {
-    // It is a symbol reference or constant expression.
-    const MCExpr *IdVal;
+  default: {
+    DEBUG(dbgs() << ".. generic integer expression\n");
+
+    const MCExpr *Expr;
     SMLoc S = Parser.getTok().getLoc(); // Start location of the operand.
-    if (parseRelocOperand(IdVal))
+    if (getParser().parseExpression(Expr))
       return true;
 
     SMLoc E = SMLoc::getFromPointer(Parser.getTok().getLoc().getPointer() - 1);
 
-    Operands.push_back(MipsOperand::CreateImm(IdVal, S, E, *this));
+    Operands.push_back(MipsOperand::CreateImm(Expr, S, E, *this));
     return false;
-  } // case AsmToken::Percent
+  }
   } // switch(getLexer().getKind())
   return true;
-}
-
-const MCExpr *MipsAsmParser::evaluateRelocExpr(const MCExpr *Expr,
-                                               StringRef RelocStr) {
-  if (RelocStr == "hi(%neg(%gp_rel")
-    return MipsMCExpr::createGpOff(MipsMCExpr::MEK_HI, Expr, getContext());
-  else if (RelocStr == "lo(%neg(%gp_rel")
-    return MipsMCExpr::createGpOff(MipsMCExpr::MEK_LO, Expr, getContext());
-
-  MipsMCExpr::MipsExprKind Kind =
-      StringSwitch<MipsMCExpr::MipsExprKind>(RelocStr)
-          .Case("call16", MipsMCExpr::MEK_GOT_CALL)
-          .Case("call_hi", MipsMCExpr::MEK_CALL_HI16)
-          .Case("call_lo", MipsMCExpr::MEK_CALL_LO16)
-          .Case("dtprel_hi", MipsMCExpr::MEK_DTPREL_HI)
-          .Case("dtprel_lo", MipsMCExpr::MEK_DTPREL_LO)
-          .Case("got", MipsMCExpr::MEK_GOT)
-          .Case("got_disp", MipsMCExpr::MEK_GOT_DISP)
-          .Case("got_hi", MipsMCExpr::MEK_GOT_HI16)
-          .Case("got_lo", MipsMCExpr::MEK_GOT_LO16)
-          .Case("got_ofst", MipsMCExpr::MEK_GOT_OFST)
-          .Case("got_page", MipsMCExpr::MEK_GOT_PAGE)
-          .Case("gottprel", MipsMCExpr::MEK_GOTTPREL)
-          .Case("gp_rel", MipsMCExpr::MEK_GPREL)
-          .Case("hi", MipsMCExpr::MEK_HI)
-          .Case("higher", MipsMCExpr::MEK_HIGHER)
-          .Case("highest", MipsMCExpr::MEK_HIGHEST)
-          .Case("lo", MipsMCExpr::MEK_LO)
-          .Case("neg", MipsMCExpr::MEK_NEG)
-          .Case("pcrel_hi", MipsMCExpr::MEK_PCREL_HI16)
-          .Case("pcrel_lo", MipsMCExpr::MEK_PCREL_LO16)
-          .Case("tlsgd", MipsMCExpr::MEK_TLSGD)
-          .Case("tlsldm", MipsMCExpr::MEK_TLSLDM)
-          .Case("tprel_hi", MipsMCExpr::MEK_TPREL_HI)
-          .Case("tprel_lo", MipsMCExpr::MEK_TPREL_LO)
-          .Default(MipsMCExpr::MEK_None);
-
-  assert(Kind != MipsMCExpr::MEK_None);
-  return MipsMCExpr::create(Kind, Expr, getContext());
 }
 
 bool MipsAsmParser::isEvaluated(const MCExpr *Expr) {
@@ -4300,49 +4357,6 @@ bool MipsAsmParser::isEvaluated(const MCExpr *Expr) {
   case MCExpr::Target:
     return true;
   }
-  return false;
-}
-
-bool MipsAsmParser::parseRelocOperand(const MCExpr *&Res) {
-  MCAsmParser &Parser = getParser();
-  Parser.Lex();                          // Eat the % token.
-  const AsmToken &Tok = Parser.getTok(); // Get next token, operation.
-  if (Tok.isNot(AsmToken::Identifier))
-    return true;
-
-  std::string Str = Tok.getIdentifier();
-
-  Parser.Lex(); // Eat the identifier.
-  // Now make an expression from the rest of the operand.
-  const MCExpr *IdVal;
-  SMLoc EndLoc;
-
-  if (getLexer().getKind() == AsmToken::LParen) {
-    while (1) {
-      Parser.Lex(); // Eat the '(' token.
-      if (getLexer().getKind() == AsmToken::Percent) {
-        Parser.Lex(); // Eat the % token.
-        const AsmToken &nextTok = Parser.getTok();
-        if (nextTok.isNot(AsmToken::Identifier))
-          return true;
-        Str += "(%";
-        Str += nextTok.getIdentifier();
-        Parser.Lex(); // Eat the identifier.
-        if (getLexer().getKind() != AsmToken::LParen)
-          return true;
-      } else
-        break;
-    }
-    if (getParser().parseParenExpression(IdVal, EndLoc))
-      return true;
-
-    while (getLexer().getKind() == AsmToken::RParen)
-      Parser.Lex(); // Eat the ')' token.
-
-  } else
-    return true; // Parenthesis must follow the relocation operand.
-
-  Res = evaluateRelocExpr(IdVal, Str);
   return false;
 }
 
@@ -4373,35 +4387,11 @@ bool MipsAsmParser::ParseRegister(unsigned &RegNo, SMLoc &StartLoc,
 }
 
 bool MipsAsmParser::parseMemOffset(const MCExpr *&Res, bool isParenExpr) {
-  MCAsmParser &Parser = getParser();
   SMLoc S;
-  bool Result = true;
-  unsigned NumOfLParen = 0;
 
-  while (getLexer().getKind() == AsmToken::LParen) {
-    Parser.Lex();
-    ++NumOfLParen;
-  }
-
-  switch (getLexer().getKind()) {
-  default:
-    return true;
-  case AsmToken::Identifier:
-  case AsmToken::LParen:
-  case AsmToken::Integer:
-  case AsmToken::Minus:
-  case AsmToken::Plus:
-    if (isParenExpr)
-      Result = getParser().parseParenExprOfDepth(NumOfLParen, Res, S);
-    else
-      Result = (getParser().parseExpression(Res));
-    while (getLexer().getKind() == AsmToken::RParen)
-      Parser.Lex();
-    break;
-  case AsmToken::Percent:
-    Result = parseRelocOperand(Res);
-  }
-  return Result;
+  if (isParenExpr)
+    return getParser().parseParenExprOfDepth(0, Res, S);
+  return getParser().parseExpression(Res);
 }
 
 MipsAsmParser::OperandMatchResultTy
@@ -4632,47 +4622,18 @@ MipsAsmParser::parseAnyRegister(OperandVector &Operands) {
 }
 
 MipsAsmParser::OperandMatchResultTy
-MipsAsmParser::parseImm(OperandVector &Operands) {
-  MCAsmParser &Parser = getParser();
-  switch (getLexer().getKind()) {
-  default:
-    return MatchOperand_NoMatch;
-  case AsmToken::LParen:
-  case AsmToken::Minus:
-  case AsmToken::Plus:
-  case AsmToken::Integer:
-  case AsmToken::Tilde:
-  case AsmToken::String:
-    break;
-  }
-
-  const MCExpr *IdVal;
-  SMLoc S = Parser.getTok().getLoc();
-  if (getParser().parseExpression(IdVal))
-    return MatchOperand_ParseFail;
-
-  SMLoc E = SMLoc::getFromPointer(Parser.getTok().getLoc().getPointer() - 1);
-  Operands.push_back(MipsOperand::CreateImm(IdVal, S, E, *this));
-  return MatchOperand_Success;
-}
-
-MipsAsmParser::OperandMatchResultTy
 MipsAsmParser::parseJumpTarget(OperandVector &Operands) {
   MCAsmParser &Parser = getParser();
   DEBUG(dbgs() << "parseJumpTarget\n");
 
   SMLoc S = getLexer().getLoc();
 
-  // Integers and expressions are acceptable
-  OperandMatchResultTy ResTy = parseImm(Operands);
-  if (ResTy != MatchOperand_NoMatch)
-    return ResTy;
-
   // Registers are a valid target and have priority over symbols.
-  ResTy = parseAnyRegister(Operands);
+  OperandMatchResultTy ResTy = parseAnyRegister(Operands);
   if (ResTy != MatchOperand_NoMatch)
     return ResTy;
 
+  // Integers and expressions are acceptable
   const MCExpr *Expr = nullptr;
   if (Parser.parseExpression(Expr)) {
     // We have no way of knowing if a symbol was consumed so we must ParseFail
@@ -5803,7 +5764,79 @@ bool MipsAsmParser::parseDirectiveGpDWord() {
   getParser().getStreamer().EmitGPRel64Value(Value);
 
   if (getLexer().isNot(AsmToken::EndOfStatement))
-    return Error(getLexer().getLoc(), 
+    return Error(getLexer().getLoc(),
+                "unexpected token, expected end of statement");
+  Parser.Lex(); // Eat EndOfStatement token.
+  return false;
+}
+
+/// parseDirectiveDtpRelWord
+///  ::= .dtprelword tls_sym
+bool MipsAsmParser::parseDirectiveDtpRelWord() {
+  MCAsmParser &Parser = getParser();
+  const MCExpr *Value;
+  // EmitDTPRel32Value requires an expression, so we are using base class
+  // method to evaluate the expression.
+  if (getParser().parseExpression(Value))
+    return true;
+  getParser().getStreamer().EmitDTPRel32Value(Value);
+
+  if (getLexer().isNot(AsmToken::EndOfStatement))
+    return Error(getLexer().getLoc(),
+                "unexpected token, expected end of statement");
+  Parser.Lex(); // Eat EndOfStatement token.
+  return false;
+}
+
+/// parseDirectiveDtpRelDWord
+///  ::= .dtpreldword tls_sym
+bool MipsAsmParser::parseDirectiveDtpRelDWord() {
+  MCAsmParser &Parser = getParser();
+  const MCExpr *Value;
+  // EmitDTPRel64Value requires an expression, so we are using base class
+  // method to evaluate the expression.
+  if (getParser().parseExpression(Value))
+    return true;
+  getParser().getStreamer().EmitDTPRel64Value(Value);
+
+  if (getLexer().isNot(AsmToken::EndOfStatement))
+    return Error(getLexer().getLoc(),
+                "unexpected token, expected end of statement");
+  Parser.Lex(); // Eat EndOfStatement token.
+  return false;
+}
+
+/// parseDirectiveTpRelWord
+///  ::= .tprelword tls_sym
+bool MipsAsmParser::parseDirectiveTpRelWord() {
+  MCAsmParser &Parser = getParser();
+  const MCExpr *Value;
+  // EmitTPRel32Value requires an expression, so we are using base class
+  // method to evaluate the expression.
+  if (getParser().parseExpression(Value))
+    return true;
+  getParser().getStreamer().EmitTPRel32Value(Value);
+
+  if (getLexer().isNot(AsmToken::EndOfStatement))
+    return Error(getLexer().getLoc(),
+                "unexpected token, expected end of statement");
+  Parser.Lex(); // Eat EndOfStatement token.
+  return false;
+}
+
+/// parseDirectiveTpRelDWord
+///  ::= .tpreldword tls_sym
+bool MipsAsmParser::parseDirectiveTpRelDWord() {
+  MCAsmParser &Parser = getParser();
+  const MCExpr *Value;
+  // EmitTPRel64Value requires an expression, so we are using base class
+  // method to evaluate the expression.
+  if (getParser().parseExpression(Value))
+    return true;
+  getParser().getStreamer().EmitTPRel64Value(Value);
+
+  if (getLexer().isNot(AsmToken::EndOfStatement))
+    return Error(getLexer().getLoc(),
                 "unexpected token, expected end of statement");
   Parser.Lex(); // Eat EndOfStatement token.
   return false;
@@ -6355,6 +6388,26 @@ bool MipsAsmParser::ParseDirective(AsmToken DirectiveID) {
 
   if (IDVal == ".gpdword") {
     parseDirectiveGpDWord();
+    return false;
+  }
+
+  if (IDVal == ".dtprelword") {
+    parseDirectiveDtpRelWord();
+    return false;
+  }
+
+  if (IDVal == ".dtpreldword") {
+    parseDirectiveDtpRelDWord();
+    return false;
+  }
+
+  if (IDVal == ".tprelword") {
+    parseDirectiveTpRelWord();
+    return false;
+  }
+
+  if (IDVal == ".tpreldword") {
+    parseDirectiveTpRelDWord();
     return false;
   }
 

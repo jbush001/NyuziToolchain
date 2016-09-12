@@ -13,6 +13,7 @@
 
 #include "CodeGenFunction.h"
 #include "CGBlocks.h"
+#include "CGCXXABI.h"
 #include "CGCleanup.h"
 #include "CGDebugInfo.h"
 #include "CGOpenCLRuntime.h"
@@ -77,6 +78,7 @@ void CodeGenFunction::EmitDecl(const Decl &D) {
   case Decl::PragmaDetectMismatch:
   case Decl::AccessSpec:
   case Decl::LinkageSpec:
+  case Decl::Export:
   case Decl::ObjCPropertyImpl:
   case Decl::FileScopeAsm:
   case Decl::Friend:
@@ -87,6 +89,7 @@ void CodeGenFunction::EmitDecl(const Decl &D) {
   case Decl::UsingShadow:
   case Decl::ConstructorUsingShadow:
   case Decl::ObjCTypeParam:
+  case Decl::Binding:
     llvm_unreachable("Declaration should not be in declstmts!");
   case Decl::Function:  // void X();
   case Decl::Record:    // struct/union/class X;
@@ -119,10 +122,13 @@ void CodeGenFunction::EmitDecl(const Decl &D) {
     const VarDecl &VD = cast<VarDecl>(D);
     assert(VD.isLocalVarDecl() &&
            "Should not see file-scope variables inside a function!");
-    return EmitVarDecl(VD);
+    EmitVarDecl(VD);
+    if (auto *DD = dyn_cast<DecompositionDecl>(&VD))
+      for (auto *B : DD->bindings())
+        if (auto *HD = B->getHoldingVar())
+          EmitVarDecl(*HD);
+    return;
   }
-  case Decl::Binding:
-    return CGM.ErrorUnsupported(&D, "structured binding");
 
   case Decl::OMPDeclareReduction:
     return CGM.EmitOMPDeclareReduction(cast<OMPDeclareReductionDecl>(&D), this);
@@ -1764,6 +1770,24 @@ void CodeGenFunction::EmitParmDecl(const VarDecl &D, ParamValue Arg,
     if (BlockInfo) {
       setBlockContextParameter(IPD, ArgNo, Arg.getDirectValue());
       return;
+    }
+
+    // Apply any prologue 'this' adjustments required by the ABI. Be careful to
+    // handle the case where 'this' is passed indirectly as part of an inalloca
+    // struct.
+    if (const CXXMethodDecl *MD =
+            dyn_cast_or_null<CXXMethodDecl>(CurCodeDecl)) {
+      if (MD->isVirtual() && IPD == CXXABIThisDecl) {
+        llvm::Value *This = Arg.isIndirect()
+                                ? Builder.CreateLoad(Arg.getIndirectAddress())
+                                : Arg.getDirectValue();
+        This = CGM.getCXXABI().adjustThisParameterInVirtualFunctionPrologue(
+            *this, CurGD, This);
+        if (Arg.isIndirect())
+          Builder.CreateStore(This, Arg.getIndirectAddress());
+        else
+          Arg = ParamValue::forDirect(This);
+      }
     }
   }
 
