@@ -85,10 +85,6 @@ platform, so it should theoretically be possible.
 
 * The toolchain is installed into /usr/local/llvm-nyuzi/
 * The triple for this target is 'nyuzi-'.
-* Using sudo on make install as described may leave files with root ownership in
-  the build directory. This causes cryptic build errors later when building as
-  non-root. Doing 'sudo chown -R &#x60;whoami&#x60; .' in the build directory
-  will fix this.
 
 ## Running Regression Tests
 

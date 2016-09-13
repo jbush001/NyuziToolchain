@@ -10,112 +10,89 @@
 #ifndef liblldb_ABINyuzi_h_
 #define liblldb_ABINyuzi_h_
 
-#include "lldb/lldb-private.h"
 #include "lldb/Target/ABI.h"
-
+#include "lldb/lldb-private.h"
 
 //
 // Most of these functions are never called. The debugger gets information
 // it needs from the GDB remote protocol and DWARF debugging data.
 // These may be called as fallbacks if the other soruces can't provide it.
 //
-class ABINyuzi :
-    public lldb_private::ABI
-{
+class ABINyuzi : public lldb_private::ABI {
 public:
+  ~ABINyuzi(void) {}
 
-    ~ABINyuzi( void )
-    {
-    }
+  size_t GetRedZoneSize(void) const override;
 
-    size_t
-    GetRedZoneSize ( void ) const override;
+  bool PrepareTrivialCall(lldb_private::Thread &thread, lldb::addr_t sp,
+                          lldb::addr_t functionAddress,
+                          lldb::addr_t returnAddress,
+                          llvm::ArrayRef<lldb::addr_t> args) const override;
 
-    bool
-    PrepareTrivialCall ( lldb_private::Thread &thread, 
-                         lldb::addr_t sp,
-                         lldb::addr_t functionAddress,
-                         lldb::addr_t returnAddress, 
-                         llvm::ArrayRef<lldb::addr_t> args ) const override;
+  bool GetArgumentValues(lldb_private::Thread &thread,
+                         lldb_private::ValueList &values) const override;
 
-    bool
-    GetArgumentValues ( lldb_private::Thread &thread,
-                        lldb_private::ValueList &values ) const override;
-    
-    lldb_private::Error
-    SetReturnValueObject ( lldb::StackFrameSP &frame_sp,
-                           lldb::ValueObjectSP &new_value ) override;
+  lldb_private::Error
+  SetReturnValueObject(lldb::StackFrameSP &frame_sp,
+                       lldb::ValueObjectSP &new_value) override;
 
-public:    
-    lldb::ValueObjectSP
-    GetReturnValueObjectImpl ( lldb_private::Thread &thread,
-                               lldb_private::CompilerType &type ) const override;
-        
-    // specialized to work with llvm IR types
-    lldb::ValueObjectSP
-    GetReturnValueObjectImpl ( lldb_private::Thread &thread, llvm::Type &type ) const override;
+public:
+  lldb::ValueObjectSP
+  GetReturnValueObjectImpl(lldb_private::Thread &thread,
+                           lldb_private::CompilerType &type) const override;
 
-    bool
-    CreateFunctionEntryUnwindPlan ( lldb_private::UnwindPlan &unwind_plan ) override;
-    
-    bool
-    CreateDefaultUnwindPlan ( lldb_private::UnwindPlan &unwind_plan ) override;
-        
-    bool
-    RegisterIsVolatile ( const lldb_private::RegisterInfo *reg_info ) override;
+  // specialized to work with llvm IR types
+  lldb::ValueObjectSP GetReturnValueObjectImpl(lldb_private::Thread &thread,
+                                               llvm::Type &type) const override;
 
-    bool
-    CallFrameAddressIsValid ( lldb::addr_t cfa ) override
-    {
-        // Make sure the stack call frame addresses are 64 byte aligned
-        if (cfa & 63)
-            return false;   // Not 64 byte aligned
-        if (cfa == 0)
-            return false;   // Zero is not a valid stack address
-        return true;
-    }
-    
-    bool
-    CodeAddressIsValid ( lldb::addr_t pc ) override
-    {
-        // We have a 64 bit address space, so anything is valid as opcodes
-        // aren't fixed width...
-        return true;
-    }
+  bool
+  CreateFunctionEntryUnwindPlan(lldb_private::UnwindPlan &unwind_plan) override;
 
-    const lldb_private::RegisterInfo *
-    GetRegisterInfoArray ( uint32_t &count ) override;
+  bool CreateDefaultUnwindPlan(lldb_private::UnwindPlan &unwind_plan) override;
 
-    //------------------------------------------------------------------
-    // Static Functions
-    //------------------------------------------------------------------
-    static void
-    Initialize ( void );
+  bool RegisterIsVolatile(const lldb_private::RegisterInfo *reg_info) override;
 
-    static void
-    Terminate ( void );
+  bool CallFrameAddressIsValid(lldb::addr_t cfa) override {
+    // Make sure the stack call frame addresses are 64 byte aligned
+    if (cfa & 63)
+      return false; // Not 64 byte aligned
+    if (cfa == 0)
+      return false; // Zero is not a valid stack address
+    return true;
+  }
 
-    static lldb::ABISP
-    CreateInstance ( const lldb_private::ArchSpec &arch );
+  bool CodeAddressIsValid(lldb::addr_t pc) override {
+    // We have a 64 bit address space, so anything is valid as opcodes
+    // aren't fixed width...
+    return true;
+  }
 
-    static lldb_private::ConstString
-    GetPluginNameStatic ( void );
-    
-    //------------------------------------------------------------------
-    // PluginInterface protocol
-    //------------------------------------------------------------------
-    lldb_private::ConstString
-    GetPluginName ( void ) override;
+  const lldb_private::RegisterInfo *
+  GetRegisterInfoArray(uint32_t &count) override;
 
-    uint32_t
-    GetPluginVersion ( void ) override;
+  //------------------------------------------------------------------
+  // Static Functions
+  //------------------------------------------------------------------
+  static void Initialize(void);
+
+  static void Terminate(void);
+
+  static lldb::ABISP CreateInstance(const lldb_private::ArchSpec &arch);
+
+  static lldb_private::ConstString GetPluginNameStatic(void);
+
+  //------------------------------------------------------------------
+  // PluginInterface protocol
+  //------------------------------------------------------------------
+  lldb_private::ConstString GetPluginName(void) override;
+
+  uint32_t GetPluginVersion(void) override;
 
 protected:
-    void
-    CreateRegisterMapIfNeeded ( void );
+  void CreateRegisterMapIfNeeded(void);
 
 private:
-    ABINyuzi ( void ) : lldb_private::ABI() { } // Call CreateInstance instead.
+  ABINyuzi(void) : lldb_private::ABI() {} // Call CreateInstance instead.
 };
 
-#endif  // liblldb_ABINyuzi_h_
+#endif // liblldb_ABINyuzi_h_

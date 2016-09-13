@@ -36,16 +36,16 @@ def int_nyuzi_gather_loadf_masked : Intrinsic<[llvm_v16f32_ty], [llvm_v16i32_ty,
 	[IntrReadMem], "llvm.nyuzi.__builtin_nyuzi_gather_loadf_masked">;
 
 def int_nyuzi_scatter_storei : Intrinsic<[], [llvm_v16i32_ty, llvm_v16i32_ty],
-	[], "llvm.nyuzi.__builtin_nyuzi_scatter_storei">;
+	[IntrWriteMem], "llvm.nyuzi.__builtin_nyuzi_scatter_storei">;
 
 def int_nyuzi_scatter_storef : Intrinsic<[], [llvm_v16i32_ty, llvm_v16f32_ty],
-	[], "llvm.nyuzi.__builtin_nyuzi_scatter_storef">;
+	[IntrWriteMem], "llvm.nyuzi.__builtin_nyuzi_scatter_storef">;
 
 def int_nyuzi_scatter_storei_masked : Intrinsic<[], [llvm_v16i32_ty, llvm_v16i32_ty, llvm_i32_ty],
-	[], "llvm.nyuzi.__builtin_nyuzi_scatter_storei_masked">;
+	[IntrWriteMem], "llvm.nyuzi.__builtin_nyuzi_scatter_storei_masked">;
 
 def int_nyuzi_scatter_storef_masked : Intrinsic<[], [llvm_v16i32_ty, llvm_v16f32_ty, llvm_i32_ty],
-	[], "llvm.nyuzi.__builtin_nyuzi_scatter_storef_masked">;
+	[IntrWriteMem], "llvm.nyuzi.__builtin_nyuzi_scatter_storef_masked">;
 
 def int_nyuzi_block_loadi_masked : Intrinsic<[llvm_v16i32_ty], [v16i32_ptr_ty, llvm_i32_ty],
 	[IntrReadMem, IntrArgMemOnly], "llvm.nyuzi.__builtin_nyuzi_block_loadi_masked">;
@@ -98,10 +98,10 @@ def int_nyuzi_mask_cmpi_sle : Intrinsic<[llvm_i32_ty], [llvm_v16i32_ty, llvm_v16
 	[IntrNoMem], "llvm.nyuzi.__builtin_nyuzi_mask_cmpi_sle">;
 
 def int_nyuzi_mask_cmpi_eq : Intrinsic<[llvm_i32_ty], [llvm_v16i32_ty, llvm_v16i32_ty],
-	[IntrNoMem], "llvm.nyuzi.__builtin_nyuzi_mask_cmpi_eq">;
+	[IntrNoMem, Commutative], "llvm.nyuzi.__builtin_nyuzi_mask_cmpi_eq">;
 
 def int_nyuzi_mask_cmpi_ne : Intrinsic<[llvm_i32_ty], [llvm_v16i32_ty, llvm_v16i32_ty],
-	[IntrNoMem], "llvm.nyuzi.__builtin_nyuzi_mask_cmpi_ne">;
+	[IntrNoMem, Commutative], "llvm.nyuzi.__builtin_nyuzi_mask_cmpi_ne">;
 
 def int_nyuzi_mask_cmpf_gt : Intrinsic<[llvm_i32_ty], [llvm_v16f32_ty, llvm_v16f32_ty],
 	[IntrNoMem], "llvm.nyuzi.__builtin_nyuzi_mask_cmpf_gt">;
@@ -116,9 +116,9 @@ def int_nyuzi_mask_cmpf_lt : Intrinsic<[llvm_i32_ty], [llvm_v16f32_ty, llvm_v16f
 	[IntrNoMem], "llvm.nyuzi.__builtin_nyuzi_mask_cmpf_lt">;
 
 def int_nyuzi_mask_cmpf_eq : Intrinsic<[llvm_i32_ty], [llvm_v16f32_ty, llvm_v16f32_ty],
-	[IntrNoMem], "llvm.nyuzi.__builtin_nyuzi_mask_cmpf_eq">;
+	[IntrNoMem, Commutative], "llvm.nyuzi.__builtin_nyuzi_mask_cmpf_eq">;
 
 def int_nyuzi_mask_cmpf_ne : Intrinsic<[llvm_i32_ty], [llvm_v16f32_ty, llvm_v16f32_ty],
-	[IntrNoMem], "llvm.nyuzi.__builtin_nyuzi_mask_cmpf_ne">;
+	[IntrNoMem, Commutative], "llvm.nyuzi.__builtin_nyuzi_mask_cmpf_ne">;
 }
 
