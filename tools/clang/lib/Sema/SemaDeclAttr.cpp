@@ -21,6 +21,7 @@
 #include "clang/AST/Expr.h"
 #include "clang/AST/ExprCXX.h"
 #include "clang/AST/Mangle.h"
+#include "clang/AST/RecursiveASTVisitor.h"
 #include "clang/Basic/CharInfo.h"
 #include "clang/Basic/SourceManager.h"
 #include "clang/Basic/TargetInfo.h"
@@ -5629,6 +5630,9 @@ static void ProcessDeclAttribute(Sema &S, Scope *scope, Decl *D,
   case AttributeList::AT_VecTypeHint:
     handleVecTypeHint(S, D, Attr);
     break;
+  case AttributeList::AT_RequireConstantInit:
+    handleSimpleAttribute<RequireConstantInitAttr>(S, D, Attr);
+    break;
   case AttributeList::AT_InitPriority:
     handleInitPriorityAttr(S, D, Attr);
     break;
@@ -6246,7 +6250,7 @@ static const AvailabilityAttr *getAttrForPlatform(ASTContext &Context,
   return nullptr;
 }
 
-static void DoEmitAvailabilityWarning(Sema &S, Sema::AvailabilityDiagnostic K,
+static void DoEmitAvailabilityWarning(Sema &S, AvailabilityResult K,
                                       Decl *Ctx, const NamedDecl *D,
                                       StringRef Message, SourceLocation Loc,
                                       const ObjCInterfaceDecl *UnknownObjCClass,
@@ -6264,7 +6268,7 @@ static void DoEmitAvailabilityWarning(Sema &S, Sema::AvailabilityDiagnostic K,
 
   // Don't warn if our current context is deprecated or unavailable.
   switch (K) {
-  case Sema::AD_Deprecation:
+  case AR_Deprecated:
     if (isDeclDeprecated(Ctx) || isDeclUnavailable(Ctx))
       return;
     diag = !ObjCPropertyAccess ? diag::warn_deprecated
@@ -6275,7 +6279,7 @@ static void DoEmitAvailabilityWarning(Sema &S, Sema::AvailabilityDiagnostic K,
     available_here_select_kind = /* deprecated */ 2;
     break;
 
-  case Sema::AD_Unavailable:
+  case AR_Unavailable:
     if (isDeclUnavailable(Ctx))
       return;
     diag = !ObjCPropertyAccess ? diag::err_unavailable
@@ -6329,18 +6333,24 @@ static void DoEmitAvailabilityWarning(Sema &S, Sema::AvailabilityDiagnostic K,
     }
     break;
 
-  case Sema::AD_Partial:
+  case AR_NotYetIntroduced:
+    assert(!S.getCurFunctionOrMethodDecl() &&
+           "Function-level partial availablity should not be diagnosed here!");
+
     diag = diag::warn_partial_availability;
     diag_message = diag::warn_partial_message;
     diag_fwdclass_message = diag::warn_partial_fwdclass_message;
     property_note_select = /* partial */ 2;
     available_here_select_kind = /* partial */ 3;
     break;
+
+  case AR_Available:
+    llvm_unreachable("Warning for availability of available declaration?");
   }
 
   CharSourceRange UseRange;
   StringRef Replacement;
-  if (K == Sema::AD_Deprecation) {
+  if (K == AR_Deprecated) {
     if (auto attr = D->getAttr<DeprecatedAttr>())
       Replacement = attr->getReplacement();
     if (auto attr = getAttrForPlatform(S.Context, D))
@@ -6393,7 +6403,7 @@ static void DoEmitAvailabilityWarning(Sema &S, Sema::AvailabilityDiagnostic K,
     S.Diag(D->getLocation(), diag_available_here)
         << D << available_here_select_kind;
 
-  if (K == Sema::AD_Partial)
+  if (K == AR_NotYetIntroduced)
     S.Diag(Loc, diag::note_partial_availability_silence) << D;
 }
 
@@ -6401,12 +6411,12 @@ static void handleDelayedAvailabilityCheck(Sema &S, DelayedDiagnostic &DD,
                                            Decl *Ctx) {
   assert(DD.Kind == DelayedDiagnostic::Deprecation ||
          DD.Kind == DelayedDiagnostic::Unavailable);
-  Sema::AvailabilityDiagnostic AD = DD.Kind == DelayedDiagnostic::Deprecation
-                                        ? Sema::AD_Deprecation
-                                        : Sema::AD_Unavailable;
+  AvailabilityResult AR = DD.Kind == DelayedDiagnostic::Deprecation
+                              ? AR_Deprecated
+                              : AR_Unavailable;
   DD.Triggered = true;
   DoEmitAvailabilityWarning(
-      S, AD, Ctx, DD.getDeprecationDecl(), DD.getDeprecationMessage(), DD.Loc,
+      S, AR, Ctx, DD.getDeprecationDecl(), DD.getDeprecationMessage(), DD.Loc,
       DD.getUnknownObjCClass(), DD.getObjCProperty(), false);
 }
 
@@ -6466,21 +6476,188 @@ void Sema::redelayDiagnostics(DelayedDiagnosticPool &pool) {
   curPool->steal(pool);
 }
 
-void Sema::EmitAvailabilityWarning(AvailabilityDiagnostic AD,
+void Sema::EmitAvailabilityWarning(AvailabilityResult AR,
                                    NamedDecl *D, StringRef Message,
                                    SourceLocation Loc,
                                    const ObjCInterfaceDecl *UnknownObjCClass,
                                    const ObjCPropertyDecl  *ObjCProperty,
                                    bool ObjCPropertyAccess) {
   // Delay if we're currently parsing a declaration.
-  if (DelayedDiagnostics.shouldDelayDiagnostics() && AD != AD_Partial) {
+  if (DelayedDiagnostics.shouldDelayDiagnostics() &&
+      AR != AR_NotYetIntroduced) {
     DelayedDiagnostics.add(DelayedDiagnostic::makeAvailability(
-        AD, Loc, D, UnknownObjCClass, ObjCProperty, Message,
+        AR, Loc, D, UnknownObjCClass, ObjCProperty, Message,
         ObjCPropertyAccess));
     return;
   }
 
   Decl *Ctx = cast<Decl>(getCurLexicalContext());
-  DoEmitAvailabilityWarning(*this, AD, Ctx, D, Message, Loc, UnknownObjCClass,
+  DoEmitAvailabilityWarning(*this, AR, Ctx, D, Message, Loc, UnknownObjCClass,
                             ObjCProperty, ObjCPropertyAccess);
+}
+
+VersionTuple Sema::getVersionForDecl(const Decl *D) const {
+  assert(D && "Expected a declaration here!");
+
+  VersionTuple DeclVersion;
+  if (const auto *AA = getAttrForPlatform(getASTContext(), D))
+    DeclVersion = AA->getIntroduced();
+
+  const ObjCInterfaceDecl *Interface = nullptr;
+
+  if (const auto *MD = dyn_cast<ObjCMethodDecl>(D))
+    Interface = MD->getClassInterface();
+  else if (const auto *ID = dyn_cast<ObjCImplementationDecl>(D))
+    Interface = ID->getClassInterface();
+
+  if (Interface) {
+    if (const auto *AA = getAttrForPlatform(getASTContext(), Interface))
+      if (AA->getIntroduced() > DeclVersion)
+        DeclVersion = AA->getIntroduced();
+  }
+
+  return std::max(DeclVersion, Context.getTargetInfo().getPlatformMinVersion());
+}
+
+namespace {
+
+/// \brief This class implements -Wunguarded-availability.
+///
+/// This is done with a traversal of the AST of a function that makes reference
+/// to a partially available declaration. Whenever we encounter an \c if of the
+/// form: \c if(@available(...)), we use the version from the condition to visit
+/// the then statement.
+class DiagnoseUnguardedAvailability
+    : public RecursiveASTVisitor<DiagnoseUnguardedAvailability> {
+  typedef RecursiveASTVisitor<DiagnoseUnguardedAvailability> Base;
+
+  Sema &SemaRef;
+
+  /// Stack of potentially nested 'if (@available(...))'s.
+  SmallVector<VersionTuple, 8> AvailabilityStack;
+
+  void DiagnoseDeclAvailability(NamedDecl *D, SourceRange Range);
+
+public:
+  DiagnoseUnguardedAvailability(Sema &SemaRef, VersionTuple BaseVersion)
+      : SemaRef(SemaRef) {
+    AvailabilityStack.push_back(BaseVersion);
+  }
+
+  void IssueDiagnostics(Stmt *S) { TraverseStmt(S); }
+
+  bool TraverseIfStmt(IfStmt *If);
+
+  bool VisitObjCMessageExpr(ObjCMessageExpr *Msg) {
+    if (ObjCMethodDecl *D = Msg->getMethodDecl())
+      DiagnoseDeclAvailability(
+          D, SourceRange(Msg->getSelectorStartLoc(), Msg->getLocEnd()));
+    return true;
+  }
+
+  bool VisitDeclRefExpr(DeclRefExpr *DRE) {
+    DiagnoseDeclAvailability(DRE->getDecl(),
+                             SourceRange(DRE->getLocStart(), DRE->getLocEnd()));
+    return true;
+  }
+
+  bool VisitMemberExpr(MemberExpr *ME) {
+    DiagnoseDeclAvailability(ME->getMemberDecl(),
+                             SourceRange(ME->getLocStart(), ME->getLocEnd()));
+    return true;
+  }
+
+  bool VisitTypeLoc(TypeLoc Ty);
+};
+
+void DiagnoseUnguardedAvailability::DiagnoseDeclAvailability(
+    NamedDecl *D, SourceRange Range) {
+
+  VersionTuple ContextVersion = AvailabilityStack.back();
+  if (AvailabilityResult Result = SemaRef.ShouldDiagnoseAvailabilityOfDecl(
+          D, ContextVersion, nullptr)) {
+    // All other diagnostic kinds have already been handled in
+    // DiagnoseAvailabilityOfDecl.
+    if (Result != AR_NotYetIntroduced)
+      return;
+
+    const AvailabilityAttr *AA = getAttrForPlatform(SemaRef.getASTContext(), D);
+    VersionTuple Introduced = AA->getIntroduced();
+
+    SemaRef.Diag(Range.getBegin(), diag::warn_unguarded_availability)
+        << Range << D
+        << AvailabilityAttr::getPrettyPlatformName(
+               SemaRef.getASTContext().getTargetInfo().getPlatformName())
+        << Introduced.getAsString();
+
+    SemaRef.Diag(D->getLocation(), diag::note_availability_specified_here)
+        << D << /* partial */ 3;
+
+    // FIXME: Replace this with a fixit diagnostic.
+    SemaRef.Diag(Range.getBegin(), diag::note_unguarded_available_silence)
+        << Range << D;
+  }
+}
+
+bool DiagnoseUnguardedAvailability::VisitTypeLoc(TypeLoc Ty) {
+  const Type *TyPtr = Ty.getTypePtr();
+  SourceRange Range{Ty.getBeginLoc(), Ty.getEndLoc()};
+
+  if (const TagType *TT = dyn_cast<TagType>(TyPtr)) {
+    TagDecl *TD = TT->getDecl();
+    DiagnoseDeclAvailability(TD, Range);
+
+  } else if (const TypedefType *TD = dyn_cast<TypedefType>(TyPtr)) {
+    TypedefNameDecl *D = TD->getDecl();
+    DiagnoseDeclAvailability(D, Range);
+
+  } else if (const auto *ObjCO = dyn_cast<ObjCObjectType>(TyPtr)) {
+    if (NamedDecl *D = ObjCO->getInterface())
+      DiagnoseDeclAvailability(D, Range);
+  }
+
+  return true;
+}
+
+bool DiagnoseUnguardedAvailability::TraverseIfStmt(IfStmt *If) {
+  VersionTuple CondVersion;
+  if (auto *E = dyn_cast<ObjCAvailabilityCheckExpr>(If->getCond())) {
+    CondVersion = E->getVersion();
+
+    // If we're using the '*' case here or if this check is redundant, then we
+    // use the enclosing version to check both branches.
+    if (CondVersion.empty() || CondVersion <= AvailabilityStack.back())
+      return Base::TraverseStmt(If->getThen()) &&
+             Base::TraverseStmt(If->getElse());
+  } else {
+    // This isn't an availability checking 'if', we can just continue.
+    return Base::TraverseIfStmt(If);
+  }
+
+  AvailabilityStack.push_back(CondVersion);
+  bool ShouldContinue = TraverseStmt(If->getThen());
+  AvailabilityStack.pop_back();
+
+  return ShouldContinue && TraverseStmt(If->getElse());
+}
+
+} // end anonymous namespace
+
+void Sema::DiagnoseUnguardedAvailabilityViolations(Decl *D) {
+  Stmt *Body = nullptr;
+
+  if (auto *FD = D->getAsFunction()) {
+    // FIXME: We only examine the pattern decl for availability violations now,
+    // but we should also examine instantiated templates.
+    if (FD->isTemplateInstantiation())
+      return;
+
+    Body = FD->getBody();
+  } else if (auto *MD = dyn_cast<ObjCMethodDecl>(D))
+    Body = MD->getBody();
+
+  assert(Body && "Need a body here!");
+
+  VersionTuple BaseVersion = getVersionForDecl(D);
+  DiagnoseUnguardedAvailability(*this, BaseVersion).IssueDiagnostics(Body);
 }

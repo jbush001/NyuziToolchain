@@ -521,24 +521,6 @@ static void AddNodeIDNode(FoldingSetNodeID &ID, const SDNode *N) {
   AddNodeIDCustom(ID, N);
 }
 
-/// encodeMemSDNodeFlags - Generic routine for computing a value for use in
-/// the CSE map that carries volatility, temporalness, indexing mode, and
-/// extension/truncation information.
-///
-static inline unsigned
-encodeMemSDNodeFlags(int ConvType, ISD::MemIndexedMode AM, bool isVolatile,
-                     bool isNonTemporal, bool isInvariant) {
-  assert((ConvType & 3) == ConvType &&
-         "ConvType may not require more than 2 bits!");
-  assert((AM & 7) == AM &&
-         "AM may not require more than 3 bits!");
-  return ConvType |
-         (AM << 2) |
-         (isVolatile << 5) |
-         (isNonTemporal << 6) |
-         (isInvariant << 7);
-}
-
 //===----------------------------------------------------------------------===//
 //                              SelectionDAG Class
 //===----------------------------------------------------------------------===//
@@ -1863,13 +1845,13 @@ SDValue SelectionDAG::expandVACopy(SDNode *Node) {
 }
 
 SDValue SelectionDAG::CreateStackTemporary(EVT VT, unsigned minAlign) {
-  MachineFrameInfo *FrameInfo = getMachineFunction().getFrameInfo();
+  MachineFrameInfo &MFI = getMachineFunction().getFrameInfo();
   unsigned ByteSize = VT.getStoreSize();
   Type *Ty = VT.getTypeForEVT(*getContext());
   unsigned StackAlign =
       std::max((unsigned)getDataLayout().getPrefTypeAlignment(Ty), minAlign);
 
-  int FrameIdx = FrameInfo->CreateStackObject(ByteSize, StackAlign, false);
+  int FrameIdx = MFI.CreateStackObject(ByteSize, StackAlign, false);
   return getFrameIndex(FrameIdx, TLI->getPointerTy(getDataLayout()));
 }
 
@@ -1881,8 +1863,8 @@ SDValue SelectionDAG::CreateStackTemporary(EVT VT1, EVT VT2) {
   unsigned Align =
       std::max(DL.getPrefTypeAlignment(Ty1), DL.getPrefTypeAlignment(Ty2));
 
-  MachineFrameInfo *FrameInfo = getMachineFunction().getFrameInfo();
-  int FrameIdx = FrameInfo->CreateStackObject(Bytes, Align, false);
+  MachineFrameInfo &MFI = getMachineFunction().getFrameInfo();
+  int FrameIdx = MFI.CreateStackObject(Bytes, Align, false);
   return getFrameIndex(FrameIdx, TLI->getPointerTy(getDataLayout()));
 }
 
@@ -1943,29 +1925,29 @@ SDValue SelectionDAG::FoldSetCC(EVT VT, SDValue N1, SDValue N2,
       default: break;
       case ISD::SETEQ:  if (R==APFloat::cmpUnordered)
                           return getUNDEF(VT);
-                        // fall through
+                        LLVM_FALLTHROUGH;
       case ISD::SETOEQ: return getConstant(R==APFloat::cmpEqual, dl, VT);
       case ISD::SETNE:  if (R==APFloat::cmpUnordered)
                           return getUNDEF(VT);
-                        // fall through
+                        LLVM_FALLTHROUGH;
       case ISD::SETONE: return getConstant(R==APFloat::cmpGreaterThan ||
                                            R==APFloat::cmpLessThan, dl, VT);
       case ISD::SETLT:  if (R==APFloat::cmpUnordered)
                           return getUNDEF(VT);
-                        // fall through
+                        LLVM_FALLTHROUGH;
       case ISD::SETOLT: return getConstant(R==APFloat::cmpLessThan, dl, VT);
       case ISD::SETGT:  if (R==APFloat::cmpUnordered)
                           return getUNDEF(VT);
-                        // fall through
+                        LLVM_FALLTHROUGH;
       case ISD::SETOGT: return getConstant(R==APFloat::cmpGreaterThan, dl, VT);
       case ISD::SETLE:  if (R==APFloat::cmpUnordered)
                           return getUNDEF(VT);
-                        // fall through
+                        LLVM_FALLTHROUGH;
       case ISD::SETOLE: return getConstant(R==APFloat::cmpLessThan ||
                                            R==APFloat::cmpEqual, dl, VT);
       case ISD::SETGE:  if (R==APFloat::cmpUnordered)
                           return getUNDEF(VT);
-                        // fall through
+                        LLVM_FALLTHROUGH;
       case ISD::SETOGE: return getConstant(R==APFloat::cmpGreaterThan ||
                                            R==APFloat::cmpEqual, dl, VT);
       case ISD::SETO:   return getConstant(R!=APFloat::cmpUnordered, dl, VT);
@@ -2033,6 +2015,26 @@ void SelectionDAG::computeKnownBits(SDValue Op, APInt &KnownZero,
     // We know all of the bits for a constant!
     KnownOne = cast<ConstantSDNode>(Op)->getAPIntValue();
     KnownZero = ~KnownOne;
+    break;
+  case ISD::BUILD_VECTOR:
+    // Collect the known bits that are shared by every vector element.
+    KnownZero = KnownOne = APInt::getAllOnesValue(BitWidth);
+    for (SDValue SrcOp : Op->ops()) {
+      computeKnownBits(SrcOp, KnownZero2, KnownOne2, Depth + 1);
+
+      // BUILD_VECTOR can implicitly truncate sources, we must handle this.
+      if (SrcOp.getValueSizeInBits() != BitWidth) {
+        assert(SrcOp.getValueSizeInBits() > BitWidth &&
+               "Expected BUILD_VECTOR implicit truncation");
+        KnownOne2 = KnownOne2.trunc(BitWidth);
+        KnownZero2 = KnownZero2.trunc(BitWidth);
+      }
+
+      // Known bits are the values that are shared by every element.
+      // TODO: support per-element known bits.
+      KnownOne &= KnownOne2;
+      KnownZero &= KnownZero2;
+    }
     break;
   case ISD::AND:
     // If either the LHS or the RHS are Zero, the result is zero.
@@ -2350,8 +2352,8 @@ void SelectionDAG::computeKnownBits(SDValue Op, APInt &KnownZero,
         }
       }
     }
+    LLVM_FALLTHROUGH;
   }
-  // fall through
   case ISD::ADD:
   case ISD::ADDE: {
     // Output known-0 bits are known if clear or set in both the low clear bits
@@ -2481,7 +2483,7 @@ void SelectionDAG::computeKnownBits(SDValue Op, APInt &KnownZero,
   default:
     if (Op.getOpcode() < ISD::BUILTIN_OP_END)
       break;
-    // Fallthrough
+    LLVM_FALLTHROUGH;
   case ISD::INTRINSIC_WO_CHAIN:
   case ISD::INTRINSIC_W_CHAIN:
   case ISD::INTRINSIC_VOID:
@@ -3394,8 +3396,8 @@ SDValue SelectionDAG::FoldConstantVectorArithmetic(unsigned Opcode,
   // All operands must be vector types with the same number of elements as
   // the result type and must be either UNDEF or a build vector of constant
   // or UNDEF scalars.
-  if (!std::all_of(Ops.begin(), Ops.end(), IsConstantBuildVectorOrUndef) ||
-      !std::all_of(Ops.begin(), Ops.end(), IsScalarOrSameVectorSize))
+  if (!all_of(Ops, IsConstantBuildVectorOrUndef) ||
+      !all_of(Ops, IsScalarOrSameVectorSize))
     return SDValue();
 
   // If we are comparing vectors, then the result needs to be a i1 boolean
@@ -3768,6 +3770,12 @@ SDValue SelectionDAG::getNode(unsigned Opcode, const SDLoc &DL, EVT VT,
       // Trivial extraction.
       if (VT.getSimpleVT() == N1.getSimpleValueType())
         return N1;
+
+      // EXTRACT_SUBVECTOR of INSERT_SUBVECTOR is often created
+      // during shuffle legalization.
+      if (N1.getOpcode() == ISD::INSERT_SUBVECTOR && N2 == N1.getOperand(2) &&
+          VT == N1.getOperand(1).getValueType())
+        return N1.getOperand(1);
     }
     break;
   }
@@ -3868,7 +3876,7 @@ SDValue SelectionDAG::getNode(unsigned Opcode, const SDLoc &DL, EVT VT,
         // Handle undef ^ undef -> 0 special case. This is a common
         // idiom (misuse).
         return getConstant(0, DL, VT);
-      // fallthrough
+      LLVM_FALLTHROUGH;
     case ISD::ADD:
     case ISD::ADDC:
     case ISD::ADDE:
@@ -4306,10 +4314,10 @@ static SDValue getMemcpyLoadsAndStores(SelectionDAG &DAG, const SDLoc &dl,
   std::vector<EVT> MemOps;
   bool DstAlignCanChange = false;
   MachineFunction &MF = DAG.getMachineFunction();
-  MachineFrameInfo *MFI = MF.getFrameInfo();
+  MachineFrameInfo &MFI = MF.getFrameInfo();
   bool OptSize = shouldLowerMemFuncForSize(MF);
   FrameIndexSDNode *FI = dyn_cast<FrameIndexSDNode>(Dst);
-  if (FI && !MFI->isFixedObjectIndex(FI->getIndex()))
+  if (FI && !MFI.isFixedObjectIndex(FI->getIndex()))
     DstAlignCanChange = true;
   unsigned SrcAlign = DAG.InferPtrAlignment(Src);
   if (Align > SrcAlign)
@@ -4342,8 +4350,8 @@ static SDValue getMemcpyLoadsAndStores(SelectionDAG &DAG, const SDLoc &dl,
 
     if (NewAlign > Align) {
       // Give the stack frame object a larger alignment if needed.
-      if (MFI->getObjectAlignment(FI->getIndex()) < NewAlign)
-        MFI->setObjectAlignment(FI->getIndex(), NewAlign);
+      if (MFI.getObjectAlignment(FI->getIndex()) < NewAlign)
+        MFI.setObjectAlignment(FI->getIndex(), NewAlign);
       Align = NewAlign;
     }
   }
@@ -4422,10 +4430,10 @@ static SDValue getMemmoveLoadsAndStores(SelectionDAG &DAG, const SDLoc &dl,
   std::vector<EVT> MemOps;
   bool DstAlignCanChange = false;
   MachineFunction &MF = DAG.getMachineFunction();
-  MachineFrameInfo *MFI = MF.getFrameInfo();
+  MachineFrameInfo &MFI = MF.getFrameInfo();
   bool OptSize = shouldLowerMemFuncForSize(MF);
   FrameIndexSDNode *FI = dyn_cast<FrameIndexSDNode>(Dst);
-  if (FI && !MFI->isFixedObjectIndex(FI->getIndex()))
+  if (FI && !MFI.isFixedObjectIndex(FI->getIndex()))
     DstAlignCanChange = true;
   unsigned SrcAlign = DAG.InferPtrAlignment(Src);
   if (Align > SrcAlign)
@@ -4445,8 +4453,8 @@ static SDValue getMemmoveLoadsAndStores(SelectionDAG &DAG, const SDLoc &dl,
     unsigned NewAlign = (unsigned)DAG.getDataLayout().getABITypeAlignment(Ty);
     if (NewAlign > Align) {
       // Give the stack frame object a larger alignment if needed.
-      if (MFI->getObjectAlignment(FI->getIndex()) < NewAlign)
-        MFI->setObjectAlignment(FI->getIndex(), NewAlign);
+      if (MFI.getObjectAlignment(FI->getIndex()) < NewAlign)
+        MFI.setObjectAlignment(FI->getIndex(), NewAlign);
       Align = NewAlign;
     }
   }
@@ -4519,10 +4527,10 @@ static SDValue getMemsetStores(SelectionDAG &DAG, const SDLoc &dl,
   std::vector<EVT> MemOps;
   bool DstAlignCanChange = false;
   MachineFunction &MF = DAG.getMachineFunction();
-  MachineFrameInfo *MFI = MF.getFrameInfo();
+  MachineFrameInfo &MFI = MF.getFrameInfo();
   bool OptSize = shouldLowerMemFuncForSize(MF);
   FrameIndexSDNode *FI = dyn_cast<FrameIndexSDNode>(Dst);
-  if (FI && !MFI->isFixedObjectIndex(FI->getIndex()))
+  if (FI && !MFI.isFixedObjectIndex(FI->getIndex()))
     DstAlignCanChange = true;
   bool IsZeroVal =
     isa<ConstantSDNode>(Src) && cast<ConstantSDNode>(Src)->isNullValue();
@@ -4538,8 +4546,8 @@ static SDValue getMemsetStores(SelectionDAG &DAG, const SDLoc &dl,
     unsigned NewAlign = (unsigned)DAG.getDataLayout().getABITypeAlignment(Ty);
     if (NewAlign > Align) {
       // Give the stack frame object a larger alignment if needed.
-      if (MFI->getObjectAlignment(FI->getIndex()) < NewAlign)
-        MFI->setObjectAlignment(FI->getIndex(), NewAlign);
+      if (MFI.getObjectAlignment(FI->getIndex()) < NewAlign)
+        MFI.setObjectAlignment(FI->getIndex(), NewAlign);
       Align = NewAlign;
     }
   }
@@ -5101,9 +5109,8 @@ SDValue SelectionDAG::getLoad(ISD::MemIndexedMode AM, ISD::LoadExtType ExtType,
   FoldingSetNodeID ID;
   AddNodeIDNode(ID, ISD::LOAD, VTs, Ops);
   ID.AddInteger(MemVT.getRawBits());
-  ID.AddInteger(encodeMemSDNodeFlags(ExtType, AM, MMO->isVolatile(),
-                                     MMO->isNonTemporal(),
-                                     MMO->isInvariant()));
+  ID.AddInteger(getSyntheticNodeSubclassData<LoadSDNode>(
+      dl.getIROrder(), VTs, AM, ExtType, MemVT, MMO));
   ID.AddInteger(MMO->getPointerInfo().getAddrSpace());
   void *IP = nullptr;
   if (SDNode *E = FindNodeOrInsertPos(ID, dl, IP)) {
@@ -5160,12 +5167,14 @@ SDValue SelectionDAG::getIndexedLoad(SDValue OrigLoad, const SDLoc &dl,
                                      ISD::MemIndexedMode AM) {
   LoadSDNode *LD = cast<LoadSDNode>(OrigLoad);
   assert(LD->getOffset().isUndef() && "Load is already a indexed load!");
-  // Don't propagate the invariant flag.
+  // Don't propagate the invariant or dereferenceable flags.
   auto MMOFlags =
-      LD->getMemOperand()->getFlags() & ~MachineMemOperand::MOInvariant;
+      LD->getMemOperand()->getFlags() &
+      ~(MachineMemOperand::MOInvariant | MachineMemOperand::MODereferenceable);
   return getLoad(AM, LD->getExtensionType(), OrigLoad.getValueType(), dl,
                  LD->getChain(), Base, Offset, LD->getPointerInfo(),
-                 LD->getMemoryVT(), LD->getAlignment(), MMOFlags);
+                 LD->getMemoryVT(), LD->getAlignment(), MMOFlags,
+                 LD->getAAInfo());
 }
 
 SDValue SelectionDAG::getStore(SDValue Chain, const SDLoc &dl, SDValue Val,
@@ -5200,8 +5209,8 @@ SDValue SelectionDAG::getStore(SDValue Chain, const SDLoc &dl, SDValue Val,
   FoldingSetNodeID ID;
   AddNodeIDNode(ID, ISD::STORE, VTs, Ops);
   ID.AddInteger(VT.getRawBits());
-  ID.AddInteger(encodeMemSDNodeFlags(false, ISD::UNINDEXED, MMO->isVolatile(),
-                                     MMO->isNonTemporal(), MMO->isInvariant()));
+  ID.AddInteger(getSyntheticNodeSubclassData<StoreSDNode>(
+      dl.getIROrder(), VTs, ISD::UNINDEXED, false, VT, MMO));
   ID.AddInteger(MMO->getPointerInfo().getAddrSpace());
   void *IP = nullptr;
   if (SDNode *E = FindNodeOrInsertPos(ID, dl, IP)) {
@@ -5265,8 +5274,8 @@ SDValue SelectionDAG::getTruncStore(SDValue Chain, const SDLoc &dl, SDValue Val,
   FoldingSetNodeID ID;
   AddNodeIDNode(ID, ISD::STORE, VTs, Ops);
   ID.AddInteger(SVT.getRawBits());
-  ID.AddInteger(encodeMemSDNodeFlags(true, ISD::UNINDEXED, MMO->isVolatile(),
-                                     MMO->isNonTemporal(), MMO->isInvariant()));
+  ID.AddInteger(getSyntheticNodeSubclassData<StoreSDNode>(
+      dl.getIROrder(), VTs, ISD::UNINDEXED, true, SVT, MMO));
   ID.AddInteger(MMO->getPointerInfo().getAddrSpace());
   void *IP = nullptr;
   if (SDNode *E = FindNodeOrInsertPos(ID, dl, IP)) {
@@ -5318,10 +5327,8 @@ SDValue SelectionDAG::getMaskedLoad(EVT VT, const SDLoc &dl, SDValue Chain,
   FoldingSetNodeID ID;
   AddNodeIDNode(ID, ISD::MLOAD, VTs, Ops);
   ID.AddInteger(VT.getRawBits());
-  ID.AddInteger(encodeMemSDNodeFlags(ExtTy, ISD::UNINDEXED,
-                                     MMO->isVolatile(),
-                                     MMO->isNonTemporal(),
-                                     MMO->isInvariant()));
+  ID.AddInteger(getSyntheticNodeSubclassData<MaskedLoadSDNode>(
+      dl.getIROrder(), VTs, ExtTy, MemVT, MMO));
   ID.AddInteger(MMO->getPointerInfo().getAddrSpace());
   void *IP = nullptr;
   if (SDNode *E = FindNodeOrInsertPos(ID, dl, IP)) {
@@ -5349,8 +5356,8 @@ SDValue SelectionDAG::getMaskedStore(SDValue Chain, const SDLoc &dl,
   FoldingSetNodeID ID;
   AddNodeIDNode(ID, ISD::MSTORE, VTs, Ops);
   ID.AddInteger(VT.getRawBits());
-  ID.AddInteger(encodeMemSDNodeFlags(false, ISD::UNINDEXED, MMO->isVolatile(),
-                                     MMO->isNonTemporal(), MMO->isInvariant()));
+  ID.AddInteger(getSyntheticNodeSubclassData<MaskedStoreSDNode>(
+      dl.getIROrder(), VTs, isTrunc, MemVT, MMO));
   ID.AddInteger(MMO->getPointerInfo().getAddrSpace());
   void *IP = nullptr;
   if (SDNode *E = FindNodeOrInsertPos(ID, dl, IP)) {
@@ -5374,10 +5381,8 @@ SDValue SelectionDAG::getMaskedGather(SDVTList VTs, EVT VT, const SDLoc &dl,
   FoldingSetNodeID ID;
   AddNodeIDNode(ID, ISD::MGATHER, VTs, Ops);
   ID.AddInteger(VT.getRawBits());
-  ID.AddInteger(encodeMemSDNodeFlags(ISD::NON_EXTLOAD, ISD::UNINDEXED,
-                                     MMO->isVolatile(),
-                                     MMO->isNonTemporal(),
-                                     MMO->isInvariant()));
+  ID.AddInteger(getSyntheticNodeSubclassData<MaskedGatherSDNode>(
+      dl.getIROrder(), VTs, VT, MMO));
   ID.AddInteger(MMO->getPointerInfo().getAddrSpace());
   void *IP = nullptr;
   if (SDNode *E = FindNodeOrInsertPos(ID, dl, IP)) {
@@ -5411,9 +5416,8 @@ SDValue SelectionDAG::getMaskedScatter(SDVTList VTs, EVT VT, const SDLoc &dl,
   FoldingSetNodeID ID;
   AddNodeIDNode(ID, ISD::MSCATTER, VTs, Ops);
   ID.AddInteger(VT.getRawBits());
-  ID.AddInteger(encodeMemSDNodeFlags(false, ISD::UNINDEXED, MMO->isVolatile(),
-                                     MMO->isNonTemporal(),
-                                     MMO->isInvariant()));
+  ID.AddInteger(getSyntheticNodeSubclassData<MaskedScatterSDNode>(
+      dl.getIROrder(), VTs, VT, MMO));
   ID.AddInteger(MMO->getPointerInfo().getAddrSpace());
   void *IP = nullptr;
   if (SDNode *E = FindNodeOrInsertPos(ID, dl, IP)) {
@@ -6255,6 +6259,9 @@ void SelectionDAG::ReplaceAllUsesWith(SDValue FromN, SDValue To) {
          "Cannot replace with this method!");
   assert(From != To.getNode() && "Cannot replace uses of with self");
 
+  // Preserve Debug Values
+  TransferDbgValues(FromN, To);
+
   // Iterate over all the existing uses of From. New uses will be added
   // to the beginning of the use list, which we avoid visiting.
   // This specifically avoids visiting uses of From that arise while the
@@ -6285,8 +6292,6 @@ void SelectionDAG::ReplaceAllUsesWith(SDValue FromN, SDValue To) {
     AddModifiedNodeToCSEMaps(User);
   }
 
-  // Preserve Debug Values
-  TransferDbgValues(FromN, To);
 
   // If we just RAUW'd the root, take note.
   if (FromN == getRoot())
@@ -6639,19 +6644,26 @@ void SelectionDAG::TransferDbgValues(SDValue From, SDValue To) {
   SDNode *FromNode = From.getNode();
   SDNode *ToNode = To.getNode();
   ArrayRef<SDDbgValue *> DVs = GetDbgValues(FromNode);
+  SmallVector<SDDbgValue *, 2> ClonedDVs;
   for (ArrayRef<SDDbgValue *>::iterator I = DVs.begin(), E = DVs.end();
        I != E; ++I) {
     SDDbgValue *Dbg = *I;
     // Only add Dbgvalues attached to same ResNo.
     if (Dbg->getKind() == SDDbgValue::SDNODE &&
-        Dbg->getResNo() == From.getResNo()) {
+        Dbg->getSDNode() == From.getNode() &&
+        Dbg->getResNo() == From.getResNo() && !Dbg->isInvalidated()) {
+      assert(FromNode != ToNode &&
+             "Should not transfer Debug Values intranode");
       SDDbgValue *Clone =
           getDbgValue(Dbg->getVariable(), Dbg->getExpression(), ToNode,
                       To.getResNo(), Dbg->isIndirect(), Dbg->getOffset(),
                       Dbg->getDebugLoc(), Dbg->getOrder());
-      AddDbgValue(Clone, ToNode, false);
+      ClonedDVs.push_back(Clone);
+      Dbg->setIsInvalidated();
     }
   }
+  for (SDDbgValue *I : ClonedDVs)
+    AddDbgValue(I, ToNode, false);
 }
 
 //===----------------------------------------------------------------------===//
@@ -6703,11 +6715,11 @@ AddrSpaceCastSDNode::AddrSpaceCastSDNode(unsigned Order, const DebugLoc &dl,
 MemSDNode::MemSDNode(unsigned Opc, unsigned Order, const DebugLoc &dl,
                      SDVTList VTs, EVT memvt, MachineMemOperand *mmo)
     : SDNode(Opc, Order, dl, VTs), MemoryVT(memvt), MMO(mmo) {
-  SubclassData = encodeMemSDNodeFlags(0, ISD::UNINDEXED, MMO->isVolatile(),
-                                      MMO->isNonTemporal(), MMO->isInvariant());
-  assert(isVolatile() == MMO->isVolatile() && "Volatile encoding error!");
-  assert(isNonTemporal() == MMO->isNonTemporal() &&
-         "Non-temporal encoding error!");
+  MemSDNodeBits.IsVolatile = MMO->isVolatile();
+  MemSDNodeBits.IsNonTemporal = MMO->isNonTemporal();
+  MemSDNodeBits.IsDereferenceable = MMO->isDereferenceable();
+  MemSDNodeBits.IsInvariant = MMO->isInvariant();
+
   // We check here that the size of the memory operand fits within the size of
   // the MMO. This is because the MMO might indicate only a possible address
   // range instead of specifying the affected memory addresses precisely.
@@ -6955,13 +6967,13 @@ bool SelectionDAG::areNonVolatileConsecutiveLoads(LoadSDNode *LD,
   if (Loc.getOpcode() == ISD::FrameIndex) {
     if (BaseLoc.getOpcode() != ISD::FrameIndex)
       return false;
-    const MachineFrameInfo *MFI = getMachineFunction().getFrameInfo();
+    const MachineFrameInfo &MFI = getMachineFunction().getFrameInfo();
     int FI  = cast<FrameIndexSDNode>(Loc)->getIndex();
     int BFI = cast<FrameIndexSDNode>(BaseLoc)->getIndex();
-    int FS  = MFI->getObjectSize(FI);
-    int BFS = MFI->getObjectSize(BFI);
+    int FS  = MFI.getObjectSize(FI);
+    int BFS = MFI.getObjectSize(BFI);
     if (FS != BFS || FS != (int)Bytes) return false;
-    return MFI->getObjectOffset(FI) == (MFI->getObjectOffset(BFI) + Dist*Bytes);
+    return MFI.getObjectOffset(FI) == (MFI.getObjectOffset(BFI) + Dist*Bytes);
   }
 
   // Handle X + C.
@@ -7026,7 +7038,7 @@ unsigned SelectionDAG::InferPtrAlignment(SDValue Ptr) const {
   }
 
   if (FrameIdx != (1 << 31)) {
-    const MachineFrameInfo &MFI = *getMachineFunction().getFrameInfo();
+    const MachineFrameInfo &MFI = getMachineFunction().getFrameInfo();
     unsigned FIInfoAlign = MinAlign(MFI.getObjectAlignment(FrameIdx),
                                     FrameOffset);
     return FIInfoAlign;

@@ -259,19 +259,25 @@ SelectionDAGLegalize::ExpandConstantFP(ConstantFPSDNode *CFP, bool UseCP) {
                            (VT == MVT::f64) ? MVT::i64 : MVT::i32);
   }
 
+  APFloat APF = CFP->getValueAPF();
   EVT OrigVT = VT;
   EVT SVT = VT;
-  while (SVT != MVT::f32 && SVT != MVT::f16) {
-    SVT = (MVT::SimpleValueType)(SVT.getSimpleVT().SimpleTy - 1);
-    if (ConstantFPSDNode::isValueValidForType(SVT, CFP->getValueAPF()) &&
-        // Only do this if the target has a native EXTLOAD instruction from
-        // smaller type.
-        TLI.isLoadExtLegal(ISD::EXTLOAD, OrigVT, SVT) &&
-        TLI.ShouldShrinkFPConstant(OrigVT)) {
-      Type *SType = SVT.getTypeForEVT(*DAG.getContext());
-      LLVMC = cast<ConstantFP>(ConstantExpr::getFPTrunc(LLVMC, SType));
-      VT = SVT;
-      Extend = true;
+
+  // We don't want to shrink SNaNs. Converting the SNaN back to its real type
+  // can cause it to be changed into a QNaN on some platforms (e.g. on SystemZ).
+  if (!APF.isSignaling()) {
+    while (SVT != MVT::f32 && SVT != MVT::f16) {
+      SVT = (MVT::SimpleValueType)(SVT.getSimpleVT().SimpleTy - 1);
+      if (ConstantFPSDNode::isValueValidForType(SVT, APF) &&
+          // Only do this if the target has a native EXTLOAD instruction from
+          // smaller type.
+          TLI.isLoadExtLegal(ISD::EXTLOAD, OrigVT, SVT) &&
+          TLI.ShouldShrinkFPConstant(OrigVT)) {
+        Type *SType = SVT.getTypeForEVT(*DAG.getContext());
+        LLVMC = cast<ConstantFP>(ConstantExpr::getFPTrunc(LLVMC, SType));
+        VT = SVT;
+        Extend = true;
+      }
     }
   }
 
@@ -795,7 +801,7 @@ void SelectionDAGLegalize::LegalizeLoadOps(SDNode *Node) {
     default: llvm_unreachable("This action is not supported yet!");
     case TargetLowering::Custom:
       isCustom = true;
-      // FALLTHROUGH
+      LLVM_FALLTHROUGH;
     case TargetLowering::Legal: {
       Value = SDValue(Node, 0);
       Chain = SDValue(Node, 1);
@@ -999,6 +1005,7 @@ void SelectionDAGLegalize::LegalizeOp(SDNode *Node) {
   case ISD::MERGE_VALUES:
   case ISD::EH_RETURN:
   case ISD::FRAME_TO_ARGS_OFFSET:
+  case ISD::EH_DWARF_CFA:
   case ISD::EH_SJLJ_SETJMP:
   case ISD::EH_SJLJ_LONGJMP:
   case ISD::EH_SJLJ_SETUP_DISPATCH:
@@ -1060,35 +1067,41 @@ void SelectionDAGLegalize::LegalizeOp(SDNode *Node) {
     case ISD::SRL:
     case ISD::SRA:
     case ISD::ROTL:
-    case ISD::ROTR:
+    case ISD::ROTR: {
       // Legalizing shifts/rotates requires adjusting the shift amount
       // to the appropriate width.
-      if (!Node->getOperand(1).getValueType().isVector()) {
-        SDValue SAO =
-          DAG.getShiftAmountOperand(Node->getOperand(0).getValueType(),
-                                    Node->getOperand(1));
-        HandleSDNode Handle(SAO);
-        LegalizeOp(SAO.getNode());
-        NewNode = DAG.UpdateNodeOperands(Node, Node->getOperand(0),
-                                         Handle.getValue());
+      SDValue Op0 = Node->getOperand(0);
+      SDValue Op1 = Node->getOperand(1);
+      if (!Op1.getValueType().isVector()) {
+        SDValue SAO = DAG.getShiftAmountOperand(Op0.getValueType(), Op1);
+        // The getShiftAmountOperand() may create a new operand node or
+        // return the existing one. If new operand is created we need
+        // to update the parent node.
+        // Do not try to legalize SAO here! It will be automatically legalized
+        // in the next round.
+        if (SAO != Op1)
+          NewNode = DAG.UpdateNodeOperands(Node, Op0, SAO);
       }
-      break;
+    }
+    break;
     case ISD::SRL_PARTS:
     case ISD::SRA_PARTS:
-    case ISD::SHL_PARTS:
+    case ISD::SHL_PARTS: {
       // Legalizing shifts/rotates requires adjusting the shift amount
       // to the appropriate width.
-      if (!Node->getOperand(2).getValueType().isVector()) {
-        SDValue SAO =
-          DAG.getShiftAmountOperand(Node->getOperand(0).getValueType(),
-                                    Node->getOperand(2));
-        HandleSDNode Handle(SAO);
-        LegalizeOp(SAO.getNode());
-        NewNode = DAG.UpdateNodeOperands(Node, Node->getOperand(0),
-                                         Node->getOperand(1),
-                                         Handle.getValue());
+      SDValue Op0 = Node->getOperand(0);
+      SDValue Op1 = Node->getOperand(1);
+      SDValue Op2 = Node->getOperand(2);
+      if (!Op2.getValueType().isVector()) {
+        SDValue SAO = DAG.getShiftAmountOperand(Op0.getValueType(), Op2);
+        // The getShiftAmountOperand() may create a new operand node or
+        // return the existing one. If new operand is created we need
+        // to update the parent node.
+        if (SAO != Op2)
+          NewNode = DAG.UpdateNodeOperands(Node, Op0, Op1, SAO);
       }
-      break;
+    }
+    break;
     }
 
     if (NewNode != Node) {
@@ -1117,12 +1130,12 @@ void SelectionDAGLegalize::LegalizeOp(SDNode *Node) {
         ReplaceNode(Node, ResultVals.data());
         return;
       }
+      LLVM_FALLTHROUGH;
     }
-      // FALL THROUGH
     case TargetLowering::Expand:
       if (ExpandNode(Node))
         return;
-      // FALL THROUGH
+      LLVM_FALLTHROUGH;
     case TargetLowering::LibCall:
       ConvertNodeToLibcall(Node);
       return;
@@ -1592,6 +1605,7 @@ bool SelectionDAGLegalize::LegalizeSetCCCondCode(EVT VT, SDValue &LHS,
           break;
         }
         // Fallthrough if we are unsigned integer.
+        LLVM_FALLTHROUGH;
     case ISD::SETLE:
     case ISD::SETGT:
     case ISD::SETGE:
@@ -2775,6 +2789,21 @@ bool SelectionDAGLegalize::ExpandNode(SDNode *Node) {
   case ISD::FRAME_TO_ARGS_OFFSET:
     Results.push_back(DAG.getConstant(0, dl, Node->getValueType(0)));
     break;
+  case ISD::EH_DWARF_CFA: {
+    SDValue CfaArg = DAG.getSExtOrTrunc(Node->getOperand(0), dl,
+                                        TLI.getPointerTy(DAG.getDataLayout()));
+    SDValue Offset = DAG.getNode(ISD::ADD, dl,
+                                 CfaArg.getValueType(),
+                                 DAG.getNode(ISD::FRAME_TO_ARGS_OFFSET, dl,
+                                             CfaArg.getValueType()),
+                                 CfaArg);
+    SDValue FA = DAG.getNode(
+        ISD::FRAMEADDR, dl, TLI.getPointerTy(DAG.getDataLayout()),
+        DAG.getConstant(0, dl, TLI.getPointerTy(DAG.getDataLayout())));
+    Results.push_back(DAG.getNode(ISD::ADD, dl, FA.getValueType(),
+                                  FA, Offset));
+    break;
+  }
   case ISD::FLT_ROUNDS_:
     Results.push_back(DAG.getConstant(1, dl, Node->getValueType(0)));
     break;

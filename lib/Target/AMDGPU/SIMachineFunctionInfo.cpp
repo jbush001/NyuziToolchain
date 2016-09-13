@@ -48,8 +48,8 @@ SIMachineFunctionInfo::SIMachineFunctionInfo(const MachineFunction &MF)
     PrivateSegmentWaveByteOffsetSystemSGPR(AMDGPU::NoRegister),
     PSInputAddr(0),
     ReturnsVoid(true),
-    MaximumWorkGroupSize(0),
-    DebuggerReservedVGPRCount(0),
+    FlatWorkGroupSizes(0, 0),
+    WavesPerEU(0, 0),
     DebuggerWorkGroupIDStackObjectIndices({{0, 0, 0}}),
     DebuggerWorkItemIDStackObjectIndices({{0, 0, 0}}),
     LDSWaveSpillSize(0),
@@ -59,7 +59,6 @@ SIMachineFunctionInfo::SIMachineFunctionInfo(const MachineFunction &MF)
     HasSpilledSGPRs(false),
     HasSpilledVGPRs(false),
     HasNonSpillStackObjects(false),
-    HasFlatInstructions(false),
     NumSpilledSGPRs(0),
     NumSpilledVGPRs(0),
     PrivateSegmentBuffer(false),
@@ -84,7 +83,7 @@ SIMachineFunctionInfo::SIMachineFunctionInfo(const MachineFunction &MF)
 
   PSInputAddr = AMDGPU::getInitialPSInputAddr(*F);
 
-  const MachineFrameInfo *FrameInfo = MF.getFrameInfo();
+  const MachineFrameInfo &FrameInfo = MF.getFrameInfo();
 
   if (!AMDGPU::isShader(F->getCallingConv())) {
     KernargSegmentPtr = true;
@@ -110,7 +109,7 @@ SIMachineFunctionInfo::SIMachineFunctionInfo(const MachineFunction &MF)
     WorkItemIDY = true;
 
   bool MaySpill = ST.isVGPRSpillingEnabled(*F);
-  bool HasStackObjects = FrameInfo->hasStackObjects();
+  bool HasStackObjects = FrameInfo.hasStackObjects();
 
   if (HasStackObjects || MaySpill)
     PrivateSegmentWaveByteOffset = true;
@@ -136,13 +135,8 @@ SIMachineFunctionInfo::SIMachineFunctionInfo(const MachineFunction &MF)
       ST.isAmdHsaOS())
     FlatScratchInit = true;
 
-  if (AMDGPU::isCompute(F->getCallingConv()))
-    MaximumWorkGroupSize = AMDGPU::getMaximumWorkGroupSize(*F);
-  else
-    MaximumWorkGroupSize = ST.getWavefrontSize();
-
-  if (ST.debuggerReserveRegs())
-    DebuggerReservedVGPRCount = 4;
+  FlatWorkGroupSizes = ST.getFlatWorkGroupSizes(*F);
+  WavesPerEU = ST.getWavesPerEU(*F);
 }
 
 unsigned SIMachineFunctionInfo::addPrivateSegmentBuffer(
@@ -198,9 +192,9 @@ SIMachineFunctionInfo::SpilledReg SIMachineFunctionInfo::getSpilledReg (
   const SISubtarget &ST = MF->getSubtarget<SISubtarget>();
   const SIRegisterInfo *TRI = ST.getRegisterInfo();
 
-  MachineFrameInfo *FrameInfo = MF->getFrameInfo();
+  MachineFrameInfo &FrameInfo = MF->getFrameInfo();
   MachineRegisterInfo &MRI = MF->getRegInfo();
-  int64_t Offset = FrameInfo->getObjectOffset(FrameIndex);
+  int64_t Offset = FrameInfo.getObjectOffset(FrameIndex);
   Offset += SubIdx * 4;
 
   unsigned LaneVGPRIdx = Offset / (64 * 4);
@@ -210,7 +204,8 @@ SIMachineFunctionInfo::SpilledReg SIMachineFunctionInfo::getSpilledReg (
   Spill.Lane = Lane;
 
   if (!LaneVGPRs.count(LaneVGPRIdx)) {
-    unsigned LaneVGPR = TRI->findUnusedRegister(MRI, &AMDGPU::VGPR_32RegClass);
+    unsigned LaneVGPR = TRI->findUnusedRegister(MRI, &AMDGPU::VGPR_32RegClass,
+                                                *MF);
 
     if (LaneVGPR == AMDGPU::NoRegister)
       // We have no VGPRs left for spilling SGPRs.
@@ -228,9 +223,4 @@ SIMachineFunctionInfo::SpilledReg SIMachineFunctionInfo::getSpilledReg (
 
   Spill.VGPR = LaneVGPRs[LaneVGPRIdx];
   return Spill;
-}
-
-unsigned SIMachineFunctionInfo::getMaximumWorkGroupSize(
-                                              const MachineFunction &MF) const {
-  return MaximumWorkGroupSize;
 }

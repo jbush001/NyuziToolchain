@@ -17,6 +17,7 @@
 #include "clang/AST/AttrIterator.h"
 #include "clang/AST/DeclarationName.h"
 #include "clang/Basic/Specifiers.h"
+#include "clang/Basic/VersionTuple.h"
 #include "llvm/ADT/PointerUnion.h"
 #include "llvm/ADT/iterator.h"
 #include "llvm/ADT/iterator_range.h"
@@ -32,6 +33,7 @@ class DeclContext;
 class DeclarationName;
 class DependentDiagnostic;
 class EnumDecl;
+class ExportDecl;
 class FunctionDecl;
 class FunctionType;
 enum Linkage : unsigned char;
@@ -603,7 +605,12 @@ public:
   /// AR_Available, will be set to a (possibly empty) message
   /// describing why the declaration has not been introduced, is
   /// deprecated, or is unavailable.
-  AvailabilityResult getAvailability(std::string *Message = nullptr) const;
+  ///
+  /// \param EnclosingVersion The version to compare with. If empty, assume the
+  /// deployment target version.
+  AvailabilityResult
+  getAvailability(std::string *Message = nullptr,
+                  VersionTuple EnclosingVersion = VersionTuple()) const;
 
   /// \brief Determine whether this declaration is marked 'deprecated'.
   ///
@@ -1129,6 +1136,7 @@ public:
 ///   ObjCMethodDecl
 ///   ObjCContainerDecl
 ///   LinkageSpecDecl
+///   ExportDecl
 ///   BlockDecl
 ///   OMPDeclareReductionDecl
 ///
@@ -1273,7 +1281,8 @@ public:
 
   /// \brief Test whether the context supports looking up names.
   bool isLookupContext() const {
-    return !isFunctionOrMethod() && DeclKind != Decl::LinkageSpec;
+    return !isFunctionOrMethod() && DeclKind != Decl::LinkageSpec &&
+           DeclKind != Decl::Export;
   }
 
   bool isFileContext() const {

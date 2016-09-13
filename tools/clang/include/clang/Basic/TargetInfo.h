@@ -40,6 +40,7 @@ struct fltSemantics;
 namespace clang {
 class DiagnosticsEngine;
 class LangOptions;
+class CodeGenOptions;
 class MacroBuilder;
 class SourceLocation;
 class SourceManager;
@@ -291,6 +292,11 @@ public:
   }
   uint64_t getPointerAlign(unsigned AddrSpace) const {
     return AddrSpace == 0 ? PointerAlign : getPointerAlignV(AddrSpace);
+  }
+
+  /// \brief Return the maximum width of pointers on this target.
+  virtual uint64_t getMaxPointerWidth() const {
+    return PointerWidth;
   }
 
   /// \brief Return the size of '_Bool' and C++ 'bool' for this target, in bits.
@@ -797,6 +803,10 @@ public:
   /// language options which change the target configuration.
   virtual void adjust(const LangOptions &Opts);
 
+  /// \brief Adjust target options based on codegen options.
+  virtual void adjustTargetOptions(const CodeGenOptions &CGOpts,
+                                   TargetOptions &TargetOpts) const {}
+
   /// \brief Initialize the map with the default set of target features for the
   /// CPU this should include all legal feature strings on the target.
   ///
@@ -929,6 +939,7 @@ public:
   VersionTuple getPlatformMinVersion() const { return PlatformMinVersion; }
 
   bool isBigEndian() const { return BigEndian; }
+  bool isLittleEndian() const { return !BigEndian; }
 
   enum CallingConvMethodType {
     CCMT_Unknown,
@@ -984,6 +995,11 @@ public:
   /// \brief Get const supported OpenCL extensions and optional core features.
   const OpenCLOptions &getSupportedOpenCLOpts() const {
       return getTargetOpts().SupportedOpenCLOptions;
+  }
+
+  /// \brief Get OpenCL image type address space.
+  virtual LangAS::ID getOpenCLImageAddrSpace() const {
+    return LangAS::opencl_global;
   }
 
   /// \brief Check the target is valid after it is fully initialized.

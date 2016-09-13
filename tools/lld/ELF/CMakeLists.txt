@@ -6,6 +6,7 @@ add_lld_library(lldELF
   Driver.cpp
   DriverUtils.cpp
   EhFrame.cpp
+  ELFCreator.cpp
   Error.cpp
   ICF.cpp
   InputFiles.cpp
@@ -13,6 +14,7 @@ add_lld_library(lldELF
   LTO.cpp
   LinkerScript.cpp
   MarkLive.cpp
+  Mips.cpp
   OutputSections.cpp
   Relocations.cpp
   ScriptParser.cpp
@@ -31,6 +33,7 @@ add_lld_library(lldELF
   BitWriter
   Codegen
   Core
+  Demangle
   IPO
   Linker
   LTO

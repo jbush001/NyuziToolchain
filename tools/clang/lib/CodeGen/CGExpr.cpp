@@ -2206,6 +2206,12 @@ LValue CodeGenFunction::EmitDeclRefLValue(const DeclRefExpr *E) {
   if (const auto *FD = dyn_cast<FunctionDecl>(ND))
     return EmitFunctionDeclLValue(*this, E, FD);
 
+  // FIXME: While we're emitting a binding from an enclosing scope, all other
+  // DeclRefExprs we see should be implicitly treated as if they also refer to
+  // an enclosing scope.
+  if (const auto *BD = dyn_cast<BindingDecl>(ND))
+    return EmitLValue(BD->getBinding());
+
   llvm_unreachable("Unhandled DeclRefExpr");
 }
 
@@ -2752,10 +2758,11 @@ void CodeGenFunction::EmitTrapCheck(llvm::Value *Checked) {
 llvm::CallInst *CodeGenFunction::EmitTrapCall(llvm::Intrinsic::ID IntrID) {
   llvm::CallInst *TrapCall = Builder.CreateCall(CGM.getIntrinsic(IntrID));
 
-  if (!CGM.getCodeGenOpts().TrapFuncName.empty())
-    TrapCall->addAttribute(llvm::AttributeSet::FunctionIndex,
-                           "trap-func-name",
-                           CGM.getCodeGenOpts().TrapFuncName);
+  if (!CGM.getCodeGenOpts().TrapFuncName.empty()) {
+    auto A = llvm::Attribute::get(getLLVMContext(), "trap-func-name",
+                                  CGM.getCodeGenOpts().TrapFuncName);
+    TrapCall->addAttribute(llvm::AttributeSet::FunctionIndex, A);
+  }
 
   return TrapCall;
 }
@@ -3601,6 +3608,7 @@ LValue CodeGenFunction::EmitCastLValue(const CastExpr *E) {
   case CK_ARCExtendBlockObject:
   case CK_CopyAndAutoreleaseBlockObject:
   case CK_AddressSpaceConversion:
+  case CK_IntToOCLSampler:
     return EmitUnsupportedLValue(E, "unexpected cast lvalue");
 
   case CK_Dependent:

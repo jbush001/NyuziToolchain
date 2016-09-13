@@ -81,6 +81,13 @@ bool contains(const T (&array)[N], const T element) {
          std::end(array);
 }
 
+template <size_t N>
+bool contains(const char *(&array)[N], const char *element) {
+  return std::find_if(std::begin(array), std::end(array), [&](const char *S) {
+           return ::strcmp(S, element) == 0;
+         }) != std::end(array);
+}
+
 TEST(TargetParserTest, ARMArchName) {
   for (ARM::ArchKind AK = static_cast<ARM::ArchKind>(0);
        AK <= ARM::ArchKind::AK_LAST;
@@ -310,13 +317,15 @@ TEST(TargetParserTest, ARMparseCPUArch) {
       "cortex-r5",     "cortex-r7",     "cortex-r8",   "sc300",
       "cortex-m3",     "cortex-m4",     "cortex-m7",   "cortex-a32",
       "cortex-a35",    "cortex-a53",    "cortex-a57",  "cortex-a72",
-      "cortex-a73",    "cyclone",       "exynos-m1",   "iwmmxt",
-      "xscale",        "swift"};
+      "cortex-a73",    "cyclone",       "exynos-m1",   "exynos-m2",   
+      "iwmmxt",        "xscale",        "swift"};
 
-  for (const auto &ARMCPUName : kARMCPUNames)
-    EXPECT_TRUE(contains(CPU, ARMCPUName.Name)
-                    ? (ARM::AK_INVALID != ARM::parseCPUArch(ARMCPUName.Name))
-                    : (ARM::AK_INVALID == ARM::parseCPUArch(ARMCPUName.Name)));
+  for (const auto &ARMCPUName : kARMCPUNames) {
+    if (contains(CPU, ARMCPUName.Name))
+      EXPECT_NE(ARM::AK_INVALID, ARM::parseCPUArch(ARMCPUName.Name));
+    else
+      EXPECT_EQ(ARM::AK_INVALID, ARM::parseCPUArch(ARMCPUName.Name));
+  }
 }
 
 TEST(TargetParserTest, ARMparseArchEndianAndISA) {
@@ -391,9 +400,9 @@ TEST(TargetParserTest, ARMparseArchProfile) {
 TEST(TargetParserTest, ARMparseArchVersion) {
   for (unsigned i = 0; i < array_lengthof(ARMArch); i++)
     if (((std::string)ARMArch[i]).substr(0, 4) == "armv")
-      EXPECT_EQ((ARMArch[i][4] - 48), ARM::parseArchVersion(ARMArch[i]));
+      EXPECT_EQ((ARMArch[i][4] - 48u), ARM::parseArchVersion(ARMArch[i]));
     else
-      EXPECT_EQ(5, ARM::parseArchVersion(ARMArch[i]));
+      EXPECT_EQ(5u, ARM::parseArchVersion(ARMArch[i]));
 }
 
 TEST(TargetParserTest, AArch64DefaultFPU) {
@@ -535,7 +544,8 @@ TEST(TargetParserTest, AArch64parseArchExt) {
 TEST(TargetParserTest, AArch64parseCPUArch) {
   const char *CPU[] = {"cortex-a35", "cortex-a53", "cortex-a57",
                        "cortex-a72", "cortex-a73", "cyclone",
-                       "exynos-m1",  "kryo",       "vulcan"};
+                       "exynos-m1",  "exynos-m2",  "kryo",
+                       "vulcan"};
 
   for (const auto &AArch64CPUName : kAArch64CPUNames)
     EXPECT_TRUE(contains(CPU, AArch64CPUName.Name)

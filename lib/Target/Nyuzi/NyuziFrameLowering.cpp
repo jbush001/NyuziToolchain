@@ -37,7 +37,7 @@ const NyuziFrameLowering *NyuziFrameLowering::create(const NyuziSubtarget &ST) {
 void NyuziFrameLowering::emitPrologue(MachineFunction &MF,
                                       MachineBasicBlock &MBB) const {
   assert(&MF.front() == &MBB);
-  MachineFrameInfo *MFI = MF.getFrameInfo();
+  MachineFrameInfo &MFI = MF.getFrameInfo();
   const NyuziInstrInfo &TII =
       *static_cast<const NyuziInstrInfo *>(MF.getSubtarget().getInstrInfo());
   MachineModuleInfo &MMI = MF.getMMI();
@@ -50,10 +50,10 @@ void NyuziFrameLowering::emitPrologue(MachineFunction &MF,
 
   // Compute stack size to allocate, keeping SP 64 byte aligned so we
   // can do block vector load/stores
-  int StackSize = alignTo(MFI->getStackSize(), getStackAlignment());
+  int StackSize = alignTo(MFI.getStackSize(), getStackAlignment());
 
   // Bail if there is no stack allocation
-  if (StackSize == 0 && !MFI->adjustsStack())
+  if (StackSize == 0 && !MFI.adjustsStack())
     return;
 
   TII.adjustStackPointer(MBB, MBBI, -StackSize);
@@ -67,7 +67,7 @@ void NyuziFrameLowering::emitPrologue(MachineFunction &MF,
   // Find the instruction past the last instruction that saves a callee-saved
   // register to the stack.  We need to set up FP after its old value has been
   // saved.
-  const std::vector<CalleeSavedInfo> &CSI = MFI->getCalleeSavedInfo();
+  const std::vector<CalleeSavedInfo> &CSI = MFI.getCalleeSavedInfo();
   if (CSI.size()) {
     for (unsigned i = 0; i < CSI.size(); ++i)
       ++MBBI;
@@ -75,7 +75,7 @@ void NyuziFrameLowering::emitPrologue(MachineFunction &MF,
     // Iterate over list of callee-saved registers and emit .cfi_offset
     // directives (debug information)
     for (const auto &I : CSI) {
-      int64_t Offset = MFI->getObjectOffset(I.getFrameIdx());
+      int64_t Offset = MFI.getObjectOffset(I.getFrameIdx());
       unsigned Reg = I.getReg();
       unsigned CFIIndex = MMI.addFrameInst(MCCFIInstruction::createOffset(
           nullptr, MRI->getDwarfRegNum(Reg, 1), Offset));
@@ -101,7 +101,7 @@ void NyuziFrameLowering::emitPrologue(MachineFunction &MF,
 void NyuziFrameLowering::emitEpilogue(MachineFunction &MF,
                                       MachineBasicBlock &MBB) const {
   MachineBasicBlock::iterator MBBI = MBB.getLastNonDebugInstr();
-  MachineFrameInfo *MFI = MF.getFrameInfo();
+  MachineFrameInfo &MFI = MF.getFrameInfo();
   const NyuziInstrInfo &TII =
       *static_cast<const NyuziInstrInfo *>(MF.getSubtarget().getInstrInfo());
   DebugLoc DL = MBBI->getDebugLoc();
@@ -112,7 +112,7 @@ void NyuziFrameLowering::emitEpilogue(MachineFunction &MF,
   if (hasFP(MF)) {
     // Find the first instruction that restores a callee-saved register.
     MachineBasicBlock::iterator I = MBBI;
-    for (unsigned i = 0; i < MFI->getCalleeSavedInfo().size(); ++i)
+    for (unsigned i = 0; i < MFI.getCalleeSavedInfo().size(); ++i)
       --I;
 
     BuildMI(MBB, I, DL, TII.get(Nyuzi::MOVESS))
@@ -120,7 +120,7 @@ void NyuziFrameLowering::emitEpilogue(MachineFunction &MF,
         .addReg(Nyuzi::FP_REG);
   }
 
-  uint64_t StackSize = alignTo(MFI->getStackSize(), getStackAlignment());
+  uint64_t StackSize = alignTo(MFI.getStackSize(), getStackAlignment());
   if (!StackSize)
     return;
 
@@ -131,16 +131,16 @@ void NyuziFrameLowering::emitEpilogue(MachineFunction &MF,
 // arguments
 // to called.
 bool NyuziFrameLowering::hasReservedCallFrame(const MachineFunction &MF) const {
-  return !MF.getFrameInfo()->hasVarSizedObjects();
+  return !MF.getFrameInfo().hasVarSizedObjects();
 }
 
 // We must use an FP in a few situations.  Note that this *must* return true if
 // hasReservedCallFrame returns false.  Otherwise an ADJCALLSTACKDOWN could mess
 // up frame offsets from the stack pointer.
 bool NyuziFrameLowering::hasFP(const MachineFunction &MF) const {
-  const MachineFrameInfo *MFI = MF.getFrameInfo();
+  const MachineFrameInfo &MFI = MF.getFrameInfo();
   return MF.getTarget().Options.DisableFramePointerElim(MF) ||
-         MFI->hasVarSizedObjects() || MFI->isFrameAddressTaken();
+         MFI.hasVarSizedObjects() || MFI.isFrameAddressTaken();
 }
 
 MachineBasicBlock::iterator NyuziFrameLowering::eliminateCallFramePseudoInstr(
@@ -170,14 +170,14 @@ MachineBasicBlock::iterator NyuziFrameLowering::eliminateCallFramePseudoInstr(
 
 uint64_t
 NyuziFrameLowering::getWorstCaseStackSize(const MachineFunction &MF) const {
-  const MachineFrameInfo *MFI = MF.getFrameInfo();
+  const MachineFrameInfo &MFI = MF.getFrameInfo();
   const TargetRegisterInfo &TRI = *MF.getSubtarget().getRegisterInfo();
 
   int64_t Offset = 0;
 
   // Iterate over fixed sized objects.
-  for (int I = MFI->getObjectIndexBegin(); I != 0; ++I)
-    Offset = std::max(Offset, -MFI->getObjectOffset(I));
+  for (int I = MFI.getObjectIndexBegin(); I != 0; ++I)
+    Offset = std::max(Offset, -MFI.getObjectOffset(I));
 
   // Conservatively assume all callee-saved registers will be saved.
   for (const uint16_t *R = TRI.getCalleeSavedRegs(&MF); *R; ++R) {
@@ -185,19 +185,19 @@ NyuziFrameLowering::getWorstCaseStackSize(const MachineFunction &MF) const {
     Offset = alignTo(Offset + Size, Size);
   }
 
-  unsigned MaxAlign = MFI->getMaxAlignment();
+  unsigned MaxAlign = MFI.getMaxAlignment();
 
   // Check that MaxAlign is not zero if there is a stack object that is not a
   // callee-saved spill.
-  assert(!MFI->getObjectIndexEnd() || MaxAlign);
+  assert(!MFI.getObjectIndexEnd() || MaxAlign);
 
   // Iterate over other objects.
-  for (unsigned I = 0, E = MFI->getObjectIndexEnd(); I != E; ++I)
-    Offset = alignTo(Offset + MFI->getObjectSize(I), MaxAlign);
+  for (unsigned I = 0, E = MFI.getObjectIndexEnd(); I != E; ++I)
+    Offset = alignTo(Offset + MFI.getObjectSize(I), MaxAlign);
 
   // Call frame.
-  if (MFI->adjustsStack() && hasReservedCallFrame(MF))
-    Offset = alignTo(Offset + MFI->getMaxCallFrameSize(),
+  if (MFI.adjustsStack() && hasReservedCallFrame(MF))
+    Offset = alignTo(Offset + MFI.getMaxCallFrameSize(),
                      std::max(MaxAlign, getStackAlignment()));
 
   return alignTo(Offset, getStackAlignment());
@@ -220,7 +220,7 @@ void NyuziFrameLowering::determineCalleeSaves(MachineFunction &MF,
     return;
 
   const TargetRegisterClass *RC = &Nyuzi::GPR32RegClass;
-  int FI = MF.getFrameInfo()->CreateStackObject(RC->getSize(),
+  int FI = MF.getFrameInfo().CreateStackObject(RC->getSize(),
                                                 RC->getAlignment(), false);
   RS->addScavengingFrameIndex(FI);
 }

@@ -904,8 +904,7 @@ bool X86AsmParser::ParseRegister(unsigned &RegNo,
     if (RegNo == X86::RIZ ||
         X86MCRegisterClasses[X86::GR64RegClassID].contains(RegNo) ||
         X86II::isX86_64NonExtLowByteReg(RegNo) ||
-        X86II::isX86_64ExtendedReg(RegNo) ||
-        X86II::is32ExtendedReg(RegNo))
+        X86II::isX86_64ExtendedReg(RegNo))
       return Error(StartLoc, "register %"
                    + Tok.getString() + " is only available in 64-bit mode",
                    SMRange(StartLoc, EndLoc));
@@ -1268,7 +1267,7 @@ bool X86AsmParser::ParseIntelExpression(IntelExprStateMachine &SM, SMLoc &End) {
 
     // The period in the dot operator (e.g., [ebx].foo.bar) is parsed as an
     // identifier.  Don't try an parse it as a register.
-    if (Tok.getString().startswith("."))
+    if (PrevTK != AsmToken::Error && Tok.getString().startswith("."))
       break;
 
     // If we're parsing an immediate expression, we don't expect a '['.
@@ -2331,6 +2330,30 @@ bool X86AsmParser::ParseInstruction(ParseInstructionInfo &Info, StringRef Name,
     static_cast<X86Operand &>(*Operands[0]).setTokenValue(Repl);
   }
 
+  // Moving a 32 or 16 bit value into a segment register has the same
+  // behavior. Modify such instructions to always take shorter form.
+  if ((Name == "mov" || Name == "movw" || Name == "movl") &&
+      (Operands.size() == 3)) {
+    X86Operand &Op1 = (X86Operand &)*Operands[1];
+    X86Operand &Op2 = (X86Operand &)*Operands[2];
+    SMLoc Loc = Op1.getEndLoc();
+    if (Op1.isReg() && Op2.isReg() &&
+        X86MCRegisterClasses[X86::SEGMENT_REGRegClassID].contains(
+            Op2.getReg()) &&
+        (X86MCRegisterClasses[X86::GR16RegClassID].contains(Op1.getReg()) ||
+         X86MCRegisterClasses[X86::GR32RegClassID].contains(Op1.getReg()))) {
+      // Change instruction name to match new instruction.
+      if (Name != "mov" && Name[3] == (is16BitMode() ? 'l' : 'w')) {
+        Name = is16BitMode() ? "movw" : "movl";
+        Operands[0] = X86Operand::CreateToken(Name, NameLoc);
+      }
+      // Select the correct equivalent 16-/32-bit source register.
+      unsigned Reg =
+          getX86SubSuperRegisterOrZero(Op1.getReg(), is16BitMode() ? 16 : 32);
+      Operands[1] = X86Operand::CreateReg(Reg, Loc, Loc);
+    }
+  }
+
   // This is a terrible hack to handle "out[s]?[bwl]? %al, (%dx)" ->
   // "outb %al, %dx".  Out doesn't take a memory form, but this is a widely
   // documented form in various unofficial manuals, so a lot of code uses it.
@@ -2685,8 +2708,8 @@ bool X86AsmParser::MatchAndEmitATTInstruction(SMLoc IDLoc, unsigned &Opcode,
   // mnemonic was invalid.
   if (std::count(std::begin(Match), std::end(Match), Match_MnemonicFail) == 4) {
     if (!WasOriginallyInvalidOperand) {
-      ArrayRef<SMRange> Ranges =
-          MatchingInlineAsm ? EmptyRanges : Op.getLocRange();
+      SMRange OpRange = Op.getLocRange();
+      ArrayRef<SMRange> Ranges = MatchingInlineAsm ? EmptyRanges : OpRange;
       return Error(IDLoc, "invalid instruction mnemonic '" + Base + "'",
                    Ranges, MatchingInlineAsm);
     }
@@ -2839,8 +2862,8 @@ bool X86AsmParser::MatchAndEmitIntelInstruction(SMLoc IDLoc, unsigned &Opcode,
   } else if (NumSuccessfulMatches > 1) {
     assert(UnsizedMemOp &&
            "multiple matches only possible with unsized memory operands");
-    ArrayRef<SMRange> Ranges =
-        MatchingInlineAsm ? EmptyRanges : UnsizedMemOp->getLocRange();
+    SMRange OpRange = UnsizedMemOp->getLocRange();
+    ArrayRef<SMRange> Ranges = MatchingInlineAsm ? EmptyRanges : OpRange;
     return Error(UnsizedMemOp->getStartLoc(),
                  "ambiguous operand size for instruction '" + Mnemonic + "\'",
                  Ranges, MatchingInlineAsm);

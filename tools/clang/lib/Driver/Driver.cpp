@@ -88,31 +88,39 @@ Driver::~Driver() {
   llvm::DeleteContainerSeconds(ToolChains);
 }
 
-void Driver::ParseDriverMode(ArrayRef<const char *> Args) {
-  const std::string OptName =
-      getOpts().getOption(options::OPT_driver_mode).getPrefixedName();
+void Driver::ParseDriverMode(StringRef ProgramName,
+                             ArrayRef<const char *> Args) {
+  auto Default = ToolChain::getTargetAndModeFromProgramName(ProgramName);
+  StringRef DefaultMode(Default.second);
+  setDriverModeFromOption(DefaultMode);
 
   for (const char *ArgPtr : Args) {
     // Ingore nullptrs, they are response file's EOL markers
     if (ArgPtr == nullptr)
       continue;
     const StringRef Arg = ArgPtr;
-    if (!Arg.startswith(OptName))
-      continue;
-
-    const StringRef Value = Arg.drop_front(OptName.size());
-    const unsigned M = llvm::StringSwitch<unsigned>(Value)
-                           .Case("gcc", GCCMode)
-                           .Case("g++", GXXMode)
-                           .Case("cpp", CPPMode)
-                           .Case("cl", CLMode)
-                           .Default(~0U);
-
-    if (M != ~0U)
-      Mode = static_cast<DriverMode>(M);
-    else
-      Diag(diag::err_drv_unsupported_option_argument) << OptName << Value;
+    setDriverModeFromOption(Arg);
   }
+}
+
+void Driver::setDriverModeFromOption(StringRef Opt) {
+  const std::string OptName =
+      getOpts().getOption(options::OPT_driver_mode).getPrefixedName();
+  if (!Opt.startswith(OptName))
+    return;
+  StringRef Value = Opt.drop_front(OptName.size());
+
+  const unsigned M = llvm::StringSwitch<unsigned>(Value)
+                         .Case("gcc", GCCMode)
+                         .Case("g++", GXXMode)
+                         .Case("cpp", CPPMode)
+                         .Case("cl", CLMode)
+                         .Default(~0U);
+
+  if (M != ~0U)
+    Mode = static_cast<DriverMode>(M);
+  else
+    Diag(diag::err_drv_unsupported_option_argument) << OptName << Value;
 }
 
 InputArgList Driver::ParseArgStrings(ArrayRef<const char *> ArgStrings) {
@@ -168,6 +176,10 @@ phases::ID Driver::getFinalPhase(const DerivedArgList &DAL,
       (PhaseArg = DAL.getLastArg(options::OPT_M, options::OPT_MM)) ||
       (PhaseArg = DAL.getLastArg(options::OPT__SLASH_P))) {
     FinalPhase = phases::Preprocess;
+
+    // --precompile only runs up to precompilation.
+  } else if ((PhaseArg = DAL.getLastArg(options::OPT__precompile))) {
+    FinalPhase = phases::Precompile;
 
     // -{fsyntax-only,-analyze,emit-ast} only run up to the compiler.
   } else if ((PhaseArg = DAL.getLastArg(options::OPT_fsyntax_only)) ||
@@ -468,7 +480,7 @@ Compilation *Driver::BuildCompilation(ArrayRef<const char *> ArgList) {
 
   // We look for the driver mode option early, because the mode can affect
   // how other options are parsed.
-  ParseDriverMode(ArgList.slice(1));
+  ParseDriverMode(ClangExecutable, ArgList.slice(1));
 
   // FIXME: What are we going to do with -V and -b?
 
@@ -1407,11 +1419,19 @@ static Action *buildCudaActions(Compilation &C, DerivedArgList &Args,
   bool CompileDeviceOnly =
       PartialCompilationArg &&
       PartialCompilationArg->getOption().matches(options::OPT_cuda_device_only);
+  const ToolChain *HostTC = C.getSingleOffloadToolChain<Action::OFK_Host>();
+  assert(HostTC && "No toolchain for host compilation.");
+  if (HostTC->getTriple().isNVPTX()) {
+    // We do not support targeting NVPTX for host compilation. Throw
+    // an error and abort pipeline construction early so we don't trip
+    // asserts that assume device-side compilation.
+    C.getDriver().Diag(diag::err_drv_cuda_nvptx_host);
+    return nullptr;
+  }
 
   if (CompileHostOnly) {
-    OffloadAction::HostDependence HDep(
-        *HostAction, *C.getSingleOffloadToolChain<Action::OFK_Host>(),
-        /*BoundArch=*/nullptr, Action::OFK_Cuda);
+    OffloadAction::HostDependence HDep(*HostAction, *HostTC,
+                                       /*BoundArch=*/nullptr, Action::OFK_Cuda);
     return C.MakeAction<OffloadAction>(HDep);
   }
 
@@ -1507,9 +1527,8 @@ static Action *buildCudaActions(Compilation &C, DerivedArgList &Args,
 
   // Return a new host action that incorporates original host action and all
   // device actions.
-  OffloadAction::HostDependence HDep(
-      *HostAction, *C.getSingleOffloadToolChain<Action::OFK_Host>(),
-      /*BoundArch=*/nullptr, Action::OFK_Cuda);
+  OffloadAction::HostDependence HDep(*HostAction, *HostTC,
+                                     /*BoundArch=*/nullptr, Action::OFK_Cuda);
   OffloadAction::DeviceDependences DDep;
   DDep.add(*FatbinAction, *CudaTC, /*BoundArch=*/nullptr, Action::OFK_Cuda);
   return C.MakeAction<OffloadAction>(HDep, DDep);
@@ -1670,12 +1689,14 @@ void Driver::BuildActions(Compilation &C, DerivedArgList &Args,
     if (YcArg) {
       // Add a separate precompile phase for the compile phase.
       if (FinalPhase >= phases::Compile) {
+        const types::ID HeaderType = lookupHeaderTypeForSourceType(InputType);
         llvm::SmallVector<phases::ID, phases::MaxNumberOfPhases> PCHPL;
-        types::getCompilationPhases(types::TY_CXXHeader, PCHPL);
+        types::getCompilationPhases(HeaderType, PCHPL);
         Arg *PchInputArg = MakeInputArg(Args, Opts, YcArg->getValue());
 
         // Build the pipeline for the pch file.
-        Action *ClangClPch = C.MakeAction<InputAction>(*PchInputArg, InputType);
+        Action *ClangClPch =
+            C.MakeAction<InputAction>(*PchInputArg, HeaderType);
         for (phases::ID Phase : PCHPL)
           ClangClPch = ConstructPhaseAction(C, Args, Phase, ClangClPch);
         assert(ClangClPch);
@@ -1797,7 +1818,9 @@ Action *Driver::ConstructPhaseAction(Compilation &C, const ArgList &Args,
     return C.MakeAction<PreprocessJobAction>(Input, OutputTy);
   }
   case phases::Precompile: {
-    types::ID OutputTy = types::TY_PCH;
+    types::ID OutputTy = getPrecompiledType(Input->getType());
+    assert(OutputTy != types::TY_INVALID &&
+           "Cannot precompile this input type!");
     if (Args.hasArg(options::OPT_fsyntax_only)) {
       // Syntax checks should not emit a PCH file
       OutputTy = types::TY_Nothing;
@@ -2215,7 +2238,7 @@ InputInfo Driver::BuildJobsForActionNoCache(
         /*IsHostDependence=*/BuildForOffloadDevice,
         [&](Action *DepA, const ToolChain *DepTC, const char *DepBoundArch) {
           OffloadDependencesInputInfo.push_back(BuildJobsForAction(
-              C, DepA, DepTC, DepBoundArch, AtTopLevel,
+              C, DepA, DepTC, DepBoundArch, /* AtTopLevel */ false,
               /*MultipleArchs=*/!!DepBoundArch, LinkingOutput, CachedResults,
               /*BuildForOffloadDevice=*/DepA->getOffloadingDeviceKind() !=
                   Action::OFK_None));

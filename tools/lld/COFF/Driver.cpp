@@ -16,6 +16,7 @@
 #include "Writer.h"
 #include "lld/Driver/Driver.h"
 #include "llvm/ADT/Optional.h"
+#include "llvm/ADT/StringSwitch.h"
 #include "llvm/LibDriver/LibDriver.h"
 #include "llvm/Option/Arg.h"
 #include "llvm/Option/ArgList.h"
@@ -282,6 +283,28 @@ static std::string createResponseFile(const llvm::opt::InputArgList &Args,
   return Data.str();
 }
 
+static unsigned getDefaultDebugType(const llvm::opt::InputArgList &Args) {
+  unsigned DebugTypes = static_cast<unsigned>(DebugType::CV);
+  if (Args.hasArg(OPT_driver))
+    DebugTypes |= static_cast<unsigned>(DebugType::PData);
+  if (Args.hasArg(OPT_profile))
+    DebugTypes |= static_cast<unsigned>(DebugType::Fixup);
+  return DebugTypes;
+}
+
+static unsigned parseDebugType(StringRef Arg) {
+  llvm::SmallVector<StringRef, 3> Types;
+  Arg.split(Types, ',', /*KeepEmpty=*/false);
+
+  unsigned DebugTypes = static_cast<unsigned>(DebugType::None);
+  for (StringRef Type : Types)
+    DebugTypes |= StringSwitch<unsigned>(Type.lower())
+                      .Case("cv", static_cast<unsigned>(DebugType::CV))
+                      .Case("pdata", static_cast<unsigned>(DebugType::PData))
+                      .Case("fixup", static_cast<unsigned>(DebugType::Fixup));
+  return DebugTypes;
+}
+
 void LinkerDriver::link(llvm::ArrayRef<const char *> ArgsArr) {
   // If the first command line argument is "/lib", link.exe acts like lib.exe.
   // We call our own implementation of lib.exe that understands bitcode files.
@@ -341,8 +364,19 @@ void LinkerDriver::link(llvm::ArrayRef<const char *> ArgsArr) {
     Config->Force = true;
 
   // Handle /debug
-  if (Args.hasArg(OPT_debug))
+  if (Args.hasArg(OPT_debug)) {
     Config->Debug = true;
+    Config->DebugTypes =
+        Args.hasArg(OPT_debugtype)
+            ? parseDebugType(Args.getLastArg(OPT_debugtype)->getValue())
+            : getDefaultDebugType(Args);
+  }
+
+  // Create a dummy PDB file to satisfy build sytem rules.
+  if (auto *Arg = Args.getLastArg(OPT_pdb)) {
+    Config->PDBPath = Arg->getValue();
+    createPDB(Config->PDBPath);
+  }
 
   // Handle /noentry
   if (Args.hasArg(OPT_noentry)) {
@@ -714,10 +748,6 @@ void LinkerDriver::link(llvm::ArrayRef<const char *> ArgsArr) {
   // Windows specific -- Create a side-by-side manifest file.
   if (Config->Manifest == Configuration::SideBySide)
     createSideBySideManifest();
-
-  // Create a dummy PDB file to satisfy build sytem rules.
-  if (auto *Arg = Args.getLastArg(OPT_pdb))
-    createPDB(Arg->getValue());
 
   // Identify unreferenced COMDAT sections.
   if (Config->DoGC)

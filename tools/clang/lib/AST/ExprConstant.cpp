@@ -3400,37 +3400,50 @@ enum EvalStmtResult {
 };
 }
 
-static bool EvaluateDecl(EvalInfo &Info, const Decl *D) {
-  if (const VarDecl *VD = dyn_cast<VarDecl>(D)) {
-    // We don't need to evaluate the initializer for a static local.
-    if (!VD->hasLocalStorage())
-      return true;
+static bool EvaluateVarDecl(EvalInfo &Info, const VarDecl *VD) {
+  // We don't need to evaluate the initializer for a static local.
+  if (!VD->hasLocalStorage())
+    return true;
 
-    LValue Result;
-    Result.set(VD, Info.CurrentCall->Index);
-    APValue &Val = Info.CurrentCall->createTemporary(VD, true);
+  LValue Result;
+  Result.set(VD, Info.CurrentCall->Index);
+  APValue &Val = Info.CurrentCall->createTemporary(VD, true);
 
-    const Expr *InitE = VD->getInit();
-    if (!InitE) {
-      Info.FFDiag(D->getLocStart(), diag::note_constexpr_uninitialized)
-        << false << VD->getType();
-      Val = APValue();
-      return false;
-    }
+  const Expr *InitE = VD->getInit();
+  if (!InitE) {
+    Info.FFDiag(VD->getLocStart(), diag::note_constexpr_uninitialized)
+      << false << VD->getType();
+    Val = APValue();
+    return false;
+  }
 
-    if (InitE->isValueDependent())
-      return false;
+  if (InitE->isValueDependent())
+    return false;
 
-    if (!EvaluateInPlace(Val, Info, Result, InitE)) {
-      // Wipe out any partially-computed value, to allow tracking that this
-      // evaluation failed.
-      Val = APValue();
-      return false;
-    }
+  if (!EvaluateInPlace(Val, Info, Result, InitE)) {
+    // Wipe out any partially-computed value, to allow tracking that this
+    // evaluation failed.
+    Val = APValue();
+    return false;
   }
 
   return true;
 }
+
+static bool EvaluateDecl(EvalInfo &Info, const Decl *D) {
+  bool OK = true;
+
+  if (const VarDecl *VD = dyn_cast<VarDecl>(D))
+    OK &= EvaluateVarDecl(Info, VD);
+
+  if (const DecompositionDecl *DD = dyn_cast<DecompositionDecl>(D))
+    for (auto *BD : DD->bindings())
+      if (auto *VD = BD->getHoldingVar())
+        OK &= EvaluateDecl(Info, VD);
+
+  return OK;
+}
+
 
 /// Evaluate a condition (either a variable declaration or an expression).
 static bool EvaluateCond(EvalInfo &Info, const VarDecl *CondDecl,
@@ -4785,6 +4798,8 @@ bool LValueExprEvaluator::VisitDeclRefExpr(const DeclRefExpr *E) {
     return Success(FD);
   if (const VarDecl *VD = dyn_cast<VarDecl>(E->getDecl()))
     return VisitVarDecl(E, VD);
+  if (const BindingDecl *BD = dyn_cast<BindingDecl>(E->getDecl()))
+    return Visit(BD->getBinding());
   return Error(E);
 }
 
@@ -8056,6 +8071,7 @@ bool IntExprEvaluator::VisitCastExpr(const CastExpr *E) {
   case CK_ZeroToOCLEvent:
   case CK_NonAtomicToAtomic:
   case CK_AddressSpaceConversion:
+  case CK_IntToOCLSampler:
     llvm_unreachable("invalid cast kind for integral value");
 
   case CK_BitCast:
@@ -8547,6 +8563,7 @@ bool ComplexExprEvaluator::VisitCastExpr(const CastExpr *E) {
   case CK_ZeroToOCLEvent:
   case CK_NonAtomicToAtomic:
   case CK_AddressSpaceConversion:
+  case CK_IntToOCLSampler:
     llvm_unreachable("invalid cast kind for complex value");
 
   case CK_LValueToRValue:

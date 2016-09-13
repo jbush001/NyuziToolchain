@@ -72,18 +72,18 @@ void NyuziRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator MBBI,
   int FrameIndex = MI.getOperand(FIOperandNum).getIndex();
   MachineFunction &MF = *MI.getParent()->getParent();
   const TargetFrameLowering &TFL = *MF.getSubtarget().getFrameLowering();
-  MachineFrameInfo *MFI = MF.getFrameInfo();
+  MachineFrameInfo &MFI = MF.getFrameInfo();
 
   // Round stack size to multiple of 64, consistent with frame pointer info.
-  int stackSize = alignTo(MFI->getStackSize(), TFL.getStackAlignment());
+  int stackSize = alignTo(MFI.getStackSize(), TFL.getStackAlignment());
 
   // Frame index is relative to where SP is before it is decremented on
   // entry to the function.  Need to add stackSize to adjust for this.
-  int64_t Offset = MF.getFrameInfo()->getObjectOffset(FrameIndex) +
+  int64_t Offset = MF.getFrameInfo().getObjectOffset(FrameIndex) +
                    MI.getOperand(FIOperandNum + 1).getImm() + stackSize;
 
   // Determine where callee saved registers live in the frame
-  const std::vector<CalleeSavedInfo> &CSI = MFI->getCalleeSavedInfo();
+  const std::vector<CalleeSavedInfo> &CSI = MFI.getCalleeSavedInfo();
   int MinCSFI = 0;
   int MaxCSFI = -1;
   if (CSI.size()) {

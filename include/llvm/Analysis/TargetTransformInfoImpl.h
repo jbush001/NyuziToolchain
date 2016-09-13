@@ -235,6 +235,8 @@ public:
     return -1;
   }
 
+  bool isFoldableMemAccessOffset(Instruction *I, int64_t Offset) { return true; }
+
   bool isTruncateFree(Type *Ty1, Type *Ty2) { return false; }
 
   bool isProfitableToHoist(Instruction *I) { return true; }
@@ -253,7 +255,8 @@ public:
 
   bool isFPVectorizationPotentiallyUnsafe() { return false; }
 
-  bool allowsMisalignedMemoryAccesses(unsigned BitWidth,
+  bool allowsMisalignedMemoryAccesses(LLVMContext &Context,
+                                      unsigned BitWidth,
                                       unsigned AddressSpace,
                                       unsigned Alignment,
                                       bool *Fast) { return false; }

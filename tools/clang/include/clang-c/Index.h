@@ -627,6 +627,15 @@ CINDEX_LINKAGE CXSourceRangeList *clang_getSkippedRanges(CXTranslationUnit tu,
                                                          CXFile file);
 
 /**
+ * \brief Retrieve all ranges from all files that were skipped by the
+ * preprocessor.
+ *
+ * The preprocessor will skip lines when they are surrounded by an
+ * if/ifdef/ifndef directive whose condition does not evaluate to true.
+ */
+CINDEX_LINKAGE CXSourceRangeList *clang_getAllSkippedRanges(CXTranslationUnit tu);
+
+/**
  * \brief Destroy the given \c CXSourceRangeList.
  */
 CINDEX_LINKAGE void clang_disposeSourceRangeList(CXSourceRangeList *ranges);
@@ -2329,7 +2338,11 @@ enum CXCursorKind {
    */
   CXCursor_OMPTargetSimdDirective = 270,
 
-  CXCursor_LastStmt = CXCursor_OMPTargetSimdDirective,
+  /** \brief OpenMP teams distribute directive.
+   */
+  CXCursor_OMPTeamsDistributeDirective = 271,
+
+  CXCursor_LastStmt = CXCursor_OMPTeamsDistributeDirective,
 
   /**
    * \brief Cursor that represents the translation unit itself.

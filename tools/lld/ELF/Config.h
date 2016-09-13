@@ -30,13 +30,22 @@ enum ELFKind {
   ELF64BEKind
 };
 
-enum class BuildIdKind { None, Fnv1, Md5, Sha1, Hexstring };
+// For --build-id.
+enum class BuildIdKind { None, Fnv1, Md5, Sha1, Hexstring, Uuid };
 
-enum class UnresolvedPolicy { NoUndef, Error, Warn, Ignore };
+// For --discard-{all,locals,none}.
+enum class DiscardPolicy { Default, All, Locals, None };
+
+// For --strip-{all,debug}.
+enum class StripPolicy { None, All, Debug };
+
+// For --unresolved-symbols.
+enum class UnresolvedPolicy { NoUndef, ReportError, Warn, Ignore };
 
 struct SymbolVersion {
   llvm::StringRef Name;
   bool IsExternCpp;
+  bool HasWildcards;
 };
 
 // This struct contains symbols version definition that
@@ -68,6 +77,7 @@ struct Configuration {
   llvm::StringRef Sysroot;
   std::string RPath;
   std::vector<VersionDefinition> VersionDefinitions;
+  std::vector<llvm::StringRef> AuxiliaryList;
   std::vector<llvm::StringRef> DynamicList;
   std::vector<llvm::StringRef> SearchPaths;
   std::vector<llvm::StringRef> Undefined;
@@ -75,13 +85,11 @@ struct Configuration {
   std::vector<uint8_t> BuildIdVector;
   bool AllowMultipleDefinition;
   bool AsNeeded = false;
+  bool Binary = false;
   bool Bsymbolic;
   bool BsymbolicFunctions;
   bool Demangle = true;
   bool DisableVerify;
-  bool DiscardAll;
-  bool DiscardLocals;
-  bool DiscardNone;
   bool EhFrameHdr;
   bool EnableNewDtags;
   bool ExportDynamic;
@@ -92,6 +100,8 @@ struct Configuration {
   bool Mips64EL = false;
   bool NoGnuUnique;
   bool NoUndefinedVersion;
+  bool Nostdlib;
+  bool OFormatBinary;
   bool Pic;
   bool Pie;
   bool PrintGcSections;
@@ -100,9 +110,8 @@ struct Configuration {
   bool SaveTemps;
   bool Shared;
   bool Static = false;
-  bool StripAll;
-  bool StripDebug;
   bool SysvHash = true;
+  bool Target1Rel;
   bool Threads;
   bool Trace;
   bool Verbose;
@@ -113,13 +122,16 @@ struct Configuration {
   bool ZNow;
   bool ZOrigin;
   bool ZRelro;
+  DiscardPolicy Discard;
+  StripPolicy Strip = StripPolicy::None;
   UnresolvedPolicy UnresolvedSymbols;
   BuildIdKind BuildId = BuildIdKind::None;
   ELFKind EKind = ELFNoneKind;
   uint16_t DefaultSymbolVersion = llvm::ELF::VER_NDX_GLOBAL;
   uint16_t EMachine = llvm::ELF::EM_NONE;
-  uint64_t EntryAddr = -1;
+  uint64_t EntryAddr = 0;
   uint64_t ImageBase;
+  uint64_t ZStackSize = -1;
   unsigned LtoJobs;
   unsigned LtoO;
   unsigned Optimize;

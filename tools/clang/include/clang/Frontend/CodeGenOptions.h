@@ -51,8 +51,9 @@ public:
   };
 
   enum VectorLibrary {
-    NoLibrary, // Don't use any vector library.
-    Accelerate // Use the Accelerate framework.
+    NoLibrary,  // Don't use any vector library.
+    Accelerate, // Use the Accelerate framework.
+    SVML        // Intel short vector math library.
   };
 
 
@@ -98,9 +99,13 @@ public:
   /// The code model to use (-mcmodel).
   std::string CodeModel;
 
-  /// The filename with path we use for coverage files. The extension will be
-  /// replaced.
-  std::string CoverageFile;
+  /// The filename with path we use for coverage data files. The runtime
+  /// allows further manipulation with the GCOV_PREFIX and GCOV_PREFIX_STRIP
+  /// environment variables.
+  std::string CoverageDataFile;
+
+  /// The filename with path we use for coverage notes files.
+  std::string CoverageNotesFile;
 
   /// The version string to put into coverage files.
   char CoverageVersion[4];
@@ -119,6 +124,9 @@ public:
 
   /// The ABI to use for passing floating point arguments.
   std::string FloatABI;
+
+  /// The floating-point denormal mode to use.
+  std::string FPDenormalMode;
 
   /// The float precision limit to use, if non-empty.
   std::string LimitFloatPrecision;

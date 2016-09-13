@@ -21,6 +21,7 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/Endian.h"
 #include "llvm/Support/FileOutputBuffer.h"
+#include "llvm/Support/RandomNumberGenerator.h"
 #include "llvm/Support/raw_ostream.h"
 #include <algorithm>
 #include <cstdio>
@@ -42,6 +43,61 @@ static const int DOSStubSize = 64;
 static const int NumberfOfDataDirectory = 16;
 
 namespace {
+
+class DebugDirectoryChunk : public Chunk {
+public:
+  DebugDirectoryChunk(const std::vector<std::unique_ptr<Chunk>> &R)
+      : Records(R) {}
+
+  size_t getSize() const override {
+    return Records.size() * sizeof(debug_directory);
+  }
+
+  void writeTo(uint8_t *B) const override {
+    auto *D = reinterpret_cast<debug_directory *>(B + OutputSectionOff);
+
+    for (const std::unique_ptr<Chunk> &Record : Records) {
+      D->Characteristics = 0;
+      D->TimeDateStamp = 0;
+      D->MajorVersion = 0;
+      D->MinorVersion = 0;
+      D->Type = COFF::IMAGE_DEBUG_TYPE_CODEVIEW;
+      D->SizeOfData = Record->getSize();
+      D->AddressOfRawData = Record->getRVA();
+      // TODO(compnerd) get the file offset
+      D->PointerToRawData = 0;
+
+      ++D;
+    }
+  }
+
+private:
+  const std::vector<std::unique_ptr<Chunk>> &Records;
+};
+
+class CVDebugRecordChunk : public Chunk {
+  size_t getSize() const override {
+    return sizeof(codeview::DebugInfo) + Config->PDBPath.size() + 1;
+  }
+
+  void writeTo(uint8_t *B) const override {
+    // Save off the DebugInfo entry to backfill the file signature (build id)
+    // in Writer::writeBuildId
+    DI = reinterpret_cast<codeview::DebugInfo *>(B + OutputSectionOff);
+
+    DI->Signature.CVSignature = OMF::Signature::PDB70;
+
+    // variable sized field (PDB Path)
+    auto *P = reinterpret_cast<char *>(B + OutputSectionOff + sizeof(*DI));
+    if (!Config->PDBPath.empty())
+      memcpy(P, Config->PDBPath.data(), Config->PDBPath.size());
+    P[Config->PDBPath.size()] = '\0';
+  }
+
+public:
+  mutable codeview::DebugInfo *DI = nullptr;
+};
+
 // The writer writes a SymbolTable result to a file.
 class Writer {
 public:
@@ -62,6 +118,7 @@ private:
   void setSectionPermissions();
   void writeSections();
   void sortExceptionTable();
+  void writeBuildId();
   void applyRelocations();
 
   llvm::Optional<coff_symbol16> createSymbol(Defined *D);
@@ -86,6 +143,10 @@ private:
   DelayLoadContents DelayIdata;
   EdataContents Edata;
   std::unique_ptr<SEHTableChunk> SEHTable;
+
+  std::unique_ptr<Chunk> DebugDirectory;
+  std::vector<std::unique_ptr<Chunk>> DebugRecords;
+  CVDebugRecordChunk *BuildId = nullptr;
 
   uint64_t FileSize;
   uint32_t PointerToSymbolTable = 0;
@@ -239,6 +300,7 @@ void Writer::run() {
   fixSafeSEHSymbols();
   writeSections();
   sortExceptionTable();
+  writeBuildId();
   if (auto EC = Buffer->commit())
     fatal(EC, "failed to write the output file");
 }
@@ -286,25 +348,46 @@ void Writer::createSections() {
 }
 
 void Writer::createMiscChunks() {
+  OutputSection *RData = createSection(".rdata");
+
   // Create thunks for locally-dllimported symbols.
   if (!Symtab->LocalImportChunks.empty()) {
-    OutputSection *Sec = createSection(".rdata");
     for (Chunk *C : Symtab->LocalImportChunks)
-      Sec->addChunk(C);
+      RData->addChunk(C);
+  }
+
+  // Create Debug Information Chunks
+  if (Config->Debug) {
+    DebugDirectory = llvm::make_unique<DebugDirectoryChunk>(DebugRecords);
+
+    // TODO(compnerd) create a coffgrp entry if DebugType::CV is not enabled
+    if (Config->DebugTypes & static_cast<unsigned>(coff::DebugType::CV)) {
+      auto Chunk = llvm::make_unique<CVDebugRecordChunk>();
+
+      BuildId = Chunk.get();
+      DebugRecords.push_back(std::move(Chunk));
+    }
+
+    RData->addChunk(DebugDirectory.get());
+    for (const std::unique_ptr<Chunk> &C : DebugRecords)
+      RData->addChunk(C.get());
   }
 
   // Create SEH table. x86-only.
   if (Config->Machine != I386)
     return;
+
   std::set<Defined *> Handlers;
+
   for (lld::coff::ObjectFile *File : Symtab->ObjectFiles) {
     if (!File->SEHCompat)
       return;
     for (SymbolBody *B : File->SEHandlers)
       Handlers.insert(cast<Defined>(B->repl()));
   }
+
   SEHTable.reset(new SEHTableChunk(Handlers));
-  createSection(".rdata")->addChunk(SEHTable.get());
+  RData->addChunk(SEHTable.get());
 }
 
 // Create .idata section for the DLL-imported symbol table.
@@ -584,22 +667,17 @@ template <typename PEHeaderTy> void Writer::writeHeader() {
     Dir[IAT].RelativeVirtualAddress = Idata.getIATRVA();
     Dir[IAT].Size = Idata.getIATSize();
   }
-  if (!DelayIdata.empty()) {
-    Dir[DELAY_IMPORT_DESCRIPTOR].RelativeVirtualAddress =
-        DelayIdata.getDirRVA();
-    Dir[DELAY_IMPORT_DESCRIPTOR].Size = DelayIdata.getDirSize();
-  }
   if (OutputSection *Sec = findSection(".rsrc")) {
     Dir[RESOURCE_TABLE].RelativeVirtualAddress = Sec->getRVA();
     Dir[RESOURCE_TABLE].Size = Sec->getVirtualSize();
   }
-  if (OutputSection *Sec = findSection(".reloc")) {
-    Dir[BASE_RELOCATION_TABLE].RelativeVirtualAddress = Sec->getRVA();
-    Dir[BASE_RELOCATION_TABLE].Size = Sec->getVirtualSize();
-  }
   if (OutputSection *Sec = findSection(".pdata")) {
     Dir[EXCEPTION_TABLE].RelativeVirtualAddress = Sec->getRVA();
     Dir[EXCEPTION_TABLE].Size = Sec->getVirtualSize();
+  }
+  if (OutputSection *Sec = findSection(".reloc")) {
+    Dir[BASE_RELOCATION_TABLE].RelativeVirtualAddress = Sec->getRVA();
+    Dir[BASE_RELOCATION_TABLE].Size = Sec->getVirtualSize();
   }
   if (Symbol *Sym = Symtab->findUnderscore("_tls_used")) {
     if (Defined *B = dyn_cast<Defined>(Sym->Body)) {
@@ -608,6 +686,10 @@ template <typename PEHeaderTy> void Writer::writeHeader() {
                                 ? sizeof(object::coff_tls_directory64)
                                 : sizeof(object::coff_tls_directory32);
     }
+  }
+  if (Config->Debug) {
+    Dir[DEBUG_DIRECTORY].RelativeVirtualAddress = DebugDirectory->getRVA();
+    Dir[DEBUG_DIRECTORY].Size = DebugDirectory->getSize();
   }
   if (Symbol *Sym = Symtab->findUnderscore("_load_config_used")) {
     if (auto *B = dyn_cast<DefinedRegular>(Sym->Body)) {
@@ -625,6 +707,11 @@ template <typename PEHeaderTy> void Writer::writeHeader() {
       Dir[LOAD_CONFIG_TABLE].RelativeVirtualAddress = B->getRVA();
       Dir[LOAD_CONFIG_TABLE].Size = LoadConfigSize;
     }
+  }
+  if (!DelayIdata.empty()) {
+    Dir[DELAY_IMPORT_DESCRIPTOR].RelativeVirtualAddress =
+        DelayIdata.getDirRVA();
+    Dir[DELAY_IMPORT_DESCRIPTOR].Size = DelayIdata.getDirSize();
   }
 
   // Write section table
@@ -713,6 +800,27 @@ void Writer::sortExceptionTable() {
     return;
   }
   errs() << "warning: don't know how to handle .pdata.\n";
+}
+
+// Backfill the CVSignature in a PDB70 Debug Record.  This backfilling allows us
+// to get reproducible builds.
+void Writer::writeBuildId() {
+  // There is nothing to backfill if BuildId was not setup.
+  if (BuildId == nullptr)
+    return;
+
+  MD5 Hash;
+  MD5::MD5Result Res;
+
+  Hash.update(ArrayRef<uint8_t>{Buffer->getBufferStart(),
+                                Buffer->getBufferEnd()});
+  Hash.final(Res);
+
+  assert(BuildId->DI->Signature.CVSignature == OMF::Signature::PDB70 &&
+         "only PDB 7.0 is supported");
+  memcpy(BuildId->DI->PDB70.Signature, Res, 16);
+  // TODO(compnerd) track the Age
+  BuildId->DI->PDB70.Age = 1;
 }
 
 OutputSection *Writer::findSection(StringRef Name) {

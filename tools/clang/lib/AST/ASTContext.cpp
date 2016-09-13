@@ -651,6 +651,10 @@ ASTContext::getCanonicalTemplateTemplateParmDecl(
                                            cast<TemplateTemplateParmDecl>(*P)));
   }
 
+  assert(!TTP->getRequiresClause() &&
+         "Unexpected requires-clause on template template-parameter");
+  Expr *const CanonRequiresClause = nullptr;
+
   TemplateTemplateParmDecl *CanonTTP
     = TemplateTemplateParmDecl::Create(*this, getTranslationUnitDecl(), 
                                        SourceLocation(), TTP->getDepth(),
@@ -660,7 +664,8 @@ ASTContext::getCanonicalTemplateTemplateParmDecl(
                          TemplateParameterList::Create(*this, SourceLocation(),
                                                        SourceLocation(),
                                                        CanonParams,
-                                                       SourceLocation()));
+                                                       SourceLocation(),
+                                                       CanonRequiresClause));
 
   // Get the new insert position for the node we care about.
   Canonical = CanonTemplateTemplateParms.FindNodeOrInsertPos(ID, InsertPos);
@@ -1734,24 +1739,29 @@ TypeInfo ASTContext::getTypeInfoImpl(const Type *T) const {
       Width = Target->getPointerWidth(0); 
       Align = Target->getPointerAlign(0);
       break;
-    case BuiltinType::OCLSampler:
-      // Samplers are modeled as integers.
-      Width = Target->getIntWidth();
-      Align = Target->getIntAlign();
+    case BuiltinType::OCLSampler: {
+      auto AS = getTargetAddressSpace(LangAS::opencl_constant);
+      Width = Target->getPointerWidth(AS);
+      Align = Target->getPointerAlign(AS);
       break;
+    }
     case BuiltinType::OCLEvent:
     case BuiltinType::OCLClkEvent:
     case BuiltinType::OCLQueue:
     case BuiltinType::OCLNDRange:
     case BuiltinType::OCLReserveID:
-#define IMAGE_TYPE(ImgType, Id, SingletonId, Access, Suffix) \
-    case BuiltinType::Id:
-#include "clang/Basic/OpenCLImageTypes.def"
-
       // Currently these types are pointers to opaque types.
       Width = Target->getPointerWidth(0);
       Align = Target->getPointerAlign(0);
       break;
+#define IMAGE_TYPE(ImgType, Id, SingletonId, Access, Suffix) \
+    case BuiltinType::Id:
+#include "clang/Basic/OpenCLImageTypes.def"
+      {
+        auto AS = getTargetAddressSpace(Target->getOpenCLImageAddrSpace());
+        Width = Target->getPointerWidth(AS);
+        Align = Target->getPointerAlign(AS);
+      }
     }
     break;
   case Type::ObjCObjectPointer:
@@ -5896,18 +5906,20 @@ void ASTContext::getObjCEncodingForTypeImpl(QualType T, std::string& S,
     ObjCInterfaceDecl *OI = T->castAs<ObjCObjectType>()->getInterface();
     S += '{';
     S += OI->getObjCRuntimeNameAsString();
-    S += '=';
-    SmallVector<const ObjCIvarDecl*, 32> Ivars;
-    DeepCollectObjCIvars(OI, true, Ivars);
-    for (unsigned i = 0, e = Ivars.size(); i != e; ++i) {
-      const FieldDecl *Field = cast<FieldDecl>(Ivars[i]);
-      if (Field->isBitField())
-        getObjCEncodingForTypeImpl(Field->getType(), S, false, true, Field);
-      else
-        getObjCEncodingForTypeImpl(Field->getType(), S, false, true, FD,
-                                   false, false, false, false, false,
-                                   EncodePointerToObjCTypedef,
-                                   NotEncodedT);
+    if (ExpandStructures) {
+      S += '=';
+      SmallVector<const ObjCIvarDecl*, 32> Ivars;
+      DeepCollectObjCIvars(OI, true, Ivars);
+      for (unsigned i = 0, e = Ivars.size(); i != e; ++i) {
+        const FieldDecl *Field = cast<FieldDecl>(Ivars[i]);
+        if (Field->isBitField())
+          getObjCEncodingForTypeImpl(Field->getType(), S, false, true, Field);
+        else
+          getObjCEncodingForTypeImpl(Field->getType(), S, false, true, FD,
+                                     false, false, false, false, false,
+                                     EncodePointerToObjCTypedef,
+                                     NotEncodedT);
+      }
     }
     S += '}';
     return;
@@ -8710,6 +8722,14 @@ bool ASTContext::DeclMustBeEmitted(const Decl *D) {
   if (VD->getInit() && VD->getInit()->HasSideEffects(*this) &&
       !VD->evaluateValue())
     return true;
+
+  // Likewise, variables with tuple-like bindings are required if their
+  // bindings have side-effects.
+  if (auto *DD = dyn_cast<DecompositionDecl>(VD))
+    for (auto *BD : DD->bindings())
+      if (auto *BindingVD = BD->getHoldingVar())
+        if (DeclMustBeEmitted(BindingVD))
+          return true;
 
   return false;
 }

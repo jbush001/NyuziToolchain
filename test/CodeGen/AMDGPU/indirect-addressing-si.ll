@@ -22,16 +22,16 @@ entry:
 
 ; XXX: Could do v_or_b32 directly
 ; CHECK-LABEL: {{^}}extract_w_offset_salu_use_vector:
-; CHECK-DAG: s_or_b32
-; CHECK-DAG: s_or_b32
-; CHECK-DAG: s_or_b32
-; CHECK-DAG: s_or_b32
-; CHECK-DAG: v_mov_b32_e32 v{{[0-9]+}}, s{{[0-9]+}}
-; CHECK-DAG: v_mov_b32_e32 v{{[0-9]+}}, s{{[0-9]+}}
-; CHECK-DAG: v_mov_b32_e32 v{{[0-9]+}}, s{{[0-9]+}}
-; CHECK-DAG: v_mov_b32_e32 v{{[0-9]+}}, s{{[0-9]+}}
 ; CHECK: s_mov_b32 m0
-; CHECK-NEXT: v_movrels_b32_e32
+; CHECK-DAG: s_or_b32
+; CHECK-DAG: s_or_b32
+; CHECK-DAG: s_or_b32
+; CHECK-DAG: s_or_b32
+; CHECK-DAG: v_mov_b32_e32 v{{[0-9]+}}, s{{[0-9]+}}
+; CHECK-DAG: v_mov_b32_e32 v{{[0-9]+}}, s{{[0-9]+}}
+; CHECK-DAG: v_mov_b32_e32 v{{[0-9]+}}, s{{[0-9]+}}
+; CHECK-DAG: v_mov_b32_e32 v{{[0-9]+}}, s{{[0-9]+}}
+; CHECK: v_movrels_b32_e32
 define void @extract_w_offset_salu_use_vector(i32 addrspace(1)* %out, i32 %in, <4 x i32> %or.val) {
 entry:
   %idx = add i32 %in, 1
@@ -125,27 +125,32 @@ entry:
 }
 
 ; CHECK-LABEL: {{^}}insert_w_offset:
-; CHECK: s_load_dword [[IN:s[0-9]+]]
-; CHECK: s_mov_b32 m0, [[IN]]
-; CHECK: v_movreld_b32_e32
-define void @insert_w_offset(float addrspace(1)* %out, i32 %in) {
+; CHECK-DAG: s_load_dword [[IN:s[0-9]+]]
+; CHECK-DAG: s_mov_b32 m0, [[IN]]
+; CHECK-DAG: v_mov_b32_e32 v[[ELT0:[0-9]+]], 1.0
+; CHECK-DAG: v_mov_b32_e32 v[[ELT1:[0-9]+]], 2.0
+; CHECK-DAG: v_mov_b32_e32 v[[ELT2:[0-9]+]], 0x40400000
+; CHECK-DAG: v_mov_b32_e32 v[[ELT3:[0-9]+]], 4.0
+; CHECK-DAG: v_mov_b32_e32 v[[INS:[0-9]+]], 0x40a00000
+; CHECK: v_movreld_b32_e32 v[[ELT1]], v[[INS]]
+; CHECK: buffer_store_dwordx4 v{{\[}}[[ELT0]]:[[ELT3]]{{\]}}
+define void @insert_w_offset(<4 x float> addrspace(1)* %out, i32 %in) {
 entry:
   %0 = add i32 %in, 1
   %1 = insertelement <4 x float> <float 1.0, float 2.0, float 3.0, float 4.0>, float 5.0, i32 %0
-  %2 = extractelement <4 x float> %1, i32 2
-  store float %2, float addrspace(1)* %out
+  store <4 x float> %1, <4 x float> addrspace(1)* %out
   ret void
 }
 
 ; CHECK-LABEL: {{^}}insert_wo_offset:
 ; CHECK: s_load_dword [[IN:s[0-9]+]]
 ; CHECK: s_mov_b32 m0, [[IN]]
-; CHECK: v_movreld_b32_e32
-define void @insert_wo_offset(float addrspace(1)* %out, i32 %in) {
+; CHECK: v_movreld_b32_e32 v[[ELT0:[0-9]+]]
+; CHECK: buffer_store_dwordx4 v{{\[}}[[ELT0]]:
+define void @insert_wo_offset(<4 x float> addrspace(1)* %out, i32 %in) {
 entry:
   %0 = insertelement <4 x float> <float 1.0, float 2.0, float 3.0, float 4.0>, float 5.0, i32 %in
-  %1 = extractelement <4 x float> %0, i32 2
-  store float %1, float addrspace(1)* %out
+  store <4 x float> %0, <4 x float> addrspace(1)* %out
   ret void
 }
 
@@ -237,13 +242,13 @@ entry:
 ; FIXME: Why is vector copied in between?
 
 ; CHECK-DAG: {{buffer|flat}}_load_dword [[IDX0:v[0-9]+]]
-; CHECK-DAG: s_mov_b32 [[S_ELT0:s[0-9]+]], 7
 ; CHECK-DAG: s_mov_b32 [[S_ELT1:s[0-9]+]], 9
+; CHECK-DAG: s_mov_b32 [[S_ELT0:s[0-9]+]], 7
 ; CHECK-DAG: v_mov_b32_e32 [[VEC_ELT0:v[0-9]+]], [[S_ELT0]]
 ; CHECK-DAG: v_mov_b32_e32 [[VEC_ELT1:v[0-9]+]], [[S_ELT1]]
 
 ; CHECK: s_mov_b64 [[MASK:s\[[0-9]+:[0-9]+\]]], exec
-; CHECK: s_waitcnt vmcnt(0) lgkmcnt(0)
+; CHECK: s_waitcnt vmcnt(0)
 
 ; CHECK: [[LOOP0:BB[0-9]+_[0-9]+]]:
 ; CHECK-NEXT: v_readfirstlane_b32 [[READLANE:s[0-9]+]], [[IDX0]]
@@ -298,8 +303,10 @@ bb2:
 ; CHECK-DAG: {{buffer|flat}}_load_dword [[IDX0:v[0-9]+]]
 ; CHECK-DAG: v_mov_b32 [[INS0:v[0-9]+]], 62
 
-; CHECK-DAG: v_mov_b32_e32 v[[VEC_ELT0:[0-9]+]], s[[S_ELT0]]
 ; CHECK-DAG: v_mov_b32_e32 v[[VEC_ELT3:[0-9]+]], s[[S_ELT3]]
+; CHECK: v_mov_b32_e32 v[[VEC_ELT2:[0-9]+]], s{{[0-9]+}}
+; CHECK: v_mov_b32_e32 v[[VEC_ELT1:[0-9]+]], s{{[0-9]+}}
+; CHECK: v_mov_b32_e32 v[[VEC_ELT0:[0-9]+]], s[[S_ELT0]]
 
 ; CHECK: [[LOOP0:BB[0-9]+_[0-9]+]]:
 ; CHECK-NEXT: v_readfirstlane_b32 [[READLANE:s[0-9]+]], [[IDX0]]
@@ -319,7 +326,7 @@ bb2:
 ; CHECK: v_cmp_eq_u32_e32 vcc, [[READLANE]], [[IDX0]]
 ; CHECK: s_mov_b32 m0, [[READLANE]]
 ; CHECK: s_and_saveexec_b64 vcc, vcc
-; CHECK-NEXT: v_movreld_b32_e32 [[VEC_ELT1]], 63
+; CHECK-NEXT: v_movreld_b32_e32 v[[VEC_ELT1]], 63
 ; CHECK-NEXT: s_xor_b64 exec, exec, vcc
 ; CHECK: s_cbranch_execnz [[LOOP1]]
 

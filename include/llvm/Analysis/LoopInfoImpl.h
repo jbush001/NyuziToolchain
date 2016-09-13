@@ -17,6 +17,7 @@
 
 #include "llvm/ADT/DepthFirstIterator.h"
 #include "llvm/ADT/PostOrderIterator.h"
+#include "llvm/ADT/SetVector.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/IR/Dominators.h"
@@ -137,7 +138,7 @@ BlockT *LoopBase<BlockT, LoopT>::getLoopPredecessor() const {
   for (typename InvBlockTraits::ChildIteratorType PI =
          InvBlockTraits::child_begin(Header),
          PE = InvBlockTraits::child_end(Header); PI != PE; ++PI) {
-    typename InvBlockTraits::NodeType *N = *PI;
+    typename InvBlockTraits::NodeRef N = *PI;
     if (!contains(N)) {     // If the block is not in the loop...
       if (Out && Out != N)
         return nullptr;     // Multiple predecessors outside the loop
@@ -162,7 +163,7 @@ BlockT *LoopBase<BlockT, LoopT>::getLoopLatch() const {
     InvBlockTraits::child_end(Header);
   BlockT *Latch = nullptr;
   for (; PI != PE; ++PI) {
-    typename InvBlockTraits::NodeType *N = *PI;
+    typename InvBlockTraits::NodeRef N = *PI;
     if (contains(N)) {
       if (Latch) return nullptr;
       Latch = N;
@@ -211,8 +212,7 @@ void LoopBase<BlockT, LoopT>::
 replaceChildLoopWith(LoopT *OldChild, LoopT *NewChild) {
   assert(OldChild->ParentLoop == this && "This loop is already broken!");
   assert(!NewChild->ParentLoop && "NewChild already has a parent!");
-  typename std::vector<LoopT *>::iterator I =
-    std::find(SubLoops.begin(), SubLoops.end(), OldChild);
+  typename std::vector<LoopT *>::iterator I = find(SubLoops, OldChild);
   assert(I != SubLoops.end() && "OldChild not in loop!");
   *I = NewChild;
   OldChild->ParentLoop = nullptr;
@@ -289,8 +289,7 @@ void LoopBase<BlockT, LoopT>::verifyLoop() const {
 
   // Check the parent loop pointer.
   if (ParentLoop) {
-    assert(std::find(ParentLoop->begin(), ParentLoop->end(), this) !=
-           ParentLoop->end() &&
+    assert(is_contained(*ParentLoop, this) &&
            "Loop is not a subloop of its parent!");
   }
 #endif
@@ -516,8 +515,26 @@ void LoopInfoBase<BlockT, LoopT>::print(raw_ostream &OS) const {
 #endif
 }
 
-template<class BlockT, class LoopT>
-void LoopInfoBase<BlockT, LoopT>::verify() const {
+template <typename T>
+bool compareVectors(std::vector<T> &BB1, std::vector<T> &BB2) {
+  std::sort(BB1.begin(), BB1.end());
+  std::sort(BB2.begin(), BB2.end());
+  return BB1 == BB2;
+}
+
+template <class BlockT, class LoopT>
+static void
+addInnerLoopsToHeadersMap(DenseMap<BlockT *, const LoopT *> &LoopHeaders,
+                          const LoopInfoBase<BlockT, LoopT> &LI,
+                          const LoopT &L) {
+  LoopHeaders[L.getHeader()] = &L;
+  for (LoopT *SL : L)
+    addInnerLoopsToHeadersMap(LoopHeaders, LI, *SL);
+}
+
+template <class BlockT, class LoopT>
+void LoopInfoBase<BlockT, LoopT>::verify(
+    const DominatorTreeBase<BlockT> &DomTree) const {
   DenseSet<const LoopT*> Loops;
   for (iterator I = begin(), E = end(); I != E; ++I) {
     assert(!(*I)->getParentLoop() && "Top-level loop has a parent!");
@@ -531,6 +548,48 @@ void LoopInfoBase<BlockT, LoopT>::verify() const {
     LoopT *L = Entry.second;
     assert(Loops.count(L) && "orphaned loop");
     assert(L->contains(BB) && "orphaned block");
+  }
+
+  // Recompute LoopInfo to verify loops structure.
+  LoopInfoBase<BlockT, LoopT> OtherLI;
+  OtherLI.analyze(DomTree);
+
+  DenseMap<BlockT *, const LoopT *> LoopHeaders1;
+  DenseMap<BlockT *, const LoopT *> LoopHeaders2;
+
+  for (LoopT *L : *this)
+    addInnerLoopsToHeadersMap(LoopHeaders1, *this, *L);
+  for (LoopT *L : OtherLI)
+    addInnerLoopsToHeadersMap(LoopHeaders2, OtherLI, *L);
+  assert(LoopHeaders1.size() == LoopHeaders2.size() &&
+         "LoopInfo is incorrect.");
+
+  auto compareLoops = [&](const LoopT *L1, const LoopT *L2) {
+    BlockT *H1 = L1->getHeader();
+    BlockT *H2 = L2->getHeader();
+    if (H1 != H2)
+      return false;
+    std::vector<BlockT *> BB1 = L1->getBlocks();
+    std::vector<BlockT *> BB2 = L2->getBlocks();
+    if (!compareVectors(BB1, BB2))
+      return false;
+
+    std::vector<BlockT *> SubLoopHeaders1;
+    std::vector<BlockT *> SubLoopHeaders2;
+    for (LoopT *L : *L1)
+      SubLoopHeaders1.push_back(L->getHeader());
+    for (LoopT *L : *L2)
+      SubLoopHeaders2.push_back(L->getHeader());
+
+    if (!compareVectors(SubLoopHeaders1, SubLoopHeaders2))
+      return false;
+    return true;
+  };
+
+  for (auto &I : LoopHeaders1) {
+    BlockT *H = I.first;
+    bool LoopsMatch = compareLoops(LoopHeaders1[H], LoopHeaders2[H]);
+    assert(LoopsMatch && "LoopInfo is incorrect.");
   }
 #endif
 }

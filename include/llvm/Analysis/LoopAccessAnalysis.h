@@ -20,6 +20,7 @@
 #include "llvm/ADT/SetVector.h"
 #include "llvm/Analysis/AliasAnalysis.h"
 #include "llvm/Analysis/AliasSetTracker.h"
+#include "llvm/Analysis/LoopPassManager.h"
 #include "llvm/Analysis/ScalarEvolutionExpressions.h"
 #include "llvm/IR/ValueHandle.h"
 #include "llvm/Pass.h"
@@ -334,9 +335,11 @@ public:
   struct PointerInfo {
     /// Holds the pointer value that we need to check.
     TrackingVH<Value> PointerValue;
-    /// Holds the pointer value at the beginning of the loop.
+    /// Holds the smallest byte address accessed by the pointer throughout all
+    /// iterations of the loop.
     const SCEV *Start;
-    /// Holds the pointer value at the end of the loop.
+    /// Holds the largest byte address accessed by the pointer throughout all
+    /// iterations of the loop, plus 1.
     const SCEV *End;
     /// Holds the information if this pointer is used for writing to memory.
     bool IsWritePtr;
@@ -775,7 +778,7 @@ class LoopAccessAnalysis
 
 public:
   typedef LoopAccessInfo Result;
-  Result run(Loop &, AnalysisManager<Loop> &);
+  Result run(Loop &, LoopAnalysisManager &);
   static StringRef name() { return "LoopAccessAnalysis"; }
 };
 
@@ -786,7 +789,7 @@ class LoopAccessInfoPrinterPass
 
 public:
   explicit LoopAccessInfoPrinterPass(raw_ostream &OS) : OS(OS) {}
-  PreservedAnalyses run(Loop &L, AnalysisManager<Loop> &AM);
+  PreservedAnalyses run(Loop &L, LoopAnalysisManager &AM);
 };
 
 inline Instruction *MemoryDepChecker::Dependence::getSource(

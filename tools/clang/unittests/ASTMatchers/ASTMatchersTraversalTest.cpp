@@ -241,6 +241,21 @@ TEST(HasDeclaration, HasDeclarationOfTemplateSpecializationType) {
                         hasDeclaration(namedDecl(hasName("A"))))))));
 }
 
+TEST(HasUnderlyingDecl, Matches) {
+  EXPECT_TRUE(matches("namespace N { template <class T> void f(T t); }"
+                      "template <class T> void g() { using N::f; f(T()); }",
+                      unresolvedLookupExpr(hasAnyDeclaration(
+                          namedDecl(hasUnderlyingDecl(hasName("::N::f")))))));
+  EXPECT_TRUE(matches(
+      "namespace N { template <class T> void f(T t); }"
+      "template <class T> void g() { N::f(T()); }",
+      unresolvedLookupExpr(hasAnyDeclaration(namedDecl(hasName("::N::f"))))));
+  EXPECT_TRUE(notMatches(
+      "namespace N { template <class T> void f(T t); }"
+      "template <class T> void g() { using N::f; f(T()); }",
+      unresolvedLookupExpr(hasAnyDeclaration(namedDecl(hasName("::N::f"))))));
+}
+
 TEST(HasType, TakesQualTypeMatcherAndMatchesExpr) {
   TypeMatcher ClassX = hasDeclaration(recordDecl(hasName("X")));
   EXPECT_TRUE(
@@ -543,6 +558,14 @@ TEST(Matcher, MatchesTypeTemplateArgument) {
       asString("int"))))));
 }
 
+TEST(Matcher, MatchesTemplateTemplateArgument) {
+  EXPECT_TRUE(matches("template<template <typename> class S> class X {};"
+                      "template<typename T> class Y {};"
+                      "X<Y> xi;",
+                      classTemplateSpecializationDecl(hasAnyTemplateArgument(
+                          refersToTemplate(templateName())))));
+}
+
 TEST(Matcher, MatchesDeclarationReferenceTemplateArgument) {
   EXPECT_TRUE(matches(
     "struct B { int next; };"
@@ -594,6 +617,14 @@ TEST(Matcher, MatchesSpecificArgument) {
       "A<int, bool> a;",
     templateSpecializationType(hasTemplateArgument(
       1, refersToType(asString("int"))))));
+
+  EXPECT_TRUE(matches(
+    "template<typename T> void f() {};"
+      "void func() { f<int>(); }",
+    functionDecl(hasTemplateArgument(0, refersToType(asString("int"))))));
+  EXPECT_TRUE(notMatches(
+    "template<typename T> void f() {};",
+    functionDecl(hasTemplateArgument(0, refersToType(asString("int"))))));
 }
 
 TEST(TemplateArgument, Matches) {
@@ -603,6 +634,11 @@ TEST(TemplateArgument, Matches) {
   EXPECT_TRUE(matches(
     "template<typename T> struct C {}; C<int> c;",
     templateSpecializationType(hasAnyTemplateArgument(templateArgument()))));
+
+  EXPECT_TRUE(matches(
+    "template<typename T> void f() {};"
+      "void func() { f<int>(); }",
+    functionDecl(hasAnyTemplateArgument(templateArgument()))));
 }
 
 TEST(RefersToIntegralType, Matches) {
@@ -2049,6 +2085,25 @@ TEST(Matcher, ForEachOverriden) {
                                                           2)));
   // A1::f overrides nothing.
   EXPECT_TRUE(notMatches(Code2, ForEachOverriddenInClass("A1")));
+}
+
+TEST(Matcher, HasAnyDeclaration) {
+  std::string Fragment = "void foo(int p1);"
+                         "void foo(int *p2);"
+                         "void bar(int p3);"
+                         "template <typename T> void baz(T t) { foo(t); }";
+
+  EXPECT_TRUE(
+      matches(Fragment, unresolvedLookupExpr(hasAnyDeclaration(functionDecl(
+                            hasParameter(0, parmVarDecl(hasName("p1"))))))));
+  EXPECT_TRUE(
+      matches(Fragment, unresolvedLookupExpr(hasAnyDeclaration(functionDecl(
+                            hasParameter(0, parmVarDecl(hasName("p2"))))))));
+  EXPECT_TRUE(
+      notMatches(Fragment, unresolvedLookupExpr(hasAnyDeclaration(functionDecl(
+                               hasParameter(0, parmVarDecl(hasName("p3"))))))));
+  EXPECT_TRUE(notMatches(Fragment, unresolvedLookupExpr(hasAnyDeclaration(
+                                       functionDecl(hasName("bar"))))));
 }
 
 } // namespace ast_matchers

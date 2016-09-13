@@ -472,21 +472,26 @@ void DarwinClang::AddLinkRuntimeLibArgs(const ArgList &Args,
     else if (isMacosxVersionLT(10, 6))
       CmdArgs.push_back("-lgcc_s.10.5");
 
-    // For OS X, we thought we would only need a static runtime library when
-    // targeting 10.4, to provide versions of the static functions which were
-    // omitted from 10.4.dylib.
+    // Originally for OS X, we thought we would only need a static runtime
+    // library when targeting 10.4, to provide versions of the static functions
+    // which were omitted from 10.4.dylib. This led to the creation of the 10.4
+    // builtins library.
     //
     // Unfortunately, that turned out to not be true, because Darwin system
     // headers can still use eprintf on i386, and it is not exported from
     // libSystem. Therefore, we still must provide a runtime library just for
     // the tiny tiny handful of projects that *might* use that symbol.
-    if (isMacosxVersionLT(10, 5)) {
+    //
+    // Then over time, we figured out it was useful to add more things to the
+    // runtime so we created libclang_rt.osx.a to provide new functions when
+    // deploying to old OS builds, and for a long time we had both eprintf and
+    // osx builtin libraries. Which just seems excessive. So with PR 28855, we
+    // are removing the eprintf library and expecting eprintf to be provided by
+    // the OS X builtins library.
+    if (isMacosxVersionLT(10, 5))
       AddLinkRuntimeLib(Args, CmdArgs, "libclang_rt.10.4.a");
-    } else {
-      if (getTriple().getArch() == llvm::Triple::x86)
-        AddLinkRuntimeLib(Args, CmdArgs, "libclang_rt.eprintf.a");
+    else
       AddLinkRuntimeLib(Args, CmdArgs, "libclang_rt.osx.a");
-    }
   }
 }
 
@@ -1078,6 +1083,18 @@ DerivedArgList *Darwin::TranslateArgs(const DerivedArgList &Args,
     if (where != StringRef()) {
       getDriver().Diag(clang::diag::err_drv_invalid_libcxx_deployment) << where;
     }
+  }
+
+  auto Arch = tools::darwin::getArchTypeForMachOArchName(BoundArch);
+  if ((Arch == llvm::Triple::arm || Arch == llvm::Triple::thumb)) {
+    if (Args.hasFlag(options::OPT_fomit_frame_pointer,
+                     options::OPT_fno_omit_frame_pointer, false))
+      getDriver().Diag(clang::diag::warn_drv_unsupported_opt_for_target)
+          << "-fomit-frame-pointer" << BoundArch;
+    if (Args.hasFlag(options::OPT_momit_leaf_frame_pointer,
+                     options::OPT_mno_omit_leaf_frame_pointer, false))
+      getDriver().Diag(clang::diag::warn_drv_unsupported_opt_for_target)
+          << "-momit-leaf-frame-pointer" << BoundArch;
   }
 
   return DAL;
@@ -1730,8 +1747,8 @@ static CudaVersion ParseCudaVersionFile(llvm::StringRef V) {
   int Major = -1, Minor = -1;
   auto First = V.split('.');
   auto Second = First.second.split('.');
-  if (!First.first.getAsInteger(10, Major) ||
-      !Second.first.getAsInteger(10, Minor))
+  if (First.first.getAsInteger(10, Major) ||
+      Second.first.getAsInteger(10, Minor))
     return CudaVersion::UNKNOWN;
 
   if (Major == 7 && Minor == 0) {
@@ -1791,22 +1808,32 @@ void Generic_GCC::CudaInstallationDetector::init(
           LibDeviceName.size(), FileName.find('.', LibDeviceName.size()));
       LibDeviceMap[GpuArch] = FilePath.str();
       // Insert map entries for specifc devices with this compute capability.
+      // NVCC's choice of libdevice library version is rather peculiar:
+      // http://docs.nvidia.com/cuda/libdevice-users-guide/basic-usage.html#version-selection
+      // TODO: this will need to be updated once CUDA-8 is released.
       if (GpuArch == "compute_20") {
         LibDeviceMap["sm_20"] = FilePath;
         LibDeviceMap["sm_21"] = FilePath;
+        LibDeviceMap["sm_32"] = FilePath;
       } else if (GpuArch == "compute_30") {
         LibDeviceMap["sm_30"] = FilePath;
-        LibDeviceMap["sm_32"] = FilePath;
+        // compute_30 is the fallback libdevice variant for sm_30+,
+        // unless CUDA specifies different version for specific GPU
+        // arch.
+        LibDeviceMap["sm_50"] = FilePath;
+        LibDeviceMap["sm_52"] = FilePath;
+        LibDeviceMap["sm_53"] = FilePath;
+        // sm_6? are currently all aliases for sm_53 in LLVM and
+        // should use compute_30.
+        LibDeviceMap["sm_60"] = FilePath;
+        LibDeviceMap["sm_61"] = FilePath;
+        LibDeviceMap["sm_62"] = FilePath;
       } else if (GpuArch == "compute_35") {
         LibDeviceMap["sm_35"] = FilePath;
         LibDeviceMap["sm_37"] = FilePath;
       } else if (GpuArch == "compute_50") {
-        LibDeviceMap["sm_50"] = FilePath;
-        LibDeviceMap["sm_52"] = FilePath;
-        LibDeviceMap["sm_53"] = FilePath;
-        LibDeviceMap["sm_60"] = FilePath;
-        LibDeviceMap["sm_61"] = FilePath;
-        LibDeviceMap["sm_62"] = FilePath;
+        // NVCC does not use compute_50 libdevice at all at the moment.
+        // The version that's shipped with CUDA-7.5 is a copy of compute_30.
       }
     }
 
@@ -3389,6 +3416,19 @@ Tool *CloudABI::buildLinker() const {
   return new tools::cloudabi::Linker(*this);
 }
 
+bool CloudABI::isPIEDefault() const {
+  // Only enable PIE on architectures that support PC-relative
+  // addressing. PC-relative addressing is required, as the process
+  // startup code must be able to relocate itself.
+  switch (getTriple().getArch()) {
+  case llvm::Triple::aarch64:
+  case llvm::Triple::x86_64:
+    return true;
+  default:
+    return false;
+  }
+}
+
 SanitizerMask CloudABI::getSupportedSanitizers() const {
   SanitizerMask Res = ToolChain::getSupportedSanitizers();
   Res |= SanitizerKind::SafeStack;
@@ -4319,19 +4359,28 @@ std::string Linux::getDynamicLinker(const ArgList &Args) const {
 
   if (Triple.isAndroid())
     return Triple.isArch64Bit() ? "/system/bin/linker64" : "/system/bin/linker";
-  else if (Triple.isMusl()) {
+
+  if (Triple.isMusl()) {
     std::string ArchName;
+    bool IsArm = false;
+
     switch (Arch) {
+    case llvm::Triple::arm:
     case llvm::Triple::thumb:
       ArchName = "arm";
+      IsArm = true;
       break;
+    case llvm::Triple::armeb:
     case llvm::Triple::thumbeb:
       ArchName = "armeb";
+      IsArm = true;
       break;
     default:
       ArchName = Triple.getArchName().str();
     }
-    if (Triple.getEnvironment() == llvm::Triple::MuslEABIHF)
+    if (IsArm &&
+        (Triple.getEnvironment() == llvm::Triple::MuslEABIHF ||
+         tools::arm::getARMFloatABI(*this, Args) == tools::arm::FloatABI::Hard))
       ArchName += "hf";
 
     return "/lib/ld-musl-" + ArchName + ".so.1";
@@ -4742,7 +4791,7 @@ SanitizerMask Linux::getSupportedSanitizers() const {
     Res |= SanitizerKind::Thread;
   if (IsX86_64 || IsMIPS64 || IsPowerPC64 || IsAArch64)
     Res |= SanitizerKind::Memory;
-  if (IsX86_64)
+  if (IsX86_64 || IsMIPS64)
     Res |= SanitizerKind::Efficiency;
   if (IsX86 || IsX86_64) {
     Res |= SanitizerKind::Function;
@@ -4814,18 +4863,23 @@ CudaToolChain::addClangTargetOptions(const llvm::opt::ArgList &DriverArgs,
   if (DriverArgs.hasArg(options::OPT_nocudalib))
     return;
 
-  std::string LibDeviceFile = CudaInstallation.getLibDeviceFile(
-      DriverArgs.getLastArgValue(options::OPT_march_EQ));
-  if (!LibDeviceFile.empty()) {
-    CC1Args.push_back("-mlink-cuda-bitcode");
-    CC1Args.push_back(DriverArgs.MakeArgString(LibDeviceFile));
+  StringRef GpuArch = DriverArgs.getLastArgValue(options::OPT_march_EQ);
+  assert(!GpuArch.empty() && "Must have an explicit GPU arch.");
+  std::string LibDeviceFile = CudaInstallation.getLibDeviceFile(GpuArch);
 
-    // Libdevice in CUDA-7.0 requires PTX version that's more recent
-    // than LLVM defaults to. Use PTX4.2 which is the PTX version that
-    // came with CUDA-7.0.
-    CC1Args.push_back("-target-feature");
-    CC1Args.push_back("+ptx42");
+  if (LibDeviceFile.empty()) {
+    getDriver().Diag(diag::err_drv_no_cuda_libdevice) << GpuArch;
+    return;
   }
+
+  CC1Args.push_back("-mlink-cuda-bitcode");
+  CC1Args.push_back(DriverArgs.MakeArgString(LibDeviceFile));
+
+  // Libdevice in CUDA-7.0 requires PTX version that's more recent
+  // than LLVM defaults to. Use PTX4.2 which is the PTX version that
+  // came with CUDA-7.0.
+  CC1Args.push_back("-target-feature");
+  CC1Args.push_back("+ptx42");
 }
 
 void CudaToolChain::AddCudaIncludeArgs(const ArgList &DriverArgs,
@@ -5041,6 +5095,10 @@ Tool *MyriadToolChain::SelectTool(const JobAction &JA) const {
 
 Tool *MyriadToolChain::buildLinker() const {
   return new tools::Myriad::Linker(*this);
+}
+
+SanitizerMask MyriadToolChain::getSupportedSanitizers() const {
+  return SanitizerKind::Address;
 }
 
 WebAssembly::WebAssembly(const Driver &D, const llvm::Triple &Triple,

@@ -31,16 +31,11 @@
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
 #include "llvm/CodeGen/SelectionDAG.h"
+#include "llvm/CodeGen/Analysis.h"
 #include "llvm/IR/DiagnosticInfo.h"
 #include "llvm/IR/Function.h"
 
 using namespace llvm;
-
-// -amdgpu-fast-fdiv - Command line option to enable faster 2.5 ulp fdiv.
-static cl::opt<bool> EnableAMDGPUFastFDIV(
-  "amdgpu-fast-fdiv",
-  cl::desc("Enable faster 2.5 ulp fdiv"),
-  cl::init(false));
 
 static unsigned findFirstFreeSGPR(CCState &CCInfo) {
   unsigned NumSGPRs = AMDGPU::SGPR_32RegClass.getNumRegs();
@@ -360,6 +355,7 @@ bool SITargetLowering::isLegalAddressingMode(const DataLayout &DL,
   case AMDGPUAS::CONSTANT_ADDRESS: {
     // If the offset isn't a multiple of 4, it probably isn't going to be
     // correctly aligned.
+    // FIXME: Can we get the real alignment here?
     if (AM.BaseOffs % 4 != 0)
       return isLegalMUBUFAddressingMode(AM);
 
@@ -438,8 +434,12 @@ bool SITargetLowering::allowsMisalignedMemoryAccesses(EVT VT,
 
   // TODO: I think v3i32 should allow unaligned accesses on CI with DS_READ_B96,
   // which isn't a simple VT.
-  if (!VT.isSimple() || VT == MVT::Other)
+  // Until MVT is extended to handle this, simply check for the size and
+  // rely on the condition below: allow accesses if the size is a multiple of 4.
+  if (VT == MVT::Other || (VT != MVT::Other && VT.getSizeInBits() > 1024 &&
+                           VT.getStoreSize() > 16)) {
     return false;
+  }
 
   if (AddrSpace == AMDGPUAS::LOCAL_ADDRESS ||
       AddrSpace == AMDGPUAS::REGION_ADDRESS) {
@@ -534,8 +534,8 @@ SITargetLowering::getPreferredVectorAction(EVT VT) const {
 
 bool SITargetLowering::shouldConvertConstantLoadToIntImm(const APInt &Imm,
                                                          Type *Ty) const {
-  const SIInstrInfo *TII = getSubtarget()->getInstrInfo();
-  return TII->isInlineConstant(Imm);
+  // FIXME: Could be smarter if called for vector constants.
+  return true;
 }
 
 bool SITargetLowering::isTypeDesirableForOp(unsigned Op, EVT VT) const {
@@ -581,8 +581,10 @@ SDValue SITargetLowering::LowerParameter(SelectionDAG &DAG, EVT VT, EVT MemVT,
 
   SDValue Ptr = LowerParameterPtr(DAG, SL, Chain, Offset);
   return DAG.getLoad(ISD::UNINDEXED, ExtTy, VT, SL, Chain, Ptr, PtrOffset,
-                     PtrInfo, MemVT, Align, MachineMemOperand::MONonTemporal |
-                                                MachineMemOperand::MOInvariant);
+                     PtrInfo, MemVT, Align,
+                     MachineMemOperand::MONonTemporal |
+                         MachineMemOperand::MODereferenceable |
+                         MachineMemOperand::MOInvariant);
 }
 
 SDValue SITargetLowering::LowerFormalArguments(
@@ -863,7 +865,7 @@ SDValue SITargetLowering::LowerFormalArguments(
 
   // Now that we've figured out where the scratch register inputs are, see if
   // should reserve the arguments and use them directly.
-  bool HasStackObjects = MF.getFrameInfo()->hasStackObjects();
+  bool HasStackObjects = MF.getFrameInfo().hasStackObjects();
   // Record that we know we have non-spill stack objects so we don't need to
   // check all stack objects later.
   if (HasStackObjects)
@@ -1453,6 +1455,36 @@ MachineBasicBlock *SITargetLowering::EmitInstrWithCustomInserter(
     return emitIndirectDst(MI, *BB, getSubtarget()->getInstrInfo());
   case AMDGPU::SI_KILL:
     return splitKillBlock(MI, BB);
+  case AMDGPU::V_CNDMASK_B64_PSEUDO: {
+    MachineRegisterInfo &MRI = BB->getParent()->getRegInfo();
+    const SIInstrInfo *TII = getSubtarget()->getInstrInfo();
+
+    unsigned Dst = MI.getOperand(0).getReg();
+    unsigned Src0 = MI.getOperand(1).getReg();
+    unsigned Src1 = MI.getOperand(2).getReg();
+    const DebugLoc &DL = MI.getDebugLoc();
+    unsigned SrcCond = MI.getOperand(3).getReg();
+
+    unsigned DstLo = MRI.createVirtualRegister(&AMDGPU::VGPR_32RegClass);
+    unsigned DstHi = MRI.createVirtualRegister(&AMDGPU::VGPR_32RegClass);
+
+    BuildMI(*BB, MI, DL, TII->get(AMDGPU::V_CNDMASK_B32_e64), DstLo)
+      .addReg(Src0, 0, AMDGPU::sub0)
+      .addReg(Src1, 0, AMDGPU::sub0)
+      .addReg(SrcCond);
+    BuildMI(*BB, MI, DL, TII->get(AMDGPU::V_CNDMASK_B32_e64), DstHi)
+      .addReg(Src0, 0, AMDGPU::sub1)
+      .addReg(Src1, 0, AMDGPU::sub1)
+      .addReg(SrcCond);
+
+    BuildMI(*BB, MI, DL, TII->get(AMDGPU::REG_SEQUENCE), Dst)
+      .addReg(DstLo)
+      .addImm(AMDGPU::sub0)
+      .addReg(DstHi)
+      .addImm(AMDGPU::sub1);
+    MI.eraseFromParent();
+    return BB;
+  }
   default:
     return AMDGPUTargetLowering::EmitInstrWithCustomInserter(MI, BB);
   }
@@ -1644,10 +1676,10 @@ void SITargetLowering::createDebuggerPrologueStackObjects(
   // For each dimension:
   for (unsigned i = 0; i < 3; ++i) {
     // Create fixed stack object for work group ID.
-    ObjectIdx = MF.getFrameInfo()->CreateFixedObject(4, i * 4, true);
+    ObjectIdx = MF.getFrameInfo().CreateFixedObject(4, i * 4, true);
     Info->setDebuggerWorkGroupIDStackObjectIndex(i, ObjectIdx);
     // Create fixed stack object for work item ID.
-    ObjectIdx = MF.getFrameInfo()->CreateFixedObject(4, i * 4 + 16, true);
+    ObjectIdx = MF.getFrameInfo().CreateFixedObject(4, i * 4 + 16, true);
     Info->setDebuggerWorkItemIDStackObjectIndex(i, ObjectIdx);
   }
 }
@@ -1762,7 +1794,8 @@ SDValue SITargetLowering::getSegmentAperture(unsigned AS,
   MachinePointerInfo PtrInfo(V, StructOffset);
   return DAG.getLoad(MVT::i32, SL, QueuePtr.getValue(1), Ptr, PtrInfo,
                      MinAlign(64, StructOffset),
-                     MachineMemOperand::MOInvariant);
+                     MachineMemOperand::MODereferenceable |
+                         MachineMemOperand::MOInvariant);
 }
 
 SDValue SITargetLowering::lowerADDRSPACECAST(SDValue Op,
@@ -1880,7 +1913,8 @@ SDValue SITargetLowering::LowerGlobalAddress(AMDGPUMachineFunction *MFI,
   MachinePointerInfo PtrInfo(UndefValue::get(PtrTy));
 
   return DAG.getLoad(PtrVT, DL, DAG.getEntryNode(), GOTAddr, PtrInfo, Align,
-                     MachineMemOperand::MOInvariant);
+                     MachineMemOperand::MODereferenceable |
+                         MachineMemOperand::MOInvariant);
 }
 
 SDValue SITargetLowering::lowerTRAP(SDValue Op,
@@ -2100,9 +2134,10 @@ SDValue SITargetLowering::LowerINTRINSIC_WO_CHAIN(SDValue Op,
     };
 
     MachineMemOperand *MMO = MF.getMachineMemOperand(
-      MachinePointerInfo(),
-      MachineMemOperand::MOLoad | MachineMemOperand::MOInvariant,
-      VT.getStoreSize(), 4);
+        MachinePointerInfo(),
+        MachineMemOperand::MOLoad | MachineMemOperand::MODereferenceable |
+            MachineMemOperand::MOInvariant,
+        VT.getStoreSize(), 4);
     return DAG.getMemIntrinsicNode(AMDGPUISD::LOAD_CONSTANT, DL,
                                    Op->getVTList(), Ops, VT, MMO);
   }
@@ -2212,6 +2247,32 @@ SDValue SITargetLowering::LowerINTRINSIC_WO_CHAIN(SDValue Op,
 
     return DAG.getNode(AMDGPUISD::DIV_SCALE, DL, Op->getVTList(), Src0,
                        Denominator, Numerator);
+  }
+  case Intrinsic::amdgcn_icmp: {
+    const auto *CD = dyn_cast<ConstantSDNode>(Op.getOperand(3));
+    int CondCode = CD->getSExtValue();
+
+    if (CondCode < ICmpInst::Predicate::FIRST_ICMP_PREDICATE ||
+        CondCode >= ICmpInst::Predicate::BAD_ICMP_PREDICATE)
+      return DAG.getUNDEF(VT);
+
+    ICmpInst::Predicate IcInput = static_cast<ICmpInst::Predicate>(CondCode);
+    ISD::CondCode CCOpcode = getICmpCondCode(IcInput);
+    return DAG.getNode(AMDGPUISD::SETCC, DL, VT, Op.getOperand(1),
+                       Op.getOperand(2), DAG.getCondCode(CCOpcode));
+  }
+  case Intrinsic::amdgcn_fcmp: {
+    const auto *CD = dyn_cast<ConstantSDNode>(Op.getOperand(3));
+    int CondCode = CD->getSExtValue();
+
+    if (CondCode <= FCmpInst::Predicate::FCMP_FALSE ||
+        CondCode >= FCmpInst::Predicate::FCMP_TRUE)
+      return DAG.getUNDEF(VT);
+
+    FCmpInst::Predicate IcInput = static_cast<FCmpInst::Predicate>(CondCode);
+    ISD::CondCode CCOpcode = getFCmpCondCode(IcInput);
+    return DAG.getNode(AMDGPUISD::SETCC, DL, VT, Op.getOperand(1),
+                       Op.getOperand(2), DAG.getCondCode(CCOpcode));
   }
   case Intrinsic::amdgcn_fmul_legacy:
     return DAG.getNode(AMDGPUISD::FMUL_LEGACY, DL, VT,
@@ -2355,7 +2416,7 @@ SDValue SITargetLowering::LowerLOAD(SDValue Op, SelectionDAG &DAG) const {
     // have the same legalization requires ments as global and private
     // loads.
     //
-    // Fall-through
+    LLVM_FALLTHROUGH;
   case AMDGPUAS::GLOBAL_ADDRESS:
   case AMDGPUAS::FLAT_ADDRESS:
     if (NumElements > 4)
@@ -2435,22 +2496,31 @@ SDValue SITargetLowering::lowerFastUnsafeFDIV(SDValue Op,
   bool Unsafe = DAG.getTarget().Options.UnsafeFPMath;
 
   if (const ConstantFPSDNode *CLHS = dyn_cast<ConstantFPSDNode>(LHS)) {
-    if ((Unsafe || (VT == MVT::f32 && !Subtarget->hasFP32Denormals())) &&
-        CLHS->isExactlyValue(1.0)) {
-      // v_rcp_f32 and v_rsq_f32 do not support denormals, and according to
-      // the CI documentation has a worst case error of 1 ulp.
-      // OpenCL requires <= 2.5 ulp for 1.0 / x, so it should always be OK to
-      // use it as long as we aren't trying to use denormals.
+    if ((Unsafe || (VT == MVT::f32 && !Subtarget->hasFP32Denormals()))) {
 
-      // 1.0 / sqrt(x) -> rsq(x)
-      //
-      // XXX - Is UnsafeFPMath sufficient to do this for f64? The maximum ULP
-      // error seems really high at 2^29 ULP.
-      if (RHS.getOpcode() == ISD::FSQRT)
-        return DAG.getNode(AMDGPUISD::RSQ, SL, VT, RHS.getOperand(0));
+      if (CLHS->isExactlyValue(1.0)) {
+        // v_rcp_f32 and v_rsq_f32 do not support denormals, and according to
+        // the CI documentation has a worst case error of 1 ulp.
+        // OpenCL requires <= 2.5 ulp for 1.0 / x, so it should always be OK to
+        // use it as long as we aren't trying to use denormals.
 
-      // 1.0 / x -> rcp(x)
-      return DAG.getNode(AMDGPUISD::RCP, SL, VT, RHS);
+        // 1.0 / sqrt(x) -> rsq(x)
+        //
+        // XXX - Is UnsafeFPMath sufficient to do this for f64? The maximum ULP
+        // error seems really high at 2^29 ULP.
+        if (RHS.getOpcode() == ISD::FSQRT)
+          return DAG.getNode(AMDGPUISD::RSQ, SL, VT, RHS.getOperand(0));
+
+        // 1.0 / x -> rcp(x)
+        return DAG.getNode(AMDGPUISD::RCP, SL, VT, RHS);
+      }
+
+      // Same as for 1.0, but expand the sign out of the constant.
+      if (CLHS->isExactlyValue(-1.0)) {
+        // -1.0 / x -> rcp (fneg x)
+        SDValue FNegRHS = DAG.getNode(ISD::FNEG, SL, VT, RHS);
+        return DAG.getNode(AMDGPUISD::RCP, SL, VT, FNegRHS);
+      }
     }
   }
 
@@ -3686,7 +3756,7 @@ SITargetLowering::getRegForInlineAsmConstraint(const TargetRegisterInfo *TRI,
       default:
         return std::make_pair(0U, nullptr);
       case 32:
-        return std::make_pair(0U, &AMDGPU::SGPR_32RegClass);
+        return std::make_pair(0U, &AMDGPU::SReg_32RegClass);
       case 64:
         return std::make_pair(0U, &AMDGPU::SGPR_64RegClass);
       case 128:

@@ -385,6 +385,40 @@ def err_decomp_decl_template : Error<
   "decomposition declaration template not supported">;
 def err_decomp_decl_not_alone : Error<
   "decomposition declaration must be the only declaration in its group">;
+def err_decomp_decl_requires_init : Error<
+  "decomposition declaration %0 requires an initializer">;
+def err_decomp_decl_paren_init : Error<
+  "decomposition declaration %0 cannot have a parenthesized initializer">;
+def err_decomp_decl_wrong_number_bindings : Error<
+  "type %0 decomposes into %2 elements, but %select{only |}3%1 "
+  "names were provided">;
+def err_decomp_decl_unbindable_type : Error<
+  "cannot decompose %select{union|non-class, non-array}1 type %2">;
+def err_decomp_decl_multiple_bases_with_members : Error<
+  "cannot decompose class type %1: "
+  "%select{its base classes %2 and|both it and its base class}0 %3 "
+  "have non-static data members">;
+def err_decomp_decl_ambiguous_base : Error<
+  "cannot decompose members of ambiguous base class %1 of %0:%2">;
+def err_decomp_decl_non_public_base : Error<
+  "cannot decompose members of non-public base class %1 of %0">;
+def err_decomp_decl_non_public_member : Error<
+  "cannot decompose non-public member %0 of %1">;
+def err_decomp_decl_anon_union_member : Error<
+  "cannot decompose class type %0 because it has an anonymous "
+  "%select{struct|union}1 member">;
+def err_decomp_decl_std_tuple_element_not_specialized : Error<
+  "cannot decompose this type; 'std::tuple_element<%0>::type' "
+  "does not name a type">;
+def err_decomp_decl_std_tuple_size_not_constant : Error<
+  "cannot decompose this type; 'std::tuple_size<%0>::value' "
+  "is not a valid integral constant expression">;
+def note_in_binding_decl_init : Note<
+  "in implicit initialization of binding declaration %0">;
+
+def err_std_type_trait_not_class_template : Error<
+  "unsupported standard library implementation: "
+  "'std::%0' is not a class template">;
 
 // C++ using declarations
 def err_using_requires_qualname : Error<
@@ -2538,7 +2572,7 @@ def warn_attribute_wrong_decl_type : Warning<
   "Objective-C instance methods|init methods of interface or class extension declarations|"
   "variables, functions and classes|"
   "functions, variables, classes, and Objective-C interfaces|"
-  "Objective-C protocols|"
+  "Objective-C protocols|variables with static or thread storage duration|"
   "functions and global variables|structs, unions, and typedefs|structs and typedefs|"
   "interface or protocol declarations|kernel functions|non-K&R-style functions|"
   "variables, enums, fields and typedefs|functions, methods, enums, and classes|"
@@ -2622,8 +2656,20 @@ def note_overridden_method : Note<
 def note_protocol_method : Note<
   "protocol method is here">;
 
-def warn_available_using_star_case : Warning<
-  "using '*' case here, platform %0 is not accounted for">, InGroup<UnguardedAvailability>;
+def warn_unguarded_availability :
+  Warning<"%0 is only available on %1 %2 or newer">,
+  InGroup<UnguardedAvailability>, DefaultIgnore;
+def warn_partial_availability : Warning<"%0 is only available conditionally">,
+    InGroup<UnguardedAvailability>, DefaultIgnore;
+def note_partial_availability_silence : Note<
+  "explicitly redeclare %0 to silence this warning">;
+def note_unguarded_available_silence : Note<
+  "enclose %0 in an @available check to silence this warning">;
+def warn_partial_message : Warning<"%0 is partial: %1">,
+    InGroup<UnguardedAvailability>, DefaultIgnore;
+def warn_partial_fwdclass_message : Warning<
+    "%0 may be partial because the receiver type is unknown">,
+    InGroup<UnguardedAvailability>, DefaultIgnore;
 
 // Thread Safety Attributes
 def warn_invalid_capability_name : Warning<
@@ -4030,14 +4076,10 @@ def ext_explicit_instantiation_duplicate : ExtWarn<
     InGroup<MicrosoftTemplate>;
 def note_previous_explicit_instantiation : Note<
     "previous explicit instantiation is here">;
-def ext_explicit_instantiation_after_specialization : Extension<
-    "explicit instantiation of %0 that occurs after an explicit "
-    "specialization will be ignored (C++11 extension)">,
-    InGroup<CXX11>;
-def warn_cxx98_compat_explicit_instantiation_after_specialization : Warning<
-    "explicit instantiation of %0 that occurs after an explicit "
-    "specialization is incompatible with C++98">,
-    InGroup<CXX98CompatPedantic>, DefaultIgnore;
+def warn_explicit_instantiation_after_specialization : Warning<
+  "explicit instantiation of %0 that occurs after an explicit "
+  "specialization has no effect">,
+  InGroup<DiagGroup<"instantiation-after-specialization">>;
 def note_previous_template_specialization : Note<
     "previous template specialization is here">;
 def err_explicit_instantiation_nontemplate_type : Error<
@@ -4245,15 +4287,6 @@ def err_not_found_by_two_phase_lookup : Error<"call to function %0 that is neith
 def note_not_found_by_two_phase_lookup : Note<"%0 should be declared prior to the "
     "call site%select{| or in %2| or in an associated namespace of one of its arguments}1">;
 def err_undeclared_use : Error<"use of undeclared %0">;
-def warn_partial_availability : Warning<"%0 is only available conditionally">,
-    InGroup<PartialAvailability>, DefaultIgnore;
-def note_partial_availability_silence : Note<
-  "explicitly redeclare %0 to silence this warning">;
-def warn_partial_message : Warning<"%0 is partial: %1">,
-    InGroup<PartialAvailability>, DefaultIgnore;
-def warn_partial_fwdclass_message : Warning<
-    "%0 may be partial because the receiver type is unknown">,
-    InGroup<PartialAvailability>, DefaultIgnore;
 def warn_deprecated : Warning<"%0 is deprecated">,
     InGroup<DeprecatedDeclarations>;
 def warn_property_method_deprecated :
@@ -4282,8 +4315,6 @@ def note_availability_specified_here : Note<
   "%select{unavailable|deleted|deprecated|partial}1 here">;
 def note_implicitly_deleted : Note<
   "explicitly defaulted function was implicitly deleted here">;
-def note_inherited_deleted_here : Note<
-  "deleted constructor was inherited here">;
 def warn_not_enough_argument : Warning<
   "not enough variable arguments in %0 declaration to fit a sentinel">,
   InGroup<Sentinel>;
@@ -4706,6 +4737,8 @@ def note_protected_by_vla_type_alias : Note<
   "jump bypasses initialization of VLA type alias">;
 def note_protected_by_constexpr_if : Note<
   "jump enters controlled statement of constexpr if">;
+def note_protected_by_if_available : Note<
+  "jump enters controlled statement of if available">;
 def note_protected_by_vla : Note<
   "jump bypasses initialization of variable length array">;
 def note_protected_by_objc_try : Note<
@@ -5455,6 +5488,9 @@ def warn_pointer_indirection_from_incompatible_type : Warning<
   "dereference of type %1 that was reinterpret_cast from type %0 has undefined "
   "behavior">,
   InGroup<UndefinedReinterpretCast>, DefaultIgnore;
+def warn_taking_address_of_packed_member : Warning<
+  "taking address of packed member %0 of class or structure %q1 may result in an unaligned pointer value">,
+  InGroup<DiagGroup<"address-of-packed-member">>;
 
 def err_objc_object_assignment : Error<
   "cannot assign to class object (%0 invalid)">;
@@ -6640,6 +6676,9 @@ def err_global_call_not_config : Error<
 def err_ref_bad_target : Error<
   "reference to %select{__device__|__global__|__host__|__host__ __device__}0 "
   "function %1 in %select{__device__|__global__|__host__|__host__ __device__}2 function">;
+def err_ref_bad_target_global_initializer : Error<
+  "reference to %select{__device__|__global__|__host__|__host__ __device__}0 "
+  "function %1 in global initializer">;
 def warn_kern_is_method : Extension<
   "kernel function %0 is a member function; this may not be accepted by nvcc">,
   InGroup<CudaCompat>;
@@ -6800,7 +6839,12 @@ def note_inequality_comparison_to_or_assign : Note<
 
 def err_incomplete_type_used_in_type_trait_expr : Error<
   "incomplete type %0 used in type trait expression">;
-  
+
+def err_require_constant_init_failed : Error<
+  "variable does not have a constant initializer">;
+def note_declared_required_constant_init_here : Note<
+  "required by 'require_constant_initializer' attribute here">;
+
 def err_dimension_expr_not_constant_integer : Error<
   "dimension expression does not evaluate to a constant unsigned int">;
 
@@ -6958,6 +7002,10 @@ def err_in_class_initializer_not_yet_parsed
 def err_in_class_initializer_not_yet_parsed_outer_class
     : Error<"cannot use defaulted default constructor of %0 within "
             "%1 outside of member functions because %2 has an initializer">;
+def err_in_class_initializer_cycle
+    : Error<"default member initializer for %0 uses itself">;
+def err_exception_spec_cycle
+    : Error<"exception specification of %0 uses itself">;
 
 def ext_in_class_initializer_non_constant : Extension<
   "in-class initializer for static data member is not a constant expression; "
@@ -7008,14 +7056,9 @@ def ext_ms_anonymous_record : ExtWarn<
   InGroup<MicrosoftAnonTag>;
 
 // C++ local classes
-def err_reference_to_local_var_in_enclosing_function : Error<
-  "reference to local variable %0 declared in enclosing function %1">;
-def err_reference_to_local_var_in_enclosing_block : Error<
-  "reference to local variable %0 declared in enclosing block literal">;
-def err_reference_to_local_var_in_enclosing_lambda : Error<
-  "reference to local variable %0 declared in enclosing lambda expression">;
-def err_reference_to_local_var_in_enclosing_context : Error<
-  "reference to local variable %0 declared in enclosing context">;
+def err_reference_to_local_in_enclosing_context : Error<
+  "reference to local %select{variable|binding}1 %0 declared in enclosing "
+  "%select{%3|block literal|lambda expression|context}2">;
 
 def err_static_data_member_not_allowed_in_local_class : Error<
   "static data member %0 not allowed in local class %1">; 
@@ -7914,6 +7957,10 @@ def err_event_t_addr_space_qual : Error<
   "the event_t type can only be used with __private address space qualifier">;
 def err_expected_kernel_void_return_type : Error<
   "kernel must have void return type">;
+def err_sampler_initializer_not_integer : Error<
+  "sampler_t initialization requires 32-bit integer, not %0">;
+def warn_sampler_initializer_invalid_bits : Warning<
+  "sampler initializer has invalid %0 bits">, InGroup<SpirCompat>, DefaultIgnore;
 def err_sampler_argument_required : Error<
   "sampler_t variable required - got %0">;
 def err_wrong_sampler_addressspace: Error<
@@ -8372,8 +8419,8 @@ def err_omp_schedule_nonmonotonic_ordered : Error<
   "'schedule' clause with 'nonmonotonic' modifier cannot be specified if an 'ordered' clause is specified">;
 def err_omp_ordered_simd : Error<
   "'ordered' clause with a parameter can not be specified in '#pragma omp %0' directive">;
-def err_omp_variable_in_map_and_dsa : Error<
-  "%0 variable cannot be in a map clause in '#pragma omp %1' directive">;
+def err_omp_variable_in_given_clause_and_dsa : Error<
+  "%0 variable cannot be in a %1 clause in '#pragma omp %2' directive">;
 def err_omp_param_or_this_in_clause : Error<
   "expected reference to one of the parameters of function %0%select{| or 'this'}1">;
 def err_omp_expected_uniform_param : Error<
@@ -8420,6 +8467,15 @@ def note_related_result_type_explicit : Note<
 }
 
 let CategoryName = "Modules Issue" in {
+def err_module_interface_implementation_mismatch : Error<
+  "%select{'module'|'module partition'|'module implementation'}0 declaration "
+  "found while %select{not |not |}0building module interface">;
+def err_current_module_name_mismatch : Error<
+  "module name '%0' specified on command line does not match name of module">;
+def err_module_redefinition : Error<
+  "redefinition of module '%0'">;
+def note_prev_module_definition : Note<"previously defined here">;
+def note_prev_module_definition_from_ast_file : Note<"module loaded from '%0'">;
 def err_module_private_specialization : Error<
   "%select{template|partial|member}0 specialization cannot be "
   "declared __module_private__">;
@@ -8647,5 +8703,9 @@ def warn_block_literal_attributes_on_omitted_return_type : Warning<
 def warn_block_literal_qualifiers_on_omitted_return_type : Warning<
   "'%0' qualifier on omitted return type %1 has no effect">,
   InGroup<IgnoredQualifiers>;
+
+def ext_warn_gnu_final : ExtWarn<
+  "__final is a GNU extension, consider using C++11 final">,
+  InGroup<GccCompat>;
 
 } // end of sema component.

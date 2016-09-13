@@ -13,12 +13,36 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/Analysis/OptimizationDiagnosticInfo.h"
+#include "llvm/Analysis/BranchProbabilityInfo.h"
 #include "llvm/Analysis/LazyBlockFrequencyInfo.h"
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/IR/DiagnosticInfo.h"
+#include "llvm/IR/Dominators.h"
 #include "llvm/IR/LLVMContext.h"
 
 using namespace llvm;
+
+OptimizationRemarkEmitter::OptimizationRemarkEmitter(Function *F)
+    : F(F), BFI(nullptr) {
+  if (!F->getContext().getDiagnosticHotnessRequested())
+    return;
+
+  // First create a dominator tree.
+  DominatorTree DT;
+  DT.recalculate(*F);
+
+  // Generate LoopInfo from it.
+  LoopInfo LI;
+  LI.analyze(DT);
+
+  // Then compute BranchProbabilityInfo.
+  BranchProbabilityInfo BPI;
+  BPI.calculate(*F, LI);
+
+  // Finally compute BFI.
+  OwnedBFI = llvm::make_unique<BlockFrequencyInfo>(*F, BPI, LI);
+  BFI = OwnedBFI.get();
+}
 
 Optional<uint64_t> OptimizationRemarkEmitter::computeHotness(const Value *V) {
   if (!BFI)
@@ -44,29 +68,32 @@ void OptimizationRemarkEmitter::emitOptimizationRemark(const char *PassName,
 
 void OptimizationRemarkEmitter::emitOptimizationRemarkMissed(
     const char *PassName, const DebugLoc &DLoc, const Value *V,
-    const Twine &Msg) {
+    const Twine &Msg, bool IsVerbose) {
   LLVMContext &Ctx = F->getContext();
-  Ctx.diagnose(DiagnosticInfoOptimizationRemarkMissed(PassName, *F, DLoc, Msg,
-                                                      computeHotness(V)));
+  if (!IsVerbose || shouldEmitVerbose())
+    Ctx.diagnose(DiagnosticInfoOptimizationRemarkMissed(PassName, *F, DLoc, Msg,
+                                                        computeHotness(V)));
 }
 
 void OptimizationRemarkEmitter::emitOptimizationRemarkMissed(
-    const char *PassName, Loop *L, const Twine &Msg) {
-  emitOptimizationRemarkMissed(PassName, L->getStartLoc(), L->getHeader(), Msg);
+    const char *PassName, Loop *L, const Twine &Msg, bool IsVerbose) {
+  emitOptimizationRemarkMissed(PassName, L->getStartLoc(), L->getHeader(), Msg,
+                               IsVerbose);
 }
 
 void OptimizationRemarkEmitter::emitOptimizationRemarkAnalysis(
     const char *PassName, const DebugLoc &DLoc, const Value *V,
-    const Twine &Msg) {
+    const Twine &Msg, bool IsVerbose) {
   LLVMContext &Ctx = F->getContext();
-  Ctx.diagnose(DiagnosticInfoOptimizationRemarkAnalysis(PassName, *F, DLoc, Msg,
-                                                        computeHotness(V)));
+  if (!IsVerbose || shouldEmitVerbose())
+    Ctx.diagnose(DiagnosticInfoOptimizationRemarkAnalysis(
+        PassName, *F, DLoc, Msg, computeHotness(V)));
 }
 
 void OptimizationRemarkEmitter::emitOptimizationRemarkAnalysis(
-    const char *PassName, Loop *L, const Twine &Msg) {
+    const char *PassName, Loop *L, const Twine &Msg, bool IsVerbose) {
   emitOptimizationRemarkAnalysis(PassName, L->getStartLoc(), L->getHeader(),
-                                 Msg);
+                                 Msg, IsVerbose);
 }
 
 void OptimizationRemarkEmitter::emitOptimizationRemarkAnalysisFPCommute(
@@ -119,7 +146,7 @@ char OptimizationRemarkEmitterAnalysis::PassID;
 
 OptimizationRemarkEmitter
 OptimizationRemarkEmitterAnalysis::run(Function &F,
-                                       AnalysisManager<Function> &AM) {
+                                       FunctionAnalysisManager &AM) {
   BlockFrequencyInfo *BFI;
 
   if (F.getContext().getDiagnosticHotnessRequested())

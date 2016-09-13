@@ -44,7 +44,8 @@ bool Sema::isLibstdcxxEagerExceptionSpecHack(const Declarator &D) {
 
   // All the problem cases are member functions named "swap" within class
   // templates declared directly within namespace std.
-  if (!RD || RD->getEnclosingNamespaceContext() != getStdNamespace() ||
+  if (!RD || !getStdNamespace() ||
+      !RD->getEnclosingNamespaceContext()->Equals(getStdNamespace()) ||
       !RD->getIdentifier() || !RD->getDescribedClassTemplate() ||
       !D.getIdentifier() || !D.getIdentifier()->isStr("swap"))
     return false;
@@ -234,7 +235,7 @@ bool Sema::CheckEquivalentExceptionSpec(FunctionDecl *Old, FunctionDecl *New) {
     //   If a declaration of a function has an implicit
     //   exception-specification, other declarations of the function shall
     //   not specify an exception-specification.
-    if (getLangOpts().CPlusPlus11 &&
+    if (getLangOpts().CPlusPlus11 && getLangOpts().CXXExceptions &&
         hasImplicitExceptionSpec(Old) != hasImplicitExceptionSpec(New)) {
       Diag(New->getLocation(), diag::ext_implicit_exception_spec_mismatch)
         << hasImplicitExceptionSpec(Old);

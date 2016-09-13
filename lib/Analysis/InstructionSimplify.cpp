@@ -2104,8 +2104,8 @@ computePointerICmp(const DataLayout &DL, const TargetLibraryInfo *TLI,
     GetUnderlyingObjects(RHS, RHSUObjs, DL);
 
     // Is the set of underlying objects all noalias calls?
-    auto IsNAC = [](SmallVectorImpl<Value *> &Objects) {
-      return std::all_of(Objects.begin(), Objects.end(), isNoAliasCall);
+    auto IsNAC = [](ArrayRef<Value *> Objects) {
+      return all_of(Objects, isNoAliasCall);
     };
 
     // Is the set of underlying objects all things which must be disjoint from
@@ -2114,8 +2114,8 @@ computePointerICmp(const DataLayout &DL, const TargetLibraryInfo *TLI,
     // live with the compared-to allocation). For globals, we exclude symbols
     // that might be resolve lazily to symbols in another dynamically-loaded
     // library (and, thus, could be malloc'ed by the implementation).
-    auto IsAllocDisjoint = [](SmallVectorImpl<Value *> &Objects) {
-      return std::all_of(Objects.begin(), Objects.end(), [](Value *V) {
+    auto IsAllocDisjoint = [](ArrayRef<Value *> Objects) {
+      return all_of(Objects, [](Value *V) {
         if (const AllocaInst *AI = dyn_cast<AllocaInst>(V))
           return AI->getParent() && AI->getFunction() && AI->isStaticAlloca();
         if (const GlobalValue *GV = dyn_cast<GlobalValue>(V))
@@ -2149,6 +2149,145 @@ computePointerICmp(const DataLayout &DL, const TargetLibraryInfo *TLI,
   }
 
   // Otherwise, fail.
+  return nullptr;
+}
+
+static Value *simplifyICmpWithConstant(CmpInst::Predicate Pred, Value *LHS,
+                                       Value *RHS) {
+  const APInt *C;
+  if (!match(RHS, m_APInt(C)))
+    return nullptr;
+
+  // Rule out tautological comparisons (eg., ult 0 or uge 0).
+  ConstantRange RHS_CR = ICmpInst::makeConstantRange(Pred, *C);
+  if (RHS_CR.isEmptySet())
+    return ConstantInt::getFalse(GetCompareTy(RHS));
+  if (RHS_CR.isFullSet())
+    return ConstantInt::getTrue(GetCompareTy(RHS));
+
+  // Many binary operators with constant RHS have easy to compute constant
+  // range.  Use them to check whether the comparison is a tautology.
+  unsigned Width = C->getBitWidth();
+  APInt Lower = APInt(Width, 0);
+  APInt Upper = APInt(Width, 0);
+  const APInt *C2;
+  if (match(LHS, m_URem(m_Value(), m_APInt(C2)))) {
+    // 'urem x, C2' produces [0, C2).
+    Upper = *C2;
+  } else if (match(LHS, m_SRem(m_Value(), m_APInt(C2)))) {
+    // 'srem x, C2' produces (-|C2|, |C2|).
+    Upper = C2->abs();
+    Lower = (-Upper) + 1;
+  } else if (match(LHS, m_UDiv(m_APInt(C2), m_Value()))) {
+    // 'udiv C2, x' produces [0, C2].
+    Upper = *C2 + 1;
+  } else if (match(LHS, m_UDiv(m_Value(), m_APInt(C2)))) {
+    // 'udiv x, C2' produces [0, UINT_MAX / C2].
+    APInt NegOne = APInt::getAllOnesValue(Width);
+    if (*C2 != 0)
+      Upper = NegOne.udiv(*C2) + 1;
+  } else if (match(LHS, m_SDiv(m_APInt(C2), m_Value()))) {
+    if (C2->isMinSignedValue()) {
+      // 'sdiv INT_MIN, x' produces [INT_MIN, INT_MIN / -2].
+      Lower = *C2;
+      Upper = Lower.lshr(1) + 1;
+    } else {
+      // 'sdiv C2, x' produces [-|C2|, |C2|].
+      Upper = C2->abs() + 1;
+      Lower = (-Upper) + 1;
+    }
+  } else if (match(LHS, m_SDiv(m_Value(), m_APInt(C2)))) {
+    APInt IntMin = APInt::getSignedMinValue(Width);
+    APInt IntMax = APInt::getSignedMaxValue(Width);
+    if (C2->isAllOnesValue()) {
+      // 'sdiv x, -1' produces [INT_MIN + 1, INT_MAX]
+      //    where C2 != -1 and C2 != 0 and C2 != 1
+      Lower = IntMin + 1;
+      Upper = IntMax + 1;
+    } else if (C2->countLeadingZeros() < Width - 1) {
+      // 'sdiv x, C2' produces [INT_MIN / C2, INT_MAX / C2]
+      //    where C2 != -1 and C2 != 0 and C2 != 1
+      Lower = IntMin.sdiv(*C2);
+      Upper = IntMax.sdiv(*C2);
+      if (Lower.sgt(Upper))
+        std::swap(Lower, Upper);
+      Upper = Upper + 1;
+      assert(Upper != Lower && "Upper part of range has wrapped!");
+    }
+  } else if (match(LHS, m_NUWShl(m_APInt(C2), m_Value()))) {
+    // 'shl nuw C2, x' produces [C2, C2 << CLZ(C2)]
+    Lower = *C2;
+    Upper = Lower.shl(Lower.countLeadingZeros()) + 1;
+  } else if (match(LHS, m_NSWShl(m_APInt(C2), m_Value()))) {
+    if (C2->isNegative()) {
+      // 'shl nsw C2, x' produces [C2 << CLO(C2)-1, C2]
+      unsigned ShiftAmount = C2->countLeadingOnes() - 1;
+      Lower = C2->shl(ShiftAmount);
+      Upper = *C2 + 1;
+    } else {
+      // 'shl nsw C2, x' produces [C2, C2 << CLZ(C2)-1]
+      unsigned ShiftAmount = C2->countLeadingZeros() - 1;
+      Lower = *C2;
+      Upper = C2->shl(ShiftAmount) + 1;
+    }
+  } else if (match(LHS, m_LShr(m_Value(), m_APInt(C2)))) {
+    // 'lshr x, C2' produces [0, UINT_MAX >> C2].
+    APInt NegOne = APInt::getAllOnesValue(Width);
+    if (C2->ult(Width))
+      Upper = NegOne.lshr(*C2) + 1;
+  } else if (match(LHS, m_LShr(m_APInt(C2), m_Value()))) {
+    // 'lshr C2, x' produces [C2 >> (Width-1), C2].
+    unsigned ShiftAmount = Width - 1;
+    if (*C2 != 0 && cast<BinaryOperator>(LHS)->isExact())
+      ShiftAmount = C2->countTrailingZeros();
+    Lower = C2->lshr(ShiftAmount);
+    Upper = *C2 + 1;
+  } else if (match(LHS, m_AShr(m_Value(), m_APInt(C2)))) {
+    // 'ashr x, C2' produces [INT_MIN >> C2, INT_MAX >> C2].
+    APInt IntMin = APInt::getSignedMinValue(Width);
+    APInt IntMax = APInt::getSignedMaxValue(Width);
+    if (C2->ult(Width)) {
+      Lower = IntMin.ashr(*C2);
+      Upper = IntMax.ashr(*C2) + 1;
+    }
+  } else if (match(LHS, m_AShr(m_APInt(C2), m_Value()))) {
+    unsigned ShiftAmount = Width - 1;
+    if (*C2 != 0 && cast<BinaryOperator>(LHS)->isExact())
+      ShiftAmount = C2->countTrailingZeros();
+    if (C2->isNegative()) {
+      // 'ashr C2, x' produces [C2, C2 >> (Width-1)]
+      Lower = *C2;
+      Upper = C2->ashr(ShiftAmount) + 1;
+    } else {
+      // 'ashr C2, x' produces [C2 >> (Width-1), C2]
+      Lower = C2->ashr(ShiftAmount);
+      Upper = *C2 + 1;
+    }
+  } else if (match(LHS, m_Or(m_Value(), m_APInt(C2)))) {
+    // 'or x, C2' produces [C2, UINT_MAX].
+    Lower = *C2;
+  } else if (match(LHS, m_And(m_Value(), m_APInt(C2)))) {
+    // 'and x, C2' produces [0, C2].
+    Upper = *C2 + 1;
+  } else if (match(LHS, m_NUWAdd(m_Value(), m_APInt(C2)))) {
+    // 'add nuw x, C2' produces [C2, UINT_MAX].
+    Lower = *C2;
+  }
+
+  ConstantRange LHS_CR =
+      Lower != Upper ? ConstantRange(Lower, Upper) : ConstantRange(Width, true);
+
+  if (auto *I = dyn_cast<Instruction>(LHS))
+    if (auto *Ranges = I->getMetadata(LLVMContext::MD_range))
+      LHS_CR = LHS_CR.intersectWith(getConstantRangeFromMetadata(*Ranges));
+
+  if (!LHS_CR.isFullSet()) {
+    if (RHS_CR.contains(LHS_CR))
+      return ConstantInt::getTrue(GetCompareTy(RHS));
+    if (RHS_CR.inverse().contains(LHS_CR))
+      return ConstantInt::getFalse(GetCompareTy(RHS));
+  }
+
   return nullptr;
 }
 
@@ -2290,139 +2429,8 @@ static Value *SimplifyICmpInst(unsigned Predicate, Value *LHS, Value *RHS,
     }
   }
 
-  // See if we are doing a comparison with a constant integer.
-  if (ConstantInt *CI = dyn_cast<ConstantInt>(RHS)) {
-    // Rule out tautological comparisons (eg., ult 0 or uge 0).
-    ConstantRange RHS_CR = ICmpInst::makeConstantRange(Pred, CI->getValue());
-    if (RHS_CR.isEmptySet())
-      return ConstantInt::getFalse(CI->getContext());
-    if (RHS_CR.isFullSet())
-      return ConstantInt::getTrue(CI->getContext());
-
-    // Many binary operators with constant RHS have easy to compute constant
-    // range.  Use them to check whether the comparison is a tautology.
-    unsigned Width = CI->getBitWidth();
-    APInt Lower = APInt(Width, 0);
-    APInt Upper = APInt(Width, 0);
-    ConstantInt *CI2;
-    if (match(LHS, m_URem(m_Value(), m_ConstantInt(CI2)))) {
-      // 'urem x, CI2' produces [0, CI2).
-      Upper = CI2->getValue();
-    } else if (match(LHS, m_SRem(m_Value(), m_ConstantInt(CI2)))) {
-      // 'srem x, CI2' produces (-|CI2|, |CI2|).
-      Upper = CI2->getValue().abs();
-      Lower = (-Upper) + 1;
-    } else if (match(LHS, m_UDiv(m_ConstantInt(CI2), m_Value()))) {
-      // 'udiv CI2, x' produces [0, CI2].
-      Upper = CI2->getValue() + 1;
-    } else if (match(LHS, m_UDiv(m_Value(), m_ConstantInt(CI2)))) {
-      // 'udiv x, CI2' produces [0, UINT_MAX / CI2].
-      APInt NegOne = APInt::getAllOnesValue(Width);
-      if (!CI2->isZero())
-        Upper = NegOne.udiv(CI2->getValue()) + 1;
-    } else if (match(LHS, m_SDiv(m_ConstantInt(CI2), m_Value()))) {
-      if (CI2->isMinSignedValue()) {
-        // 'sdiv INT_MIN, x' produces [INT_MIN, INT_MIN / -2].
-        Lower = CI2->getValue();
-        Upper = Lower.lshr(1) + 1;
-      } else {
-        // 'sdiv CI2, x' produces [-|CI2|, |CI2|].
-        Upper = CI2->getValue().abs() + 1;
-        Lower = (-Upper) + 1;
-      }
-    } else if (match(LHS, m_SDiv(m_Value(), m_ConstantInt(CI2)))) {
-      APInt IntMin = APInt::getSignedMinValue(Width);
-      APInt IntMax = APInt::getSignedMaxValue(Width);
-      const APInt &Val = CI2->getValue();
-      if (Val.isAllOnesValue()) {
-        // 'sdiv x, -1' produces [INT_MIN + 1, INT_MAX]
-        //    where CI2 != -1 and CI2 != 0 and CI2 != 1
-        Lower = IntMin + 1;
-        Upper = IntMax + 1;
-      } else if (Val.countLeadingZeros() < Width - 1) {
-        // 'sdiv x, CI2' produces [INT_MIN / CI2, INT_MAX / CI2]
-        //    where CI2 != -1 and CI2 != 0 and CI2 != 1
-        Lower = IntMin.sdiv(Val);
-        Upper = IntMax.sdiv(Val);
-        if (Lower.sgt(Upper))
-          std::swap(Lower, Upper);
-        Upper = Upper + 1;
-        assert(Upper != Lower && "Upper part of range has wrapped!");
-      }
-    } else if (match(LHS, m_NUWShl(m_ConstantInt(CI2), m_Value()))) {
-      // 'shl nuw CI2, x' produces [CI2, CI2 << CLZ(CI2)]
-      Lower = CI2->getValue();
-      Upper = Lower.shl(Lower.countLeadingZeros()) + 1;
-    } else if (match(LHS, m_NSWShl(m_ConstantInt(CI2), m_Value()))) {
-      if (CI2->isNegative()) {
-        // 'shl nsw CI2, x' produces [CI2 << CLO(CI2)-1, CI2]
-        unsigned ShiftAmount = CI2->getValue().countLeadingOnes() - 1;
-        Lower = CI2->getValue().shl(ShiftAmount);
-        Upper = CI2->getValue() + 1;
-      } else {
-        // 'shl nsw CI2, x' produces [CI2, CI2 << CLZ(CI2)-1]
-        unsigned ShiftAmount = CI2->getValue().countLeadingZeros() - 1;
-        Lower = CI2->getValue();
-        Upper = CI2->getValue().shl(ShiftAmount) + 1;
-      }
-    } else if (match(LHS, m_LShr(m_Value(), m_ConstantInt(CI2)))) {
-      // 'lshr x, CI2' produces [0, UINT_MAX >> CI2].
-      APInt NegOne = APInt::getAllOnesValue(Width);
-      if (CI2->getValue().ult(Width))
-        Upper = NegOne.lshr(CI2->getValue()) + 1;
-    } else if (match(LHS, m_LShr(m_ConstantInt(CI2), m_Value()))) {
-      // 'lshr CI2, x' produces [CI2 >> (Width-1), CI2].
-      unsigned ShiftAmount = Width - 1;
-      if (!CI2->isZero() && cast<BinaryOperator>(LHS)->isExact())
-        ShiftAmount = CI2->getValue().countTrailingZeros();
-      Lower = CI2->getValue().lshr(ShiftAmount);
-      Upper = CI2->getValue() + 1;
-    } else if (match(LHS, m_AShr(m_Value(), m_ConstantInt(CI2)))) {
-      // 'ashr x, CI2' produces [INT_MIN >> CI2, INT_MAX >> CI2].
-      APInt IntMin = APInt::getSignedMinValue(Width);
-      APInt IntMax = APInt::getSignedMaxValue(Width);
-      if (CI2->getValue().ult(Width)) {
-        Lower = IntMin.ashr(CI2->getValue());
-        Upper = IntMax.ashr(CI2->getValue()) + 1;
-      }
-    } else if (match(LHS, m_AShr(m_ConstantInt(CI2), m_Value()))) {
-      unsigned ShiftAmount = Width - 1;
-      if (!CI2->isZero() && cast<BinaryOperator>(LHS)->isExact())
-        ShiftAmount = CI2->getValue().countTrailingZeros();
-      if (CI2->isNegative()) {
-        // 'ashr CI2, x' produces [CI2, CI2 >> (Width-1)]
-        Lower = CI2->getValue();
-        Upper = CI2->getValue().ashr(ShiftAmount) + 1;
-      } else {
-        // 'ashr CI2, x' produces [CI2 >> (Width-1), CI2]
-        Lower = CI2->getValue().ashr(ShiftAmount);
-        Upper = CI2->getValue() + 1;
-      }
-    } else if (match(LHS, m_Or(m_Value(), m_ConstantInt(CI2)))) {
-      // 'or x, CI2' produces [CI2, UINT_MAX].
-      Lower = CI2->getValue();
-    } else if (match(LHS, m_And(m_Value(), m_ConstantInt(CI2)))) {
-      // 'and x, CI2' produces [0, CI2].
-      Upper = CI2->getValue() + 1;
-    } else if (match(LHS, m_NUWAdd(m_Value(), m_ConstantInt(CI2)))) {
-      // 'add nuw x, CI2' produces [CI2, UINT_MAX].
-      Lower = CI2->getValue();
-    }
-
-    ConstantRange LHS_CR = Lower != Upper ? ConstantRange(Lower, Upper)
-                                          : ConstantRange(Width, true);
-
-    if (auto *I = dyn_cast<Instruction>(LHS))
-      if (auto *Ranges = I->getMetadata(LLVMContext::MD_range))
-        LHS_CR = LHS_CR.intersectWith(getConstantRangeFromMetadata(*Ranges));
-
-    if (!LHS_CR.isFullSet()) {
-      if (RHS_CR.contains(LHS_CR))
-        return ConstantInt::getTrue(RHS->getContext());
-      if (RHS_CR.inverse().contains(LHS_CR))
-        return ConstantInt::getFalse(RHS->getContext());
-    }
-  }
+  if (Value *V = simplifyICmpWithConstant(Pred, LHS, RHS))
+    return V;
 
   // If both operands have range metadata, use the metadata
   // to simplify the comparison.
@@ -2773,7 +2781,7 @@ static Value *SimplifyICmpInst(unsigned Predicate, Value *LHS, Value *RHS,
                      Q.CxtI, Q.DT);
       if (!KnownNonNegative)
         break;
-      // fall-through
+      LLVM_FALLTHROUGH;
     case ICmpInst::ICMP_EQ:
     case ICmpInst::ICMP_UGT:
     case ICmpInst::ICMP_UGE:
@@ -2784,7 +2792,7 @@ static Value *SimplifyICmpInst(unsigned Predicate, Value *LHS, Value *RHS,
                      Q.CxtI, Q.DT);
       if (!KnownNonNegative)
         break;
-      // fall-through
+      LLVM_FALLTHROUGH;
     case ICmpInst::ICMP_NE:
     case ICmpInst::ICMP_ULT:
     case ICmpInst::ICMP_ULE:
@@ -2804,7 +2812,7 @@ static Value *SimplifyICmpInst(unsigned Predicate, Value *LHS, Value *RHS,
                      Q.CxtI, Q.DT);
       if (!KnownNonNegative)
         break;
-      // fall-through
+      LLVM_FALLTHROUGH;
     case ICmpInst::ICMP_NE:
     case ICmpInst::ICMP_UGT:
     case ICmpInst::ICMP_UGE:
@@ -2815,7 +2823,7 @@ static Value *SimplifyICmpInst(unsigned Predicate, Value *LHS, Value *RHS,
                      Q.CxtI, Q.DT);
       if (!KnownNonNegative)
         break;
-      // fall-through
+      LLVM_FALLTHROUGH;
     case ICmpInst::ICMP_EQ:
     case ICmpInst::ICMP_ULT:
     case ICmpInst::ICMP_ULE:
@@ -2877,7 +2885,7 @@ static Value *SimplifyICmpInst(unsigned Predicate, Value *LHS, Value *RHS,
     case Instruction::LShr:
       if (ICmpInst::isSigned(Pred))
         break;
-      // fall-through
+      LLVM_FALLTHROUGH;
     case Instruction::SDiv:
     case Instruction::AShr:
       if (!LBO->isExact() || !RBO->isExact())
@@ -3094,6 +3102,16 @@ static Value *SimplifyICmpInst(unsigned Predicate, Value *LHS, Value *RHS,
   if (LHS->getType()->isPointerTy())
     if (auto *C = computePointerICmp(Q.DL, Q.TLI, Q.DT, Pred, Q.CxtI, LHS, RHS))
       return C;
+  if (auto *CLHS = dyn_cast<PtrToIntOperator>(LHS))
+    if (auto *CRHS = dyn_cast<PtrToIntOperator>(RHS))
+      if (Q.DL.getTypeSizeInBits(CLHS->getPointerOperandType()) ==
+              Q.DL.getTypeSizeInBits(CLHS->getType()) &&
+          Q.DL.getTypeSizeInBits(CRHS->getPointerOperandType()) ==
+              Q.DL.getTypeSizeInBits(CRHS->getType()))
+        if (auto *C = computePointerICmp(Q.DL, Q.TLI, Q.DT, Pred, Q.CxtI,
+                                         CLHS->getPointerOperand(),
+                                         CRHS->getPointerOperand()))
+          return C;
 
   if (GetElementPtrInst *GLHS = dyn_cast<GetElementPtrInst>(LHS)) {
     if (GEPOperator *GRHS = dyn_cast<GEPOperator>(RHS)) {
@@ -3121,17 +3139,16 @@ static Value *SimplifyICmpInst(unsigned Predicate, Value *LHS, Value *RHS,
   // If a bit is known to be zero for A and known to be one for B,
   // then A and B cannot be equal.
   if (ICmpInst::isEquality(Pred)) {
-    if (ConstantInt *CI = dyn_cast<ConstantInt>(RHS)) {
-      uint32_t BitWidth = CI->getBitWidth();
+    const APInt *RHSVal;
+    if (match(RHS, m_APInt(RHSVal))) {
+      unsigned BitWidth = RHSVal->getBitWidth();
       APInt LHSKnownZero(BitWidth, 0);
       APInt LHSKnownOne(BitWidth, 0);
       computeKnownBits(LHS, LHSKnownZero, LHSKnownOne, Q.DL, /*Depth=*/0, Q.AC,
                        Q.CxtI, Q.DT);
-      const APInt &RHSVal = CI->getValue();
-      if (((LHSKnownZero & RHSVal) != 0) || ((LHSKnownOne & ~RHSVal) != 0))
-        return Pred == ICmpInst::ICMP_EQ
-                   ? ConstantInt::getFalse(CI->getContext())
-                   : ConstantInt::getTrue(CI->getContext());
+      if (((LHSKnownZero & *RHSVal) != 0) || ((LHSKnownOne & ~(*RHSVal)) != 0))
+        return Pred == ICmpInst::ICMP_EQ ? ConstantInt::getFalse(ITy)
+                                         : ConstantInt::getTrue(ITy);
     }
   }
 
@@ -3177,17 +3194,18 @@ static Value *SimplifyFCmpInst(unsigned Predicate, Value *LHS, Value *RHS,
   }
 
   // Fold trivial predicates.
+  Type *RetTy = GetCompareTy(LHS);
   if (Pred == FCmpInst::FCMP_FALSE)
-    return ConstantInt::get(GetCompareTy(LHS), 0);
+    return getFalse(RetTy);
   if (Pred == FCmpInst::FCMP_TRUE)
-    return ConstantInt::get(GetCompareTy(LHS), 1);
+    return getTrue(RetTy);
 
   // UNO/ORD predicates can be trivially folded if NaNs are ignored.
   if (FMF.noNaNs()) {
     if (Pred == FCmpInst::FCMP_UNO)
-      return ConstantInt::get(GetCompareTy(LHS), 0);
+      return getFalse(RetTy);
     if (Pred == FCmpInst::FCMP_ORD)
-      return ConstantInt::get(GetCompareTy(LHS), 1);
+      return getTrue(RetTy);
   }
 
   // fcmp pred x, undef  and  fcmp pred undef, x
@@ -3195,15 +3213,15 @@ static Value *SimplifyFCmpInst(unsigned Predicate, Value *LHS, Value *RHS,
   if (isa<UndefValue>(LHS) || isa<UndefValue>(RHS)) {
     // Choosing NaN for the undef will always make unordered comparison succeed
     // and ordered comparison fail.
-    return ConstantInt::get(GetCompareTy(LHS), CmpInst::isUnordered(Pred));
+    return ConstantInt::get(RetTy, CmpInst::isUnordered(Pred));
   }
 
   // fcmp x,x -> true/false.  Not all compares are foldable.
   if (LHS == RHS) {
     if (CmpInst::isTrueWhenEqual(Pred))
-      return ConstantInt::get(GetCompareTy(LHS), 1);
+      return getTrue(RetTy);
     if (CmpInst::isFalseWhenEqual(Pred))
-      return ConstantInt::get(GetCompareTy(LHS), 0);
+      return getFalse(RetTy);
   }
 
   // Handle fcmp with constant RHS
@@ -3218,11 +3236,11 @@ static Value *SimplifyFCmpInst(unsigned Predicate, Value *LHS, Value *RHS,
     // If the constant is a nan, see if we can fold the comparison based on it.
     if (CFP->getValueAPF().isNaN()) {
       if (FCmpInst::isOrdered(Pred)) // True "if ordered and foo"
-        return ConstantInt::getFalse(CFP->getContext());
+        return getFalse(RetTy);
       assert(FCmpInst::isUnordered(Pred) &&
              "Comparison must be either ordered or unordered!");
       // True if unordered.
-      return ConstantInt::get(GetCompareTy(LHS), 1);
+      return getTrue(RetTy);
     }
     // Check whether the constant is an infinity.
     if (CFP->getValueAPF().isInfinity()) {
@@ -3230,10 +3248,10 @@ static Value *SimplifyFCmpInst(unsigned Predicate, Value *LHS, Value *RHS,
         switch (Pred) {
         case FCmpInst::FCMP_OLT:
           // No value is ordered and less than negative infinity.
-          return ConstantInt::get(GetCompareTy(LHS), 0);
+          return getFalse(RetTy);
         case FCmpInst::FCMP_UGE:
           // All values are unordered with or at least negative infinity.
-          return ConstantInt::get(GetCompareTy(LHS), 1);
+          return getTrue(RetTy);
         default:
           break;
         }
@@ -3241,10 +3259,10 @@ static Value *SimplifyFCmpInst(unsigned Predicate, Value *LHS, Value *RHS,
         switch (Pred) {
         case FCmpInst::FCMP_OGT:
           // No value is ordered and greater than infinity.
-          return ConstantInt::get(GetCompareTy(LHS), 0);
+          return getFalse(RetTy);
         case FCmpInst::FCMP_ULE:
           // All values are unordered with and at most infinity.
-          return ConstantInt::get(GetCompareTy(LHS), 1);
+          return getTrue(RetTy);
         default:
           break;
         }
@@ -3254,12 +3272,12 @@ static Value *SimplifyFCmpInst(unsigned Predicate, Value *LHS, Value *RHS,
       switch (Pred) {
       case FCmpInst::FCMP_UGE:
         if (CannotBeOrderedLessThanZero(LHS, Q.TLI))
-          return ConstantInt::get(GetCompareTy(LHS), 1);
+          return getTrue(RetTy);
         break;
       case FCmpInst::FCMP_OLT:
         // X < 0
         if (CannotBeOrderedLessThanZero(LHS, Q.TLI))
-          return ConstantInt::get(GetCompareTy(LHS), 0);
+          return getFalse(RetTy);
         break;
       default:
         break;
@@ -3632,6 +3650,32 @@ static Value *SimplifyGEPInst(Type *SrcTy, ArrayRef<Value *> Ops,
                          m_SpecificInt(TyAllocSize))))
           if (Value *R = PtrToIntOrZero(P))
             return R;
+      }
+    }
+  }
+
+  if (Q.DL.getTypeAllocSize(LastType) == 1 &&
+      all_of(Ops.slice(1).drop_back(1),
+             [](Value *Idx) { return match(Idx, m_Zero()); })) {
+    unsigned PtrWidth =
+        Q.DL.getPointerSizeInBits(Ops[0]->getType()->getPointerAddressSpace());
+    if (Q.DL.getTypeSizeInBits(Ops.back()->getType()) == PtrWidth) {
+      APInt BasePtrOffset(PtrWidth, 0);
+      Value *StrippedBasePtr =
+          Ops[0]->stripAndAccumulateInBoundsConstantOffsets(Q.DL,
+                                                            BasePtrOffset);
+
+      // gep (gep V, C), (sub 0, V) -> C
+      if (match(Ops.back(),
+                m_Sub(m_Zero(), m_PtrToInt(m_Specific(StrippedBasePtr))))) {
+        auto *CI = ConstantInt::get(GEPTy->getContext(), BasePtrOffset);
+        return ConstantExpr::getIntToPtr(CI, GEPTy);
+      }
+      // gep (gep V, C), (xor V, -1) -> C-1
+      if (match(Ops.back(),
+                m_Xor(m_PtrToInt(m_Specific(StrippedBasePtr)), m_AllOnes()))) {
+        auto *CI = ConstantInt::get(GEPTy->getContext(), BasePtrOffset - 1);
+        return ConstantExpr::getIntToPtr(CI, GEPTy);
       }
     }
   }
@@ -4356,7 +4400,8 @@ static bool replaceAndRecursivelySimplifyImpl(Instruction *I, Value *SimpleV,
 
     // Gracefully handle edge cases where the instruction is not wired into any
     // parent block.
-    if (I->getParent())
+    if (I->getParent() && !I->isEHPad() && !isa<TerminatorInst>(I) &&
+        !I->mayHaveSideEffects())
       I->eraseFromParent();
   } else {
     Worklist.insert(I);
@@ -4384,7 +4429,8 @@ static bool replaceAndRecursivelySimplifyImpl(Instruction *I, Value *SimpleV,
 
     // Gracefully handle edge cases where the instruction is not wired into any
     // parent block.
-    if (I->getParent())
+    if (I->getParent() && !I->isEHPad() && !isa<TerminatorInst>(I) &&
+        !I->mayHaveSideEffects())
       I->eraseFromParent();
   }
   return Simplified;

@@ -41,6 +41,7 @@ using namespace llvm::support::endian;
 using namespace lld;
 using namespace lld::elf;
 
+namespace {
 // A resolved relocation. The Sec and Offset fields are set if the relocation
 // was resolved to an offset within a section.
 template <class ELFT>
@@ -48,6 +49,7 @@ struct ResolvedReloc {
   InputSectionBase<ELFT> *Sec;
   typename ELFT::uint Offset;
 };
+} // end anonymous namespace
 
 template <class ELFT>
 static typename ELFT::uint getAddend(InputSectionBase<ELFT> &Sec,
@@ -172,7 +174,7 @@ template <class ELFT> static bool isReserved(InputSectionBase<ELFT> *Sec) {
   case SHT_PREINIT_ARRAY:
     return true;
   default:
-    StringRef S = Sec->getSectionName();
+    StringRef S = Sec->Name;
 
     // We do not want to reclaim sections if they can be referred
     // by __start_* and __stop_* symbols.

@@ -27,7 +27,7 @@ static const LangAS::Map DefaultAddrSpaceMap = { 0 };
 TargetInfo::TargetInfo(const llvm::Triple &T) : TargetOpts(), Triple(T) {
   // Set defaults.  Defaults are set for a 32-bit RISC platform, like PPC or
   // SPARC.  These should be overridden by concrete targets as needed.
-  BigEndian = true;
+  BigEndian = !T.isLittleEndian();
   TLSSupported = true;
   NoAsmVariants = false;
   HasFloat128 = false;
@@ -306,8 +306,9 @@ void TargetInfo::adjust(const LangOptions &Opts) {
     }
     LongDoubleWidth = LongDoubleAlign = 128;
 
-    assert(PointerWidth == 32 || PointerWidth == 64);
-    bool Is32BitArch = PointerWidth == 32;
+    unsigned MaxPointerWidth = getMaxPointerWidth();
+    assert(MaxPointerWidth == 32 || MaxPointerWidth == 64);
+    bool Is32BitArch = MaxPointerWidth == 32;
     SizeType = Is32BitArch ? UnsignedInt : UnsignedLong;
     PtrDiffType = Is32BitArch ? SignedInt : SignedLong;
     IntPtrType = Is32BitArch ? SignedInt : SignedLong;

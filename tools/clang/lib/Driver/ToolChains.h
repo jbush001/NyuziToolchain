@@ -190,7 +190,7 @@ protected:
     /// \brief Print information about the detected CUDA installation.
     void print(raw_ostream &OS) const;
 
-    /// \brief Get the deteced Cuda install's version.
+    /// \brief Get the detected Cuda install's version.
     CudaVersion version() const { return Version; }
     /// \brief Get the detected Cuda installation path.
     StringRef getInstallPath() const { return InstallPath; }
@@ -585,7 +585,7 @@ public:
   void AddLinkARCArgs(const llvm::opt::ArgList &Args,
                       llvm::opt::ArgStringList &CmdArgs) const override;
 
-  unsigned GetDefaultDwarfVersion() const override { return 2; }
+  unsigned GetDefaultDwarfVersion() const override { return 4; }
   // Until dtrace (via CTF) and LLDB can deal with distributed debug info,
   // Darwin defaults to standalone/full debug info.
   bool GetDefaultStandaloneDebug() const override { return true; }
@@ -632,8 +632,7 @@ public:
   void AddCXXStdlibLibArgs(const llvm::opt::ArgList &Args,
                            llvm::opt::ArgStringList &CmdArgs) const override;
 
-  bool isPIEDefault() const override { return true; }
-
+  bool isPIEDefault() const override;
   SanitizerMask getSupportedSanitizers() const override;
   SanitizerMask getDefaultSanitizers() const override;
 
@@ -1165,6 +1164,7 @@ public:
       llvm::opt::ArgStringList &CC1Args) const override;
   Tool *SelectTool(const JobAction &JA) const override;
   unsigned GetDefaultDwarfVersion() const override { return 2; }
+  SanitizerMask getSupportedSanitizers() const override;
 
 protected:
   Tool *buildLinker() const override;

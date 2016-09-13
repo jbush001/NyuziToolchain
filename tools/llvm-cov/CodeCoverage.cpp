@@ -463,6 +463,13 @@ int CodeCoverageTool::run(Command Cmd, int argc, const char **argv) {
     CompareFilenamesOnly = FilenameEquivalence;
 
     ViewOpts.Format = Format;
+    SmallString<128> ObjectFilePath(this->ObjectFilename);
+    if (std::error_code EC = sys::fs::make_absolute(ObjectFilePath)) {
+      error(EC.message(), this->ObjectFilename);
+      return 1;
+    }
+    sys::path::native(ObjectFilePath);
+    ViewOpts.ObjectFilename = ObjectFilePath.c_str();
     switch (ViewOpts.Format) {
     case CoverageViewOptions::OutputFormat::Text:
       ViewOpts.Colors = UseColor == cl::BOU_UNSET
@@ -584,6 +591,15 @@ int CodeCoverageTool::show(int argc, const char **argv,
   cl::alias ShowOutputDirectoryA("o", cl::desc("Alias for --output-dir"),
                                  cl::aliasopt(ShowOutputDirectory));
 
+  cl::opt<uint32_t> TabSize(
+      "tab-size", cl::init(2),
+      cl::desc(
+          "Set tab expansion size for html coverage reports (default = 2)"));
+
+  cl::opt<std::string> ProjectTitle(
+      "project-title", cl::Optional,
+      cl::desc("Set project title for the coverage report"));
+
   auto Err = commandLineParser(argc, argv);
   if (Err)
     return Err;
@@ -596,6 +612,8 @@ int CodeCoverageTool::show(int argc, const char **argv,
   ViewOpts.ShowExpandedRegions = ShowExpansions;
   ViewOpts.ShowFunctionInstantiations = ShowInstantiations;
   ViewOpts.ShowOutputDirectory = ShowOutputDirectory;
+  ViewOpts.TabSize = TabSize;
+  ViewOpts.ProjectTitle = ProjectTitle;
 
   if (ViewOpts.hasOutputDirectory()) {
     if (auto E = sys::fs::create_directories(ViewOpts.ShowOutputDirectory)) {
@@ -603,6 +621,19 @@ int CodeCoverageTool::show(int argc, const char **argv,
       return 1;
     }
   }
+
+  sys::fs::file_status Status;
+  if (sys::fs::status(PGOFilename, Status)) {
+    error("profdata file error: can not get the file status. \n");
+    return 1;
+  }
+
+  auto ModifiedTime = Status.getLastModificationTime();
+  std::string ModifiedTimeStr = ModifiedTime.str();
+  size_t found = ModifiedTimeStr.rfind(":");
+  ViewOpts.CreatedTimeStr = (found != std::string::npos)
+                                ? "Created: " + ModifiedTimeStr.substr(0, found)
+                                : "Created: " + ModifiedTimeStr;
 
   auto Coverage = load();
   if (!Coverage)
@@ -637,7 +668,9 @@ int CodeCoverageTool::show(int argc, const char **argv,
   }
 
   // Show files
-  bool ShowFilenames = SourceFiles.size() != 1;
+  bool ShowFilenames =
+      (SourceFiles.size() != 1) || ViewOpts.hasOutputDirectory() ||
+      (ViewOpts.Format == CoverageViewOptions::OutputFormat::HTML);
 
   if (SourceFiles.empty())
     // Get the source files from the function coverage mapping.
@@ -646,7 +679,7 @@ int CodeCoverageTool::show(int argc, const char **argv,
 
   // Create an index out of the source files.
   if (ViewOpts.hasOutputDirectory()) {
-    if (Error E = Printer->createIndexFile(SourceFiles)) {
+    if (Error E = Printer->createIndexFile(SourceFiles, *Coverage)) {
       error("Could not create index file!", toString(std::move(E)));
       return 1;
     }
@@ -697,7 +730,7 @@ int CodeCoverageTool::report(int argc, const char **argv,
   if (!Coverage)
     return 1;
 
-  CoverageReport Report(ViewOpts, std::move(Coverage));
+  CoverageReport Report(ViewOpts, *Coverage.get());
   if (SourceFiles.empty())
     Report.renderFileReports(llvm::outs());
   else

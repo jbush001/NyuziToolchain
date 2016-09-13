@@ -119,7 +119,7 @@ The ``carries_dependency`` attribute specifies dependency propagation into and
 out of functions.
 
 When specified on a function or Objective-C method, the ``carries_dependency``
-attribute means that the return value carries a dependency out of the function, 
+attribute means that the return value carries a dependency out of the function,
 so that the implementation need not constrain ordering upon return from that
 function. Implementations of the function and its caller may choose to preserve
 dependencies instead of emitting memory ordering instructions such as fences.
@@ -470,6 +470,12 @@ semantics:
 * A conversion from type ``T`` to a value of type ``U`` is permitted if ``T``
   and ``U`` are compatible types.  This conversion is given "conversion" rank.
 
+* If no viable candidates are otherwise available, we allow a conversion from a
+  pointer of type ``T*`` to a pointer of type ``U*``, where ``T`` and ``U`` are
+  incompatible. This conversion is ranked below all other types of conversions.
+  Please note: ``U`` lacking qualifiers that are present on ``T`` is sufficient
+  for ``T`` and ``U`` to be incompatible.
+
 The declaration of ``overloadable`` functions is restricted to function
 declarations and definitions.  Most importantly, if any function with a given
 name is given the ``overloadable`` attribute, then all function declarations
@@ -685,10 +691,10 @@ This attribute specifies that the Objective-C class to which it applies is visib
 def ObjCBoxableDocs : Documentation {
     let Category = DocCatFunction;
     let Content = [{
-Structs and unions marked with the ``objc_boxable`` attribute can be used 
+Structs and unions marked with the ``objc_boxable`` attribute can be used
 with the Objective-C boxed expression syntax, ``@(...)``.
 
-**Usage**: ``__attribute__((objc_boxable))``. This attribute 
+**Usage**: ``__attribute__((objc_boxable))``. This attribute
 can only be placed on a declaration of a trivially-copyable struct or union:
 
 .. code-block:: objc
@@ -829,6 +835,44 @@ When one method overrides another, the overriding method can be more widely avai
   }];
 }
 
+
+def RequireConstantInitDocs : Documentation {
+  let Category = DocCatVariable;
+  let Content = [{
+This attribute specifies that the variable to which it is attached is intended
+to have a `constant initializer <http://en.cppreference.com/w/cpp/language/constant_initialization>`_
+according to the rules of [basic.start.static]. The variable is required to
+have static or thread storage duration. If the initialization of the variable
+is not a constant initializer, an error will be produced. This attribute may
+only be used in C++.
+
+Note that in C++03 strict constant expression checking is not done. Instead
+the attribute reports if Clang can emit the variable as a constant, even if it's
+not technically a 'constant initializer'. This behavior is non-portable.
+
+Static storage duration variables with constant initializers avoid hard-to-find
+bugs caused by the indeterminate order of dynamic initialization. They can also
+be safely used during dynamic initialization across translation units.
+
+This attribute acts as a compile time assertion that the requirements
+for constant initialization have been met. Since these requirements change
+between dialects and have subtle pitfalls it's important to fail fast instead
+of silently falling back on dynamic initialization.
+
+.. code-block:: c++
+
+  // -std=c++14
+  #define SAFE_STATIC __attribute__((require_constant_initialization)) static
+  struct T {
+    constexpr T(int) {}
+    ~T(); // non-trivial
+  };
+  SAFE_STATIC T x = {42}; // Initialization OK. Doesn't check destructor.
+  SAFE_STATIC T y = 42; // error: variable does not have a constant initializer
+  // copy initialization is not a constant expression on a non-literal type.
+  }];
+}
+
 def WarnMaybeUnusedDocs : Documentation {
   let Category = DocCatVariable;
   let Heading = "maybe_unused, unused, gnu::unused";
@@ -876,7 +920,7 @@ potentially-evaluated discarded-value expression that is not explicitly cast to
     launch_missiles();
   }
   error_info &foo();
-  void f() { foo(); } // Does not diagnose, error_info is a reference.  
+  void f() { foo(); } // Does not diagnose, error_info is a reference.
   }];
 }
 
@@ -1194,7 +1238,7 @@ passed in RCX, RDX, R8, and R9 as is done for the default Windows x64 calling
 convention.
 
 On both 32-bit x86 and x86_64 targets, vector and floating point arguments are
-passed in XMM0-XMM5. Homogenous vector aggregates of up to four elements are
+passed in XMM0-XMM5. Homogeneous vector aggregates of up to four elements are
 passed in sequential SSE registers if enough are available. If AVX is enabled,
 256 bit vectors are passed in YMM0-YMM5. Any vector or aggregate type that
 cannot be passed in registers for any reason is passed by reference, which
@@ -1329,7 +1373,7 @@ def NoSanitizeMemoryDocs : Documentation {
 .. _langext-memory_sanitizer:
 
 Use ``__attribute__((no_sanitize_memory))`` on a function declaration to
-specify that checks for uninitialized memory should not be inserted 
+specify that checks for uninitialized memory should not be inserted
 (e.g. by MemorySanitizer). The function may still be instrumented by the tool
 to avoid false positives in other places.
   }];
@@ -1338,7 +1382,8 @@ to avoid false positives in other places.
 def DocCatTypeSafety : DocumentationCategory<"Type Safety Checking"> {
   let Content = [{
 Clang supports additional attributes to enable checking type safety properties
-that can't be enforced by the C type system.  Use cases include:
+that can't be enforced by the C type system. To see warnings produced by these
+checks, ensure that -Wtype-safety is enabled. Use cases include:
 
 * MPI library implementations, where these attributes enable checking that
   the buffer type matches the passed ``MPI_Datatype``;
@@ -1376,11 +1421,22 @@ def ArgumentWithTypeTagDocs : Documentation {
 Use ``__attribute__((argument_with_type_tag(arg_kind, arg_idx,
 type_tag_idx)))`` on a function declaration to specify that the function
 accepts a type tag that determines the type of some other argument.
-``arg_kind`` is an identifier that should be used when annotating all
-applicable type tags.
 
 This attribute is primarily useful for checking arguments of variadic functions
 (``pointer_with_type_tag`` can be used in most non-variadic cases).
+
+In the attribute prototype above:
+  * ``arg_kind`` is an identifier that should be used when annotating all
+    applicable type tags.
+  * ``arg_idx`` provides the position of a function argument. The expected type of
+    this function argument will be determined by the function argument specified
+    by ``type_tag_idx``. In the code example below, "3" means that the type of the
+    function's third argument will be determined by ``type_tag_idx``.
+  * ``type_tag_idx`` provides the position of a function argument. This function
+    argument will be a type tag. The type tag will determine the expected type of
+    the argument specified by ``arg_idx``. In the code example below, "2" means
+    that the type tag associated with the function's second argument should agree
+    with the type of the argument specified by ``arg_idx``.
 
 For example:
 
@@ -1388,6 +1444,8 @@ For example:
 
   int fcntl(int fd, int cmd, ...)
       __attribute__(( argument_with_type_tag(fcntl,3,2) ));
+  // The function's second argument will be a type tag; this type tag will
+  // determine the expected type of the function's third argument.
   }];
 }
 
@@ -1399,85 +1457,140 @@ Use ``__attribute__((pointer_with_type_tag(ptr_kind, ptr_idx, type_tag_idx)))``
 on a function declaration to specify that the function accepts a type tag that
 determines the pointee type of some other pointer argument.
 
+In the attribute prototype above:
+  * ``ptr_kind`` is an identifier that should be used when annotating all
+    applicable type tags.
+  * ``ptr_idx`` provides the position of a function argument; this function
+    argument will have a pointer type. The expected pointee type of this pointer
+    type will be determined by the function argument specified by
+    ``type_tag_idx``. In the code example below, "1" means that the pointee type
+    of the function's first argument will be determined by ``type_tag_idx``.
+  * ``type_tag_idx`` provides the position of a function argument; this function
+    argument will be a type tag. The type tag will determine the expected pointee
+    type of the pointer argument specified by ``ptr_idx``. In the code example
+    below, "3" means that the type tag associated with the function's third
+    argument should agree with the pointee type of the pointer argument specified
+    by ``ptr_idx``.
+
 For example:
 
 .. code-block:: c++
 
+  typedef int MPI_Datatype;
   int MPI_Send(void *buf, int count, MPI_Datatype datatype /*, other args omitted */)
       __attribute__(( pointer_with_type_tag(mpi,1,3) ));
+  // The function's 3rd argument will be a type tag; this type tag will
+  // determine the expected pointee type of the function's 1st argument.
   }];
 }
 
 def TypeTagForDatatypeDocs : Documentation {
   let Category = DocCatTypeSafety;
   let Content = [{
+When declaring a variable, use
+``__attribute__((type_tag_for_datatype(kind, type)))`` to create a type tag that
+is tied to the ``type`` argument given to the attribute.
+
+In the attribute prototype above:
+  * ``kind`` is an identifier that should be used when annotating all applicable
+    type tags.
+  * ``type`` indicates the name of the type.
+
 Clang supports annotating type tags of two forms.
 
-* **Type tag that is an expression containing a reference to some declared
-  identifier.** Use ``__attribute__((type_tag_for_datatype(kind, type)))`` on a
-  declaration with that identifier:
+  * **Type tag that is a reference to a declared identifier.**
+    Use ``__attribute__((type_tag_for_datatype(kind, type)))`` when declaring that
+    identifier:
 
-  .. code-block:: c++
+    .. code-block:: c++
 
-    extern struct mpi_datatype mpi_datatype_int
-        __attribute__(( type_tag_for_datatype(mpi,int) ));
-    #define MPI_INT ((MPI_Datatype) &mpi_datatype_int)
+      typedef int MPI_Datatype;
+      extern struct mpi_datatype mpi_datatype_int
+          __attribute__(( type_tag_for_datatype(mpi,int) ));
+      #define MPI_INT ((MPI_Datatype) &mpi_datatype_int)
+      // &mpi_datatype_int is a type tag. It is tied to type "int".
 
-* **Type tag that is an integral literal.** Introduce a ``static const``
-  variable with a corresponding initializer value and attach
-  ``__attribute__((type_tag_for_datatype(kind, type)))`` on that declaration,
-  for example:
+  * **Type tag that is an integral literal.**
+    Declare a ``static const`` variable with an initializer value and attach
+    ``__attribute__((type_tag_for_datatype(kind, type)))`` on that declaration:
 
-  .. code-block:: c++
+    .. code-block:: c++
 
-    #define MPI_INT ((MPI_Datatype) 42)
-    static const MPI_Datatype mpi_datatype_int
-        __attribute__(( type_tag_for_datatype(mpi,int) )) = 42
+      typedef int MPI_Datatype;
+      static const MPI_Datatype mpi_datatype_int
+          __attribute__(( type_tag_for_datatype(mpi,int) )) = 42;
+      #define MPI_INT ((MPI_Datatype) 42)
+      // The number 42 is a type tag. It is tied to type "int".
 
-The attribute also accepts an optional third argument that determines how the
-expression is compared to the type tag.  There are two supported flags:
 
-* ``layout_compatible`` will cause types to be compared according to
-  layout-compatibility rules (C++11 [class.mem] p 17, 18).  This is
-  implemented to support annotating types like ``MPI_DOUBLE_INT``.
+The ``type_tag_for_datatype`` attribute also accepts an optional third argument
+that determines how the type of the function argument specified by either
+``arg_idx`` or ``ptr_idx`` is compared against the type associated with the type
+tag. (Recall that for the ``argument_with_type_tag`` attribute, the type of the
+function argument specified by ``arg_idx`` is compared against the type
+associated with the type tag. Also recall that for the ``pointer_with_type_tag``
+attribute, the pointee type of the function argument specified by ``ptr_idx`` is
+compared against the type associated with the type tag.) There are two supported
+values for this optional third argument:
 
-  For example:
+  * ``layout_compatible`` will cause types to be compared according to
+    layout-compatibility rules (In C++11 [class.mem] p 17, 18, see the
+    layout-compatibility rules for two standard-layout struct types and for two
+    standard-layout union types). This is useful when creating a type tag
+    associated with a struct or union type. For example:
 
-  .. code-block:: c++
+    .. code-block:: c++
 
-    /* In mpi.h */
-    struct internal_mpi_double_int { double d; int i; };
-    extern struct mpi_datatype mpi_datatype_double_int
-        __attribute__(( type_tag_for_datatype(mpi, struct internal_mpi_double_int, layout_compatible) ));
+      /* In mpi.h */
+      typedef int MPI_Datatype;
+      struct internal_mpi_double_int { double d; int i; };
+      extern struct mpi_datatype mpi_datatype_double_int
+          __attribute__(( type_tag_for_datatype(mpi,
+                          struct internal_mpi_double_int, layout_compatible) ));
 
-    #define MPI_DOUBLE_INT ((MPI_Datatype) &mpi_datatype_double_int)
+      #define MPI_DOUBLE_INT ((MPI_Datatype) &mpi_datatype_double_int)
 
-    /* In user code */
-    struct my_pair { double a; int b; };
-    struct my_pair *buffer;
-    MPI_Send(buffer, 1, MPI_DOUBLE_INT /*, ...  */); // no warning
+      int MPI_Send(void *buf, int count, MPI_Datatype datatype, ...)
+          __attribute__(( pointer_with_type_tag(mpi,1,3) ));
 
-    struct my_int_pair { int a; int b; }
-    struct my_int_pair *buffer2;
-    MPI_Send(buffer2, 1, MPI_DOUBLE_INT /*, ...  */); // warning: actual buffer element
-                                                      // type 'struct my_int_pair'
-                                                      // doesn't match specified MPI_Datatype
+      /* In user code */
+      struct my_pair { double a; int b; };
+      struct my_pair *buffer;
+      MPI_Send(buffer, 1, MPI_DOUBLE_INT /*, ...  */); // no warning because the
+                                                       // layout of my_pair is
+                                                       // compatible with that of
+                                                       // internal_mpi_double_int
 
-* ``must_be_null`` specifies that the expression should be a null pointer
-  constant, for example:
+      struct my_int_pair { int a; int b; }
+      struct my_int_pair *buffer2;
+      MPI_Send(buffer2, 1, MPI_DOUBLE_INT /*, ...  */); // warning because the
+                                                        // layout of my_int_pair
+                                                        // does not match that of
+                                                        // internal_mpi_double_int
 
-  .. code-block:: c++
+  * ``must_be_null`` specifies that the function argument specified by either
+    ``arg_idx`` (for the ``argument_with_type_tag`` attribute) or ``ptr_idx`` (for
+    the ``pointer_with_type_tag`` attribute) should be a null pointer constant.
+    The second argument to the ``type_tag_for_datatype`` attribute is ignored. For
+    example:
 
-    /* In mpi.h */
-    extern struct mpi_datatype mpi_datatype_null
-        __attribute__(( type_tag_for_datatype(mpi, void, must_be_null) ));
+    .. code-block:: c++
 
-    #define MPI_DATATYPE_NULL ((MPI_Datatype) &mpi_datatype_null)
+      /* In mpi.h */
+      typedef int MPI_Datatype;
+      extern struct mpi_datatype mpi_datatype_null
+          __attribute__(( type_tag_for_datatype(mpi, void, must_be_null) ));
 
-    /* In user code */
-    MPI_Send(buffer, 1, MPI_DATATYPE_NULL /*, ...  */); // warning: MPI_DATATYPE_NULL
-                                                        // was specified but buffer
-                                                        // is not a null pointer
+      #define MPI_DATATYPE_NULL ((MPI_Datatype) &mpi_datatype_null)
+      int MPI_Send(void *buf, int count, MPI_Datatype datatype, ...)
+          __attribute__(( pointer_with_type_tag(mpi,1,3) ));
+
+      /* In user code */
+      struct my_pair { double a; int b; };
+      struct my_pair *buffer;
+      MPI_Send(buffer, 1, MPI_DATATYPE_NULL /*, ...  */); // warning: MPI_DATATYPE_NULL
+                                                          // was specified but buffer
+                                                          // is not a null pointer
   }];
 }
 
@@ -1878,7 +1991,7 @@ by Clang.
 }
 def NullabilityDocs : DocumentationCategory<"Nullability Attributes"> {
   let Content = [{
-Whether a particular pointer may be "null" is an important concern when working with pointers in the C family of languages. The various nullability attributes indicate whether a particular pointer can be null or not, which makes APIs more expressive and can help static analysis tools identify bugs involving null pointers. Clang supports several kinds of nullability attributes: the ``nonnull`` and ``returns_nonnull`` attributes indicate which function or method parameters and result types can never be null, while nullability type qualifiers indicate which pointer types can be null (``_Nullable``) or cannot be null (``_Nonnull``). 
+Whether a particular pointer may be "null" is an important concern when working with pointers in the C family of languages. The various nullability attributes indicate whether a particular pointer can be null or not, which makes APIs more expressive and can help static analysis tools identify bugs involving null pointers. Clang supports several kinds of nullability attributes: the ``nonnull`` and ``returns_nonnull`` attributes indicate which function or method parameters and result types can never be null, while nullability type qualifiers indicate which pointer types can be null (``_Nullable``) or cannot be null (``_Nonnull``).
 
 The nullability (type) qualifiers express whether a value of a given pointer type can be null (the ``_Nullable`` qualifier), doesn't have a defined meaning for null (the ``_Nonnull`` qualifier), or for which the purpose of null is unclear (the ``_Null_unspecified`` qualifier). Because nullability qualifiers are expressed within the type system, they are more general than the ``nonnull`` and ``returns_nonnull`` attributes, allowing one to express (for example) a nullable pointer to an array of nonnull pointers. Nullability qualifiers are written to the right of the pointer to which they apply. For example:
 
@@ -2318,7 +2431,7 @@ def SwiftIndirectResultDocs : Documentation {
   let Category = DocCatVariable;
   let Content = [{
 The ``swift_indirect_result`` attribute marks a parameter of a ``swiftcall``
-function as having the special indirect-result ABI treatmenet.
+function as having the special indirect-result ABI treatment.
 
 This treatment gives the parameter the target's normal indirect-result
 ABI treatment, which may involve passing it differently from an ordinary

@@ -11,6 +11,7 @@
 ///
 //===----------------------------------------------------------------------===//
 
+#include "CoverageReport.h"
 #include "SourceCoverageViewText.h"
 #include "llvm/ADT/Optional.h"
 #include "llvm/ADT/SmallString.h"
@@ -27,15 +28,17 @@ void CoveragePrinterText::closeViewFile(OwnedStream OS) {
   OS->operator<<('\n');
 }
 
-Error CoveragePrinterText::createIndexFile(ArrayRef<StringRef> SourceFiles) {
+Error CoveragePrinterText::createIndexFile(
+    ArrayRef<StringRef> SourceFiles,
+    const coverage::CoverageMapping &Coverage) {
   auto OSOrErr = createOutputStream("index", "txt", /*InToplevel=*/true);
   if (Error E = OSOrErr.takeError())
     return E;
   auto OS = std::move(OSOrErr.get());
   raw_ostream &OSRef = *OS.get();
 
-  for (StringRef SF : SourceFiles)
-    OSRef << getOutputPath(SF, "txt", /*InToplevel=*/false) << '\n';
+  CoverageReport Report(Opts, Coverage);
+  Report.renderFileReports(OSRef);
 
   return Error::success();
 }
@@ -63,9 +66,9 @@ void SourceCoverageViewText::renderViewHeader(raw_ostream &) {}
 
 void SourceCoverageViewText::renderViewFooter(raw_ostream &) {}
 
-void SourceCoverageViewText::renderSourceName(raw_ostream &OS) {
-  getOptions().colored_ostream(OS, raw_ostream::CYAN) << getSourceName()
-                                                      << ":\n";
+void SourceCoverageViewText::renderSourceName(raw_ostream &OS, bool WholeFile) {
+  std::string ViewInfo = WholeFile ? getVerboseSourceName() : getSourceName();
+  getOptions().colored_ostream(OS, raw_ostream::CYAN) << ViewInfo << ":\n";
 }
 
 void SourceCoverageViewText::renderLinePrefix(raw_ostream &OS,
@@ -211,3 +214,19 @@ void SourceCoverageViewText::renderInstantiationView(raw_ostream &OS,
   OS << ' ';
   ISV.View->print(OS, /*WholeFile=*/false, /*ShowSourceName=*/true, ViewDepth);
 }
+
+void SourceCoverageViewText::renderCellInTitle(raw_ostream &OS,
+                                               StringRef CellText) {
+  if (getOptions().hasProjectTitle())
+    getOptions().colored_ostream(OS, raw_ostream::CYAN)
+        << getOptions().ProjectTitle << "\n";
+
+  getOptions().colored_ostream(OS, raw_ostream::CYAN) << CellText << "\n";
+
+  if (getOptions().hasCreatedTime())
+    getOptions().colored_ostream(OS, raw_ostream::CYAN)
+        << getOptions().CreatedTimeStr << "\n";
+}
+
+void SourceCoverageViewText::renderTableHeader(raw_ostream &, unsigned,
+                                               unsigned) {}

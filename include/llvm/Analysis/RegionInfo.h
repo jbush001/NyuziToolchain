@@ -568,10 +568,10 @@ public:
 
   public:
     typedef block_iterator_wrapper<IsConst> Self;
-    typedef typename super::pointer pointer;
+    typedef typename super::value_type value_type;
 
     // Construct the begin iterator.
-    block_iterator_wrapper(pointer Entry, pointer Exit)
+    block_iterator_wrapper(value_type Entry, value_type Exit)
         : super(df_begin(Entry)) {
       // Mark the exit of the region as visited, so that the children of the
       // exit and the exit itself, i.e. the block outside the region will never
@@ -580,7 +580,7 @@ public:
     }
 
     // Construct the end iterator.
-    block_iterator_wrapper() : super(df_end<pointer>((BlockT *)nullptr)) {}
+    block_iterator_wrapper() : super(df_end<value_type>((BlockT *)nullptr)) {}
 
     /*implicit*/ block_iterator_wrapper(super I) : super(I) {}
 
@@ -937,7 +937,7 @@ class RegionInfoAnalysis : public AnalysisInfoMixin<RegionInfoAnalysis> {
 public:
   typedef RegionInfo Result;
 
-  RegionInfo run(Function &F, AnalysisManager<Function> &AM);
+  RegionInfo run(Function &F, FunctionAnalysisManager &AM);
 };
 
 /// \brief Printer pass for the \c RegionInfo.
@@ -946,12 +946,12 @@ class RegionInfoPrinterPass : public PassInfoMixin<RegionInfoPrinterPass> {
 
 public:
   explicit RegionInfoPrinterPass(raw_ostream &OS);
-  PreservedAnalyses run(Function &F, AnalysisManager<Function> &AM);
+  PreservedAnalyses run(Function &F, FunctionAnalysisManager &AM);
 };
 
 /// \brief Verifier pass for the \c RegionInfo.
 struct RegionInfoVerifierPass : PassInfoMixin<RegionInfoVerifierPass> {
-  PreservedAnalyses run(Function &F, AnalysisManager<Function> &AM);
+  PreservedAnalyses run(Function &F, FunctionAnalysisManager &AM);
 };
 
 template <>

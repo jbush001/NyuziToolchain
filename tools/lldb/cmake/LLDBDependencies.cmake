@@ -27,6 +27,7 @@ set( LLDB_USED_LIBS
   lldbPluginJavaLanguage
   lldbPluginObjCLanguage
   lldbPluginObjCPlusPlusLanguage
+  lldbPluginOCamlLanguage
 
   lldbPluginObjectFileELF
   lldbPluginObjectFileJIT
@@ -46,6 +47,7 @@ set( LLDB_USED_LIBS
   lldbPluginObjectContainerMachOArchive
   lldbPluginObjectContainerBSDArchive
   lldbPluginPlatformMacOSX
+  lldbPluginStructuredDataDarwinLog
   lldbPluginDynamicLoaderMacOSXDYLD
   lldbPluginUnwindAssemblyInstEmulation
   lldbPluginUnwindAssemblyX86
@@ -80,6 +82,7 @@ set( LLDB_USED_LIBS
   lldbPluginInstrumentationRuntimeThreadSanitizer
   lldbPluginSystemRuntimeMacOSX
   lldbPluginProcessElfCore
+  lldbPluginProcessMinidump
   lldbPluginJITLoaderGDB
   lldbPluginExpressionParserClang
   lldbPluginExpressionParserGo
@@ -190,6 +193,7 @@ set(LLVM_LINK_COMPONENTS
   bitreader
   bitwriter
   codegen
+  demangle
   ipo
   selectiondag
   bitreader
@@ -202,6 +206,7 @@ set(LLVM_LINK_COMPONENTS
   option
   support
   coverage
+  target
   )
 
 if ( NOT LLDB_DISABLE_PYTHON )

@@ -9810,14 +9810,6 @@ float3 __ovld __cnfn native_cos(float3 x);
 float4 __ovld __cnfn native_cos(float4 x);
 float8 __ovld __cnfn native_cos(float8 x);
 float16 __ovld __cnfn native_cos(float16 x);
-#ifdef cl_khr_fp64
-double __ovld __cnfn native_cos(double x);
-double2 __ovld __cnfn native_cos(double2 x);
-double3 __ovld __cnfn native_cos(double3 x);
-double4 __ovld __cnfn native_cos(double4 x);
-double8 __ovld __cnfn native_cos(double8 x);
-double16 __ovld __cnfn native_cos(double16 x);
-#endif //cl_khr_fp64
 
 /**
  * Compute x / y over an implementation-defined range.
@@ -9829,14 +9821,6 @@ float3 __ovld __cnfn native_divide(float3 x, float3 y);
 float4 __ovld __cnfn native_divide(float4 x, float4 y);
 float8 __ovld __cnfn native_divide(float8 x, float8 y);
 float16 __ovld __cnfn native_divide(float16 x, float16 y);
-#ifdef cl_khr_fp64
-double __ovld __cnfn native_divide(double x, double y);
-double2 __ovld __cnfn native_divide(double2 x, double2 y);
-double3 __ovld __cnfn native_divide(double3 x, double3 y);
-double4 __ovld __cnfn native_divide(double4 x, double4 y);
-double8 __ovld __cnfn native_divide(double8 x, double8 y);
-double16 __ovld __cnfn native_divide(double16 x, double16 y);
-#endif //cl_khr_fp64
 
 /**
  * Compute the base- e exponential of x over an
@@ -9849,14 +9833,6 @@ float3 __ovld __cnfn native_exp(float3 x);
 float4 __ovld __cnfn native_exp(float4 x);
 float8 __ovld __cnfn native_exp(float8 x);
 float16 __ovld __cnfn native_exp(float16 x);
-#ifdef cl_khr_fp64
-double __ovld __cnfn native_exp(double x);
-double2 __ovld __cnfn native_exp(double2 x);
-double3 __ovld __cnfn native_exp(double3 x);
-double4 __ovld __cnfn native_exp(double4 x);
-double8 __ovld __cnfn native_exp(double8 x);
-double16 __ovld __cnfn native_exp(double16 x);
-#endif //cl_khr_fp64
 
 /**
  * Compute the base- 2 exponential of x over an
@@ -9869,14 +9845,6 @@ float3 __ovld __cnfn native_exp2(float3 x);
 float4 __ovld __cnfn native_exp2(float4 x);
 float8 __ovld __cnfn native_exp2(float8 x);
 float16 __ovld __cnfn native_exp2(float16 x);
-#ifdef cl_khr_fp64
-double __ovld __cnfn native_exp2(double x);
-double2 __ovld __cnfn native_exp2(double2 x);
-double3 __ovld __cnfn native_exp2(double3 x);
-double4 __ovld __cnfn native_exp2(double4 x);
-double8 __ovld __cnfn native_exp2(double8 x);
-double16 __ovld __cnfn native_exp2(double16 x);
-#endif //cl_khr_fp64
 
 /**
  * Compute the base- 10 exponential of x over an
@@ -9889,14 +9857,6 @@ float3 __ovld __cnfn native_exp10(float3 x);
 float4 __ovld __cnfn native_exp10(float4 x);
 float8 __ovld __cnfn native_exp10(float8 x);
 float16 __ovld __cnfn native_exp10(float16 x);
-#ifdef cl_khr_fp64
-double __ovld __cnfn native_exp10(double x);
-double2 __ovld __cnfn native_exp10(double2 x);
-double3 __ovld __cnfn native_exp10(double3 x);
-double4 __ovld __cnfn native_exp10(double4 x);
-double8 __ovld __cnfn native_exp10(double8 x);
-double16 __ovld __cnfn native_exp10(double16 x);
-#endif //cl_khr_fp64
 
 /**
  * Compute natural logarithm over an implementationdefined
@@ -9909,14 +9869,6 @@ float3 __ovld __cnfn native_log(float3 x);
 float4 __ovld __cnfn native_log(float4 x);
 float8 __ovld __cnfn native_log(float8 x);
 float16 __ovld __cnfn native_log(float16 x);
-#ifdef cl_khr_fp64
-double __ovld __cnfn native_log(double x);
-double2 __ovld __cnfn native_log(double2 x);
-double3 __ovld __cnfn native_log(double3 x);
-double4 __ovld __cnfn native_log(double4 x);
-double8 __ovld __cnfn native_log(double8 x);
-double16 __ovld __cnfn native_log(double16 x);
-#endif //cl_khr_fp64
 
 /**
  * Compute a base 2 logarithm over an implementationdefined
@@ -9928,14 +9880,6 @@ float3 __ovld __cnfn native_log2(float3 x);
 float4 __ovld __cnfn native_log2(float4 x);
 float8 __ovld __cnfn native_log2(float8 x);
 float16 __ovld __cnfn native_log2(float16 x);
-#ifdef cl_khr_fp64
-double __ovld __cnfn native_log2(double x);
-double2 __ovld __cnfn native_log2(double2 x);
-double3 __ovld __cnfn native_log2(double3 x);
-double4 __ovld __cnfn native_log2(double4 x);
-double8 __ovld __cnfn native_log2(double8 x);
-double16 __ovld __cnfn native_log2(double16 x);
-#endif //cl_khr_fp64
 
 /**
  * Compute a base 10 logarithm over an implementationdefined
@@ -9947,14 +9891,6 @@ float3 __ovld __cnfn native_log10(float3 x);
 float4 __ovld __cnfn native_log10(float4 x);
 float8 __ovld __cnfn native_log10(float8 x);
 float16 __ovld __cnfn native_log10(float16 x);
-#ifdef cl_khr_fp64
-double __ovld __cnfn native_log10(double x);
-double2 __ovld __cnfn native_log10(double2 x);
-double3 __ovld __cnfn native_log10(double3 x);
-double4 __ovld __cnfn native_log10(double4 x);
-double8 __ovld __cnfn native_log10(double8 x);
-double16 __ovld __cnfn native_log10(double16 x);
-#endif //cl_khr_fp64
 
 /**
  * Compute x to the power y, where x is >= 0. The range of
@@ -9967,14 +9903,6 @@ float3 __ovld __cnfn native_powr(float3 x, float3 y);
 float4 __ovld __cnfn native_powr(float4 x, float4 y);
 float8 __ovld __cnfn native_powr(float8 x, float8 y);
 float16 __ovld __cnfn native_powr(float16 x, float16 y);
-#ifdef cl_khr_fp64
-double __ovld __cnfn native_powr(double x, double y);
-double2 __ovld __cnfn native_powr(double2 x, double2 y);
-double3 __ovld __cnfn native_powr(double3 x, double3 y);
-double4 __ovld __cnfn native_powr(double4 x, double4 y);
-double8 __ovld __cnfn native_powr(double8 x, double8 y);
-double16 __ovld __cnfn native_powr(double16 x, double16 y);
-#endif //cl_khr_fp64
 
 /**
  * Compute reciprocal over an implementation-defined
@@ -9986,14 +9914,6 @@ float3 __ovld __cnfn native_recip(float3 x);
 float4 __ovld __cnfn native_recip(float4 x);
 float8 __ovld __cnfn native_recip(float8 x);
 float16 __ovld __cnfn native_recip(float16 x);
-#ifdef cl_khr_fp64
-double __ovld __cnfn native_recip(double x);
-double2 __ovld __cnfn native_recip(double2 x);
-double3 __ovld __cnfn native_recip(double3 x);
-double4 __ovld __cnfn native_recip(double4 x);
-double8 __ovld __cnfn native_recip(double8 x);
-double16 __ovld __cnfn native_recip(double16 x);
-#endif //cl_khr_fp64
 
 /**
  * Compute inverse square root over an implementationdefined
@@ -10005,14 +9925,6 @@ float3 __ovld __cnfn native_rsqrt(float3 x);
 float4 __ovld __cnfn native_rsqrt(float4 x);
 float8 __ovld __cnfn native_rsqrt(float8 x);
 float16 __ovld __cnfn native_rsqrt(float16 x);
-#ifdef cl_khr_fp64
-double __ovld __cnfn native_rsqrt(double x);
-double2 __ovld __cnfn native_rsqrt(double2 x);
-double3 __ovld __cnfn native_rsqrt(double3 x);
-double4 __ovld __cnfn native_rsqrt(double4 x);
-double8 __ovld __cnfn native_rsqrt(double8 x);
-double16 __ovld __cnfn native_rsqrt(double16 x);
-#endif //cl_khr_fp64
 
 /**
  * Compute sine over an implementation-defined range.
@@ -10024,14 +9936,6 @@ float3 __ovld __cnfn native_sin(float3 x);
 float4 __ovld __cnfn native_sin(float4 x);
 float8 __ovld __cnfn native_sin(float8 x);
 float16 __ovld __cnfn native_sin(float16 x);
-#ifdef cl_khr_fp64
-double __ovld __cnfn native_sin(double x);
-double2 __ovld __cnfn native_sin(double2 x);
-double3 __ovld __cnfn native_sin(double3 x);
-double4 __ovld __cnfn native_sin(double4 x);
-double8 __ovld __cnfn native_sin(double8 x);
-double16 __ovld __cnfn native_sin(double16 x);
-#endif //cl_khr_fp64
 
 /**
  * Compute square root over an implementation-defined
@@ -10043,14 +9947,6 @@ float3 __ovld __cnfn native_sqrt(float3 x);
 float4 __ovld __cnfn native_sqrt(float4 x);
 float8 __ovld __cnfn native_sqrt(float8 x);
 float16 __ovld __cnfn native_sqrt(float16 x);
-#ifdef cl_khr_fp64
-double __ovld __cnfn native_sqrt(double x);
-double2 __ovld __cnfn native_sqrt(double2 x);
-double3 __ovld __cnfn native_sqrt(double3 x);
-double4 __ovld __cnfn native_sqrt(double4 x);
-double8 __ovld __cnfn native_sqrt(double8 x);
-double16 __ovld __cnfn native_sqrt(double16 x);
-#endif //cl_khr_fp64
 
 /**
  * Compute tangent over an implementation-defined range.
@@ -10062,14 +9958,6 @@ float3 __ovld __cnfn native_tan(float3 x);
 float4 __ovld __cnfn native_tan(float4 x);
 float8 __ovld __cnfn native_tan(float8 x);
 float16 __ovld __cnfn native_tan(float16 x);
-#ifdef cl_khr_fp64
-double __ovld __cnfn native_tan(double x);
-double2 __ovld __cnfn native_tan(double2 x);
-double3 __ovld __cnfn native_tan(double3 x);
-double4 __ovld __cnfn native_tan(double4 x);
-double8 __ovld __cnfn native_tan(double8 x);
-double16 __ovld __cnfn native_tan(double16 x);
-#endif //cl_khr_fp64
 
 // OpenCL v1.1 s6.11.3, v1.2 s6.12.3, v2.0 s6.13.3 - Integer Functions
 
@@ -16493,6 +16381,7 @@ int __ovld __cnfn get_image_channel_data_type(read_write image2d_array_msaa_dept
 #define CLK_sRGBA             0x10C1
 #define CLK_sRGBx             0x10C0
 #define CLK_sBGRA             0x10C2
+#define CLK_ABGR              0x10C3
 #endif //__OPENCL_C_VERSION__ >= CL_VERSION_2_0
 
 int __ovld __cnfn get_image_channel_order(read_only image1d_t image);
@@ -16840,11 +16729,11 @@ void __ovld retain_event(clk_event_t);
 
 void __ovld release_event(clk_event_t);
 
-clk_event_t create_user_event(void);
+clk_event_t __ovld create_user_event(void);
 
 void __ovld set_user_event_status(clk_event_t e, int state);
 
-bool is_valid_event (clk_event_t event);
+bool __ovld is_valid_event (clk_event_t event);
 
 void __ovld capture_event_profiling_info(clk_event_t, clk_profiling_info, __global void* value);
 
@@ -16953,6 +16842,196 @@ double  __ovld sub_group_scan_inclusive_max(double x);
 #endif //cl_khr_fp64
 
 #endif //cl_khr_subgroups cl_intel_subgroups
+
+#ifdef cl_amd_media_ops
+uint __ovld amd_bitalign(uint a, uint b, uint c);
+uint2 __ovld amd_bitalign(uint2 a, uint2 b, uint2 c);
+uint3 __ovld amd_bitalign(uint3 a, uint3 b, uint3 c);
+uint4 __ovld amd_bitalign(uint4 a, uint4 b, uint4 c);
+uint8 __ovld amd_bitalign(uint8 a, uint8 b, uint8 c);
+uint16 __ovld amd_bitalign(uint16 a, uint16 b, uint16 c);
+
+uint __ovld amd_bytealign(uint a, uint b, uint c);
+uint2 __ovld amd_bytealign(uint2 a, uint2 b, uint2 c);
+uint3 __ovld amd_bytealign(uint3 a, uint3 b, uint3 c);
+uint4 __ovld amd_bytealign(uint4 a, uint4 b, uint4 c);
+uint8 __ovld amd_bytealign(uint8 a, uint8 b, uint8 c);
+uint16 __ovld amd_bytealign(uint16 a, uint16 b, uint16 c);
+
+uint __ovld amd_lerp(uint a, uint b, uint c);
+uint2 __ovld amd_lerp(uint2 a, uint2 b, uint2 c);
+uint3 __ovld amd_lerp(uint3 a, uint3 b, uint3 c);
+uint4 __ovld amd_lerp(uint4 a, uint4 b, uint4 c);
+uint8 __ovld amd_lerp(uint8 a, uint8 b, uint8 c);
+uint16 __ovld amd_lerp(uint16 a, uint16 b, uint16 c);
+
+uint __ovld amd_pack(float4 v);
+
+uint __ovld amd_sad4(uint4 x, uint4 y, uint z);
+
+uint __ovld amd_sadhi(uint a, uint b, uint c);
+uint2 __ovld amd_sadhi(uint2 a, uint2 b, uint2 c);
+uint3 __ovld amd_sadhi(uint3 a, uint3 b, uint3 c);
+uint4 __ovld amd_sadhi(uint4 a, uint4 b, uint4 c);
+uint8 __ovld amd_sadhi(uint8 a, uint8 b, uint8 c);
+uint16 __ovld amd_sadhi(uint16 a, uint16 b, uint16 c);
+
+uint __ovld amd_sad(uint a, uint b, uint c);
+uint2 __ovld amd_sad(uint2 a, uint2 b, uint2 c);
+uint3 __ovld amd_sad(uint3 a, uint3 b, uint3 c);
+uint4 __ovld amd_sad(uint4 a, uint4 b, uint4 c);
+uint8 __ovld amd_sad(uint8 a, uint8 b, uint8 c);
+uint16 __ovld amd_sad(uint16 a, uint16 b, uint16 c);
+
+float __ovld amd_unpack0(uint a);
+float2 __ovld amd_unpack0(uint2 a);
+float3 __ovld amd_unpack0(uint3 a);
+float4 __ovld amd_unpack0(uint4 a);
+float8 __ovld amd_unpack0(uint8 a);
+float16 __ovld amd_unpack0(uint16 a);
+
+float __ovld amd_unpack1(uint a);
+float2 __ovld amd_unpack1(uint2 a);
+float3 __ovld amd_unpack1(uint3 a);
+float4 __ovld amd_unpack1(uint4 a);
+float8 __ovld amd_unpack1(uint8 a);
+float16 __ovld amd_unpack1(uint16 a);
+
+float __ovld amd_unpack2(uint a);
+float2 __ovld amd_unpack2(uint2 a);
+float3 __ovld amd_unpack2(uint3 a);
+float4 __ovld amd_unpack2(uint4 a);
+float8 __ovld amd_unpack2(uint8 a);
+float16 __ovld amd_unpack2(uint16 a);
+
+float __ovld amd_unpack3(uint a);
+float2 __ovld amd_unpack3(uint2 a);
+float3 __ovld amd_unpack3(uint3 a);
+float4 __ovld amd_unpack3(uint4 a);
+float8 __ovld amd_unpack3(uint8 a);
+float16 __ovld amd_unpack3(uint16 a);
+#endif // cl_amd_media_ops
+
+#ifdef cl_amd_media_ops2
+int __ovld amd_bfe(int src0, uint src1, uint src2);
+int2 __ovld amd_bfe(int2 src0, uint2 src1, uint2 src2);
+int3 __ovld amd_bfe(int3 src0, uint3 src1, uint3 src2);
+int4 __ovld amd_bfe(int4 src0, uint4 src1, uint4 src2);
+int8 __ovld amd_bfe(int8 src0, uint8 src1, uint8 src2);
+int16 __ovld amd_bfe(int16 src0, uint16 src1, uint16 src2);
+
+uint __ovld amd_bfe(uint src0, uint src1, uint src2);
+uint2 __ovld amd_bfe(uint2 src0, uint2 src1, uint2 src2);
+uint3 __ovld amd_bfe(uint3 src0, uint3 src1, uint3 src2);
+uint4 __ovld amd_bfe(uint4 src0, uint4 src1, uint4 src2);
+uint8 __ovld amd_bfe(uint8 src0, uint8 src1, uint8 src2);
+uint16 __ovld amd_bfe(uint16 src0, uint16 src1, uint16 src2);
+
+uint __ovld amd_bfm(uint src0, uint src1);
+uint2 __ovld amd_bfm(uint2 src0, uint2 src1);
+uint3 __ovld amd_bfm(uint3 src0, uint3 src1);
+uint4 __ovld amd_bfm(uint4 src0, uint4 src1);
+uint8 __ovld amd_bfm(uint8 src0, uint8 src1);
+uint16 __ovld amd_bfm(uint16 src0, uint16 src1);
+
+float __ovld amd_max3(float src0, float src1, float src2);
+float2 __ovld amd_max3(float2 src0, float2 src1, float2 src2);
+float3 __ovld amd_max3(float3 src0, float3 src1, float3 src2);
+float4 __ovld amd_max3(float4 src0, float4 src1, float4 src2);
+float8 __ovld amd_max3(float8 src0, float8 src1, float8 src2);
+float16 __ovld amd_max3(float16 src0, float16 src1, float16 src2);
+
+int __ovld amd_max3(int src0, int src1, int src2);
+int2 __ovld amd_max3(int2 src0, int2 src1, int2 src2);
+int3 __ovld amd_max3(int3 src0, int3 src1, int3 src2);
+int4 __ovld amd_max3(int4 src0, int4 src1, int4 src2);
+int8 __ovld amd_max3(int8 src0, int8 src1, int8 src2);
+int16 __ovld amd_max3(int16 src0, int16 src1, int16 src2);
+
+uint __ovld amd_max3(uint src0, uint src1, uint src2);
+uint2 __ovld amd_max3(uint2 src0, uint2 src1, uint2 src2);
+uint3 __ovld amd_max3(uint3 src0, uint3 src1, uint3 src2);
+uint4 __ovld amd_max3(uint4 src0, uint4 src1, uint4 src2);
+uint8 __ovld amd_max3(uint8 src0, uint8 src1, uint8 src2);
+uint16 __ovld amd_max3(uint16 src0, uint16 src1, uint16 src2);
+
+float __ovld amd_median3(float src0, float src1, float src2);
+float2 __ovld amd_median3(float2 src0, float2 src1, float2 src2);
+float3 __ovld amd_median3(float3 src0, float3 src1, float3 src2);
+float4 __ovld amd_median3(float4 src0, float4 src1, float4 src2);
+float8 __ovld amd_median3(float8 src0, float8 src1, float8 src2);
+float16 __ovld amd_median3(float16 src0, float16 src1, float16 src2);
+
+int __ovld amd_median3(int src0, int src1, int src2);
+int2 __ovld amd_median3(int2 src0, int2 src1, int2 src2);
+int3 __ovld amd_median3(int3 src0, int3 src1, int3 src2);
+int4 __ovld amd_median3(int4 src0, int4 src1, int4 src2);
+int8 __ovld amd_median3(int8 src0, int8 src1, int8 src2);
+int16 __ovld amd_median3(int16 src0, int16 src1, int16 src2);
+
+uint __ovld amd_median3(uint src0, uint src1, uint src2);
+uint2 __ovld amd_median3(uint2 src0, uint2 src1, uint2 src2);
+uint3 __ovld amd_median3(uint3 src0, uint3 src1, uint3 src2);
+uint4 __ovld amd_median3(uint4 src0, uint4 src1, uint4 src2);
+uint8 __ovld amd_median3(uint8 src0, uint8 src1, uint8 src2);
+uint16 __ovld amd_median3(uint16 src0, uint16 src1, uint16 src2);
+
+float __ovld amd_min3(float src0, float src1, float src);
+float2 __ovld amd_min3(float2 src0, float2 src1, float2 src);
+float3 __ovld amd_min3(float3 src0, float3 src1, float3 src);
+float4 __ovld amd_min3(float4 src0, float4 src1, float4 src);
+float8 __ovld amd_min3(float8 src0, float8 src1, float8 src);
+float16 __ovld amd_min3(float16 src0, float16 src1, float16 src);
+
+int __ovld amd_min3(int src0, int src1, int src2);
+int2 __ovld amd_min3(int2 src0, int2 src1, int2 src2);
+int3 __ovld amd_min3(int3 src0, int3 src1, int3 src2);
+int4 __ovld amd_min3(int4 src0, int4 src1, int4 src2);
+int8 __ovld amd_min3(int8 src0, int8 src1, int8 src2);
+int16 __ovld amd_min3(int16 src0, int16 src1, int16 src2);
+
+uint __ovld amd_min3(uint src0, uint src1, uint src2);
+uint2 __ovld amd_min3(uint2 src0, uint2 src1, uint2 src2);
+uint3 __ovld amd_min3(uint3 src0, uint3 src1, uint3 src2);
+uint4 __ovld amd_min3(uint4 src0, uint4 src1, uint4 src2);
+uint8 __ovld amd_min3(uint8 src0, uint8 src1, uint8 src2);
+uint16 __ovld amd_min3(uint16 src0, uint16 src1, uint16 src2);
+
+ulong __ovld amd_mqsad(ulong src0, uint src1, ulong src2);
+ulong2 __ovld amd_mqsad(ulong2 src0, uint2 src1, ulong2 src2);
+ulong3 __ovld amd_mqsad(ulong3 src0, uint3 src1, ulong3 src2);
+ulong4 __ovld amd_mqsad(ulong4 src0, uint4 src1, ulong4 src2);
+ulong8 __ovld amd_mqsad(ulong8 src0, uint8 src1, ulong8 src2);
+ulong16 __ovld amd_mqsad(ulong16 src0, uint16 src1, ulong16 src2);
+
+ulong __ovld amd_qsad(ulong src0, uint src1, ulong src2);
+ulong2 __ovld amd_qsad(ulong2 src0, uint2 src1, ulong2 src2);
+ulong3 __ovld amd_qsad(ulong3 src0, uint3 src1, ulong3 src2);
+ulong4 __ovld amd_qsad(ulong4 src0, uint4 src1, ulong4 src2);
+ulong8 __ovld amd_qsad(ulong8 src0, uint8 src1, ulong8 src2);
+ulong16 __ovld amd_qsad(ulong16 src0, uint16 src1, ulong16 src2);
+
+uint __ovld amd_msad(uint src0, uint src1, uint src2);
+uint2 __ovld amd_msad(uint2 src0, uint2 src1, uint2 src2);
+uint3 __ovld amd_msad(uint3 src0, uint3 src1, uint3 src2);
+uint4 __ovld amd_msad(uint4 src0, uint4 src1, uint4 src2);
+uint8 __ovld amd_msad(uint8 src0, uint8 src1, uint8 src2);
+uint16 __ovld amd_msad(uint16 src0, uint16 src1, uint16 src2);
+
+uint __ovld amd_sadd(uint src0, uint src1, uint src2);
+uint2 __ovld amd_sadd(uint2 src0, uint2 src1, uint2 src2);
+uint3 __ovld amd_sadd(uint3 src0, uint3 src1, uint3 src2);
+uint4 __ovld amd_sadd(uint4 src0, uint4 src1, uint4 src2);
+uint8 __ovld amd_sadd(uint8 src0, uint8 src1, uint8 src2);
+uint16 __ovld amd_sadd(uint16 src0, uint16 src1, uint16 src2);
+
+uint __ovld amd_sadw(uint src0, uint src1, uint src2);
+uint2 __ovld amd_sadw(uint2 src0, uint2 src1, uint2 src2);
+uint3 __ovld amd_sadw(uint3 src0, uint3 src1, uint3 src2);
+uint4 __ovld amd_sadw(uint4 src0, uint4 src1, uint4 src2);
+uint8 __ovld amd_sadw(uint8 src0, uint8 src1, uint8 src2);
+uint16 __ovld amd_sadw(uint16 src0, uint16 src1, uint16 src2);
+#endif // cl_amd_media_ops2
 
 // Disable any extensions we may have enabled previously.
 #pragma OPENCL EXTENSION all : disable

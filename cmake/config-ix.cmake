@@ -82,13 +82,6 @@ check_include_file(mach/mach.h HAVE_MACH_MACH_H)
 check_include_file(mach-o/dyld.h HAVE_MACH_O_DYLD_H)
 check_include_file(histedit.h HAVE_HISTEDIT_H)
 
-# size_t must be defined before including cxxabi.h on FreeBSD 10.0.
-check_cxx_source_compiles("
-#include <stddef.h>
-#include <cxxabi.h>
-int main() { return 0; }
-" HAVE_CXXABI_H)
-
 # library checks
 if( NOT PURE_WINDOWS )
   check_library_exists(pthread pthread_create "" HAVE_LIBPTHREAD)
@@ -128,7 +121,8 @@ if( NOT PURE_WINDOWS AND NOT LLVM_USE_SANITIZER MATCHES "Memory.*")
   else()
     set(HAVE_LIBZ 0)
   endif()
-  if (HAVE_HISTEDIT_H)
+  # Skip libedit if using ASan as it contains memory leaks.
+  if (HAVE_HISTEDIT_H AND NOT LLVM_USE_SANITIZER MATCHES ".*Address.*")
     check_library_exists(edit el_init "" HAVE_LIBEDIT)
   endif()
   if(LLVM_ENABLE_TERMINFO)
@@ -169,7 +163,8 @@ if( HAVE_SETJMP_H )
   check_symbol_exists(siglongjmp setjmp.h HAVE_SIGLONGJMP)
   check_symbol_exists(sigsetjmp setjmp.h HAVE_SIGSETJMP)
 endif()
-if( HAVE_SIGNAL_H )
+# AddressSanitizer conflicts with lib/Support/Unix/Signals.inc
+if( HAVE_SIGNAL_H AND NOT LLVM_USE_SANITIZER MATCHES ".*Address.*")
   check_symbol_exists(sigaltstack signal.h HAVE_SIGALTSTACK)
 endif()
 if( HAVE_SYS_UIO_H )
@@ -565,6 +560,7 @@ if(CMAKE_HOST_APPLE AND APPLE)
   endif()
 endif()
 
+# Keep the version requirements in sync with bindings/ocaml/README.txt.
 include(FindOCaml)
 include(AddOCaml)
 if(WIN32)

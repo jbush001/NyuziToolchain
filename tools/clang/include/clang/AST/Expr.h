@@ -3862,7 +3862,7 @@ public:
 
   // Explicit InitListExpr's originate from source code (and have valid source
   // locations). Implicit InitListExpr's are created by the semantic analyzer.
-  bool isExplicit() {
+  bool isExplicit() const {
     return LBraceLoc.isValid() && RBraceLoc.isValid();
   }
 
@@ -4447,11 +4447,19 @@ public:
     return cast<Expr>(SubExprs[END_EXPR+i]);
   }
   Expr *getAssocExpr(unsigned i) { return cast<Expr>(SubExprs[END_EXPR+i]); }
-
+  ArrayRef<Expr *> getAssocExprs() const {
+    return NumAssocs
+               ? llvm::makeArrayRef(
+                     &reinterpret_cast<Expr **>(SubExprs)[END_EXPR], NumAssocs)
+               : None;
+  }
   const TypeSourceInfo *getAssocTypeSourceInfo(unsigned i) const {
     return AssocTypes[i];
   }
   TypeSourceInfo *getAssocTypeSourceInfo(unsigned i) { return AssocTypes[i]; }
+  ArrayRef<TypeSourceInfo *> getAssocTypeSourceInfos() const {
+    return NumAssocs ? llvm::makeArrayRef(&AssocTypes[0], NumAssocs) : None;
+  }
 
   QualType getAssocType(unsigned i) const {
     if (const TypeSourceInfo *TS = getAssocTypeSourceInfo(i))

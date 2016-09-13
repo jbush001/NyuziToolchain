@@ -11,6 +11,8 @@
 #include "Driver.h"
 #include "Error.h"
 #include "InputSection.h"
+#include "LinkerScript.h"
+#include "ELFCreator.h"
 #include "SymbolTable.h"
 #include "Symbols.h"
 #include "llvm/ADT/STLExtras.h"
@@ -18,6 +20,8 @@
 #include "llvm/CodeGen/Analysis.h"
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Module.h"
+#include "llvm/MC/StringTableBuilder.h"
+#include "llvm/Support/Path.h"
 #include "llvm/Support/raw_ostream.h"
 
 using namespace llvm;
@@ -162,6 +166,21 @@ bool elf::ObjectFile<ELFT>::shouldMerge(const Elf_Shdr &Sec) {
   if (Config->Optimize == 0)
     return false;
 
+  // We don't merge if linker script has SECTIONS command. When script
+  // do layout it can merge several sections with different attributes
+  // into single output sections. We currently do not support adding
+  // mergeable input sections to regular output ones as well as adding
+  // regular input sections to mergeable output.
+  if (ScriptConfig->HasContents)
+    return false;
+
+  // A mergeable section with size 0 is useless because they don't have
+  // any data to merge. A mergeable string section with size 0 can be
+  // argued as invalid because it doesn't end with a null character.
+  // We'll avoid a mess by handling them as if they were non-mergeable.
+  if (Sec.sh_size == 0)
+    return false;
+
   uintX_t Flags = Sec.sh_flags;
   if (!(Flags & SHF_MERGE))
     return false;
@@ -217,49 +236,6 @@ void elf::ObjectFile<ELFT>::initializeSections(
     case SHT_STRTAB:
     case SHT_NULL:
       break;
-    case SHT_RELA:
-    case SHT_REL: {
-      // This section contains relocation information.
-      // If -r is given, we do not interpret or apply relocation
-      // but just copy relocation sections to output.
-      if (Config->Relocatable) {
-        Sections[I] = new (IAlloc.Allocate()) InputSection<ELFT>(this, &Sec);
-        break;
-      }
-
-      // Find the relocation target section and associate this
-      // section with it.
-      InputSectionBase<ELFT> *Target = getRelocTarget(Sec);
-      if (!Target)
-        break;
-      if (auto *S = dyn_cast<InputSection<ELFT>>(Target)) {
-        S->RelocSections.push_back(&Sec);
-        break;
-      }
-      if (auto *S = dyn_cast<EhInputSection<ELFT>>(Target)) {
-        if (S->RelocSection)
-          fatal(
-              getFilename(this) +
-              ": multiple relocation sections to .eh_frame are not supported");
-        S->RelocSection = &Sec;
-        break;
-      }
-      fatal(getFilename(this) +
-            ": relocations pointing to SHF_MERGE are not supported");
-    }
-    case SHT_ARM_ATTRIBUTES:
-      // FIXME: ARM meta-data section. At present attributes are ignored,
-      // they can be used to reason about object compatibility.
-      Sections[I] = &InputSection<ELFT>::Discarded;
-      break;
-    case SHT_MIPS_REGINFO:
-      MipsReginfo.reset(new MipsReginfoInputSection<ELFT>(this, &Sec));
-      Sections[I] = MipsReginfo.get();
-      break;
-    case SHT_MIPS_OPTIONS:
-      MipsOptions.reset(new MipsOptionsInputSection<ELFT>(this, &Sec));
-      Sections[I] = MipsOptions.get();
-      break;
     default:
       Sections[I] = createInputSection(Sec);
     }
@@ -291,6 +267,49 @@ InputSectionBase<ELFT> *
 elf::ObjectFile<ELFT>::createInputSection(const Elf_Shdr &Sec) {
   StringRef Name = check(this->ELFObj.getSectionName(&Sec));
 
+  switch (Sec.sh_type) {
+  case SHT_ARM_ATTRIBUTES:
+    // FIXME: ARM meta-data section. At present attributes are ignored,
+    // they can be used to reason about object compatibility.
+    return &InputSection<ELFT>::Discarded;
+  case SHT_MIPS_REGINFO:
+    MipsReginfo.reset(new MipsReginfoInputSection<ELFT>(this, &Sec, Name));
+    return MipsReginfo.get();
+  case SHT_MIPS_OPTIONS:
+    MipsOptions.reset(new MipsOptionsInputSection<ELFT>(this, &Sec, Name));
+    return MipsOptions.get();
+  case SHT_MIPS_ABIFLAGS:
+    MipsAbiFlags.reset(new MipsAbiFlagsInputSection<ELFT>(this, &Sec, Name));
+    return MipsAbiFlags.get();
+  case SHT_RELA:
+  case SHT_REL: {
+    // This section contains relocation information.
+    // If -r is given, we do not interpret or apply relocation
+    // but just copy relocation sections to output.
+    if (Config->Relocatable)
+      return new (IAlloc.Allocate()) InputSection<ELFT>(this, &Sec, Name);
+
+    // Find the relocation target section and associate this
+    // section with it.
+    InputSectionBase<ELFT> *Target = getRelocTarget(Sec);
+    if (!Target)
+      return nullptr;
+    if (auto *S = dyn_cast<InputSection<ELFT>>(Target)) {
+      S->RelocSections.push_back(&Sec);
+      return nullptr;
+    }
+    if (auto *S = dyn_cast<EhInputSection<ELFT>>(Target)) {
+      if (S->RelocSection)
+        fatal(getFilename(this) +
+              ": multiple relocation sections to .eh_frame are not supported");
+      S->RelocSection = &Sec;
+      return nullptr;
+    }
+    fatal(getFilename(this) +
+          ": relocations pointing to SHF_MERGE are not supported");
+  }
+  }
+
   // .note.GNU-stack is a marker section to control the presence of
   // PT_GNU_STACK segment in outputs. Since the presence of the segment
   // is controlled only by the command line option (-z execstack) in LLD,
@@ -303,18 +322,18 @@ elf::ObjectFile<ELFT>::createInputSection(const Elf_Shdr &Sec) {
     return &InputSection<ELFT>::Discarded;
   }
 
-  if (Config->StripDebug && Name.startswith(".debug"))
+  if (Config->Strip != StripPolicy::None && Name.startswith(".debug"))
     return &InputSection<ELFT>::Discarded;
 
   // The linker merges EH (exception handling) frames and creates a
   // .eh_frame_hdr section for runtime. So we handle them with a special
   // class. For relocatable outputs, they are just passed through.
   if (Name == ".eh_frame" && !Config->Relocatable)
-    return new (EHAlloc.Allocate()) EhInputSection<ELFT>(this, &Sec);
+    return new (EHAlloc.Allocate()) EhInputSection<ELFT>(this, &Sec, Name);
 
   if (shouldMerge(Sec))
-    return new (MAlloc.Allocate()) MergeInputSection<ELFT>(this, &Sec);
-  return new (IAlloc.Allocate()) InputSection<ELFT>(this, &Sec);
+    return new (MAlloc.Allocate()) MergeInputSection<ELFT>(this, &Sec, Name);
+  return new (IAlloc.Allocate()) InputSection<ELFT>(this, &Sec, Name);
 }
 
 template <class ELFT> void elf::ObjectFile<ELFT>::initializeSymbols() {
@@ -332,10 +351,15 @@ elf::ObjectFile<ELFT>::getSection(const Elf_Sym &Sym) const {
   uint32_t Index = this->getSectionIndex(Sym);
   if (Index == 0)
     return nullptr;
-  if (Index >= Sections.size() || !Sections[Index])
+  if (Index >= Sections.size())
     fatal(getFilename(this) + ": invalid section index: " + Twine(Index));
   InputSectionBase<ELFT> *S = Sections[Index];
-  if (S == &InputSectionBase<ELFT>::Discarded)
+  // We found that GNU assembler 2.17.50 [FreeBSD] 2007-07-03
+  // could generate broken objects. STT_SECTION symbols can be
+  // associated with SHT_REL[A]/SHT_SYMTAB/SHT_STRTAB sections.
+  // In this case it is fine for section to be null here as we
+  // do not allocate sections of these types.
+  if (!S || S == &InputSectionBase<ELFT>::Discarded)
     return S;
   return S->Repl;
 }
@@ -357,12 +381,13 @@ SymbolBody *elf::ObjectFile<ELFT>::createSymbolBody(const Elf_Sym *Sym) {
   case SHN_UNDEF:
     return elf::Symtab<ELFT>::X
         ->addUndefined(Name, Binding, Sym->st_other, Sym->getType(),
-                       /*CanOmitFromDynSym*/ false, this)
+                       /*CanOmitFromDynSym*/ false, /*HasUnnamedAddr*/ false,
+                       this)
         ->body();
   case SHN_COMMON:
     return elf::Symtab<ELFT>::X
         ->addCommon(Name, Sym->st_size, Sym->st_value, Binding, Sym->st_other,
-                    Sym->getType(), this)
+                    Sym->getType(), /*HasUnnamedAddr*/ false, this)
         ->body();
   }
 
@@ -375,7 +400,8 @@ SymbolBody *elf::ObjectFile<ELFT>::createSymbolBody(const Elf_Sym *Sym) {
     if (Sec == &InputSection<ELFT>::Discarded)
       return elf::Symtab<ELFT>::X
           ->addUndefined(Name, Binding, Sym->st_other, Sym->getType(),
-                         /*CanOmitFromDynSym*/ false, this)
+                         /*CanOmitFromDynSym*/ false,
+                         /*HasUnnamedAddr*/ false, this)
           ->body();
     return elf::Symtab<ELFT>::X->addRegular(Name, *Sym, Sec)->body();
   }
@@ -454,7 +480,11 @@ template <class ELFT> void SharedFile<ELFT>::parseSoName() {
   }
 
   this->initStringTable();
-  SoName = this->getName();
+
+  // DSOs are identified by soname, and they usually contain
+  // DT_SONAME tag in their header. But if they are missing,
+  // filenames are used as default sonames.
+  SoName = sys::path::filename(this->getName());
 
   if (!DynamicSec)
     return;
@@ -546,18 +576,16 @@ template <class ELFT> void SharedFile<ELFT>::parseRest() {
   }
 }
 
-static ELFKind getELFKind(MemoryBufferRef MB) {
-  std::string TripleStr = getBitcodeTargetTriple(MB, Driver->Context);
-  Triple TheTriple(TripleStr);
-  bool Is64Bits = TheTriple.isArch64Bit();
-  if (TheTriple.isLittleEndian())
-    return Is64Bits ? ELF64LEKind : ELF32LEKind;
-  return Is64Bits ? ELF64BEKind : ELF32BEKind;
+static ELFKind getBitcodeELFKind(MemoryBufferRef MB) {
+  Triple T(getBitcodeTargetTriple(MB, Driver->Context));
+  if (T.isLittleEndian())
+    return T.isArch64Bit() ? ELF64LEKind : ELF32LEKind;
+  return T.isArch64Bit() ? ELF64BEKind : ELF32BEKind;
 }
 
-static uint8_t getMachineKind(MemoryBufferRef MB) {
-  std::string TripleStr = getBitcodeTargetTriple(MB, Driver->Context);
-  switch (Triple(TripleStr).getArch()) {
+static uint8_t getBitcodeMachineKind(MemoryBufferRef MB) {
+  Triple T(getBitcodeTargetTriple(MB, Driver->Context));
+  switch (T.getArch()) {
   case Triple::aarch64:
     return EM_AARCH64;
   case Triple::arm:
@@ -572,19 +600,18 @@ static uint8_t getMachineKind(MemoryBufferRef MB) {
   case Triple::ppc64:
     return EM_PPC64;
   case Triple::x86:
-    return EM_386;
+    return T.isOSIAMCU() ? EM_IAMCU : EM_386;
   case Triple::x86_64:
     return EM_X86_64;
   default:
     fatal(MB.getBufferIdentifier() +
-          ": could not infer e_machine from bitcode target triple " +
-          TripleStr);
+          ": could not infer e_machine from bitcode target triple " + T.str());
   }
 }
 
 BitcodeFile::BitcodeFile(MemoryBufferRef MB) : InputFile(BitcodeKind, MB) {
-  EKind = getELFKind(MB);
-  EMachine = getMachineKind(MB);
+  EKind = getBitcodeELFKind(MB);
+  EMachine = getBitcodeMachineKind(MB);
 }
 
 static uint8_t getGvVisibility(const GlobalValue *GV) {
@@ -611,36 +638,39 @@ Symbol *BitcodeFile::createSymbol(const DenseSet<const Comdat *> &KeptComdats,
   StringRef NameRef = Saver.save(StringRef(Name));
 
   uint32_t Flags = Sym.getFlags();
-  bool IsWeak = Flags & BasicSymbolRef::SF_Weak;
-  uint32_t Binding = IsWeak ? STB_WEAK : STB_GLOBAL;
+  uint32_t Binding = (Flags & BasicSymbolRef::SF_Weak) ? STB_WEAK : STB_GLOBAL;
 
   uint8_t Type = STT_NOTYPE;
+  uint8_t Visibility;
   bool CanOmitFromDynSym = false;
+  bool HasUnnamedAddr = false;
+
   // FIXME: Expose a thread-local flag for module asm symbols.
   if (GV) {
     if (GV->isThreadLocal())
       Type = STT_TLS;
     CanOmitFromDynSym = canBeOmittedFromSymbolTable(GV);
-  }
-
-  uint8_t Visibility;
-  if (GV)
     Visibility = getGvVisibility(GV);
-  else
+    HasUnnamedAddr =
+        GV->getUnnamedAddr() == llvm::GlobalValue::UnnamedAddr::Global;
+  } else {
     // FIXME: Set SF_Hidden flag correctly for module asm symbols, and expose
     // protected visibility.
     Visibility = STV_DEFAULT;
+  }
 
   if (GV)
     if (const Comdat *C = GV->getComdat())
       if (!KeptComdats.count(C))
         return Symtab<ELFT>::X->addUndefined(NameRef, Binding, Visibility, Type,
-                                             CanOmitFromDynSym, this);
+                                             CanOmitFromDynSym, HasUnnamedAddr,
+                                             this);
 
   const Module &M = Obj.getModule();
   if (Flags & BasicSymbolRef::SF_Undefined)
     return Symtab<ELFT>::X->addUndefined(NameRef, Binding, Visibility, Type,
-                                         CanOmitFromDynSym, this);
+                                         CanOmitFromDynSym, HasUnnamedAddr,
+                                         this);
   if (Flags & BasicSymbolRef::SF_Common) {
     // FIXME: Set SF_Common flag correctly for module asm symbols, and expose
     // size and alignment.
@@ -648,10 +678,11 @@ Symbol *BitcodeFile::createSymbol(const DenseSet<const Comdat *> &KeptComdats,
     const DataLayout &DL = M.getDataLayout();
     uint64_t Size = DL.getTypeAllocSize(GV->getValueType());
     return Symtab<ELFT>::X->addCommon(NameRef, Size, GV->getAlignment(),
-                                      Binding, Visibility, STT_OBJECT, this);
+                                      Binding, Visibility, STT_OBJECT,
+                                      HasUnnamedAddr, this);
   }
-  return Symtab<ELFT>::X->addBitcode(NameRef, IsWeak, Visibility, Type,
-                                     CanOmitFromDynSym, this);
+  return Symtab<ELFT>::X->addBitcode(NameRef, Binding, Visibility, Type,
+                                     CanOmitFromDynSym, HasUnnamedAddr, this);
 }
 
 bool BitcodeFile::shouldSkip(uint32_t Flags) {
@@ -699,6 +730,48 @@ static std::unique_ptr<InputFile> createELFFile(MemoryBufferRef MB) {
   if (!Config->FirstElf)
     Config->FirstElf = Obj.get();
   return Obj;
+}
+
+template <class ELFT> std::unique_ptr<InputFile> BinaryFile::createELF() {
+  ELFCreator<ELFT> ELF(ET_REL, Config->EMachine);
+  auto DataSec = ELF.addSection(".data");
+  DataSec.Header->sh_flags = SHF_ALLOC;
+  DataSec.Header->sh_size = MB.getBufferSize();
+  DataSec.Header->sh_type = SHT_PROGBITS;
+  DataSec.Header->sh_addralign = 8;
+
+  std::string Filepath = MB.getBufferIdentifier();
+  std::transform(Filepath.begin(), Filepath.end(), Filepath.begin(),
+                 [](char C) { return isalnum(C) ? C : '_'; });
+  std::string StartSym = "_binary_" + Filepath + "_start";
+  std::string EndSym = "_binary_" + Filepath + "_end";
+  std::string SizeSym = "_binary_" + Filepath + "_size";
+
+  auto SSym = ELF.addSymbol(StartSym);
+  SSym.Sym->setBindingAndType(STB_GLOBAL, STT_OBJECT);
+  SSym.Sym->st_shndx = DataSec.Index;
+
+  auto ESym = ELF.addSymbol(EndSym);
+  ESym.Sym->setBindingAndType(STB_GLOBAL, STT_OBJECT);
+  ESym.Sym->st_shndx = DataSec.Index;
+  ESym.Sym->st_value = MB.getBufferSize();
+
+  auto SZSym = ELF.addSymbol(SizeSym);
+  SZSym.Sym->setBindingAndType(STB_GLOBAL, STT_OBJECT);
+  SZSym.Sym->st_shndx = SHN_ABS;
+  SZSym.Sym->st_value = MB.getBufferSize();
+
+  std::size_t Size = ELF.layout();
+  ELFData.resize(Size);
+
+  ELF.write(ELFData.data());
+
+  // .data
+  std::copy(MB.getBufferStart(), MB.getBufferEnd(),
+            ELFData.data() + DataSec.Header->sh_offset);
+
+  return createELFFile<ObjectFile>(MemoryBufferRef(
+      StringRef((char *)ELFData.data(), Size), MB.getBufferIdentifier()));
 }
 
 static bool isBitcode(MemoryBufferRef MB) {
@@ -821,3 +894,8 @@ template class elf::SharedFile<ELF32LE>;
 template class elf::SharedFile<ELF32BE>;
 template class elf::SharedFile<ELF64LE>;
 template class elf::SharedFile<ELF64BE>;
+
+template std::unique_ptr<InputFile> BinaryFile::createELF<ELF32LE>();
+template std::unique_ptr<InputFile> BinaryFile::createELF<ELF32BE>();
+template std::unique_ptr<InputFile> BinaryFile::createELF<ELF64LE>();
+template std::unique_ptr<InputFile> BinaryFile::createELF<ELF64BE>();

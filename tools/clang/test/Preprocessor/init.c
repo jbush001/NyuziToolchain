@@ -1975,6 +1975,11 @@
 // ARMEABIHARDFP:#define __arm 1
 // ARMEABIHARDFP:#define __arm__ 1
 
+// RUN: %clang_cc1 -E -dM -ffreestanding -triple=armv6-unknown-cloudabi-eabihf < /dev/null | FileCheck -match-full-lines -check-prefix ARMV6-CLOUDABI %s
+//
+// ARMV6-CLOUDABI:#define __CloudABI__ 1
+// ARMV6-CLOUDABI:#define __arm__ 1
+
 // RUN: %clang_cc1 -E -dM -ffreestanding -triple=arm-netbsd-eabi < /dev/null | FileCheck -match-full-lines -check-prefix ARM-NETBSD %s
 //
 // ARM-NETBSD-NOT:#define _LP64
@@ -6648,6 +6653,7 @@
 // RUN: %clang_cc1 -x cl -E -dM -ffreestanding -triple=amdgcn < /dev/null | FileCheck -match-full-lines -check-prefix AMDGCN --check-prefix AMDGPU %s
 // RUN: %clang_cc1 -x cl -E -dM -ffreestanding -triple=r600 -target-cpu caicos < /dev/null | FileCheck -match-full-lines --check-prefix AMDGPU %s
 //
+// AMDGPU:#define __ENDIAN_LITTLE__ 1
 // AMDGPU:#define cl_khr_byte_addressable_store 1
 // AMDGCN:#define cl_khr_fp64 1
 // AMDGPU:#define cl_khr_global_int32_base_atomics 1
@@ -8560,10 +8566,10 @@
 // WEBASSEMBLY32-NEXT:#define __INTMAX_MAX__ 9223372036854775807LL
 // WEBASSEMBLY32-NEXT:#define __INTMAX_TYPE__ long long int
 // WEBASSEMBLY32-NEXT:#define __INTMAX_WIDTH__ 64
-// WEBASSEMBLY32-NEXT:#define __INTPTR_FMTd__ "ld"
-// WEBASSEMBLY32-NEXT:#define __INTPTR_FMTi__ "li"
-// WEBASSEMBLY32-NEXT:#define __INTPTR_MAX__ 2147483647L
-// WEBASSEMBLY32-NEXT:#define __INTPTR_TYPE__ long int
+// WEBASSEMBLY32-NEXT:#define __INTPTR_FMTd__ "d"
+// WEBASSEMBLY32-NEXT:#define __INTPTR_FMTi__ "i"
+// WEBASSEMBLY32-NEXT:#define __INTPTR_MAX__ 2147483647
+// WEBASSEMBLY32-NEXT:#define __INTPTR_TYPE__ int
 // WEBASSEMBLY32-NEXT:#define __INTPTR_WIDTH__ 32
 // WEBASSEMBLY32-NEXT:#define __INT_FAST16_FMTd__ "hd"
 // WEBASSEMBLY32-NEXT:#define __INT_FAST16_FMTi__ "hi"
@@ -8622,10 +8628,10 @@
 // WEBASSEMBLY32-NEXT:#define __ORDER_PDP_ENDIAN__ 3412
 // WEBASSEMBLY32-NEXT:#define __POINTER_WIDTH__ 32
 // WEBASSEMBLY32-NEXT:#define __PRAGMA_REDEFINE_EXTNAME 1
-// WEBASSEMBLY32-NEXT:#define __PTRDIFF_FMTd__ "ld"
-// WEBASSEMBLY32-NEXT:#define __PTRDIFF_FMTi__ "li"
-// WEBASSEMBLY32-NEXT:#define __PTRDIFF_MAX__ 2147483647L
-// WEBASSEMBLY32-NEXT:#define __PTRDIFF_TYPE__ long int
+// WEBASSEMBLY32-NEXT:#define __PTRDIFF_FMTd__ "d"
+// WEBASSEMBLY32-NEXT:#define __PTRDIFF_FMTi__ "i"
+// WEBASSEMBLY32-NEXT:#define __PTRDIFF_MAX__ 2147483647
+// WEBASSEMBLY32-NEXT:#define __PTRDIFF_TYPE__ int
 // WEBASSEMBLY32-NEXT:#define __PTRDIFF_WIDTH__ 32
 // WEBASSEMBLY32-NOT:#define __REGISTER_PREFIX__
 // WEBASSEMBLY32-NEXT:#define __SCHAR_MAX__ 127
@@ -8645,12 +8651,12 @@
 // WEBASSEMBLY32-NEXT:#define __SIZEOF_SIZE_T__ 4
 // WEBASSEMBLY32-NEXT:#define __SIZEOF_WCHAR_T__ 4
 // WEBASSEMBLY32-NEXT:#define __SIZEOF_WINT_T__ 4
-// WEBASSEMBLY32-NEXT:#define __SIZE_FMTX__ "lX"
-// WEBASSEMBLY32-NEXT:#define __SIZE_FMTo__ "lo"
-// WEBASSEMBLY32-NEXT:#define __SIZE_FMTu__ "lu"
-// WEBASSEMBLY32-NEXT:#define __SIZE_FMTx__ "lx"
-// WEBASSEMBLY32-NEXT:#define __SIZE_MAX__ 4294967295UL
-// WEBASSEMBLY32-NEXT:#define __SIZE_TYPE__ long unsigned int
+// WEBASSEMBLY32-NEXT:#define __SIZE_FMTX__ "X"
+// WEBASSEMBLY32-NEXT:#define __SIZE_FMTo__ "o"
+// WEBASSEMBLY32-NEXT:#define __SIZE_FMTu__ "u"
+// WEBASSEMBLY32-NEXT:#define __SIZE_FMTx__ "x"
+// WEBASSEMBLY32-NEXT:#define __SIZE_MAX__ 4294967295U
+// WEBASSEMBLY32-NEXT:#define __SIZE_TYPE__ unsigned int
 // WEBASSEMBLY32-NEXT:#define __SIZE_WIDTH__ 32
 // WEBASSEMBLY32-NEXT:#define __STDC_HOSTED__ 0
 // WEBASSEMBLY32-NOT:#define __STDC_MB_MIGHT_NEQ_WC__
@@ -8698,12 +8704,12 @@
 // WEBASSEMBLY32-NEXT:#define __UINTMAX_MAX__ 18446744073709551615ULL
 // WEBASSEMBLY32-NEXT:#define __UINTMAX_TYPE__ long long unsigned int
 // WEBASSEMBLY32-NEXT:#define __UINTMAX_WIDTH__ 64
-// WEBASSEMBLY32-NEXT:#define __UINTPTR_FMTX__ "lX"
-// WEBASSEMBLY32-NEXT:#define __UINTPTR_FMTo__ "lo"
-// WEBASSEMBLY32-NEXT:#define __UINTPTR_FMTu__ "lu"
-// WEBASSEMBLY32-NEXT:#define __UINTPTR_FMTx__ "lx"
-// WEBASSEMBLY32-NEXT:#define __UINTPTR_MAX__ 4294967295UL
-// WEBASSEMBLY32-NEXT:#define __UINTPTR_TYPE__ long unsigned int
+// WEBASSEMBLY32-NEXT:#define __UINTPTR_FMTX__ "X"
+// WEBASSEMBLY32-NEXT:#define __UINTPTR_FMTo__ "o"
+// WEBASSEMBLY32-NEXT:#define __UINTPTR_FMTu__ "u"
+// WEBASSEMBLY32-NEXT:#define __UINTPTR_FMTx__ "x"
+// WEBASSEMBLY32-NEXT:#define __UINTPTR_MAX__ 4294967295U
+// WEBASSEMBLY32-NEXT:#define __UINTPTR_TYPE__ unsigned int
 // WEBASSEMBLY32-NEXT:#define __UINTPTR_WIDTH__ 32
 // WEBASSEMBLY32-NEXT:#define __UINT_FAST16_FMTX__ "hX"
 // WEBASSEMBLY32-NEXT:#define __UINT_FAST16_FMTo__ "ho"

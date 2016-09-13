@@ -858,7 +858,7 @@ private:
     if (!CurrentToken->isOneOf(TT_LambdaLSquare, TT_ForEachMacro,
                                TT_FunctionLBrace, TT_ImplicitStringLiteral,
                                TT_InlineASMBrace, TT_JsFatArrow, TT_LambdaArrow,
-                               TT_RegexLiteral))
+                               TT_RegexLiteral, TT_TemplateString))
       CurrentToken->Type = TT_Unknown;
     CurrentToken->Role.reset();
     CurrentToken->MatchingParen = nullptr;
@@ -1816,6 +1816,9 @@ unsigned TokenAnnotator::splitPenalty(const AnnotatedLine &Line,
       return 100;
     if (Left.is(TT_JsTypeColon))
       return 35;
+    if ((Left.is(TT_TemplateString) && Left.TokenText.endswith("${")) ||
+        (Right.is(TT_TemplateString) && Right.TokenText.startswith("}")))
+      return 100;
   }
 
   if (Left.is(tok::comma) || (Right.is(tok::identifier) && Right.Next &&
@@ -1984,9 +1987,10 @@ bool TokenAnnotator::spaceRequiredBetween(const AnnotatedLine &Line,
   if (Right.isOneOf(tok::semi, tok::comma))
     return false;
   if (Right.is(tok::less) &&
-      (Left.is(tok::kw_template) ||
-       (Line.Type == LT_ObjCDecl && Style.ObjCSpaceBeforeProtocolList)))
+      Line.Type == LT_ObjCDecl && Style.ObjCSpaceBeforeProtocolList)
     return true;
+  if (Right.is(tok::less) && Left.is(tok::kw_template))
+    return Style.SpaceAfterTemplateKeyword;
   if (Left.isOneOf(tok::exclaim, tok::tilde))
     return false;
   if (Left.is(tok::at) &&
@@ -2113,12 +2117,20 @@ bool TokenAnnotator::spaceRequiredBefore(const AnnotatedLine &Line,
   } else if (Style.Language == FormatStyle::LK_JavaScript) {
     if (Left.is(TT_JsFatArrow))
       return true;
+    if ((Left.is(TT_TemplateString) && Left.TokenText.endswith("${")) ||
+        (Right.is(TT_TemplateString) && Right.TokenText.startswith("}")))
+      return false;
+    if (Left.is(tok::identifier) && Right.is(TT_TemplateString))
+      return false;
     if (Right.is(tok::star) &&
         Left.isOneOf(Keywords.kw_function, Keywords.kw_yield))
       return false;
     if (Left.isOneOf(Keywords.kw_let, Keywords.kw_var, Keywords.kw_in,
                      Keywords.kw_of, tok::kw_const) &&
         (!Left.Previous || !Left.Previous->is(tok::period)))
+      return true;
+    if (Left.is(Keywords.kw_as) &&
+        Right.isOneOf(tok::l_square, tok::l_brace, tok::l_paren))
       return true;
     if (Left.is(tok::kw_default) && Left.Previous &&
         Left.Previous->is(tok::kw_export))
@@ -2146,6 +2158,8 @@ bool TokenAnnotator::spaceRequiredBefore(const AnnotatedLine &Line,
                                                 tok::r_square, tok::r_brace) ||
                                    Left.Tok.isLiteral()))
       return false;
+    if (Left.is(tok::exclaim) && Right.is(Keywords.kw_as))
+      return true; // "x! as string"
   } else if (Style.Language == FormatStyle::LK_Java) {
     if (Left.is(tok::r_square) && Right.is(tok::l_brace))
       return true;
@@ -2369,7 +2383,12 @@ bool TokenAnnotator::canBreakBefore(const AnnotatedLine &Line,
                       Keywords.kw_implements))
       return true;
   } else if (Style.Language == FormatStyle::LK_JavaScript) {
-    if (Left.is(tok::kw_return))
+    const FormatToken *NonComment = Right.getPreviousNonComment();
+    if (Left.isOneOf(tok::kw_return, tok::kw_continue, tok::kw_break,
+                     tok::kw_throw) ||
+        (NonComment &&
+         NonComment->isOneOf(tok::kw_return, tok::kw_continue, tok::kw_break,
+                             tok::kw_throw)))
       return false; // Otherwise a semicolon is inserted.
     if (Left.is(TT_JsFatArrow) && Right.is(tok::l_brace))
       return false;

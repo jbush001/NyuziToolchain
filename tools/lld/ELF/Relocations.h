@@ -15,6 +15,7 @@
 namespace lld {
 namespace elf {
 class SymbolBody;
+class InputSectionData;
 template <class ELFT> class InputSection;
 template <class ELFT> class InputSectionBase;
 
@@ -22,7 +23,9 @@ enum RelExpr {
   R_ABS,
   R_GOT,
   R_GOTONLY_PC,
+  R_GOTONLY_PC_FROM_END,
   R_GOTREL,
+  R_GOTREL_FROM_END,
   R_GOT_FROM_END,
   R_GOT_OFF,
   R_GOT_PAGE_PC,
@@ -64,10 +67,9 @@ enum RelExpr {
   R_TLSLD_PC
 };
 
-template <class ELFT> struct Relocation {
+struct Relocation {
   RelExpr Expr;
   uint32_t Type;
-  InputSectionBase<ELFT> *InputSec;
   uint64_t Offset;
   uint64_t Addend;
   SymbolBody *Sym;

@@ -20,6 +20,7 @@
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
 #include "llvm/CodeGen/TargetLoweringObjectFileImpl.h"
+#include "llvm/Support/CommandLine.h"
 #include "llvm/IR/Intrinsics.h"
 #include <cctype>
 
@@ -531,6 +532,28 @@ bool SystemZTargetLowering::isLegalAddressingMode(const DataLayout &DL,
   return AM.Scale == 0 || AM.Scale == 1;
 }
 
+bool SystemZTargetLowering::isFoldableMemAccessOffset(Instruction *I,
+                                                      int64_t Offset) const {
+  // This only applies to z13.
+  if (!Subtarget.hasVector())
+    return true;
+
+  // * Use LDE instead of LE/LEY to avoid partial register
+  //   dependencies (LDE only supports small offsets).
+  // * Utilize the vector registers to hold floating point
+  //   values (vector load / store instructions only support small
+  //   offsets).
+
+  assert (isa<LoadInst>(I) || isa<StoreInst>(I));
+  Type *MemAccessTy = (isa<LoadInst>(I) ? I->getType() :
+                       I->getOperand(0)->getType());
+  if (!isUInt<12>(Offset) &&
+      (MemAccessTy->isFloatingPointTy() || MemAccessTy->isVectorTy()))
+    return false;
+
+  return true;
+}
+
 bool SystemZTargetLowering::isTruncateFree(Type *FromType, Type *ToType) const {
   if (!FromType->isIntegerTy() || !ToType->isIntegerTy())
     return false;
@@ -864,7 +887,7 @@ SDValue SystemZTargetLowering::LowerFormalArguments(
     const SmallVectorImpl<ISD::InputArg> &Ins, const SDLoc &DL,
     SelectionDAG &DAG, SmallVectorImpl<SDValue> &InVals) const {
   MachineFunction &MF = DAG.getMachineFunction();
-  MachineFrameInfo *MFI = MF.getFrameInfo();
+  MachineFrameInfo &MFI = MF.getFrameInfo();
   MachineRegisterInfo &MRI = MF.getRegInfo();
   SystemZMachineFunctionInfo *FuncInfo =
       MF.getInfo<SystemZMachineFunctionInfo>();
@@ -927,8 +950,8 @@ SDValue SystemZTargetLowering::LowerFormalArguments(
       assert(VA.isMemLoc() && "Argument not register or memory");
 
       // Create the frame index object for this incoming parameter.
-      int FI = MFI->CreateFixedObject(LocVT.getSizeInBits() / 8,
-                                      VA.getLocMemOffset(), true);
+      int FI = MFI.CreateFixedObject(LocVT.getSizeInBits() / 8,
+                                     VA.getLocMemOffset(), true);
 
       // Create the SelectionDAG nodes corresponding to a load
       // from this parameter.  Unpromoted ints and floats are
@@ -971,12 +994,12 @@ SDValue SystemZTargetLowering::LowerFormalArguments(
     // Likewise the address (in the form of a frame index) of where the
     // first stack vararg would be.  The 1-byte size here is arbitrary.
     int64_t StackSize = CCInfo.getNextStackOffset();
-    FuncInfo->setVarArgsFrameIndex(MFI->CreateFixedObject(1, StackSize, true));
+    FuncInfo->setVarArgsFrameIndex(MFI.CreateFixedObject(1, StackSize, true));
 
     // ...and a similar frame index for the caller-allocated save area
     // that will be used to store the incoming registers.
     int64_t RegSaveOffset = TFL->getOffsetOfLocalArea();
-    unsigned RegSaveIndex = MFI->CreateFixedObject(1, RegSaveOffset, true);
+    unsigned RegSaveIndex = MFI.CreateFixedObject(1, RegSaveOffset, true);
     FuncInfo->setRegSaveFrameIndex(RegSaveIndex);
 
     // Store the FPR varargs in the reserved frame slots.  (We store the
@@ -985,7 +1008,7 @@ SDValue SystemZTargetLowering::LowerFormalArguments(
       SDValue MemOps[SystemZ::NumArgFPRs];
       for (unsigned I = NumFixedFPRs; I < SystemZ::NumArgFPRs; ++I) {
         unsigned Offset = TFL->getRegSpillOffset(SystemZ::ArgFPRs[I]);
-        int FI = MFI->CreateFixedObject(8, RegSaveOffset + Offset, true);
+        int FI = MFI.CreateFixedObject(8, RegSaveOffset + Offset, true);
         SDValue FIN = DAG.getFrameIndex(FI, getPointerTy(DAG.getDataLayout()));
         unsigned VReg = MF.addLiveIn(SystemZ::ArgFPRs[I],
                                      &SystemZ::FP64BitRegClass);
@@ -2691,8 +2714,8 @@ SDValue SystemZTargetLowering::lowerConstantPool(ConstantPoolSDNode *CP,
 SDValue SystemZTargetLowering::lowerFRAMEADDR(SDValue Op,
                                               SelectionDAG &DAG) const {
   MachineFunction &MF = DAG.getMachineFunction();
-  MachineFrameInfo *MFI = MF.getFrameInfo();
-  MFI->setFrameAddressIsTaken(true);
+  MachineFrameInfo &MFI = MF.getFrameInfo();
+  MFI.setFrameAddressIsTaken(true);
 
   SDLoc DL(Op);
   unsigned Depth = cast<ConstantSDNode>(Op.getOperand(0))->getZExtValue();
@@ -2703,7 +2726,7 @@ SDValue SystemZTargetLowering::lowerFRAMEADDR(SDValue Op,
   int BackChainIdx = FI->getFramePointerSaveIndex();
   if (!BackChainIdx) {
     // By definition, the frame address is the address of the back chain.
-    BackChainIdx = MFI->CreateFixedObject(8, -SystemZMC::CallFrameSize, false);
+    BackChainIdx = MFI.CreateFixedObject(8, -SystemZMC::CallFrameSize, false);
     FI->setFramePointerSaveIndex(BackChainIdx);
   }
   SDValue BackChain = DAG.getFrameIndex(BackChainIdx, PtrVT);
@@ -2719,8 +2742,8 @@ SDValue SystemZTargetLowering::lowerFRAMEADDR(SDValue Op,
 SDValue SystemZTargetLowering::lowerRETURNADDR(SDValue Op,
                                                SelectionDAG &DAG) const {
   MachineFunction &MF = DAG.getMachineFunction();
-  MachineFrameInfo *MFI = MF.getFrameInfo();
-  MFI->setReturnAddressIsTaken(true);
+  MachineFrameInfo &MFI = MF.getFrameInfo();
+  MFI.setReturnAddressIsTaken(true);
 
   if (verifyReturnAddressArgumentIsConstant(Op, DAG))
     return SDValue();
@@ -4972,8 +4995,8 @@ SDValue SystemZTargetLowering::combineJOIN_DWORDS(
 
 SDValue SystemZTargetLowering::combineFP_ROUND(
     SDNode *N, DAGCombinerInfo &DCI) const {
-  // (fround (extract_vector_elt X 0))
-  // (fround (extract_vector_elt X 1)) ->
+  // (fpround (extract_vector_elt X 0))
+  // (fpround (extract_vector_elt X 1)) ->
   // (extract_vector_elt (VROUND X) 0)
   // (extract_vector_elt (VROUND X) 1)
   //
@@ -5070,14 +5093,20 @@ SDValue SystemZTargetLowering::combineSHIFTROT(
   // Shift/rotate instructions only use the last 6 bits of the second operand
   // register. If the second operand is the result of an AND with an immediate
   // value that has its last 6 bits set, we can safely remove the AND operation.
+  //
+  // If the AND operation doesn't have the last 6 bits set, we can't remove it
+  // entirely, but we can still truncate it to a 16-bit value. This prevents
+  // us from ending up with a NILL with a signed operand, which will cause the
+  // instruction printer to abort.
   SDValue N1 = N->getOperand(1);
   if (N1.getOpcode() == ISD::AND) {
-    auto *AndMask = dyn_cast<ConstantSDNode>(N1.getOperand(1));
+    SDValue AndMaskOp = N1->getOperand(1);
+    auto *AndMask = dyn_cast<ConstantSDNode>(AndMaskOp);
 
     // The AND mask is constant
     if (AndMask) {
       auto AmtVal = AndMask->getZExtValue();
-
+      
       // Bottom 6 bits are set
       if ((AmtVal & 0x3f) == 0x3f) {
         SDValue AndOp = N1->getOperand(0);
@@ -5099,6 +5128,26 @@ SDValue SystemZTargetLowering::combineSHIFTROT(
 
           return Replace;
         }
+
+      // We can't remove the AND, but we can use NILL here (normally we would
+      // use NILF). Only keep the last 16 bits of the mask. The actual
+      // transformation will be handled by .td definitions.
+      } else if (AmtVal >> 16 != 0) {
+        SDValue AndOp = N1->getOperand(0);
+
+        auto NewMask = DAG.getConstant(AndMask->getZExtValue() & 0x0000ffff,
+                                       SDLoc(AndMaskOp),
+                                       AndMaskOp.getValueType());
+
+        auto NewAnd = DAG.getNode(N1.getOpcode(), SDLoc(N1), N1.getValueType(),
+                                  AndOp, NewMask);
+
+        SDValue Replace = DAG.getNode(N->getOpcode(), SDLoc(N),
+                                      N->getValueType(0), N->getOperand(0),
+                                      NewAnd);
+        DCI.AddToWorklist(Replace.getNode());
+
+        return Replace;
       }
     }
   }

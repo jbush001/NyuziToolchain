@@ -141,7 +141,7 @@ SDValue NyuziTargetLowering::LowerFormalArguments(
     assert(VA.isMemLoc());
     int ParamSize = VA.getValVT().getSizeInBits() / 8;
     int ParamOffset = VA.getLocMemOffset();
-    int FI = MF.getFrameInfo()->CreateFixedObject(ParamSize, ParamOffset, true);
+    int FI = MF.getFrameInfo().CreateFixedObject(ParamSize, ParamOffset, true);
     ParamEndOffset = ParamOffset + ParamSize;
 
     SDValue FIPtr = DAG.getFrameIndex(FI, getPointerTy(DAG.getDataLayout()));
@@ -171,7 +171,7 @@ SDValue NyuziTargetLowering::LowerFormalArguments(
     // be used
     // later to determine the start address of variable arguments.
     int FirstVarArg =
-        MF.getFrameInfo()->CreateFixedObject(4, ParamEndOffset, false);
+        MF.getFrameInfo().CreateFixedObject(4, ParamEndOffset, false);
     VFI->setVarArgsFrameIndex(FirstVarArg);
   }
 
@@ -209,7 +209,7 @@ SDValue NyuziTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
   CLI.IsTailCall = false;
 
   MachineFunction &MF = DAG.getMachineFunction();
-  MachineFrameInfo *MFI = MF.getFrameInfo();
+  MachineFrameInfo &MFI = MF.getFrameInfo();
   const TargetFrameLowering *TFL = MF.getSubtarget().getFrameLowering();
 
   // Analyze operands of the call, assigning locations to each operand.
@@ -237,7 +237,7 @@ SDValue NyuziTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
     unsigned Size = Flags.getByValSize();
     unsigned Align = Flags.getByValAlign();
 
-    int FI = MFI->CreateStackObject(Size, Align, false);
+    int FI = MFI.CreateStackObject(Size, Align, false);
     SDValue FIPtr = DAG.getFrameIndex(FI, getPointerTy(DAG.getDataLayout()));
     SDValue SizeNode = DAG.getConstant(Size, DL, MVT::i32);
     Chain = DAG.getMemcpy(Chain, DL, FIPtr, Arg, SizeNode, Align,
@@ -1045,8 +1045,8 @@ SDValue NyuziTargetLowering::LowerFRAMEADDR(SDValue Op,
          "Frame address can only be determined for current frame.");
 
   SDLoc DL(Op);
-  MachineFrameInfo *MFI = DAG.getMachineFunction().getFrameInfo();
-  MFI->setFrameAddressIsTaken(true);
+  MachineFrameInfo &MFI = DAG.getMachineFunction().getFrameInfo();
+  MFI.setFrameAddressIsTaken(true);
   EVT VT = Op.getValueType();
   return DAG.getCopyFromReg(DAG.getEntryNode(), DL, Nyuzi::FP_REG, VT);
 }
@@ -1062,9 +1062,9 @@ SDValue NyuziTargetLowering::LowerRETURNADDR(SDValue Op,
 
   SDLoc DL(Op);
   MachineFunction &MF = DAG.getMachineFunction();
-  MachineFrameInfo *MFI = MF.getFrameInfo();
+  MachineFrameInfo &MFI = MF.getFrameInfo();
   MVT VT = Op.getSimpleValueType();
-  MFI->setReturnAddressIsTaken(true);
+  MFI.setReturnAddressIsTaken(true);
 
   // Return RA, which contains the return address. Mark it an implicit live-in.
   unsigned Reg = MF.addLiveIn(Nyuzi::RA_REG, getRegClassFor(VT));

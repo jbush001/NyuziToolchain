@@ -161,7 +161,11 @@ TEST_F(FormatTestJS, ES6DestructuringAssignment) {
 }
 
 TEST_F(FormatTestJS, ContainerLiterals) {
-  verifyFormat("var x = {y: function(a) { return a; }};");
+  verifyFormat("var x = {\n"
+               "  y: function(a) {\n"
+               "    return a;\n"
+               "  }\n"
+               "};");
   verifyFormat("return {\n"
                "  link: function() {\n"
                "    f();  //\n"
@@ -212,7 +216,11 @@ TEST_F(FormatTestJS, ContainerLiterals) {
   verifyFormat("x = foo && {a: 123};");
 
   // Arrow functions in object literals.
-  verifyFormat("var x = {y: (a) => { return a; }};");
+  verifyFormat("var x = {\n"
+               "  y: (a) => {\n"
+               "    return a;\n"
+               "  }\n"
+               "};");
   verifyFormat("var x = {y: (a) => a};");
 
   // Computed keys.
@@ -326,11 +334,15 @@ TEST_F(FormatTestJS, FormatsNamespaces) {
 
 TEST_F(FormatTestJS, FormatsFreestandingFunctions) {
   verifyFormat("function outer1(a, b) {\n"
-               "  function inner1(a, b) { return a; }\n"
+               "  function inner1(a, b) {\n"
+               "    return a;\n"
+               "  }\n"
                "  inner1(a, b);\n"
                "}\n"
                "function outer2(a, b) {\n"
-               "  function inner2(a, b) { return a; }\n"
+               "  function inner2(a, b) {\n"
+               "    return a;\n"
+               "  }\n"
                "  inner2(a, b);\n"
                "}");
   verifyFormat("function f() {}");
@@ -350,7 +362,9 @@ TEST_F(FormatTestJS, GeneratorFunctions) {
                "  yield 1;\n"
                "}\n");
   verifyFormat("class X {\n"
-               "  * generatorMethod() { yield x; }\n"
+               "  * generatorMethod() {\n"
+               "    yield x;\n"
+               "  }\n"
                "}");
 }
 
@@ -366,7 +380,9 @@ TEST_F(FormatTestJS, AsyncFunctions) {
                "  return fetch(x);\n"
                "}");
   verifyFormat("class X {\n"
-               "  async asyncMethod() { return fetch(1); }\n"
+               "  async asyncMethod() {\n"
+               "    return fetch(1);\n"
+               "  }\n"
                "}");
   verifyFormat("function initialize() {\n"
                "  // Comment.\n"
@@ -423,8 +439,10 @@ TEST_F(FormatTestJS, ColumnLayoutForArrayLiterals) {
 }
 
 TEST_F(FormatTestJS, FunctionLiterals) {
+  FormatStyle Style = getGoogleStyle(FormatStyle::LK_JavaScript);
+  Style.AllowShortFunctionsOnASingleLine = FormatStyle::SFS_Inline;
   verifyFormat("doFoo(function() {});");
-  verifyFormat("doFoo(function() { return 1; });");
+  verifyFormat("doFoo(function() { return 1; });", Style);
   verifyFormat("var func = function() {\n"
                "  return 1;\n"
                "};");
@@ -438,7 +456,8 @@ TEST_F(FormatTestJS, FunctionLiterals) {
                "    getAttribute: function(key) { return this[key]; },\n"
                "    style: {direction: ''}\n"
                "  }\n"
-               "};");
+               "};",
+               Style);
   verifyFormat("abc = xyz ? function() {\n"
                "  return 1;\n"
                "} : function() {\n"
@@ -476,13 +495,6 @@ TEST_F(FormatTestJS, FunctionLiterals) {
                "      // code\n"
                "    });");
 
-  verifyFormat("f({a: function() { return 1; }});",
-               getGoogleJSStyleWithColumns(33));
-  verifyFormat("f({\n"
-               "  a: function() { return 1; }\n"
-               "});",
-               getGoogleJSStyleWithColumns(32));
-
   verifyFormat("return {\n"
                "  a: function SomeFunction() {\n"
                "    // ...\n"
@@ -510,6 +522,15 @@ TEST_F(FormatTestJS, FunctionLiterals) {
                "    .doSomethingElse(\n"
                "        // break\n"
                "        );");
+
+  Style.ColumnLimit = 33;
+  verifyFormat("f({a: function() { return 1; }});", Style);
+  Style.ColumnLimit = 32;
+  verifyFormat("f({\n"
+               "  a: function() { return 1; }\n"
+               "});",
+               Style);
+
 }
 
 TEST_F(FormatTestJS, InliningFunctionLiterals) {
@@ -570,6 +591,8 @@ TEST_F(FormatTestJS, InliningFunctionLiterals) {
 }
 
 TEST_F(FormatTestJS, MultipleFunctionLiterals) {
+  FormatStyle Style = getGoogleStyle(FormatStyle::LK_JavaScript);
+  Style.AllowShortFunctionsOnASingleLine = FormatStyle::SFS_All;
   verifyFormat("promise.then(\n"
                "    function success() {\n"
                "      doFoo();\n"
@@ -606,7 +629,8 @@ TEST_F(FormatTestJS, MultipleFunctionLiterals) {
                "    .thenCatch(function(error) {\n"
                "      body();\n"
                "      body();\n"
-               "    });");
+               "    });",
+               Style);
   verifyFormat("getSomeLongPromise()\n"
                "    .then(function(value) {\n"
                "      body();\n"
@@ -619,7 +643,8 @@ TEST_F(FormatTestJS, MultipleFunctionLiterals) {
 
   verifyFormat("getSomeLongPromise()\n"
                "    .then(function(value) { body(); })\n"
-               "    .thenCatch(function(error) { body(); });");
+               "    .thenCatch(function(error) { body(); });",
+               Style);
 
   verifyFormat("return [aaaaaaaaaaaaaaaaaaaaaa]\n"
                "    .aaaaaaa(function() {\n"
@@ -633,7 +658,9 @@ TEST_F(FormatTestJS, ArrowFunctions) {
                "  return a;\n"
                "};");
   verifyFormat("var x = (a) => {\n"
-               "  function y() { return 42; }\n"
+               "  function y() {\n"
+               "    return 42;\n"
+               "  }\n"
                "  return a;\n"
                "};");
   verifyFormat("var x = (a: type): {some: type} => {\n"
@@ -686,7 +713,9 @@ TEST_F(FormatTestJS, WrapRespectsAutomaticSemicolonInsertion) {
   // would change due to automatic semicolon insertion.
   // See http://www.ecma-international.org/ecma-262/5.1/#sec-7.9.1.
   verifyFormat("return aaaaa;", getGoogleJSStyleWithColumns(10));
+  verifyFormat("return /* hello! */ aaaaa;", getGoogleJSStyleWithColumns(10));
   verifyFormat("continue aaaaa;", getGoogleJSStyleWithColumns(10));
+  verifyFormat("continue /* hello! */ aaaaa;", getGoogleJSStyleWithColumns(10));
   verifyFormat("break aaaaa;", getGoogleJSStyleWithColumns(10));
   verifyFormat("throw aaaaa;", getGoogleJSStyleWithColumns(10));
   verifyFormat("aaaaaaaaa++;", getGoogleJSStyleWithColumns(10));
@@ -899,8 +928,16 @@ TEST_F(FormatTestJS, TypeAnnotations) {
   verifyFormat("((a: string, b: number): string => a + b);");
   verifyFormat("var x: (y: number) => string;");
   verifyFormat("var x: P<string, (a: number) => string>;");
-  verifyFormat("var x = {y: function(): z { return 1; }};");
-  verifyFormat("var x = {y: function(): {a: number} { return 1; }};");
+  verifyFormat("var x = {\n"
+               "  y: function(): z {\n"
+               "    return 1;\n"
+               "  }\n"
+               "};");
+  verifyFormat("var x = {\n"
+               "  y: function(): {a: number} {\n"
+               "    return 1;\n"
+               "  }\n"
+               "};");
   verifyFormat("function someFunc(args: string[]):\n"
                "    {longReturnValue: string[]} {}",
                getGoogleJSStyleWithColumns(60));
@@ -928,7 +965,7 @@ TEST_F(FormatTestJS, ClassDeclarations) {
   verifyFormat("class C {\n  ['x' + 2]: string = 12;\n}");
   verifyFormat("class C {\n  private x: string = 12;\n}");
   verifyFormat("class C {\n  private static x: string = 12;\n}");
-  verifyFormat("class C {\n  static x(): string { return 'asd'; }\n}");
+  verifyFormat("class C {\n  static x(): string {\n    return 'asd';\n  }\n}");
   verifyFormat("class C extends P implements I {}");
   verifyFormat("class C extends p.P implements i.I {}");
   verifyFormat("class Test {\n"
@@ -1091,7 +1128,9 @@ TEST_F(FormatTestJS, Modules) {
   verifyFormat("export default () => {};");
   verifyFormat("export interface Foo { foo: number; }\n"
                "export class Bar {\n"
-               "  blah(): string { return this.blah; };\n"
+               "  blah(): string {\n"
+               "    return this.blah;\n"
+               "  };\n"
                "}");
 }
 
@@ -1122,7 +1161,7 @@ TEST_F(FormatTestJS, ImportWrapping) {
 TEST_F(FormatTestJS, TemplateStrings) {
   // Keeps any whitespace/indentation within the template string.
   verifyFormat("var x = `hello\n"
-            "     ${  name    }\n"
+            "     ${name}\n"
             "  !`;",
             "var x    =    `hello\n"
                    "     ${  name    }\n"
@@ -1206,6 +1245,18 @@ TEST_F(FormatTestJS, TemplateStrings) {
                "var y;",
                "var x = ` \\` a`;\n"
                "var y;");
+  // Escaped dollar.
+  verifyFormat("var x = ` \\${foo}`;\n");
+}
+
+TEST_F(FormatTestJS, NestedTemplateStrings) {
+  verifyFormat(
+      "var x = `<ul>${xs.map(x => `<li>${x}</li>`).join('\\n')}</ul>`;");
+  verifyFormat("var x = `he${({text: 'll'}.text)}o`;");
+}
+
+TEST_F(FormatTestJS, TaggedTemplateStrings) {
+  verifyFormat("var x = html`<ul>`;");
 }
 
 TEST_F(FormatTestJS, CastSyntax) {
@@ -1218,6 +1269,11 @@ TEST_F(FormatTestJS, CastSyntax) {
                "  1,  //\n"
                "  2\n"
                "];");
+  verifyFormat("var x = [{x: 1} as type];");
+  verifyFormat("x = x as [a, b];");
+  verifyFormat("x = x as {a: string};");
+  verifyFormat("x = x as (string);");
+  verifyFormat("x = x! as (string);");
 }
 
 TEST_F(FormatTestJS, TypeArguments) {
@@ -1316,6 +1372,21 @@ TEST_F(FormatTestJS, RequoteStringsSingle) {
                "let x = \"double\";\n"
                "// clang-format on\n"
                "let x = \"single\";\n");
+}
+
+TEST_F(FormatTestJS, RequoteAndIndent) {
+  verifyFormat("let x = someVeryLongFunctionThatGoesOnAndOn(\n"
+               "    'double quoted string that needs wrapping');",
+               "let x = someVeryLongFunctionThatGoesOnAndOn("
+               "\"double quoted string that needs wrapping\");");
+
+  verifyFormat("let x =\n"
+               "    'foo\\'oo';\n"
+               "let x =\n"
+               "    'foo\\'oo';",
+               "let x=\"foo'oo\";\n"
+               "let x=\"foo'oo\";",
+               getGoogleJSStyleWithColumns(15));
 }
 
 TEST_F(FormatTestJS, RequoteStringsDouble) {
