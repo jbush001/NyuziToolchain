@@ -61,7 +61,7 @@ void NyuziAsmPrinter::EmitConstantPool() {
   // they are close by and can be accessed with PC relative addresses.
   const Function *F = MF->getFunction();
   OutStreamer->SwitchSection(
-      getObjFileLowering().SectionForGlobal(F, *Mang, TM));
+      getObjFileLowering().SectionForGlobal(F, TM));
   OutStreamer->EmitDataRegion(MCDR_DataRegion);
   for (unsigned i = 0, e = CP.size(); i != e; ++i) {
     const MachineConstantPoolEntry &CPE = CP[i];

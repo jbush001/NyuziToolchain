@@ -224,3 +224,128 @@ INVALID-LINKOPTHINT-DATAOFF: macho-invalid-linkopthint-dataoff': truncated or ma
 RUN: not llvm-objdump -macho -private-headers %p/Inputs/macho-invalid-dataincode-dataoff-datasize 2>&1 | FileCheck -check-prefix INVALID-DATAINCODE-DATAOFF-DATASIZE %s
 INVALID-DATAINCODE-DATAOFF-DATASIZE: macho-invalid-dataincode-dataoff-datasize': truncated or malformed object (dataoff field plus datasize field of LC_DATA_IN_CODE command 0 extends past the end of the file)
 
+RUN: not llvm-objdump -macho -private-headers %p/Inputs/macho-invalid-dyldinfo-small 2>&1 | FileCheck -check-prefix INVALID-DYLDINFO-SMALL %s
+INVALID-DYLDINFO-SMALL: macho-invalid-dyldinfo-small': truncated or malformed object (load command 0 LC_DYLD_INFO cmdsize too small)
+
+RUN: not llvm-objdump -macho -private-headers %p/Inputs/macho-invalid-dyldinfoonly-bad-size 2>&1 | FileCheck -check-prefix INVALID-DYLDINFOONLY-BAD-SIZE %s
+INVALID-DYLDINFOONLY-BAD-SIZE: macho-invalid-dyldinfoonly-bad-size': truncated or malformed object (LC_DYLD_INFO_ONLY command 0 has incorrect cmdsize)
+
+RUN: not llvm-objdump -macho -private-headers %p/Inputs/macho-invalid-dyldinfo-rebase_off 2>&1 | FileCheck -check-prefix INVALID-DYLDINFO-REBASE_OFF %s
+INVALID-DYLDINFO-REBASE_OFF: macho-invalid-dyldinfo-rebase_off': truncated or malformed object (rebase_off field of LC_DYLD_INFO command 0 extends past the end of the file)
+
+RUN: not llvm-objdump -macho -private-headers %p/Inputs/macho-invalid-dyldinfo-rebase_off-rebase_size 2>&1 | FileCheck -check-prefix INVALID-DYLDINFO-REBASE_OFF-REBASE_SIZE %s
+INVALID-DYLDINFO-REBASE_OFF-REBASE_SIZE: macho-invalid-dyldinfo-rebase_off-rebase_size': truncated or malformed object (rebase_off field plus rebase_size field of LC_DYLD_INFO command 0 extends past the end of the file)
+
+RUN: not llvm-objdump -macho -private-headers %p/Inputs/macho-invalid-dyldinfoonly-bind_off  2>&1 | FileCheck -check-prefix INVALID-DYLDINFOONLY-BIND_OFF %s
+INVALID-DYLDINFOONLY-BIND_OFF: macho-invalid-dyldinfoonly-bind_off': truncated or malformed object (bind_off field of LC_DYLD_INFO_ONLY command 0 extends past the end of the file)
+
+RUN: not llvm-objdump -macho -private-headers %p/Inputs/macho-invalid-dyldinfo-bind_off-bind_size  2>&1 | FileCheck -check-prefix INVALID-DYLDINFO-BIND_OFF-BIND_SIZE %s
+INVALID-DYLDINFO-BIND_OFF-BIND_SIZE: macho-invalid-dyldinfo-bind_off-bind_size': truncated or malformed object (bind_off field plus bind_size field of LC_DYLD_INFO command 0 extends past the end of the file)
+
+RUN: not llvm-objdump -macho -private-headers %p/Inputs/macho-invalid-dyldinfoonly-weak_bind_off  2>&1 | FileCheck -check-prefix INVALID-DYLDINFOONLY-WEAK_BIND_OFF %s
+INVALID-DYLDINFOONLY-WEAK_BIND_OFF: macho-invalid-dyldinfoonly-weak_bind_off': truncated or malformed object (weak_bind_off field of LC_DYLD_INFO_ONLY command 0 extends past the end of the file)
+
+RUN: not llvm-objdump -macho -private-headers %p/Inputs/macho-invalid-dyldinfo-weak_bind_off-weak_bind_size  2>&1 | FileCheck -check-prefix INVALID-DYLDINFO-WEAK_BIND_OFF-WEAK_BIND_SIZE %s
+INVALID-DYLDINFO-WEAK_BIND_OFF-WEAK_BIND_SIZE: macho-invalid-dyldinfo-weak_bind_off-weak_bind_size': truncated or malformed object (weak_bind_off field plus weak_bind_size field of LC_DYLD_INFO command 0 extends past the end of the file)
+
+RUN: not llvm-objdump -macho -private-headers %p/Inputs/macho-invalid-dyldinfoonly-lazy_bind_off  2>&1 | FileCheck -check-prefix INVALID-DYLDINFOONLY-LAZY_BIND_OFF %s
+INVALID-DYLDINFOONLY-LAZY_BIND_OFF: macho-invalid-dyldinfoonly-lazy_bind_off': truncated or malformed object (lazy_bind_off field of LC_DYLD_INFO_ONLY command 0 extends past the end of the file)
+
+RUN: not llvm-objdump -macho -private-headers %p/Inputs/macho-invalid-dyldinfo-lazy_bind_off-lazy_bind_size  2>&1 | FileCheck -check-prefix INVALID-DYLDINFO-LAZY_BIND_OFF-LAZY_BIND_SIZE %s
+INVALID-DYLDINFO-LAZY_BIND_OFF-LAZY_BIND_SIZE: macho-invalid-dyldinfo-lazy_bind_off-lazy_bind_size': truncated or malformed object (lazy_bind_off field plus lazy_bind_size field of LC_DYLD_INFO command 0 extends past the end of the file)
+
+RUN: not llvm-objdump -macho -private-headers %p/Inputs/macho-invalid-dyldinfoonly-export_off  2>&1 | FileCheck -check-prefix INVALID-DYLDINFOONLY-EXPORT_OFF %s
+INVALID-DYLDINFOONLY-EXPORT_OFF: macho-invalid-dyldinfoonly-export_off': truncated or malformed object (export_off field of LC_DYLD_INFO_ONLY command 0 extends past the end of the file)
+
+RUN: not llvm-objdump -macho -private-headers %p/Inputs/macho-invalid-dyldinfo-export_off-export_size  2>&1 | FileCheck -check-prefix INVALID-DYLDINFO-EXPORT_OFF-EXPORT_SIZE %s
+INVALID-DYLDINFO-EXPORT_OFF-EXPORT_SIZE: macho-invalid-dyldinfo-export_off-export_size': truncated or malformed object (export_off field plus export_size field of LC_DYLD_INFO command 0 extends past the end of the file)
+
+RUN: not llvm-objdump -macho -private-headers %p/Inputs/macho-invalid-dyldinfo-more-than-one  2>&1 | FileCheck -check-prefix INVALID-DYLDINFO-MORE-THAN-ONE %s
+INVALID-DYLDINFO-MORE-THAN-ONE: macho-invalid-dyldinfo-more-than-one': truncated or malformed object (more than one LC_DYLD_INFO and or LC_DYLD_INFO_ONLY command)
+
+RUN: not llvm-objdump -macho -private-headers %p/Inputs/macho-invalid-dylib-small  2>&1 | FileCheck -check-prefix INVALID-DYLIB-SMALL %s
+INVALID-DYLIB-SMALL: macho-invalid-dylib-small': truncated or malformed object (load command 0 LC_LOAD_DYLIB cmdsize too small)
+
+RUN: not llvm-objdump -macho -private-headers %p/Inputs/macho-invalid-dylib-name_offset-toobig  2>&1 | FileCheck -check-prefix INVALID-DYLIB-NAME_OFFSET-TOOBIG %s
+INVALID-DYLIB-NAME_OFFSET-TOOBIG: macho-invalid-dylib-name_offset-toobig': truncated or malformed object (load command 0 LC_LOAD_WEAK_DYLIB name.offset field extends past the end of the load command)
+
+RUN: not llvm-objdump -macho -private-headers %p/Inputs/macho-invalid-dylib-name_toobig  2>&1 | FileCheck -check-prefix INVALID-DYLIB-NAME_TOOBIG %s
+INVALID-DYLIB-NAME_TOOBIG: macho-invalid-dylib-name_toobig': truncated or malformed object (load command 0 LC_LAZY_LOAD_DYLIB library name extends past the end of the load command)
+
+RUN: not llvm-objdump -macho -private-headers %p/Inputs/macho-invalid-dylib-name_offset-toosmall  2>&1 | FileCheck -check-prefix INVALID-DYLIB-NAME_OFFSET-TOOSMALL %s
+INVALID-DYLIB-NAME_OFFSET-TOOSMALL: macho-invalid-dylib-name_offset-toosmall': truncated or malformed object (load command 0 LC_LOAD_UPWARD_DYLIB name.offset field too small, not past the end of the dylib_command struct)
+
+RUN: not llvm-objdump -macho -private-headers %p/Inputs/macho-invalid-dylib-id-more-than-one  2>&1 | FileCheck -check-prefix INVALID-DYLIB-ID-MORE-THAN-ONE %s
+INVALID-DYLIB-ID-MORE-THAN-ONE: macho-invalid-dylib-id-more-than-one': truncated or malformed object (more than one LC_ID_DYLIB command)
+
+RUN: not llvm-objdump -macho -private-headers %p/Inputs/macho-invalid-dylib-wrong-filetype  2>&1 | FileCheck -check-prefix INVALID-DYLIB-WRONG-FILETYPE %s
+INVALID-DYLIB-WRONG-FILETYPE: macho-invalid-dylib-wrong-filetype': truncated or malformed object (LC_ID_DYLIB load command in non-dynamic library file type)
+
+RUN: not llvm-objdump -macho -private-headers %p/Inputs/macho-invalid-dylib-no-id  2>&1 | FileCheck -check-prefix INVALID-DYLIB-NO-ID %s
+INVALID-DYLIB-NO-ID: macho-invalid-dylib-no-id': truncated or malformed object (no LC_ID_DYLIB load command in dynamic library filetype)
+
+RUN: not llvm-objdump -macho -private-headers %p/Inputs/macho-invalid-uuid-more-than-one  2>&1 | FileCheck -check-prefix INVALID-UUID-MORE-THAN-ONE %s
+INVALID-UUID-MORE-THAN-ONE: macho-invalid-uuid-more-than-one': truncated or malformed object (more than one LC_UUID command)
+
+RUN: not llvm-objdump -macho -private-headers %p/Inputs/macho-invalid-uuid-bad-size  2>&1 | FileCheck -check-prefix INVALID-UUID-BAD-SIZE %s
+INVALID-UUID-BAD-SIZE: macho-invalid-uuid-bad-size': truncated or malformed object (LC_UUID command 0 has incorrect cmdsize)
+
+RUN: not llvm-objdump -macho -private-headers %p/Inputs/macho-invalid-function_starts-dataoff  2>&1 | FileCheck -check-prefix INVALID-FUNCTION_STARTS-DATAOFF %s
+INVALID-FUNCTION_STARTS-DATAOFF: macho-invalid-function_starts-dataoff': truncated or malformed object (dataoff field of LC_FUNCTION_STARTS command 0 extends past the end of the file)
+
+RUN: not llvm-objdump -macho -private-headers %p/Inputs/macho-invalid-splitinfo-dataoff-datasize  2>&1 | FileCheck -check-prefix INVALID-SPLITINFO-DATAOFF-DATASIZE %s
+INVALID-SPLITINFO-DATAOFF-DATASIZE: macho-invalid-splitinfo-dataoff-datasize': truncated or malformed object (dataoff field plus datasize field of LC_SEGMENT_SPLIT_INFO command 0 extends past the end of the file)
+
+RUN: not llvm-objdump -macho -private-headers %p/Inputs/macho-invalid-dylib_code_sign_drs-bad-size  2>&1 | FileCheck -check-prefix INVALID-DYLIB_CODE_SIGN_DRS-BAD-SIZE %s
+INVALID-DYLIB_CODE_SIGN_DRS-BAD-SIZE: macho-invalid-dylib_code_sign_drs-bad-size': truncated or malformed object (LC_DYLIB_CODE_SIGN_DRS command 0 has incorrect cmdsize)
+
+RUN: not llvm-objdump -macho -private-headers %p/Inputs/macho-invalid-dyld-small  2>&1 | FileCheck -check-prefix INVALID-DYLD-SMALL %s
+INVALID-DYLD-SMALL: macho-invalid-dyld-small': truncated or malformed object (load command 0 LC_ID_DYLINKER cmdsize too small)
+
+RUN: not llvm-objdump -macho -private-headers %p/Inputs/macho-invalid-dyld-name_offset-toobig  2>&1 | FileCheck -check-prefix INVALID-DYLD-NAME_OFFSET-TOOBIG %s
+INVALID-DYLD-NAME_OFFSET-TOOBIG: macho-invalid-dyld-name_offset-toobig': truncated or malformed object (load command 0 LC_LOAD_DYLINKER name.offset field extends past the end of the load command)
+
+RUN: not llvm-objdump -macho -private-headers %p/Inputs/macho-invalid-dyld-name_toobig 2>&1 | FileCheck -check-prefix INVALID-DYLD-NAME_TOOBIG %s
+INVALID-DYLD-NAME_TOOBIG: macho-invalid-dyld-name_toobig': truncated or malformed object (load command 0 LC_DYLD_ENVIRONMENT dyld name extends past the end of the load command)
+
+RUN: not llvm-objdump -macho -private-headers %p/Inputs/macho-invalid-vers-small 2>&1 | FileCheck -check-prefix INVALID-VERS-SMALL %s
+INVALID-VERS-SMALL: macho-invalid-vers-small': truncated or malformed object (load command 0 LC_VERSION_MIN_MACOSX has incorrect cmdsize)
+
+RUN: not llvm-objdump -macho -private-headers %p/Inputs/macho-invalid-vers-more-than-one 2>&1 | FileCheck -check-prefix INVALID-VERS-MORE-THAN-ONE %s
+INVALID-VERS-MORE-THAN-ONE: macho-invalid-vers-more-than-one': truncated or malformed object (more than one LC_VERSION_MIN_MACOSX, LC_VERSION_MIN_IPHONEOS, LC_VERSION_MIN_TVOS or LC_VERSION_MIN_WATCHOS command)
+
+RUN: not llvm-objdump -macho -private-headers %p/Inputs/macho-invalid-rpath-small 2>&1 | FileCheck -check-prefix INVALID-RPATH-SMALL %s
+INVALID-RPATH-SMALL: macho-invalid-rpath-small': truncated or malformed object (load command 0 LC_RPATH cmdsize too small)
+
+RUN: not llvm-objdump -macho -private-headers %p/Inputs/macho-invalid-rpath-name_offset-toobig 2>&1 | FileCheck -check-prefix INVALID-RPATH-NAME_OFFSET-TOOBIG %s
+INVALID-RPATH-NAME_OFFSET-TOOBIG: macho-invalid-rpath-name_offset-toobig': truncated or malformed object (load command 0 LC_RPATH path.offset field extends past the end of the load command)
+
+RUN: not llvm-objdump -macho -private-headers %p/Inputs/macho-invalid-rpath-name_toobig 2>&1 | FileCheck -check-prefix INVALID-RPATH-NAME_TOOBIG %s
+INVALID-RPATH-NAME_TOOBIG: macho-invalid-rpath-name_toobig': truncated or malformed object (load command 0 LC_RPATH library name extends past the end of the load command)
+
+RUN: not llvm-objdump -macho -private-headers %p/Inputs/macho-invalid-source-bad-size 2>&1 | FileCheck -check-prefix INVALID-SOURCE-BAD-SIZE %s
+INVALID-SOURCE-BAD-SIZE: macho-invalid-source-bad-size': truncated or malformed object (LC_SOURCE_VERSION command 0 has incorrect cmdsize)
+
+RUN: not llvm-objdump -macho -private-headers %p/Inputs/macho-invalid-source-more-than-one 2>&1 | FileCheck -check-prefix INVALID-SOURCE-MORE-THAN-ONE %s
+INVALID-SOURCE-MORE-THAN-ONE: macho-invalid-source-more-than-one': truncated or malformed object (more than one LC_SOURCE_VERSION command)
+
+RUN: not llvm-objdump -macho -private-headers %p/Inputs/macho-invalid-entry-bad-size 2>&1 | FileCheck -check-prefix INVALID-ENTRY-BAD-SIZE %s
+INVALID-ENTRY-BAD-SIZE: macho-invalid-entry-bad-size': truncated or malformed object (LC_MAIN command 0 has incorrect cmdsize)
+
+RUN: not llvm-objdump -macho -private-headers %p/Inputs/macho-invalid-entry-more-than-one 2>&1 | FileCheck -check-prefix INVALID-ENTRY-MORE-THAN-ONE %s
+INVALID-ENTRY-MORE-THAN-ONE: macho-invalid-entry-more-than-one': truncated or malformed object (more than one LC_MAIN command)
+
+RUN: not llvm-objdump -macho -private-headers %p/Inputs/macho-invalid-encrypt-bad-size 2>&1 | FileCheck -check-prefix INVALID-ENCRYPT-BAD-SIZE %s
+INVALID-ENCRYPT-BAD-SIZE: macho-invalid-encrypt-bad-size': truncated or malformed object (LC_ENCRYPTION_INFO command 0 has incorrect cmdsize)
+
+RUN: not llvm-objdump -macho -private-headers %p/Inputs/macho-invalid-encrypt64-bad-size 2>&1 | FileCheck -check-prefix INVALID-ENCRYPT64-BAD-SIZE %s
+INVALID-ENCRYPT64-BAD-SIZE: macho-invalid-encrypt64-bad-size': truncated or malformed object (LC_ENCRYPTION_INFO_64 command 0 has incorrect cmdsize)
+
+RUN: not llvm-objdump -macho -private-headers %p/Inputs/macho-invalid-encrypt-more-than-one 2>&1 | FileCheck -check-prefix INVALID-ENCRYPT-MORE-THAN-ONE %s
+INVALID-ENCRYPT-MORE-THAN-ONE: macho-invalid-encrypt-more-than-one': truncated or malformed object (more than one LC_ENCRYPTION_INFO and or LC_ENCRYPTION_INFO_64 command)
+
+RUN: not llvm-objdump -macho -private-headers %p/Inputs/macho-invalid-encrypt-cryptoff 2>&1 | FileCheck -check-prefix INVALID-ENCRYPT-CRYPTOFF %s
+INVALID-ENCRYPT-CRYPTOFF: macho-invalid-encrypt-cryptoff': truncated or malformed object (cryptoff field of LC_ENCRYPTION_INFO command 0 extends past the end of the file)
+
+RUN: not llvm-objdump -macho -private-headers %p/Inputs/macho-invalid-encrypt64-cryptoff-cryptsize 2>&1 | FileCheck -check-prefix INVALID-ENCRYPT-CRYPTOFF-CRYPTSIZE %s
+INVALID-ENCRYPT-CRYPTOFF-CRYPTSIZE: macho-invalid-encrypt64-cryptoff-cryptsize': truncated or malformed object (cryptoff field plus cryptsize field of LC_ENCRYPTION_INFO_64 command 0 extends past the end of the file)

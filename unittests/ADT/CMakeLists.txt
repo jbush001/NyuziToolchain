@@ -53,8 +53,10 @@ set(ADTSources
   SparseBitVectorTest.cpp
   SparseMultiSetTest.cpp
   SparseSetTest.cpp
+  StringExtrasTest.cpp
   StringMapTest.cpp
   StringRefTest.cpp
+  StringSwitchTest.cpp
   TinyPtrVectorTest.cpp
   TripleTest.cpp
   TwineTest.cpp

@@ -1981,6 +1981,9 @@ HexagonTargetLowering::HexagonTargetLowering(const TargetMachine &TM,
     setOperationAction(ISD::SRA, VT, Custom);
     setOperationAction(ISD::SHL, VT, Custom);
     setOperationAction(ISD::SRL, VT, Custom);
+
+    setOperationAction(ISD::BR_CC,     VT, Expand);
+    setOperationAction(ISD::SELECT_CC, VT, Expand);
   }
 
   // Types natively supported:
@@ -2006,6 +2009,7 @@ HexagonTargetLowering::HexagonTargetLowering(const TargetMachine &TM,
   setOperationAction(ISD::VSELECT,        MVT::v2i16, Custom);
   setOperationAction(ISD::VECTOR_SHUFFLE, MVT::v4i16, Custom);
   setOperationAction(ISD::VECTOR_SHUFFLE, MVT::v8i8,  Custom);
+
   if (UseHVX) {
     if (UseHVXSgl) {
       setOperationAction(ISD::CONCAT_VECTORS, MVT::v128i8,  Custom);
@@ -2299,9 +2303,8 @@ bool HexagonTargetLowering::isFMAFasterThanFMulAndFAdd(EVT VT) const {
 }
 
 // Should we expand the build vector with shuffles?
-bool
-HexagonTargetLowering::shouldExpandBuildVectorWithShuffles(EVT VT,
-                                  unsigned DefinedValues) const {
+bool HexagonTargetLowering::shouldExpandBuildVectorWithShuffles(EVT VT,
+      unsigned DefinedValues) const {
   // Hexagon vector shuffle operates on element sizes of bytes or halfwords
   EVT EltVT = VT.getVectorElementType();
   int EltBits = EltVT.getSizeInBits();
@@ -2311,7 +2314,7 @@ HexagonTargetLowering::shouldExpandBuildVectorWithShuffles(EVT VT,
   return TargetLowering::shouldExpandBuildVectorWithShuffles(VT, DefinedValues);
 }
 
-static StridedLoadKind isStridedLoad(ArrayRef<int> &Mask) {
+static StridedLoadKind isStridedLoad(const ArrayRef<int> &Mask) {
   int even_start = -2;
   int odd_start = -1;
   size_t mask_len = Mask.size();
@@ -2333,6 +2336,13 @@ static StridedLoadKind isStridedLoad(ArrayRef<int> &Mask) {
     return StridedLoadKind::Odd;
 
   return StridedLoadKind::NoPattern;
+}
+
+bool HexagonTargetLowering::isShuffleMaskLegal(const SmallVectorImpl<int> &Mask,
+      EVT VT) const {
+  if (Subtarget.useHVXOps())
+    return isStridedLoad(Mask) != StridedLoadKind::NoPattern;
+  return true;
 }
 
 // Lower a vector shuffle (V1, V2, V3).  V1 and V2 are the two vectors
@@ -2379,7 +2389,7 @@ HexagonTargetLowering::LowerVECTOR_SHUFFLE(SDValue Op, SelectionDAG &DAG)
   if (UseHVX) {
     ArrayRef<int> Mask = SVN->getMask();
     size_t MaskLen = Mask.size();
-    int ElemSizeInBits = VT.getVectorElementType().getSizeInBits();
+    int ElemSizeInBits = VT.getScalarSizeInBits();
     if ((Subtarget.useHVXSglOps() && (ElemSizeInBits * MaskLen) == 64 * 8) ||
         (Subtarget.useHVXDblOps() && (ElemSizeInBits * MaskLen) == 128 * 8)) {
       // Return 1 for odd and 2 of even
@@ -2602,7 +2612,7 @@ HexagonTargetLowering::LowerBUILD_VECTOR(SDValue Op, SelectionDAG &DAG) const {
         continue;
 
       if (VT.getSizeInBits() == 64 &&
-          Operand.getValueType().getSizeInBits() == 32) {
+          Operand.getValueSizeInBits() == 32) {
         SDValue C = DAG.getConstant(0, dl, MVT::i32);
         Operand = DAG.getNode(HexagonISD::COMBINE, dl, VT, C, Operand);
       }
@@ -2667,7 +2677,7 @@ HexagonTargetLowering::LowerCONCAT_VECTORS(SDValue Op,
     unsigned N = NElts-i-1;
     SDValue OpN = Op.getOperand(N);
 
-    if (VT.getSizeInBits() == 64 && OpN.getValueType().getSizeInBits() == 32) {
+    if (VT.getSizeInBits() == 64 && OpN.getValueSizeInBits() == 32) {
       SDValue C = DAG.getConstant(0, dl, MVT::i32);
       OpN = DAG.getNode(HexagonISD::COMBINE, dl, VT, C, OpN);
     }
@@ -2847,8 +2857,7 @@ HexagonTargetLowering::LowerINSERT_VECTOR(SDValue Op,
                                 DAG.getConstant(32, dl, MVT::i64));
   SDValue Combined = DAG.getNode(ISD::OR, dl, MVT::i64, Shifted, Offset);
 
-  if (VT.getSizeInBits() == 64 &&
-      Val.getValueType().getSizeInBits() == 32) {
+  if (VT.getSizeInBits() == 64 && Val.getValueSizeInBits() == 32) {
     SDValue C = DAG.getConstant(0, dl, MVT::i32);
     Val = DAG.getNode(HexagonISD::COMBINE, dl, VT, C, Val);
   }

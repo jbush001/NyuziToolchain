@@ -481,6 +481,14 @@ void ASTTypeWriter::VisitObjCInterfaceType(const ObjCInterfaceType *T) {
   Code = TYPE_OBJC_INTERFACE;
 }
 
+void ASTTypeWriter::VisitObjCTypeParamType(const ObjCTypeParamType *T) {
+  Record.AddDeclRef(T->getDecl());
+  Record.push_back(T->getNumProtocols());
+  for (const auto *I : T->quals())
+    Record.AddDeclRef(I);
+  Code = TYPE_OBJC_TYPE_PARAM;
+}
+
 void ASTTypeWriter::VisitObjCObjectType(const ObjCObjectType *T) {
   Record.AddTypeRef(T->getBaseType());
   Record.push_back(T->getTypeArgsAsWritten().size());
@@ -635,6 +643,14 @@ void TypeLocWriter::VisitUnresolvedUsingTypeLoc(UnresolvedUsingTypeLoc TL) {
 }
 void TypeLocWriter::VisitTypedefTypeLoc(TypedefTypeLoc TL) {
   Record.AddSourceLocation(TL.getNameLoc());
+}
+void TypeLocWriter::VisitObjCTypeParamTypeLoc(ObjCTypeParamTypeLoc TL) {
+  if (TL.getNumProtocols()) {
+    Record.AddSourceLocation(TL.getProtocolLAngleLoc());
+    Record.AddSourceLocation(TL.getProtocolRAngleLoc());
+  }
+  for (unsigned i = 0, e = TL.getNumProtocols(); i != e; ++i)
+    Record.AddSourceLocation(TL.getProtocolLoc(i));
 }
 void TypeLocWriter::VisitTypeOfExprTypeLoc(TypeOfExprTypeLoc TL) {
   Record.AddSourceLocation(TL.getTypeofLoc());
@@ -1137,6 +1153,7 @@ void ASTWriter::WriteBlockInfoBlock() {
   RECORD(TYPE_ATOMIC);
   RECORD(TYPE_DECAYED);
   RECORD(TYPE_ADJUSTED);
+  RECORD(TYPE_OBJC_TYPE_PARAM);
   RECORD(LOCAL_REDECLARATIONS);
   RECORD(DECL_TYPEDEF);
   RECORD(DECL_TYPEALIAS);
@@ -2057,14 +2074,13 @@ void ASTWriter::WriteSourceManagerBlock(SourceManager &SourceMgr,
         // the reader side).
         const llvm::MemoryBuffer *Buffer
           = Content->getBuffer(PP.getDiagnostics(), PP.getSourceManager());
-        const char *Name = Buffer->getBufferIdentifier();
+        StringRef Name = Buffer->getBufferIdentifier();
         Stream.EmitRecordWithBlob(SLocBufferAbbrv, Record,
-                                  StringRef(Name, strlen(Name) + 1));
+                                  StringRef(Name.data(), Name.size() + 1));
         EmitBlob = true;
 
-        if (strcmp(Name, "<built-in>") == 0) {
+        if (Name == "<built-in>")
           PreloadSLocs.push_back(SLocEntryOffsets.size());
-        }
       }
 
       if (EmitBlob) {
@@ -4346,9 +4362,10 @@ uint64_t ASTWriter::WriteASTCore(Sema &SemaRef, StringRef isysroot,
 
   // Build a record containing some declaration references.
   RecordData SemaDeclRefs;
-  if (SemaRef.StdNamespace || SemaRef.StdBadAlloc) {
+  if (SemaRef.StdNamespace || SemaRef.StdBadAlloc || SemaRef.StdAlignValT) {
     AddDeclRef(SemaRef.getStdNamespace(), SemaDeclRefs);
     AddDeclRef(SemaRef.getStdBadAlloc(), SemaDeclRefs);
+    AddDeclRef(SemaRef.getStdAlignValT(), SemaDeclRefs);
   }
 
   RecordData CUDASpecialDeclRefs;
@@ -4455,8 +4472,9 @@ uint64_t ASTWriter::WriteASTCore(Sema &SemaRef, StringRef isysroot,
                                                      Number.second));
 
   // Make sure visible decls, added to DeclContexts previously loaded from
-  // an AST file, are registered for serialization.
-  for (const auto *I : UpdatingVisibleDecls) {
+  // an AST file, are registered for serialization. Likewise for template
+  // specializations added to imported templates.
+  for (const auto *I : DeclsToEmitEvenIfUnreferenced) {
     GetDeclRef(I);
   }
 
@@ -5801,9 +5819,9 @@ void ASTWriter::AddedVisibleDecl(const DeclContext *DC, const Decl *D) {
     // that we write out all of its lookup results so we don't get a nasty
     // surprise when we try to emit its lookup table.
     for (auto *Child : DC->decls())
-      UpdatingVisibleDecls.push_back(Child);
+      DeclsToEmitEvenIfUnreferenced.push_back(Child);
   }
-  UpdatingVisibleDecls.push_back(D);
+  DeclsToEmitEvenIfUnreferenced.push_back(D);
 }
 
 void ASTWriter::AddedCXXImplicitMember(const CXXRecordDecl *RD, const Decl *D) {
@@ -5971,4 +5989,40 @@ void ASTWriter::AddedAttributeToRecord(const Attr *Attr,
   if (!Record->isFromASTFile())
     return;
   DeclUpdates[Record].push_back(DeclUpdate(UPD_ADDED_ATTR_TO_RECORD, Attr));
+}
+
+void ASTWriter::AddedCXXTemplateSpecialization(
+    const ClassTemplateDecl *TD, const ClassTemplateSpecializationDecl *D) {
+  assert(!WritingAST && "Already writing the AST!");
+
+  if (!TD->getFirstDecl()->isFromASTFile())
+    return;
+  if (Chain && Chain->isProcessingUpdateRecords())
+    return;
+
+  DeclsToEmitEvenIfUnreferenced.push_back(D);
+}
+
+void ASTWriter::AddedCXXTemplateSpecialization(
+    const VarTemplateDecl *TD, const VarTemplateSpecializationDecl *D) {
+  assert(!WritingAST && "Already writing the AST!");
+
+  if (!TD->getFirstDecl()->isFromASTFile())
+    return;
+  if (Chain && Chain->isProcessingUpdateRecords())
+    return;
+
+  DeclsToEmitEvenIfUnreferenced.push_back(D);
+}
+
+void ASTWriter::AddedCXXTemplateSpecialization(const FunctionTemplateDecl *TD,
+                                               const FunctionDecl *D) {
+  assert(!WritingAST && "Already writing the AST!");
+
+  if (!TD->getFirstDecl()->isFromASTFile())
+    return;
+  if (Chain && Chain->isProcessingUpdateRecords())
+    return;
+
+  DeclsToEmitEvenIfUnreferenced.push_back(D);
 }

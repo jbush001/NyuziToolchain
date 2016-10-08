@@ -286,9 +286,6 @@ def SDT_AArch64mull : SDTypeProfile<1, 2, [SDTCisInt<0>, SDTCisInt<1>,
 def AArch64smull    : SDNode<"AArch64ISD::SMULL", SDT_AArch64mull>;
 def AArch64umull    : SDNode<"AArch64ISD::UMULL", SDT_AArch64mull>;
 
-def AArch64frecpe   : SDNode<"AArch64ISD::FRECPE", SDTFPUnaryOp>;
-def AArch64frsqrte  : SDNode<"AArch64ISD::FRSQRTE", SDTFPUnaryOp>;
-
 def AArch64saddv    : SDNode<"AArch64ISD::SADDV", SDT_AArch64UnaryVec>;
 def AArch64uaddv    : SDNode<"AArch64ISD::UADDV", SDT_AArch64UnaryVec>;
 def AArch64sminv    : SDNode<"AArch64ISD::SMINV", SDT_AArch64UnaryVec>;
@@ -3409,19 +3406,6 @@ def : Pat<(f64 (int_aarch64_neon_frecpe (f64 FPR64:$Rn))),
 def : Pat<(v1f64 (int_aarch64_neon_frecpe (v1f64 FPR64:$Rn))),
           (FRECPEv1i64 FPR64:$Rn)>;
 
-def : Pat<(f32 (AArch64frecpe (f32 FPR32:$Rn))),
-          (FRECPEv1i32 FPR32:$Rn)>;
-def : Pat<(v2f32 (AArch64frecpe (v2f32 V64:$Rn))),
-          (FRECPEv2f32 V64:$Rn)>;
-def : Pat<(v4f32 (AArch64frecpe (v4f32 FPR128:$Rn))),
-          (FRECPEv4f32 FPR128:$Rn)>;
-def : Pat<(f64 (AArch64frecpe (f64 FPR64:$Rn))),
-          (FRECPEv1i64 FPR64:$Rn)>;
-def : Pat<(v1f64 (AArch64frecpe (v1f64 FPR64:$Rn))),
-          (FRECPEv1i64 FPR64:$Rn)>;
-def : Pat<(v2f64 (AArch64frecpe (v2f64 FPR128:$Rn))),
-          (FRECPEv2f64 FPR128:$Rn)>;
-
 def : Pat<(f32 (int_aarch64_neon_frecpx (f32 FPR32:$Rn))),
           (FRECPXv1i32 FPR32:$Rn)>;
 def : Pat<(f64 (int_aarch64_neon_frecpx (f64 FPR64:$Rn))),
@@ -3433,19 +3417,6 @@ def : Pat<(f64 (int_aarch64_neon_frsqrte (f64 FPR64:$Rn))),
           (FRSQRTEv1i64 FPR64:$Rn)>;
 def : Pat<(v1f64 (int_aarch64_neon_frsqrte (v1f64 FPR64:$Rn))),
           (FRSQRTEv1i64 FPR64:$Rn)>;
-
-def : Pat<(f32 (AArch64frsqrte (f32 FPR32:$Rn))),
-          (FRSQRTEv1i32 FPR32:$Rn)>;
-def : Pat<(v2f32 (AArch64frsqrte (v2f32 V64:$Rn))),
-          (FRSQRTEv2f32 V64:$Rn)>;
-def : Pat<(v4f32 (AArch64frsqrte (v4f32 FPR128:$Rn))),
-          (FRSQRTEv4f32 FPR128:$Rn)>;
-def : Pat<(f64 (AArch64frsqrte (f64 FPR64:$Rn))),
-          (FRSQRTEv1i64 FPR64:$Rn)>;
-def : Pat<(v1f64 (AArch64frsqrte (v1f64 FPR64:$Rn))),
-          (FRSQRTEv1i64 FPR64:$Rn)>;
-def : Pat<(v2f64 (AArch64frsqrte (v2f64 FPR128:$Rn))),
-          (FRSQRTEv2f64 FPR128:$Rn)>;
 
 // If an integer is about to be converted to a floating point value,
 // just load it on the floating point unit.
@@ -5301,15 +5272,8 @@ def SHA256SU0rr : SHATiedInstVV<0b0010, "sha256su0",int_aarch64_crypto_sha256su0
 //----------------------------------------------------------------------------
 // FIXME: Like for X86, these should go in their own separate .td file.
 
-// Any instruction that defines a 32-bit result leaves the high half of the
-// register. Truncate can be lowered to EXTRACT_SUBREG. CopyFromReg may
-// be copying from a truncate. But any other 32-bit operation will zero-extend
-// up to 64 bits.
-// FIXME: X86 also checks for CMOV here. Do we need something similar?
 def def32 : PatLeaf<(i32 GPR32:$src), [{
-  return N->getOpcode() != ISD::TRUNCATE &&
-         N->getOpcode() != TargetOpcode::EXTRACT_SUBREG &&
-         N->getOpcode() != ISD::CopyFromReg;
+  return isDef32(*N);
 }]>;
 
 // In the case of a 32-bit def that is known to implicitly zero-extend,

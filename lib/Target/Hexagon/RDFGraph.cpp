@@ -18,6 +18,7 @@
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
 #include "llvm/Target/TargetInstrInfo.h"
+#include "llvm/Target/TargetLowering.h"
 #include "llvm/Target/TargetRegisterInfo.h"
 
 using namespace llvm;
@@ -35,12 +36,9 @@ raw_ostream &operator<< (raw_ostream &OS, const Print<RegisterRef> &P) {
     OS << TRI.getName(P.Obj.Reg);
   else
     OS << '#' << P.Obj.Reg;
-  if (P.Obj.Sub > 0) {
-    OS << ':';
-    if (P.Obj.Sub < TRI.getNumSubRegIndices())
-      OS << TRI.getSubRegIndexName(P.Obj.Sub);
-    else
-      OS << '#' << P.Obj.Sub;
+  if (P.Obj.Sub != 0) {
+    LaneBitmask LM = P.G.getLMI().getLaneMaskForIndex(P.Obj.Sub);
+    OS << ":L" << PrintLaneMask(LM);
   }
   return OS;
 }
@@ -64,6 +62,8 @@ raw_ostream &operator<< (raw_ostream &OS, const Print<NodeId> &P) {
     case NodeAttrs::Ref:
       if (Flags & NodeAttrs::Undef)
         OS << '/';
+      if (Flags & NodeAttrs::Dead)
+        OS << '\\';
       if (Flags & NodeAttrs::Preserving)
         OS << '+';
       if (Flags & NodeAttrs::Clobbering)
@@ -210,9 +210,27 @@ raw_ostream &operator<< (raw_ostream &OS, const Print<NodeAddr<PhiNode*>> &P) {
 template<>
 raw_ostream &operator<< (raw_ostream &OS,
       const Print<NodeAddr<StmtNode*>> &P) {
-  unsigned Opc = P.Obj.Addr->getCode()->getOpcode();
-  OS << Print<NodeId>(P.Obj.Id, P.G) << ": " << P.G.getTII().getName(Opc)
-     << " [" << PrintListV<RefNode*>(P.Obj.Addr->members(P.G), P.G) << ']';
+  const MachineInstr &MI = *P.Obj.Addr->getCode();
+  unsigned Opc = MI.getOpcode();
+  OS << Print<NodeId>(P.Obj.Id, P.G) << ": " << P.G.getTII().getName(Opc);
+  // Print the target for calls and branches (for readability).
+  if (MI.isCall() || MI.isBranch()) {
+    MachineInstr::const_mop_iterator T =
+          find_if(MI.operands(),
+                  [] (const MachineOperand &Op) -> bool {
+                    return Op.isMBB() || Op.isGlobal() || Op.isSymbol();
+                  });
+    if (T != MI.operands_end()) {
+      OS << ' ';
+      if (T->isMBB())
+        OS << "BB#" << T->getMBB()->getNumber();
+      else if (T->isGlobal())
+        OS << T->getGlobal()->getName();
+      else if (T->isSymbol())
+        OS << T->getSymbolName();
+    }
+  }
+  OS << " [" << PrintListV<RefNode*>(P.Obj.Addr->members(P.G), P.G) << ']';
   return OS;
 }
 
@@ -236,29 +254,29 @@ raw_ostream &operator<< (raw_ostream &OS,
 template<>
 raw_ostream &operator<< (raw_ostream &OS,
       const Print<NodeAddr<BlockNode*>> &P) {
-  auto *BB = P.Obj.Addr->getCode();
+  MachineBasicBlock *BB = P.Obj.Addr->getCode();
   unsigned NP = BB->pred_size();
   std::vector<int> Ns;
   auto PrintBBs = [&OS,&P] (std::vector<int> Ns) -> void {
     unsigned N = Ns.size();
-    for (auto I : Ns) {
+    for (int I : Ns) {
       OS << "BB#" << I;
       if (--N)
         OS << ", ";
     }
   };
 
-  OS << Print<NodeId>(P.Obj.Id, P.G) << ": === BB#" << BB->getNumber()
-     << " === preds(" << NP << "): ";
-  for (auto I : BB->predecessors())
-    Ns.push_back(I->getNumber());
+  OS << Print<NodeId>(P.Obj.Id, P.G) << ": --- BB#" << BB->getNumber()
+     << " --- preds(" << NP << "): ";
+  for (MachineBasicBlock *B : BB->predecessors())
+    Ns.push_back(B->getNumber());
   PrintBBs(Ns);
 
   unsigned NS = BB->succ_size();
   OS << "  succs(" << NS << "): ";
   Ns.clear();
-  for (auto I : BB->successors())
-    Ns.push_back(I->getNumber());
+  for (MachineBasicBlock *B : BB->successors())
+    Ns.push_back(B->getNumber());
   PrintBBs(Ns);
   OS << '\n';
 
@@ -284,6 +302,12 @@ raw_ostream &operator<< (raw_ostream &OS, const Print<RegisterSet> &P) {
   for (auto I : P.Obj)
     OS << ' ' << Print<RegisterRef>(I, P.G);
   OS << " }";
+  return OS;
+}
+
+template<>
+raw_ostream &operator<< (raw_ostream &OS, const Print<RegisterAggr> &P) {
+  P.Obj.print(OS);
   return OS;
 }
 
@@ -444,7 +468,7 @@ NodeAddr<NodeBase*> CodeNode::getLastMember(const DataFlowGraph &G) const {
 
 // Add node NA at the end of the member list of the given code node.
 void CodeNode::addMember(NodeAddr<NodeBase*> NA, const DataFlowGraph &G) {
-  auto ML = getLastMember(G);
+  NodeAddr<NodeBase*> ML = getLastMember(G);
   if (ML.Id != 0) {
     ML.Addr->append(NA);
   } else {
@@ -465,7 +489,7 @@ void CodeNode::addMemberAfter(NodeAddr<NodeBase*> MA, NodeAddr<NodeBase*> NA,
 
 // Remove member node NA from the given code node.
 void CodeNode::removeMember(NodeAddr<NodeBase*> NA, const DataFlowGraph &G) {
-  auto MA = getFirstMember(G);
+  NodeAddr<NodeBase*> MA = getFirstMember(G);
   assert(MA.Id != 0);
 
   // Special handling if the member to remove is the first member.
@@ -516,7 +540,7 @@ NodeAddr<NodeBase*> InstrNode::getOwner(const DataFlowGraph &G) {
 
 // Add the phi node PA to the given block node.
 void BlockNode::addPhi(NodeAddr<PhiNode*> PA, const DataFlowGraph &G) {
-  auto M = getFirstMember(G);
+  NodeAddr<NodeBase*> M = getFirstMember(G);
   if (M.Id == 0) {
     addMember(PA, G);
     return;
@@ -563,114 +587,6 @@ NodeAddr<BlockNode*> FuncNode::getEntryBlock(const DataFlowGraph &G) {
 }
 
 
-// Register aliasing information.
-//
-// In theory, the lane information could be used to determine register
-// covering (and aliasing), but depending on the sub-register structure,
-// the lane mask information may be missing. The covering information
-// must be available for this framework to work, so relying solely on
-// the lane data is not sufficient.
-
-// Determine whether RA covers RB.
-bool RegisterAliasInfo::covers(RegisterRef RA, RegisterRef RB) const {
-  if (RA == RB)
-    return true;
-  if (TargetRegisterInfo::isVirtualRegister(RA.Reg)) {
-    assert(TargetRegisterInfo::isVirtualRegister(RB.Reg));
-    if (RA.Reg != RB.Reg)
-      return false;
-    if (RA.Sub == 0)
-      return true;
-    return TRI.composeSubRegIndices(RA.Sub, RB.Sub) == RA.Sub;
-  }
-
-  assert(TargetRegisterInfo::isPhysicalRegister(RA.Reg) &&
-         TargetRegisterInfo::isPhysicalRegister(RB.Reg));
-  unsigned A = RA.Sub != 0 ? TRI.getSubReg(RA.Reg, RA.Sub) : RA.Reg;
-  unsigned B = RB.Sub != 0 ? TRI.getSubReg(RB.Reg, RB.Sub) : RB.Reg;
-  return TRI.isSubRegister(A, B);
-}
-
-// Determine whether RR is covered by the set of references RRs.
-bool RegisterAliasInfo::covers(const RegisterSet &RRs, RegisterRef RR) const {
-  if (RRs.count(RR))
-    return true;
-
-  // For virtual registers, we cannot accurately determine covering based
-  // on subregisters. If RR itself is not present in RRs, but it has a sub-
-  // register reference, check for the super-register alone. Otherwise,
-  // assume non-covering.
-  if (TargetRegisterInfo::isVirtualRegister(RR.Reg)) {
-    if (RR.Sub != 0)
-      return RRs.count({RR.Reg, 0});
-    return false;
-  }
-
-  // If any super-register of RR is present, then RR is covered.
-  unsigned Reg = RR.Sub == 0 ? RR.Reg : TRI.getSubReg(RR.Reg, RR.Sub);
-  for (MCSuperRegIterator SR(Reg, &TRI); SR.isValid(); ++SR)
-    if (RRs.count({*SR, 0}))
-      return true;
-
-  return false;
-}
-
-// Get the list of references aliased to RR.
-std::vector<RegisterRef> RegisterAliasInfo::getAliasSet(RegisterRef RR) const {
-  // Do not include RR in the alias set. For virtual registers return an
-  // empty set.
-  std::vector<RegisterRef> AS;
-  if (TargetRegisterInfo::isVirtualRegister(RR.Reg))
-    return AS;
-  assert(TargetRegisterInfo::isPhysicalRegister(RR.Reg));
-  unsigned R = RR.Reg;
-  if (RR.Sub)
-    R = TRI.getSubReg(RR.Reg, RR.Sub);
-
-  for (MCRegAliasIterator AI(R, &TRI, false); AI.isValid(); ++AI)
-    AS.push_back(RegisterRef({*AI, 0}));
-  return AS;
-}
-
-// Check whether RA and RB are aliased.
-bool RegisterAliasInfo::alias(RegisterRef RA, RegisterRef RB) const {
-  bool VirtA = TargetRegisterInfo::isVirtualRegister(RA.Reg);
-  bool VirtB = TargetRegisterInfo::isVirtualRegister(RB.Reg);
-  bool PhysA = TargetRegisterInfo::isPhysicalRegister(RA.Reg);
-  bool PhysB = TargetRegisterInfo::isPhysicalRegister(RB.Reg);
-
-  if (VirtA != VirtB)
-    return false;
-
-  if (VirtA) {
-    if (RA.Reg != RB.Reg)
-      return false;
-    // RA and RB refer to the same register. If any of them refer to the
-    // whole register, they must be aliased.
-    if (RA.Sub == 0 || RB.Sub == 0)
-      return true;
-    unsigned SA = TRI.getSubRegIdxSize(RA.Sub);
-    unsigned OA = TRI.getSubRegIdxOffset(RA.Sub);
-    unsigned SB = TRI.getSubRegIdxSize(RB.Sub);
-    unsigned OB = TRI.getSubRegIdxOffset(RB.Sub);
-    if (OA <= OB && OA+SA > OB)
-      return true;
-    if (OB <= OA && OB+SB > OA)
-      return true;
-    return false;
-  }
-
-  assert(PhysA && PhysB);
-  (void)PhysA, (void)PhysB;
-  unsigned A = RA.Sub ? TRI.getSubReg(RA.Reg, RA.Sub) : RA.Reg;
-  unsigned B = RB.Sub ? TRI.getSubReg(RB.Reg, RB.Sub) : RB.Reg;
-  for (MCRegAliasIterator I(A, &TRI, true); I.isValid(); ++I)
-    if (B == *I)
-      return true;
-  return false;
-}
-
-
 // Target operand information.
 //
 
@@ -697,7 +613,7 @@ bool TargetOperandInfo::isFixedReg(const MachineInstr &In, unsigned OpNum)
     return true;
   // Check for a tail call.
   if (In.isBranch())
-    for (auto &O : In.operands())
+    for (const MachineOperand &O : In.operands())
       if (O.isGlobal() || O.isSymbol())
         return true;
 
@@ -710,7 +626,7 @@ bool TargetOperandInfo::isFixedReg(const MachineInstr &In, unsigned OpNum)
   // uses or defs, and those lists do not allow sub-registers.
   if (Op.getSubReg() != 0)
     return false;
-  unsigned Reg = Op.getReg();
+  uint32_t Reg = Op.getReg();
   const MCPhysReg *ImpR = Op.isDef() ? D.getImplicitDefs()
                                      : D.getImplicitUses();
   if (!ImpR)
@@ -722,16 +638,112 @@ bool TargetOperandInfo::isFixedReg(const MachineInstr &In, unsigned OpNum)
 }
 
 
+uint32_t RegisterAggr::getLargestSuperReg(uint32_t Reg) const {
+  uint32_t SuperReg = Reg;
+  while (true) {
+    MCSuperRegIterator SR(SuperReg, &TRI, false);
+    if (!SR.isValid())
+      return SuperReg;
+    SuperReg = *SR;
+  }
+  llvm_unreachable(nullptr);
+}
+
+LaneBitmask RegisterAggr::composeMaskForReg(uint32_t Reg, LaneBitmask LM,
+      uint32_t SuperR) const {
+  uint32_t SubR = TRI.getSubRegIndex(SuperR, Reg);
+  const TargetRegisterClass &RC = *TRI.getMinimalPhysRegClass(Reg);
+  return TRI.composeSubRegIndexLaneMask(SubR, LM & RC.LaneMask);
+}
+
+void RegisterAggr::setMaskRaw(uint32_t Reg, LaneBitmask LM) {
+  uint32_t SuperR = getLargestSuperReg(Reg);
+  LaneBitmask SuperM = composeMaskForReg(Reg, LM, SuperR);
+  auto F = Masks.find(SuperR);
+  if (F == Masks.end())
+    Masks.insert({SuperR, SuperM});
+  else
+    F->second |= SuperM;
+
+  // Visit all register units to see if there are any that were created
+  // by explicit aliases. Add those that were to the bit vector.
+  for (MCRegUnitIterator U(Reg, &TRI); U.isValid(); ++U) {
+    MCRegUnitRootIterator R(*U, &TRI);
+    ++R;
+    if (!R.isValid())
+      continue;
+    ExpAliasUnits.set(*U);
+    CheckUnits = true;
+  }
+}
+
+bool RegisterAggr::hasAliasOf(RegisterRef RR) const {
+  uint32_t SuperR = getLargestSuperReg(RR.Reg);
+  auto F = Masks.find(SuperR);
+  if (F != Masks.end()) {
+    LaneBitmask M = LMI.getLaneMaskForIndex(RR.Sub);
+    if (F->second & composeMaskForReg(RR.Reg, M, SuperR))
+      return true;
+  }
+  if (CheckUnits) {
+    for (MCRegUnitIterator U(RR.Reg, &TRI); U.isValid(); ++U)
+      if (ExpAliasUnits.test(*U))
+        return true;
+  }
+  return false;
+}
+
+bool RegisterAggr::hasCoverOf(RegisterRef RR) const {
+  uint32_t SuperR = getLargestSuperReg(RR.Reg);
+  auto F = Masks.find(SuperR);
+  if (F == Masks.end())
+    return false;
+  LaneBitmask M = LMI.getLaneMaskForIndex(RR.Sub);
+  LaneBitmask SuperM = composeMaskForReg(RR.Reg, M, SuperR);
+  return (SuperM & F->second) == SuperM;
+}
+
+RegisterAggr &RegisterAggr::insert(RegisterRef RR) {
+  setMaskRaw(RR.Reg, LMI.getLaneMaskForIndex(RR.Sub));
+  return *this;
+}
+
+RegisterAggr &RegisterAggr::insert(const RegisterAggr &RG) {
+  for (std::pair<uint32_t,LaneBitmask> P : RG.Masks)
+    setMaskRaw(P.first, P.second);
+  return *this;
+}
+
+RegisterAggr &RegisterAggr::clear(RegisterRef RR) {
+  uint32_t SuperR = getLargestSuperReg(RR.Reg);
+  auto F = Masks.find(SuperR);
+  if (F == Masks.end())
+    return *this;
+  LaneBitmask M = LMI.getLaneMaskForIndex(RR.Sub);
+  LaneBitmask NewM = F->second & ~composeMaskForReg(RR.Reg, M, SuperR);
+  if (NewM == LaneBitmask(0))
+    Masks.erase(F);
+  else
+    F->second = NewM;
+  return *this;
+}
+
+void RegisterAggr::print(raw_ostream &OS) const {
+  OS << '{';
+  for (auto I : Masks)
+    OS << ' ' << PrintReg(I.first, &TRI) << ':' << PrintLaneMask(I.second);
+  OS << " }";
+}
+
+
 //
 // The data flow graph construction.
 //
 
 DataFlowGraph::DataFlowGraph(MachineFunction &mf, const TargetInstrInfo &tii,
       const TargetRegisterInfo &tri, const MachineDominatorTree &mdt,
-      const MachineDominanceFrontier &mdf, const RegisterAliasInfo &rai,
-      const TargetOperandInfo &toi)
-    : TimeG("rdf"), MF(mf), TII(tii), TRI(tri), MDT(mdt), MDF(mdf), RAI(rai),
-      TOI(toi) {
+      const MachineDominanceFrontier &mdf, const TargetOperandInfo &toi)
+    : TimeG("rdf"), MF(mf), TII(tii), TRI(tri), MDT(mdt), MDF(mdf), TOI(toi) {
 }
 
 
@@ -821,6 +833,36 @@ unsigned DataFlowGraph::DefStack::nextDown(unsigned P) const {
   } while (P > 0 && IsDelim);
   assert(!IsDelim);
   return P;
+}
+
+
+// Register information.
+
+// Get the list of references aliased to RR. Lane masks are ignored.
+RegisterSet DataFlowGraph::getAliasSet(uint32_t Reg) const {
+  // Do not include RR in the alias set. For virtual registers return an
+  // empty set.
+  RegisterSet AS;
+  if (TargetRegisterInfo::isVirtualRegister(Reg))
+    return AS;
+  assert(TargetRegisterInfo::isPhysicalRegister(Reg));
+
+  for (MCRegAliasIterator AI(Reg, &TRI, false); AI.isValid(); ++AI)
+    AS.insert({*AI,0});
+  return AS;
+}
+
+RegisterSet DataFlowGraph::getLandingPadLiveIns() const {
+  RegisterSet LR;
+  const Function &F = *MF.getFunction();
+  const Constant *PF = F.hasPersonalityFn() ? F.getPersonalityFn()
+                                            : nullptr;
+  const TargetLowering &TLI = *MF.getSubtarget().getTargetLowering();
+  if (uint32_t R = TLI.getExceptionPointerRegister(PF))
+    LR.insert({R,0});
+  if (uint32_t R = TLI.getExceptionSelectorRegister(PF))
+    LR.insert({R,0});
+  return LR;
 }
 
 // Node management functions.
@@ -936,18 +978,20 @@ void DataFlowGraph::build(unsigned Options) {
   if (MF.empty())
     return;
 
-  for (auto &B : MF) {
-    auto BA = newBlock(Func, &B);
+  for (MachineBasicBlock &B : MF) {
+    NodeAddr<BlockNode*> BA = newBlock(Func, &B);
     BlockNodes.insert(std::make_pair(&B, BA));
-    for (auto &I : B) {
+    for (MachineInstr &I : B) {
       if (I.isDebugValue())
         continue;
       buildStmt(BA, I);
     }
   }
 
-  // Collect information about block references.
   NodeAddr<BlockNode*> EA = Func.Addr->getEntryBlock(*this);
+  NodeList Blocks = Func.Addr->members(*this);
+
+  // Collect information about block references.
   BlockRefsMap RefM;
   buildBlockRefs(EA, RefM);
 
@@ -961,10 +1005,42 @@ void DataFlowGraph::build(unsigned Options) {
     PA.Addr->addMember(DA, *this);
   }
 
+  // Add phis for landing pads.
+  // Landing pads, unlike usual backs blocks, are not entered through
+  // branches in the program, or fall-throughs from other blocks. They
+  // are entered from the exception handling runtime and target's ABI
+  // may define certain registers as defined on entry to such a block.
+  RegisterSet EHRegs = getLandingPadLiveIns();
+  if (!EHRegs.empty()) {
+    for (NodeAddr<BlockNode*> BA : Blocks) {
+      const MachineBasicBlock &B = *BA.Addr->getCode();
+      if (!B.isEHPad())
+        continue;
+
+      // Prepare a list of NodeIds of the block's predecessors.
+      NodeList Preds;
+      for (MachineBasicBlock *PB : B.predecessors())
+        Preds.push_back(findBlock(PB));
+
+      // Build phi nodes for each live-in.
+      for (RegisterRef RR : EHRegs) {
+        NodeAddr<PhiNode*> PA = newPhi(BA);
+        uint16_t PhiFlags = NodeAttrs::PhiRef | NodeAttrs::Preserving;
+        // Add def:
+        NodeAddr<DefNode*> DA = newDef(PA, RR, PhiFlags);
+        PA.Addr->addMember(DA, *this);
+        // Add uses (no reaching defs for phi uses):
+        for (NodeAddr<BlockNode*> PBA : Preds) {
+          NodeAddr<PhiUseNode*> PUA = newPhiUse(PA, RR, PBA);
+          PA.Addr->addMember(PUA, *this);
+        }
+      }
+    }
+  }
+
   // Build a map "PhiM" which will contain, for each block, the set
   // of references that will require phi definitions in that block.
   BlockRefsMap PhiM;
-  auto Blocks = Func.Addr->members(*this);
   for (NodeAddr<BlockNode*> BA : Blocks)
     recordDefsForDF(PhiM, RefM, BA);
   for (NodeAddr<BlockNode*> BA : Blocks)
@@ -1027,28 +1103,31 @@ void DataFlowGraph::pushDefs(NodeAddr<InstrNode*> IA, DefStackMap &DefM) {
   for (NodeAddr<DefNode*> DA : Defs) {
     if (Visited.count(DA.Id))
       continue;
+
     NodeList Rel = getRelatedRefs(IA, DA);
     NodeAddr<DefNode*> PDA = Rel.front();
-    // Push the definition on the stack for the register and all aliases.
     RegisterRef RR = PDA.Addr->getRegRef();
 #ifndef NDEBUG
     // Assert if the register is defined in two or more unrelated defs.
     // This could happen if there are two or more def operands defining it.
     if (!Defined.insert(RR).second) {
-      auto *MI = NodeAddr<StmtNode*>(IA).Addr->getCode();
+      MachineInstr *MI = NodeAddr<StmtNode*>(IA).Addr->getCode();
       dbgs() << "Multiple definitions of register: "
              << Print<RegisterRef>(RR, *this) << " in\n  " << *MI
              << "in BB#" << MI->getParent()->getNumber() << '\n';
       llvm_unreachable(nullptr);
     }
 #endif
-    DefM[RR].push(DA);
-    for (auto A : RAI.getAliasSet(RR)) {
+    // Push the definition on the stack for the register and all aliases.
+    // The def stack traversal in linkNodeUp will check the exact aliasing.
+    DefM[RR.Reg].push(DA);
+    for (RegisterRef A : getAliasSet(RR.Reg /*FIXME? use RegisterRef*/)) {
+      // Check that we don't push the same def twice.
       assert(A != RR);
-      DefM[A].push(DA);
+      DefM[A.Reg].push(DA);
     }
     // Mark all the related defs as visited.
-    for (auto T : Rel)
+    for (NodeAddr<NodeBase*> T : Rel)
       Visited.insert(T.Id);
   }
 }
@@ -1066,6 +1145,62 @@ NodeList DataFlowGraph::getRelatedRefs(NodeAddr<InstrNode*> IA,
     RA = getNextRelated(IA, RA);
   } while (RA.Id != 0 && RA.Id != Start);
   return Refs;
+}
+
+// Return true if RA and RB overlap, false otherwise.
+bool DataFlowGraph::alias(RegisterRef RA, RegisterRef RB) const {
+  // Handling of physical registers.
+  bool IsPhysA = TargetRegisterInfo::isPhysicalRegister(RA.Reg);
+  bool IsPhysB = TargetRegisterInfo::isPhysicalRegister(RB.Reg);
+  if (IsPhysA != IsPhysB)
+    return false;
+  if (IsPhysA) {
+    LaneBitmask LA = LMI.getLaneMaskForIndex(RA.Sub);
+    LaneBitmask LB = LMI.getLaneMaskForIndex(RB.Sub);
+
+    MCRegUnitMaskIterator UMA(RA.Reg, &TRI);
+    MCRegUnitMaskIterator UMB(RB.Reg, &TRI);
+    // Reg units are returned in the numerical order.
+    while (UMA.isValid() && UMB.isValid()) {
+      std::pair<uint32_t,LaneBitmask> PA = *UMA;
+      std::pair<uint32_t,LaneBitmask> PB = *UMB;
+      // If the returned lane mask is 0, it should be treated as ~0
+      // (or the lane mask from the given register ref should be ignored).
+      // This can happen when a register has only one unit.
+      if (PA.first < PB.first || (PA.second && !(PA.second & LA)))
+        ++UMA;
+      else if (PB.first < PA.first || (PB.second && !(PB.second & LB)))
+        ++UMB;
+      else
+        return true;
+    }
+    return false;
+  }
+
+  // Handling of virtual registers.
+  bool IsVirtA = TargetRegisterInfo::isVirtualRegister(RA.Reg);
+  bool IsVirtB = TargetRegisterInfo::isVirtualRegister(RB.Reg);
+  if (IsVirtA != IsVirtB)
+    return false;
+  if (IsVirtA) {
+    if (RA.Reg != RB.Reg)
+      return false;
+    // RA and RB refer to the same register. If any of them refer to the
+    // whole register, they must be aliased.
+    if (RA.Sub == 0 || RB.Sub == 0)
+      return true;
+    unsigned SA = TRI.getSubRegIdxSize(RA.Sub);
+    unsigned OA = TRI.getSubRegIdxOffset(RA.Sub);
+    unsigned SB = TRI.getSubRegIdxSize(RB.Sub);
+    unsigned OB = TRI.getSubRegIdxOffset(RB.Sub);
+    if (OA <= OB && OA+SA > OB)
+      return true;
+    if (OB <= OA && OB+SB > OA)
+      return true;
+    return false;
+  }
+
+  return false;
 }
 
 
@@ -1178,14 +1313,14 @@ NodeAddr<RefNode*> DataFlowGraph::getNextShadow(NodeAddr<InstrNode*> IA,
 // Create a new statement node in the block node BA that corresponds to
 // the machine instruction MI.
 void DataFlowGraph::buildStmt(NodeAddr<BlockNode*> BA, MachineInstr &In) {
-  auto SA = newStmt(BA, &In);
+  NodeAddr<StmtNode*> SA = newStmt(BA, &In);
 
   auto isCall = [] (const MachineInstr &In) -> bool {
     if (In.isCall())
       return true;
     // Is tail call?
     if (In.isBranch())
-      for (auto &Op : In.operands())
+      for (const MachineOperand &Op : In.operands())
         if (Op.isGlobal() || Op.isSymbol())
           return true;
     return false;
@@ -1198,7 +1333,7 @@ void DataFlowGraph::buildStmt(NodeAddr<BlockNode*> BA, MachineInstr &In) {
       if (!UseOp.isReg() || !UseOp.isUse() || UseOp.isUndef())
         continue;
       RegisterRef UR = { UseOp.getReg(), UseOp.getSubReg() };
-      if (RAI.alias(DR, UR))
+      if (alias(DR, UR))
         return false;
     }
     return true;
@@ -1215,7 +1350,8 @@ void DataFlowGraph::buildStmt(NodeAddr<BlockNode*> BA, MachineInstr &In) {
     while (uint16_t R = *ImpU++)
       ImpUses.insert({R, 0});
 
-  bool NeedsImplicit = isCall(In) || In.isInlineAsm() || In.isReturn();
+  bool IsCall = isCall(In);
+  bool NeedsImplicit = IsCall || In.isInlineAsm() || In.isReturn();
   bool IsPredicated = TII.isPredicated(In);
   unsigned NumOps = In.getNumOperands();
 
@@ -1241,6 +1377,8 @@ void DataFlowGraph::buildStmt(NodeAddr<BlockNode*> BA, MachineInstr &In) {
       Flags |= NodeAttrs::Clobbering;
     if (TOI.isFixedReg(In, OpN))
       Flags |= NodeAttrs::Fixed;
+    if (IsCall && Op.isDead())
+      Flags |= NodeAttrs::Dead;
     NodeAddr<DefNode*> DA = newDef(SA, Op, Flags);
     SA.Addr->addMember(DA, *this);
     DoneDefs.insert(RR);
@@ -1268,6 +1406,8 @@ void DataFlowGraph::buildStmt(NodeAddr<BlockNode*> BA, MachineInstr &In) {
       Flags |= NodeAttrs::Clobbering;
     if (TOI.isFixedReg(In, OpN))
       Flags |= NodeAttrs::Fixed;
+    if (IsCall && Op.isDead())
+      Flags |= NodeAttrs::Dead;
     NodeAddr<DefNode*> DA = newDef(SA, Op, Flags);
     SA.Addr->addMember(DA, *this);
     DoneDefs.insert(RR);
@@ -1299,15 +1439,15 @@ void DataFlowGraph::buildStmt(NodeAddr<BlockNode*> BA, MachineInstr &In) {
 // that block, and from all blocks dominated by it.
 void DataFlowGraph::buildBlockRefs(NodeAddr<BlockNode*> BA,
       BlockRefsMap &RefM) {
-  auto &Refs = RefM[BA.Id];
+  RegisterSet &Refs = RefM[BA.Id];
   MachineDomTreeNode *N = MDT.getNode(BA.Addr->getCode());
   assert(N);
   for (auto I : *N) {
     MachineBasicBlock *SB = I->getBlock();
-    auto SBA = findBlock(SB);
+    NodeAddr<BlockNode*> SBA = findBlock(SB);
     buildBlockRefs(SBA, RefM);
-    const auto &SRs = RefM[SBA.Id];
-    Refs.insert(SRs.begin(), SRs.end());
+    const RegisterSet &RefsS = RefM[SBA.Id];
+    Refs.insert(RefsS.begin(), RefsS.end());
   }
 
   for (NodeAddr<InstrNode*> IA : BA.Addr->members(*this))
@@ -1334,17 +1474,11 @@ void DataFlowGraph::recordDefsForDF(BlockRefsMap &PhiM, BlockRefsMap &RefM,
   // This is done to make sure that each defined reference gets only one
   // phi node, even if it is defined multiple times.
   RegisterSet Defs;
-  for (auto I : BA.Addr->members(*this)) {
-    assert(I.Addr->getType() == NodeAttrs::Code);
-    assert(I.Addr->getKind() == NodeAttrs::Phi ||
-           I.Addr->getKind() == NodeAttrs::Stmt);
-    NodeAddr<InstrNode*> IA = I;
+  for (NodeAddr<InstrNode*> IA : BA.Addr->members(*this))
     for (NodeAddr<RefNode*> RA : IA.Addr->members_if(IsDef, *this))
       Defs.insert(RA.Addr->getRegRef());
-  }
 
-  // Finally, add the set of defs to each block in the iterated dominance
-  // frontier.
+  // Calculate the iterated dominance frontier of BB.
   const MachineDominanceFrontier::DomSetType &DF = DFLoc->second;
   SetVector<MachineBasicBlock*> IDF(DF.begin(), DF.end());
   for (unsigned i = 0; i < IDF.size(); ++i) {
@@ -1356,13 +1490,15 @@ void DataFlowGraph::recordDefsForDF(BlockRefsMap &PhiM, BlockRefsMap &RefM,
   // Get the register references that are reachable from this block.
   RegisterSet &Refs = RefM[BA.Id];
   for (auto DB : IDF) {
-    auto DBA = findBlock(DB);
-    const auto &Rs = RefM[DBA.Id];
-    Refs.insert(Rs.begin(), Rs.end());
+    NodeAddr<BlockNode*> DBA = findBlock(DB);
+    const RegisterSet &RefsD = RefM[DBA.Id];
+    Refs.insert(RefsD.begin(), RefsD.end());
   }
 
+  // Finally, add the set of defs to each block in the iterated dominance
+  // frontier.
   for (auto DB : IDF) {
-    auto DBA = findBlock(DB);
+    NodeAddr<BlockNode*> DBA = findBlock(DB);
     PhiM[DBA.Id].insert(Defs.begin(), Defs.end());
   }
 }
@@ -1382,19 +1518,19 @@ void DataFlowGraph::buildPhis(BlockRefsMap &PhiM, BlockRefsMap &RefM,
   // are not covered by another ref (i.e. maximal with respect to covering).
 
   auto MaxCoverIn = [this] (RegisterRef RR, RegisterSet &RRs) -> RegisterRef {
-    for (auto I : RRs)
-      if (I != RR && RAI.covers(I, RR))
+    for (RegisterRef I : RRs)
+      if (I != RR && RegisterAggr::isCoverOf(I, RR, LMI, TRI))
         RR = I;
     return RR;
   };
 
   RegisterSet MaxDF;
-  for (auto I : HasDF->second)
+  for (RegisterRef I : HasDF->second)
     MaxDF.insert(MaxCoverIn(I, HasDF->second));
 
   std::vector<RegisterRef> MaxRefs;
-  auto &RefB = RefM[BA.Id];
-  for (auto I : MaxDF)
+  RegisterSet &RefB = RefM[BA.Id];
+  for (RegisterRef I : MaxDF)
     MaxRefs.push_back(MaxCoverIn(I, RefB));
 
   // Now, for each R in MaxRefs, get the alias closure of R. If the closure
@@ -1409,19 +1545,17 @@ void DataFlowGraph::buildPhis(BlockRefsMap &PhiM, BlockRefsMap &RefM,
 
   auto Aliased = [this,&MaxRefs](RegisterRef RR,
                                  std::vector<unsigned> &Closure) -> bool {
-    for (auto I : Closure)
-      if (RAI.alias(RR, MaxRefs[I]))
+    for (unsigned I : Closure)
+      if (alias(RR, MaxRefs[I]))
         return true;
     return false;
   };
 
   // Prepare a list of NodeIds of the block's predecessors.
-  std::vector<NodeId> PredList;
+  NodeList Preds;
   const MachineBasicBlock *MBB = BA.Addr->getCode();
-  for (auto PB : MBB->predecessors()) {
-    auto B = findBlock(PB);
-    PredList.push_back(B.Id);
-  }
+  for (MachineBasicBlock *PB : MBB->predecessors())
+    Preds.push_back(findBlock(PB));
 
   while (!MaxRefs.empty()) {
     // Put the first element in the closure, and then add all subsequent
@@ -1445,8 +1579,7 @@ void DataFlowGraph::buildPhis(BlockRefsMap &PhiM, BlockRefsMap &RefM,
       PA.Addr->addMember(DA, *this);
     }
     // Add phi uses.
-    for (auto P : PredList) {
-      auto PBA = addr<BlockNode*>(P);
+    for (NodeAddr<BlockNode*> PBA : Preds) {
       for (unsigned X = 0; X != CS; ++X) {
         RegisterRef RR = MaxRefs[ClosureIdx[X]];
         NodeAddr<PhiUseNode*> PUA = newPhiUse(PA, RR, PBA);
@@ -1476,7 +1609,7 @@ void DataFlowGraph::removeUnusedPhis() {
   }
 
   static auto HasUsedDef = [](NodeList &Ms) -> bool {
-    for (auto M : Ms) {
+    for (NodeAddr<NodeBase*> M : Ms) {
       if (M.Addr->getKind() != NodeAttrs::Def)
         continue;
       NodeAddr<DefNode*> DA = M;
@@ -1524,21 +1657,21 @@ void DataFlowGraph::linkRefUp(NodeAddr<InstrNode*> IA, NodeAddr<T> TA,
   NodeAddr<T> TAP;
 
   // References from the def stack that have been examined so far.
-  RegisterSet Defs;
+  RegisterAggr Defs(LMI, TRI);
 
   for (auto I = DS.top(), E = DS.bottom(); I != E; I.down()) {
     RegisterRef QR = I->Addr->getRegRef();
-    auto AliasQR = [QR,this] (RegisterRef RR) -> bool {
-      return RAI.alias(QR, RR);
-    };
-    bool PrecUp = RAI.covers(QR, RR);
+
     // Skip all defs that are aliased to any of the defs that we have already
-    // seen. If we encounter a covering def, stop the stack traversal early.
-    if (any_of(Defs, AliasQR)) {
-      if (PrecUp)
+    // seen. If this completes a cover of RR, stop the stack traversal.
+    bool Alias = Defs.hasAliasOf(QR);
+    bool Cover = Defs.insert(QR).hasCoverOf(RR);
+    if (Alias) {
+      if (Cover)
         break;
       continue;
     }
+
     // The reaching def.
     NodeAddr<DefNode*> RDA = *I;
 
@@ -1554,27 +1687,29 @@ void DataFlowGraph::linkRefUp(NodeAddr<InstrNode*> IA, NodeAddr<T> TA,
     // Create the link.
     TAP.Addr->linkToDef(TAP.Id, RDA);
 
-    if (PrecUp)
+    if (Cover)
       break;
-    Defs.insert(QR);
   }
 }
 
 // Create data-flow links for all reference nodes in the statement node SA.
 void DataFlowGraph::linkStmtRefs(DefStackMap &DefM, NodeAddr<StmtNode*> SA) {
+#ifndef NDEBUG
   RegisterSet Defs;
+#endif
 
   // Link all nodes (upwards in the data-flow) with their reaching defs.
   for (NodeAddr<RefNode*> RA : SA.Addr->members(*this)) {
     uint16_t Kind = RA.Addr->getKind();
     assert(Kind == NodeAttrs::Def || Kind == NodeAttrs::Use);
     RegisterRef RR = RA.Addr->getRegRef();
-    // Do not process multiple defs of the same reference.
-    if (Kind == NodeAttrs::Def && Defs.count(RR))
-      continue;
+#ifndef NDEBUG
+    // Do not expect multiple defs of the same reference.
+    assert(Kind != NodeAttrs::Def || !Defs.count(RR));
     Defs.insert(RR);
+#endif
 
-    auto F = DefM.find(RR);
+    auto F = DefM.find(RR.Reg);
     if (F == DefM.end())
       continue;
     DefStack &DS = F->second;
@@ -1611,7 +1746,7 @@ void DataFlowGraph::linkBlockRefs(DefStackMap &DefM, NodeAddr<BlockNode*> BA) {
   MachineDomTreeNode *N = MDT.getNode(BA.Addr->getCode());
   for (auto I : *N) {
     MachineBasicBlock *SB = I->getBlock();
-    auto SBA = findBlock(SB);
+    NodeAddr<BlockNode*> SBA = findBlock(SB);
     linkBlockRefs(DefM, SBA);
   }
 
@@ -1623,15 +1758,27 @@ void DataFlowGraph::linkBlockRefs(DefStackMap &DefM, NodeAddr<BlockNode*> BA) {
     NodeAddr<PhiUseNode*> PUA = NA;
     return PUA.Addr->getPredecessor() == BA.Id;
   };
+
+  RegisterSet EHLiveIns = getLandingPadLiveIns();
   MachineBasicBlock *MBB = BA.Addr->getCode();
-  for (auto SB : MBB->successors()) {
-    auto SBA = findBlock(SB);
+
+  for (MachineBasicBlock *SB : MBB->successors()) {
+    bool IsEHPad = SB->isEHPad();
+    NodeAddr<BlockNode*> SBA = findBlock(SB);
     for (NodeAddr<InstrNode*> IA : SBA.Addr->members_if(IsPhi, *this)) {
+      // Do not link phi uses for landing pad live-ins.
+      if (IsEHPad) {
+        // Find what register this phi is for.
+        NodeAddr<RefNode*> RA = IA.Addr->getFirstMember(*this);
+        assert(RA.Id != 0);
+        if (EHLiveIns.count(RA.Addr->getRegRef()))
+          continue;
+      }
       // Go over each phi use associated with MBB, and link it.
       for (auto U : IA.Addr->members_if(IsUseForBA, *this)) {
         NodeAddr<PhiUseNode*> PUA = U;
         RegisterRef RR = PUA.Addr->getRegRef();
-        linkRefUp<UseNode*>(IA, PUA, DefM[RR]);
+        linkRefUp<UseNode*>(IA, PUA, DefM[RR.Reg]);
       }
     }
   }

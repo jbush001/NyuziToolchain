@@ -41,6 +41,7 @@
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Target/TargetOptions.h"
 #include "llvm/Target/TargetSubtargetInfo.h"
+#include "llvm/Transforms/Coroutines.h"
 #include "llvm/Transforms/IPO.h"
 #include "llvm/Transforms/IPO/AlwaysInliner.h"
 #include "llvm/Transforms/IPO/PassManagerBuilder.h"
@@ -149,17 +150,6 @@ static void addAddDiscriminatorsPass(const PassManagerBuilder &Builder,
   PM.add(createAddDiscriminatorsPass());
 }
 
-static void addCleanupPassesForSampleProfiler(
-    const PassManagerBuilder &Builder, legacy::PassManagerBase &PM) {
-  // instcombine is needed before sample profile annotation because it converts
-  // certain function calls to be inlinable. simplifycfg and sroa are needed
-  // before instcombine for necessary preparation. E.g. load store is eliminated
-  // properly so that instcombine will not introduce unecessary liverange.
-  PM.add(createCFGSimplificationPass());
-  PM.add(createSROAPass());
-  PM.add(createInstructionCombiningPass());
-}
-
 static void addBoundsCheckingPass(const PassManagerBuilder &Builder,
                                   legacy::PassManagerBase &PM) {
   PM.add(createBoundsCheckingPass());
@@ -180,6 +170,7 @@ static void addSanitizerCoveragePass(const PassManagerBuilder &Builder,
   Opts.TraceGep = CGOpts.SanitizeCoverageTraceGep;
   Opts.Use8bitCounters = CGOpts.SanitizeCoverage8bitCounters;
   Opts.TracePC = CGOpts.SanitizeCoverageTracePC;
+  Opts.TracePCGuard = CGOpts.SanitizeCoverageTracePCGuard;
   PM.add(createSanitizerCoverageModulePass(Opts));
 }
 
@@ -411,6 +402,9 @@ void EmitAssemblyHelper::CreatePasses(legacy::PassManager &MPM,
                            addDataFlowSanitizerPass);
   }
 
+  if (LangOpts.CoroutinesTS)
+    addCoroutinePassesToExtensionPoints(PMBuilder);
+
   if (LangOpts.Sanitize.hasOneOf(SanitizerKind::Efficiency)) {
     PMBuilder.addExtension(PassManagerBuilder::EP_OptimizerLast,
                            addEfficiencySanitizerPass);
@@ -463,8 +457,6 @@ void EmitAssemblyHelper::CreatePasses(legacy::PassManager &MPM,
   if (!CodeGenOpts.SampleProfileFile.empty()) {
     MPM.add(createPruneEHPass());
     MPM.add(createSampleProfileLoaderPass(CodeGenOpts.SampleProfileFile));
-    PMBuilder.addExtension(PassManagerBuilder::EP_EarlyAsPossible,
-                           addCleanupPassesForSampleProfiler);
   }
 
   PMBuilder.populateFunctionPassManager(FPM);
@@ -540,9 +532,6 @@ void EmitAssemblyHelper::CreateTargetMachine(bool MustCreateTM) {
   }
 
   llvm::TargetOptions Options;
-
-  if (!TargetOpts.Reciprocals.empty())
-    Options.Reciprocals = TargetRecip(TargetOpts.Reciprocals);
 
   Options.ThreadModel =
     llvm::StringSwitch<llvm::ThreadModel::Model>(CodeGenOpts.ThreadModel)
@@ -726,20 +715,6 @@ void EmitAssemblyHelper::EmitAssembly(BackendAction Action,
   }
 }
 
-namespace {
-// Wrapper prodiving a stream for the ThinLTO backend.
-class ThinLTOOutputWrapper : public lto::NativeObjectOutput {
-  std::unique_ptr<raw_pwrite_stream> OS;
-
-public:
-  ThinLTOOutputWrapper(std::unique_ptr<raw_pwrite_stream> OS)
-      : OS(std::move(OS)) {}
-  std::unique_ptr<raw_pwrite_stream> getStream() override {
-    return std::move(OS);
-  }
-};
-}
-
 static void runThinLTOBackend(const CodeGenOptions &CGOpts, Module *M,
                               std::unique_ptr<raw_pwrite_stream> OS) {
   // If we are performing a ThinLTO importing compile, load the function index
@@ -781,12 +756,12 @@ static void runThinLTOBackend(const CodeGenOptions &CGOpts, Module *M,
     ModuleMap[I.first()] = (*MBOrErr)->getMemBufferRef();
     OwnedImports.push_back(std::move(*MBOrErr));
   }
-  auto AddOutput = [&](size_t Task) {
-    return llvm::make_unique<ThinLTOOutputWrapper>(std::move(OS));
+  auto AddStream = [&](size_t Task) {
+    return llvm::make_unique<lto::NativeObjectStream>(std::move(OS));
   };
   lto::Config Conf;
   if (Error E = thinBackend(
-          Conf, 0, AddOutput, *M, *CombinedIndex, ImportList,
+          Conf, 0, AddStream, *M, *CombinedIndex, ImportList,
           ModuleToDefinedGVSummaries[M->getModuleIdentifier()], ModuleMap)) {
     handleAllErrors(std::move(E), [&](ErrorInfoBase &EIB) {
       errs() << "Error running ThinLTO backend: " << EIB.message() << '\n';

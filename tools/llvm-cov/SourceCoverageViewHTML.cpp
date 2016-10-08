@@ -287,8 +287,8 @@ void CoveragePrinterHTML::closeViewFile(OwnedStream OS) {
 static void emitColumnLabelsForIndex(raw_ostream &OS) {
   SmallVector<std::string, 4> Columns;
   Columns.emplace_back(tag("td", "Filename", "column-entry-left"));
-  for (const char *Label :
-       {"Function Coverage", "Line Coverage", "Region Coverage"})
+  for (const char *Label : {"Function Coverage", "Instantiation Coverage",
+                            "Line Coverage", "Region Coverage"})
     Columns.emplace_back(tag("td", Label, "column-entry"));
   OS << tag("tr", join(Columns.begin(), Columns.end(), ""));
 }
@@ -298,7 +298,7 @@ static void emitColumnLabelsForIndex(raw_ostream &OS) {
 void CoveragePrinterHTML::emitFileSummary(raw_ostream &OS, StringRef SF,
                                           const FileCoverageSummary &FCS,
                                           bool IsTotals) const {
-  SmallVector<std::string, 4> Columns;
+  SmallVector<std::string, 8> Columns;
 
   // Format a coverage triple and add the result to the list of columns.
   auto AddCoverageTripleToColumn = [&Columns](unsigned Hit, unsigned Total,
@@ -318,13 +318,13 @@ void CoveragePrinterHTML::emitFileSummary(raw_ostream &OS, StringRef SF,
 
   // Simplify the display file path, and wrap it in a link if requested.
   std::string Filename;
-  SmallString<128> LinkTextStr(sys::path::relative_path(FCS.Name));
-  sys::path::remove_dots(LinkTextStr, /*remove_dot_dots=*/true);
-  sys::path::native(LinkTextStr);
-  std::string LinkText = escape(LinkTextStr, Opts);
   if (IsTotals) {
-    Filename = LinkText;
+    Filename = "TOTALS";
   } else {
+    SmallString<128> LinkTextStr(sys::path::relative_path(FCS.Name));
+    sys::path::remove_dots(LinkTextStr, /*remove_dot_dots=*/true);
+    sys::path::native(LinkTextStr);
+    std::string LinkText = escape(LinkTextStr, Opts);
     std::string LinkTarget =
         escape(getOutputPath(SF, "html", /*InToplevel=*/false), Opts);
     Filename = a(LinkTarget, LinkText);
@@ -334,18 +334,20 @@ void CoveragePrinterHTML::emitFileSummary(raw_ostream &OS, StringRef SF,
   AddCoverageTripleToColumn(FCS.FunctionCoverage.Executed,
                             FCS.FunctionCoverage.NumFunctions,
                             FCS.FunctionCoverage.getPercentCovered());
-  AddCoverageTripleToColumn(
-      FCS.LineCoverage.NumLines - FCS.LineCoverage.NotCovered,
-      FCS.LineCoverage.NumLines, FCS.LineCoverage.getPercentCovered());
-  AddCoverageTripleToColumn(
-      FCS.RegionCoverage.NumRegions - FCS.RegionCoverage.NotCovered,
-      FCS.RegionCoverage.NumRegions, FCS.RegionCoverage.getPercentCovered());
+  AddCoverageTripleToColumn(FCS.InstantiationCoverage.Executed,
+                            FCS.InstantiationCoverage.NumFunctions,
+                            FCS.InstantiationCoverage.getPercentCovered());
+  AddCoverageTripleToColumn(FCS.LineCoverage.Covered, FCS.LineCoverage.NumLines,
+                            FCS.LineCoverage.getPercentCovered());
+  AddCoverageTripleToColumn(FCS.RegionCoverage.Covered,
+                            FCS.RegionCoverage.NumRegions,
+                            FCS.RegionCoverage.getPercentCovered());
 
   OS << tag("tr", join(Columns.begin(), Columns.end(), ""), "light-row");
 }
 
 Error CoveragePrinterHTML::createIndexFile(
-    ArrayRef<StringRef> SourceFiles,
+    ArrayRef<std::string> SourceFiles,
     const coverage::CoverageMapping &Coverage) {
   // Emit the default stylesheet.
   auto CSSOrErr = createOutputStream("style", "css", /*InToplevel=*/true);
@@ -372,16 +374,24 @@ Error CoveragePrinterHTML::createIndexFile(
   if (Opts.hasCreatedTime())
     OSRef << tag(CreatedTimeTag, escape(Opts.CreatedTimeStr, Opts));
 
+  // Emit a link to some documentation.
+  OSRef << tag("p", "Click " +
+                        a("http://clang.llvm.org/docs/"
+                          "SourceBasedCodeCoverage.html#interpreting-reports",
+                          "here") +
+                        " for information about interpreting this report.");
+
   // Emit a table containing links to reports for each file in the covmapping.
-  CoverageReport Report(Opts, Coverage);
   OSRef << BeginCenteredDiv << BeginTable;
   emitColumnLabelsForIndex(OSRef);
   FileCoverageSummary Totals("TOTALS");
-  auto FileReports = Report.prepareFileReports(Totals, SourceFiles);
+  auto FileReports =
+      CoverageReport::prepareFileReports(Coverage, Totals, SourceFiles);
   for (unsigned I = 0, E = FileReports.size(); I < E; ++I)
     emitFileSummary(OSRef, SourceFiles[I], FileReports[I]);
   emitFileSummary(OSRef, "Totals", Totals, /*IsTotals=*/true);
-  OSRef << EndTable << EndCenteredDiv;
+  OSRef << EndTable << EndCenteredDiv
+        << tag("h5", escape(Opts.getLLVMVersionString(), Opts));
   emitEpilog(OSRef);
 
   return Error::success();
@@ -583,15 +593,22 @@ void SourceCoverageViewHTML::renderInstantiationView(raw_ostream &OS,
                                                      InstantiationView &ISV,
                                                      unsigned ViewDepth) {
   OS << BeginExpansionDiv;
-  ISV.View->print(OS, /*WholeFile=*/false, /*ShowSourceName=*/true, ViewDepth);
+  if (!ISV.View)
+    OS << BeginSourceNameDiv
+       << tag("pre",
+              escape("Unexecuted instantiation: " + ISV.FunctionName.str(),
+                     getOptions()))
+       << EndSourceNameDiv;
+  else
+    ISV.View->print(OS, /*WholeFile=*/false, /*ShowSourceName=*/true,
+                    ViewDepth);
   OS << EndExpansionDiv;
 }
 
-void SourceCoverageViewHTML::renderCellInTitle(raw_ostream &OS,
-                                               StringRef CellText) {
+void SourceCoverageViewHTML::renderTitle(raw_ostream &OS, StringRef Title) {
   if (getOptions().hasProjectTitle())
     OS << tag(ProjectTitleTag, escape(getOptions().ProjectTitle, getOptions()));
-  OS << tag(ReportTitleTag, escape(CellText, getOptions()));
+  OS << tag(ReportTitleTag, escape(Title, getOptions()));
   if (getOptions().hasCreatedTime())
     OS << tag(CreatedTimeTag,
               escape(getOptions().CreatedTimeStr, getOptions()));
@@ -612,7 +629,7 @@ void SourceCoverageViewHTML::renderTableHeader(raw_ostream &OS,
   }
 
   renderLinePrefix(OS, ViewDepth);
-  OS << tag("td", tag("pre", "Line No.")) << tag("td", tag("pre", "Count"))
+  OS << tag("td", tag("pre", "Line")) << tag("td", tag("pre", "Count"))
      << SourceLabel;
   renderLineSuffix(OS, ViewDepth);
 }

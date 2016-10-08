@@ -566,8 +566,8 @@ public:
   // Other methods.
   //===--------------------------------------------------------------------===//
 
-  /// isIdenticalTo - Return true if this operand is identical to the specified
-  /// operand. Note: This method ignores isKill and isDead properties.
+  /// Returns true if this operand is identical to the specified operand except
+  /// for liveness related flags (isKill, isUndef and isDead).
   bool isIdenticalTo(const MachineOperand &Other) const;
 
   /// \brief MachineOperand hash_value overload.
@@ -592,6 +592,9 @@ public:
 
   /// ChangeToMCSymbol - Replace this operand with a new MC symbol operand.
   void ChangeToMCSymbol(MCSymbol *Sym);
+
+  /// Replace this operand with a frame index.
+  void ChangeToFrameIndex(int Idx);
 
   /// ChangeToRegister - Replace this operand with a new register operand of
   /// the specified value.  If an operand is known to be an register already,

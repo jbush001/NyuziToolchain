@@ -49,7 +49,7 @@ public:
       : AsmPrinter(TM, std::move(Streamer)), MRI(nullptr), MFI(nullptr) {}
 
 private:
-  const char *getPassName() const override {
+  StringRef getPassName() const override {
     return "WebAssembly Assembly Printer";
   }
 
@@ -82,7 +82,6 @@ private:
                              raw_ostream &OS) override;
 
   MVT getRegType(unsigned RegNo) const;
-  const char *toString(MVT VT) const;
   std::string regToString(const MachineOperand &MO);
   WebAssemblyTargetStreamer *getTargetStreamer();
 };
@@ -104,10 +103,6 @@ MVT WebAssemblyAsmPrinter::getRegType(unsigned RegNo) const {
   return MVT::Other;
 }
 
-const char *WebAssemblyAsmPrinter::toString(MVT VT) const {
-  return WebAssembly::TypeToString(VT);
-}
-
 std::string WebAssemblyAsmPrinter::regToString(const MachineOperand &MO) {
   unsigned RegNo = MO.getReg();
   assert(TargetRegisterInfo::isVirtualRegister(RegNo) &&
@@ -126,45 +121,16 @@ WebAssemblyTargetStreamer *WebAssemblyAsmPrinter::getTargetStreamer() {
 //===----------------------------------------------------------------------===//
 // WebAssemblyAsmPrinter Implementation.
 //===----------------------------------------------------------------------===//
-static void ComputeLegalValueVTs(const Function &F, const TargetMachine &TM,
-                                 Type *Ty, SmallVectorImpl<MVT> &ValueVTs) {
-  const DataLayout &DL(F.getParent()->getDataLayout());
-  const WebAssemblyTargetLowering &TLI =
-      *TM.getSubtarget<WebAssemblySubtarget>(F).getTargetLowering();
-  SmallVector<EVT, 4> VTs;
-  ComputeValueVTs(TLI, DL, Ty, VTs);
-
-  for (EVT VT : VTs) {
-    unsigned NumRegs = TLI.getNumRegisters(F.getContext(), VT);
-    MVT RegisterVT = TLI.getRegisterType(F.getContext(), VT);
-    for (unsigned i = 0; i != NumRegs; ++i)
-      ValueVTs.push_back(RegisterVT);
-  }
-}
 
 void WebAssemblyAsmPrinter::EmitEndOfAsmFile(Module &M) {
   for (const auto &F : M) {
     // Emit function type info for all undefined functions
     if (F.isDeclarationForLinker() && !F.isIntrinsic()) {
-      SmallVector<MVT, 4> SignatureVTs;
-      ComputeLegalValueVTs(F, TM, F.getReturnType(), SignatureVTs);
-      size_t NumResults = SignatureVTs.size();
-      if (SignatureVTs.size() > 1) {
-        // WebAssembly currently can't lower returns of multiple values without
-        // demoting to sret (see WebAssemblyTargetLowering::CanLowerReturn). So
-        // replace multiple return values with a pointer parameter.
-        SignatureVTs.clear();
-        SignatureVTs.push_back(
-            MVT::getIntegerVT(M.getDataLayout().getPointerSizeInBits()));
-        NumResults = 0;
-      }
-
-      for (auto &Arg : F.args()) {
-        ComputeLegalValueVTs(F, TM, Arg.getType(), SignatureVTs);
-      }
-
-      getTargetStreamer()->emitIndirectFunctionType(F.getName(), SignatureVTs,
-                                                    NumResults);
+      SmallVector<MVT, 4> Results;
+      SmallVector<MVT, 4> Params;
+      ComputeSignatureVTs(F, TM, Params, Results);
+      getTargetStreamer()->emitIndirectFunctionType(F.getName(), Params,
+                                                    Results);
     }
   }
 }

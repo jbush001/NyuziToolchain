@@ -205,7 +205,7 @@ DwarfDebug::DwarfDebug(AsmPrinter *A, Module *M)
     : DebugHandlerBase(A), DebugLocs(A->OutStreamer->isVerboseAsm()),
       InfoHolder(A, "info_string", DIEValueAllocator),
       SkeletonHolder(A, "skel_string", DIEValueAllocator),
-      IsDarwin(Triple(A->getTargetTriple()).isOSDarwin()),
+      IsDarwin(A->TM.getTargetTriple().isOSDarwin()),
       AccelNames(DwarfAccelTable::Atom(dwarf::DW_ATOM_die_offset,
                                        dwarf::DW_FORM_data4)),
       AccelObjC(DwarfAccelTable::Atom(dwarf::DW_ATOM_die_offset,
@@ -215,7 +215,7 @@ DwarfDebug::DwarfDebug(AsmPrinter *A, Module *M)
       AccelTypes(TypeAtoms), DebuggerTuning(DebuggerKind::Default) {
 
   CurFn = nullptr;
-  Triple TT(Asm->getTargetTriple());
+  const Triple &TT = Asm->TM.getTargetTriple();
 
   // Make sure we know our "debugger tuning."  The target option takes
   // precedence; fall back to triple-based defaults.
@@ -477,12 +477,20 @@ void DwarfDebug::beginModule() {
   MMI->setDebugInfoAvailability(NumDebugCUs > 0);
   SingleCU = NumDebugCUs == 1;
 
+  DenseMap<DIGlobalVariable *, const GlobalVariable *> GVMap;
+  for (const GlobalVariable &Global : M->globals()) {
+    SmallVector<DIGlobalVariable *, 1> GVs;
+    Global.getDebugInfo(GVs);
+    for (auto &GV : GVs)
+      GVMap[GV] = &Global;
+  }
+
   for (DICompileUnit *CUNode : M->debug_compile_units()) {
     DwarfCompileUnit &CU = constructDwarfCompileUnit(CUNode);
     for (auto *IE : CUNode->getImportedEntities())
       CU.addImportedEntity(IE);
     for (auto *GV : CUNode->getGlobalVariables())
-      CU.getOrCreateGlobalVariableDIE(GV);
+      CU.getOrCreateGlobalVariableDIE(GV, GVMap.lookup(GV));
     for (auto *Ty : CUNode->getEnumTypes()) {
       // The enum types array by design contains pointers to
       // MDNodes rather than DIRefs. Unique them here.
@@ -1182,7 +1190,8 @@ void DwarfDebug::recordSourceLine(unsigned Line, unsigned Col, const MDNode *S,
     Fn = Scope->getFilename();
     Dir = Scope->getDirectory();
     if (auto *LBF = dyn_cast<DILexicalBlockFile>(Scope))
-      Discriminator = LBF->getDiscriminator();
+      if (DwarfVersion >= 4)
+        Discriminator = LBF->getDiscriminator();
 
     unsigned CUID = Asm->OutStreamer->getContext().getDwarfCompileUnitID();
     Src = static_cast<DwarfCompileUnit &>(*InfoHolder.getUnits()[CUID])

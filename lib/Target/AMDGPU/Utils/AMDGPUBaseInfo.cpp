@@ -27,6 +27,12 @@
 #include "AMDGPUGenRegisterInfo.inc"
 #undef GET_REGINFO_ENUM
 
+#define GET_INSTRINFO_NAMED_OPS
+#define GET_INSTRINFO_ENUM
+#include "AMDGPUGenInstrInfo.inc"
+#undef GET_INSTRINFO_NAMED_OPS
+#undef GET_INSTRINFO_ENUM
+
 namespace llvm {
 namespace AMDGPU {
 
@@ -150,6 +156,30 @@ std::pair<int, int> getIntegerPairAttribute(const Function &F,
   }
 
   return Ints;
+}
+
+unsigned getVmcntMask(IsaVersion Version) {
+  return 0xf;
+}
+
+unsigned getVmcntShift(IsaVersion Version) {
+  return 0;
+}
+
+unsigned getExpcntMask(IsaVersion Version) {
+  return 0x7;
+}
+
+unsigned getExpcntShift(IsaVersion Version) {
+  return 4;
+}
+
+unsigned getLgkmcntMask(IsaVersion Version) {
+  return 0xf;
+}
+
+unsigned getLgkmcntShift(IsaVersion Version) {
+  return 8;
 }
 
 unsigned getInitialPSInputAddr(const Function &F) {

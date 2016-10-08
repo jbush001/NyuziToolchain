@@ -289,6 +289,9 @@ def fsanitize_coverage_8bit_counters
 def fsanitize_coverage_trace_pc
     : Flag<["-"], "fsanitize-coverage-trace-pc">,
       HelpText<"Enable PC tracing in sanitizer coverage">;
+def fsanitize_coverage_trace_pc_guard
+    : Flag<["-"], "fsanitize-coverage-trace-pc-guard">,
+      HelpText<"Enable PC tracing with guard in sanitizer coverage">;
 def fprofile_instrument_EQ : Joined<["-"], "fprofile-instrument=">,
     HelpText<"Enable PGO instrumentation. The accepted value is clang, llvm, "
              "or none">;
@@ -506,6 +509,8 @@ def arcmt_migrate : Flag<["-"], "arcmt-migrate">,
 
 def print_stats : Flag<["-"], "print-stats">,
   HelpText<"Print performance metrics and statistics">;
+def stats_file : Joined<["-"], "stats-file=">,
+  HelpText<"Filename to write statistics to">;
 def fdump_record_layouts : Flag<["-"], "fdump-record-layouts">,
   HelpText<"Dump record layout information">;
 def fdump_record_layouts_simple : Flag<["-"], "fdump-record-layouts-simple">,
@@ -632,10 +637,6 @@ def fdefault_calling_conv_EQ : Joined<["-"], "fdefault-calling-conv=">,
   HelpText<"Set default MS calling convention">;
 def finclude_default_header : Flag<["-"], "finclude-default-header">,
   HelpText<"Include the default header file for OpenCL">;
-
-// C++ TSes.
-def fcoroutines : Flag<["-"], "fcoroutines">,
-  HelpText<"Enable support for the C++ Coroutines TS">;
 
 //===----------------------------------------------------------------------===//
 // Header Search Options

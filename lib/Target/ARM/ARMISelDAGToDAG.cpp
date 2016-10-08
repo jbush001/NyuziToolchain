@@ -70,9 +70,7 @@ public:
     return true;
   }
 
-  const char *getPassName() const override {
-    return "ARM Instruction Selection";
-  }
+  StringRef getPassName() const override { return "ARM Instruction Selection"; }
 
   void PreprocessISelDAG() override;
 
@@ -193,6 +191,8 @@ public:
 #include "ARMGenDAGISel.inc"
 
 private:
+  void transferMemOperands(SDNode *Src, SDNode *Dst);
+
   /// Indexed (pre/post inc/dec) load matching code for ARM.
   bool tryARMIndexedLoad(SDNode *N);
   bool tryT1IndexedLoad(SDNode *N);
@@ -1188,6 +1188,7 @@ ARMDAGToDAGISel::SelectThumbAddrModeImm5S(SDValue N, unsigned Scale,
     } else if (N.getOpcode() == ARMISD::Wrapper &&
         N.getOperand(0).getOpcode() != ISD::TargetGlobalAddress &&
         N.getOperand(0).getOpcode() != ISD::TargetExternalSymbol &&
+        N.getOperand(0).getOpcode() != ISD::TargetConstantPool &&
         N.getOperand(0).getOpcode() != ISD::TargetGlobalTLSAddress) {
       Base = N.getOperand(0);
     } else {
@@ -1471,6 +1472,12 @@ static inline SDValue getAL(SelectionDAG *CurDAG, const SDLoc &dl) {
   return CurDAG->getTargetConstant((uint64_t)ARMCC::AL, dl, MVT::i32);
 }
 
+void ARMDAGToDAGISel::transferMemOperands(SDNode *N, SDNode *Result) {
+  MachineSDNode::mmo_iterator MemOp = MF->allocateMemRefsArray(1);
+  MemOp[0] = cast<MemSDNode>(N)->getMemOperand();
+  cast<MachineSDNode>(Result)->setMemRefs(MemOp, MemOp + 1);
+}
+
 bool ARMDAGToDAGISel::tryARMIndexedLoad(SDNode *N) {
   LoadSDNode *LD = cast<LoadSDNode>(N);
   ISD::MemIndexedMode AM = LD->getAddressingMode();
@@ -1529,16 +1536,20 @@ bool ARMDAGToDAGISel::tryARMIndexedLoad(SDNode *N) {
       SDValue Base = LD->getBasePtr();
       SDValue Ops[]= { Base, AMOpc, getAL(CurDAG, SDLoc(N)),
                        CurDAG->getRegister(0, MVT::i32), Chain };
-      ReplaceNode(N, CurDAG->getMachineNode(Opcode, SDLoc(N), MVT::i32,
-                                            MVT::i32, MVT::Other, Ops));
+      SDNode *New = CurDAG->getMachineNode(Opcode, SDLoc(N), MVT::i32, MVT::i32,
+                                           MVT::Other, Ops);
+      transferMemOperands(N, New);
+      ReplaceNode(N, New);
       return true;
     } else {
       SDValue Chain = LD->getChain();
       SDValue Base = LD->getBasePtr();
       SDValue Ops[]= { Base, Offset, AMOpc, getAL(CurDAG, SDLoc(N)),
                        CurDAG->getRegister(0, MVT::i32), Chain };
-      ReplaceNode(N, CurDAG->getMachineNode(Opcode, SDLoc(N), MVT::i32,
-                                            MVT::i32, MVT::Other, Ops));
+      SDNode *New = CurDAG->getMachineNode(Opcode, SDLoc(N), MVT::i32, MVT::i32,
+                                           MVT::Other, Ops);
+      transferMemOperands(N, New);
+      ReplaceNode(N, New);
       return true;
     }
   }
@@ -1566,8 +1577,10 @@ bool ARMDAGToDAGISel::tryT1IndexedLoad(SDNode *N) {
   SDValue Base = LD->getBasePtr();
   SDValue Ops[]= { Base, getAL(CurDAG, SDLoc(N)),
                    CurDAG->getRegister(0, MVT::i32), Chain };
-  ReplaceNode(N, CurDAG->getMachineNode(ARM::tLDR_postidx, SDLoc(N), MVT::i32, MVT::i32,
-                                        MVT::Other, Ops));
+  SDNode *New = CurDAG->getMachineNode(ARM::tLDR_postidx, SDLoc(N), MVT::i32,
+                                       MVT::i32, MVT::Other, Ops);
+  transferMemOperands(N, New);
+  ReplaceNode(N, New);
   return true;
 }
 
@@ -1612,8 +1625,10 @@ bool ARMDAGToDAGISel::tryT2IndexedLoad(SDNode *N) {
     SDValue Base = LD->getBasePtr();
     SDValue Ops[]= { Base, Offset, getAL(CurDAG, SDLoc(N)),
                      CurDAG->getRegister(0, MVT::i32), Chain };
-    ReplaceNode(N, CurDAG->getMachineNode(Opcode, SDLoc(N), MVT::i32, MVT::i32,
-                                          MVT::Other, Ops));
+    SDNode *New = CurDAG->getMachineNode(Opcode, SDLoc(N), MVT::i32, MVT::i32,
+                                         MVT::Other, Ops);
+    transferMemOperands(N, New);
+    ReplaceNode(N, New);
     return true;
   }
 
@@ -2142,7 +2157,7 @@ void ARMDAGToDAGISel::SelectVLDSTLane(SDNode *N, bool IsLoad, bool isUpdating,
   unsigned Alignment = 0;
   if (NumVecs != 3) {
     Alignment = cast<ConstantSDNode>(Align)->getZExtValue();
-    unsigned NumBytes = NumVecs * VT.getVectorElementType().getSizeInBits()/8;
+    unsigned NumBytes = NumVecs * VT.getScalarSizeInBits() / 8;
     if (Alignment > NumBytes)
       Alignment = NumBytes;
     if (Alignment < 8 && Alignment < NumBytes)
@@ -2257,7 +2272,7 @@ void ARMDAGToDAGISel::SelectVLDDup(SDNode *N, bool isUpdating, unsigned NumVecs,
   unsigned Alignment = 0;
   if (NumVecs != 3) {
     Alignment = cast<ConstantSDNode>(Align)->getZExtValue();
-    unsigned NumBytes = NumVecs * VT.getVectorElementType().getSizeInBits()/8;
+    unsigned NumBytes = NumVecs * VT.getScalarSizeInBits() / 8;
     if (Alignment > NumBytes)
       Alignment = NumBytes;
     if (Alignment < 8 && Alignment < NumBytes)

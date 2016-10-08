@@ -28,7 +28,7 @@ static RequiredArgs
 commonEmitCXXMemberOrOperatorCall(CodeGenFunction &CGF, const CXXMethodDecl *MD,
                                   llvm::Value *This, llvm::Value *ImplicitParam,
                                   QualType ImplicitParamTy, const CallExpr *CE,
-                                  CallArgList &Args) {
+                                  CallArgList &Args, CallArgList *RtlArgs) {
   assert(CE == nullptr || isa<CXXMemberCallExpr>(CE) ||
          isa<CXXOperatorCallExpr>(CE));
   assert(MD->isInstance() &&
@@ -61,7 +61,12 @@ commonEmitCXXMemberOrOperatorCall(CodeGenFunction &CGF, const CXXMethodDecl *MD,
   RequiredArgs required = RequiredArgs::forPrototypePlus(FPT, Args.size(), MD);
 
   // And the rest of the call args.
-  if (CE) {
+  if (RtlArgs) {
+    // Special case: if the caller emitted the arguments right-to-left already
+    // (prior to emitting the *this argument), we're done. This happens for
+    // assignment operators.
+    Args.addFrom(*RtlArgs);
+  } else if (CE) {
     // Special case: skip first argument of CXXOperatorCall (it is "this").
     unsigned ArgsToSkip = isa<CXXOperatorCallExpr>(CE) ? 1 : 0;
     CGF.EmitCallArgs(Args, FPT, drop_begin(CE->arguments(), ArgsToSkip),
@@ -77,11 +82,11 @@ commonEmitCXXMemberOrOperatorCall(CodeGenFunction &CGF, const CXXMethodDecl *MD,
 RValue CodeGenFunction::EmitCXXMemberOrOperatorCall(
     const CXXMethodDecl *MD, llvm::Value *Callee, ReturnValueSlot ReturnValue,
     llvm::Value *This, llvm::Value *ImplicitParam, QualType ImplicitParamTy,
-    const CallExpr *CE) {
+    const CallExpr *CE, CallArgList *RtlArgs) {
   const FunctionProtoType *FPT = MD->getType()->castAs<FunctionProtoType>();
   CallArgList Args;
   RequiredArgs required = commonEmitCXXMemberOrOperatorCall(
-      *this, MD, This, ImplicitParam, ImplicitParamTy, CE, Args);
+      *this, MD, This, ImplicitParam, ImplicitParamTy, CE, Args, RtlArgs);
   return EmitCall(CGM.getTypes().arrangeCXXMethodCall(Args, FPT, required),
                   Callee, ReturnValue, Args, MD);
 }
@@ -92,7 +97,7 @@ RValue CodeGenFunction::EmitCXXDestructorCall(
     StructorType Type) {
   CallArgList Args;
   commonEmitCXXMemberOrOperatorCall(*this, DD, This, ImplicitParam,
-                                    ImplicitParamTy, CE, Args);
+                                    ImplicitParamTy, CE, Args, nullptr);
   return EmitCall(CGM.getTypes().arrangeCXXStructorDeclaration(DD, Type),
                   Callee, ReturnValueSlot(), Args, DD);
 }
@@ -170,6 +175,19 @@ RValue CodeGenFunction::EmitCXXMemberOrOperatorMemberCallExpr(
     }
   }
 
+  // C++17 demands that we evaluate the RHS of a (possibly-compound) assignment
+  // operator before the LHS.
+  CallArgList RtlArgStorage;
+  CallArgList *RtlArgs = nullptr;
+  if (auto *OCE = dyn_cast<CXXOperatorCallExpr>(CE)) {
+    if (OCE->isAssignmentOp()) {
+      RtlArgs = &RtlArgStorage;
+      EmitCallArgs(*RtlArgs, MD->getType()->castAs<FunctionProtoType>(),
+                   drop_begin(CE->arguments(), 1), CE->getDirectCallee(),
+                   /*ParamsToSkip*/0, EvaluationOrder::ForceRightToLeft);
+    }
+  }
+
   Address This = Address::invalid();
   if (IsArrow)
     This = EmitPointerWithAlignment(Base);
@@ -187,10 +205,12 @@ RValue CodeGenFunction::EmitCXXMemberOrOperatorMemberCallExpr(
       if (MD->isCopyAssignmentOperator() || MD->isMoveAssignmentOperator()) {
         // We don't like to generate the trivial copy/move assignment operator
         // when it isn't necessary; just produce the proper effect here.
-        // Special case: skip first argument of CXXOperatorCall (it is "this").
-        unsigned ArgsToSkip = isa<CXXOperatorCallExpr>(CE) ? 1 : 0;
-        Address RHS = EmitLValue(*(CE->arg_begin() + ArgsToSkip)).getAddress();
-        EmitAggregateAssign(This, RHS, CE->getType());
+        LValue RHS = isa<CXXOperatorCallExpr>(CE)
+                         ? MakeNaturalAlignAddrLValue(
+                               (*RtlArgs)[0].RV.getScalarVal(),
+                               (*(CE->arg_begin() + 1))->getType())
+                         : EmitLValue(*CE->arg_begin());
+        EmitAggregateAssign(This, RHS.getAddress(), CE->getType());
         return RValue::get(This.getPointer());
       }
 
@@ -249,7 +269,8 @@ RValue CodeGenFunction::EmitCXXMemberOrOperatorMemberCallExpr(
         Callee = CGM.GetAddrOfFunction(GlobalDecl(DDtor, Dtor_Complete), Ty);
       }
       EmitCXXMemberOrOperatorCall(MD, Callee, ReturnValue, This.getPointer(),
-                                  /*ImplicitParam=*/nullptr, QualType(), CE);
+                                  /*ImplicitParam=*/nullptr, QualType(), CE,
+                                  nullptr);
     }
     return RValue::get(nullptr);
   }
@@ -282,7 +303,8 @@ RValue CodeGenFunction::EmitCXXMemberOrOperatorMemberCallExpr(
   }
 
   return EmitCXXMemberOrOperatorCall(MD, Callee, ReturnValue, This.getPointer(),
-                                     /*ImplicitParam=*/nullptr, QualType(), CE);
+                                     /*ImplicitParam=*/nullptr, QualType(), CE,
+                                     RtlArgs);
 }
 
 RValue
@@ -301,9 +323,6 @@ CodeGenFunction::EmitCXXMemberPointerCallExpr(const CXXMemberCallExpr *E,
   const CXXRecordDecl *RD = 
     cast<CXXRecordDecl>(MPT->getClass()->getAs<RecordType>()->getDecl());
 
-  // Get the member function pointer.
-  llvm::Value *MemFnPtr = EmitScalarExpr(MemFnExpr);
-
   // Emit the 'this' pointer.
   Address This = Address::invalid();
   if (BO->getOpcode() == BO_PtrMemI)
@@ -313,6 +332,9 @@ CodeGenFunction::EmitCXXMemberPointerCallExpr(const CXXMemberCallExpr *E,
 
   EmitTypeCheck(TCK_MemberCall, E->getExprLoc(), This.getPointer(),
                 QualType(MPT->getClass(), 0));
+
+  // Get the member function pointer.
+  llvm::Value *MemFnPtr = EmitScalarExpr(MemFnExpr);
 
   // Ask the ABI to load the callee.  Note that This is modified.
   llvm::Value *ThisPtrForCall = nullptr;
@@ -855,8 +877,68 @@ void CodeGenFunction::EmitNewArrayInitializer(
   CharUnits ElementAlign =
     BeginPtr.getAlignment().alignmentOfArrayElement(ElementSize);
 
+  // Attempt to perform zero-initialization using memset.
+  auto TryMemsetInitialization = [&]() -> bool {
+    // FIXME: If the type is a pointer-to-data-member under the Itanium ABI,
+    // we can initialize with a memset to -1.
+    if (!CGM.getTypes().isZeroInitializable(ElementType))
+      return false;
+
+    // Optimization: since zero initialization will just set the memory
+    // to all zeroes, generate a single memset to do it in one shot.
+
+    // Subtract out the size of any elements we've already initialized.
+    auto *RemainingSize = AllocSizeWithoutCookie;
+    if (InitListElements) {
+      // We know this can't overflow; we check this when doing the allocation.
+      auto *InitializedSize = llvm::ConstantInt::get(
+          RemainingSize->getType(),
+          getContext().getTypeSizeInChars(ElementType).getQuantity() *
+              InitListElements);
+      RemainingSize = Builder.CreateSub(RemainingSize, InitializedSize);
+    }
+
+    // Create the memset.
+    Builder.CreateMemSet(CurPtr, Builder.getInt8(0), RemainingSize, false);
+    return true;
+  };
+
   // If the initializer is an initializer list, first do the explicit elements.
   if (const InitListExpr *ILE = dyn_cast<InitListExpr>(Init)) {
+    // Initializing from a (braced) string literal is a special case; the init
+    // list element does not initialize a (single) array element.
+    if (ILE->isStringLiteralInit()) {
+      // Initialize the initial portion of length equal to that of the string
+      // literal. The allocation must be for at least this much; we emitted a
+      // check for that earlier.
+      AggValueSlot Slot =
+          AggValueSlot::forAddr(CurPtr, ElementType.getQualifiers(),
+                                AggValueSlot::IsDestructed,
+                                AggValueSlot::DoesNotNeedGCBarriers,
+                                AggValueSlot::IsNotAliased);
+      EmitAggExpr(ILE->getInit(0), Slot);
+
+      // Move past these elements.
+      InitListElements =
+          cast<ConstantArrayType>(ILE->getType()->getAsArrayTypeUnsafe())
+              ->getSize().getZExtValue();
+      CurPtr =
+          Address(Builder.CreateInBoundsGEP(CurPtr.getPointer(),
+                                            Builder.getSize(InitListElements),
+                                            "string.init.end"),
+                  CurPtr.getAlignment().alignmentAtOffset(InitListElements *
+                                                          ElementSize));
+
+      // Zero out the rest, if any remain.
+      llvm::ConstantInt *ConstNum = dyn_cast<llvm::ConstantInt>(NumElements);
+      if (!ConstNum || !ConstNum->equalsInt(InitListElements)) {
+        bool OK = TryMemsetInitialization();
+        (void)OK;
+        assert(OK && "couldn't memset character type?");
+      }
+      return;
+    }
+
     InitListElements = ILE->getNumInits();
 
     // If this is a multi-dimensional array new, we will initialize multiple
@@ -922,32 +1004,6 @@ void CodeGenFunction::EmitNewArrayInitializer(
     // Switch back to initializing one base element at a time.
     CurPtr = Builder.CreateBitCast(CurPtr, BeginPtr.getType());
   }
-
-  // Attempt to perform zero-initialization using memset.
-  auto TryMemsetInitialization = [&]() -> bool {
-    // FIXME: If the type is a pointer-to-data-member under the Itanium ABI,
-    // we can initialize with a memset to -1.
-    if (!CGM.getTypes().isZeroInitializable(ElementType))
-      return false;
-
-    // Optimization: since zero initialization will just set the memory
-    // to all zeroes, generate a single memset to do it in one shot.
-
-    // Subtract out the size of any elements we've already initialized.
-    auto *RemainingSize = AllocSizeWithoutCookie;
-    if (InitListElements) {
-      // We know this can't overflow; we check this when doing the allocation.
-      auto *InitializedSize = llvm::ConstantInt::get(
-          RemainingSize->getType(),
-          getContext().getTypeSizeInChars(ElementType).getQuantity() *
-              InitListElements);
-      RemainingSize = Builder.CreateSub(RemainingSize, InitializedSize);
-    }
-
-    // Create the memset.
-    Builder.CreateMemSet(CurPtr, Builder.getInt8(0), RemainingSize, false);
-    return true;
-  };
 
   // If all elements have already been initialized, skip any further
   // initialization.
@@ -1327,7 +1383,12 @@ llvm::Value *CodeGenFunction::EmitCXXNewExpr(const CXXNewExpr *E) {
   // If there is a brace-initializer, cannot allocate fewer elements than inits.
   unsigned minElements = 0;
   if (E->isArray() && E->hasInitializer()) {
-    if (const InitListExpr *ILE = dyn_cast<InitListExpr>(E->getInitializer()))
+    const InitListExpr *ILE = dyn_cast<InitListExpr>(E->getInitializer());
+    if (ILE && ILE->isStringLiteralInit())
+      minElements =
+          cast<ConstantArrayType>(ILE->getType()->getAsArrayTypeUnsafe())
+              ->getSize().getZExtValue();
+    else if (ILE)
       minElements = ILE->getNumInits();
   }
 

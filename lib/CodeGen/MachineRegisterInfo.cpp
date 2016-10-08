@@ -126,8 +126,6 @@ void MachineRegisterInfo::setType(unsigned VReg, LLT Ty) {
 
 unsigned
 MachineRegisterInfo::createGenericVirtualRegister(LLT Ty) {
-  assert(Ty.isValid() && "Cannot create empty virtual register");
-
   // New virtual register number.
   unsigned Reg = TargetRegisterInfo::index2VirtReg(getNumVirtRegs());
   VRegInfo.grow(Reg);
@@ -145,7 +143,7 @@ void MachineRegisterInfo::clearVirtRegTypes() {
   // Verify that the size of the now-constrained vreg is unchanged.
   for (auto &VRegToType : getVRegToType()) {
     auto *RC = getRegClass(VRegToType.first);
-    if (VRegToType.second.isSized() &&
+    if (VRegToType.second.isValid() &&
         VRegToType.second.getSizeInBits() > (RC->getSize() * 8))
       llvm_unreachable(
           "Virtual register has explicit size different from its class size");
@@ -470,9 +468,13 @@ bool MachineRegisterInfo::isConstantPhysReg(unsigned PhysReg,
                                             const MachineFunction &MF) const {
   assert(TargetRegisterInfo::isPhysicalRegister(PhysReg));
 
+  const TargetRegisterInfo *TRI = getTargetRegisterInfo();
+  if (TRI->isConstantPhysReg(PhysReg))
+    return true;
+
   // Check if any overlapping register is modified, or allocatable so it may be
   // used later.
-  for (MCRegAliasIterator AI(PhysReg, getTargetRegisterInfo(), true);
+  for (MCRegAliasIterator AI(PhysReg, TRI, true);
        AI.isValid(); ++AI)
     if (!def_empty(*AI) || isAllocatable(*AI))
       return false;

@@ -38,7 +38,6 @@ add_llvm_target(AArch64CodeGen
   AArch64AddressTypePromotion.cpp
   AArch64AdvSIMDScalarPass.cpp
   AArch64AsmPrinter.cpp
-  AArch64BranchRelaxation.cpp
   AArch64CleanupLocalDynamicTLSPass.cpp
   AArch64CollectLOH.cpp
   AArch64ConditionalCompares.cpp
@@ -63,6 +62,7 @@ add_llvm_target(AArch64CodeGen
   AArch64TargetMachine.cpp
   AArch64TargetObjectFile.cpp
   AArch64TargetTransformInfo.cpp
+  AArch64VectorByElementOpt.cpp
   ${GLOBAL_ISEL_BUILD_FILES}
 )
 

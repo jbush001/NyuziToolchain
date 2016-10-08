@@ -82,7 +82,7 @@ public:
   bool SelectGlobalAddress(SDValue &N, SDValue &R, bool UseGP);
   bool SelectAddrFI(SDValue &N, SDValue &R);
 
-  const char *getPassName() const override {
+  StringRef getPassName() const override {
     return "Hexagon DAG->DAG Pattern Instruction Selection";
   }
 
@@ -816,7 +816,7 @@ void HexagonDAGToDAGISel::SelectZeroExtend(SDNode *N) {
     SDNode *Mask = CurDAG->getMachineNode(Hexagon::C2_mask, dl, MVT::i64, Op0);
     unsigned NE = OpVT.getVectorNumElements();
     EVT ExVT = N->getValueType(0);
-    unsigned ES = ExVT.getVectorElementType().getSizeInBits();
+    unsigned ES = ExVT.getScalarSizeInBits();
     uint64_t MV = 0, Bit = 1;
     for (unsigned i = 0; i < NE; ++i) {
       MV |= Bit;

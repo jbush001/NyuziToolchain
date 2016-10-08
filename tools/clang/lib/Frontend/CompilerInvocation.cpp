@@ -724,6 +724,8 @@ static bool ParseCodeGenArgs(CodeGenOptions &Opts, ArgList &Args, InputKind IK,
   Opts.SanitizeCoverage8bitCounters =
       Args.hasArg(OPT_fsanitize_coverage_8bit_counters);
   Opts.SanitizeCoverageTracePC = Args.hasArg(OPT_fsanitize_coverage_trace_pc);
+  Opts.SanitizeCoverageTracePCGuard =
+      Args.hasArg(OPT_fsanitize_coverage_trace_pc_guard);
   Opts.SanitizeMemoryTrackOrigins =
       getLastArgIntValue(Args, OPT_fsanitize_memory_track_origins_EQ, 0, Diags);
   Opts.SanitizeMemoryUseAfterDtor =
@@ -838,6 +840,12 @@ static bool ParseCodeGenArgs(CodeGenOptions &Opts, ArgList &Args, InputKind IK,
         GenerateOptimizationRemarkRegex(Diags, Args, A);
     NeedLocTracking = true;
   }
+
+  Opts.DiagnosticsWithHotness =
+      Args.hasArg(options::OPT_fdiagnostics_show_hotness);
+  if (Opts.DiagnosticsWithHotness &&
+      Opts.getProfileUse() == CodeGenOptions::ProfileNone)
+    Diags.Report(diag::warn_drv_fdiagnostics_show_hotness_requires_pgo);
 
   // If the user requested to use a sample profile for PGO, then the
   // backend will need to track source location information so the profile
@@ -1244,6 +1252,7 @@ static InputKind ParseFrontendArgs(FrontendOptions &Opts, ArgList &Args,
   Opts.AuxTriple =
       llvm::Triple::normalize(Args.getLastArgValue(OPT_aux_triple));
   Opts.FindPchSource = Args.getLastArgValue(OPT_find_pch_source_EQ);
+  Opts.StatsFile = Args.getLastArgValue(OPT_stats_file);
 
   if (const Arg *A = Args.getLastArg(OPT_arcmt_check,
                                      OPT_arcmt_modify,
@@ -1616,6 +1625,8 @@ void CompilerInvocation::setLangDefaults(LangOptions &Opts, InputKind IK,
   Opts.GNUKeywords = Opts.GNUMode;
   Opts.CXXOperatorNames = Opts.CPlusPlus;
 
+  Opts.AlignedAllocation = Opts.CPlusPlus1z;
+
   Opts.DollarIdents = !Opts.AsmPreprocessor;
 }
 
@@ -1905,7 +1916,7 @@ static void ParseLangArgs(LangOptions &Opts, ArgList &Args, InputKind IK,
   Opts.Blocks = Args.hasArg(OPT_fblocks) || (Opts.OpenCL
     && Opts.OpenCLVersion >= 200);
   Opts.BlocksRuntimeOptional = Args.hasArg(OPT_fblocks_runtime_optional);
-  Opts.Coroutines = Args.hasArg(OPT_fcoroutines);
+  Opts.CoroutinesTS = Args.hasArg(OPT_fcoroutines_ts);
   Opts.ModulesTS = Args.hasArg(OPT_fmodules_ts);
   Opts.Modules = Args.hasArg(OPT_fmodules) || Opts.ModulesTS;
   Opts.ModulesStrictDeclUse = Args.hasArg(OPT_fmodules_strict_decluse);
@@ -1928,6 +1939,17 @@ static void ParseLangArgs(LangOptions &Opts, ArgList &Args, InputKind IK,
     getAllNoBuiltinFuncValues(Args, Opts.NoBuiltinFuncs);
   Opts.NoMathBuiltin = Args.hasArg(OPT_fno_math_builtin);
   Opts.SizedDeallocation = Args.hasArg(OPT_fsized_deallocation);
+  Opts.AlignedAllocation =
+      Args.hasFlag(OPT_faligned_allocation, OPT_fno_aligned_allocation,
+                   Opts.AlignedAllocation);
+  Opts.NewAlignOverride =
+      getLastArgIntValue(Args, OPT_fnew_alignment_EQ, 0, Diags);
+  if (Opts.NewAlignOverride && !llvm::isPowerOf2_32(Opts.NewAlignOverride)) {
+    Arg *A = Args.getLastArg(OPT_fnew_alignment_EQ);
+    Diags.Report(diag::err_fe_invalid_alignment) << A->getAsString(Args)
+                                                 << A->getValue();
+    Opts.NewAlignOverride = 0;
+  }
   Opts.ConceptsTS = Args.hasArg(OPT_fconcepts_ts);
   Opts.HeinousExtensions = Args.hasArg(OPT_fheinous_gnu_extensions);
   Opts.AccessControl = !Args.hasArg(OPT_fno_access_control);

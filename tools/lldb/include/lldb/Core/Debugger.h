@@ -226,9 +226,10 @@ public:
 
   bool SetTerminalWidth(uint32_t term_width);
 
-  const char *GetPrompt() const;
+  llvm::StringRef GetPrompt() const;
 
-  void SetPrompt(const char *p);
+  void SetPrompt(llvm::StringRef p);
+  void SetPrompt(const char *) = delete;
 
   bool GetUseExternalEditor() const;
 
@@ -237,6 +238,12 @@ public:
   bool GetUseColor() const;
 
   bool SetUseColor(bool use_color);
+
+  lldb::StopShowColumn GetStopShowColumn() const;
+
+  const FormatEntity::Entry *GetStopShowColumnAnsiPrefix() const;
+
+  const FormatEntity::Entry *GetStopShowColumnAnsiSuffix() const;
 
   uint32_t GetStopSourceLineCount(bool before) const;
 

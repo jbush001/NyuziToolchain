@@ -150,7 +150,8 @@ enum Flag {
   RegSequence,
   ExtractSubreg,
   InsertSubreg,
-  Convergent
+  Convergent,
+  Add
 };
 }
 
@@ -215,7 +216,7 @@ public:
   unsigned getNumDefs() const { return NumDefs; }
 
   /// \brief Return flags of this instruction.
-  unsigned getFlags() const { return Flags; }
+  uint64_t getFlags() const { return Flags; }
 
   /// \brief Return true if this instruction can have a variable number of
   /// operands.  In this case, the variable operands will be after the normal
@@ -233,6 +234,9 @@ public:
 
   /// \brief Return true if the instruction is a return.
   bool isReturn() const { return Flags & (1ULL << MCID::Return); }
+
+  /// \brief Return true if the instruction is an add instruction.
+  bool isAdd() const { return Flags & (1ULL << MCID::Add); }
 
   /// \brief  Return true if the instruction is a call.
   bool isCall() const { return Flags & (1ULL << MCID::Call); }

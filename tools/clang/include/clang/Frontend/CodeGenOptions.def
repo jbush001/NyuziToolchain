@@ -1,4 +1,4 @@
-//===--- CodeGenOptions.def - Code generation option database ------ C++ -*-===//
+//===--- CodeGenOptions.def - Code generation option database ----- C++ -*-===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -160,6 +160,8 @@ CODEGENOPT(SanitizeCoverage8bitCounters, 1, 0) ///< Use 8-bit frequency counters
                                                ///< in sanitizer coverage.
 CODEGENOPT(SanitizeCoverageTracePC, 1, 0) ///< Enable PC tracing
                                           ///< in sanitizer coverage.
+CODEGENOPT(SanitizeCoverageTracePCGuard, 1, 0) ///< Enable PC tracing with guard
+                                               ///< in sanitizer coverage.
 CODEGENOPT(SanitizeStats     , 1, 0) ///< Collect statistics for sanitizers.
 CODEGENOPT(SimplifyLibCalls  , 1, 1) ///< Set when -fbuiltin is enabled.
 CODEGENOPT(SoftFloat         , 1, 0) ///< -soft-float.
@@ -246,6 +248,9 @@ ENUM_CODEGENOPT(DefaultTLSModel, TLSModel, 2, GeneralDynamicTLSModel)
 /// Number of path components to strip when emitting checks. (0 == full
 /// filename)
 VALUE_CODEGENOPT(EmitCheckPathComponentsToStrip, 32, 0)
+
+/// Whether to report the hotness of the code region for optimization remarks.
+CODEGENOPT(DiagnosticsWithHotness, 1, 0)
 
 #undef CODEGENOPT
 #undef ENUM_CODEGENOPT

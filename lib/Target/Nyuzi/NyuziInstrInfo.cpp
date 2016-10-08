@@ -177,12 +177,14 @@ bool NyuziInstrInfo::analyzeBranch(MachineBasicBlock &MBB,
   return false;
 }
 
-unsigned NyuziInstrInfo::InsertBranch(MachineBasicBlock &MBB,
+unsigned NyuziInstrInfo::insertBranch(MachineBasicBlock &MBB,
                                       MachineBasicBlock *TBB, // If true
                                       MachineBasicBlock *FBB, // If false
                                       ArrayRef<MachineOperand> Cond,
-                                      const DebugLoc &DL) const {
+                                      const DebugLoc &DL,
+                                      int *BytesAdded) const {
   assert(TBB);
+  assert(!BytesAdded && "code size not handled");
   if (FBB) {
     // Has a false block, this is a two way conditional branch
     BuildMI(&MBB, DL, get(Cond[0].getImm())).addOperand(Cond[1]).addMBB(TBB);
@@ -201,7 +203,9 @@ unsigned NyuziInstrInfo::InsertBranch(MachineBasicBlock &MBB,
   return 1;
 }
 
-unsigned NyuziInstrInfo::RemoveBranch(MachineBasicBlock &MBB) const {
+unsigned NyuziInstrInfo::removeBranch(MachineBasicBlock &MBB,
+                                      int *BytesRemoved) const {
+  assert(!BytesRemoved && "code size not handled");
   MachineBasicBlock::iterator I = MBB.end();
   unsigned Count = 0;
 

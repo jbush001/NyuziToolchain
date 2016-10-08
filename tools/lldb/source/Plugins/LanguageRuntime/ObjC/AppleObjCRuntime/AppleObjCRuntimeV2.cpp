@@ -470,6 +470,11 @@ LanguageRuntime *AppleObjCRuntimeV2::CreateInstance(Process *process,
     return NULL;
 }
 
+static OptionDefinition g_objc_classtable_dump_options[] = {
+    {LLDB_OPT_SET_ALL, false, "verbose", 'v', OptionParser::eNoArgument,
+     nullptr, nullptr, 0, eArgTypeNone,
+     "Print ivar and method information in detail"}};
+
 class CommandObjectObjC_ClassTable_Dump : public CommandObjectParsed {
 public:
   class CommandOptions : public Options {
@@ -501,10 +506,11 @@ public:
       m_verbose.Clear();
     }
 
-    const OptionDefinition *GetDefinitions() override { return g_option_table; }
+    llvm::ArrayRef<OptionDefinition> GetDefinitions() override {
+      return llvm::makeArrayRef(g_objc_classtable_dump_options);
+    }
 
     OptionValueBoolean m_verbose;
-    static OptionDefinition g_option_table[];
   };
 
   CommandObjectObjC_ClassTable_Dump(CommandInterpreter &interpreter)
@@ -542,7 +548,8 @@ protected:
       break;
     case 1: {
       regex_up.reset(new RegularExpression());
-      if (!regex_up->Compile(command.GetArgumentAtIndex(0))) {
+      if (!regex_up->Compile(llvm::StringRef::withNullAsEmpty(
+              command.GetArgumentAtIndex(0)))) {
         result.AppendError(
             "invalid argument - please provide a valid regular expression");
         result.SetStatus(lldb::eReturnStatusFailed);
@@ -567,7 +574,8 @@ protected:
         if (iterator->second) {
           const char *class_name =
               iterator->second->GetClassName().AsCString("<unknown>");
-          if (regex_up && class_name && !regex_up->Execute(class_name))
+          if (regex_up && class_name &&
+              !regex_up->Execute(llvm::StringRef(class_name)))
             continue;
           std_out.Printf("isa = 0x%" PRIx64, iterator->first);
           std_out.Printf(" name = %s", class_name);
@@ -607,7 +615,7 @@ protected:
                 nullptr);
           }
         } else {
-          if (regex_up && !regex_up->Execute(""))
+          if (regex_up && !regex_up->Execute(llvm::StringRef()))
             continue;
           std_out.Printf("isa = 0x%" PRIx64 " has no associated class.\n",
                          iterator->first);
@@ -624,13 +632,6 @@ protected:
 
   CommandOptions m_options;
 };
-
-OptionDefinition
-    CommandObjectObjC_ClassTable_Dump::CommandOptions::g_option_table[] = {
-        {LLDB_OPT_SET_ALL, false, "verbose", 'v', OptionParser::eNoArgument,
-         nullptr, nullptr, 0, eArgTypeNone,
-         "Print ivar and method information in detail"},
-        {0, false, nullptr, 0, 0, nullptr, nullptr, 0, eArgTypeNone, nullptr}};
 
 class CommandObjectMultiwordObjC_TaggedPointer_Info
     : public CommandObjectParsed {

@@ -69,11 +69,8 @@ void WebAssemblyInstPrinter::printInst(const MCInst *MI, raw_ostream &OS,
     default:
       break;
     case WebAssembly::LOOP: {
-      // Grab the TopLabel value first so that labels print in numeric order.
-      uint64_t TopLabel = ControlFlowCounter++;
-      ControlFlowStack.push_back(std::make_pair(ControlFlowCounter++, false));
-      printAnnotation(OS, "label" + utostr(TopLabel) + ':');
-      ControlFlowStack.push_back(std::make_pair(TopLabel, true));
+      printAnnotation(OS, "label" + utostr(ControlFlowCounter) + ':');
+      ControlFlowStack.push_back(std::make_pair(ControlFlowCounter++, true));
       break;
     }
     case WebAssembly::BLOCK:
@@ -81,8 +78,6 @@ void WebAssemblyInstPrinter::printInst(const MCInst *MI, raw_ostream &OS,
       break;
     case WebAssembly::END_LOOP:
       ControlFlowStack.pop_back();
-      printAnnotation(
-          OS, "label" + utostr(ControlFlowStack.pop_back_val().first) + ':');
       break;
     case WebAssembly::END_BLOCK:
       printAnnotation(
@@ -171,12 +166,12 @@ void WebAssemblyInstPrinter::printOperand(const MCInst *MI, unsigned OpNo,
     assert(Desc.TSFlags == 0 &&
            "WebAssembly variable_ops floating point ops don't use TSFlags");
     const MCOperandInfo &Info = Desc.OpInfo[OpNo];
-    if (Info.OperandType == WebAssembly::OPERAND_FP32IMM) {
+    if (Info.OperandType == WebAssembly::OPERAND_F32IMM) {
       // TODO: MC converts all floating point immediate operands to double.
       // This is fine for numeric values, but may cause NaNs to change bits.
       O << toString(APFloat(float(Op.getFPImm())));
     } else {
-      assert(Info.OperandType == WebAssembly::OPERAND_FP64IMM);
+      assert(Info.OperandType == WebAssembly::OPERAND_F64IMM);
       O << toString(APFloat(Op.getFPImm()));
     }
   } else {
@@ -198,6 +193,26 @@ WebAssemblyInstPrinter::printWebAssemblyP2AlignOperand(const MCInst *MI,
   if (Imm == WebAssembly::GetDefaultP2Align(MI->getOpcode()))
     return;
   O << ":p2align=" << Imm;
+}
+
+void
+WebAssemblyInstPrinter::printWebAssemblySignatureOperand(const MCInst *MI,
+                                                         unsigned OpNo,
+                                                         raw_ostream &O) {
+  int64_t Imm = MI->getOperand(OpNo).getImm();
+  switch (Imm) {
+  case WebAssembly::Void: break;
+  case WebAssembly::I32: O << "i32"; break;
+  case WebAssembly::I64: O << "i64"; break;
+  case WebAssembly::F32: O << "f32"; break;
+  case WebAssembly::F64: O << "f64"; break;
+  case WebAssembly::I8x16: O << "i8x16"; break;
+  case WebAssembly::I16x8: O << "i16x8"; break;
+  case WebAssembly::I32x4: O << "i32x4"; break;
+  case WebAssembly::I64x2: O << "i32x4"; break;
+  case WebAssembly::F32x4: O << "f32x4"; break;
+  case WebAssembly::F64x2: O << "f64x2"; break;
+  }
 }
 
 const char *llvm::WebAssembly::TypeToString(MVT Ty) {

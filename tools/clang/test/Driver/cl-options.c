@@ -515,11 +515,13 @@
 // RUN:     -fms-extensions \
 // RUN:     -fno-ms-extensions \
 // RUN:     -mllvm -disable-llvm-optzns \
-// RUN:     -resource-dir \
+// RUN:     -resource-dir asdf \
+// RUN:     -resource-dir=asdf \
 // RUN:     -Wunused-variable \
 // RUN:     -fmacro-backtrace-limit=0 \
 // RUN:     -fstandalone-debug \
 // RUN:     -flimit-debug-info \
+// RUN:     -flto \
 // RUN:     -Werror /Zs -- %s 2>&1
 
 

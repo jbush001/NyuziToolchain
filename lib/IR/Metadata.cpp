@@ -314,8 +314,7 @@ ValueAsMetadata *ValueAsMetadata::get(Value *V) {
   if (!Entry) {
     assert((isa<Constant>(V) || isa<Argument>(V) || isa<Instruction>(V)) &&
            "Expected constant or function-local value");
-    assert(!V->IsUsedByMD &&
-           "Expected this to be the only metadata use");
+    assert(!V->IsUsedByMD && "Expected this to be the only metadata use");
     V->IsUsedByMD = true;
     if (auto *C = dyn_cast<Constant>(V))
       Entry = new ConstantAsMetadata(C);
@@ -360,14 +359,12 @@ void ValueAsMetadata::handleRAUW(Value *From, Value *To) {
   auto &Store = Context.pImpl->ValuesAsMetadata;
   auto I = Store.find(From);
   if (I == Store.end()) {
-    assert(!From->IsUsedByMD &&
-           "Expected From not to be used by metadata");
+    assert(!From->IsUsedByMD && "Expected From not to be used by metadata");
     return;
   }
 
   // Remove old entry from the map.
-  assert(From->IsUsedByMD &&
-         "Expected From to be used by metadata");
+  assert(From->IsUsedByMD && "Expected From to be used by metadata");
   From->IsUsedByMD = false;
   ValueAsMetadata *MD = I->second;
   assert(MD && "Expected valid metadata");
@@ -404,8 +401,7 @@ void ValueAsMetadata::handleRAUW(Value *From, Value *To) {
   }
 
   // Update MD in place (and update the map entry).
-  assert(!To->IsUsedByMD &&
-         "Expected this to be the only metadata use");
+  assert(!To->IsUsedByMD && "Expected this to be the only metadata use");
   To->IsUsedByMD = true;
   MD->V = To;
   Entry = MD;
@@ -1056,17 +1052,11 @@ void NamedMDNode::setOperand(unsigned I, MDNode *New) {
   getNMDOps(Operands)[I].reset(New);
 }
 
-void NamedMDNode::eraseFromParent() {
-  getParent()->eraseNamedMetadata(this);
-}
+void NamedMDNode::eraseFromParent() { getParent()->eraseNamedMetadata(this); }
 
-void NamedMDNode::dropAllReferences() {
-  getNMDOps(Operands).clear();
-}
+void NamedMDNode::dropAllReferences() { getNMDOps(Operands).clear(); }
 
-StringRef NamedMDNode::getName() const {
-  return StringRef(Name);
-}
+StringRef NamedMDNode::getName() const { return StringRef(Name); }
 
 //===----------------------------------------------------------------------===//
 // Instruction Metadata method implementations.
@@ -1164,14 +1154,13 @@ MDNode *Instruction::getMetadataImpl(StringRef Kind) const {
 }
 
 void Instruction::dropUnknownNonDebugMetadata(ArrayRef<unsigned> KnownIDs) {
-  SmallSet<unsigned, 5> KnownSet;
-  KnownSet.insert(KnownIDs.begin(), KnownIDs.end());
-
   if (!hasMetadataHashEntry())
     return; // Nothing to remove!
 
   auto &InstructionMetadata = getContext().pImpl->InstructionMetadata;
 
+  SmallSet<unsigned, 4> KnownSet;
+  KnownSet.insert(KnownIDs.begin(), KnownIDs.end());
   if (KnownSet.empty()) {
     // Just drop our entry at the store.
     InstructionMetadata.erase(this);
@@ -1200,7 +1189,7 @@ void Instruction::setMetadata(unsigned KindID, MDNode *Node) {
     DbgLoc = DebugLoc(Node);
     return;
   }
-  
+
   // Handle the case when we're adding/updating metadata on an instruction.
   if (Node) {
     auto &Info = getContext().pImpl->InstructionMetadata[this];
@@ -1217,7 +1206,7 @@ void Instruction::setMetadata(unsigned KindID, MDNode *Node) {
           (getContext().pImpl->InstructionMetadata.count(this) > 0)) &&
          "HasMetadata bit out of date!");
   if (!hasMetadataHashEntry())
-    return;  // Nothing to remove!
+    return; // Nothing to remove!
   auto &Info = getContext().pImpl->InstructionMetadata[this];
 
   // Handle removal of an existing value.
@@ -1252,12 +1241,13 @@ MDNode *Instruction::getMetadataImpl(unsigned KindID) const {
 void Instruction::getAllMetadataImpl(
     SmallVectorImpl<std::pair<unsigned, MDNode *>> &Result) const {
   Result.clear();
-  
+
   // Handle 'dbg' as a special case since it is not stored in the hash table.
   if (DbgLoc) {
     Result.push_back(
         std::make_pair((unsigned)LLVMContext::MD_dbg, DbgLoc.getAsMDNode()));
-    if (!hasMetadataHashEntry()) return;
+    if (!hasMetadataHashEntry())
+      return;
   }
 
   assert(hasMetadataHashEntry() &&
@@ -1279,10 +1269,11 @@ void Instruction::getAllMetadataOtherThanDebugLocImpl(
   Info.getAll(Result);
 }
 
-bool Instruction::extractProfMetadata(uint64_t &TrueVal, uint64_t &FalseVal) {
-  assert((getOpcode() == Instruction::Br ||
-          getOpcode() == Instruction::Select) &&
-         "Looking for branch weights on something besides branch or select");
+bool Instruction::extractProfMetadata(uint64_t &TrueVal,
+                                      uint64_t &FalseVal) const {
+  assert(
+      (getOpcode() == Instruction::Br || getOpcode() == Instruction::Select) &&
+      "Looking for branch weights on something besides branch or select");
 
   auto *ProfileData = getMetadata(LLVMContext::MD_prof);
   if (!ProfileData || ProfileData->getNumOperands() != 3)
@@ -1303,7 +1294,7 @@ bool Instruction::extractProfMetadata(uint64_t &TrueVal, uint64_t &FalseVal) {
   return true;
 }
 
-bool Instruction::extractProfTotalWeight(uint64_t &TotalVal) {
+bool Instruction::extractProfTotalWeight(uint64_t &TotalVal) const {
   assert((getOpcode() == Instruction::Br ||
           getOpcode() == Instruction::Select ||
           getOpcode() == Instruction::Call ||
@@ -1424,6 +1415,21 @@ void GlobalObject::copyMetadata(const GlobalObject *Other, unsigned Offset) {
                   *MDNode::get(getContext(), {NewOffsetMD, TypeId}));
       continue;
     }
+    // If an offset adjustment was specified we need to modify the DIExpression
+    // to prepend the adjustment:
+    // !DIExpression(DW_OP_plus, Offset, [original expr])
+    if (Offset != 0 && MD.first == LLVMContext::MD_dbg) {
+      DIGlobalVariable *GV = cast<DIGlobalVariable>(MD.second);
+      DIExpression *E = GV->getExpr();
+      ArrayRef<uint64_t> OrigElements;
+      if (E)
+        OrigElements = E->getElements();
+      std::vector<uint64_t> Elements(OrigElements.size() + 2);
+      Elements[0] = dwarf::DW_OP_plus;
+      Elements[1] = Offset;
+      std::copy(OrigElements.begin(), OrigElements.end(), Elements.begin() + 2);
+      GV->replaceExpr(DIExpression::get(getContext(), Elements));
+    }
     addMetadata(MD.first, *MD.second);
   }
 }
@@ -1443,4 +1449,16 @@ void Function::setSubprogram(DISubprogram *SP) {
 
 DISubprogram *Function::getSubprogram() const {
   return cast_or_null<DISubprogram>(getMetadata(LLVMContext::MD_dbg));
+}
+
+void GlobalVariable::addDebugInfo(DIGlobalVariable *GV) {
+  addMetadata(LLVMContext::MD_dbg, *GV);
+}
+
+void GlobalVariable::getDebugInfo(
+    SmallVectorImpl<DIGlobalVariable *> &GVs) const {
+  SmallVector<MDNode *, 1> MDs;
+  getMetadata(LLVMContext::MD_dbg, MDs);
+  for (MDNode *MD : MDs)
+    GVs.push_back(cast<DIGlobalVariable>(MD));
 }

@@ -158,3 +158,51 @@ void testInlined() {
     }
   }
 }
+
+// Don't warn about unreachable VarDecl.
+void dostuff(int*A);
+void varDecl1(int X) {
+  switch (X) {
+    int A; // No warning here.
+  case 1:
+    dostuff(&A);
+    break;
+  case 2:
+    dostuff(&A);
+    break;
+  }
+}
+void varDecl2(int X) {
+  switch (X) {
+    int A=1; // expected-warning {{never executed}}
+  case 1:
+    dostuff(&A);
+    break;
+  case 2:
+    dostuff(&A);
+    break;
+  }
+}
+
+// Ensure that ExplodedGraph and unoptimized CFG match.
+void test12(int x) {
+  switch (x) {
+  case 1:
+    break; // not unreachable
+  case 2:
+    do { } while (0);
+    break;
+  }
+}
+
+// Don't merge return nodes in ExplodedGraph unless they are same.
+extern int table[];
+static int inlineFunction(const int i) {
+  if (table[i] != 0)
+    return 1;
+  return 0;
+}
+void test13(int i) {
+  int x = inlineFunction(i);
+  x && x < 10; // no-warning
+}

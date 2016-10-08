@@ -99,7 +99,10 @@ void LoopAccessReport::emitAnalysis(const LoopAccessReport &Message,
   DebugLoc DL = TheLoop->getStartLoc();
   const Value *V = TheLoop->getHeader();
   if (const Instruction *I = Message.getInstr()) {
-    DL = I->getDebugLoc();
+    // If there is no debug location attached to the instruction, revert back to
+    // using the loop's.
+    if (I->getDebugLoc())
+      DL = I->getDebugLoc();
     V = I->getParent();
   }
   ORE.emitOptimizationRemarkAnalysis(PassName, DL, V, Message.str());
@@ -887,7 +890,7 @@ static bool isNoWrapAddRec(Value *Ptr, const SCEVAddRecExpr *AR,
 /// \brief Check whether the access through \p Ptr has a constant stride.
 int64_t llvm::getPtrStride(PredicatedScalarEvolution &PSE, Value *Ptr,
                            const Loop *Lp, const ValueToValueMap &StridesMap,
-                           bool Assume) {
+                           bool Assume, bool ShouldCheckWrap) {
   Type *Ty = Ptr->getType();
   assert(Ty->isPointerTy() && "Unexpected non-ptr");
 
@@ -926,9 +929,9 @@ int64_t llvm::getPtrStride(PredicatedScalarEvolution &PSE, Value *Ptr,
   // to access the pointer value "0" which is undefined behavior in address
   // space 0, therefore we can also vectorize this case.
   bool IsInBoundsGEP = isInBoundsGep(Ptr);
-  bool IsNoWrapAddRec =
-      PSE.hasNoOverflow(Ptr, SCEVWrapPredicate::IncrementNUSW) ||
-      isNoWrapAddRec(Ptr, AR, PSE, Lp);
+  bool IsNoWrapAddRec = !ShouldCheckWrap ||
+    PSE.hasNoOverflow(Ptr, SCEVWrapPredicate::IncrementNUSW) ||
+    isNoWrapAddRec(Ptr, AR, PSE, Lp);
   bool IsInAddressSpaceZero = PtrTy->getAddressSpace() == 0;
   if (!IsNoWrapAddRec && !IsInBoundsGEP && !IsInAddressSpaceZero) {
     if (Assume) {
@@ -1479,25 +1482,23 @@ bool LoopAccessInfo::canAnalyzeLoop() {
   // We can only analyze innermost loops.
   if (!TheLoop->empty()) {
     DEBUG(dbgs() << "LAA: loop is not the innermost loop\n");
-    emitAnalysis(LoopAccessReport() << "loop is not the innermost loop");
+    recordAnalysis("NotInnerMostLoop") << "loop is not the innermost loop";
     return false;
   }
 
   // We must have a single backedge.
   if (TheLoop->getNumBackEdges() != 1) {
     DEBUG(dbgs() << "LAA: loop control flow is not understood by analyzer\n");
-    emitAnalysis(
-        LoopAccessReport() <<
-        "loop control flow is not understood by analyzer");
+    recordAnalysis("CFGNotUnderstood")
+        << "loop control flow is not understood by analyzer";
     return false;
   }
 
   // We must have a single exiting block.
   if (!TheLoop->getExitingBlock()) {
     DEBUG(dbgs() << "LAA: loop control flow is not understood by analyzer\n");
-    emitAnalysis(
-        LoopAccessReport() <<
-        "loop control flow is not understood by analyzer");
+    recordAnalysis("CFGNotUnderstood")
+        << "loop control flow is not understood by analyzer";
     return false;
   }
 
@@ -1506,17 +1507,16 @@ bool LoopAccessInfo::canAnalyzeLoop() {
   // instructions in the loop are executed the same number of times.
   if (TheLoop->getExitingBlock() != TheLoop->getLoopLatch()) {
     DEBUG(dbgs() << "LAA: loop control flow is not understood by analyzer\n");
-    emitAnalysis(
-        LoopAccessReport() <<
-        "loop control flow is not understood by analyzer");
+    recordAnalysis("CFGNotUnderstood")
+        << "loop control flow is not understood by analyzer";
     return false;
   }
 
   // ScalarEvolution needs to be able to find the exit count.
   const SCEV *ExitCount = PSE->getBackedgeTakenCount();
   if (ExitCount == PSE->getSE()->getCouldNotCompute()) {
-    emitAnalysis(LoopAccessReport()
-                 << "could not determine number of loop iterations");
+    recordAnalysis("CantComputeNumberOfIterations")
+        << "could not determine number of loop iterations";
     DEBUG(dbgs() << "LAA: SCEV could not compute the loop exit count.\n");
     return false;
   }
@@ -1565,8 +1565,8 @@ void LoopAccessInfo::analyzeLoop(AliasAnalysis *AA, LoopInfo *LI,
 
         auto *Ld = dyn_cast<LoadInst>(&I);
         if (!Ld || (!Ld->isSimple() && !IsAnnotatedParallel)) {
-          emitAnalysis(LoopAccessReport(Ld)
-                       << "read with atomic ordering or volatile read");
+          recordAnalysis("NonSimpleLoad", Ld)
+              << "read with atomic ordering or volatile read";
           DEBUG(dbgs() << "LAA: Found a non-simple load.\n");
           CanVecMem = false;
           return;
@@ -1583,14 +1583,14 @@ void LoopAccessInfo::analyzeLoop(AliasAnalysis *AA, LoopInfo *LI,
       if (I.mayWriteToMemory()) {
         auto *St = dyn_cast<StoreInst>(&I);
         if (!St) {
-          emitAnalysis(LoopAccessReport(St)
-                       << "instruction cannot be vectorized");
+          recordAnalysis("CantVectorizeInstruction", St)
+              << "instruction cannot be vectorized";
           CanVecMem = false;
           return;
         }
         if (!St->isSimple() && !IsAnnotatedParallel) {
-          emitAnalysis(LoopAccessReport(St)
-                       << "write with atomic ordering or volatile write");
+          recordAnalysis("NonSimpleStore", St)
+              << "write with atomic ordering or volatile write";
           DEBUG(dbgs() << "LAA: Found a non-simple store.\n");
           CanVecMem = false;
           return;
@@ -1698,7 +1698,7 @@ void LoopAccessInfo::analyzeLoop(AliasAnalysis *AA, LoopInfo *LI,
   bool CanDoRTIfNeeded = Accesses.canCheckPtrAtRT(*PtrRtChecking, PSE->getSE(),
                                                   TheLoop, SymbolicStrides);
   if (!CanDoRTIfNeeded) {
-    emitAnalysis(LoopAccessReport() << "cannot identify array bounds");
+    recordAnalysis("CantIdentifyArrayBounds") << "cannot identify array bounds";
     DEBUG(dbgs() << "LAA: We can't vectorize because we can't find "
                  << "the array bounds.\n");
     CanVecMem = false;
@@ -1729,8 +1729,8 @@ void LoopAccessInfo::analyzeLoop(AliasAnalysis *AA, LoopInfo *LI,
 
       // Check that we found the bounds for the pointer.
       if (!CanDoRTIfNeeded) {
-        emitAnalysis(LoopAccessReport()
-                     << "cannot check memory dependencies at runtime");
+        recordAnalysis("CantCheckMemDepsAtRunTime")
+            << "cannot check memory dependencies at runtime";
         DEBUG(dbgs() << "LAA: Can't vectorize with memory checks\n");
         CanVecMem = false;
         return;
@@ -1745,12 +1745,11 @@ void LoopAccessInfo::analyzeLoop(AliasAnalysis *AA, LoopInfo *LI,
                  << (PtrRtChecking->Need ? "" : " don't")
                  << " need runtime memory checks.\n");
   else {
-    emitAnalysis(
-        LoopAccessReport()
+    recordAnalysis("UnsafeMemDep")
         << "unsafe dependent memory operations in loop. Use "
            "#pragma loop distribute(enable) to allow loop distribution "
            "to attempt to isolate the offending operations into a separate "
-           "loop");
+           "loop";
     DEBUG(dbgs() << "LAA: unsafe dependent memory operations in loop\n");
   }
 }
@@ -1764,9 +1763,24 @@ bool LoopAccessInfo::blockNeedsPredication(BasicBlock *BB, Loop *TheLoop,
   return !DT->dominates(BB, Latch);
 }
 
-void LoopAccessInfo::emitAnalysis(LoopAccessReport &Message) {
+OptimizationRemarkAnalysis &LoopAccessInfo::recordAnalysis(StringRef RemarkName,
+                                                           Instruction *I) {
   assert(!Report && "Multiple reports generated");
-  Report = Message;
+
+  Value *CodeRegion = TheLoop->getHeader();
+  DebugLoc DL = TheLoop->getStartLoc();
+
+  if (I) {
+    CodeRegion = I->getParent();
+    // If there is no debug location attached to the instruction, revert back to
+    // using the loop's.
+    if (I->getDebugLoc())
+      DL = I->getDebugLoc();
+  }
+
+  Report = make_unique<OptimizationRemarkAnalysis>(DEBUG_TYPE, RemarkName, DL,
+                                                   CodeRegion);
+  return *Report;
 }
 
 bool LoopAccessInfo::isUniform(Value *V) const {
@@ -1974,7 +1988,7 @@ void LoopAccessInfo::print(raw_ostream &OS, unsigned Depth) const {
   }
 
   if (Report)
-    OS.indent(Depth) << "Report: " << Report->str() << "\n";
+    OS.indent(Depth) << "Report: " << Report->getMsg() << "\n";
 
   if (auto *Dependences = DepChecker->getDependences()) {
     OS.indent(Depth) << "Dependences:\n";

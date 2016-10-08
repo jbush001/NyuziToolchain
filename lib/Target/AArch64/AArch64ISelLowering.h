@@ -187,10 +187,6 @@ enum NodeType : unsigned {
   SMULL,
   UMULL,
 
-  // Reciprocal estimates.
-  FRECPE,
-  FRSQRTE,
-
   // NEON Load/Store with post-increment base updates
   LD2post = ISD::FIRST_TARGET_MEMORY_OPCODE,
   LD3post,
@@ -218,6 +214,21 @@ enum NodeType : unsigned {
 };
 
 } // end namespace AArch64ISD
+
+namespace {
+
+// Any instruction that defines a 32-bit result zeros out the high half of the
+// register. Truncate can be lowered to EXTRACT_SUBREG. CopyFromReg may
+// be copying from a truncate. But any other 32-bit operation will zero-extend
+// up to 64 bits.
+// FIXME: X86 also checks for CMOV here. Do we need something similar?
+static inline bool isDef32(const SDNode &N) {
+  unsigned Opc = N.getOpcode();
+  return Opc != ISD::TRUNCATE && Opc != TargetOpcode::EXTRACT_SUBREG &&
+         Opc != ISD::CopyFromReg;
+}
+
+} // end anonymous namespace
 
 class AArch64Subtarget;
 class AArch64TargetMachine;
@@ -460,8 +471,6 @@ private:
 
   bool DoesCalleeRestoreStack(CallingConv::ID CallCC, bool TailCallOpt) const;
 
-  bool IsTailCallConvention(CallingConv::ID CallCC) const;
-
   void saveVarArgRegisters(CCState &CCInfo, SelectionDAG &DAG, const SDLoc &DL,
                            SDValue &Chain) const;
 
@@ -523,11 +532,6 @@ private:
 
   SDValue BuildSDIVPow2(SDNode *N, const APInt &Divisor, SelectionDAG &DAG,
                         std::vector<SDNode *> *Created) const override;
-  SDValue getRsqrtEstimate(SDValue Operand, DAGCombinerInfo &DCI,
-                           unsigned &RefinementSteps,
-                           bool &UseOneConstNR) const override;
-  SDValue getRecipEstimate(SDValue Operand, DAGCombinerInfo &DCI,
-                           unsigned &RefinementSteps) const override;
   unsigned combineRepeatedFPDivisors() const override;
 
   ConstraintType getConstraintType(StringRef Constraint) const override;

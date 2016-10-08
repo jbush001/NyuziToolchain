@@ -481,6 +481,13 @@ def fno_autolink : Flag <["-"], "fno-autolink">, Group<f_Group>,
   Flags<[DriverOption, CC1Option]>,
   HelpText<"Disable generation of linker directives for automatic library linking">;
 
+// C++ Coroutines TS
+def fcoroutines_ts : Flag <["-"], "fcoroutines-ts">, Group<f_Group>,
+  Flags<[DriverOption, CC1Option]>,
+  HelpText<"Enable support for the C++ Coroutines TS">;
+def fno_coroutines_ts : Flag <["-"], "fno-coroutines-ts">, Group<f_Group>,
+  Flags<[DriverOption]>;
+
 def fembed_bitcode_EQ : Joined<["-"], "fembed-bitcode=">,
     Group<f_Group>, Flags<[DriverOption, CC1Option]>, MetaVarName<"<option>">,
     HelpText<"Embed LLVM bitcode (option: off, all, bitcode, marker)">;
@@ -583,6 +590,8 @@ def fdiagnostics_parseable_fixits : Flag<["-"], "fdiagnostics-parseable-fixits">
 def fdiagnostics_print_source_range_info : Flag<["-"], "fdiagnostics-print-source-range-info">,
     Group<f_clang_Group>,  Flags<[CC1Option]>,
     HelpText<"Print source range spans in numeric form">;
+def fdiagnostics_show_hotness : Flag<["-"], "fdiagnostics-show-hotness">, Group<f_Group>,
+    Flags<[CC1Option]>, HelpText<"Enable profile hotness information in diagnostic line">;
 def fdiagnostics_show_option : Flag<["-"], "fdiagnostics-show-option">, Group<f_Group>,
     Flags<[CC1Option]>, HelpText<"Print option name with mappable diagnostics">;
 def fdiagnostics_show_note_include_stack : Flag<["-"], "fdiagnostics-show-note-include-stack">,
@@ -806,10 +815,15 @@ def flax_vector_conversions : Flag<["-"], "flax-vector-conversions">, Group<f_Gr
 def flimited_precision_EQ : Joined<["-"], "flimited-precision=">, Group<f_Group>;
 def flto_EQ : Joined<["-"], "flto=">, Flags<[CC1Option]>, Group<f_Group>,
   HelpText<"Set LTO mode to either 'full' or 'thin'">;
-def flto : Flag<["-"], "flto">, Flags<[CC1Option]>, Group<f_Group>,
+def flto : Flag<["-"], "flto">, Flags<[CoreOption, CC1Option]>, Group<f_Group>,
   HelpText<"Enable LTO in 'full' mode">;
 def fno_lto : Flag<["-"], "fno-lto">, Group<f_Group>,
   HelpText<"Disable LTO mode (default)">;
+def flto_jobs_EQ : Joined<["-"], "flto-jobs=">,
+  Flags<[CC1Option]>, Group<f_Group>,
+  HelpText<"Controls the backend parallelism of -flto=thin (default "
+           "of 0 means the number of threads will be derived from "
+           "the number of CPUs detected)">;
 def fthinlto_index_EQ : Joined<["-"], "fthinlto-index=">,
   Flags<[CC1Option]>, Group<f_Group>,
   HelpText<"Perform ThinLTO importing using provided function summary index">;
@@ -939,6 +953,7 @@ def fno_cxx_modules : Flag <["-"], "fno-cxx-modules">, Group<f_Group>,
   Flags<[DriverOption]>;
 def fno_diagnostics_fixit_info : Flag<["-"], "fno-diagnostics-fixit-info">, Group<f_Group>,
   Flags<[CC1Option]>, HelpText<"Do not include fixit information in diagnostics">;
+def fno_diagnostics_show_hotness : Flag<["-"], "fno-diagnostics-show-hotness">, Group<f_Group>;
 def fno_diagnostics_show_option : Flag<["-"], "fno-diagnostics-show-option">, Group<f_Group>;
 def fno_diagnostics_show_note_include_stack : Flag<["-"], "fno-diagnostics-show-note-include-stack">,
     Flags<[CC1Option]>, Group<f_Group>;
@@ -1038,6 +1053,17 @@ def fno_application_extension : Flag<["-"], "fno-application-extension">,
 def fsized_deallocation : Flag<["-"], "fsized-deallocation">, Flags<[CC1Option]>,
   HelpText<"Enable C++14 sized global deallocation functions">, Group<f_Group>;
 def fno_sized_deallocation: Flag<["-"], "fno-sized-deallocation">, Group<f_Group>;
+def faligned_allocation : Flag<["-"], "faligned-allocation">, Flags<[CC1Option]>,
+  HelpText<"Enable C++17 aligned allocation functions">, Group<f_Group>;
+def fno_aligned_allocation: Flag<["-"], "fno-aligned-allocation">,
+  Group<f_Group>, Flags<[CC1Option]>;
+def fnew_alignment_EQ : Joined<["-"], "fnew-alignment=">,
+  HelpText<"Specifies the largest alignment guaranteed by '::operator new(size_t)'">,
+  MetaVarName<"<align>">, Group<f_Group>, Flags<[CC1Option]>;
+def : Separate<["-"], "fnew-alignment">, Alias<fnew_alignment_EQ>;
+def : Flag<["-"], "faligned-new">, Alias<faligned_allocation>;
+def : Flag<["-"], "fno-aligned-new">, Alias<fno_aligned_allocation>;
+def faligned_new_EQ : Joined<["-"], "faligned-new=">;
 
 def fobjc_gc_only : Flag<["-"], "fobjc-gc-only">, Group<f_Group>, Flags<[CC1Option]>,
   HelpText<"Use GC exclusively for Objective-C related memory management">;
@@ -1564,6 +1590,10 @@ def mpower8_vector : Flag<["-"], "mpower8-vector">,
     Group<m_ppc_Features_Group>;
 def mno_power8_vector : Flag<["-"], "mno-power8-vector">,
     Group<m_ppc_Features_Group>;
+def mpower9_vector : Flag<["-"], "mpower9-vector">,
+    Group<m_ppc_Features_Group>;
+def mno_power9_vector : Flag<["-"], "mno-power9-vector">,
+    Group<m_ppc_Features_Group>;
 def mpower8_crypto : Flag<["-"], "mcrypto">,
     Group<m_ppc_Features_Group>;
 def mnopower8_crypto : Flag<["-"], "mno-crypto">,
@@ -1857,16 +1887,22 @@ def rdynamic : Flag<["-"], "rdynamic">;
 def resource_dir : Separate<["-"], "resource-dir">,
   Flags<[DriverOption, CC1Option, CoreOption, HelpHidden]>,
   HelpText<"The directory which holds the compiler resource files">;
-def resource_dir_EQ : Joined<["-"], "resource-dir=">, Flags<[DriverOption]>,
+def resource_dir_EQ : Joined<["-"], "resource-dir=">, Flags<[DriverOption, CoreOption]>,
   Alias<resource_dir>;
 def rpath : Separate<["-"], "rpath">, Flags<[LinkerInput]>;
-def rtlib_EQ : Joined<["-", "--"], "rtlib=">;
+def rtlib_EQ : Joined<["-", "--"], "rtlib=">,
+  HelpText<"Compiler runtime library to use">;
 def r : Flag<["-"], "r">, Flags<[LinkerInput,NoArgumentUnused]>;
 def save_temps_EQ : Joined<["-", "--"], "save-temps=">, Flags<[DriverOption]>,
   HelpText<"Save intermediate compilation results.">;
 def save_temps : Flag<["-", "--"], "save-temps">, Flags<[DriverOption]>,
   Alias<save_temps_EQ>, AliasArgs<["cwd"]>,
   HelpText<"Save intermediate compilation results">;
+def save_stats_EQ : Joined<["-", "--"], "save-stats=">, Flags<[DriverOption]>,
+  HelpText<"Save llvm statistics.">;
+def save_stats : Flag<["-", "--"], "save-stats">, Flags<[DriverOption]>,
+  Alias<save_stats_EQ>, AliasArgs<["cwd"]>,
+  HelpText<"Save llvm statistics.">;
 def via_file_asm : Flag<["-", "--"], "via-file-asm">, InternalDebugOpt,
   HelpText<"Write assembly to file for input to assemble jobs">;
 def sectalign : MultiArg<["-"], "sectalign", 3>;
@@ -1969,7 +2005,8 @@ def _CLASSPATH : Separate<["--"], "CLASSPATH">, Alias<fclasspath_EQ>;
 def _all_warnings : Flag<["--"], "all-warnings">, Alias<Wall>;
 def _analyze_auto : Flag<["--"], "analyze-auto">, Flags<[DriverOption]>;
 def _analyzer_no_default_checks : Flag<["--"], "analyzer-no-default-checks">, Flags<[DriverOption]>;
-def _analyzer_output : JoinedOrSeparate<["--"], "analyzer-output">, Flags<[DriverOption]>;
+def _analyzer_output : JoinedOrSeparate<["--"], "analyzer-output">, Flags<[DriverOption]>,
+  HelpText<"Static analyzer report output format (html|plist|plist-multi-file|plist-html|text).">;
 def _analyze : Flag<["--"], "analyze">, Flags<[DriverOption, CoreOption]>,
   HelpText<"Run the static analyzer">;
 def _assemble : Flag<["--"], "assemble">, Alias<S>;
@@ -2119,7 +2156,7 @@ defm : BooleanFFlag<"keep-inline-functions">, Group<clang_ignored_gcc_optimizati
 
 def fprofile_dir : Joined<["-"], "fprofile-dir=">, Group<f_Group>;
 
-def fuse_ld_EQ : Joined<["-"], "fuse-ld=">, Group<f_Group>;
+def fuse_ld_EQ : Joined<["-"], "fuse-ld=">, Group<f_Group>, Flags<[CoreOption]>;
 
 defm align_functions : BooleanFFlag<"align-functions">, Group<clang_ignored_gcc_optimization_f_Group>;
 def falign_functions_EQ : Joined<["-"], "falign-functions=">, Group<clang_ignored_gcc_optimization_f_Group>;

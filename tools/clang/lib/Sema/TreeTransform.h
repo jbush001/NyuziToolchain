@@ -699,6 +699,12 @@ public:
   QualType RebuildMemberPointerType(QualType PointeeType, QualType ClassType,
                                     SourceLocation Sigil);
 
+  QualType RebuildObjCTypeParamType(const ObjCTypeParamDecl *Decl,
+                                    SourceLocation ProtocolLAngleLoc,
+                                    ArrayRef<ObjCProtocolDecl *> Protocols,
+                                    ArrayRef<SourceLocation> ProtocolLocs,
+                                    SourceLocation ProtocolRAngleLoc);
+
   /// \brief Build an Objective-C object type.
   ///
   /// By default, performs semantic analysis when building the object type.
@@ -1007,11 +1013,8 @@ public:
         case LookupResult::FoundOverloaded:
         case LookupResult::FoundUnresolvedValue: {
           NamedDecl *SomeDecl = Result.getRepresentativeDecl();
-          unsigned Kind = 0;
-          if (isa<TypedefDecl>(SomeDecl)) Kind = 1;
-          else if (isa<TypeAliasDecl>(SomeDecl)) Kind = 2;
-          else if (isa<ClassTemplateDecl>(SomeDecl)) Kind = 3;
-          SemaRef.Diag(IdLoc, diag::err_tag_reference_non_tag) << Kind;
+          Sema::NonTagKind NTK = SemaRef.getNonTagTypeDeclKind(SomeDecl);
+          SemaRef.Diag(IdLoc, diag::err_tag_reference_non_tag) << NTK;
           SemaRef.Diag(SomeDecl->getLocation(), diag::note_declared_at);
           break;
         }
@@ -5697,7 +5700,8 @@ TreeTransform<Derived>::TransformElaboratedType(TypeLocBuilder &TLB,
       if (TypeAliasTemplateDecl *TAT = dyn_cast_or_null<TypeAliasTemplateDecl>(
               Template.getAsTemplateDecl())) {
         SemaRef.Diag(TL.getNamedTypeLoc().getBeginLoc(),
-                     diag::err_tag_reference_non_tag) << 4;
+                     diag::err_tag_reference_non_tag)
+            << Sema::NTK_TypeAliasTemplate;
         SemaRef.Diag(TAT->getLocation(), diag::note_declared_at);
       }
     }
@@ -5940,6 +5944,39 @@ TreeTransform<Derived>::TransformObjCInterfaceType(TypeLocBuilder &TLB,
   // ObjCInterfaceType is never dependent.
   TLB.pushFullCopy(TL);
   return TL.getType();
+}
+
+template<typename Derived>
+QualType
+TreeTransform<Derived>::TransformObjCTypeParamType(TypeLocBuilder &TLB,
+                                                   ObjCTypeParamTypeLoc TL) {
+  const ObjCTypeParamType *T = TL.getTypePtr();
+  ObjCTypeParamDecl *OTP = cast_or_null<ObjCTypeParamDecl>(
+      getDerived().TransformDecl(T->getDecl()->getLocation(), T->getDecl()));
+  if (!OTP)
+    return QualType();
+
+  QualType Result = TL.getType();
+  if (getDerived().AlwaysRebuild() ||
+      OTP != T->getDecl()) {
+    Result = getDerived().RebuildObjCTypeParamType(OTP,
+                 TL.getProtocolLAngleLoc(),
+                 llvm::makeArrayRef(TL.getTypePtr()->qual_begin(),
+                                    TL.getNumProtocols()),
+                 TL.getProtocolLocs(),
+                 TL.getProtocolRAngleLoc());
+    if (Result.isNull())
+      return QualType();
+  }
+
+  ObjCTypeParamTypeLoc NewTL = TLB.push<ObjCTypeParamTypeLoc>(Result);
+  if (TL.getNumProtocols()) {
+    NewTL.setProtocolLAngleLoc(TL.getProtocolLAngleLoc());
+    for (unsigned i = 0, n = TL.getNumProtocols(); i != n; ++i)
+      NewTL.setProtocolLoc(i, TL.getProtocolLoc(i));
+    NewTL.setProtocolRAngleLoc(TL.getProtocolRAngleLoc());
+  }
+  return Result;
 }
 
 template<typename Derived>
@@ -11498,6 +11535,19 @@ TreeTransform<Derived>::RebuildMemberPointerType(QualType PointeeType,
                                                  SourceLocation Sigil) {
   return SemaRef.BuildMemberPointerType(PointeeType, ClassType, Sigil,
                                         getDerived().getBaseEntity());
+}
+
+template<typename Derived>
+QualType TreeTransform<Derived>::RebuildObjCTypeParamType(
+           const ObjCTypeParamDecl *Decl,
+           SourceLocation ProtocolLAngleLoc,
+           ArrayRef<ObjCProtocolDecl *> Protocols,
+           ArrayRef<SourceLocation> ProtocolLocs,
+           SourceLocation ProtocolRAngleLoc) {
+  return SemaRef.BuildObjCTypeParamType(Decl,
+                                        ProtocolLAngleLoc, Protocols,
+                                        ProtocolLocs, ProtocolRAngleLoc,
+                                        /*FailOnError=*/true);
 }
 
 template<typename Derived>

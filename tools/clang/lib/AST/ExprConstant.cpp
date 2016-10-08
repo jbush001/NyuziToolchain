@@ -310,14 +310,8 @@ namespace {
     /// Parent - The caller of this stack frame.
     CallStackFrame *Caller;
 
-    /// CallLoc - The location of the call expression for this call.
-    SourceLocation CallLoc;
-
     /// Callee - The function which was called.
     const FunctionDecl *Callee;
-
-    /// Index - The call index of this call.
-    unsigned Index;
 
     /// This - The binding for the this pointer in this call, if any.
     const LValue *This;
@@ -332,6 +326,12 @@ namespace {
     typedef MapTy::const_iterator temp_iterator;
     /// Temporaries - Temporary lvalues materialized within this stack frame.
     MapTy Temporaries;
+
+    /// CallLoc - The location of the call expression for this call.
+    SourceLocation CallLoc;
+
+    /// Index - The call index of this call.
+    unsigned Index;
 
     CallStackFrame(EvalInfo &Info, SourceLocation CallLoc,
                    const FunctionDecl *Callee, const LValue *This,
@@ -961,8 +961,8 @@ void SubobjectDesignator::diagnosePointerArithmetic(EvalInfo &Info,
 CallStackFrame::CallStackFrame(EvalInfo &Info, SourceLocation CallLoc,
                                const FunctionDecl *Callee, const LValue *This,
                                APValue *Arguments)
-    : Info(Info), Caller(Info.CurrentCall), CallLoc(CallLoc), Callee(Callee),
-      Index(Info.NextCallIndex++), This(This), Arguments(Arguments) {
+    : Info(Info), Caller(Info.CurrentCall), Callee(Callee), This(This),
+      Arguments(Arguments), CallLoc(CallLoc), Index(Info.NextCallIndex++) {
   Info.CurrentCall = this;
   ++Info.CallStackDepth;
 }
@@ -5294,8 +5294,8 @@ bool PointerExprEvaluator::VisitCallExpr(const CallExpr *E) {
 
       if (BaseAlignment < Align) {
         Result.Designator.setInvalid();
-	// FIXME: Quantities here cast to integers because the plural modifier
-	// does not work on APSInts yet.
+        // FIXME: Quantities here cast to integers because the plural modifier
+        // does not work on APSInts yet.
         CCEDiag(E->getArg(0),
                 diag::note_constexpr_baa_insufficient_alignment) << 0
           << (int) BaseAlignment.getQuantity()
@@ -6826,14 +6826,21 @@ static bool tryEvaluateBuiltinObjectSize(const Expr *E, unsigned Type,
   // struct Foo *F = (struct Foo *)malloc(sizeof(struct Foo) + strlen(Bar));
   // strcpy(&F->c[0], Bar);
   //
-  // So, if we see that we're examining a 1-length (or 0-length) array at the
-  // end of a struct with an unknown base, we give up instead of breaking code
-  // that behaves this way. Note that we only do this when Type=1, because
-  // Type=3 is a lower bound, so answering conservatively is fine.
+  // So, if we see that we're examining an array at the end of a struct with an
+  // unknown base, we give up instead of breaking code that behaves this way.
+  // Note that we only do this when Type=1, because Type=3 is a lower bound, so
+  // answering conservatively is fine.
+  //
+  // We used to be a bit more aggressive here; we'd only be conservative if the
+  // array at the end was flexible, or if it had 0 or 1 elements. This broke
+  // some common standard library extensions (PR30346), but was otherwise
+  // seemingly fine. It may be useful to reintroduce this behavior with some
+  // sort of whitelist. OTOH, it seems that GCC is always conservative with the
+  // last element in structs (if it's an array), so our current behavior is more
+  // compatible than a whitelisting approach would be.
   if (End.InvalidBase && SubobjectOnly && Type == 1 &&
       End.Designator.Entries.size() == End.Designator.MostDerivedPathLength &&
       End.Designator.MostDerivedIsArrayElement &&
-      End.Designator.MostDerivedArraySize < 2 &&
       isDesignatorAtObjectEnd(Info.Ctx, End))
     return false;
 

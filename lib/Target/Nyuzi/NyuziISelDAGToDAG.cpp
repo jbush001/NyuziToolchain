@@ -39,7 +39,7 @@ public:
   // code)
   bool SelectADDRri(SDValue N, SDValue &Base, SDValue &Offset);
 
-  const char *getPassName() const override {
+  StringRef getPassName() const override {
     return "Nyuzi DAG->DAG Pattern Instruction Selection";
   }
 

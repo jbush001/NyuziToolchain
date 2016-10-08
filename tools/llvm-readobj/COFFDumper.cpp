@@ -26,6 +26,7 @@
 #include "llvm/DebugInfo/CodeView/Line.h"
 #include "llvm/DebugInfo/CodeView/MemoryTypeTableBuilder.h"
 #include "llvm/DebugInfo/CodeView/RecordSerialization.h"
+#include "llvm/DebugInfo/CodeView/SymbolDeserializer.h"
 #include "llvm/DebugInfo/CodeView/SymbolDumpDelegate.h"
 #include "llvm/DebugInfo/CodeView/SymbolDumper.h"
 #include "llvm/DebugInfo/CodeView/SymbolRecord.h"
@@ -965,9 +966,9 @@ void COFFDumper::printCodeViewSymbolsSubsection(StringRef Subsection,
     error(object_error::parse_failed);
   }
 
-  if (!CVSD.dump(Symbols)) {
+  if (auto EC = CVSD.dump(Symbols)) {
     W.flush();
-    error(object_error::parse_failed);
+    error(std::move(EC));
   }
   W.flush();
 }
@@ -1527,10 +1528,10 @@ void COFFDumper::printStackMap() const {
   if (Obj->isLittleEndian())
     prettyPrintStackMap(
                       llvm::outs(),
-                      StackMapV1Parser<support::little>(StackMapContentsArray));
+                      StackMapV2Parser<support::little>(StackMapContentsArray));
   else
     prettyPrintStackMap(llvm::outs(),
-                        StackMapV1Parser<support::big>(StackMapContentsArray));
+                        StackMapV2Parser<support::big>(StackMapContentsArray));
 }
 
 void llvm::dumpCodeViewMergedTypes(

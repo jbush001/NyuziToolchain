@@ -39,7 +39,7 @@ public:
                            std::unique_ptr<MCStreamer> Streamer)
       : AsmPrinter(TM, std::move(Streamer)), MCInstLowering(*this) {}
 
-  const char *getPassName() const override { return "Nyuzi Assembly Printer"; }
+  StringRef getPassName() const override { return "Nyuzi Assembly Printer"; }
 
   void EmitInstruction(const MachineInstr *MI) override;
   void EmitFunctionBodyStart() override;

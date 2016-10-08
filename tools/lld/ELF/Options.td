@@ -27,6 +27,12 @@ def L: JoinedOrSeparate<["-"], "L">, MetaVarName<"<dir>">,
 
 def O: Joined<["-"], "O">, HelpText<"Optimize output file size">;
 
+def Tbss: J<"Tbss=">, HelpText<"Same as --section-start with .bss as the sectionname">;
+
+def Tdata: J<"Tdata=">, HelpText<"Same as --section-start with .data as the sectionname">;
+
+def Ttext: J<"Ttext=">, HelpText<"Same as --section-start with .text as the sectionname">;
+
 def allow_multiple_definition: F<"allow-multiple-definition">,
   HelpText<"Allow multiple definitions">;
 
@@ -147,9 +153,14 @@ def relocatable: F<"relocatable">, HelpText<"Create relocatable object file">;
 
 def script: S<"script">, HelpText<"Read linker script">;
 
+def section_start: S<"section-start">, MetaVarName<"<address>">,
+  HelpText<"Set address of section">;
+
 def shared: F<"shared">, HelpText<"Build a shared object">;
 
 def soname: J<"soname=">, HelpText<"Set DT_SONAME">;
+
+def sort_section: S<"sort-section">, HelpText<"Specifies sections sorting rule when linkerscript is used">;
 
 def start_lib: F<"start-lib">,
   HelpText<"Start a grouping of objects that should be treated as if they were together in an archive">;

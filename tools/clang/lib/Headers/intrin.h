@@ -312,6 +312,7 @@ void __lwpval64(unsigned __int64, unsigned int, unsigned int);
 unsigned __int64 __lzcnt64(unsigned __int64);
 static __inline__
 void __movsq(unsigned long long *, unsigned long long const *, size_t);
+static __inline__
 __int64 __mulh(__int64, __int64);
 static __inline__
 unsigned __int64 __popcnt64(unsigned __int64);
@@ -426,12 +427,8 @@ _umul128(unsigned __int64 _Multiplier, unsigned __int64 _Multiplicand,
   *_HighProduct = _FullProduct >> 64;
   return _FullProduct;
 }
-static __inline__ unsigned __int64 __DEFAULT_FN_ATTRS
-__umulh(unsigned __int64 _Multiplier, unsigned __int64 _Multiplicand) {
-  unsigned __int128 _FullProduct =
-      (unsigned __int128)_Multiplier * (unsigned __int128)_Multiplicand;
-  return _FullProduct >> 64;
-}
+static __inline__
+unsigned __int64 __umulh(unsigned __int64, unsigned __int64);
 
 #endif /* __x86_64__ */
 
@@ -463,14 +460,6 @@ _BitScanReverse(unsigned long *_Index, unsigned long _Mask) {
   *_Index = 31 - __builtin_clzl(_Mask);
   return 1;
 }
-static __inline__ unsigned short __DEFAULT_FN_ATTRS
-__popcnt16(unsigned short _Value) {
-  return __builtin_popcount((int)_Value);
-}
-static __inline__ unsigned int __DEFAULT_FN_ATTRS
-__popcnt(unsigned int _Value) {
-  return __builtin_popcount(_Value);
-}
 static __inline__ unsigned char __DEFAULT_FN_ATTRS
 _bittest(long const *_BitBase, long _BitPos) {
   return (*_BitBase >> _BitPos) & 1;
@@ -498,6 +487,23 @@ _interlockedbittestandset(long volatile *_BitBase, long _BitPos) {
   long _PrevVal = __atomic_fetch_or(_BitBase, 1l << _BitPos, __ATOMIC_SEQ_CST);
   return (_PrevVal >> _BitPos) & 1;
 }
+#if defined(__arm__) || defined(__aarch64__)
+static __inline__ unsigned char __DEFAULT_FN_ATTRS
+_interlockedbittestandset_acq(long volatile *_BitBase, long _BitPos) {
+  long _PrevVal = __atomic_fetch_or(_BitBase, 1l << _BitPos, __ATOMIC_ACQUIRE);
+  return (_PrevVal >> _BitPos) & 1;
+}
+static __inline__ unsigned char __DEFAULT_FN_ATTRS
+_interlockedbittestandset_nf(long volatile *_BitBase, long _BitPos) {
+  long _PrevVal = __atomic_fetch_or(_BitBase, 1l << _BitPos, __ATOMIC_RELAXED);
+  return (_PrevVal >> _BitPos) & 1;
+}
+static __inline__ unsigned char __DEFAULT_FN_ATTRS
+_interlockedbittestandset_rel(long volatile *_BitBase, long _BitPos) {
+  long _PrevVal = __atomic_fetch_or(_BitBase, 1l << _BitPos, __ATOMIC_RELEASE);
+  return (_PrevVal >> _BitPos) & 1;
+}
+#endif
 #ifdef __x86_64__
 static __inline__ unsigned char __DEFAULT_FN_ATTRS
 _BitScanForward64(unsigned long *_Index, unsigned __int64 _Mask) {
@@ -512,11 +518,6 @@ _BitScanReverse64(unsigned long *_Index, unsigned __int64 _Mask) {
     return 0;
   *_Index = 63 - __builtin_clzll(_Mask);
   return 1;
-}
-static __inline__
-unsigned __int64 __DEFAULT_FN_ATTRS
-__popcnt64(unsigned __int64 _Value) {
-  return __builtin_popcountll(_Value);
 }
 static __inline__ unsigned char __DEFAULT_FN_ATTRS
 _bittest64(__int64 const *_BitBase, __int64 _BitPos) {
@@ -550,36 +551,68 @@ _interlockedbittestandset64(__int64 volatile *_BitBase, __int64 _BitPos) {
 /*----------------------------------------------------------------------------*\
 |* Interlocked Exchange Add
 \*----------------------------------------------------------------------------*/
+#if defined(__arm__) || defined(__aarch64__)
 static __inline__ char __DEFAULT_FN_ATTRS
-_InterlockedExchangeAdd8(char volatile *_Addend, char _Value) {
-  return __atomic_fetch_add(_Addend, _Value, __ATOMIC_SEQ_CST);
+_InterlockedExchangeAdd8_acq(char volatile *_Addend, char _Value) {
+  return __atomic_fetch_add(_Addend, _Value, __ATOMIC_ACQUIRE);
+}
+static __inline__ char __DEFAULT_FN_ATTRS
+_InterlockedExchangeAdd8_nf(char volatile *_Addend, char _Value) {
+  return __atomic_fetch_add(_Addend, _Value, __ATOMIC_RELAXED);
+}
+static __inline__ char __DEFAULT_FN_ATTRS
+_InterlockedExchangeAdd8_rel(char volatile *_Addend, char _Value) {
+  return __atomic_fetch_add(_Addend, _Value, __ATOMIC_RELAXED);
 }
 static __inline__ short __DEFAULT_FN_ATTRS
-_InterlockedExchangeAdd16(short volatile *_Addend, short _Value) {
-  return __atomic_fetch_add(_Addend, _Value, __ATOMIC_SEQ_CST);
+_InterlockedExchangeAdd16_acq(short volatile *_Addend, short _Value) {
+  return __atomic_fetch_add(_Addend, _Value, __ATOMIC_ACQUIRE);
 }
-#ifdef __x86_64__
+static __inline__ short __DEFAULT_FN_ATTRS
+_InterlockedExchangeAdd16_nf(short volatile *_Addend, short _Value) {
+  return __atomic_fetch_add(_Addend, _Value, __ATOMIC_RELAXED);
+}
+static __inline__ short __DEFAULT_FN_ATTRS
+_InterlockedExchangeAdd16_rel(short volatile *_Addend, short _Value) {
+  return __atomic_fetch_add(_Addend, _Value, __ATOMIC_RELEASE);
+}
+static __inline__ long __DEFAULT_FN_ATTRS
+_InterlockedExchangeAdd_acq(long volatile *_Addend, long _Value) {
+  return __atomic_fetch_add(_Addend, _Value, __ATOMIC_ACQUIRE);
+}
+static __inline__ long __DEFAULT_FN_ATTRS
+_InterlockedExchangeAdd_nf(long volatile *_Addend, long _Value) {
+  return __atomic_fetch_add(_Addend, _Value, __ATOMIC_RELAXED);
+}
+static __inline__ long __DEFAULT_FN_ATTRS
+_InterlockedExchangeAdd_rel(long volatile *_Addend, long _Value) {
+  return __atomic_fetch_add(_Addend, _Value, __ATOMIC_RELEASE);
+}
+#endif
+#if defined(__x86_64__) || defined(__arm__) || defined(__aarch64__)
 static __inline__ __int64 __DEFAULT_FN_ATTRS
 _InterlockedExchangeAdd64(__int64 volatile *_Addend, __int64 _Value) {
   return __atomic_fetch_add(_Addend, _Value, __ATOMIC_SEQ_CST);
 }
 #endif
+#if defined(__arm__) || defined(__aarch64__)
+static __inline__ __int64 __DEFAULT_FN_ATTRS
+_InterlockedExchangeAdd64_acq(__int64 volatile *_Addend, __int64 _Value) {
+  return __atomic_fetch_add(_Addend, _Value, __ATOMIC_ACQUIRE);
+}
+static __inline__ __int64 __DEFAULT_FN_ATTRS
+_InterlockedExchangeAdd64_nf(__int64 volatile *_Addend, __int64 _Value) {
+  return __atomic_fetch_add(_Addend, _Value, __ATOMIC_RELAXED);
+}
+static __inline__ __int64 __DEFAULT_FN_ATTRS
+_InterlockedExchangeAdd64_rel(__int64 volatile *_Addend, __int64 _Value) {
+  return __atomic_fetch_add(_Addend, _Value, __ATOMIC_RELEASE);
+}
+#endif
 /*----------------------------------------------------------------------------*\
 |* Interlocked Exchange Sub
 \*----------------------------------------------------------------------------*/
-static __inline__ char __DEFAULT_FN_ATTRS
-_InterlockedExchangeSub8(char volatile *_Subend, char _Value) {
-  return __atomic_fetch_sub(_Subend, _Value, __ATOMIC_SEQ_CST);
-}
-static __inline__ short __DEFAULT_FN_ATTRS
-_InterlockedExchangeSub16(short volatile *_Subend, short _Value) {
-  return __atomic_fetch_sub(_Subend, _Value, __ATOMIC_SEQ_CST);
-}
-static __inline__ long __DEFAULT_FN_ATTRS
-_InterlockedExchangeSub(long volatile *_Subend, long _Value) {
-  return __atomic_fetch_sub(_Subend, _Value, __ATOMIC_SEQ_CST);
-}
-#ifdef __x86_64__
+#if defined(__x86_64__) || defined(__arm__) || defined(__aarch64__)
 static __inline__ __int64 __DEFAULT_FN_ATTRS
 _InterlockedExchangeSub64(__int64 volatile *_Subend, __int64 _Value) {
   return __atomic_fetch_sub(_Subend, _Value, __ATOMIC_SEQ_CST);
@@ -588,136 +621,447 @@ _InterlockedExchangeSub64(__int64 volatile *_Subend, __int64 _Value) {
 /*----------------------------------------------------------------------------*\
 |* Interlocked Increment
 \*----------------------------------------------------------------------------*/
+#if defined(__arm__) || defined(__aarch64__)
 static __inline__ short __DEFAULT_FN_ATTRS
-_InterlockedIncrement16(short volatile *_Value) {
-  return __atomic_add_fetch(_Value, 1, __ATOMIC_SEQ_CST);
+_InterlockedIncrement16_acq(short volatile *_Value) {
+  return __atomic_add_fetch(_Value, 1, __ATOMIC_ACQUIRE);
 }
-#ifdef __x86_64__
+static __inline__ short __DEFAULT_FN_ATTRS
+_InterlockedIncrement16_nf(short volatile *_Value) {
+  return __atomic_add_fetch(_Value, 1, __ATOMIC_RELAXED);
+}
+static __inline__ short __DEFAULT_FN_ATTRS
+_InterlockedIncrement16_rel(short volatile *_Value) {
+  return __atomic_add_fetch(_Value, 1, __ATOMIC_RELEASE);
+}
+static __inline__ long __DEFAULT_FN_ATTRS
+_InterlockedIncrement_acq(long volatile *_Value) {
+  return __atomic_add_fetch(_Value, 1, __ATOMIC_ACQUIRE);
+}
+static __inline__ long __DEFAULT_FN_ATTRS
+_InterlockedIncrement_nf(long volatile *_Value) {
+  return __atomic_add_fetch(_Value, 1, __ATOMIC_RELAXED);
+}
+static __inline__ long __DEFAULT_FN_ATTRS
+_InterlockedIncrement_rel(long volatile *_Value) {
+  return __atomic_add_fetch(_Value, 1, __ATOMIC_RELEASE);
+}
+#endif
+#if defined(__x86_64__) || defined(__arm__) || defined(__aarch64__)
 static __inline__ __int64 __DEFAULT_FN_ATTRS
 _InterlockedIncrement64(__int64 volatile *_Value) {
   return __atomic_add_fetch(_Value, 1, __ATOMIC_SEQ_CST);
 }
 #endif
+#if defined(__arm__) || defined(__aarch64__)
+static __inline__ __int64 __DEFAULT_FN_ATTRS
+_InterlockedIncrement64_acq(__int64 volatile *_Value) {
+  return __atomic_add_fetch(_Value, 1, __ATOMIC_ACQUIRE);
+}
+static __inline__ __int64 __DEFAULT_FN_ATTRS
+_InterlockedIncrement64_nf(__int64 volatile *_Value) {
+  return __atomic_add_fetch(_Value, 1, __ATOMIC_RELAXED);
+}
+static __inline__ __int64 __DEFAULT_FN_ATTRS
+_InterlockedIncrement64_rel(__int64 volatile *_Value) {
+  return __atomic_add_fetch(_Value, 1, __ATOMIC_RELEASE);
+}
+#endif
 /*----------------------------------------------------------------------------*\
 |* Interlocked Decrement
 \*----------------------------------------------------------------------------*/
+#if defined(__arm__) || defined(__aarch64__)
 static __inline__ short __DEFAULT_FN_ATTRS
-_InterlockedDecrement16(short volatile *_Value) {
-  return __atomic_sub_fetch(_Value, 1, __ATOMIC_SEQ_CST);
+_InterlockedDecrement16_acq(short volatile *_Value) {
+  return __atomic_sub_fetch(_Value, 1, __ATOMIC_ACQUIRE);
 }
-#ifdef __x86_64__
+static __inline__ short __DEFAULT_FN_ATTRS
+_InterlockedDecrement16_nf(short volatile *_Value) {
+  return __atomic_sub_fetch(_Value, 1, __ATOMIC_RELAXED);
+}
+static __inline__ short __DEFAULT_FN_ATTRS
+_InterlockedDecrement16_rel(short volatile *_Value) {
+  return __atomic_sub_fetch(_Value, 1, __ATOMIC_RELEASE);
+}
+static __inline__ long __DEFAULT_FN_ATTRS
+_InterlockedDecrement_acq(long volatile *_Value) {
+  return __atomic_sub_fetch(_Value, 1, __ATOMIC_ACQUIRE);
+}
+static __inline__ long __DEFAULT_FN_ATTRS
+_InterlockedDecrement_nf(long volatile *_Value) {
+  return __atomic_sub_fetch(_Value, 1, __ATOMIC_RELAXED);
+}
+static __inline__ long __DEFAULT_FN_ATTRS
+_InterlockedDecrement_rel(long volatile *_Value) {
+  return __atomic_sub_fetch(_Value, 1, __ATOMIC_RELEASE);
+}
+#endif
+#if defined(__x86_64__) || defined(__arm__) || defined(__aarch64__)
 static __inline__ __int64 __DEFAULT_FN_ATTRS
 _InterlockedDecrement64(__int64 volatile *_Value) {
   return __atomic_sub_fetch(_Value, 1, __ATOMIC_SEQ_CST);
 }
 #endif
+#if defined(__arm__) || defined(__aarch64__)
+static __inline__ __int64 __DEFAULT_FN_ATTRS
+_InterlockedDecrement64_acq(__int64 volatile *_Value) {
+  return __atomic_sub_fetch(_Value, 1, __ATOMIC_ACQUIRE);
+}
+static __inline__ __int64 __DEFAULT_FN_ATTRS
+_InterlockedDecrement64_nf(__int64 volatile *_Value) {
+  return __atomic_sub_fetch(_Value, 1, __ATOMIC_RELAXED);
+}
+static __inline__ __int64 __DEFAULT_FN_ATTRS
+_InterlockedDecrement64_rel(__int64 volatile *_Value) {
+  return __atomic_sub_fetch(_Value, 1, __ATOMIC_RELEASE);
+}
+#endif
 /*----------------------------------------------------------------------------*\
 |* Interlocked And
 \*----------------------------------------------------------------------------*/
+#if defined(__arm__) || defined(__aarch64__)
 static __inline__ char __DEFAULT_FN_ATTRS
-_InterlockedAnd8(char volatile *_Value, char _Mask) {
-  return __atomic_fetch_and(_Value, _Mask, __ATOMIC_SEQ_CST);
+_InterlockedAnd8_acq(char volatile *_Value, char _Mask) {
+  return __atomic_fetch_and(_Value, _Mask, __ATOMIC_ACQUIRE);
+}
+static __inline__ char __DEFAULT_FN_ATTRS
+_InterlockedAnd8_nf(char volatile *_Value, char _Mask) {
+  return __atomic_fetch_and(_Value, _Mask, __ATOMIC_RELAXED);
+}
+static __inline__ char __DEFAULT_FN_ATTRS
+_InterlockedAnd8_rel(char volatile *_Value, char _Mask) {
+  return __atomic_fetch_and(_Value, _Mask, __ATOMIC_RELEASE);
 }
 static __inline__ short __DEFAULT_FN_ATTRS
-_InterlockedAnd16(short volatile *_Value, short _Mask) {
-  return __atomic_fetch_and(_Value, _Mask, __ATOMIC_SEQ_CST);
+_InterlockedAnd16_acq(short volatile *_Value, short _Mask) {
+  return __atomic_fetch_and(_Value, _Mask, __ATOMIC_ACQUIRE);
+}
+static __inline__ short __DEFAULT_FN_ATTRS
+_InterlockedAnd16_nf(short volatile *_Value, short _Mask) {
+  return __atomic_fetch_and(_Value, _Mask, __ATOMIC_RELAXED);
+}
+static __inline__ short __DEFAULT_FN_ATTRS
+_InterlockedAnd16_rel(short volatile *_Value, short _Mask) {
+  return __atomic_fetch_and(_Value, _Mask, __ATOMIC_RELEASE);
 }
 static __inline__ long __DEFAULT_FN_ATTRS
-_InterlockedAnd(long volatile *_Value, long _Mask) {
-  return __atomic_fetch_and(_Value, _Mask, __ATOMIC_SEQ_CST);
+_InterlockedAnd_acq(long volatile *_Value, long _Mask) {
+  return __atomic_fetch_and(_Value, _Mask, __ATOMIC_ACQUIRE);
 }
-#ifdef __x86_64__
+static __inline__ long __DEFAULT_FN_ATTRS
+_InterlockedAnd_nf(long volatile *_Value, long _Mask) {
+  return __atomic_fetch_and(_Value, _Mask, __ATOMIC_RELAXED);
+}
+static __inline__ long __DEFAULT_FN_ATTRS
+_InterlockedAnd_rel(long volatile *_Value, long _Mask) {
+  return __atomic_fetch_and(_Value, _Mask, __ATOMIC_RELEASE);
+}
+#endif
+#if defined(__x86_64__) || defined(__arm__) || defined(__aarch64__)
 static __inline__ __int64 __DEFAULT_FN_ATTRS
 _InterlockedAnd64(__int64 volatile *_Value, __int64 _Mask) {
   return __atomic_fetch_and(_Value, _Mask, __ATOMIC_SEQ_CST);
 }
 #endif
+#if defined(__arm__) || defined(__aarch64__)
+static __inline__ __int64 __DEFAULT_FN_ATTRS
+_InterlockedAnd64_acq(__int64 volatile *_Value, __int64 _Mask) {
+  return __atomic_fetch_and(_Value, _Mask, __ATOMIC_ACQUIRE);
+}
+static __inline__ __int64 __DEFAULT_FN_ATTRS
+_InterlockedAnd64_nf(__int64 volatile *_Value, __int64 _Mask) {
+  return __atomic_fetch_and(_Value, _Mask, __ATOMIC_RELAXED);
+}
+static __inline__ __int64 __DEFAULT_FN_ATTRS
+_InterlockedAnd64_rel(__int64 volatile *_Value, __int64 _Mask) {
+  return __atomic_fetch_and(_Value, _Mask, __ATOMIC_RELEASE);
+}
+#endif
 /*----------------------------------------------------------------------------*\
 |* Interlocked Or
 \*----------------------------------------------------------------------------*/
+#if defined(__arm__) || defined(__aarch64__)
 static __inline__ char __DEFAULT_FN_ATTRS
-_InterlockedOr8(char volatile *_Value, char _Mask) {
-  return __atomic_fetch_or(_Value, _Mask, __ATOMIC_SEQ_CST);
+_InterlockedOr8_acq(char volatile *_Value, char _Mask) {
+  return __atomic_fetch_or(_Value, _Mask, __ATOMIC_ACQUIRE);
+}
+static __inline__ char __DEFAULT_FN_ATTRS
+_InterlockedOr8_nf(char volatile *_Value, char _Mask) {
+  return __atomic_fetch_or(_Value, _Mask, __ATOMIC_RELAXED);
+}
+static __inline__ char __DEFAULT_FN_ATTRS
+_InterlockedOr8_rel(char volatile *_Value, char _Mask) {
+  return __atomic_fetch_or(_Value, _Mask, __ATOMIC_RELEASE);
 }
 static __inline__ short __DEFAULT_FN_ATTRS
-_InterlockedOr16(short volatile *_Value, short _Mask) {
-  return __atomic_fetch_or(_Value, _Mask, __ATOMIC_SEQ_CST);
+_InterlockedOr16_acq(short volatile *_Value, short _Mask) {
+  return __atomic_fetch_or(_Value, _Mask, __ATOMIC_ACQUIRE);
+}
+static __inline__ short __DEFAULT_FN_ATTRS
+_InterlockedOr16_nf(short volatile *_Value, short _Mask) {
+  return __atomic_fetch_or(_Value, _Mask, __ATOMIC_RELAXED);
+}
+static __inline__ short __DEFAULT_FN_ATTRS
+_InterlockedOr16_rel(short volatile *_Value, short _Mask) {
+  return __atomic_fetch_or(_Value, _Mask, __ATOMIC_RELEASE);
 }
 static __inline__ long __DEFAULT_FN_ATTRS
-_InterlockedOr(long volatile *_Value, long _Mask) {
-  return __atomic_fetch_or(_Value, _Mask, __ATOMIC_SEQ_CST);
+_InterlockedOr_acq(long volatile *_Value, long _Mask) {
+  return __atomic_fetch_or(_Value, _Mask, __ATOMIC_ACQUIRE);
 }
-#ifdef __x86_64__
+static __inline__ long __DEFAULT_FN_ATTRS
+_InterlockedOr_nf(long volatile *_Value, long _Mask) {
+  return __atomic_fetch_or(_Value, _Mask, __ATOMIC_RELAXED);
+}
+static __inline__ long __DEFAULT_FN_ATTRS
+_InterlockedOr_rel(long volatile *_Value, long _Mask) {
+  return __atomic_fetch_or(_Value, _Mask, __ATOMIC_RELEASE);
+}
+#endif
+#if defined(__x86_64__) || defined(__arm__) || defined(__aarch64__)
 static __inline__ __int64 __DEFAULT_FN_ATTRS
 _InterlockedOr64(__int64 volatile *_Value, __int64 _Mask) {
   return __atomic_fetch_or(_Value, _Mask, __ATOMIC_SEQ_CST);
 }
 #endif
+#if defined(__arm__) || defined(__aarch64__)
+static __inline__ __int64 __DEFAULT_FN_ATTRS
+_InterlockedOr64_acq(__int64 volatile *_Value, __int64 _Mask) {
+  return __atomic_fetch_or(_Value, _Mask, __ATOMIC_ACQUIRE);
+}
+static __inline__ __int64 __DEFAULT_FN_ATTRS
+_InterlockedOr64_nf(__int64 volatile *_Value, __int64 _Mask) {
+  return __atomic_fetch_or(_Value, _Mask, __ATOMIC_RELAXED);
+}
+static __inline__ __int64 __DEFAULT_FN_ATTRS
+_InterlockedOr64_rel(__int64 volatile *_Value, __int64 _Mask) {
+  return __atomic_fetch_or(_Value, _Mask, __ATOMIC_RELEASE);
+}
+#endif
 /*----------------------------------------------------------------------------*\
 |* Interlocked Xor
 \*----------------------------------------------------------------------------*/
+#if defined(__arm__) || defined(__aarch64__)
 static __inline__ char __DEFAULT_FN_ATTRS
-_InterlockedXor8(char volatile *_Value, char _Mask) {
-  return __atomic_fetch_xor(_Value, _Mask, __ATOMIC_SEQ_CST);
+_InterlockedXor8_acq(char volatile *_Value, char _Mask) {
+  return __atomic_fetch_xor(_Value, _Mask, __ATOMIC_ACQUIRE);
+}
+static __inline__ char __DEFAULT_FN_ATTRS
+_InterlockedXor8_nf(char volatile *_Value, char _Mask) {
+  return __atomic_fetch_xor(_Value, _Mask, __ATOMIC_RELAXED);
+}
+static __inline__ char __DEFAULT_FN_ATTRS
+_InterlockedXor8_rel(char volatile *_Value, char _Mask) {
+  return __atomic_fetch_xor(_Value, _Mask, __ATOMIC_RELEASE);
 }
 static __inline__ short __DEFAULT_FN_ATTRS
-_InterlockedXor16(short volatile *_Value, short _Mask) {
-  return __atomic_fetch_xor(_Value, _Mask, __ATOMIC_SEQ_CST);
+_InterlockedXor16_acq(short volatile *_Value, short _Mask) {
+  return __atomic_fetch_xor(_Value, _Mask, __ATOMIC_ACQUIRE);
+}
+static __inline__ short __DEFAULT_FN_ATTRS
+_InterlockedXor16_nf(short volatile *_Value, short _Mask) {
+  return __atomic_fetch_xor(_Value, _Mask, __ATOMIC_RELAXED);
+}
+static __inline__ short __DEFAULT_FN_ATTRS
+_InterlockedXor16_rel(short volatile *_Value, short _Mask) {
+  return __atomic_fetch_xor(_Value, _Mask, __ATOMIC_RELEASE);
 }
 static __inline__ long __DEFAULT_FN_ATTRS
-_InterlockedXor(long volatile *_Value, long _Mask) {
-  return __atomic_fetch_xor(_Value, _Mask, __ATOMIC_SEQ_CST);
+_InterlockedXor_acq(long volatile *_Value, long _Mask) {
+  return __atomic_fetch_xor(_Value, _Mask, __ATOMIC_ACQUIRE);
 }
-#ifdef __x86_64__
+static __inline__ long __DEFAULT_FN_ATTRS
+_InterlockedXor_nf(long volatile *_Value, long _Mask) {
+  return __atomic_fetch_xor(_Value, _Mask, __ATOMIC_RELAXED);
+}
+static __inline__ long __DEFAULT_FN_ATTRS
+_InterlockedXor_rel(long volatile *_Value, long _Mask) {
+  return __atomic_fetch_xor(_Value, _Mask, __ATOMIC_RELEASE);
+}
+#endif
+#if defined(__x86_64__) || defined(__arm__) || defined(__aarch64__)
 static __inline__ __int64 __DEFAULT_FN_ATTRS
 _InterlockedXor64(__int64 volatile *_Value, __int64 _Mask) {
   return __atomic_fetch_xor(_Value, _Mask, __ATOMIC_SEQ_CST);
 }
 #endif
+#if defined(__arm__) || defined(__aarch64__)
+static __inline__ __int64 __DEFAULT_FN_ATTRS
+_InterlockedXor64_acq(__int64 volatile *_Value, __int64 _Mask) {
+  return __atomic_fetch_xor(_Value, _Mask, __ATOMIC_ACQUIRE);
+}
+static __inline__ __int64 __DEFAULT_FN_ATTRS
+_InterlockedXor64_nf(__int64 volatile *_Value, __int64 _Mask) {
+  return __atomic_fetch_xor(_Value, _Mask, __ATOMIC_RELAXED);
+}
+static __inline__ __int64 __DEFAULT_FN_ATTRS
+_InterlockedXor64_rel(__int64 volatile *_Value, __int64 _Mask) {
+  return __atomic_fetch_xor(_Value, _Mask, __ATOMIC_RELEASE);
+}
+#endif
 /*----------------------------------------------------------------------------*\
 |* Interlocked Exchange
 \*----------------------------------------------------------------------------*/
+#if defined(__arm__) || defined(__aarch64__)
 static __inline__ char __DEFAULT_FN_ATTRS
-_InterlockedExchange8(char volatile *_Target, char _Value) {
-  __atomic_exchange(_Target, &_Value, &_Value, __ATOMIC_SEQ_CST);
+_InterlockedExchange8_acq(char volatile *_Target, char _Value) {
+  __atomic_exchange(_Target, &_Value, &_Value, __ATOMIC_ACQUIRE);
+  return _Value;
+}
+static __inline__ char __DEFAULT_FN_ATTRS
+_InterlockedExchange8_nf(char volatile *_Target, char _Value) {
+  __atomic_exchange(_Target, &_Value, &_Value, __ATOMIC_RELAXED);
+  return _Value;
+}
+static __inline__ char __DEFAULT_FN_ATTRS
+_InterlockedExchange8_rel(char volatile *_Target, char _Value) {
+  __atomic_exchange(_Target, &_Value, &_Value, __ATOMIC_RELEASE);
   return _Value;
 }
 static __inline__ short __DEFAULT_FN_ATTRS
-_InterlockedExchange16(short volatile *_Target, short _Value) {
-  __atomic_exchange(_Target, &_Value, &_Value, __ATOMIC_SEQ_CST);
+_InterlockedExchange16_acq(short volatile *_Target, short _Value) {
+  __atomic_exchange(_Target, &_Value, &_Value, __ATOMIC_ACQUIRE);
   return _Value;
 }
-#ifdef __x86_64__
+static __inline__ short __DEFAULT_FN_ATTRS
+_InterlockedExchange16_nf(short volatile *_Target, short _Value) {
+  __atomic_exchange(_Target, &_Value, &_Value, __ATOMIC_RELAXED);
+  return _Value;
+}
+static __inline__ short __DEFAULT_FN_ATTRS
+_InterlockedExchange16_rel(short volatile *_Target, short _Value) {
+  __atomic_exchange(_Target, &_Value, &_Value, __ATOMIC_RELEASE);
+  return _Value;
+}
+static __inline__ long __DEFAULT_FN_ATTRS
+_InterlockedExchange_acq(long volatile *_Target, long _Value) {
+  __atomic_exchange(_Target, &_Value, &_Value, __ATOMIC_ACQUIRE);
+  return _Value;
+}
+static __inline__ long __DEFAULT_FN_ATTRS
+_InterlockedExchange_nf(long volatile *_Target, long _Value) {
+  __atomic_exchange(_Target, &_Value, &_Value, __ATOMIC_RELAXED);
+  return _Value;
+}
+static __inline__ long __DEFAULT_FN_ATTRS
+_InterlockedExchange_rel(long volatile *_Target, long _Value) {
+  __atomic_exchange(_Target, &_Value, &_Value, __ATOMIC_RELEASE);
+  return _Value;
+}
+#endif
+#if defined(__x86_64__) || defined(__arm__) || defined(__aarch64__)
 static __inline__ __int64 __DEFAULT_FN_ATTRS
 _InterlockedExchange64(__int64 volatile *_Target, __int64 _Value) {
   __atomic_exchange(_Target, &_Value, &_Value, __ATOMIC_SEQ_CST);
   return _Value;
 }
 #endif
+#if defined(__arm__) || defined(__aarch64__)
+static __inline__ __int64 __DEFAULT_FN_ATTRS
+_InterlockedExchange64_acq(__int64 volatile *_Target, __int64 _Value) {
+  __atomic_exchange(_Target, &_Value, &_Value, __ATOMIC_ACQUIRE);
+  return _Value;
+}
+static __inline__ __int64 __DEFAULT_FN_ATTRS
+_InterlockedExchange64_nf(__int64 volatile *_Target, __int64 _Value) {
+  __atomic_exchange(_Target, &_Value, &_Value, __ATOMIC_RELAXED);
+  return _Value;
+}
+static __inline__ __int64 __DEFAULT_FN_ATTRS
+_InterlockedExchange64_rel(__int64 volatile *_Target, __int64 _Value) {
+  __atomic_exchange(_Target, &_Value, &_Value, __ATOMIC_RELEASE);
+  return _Value;
+}
+#endif
 /*----------------------------------------------------------------------------*\
 |* Interlocked Compare Exchange
 \*----------------------------------------------------------------------------*/
+#if defined(__arm__) || defined(__aarch64__)
 static __inline__ char __DEFAULT_FN_ATTRS
-_InterlockedCompareExchange8(char volatile *_Destination,
+_InterlockedCompareExchange8_acq(char volatile *_Destination,
                              char _Exchange, char _Comparand) {
   __atomic_compare_exchange(_Destination, &_Comparand, &_Exchange, 0,
-                            __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);
+                            __ATOMIC_SEQ_CST, __ATOMIC_ACQUIRE);
+  return _Comparand;
+}
+static __inline__ char __DEFAULT_FN_ATTRS
+_InterlockedCompareExchange8_nf(char volatile *_Destination,
+                             char _Exchange, char _Comparand) {
+  __atomic_compare_exchange(_Destination, &_Comparand, &_Exchange, 0,
+                            __ATOMIC_SEQ_CST, __ATOMIC_RELAXED);
+  return _Comparand;
+}
+static __inline__ char __DEFAULT_FN_ATTRS
+_InterlockedCompareExchange8_rel(char volatile *_Destination,
+                             char _Exchange, char _Comparand) {
+  __atomic_compare_exchange(_Destination, &_Comparand, &_Exchange, 0,
+                            __ATOMIC_SEQ_CST, __ATOMIC_RELEASE);
   return _Comparand;
 }
 static __inline__ short __DEFAULT_FN_ATTRS
-_InterlockedCompareExchange16(short volatile *_Destination,
+_InterlockedCompareExchange16_acq(short volatile *_Destination,
                               short _Exchange, short _Comparand) {
   __atomic_compare_exchange(_Destination, &_Comparand, &_Exchange, 0,
-                            __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);
+                            __ATOMIC_SEQ_CST, __ATOMIC_ACQUIRE);
+  return _Comparand;
+}
+static __inline__ short __DEFAULT_FN_ATTRS
+_InterlockedCompareExchange16_nf(short volatile *_Destination,
+                              short _Exchange, short _Comparand) {
+  __atomic_compare_exchange(_Destination, &_Comparand, &_Exchange, 0,
+                            __ATOMIC_SEQ_CST, __ATOMIC_RELAXED);
+  return _Comparand;
+}
+static __inline__ short __DEFAULT_FN_ATTRS
+_InterlockedCompareExchange16_rel(short volatile *_Destination,
+                              short _Exchange, short _Comparand) {
+  __atomic_compare_exchange(_Destination, &_Comparand, &_Exchange, 0,
+                            __ATOMIC_SEQ_CST, __ATOMIC_RELEASE);
+  return _Comparand;
+}
+static __inline__ long __DEFAULT_FN_ATTRS
+_InterlockedCompareExchange_acq(long volatile *_Destination,
+                              long _Exchange, long _Comparand) {
+  __atomic_compare_exchange(_Destination, &_Comparand, &_Exchange, 0,
+                            __ATOMIC_SEQ_CST, __ATOMIC_ACQUIRE);
+  return _Comparand;
+}
+static __inline__ long __DEFAULT_FN_ATTRS
+_InterlockedCompareExchange_nf(long volatile *_Destination,
+                              long _Exchange, long _Comparand) {
+  __atomic_compare_exchange(_Destination, &_Comparand, &_Exchange, 0,
+                            __ATOMIC_SEQ_CST, __ATOMIC_RELAXED);
+  return _Comparand;
+}
+static __inline__ short __DEFAULT_FN_ATTRS
+_InterlockedCompareExchange_rel(long volatile *_Destination,
+                              long _Exchange, long _Comparand) {
+  __atomic_compare_exchange(_Destination, &_Comparand, &_Exchange, 0,
+                            __ATOMIC_SEQ_CST, __ATOMIC_RELEASE);
   return _Comparand;
 }
 static __inline__ __int64 __DEFAULT_FN_ATTRS
-_InterlockedCompareExchange64(__int64 volatile *_Destination,
+_InterlockedCompareExchange64_acq(__int64 volatile *_Destination,
                               __int64 _Exchange, __int64 _Comparand) {
   __atomic_compare_exchange(_Destination, &_Comparand, &_Exchange, 0,
-                            __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);
+                            __ATOMIC_SEQ_CST, __ATOMIC_ACQUIRE);
   return _Comparand;
 }
+static __inline__ __int64 __DEFAULT_FN_ATTRS
+_InterlockedCompareExchange64_nf(__int64 volatile *_Destination,
+                              __int64 _Exchange, __int64 _Comparand) {
+  __atomic_compare_exchange(_Destination, &_Comparand, &_Exchange, 0,
+                            __ATOMIC_SEQ_CST, __ATOMIC_RELAXED);
+  return _Comparand;
+}
+static __inline__ __int64 __DEFAULT_FN_ATTRS
+_InterlockedCompareExchange64_rel(__int64 volatile *_Destination,
+                              __int64 _Exchange, __int64 _Comparand) {
+  __atomic_compare_exchange(_Destination, &_Comparand, &_Exchange, 0,
+                            __ATOMIC_SEQ_CST, __ATOMIC_RELEASE);
+  return _Comparand;
+}
+#endif
 /*----------------------------------------------------------------------------*\
 |* Barriers
 \*----------------------------------------------------------------------------*/

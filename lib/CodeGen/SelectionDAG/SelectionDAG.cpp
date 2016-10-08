@@ -134,7 +134,7 @@ bool ISD::isBuildVectorAllOnes(const SDNode *N) {
   // we care if the resultant vector is all ones, not whether the individual
   // constants are.
   SDValue NotZero = N->getOperand(i);
-  unsigned EltSize = N->getValueType(0).getVectorElementType().getSizeInBits();
+  unsigned EltSize = N->getValueType(0).getScalarSizeInBits();
   if (ConstantSDNode *CN = dyn_cast<ConstantSDNode>(NotZero)) {
     if (CN->getAPIntValue().countTrailingOnes() < EltSize)
       return false;
@@ -173,7 +173,7 @@ bool ISD::isBuildVectorAllZeros(const SDNode *N) {
     // We only want to check enough bits to cover the vector elements, because
     // we care if the resultant vector is all zeros, not whether the individual
     // constants are.
-    unsigned EltSize = N->getValueType(0).getVectorElementType().getSizeInBits();
+    unsigned EltSize = N->getValueType(0).getScalarSizeInBits();
     if (ConstantSDNode *CN = dyn_cast<ConstantSDNode>(Op)) {
       if (CN->getAPIntValue().countTrailingZeros() < EltSize)
         return false;
@@ -1012,7 +1012,7 @@ SDValue SelectionDAG::getZeroExtendInReg(SDValue Op, const SDLoc &DL, EVT VT) {
          "getZeroExtendInReg should use the vector element type instead of "
          "the vector type!");
   if (Op.getValueType() == VT) return Op;
-  unsigned BitWidth = Op.getValueType().getScalarType().getSizeInBits();
+  unsigned BitWidth = Op.getScalarValueSizeInBits();
   APInt Imm = APInt::getLowBitsSet(BitWidth,
                                    VT.getSizeInBits());
   return getNode(ISD::AND, DL, Op.getValueType(), Op,
@@ -1022,7 +1022,7 @@ SDValue SelectionDAG::getZeroExtendInReg(SDValue Op, const SDLoc &DL, EVT VT) {
 SDValue SelectionDAG::getAnyExtendVectorInReg(SDValue Op, const SDLoc &DL,
                                               EVT VT) {
   assert(VT.isVector() && "This DAG node is restricted to vector types.");
-  assert(VT.getSizeInBits() == Op.getValueType().getSizeInBits() &&
+  assert(VT.getSizeInBits() == Op.getValueSizeInBits() &&
          "The sizes of the input and result must match in order to perform the "
          "extend in-register.");
   assert(VT.getVectorNumElements() < Op.getValueType().getVectorNumElements() &&
@@ -1033,7 +1033,7 @@ SDValue SelectionDAG::getAnyExtendVectorInReg(SDValue Op, const SDLoc &DL,
 SDValue SelectionDAG::getSignExtendVectorInReg(SDValue Op, const SDLoc &DL,
                                                EVT VT) {
   assert(VT.isVector() && "This DAG node is restricted to vector types.");
-  assert(VT.getSizeInBits() == Op.getValueType().getSizeInBits() &&
+  assert(VT.getSizeInBits() == Op.getValueSizeInBits() &&
          "The sizes of the input and result must match in order to perform the "
          "extend in-register.");
   assert(VT.getVectorNumElements() < Op.getValueType().getVectorNumElements() &&
@@ -1044,7 +1044,7 @@ SDValue SelectionDAG::getSignExtendVectorInReg(SDValue Op, const SDLoc &DL,
 SDValue SelectionDAG::getZeroExtendVectorInReg(SDValue Op, const SDLoc &DL,
                                                EVT VT) {
   assert(VT.isVector() && "This DAG node is restricted to vector types.");
-  assert(VT.getSizeInBits() == Op.getValueType().getSizeInBits() &&
+  assert(VT.getSizeInBits() == Op.getValueSizeInBits() &&
          "The sizes of the input and result must match in order to perform the "
          "extend in-register.");
   assert(VT.getVectorNumElements() < Op.getValueType().getVectorNumElements() &&
@@ -1980,11 +1980,7 @@ SDValue SelectionDAG::FoldSetCC(EVT VT, SDValue N1, SDValue N2,
 /// SignBitIsZero - Return true if the sign bit of Op is known to be zero.  We
 /// use this predicate to simplify operations downstream.
 bool SelectionDAG::SignBitIsZero(SDValue Op, unsigned Depth) const {
-  // This predicate is not safe for vector operations.
-  if (Op.getValueType().isVector())
-    return false;
-
-  unsigned BitWidth = Op.getValueType().getScalarType().getSizeInBits();
+  unsigned BitWidth = Op.getScalarValueSizeInBits();
   return MaskedValueIsZero(Op, APInt::getSignBit(BitWidth), Depth);
 }
 
@@ -2002,7 +1998,7 @@ bool SelectionDAG::MaskedValueIsZero(SDValue Op, const APInt &Mask,
 /// them in the KnownZero/KnownOne bitsets.
 void SelectionDAG::computeKnownBits(SDValue Op, APInt &KnownZero,
                                     APInt &KnownOne, unsigned Depth) const {
-  unsigned BitWidth = Op.getValueType().getScalarType().getSizeInBits();
+  unsigned BitWidth = Op.getScalarValueSizeInBits();
 
   KnownZero = KnownOne = APInt(BitWidth, 0);   // Don't know anything.
   if (Depth == 6)
@@ -2207,7 +2203,7 @@ void SelectionDAG::computeKnownBits(SDValue Op, APInt &KnownZero,
     break;
   case ISD::SIGN_EXTEND_INREG: {
     EVT EVT = cast<VTSDNode>(Op.getOperand(1))->getVT();
-    unsigned EBits = EVT.getScalarType().getSizeInBits();
+    unsigned EBits = EVT.getScalarSizeInBits();
 
     // Sign extension.  Compute the demanded bits in the result that are not
     // present in the input.
@@ -2255,7 +2251,7 @@ void SelectionDAG::computeKnownBits(SDValue Op, APInt &KnownZero,
     // If this is a ZEXTLoad and we are looking at the loaded value.
     if (ISD::isZEXTLoad(Op.getNode()) && Op.getResNo() == 0) {
       EVT VT = LD->getMemoryVT();
-      unsigned MemBits = VT.getScalarType().getSizeInBits();
+      unsigned MemBits = VT.getScalarSizeInBits();
       KnownZero |= APInt::getHighBitsSet(BitWidth, BitWidth - MemBits);
     } else if (const MDNode *Ranges = LD->getRanges()) {
       if (LD->getExtensionType() == ISD::NON_EXTLOAD)
@@ -2265,7 +2261,7 @@ void SelectionDAG::computeKnownBits(SDValue Op, APInt &KnownZero,
   }
   case ISD::ZERO_EXTEND: {
     EVT InVT = Op.getOperand(0).getValueType();
-    unsigned InBits = InVT.getScalarType().getSizeInBits();
+    unsigned InBits = InVT.getScalarSizeInBits();
     APInt NewBits   = APInt::getHighBitsSet(BitWidth, BitWidth - InBits);
     KnownZero = KnownZero.trunc(InBits);
     KnownOne = KnownOne.trunc(InBits);
@@ -2277,7 +2273,7 @@ void SelectionDAG::computeKnownBits(SDValue Op, APInt &KnownZero,
   }
   case ISD::SIGN_EXTEND: {
     EVT InVT = Op.getOperand(0).getValueType();
-    unsigned InBits = InVT.getScalarType().getSizeInBits();
+    unsigned InBits = InVT.getScalarSizeInBits();
     APInt NewBits   = APInt::getHighBitsSet(BitWidth, BitWidth - InBits);
 
     KnownZero = KnownZero.trunc(InBits);
@@ -2300,7 +2296,7 @@ void SelectionDAG::computeKnownBits(SDValue Op, APInt &KnownZero,
   }
   case ISD::ANY_EXTEND: {
     EVT InVT = Op.getOperand(0).getValueType();
-    unsigned InBits = InVT.getScalarType().getSizeInBits();
+    unsigned InBits = InVT.getScalarSizeInBits();
     KnownZero = KnownZero.trunc(InBits);
     KnownOne = KnownOne.trunc(InBits);
     computeKnownBits(Op.getOperand(0), KnownZero, KnownOne, Depth+1);
@@ -2310,7 +2306,7 @@ void SelectionDAG::computeKnownBits(SDValue Op, APInt &KnownZero,
   }
   case ISD::TRUNCATE: {
     EVT InVT = Op.getOperand(0).getValueType();
-    unsigned InBits = InVT.getScalarType().getSizeInBits();
+    unsigned InBits = InVT.getScalarSizeInBits();
     KnownZero = KnownZero.zext(InBits);
     KnownOne = KnownOne.zext(InBits);
     computeKnownBits(Op.getOperand(0), KnownZero, KnownOne, Depth+1);
@@ -2441,7 +2437,7 @@ void SelectionDAG::computeKnownBits(SDValue Op, APInt &KnownZero,
     computeKnownBits(Op.getOperand(0), KnownZero, KnownOne, Depth+1);
     const unsigned Index =
       cast<ConstantSDNode>(Op.getOperand(1))->getZExtValue();
-    const unsigned BitWidth = Op.getValueType().getSizeInBits();
+    const unsigned BitWidth = Op.getValueSizeInBits();
 
     // Remove low part of known bits mask
     KnownZero = KnownZero.getHiBits(KnownZero.getBitWidth() - Index * BitWidth);
@@ -2450,6 +2446,26 @@ void SelectionDAG::computeKnownBits(SDValue Op, APInt &KnownZero,
     // Remove high part of known bit mask
     KnownZero = KnownZero.trunc(BitWidth);
     KnownOne = KnownOne.trunc(BitWidth);
+    break;
+  }
+  case ISD::EXTRACT_VECTOR_ELT: {
+    // At the moment we keep this simple and skip tracking the specific
+    // element. This way we get the lowest common denominator for all elements
+    // of the vector.
+    // TODO: get information for given vector element
+    const unsigned BitWidth = Op.getValueSizeInBits();
+    const unsigned EltBitWidth = Op.getOperand(0).getScalarValueSizeInBits();
+    // If BitWidth > EltBitWidth the value is anyext:ed. So we do not know
+    // anything about the extended bits.
+    if (BitWidth > EltBitWidth) {
+      KnownZero = KnownZero.trunc(EltBitWidth);
+      KnownOne = KnownOne.trunc(EltBitWidth);
+    }
+    computeKnownBits(Op.getOperand(0), KnownZero, KnownOne, Depth+1);
+    if (BitWidth > EltBitWidth) {
+      KnownZero = KnownZero.zext(BitWidth);
+      KnownOne = KnownOne.zext(BitWidth);
+    }
     break;
   }
   case ISD::BSWAP: {
@@ -2517,7 +2533,7 @@ bool SelectionDAG::isKnownToBeAPowerOfTwo(SDValue Val) const {
 
   // Fall back to computeKnownBits to catch other known cases.
   EVT OpVT = Val.getValueType();
-  unsigned BitWidth = OpVT.getScalarType().getSizeInBits();
+  unsigned BitWidth = OpVT.getScalarSizeInBits();
   APInt KnownZero, KnownOne;
   computeKnownBits(Val, KnownZero, KnownOne);
   return (KnownZero.countPopulation() == BitWidth - 1) &&
@@ -2527,7 +2543,7 @@ bool SelectionDAG::isKnownToBeAPowerOfTwo(SDValue Val) const {
 unsigned SelectionDAG::ComputeNumSignBits(SDValue Op, unsigned Depth) const {
   EVT VT = Op.getValueType();
   assert(VT.isInteger() && "Invalid VT!");
-  unsigned VTBits = VT.getScalarType().getSizeInBits();
+  unsigned VTBits = VT.getScalarSizeInBits();
   unsigned Tmp, Tmp2;
   unsigned FirstAnswer = 1;
 
@@ -2549,14 +2565,12 @@ unsigned SelectionDAG::ComputeNumSignBits(SDValue Op, unsigned Depth) const {
   }
 
   case ISD::SIGN_EXTEND:
-    Tmp =
-        VTBits-Op.getOperand(0).getValueType().getScalarType().getSizeInBits();
+    Tmp = VTBits - Op.getOperand(0).getScalarValueSizeInBits();
     return ComputeNumSignBits(Op.getOperand(0), Depth+1) + Tmp;
 
   case ISD::SIGN_EXTEND_INREG:
     // Max of the input and what this extends.
-    Tmp =
-      cast<VTSDNode>(Op.getOperand(1))->getVT().getScalarType().getSizeInBits();
+    Tmp = cast<VTSDNode>(Op.getOperand(1))->getVT().getScalarSizeInBits();
     Tmp = VTBits-Tmp+1;
 
     Tmp2 = ComputeNumSignBits(Op.getOperand(0), Depth+1);
@@ -2709,9 +2723,8 @@ unsigned SelectionDAG::ComputeNumSignBits(SDValue Op, unsigned Depth) const {
     break;
   case ISD::EXTRACT_ELEMENT: {
     const int KnownSign = ComputeNumSignBits(Op.getOperand(0), Depth+1);
-    const int BitWidth = Op.getValueType().getSizeInBits();
-    const int Items =
-      Op.getOperand(0).getValueType().getSizeInBits() / BitWidth;
+    const int BitWidth = Op.getValueSizeInBits();
+    const int Items = Op.getOperand(0).getValueSizeInBits() / BitWidth;
 
     // Get reverse index (starting from 1), Op1 value indexes elements from
     // little end. Sign starts at big end.
@@ -2721,6 +2734,20 @@ unsigned SelectionDAG::ComputeNumSignBits(SDValue Op, unsigned Depth) const {
     // If the sign portion ends in our element the subtraction gives correct
     // result. Otherwise it gives either negative or > bitwidth result
     return std::max(std::min(KnownSign - rIndex * BitWidth, BitWidth), 0);
+  }
+  case ISD::EXTRACT_VECTOR_ELT: {
+    // At the moment we keep this simple and skip tracking the specific
+    // element. This way we get the lowest common denominator for all elements
+    // of the vector.
+    // TODO: get information for given vector element
+    const unsigned BitWidth = Op.getValueSizeInBits();
+    const unsigned EltBitWidth = Op.getOperand(0).getScalarValueSizeInBits();
+    // If BitWidth > EltBitWidth the value is anyext:ed, and we do not know
+    // anything about sign bits. But if the sizes match we can derive knowledge
+    // about sign bits from the vector operand.
+    if (BitWidth == EltBitWidth)
+      return ComputeNumSignBits(Op.getOperand(0), Depth+1);
+    break;
   }
   }
 
@@ -2732,10 +2759,10 @@ unsigned SelectionDAG::ComputeNumSignBits(SDValue Op, unsigned Depth) const {
       switch (ExtType) {
         default: break;
         case ISD::SEXTLOAD:    // '17' bits known
-          Tmp = LD->getMemoryVT().getScalarType().getSizeInBits();
+          Tmp = LD->getMemoryVT().getScalarSizeInBits();
           return VTBits-Tmp+1;
         case ISD::ZEXTLOAD:    // '16' bits known
-          Tmp = LD->getMemoryVT().getScalarType().getSizeInBits();
+          Tmp = LD->getMemoryVT().getScalarSizeInBits();
           return VTBits-Tmp;
       }
     }
@@ -3164,8 +3191,8 @@ SDValue SelectionDAG::getNode(unsigned Opcode, const SDLoc &DL, EVT VT,
     break;
   case ISD::BITCAST:
     // Basic sanity checking.
-    assert(VT.getSizeInBits() == Operand.getValueType().getSizeInBits()
-           && "Cannot BITCAST between types of different sizes!");
+    assert(VT.getSizeInBits() == Operand.getValueSizeInBits() &&
+           "Cannot BITCAST between types of different sizes!");
     if (VT == Operand.getValueType()) return Operand;  // noop conversion.
     if (OpOpcode == ISD::BITCAST)  // bitconv(bitconv(x)) -> bitconv(x)
       return getNode(ISD::BITCAST, DL, VT, Operand.getOperand(0));
@@ -3579,8 +3606,7 @@ SDValue SelectionDAG::getNode(unsigned Opcode, const SDLoc &DL, EVT VT,
     // amounts.  This catches things like trying to shift an i1024 value by an
     // i8, which is easy to fall into in generic code that uses
     // TLI.getShiftAmount().
-    assert(N2.getValueType().getSizeInBits() >=
-                   Log2_32_Ceil(N1.getValueType().getSizeInBits()) &&
+    assert(N2.getValueSizeInBits() >= Log2_32_Ceil(N1.getValueSizeInBits()) &&
            "Invalid use of small shift amount with oversized value!");
 
     // Always fold shifts of i1 values so the code generator doesn't need to
@@ -3611,7 +3637,8 @@ SDValue SelectionDAG::getNode(unsigned Opcode, const SDLoc &DL, EVT VT,
     assert(VT.isFloatingPoint() &&
            N1.getValueType().isFloatingPoint() &&
            VT.bitsLE(N1.getValueType()) &&
-           N2C && "Invalid FP_ROUND!");
+           N2C && (N2C->getZExtValue() == 0 || N2C->getZExtValue() == 1) &&
+           "Invalid FP_ROUND!");
     if (N1.getValueType() == VT) return N1;  // noop conversion.
     break;
   case ISD::AssertSext:
@@ -3642,7 +3669,7 @@ SDValue SelectionDAG::getNode(unsigned Opcode, const SDLoc &DL, EVT VT,
     if (EVT == VT) return N1;  // Not actually extending
 
     auto SignExtendInReg = [&](APInt Val) {
-      unsigned FromBits = EVT.getScalarType().getSizeInBits();
+      unsigned FromBits = EVT.getScalarSizeInBits();
       Val <<= Val.getBitWidth() - FromBits;
       Val = Val.ashr(Val.getBitWidth() - FromBits);
       return getConstant(Val, DL, VT.getScalarType());
@@ -4080,7 +4107,7 @@ static SDValue getMemsetValue(SDValue Value, EVT VT, SelectionDAG &DAG,
                               const SDLoc &dl) {
   assert(!Value.isUndef());
 
-  unsigned NumBits = VT.getScalarType().getSizeInBits();
+  unsigned NumBits = VT.getScalarSizeInBits();
   if (ConstantSDNode *C = dyn_cast<ConstantSDNode>(Value)) {
     assert(C->getAPIntValue().getBitWidth() == 8);
     APInt Val = APInt::getSplat(NumBits, C->getAPIntValue());
@@ -5064,7 +5091,7 @@ SDValue SelectionDAG::getLoad(ISD::MemIndexedMode AM, ISD::LoadExtType ExtType,
   assert(Chain.getValueType() == MVT::Other &&
         "Invalid chain type");
   if (Alignment == 0)  // Ensure that codegen never sees alignment 0
-    Alignment = getEVTAlignment(VT);
+    Alignment = getEVTAlignment(MemVT);
 
   MMOFlags |= MachineMemOperand::MOLoad;
   assert((MMOFlags & MachineMemOperand::MOStore) == 0);
@@ -5347,7 +5374,7 @@ SDValue SelectionDAG::getMaskedLoad(EVT VT, const SDLoc &dl, SDValue Chain,
 SDValue SelectionDAG::getMaskedStore(SDValue Chain, const SDLoc &dl,
                                      SDValue Val, SDValue Ptr, SDValue Mask,
                                      EVT MemVT, MachineMemOperand *MMO,
-                                     bool isTrunc) {
+                                     bool isTrunc, bool isCompress) {
   assert(Chain.getValueType() == MVT::Other &&
         "Invalid chain type");
   EVT VT = Val.getValueType();
@@ -5357,7 +5384,7 @@ SDValue SelectionDAG::getMaskedStore(SDValue Chain, const SDLoc &dl,
   AddNodeIDNode(ID, ISD::MSTORE, VTs, Ops);
   ID.AddInteger(VT.getRawBits());
   ID.AddInteger(getSyntheticNodeSubclassData<MaskedStoreSDNode>(
-      dl.getIROrder(), VTs, isTrunc, MemVT, MMO));
+      dl.getIROrder(), VTs, isTrunc, isCompress, MemVT, MMO));
   ID.AddInteger(MMO->getPointerInfo().getAddrSpace());
   void *IP = nullptr;
   if (SDNode *E = FindNodeOrInsertPos(ID, dl, IP)) {
@@ -5365,7 +5392,7 @@ SDValue SelectionDAG::getMaskedStore(SDValue Chain, const SDLoc &dl,
     return SDValue(E, 0);
   }
   auto *N = newSDNode<MaskedStoreSDNode>(dl.getIROrder(), dl.getDebugLoc(), VTs,
-                                         isTrunc, MemVT, MMO);
+                                         isTrunc, isCompress, MemVT, MMO);
   createOperands(N, Ops);
 
   CSEMap.InsertNode(N, IP);
@@ -5549,7 +5576,7 @@ SDValue SelectionDAG::getNode(unsigned Opcode, const SDLoc &DL, SDVTList VTList,
       if (ConstantSDNode *AndRHS = dyn_cast<ConstantSDNode>(N3.getOperand(1))) {
         // If the and is only masking out bits that cannot effect the shift,
         // eliminate the and.
-        unsigned NumBits = VT.getScalarType().getSizeInBits()*2;
+        unsigned NumBits = VT.getScalarSizeInBits()*2;
         if ((AndRHS->getValue() & (NumBits-1)) == NumBits-1)
           return getNode(Opcode, DL, VT, N1, N2, N3.getOperand(0));
       }
@@ -5874,43 +5901,10 @@ SDNode *SelectionDAG::SelectNodeTo(SDNode *N, unsigned MachineOpc,
 }
 
 SDNode *SelectionDAG::SelectNodeTo(SDNode *N, unsigned MachineOpc,
-                                   EVT VT1, EVT VT2, EVT VT3, EVT VT4,
-                                   ArrayRef<SDValue> Ops) {
-  SDVTList VTs = getVTList(VT1, VT2, VT3, VT4);
-  return SelectNodeTo(N, MachineOpc, VTs, Ops);
-}
-
-SDNode *SelectionDAG::SelectNodeTo(SDNode *N, unsigned MachineOpc,
-                                   EVT VT1, EVT VT2,
-                                   SDValue Op1) {
-  SDVTList VTs = getVTList(VT1, VT2);
-  SDValue Ops[] = { Op1 };
-  return SelectNodeTo(N, MachineOpc, VTs, Ops);
-}
-
-SDNode *SelectionDAG::SelectNodeTo(SDNode *N, unsigned MachineOpc,
                                    EVT VT1, EVT VT2,
                                    SDValue Op1, SDValue Op2) {
   SDVTList VTs = getVTList(VT1, VT2);
   SDValue Ops[] = { Op1, Op2 };
-  return SelectNodeTo(N, MachineOpc, VTs, Ops);
-}
-
-SDNode *SelectionDAG::SelectNodeTo(SDNode *N, unsigned MachineOpc,
-                                   EVT VT1, EVT VT2,
-                                   SDValue Op1, SDValue Op2,
-                                   SDValue Op3) {
-  SDVTList VTs = getVTList(VT1, VT2);
-  SDValue Ops[] = { Op1, Op2, Op3 };
-  return SelectNodeTo(N, MachineOpc, VTs, Ops);
-}
-
-SDNode *SelectionDAG::SelectNodeTo(SDNode *N, unsigned MachineOpc,
-                                   EVT VT1, EVT VT2, EVT VT3,
-                                   SDValue Op1, SDValue Op2,
-                                   SDValue Op3) {
-  SDVTList VTs = getVTList(VT1, VT2, VT3);
-  SDValue Ops[] = { Op1, Op2, Op3 };
   return SelectNodeTo(N, MachineOpc, VTs, Ops);
 }
 
@@ -6054,19 +6048,6 @@ MachineSDNode *SelectionDAG::getMachineNode(unsigned Opcode, const SDLoc &dl,
 }
 
 MachineSDNode *SelectionDAG::getMachineNode(unsigned Opcode, const SDLoc &dl,
-                                            EVT VT1, EVT VT2) {
-  SDVTList VTs = getVTList(VT1, VT2);
-  return getMachineNode(Opcode, dl, VTs, None);
-}
-
-MachineSDNode *SelectionDAG::getMachineNode(unsigned Opcode, const SDLoc &dl,
-                                            EVT VT1, EVT VT2, SDValue Op1) {
-  SDVTList VTs = getVTList(VT1, VT2);
-  SDValue Ops[] = { Op1 };
-  return getMachineNode(Opcode, dl, VTs, Ops);
-}
-
-MachineSDNode *SelectionDAG::getMachineNode(unsigned Opcode, const SDLoc &dl,
                                             EVT VT1, EVT VT2, SDValue Op1,
                                             SDValue Op2) {
   SDVTList VTs = getVTList(VT1, VT2);
@@ -6110,13 +6091,6 @@ MachineSDNode *SelectionDAG::getMachineNode(unsigned Opcode, const SDLoc &dl,
                                             EVT VT1, EVT VT2, EVT VT3,
                                             ArrayRef<SDValue> Ops) {
   SDVTList VTs = getVTList(VT1, VT2, VT3);
-  return getMachineNode(Opcode, dl, VTs, Ops);
-}
-
-MachineSDNode *SelectionDAG::getMachineNode(unsigned Opcode, const SDLoc &dl,
-                                            EVT VT1, EVT VT2, EVT VT3, EVT VT4,
-                                            ArrayRef<SDValue> Ops) {
-  SDVTList VTs = getVTList(VT1, VT2, VT3, VT4);
   return getMachineNode(Opcode, dl, VTs, Ops);
 }
 
@@ -7129,7 +7103,7 @@ bool BuildVectorSDNode::isConstantSplat(APInt &SplatValue,
   // false.
   unsigned int nOps = getNumOperands();
   assert(nOps > 0 && "isConstantSplat has 0-size build vector");
-  unsigned EltBitSize = VT.getVectorElementType().getSizeInBits();
+  unsigned EltBitSize = VT.getScalarSizeInBits();
 
   for (unsigned j = 0; j < nOps; ++j) {
     unsigned i = isBigEndian ? nOps-1-j : j;

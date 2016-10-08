@@ -1051,7 +1051,7 @@ MachineVerifier::visitMachineOperand(const MachineOperand *MO, unsigned MONum) {
           }
 
           // Make sure the register fits into its register bank if any.
-          if (RegBank && Ty.isSized() &&
+          if (RegBank && Ty.isValid() &&
               RegBank->getSize() < Ty.getSizeInBits()) {
             report("Register bank is too small for virtual register", MO,
                    MONum);
@@ -2014,11 +2014,11 @@ void MachineVerifier::verifyStackFrame() {
 
   SmallVector<StackStateOfBB, 8> SPState;
   SPState.resize(MF->getNumBlockIDs());
-  SmallPtrSet<const MachineBasicBlock*, 8> Reachable;
+  df_iterator_default_set<const MachineBasicBlock*> Reachable;
 
   // Visit the MBBs in DFS order.
   for (df_ext_iterator<const MachineFunction*,
-                       SmallPtrSet<const MachineBasicBlock*, 8> >
+                       df_iterator_default_set<const MachineBasicBlock*> >
        DFI = df_ext_begin(MF, Reachable), DFE = df_ext_end(MF, Reachable);
        DFI != DFE; ++DFI) {
     const MachineBasicBlock *MBB = *DFI;

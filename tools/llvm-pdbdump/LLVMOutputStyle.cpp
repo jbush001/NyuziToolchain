@@ -497,7 +497,7 @@ Error LLVMOutputStyle::dumpTpiStream(uint32_t StreamIdx) {
       }
 
       if (DumpRecordBytes)
-        P.printBinaryBlock("Bytes", Type.Data);
+        P.printBinaryBlock("Bytes", Type.content());
     }
     dumpTpiHash(P, *Tpi);
     if (HadError)
@@ -598,13 +598,17 @@ Error LLVMOutputStyle::dumpDbiStream() {
           ListScope SS(P, "Symbols");
           codeview::CVSymbolDumper SD(P, Dumper, nullptr, false);
           bool HadError = false;
-          for (const auto &S : ModS.symbols(&HadError)) {
-            DictScope DD(P, "");
-
-            if (opts::raw::DumpModuleSyms)
-              SD.dump(S);
+          for (auto S : ModS.symbols(&HadError)) {
+            DictScope LL(P, "");
+            if (opts::raw::DumpModuleSyms) {
+              if (auto EC = SD.dump(S)) {
+                llvm::consumeError(std::move(EC));
+                HadError = true;
+                break;
+              }
+            }
             if (opts::raw::DumpSymRecordBytes)
-              P.printBinaryBlock("Bytes", S.Data);
+              P.printBinaryBlock("Bytes", S.content());
           }
           if (HadError)
             return make_error<RawError>(
@@ -811,9 +815,12 @@ Error LLVMOutputStyle::dumpPublicsStream() {
   for (auto S : Publics->getSymbols(&HadError)) {
     DictScope DD(P, "");
 
-    SD.dump(S);
+    if (auto EC = SD.dump(S)) {
+      HadError = true;
+      break;
+    }
     if (opts::raw::DumpSymRecordBytes)
-      P.printBinaryBlock("Bytes", S.Data);
+      P.printBinaryBlock("Bytes", S.content());
   }
   if (HadError)
     return make_error<RawError>(

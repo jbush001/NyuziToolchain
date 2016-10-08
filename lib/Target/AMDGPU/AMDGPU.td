@@ -349,6 +349,10 @@ def AMDGPUAsmParser : AsmParser {
   let ShouldEmitMatchRegisterName = 0;
 }
 
+def AMDGPUAsmWriter : AsmWriter {
+  int PassSubtarget = 1;
+}
+
 def AMDGPUAsmVariants {
   string Default = "Default";
   int Default_ID = 0;
@@ -358,6 +362,8 @@ def AMDGPUAsmVariants {
   int SDWA_ID = 2;
   string DPP = "DPP";
   int DPP_ID = 3;
+  string Disable = "Disable";
+  int Disable_ID = 4;
 }
 
 def DefaultAMDGPUAsmParserVariant : AsmParserVariant {
@@ -388,6 +394,7 @@ def AMDGPU : Target {
                                 VOP3AsmParserVariant,
                                 SDWAAsmParserVariant,
                                 DPPAsmParserVariant];
+  let AssemblyWriters = [AMDGPUAsmWriter];
 }
 
 // Dummy Instruction itineraries for pseudo instructions

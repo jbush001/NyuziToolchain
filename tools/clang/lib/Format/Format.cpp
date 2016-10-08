@@ -613,7 +613,8 @@ FormatStyle getGoogleStyle(FormatStyle::LanguageKind Language) {
     GoogleStyle.AllowShortFunctionsOnASingleLine = FormatStyle::SFS_Empty;
     GoogleStyle.AlwaysBreakBeforeMultilineStrings = false;
     GoogleStyle.BreakBeforeTernaryOperators = false;
-    GoogleStyle.CommentPragmas = "@(export|requirecss|return|see|visibility) ";
+    GoogleStyle.CommentPragmas =
+        "(taze:|@(export|requirecss|return|returns|see|visibility)) ";
     GoogleStyle.MaxEmptyLinesToKeep = 3;
     GoogleStyle.NamespaceIndentation = FormatStyle::NI_All;
     GoogleStyle.SpacesInContainerLiterals = false;
@@ -1019,6 +1020,8 @@ public:
       if (Line->Affected) {
         cleanupRight(Line->First, tok::comma, tok::comma);
         cleanupRight(Line->First, TT_CtorInitializerColon, tok::comma);
+        cleanupRight(Line->First, tok::l_paren, tok::comma);
+        cleanupLeft(Line->First, tok::comma, tok::r_paren);
         cleanupLeft(Line->First, TT_CtorInitializerComma, tok::l_brace);
         cleanupLeft(Line->First, TT_CtorInitializerColon, tok::l_brace);
       }
@@ -1038,11 +1041,12 @@ private:
 
   // Iterate through all lines and remove any empty (nested) namespaces.
   void checkEmptyNamespace(SmallVectorImpl<AnnotatedLine *> &AnnotatedLines) {
+    std::set<unsigned> DeletedLines;
     for (unsigned i = 0, e = AnnotatedLines.size(); i != e; ++i) {
       auto &Line = *AnnotatedLines[i];
       if (Line.startsWith(tok::kw_namespace) ||
           Line.startsWith(tok::kw_inline, tok::kw_namespace)) {
-        checkEmptyNamespace(AnnotatedLines, i, i);
+        checkEmptyNamespace(AnnotatedLines, i, i, DeletedLines);
       }
     }
 
@@ -1060,7 +1064,8 @@ private:
   // sets \p NewLine to the last line checked.
   // Returns true if the current namespace is empty.
   bool checkEmptyNamespace(SmallVectorImpl<AnnotatedLine *> &AnnotatedLines,
-                           unsigned CurrentLine, unsigned &NewLine) {
+                           unsigned CurrentLine, unsigned &NewLine,
+                           std::set<unsigned> &DeletedLines) {
     unsigned InitLine = CurrentLine, End = AnnotatedLines.size();
     if (Style.BraceWrapping.AfterNamespace) {
       // If the left brace is in a new line, we should consume it first so that
@@ -1080,7 +1085,8 @@ private:
       if (AnnotatedLines[CurrentLine]->startsWith(tok::kw_namespace) ||
           AnnotatedLines[CurrentLine]->startsWith(tok::kw_inline,
                                                   tok::kw_namespace)) {
-        if (!checkEmptyNamespace(AnnotatedLines, CurrentLine, NewLine))
+        if (!checkEmptyNamespace(AnnotatedLines, CurrentLine, NewLine,
+                                 DeletedLines))
           return false;
         CurrentLine = NewLine;
         continue;
@@ -1205,8 +1211,6 @@ private:
 
   // Tokens to be deleted.
   std::set<FormatToken *, FormatTokenLess> DeletedTokens;
-  // The line numbers of lines to be deleted.
-  std::set<unsigned> DeletedLines;
 };
 
 struct IncludeDirective {
@@ -1501,8 +1505,12 @@ formatReplacements(StringRef Code, const tooling::Replacements &Replaces,
 namespace {
 
 inline bool isHeaderInsertion(const tooling::Replacement &Replace) {
-  return Replace.getOffset() == UINT_MAX &&
+  return Replace.getOffset() == UINT_MAX && Replace.getLength() == 0 &&
          llvm::Regex(IncludeRegexPattern).match(Replace.getReplacementText());
+}
+
+inline bool isHeaderDeletion(const tooling::Replacement &Replace) {
+  return Replace.getOffset() == UINT_MAX && Replace.getLength() == 1;
 }
 
 void skipComments(Lexer &Lex, Token &Tok) {
@@ -1545,6 +1553,12 @@ unsigned getOffsetAfterHeaderGuardsAndComments(StringRef FileName,
   return AfterComments;
 }
 
+bool isDeletedHeader(llvm::StringRef HeaderName,
+                     const std::set<llvm::StringRef> HeadersToDelete) {
+  return HeadersToDelete.find(HeaderName) != HeadersToDelete.end() ||
+         HeadersToDelete.find(HeaderName.trim("\"<>")) != HeadersToDelete.end();
+}
+
 // FIXME: we also need to insert a '\n' at the end of the code if we have an
 // insertion with offset Code.size(), and there is no '\n' at the end of the
 // code.
@@ -1558,12 +1572,15 @@ fixCppIncludeInsertions(StringRef Code, const tooling::Replacements &Replaces,
     return Replaces;
 
   tooling::Replacements HeaderInsertions;
+  std::set<llvm::StringRef> HeadersToDelete;
   tooling::Replacements Result;
   for (const auto &R : Replaces) {
     if (isHeaderInsertion(R)) {
       // Replacements from \p Replaces must be conflict-free already, so we can
       // simply consume the error.
       llvm::consumeError(HeaderInsertions.add(R));
+    } else if (isHeaderDeletion(R)) {
+      HeadersToDelete.insert(R.getReplacementText());
     } else if (R.getOffset() == UINT_MAX) {
       llvm::errs() << "Insertions other than header #include insertion are "
                       "not supported! "
@@ -1572,7 +1589,7 @@ fixCppIncludeInsertions(StringRef Code, const tooling::Replacements &Replaces,
       llvm::consumeError(Result.add(R));
     }
   }
-  if (HeaderInsertions.empty())
+  if (HeaderInsertions.empty() && HeadersToDelete.empty())
     return Replaces;
 
   llvm::Regex IncludeRegex(IncludeRegexPattern);
@@ -1602,6 +1619,7 @@ fixCppIncludeInsertions(StringRef Code, const tooling::Replacements &Replaces,
   for (auto Line : Lines) {
     NextLineOffset = std::min(Code.size(), Offset + Line.size() + 1);
     if (IncludeRegex.match(Line, &Matches)) {
+      // The header name with quotes or angle brackets.
       StringRef IncludeName = Matches[2];
       ExistingIncludes.insert(IncludeName);
       int Category = Categories.getIncludePriority(
@@ -1609,6 +1627,19 @@ fixCppIncludeInsertions(StringRef Code, const tooling::Replacements &Replaces,
       CategoryEndOffsets[Category] = NextLineOffset;
       if (FirstIncludeOffset < 0)
         FirstIncludeOffset = Offset;
+      if (isDeletedHeader(IncludeName, HeadersToDelete)) {
+        // If this is the last line without trailing newline, we need to make
+        // sure we don't delete across the file boundary.
+        unsigned Length = std::min(Line.size() + 1, Code.size() - Offset);
+        llvm::Error Err =
+            Result.add(tooling::Replacement(FileName, Offset, Length, ""));
+        if (Err) {
+          // Ignore the deletion on conflict.
+          llvm::errs() << "Failed to add header deletion replacement for "
+                       << IncludeName << ": " << llvm::toString(std::move(Err))
+                       << "\n";
+        }
+      }
     }
     Offset = NextLineOffset;
   }
@@ -1632,6 +1663,7 @@ fixCppIncludeInsertions(StringRef Code, const tooling::Replacements &Replaces,
     if (CategoryEndOffsets.find(*I) == CategoryEndOffsets.end())
       CategoryEndOffsets[*I] = CategoryEndOffsets[*std::prev(I)];
 
+  bool NeedNewLineAtEnd = !Code.empty() && Code.back() != '\n';
   for (const auto &R : HeaderInsertions) {
     auto IncludeDirective = R.getReplacementText();
     bool Matched = IncludeRegex.match(IncludeDirective, &Matches);
@@ -1650,10 +1682,18 @@ fixCppIncludeInsertions(StringRef Code, const tooling::Replacements &Replaces,
     std::string NewInclude = !IncludeDirective.endswith("\n")
                                  ? (IncludeDirective + "\n").str()
                                  : IncludeDirective.str();
+    // When inserting headers at end of the code, also append '\n' to the code
+    // if it does not end with '\n'.
+    if (NeedNewLineAtEnd && Offset == Code.size()) {
+      NewInclude = "\n" + NewInclude;
+      NeedNewLineAtEnd = false;
+    }
     auto NewReplace = tooling::Replacement(FileName, Offset, 0, NewInclude);
     auto Err = Result.add(NewReplace);
     if (Err) {
       llvm::consumeError(std::move(Err));
+      unsigned NewOffset = Result.getShiftedCodePosition(Offset);
+      NewReplace = tooling::Replacement(FileName, NewOffset, 0, NewInclude);
       Result = Result.merge(tooling::Replacements(NewReplace));
     }
   }

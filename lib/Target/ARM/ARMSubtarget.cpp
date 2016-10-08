@@ -101,6 +101,11 @@ ARMSubtarget::ARMSubtarget(const Triple &TT, const std::string &CPU,
                           : (ARMBaseInstrInfo *)new Thumb2InstrInfo(*this)),
       TLInfo(TM, *this) {}
 
+bool ARMSubtarget::isXRaySupported() const {
+  // We don't currently suppport Thumb, but Windows requires Thumb.
+  return hasV6Ops() && hasARMOps() && !isTargetWindows();
+}
+
 void ARMSubtarget::initializeEnvironment() {
   // MCAsmInfo isn't always present (e.g. in opt) so we can't initialize this
   // directly from it, but we can try to make sure they're consistent when both
@@ -239,6 +244,7 @@ void ARMSubtarget::initSubtargetFeatures(StringRef CPU, StringRef FS) {
   case CortexR7:
   case CortexM3:
   case ExynosM1:
+  case CortexR52:
     break;
   case Krait:
     PreISelOperandLatencyAdjustment = 1;

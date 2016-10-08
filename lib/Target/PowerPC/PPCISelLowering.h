@@ -50,6 +50,10 @@ namespace llvm {
       /// unsigned integers.
       FCTIDUZ, FCTIWUZ,
 
+      /// VEXTS, ByteWidth - takes an input in VSFRC and produces an output in
+      /// VSFRC that is sign-extended from ByteWidth to a 64-byte integer.
+      VEXTS,
+
       /// Reciprocal estimate instructions (unary FP ops).
       FRE, FRSQRTE,
 
@@ -365,6 +369,16 @@ namespace llvm {
       /// destination 64-bit register.
       LFIWZX,
 
+      /// GPRC, CHAIN = LXSIZX, CHAIN, Ptr, ByteWidth - This is a load of an
+      /// integer smaller than 64 bits into a VSR. The integer is zero-extended.
+      /// This can be used for converting loaded integers to floating point.
+      LXSIZX,
+
+      /// STXSIX - The STXSI[bh]X instruction. The first operand is an input
+      /// chain, then an f64 value to store, then an address to store it to,
+      /// followed by a byte-width for the store.
+      STXSIX,
+
       /// VSRC, CHAIN = LXVD2X_LE CHAIN, Ptr - Occurs only for little endian.
       /// Maps directly to an lxvd2x instruction that will be followed by
       /// an xxswapd.
@@ -474,7 +488,7 @@ namespace llvm {
     /// then the VPERM for the shuffle. All in all a very slow sequence.
     TargetLoweringBase::LegalizeTypeAction getPreferredVectorAction(EVT VT)
       const override {
-      if (VT.getVectorElementType().getSizeInBits() % 8 == 0)
+      if (VT.getScalarSizeInBits() % 8 == 0)
         return TypeWidenVector;
       return TargetLoweringBase::getPreferredVectorAction(VT);
     }
@@ -849,6 +863,7 @@ namespace llvm {
     SDValue LowerSRA_PARTS(SDValue Op, SelectionDAG &DAG) const;
     SDValue LowerBUILD_VECTOR(SDValue Op, SelectionDAG &DAG) const;
     SDValue LowerVECTOR_SHUFFLE(SDValue Op, SelectionDAG &DAG) const;
+    SDValue LowerINSERT_VECTOR_ELT(SDValue Op, SelectionDAG &DAG) const;
     SDValue LowerEXTRACT_VECTOR_ELT(SDValue Op, SelectionDAG &DAG) const;
     SDValue LowerINTRINSIC_WO_CHAIN(SDValue Op, SelectionDAG &DAG) const;
     SDValue LowerSCALAR_TO_VECTOR(SDValue Op, SelectionDAG &DAG) const;

@@ -167,6 +167,8 @@ private:
 
   bool translateSelect(const User &U);
 
+  bool translateGetElementPtr(const User &U);
+
   /// Translate return (ret) instruction.
   /// The target needs to implement CallLowering::lowerReturn for
   /// this to succeed.
@@ -282,7 +284,6 @@ private:
   bool translateCleanupRet(const User &U) { return false; }
   bool translateCatchRet(const User &U) { return false; }
   bool translateCatchSwitch(const User &U) { return false; }
-  bool translateGetElementPtr(const User &U) { return false; }
   bool translateFence(const User &U) { return false; }
   bool translateAtomicCmpXchg(const User &U) { return false; }
   bool translateAtomicRMW(const User &U) { return false; }
@@ -341,9 +342,7 @@ public:
   // Ctor, nothing fancy.
   IRTranslator();
 
-  const char *getPassName() const override {
-    return "IRTranslator";
-  }
+  StringRef getPassName() const override { return "IRTranslator"; }
 
   void getAnalysisUsage(AnalysisUsage &AU) const override;
 

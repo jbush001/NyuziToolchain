@@ -45,6 +45,7 @@ class ItaniumCXXABI : public CodeGen::CGCXXABI {
 protected:
   bool UseARMMethodPtrABI;
   bool UseARMGuardVarABI;
+  bool Use32BitVTableOffsetABI;
 
   ItaniumMangleContext &getMangleContext() {
     return cast<ItaniumMangleContext>(CodeGen::CGCXXABI::getMangleContext());
@@ -55,7 +56,8 @@ public:
                 bool UseARMMethodPtrABI = false,
                 bool UseARMGuardVarABI = false) :
     CGCXXABI(CGM), UseARMMethodPtrABI(UseARMMethodPtrABI),
-    UseARMGuardVarABI(UseARMGuardVarABI) { }
+    UseARMGuardVarABI(UseARMGuardVarABI),
+    Use32BitVTableOffsetABI(false) { }
 
   bool classifyReturnType(CGFunctionInfo &FI) const override;
 
@@ -168,8 +170,8 @@ public:
   emitTerminateForUnexpectedException(CodeGenFunction &CGF,
                                       llvm::Value *Exn) override;
 
-  void EmitFundamentalRTTIDescriptor(QualType Type);
-  void EmitFundamentalRTTIDescriptors();
+  void EmitFundamentalRTTIDescriptor(QualType Type, bool DLLExport);
+  void EmitFundamentalRTTIDescriptors(bool DLLExport);
   llvm::Constant *getAddrOfRTTIDescriptor(QualType Ty) override;
   CatchTypeInfo
   getAddrOfCXXCatchHandlerType(QualType Ty,
@@ -425,7 +427,9 @@ public:
 
 class iOS64CXXABI : public ARMCXXABI {
 public:
-  iOS64CXXABI(CodeGen::CodeGenModule &CGM) : ARMCXXABI(CGM) {}
+  iOS64CXXABI(CodeGen::CodeGenModule &CGM) : ARMCXXABI(CGM) {
+    Use32BitVTableOffsetABI = true;
+  }
 
   // ARM64 libraries are prepared for non-unique RTTI.
   bool shouldRTTIBeUnique() const override { return false; }
@@ -579,9 +583,15 @@ llvm::Value *ItaniumCXXABI::EmitLoadOfMemberFunctionPointer(
     CGF.GetVTablePtr(Address(This, VTablePtrAlign), VTableTy, RD);
 
   // Apply the offset.
+  // On ARM64, to reserve extra space in virtual member function pointers,
+  // we only pay attention to the low 32 bits of the offset.
   llvm::Value *VTableOffset = FnAsInt;
   if (!UseARMMethodPtrABI)
     VTableOffset = Builder.CreateSub(VTableOffset, ptrdiff_1);
+  if (Use32BitVTableOffsetABI) {
+    VTableOffset = Builder.CreateTrunc(VTableOffset, CGF.Int32Ty);
+    VTableOffset = Builder.CreateZExt(VTableOffset, CGM.PtrDiffTy);
+  }
   VTable = Builder.CreateGEP(VTable, VTableOffset);
 
   // Load the virtual function to call.
@@ -1446,7 +1456,8 @@ void ItaniumCXXABI::EmitDestructorCall(CodeGenFunction &CGF,
     Callee = CGM.getAddrOfCXXStructor(DD, getFromDtorType(Type));
 
   CGF.EmitCXXMemberOrOperatorCall(DD, Callee, ReturnValueSlot(),
-                                  This.getPointer(), VTT, VTTTy, nullptr);
+                                  This.getPointer(), VTT, VTTTy,
+                                  nullptr, nullptr);
 }
 
 void ItaniumCXXABI::emitVTableDefinitions(CodeGenVTables &CGVT,
@@ -1489,7 +1500,7 @@ void ItaniumCXXABI::emitVTableDefinitions(CodeGenVTables &CGVT,
       isa<NamespaceDecl>(DC) && cast<NamespaceDecl>(DC)->getIdentifier() &&
       cast<NamespaceDecl>(DC)->getIdentifier()->isStr("__cxxabiv1") &&
       DC->getParent()->isTranslationUnit())
-    EmitFundamentalRTTIDescriptors();
+    EmitFundamentalRTTIDescriptors(RD->hasAttr<DLLExportAttr>());
 
   if (!VTable->isDeclarationForLinker())
     CGM.EmitVTableTypeMetadata(VTable, VTLayout);
@@ -1626,7 +1637,7 @@ llvm::Value *ItaniumCXXABI::EmitVirtualDestructorCall(
 
   CGF.EmitCXXMemberOrOperatorCall(Dtor, Callee, ReturnValueSlot(),
                                   This.getPointer(), /*ImplicitParam=*/nullptr,
-                                  QualType(), CE);
+                                  QualType(), CE, nullptr);
   return nullptr;
 }
 
@@ -2461,7 +2472,9 @@ public:
   /// BuildTypeInfo - Build the RTTI type info struct for the given type.
   ///
   /// \param Force - true to force the creation of this RTTI value
-  llvm::Constant *BuildTypeInfo(QualType Ty, bool Force = false);
+  /// \param DLLExport - true to mark the RTTI value as DLLExport
+  llvm::Constant *BuildTypeInfo(QualType Ty, bool Force = false,
+                                bool DLLExport = false);
 };
 }
 
@@ -2893,7 +2906,8 @@ static llvm::GlobalVariable::LinkageTypes getTypeInfoLinkage(CodeGenModule &CGM,
   llvm_unreachable("Invalid linkage!");
 }
 
-llvm::Constant *ItaniumRTTIBuilder::BuildTypeInfo(QualType Ty, bool Force) {
+llvm::Constant *ItaniumRTTIBuilder::BuildTypeInfo(QualType Ty, bool Force,
+                                                  bool DLLExport) {
   // We want to operate on the canonical type.
   Ty = Ty.getCanonicalType();
 
@@ -3078,6 +3092,8 @@ llvm::Constant *ItaniumRTTIBuilder::BuildTypeInfo(QualType Ty, bool Force) {
     llvmVisibility = CodeGenModule::GetLLVMVisibility(Ty->getVisibility());
   TypeName->setVisibility(llvmVisibility);
   GV->setVisibility(llvmVisibility);
+  if (DLLExport)
+    GV->setDLLStorageClass(llvm::GlobalValue::DLLExportStorageClass);
 
   return llvm::ConstantExpr::getBitCast(GV, CGM.Int8PtrTy);
 }
@@ -3359,15 +3375,18 @@ llvm::Constant *ItaniumCXXABI::getAddrOfRTTIDescriptor(QualType Ty) {
   return ItaniumRTTIBuilder(*this).BuildTypeInfo(Ty);
 }
 
-void ItaniumCXXABI::EmitFundamentalRTTIDescriptor(QualType Type) {
+void ItaniumCXXABI::EmitFundamentalRTTIDescriptor(QualType Type,
+                                                  bool DLLExport) {
   QualType PointerType = getContext().getPointerType(Type);
   QualType PointerTypeConst = getContext().getPointerType(Type.withConst());
-  ItaniumRTTIBuilder(*this).BuildTypeInfo(Type, true);
-  ItaniumRTTIBuilder(*this).BuildTypeInfo(PointerType, true);
-  ItaniumRTTIBuilder(*this).BuildTypeInfo(PointerTypeConst, true);
+  ItaniumRTTIBuilder(*this).BuildTypeInfo(Type, /*Force=*/true, DLLExport);
+  ItaniumRTTIBuilder(*this).BuildTypeInfo(PointerType, /*Force=*/true,
+                                          DLLExport);
+  ItaniumRTTIBuilder(*this).BuildTypeInfo(PointerTypeConst, /*Force=*/true,
+                                          DLLExport);
 }
 
-void ItaniumCXXABI::EmitFundamentalRTTIDescriptors() {
+void ItaniumCXXABI::EmitFundamentalRTTIDescriptors(bool DLLExport) {
   // Types added here must also be added to TypeInfoIsInStandardLibrary.
   QualType FundamentalTypes[] = {
       getContext().VoidTy,             getContext().NullPtrTy,
@@ -3384,7 +3403,7 @@ void ItaniumCXXABI::EmitFundamentalRTTIDescriptors() {
       getContext().Char16Ty,           getContext().Char32Ty
   };
   for (const QualType &FundamentalType : FundamentalTypes)
-    EmitFundamentalRTTIDescriptor(FundamentalType);
+    EmitFundamentalRTTIDescriptor(FundamentalType, DLLExport);
 }
 
 /// What sort of uniqueness rules should we use for the RTTI for the

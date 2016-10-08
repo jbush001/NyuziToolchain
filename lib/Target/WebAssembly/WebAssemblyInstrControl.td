@@ -18,14 +18,13 @@ let isBranch = 1, isTerminator = 1, hasCtrlDep = 1 in {
 // The condition operand is a boolean value which WebAssembly represents as i32.
 def BR_IF : I<(outs), (ins bb_op:$dst, I32:$cond),
               [(brcond I32:$cond, bb:$dst)],
-               "br_if   \t$dst, $cond">;
+               "br_if   \t$dst, $cond", 0x07>;
 let isCodeGenOnly = 1 in
-def BR_UNLESS : I<(outs), (ins bb_op:$dst, I32:$cond), [],
-                   "br_unless\t$dst, $cond">;
+def BR_UNLESS : I<(outs), (ins bb_op:$dst, I32:$cond), []>;
 let isBarrier = 1 in {
 def BR   : I<(outs), (ins bb_op:$dst),
              [(br bb:$dst)],
-             "br      \t$dst">;
+             "br      \t$dst", 0x06>;
 } // isBarrier = 1
 } // isBranch = 1, isTerminator = 1, hasCtrlDep = 1
 
@@ -46,7 +45,7 @@ let Defs = [ARGUMENTS] in {
 let isTerminator = 1, hasCtrlDep = 1, isBarrier = 1 in {
 def BR_TABLE_I32 : I<(outs), (ins I32:$index, variable_ops),
                      [(WebAssemblybr_table I32:$index)],
-                     "br_table \t$index"> {
+                     "br_table \t$index", 0x08> {
   let TSFlags{0} = 1;
   let TSFlags{1} = 1;
 }
@@ -59,14 +58,14 @@ def BR_TABLE_I64 : I<(outs), (ins I64:$index, variable_ops),
 } // isTerminator = 1, hasCtrlDep = 1, isBarrier = 1
 
 // Placemarkers to indicate the start or end of a block or loop scope. These
-// use/clobber EXPR_STACK to prevent them from being moved into the middle of
+// use/clobber VALUE_STACK to prevent them from being moved into the middle of
 // an expression tree.
-let Uses = [EXPR_STACK], Defs = [EXPR_STACK] in {
-def BLOCK     : I<(outs), (ins), [], "block">;
-def LOOP      : I<(outs), (ins), [], "loop">;
+let Uses = [VALUE_STACK], Defs = [VALUE_STACK] in {
+def BLOCK     : I<(outs), (ins Signature:$sig), [], "block   \t$sig", 0x01>;
+def LOOP      : I<(outs), (ins Signature:$sig), [], "loop    \t$sig", 0x02>;
 def END_BLOCK : I<(outs), (ins), [], "end_block">;
 def END_LOOP  : I<(outs), (ins), [], "end_loop">;
-} // Uses = [EXPR_STACK], Defs = [EXPR_STACK]
+} // Uses = [VALUE_STACK], Defs = [VALUE_STACK]
 
 multiclass RETURN<WebAssemblyRegClass vt> {
   def RETURN_#vt : I<(outs), (ins vt:$val), [(WebAssemblyreturn vt:$val)],
@@ -88,6 +87,7 @@ multiclass SIMD_RETURN<ValueType vt> {
 }
 
 let isTerminator = 1, hasCtrlDep = 1, isBarrier = 1 in {
+
 let isReturn = 1 in {
   defm : RETURN<I32>;
   defm : RETURN<I64>;
@@ -104,7 +104,9 @@ let isReturn = 1 in {
   let isCodeGenOnly = 1 in
   def FALLTHROUGH_RETURN_VOID : I<(outs), (ins), []>;
 } // isReturn = 1
-  def UNREACHABLE : I<(outs), (ins), [(trap)], "unreachable">;
+
+def UNREACHABLE : I<(outs), (ins), [(trap)], "unreachable">;
+
 } // isTerminator = 1, hasCtrlDep = 1, isBarrier = 1
 
 } // Defs = [ARGUMENTS]

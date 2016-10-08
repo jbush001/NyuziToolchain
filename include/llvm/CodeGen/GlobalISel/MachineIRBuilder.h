@@ -111,6 +111,16 @@ public:
   /// \return a MachineInstrBuilder for the newly created instruction.
   MachineInstrBuilder buildInstr(unsigned Opcode);
 
+  /// Build but don't insert <empty> = \p Opcode <empty>.
+  ///
+  /// \pre setMF, setBasicBlock or setMI  must have been called.
+  ///
+  /// \return a MachineInstrBuilder for the newly created instruction.
+  MachineInstrBuilder buildInstrNoInsert(unsigned Opcode);
+
+  /// Insert an existing instruction at the insertion point.
+  MachineInstrBuilder insertInstr(MachineInstrBuilder MIB);
+
   /// Build and insert \p Res<def> = G_FRAME_INDEX \p Idx
   ///
   /// G_FRAME_INDEX materializes the address of an alloca value or other
@@ -121,6 +131,18 @@ public:
   ///
   /// \return a MachineInstrBuilder for the newly created instruction.
   MachineInstrBuilder buildFrameIndex(unsigned Res, int Idx);
+
+  /// Build and insert \p Res<def> = G_GLOBAL_VALUE \p GV
+  ///
+  /// G_GLOBAL_VALUE materializes the address of the specified global
+  /// into \p Res.
+  ///
+  /// \pre setBasicBlock or setMI must have been called.
+  /// \pre \p Res must be a generic virtual register with pointer type
+  ///      in the same address space as \p GV.
+  ///
+  /// \return a MachineInstrBuilder for the newly created instruction.
+  MachineInstrBuilder buildGlobalValue(unsigned Res, const GlobalValue *GV);
 
   /// Build and insert \p Res<def> = G_ADD \p Op0, \p Op1
   ///
@@ -159,6 +181,20 @@ public:
   ///
   /// \return a MachineInstrBuilder for the newly created instruction.
   MachineInstrBuilder buildMul(unsigned Res, unsigned Op0,
+                               unsigned Op1);
+
+  /// Build and insert \p Res<def> = G_GEP \p Op0, \p Op1
+  ///
+  /// G_GEP adds \p Op1 bytes to the pointer specified by \p Op0,
+  /// storing the resulting pointer in \p Res.
+  ///
+  /// \pre setBasicBlock or setMI must have been called.
+  /// \pre \p Res and \p Op0 must be generic virtual registers with pointer
+  ///      type.
+  /// \pre \p Op1 must be a generic virtual register with scalar type.
+  ///
+  /// \return a MachineInstrBuilder for the newly created instruction.
+  MachineInstrBuilder buildGEP(unsigned Res, unsigned Op0,
                                unsigned Op1);
 
   /// Build and insert \p Res<def>, \p CarryOut<def> = G_UADDE \p Op0,
@@ -220,6 +256,16 @@ public:
   ///
   /// \return The newly created instruction.
   MachineInstrBuilder buildZExt(unsigned Res, unsigned Op);
+
+  /// Build and insert \p Res<def> = G_SEXT \p Op, \p Res = G_TRUNC \p Op, or
+  /// \p Res = COPY \p Op depending on the differing sizes of \p Res and \p Op.
+  ///  ///
+  /// \pre setBasicBlock or setMI must have been called.
+  /// \pre \p Res must be a generic virtual register with scalar or vector type.
+  /// \pre \p Op must be a generic virtual register with scalar or vector type.
+  ///
+  /// \return The newly created instruction.
+  MachineInstrBuilder buildSExtOrTrunc(unsigned Res, unsigned Op);
 
   /// Build and insert G_BR \p Dest
   ///
@@ -327,7 +373,7 @@ public:
   /// \return a MachineInstrBuilder for the newly created instruction.
   MachineInstrBuilder buildSequence(unsigned Res,
                                     ArrayRef<unsigned> Ops,
-                                    ArrayRef<unsigned> Indices);
+                                    ArrayRef<uint64_t> Indices);
 
   void addUsesWithIndices(MachineInstrBuilder MIB) {}
 
@@ -401,8 +447,8 @@ public:
   /// \pre \p Res must be a generic virtual register with scalar or
   ///      vector type. Typically this starts as s1 or <N x s1>.
   /// \pre \p Op0 and Op1 must be generic virtual registers with the
-  ///      same number of elements as \p Res (or scalar, if \p Res is
-  ///      scalar).
+  ///      same number of elements as \p Res. If \p Res is a scalar,
+  ///      \p Op0 must be either a scalar or pointer.
   /// \pre \p Pred must be an integer predicate.
   ///
   /// \return a MachineInstrBuilder for the newly created instruction.

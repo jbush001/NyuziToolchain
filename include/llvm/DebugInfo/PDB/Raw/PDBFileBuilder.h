@@ -36,17 +36,18 @@ public:
   PDBFileBuilder(const PDBFileBuilder &) = delete;
   PDBFileBuilder &operator=(const PDBFileBuilder &) = delete;
 
-  Error initialize(const msf::SuperBlock &Super);
+  Error initialize(uint32_t BlockSize);
 
   msf::MSFBuilder &getMsfBuilder();
   InfoStreamBuilder &getInfoBuilder();
   DbiStreamBuilder &getDbiBuilder();
   TpiStreamBuilder &getTpiBuilder();
+  TpiStreamBuilder &getIpiBuilder();
 
   Expected<std::unique_ptr<PDBFile>>
   build(std::unique_ptr<msf::WritableStream> PdbFileBuffer);
 
-  Error commit(const msf::WritableStream &Buffer);
+  Error commit(StringRef Filename);
 
 private:
   Expected<msf::MSFLayout> finalizeMsfLayout() const;
@@ -57,6 +58,7 @@ private:
   std::unique_ptr<InfoStreamBuilder> Info;
   std::unique_ptr<DbiStreamBuilder> Dbi;
   std::unique_ptr<TpiStreamBuilder> Tpi;
+  std::unique_ptr<TpiStreamBuilder> Ipi;
 };
 }
 }
