@@ -210,42 +210,9 @@ struct d_h {
   __host__ ~d_h() {} // expected-error {{destructor cannot be redeclared}}
 };
 
-// H/D overloading is OK
-struct d_dh {
-  __device__ ~d_dh() {}
-  __host__ ~d_dh() {}
-};
-
 // HD is OK
 struct d_hd {
   __host__ __device__ ~d_hd() {}
-};
-
-// Mixing H/D and HD is not allowed.
-struct d_dhhd {
-  __device__ ~d_dhhd() {}
-  __host__ ~d_dhhd() {} // expected-note {{previous declaration is here}}
-  __host__ __device__ ~d_dhhd() {} // expected-error {{destructor cannot be redeclared}}
-};
-
-struct d_hhd {
-  __host__ ~d_hhd() {} // expected-note {{previous declaration is here}}
-  __host__ __device__ ~d_hhd() {} // expected-error {{destructor cannot be redeclared}}
-};
-
-struct d_hdh {
-  __host__ __device__ ~d_hdh() {} // expected-note {{previous declaration is here}}
-  __host__ ~d_hdh() {} // expected-error {{destructor cannot be redeclared}}
-};
-
-struct d_dhd {
-  __device__ ~d_dhd() {} // expected-note {{previous declaration is here}}
-  __host__ __device__ ~d_dhd() {} // expected-error {{destructor cannot be redeclared}}
-};
-
-struct d_hdd {
-  __host__ __device__ ~d_hdd() {} // expected-note {{previous declaration is here}}
-  __device__ ~d_hdd() {} // expected-error {{destructor cannot be redeclared}}
 };
 
 // Test overloading of member functions
@@ -378,4 +345,15 @@ __host__ __device__ void test_host_device_single_side_overloading() {
   DeviceReturnTy2 ret2 = device_only_function(1.0f);
   HostReturnTy ret3 = host_only_function(1);
   HostReturnTy2 ret4 = host_only_function(1.0f);
+}
+
+// Verify that we allow overloading function templates.
+template <typename T> __host__ T template_overload(const T &a) { return a; };
+template <typename T> __device__ T template_overload(const T &a) { return a; };
+
+__host__ void test_host_template_overload() {
+  template_overload(1); // OK. Attribute-based overloading picks __host__ variant.
+}
+__device__ void test_device_template_overload() {
+  template_overload(1); // OK. Attribute-based overloading picks __device__ variant.
 }

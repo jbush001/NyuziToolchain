@@ -41,6 +41,7 @@
 #include "llvm/Support/Process.h"
 #include "llvm/Support/Program.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/Support/ScopedPrinter.h"
 #include "llvm/Support/TargetParser.h"
 
 #ifdef LLVM_ON_UNIX
@@ -53,7 +54,7 @@ using namespace clang;
 using namespace llvm::opt;
 
 static void handleTargetFeaturesGroup(const ArgList &Args,
-                                      std::vector<const char *> &Features,
+                                      std::vector<StringRef> &Features,
                                       OptSpecifier Group) {
   for (const Arg *A : Args.filtered(Group)) {
     StringRef Name = A->getOption().getName();
@@ -108,8 +109,6 @@ static const char *getSparcAsmModeForCPU(StringRef Name,
   }
 }
 
-/// CheckPreprocessingOptions - Perform some validation of preprocessing
-/// arguments that is shared with gcc.
 static void CheckPreprocessingOptions(const Driver &D, const ArgList &Args) {
   if (Arg *A = Args.getLastArg(options::OPT_C, options::OPT_CC)) {
     if (!Args.hasArg(options::OPT_E) && !Args.hasArg(options::OPT__SLASH_P) &&
@@ -121,8 +120,6 @@ static void CheckPreprocessingOptions(const Driver &D, const ArgList &Args) {
   }
 }
 
-/// CheckCodeGenerationOptions - Perform some validation of code generation
-/// arguments that is shared with gcc.
 static void CheckCodeGenerationOptions(const Driver &D, const ArgList &Args) {
   // In gcc, only ARM checks this, but it seems reasonable to check universally.
   if (Args.hasArg(options::OPT_static))
@@ -697,7 +694,7 @@ static void getARMArchCPUFromArgs(const ArgList &Args, llvm::StringRef &Arch,
 // FIXME: Use ARMTargetParser.
 static void getARMHWDivFeatures(const Driver &D, const Arg *A,
                                 const ArgList &Args, StringRef HWDiv,
-                                std::vector<const char *> &Features) {
+                                std::vector<StringRef> &Features) {
   unsigned HWDivID = llvm::ARM::parseHWDiv(HWDiv);
   if (!llvm::ARM::getHWDivFeatures(HWDivID, Features))
     D.Diag(diag::err_drv_clang_unsupported) << A->getAsString(Args);
@@ -706,7 +703,7 @@ static void getARMHWDivFeatures(const Driver &D, const Arg *A,
 // Handle -mfpu=.
 static void getARMFPUFeatures(const Driver &D, const Arg *A,
                               const ArgList &Args, StringRef FPU,
-                              std::vector<const char *> &Features) {
+                              std::vector<StringRef> &Features) {
   unsigned FPUID = llvm::ARM::parseFPU(FPU);
   if (!llvm::ARM::getFPUFeatures(FPUID, Features))
     D.Diag(diag::err_drv_clang_unsupported) << A->getAsString(Args);
@@ -714,13 +711,13 @@ static void getARMFPUFeatures(const Driver &D, const Arg *A,
 
 // Decode ARM features from string like +[no]featureA+[no]featureB+...
 static bool DecodeARMFeatures(const Driver &D, StringRef text,
-                              std::vector<const char *> &Features) {
+                              std::vector<StringRef> &Features) {
   SmallVector<StringRef, 8> Split;
   text.split(Split, StringRef("+"), -1, false);
 
   for (StringRef Feature : Split) {
-    const char *FeatureName = llvm::ARM::getArchExtFeature(Feature);
-    if (FeatureName)
+    StringRef FeatureName = llvm::ARM::getArchExtFeature(Feature);
+    if (!FeatureName.empty())
       Features.push_back(FeatureName);
     else
       return false;
@@ -733,7 +730,7 @@ static bool DecodeARMFeatures(const Driver &D, StringRef text,
 // to handle -march=native correctly.
 static void checkARMArchName(const Driver &D, const Arg *A, const ArgList &Args,
                              llvm::StringRef ArchName,
-                             std::vector<const char *> &Features,
+                             std::vector<StringRef> &Features,
                              const llvm::Triple &Triple) {
   std::pair<StringRef, StringRef> Split = ArchName.split("+");
 
@@ -746,7 +743,7 @@ static void checkARMArchName(const Driver &D, const Arg *A, const ArgList &Args,
 // Check -mcpu=. Needs ArchName to handle -mcpu=generic.
 static void checkARMCPUName(const Driver &D, const Arg *A, const ArgList &Args,
                             llvm::StringRef CPUName, llvm::StringRef ArchName,
-                            std::vector<const char *> &Features,
+                            std::vector<StringRef> &Features,
                             const llvm::Triple &Triple) {
   std::pair<StringRef, StringRef> Split = CPUName.split("+");
 
@@ -870,7 +867,7 @@ arm::FloatABI arm::getARMFloatABI(const ToolChain &TC, const ArgList &Args) {
 static void getARMTargetFeatures(const ToolChain &TC,
                                  const llvm::Triple &Triple,
                                  const ArgList &Args,
-                                 std::vector<const char *> &Features,
+                                 std::vector<StringRef> &Features,
                                  bool ForAS) {
   const Driver &D = TC.getDriver();
 
@@ -1366,7 +1363,7 @@ static mips::FloatABI getMipsFloatABI(const Driver &D, const ArgList &Args) {
 }
 
 static void AddTargetFeature(const ArgList &Args,
-                             std::vector<const char *> &Features,
+                             std::vector<StringRef> &Features,
                              OptSpecifier OnOpt, OptSpecifier OffOpt,
                              StringRef FeatureName) {
   if (Arg *A = Args.getLastArg(OnOpt, OffOpt)) {
@@ -1379,7 +1376,7 @@ static void AddTargetFeature(const ArgList &Args,
 
 static void getMIPSTargetFeatures(const Driver &D, const llvm::Triple &Triple,
                                   const ArgList &Args,
-                                  std::vector<const char *> &Features) {
+                                  std::vector<StringRef> &Features) {
   StringRef CPUName;
   StringRef ABIName;
   mips::getMipsCPUAndABI(Args, Triple, CPUName, ABIName);
@@ -1590,19 +1587,12 @@ static std::string getPPCTargetCPU(const ArgList &Args) {
 
 static void getPPCTargetFeatures(const Driver &D, const llvm::Triple &Triple,
                                  const ArgList &Args,
-                                 std::vector<const char *> &Features) {
+                                 std::vector<StringRef> &Features) {
   handleTargetFeaturesGroup(Args, Features, options::OPT_m_ppc_Features_Group);
 
   ppc::FloatABI FloatABI = ppc::getPPCFloatABI(D, Args);
-  if (FloatABI == ppc::FloatABI::Soft &&
-      !(Triple.getArch() == llvm::Triple::ppc64 ||
-        Triple.getArch() == llvm::Triple::ppc64le))
-    Features.push_back("+soft-float");
-  else if (FloatABI == ppc::FloatABI::Soft &&
-           (Triple.getArch() == llvm::Triple::ppc64 ||
-            Triple.getArch() == llvm::Triple::ppc64le))
-    D.Diag(diag::err_drv_invalid_mfloat_abi)
-        << "soft float is not supported for ppc64";
+  if (FloatABI == ppc::FloatABI::Soft)
+    Features.push_back("-hard-float");
 
   // Altivec is a bit weird, allow overriding of the Altivec feature here.
   AddTargetFeature(Args, Features, options::OPT_faltivec,
@@ -1760,7 +1750,7 @@ sparc::FloatABI sparc::getSparcFloatABI(const Driver &D,
 }
 
 static void getSparcTargetFeatures(const Driver &D, const ArgList &Args,
-                                 std::vector<const char *> &Features) {
+                                 std::vector<StringRef> &Features) {
   sparc::FloatABI FloatABI = sparc::getSparcFloatABI(D, Args);
   if (FloatABI == sparc::FloatABI::Soft)
     Features.push_back("+soft-float");
@@ -1797,7 +1787,7 @@ static const char *getSystemZTargetCPU(const ArgList &Args) {
 }
 
 static void getSystemZTargetFeatures(const ArgList &Args,
-                                     std::vector<const char *> &Features) {
+                                     std::vector<StringRef> &Features) {
   // -m(no-)htm overrides use of the transactional-execution facility.
   if (Arg *A = Args.getLastArg(options::OPT_mhtm, options::OPT_mno_htm)) {
     if (A->getOption().matches(options::OPT_mhtm))
@@ -2002,8 +1992,19 @@ static std::string getCPUName(const ArgList &Args, const llvm::Triple &T,
   }
 }
 
+static unsigned getLTOParallelism(const ArgList &Args, const Driver &D) {
+  unsigned Parallelism = 0;
+  Arg *LtoJobsArg = Args.getLastArg(options::OPT_flto_jobs_EQ);
+  if (LtoJobsArg &&
+      StringRef(LtoJobsArg->getValue()).getAsInteger(10, Parallelism))
+    D.Diag(diag::err_drv_invalid_int_value) << LtoJobsArg->getAsString(Args)
+                                            << LtoJobsArg->getValue();
+  return Parallelism;
+}
+
 static void AddGoldPlugin(const ToolChain &ToolChain, const ArgList &Args,
-                          ArgStringList &CmdArgs, bool IsThinLTO) {
+                          ArgStringList &CmdArgs, bool IsThinLTO,
+                          const Driver &D) {
   // Tell the linker to load the plugin. This has to come before AddLinkerInputs
   // as gold requires -plugin to come before any -plugin-opt that -Wl might
   // forward.
@@ -2035,6 +2036,10 @@ static void AddGoldPlugin(const ToolChain &ToolChain, const ArgList &Args,
 
   if (IsThinLTO)
     CmdArgs.push_back("-plugin-opt=thinlto");
+
+  if (unsigned Parallelism = getLTOParallelism(Args, D))
+    CmdArgs.push_back(Args.MakeArgString(Twine("-plugin-opt=jobs=") +
+                                         llvm::to_string(Parallelism)));
 
   // If an explicit debugger tuning argument appeared, pass it along.
   if (Arg *A = Args.getLastArg(options::OPT_gTune_Group,
@@ -2181,7 +2186,7 @@ static void ParseMRecip(const Driver &D, const ArgList &Args,
 
 static void getX86TargetFeatures(const Driver &D, const llvm::Triple &Triple,
                                  const ArgList &Args,
-                                 std::vector<const char *> &Features) {
+                                 std::vector<StringRef> &Features) {
   // If -march=native, autodetect the feature list.
   if (const Arg *A = Args.getLastArg(options::OPT_march_EQ)) {
     if (StringRef(A->getValue()) == "native") {
@@ -2340,12 +2345,13 @@ void Clang::AddWebAssemblyTargetArgs(const ArgList &Args,
 
 // Decode AArch64 features from string like +[no]featureA+[no]featureB+...
 static bool DecodeAArch64Features(const Driver &D, StringRef text,
-                                  std::vector<const char *> &Features) {
+                                  std::vector<StringRef> &Features) {
   SmallVector<StringRef, 8> Split;
   text.split(Split, StringRef("+"), -1, false);
 
   for (StringRef Feature : Split) {
-    if (const char *FeatureName = llvm::AArch64::getArchExtFeature(Feature))
+    StringRef FeatureName = llvm::AArch64::getArchExtFeature(Feature);
+    if (!FeatureName.empty())
       Features.push_back(FeatureName);
     else if (Feature == "neon" || Feature == "noneon")
       D.Diag(diag::err_drv_no_neon_modifier);
@@ -2358,7 +2364,7 @@ static bool DecodeAArch64Features(const Driver &D, StringRef text,
 // Check if the CPU name and feature modifiers in -mcpu are legal. If yes,
 // decode CPU and feature.
 static bool DecodeAArch64Mcpu(const Driver &D, StringRef Mcpu, StringRef &CPU,
-                              std::vector<const char *> &Features) {
+                              std::vector<StringRef> &Features) {
   std::pair<StringRef, StringRef> Split = Mcpu.split("+");
   CPU = Split.first;
 
@@ -2381,7 +2387,7 @@ static bool DecodeAArch64Mcpu(const Driver &D, StringRef Mcpu, StringRef &CPU,
 static bool
 getAArch64ArchFeaturesFromMarch(const Driver &D, StringRef March,
                                 const ArgList &Args,
-                                std::vector<const char *> &Features) {
+                                std::vector<StringRef> &Features) {
   std::string MarchLowerCase = March.lower();
   std::pair<StringRef, StringRef> Split = StringRef(MarchLowerCase).split("+");
 
@@ -2397,7 +2403,7 @@ getAArch64ArchFeaturesFromMarch(const Driver &D, StringRef March,
 static bool
 getAArch64ArchFeaturesFromMcpu(const Driver &D, StringRef Mcpu,
                                const ArgList &Args,
-                               std::vector<const char *> &Features) {
+                               std::vector<StringRef> &Features) {
   StringRef CPU;
   std::string McpuLowerCase = Mcpu.lower();
   if (!DecodeAArch64Mcpu(D, McpuLowerCase, CPU, Features))
@@ -2409,7 +2415,7 @@ getAArch64ArchFeaturesFromMcpu(const Driver &D, StringRef Mcpu,
 static bool
 getAArch64MicroArchFeaturesFromMtune(const Driver &D, StringRef Mtune,
                                      const ArgList &Args,
-                                     std::vector<const char *> &Features) {
+                                     std::vector<StringRef> &Features) {
   std::string MtuneLowerCase = Mtune.lower();
   // Handle CPU name is 'native'.
   if (MtuneLowerCase == "native")
@@ -2424,9 +2430,9 @@ getAArch64MicroArchFeaturesFromMtune(const Driver &D, StringRef Mtune,
 static bool
 getAArch64MicroArchFeaturesFromMcpu(const Driver &D, StringRef Mcpu,
                                     const ArgList &Args,
-                                    std::vector<const char *> &Features) {
+                                    std::vector<StringRef> &Features) {
   StringRef CPU;
-  std::vector<const char *> DecodedFeature;
+  std::vector<StringRef> DecodedFeature;
   std::string McpuLowerCase = Mcpu.lower();
   if (!DecodeAArch64Mcpu(D, McpuLowerCase, CPU, DecodedFeature))
     return false;
@@ -2435,7 +2441,7 @@ getAArch64MicroArchFeaturesFromMcpu(const Driver &D, StringRef Mcpu,
 }
 
 static void getAArch64TargetFeatures(const Driver &D, const ArgList &Args,
-                                     std::vector<const char *> &Features) {
+                                     std::vector<StringRef> &Features) {
   Arg *A;
   bool success = true;
   // Enable NEON by default.
@@ -2485,7 +2491,7 @@ static void getAArch64TargetFeatures(const Driver &D, const ArgList &Args,
 }
 
 static void getHexagonTargetFeatures(const ArgList &Args,
-                                     std::vector<const char *> &Features) {
+                                     std::vector<StringRef> &Features) {
   handleTargetFeaturesGroup(Args, Features,
                             options::OPT_m_hexagon_Features_Group);
 
@@ -2500,12 +2506,12 @@ static void getHexagonTargetFeatures(const ArgList &Args,
 }
 
 static void getWebAssemblyTargetFeatures(const ArgList &Args,
-                                         std::vector<const char *> &Features) {
+                                         std::vector<StringRef> &Features) {
   handleTargetFeaturesGroup(Args, Features, options::OPT_m_wasm_Features_Group);
 }
 
 static void getAMDGPUTargetFeatures(const Driver &D, const ArgList &Args,
-                                    std::vector<const char *> &Features) {
+                                    std::vector<StringRef> &Features) {
   if (const Arg *dAbi = Args.getLastArg(options::OPT_mamdgpu_debugger_abi)) {
     StringRef value = dAbi->getValue();
     if (value == "1.0") {
@@ -2525,7 +2531,7 @@ static void getTargetFeatures(const ToolChain &TC, const llvm::Triple &Triple,
                               const ArgList &Args, ArgStringList &CmdArgs,
                               bool ForAS) {
   const Driver &D = TC.getDriver();
-  std::vector<const char *> Features;
+  std::vector<StringRef> Features;
   switch (Triple.getArch()) {
   default:
     break;
@@ -2580,22 +2586,22 @@ static void getTargetFeatures(const ToolChain &TC, const llvm::Triple &Triple,
   // Find the last of each feature.
   llvm::StringMap<unsigned> LastOpt;
   for (unsigned I = 0, N = Features.size(); I < N; ++I) {
-    const char *Name = Features[I];
+    StringRef Name = Features[I];
     assert(Name[0] == '-' || Name[0] == '+');
-    LastOpt[Name + 1] = I;
+    LastOpt[Name.drop_front(1)] = I;
   }
 
   for (unsigned I = 0, N = Features.size(); I < N; ++I) {
     // If this feature was overridden, ignore it.
-    const char *Name = Features[I];
-    llvm::StringMap<unsigned>::iterator LastI = LastOpt.find(Name + 1);
+    StringRef Name = Features[I];
+    llvm::StringMap<unsigned>::iterator LastI = LastOpt.find(Name.drop_front(1));
     assert(LastI != LastOpt.end());
     unsigned Last = LastI->second;
     if (Last != I)
       continue;
 
     CmdArgs.push_back("-target-feature");
-    CmdArgs.push_back(Name);
+    CmdArgs.push_back(Name.data());
   }
 }
 
@@ -4201,9 +4207,14 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
       Args.hasArg(options::OPT_frewrite_map_file_EQ)) {
     for (const Arg *A : Args.filtered(options::OPT_frewrite_map_file,
                                       options::OPT_frewrite_map_file_EQ)) {
-      CmdArgs.push_back("-frewrite-map-file");
-      CmdArgs.push_back(A->getValue());
-      A->claim();
+      StringRef Map = A->getValue();
+      if (!llvm::sys::fs::exists(Map)) {
+        D.Diag(diag::err_drv_no_such_file) << Map;
+      } else {
+        CmdArgs.push_back("-frewrite-map-file");
+        CmdArgs.push_back(A->getValue());
+        A->claim();
+      }
     }
   }
 
@@ -4902,6 +4913,7 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
   claimNoWarnArgs(Args);
 
   Args.AddAllArgs(CmdArgs, options::OPT_R_Group);
+
   Args.AddAllArgs(CmdArgs, options::OPT_W_Group);
   if (Args.hasFlag(options::OPT_pedantic, options::OPT_no_pedantic, false))
     CmdArgs.push_back("-pedantic");
@@ -5405,6 +5417,12 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
       CmdArgs.push_back("-fblocks-runtime-optional");
   }
 
+  if (Args.hasFlag(options::OPT_fcoroutines_ts, options::OPT_fno_coroutines_ts,
+                   false) &&
+      types::isCXX(InputType)) {
+    CmdArgs.push_back("-fcoroutines-ts");
+  }
+
   // -fmodules enables the use of precompiled modules (off by default).
   // Users can pass -fno-cxx-modules to turn off modules support for
   // C++/Objective-C++ programs.
@@ -5803,6 +5821,24 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
                    options::OPT_fno_sized_deallocation, false))
     CmdArgs.push_back("-fsized-deallocation");
 
+  // -faligned-allocation is on by default in C++17 onwards and otherwise off
+  // by default.
+  if (Arg *A = Args.getLastArg(options::OPT_faligned_allocation,
+                               options::OPT_fno_aligned_allocation,
+                               options::OPT_faligned_new_EQ)) {
+    if (A->getOption().matches(options::OPT_fno_aligned_allocation))
+      CmdArgs.push_back("-fno-aligned-allocation");
+    else
+      CmdArgs.push_back("-faligned-allocation");
+  }
+
+  // The default new alignment can be specified using a dedicated option or via
+  // a GCC-compatible option that also turns on aligned allocation.
+  if (Arg *A = Args.getLastArg(options::OPT_fnew_alignment_EQ,
+                               options::OPT_faligned_new_EQ))
+    CmdArgs.push_back(
+        Args.MakeArgString(Twine("-fnew-alignment=") + A->getValue()));
+
   // -fconstant-cfstrings is default, and may be subject to argument translation
   // on Darwin.
   if (!Args.hasFlag(options::OPT_fconstant_cfstrings,
@@ -5903,6 +5939,10 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
     CmdArgs.push_back("-fdiagnostics-show-category");
     CmdArgs.push_back(A->getValue());
   }
+
+  if (Args.hasFlag(options::OPT_fdiagnostics_show_hotness,
+                   options::OPT_fno_diagnostics_show_hotness, false))
+    CmdArgs.push_back("-fdiagnostics-show-hotness");
 
   if (const Arg *A = Args.getLastArg(options::OPT_fdiagnostics_format_EQ)) {
     CmdArgs.push_back("-fdiagnostics-format");
@@ -6083,6 +6123,33 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
     CmdArgs.push_back("-load");
     CmdArgs.push_back(A->getValue());
     A->claim();
+  }
+
+  // Setup statistics file output.
+  if (const Arg *A = Args.getLastArg(options::OPT_save_stats_EQ)) {
+    StringRef SaveStats = A->getValue();
+
+    SmallString<128> StatsFile;
+    bool DoSaveStats = false;
+    if (SaveStats == "obj") {
+      if (Output.isFilename()) {
+        StatsFile.assign(Output.getFilename());
+        llvm::sys::path::remove_filename(StatsFile);
+      }
+      DoSaveStats = true;
+    } else if (SaveStats == "cwd") {
+      DoSaveStats = true;
+    } else {
+      D.Diag(diag::err_drv_invalid_value) << A->getAsString(Args) << SaveStats;
+    }
+
+    if (DoSaveStats) {
+      StringRef BaseName = llvm::sys::path::filename(Input.getBaseInput());
+      llvm::sys::path::append(StatsFile, BaseName);
+      llvm::sys::path::replace_extension(StatsFile, "stats");
+      CmdArgs.push_back(Args.MakeArgString(Twine("-stats-file=") +
+                                           StatsFile));
+    }
   }
 
   // Forward -Xclang arguments to -cc1, and -mllvm arguments to the LLVM option
@@ -7638,7 +7705,7 @@ void cloudabi::Linker::ConstructJob(Compilation &C, const JobAction &JA,
                    options::OPT_t, options::OPT_Z_Flag, options::OPT_r});
 
   if (D.isUsingLTO())
-    AddGoldPlugin(ToolChain, Args, CmdArgs, D.getLTOMode() == LTOK_Thin);
+    AddGoldPlugin(ToolChain, Args, CmdArgs, D.getLTOMode() == LTOK_Thin, D);
 
   AddLinkerInputs(ToolChain, Inputs, Args, CmdArgs);
 
@@ -8058,6 +8125,13 @@ void darwin::Linker::ConstructJob(Compilation &C, const JobAction &JA,
     CmdArgs.push_back("-allow_stack_execute");
 
   getMachOToolChain().addProfileRTLibs(Args, CmdArgs);
+
+  if (unsigned Parallelism =
+          getLTOParallelism(Args, getToolChain().getDriver())) {
+    CmdArgs.push_back("-mllvm");
+    CmdArgs.push_back(
+        Args.MakeArgString(Twine("-threads=") + llvm::to_string(Parallelism)));
+  }
 
   if (!Args.hasArg(options::OPT_nostdlib, options::OPT_nodefaultlibs)) {
     if (getToolChain().getDriver().CCCIsCXX())
@@ -8789,7 +8863,7 @@ void freebsd::Linker::ConstructJob(Compilation &C, const JobAction &JA,
   Args.AddAllArgs(CmdArgs, options::OPT_r);
 
   if (D.isUsingLTO())
-    AddGoldPlugin(ToolChain, Args, CmdArgs, D.getLTOMode() == LTOK_Thin);
+    AddGoldPlugin(ToolChain, Args, CmdArgs, D.getLTOMode() == LTOK_Thin, D);
 
   bool NeedsSanitizerDeps = addSanitizerRuntimes(ToolChain, Args, CmdArgs);
   AddLinkerInputs(ToolChain, Inputs, Args, CmdArgs);
@@ -9420,6 +9494,7 @@ static void AddRunTimeLibs(const ToolChain &TC, const Driver &D,
       llvm_unreachable("unsupported OS");
     case llvm::Triple::Win32:
     case llvm::Triple::Linux:
+    case llvm::Triple::Fuchsia:
       addClangRT(TC, Args, CmdArgs);
       break;
     }
@@ -9622,7 +9697,7 @@ void gnutools::Linker::ConstructJob(Compilation &C, const JobAction &JA,
   ToolChain.AddFilePathLibArgs(Args, CmdArgs);
 
   if (D.isUsingLTO())
-    AddGoldPlugin(ToolChain, Args, CmdArgs, D.getLTOMode() == LTOK_Thin);
+    AddGoldPlugin(ToolChain, Args, CmdArgs, D.getLTOMode() == LTOK_Thin, D);
 
   if (Args.hasArg(options::OPT_Z_Xlinker__no_demangle))
     CmdArgs.push_back("--no-demangle");
@@ -9903,6 +9978,112 @@ void nacltools::Linker::ConstructJob(Compilation &C, const JobAction &JA,
   }
 
   const char *Exec = Args.MakeArgString(ToolChain.GetLinkerPath());
+  C.addCommand(llvm::make_unique<Command>(JA, *this, Exec, CmdArgs, Inputs));
+}
+
+void fuchsia::Linker::ConstructJob(Compilation &C, const JobAction &JA,
+                                   const InputInfo &Output,
+                                   const InputInfoList &Inputs,
+                                   const ArgList &Args,
+                                   const char *LinkingOutput) const {
+  const toolchains::Fuchsia &ToolChain =
+      static_cast<const toolchains::Fuchsia &>(getToolChain());
+  const Driver &D = ToolChain.getDriver();
+
+  ArgStringList CmdArgs;
+
+  // Silence warning for "clang -g foo.o -o foo"
+  Args.ClaimAllArgs(options::OPT_g_Group);
+  // and "clang -emit-llvm foo.o -o foo"
+  Args.ClaimAllArgs(options::OPT_emit_llvm);
+  // and for "clang -w foo.o -o foo". Other warning options are already
+  // handled somewhere else.
+  Args.ClaimAllArgs(options::OPT_w);
+
+  const char *Exec = Args.MakeArgString(ToolChain.GetLinkerPath());
+  if (llvm::sys::path::filename(Exec).equals_lower("lld")) {
+    CmdArgs.push_back("-flavor");
+    CmdArgs.push_back("gnu");
+  }
+
+  if (!D.SysRoot.empty())
+    CmdArgs.push_back(Args.MakeArgString("--sysroot=" + D.SysRoot));
+
+  if (!Args.hasArg(options::OPT_shared) && !Args.hasArg(options::OPT_r))
+    CmdArgs.push_back("-pie");
+
+  if (Args.hasArg(options::OPT_rdynamic))
+    CmdArgs.push_back("-export-dynamic");
+
+  if (Args.hasArg(options::OPT_s))
+    CmdArgs.push_back("-s");
+
+  if (Args.hasArg(options::OPT_r))
+    CmdArgs.push_back("-r");
+  else
+    CmdArgs.push_back("--build-id");
+
+  if (!Args.hasArg(options::OPT_static))
+    CmdArgs.push_back("--eh-frame-hdr");
+
+  if (Args.hasArg(options::OPT_static))
+    CmdArgs.push_back("-Bstatic");
+  else if (Args.hasArg(options::OPT_shared))
+    CmdArgs.push_back("-shared");
+
+  if (!Args.hasArg(options::OPT_static)) {
+    if (Args.hasArg(options::OPT_rdynamic))
+      CmdArgs.push_back("-export-dynamic");
+
+    if (!Args.hasArg(options::OPT_shared)) {
+      CmdArgs.push_back("-dynamic-linker");
+      CmdArgs.push_back(Args.MakeArgString(D.DyldPrefix + "ld.so.1"));
+    }
+  }
+
+  CmdArgs.push_back("-o");
+  CmdArgs.push_back(Output.getFilename());
+
+  if (!Args.hasArg(options::OPT_nostdlib, options::OPT_nostartfiles)) {
+    if (!Args.hasArg(options::OPT_shared)) {
+      CmdArgs.push_back(Args.MakeArgString(ToolChain.GetFilePath("Scrt1.o")));
+    }
+  }
+
+  Args.AddAllArgs(CmdArgs, options::OPT_L);
+  Args.AddAllArgs(CmdArgs, options::OPT_u);
+
+  ToolChain.AddFilePathLibArgs(Args, CmdArgs);
+
+  AddLinkerInputs(ToolChain, Inputs, Args, CmdArgs);
+
+  if (!Args.hasArg(options::OPT_nostdlib, options::OPT_nodefaultlibs)) {
+    if (Args.hasArg(options::OPT_static))
+      CmdArgs.push_back("-Bdynamic");
+
+    if (D.CCCIsCXX()) {
+      bool OnlyLibstdcxxStatic = Args.hasArg(options::OPT_static_libstdcxx) &&
+                                 !Args.hasArg(options::OPT_static);
+      if (OnlyLibstdcxxStatic)
+        CmdArgs.push_back("-Bstatic");
+      ToolChain.AddCXXStdlibLibArgs(Args, CmdArgs);
+      if (OnlyLibstdcxxStatic)
+        CmdArgs.push_back("-Bdynamic");
+      CmdArgs.push_back("-lm");
+    }
+
+    AddRunTimeLibs(ToolChain, D, CmdArgs, Args);
+
+    if (Args.hasArg(options::OPT_pthread) ||
+        Args.hasArg(options::OPT_pthreads))
+      CmdArgs.push_back("-lpthread");
+
+    if (Args.hasArg(options::OPT_fsplit_stack))
+      CmdArgs.push_back("--wrap=pthread_create");
+
+    CmdArgs.push_back("-lc");
+  }
+
   C.addCommand(llvm::make_unique<Command>(JA, *this, Exec, CmdArgs, Inputs));
 }
 
@@ -10234,7 +10415,10 @@ void visualstudio::Linker::ConstructJob(Compilation &C, const JobAction &JA,
         CmdArgs.push_back(TC.getCompilerRTArgString(Args, Lib));
       // Make sure the dynamic runtime thunk is not optimized out at link time
       // to ensure proper SEH handling.
-      CmdArgs.push_back(Args.MakeArgString("-include:___asan_seh_interceptor"));
+      CmdArgs.push_back(Args.MakeArgString(
+          TC.getArch() == llvm::Triple::x86
+              ? "-include:___asan_seh_interceptor"
+              : "-include:__asan_seh_interceptor"));
     } else if (DLL) {
       CmdArgs.push_back(TC.getCompilerRTArgString(Args, "asan_dll_thunk"));
     } else {
@@ -10944,12 +11128,14 @@ void tools::SHAVE::Compiler::ConstructJob(Compilation &C, const JobAction &JA,
   // Append all -I, -iquote, -isystem paths, defines/undefines,
   // 'f' flags, optimize flags, and warning options.
   // These are spelled the same way in clang and moviCompile.
-  Args.AddAllArgs(CmdArgs, {options::OPT_I_Group, options::OPT_clang_i_Group,
-                            options::OPT_std_EQ, options::OPT_D, options::OPT_U,
-                            options::OPT_f_Group, options::OPT_f_clang_Group,
-                            options::OPT_g_Group, options::OPT_M_Group,
-                            options::OPT_O_Group, options::OPT_W_Group,
-                            options::OPT_mcpu_EQ});
+  Args.AddAllArgsExcept(
+      CmdArgs,
+      {options::OPT_I_Group, options::OPT_clang_i_Group, options::OPT_std_EQ,
+       options::OPT_D, options::OPT_U, options::OPT_f_Group,
+       options::OPT_f_clang_Group, options::OPT_g_Group, options::OPT_M_Group,
+       options::OPT_O_Group, options::OPT_W_Group, options::OPT_mcpu_EQ},
+      {options::OPT_fno_split_dwarf_inlining});
+  Args.hasArg(options::OPT_fno_split_dwarf_inlining); // Claim it if present.
 
   // If we're producing a dependency file, and assembly is the final action,
   // then the name of the target in the dependency file should be the '.o'

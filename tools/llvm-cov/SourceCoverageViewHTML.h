@@ -28,7 +28,7 @@ public:
 
   void closeViewFile(OwnedStream OS) override;
 
-  Error createIndexFile(ArrayRef<StringRef> SourceFiles,
+  Error createIndexFile(ArrayRef<std::string> SourceFiles,
                         const coverage::CoverageMapping &Coverage) override;
 
   CoveragePrinterHTML(const CoverageViewOptions &Opts)
@@ -78,7 +78,7 @@ class SourceCoverageViewHTML : public SourceCoverageView {
   void renderRegionMarkers(raw_ostream &OS, CoverageSegmentArray Segments,
                            unsigned ViewDepth) override;
 
-  void renderCellInTitle(raw_ostream &OS, StringRef CellText) override;
+  void renderTitle(raw_ostream &OS, StringRef Title) override;
 
   void renderTableHeader(raw_ostream &OS, unsigned FirstUncoveredLineNo,
                          unsigned IndentLevel) override;

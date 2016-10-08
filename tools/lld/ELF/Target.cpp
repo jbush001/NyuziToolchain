@@ -546,7 +546,6 @@ void X86TargetInfo::relaxTlsLdToLe(uint8_t *Loc, uint32_t Type,
 }
 
 template <class ELFT> X86_64TargetInfo<ELFT>::X86_64TargetInfo() {
-  MaxPageSize = 0x200000; // 2MiB
   CopyRel = R_X86_64_COPY;
   GotRel = R_X86_64_GLOB_DAT;
   PltRel = R_X86_64_JUMP_SLOT;
@@ -989,7 +988,7 @@ PPC64TargetInfo::PPC64TargetInfo() {
 
   // We need 64K pages (at least under glibc/Linux, the loader won't
   // set different permissions on a finer granularity than that).
-  PageSize = 65536;
+  MaxPageSize = 65536;
 
   // The PPC64 ELF ABI v1 spec, says:
   //
@@ -1152,6 +1151,7 @@ AArch64TargetInfo::AArch64TargetInfo() {
   GotPltEntrySize = 8;
   PltEntrySize = 16;
   PltHeaderSize = 32;
+  MaxPageSize = 65536;
 
   // It doesn't seem to be documented anywhere, but tls on aarch64 uses variant
   // 1 of the tls structures and the tcb size is 16.
@@ -1356,6 +1356,18 @@ void AArch64TargetInfo::relocateOne(uint8_t *Loc, uint32_t Type,
     break;
   case R_AARCH64_LDST64_ABS_LO12_NC:
     or32le(Loc, (Val & 0xFF8) << 7);
+    break;
+  case R_AARCH64_MOVW_UABS_G0_NC:
+    or32le(Loc, (Val & 0xFFFF) << 5);
+    break;
+  case R_AARCH64_MOVW_UABS_G1_NC:
+    or32le(Loc, (Val & 0xFFFF0000) >> 11);
+    break;
+  case R_AARCH64_MOVW_UABS_G2_NC:
+    or32le(Loc, (Val & 0xFFFF00000000) >> 27);
+    break;
+  case R_AARCH64_MOVW_UABS_G3:
+    or32le(Loc, (Val & 0xFFFF000000000000) >> 43);
     break;
   case R_AARCH64_TSTBR14:
     checkInt<16>(Val, Type);
@@ -1843,7 +1855,7 @@ bool ARMTargetInfo::isTlsInitialExecRel(uint32_t Type) const {
 
 template <class ELFT> MipsTargetInfo<ELFT>::MipsTargetInfo() {
   GotPltHeaderEntriesNum = 2;
-  PageSize = 65536;
+  MaxPageSize = 65536;
   GotEntrySize = sizeof(typename ELFT::uint);
   GotPltEntrySize = sizeof(typename ELFT::uint);
   PltEntrySize = 16;
@@ -2043,14 +2055,9 @@ RelExpr MipsTargetInfo<ELFT>::getThunkExpr(RelExpr Expr, uint32_t Type,
   if (F->getObj().getHeader()->e_flags & EF_MIPS_PIC)
     return Expr;
   auto *D = dyn_cast<DefinedRegular<ELFT>>(&S);
-  if (!D || !D->Section)
-    return Expr;
   // LA25 is required if target file has PIC code
   // or target symbol is a PIC symbol.
-  const ELFFile<ELFT> &DefFile = D->Section->getFile()->getObj();
-  bool PicFile = DefFile.getHeader()->e_flags & EF_MIPS_PIC;
-  bool PicSym = (D->StOther & STO_MIPS_MIPS16) == STO_MIPS_PIC;
-  return (PicFile || PicSym) ? R_THUNK_ABS : Expr;
+  return D && D->isMipsPIC() ? R_THUNK_ABS : Expr;
 }
 
 template <class ELFT>

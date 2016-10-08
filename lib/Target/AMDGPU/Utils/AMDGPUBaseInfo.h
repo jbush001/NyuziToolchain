@@ -13,6 +13,10 @@
 #include "AMDKernelCodeT.h"
 #include "llvm/IR/CallingConv.h"
 
+#define GET_INSTRINFO_OPERAND_ENUM
+#include "AMDGPUGenInstrInfo.inc"
+#undef GET_INSTRINFO_OPERAND_ENUM
+
 namespace llvm {
 
 class FeatureBitset;
@@ -25,6 +29,9 @@ class MCSection;
 class MCSubtargetInfo;
 
 namespace AMDGPU {
+
+LLVM_READONLY
+int16_t getNamedOperandIdx(uint16_t Opcode, uint16_t NamedIdx);
 
 struct IsaVersion {
   unsigned Major;
@@ -68,6 +75,24 @@ std::pair<int, int> getIntegerPairAttribute(const Function &F,
                                             StringRef Name,
                                             std::pair<int, int> Default,
                                             bool OnlyFirstRequired = false);
+
+/// \returns VMCNT bit mask for given isa \p Version.
+unsigned getVmcntMask(IsaVersion Version);
+
+/// \returns VMCNT bit shift for given isa \p Version.
+unsigned getVmcntShift(IsaVersion Version);
+
+/// \returns EXPCNT bit mask for given isa \p Version.
+unsigned getExpcntMask(IsaVersion Version);
+
+/// \returns EXPCNT bit shift for given isa \p Version.
+unsigned getExpcntShift(IsaVersion Version);
+
+/// \returns LGKMCNT bit mask for given isa \p Version.
+unsigned getLgkmcntMask(IsaVersion Version);
+
+/// \returns LGKMCNT bit shift for given isa \p Version.
+unsigned getLgkmcntShift(IsaVersion Version);
 
 unsigned getInitialPSInputAddr(const Function &F);
 

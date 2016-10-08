@@ -137,7 +137,7 @@ namespace {
         HII(0), TRI(0), MFN(0), MRI(0), MDT(0), MLI(0) {
       initializeHexagonEarlyIfConversionPass(*PassRegistry::getPassRegistry());
     }
-    const char *getPassName() const override {
+    StringRef getPassName() const override {
       return "Hexagon early if conversion";
     }
     void getAnalysisUsage(AnalysisUsage &AU) const override {
@@ -963,7 +963,7 @@ void HexagonEarlyIfConversion::mergeBlocks(MachineBasicBlock *PredB,
                << PrintMB(SuccB) << "\n");
   bool TermOk = hasUncondBranch(SuccB);
   eliminatePhis(SuccB);
-  HII->RemoveBranch(*PredB);
+  HII->removeBranch(*PredB);
   PredB->removeSuccessor(SuccB);
   PredB->splice(PredB->end(), SuccB, SuccB->begin(), SuccB->end());
   MachineBasicBlock::succ_iterator I, E = SuccB->succ_end();

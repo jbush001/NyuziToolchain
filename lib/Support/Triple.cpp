@@ -17,7 +17,7 @@
 #include <cstring>
 using namespace llvm;
 
-const char *Triple::getArchTypeName(ArchType Kind) {
+StringRef Triple::getArchTypeName(ArchType Kind) {
   switch (Kind) {
   case UnknownArch:    return "unknown";
 
@@ -71,10 +71,10 @@ const char *Triple::getArchTypeName(ArchType Kind) {
   llvm_unreachable("Invalid ArchType!");
 }
 
-const char *Triple::getArchTypePrefix(ArchType Kind) {
+StringRef Triple::getArchTypePrefix(ArchType Kind) {
   switch (Kind) {
   default:
-    return nullptr;
+    return StringRef();
 
   case aarch64:
   case aarch64_be:  return "aarch64";
@@ -137,7 +137,7 @@ const char *Triple::getArchTypePrefix(ArchType Kind) {
   }
 }
 
-const char *Triple::getVendorTypeName(VendorType Kind) {
+StringRef Triple::getVendorTypeName(VendorType Kind) {
   switch (Kind) {
   case UnknownVendor: return "unknown";
 
@@ -160,7 +160,7 @@ const char *Triple::getVendorTypeName(VendorType Kind) {
   llvm_unreachable("Invalid VendorType!");
 }
 
-const char *Triple::getOSTypeName(OSType Kind) {
+StringRef Triple::getOSTypeName(OSType Kind) {
   switch (Kind) {
   case UnknownOS: return "unknown";
 
@@ -168,6 +168,7 @@ const char *Triple::getOSTypeName(OSType Kind) {
   case Darwin: return "darwin";
   case DragonFly: return "dragonfly";
   case FreeBSD: return "freebsd";
+  case Fuchsia: return "fuchsia";
   case IOS: return "ios";
   case KFreeBSD: return "kfreebsd";
   case Linux: return "linux";
@@ -197,7 +198,7 @@ const char *Triple::getOSTypeName(OSType Kind) {
   llvm_unreachable("Invalid OSType");
 }
 
-const char *Triple::getEnvironmentTypeName(EnvironmentType Kind) {
+StringRef Triple::getEnvironmentTypeName(EnvironmentType Kind) {
   switch (Kind) {
   case UnknownEnvironment: return "unknown";
   case GNU: return "gnu";
@@ -217,6 +218,7 @@ const char *Triple::getEnvironmentTypeName(EnvironmentType Kind) {
   case Cygnus: return "cygnus";
   case AMDOpenCL: return "amdopencl";
   case CoreCLR: return "coreclr";
+  case OpenCL: return "opencl";
   }
 
   llvm_unreachable("Invalid EnvironmentType!");
@@ -437,6 +439,7 @@ static Triple::OSType parseOS(StringRef OSName) {
     .StartsWith("darwin", Triple::Darwin)
     .StartsWith("dragonfly", Triple::DragonFly)
     .StartsWith("freebsd", Triple::FreeBSD)
+    .StartsWith("fuchsia", Triple::Fuchsia)
     .StartsWith("ios", Triple::IOS)
     .StartsWith("kfreebsd", Triple::KFreeBSD)
     .StartsWith("linux", Triple::Linux)
@@ -484,6 +487,7 @@ static Triple::EnvironmentType parseEnvironment(StringRef EnvironmentName) {
     .StartsWith("cygnus", Triple::Cygnus)
     .StartsWith("amdopencl", Triple::AMDOpenCL)
     .StartsWith("coreclr", Triple::CoreCLR)
+    .StartsWith("opencl", Triple::OpenCL)
     .Default(Triple::UnknownEnvironment);
 }
 
@@ -546,6 +550,8 @@ static Triple::SubArchType parseSubArch(StringRef SubArchName) {
     return Triple::ARMSubArch_v8_1a;
   case ARM::AK_ARMV8_2A:
     return Triple::ARMSubArch_v8_2a;
+  case ARM::AK_ARMV8R:
+    return Triple::ARMSubArch_v8r;
   case ARM::AK_ARMV8MBaseline:
     return Triple::ARMSubArch_v8m_baseline;
   case ARM::AK_ARMV8MMainline:
@@ -555,7 +561,7 @@ static Triple::SubArchType parseSubArch(StringRef SubArchName) {
   }
 }
 
-static const char *getObjectFormatTypeName(Triple::ObjectFormatType Kind) {
+static StringRef getObjectFormatTypeName(Triple::ObjectFormatType Kind) {
   switch (Kind) {
   case Triple::UnknownObjectFormat: return "";
   case Triple::COFF: return "coff";

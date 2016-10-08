@@ -53,6 +53,7 @@ enum CoverageFeature {
   CoverageTraceGep = 1 << 7,
   Coverage8bitCounters = 1 << 8,
   CoverageTracePC = 1 << 9,
+  CoverageTracePCGuard = 1 << 10,
 };
 
 /// Parse a -fsanitize= or -fno-sanitize= argument's values, diagnosing any
@@ -526,7 +527,7 @@ SanitizerArgs::SanitizerArgs(const ToolChain &TC,
         << "-fsanitize-coverage=8bit-counters"
         << "-fsanitize-coverage=(func|bb|edge)";
   // trace-pc w/o func/bb/edge implies edge.
-  if ((CoverageFeatures & CoverageTracePC) &&
+  if ((CoverageFeatures & (CoverageTracePC | CoverageTracePCGuard)) &&
       !(CoverageFeatures & CoverageTypes))
     CoverageFeatures |= CoverageEdge;
 
@@ -607,6 +608,12 @@ static void addIncludeLinkerOption(const ToolChain &TC,
 void SanitizerArgs::addArgs(const ToolChain &TC, const llvm::opt::ArgList &Args,
                             llvm::opt::ArgStringList &CmdArgs,
                             types::ID InputType) const {
+  // NVPTX doesn't currently support sanitizers.  Bailing out here means that
+  // e.g. -fsanitize=address applies only to host code, which is what we want
+  // for now.
+  if (TC.getTriple().isNVPTX())
+    return;
+
   // Translate available CoverageFeatures to corresponding clang-cc1 flags.
   // Do it even if Sanitizers.empty() since some forms of coverage don't require
   // sanitizers.
@@ -620,7 +627,8 @@ void SanitizerArgs::addArgs(const ToolChain &TC, const llvm::opt::ArgList &Args,
     std::make_pair(CoverageTraceDiv, "-fsanitize-coverage-trace-div"),
     std::make_pair(CoverageTraceGep, "-fsanitize-coverage-trace-gep"),
     std::make_pair(Coverage8bitCounters, "-fsanitize-coverage-8bit-counters"),
-    std::make_pair(CoverageTracePC, "-fsanitize-coverage-trace-pc")};
+    std::make_pair(CoverageTracePC, "-fsanitize-coverage-trace-pc"),
+    std::make_pair(CoverageTracePCGuard, "-fsanitize-coverage-trace-pc-guard")};
   for (auto F : CoverageFlags) {
     if (CoverageFeatures & F.first)
       CmdArgs.push_back(Args.MakeArgString(F.second));
@@ -760,6 +768,7 @@ int parseCoverageFeatures(const Driver &D, const llvm::opt::Arg *A) {
         .Case("trace-gep", CoverageTraceGep)
         .Case("8bit-counters", Coverage8bitCounters)
         .Case("trace-pc", CoverageTracePC)
+        .Case("trace-pc-guard", CoverageTracePCGuard)
         .Default(0);
     if (F == 0)
       D.Diag(clang::diag::err_drv_unsupported_option_argument)

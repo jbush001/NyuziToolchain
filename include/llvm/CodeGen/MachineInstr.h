@@ -391,10 +391,10 @@ public:
   bool hasProperty(unsigned MCFlag, QueryType Type = AnyInBundle) const {
     // Inline the fast path for unbundled or bundle-internal instructions.
     if (Type == IgnoreBundle || !isBundled() || isBundledWithPred())
-      return getDesc().getFlags() & (1 << MCFlag);
+      return getDesc().getFlags() & (1ULL << MCFlag);
 
     // If this is the first instruction in a bundle, take the slow path.
-    return hasPropertyInBundle(1 << MCFlag, Type);
+    return hasPropertyInBundle(1ULL << MCFlag, Type);
   }
 
   /// Return true if this instruction can have a variable number of operands.
@@ -721,8 +721,11 @@ public:
     IgnoreVRegDefs  // Ignore virtual register definitions
   };
 
-  /// Return true if this instruction is identical to (same
-  /// opcode and same operands as) the specified instruction.
+  /// Return true if this instruction is identical to \p Other.
+  /// Two instructions are identical if they have the same opcode and all their
+  /// operands are identical (with respect to MachineOperand::isIdenticalTo()).
+  /// Note that this means liveness related flags (dead, undef, kill) do not
+  /// affect the notion of identical.
   bool isIdenticalTo(const MachineInstr &Other,
                      MICheckType Check = CheckDefs) const;
 

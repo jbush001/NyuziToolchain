@@ -3045,7 +3045,7 @@ ASTReader::ReadASTBlock(ModuleFile &F, unsigned ClientLoadCapabilities) {
       break;
 
     case SEMA_DECL_REFS:
-      if (Record.size() != 2) {
+      if (Record.size() != 3) {
         Error("Invalid SEMA_DECL_REFS block");
         return Failure;
       }
@@ -3465,6 +3465,31 @@ void ASTReader::makeModuleVisible(Module *Mod,
       Module *Exported = *I;
       if (Visited.insert(Exported).second)
         Stack.push_back(Exported);
+    }
+  }
+}
+
+/// We've merged the definition \p MergedDef into the existing definition
+/// \p Def. Ensure that \p Def is made visible whenever \p MergedDef is made
+/// visible.
+void ASTReader::mergeDefinitionVisibility(NamedDecl *Def,
+                                          NamedDecl *MergedDef) {
+  // FIXME: This doesn't correctly handle the case where MergedDef is visible
+  // in modules other than its owning module. We should instead give the
+  // ASTContext a list of merged definitions for Def.
+  if (Def->isHidden()) {
+    // If MergedDef is visible or becomes visible, make the definition visible.
+    if (!MergedDef->isHidden())
+      Def->Hidden = false;
+    else if (getContext().getLangOpts().ModulesLocalVisibility) {
+      getContext().mergeDefinitionIntoModule(
+          Def, MergedDef->getImportedOwningModule(),
+          /*NotifyListeners*/ false);
+      PendingMergedDefinitionsToDeduplicate.insert(Def);
+    } else {
+      auto SubmoduleID = MergedDef->getOwningModuleID();
+      assert(SubmoduleID && "hidden definition in no module");
+      HiddenNamesMap[getSubmodule(SubmoduleID)].push_back(Def);
     }
   }
 }
@@ -5613,6 +5638,16 @@ QualType ASTReader::readTypeRecord(unsigned Index) {
     return Context.getObjCInterfaceType(ItfD->getCanonicalDecl());
   }
 
+  case TYPE_OBJC_TYPE_PARAM: {
+    unsigned Idx = 0;
+    ObjCTypeParamDecl *Decl
+      = ReadDeclAs<ObjCTypeParamDecl>(*Loc.F, Record, Idx);
+    unsigned NumProtos = Record[Idx++];
+    SmallVector<ObjCProtocolDecl*, 4> Protos;
+    for (unsigned I = 0; I != NumProtos; ++I)
+      Protos.push_back(ReadDeclAs<ObjCProtocolDecl>(*Loc.F, Record, Idx));
+    return Context.getObjCTypeParamType(Decl, Protos);
+  }
   case TYPE_OBJC_OBJECT: {
     unsigned Idx = 0;
     QualType Base = readType(*Loc.F, Record, Idx);
@@ -6043,6 +6078,15 @@ void TypeLocReader::VisitPackExpansionTypeLoc(PackExpansionTypeLoc TL) {
 
 void TypeLocReader::VisitObjCInterfaceTypeLoc(ObjCInterfaceTypeLoc TL) {
   TL.setNameLoc(ReadSourceLocation(Record, Idx));
+}
+
+void TypeLocReader::VisitObjCTypeParamTypeLoc(ObjCTypeParamTypeLoc TL) {
+  if (TL.getNumProtocols()) {
+    TL.setProtocolLAngleLoc(ReadSourceLocation(Record, Idx));
+    TL.setProtocolRAngleLoc(ReadSourceLocation(Record, Idx));
+  }
+  for (unsigned i = 0, e = TL.getNumProtocols(); i != e; ++i)
+    TL.setProtocolLoc(i, ReadSourceLocation(Record, Idx));
 }
 
 void TypeLocReader::VisitObjCObjectTypeLoc(ObjCObjectTypeLoc TL) {
@@ -7060,12 +7104,14 @@ void ASTReader::UpdateSema() {
   // Load the offsets of the declarations that Sema references.
   // They will be lazily deserialized when needed.
   if (!SemaDeclRefs.empty()) {
-    assert(SemaDeclRefs.size() % 2 == 0);
-    for (unsigned I = 0; I != SemaDeclRefs.size(); I += 2) {
+    assert(SemaDeclRefs.size() % 3 == 0);
+    for (unsigned I = 0; I != SemaDeclRefs.size(); I += 3) {
       if (!SemaObj->StdNamespace)
         SemaObj->StdNamespace = SemaDeclRefs[I];
       if (!SemaObj->StdBadAlloc)
         SemaObj->StdBadAlloc = SemaDeclRefs[I+1];
+      if (!SemaObj->StdAlignValT)
+        SemaObj->StdAlignValT = SemaDeclRefs[I+2];
     }
     SemaDeclRefs.clear();
   }
@@ -8574,8 +8620,11 @@ void ASTReader::finishPendingActions() {
     if (FunctionDecl *FD = dyn_cast<FunctionDecl>(PB->first)) {
       // FIXME: Check for =delete/=default?
       // FIXME: Complain about ODR violations here?
-      if (!getContext().getLangOpts().Modules || !FD->hasBody())
+      const FunctionDecl *Defn = nullptr;
+      if (!getContext().getLangOpts().Modules || !FD->hasBody(Defn))
         FD->setLazyBody(PB->second);
+      else
+        mergeDefinitionVisibility(const_cast<FunctionDecl*>(Defn), FD);
       continue;
     }
 

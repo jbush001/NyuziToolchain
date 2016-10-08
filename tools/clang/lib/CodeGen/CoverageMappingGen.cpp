@@ -136,7 +136,7 @@ public:
 
   /// \brief Return true if \c Loc is a location in a built-in macro.
   bool isInBuiltin(SourceLocation Loc) {
-    return strcmp(SM.getBufferName(SM.getSpellingLoc(Loc)), "<built-in>") == 0;
+    return SM.getBufferName(SM.getSpellingLoc(Loc)) == "<built-in>";
   }
 
   /// \brief Check whether \c Loc is included or expanded from \c Parent.
@@ -842,7 +842,11 @@ struct CounterCoverageMappingBuilder
 
     Counter ExitCount = getRegionCounter(S);
     SourceLocation ExitLoc = getEnd(S);
-    pushRegion(ExitCount, getStart(S), ExitLoc);
+    pushRegion(ExitCount);
+
+    // Ensure that handleFileExit recognizes when the end location is located
+    // in a different file.
+    MostRecentLocation = getStart(S);
     handleFileExit(ExitLoc);
   }
 

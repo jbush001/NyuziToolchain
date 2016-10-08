@@ -335,10 +335,12 @@ public:
                               TargetInstrInfo::MachineBranchPredicate &MBP,
                               bool AllowModify = false) const override;
 
-  unsigned RemoveBranch(MachineBasicBlock &MBB) const override;
-  unsigned InsertBranch(MachineBasicBlock &MBB, MachineBasicBlock *TBB,
+  unsigned removeBranch(MachineBasicBlock &MBB,
+                        int *BytesRemoved = nullptr) const override;
+  unsigned insertBranch(MachineBasicBlock &MBB, MachineBasicBlock *TBB,
                         MachineBasicBlock *FBB, ArrayRef<MachineOperand> Cond,
-                        const DebugLoc &DL) const override;
+                        const DebugLoc &DL,
+                        int *BytesAdded = nullptr) const override;
   bool canInsertSelect(const MachineBasicBlock&, ArrayRef<MachineOperand> Cond,
                        unsigned, unsigned, int&, int&, int&) const override;
   void insertSelect(MachineBasicBlock &MBB, MachineBasicBlock::iterator MI,
@@ -443,7 +445,7 @@ public:
   void getNoopForMachoTarget(MCInst &NopInst) const override;
 
   bool
-  ReverseBranchCondition(SmallVectorImpl<MachineOperand> &Cond) const override;
+  reverseBranchCondition(SmallVectorImpl<MachineOperand> &Cond) const override;
 
   /// isSafeToMoveRegClassDefs - Return true if it's safe to move a machine
   /// instruction that defines the specified register class.
@@ -584,6 +586,25 @@ private:
   /// operand and follow operands form a reference to the stack frame.
   bool isFrameOperand(const MachineInstr &MI, unsigned int Op,
                       int &FrameIndex) const;
+
+  /// Returns true iff the routine could find two commutable operands in the
+  /// given machine instruction with 3 vector inputs.
+  /// The 'SrcOpIdx1' and 'SrcOpIdx2' are INPUT and OUTPUT arguments. Their
+  /// input values can be re-defined in this method only if the input values
+  /// are not pre-defined, which is designated by the special value
+  /// 'CommuteAnyOperandIndex' assigned to it.
+  /// If both of indices are pre-defined and refer to some operands, then the
+  /// method simply returns true if the corresponding operands are commutable
+  /// and returns false otherwise.
+  ///
+  /// For example, calling this method this way:
+  ///     unsigned Op1 = 1, Op2 = CommuteAnyOperandIndex;
+  ///     findThreeSrcCommutedOpIndices(MI, Op1, Op2);
+  /// can be interpreted as a query asking to find an operand that would be
+  /// commutable with the operand#1.
+  bool findThreeSrcCommutedOpIndices(const MachineInstr &MI,
+                                     unsigned &SrcOpIdx1,
+                                     unsigned &SrcOpIdx2) const;
 };
 
 } // End llvm namespace

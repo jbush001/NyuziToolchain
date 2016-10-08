@@ -417,6 +417,7 @@ StringRef MachineFunction::getName() const {
 void MachineFunction::print(raw_ostream &OS, const SlotIndexes *Indexes) const {
   OS << "# Machine code for function " << getName() << ": ";
   getProperties().print(OS);
+  OS << '\n';
 
   // Print Frame Information
   FrameInfo->print(*this, OS);
@@ -543,8 +544,8 @@ MCSymbol *MachineFunction::getJTISymbol(unsigned JTI, MCContext &Ctx,
   assert(JumpTableInfo && "No jump tables");
   assert(JTI < JumpTableInfo->getJumpTables().size() && "Invalid JTI!");
 
-  const char *Prefix = isLinkerPrivate ? DL.getLinkerPrivateGlobalPrefix()
-                                       : DL.getPrivateGlobalPrefix();
+  StringRef Prefix = isLinkerPrivate ? DL.getLinkerPrivateGlobalPrefix()
+                                     : DL.getPrivateGlobalPrefix();
   SmallString<60> Name;
   raw_svector_ostream(Name)
     << Prefix << "JTI" << getFunctionNumber() << '_' << JTI;
@@ -898,13 +899,20 @@ MachineConstantPoolEntry::getSectionKind(const DataLayout *DL) const {
 }
 
 MachineConstantPool::~MachineConstantPool() {
+  // A constant may be a member of both Constants and MachineCPVsSharingEntries,
+  // so keep track of which we've deleted to avoid double deletions.
+  DenseSet<MachineConstantPoolValue*> Deleted;
   for (unsigned i = 0, e = Constants.size(); i != e; ++i)
-    if (Constants[i].isMachineConstantPoolEntry())
+    if (Constants[i].isMachineConstantPoolEntry()) {
+      Deleted.insert(Constants[i].Val.MachineCPVal);
       delete Constants[i].Val.MachineCPVal;
+    }
   for (DenseSet<MachineConstantPoolValue*>::iterator I =
        MachineCPVsSharingEntries.begin(), E = MachineCPVsSharingEntries.end();
-       I != E; ++I)
-    delete *I;
+       I != E; ++I) {
+    if (Deleted.count(*I) == 0)
+      delete *I;
+  }
 }
 
 /// Test whether the given two constants can be allocated the same constant pool

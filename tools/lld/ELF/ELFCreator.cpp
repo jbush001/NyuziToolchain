@@ -6,6 +6,11 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
+//
+// This file contains a class to create an ELF file in memory. This is
+// supposed to be used for "-format binary" option.
+//
+//===----------------------------------------------------------------------===//
 
 #include "ELFCreator.h"
 
@@ -55,18 +60,16 @@ ELFCreator<ELFT>::ELFCreator(std::uint16_t Type, std::uint16_t Machine) {
 template <class ELFT>
 typename ELFCreator<ELFT>::Section
 ELFCreator<ELFT>::addSection(StringRef Name) {
-  std::size_t NameOff = SecHdrStrTabBuilder.add(Name);
   auto Shdr = new (Alloc) Elf_Shdr{};
-  Shdr->sh_name = NameOff;
+  Shdr->sh_name = SecHdrStrTabBuilder.add(Name);
   Sections.push_back(Shdr);
   return {Shdr, Sections.size()};
 }
 
 template <class ELFT>
 typename ELFCreator<ELFT>::Symbol ELFCreator<ELFT>::addSymbol(StringRef Name) {
-  std::size_t NameOff = StrTabBuilder.add(Name);
   auto Sym = new (Alloc) Elf_Sym{};
-  Sym->st_name = NameOff;
+  Sym->st_name = StrTabBuilder.add(Name);
   StaticSymbols.push_back(Sym);
   return {Sym, StaticSymbols.size()};
 }
@@ -97,10 +100,8 @@ template <class ELFT> std::size_t ELFCreator<ELFT>::layout() {
 
 template <class ELFT> void ELFCreator<ELFT>::write(uint8_t *Out) {
   std::memcpy(Out, &Header, sizeof(Elf_Ehdr));
-  std::copy(SecHdrStrTabBuilder.data().begin(),
-            SecHdrStrTabBuilder.data().end(), Out + ShStrTab->sh_offset);
-  std::copy(StrTabBuilder.data().begin(), StrTabBuilder.data().end(),
-            Out + StrTab->sh_offset);
+  SecHdrStrTabBuilder.write(Out + ShStrTab->sh_offset);
+  StrTabBuilder.write(Out + StrTab->sh_offset);
 
   Elf_Sym *Sym = reinterpret_cast<Elf_Sym *>(Out + SymTab->sh_offset);
   // Skip null.

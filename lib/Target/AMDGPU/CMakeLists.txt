@@ -11,6 +11,7 @@ tablegen(LLVM AMDGPUGenDFAPacketizer.inc -gen-dfa-packetizer)
 tablegen(LLVM AMDGPUGenAsmWriter.inc -gen-asm-writer)
 tablegen(LLVM AMDGPUGenAsmMatcher.inc -gen-asm-matcher)
 tablegen(LLVM AMDGPUGenDisassemblerTables.inc -gen-disassembler)
+tablegen(LLVM AMDGPUGenMCPseudoLowering.inc -gen-pseudo-lowering)
 add_public_tablegen_target(AMDGPUCommonTableGen)
 
 # List of all GlobalISel files.
@@ -77,6 +78,7 @@ add_llvm_target(AMDGPUCodeGen
   SILowerI1Copies.cpp
   SIMachineFunctionInfo.cpp
   SIMachineScheduler.cpp
+  SIOptimizeExecMasking.cpp
   SIRegisterInfo.cpp
   SIShrinkInstructions.cpp
   SITypeRewriter.cpp

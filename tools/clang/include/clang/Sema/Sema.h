@@ -721,6 +721,14 @@ public:
   /// standard library.
   LazyDeclPtr StdBadAlloc;
 
+  /// \brief The C++ "std::align_val_t" enum class, which is defined by the C++
+  /// standard library.
+  LazyDeclPtr StdAlignValT;
+
+  /// \brief The C++ "std::experimental" namespace, where the experimental parts
+  /// of the standard library resides.
+  NamespaceDecl *StdExperimentalNamespaceCache;
+
   /// \brief The C++ "std::initializer_list" template, which is defined in
   /// \<initializer_list>.
   ClassTemplateDecl *StdInitializerList;
@@ -1752,6 +1760,7 @@ public:
   bool CheckFunctionDeclaration(Scope *S,
                                 FunctionDecl *NewFD, LookupResult &Previous,
                                 bool IsExplicitSpecialization);
+  bool shouldLinkDependentDeclWithPrevious(Decl *D, Decl *OldDecl);
   void CheckMain(FunctionDecl *FD, const DeclSpec &D);
   void CheckMSVCRTEntryPoint(FunctionDecl *FD);
   Decl *ActOnParamDeclarator(Scope *S, Declarator &D);
@@ -1965,6 +1974,21 @@ public:
 
   Decl *BuildMicrosoftCAnonymousStruct(Scope *S, DeclSpec &DS,
                                        RecordDecl *Record);
+
+  /// Common ways to introduce type names without a tag for use in diagnostics.
+  /// Keep in sync with err_tag_reference_non_tag.
+  enum NonTagKind {
+    NTK_Unknown,
+    NTK_Typedef,
+    NTK_TypeAlias,
+    NTK_Template,
+    NTK_TypeAliasTemplate,
+    NTK_TemplateTemplateArgument,
+  };
+
+  /// Given a non-tag type declaration, returns an enum useful for indicating
+  /// what kind of non-tag type this is.
+  NonTagKind getNonTagTypeDeclKind(const Decl *D);
 
   bool isAcceptableTagRedeclaration(const TagDecl *Previous,
                                     TagTypeKind NewTag, bool isDefinition,
@@ -2208,6 +2232,8 @@ public:
   VisibilityAttr *mergeVisibilityAttr(Decl *D, SourceRange Range,
                                       VisibilityAttr::VisibilityType Vis,
                                       unsigned AttrSpellingListIndex);
+  UuidAttr *mergeUuidAttr(Decl *D, SourceRange Range,
+                          unsigned AttrSpellingListIndex, StringRef Uuid);
   DLLImportAttr *mergeDLLImportAttr(Decl *D, SourceRange Range,
                                     unsigned AttrSpellingListIndex);
   DLLExportAttr *mergeDLLExportAttr(Decl *D, SourceRange Range,
@@ -4234,7 +4260,10 @@ public:
   NamespaceDecl *getStdNamespace() const;
   NamespaceDecl *getOrCreateStdNamespace();
 
+  NamespaceDecl *lookupStdExperimentalNamespace();
+
   CXXRecordDecl *getStdBadAlloc() const;
+  EnumDecl *getStdAlignValT() const;
 
   /// \brief Tests whether Ty is an instance of std::initializer_list and, if
   /// it is and Element is not NULL, assigns the element type to Element.
@@ -4836,8 +4865,7 @@ public:
                               bool Diagnose = true);
   void DeclareGlobalNewDelete();
   void DeclareGlobalAllocationFunction(DeclarationName Name, QualType Return,
-                                       QualType Param1,
-                                       QualType Param2 = QualType());
+                                       ArrayRef<QualType> Params);
 
   bool FindDeallocationFunction(SourceLocation StartLoc, CXXRecordDecl *RD,
                                 DeclarationName Name, FunctionDecl* &Operator,
@@ -7534,6 +7562,14 @@ public:
                ArrayRef<SourceLocation> ProtocolLocs,
                SourceLocation ProtocolRAngleLoc);
 
+  /// Build an Objective-C type parameter type.
+  QualType BuildObjCTypeParamType(const ObjCTypeParamDecl *Decl,
+                                  SourceLocation ProtocolLAngleLoc,
+                                  ArrayRef<ObjCProtocolDecl *> Protocols,
+                                  ArrayRef<SourceLocation> ProtocolLocs,
+                                  SourceLocation ProtocolRAngleLoc,
+                                  bool FailOnError = false);
+
   /// Build an Objective-C object pointer type.
   QualType BuildObjCObjectType(QualType BaseType,
                                SourceLocation Loc,
@@ -8799,15 +8835,23 @@ public:
                                                CastKind &Kind,
                                                bool ConvertRHS = true);
 
-  // CheckSingleAssignmentConstraints - Currently used by
-  // CheckAssignmentOperands, and ActOnReturnStmt. Prior to type checking,
-  // this routine performs the default function/array converions, if ConvertRHS
-  // is true.
-  AssignConvertType CheckSingleAssignmentConstraints(QualType LHSType,
-                                                     ExprResult &RHS,
-                                                     bool Diagnose = true,
-                                                     bool DiagnoseCFAudited = false,
-                                                     bool ConvertRHS = true);
+  /// Check assignment constraints for an assignment of RHS to LHSType.
+  ///
+  /// \param LHSType The destination type for the assignment.
+  /// \param RHS The source expression for the assignment.
+  /// \param Diagnose If \c true, diagnostics may be produced when checking
+  ///        for assignability. If a diagnostic is produced, \p RHS will be
+  ///        set to ExprError(). Note that this function may still return
+  ///        without producing a diagnostic, even for an invalid assignment.
+  /// \param DiagnoseCFAudited If \c true, the target is a function parameter
+  ///        in an audited Core Foundation API and does not need to be checked
+  ///        for ARC retain issues.
+  /// \param ConvertRHS If \c true, \p RHS will be updated to model the
+  ///        conversions necessary to perform the assignment. If \c false,
+  ///        \p Diagnose must also be \c false.
+  AssignConvertType CheckSingleAssignmentConstraints(
+      QualType LHSType, ExprResult &RHS, bool Diagnose = true,
+      bool DiagnoseCFAudited = false, bool ConvertRHS = true);
 
   // \brief If the lhs type is a transparent union, check whether we
   // can initialize the transparent union with the given expression.
@@ -9223,17 +9267,51 @@ public:
   void maybeAddCUDAHostDeviceAttrs(Scope *S, FunctionDecl *FD,
                                    const LookupResult &Previous);
 
+private:
+  /// Raw encodings of SourceLocations for which CheckCUDACall has emitted a
+  /// deferred "bad call" diagnostic.  We use this to avoid emitting the same
+  /// deferred diag twice.
+  llvm::DenseSet<unsigned> LocsWithCUDACallDeferredDiags;
+
+public:
   /// Check whether we're allowed to call Callee from the current context.
   ///
-  /// If the call is never allowed in a semantically-correct program
-  /// (CFP_Never), emits an error and returns false.
+  /// - If the call is never allowed in a semantically-correct program
+  ///   (CFP_Never), emits an error and returns false.
   ///
-  /// If the call is allowed in semantically-correct programs, but only if it's
-  /// never codegen'ed (CFP_WrongSide), creates a deferred diagnostic to be
-  /// emitted if and when the caller is codegen'ed, and returns true.
+  /// - If the call is allowed in semantically-correct programs, but only if
+  ///   it's never codegen'ed (CFP_WrongSide), creates a deferred diagnostic to
+  ///   be emitted if and when the caller is codegen'ed, and returns true.
   ///
-  /// Otherwise, returns true without emitting any diagnostics.
+  ///   Will only create deferred diagnostics for a given SourceLocation once,
+  ///   so you can safely call this multiple times without generating duplicate
+  ///   deferred errors.
+  ///
+  /// - Otherwise, returns true without emitting any diagnostics.
   bool CheckCUDACall(SourceLocation Loc, FunctionDecl *Callee);
+
+  /// Check whether a 'try' or 'throw' expression is allowed within the current
+  /// context, and raise an error or create a deferred error, as appropriate.
+  ///
+  /// 'try' and 'throw' are never allowed in CUDA __device__ functions, and are
+  /// allowed in __host__ __device__ functions only if those functions are never
+  /// codegen'ed for the device.
+  ///
+  /// ExprTy should be the string "try" or "throw", as appropriate.
+  bool CheckCUDAExceptionExpr(SourceLocation Loc, StringRef ExprTy);
+
+  /// Check whether it's legal for us to create a variable-length array in the
+  /// current context.  Returns true if the VLA is OK; returns false and emits
+  /// an error otherwise.
+  bool CheckCUDAVLA(SourceLocation Loc);
+
+  /// Set __device__ or __host__ __device__ attributes on the given lambda
+  /// operator() method.
+  ///
+  /// CUDA lambdas declared inside __device__ or __global__ functions inherit
+  /// the __device__ attribute.  Similarly, lambdas inside __host__ __device__
+  /// functions become __host__ __device__ themselves.
+  void CUDASetLambdaAttrs(CXXMethodDecl *Method);
 
   /// Finds a function in \p Matches with highest calling priority
   /// from \p Caller context and erases all functions with lower
@@ -9472,6 +9550,7 @@ private:
   bool CheckAArch64BuiltinFunctionCall(unsigned BuiltinID, CallExpr *TheCall);
   bool CheckMipsBuiltinFunctionCall(unsigned BuiltinID, CallExpr *TheCall);
   bool CheckSystemZBuiltinFunctionCall(unsigned BuiltinID, CallExpr *TheCall);
+  bool CheckX86BuiltinRoundingOrSAE(unsigned BuiltinID, CallExpr *TheCall);
   bool CheckX86BuiltinFunctionCall(unsigned BuiltinID, CallExpr *TheCall);
   bool CheckPPCBuiltinFunctionCall(unsigned BuiltinID, CallExpr *TheCall);
 
@@ -9752,8 +9831,9 @@ public:
 
   /// \brief This function checks if the expression is in the sef of potentially
   /// misaligned members and it is converted to some pointer type T with lower
-  /// or equal alignment requirements.  If so it removes it. This is used when
-  /// we do not want to diagnose such misaligned access (e.g. in conversions to void*).
+  /// or equal alignment requirements. If so it removes it. This is used when
+  /// we do not want to diagnose such misaligned access (e.g. in conversions to
+  /// void*).
   void DiscardMisalignedMemberAddress(const Type *T, Expr *E);
 
   /// \brief This function calls Action when it determines that E designates a

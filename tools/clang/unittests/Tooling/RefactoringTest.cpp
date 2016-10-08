@@ -101,29 +101,68 @@ TEST_F(ReplacementTest, ReturnsInvalidPath) {
 
 TEST_F(ReplacementTest, FailAddReplacements) {
   Replacements Replaces;
-  auto Err = Replaces.add(Replacement("x.cc", 0, 10, "3"));
+  Replacement Deletion("x.cc", 0, 10, "3");
+  auto Err = Replaces.add(Deletion);
   EXPECT_TRUE(!Err);
   llvm::consumeError(std::move(Err));
-  Err = Replaces.add(Replacement("x.cc", 0, 2, ""));
+  Err = Replaces.add(Replacement("x.cc", 0, 2, "a"));
   EXPECT_TRUE((bool)Err);
   llvm::consumeError(std::move(Err));
-  Err = Replaces.add(Replacement("x.cc", 2, 2, ""));
+  Err = Replaces.add(Replacement("x.cc", 2, 2, "a"));
   EXPECT_TRUE((bool)Err);
   llvm::consumeError(std::move(Err));
   Err = Replaces.add(Replacement("y.cc", 20, 2, ""));
   EXPECT_TRUE((bool)Err);
   llvm::consumeError(std::move(Err));
+  EXPECT_EQ(1u, Replaces.size());
+  EXPECT_EQ(Deletion, *Replaces.begin());
 }
 
-TEST_F(ReplacementTest, FailAddOverlappingInsertions) {
+TEST_F(ReplacementTest, DeletionInReplacements) {
+  Replacements Replaces;
+  Replacement R("x.cc", 0, 10, "3");
+  auto Err = Replaces.add(R);
+  EXPECT_TRUE(!Err);
+  llvm::consumeError(std::move(Err));
+  Err = Replaces.add(Replacement("x.cc", 0, 2, ""));
+  EXPECT_TRUE(!Err);
+  llvm::consumeError(std::move(Err));
+  Err = Replaces.add(Replacement("x.cc", 2, 2, ""));
+  EXPECT_TRUE(!Err);
+  llvm::consumeError(std::move(Err));
+  EXPECT_EQ(1u, Replaces.size());
+  EXPECT_EQ(R, *Replaces.begin());
+}
+
+TEST_F(ReplacementTest, OverlappingReplacements) {
+  Replacements Replaces;
+  auto Err = Replaces.add(Replacement("x.cc", 0, 3, "345"));
+  EXPECT_TRUE(!Err);
+  llvm::consumeError(std::move(Err));
+  Err = Replaces.add(Replacement("x.cc", 2, 3, "543"));
+  EXPECT_TRUE(!Err);
+  llvm::consumeError(std::move(Err));
+
+  EXPECT_EQ(1u, Replaces.size());
+  EXPECT_EQ(Replacement("x.cc", 0, 5, "34543"), *Replaces.begin());
+
+  Err = Replaces.add(Replacement("x.cc", 2, 1, "5"));
+  EXPECT_TRUE(!Err);
+  llvm::consumeError(std::move(Err));
+  EXPECT_EQ(1u, Replaces.size());
+  EXPECT_EQ(Replacement("x.cc", 0, 5, "34543"), *Replaces.begin());
+}
+
+TEST_F(ReplacementTest, AddAdjacentInsertionAndReplacement) {
   Replacements Replaces;
   // Test adding an insertion at the offset of an existing replacement.
   auto Err = Replaces.add(Replacement("x.cc", 10, 3, "replace"));
   EXPECT_TRUE(!Err);
   llvm::consumeError(std::move(Err));
   Err = Replaces.add(Replacement("x.cc", 10, 0, "insert"));
-  EXPECT_TRUE((bool)Err);
+  EXPECT_TRUE(!Err);
   llvm::consumeError(std::move(Err));
+  EXPECT_EQ(Replaces.size(), 2u);
 
   Replaces.clear();
   // Test overlap with an existing insertion.
@@ -131,8 +170,119 @@ TEST_F(ReplacementTest, FailAddOverlappingInsertions) {
   EXPECT_TRUE(!Err);
   llvm::consumeError(std::move(Err));
   Err = Replaces.add(Replacement("x.cc", 10, 3, "replace"));
-  EXPECT_TRUE((bool)Err);
+  EXPECT_TRUE(!Err);
   llvm::consumeError(std::move(Err));
+  EXPECT_EQ(Replaces.size(), 2u);
+}
+
+TEST_F(ReplacementTest, MergeNewDeletions) {
+  Replacements Replaces;
+  Replacement ContainingReplacement("x.cc", 0, 10, "");
+  auto Err = Replaces.add(ContainingReplacement);
+  EXPECT_TRUE(!Err);
+  llvm::consumeError(std::move(Err));
+
+  Err = Replaces.add(Replacement("x.cc", 5, 3, ""));
+  EXPECT_TRUE(!Err);
+  llvm::consumeError(std::move(Err));
+
+  Err = Replaces.add(Replacement("x.cc", 0, 10, ""));
+  EXPECT_TRUE(!Err);
+  llvm::consumeError(std::move(Err));
+
+  Err = Replaces.add(Replacement("x.cc", 5, 5, ""));
+  EXPECT_TRUE(!Err);
+  llvm::consumeError(std::move(Err));
+
+  EXPECT_EQ(1u, Replaces.size());
+  EXPECT_EQ(*Replaces.begin(), ContainingReplacement);
+}
+
+TEST_F(ReplacementTest, MergeOverlappingButNotAdjacentReplacement) {
+  Replacements Replaces;
+  auto Err = Replaces.add(Replacement("x.cc", 0, 2, ""));
+  EXPECT_TRUE(!Err);
+  llvm::consumeError(std::move(Err));
+
+  Err = Replaces.add(Replacement("x.cc", 5, 5, ""));
+  EXPECT_TRUE(!Err);
+  llvm::consumeError(std::move(Err));
+
+  Replacement After = Replacement("x.cc", 10, 5, "");
+  Err = Replaces.add(After);
+  EXPECT_TRUE(!Err);
+  llvm::consumeError(std::move(Err));
+
+  Replacement ContainingReplacement("x.cc", 0, 10, "");
+  Err = Replaces.add(ContainingReplacement);
+  EXPECT_TRUE(!Err);
+  llvm::consumeError(std::move(Err));
+
+  EXPECT_EQ(2u, Replaces.size());
+  EXPECT_EQ(*Replaces.begin(), ContainingReplacement);
+  EXPECT_EQ(*(++Replaces.begin()), After);
+}
+
+TEST_F(ReplacementTest, InsertionBeforeMergedDeletions) {
+  Replacements Replaces;
+
+  Replacement Insertion("x.cc", 0, 0, "123");
+  auto Err = Replaces.add(Insertion);
+  EXPECT_TRUE(!Err);
+  llvm::consumeError(std::move(Err));
+
+  Err = Replaces.add(Replacement("x.cc", 5, 5, ""));
+  EXPECT_TRUE(!Err);
+  llvm::consumeError(std::move(Err));
+
+  Replacement Deletion("x.cc", 0, 10, "");
+  Err = Replaces.add(Deletion);
+  EXPECT_TRUE(!Err);
+  llvm::consumeError(std::move(Err));
+
+  EXPECT_EQ(2u, Replaces.size());
+  EXPECT_EQ(*Replaces.begin(), Insertion);
+  EXPECT_EQ(*(++Replaces.begin()), Deletion);
+}
+
+TEST_F(ReplacementTest, MergeOverlappingDeletions) {
+  Replacements Replaces;
+  auto Err = Replaces.add(Replacement("x.cc", 0, 2, ""));
+  EXPECT_TRUE(!Err);
+  llvm::consumeError(std::move(Err));
+
+  Err = Replaces.add(Replacement("x.cc", 0, 5, ""));
+  EXPECT_TRUE(!Err);
+  llvm::consumeError(std::move(Err));
+
+  EXPECT_EQ(1u, Replaces.size());
+  EXPECT_EQ(Replacement("x.cc", 0, 5, ""), *Replaces.begin());
+
+  Err = Replaces.add(Replacement("x.cc", 1, 5, ""));
+  EXPECT_TRUE(!Err);
+  llvm::consumeError(std::move(Err));
+  EXPECT_EQ(1u, Replaces.size());
+  EXPECT_EQ(Replacement("x.cc", 0, 6, ""), *Replaces.begin());
+}
+
+TEST_F(ReplacementTest, FailedMergeExistingDeletions) {
+  Replacements Replaces;
+  Replacement First("x.cc", 0, 2, "");
+  auto Err = Replaces.add(First);
+  EXPECT_TRUE(!Err);
+  llvm::consumeError(std::move(Err));
+
+  Replacement Second("x.cc", 5, 5, "");
+  Err = Replaces.add(Second);
+  EXPECT_TRUE(!Err);
+  llvm::consumeError(std::move(Err));
+
+  Err = Replaces.add(Replacement("x.cc", 1, 10, ""));
+  EXPECT_TRUE(!Err);
+  llvm::consumeError(std::move(Err));
+
+  EXPECT_EQ(1u, Replaces.size());
+  EXPECT_EQ(Replacement("x.cc", 0, 11, ""), *Replaces.begin());
 }
 
 TEST_F(ReplacementTest, FailAddRegression) {
@@ -153,27 +303,74 @@ TEST_F(ReplacementTest, FailAddRegression) {
   llvm::consumeError(std::move(Err));
 
   Err = Replaces.add(Replacement("x.cc", 10, 0, ""));
-  EXPECT_TRUE((bool)Err);
+  EXPECT_TRUE(!Err);
   llvm::consumeError(std::move(Err));
 }
 
-TEST_F(ReplacementTest, FailAddInsertAtOffsetOfReplacement) {
+TEST_F(ReplacementTest, InsertAtOffsetOfReplacement) {
   Replacements Replaces;
   auto Err = Replaces.add(Replacement("x.cc", 10, 2, ""));
   EXPECT_TRUE(!Err);
   llvm::consumeError(std::move(Err));
   Err = Replaces.add(Replacement("x.cc", 10, 0, ""));
-  EXPECT_TRUE((bool)Err);
+  EXPECT_TRUE(!Err);
   llvm::consumeError(std::move(Err));
+  EXPECT_EQ(Replaces.size(), 2u);
+
+  Replaces.clear();
+  Err = Replaces.add(Replacement("x.cc", 10, 0, ""));
+  EXPECT_TRUE(!Err);
+  llvm::consumeError(std::move(Err));
+  Err = Replaces.add(Replacement("x.cc", 10, 2, ""));
+  EXPECT_TRUE(!Err);
+  llvm::consumeError(std::move(Err));
+  EXPECT_EQ(Replaces.size(), 2u);
 }
 
-TEST_F(ReplacementTest, FailAddInsertAtOtherInsert) {
+TEST_F(ReplacementTest, AddInsertAtOtherInsertWhenOderIndependent) {
   Replacements Replaces;
   auto Err = Replaces.add(Replacement("x.cc", 10, 0, "a"));
   EXPECT_TRUE(!Err);
   llvm::consumeError(std::move(Err));
   Err = Replaces.add(Replacement("x.cc", 10, 0, "b"));
   EXPECT_TRUE((bool)Err);
+  llvm::consumeError(std::move(Err));
+
+  Replaces.clear();
+  Err = Replaces.add(Replacement("x.cc", 10, 0, "a"));
+  EXPECT_TRUE(!Err);
+  llvm::consumeError(std::move(Err));
+  Err = Replaces.add(Replacement("x.cc", 10, 0, "aa"));
+  EXPECT_TRUE(!Err);
+  llvm::consumeError(std::move(Err));
+  EXPECT_EQ(1u, Replaces.size());
+  EXPECT_EQ(Replacement("x.cc", 10, 0, "aaa"), *Replaces.begin());
+
+  Replaces.clear();
+  Err = Replaces.add(Replacement("x.cc", 10, 0, ""));
+  EXPECT_TRUE(!Err);
+  llvm::consumeError(std::move(Err));
+  Err = Replaces.add(Replacement("x.cc", 10, 3, ""));
+  EXPECT_TRUE(!Err);
+  llvm::consumeError(std::move(Err));
+  Err = Replaces.add(Replacement("x.cc", 10, 0, ""));
+  EXPECT_TRUE(!Err);
+  llvm::consumeError(std::move(Err));
+  EXPECT_EQ(2u, Replaces.size());
+  EXPECT_EQ(Replacement("x.cc", 10, 0, ""), *Replaces.begin());
+  EXPECT_EQ(Replacement("x.cc", 10, 3, ""), *std::next(Replaces.begin()));
+}
+
+TEST_F(ReplacementTest, InsertBetweenAdjacentReplacements) {
+  Replacements Replaces;
+  auto Err = Replaces.add(Replacement("x.cc", 10, 5, "a"));
+  EXPECT_TRUE(!Err);
+  llvm::consumeError(std::move(Err));
+  Err = Replaces.add(Replacement("x.cc", 8, 2, "a"));
+  EXPECT_TRUE(!Err);
+  llvm::consumeError(std::move(Err));
+  Err = Replaces.add(Replacement("x.cc", 10, 0, "b"));
+  EXPECT_TRUE(!Err);
   llvm::consumeError(std::move(Err));
 }
 
@@ -189,7 +386,30 @@ TEST_F(ReplacementTest, CanApplyReplacements) {
   EXPECT_EQ("line1\nreplaced\nother\nline4", Context.getRewrittenText(ID));
 }
 
-TEST_F(ReplacementTest, SkipsDuplicateReplacements) {
+// Verifies that replacement/deletion is applied before insertion at the same
+// offset.
+TEST_F(ReplacementTest, InsertAndDelete) {
+  FileID ID = Context.createInMemoryFile("input.cpp",
+                                         "line1\nline2\nline3\nline4");
+  Replacements Replaces = toReplacements(
+      {Replacement(Context.Sources, Context.getLocation(ID, 2, 1), 6, ""),
+       Replacement(Context.Sources, Context.getLocation(ID, 2, 1), 0,
+                   "other\n")});
+  EXPECT_TRUE(applyAllReplacements(Replaces, Context.Rewrite));
+  EXPECT_EQ("line1\nother\nline3\nline4", Context.getRewrittenText(ID));
+}
+
+TEST_F(ReplacementTest, AdjacentReplacements) {
+  FileID ID = Context.createInMemoryFile("input.cpp",
+                                         "ab");
+  Replacements Replaces = toReplacements(
+      {Replacement(Context.Sources, Context.getLocation(ID, 1, 1), 1, "x"),
+       Replacement(Context.Sources, Context.getLocation(ID, 1, 2), 1, "y")});
+  EXPECT_TRUE(applyAllReplacements(Replaces, Context.Rewrite));
+  EXPECT_EQ("xy", Context.getRewrittenText(ID));
+}
+
+TEST_F(ReplacementTest, AddDuplicateReplacements) {
   FileID ID = Context.createInMemoryFile("input.cpp",
                                          "line1\nline2\nline3\nline4");
   auto Replaces = toReplacements({Replacement(
@@ -197,16 +417,31 @@ TEST_F(ReplacementTest, SkipsDuplicateReplacements) {
 
   auto Err = Replaces.add(Replacement(
       Context.Sources, Context.getLocation(ID, 2, 1), 5, "replaced"));
-  EXPECT_TRUE((bool)Err);
+  EXPECT_TRUE(!Err);
   llvm::consumeError(std::move(Err));
 
   Err = Replaces.add(Replacement(Context.Sources, Context.getLocation(ID, 2, 1),
                                  5, "replaced"));
-  EXPECT_TRUE((bool)Err);
+  EXPECT_TRUE(!Err);
   llvm::consumeError(std::move(Err));
 
   EXPECT_TRUE(applyAllReplacements(Replaces, Context.Rewrite));
   EXPECT_EQ("line1\nreplaced\nline3\nline4", Context.getRewrittenText(ID));
+}
+
+TEST_F(ReplacementTest, FailOrderDependentReplacements) {
+  FileID ID = Context.createInMemoryFile("input.cpp",
+                                         "line1\nline2\nline3\nline4");
+  auto Replaces = toReplacements({Replacement(
+      Context.Sources, Context.getLocation(ID, 2, 1), 5, "other")});
+
+  auto Err = Replaces.add(Replacement(
+      Context.Sources, Context.getLocation(ID, 2, 1), 5, "rehto"));
+  EXPECT_TRUE((bool)Err);
+  llvm::consumeError(std::move(Err));
+
+  EXPECT_TRUE(applyAllReplacements(Replaces, Context.Rewrite));
+  EXPECT_EQ("line1\nother\nline3\nline4", Context.getRewrittenText(ID));
 }
 
 TEST_F(ReplacementTest, InvalidSourceLocationFailsApplyAll) {
@@ -504,6 +739,17 @@ TEST(Range, CalculateRangesOfReplacements) {
   EXPECT_TRUE(Ranges[0].getLength() == 0);
   EXPECT_TRUE(Ranges[1].getOffset() == 6);
   EXPECT_TRUE(Ranges[1].getLength() == 22);
+}
+
+TEST(Range, CalculateRangesOfInsertionAroundReplacement) {
+  Replacements Replaces = toReplacements(
+      {Replacement("foo", 0, 2, ""), Replacement("foo", 0, 0, "ba")});
+
+  std::vector<Range> Ranges = Replaces.getAffectedRanges();
+
+  EXPECT_EQ(1ul, Ranges.size());
+  EXPECT_EQ(0u, Ranges[0].getOffset());
+  EXPECT_EQ(2u, Ranges[0].getLength());
 }
 
 TEST(Range, RangesAfterEmptyReplacements) {

@@ -147,6 +147,21 @@ TEST_F(FormatTestJS, ReservedWords) {
   verifyFormat("x = interface instanceof y;");
 }
 
+TEST_F(FormatTestJS, ReservedWordsMethods) {
+  verifyFormat(
+      "class X {\n"
+      "  delete() {\n"
+      "    x();\n"
+      "  }\n"
+      "  interface() {\n"
+      "    x();\n"
+      "  }\n"
+      "  let() {\n"
+      "    x();\n"
+      "  }\n"
+      "}\n");
+}
+
 TEST_F(FormatTestJS, CppKeywords) {
   // Make sure we don't mess stuff up because of C++ keywords.
   verifyFormat("return operator && (aa);");
@@ -774,6 +789,18 @@ TEST_F(FormatTestJS, AutomaticSemicolonInsertionHeuristic) {
                                       "String");
   verifyFormat("function f(@Foo bar) {}", "function f(@Foo\n"
                                           "  bar) {}");
+  verifyFormat("a = true\n"
+               "return 1",
+               "a = true\n"
+               "  return   1");
+  verifyFormat("a = 's'\n"
+               "return 1",
+               "a = 's'\n"
+               "  return   1");
+  verifyFormat("a = null\n"
+               "return 1",
+               "a = null\n"
+               "  return   1");
 }
 
 TEST_F(FormatTestJS, ClosureStyleCasts) {
@@ -1253,6 +1280,9 @@ TEST_F(FormatTestJS, NestedTemplateStrings) {
   verifyFormat(
       "var x = `<ul>${xs.map(x => `<li>${x}</li>`).join('\\n')}</ul>`;");
   verifyFormat("var x = `he${({text: 'll'}.text)}o`;");
+
+  // Crashed at some point.
+  verifyFormat("}");
 }
 
 TEST_F(FormatTestJS, TaggedTemplateStrings) {
@@ -1427,6 +1457,12 @@ TEST_F(FormatTestJS, Conditional) {
                "  field = true ? 1 : 2;\n"
                "  method(a = true ? 1 : 2) {}\n"
                "}");
+}
+
+TEST_F(FormatTestJS, ImportComments) {
+  verifyFormat("import {x} from 'x';  // from some location",
+               getGoogleJSStyleWithColumns(25));
+  verifyFormat("// taze: x from 'location'", getGoogleJSStyleWithColumns(10));
 }
 
 } // end namespace tooling

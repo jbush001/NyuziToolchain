@@ -1,0 +1,109 @@
+# RUN: yaml2obj %s > %t.obj
+# RUN: lld-link /debug /pdb:%t.pdb /dll /out:%t.dll /entry:DllMain %t.obj
+# RUN: llvm-pdbdump pdb2yaml -stream-metadata -stream-directory -pdb-stream \
+# RUN:   -dbi-stream -ipi-stream %t.pdb | FileCheck %s
+
+# CHECK:      MSF:
+# CHECK-NEXT:   SuperBlock:
+# CHECK-NEXT:     BlockSize:       4096
+# CHECK-NEXT:     FreeBlockMap:
+# CHECK-NEXT:     NumBlocks:       9
+# CHECK-NEXT:     NumDirectoryBytes: 40
+# CHECK-NEXT:     Unknown1:        0
+# CHECK-NEXT:     BlockMapAddr:    3
+# CHECK-NEXT:     NumDirectoryBlocks: 1
+# CHECK-NEXT:     DirectoryBlocks: [ 8 ]
+# CHECK-NEXT:     NumStreams:      5
+# CHECK-NEXT:     FileSize:        36864
+# CHECK-NEXT:   StreamSizes:     [ 0, 48, 56, 68, 56 ]
+# CHECK-NEXT:   StreamMap:
+# CHECK-NEXT:     - Stream:          [ ]
+# CHECK-NEXT:     - Stream:          [ 4 ]
+# CHECK-NEXT:     - Stream:          [ 6 ]
+# CHECK-NEXT:     - Stream:          [ 5 ]
+# CHECK-NEXT:     - Stream:          [ 7 ]
+# CHECK-NEXT:   PdbStream:
+# CHECK-NEXT:     Age:             1
+# CHECK-NEXT:     Guid:            '{00000000-0000-0000-0000-000000000000}'
+# CHECK-NEXT:     Signature:       0
+# CHECK-NEXT:     Version:         VC70
+# CHECK-NEXT:     NamedStreams:
+# CHECK-NEXT:   DbiStream:
+# CHECK-NEXT:     VerHeader:       V110
+# CHECK-NEXT:     Age:             1
+# CHECK-NEXT:     BuildNumber:     0
+# CHECK-NEXT:     PdbDllVersion:   0
+# CHECK-NEXT:     PdbDllRbld:      0
+# CHECK-NEXT:     Flags:           0
+# CHECK-NEXT:     MachineType:     x86
+# CHECK-NEXT:   IpiStream:
+# CHECK-NEXT:     Version:         VC80
+# CHECK-NEXT:     Records:
+
+--- !COFF
+header:
+  Machine:         IMAGE_FILE_MACHINE_I386
+  Characteristics: [  ]
+sections:
+  - Name:            .text
+    Characteristics: [ IMAGE_SCN_CNT_CODE, IMAGE_SCN_MEM_EXECUTE, IMAGE_SCN_MEM_READ ]
+    Alignment:       4
+    SectionData:     31C0C3
+  - Name:            .data
+    Characteristics: [ IMAGE_SCN_CNT_INITIALIZED_DATA, IMAGE_SCN_MEM_READ, IMAGE_SCN_MEM_WRITE ]
+    Alignment:       4
+    SectionData:     ''
+  - Name:            .bss
+    Characteristics: [ IMAGE_SCN_CNT_UNINITIALIZED_DATA, IMAGE_SCN_MEM_READ, IMAGE_SCN_MEM_WRITE ]
+    Alignment:       4
+    SectionData:     ''
+symbols:
+  - Name:            .text
+    Value:           0
+    SectionNumber:   1
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+    SectionDefinition:
+      Length:          3
+      NumberOfRelocations: 0
+      NumberOfLinenumbers: 0
+      CheckSum:        3963538403
+      Number:          1
+  - Name:            .data
+    Value:           0
+    SectionNumber:   2
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+    SectionDefinition:
+      Length:          0
+      NumberOfRelocations: 0
+      NumberOfLinenumbers: 0
+      CheckSum:        0
+      Number:          2
+  - Name:            .bss
+    Value:           0
+    SectionNumber:   3
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+    SectionDefinition:
+      Length:          0
+      NumberOfRelocations: 0
+      NumberOfLinenumbers: 0
+      CheckSum:        0
+      Number:          3
+  - Name:            '@feat.00'
+    Value:           1
+    SectionNumber:   -1
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+  - Name:            _DllMain
+    Value:           0
+    SectionNumber:   1
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_FUNCTION
+    StorageClass:    IMAGE_SYM_CLASS_EXTERNAL
+...

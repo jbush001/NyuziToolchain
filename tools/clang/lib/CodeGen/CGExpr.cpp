@@ -708,6 +708,8 @@ static bool isFlexibleArrayMemberExpr(const Expr *E) {
           DeclContext::decl_iterator(const_cast<FieldDecl *>(FD)));
       return ++FI == FD->getParent()->field_end();
     }
+  } else if (const auto *IRE = dyn_cast<ObjCIvarRefExpr>(E)) {
+    return IRE->getDecl()->getNextIvar() == nullptr;
   }
 
   return false;
@@ -1180,10 +1182,10 @@ CodeGenFunction::tryEmitAsConstant(DeclRefExpr *refExpr) {
   // This should probably fire even for
   if (isa<VarDecl>(value)) {
     if (!getContext().DeclMustBeEmitted(cast<VarDecl>(value)))
-      EmitDeclRefExprDbgValue(refExpr, C);
+      EmitDeclRefExprDbgValue(refExpr, result.Val);
   } else {
     assert(isa<EnumConstantDecl>(value));
-    EmitDeclRefExprDbgValue(refExpr, C);
+    EmitDeclRefExprDbgValue(refExpr, result.Val);
   }
 
   // If we emitted a reference constant, we need to dereference that.
@@ -2875,13 +2877,30 @@ static Address emitArraySubscriptGEP(CodeGenFunction &CGF, Address addr,
 
 LValue CodeGenFunction::EmitArraySubscriptExpr(const ArraySubscriptExpr *E,
                                                bool Accessed) {
-  // The index must always be an integer, which is not an aggregate.  Emit it.
-  llvm::Value *Idx = EmitScalarExpr(E->getIdx());
-  QualType IdxTy  = E->getIdx()->getType();
-  bool IdxSigned = IdxTy->isSignedIntegerOrEnumerationType();
+  // The index must always be an integer, which is not an aggregate.  Emit it
+  // in lexical order (this complexity is, sadly, required by C++17).
+  llvm::Value *IdxPre =
+      (E->getLHS() == E->getIdx()) ? EmitScalarExpr(E->getIdx()) : nullptr;
+  auto EmitIdxAfterBase = [&, IdxPre](bool Promote) -> llvm::Value * {
+    auto *Idx = IdxPre;
+    if (E->getLHS() != E->getIdx()) {
+      assert(E->getRHS() == E->getIdx() && "index was neither LHS nor RHS");
+      Idx = EmitScalarExpr(E->getIdx());
+    }
 
-  if (SanOpts.has(SanitizerKind::ArrayBounds))
-    EmitBoundsCheck(E, E->getBase(), Idx, IdxTy, Accessed);
+    QualType IdxTy = E->getIdx()->getType();
+    bool IdxSigned = IdxTy->isSignedIntegerOrEnumerationType();
+
+    if (SanOpts.has(SanitizerKind::ArrayBounds))
+      EmitBoundsCheck(E, E->getBase(), Idx, IdxTy, Accessed);
+
+    // Extend or truncate the index type to 32 or 64-bits.
+    if (Promote && Idx->getType() != IntPtrTy)
+      Idx = Builder.CreateIntCast(Idx, IntPtrTy, IdxSigned, "idxprom");
+
+    return Idx;
+  };
+  IdxPre = nullptr;
 
   // If the base is a vector type, then we are forming a vector element lvalue
   // with this subscript.
@@ -2889,6 +2908,7 @@ LValue CodeGenFunction::EmitArraySubscriptExpr(const ArraySubscriptExpr *E,
       !isa<ExtVectorElementExpr>(E->getBase())) {
     // Emit the vector as an lvalue to get its address.
     LValue LHS = EmitLValue(E->getBase());
+    auto *Idx = EmitIdxAfterBase(/*Promote*/false);
     assert(LHS.isSimple() && "Can only subscript lvalue vectors here!");
     return LValue::MakeVectorElt(LHS.getAddress(), Idx,
                                  E->getBase()->getType(),
@@ -2897,13 +2917,10 @@ LValue CodeGenFunction::EmitArraySubscriptExpr(const ArraySubscriptExpr *E,
 
   // All the other cases basically behave like simple offsetting.
 
-  // Extend or truncate the index type to 32 or 64-bits.
-  if (Idx->getType() != IntPtrTy)
-    Idx = Builder.CreateIntCast(Idx, IntPtrTy, IdxSigned, "idxprom");
-
   // Handle the extvector case we ignored above.
   if (isa<ExtVectorElementExpr>(E->getBase())) {
     LValue LV = EmitLValue(E->getBase());
+    auto *Idx = EmitIdxAfterBase(/*Promote*/true);
     Address Addr = EmitExtVectorElementLValue(LV);
 
     QualType EltType = LV.getType()->castAs<VectorType>()->getElementType();
@@ -2919,6 +2936,7 @@ LValue CodeGenFunction::EmitArraySubscriptExpr(const ArraySubscriptExpr *E,
     // it.  It needs to be emitted first in case it's what captures
     // the VLA bounds.
     Addr = EmitPointerWithAlignment(E->getBase(), &AlignSource);
+    auto *Idx = EmitIdxAfterBase(/*Promote*/true);
 
     // The element count here is the total number of non-VLA elements.
     llvm::Value *numElements = getVLASize(vla).first;
@@ -2938,14 +2956,16 @@ LValue CodeGenFunction::EmitArraySubscriptExpr(const ArraySubscriptExpr *E,
 
   } else if (const ObjCObjectType *OIT = E->getType()->getAs<ObjCObjectType>()){
     // Indexing over an interface, as in "NSString *P; P[4];"
-    CharUnits InterfaceSize = getContext().getTypeSizeInChars(OIT);
-    llvm::Value *InterfaceSizeVal = 
-      llvm::ConstantInt::get(Idx->getType(), InterfaceSize.getQuantity());;
-
-    llvm::Value *ScaledIdx = Builder.CreateMul(Idx, InterfaceSizeVal);
 
     // Emit the base pointer.
     Addr = EmitPointerWithAlignment(E->getBase(), &AlignSource);
+    auto *Idx = EmitIdxAfterBase(/*Promote*/true);
+
+    CharUnits InterfaceSize = getContext().getTypeSizeInChars(OIT);
+    llvm::Value *InterfaceSizeVal =
+        llvm::ConstantInt::get(Idx->getType(), InterfaceSize.getQuantity());
+
+    llvm::Value *ScaledIdx = Builder.CreateMul(Idx, InterfaceSizeVal);
 
     // We don't necessarily build correct LLVM struct types for ObjC
     // interfaces, so we can't rely on GEP to do this scaling
@@ -2977,6 +2997,7 @@ LValue CodeGenFunction::EmitArraySubscriptExpr(const ArraySubscriptExpr *E,
       ArrayLV = EmitArraySubscriptExpr(ASE, /*Accessed*/ true);
     else
       ArrayLV = EmitLValue(Array);
+    auto *Idx = EmitIdxAfterBase(/*Promote*/true);
 
     // Propagate the alignment from the array itself to the result.
     Addr = emitArraySubscriptGEP(*this, ArrayLV.getAddress(),
@@ -2987,6 +3008,7 @@ LValue CodeGenFunction::EmitArraySubscriptExpr(const ArraySubscriptExpr *E,
   } else {
     // The base must be a pointer; emit it with an estimate of its alignment.
     Addr = EmitPointerWithAlignment(E->getBase(), &AlignSource);
+    auto *Idx = EmitIdxAfterBase(/*Promote*/true);
     Addr = emitArraySubscriptGEP(*this, Addr, Idx, E->getType(),
                                  !getLangOpts().isSignedOverflowDefined());
   }
@@ -4101,8 +4123,35 @@ RValue CodeGenFunction::EmitCall(QualType CalleeType, llvm::Value *Callee,
   if (Chain)
     Args.add(RValue::get(Builder.CreateBitCast(Chain, CGM.VoidPtrTy)),
              CGM.getContext().VoidPtrTy);
+
+  // C++17 requires that we evaluate arguments to a call using assignment syntax
+  // right-to-left, and that we evaluate arguments to certain other operators
+  // left-to-right. Note that we allow this to override the order dictated by
+  // the calling convention on the MS ABI, which means that parameter
+  // destruction order is not necessarily reverse construction order.
+  // FIXME: Revisit this based on C++ committee response to unimplementability.
+  EvaluationOrder Order = EvaluationOrder::Default;
+  if (auto *OCE = dyn_cast<CXXOperatorCallExpr>(E)) {
+    if (OCE->isAssignmentOp())
+      Order = EvaluationOrder::ForceRightToLeft;
+    else {
+      switch (OCE->getOperator()) {
+      case OO_LessLess:
+      case OO_GreaterGreater:
+      case OO_AmpAmp:
+      case OO_PipePipe:
+      case OO_Comma:
+      case OO_ArrowStar:
+        Order = EvaluationOrder::ForceLeftToRight;
+        break;
+      default:
+        break;
+      }
+    }
+  }
+
   EmitCallArgs(Args, dyn_cast<FunctionProtoType>(FnType), E->arguments(),
-               E->getDirectCallee(), /*ParamsToSkip*/ 0);
+               E->getDirectCallee(), /*ParamsToSkip*/ 0, Order);
 
   const CGFunctionInfo &FnInfo = CGM.getTypes().arrangeFreeFunctionCall(
       Args, FnType, /*isChainCall=*/Chain);

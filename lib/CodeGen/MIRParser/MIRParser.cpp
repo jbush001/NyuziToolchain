@@ -415,7 +415,7 @@ bool MIRParserImpl::initializeRegisterInfo(PerFunctionMIParsingState &PFS,
     if (StringRef(VReg.Class.Value).equals("_")) {
       // This is a generic virtual register.
       // The size will be set appropriately when we reach the definition.
-      Reg = RegInfo.createGenericVirtualRegister(LLT::scalar(1));
+      Reg = RegInfo.createGenericVirtualRegister(LLT{});
       PFS.GenericVRegs.insert(Reg);
     } else {
       const auto *RC = getRegClass(MF, VReg.Class.Value);
@@ -428,7 +428,7 @@ bool MIRParserImpl::initializeRegisterInfo(PerFunctionMIParsingState &PFS,
               VReg.Class.SourceRange.Start,
               Twine("use of undefined register class or register bank '") +
                   VReg.Class.Value + "'");
-        Reg = RegInfo.createGenericVirtualRegister(LLT::scalar(1));
+        Reg = RegInfo.createGenericVirtualRegister(LLT{});
         RegInfo.setRegBank(Reg, *RegBank);
         PFS.GenericVRegs.insert(Reg);
       }
@@ -552,7 +552,7 @@ bool MIRParserImpl::initializeFrameInfo(PerFunctionMIParsingState &PFS,
     const yaml::StringValue &Name = Object.Name;
     if (!Name.Value.empty()) {
       Alloca = dyn_cast_or_null<AllocaInst>(
-          F.getValueSymbolTable().lookup(Name.Value));
+          F.getValueSymbolTable()->lookup(Name.Value));
       if (!Alloca)
         return error(Name.SourceRange.Start,
                      "alloca instruction named '" + Name.Value +
@@ -829,6 +829,14 @@ std::unique_ptr<MIRParser>
 llvm::createMIRParser(std::unique_ptr<MemoryBuffer> Contents,
                       LLVMContext &Context) {
   auto Filename = Contents->getBufferIdentifier();
+  if (Context.shouldDiscardValueNames()) {
+    Context.diagnose(DiagnosticInfoMIRParser(
+        DS_Error,
+        SMDiagnostic(
+            Filename, SourceMgr::DK_Error,
+            "Can't read MIR with a Context that discards named Values")));
+    return nullptr;
+  }
   return llvm::make_unique<MIRParser>(
       llvm::make_unique<MIRParserImpl>(std::move(Contents), Filename, Context));
 }

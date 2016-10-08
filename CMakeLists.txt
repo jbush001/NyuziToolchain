@@ -15,6 +15,10 @@ if (POLICY CMP0051)
   cmake_policy(SET CMP0051 OLD)
 endif()
 
+if(POLICY CMP0057)
+  cmake_policy(SET CMP0057 NEW)
+endif()
+
 if(NOT DEFINED LLVM_VERSION_MAJOR)
   set(LLVM_VERSION_MAJOR 4)
 endif()
@@ -391,6 +395,8 @@ option(LLVM_POLLY_BUILD "Build LLVM with Polly" ON)
 
 if (EXISTS ${LLVM_MAIN_SRC_DIR}/tools/polly/CMakeLists.txt)
   set(POLLY_IN_TREE TRUE)
+elseif(LLVM_EXTERNAL_POLLY_SOURCE_DIR)
+  set(POLLY_IN_TREE TRUE)
 else()
   set(POLLY_IN_TREE FALSE)
 endif()
@@ -456,6 +462,11 @@ option (LLVM_ENABLE_DOXYGEN "Use doxygen to generate llvm API documentation." OF
 option (LLVM_ENABLE_SPHINX "Use Sphinx to generate llvm documentation." OFF)
 option (LLVM_ENABLE_OCAMLDOC "Build OCaml bindings documentation." ON)
 
+set(LLVM_INSTALL_DOXYGEN_HTML_DIR "share/doc/llvm/doxygen-html"
+    CACHE STRING "Doxygen-generated HTML documentation install directory")
+set(LLVM_INSTALL_OCAMLDOC_HTML_DIR "share/doc/llvm/ocaml-html"
+    CACHE STRING "OCamldoc-generated HTML documentation install directory")
+
 option (LLVM_BUILD_EXTERNAL_COMPILER_RT
   "Build compiler-rt as an external project." OFF)
 
@@ -514,6 +525,8 @@ list(REMOVE_DUPLICATES LLVM_TARGETS_TO_BUILD)
 set(LLVM_DEFAULT_TARGET_TRIPLE "${LLVM_HOST_TRIPLE}" CACHE STRING
   "Default target for which LLVM will generate code." )
 set(TARGET_TRIPLE "${LLVM_DEFAULT_TARGET_TRIPLE}")
+message(STATUS "LLVM host triple: ${LLVM_HOST_TRIPLE}")
+message(STATUS "LLVM default target triple: ${LLVM_DEFAULT_TARGET_TRIPLE}")
 
 include(HandleLLVMOptions)
 

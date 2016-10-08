@@ -280,6 +280,11 @@ cl::opt<bool>
                   cl::desc("Dump DBI Module Information (implies -dbi-stream)"),
                   cl::sub(PdbToYamlSubcommand), cl::init(false));
 
+cl::opt<bool> DbiModuleSyms(
+    "dbi-module-syms",
+    cl::desc("Dump DBI Module Information (implies -dbi-module-info)"),
+    cl::sub(PdbToYamlSubcommand), cl::init(false));
+
 cl::opt<bool> DbiModuleSourceFileInfo(
     "dbi-module-source-info",
     cl::desc(
@@ -288,6 +293,10 @@ cl::opt<bool> DbiModuleSourceFileInfo(
 
 cl::opt<bool> TpiStream("tpi-stream",
                         cl::desc("Dump the TPI Stream (Stream 3)"),
+                        cl::sub(PdbToYamlSubcommand), cl::init(false));
+
+cl::opt<bool> IpiStream("ipi-stream",
+                        cl::desc("Dump the IPI Stream (Stream 5)"),
                         cl::sub(PdbToYamlSubcommand), cl::init(false));
 
 cl::list<std::string> InputFilename(cl::Positional,
@@ -317,48 +326,17 @@ static void yamlToPdb(StringRef Path) {
     ExitOnErr(make_error<GenericError>(generic_error_code::unspecified,
                                        "Yaml does not contain MSF headers"));
 
-  auto OutFileOrError = FileOutputBuffer::create(
-      opts::yaml2pdb::YamlPdbOutputFile, YamlObj.Headers->FileSize);
-  if (OutFileOrError.getError())
-    ExitOnErr(make_error<GenericError>(generic_error_code::invalid_path,
-                                       opts::yaml2pdb::YamlPdbOutputFile));
-
-  auto FileByteStream =
-      llvm::make_unique<FileBufferByteStream>(std::move(*OutFileOrError));
   PDBFileBuilder Builder(Allocator);
 
-  ExitOnErr(Builder.initialize(YamlObj.Headers->SuperBlock));
-  ExitOnErr(Builder.getMsfBuilder().setDirectoryBlocksHint(
-      YamlObj.Headers->DirectoryBlocks));
-  if (!YamlObj.StreamSizes.hasValue()) {
-    ExitOnErr(make_error<GenericError>(
-        generic_error_code::unspecified,
-        "Cannot generate a PDB when stream sizes are not known"));
-  }
-
-  if (YamlObj.StreamMap.hasValue()) {
-    if (YamlObj.StreamMap->size() != YamlObj.StreamSizes->size()) {
-      ExitOnErr(make_error<GenericError>(generic_error_code::unspecified,
-                                         "YAML specifies different number of "
-                                         "streams in stream sizes and stream "
-                                         "map"));
-    }
-
-    auto &Sizes = *YamlObj.StreamSizes;
-    auto &Map = *YamlObj.StreamMap;
-    for (uint32_t I = 0; I < Sizes.size(); ++I) {
-      uint32_t Size = Sizes[I];
-      std::vector<uint32_t> Blocks;
-      for (auto E : Map[I].Blocks)
-        Blocks.push_back(E);
-      ExitOnErr(Builder.getMsfBuilder().addStream(Size, Blocks));
-    }
-  } else {
-    auto &Sizes = *YamlObj.StreamSizes;
-    for (auto S : Sizes) {
-      ExitOnErr(Builder.getMsfBuilder().addStream(S));
-    }
-  }
+  ExitOnErr(Builder.initialize(YamlObj.Headers->SuperBlock.BlockSize));
+  // Add each of the reserved streams.  We ignore stream metadata in the
+  // yaml, because we will reconstruct our own view of the streams.  For
+  // example, the YAML may say that there were 20 streams in the original
+  // PDB, but maybe we only dump a subset of those 20 streams, so we will
+  // have fewer, and the ones we do have may end up with different indices
+  // than the ones in the original PDB.  So we just start with a clean slate.
+  for (uint32_t I = 0; I < kSpecialStreamCount; ++I)
+    ExitOnErr(Builder.getMsfBuilder().addStream(0));
 
   if (YamlObj.PdbStream.hasValue()) {
     auto &InfoBuilder = Builder.getInfoBuilder();
@@ -394,7 +372,14 @@ static void yamlToPdb(StringRef Path) {
       TpiBuilder.addTypeRecord(R.Record);
   }
 
-  ExitOnErr(Builder.commit(*FileByteStream));
+  if (YamlObj.IpiStream.hasValue()) {
+    auto &IpiBuilder = Builder.getIpiBuilder();
+    IpiBuilder.setVersionHeader(YamlObj.IpiStream->Version);
+    for (const auto &R : YamlObj.IpiStream->Records)
+      IpiBuilder.addTypeRecord(R.Record);
+  }
+
+  ExitOnErr(Builder.commit(opts::yaml2pdb::YamlPdbOutputFile));
 }
 
 static void pdb2Yaml(StringRef Path) {

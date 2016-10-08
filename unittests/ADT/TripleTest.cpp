@@ -200,6 +200,12 @@ TEST(TripleTest, ParsedIDs) {
   EXPECT_EQ(Triple::CloudABI, T.getOS());
   EXPECT_EQ(Triple::UnknownEnvironment, T.getEnvironment());
 
+  T = Triple("x86_64-unknown-fuchsia");
+  EXPECT_EQ(Triple::x86_64, T.getArch());
+  EXPECT_EQ(Triple::UnknownVendor, T.getVendor());
+  EXPECT_EQ(Triple::Fuchsia, T.getOS());
+  EXPECT_EQ(Triple::UnknownEnvironment, T.getEnvironment());
+
   T = Triple("wasm32-unknown-unknown");
   EXPECT_EQ(Triple::wasm32, T.getArch());
   EXPECT_EQ(Triple::UnknownVendor, T.getVendor());
@@ -247,6 +253,12 @@ TEST(TripleTest, ParsedIDs) {
   EXPECT_EQ(Triple::AMD, T.getVendor());
   EXPECT_EQ(Triple::AMDHSA, T.getOS());
   EXPECT_EQ(Triple::UnknownEnvironment, T.getEnvironment());
+
+  T = Triple("amdgcn-amd-amdhsa-opencl");
+  EXPECT_EQ(Triple::amdgcn, T.getArch());
+  EXPECT_EQ(Triple::AMD, T.getVendor());
+  EXPECT_EQ(Triple::AMDHSA, T.getOS());
+  EXPECT_EQ(Triple::OpenCL, T.getEnvironment());
 
   T = Triple("huh");
   EXPECT_EQ(Triple::UnknownArch, T.getArch());

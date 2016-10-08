@@ -88,6 +88,7 @@ class BlockFieldFlags;
 class RegionCodeGenTy;
 class TargetCodeGenInfo;
 struct OMPTaskDataTy;
+struct CGCoroData;
 
 /// The kind of evaluation to perform on values of a particular
 /// type.  Basically, is the code in CGExprScalar, CGExprComplex, or
@@ -154,6 +155,16 @@ public:
   const CGFunctionInfo *CurFnInfo;
   QualType FnRetTy;
   llvm::Function *CurFn;
+
+  // Holds coroutine data if the current function is a coroutine. We use a
+  // wrapper to manage its lifetime, so that we don't have to define CGCoroData
+  // in this header.
+  struct CGCoroInfo {
+    std::unique_ptr<CGCoroData> Data;
+    CGCoroInfo();
+    ~CGCoroInfo();
+  };
+  CGCoroInfo CurCoro;
 
   /// CurGD - The GlobalDecl for the current function being compiled.
   GlobalDecl CurGD;
@@ -2290,6 +2301,8 @@ public:
   void EmitObjCAtSynchronizedStmt(const ObjCAtSynchronizedStmt &S);
   void EmitObjCAutoreleasePoolStmt(const ObjCAutoreleasePoolStmt &S);
 
+  RValue EmitCoroutineIntrinsic(const CallExpr *E, unsigned int IID);
+
   void EnterCXXTryStmt(const CXXTryStmt &S, bool IsFnTryBlock = false);
   void ExitCXXTryStmt(const CXXTryStmt &S, bool IsFnTryBlock = false);
 
@@ -2810,7 +2823,7 @@ public:
   LValue EmitStmtExprLValue(const StmtExpr *E);
   LValue EmitPointerToDataMemberBinaryExpr(const BinaryOperator *E);
   LValue EmitObjCSelectorLValue(const ObjCSelectorExpr *E);
-  void   EmitDeclRefExprDbgValue(const DeclRefExpr *E, llvm::Constant *Init);
+  void   EmitDeclRefExprDbgValue(const DeclRefExpr *E, const APValue &Init);
 
   //===--------------------------------------------------------------------===//
   //                         Scalar Expression Emission
@@ -2867,7 +2880,8 @@ public:
   EmitCXXMemberOrOperatorCall(const CXXMethodDecl *MD, llvm::Value *Callee,
                               ReturnValueSlot ReturnValue, llvm::Value *This,
                               llvm::Value *ImplicitParam,
-                              QualType ImplicitParamTy, const CallExpr *E);
+                              QualType ImplicitParamTy, const CallExpr *E,
+                              CallArgList *RtlArgs);
   RValue EmitCXXDestructorCall(const CXXDestructorDecl *DD, llvm::Value *Callee,
                                llvm::Value *This, llvm::Value *ImplicitParam,
                                QualType ImplicitParamTy, const CallExpr *E,
@@ -3168,6 +3182,10 @@ public:
   /// If the statement (recursively) contains a switch or loop with a break
   /// inside of it, this is fine.
   static bool containsBreak(const Stmt *S);
+
+  /// Determine if the given statement might introduce a declaration into the
+  /// current scope, by being a (possibly-labelled) DeclStmt.
+  static bool mightAddDeclToScope(const Stmt *S);
   
   /// ConstantFoldsToSimpleInteger - If the specified expression does not fold
   /// to a constant, or if it does but contains a label, return false.  If it
@@ -3313,12 +3331,22 @@ public:
   static bool isObjCMethodWithTypeParams(const T *) { return false; }
 #endif
 
+  enum class EvaluationOrder {
+    ///! No language constraints on evaluation order.
+    Default,
+    ///! Language semantics require left-to-right evaluation.
+    ForceLeftToRight,
+    ///! Language semantics require right-to-left evaluation.
+    ForceRightToLeft
+  };
+
   /// EmitCallArgs - Emit call arguments for a function.
   template <typename T>
   void EmitCallArgs(CallArgList &Args, const T *CallArgTypeInfo,
                     llvm::iterator_range<CallExpr::const_arg_iterator> ArgRange,
                     const FunctionDecl *CalleeDecl = nullptr,
-                    unsigned ParamsToSkip = 0) {
+                    unsigned ParamsToSkip = 0,
+                    EvaluationOrder Order = EvaluationOrder::Default) {
     SmallVector<QualType, 16> ArgTypes;
     CallExpr::const_arg_iterator Arg = ArgRange.begin();
 
@@ -3358,13 +3386,14 @@ public:
     for (auto *A : llvm::make_range(Arg, ArgRange.end()))
       ArgTypes.push_back(getVarArgType(A));
 
-    EmitCallArgs(Args, ArgTypes, ArgRange, CalleeDecl, ParamsToSkip);
+    EmitCallArgs(Args, ArgTypes, ArgRange, CalleeDecl, ParamsToSkip, Order);
   }
 
   void EmitCallArgs(CallArgList &Args, ArrayRef<QualType> ArgTypes,
                     llvm::iterator_range<CallExpr::const_arg_iterator> ArgRange,
                     const FunctionDecl *CalleeDecl = nullptr,
-                    unsigned ParamsToSkip = 0);
+                    unsigned ParamsToSkip = 0,
+                    EvaluationOrder Order = EvaluationOrder::Default);
 
   /// EmitPointerWithAlignment - Given an expression with a pointer
   /// type, emit the value and compute our best estimate of the

@@ -49,6 +49,7 @@ FUZZER_FLAG_INT(use_memmem, 1,
                 "Use hints from intercepting memmem, strstr, etc")
 FUZZER_FLAG_INT(use_value_profile, 0,
                 "Experimental. Use value profile to guide fuzzing.")
+FUZZER_FLAG_INT(shrink, 0, "Experimental. Try to shrink corpus elements.")
 FUZZER_FLAG_INT(jobs, 0, "Number of jobs to run. If jobs >= 1 we spawn"
                           " this number of jobs in separate worker processes"
                           " with stdout/stderr redirected to fuzz-JOB.log.")
@@ -71,12 +72,13 @@ FUZZER_FLAG_STRING(exact_artifact_path,
                    "as $(exact_artifact_path). This overrides -artifact_prefix "
                    "and will not use checksum in the file name. Do not "
                    "use the same path for several parallel processes.")
-FUZZER_FLAG_INT(drill, 0, "Experimental: fuzz using a single unit as the seed "
-                          "corpus, then merge with the initial corpus")
 FUZZER_FLAG_INT(output_csv, 0, "Enable pulse output in CSV format.")
 FUZZER_FLAG_INT(print_pcs, 0, "If 1, print out newly covered PCs.")
 FUZZER_FLAG_INT(print_final_stats, 0, "If 1, print statistics at exit.")
-
+FUZZER_FLAG_INT(print_corpus_stats, 0,
+  "If 1, print statistics on corpus elements at exit.")
+FUZZER_FLAG_INT(print_coverage, 0, "If 1, print coverage information at exit."
+                                   " Experimental, only with trace-pc-guard")
 FUZZER_FLAG_INT(handle_segv, 1, "If 1, try to intercept SIGSEGV.")
 FUZZER_FLAG_INT(handle_bus, 1, "If 1, try to intercept SIGSEGV.")
 FUZZER_FLAG_INT(handle_abrt, 1, "If 1, try to intercept SIGABRT.")
@@ -91,12 +93,17 @@ FUZZER_FLAG_INT(detect_leaks, 1, "If 1, and if LeakSanitizer is enabled "
     "try to detect memory leaks during fuzzing (i.e. not only at shut down).")
 FUZZER_FLAG_INT(rss_limit_mb, 2048, "If non-zero, the fuzzer will exit upon"
     "reaching this limit of RSS memory usage.")
-FUZZER_FLAG_INT(truncate_units, 0, "Try truncated units when loading corpus.")
-FUZZER_FLAG_INT(prune_corpus, 1, "Prune corpus items without new coverage when "
-                                 "loading corpus.")
+FUZZER_FLAG_STRING(exit_on_src_pos, "Exit if a newly found PC originates"
+    " from the given source location. Example: -exit_on_src_pos=foo.cc:123. "
+    "Used primarily for testing libFuzzer itself.")
+FUZZER_FLAG_STRING(exit_on_item, "Exit if an item with a given sha1 sum"
+    " was added to the corpus. "
+    "Used primarily for testing libFuzzer itself.")
 
 FUZZER_DEPRECATED_FLAG(exit_on_first)
 FUZZER_DEPRECATED_FLAG(save_minimized_corpus)
 FUZZER_DEPRECATED_FLAG(sync_command)
 FUZZER_DEPRECATED_FLAG(sync_timeout)
 FUZZER_DEPRECATED_FLAG(test_single_input)
+FUZZER_DEPRECATED_FLAG(drill)
+FUZZER_DEPRECATED_FLAG(truncate_units)

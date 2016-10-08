@@ -50,6 +50,7 @@ bool elf::link(ArrayRef<const char *> Args, raw_ostream &Error) {
   ScriptConfig = &SC;
 
   Driver->main(Args);
+  InputFile::freePool();
   return !HasError;
 }
 
@@ -61,8 +62,7 @@ static std::pair<ELFKind, uint16_t> parseEmulation(StringRef Emul) {
 
   std::pair<ELFKind, uint16_t> Ret =
       StringSwitch<std::pair<ELFKind, uint16_t>>(S)
-          .Case("aarch64elf", {ELF64LEKind, EM_AARCH64})
-          .Case("aarch64linux", {ELF64LEKind, EM_AARCH64})
+          .Cases("aarch64elf", "aarch64linux", {ELF64LEKind, EM_AARCH64})
           .Case("armelf_linux_eabi", {ELF32LEKind, EM_ARM})
           .Case("elf32_x86_64", {ELF32LEKind, EM_X86_64})
           .Case("elf32btsmip", {ELF32BEKind, EM_MIPS})
@@ -71,10 +71,9 @@ static std::pair<ELFKind, uint16_t> parseEmulation(StringRef Emul) {
           .Case("elf64btsmip", {ELF64BEKind, EM_MIPS})
           .Case("elf64ltsmip", {ELF64LEKind, EM_MIPS})
           .Case("elf64ppc", {ELF64BEKind, EM_PPC64})
-          .Case("elf_amd64", {ELF64LEKind, EM_X86_64})
+          .Cases("elf_amd64", "elf_x86_64", {ELF64LEKind, EM_X86_64})
           .Case("elf_i386", {ELF32LEKind, EM_386})
           .Case("elf_iamcu", {ELF32LEKind, EM_IAMCU})
-          .Case("elf_x86_64", {ELF64LEKind, EM_X86_64})
           .Default({ELFNoneKind, EM_NONE});
 
   if (Ret.first == ELFNoneKind) {
@@ -127,7 +126,7 @@ void LinkerDriver::addFile(StringRef Path, bool KnownScript) {
   MemoryBufferRef MBRef = *Buffer;
 
   if (Config->Binary && !KnownScript) {
-    Files.push_back(make_unique<BinaryFile>(MBRef));
+    Files.push_back(new BinaryFile(MBRef));
     return;
   }
 
@@ -141,7 +140,7 @@ void LinkerDriver::addFile(StringRef Path, bool KnownScript) {
         Files.push_back(createObjectFile(MB, Path));
       return;
     }
-    Files.push_back(make_unique<ArchiveFile>(MBRef));
+    Files.push_back(new ArchiveFile(MBRef));
     return;
   case file_magic::elf_shared_object:
     if (Config->Relocatable) {
@@ -152,7 +151,7 @@ void LinkerDriver::addFile(StringRef Path, bool KnownScript) {
     return;
   default:
     if (InLib)
-      Files.push_back(make_unique<LazyObjectFile>(MBRef));
+      Files.push_back(new LazyObjectFile(MBRef));
     else
       Files.push_back(createObjectFile(MBRef));
   }
@@ -263,15 +262,20 @@ static bool hasZOption(opt::InputArgList &Args, StringRef Key) {
   return false;
 }
 
-static Optional<StringRef>
-getZOptionValue(opt::InputArgList &Args, StringRef Key) {
+static uint64_t
+getZOptionValue(opt::InputArgList &Args, StringRef Key, uint64_t Default) {
   for (auto *Arg : Args.filtered(OPT_z)) {
     StringRef Value = Arg->getValue();
     size_t Pos = Value.find("=");
-    if (Pos != StringRef::npos && Key == Value.substr(0, Pos))
-      return Value.substr(Pos + 1);
+    if (Pos != StringRef::npos && Key == Value.substr(0, Pos)) {
+      Value = Value.substr(Pos + 1);
+      uint64_t Result;
+      if (Value.getAsInteger(0, Result))
+        error("invalid " + Key + ": " + Value);
+      return Result;
+    }
   }
-  return None;
+  return Default;
 }
 
 void LinkerDriver::main(ArrayRef<const char *> ArgsArr) {
@@ -379,6 +383,44 @@ static StripPolicy getStripOption(opt::InputArgList &Args) {
   return StripPolicy::None;
 }
 
+static uint64_t parseSectionAddress(StringRef S, opt::Arg *Arg) {
+  uint64_t VA = 0;
+  if (S.startswith("0x"))
+    S = S.drop_front(2);
+  if (S.getAsInteger(16, VA))
+    error("invalid argument: " + stringize(Arg));
+  return VA;
+}
+
+static StringMap<uint64_t> getSectionStartMap(opt::InputArgList &Args) {
+  StringMap<uint64_t> Ret;
+  for (auto *Arg : Args.filtered(OPT_section_start)) {
+    StringRef Name;
+    StringRef Addr;
+    std::tie(Name, Addr) = StringRef(Arg->getValue()).split('=');
+    Ret[Name] = parseSectionAddress(Addr, Arg);
+  }
+
+  if (auto *Arg = Args.getLastArg(OPT_Ttext))
+    Ret[".text"] = parseSectionAddress(Arg->getValue(), Arg);
+  if (auto *Arg = Args.getLastArg(OPT_Tdata))
+    Ret[".data"] = parseSectionAddress(Arg->getValue(), Arg);
+  if (auto *Arg = Args.getLastArg(OPT_Tbss))
+    Ret[".bss"] = parseSectionAddress(Arg->getValue(), Arg);
+  return Ret;
+}
+
+static SortSectionPolicy getSortKind(opt::InputArgList &Args) {
+  StringRef S = getString(Args, OPT_sort_section);
+  if (S == "alignment")
+    return SortSectionPolicy::Alignment;
+  if (S == "name")
+    return SortSectionPolicy::Name;
+  if (!S.empty())
+    error("unknown --sort-section rule: " + S);
+  return SortSectionPolicy::Default;
+}
+
 // Initializes Config members by the command line options.
 void LinkerDriver::readConfigs(opt::InputArgList &Args) {
   for (auto *Arg : Args.filtered(OPT_L))
@@ -389,6 +431,8 @@ void LinkerDriver::readConfigs(opt::InputArgList &Args) {
     RPaths.push_back(Arg->getValue());
   if (!RPaths.empty())
     Config->RPath = llvm::join(RPaths.begin(), RPaths.end(), ":");
+
+  Config->SectionStartMap = getSectionStartMap(Args);
 
   if (auto *Arg = Args.getLastArg(OPT_m)) {
     // Parse ELF{32,64}{LE,BE} and CPU type.
@@ -451,9 +495,7 @@ void LinkerDriver::readConfigs(opt::InputArgList &Args) {
   if (!Config->Relocatable)
     Config->Strip = getStripOption(Args);
 
-  if (Optional<StringRef> Value = getZOptionValue(Args, "stack-size"))
-    if (Value->getAsInteger(0, Config->ZStackSize))
-      error("invalid stack size: " + *Value);
+  Config->ZStackSize = getZOptionValue(Args, "stack-size", -1);
 
   // Config->Pic is true if we are generating position-independent code.
   Config->Pic = Config->Pie || Config->Shared;
@@ -471,7 +513,7 @@ void LinkerDriver::readConfigs(opt::InputArgList &Args) {
 
   // Parse --build-id or --build-id=<style>.
   if (Args.hasArg(OPT_build_id))
-    Config->BuildId = BuildIdKind::Fnv1;
+    Config->BuildId = BuildIdKind::Fast;
   if (auto *Arg = Args.getLastArg(OPT_build_id_eq)) {
     StringRef S = Arg->getValue();
     if (S == "md5") {
@@ -499,6 +541,8 @@ void LinkerDriver::readConfigs(opt::InputArgList &Args) {
 
   for (auto *Arg : Args.filtered(OPT_undefined))
     Config->Undefined.push_back(Arg->getValue());
+
+  Config->SortSection = getSortKind(Args);
 
   Config->UnresolvedSymbols = getUnresolvedSymbolOption(Args);
 
@@ -570,7 +614,7 @@ void LinkerDriver::createFiles(opt::InputArgList &Args) {
 
   // If -m <machine_type> was not given, infer it from object files.
   if (Config->EKind == ELFNoneKind) {
-    for (std::unique_ptr<InputFile> &F : Files) {
+    for (InputFile *F : Files) {
       if (F->EKind == ELFNoneKind)
         continue;
       Config->EKind = F->EKind;
@@ -608,31 +652,42 @@ template <class ELFT> void LinkerDriver::link(opt::InputArgList &Args) {
     StringRef S = Arg->getValue();
     if (S.getAsInteger(0, Config->ImageBase))
       error(Arg->getSpelling() + ": number expected, but got " + S);
-    else if ((Config->ImageBase % Target->PageSize) != 0)
-      warning(Arg->getSpelling() + ": address isn't multiple of page size");
+    else if ((Config->ImageBase % Target->MaxPageSize) != 0)
+      warn(Arg->getSpelling() + ": address isn't multiple of page size");
   } else {
     Config->ImageBase = Config->Pic ? 0 : Target->DefaultImageBase;
   }
 
+  // Initialize Config->MaxPageSize. The default value is defined by
+  // the target, but it can be overriden using the option.
+  Config->MaxPageSize =
+      getZOptionValue(Args, "max-page-size", Target->MaxPageSize);
+  if (!isPowerOf2_64(Config->MaxPageSize))
+    error("max-page-size: value isn't a power of 2");
+
   // Add all files to the symbol table. After this, the symbol table
   // contains all known names except a few linker-synthesized symbols.
-  for (std::unique_ptr<InputFile> &F : Files)
-    Symtab.addFile(std::move(F));
+  for (InputFile *F : Files)
+    Symtab.addFile(F);
 
   // Add the start symbol.
   // It initializes either Config->Entry or Config->EntryAddr.
   // Note that AMDGPU binaries have no entries.
+  bool HasEntryAddr = false;
   if (!Config->Entry.empty()) {
     // It is either "-e <addr>" or "-e <symbol>".
-    if (Config->Entry.getAsInteger(0, Config->EntryAddr))
-      Config->EntrySym = Symtab.addUndefined(Config->Entry);
+    HasEntryAddr = !Config->Entry.getAsInteger(0, Config->EntryAddr);
   } else if (!Config->Shared && !Config->Relocatable &&
              Config->EMachine != EM_AMDGPU) {
     // -e was not specified. Use the default start symbol name
     // if it is resolvable.
     Config->Entry = (Config->EMachine == EM_MIPS) ? "__start" : "_start";
+  }
+  if (!HasEntryAddr && !Config->Entry.empty()) {
     if (Symtab.find(Config->Entry))
       Config->EntrySym = Symtab.addUndefined(Config->Entry);
+    else
+      warn("entry symbol " + Config->Entry + " not found, assuming 0");
   }
 
   if (HasError)
@@ -650,7 +705,7 @@ template <class ELFT> void LinkerDriver::link(opt::InputArgList &Args) {
   for (auto *Arg : Args.filtered(OPT_wrap))
     Symtab.wrap(Arg->getValue());
 
-  // Write the result to the file.
+  // Do size optimizations: garbage collection and identical code folding.
   if (Config->GcSections)
     markLive<ELFT>();
   if (Config->ICF)
@@ -658,8 +713,7 @@ template <class ELFT> void LinkerDriver::link(opt::InputArgList &Args) {
 
   // MergeInputSection::splitIntoPieces needs to be called before
   // any call of MergeInputSection::getOffset. Do that.
-  for (const std::unique_ptr<elf::ObjectFile<ELFT>> &F :
-       Symtab.getObjectFiles())
+  for (elf::ObjectFile<ELFT> *F : Symtab.getObjectFiles()) {
     for (InputSectionBase<ELFT> *S : F->getSections()) {
       if (!S || S == &InputSection<ELFT>::Discarded || !S->Live)
         continue;
@@ -668,6 +722,8 @@ template <class ELFT> void LinkerDriver::link(opt::InputArgList &Args) {
       if (auto *MS = dyn_cast<MergeInputSection<ELFT>>(S))
         MS->splitIntoPieces();
     }
+  }
 
+  // Write the result to the file.
   writeResult<ELFT>();
 }

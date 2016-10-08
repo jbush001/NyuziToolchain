@@ -61,6 +61,7 @@ namespace llvm {
   class MCSymbol;
   template<typename T> class SmallVectorImpl;
   class DataLayout;
+  struct TargetRecip;
   class TargetRegisterClass;
   class TargetLibraryInfo;
   class TargetLoweringObjectFile;
@@ -540,6 +541,12 @@ public:
       }
     }
   }
+
+  /// Return the reciprocal estimate code generation preferences for this target
+  /// after potentially overriding settings using the function's attributes.
+  /// FIXME: Like all unsafe-math target settings, this should really be an
+  /// instruction-level attribute/metadata/FMF.
+  TargetRecip getTargetRecipForFunc(MachineFunction &MF) const;
 
   /// Vector types are broken down into some number of legal first class types.
   /// For example, EVT::v8f32 maps to 2 EVT::v4f32 with Altivec or SSE1, or 8
@@ -1022,11 +1029,14 @@ public:
     return UseUnderscoreLongJmp;
   }
 
-  /// Return integer threshold on number of blocks to use jump tables rather
-  /// than if sequence.
-  int getMinimumJumpTableEntries() const {
+  /// Return lower limit for number of blocks in a jump table.
+  unsigned getMinimumJumpTableEntries() const {
     return MinimumJumpTableEntries;
   }
+
+  /// Return upper limit for number of entries in a jump table.
+  /// Zero if no limit.
+  unsigned getMaximumJumpTableSize() const;
 
   /// If a physical register, this specifies the register that
   /// llvm.savestack/llvm.restorestack should save and restore.
@@ -1353,11 +1363,14 @@ protected:
     UseUnderscoreLongJmp = Val;
   }
 
-  /// Indicate the number of blocks to generate jump tables rather than if
-  /// sequence.
-  void setMinimumJumpTableEntries(int Val) {
+  /// Indicate the minimum number of blocks to generate jump tables.
+  void setMinimumJumpTableEntries(unsigned Val) {
     MinimumJumpTableEntries = Val;
   }
+
+  /// Indicate the maximum number of entries in jump tables.
+  /// Set to zero to generate unlimited jump tables.
+  void setMaximumJumpTableSize(unsigned);
 
   /// If set to a physical register, this specifies the register that
   /// llvm.savestack/llvm.restorestack should save and restore.
@@ -2168,6 +2181,7 @@ protected:
   /// sequence of memory operands that is recognized by PrologEpilogInserter.
   MachineBasicBlock *emitPatchPoint(MachineInstr &MI,
                                     MachineBasicBlock *MBB) const;
+  TargetRecip ReciprocalEstimates;
 };
 
 /// This class defines information used to lower LLVM code to legal SelectionDAG
@@ -2338,7 +2352,6 @@ public:
     bool isCalledByLegalizer() const { return CalledByLegalizer; }
 
     void AddToWorklist(SDNode *N);
-    void RemoveFromWorklist(SDNode *N);
     SDValue CombineTo(SDNode *N, ArrayRef<SDValue> To, bool AddTo = true);
     SDValue CombineTo(SDNode *N, SDValue Res, bool AddTo = true);
     SDValue CombineTo(SDNode *N, SDValue Res0, SDValue Res1, bool AddTo = true);

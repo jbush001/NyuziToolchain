@@ -427,7 +427,7 @@ def err_synthesized_property_name : Error<
   "expected a property name in @synthesize">;
 def warn_semicolon_before_method_body : Warning<
   "semicolon before method body is ignored">,
-  InGroup<DiagGroup<"semicolon-before-method-body">>, DefaultIgnore;
+  InGroup<SemiBeforeMethodBody>, DefaultIgnore;
 def note_extra_comma_message_arg : Note<
   "comma separating Objective-C messaging arguments">;
 
@@ -914,7 +914,7 @@ def warn_pragma_pack_malformed : Warning<
 // - #pragma intrinsic
 def warn_pragma_intrinsic_builtin : Warning<
   "%0 is not a recognized builtin%select{|; consider including <intrin.h> to access non-builtin intrinsics}1">,
-  InGroup<IgnoredPragmas>;
+  InGroup<IgnoredPragmaIntrinsic>;
 // - #pragma unused
 def warn_pragma_unused_expected_var : Warning<
   "expected '#pragma unused' argument to be a variable name">,
@@ -1021,6 +1021,10 @@ def err_pragma_invalid_keyword : Error<
 // Pragma unroll support.
 def warn_pragma_unroll_cuda_value_in_parens : Warning<
   "argument to '#pragma unroll' should not be in parentheses in CUDA C/C++">,
+  InGroup<CudaCompat>;
+
+def warn_cuda_attr_lambda_position : Warning<
+  "nvcc does not allow '__%0__' to appear after '()' in lambdas">,
   InGroup<CudaCompat>;
 } // end of Parse Issue category.
 

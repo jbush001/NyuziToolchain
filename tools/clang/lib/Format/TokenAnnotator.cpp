@@ -1037,12 +1037,17 @@ private:
           !Current.Next->isBinaryOperator() &&
           !Current.Next->isOneOf(tok::semi, tok::colon, tok::l_brace,
                                  tok::period, tok::arrow, tok::coloncolon))
-        if (FormatToken *BeforeParen = Current.MatchingParen->Previous)
-          if (BeforeParen->is(tok::identifier) &&
-              BeforeParen->TokenText == BeforeParen->TokenText.upper() &&
-              (!BeforeParen->Previous ||
-               BeforeParen->Previous->ClosesTemplateDeclaration))
-            Current.Type = TT_FunctionAnnotationRParen;
+        if (FormatToken *AfterParen = Current.MatchingParen->Next) {
+          // Make sure this isn't the return type of an Obj-C block declaration
+          if (AfterParen->Tok.isNot(tok::caret)) {
+            if (FormatToken *BeforeParen = Current.MatchingParen->Previous)
+              if (BeforeParen->is(tok::identifier) &&
+                  BeforeParen->TokenText == BeforeParen->TokenText.upper() &&
+                  (!BeforeParen->Previous ||
+                   BeforeParen->Previous->ClosesTemplateDeclaration))
+                Current.Type = TT_FunctionAnnotationRParen;
+          }
+        }
     } else if (Current.is(tok::at) && Current.Next) {
       if (Current.Next->isStringLiteral()) {
         Current.Type = TT_ObjCStringLiteral;
@@ -2015,7 +2020,9 @@ bool TokenAnnotator::spaceRequiredBetween(const AnnotatedLine &Line,
                                      Left.Previous->is(tok::r_paren)) ||
             (!Left.isOneOf(TT_PointerOrReference, tok::l_paren) &&
              (Style.PointerAlignment != FormatStyle::PAS_Left ||
-              Line.IsMultiVariableDeclStmt)));
+              (Line.IsMultiVariableDeclStmt &&
+               (Left.NestingLevel == 0 ||
+                (Left.NestingLevel == 1 && Line.First->is(tok::kw_for)))))));
   if (Right.is(TT_FunctionTypeLParen) && Left.isNot(tok::l_paren) &&
       (!Left.is(TT_PointerOrReference) ||
        (Style.PointerAlignment != FormatStyle::PAS_Right &&
@@ -2124,6 +2131,10 @@ bool TokenAnnotator::spaceRequiredBefore(const AnnotatedLine &Line,
       return false;
     if (Right.is(tok::star) &&
         Left.isOneOf(Keywords.kw_function, Keywords.kw_yield))
+      return false;
+    // JS methods can use some keywords as names (e.g. `delete()`).
+    if (Right.is(tok::l_paren) && Line.MustBeDeclaration &&
+        Left.Tok.getIdentifierInfo())
       return false;
     if (Left.isOneOf(Keywords.kw_let, Keywords.kw_var, Keywords.kw_in,
                      Keywords.kw_of, tok::kw_const) &&

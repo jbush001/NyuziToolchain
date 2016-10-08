@@ -2438,9 +2438,13 @@ static bool isFrameLoadOpcode(int Opcode) {
   case X86::VMOVAPSZrm:
   case X86::VMOVAPSZ128rm:
   case X86::VMOVAPSZ256rm:
+  case X86::VMOVAPSZ128rm_NOVLX:
+  case X86::VMOVAPSZ256rm_NOVLX:
   case X86::VMOVUPSZrm:
   case X86::VMOVUPSZ128rm:
   case X86::VMOVUPSZ256rm:
+  case X86::VMOVUPSZ128rm_NOVLX:
+  case X86::VMOVUPSZ256rm_NOVLX:
   case X86::VMOVAPDZrm:
   case X86::VMOVAPDZ128rm:
   case X86::VMOVAPDZ256rm:
@@ -2508,9 +2512,13 @@ static bool isFrameStoreOpcode(int Opcode) {
   case X86::VMOVUPSZmr:
   case X86::VMOVUPSZ128mr:
   case X86::VMOVUPSZ256mr:
+  case X86::VMOVUPSZ128mr_NOVLX:
+  case X86::VMOVUPSZ256mr_NOVLX:
   case X86::VMOVAPSZmr:
   case X86::VMOVAPSZ128mr:
   case X86::VMOVAPSZ256mr:
+  case X86::VMOVAPSZ128mr_NOVLX:
+  case X86::VMOVAPSZ256mr_NOVLX:
   case X86::VMOVUPDZmr:
   case X86::VMOVUPDZ128mr:
   case X86::VMOVUPDZ256mr:
@@ -2612,6 +2620,7 @@ bool X86InstrInfo::isReallyTriviallyReMaterializable(const MachineInstr &MI,
   switch (MI.getOpcode()) {
   default: break;
   case X86::MOV8rm:
+  case X86::MOV8rm_NOREX:
   case X86::MOV16rm:
   case X86::MOV32rm:
   case X86::MOV64rm:
@@ -2621,6 +2630,7 @@ bool X86InstrInfo::isReallyTriviallyReMaterializable(const MachineInstr &MI,
   case X86::MOVAPSrm:
   case X86::MOVUPSrm:
   case X86::MOVAPDrm:
+  case X86::MOVUPDrm:
   case X86::MOVDQArm:
   case X86::MOVDQUrm:
   case X86::VMOVSSrm:
@@ -2628,11 +2638,13 @@ bool X86InstrInfo::isReallyTriviallyReMaterializable(const MachineInstr &MI,
   case X86::VMOVAPSrm:
   case X86::VMOVUPSrm:
   case X86::VMOVAPDrm:
+  case X86::VMOVUPDrm:
   case X86::VMOVDQArm:
   case X86::VMOVDQUrm:
   case X86::VMOVAPSYrm:
   case X86::VMOVUPSYrm:
   case X86::VMOVAPDYrm:
+  case X86::VMOVUPDYrm:
   case X86::VMOVDQAYrm:
   case X86::VMOVDQUYrm:
   case X86::MMX_MOVD64rm:
@@ -2645,6 +2657,8 @@ bool X86InstrInfo::isReallyTriviallyReMaterializable(const MachineInstr &MI,
   case X86::VMOVAPDZrm:
   case X86::VMOVAPSZ128rm:
   case X86::VMOVAPSZ256rm:
+  case X86::VMOVAPSZ128rm_NOVLX:
+  case X86::VMOVAPSZ256rm_NOVLX:
   case X86::VMOVAPSZrm:
   case X86::VMOVDQA32Z128rm:
   case X86::VMOVDQA32Z256rm:
@@ -2664,8 +2678,13 @@ bool X86InstrInfo::isReallyTriviallyReMaterializable(const MachineInstr &MI,
   case X86::VMOVDQU8Z128rm:
   case X86::VMOVDQU8Z256rm:
   case X86::VMOVDQU8Zrm:
+  case X86::VMOVUPDZ128rm:
+  case X86::VMOVUPDZ256rm:
+  case X86::VMOVUPDZrm:
   case X86::VMOVUPSZ128rm:
   case X86::VMOVUPSZ256rm:
+  case X86::VMOVUPSZ128rm_NOVLX:
+  case X86::VMOVUPSZ256rm_NOVLX:
   case X86::VMOVUPSZrm: {
     // Loads from constant pools are trivially rematerializable.
     if (MI.getOperand(1 + X86::AddrBaseReg).isReg() &&
@@ -3318,6 +3337,54 @@ X86InstrInfo::convertToThreeAddress(MachineFunction::iterator &MFI,
   return NewMI;
 }
 
+/// This determines which of three possible cases of a three source commute
+/// the source indexes correspond to taking into account any mask operands.
+/// All prevents commuting a passthru operand. Returns -1 if the commute isn't
+/// possible.
+/// Case 0 - Possible to commute the first and second operands.
+/// Case 1 - Possible to commute the first and third operands.
+/// Case 2 - Possible to commute the second and third operands.
+static int getThreeSrcCommuteCase(uint64_t TSFlags, unsigned SrcOpIdx1,
+                                  unsigned SrcOpIdx2) {
+  // Put the lowest index to SrcOpIdx1 to simplify the checks below.
+  if (SrcOpIdx1 > SrcOpIdx2)
+    std::swap(SrcOpIdx1, SrcOpIdx2);
+
+  unsigned Op1 = 1, Op2 = 2, Op3 = 3;
+  if (X86II::isKMasked(TSFlags)) {
+    // The k-mask operand cannot be commuted.
+    if (SrcOpIdx1 == 2)
+      return -1;
+
+    // For k-zero-masked operations it is Ok to commute the first vector
+    // operand.
+    // For regular k-masked operations a conservative choice is done as the
+    // elements of the first vector operand, for which the corresponding bit
+    // in the k-mask operand is set to 0, are copied to the result of the
+    // instruction.
+    // TODO/FIXME: The commute still may be legal if it is known that the
+    // k-mask operand is set to either all ones or all zeroes.
+    // It is also Ok to commute the 1st operand if all users of MI use only
+    // the elements enabled by the k-mask operand. For example,
+    //   v4 = VFMADD213PSZrk v1, k, v2, v3; // v1[i] = k[i] ? v2[i]*v1[i]+v3[i]
+    //                                                     : v1[i];
+    //   VMOVAPSZmrk <mem_addr>, k, v4; // this is the ONLY user of v4 ->
+    //                                  // Ok, to commute v1 in FMADD213PSZrk.
+    if (X86II::isKMergeMasked(TSFlags) && SrcOpIdx1 == Op1)
+      return -1;
+    Op2++;
+    Op3++;
+  }
+
+  if (SrcOpIdx1 == Op1 && SrcOpIdx2 == Op2)
+    return 0;
+  if (SrcOpIdx1 == Op1 && SrcOpIdx2 == Op3)
+    return 1;
+  if (SrcOpIdx1 == Op2 && SrcOpIdx2 == Op3)
+    return 2;
+  return -1;
+}
+
 unsigned X86InstrInfo::getFMA3OpcodeToCommuteOperands(
     const MachineInstr &MI, unsigned SrcOpIdx1, unsigned SrcOpIdx2,
     const X86InstrFMA3Group &FMA3Group) const {
@@ -3337,39 +3404,9 @@ unsigned X86InstrInfo::getFMA3OpcodeToCommuteOperands(
   if (FMA3Group.isIntrinsic() && SrcOpIdx1 == 1)
     return 0;
 
-  unsigned FMAOp1 = 1, FMAOp2 = 2, FMAOp3 = 3;
-  if (FMA3Group.isKMasked()) {
-    // The k-mask operand cannot be commuted.
-    if (SrcOpIdx1 == 2)
-      return 0;
-
-    // For k-zero-masked operations it is Ok to commute the first vector
-    // operand.
-    // For regular k-masked operations a conservative choice is done as the
-    // elements of the first vector operand, for which the corresponding bit
-    // in the k-mask operand is set to 0, are copied to the result of FMA.
-    // TODO/FIXME: The commute still may be legal if it is known that the
-    // k-mask operand is set to either all ones or all zeroes.
-    // It is also Ok to commute the 1st operand if all users of MI use only
-    // the elements enabled by the k-mask operand. For example,
-    //   v4 = VFMADD213PSZrk v1, k, v2, v3; // v1[i] = k[i] ? v2[i]*v1[i]+v3[i]
-    //                                                     : v1[i];
-    //   VMOVAPSZmrk <mem_addr>, k, v4; // this is the ONLY user of v4 ->
-    //                                  // Ok, to commute v1 in FMADD213PSZrk.
-    if (FMA3Group.isKMergeMasked() && SrcOpIdx1 == FMAOp1)
-      return 0;
-    FMAOp2++;
-    FMAOp3++;
-  }
-
-  unsigned Case;
-  if (SrcOpIdx1 == FMAOp1 && SrcOpIdx2 == FMAOp2)
-    Case = 0;
-  else if (SrcOpIdx1 == FMAOp1 && SrcOpIdx2 == FMAOp3)
-    Case = 1;
-  else if (SrcOpIdx1 == FMAOp2 && SrcOpIdx2 == FMAOp3)
-    Case = 2;
-  else
+  // Determine which case this commute is or if it can't be done.
+  int Case = getThreeSrcCommuteCase(MI.getDesc().TSFlags, SrcOpIdx1, SrcOpIdx2);
+  if (Case < 0)
     return 0;
 
   // Define the FMA forms mapping array that helps to map input FMA form
@@ -3414,6 +3451,36 @@ unsigned X86InstrInfo::getFMA3OpcodeToCommuteOperands(
   // Everything is ready, just adjust the FMA opcode and return it.
   FormIndex = FormMapping[Case][FormIndex];
   return FMAForms[FormIndex];
+}
+
+static bool commuteVPTERNLOG(MachineInstr &MI, unsigned SrcOpIdx1,
+                             unsigned SrcOpIdx2) {
+  uint64_t TSFlags = MI.getDesc().TSFlags;
+
+  // Determine which case this commute is or if it can't be done.
+  int Case = getThreeSrcCommuteCase(TSFlags, SrcOpIdx1, SrcOpIdx2);
+  if (Case < 0)
+    return false;
+
+  // For each case we need to swap two pairs of bits in the final immediate.
+  static const uint8_t SwapMasks[3][4] = {
+    { 0x04, 0x10, 0x08, 0x20 }, // Swap bits 2/4 and 3/5.
+    { 0x02, 0x10, 0x08, 0x40 }, // Swap bits 1/4 and 3/6.
+    { 0x02, 0x04, 0x20, 0x40 }, // Swap bits 1/2 and 5/6.
+  };
+
+  uint8_t Imm = MI.getOperand(MI.getNumOperands()-1).getImm();
+  // Clear out the bits we are swapping.
+  uint8_t NewImm = Imm & ~(SwapMasks[Case][0] | SwapMasks[Case][1] |
+                           SwapMasks[Case][2] | SwapMasks[Case][3]);
+  // If the immediate had a bit of the pair set, then set the opposite bit.
+  if (Imm & SwapMasks[Case][0]) NewImm |= SwapMasks[Case][1];
+  if (Imm & SwapMasks[Case][1]) NewImm |= SwapMasks[Case][0];
+  if (Imm & SwapMasks[Case][2]) NewImm |= SwapMasks[Case][3];
+  if (Imm & SwapMasks[Case][3]) NewImm |= SwapMasks[Case][2];
+  MI.getOperand(MI.getNumOperands()-1).setImm(NewImm);
+
+  return true;
 }
 
 MachineInstr *X86InstrInfo::commuteInstructionImpl(MachineInstr &MI, bool NewMI,
@@ -3480,6 +3547,39 @@ MachineInstr *X86InstrInfo::commuteInstructionImpl(MachineInstr &MI, bool NewMI,
     unsigned Imm = MI.getOperand(3).getImm() & Mask;
     auto &WorkingMI = cloneIfNew(MI);
     WorkingMI.getOperand(3).setImm(Mask ^ Imm);
+    return TargetInstrInfo::commuteInstructionImpl(WorkingMI, /*NewMI=*/false,
+                                                   OpIdx1, OpIdx2);
+  }
+  case X86::MOVSDrr:
+  case X86::MOVSSrr:
+  case X86::VMOVSDrr:
+  case X86::VMOVSSrr:{
+    // On SSE41 or later we can commute a MOVSS/MOVSD to a BLENDPS/BLENDPD.
+    if (!Subtarget.hasSSE41())
+      return nullptr;
+
+    unsigned Mask, Opc;
+    switch (MI.getOpcode()) {
+    default: llvm_unreachable("Unreachable!");
+    case X86::MOVSDrr:  Opc = X86::BLENDPDrri;  Mask = 0x02; break;
+    case X86::MOVSSrr:  Opc = X86::BLENDPSrri;  Mask = 0x0E; break;
+    case X86::VMOVSDrr: Opc = X86::VBLENDPDrri; Mask = 0x02; break;
+    case X86::VMOVSSrr: Opc = X86::VBLENDPSrri; Mask = 0x0E; break;
+    }
+
+    // MOVSD/MOVSS's 2nd operand is a FR64/FR32 reg class - we need to copy
+    // this over to a VR128 class like the 1st operand to use a BLENDPD/BLENDPS.
+    auto &MRI = MI.getParent()->getParent()->getRegInfo();
+    auto VR128RC = MRI.getRegClass(MI.getOperand(1).getReg());
+    unsigned VR128 = MRI.createVirtualRegister(VR128RC);
+    BuildMI(*MI.getParent(), MI, MI.getDebugLoc(), get(TargetOpcode::COPY),
+            VR128)
+        .addReg(MI.getOperand(2).getReg());
+
+    auto &WorkingMI = cloneIfNew(MI);
+    WorkingMI.setDesc(get(Opc));
+    WorkingMI.getOperand(2).setReg(VR128);
+    WorkingMI.addOperand(MachineOperand::CreateImm(Mask));
     return TargetInstrInfo::commuteInstructionImpl(WorkingMI, /*NewMI=*/false,
                                                    OpIdx1, OpIdx2);
   }
@@ -3680,6 +3780,30 @@ MachineInstr *X86InstrInfo::commuteInstructionImpl(MachineInstr &MI, bool NewMI,
     return TargetInstrInfo::commuteInstructionImpl(WorkingMI, /*NewMI=*/false,
                                                    OpIdx1, OpIdx2);
   }
+  case X86::VPTERNLOGDZrri:      case X86::VPTERNLOGDZrmi:
+  case X86::VPTERNLOGDZ128rri:   case X86::VPTERNLOGDZ128rmi:
+  case X86::VPTERNLOGDZ256rri:   case X86::VPTERNLOGDZ256rmi:
+  case X86::VPTERNLOGQZrri:      case X86::VPTERNLOGQZrmi:
+  case X86::VPTERNLOGQZ128rri:   case X86::VPTERNLOGQZ128rmi:
+  case X86::VPTERNLOGQZ256rri:   case X86::VPTERNLOGQZ256rmi:
+  case X86::VPTERNLOGDZrrik:     case X86::VPTERNLOGDZrmik:
+  case X86::VPTERNLOGDZ128rrik:  case X86::VPTERNLOGDZ128rmik:
+  case X86::VPTERNLOGDZ256rrik:  case X86::VPTERNLOGDZ256rmik:
+  case X86::VPTERNLOGQZrrik:     case X86::VPTERNLOGQZrmik:
+  case X86::VPTERNLOGQZ128rrik:  case X86::VPTERNLOGQZ128rmik:
+  case X86::VPTERNLOGQZ256rrik:  case X86::VPTERNLOGQZ256rmik:
+  case X86::VPTERNLOGDZrrikz:    case X86::VPTERNLOGDZrmikz:
+  case X86::VPTERNLOGDZ128rrikz: case X86::VPTERNLOGDZ128rmikz:
+  case X86::VPTERNLOGDZ256rrikz: case X86::VPTERNLOGDZ256rmikz:
+  case X86::VPTERNLOGQZrrikz:    case X86::VPTERNLOGQZrmikz:
+  case X86::VPTERNLOGQZ128rrikz: case X86::VPTERNLOGQZ128rmikz:
+  case X86::VPTERNLOGQZ256rrikz: case X86::VPTERNLOGQZ256rmikz: {
+    auto &WorkingMI = cloneIfNew(MI);
+    if (!commuteVPTERNLOG(WorkingMI, OpIdx1, OpIdx2))
+      return nullptr;
+    return TargetInstrInfo::commuteInstructionImpl(WorkingMI, /*NewMI=*/false,
+                                                   OpIdx1, OpIdx2);
+  }
   default:
     const X86InstrFMA3Group *FMA3Group =
         X86InstrFMA3Info::getFMA3Group(MI.getOpcode());
@@ -3701,16 +3825,30 @@ MachineInstr *X86InstrInfo::commuteInstructionImpl(MachineInstr &MI, bool NewMI,
 bool X86InstrInfo::findFMA3CommutedOpIndices(
     const MachineInstr &MI, unsigned &SrcOpIdx1, unsigned &SrcOpIdx2,
     const X86InstrFMA3Group &FMA3Group) const {
+
+  if (!findThreeSrcCommutedOpIndices(MI, SrcOpIdx1, SrcOpIdx2))
+    return false;
+
+  // Check if we can adjust the opcode to preserve the semantics when
+  // commute the register operands.
+  return getFMA3OpcodeToCommuteOperands(MI, SrcOpIdx1, SrcOpIdx2, FMA3Group) != 0;
+}
+
+bool X86InstrInfo::findThreeSrcCommutedOpIndices(const MachineInstr &MI,
+                                                 unsigned &SrcOpIdx1,
+                                                 unsigned &SrcOpIdx2) const {
+  uint64_t TSFlags = MI.getDesc().TSFlags;
+
   unsigned FirstCommutableVecOp = 1;
   unsigned LastCommutableVecOp = 3;
   unsigned KMaskOp = 0;
-  if (FMA3Group.isKMasked()) {
+  if (X86II::isKMasked(TSFlags)) {
     // The k-mask operand has index = 2 for masked and zero-masked operations.
     KMaskOp = 2;
 
     // The operand with index = 1 is used as a source for those elements for
     // which the corresponding bit in the k-mask is set to 0.
-    if (FMA3Group.isKMergeMasked())
+    if (X86II::isKMergeMasked(TSFlags))
       FirstCommutableVecOp = 3;
 
     LastCommutableVecOp++;
@@ -3775,9 +3913,7 @@ bool X86InstrInfo::findFMA3CommutedOpIndices(
       return false;
   }
 
-  // Check if we can adjust the opcode to preserve the semantics when
-  // commute the register operands.
-  return getFMA3OpcodeToCommuteOperands(MI, SrcOpIdx1, SrcOpIdx2, FMA3Group) != 0;
+  return true;
 }
 
 bool X86InstrInfo::findCommutedOpIndices(MachineInstr &MI, unsigned &SrcOpIdx1,
@@ -3819,6 +3955,33 @@ bool X86InstrInfo::findCommutedOpIndices(MachineInstr &MI, unsigned &SrcOpIdx1,
     }
     return false;
   }
+  case X86::MOVSDrr:
+  case X86::MOVSSrr:
+  case X86::VMOVSDrr:
+  case X86::VMOVSSrr: {
+    if (Subtarget.hasSSE41())
+      return TargetInstrInfo::findCommutedOpIndices(MI, SrcOpIdx1, SrcOpIdx2);
+    return false;
+  }
+  case X86::VPTERNLOGDZrri:      case X86::VPTERNLOGDZrmi:
+  case X86::VPTERNLOGDZ128rri:   case X86::VPTERNLOGDZ128rmi:
+  case X86::VPTERNLOGDZ256rri:   case X86::VPTERNLOGDZ256rmi:
+  case X86::VPTERNLOGQZrri:      case X86::VPTERNLOGQZrmi:
+  case X86::VPTERNLOGQZ128rri:   case X86::VPTERNLOGQZ128rmi:
+  case X86::VPTERNLOGQZ256rri:   case X86::VPTERNLOGQZ256rmi:
+  case X86::VPTERNLOGDZrrik:     case X86::VPTERNLOGDZrmik:
+  case X86::VPTERNLOGDZ128rrik:  case X86::VPTERNLOGDZ128rmik:
+  case X86::VPTERNLOGDZ256rrik:  case X86::VPTERNLOGDZ256rmik:
+  case X86::VPTERNLOGQZrrik:     case X86::VPTERNLOGQZrmik:
+  case X86::VPTERNLOGQZ128rrik:  case X86::VPTERNLOGQZ128rmik:
+  case X86::VPTERNLOGQZ256rrik:  case X86::VPTERNLOGQZ256rmik:
+  case X86::VPTERNLOGDZrrikz:    case X86::VPTERNLOGDZrmikz:
+  case X86::VPTERNLOGDZ128rrikz: case X86::VPTERNLOGDZ128rmikz:
+  case X86::VPTERNLOGDZ256rrikz: case X86::VPTERNLOGDZ256rmikz:
+  case X86::VPTERNLOGQZrrikz:    case X86::VPTERNLOGQZrmikz:
+  case X86::VPTERNLOGQZ128rrikz: case X86::VPTERNLOGQZ128rmikz:
+  case X86::VPTERNLOGQZ256rrikz: case X86::VPTERNLOGQZ256rmikz:
+    return findThreeSrcCommutedOpIndices(MI, SrcOpIdx1, SrcOpIdx2);
   default:
     const X86InstrFMA3Group *FMA3Group =
         X86InstrFMA3Info::getFMA3Group(MI.getOpcode());
@@ -4176,7 +4339,7 @@ void X86InstrInfo::replaceBranchWithTailCall(
   MIB->addOperand(TailCall.getOperand(0)); // Destination.
   MIB.addImm(0); // Stack offset (not used).
   MIB->addOperand(BranchCond[0]); // Condition.
-  MIB->addOperand(TailCall.getOperand(2)); // Regmask.
+  MIB.copyImplicitOps(TailCall); // Regmask and (imp-used) parameters.
 
   I->eraseFromParent();
 }
@@ -4441,7 +4604,10 @@ bool X86InstrInfo::analyzeBranchPredicate(MachineBasicBlock &MBB,
   return true;
 }
 
-unsigned X86InstrInfo::RemoveBranch(MachineBasicBlock &MBB) const {
+unsigned X86InstrInfo::removeBranch(MachineBasicBlock &MBB,
+                                    int *BytesRemoved) const {
+  assert(!BytesRemoved && "code size not handled");
+
   MachineBasicBlock::iterator I = MBB.end();
   unsigned Count = 0;
 
@@ -4461,15 +4627,17 @@ unsigned X86InstrInfo::RemoveBranch(MachineBasicBlock &MBB) const {
   return Count;
 }
 
-unsigned X86InstrInfo::InsertBranch(MachineBasicBlock &MBB,
+unsigned X86InstrInfo::insertBranch(MachineBasicBlock &MBB,
                                     MachineBasicBlock *TBB,
                                     MachineBasicBlock *FBB,
                                     ArrayRef<MachineOperand> Cond,
-                                    const DebugLoc &DL) const {
+                                    const DebugLoc &DL,
+                                    int *BytesAdded) const {
   // Shouldn't be a fall through.
-  assert(TBB && "InsertBranch must not be told to insert a fallthrough");
+  assert(TBB && "insertBranch must not be told to insert a fallthrough");
   assert((Cond.size() == 1 || Cond.size() == 0) &&
          "X86 branch conditions have one component!");
+  assert(!BytesAdded && "code size not handled");
 
   if (Cond.empty()) {
     // Unconditional branch?
@@ -4699,11 +4867,37 @@ void X86InstrInfo::copyPhysReg(MachineBasicBlock &MBB,
   }
   else if (X86::VR64RegClass.contains(DestReg, SrcReg))
     Opc = X86::MMX_MOVQ64rr;
-  else if (X86::VR128XRegClass.contains(DestReg, SrcReg))
-    Opc = HasVLX ? X86::VMOVAPSZ128rr : HasAVX ? X86::VMOVAPSrr : X86::MOVAPSrr;
-  else if (X86::VR256XRegClass.contains(DestReg, SrcReg))
-    Opc = HasVLX ? X86::VMOVAPSZ256rr : X86::VMOVAPSYrr;
-  else if (X86::VR512RegClass.contains(DestReg, SrcReg))
+  else if (X86::VR128XRegClass.contains(DestReg, SrcReg)) {
+    if (HasVLX)
+      Opc = X86::VMOVAPSZ128rr;
+    else if (X86::VR128RegClass.contains(DestReg, SrcReg))
+      Opc = HasAVX ? X86::VMOVAPSrr : X86::MOVAPSrr;
+    else {
+      // If this an extended register and we don't have VLX we need to use a
+      // 512-bit move.
+      Opc = X86::VMOVAPSZrr;
+      const TargetRegisterInfo *TRI = &getRegisterInfo();
+      DestReg = TRI->getMatchingSuperReg(DestReg, X86::sub_xmm,
+                                         &X86::VR512RegClass);
+      SrcReg = TRI->getMatchingSuperReg(SrcReg, X86::sub_xmm,
+                                        &X86::VR512RegClass);
+    }
+  } else if (X86::VR256XRegClass.contains(DestReg, SrcReg)) {
+    if (HasVLX)
+      Opc = X86::VMOVAPSZ256rr;
+    else if (X86::VR256RegClass.contains(DestReg, SrcReg))
+      Opc = X86::VMOVAPSYrr;
+    else {
+      // If this an extended register and we don't have VLX we need to use a
+      // 512-bit move.
+      Opc = X86::VMOVAPSZrr;
+      const TargetRegisterInfo *TRI = &getRegisterInfo();
+      DestReg = TRI->getMatchingSuperReg(DestReg, X86::sub_ymm,
+                                         &X86::VR512RegClass);
+      SrcReg = TRI->getMatchingSuperReg(SrcReg, X86::sub_ymm,
+                                        &X86::VR512RegClass);
+    }
+  } else if (X86::VR512RegClass.contains(DestReg, SrcReg))
     Opc = X86::VMOVAPSZrr;
   // All KMASK RegClasses hold the same k registers, can be tested against anyone.
   else if (X86::VK16RegClass.contains(DestReg, SrcReg))
@@ -4879,24 +5073,44 @@ static unsigned getLoadStoreRegOpcode(unsigned Reg,
     // If stack is realigned we can use aligned stores.
     if (isStackAligned)
       return load ?
-        (HasVLX ? X86::VMOVAPSZ128rm : HasAVX ? X86::VMOVAPSrm : X86::MOVAPSrm):
-        (HasVLX ? X86::VMOVAPSZ128mr : HasAVX ? X86::VMOVAPSmr : X86::MOVAPSmr);
+        (HasVLX    ? X86::VMOVAPSZ128rm :
+         HasAVX512 ? X86::VMOVAPSZ128rm_NOVLX :
+         HasAVX    ? X86::VMOVAPSrm :
+                     X86::MOVAPSrm):
+        (HasVLX    ? X86::VMOVAPSZ128mr :
+         HasAVX512 ? X86::VMOVAPSZ128mr_NOVLX :
+         HasAVX    ? X86::VMOVAPSmr :
+                     X86::MOVAPSmr);
     else
       return load ?
-        (HasVLX ? X86::VMOVUPSZ128rm : HasAVX ? X86::VMOVUPSrm : X86::MOVUPSrm):
-        (HasVLX ? X86::VMOVUPSZ128mr : HasAVX ? X86::VMOVUPSmr : X86::MOVUPSmr);
+        (HasVLX    ? X86::VMOVUPSZ128rm :
+         HasAVX512 ? X86::VMOVAPSZ128rm_NOVLX :
+         HasAVX    ? X86::VMOVUPSrm :
+                     X86::MOVUPSrm):
+        (HasVLX    ? X86::VMOVUPSZ128mr :
+         HasAVX512 ? X86::VMOVUPSZ128mr_NOVLX :
+         HasAVX    ? X86::VMOVUPSmr :
+                     X86::MOVUPSmr);
   }
   case 32:
     assert(X86::VR256XRegClass.hasSubClassEq(RC) && "Unknown 32-byte regclass");
     // If stack is realigned we can use aligned stores.
     if (isStackAligned)
       return load ?
-        (HasVLX ? X86::VMOVAPSZ256rm : X86::VMOVAPSYrm) :
-        (HasVLX ? X86::VMOVAPSZ256mr : X86::VMOVAPSYmr);
+        (HasVLX    ? X86::VMOVAPSZ256rm :
+         HasAVX512 ? X86::VMOVAPSZ256rm_NOVLX :
+                     X86::VMOVAPSYrm) :
+        (HasVLX    ? X86::VMOVAPSZ256mr :
+         HasAVX512 ? X86::VMOVAPSZ256mr_NOVLX :
+                     X86::VMOVAPSYmr);
     else
       return load ?
-        (HasVLX ? X86::VMOVUPSZ256rm : X86::VMOVUPSYrm) :
-        (HasVLX ? X86::VMOVUPSZ256mr : X86::VMOVUPSYmr);
+        (HasVLX    ? X86::VMOVUPSZ256rm :
+         HasAVX512 ? X86::VMOVUPSZ256rm_NOVLX :
+                     X86::VMOVUPSYrm) :
+        (HasVLX    ? X86::VMOVUPSZ256mr :
+         HasAVX512 ? X86::VMOVUPSZ256mr_NOVLX :
+                     X86::VMOVUPSYmr);
   case 64:
     assert(X86::VR512RegClass.hasSubClassEq(RC) && "Unknown 64-byte regclass");
     assert(STI.hasAVX512() && "Using 512-bit register requires AVX512");
@@ -5718,6 +5932,53 @@ static void expandLoadStackGuard(MachineInstrBuilder &MIB,
   MIB.addReg(Reg, RegState::Kill).addImm(1).addReg(0).addImm(0).addReg(0);
 }
 
+// This is used to handle spills for 128/256-bit registers when we have AVX512,
+// but not VLX. If it uses an extended register we need to use an instruction
+// that loads the lower 128/256-bit, but is available with only AVX512F.
+static bool expandNOVLXLoad(MachineInstrBuilder &MIB,
+                            const TargetRegisterInfo *TRI,
+                            const MCInstrDesc &LoadDesc,
+                            const MCInstrDesc &BroadcastDesc,
+                            unsigned SubIdx) {
+  unsigned DestReg = MIB->getOperand(0).getReg();
+  // Check if DestReg is XMM16-31 or YMM16-31.
+  if (TRI->getEncodingValue(DestReg) < 16) {
+    // We can use a normal VEX encoded load.
+    MIB->setDesc(LoadDesc);
+  } else {
+    // Use a 128/256-bit VBROADCAST instruction.
+    MIB->setDesc(BroadcastDesc);
+    // Change the destination to a 512-bit register.
+    DestReg = TRI->getMatchingSuperReg(DestReg, SubIdx, &X86::VR512RegClass);
+    MIB->getOperand(0).setReg(DestReg);
+  }
+  return true;
+}
+
+// This is used to handle spills for 128/256-bit registers when we have AVX512,
+// but not VLX. If it uses an extended register we need to use an instruction
+// that stores the lower 128/256-bit, but is available with only AVX512F.
+static bool expandNOVLXStore(MachineInstrBuilder &MIB,
+                             const TargetRegisterInfo *TRI,
+                             const MCInstrDesc &StoreDesc,
+                             const MCInstrDesc &ExtractDesc,
+                             unsigned SubIdx) {
+  unsigned SrcReg = MIB->getOperand(X86::AddrNumOperands).getReg();
+  // Check if DestReg is XMM16-31 or YMM16-31.
+  if (TRI->getEncodingValue(SrcReg) < 16) {
+    // We can use a normal VEX encoded store.
+    MIB->setDesc(StoreDesc);
+  } else {
+    // Use a VEXTRACTF instruction.
+    MIB->setDesc(ExtractDesc);
+    // Change the destination to a 512-bit register.
+    SrcReg = TRI->getMatchingSuperReg(SrcReg, SubIdx, &X86::VR512RegClass);
+    MIB->getOperand(X86::AddrNumOperands).setReg(SrcReg);
+    MIB.addImm(0x0); // Append immediate to extract from the lower bits.
+  }
+
+  return true;
+}
 bool X86InstrInfo::expandPostRAPseudo(MachineInstr &MI) const {
   bool HasAVX = Subtarget.hasAVX();
   MachineInstrBuilder MIB(*MI.getParent()->getParent(), MI);
@@ -5765,6 +6026,30 @@ bool X86InstrInfo::expandPostRAPseudo(MachineInstr &MI) const {
        .addReg(Reg, RegState::Undef).addImm(0xff);
     return true;
   }
+  case X86::VMOVAPSZ128rm_NOVLX:
+    return expandNOVLXLoad(MIB, &getRegisterInfo(), get(X86::VMOVAPSrm),
+                           get(X86::VBROADCASTF32X4rm), X86::sub_xmm);
+  case X86::VMOVUPSZ128rm_NOVLX:
+    return expandNOVLXLoad(MIB, &getRegisterInfo(), get(X86::VMOVUPSrm),
+                           get(X86::VBROADCASTF32X4rm), X86::sub_xmm);
+  case X86::VMOVAPSZ256rm_NOVLX:
+    return expandNOVLXLoad(MIB, &getRegisterInfo(), get(X86::VMOVAPSYrm),
+                           get(X86::VBROADCASTF64X4rm), X86::sub_ymm);
+  case X86::VMOVUPSZ256rm_NOVLX:
+    return expandNOVLXLoad(MIB, &getRegisterInfo(), get(X86::VMOVUPSYrm),
+                           get(X86::VBROADCASTF64X4rm), X86::sub_ymm);
+  case X86::VMOVAPSZ128mr_NOVLX:
+    return expandNOVLXStore(MIB, &getRegisterInfo(), get(X86::VMOVAPSmr),
+                            get(X86::VEXTRACTF32x4Zmr), X86::sub_xmm);
+  case X86::VMOVUPSZ128mr_NOVLX:
+    return expandNOVLXStore(MIB, &getRegisterInfo(), get(X86::VMOVUPSmr),
+                            get(X86::VEXTRACTF32x4Zmr), X86::sub_xmm);
+  case X86::VMOVAPSZ256mr_NOVLX:
+    return expandNOVLXStore(MIB, &getRegisterInfo(), get(X86::VMOVAPSYmr),
+                            get(X86::VEXTRACTF64x4Zmr), X86::sub_ymm);
+  case X86::VMOVUPSZ256mr_NOVLX:
+    return expandNOVLXStore(MIB, &getRegisterInfo(), get(X86::VMOVUPSYmr),
+                            get(X86::VEXTRACTF64x4Zmr), X86::sub_ymm);
   case X86::TEST8ri_NOREX:
     MI.setDesc(get(X86::TEST8ri));
     return true;
@@ -6255,35 +6540,54 @@ static bool hasUndefRegUpdate(unsigned Opcode) {
   // AVX-512
   case X86::VCVTSI2SSZrr:
   case X86::VCVTSI2SSZrm:
-  case X86::Int_VCVTSI2SSZrr:
-  case X86::Int_VCVTSI2SSZrm:
   case X86::VCVTSI2SSZrr_Int:
+  case X86::VCVTSI2SSZrrb_Int:
   case X86::VCVTSI2SSZrm_Int:
   case X86::VCVTSI642SSZrr:
   case X86::VCVTSI642SSZrm:
-  case X86::Int_VCVTSI2SS64Zrr:
-  case X86::Int_VCVTSI2SS64Zrm:
   case X86::VCVTSI642SSZrr_Int:
+  case X86::VCVTSI642SSZrrb_Int:
   case X86::VCVTSI642SSZrm_Int:
   case X86::VCVTSI2SDZrr:
   case X86::VCVTSI2SDZrm:
-  case X86::Int_VCVTSI2SDZrr:
-  case X86::Int_VCVTSI2SDZrm:
   case X86::VCVTSI2SDZrr_Int:
+  case X86::VCVTSI2SDZrrb_Int:
   case X86::VCVTSI2SDZrm_Int:
   case X86::VCVTSI642SDZrr:
   case X86::VCVTSI642SDZrm:
-  case X86::Int_VCVTSI2SD64Zrr:
-  case X86::Int_VCVTSI2SD64Zrm:
   case X86::VCVTSI642SDZrr_Int:
+  case X86::VCVTSI642SDZrrb_Int:
   case X86::VCVTSI642SDZrm_Int:
+  case X86::VCVTUSI2SSZrr:
+  case X86::VCVTUSI2SSZrm:
+  case X86::VCVTUSI2SSZrr_Int:
+  case X86::VCVTUSI2SSZrrb_Int:
+  case X86::VCVTUSI2SSZrm_Int:
+  case X86::VCVTUSI642SSZrr:
+  case X86::VCVTUSI642SSZrm:
+  case X86::VCVTUSI642SSZrr_Int:
+  case X86::VCVTUSI642SSZrrb_Int:
+  case X86::VCVTUSI642SSZrm_Int:
+  case X86::VCVTUSI2SDZrr:
+  case X86::VCVTUSI2SDZrm:
+  case X86::VCVTUSI2SDZrr_Int:
+  case X86::VCVTUSI2SDZrm_Int:
+  case X86::VCVTUSI642SDZrr:
+  case X86::VCVTUSI642SDZrm:
+  case X86::VCVTUSI642SDZrr_Int:
+  case X86::VCVTUSI642SDZrrb_Int:
+  case X86::VCVTUSI642SDZrm_Int:
   case X86::VCVTSD2SSZrr:
+  case X86::VCVTSD2SSZrrb:
   case X86::VCVTSD2SSZrm:
   case X86::VCVTSS2SDZrr:
+  case X86::VCVTSS2SDZrrb:
   case X86::VCVTSS2SDZrm:
   case X86::VRNDSCALESDr:
+  case X86::VRNDSCALESDrb:
   case X86::VRNDSCALESDm:
   case X86::VRNDSCALESSr:
+  case X86::VRNDSCALESSrb:
   case X86::VRNDSCALESSm:
   case X86::VRCP14SSrr:
   case X86::VRCP14SSrm:
@@ -6291,10 +6595,12 @@ static bool hasUndefRegUpdate(unsigned Opcode) {
   case X86::VRSQRT14SSrm:
   case X86::VSQRTSSZr:
   case X86::VSQRTSSZr_Int:
+  case X86::VSQRTSSZrb_Int:
   case X86::VSQRTSSZm:
   case X86::VSQRTSSZm_Int:
   case X86::VSQRTSDZr:
   case X86::VSQRTSDZr_Int:
+  case X86::VSQRTSDZrb_Int:
   case X86::VSQRTSDZm:
   case X86::VSQRTSDZm_Int:
     return true;
@@ -6808,7 +7114,7 @@ X86InstrInfo::unfoldMemoryOperand(SelectionDAG &DAG, SDNode *N,
       return false;
     // FIXME: If a VR128 can have size 32, we should be checking if a 32-byte
     // memory access is slow above.
-    unsigned Alignment = RC->getSize() == 32 ? 32 : 16;
+    unsigned Alignment = std::max<uint32_t>(RC->getSize(), 16);
     bool isAligned = (*MMOs.first) &&
                      (*MMOs.first)->getAlignment() >= Alignment;
     Load = DAG.getMachineNode(getLoadRegOpcode(0, RC, isAligned, Subtarget), dl,
@@ -6853,7 +7159,7 @@ X86InstrInfo::unfoldMemoryOperand(SelectionDAG &DAG, SDNode *N,
       return false;
     // FIXME: If a VR128 can have size 32, we should be checking if a 32-byte
     // memory access is slow above.
-    unsigned Alignment = RC->getSize() == 32 ? 32 : 16;
+    unsigned Alignment = std::max<uint32_t>(RC->getSize(), 16);
     bool isAligned = (*MMOs.first) &&
                      (*MMOs.first)->getAlignment() >= Alignment;
     SDNode *Store =
@@ -6931,6 +7237,8 @@ X86InstrInfo::areLoadsFromSameBasePtr(SDNode *Load1, SDNode *Load2,
   case X86::VMOVSDZrm:
   case X86::VMOVAPSZ128rm:
   case X86::VMOVUPSZ128rm:
+  case X86::VMOVAPSZ128rm_NOVLX:
+  case X86::VMOVUPSZ128rm_NOVLX:
   case X86::VMOVAPDZ128rm:
   case X86::VMOVUPDZ128rm:
   case X86::VMOVDQU8Z128rm:
@@ -6941,6 +7249,8 @@ X86InstrInfo::areLoadsFromSameBasePtr(SDNode *Load1, SDNode *Load2,
   case X86::VMOVDQU64Z128rm:
   case X86::VMOVAPSZ256rm:
   case X86::VMOVUPSZ256rm:
+  case X86::VMOVAPSZ256rm_NOVLX:
+  case X86::VMOVUPSZ256rm_NOVLX:
   case X86::VMOVAPDZ256rm:
   case X86::VMOVUPDZ256rm:
   case X86::VMOVDQU8Z256rm:
@@ -7004,6 +7314,8 @@ X86InstrInfo::areLoadsFromSameBasePtr(SDNode *Load1, SDNode *Load2,
   case X86::VMOVSDZrm:
   case X86::VMOVAPSZ128rm:
   case X86::VMOVUPSZ128rm:
+  case X86::VMOVAPSZ128rm_NOVLX:
+  case X86::VMOVUPSZ128rm_NOVLX:
   case X86::VMOVAPDZ128rm:
   case X86::VMOVUPDZ128rm:
   case X86::VMOVDQU8Z128rm:
@@ -7014,6 +7326,8 @@ X86InstrInfo::areLoadsFromSameBasePtr(SDNode *Load1, SDNode *Load2,
   case X86::VMOVDQU64Z128rm:
   case X86::VMOVAPSZ256rm:
   case X86::VMOVUPSZ256rm:
+  case X86::VMOVAPSZ256rm_NOVLX:
+  case X86::VMOVUPSZ256rm_NOVLX:
   case X86::VMOVAPDZ256rm:
   case X86::VMOVUPDZ256rm:
   case X86::VMOVDQU8Z256rm:
@@ -7271,7 +7585,7 @@ bool X86InstrInfo::shouldScheduleAdjacent(MachineInstr &First,
 }
 
 bool X86InstrInfo::
-ReverseBranchCondition(SmallVectorImpl<MachineOperand> &Cond) const {
+reverseBranchCondition(SmallVectorImpl<MachineOperand> &Cond) const {
   assert(Cond.size() == 1 && "Invalid X86 branch condition!");
   X86::CondCode CC = static_cast<X86::CondCode>(Cond[0].getImm());
   Cond[0].setImm(GetOppositeBranchCondition(CC));
@@ -7357,6 +7671,16 @@ static const uint16_t ReplaceableInstrs[][3] = {
   { X86::VMOVNTPSZ128mr, X86::VMOVNTPDZ128mr, X86::VMOVNTDQZ128mr },
   { X86::VMOVNTPSZ128mr, X86::VMOVNTPDZ128mr, X86::VMOVNTDQZ128mr },
   { X86::VMOVNTPSZmr,    X86::VMOVNTPDZmr,    X86::VMOVNTDQZmr    },
+  { X86::VBROADCASTSSZ128r, X86::VBROADCASTSSZ128r, X86::VPBROADCASTDZ128r },
+  { X86::VBROADCASTSSZ128m, X86::VBROADCASTSSZ128m, X86::VPBROADCASTDZ128m },
+  { X86::VBROADCASTSSZ256r, X86::VBROADCASTSSZ256r, X86::VPBROADCASTDZ256r },
+  { X86::VBROADCASTSSZ256m, X86::VBROADCASTSSZ256m, X86::VPBROADCASTDZ256m },
+  { X86::VBROADCASTSSZr,    X86::VBROADCASTSSZr,    X86::VPBROADCASTDZr },
+  { X86::VBROADCASTSSZm,    X86::VBROADCASTSSZm,    X86::VPBROADCASTDZm },
+  { X86::VBROADCASTSDZ256r, X86::VBROADCASTSDZ256r, X86::VPBROADCASTQZ256r },
+  { X86::VBROADCASTSDZ256m, X86::VBROADCASTSDZ256m, X86::VPBROADCASTQZ256m },
+  { X86::VBROADCASTSDZr,    X86::VBROADCASTSDZr,    X86::VPBROADCASTQZr },
+  { X86::VBROADCASTSDZm,    X86::VBROADCASTSDZm,    X86::VPBROADCASTQZm },
 };
 
 static const uint16_t ReplaceableInstrsAVX2[][3] = {
@@ -7380,7 +7704,8 @@ static const uint16_t ReplaceableInstrsAVX2[][3] = {
   { X86::VBROADCASTSSYrr, X86::VBROADCASTSSYrr, X86::VPBROADCASTDYrr},
   { X86::VBROADCASTSSYrm, X86::VBROADCASTSSYrm, X86::VPBROADCASTDYrm},
   { X86::VBROADCASTSDYrr, X86::VBROADCASTSDYrr, X86::VPBROADCASTQYrr},
-  { X86::VBROADCASTSDYrm, X86::VBROADCASTSDYrm, X86::VPBROADCASTQYrm}
+  { X86::VBROADCASTSDYrm, X86::VBROADCASTSDYrm, X86::VPBROADCASTQYrm},
+  { X86::VBROADCASTF128,  X86::VBROADCASTF128,  X86::VBROADCASTI128 },
 };
 
 static const uint16_t ReplaceableInstrsAVX512[][4] = {
@@ -8437,7 +8762,7 @@ namespace {
       return true;
     }
 
-    const char *getPassName() const override {
+    StringRef getPassName() const override {
       return "X86 PIC Global Base Reg Initialization";
     }
 
@@ -8551,7 +8876,7 @@ namespace {
       return Copy;
     }
 
-    const char *getPassName() const override {
+    StringRef getPassName() const override {
       return "Local Dynamic TLS Access Clean-up";
     }
 

@@ -126,7 +126,6 @@ public:
   bool parseRegisterFlag(unsigned &Flags);
   bool parseSubRegisterIndex(unsigned &SubReg);
   bool parseRegisterTiedDefIndex(unsigned &TiedDefIdx);
-  bool parseSize(unsigned &Size);
   bool parseRegisterOperand(MachineOperand &Dest,
                             Optional<unsigned> &TiedDefIdx, bool IsDef = false);
   bool parseImmediateOperand(MachineOperand &Dest);
@@ -364,7 +363,7 @@ bool MIParser::parseBasicBlockDefinition(
 
   if (!Name.empty()) {
     BB = dyn_cast_or_null<BasicBlock>(
-        MF.getFunction()->getValueSymbolTable().lookup(Name));
+        MF.getFunction()->getValueSymbolTable()->lookup(Name));
     if (!BB)
       return error(Loc, Twine("basic block '") + Name +
                             "' is not defined in the function '" +
@@ -877,21 +876,10 @@ bool MIParser::parseSubRegisterIndex(unsigned &SubReg) {
 
 bool MIParser::parseRegisterTiedDefIndex(unsigned &TiedDefIdx) {
   if (!consumeIfPresent(MIToken::kw_tied_def))
-    return error("expected 'tied-def' after '('");
+    return true;
   if (Token.isNot(MIToken::IntegerLiteral))
     return error("expected an integer literal after 'tied-def'");
   if (getUnsigned(TiedDefIdx))
-    return true;
-  lex();
-  if (expectAndConsume(MIToken::rparen))
-    return true;
-  return false;
-}
-
-bool MIParser::parseSize(unsigned &Size) {
-  if (Token.isNot(MIToken::IntegerLiteral))
-    return error("expected an integer literal for the size");
-  if (getUnsigned(Size))
     return true;
   lex();
   if (expectAndConsume(MIToken::rparen))
@@ -957,16 +945,28 @@ bool MIParser::parseRegisterOperand(MachineOperand &Dest,
     if (!TargetRegisterInfo::isVirtualRegister(Reg))
       return error("subregister index expects a virtual register");
   }
+  MachineRegisterInfo &MRI = MF.getRegInfo();
   if ((Flags & RegState::Define) == 0) {
     if (consumeIfPresent(MIToken::lparen)) {
       unsigned Idx;
-      if (parseRegisterTiedDefIndex(Idx))
-        return true;
-      TiedDefIdx = Idx;
+      if (!parseRegisterTiedDefIndex(Idx))
+        TiedDefIdx = Idx;
+      else {
+        // Try a redundant low-level type.
+        LLT Ty;
+        if (parseLowLevelType(Token.location(), Ty))
+          return error("expected tied-def or low-level type after '('");
+
+        if (expectAndConsume(MIToken::rparen))
+          return true;
+
+        if (MRI.getType(Reg).isValid() && MRI.getType(Reg) != Ty)
+          return error("inconsistent type for generic virtual register");
+
+        MRI.setType(Reg, Ty);
+      }
     }
   } else if (consumeIfPresent(MIToken::lparen)) {
-    MachineRegisterInfo &MRI = MF.getRegInfo();
-
     // Virtual registers may have a size with GlobalISel.
     if (!TargetRegisterInfo::isVirtualRegister(Reg))
       return error("unexpected size on physical register");
@@ -979,6 +979,9 @@ bool MIParser::parseRegisterOperand(MachineOperand &Dest,
 
     if (expectAndConsume(MIToken::rparen))
       return true;
+
+    if (MRI.getType(Reg).isValid() && MRI.getType(Reg) != Ty)
+      return error("inconsistent type for generic virtual register");
 
     MRI.setType(Reg, Ty);
   } else if (PFS.GenericVRegs.count(Reg)) {
@@ -1024,16 +1027,14 @@ bool MIParser::parseIRConstant(StringRef::iterator Loc, const Constant *&C) {
 }
 
 bool MIParser::parseLowLevelType(StringRef::iterator Loc, LLT &Ty) {
-  if (Token.is(MIToken::Identifier) && Token.stringValue() == "unsized") {
-    lex();
-    Ty = LLT::unsized();
-    return false;
-  } else if (Token.is(MIToken::ScalarType)) {
+  if (Token.is(MIToken::ScalarType)) {
     Ty = LLT::scalar(APSInt(Token.range().drop_front()).getZExtValue());
     lex();
     return false;
   } else if (Token.is(MIToken::PointerType)) {
-    Ty = LLT::pointer(APSInt(Token.range().drop_front()).getZExtValue());
+    const DataLayout &DL = MF.getFunction()->getParent()->getDataLayout();
+    unsigned AS = APSInt(Token.range().drop_front()).getZExtValue();
+    Ty = LLT::pointer(AS, DL.getPointerSizeInBits(AS));
     lex();
     return false;
   }
@@ -1370,7 +1371,7 @@ bool MIParser::parseIRBlock(BasicBlock *&BB, const Function &F) {
   switch (Token.kind()) {
   case MIToken::NamedIRBlock: {
     BB = dyn_cast_or_null<BasicBlock>(
-        F.getValueSymbolTable().lookup(Token.stringValue()));
+        F.getValueSymbolTable()->lookup(Token.stringValue()));
     if (!BB)
       return error(Twine("use of undefined IR block '") + Token.range() + "'");
     break;
@@ -1716,7 +1717,7 @@ bool MIParser::parseOperandsOffset(MachineOperand &Op) {
 bool MIParser::parseIRValue(const Value *&V) {
   switch (Token.kind()) {
   case MIToken::NamedIRValue: {
-    V = MF.getFunction()->getValueSymbolTable().lookup(Token.stringValue());
+    V = MF.getFunction()->getValueSymbolTable()->lookup(Token.stringValue());
     break;
   }
   case MIToken::IRValue: {

@@ -733,6 +733,13 @@ public:
   ObjCNonFragileABITypesHelper(CodeGen::CodeGenModule &cgm);
 };
 
+enum class ObjCLabelType {
+  ClassName,
+  MethodVarName,
+  MethodVarType,
+  PropertyName,
+};
+
 class CGObjCCommonMac : public CodeGen::CGObjCRuntime {
 public:
   class SKIP_SCAN {
@@ -1017,6 +1024,11 @@ public:
   llvm::GlobalVariable *CreateMetadataVar(Twine Name, llvm::Constant *Init,
                                           StringRef Section, CharUnits Align,
                                           bool AddToUsed);
+
+  llvm::GlobalVariable *CreateCStringLiteral(StringRef Name,
+                                             ObjCLabelType LabelType,
+                                             bool ForceNonFragileABI = false,
+                                             bool NullTerminate = true);
 
 protected:
   CodeGen::RValue EmitMessageSend(CodeGen::CodeGenFunction &CGF,
@@ -2576,10 +2588,9 @@ llvm::Constant *CGObjCCommonMac::getBitmapBlockLayout(bool ComputeByrefLayout) {
     }
   }
 
-  llvm::GlobalVariable *Entry = CreateMetadataVar(
-      "OBJC_CLASS_NAME_",
-      llvm::ConstantDataArray::getString(VMContext, BitMap, false),
-      "__TEXT,__objc_classname,cstring_literals", CharUnits::One(), true);
+  auto *Entry = CreateCStringLiteral(BitMap, ObjCLabelType::ClassName,
+                                     /*ForceNonFragileABI=*/true,
+                                     /*NullTerminate=*/false);
   return getConstantGEP(VMContext, Entry, 0, 0);
 }
 
@@ -3650,6 +3661,54 @@ llvm::GlobalVariable *CGObjCCommonMac::CreateMetadataVar(Twine Name,
   return GV;
 }
 
+llvm::GlobalVariable *
+CGObjCCommonMac::CreateCStringLiteral(StringRef Name, ObjCLabelType Type,
+                                      bool ForceNonFragileABI,
+                                      bool NullTerminate) {
+  StringRef Label;
+  switch (Type) {
+  case ObjCLabelType::ClassName:     Label = "OBJC_CLASS_NAME_"; break;
+  case ObjCLabelType::MethodVarName: Label = "OBJC_METH_VAR_NAME_"; break;
+  case ObjCLabelType::MethodVarType: Label = "OBJC_METH_VAR_TYPE_"; break;
+  case ObjCLabelType::PropertyName:  Label = "OBJC_PROP_NAME_ATTR_"; break;
+  }
+
+  bool NonFragile = ForceNonFragileABI || isNonFragileABI();
+
+  StringRef Section;
+  switch (Type) {
+  case ObjCLabelType::ClassName:
+    Section = NonFragile ? "__TEXT,__objc_classname,cstring_literals"
+                         : "__TEXT,__cstring,cstring_literals";
+    break;
+  case ObjCLabelType::MethodVarName:
+    Section = NonFragile ? "__TEXT,__objc_methname,cstring_literals"
+                         : "__TEXT,__cstring,cstring_literals";
+    break;
+  case ObjCLabelType::MethodVarType:
+    Section = NonFragile ? "__TEXT,__objc_methtype,cstring_literals"
+                         : "__TEXT,__cstring,cstring_literals";
+    break;
+  case ObjCLabelType::PropertyName:
+    Section = "__TEXT,__cstring,cstring_literals";
+    break;
+  }
+
+  llvm::Constant *Value =
+      llvm::ConstantDataArray::getString(VMContext, Name, NullTerminate);
+  llvm::GlobalVariable *GV =
+      new llvm::GlobalVariable(CGM.getModule(), Value->getType(),
+                               /*isConstant=*/true,
+                               llvm::GlobalValue::PrivateLinkage, Value, Label);
+  if (CGM.getTriple().isOSBinFormatMachO())
+    GV->setSection(Section);
+  GV->setUnnamedAddr(llvm::GlobalValue::UnnamedAddr::Global);
+  GV->setAlignment(CharUnits::One().getQuantity());
+  CGM.addCompilerUsedGlobal(GV);
+
+  return GV;
+}
+
 llvm::Function *CGObjCMac::ModuleInitFunction() {
   // Abuse this interface function as a place to finalize.
   FinishModule();
@@ -4707,12 +4766,7 @@ Address CGObjCMac::EmitSelectorAddr(CodeGenFunction &CGF, Selector Sel) {
 llvm::Constant *CGObjCCommonMac::GetClassName(StringRef RuntimeName) {
     llvm::GlobalVariable *&Entry = ClassNames[RuntimeName];
     if (!Entry)
-      Entry = CreateMetadataVar(
-          "OBJC_CLASS_NAME_",
-          llvm::ConstantDataArray::getString(VMContext, RuntimeName),
-          ((ObjCABI == 2) ? "__TEXT,__objc_classname,cstring_literals"
-                          : "__TEXT,__cstring,cstring_literals"),
-          CharUnits::One(), true);
+      Entry = CreateCStringLiteral(RuntimeName, ObjCLabelType::ClassName);
     return getConstantGEP(VMContext, Entry, 0, 0);
 }
 
@@ -4960,14 +5014,8 @@ llvm::Constant *IvarLayoutBuilder::buildBitmap(CGObjCCommonMac &CGObjC,
   // Null terminate the string.
   buffer.push_back(0);
 
-  bool isNonFragileABI = CGObjC.isNonFragileABI();
-
-  llvm::GlobalVariable *Entry = CGObjC.CreateMetadataVar(
-      "OBJC_CLASS_NAME_",
-      llvm::ConstantDataArray::get(CGM.getLLVMContext(), buffer),
-      (isNonFragileABI ? "__TEXT,__objc_classname,cstring_literals"
-                       : "__TEXT,__cstring,cstring_literals"),
-      CharUnits::One(), true);
+  auto *Entry = CGObjC.CreateCStringLiteral(
+      reinterpret_cast<char *>(buffer.data()), ObjCLabelType::ClassName);
   return getConstantGEP(CGM.getLLVMContext(), Entry, 0, 0);
 }
 
@@ -5062,16 +5110,9 @@ CGObjCCommonMac::BuildIvarLayout(const ObjCImplementationDecl *OMD,
 
 llvm::Constant *CGObjCCommonMac::GetMethodVarName(Selector Sel) {
   llvm::GlobalVariable *&Entry = MethodVarNames[Sel];
-
   // FIXME: Avoid std::string in "Sel.getAsString()"
   if (!Entry)
-    Entry = CreateMetadataVar(
-        "OBJC_METH_VAR_NAME_",
-        llvm::ConstantDataArray::getString(VMContext, Sel.getAsString()),
-        ((ObjCABI == 2) ? "__TEXT,__objc_methname,cstring_literals"
-                        : "__TEXT,__cstring,cstring_literals"),
-        CharUnits::One(), true);
-
+    Entry = CreateCStringLiteral(Sel.getAsString(), ObjCLabelType::MethodVarName);
   return getConstantGEP(VMContext, Entry, 0, 0);
 }
 
@@ -5085,15 +5126,8 @@ llvm::Constant *CGObjCCommonMac::GetMethodVarType(const FieldDecl *Field) {
   CGM.getContext().getObjCEncodingForType(Field->getType(), TypeStr, Field);
 
   llvm::GlobalVariable *&Entry = MethodVarTypes[TypeStr];
-
   if (!Entry)
-    Entry = CreateMetadataVar(
-        "OBJC_METH_VAR_TYPE_",
-        llvm::ConstantDataArray::getString(VMContext, TypeStr),
-        ((ObjCABI == 2) ? "__TEXT,__objc_methtype,cstring_literals"
-                        : "__TEXT,__cstring,cstring_literals"),
-        CharUnits::One(), true);
-
+    Entry = CreateCStringLiteral(TypeStr, ObjCLabelType::MethodVarType);
   return getConstantGEP(VMContext, Entry, 0, 0);
 }
 
@@ -5104,28 +5138,16 @@ llvm::Constant *CGObjCCommonMac::GetMethodVarType(const ObjCMethodDecl *D,
     return nullptr;
 
   llvm::GlobalVariable *&Entry = MethodVarTypes[TypeStr];
-
   if (!Entry)
-    Entry = CreateMetadataVar(
-        "OBJC_METH_VAR_TYPE_",
-        llvm::ConstantDataArray::getString(VMContext, TypeStr),
-        ((ObjCABI == 2) ? "__TEXT,__objc_methtype,cstring_literals"
-                        : "__TEXT,__cstring,cstring_literals"),
-        CharUnits::One(), true);
-
+    Entry = CreateCStringLiteral(TypeStr, ObjCLabelType::MethodVarType);
   return getConstantGEP(VMContext, Entry, 0, 0);
 }
 
 // FIXME: Merge into a single cstring creation function.
 llvm::Constant *CGObjCCommonMac::GetPropertyName(IdentifierInfo *Ident) {
   llvm::GlobalVariable *&Entry = PropertyNames[Ident];
-
   if (!Entry)
-    Entry = CreateMetadataVar(
-        "OBJC_PROP_NAME_ATTR_",
-        llvm::ConstantDataArray::getString(VMContext, Ident->getName()),
-        "__TEXT,__cstring,cstring_literals", CharUnits::One(), true);
-
+    Entry = CreateCStringLiteral(Ident->getName(), ObjCLabelType::PropertyName);
   return getConstantGEP(VMContext, Entry, 0, 0);
 }
 
@@ -5178,27 +5200,23 @@ void CGObjCMac::FinishModule() {
   // important for correct linker interaction.
   //
   // FIXME: It would be nice if we had an LLVM construct for this.
-  if (!LazySymbols.empty() || !DefinedSymbols.empty()) {
+  if ((!LazySymbols.empty() || !DefinedSymbols.empty()) &&
+      CGM.getTriple().isOSBinFormatMachO()) {
     SmallString<256> Asm;
     Asm += CGM.getModule().getModuleInlineAsm();
     if (!Asm.empty() && Asm.back() != '\n')
       Asm += '\n';
 
     llvm::raw_svector_ostream OS(Asm);
-    for (llvm::SetVector<IdentifierInfo*>::iterator I = DefinedSymbols.begin(),
-           e = DefinedSymbols.end(); I != e; ++I)
-      OS << "\t.objc_class_name_" << (*I)->getName() << "=0\n"
-         << "\t.globl .objc_class_name_" << (*I)->getName() << "\n";
-    for (llvm::SetVector<IdentifierInfo*>::iterator I = LazySymbols.begin(),
-         e = LazySymbols.end(); I != e; ++I) {
-      OS << "\t.lazy_reference .objc_class_name_" << (*I)->getName() << "\n";
-    }
+    for (const auto *Sym : DefinedSymbols)
+      OS << "\t.objc_class_name_" << Sym->getName() << "=0\n"
+         << "\t.globl .objc_class_name_" << Sym->getName() << "\n";
+    for (const auto *Sym : LazySymbols)
+      OS << "\t.lazy_reference .objc_class_name_" << Sym->getName() << "\n";
+    for (const auto &Category : DefinedCategoryNames)
+      OS << "\t.objc_category_name_" << Category << "=0\n"
+         << "\t.globl .objc_category_name_" << Category << "\n";
 
-    for (size_t i = 0, e = DefinedCategoryNames.size(); i < e; ++i) {
-      OS << "\t.objc_category_name_" << DefinedCategoryNames[i] << "=0\n"
-         << "\t.globl .objc_category_name_" << DefinedCategoryNames[i] << "\n";
-    }
-    
     CGM.getModule().setModuleInlineAsm(OS.str());
   }
 }

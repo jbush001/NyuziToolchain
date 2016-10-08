@@ -49,6 +49,22 @@ static cl::opt<float>
                                "`import-instr-limit` threshold by this factor "
                                "before processing newly imported functions"));
 
+static cl::opt<float> ImportHotInstrFactor(
+    "import-hot-evolution-factor", cl::init(1.0), cl::Hidden,
+    cl::value_desc("x"),
+    cl::desc("As we import functions called from hot callsite, multiply the "
+             "`import-instr-limit` threshold by this factor "
+             "before processing newly imported functions"));
+
+static cl::opt<float> ImportHotMultiplier(
+    "import-hot-multiplier", cl::init(3.0), cl::Hidden, cl::value_desc("x"),
+    cl::desc("Multiply the `import-instr-limit` threshold for hot callsites"));
+
+// FIXME: This multiplier was not really tuned up.
+static cl::opt<float> ImportColdMultiplier(
+    "import-cold-multiplier", cl::init(0), cl::Hidden, cl::value_desc("N"),
+    cl::desc("Multiply the `import-instr-limit` threshold for cold callsites"));
+
 static cl::opt<bool> PrintImports("print-imports", cl::init(false), cl::Hidden,
                                   cl::desc("Print imported functions"));
 
@@ -268,7 +284,7 @@ using EdgeInfo = std::pair<const FunctionSummary *, unsigned /* Threshold */>;
 /// exported from their source module.
 static void computeImportForFunction(
     const FunctionSummary &Summary, const ModuleSummaryIndex &Index,
-    unsigned Threshold, const GVSummaryMapTy &DefinedGVSummaries,
+    const unsigned Threshold, const GVSummaryMapTy &DefinedGVSummaries,
     SmallVectorImpl<EdgeInfo> &Worklist,
     FunctionImporter::ImportMapTy &ImportList,
     StringMap<FunctionImporter::ExportSetTy> *ExportLists = nullptr) {
@@ -281,7 +297,18 @@ static void computeImportForFunction(
       continue;
     }
 
-    auto *CalleeSummary = selectCallee(GUID, Threshold, Index);
+    auto GetBonusMultiplier = [](CalleeInfo::HotnessType Hotness) -> float {
+      if (Hotness == CalleeInfo::HotnessType::Hot)
+        return ImportHotMultiplier;
+      if (Hotness == CalleeInfo::HotnessType::Cold)
+        return ImportColdMultiplier;
+      return 1.0;
+    };
+
+    const auto NewThreshold =
+        Threshold * GetBonusMultiplier(Edge.second.Hotness);
+
+    auto *CalleeSummary = selectCallee(GUID, NewThreshold, Index);
     if (!CalleeSummary) {
       DEBUG(dbgs() << "ignored! No qualifying callee with summary found.\n");
       continue;
@@ -297,7 +324,7 @@ static void computeImportForFunction(
     } else
       ResolvedCalleeSummary = cast<FunctionSummary>(CalleeSummary);
 
-    assert(ResolvedCalleeSummary->instCount() <= Threshold &&
+    assert(ResolvedCalleeSummary->instCount() <= NewThreshold &&
            "selectCallee() didn't honor the threshold");
 
     auto ExportModulePath = ResolvedCalleeSummary->modulePath();
@@ -329,8 +356,20 @@ static void computeImportForFunction(
       }
     }
 
+    auto GetAdjustedThreshold = [](unsigned Threshold, bool IsHotCallsite) {
+      // Adjust the threshold for next level of imported functions.
+      // The threshold is different for hot callsites because we can then
+      // inline chains of hot calls.
+      if (IsHotCallsite)
+        return Threshold * ImportHotInstrFactor;
+      return Threshold * ImportInstrFactor;
+    };
+
+    bool IsHotCallsite = Edge.second.Hotness == CalleeInfo::HotnessType::Hot;
+
     // Insert the newly imported function to the worklist.
-    Worklist.push_back(std::make_pair(ResolvedCalleeSummary, Threshold));
+    Worklist.emplace_back(ResolvedCalleeSummary,
+                          GetAdjustedThreshold(Threshold, IsHotCallsite));
   }
 }
 
@@ -361,14 +400,11 @@ static void ComputeImportForModule(
                              ExportLists);
   }
 
+  // Process the newly imported functions and add callees to the worklist.
   while (!Worklist.empty()) {
     auto FuncInfo = Worklist.pop_back_val();
     auto *Summary = FuncInfo.first;
     auto Threshold = FuncInfo.second;
-
-    // Process the newly imported functions and add callees to the worklist.
-    // Adjust the threshold
-    Threshold = Threshold * ImportInstrFactor;
 
     computeImportForFunction(*Summary, Index, Threshold, DefinedGVSummaries,
                              Worklist, ImportList, ExportLists);
@@ -778,7 +814,7 @@ public:
   static char ID;
 
   /// Specify pass name for debug output
-  const char *getPassName() const override { return "Function Importing"; }
+  StringRef getPassName() const override { return "Function Importing"; }
 
   explicit FunctionImportLegacyPass(const ModuleSummaryIndex *Index = nullptr)
       : ModulePass(ID), Index(Index) {}

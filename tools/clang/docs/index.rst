@@ -19,6 +19,7 @@ Using Clang as a Compiler
    UsersManual
    LanguageExtensions
    AttributeReference
+   DiagnosticsReference
    CrossCompilation
    ThreadSafetyAnalysis
    AddressSanitizer
@@ -36,6 +37,7 @@ Using Clang as a Compiler
    SourceBasedCodeCoverage
    Modules
    MSVCCompatibility
+   ThinLTO
    CommandGuide/index
    FAQ
 

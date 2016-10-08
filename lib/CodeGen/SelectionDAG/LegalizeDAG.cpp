@@ -1216,8 +1216,7 @@ SDValue SelectionDAGLegalize::ExpandExtractFromVectorThroughStack(SDValue Op) {
   }
 
   // Add the offset to the index.
-  unsigned EltSize =
-      Vec.getValueType().getVectorElementType().getSizeInBits()/8;
+  unsigned EltSize = Vec.getScalarValueSizeInBits() / 8;
   Idx = DAG.getNode(ISD::MUL, dl, Idx.getValueType(), Idx,
                     DAG.getConstant(EltSize, SDLoc(Vec), Idx.getValueType()));
 
@@ -1268,8 +1267,7 @@ SDValue SelectionDAGLegalize::ExpandInsertToVectorThroughStack(SDValue Op) {
   // Then store the inserted part.
 
   // Add the offset to the index.
-  unsigned EltSize =
-      Vec.getValueType().getVectorElementType().getSizeInBits()/8;
+  unsigned EltSize = Vec.getScalarValueSizeInBits() / 8;
 
   Idx = DAG.getNode(ISD::MUL, dl, Idx.getValueType(), Idx,
                     DAG.getConstant(EltSize, SDLoc(Vec), Idx.getValueType()));
@@ -1663,7 +1661,7 @@ SDValue SelectionDAGLegalize::EmitStackConvert(SDValue SrcOp, EVT SlotVT,
   MachinePointerInfo PtrInfo =
       MachinePointerInfo::getFixedStack(DAG.getMachineFunction(), SPFI);
 
-  unsigned SrcSize = SrcOp.getValueType().getSizeInBits();
+  unsigned SrcSize = SrcOp.getValueSizeInBits();
   unsigned SlotSize = SlotVT.getSizeInBits();
   unsigned DestSize = DestVT.getSizeInBits();
   Type *DestType = DestVT.getTypeForEVT(*DAG.getContext());
@@ -2942,8 +2940,8 @@ bool SelectionDAGLegalize::ExpandNode(SDNode *Node) {
     EVT ShiftAmountTy = TLI.getShiftAmountTy(VT, DAG.getDataLayout());
     if (VT.isVector())
       ShiftAmountTy = VT;
-    unsigned BitsDiff = VT.getScalarType().getSizeInBits() -
-                        ExtraVT.getScalarType().getSizeInBits();
+    unsigned BitsDiff = VT.getScalarSizeInBits() -
+                        ExtraVT.getScalarSizeInBits();
     SDValue ShiftCst = DAG.getConstant(BitsDiff, dl, ShiftAmountTy);
     Tmp1 = DAG.getNode(ISD::SHL, dl, Node->getValueType(0),
                        Node->getOperand(0), ShiftCst);
@@ -3472,8 +3470,18 @@ bool SelectionDAGLegalize::ExpandNode(SDNode *Node) {
       // pre-lowered to the correct types. This all depends upon WideVT not
       // being a legal type for the architecture and thus has to be split to
       // two arguments.
-      SDValue Args[] = { LHS, HiLHS, RHS, HiRHS };
-      SDValue Ret = ExpandLibCall(LC, WideVT, Args, 4, isSigned, dl);
+      SDValue Ret;
+      if(DAG.getDataLayout().isLittleEndian()) {
+        // Halves of WideVT are packed into registers in different order
+        // depending on platform endianness. This is usually handled by
+        // the C calling convention, but we can't defer to it in
+        // the legalizer.
+        SDValue Args[] = { LHS, HiLHS, RHS, HiRHS };
+        Ret = ExpandLibCall(LC, WideVT, Args, 4, isSigned, dl);
+      } else {
+        SDValue Args[] = { HiLHS, LHS, HiRHS, RHS };
+        Ret = ExpandLibCall(LC, WideVT, Args, 4, isSigned, dl);
+      }
       BottomHalf = DAG.getNode(ISD::EXTRACT_ELEMENT, dl, VT, Ret,
                                DAG.getIntPtrConstant(0, dl));
       TopHalf = DAG.getNode(ISD::EXTRACT_ELEMENT, dl, VT, Ret,

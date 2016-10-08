@@ -29,6 +29,7 @@
 #include "clang/CodeGen/SwiftCallingConv.h"
 #include "clang/Frontend/CodeGenOptions.h"
 #include "llvm/ADT/StringExtras.h"
+#include "llvm/Analysis/ValueTracking.h"
 #include "llvm/IR/Attributes.h"
 #include "llvm/IR/CallingConv.h"
 #include "llvm/IR/CallSite.h"
@@ -1729,6 +1730,9 @@ void CodeGenModule::ConstructAttributeList(
 
     FuncAttrs.addAttribute("no-trapping-math",
                            llvm::toStringRef(CodeGenOpts.NoTrappingMath));
+
+    // TODO: Are these all needed?
+    // unsafe/inf/nan/nsz are handled by instruction-level FastMathFlags.
     FuncAttrs.addAttribute("no-infs-fp-math",
                            llvm::toStringRef(CodeGenOpts.NoInfsFPMath));
     FuncAttrs.addAttribute("no-nans-fp-math",
@@ -1744,6 +1748,12 @@ void CodeGenModule::ConstructAttributeList(
     FuncAttrs.addAttribute(
         "correctly-rounded-divide-sqrt-fp-math",
         llvm::toStringRef(CodeGenOpts.CorrectlyRoundedDivSqrt));
+
+    // TODO: Reciprocal estimate codegen options should apply to instructions?
+    std::vector<std::string> &Recips = getTarget().getTargetOpts().Reciprocals;
+    if (!Recips.empty())
+      FuncAttrs.addAttribute("reciprocal-estimates",
+                             llvm::join(Recips.begin(), Recips.end(), ","));
 
     if (CodeGenOpts.StackRealignment)
       FuncAttrs.addAttribute("stackrealign");
@@ -1803,6 +1813,9 @@ void CodeGenModule::ConstructAttributeList(
     // __syncthreads(), and so can't have certain optimizations applied around
     // them).  LLVM will remove this attribute where it safely can.
     FuncAttrs.addAttribute(llvm::Attribute::Convergent);
+
+    // Exceptions aren't supported in CUDA device code.
+    FuncAttrs.addAttribute(llvm::Attribute::NoUnwind);
 
     // Respect -fcuda-flush-denormals-to-zero.
     if (getLangOpts().CUDADeviceFlushDenormalsToZero)
@@ -2905,10 +2918,6 @@ static bool isProvablyNull(llvm::Value *addr) {
   return isa<llvm::ConstantPointerNull>(addr);
 }
 
-static bool isProvablyNonNull(llvm::Value *addr) {
-  return isa<llvm::AllocaInst>(addr);
-}
-
 /// Emit the actual writing-back of a writeback.
 static void emitWriteback(CodeGenFunction &CGF,
                           const CallArgList::Writeback &writeback) {
@@ -2921,7 +2930,7 @@ static void emitWriteback(CodeGenFunction &CGF,
 
   // If the argument wasn't provably non-null, we need to null check
   // before doing the store.
-  bool provablyNonNull = isProvablyNonNull(srcAddr.getPointer());
+  bool provablyNonNull = llvm::isKnownNonNull(srcAddr.getPointer());
   if (!provablyNonNull) {
     llvm::BasicBlock *writebackBB = CGF.createBasicBlock("icr.writeback");
     contBB = CGF.createBasicBlock("icr.done");
@@ -3061,7 +3070,7 @@ static void emitWritebackArg(CodeGenFunction &CGF, CallArgList &args,
   // If the address is *not* known to be non-null, we need to switch.
   llvm::Value *finalArgument;
 
-  bool provablyNonNull = isProvablyNonNull(srcAddr.getPointer());
+  bool provablyNonNull = llvm::isKnownNonNull(srcAddr.getPointer());
   if (provablyNonNull) {
     finalArgument = temp.getPointer();
   } else {
@@ -3132,7 +3141,7 @@ static void emitWritebackArg(CodeGenFunction &CGF, CallArgList &args,
 }
 
 void CallArgList::allocateArgumentMemory(CodeGenFunction &CGF) {
-  assert(!StackBase && !StackCleanup.isValid());
+  assert(!StackBase);
 
   // Save the stack.
   llvm::Function *F = CGF.CGM.getIntrinsic(llvm::Intrinsic::stacksave);
@@ -3175,7 +3184,8 @@ void CodeGenFunction::EmitNonNullArgCheck(RValue RV, QualType ArgType,
 void CodeGenFunction::EmitCallArgs(
     CallArgList &Args, ArrayRef<QualType> ArgTypes,
     llvm::iterator_range<CallExpr::const_arg_iterator> ArgRange,
-    const FunctionDecl *CalleeDecl, unsigned ParamsToSkip) {
+    const FunctionDecl *CalleeDecl, unsigned ParamsToSkip,
+    EvaluationOrder Order) {
   assert((int)ArgTypes.size() == (ArgRange.end() - ArgRange.begin()));
 
   auto MaybeEmitImplicitObjectSize = [&](unsigned I, const Expr *Arg) {
@@ -3193,10 +3203,18 @@ void CodeGenFunction::EmitCallArgs(
   };
 
   // We *have* to evaluate arguments from right to left in the MS C++ ABI,
-  // because arguments are destroyed left to right in the callee.
-  if (CGM.getTarget().getCXXABI().areArgsDestroyedLeftToRightInCallee()) {
-    // Insert a stack save if we're going to need any inalloca args.
-    bool HasInAllocaArgs = false;
+  // because arguments are destroyed left to right in the callee. As a special
+  // case, there are certain language constructs that require left-to-right
+  // evaluation, and in those cases we consider the evaluation order requirement
+  // to trump the "destruction order is reverse construction order" guarantee.
+  bool LeftToRight =
+      CGM.getTarget().getCXXABI().areArgsDestroyedLeftToRightInCallee()
+          ? Order == EvaluationOrder::ForceLeftToRight
+          : Order != EvaluationOrder::ForceRightToLeft;
+
+  // Insert a stack save if we're going to need any inalloca args.
+  bool HasInAllocaArgs = false;
+  if (CGM.getTarget().getCXXABI().isMicrosoft()) {
     for (ArrayRef<QualType>::iterator I = ArgTypes.begin(), E = ArgTypes.end();
          I != E && !HasInAllocaArgs; ++I)
       HasInAllocaArgs = isInAllocaArgument(CGM.getCXXABI(), *I);
@@ -3204,30 +3222,24 @@ void CodeGenFunction::EmitCallArgs(
       assert(getTarget().getTriple().getArch() == llvm::Triple::x86);
       Args.allocateArgumentMemory(*this);
     }
+  }
 
-    // Evaluate each argument.
-    size_t CallArgsStart = Args.size();
-    for (int I = ArgTypes.size() - 1; I >= 0; --I) {
-      CallExpr::const_arg_iterator Arg = ArgRange.begin() + I;
-      MaybeEmitImplicitObjectSize(I, *Arg);
-      EmitCallArg(Args, *Arg, ArgTypes[I]);
-      EmitNonNullArgCheck(Args.back().RV, ArgTypes[I], (*Arg)->getExprLoc(),
-                          CalleeDecl, ParamsToSkip + I);
-    }
+  // Evaluate each argument in the appropriate order.
+  size_t CallArgsStart = Args.size();
+  for (unsigned I = 0, E = ArgTypes.size(); I != E; ++I) {
+    unsigned Idx = LeftToRight ? I : E - I - 1;
+    CallExpr::const_arg_iterator Arg = ArgRange.begin() + Idx;
+    if (!LeftToRight) MaybeEmitImplicitObjectSize(Idx, *Arg);
+    EmitCallArg(Args, *Arg, ArgTypes[Idx]);
+    EmitNonNullArgCheck(Args.back().RV, ArgTypes[Idx], (*Arg)->getExprLoc(),
+                        CalleeDecl, ParamsToSkip + Idx);
+    if (LeftToRight) MaybeEmitImplicitObjectSize(Idx, *Arg);
+  }
 
+  if (!LeftToRight) {
     // Un-reverse the arguments we just evaluated so they match up with the LLVM
     // IR function.
     std::reverse(Args.begin() + CallArgsStart, Args.end());
-    return;
-  }
-
-  for (unsigned I = 0, E = ArgTypes.size(); I != E; ++I) {
-    CallExpr::const_arg_iterator Arg = ArgRange.begin() + I;
-    assert(Arg != ArgRange.end());
-    EmitCallArg(Args, *Arg, ArgTypes[I]);
-    EmitNonNullArgCheck(Args.back().RV, ArgTypes[I], (*Arg)->getExprLoc(),
-                        CalleeDecl, ParamsToSkip + I);
-    MaybeEmitImplicitObjectSize(I, *Arg);
   }
 }
 
@@ -3269,7 +3281,7 @@ void CodeGenFunction::EmitCallArg(CallArgList &args, const Expr *E,
   if (const ObjCIndirectCopyRestoreExpr *CRE
         = dyn_cast<ObjCIndirectCopyRestoreExpr>(E)) {
     assert(getLangOpts().ObjCAutoRefCount);
-    assert(getContext().hasSameType(E->getType(), type));
+    assert(getContext().hasSameUnqualifiedType(E->getType(), type));
     return emitWritebackArg(*this, args, CRE);
   }
 

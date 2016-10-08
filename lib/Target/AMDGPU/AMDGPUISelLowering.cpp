@@ -37,7 +37,7 @@ static bool allocateKernArg(unsigned ValNo, MVT ValVT, MVT LocVT,
   MachineFunction &MF = State.getMachineFunction();
   AMDGPUMachineFunction *MFI = MF.getInfo<AMDGPUMachineFunction>();
 
-  uint64_t Offset = MFI->allocateKernArg(ValVT.getStoreSize(),
+  uint64_t Offset = MFI->allocateKernArg(LocVT.getStoreSize(),
                                          ArgFlags.getOrigAlign());
   State.addLoc(CCValAssign::getCustomMem(ValNo, ValVT, Offset, LocVT, LocInfo));
   return true;
@@ -462,7 +462,6 @@ AMDGPUTargetLowering::AMDGPUTargetLowering(const TargetMachine &TM,
   MaxStoresPerMemset  = 4096;
 
   setTargetDAGCombine(ISD::BITCAST);
-  setTargetDAGCombine(ISD::AND);
   setTargetDAGCombine(ISD::SHL);
   setTargetDAGCombine(ISD::SRA);
   setTargetDAGCombine(ISD::SRL);
@@ -627,9 +626,105 @@ bool AMDGPUTargetLowering::isNarrowingProfitable(EVT SrcVT, EVT DestVT) const {
 // TargetLowering Callbacks
 //===---------------------------------------------------------------------===//
 
-void AMDGPUTargetLowering::AnalyzeFormalArguments(CCState &State,
-                             const SmallVectorImpl<ISD::InputArg> &Ins) const {
+/// The SelectionDAGBuilder will automatically promote function arguments
+/// with illegal types.  However, this does not work for the AMDGPU targets
+/// since the function arguments are stored in memory as these illegal types.
+/// In order to handle this properly we need to get the original types sizes
+/// from the LLVM IR Function and fixup the ISD:InputArg values before
+/// passing them to AnalyzeFormalArguments()
 
+/// When the SelectionDAGBuilder computes the Ins, it takes care of splitting
+/// input values across multiple registers.  Each item in the Ins array
+/// represents a single value that will be stored in regsters.  Ins[x].VT is
+/// the value type of the value that will be stored in the register, so
+/// whatever SDNode we lower the argument to needs to be this type.
+///
+/// In order to correctly lower the arguments we need to know the size of each
+/// argument.  Since Ins[x].VT gives us the size of the register that will
+/// hold the value, we need to look at Ins[x].ArgVT to see the 'real' type
+/// for the orignal function argument so that we can deduce the correct memory
+/// type to use for Ins[x].  In most cases the correct memory type will be
+/// Ins[x].ArgVT.  However, this will not always be the case.  If, for example,
+/// we have a kernel argument of type v8i8, this argument will be split into
+/// 8 parts and each part will be represented by its own item in the Ins array.
+/// For each part the Ins[x].ArgVT will be the v8i8, which is the full type of
+/// the argument before it was split.  From this, we deduce that the memory type
+/// for each individual part is i8.  We pass the memory type as LocVT to the
+/// calling convention analysis function and the register type (Ins[x].VT) as
+/// the ValVT.
+void AMDGPUTargetLowering::analyzeFormalArgumentsCompute(CCState &State,
+                             const SmallVectorImpl<ISD::InputArg> &Ins) const {
+  for (unsigned i = 0, e = Ins.size(); i != e; ++i) {
+    const ISD::InputArg &In = Ins[i];
+    EVT MemVT;
+
+    unsigned NumRegs = getNumRegisters(State.getContext(), In.ArgVT);
+
+    if (!Subtarget->isAmdHsaOS() &&
+        (In.ArgVT == MVT::i16 || In.ArgVT == MVT::i8 || In.ArgVT == MVT::f16)) {
+      // The ABI says the caller will extend these values to 32-bits.
+      MemVT = In.ArgVT.isInteger() ? MVT::i32 : MVT::f32;
+    } else if (NumRegs == 1) {
+      // This argument is not split, so the IR type is the memory type.
+      assert(!In.Flags.isSplit());
+      if (In.ArgVT.isExtended()) {
+        // We have an extended type, like i24, so we should just use the register type
+        MemVT = In.VT;
+      } else {
+        MemVT = In.ArgVT;
+      }
+    } else if (In.ArgVT.isVector() && In.VT.isVector() &&
+               In.ArgVT.getScalarType() == In.VT.getScalarType()) {
+      assert(In.ArgVT.getVectorNumElements() > In.VT.getVectorNumElements());
+      // We have a vector value which has been split into a vector with
+      // the same scalar type, but fewer elements.  This should handle
+      // all the floating-point vector types.
+      MemVT = In.VT;
+    } else if (In.ArgVT.isVector() &&
+               In.ArgVT.getVectorNumElements() == NumRegs) {
+      // This arg has been split so that each element is stored in a separate
+      // register.
+      MemVT = In.ArgVT.getScalarType();
+    } else if (In.ArgVT.isExtended()) {
+      // We have an extended type, like i65.
+      MemVT = In.VT;
+    } else {
+      unsigned MemoryBits = In.ArgVT.getStoreSizeInBits() / NumRegs;
+      assert(In.ArgVT.getStoreSizeInBits() % NumRegs == 0);
+      if (In.VT.isInteger()) {
+        MemVT = EVT::getIntegerVT(State.getContext(), MemoryBits);
+      } else if (In.VT.isVector()) {
+        assert(!In.VT.getScalarType().isFloatingPoint());
+        unsigned NumElements = In.VT.getVectorNumElements();
+        assert(MemoryBits % NumElements == 0);
+        // This vector type has been split into another vector type with
+        // a different elements size.
+        EVT ScalarVT = EVT::getIntegerVT(State.getContext(),
+                                         MemoryBits / NumElements);
+        MemVT = EVT::getVectorVT(State.getContext(), ScalarVT, NumElements);
+      } else {
+        llvm_unreachable("cannot deduce memory type.");
+      }
+    }
+
+    // Convert one element vectors to scalar.
+    if (MemVT.isVector() && MemVT.getVectorNumElements() == 1)
+      MemVT = MemVT.getScalarType();
+
+    if (MemVT.isExtended()) {
+      // This should really only happen if we have vec3 arguments
+      assert(MemVT.isVector() && MemVT.getVectorNumElements() == 3);
+      MemVT = MemVT.getPow2VectorType(State.getContext());
+    }
+
+    assert(MemVT.isSimple());
+    allocateKernArg(i, In.VT, MemVT.getSimpleVT(), CCValAssign::Full, In.Flags,
+                    State);
+  }
+}
+
+void AMDGPUTargetLowering::AnalyzeFormalArguments(CCState &State,
+                              const SmallVectorImpl<ISD::InputArg> &Ins) const {
   State.AnalyzeFormalArguments(Ins, CC_AMDGPU);
 }
 
@@ -2093,38 +2188,21 @@ SDValue AMDGPUTargetLowering::performStoreCombine(SDNode *N,
                       SN->getBasePtr(), SN->getMemOperand());
 }
 
-// TODO: Should repeat for other bit ops.
-SDValue AMDGPUTargetLowering::performAndCombine(SDNode *N,
-                                                DAGCombinerInfo &DCI) const {
-  if (N->getValueType(0) != MVT::i64)
-    return SDValue();
-
-  // Break up 64-bit and of a constant into two 32-bit ands. This will typically
-  // happen anyway for a VALU 64-bit and. This exposes other 32-bit integer
-  // combine opportunities since most 64-bit operations are decomposed this way.
-  // TODO: We won't want this for SALU especially if it is an inline immediate.
-  const ConstantSDNode *RHS = dyn_cast<ConstantSDNode>(N->getOperand(1));
-  if (!RHS)
-    return SDValue();
-
-  uint64_t Val = RHS->getZExtValue();
-  if (Lo_32(Val) != 0 && Hi_32(Val) != 0 && !RHS->hasOneUse()) {
-    // If either half of the constant is 0, this is really a 32-bit and, so
-    // split it. If we can re-use the full materialized constant, keep it.
-    return SDValue();
-  }
-
-  SDLoc SL(N);
+/// Split the 64-bit value \p LHS into two 32-bit components, and perform the
+/// binary operation \p Opc to it with the corresponding constant operands.
+SDValue AMDGPUTargetLowering::splitBinaryBitConstantOpImpl(
+  DAGCombinerInfo &DCI, const SDLoc &SL,
+  unsigned Opc, SDValue LHS,
+  uint32_t ValLo, uint32_t ValHi) const {
   SelectionDAG &DAG = DCI.DAG;
-
   SDValue Lo, Hi;
-  std::tie(Lo, Hi) = split64BitValue(N->getOperand(0), DAG);
+  std::tie(Lo, Hi) = split64BitValue(LHS, DAG);
 
-  SDValue LoRHS = DAG.getConstant(Lo_32(Val), SL, MVT::i32);
-  SDValue HiRHS = DAG.getConstant(Hi_32(Val), SL, MVT::i32);
+  SDValue LoRHS = DAG.getConstant(ValLo, SL, MVT::i32);
+  SDValue HiRHS = DAG.getConstant(ValHi, SL, MVT::i32);
 
-  SDValue LoAnd = DAG.getNode(ISD::AND, SL, MVT::i32, Lo, LoRHS);
-  SDValue HiAnd = DAG.getNode(ISD::AND, SL, MVT::i32, Hi, HiRHS);
+  SDValue LoAnd = DAG.getNode(Opc, SL, MVT::i32, Lo, LoRHS);
+  SDValue HiAnd = DAG.getNode(Opc, SL, MVT::i32, Hi, HiRHS);
 
   // Re-visit the ands. It's possible we eliminated one of them and it could
   // simplify the vector.
@@ -2470,6 +2548,33 @@ SDValue AMDGPUTargetLowering::PerformDAGCombine(SDNode *N,
     break;
   case ISD::BITCAST: {
     EVT DestVT = N->getValueType(0);
+
+    // Push casts through vector builds. This helps avoid emitting a large
+    // number of copies when materializing floating point vector constants.
+    //
+    // vNt1 bitcast (vNt0 (build_vector t0:x, t0:y)) =>
+    //   vnt1 = build_vector (t1 (bitcast t0:x)), (t1 (bitcast t0:y))
+    if (DestVT.isVector()) {
+      SDValue Src = N->getOperand(0);
+      if (Src.getOpcode() == ISD::BUILD_VECTOR) {
+        EVT SrcVT = Src.getValueType();
+        unsigned NElts = DestVT.getVectorNumElements();
+
+        if (SrcVT.getVectorNumElements() == NElts) {
+          EVT DestEltVT = DestVT.getVectorElementType();
+
+          SmallVector<SDValue, 8> CastedElts;
+          SDLoc SL(N);
+          for (unsigned I = 0, E = SrcVT.getVectorNumElements(); I != E; ++I) {
+            SDValue Elt = Src.getOperand(I);
+            CastedElts.push_back(DAG.getNode(ISD::BITCAST, DL, DestEltVT, Elt));
+          }
+
+          return DAG.getBuildVector(DestVT, SL, CastedElts);
+        }
+      }
+    }
+
     if (DestVT.getSizeInBits() != 64 && !DestVT.isVector())
       break;
 
@@ -2517,12 +2622,6 @@ SDValue AMDGPUTargetLowering::PerformDAGCombine(SDNode *N,
       break;
 
     return performSraCombine(N, DCI);
-  }
-  case ISD::AND: {
-    if (DCI.getDAGCombineLevel() < AfterLegalizeDAG)
-      break;
-
-    return performAndCombine(N, DCI);
   }
   case ISD::MUL:
     return performMulCombine(N, DCI);
@@ -2640,38 +2739,6 @@ SDValue AMDGPUTargetLowering::PerformDAGCombine(SDNode *N,
 //===----------------------------------------------------------------------===//
 // Helper functions
 //===----------------------------------------------------------------------===//
-
-void AMDGPUTargetLowering::getOriginalFunctionArgs(
-                               SelectionDAG &DAG,
-                               const Function *F,
-                               const SmallVectorImpl<ISD::InputArg> &Ins,
-                               SmallVectorImpl<ISD::InputArg> &OrigIns) const {
-
-  for (unsigned i = 0, e = Ins.size(); i < e; ++i) {
-    if (Ins[i].ArgVT == Ins[i].VT) {
-      OrigIns.push_back(Ins[i]);
-      continue;
-    }
-
-    EVT VT;
-    if (Ins[i].ArgVT.isVector() && !Ins[i].VT.isVector()) {
-      // Vector has been split into scalars.
-      VT = Ins[i].ArgVT.getVectorElementType();
-    } else if (Ins[i].VT.isVector() && Ins[i].ArgVT.isVector() &&
-               Ins[i].ArgVT.getVectorElementType() !=
-               Ins[i].VT.getVectorElementType()) {
-      // Vector elements have been promoted
-      VT = Ins[i].ArgVT;
-    } else {
-      // Vector has been spilt into smaller vectors.
-      VT = Ins[i].VT;
-    }
-
-    ISD::InputArg Arg(Ins[i].Flags, VT, VT, Ins[i].Used,
-                      Ins[i].OrigArgIndex, Ins[i].PartOffset);
-    OrigIns.push_back(Arg);
-  }
-}
 
 SDValue AMDGPUTargetLowering::CreateLiveInRegister(SelectionDAG &DAG,
                                                   const TargetRegisterClass *RC,

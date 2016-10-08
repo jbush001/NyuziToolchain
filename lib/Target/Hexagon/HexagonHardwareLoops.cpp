@@ -94,7 +94,7 @@ namespace {
 
     bool runOnMachineFunction(MachineFunction &MF) override;
 
-    const char *getPassName() const override { return "Hexagon Hardware Loops"; }
+    StringRef getPassName() const override { return "Hexagon Hardware Loops"; }
 
     void getAnalysisUsage(AnalysisUsage &AU) const override {
       AU.addRequired<MachineDominatorTree>();
@@ -411,10 +411,8 @@ bool HexagonHardwareLoops::findInductionRegister(MachineLoop *L,
 
       unsigned PhiOpReg = Phi->getOperand(i).getReg();
       MachineInstr *DI = MRI->getVRegDef(PhiOpReg);
-      unsigned UpdOpc = DI->getOpcode();
-      bool isAdd = (UpdOpc == Hexagon::A2_addi || UpdOpc == Hexagon::A2_addp);
 
-      if (isAdd) {
+      if (DI->getDesc().isAdd()) {
         // If the register operand to the add is the PHI we're looking at, this
         // meets the induction pattern.
         unsigned IndReg = DI->getOperand(1).getReg();
@@ -1248,7 +1246,7 @@ bool HexagonHardwareLoops::convertToHardwareLoop(MachineLoop *L,
       if (LastI != LastMBB->end())
         LastI = LastMBB->erase(LastI);
       SmallVector<MachineOperand, 0> Cond;
-      TII->InsertBranch(*LastMBB, BranchTarget, nullptr, Cond, LastIDL);
+      TII->insertBranch(*LastMBB, BranchTarget, nullptr, Cond, LastIDL);
     }
   } else {
     // Conditional branch to loop start; just delete it.
@@ -1592,10 +1590,8 @@ bool HexagonHardwareLoops::fixupInductionVariable(MachineLoop *L) {
 
       unsigned PhiReg = Phi->getOperand(i).getReg();
       MachineInstr *DI = MRI->getVRegDef(PhiReg);
-      unsigned UpdOpc = DI->getOpcode();
-      bool isAdd = (UpdOpc == Hexagon::A2_addi || UpdOpc == Hexagon::A2_addp);
 
-      if (isAdd) {
+      if (DI->getDesc().isAdd()) {
         // If the register operand to the add/sub is the PHI we are looking
         // at, this meets the induction pattern.
         unsigned IndReg = DI->getOperand(1).getReg();
@@ -1927,7 +1923,7 @@ MachineBasicBlock *HexagonHardwareLoops::createPreheaderForLoop(
       (void)NotAnalyzed; // suppress compiler warning
       assert (!NotAnalyzed && "Should be analyzable!");
       if (TB != Header && (Tmp2.empty() || FB != Header))
-        TII->InsertBranch(*PB, NewPH, nullptr, EmptyCond, DL);
+        TII->insertBranch(*PB, NewPH, nullptr, EmptyCond, DL);
       PB->ReplaceUsesOfBlockWith(Header, NewPH);
     }
   }
@@ -1939,10 +1935,10 @@ MachineBasicBlock *HexagonHardwareLoops::createPreheaderForLoop(
   (void)LatchNotAnalyzed; // suppress compiler warning
   assert (!LatchNotAnalyzed && "Should be analyzable!");
   if (!TB && !FB)
-    TII->InsertBranch(*Latch, Header, nullptr, EmptyCond, DL);
+    TII->insertBranch(*Latch, Header, nullptr, EmptyCond, DL);
 
   // Finally, the branch from the preheader to the header.
-  TII->InsertBranch(*NewPH, Header, nullptr, EmptyCond, DL);
+  TII->insertBranch(*NewPH, Header, nullptr, EmptyCond, DL);
   NewPH->addSuccessor(Header);
 
   MachineLoop *ParentLoop = L->getParentLoop();

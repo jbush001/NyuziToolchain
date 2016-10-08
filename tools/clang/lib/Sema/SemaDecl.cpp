@@ -1791,7 +1791,9 @@ NamedDecl *Sema::LazilyCreateBuiltin(IdentifierInfo *II, unsigned ID,
     return nullptr;
   }
 
-  if (!ForRedeclaration && Context.BuiltinInfo.isPredefinedLibFunction(ID)) {
+  if (!ForRedeclaration &&
+      (Context.BuiltinInfo.isPredefinedLibFunction(ID) ||
+       Context.BuiltinInfo.isHeaderDependentFunction(ID))) {
     Diag(Loc, diag::ext_implicit_lib_function_decl)
         << Context.BuiltinInfo.getName(ID) << R;
     if (Context.BuiltinInfo.getHeaderName(ID) &&
@@ -2246,6 +2248,13 @@ static bool mergeAlignedAttrs(Sema &S, NamedDecl *New, Decl *Old) {
 static bool mergeDeclAttribute(Sema &S, NamedDecl *D,
                                const InheritableAttr *Attr,
                                Sema::AvailabilityMergeKind AMK) {
+  // This function copies an attribute Attr from a previous declaration to the
+  // new declaration D if the new declaration doesn't itself have that attribute
+  // yet or if that attribute allows duplicates.
+  // If you're adding a new attribute that requires logic different from
+  // "use explicit attribute on decl if present, else use attribute from
+  // previous decl", for example if the attribute needs to be consistent
+  // between redeclarations, you need to call a custom merge function here.
   InheritableAttr *NewAttr = nullptr;
   unsigned AttrSpellingListIndex = Attr->getSpellingListIndex();
   if (const auto *AA = dyn_cast<AvailabilityAttr>(Attr))
@@ -2283,7 +2292,13 @@ static bool mergeDeclAttribute(Sema &S, NamedDecl *D,
     NewAttr = S.mergeAlwaysInlineAttr(D, AA->getRange(),
                                       &S.Context.Idents.get(AA->getSpelling()),
                                       AttrSpellingListIndex);
-  else if (const auto *MA = dyn_cast<MinSizeAttr>(Attr))
+  else if (S.getLangOpts().CUDA && isa<FunctionDecl>(D) &&
+           (isa<CUDAHostAttr>(Attr) || isa<CUDADeviceAttr>(Attr) ||
+            isa<CUDAGlobalAttr>(Attr))) {
+    // CUDA target attributes are part of function signature for
+    // overloading purposes and must not be merged.
+    return false;
+  } else if (const auto *MA = dyn_cast<MinSizeAttr>(Attr))
     NewAttr = S.mergeMinSizeAttr(D, MA->getRange(), AttrSpellingListIndex);
   else if (const auto *OA = dyn_cast<OptimizeNoneAttr>(Attr))
     NewAttr = S.mergeOptimizeNoneAttr(D, OA->getRange(), AttrSpellingListIndex);
@@ -2304,6 +2319,9 @@ static bool mergeDeclAttribute(Sema &S, NamedDecl *D,
            (AMK == Sema::AMK_Override ||
             AMK == Sema::AMK_ProtocolImplementation))
     NewAttr = nullptr;
+  else if (const auto *UA = dyn_cast<UuidAttr>(Attr))
+    NewAttr = S.mergeUuidAttr(D, UA->getRange(), AttrSpellingListIndex,
+                              UA->getGuid());
   else if (Attr->duplicatesAllowed() || !DeclHasAttr(D, Attr))
     NewAttr = cast<InheritableAttr>(Attr->clone(S.Context));
 
@@ -7508,7 +7526,7 @@ enum OpenCLParamType {
   RecordKernelParam
 };
 
-static OpenCLParamType getOpenCLKernelParameterType(QualType PT) {
+static OpenCLParamType getOpenCLKernelParameterType(Sema &S, QualType PT) {
   if (PT->isPointerType()) {
     QualType PointeeType = PT->getPointeeType();
     if (PointeeType->isPointerType())
@@ -7529,7 +7547,10 @@ static OpenCLParamType getOpenCLKernelParameterType(QualType PT) {
   if (PT->isEventT())
     return InvalidKernelParam;
 
-  if (PT->isHalfType())
+  // OpenCL extension spec v1.2 s9.5:
+  // This extension adds support for half scalar and vector types as built-in
+  // types that can be used for arithmetic operations, conversions etc.
+  if (!S.getOpenCLOptions().cl_khr_fp16 && PT->isHalfType())
     return InvalidKernelParam;
 
   if (PT->isRecordType())
@@ -7550,7 +7571,7 @@ static void checkIsValidOpenCLKernelParameter(
   if (ValidTypes.count(PT.getTypePtr()))
     return;
 
-  switch (getOpenCLKernelParameterType(PT)) {
+  switch (getOpenCLKernelParameterType(S, PT)) {
   case PtrPtrKernelParam:
     // OpenCL v1.2 s6.9.a:
     // A kernel function argument cannot be declared as a
@@ -7577,7 +7598,10 @@ static void checkIsValidOpenCLKernelParameter(
     // OpenCL v1.2 s6.8 n:
     // A kernel function argument cannot be declared
     // of event_t type.
-    S.Diag(Param->getLocation(), diag::err_bad_kernel_param_type) << PT;
+    // Do not diagnose half type since it is diagnosed as invalid argument
+    // type for any function elsewhere.
+    if (!PT->isHalfType())
+      S.Diag(Param->getLocation(), diag::err_bad_kernel_param_type) << PT;
     D.setInvalidType();
     return;
 
@@ -7633,7 +7657,7 @@ static void checkIsValidOpenCLKernelParameter(
       if (ValidTypes.count(QT.getTypePtr()))
         continue;
 
-      OpenCLParamType ParamType = getOpenCLKernelParameterType(QT);
+      OpenCLParamType ParamType = getOpenCLKernelParameterType(S, QT);
       if (ParamType == ValidKernelParam)
         continue;
 
@@ -8640,6 +8664,32 @@ Sema::ActOnFunctionDeclarator(Scope *S, Declarator &D, DeclContext *DC,
   return NewFD;
 }
 
+/// \brief Checks if the new declaration declared in dependent context must be
+/// put in the same redeclaration chain as the specified declaration.
+///
+/// \param D Declaration that is checked.
+/// \param PrevDecl Previous declaration found with proper lookup method for the
+///                 same declaration name.
+/// \returns True if D must be added to the redeclaration chain which PrevDecl
+///          belongs to.
+///
+bool Sema::shouldLinkDependentDeclWithPrevious(Decl *D, Decl *PrevDecl) {
+  // Any declarations should be put into redeclaration chains except for
+  // friend declaration in a dependent context that names a function in
+  // namespace scope.
+  //
+  // This allows to compile code like:
+  //
+  //       void func();
+  //       template<typename T> class C1 { friend void func() { } };
+  //       template<typename T> class C2 { friend void func() { } };
+  //
+  // This code snippet is a valid code unless both templates are instantiated.
+  return !(D->getLexicalDeclContext()->isDependentContext() &&
+           D->getDeclContext()->isFileContext() &&
+           D->getFriendObjectKind() != Decl::FOK_None);
+}
+
 /// \brief Perform semantic checking of a new function declaration.
 ///
 /// Performs semantic analysis of the new function declaration
@@ -8823,11 +8873,14 @@ bool Sema::CheckFunctionDeclaration(Scope *S, FunctionDecl *NewFD,
       }
 
     } else {
-      // This needs to happen first so that 'inline' propagates.
-      NewFD->setPreviousDeclaration(cast<FunctionDecl>(OldDecl));
-
-      if (isa<CXXMethodDecl>(NewFD))
-        NewFD->setAccess(OldDecl->getAccess());
+      if (shouldLinkDependentDeclWithPrevious(NewFD, OldDecl)) {
+        // This needs to happen first so that 'inline' propagates.
+        NewFD->setPreviousDeclaration(cast<FunctionDecl>(OldDecl));
+        if (isa<CXXMethodDecl>(NewFD))
+          NewFD->setAccess(OldDecl->getAccess());
+      } else {
+        Redeclaration = false;
+      }
     }
   }
 
@@ -11578,7 +11631,7 @@ Decl *Sema::ActOnFinishFunctionBody(Decl *dcl, Stmt *Body,
   sema::AnalysisBasedWarnings::Policy WP = AnalysisWarnings.getDefaultPolicy();
   sema::AnalysisBasedWarnings::Policy *ActivePolicy = nullptr;
 
-  if (getLangOpts().Coroutines && !getCurFunction()->CoroutineStmts.empty())
+  if (getLangOpts().CoroutinesTS && !getCurFunction()->CoroutineStmts.empty())
     CheckCompletedCoroutineBody(FD, Body);
 
   if (FD) {
@@ -11818,6 +11871,21 @@ Decl *Sema::ActOnFinishFunctionBody(Decl *dcl, Stmt *Body,
 
     if (FD && FD->hasAttr<NakedAttr>()) {
       for (const Stmt *S : Body->children()) {
+        // Allow local register variables without initializer as they don't
+        // require prologue.
+        bool RegisterVariables = false;
+        if (auto *DS = dyn_cast<DeclStmt>(S)) {
+          for (const auto *Decl : DS->decls()) {
+            if (const auto *Var = dyn_cast<VarDecl>(Decl)) {
+              RegisterVariables =
+                  Var->hasAttr<AsmLabelAttr>() && !Var->hasInit();
+              if (!RegisterVariables)
+                break;
+            }
+          }
+        }
+        if (RegisterVariables)
+          continue;
         if (!isa<AsmStmt>(S) && !isa<NullStmt>(S)) {
           Diag(S->getLocStart(), diag::err_non_asm_stmt_in_naked_function);
           Diag(FD->getAttr<NakedAttr>()->getLocation(), diag::note_attribute);
@@ -12204,6 +12272,20 @@ static bool isClassCompatTagKind(TagTypeKind Tag)
   return Tag == TTK_Struct || Tag == TTK_Class || Tag == TTK_Interface;
 }
 
+Sema::NonTagKind Sema::getNonTagTypeDeclKind(const Decl *PrevDecl) {
+  if (isa<TypedefDecl>(PrevDecl))
+    return NTK_Typedef;
+  else if (isa<TypeAliasDecl>(PrevDecl))
+    return NTK_TypeAlias;
+  else if (isa<ClassTemplateDecl>(PrevDecl))
+    return NTK_Template;
+  else if (isa<TypeAliasTemplateDecl>(PrevDecl))
+    return NTK_TypeAliasTemplate;
+  else if (isa<TemplateTemplateParmDecl>(PrevDecl))
+    return NTK_TemplateTemplateArgument;
+  return NTK_Unknown;
+}
+
 /// \brief Determine whether a tag with a given kind is acceptable
 /// as a redeclaration of the given tag declaration.
 ///
@@ -12496,6 +12578,7 @@ Decl *Sema::ActOnTag(Scope *S, unsigned TagSpec, TagUseKind TUK,
   DeclContext *SearchDC = CurContext;
   DeclContext *DC = CurContext;
   bool isStdBadAlloc = false;
+  bool isStdAlignValT = false;
 
   RedeclarationKind Redecl = ForRedeclaration;
   if (TUK == TUK_Friend || TUK == TUK_Reference)
@@ -12650,15 +12733,20 @@ Decl *Sema::ActOnTag(Scope *S, unsigned TagSpec, TagUseKind TUK,
   }
 
   if (getLangOpts().CPlusPlus && Name && DC && StdNamespace &&
-      DC->Equals(getStdNamespace()) && Name->isStr("bad_alloc")) {
-    // This is a declaration of or a reference to "std::bad_alloc".
-    isStdBadAlloc = true;
+      DC->Equals(getStdNamespace())) {
+    if (Name->isStr("bad_alloc")) {
+      // This is a declaration of or a reference to "std::bad_alloc".
+      isStdBadAlloc = true;
 
-    if (Previous.empty() && StdBadAlloc) {
-      // std::bad_alloc has been implicitly declared (but made invisible to
-      // name lookup). Fill in this implicit declaration as the previous
+      // If std::bad_alloc has been implicitly declared (but made invisible to
+      // name lookup), fill in this implicit declaration as the previous
       // declaration, so that the declarations get chained appropriately.
-      Previous.addDecl(getStdBadAlloc());
+      if (Previous.empty() && StdBadAlloc)
+        Previous.addDecl(getStdBadAlloc());
+    } else if (Name->isStr("align_val_t")) {
+      isStdAlignValT = true;
+      if (Previous.empty() && StdAlignValT)
+        Previous.addDecl(getStdAlignValT());
     }
   }
 
@@ -12978,11 +13066,8 @@ Decl *Sema::ActOnTag(Scope *S, unsigned TagSpec, TagUseKind TUK,
       // (non-redeclaration) lookup.
       if ((TUK == TUK_Reference || TUK == TUK_Friend) &&
           !Previous.isForRedeclaration()) {
-        unsigned Kind = 0;
-        if (isa<TypedefDecl>(PrevDecl)) Kind = 1;
-        else if (isa<TypeAliasDecl>(PrevDecl)) Kind = 2;
-        else if (isa<ClassTemplateDecl>(PrevDecl)) Kind = 3;
-        Diag(NameLoc, diag::err_tag_reference_non_tag) << Kind;
+        NonTagKind NTK = getNonTagTypeDeclKind(PrevDecl);
+        Diag(NameLoc, diag::err_tag_reference_non_tag) << NTK;
         Diag(PrevDecl->getLocation(), diag::note_declared_at);
         Invalid = true;
 
@@ -12993,11 +13078,8 @@ Decl *Sema::ActOnTag(Scope *S, unsigned TagSpec, TagUseKind TUK,
 
       // Diagnose implicit declarations introduced by elaborated types.
       } else if (TUK == TUK_Reference || TUK == TUK_Friend) {
-        unsigned Kind = 0;
-        if (isa<TypedefDecl>(PrevDecl)) Kind = 1;
-        else if (isa<TypeAliasDecl>(PrevDecl)) Kind = 2;
-        else if (isa<ClassTemplateDecl>(PrevDecl)) Kind = 3;
-        Diag(NameLoc, diag::err_tag_reference_conflict) << Kind;
+        NonTagKind NTK = getNonTagTypeDeclKind(PrevDecl);
+        Diag(NameLoc, diag::err_tag_reference_conflict) << NTK;
         Diag(PrevDecl->getLocation(), diag::note_previous_decl) << PrevDecl;
         Invalid = true;
 
@@ -13050,6 +13132,10 @@ CreateNewDecl:
     New = EnumDecl::Create(Context, SearchDC, KWLoc, Loc, Name,
                            cast_or_null<EnumDecl>(PrevDecl), ScopedEnum,
                            ScopedEnumUsesClassTag, !EnumUnderlying.isNull());
+
+    if (isStdAlignValT && (!StdAlignValT || getStdAlignValT()->isImplicit()))
+      StdAlignValT = cast<EnumDecl>(New);
+
     // If this is an undefined enum, warn.
     if (TUK != TUK_Definition && !Invalid) {
       TagDecl *Def;
@@ -15426,14 +15512,17 @@ void Sema::createImplicitModuleImportForErrorRecovery(SourceLocation Loc,
 /// (if present).
 Decl *Sema::ActOnStartExportDecl(Scope *S, SourceLocation ExportLoc,
                                  SourceLocation LBraceLoc) {
-  // FIXME: C++ Modules TS:
+  ExportDecl *D = ExportDecl::Create(Context, CurContext, ExportLoc);
+
+  // C++ Modules TS draft:
   //   An export-declaration [...] shall not contain more than one
   //   export keyword.
   //
   // The intent here is that an export-declaration cannot appear within another
   // export-declaration.
+  if (D->isExported())
+    Diag(ExportLoc, diag::err_export_within_export);
 
-  ExportDecl *D = ExportDecl::Create(Context, CurContext, ExportLoc);
   CurContext->addDecl(D);
   PushDeclContext(S, D);
   return D;

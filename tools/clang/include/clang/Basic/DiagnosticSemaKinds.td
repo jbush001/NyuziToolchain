@@ -659,7 +659,8 @@ def err_object_cannot_be_passed_returned_by_value : Error<
 def err_parameters_retval_cannot_have_fp16_type : Error<
   "%select{parameters|function return value}0 cannot have __fp16 type; did you forget * ?">;
 def err_opencl_half_load_store : Error<
-  "%select{loading directly from|assigning directly to}0 pointer to type %1 is not allowed">;
+  "%select{loading directly from|assigning directly to}0 pointer to type %1 requires "
+  "cl_khr_fp16. Use vector data %select{load|store}0 builtin functions instead">;
 def err_opencl_cast_to_half : Error<"casting to type %0 is not allowed">;
 def err_opencl_half_declaration : Error<
   "declaring variable of type %0 is not allowed">;
@@ -1141,10 +1142,9 @@ def warn_cxx14_compat_inline_variable : Warning<
   DefaultIgnore, InGroup<CXXPre1zCompat>;
 
 def warn_inline_namespace_reopened_noninline : Warning<
-  "inline namespace cannot be reopened as a non-inline namespace">;
+  "inline namespace reopened as a non-inline namespace">;
 def err_inline_namespace_mismatch : Error<
-  "%select{|non-}0inline namespace "
-  "cannot be reopened as %select{non-|}0inline">;
+  "non-inline namespace cannot be reopened as inline">;
 
 def err_unexpected_friend : Error<
   "friends can only be classes or functions">;
@@ -1745,8 +1745,10 @@ def warn_uninit_byref_blockvar_captured_by_block : Warning<
 def note_block_var_fixit_add_initialization : Note<
   "did you mean to use __block %0?">;
 def note_in_omitted_aggregate_initializer : Note<
-  "in implicit initialization of %select{array element %1|field %1}0 "
-  "with omitted initializer">;
+  "in implicit initialization of %select{"
+  "array element %1 with omitted initializer|"
+  "field %1 with omitted initializer|"
+  "trailing array elements in runtime-sized array new}0">;
 def note_in_reference_temporary_list_initializer : Note<
   "in initialization of temporary of type %0 created to "
   "list-initialize this reference">;
@@ -1826,7 +1828,8 @@ def err_auto_not_allowed : Error<
   "|in exception declaration|in template parameter|in block literal"
   "|in template argument|in typedef|in type alias|in function return type"
   "|in conversion function type|here|in lambda parameter"
-  "|in type allocated by 'new'|in K&R-style function parameter}1">;
+  "|in type allocated by 'new'|in K&R-style function parameter}1"
+  "%select{|||||||| until C++1z||||||||||}1">;
 def err_auto_not_allowed_var_inst : Error<
   "'auto' variable template instantiation is not allowed">;
 def err_auto_var_requires_init : Error<
@@ -2255,6 +2258,8 @@ def err_attribute_only_once_per_parameter : Error<
   "%0 attribute can only be applied once per parameter">;
 def err_attribute_uuid_malformed_guid : Error<
   "uuid attribute contains a malformed GUID">;
+def err_mismatched_uuid : Error<"uuid does not match previous declaration">;
+def note_previous_uuid : Note<"previous uuid specified here">;
 def warn_attribute_pointers_only : Warning<
   "%0 attribute only applies to%select{| constant}1 pointer arguments">,
   InGroup<IgnoredAttributes>;
@@ -2379,6 +2384,9 @@ def err_swift_abi_parameter_wrong_type : Error<
   "'%0' parameter must have pointer%select{| to unqualified pointer}1 type; "
   "type here is %2">;
 
+def err_attribute_argument_invalid : Error<
+  "%0 attribute argument is invalid: %select{max must be 0 since min is 0|"
+  "min must not be greater than max}1">;
 def err_attribute_argument_is_zero : Error<
   "%0 attribute must be greater than 0">;
 def warn_attribute_argument_n_negative : Warning<
@@ -2559,25 +2567,49 @@ def err_ifunc_resolver_return : Error<
 def err_ifunc_resolver_params : Error<
   "ifunc resolver function must have no parameters">;
 def warn_attribute_wrong_decl_type : Warning<
-  "%0 attribute only applies to %select{functions|unions|"
-  "variables and functions|"
-  "functions, variables, and Objective-C interfaces|"
-  "functions and methods|parameters|"
-  "functions, methods and blocks|functions, methods, and classes|"
-  "functions, methods, and parameters|classes|enums|variables|methods|"
-  "fields and global variables|structs|parameters and typedefs|variables and typedefs|"
-  "thread-local variables|variables and fields|variables, data members and tag types|"
-  "types and namespaces|Objective-C interfaces|methods and properties|"
-  "struct or union|struct, union or class|types|"
-  "Objective-C instance methods|init methods of interface or class extension declarations|"
-  "variables, functions and classes|"
-  "functions, variables, classes, and Objective-C interfaces|"
-  "Objective-C protocols|variables with static or thread storage duration|"
-  "functions and global variables|structs, unions, and typedefs|structs and typedefs|"
-  "interface or protocol declarations|kernel functions|non-K&R-style functions|"
-  "variables, enums, fields and typedefs|functions, methods, enums, and classes|"
-  "structs, classes, variables, functions, and inline namespaces|"
-  "variables, functions, methods, types, enumerations, enumerators, labels, and non-static data members}1">,
+  "%0 attribute only applies to %select{"
+  "functions"
+  "|unions"
+  "|variables and functions"
+  "|functions, variables, and Objective-C interfaces"
+  "|functions and methods"
+  "|parameters"
+  "|functions, methods and blocks"
+  "|functions, methods, and classes"
+  "|functions, methods, and parameters"
+  "|classes"
+  "|enums"
+  "|variables"
+  "|methods"
+  "|fields and global variables"
+  "|structs"
+  "|parameters and typedefs"
+  "|variables and typedefs"
+  "|thread-local variables"
+  "|variables and fields"
+  "|variables, data members and tag types"
+  "|types and namespaces"
+  "|Objective-C interfaces"
+  "|methods and properties"
+  "|struct or union"
+  "|struct, union or class"
+  "|types"
+  "|Objective-C instance methods"
+  "|init methods of interface or class extension declarations"
+  "|variables, functions and classes"
+  "|functions, variables, classes, and Objective-C interfaces"
+  "|Objective-C protocols"
+  "|variables with static or thread storage duration"
+  "|functions and global variables"
+  "|structs, unions, and typedefs"
+  "|structs and typedefs"
+  "|interface or protocol declarations"
+  "|kernel functions"
+  "|non-K&R-style functions"
+  "|variables, enums, fields and typedefs"
+  "|functions, methods, enums, and classes"
+  "|structs, classes, variables, functions, and inline namespaces"
+  "|variables, functions, methods, types, enumerations, enumerators, labels, and non-static data members}1">,
   InGroup<IgnoredAttributes>;
 def err_attribute_wrong_decl_type : Error<warn_attribute_wrong_decl_type.Text>;
 def warn_type_attribute_wrong_type : Warning<
@@ -3650,6 +3682,10 @@ def note_template_nontype_parm_prev_declaration : Note<
   "previous non-type template parameter with type %0 is here">;
 def err_template_nontype_parm_bad_type : Error<
   "a non-type template parameter cannot have type %0">;
+def warn_cxx14_compat_template_nontype_parm_auto_type : Warning<
+  "non-type template parameters declared with %0 are incompatible with C++ "
+  "standards before C++1z">,
+  DefaultIgnore, InGroup<CXXPre1zCompat>;
 def err_template_param_default_arg_redefinition : Error<
   "template parameter redefines default argument">;
 def note_template_param_prev_default_arg : Note<
@@ -3744,8 +3780,10 @@ def warn_cxx98_compat_template_arg_null : Warning<
 def err_template_arg_untyped_null_constant : Error<
   "null non-type template argument must be cast to template parameter type %0">;
 def err_template_arg_wrongtype_null_constant : Error<
- "null non-type template argument of type %0 does not match template parameter "
- "of type %1">;
+  "null non-type template argument of type %0 does not match template parameter "
+  "of type %1">;
+def err_non_type_template_parm_type_deduction_failure : Error<
+  "non-type template parameter %0 with type %1 has incompatible initializer of type %2">;
 def err_deduced_non_type_template_arg_type_mismatch : Error<
   "deduced non-type template argument does not have the same type as the "
   "its corresponding template parameter%diff{ ($ vs $)|}0,1">;
@@ -4345,7 +4383,7 @@ def err_definition_of_implicitly_declared_member : Error<
 def err_definition_of_explicitly_defaulted_member : Error<
   "definition of explicitly defaulted %select{default constructor|copy "
   "constructor|move constructor|copy assignment operator|move assignment "
-  "operator|destructor}0">;
+  "operator|destructor|function}0">;
 def err_redefinition_extern_inline : Error<
   "redefinition of a 'extern inline' function %0 is not supported in "
   "%select{C99 mode|C++}1">;
@@ -4544,9 +4582,6 @@ def err_vm_func_decl : Error<
   "function declaration cannot have variably modified type">;
 def err_array_too_large : Error<
   "array is too large (%0 elements)">;
-def warn_array_new_too_large : Warning<"array is too large (%0 elements)">,
-  // FIXME PR11644: ", will throw std::bad_array_new_length at runtime"
-  InGroup<BadArrayNewLength>;
 
 // -Wpadded, -Wpacked
 def warn_padded_struct_field : Warning<
@@ -4564,9 +4599,6 @@ def warn_unnecessary_packed : Warning<
   "packed attribute is unnecessary for %0">, InGroup<Packed>, DefaultIgnore;
 
 def err_typecheck_negative_array_size : Error<"array size is negative">;
-def warn_typecheck_negative_array_new_size : Warning<"array size is negative">,
-  // FIXME PR11644: ", will throw std::bad_array_new_length at runtime"
-  InGroup<BadArrayNewLength>;
 def warn_typecheck_function_qualifiers_ignored : Warning<
   "'%0' qualifier on function type %1 has no effect">,
   InGroup<IgnoredQualifiers>;
@@ -5464,7 +5496,7 @@ def err_typecheck_invalid_lvalue_addrof : Error<
   "cannot take the address of an rvalue of type %0">;
 def ext_typecheck_addrof_temporary : ExtWarn<
   "taking the address of a temporary object of type %0">, 
-  InGroup<DiagGroup<"address-of-temporary">>, DefaultError;
+  InGroup<AddressOfTemporary>, DefaultError;
 def err_typecheck_addrof_temporary : Error<
   "taking the address of a temporary object of type %0">;
 def err_typecheck_addrof_dtor : Error<
@@ -6696,6 +6728,9 @@ def err_cuda_unattributed_constexpr_cannot_overload_device : Error<
   "attribute, or build with -fno-cuda-host-device-constexpr.">;
 def note_cuda_conflicting_device_function_declared_here : Note<
   "conflicting __device__ function declared here">;
+def err_cuda_device_exceptions : Error<
+  "cannot use '%0' in "
+  "%select{__device__|__global__|__host__|__host__ __device__}1 function %2">;
 def err_dynamic_var_init : Error<
     "dynamic initialization is not supported for "
     "__device__, __constant__, and __shared__ variables.">;
@@ -6704,6 +6739,12 @@ def err_shared_var_init : Error<
 def err_device_static_local_var : Error<
     "Within a __device__/__global__ function, "
     "only __shared__ variables may be marked \"static\"">;
+def err_cuda_vla : Error<
+    "cannot use variable-length arrays in "
+    "%select{__device__|__global__|__host__|__host__ __device__}0 functions">;
+def err_cuda_extern_shared : Error<"__shared__ variable %0 cannot be 'extern'">;
+def err_cuda_nonglobal_constant : Error<"__constant__ variables must be global">;
+
 def warn_non_pod_vararg_with_format_string : Warning<
   "cannot pass %select{non-POD|non-trivial}0 object of type %1 to variadic "
   "%select{function|block|method|constructor}2; expected type from format "
@@ -6821,7 +6862,7 @@ def warn_side_effects_typeid : Warning<
   "operand to 'typeid'">, InGroup<PotentiallyEvaluatedExpression>;
 def warn_unused_result : Warning<
   "ignoring return value of function declared with %0 attribute">,
-  InGroup<DiagGroup<"unused-result">>;
+  InGroup<UnusedResult>;
 def warn_unused_volatile : Warning<
   "expression result unused; assign into a variable to force a volatile load">,
   InGroup<DiagGroup<"unused-volatile-lvalue">>;
@@ -7719,6 +7760,8 @@ def err_ppc_builtin_only_on_pwr7 : Error<
   "this builtin is only valid on POWER7 or later CPUs">;
 def err_x86_builtin_32_bit_tgt : Error<
   "this builtin is only available on x86-64 targets">;
+def err_x86_builtin_invalid_rounding : Error<
+  "invalid rounding argument">;
 
 def err_builtin_longjmp_unsupported : Error<
   "__builtin_longjmp is not supported for the current target">;
@@ -7808,7 +7851,7 @@ def err_invalid_protocol_qualifiers : Error<
   "invalid protocol qualifiers on non-ObjC type">;
 def warn_ivar_use_hidden : Warning<
   "local declaration of %0 hides instance variable">,
-   InGroup<DiagGroup<"shadow-ivar">>;
+   InGroup<ShadowIvar>;
 def warn_direct_initialize_call : Warning<
   "explicit call to +initialize results in duplicate call to +initialize">,
    InGroup<ExplicitInitializeCall>;
@@ -8514,6 +8557,8 @@ def err_module_self_import : Error<
   "import of module '%0' appears within same top-level module '%1'">;
 def err_module_import_in_implementation : Error<
   "@import of module '%0' in implementation of '%1'; use #import">;
+def err_export_within_export : Error<
+  "export declaration appears within another export declaration">;
 
 def ext_equivalent_internal_linkage_decl_in_modules : ExtWarn<
   "ambiguous use of internal linkage declaration %0 defined in multiple modules">,
@@ -8538,6 +8583,8 @@ def err_coroutine_ctor_dtor : Error<
   "'%1' cannot be used in a %select{constructor|destructor}0">;
 def err_coroutine_constexpr : Error<
   "'%0' cannot be used in a constexpr function">;
+def err_coroutine_main : Error<
+  "'main' cannot be a coroutine">;
 def err_coroutine_varargs : Error<
   "'%0' cannot be used in a varargs function">;
 def ext_coroutine_without_co_await_co_yield : ExtWarn<
@@ -8545,9 +8592,9 @@ def ext_coroutine_without_co_await_co_yield : ExtWarn<
   "that uses neither 'co_await' nor 'co_yield'">,
   InGroup<DiagGroup<"coreturn-without-coawait">>;
 def err_implied_std_coroutine_traits_not_found : Error<
-  "you need to include <coroutine> before defining a coroutine">;
+  "you need to include <experimental/coroutine> before defining a coroutine">;
 def err_malformed_std_coroutine_traits : Error<
-  "'std::coroutine_traits' must be a class template">;
+  "'std::experimental::coroutine_traits' must be a class template">;
 def err_implied_std_coroutine_traits_promise_type_not_found : Error<
   "this function cannot be a coroutine: %q0 has no member named 'promise_type'">;
 def err_implied_std_coroutine_traits_promise_type_not_class : Error<
