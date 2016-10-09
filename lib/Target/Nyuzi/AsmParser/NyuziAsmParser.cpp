@@ -263,21 +263,21 @@ bool NyuziAsmParser::MatchAndEmitInstruction(SMLoc IDLoc, unsigned &Opcode,
     Out.EmitInstruction(Inst, getSTI());
     return false;
   case Match_MissingFeature:
-    return Error(IDLoc, "Instruction use requires option to be enabled");
+    return Error(IDLoc, "instruction use requires option to be enabled");
   case Match_MnemonicFail:
-    return Error(IDLoc, "Unrecognized instruction mnemonic");
+    return Error(IDLoc, "unrecognized instruction mnemonic");
   case Match_InvalidOperand:
     ErrorLoc = IDLoc;
     if (ErrorInfo != ~0U) {
       if (ErrorInfo >= Operands.size())
-        return Error(IDLoc, "Too few operands for instruction");
+        return Error(IDLoc, "too few operands for instruction");
 
       ErrorLoc = ((NyuziOperand &)*Operands[ErrorInfo]).getStartLoc();
       if (ErrorLoc == SMLoc())
         ErrorLoc = IDLoc;
     }
 
-    return Error(ErrorLoc, "Invalid operand for instruction");
+    return Error(ErrorLoc, "invalid operand for instruction");
   }
 
   llvm_unreachable("Unknown match type detected!");
@@ -355,7 +355,6 @@ bool NyuziAsmParser::ParseOperand(OperandVector &Operands, StringRef Mnemonic) {
   }
 
   // Error
-  Error(Parser.getTok().getLoc(), "unknown operand");
   return true;
 }
 
