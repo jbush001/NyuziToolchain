@@ -832,10 +832,10 @@ public:
 };
 } // end namespace XCore.
 
-namespace Nyuzi {
-  class LLVM_LIBRARY_VISIBILITY Link : public Tool {
+namespace nyuzi {
+  class LLVM_LIBRARY_VISIBILITY Linker : public Tool {
   public:
-    Link(const ToolChain &TC) : Tool("Nyuzi::Link",
+    Linker(const ToolChain &TC) : Tool("nyuzi::Linker",
       "Nyuzi-ld", TC) {}
 
     virtual bool hasIntegratedCPP() const override { return false; }

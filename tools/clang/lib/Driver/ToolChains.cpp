@@ -3172,7 +3172,7 @@ bool NyuziToolChain::IsUnwindTablesDefault() const {
 }
 
 Tool *NyuziToolChain::buildLinker() const {
-  return new tools::Nyuzi::Link(*this);
+  return new tools::nyuzi::Linker(*this);
 }
 // End Nyuzi
 
