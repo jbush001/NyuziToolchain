@@ -419,6 +419,7 @@ NyuziTargetLowering::NyuziTargetLowering(const TargetMachine &TM,
   setOperationAction(ISD::FNEG, MVT::f32, Custom);
   setOperationAction(ISD::FNEG, MVT::v16f32, Custom);
   setOperationAction(ISD::SETCC, MVT::f32, Custom);
+  setOperationAction(ISD::SETCC, MVT::v16i32, Custom);
   setOperationAction(ISD::CTLZ_ZERO_UNDEF, MVT::i32, Custom);
   setOperationAction(ISD::CTTZ_ZERO_UNDEF, MVT::i32, Custom);
   setOperationAction(ISD::UINT_TO_FP, MVT::i32, Custom);
@@ -436,7 +437,9 @@ NyuziTargetLowering::NyuziTargetLowering(const TargetMachine &TM,
   setOperationAction(ISD::SIGN_EXTEND_INREG, MVT::i1, Expand);
   setOperationAction(ISD::CTPOP, MVT::i32, Expand);
   setOperationAction(ISD::SELECT, MVT::i32, Expand);
+  setOperationAction(ISD::SELECT, MVT::v16i32, Expand);
   setOperationAction(ISD::SELECT, MVT::f32, Expand);
+  setOperationAction(ISD::SELECT, MVT::v16f32, Expand);
   setOperationAction(ISD::ROTL, MVT::i32, Expand);
   setOperationAction(ISD::ROTR, MVT::i32, Expand);
   setOperationAction(ISD::ROTL, MVT::v16i32, Expand);
@@ -885,6 +888,111 @@ SDValue NyuziTargetLowering::LowerFNEG(SDValue Op, SelectionDAG &DAG) const {
 
 namespace {
 
+// Return intrinsic for vector comparisons. These take two vectors as
+// operands and return a i32, where the low 16 bits represent the compare
+// mask
+Intrinsic::ID intrinsicForVectorCompare(ISD::CondCode CC, bool isFloat) {
+  if (isFloat) {
+    switch (CC) {
+    case ISD::SETOEQ:
+    case ISD::SETUEQ:
+    case ISD::SETEQ:
+      return Intrinsic::nyuzi_mask_cmpf_eq;
+
+    case ISD::SETONE:
+    case ISD::SETUNE:
+    case ISD::SETNE:
+      return Intrinsic::nyuzi_mask_cmpf_ne;
+
+    case ISD::SETOGT:
+    case ISD::SETUGT:
+    case ISD::SETGT:
+      return Intrinsic::nyuzi_mask_cmpf_gt;
+
+    case ISD::SETOGE:
+    case ISD::SETUGE:
+    case ISD::SETGE:
+      return Intrinsic::nyuzi_mask_cmpf_ge;
+
+    case ISD::SETOLT:
+    case ISD::SETULT:
+    case ISD::SETLT:
+      return Intrinsic::nyuzi_mask_cmpf_lt;
+
+    case ISD::SETOLE:
+    case ISD::SETULE:
+    case ISD::SETLE:
+      return Intrinsic::nyuzi_mask_cmpf_le;
+
+    default:; // falls through
+    }
+  } else {
+    switch (CC) {
+    case ISD::SETUEQ:
+    case ISD::SETEQ:
+      return Intrinsic::nyuzi_mask_cmpi_eq;
+
+    case ISD::SETUNE:
+    case ISD::SETNE:
+      return Intrinsic::nyuzi_mask_cmpi_ne;
+
+    case ISD::SETUGT:
+      return Intrinsic::nyuzi_mask_cmpi_ugt;
+
+    case ISD::SETGT:
+      return Intrinsic::nyuzi_mask_cmpi_sgt;
+
+    case ISD::SETUGE:
+      return Intrinsic::nyuzi_mask_cmpi_uge;
+
+    case ISD::SETGE:
+      return Intrinsic::nyuzi_mask_cmpi_sge;
+
+    case ISD::SETULT:
+      return Intrinsic::nyuzi_mask_cmpi_ult;
+
+    case ISD::SETLT:
+      return Intrinsic::nyuzi_mask_cmpi_slt;
+
+    case ISD::SETULE:
+      return Intrinsic::nyuzi_mask_cmpi_ule;
+
+    case ISD::SETLE:
+      return Intrinsic::nyuzi_mask_cmpi_sle;
+
+    default:; // falls through
+    }
+  }
+
+  llvm_unreachable("unhandled compare code");
+}
+
+// Native vector compare instructions return a bitmask. This function
+// returns v16i32 from a comparison by doing a predicated transfer.
+// clang seems to assume a vector lane should have 0xffffffff when the
+// result is true when folding constants, so we use that value here to be
+// consistent, even though that is not what a scalar compare would do.
+SDValue expandVectorComparison(SDValue Op, SelectionDAG &DAG) {
+  SDLoc DL(Op);
+  Intrinsic::ID intrinsic = intrinsicForVectorCompare(
+      cast<CondCodeSDNode>(Op.getOperand(2))->get(),
+      Op.getOperand(0).getValueType().getSimpleVT().isFloatingPoint());
+
+  SDValue FalseVal = DAG.getNode(NyuziISD::SPLAT, DL, MVT::v16i32,
+                                 DAG.getConstant(0, DL, MVT::i32));
+  SDValue TrueVal = DAG.getNode(NyuziISD::SPLAT, DL, MVT::v16i32,
+                                DAG.getConstant(0xffffffff, DL, MVT::i32));
+  SDValue Mask = DAG.getNode(ISD::INTRINSIC_WO_CHAIN, DL, MVT::i32,
+                             DAG.getConstant(intrinsic, DL, MVT::i32),
+                             Op.getOperand(0), Op.getOperand(1));
+  return DAG.getNode(
+      ISD::INTRINSIC_WO_CHAIN, DL, MVT::v16i32,
+      DAG.getConstant(Intrinsic::nyuzi_vector_mixi, DL, MVT::i32), Mask,
+      TrueVal, FalseVal);
+}
+
+// Return a SETCC node with the same operands as the passed one, but
+// a different comparison type
 SDValue morphSETCCNode(SDValue Op, ISD::CondCode code, SelectionDAG &DAG) {
   SDLoc DL(Op);
   return DAG.getNode(ISD::SETCC, DL, Op.getValueType().getSimpleVT(),
@@ -892,16 +1000,21 @@ SDValue morphSETCCNode(SDValue Op, ISD::CondCode code, SelectionDAG &DAG) {
 }
 }
 
-// Convert unordered or don't-care floating point comparisions to ordered
-// - Two comparison values are ordered if neither operand is NaN, otherwise they
-//   are unordered.
-// - An ordered comparison *operation* is always false if either operand is NaN.
-//   Unordered is always true if either operand is NaN.
-// - The hardware implements ordered comparisons.
-// - Clang usually emits ordered comparisons.
 SDValue NyuziTargetLowering::LowerSETCC(SDValue Op, SelectionDAG &DAG) const {
   SDLoc DL(Op);
   ISD::CondCode CC = cast<CondCodeSDNode>(Op.getOperand(2))->get();
+
+  // If this returns v16i32, expand
+  if (Op.getValueType().getSimpleVT() == MVT::v16i32)
+    return expandVectorComparison(Op, DAG);
+
+  // Convert unordered or don't-care floating point comparisions to ordered
+  // - Two comparison values are ordered if neither operand is NaN, otherwise they
+  //   are unordered.
+  // - An ordered comparison *operation* is always false if either operand is NaN.
+  //   Unordered is always true if either operand is NaN.
+  // - The hardware implements ordered comparisons.
+  // - Clang usually emits ordered comparisons.
   ISD::CondCode ComplementCompare;
   switch (CC) {
   // Return this node unchanged
@@ -1071,82 +1184,6 @@ SDValue NyuziTargetLowering::LowerRETURNADDR(SDValue Op,
   return DAG.getCopyFromReg(DAG.getEntryNode(), DL, Reg, VT);
 }
 
-static Intrinsic::ID intrinsicForVectorCompare(ISD::CondCode CC, bool isFloat) {
-  if (isFloat) {
-    switch (CC) {
-    case ISD::SETOEQ:
-    case ISD::SETUEQ:
-    case ISD::SETEQ:
-      return Intrinsic::nyuzi_mask_cmpf_eq;
-
-    case ISD::SETONE:
-    case ISD::SETUNE:
-    case ISD::SETNE:
-      return Intrinsic::nyuzi_mask_cmpf_ne;
-
-    case ISD::SETOGT:
-    case ISD::SETUGT:
-    case ISD::SETGT:
-      return Intrinsic::nyuzi_mask_cmpf_gt;
-
-    case ISD::SETOGE:
-    case ISD::SETUGE:
-    case ISD::SETGE:
-      return Intrinsic::nyuzi_mask_cmpf_ge;
-
-    case ISD::SETOLT:
-    case ISD::SETULT:
-    case ISD::SETLT:
-      return Intrinsic::nyuzi_mask_cmpf_lt;
-
-    case ISD::SETOLE:
-    case ISD::SETULE:
-    case ISD::SETLE:
-      return Intrinsic::nyuzi_mask_cmpf_le;
-
-    default:; // falls through
-    }
-  } else {
-    switch (CC) {
-    case ISD::SETUEQ:
-    case ISD::SETEQ:
-      return Intrinsic::nyuzi_mask_cmpi_eq;
-
-    case ISD::SETUNE:
-    case ISD::SETNE:
-      return Intrinsic::nyuzi_mask_cmpi_ne;
-
-    case ISD::SETUGT:
-      return Intrinsic::nyuzi_mask_cmpi_ugt;
-
-    case ISD::SETGT:
-      return Intrinsic::nyuzi_mask_cmpi_sgt;
-
-    case ISD::SETUGE:
-      return Intrinsic::nyuzi_mask_cmpi_uge;
-
-    case ISD::SETGE:
-      return Intrinsic::nyuzi_mask_cmpi_sge;
-
-    case ISD::SETULT:
-      return Intrinsic::nyuzi_mask_cmpi_ult;
-
-    case ISD::SETLT:
-      return Intrinsic::nyuzi_mask_cmpi_slt;
-
-    case ISD::SETULE:
-      return Intrinsic::nyuzi_mask_cmpi_ule;
-
-    case ISD::SETLE:
-      return Intrinsic::nyuzi_mask_cmpi_sle;
-
-    default:; // falls through
-    }
-  }
-
-  llvm_unreachable("unhandled compare code");
-}
-
 //
 // This may be used to expand a vector comparison result into a vector.
 // Normally, vector compare results are a bitmask, so we need to do a
@@ -1161,22 +1198,7 @@ SDValue NyuziTargetLowering::LowerSIGN_EXTEND_INREG(SDValue Op,
   if (SetCcOp.getOpcode() != ISD::SETCC)
     return SDValue();
 
-  SDLoc DL(Op);
-  Intrinsic::ID intrinsic = intrinsicForVectorCompare(
-      cast<CondCodeSDNode>(SetCcOp.getOperand(2))->get(),
-      SetCcOp.getOperand(0).getValueType().getSimpleVT().isFloatingPoint());
-
-  SDValue FalseVal = DAG.getNode(NyuziISD::SPLAT, DL, MVT::v16i32,
-                                 DAG.getConstant(0, DL, MVT::i32));
-  SDValue TrueVal = DAG.getNode(NyuziISD::SPLAT, DL, MVT::v16i32,
-                                DAG.getConstant(0xffffffff, DL, MVT::i32));
-  SDValue Mask = DAG.getNode(ISD::INTRINSIC_WO_CHAIN, DL, MVT::i32,
-                             DAG.getConstant(intrinsic, DL, MVT::i32),
-                             SetCcOp.getOperand(0), SetCcOp.getOperand(1));
-  return DAG.getNode(
-      ISD::INTRINSIC_WO_CHAIN, DL, MVT::v16i32,
-      DAG.getConstant(Intrinsic::nyuzi_vector_mixi, DL, MVT::i32), Mask,
-      TrueVal, FalseVal);
+  return expandVectorComparison(SetCcOp, DAG);
 }
 
 SDValue NyuziTargetLowering::LowerOperation(SDValue Op,
