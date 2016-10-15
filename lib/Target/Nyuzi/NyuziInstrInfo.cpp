@@ -314,8 +314,8 @@ void NyuziInstrInfo::loadRegFromStackSlot(MachineBasicBlock &MBB,
 
 void NyuziInstrInfo::adjustStackPointer(MachineBasicBlock &MBB,
                                         MachineBasicBlock::iterator MBBI,
+                                        const DebugLoc &DL,
                                         int Amount) const {
-  DebugLoc DL(MBBI->getDebugLoc());
   if (isInt<13>(Amount)) {
     BuildMI(MBB, MBBI, DL, get(Nyuzi::ADDISSI), Nyuzi::SP_REG)
         .addReg(Nyuzi::SP_REG)

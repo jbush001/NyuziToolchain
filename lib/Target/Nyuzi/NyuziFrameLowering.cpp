@@ -56,7 +56,7 @@ void NyuziFrameLowering::emitPrologue(MachineFunction &MF,
   if (StackSize == 0 && !MFI.adjustsStack())
     return;
 
-  TII.adjustStackPointer(MBB, MBBI, -StackSize);
+  TII.adjustStackPointer(MBB, MBBI, DL, -StackSize);
 
   // Emit DW_CFA_def_cfa
   unsigned CFIIndex = MMI.addFrameInst(
@@ -124,7 +124,7 @@ void NyuziFrameLowering::emitEpilogue(MachineFunction &MF,
   if (!StackSize)
     return;
 
-  TII.adjustStackPointer(MBB, MBBI, StackSize);
+  TII.adjustStackPointer(MBB, MBBI, DL, StackSize);
 }
 
 // Returns true if the prologue inserter should reserve space for outgoing
@@ -162,7 +162,7 @@ MachineBasicBlock::iterator NyuziFrameLowering::eliminateCallFramePseudoInstr(
     if (MI.getOpcode() == Nyuzi::ADJCALLSTACKDOWN)
       Amount = -Amount;
 
-    TII.adjustStackPointer(MBB, MBBI, Amount);
+    TII.adjustStackPointer(MBB, MBBI, MBBI->getDebugLoc(), Amount);
   }
 
   return MBB.erase(MBBI);

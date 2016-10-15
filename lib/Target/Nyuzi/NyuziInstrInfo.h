@@ -76,7 +76,7 @@ public:
                             const TargetRegisterInfo *TRI) const override;
 
   void adjustStackPointer(MachineBasicBlock &MBB, MachineBasicBlock::iterator I,
-                          int Amount) const;
+                          const DebugLoc &DL, int Amount) const;
 
 private:
   unsigned int loadConstant(MachineBasicBlock &MBB,
