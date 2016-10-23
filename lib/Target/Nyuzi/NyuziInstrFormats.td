@@ -41,31 +41,64 @@ def selcondresult : SDNode<"NyuziISD::SEL_COND_RESULT", SDTypeProfile<1, 3, [
 def ADDRri : ComplexPattern<iPTR, 2, "SelectADDRri", [frameindex], []>;
 def VADDRri : ComplexPattern<v16i32, 2, "SelectADDRri", [], []>;
 
-def MemAsmOperand : AsmOperandClass {
-  let Name = "Mem";
-  let ParserMethod = "ParseMemoryOperand";
+def MemAsmOperandS10 : AsmOperandClass {
+  let Name = "MemS10";
+  let ParserMethod = "ParseMemoryOperandS10";
 }
 
-def MEMri : Operand<iPTR> {
+def MemAsmOperandS15 : AsmOperandClass {
+  let Name = "MemS15";
+  let ParserMethod = "ParseMemoryOperandS15";
+}
+
+def MemAsmOperandV10 : AsmOperandClass {
+  let Name = "MemV10";
+  let ParserMethod = "ParseMemoryOperandV10";
+}
+
+def MemAsmOperandV15 : AsmOperandClass {
+  let Name = "MemV15";
+  let ParserMethod = "ParseMemoryOperandV15";
+}
+
+class MEMS : Operand<iPTR> {
   let PrintMethod = "printMemOperand";
   let EncoderMethod = "encodeMemoryOpValue";
-  let DecoderMethod = "decodeScalarMemoryOpValue";
-  let ParserMatchClass = MemAsmOperand;
+}
+
+def MEMS10 : MEMS {
+  let ParserMatchClass = MemAsmOperandS10;
   let MIOperandInfo = (ops GPR32, i32imm);
+  let DecoderMethod = "decodeScalarMemoryOpValue";
 }
 
-def VMEMri : Operand<v16i32> {
+def MEMS15 : MEMS {
+  let ParserMatchClass = MemAsmOperandS15;
+  let MIOperandInfo = (ops GPR32, i32imm);
+  let DecoderMethod = "decodeScalarMemoryOpValue";
+}
+
+class MEMV : Operand<v16i32> {
   let PrintMethod = "printMemOperand";
   let EncoderMethod = "encodeMemoryOpValue";
-  let DecoderMethod = "decodeVectorMemoryOpValue";
-  let ParserMatchClass = MemAsmOperand;
+}
+
+def MEMV10 : MEMV {
+  let ParserMatchClass = MemAsmOperandV10;
   let MIOperandInfo = (ops VR512, i32imm);
+  let DecoderMethod = "decodeVectorMemoryOpValue";
+}
+
+def MEMV15 : MEMV {
+  let ParserMatchClass = MemAsmOperandV15;
+  let MIOperandInfo = (ops VR512, i32imm);
+  let DecoderMethod = "decodeVectorMemoryOpValue";
 }
 
 def LEAri : Operand<iPTR> {
   let PrintMethod = "printMemOperand";
   let EncoderMethod = "encodeLEAValue";
-  let ParserMatchClass = MemAsmOperand;
+  let ParserMatchClass = MemAsmOperandS15;
   let MIOperandInfo = (ops GPR32, i32imm);
 }
 
@@ -650,7 +683,7 @@ class FormatMUnmaskedInst<dag outputs, dag inputs, string asmString, list<dag> p
 class ScalarLoadInst<string suffix, PatFrag op, FmtM fmt>
   : FormatMUnmaskedInst<
     (outs GPR32:$srcDest),
-    (ins MEMri:$addr),
+    (ins MEMS15:$addr),
     "load_" # suffix # " $srcDest, $addr",
     [(set i32:$srcDest, (i32 (op ADDRri:$addr)))],
     fmt,
@@ -659,7 +692,7 @@ class ScalarLoadInst<string suffix, PatFrag op, FmtM fmt>
 class ScalarStoreInst<string suffix, PatFrag op, FmtM fmt>
   : FormatMUnmaskedInst<
       (outs),
-      (ins GPR32:$srcDest, MEMri:$addr),
+      (ins GPR32:$srcDest, MEMS15:$addr),
       "store_" # suffix # " $srcDest, $addr",
       [(op i32:$srcDest, ADDRri:$addr)],
       fmt,

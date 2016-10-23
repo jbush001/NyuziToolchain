@@ -49,7 +49,12 @@ class NyuziAsmParser : public MCTargetAsmParser {
 #define GET_ASSEMBLER_HEADER
 #include "NyuziGenAsmMatcher.inc"
 
-  OperandMatchResultTy ParseMemoryOperand(OperandVector &Operands);
+
+  OperandMatchResultTy ParseMemoryOperandS10(OperandVector &Operands);
+  OperandMatchResultTy ParseMemoryOperandS15(OperandVector &Operands);
+  OperandMatchResultTy ParseMemoryOperandV10(OperandVector &Operands);
+  OperandMatchResultTy ParseMemoryOperandV15(OperandVector &Operands);
+  OperandMatchResultTy ParseMemoryOperand(OperandVector &Operands, int MaxBits, bool IsVector);
 
 public:
   NyuziAsmParser(const MCSubtargetInfo &sti, MCAsmParser &_Parser,
@@ -150,6 +155,10 @@ public:
   bool isReg() const { return Kind == Register; }
   bool isImm() const { return Kind == Immediate; }
   bool isToken() const { return Kind == Token; }
+  bool isMemS10() const { return Kind == Memory; }
+  bool isMemS15() const { return Kind == Memory; }
+  bool isMemV10() const { return Kind == Memory; }
+  bool isMemV15() const { return Kind == Memory; }
   bool isMem() const { return Kind == Memory; }
 
   void addExpr(MCInst &Inst, const MCExpr *Expr) const {
@@ -172,12 +181,28 @@ public:
     addExpr(Inst, getImm());
   }
 
-  void addMemOperands(MCInst &Inst, unsigned N) const {
+  void addMemS10Operands(MCInst &Inst, unsigned N) const {
     assert(N == 2 && "Invalid number of operands!");
-
     Inst.addOperand(MCOperand::createReg(getMemBase()));
-    const MCExpr *Expr = getMemOff();
-    addExpr(Inst, Expr);
+    addExpr(Inst, getMemOff());
+  }
+
+  void addMemS15Operands(MCInst &Inst, unsigned N) const {
+    assert(N == 2 && "Invalid number of operands!");
+    Inst.addOperand(MCOperand::createReg(getMemBase()));
+    addExpr(Inst, getMemOff());
+  }
+
+  void addMemV10Operands(MCInst &Inst, unsigned N) const {
+    assert(N == 2 && "Invalid number of operands!");
+    Inst.addOperand(MCOperand::createReg(getMemBase()));
+    addExpr(Inst, getMemOff());
+  }
+
+  void addMemV15Operands(MCInst &Inst, unsigned N) const {
+    assert(N == 2 && "Invalid number of operands!");
+    Inst.addOperand(MCOperand::createReg(getMemBase()));
+    addExpr(Inst, getMemOff());
   }
 
   void print(raw_ostream &OS) const {
@@ -326,10 +351,14 @@ bool NyuziAsmParser::ParseImmediate(OperandVector &Ops) {
 
 bool NyuziAsmParser::ParseOperand(OperandVector &Operands, StringRef Mnemonic) {
   // Check if the current operand has a custom associated parser, if so, try to
-  // custom parse the operand, or fallback to the general approach.
+  // custom parse the operand.
   OperandMatchResultTy ResTy = MatchOperandParserImpl(Operands, Mnemonic);
   if (ResTy == MatchOperand_Success)
     return false;
+  else if (ResTy == MatchOperand_ParseFail)
+    return true;
+
+  // MatchOperand_NoMatch. No custom parser, fall back to matching generically/
 
   unsigned RegNo;
 
@@ -359,7 +388,27 @@ bool NyuziAsmParser::ParseOperand(OperandVector &Operands, StringRef Mnemonic) {
 }
 
 NyuziAsmParser::OperandMatchResultTy
-NyuziAsmParser::ParseMemoryOperand(OperandVector &Operands) {
+NyuziAsmParser::ParseMemoryOperandS10(OperandVector &Operands) {
+  return ParseMemoryOperand(Operands, 10, false);
+}
+
+NyuziAsmParser::OperandMatchResultTy
+NyuziAsmParser::ParseMemoryOperandS15(OperandVector &Operands) {
+  return ParseMemoryOperand(Operands, 15, false);
+}
+
+NyuziAsmParser::OperandMatchResultTy
+NyuziAsmParser::ParseMemoryOperandV10(OperandVector &Operands) {
+  return ParseMemoryOperand(Operands, 10, true);
+}
+
+NyuziAsmParser::OperandMatchResultTy
+NyuziAsmParser::ParseMemoryOperandV15(OperandVector &Operands) {
+  return ParseMemoryOperand(Operands, 15, true);
+}
+
+NyuziAsmParser::OperandMatchResultTy
+NyuziAsmParser::ParseMemoryOperand(OperandVector &Operands, int MaxBits, bool IsVector) {
   SMLoc S = Parser.getTok().getLoc();
   if (getLexer().is(AsmToken::Identifier)) {
     // PC relative memory label memory access
@@ -380,13 +429,25 @@ NyuziAsmParser::ParseMemoryOperand(OperandVector &Operands) {
   const MCExpr *Offset;
   if (getLexer().is(AsmToken::Integer) || getLexer().is(AsmToken::Minus) ||
       getLexer().is(AsmToken::Plus)) {
+    // Has a memory offset. e.g. load_32 s0, -12(s1)
     if (getParser().parseExpression(Offset))
       return MatchOperand_ParseFail;
-  } else
+
+    // Check if offset is in range
+    int MaxVal = 0xffffffffu >> (33 - MaxBits);
+    int MinVal = 0xffffffff << (MaxBits - 1);
+    const MCConstantExpr *CE = dyn_cast<MCConstantExpr>(Offset);
+    if (!CE || CE->getValue() > MaxVal || CE->getValue() < MinVal) {
+      Error(Parser.getTok().getLoc(), "offset out of range");
+      return MatchOperand_ParseFail;
+    }
+  } else {
+    // No offset included in meory address e.g. load_32 s0, (s1)
     Offset = NULL;
+  }
 
   if (!getLexer().is(AsmToken::LParen)) {
-    Error(Parser.getTok().getLoc(), "bad memory operand, missing (");
+    Error(Parser.getTok().getLoc(), "missing (");
     return MatchOperand_ParseFail;
   }
 
@@ -394,12 +455,19 @@ NyuziAsmParser::ParseMemoryOperand(OperandVector &Operands) {
   unsigned RegNo;
   SMLoc _S, _E;
   if (ParseRegister(RegNo, _S, _E)) {
-    Error(Parser.getTok().getLoc(), "bad memory operand: invalid register");
+    Error(Parser.getTok().getLoc(), "invalid register");
+    return MatchOperand_ParseFail;
+  }
+
+  // XXX hack: should probably use tablegen'd register info to determine
+  // if this is a vector register rather than hard coding indices.
+  if ((IsVector && RegNo < 32) || (!IsVector && RegNo >= 32)) {
+    Error(Parser.getTok().getLoc(), "invalid operand for instruction");
     return MatchOperand_ParseFail;
   }
 
   if (getLexer().isNot(AsmToken::RParen)) {
-    Error(Parser.getTok().getLoc(), "bad memory operand, missing )");
+    Error(Parser.getTok().getLoc(), "missing )");
     return MatchOperand_ParseFail;
   }
 

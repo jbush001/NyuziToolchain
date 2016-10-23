@@ -284,7 +284,7 @@ def : Pat<(store f32:$srcDest, ADDRri:$addr), (SW f32:$srcDest, ADDRri:$addr)>;
 
 def LOAD_SYNC : FormatMUnmaskedInst<
   (outs GPR32:$srcDest),
-  (ins MEMri:$addr),
+  (ins MEMS15:$addr),
   "load_sync $srcDest, $addr",
   [],
   FmtM_Sync,
@@ -292,7 +292,7 @@ def LOAD_SYNC : FormatMUnmaskedInst<
 
 def STORE_SYNC : FormatMUnmaskedInst<
   (outs GPR32:$result),
-  (ins GPR32:$srcDest, MEMri:$addr),
+  (ins GPR32:$srcDest, MEMS15:$addr),
   "store_sync $srcDest, $addr  ",
   [],
   FmtM_Sync,
@@ -303,7 +303,7 @@ def STORE_SYNC : FormatMUnmaskedInst<
 // Vector
 def BLOCK_LOADI : FormatMUnmaskedInst<
   (outs VR512:$srcDest),
-  (ins MEMri:$addr),
+  (ins MEMS15:$addr),
   "load_v $srcDest, $addr",
   [(set v16i32:$srcDest, (load ADDRri:$addr))],
   FmtM_Block,
@@ -311,7 +311,7 @@ def BLOCK_LOADI : FormatMUnmaskedInst<
 
 def BLOCK_STOREI : FormatMUnmaskedInst<
   (outs),
-  (ins VR512:$srcDest, MEMri:$addr),
+  (ins VR512:$srcDest, MEMS15:$addr),
   "store_v $srcDest, $addr",
   [(store v16i32:$srcDest, ADDRri:$addr)],
   FmtM_Block,
@@ -325,7 +325,7 @@ def : Pat<(store v16f32:$srcDest, ADDRri:$addr), (BLOCK_STOREI v16f32:$srcDest, 
 
 def INT_BLOCK_LOADI_MASKED : FormatMMaskedInst<
   (outs VR512:$srcDest),
-  (ins MEMri:$addr, GPR32:$mask),
+  (ins MEMS10:$addr, GPR32:$mask),
   "load_v_mask $srcDest, $mask, $addr",
   [(set v16i32:$srcDest, (int_nyuzi_block_loadi_masked ADDRri:$addr, i32:$mask))],
   FmtM_BlockMasked,
@@ -336,7 +336,7 @@ def : Pat<(int_nyuzi_block_loadf_masked ADDRri:$addr, i32:$mask),
 
 def INT_GATHER_LOADI : FormatMUnmaskedInst<
   (outs VR512:$srcDest),
-  (ins VMEMri:$addr),
+  (ins MEMV15:$addr),
   "load_gath $srcDest, $addr",
   [(set v16i32:$srcDest, (int_nyuzi_gather_loadi VADDRri:$addr))],
   FmtM_ScGath,
@@ -344,7 +344,7 @@ def INT_GATHER_LOADI : FormatMUnmaskedInst<
 
 def INT_GATHER_LOADI_MASKED : FormatMMaskedInst<
   (outs VR512:$srcDest),
-  (ins VMEMri:$addr, GPR32:$mask),
+  (ins MEMV10:$addr, GPR32:$mask),
   "load_gath_mask $srcDest, $mask, $addr",
   [(set v16i32:$srcDest, (int_nyuzi_gather_loadi_masked VADDRri:$addr, i32:$mask))],
   FmtM_ScGathMasked,
@@ -357,7 +357,7 @@ def : Pat<(int_nyuzi_gather_loadf_masked VADDRri:$addr, i32:$mask),
 let hasSideEffects = 1, mayStore = 1 in {
   def INT_SCATTER_STOREI : FormatMUnmaskedInst<
     (outs),
-    (ins VR512:$srcDest, VMEMri:$addr),
+    (ins VR512:$srcDest, MEMV15:$addr),
     "store_scat $srcDest, $addr",
     [(int_nyuzi_scatter_storei VADDRri:$addr, v16i32:$srcDest)],
     FmtM_ScGath,
@@ -365,7 +365,7 @@ let hasSideEffects = 1, mayStore = 1 in {
 
   def INT_SCATTER_STOREI_MASKED : FormatMMaskedInst<
     (outs),
-    (ins VR512:$srcDest, VMEMri:$addr, GPR32:$mask),
+    (ins VR512:$srcDest, MEMV10:$addr, GPR32:$mask),
     "store_scat_mask $srcDest, $mask, $addr",
     [(int_nyuzi_scatter_storei_masked VADDRri:$addr, v16i32:$srcDest, i32:$mask)],
     FmtM_ScGathMasked,
@@ -373,7 +373,7 @@ let hasSideEffects = 1, mayStore = 1 in {
 
   def INT_BLOCK_STOREI_MASKED : FormatMMaskedInst<
     (outs),
-    (ins VR512:$srcDest, MEMri:$addr, GPR32:$mask),
+    (ins VR512:$srcDest, MEMS10:$addr, GPR32:$mask), // XXX needs to
     "store_v_mask $srcDest, $mask, $addr",
     [(int_nyuzi_block_storei_masked ADDRri:$addr, v16i32:$srcDest, i32:$mask)],
     FmtM_BlockMasked,
