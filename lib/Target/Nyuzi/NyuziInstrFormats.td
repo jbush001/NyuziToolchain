@@ -122,12 +122,24 @@ def calltarget : Operand<iPTR> {
   let DecoderMethod = "decodeBranchTargetOpValue";
 }
 
+def SImmOperand13 : AsmOperandClass {
+  let Name = "SImm13";
+  let ParserMethod = "ParseSImm13Value";
+}
+
+def SImmOperand8 : AsmOperandClass  {
+  let Name = "SImm8";
+  let ParserMethod = "ParseSImm8Value";
+}
+
 def SIMM13OP : Operand<i32> {
   let DecoderMethod = "decodeSimm13Value";
+  let ParserMatchClass = SImmOperand13;
 }
 
 def SIMM8OP : Operand<i32> {
   let DecoderMethod = "decodeSimm8Value";
+  let ParserMatchClass = SImmOperand8;
 }
 
 def SDT_SPCallSeqStart : SDCallSeqStart<[ SDTCisVT<0, i32> ]>;

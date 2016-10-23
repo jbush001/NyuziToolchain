@@ -41,20 +41,20 @@ class NyuziAsmParser : public MCTargetAsmParser {
 
   bool ParseDirective(AsmToken DirectiveID) override;
 
-  bool ParseImmediate(OperandVector &Ops);
-
   bool ParseOperand(OperandVector &Operands, StringRef Name);
 
 // Auto-generated instruction matching functions
 #define GET_ASSEMBLER_HEADER
 #include "NyuziGenAsmMatcher.inc"
 
-
   OperandMatchResultTy ParseMemoryOperandS10(OperandVector &Operands);
   OperandMatchResultTy ParseMemoryOperandS15(OperandVector &Operands);
   OperandMatchResultTy ParseMemoryOperandV10(OperandVector &Operands);
   OperandMatchResultTy ParseMemoryOperandV15(OperandVector &Operands);
   OperandMatchResultTy ParseMemoryOperand(OperandVector &Operands, int MaxBits, bool IsVector);
+  OperandMatchResultTy ParseImmediate(OperandVector &Ops, int MaxBits);
+  OperandMatchResultTy ParseSImm13Value(OperandVector &Operands);
+  OperandMatchResultTy ParseSImm8Value(OperandVector &Operands);
 
 public:
   NyuziAsmParser(const MCSubtargetInfo &sti, MCAsmParser &_Parser,
@@ -154,6 +154,8 @@ public:
   // Functions for testing operand type
   bool isReg() const { return Kind == Register; }
   bool isImm() const { return Kind == Immediate; }
+  bool isSImm13() const { return Kind == Immediate; }
+  bool isSImm8() const { return Kind == Immediate; }
   bool isToken() const { return Kind == Token; }
   bool isMemS10() const { return Kind == Memory; }
   bool isMemS15() const { return Kind == Memory; }
@@ -177,6 +179,16 @@ public:
   }
 
   void addImmOperands(MCInst &Inst, unsigned N) const {
+    assert(N == 1 && "Invalid number of operands!");
+    addExpr(Inst, getImm());
+  }
+
+  void addSImm13Operands(MCInst &Inst, unsigned N) const {
+    assert(N == 1 && "Invalid number of operands!");
+    addExpr(Inst, getImm());
+  }
+
+  void addSImm8Operands(MCInst &Inst, unsigned N) const {
     assert(N == 1 && "Invalid number of operands!");
     addExpr(Inst, getImm());
   }
@@ -328,24 +340,34 @@ bool NyuziAsmParser::ParseRegister(unsigned &RegNo, SMLoc &StartLoc,
   return true;
 }
 
-bool NyuziAsmParser::ParseImmediate(OperandVector &Ops) {
+NyuziAsmParser::OperandMatchResultTy
+NyuziAsmParser::ParseImmediate(OperandVector &Ops, int MaxBits) {
   SMLoc S = Parser.getTok().getLoc();
   SMLoc E = SMLoc::getFromPointer(Parser.getTok().getLoc().getPointer() - 1);
 
   const MCExpr *EVal;
   switch (getLexer().getKind()) {
   default:
-    return true;
+    return MatchOperand_NoMatch;
   case AsmToken::Plus:
   case AsmToken::Minus:
   case AsmToken::Integer:
     if (getParser().parseExpression(EVal))
-      return true;
+      return MatchOperand_ParseFail;
 
     int64_t ans;
     EVal->evaluateAsAbsolute(ans);
+    if (MaxBits < 32) {
+      int MaxVal = 0xffffffffu >> (33 - MaxBits);
+      int MinVal = 0xffffffff << (MaxBits - 1);
+      if (ans > MaxVal || ans < MinVal) {
+        Error(S, "immediate operand out of range");
+        return MatchOperand_ParseFail;
+      }
+    }
+
     Ops.push_back(NyuziOperand::createImm(EVal, S, E));
-    return false;
+    return MatchOperand_Success;
   }
 }
 
@@ -358,7 +380,7 @@ bool NyuziAsmParser::ParseOperand(OperandVector &Operands, StringRef Mnemonic) {
   else if (ResTy == MatchOperand_ParseFail)
     return true;
 
-  // MatchOperand_NoMatch. No custom parser, fall back to matching generically/
+  // MatchOperand_NoMatch. No custom parser, fall back to matching generically.
 
   unsigned RegNo;
 
@@ -371,7 +393,8 @@ bool NyuziAsmParser::ParseOperand(OperandVector &Operands, StringRef Mnemonic) {
     return false;
   }
 
-  if (!ParseImmediate(Operands))
+  // XXX Is this needed?
+  if (ParseImmediate(Operands, 32) == MatchOperand_Success)
     return false;
 
   // Identifier
@@ -477,6 +500,16 @@ NyuziAsmParser::ParseMemoryOperand(OperandVector &Operands, int MaxBits, bool Is
   Operands.push_back(NyuziOperand::createMem(RegNo, Offset, S, E));
 
   return MatchOperand_Success;
+}
+
+NyuziAsmParser::OperandMatchResultTy
+NyuziAsmParser::ParseSImm13Value(OperandVector &Operands) {
+  return ParseImmediate(Operands, 13);
+}
+
+NyuziAsmParser::OperandMatchResultTy
+NyuziAsmParser::ParseSImm8Value(OperandVector &Operands) {
+  return ParseImmediate(Operands, 8);
 }
 
 bool NyuziAsmParser::ParseInstruction(ParseInstructionInfo &Info,

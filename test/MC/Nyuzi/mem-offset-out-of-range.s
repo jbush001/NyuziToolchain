@@ -2,11 +2,15 @@
 
 # Unmasked immediate offset is 15 bits
 # Masked immediate offset is 10 bits
+# There are checks here to ensure "unknown token" errors aren't omitted. This is a regression
+# test, as this was happening previously in a number of cases.
 
 load_32 s0, 0x3fff(s1) # CHECK-NOT: [[@LINE]]:{{[0-9]+}}: error
 load_32 s0, -0x4000(s1) # CHECK-NOT: [[@LINE]]:{{[0-9]+}}: error
 load_32 s0, 0x4000(s1) # CHECK: mem-offset-out-of-range.s:[[@LINE]]:{{[0-9]+}}: error: offset out of range
+# CHECK-NOT: unknown token
 load_32 s0, -0x4001(s1) # CHECK: mem-offset-out-of-range.s:[[@LINE]]:{{[0-9]+}}: error: offset out of range
+# CHECK-NOT: unknown token
 load_sync s0, 0x3fff(s1) # CHECK-NOT: [[@LINE]]:{{[0-9]+}}: error
 load_sync s0, -0x4000(s1) # CHECK-NOT: [[@LINE]]:{{[0-9]+}}: error
 load_sync s0, 0x4000(s1) # CHECK: mem-offset-out-of-range.s:[[@LINE]]:{{[0-9]+}}: error: offset out of range
