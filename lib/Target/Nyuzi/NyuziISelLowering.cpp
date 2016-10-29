@@ -299,32 +299,36 @@ NyuziTargetLowering::NyuziTargetLowering(const TargetMachine &TM,
 SDValue NyuziTargetLowering::LowerOperation(SDValue Op,
                                             SelectionDAG &DAG) const {
   switch (Op.getOpcode()) {
-  case ISD::VECTOR_SHUFFLE:
-    return LowerVECTOR_SHUFFLE(Op, DAG);
+  case ISD::GlobalAddress:
+    return LowerGlobalAddress(Op, DAG);
   case ISD::BUILD_VECTOR:
     return LowerBUILD_VECTOR(Op, DAG);
+  case ISD::VECTOR_SHUFFLE:
+    return LowerVECTOR_SHUFFLE(Op, DAG);
   case ISD::INSERT_VECTOR_ELT:
     return LowerINSERT_VECTOR_ELT(Op, DAG);
   case ISD::SCALAR_TO_VECTOR:
     return LowerSCALAR_TO_VECTOR(Op, DAG);
-  case ISD::GlobalAddress:
-    return LowerGlobalAddress(Op, DAG);
-  case ISD::BlockAddress:
-    return LowerBlockAddress(Op, DAG);
+  case ISD::SELECT_CC:
+    return LowerSELECT_CC(Op, DAG);
+  case ISD::SETCC:
+    return LowerSETCC(Op, DAG);
   case ISD::ConstantPool:
     return LowerConstantPool(Op, DAG);
   case ISD::Constant:
     return LowerConstant(Op, DAG);
-  case ISD::SELECT_CC:
-    return LowerSELECT_CC(Op, DAG);
   case ISD::FDIV:
     return LowerFDIV(Op, DAG);
-  case ISD::BR_JT:
-    return LowerBR_JT(Op, DAG);
   case ISD::FNEG:
     return LowerFNEG(Op, DAG);
-  case ISD::SETCC:
-    return LowerSETCC(Op, DAG);
+  case ISD::FABS:
+    return LowerFABS(Op, DAG);
+  case ISD::BR_JT:
+    return LowerBR_JT(Op, DAG);
+  case ISD::BlockAddress:
+    return LowerBlockAddress(Op, DAG);
+  case ISD::VASTART:
+    return LowerVASTART(Op, DAG);
   case ISD::CTLZ_ZERO_UNDEF:
     return LowerCTLZ_ZERO_UNDEF(Op, DAG);
   case ISD::CTTZ_ZERO_UNDEF:
@@ -337,10 +341,6 @@ SDValue NyuziTargetLowering::LowerOperation(SDValue Op,
     return LowerRETURNADDR(Op, DAG);
   case ISD::SIGN_EXTEND_INREG:
     return LowerSIGN_EXTEND_INREG(Op, DAG);
-  case ISD::VASTART:
-    return LowerVASTART(Op, DAG);
-  case ISD::FABS:
-    return LowerFABS(Op, DAG);
   default:
     llvm_unreachable("Should not custom lower this!");
   }
@@ -1002,6 +1002,87 @@ SDValue NyuziTargetLowering::LowerSELECT_CC(SDValue Op,
                      Op.getOperand(2), Op.getOperand(3));
 }
 
+SDValue NyuziTargetLowering::LowerSETCC(SDValue Op, SelectionDAG &DAG) const {
+  SDLoc DL(Op);
+  ISD::CondCode CC = cast<CondCodeSDNode>(Op.getOperand(2))->get();
+
+  // If this returns v16i32, expand
+  if (Op.getValueType().getSimpleVT() == MVT::v16i32)
+    return expandVectorComparison(Op, DAG);
+
+  // Convert unordered or don't-care floating point comparisions to ordered
+  // - Two comparison values are ordered if neither operand is NaN, otherwise they
+  //   are unordered.
+  // - An ordered comparison *operation* is always false if either operand is NaN.
+  //   Unordered is always true if either operand is NaN.
+  // - The hardware implements ordered comparisons.
+  // - Clang usually emits ordered comparisons.
+  ISD::CondCode ComplementCompare;
+  switch (CC) {
+  // Return this node unchanged
+  default:
+    return Op;
+
+  // These are "don't care" values. Convert them to ordered, which
+  // are natively supported
+  case ISD::SETGT:
+    return morphSETCCNode(Op, ISD::SETOGT, DAG);
+  case ISD::SETGE:
+    return morphSETCCNode(Op, ISD::SETOGE, DAG);
+  case ISD::SETLT:
+    return morphSETCCNode(Op, ISD::SETOLT, DAG);
+  case ISD::SETLE:
+    return morphSETCCNode(Op, ISD::SETOLE, DAG);
+  case ISD::SETEQ:
+    return morphSETCCNode(Op, ISD::SETOEQ, DAG);
+  case ISD::SETNE:
+    return morphSETCCNode(Op, ISD::SETONE, DAG);
+
+  // Check for ordered and unordered values by using ordered equality
+  // (which will only be false if the values are unordered)
+  case ISD::SETO:
+  case ISD::SETUO: {
+    SDValue Op0 = Op.getOperand(0);
+    SDValue IsOrdered =
+        DAG.getNode(ISD::SETCC, DL, Op.getValueType().getSimpleVT(), Op0, Op0,
+                    DAG.getCondCode(ISD::SETOEQ));
+    if (CC == ISD::SETO)
+      return IsOrdered;
+
+    // SETUO
+    return DAG.getNode(ISD::XOR, DL, Op.getValueType().getSimpleVT(), IsOrdered,
+                       DAG.getConstant(0xffff, DL, MVT::i32));
+  }
+
+  // Convert unordered comparisions to ordered by explicitly checking for NaN
+  case ISD::SETUEQ:
+    ComplementCompare = ISD::SETONE;
+    break;
+  case ISD::SETUGT:
+    ComplementCompare = ISD::SETOLE;
+    break;
+  case ISD::SETUGE:
+    ComplementCompare = ISD::SETOLT;
+    break;
+  case ISD::SETULT:
+    ComplementCompare = ISD::SETOGE;
+    break;
+  case ISD::SETULE:
+    ComplementCompare = ISD::SETOGT;
+    break;
+  case ISD::SETUNE:
+    ComplementCompare = ISD::SETOEQ;
+    break;
+  }
+
+  // Take the complementary comparision and invert the result. This will
+  // be the same for ordered values, but will always be true for unordered
+  // values.
+  SDValue Comp2 = morphSETCCNode(Op, ComplementCompare, DAG);
+  return DAG.getNode(ISD::XOR, DL, Op.getValueType().getSimpleVT(), Comp2,
+                     DAG.getConstant(0xffff, DL, MVT::i32));
+}
+
 SDValue NyuziTargetLowering::LowerConstantPool(SDValue Op,
                                                SelectionDAG &DAG) const {
   SDLoc DL(Op);
@@ -1151,87 +1232,6 @@ SDValue NyuziTargetLowering::LowerBlockAddress(SDValue Op,
   return DAG.getLoad(
       MVT::i32, DL, DAG.getEntryNode(), CPIdx,
       MachinePointerInfo::getConstantPool(DAG.getMachineFunction()), 4);
-}
-
-SDValue NyuziTargetLowering::LowerSETCC(SDValue Op, SelectionDAG &DAG) const {
-  SDLoc DL(Op);
-  ISD::CondCode CC = cast<CondCodeSDNode>(Op.getOperand(2))->get();
-
-  // If this returns v16i32, expand
-  if (Op.getValueType().getSimpleVT() == MVT::v16i32)
-    return expandVectorComparison(Op, DAG);
-
-  // Convert unordered or don't-care floating point comparisions to ordered
-  // - Two comparison values are ordered if neither operand is NaN, otherwise they
-  //   are unordered.
-  // - An ordered comparison *operation* is always false if either operand is NaN.
-  //   Unordered is always true if either operand is NaN.
-  // - The hardware implements ordered comparisons.
-  // - Clang usually emits ordered comparisons.
-  ISD::CondCode ComplementCompare;
-  switch (CC) {
-  // Return this node unchanged
-  default:
-    return Op;
-
-  // These are "don't care" values. Convert them to ordered, which
-  // are natively supported
-  case ISD::SETGT:
-    return morphSETCCNode(Op, ISD::SETOGT, DAG);
-  case ISD::SETGE:
-    return morphSETCCNode(Op, ISD::SETOGE, DAG);
-  case ISD::SETLT:
-    return morphSETCCNode(Op, ISD::SETOLT, DAG);
-  case ISD::SETLE:
-    return morphSETCCNode(Op, ISD::SETOLE, DAG);
-  case ISD::SETEQ:
-    return morphSETCCNode(Op, ISD::SETOEQ, DAG);
-  case ISD::SETNE:
-    return morphSETCCNode(Op, ISD::SETONE, DAG);
-
-  // Check for ordered and unordered values by using ordered equality
-  // (which will only be false if the values are unordered)
-  case ISD::SETO:
-  case ISD::SETUO: {
-    SDValue Op0 = Op.getOperand(0);
-    SDValue IsOrdered =
-        DAG.getNode(ISD::SETCC, DL, Op.getValueType().getSimpleVT(), Op0, Op0,
-                    DAG.getCondCode(ISD::SETOEQ));
-    if (CC == ISD::SETO)
-      return IsOrdered;
-
-    // SETUO
-    return DAG.getNode(ISD::XOR, DL, Op.getValueType().getSimpleVT(), IsOrdered,
-                       DAG.getConstant(0xffff, DL, MVT::i32));
-  }
-
-  // Convert unordered comparisions to ordered by explicitly checking for NaN
-  case ISD::SETUEQ:
-    ComplementCompare = ISD::SETONE;
-    break;
-  case ISD::SETUGT:
-    ComplementCompare = ISD::SETOLE;
-    break;
-  case ISD::SETUGE:
-    ComplementCompare = ISD::SETOLT;
-    break;
-  case ISD::SETULT:
-    ComplementCompare = ISD::SETOGE;
-    break;
-  case ISD::SETULE:
-    ComplementCompare = ISD::SETOGT;
-    break;
-  case ISD::SETUNE:
-    ComplementCompare = ISD::SETOEQ;
-    break;
-  }
-
-  // Take the complementary comparision and invert the result. This will
-  // be the same for ordered values, but will always be true for unordered
-  // values.
-  SDValue Comp2 = morphSETCCNode(Op, ComplementCompare, DAG);
-  return DAG.getNode(ISD::XOR, DL, Op.getValueType().getSimpleVT(), Comp2,
-                     DAG.getConstant(0xffff, DL, MVT::i32));
 }
 
 SDValue NyuziTargetLowering::LowerVASTART(SDValue Op, SelectionDAG &DAG) const {
