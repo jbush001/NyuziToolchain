@@ -1,8 +1,11 @@
 # RUN: not llvm-mc -filetype=obj -triple nyuzi-elf  %s -o /dev/null 2>&1 | FileCheck  %s
 
 # 13 bits for non-masked instruction, 8 bits for masked
-# There are checks here to ensure "unknown token" errors aren't omitted. This is a regression
-# test, as this was happening previously in a number of cases.
+# Do boundary tests: one that is just small enough to fit, and one that is
+# just too big.
+# There are CHECK-NOTs here to ensure "unknown token" errors aren't omitted.
+# This is a regression test, as this was happening previously in a number of
+# cases.
 
 add_i s0, s0, 0xfff # CHECK-NOT: [[@LINE]]:{{[0-9]+}}: error:
 add_i s0, s0, -0x1000 # CHECK-NOT: [[@LINE]]:{{[0-9]+}}: error:

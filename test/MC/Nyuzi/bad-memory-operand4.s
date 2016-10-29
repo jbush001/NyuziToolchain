@@ -1,12 +1,18 @@
 # RUN: not llvm-mc -filetype=obj -triple nyuzi-elf  %s -o /dev/null 2>&1 | FileCheck  %s
 
 # Check for invalid register types in all operands
-# See issue #22
+# There are CHECK-NOTs here to ensure "unknown token" errors aren't omitted.
+# This is a regression test, as this was happening previously in a number of
+# cases.
 
 load_v s0, (s1) # CHECK: bad-memory-operand4.s:[[@LINE]]:{{[0-9]+}}: error: invalid operand for instruction
+# CHECK-NOT: unknown token
 load_v v0, (v1) # CHECK: bad-memory-operand4.s:[[@LINE]]:{{[0-9]+}}: error: invalid operand for instruction
+# CHECK-NOT: unknown token
 store_v s0, (s1) # CHECK: bad-memory-operand4.s:[[@LINE]]:{{[0-9]+}}: error: invalid operand for instruction
+# CHECK-NOT: unknown token
 store_v v0, (v1) # CHECK: bad-memory-operand4.s:[[@LINE]]:{{[0-9]+}}: error: invalid operand for instruction
+# CHECK-NOT: unknown token
 
 load_v_mask s0, s0, (s1) # CHECK: bad-memory-operand4.s:[[@LINE]]:{{[0-9]+}}: error: invalid operand for instruction
 load_v_mask v0, v0, (s1) # CHECK: bad-memory-operand4.s:[[@LINE]]:{{[0-9]+}}: error: invalid operand for instruction
