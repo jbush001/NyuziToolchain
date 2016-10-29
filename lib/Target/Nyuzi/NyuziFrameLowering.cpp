@@ -127,22 +127,6 @@ void NyuziFrameLowering::emitEpilogue(MachineFunction &MF,
   TII.adjustStackPointer(MBB, MBBI, DL, StackSize);
 }
 
-// Returns true if the prologue inserter should reserve space for outgoing
-// arguments
-// to called.
-bool NyuziFrameLowering::hasReservedCallFrame(const MachineFunction &MF) const {
-  return !MF.getFrameInfo().hasVarSizedObjects();
-}
-
-// We must use an FP in a few situations.  Note that this *must* return true if
-// hasReservedCallFrame returns false.  Otherwise an ADJCALLSTACKDOWN could mess
-// up frame offsets from the stack pointer.
-bool NyuziFrameLowering::hasFP(const MachineFunction &MF) const {
-  const MachineFrameInfo &MFI = MF.getFrameInfo();
-  return MF.getTarget().Options.DisableFramePointerElim(MF) ||
-         MFI.hasVarSizedObjects() || MFI.isFrameAddressTaken();
-}
-
 MachineBasicBlock::iterator NyuziFrameLowering::eliminateCallFramePseudoInstr(
     MachineFunction &MF, MachineBasicBlock &MBB,
     MachineBasicBlock::iterator MBBI) const {
@@ -166,6 +150,43 @@ MachineBasicBlock::iterator NyuziFrameLowering::eliminateCallFramePseudoInstr(
   }
 
   return MBB.erase(MBBI);
+}
+
+void NyuziFrameLowering::determineCalleeSaves(MachineFunction &MF,
+                                              BitVector &SavedRegs,
+                                              RegScavenger *RS) const {
+
+  TargetFrameLowering::determineCalleeSaves(MF, SavedRegs, RS);
+  if (hasFP(MF))
+    SavedRegs.set(Nyuzi::FP_REG);
+
+  // The register scavenger allows us to allocate virtual registers during
+  // epilogue/prologue insertion, after register allocation has run. We only
+  // need to do this if the frame is to large to be addressed by immediate
+  // offsets. If it isn't, don't bother creating a stack slot for it.  Note
+  // that we may in some cases create the scavenge slot when it isn't needed.
+  if (getWorstCaseStackSize(MF) < 0x2000)
+    return;
+
+  const TargetRegisterClass *RC = &Nyuzi::GPR32RegClass;
+  int FI = MF.getFrameInfo().CreateStackObject(RC->getSize(),
+                                                RC->getAlignment(), false);
+  RS->addScavengingFrameIndex(FI);
+}
+
+// We must use an FP in a few situations.  Note that this *must* return true if
+// hasReservedCallFrame returns false.  Otherwise an ADJCALLSTACKDOWN could mess
+// up frame offsets from the stack pointer.
+bool NyuziFrameLowering::hasFP(const MachineFunction &MF) const {
+  const MachineFrameInfo &MFI = MF.getFrameInfo();
+  return MF.getTarget().Options.DisableFramePointerElim(MF) ||
+         MFI.hasVarSizedObjects() || MFI.isFrameAddressTaken();
+}
+
+// Returns true if the prologue inserter should reserve space for outgoing
+// arguments to called.
+bool NyuziFrameLowering::hasReservedCallFrame(const MachineFunction &MF) const {
+  return !MF.getFrameInfo().hasVarSizedObjects();
 }
 
 uint64_t
@@ -203,24 +224,3 @@ NyuziFrameLowering::getWorstCaseStackSize(const MachineFunction &MF) const {
   return alignTo(Offset, getStackAlignment());
 }
 
-void NyuziFrameLowering::determineCalleeSaves(MachineFunction &MF,
-                                              BitVector &SavedRegs,
-                                              RegScavenger *RS) const {
-
-  TargetFrameLowering::determineCalleeSaves(MF, SavedRegs, RS);
-  if (hasFP(MF))
-    SavedRegs.set(Nyuzi::FP_REG);
-
-  // The register scavenger allows us to allocate virtual registers during
-  // epilogue/prologue insertion, after register allocation has run. We only
-  // need to do this if the frame is to large to be addressed by immediate
-  // offsets. If it isn't, don't bother creating a stack slot for it.  Note
-  // that we may in some cases create the scavenge slot when it isn't needed.
-  if (getWorstCaseStackSize(MF) < 0x2000)
-    return;
-
-  const TargetRegisterClass *RC = &Nyuzi::GPR32RegClass;
-  int FI = MF.getFrameInfo().CreateStackObject(RC->getSize(),
-                                                RC->getAlignment(), false);
-  RS->addScavengingFrameIndex(FI);
-}

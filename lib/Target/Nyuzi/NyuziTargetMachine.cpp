@@ -26,11 +26,26 @@ extern "C" void LLVMInitializeNyuziTarget() {
   RegisterTargetMachine<NyuziTargetMachine> X(TheNyuziTarget);
 }
 
-static Reloc::Model getEffectiveRelocModel(const Triple &TT,
+namespace {
+/// Nyuzi Code Generator Pass Configuration Options.
+class NyuziPassConfig : public TargetPassConfig {
+public:
+  NyuziPassConfig(NyuziTargetMachine *TM, PassManagerBase &PM)
+      : TargetPassConfig(TM, PM) {}
+
+  NyuziTargetMachine &getNyuziTargetMachine() const {
+    return getTM<NyuziTargetMachine>();
+  }
+
+  bool addInstSelector() override;
+};
+
+Reloc::Model getEffectiveRelocModel(const Triple &TT,
                                            Optional<Reloc::Model> RM) {
   if (!RM.hasValue())
     return Reloc::Static;
   return *RM;
+}
 }
 
 NyuziTargetMachine::NyuziTargetMachine(const Target &T, const Triple &TT,
@@ -45,21 +60,6 @@ NyuziTargetMachine::NyuziTargetMachine(const Target &T, const Triple &TT,
       Subtarget(TT, CPU, FS, *this) {
   initAsmInfo();
 }
-
-namespace {
-/// Nyuzi Code Generator Pass Configuration Options.
-class NyuziPassConfig : public TargetPassConfig {
-public:
-  NyuziPassConfig(NyuziTargetMachine *TM, PassManagerBase &PM)
-      : TargetPassConfig(TM, PM) {}
-
-  NyuziTargetMachine &getNyuziTargetMachine() const {
-    return getTM<NyuziTargetMachine>();
-  }
-
-  bool addInstSelector() override;
-};
-} // namespace
 
 TargetPassConfig *NyuziTargetMachine::createPassConfig(PassManagerBase &PM) {
   return new NyuziPassConfig(this, PM);

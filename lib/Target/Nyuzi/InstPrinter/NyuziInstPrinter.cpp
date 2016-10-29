@@ -30,27 +30,8 @@ using namespace llvm;
 
 #include "NyuziGenAsmWriter.inc"
 
-void NyuziInstPrinter::printRegName(raw_ostream &OS, unsigned RegNo) const {
-  OS << StringRef(getRegisterName(RegNo)).lower();
-}
-
-void NyuziInstPrinter::printInst(const MCInst *MI, raw_ostream &O,
-                                 StringRef Annot, const MCSubtargetInfo &STI) {
-
-  // NOP is or s0, s0, 0
-  if (MI->getOpcode() == Nyuzi::ORSSI && MI->getOperand(0).isReg() &&
-      MI->getOperand(0).getReg() == Nyuzi::S0 && MI->getOperand(1).isReg() &&
-      MI->getOperand(1).getReg() == Nyuzi::S0 && MI->getOperand(2).isImm() &&
-      MI->getOperand(2).getImm() == 0) {
-    O << "\tnop";
-    return;
-  }
-
-  printInstruction(MI, O);
-  printAnnotation(O, Annot);
-}
-
-static void printExpr(const MCExpr *Expr, const MCAsmInfo *MAI,
+namespace {
+void printExpr(const MCExpr *Expr, const MCAsmInfo *MAI,
                       raw_ostream &OS) {
   int Offset = 0;
   const MCSymbolRefExpr *SRE;
@@ -77,6 +58,27 @@ static void printExpr(const MCExpr *Expr, const MCAsmInfo *MAI,
 
   if (Kind != MCSymbolRefExpr::VK_None)
     OS << ')';
+}
+}
+
+void NyuziInstPrinter::printRegName(raw_ostream &OS, unsigned RegNo) const {
+  OS << StringRef(getRegisterName(RegNo)).lower();
+}
+
+void NyuziInstPrinter::printInst(const MCInst *MI, raw_ostream &O,
+                                 StringRef Annot, const MCSubtargetInfo &STI) {
+
+  // NOP is or s0, s0, 0
+  if (MI->getOpcode() == Nyuzi::ORSSI && MI->getOperand(0).isReg() &&
+      MI->getOperand(0).getReg() == Nyuzi::S0 && MI->getOperand(1).isReg() &&
+      MI->getOperand(1).getReg() == Nyuzi::S0 && MI->getOperand(2).isImm() &&
+      MI->getOperand(2).getImm() == 0) {
+    O << "\tnop";
+    return;
+  }
+
+  printInstruction(MI, O);
+  printAnnotation(O, Annot);
 }
 
 void NyuziInstPrinter::printOperand(const MCInst *MI, unsigned OpNo,

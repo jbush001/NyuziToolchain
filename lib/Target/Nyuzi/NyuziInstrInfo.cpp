@@ -33,6 +33,21 @@
 
 using namespace llvm;
 
+namespace {
+bool isUncondBranchOpcode(int opc) { return opc == Nyuzi::GOTO; }
+
+bool isCondBranchOpcode(int opc) {
+  return opc == Nyuzi::BTRUE || opc == Nyuzi::BFALSE;
+
+// BALL/BNALL/etc. can't be analyzed
+}
+
+bool isJumpTableBranchOpcode(int opc) {
+  return opc == Nyuzi::JUMP_TABLE;
+}
+
+}
+
 const NyuziInstrInfo *NyuziInstrInfo::create(NyuziSubtarget &ST) {
   return new NyuziInstrInfo(ST);
 }
@@ -76,16 +91,75 @@ unsigned NyuziInstrInfo::isStoreToStackSlot(const MachineInstr &MI,
   return 0;
 }
 
-static bool isUncondBranchOpcode(int opc) { return opc == Nyuzi::GOTO; }
+void NyuziInstrInfo::loadRegFromStackSlot(MachineBasicBlock &MBB,
+                                          MachineBasicBlock::iterator MBBI,
+                                          unsigned DestReg, int FrameIndex,
+                                          const TargetRegisterClass *RC,
+                                          const TargetRegisterInfo *TRI) const {
+  DebugLoc DL;
+  if (MBBI != MBB.end())
+    DL = MBBI->getDebugLoc();
 
-static bool isCondBranchOpcode(int opc) {
-  return opc == Nyuzi::BTRUE || opc == Nyuzi::BFALSE;
+  MachineMemOperand *MMO =
+      getMemOperand(MBB, FrameIndex, MachineMemOperand::MOLoad);
+  unsigned Opc = 0;
 
-  // BALL/BNALL/etc. can't be analyzed
+  if (Nyuzi::GPR32RegClass.hasSubClassEq(RC))
+    Opc = Nyuzi::LW;
+  else if (Nyuzi::VR512RegClass.hasSubClassEq(RC))
+    Opc = Nyuzi::BLOCK_LOADI;
+  else
+    llvm_unreachable("unknown register class in storeRegToStack");
+
+  BuildMI(MBB, MBBI, DL, get(Opc), DestReg)
+      .addFrameIndex(FrameIndex)
+      .addImm(0)
+      .addMemOperand(MMO);
 }
 
-static bool isJumpTableBranchOpcode(int opc) {
-  return opc == Nyuzi::JUMP_TABLE;
+void NyuziInstrInfo::storeRegToStackSlot(MachineBasicBlock &MBB,
+                                         MachineBasicBlock::iterator MBBI,
+                                         unsigned SrcReg, bool isKill,
+                                         int FrameIndex,
+                                         const TargetRegisterClass *RC,
+                                         const TargetRegisterInfo *TRI) const {
+  DebugLoc DL;
+  if (MBBI != MBB.end())
+    DL = MBBI->getDebugLoc();
+
+  MachineMemOperand *MMO =
+      getMemOperand(MBB, FrameIndex, MachineMemOperand::MOStore);
+  unsigned Opc = 0;
+
+  if (Nyuzi::GPR32RegClass.hasSubClassEq(RC))
+    Opc = Nyuzi::SW;
+  else if (Nyuzi::VR512RegClass.hasSubClassEq(RC))
+    Opc = Nyuzi::BLOCK_STOREI;
+  else
+    llvm_unreachable("unknown register class in storeRegToStack");
+
+  BuildMI(MBB, MBBI, DL, get(Opc))
+      .addReg(SrcReg, getKillRegState(isKill))
+      .addFrameIndex(FrameIndex)
+      .addImm(0)
+      .addMemOperand(MMO);
+}
+
+void NyuziInstrInfo::adjustStackPointer(MachineBasicBlock &MBB,
+                                        MachineBasicBlock::iterator MBBI,
+                                        const DebugLoc &DL,
+                                        int Amount) const {
+  if (isInt<13>(Amount)) {
+    BuildMI(MBB, MBBI, DL, get(Nyuzi::ADDISSI), Nyuzi::SP_REG)
+        .addReg(Nyuzi::SP_REG)
+        .addImm(Amount);
+  } else {
+    unsigned int OffsetReg = loadConstant(MBB, MBBI, Amount);
+    BuildMI(MBB, MBBI, DL, get(Nyuzi::ADDISSS))
+        .addReg(Nyuzi::SP_REG)
+        .addReg(Nyuzi::SP_REG)
+        .addReg(OffsetReg);
+  }
 }
 
 bool NyuziInstrInfo::analyzeBranch(MachineBasicBlock &MBB,
@@ -248,87 +322,6 @@ void NyuziInstrInfo::copyPhysReg(MachineBasicBlock &MBB,
       .addReg(SrcReg, getKillRegState(KillSrc));
 }
 
-MachineMemOperand *NyuziInstrInfo::getMemOperand(MachineBasicBlock &MBB, int FI,
-                                                 MachineMemOperand::Flags Flags) const {
-  MachineFunction &MF = *MBB.getParent();
-  MachineFrameInfo &MFI = MF.getFrameInfo();
-  unsigned Align = MFI.getObjectAlignment(FI);
-
-  return MF.getMachineMemOperand(MachinePointerInfo::getFixedStack(MF, FI),
-                                 Flags, MFI.getObjectSize(FI), Align);
-}
-
-void NyuziInstrInfo::storeRegToStackSlot(MachineBasicBlock &MBB,
-                                         MachineBasicBlock::iterator MBBI,
-                                         unsigned SrcReg, bool isKill,
-                                         int FrameIndex,
-                                         const TargetRegisterClass *RC,
-                                         const TargetRegisterInfo *TRI) const {
-  DebugLoc DL;
-  if (MBBI != MBB.end())
-    DL = MBBI->getDebugLoc();
-
-  MachineMemOperand *MMO =
-      getMemOperand(MBB, FrameIndex, MachineMemOperand::MOStore);
-  unsigned Opc = 0;
-
-  if (Nyuzi::GPR32RegClass.hasSubClassEq(RC))
-    Opc = Nyuzi::SW;
-  else if (Nyuzi::VR512RegClass.hasSubClassEq(RC))
-    Opc = Nyuzi::BLOCK_STOREI;
-  else
-    llvm_unreachable("unknown register class in storeRegToStack");
-
-  BuildMI(MBB, MBBI, DL, get(Opc))
-      .addReg(SrcReg, getKillRegState(isKill))
-      .addFrameIndex(FrameIndex)
-      .addImm(0)
-      .addMemOperand(MMO);
-}
-
-void NyuziInstrInfo::loadRegFromStackSlot(MachineBasicBlock &MBB,
-                                          MachineBasicBlock::iterator MBBI,
-                                          unsigned DestReg, int FrameIndex,
-                                          const TargetRegisterClass *RC,
-                                          const TargetRegisterInfo *TRI) const {
-  DebugLoc DL;
-  if (MBBI != MBB.end())
-    DL = MBBI->getDebugLoc();
-
-  MachineMemOperand *MMO =
-      getMemOperand(MBB, FrameIndex, MachineMemOperand::MOLoad);
-  unsigned Opc = 0;
-
-  if (Nyuzi::GPR32RegClass.hasSubClassEq(RC))
-    Opc = Nyuzi::LW;
-  else if (Nyuzi::VR512RegClass.hasSubClassEq(RC))
-    Opc = Nyuzi::BLOCK_LOADI;
-  else
-    llvm_unreachable("unknown register class in storeRegToStack");
-
-  BuildMI(MBB, MBBI, DL, get(Opc), DestReg)
-      .addFrameIndex(FrameIndex)
-      .addImm(0)
-      .addMemOperand(MMO);
-}
-
-void NyuziInstrInfo::adjustStackPointer(MachineBasicBlock &MBB,
-                                        MachineBasicBlock::iterator MBBI,
-                                        const DebugLoc &DL,
-                                        int Amount) const {
-  if (isInt<13>(Amount)) {
-    BuildMI(MBB, MBBI, DL, get(Nyuzi::ADDISSI), Nyuzi::SP_REG)
-        .addReg(Nyuzi::SP_REG)
-        .addImm(Amount);
-  } else {
-    unsigned int OffsetReg = loadConstant(MBB, MBBI, Amount);
-    BuildMI(MBB, MBBI, DL, get(Nyuzi::ADDISSS))
-        .addReg(Nyuzi::SP_REG)
-        .addReg(Nyuzi::SP_REG)
-        .addReg(OffsetReg);
-  }
-}
-
 // Load constant larger than immediate field (13 bits signed)
 unsigned int NyuziInstrInfo::loadConstant(MachineBasicBlock &MBB,
                                           MachineBasicBlock::iterator MBBI,
@@ -354,4 +347,14 @@ unsigned int NyuziInstrInfo::loadConstant(MachineBasicBlock &MBB,
   }
 
   return Reg;
+}
+
+MachineMemOperand *NyuziInstrInfo::getMemOperand(MachineBasicBlock &MBB, int FI,
+                                                 MachineMemOperand::Flags Flags) const {
+  MachineFunction &MF = *MBB.getParent();
+  MachineFrameInfo &MFI = MF.getFrameInfo();
+  unsigned Align = MFI.getObjectAlignment(FI);
+
+  return MF.getMachineMemOperand(MachinePointerInfo::getFixedStack(MF, FI),
+                                 Flags, MFI.getObjectSize(FI), Align);
 }

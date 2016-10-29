@@ -76,30 +76,6 @@ void NyuziAsmPrinter::EmitConstantPool() {
   OutStreamer->EmitDataRegion(MCDR_DataRegionEnd);
 }
 
-void NyuziAsmPrinter::EmitInlineJumpTable(const MachineInstr *MI) {
-  const MachineOperand &MO1 = MI->getOperand(1);
-  unsigned JTI = MO1.getIndex();
-  MCSymbol *JTISymbol = GetJumpTableLabel(JTI);
-  OutStreamer->EmitLabel(JTISymbol);
-  const MachineJumpTableInfo *MJTI = MF->getJumpTableInfo();
-  const std::vector<MachineJumpTableEntry> &JT = MJTI->getJumpTables();
-  const std::vector<MachineBasicBlock *> &JTBBs = JT[JTI].MBBs;
-  OutStreamer->EmitDataRegion(MCDR_DataRegionJT32);
-  for (const auto &MBB : JTBBs) {
-    const MCExpr *Expr = MCSymbolRefExpr::create(MBB->getSymbol(), OutContext);
-    OutStreamer->EmitValue(Expr, 4);
-  }
-
-  OutStreamer->EmitDataRegion(MCDR_DataRegionEnd);
-}
-
-MCSymbol *NyuziAsmPrinter::GetJumpTableLabel(unsigned uid) const {
-  SmallString<60> Name;
-  raw_svector_ostream(Name) << MAI->getPrivateGlobalPrefix() << "JTI"
-                            << getFunctionNumber() << '_' << uid;
-  return OutContext.getOrCreateSymbol(Name.str());
-}
-
 // Print operand for inline assembly
 bool NyuziAsmPrinter::PrintAsmOperand(const MachineInstr *MI, unsigned OpNo,
                                       unsigned AsmVariant,
@@ -130,6 +106,30 @@ bool NyuziAsmPrinter::PrintAsmMemoryOperand(const MachineInstr *MI,
   O << "(" << NyuziInstPrinter::getRegisterName(MO.getReg()) << ")";
 
   return false;
+}
+
+MCSymbol *NyuziAsmPrinter::GetJumpTableLabel(unsigned uid) const {
+  SmallString<60> Name;
+  raw_svector_ostream(Name) << MAI->getPrivateGlobalPrefix() << "JTI"
+                            << getFunctionNumber() << '_' << uid;
+  return OutContext.getOrCreateSymbol(Name.str());
+}
+
+void NyuziAsmPrinter::EmitInlineJumpTable(const MachineInstr *MI) {
+  const MachineOperand &MO1 = MI->getOperand(1);
+  unsigned JTI = MO1.getIndex();
+  MCSymbol *JTISymbol = GetJumpTableLabel(JTI);
+  OutStreamer->EmitLabel(JTISymbol);
+  const MachineJumpTableInfo *MJTI = MF->getJumpTableInfo();
+  const std::vector<MachineJumpTableEntry> &JT = MJTI->getJumpTables();
+  const std::vector<MachineBasicBlock *> &JTBBs = JT[JTI].MBBs;
+  OutStreamer->EmitDataRegion(MCDR_DataRegionJT32);
+  for (const auto &MBB : JTBBs) {
+    const MCExpr *Expr = MCSymbolRefExpr::create(MBB->getSymbol(), OutContext);
+    OutStreamer->EmitValue(Expr, 4);
+  }
+
+  OutStreamer->EmitDataRegion(MCDR_DataRegionEnd);
 }
 
 // Force static initialization.

@@ -25,9 +25,9 @@ namespace llvm {
 
 class NyuziInstrInfo : public NyuziGenInstrInfo {
 public:
-  explicit NyuziInstrInfo(NyuziSubtarget &ST);
-
   static const NyuziInstrInfo *create(NyuziSubtarget &ST);
+
+  explicit NyuziInstrInfo(NyuziSubtarget &ST);
 
   const NyuziRegisterInfo &getRegisterInfo() const { return RI; }
 
@@ -46,42 +46,34 @@ public:
   /// any side effects other than storing to the stack slot.
   unsigned isStoreToStackSlot(const MachineInstr &MI,
                               int &FrameIndex) const override;
-
-  bool analyzeBranch(MachineBasicBlock &MBB, MachineBasicBlock *&TBB,
-                     MachineBasicBlock *&FBB,
-                     SmallVectorImpl<MachineOperand> &Cond,
-                     bool AllowModify = false) const override;
-
-  unsigned removeBranch(MachineBasicBlock &MBB,
-                        int *BytesRemoved) const override;
-
-  unsigned insertBranch(MachineBasicBlock &MBB, MachineBasicBlock *TBB,
-                        MachineBasicBlock *FBB, ArrayRef<MachineOperand> Cond,
-                        const DebugLoc &DL,
-                        int *BytesAdded) const override;
-
-  void copyPhysReg(MachineBasicBlock &MBB, MachineBasicBlock::iterator I,
-                   const DebugLoc &DL, unsigned DestReg, unsigned SrcReg,
-                   bool KillSrc) const override;
-
+  void loadRegFromStackSlot(MachineBasicBlock &MBB,
+                            MachineBasicBlock::iterator MBBI, unsigned DestReg,
+                            int FrameIndex, const TargetRegisterClass *RC,
+                            const TargetRegisterInfo *TRI) const override;
   void storeRegToStackSlot(MachineBasicBlock &MBB,
                            MachineBasicBlock::iterator MBBI, unsigned SrcReg,
                            bool isKill, int FrameIndex,
                            const TargetRegisterClass *RC,
                            const TargetRegisterInfo *TRI) const override;
-
-  void loadRegFromStackSlot(MachineBasicBlock &MBB,
-                            MachineBasicBlock::iterator MBBI, unsigned DestReg,
-                            int FrameIndex, const TargetRegisterClass *RC,
-                            const TargetRegisterInfo *TRI) const override;
-
   void adjustStackPointer(MachineBasicBlock &MBB, MachineBasicBlock::iterator I,
                           const DebugLoc &DL, int Amount) const;
+  bool analyzeBranch(MachineBasicBlock &MBB, MachineBasicBlock *&TBB,
+                     MachineBasicBlock *&FBB,
+                     SmallVectorImpl<MachineOperand> &Cond,
+                     bool AllowModify = false) const override;
+  unsigned insertBranch(MachineBasicBlock &MBB, MachineBasicBlock *TBB,
+                       MachineBasicBlock *FBB, ArrayRef<MachineOperand> Cond,
+                       const DebugLoc &DL,
+                       int *BytesAdded) const override;
+  unsigned removeBranch(MachineBasicBlock &MBB,
+                        int *BytesRemoved) const override;
+  void copyPhysReg(MachineBasicBlock &MBB, MachineBasicBlock::iterator I,
+                   const DebugLoc &DL, unsigned DestReg, unsigned SrcReg,
+                   bool KillSrc) const override;
 
 private:
   unsigned int loadConstant(MachineBasicBlock &MBB,
                             MachineBasicBlock::iterator MBBI, int Amount) const;
-
   MachineMemOperand *getMemOperand(MachineBasicBlock &MBB, int FI,
                                    MachineMemOperand::Flags) const;
   const NyuziRegisterInfo RI;
