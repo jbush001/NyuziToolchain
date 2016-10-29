@@ -29,7 +29,7 @@ extern "C" void LLVMInitializeNyuziTarget() {
 static Reloc::Model getEffectiveRelocModel(const Triple &TT,
                                            Optional<Reloc::Model> RM) {
   if (!RM.hasValue())
-    return Reloc::PIC_;
+    return Reloc::Static;
   return *RM;
 }
 
