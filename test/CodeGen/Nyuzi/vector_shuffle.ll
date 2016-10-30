@@ -185,3 +185,16 @@ define <16 x i32> @test_shuffle_mix(<16 x i32> %a, <16 x i32> %b) { ; CHECK-LABE
 
   ret <16 x i32> %res
 }
+
+; Ensure undef values are handled. Currently, they just map to lane zero, so this will look
+; like a single vector shuffle.
+define <16 x i32> @test_shuffle_undef(<16 x i32> %a, <16 x i32> %b) { ; CHECK-LABEL: test_shuffle_undef:
+  %res = shufflevector <16 x i32> %a, <16 x i32> %b, <16 x i32> <i32 undef, i32 1, i32 2, i32 3, i32 4, i32 5, i32 6, i32 7, i32 8, i32 9, i32 8, i32 7, i32 6, i32 5, i32 4, i32 3>
+
+  ; CHECK: shuffle v0, v0, v
+
+  ret <16 x i32> %res
+}
+
+
+
