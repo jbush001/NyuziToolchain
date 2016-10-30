@@ -833,6 +833,7 @@ bool NyuziTargetLowering::shouldInsertFencesForAtomic(
 }
 
 // Global addresses are stored in the per-function constant pool.
+// This is hard coded for a static linking model and does not support PIC.
 SDValue NyuziTargetLowering::LowerGlobalAddress(SDValue Op,
                                                 SelectionDAG &DAG) const {
   SDLoc DL(Op);
@@ -861,47 +862,14 @@ SDValue NyuziTargetLowering::LowerBUILD_VECTOR(SDValue Op,
 SDValue NyuziTargetLowering::LowerVECTOR_SHUFFLE(SDValue Op,
                                                  SelectionDAG &DAG) const {
   MVT VT = Op.getValueType().getSimpleVT();
-  SDLoc DL(Op);
   ShuffleVectorSDNode *ShuffleNode = dyn_cast<ShuffleVectorSDNode>(Op);
-
-  // Check if this builds a splat (all elements of vector are the same)
-  // using shufflevector like this:
-  // %vector = shufflevector <16 x i32> %single, <16 x i32> (don't care),
-  //                         <16 x i32> zeroinitializer
-  // %single = insertelement <16 x i32> (don't care), i32 %value, i32 0
-  if (ShuffleNode->isSplat() &&
-      Op.getOperand(0).getOpcode() == ISD::INSERT_VECTOR_ELT &&
-      ShuffleNode->getSplatIndex() ==
-          dyn_cast<ConstantSDNode>(Op.getOperand(0).getOperand(2))
-              ->getSExtValue())
-    return DAG.getNode(NyuziISD::SPLAT, DL, VT, Op.getOperand(0).getOperand(1));
-
-  // scalar_to_vector loads a scalar element into the lowest lane of the vector.
-  // The higher lanes are undefined (which means we can load the same value into
-  // them using splat).
-  // %single = scalar_to_vector i32 %b
-  if (Op.getOperand(0).getOpcode() == ISD::SCALAR_TO_VECTOR)
-    return DAG.getNode(NyuziISD::SPLAT, DL, VT, Op.getOperand(0).getOperand(0));
-
-  if (ShuffleNode->isSplat()) {
-    // This is a splat where the element is taken from another vector that
-    // we don't know the value of. First extract element, then broadcast it.
-    int SplatIndex = ShuffleNode->getSplatIndex();
-    SDValue SourceVector =
-        SplatIndex < 16 ? Op.getOperand(0) : Op.getOperand(1);
-    SDValue LaneIndexValue = DAG.getConstant(SplatIndex % 16, DL, MVT::i32);
-    SDValue LaneValue = DAG.getNode(ISD::EXTRACT_VECTOR_ELT, DL, MVT::i32,
-                                    SourceVector, LaneIndexValue);
-    return DAG.getNode(NyuziISD::SPLAT, DL, VT, LaneValue);
-  }
-
-  SDValue NativeShuffleIntr =
-      DAG.getConstant(Intrinsic::nyuzi_shufflei, DL, MVT::i32);
-  SDValue MixIntr = DAG.getConstant(Intrinsic::nyuzi_vector_mixi, DL, MVT::i32);
+  SDLoc DL(Op);
 
   // Analyze the vector indices.
   unsigned int Mask = 0;
   bool IsIdentityShuffle = true;
+  bool IsSplat = true;
+  int SplatIndex = 0;
   Constant *ShuffleIndexValues[16];
 
   for (unsigned int SourceLane = 0; SourceLane < 16; SourceLane++) {
@@ -913,8 +881,47 @@ SDValue NyuziTargetLowering::LowerVECTOR_SHUFFLE(SDValue Op,
     if ((DestLaneIndex & 15) != SourceLane)
       IsIdentityShuffle = false;
 
+    if (SourceLane == 0)
+      SplatIndex = DestLaneIndex;
+    else if (SplatIndex != DestLaneIndex)
+      IsSplat = false;
+
     ShuffleIndexValues[SourceLane] = ConstantInt::get(
         Type::getInt32Ty(*DAG.getContext()), DestLaneIndex & 15);
+  }
+
+  // Check if the operands are equal
+  if (Op.getOperand(0) == Op.getOperand(1))
+    Mask = 0;
+
+  // XXX could check if either operand is undef and change the mask accordingly...
+
+  // scalar_to_vector loads a scalar element into the lowest lane of the vector.
+  // The higher lanes are undefined (which means we can load the same value into
+  // them using splat).
+  // %single = scalar_to_vector i32 %b
+  if (Op.getOperand(0).getOpcode() == ISD::SCALAR_TO_VECTOR && Mask == 0)
+    return DAG.getNode(NyuziISD::SPLAT, DL, VT, Op.getOperand(0).getOperand(0));
+
+  if (IsSplat) {
+    // Check if this builds a splat using shufflevector like this:
+    // %single = insertelement <16 x i32> (don't care), i32 %value, i32 <index>
+    // %vector = shufflevector <16 x i32> %single, <16 x i32> (don't care),
+    //                         <16 x i32> <...index...>
+    if (Op.getOperand(0).getOpcode() == ISD::INSERT_VECTOR_ELT &&
+      SplatIndex == dyn_cast<ConstantSDNode>(Op.getOperand(0).getOperand(2))
+              ->getSExtValue()) {
+      return DAG.getNode(NyuziISD::SPLAT, DL, VT, Op.getOperand(0).getOperand(1));
+    }
+
+    // This is a splat where the element is taken from another vector that
+    // we don't know the value of. First extract element, then broadcast it.
+    SDValue SourceVector =
+        SplatIndex < 16 ? Op.getOperand(0) : Op.getOperand(1);
+    SDValue LaneIndexValue = DAG.getConstant(SplatIndex % 16, DL, MVT::i32);
+    SDValue LaneValue = DAG.getNode(ISD::EXTRACT_VECTOR_ELT, DL, MVT::i32,
+                                    SourceVector, LaneIndexValue);
+    return DAG.getNode(NyuziISD::SPLAT, DL, VT, LaneValue);
   }
 
   Constant *ShuffleConstVector = ConstantVector::get(ShuffleIndexValues);
@@ -924,10 +931,9 @@ SDValue NyuziTargetLowering::LowerVECTOR_SHUFFLE(SDValue Op,
       DAG.getLoad(MVT::v16i32, DL, DAG.getEntryNode(), ShuffleVectorCP,
                   MachinePointerInfo::getConstantPool(DAG.getMachineFunction()), 64);
 
-  // Check if the operands are equal
-  if (Op.getOperand(0) == Op.getOperand(1))
-    Mask = 0;
-
+  SDValue NativeShuffleIntr =
+      DAG.getConstant(Intrinsic::nyuzi_shufflei, DL, MVT::i32);
+  SDValue MixIntr = DAG.getConstant(Intrinsic::nyuzi_vector_mixi, DL, MVT::i32);
   if (Mask == 0xffff || Mask == 0) {
     // Only one of the vectors is referenced.
     SDValue ShuffleSource = Mask == 0 ? Op.getOperand(0) : Op.getOperand(1);
