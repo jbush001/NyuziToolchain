@@ -41,7 +41,7 @@ public:
 };
 
 Reloc::Model getEffectiveRelocModel(const Triple &TT,
-                                           Optional<Reloc::Model> RM) {
+                                    Optional<Reloc::Model> RM) {
   if (!RM.hasValue())
     return Reloc::Static;
   return *RM;

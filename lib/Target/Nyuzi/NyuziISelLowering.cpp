@@ -52,7 +52,6 @@ bool isSplatVector(SDNode *N) {
   return true;
 }
 
-
 // Return intrinsic for vector comparisons. These take two vectors as
 // operands and return a i32, where the low 16 bits represent the compare
 // mask
@@ -608,8 +607,8 @@ SDValue NyuziTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
     SDValue StackPtr = DAG.getRegister(Nyuzi::SP_REG, MVT::i32);
     SDValue PtrOff = DAG.getIntPtrConstant(VA.getLocMemOffset(), DL);
     PtrOff = DAG.getNode(ISD::ADD, DL, MVT::i32, StackPtr, PtrOff);
-    MemOpChains.push_back(DAG.getStore(Chain, DL, Arg, PtrOff,
-                                       MachinePointerInfo()));
+    MemOpChains.push_back(
+        DAG.getStore(Chain, DL, Arg, PtrOff, MachinePointerInfo()));
   }
 
   // Emit all stores, make sure the occur before any copies into physregs.
@@ -899,7 +898,8 @@ SDValue NyuziTargetLowering::LowerVECTOR_SHUFFLE(SDValue Op,
   if (Op.getOperand(0) == Op.getOperand(1))
     Mask = 0;
 
-  // XXX could check if either operand is undef and change the mask accordingly...
+  // XXX could check if either operand is undef and change the mask
+  // accordingly...
 
   // scalar_to_vector loads a scalar element into the lowest lane of the vector.
   // The higher lanes are undefined (which means we can load the same value into
@@ -914,9 +914,11 @@ SDValue NyuziTargetLowering::LowerVECTOR_SHUFFLE(SDValue Op,
     // %vector = shufflevector <16 x i32> %single, <16 x i32> (don't care),
     //                         <16 x i32> <...index...>
     if (Op.getOperand(0).getOpcode() == ISD::INSERT_VECTOR_ELT &&
-      SplatIndex == dyn_cast<ConstantSDNode>(Op.getOperand(0).getOperand(2))
-              ->getSExtValue()) {
-      return DAG.getNode(NyuziISD::SPLAT, DL, VT, Op.getOperand(0).getOperand(1));
+        SplatIndex ==
+            dyn_cast<ConstantSDNode>(Op.getOperand(0).getOperand(2))
+                ->getSExtValue()) {
+      return DAG.getNode(NyuziISD::SPLAT, DL, VT,
+                         Op.getOperand(0).getOperand(1));
     }
 
     // This is a splat where the element is taken from another vector that
@@ -932,9 +934,9 @@ SDValue NyuziTargetLowering::LowerVECTOR_SHUFFLE(SDValue Op,
   Constant *ShuffleConstVector = ConstantVector::get(ShuffleIndexValues);
   SDValue ShuffleVectorCP =
       DAG.getTargetConstantPool(ShuffleConstVector, MVT::v16i32);
-  SDValue ShuffleVector =
-      DAG.getLoad(MVT::v16i32, DL, DAG.getEntryNode(), ShuffleVectorCP,
-                  MachinePointerInfo::getConstantPool(DAG.getMachineFunction()), 64);
+  SDValue ShuffleVector = DAG.getLoad(
+      MVT::v16i32, DL, DAG.getEntryNode(), ShuffleVectorCP,
+      MachinePointerInfo::getConstantPool(DAG.getMachineFunction()), 64);
 
   SDValue NativeShuffleIntr =
       DAG.getConstant(Intrinsic::nyuzi_shufflei, DL, MVT::i32);
@@ -1022,10 +1024,10 @@ SDValue NyuziTargetLowering::LowerSETCC(SDValue Op, SelectionDAG &DAG) const {
     return expandVectorComparison(Op, DAG);
 
   // Convert unordered or don't-care floating point comparisions to ordered
-  // - Two comparison values are ordered if neither operand is NaN, otherwise they
-  //   are unordered.
-  // - An ordered comparison *operation* is always false if either operand is NaN.
-  //   Unordered is always true if either operand is NaN.
+  // - Two comparison values are ordered if neither operand is NaN, otherwise
+  //   they are unordered.
+  // - An ordered comparison *operation* is always false if either operand is
+  //   NaN. Unordered is always true if either operand is NaN.
   // - The hardware implements ordered comparisons.
   // - Clang usually emits ordered comparisons.
   ISD::CondCode ComplementCompare;
@@ -1294,9 +1296,9 @@ SDValue NyuziTargetLowering::LowerUINT_TO_FP(SDValue Op,
 
   // XXX is this necessary, or will codegen call LowerConstantPool to convert
   // to a load?
-  SDValue AdjustReg =
-      DAG.getLoad(MVT::f32, DL, DAG.getEntryNode(), CPIdx,
-                  MachinePointerInfo::getConstantPool(DAG.getMachineFunction()), 4);
+  SDValue AdjustReg = DAG.getLoad(
+      MVT::f32, DL, DAG.getEntryNode(), CPIdx,
+      MachinePointerInfo::getConstantPool(DAG.getMachineFunction()), 4);
   if (ResultVT.isVector()) {
     // Vector Result
     SDValue ZeroVec = DAG.getNode(NyuziISD::SPLAT, DL, MVT::v16i32,
@@ -1432,8 +1434,7 @@ NyuziTargetLowering::EmitSelectCC(MachineInstr &MI,
   //  ...
   BB = SinkMBB;
 
-  BuildMI(*BB, BB->begin(), DL, TII->get(Nyuzi::PHI),
-          MI.getOperand(0).getReg())
+  BuildMI(*BB, BB->begin(), DL, TII->get(Nyuzi::PHI), MI.getOperand(0).getReg())
       .addReg(MI.getOperand(2).getReg())
       .addMBB(ThisMBB)
       .addReg(MI.getOperand(3).getReg())
@@ -1579,4 +1580,3 @@ NyuziTargetLowering::EmitAtomicCmpSwap(MachineInstr &MI,
 
   return ExitMBB;
 }
-

@@ -39,13 +39,10 @@ bool isUncondBranchOpcode(int opc) { return opc == Nyuzi::GOTO; }
 bool isCondBranchOpcode(int opc) {
   return opc == Nyuzi::BTRUE || opc == Nyuzi::BFALSE;
 
-// BALL/BNALL/etc. can't be analyzed
+  // BALL/BNALL/etc. can't be analyzed
 }
 
-bool isJumpTableBranchOpcode(int opc) {
-  return opc == Nyuzi::JUMP_TABLE;
-}
-
+bool isJumpTableBranchOpcode(int opc) { return opc == Nyuzi::JUMP_TABLE; }
 }
 
 const NyuziInstrInfo *NyuziInstrInfo::create(NyuziSubtarget &ST) {
@@ -147,8 +144,7 @@ void NyuziInstrInfo::storeRegToStackSlot(MachineBasicBlock &MBB,
 
 void NyuziInstrInfo::adjustStackPointer(MachineBasicBlock &MBB,
                                         MachineBasicBlock::iterator MBBI,
-                                        const DebugLoc &DL,
-                                        int Amount) const {
+                                        const DebugLoc &DL, int Amount) const {
   if (isInt<13>(Amount)) {
     BuildMI(MBB, MBBI, DL, get(Nyuzi::ADDISSI), Nyuzi::SP_REG)
         .addReg(Nyuzi::SP_REG)
@@ -349,8 +345,9 @@ unsigned int NyuziInstrInfo::loadConstant(MachineBasicBlock &MBB,
   return Reg;
 }
 
-MachineMemOperand *NyuziInstrInfo::getMemOperand(MachineBasicBlock &MBB, int FI,
-                                                 MachineMemOperand::Flags Flags) const {
+MachineMemOperand *
+NyuziInstrInfo::getMemOperand(MachineBasicBlock &MBB, int FI,
+                              MachineMemOperand::Flags Flags) const {
   MachineFunction &MF = *MBB.getParent();
   MachineFrameInfo &MFI = MF.getFrameInfo();
   unsigned Align = MFI.getObjectAlignment(FI);

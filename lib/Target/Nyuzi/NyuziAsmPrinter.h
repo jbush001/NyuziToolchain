@@ -22,8 +22,8 @@
 
 #include "NyuziMCInstLower.h"
 #include "llvm/CodeGen/AsmPrinter.h"
-#include "llvm/Support/Compiler.h"
 #include "llvm/MC/MCStreamer.h"
+#include "llvm/Support/Compiler.h"
 
 namespace llvm {
 class MachineInstr;

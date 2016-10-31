@@ -62,9 +62,8 @@ public:
                      SmallVectorImpl<MachineOperand> &Cond,
                      bool AllowModify = false) const override;
   unsigned insertBranch(MachineBasicBlock &MBB, MachineBasicBlock *TBB,
-                       MachineBasicBlock *FBB, ArrayRef<MachineOperand> Cond,
-                       const DebugLoc &DL,
-                       int *BytesAdded) const override;
+                        MachineBasicBlock *FBB, ArrayRef<MachineOperand> Cond,
+                        const DebugLoc &DL, int *BytesAdded) const override;
   unsigned removeBranch(MachineBasicBlock &MBB,
                         int *BytesRemoved) const override;
   void copyPhysReg(MachineBasicBlock &MBB, MachineBasicBlock::iterator I,

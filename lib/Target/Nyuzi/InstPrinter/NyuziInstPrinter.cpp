@@ -31,8 +31,7 @@ using namespace llvm;
 #include "NyuziGenAsmWriter.inc"
 
 namespace {
-void printExpr(const MCExpr *Expr, const MCAsmInfo *MAI,
-                      raw_ostream &OS) {
+void printExpr(const MCExpr *Expr, const MCAsmInfo *MAI, raw_ostream &OS) {
   int Offset = 0;
   const MCSymbolRefExpr *SRE;
 

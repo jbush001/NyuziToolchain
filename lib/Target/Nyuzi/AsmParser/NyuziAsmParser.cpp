@@ -51,7 +51,8 @@ class NyuziAsmParser : public MCTargetAsmParser {
   OperandMatchResultTy ParseMemoryOperandS15(OperandVector &Operands);
   OperandMatchResultTy ParseMemoryOperandV10(OperandVector &Operands);
   OperandMatchResultTy ParseMemoryOperandV15(OperandVector &Operands);
-  OperandMatchResultTy ParseMemoryOperand(OperandVector &Operands, int MaxBits, bool IsVector);
+  OperandMatchResultTy ParseMemoryOperand(OperandVector &Operands, int MaxBits,
+                                          bool IsVector);
   OperandMatchResultTy ParseImmediate(OperandVector &Ops, int MaxBits);
   OperandMatchResultTy ParseSImm13Value(OperandVector &Operands);
   OperandMatchResultTy ParseSImm8Value(OperandVector &Operands);
@@ -431,7 +432,8 @@ NyuziAsmParser::ParseMemoryOperandV15(OperandVector &Operands) {
 }
 
 NyuziAsmParser::OperandMatchResultTy
-NyuziAsmParser::ParseMemoryOperand(OperandVector &Operands, int MaxBits, bool IsVector) {
+NyuziAsmParser::ParseMemoryOperand(OperandVector &Operands, int MaxBits,
+                                   bool IsVector) {
   SMLoc S = Parser.getTok().getLoc();
   if (getLexer().is(AsmToken::Identifier)) {
     // PC relative memory label memory access
