@@ -772,6 +772,10 @@ private:
   /// Sema tracks these to emit warnings.
   SmallVector<uint64_t, 16> UnusedLocalTypedefNameCandidates;
 
+  /// \brief Our current depth in #pragma cuda force_host_device begin/end
+  /// macros.
+  unsigned ForceCUDAHostDeviceDepth = 0;
+
   /// \brief The IDs of the declarations Sema stores directly.
   ///
   /// Sema tracks a few important decls, such as namespace std, directly.
@@ -1873,8 +1877,8 @@ public:
                                            SourceLocation> > &Pending) override;
 
   void ReadLateParsedTemplates(
-      llvm::MapVector<const FunctionDecl *, LateParsedTemplate *> &LPTMap)
-      override;
+      llvm::MapVector<const FunctionDecl *, std::unique_ptr<LateParsedTemplate>>
+          &LPTMap) override;
 
   /// \brief Load a selector from disk, registering its ID if it exists.
   void LoadSelector(Selector Sel);

@@ -251,6 +251,8 @@ def munwind_tables : Flag<["-"], "munwind-tables">,
   HelpText<"Generate unwinding tables for all functions">;
 def mconstructor_aliases : Flag<["-"], "mconstructor-aliases">,
   HelpText<"Emit complete constructors and destructors as aliases when possible">;
+def mqualified_function_type_info : Flag<["-"], "mqualified-function-type-info">,
+  HelpText<"Emit __qualified_function_type_info for qualified function types">;
 def mlink_bitcode_file : Separate<["-"], "mlink-bitcode-file">,
   HelpText<"Link the given bitcode file before performing optimizations.">;
 def mlink_cuda_bitcode : Separate<["-"], "mlink-cuda-bitcode">,
@@ -507,6 +509,9 @@ def arcmt_modify : Flag<["-"], "arcmt-modify">,
 def arcmt_migrate : Flag<["-"], "arcmt-migrate">,
   HelpText<"Apply modifications and produces temporary files that conform to ARC">;
 
+def opt_record_file : Separate<["-"], "opt-record-file">,
+  HelpText<"File name to use for YAML optimization record output">;
+
 def print_stats : Flag<["-"], "print-stats">,
   HelpText<"Print performance metrics and statistics">;
 def stats_file : Joined<["-"], "stats-file=">,
@@ -681,6 +686,13 @@ def token_cache : Separate<["-"], "token-cache">, MetaVarName<"<path>">,
   HelpText<"Use specified token cache file">;
 def detailed_preprocessing_record : Flag<["-"], "detailed-preprocessing-record">,
   HelpText<"include a detailed record of preprocessing actions">;
+
+//===----------------------------------------------------------------------===//
+// OpenCL Options
+//===----------------------------------------------------------------------===//
+
+def cl_ext_EQ : CommaJoined<["-"], "cl-ext=">,
+  HelpText<"OpenCL only. Enable or disable OpenCL extensions. The argument is a comma-separated sequence of one or more extension names, each prefixed by '+' or '-'.">;
 
 //===----------------------------------------------------------------------===//
 // CUDA Options

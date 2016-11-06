@@ -443,9 +443,11 @@ std::string Selector::getAsString() const {
   if (getIdentifierInfoFlag() < MultiArg) {
     IdentifierInfo *II = getAsIdentifierInfo();
 
-    // If the number of arguments is 0 then II is guaranteed to not be null.
-    if (getNumArgs() == 0)
+    if (getNumArgs() == 0) {
+      assert(II && "If the number of arguments is 0 then II is guaranteed to "
+                   "not be null.");
       return II->getName();
+    }
 
     if (!II)
       return ":";
@@ -621,8 +623,8 @@ Selector SelectorTable::getSelector(unsigned nKeys, IdentifierInfo **IIV) {
   // variable size array (for parameter types) at the end of them.
   unsigned Size = sizeof(MultiKeywordSelector) + nKeys*sizeof(IdentifierInfo *);
   MultiKeywordSelector *SI =
-    (MultiKeywordSelector*)SelTabImpl.Allocator.Allocate(Size,
-                                         llvm::alignOf<MultiKeywordSelector>());
+      (MultiKeywordSelector *)SelTabImpl.Allocator.Allocate(
+          Size, alignof(MultiKeywordSelector));
   new (SI) MultiKeywordSelector(nKeys, IIV);
   SelTabImpl.Table.InsertNode(SI, InsertPos);
   return Selector(SI);

@@ -57,15 +57,6 @@ struct InstantiationView {
   InstantiationView(StringRef FunctionName, unsigned Line,
                     std::unique_ptr<SourceCoverageView> View)
       : FunctionName(FunctionName), Line(Line), View(std::move(View)) {}
-  InstantiationView(InstantiationView &&RHS)
-      : FunctionName(std::move(RHS.FunctionName)), Line(std::move(RHS.Line)),
-        View(std::move(RHS.View)) {}
-  InstantiationView &operator=(InstantiationView &&RHS) {
-    FunctionName = std::move(RHS.FunctionName);
-    Line = std::move(RHS.Line);
-    View = std::move(RHS.View);
-    return *this;
-  }
 
   friend bool operator<(const InstantiationView &LHS,
                         const InstantiationView &RHS) {
@@ -276,10 +267,6 @@ public:
 
   /// \brief Return the source name formatted for the host OS.
   std::string getSourceName() const;
-
-  /// \brief Return a verbose description of the source name and the binary it
-  /// corresponds to.
-  std::string getVerboseSourceName() const;
 
   const CoverageViewOptions &getOptions() const { return Options; }
 

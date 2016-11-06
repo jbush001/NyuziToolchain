@@ -67,6 +67,9 @@ def X86hsub    : SDNode<"X86ISD::HSUB",      SDTIntBinOp>;
 def X86comi    : SDNode<"X86ISD::COMI",      SDTX86CmpTest>;
 def X86ucomi   : SDNode<"X86ISD::UCOMI",     SDTX86CmpTest>;
 def X86cmps    : SDNode<"X86ISD::FSETCC",     SDTX86Cmps>;
+def X86cvttpd2dq: SDNode<"X86ISD::CVTTPD2DQ",
+                  SDTypeProfile<1, 1, [SDTCisVT<0, v4i32>,
+                                       SDTCisVT<1, v2f64>]>>;
 def X86cvtdq2pd: SDNode<"X86ISD::CVTDQ2PD",
                  SDTypeProfile<1, 1, [SDTCisVT<0, v2f64>,
                                       SDTCisVT<1, v4i32>]>>;
@@ -919,30 +922,36 @@ def vinsert256_insert : PatFrag<(ops node:$bigvec, node:$smallvec,
   return X86::isVINSERT256Index(N);
 }], INSERT_get_vinsert256_imm>;
 
-def masked_load_aligned128 : PatFrag<(ops node:$src1, node:$src2, node:$src3),
+def X86mload : PatFrag<(ops node:$src1, node:$src2, node:$src3),
                          (masked_load node:$src1, node:$src2, node:$src3), [{
-  if (auto *Load = dyn_cast<MaskedLoadSDNode>(N))
-    return Load->getAlignment() >= 16;
-  return false;
+  return !cast<MaskedLoadSDNode>(N)->isExpandingLoad() &&
+    cast<MaskedLoadSDNode>(N)->getExtensionType() == ISD::NON_EXTLOAD;
+}]>;
+
+def masked_load_aligned128 : PatFrag<(ops node:$src1, node:$src2, node:$src3),
+                         (X86mload node:$src1, node:$src2, node:$src3), [{
+  return cast<MaskedLoadSDNode>(N)->getAlignment() >= 16;
 }]>;
 
 def masked_load_aligned256 : PatFrag<(ops node:$src1, node:$src2, node:$src3),
-                         (masked_load node:$src1, node:$src2, node:$src3), [{
-  if (auto *Load = dyn_cast<MaskedLoadSDNode>(N))
-    return Load->getAlignment() >= 32;
-  return false;
+                         (X86mload node:$src1, node:$src2, node:$src3), [{
+  return cast<MaskedLoadSDNode>(N)->getAlignment() >= 32;
 }]>;
 
 def masked_load_aligned512 : PatFrag<(ops node:$src1, node:$src2, node:$src3),
-                         (masked_load node:$src1, node:$src2, node:$src3), [{
-  if (auto *Load = dyn_cast<MaskedLoadSDNode>(N))
-    return Load->getAlignment() >= 64;
-  return false;
+                         (X86mload node:$src1, node:$src2, node:$src3), [{
+  return cast<MaskedLoadSDNode>(N)->getAlignment() >= 64;
 }]>;
 
 def masked_load_unaligned : PatFrag<(ops node:$src1, node:$src2, node:$src3),
                          (masked_load node:$src1, node:$src2, node:$src3), [{
-  return isa<MaskedLoadSDNode>(N);
+  return !cast<MaskedLoadSDNode>(N)->isExpandingLoad() &&
+    cast<MaskedLoadSDNode>(N)->getExtensionType() == ISD::NON_EXTLOAD;
+}]>;
+
+def X86mExpandingLoad : PatFrag<(ops node:$src1, node:$src2, node:$src3),
+                         (masked_load node:$src1, node:$src2, node:$src3), [{
+  return cast<MaskedLoadSDNode>(N)->isExpandingLoad();
 }]>;
 
 // Masked store fragments.
@@ -956,28 +965,23 @@ def X86mstore : PatFrag<(ops node:$src1, node:$src2, node:$src3),
 
 def masked_store_aligned128 : PatFrag<(ops node:$src1, node:$src2, node:$src3),
                          (X86mstore node:$src1, node:$src2, node:$src3), [{
-  if (auto *Store = dyn_cast<MaskedStoreSDNode>(N))
-    return Store->getAlignment() >= 16;
-  return false;
+  return cast<MaskedStoreSDNode>(N)->getAlignment() >= 16;
 }]>;
 
 def masked_store_aligned256 : PatFrag<(ops node:$src1, node:$src2, node:$src3),
                          (X86mstore node:$src1, node:$src2, node:$src3), [{
-  if (auto *Store = dyn_cast<MaskedStoreSDNode>(N))
-    return Store->getAlignment() >= 32;
-  return false;
+  return cast<MaskedStoreSDNode>(N)->getAlignment() >= 32;
 }]>;
 
 def masked_store_aligned512 : PatFrag<(ops node:$src1, node:$src2, node:$src3),
                          (X86mstore node:$src1, node:$src2, node:$src3), [{
-  if (auto *Store = dyn_cast<MaskedStoreSDNode>(N))
-    return Store->getAlignment() >= 64;
-  return false;
+  return cast<MaskedStoreSDNode>(N)->getAlignment() >= 64;
 }]>;
 
 def masked_store_unaligned : PatFrag<(ops node:$src1, node:$src2, node:$src3),
-                         (X86mstore node:$src1, node:$src2, node:$src3), [{
-  return isa<MaskedStoreSDNode>(N);
+                         (masked_store node:$src1, node:$src2, node:$src3), [{
+  return (!cast<MaskedStoreSDNode>(N)->isTruncatingStore()) &&
+         (!cast<MaskedStoreSDNode>(N)->isCompressingStore());
 }]>;
 
 def X86mCompressingStore : PatFrag<(ops node:$src1, node:$src2, node:$src3),

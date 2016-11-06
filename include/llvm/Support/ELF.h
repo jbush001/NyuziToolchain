@@ -310,6 +310,7 @@ enum {
   EM_NORC          = 218, // Nanoradio Optimized RISC
   EM_CSR_KALIMBA   = 219, // CSR Kalimba architecture family
   EM_AMDGPU        = 224, // AMD GPU architecture
+  EM_RISCV         = 243, // RISC-V
   EM_LANAI         = 244, // Lanai 32-bit processor
   EM_BPF           = 247, // Linux kernel bpf virtual machine
 
@@ -595,6 +596,11 @@ enum {
 // ELF Relocation type for Lanai.
 enum {
 #include "ELFRelocs/Lanai.def"
+};
+
+// ELF Relocation types for RISC-V
+enum {
+#include "ELFRelocs/RISCV.def"
 };
 
 // ELF Relocation types for S390/zSeries
@@ -1036,8 +1042,11 @@ enum {
   PT_SUNW_EH_FRAME = 0x6474e550,
   PT_SUNW_UNWIND   = 0x6464e550,
 
-  PT_GNU_STACK  = 0x6474e551, // Indicates stack executability.
-  PT_GNU_RELRO  = 0x6474e552, // Read-only after relocation.
+  PT_GNU_STACK = 0x6474e551, // Indicates stack executability.
+  PT_GNU_RELRO = 0x6474e552, // Read-only after relocation.
+
+  PT_OPENBSD_RANDOMIZE = 0x65a3dbe6, // Fill with random data.
+  PT_OPENBSD_WXNEEDED  = 0x65a3dbe7, // Program does W^X violations.
 
   // ARM program header types.
   PT_ARM_ARCHEXT = 0x70000000, // Platform architecture compatibility info

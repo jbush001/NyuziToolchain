@@ -48,19 +48,19 @@
 # RUN: echo ".text : { *(.text) }" >> %t.script
 # RUN: echo ".keep : { *(.keep) }" >> %t.script
 # RUN: echo ".temp : { *(.temp) } }" >> %t.script
-# RUN: not ld.lld -shared %t -o %t1 --script %t.script > %t.log 2>&1
-# RUN: FileCheck -check-prefix=ERR6 %s < %t.log
-# ERR6:      line 1:
-# ERR6-NEXT: UNKNOWN_TAG {
-# RUN: grep '^^' %t.log
+# RUN: not ld.lld -shared %t -o %t1 --script %t.script 2>&1 | \
+# RUN:   FileCheck -check-prefix=ERR6 -strict-whitespace %s
+# ERR6:      error: line 1:
+# ERR6-NEXT: error: UNKNOWN_TAG {
+# ERR6-NEXT: error: ^
 
 ## One more check that text of lines and pointer to 'bad' token are working ok.
 # RUN: echo "SECTIONS {" > %t.script
 # RUN: echo ".text : { *(.text) }" >> %t.script
 # RUN: echo ".keep : { *(.keep) }" >> %t.script
 # RUN: echo "boom .temp : { *(.temp) } }" >> %t.script
-# RUN: not ld.lld -shared %t -o %t1 --script %t.script > %t.log 2>&1
-# RUN: FileCheck -check-prefix=ERR7 %s < %t.log
-# ERR7:      line 4: malformed number: .temp
-# ERR7-NEXT: boom .temp : { *(.temp) } }
-# RUN: grep '^     ^' %t.log
+# RUN: not ld.lld -shared %t -o %t1 --script %t.script 2>&1 | \
+# RUN:   FileCheck -check-prefix=ERR7 -strict-whitespace %s
+# ERR7:      error: line 4: malformed number: .temp
+# ERR7-NEXT: error: boom .temp : { *(.temp) } }
+# ERR7-NEXT: error:      ^

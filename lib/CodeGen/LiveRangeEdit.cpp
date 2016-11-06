@@ -103,7 +103,7 @@ bool LiveRangeEdit::allUsesAvailableAt(const MachineInstr *OrigMI,
 
     // We can't remat physreg uses, unless it is a constant.
     if (TargetRegisterInfo::isPhysicalRegister(MO.getReg())) {
-      if (MRI.isConstantPhysReg(MO.getReg(), *OrigMI->getParent()->getParent()))
+      if (MRI.isConstantPhysReg(MO.getReg()))
         continue;
       return false;
     }
@@ -437,6 +437,9 @@ LiveRangeEdit::MRI_NoteNewVirtualRegister(unsigned VReg)
 {
   if (VRM)
     VRM->grow();
+
+  if (Parent && !Parent->isSpillable())
+    LIS.getInterval(VReg).markNotSpillable();
 
   NewRegs.push_back(VReg);
 }

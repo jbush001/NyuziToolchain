@@ -98,7 +98,18 @@ public:
 
   enum TargetOperandFlags {
     MO_NONE = 0,
-    MO_GOTPCREL = 1
+    // MO_GOTPCREL -> symbol@GOTPCREL -> R_AMDGPU_GOTPCREL.
+    MO_GOTPCREL = 1,
+    // MO_GOTPCREL32_LO -> symbol@gotpcrel32@lo -> R_AMDGPU_GOTPCREL32_LO.
+    MO_GOTPCREL32 = 2,
+    MO_GOTPCREL32_LO = 2,
+    // MO_GOTPCREL32_HI -> symbol@gotpcrel32@hi -> R_AMDGPU_GOTPCREL32_HI.
+    MO_GOTPCREL32_HI = 3,
+    // MO_REL32_LO -> symbol@rel32@lo -> R_AMDGPU_REL32_LO.
+    MO_REL32 = 4,
+    MO_REL32_LO = 4,
+    // MO_REL32_HI -> symbol@rel32@hi -> R_AMDGPU_REL32_HI.
+    MO_REL32_HI = 5
   };
 
   explicit SIInstrInfo(const SISubtarget &);
@@ -417,6 +428,24 @@ public:
     return get(Opcode).TSFlags & SIInstrFlags::SOPK_ZEXT;
   }
 
+  /// \returns true if this is an s_store_dword* instruction. This is more
+  /// specific than than isSMEM && mayStore.
+  static bool isScalarStore(const MachineInstr &MI) {
+    return MI.getDesc().TSFlags & SIInstrFlags::SCALAR_STORE;
+  }
+
+  bool isScalarStore(uint16_t Opcode) const {
+    return get(Opcode).TSFlags & SIInstrFlags::SCALAR_STORE;
+  }
+
+  static bool isFixedSize(const MachineInstr &MI) {
+    return MI.getDesc().TSFlags & SIInstrFlags::FIXED_SIZE;
+  }
+
+  bool isFixedSize(uint16_t Opcode) const {
+    return get(Opcode).TSFlags & SIInstrFlags::FIXED_SIZE;
+  }
+
   bool isVGPRCopy(const MachineInstr &MI) const {
     assert(MI.isCopy());
     unsigned Dest = MI.getOperand(0).getReg();
@@ -595,6 +624,8 @@ public:
                               int &FrameIndex) const override;
 
   unsigned getInstSizeInBytes(const MachineInstr &MI) const override;
+
+  bool mayAccessFlatAddressSpace(const MachineInstr &MI) const;
 
   ArrayRef<std::pair<int, const char *>>
   getSerializableTargetIndices() const override;

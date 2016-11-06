@@ -58,8 +58,7 @@ cl::opt<Reloc::Model> RelocModel(
         clEnumValN(Reloc::RWPI, "rwpi",
                    "Read-write data relocatable, accessed relative to static base"),
         clEnumValN(Reloc::ROPI_RWPI, "ropi-rwpi",
-                   "Combination of ropi and rwpi"),
-        clEnumValEnd));
+                   "Combination of ropi and rwpi")));
 
 static inline Optional<Reloc::Model> getRelocModel() {
   if (RelocModel.getNumOccurrences()) {
@@ -76,8 +75,7 @@ TMModel("thread-model",
         cl::values(clEnumValN(ThreadModel::POSIX, "posix",
                               "POSIX thread model"),
                    clEnumValN(ThreadModel::Single, "single",
-                              "Single thread model"),
-                   clEnumValEnd));
+                              "Single thread model")));
 
 cl::opt<llvm::CodeModel::Model>
 CMModel("code-model",
@@ -92,8 +90,7 @@ CMModel("code-model",
                    clEnumValN(CodeModel::Medium, "medium",
                               "Medium code model"),
                    clEnumValN(CodeModel::Large, "large",
-                              "Large code model"),
-                   clEnumValEnd));
+                              "Large code model")));
 
 cl::opt<llvm::ExceptionHandling>
 ExceptionModel("exception-model",
@@ -108,8 +105,7 @@ ExceptionModel("exception-model",
                           clEnumValN(ExceptionHandling::ARM, "arm",
                                      "ARM EHABI exceptions"),
                           clEnumValN(ExceptionHandling::WinEH, "wineh",
-                                     "Windows exception model"),
-                          clEnumValEnd));
+                                     "Windows exception model")));
 
 cl::opt<TargetMachine::CodeGenFileType>
 FileType("filetype", cl::init(TargetMachine::CGFT_AssemblyFile),
@@ -120,8 +116,7 @@ FileType("filetype", cl::init(TargetMachine::CGFT_AssemblyFile),
              clEnumValN(TargetMachine::CGFT_ObjectFile, "obj",
                         "Emit a native object ('.o') file"),
              clEnumValN(TargetMachine::CGFT_Null, "null",
-                        "Emit nothing, for performance testing"),
-             clEnumValEnd));
+                        "Emit nothing, for performance testing")));
 
 cl::opt<bool>
 EnableFPMAD("enable-fp-mad",
@@ -165,8 +160,7 @@ DenormalMode("denormal-fp-math",
                          "the sign of a  flushed-to-zero number is preserved "
                          "in the sign of 0"),
               clEnumValN(FPDenormal::PositiveZero, "positive-zero",
-                         "denormals are flushed to positive zero"),
-              clEnumValEnd));
+                         "denormals are flushed to positive zero")));
 
 cl::opt<bool>
 EnableHonorSignDependentRoundingFPMath("enable-sign-dependent-rounding-fp-math",
@@ -184,8 +178,7 @@ FloatABIForCalls("float-abi",
                      clEnumValN(FloatABI::Soft, "soft",
                                 "Soft float ABI (implied by -soft-float)"),
                      clEnumValN(FloatABI::Hard, "hard",
-                                "Hard float ABI (uses FP registers)"),
-                     clEnumValEnd));
+                                "Hard float ABI (uses FP registers)")));
 
 cl::opt<llvm::FPOpFusion::FPOpFusionMode>
 FuseFPOps("fp-contract",
@@ -197,8 +190,7 @@ FuseFPOps("fp-contract",
               clEnumValN(FPOpFusion::Standard, "on",
                          "Only fuse 'blessed' FP ops."),
               clEnumValN(FPOpFusion::Strict, "off",
-                         "Only fuse FP ops when the result won't be affected."),
-              clEnumValEnd));
+                         "Only fuse FP ops when the result won't be affected.")));
 
 cl::opt<bool>
 DontPlaceZerosInBSS("nozero-initialized-in-bss",
@@ -257,21 +249,6 @@ cl::opt<bool> UniqueSectionNames("unique-section-names",
                                  cl::desc("Give unique names to every section"),
                                  cl::init(true));
 
-cl::opt<llvm::JumpTable::JumpTableType>
-JTableType("jump-table-type",
-          cl::desc("Choose the type of Jump-Instruction Table for jumptable."),
-          cl::init(JumpTable::Single),
-          cl::values(
-              clEnumValN(JumpTable::Single, "single",
-                         "Create a single table for all jumptable functions"),
-              clEnumValN(JumpTable::Arity, "arity",
-                         "Create one table per number of parameters."),
-              clEnumValN(JumpTable::Simplified, "simplified",
-                         "Create one table per simplified function type."),
-              clEnumValN(JumpTable::Full, "full",
-                         "Create one table per unique function type."),
-              clEnumValEnd));
-
 cl::opt<llvm::EABI> EABIVersion(
     "meabi", cl::desc("Set EABI type (default depends on triple):"),
     cl::init(EABI::Default),
@@ -279,7 +256,7 @@ cl::opt<llvm::EABI> EABIVersion(
                           "Triple default EABI version"),
                clEnumValN(EABI::EABI4, "4", "EABI version 4"),
                clEnumValN(EABI::EABI5, "5", "EABI version 5"),
-               clEnumValN(EABI::GNU, "gnu", "EABI GNU"), clEnumValEnd));
+               clEnumValN(EABI::GNU, "gnu", "EABI GNU")));
 
 cl::opt<DebuggerKind>
 DebuggerTuningOpt("debugger-tune",
@@ -289,8 +266,7 @@ DebuggerTuningOpt("debugger-tune",
                       clEnumValN(DebuggerKind::GDB, "gdb", "gdb"),
                       clEnumValN(DebuggerKind::LLDB, "lldb", "lldb"),
                       clEnumValN(DebuggerKind::SCE, "sce",
-                                 "SCE targets (e.g. PS4)"),
-                      clEnumValEnd));
+                                 "SCE targets (e.g. PS4)")));
 
 // Common utility function tightly tied to the options listed here. Initializes
 // a TargetOptions object with CodeGen flags and returns it.
@@ -319,7 +295,6 @@ static inline TargetOptions InitTargetOptionsFromCodeGenFlags() {
   Options.ExceptionModel = ExceptionModel;
 
   Options.MCOptions = InitMCTargetOptionsFromFlags();
-  Options.JTType = JTableType;
 
   Options.ThreadModel = TMModel;
   Options.EABIVersion = EABIVersion;

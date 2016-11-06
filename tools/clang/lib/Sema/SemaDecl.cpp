@@ -1522,7 +1522,7 @@ static bool ShouldDiagnoseUnusedDecl(const NamedDecl *D) {
   if (const VarDecl *VD = dyn_cast<VarDecl>(D)) {
 
     // White-list anything with an __attribute__((unused)) type.
-    QualType Ty = VD->getType();
+    const auto *Ty = VD->getType().getTypePtr();
 
     // Only look at the outermost level of typedef.
     if (const TypedefType *TT = Ty->getAs<TypedefType>()) {
@@ -1534,6 +1534,10 @@ static bool ShouldDiagnoseUnusedDecl(const NamedDecl *D) {
     // dependent, don't diagnose the variable.
     if (Ty->isIncompleteType() || Ty->isDependentType())
       return false;
+
+    // Look at the element type to ensure that the warning behaviour is
+    // consistent for both scalars and arrays.
+    Ty = Ty->getBaseElementTypeUnsafe();
 
     if (const TagType *TT = Ty->getAs<TagType>()) {
       const TagDecl *Tag = TT->getDecl();
@@ -2933,10 +2937,29 @@ bool Sema::MergeFunctionDecl(FunctionDecl *New, NamedDecl *&OldD,
   }
 
   if (getLangOpts().CPlusPlus) {
-    // (C++98 13.1p2):
+    // C++1z [over.load]p2
     //   Certain function declarations cannot be overloaded:
-    //     -- Function declarations that differ only in the return type
-    //        cannot be overloaded.
+    //     -- Function declarations that differ only in the return type,
+    //        the exception specification, or both cannot be overloaded.
+
+    // Check the exception specifications match. This may recompute the type of
+    // both Old and New if it resolved exception specifications, so grab the
+    // types again after this. Because this updates the type, we do this before
+    // any of the other checks below, which may update the "de facto" NewQType
+    // but do not necessarily update the type of New.
+    if (CheckEquivalentExceptionSpec(Old, New))
+      return true;
+    // If exceptions are disabled, we might not have resolved the exception spec
+    // of one or both declarations. Do so now in C++1z, so that we can properly
+    // compare the types.
+    if (getLangOpts().CPlusPlus1z) {
+      for (QualType T : {Old->getType(), New->getType()})
+        if (auto *FPT = T->getAs<FunctionProtoType>())
+          if (isUnresolvedExceptionSpec(FPT->getExceptionSpecType()))
+            ResolveExceptionSpec(New->getLocation(), FPT);
+    }
+    OldQType = Context.getCanonicalType(Old->getType());
+    NewQType = Context.getCanonicalType(New->getType());
 
     // Go back to the type source info to compare the declared return types,
     // per C++1y [dcl.type.auto]p13:
@@ -2951,10 +2974,10 @@ bool Sema::MergeFunctionDecl(FunctionDecl *New, NamedDecl *&OldD,
         (New->getTypeSourceInfo()
              ? New->getTypeSourceInfo()->getType()->castAs<FunctionType>()
              : NewType)->getReturnType();
-    QualType ResQT;
     if (!Context.hasSameType(OldDeclaredReturnType, NewDeclaredReturnType) &&
         !((NewQType->isDependentType() || OldQType->isDependentType()) &&
           New->isLocalExternDecl())) {
+      QualType ResQT;
       if (NewDeclaredReturnType->isObjCObjectPointerType() &&
           OldDeclaredReturnType->isObjCObjectPointerType())
         ResQT = Context.mergeObjCGCQualifiers(NewQType, OldQType);
@@ -3092,7 +3115,7 @@ bool Sema::MergeFunctionDecl(FunctionDecl *New, NamedDecl *&OldD,
     // noreturn should now match unless the old type info didn't have it.
     QualType OldQTypeForComparison = OldQType;
     if (!OldTypeInfo.getNoReturn() && NewTypeInfo.getNoReturn()) {
-      assert(OldQType == QualType(OldType, 0));
+      auto *OldType = OldQType->castAs<FunctionProtoType>();
       const FunctionType *OldTypeForComparison
         = Context.adjustFunctionType(OldType, OldTypeInfo.withNoReturn(true));
       OldQTypeForComparison = QualType(OldTypeForComparison, 0);
@@ -3675,29 +3698,16 @@ void Sema::MergeVarDecl(VarDecl *New, LookupResult &Previous) {
   }
 
   // C++ doesn't have tentative definitions, so go right ahead and check here.
-  VarDecl *Def;
   if (getLangOpts().CPlusPlus &&
-      New->isThisDeclarationADefinition() == VarDecl::Definition &&
-      (Def = Old->getDefinition())) {
-    NamedDecl *Hidden = nullptr;
-    if (!hasVisibleDefinition(Def, &Hidden) &&
-        (New->getFormalLinkage() == InternalLinkage ||
-         New->getDescribedVarTemplate() ||
-         New->getNumTemplateParameterLists() ||
-         New->getDeclContext()->isDependentContext())) {
-      // The previous definition is hidden, and multiple definitions are
-      // permitted (in separate TUs). Form another definition of it.
-    } else if (Old->isStaticDataMember() &&
-               Old->getCanonicalDecl()->isInline() &&
-               Old->getCanonicalDecl()->isConstexpr()) {
+      New->isThisDeclarationADefinition() == VarDecl::Definition) {
+    if (Old->isStaticDataMember() && Old->getCanonicalDecl()->isInline() &&
+        Old->getCanonicalDecl()->isConstexpr()) {
       // This definition won't be a definition any more once it's been merged.
       Diag(New->getLocation(),
            diag::warn_deprecated_redundant_constexpr_static_def);
-    } else {
-      Diag(New->getLocation(), diag::err_redefinition) << New;
-      Diag(Def->getLocation(), diag::note_previous_definition);
-      New->setInvalidDecl();
-      return;
+    } else if (VarDecl *Def = Old->getDefinition()) {
+      if (checkVarDeclRedefinition(Def, New))
+        return;
     }
   }
 
@@ -3724,6 +3734,32 @@ void Sema::MergeVarDecl(VarDecl *New, LookupResult &Previous) {
 
   if (Old->isInline())
     New->setImplicitlyInline();
+}
+
+/// We've just determined that \p Old and \p New both appear to be definitions
+/// of the same variable. Either diagnose or fix the problem.
+bool Sema::checkVarDeclRedefinition(VarDecl *Old, VarDecl *New) {
+  if (!hasVisibleDefinition(Old) &&
+      (New->getFormalLinkage() == InternalLinkage ||
+       New->isInline() ||
+       New->getDescribedVarTemplate() ||
+       New->getNumTemplateParameterLists() ||
+       New->getDeclContext()->isDependentContext())) {
+    // The previous definition is hidden, and multiple definitions are
+    // permitted (in separate TUs). Demote this to a declaration.
+    New->demoteThisDefinitionToDeclaration();
+
+    // Make the canonical definition visible.
+    if (auto *OldTD = Old->getDescribedVarTemplate())
+      makeMergedDefinitionVisible(OldTD, New->getLocation());
+    makeMergedDefinitionVisible(Old, New->getLocation());
+    return false;
+  } else {
+    Diag(New->getLocation(), diag::err_redefinition) << New;
+    Diag(Old->getLocation(), diag::note_previous_definition);
+    New->setInvalidDecl();
+    return true;
+  }
 }
 
 /// ParsedFreeStandingDeclSpec - This method is invoked when a declspec with
@@ -5735,23 +5771,7 @@ static bool isFunctionDefinitionDiscarded(Sema &S, FunctionDecl *FD) {
     return false;
 
   // Okay, go ahead and call the relatively-more-expensive function.
-
-#ifndef NDEBUG
-  // AST quite reasonably asserts that it's working on a function
-  // definition.  We don't really have a way to tell it that we're
-  // currently defining the function, so just lie to it in +Asserts
-  // builds.  This is an awful hack.
-  FD->setLazyBody(1);
-#endif
-
-  bool isC99Inline =
-      S.Context.GetGVALinkageForFunction(FD) == GVA_AvailableExternally;
-
-#ifndef NDEBUG
-  FD->setLazyBody(0);
-#endif
-
-  return isC99Inline;
+  return S.Context.GetGVALinkageForFunction(FD) == GVA_AvailableExternally;
 }
 
 /// Determine whether a variable is extern "C" prior to attaching
@@ -6858,17 +6878,6 @@ void Sema::CheckVariableDeclarationType(VarDecl *NewVD) {
       }
       if (NewVD->hasExternalStorage()) {
         Diag(NewVD->getLocation(), diag::err_opencl_extern_block_declaration);
-        NewVD->setInvalidDecl();
-        return;
-      }
-      // OpenCL v2.0 s6.12.5 - Blocks with variadic arguments are not supported.
-      // TODO: this check is not enough as it doesn't diagnose the typedef
-      const BlockPointerType *BlkTy = T->getAs<BlockPointerType>();
-      const FunctionProtoType *FTy =
-          BlkTy->getPointeeType()->getAs<FunctionProtoType>();
-      if (FTy && FTy->isVariadic()) {
-        Diag(NewVD->getLocation(), diag::err_opencl_block_proto_variadic)
-            << T << NewVD->getSourceRange();
         NewVD->setInvalidDecl();
         return;
       }
@@ -8241,7 +8250,7 @@ Sema::ActOnFunctionDeclarator(Scope *S, Declarator &D, DeclContext *DC,
   ProcessDeclAttributes(S, NewFD, D);
 
   if (getLangOpts().CUDA)
-    maybeAddCUDAHostDeviceAttrs(S, NewFD, Previous);
+    maybeAddCUDAHostDeviceAttrs(NewFD, Previous);
 
   if (getLangOpts().OpenCL) {
     // OpenCL v1.1 s6.5: Using an address space qualifier in a function return
@@ -8422,7 +8431,7 @@ Sema::ActOnFunctionDeclarator(Scope *S, Declarator &D, DeclContext *DC,
                                 ? cast<NamedDecl>(FunctionTemplate)
                                 : NewFD);
 
-    if (isFriend && D.isRedeclaration()) {
+    if (isFriend && NewFD->getPreviousDecl()) {
       AccessSpecifier Access = AS_public;
       if (!NewFD->isInvalidDecl())
         Access = NewFD->getPreviousDecl()->getAccess();
@@ -8878,8 +8887,6 @@ bool Sema::CheckFunctionDeclaration(Scope *S, FunctionDecl *NewFD,
         NewFD->setPreviousDeclaration(cast<FunctionDecl>(OldDecl));
         if (isa<CXXMethodDecl>(NewFD))
           NewFD->setAccess(OldDecl->getAccess());
-      } else {
-        Redeclaration = false;
       }
     }
   }
@@ -8974,6 +8981,42 @@ bool Sema::CheckFunctionDeclaration(Scope *S, FunctionDecl *NewFD,
       else if (!R.isPODType(Context) && !R->isVoidType() &&
                !R->isObjCObjectPointerType())
         Diag(NewFD->getLocation(), diag::warn_return_value_udt) << NewFD << R;
+    }
+
+    // C++1z [dcl.fct]p6:
+    //   [...] whether the function has a non-throwing exception-specification
+    //   [is] part of the function type
+    //
+    // This results in an ABI break between C++14 and C++17 for functions whose
+    // declared type includes an exception-specification in a parameter or
+    // return type. (Exception specifications on the function itself are OK in
+    // most cases, and exception specifications are not permitted in most other
+    // contexts where they could make it into a mangling.)
+    if (!getLangOpts().CPlusPlus1z && !NewFD->getPrimaryTemplate()) {
+      auto HasNoexcept = [&](QualType T) -> bool {
+        // Strip off declarator chunks that could be between us and a function
+        // type. We don't need to look far, exception specifications are very
+        // restricted prior to C++17.
+        if (auto *RT = T->getAs<ReferenceType>())
+          T = RT->getPointeeType();
+        else if (T->isAnyPointerType())
+          T = T->getPointeeType();
+        else if (auto *MPT = T->getAs<MemberPointerType>())
+          T = MPT->getPointeeType();
+        if (auto *FPT = T->getAs<FunctionProtoType>())
+          if (FPT->isNothrow(Context))
+            return true;
+        return false;
+      };
+
+      auto *FPT = NewFD->getType()->castAs<FunctionProtoType>();
+      bool AnyNoexcept = HasNoexcept(FPT->getReturnType());
+      for (QualType T : FPT->param_types())
+        AnyNoexcept |= HasNoexcept(T);
+      if (AnyNoexcept)
+        Diag(NewFD->getLocation(),
+             diag::warn_cxx1z_compat_exception_spec_in_signature)
+            << NewFD;
     }
   }
   return Redeclaration;
@@ -9697,25 +9740,15 @@ void Sema::AddInitializerToDecl(Decl *RealDecl, Expr *Init,
       VDecl->setInvalidDecl();
   }
 
+  // If adding the initializer will turn this declaration into a definition,
+  // and we already have a definition for this variable, diagnose or otherwise
+  // handle the situation.
   VarDecl *Def;
   if ((Def = VDecl->getDefinition()) && Def != VDecl &&
-      (!VDecl->isStaticDataMember() || VDecl->isOutOfLine())) {
-    NamedDecl *Hidden = nullptr;
-    if (!hasVisibleDefinition(Def, &Hidden) &&
-        (VDecl->getFormalLinkage() == InternalLinkage ||
-         VDecl->getDescribedVarTemplate() ||
-         VDecl->getNumTemplateParameterLists() ||
-         VDecl->getDeclContext()->isDependentContext())) {
-      // The previous definition is hidden, and multiple definitions are
-      // permitted (in separate TUs). Form another definition of it.
-    } else {
-      Diag(VDecl->getLocation(), diag::err_redefinition)
-        << VDecl->getDeclName();
-      Diag(Def->getLocation(), diag::note_previous_definition);
-      VDecl->setInvalidDecl();
-      return;
-    }
-  }
+      (!VDecl->isStaticDataMember() || VDecl->isOutOfLine()) &&
+      !VDecl->isThisDeclarationADemotedDefinition() &&
+      checkVarDeclRedefinition(Def, VDecl))
+    return;
 
   if (getLangOpts().CPlusPlus) {
     // C++ [class.static.data]p4
@@ -10111,7 +10144,8 @@ void Sema::ActOnUninitializedDecl(Decl *RealDecl,
     // C++11 [dcl.constexpr]p1: The constexpr specifier shall be applied only to
     // the definition of a variable [...] or the declaration of a static data
     // member.
-    if (Var->isConstexpr() && !Var->isThisDeclarationADefinition()) {
+    if (Var->isConstexpr() && !Var->isThisDeclarationADefinition() &&
+        !Var->isThisDeclarationADemotedDefinition()) {
       if (Var->isStaticDataMember()) {
         // C++1z removes the relevant rule; the in-class declaration is always
         // a definition there.
@@ -10511,7 +10545,13 @@ void Sema::CheckCompleteVariableDeclaration(VarDecl *var) {
   }
 
   // All the following checks are C++ only.
-  if (!getLangOpts().CPlusPlus) return;
+  if (!getLangOpts().CPlusPlus) {
+      // If this variable must be emitted, add it as an initializer for the
+      // current module.
+     if (Context.DeclMustBeEmitted(var) && !ModuleScopes.empty())
+       Context.addModuleInitializer(ModuleScopes.back().Module, var);
+     return;
+  }
 
   if (auto *DD = dyn_cast<DecompositionDecl>(var))
     CheckCompleteDecompositionDeclaration(DD);
@@ -10671,12 +10711,11 @@ Sema::FinalizeDeclaration(Decl *ThisDecl) {
       // CUDA E.2.9.4: Within the body of a __device__ or __global__
       // function, only __shared__ variables may be declared with
       // static storage class.
-      if (getLangOpts().CUDA && getLangOpts().CUDAIsDevice &&
-          (FD->hasAttr<CUDADeviceAttr>() || FD->hasAttr<CUDAGlobalAttr>()) &&
-          !VD->hasAttr<CUDASharedAttr>()) {
-        Diag(VD->getLocation(), diag::err_device_static_local_var);
+      if (getLangOpts().CUDA && !VD->hasAttr<CUDASharedAttr>() &&
+          CUDADiagIfDeviceCode(VD->getLocation(),
+                               diag::err_device_static_local_var)
+              << CurrentCUDATarget())
         VD->setInvalidDecl();
-      }
     }
   }
 
@@ -10690,7 +10729,7 @@ Sema::FinalizeDeclaration(Decl *ThisDecl) {
     if (Init && VD->hasGlobalStorage()) {
       if (VD->hasAttr<CUDADeviceAttr>() || VD->hasAttr<CUDAConstantAttr>() ||
           VD->hasAttr<CUDASharedAttr>()) {
-        assert((!VD->isStaticLocal() || VD->hasAttr<CUDASharedAttr>()));
+        assert(!VD->isStaticLocal() || VD->hasAttr<CUDASharedAttr>());
         bool AllowedInit = false;
         if (const CXXConstructExpr *CE = dyn_cast<CXXConstructExpr>(Init))
           AllowedInit =
@@ -11440,6 +11479,11 @@ Decl *Sema::ActOnStartOfFunctionDef(Scope *FnBodyScope, Decl *D,
     if (SkipBody && SkipBody->ShouldSkip)
       return D;
   }
+
+  // Mark this function as "will have a body eventually".  This lets users to
+  // call e.g. isInlineDefinitionExternallyVisible while we're still parsing
+  // this function.
+  FD->setWillHaveBody();
 
   // If we are instantiating a generic lambda call operator, push
   // a LambdaScopeInfo onto the function stack.  But use the information
@@ -13333,7 +13377,14 @@ CreateNewDecl:
   OwnedDecl = true;
   // In C++, don't return an invalid declaration. We can't recover well from
   // the cases where we make the type anonymous.
-  return (Invalid && getLangOpts().CPlusPlus) ? nullptr : New;
+  if (Invalid && getLangOpts().CPlusPlus) {
+    if (New->isBeingDefined())
+      if (auto RD = dyn_cast<RecordDecl>(New))
+        RD->completeDefinition();
+    return nullptr;
+  } else {
+    return New;
+  }
 }
 
 void Sema::ActOnTagStartDefinition(Scope *S, Decl *TagD) {
@@ -14368,6 +14419,14 @@ void Sema::ActOnFields(Scope *S, SourceLocation RecLoc, Decl *EnclosingDecl,
     if (!Completed)
       Record->completeDefinition();
 
+    // We may have deferred checking for a deleted destructor. Check now.
+    if (CXXRecordDecl *CXXRecord = dyn_cast<CXXRecordDecl>(Record)) {
+      auto *Dtor = CXXRecord->getDestructor();
+      if (Dtor && Dtor->isImplicit() &&
+          ShouldDeleteSpecialMember(Dtor, CXXDestructor))
+        SetDeclDeleted(Dtor, CXXRecord->getLocation());
+    }
+
     if (Record->hasAttrs()) {
       CheckAlignasUnderalignment(Record);
 
@@ -15282,7 +15341,7 @@ static void checkModuleImportContext(Sema &S, Module *M,
   } else if (!M->IsExternC && ExternCLoc.isValid()) {
     S.Diag(ImportLoc, diag::ext_module_import_in_extern_c)
       << M->getFullModuleName();
-    S.Diag(ExternCLoc, diag::note_module_import_in_extern_c);
+    S.Diag(ExternCLoc, diag::note_extern_c_begins_here);
   }
 }
 
@@ -15601,30 +15660,4 @@ void Sema::ActOnPragmaWeakAlias(IdentifierInfo* Name,
 
 Decl *Sema::getObjCDeclContext() const {
   return (dyn_cast_or_null<ObjCContainerDecl>(CurContext));
-}
-
-AvailabilityResult Sema::getCurContextAvailability() const {
-  const Decl *D = cast_or_null<Decl>(getCurObjCLexicalContext());
-  if (!D)
-    return AR_Available;
-
-  // If we are within an Objective-C method, we should consult
-  // both the availability of the method as well as the
-  // enclosing class.  If the class is (say) deprecated,
-  // the entire method is considered deprecated from the
-  // purpose of checking if the current context is deprecated.
-  if (const ObjCMethodDecl *MD = dyn_cast<ObjCMethodDecl>(D)) {
-    AvailabilityResult R = MD->getAvailability();
-    if (R != AR_Available)
-      return R;
-    D = MD->getClassInterface();
-  }
-  // If we are within an Objective-c @implementation, it
-  // gets the same availability context as the @interface.
-  else if (const ObjCImplementationDecl *ID =
-            dyn_cast<ObjCImplementationDecl>(D)) {
-    D = ID->getClassInterface();
-  }
-  // Recover from user error.
-  return D ? D->getAvailability() : AR_Available;
 }

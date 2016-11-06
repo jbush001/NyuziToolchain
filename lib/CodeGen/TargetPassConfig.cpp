@@ -129,8 +129,7 @@ static cl::opt<CFLAAType> UseCFLAA(
                clEnumValN(CFLAAType::Andersen, "anders",
                           "Enable inclusion-based CFL-AA"),
                clEnumValN(CFLAAType::Both, "both", 
-                          "Enable both variants of CFL-AA"),
-               clEnumValEnd));
+                          "Enable both variants of CFL-AA")));
 
 /// Allow standard passes to be disabled by command line options. This supports
 /// simple binary flags that either suppress the pass or do nothing.
@@ -571,9 +570,6 @@ void TargetPassConfig::addISelPrepare() {
 void TargetPassConfig::addMachinePasses() {
   AddingMachinePasses = true;
 
-  if (TM->Options.EnableIPRA)
-    addPass(createRegUsageInfoPropPass());
-
   // Insert a machine instr printer pass after the specified pass.
   if (!StringRef(PrintMachineInstrs.getValue()).equals("") &&
       !StringRef(PrintMachineInstrs.getValue()).equals("option-unspecified")) {
@@ -588,6 +584,9 @@ void TargetPassConfig::addMachinePasses() {
 
   // Print the instruction selected machine code...
   printAndVerify("After Instruction Selection");
+
+  if (TM->Options.EnableIPRA)
+    addPass(createRegUsageInfoPropPass());
 
   // Expand pseudo-instructions emitted by ISel.
   addPass(&ExpandISelPseudosID);

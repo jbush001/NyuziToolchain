@@ -481,6 +481,9 @@ def warn_deprecated_copy_operation : Warning<
   "for %0 is deprecated because it has a user-declared "
   "%select{copy %select{assignment operator|constructor}1|destructor}2">,
   InGroup<Deprecated>, DefaultIgnore;
+def warn_cxx1z_compat_exception_spec_in_signature : Warning<
+  "mangled name of %0 will change in C++17 due to non-throwing exception "
+  "specification in function signature">, InGroup<CXX1zCompat>;
 
 def warn_global_constructor : Warning<
   "declaration requires a global constructor">,
@@ -509,6 +512,12 @@ def err_maybe_falloff_nonvoid_block : Error<
   "control may reach end of non-void block">;
 def err_falloff_nonvoid_block : Error<
   "control reaches end of non-void block">;
+def warn_maybe_falloff_nonvoid_coroutine : Warning<
+  "control may reach end of non-void coroutine">,
+  InGroup<ReturnType>;
+def warn_falloff_nonvoid_coroutine : Warning<
+  "control reaches end of non-void coroutine">,
+  InGroup<ReturnType>;
 def warn_suggest_noreturn_function : Warning<
   "%select{function|method}0 %1 could be declared with attribute 'noreturn'">,
   InGroup<MissingNoreturn>, DefaultIgnore;
@@ -772,6 +781,9 @@ def note_suppressed_class_declare : Note<
   "class with specified objc_requires_property_definitions attribute is declared here">;
 def err_objc_root_class_subclass : Error<
   "objc_root_class attribute may only be specified on a root class declaration">;
+def err_restricted_superclass_mismatch : Error<
+  "cannot subclass a class that was declared with the "
+  "'objc_subclassing_restricted' attribute">;
 def warn_objc_root_class_missing : Warning<
   "class %0 defined without specifying a base class">,
   InGroup<ObjCRootClass>;
@@ -1294,8 +1306,12 @@ def ext_override_exception_spec : ExtWarn<err_override_exception_spec.Text>,
   InGroup<MicrosoftExceptionSpec>;
 def err_incompatible_exception_specs : Error<
   "target exception specification is not superset of source">;
+def warn_incompatible_exception_specs : Warning<
+  err_incompatible_exception_specs.Text>, InGroup<IncompatibleExceptionSpec>;
 def err_deep_exception_specs_differ : Error<
   "exception specifications of %select{return|argument}0 types differ">;
+def warn_deep_exception_specs_differ : Warning<
+  err_deep_exception_specs_differ.Text>, InGroup<IncompatibleExceptionSpec>;
 def err_missing_exception_specification : Error<
   "%0 is missing exception specification '%1'">;
 def ext_missing_exception_specification : ExtWarn<
@@ -1644,7 +1660,8 @@ def err_init_conversion_failed : Error<
   "%select{none|const|restrict|const and restrict|volatile|const and volatile|"
   "volatile and restrict|const, volatile, and restrict}5 vs "
   "%select{none|const|restrict|const and restrict|volatile|const and volatile|"
-  "volatile and restrict|const, volatile, and restrict}6)}4">;
+  "volatile and restrict|const, volatile, and restrict}6)"
+  "|: different exception specifications}4">;
 
 def err_lvalue_to_rvalue_ref : Error<"rvalue reference %diff{to type $ cannot "
   "bind to lvalue of type $|cannot bind to incompatible lvalue}0,1">;
@@ -2304,6 +2321,9 @@ def err_typecheck_vector_not_convertable_non_scalar : Error<
   "cannot convert between vector and non-scalar values (%0 and %1)">;
 def err_typecheck_vector_lengths_not_equal : Error<
   "vector operands do not have the same number of elements (%0 and %1)">;
+def warn_typecheck_vector_element_sizes_not_equal : Warning<
+  "vector operands do not have the same elements sizes (%0 and %1)">,
+  InGroup<DiagGroup<"vec-elem-size">>, DefaultError;
 def err_ext_vector_component_exceeds_length : Error<
   "vector component access exceeds type %0">;
 def err_ext_vector_component_name_illegal : Error<
@@ -2373,11 +2393,6 @@ def err_swift_param_attr_not_swiftcall : Error<
   "'%0' parameter can only be used with swiftcall calling convention">;
 def err_swift_indirect_result_not_first : Error<
   "'swift_indirect_result' parameters must be first parameters of function">;
-def err_swift_context_not_before_swift_error_result : Error<
-  "'swift_context' parameter can only be followed by 'swift_error_result' "
-  "parameter">;
-def err_swift_error_result_not_last : Error<
-  "'swift_error_result' parameter must be last parameter of function">;
 def err_swift_error_result_not_after_swift_context : Error<
   "'swift_error_result' parameter must follow 'swift_context' parameter">;
 def err_swift_abi_parameter_wrong_type : Error<
@@ -2425,6 +2440,14 @@ def err_no_accessor_for_property : Error<
 def error_cannot_find_suitable_accessor : Error<
   "cannot find suitable %select{getter|setter}0 for property %1">;
 
+def warn_alloca_align_alignof : Warning<
+  "second argument to __builtin_alloca_with_align is supposed to be in bits">,
+  InGroup<DiagGroup<"alloca-with-align-alignof">>;
+
+def err_alignment_too_small : Error<
+  "requested alignment must be %0 or greater">;
+def err_alignment_too_big : Error<
+  "requested alignment must be %0 or smaller">;
 def err_alignment_not_power_of_two : Error<
   "requested alignment is not a power of 2">;
 def err_alignment_dependent_typedef_name : Error<
@@ -2577,6 +2600,7 @@ def warn_attribute_wrong_decl_type : Warning<
   "|functions, methods and blocks"
   "|functions, methods, and classes"
   "|functions, methods, and parameters"
+  "|functions, methods, and global variables"
   "|classes"
   "|enums"
   "|variables"
@@ -3277,7 +3301,8 @@ def note_ovl_candidate : Note<"candidate "
     "%select{none|const|restrict|const and restrict|volatile|const and volatile"
     "|volatile and restrict|const, volatile, and restrict}3 but found "
     "%select{none|const|restrict|const and restrict|volatile|const and volatile"
-    "|volatile and restrict|const, volatile, and restrict}4)}2">;
+    "|volatile and restrict|const, volatile, and restrict}4)"
+    "| has different exception specification}2">;
 
 def note_ovl_candidate_inherited_constructor : Note<
     "constructor from base class %0 inherited here">;
@@ -4477,6 +4502,8 @@ def err_extern_c_global_conflict : Error<
   "conflicts with declaration %select{in global scope|with C language linkage}0">;
 def note_extern_c_global_conflict : Note<
   "declared %select{in global scope|with C language linkage}0 here">;
+def note_extern_c_begins_here : Note<
+  "extern \"C\" language linkage specification begins here">;
 def warn_weak_import : Warning <
   "an already-declared variable is made a weak_import declaration %0">;
 def ext_static_non_static : Extension<
@@ -5072,6 +5099,16 @@ def err_arc_inconsistent_property_ownership : Error<
 
 } // end "ARC and @properties" category
 
+def warn_block_capture_autoreleasing : Warning<
+  "block captures an autoreleasing out-parameter, which may result in "
+  "use-after-free bugs">,
+  InGroup<BlockCaptureAutoReleasing>, DefaultIgnore;
+def note_declare_parameter_autoreleasing : Note<
+  "declare the parameter __autoreleasing explicitly to suppress this warning">;
+def note_declare_parameter_strong : Note<
+  "declare the parameter __strong or capture a __block __strong variable to "
+  "keep values alive across autorelease pools">;
+
 def err_arc_atomic_ownership : Error<
   "cannot perform atomic operation on a pointer to type %0: type has "
   "non-trivial ownership">;
@@ -5535,6 +5572,8 @@ def ext_typecheck_ordered_comparison_of_pointer_integer : ExtWarn<
   "ordered comparison between pointer and integer (%0 and %1)">;
 def ext_typecheck_ordered_comparison_of_pointer_and_zero : Extension<
   "ordered comparison between pointer and zero (%0 and %1) is an extension">;
+def err_typecheck_ordered_comparison_of_pointer_and_zero : Error<
+  "ordered comparison between pointer and zero (%0 and %1)">;
 def ext_typecheck_ordered_comparison_of_function_pointers : ExtWarn<
   "ordered comparison of function pointers (%0 and %1)">;
 def ext_typecheck_comparison_of_fptr_to_void : Extension<
@@ -5555,9 +5594,6 @@ def err_cond_voidptr_arc : Error <
   "in ARC mode">;
 def err_typecheck_comparison_of_distinct_pointers : Error<
   "comparison of distinct pointer types%diff{ ($ and $)|}0,1">;
-def ext_typecheck_comparison_of_distinct_pointers_nonstandard : ExtWarn<
-  "comparison of distinct pointer types (%0 and %1) uses non-standard "
-  "composite pointer type %2">, InGroup<CompareDistinctPointerType>;
 def err_typecheck_op_on_nonoverlapping_address_space_pointers : Error<
   "%select{comparison between %diff{ ($ and $)|}0,1"
   "|arithmetic operation with operands of type %diff{ ($ and $)|}0,1"
@@ -5609,11 +5645,13 @@ def err_shift_rhs_only_vector : Error<
   "requested shift is a vector of type %0 but the first operand is not a "
   "vector (%1)">;
 
-def warn_logical_not_on_lhs_of_comparison : Warning<
-  "logical not is only applied to the left hand side of this comparison">,
+def warn_logical_not_on_lhs_of_check : Warning<
+  "logical not is only applied to the left hand side of this "
+  "%select{comparison|bitwise operator}0">,
   InGroup<LogicalNotParentheses>;
 def note_logical_not_fix : Note<
-  "add parentheses after the '!' to evaluate the comparison first">;
+  "add parentheses after the '!' to evaluate the "
+  "%select{comparison|bitwise operator}0 first">;
 def note_logical_not_silence_with_parens : Note<
   "add parentheses around left hand side expression to silence this warning">;
 
@@ -5906,6 +5944,9 @@ def err_bad_cxx_cast_vector_to_vector_different_size : Error<
 def err_bad_lvalue_to_rvalue_cast : Error<
   "cannot cast from lvalue of type %1 to rvalue reference type %2; types are "
   "not compatible">;
+def err_bad_rvalue_to_rvalue_cast : Error<
+  "cannot cast from rvalue of type %1 to rvalue reference type %2; types are "
+  "not compatible">;
 def err_bad_static_cast_pointer_nonpointer : Error<
   "cannot cast from type %1 to pointer type %2">;
 def err_bad_static_cast_member_pointer_nonmp : Error<
@@ -6025,6 +6066,10 @@ def err_no_suitable_delete_member_function_found : Error<
   "no suitable member %0 in %1">;
 def err_ambiguous_suitable_delete_member_function_found : Error<
   "multiple suitable %0 functions in %1">;
+def warn_ambiguous_suitable_delete_function_found : Warning<
+  "multiple suitable %0 functions for %1; no 'operator delete' function "
+  "will be invoked if initialization throws an exception">,
+  InGroup<DiagGroup<"ambiguous-delete">>;
 def note_member_declared_here : Note<
   "member %0 declared here">;
 def err_decrement_bool : Error<"cannot decrement expression of type bool">;
@@ -6096,7 +6141,8 @@ def note_hidden_overloaded_virtual_declared_here : Note<
   "%select{none|const|restrict|const and restrict|volatile|const and volatile|"
   "volatile and restrict|const, volatile, and restrict}2 vs "
   "%select{none|const|restrict|const and restrict|volatile|const and volatile|"
-  "volatile and restrict|const, volatile, and restrict}3)}1">;
+  "volatile and restrict|const, volatile, and restrict}3)"
+  "|: different exception specifications}1">;
 def warn_using_directive_in_header : Warning<
   "using namespace directive in global context in header">,
   InGroup<HeaderHygiene>, DefaultIgnore;
@@ -6338,7 +6384,8 @@ def err_typecheck_convert_incompatible : Error<
   "%select{none|const|restrict|const and restrict|volatile|const and volatile|"
   "volatile and restrict|const, volatile, and restrict}5 vs "
   "%select{none|const|restrict|const and restrict|volatile|const and volatile|"
-  "volatile and restrict|const, volatile, and restrict}6)}4">;
+  "volatile and restrict|const, volatile, and restrict}6)"
+  "|: different exception specifications}4">;
 def err_typecheck_missing_return_type_incompatible : Error<
   "%diff{return type $ must match previous return type $|"
   "return type must match previous return type}0,1 when %select{block "
@@ -6695,6 +6742,7 @@ def err_deleted_function_use : Error<"attempt to use a deleted function">;
 def err_deleted_inherited_ctor_use : Error<
   "constructor inherited by %0 from base class %1 is implicitly deleted">;
 
+def note_called_by : Note<"called by %0">;
 def err_kern_type_not_void_return : Error<
   "kernel function type %0 must have void return type">;
 def err_kern_is_nonstatic_method : Error<
@@ -6730,19 +6778,22 @@ def note_cuda_conflicting_device_function_declared_here : Note<
   "conflicting __device__ function declared here">;
 def err_cuda_device_exceptions : Error<
   "cannot use '%0' in "
-  "%select{__device__|__global__|__host__|__host__ __device__}1 function %2">;
+  "%select{__device__|__global__|__host__|__host__ __device__}1 function">;
 def err_dynamic_var_init : Error<
     "dynamic initialization is not supported for "
     "__device__, __constant__, and __shared__ variables.">;
 def err_shared_var_init : Error<
     "initialization is not supported for __shared__ variables.">;
 def err_device_static_local_var : Error<
-    "Within a __device__/__global__ function, "
-    "only __shared__ variables may be marked \"static\"">;
+    "within a %select{__device__|__global__|__host__|__host__ __device__}0 "
+    "function, only __shared__ variables may be marked 'static'">;
 def err_cuda_vla : Error<
     "cannot use variable-length arrays in "
     "%select{__device__|__global__|__host__|__host__ __device__}0 functions">;
 def err_cuda_extern_shared : Error<"__shared__ variable %0 cannot be 'extern'">;
+def err_cuda_host_shared : Error<
+    "__shared__ local variables not allowed in "
+    "%select{__device__|__global__|__host__|__host__ __device__}0 functions">;
 def err_cuda_nonglobal_constant : Error<"__constant__ variables must be global">;
 
 def warn_non_pod_vararg_with_format_string : Warning<
@@ -6826,9 +6877,6 @@ def err_typecheck_expect_scalar_operand : Error<
   "operand of type %0 where arithmetic or pointer type is required">;
 def err_typecheck_cond_incompatible_operands : Error<
   "incompatible operand types%diff{ ($ and $)|}0,1">;
-def ext_typecheck_cond_incompatible_operands_nonstandard : ExtWarn<
-  "incompatible operand types%diff{ ($ and $)|}0,1 use non-standard composite "
-  "pointer type %2">;
 def err_cast_selector_expr : Error<
   "cannot type cast @selector expression">;
 def ext_typecheck_cond_incompatible_pointers : ExtWarn<
@@ -7402,6 +7450,12 @@ def warn_format_non_standard: Warning<
 def warn_format_non_standard_conversion_spec: Warning<
   "using length modifier '%0' with conversion specifier '%1' is not supported by ISO C">,
   InGroup<FormatNonStandard>, DefaultIgnore;
+def warn_format_invalid_annotation : Warning<
+  "using '%0' format specifier annotation outside of os_log()/os_trace()">,
+  InGroup<Format>;
+def warn_format_P_no_precision : Warning<
+  "using '%%P' format specifier without precision">,
+  InGroup<Format>;
 def warn_printf_ignored_flag: Warning<
   "flag '%0' is ignored when flag '%1' is present">,
   InGroup<Format>;
@@ -7537,6 +7591,15 @@ def warn_cfstring_truncated : Warning<
   "input conversion stopped due to an input byte that does not "
   "belong to the input codeset UTF-8">,
   InGroup<DiagGroup<"CFString-literal">>;
+
+// os_log checking
+// TODO: separate diagnostic for os_trace()
+def err_os_log_format_not_string_constant : Error<
+  "os_log() format argument is not a string constant">;
+def err_os_log_argument_too_big : Error<
+  "os_log() argument %0 is too big (%1 bytes, max %2)">;
+def warn_os_log_format_narg : Error<
+ "os_log() '%%n' format specifier is not allowed">, DefaultError;
 
 // Statements.
 def err_continue_not_in_loop : Error<
@@ -7742,6 +7805,8 @@ def err_invalid_neon_type_code : Error<
   "incompatible constant for this __builtin_neon function">; 
 def err_argument_invalid_range : Error<
   "argument should be a value from %0 to %1">;
+def err_argument_not_multiple : Error<
+  "argument should be a multiple of %0">;
 def warn_neon_vector_initializer_non_portable : Warning<
   "vector initializers are not compatible with NEON intrinsics in big endian "
   "mode">, InGroup<DiagGroup<"nonportable-vector-initialization">>;
@@ -8028,8 +8093,6 @@ def err_atomic_init_constant : Error<
   " in the declaration statement in the program scope">;
 def err_opencl_implicit_vector_conversion : Error<
   "implicit conversions between vector types (%0 and %1) are not permitted">;
-def err_opencl_block_proto_variadic : Error<
-  "invalid block prototype, variadic arguments are not allowed in OpenCL">;
 def err_opencl_invalid_type_array : Error<
   "array of %0 type is invalid in OpenCL">;
 def err_opencl_ternary_with_block : Error<
@@ -8041,6 +8104,8 @@ def err_opencl_type_can_only_be_used_as_function_parameter : Error <
 def warn_opencl_attr_deprecated_ignored : Warning <
   "%0 attribute is deprecated and ignored in OpenCL version %1">,
   InGroup<IgnoredAttributes>;
+def err_opencl_variadic_function : Error<
+  "invalid prototype, variadic arguments are not allowed in OpenCL">;
 
 // OpenCL v2.0 s6.13.6 -- Builtin Pipe Functions
 def err_opencl_builtin_pipe_first_arg : Error<
@@ -8545,8 +8610,6 @@ def ext_module_import_in_extern_c : ExtWarn<
   "import of C++ module '%0' appears within extern \"C\" language linkage "
   "specification">, DefaultError,
   InGroup<DiagGroup<"module-import-in-extern-c">>;
-def note_module_import_in_extern_c : Note<
-  "extern \"C\" language linkage specification begins here">;
 def err_module_import_not_at_top_level_fatal : Error<
   "import of module '%0' appears within %1">, DefaultFatal;
 def ext_module_import_not_at_top_level_noop : ExtWarn<
@@ -8579,14 +8642,11 @@ def err_coroutine_unevaluated_context : Error<
   "'%0' cannot be used in an unevaluated context">;
 def err_coroutine_outside_function : Error<
   "'%0' cannot be used outside a function">;
-def err_coroutine_ctor_dtor : Error<
-  "'%1' cannot be used in a %select{constructor|destructor}0">;
-def err_coroutine_constexpr : Error<
-  "'%0' cannot be used in a constexpr function">;
-def err_coroutine_main : Error<
-  "'main' cannot be a coroutine">;
-def err_coroutine_varargs : Error<
-  "'%0' cannot be used in a varargs function">;
+def err_coroutine_invalid_func_context : Error<
+  "'%1' cannot be used in %select{a constructor|a destructor"
+  "|a copy assignment operator|a move assignment operator|the 'main' function"
+  "|a constexpr function|a function with a deduced return type"
+  "|a varargs function}0">;
 def ext_coroutine_without_co_await_co_yield : ExtWarn<
   "'co_return' used in a function "
   "that uses neither 'co_await' nor 'co_yield'">,
@@ -8602,6 +8662,13 @@ def err_implied_std_coroutine_traits_promise_type_not_class : Error<
 def err_coroutine_traits_missing_specialization : Error<
   "this function cannot be a coroutine: missing definition of "
   "specialization %q0">;
+def err_implied_std_current_exception_not_found : Error<
+  "you need to include <exception> before defining a coroutine that implicitly "
+  "uses 'set_exception'">;
+def err_malformed_std_current_exception : Error<
+  "'std::current_exception' must be a function">;
+def err_coroutine_promise_return_ill_formed : Error<
+  "%0 declares both 'return_value' and 'return_void'">;
 }
 
 let CategoryName = "Documentation Issue" in {

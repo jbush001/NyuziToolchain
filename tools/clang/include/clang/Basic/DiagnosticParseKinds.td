@@ -521,6 +521,12 @@ def ext_constexpr_if : ExtWarn<
 def warn_cxx14_compat_constexpr_if : Warning<
   "constexpr if is incompatible with C++ standards before C++1z">,
   DefaultIgnore, InGroup<CXXPre1zCompat>;
+def ext_init_statement : ExtWarn<
+  "'%select{if|switch}0' initialization statements are a C++1z extension">,
+  InGroup<CXX1z>;
+def warn_cxx14_compat_init_statement : Warning<
+  "%select{if|switch}0 initialization statements are incompatible with "
+  "C++ standards before C++1z">, DefaultIgnore, InGroup<CXXPre1zCompat>;
 
 // C++ derived classes
 def err_dup_virtual : Error<"duplicate 'virtual' in base specifier">;
@@ -1026,6 +1032,12 @@ def warn_pragma_unroll_cuda_value_in_parens : Warning<
 def warn_cuda_attr_lambda_position : Warning<
   "nvcc does not allow '__%0__' to appear after '()' in lambdas">,
   InGroup<CudaCompat>;
+def warn_pragma_force_cuda_host_device_bad_arg : Warning<
+  "incorrect use of #pragma clang force_cuda_host_device begin|end">,
+  InGroup<IgnoredPragmas>;
+def err_pragma_cannot_end_force_cuda_host_device : Error<
+  "force_cuda_host_device end pragma without matching "
+  "force_cuda_host_device begin">;
 } // end of Parse Issue category.
 
 let CategoryName = "Modules Issue" in {

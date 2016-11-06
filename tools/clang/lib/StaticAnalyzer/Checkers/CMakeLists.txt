@@ -54,6 +54,7 @@ add_clang_library(clangStaticAnalyzerCheckers
   NoReturnFunctionChecker.cpp
   NonNullParamChecker.cpp
   NullabilityChecker.cpp
+  NumberObjectConversionChecker.cpp
   ObjCAtSyncChecker.cpp
   ObjCContainersASTChecker.cpp
   ObjCContainersChecker.cpp
@@ -70,6 +71,7 @@ add_clang_library(clangStaticAnalyzerCheckers
   ReturnUndefChecker.cpp
   SimpleStreamChecker.cpp
   StackAddrEscapeChecker.cpp
+  StdLibraryFunctionsChecker.cpp
   StreamChecker.cpp
   TaintTesterChecker.cpp
   TestAfterDivZeroChecker.cpp
@@ -91,6 +93,7 @@ add_clang_library(clangStaticAnalyzerCheckers
 
   LINK_LIBS
   clangAST
+  clangASTMatchers
   clangAnalysis
   clangBasic
   clangLex

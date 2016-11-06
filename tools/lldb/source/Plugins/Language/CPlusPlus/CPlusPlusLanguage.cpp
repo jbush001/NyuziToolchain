@@ -803,6 +803,11 @@ static void LoadLibStdcppFormatters(lldb::TypeCategoryImplSP cpp_category_sp) {
 
   AddCXXSynthetic(
       cpp_category_sp,
+      lldb_private::formatters::LibStdcppUniquePtrSyntheticFrontEndCreator,
+      "std::unique_ptr synthetic children",
+      ConstString("^std::unique_ptr<.+>(( )?&)?$"), stl_synth_flags, true);
+  AddCXXSynthetic(
+      cpp_category_sp,
       lldb_private::formatters::LibStdcppSharedPtrSyntheticFrontEndCreator,
       "std::shared_ptr synthetic children",
       ConstString("^std::shared_ptr<.+>(( )?&)?$"), stl_synth_flags, true);
@@ -811,7 +816,17 @@ static void LoadLibStdcppFormatters(lldb::TypeCategoryImplSP cpp_category_sp) {
       lldb_private::formatters::LibStdcppSharedPtrSyntheticFrontEndCreator,
       "std::weak_ptr synthetic children",
       ConstString("^std::weak_ptr<.+>(( )?&)?$"), stl_synth_flags, true);
+  AddCXXSynthetic(
+      cpp_category_sp,
+      lldb_private::formatters::LibStdcppTupleSyntheticFrontEndCreator,
+      "std::tuple synthetic children", ConstString("^std::tuple<.+>(( )?&)?$"),
+      stl_synth_flags, true);
 
+  AddCXXSummary(cpp_category_sp,
+                lldb_private::formatters::LibStdcppUniquePointerSummaryProvider,
+                "libstdc++ std::unique_ptr summary provider",
+                ConstString("^std::unique_ptr<.+>(( )?&)?$"), stl_summary_flags,
+                true);
   AddCXXSummary(cpp_category_sp,
                 lldb_private::formatters::LibStdcppSmartPointerSummaryProvider,
                 "libstdc++ std::shared_ptr summary provider",
@@ -901,6 +916,23 @@ static void LoadSystemFormatters(lldb::TypeCategoryImplSP cpp_category_sp) {
       cpp_category_sp, lldb_private::formatters::Char16SummaryProvider,
       "unichar summary provider", ConstString("unichar"), widechar_flags);
 #endif
+}
+
+std::unique_ptr<Language::TypeScavenger> CPlusPlusLanguage::GetTypeScavenger() {
+  class CPlusPlusTypeScavenger : public Language::ImageListTypeScavenger {
+  public:
+    virtual CompilerType AdjustForInclusion(CompilerType &candidate) override {
+      LanguageType lang_type(candidate.GetMinimumLanguage());
+      if (!Language::LanguageIsC(lang_type) &&
+          !Language::LanguageIsCPlusPlus(lang_type))
+        return CompilerType();
+      if (candidate.IsTypedefType())
+        return candidate.GetTypedefedType();
+      return candidate;
+    }
+  };
+  
+  return std::unique_ptr<TypeScavenger>(new CPlusPlusTypeScavenger());
 }
 
 lldb::TypeCategoryImplSP CPlusPlusLanguage::GetFormatters() {

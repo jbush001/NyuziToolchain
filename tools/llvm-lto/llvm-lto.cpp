@@ -102,8 +102,7 @@ cl::opt<ThinLTOModes> ThinLTOMode(
                    "(requires -thinlto-index)."),
         clEnumValN(THINOPT, "optimize", "Perform ThinLTO optimizations."),
         clEnumValN(THINCODEGEN, "codegen", "CodeGen (expected to match llc)"),
-        clEnumValN(THINALL, "run", "Perform ThinLTO end-to-end"),
-        clEnumValEnd));
+        clEnumValN(THINALL, "run", "Perform ThinLTO end-to-end")));
 
 static cl::opt<std::string>
     ThinLTOIndex("thinlto-index",
@@ -824,7 +823,7 @@ int main(int argc, char **argv) {
   for (unsigned i = BaseArg; i < InputFilenames.size(); ++i) {
     CurrentActivity = "loading file '" + InputFilenames[i] + "'";
     ErrorOr<std::unique_ptr<LTOModule>> ModuleOrErr =
-        LTOModule::createFromFile(Context, InputFilenames[i].c_str(), Options);
+        LTOModule::createFromFile(Context, InputFilenames[i], Options);
     std::unique_ptr<LTOModule> &Module = *ModuleOrErr;
     CurrentActivity = "";
 
@@ -852,11 +851,11 @@ int main(int argc, char **argv) {
 
   // Add all the exported symbols to the table of symbols to preserve.
   for (unsigned i = 0; i < ExportedSymbols.size(); ++i)
-    CodeGen.addMustPreserveSymbol(ExportedSymbols[i].c_str());
+    CodeGen.addMustPreserveSymbol(ExportedSymbols[i]);
 
   // Add all the dso symbols to the table of symbols to expose.
   for (unsigned i = 0; i < KeptDSOSyms.size(); ++i)
-    CodeGen.addMustPreserveSymbol(KeptDSOSyms[i].c_str());
+    CodeGen.addMustPreserveSymbol(KeptDSOSyms[i]);
 
   // Set cpu and attrs strings for the default target/subtarget.
   CodeGen.setCpu(MCPU.c_str());
@@ -871,7 +870,7 @@ int main(int argc, char **argv) {
   }
 
   if (!attrs.empty())
-    CodeGen.setAttr(attrs.c_str());
+    CodeGen.setAttr(attrs);
 
   if (FileType.getNumOccurrences())
     CodeGen.setFileType(FileType);
@@ -888,7 +887,7 @@ int main(int argc, char **argv) {
       ModuleFilename += ".merged.bc";
       std::string ErrMsg;
 
-      if (!CodeGen.writeMergedModules(ModuleFilename.c_str()))
+      if (!CodeGen.writeMergedModules(ModuleFilename))
         error("writing merged module failed.");
     }
 

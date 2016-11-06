@@ -10,53 +10,29 @@
 #include "llvm/DebugInfo/CodeView/CVTypeVisitor.h"
 
 #include "llvm/DebugInfo/CodeView/CodeViewError.h"
+#include "llvm/DebugInfo/CodeView/TypeDeserializer.h"
+#include "llvm/DebugInfo/CodeView/TypeVisitorCallbackPipeline.h"
 #include "llvm/DebugInfo/MSF/ByteStream.h"
 
 using namespace llvm;
 using namespace llvm::codeview;
 
 template <typename T>
-static Error takeObject(ArrayRef<uint8_t> &Data, const T *&Res) {
-  if (Data.size() < sizeof(*Res))
-    return llvm::make_error<CodeViewError>(cv_error_code::insufficient_buffer);
-  Res = reinterpret_cast<const T *>(Data.data());
-  Data = Data.drop_front(sizeof(*Res));
-  return Error::success();
-}
+static Expected<CVMemberRecord>
+deserializeMemberRecord(FieldListDeserializer &Deserializer,
+                        msf::StreamReader &Reader, TypeLeafKind Kind) {
+  T MR(static_cast<TypeRecordKind>(Kind));
+  CVMemberRecord CVR;
+  CVR.Kind = Kind;
 
-static Error skipPadding(ArrayRef<uint8_t> &Data) {
-  if (Data.empty())
-    return Error::success();
-  uint8_t Leaf = Data.front();
-  if (Leaf < LF_PAD0)
-    return Error::success();
-  // Leaf is greater than 0xf0. We should advance by the number of bytes in
-  // the low 4 bits.
-  unsigned BytesToAdvance = Leaf & 0x0F;
-  if (Data.size() < BytesToAdvance) {
-    return llvm::make_error<CodeViewError>(cv_error_code::corrupt_record,
-                                           "Invalid padding bytes!");
-  }
-  Data = Data.drop_front(BytesToAdvance);
-  return Error::success();
-}
-
-template <typename T>
-static Expected<CVMemberRecord> deserializeMemberRecord(ArrayRef<uint8_t> &Data,
-                                                        TypeLeafKind Kind) {
-  ArrayRef<uint8_t> OldData = Data;
-  TypeRecordKind RK = static_cast<TypeRecordKind>(Kind);
-  auto ExpectedRecord = T::deserialize(RK, Data);
-  if (!ExpectedRecord)
-    return ExpectedRecord.takeError();
-  assert(Data.size() < OldData.size());
-  if (auto EC = skipPadding(Data))
+  if (auto EC = Deserializer.visitMemberBegin(CVR))
+    return std::move(EC);
+  if (auto EC = Deserializer.visitKnownMember(CVR, MR))
+    return std::move(EC);
+  if (auto EC = Deserializer.visitMemberEnd(CVR))
     return std::move(EC);
 
-  CVMemberRecord CVMR;
-  CVMR.Kind = Kind;
-  CVMR.Data = OldData.drop_back(Data.size());
-  return CVMR;
+  return CVR;
 }
 
 CVTypeVisitor::CVTypeVisitor(TypeVisitorCallbacks &Callbacks)
@@ -147,28 +123,33 @@ Error CVTypeVisitor::visitTypeStream(const CVTypeArray &Types) {
 }
 
 template <typename MR>
-static Error visitKnownMember(ArrayRef<uint8_t> &Data, TypeLeafKind Leaf,
+static Error visitKnownMember(FieldListDeserializer &Deserializer,
+                              msf::StreamReader &Reader, TypeLeafKind Leaf,
                               TypeVisitorCallbacks &Callbacks) {
-  auto ExpectedRecord = deserializeMemberRecord<MR>(Data, Leaf);
-  if (!ExpectedRecord)
-    return ExpectedRecord.takeError();
-  CVMemberRecord &Record = *ExpectedRecord;
-  if (auto EC = Callbacks.visitMemberBegin(Record))
+  MR Record(static_cast<TypeRecordKind>(Leaf));
+  CVMemberRecord CVR;
+  CVR.Kind = Leaf;
+
+  if (auto EC = Callbacks.visitMemberBegin(CVR))
     return EC;
-  if (auto EC = visitKnownMember<MR>(Record, Callbacks))
+  if (auto EC = Callbacks.visitKnownMember(CVR, Record))
     return EC;
-  if (auto EC = Callbacks.visitMemberEnd(Record))
+  if (auto EC = Callbacks.visitMemberEnd(CVR))
     return EC;
   return Error::success();
 }
 
-Error CVTypeVisitor::visitFieldListMemberStream(ArrayRef<uint8_t> Data) {
-  while (!Data.empty()) {
-    const support::ulittle16_t *LeafValue;
-    if (auto EC = takeObject(Data, LeafValue))
+Error CVTypeVisitor::visitFieldListMemberStream(msf::StreamReader Reader) {
+  FieldListDeserializer Deserializer(Reader);
+  TypeVisitorCallbackPipeline Pipeline;
+  Pipeline.addCallbackToPipeline(Deserializer);
+  Pipeline.addCallbackToPipeline(Callbacks);
+
+  TypeLeafKind Leaf;
+  while (!Reader.empty()) {
+    if (auto EC = Reader.readEnum(Leaf))
       return EC;
 
-    TypeLeafKind Leaf = static_cast<TypeLeafKind>(uint16_t(*LeafValue));
     CVType Record;
     switch (Leaf) {
     default:
@@ -178,7 +159,8 @@ Error CVTypeVisitor::visitFieldListMemberStream(ArrayRef<uint8_t> Data) {
           cv_error_code::unknown_member_record);
 #define MEMBER_RECORD(EnumName, EnumVal, Name)                                 \
   case EnumName: {                                                             \
-    if (auto EC = visitKnownMember<Name##Record>(Data, Leaf, Callbacks))       \
+    if (auto EC = visitKnownMember<Name##Record>(Deserializer, Reader, Leaf,   \
+                                                 Pipeline))                    \
       return EC;                                                               \
     break;                                                                     \
   }
@@ -188,4 +170,10 @@ Error CVTypeVisitor::visitFieldListMemberStream(ArrayRef<uint8_t> Data) {
     }
   }
   return Error::success();
+}
+
+Error CVTypeVisitor::visitFieldListMemberStream(ArrayRef<uint8_t> Data) {
+  msf::ByteStream S(Data);
+  msf::StreamReader SR(S);
+  return visitFieldListMemberStream(SR);
 }

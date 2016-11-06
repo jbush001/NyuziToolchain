@@ -303,7 +303,8 @@ void ModuleMap::diagnoseHeaderInclusion(Module *RequestingModule,
     diag::kind DiagID = RequestingModule->getTopLevelModule()->IsFramework ?
         diag::warn_non_modular_include_in_framework_module :
         diag::warn_non_modular_include_in_module;
-    Diags.Report(FilenameLoc, DiagID) << RequestingModule->getFullModuleName();
+    Diags.Report(FilenameLoc, DiagID) << RequestingModule->getFullModuleName()
+        << File->getName();
   }
 }
 
@@ -327,9 +328,10 @@ static bool isBetterKnownHeader(const ModuleMap::KnownHeader &New,
   return false;
 }
 
-ModuleMap::KnownHeader ModuleMap::findModuleForHeader(const FileEntry *File) {
+ModuleMap::KnownHeader ModuleMap::findModuleForHeader(const FileEntry *File,
+                                                      bool AllowTextual) {
   auto MakeResult = [&](ModuleMap::KnownHeader R) -> ModuleMap::KnownHeader {
-    if (R.getRole() & ModuleMap::TextualHeader)
+    if (!AllowTextual && R.getRole() & ModuleMap::TextualHeader)
       return ModuleMap::KnownHeader();
     return R;
   };
@@ -674,6 +676,8 @@ Module *ModuleMap::inferFrameworkModule(const DirectoryEntry *FrameworkDir,
           Attrs.IsSystem |= inferred->second.Attrs.IsSystem;
           Attrs.IsExternC |= inferred->second.Attrs.IsExternC;
           Attrs.IsExhaustive |= inferred->second.Attrs.IsExhaustive;
+          Attrs.NoUndeclaredIncludes |=
+              inferred->second.Attrs.NoUndeclaredIncludes;
           ModuleMapFile = inferred->second.ModuleMapFile;
         }
       }
@@ -711,6 +715,7 @@ Module *ModuleMap::inferFrameworkModule(const DirectoryEntry *FrameworkDir,
   Result->IsSystem |= Attrs.IsSystem;
   Result->IsExternC |= Attrs.IsExternC;
   Result->ConfigMacrosExhaustive |= Attrs.IsExhaustive;
+  Result->NoUndeclaredIncludes |= Attrs.NoUndeclaredIncludes;
   Result->Directory = FrameworkDir;
 
   // umbrella header "umbrella-header-name"
@@ -1309,7 +1314,9 @@ namespace {
     /// \brief The 'extern_c' attribute.
     AT_extern_c,
     /// \brief The 'exhaustive' attribute.
-    AT_exhaustive
+    AT_exhaustive,
+    /// \brief The 'no_undeclared_includes' attribute.
+    AT_no_undeclared_includes
   };
 }
 
@@ -1479,6 +1486,9 @@ void ModuleMapParser::parseModuleDecl() {
     ActiveModule->IsSystem = true;
   if (Attrs.IsExternC)
     ActiveModule->IsExternC = true;
+  if (Attrs.NoUndeclaredIncludes ||
+      (!ActiveModule->Parent && ModuleName == "Darwin"))
+    ActiveModule->NoUndeclaredIncludes = true;
   ActiveModule->Directory = Directory;
 
   bool Done = false;
@@ -1845,13 +1855,7 @@ void ModuleMapParser::parseHeaderDecl(MMToken::TokenKind LeadingToken,
         // If Clang supplies this header but the underlying system does not,
         // just silently swap in our builtin version. Otherwise, we'll end
         // up adding both (later).
-        //
-        // For local visibility, entirely replace the system file with our
-        // one and textually include the system one. We need to pass macros
-        // from our header to the system one if we #include_next it.
-        //
-        // FIXME: Can we do this in all cases?
-        if (BuiltinFile && (!File || Map.LangOpts.ModulesLocalVisibility)) {
+        if (BuiltinFile && !File) {
           File = BuiltinFile;
           RelativePathName = BuiltinPathName;
           BuiltinFile = nullptr;
@@ -1877,15 +1881,20 @@ void ModuleMapParser::parseHeaderDecl(MMToken::TokenKind LeadingToken,
       Module::Header H = {RelativePathName.str(), File};
       Map.excludeHeader(ActiveModule, H);
     } else {
-      // If there is a builtin counterpart to this file, add it now, before
-      // the "real" header, so we build the built-in one first when building
-      // the module.
+      // If there is a builtin counterpart to this file, add it now so it can
+      // wrap the system header.
       if (BuiltinFile) {
         // FIXME: Taking the name from the FileEntry is unstable and can give
         // different results depending on how we've previously named that file
         // in this build.
         Module::Header H = { BuiltinFile->getName(), BuiltinFile };
         Map.addHeader(ActiveModule, H, Role);
+
+        // If we have both a builtin and system version of the file, the
+        // builtin version may want to inject macros into the system header, so
+        // force the system header to be treated as a textual header in this
+        // case.
+        Role = ModuleMap::ModuleHeaderRole(Role | ModuleMap::TextualHeader);
       }
 
       // Record this header.
@@ -2375,6 +2384,7 @@ bool ModuleMapParser::parseOptionalAttributes(Attributes &Attrs) {
       = llvm::StringSwitch<AttributeKind>(Tok.getString())
           .Case("exhaustive", AT_exhaustive)
           .Case("extern_c", AT_extern_c)
+          .Case("no_undeclared_includes", AT_no_undeclared_includes)
           .Case("system", AT_system)
           .Default(AT_unknown);
     switch (Attribute) {
@@ -2393,6 +2403,10 @@ bool ModuleMapParser::parseOptionalAttributes(Attributes &Attrs) {
 
     case AT_exhaustive:
       Attrs.IsExhaustive = true;
+      break;
+
+    case AT_no_undeclared_includes:
+      Attrs.NoUndeclaredIncludes = true;
       break;
     }
     consumeToken();

@@ -1067,7 +1067,7 @@ HexagonTargetLowering::LowerDYNAMIC_STACKALLOC(SDValue Op,
     A = HFI.getStackAlignment();
 
   DEBUG({
-    dbgs () << LLVM_FUNCTION_NAME << " Align: " << A << " Size: ";
+    dbgs () << __func__ << " Align: " << A << " Size: ";
     Size.getNode()->dump(&DAG);
     dbgs() << "\n";
   });
@@ -1507,7 +1507,8 @@ HexagonTargetLowering::LowerGLOBALADDRESS(SDValue Op, SelectionDAG &DAG) const {
 
   if (RM == Reloc::Static) {
     SDValue GA = DAG.getTargetGlobalAddress(GV, dl, PtrVT, Offset);
-    if (HLOF.isGlobalInSmallSection(GV, HTM))
+    const GlobalObject *GO = GV->getBaseObject();
+    if (GO && HLOF.isGlobalInSmallSection(GO, HTM))
       return DAG.getNode(HexagonISD::CONST32_GP, dl, PtrVT, GA);
     return DAG.getNode(HexagonISD::CONST32, dl, PtrVT, GA);
   }
@@ -1956,7 +1957,7 @@ HexagonTargetLowering::HexagonTargetLowering(const TargetMachine &TM,
     ISD::FRINT,   ISD::FNEARBYINT,            ISD::FROUND,  ISD::FFLOOR,
     ISD::FMINNUM, ISD::FMAXNUM, ISD::FSINCOS,
     // Misc:
-    ISD::SELECT,  ISD::ConstantPool,
+    ISD::BR_CC,   ISD::SELECT_CC,             ISD::ConstantPool,
     // Vector:
     ISD::BUILD_VECTOR,          ISD::SCALAR_TO_VECTOR,
     ISD::EXTRACT_VECTOR_ELT,    ISD::INSERT_VECTOR_ELT,
@@ -1978,12 +1979,15 @@ HexagonTargetLowering::HexagonTargetLowering(const TargetMachine &TM,
       setTruncStoreAction(VT, TargetVT, Expand);
     }
 
+    // Normalize all inputs to SELECT to be vectors of i32.
+    if (VT.getVectorElementType() != MVT::i32) {
+      MVT VT32 = MVT::getVectorVT(MVT::i32, VT.getSizeInBits()/32);
+      setOperationAction(ISD::SELECT, VT, Promote);
+      AddPromotedToType(ISD::SELECT, VT, VT32);
+    }
     setOperationAction(ISD::SRA, VT, Custom);
     setOperationAction(ISD::SHL, VT, Custom);
     setOperationAction(ISD::SRL, VT, Custom);
-
-    setOperationAction(ISD::BR_CC,     VT, Expand);
-    setOperationAction(ISD::SELECT_CC, VT, Expand);
   }
 
   // Types natively supported:
@@ -3195,20 +3199,6 @@ EVT HexagonTargetLowering::getOptimalMemOpType(uint64_t Size,
     return MVT::i16;
 
   return MVT::Other;
-}
-
-// Return true when the given node fits in a positive half word.
-bool llvm::isPositiveHalfWord(SDNode *N) {
-  ConstantSDNode *CN = dyn_cast<ConstantSDNode>(N);
-  if (CN && CN->getSExtValue() > 0 && isInt<16>(CN->getSExtValue()))
-    return true;
-
-  switch (N->getOpcode()) {
-  default:
-    return false;
-  case ISD::SIGN_EXTEND_INREG:
-    return true;
-  }
 }
 
 bool HexagonTargetLowering::allowsMisalignedMemoryAccesses(EVT VT,

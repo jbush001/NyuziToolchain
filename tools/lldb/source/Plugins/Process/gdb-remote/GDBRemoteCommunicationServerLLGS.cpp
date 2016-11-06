@@ -34,7 +34,6 @@
 #include "lldb/Host/Host.h"
 #include "lldb/Host/HostInfo.h"
 #include "lldb/Host/StringConvert.h"
-#include "lldb/Host/TimeValue.h"
 #include "lldb/Host/common/NativeProcessProtocol.h"
 #include "lldb/Host/common/NativeRegisterContext.h"
 #include "lldb/Host/common/NativeThreadProtocol.h"
@@ -668,7 +667,7 @@ GDBRemoteCommunicationServerLLGS::SendStopReplyPacketForThread(
 
     if (::strcspn(thread_name.c_str(), "$#+-;:") == thread_name_len) {
       response.PutCString("name:");
-      response.PutCString(thread_name.c_str());
+      response.PutCString(thread_name);
     } else {
       // The thread name contains special chars, send as hex bytes.
       response.PutCString("hexname:");

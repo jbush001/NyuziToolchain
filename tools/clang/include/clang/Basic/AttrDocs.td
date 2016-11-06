@@ -606,6 +606,33 @@ of the condition.
   }];
 }
 
+def ConvergentDocs : Documentation {
+  let Category = DocCatFunction;
+  let Content = [{
+The ``convergent`` attribute can be placed on a function declaration. It is
+translated into the LLVM ``convergent`` attribute, which indicates that the call
+instructions of a function with this attribute cannot be made control-dependent
+on any additional values.
+
+In languages designed for SPMD/SIMT programming model, e.g. OpenCL or CUDA,
+the call instructions of a function with this attribute must be executed by
+all work items or threads in a work group or sub group.
+
+This attribute is different from ``noduplicate`` because it allows duplicating
+function calls if it can be proved that the duplicated function calls are
+not made control-dependent on any additional values, e.g., unrolling a loop
+executed by all work items.
+
+Sample usage:
+.. code-block:: c
+
+  void convfunc(void) __attribute__((convergent));
+  // Setting it as a C++11 attribute is also valid in a C++ program.
+  // void convfunc(void) [[clang::convergent]];
+
+  }];
+}
+
 def NoSplitStackDocs : Documentation {
   let Category = DocCatFunction;
   let Content = [{
@@ -1253,6 +1280,18 @@ seeking register parameters should use the ``regparm`` attribute, which does
 not require callee-cleanup.  See the documentation for `__fastcall`_ on MSDN.
 
 .. _`__fastcall`: http://msdn.microsoft.com/en-us/library/6xa169sk.aspx
+  }];
+}
+
+def RegCallDocs : Documentation {
+  let Category = DocCatCallingConvs;
+  let Content = [{
+On x86 targets, this attribute changes the calling convention to
+`__regcall`_ convention. This convention aims to pass as many arguments
+as possible in registers. It also tries to utilize registers for the
+return value whenever it is possible.
+
+.. _`__regcall`: https://software.intel.com/en-us/node/693069
   }];
 }
 
@@ -2647,5 +2686,31 @@ def XRayDocs : Documentation {
 Conversely, ``__attribute__((xray_never_instrument))`` or ``[[clang::xray_never_instrument]]`` will inhibit the insertion of these instrumentation points.
 
 If a function has neither of these attributes, they become subject to the XRay heuristics used to determine whether a function should be instrumented or otherwise.
+  }];
+}
+
+def TransparentUnionDocs : Documentation {
+  let Category = DocCatType;
+  let Content = [{
+This attribute can be applied to a union to change the behaviour of calls to
+functions that have an argument with a transparent union type. The compiler
+behaviour is changed in the following manner:
+
+- A value whose type is any member of the transparent union can be passed as an
+argument without the need to cast that value.
+
+- The argument is passed to the function using the calling convention of the
+first member of the transparent union. Consequently, all the members of the
+transparent union should have the same calling convention as its first member.
+
+Transparent unions are not supported in C++.
+  }];
+}
+
+def ObjCSubclassingRestrictedDocs : Documentation {
+  let Category = DocCatType;
+  let Content = [{
+This attribute can be added to an Objective-C ``@interface`` declaration to
+ensure that this class cannot be subclassed.
   }];
 }

@@ -1362,7 +1362,16 @@ static bool canReplaceOperandWithVariable(const Instruction *I,
     // FIXME: many arithmetic intrinsics have no issue taking a
     // variable, however it's hard to distingish these from
     // specials such as @llvm.frameaddress that require a constant.
-    return !isa<IntrinsicInst>(I);
+    if (isa<IntrinsicInst>(I))
+      return false;
+
+    // Constant bundle operands may need to retain their constant-ness for
+    // correctness.
+    if (ImmutableCallSite(I).isBundleOperand(OpIdx))
+      return false;
+
+    return true;
+
   case Instruction::ShuffleVector:
     // Shufflevector masks are constant.
     return OpIdx != 2;
@@ -1476,8 +1485,14 @@ static bool sinkLastInstruction(ArrayRef<BasicBlock*> Blocks) {
   // canSinkLastInstruction returning true guarantees that every block has at
   // least one non-terminator instruction.
   SmallVector<Instruction*,4> Insts;
-  for (auto *BB : Blocks)
-    Insts.push_back(BB->getTerminator()->getPrevNode());
+  for (auto *BB : Blocks) {
+    Instruction *I = BB->getTerminator();
+    do {
+      I = I->getPrevNode();
+    } while (isa<DbgInfoIntrinsic>(I) && I != &BB->front());
+    if (!isa<DbgInfoIntrinsic>(I))
+      Insts.push_back(I);
+  }
 
   // The only checking we need to do now is that all users of all instructions
   // are the same PHI node. canSinkLastInstruction should have checked this but
@@ -1575,12 +1590,15 @@ namespace {
       Fail = false;
       Insts.clear();
       for (auto *BB : Blocks) {
-        if (BB->size() <= 1) {
-          // Block wasn't big enough
+        Instruction *Inst = BB->getTerminator();
+        for (Inst = Inst->getPrevNode(); Inst && isa<DbgInfoIntrinsic>(Inst);)
+          Inst = Inst->getPrevNode();
+        if (!Inst) {
+          // Block wasn't big enough.
           Fail = true;
           return;
         }
-        Insts.push_back(BB->getTerminator()->getPrevNode());
+        Insts.push_back(Inst);
       }
     }
 
@@ -1592,11 +1610,13 @@ namespace {
       if (Fail)
         return;
       for (auto *&Inst : Insts) {
-        if (Inst == &Inst->getParent()->front()) {
+        for (Inst = Inst->getPrevNode(); Inst && isa<DbgInfoIntrinsic>(Inst);)
+          Inst = Inst->getPrevNode();
+        // Already at beginning of block.
+        if (!Inst) {
           Fail = true;
           return;
         }
-        Inst = Inst->getPrevNode();
       }
     }
 
@@ -4436,9 +4456,12 @@ static bool ValidLookupTableConstant(Constant *C, const TargetTransformInfo &TTI
       !isa<UndefValue>(C) && !isa<ConstantExpr>(C))
     return false;
 
-  if (ConstantExpr *CE = dyn_cast<ConstantExpr>(C))
+  if (ConstantExpr *CE = dyn_cast<ConstantExpr>(C)) {
     if (!CE->isGEPWithNoNotionalOverIndexing())
       return false;
+    if (!ValidLookupTableConstant(CE->getOperand(0), TTI))
+      return false;
+  }
 
   if (!TTI.shouldBuildLookupTablesForConstant(C))
     return false;

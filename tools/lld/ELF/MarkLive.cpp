@@ -44,8 +44,7 @@ using namespace lld::elf;
 namespace {
 // A resolved relocation. The Sec and Offset fields are set if the relocation
 // was resolved to an offset within a section.
-template <class ELFT>
-struct ResolvedReloc {
+template <class ELFT> struct ResolvedReloc {
   InputSectionBase<ELFT> *Sec;
   typename ELFT::uint Offset;
 };
@@ -81,16 +80,18 @@ static ResolvedReloc<ELFT> resolveReloc(InputSectionBase<ELFT> &Sec,
 template <class ELFT>
 static void forEachSuccessor(InputSection<ELFT> &Sec,
                              std::function<void(ResolvedReloc<ELFT>)> Fn) {
-  ELFFile<ELFT> &Obj = Sec.getFile()->getObj();
+  ELFFile<ELFT> Obj = Sec.getFile()->getObj();
   for (const typename ELFT::Shdr *RelSec : Sec.RelocSections) {
     if (RelSec->sh_type == SHT_RELA) {
-      for (const typename ELFT::Rela &Rel : Obj.relas(RelSec))
+      for (const typename ELFT::Rela &Rel : check(Obj.relas(RelSec)))
         Fn(resolveReloc(Sec, Rel));
     } else {
-      for (const typename ELFT::Rel &Rel : Obj.rels(RelSec))
+      for (const typename ELFT::Rel &Rel : check(Obj.rels(RelSec)))
         Fn(resolveReloc(Sec, Rel));
     }
   }
+  if (Sec.DependentSection)
+    Fn({Sec.DependentSection, 0});
 }
 
 // The .eh_frame section is an unfortunate special case.
@@ -134,7 +135,7 @@ scanEhFrameSection(EhInputSection<ELFT> &EH, ArrayRef<RelTy> Rels,
       ResolvedReloc<ELFT> R = resolveReloc(EH, Rels[I2]);
       if (!R.Sec || R.Sec == &InputSection<ELFT>::Discarded)
         continue;
-      if (R.Sec->getSectionHdr()->sh_flags & SHF_EXECINSTR)
+      if (R.Sec->Flags & SHF_EXECINSTR)
         continue;
       Enqueue({R.Sec, 0});
     }
@@ -152,25 +153,25 @@ scanEhFrameSection(EhInputSection<ELFT> &EH,
   // .eh_frame keep other section alive and some don't.
   EH.split();
 
-  ELFFile<ELFT> &EObj = EH.getFile()->getObj();
+  ELFFile<ELFT> EObj = EH.getFile()->getObj();
   if (EH.RelocSection->sh_type == SHT_RELA)
-    scanEhFrameSection(EH, EObj.relas(EH.RelocSection), Enqueue);
+    scanEhFrameSection(EH, check(EObj.relas(EH.RelocSection)), Enqueue);
   else
-    scanEhFrameSection(EH, EObj.rels(EH.RelocSection), Enqueue);
+    scanEhFrameSection(EH, check(EObj.rels(EH.RelocSection)), Enqueue);
 }
 
 // We do not garbage-collect two types of sections:
 // 1) Sections used by the loader (.init, .fini, .ctors, .dtors or .jcr)
 // 2) Non-allocatable sections which typically contain debugging information
 template <class ELFT> static bool isReserved(InputSectionBase<ELFT> *Sec) {
-  switch (Sec->getSectionHdr()->sh_type) {
+  switch (Sec->Type) {
   case SHT_FINI_ARRAY:
   case SHT_INIT_ARRAY:
   case SHT_NOTE:
   case SHT_PREINIT_ARRAY:
     return true;
   default:
-    if (!(Sec->getSectionHdr()->sh_flags & SHF_ALLOC))
+    if (!(Sec->Flags & SHF_ALLOC))
       return true;
 
     // We do not want to reclaim sections if they can be referred
@@ -199,6 +200,10 @@ template <class ELFT> void elf::markLive() {
     if (!R.Sec || R.Sec == &InputSection<ELFT>::Discarded)
       return;
 
+    // We don't gc non alloc sections.
+    if (!(R.Sec->Flags & SHF_ALLOC))
+      return;
+
     // Usually, a whole section is marked as live or dead, but in mergeable
     // (splittable) sections, each piece of data has independent liveness bit.
     // So we explicitly tell it which offset is in use.
@@ -208,12 +213,9 @@ template <class ELFT> void elf::markLive() {
     if (R.Sec->Live)
       return;
     R.Sec->Live = true;
-    // Add input section to the queue. We don't want to consider relocations
-    // from non-allocatable input sections, because we can bring those
-    // allocatable sections to living which otherwise would be dead.
+    // Add input section to the queue.
     if (InputSection<ELFT> *S = dyn_cast<InputSection<ELFT>>(R.Sec))
-      if (S->getSectionHdr()->sh_flags & SHF_ALLOC)
-        Q.push_back(S);
+      Q.push_back(S);
   };
 
   auto MarkSymbol = [&](const SymbolBody *Sym) {
@@ -222,8 +224,7 @@ template <class ELFT> void elf::markLive() {
   };
 
   // Add GC root symbols.
-  if (Config->EntrySym)
-    MarkSymbol(Config->EntrySym->body());
+  MarkSymbol(Symtab<ELFT>::X->find(Config->Entry));
   MarkSymbol(Symtab<ELFT>::X->find(Config->Init));
   MarkSymbol(Symtab<ELFT>::X->find(Config->Fini));
   for (StringRef S : Config->Undefined)
@@ -237,18 +238,16 @@ template <class ELFT> void elf::markLive() {
 
   // Preserve special sections and those which are specified in linker
   // script KEEP command.
-  for (ObjectFile<ELFT> *F : Symtab<ELFT>::X->getObjectFiles()) {
-    for (InputSectionBase<ELFT> *Sec : F->getSections()) {
-      if (!Sec || Sec == &InputSection<ELFT>::Discarded)
-        continue;
-      // .eh_frame is always marked as live now, but also it can reference to
-      // sections that contain personality. We preserve all non-text sections
-      // referred by .eh_frame here.
-      if (auto *EH = dyn_cast_or_null<EhInputSection<ELFT>>(Sec))
-        scanEhFrameSection<ELFT>(*EH, Enqueue);
-      if (isReserved(Sec) || Script<ELFT>::X->shouldKeep(Sec))
-        Enqueue({Sec, 0});
-    }
+  for (InputSectionBase<ELFT> *Sec : Symtab<ELFT>::X->Sections) {
+    if (!Sec || Sec == &InputSection<ELFT>::Discarded)
+      continue;
+    // .eh_frame is always marked as live now, but also it can reference to
+    // sections that contain personality. We preserve all non-text sections
+    // referred by .eh_frame here.
+    if (auto *EH = dyn_cast_or_null<EhInputSection<ELFT>>(Sec))
+      scanEhFrameSection<ELFT>(*EH, Enqueue);
+    if (isReserved(Sec) || Script<ELFT>::X->shouldKeep(Sec))
+      Enqueue({Sec, 0});
   }
 
   // Mark all reachable sections.

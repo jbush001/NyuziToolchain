@@ -15,6 +15,7 @@
 
 #include "Driver.h"
 #include "Error.h"
+#include "Memory.h"
 #include "lld/Config/Version.h"
 #include "lld/Core/Reproduce.h"
 #include "llvm/ADT/STLExtras.h"
@@ -23,7 +24,6 @@
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/Path.h"
-#include "llvm/Support/StringSaver.h"
 
 using namespace llvm;
 using namespace llvm::sys;
@@ -78,7 +78,6 @@ opt::InputArgList ELFOptTable::parse(ArrayRef<const char *> Argv) {
   opt::InputArgList Args = this->ParseArgs(Vec, MissingIndex, MissingCount);
 
   // Expand response files. '@<filename>' is replaced by the file's contents.
-  StringSaver Saver(Alloc);
   cl::ExpandResponseFiles(Saver, getQuotingStyle(Args), Vec);
 
   // Parse options and then do error checking.
@@ -96,14 +95,6 @@ opt::InputArgList ELFOptTable::parse(ArrayRef<const char *> Argv) {
 void elf::printHelp(const char *Argv0) {
   ELFOptTable Table;
   Table.PrintHelp(outs(), Argv0, "lld", false);
-}
-
-std::string elf::getVersionString() {
-  std::string Version = getLLDVersion();
-  std::string Repo = getLLDRepositoryVersion();
-  if (Repo.empty())
-    return "LLD " + Version + "\n";
-  return "LLD " + Version + " " + Repo + "\n";
 }
 
 // Reconstructs command line arguments so that so that you can re-run

@@ -991,7 +991,7 @@ static void AddStmtsExprs(llvm::BitstreamWriter &Stream,
 
 void ASTWriter::WriteBlockInfoBlock() {
   RecordData Record;
-  Stream.EnterSubblock(llvm::bitc::BLOCKINFO_BLOCK_ID, 3);
+  Stream.EnterBlockInfoBlock();
 
 #define BLOCK(X) EmitBlockID(X ## _ID, #X, Stream, Record)
 #define RECORD(X) EmitRecordID(X, #X, Stream, Record)
@@ -1069,6 +1069,7 @@ void ASTWriter::WriteBlockInfoBlock() {
   RECORD(POINTERS_TO_MEMBERS_PRAGMA_OPTIONS);
   RECORD(UNUSED_LOCAL_TYPEDEF_NAME_CANDIDATES);
   RECORD(DELETE_EXPRS_TO_ANALYZE);
+  RECORD(CUDA_PRAGMA_FORCE_HOST_DEVICE_DEPTH);
 
   // SourceManager Block.
   BLOCK(SOURCE_MANAGER_BLOCK);
@@ -1807,7 +1808,7 @@ namespace {
     
     struct key_type {
       const FileEntry *FE;
-      const char *Filename;
+      StringRef Filename;
     };
     typedef const key_type &key_type_ref;
     
@@ -1828,7 +1829,7 @@ namespace {
     EmitKeyDataLength(raw_ostream& Out, key_type_ref key, data_type_ref Data) {
       using namespace llvm::support;
       endian::Writer<little> LE(Out);
-      unsigned KeyLen = strlen(key.Filename) + 1 + 8 + 8;
+      unsigned KeyLen = key.Filename.size() + 1 + 8 + 8;
       LE.write<uint16_t>(KeyLen);
       unsigned DataLen = 1 + 2 + 4 + 4;
       for (auto ModInfo : HS.getModuleMap().findAllModulesForHeader(key.FE))
@@ -1845,7 +1846,7 @@ namespace {
       KeyLen -= 8;
       LE.write<uint64_t>(Writer.getTimestampForOutput(key.FE));
       KeyLen -= 8;
-      Out.write(key.Filename, KeyLen);
+      Out.write(key.Filename.data(), KeyLen);
     }
     
     void EmitData(raw_ostream &Out, key_type_ref key,
@@ -1934,13 +1935,13 @@ void ASTWriter::WriteHeaderSearch(const HeaderSearch &HS) {
       continue;
 
     // Massage the file path into an appropriate form.
-    const char *Filename = File->getName();
+    StringRef Filename = File->getName();
     SmallString<128> FilenameTmp(Filename);
     if (PreparePathForOutput(FilenameTmp)) {
       // If we performed any translation on the file name at all, we need to
       // save this string, since the generator will refer to it later.
-      Filename = strdup(FilenameTmp.c_str());
-      SavedStrings.push_back(Filename);
+      Filename = StringRef(strdup(FilenameTmp.c_str()));
+      SavedStrings.push_back(Filename.data());
     }
 
     HeaderFileInfoTrait::key_type key = { File, Filename };
@@ -3942,6 +3943,13 @@ void ASTWriter::WriteOpenCLExtensions(Sema &SemaRef) {
   Stream.EmitRecord(OPENCL_EXTENSIONS, Record);
 }
 
+void ASTWriter::WriteCUDAPragmas(Sema &SemaRef) {
+  if (SemaRef.ForceCUDAHostDeviceDepth > 0) {
+    RecordData::value_type Record[] = {SemaRef.ForceCUDAHostDeviceDepth};
+    Stream.EmitRecord(CUDA_PRAGMA_FORCE_HOST_DEVICE_DEPTH, Record);
+  }
+}
+
 void ASTWriter::WriteObjCCategories() {
   SmallVector<ObjCCategoriesInfo, 2> CategoriesMap;
   RecordData Categories;
@@ -4001,14 +4009,14 @@ void ASTWriter::WriteLateParsedTemplates(Sema &SemaRef) {
     return;
 
   RecordData Record;
-  for (auto LPTMapEntry : LPTMap) {
+  for (auto &LPTMapEntry : LPTMap) {
     const FunctionDecl *FD = LPTMapEntry.first;
-    LateParsedTemplate *LPT = LPTMapEntry.second;
+    LateParsedTemplate &LPT = *LPTMapEntry.second;
     AddDeclRef(FD, Record);
-    AddDeclRef(LPT->D, Record);
-    Record.push_back(LPT->Toks.size());
+    AddDeclRef(LPT.D, Record);
+    Record.push_back(LPT.Toks.size());
 
-    for (const auto &Tok : LPT->Toks) {
+    for (const auto &Tok : LPT.Toks) {
       AddToken(Tok, Record);
     }
   }
@@ -4619,6 +4627,7 @@ uint64_t ASTWriter::WriteASTCore(Sema &SemaRef, StringRef isysroot,
   WriteIdentifierTable(PP, SemaRef.IdResolver, isModule);
   WriteFPPragmaOptions(SemaRef.getFPOptions());
   WriteOpenCLExtensions(SemaRef);
+  WriteCUDAPragmas(SemaRef);
   WritePragmaDiagnosticMappings(Context.getDiagnostics(), isModule);
 
   // If we're emitting a module, write out the submodule information.  

@@ -739,7 +739,7 @@ void CXXRecordDecl::addedMember(Decl *D) {
     }
 
     if (!Field->hasInClassInitializer() && !Field->isMutable()) {
-      if (CXXRecordDecl *FieldType = Field->getType()->getAsCXXRecordDecl()) {
+      if (CXXRecordDecl *FieldType = T->getAsCXXRecordDecl()) {
         if (FieldType->hasDefinition() && !FieldType->allowConstDefaultInit())
           data().HasUninitializedFields = true;
       } else {
@@ -1577,17 +1577,35 @@ bool CXXMethodDecl::isUsualDeallocationFunction() const {
   //   deallocation function. [...]
   if (getNumParams() == 1)
     return true;
+  unsigned UsualParams = 1;
 
-  // C++ [basic.stc.dynamic.deallocation]p2:
+  // C++ <=14 [basic.stc.dynamic.deallocation]p2:
   //   [...] If class T does not declare such an operator delete but does 
   //   declare a member deallocation function named operator delete with 
   //   exactly two parameters, the second of which has type std::size_t (18.1),
   //   then this function is a usual deallocation function.
+  //
+  // C++17 says a usual deallocation function is one with the signature
+  //   (void* [, size_t] [, std::align_val_t] [, ...])
+  // and all such functions are usual deallocation functions. It's not clear
+  // that allowing varargs functions was intentional.
   ASTContext &Context = getASTContext();
-  if (getNumParams() != 2 ||
-      !Context.hasSameUnqualifiedType(getParamDecl(1)->getType(),
-                                      Context.getSizeType()))
+  if (UsualParams < getNumParams() &&
+      Context.hasSameUnqualifiedType(getParamDecl(UsualParams)->getType(),
+                                     Context.getSizeType()))
+    ++UsualParams;
+
+  if (UsualParams < getNumParams() &&
+      getParamDecl(UsualParams)->getType()->isAlignValT())
+    ++UsualParams;
+
+  if (UsualParams != getNumParams())
     return false;
+
+  // In C++17 onwards, all potential usual deallocation functions are actual
+  // usual deallocation functions.
+  if (Context.getLangOpts().AlignedAllocation)
+    return true;
                  
   // This function is a usual deallocation function if there are no 
   // single-parameter deallocation functions of the same kind.
@@ -1779,7 +1797,7 @@ CXXCtorInitializer *CXXCtorInitializer::Create(ASTContext &Context,
                                                VarDecl **Indices,
                                                unsigned NumIndices) {
   void *Mem = Context.Allocate(totalSizeToAlloc<VarDecl *>(NumIndices),
-                               llvm::alignOf<CXXCtorInitializer>());
+                               alignof(CXXCtorInitializer));
   return new (Mem) CXXCtorInitializer(Context, Member, MemberLoc, L, Init, R,
                                       Indices, NumIndices);
 }

@@ -990,7 +990,7 @@ static unsigned getEncodedLinkage(const GlobalValue &GV) {
 static uint64_t getEncodedGVSummaryFlags(GlobalValueSummary::GVFlags Flags) {
   uint64_t RawFlags = 0;
 
-  RawFlags |= Flags.HasSection; // bool
+  RawFlags |= Flags.NoRename; // bool
   RawFlags |= (Flags.IsNotViableToInline << 1);
   // Linkage don't need to be remapped at that time for the summary. Any future
   // change to the getEncodedLinkage() function will need to be taken into
@@ -1627,7 +1627,7 @@ void ModuleBitcodeWriter::writeDILexicalBlockFile(
 void ModuleBitcodeWriter::writeDINamespace(const DINamespace *N,
                                            SmallVectorImpl<uint64_t> &Record,
                                            unsigned Abbrev) {
-  Record.push_back(N->isDistinct());
+  Record.push_back(N->isDistinct() | N->getExportSymbols() << 1);
   Record.push_back(VE.getMetadataOrNullID(N->getScope()));
   Record.push_back(VE.getMetadataOrNullID(N->getFile()));
   Record.push_back(VE.getMetadataOrNullID(N->getRawName()));
@@ -1712,6 +1712,7 @@ void ModuleBitcodeWriter::writeDIGlobalVariable(
   Record.push_back(N->isDefinition());
   Record.push_back(VE.getMetadataOrNullID(N->getRawExpr()));
   Record.push_back(VE.getMetadataOrNullID(N->getStaticDataMemberDeclaration()));
+  Record.push_back(N->getAlignInBits());
 
   Stream.EmitRecord(bitc::METADATA_GLOBAL_VAR, Record, Abbrev);
   Record.clear();
@@ -1720,7 +1721,21 @@ void ModuleBitcodeWriter::writeDIGlobalVariable(
 void ModuleBitcodeWriter::writeDILocalVariable(
     const DILocalVariable *N, SmallVectorImpl<uint64_t> &Record,
     unsigned Abbrev) {
-  Record.push_back(N->isDistinct());
+  // In order to support all possible bitcode formats in BitcodeReader we need
+  // to distinguish the following cases:
+  // 1) Record has no artificial tag (Record[1]),
+  //   has no obsolete inlinedAt field (Record[9]).
+  //   In this case Record size will be 8, HasAlignment flag is false.
+  // 2) Record has artificial tag (Record[1]),
+  //   has no obsolete inlignedAt field (Record[9]).
+  //   In this case Record size will be 9, HasAlignment flag is false.
+  // 3) Record has both artificial tag (Record[1]) and
+  //   obsolete inlignedAt field (Record[9]).
+  //   In this case Record size will be 10, HasAlignment flag is false.
+  // 4) Record has neither artificial tag, nor inlignedAt field, but
+  //   HasAlignment flag is true and Record[8] contains alignment value.
+  const uint64_t HasAlignmentFlag = 1 << 1;
+  Record.push_back((uint64_t)N->isDistinct() | HasAlignmentFlag);
   Record.push_back(VE.getMetadataOrNullID(N->getScope()));
   Record.push_back(VE.getMetadataOrNullID(N->getRawName()));
   Record.push_back(VE.getMetadataOrNullID(N->getFile()));
@@ -1728,6 +1743,7 @@ void ModuleBitcodeWriter::writeDILocalVariable(
   Record.push_back(VE.getMetadataOrNullID(N->getType()));
   Record.push_back(N->getArg());
   Record.push_back(N->getFlags());
+  Record.push_back(N->getAlignInBits());
 
   Stream.EmitRecord(bitc::METADATA_LOCAL_VAR, Record, Abbrev);
   Record.clear();
@@ -3015,7 +3031,7 @@ void ModuleBitcodeWriter::writeBlockInfo() {
   // We only want to emit block info records for blocks that have multiple
   // instances: CONSTANTS_BLOCK, FUNCTION_BLOCK and VALUE_SYMTAB_BLOCK.
   // Other blocks can define their abbrevs inline.
-  Stream.EnterBlockInfoBlock(2);
+  Stream.EnterBlockInfoBlock();
 
   { // 8-bit fixed-width VST_CODE_ENTRY/VST_CODE_BBENTRY strings.
     BitCodeAbbrev *Abbv = new BitCodeAbbrev();
@@ -3315,9 +3331,9 @@ void ModuleBitcodeWriter::writeModuleLevelReferences(
   if (V.isDeclaration())
     return;
   NameVals.push_back(VE.getValueID(&V));
-  NameVals.push_back(getEncodedGVSummaryFlags(V));
   auto *Summary = Index->getGlobalValueSummary(V);
   GlobalVarSummary *VS = cast<GlobalVarSummary>(Summary);
+  NameVals.push_back(getEncodedGVSummaryFlags(VS->flags()));
 
   unsigned SizeBeforeRefs = NameVals.size();
   for (auto &RI : VS->refs())
@@ -3418,7 +3434,9 @@ void ModuleBitcodeWriter::writePerModuleGlobalValueSummary() {
     auto AliasId = VE.getValueID(&A);
     auto AliaseeId = VE.getValueID(Aliasee);
     NameVals.push_back(AliasId);
-    NameVals.push_back(getEncodedGVSummaryFlags(A));
+    auto *Summary = Index->getGlobalValueSummary(A);
+    AliasSummary *AS = cast<AliasSummary>(Summary);
+    NameVals.push_back(getEncodedGVSummaryFlags(AS->flags()));
     NameVals.push_back(AliaseeId);
     Stream.EmitRecord(bitc::FS_ALIAS, NameVals, FSAliasAbbrev);
     NameVals.clear();
@@ -3612,15 +3630,10 @@ void ModuleBitcodeWriter::writeModuleHash(size_t BlockStartPos) {
   SHA1 Hasher;
   Hasher.update(ArrayRef<uint8_t>((const uint8_t *)&(Buffer)[BlockStartPos],
                                   Buffer.size() - BlockStartPos));
-  auto Hash = Hasher.result();
-  SmallVector<uint64_t, 20> Vals;
-  auto LShift = [&](unsigned char Val, unsigned Amount)
-                    -> uint64_t { return ((uint64_t)Val) << Amount; };
+  StringRef Hash = Hasher.result();
+  uint32_t Vals[5];
   for (int Pos = 0; Pos < 20; Pos += 4) {
-    uint32_t SubHash = LShift(Hash[Pos + 0], 24);
-    SubHash |= LShift(Hash[Pos + 1], 16) | LShift(Hash[Pos + 2], 8) |
-               (unsigned)(unsigned char)Hash[Pos + 3];
-    Vals.push_back(SubHash);
+    Vals[Pos / 4] = support::endian::read32be(Hash.data() + Pos);
   }
 
   // Emit the finished record.

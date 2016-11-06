@@ -28,7 +28,7 @@ class MultipleBreakpointTestCase(TestBase):
         bugnumber="llvm.org/pr15824 thread states not properly maintained")
     @expectedFailureAll(
         oslist=lldbplatformutil.getDarwinOSTriples(),
-        bugnumber="llvm.org/pr15824 thread states not properly maintained")
+        bugnumber="llvm.org/pr15824 thread states not properly maintained and <rdar://problem/28557237>")
     @expectedFailureAll(
         oslist=["freebsd"],
         bugnumber="llvm.org/pr18190 thread states not properly maintained")
@@ -44,14 +44,6 @@ class MultipleBreakpointTestCase(TestBase):
         # This should create a breakpoint in the main thread.
         lldbutil.run_break_set_by_file_and_line(
             self, "main.cpp", self.breakpoint, num_expected_locations=1)
-
-        # The breakpoint list should show 1 location.
-        self.expect(
-            "breakpoint list -f",
-            "Breakpoint location shown correctly",
-            substrs=[
-                "1: file = 'main.cpp', line = %d, locations = 1" %
-                self.breakpoint])
 
         # Run the program.
         self.runCmd("run", RUN_SUCCEEDED)

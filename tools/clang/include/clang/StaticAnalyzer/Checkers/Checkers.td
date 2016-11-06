@@ -416,6 +416,10 @@ def VforkChecker : Checker<"Vfork">,
   HelpText<"Check for proper usage of vfork">,
   DescFile<"VforkChecker.cpp">;
 
+def StdCLibraryFunctionsChecker : Checker<"StdCLibraryFunctions">,
+  HelpText<"Improve modeling of the C standard library functions">,
+  DescFile<"StdLibraryFunctionsChecker.cpp">;
+
 } // end "unix"
 
 let ParentPackage = UnixAlpha in {
@@ -473,6 +477,11 @@ def CStringNotNullTerm : Checker<"NotNullTerminated">,
 //===----------------------------------------------------------------------===//
 
 let ParentPackage = OSX in {
+
+def NumberObjectConversionChecker : Checker<"NumberObjectConversion">,
+  InPackage<OSX>,
+  HelpText<"Check for erroneous conversions of objects representing numbers into numbers">,
+  DescFile<"NumberObjectConversionChecker.cpp">;
 
 def MacOSXAPIChecker : Checker<"API">,
   InPackage<OSX>,
@@ -577,8 +586,8 @@ def DirectIvarAssignmentForAnnotatedFunctions : Checker<"DirectIvarAssignmentFor
 
 let ParentPackage = CoreFoundation in {
 
-def CFNumberCreateChecker : Checker<"CFNumber">,
-  HelpText<"Check for proper uses of CFNumberCreate">,
+def CFNumberChecker : Checker<"CFNumber">,
+  HelpText<"Check for proper uses of CFNumber APIs">,
   DescFile<"BasicObjCFoundationChecks.cpp">;
 
 def CFRetainReleaseChecker : Checker<"CFRetainRelease">,

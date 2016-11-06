@@ -972,7 +972,7 @@ lldb_private::FileSpecList ObjectFileELF::GetDebugSymbolFilePaths() {
   FileSpecList file_spec_list;
 
   if (!m_gnu_debuglink_file.empty()) {
-    FileSpec file_spec(m_gnu_debuglink_file.c_str(), false);
+    FileSpec file_spec(m_gnu_debuglink_file, false);
     file_spec_list.Append(file_spec);
   }
   return file_spec_list;
@@ -1405,8 +1405,7 @@ ObjectFileELF::RefineModuleDetailsFromNote(lldb_private::DataExtractor &data,
             return error;
           }
           llvm::StringRef path(cstr);
-          if (path.startswith("/lib/x86_64-linux-gnu") ||
-              path.startswith("/lib/i386-linux-gnu")) {
+          if (path.contains("/lib/x86_64-linux-gnu") || path.contains("/lib/i386-linux-gnu")) {
             arch_spec.GetTriple().setOS(llvm::Triple::OSType::Linux);
             break;
           }

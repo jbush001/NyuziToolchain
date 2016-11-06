@@ -551,7 +551,8 @@ public:
   SmallVector<std::pair<CXXMethodDecl*, const FunctionProtoType*>, 2>
     DelayedDefaultedMemberExceptionSpecs;
 
-  typedef llvm::MapVector<const FunctionDecl *, LateParsedTemplate *>
+  typedef llvm::MapVector<const FunctionDecl *,
+                          std::unique_ptr<LateParsedTemplate>>
       LateParsedTemplateMapT;
   LateParsedTemplateMapT LateParsedTemplateMap;
 
@@ -875,7 +876,7 @@ public:
     ///
     /// This mangling information is allocated lazily, since most contexts
     /// do not have lambda expressions or block literals.
-    IntrusiveRefCntPtr<MangleNumberingContext> MangleNumbering;
+    std::unique_ptr<MangleNumberingContext> MangleNumbering;
 
     /// \brief If we are processing a decltype type, a set of call expressions
     /// for which we have deferred checking the completeness of the return type.
@@ -1333,13 +1334,19 @@ public:
       bool *MissingEmptyExceptionSpecification = nullptr,
       bool AllowNoexceptAllMatchWithNoSpec = false,
       bool IsOperatorNew = false);
-  bool CheckExceptionSpecSubset(
-      const PartialDiagnostic &DiagID, const PartialDiagnostic & NoteID,
-      const FunctionProtoType *Superset, SourceLocation SuperLoc,
-      const FunctionProtoType *Subset, SourceLocation SubLoc);
-  bool CheckParamExceptionSpec(const PartialDiagnostic & NoteID,
-      const FunctionProtoType *Target, SourceLocation TargetLoc,
-      const FunctionProtoType *Source, SourceLocation SourceLoc);
+  bool CheckExceptionSpecSubset(const PartialDiagnostic &DiagID,
+                                const PartialDiagnostic &NestedDiagID,
+                                const PartialDiagnostic &NoteID,
+                                const FunctionProtoType *Superset,
+                                SourceLocation SuperLoc,
+                                const FunctionProtoType *Subset,
+                                SourceLocation SubLoc);
+  bool CheckParamExceptionSpec(const PartialDiagnostic &NestedDiagID,
+                               const PartialDiagnostic &NoteID,
+                               const FunctionProtoType *Target,
+                               SourceLocation TargetLoc,
+                               const FunctionProtoType *Source,
+                               SourceLocation SourceLoc);
 
   TypeResult ActOnTypeName(Scope *S, Declarator &D);
 
@@ -2272,6 +2279,7 @@ public:
   void MergeVarDecl(VarDecl *New, LookupResult &Previous);
   void MergeVarDeclTypes(VarDecl *New, VarDecl *Old, bool MergeTypeWithOld);
   void MergeVarDeclExceptionSpecs(VarDecl *New, VarDecl *Old);
+  bool checkVarDeclRedefinition(VarDecl *OldDefn, VarDecl *NewDefn);
   bool MergeCXXFunctionDecl(FunctionDecl *New, FunctionDecl *Old, Scope *S);
 
   // AssignmentAction - This is used by all the assignment diagnostic functions
@@ -2358,7 +2366,7 @@ public:
                                     bool IgnoreBaseAccess);
   bool IsQualificationConversion(QualType FromType, QualType ToType,
                                  bool CStyle, bool &ObjCLifetimeConversion);
-  bool IsNoReturnConversion(QualType FromType, QualType ToType,
+  bool IsFunctionConversion(QualType FromType, QualType ToType,
                             QualType &ResultTy);
   bool DiagnoseMultipleUserDefinedConversion(Expr *From, QualType ToType);
   bool isSameOrCompatibleFunctionType(CanQualType Param, CanQualType Arg);
@@ -2852,8 +2860,8 @@ private:
     TypoDiagnosticGenerator DiagHandler;
     TypoRecoveryCallback RecoveryHandler;
     TypoExprState();
-    TypoExprState(TypoExprState&& other) LLVM_NOEXCEPT;
-    TypoExprState& operator=(TypoExprState&& other) LLVM_NOEXCEPT;
+    TypoExprState(TypoExprState &&other) noexcept;
+    TypoExprState &operator=(TypoExprState &&other) noexcept;
   };
 
   /// \brief The set of unhandled TypoExprs and their associated state.
@@ -4855,14 +4863,9 @@ public:
                           SourceRange R);
   bool FindAllocationFunctions(SourceLocation StartLoc, SourceRange Range,
                                bool UseGlobal, QualType AllocType, bool IsArray,
-                               MultiExprArg PlaceArgs,
+                               bool &PassAlignment, MultiExprArg PlaceArgs,
                                FunctionDecl *&OperatorNew,
                                FunctionDecl *&OperatorDelete);
-  bool FindAllocationOverload(SourceLocation StartLoc, SourceRange Range,
-                              DeclarationName Name, MultiExprArg Args,
-                              DeclContext *Ctx,
-                              bool AllowMissing, FunctionDecl *&Operator,
-                              bool Diagnose = true);
   void DeclareGlobalNewDelete();
   void DeclareGlobalAllocationFunction(DeclarationName Name, QualType Return,
                                        ArrayRef<QualType> Params);
@@ -4872,7 +4875,10 @@ public:
                                 bool Diagnose = true);
   FunctionDecl *FindUsualDeallocationFunction(SourceLocation StartLoc,
                                               bool CanProvideSize,
+                                              bool Overaligned,
                                               DeclarationName Name);
+  FunctionDecl *FindDeallocationFunctionForDestructor(SourceLocation StartLoc,
+                                                      CXXRecordDecl *RD);
 
   /// ActOnCXXDelete - Parsed a C++ 'delete' expression
   ExprResult ActOnCXXDelete(SourceLocation StartLoc,
@@ -6485,6 +6491,14 @@ public:
       TemplateArgumentLoc OrigLoc,
       SourceLocation &Ellipsis,
       Optional<unsigned> &NumExpansions) const;
+
+  /// Given a template argument that contains an unexpanded parameter pack, but
+  /// which has already been substituted, attempt to determine the number of
+  /// elements that will be produced once this argument is fully-expanded.
+  ///
+  /// This is intended for use when transforming 'sizeof...(Arg)' in order to
+  /// avoid actually expanding the pack where possible.
+  Optional<unsigned> getFullyPackExpandedSize(TemplateArgument Arg);
 
   //===--------------------------------------------------------------------===//
   // C++ Template Argument Deduction (C++ [temp.deduct])
@@ -8351,6 +8365,12 @@ public:
       ArrayRef<OMPClause *> Clauses, Stmt *AStmt, SourceLocation StartLoc,
       SourceLocation EndLoc,
       llvm::DenseMap<ValueDecl *, Expr *> &VarsWithImplicitDSA);
+  /// Called on well-formed '\#pragma omp teams distribute simd' after parsing
+  /// of the associated statement.
+  StmtResult ActOnOpenMPTeamsDistributeSimdDirective(
+      ArrayRef<OMPClause *> Clauses, Stmt *AStmt, SourceLocation StartLoc,
+      SourceLocation EndLoc,
+      llvm::DenseMap<ValueDecl *, Expr *> &VarsWithImplicitDSA);
 
   /// Checks correctness of linear modifiers.
   bool CheckOpenMPLinearModifier(OpenMPLinearClauseKind LinKind,
@@ -8907,8 +8927,8 @@ public:
     ExprResult &LHS, ExprResult &RHS, SourceLocation Loc,
     BinaryOperatorKind Opc, bool isRelational);
   QualType CheckBitwiseOperands( // C99 6.5.[10...12]
-    ExprResult &LHS, ExprResult &RHS, SourceLocation Loc,
-    bool IsCompAssign = false);
+      ExprResult &LHS, ExprResult &RHS, SourceLocation Loc,
+      BinaryOperatorKind Opc);
   QualType CheckLogicalOperands( // C99 6.5.[13,14]
     ExprResult &LHS, ExprResult &RHS, SourceLocation Loc,
     BinaryOperatorKind Opc);
@@ -8933,13 +8953,13 @@ public:
     ExprResult &cond, ExprResult &lhs, ExprResult &rhs,
     ExprValueKind &VK, ExprObjectKind &OK, SourceLocation questionLoc);
   QualType FindCompositePointerType(SourceLocation Loc, Expr *&E1, Expr *&E2,
-                                    bool *NonStandardCompositeType = nullptr);
+                                    bool ConvertArgs = true);
   QualType FindCompositePointerType(SourceLocation Loc,
                                     ExprResult &E1, ExprResult &E2,
-                                    bool *NonStandardCompositeType = nullptr) {
+                                    bool ConvertArgs = true) {
     Expr *E1Tmp = E1.get(), *E2Tmp = E2.get();
-    QualType Composite = FindCompositePointerType(Loc, E1Tmp, E2Tmp,
-                                                  NonStandardCompositeType);
+    QualType Composite =
+        FindCompositePointerType(Loc, E1Tmp, E2Tmp, ConvertArgs);
     E1 = E1Tmp;
     E2 = E2Tmp;
     return Composite;
@@ -8984,13 +9004,7 @@ public:
     /// that their unqualified forms (T1 and T2) are either the same
     /// or T1 is a base class of T2.
     Ref_Related,
-    /// Ref_Compatible_With_Added_Qualification - The two types are
-    /// reference-compatible with added qualification, meaning that
-    /// they are reference-compatible and the qualifiers on T1 (cv1)
-    /// are greater than the qualifiers on T2 (cv2).
-    Ref_Compatible_With_Added_Qualification,
-    /// Ref_Compatible - The two types are reference-compatible and
-    /// have equivalent qualifiers (cv1 == cv2).
+    /// Ref_Compatible - The two types are reference-compatible.
     Ref_Compatible
   };
 
@@ -9219,6 +9233,154 @@ public:
                             QualType FieldTy, bool IsMsStruct,
                             Expr *BitWidth, bool *ZeroWidth = nullptr);
 
+private:
+  unsigned ForceCUDAHostDeviceDepth = 0;
+
+public:
+  /// Increments our count of the number of times we've seen a pragma forcing
+  /// functions to be __host__ __device__.  So long as this count is greater
+  /// than zero, all functions encountered will be __host__ __device__.
+  void PushForceCUDAHostDevice();
+
+  /// Decrements our count of the number of times we've seen a pragma forcing
+  /// functions to be __host__ __device__.  Returns false if the count is 0
+  /// before incrementing, so you can emit an error.
+  bool PopForceCUDAHostDevice();
+
+  /// Diagnostics that are emitted only if we discover that the given function
+  /// must be codegen'ed.  Because handling these correctly adds overhead to
+  /// compilation, this is currently only enabled for CUDA compilations.
+  llvm::DenseMap<CanonicalDeclPtr<FunctionDecl>,
+                 std::vector<PartialDiagnosticAt>>
+      CUDADeferredDiags;
+
+  /// A pair of a canonical FunctionDecl and a SourceLocation.  When used as the
+  /// key in a hashtable, both the FD and location are hashed.
+  struct FunctionDeclAndLoc {
+    CanonicalDeclPtr<FunctionDecl> FD;
+    SourceLocation Loc;
+  };
+
+  /// FunctionDecls and SourceLocations for which CheckCUDACall has emitted a
+  /// (maybe deferred) "bad call" diagnostic.  We use this to avoid emitting the
+  /// same deferred diag twice.
+  llvm::DenseSet<FunctionDeclAndLoc> LocsWithCUDACallDiags;
+
+  /// An inverse call graph, mapping known-emitted functions to one of their
+  /// known-emitted callers (plus the location of the call).
+  ///
+  /// Functions that we can tell a priori must be emitted aren't added to this
+  /// map.
+  llvm::DenseMap</* Callee = */ CanonicalDeclPtr<FunctionDecl>,
+                 /* Caller = */ FunctionDeclAndLoc>
+      CUDAKnownEmittedFns;
+
+  /// A partial call graph maintained during CUDA compilation to support
+  /// deferred diagnostics.
+  ///
+  /// Functions are only added here if, at the time they're considered, they are
+  /// not known-emitted.  As soon as we discover that a function is
+  /// known-emitted, we remove it and everything it transitively calls from this
+  /// set and add those functions to CUDAKnownEmittedFns.
+  llvm::DenseMap</* Caller = */ CanonicalDeclPtr<FunctionDecl>,
+                 /* Callees = */ llvm::MapVector<CanonicalDeclPtr<FunctionDecl>,
+                                                 SourceLocation>>
+      CUDACallGraph;
+
+  /// Diagnostic builder for CUDA errors which may or may not be deferred.
+  ///
+  /// In CUDA, there exist constructs (e.g. variable-length arrays, try/catch)
+  /// which are not allowed to appear inside __device__ functions and are
+  /// allowed to appear in __host__ __device__ functions only if the host+device
+  /// function is never codegen'ed.
+  ///
+  /// To handle this, we use the notion of "deferred diagnostics", where we
+  /// attach a diagnostic to a FunctionDecl that's emitted iff it's codegen'ed.
+  ///
+  /// This class lets you emit either a regular diagnostic, a deferred
+  /// diagnostic, or no diagnostic at all, according to an argument you pass to
+  /// its constructor, thus simplifying the process of creating these "maybe
+  /// deferred" diagnostics.
+  class CUDADiagBuilder {
+  public:
+    enum Kind {
+      /// Emit no diagnostics.
+      K_Nop,
+      /// Emit the diagnostic immediately (i.e., behave like Sema::Diag()).
+      K_Immediate,
+      /// Emit the diagnostic immediately, and, if it's a warning or error, also
+      /// emit a call stack showing how this function can be reached by an a
+      /// priori known-emitted function.
+      K_ImmediateWithCallStack,
+      /// Create a deferred diagnostic, which is emitted only if the function
+      /// it's attached to is codegen'ed.  Also emit a call stack as with
+      /// K_ImmediateWithCallStack.
+      K_Deferred
+    };
+
+    CUDADiagBuilder(Kind K, SourceLocation Loc, unsigned DiagID,
+                    FunctionDecl *Fn, Sema &S);
+    ~CUDADiagBuilder();
+
+    /// Convertible to bool: True if we immediately emitted an error, false if
+    /// we didn't emit an error or we created a deferred error.
+    ///
+    /// Example usage:
+    ///
+    ///   if (CUDADiagBuilder(...) << foo << bar)
+    ///     return ExprError();
+    ///
+    /// But see CUDADiagIfDeviceCode() and CUDADiagIfHostCode() -- you probably
+    /// want to use these instead of creating a CUDADiagBuilder yourself.
+    operator bool() const { return ImmediateDiag.hasValue(); }
+
+    template <typename T>
+    friend const CUDADiagBuilder &operator<<(const CUDADiagBuilder &Diag,
+                                             const T &Value) {
+      if (Diag.ImmediateDiag.hasValue())
+        *Diag.ImmediateDiag << Value;
+      else if (Diag.PartialDiag.hasValue())
+        *Diag.PartialDiag << Value;
+      return Diag;
+    }
+
+  private:
+    Sema &S;
+    SourceLocation Loc;
+    unsigned DiagID;
+    FunctionDecl *Fn;
+    bool ShowCallStack;
+
+    // Invariant: At most one of these Optionals has a value.
+    // FIXME: Switch these to a Variant once that exists.
+    llvm::Optional<SemaDiagnosticBuilder> ImmediateDiag;
+    llvm::Optional<PartialDiagnostic> PartialDiag;
+  };
+
+  /// Creates a CUDADiagBuilder that emits the diagnostic if the current context
+  /// is "used as device code".
+  ///
+  /// - If CurContext is a __host__ function, does not emit any diagnostics.
+  /// - If CurContext is a __device__ or __global__ function, emits the
+  ///   diagnostics immediately.
+  /// - If CurContext is a __host__ __device__ function and we are compiling for
+  ///   the device, creates a diagnostic which is emitted if and when we realize
+  ///   that the function will be codegen'ed.
+  ///
+  /// Example usage:
+  ///
+  ///  // Variable-length arrays are not allowed in CUDA device code.
+  ///  if (CUDADiagIfDeviceCode(Loc, diag::err_cuda_vla) << CurrentCUDATarget())
+  ///    return ExprError();
+  ///  // Otherwise, continue parsing as normal.
+  CUDADiagBuilder CUDADiagIfDeviceCode(SourceLocation Loc, unsigned DiagID);
+
+  /// Creates a CUDADiagBuilder that emits the diagnostic if the current context
+  /// is "used as host code".
+  ///
+  /// Same as CUDADiagIfDeviceCode, with "host" and "device" switched.
+  CUDADiagBuilder CUDADiagIfHostCode(SourceLocation Loc, unsigned DiagID);
+
   enum CUDAFunctionTarget {
     CFT_Device,
     CFT_Global,
@@ -9227,7 +9389,17 @@ public:
     CFT_InvalidTarget
   };
 
+  /// Determines whether the given function is a CUDA device/host/kernel/etc.
+  /// function.
+  ///
+  /// Use this rather than examining the function's attributes yourself -- you
+  /// will get it wrong.  Returns CFT_Host if D is null.
   CUDAFunctionTarget IdentifyCUDATarget(const FunctionDecl *D);
+
+  /// Gets the CUDA target for the current context.
+  CUDAFunctionTarget CurrentCUDATarget() {
+    return IdentifyCUDATarget(dyn_cast<FunctionDecl>(CurContext));
+  }
 
   // CUDA function call preference. Must be ordered numerically from
   // worst to best.
@@ -9264,14 +9436,8 @@ public:
 
   /// May add implicit CUDAHostAttr and CUDADeviceAttr attributes to FD,
   /// depending on FD and the current compilation settings.
-  void maybeAddCUDAHostDeviceAttrs(Scope *S, FunctionDecl *FD,
+  void maybeAddCUDAHostDeviceAttrs(FunctionDecl *FD,
                                    const LookupResult &Previous);
-
-private:
-  /// Raw encodings of SourceLocations for which CheckCUDACall has emitted a
-  /// deferred "bad call" diagnostic.  We use this to avoid emitting the same
-  /// deferred diag twice.
-  llvm::DenseSet<unsigned> LocsWithCUDACallDeferredDiags;
 
 public:
   /// Check whether we're allowed to call Callee from the current context.
@@ -9290,21 +9456,6 @@ public:
   /// - Otherwise, returns true without emitting any diagnostics.
   bool CheckCUDACall(SourceLocation Loc, FunctionDecl *Callee);
 
-  /// Check whether a 'try' or 'throw' expression is allowed within the current
-  /// context, and raise an error or create a deferred error, as appropriate.
-  ///
-  /// 'try' and 'throw' are never allowed in CUDA __device__ functions, and are
-  /// allowed in __host__ __device__ functions only if those functions are never
-  /// codegen'ed for the device.
-  ///
-  /// ExprTy should be the string "try" or "throw", as appropriate.
-  bool CheckCUDAExceptionExpr(SourceLocation Loc, StringRef ExprTy);
-
-  /// Check whether it's legal for us to create a variable-length array in the
-  /// current context.  Returns true if the VLA is OK; returns false and emits
-  /// an error otherwise.
-  bool CheckCUDAVLA(SourceLocation Loc);
-
   /// Set __device__ or __host__ __device__ attributes on the given lambda
   /// operator() method.
   ///
@@ -9316,10 +9467,6 @@ public:
   /// Finds a function in \p Matches with highest calling priority
   /// from \p Caller context and erases all functions with lower
   /// calling priority.
-  void EraseUnwantedCUDAMatches(const FunctionDecl *Caller,
-                                SmallVectorImpl<FunctionDecl *> &Matches);
-  void EraseUnwantedCUDAMatches(const FunctionDecl *Caller,
-                                SmallVectorImpl<DeclAccessPair> &Matches);
   void EraseUnwantedCUDAMatches(
       const FunctionDecl *Caller,
       SmallVectorImpl<std::pair<DeclAccessPair, FunctionDecl *>> &Matches);
@@ -9405,8 +9552,8 @@ public:
   void CodeCompleteExpression(Scope *S,
                               const CodeCompleteExpressionData &Data);
   void CodeCompleteMemberReferenceExpr(Scope *S, Expr *Base,
-                                       SourceLocation OpLoc,
-                                       bool IsArrow);
+                                       SourceLocation OpLoc, bool IsArrow,
+                                       bool IsBaseExprStatement);
   void CodeCompletePostfixExpression(Scope *S, ExprResult LHS);
   void CodeCompleteTag(Scope *S, unsigned TagSpec);
   void CodeCompleteTypeQualifiers(DeclSpec &DS);
@@ -9538,6 +9685,7 @@ private:
                  VariadicCallType CallType);
 
   bool CheckObjCString(Expr *Arg);
+  ExprResult CheckOSLogFormatStringArg(Expr *Arg);
 
   ExprResult CheckBuiltinFunctionCall(FunctionDecl *FDecl,
                                       unsigned BuiltinID, CallExpr *TheCall);
@@ -9560,6 +9708,7 @@ private:
   bool SemaBuiltinVAStartARM(CallExpr *Call);
   bool SemaBuiltinUnorderedCompare(CallExpr *TheCall);
   bool SemaBuiltinFPClassification(CallExpr *TheCall, unsigned NumArgs);
+  bool SemaBuiltinOSLogFormat(CallExpr *TheCall);
 
 public:
   // Used by C++ template instantiation.
@@ -9570,6 +9719,7 @@ public:
 
 private:
   bool SemaBuiltinPrefetch(CallExpr *TheCall);
+  bool SemaBuiltinAllocaWithAlign(CallExpr *TheCall);
   bool SemaBuiltinAssume(CallExpr *TheCall);
   bool SemaBuiltinAssumeAligned(CallExpr *TheCall);
   bool SemaBuiltinLongjmp(CallExpr *TheCall);
@@ -9582,6 +9732,8 @@ private:
                               llvm::APSInt &Result);
   bool SemaBuiltinConstantArgRange(CallExpr *TheCall, int ArgNum,
                                    int Low, int High);
+  bool SemaBuiltinConstantArgMultiple(CallExpr *TheCall, int ArgNum,
+                                      unsigned Multiple);
   bool SemaBuiltinARMSpecialReg(unsigned BuiltinID, CallExpr *TheCall,
                                 int ArgNum, unsigned ExpectedFieldNum,
                                 bool AllowName);
@@ -9595,6 +9747,7 @@ public:
     FST_Kprintf,
     FST_FreeBSDKPrintf,
     FST_OSTrace,
+    FST_OSLog,
     FST_Unknown
   };
   static FormatStringType GetFormatStringType(const FormatAttr *Format);
@@ -9757,23 +9910,16 @@ public:
     return OriginalLexicalContext ? OriginalLexicalContext : CurContext;
   }
 
-  AvailabilityResult getCurContextAvailability() const;
-
-  /// \brief Get the verison that this context implies.
-  /// For instance, a method in an interface that is annotated with an
-  /// availability attribuite effectively has the availability of the interface.
-  VersionTuple getVersionForDecl(const Decl *Ctx) const;
-
   /// \brief The diagnostic we should emit for \c D, or \c AR_Available.
   ///
   /// \param D The declaration to check. Note that this may be altered to point
   /// to another declaration that \c D gets it's availability from. i.e., we
   /// walk the list of typedefs to find an availability attribute.
   ///
-  /// \param ContextVersion The version to compare availability against.
-  AvailabilityResult
-  ShouldDiagnoseAvailabilityOfDecl(NamedDecl *&D, VersionTuple ContextVersion,
-                                   std::string *Message);
+  /// \param Message If non-null, this will be populated with the message from
+  /// the availability attribute that is selected.
+  AvailabilityResult ShouldDiagnoseAvailabilityOfDecl(NamedDecl *&D,
+                                                      std::string *Message);
 
   const DeclContext *getCurObjCLexicalContext() const {
     const DeclContext *DC = getCurLexicalContext();
@@ -9889,5 +10035,32 @@ struct LateParsedTemplate {
 };
 
 } // end namespace clang
+
+namespace llvm {
+// Hash a FunctionDeclAndLoc by looking at both its FunctionDecl and its
+// SourceLocation.
+template <> struct DenseMapInfo<clang::Sema::FunctionDeclAndLoc> {
+  using FunctionDeclAndLoc = clang::Sema::FunctionDeclAndLoc;
+  using FDBaseInfo = DenseMapInfo<clang::CanonicalDeclPtr<clang::FunctionDecl>>;
+
+  static FunctionDeclAndLoc getEmptyKey() {
+    return {FDBaseInfo::getEmptyKey(), clang::SourceLocation()};
+  }
+
+  static FunctionDeclAndLoc getTombstoneKey() {
+    return {FDBaseInfo::getTombstoneKey(), clang::SourceLocation()};
+  }
+
+  static unsigned getHashValue(const FunctionDeclAndLoc &FDL) {
+    return hash_combine(FDBaseInfo::getHashValue(FDL.FD),
+                        FDL.Loc.getRawEncoding());
+  }
+
+  static bool isEqual(const FunctionDeclAndLoc &LHS,
+                      const FunctionDeclAndLoc &RHS) {
+    return LHS.FD == RHS.FD && LHS.Loc == RHS.Loc;
+  }
+};
+} // namespace llvm
 
 #endif

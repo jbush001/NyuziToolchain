@@ -106,6 +106,7 @@ static void diagnoseBadTypeAttribute(Sema &S, const AttributeList &attr,
     case AttributeList::AT_FastCall: \
     case AttributeList::AT_StdCall: \
     case AttributeList::AT_ThisCall: \
+    case AttributeList::AT_RegCall: \
     case AttributeList::AT_Pascal: \
     case AttributeList::AT_SwiftCall: \
     case AttributeList::AT_VectorCall: \
@@ -2249,8 +2250,8 @@ QualType Sema::BuildArrayType(QualType T, ArrayType::ArraySizeModifier ASM,
     return QualType();
   }
   // CUDA device code doesn't support VLAs.
-  if (getLangOpts().CUDA && T->isVariableArrayType() && !CheckCUDAVLA(Loc))
-    return QualType();
+  if (getLangOpts().CUDA && T->isVariableArrayType())
+    CUDADiagIfDeviceCode(Loc, diag::err_cuda_vla) << CurrentCUDATarget();
 
   // If this is not C99, extwarn about VLA's and C99 array size modifiers.
   if (!getLangOpts().C99) {
@@ -2400,28 +2401,16 @@ static void checkExtParameterInfos(Sema &S, ArrayRef<QualType> paramTypes,
       }
       continue;
 
-    // swift_context parameters must be the last parameter except for
-    // a possible swift_error parameter.
     case ParameterABI::SwiftContext:
       checkForSwiftCC(paramIndex);
-      if (!(paramIndex == numParams - 1 ||
-            (paramIndex == numParams - 2 &&
-             EPI.ExtParameterInfos[numParams - 1].getABI()
-               == ParameterABI::SwiftErrorResult))) {
-        S.Diag(getParamLoc(paramIndex),
-               diag::err_swift_context_not_before_swift_error_result);
-      }
       continue;
 
-    // swift_error parameters must be the last parameter.
+    // swift_error parameters must be preceded by a swift_context parameter.
     case ParameterABI::SwiftErrorResult:
       checkForSwiftCC(paramIndex);
-      if (paramIndex != numParams - 1) {
-        S.Diag(getParamLoc(paramIndex),
-               diag::err_swift_error_result_not_last);
-      } else if (paramIndex == 0 ||
-                 EPI.ExtParameterInfos[paramIndex - 1].getABI()
-                   != ParameterABI::SwiftContext) {
+      if (paramIndex == 0 ||
+          EPI.ExtParameterInfos[paramIndex - 1].getABI() !=
+              ParameterABI::SwiftContext) {
         S.Diag(getParamLoc(paramIndex),
                diag::err_swift_error_result_not_after_swift_context);
       }
@@ -3611,7 +3600,17 @@ static TypeSourceInfo *GetFullTypeForDeclarator(TypeProcessingState &state,
     // inner pointers.
     complainAboutMissingNullability = CAMN_InnerPointers;
 
-    if (T->canHaveNullability() && !T->getNullability(S.Context)) {
+    auto isDependentNonPointerType = [](QualType T) -> bool {
+      // Note: This is intended to be the same check as Type::canHaveNullability
+      // except with all of the ambiguous cases being treated as 'false' rather
+      // than 'true'.
+      return T->isDependentType() && !T->isAnyPointerType() &&
+        !T->isBlockPointerType() && !T->isMemberPointerType();
+    };
+
+    if (T->canHaveNullability() && !T->getNullability(S.Context) &&
+        !isDependentNonPointerType(T)) {
+      // Note that we allow but don't require nullability on dependent types.
       ++NumPointersRemaining;
     }
 
@@ -4055,13 +4054,26 @@ static TypeSourceInfo *GetFullTypeForDeclarator(TypeProcessingState &state,
         }
       }
 
+      if (LangOpts.OpenCL) {
         // OpenCL v2.0 s6.12.5 - A block cannot be the return value of a
         // function.
-      if (LangOpts.OpenCL && (T->isBlockPointerType() || T->isImageType() ||
-                              T->isSamplerT() || T->isPipeType())) {
-        S.Diag(D.getIdentifierLoc(), diag::err_opencl_invalid_return)
-            << T << 1 /*hint off*/;
-        D.setInvalidType(true);
+        if (T->isBlockPointerType() || T->isImageType() || T->isSamplerT() ||
+            T->isPipeType()) {
+          S.Diag(D.getIdentifierLoc(), diag::err_opencl_invalid_return)
+              << T << 1 /*hint off*/;
+          D.setInvalidType(true);
+        }
+        // OpenCL doesn't support variadic functions and blocks
+        // (s6.9.e and s6.12.5 OpenCL v2.0) except for printf.
+        // We also allow here any toolchain reserved identifiers.
+        if (FTI.isVariadic &&
+            !(D.getIdentifier() &&
+              ((D.getIdentifier()->getName() == "printf" &&
+                LangOpts.OpenCLVersion >= 120) ||
+               D.getIdentifier()->getName().startswith("__")))) {
+          S.Diag(D.getIdentifierLoc(), diag::err_opencl_variadic_function);
+          D.setInvalidType(true);
+        }
       }
 
       // Methods cannot return interface types. All ObjC objects are
@@ -4154,7 +4166,7 @@ static TypeSourceInfo *GetFullTypeForDeclarator(TypeProcessingState &state,
 
       // Exception specs are not allowed in typedefs. Complain, but add it
       // anyway.
-      if (IsTypedefName && FTI.getExceptionSpecType())
+      if (IsTypedefName && FTI.getExceptionSpecType() && !LangOpts.CPlusPlus1z)
         S.Diag(FTI.getExceptionSpecLocBeg(),
                diag::err_exception_spec_in_typedef)
             << (D.getContext() == Declarator::AliasDeclContext ||
@@ -4749,6 +4761,8 @@ static AttributeList::Kind getAttrListKind(AttributedType::Kind kind) {
     return AttributeList::AT_StdCall;
   case AttributedType::attr_thiscall:
     return AttributeList::AT_ThisCall;
+  case AttributedType::attr_regcall:
+    return AttributeList::AT_RegCall;
   case AttributedType::attr_pascal:
     return AttributeList::AT_Pascal;
   case AttributedType::attr_swiftcall:
@@ -4919,11 +4933,9 @@ namespace {
         TL.getWrittenBuiltinSpecs() = DS.getWrittenBuiltinSpecs();
         // Try to have a meaningful source location.
         if (TL.getWrittenSignSpec() != TSS_unspecified)
-          // Sign spec loc overrides the others (e.g., 'unsigned long').
-          TL.setBuiltinLoc(DS.getTypeSpecSignLoc());
-        else if (TL.getWrittenWidthSpec() != TSW_unspecified)
-          // Width spec loc overrides type spec loc (e.g., 'short int').
-          TL.setBuiltinLoc(DS.getTypeSpecWidthLoc());
+          TL.expandBuiltinRange(DS.getTypeSpecSignLoc());
+        if (TL.getWrittenWidthSpec() != TSW_unspecified)
+          TL.expandBuiltinRange(DS.getTypeSpecWidthRange());
       }
     }
     void VisitElaboratedTypeLoc(ElaboratedTypeLoc TL) {
@@ -6087,6 +6099,8 @@ static AttributedType::Kind getCCTypeAttrKind(AttributeList &Attr) {
     return AttributedType::attr_stdcall;
   case AttributeList::AT_ThisCall:
     return AttributedType::attr_thiscall;
+  case AttributeList::AT_RegCall:
+    return AttributedType::attr_regcall;
   case AttributeList::AT_Pascal:
     return AttributedType::attr_pascal;
   case AttributeList::AT_SwiftCall:
@@ -6900,6 +6914,10 @@ bool Sema::hasVisibleDefinition(NamedDecl *D, NamedDecl **Suggested,
     if (auto *Pattern = FD->getTemplateInstantiationPattern())
       FD = Pattern;
     D = FD->getDefinition();
+  } else if (auto *VD = dyn_cast<VarDecl>(D)) {
+    if (auto *Pattern = VD->getTemplateInstantiationPattern())
+      VD = Pattern;
+    D = VD->getDefinition();
   }
   assert(D && "missing definition for pattern of instantiated definition");
 

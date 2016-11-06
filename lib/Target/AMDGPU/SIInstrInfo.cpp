@@ -614,7 +614,12 @@ void SIInstrInfo::storeRegToStackSlot(MachineBasicBlock &MBB,
     BuildMI(MBB, MI, DL, OpDesc)
       .addReg(SrcReg, getKillRegState(isKill)) // data
       .addFrameIndex(FrameIndex)               // addr
-      .addMemOperand(MMO);
+      .addMemOperand(MMO)
+      .addReg(MFI->getScratchRSrcReg(), RegState::Implicit)
+      .addReg(MFI->getScratchWaveOffsetReg(), RegState::Implicit);
+    // Add the scratch resource registers as implicit uses because we may end up
+    // needing them, and need to ensure that the reserved registers are
+    // correctly handled.
 
     return;
   }
@@ -707,7 +712,9 @@ void SIInstrInfo::loadRegFromStackSlot(MachineBasicBlock &MBB,
 
     BuildMI(MBB, MI, DL, OpDesc, DestReg)
       .addFrameIndex(FrameIndex) // addr
-      .addMemOperand(MMO);
+      .addMemOperand(MMO)
+      .addReg(MFI->getScratchRSrcReg(), RegState::Implicit)
+      .addReg(MFI->getScratchWaveOffsetReg(), RegState::Implicit);
 
     return;
   }
@@ -909,6 +916,32 @@ bool SIInstrInfo::expandPostRAPseudo(MachineInstr &MI) const {
     MI.eraseFromParent();
     break;
   }
+  case AMDGPU::V_MOVRELD_B32_V1:
+  case AMDGPU::V_MOVRELD_B32_V2:
+  case AMDGPU::V_MOVRELD_B32_V4:
+  case AMDGPU::V_MOVRELD_B32_V8:
+  case AMDGPU::V_MOVRELD_B32_V16: {
+    const MCInstrDesc &MovRelDesc = get(AMDGPU::V_MOVRELD_B32_e32);
+    unsigned VecReg = MI.getOperand(0).getReg();
+    bool IsUndef = MI.getOperand(1).isUndef();
+    unsigned SubReg = AMDGPU::sub0 + MI.getOperand(3).getImm();
+    assert(VecReg == MI.getOperand(1).getReg());
+
+    MachineInstr *MovRel =
+        BuildMI(MBB, MI, DL, MovRelDesc)
+            .addReg(RI.getSubReg(VecReg, SubReg), RegState::Undef)
+            .addOperand(MI.getOperand(2))
+            .addReg(VecReg, RegState::ImplicitDefine)
+            .addReg(VecReg, RegState::Implicit | (IsUndef ? RegState::Undef : 0));
+
+    const int ImpDefIdx =
+        MovRelDesc.getNumOperands() + MovRelDesc.getNumImplicitUses();
+    const int ImpUseIdx = ImpDefIdx + 1;
+    MovRel->tieOperands(ImpDefIdx, ImpUseIdx);
+
+    MI.eraseFromParent();
+    break;
+  }
   case AMDGPU::SI_PC_ADD_REL_OFFSET: {
     MachineFunction &MF = *MBB.getParent();
     unsigned Reg = MI.getOperand(0).getReg();
@@ -925,10 +958,15 @@ bool SIInstrInfo::expandPostRAPseudo(MachineInstr &MI) const {
     Bundler.append(BuildMI(MF, DL, get(AMDGPU::S_ADD_U32), RegLo)
                        .addReg(RegLo)
                        .addOperand(MI.getOperand(1)));
-    Bundler.append(BuildMI(MF, DL, get(AMDGPU::S_ADDC_U32), RegHi)
-                           .addReg(RegHi)
-                           .addImm(0));
 
+    MachineInstrBuilder MIB = BuildMI(MF, DL, get(AMDGPU::S_ADDC_U32), RegHi)
+                                  .addReg(RegHi);
+    if (MI.getOperand(2).getTargetFlags() == SIInstrInfo::MO_NONE)
+      MIB.addImm(0);
+    else
+      MIB.addOperand(MI.getOperand(2));
+
+    Bundler.append(MIB);
     llvm::finalizeBundle(MBB, Bundler.begin());
 
     MI.eraseFromParent();
@@ -1645,6 +1683,20 @@ MachineInstr *SIInstrInfo::convertToThreeAddress(MachineFunction::iterator &MBB,
       .addImm(0); // omod
 }
 
+// It's not generally safe to move VALU instructions across these since it will
+// start using the register as a base index rather than directly.
+// XXX - Why isn't hasSideEffects sufficient for these?
+static bool changesVGPRIndexingMode(const MachineInstr &MI) {
+  switch (MI.getOpcode()) {
+  case AMDGPU::S_SET_GPR_IDX_ON:
+  case AMDGPU::S_SET_GPR_IDX_MODE:
+  case AMDGPU::S_SET_GPR_IDX_OFF:
+    return true;
+  default:
+    return false;
+  }
+}
+
 bool SIInstrInfo::isSchedulingBoundary(const MachineInstr &MI,
                                        const MachineBasicBlock *MBB,
                                        const MachineFunction &MF) const {
@@ -1654,7 +1706,8 @@ bool SIInstrInfo::isSchedulingBoundary(const MachineInstr &MI,
   // when they operate on VGPRs. Treating EXEC modifications as scheduling
   // boundaries prevents incorrect movements of such instructions.
   return TargetInstrInfo::isSchedulingBoundary(MI, MBB, MF) ||
-         MI.modifiesRegister(AMDGPU::EXEC, &RI);
+         MI.modifiesRegister(AMDGPU::EXEC, &RI) ||
+         changesVGPRIndexingMode(MI);
 }
 
 bool SIInstrInfo::isInlineConstant(const APInt &Imm) const {
@@ -1672,7 +1725,8 @@ bool SIInstrInfo::isInlineConstant(const APInt &Imm) const {
            (DoubleToBits(2.0) == Val) ||
            (DoubleToBits(-2.0) == Val) ||
            (DoubleToBits(4.0) == Val) ||
-           (DoubleToBits(-4.0) == Val);
+           (DoubleToBits(-4.0) == Val) ||
+           (ST.hasInv2PiInlineImm() && Val == 0x3fc45f306dc9c882);
   }
 
   // The actual type of the operand does not seem to matter as long
@@ -1693,7 +1747,8 @@ bool SIInstrInfo::isInlineConstant(const APInt &Imm) const {
          (FloatToBits(2.0f) == Val) ||
          (FloatToBits(-2.0f) == Val) ||
          (FloatToBits(4.0f) == Val) ||
-         (FloatToBits(-4.0f) == Val);
+         (FloatToBits(-4.0f) == Val) ||
+         (ST.hasInv2PiInlineImm() && Val == 0x3e22f983);
 }
 
 bool SIInstrInfo::isInlineConstant(const MachineOperand &MO,
@@ -1888,6 +1943,28 @@ bool SIInstrInfo::verifyInstruction(const MachineInstr &MI,
     return false;
   }
 
+  if (MI.isInlineAsm()) {
+    // Verify register classes for inlineasm constraints.
+    for (unsigned I = InlineAsm::MIOp_FirstOperand, E = MI.getNumOperands();
+         I != E; ++I) {
+      const TargetRegisterClass *RC = MI.getRegClassConstraint(I, this, &RI);
+      if (!RC)
+        continue;
+
+      const MachineOperand &Op = MI.getOperand(I);
+      if (!Op.isReg())
+        continue;
+
+      unsigned Reg = Op.getReg();
+      if (!TargetRegisterInfo::isVirtualRegister(Reg) && !RC->contains(Reg)) {
+        ErrInfo = "inlineasm operand has incorrect register class.";
+        return false;
+      }
+    }
+
+    return true;
+  }
+
   // Make sure the register classes are correct.
   for (int i = 0, e = Desc.getNumOperands(); i != e; ++i) {
     if (MI.getOperand(i).isFPImm()) {
@@ -2024,7 +2101,10 @@ bool SIInstrInfo::verifyInstruction(const MachineInstr &MI,
       Desc.getNumImplicitUses();
     const unsigned NumImplicitOps = IsDst ? 2 : 1;
 
-    if (MI.getNumOperands() != StaticNumOps + NumImplicitOps) {
+    // Allow additional implicit operands. This allows a fixup done by the post
+    // RA scheduler where the main implicit operand is killed and implicit-defs
+    // are added for sub-registers that remain live after this instruction.
+    if (MI.getNumOperands() < StaticNumOps + NumImplicitOps) {
       ErrInfo = "missing implicit register operands";
       return false;
     }
@@ -2060,6 +2140,18 @@ bool SIInstrInfo::verifyInstruction(const MachineInstr &MI,
     if (!MI.hasRegisterImplicitUseOperand(AMDGPU::EXEC)) {
       ErrInfo = "VALU instruction does not implicitly read exec mask";
       return false;
+    }
+  }
+
+  if (isSMRD(MI)) {
+    if (MI.mayStore()) {
+      // The register offset form of scalar stores may only use m0 as the
+      // soffset register.
+      const MachineOperand *Soff = getNamedOperand(MI, AMDGPU::OpName::soff);
+      if (Soff && Soff->getReg() != AMDGPU::M0) {
+        ErrInfo = "scalar stores must use m0 as offset register";
+        return false;
+      }
     }
   }
 
@@ -3434,12 +3526,20 @@ unsigned SIInstrInfo::getInstSizeInBytes(const MachineInstr &MI) const {
 
   // If we have a definitive size, we can use it. Otherwise we need to inspect
   // the operands to know the size.
-  if (DescSize != 0)
+  //
+  // FIXME: Instructions that have a base 32-bit encoding report their size as
+  // 4, even though they are really 8 bytes if they have a literal operand.
+  if (DescSize != 0 && DescSize != 4)
     return DescSize;
 
   // 4-byte instructions may have a 32-bit literal encoded after them. Check
   // operands that coud ever be literals.
   if (isVALU(MI) || isSALU(MI)) {
+    if (isFixedSize(MI)) {
+      assert(DescSize == 4);
+      return DescSize;
+    }
+
     int Src0Idx = AMDGPU::getNamedOperandIdx(Opc, AMDGPU::OpName::src0);
     if (Src0Idx == -1)
       return 4; // No operands.
@@ -3457,7 +3557,11 @@ unsigned SIInstrInfo::getInstSizeInBytes(const MachineInstr &MI) const {
     return 4;
   }
 
+  if (DescSize == 4)
+    return 4;
+
   switch (Opc) {
+  case AMDGPU::SI_MASK_BRANCH:
   case TargetOpcode::IMPLICIT_DEF:
   case TargetOpcode::KILL:
   case TargetOpcode::DBG_VALUE:
@@ -3472,6 +3576,20 @@ unsigned SIInstrInfo::getInstSizeInBytes(const MachineInstr &MI) const {
   default:
     llvm_unreachable("unable to find instruction size");
   }
+}
+
+bool SIInstrInfo::mayAccessFlatAddressSpace(const MachineInstr &MI) const {
+  if (!isFLAT(MI))
+    return false;
+
+  if (MI.memoperands_empty())
+    return true;
+
+  for (const MachineMemOperand *MMO : MI.memoperands()) {
+    if (MMO->getAddrSpace() == AMDGPUAS::FLAT_ADDRESS)
+      return true;
+  }
+  return false;
 }
 
 ArrayRef<std::pair<int, const char *>>

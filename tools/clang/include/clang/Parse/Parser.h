@@ -173,6 +173,7 @@ class Parser : public CodeCompletionHandler {
   std::unique_ptr<PragmaHandler> MSSection;
   std::unique_ptr<PragmaHandler> MSRuntimeChecks;
   std::unique_ptr<PragmaHandler> MSIntrinsic;
+  std::unique_ptr<PragmaHandler> CUDAForceHostDeviceHandler;
   std::unique_ptr<PragmaHandler> OptimizeHandler;
   std::unique_ptr<PragmaHandler> LoopHintHandler;
   std::unique_ptr<PragmaHandler> UnrollHintHandler;
@@ -245,6 +246,11 @@ class Parser : public CodeCompletionHandler {
   bool ParsingInObjCContainer;
 
   bool SkipFunctionBodies;
+
+  /// The location of the expression statement that is being parsed right now.
+  /// Used to determine if an expression that is being parsed is a statement or
+  /// just a regular sub-expression.
+  SourceLocation ExprStatementTokLoc;
 
 public:
   Parser(Preprocessor &PP, Sema &Actions, bool SkipFunctionBodies);
@@ -877,8 +883,8 @@ public:
     StopAtCodeCompletion = 1 << 2 ///< Stop at code completion
   };
 
-  friend LLVM_CONSTEXPR SkipUntilFlags operator|(SkipUntilFlags L,
-                                                 SkipUntilFlags R) {
+  friend constexpr SkipUntilFlags operator|(SkipUntilFlags L,
+                                            SkipUntilFlags R) {
     return static_cast<SkipUntilFlags>(static_cast<unsigned>(L) |
                                        static_cast<unsigned>(R));
   }

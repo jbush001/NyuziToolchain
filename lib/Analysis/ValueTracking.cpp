@@ -51,6 +51,12 @@ const unsigned MaxDepth = 6;
 static cl::opt<unsigned> DomConditionsMaxUses("dom-conditions-max-uses",
                                               cl::Hidden, cl::init(20));
 
+// This optimization is known to cause performance regressions is some cases,
+// keep it under a temporary flag for now.
+static cl::opt<bool>
+DontImproveNonNegativePhiBits("dont-improve-non-negative-phi-bits",
+                              cl::Hidden, cl::init(true));
+
 /// Returns the bitwidth of the given scalar or pointer type (if unknown returns
 /// 0). For vector types, returns the element type's bitwidth.
 static unsigned getBitWidth(Type *Ty, const DataLayout &DL) {
@@ -80,7 +86,7 @@ struct Query {
   /// isKnownNonZero, which calls computeKnownBits and ComputeSignBit and
   /// isKnownToBeAPowerOfTwo (all of which can call computeKnownBits), and so
   /// on.
-  std::array<const Value*, MaxDepth> Excluded;
+  std::array<const Value *, MaxDepth> Excluded;
   unsigned NumExcluded;
 
   Query(const DataLayout &DL, AssumptionCache *AC, const Instruction *CxtI,
@@ -1300,9 +1306,46 @@ static void computeKnownBitsFromOperator(const Operator *I, APInt &KnownZero,
           APInt KnownZero3(KnownZero), KnownOne3(KnownOne);
           computeKnownBits(L, KnownZero3, KnownOne3, Depth + 1, Q);
 
-          KnownZero = APInt::getLowBitsSet(BitWidth,
-                                           std::min(KnownZero2.countTrailingOnes(),
-                                                    KnownZero3.countTrailingOnes()));
+          KnownZero = APInt::getLowBitsSet(
+              BitWidth, std::min(KnownZero2.countTrailingOnes(),
+                                 KnownZero3.countTrailingOnes()));
+
+          if (DontImproveNonNegativePhiBits)
+            break;
+
+          auto *OverflowOp = dyn_cast<OverflowingBinaryOperator>(LU);
+          if (OverflowOp && OverflowOp->hasNoSignedWrap()) {
+            // If initial value of recurrence is nonnegative, and we are adding
+            // a nonnegative number with nsw, the result can only be nonnegative
+            // or poison value regardless of the number of times we execute the
+            // add in phi recurrence. If initial value is negative and we are
+            // adding a negative number with nsw, the result can only be
+            // negative or poison value. Similar arguments apply to sub and mul.
+            //
+            // (add non-negative, non-negative) --> non-negative
+            // (add negative, negative) --> negative
+            if (Opcode == Instruction::Add) {
+              if (KnownZero2.isNegative() && KnownZero3.isNegative())
+                KnownZero.setBit(BitWidth - 1);
+              else if (KnownOne2.isNegative() && KnownOne3.isNegative())
+                KnownOne.setBit(BitWidth - 1);
+            }
+
+            // (sub nsw non-negative, negative) --> non-negative
+            // (sub nsw negative, non-negative) --> negative
+            else if (Opcode == Instruction::Sub && LL == I) {
+              if (KnownZero2.isNegative() && KnownOne3.isNegative())
+                KnownZero.setBit(BitWidth - 1);
+              else if (KnownOne2.isNegative() && KnownZero3.isNegative())
+                KnownOne.setBit(BitWidth - 1);
+            }
+
+            // (mul nsw non-negative, non-negative) --> non-negative
+            else if (Opcode == Instruction::Mul && KnownZero2.isNegative() &&
+                     KnownZero3.isNegative())
+              KnownZero.setBit(BitWidth - 1);
+          }
+
           break;
         }
       }
@@ -3908,37 +3951,45 @@ static SelectPatternResult matchSelectPattern(CmpInst::Predicate Pred,
     }
   }
 
-  if (ConstantInt *C1 = dyn_cast<ConstantInt>(CmpRHS)) {
+  const APInt *C1;
+  if (match(CmpRHS, m_APInt(C1))) {
     if ((CmpLHS == TrueVal && match(FalseVal, m_Neg(m_Specific(CmpLHS)))) ||
         (CmpLHS == FalseVal && match(TrueVal, m_Neg(m_Specific(CmpLHS))))) {
 
       // ABS(X) ==> (X >s 0) ? X : -X and (X >s -1) ? X : -X
       // NABS(X) ==> (X >s 0) ? -X : X and (X >s -1) ? -X : X
-      if (Pred == ICmpInst::ICMP_SGT && (C1->isZero() || C1->isMinusOne())) {
+      if (Pred == ICmpInst::ICMP_SGT && (*C1 == 0 || C1->isAllOnesValue())) {
         return {(CmpLHS == TrueVal) ? SPF_ABS : SPF_NABS, SPNB_NA, false};
       }
 
       // ABS(X) ==> (X <s 0) ? -X : X and (X <s 1) ? -X : X
       // NABS(X) ==> (X <s 0) ? X : -X and (X <s 1) ? X : -X
-      if (Pred == ICmpInst::ICMP_SLT && (C1->isZero() || C1->isOne())) {
+      if (Pred == ICmpInst::ICMP_SLT && (*C1 == 0 || *C1 == 1)) {
         return {(CmpLHS == FalseVal) ? SPF_ABS : SPF_NABS, SPNB_NA, false};
       }
     }
 
-    // Y >s C ? ~Y : ~C == ~Y <s ~C ? ~Y : ~C = SMIN(~Y, ~C)
-    if (const auto *C2 = dyn_cast<ConstantInt>(FalseVal)) {
-      if (Pred == ICmpInst::ICMP_SGT && C1->getType() == C2->getType() &&
-          ~C1->getValue() == C2->getValue() &&
-          (match(TrueVal, m_Not(m_Specific(CmpLHS))) ||
-           match(CmpLHS, m_Not(m_Specific(TrueVal))))) {
-        LHS = TrueVal;
-        RHS = FalseVal;
-        return {SPF_SMIN, SPNB_NA, false};
-      }
+    // (X >s C) ? ~X : ~C ==> (~X <s ~C) ? ~X : ~C ==> SMIN(~X, ~C)
+    // (X <s C) ? ~X : ~C ==> (~X >s ~C) ? ~X : ~C ==> SMAX(~X, ~C)
+    const APInt *C2;
+    if (match(TrueVal, m_Not(m_Specific(CmpLHS))) &&
+        match(FalseVal, m_APInt(C2)) && ~(*C1) == *C2 &&
+        (Pred == CmpInst::ICMP_SGT || Pred == CmpInst::ICMP_SLT)) {
+      LHS = TrueVal;
+      RHS = FalseVal;
+      return {Pred == CmpInst::ICMP_SGT ? SPF_SMIN : SPF_SMAX, SPNB_NA, false};
+    }
+
+    // (X >s C) ? ~C : ~X ==> (~X <s ~C) ? ~C : ~X ==> SMAX(~C, ~X)
+    // (X <s C) ? ~C : ~X ==> (~X >s ~C) ? ~C : ~X ==> SMIN(~C, ~X)
+    if (match(FalseVal, m_Not(m_Specific(CmpLHS))) &&
+        match(TrueVal, m_APInt(C2)) && ~(*C1) == *C2 &&
+        (Pred == CmpInst::ICMP_SGT || Pred == CmpInst::ICMP_SLT)) {
+      LHS = TrueVal;
+      RHS = FalseVal;
+      return {Pred == CmpInst::ICMP_SGT ? SPF_SMAX : SPF_SMIN, SPNB_NA, false};
     }
   }
-
-  // TODO: (X > 4) ? X : 5   -->  (X >= 5) ? X : 5  -->  MAX(X, 5)
 
   return {SPF_UNKNOWN, SPNB_NA, false};
 }
@@ -4037,28 +4088,6 @@ SelectPatternResult llvm::matchSelectPattern(Value *V, Value *&LHS, Value *&RHS,
   }
   return ::matchSelectPattern(Pred, FMF, CmpLHS, CmpRHS, TrueVal, FalseVal,
                               LHS, RHS);
-}
-
-ConstantRange llvm::getConstantRangeFromMetadata(const MDNode &Ranges) {
-  const unsigned NumRanges = Ranges.getNumOperands() / 2;
-  assert(NumRanges >= 1 && "Must have at least one range!");
-  assert(Ranges.getNumOperands() % 2 == 0 && "Must be a sequence of pairs");
-
-  auto *FirstLow = mdconst::extract<ConstantInt>(Ranges.getOperand(0));
-  auto *FirstHigh = mdconst::extract<ConstantInt>(Ranges.getOperand(1));
-
-  ConstantRange CR(FirstLow->getValue(), FirstHigh->getValue());
-
-  for (unsigned i = 1; i < NumRanges; ++i) {
-    auto *Low = mdconst::extract<ConstantInt>(Ranges.getOperand(2 * i + 0));
-    auto *High = mdconst::extract<ConstantInt>(Ranges.getOperand(2 * i + 1));
-
-    // Note: unionWith will potentially create a range that contains values not
-    // contained in any of the original N ranges.
-    CR = CR.unionWith(ConstantRange(Low->getValue(), High->getValue()));
-  }
-
-  return CR;
 }
 
 /// Return true if "icmp Pred LHS RHS" is always true.

@@ -84,6 +84,24 @@ static inline bool IsFreeToInvert(Value *V, bool WillInvertAllUses) {
   if (isa<ConstantInt>(V))
     return true;
 
+  // A vector of constant integers can be inverted easily.
+  Constant *CV;
+  if (V->getType()->isVectorTy() && match(V, PatternMatch::m_Constant(CV))) {
+    unsigned NumElts = V->getType()->getVectorNumElements();
+    for (unsigned i = 0; i != NumElts; ++i) {
+      Constant *Elt = CV->getAggregateElement(i);
+      if (!Elt)
+        return false;
+
+      if (isa<UndefValue>(Elt))
+        continue;
+
+      if (!isa<ConstantInt>(Elt))
+        return false;
+    }
+    return true;
+  }
+
   // Compares can be inverted if all of their uses are being modified to use the
   // ~V.
   if (isa<CmpInst>(V))
@@ -362,6 +380,7 @@ private:
   Instruction *scalarizePHI(ExtractElementInst &EI, PHINode *PN);
   Value *EvaluateInDifferentElementOrder(Value *V, ArrayRef<int> Mask);
   Instruction *foldCastedBitwiseLogic(BinaryOperator &I);
+  Instruction *optimizeBitCastFromPhi(CastInst &CI, PHINode *PN);
 
   /// Determine if a pair of casts can be replaced by a single cast.
   ///

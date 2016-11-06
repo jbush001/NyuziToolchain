@@ -14,27 +14,32 @@
 #include "llvm/Support/Error.h"
 #include "llvm/Support/raw_ostream.h"
 
+#if !defined(_MSC_VER) && !defined(__MINGW32__)
+#include <unistd.h>
+#endif
+
 using namespace llvm;
 
 namespace lld {
 
 bool elf::HasError;
 raw_ostream *elf::ErrorOS;
+StringRef elf::Argv0;
 
 void elf::log(const Twine &Msg) {
   if (Config->Verbose)
-    outs() << Msg << "\n";
+    outs() << Argv0 << ": " << Msg << "\n";
 }
 
 void elf::warn(const Twine &Msg) {
   if (Config->FatalWarnings)
     error(Msg);
   else
-    *ErrorOS << Msg << "\n";
+    *ErrorOS << Argv0 << ": warning: " << Msg << "\n";
 }
 
 void elf::error(const Twine &Msg) {
-  *ErrorOS << Msg << "\n";
+  *ErrorOS << Argv0 << ": error: " << Msg << "\n";
   HasError = true;
 }
 
@@ -42,9 +47,15 @@ void elf::error(std::error_code EC, const Twine &Prefix) {
   error(Prefix + ": " + EC.message());
 }
 
+void elf::exitLld(int Val) {
+  outs().flush();
+  errs().flush();
+  _exit(Val);
+}
+
 void elf::fatal(const Twine &Msg) {
-  *ErrorOS << Msg << "\n";
-  exit(1);
+  *ErrorOS << Argv0 << ": error: " << Msg << "\n";
+  exitLld(1);
 }
 
 void elf::fatal(std::error_code EC, const Twine &Prefix) {

@@ -135,6 +135,8 @@ TEST_F(FormatTestJS, ReservedWords) {
   verifyFormat("x.in() = 1;");
   verifyFormat("x.let() = 1;");
   verifyFormat("x.var() = 1;");
+  verifyFormat("x.for() = 1;");
+  verifyFormat("x.as() = 1;");
   verifyFormat("x = {\n"
                "  a: 12,\n"
                "  interface: 1,\n"
@@ -368,6 +370,8 @@ TEST_F(FormatTestJS, GeneratorFunctions) {
                "  let x = 1;\n"
                "  yield x;\n"
                "  yield* something();\n"
+               "  yield [1, 2];\n"
+               "  yield {a: 1};\n"
                "}");
   verifyFormat("function*\n"
                "    f() {\n"
@@ -381,6 +385,11 @@ TEST_F(FormatTestJS, GeneratorFunctions) {
                "    yield x;\n"
                "  }\n"
                "}");
+  verifyFormat("var x = {\n"
+               "  a: function*() {\n"
+               "    //\n"
+               "  }\n"
+               "}\n");
 }
 
 TEST_F(FormatTestJS, AsyncFunctions) {
@@ -1274,6 +1283,12 @@ TEST_F(FormatTestJS, TemplateStrings) {
                "var y;");
   // Escaped dollar.
   verifyFormat("var x = ` \\${foo}`;\n");
+}
+
+TEST_F(FormatTestJS, TemplateStringASI) {
+  verifyFormat("var x = `hello${world}`;", "var x = `hello${\n"
+                                           "    world\n"
+                                           "}`;");
 }
 
 TEST_F(FormatTestJS, NestedTemplateStrings) {

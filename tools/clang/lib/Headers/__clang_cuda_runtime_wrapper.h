@@ -72,9 +72,9 @@
 #define __CUDA_ARCH__ 350
 #endif
 
-#include "cuda_builtin_vars.h"
+#include "__clang_cuda_builtin_vars.h"
 
-// No need for device_launch_parameters.h as cuda_builtin_vars.h above
+// No need for device_launch_parameters.h as __clang_cuda_builtin_vars.h above
 // has taken care of builtin variables declared in the file.
 #define __DEVICE_LAUNCH_PARAMETERS_H__
 
@@ -283,8 +283,8 @@ __device__ static inline void *malloc(size_t __size) {
 }
 } // namespace std
 
-// Out-of-line implementations from cuda_builtin_vars.h.  These need to come
-// after we've pulled in the definition of uint3 and dim3.
+// Out-of-line implementations from __clang_cuda_builtin_vars.h.  These need to
+// come after we've pulled in the definition of uint3 and dim3.
 
 __device__ inline __cuda_builtin_threadIdx_t::operator uint3() const {
   uint3 ret;
@@ -312,13 +312,14 @@ __device__ inline __cuda_builtin_gridDim_t::operator dim3() const {
 
 #include <__clang_cuda_cmath.h>
 #include <__clang_cuda_intrinsics.h>
+#include <__clang_cuda_complex_builtins.h>
 
 // curand_mtgp32_kernel helpfully redeclares blockDim and threadIdx in host
 // mode, giving them their "proper" types of dim3 and uint3.  This is
-// incompatible with the types we give in cuda_builtin_vars.h.  As as hack,
-// force-include the header (nvcc doesn't include it by default) but redefine
-// dim3 and uint3 to our builtin types.  (Thankfully dim3 and uint3 are only
-// used here for the redeclarations of blockDim and threadIdx.)
+// incompatible with the types we give in __clang_cuda_builtin_vars.h.  As as
+// hack, force-include the header (nvcc doesn't include it by default) but
+// redefine dim3 and uint3 to our builtin types.  (Thankfully dim3 and uint3 are
+// only used here for the redeclarations of blockDim and threadIdx.)
 #pragma push_macro("dim3")
 #pragma push_macro("uint3")
 #define dim3 __cuda_builtin_blockDim_t
@@ -327,24 +328,6 @@ __device__ inline __cuda_builtin_gridDim_t::operator dim3() const {
 #pragma pop_macro("dim3")
 #pragma pop_macro("uint3")
 #pragma pop_macro("__USE_FAST_MATH__")
-
-// Device overrides for placement new and delete.
-#pragma push_macro("CUDA_NOEXCEPT")
-#if __cplusplus >= 201103L
-#define CUDA_NOEXCEPT noexcept
-#else
-#define CUDA_NOEXCEPT
-#endif
-
-__device__ inline void *operator new(__SIZE_TYPE__, void *__ptr) CUDA_NOEXCEPT {
-  return __ptr;
-}
-__device__ inline void *operator new[](__SIZE_TYPE__, void *__ptr) CUDA_NOEXCEPT {
-  return __ptr;
-}
-__device__ inline void operator delete(void *, void *) CUDA_NOEXCEPT {}
-__device__ inline void operator delete[](void *, void *) CUDA_NOEXCEPT {}
-#pragma pop_macro("CUDA_NOEXCEPT")
 
 #endif // __CUDA__
 #endif // __CLANG_CUDA_RUNTIME_WRAPPER_H__

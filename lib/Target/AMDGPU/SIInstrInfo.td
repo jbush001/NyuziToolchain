@@ -74,7 +74,7 @@ def SIsampled : SDSample<"AMDGPUISD::SAMPLED">;
 def SIsamplel : SDSample<"AMDGPUISD::SAMPLEL">;
 
 def SIpc_add_rel_offset : SDNode<"AMDGPUISD::PC_ADD_REL_OFFSET",
-  SDTypeProfile<1, 1, [SDTCisVT<0, iPTR>, SDTCisSameAs<0,1>]>
+  SDTypeProfile<1, 2, [SDTCisVT<0, iPTR>, SDTCisSameAs<0,1>, SDTCisSameAs<0,2>]>
 >;
 
 //===----------------------------------------------------------------------===//
@@ -265,19 +265,25 @@ class InlineFPImm <ValueType vt> : PatLeaf <(vt fpimm), [{
   return isInlineImmediate(N);
 }]>;
 
-class SGPRImm <dag frag> : PatLeaf<frag, [{
+class VGPRImm <dag frag> : PatLeaf<frag, [{
   if (Subtarget->getGeneration() < SISubtarget::SOUTHERN_ISLANDS) {
     return false;
   }
   const SIRegisterInfo *SIRI =
       static_cast<const SIRegisterInfo *>(Subtarget->getRegisterInfo());
+  unsigned Limit = 0;
   for (SDNode::use_iterator U = N->use_begin(), E = SDNode::use_end();
-                                                U != E; ++U) {
+         Limit < 10 && U != E; ++U, ++Limit) {
     const TargetRegisterClass *RC = getOperandRegClass(*U, U.getOperandNo());
-    if (RC && SIRI->isSGPRClass(RC))
-      return true;
+
+    // If the register class is unknown, it could be an unknown
+    // register class that needs to be an SGPR, e.g. an inline asm
+    // constraint
+    if (!RC || SIRI->isSGPRClass(RC))
+      return false;
   }
-  return false;
+
+  return Limit < 10;
 }]>;
 
 //===----------------------------------------------------------------------===//
@@ -372,7 +378,7 @@ def gds : NamedOperandBit<"GDS", NamedMatchClass<"GDS">>;
 def omod : NamedOperandU32<"OModSI", NamedMatchClass<"OModSI">>;
 def clampmod : NamedOperandBit<"ClampSI", NamedMatchClass<"ClampSI">>;
 
-def glc : NamedOperandBit<"GLC", NamedMatchClass<"GLC">>;
+def GLC : NamedOperandBit<"GLC", NamedMatchClass<"GLC">>;
 def slc : NamedOperandBit<"SLC", NamedMatchClass<"SLC">>;
 def tfe : NamedOperandBit<"TFE", NamedMatchClass<"TFE">>;
 def unorm : NamedOperandBit<"UNorm", NamedMatchClass<"UNorm">>;

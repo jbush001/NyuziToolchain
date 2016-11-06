@@ -347,7 +347,7 @@ class ConcreteTypeLoc : public Base {
 
 public:
   unsigned getLocalDataAlignment() const {
-    return std::max(llvm::alignOf<LocalData>(),
+    return std::max(unsigned(alignof(LocalData)),
                     asDerived()->getExtraLocalDataAlignment());
   }
   unsigned getLocalDataSize() const {
@@ -487,8 +487,10 @@ class TypeSpecTypeLoc : public ConcreteTypeLoc<UnqualTypeLoc,
                                                Type,
                                                TypeSpecLocInfo> {
 public:
-  enum { LocalDataSize = sizeof(TypeSpecLocInfo),
-         LocalDataAlignment = llvm::AlignOf<TypeSpecLocInfo>::Alignment };
+  enum {
+    LocalDataSize = sizeof(TypeSpecLocInfo),
+    LocalDataAlignment = alignof(TypeSpecLocInfo)
+  };
 
   SourceLocation getNameLoc() const {
     return this->getLocalData()->NameLoc;
@@ -510,7 +512,7 @@ private:
 
 
 struct BuiltinLocInfo {
-  SourceLocation BuiltinLoc;
+  SourceRange BuiltinRange;
 };
 
 /// \brief Wrapper for source info for builtin types.
@@ -520,10 +522,19 @@ class BuiltinTypeLoc : public ConcreteTypeLoc<UnqualTypeLoc,
                                               BuiltinLocInfo> {
 public:
   SourceLocation getBuiltinLoc() const {
-    return getLocalData()->BuiltinLoc;
+    return getLocalData()->BuiltinRange.getBegin();
   }
   void setBuiltinLoc(SourceLocation Loc) {
-    getLocalData()->BuiltinLoc = Loc;
+    getLocalData()->BuiltinRange = Loc;
+  }
+  void expandBuiltinRange(SourceRange Range) {
+    SourceRange &BuiltinRange = getLocalData()->BuiltinRange;
+    if (!BuiltinRange.getBegin().isValid()) {
+      BuiltinRange = Range;
+    } else {
+      BuiltinRange.setBegin(std::min(Range.getBegin(), BuiltinRange.getBegin()));
+      BuiltinRange.setEnd(std::max(Range.getEnd(), BuiltinRange.getEnd()));
+    }
   }
 
   SourceLocation getNameLoc() const { return getBuiltinLoc(); }
@@ -548,11 +559,11 @@ public:
   }
 
   unsigned getExtraLocalDataAlignment() const {
-    return needsExtraLocalData() ? llvm::alignOf<WrittenBuiltinSpecs>() : 1;
+    return needsExtraLocalData() ? alignof(WrittenBuiltinSpecs) : 1;
   }
 
   SourceRange getLocalSourceRange() const {
-    return SourceRange(getBuiltinLoc(), getBuiltinLoc());
+    return getLocalData()->BuiltinRange;
   }
 
   TypeSpecifierSign getWrittenSignSpec() const {
@@ -768,7 +779,7 @@ public:
     return (this->getNumProtocols() + 2) * sizeof(SourceLocation) ;
   }
   unsigned getExtraLocalDataAlignment() const {
-    return llvm::alignOf<SourceLocation>();
+    return alignof(SourceLocation);
   }
   SourceRange getLocalSourceRange() const {
     SourceLocation start = getNameLoc();
@@ -1045,10 +1056,9 @@ public:
   }
 
   unsigned getExtraLocalDataAlignment() const {
-    assert(llvm::alignOf<ObjCObjectTypeLoc>()
-	     >= llvm::alignOf<TypeSourceInfo *>() &&
-	   "not enough alignment for tail-allocated data");
-    return llvm::alignOf<TypeSourceInfo *>();
+    static_assert(alignof(ObjCObjectTypeLoc) >= alignof(TypeSourceInfo *),
+                  "not enough alignment for tail-allocated data");
+    return alignof(TypeSourceInfo *);
   }
 
   QualType getInnerType() const {
@@ -1414,9 +1424,7 @@ public:
     return getNumParams() * sizeof(ParmVarDecl *);
   }
 
-  unsigned getExtraLocalDataAlignment() const {
-    return llvm::alignOf<ParmVarDecl*>();
-  }
+  unsigned getExtraLocalDataAlignment() const { return alignof(ParmVarDecl *); }
 
   QualType getInnerType() const { return getTypePtr()->getReturnType(); }
 };
@@ -1610,7 +1618,7 @@ public:
   }
 
   unsigned getExtraLocalDataAlignment() const {
-    return llvm::alignOf<TemplateArgumentLocInfo>();
+    return alignof(TemplateArgumentLocInfo);
   }
 
 private:
@@ -2020,7 +2028,7 @@ public:
   }
 
   unsigned getExtraLocalDataAlignment() const {
-    return llvm::alignOf<TemplateArgumentLocInfo>();
+    return alignof(TemplateArgumentLocInfo);
   }
 
 private:

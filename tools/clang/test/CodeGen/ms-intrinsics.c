@@ -1,18 +1,112 @@
 // RUN: %clang_cc1 -ffreestanding -fms-extensions -fms-compatibility -fms-compatibility-version=17.00 \
 // RUN:         -triple i686--windows -Oz -emit-llvm %s -o - \
-// RUN:         | FileCheck %s -check-prefix CHECK -check-prefix CHECK-I386
+// RUN:         | FileCheck %s -check-prefixes CHECK,CHECK-I386,CHECK-INTEL
 // RUN: %clang_cc1 -ffreestanding -fms-extensions -fms-compatibility -fms-compatibility-version=17.00 \
 // RUN:         -triple thumbv7--windows -Oz -emit-llvm %s -o - \
-// RUN:         | FileCheck %s
+// RUN:         | FileCheck %s --check-prefixes CHECK,CHECK-ARM-X64
 // RUN: %clang_cc1 -ffreestanding -fms-extensions -fms-compatibility -fms-compatibility-version=17.00 \
 // RUN:         -triple x86_64--windows -Oz -emit-llvm %s -o - \
-// RUN:         | FileCheck %s --check-prefix=CHECK --check-prefix=CHECK-X64
+// RUN:         | FileCheck %s --check-prefixes CHECK,CHECK-X64,CHECK-ARM-X64,CHECK-INTEL
 
 // intrin.h needs size_t, but -ffreestanding prevents us from getting it from
 // stddef.h.  Work around it with this typedef.
 typedef __SIZE_TYPE__ size_t;
 
 #include <intrin.h>
+
+#if defined(__i386__) || defined(__x86_64__)
+void test__stosb(unsigned char *Dest, unsigned char Data, size_t Count) {
+  return __stosb(Dest, Data, Count);
+}
+
+// CHECK-I386: define{{.*}}void @test__stosb
+// CHECK-I386:   tail call void @llvm.memset.p0i8.i32(i8* %Dest, i8 %Data, i32 %Count, i32 1, i1 true)
+// CHECK-I386:   ret void
+// CHECK-I386: }
+
+// CHECK-X64: define{{.*}}void @test__stosb
+// CHECK-X64:   tail call void @llvm.memset.p0i8.i64(i8* %Dest, i8 %Data, i64 %Count, i32 1, i1 true)
+// CHECK-X64:   ret void
+// CHECK-X64: }
+#endif
+
+void *test_ReturnAddress() {
+  return _ReturnAddress();
+}
+// CHECK-LABEL: define{{.*}}i8* @test_ReturnAddress()
+// CHECK: = tail call i8* @llvm.returnaddress(i32 0)
+// CHECK: ret i8*
+
+#if defined(__i386__) || defined(__x86_64__)
+void *test_AddressOfReturnAddress() {
+  return _AddressOfReturnAddress();
+}
+// CHECK-INTEL-LABEL: define i8* @test_AddressOfReturnAddress()
+// CHECK-INTEL: = tail call i8* @llvm.addressofreturnaddress()
+// CHECK-INTEL: ret i8*
+#endif
+
+unsigned char test_BitScanForward(unsigned long *Index, unsigned long Mask) {
+  return _BitScanForward(Index, Mask);
+}
+// CHECK: define{{.*}}i8 @test_BitScanForward(i32* {{[a-z_ ]*}}%Index, i32 {{[a-z_ ]*}}%Mask){{.*}}{
+// CHECK:   [[ISNOTZERO:%[a-z0-9._]+]] = icmp eq i32 %Mask, 0
+// CHECK:   br i1 [[ISNOTZERO]], label %[[END_LABEL:[a-z0-9._]+]], label %[[ISNOTZERO_LABEL:[a-z0-9._]+]]
+// CHECK:   [[END_LABEL]]:
+// CHECK:   [[RESULT:%[a-z0-9._]+]] = phi i8 [ 0, %[[ISZERO_LABEL:[a-z0-9._]+]] ], [ 1, %[[ISNOTZERO_LABEL]] ]
+// CHECK:   ret i8 [[RESULT]]
+// CHECK:   [[ISNOTZERO_LABEL]]:
+// CHECK:   [[INDEX:%[0-9]+]] = tail call i32 @llvm.cttz.i32(i32 %Mask, i1 true)
+// CHECK:   store i32 [[INDEX]], i32* %Index, align 4
+// CHECK:   br label %[[END_LABEL]]
+
+unsigned char test_BitScanReverse(unsigned long *Index, unsigned long Mask) {
+  return _BitScanReverse(Index, Mask);
+}
+// CHECK: define{{.*}}i8 @test_BitScanReverse(i32* {{[a-z_ ]*}}%Index, i32 {{[a-z_ ]*}}%Mask){{.*}}{
+// CHECK:   [[ISNOTZERO:%[0-9]+]] = icmp eq i32 %Mask, 0
+// CHECK:   br i1 [[ISNOTZERO]], label %[[END_LABEL:[a-z0-9._]+]], label %[[ISNOTZERO_LABEL:[a-z0-9._]+]]
+// CHECK:   [[END_LABEL]]:
+// CHECK:   [[RESULT:%[a-z0-9._]+]] = phi i8 [ 0, %[[ISZERO_LABEL:[a-z0-9._]+]] ], [ 1, %[[ISNOTZERO_LABEL]] ]
+// CHECK:   ret i8 [[RESULT]]
+// CHECK:   [[ISNOTZERO_LABEL]]:
+// CHECK:   [[REVINDEX:%[0-9]+]] = tail call i32 @llvm.ctlz.i32(i32 %Mask, i1 true)
+// CHECK:   [[INDEX:%[0-9]+]] = xor i32 [[REVINDEX]], 31
+// CHECK:   store i32 [[INDEX]], i32* %Index, align 4
+// CHECK:   br label %[[END_LABEL]]
+
+#if defined(__x86_64__) || defined(__arm__)
+unsigned char test_BitScanForward64(unsigned long *Index, unsigned __int64 Mask) {
+  return _BitScanForward64(Index, Mask);
+}
+// CHECK-ARM-X64: define{{.*}}i8 @test_BitScanForward64(i32* {{[a-z_ ]*}}%Index, i64 {{[a-z_ ]*}}%Mask){{.*}}{
+// CHECK-ARM-X64:   [[ISNOTZERO:%[a-z0-9._]+]] = icmp eq i64 %Mask, 0
+// CHECK-ARM-X64:   br i1 [[ISNOTZERO]], label %[[END_LABEL:[a-z0-9._]+]], label %[[ISNOTZERO_LABEL:[a-z0-9._]+]]
+// CHECK-ARM-X64:   [[END_LABEL]]:
+// CHECK-ARM-X64:   [[RESULT:%[a-z0-9._]+]] = phi i8 [ 0, %[[ISZERO_LABEL:[a-z0-9._]+]] ], [ 1, %[[ISNOTZERO_LABEL]] ]
+// CHECK-ARM-X64:   ret i8 [[RESULT]]
+// CHECK-ARM-X64:   [[ISNOTZERO_LABEL]]:
+// CHECK-ARM-X64:   [[INDEX:%[0-9]+]] = tail call i64 @llvm.cttz.i64(i64 %Mask, i1 true)
+// CHECK-ARM-X64:   [[TRUNC_INDEX:%[0-9]+]] = trunc i64 [[INDEX]] to i32
+// CHECK-ARM-X64:   store i32 [[TRUNC_INDEX]], i32* %Index, align 4
+// CHECK-ARM-X64:   br label %[[END_LABEL]]
+
+unsigned char test_BitScanReverse64(unsigned long *Index, unsigned __int64 Mask) {
+  return _BitScanReverse64(Index, Mask);
+}
+// CHECK-ARM-X64: define{{.*}}i8 @test_BitScanReverse64(i32* {{[a-z_ ]*}}%Index, i64 {{[a-z_ ]*}}%Mask){{.*}}{
+// CHECK-ARM-X64:   [[ISNOTZERO:%[0-9]+]] = icmp eq i64 %Mask, 0
+// CHECK-ARM-X64:   br i1 [[ISNOTZERO]], label %[[END_LABEL:[a-z0-9._]+]], label %[[ISNOTZERO_LABEL:[a-z0-9._]+]]
+// CHECK-ARM-X64:   [[END_LABEL]]:
+// CHECK-ARM-X64:   [[RESULT:%[a-z0-9._]+]] = phi i8 [ 0, %[[ISZERO_LABEL:[a-z0-9._]+]] ], [ 1, %[[ISNOTZERO_LABEL]] ]
+// CHECK-ARM-X64:   ret i8 [[RESULT]]
+// CHECK-ARM-X64:   [[ISNOTZERO_LABEL]]:
+// CHECK-ARM-X64:   [[REVINDEX:%[0-9]+]] = tail call i64 @llvm.ctlz.i64(i64 %Mask, i1 true)
+// CHECK-ARM-X64:   [[TRUNC_REVINDEX:%[0-9]+]] = trunc i64 [[REVINDEX]] to i32
+// CHECK-ARM-X64:   [[INDEX:%[0-9]+]] = xor i32 [[TRUNC_REVINDEX]], 63
+// CHECK-ARM-X64:   store i32 [[INDEX]], i32* %Index, align 4
+// CHECK-ARM-X64:   br label %[[END_LABEL]]
+#endif
 
 void *test_InterlockedExchangePointer(void * volatile *Target, void *Value) {
   return _InterlockedExchangePointer(Target, Value);
@@ -40,32 +134,6 @@ void *test_InterlockedCompareExchangePointer(void * volatile *Destination,
 // CHECK:   %[[RESULT:[0-9]+]] = inttoptr [[iPTR]] %[[EXTRACT]] to i8*
 // CHECK:   ret i8* %[[RESULT:[0-9]+]]
 // CHECK: }
-
-#if defined(__i386__)
-long test__readfsdword(unsigned long Offset) {
-  return __readfsdword(Offset);
-}
-
-// CHECK-I386: define i32 @test__readfsdword(i32 %Offset){{.*}}{
-// CHECK-I386:   [[PTR:%[0-9]+]] = inttoptr i32 %Offset to i32 addrspace(257)*
-// CHECK-I386:   [[VALUE:%[0-9]+]] = load volatile i32, i32 addrspace(257)* [[PTR]], align 4
-// CHECK-I386:   ret i32 [[VALUE:%[0-9]+]]
-// CHECK-I386: }
-#endif
-
-#if defined(__x86_64__)
-__int64 test__mulh(__int64 a, __int64 b) {
-  return __mulh(a, b);
-}
-// CHECK-X64-LABEL: define i64 @test__mulh(i64 %a, i64 %b)
-// CHECK-X64: = mul nsw i128 %
-
-unsigned __int64 test__umulh(unsigned __int64 a, unsigned __int64 b) {
-  return __umulh(a, b);
-}
-// CHECK-X64-LABEL: define i64 @test__umulh(i64 %a, i64 %b)
-// CHECK-X64: = mul nuw i128 %
-#endif
 
 char test_InterlockedExchange8(char volatile *value, char mask) {
   return _InterlockedExchange8(value, mask);
@@ -282,3 +350,72 @@ long test_InterlockedDecrement(long volatile *Addend) {
 // CHECK: [[RESULT:%[0-9]+]] = add i32 [[TMP]], -1
 // CHECK: ret i32 [[RESULT]]
 // CHECK: }
+
+#if defined(__x86_64__) || defined(__arm__)
+__int64 test_InterlockedExchange64(__int64 volatile *value, __int64 mask) {
+  return _InterlockedExchange64(value, mask);
+}
+// CHECK-ARM-X64: define{{.*}}i64 @test_InterlockedExchange64(i64*{{[a-z_ ]*}}%value, i64{{[a-z_ ]*}}%mask){{.*}}{
+// CHECK-ARM-X64:   [[RESULT:%[0-9]+]] = atomicrmw xchg i64* %value, i64 %mask seq_cst
+// CHECK-ARM-X64:   ret i64 [[RESULT:%[0-9]+]]
+// CHECK-ARM-X64: }
+
+__int64 test_InterlockedExchangeAdd64(__int64 volatile *value, __int64 mask) {
+  return _InterlockedExchangeAdd64(value, mask);
+}
+// CHECK-ARM-X64: define{{.*}}i64 @test_InterlockedExchangeAdd64(i64*{{[a-z_ ]*}}%value, i64{{[a-z_ ]*}}%mask){{.*}}{
+// CHECK-ARM-X64:   [[RESULT:%[0-9]+]] = atomicrmw add i64* %value, i64 %mask seq_cst
+// CHECK-ARM-X64:   ret i64 [[RESULT:%[0-9]+]]
+// CHECK-ARM-X64: }
+
+__int64 test_InterlockedExchangeSub64(__int64 volatile *value, __int64 mask) {
+  return _InterlockedExchangeSub64(value, mask);
+}
+// CHECK-ARM-X64: define{{.*}}i64 @test_InterlockedExchangeSub64(i64*{{[a-z_ ]*}}%value, i64{{[a-z_ ]*}}%mask){{.*}}{
+// CHECK-ARM-X64:   [[RESULT:%[0-9]+]] = atomicrmw sub i64* %value, i64 %mask seq_cst
+// CHECK-ARM-X64:   ret i64 [[RESULT:%[0-9]+]]
+// CHECK-ARM-X64: }
+
+__int64 test_InterlockedOr64(__int64 volatile *value, __int64 mask) {
+  return _InterlockedOr64(value, mask);
+}
+// CHECK-ARM-X64: define{{.*}}i64 @test_InterlockedOr64(i64*{{[a-z_ ]*}}%value, i64{{[a-z_ ]*}}%mask){{.*}}{
+// CHECK-ARM-X64:   [[RESULT:%[0-9]+]] = atomicrmw or i64* %value, i64 %mask seq_cst
+// CHECK-ARM-X64:   ret i64 [[RESULT:%[0-9]+]]
+// CHECK-ARM-X64: }
+
+__int64 test_InterlockedXor64(__int64 volatile *value, __int64 mask) {
+  return _InterlockedXor64(value, mask);
+}
+// CHECK-ARM-X64: define{{.*}}i64 @test_InterlockedXor64(i64*{{[a-z_ ]*}}%value, i64{{[a-z_ ]*}}%mask){{.*}}{
+// CHECK-ARM-X64:   [[RESULT:%[0-9]+]] = atomicrmw xor i64* %value, i64 %mask seq_cst
+// CHECK-ARM-X64:   ret i64 [[RESULT:%[0-9]+]]
+// CHECK-ARM-X64: }
+
+__int64 test_InterlockedAnd64(__int64 volatile *value, __int64 mask) {
+  return _InterlockedAnd64(value, mask);
+}
+// CHECK-ARM-X64: define{{.*}}i64 @test_InterlockedAnd64(i64*{{[a-z_ ]*}}%value, i64{{[a-z_ ]*}}%mask){{.*}}{
+// CHECK-ARM-X64:   [[RESULT:%[0-9]+]] = atomicrmw and i64* %value, i64 %mask seq_cst
+// CHECK-ARM-X64:   ret i64 [[RESULT:%[0-9]+]]
+// CHECK-ARM-X64: }
+
+__int64 test_InterlockedIncrement64(__int64 volatile *Addend) {
+  return _InterlockedIncrement64(Addend);
+}
+// CHECK-ARM-X64: define{{.*}}i64 @test_InterlockedIncrement64(i64*{{[a-z_ ]*}}%Addend){{.*}}{
+// CHECK-ARM-X64: [[TMP:%[0-9]+]] = atomicrmw add i64* %Addend, i64 1 seq_cst
+// CHECK-ARM-X64: [[RESULT:%[0-9]+]] = add i64 [[TMP]], 1
+// CHECK-ARM-X64: ret i64 [[RESULT]]
+// CHECK-ARM-X64: }
+
+__int64 test_InterlockedDecrement64(__int64 volatile *Addend) {
+  return _InterlockedDecrement64(Addend);
+}
+// CHECK-ARM-X64: define{{.*}}i64 @test_InterlockedDecrement64(i64*{{[a-z_ ]*}}%Addend){{.*}}{
+// CHECK-ARM-X64: [[TMP:%[0-9]+]] = atomicrmw sub i64* %Addend, i64 1 seq_cst
+// CHECK-ARM-X64: [[RESULT:%[0-9]+]] = add i64 [[TMP]], -1
+// CHECK-ARM-X64: ret i64 [[RESULT]]
+// CHECK-ARM-X64: }
+
+#endif

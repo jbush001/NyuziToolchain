@@ -74,6 +74,10 @@ private:
   // in once all MachineBasicBlocks have been created.
   SmallVector<std::pair<const PHINode *, MachineInstr *>, 4> PendingPHIs;
 
+  /// Record of what frame index has been allocated to specified allocas for
+  /// this function.
+  DenseMap<const AllocaInst *, int> FrameIndices;
+
   /// Methods for translating form LLVM IR to MachineInstr.
   /// \see ::translate for general information on the translate methods.
   /// @{
@@ -117,6 +121,10 @@ private:
 
   /// Translate an LLVM store instruction into generic IR.
   bool translateStore(const User &U);
+
+  bool translateMemcpy(const CallInst &CI);
+
+  void getStackGuard(unsigned DstReg);
 
   bool translateKnownIntrinsic(const CallInst &CI, Intrinsic::ID ID);
 
@@ -327,6 +335,10 @@ private:
   /// Get the VReg that represents \p Val.
   /// If such VReg does not exist, it is created.
   unsigned getOrCreateVReg(const Value &Val);
+
+  /// Get the frame index that represents \p Val.
+  /// If such VReg does not exist, it is created.
+  int getOrCreateFrameIndex(const AllocaInst &AI);
 
   /// Get the alignment of the given memory operation instruction. This will
   /// either be the explicitly specified value or the ABI-required alignment for

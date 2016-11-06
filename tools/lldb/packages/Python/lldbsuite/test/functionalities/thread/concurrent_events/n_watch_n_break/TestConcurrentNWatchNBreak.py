@@ -15,8 +15,8 @@ class ConcurrentNWatchNBreak(ConcurrentEventsBase):
     @skipIfFreeBSD  # timing out on buildbot
     @skipIfRemoteDueToDeadlock
     # Atomic sequences are not supported yet for MIPS in LLDB.
-    @expectedFailureAll(triple='^mips')
-    def test_n_watch_n_break(self):
+    @skipIf(triple='^mips')
+    def test(self):
         """Test with 5 watchpoint and breakpoint threads."""
         self.build(dictionary=self.getBuildFlags())
         self.do_thread_actions(num_watchpoint_threads=5,

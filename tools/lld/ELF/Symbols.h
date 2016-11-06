@@ -20,7 +20,6 @@
 #include "lld/Core/LLVM.h"
 #include "llvm/Object/Archive.h"
 #include "llvm/Object/ELF.h"
-#include "llvm/Support/AlignOf.h"
 
 namespace lld {
 namespace elf {
@@ -80,11 +79,6 @@ public:
 
   uint8_t getVisibility() const { return StOther & 0x3; }
 
-  unsigned DynsymIndex = 0;
-  uint32_t GotIndex = -1;
-  uint32_t GotPltIndex = -1;
-  uint32_t PltIndex = -1;
-  uint32_t GlobalDynIndex = -1;
   bool isInGot() const { return GotIndex != -1U; }
   bool isInPlt() const { return PltIndex != -1U; }
   template <class ELFT> bool hasThunk() const;
@@ -103,6 +97,12 @@ public:
   // The file from which this symbol was created.
   InputFile *File = nullptr;
 
+  uint32_t DynsymIndex = 0;
+  uint32_t GotIndex = -1;
+  uint32_t GotPltIndex = -1;
+  uint32_t PltIndex = -1;
+  uint32_t GlobalDynIndex = -1;
+
 protected:
   SymbolBody(Kind K, StringRef Name, uint8_t StOther, uint8_t Type);
 
@@ -120,6 +120,9 @@ public:
 
   // True if this symbol has an entry in the global part of MIPS GOT.
   unsigned IsInGlobalMipsGot : 1;
+
+  // True if this symbol is referenced by 32-bit GOT relocations.
+  unsigned Is32BitMipsGot : 1;
 
   // The following fields have the same meaning as the ELF symbol attributes.
   uint8_t Type;    // symbol type
@@ -183,15 +186,21 @@ template <class ELFT> class DefinedRegular : public Defined {
   typedef typename ELFT::uint uintX_t;
 
 public:
-  DefinedRegular(StringRef Name, const Elf_Sym &Sym,
-                 InputSectionBase<ELFT> *Section)
-      : Defined(SymbolBody::DefinedRegularKind, Name, Sym.st_other,
-                Sym.getType()),
-        Value(Sym.st_value), Size(Sym.st_size),
+  DefinedRegular(StringRef Name, uint8_t StOther, uint8_t Type, uintX_t Value,
+                 uintX_t Size, InputSectionBase<ELFT> *Section, InputFile *File)
+      : Defined(SymbolBody::DefinedRegularKind, Name, StOther, Type),
+        Value(Value), Size(Size),
         Section(Section ? Section->Repl : NullInputSection) {
-    if (Section)
-      this->File = Section->getFile();
+    this->File = File;
   }
+
+  DefinedRegular(StringRef Name, uint8_t StOther, uint8_t Type, uintX_t Value,
+                 uintX_t Size, InputSectionBase<ELFT> *Section)
+      : DefinedRegular(Name, StOther, Type, Value, Size, Section,
+                       Section ? Section->getFile() : nullptr) {}
+
+  DefinedRegular(StringRef Name, uint8_t StOther, uint8_t Type, BitcodeFile *F)
+      : DefinedRegular(Name, StOther, Type, 0, 0, NullInputSection, F) {}
 
   DefinedRegular(const Elf_Sym &Sym, InputSectionBase<ELFT> *Section)
       : Defined(SymbolBody::DefinedRegularKind, Sym.st_name, Sym.st_other,
@@ -201,17 +210,6 @@ public:
     assert(isLocal());
     if (Section)
       this->File = Section->getFile();
-  }
-
-  DefinedRegular(StringRef Name, uint8_t StOther)
-      : Defined(SymbolBody::DefinedRegularKind, Name, StOther,
-                llvm::ELF::STT_NOTYPE),
-        Value(0), Size(0), Section(NullInputSection) {}
-
-  DefinedRegular(StringRef Name, uint8_t StOther, uint8_t Type, BitcodeFile *F)
-      : Defined(SymbolBody::DefinedRegularKind, Name, StOther, Type), Value(0),
-        Size(0), Section(NullInputSection) {
-    this->File = F;
   }
 
   // Return true if the symbol is a PIC function.
@@ -439,8 +437,7 @@ struct Symbol {
   llvm::AlignedCharArrayUnion<
       DefinedCommon, DefinedRegular<llvm::object::ELF64LE>,
       DefinedSynthetic<llvm::object::ELF64LE>, Undefined,
-      SharedSymbol<llvm::object::ELF64LE>, LazyArchive, LazyObject>
-      Body;
+      SharedSymbol<llvm::object::ELF64LE>, LazyArchive, LazyObject> Body;
 
   SymbolBody *body() { return reinterpret_cast<SymbolBody *>(Body.buffer); }
   const SymbolBody *body() const { return const_cast<Symbol *>(this)->body(); }
@@ -451,8 +448,7 @@ void printTraceSymbol(Symbol *Sym);
 template <typename T, typename... ArgT>
 void replaceBody(Symbol *S, ArgT &&... Arg) {
   static_assert(sizeof(T) <= sizeof(S->Body), "Body too small");
-  static_assert(llvm::AlignOf<T>::Alignment <=
-                    llvm::AlignOf<decltype(S->Body)>::Alignment,
+  static_assert(alignof(T) <= alignof(decltype(S->Body)),
                 "Body not aligned enough");
   assert(static_cast<SymbolBody *>(static_cast<T *>(nullptr)) == nullptr &&
          "Not a SymbolBody");
