@@ -22,7 +22,6 @@
 #include "llvm/MC/MCInst.h"
 #include "llvm/MC/MCSubtargetInfo.h"
 #include "llvm/Support/MathExtras.h"
-#include "llvm/Support/MemoryObject.h"
 #include "llvm/Support/TargetRegistry.h"
 
 using namespace llvm;
@@ -93,8 +92,7 @@ extern "C" void LLVMInitializeNyuziDisassembler() {
 
 #include "NyuziGenDisassemblerTables.inc"
 
-/// readInstruction - read four bytes from the MemoryObject
-/// and return 32 bit word sorted according to the given endianess
+/// readInstruction - read 32 bit word in machine endianess.
 static DecodeStatus readInstruction32(ArrayRef<uint8_t> Bytes, uint64_t Address,
                                       uint64_t &Size, uint32_t &Insn) {
   // We want to read exactly 4 Bytes of data.

@@ -715,7 +715,7 @@ bool SparcAsmParser:: parseDirectiveWord(unsigned Size, SMLoc L) {
   return false;
 }
 
-SparcAsmParser::OperandMatchResultTy
+OperandMatchResultTy
 SparcAsmParser::parseMEMOperand(OperandVector &Operands) {
 
   SMLoc S, E;
@@ -753,7 +753,7 @@ SparcAsmParser::parseMEMOperand(OperandVector &Operands) {
   return MatchOperand_Success;
 }
 
-SparcAsmParser::OperandMatchResultTy
+OperandMatchResultTy
 SparcAsmParser::parseOperand(OperandVector &Operands, StringRef Mnemonic) {
 
   OperandMatchResultTy ResTy = MatchOperandParserImpl(Operands, Mnemonic);
@@ -821,7 +821,7 @@ SparcAsmParser::parseOperand(OperandVector &Operands, StringRef Mnemonic) {
   return MatchOperand_Success;
 }
 
-SparcAsmParser::OperandMatchResultTy
+OperandMatchResultTy
 SparcAsmParser::parseSparcAsmOperand(std::unique_ptr<SparcOperand> &Op,
                                      bool isCall) {
 
@@ -908,7 +908,7 @@ SparcAsmParser::parseSparcAsmOperand(std::unique_ptr<SparcOperand> &Op,
   return (Op) ? MatchOperand_Success : MatchOperand_ParseFail;
 }
 
-SparcAsmParser::OperandMatchResultTy
+OperandMatchResultTy
 SparcAsmParser::parseBranchModifiers(OperandVector &Operands) {
 
   // parse (,a|,pn|,pt)+
@@ -1263,9 +1263,9 @@ bool SparcAsmParser::matchSparcAsmModifiers(const MCExpr *&EVal,
 }
 
 extern "C" void LLVMInitializeSparcAsmParser() {
-  RegisterMCAsmParser<SparcAsmParser> A(TheSparcTarget);
-  RegisterMCAsmParser<SparcAsmParser> B(TheSparcV9Target);
-  RegisterMCAsmParser<SparcAsmParser> C(TheSparcelTarget);
+  RegisterMCAsmParser<SparcAsmParser> A(getTheSparcTarget());
+  RegisterMCAsmParser<SparcAsmParser> B(getTheSparcV9Target());
+  RegisterMCAsmParser<SparcAsmParser> C(getTheSparcelTarget());
 }
 
 #define GET_REGISTER_MATCHER

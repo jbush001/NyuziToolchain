@@ -884,7 +884,7 @@ bool TargetInstrInfo::isReallyTriviallyReMaterializableGeneric(
         // If the physreg has no defs anywhere, it's just an ambient register
         // and we can freely move its uses. Alternatively, if it's allocatable,
         // it could get allocated to something with a def during allocation.
-        if (!MRI.isConstantPhysReg(Reg, MF))
+        if (!MRI.isConstantPhysReg(Reg))
           return false;
       } else {
         // A physreg def. We can't remat it.
@@ -1098,35 +1098,6 @@ int TargetInstrInfo::computeDefOperandLatency(
 
   // ...operand lookup required
   return -1;
-}
-
-unsigned TargetInstrInfo::computeOperandLatency(
-    const InstrItineraryData *ItinData, const MachineInstr &DefMI,
-    unsigned DefIdx, const MachineInstr *UseMI, unsigned UseIdx) const {
-
-  int DefLatency = computeDefOperandLatency(ItinData, DefMI);
-  if (DefLatency >= 0)
-    return DefLatency;
-
-  assert(ItinData && !ItinData->isEmpty() && "computeDefOperandLatency fail");
-
-  int OperLatency = 0;
-  if (UseMI)
-    OperLatency = getOperandLatency(ItinData, DefMI, DefIdx, *UseMI, UseIdx);
-  else {
-    unsigned DefClass = DefMI.getDesc().getSchedClass();
-    OperLatency = ItinData->getOperandCycle(DefClass, DefIdx);
-  }
-  if (OperLatency >= 0)
-    return OperLatency;
-
-  // No operand latency was found.
-  unsigned InstrLatency = getInstrLatency(ItinData, DefMI);
-
-  // Expected latency is the max of the stage latency and itinerary props.
-  InstrLatency = std::max(InstrLatency,
-                          defaultDefLatency(ItinData->SchedModel, DefMI));
-  return InstrLatency;
 }
 
 bool TargetInstrInfo::getRegSequenceInputs(

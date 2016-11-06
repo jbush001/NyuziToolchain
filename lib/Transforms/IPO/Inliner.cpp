@@ -72,8 +72,7 @@ cl::opt<InlinerFunctionImportStatsOpts> InlinerFunctionImportStats(
     cl::values(clEnumValN(InlinerFunctionImportStatsOpts::Basic, "basic",
                           "basic statistics"),
                clEnumValN(InlinerFunctionImportStatsOpts::Verbose, "verbose",
-                          "printing of statistics for each inlined function"),
-               clEnumValEnd),
+                          "printing of statistics for each inlined function")),
     cl::Hidden, cl::desc("Enable inliner stats for imported functions"));
 } // namespace
 
@@ -311,7 +310,7 @@ shouldBeDeferred(Function *Caller, CallSite CS, InlineCost IC,
     if (IC2.isAlways())
       continue;
 
-    // See if inlining or original callsite would erase the cost delta of
+    // See if inlining of the original callsite would erase the cost delta of
     // this callsite. We subtract off the penalty for the call instruction,
     // which we would be deleting.
     if (IC2.getCostDelta() <= CandidateCost) {

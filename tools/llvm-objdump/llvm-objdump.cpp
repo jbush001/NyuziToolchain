@@ -188,8 +188,7 @@ cl::opt<bool> PrintFaultMaps("fault-map-section",
 
 cl::opt<DIDumpType> llvm::DwarfDumpType(
     "dwarf", cl::init(DIDT_Null), cl::desc("Dump of dwarf debug sections:"),
-    cl::values(clEnumValN(DIDT_Frames, "frames", ".debug_frame"),
-               clEnumValEnd));
+    cl::values(clEnumValN(DIDT_Frames, "frames", ".debug_frame")));
 
 cl::opt<bool> PrintSource(
     "source",
@@ -320,14 +319,14 @@ LLVM_ATTRIBUTE_NORETURN void llvm::report_error(StringRef ArchiveName,
   if (ArchiveName != "")
     errs() << ArchiveName << "(" << FileName << ")";
   else
-    errs() << FileName;
+    errs() << "'" << FileName << "'";
   if (!ArchitectureName.empty())
     errs() << " (for architecture " << ArchitectureName << ")";
   std::string Buf;
   raw_string_ostream OS(Buf);
   logAllUnhandledErrors(std::move(E), OS, "");
   OS.flush();
-  errs() << " " << Buf;
+  errs() << ": " << Buf;
   exit(1);
 }
 
@@ -706,6 +705,7 @@ static std::error_code getRelocationValueString(const ELFObjectFile<ELFT> *Obj,
   case ELF::EM_MIPS:
   case ELF::EM_NYUZI:
   case ELF::EM_BPF:
+  case ELF::EM_RISCV:
     res = Target;
     break;
   case ELF::EM_WEBASSEMBLY:

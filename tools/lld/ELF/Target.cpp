@@ -30,6 +30,7 @@
 #include "OutputSections.h"
 #include "Symbols.h"
 #include "Thunks.h"
+#include "Writer.h"
 
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/Object/ELF.h"
@@ -47,6 +48,7 @@ namespace elf {
 TargetInfo *Target;
 
 static void or32le(uint8_t *P, int32_t V) { write32le(P, read32le(P) | V); }
+static void or32be(uint8_t *P, int32_t V) { write32be(P, read32be(P) | V); }
 
 StringRef getRelName(uint32_t Type) {
   return getELFRelocationTypeName(Config->EMachine, Type);
@@ -185,8 +187,7 @@ public:
   void writePltHeader(uint8_t *Buf) const override;
   void writePlt(uint8_t *Buf, uint64_t GotEntryAddr, uint64_t PltEntryAddr,
                 int32_t Index, unsigned RelOff) const override;
-  RelExpr getThunkExpr(RelExpr Expr, uint32_t RelocType,
-                       const InputFile &File,
+  RelExpr getThunkExpr(RelExpr Expr, uint32_t RelocType, const InputFile &File,
                        const SymbolBody &S) const override;
   void relocateOne(uint8_t *Loc, uint32_t Type, uint64_t Val) const override;
 };
@@ -203,8 +204,7 @@ public:
   void writePltHeader(uint8_t *Buf) const override;
   void writePlt(uint8_t *Buf, uint64_t GotEntryAddr, uint64_t PltEntryAddr,
                 int32_t Index, unsigned RelOff) const override;
-  RelExpr getThunkExpr(RelExpr Expr, uint32_t RelocType,
-                       const InputFile &File,
+  RelExpr getThunkExpr(RelExpr Expr, uint32_t RelocType, const InputFile &File,
                        const SymbolBody &S) const override;
   void relocateOne(uint8_t *Loc, uint32_t Type, uint64_t Val) const override;
   bool usesOnlyLowPageBits(uint32_t Type) const override;
@@ -275,9 +275,7 @@ bool TargetInfo::isTlsInitialExecRel(uint32_t Type) const { return false; }
 
 bool TargetInfo::isTlsLocalDynamicRel(uint32_t Type) const { return false; }
 
-bool TargetInfo::isTlsGlobalDynamicRel(uint32_t Type) const {
-  return false;
-}
+bool TargetInfo::isTlsGlobalDynamicRel(uint32_t Type) const { return false; }
 
 RelExpr TargetInfo::adjustRelaxExpr(uint32_t Type, const uint8_t *Data,
                                     RelExpr Expr) const {
@@ -978,13 +976,26 @@ void PPCTargetInfo::relocateOne(uint8_t *Loc, uint32_t Type,
   case R_PPC_ADDR16_LO:
     write16be(Loc, applyPPCLo(Val));
     break;
+  case R_PPC_ADDR32:
+  case R_PPC_REL32:
+    write32be(Loc, Val);
+    break;
+  case R_PPC_REL24:
+    or32be(Loc, Val & 0x3FFFFFC);
+    break;
   default:
     fatal("unrecognized reloc " + Twine(Type));
   }
 }
 
 RelExpr PPCTargetInfo::getRelExpr(uint32_t Type, const SymbolBody &S) const {
-  return R_ABS;
+  switch (Type) {
+  case R_PPC_REL24:
+  case R_PPC_REL32:
+    return R_PC;
+  default:
+    return R_ABS;
+  }
 }
 
 PPC64TargetInfo::PPC64TargetInfo() {
@@ -1055,26 +1066,33 @@ void PPC64TargetInfo::writePlt(uint8_t *Buf, uint64_t GotEntryAddr,
   // be a pointer to the function descriptor in the .opd section. Using
   // this scheme is simpler, but requires an extra indirection per PLT dispatch.
 
-  write32be(Buf,      0xf8410028);                   // std %r2, 40(%r1)
-  write32be(Buf + 4,  0x3d620000 | applyPPCHa(Off)); // addis %r11, %r2, X@ha
-  write32be(Buf + 8,  0xe98b0000 | applyPPCLo(Off)); // ld %r12, X@l(%r11)
-  write32be(Buf + 12, 0xe96c0000);                   // ld %r11,0(%r12)
-  write32be(Buf + 16, 0x7d6903a6);                   // mtctr %r11
-  write32be(Buf + 20, 0xe84c0008);                   // ld %r2,8(%r12)
-  write32be(Buf + 24, 0xe96c0010);                   // ld %r11,16(%r12)
-  write32be(Buf + 28, 0x4e800420);                   // bctr
+  write32be(Buf, 0xf8410028);                       // std %r2, 40(%r1)
+  write32be(Buf + 4, 0x3d620000 | applyPPCHa(Off)); // addis %r11, %r2, X@ha
+  write32be(Buf + 8, 0xe98b0000 | applyPPCLo(Off)); // ld %r12, X@l(%r11)
+  write32be(Buf + 12, 0xe96c0000);                  // ld %r11,0(%r12)
+  write32be(Buf + 16, 0x7d6903a6);                  // mtctr %r11
+  write32be(Buf + 20, 0xe84c0008);                  // ld %r2,8(%r12)
+  write32be(Buf + 24, 0xe96c0010);                  // ld %r11,16(%r12)
+  write32be(Buf + 28, 0x4e800420);                  // bctr
 }
 
 static std::pair<uint32_t, uint64_t> toAddr16Rel(uint32_t Type, uint64_t Val) {
   uint64_t V = Val - PPC64TocOffset;
   switch (Type) {
-  case R_PPC64_TOC16: return {R_PPC64_ADDR16, V};
-  case R_PPC64_TOC16_DS: return {R_PPC64_ADDR16_DS, V};
-  case R_PPC64_TOC16_HA: return {R_PPC64_ADDR16_HA, V};
-  case R_PPC64_TOC16_HI: return {R_PPC64_ADDR16_HI, V};
-  case R_PPC64_TOC16_LO: return {R_PPC64_ADDR16_LO, V};
-  case R_PPC64_TOC16_LO_DS: return {R_PPC64_ADDR16_LO_DS, V};
-  default: return {Type, Val};
+  case R_PPC64_TOC16:
+    return {R_PPC64_ADDR16, V};
+  case R_PPC64_TOC16_DS:
+    return {R_PPC64_ADDR16_DS, V};
+  case R_PPC64_TOC16_HA:
+    return {R_PPC64_ADDR16_HA, V};
+  case R_PPC64_TOC16_HI:
+    return {R_PPC64_ADDR16_HI, V};
+  case R_PPC64_TOC16_LO:
+    return {R_PPC64_ADDR16_LO, V};
+  case R_PPC64_TOC16_LO_DS:
+    return {R_PPC64_ADDR16_LO_DS, V};
+  default:
+    return {Type, Val};
   }
 }
 
@@ -1178,7 +1196,7 @@ RelExpr AArch64TargetInfo::getRelExpr(uint32_t Type,
   case R_AARCH64_TLSDESC_ADD_LO12_NC:
     return R_TLSDESC;
   case R_AARCH64_TLSDESC_CALL:
-    return R_HINT;
+    return R_TLSDESC_CALL;
   case R_AARCH64_TLSLE_ADD_TPREL_HI12:
   case R_AARCH64_TLSLE_ADD_TPREL_LO12_NC:
     return R_TLS;
@@ -1488,8 +1506,17 @@ void AMDGPUTargetInfo::relocateOne(uint8_t *Loc, uint32_t Type,
   switch (Type) {
   case R_AMDGPU_ABS32:
   case R_AMDGPU_GOTPCREL:
+  case R_AMDGPU_GOTPCREL32_LO:
   case R_AMDGPU_REL32:
+  case R_AMDGPU_REL32_LO:
     write32le(Loc, Val);
+    break;
+  case R_AMDGPU_ABS64:
+    write64le(Loc, Val);
+    break;
+  case R_AMDGPU_GOTPCREL32_HI:
+  case R_AMDGPU_REL32_HI:
+    write32le(Loc, Val >> 32);
     break;
   default:
     fatal("unrecognized reloc " + Twine(Type));
@@ -1499,10 +1526,15 @@ void AMDGPUTargetInfo::relocateOne(uint8_t *Loc, uint32_t Type,
 RelExpr AMDGPUTargetInfo::getRelExpr(uint32_t Type, const SymbolBody &S) const {
   switch (Type) {
   case R_AMDGPU_ABS32:
+  case R_AMDGPU_ABS64:
     return R_ABS;
   case R_AMDGPU_REL32:
+  case R_AMDGPU_REL32_LO:
+  case R_AMDGPU_REL32_HI:
     return R_PC;
   case R_AMDGPU_GOTPCREL:
+  case R_AMDGPU_GOTPCREL32_LO:
+  case R_AMDGPU_GOTPCREL32_HI:
     return R_GOT_PC;
   default:
     fatal("do not know how to handle relocation " + Twine(Type));
@@ -1537,6 +1569,7 @@ RelExpr ARMTargetInfo::getRelExpr(uint32_t Type, const SymbolBody &S) const {
   case R_ARM_JUMP24:
   case R_ARM_PC24:
   case R_ARM_PLT32:
+  case R_ARM_PREL31:
   case R_ARM_THM_JUMP19:
   case R_ARM_THM_JUMP24:
   case R_ARM_THM_CALL:
@@ -1553,6 +1586,12 @@ RelExpr ARMTargetInfo::getRelExpr(uint32_t Type, const SymbolBody &S) const {
     return R_GOT_PC;
   case R_ARM_TARGET1:
     return Config->Target1Rel ? R_PC : R_ABS;
+  case R_ARM_TARGET2:
+    if (Config->Target2 == Target2Policy::Rel)
+      return R_PC;
+    if (Config->Target2 == Target2Policy::Abs)
+      return R_ABS;
+    return R_GOT_PC;
   case R_ARM_TLS_GD32:
     return R_TLSGD_PC;
   case R_ARM_TLS_LDM32:
@@ -1564,11 +1603,12 @@ RelExpr ARMTargetInfo::getRelExpr(uint32_t Type, const SymbolBody &S) const {
     return R_GOTONLY_PC;
   case R_ARM_MOVW_PREL_NC:
   case R_ARM_MOVT_PREL:
-  case R_ARM_PREL31:
   case R_ARM_REL32:
   case R_ARM_THM_MOVW_PREL_NC:
   case R_ARM_THM_MOVT_PREL:
     return R_PC;
+  case R_ARM_NONE:
+    return R_HINT;
   case R_ARM_TLS_LE32:
     return R_TLS;
   }
@@ -1622,6 +1662,9 @@ void ARMTargetInfo::writePlt(uint8_t *Buf, uint64_t GotEntryAddr,
 RelExpr ARMTargetInfo::getThunkExpr(RelExpr Expr, uint32_t RelocType,
                                     const InputFile &File,
                                     const SymbolBody &S) const {
+  // If S is an undefined weak symbol we don't need a Thunk
+  if (S.isUndefined())
+    return Expr;
   // A state change from ARM to Thumb and vice versa must go through an
   // interworking thunk if the relocation type is not R_ARM_CALL or
   // R_ARM_THM_CALL.
@@ -1650,8 +1693,6 @@ RelExpr ARMTargetInfo::getThunkExpr(RelExpr Expr, uint32_t RelocType,
 void ARMTargetInfo::relocateOne(uint8_t *Loc, uint32_t Type,
                                 uint64_t Val) const {
   switch (Type) {
-  case R_ARM_NONE:
-    break;
   case R_ARM_ABS32:
   case R_ARM_BASE_PREL:
   case R_ARM_GOTOFF32:
@@ -1659,6 +1700,7 @@ void ARMTargetInfo::relocateOne(uint8_t *Loc, uint32_t Type,
   case R_ARM_GOT_PREL:
   case R_ARM_REL32:
   case R_ARM_TARGET1:
+  case R_ARM_TARGET2:
   case R_ARM_TLS_GD32:
   case R_ARM_TLS_IE32:
   case R_ARM_TLS_LDM32:
@@ -1686,7 +1728,7 @@ void ARMTargetInfo::relocateOne(uint8_t *Loc, uint32_t Type,
       // BLX (always unconditional) instruction to an ARM Target, select an
       // unconditional BL.
       write32le(Loc, 0xeb000000 | (read32le(Loc) & 0x00ffffff));
-    // fall through as BL encoding is shared with B
+  // fall through as BL encoding is shared with B
   case R_ARM_JUMP24:
   case R_ARM_PC24:
   case R_ARM_PLT32:
@@ -1720,7 +1762,7 @@ void ARMTargetInfo::relocateOne(uint8_t *Loc, uint32_t Type,
     }
     // Bit 12 is 0 for BLX, 1 for BL
     write16le(Loc + 2, (read16le(Loc + 2) & ~0x1000) | (Val & 1) << 12);
-    // Fall through as rest of encoding is the same as B.W
+  // Fall through as rest of encoding is the same as B.W
   case R_ARM_THM_JUMP24:
     // Encoding B  T4, BL T1, BLX T2: Val = S:I1:I2:imm10:imm11:0
     // FIXME: Use of I1 and I2 require v6T2ops
@@ -1788,6 +1830,7 @@ uint64_t ARMTargetInfo::getImplicitAddend(const uint8_t *Buf,
   case R_ARM_GOT_PREL:
   case R_ARM_REL32:
   case R_ARM_TARGET1:
+  case R_ARM_TARGET2:
   case R_ARM_TLS_GD32:
   case R_ARM_TLS_LDM32:
   case R_ARM_TLS_LDO32:
@@ -1888,8 +1931,8 @@ template <class ELFT> MipsTargetInfo<ELFT>::MipsTargetInfo() {
 template <class ELFT>
 RelExpr MipsTargetInfo<ELFT>::getRelExpr(uint32_t Type,
                                          const SymbolBody &S) const {
-  if (ELFT::Is64Bits)
-    // See comment in the calculateMips64RelChain.
+  // See comment in the calculateMipsRelChain.
+  if (ELFT::Is64Bits || Config->MipsN32Abi)
     Type &= 0xff;
   switch (Type) {
   default:
@@ -1924,13 +1967,14 @@ RelExpr MipsTargetInfo<ELFT>::getRelExpr(uint32_t Type,
       return R_MIPS_GOT_LOCAL_PAGE;
   // fallthrough
   case R_MIPS_CALL16:
-  case R_MIPS_CALL_HI16:
-  case R_MIPS_CALL_LO16:
   case R_MIPS_GOT_DISP:
-  case R_MIPS_GOT_HI16:
-  case R_MIPS_GOT_LO16:
   case R_MIPS_TLS_GOTTPREL:
     return R_MIPS_GOT_OFF;
+  case R_MIPS_CALL_HI16:
+  case R_MIPS_CALL_LO16:
+  case R_MIPS_GOT_HI16:
+  case R_MIPS_GOT_LO16:
+    return R_MIPS_GOT_OFF32;
   case R_MIPS_GOT_PAGE:
     return R_MIPS_GOT_LOCAL_PAGE;
   case R_MIPS_TLS_GD:
@@ -1981,29 +2025,25 @@ static void applyMipsPcReloc(uint8_t *Loc, uint32_t Type, uint64_t V) {
   write32<E>(Loc, (Instr & ~Mask) | ((V >> SHIFT) & Mask));
 }
 
-template <endianness E>
-static void writeMipsHi16(uint8_t *Loc, uint64_t V) {
+template <endianness E> static void writeMipsHi16(uint8_t *Loc, uint64_t V) {
   uint32_t Instr = read32<E>(Loc);
   uint16_t Res = ((V + 0x8000) >> 16) & 0xffff;
   write32<E>(Loc, (Instr & 0xffff0000) | Res);
 }
 
-template <endianness E>
-static void writeMipsHigher(uint8_t *Loc, uint64_t V) {
+template <endianness E> static void writeMipsHigher(uint8_t *Loc, uint64_t V) {
   uint32_t Instr = read32<E>(Loc);
   uint16_t Res = ((V + 0x80008000) >> 32) & 0xffff;
   write32<E>(Loc, (Instr & 0xffff0000) | Res);
 }
 
-template <endianness E>
-static void writeMipsHighest(uint8_t *Loc, uint64_t V) {
+template <endianness E> static void writeMipsHighest(uint8_t *Loc, uint64_t V) {
   uint32_t Instr = read32<E>(Loc);
   uint16_t Res = ((V + 0x800080008000) >> 48) & 0xffff;
   write32<E>(Loc, (Instr & 0xffff0000) | Res);
 }
 
-template <endianness E>
-static void writeMipsLo16(uint8_t *Loc, uint64_t V) {
+template <endianness E> static void writeMipsLo16(uint8_t *Loc, uint64_t V) {
   uint32_t Instr = read32<E>(Loc);
   write32<E>(Loc, (Instr & 0xffff0000) | (V & 0xffff));
 }
@@ -2017,10 +2057,17 @@ template <class ELFT> static bool isMipsR6() {
 template <class ELFT>
 void MipsTargetInfo<ELFT>::writePltHeader(uint8_t *Buf) const {
   const endianness E = ELFT::TargetEndianness;
-  write32<E>(Buf, 0x3c1c0000);      // lui   $28, %hi(&GOTPLT[0])
-  write32<E>(Buf + 4, 0x8f990000);  // lw    $25, %lo(&GOTPLT[0])($28)
-  write32<E>(Buf + 8, 0x279c0000);  // addiu $28, $28, %lo(&GOTPLT[0])
-  write32<E>(Buf + 12, 0x031cc023); // subu  $24, $24, $28
+  if (Config->MipsN32Abi) {
+    write32<E>(Buf, 0x3c0e0000);      // lui   $14, %hi(&GOTPLT[0])
+    write32<E>(Buf + 4, 0x8dd90000);  // lw    $25, %lo(&GOTPLT[0])($14)
+    write32<E>(Buf + 8, 0x25ce0000);  // addiu $14, $14, %lo(&GOTPLT[0])
+    write32<E>(Buf + 12, 0x030ec023); // subu  $24, $24, $14
+  } else {
+    write32<E>(Buf, 0x3c1c0000);      // lui   $28, %hi(&GOTPLT[0])
+    write32<E>(Buf + 4, 0x8f990000);  // lw    $25, %lo(&GOTPLT[0])($28)
+    write32<E>(Buf + 8, 0x279c0000);  // addiu $28, $28, %lo(&GOTPLT[0])
+    write32<E>(Buf + 12, 0x031cc023); // subu  $24, $24, $28
+  }
   write32<E>(Buf + 16, 0x03e07825); // move  $15, $31
   write32<E>(Buf + 20, 0x0018c082); // srl   $24, $24, 2
   write32<E>(Buf + 24, 0x0320f809); // jalr  $25
@@ -2036,9 +2083,9 @@ void MipsTargetInfo<ELFT>::writePlt(uint8_t *Buf, uint64_t GotEntryAddr,
                                     uint64_t PltEntryAddr, int32_t Index,
                                     unsigned RelOff) const {
   const endianness E = ELFT::TargetEndianness;
-  write32<E>(Buf, 0x3c0f0000);      // lui   $15, %hi(.got.plt entry)
-  write32<E>(Buf + 4, 0x8df90000);  // l[wd] $25, %lo(.got.plt entry)($15)
-                                    // jr    $25
+  write32<E>(Buf, 0x3c0f0000);     // lui   $15, %hi(.got.plt entry)
+  write32<E>(Buf + 4, 0x8df90000); // l[wd] $25, %lo(.got.plt entry)($15)
+                                   // jr    $25
   write32<E>(Buf + 8, isMipsR6<ELFT>() ? 0x03200009 : 0x03200008);
   write32<E>(Buf + 12, 0x25f80000); // addiu $24, $15, %lo(.got.plt entry)
   writeMipsHi16<E>(Buf, GotEntryAddr);
@@ -2107,8 +2154,8 @@ uint64_t MipsTargetInfo<ELFT>::getImplicitAddend(const uint8_t *Buf,
   }
 }
 
-static std::pair<uint32_t, uint64_t> calculateMips64RelChain(uint32_t Type,
-                                                             uint64_t Val) {
+static std::pair<uint32_t, uint64_t> calculateMipsRelChain(uint32_t Type,
+                                                           uint64_t Val) {
   // MIPS N64 ABI packs multiple relocations into the single relocation
   // record. In general, all up to three relocations can have arbitrary
   // types. In fact, Clang and GCC uses only a few combinations. For now,
@@ -2145,8 +2192,8 @@ void MipsTargetInfo<ELFT>::relocateOne(uint8_t *Loc, uint32_t Type,
   else if (Type == R_MIPS_TLS_TPREL_HI16 || Type == R_MIPS_TLS_TPREL_LO16 ||
            Type == R_MIPS_TLS_TPREL32 || Type == R_MIPS_TLS_TPREL64)
     Val -= 0x7000;
-  if (ELFT::Is64Bits)
-    std::tie(Type, Val) = calculateMips64RelChain(Type, Val);
+  if (ELFT::Is64Bits || Config->MipsN32Abi)
+    std::tie(Type, Val) = calculateMipsRelChain(Type, Val);
   switch (Type) {
   case R_MIPS_32:
   case R_MIPS_GPREL32:

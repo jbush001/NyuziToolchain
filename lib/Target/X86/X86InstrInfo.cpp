@@ -409,6 +409,30 @@ X86InstrInfo::X86InstrInfo(X86Subtarget &STI)
     { X86::VMOVDQU16Zrr,    X86::VMOVDQU16Zmr,  TB_FOLDED_STORE },
     { X86::VMOVDQU32Zrr,    X86::VMOVDQU32Zmr,  TB_FOLDED_STORE },
     { X86::VMOVDQU64Zrr,    X86::VMOVDQU64Zmr,  TB_FOLDED_STORE },
+    { X86::VPMOVDBZrr,      X86::VPMOVDBZmr,    TB_FOLDED_STORE },
+    { X86::VPMOVDWZrr,      X86::VPMOVDWZmr,    TB_FOLDED_STORE },
+    { X86::VPMOVQDZrr,      X86::VPMOVQDZmr,    TB_FOLDED_STORE },
+    { X86::VPMOVQWZrr,      X86::VPMOVQWZmr,    TB_FOLDED_STORE },
+    { X86::VPMOVWBZrr,      X86::VPMOVWBZmr,    TB_FOLDED_STORE },
+    { X86::VPMOVSDBZrr,     X86::VPMOVSDBZmr,   TB_FOLDED_STORE },
+    { X86::VPMOVSDWZrr,     X86::VPMOVSDWZmr,   TB_FOLDED_STORE },
+    { X86::VPMOVSQDZrr,     X86::VPMOVSQDZmr,   TB_FOLDED_STORE },
+    { X86::VPMOVSQWZrr,     X86::VPMOVSQWZmr,   TB_FOLDED_STORE },
+    { X86::VPMOVSWBZrr,     X86::VPMOVSWBZmr,   TB_FOLDED_STORE },
+    { X86::VPMOVUSDBZrr,    X86::VPMOVUSDBZmr,  TB_FOLDED_STORE },
+    { X86::VPMOVUSDWZrr,    X86::VPMOVUSDWZmr,  TB_FOLDED_STORE },
+    { X86::VPMOVUSQDZrr,    X86::VPMOVUSQDZmr,  TB_FOLDED_STORE },
+    { X86::VPMOVUSQWZrr,    X86::VPMOVUSQWZmr,  TB_FOLDED_STORE },
+    { X86::VPMOVUSWBZrr,    X86::VPMOVUSWBZmr,  TB_FOLDED_STORE },
+    { X86::VEXTRACTF32x4Zrr,X86::VEXTRACTF32x4Zmr, TB_FOLDED_STORE },
+    { X86::VEXTRACTF32x8Zrr,X86::VEXTRACTF32x8Zmr, TB_FOLDED_STORE },
+    { X86::VEXTRACTF64x2Zrr,X86::VEXTRACTF64x2Zmr, TB_FOLDED_STORE },
+    { X86::VEXTRACTF64x4Zrr,X86::VEXTRACTF64x4Zmr, TB_FOLDED_STORE },
+    { X86::VEXTRACTI32x4Zrr,X86::VEXTRACTI32x4Zmr, TB_FOLDED_STORE },
+    { X86::VEXTRACTI32x8Zrr,X86::VEXTRACTI32x8Zmr, TB_FOLDED_STORE },
+    { X86::VEXTRACTI64x2Zrr,X86::VEXTRACTI64x2Zmr, TB_FOLDED_STORE },
+    { X86::VEXTRACTI64x4Zrr,X86::VEXTRACTI64x4Zmr, TB_FOLDED_STORE },
+    { X86::VEXTRACTPSZrr,   X86::VEXTRACTPSZmr,    TB_FOLDED_STORE },
 
     // AVX-512 foldable instructions (256-bit versions)
     { X86::VMOVAPDZ256rr,      X86::VMOVAPDZ256mr,    TB_FOLDED_STORE | TB_ALIGN_32 },
@@ -421,6 +445,19 @@ X86InstrInfo::X86InstrInfo(X86Subtarget &STI)
     { X86::VMOVDQU16Z256rr,    X86::VMOVDQU16Z256mr,  TB_FOLDED_STORE },
     { X86::VMOVDQU32Z256rr,    X86::VMOVDQU32Z256mr,  TB_FOLDED_STORE },
     { X86::VMOVDQU64Z256rr,    X86::VMOVDQU64Z256mr,  TB_FOLDED_STORE },
+    { X86::VPMOVDWZ256rr,      X86::VPMOVDWZ256mr,    TB_FOLDED_STORE },
+    { X86::VPMOVQDZ256rr,      X86::VPMOVQDZ256mr,    TB_FOLDED_STORE },
+    { X86::VPMOVWBZ256rr,      X86::VPMOVWBZ256mr,    TB_FOLDED_STORE },
+    { X86::VPMOVSDWZ256rr,     X86::VPMOVSDWZ256mr,   TB_FOLDED_STORE },
+    { X86::VPMOVSQDZ256rr,     X86::VPMOVSQDZ256mr,   TB_FOLDED_STORE },
+    { X86::VPMOVSWBZ256rr,     X86::VPMOVSWBZ256mr,   TB_FOLDED_STORE },
+    { X86::VPMOVUSDWZ256rr,    X86::VPMOVUSDWZ256mr,  TB_FOLDED_STORE },
+    { X86::VPMOVUSQDZ256rr,    X86::VPMOVUSQDZ256mr,  TB_FOLDED_STORE },
+    { X86::VPMOVUSWBZ256rr,    X86::VPMOVUSWBZ256mr,  TB_FOLDED_STORE },
+    { X86::VEXTRACTF32x4Z256rr,X86::VEXTRACTF32x4Z256mr, TB_FOLDED_STORE },
+    { X86::VEXTRACTF64x2Z256rr,X86::VEXTRACTF64x2Z256mr, TB_FOLDED_STORE },
+    { X86::VEXTRACTI32x4Z256rr,X86::VEXTRACTI32x4Z256mr, TB_FOLDED_STORE },
+    { X86::VEXTRACTI64x2Z256rr,X86::VEXTRACTI64x2Z256mr, TB_FOLDED_STORE },
 
     // AVX-512 foldable instructions (128-bit versions)
     { X86::VMOVAPDZ128rr,      X86::VMOVAPDZ128mr,    TB_FOLDED_STORE | TB_ALIGN_16 },
@@ -702,14 +739,14 @@ X86InstrInfo::X86InstrInfo(X86Subtarget &STI)
     { X86::VPABSBYrr,       X86::VPABSBYrm,           0 },
     { X86::VPABSDYrr,       X86::VPABSDYrm,           0 },
     { X86::VPABSWYrr,       X86::VPABSWYrm,           0 },
-    { X86::VPBROADCASTBrr,  X86::VPBROADCASTBrm,      0 },
-    { X86::VPBROADCASTBYrr, X86::VPBROADCASTBYrm,     0 },
-    { X86::VPBROADCASTDrr,  X86::VPBROADCASTDrm,      0 },
-    { X86::VPBROADCASTDYrr, X86::VPBROADCASTDYrm,     0 },
-    { X86::VPBROADCASTQrr,  X86::VPBROADCASTQrm,      0 },
-    { X86::VPBROADCASTQYrr, X86::VPBROADCASTQYrm,     0 },
-    { X86::VPBROADCASTWrr,  X86::VPBROADCASTWrm,      0 },
-    { X86::VPBROADCASTWYrr, X86::VPBROADCASTWYrm,     0 },
+    { X86::VPBROADCASTBrr,  X86::VPBROADCASTBrm,      TB_NO_REVERSE },
+    { X86::VPBROADCASTBYrr, X86::VPBROADCASTBYrm,     TB_NO_REVERSE },
+    { X86::VPBROADCASTDrr,  X86::VPBROADCASTDrm,      TB_NO_REVERSE },
+    { X86::VPBROADCASTDYrr, X86::VPBROADCASTDYrm,     TB_NO_REVERSE },
+    { X86::VPBROADCASTQrr,  X86::VPBROADCASTQrm,      TB_NO_REVERSE },
+    { X86::VPBROADCASTQYrr, X86::VPBROADCASTQYrm,     TB_NO_REVERSE },
+    { X86::VPBROADCASTWrr,  X86::VPBROADCASTWrm,      TB_NO_REVERSE },
+    { X86::VPBROADCASTWYrr, X86::VPBROADCASTWYrm,     TB_NO_REVERSE },
     { X86::VPERMPDYri,      X86::VPERMPDYmi,          0 },
     { X86::VPERMQYri,       X86::VPERMQYmi,           0 },
     { X86::VPMOVSXBDYrr,    X86::VPMOVSXBDYrm,        0 },
@@ -1062,7 +1099,7 @@ X86InstrInfo::X86InstrInfo(X86Subtarget &STI)
     { X86::PINSRDrr,        X86::PINSRDrm,      0 },
     { X86::PINSRQrr,        X86::PINSRQrm,      0 },
     { X86::PINSRWrri,       X86::PINSRWrmi,     0 },
-    { X86::PMADDUBSWrr128,  X86::PMADDUBSWrm128, TB_ALIGN_16 },
+    { X86::PMADDUBSWrr,     X86::PMADDUBSWrm,   TB_ALIGN_16 },
     { X86::PMADDWDrr,       X86::PMADDWDrm,     TB_ALIGN_16 },
     { X86::PMAXSWrr,        X86::PMAXSWrm,      TB_ALIGN_16 },
     { X86::PMAXUBrr,        X86::PMAXUBrm,      TB_ALIGN_16 },
@@ -1077,7 +1114,7 @@ X86InstrInfo::X86InstrInfo(X86Subtarget &STI)
     { X86::PMAXUDrr,        X86::PMAXUDrm,      TB_ALIGN_16 },
     { X86::PMAXUWrr,        X86::PMAXUWrm,      TB_ALIGN_16 },
     { X86::PMULDQrr,        X86::PMULDQrm,      TB_ALIGN_16 },
-    { X86::PMULHRSWrr128,   X86::PMULHRSWrm128, TB_ALIGN_16 },
+    { X86::PMULHRSWrr,      X86::PMULHRSWrm,    TB_ALIGN_16 },
     { X86::PMULHUWrr,       X86::PMULHUWrm,     TB_ALIGN_16 },
     { X86::PMULHWrr,        X86::PMULHWrm,      TB_ALIGN_16 },
     { X86::PMULLDrr,        X86::PMULLDrm,      TB_ALIGN_16 },
@@ -1360,7 +1397,7 @@ X86InstrInfo::X86InstrInfo(X86Subtarget &STI)
     { X86::VPINSRDrr,         X86::VPINSRDrm,          0 },
     { X86::VPINSRQrr,         X86::VPINSRQrm,          0 },
     { X86::VPINSRWrri,        X86::VPINSRWrmi,         0 },
-    { X86::VPMADDUBSWrr128,   X86::VPMADDUBSWrm128,    0 },
+    { X86::VPMADDUBSWrr,      X86::VPMADDUBSWrm,       0 },
     { X86::VPMADDWDrr,        X86::VPMADDWDrm,         0 },
     { X86::VPMAXSWrr,         X86::VPMAXSWrm,          0 },
     { X86::VPMAXUBrr,         X86::VPMAXUBrm,          0 },
@@ -1375,7 +1412,7 @@ X86InstrInfo::X86InstrInfo(X86Subtarget &STI)
     { X86::VPMAXUDrr,         X86::VPMAXUDrm,          0 },
     { X86::VPMAXUWrr,         X86::VPMAXUWrm,          0 },
     { X86::VPMULDQrr,         X86::VPMULDQrm,          0 },
-    { X86::VPMULHRSWrr128,    X86::VPMULHRSWrm128,     0 },
+    { X86::VPMULHRSWrr,       X86::VPMULHRSWrm,        0 },
     { X86::VPMULHUWrr,        X86::VPMULHUWrm,         0 },
     { X86::VPMULHWrr,         X86::VPMULHWrm,          0 },
     { X86::VPMULLDrr,         X86::VPMULLDrm,          0 },
@@ -1520,7 +1557,7 @@ X86InstrInfo::X86InstrInfo(X86Subtarget &STI)
     { X86::VPHSUBDYrr,        X86::VPHSUBDYrm,         0 },
     { X86::VPHSUBSWrr256,     X86::VPHSUBSWrm256,      0 },
     { X86::VPHSUBWYrr,        X86::VPHSUBWYrm,         0 },
-    { X86::VPMADDUBSWrr256,   X86::VPMADDUBSWrm256,    0 },
+    { X86::VPMADDUBSWYrr,     X86::VPMADDUBSWYrm,      0 },
     { X86::VPMADDWDYrr,       X86::VPMADDWDYrm,        0 },
     { X86::VPMAXSWYrr,        X86::VPMAXSWYrm,         0 },
     { X86::VPMAXUBYrr,        X86::VPMAXUBYrm,         0 },
@@ -1536,7 +1573,7 @@ X86InstrInfo::X86InstrInfo(X86Subtarget &STI)
     { X86::VPMAXUWYrr,        X86::VPMAXUWYrm,         0 },
     { X86::VMPSADBWYrri,      X86::VMPSADBWYrmi,       0 },
     { X86::VPMULDQYrr,        X86::VPMULDQYrm,         0 },
-    { X86::VPMULHRSWrr256,    X86::VPMULHRSWrm256,     0 },
+    { X86::VPMULHRSWYrr,      X86::VPMULHRSWYrm,       0 },
     { X86::VPMULHUWYrr,       X86::VPMULHUWYrm,        0 },
     { X86::VPMULHWYrr,        X86::VPMULHWYrm,         0 },
     { X86::VPMULLDYrr,        X86::VPMULLDYrm,         0 },
@@ -1797,6 +1834,14 @@ X86InstrInfo::X86InstrInfo(X86Subtarget &STI)
     { X86::VPCMPUDZrri,       X86::VPCMPUDZrmi,         0 },
     { X86::VPCMPUQZrri,       X86::VPCMPUQZrmi,         0 },
     { X86::VPCMPUWZrri,       X86::VPCMPUWZrmi,         0 },
+    { X86::VINSERTF32x4Zrr,   X86::VINSERTF32x4Zrm,     0 },
+    { X86::VINSERTF32x8Zrr,   X86::VINSERTF32x8Zrm,     0 },
+    { X86::VINSERTF64x2Zrr,   X86::VINSERTF64x2Zrm,     0 },
+    { X86::VINSERTF64x4Zrr,   X86::VINSERTF64x4Zrm,     0 },
+    { X86::VINSERTI32x4Zrr,   X86::VINSERTI32x4Zrm,     0 },
+    { X86::VINSERTI32x8Zrr,   X86::VINSERTI32x8Zrm,     0 },
+    { X86::VINSERTI64x2Zrr,   X86::VINSERTI64x2Zrm,     0 },
+    { X86::VINSERTI64x4Zrr,   X86::VINSERTI64x4Zrm,     0 },
 
     // AVX-512{F,VL} foldable instructions
     { X86::VBROADCASTSSZ256rkz,  X86::VBROADCASTSSZ256mkz,      TB_NO_REVERSE },
@@ -1928,6 +1973,10 @@ X86InstrInfo::X86InstrInfo(X86Subtarget &STI)
     { X86::VPSUBUSWZ256rr,    X86::VPSUBUSWZ256rm,      0 },
     { X86::VPSUBWZ128rr,      X86::VPSUBWZ128rm,        0 },
     { X86::VPSUBWZ256rr,      X86::VPSUBWZ256rm,        0 },
+    { X86::VINSERTF32x4Z256rr,X86::VINSERTF32x4Z256rm,  0 },
+    { X86::VINSERTF64x2Z256rr,X86::VINSERTF64x2Z256rm,  0 },
+    { X86::VINSERTI32x4Z256rr,X86::VINSERTI32x4Z256rm,  0 },
+    { X86::VINSERTI64x2Z256rr,X86::VINSERTI64x2Z256rm,  0 },
 
     // AES foldable instructions
     { X86::AESDECLASTrr,      X86::AESDECLASTrm,        TB_ALIGN_16 },
@@ -8022,32 +8071,6 @@ void X86InstrInfo::setExecutionDomain(MachineInstr &MI, unsigned Domain) const {
 /// Return the noop instruction to use for a noop.
 void X86InstrInfo::getNoopForMachoTarget(MCInst &NopInst) const {
   NopInst.setOpcode(X86::NOOP);
-}
-
-// This code must remain in sync with getJumpInstrTableEntryBound in this class!
-// In particular, getJumpInstrTableEntryBound must always return an upper bound
-// on the encoding lengths of the instructions generated by
-// getUnconditionalBranch and getTrap.
-void X86InstrInfo::getUnconditionalBranch(
-    MCInst &Branch, const MCSymbolRefExpr *BranchTarget) const {
-  Branch.setOpcode(X86::JMP_1);
-  Branch.addOperand(MCOperand::createExpr(BranchTarget));
-}
-
-// This code must remain in sync with getJumpInstrTableEntryBound in this class!
-// In particular, getJumpInstrTableEntryBound must always return an upper bound
-// on the encoding lengths of the instructions generated by
-// getUnconditionalBranch and getTrap.
-void X86InstrInfo::getTrap(MCInst &MI) const {
-  MI.setOpcode(X86::TRAP);
-}
-
-// See getTrap and getUnconditionalBranch for conditions on the value returned
-// by this function.
-unsigned X86InstrInfo::getJumpInstrTableEntryBound() const {
-  // 5 bytes suffice: JMP_4 Symbol@PLT is uses 1 byte (E9) for the JMP_4 and 4
-  // bytes for the symbol offset. And TRAP is ud2, which is two bytes (0F 0B).
-  return 5;
 }
 
 bool X86InstrInfo::isHighLatencyDef(int opc) const {

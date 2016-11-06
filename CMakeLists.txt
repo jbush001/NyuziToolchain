@@ -58,7 +58,7 @@ endif()
 
 if (NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
   message(STATUS "No build type selected, default to Debug")
-  set(CMAKE_BUILD_TYPE "Debug" CACHE STRING "Build type (default Debug)")
+  set(CMAKE_BUILD_TYPE "Debug" CACHE STRING "Build type (default Debug)" FORCE)
 endif()
 
 # This should only apply if you are both on an Apple host, and targeting Apple.
@@ -270,6 +270,8 @@ set(LLVM_MAIN_SRC_DIR     ${CMAKE_CURRENT_SOURCE_DIR}  ) # --src-root
 set(LLVM_MAIN_INCLUDE_DIR ${LLVM_MAIN_SRC_DIR}/include ) # --includedir
 set(LLVM_BINARY_DIR       ${CMAKE_CURRENT_BINARY_DIR}  ) # --prefix
 
+# Note: LLVM_CMAKE_PATH does not include generated files
+set(LLVM_CMAKE_PATH ${LLVM_MAIN_SRC_DIR}/cmake/modules)
 set(LLVM_EXAMPLES_BINARY_DIR ${LLVM_BINARY_DIR}/examples)
 set(LLVM_INCLUDE_DIR ${CMAKE_CURRENT_BINARY_DIR}/include)
 
@@ -284,6 +286,7 @@ set(LLVM_ALL_TARGETS
   MSP430
   NVPTX
   PowerPC
+  RISCV
   Sparc
   SystemZ
   X86
@@ -681,20 +684,6 @@ set( CMAKE_RUNTIME_OUTPUT_DIRECTORY ${LLVM_BINARY_DIR}/bin )
 set( CMAKE_LIBRARY_OUTPUT_DIRECTORY ${LLVM_BINARY_DIR}/lib${LLVM_LIBDIR_SUFFIX} )
 set( CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${LLVM_BINARY_DIR}/lib${LLVM_LIBDIR_SUFFIX} )
 
-set(CMAKE_BUILD_WITH_INSTALL_RPATH ON)
-if (APPLE)
-  set(CMAKE_INSTALL_NAME_DIR "@rpath")
-  set(CMAKE_INSTALL_RPATH "@executable_path/../lib")
-else(UNIX)
-  if(NOT DEFINED CMAKE_INSTALL_RPATH)
-    set(CMAKE_INSTALL_RPATH "\$ORIGIN/../lib${LLVM_LIBDIR_SUFFIX}")
-    if(${CMAKE_SYSTEM_NAME} MATCHES "(FreeBSD|DragonFly)")
-      set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,-z,origin")
-      set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,-z,origin")
-    endif()
-  endif(NOT DEFINED CMAKE_INSTALL_RPATH)
-endif()
-
 if(APPLE AND DARWIN_LTO_LIBRARY)
   set(CMAKE_EXE_LINKER_FLAGS
     "${CMAKE_EXE_LINKER_FLAGS} -Wl,-lto_library -Wl,${DARWIN_LTO_LIBRARY}")
@@ -895,9 +884,13 @@ if (NOT LLVM_INSTALL_TOOLCHAIN_ONLY)
     PATTERN ".svn" EXCLUDE
     )
 
+  # Installing the headers needs to depend on generating any public
+  # tablegen'd headers.
+  add_custom_target(llvm-headers DEPENDS intrinsics_gen)
+
   if (NOT CMAKE_CONFIGURATION_TYPES)
-    add_custom_target(installhdrs
-                      DEPENDS ${name}
+    add_custom_target(install-llvm-headers
+                      DEPENDS llvm-headers
                       COMMAND "${CMAKE_COMMAND}"
                               -DCMAKE_INSTALL_COMPONENT=llvm-headers
                               -P "${CMAKE_BINARY_DIR}/cmake_install.cmake")

@@ -546,7 +546,7 @@ static bool isUnsignedDIType(DwarfDebug *DD, const DIType *Ty) {
       return true;
     assert(T == dwarf::DW_TAG_typedef || T == dwarf::DW_TAG_const_type ||
            T == dwarf::DW_TAG_volatile_type ||
-           T == dwarf::DW_TAG_restrict_type);
+           T == dwarf::DW_TAG_restrict_type || T == dwarf::DW_TAG_atomic_type);
     DITypeRef Deriv = DTy->getBaseType();
     assert(Deriv && "Expected valid base type");
     return isUnsignedDIType(DD, DD->resolve(Deriv));
@@ -705,6 +705,10 @@ DIE *DwarfUnit::getOrCreateTypeDIE(const MDNode *TyNode) {
 
   // DW_TAG_restrict_type is not supported in DWARF2
   if (Ty->getTag() == dwarf::DW_TAG_restrict_type && DD->getDwarfVersion() <= 2)
+    return getOrCreateTypeDIE(resolve(cast<DIDerivedType>(Ty)->getBaseType()));
+
+  // DW_TAG_atomic_type is not supported in DWARF < 5
+  if (Ty->getTag() == dwarf::DW_TAG_atomic_type && DD->getDwarfVersion() < 5)
     return getOrCreateTypeDIE(resolve(cast<DIDerivedType>(Ty)->getBaseType()));
 
   // Construct the context before querying for the existence of the DIE in case
@@ -1007,6 +1011,11 @@ void DwarfUnit::constructTypeDIE(DIE &Buffer, const DICompositeType *CTy) {
     if (RLang)
       addUInt(Buffer, dwarf::DW_AT_APPLE_runtime_class, dwarf::DW_FORM_data1,
               RLang);
+
+    // Add align info if available.
+    if (uint32_t AlignInBytes = CTy->getAlignInBytes())
+      addUInt(Buffer, dwarf::DW_AT_alignment, dwarf::DW_FORM_udata,
+              AlignInBytes);
   }
 }
 
@@ -1074,6 +1083,8 @@ DIE *DwarfUnit::getOrCreateNameSpace(const DINamespace *NS) {
   DD->addAccelNamespace(Name, NDie);
   addGlobalName(Name, NDie, NS->getScope());
   addSourceLine(NDie, NS);
+  if (NS->getExportSymbols())
+    addFlag(NDie, dwarf::DW_AT_export_symbols);
   return &NDie;
 }
 
@@ -1394,6 +1405,7 @@ void DwarfUnit::constructMemberDIE(DIE &Buffer, const DIDerivedType *DT) {
   } else {
     uint64_t Size = DT->getSizeInBits();
     uint64_t FieldSize = DD->getBaseTypeSize(DT);
+    uint32_t AlignInBytes = DT->getAlignInBytes();
     uint64_t OffsetInBytes;
 
     bool IsBitfield = FieldSize && Size != FieldSize;
@@ -1404,8 +1416,11 @@ void DwarfUnit::constructMemberDIE(DIE &Buffer, const DIDerivedType *DT) {
       addUInt(MemberDie, dwarf::DW_AT_bit_size, None, Size);
 
       uint64_t Offset = DT->getOffsetInBits();
-      uint64_t Align = DT->getAlignInBits() ? DT->getAlignInBits() : FieldSize;
-      uint64_t AlignMask = ~(Align - 1);
+      // We can't use DT->getAlignInBits() here: AlignInBits for member type
+      // is non-zero if and only if alignment was forced (e.g. _Alignas()),
+      // which can't be done with bitfields. Thus we use FieldSize here.
+      uint32_t AlignInBits = FieldSize;
+      uint32_t AlignMask = ~(AlignInBits - 1);
       // The bits from the start of the storage unit to the start of the field.
       uint64_t StartBitOffset = Offset - (Offset & AlignMask);
       // The byte offset of the field's aligned storage unit inside the struct.
@@ -1428,6 +1443,9 @@ void DwarfUnit::constructMemberDIE(DIE &Buffer, const DIDerivedType *DT) {
     } else {
       // This is not a bitfield.
       OffsetInBytes = DT->getOffsetInBits() / 8;
+      if (AlignInBytes)
+        addUInt(MemberDie, dwarf::DW_AT_alignment, dwarf::DW_FORM_udata,
+                AlignInBytes);
     }
 
     if (DD->getDwarfVersion() <= 2) {
@@ -1503,6 +1521,10 @@ DIE *DwarfUnit::getOrCreateStaticMemberDIE(const DIDerivedType *DT) {
     addConstantValue(StaticMemberDIE, CI, Ty);
   if (const ConstantFP *CFP = dyn_cast_or_null<ConstantFP>(DT->getConstant()))
     addConstantFPValue(StaticMemberDIE, CFP);
+
+  if (uint32_t AlignInBytes = DT->getAlignInBytes())
+    addUInt(StaticMemberDIE, dwarf::DW_AT_alignment, dwarf::DW_FORM_udata,
+            AlignInBytes);
 
   return &StaticMemberDIE;
 }

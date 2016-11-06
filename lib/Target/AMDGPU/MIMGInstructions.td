@@ -33,7 +33,7 @@ class MIMG_NoSampler_Helper <bits<7> op, string asm,
                              string dns=""> : MIMG_Helper <
   (outs dst_rc:$vdata),
   (ins addr_rc:$vaddr, SReg_256:$srsrc,
-       dmask:$dmask, unorm:$unorm, glc:$glc, slc:$slc,
+       dmask:$dmask, unorm:$unorm, GLC:$glc, slc:$slc,
        r128:$r128, tfe:$tfe, lwe:$lwe, da:$da),
   asm#" $vdata, $vaddr, $srsrc$dmask$unorm$glc$slc$r128$tfe$lwe$da",
   dns>, MIMGe<op> {
@@ -64,7 +64,7 @@ class MIMG_Store_Helper <bits<7> op, string asm,
                          RegisterClass addr_rc> : MIMG_Helper <
   (outs),
   (ins data_rc:$vdata, addr_rc:$vaddr, SReg_256:$srsrc,
-       dmask:$dmask, unorm:$unorm, glc:$glc, slc:$slc,
+       dmask:$dmask, unorm:$unorm, GLC:$glc, slc:$slc,
        r128:$r128, tfe:$tfe, lwe:$lwe, da:$da),
   asm#" $vdata, $vaddr, $srsrc$dmask$unorm$glc$slc$r128$tfe$lwe$da"
      >, MIMGe<op> {
@@ -98,7 +98,7 @@ class MIMG_Atomic_Helper <string asm, RegisterClass data_rc,
                           RegisterClass addr_rc> : MIMG_Helper <
     (outs data_rc:$vdst),
     (ins data_rc:$vdata, addr_rc:$vaddr, SReg_256:$srsrc,
-         dmask:$dmask, unorm:$unorm, glc:$glc, slc:$slc,
+         dmask:$dmask, unorm:$unorm, GLC:$glc, slc:$slc,
          r128:$r128, tfe:$tfe, lwe:$lwe, da:$da),
     asm#" $vdst, $vaddr, $srsrc$dmask$unorm$glc$slc$r128$tfe$lwe$da"
   > {
@@ -159,7 +159,7 @@ class MIMG_Sampler_Helper <bits<7> op, string asm,
                            string dns=""> : MIMG_Helper <
   (outs dst_rc:$vdata),
   (ins src_rc:$vaddr, SReg_256:$srsrc, SReg_128:$ssamp,
-       dmask:$dmask, unorm:$unorm, glc:$glc, slc:$slc,
+       dmask:$dmask, unorm:$unorm, GLC:$glc, slc:$slc,
        r128:$r128, tfe:$tfe, lwe:$lwe, da:$da),
   asm#" $vdata, $vaddr, $srsrc, $ssamp$dmask$unorm$glc$slc$r128$tfe$lwe$da",
   dns>, MIMGe<op> {
@@ -196,7 +196,7 @@ class MIMG_Gather_Helper <bits<7> op, string asm,
                           RegisterClass src_rc, int wqm> : MIMG <
   (outs dst_rc:$vdata),
   (ins src_rc:$vaddr, SReg_256:$srsrc, SReg_128:$ssamp,
-       dmask:$dmask, unorm:$unorm, glc:$glc, slc:$slc,
+       dmask:$dmask, unorm:$unorm, GLC:$glc, slc:$slc,
        r128:$r128, tfe:$tfe, lwe:$lwe, da:$da),
   asm#" $vdata, $vaddr, $srsrc, $ssamp$dmask$unorm$glc$slc$r128$tfe$lwe$da",
   []>, MIMGe<op> {
@@ -401,32 +401,36 @@ multiclass ImagePatterns<SDPatternOperator name, string opcode> {
   def : ImagePattern<name, !cast<MIMG>(opcode # _V4_V4), v4i32>;
 }
 
-class ImageLoadPattern<SDPatternOperator name, MIMG opcode, ValueType vt> : Pat <
-  (name vt:$addr, v8i32:$rsrc, imm:$dmask, imm:$r128, imm:$da, imm:$glc,
-        imm:$slc),
-  (opcode $addr, $rsrc,
+multiclass ImageLoadPattern<SDPatternOperator name, MIMG opcode, ValueType vt> {
+  def : Pat <
+    (v4f32 (name vt:$addr, v8i32:$rsrc, i32:$dmask, i1:$glc, i1:$slc, i1:$lwe,
+                i1:$da)),
+    (opcode $addr, $rsrc,
           (as_i32imm $dmask), 1, (as_i1imm $glc), (as_i1imm $slc),
-          (as_i1imm $r128), 0, 0, (as_i1imm $da))
->;
-
-multiclass ImageLoadPatterns<SDPatternOperator name, string opcode> {
-  def : ImageLoadPattern<name, !cast<MIMG>(opcode # _V4_V1), i32>;
-  def : ImageLoadPattern<name, !cast<MIMG>(opcode # _V4_V2), v2i32>;
-  def : ImageLoadPattern<name, !cast<MIMG>(opcode # _V4_V4), v4i32>;
+          0, 0, (as_i1imm $lwe), (as_i1imm $da))
+  >;
 }
 
-class ImageStorePattern<SDPatternOperator name, MIMG opcode, ValueType vt> : Pat <
-  (name v4f32:$data, vt:$addr, v8i32:$rsrc, i32:$dmask, imm:$r128, imm:$da,
-        imm:$glc, imm:$slc),
-  (opcode $data, $addr, $rsrc,
+multiclass ImageLoadPatterns<SDPatternOperator name, string opcode> {
+  defm : ImageLoadPattern<name, !cast<MIMG>(opcode # _V4_V1), i32>;
+  defm : ImageLoadPattern<name, !cast<MIMG>(opcode # _V4_V2), v2i32>;
+  defm : ImageLoadPattern<name, !cast<MIMG>(opcode # _V4_V4), v4i32>;
+}
+
+multiclass ImageStorePattern<SDPatternOperator name, MIMG opcode, ValueType vt> {
+  def : Pat <
+    (name v4f32:$data, vt:$addr, v8i32:$rsrc, i32:$dmask, i1:$glc, i1:$slc,
+          i1:$lwe, i1:$da),
+    (opcode $data, $addr, $rsrc,
           (as_i32imm $dmask), 1, (as_i1imm $glc), (as_i1imm $slc),
-          (as_i1imm $r128), 0, 0, (as_i1imm $da))
->;
+          0, 0, (as_i1imm $lwe), (as_i1imm $da))
+  >;
+}
 
 multiclass ImageStorePatterns<SDPatternOperator name, string opcode> {
-  def : ImageStorePattern<name, !cast<MIMG>(opcode # _V4_V1), i32>;
-  def : ImageStorePattern<name, !cast<MIMG>(opcode # _V4_V2), v2i32>;
-  def : ImageStorePattern<name, !cast<MIMG>(opcode # _V4_V4), v4i32>;
+  defm : ImageStorePattern<name, !cast<MIMG>(opcode # _V4_V1), i32>;
+  defm : ImageStorePattern<name, !cast<MIMG>(opcode # _V4_V2), v2i32>;
+  defm : ImageStorePattern<name, !cast<MIMG>(opcode # _V4_V4), v4i32>;
 }
 
 class ImageAtomicPattern<SDPatternOperator name, MIMG opcode, ValueType vt> : Pat <
@@ -554,6 +558,7 @@ def : SampleRawPattern<int_SI_getlod, IMAGE_GET_LOD_V4_V4, v4i32>;
 // Image load
 defm : ImageLoadPatterns<int_amdgcn_image_load, "IMAGE_LOAD">;
 defm : ImageLoadPatterns<int_amdgcn_image_load_mip, "IMAGE_LOAD_MIP">;
+defm : ImageLoadPattern<int_amdgcn_image_getresinfo, IMAGE_GET_RESINFO_V4_V1, i32>;
 
 // Image store
 defm : ImageStorePatterns<int_amdgcn_image_store, "IMAGE_STORE">;

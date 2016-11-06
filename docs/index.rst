@@ -272,6 +272,7 @@ For API clients and LLVM developers.
    FaultMaps
    MIRLangRef
    Coroutines
+   GlobalISel
 
 :doc:`WritingAnLLVMPass`
    Information on how to write LLVM transformations and analyses.
@@ -389,6 +390,9 @@ For API clients and LLVM developers.
 
 :doc:`Coroutines`
   LLVM support for coroutines.
+
+:doc:`GlobalISel`
+  This describes the prototype instruction selection replacement, GlobalISel.
 
 Development Process Documentation
 =================================
@@ -510,13 +514,13 @@ can be better.
    :hidden:
 
    CodeOfConduct
-   Proposals/GitHubSubMod
+   Proposals/GitHubMove
 
 :doc:`CodeOfConduct`
    Proposal to adopt a code of conduct on the LLVM social spaces (lists, events,
    IRC, etc).
 
-:doc:`Proposals/GitHubSubMod`
+:doc:`Proposals/GitHubMove`
    Proposal to move from SVN/Git to GitHub.
 
 

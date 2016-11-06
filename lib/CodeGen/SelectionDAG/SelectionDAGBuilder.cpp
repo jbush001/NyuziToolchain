@@ -3667,16 +3667,39 @@ void SelectionDAGBuilder::visitStore(const StoreInst &I) {
   DAG.setRoot(StoreNode);
 }
 
-void SelectionDAGBuilder::visitMaskedStore(const CallInst &I) {
+void SelectionDAGBuilder::visitMaskedStore(const CallInst &I,
+                                           bool IsCompressing) {
   SDLoc sdl = getCurSDLoc();
 
-  // llvm.masked.store.*(Src0, Ptr, alignment, Mask)
-  Value  *PtrOperand = I.getArgOperand(1);
+  auto getMaskedStoreOps = [&](Value* &Ptr, Value* &Mask, Value* &Src0,
+                           unsigned& Alignment) {
+    // llvm.masked.store.*(Src0, Ptr, alignment, Mask)
+    Src0 = I.getArgOperand(0);
+    Ptr = I.getArgOperand(1);
+    Alignment = cast<ConstantInt>(I.getArgOperand(2))->getZExtValue();
+    Mask = I.getArgOperand(3);
+  };
+  auto getCompressingStoreOps = [&](Value* &Ptr, Value* &Mask, Value* &Src0,
+                           unsigned& Alignment) {
+    // llvm.masked.compressstore.*(Src0, Ptr, Mask)
+    Src0 = I.getArgOperand(0);
+    Ptr = I.getArgOperand(1);
+    Mask = I.getArgOperand(2);
+    Alignment = 0;
+  };
+
+  Value  *PtrOperand, *MaskOperand, *Src0Operand;
+  unsigned Alignment;
+  if (IsCompressing)
+    getCompressingStoreOps(PtrOperand, MaskOperand, Src0Operand, Alignment);
+  else
+    getMaskedStoreOps(PtrOperand, MaskOperand, Src0Operand, Alignment);
+
   SDValue Ptr = getValue(PtrOperand);
-  SDValue Src0 = getValue(I.getArgOperand(0));
-  SDValue Mask = getValue(I.getArgOperand(3));
+  SDValue Src0 = getValue(Src0Operand);
+  SDValue Mask = getValue(MaskOperand);
+
   EVT VT = Src0.getValueType();
-  unsigned Alignment = (cast<ConstantInt>(I.getArgOperand(2)))->getZExtValue();
   if (!Alignment)
     Alignment = DAG.getEVTAlignment(VT);
 
@@ -3689,7 +3712,8 @@ void SelectionDAGBuilder::visitMaskedStore(const CallInst &I) {
                           MachineMemOperand::MOStore,  VT.getStoreSize(),
                           Alignment, AAInfo);
   SDValue StoreNode = DAG.getMaskedStore(getRoot(), sdl, Src0, Ptr, Mask, VT,
-                                         MMO, false);
+                                         MMO, false /* Truncating */,
+                                         IsCompressing);
   DAG.setRoot(StoreNode);
   setValue(&I, StoreNode);
 }
@@ -3710,7 +3734,7 @@ void SelectionDAGBuilder::visitMaskedStore(const CallInst &I) {
 // extract the spalt value and use it as a uniform base.
 // In all other cases the function returns 'false'.
 //
-static bool getUniformBase(const Value *& Ptr, SDValue& Base, SDValue& Index,
+static bool getUniformBase(const Value* &Ptr, SDValue& Base, SDValue& Index,
                            SelectionDAGBuilder* SDB) {
 
   SelectionDAG& DAG = SDB->DAG;
@@ -3790,18 +3814,38 @@ void SelectionDAGBuilder::visitMaskedScatter(const CallInst &I) {
   setValue(&I, Scatter);
 }
 
-void SelectionDAGBuilder::visitMaskedLoad(const CallInst &I) {
+void SelectionDAGBuilder::visitMaskedLoad(const CallInst &I, bool IsExpanding) {
   SDLoc sdl = getCurSDLoc();
 
-  // @llvm.masked.load.*(Ptr, alignment, Mask, Src0)
-  Value  *PtrOperand = I.getArgOperand(0);
-  SDValue Ptr = getValue(PtrOperand);
-  SDValue Src0 = getValue(I.getArgOperand(3));
-  SDValue Mask = getValue(I.getArgOperand(2));
+  auto getMaskedLoadOps = [&](Value* &Ptr, Value* &Mask, Value* &Src0,
+                           unsigned& Alignment) {
+    // @llvm.masked.load.*(Ptr, alignment, Mask, Src0)
+    Ptr = I.getArgOperand(0);
+    Alignment = cast<ConstantInt>(I.getArgOperand(1))->getZExtValue();
+    Mask = I.getArgOperand(2);
+    Src0 = I.getArgOperand(3);
+  };
+  auto getExpandingLoadOps = [&](Value* &Ptr, Value* &Mask, Value* &Src0,
+                           unsigned& Alignment) {
+    // @llvm.masked.expandload.*(Ptr, Mask, Src0)
+    Ptr = I.getArgOperand(0);
+    Alignment = 0;
+    Mask = I.getArgOperand(1);
+    Src0 = I.getArgOperand(2);
+  };
 
-  const TargetLowering &TLI = DAG.getTargetLoweringInfo();
-  EVT VT = TLI.getValueType(DAG.getDataLayout(), I.getType());
-  unsigned Alignment = (cast<ConstantInt>(I.getArgOperand(1)))->getZExtValue();
+  Value  *PtrOperand, *MaskOperand, *Src0Operand;
+  unsigned Alignment;
+  if (IsExpanding)
+    getExpandingLoadOps(PtrOperand, MaskOperand, Src0Operand, Alignment);
+  else
+    getMaskedLoadOps(PtrOperand, MaskOperand, Src0Operand, Alignment);
+
+  SDValue Ptr = getValue(PtrOperand);
+  SDValue Src0 = getValue(Src0Operand);
+  SDValue Mask = getValue(MaskOperand);
+
+  EVT VT = Src0.getValueType();
   if (!Alignment)
     Alignment = DAG.getEVTAlignment(VT);
 
@@ -3821,7 +3865,7 @@ void SelectionDAGBuilder::visitMaskedLoad(const CallInst &I) {
                           Alignment, AAInfo, Ranges);
 
   SDValue Load = DAG.getMaskedLoad(VT, sdl, InChain, Ptr, Mask, Src0, VT, MMO,
-                                   ISD::NON_EXTLOAD);
+                                   ISD::NON_EXTLOAD, IsExpanding);
   if (AddToChain) {
     SDValue OutChain = Load.getValue(1);
     DAG.setRoot(OutChain);
@@ -3973,13 +4017,13 @@ void SelectionDAGBuilder::visitAtomicLoad(const LoadInst &I) {
                            MachineMemOperand::MOLoad,
                            VT.getStoreSize(),
                            I.getAlignment() ? I.getAlignment() :
-                                              DAG.getEVTAlignment(VT));
+                                              DAG.getEVTAlignment(VT),
+                           AAMDNodes(), nullptr, Scope, Order);
 
   InChain = TLI.prepareVolatileOrAtomicLoad(InChain, dl, DAG);
   SDValue L =
       DAG.getAtomic(ISD::ATOMIC_LOAD, dl, VT, VT, InChain,
-                    getValue(I.getPointerOperand()), MMO,
-                    Order, Scope);
+                    getValue(I.getPointerOperand()), MMO);
 
   SDValue OutChain = L.getValue(1);
 
@@ -4770,6 +4814,10 @@ SelectionDAGBuilder::visitIntrinsicCall(const CallInst &I, unsigned Intrinsic) {
                              TLI.getPointerTy(DAG.getDataLayout()),
                              getValue(I.getArgOperand(0))));
     return nullptr;
+  case Intrinsic::addressofreturnaddress:
+    setValue(&I, DAG.getNode(ISD::ADDROFRETURNADDR, sdl,
+                             TLI.getPointerTy(DAG.getDataLayout())));
+    return nullptr;
   case Intrinsic::frameaddress:
     setValue(&I, DAG.getNode(ISD::FRAMEADDR, sdl,
                              TLI.getPointerTy(DAG.getDataLayout()),
@@ -5049,6 +5097,12 @@ SelectionDAGBuilder::visitIntrinsicCall(const CallInst &I, unsigned Intrinsic) {
     return nullptr;
   case Intrinsic::masked_store:
     visitMaskedStore(I);
+    return nullptr;
+  case Intrinsic::masked_expandload:
+    visitMaskedLoad(I, true /* IsExpanding */);
+    return nullptr;
+  case Intrinsic::masked_compressstore:
+    visitMaskedStore(I, true /* IsCompressing */);
     return nullptr;
   case Intrinsic::x86_mmx_pslli_w:
   case Intrinsic::x86_mmx_pslli_d:
@@ -8429,9 +8483,10 @@ void SelectionDAGBuilder::findJumpTables(CaseClusterVector &Clusters,
 
   const int64_t N = Clusters.size();
   const unsigned MinJumpTableEntries = TLI.getMinimumJumpTableEntries();
+  const unsigned SmallNumberOfEntries = MinJumpTableEntries / 2;
   const unsigned MaxJumpTableSize =
-    OptForSize ? UINT_MAX : TLI.getMaximumJumpTableSize() ?
-                            TLI.getMaximumJumpTableSize() : UINT_MAX;
+                   OptForSize || TLI.getMaximumJumpTableSize() == 0
+                   ? UINT_MAX : TLI.getMaximumJumpTableSize();
 
   if (N < 2 || N < MinJumpTableEntries)
     return;
@@ -8455,7 +8510,6 @@ void SelectionDAGBuilder::findJumpTables(CaseClusterVector &Clusters,
                            .getLimitedValue(UINT_MAX - 1) + 1;
   if (JumpTableSize <= MaxJumpTableSize &&
       isDense(Clusters, TotalCases, 0, N - 1, MinDensity)) {
-
     CaseCluster JTCluster;
     if (buildJumpTable(Clusters, 0, N - 1, SI, DefaultMBB, JTCluster)) {
       Clusters[0] = JTCluster;
@@ -8479,13 +8533,23 @@ void SelectionDAGBuilder::findJumpTables(CaseClusterVector &Clusters,
   SmallVector<unsigned, 8> MinPartitions(N);
   // LastElement[i] is the last element of the partition starting at i.
   SmallVector<unsigned, 8> LastElement(N);
-  // NumTables[i]: nbr of >= MinJumpTableSize partitions from Clusters[i..N-1].
-  SmallVector<unsigned, 8> NumTables(N);
+  // PartitionsScore[i] is used to break ties when choosing between two
+  // partitionings resulting in the same number of partitions.
+  SmallVector<unsigned, 8> PartitionsScore(N);
+  // For PartitionsScore, a small number of comparisons is considered as good as
+  // a jump table and a single comparison is considered better than a jump
+  // table.
+  enum PartitionScores : unsigned {
+    NoTable = 0,
+    Table = 1,
+    FewCases = 1,
+    SingleCase = 2
+  };
 
   // Base case: There is only one way to partition Clusters[N-1].
   MinPartitions[N - 1] = 1;
   LastElement[N - 1] = N - 1;
-  NumTables[N - 1] = 0;
+  PartitionsScore[N - 1] = PartitionScores::SingleCase;
 
   // Note: loop indexes are signed to avoid underflow.
   for (int64_t i = N - 2; i >= 0; i--) {
@@ -8493,7 +8557,7 @@ void SelectionDAGBuilder::findJumpTables(CaseClusterVector &Clusters,
     // Baseline: Put Clusters[i] into a partition on its own.
     MinPartitions[i] = MinPartitions[i + 1] + 1;
     LastElement[i] = i;
-    NumTables[i] = NumTables[i + 1];
+    PartitionsScore[i] = PartitionsScore[i + 1] + PartitionScores::SingleCase;
 
     // Search for a solution that results in fewer partitions.
     for (int64_t j = N - 1; j > i; j--) {
@@ -8504,16 +8568,23 @@ void SelectionDAGBuilder::findJumpTables(CaseClusterVector &Clusters,
       if (JumpTableSize <= MaxJumpTableSize &&
           isDense(Clusters, TotalCases, i, j, MinDensity)) {
         unsigned NumPartitions = 1 + (j == N - 1 ? 0 : MinPartitions[j + 1]);
-        bool IsTable = j - i + 1 >= MinJumpTableEntries;
-        unsigned Tables = IsTable + (j == N - 1 ? 0 : NumTables[j + 1]);
+        unsigned Score = j == N - 1 ? 0 : PartitionsScore[j + 1];
+        int64_t NumEntries = j - i + 1;
 
-        // If this j leads to fewer partitions, or same number of partitions
-        // with more lookup tables, it is a better partitioning.
+        if (NumEntries == 1)
+          Score += PartitionScores::SingleCase;
+        else if (NumEntries <= SmallNumberOfEntries)
+          Score += PartitionScores::FewCases;
+        else if (NumEntries >= MinJumpTableEntries)
+          Score += PartitionScores::Table;
+
+        // If this leads to fewer partitions, or to the same number of
+        // partitions with better score, it is a better partitioning.
         if (NumPartitions < MinPartitions[i] ||
-            (NumPartitions == MinPartitions[i] && Tables > NumTables[i])) {
+            (NumPartitions == MinPartitions[i] && Score > PartitionsScore[i])) {
           MinPartitions[i] = NumPartitions;
           LastElement[i] = j;
-          NumTables[i] = Tables;
+          PartitionsScore[i] = Score;
         }
       }
     }

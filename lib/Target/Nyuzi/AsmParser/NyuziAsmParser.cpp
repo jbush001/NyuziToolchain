@@ -341,7 +341,7 @@ bool NyuziAsmParser::ParseRegister(unsigned &RegNo, SMLoc &StartLoc,
   return true;
 }
 
-NyuziAsmParser::OperandMatchResultTy
+OperandMatchResultTy
 NyuziAsmParser::ParseImmediate(OperandVector &Ops, int MaxBits) {
   SMLoc S = Parser.getTok().getLoc();
   SMLoc E = SMLoc::getFromPointer(Parser.getTok().getLoc().getPointer() - 1);
@@ -411,27 +411,27 @@ bool NyuziAsmParser::ParseOperand(OperandVector &Operands, StringRef Mnemonic) {
   return true;
 }
 
-NyuziAsmParser::OperandMatchResultTy
+OperandMatchResultTy
 NyuziAsmParser::ParseMemoryOperandS10(OperandVector &Operands) {
   return ParseMemoryOperand(Operands, 10, false);
 }
 
-NyuziAsmParser::OperandMatchResultTy
+OperandMatchResultTy
 NyuziAsmParser::ParseMemoryOperandS15(OperandVector &Operands) {
   return ParseMemoryOperand(Operands, 15, false);
 }
 
-NyuziAsmParser::OperandMatchResultTy
+OperandMatchResultTy
 NyuziAsmParser::ParseMemoryOperandV10(OperandVector &Operands) {
   return ParseMemoryOperand(Operands, 10, true);
 }
 
-NyuziAsmParser::OperandMatchResultTy
+OperandMatchResultTy
 NyuziAsmParser::ParseMemoryOperandV15(OperandVector &Operands) {
   return ParseMemoryOperand(Operands, 15, true);
 }
 
-NyuziAsmParser::OperandMatchResultTy
+OperandMatchResultTy
 NyuziAsmParser::ParseMemoryOperand(OperandVector &Operands, int MaxBits,
                                    bool IsVector) {
   SMLoc S = Parser.getTok().getLoc();
@@ -504,12 +504,12 @@ NyuziAsmParser::ParseMemoryOperand(OperandVector &Operands, int MaxBits,
   return MatchOperand_Success;
 }
 
-NyuziAsmParser::OperandMatchResultTy
+OperandMatchResultTy
 NyuziAsmParser::ParseSImm13Value(OperandVector &Operands) {
   return ParseImmediate(Operands, 13);
 }
 
-NyuziAsmParser::OperandMatchResultTy
+OperandMatchResultTy
 NyuziAsmParser::ParseSImm8Value(OperandVector &Operands) {
   return ParseImmediate(Operands, 8);
 }

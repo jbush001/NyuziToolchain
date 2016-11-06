@@ -14,16 +14,19 @@
 #include "Strings.h"
 #include "Writer.h"
 #include "lld/Core/LLVM.h"
-#include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/DenseSet.h"
-#include "llvm/ADT/MapVector.h"
-#include "llvm/Support/Allocator.h"
+#include "llvm/ADT/StringRef.h"
 #include "llvm/Support/MemoryBuffer.h"
-#include "llvm/Support/Regex.h"
+#include <cstddef>
+#include <cstdint>
 #include <functional>
+#include <memory>
+#include <vector>
 
 namespace lld {
 namespace elf {
+
 class DefinedCommon;
 class ScriptParser;
 class SymbolBody;
@@ -33,12 +36,27 @@ template <class ELFT> class OutputSectionBase;
 template <class ELFT> class OutputSectionFactory;
 class InputSectionData;
 
-typedef std::function<uint64_t(uint64_t)> Expr;
+// This represents an expression in the linker script.
+// ScriptParser::readExpr reads an expression and returns an Expr.
+// Later, we evaluate the expression by calling the function
+// with the value of special context variable ".".
+struct Expr {
+  std::function<uint64_t(uint64_t)> Val;
+  std::function<bool()> IsAbsolute;
+  uint64_t operator()(uint64_t Dot) const { return Val(Dot); }
+  operator bool() const { return (bool)Val; }
+
+  Expr(std::function<uint64_t(uint64_t)> Val, std::function<bool()> IsAbsolute)
+      : Val(Val), IsAbsolute(IsAbsolute) {}
+  template <typename T> Expr(T V) : Expr(V, []() { return true; }) {}
+  Expr() : Expr(nullptr) {}
+};
 
 // Parses a linker script. Calling this function updates
 // Config and ScriptConfig.
 void readLinkerScript(MemoryBufferRef MB);
 
+// Parses a version script.
 void readVersionScript(MemoryBufferRef MB);
 
 // This enum is used to implement linker script SECTIONS command.
@@ -53,14 +71,17 @@ enum SectionsCommandKind {
 
 struct BaseCommand {
   BaseCommand(int K) : Kind(K) {}
-  virtual ~BaseCommand() {}
+
+  virtual ~BaseCommand() = default;
+
   int Kind;
 };
 
+// This represents ". = <expr>" or "<symbol> = <expr>".
 struct SymbolAssignment : BaseCommand {
-  SymbolAssignment(StringRef Name, Expr E, bool IsAbsolute)
-      : BaseCommand(AssignmentKind), Name(Name), Expression(E),
-        IsAbsolute(IsAbsolute) {}
+  SymbolAssignment(StringRef Name, Expr E)
+      : BaseCommand(AssignmentKind), Name(Name), Expression(E) {}
+
   static bool classof(const BaseCommand *C);
 
   // The LHS of an expression. Name is either a symbol name or ".".
@@ -73,20 +94,20 @@ struct SymbolAssignment : BaseCommand {
   // Command attributes for PROVIDE, HIDDEN and PROVIDE_HIDDEN.
   bool Provide = false;
   bool Hidden = false;
-  bool IsAbsolute;
 };
 
 // Linker scripts allow additional constraints to be put on ouput sections.
-// An output section will only be created if all of its input sections are
-// read-only
-// or all of its input sections are read-write by using the keyword ONLY_IF_RO
-// and ONLY_IF_RW respectively.
+// If an output section is marked as ONLY_IF_RO, the section is created
+// only if its input sections are read-only. Likewise, an output section
+// with ONLY_IF_RW is created if all input sections are RW.
 enum class ConstraintKind { NoConstraint, ReadOnly, ReadWrite };
 
 struct OutputSectionCommand : BaseCommand {
   OutputSectionCommand(StringRef Name)
       : BaseCommand(OutputSectionKind), Name(Name) {}
+
   static bool classof(const BaseCommand *C);
+
   StringRef Name;
   Expr AddrExpr;
   Expr AlignExpr;
@@ -102,29 +123,22 @@ struct OutputSectionCommand : BaseCommand {
 // It can optionally have negative match pattern for EXCLUDED_FILE command.
 // Also it may be surrounded with SORT() command, so contains sorting rules.
 struct SectionPattern {
-  SectionPattern(llvm::Regex &&Re1, llvm::Regex &&Re2)
-      : ExcludedFileRe(std::forward<llvm::Regex>(Re1)),
-        SectionRe(std::forward<llvm::Regex>(Re2)) {}
+  SectionPattern(StringMatcher &&Pat1, StringMatcher &&Pat2)
+      : ExcludedFilePat(Pat1), SectionPat(Pat2) {}
 
-  SectionPattern(SectionPattern &&Other) {
-    std::swap(ExcludedFileRe, Other.ExcludedFileRe);
-    std::swap(SectionRe, Other.SectionRe);
-    std::swap(SortOuter, Other.SortOuter);
-    std::swap(SortInner, Other.SortInner);
-  }
-
-  llvm::Regex ExcludedFileRe;
-  llvm::Regex SectionRe;
+  StringMatcher ExcludedFilePat;
+  StringMatcher SectionPat;
   SortSectionPolicy SortOuter;
   SortSectionPolicy SortInner;
 };
 
 struct InputSectionDescription : BaseCommand {
   InputSectionDescription(StringRef FilePattern)
-      : BaseCommand(InputSectionKind),
-        FileRe(compileGlobPatterns({FilePattern})) {}
+      : BaseCommand(InputSectionKind), FilePat({FilePattern}) {}
+
   static bool classof(const BaseCommand *C);
-  llvm::Regex FileRe;
+
+  StringMatcher FilePat;
 
   // Input sections that matches at least one of SectionPatterns
   // will be associated with this InputSectionDescription.
@@ -133,16 +147,22 @@ struct InputSectionDescription : BaseCommand {
   std::vector<InputSectionData *> Sections;
 };
 
+// Represents an ASSERT().
 struct AssertCommand : BaseCommand {
   AssertCommand(Expr E) : BaseCommand(AssertKind), Expression(E) {}
+
   static bool classof(const BaseCommand *C);
+
   Expr Expression;
 };
 
+// Represents BYTE(), SHORT(), LONG(), or QUAD().
 struct BytesDataCommand : BaseCommand {
   BytesDataCommand(uint64_t Data, unsigned Size)
       : BaseCommand(BytesDataKind), Data(Data), Size(Size) {}
+
   static bool classof(const BaseCommand *C);
+
   uint64_t Data;
   unsigned Offset;
   unsigned Size;
@@ -169,6 +189,7 @@ public:
   virtual uint64_t getHeaderSize() = 0;
   virtual uint64_t getSymbolValue(StringRef S) = 0;
   virtual bool isDefined(StringRef S) = 0;
+  virtual bool isAbsolute(StringRef S) = 0;
 };
 
 // ScriptConfiguration holds linker script parse results.
@@ -180,8 +201,6 @@ struct ScriptConfiguration {
   std::vector<PhdrsCommand> PhdrsCommands;
 
   bool HasSections = false;
-
-  llvm::BumpPtrAllocator Alloc;
 
   // List of section patterns specified with KEEP commands. They will
   // be kept even if they are unused and --gc-sections is specified.
@@ -197,6 +216,7 @@ template <class ELFT> class LinkerScript final : public LinkerScriptBase {
 public:
   LinkerScript();
   ~LinkerScript();
+
   void processCommands(OutputSectionFactory<ELFT> &Factory);
   void createSections(OutputSectionFactory<ELFT> &Factory);
   void adjustSectionsBeforeSorting();
@@ -218,6 +238,7 @@ public:
   uint64_t getHeaderSize() override;
   uint64_t getSymbolValue(StringRef S) override;
   bool isDefined(StringRef S) override;
+  bool isAbsolute(StringRef S) override;
 
   std::vector<OutputSectionBase<ELFT> *> *OutputSections;
 
@@ -258,7 +279,7 @@ template <class ELFT> LinkerScript<ELFT> *Script<ELFT>::X;
 
 extern LinkerScriptBase *ScriptBase;
 
-} // namespace elf
-} // namespace lld
+} // end namespace elf
+} // end namespace lld
 
-#endif
+#endif // LLD_ELF_LINKER_SCRIPT_H

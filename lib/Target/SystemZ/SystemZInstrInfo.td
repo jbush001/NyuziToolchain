@@ -11,10 +11,12 @@
 // Stack allocation
 //===----------------------------------------------------------------------===//
 
-def ADJCALLSTACKDOWN : Pseudo<(outs), (ins i64imm:$amt),
-                              [(callseq_start timm:$amt)]>;
-def ADJCALLSTACKUP   : Pseudo<(outs), (ins i64imm:$amt1, i64imm:$amt2),
-                              [(callseq_end timm:$amt1, timm:$amt2)]>;
+let hasNoSchedulingInfo = 1 in {
+  def ADJCALLSTACKDOWN : Pseudo<(outs), (ins i64imm:$amt),
+                                [(callseq_start timm:$amt)]>;
+  def ADJCALLSTACKUP   : Pseudo<(outs), (ins i64imm:$amt1, i64imm:$amt2),
+                                [(callseq_end timm:$amt1, timm:$amt2)]>;
+}
 
 let hasSideEffects = 0 in {
   // Takes as input the value of the stack pointer after a dynamic allocation
@@ -1410,7 +1412,7 @@ let hasSideEffects = 1 in
 def Serialize : Alias<2, (outs), (ins), [(z_serialize)]>;
 
 // A pseudo instruction that serves as a compiler barrier.
-let hasSideEffects = 1 in
+let hasSideEffects = 1, hasNoSchedulingInfo = 1 in
 def MemBarrier : Pseudo<(outs), (ins), [(z_membarrier)]>;
 
 let Predicates = [FeatureInterlockedAccess1], Defs = [CC] in {
@@ -1546,6 +1548,7 @@ def ATOMIC_CMP_SWAPW
   let mayLoad = 1;
   let mayStore = 1;
   let usesCustomInserter = 1;
+  let hasNoSchedulingInfo = 1;
 }
 
 let Defs = [CC] in {
@@ -1689,9 +1692,9 @@ let Defs = [CC] in {
 
   let mayLoad = 1, mayStore = 1 in
     def MVCK : InstSSd<0xD9, (outs),
-                             (ins bdxaddr12only:$XBD1, bdaddr12only:$BD2,
+                             (ins bdraddr12only:$RBD1, bdaddr12only:$BD2,
                                   GR64:$R3),
-                       "mvck\t$XBD1, $BD2, $R3", []>;
+                       "mvck\t$RBD1, $BD2, $R3", []>;
 }
 
 let mayStore = 1 in
@@ -1786,9 +1789,9 @@ let isCodeGenOnly = 1 in {
                                       imm32zx16:$I2),
                                  ".insn sil,$enc,$BD1,$I2", []>;
   def InsnSS : DirectiveInsnSS<(outs),
-                               (ins imm64zx48:$enc, bdxaddr12only:$XBD1,
+                               (ins imm64zx48:$enc, bdraddr12only:$RBD1,
                                     bdaddr12only:$BD2, AnyReg:$R3),
-                               ".insn ss,$enc,$XBD1,$BD2,$R3", []>;
+                               ".insn ss,$enc,$RBD1,$BD2,$R3", []>;
   def InsnSSE : DirectiveInsnSSE<(outs),
                                  (ins imm64zx48:$enc,
                                       bdaddr12only:$BD1,bdaddr12only:$BD2),

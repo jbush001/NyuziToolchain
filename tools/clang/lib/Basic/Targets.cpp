@@ -2176,6 +2176,9 @@ public:
       .Case("kaveri",    GK_GFX7)
       .Case("hawaii",    GK_GFX7)
       .Case("mullins",   GK_GFX7)
+      .Case("gfx700",    GK_GFX7)
+      .Case("gfx701",    GK_GFX7)
+      .Case("gfx702",    GK_GFX7)
       .Case("tonga",     GK_GFX8)
       .Case("iceland",   GK_GFX8)
       .Case("carrizo",   GK_GFX8)
@@ -2183,6 +2186,12 @@ public:
       .Case("stoney",    GK_GFX8)
       .Case("polaris10", GK_GFX8)
       .Case("polaris11", GK_GFX8)
+      .Case("gfx800",    GK_GFX8)
+      .Case("gfx801",    GK_GFX8)
+      .Case("gfx802",    GK_GFX8)
+      .Case("gfx803",    GK_GFX8)
+      .Case("gfx804",    GK_GFX8)
+      .Case("gfx810",    GK_GFX8)
       .Default(GK_NONE);
   }
 
@@ -2362,6 +2371,8 @@ const Builtin::Info BuiltinInfoX86[] = {
 
 #define BUILTIN(ID, TYPE, ATTRS)                                               \
   { #ID, TYPE, ATTRS, nullptr, ALL_LANGUAGES, nullptr },
+#define TARGET_BUILTIN(ID, TYPE, ATTRS, FEATURE)         \
+  { #ID, TYPE, ATTRS, nullptr, ALL_LANGUAGES, FEATURE },
 #define TARGET_HEADER_BUILTIN(ID, TYPE, ATTRS, HEADER, LANGS, FEATURE)         \
   { #ID, TYPE, ATTRS, HEADER, LANGS, FEATURE },
 #include "clang/Basic/BuiltinsX86_64.def"
@@ -2386,6 +2397,7 @@ static const char* const GCCRegNames[] = {
   "zmm8", "zmm9", "zmm10", "zmm11", "zmm12", "zmm13", "zmm14", "zmm15",
   "zmm16", "zmm17", "zmm18", "zmm19", "zmm20", "zmm21", "zmm22", "zmm23",
   "zmm24", "zmm25", "zmm26", "zmm27", "zmm28", "zmm29", "zmm30", "zmm31",
+  "k0", "k1", "k2", "k3", "k4", "k5", "k6", "k7",
 };
 
 const TargetInfo::AddlRegName AddlRegNames[] = {
@@ -2891,6 +2903,7 @@ public:
     case CC_X86FastCall:
     case CC_X86StdCall:
     case CC_X86VectorCall:
+    case CC_X86RegCall:
     case CC_C:
     case CC_Swift:
     case CC_X86Pascal:
@@ -3985,6 +3998,7 @@ X86TargetInfo::validateAsmConstraint(const char *&Name,
     case 't': // Any SSE register, when SSE2 is enabled.
     case 'i': // Any SSE register, when SSE2 and inter-unit moves enabled.
     case 'm': // Any MMX register, when inter-unit moves enabled.
+    case 'k': // AVX512 arch mask registers: k1-k7.
       Info.setAllowsRegister();
       return true;
     }
@@ -4005,7 +4019,10 @@ X86TargetInfo::validateAsmConstraint(const char *&Name,
   case 'u': // Second from top of floating point stack.
   case 'q': // Any register accessible as [r]l: a, b, c, and d.
   case 'y': // Any MMX register.
+  case 'v': // Any {X,Y,Z}MM register (Arch & context dependent)
   case 'x': // Any SSE register.
+  case 'k': // Any AVX512 mask register (same as Yk, additionaly allows k0
+            // for intermideate k reg operations).
   case 'Q': // Any register accessible as [r]h: a, b, c, and d.
   case 'R': // "Legacy" registers: ax, bx, cx, dx, di, si, sp, bp.
   case 'l': // "Index" registers: any general register that can be used as an
@@ -4039,12 +4056,15 @@ bool X86TargetInfo::validateOperandSize(StringRef Constraint,
                                         unsigned Size) const {
   switch (Constraint[0]) {
   default: break;
+  case 'k':
+  // Registers k0-k7 (AVX512) size limit is 64 bit.
   case 'y':
     return Size <= 64;
   case 'f':
   case 't':
   case 'u':
     return Size <= 128;
+  case 'v':
   case 'x':
     if (SSELevel >= AVX512F)
       // 512-bit zmm registers can be used if target supports AVX512F.
@@ -4059,6 +4079,7 @@ bool X86TargetInfo::validateOperandSize(StringRef Constraint,
     default: break;
     case 'm':
       // 'Ym' is synonymous with 'y'.
+    case 'k':
       return Size <= 64;
     case 'i':
     case 't':
@@ -4090,6 +4111,20 @@ X86TargetInfo::convertConstraint(const char *&Constraint) const {
     return std::string("{st}");
   case 'u': // second from top of floating point stack.
     return std::string("{st(1)}"); // second from top of floating point stack.
+  case 'Y':
+    switch (Constraint[1]) {
+    default:
+      // Break from inner switch and fall through (copy single char),
+      // continue parsing after copying the current constraint into 
+      // the return string.
+      break;
+    case 'k':
+      // "^" hints llvm that this is a 2 letter constraint.
+      // "Constraint++" is used to promote the string iterator 
+      // to the next constraint.
+      return std::string("^") + std::string(Constraint++, 2);
+    } 
+    LLVM_FALLTHROUGH;
   default:
     return std::string(1, *Constraint);
   }
@@ -4478,6 +4513,7 @@ public:
     case CC_X86_64Win64:
     case CC_PreserveMost:
     case CC_PreserveAll:
+    case CC_X86RegCall:
       return CCCR_OK;
     default:
       return CCCR_Warning;
@@ -4549,6 +4585,8 @@ public:
     case CC_X86VectorCall:
     case CC_IntelOclBicc:
     case CC_X86_64SysV:
+    case CC_Swift:
+    case CC_X86RegCall:
       return CCCR_OK;
     default:
       return CCCR_Warning;
@@ -5585,6 +5623,8 @@ const Builtin::Info ARMTargetInfo::BuiltinInfo[] = {
   { #ID, TYPE, ATTRS, nullptr, LANG, nullptr },
 #define LIBBUILTIN(ID, TYPE, ATTRS, HEADER) \
   { #ID, TYPE, ATTRS, HEADER, ALL_LANGUAGES, nullptr },
+#define TARGET_HEADER_BUILTIN(ID, TYPE, ATTRS, HEADER, LANGS, FEATURE) \
+  { #ID, TYPE, ATTRS, HEADER, LANGS, FEATURE },
 #include "clang/Basic/BuiltinsARM.def"
 };
 
@@ -6926,9 +6966,13 @@ public:
     CPU = Name;
     bool CPUKnown = llvm::StringSwitch<bool>(Name)
       .Case("z10", true)
+      .Case("arch8", true)
       .Case("z196", true)
+      .Case("arch9", true)
       .Case("zEC12", true)
+      .Case("arch10", true)
       .Case("z13", true)
+      .Case("arch11", true)
       .Default(false);
 
     return CPUKnown;
@@ -6937,9 +6981,9 @@ public:
   initFeatureMap(llvm::StringMap<bool> &Features, DiagnosticsEngine &Diags,
                  StringRef CPU,
                  const std::vector<std::string> &FeaturesVec) const override {
-    if (CPU == "zEC12")
+    if (CPU == "zEC12" || CPU == "arch10")
       Features["transactional-execution"] = true;
-    if (CPU == "z13") {
+    if (CPU == "z13" || CPU == "arch11") {
       Features["transactional-execution"] = true;
       Features["vector"] = true;
     }
@@ -8393,12 +8437,12 @@ static TargetInfo *AllocateTarget(const llvm::Triple &Triple,
       return new CloudABITargetInfo<AArch64leTargetInfo>(Triple, Opts);
     case llvm::Triple::FreeBSD:
       return new FreeBSDTargetInfo<AArch64leTargetInfo>(Triple, Opts);
+    case llvm::Triple::Fuchsia:
+      return new FuchsiaTargetInfo<AArch64leTargetInfo>(Triple, Opts);
     case llvm::Triple::Linux:
       return new LinuxTargetInfo<AArch64leTargetInfo>(Triple, Opts);
     case llvm::Triple::NetBSD:
       return new NetBSDTargetInfo<AArch64leTargetInfo>(Triple, Opts);
-    case llvm::Triple::Fuchsia:
-      return new FuchsiaTargetInfo<AArch64leTargetInfo>(Triple, Opts);
     default:
       return new AArch64leTargetInfo(Triple, Opts);
     }
@@ -8407,6 +8451,8 @@ static TargetInfo *AllocateTarget(const llvm::Triple &Triple,
     switch (os) {
     case llvm::Triple::FreeBSD:
       return new FreeBSDTargetInfo<AArch64beTargetInfo>(Triple, Opts);
+    case llvm::Triple::Fuchsia:
+      return new FuchsiaTargetInfo<AArch64beTargetInfo>(Triple, Opts);
     case llvm::Triple::Linux:
       return new LinuxTargetInfo<AArch64beTargetInfo>(Triple, Opts);
     case llvm::Triple::NetBSD:
@@ -8427,6 +8473,8 @@ static TargetInfo *AllocateTarget(const llvm::Triple &Triple,
       return new LinuxTargetInfo<ARMleTargetInfo>(Triple, Opts);
     case llvm::Triple::FreeBSD:
       return new FreeBSDTargetInfo<ARMleTargetInfo>(Triple, Opts);
+    case llvm::Triple::Fuchsia:
+      return new FuchsiaTargetInfo<ARMleTargetInfo>(Triple, Opts);
     case llvm::Triple::NetBSD:
       return new NetBSDTargetInfo<ARMleTargetInfo>(Triple, Opts);
     case llvm::Triple::OpenBSD:
@@ -8463,6 +8511,8 @@ static TargetInfo *AllocateTarget(const llvm::Triple &Triple,
       return new LinuxTargetInfo<ARMbeTargetInfo>(Triple, Opts);
     case llvm::Triple::FreeBSD:
       return new FreeBSDTargetInfo<ARMbeTargetInfo>(Triple, Opts);
+    case llvm::Triple::Fuchsia:
+      return new FuchsiaTargetInfo<ARMbeTargetInfo>(Triple, Opts);
     case llvm::Triple::NetBSD:
       return new NetBSDTargetInfo<ARMbeTargetInfo>(Triple, Opts);
     case llvm::Triple::OpenBSD:
@@ -8696,6 +8746,8 @@ static TargetInfo *AllocateTarget(const llvm::Triple &Triple,
       return new BitrigI386TargetInfo(Triple, Opts);
     case llvm::Triple::FreeBSD:
       return new FreeBSDTargetInfo<X86_32TargetInfo>(Triple, Opts);
+    case llvm::Triple::Fuchsia:
+      return new FuchsiaTargetInfo<X86_32TargetInfo>(Triple, Opts);
     case llvm::Triple::KFreeBSD:
       return new KFreeBSDTargetInfo<X86_32TargetInfo>(Triple, Opts);
     case llvm::Triple::Minix:
@@ -8751,6 +8803,8 @@ static TargetInfo *AllocateTarget(const llvm::Triple &Triple,
       return new BitrigX86_64TargetInfo(Triple, Opts);
     case llvm::Triple::FreeBSD:
       return new FreeBSDTargetInfo<X86_64TargetInfo>(Triple, Opts);
+    case llvm::Triple::Fuchsia:
+      return new FuchsiaTargetInfo<X86_64TargetInfo>(Triple, Opts);
     case llvm::Triple::KFreeBSD:
       return new KFreeBSDTargetInfo<X86_64TargetInfo>(Triple, Opts);
     case llvm::Triple::Solaris:
@@ -8770,8 +8824,6 @@ static TargetInfo *AllocateTarget(const llvm::Triple &Triple,
       return new HaikuTargetInfo<X86_64TargetInfo>(Triple, Opts);
     case llvm::Triple::NaCl:
       return new NaClTargetInfo<X86_64TargetInfo>(Triple, Opts);
-    case llvm::Triple::Fuchsia:
-      return new FuchsiaTargetInfo<X86_64TargetInfo>(Triple, Opts);
     case llvm::Triple::PS4:
       return new PS4OSTargetInfo<X86_64TargetInfo>(Triple, Opts);
     default:
@@ -8855,6 +8907,7 @@ TargetInfo::CreateTargetInfo(DiagnosticsEngine &Diags,
     return nullptr;
 
   Target->setSupportedOpenCLOpts();
+  Target->setOpenCLExtensionOpts();
 
   if (!Target->validateTarget(Diags))
     return nullptr;

@@ -1361,7 +1361,11 @@ Error NativeProcessLinux::SetupSoftwareSingleStepping(
     error = SetSoftwareBreakpoint(next_pc, 0);
   }
 
-  if (error.Fail())
+  // If setting the breakpoint fails because next_pc is out of
+  // the address space, ignore it and let the debugee segfault.
+  if (error.GetError() == EIO || error.GetError() == EFAULT) {
+    return Error();
+  } else if (error.Fail())
     return error;
 
   m_threads_stepping_with_breakpoint.insert({thread.GetID(), next_pc});
@@ -2471,7 +2475,7 @@ Error NativeProcessLinux::GetLoadedModuleFileSpec(const char *module_path,
         if (columns.size() < 6)
           return true; // continue searching
 
-        FileSpec this_file_spec(columns[5].str().c_str(), false);
+        FileSpec this_file_spec(columns[5].str(), false);
         if (this_file_spec.GetFilename() != module_file_spec.GetFilename())
           return true; // continue searching
 

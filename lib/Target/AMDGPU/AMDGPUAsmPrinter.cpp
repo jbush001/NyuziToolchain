@@ -87,8 +87,10 @@ createAMDGPUAsmPrinterPass(TargetMachine &tm,
 }
 
 extern "C" void LLVMInitializeAMDGPUAsmPrinter() {
-  TargetRegistry::RegisterAsmPrinter(TheAMDGPUTarget, createAMDGPUAsmPrinterPass);
-  TargetRegistry::RegisterAsmPrinter(TheGCNTarget, createAMDGPUAsmPrinterPass);
+  TargetRegistry::RegisterAsmPrinter(getTheAMDGPUTarget(),
+                                     createAMDGPUAsmPrinterPass);
+  TargetRegistry::RegisterAsmPrinter(getTheGCNTarget(),
+                                     createAMDGPUAsmPrinterPass);
 }
 
 AMDGPUAsmPrinter::AMDGPUAsmPrinter(TargetMachine &TM,
@@ -505,15 +507,22 @@ void AMDGPUAsmPrinter::getSIProgramInfo(SIProgramInfo &ProgInfo,
   ProgInfo.NumVGPRsForWavesPerEU = std::max(
     ProgInfo.NumVGPR, RI->getMinNumVGPRs(MFI->getMaxWavesPerEU()));
 
-  if (STM.hasSGPRInitBug()) {
-    if (ProgInfo.NumSGPR > SISubtarget::FIXED_SGPR_COUNT_FOR_INIT_BUG) {
-      LLVMContext &Ctx = MF.getFunction()->getContext();
-      DiagnosticInfoResourceLimit Diag(*MF.getFunction(),
-                                       "SGPRs with SGPR init bug",
-                                       ProgInfo.NumSGPR, DS_Error);
-      Ctx.diagnose(Diag);
-    }
+  unsigned MaxNumSGPRs = STM.getMaxNumSGPRs();
+  if (ProgInfo.NumSGPR > MaxNumSGPRs) {
+    // This can happen due to a compiler bug or when using inline asm to use the
+    // registers which are usually reserved for vcc etc.
 
+    LLVMContext &Ctx = MF.getFunction()->getContext();
+    DiagnosticInfoResourceLimit Diag(*MF.getFunction(),
+                                     "scalar registers",
+                                     ProgInfo.NumSGPR, DS_Error,
+                                     DK_ResourceLimit, MaxNumSGPRs);
+    Ctx.diagnose(Diag);
+    ProgInfo.NumSGPR = MaxNumSGPRs;
+    ProgInfo.NumSGPRsForWavesPerEU = MaxNumSGPRs;
+  }
+
+  if (STM.hasSGPRInitBug()) {
     ProgInfo.NumSGPR = SISubtarget::FIXED_SGPR_COUNT_FOR_INIT_BUG;
     ProgInfo.NumSGPRsForWavesPerEU = SISubtarget::FIXED_SGPR_COUNT_FOR_INIT_BUG;
   }
@@ -546,7 +555,7 @@ void AMDGPUAsmPrinter::getSIProgramInfo(SIProgramInfo &ProgInfo,
   // register.
   ProgInfo.FloatMode = getFPMode(MF);
 
-  ProgInfo.IEEEMode = 0;
+  ProgInfo.IEEEMode = STM.enableIEEEBit(MF);
 
   // Make clamp modifier on NaN input returns 0.
   ProgInfo.DX10Clamp = 1;

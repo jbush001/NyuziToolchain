@@ -11,14 +11,13 @@
 #define LLD_ELF_OUTPUT_SECTIONS_H
 
 #include "Config.h"
+#include "GdbIndex.h"
 #include "Relocations.h"
 
 #include "lld/Core/LLVM.h"
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/MC/StringTableBuilder.h"
 #include "llvm/Object/ELF.h"
-#include "llvm/Support/MD5.h"
-#include "llvm/Support/SHA1.h"
 
 namespace lld {
 namespace elf {
@@ -50,7 +49,6 @@ public:
   typedef typename ELFT::Shdr Elf_Shdr;
   enum Kind {
     Base,
-    BuildId,
     Dynamic,
     EHFrame,
     EHFrameHdr,
@@ -58,7 +56,6 @@ public:
     Got,
     GotPlt,
     HashTable,
-    Interp,
     Merge,
     MipsReginfo,
     MipsOptions,
@@ -82,7 +79,7 @@ public:
   uintX_t getFileOffset() { return Header.sh_offset; }
   void setSHName(unsigned Val) { Header.sh_name = Val; }
   void writeHeaderTo(Elf_Shdr *SHdr);
-  StringRef getName() { return Name; }
+  StringRef getName() const { return Name; }
 
   virtual void addSection(InputSectionBase<ELFT> *C) {}
   virtual Kind getKind() const { return Base; }
@@ -131,6 +128,31 @@ protected:
   uintX_t LMAOffset = 0;
 };
 
+template <class ELFT>
+class GdbIndexSection final : public OutputSectionBase<ELFT> {
+  typedef typename ELFT::uint uintX_t;
+
+  const unsigned OffsetTypeSize = 4;
+  const unsigned CuListOffset = 6 * OffsetTypeSize;
+  const unsigned CompilationUnitSize = 16;
+  const unsigned AddressEntrySize = 16 + OffsetTypeSize;
+  const unsigned SymTabEntrySize = 2 * OffsetTypeSize;
+
+public:
+  GdbIndexSection();
+  void finalize() override;
+  void writeTo(uint8_t *Buf) override;
+
+  // Pairs of [CU Offset, CU length].
+  std::vector<std::pair<uintX_t, uintX_t>> CompilationUnits;
+
+private:
+  void parseDebugSections();
+  void readDwarf(InputSection<ELFT> *I);
+
+  uint32_t CuTypesOffset;
+};
+
 template <class ELFT> class GotSection final : public OutputSectionBase<ELFT> {
   typedef OutputSectionBase<ELFT> Base;
   typedef typename ELFT::uint uintX_t;
@@ -163,10 +185,10 @@ public:
 
   // Returns offset of TLS part of the MIPS GOT table. This part goes
   // after 'local' and 'global' entries.
-  uintX_t getMipsTlsOffset();
+  uintX_t getMipsTlsOffset() const;
 
   uintX_t getTlsIndexVA() { return Base::getVA() + TlsIndexOff; }
-  uint32_t getTlsIndexOff() { return TlsIndexOff; }
+  uint32_t getTlsIndexOff() const { return TlsIndexOff; }
 
   // Flag to force GOT to be in output if we have relocations
   // that relies on its address.
@@ -187,10 +209,11 @@ private:
   // GOT entries should have one-to-one mapping with dynamic symbols table.
   // But we use the same container's types for both kind of GOT entries
   // to handle them uniformly.
-  typedef std::pair<const SymbolBody*, uintX_t> MipsGotEntry;
+  typedef std::pair<const SymbolBody *, uintX_t> MipsGotEntry;
   typedef std::vector<MipsGotEntry> MipsGotEntries;
   llvm::DenseMap<MipsGotEntry, size_t> MipsGotMap;
   MipsGotEntries MipsLocal;
+  MipsGotEntries MipsLocal32;
   MipsGotEntries MipsGlobal;
 
   // Write MIPS-specific parts of the GOT.
@@ -264,6 +287,11 @@ private:
   uintX_t Addend;
 };
 
+struct SymbolTableEntry {
+  SymbolBody *Symbol;
+  size_t StrTabOffset;
+};
+
 template <class ELFT>
 class SymbolTableSection final : public OutputSectionBase<ELFT> {
   typedef OutputSectionBase<ELFT> Base;
@@ -283,9 +311,7 @@ public:
   typename Base::Kind getKind() const override { return Base::SymTable; }
   static bool classof(const Base *B) { return B->getKind() == Base::SymTable; }
 
-  ArrayRef<std::pair<SymbolBody *, size_t>> getSymbols() const {
-    return Symbols;
-  }
+  ArrayRef<SymbolTableEntry> getSymbols() const { return Symbols; }
 
   unsigned NumLocals = 0;
   StringTableSection<ELFT> &StrTabSec;
@@ -297,7 +323,7 @@ private:
   const OutputSectionBase<ELFT> *getOutputSection(SymbolBody *Sym);
 
   // A vector of symbols and their string table offsets.
-  std::vector<std::pair<SymbolBody *, size_t>> Symbols;
+  std::vector<SymbolTableEntry> Symbols;
 };
 
 // For more information about .gnu.version and .gnu.version_r see:
@@ -430,7 +456,7 @@ public:
                      uintX_t Alignment);
   void addSection(InputSectionBase<ELFT> *S) override;
   void writeTo(uint8_t *Buf) override;
-  unsigned getOffset(llvm::CachedHashString Val);
+  unsigned getOffset(llvm::CachedHashStringRef Val);
   void finalize() override;
   void finalizePieces() override;
   bool shouldTailMerge() const;
@@ -490,17 +516,6 @@ private:
 };
 
 template <class ELFT>
-class InterpSection final : public OutputSectionBase<ELFT> {
-  typedef OutputSectionBase<ELFT> Base;
-
-public:
-  InterpSection();
-  void writeTo(uint8_t *Buf) override;
-  typename Base::Kind getKind() const override { return Base::Interp; }
-  static bool classof(const Base *B) { return B->getKind() == Base::Interp; }
-};
-
-template <class ELFT>
 class StringTableSection final : public OutputSectionBase<ELFT> {
   typedef OutputSectionBase<ELFT> Base;
 
@@ -551,7 +566,7 @@ public:
 
   // Adds symbols to the hash table.
   // Sorts the input to satisfy GNU hash section requirements.
-  void addSymbols(std::vector<std::pair<SymbolBody *, size_t>> &Symbols);
+  void addSymbols(std::vector<SymbolTableEntry> &Symbols);
   typename Base::Kind getKind() const override { return Base::GnuHashTable; }
   static bool classof(const Base *B) {
     return B->getKind() == Base::GnuHashTable;
@@ -613,11 +628,15 @@ class DynamicSection final : public OutputSectionBase<ELFT> {
   std::vector<Entry> Entries;
 
 public:
-  explicit DynamicSection();
+  DynamicSection();
   void finalize() override;
   void writeTo(uint8_t *Buf) override;
   typename Base::Kind getKind() const override { return Base::Dynamic; }
   static bool classof(const Base *B) { return B->getKind() == Base::Dynamic; }
+
+private:
+  void addEntries();
+  void Add(Entry E) { Entries.push_back(E); }
 };
 
 template <class ELFT>
@@ -708,68 +727,22 @@ private:
   std::vector<FdeData> Fdes;
 };
 
-template <class ELFT> class BuildIdSection : public OutputSectionBase<ELFT> {
-  typedef OutputSectionBase<ELFT> Base;
-
-public:
-  void writeTo(uint8_t *Buf) override;
-  virtual void writeBuildId(ArrayRef<uint8_t> Buf) = 0;
-  typename Base::Kind getKind() const override { return Base::BuildId; }
-  static bool classof(const Base *B) { return B->getKind() == Base::BuildId; }
-
-protected:
-  BuildIdSection(size_t HashSize);
-  size_t HashSize;
-  uint8_t *HashBuf = nullptr;
-};
-
-template <class ELFT>
-class BuildIdFastHash final : public BuildIdSection<ELFT> {
-public:
-  BuildIdFastHash() : BuildIdSection<ELFT>(8) {}
-  void writeBuildId(ArrayRef<uint8_t> Buf) override;
-};
-
-template <class ELFT> class BuildIdMd5 final : public BuildIdSection<ELFT> {
-public:
-  BuildIdMd5() : BuildIdSection<ELFT>(16) {}
-  void writeBuildId(ArrayRef<uint8_t> Buf) override;
-};
-
-template <class ELFT> class BuildIdSha1 final : public BuildIdSection<ELFT> {
-public:
-  BuildIdSha1() : BuildIdSection<ELFT>(20) {}
-  void writeBuildId(ArrayRef<uint8_t> Buf) override;
-};
-
-template <class ELFT> class BuildIdUuid final : public BuildIdSection<ELFT> {
-public:
-  BuildIdUuid() : BuildIdSection<ELFT>(16) {}
-  void writeBuildId(ArrayRef<uint8_t> Buf) override;
-};
-
-template <class ELFT>
-class BuildIdHexstring final : public BuildIdSection<ELFT> {
-public:
-  BuildIdHexstring();
-  void writeBuildId(ArrayRef<uint8_t>) override;
-};
-
 // All output sections that are hadnled by the linker specially are
 // globally accessible. Writer initializes them, so don't use them
 // until Writer is initialized.
 template <class ELFT> struct Out {
   typedef typename ELFT::uint uintX_t;
   typedef typename ELFT::Phdr Elf_Phdr;
-  static BuildIdSection<ELFT> *BuildId;
+
+  static uint8_t First;
   static DynamicSection<ELFT> *Dynamic;
   static EhFrameHeader<ELFT> *EhFrameHdr;
   static EhOutputSection<ELFT> *EhFrame;
+  static GdbIndexSection<ELFT> *GdbIndex;
   static GnuHashTableSection<ELFT> *GnuHashTab;
   static GotPltSection<ELFT> *GotPlt;
   static GotSection<ELFT> *Got;
   static HashTableSection<ELFT> *HashTab;
-  static InterpSection<ELFT> *Interp;
   static OutputSection<ELFT> *Bss;
   static OutputSection<ELFT> *MipsRldMap;
   static OutputSectionBase<ELFT> *Opd;
@@ -786,15 +759,12 @@ template <class ELFT> struct Out {
   static VersionTableSection<ELFT> *VerSym;
   static VersionNeedSection<ELFT> *VerNeed;
   static Elf_Phdr *TlsPhdr;
+  static OutputSectionBase<ELFT> *DebugInfo;
   static OutputSectionBase<ELFT> *ElfHeader;
   static OutputSectionBase<ELFT> *ProgramHeaders;
-
   static OutputSectionBase<ELFT> *PreinitArray;
   static OutputSectionBase<ELFT> *InitArray;
   static OutputSectionBase<ELFT> *FiniArray;
-
-  // This pool owns dynamically-allocated output sections.
-  static std::vector<std::unique_ptr<OutputSectionBase<ELFT>>> Pool;
 };
 
 template <bool Is64Bits> struct SectionKey {
@@ -830,15 +800,15 @@ template <class ELFT> uint64_t getHeaderSize() {
   return Out<ELFT>::ElfHeader->getSize() + Out<ELFT>::ProgramHeaders->getSize();
 }
 
-template <class ELFT> BuildIdSection<ELFT> *Out<ELFT>::BuildId;
+template <class ELFT> uint8_t Out<ELFT>::First;
 template <class ELFT> DynamicSection<ELFT> *Out<ELFT>::Dynamic;
 template <class ELFT> EhFrameHeader<ELFT> *Out<ELFT>::EhFrameHdr;
 template <class ELFT> EhOutputSection<ELFT> *Out<ELFT>::EhFrame;
+template <class ELFT> GdbIndexSection<ELFT> *Out<ELFT>::GdbIndex;
 template <class ELFT> GnuHashTableSection<ELFT> *Out<ELFT>::GnuHashTab;
 template <class ELFT> GotPltSection<ELFT> *Out<ELFT>::GotPlt;
 template <class ELFT> GotSection<ELFT> *Out<ELFT>::Got;
 template <class ELFT> HashTableSection<ELFT> *Out<ELFT>::HashTab;
-template <class ELFT> InterpSection<ELFT> *Out<ELFT>::Interp;
 template <class ELFT> OutputSection<ELFT> *Out<ELFT>::Bss;
 template <class ELFT> OutputSection<ELFT> *Out<ELFT>::MipsRldMap;
 template <class ELFT> OutputSectionBase<ELFT> *Out<ELFT>::Opd;
@@ -855,15 +825,12 @@ template <class ELFT> VersionDefinitionSection<ELFT> *Out<ELFT>::VerDef;
 template <class ELFT> VersionTableSection<ELFT> *Out<ELFT>::VerSym;
 template <class ELFT> VersionNeedSection<ELFT> *Out<ELFT>::VerNeed;
 template <class ELFT> typename ELFT::Phdr *Out<ELFT>::TlsPhdr;
+template <class ELFT> OutputSectionBase<ELFT> *Out<ELFT>::DebugInfo;
 template <class ELFT> OutputSectionBase<ELFT> *Out<ELFT>::ElfHeader;
 template <class ELFT> OutputSectionBase<ELFT> *Out<ELFT>::ProgramHeaders;
 template <class ELFT> OutputSectionBase<ELFT> *Out<ELFT>::PreinitArray;
 template <class ELFT> OutputSectionBase<ELFT> *Out<ELFT>::InitArray;
 template <class ELFT> OutputSectionBase<ELFT> *Out<ELFT>::FiniArray;
-
-template <class ELFT>
-std::vector<std::unique_ptr<OutputSectionBase<ELFT>>> Out<ELFT>::Pool;
-
 } // namespace elf
 } // namespace lld
 

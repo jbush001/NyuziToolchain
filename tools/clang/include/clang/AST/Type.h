@@ -985,6 +985,7 @@ public:
 
   void dump(const char *s) const;
   void dump() const;
+  void dump(llvm::raw_ostream &OS) const;
 
   void Profile(llvm::FoldingSetNodeID &ID) const {
     ID.AddPointer(getAsOpaquePtr());
@@ -1378,7 +1379,7 @@ protected:
 
     /// Extra information which affects how the function is called, like
     /// regparm and the calling convention.
-    unsigned ExtInfo : 9;
+    unsigned ExtInfo : 10;
 
     /// Used only by FunctionProtoType, put here to pack with the
     /// other bitfields.
@@ -1729,7 +1730,8 @@ public:
   bool isObjCARCBridgableType() const;
   bool isCARCBridgableType() const;
   bool isTemplateTypeParmType() const;          // C++ template type parameter
-  bool isNullPtrType() const;                   // C++0x nullptr_t
+  bool isNullPtrType() const;                   // C++11 std::nullptr_t
+  bool isAlignValT() const;                     // C++17 std::align_val_t
   bool isAtomicType() const;                    // C11 _Atomic()
 
 #define IMAGE_TYPE(ImgType, Id, SingletonId, Access, Suffix) \
@@ -2004,6 +2006,7 @@ public:
   }
   CanQualType getCanonicalTypeUnqualified() const; // in CanonicalType.h
   void dump() const;
+  void dump(llvm::raw_ostream &OS) const;
 
   friend class ASTReader;
   friend class ASTWriter;
@@ -2906,19 +2909,19 @@ class FunctionType : public Type {
   // * AST read and write
   // * Codegen
   class ExtInfo {
-    // Feel free to rearrange or add bits, but if you go over 9,
+    // Feel free to rearrange or add bits, but if you go over 10,
     // you'll need to adjust both the Bits field below and
     // Type::FunctionTypeBitfields.
 
     //   |  CC  |noreturn|produces|regparm|
-    //   |0 .. 3|   4    |    5   | 6 .. 8|
+    //   |0 .. 4|   5    |    6   | 7 .. 9|
     //
     // regparm is either 0 (no regparm attribute) or the regparm value+1.
-    enum { CallConvMask = 0xF };
-    enum { NoReturnMask = 0x10 };
-    enum { ProducesResultMask = 0x20 };
+    enum { CallConvMask = 0x1F };
+    enum { NoReturnMask = 0x20 };
+    enum { ProducesResultMask = 0x40 };
     enum { RegParmMask = ~(CallConvMask | NoReturnMask | ProducesResultMask),
-           RegParmOffset = 6 }; // Assumed to be the last field
+           RegParmOffset = 7 }; // Assumed to be the last field
 
     uint16_t Bits;
 
@@ -3322,6 +3325,9 @@ public:
   }
   /// Return whether this function has a dependent exception spec.
   bool hasDependentExceptionSpec() const;
+  /// Return whether this function has an instantiation-dependent exception
+  /// spec.
+  bool hasInstantiationDependentExceptionSpec() const;
   /// Result type of getNoexceptSpec().
   enum NoexceptResult {
     NR_NoNoexcept,  ///< There is no noexcept specifier.
@@ -3363,9 +3369,15 @@ public:
     return reinterpret_cast<FunctionDecl *const *>(param_type_end())[1];
   }
   /// Determine whether this function type has a non-throwing exception
+  /// specification.
+  CanThrowResult canThrow(const ASTContext &Ctx) const;
+  /// Determine whether this function type has a non-throwing exception
   /// specification. If this depends on template arguments, returns
   /// \c ResultIfDependent.
-  bool isNothrow(const ASTContext &Ctx, bool ResultIfDependent = false) const;
+  bool isNothrow(const ASTContext &Ctx, bool ResultIfDependent = false) const {
+    return ResultIfDependent ? canThrow(Ctx) != CT_Can
+                             : canThrow(Ctx) == CT_Cannot;
+  }
 
   bool isVariadic() const { return Variadic; }
 
@@ -3466,7 +3478,8 @@ public:
   void Profile(llvm::FoldingSetNodeID &ID, const ASTContext &Ctx);
   static void Profile(llvm::FoldingSetNodeID &ID, QualType Result,
                       param_type_iterator ArgTys, unsigned NumArgs,
-                      const ExtProtoInfo &EPI, const ASTContext &Context);
+                      const ExtProtoInfo &EPI, const ASTContext &Context,
+                      bool Canonical);
 };
 
 /// \brief Represents the dependent type named by a dependently-scoped
@@ -3792,6 +3805,7 @@ public:
     attr_fastcall,
     attr_stdcall,
     attr_thiscall,
+    attr_regcall,
     attr_pascal,
     attr_swiftcall,
     attr_vectorcall,

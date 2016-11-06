@@ -801,7 +801,7 @@ bool Sema::BuildCXXNestedNameSpecifier(Scope *S,
   if (!Found.empty()) {
     if (TypeDecl *TD = Found.getAsSingle<TypeDecl>())
       Diag(IdInfo.IdentifierLoc, diag::err_expected_class_or_namespace)
-          << QualType(TD->getTypeForDecl(), 0) << getLangOpts().CPlusPlus;
+          << Context.getTypeDeclType(TD) << getLangOpts().CPlusPlus;
     else {
       Diag(IdInfo.IdentifierLoc, diag::err_expected_class_or_namespace)
           << IdInfo.Identifier << getLangOpts().CPlusPlus;
@@ -975,9 +975,9 @@ void *Sema::SaveNestedNameSpecifierAnnotation(CXXScopeSpec &SS) {
   if (SS.isEmpty() || SS.isInvalid())
     return nullptr;
 
-  void *Mem = Context.Allocate((sizeof(NestedNameSpecifierAnnotation) +
-                                                        SS.location_size()),
-                               llvm::alignOf<NestedNameSpecifierAnnotation>());
+  void *Mem = Context.Allocate(
+      (sizeof(NestedNameSpecifierAnnotation) + SS.location_size()),
+      alignof(NestedNameSpecifierAnnotation));
   NestedNameSpecifierAnnotation *Annotation
     = new (Mem) NestedNameSpecifierAnnotation;
   Annotation->NNS = SS.getScopeRep();

@@ -481,6 +481,8 @@ def parseOptionsAndInitTestdirs():
         # Shut off multiprocessing mode when test directories are specified.
         configuration.no_multiprocess_test_runner = True
 
+    lldbtest_config.codesign_identity = args.codesign_identity
+
     #print("testdirs:", testdirs)
 
 
@@ -673,19 +675,23 @@ def setupSysPath():
 
     # Assume lldb-mi is in same place as lldb
     # If not found, disable the lldb-mi tests
-    lldbMiExec = None
-    if lldbtest_config.lldbExec and is_exe(lldbtest_config.lldbExec + "-mi"):
-        lldbMiExec = lldbtest_config.lldbExec + "-mi"
-    if not lldbMiExec:
+    # TODO: Append .exe on Windows
+    #   - this will be in a separate commit in case the mi tests fail horribly
+    lldbDir = os.path.dirname(lldbtest_config.lldbExec)
+    lldbMiExec = os.path.join(lldbDir, "lldb-mi")
+    if is_exe(lldbMiExec):
+        os.environ["LLDBMI_EXEC"] = lldbMiExec
+    else:
         if not configuration.shouldSkipBecauseOfCategories(["lldb-mi"]):
             print(
                 "The 'lldb-mi' executable cannot be located.  The lldb-mi tests can not be run as a result.")
             configuration.skipCategories.append("lldb-mi")
-    else:
-        os.environ["LLDBMI_EXEC"] = lldbMiExec
 
     lldbPythonDir = None  # The directory that contains 'lldb/__init__.py'
+    if not configuration.lldbFrameworkPath and os.path.exists(os.path.join(lldbLibDir, "LLDB.framework")):
+        configuration.lldbFrameworkPath = os.path.join(lldbLibDir, "LLDB.framework")
     if configuration.lldbFrameworkPath:
+        lldbtest_config.lldbFrameworkPath = configuration.lldbFrameworkPath
         candidatePath = os.path.join(
             configuration.lldbFrameworkPath, 'Resources', 'Python')
         if os.path.isfile(os.path.join(candidatePath, 'lldb/__init__.py')):

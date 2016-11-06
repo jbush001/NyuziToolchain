@@ -16,8 +16,8 @@ class ConcurrentManyCrash(ConcurrentEventsBase):
         TestBase.skipLongRunningTest(),
         "Skip this long running test")
     # Atomic sequences are not supported yet for MIPS in LLDB.
-    @expectedFailureAll(triple='^mips')
-    def test_many_crash(self):
+    @skipIf(triple='^mips')
+    def test(self):
         """Test 100 threads that cause a segfault."""
         self.build(dictionary=self.getBuildFlags())
         self.do_thread_actions(num_crash_threads=100)

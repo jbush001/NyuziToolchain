@@ -64,8 +64,9 @@ std::string tag(const std::string &Name, const std::string &Str,
 
 // Create an anchor to \p Link with the label \p Str.
 std::string a(const std::string &Link, const std::string &Str,
-              const std::string &TargetType = "href") {
-  return "<a " + TargetType + "='" + Link + "'>" + Str + "</a>";
+              const std::string &TargetName = "") {
+  std::string Name = TargetName.empty() ? "" : ("name='" + TargetName + "' ");
+  return "<a " + Name + "href='" + Link + "'>" + Str + "</a>";
 }
 
 const char *BeginHeader =
@@ -406,11 +407,8 @@ void SourceCoverageViewHTML::renderViewFooter(raw_ostream &OS) {
 }
 
 void SourceCoverageViewHTML::renderSourceName(raw_ostream &OS, bool WholeFile) {
-  OS << BeginSourceNameDiv;
-  std::string ViewInfo = escape(
-      WholeFile ? getVerboseSourceName() : getSourceName(), getOptions());
-  OS << tag("pre", ViewInfo);
-  OS << EndSourceNameDiv;
+  OS << BeginSourceNameDiv << tag("pre", escape(getSourceName(), getOptions()))
+     << EndSourceNameDiv;
 }
 
 void SourceCoverageViewHTML::renderLinePrefix(raw_ostream &OS, unsigned) {
@@ -563,7 +561,8 @@ void SourceCoverageViewHTML::renderLineCoverageColumn(
 void SourceCoverageViewHTML::renderLineNumberColumn(raw_ostream &OS,
                                                     unsigned LineNo) {
   std::string LineNoStr = utostr(uint64_t(LineNo));
-  OS << tag("td", a("L" + LineNoStr, tag("pre", LineNoStr), "name"),
+  std::string TargetName = "L" + LineNoStr;
+  OS << tag("td", a("#" + TargetName, tag("pre", LineNoStr), TargetName),
             "line-number");
 }
 

@@ -409,24 +409,8 @@ public:
   RPC() = default;
 
   /// RPC instances cannot be copied.
-  RPC(const RPC &) = delete;
-
-  /// RPC instances cannot be copied.
-  RPC &operator=(const RPC &) = delete;
-
-  /// RPC move constructor.
-  // FIXME: Remove once MSVC can synthesize move ops.
-  RPC(RPC &&Other)
-      : SequenceNumberMgr(std::move(Other.SequenceNumberMgr)),
-        OutstandingResults(std::move(Other.OutstandingResults)) {}
-
-  /// RPC move assignment.
-  // FIXME: Remove once MSVC can synthesize move ops.
-  RPC &operator=(RPC &&Other) {
-    SequenceNumberMgr = std::move(Other.SequenceNumberMgr);
-    OutstandingResults = std::move(Other.OutstandingResults);
-    return *this;
-  }
+  RPC(RPC &&) = default;
+  RPC &operator=(RPC &&) = default;
 
   /// Utility class for defining/referring to RPC procedures.
   ///
@@ -716,6 +700,7 @@ private:
     SequenceNumberManager &operator=(SequenceNumberManager &&Other) {
       NextSequenceNumber = std::move(Other.NextSequenceNumber);
       FreeSequenceNumbers = std::move(Other.FreeSequenceNumbers);
+      return *this;
     }
 
     void reset() {

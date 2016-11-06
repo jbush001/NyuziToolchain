@@ -5501,6 +5501,18 @@ TEST_F(FormatTest, UnderstandsTemplateParameters) {
   verifyFormat("< < < < < < < < < < < < < < < < < < < < < < < < < < < < < <");
 }
 
+TEST_F(FormatTest, BitshiftOperatorWidth) {
+  EXPECT_EQ("int a = 1 << 2; /* foo\n"
+            "                   bar */",
+            format("int    a=1<<2;  /* foo\n"
+                   "                   bar */"));
+
+  EXPECT_EQ("int b = 256 >> 1; /* foo\n"
+            "                     bar */",
+            format("int  b  =256>>1 ;  /* foo\n"
+                   "                      bar */"));
+}
+
 TEST_F(FormatTest, UnderstandsBinaryOperators) {
   verifyFormat("COMPARE(a, ==, b);");
   verifyFormat("auto s = sizeof...(Ts) - 1;");
@@ -5637,6 +5649,9 @@ TEST_F(FormatTest, UnderstandsFunctionRefQualification) {
   verifyFormat("SomeType MemberFunction(const Deleted &) && final {}");
   verifyFormat("SomeType MemberFunction(const Deleted &) && override {}");
   verifyFormat("SomeType MemberFunction(const Deleted &) const &;");
+  verifyFormat("template <typename T>\n"
+               "void F(T) && = delete;",
+               getGoogleStyle());
 
   FormatStyle AlignLeft = getLLVMStyle();
   AlignLeft.PointerAlignment = FormatStyle::PAS_Left;
@@ -5789,7 +5804,7 @@ TEST_F(FormatTest, UnderstandsUsesOfStarAndAmp) {
   FormatStyle Left = getLLVMStyle();
   Left.PointerAlignment = FormatStyle::PAS_Left;
   verifyFormat("x = *a(x) = *a(y);", Left);
-  verifyFormat("for (;; * = b) {\n}", Left);
+  verifyFormat("for (;; *a = b) {\n}", Left);
   verifyFormat("return *this += 1;", Left);
 
   verifyIndependentOfContext("a = *(x + y);");
@@ -5870,6 +5885,7 @@ TEST_F(FormatTest, UnderstandsUsesOfStarAndAmp) {
   verifyIndependentOfContext("MACRO(auto *a);");
   verifyIndependentOfContext("MACRO(const A *a);");
   verifyIndependentOfContext("MACRO('0' <= c && c <= '9');");
+  verifyFormat("void f() { f(float{1}, a * a); }");
   // FIXME: Is there a way to make this work?
   // verifyIndependentOfContext("MACRO(A *a);");
 
@@ -7177,6 +7193,30 @@ TEST_F(FormatTest, FormatStarDependingOnContext) {
 TEST_F(FormatTest, SpecialTokensAtEndOfLine) {
   verifyFormat("while");
   verifyFormat("operator");
+}
+
+TEST_F(FormatTest, SkipsDeeplyNestedLines) {
+  // This code would be painfully slow to format if we didn't skip it.
+  std::string Code("A(A(A(A(A(A(A(A(A(A(A(A(A(A(A(A(A(A(A(A(\n" // 20x
+                   "A(A(A(A(A(A(A(A(A(A(A(A(A(A(A(A(A(A(A(A(\n"
+                   "A(A(A(A(A(A(A(A(A(A(A(A(A(A(A(A(A(A(A(A(\n"
+                   "A(A(A(A(A(A(A(A(A(A(A(A(A(A(A(A(A(A(A(A(\n"
+                   "A(A(A(A(A(A(A(A(A(A(A(A(A(A(A(A(A(A(A(A(\n"
+                   "A(1, 1)\n"
+                   ", 1), 1), 1), 1), 1), 1), 1), 1), 1), 1)\n" // 10x
+                   ", 1), 1), 1), 1), 1), 1), 1), 1), 1), 1)\n"
+                   ", 1), 1), 1), 1), 1), 1), 1), 1), 1), 1)\n"
+                   ", 1), 1), 1), 1), 1), 1), 1), 1), 1), 1)\n"
+                   ", 1), 1), 1), 1), 1), 1), 1), 1), 1), 1)\n"
+                   ", 1), 1), 1), 1), 1), 1), 1), 1), 1), 1)\n"
+                   ", 1), 1), 1), 1), 1), 1), 1), 1), 1), 1)\n"
+                   ", 1), 1), 1), 1), 1), 1), 1), 1), 1), 1)\n"
+                   ", 1), 1), 1), 1), 1), 1), 1), 1), 1), 1)\n"
+                   ", 1), 1), 1), 1), 1), 1), 1), 1), 1), 1);\n");
+  // Deeply nested part is untouched, rest is formatted.
+  EXPECT_EQ(std::string("int i;\n") + Code + "int j;\n",
+            format(std::string("int    i;\n") + Code + "int    j;\n",
+                   getLLVMStyle(), IC_ExpectIncomplete));
 }
 
 //===----------------------------------------------------------------------===//
@@ -10930,6 +10970,7 @@ TEST_F(FormatTest, FormatsLambdas) {
   verifyFormat("int c = [&a, &a, a] { [=, a, b, &c] { return b++; }(); }();\n");
   verifyFormat("auto c = {[&a, &a, a] { [=, a, b, &c] { return b++; }(); }}\n");
   verifyFormat("auto c = {[&a, &a, a] { [=, a, b, &c] {}(); }}\n");
+  verifyFormat("int x = f(*+[] {});");
   verifyFormat("void f() {\n"
                "  other(x.begin(), x.end(), [&](int, int) { return 1; });\n"
                "}\n");
@@ -11350,6 +11391,8 @@ TEST_F(FormatTest, TripleAngleBrackets) {
   EXPECT_EQ("f<param><<<1, 1>>>();", format("f< param > <<< 1, 1 >>> ();"));
   verifyFormat("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
                "aaaaaaaaaaa<<<\n    1, 1>>>();");
+  verifyFormat("aaaaaaaaaaaaaaa<aaaaaaaaa, aaaaaaaaaa, aaaaaaaaaaaaaa>\n"
+               "    <<<aaaaaaaaa, aaaaaaaaaa, aaaaaaaaaaaaaaaaaa>>>();");
 }
 
 TEST_F(FormatTest, MergeLessLessAtEnd) {
@@ -11597,6 +11640,17 @@ TEST_F(ReplacementTest, SortIncludesAfterReplacement) {
   EXPECT_EQ(Expected, *Result);
 }
 
+TEST_F(FormatTest, AllignTrailingComments) {
+  EXPECT_EQ("#define MACRO(V)                       \\\n"
+            "  V(Rt2) /* one more char */           \\\n"
+            "  V(Rs)  /* than here  */              \\\n"
+            "/* comment 3 */\n",
+            format("#define MACRO(V)\\\n"
+                   "V(Rt2)  /* one more char */ \\\n"
+                   "V(Rs) /* than here  */    \\\n"
+                   "/* comment 3 */         \\\n",
+                   getLLVMStyleWithColumns(40)));
+}
 } // end namespace
 } // end namespace format
 } // end namespace clang

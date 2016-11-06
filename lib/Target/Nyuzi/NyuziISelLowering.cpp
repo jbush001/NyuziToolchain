@@ -290,7 +290,6 @@ NyuziTargetLowering::NyuziTargetLowering(const TargetMachine &TM,
 
   setStackPointerRegisterToSaveRestore(Nyuzi::SP_REG);
   setMinFunctionAlignment(2);
-  setSelectIsExpensive(); // Because there is no CMOV
 
   computeRegisterProperties(Subtarget.getRegisterInfo());
 }

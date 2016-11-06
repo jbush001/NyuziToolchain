@@ -1,4 +1,5 @@
-// RUN: %clang_cc1 %s --std=c++11 -triple nvptx-unknown-unknown -fcuda-is-device -emit-llvm -o - -verify
+// RUN: %clang_cc1 %s --std=c++11 -triple nvptx-unknown-unknown -fcuda-is-device \
+// RUN:   -emit-llvm -o /dev/null -verify -verify-ignore-unexpected=note
 
 // Note: This test won't work with -fsyntax-only, because some of these errors
 // are emitted during codegen.
@@ -6,20 +7,13 @@
 #include "Inputs/cuda.h"
 
 extern "C" void host_fn() {}
-// expected-note@-1 {{'host_fn' declared here}}
-// expected-note@-2 {{'host_fn' declared here}}
-// expected-note@-3 {{'host_fn' declared here}}
-// expected-note@-4 {{'host_fn' declared here}}
-// expected-note@-5 {{'host_fn' declared here}}
-// expected-note@-6 {{'host_fn' declared here}}
-// expected-note@-7 {{'host_fn' declared here}}
+// expected-note@-1 7 {{'host_fn' declared here}}
 
 struct Dummy {};
 
 struct S {
   S() {}
-  // expected-note@-1 {{'S' declared here}}
-  // expected-note@-2 {{'S' declared here}}
+  // expected-note@-1 2 {{'S' declared here}}
   ~S() { host_fn(); }
   // expected-note@-1 {{'~S' declared here}}
   int x;
@@ -46,6 +40,14 @@ struct T {
 
   operator Dummy() { return Dummy(); }
   // expected-note@-1 {{'operator Dummy' declared here}}
+
+  __host__ void operator delete(void*);
+  __device__ void operator delete(void*, size_t);
+};
+
+struct U {
+  __device__ void operator delete(void*, size_t) = delete;
+  __host__ __device__ void operator delete(void*);
 };
 
 __host__ __device__ void T::hd3() {
@@ -80,6 +82,11 @@ __host__ __device__ void placement_new(char *ptr) {
 __host__ __device__ void explicit_destructor(S *s) {
   s->~S();
   // expected-error@-1 {{reference to __host__ function '~S' in __host__ __device__ function}}
+}
+
+__host__ __device__ void class_specific_delete(T *t, U *u) {
+  delete t; // ok, call sized device delete even though host has preferable non-sized version
+  delete u; // ok, call non-sized HD delete rather than sized D delete
 }
 
 __host__ __device__ void hd_member_fn() {

@@ -27,8 +27,8 @@ extern class LinkerDriver *Driver;
 
 class LinkerDriver {
 public:
-  void main(ArrayRef<const char *> Args);
-  void addFile(StringRef Path, bool KnownScript = false);
+  void main(ArrayRef<const char *> Args, bool CanExitEarly);
+  void addFile(StringRef Path);
   void addLibrary(StringRef Name);
   llvm::LLVMContext Context;      // to parse bitcode files
   std::unique_ptr<CpioFile> Cpio; // for reproduce
@@ -38,15 +38,18 @@ private:
   llvm::Optional<MemoryBufferRef> readFile(StringRef Path);
   void readConfigs(llvm::opt::InputArgList &Args);
   void createFiles(llvm::opt::InputArgList &Args);
+  void inferMachineType();
   template <class ELFT> void link(llvm::opt::InputArgList &Args);
 
   // True if we are in --whole-archive and --no-whole-archive.
-  bool WholeArchive = false;
+  bool InWholeArchive = false;
 
   // True if we are in --start-lib and --end-lib.
   bool InLib = false;
 
-  llvm::BumpPtrAllocator Alloc;
+  // True if we are in -format=binary and -format=elf.
+  bool InBinary = false;
+
   std::vector<InputFile *> Files;
   std::vector<std::unique_ptr<MemoryBuffer>> OwningMBs;
 };
@@ -56,9 +59,6 @@ class ELFOptTable : public llvm::opt::OptTable {
 public:
   ELFOptTable();
   llvm::opt::InputArgList parse(ArrayRef<const char *> Argv);
-
-private:
-  llvm::BumpPtrAllocator Alloc;
 };
 
 // Create enum with OPT_xxx values for each option in Options.td
@@ -70,7 +70,6 @@ enum {
 };
 
 void printHelp(const char *Argv0);
-std::string getVersionString();
 std::vector<uint8_t> parseHexstring(StringRef S);
 
 std::string createResponseFile(const llvm::opt::InputArgList &Args);

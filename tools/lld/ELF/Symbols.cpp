@@ -12,9 +12,11 @@
 #include "InputFiles.h"
 #include "InputSection.h"
 #include "OutputSections.h"
+#include "SyntheticSections.h"
 #include "Target.h"
 
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/Support/Path.h"
 
 using namespace llvm;
 using namespace llvm::object;
@@ -68,8 +70,7 @@ static typename ELFT::uint getSymVA(const SymbolBody &Body,
     return VA;
   }
   case SymbolBody::DefinedCommonKind:
-    return CommonInputSection<ELFT>::X->OutSec->getVA() +
-           CommonInputSection<ELFT>::X->OutSecOff +
+    return In<ELFT>::Common->OutSec->getVA() + In<ELFT>::Common->OutSecOff +
            cast<DefinedCommon>(Body).Offset;
   case SymbolBody::SharedKind: {
     auto &SS = cast<SharedSymbol<ELFT>>(Body);
@@ -92,13 +93,13 @@ static typename ELFT::uint getSymVA(const SymbolBody &Body,
 SymbolBody::SymbolBody(Kind K, uint32_t NameOffset, uint8_t StOther,
                        uint8_t Type)
     : SymbolKind(K), NeedsCopyOrPltAddr(false), IsLocal(true),
-      IsInGlobalMipsGot(false), Type(Type), StOther(StOther),
-      NameOffset(NameOffset) {}
+      IsInGlobalMipsGot(false), Is32BitMipsGot(false), Type(Type),
+      StOther(StOther), NameOffset(NameOffset) {}
 
 SymbolBody::SymbolBody(Kind K, StringRef Name, uint8_t StOther, uint8_t Type)
     : SymbolKind(K), NeedsCopyOrPltAddr(false), IsLocal(false),
-      IsInGlobalMipsGot(false), Type(Type), StOther(StOther),
-      Name({Name.data(), Name.size()}) {}
+      IsInGlobalMipsGot(false), Is32BitMipsGot(false), Type(Type),
+      StOther(StOther), Name({Name.data(), Name.size()}) {}
 
 StringRef SymbolBody::getName() const {
   assert(!isLocal());
@@ -244,13 +245,13 @@ LazyObject::LazyObject(StringRef Name, LazyObjectFile &File, uint8_t Type)
 }
 
 InputFile *LazyArchive::fetch() {
-  MemoryBufferRef MBRef = file()->getMember(&Sym);
+  std::pair<MemoryBufferRef, uint64_t> MBInfo = file()->getMember(&Sym);
 
   // getMember returns an empty buffer if the member was already
   // read from the library.
-  if (MBRef.getBuffer().empty())
+  if (MBInfo.first.getBuffer().empty())
     return nullptr;
-  return createObjectFile(MBRef, file()->getName());
+  return createObjectFile(MBInfo.first, file()->getName(), MBInfo.second);
 }
 
 InputFile *LazyObject::fetch() {

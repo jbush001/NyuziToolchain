@@ -119,7 +119,7 @@ private:
 // Returns a hash value for S. Note that the information about
 // relocation targets is not included in the hash value.
 template <class ELFT> uint64_t ICF<ELFT>::getHash(InputSection<ELFT> *S) {
-  uint64_t Flags = S->getSectionHdr()->sh_flags;
+  uint64_t Flags = S->Flags;
   uint64_t H = hash_combine(Flags, S->getSize());
   for (const Elf_Shdr *Rel : S->RelocSections)
     H = hash_combine(H, (uint64_t)Rel->sh_size);
@@ -141,17 +141,15 @@ template <class ELFT> bool ICF<ELFT>::isEligible(InputSectionBase<ELFT> *Sec) {
   if (Name == ".init" || Name == ".fini")
     return false;
 
-  const Elf_Shdr &H = *S->getSectionHdr();
-  return (H.sh_flags & SHF_ALLOC) && (~H.sh_flags & SHF_WRITE);
+  return (S->Flags & SHF_ALLOC) && !(S->Flags & SHF_WRITE);
 }
 
 template <class ELFT>
 std::vector<InputSection<ELFT> *> ICF<ELFT>::getSections() {
   std::vector<InputSection<ELFT> *> V;
-  for (ObjectFile<ELFT> *F : Symtab<ELFT>::X->getObjectFiles())
-    for (InputSectionBase<ELFT> *S : F->getSections())
-      if (isEligible(S))
-        V.push_back(cast<InputSection<ELFT>>(S));
+  for (InputSectionBase<ELFT> *S : Symtab<ELFT>::X->Sections)
+    if (isEligible(S))
+      V.push_back(cast<InputSection<ELFT>>(S));
   return V;
 }
 
@@ -220,19 +218,19 @@ bool ICF<ELFT>::equalsConstant(const InputSection<ELFT> *A,
   for (size_t I = 0, E = A->RelocSections.size(); I != E; ++I) {
     const Elf_Shdr *RA = A->RelocSections[I];
     const Elf_Shdr *RB = B->RelocSections[I];
-    ELFFile<ELFT> &FileA = A->File->getObj();
-    ELFFile<ELFT> &FileB = B->File->getObj();
+    ELFFile<ELFT> FileA = A->File->getObj();
+    ELFFile<ELFT> FileB = B->File->getObj();
     if (RA->sh_type == SHT_RELA) {
-      if (!relocationEq(FileA.relas(RA), FileB.relas(RB)))
+      if (!relocationEq(check(FileA.relas(RA)), check(FileB.relas(RB))))
         return false;
     } else {
-      if (!relocationEq(FileA.rels(RA), FileB.rels(RB)))
+      if (!relocationEq(check(FileA.rels(RA)), check(FileB.rels(RB))))
         return false;
     }
   }
 
-  return A->getSectionHdr()->sh_flags == B->getSectionHdr()->sh_flags &&
-         A->getSize() == B->getSize() && A->Data == B->Data;
+  return A->Flags == B->Flags && A->getSize() == B->getSize() &&
+         A->Data == B->Data;
 }
 
 template <class ELFT>
@@ -273,13 +271,13 @@ bool ICF<ELFT>::equalsVariable(const InputSection<ELFT> *A,
   for (size_t I = 0, E = A->RelocSections.size(); I != E; ++I) {
     const Elf_Shdr *RA = A->RelocSections[I];
     const Elf_Shdr *RB = B->RelocSections[I];
-    ELFFile<ELFT> &FileA = A->File->getObj();
-    ELFFile<ELFT> &FileB = B->File->getObj();
+    ELFFile<ELFT> FileA = A->File->getObj();
+    ELFFile<ELFT> FileB = B->File->getObj();
     if (RA->sh_type == SHT_RELA) {
-      if (!variableEq(A, B, FileA.relas(RA), FileB.relas(RB)))
+      if (!variableEq(A, B, check(FileA.relas(RA)), check(FileB.relas(RB))))
         return false;
     } else {
-      if (!variableEq(A, B, FileA.rels(RA), FileB.rels(RB)))
+      if (!variableEq(A, B, check(FileA.rels(RA)), check(FileB.rels(RB))))
         return false;
     }
   }

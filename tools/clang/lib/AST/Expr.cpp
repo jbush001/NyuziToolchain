@@ -35,9 +35,33 @@
 #include <cstring>
 using namespace clang;
 
-const CXXRecordDecl *Expr::getBestDynamicClassType() const {
-  const Expr *E = ignoreParenBaseCasts();
+const Expr *Expr::getBestDynamicClassTypeExpr() const {
+  const Expr *E = this;
+  while (true) {
+    E = E->ignoreParenBaseCasts();
 
+    // Follow the RHS of a comma operator.
+    if (auto *BO = dyn_cast<BinaryOperator>(E)) {
+      if (BO->getOpcode() == BO_Comma) {
+        E = BO->getRHS();
+        continue;
+      }
+    }
+
+    // Step into initializer for materialized temporaries.
+    if (auto *MTE = dyn_cast<MaterializeTemporaryExpr>(E)) {
+      E = MTE->GetTemporaryExpr();
+      continue;
+    }
+
+    break;
+  }
+
+  return E;
+}
+
+const CXXRecordDecl *Expr::getBestDynamicClassType() const {
+  const Expr *E = getBestDynamicClassTypeExpr();
   QualType DerivedType = E->getType();
   if (const PointerType *PTy = DerivedType->getAs<PointerType>())
     DerivedType = PTy->getPointeeType();
@@ -402,7 +426,7 @@ DeclRefExpr *DeclRefExpr::Create(const ASTContext &Context,
           HasTemplateKWAndArgsInfo ? 1 : 0,
           TemplateArgs ? TemplateArgs->size() : 0);
 
-  void *Mem = Context.Allocate(Size, llvm::alignOf<DeclRefExpr>());
+  void *Mem = Context.Allocate(Size, alignof(DeclRefExpr));
   return new (Mem) DeclRefExpr(Context, QualifierLoc, TemplateKWLoc, D,
                                RefersToEnclosingVariableOrCapture,
                                NameInfo, FoundD, TemplateArgs, T, VK);
@@ -419,7 +443,7 @@ DeclRefExpr *DeclRefExpr::CreateEmpty(const ASTContext &Context,
                        ASTTemplateKWAndArgsInfo, TemplateArgumentLoc>(
           HasQualifier ? 1 : 0, HasFoundDecl ? 1 : 0, HasTemplateKWAndArgsInfo,
           NumTemplateArgs);
-  void *Mem = Context.Allocate(Size, llvm::alignOf<DeclRefExpr>());
+  void *Mem = Context.Allocate(Size, alignof(DeclRefExpr));
   return new (Mem) DeclRefExpr(EmptyShell());
 }
 
@@ -537,12 +561,14 @@ std::string PredefinedExpr::ComputeName(IdentType IT, const Decl *CurrentDecl) {
       FT = dyn_cast<FunctionProtoType>(AFT);
 
     if (IT == FuncSig) {
+      assert(FT && "We must have a written prototype in this case.");
       switch (FT->getCallConv()) {
       case CC_C: POut << "__cdecl "; break;
       case CC_X86StdCall: POut << "__stdcall "; break;
       case CC_X86FastCall: POut << "__fastcall "; break;
       case CC_X86ThisCall: POut << "__thiscall "; break;
       case CC_X86VectorCall: POut << "__vectorcall "; break;
+      case CC_X86RegCall: POut << "__regcall "; break;
       // Only bother printing the conventions that MSVC knows about.
       default: break;
       }
@@ -831,9 +857,9 @@ StringLiteral *StringLiteral::Create(const ASTContext &C, StringRef Str,
 
   // Allocate enough space for the StringLiteral plus an array of locations for
   // any concatenated string tokens.
-  void *Mem = C.Allocate(sizeof(StringLiteral)+
-                         sizeof(SourceLocation)*(NumStrs-1),
-                         llvm::alignOf<StringLiteral>());
+  void *Mem =
+      C.Allocate(sizeof(StringLiteral) + sizeof(SourceLocation) * (NumStrs - 1),
+                 alignof(StringLiteral));
   StringLiteral *SL = new (Mem) StringLiteral(Ty);
 
   // OPTIMIZE: could allocate this appended to the StringLiteral.
@@ -849,9 +875,9 @@ StringLiteral *StringLiteral::Create(const ASTContext &C, StringRef Str,
 
 StringLiteral *StringLiteral::CreateEmpty(const ASTContext &C,
                                           unsigned NumStrs) {
-  void *Mem = C.Allocate(sizeof(StringLiteral)+
-                         sizeof(SourceLocation)*(NumStrs-1),
-                         llvm::alignOf<StringLiteral>());
+  void *Mem =
+      C.Allocate(sizeof(StringLiteral) + sizeof(SourceLocation) * (NumStrs - 1),
+                 alignof(StringLiteral));
   StringLiteral *SL = new (Mem) StringLiteral(QualType());
   SL->CharByteWidth = 0;
   SL->Length = 0;
@@ -1181,8 +1207,16 @@ void CallExpr::updateDependenciesFromArg(Expr *Arg) {
     ExprBits.ContainsUnexpandedParameterPack = true;
 }
 
+FunctionDecl *CallExpr::getDirectCallee() {
+  return dyn_cast_or_null<FunctionDecl>(getCalleeDecl());
+}
+
 Decl *CallExpr::getCalleeDecl() {
-  Expr *CEE = getCallee()->IgnoreParenImpCasts();
+  return getCallee()->getReferencedDeclOfCallee();
+}
+
+Decl *Expr::getReferencedDeclOfCallee() {
+  Expr *CEE = IgnoreParenImpCasts();
     
   while (SubstNonTypeTemplateParmExpr *NTTP
                                 = dyn_cast<SubstNonTypeTemplateParmExpr>(CEE)) {
@@ -1203,10 +1237,6 @@ Decl *CallExpr::getCalleeDecl() {
     return ME->getMemberDecl();
 
   return nullptr;
-}
-
-FunctionDecl *CallExpr::getDirectCallee() {
-  return dyn_cast_or_null<FunctionDecl>(getCalleeDecl());
 }
 
 /// setNumArgs - This changes the number of arguments present in this call.
@@ -1416,7 +1446,7 @@ MemberExpr *MemberExpr::Create(
                                             HasTemplateKWAndArgsInfo ? 1 : 0,
                                             targs ? targs->size() : 0);
 
-  void *Mem = C.Allocate(Size, llvm::alignOf<MemberExpr>());
+  void *Mem = C.Allocate(Size, alignof(MemberExpr));
   MemberExpr *E = new (Mem)
       MemberExpr(base, isarrow, OperatorLoc, memberdecl, nameinfo, ty, vk, ok);
 
@@ -3604,7 +3634,7 @@ DesignatedInitExpr::Create(const ASTContext &C,
                            SourceLocation ColonOrEqualLoc,
                            bool UsesColonSyntax, Expr *Init) {
   void *Mem = C.Allocate(totalSizeToAlloc<Stmt *>(IndexExprs.size() + 1),
-                         llvm::alignOf<DesignatedInitExpr>());
+                         alignof(DesignatedInitExpr));
   return new (Mem) DesignatedInitExpr(C, C.VoidTy, Designators,
                                       ColonOrEqualLoc, UsesColonSyntax,
                                       IndexExprs, Init);
@@ -3613,7 +3643,7 @@ DesignatedInitExpr::Create(const ASTContext &C,
 DesignatedInitExpr *DesignatedInitExpr::CreateEmpty(const ASTContext &C,
                                                     unsigned NumIndexExprs) {
   void *Mem = C.Allocate(totalSizeToAlloc<Stmt *>(NumIndexExprs + 1),
-                         llvm::alignOf<DesignatedInitExpr>());
+                         alignof(DesignatedInitExpr));
   return new (Mem) DesignatedInitExpr(NumIndexExprs + 1);
 }
 
@@ -3753,7 +3783,7 @@ PseudoObjectExpr *PseudoObjectExpr::Create(const ASTContext &Context,
                                            unsigned numSemanticExprs) {
   void *buffer =
       Context.Allocate(totalSizeToAlloc<Expr *>(1 + numSemanticExprs),
-                       llvm::alignOf<PseudoObjectExpr>());
+                       alignof(PseudoObjectExpr));
   return new(buffer) PseudoObjectExpr(sh, numSemanticExprs);
 }
 
@@ -3781,7 +3811,7 @@ PseudoObjectExpr *PseudoObjectExpr::Create(const ASTContext &C, Expr *syntax,
   }
 
   void *buffer = C.Allocate(totalSizeToAlloc<Expr *>(semantics.size() + 1),
-                            llvm::alignOf<PseudoObjectExpr>());
+                            alignof(PseudoObjectExpr));
   return new(buffer) PseudoObjectExpr(type, VK, syntax, semantics,
                                       resultIndex);
 }

@@ -1950,6 +1950,23 @@ Instruction *InstCombiner::foldICmpShlConstant(ICmpInst &Cmp,
                         And, Constant::getNullValue(And->getType()));
   }
 
+  // When the shift is nuw and pred is >u or <=u, comparison only really happens
+  // in the pre-shifted bits. Since InstSimplify canoncalizes <=u into <u, the
+  // <=u case can be further converted to match <u (see below).
+  if (Shl->hasNoUnsignedWrap() &&
+      (Pred == ICmpInst::ICMP_UGT || Pred == ICmpInst::ICMP_ULT)) {
+    // Derivation for the ult case:
+    // (X << S) <=u C is equiv to X <=u (C >> S) for all C
+    // (X << S) <u (C + 1) is equiv to X <u (C >> S) + 1 if C <u ~0u
+    // (X << S) <u C is equiv to X <u ((C - 1) >> S) + 1 if C >u 0
+    assert((Pred != ICmpInst::ICMP_ULT || C->ugt(0)) &&
+           "Encountered `ult 0` that should have been eliminated by "
+           "InstSimplify.");
+    APInt ShiftedC = Pred == ICmpInst::ICMP_ULT ? (*C - 1).lshr(*ShiftAmt) + 1
+                                                : C->lshr(*ShiftAmt);
+    return new ICmpInst(Pred, X, ConstantInt::get(X->getType(), ShiftedC));
+  }
+
   // Transform (icmp pred iM (shl iM %v, N), C)
   // -> (icmp pred i(M-N) (trunc %v iM to i(M-N)), (trunc (C>>N))
   // Transform the shl to a trunc if (trunc (C>>N)) has no loss and M-N.
@@ -1957,7 +1974,8 @@ Instruction *InstCombiner::foldICmpShlConstant(ICmpInst &Cmp,
   // free on the target. It has the additional benefit of comparing to a
   // smaller constant, which will be target friendly.
   unsigned Amt = ShiftAmt->getLimitedValue(TypeBits - 1);
-  if (Shl->hasOneUse() && Amt != 0 && C->countTrailingZeros() >= Amt) {
+  if (Shl->hasOneUse() && Amt != 0 && C->countTrailingZeros() >= Amt &&
+      DL.isLegalInteger(TypeBits - Amt)) {
     Type *TruncTy = IntegerType::get(Cmp.getContext(), TypeBits - Amt);
     if (X->getType()->isVectorTy())
       TruncTy = VectorType::get(TruncTy, X->getType()->getVectorNumElements());

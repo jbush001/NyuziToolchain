@@ -9,6 +9,7 @@ add_llvm_unittest(SupportTests
   BlockFrequencyTest.cpp
   BranchProbabilityTest.cpp
   Casting.cpp
+  Chrono.cpp
   CommandLineTest.cpp
   CompressionTest.cpp
   ConvertUTFTest.cpp
@@ -19,6 +20,7 @@ add_llvm_unittest(SupportTests
   ErrorTest.cpp
   ErrorOrTest.cpp
   FileOutputBufferTest.cpp
+  Host.cpp
   LEB128Test.cpp
   LineIteratorTest.cpp
   LockFileManagerTest.cpp
@@ -27,6 +29,7 @@ add_llvm_unittest(SupportTests
   MathExtrasTest.cpp
   MemoryBufferTest.cpp
   MemoryTest.cpp
+  NativeFormatTests.cpp
   Path.cpp
   ProcessTest.cpp
   ProgramTest.cpp
@@ -35,10 +38,10 @@ add_llvm_unittest(SupportTests
   ScaledNumberTest.cpp
   SourceMgrTest.cpp
   SpecialCaseListTest.cpp
-  StreamingMemoryObjectTest.cpp
   StringPool.cpp
   SwapByteOrderTest.cpp
   TargetParserTest.cpp
+  Threading.cpp
   ThreadLocalTest.cpp
   ThreadPool.cpp
   TimerTest.cpp

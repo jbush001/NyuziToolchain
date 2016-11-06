@@ -468,8 +468,8 @@ bool DarwinAsmParser::parseDirectiveDesc(StringRef, SMLoc) {
 /// parseDirectiveIndirectSymbol
 ///  ::= .indirect_symbol identifier
 bool DarwinAsmParser::parseDirectiveIndirectSymbol(StringRef, SMLoc Loc) {
-  const MCSectionMachO *Current = static_cast<const MCSectionMachO*>(
-                                       getStreamer().getCurrentSection().first);
+  const MCSectionMachO *Current = static_cast<const MCSectionMachO *>(
+      getStreamer().getCurrentSectionOnly());
   MachO::SectionType SectionType = Current->getType();
   if (SectionType != MachO::S_NON_LAZY_SYMBOL_POINTERS &&
       SectionType != MachO::S_LAZY_SYMBOL_POINTERS &&
@@ -614,7 +614,7 @@ bool DarwinAsmParser::parseDirectiveSection(StringRef, SMLoc) {
                                           TAA, TAAParsed, StubSize);
 
   if (!ErrorStr.empty())
-    return Error(Loc, ErrorStr.c_str());
+    return Error(Loc, ErrorStr);
 
   // Issue a warning if the target is not powerpc and Section is a *coal* section.
   Triple TT = getParser().getContext().getObjectFileInfo()->getTargetTriple();

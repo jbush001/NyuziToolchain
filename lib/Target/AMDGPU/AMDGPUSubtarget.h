@@ -51,9 +51,13 @@ public:
     ISAVersion0_0_0,
     ISAVersion7_0_0,
     ISAVersion7_0_1,
+    ISAVersion7_0_2,
     ISAVersion8_0_0,
     ISAVersion8_0_1,
-    ISAVersion8_0_3
+    ISAVersion8_0_2,
+    ISAVersion8_0_3,
+    ISAVersion8_0_4,
+    ISAVersion8_1_0,
   };
 
 protected:
@@ -75,6 +79,7 @@ protected:
   bool FP64Denormals;
   bool FPExceptions;
   bool FlatForGlobal;
+  bool UnalignedScratchAccess;
   bool UnalignedBufferAccess;
   bool EnableXNACK;
   bool DebuggerInsertNops;
@@ -98,6 +103,10 @@ protected:
   bool SGPRInitBug;
   bool HasSMemRealTime;
   bool Has16BitInsts;
+  bool HasMovrel;
+  bool HasVGPRIndexMode;
+  bool HasScalarStores;
+  bool HasInv2PiInlineImm;
   bool FlatAddressSpace;
   bool R600ALUInst;
   bool CaymanISA;
@@ -164,6 +173,10 @@ public:
 
   unsigned getMaxPrivateElementSize() const {
     return MaxPrivateElementSize;
+  }
+
+  bool has16BitInsts() const {
+    return Has16BitInsts;
   }
 
   bool hasHWFP64() const {
@@ -245,6 +258,10 @@ public:
     return DumpCode;
   }
 
+  bool enableIEEEBit(const MachineFunction &MF) const {
+    return AMDGPU::isCompute(MF.getFunction()->getCallingConv());
+  }
+
   /// Return the amount of LDS that can be used that will not restrict the
   /// occupancy lower than WaveCount.
   unsigned getMaxLocalMemSizeWithWaveCount(unsigned WaveCount) const;
@@ -272,6 +289,10 @@ public:
 
   bool hasUnalignedBufferAccess() const {
     return UnalignedBufferAccess;
+  }
+
+  bool hasUnalignedScratchAccess() const {
+    return UnalignedScratchAccess;
   }
 
   bool isXNACKEnabled() const {
@@ -496,12 +517,24 @@ public:
     return HasSMemRealTime;
   }
 
-  bool has16BitInsts() const {
-    return Has16BitInsts;
+  bool hasMovrel() const {
+    return HasMovrel;
+  }
+
+  bool hasVGPRIndexMode() const {
+    return HasVGPRIndexMode;
   }
 
   bool hasScalarCompareEq64() const {
     return getGeneration() >= VOLCANIC_ISLANDS;
+  }
+
+  bool hasScalarStores() const {
+    return HasScalarStores;
+  }
+
+  bool hasInv2PiInlineImm() const {
+    return HasInv2PiInlineImm;
   }
 
   bool enableSIScheduler() const {
@@ -533,6 +566,10 @@ public:
     return SGPRInitBug;
   }
 
+  bool has12DWordStoreHazard() const {
+    return getGeneration() != AMDGPUSubtarget::SOUTHERN_ISLANDS;
+  }
+
   unsigned getKernArgSegmentSize(unsigned ExplictArgBytes) const;
 
   /// Return the maximum number of waves per SIMD for kernels using \p SGPRs SGPRs
@@ -546,6 +583,8 @@ public:
   bool needWaitcntBeforeBarrier() const {
     return true;
   }
+
+  unsigned getMaxNumSGPRs() const;
 };
 
 } // End namespace llvm

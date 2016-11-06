@@ -22,17 +22,20 @@
 //===---------------------------------------------------------------------===//
 
 #include "Thunks.h"
+#include "Config.h"
 #include "Error.h"
-#include "InputFiles.h"
 #include "InputSection.h"
+#include "Memory.h"
 #include "OutputSections.h"
 #include "Symbols.h"
 #include "Target.h"
-#include "llvm/Support/Allocator.h"
-
-#include "llvm/Object/ELF.h"
+#include "llvm/Support/Casting.h"
 #include "llvm/Support/ELF.h"
 #include "llvm/Support/Endian.h"
+#include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/MathExtras.h"
+#include <cstdint>
+#include <cstring>
 
 using namespace llvm;
 using namespace llvm::object;
@@ -43,6 +46,7 @@ namespace lld {
 namespace elf {
 
 namespace {
+
 // Specific ARM Thunk implementations. The naming convention is:
 // Source State, TargetState, Target Requirement, ABS or PI, Range
 template <class ELFT>
@@ -96,7 +100,8 @@ public:
   uint32_t size() const override { return 16; }
   void writeTo(uint8_t *Buf) const override;
 };
-} // anonymous namespace
+
+} // end anonymous namespace
 
 // ARM Target Thunks
 template <class ELFT> static uint64_t getARMThunkDestVA(const SymbolBody &S) {
@@ -181,7 +186,7 @@ template <class ELFT> typename ELFT::uint Thunk<ELFT>::getVA() const {
   return Owner.OutSec->getVA() + Owner.OutSecOff + Offset;
 }
 
-template <class ELFT> Thunk<ELFT>::~Thunk() {}
+template <class ELFT> Thunk<ELFT>::~Thunk() = default;
 
 // Creates a thunk for Thumb-ARM interworking.
 template <class ELFT>
@@ -190,19 +195,18 @@ static Thunk<ELFT> *createThunkArm(uint32_t Reloc, SymbolBody &S,
   // ARM relocations need ARM to Thumb interworking Thunks.
   // Thumb relocations need Thumb to ARM relocations.
   // Use position independent Thunks if we require position independent code.
-  BumpPtrAllocator &Alloc = IS.getFile()->Alloc;
   switch (Reloc) {
   case R_ARM_PC24:
   case R_ARM_PLT32:
   case R_ARM_JUMP24:
     if (Config->Pic)
-      return new (Alloc) ARMToThumbV7PILongThunk<ELFT>(S, IS);
-    return new (Alloc) ARMToThumbV7ABSLongThunk<ELFT>(S, IS);
+      return new (BAlloc) ARMToThumbV7PILongThunk<ELFT>(S, IS);
+    return new (BAlloc) ARMToThumbV7ABSLongThunk<ELFT>(S, IS);
   case R_ARM_THM_JUMP19:
   case R_ARM_THM_JUMP24:
     if (Config->Pic)
-      return new (Alloc) ThumbToARMV7PILongThunk<ELFT>(S, IS);
-    return new (Alloc) ThumbToARMV7ABSLongThunk<ELFT>(S, IS);
+      return new (BAlloc) ThumbToARMV7PILongThunk<ELFT>(S, IS);
+    return new (BAlloc) ThumbToARMV7ABSLongThunk<ELFT>(S, IS);
   }
   fatal("unrecognized relocation type");
 }
@@ -236,7 +240,7 @@ static void addThunkMips(uint32_t RelocType, SymbolBody &S,
   // Mips Thunks are added to the InputSection defining S.
   auto *R = cast<DefinedRegular<ELFT>>(&S);
   auto *Sec = cast<InputSection<ELFT>>(R->Section);
-  auto *T = new (IS.getFile()->Alloc) MipsThunk<ELFT>(S, *Sec);
+  auto *T = new (BAlloc) MipsThunk<ELFT>(S, *Sec);
   Sec->addThunk(T);
   R->ThunkData = T;
 }
@@ -265,5 +269,5 @@ template class Thunk<ELF32BE>;
 template class Thunk<ELF64LE>;
 template class Thunk<ELF64BE>;
 
-} // namespace elf
-} // namespace lld
+} // end namespace elf
+} // end namespace lld

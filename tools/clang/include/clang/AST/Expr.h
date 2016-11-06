@@ -445,6 +445,11 @@ public:
     return const_cast<Expr*>(this)->getSourceBitField();
   }
 
+  Decl *getReferencedDeclOfCallee();
+  const Decl *getReferencedDeclOfCallee() const {
+    return const_cast<Expr*>(this)->getReferencedDeclOfCallee();
+  }
+
   /// \brief If this expression is an l-value for an Objective C
   /// property, find the underlying property reference expression.
   const ObjCPropertyRefExpr *getObjCProperty() const;
@@ -822,6 +827,11 @@ public:
   /// This is valid because derived-to-base conversions have undefined
   /// behavior if the object isn't dynamically of the derived type.
   const CXXRecordDecl *getBestDynamicClassType() const;
+
+  /// \brief Get the inner expression that determines the best dynamic class.
+  /// If this is a prvalue, we guarantee that it is of the most-derived type
+  /// for the object itself.
+  const Expr *getBestDynamicClassTypeExpr() const;
 
   /// Walk outwards from an expression we want to bind a reference to and
   /// find the expression whose lifetime needs to be extended. Record
@@ -3778,7 +3788,16 @@ public:
   /// \brief Retrieve the set of initializers.
   Expr **getInits() { return reinterpret_cast<Expr **>(InitExprs.data()); }
 
+  /// \brief Retrieve the set of initializers.
+  Expr * const *getInits() const {
+    return reinterpret_cast<Expr * const *>(InitExprs.data());
+  }
+
   ArrayRef<Expr *> inits() {
+    return llvm::makeArrayRef(getInits(), getNumInits());
+  }
+
+  ArrayRef<Expr *> inits() const {
     return llvm::makeArrayRef(getInits(), getNumInits());
   }
 

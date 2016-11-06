@@ -27,11 +27,11 @@ def L: JoinedOrSeparate<["-"], "L">, MetaVarName<"<dir>">,
 
 def O: Joined<["-"], "O">, HelpText<"Optimize output file size">;
 
-def Tbss: J<"Tbss=">, HelpText<"Same as --section-start with .bss as the sectionname">;
+def Tbss: S<"Tbss">, HelpText<"Same as --section-start with .bss as the sectionname">;
 
-def Tdata: J<"Tdata=">, HelpText<"Same as --section-start with .data as the sectionname">;
+def Tdata: S<"Tdata">, HelpText<"Same as --section-start with .data as the sectionname">;
 
-def Ttext: J<"Ttext=">, HelpText<"Same as --section-start with .text as the sectionname">;
+def Ttext: S<"Ttext">, HelpText<"Same as --section-start with .text as the sectionname">;
 
 def allow_multiple_definition: F<"allow-multiple-definition">,
   HelpText<"Allow multiple definitions">;
@@ -80,11 +80,17 @@ def fatal_warnings: F<"fatal-warnings">,
 def fini: S<"fini">, MetaVarName<"<symbol>">,
   HelpText<"Specify a finalizer function">;
 
+def full_shutdown : F<"full-shutdown">,
+  HelpText<"Perform a full shutdown instead of calling _exit">;
+
 def format: J<"format=">, MetaVarName<"<input-format>">,
   HelpText<"Change the input format of the inputs following this option">;
 
 def gc_sections: F<"gc-sections">,
   HelpText<"Enable garbage collection of unused sections">;
+
+def gdb_index: F<"gdb-index">,
+  HelpText<"Generate .gdb_index section">;
 
 def hash_style: S<"hash-style">,
   HelpText<"Specify hash style (sysv, gnu or both)">;
@@ -126,6 +132,8 @@ def no_whole_archive: F<"no-whole-archive">,
 
 def noinhibit_exec: F<"noinhibit-exec">,
   HelpText<"Retain the executable output file whenever it is still usable">;
+
+def nopie: F<"nopie">, HelpText<"Do not create a position independent executable">;
 
 def no_undefined: F<"no-undefined">,
   HelpText<"Report unresolved symbols even if the linker is creating a shared library">;
@@ -174,6 +182,8 @@ def sysroot: J<"sysroot=">, HelpText<"Set the system root">;
 def target1_rel: F<"target1-rel">, HelpText<"Interpret R_ARM_TARGET1 as R_ARM_REL32">;
 
 def target1_abs: F<"target1-abs">, HelpText<"Interpret R_ARM_TARGET1 as R_ARM_ABS32">;
+
+def target2: J<"target2=">, MetaVarName<"<type>">, HelpText<"Interpret R_ARM_TARGET2 as <type>, where <type> is one of rel, abs, or got-rel.">;
 
 def threads: F<"threads">, HelpText<"Enable use of threads">;
 
@@ -242,8 +252,11 @@ def alias_soname_h: JoinedOrSeparate<["-"], "h">, Alias<soname>;
 def alias_soname_soname: S<"soname">, Alias<soname>;
 def alias_strip_all: Flag<["-"], "s">, Alias<strip_all>;
 def alias_strip_debug_S: Flag<["-"], "S">, Alias<strip_debug>;
+def alias_Tbss: J<"Tbss=">, Alias<Tbss>;
+def alias_Tdata: J<"Tdata=">, Alias<Tdata>;
 def alias_trace: Flag<["-"], "t">, Alias<trace>;
 def alias_trace_symbol_y : JoinedOrSeparate<["-"], "y">, Alias<trace_symbol>;
+def alias_Ttext: J<"Ttext=">, Alias<Ttext>;
 def alias_undefined_eq: J<"undefined=">, Alias<undefined>;
 def alias_undefined_u: JoinedOrSeparate<["-"], "u">, Alias<undefined>;
 def alias_version_V: Flag<["-"], "V">, Alias<version>;
@@ -303,11 +316,13 @@ def alias_version_script_version_script: J<"version-script=">,
   Alias<version_script>;
 
 // LTO-related options.
-def lto_jobs: J<"lto-jobs=">, HelpText<"Number of threads to run codegen">;
 def lto_aa_pipeline: J<"lto-aa-pipeline=">,
   HelpText<"AA pipeline to run during LTO. Used in conjunction with -lto-newpm-passes">;
 def lto_newpm_passes: J<"lto-newpm-passes=">,
   HelpText<"Passes to run during LTO">;
+def lto_partitions: J<"lto-partitions=">,
+  HelpText<"Number of LTO codegen partitions">;
 def disable_verify: F<"disable-verify">;
 def mllvm: S<"mllvm">;
 def save_temps: F<"save-temps">;
+def thinlto_jobs: J<"thinlto-jobs=">, HelpText<"Number of ThinLTO jobs">;

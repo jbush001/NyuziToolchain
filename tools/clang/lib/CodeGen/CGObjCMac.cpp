@@ -11,9 +11,9 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "CGObjCRuntime.h"
 #include "CGBlocks.h"
 #include "CGCleanup.h"
+#include "CGObjCRuntime.h"
 #include "CGRecordLayout.h"
 #include "CodeGenFunction.h"
 #include "CodeGenModule.h"
@@ -25,6 +25,7 @@
 #include "clang/Basic/LangOptions.h"
 #include "clang/CodeGen/CGFunctionInfo.h"
 #include "clang/Frontend/CodeGenOptions.h"
+#include "llvm/ADT/CachedHashString.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/SetVector.h"
 #include "llvm/ADT/SmallPtrSet.h"
@@ -843,7 +844,7 @@ protected:
   llvm::DenseMap<Selector, llvm::GlobalVariable*> MethodVarNames;
 
   /// DefinedCategoryNames - list of category names in form Class_Category.
-  llvm::SmallSetVector<std::string, 16> DefinedCategoryNames;
+  llvm::SmallSetVector<llvm::CachedHashString, 16> DefinedCategoryNames;
 
   /// MethodVarTypes - uniqued method type signatures. We have to use
   /// a StringMap here because have no other unique reference.
@@ -1081,6 +1082,17 @@ public:
                                    QualType T) override;
 };
 
+enum class MethodListType {
+  CategoryInstanceMethods,
+  CategoryClassMethods,
+  InstanceMethods,
+  ClassMethods,
+  ProtocolInstanceMethods,
+  ProtocolClassMethods,
+  OptionalProtocolInstanceMethods,
+  OptionalProtocolClassMethods,
+};
+
 class CGObjCMac : public CGObjCCommonMac {
 private:
   ObjCTypesHelper ObjCTypes;
@@ -1143,7 +1155,7 @@ private:
 
   /// EmitMethodList - Emit the method list for the given
   /// implementation. The return value has type MethodListPtrTy.
-  llvm::Constant *EmitMethodList(Twine Name, StringRef Section,
+  llvm::Constant *EmitMethodList(Twine Name, MethodListType MLT,
                                  ArrayRef<llvm::Constant *> Methods);
 
   /// EmitMethodDescList - Emit a method description list for a list of
@@ -1335,8 +1347,9 @@ private:
 
   /// EmitMethodList - Emit the method list for the given
   /// implementation. The return value has type MethodListnfABITy.
-  llvm::Constant *EmitMethodList(Twine Name, StringRef Section,
+  llvm::Constant *EmitMethodList(Twine Name, MethodListType MLT,
                                  ArrayRef<llvm::Constant *> Methods);
+
   /// EmitIvarList - Emit the ivar list for the given
   /// implementation. If ForClass is true the list of class ivars
   /// (i.e. metaclass ivars) is emitted, otherwise the list of
@@ -1965,8 +1978,9 @@ CGObjCCommonMac::EmitMessageSend(CodeGen::CodeGenFunction &CGF,
   
   llvm::Instruction *CallSite;
   Fn = llvm::ConstantExpr::getBitCast(Fn, MSI.MessengerType);
-  RValue rvalue = CGF.EmitCall(MSI.CallInfo, Fn, Return, ActualArgs,
-                               CGCalleeInfo(), &CallSite);
+  CGCallee Callee = CGCallee::forDirect(Fn);
+  RValue rvalue = CGF.EmitCall(MSI.CallInfo, Callee, Return, ActualArgs,
+                               &CallSite);
 
   // Mark the call as noreturn if the method is marked noreturn and the
   // receiver cannot be null.
@@ -2906,10 +2920,13 @@ CGObjCMac::EmitProtocolList(Twine Name,
                                                   ProtocolRefs.size()),
                              ProtocolRefs);
 
+  StringRef Section;
+  if (CGM.getTriple().isOSBinFormatMachO())
+    Section = "__OBJC,__cat_cls_meth,regular,no_dead_strip";
+
   llvm::Constant *Init = llvm::ConstantStruct::getAnon(Values);
   llvm::GlobalVariable *GV =
-    CreateMetadataVar(Name, Init, "__OBJC,__cat_cls_meth,regular,no_dead_strip",
-                      CGM.getPointerAlign(), false);
+      CreateMetadataVar(Name, Init, Section, CGM.getPointerAlign(), false);
   return llvm::ConstantExpr::getBitCast(GV, ObjCTypes.ProtocolListPtrTy);
 }
 
@@ -3015,12 +3032,13 @@ llvm::Constant *CGObjCCommonMac::EmitPropertyList(Twine Name,
   Values[2] = llvm::ConstantArray::get(AT, Properties);
   llvm::Constant *Init = llvm::ConstantStruct::getAnon(Values);
 
+  StringRef Section;
+  if (CGM.getTriple().isOSBinFormatMachO())
+    Section = (ObjCABI == 2) ? "__DATA, __objc_const"
+                             : "__OBJC,__property,regular,no_dead_strip";
+
   llvm::GlobalVariable *GV =
-    CreateMetadataVar(Name, Init,
-                      (ObjCABI == 2) ? "__DATA, __objc_const" :
-                      "__OBJC,__property,regular,no_dead_strip",
-                      CGM.getPointerAlign(),
-                      true);
+      CreateMetadataVar(Name, Init, Section, CGM.getPointerAlign(), true);
   return llvm::ConstantExpr::getBitCast(GV, ObjCTypes.PropertyListPtrTy);
 }
 
@@ -3036,9 +3054,12 @@ CGObjCCommonMac::EmitProtocolMethodTypes(Twine Name,
                                              MethodTypes.size());
   llvm::Constant *Init = llvm::ConstantArray::get(AT, MethodTypes);
 
-  llvm::GlobalVariable *GV = CreateMetadataVar(
-      Name, Init, (ObjCABI == 2) ? "__DATA, __objc_const" : StringRef(),
-      CGM.getPointerAlign(), true);
+  StringRef Section;
+  if (CGM.getTriple().isOSBinFormatMachO() && ObjCABI == 2)
+    Section = "__DATA, __objc_const";
+
+  llvm::GlobalVariable *GV =
+      CreateMetadataVar(Name, Init, Section, CGM.getPointerAlign(), true);
   return llvm::ConstantExpr::getBitCast(GV, ObjCTypes.Int8PtrPtrTy);
 }
 
@@ -3122,11 +3143,10 @@ void CGObjCMac::GenerateCategory(const ObjCCategoryImplDecl *OCD) {
   Values[0] = GetClassName(OCD->getName());
   Values[1] = GetClassName(Interface->getObjCRuntimeNameAsString());
   LazySymbols.insert(Interface->getIdentifier());
-  Values[2] = EmitMethodList("OBJC_CATEGORY_INSTANCE_METHODS_" + ExtName.str(),
-                             "__OBJC,__cat_inst_meth,regular,no_dead_strip",
+
+  Values[2] = EmitMethodList(ExtName, MethodListType::CategoryInstanceMethods,
                              InstanceMethods);
-  Values[3] = EmitMethodList("OBJC_CATEGORY_CLASS_METHODS_" + ExtName.str(),
-                             "__OBJC,__cat_cls_meth,regular,no_dead_strip",
+  Values[3] = EmitMethodList(ExtName, MethodListType::CategoryClassMethods,
                              ClassMethods);
   if (Category) {
     Values[4] =
@@ -3156,7 +3176,7 @@ void CGObjCMac::GenerateCategory(const ObjCCategoryImplDecl *OCD) {
                         "__OBJC,__category,regular,no_dead_strip",
                         CGM.getPointerAlign(), true);
   DefinedCategories.push_back(GV);
-  DefinedCategoryNames.insert(ExtName.str());
+  DefinedCategoryNames.insert(llvm::CachedHashString(ExtName));
   // method definition entries must be clear for next implementation.
   MethodDefinitions.clear();
 }
@@ -3333,9 +3353,8 @@ void CGObjCMac::GenerateClass(const ObjCImplementationDecl *ID) {
   Values[ 4] = llvm::ConstantInt::get(ObjCTypes.LongTy, Flags);
   Values[ 5] = llvm::ConstantInt::get(ObjCTypes.LongTy, Size.getQuantity());
   Values[ 6] = EmitIvarList(ID, false);
-  Values[7] = EmitMethodList("OBJC_INSTANCE_METHODS_" + ID->getName(),
-                             "__OBJC,__inst_meth,regular,no_dead_strip",
-                             InstanceMethods);
+  Values[ 7] = EmitMethodList(ID->getName(), MethodListType::InstanceMethods,
+                              InstanceMethods);
   // cache is always NULL.
   Values[ 8] = llvm::Constant::getNullValue(ObjCTypes.CachePtrTy);
   Values[ 9] = Protocols;
@@ -3397,9 +3416,8 @@ llvm::Constant *CGObjCMac::EmitMetaClass(const ObjCImplementationDecl *ID,
   Values[ 4] = llvm::ConstantInt::get(ObjCTypes.LongTy, Flags);
   Values[ 5] = llvm::ConstantInt::get(ObjCTypes.LongTy, Size);
   Values[ 6] = EmitIvarList(ID, true);
-  Values[7] =
-      EmitMethodList("OBJC_CLASS_METHODS_" + ID->getNameAsString(),
-                     "__OBJC,__cls_meth,regular,no_dead_strip", Methods);
+  Values[ 7] = EmitMethodList(ID->getName(), MethodListType::ClassMethods,
+                              Methods);
   // cache is always NULL.
   Values[ 8] = llvm::Constant::getNullValue(ObjCTypes.CachePtrTy);
   Values[ 9] = Protocols;
@@ -3607,7 +3625,7 @@ llvm::Constant *CGObjCMac::GetMethodConstant(const ObjCMethodDecl *MD) {
   return llvm::ConstantStruct::get(ObjCTypes.MethodTy, Method);
 }
 
-llvm::Constant *CGObjCMac::EmitMethodList(Twine Name, StringRef Section,
+llvm::Constant *CGObjCMac::EmitMethodList(Twine Name, MethodListType MLT,
                                           ArrayRef<llvm::Constant *> Methods) {
   // Return null for empty list.
   if (Methods.empty())
@@ -3621,8 +3639,35 @@ llvm::Constant *CGObjCMac::EmitMethodList(Twine Name, StringRef Section,
   Values[2] = llvm::ConstantArray::get(AT, Methods);
   llvm::Constant *Init = llvm::ConstantStruct::getAnon(Values);
 
-  llvm::GlobalVariable *GV =
-    CreateMetadataVar(Name, Init, Section, CGM.getPointerAlign(), true);
+  StringRef Prefix;
+  StringRef Section;
+  switch (MLT) {
+  case MethodListType::CategoryInstanceMethods:
+    Prefix = "OBJC_CATEGORY_INSTANCE_METHODS_";
+    Section = "__OBJC,__cat_inst_meth,regular,no_dead_strip";
+    break;
+  case MethodListType::CategoryClassMethods:
+    Prefix = "OBJC_CATEGORY_CLASS_METHODS_";
+    Section = "__OBJC,__cat_cls_meth,regular,no_dead_strip";
+    break;
+  case MethodListType::InstanceMethods:
+    Prefix = "OBJC_INSTANCE_METHODS_";
+    Section = "__OBJC,__inst_meth,regular,no_dead_strip";
+    break;
+  case MethodListType::ClassMethods:
+    Prefix = "OBJC_CLASS_METHODS_";
+    Section = "__OBJC,__cls_meth,regular,no_dead_strip";
+    break;
+
+  case MethodListType::ProtocolInstanceMethods:
+  case MethodListType::ProtocolClassMethods:
+  case MethodListType::OptionalProtocolInstanceMethods:
+  case MethodListType::OptionalProtocolClassMethods:
+    llvm_unreachable("unsupported method list type");
+  }
+
+  llvm::GlobalVariable *GV = CreateMetadataVar(Prefix + Name, Init, Section,
+                                               CGM.getPointerAlign(), true);
   return llvm::ConstantExpr::getBitCast(GV, ObjCTypes.MethodListPtrTy);
 }
 
@@ -5870,16 +5915,11 @@ llvm::GlobalVariable * CGObjCNonFragileABIMac::BuildClassRoTInitializer(
   Values[ 4] = GetClassName(ID->getObjCRuntimeNameAsString());
   // const struct _method_list_t * const baseMethods;
   std::vector<llvm::Constant*> Methods;
-  std::string MethodListName("\01l_OBJC_$_");
   if (flags & NonFragileABI_Class_Meta) {
-    MethodListName += "CLASS_METHODS_";
-    MethodListName += ID->getObjCRuntimeNameAsString();
     for (const auto *I : ID->class_methods())
       // Class methods should always be defined.
       Methods.push_back(GetMethodConstant(I));
   } else {
-    MethodListName += "INSTANCE_METHODS_";
-    MethodListName += ID->getObjCRuntimeNameAsString();
     for (const auto *I : ID->instance_methods())
       // Instance methods should always be defined.
       Methods.push_back(GetMethodConstant(I));
@@ -5897,8 +5937,12 @@ llvm::GlobalVariable * CGObjCNonFragileABIMac::BuildClassRoTInitializer(
       }
     }
   }
-  Values[ 5] = EmitMethodList(MethodListName,
-                              "__DATA, __objc_const", Methods);
+
+  Values[ 5] = EmitMethodList(ID->getObjCRuntimeNameAsString(),
+                              (flags & NonFragileABI_Class_Meta)
+                                  ? MethodListType::ClassMethods
+                                  : MethodListType::InstanceMethods,
+                              Methods);
 
   const ObjCInterfaceDecl *OID = ID->getClassInterface();
   assert(OID && "CGObjCNonFragileABIMac::BuildClassRoTInitializer");
@@ -5923,18 +5967,21 @@ llvm::GlobalVariable * CGObjCNonFragileABIMac::BuildClassRoTInitializer(
   }
   llvm::Constant *Init = llvm::ConstantStruct::get(ObjCTypes.ClassRonfABITy,
                                                    Values);
+
+  llvm::SmallString<64> ROLabel;
+  llvm::raw_svector_ostream(ROLabel)
+      << ((flags & NonFragileABI_Class_Meta) ? "\01l_OBJC_METACLASS_RO_$_"
+                                             : "\01l_OBJC_CLASS_RO_$_")
+      << ClassName;
+
   llvm::GlobalVariable *CLASS_RO_GV =
-    new llvm::GlobalVariable(CGM.getModule(), ObjCTypes.ClassRonfABITy, false,
-                             llvm::GlobalValue::PrivateLinkage,
-                             Init,
-                             (flags & NonFragileABI_Class_Meta) ?
-                             std::string("\01l_OBJC_METACLASS_RO_$_")+ClassName :
-                             std::string("\01l_OBJC_CLASS_RO_$_")+ClassName);
+      new llvm::GlobalVariable(CGM.getModule(), ObjCTypes.ClassRonfABITy, false,
+                               llvm::GlobalValue::PrivateLinkage, Init, ROLabel);
   CLASS_RO_GV->setAlignment(
     CGM.getDataLayout().getABITypeAlignment(ObjCTypes.ClassRonfABITy));
-  CLASS_RO_GV->setSection("__DATA, __objc_const");
+  if (CGM.getTriple().isOSBinFormatMachO())
+    CLASS_RO_GV->setSection("__DATA, __objc_const");
   return CLASS_RO_GV;
-
 }
 
 /// BuildClassMetaData - This routine defines that to-level meta-data
@@ -5966,9 +6013,10 @@ llvm::GlobalVariable *CGObjCNonFragileABIMac::BuildClassMetaData(
                                                    Values);
   llvm::GlobalVariable *GV = GetClassGlobal(ClassName, Weak);
   GV->setInitializer(Init);
-  GV->setSection("__DATA, __objc_data");
+  if (CGM.getTriple().isOSBinFormatMachO())
+    GV->setSection("__DATA, __objc_data");
   GV->setAlignment(
-    CGM.getDataLayout().getABITypeAlignment(ObjCTypes.ClassnfABITy));
+      CGM.getDataLayout().getABITypeAlignment(ObjCTypes.ClassnfABITy));
   if (!CGM.getTriple().isOSBinFormatCOFF())
     if (HiddenVisibility)
       GV->setVisibility(llvm::GlobalValue::HiddenVisibility);
@@ -6246,35 +6294,22 @@ void CGObjCNonFragileABIMac::GenerateCategory(const ObjCCategoryImplDecl *OCD) {
 
   Values[1] = ClassGV;
   std::vector<llvm::Constant*> Methods;
-  llvm::SmallString<64> MethodListName(Prefix);
-    
-  MethodListName += "INSTANCE_METHODS_";
-  MethodListName += Interface->getObjCRuntimeNameAsString();
-  MethodListName += "_$_";
-  MethodListName += OCD->getName();
+  std::string ListName =
+      (Interface->getObjCRuntimeNameAsString() + "_$_" + OCD->getName()).str();
 
   for (const auto *I : OCD->instance_methods())
     // Instance methods should always be defined.
     Methods.push_back(GetMethodConstant(I));
-
-  Values[2] = EmitMethodList(MethodListName.str(),
-                             "__DATA, __objc_const",
+  Values[2] = EmitMethodList(ListName, MethodListType::CategoryInstanceMethods,
                              Methods);
 
-  MethodListName = Prefix;
-  MethodListName += "CLASS_METHODS_";
-  MethodListName += Interface->getObjCRuntimeNameAsString();
-  MethodListName += "_$_";
-  MethodListName += OCD->getNameAsString();
-    
   Methods.clear();
   for (const auto *I : OCD->class_methods())
     // Class methods should always be defined.
     Methods.push_back(GetMethodConstant(I));
+  Values[3] =
+      EmitMethodList(ListName, MethodListType::CategoryClassMethods, Methods);
 
-  Values[3] = EmitMethodList(MethodListName.str(),
-                             "__DATA, __objc_const",
-                             Methods);
   const ObjCCategoryDecl *Category =
     Interface->FindCategoryDeclaration(OCD->getIdentifier());
   if (Category) {
@@ -6310,7 +6345,8 @@ void CGObjCNonFragileABIMac::GenerateCategory(const ObjCCategoryImplDecl *OCD) {
                                ExtCatName.str());
   GCATV->setAlignment(
     CGM.getDataLayout().getABITypeAlignment(ObjCTypes.CategorynfABITy));
-  GCATV->setSection("__DATA, __objc_const");
+  if (CGM.getTriple().isOSBinFormatMachO())
+    GCATV->setSection("__DATA, __objc_const");
   CGM.addCompilerUsedGlobal(GCATV);
   DefinedCategories.push_back(GCATV);
 
@@ -6347,7 +6383,7 @@ llvm::Constant *CGObjCNonFragileABIMac::GetMethodConstant(
 /// }
 ///
 llvm::Constant *
-CGObjCNonFragileABIMac::EmitMethodList(Twine Name, StringRef Section,
+CGObjCNonFragileABIMac::EmitMethodList(Twine Name, MethodListType MLT,
                                        ArrayRef<llvm::Constant *> Methods) {
   // Return null for empty list.
   if (Methods.empty())
@@ -6364,11 +6400,41 @@ CGObjCNonFragileABIMac::EmitMethodList(Twine Name, StringRef Section,
   Values[2] = llvm::ConstantArray::get(AT, Methods);
   llvm::Constant *Init = llvm::ConstantStruct::getAnon(Values);
 
-  llvm::GlobalVariable *GV =
-    new llvm::GlobalVariable(CGM.getModule(), Init->getType(), false,
-                             llvm::GlobalValue::PrivateLinkage, Init, Name);
+  StringRef Prefix;
+  switch (MLT) {
+  case MethodListType::CategoryInstanceMethods:
+    Prefix = "\01l_OBJC_$_CATEGORY_INSTANCE_METHODS_";
+    break;
+  case MethodListType::CategoryClassMethods:
+    Prefix = "\01l_OBJC_$_CATEGORY_CLASS_METHODS_";
+    break;
+  case MethodListType::InstanceMethods:
+    Prefix = "\01l_OBJC_$_INSTANCE_METHODS_";
+    break;
+  case MethodListType::ClassMethods:
+    Prefix = "\01l_OBJC_$_CLASS_METHODS_";
+    break;
+
+  case MethodListType::ProtocolInstanceMethods:
+    Prefix = "\01l_OBJC_$_PROTOCOL_INSTANCE_METHODS_";
+    break;
+  case MethodListType::ProtocolClassMethods:
+    Prefix = "\01l_OBJC_$_PROTOCOL_CLASS_METHODS_";
+    break;
+  case MethodListType::OptionalProtocolInstanceMethods:
+    Prefix = "\01l_OBJC_$_PROTOCOL_INSTANCE_METHODS_OPT_";
+    break;
+  case MethodListType::OptionalProtocolClassMethods:
+    Prefix = "\01l_OBJC_$_PROTOCOL_CLASS_METHODS_OPT_";
+    break;
+  }
+
+  auto *GV = new llvm::GlobalVariable(CGM.getModule(), Init->getType(), false,
+                                      llvm::GlobalValue::PrivateLinkage, Init,
+                                      Prefix + Name);
   GV->setAlignment(CGM.getDataLayout().getABITypeAlignment(Init->getType()));
-  GV->setSection(Section);
+  if (CGM.getTriple().isOSBinFormatMachO())
+    GV->setSection("__DATA, __objc_const");
   CGM.addCompilerUsedGlobal(GV);
   return llvm::ConstantExpr::getBitCast(GV, ObjCTypes.MethodListnfABIPtrTy);
 }
@@ -6424,7 +6490,8 @@ CGObjCNonFragileABIMac::EmitIvarOffsetVar(const ObjCInterfaceDecl *ID,
       IvarOffsetGV->setVisibility(llvm::GlobalValue::DefaultVisibility);
   }
 
-  IvarOffsetGV->setSection("__DATA, __objc_ivar");
+  if (CGM.getTriple().isOSBinFormatMachO())
+    IvarOffsetGV->setSection("__DATA, __objc_ivar");
   return IvarOffsetGV;
 }
 
@@ -6500,8 +6567,8 @@ llvm::Constant *CGObjCNonFragileABIMac::EmitIvarList(
                              Prefix + OID->getObjCRuntimeNameAsString());
   GV->setAlignment(
     CGM.getDataLayout().getABITypeAlignment(Init->getType()));
-  GV->setSection("__DATA, __objc_const");
-
+  if (CGM.getTriple().isOSBinFormatMachO())
+    GV->setSection("__DATA, __objc_const");
   CGM.addCompilerUsedGlobal(GV);
   return llvm::ConstantExpr::getBitCast(GV, ObjCTypes.IvarListnfABIPtrTy);
 }
@@ -6510,15 +6577,20 @@ llvm::Constant *CGObjCNonFragileABIMac::GetOrEmitProtocolRef(
   const ObjCProtocolDecl *PD) {
   llvm::GlobalVariable *&Entry = Protocols[PD->getIdentifier()];
 
-  if (!Entry)
+  if (!Entry) {
     // We use the initializer as a marker of whether this is a forward
     // reference or not. At module finalization we add the empty
     // contents for protocols which were referenced but never defined.
-    Entry =
-        new llvm::GlobalVariable(CGM.getModule(), ObjCTypes.ProtocolnfABITy,
-                                 false, llvm::GlobalValue::ExternalLinkage,
-                                 nullptr,
-                                 "\01l_OBJC_PROTOCOL_$_" + PD->getObjCRuntimeNameAsString());
+    llvm::SmallString<64> Protocol;
+    llvm::raw_svector_ostream(Protocol) << "\01l_OBJC_PROTOCOL_$_"
+                                        << PD->getObjCRuntimeNameAsString();
+
+    Entry = new llvm::GlobalVariable(CGM.getModule(), ObjCTypes.ProtocolnfABITy,
+                                     false, llvm::GlobalValue::ExternalLinkage,
+                                     nullptr, Protocol);
+    if (!CGM.getTriple().isOSBinFormatMachO())
+      Entry->setComdat(CGM.getModule().getOrInsertComdat(Protocol));
+  }
 
   return Entry;
 }
@@ -6598,22 +6670,19 @@ llvm::Constant *CGObjCNonFragileABIMac::GetOrEmitProtocol(
                                PD->protocol_begin(),
                                PD->protocol_end());
 
-  Values[3] = EmitMethodList("\01l_OBJC_$_PROTOCOL_INSTANCE_METHODS_"
-                             + PD->getObjCRuntimeNameAsString(),
-                             "__DATA, __objc_const",
-                             InstanceMethods);
-  Values[4] = EmitMethodList("\01l_OBJC_$_PROTOCOL_CLASS_METHODS_"
-                             + PD->getObjCRuntimeNameAsString(),
-                             "__DATA, __objc_const",
-                             ClassMethods);
-  Values[5] = EmitMethodList("\01l_OBJC_$_PROTOCOL_INSTANCE_METHODS_OPT_"
-                             + PD->getObjCRuntimeNameAsString(),
-                             "__DATA, __objc_const",
+  Values[3] =
+      EmitMethodList(PD->getObjCRuntimeNameAsString(),
+                     MethodListType::ProtocolInstanceMethods, InstanceMethods);
+  Values[4] =
+      EmitMethodList(PD->getObjCRuntimeNameAsString(),
+                     MethodListType::ProtocolClassMethods, ClassMethods);
+  Values[5] = EmitMethodList(PD->getObjCRuntimeNameAsString(),
+                             MethodListType::OptionalProtocolInstanceMethods,
                              OptInstanceMethods);
-  Values[6] = EmitMethodList("\01l_OBJC_$_PROTOCOL_CLASS_METHODS_OPT_"
-                             + PD->getObjCRuntimeNameAsString(),
-                             "__DATA, __objc_const",
+  Values[6] = EmitMethodList(PD->getObjCRuntimeNameAsString(),
+                             MethodListType::OptionalProtocolClassMethods,
                              OptClassMethods);
+
   Values[7] = EmitPropertyList(
       "\01l_OBJC_$_PROP_LIST_" + PD->getObjCRuntimeNameAsString(),
       nullptr, PD, ObjCTypes, false);
@@ -6639,10 +6708,16 @@ llvm::Constant *CGObjCNonFragileABIMac::GetOrEmitProtocol(
     Entry->setLinkage(llvm::GlobalValue::WeakAnyLinkage);
     Entry->setInitializer(Init);
   } else {
-    Entry =
-      new llvm::GlobalVariable(CGM.getModule(), ObjCTypes.ProtocolnfABITy,
-                               false, llvm::GlobalValue::WeakAnyLinkage, Init,
-                               "\01l_OBJC_PROTOCOL_$_" + PD->getObjCRuntimeNameAsString());
+    llvm::SmallString<64> Protocol;
+    llvm::raw_svector_ostream(Protocol) << "\01l_OBJC_PROTOCOL_$_"
+                                        << PD->getObjCRuntimeNameAsString();
+
+    Entry = new llvm::GlobalVariable(CGM.getModule(), ObjCTypes.ProtocolnfABITy,
+                                     false, llvm::GlobalValue::WeakAnyLinkage,
+                                     Init, Protocol);
+    if (!CGM.getTriple().isOSBinFormatMachO())
+      Entry->setComdat(CGM.getModule().getOrInsertComdat(Protocol));
+
     Entry->setAlignment(
       CGM.getDataLayout().getABITypeAlignment(ObjCTypes.ProtocolnfABITy));
 
@@ -6653,13 +6728,20 @@ llvm::Constant *CGObjCNonFragileABIMac::GetOrEmitProtocol(
 
   // Use this protocol meta-data to build protocol list table in section
   // __DATA, __objc_protolist
+  llvm::SmallString<64> ProtocolRef;
+  llvm::raw_svector_ostream(ProtocolRef) << "\01l_OBJC_LABEL_PROTOCOL_$_"
+                                         << PD->getObjCRuntimeNameAsString();
+
   llvm::GlobalVariable *PTGV =
     new llvm::GlobalVariable(CGM.getModule(), ObjCTypes.ProtocolnfABIPtrTy,
                              false, llvm::GlobalValue::WeakAnyLinkage, Entry,
-                             "\01l_OBJC_LABEL_PROTOCOL_$_" + PD->getObjCRuntimeNameAsString());
+                             ProtocolRef);
+  if (!CGM.getTriple().isOSBinFormatMachO())
+    PTGV->setComdat(CGM.getModule().getOrInsertComdat(ProtocolRef));
   PTGV->setAlignment(
     CGM.getDataLayout().getABITypeAlignment(ObjCTypes.ProtocolnfABIPtrTy));
-  PTGV->setSection("__DATA, __objc_protolist, coalesced, no_dead_strip");
+  if (CGM.getTriple().isOSBinFormatMachO())
+    PTGV->setSection("__DATA, __objc_protolist, coalesced, no_dead_strip");
   PTGV->setVisibility(llvm::GlobalValue::HiddenVisibility);
   CGM.addCompilerUsedGlobal(PTGV);
   return Entry;
@@ -6710,9 +6792,9 @@ CGObjCNonFragileABIMac::EmitProtocolList(Twine Name,
   GV = new llvm::GlobalVariable(CGM.getModule(), Init->getType(), false,
                                 llvm::GlobalValue::PrivateLinkage,
                                 Init, Name);
-  GV->setSection("__DATA, __objc_const");
-  GV->setAlignment(
-    CGM.getDataLayout().getABITypeAlignment(Init->getType()));
+  GV->setAlignment(CGM.getDataLayout().getABITypeAlignment(Init->getType()));
+  if (CGM.getTriple().isOSBinFormatMachO())
+    GV->setSection("__DATA, __objc_const");
   CGM.addCompilerUsedGlobal(GV);
   return llvm::ConstantExpr::getBitCast(GV,
                                         ObjCTypes.ProtocolListnfABIPtrTy);
@@ -6905,9 +6987,10 @@ CGObjCNonFragileABIMac::EmitVTableMessageSend(CodeGenFunction &CGF,
   // Load the function to call from the message ref table.
   Address calleeAddr =
       CGF.Builder.CreateStructGEP(mref, 0, CharUnits::Zero());
-  llvm::Value *callee = CGF.Builder.CreateLoad(calleeAddr, "msgSend_fn");
+  llvm::Value *calleePtr = CGF.Builder.CreateLoad(calleeAddr, "msgSend_fn");
 
-  callee = CGF.Builder.CreateBitCast(callee, MSI.MessengerType);
+  calleePtr = CGF.Builder.CreateBitCast(calleePtr, MSI.MessengerType);
+  CGCallee callee(CGCalleeInfo(), calleePtr);
 
   RValue result = CGF.EmitCall(MSI.CallInfo, callee, returnSlot, args);
   return nullReturn.complete(CGF, result, resultType, formalArgs,
@@ -7382,7 +7465,8 @@ CGObjCNonFragileABIMac::GetInterfaceEHType(const ObjCInterfaceDecl *ID,
   Entry->setAlignment(DL.getABITypeAlignment(ObjCTypes.EHTypeTy));
 
   if (ForDefinition)
-    Entry->setSection("__DATA,__objc_const");
+    if (CGM.getTriple().isOSBinFormatMachO())
+      Entry->setSection("__DATA,__objc_const");
 
   return Entry;
 }

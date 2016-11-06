@@ -34,6 +34,7 @@
 #include "clang/AST/Expr.h"
 #include "clang/AST/ExprObjC.h"
 #include "clang/Basic/LangOptions.h"
+#include "clang/Basic/TargetInfo.h"
 #include "clang/StaticAnalyzer/Core/BugReporter/BugReporter.h"
 #include "clang/StaticAnalyzer/Core/BugReporter/BugType.h"
 #include "clang/StaticAnalyzer/Core/BugReporter/PathDiagnostic.h"
@@ -107,10 +108,6 @@ class ObjCDeallocChecker
   std::unique_ptr<BugType> ExtraReleaseBugType;
   std::unique_ptr<BugType> MistakenDeallocBugType;
 
-  // FIXME: constexpr initialization isn't supported by MSVC2013.
-  static const char *const MsgDeclared;
-  static const char *const MsgSynthesized;
-
 public:
   ObjCDeallocChecker();
 
@@ -132,9 +129,6 @@ public:
   void checkEndFunction(CheckerContext &Ctx) const;
 
 private:
-  void addNoteForDecl(std::unique_ptr<BugReport> &BR, StringRef Msg,
-                           const Decl *D) const;
-
   void diagnoseMissingReleases(CheckerContext &C) const;
 
   bool diagnoseExtraRelease(SymbolRef ReleasedValue, const ObjCMethodCall &M,
@@ -180,15 +174,11 @@ private:
   bool classHasSeparateTeardown(const ObjCInterfaceDecl *ID) const;
 
   bool isReleasedByCIFilterDealloc(const ObjCPropertyImplDecl *PropImpl) const;
+  bool isNibLoadedIvarWithoutRetain(const ObjCPropertyImplDecl *PropImpl) const;
 };
 } // End anonymous namespace.
 
 typedef llvm::ImmutableSet<SymbolRef> SymbolSet;
-
-const char *const ObjCDeallocChecker::MsgDeclared =
-    "Property is declared here";
-const char *const ObjCDeallocChecker::MsgSynthesized =
-    "Property is synthesized here";
 
 /// Maps from the symbol for a class instance to the set of
 /// symbols remaining that must be released in -dealloc.
@@ -501,18 +491,6 @@ ProgramStateRef ObjCDeallocChecker::checkPointerEscape(
   return State;
 }
 
-/// Add an extra note piece describing a declaration that is important
-/// for understanding the bug report.
-void ObjCDeallocChecker::addNoteForDecl(std::unique_ptr<BugReport> &BR,
-                                             StringRef Msg,
-                                             const Decl *D) const {
-  ASTContext &ACtx = D->getASTContext();
-  SourceManager &SM = ACtx.getSourceManager();
-  PathDiagnosticLocation Pos = PathDiagnosticLocation::createBegin(D, SM);
-  if (Pos.isValid() && Pos.asLocation().isValid())
-    BR->addNote(Msg, Pos, D->getSourceRange());
-}
-
 /// Report any unreleased instance variables for the current instance being
 /// dealloced.
 void ObjCDeallocChecker::diagnoseMissingReleases(CheckerContext &C) const {
@@ -609,9 +587,6 @@ void ObjCDeallocChecker::diagnoseMissingReleases(CheckerContext &C) const {
 
     std::unique_ptr<BugReport> BR(
         new BugReport(*MissingReleaseBugType, OS.str(), ErrNode));
-
-    addNoteForDecl(BR, MsgDeclared, PropDecl);
-    addNoteForDecl(BR, MsgSynthesized, PropImpl);
 
     C.emitReport(std::move(BR));
   }
@@ -716,12 +691,11 @@ bool ObjCDeallocChecker::diagnoseExtraRelease(SymbolRef ReleasedValue,
          );
 
   const ObjCImplDecl *Container = getContainingObjCImpl(C.getLocationContext());
-  const ObjCIvarDecl *IvarDecl = PropImpl->getPropertyIvarDecl();
-  OS << "The '" << *IvarDecl << "' ivar in '" << *Container;
+  OS << "The '" << *PropImpl->getPropertyIvarDecl()
+     << "' ivar in '" << *Container;
 
-  bool ReleasedByCIFilterDealloc = isReleasedByCIFilterDealloc(PropImpl);
 
-  if (ReleasedByCIFilterDealloc) {
+  if (isReleasedByCIFilterDealloc(PropImpl)) {
     OS << "' will be released by '-[CIFilter dealloc]' but also released here";
   } else {
     OS << "' was synthesized for ";
@@ -737,10 +711,6 @@ bool ObjCDeallocChecker::diagnoseExtraRelease(SymbolRef ReleasedValue,
   std::unique_ptr<BugReport> BR(
       new BugReport(*ExtraReleaseBugType, OS.str(), ErrNode));
   BR->addRange(M.getOriginExpr()->getSourceRange());
-
-  addNoteForDecl(BR, MsgDeclared, PropDecl);
-  if (!ReleasedByCIFilterDealloc)
-    addNoteForDecl(BR, MsgSynthesized, PropImpl);
 
   C.emitReport(std::move(BR));
 
@@ -935,6 +905,9 @@ ReleaseRequirement ObjCDeallocChecker::getDeallocReleaseRequirement(
     if (isReleasedByCIFilterDealloc(PropImpl))
       return ReleaseRequirement::MustNotReleaseDirectly;
 
+    if (isNibLoadedIvarWithoutRetain(PropImpl))
+      return ReleaseRequirement::Unknown;
+
     return ReleaseRequirement::MustRelease;
 
   case ObjCPropertyDecl::Weak:
@@ -1089,6 +1062,32 @@ bool ObjCDeallocChecker::isReleasedByCIFilterDealloc(
   }
 
   return false;
+}
+
+/// Returns whether the ivar backing the property is an IBOutlet that
+/// has its value set by nib loading code without retaining the value.
+///
+/// On macOS, if there is no setter, the nib-loading code sets the ivar
+/// directly, without retaining the value,
+///
+/// On iOS and its derivatives, the nib-loading code will call
+/// -setValue:forKey:, which retains the value before directly setting the ivar.
+bool ObjCDeallocChecker::isNibLoadedIvarWithoutRetain(
+    const ObjCPropertyImplDecl *PropImpl) const {
+  const ObjCIvarDecl *IvarDecl = PropImpl->getPropertyIvarDecl();
+  if (!IvarDecl->hasAttr<IBOutletAttr>())
+    return false;
+
+  const llvm::Triple &Target =
+      IvarDecl->getASTContext().getTargetInfo().getTriple();
+
+  if (!Target.isMacOSX())
+    return false;
+
+  if (PropImpl->getPropertyDecl()->getSetterMethodDecl())
+    return false;
+
+  return true;
 }
 
 void ento::registerObjCDeallocChecker(CheckerManager &Mgr) {

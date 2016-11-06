@@ -553,6 +553,7 @@ static bool ParseCodeGenArgs(CodeGenOptions &Opts, ArgList &Args, InputKind IK,
   Opts.ObjCAutoRefCountExceptions = Args.hasArg(OPT_fobjc_arc_exceptions);
   Opts.CXAAtExit = !Args.hasArg(OPT_fno_use_cxa_atexit);
   Opts.CXXCtorDtorAliases = Args.hasArg(OPT_mconstructor_aliases);
+  Opts.QualifiedFunctionTypeInfo = Args.hasArg(OPT_mqualified_function_type_info);
   Opts.CodeModel = getCodeModel(Args, Diags);
   Opts.DebugPass = Args.getLastArgValue(OPT_mdebug_pass);
   Opts.DisableFPElim =
@@ -586,6 +587,8 @@ static bool ParseCodeGenArgs(CodeGenOptions &Opts, ArgList &Args, InputKind IK,
   Opts.RelaxAll = Args.hasArg(OPT_mrelax_all);
   Opts.IncrementalLinkerCompatible =
       Args.hasArg(OPT_mincremental_linker_compatible);
+  Opts.PIECopyRelocations =
+      Args.hasArg(OPT_mpie_copy_relocations);
   Opts.OmitLeafFramePointer = Args.hasArg(OPT_momit_leaf_frame_pointer);
   Opts.SaveTempLabels = Args.hasArg(OPT_msave_temp_labels);
   Opts.NoDwarfDirectoryAsm = Args.hasArg(OPT_fno_dwarf_directory_asm);
@@ -732,8 +735,11 @@ static bool ParseCodeGenArgs(CodeGenOptions &Opts, ArgList &Args, InputKind IK,
       Args.hasArg(OPT_fsanitize_memory_use_after_dtor);
   Opts.SanitizeCfiCrossDso = Args.hasArg(OPT_fsanitize_cfi_cross_dso);
   Opts.SanitizeStats = Args.hasArg(OPT_fsanitize_stats);
-  Opts.SanitizeAddressUseAfterScope =
-      Args.hasArg(OPT_fsanitize_address_use_after_scope);
+  if (Arg *A = Args.getLastArg(OPT_fsanitize_address_use_after_scope,
+                               OPT_fno_sanitize_address_use_after_scope)) {
+    Opts.SanitizeAddressUseAfterScope =
+        A->getOption().getID() == OPT_fsanitize_address_use_after_scope;
+  }
   Opts.SSPBufferSize =
       getLastArgIntValue(Args, OPT_stack_protector_buffer_size, 8, Diags);
   Opts.StackRealignment = Args.hasArg(OPT_mstackrealign);
@@ -822,6 +828,10 @@ static bool ParseCodeGenArgs(CodeGenOptions &Opts, ArgList &Args, InputKind IK,
   Opts.DependentLibraries = Args.getAllArgValues(OPT_dependent_lib);
   Opts.LinkerOptions = Args.getAllArgValues(OPT_linker_option);
   bool NeedLocTracking = false;
+
+  Opts.OptRecordFile = Args.getLastArgValue(OPT_opt_record_file);
+  if (!Opts.OptRecordFile.empty())
+    NeedLocTracking = true;
 
   if (Arg *A = Args.getLastArg(OPT_Rpass_EQ)) {
     Opts.OptimizationRemarkPattern =
@@ -950,7 +960,7 @@ static bool parseShowColorsArgs(const ArgList &Args, bool DefaultColor) {
 
 bool clang::ParseDiagnosticArgs(DiagnosticOptions &Opts, ArgList &Args,
                                 DiagnosticsEngine *Diags,
-                                bool DefaultDiagColor) {
+                                bool DefaultDiagColor, bool DefaultShowOpt) {
   using namespace options;
   bool Success = true;
 
@@ -970,7 +980,9 @@ bool clang::ParseDiagnosticArgs(DiagnosticOptions &Opts, ArgList &Args,
   Opts.ShowFixits = !Args.hasArg(OPT_fno_diagnostics_fixit_info);
   Opts.ShowLocation = !Args.hasArg(OPT_fno_show_source_location);
   Opts.AbsolutePath = Args.hasArg(OPT_fdiagnostics_absolute_paths);
-  Opts.ShowOptionNames = Args.hasArg(OPT_fdiagnostics_show_option);
+  Opts.ShowOptionNames =
+      Args.hasFlag(OPT_fdiagnostics_show_option,
+                   OPT_fno_diagnostics_show_option, DefaultShowOpt);
 
   llvm::sys::Process::UseANSIEscapeCodes(Args.hasArg(OPT_fansi_escape_codes));
 
@@ -1100,7 +1112,8 @@ static bool parseTestModuleFileExtensionArg(StringRef Arg,
 }
 
 static InputKind ParseFrontendArgs(FrontendOptions &Opts, ArgList &Args,
-                                   DiagnosticsEngine &Diags) {
+                                   DiagnosticsEngine &Diags,
+                                   bool &IsHeaderFile) {
   using namespace options;
   Opts.ProgramAction = frontend::ParseSyntaxOnly;
   if (const Arg *A = Args.getLastArg(OPT_Action_Group)) {
@@ -1347,6 +1360,13 @@ static InputKind ParseFrontendArgs(FrontendOptions &Opts, ArgList &Args,
     if (DashX == IK_None)
       Diags.Report(diag::err_drv_invalid_value)
         << A->getAsString(Args) << A->getValue();
+    IsHeaderFile = llvm::StringSwitch<bool>(A->getValue())
+      .Case("c-header", true)
+      .Case("cl-header", true)
+      .Case("objective-c-header", true)
+      .Case("c++-header", true)
+      .Case("objective-c++-header", true)
+      .Default(false);
   }
 
   // '-' is the default input if none is given.
@@ -1421,7 +1441,8 @@ static void ParseHeaderSearchArgs(HeaderSearchOptions &Opts, ArgList &Args) {
 
   for (const Arg *A : Args.filtered(OPT_fmodules_ignore_macro)) {
     StringRef MacroDef = A->getValue();
-    Opts.ModulesIgnoreMacros.insert(MacroDef.split('=').first);
+    Opts.ModulesIgnoreMacros.insert(
+        llvm::CachedHashString(MacroDef.split('=').first));
   }
 
   // Add -I..., -F..., and -index-header-map options in order.
@@ -1448,7 +1469,7 @@ static void ParseHeaderSearchArgs(HeaderSearchOptions &Opts, ArgList &Args) {
       Path = Buffer.str();
     }
 
-    Opts.AddPath(Path.c_str(), Group, IsFramework,
+    Opts.AddPath(Path, Group, IsFramework,
                  /*IgnoreSysroot*/ true);
     IsIndexHeaderMap = false;
   }
@@ -2012,9 +2033,10 @@ static void ParseLangArgs(LangOptions &Opts, ArgList &Args, InputKind IK,
   // enabled for Microsoft Extensions or Borland Extensions, here.
   //
   // FIXME: __declspec is also currently enabled for CUDA, but isn't really a
-  // CUDA extension, however it is required for supporting cuda_builtin_vars.h,
-  // which uses __declspec(property). Once that has been rewritten in terms of
-  // something more generic, remove the Opts.CUDA term here.
+  // CUDA extension. However, it is required for supporting
+  // __clang_cuda_builtin_vars.h, which uses __declspec(property). Once that has
+  // been rewritten in terms of something more generic, remove the Opts.CUDA
+  // term here.
   Opts.DeclSpecKeyword =
       Args.hasFlag(OPT_fdeclspec, OPT_fno_declspec,
                    (Opts.MicrosoftExt || Opts.Borland || Opts.CUDA));
@@ -2363,6 +2385,7 @@ static void ParseTargetArgs(TargetOptions &Opts, ArgList &Args,
   // Use the default target triple if unspecified.
   if (Opts.Triple.empty())
     Opts.Triple = llvm::sys::getDefaultTargetTriple();
+  Opts.OpenCLExtensionsAsWritten = Args.getAllArgValues(OPT_cl_ext_EQ);
 }
 
 bool CompilerInvocation::CreateFromArgs(CompilerInvocation &Res,
@@ -2396,12 +2419,14 @@ bool CompilerInvocation::CreateFromArgs(CompilerInvocation &Res,
   Success &= ParseAnalyzerArgs(*Res.getAnalyzerOpts(), Args, Diags);
   Success &= ParseMigratorArgs(Res.getMigratorOpts(), Args);
   ParseDependencyOutputArgs(Res.getDependencyOutputOpts(), Args);
-  Success &= ParseDiagnosticArgs(Res.getDiagnosticOpts(), Args, &Diags,
-                                 false /*DefaultDiagColor*/);
+  Success &=
+      ParseDiagnosticArgs(Res.getDiagnosticOpts(), Args, &Diags,
+                          false /*DefaultDiagColor*/, false /*DefaultShowOpt*/);
   ParseCommentArgs(LangOpts.CommentOpts, Args);
   ParseFileSystemArgs(Res.getFileSystemOpts(), Args);
   // FIXME: We shouldn't have to pass the DashX option around here
-  InputKind DashX = ParseFrontendArgs(Res.getFrontendOpts(), Args, Diags);
+  InputKind DashX = ParseFrontendArgs(Res.getFrontendOpts(), Args, Diags,
+                                      LangOpts.IsHeaderFile);
   ParseTargetArgs(Res.getTargetOpts(), Args, Diags);
   Success &= ParseCodeGenArgs(Res.getCodeGenOpts(), Args, DashX, Diags,
                               Res.getTargetOpts());
@@ -2506,7 +2531,8 @@ std::string CompilerInvocation::getModuleHash() const {
     if (!hsOpts.ModulesIgnoreMacros.empty()) {
       // Check whether we're ignoring this macro.
       StringRef MacroDef = I->first;
-      if (hsOpts.ModulesIgnoreMacros.count(MacroDef.split('=').first))
+      if (hsOpts.ModulesIgnoreMacros.count(
+              llvm::CachedHashString(MacroDef.split('=').first)))
         continue;
     }
 

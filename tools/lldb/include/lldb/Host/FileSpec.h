@@ -19,7 +19,7 @@
 // Project includes
 #include "lldb/Core/ConstString.h"
 #include "lldb/Core/STLUtils.h"
-#include "lldb/Host/TimeValue.h"
+#include "lldb/Host/PosixApi.h"
 #include "lldb/lldb-private.h"
 
 namespace lldb_private {
@@ -377,8 +377,6 @@ public:
   //------------------------------------------------------------------
   bool IsAbsolute() const;
 
-  TimeValue GetModificationTime() const;
-
   //------------------------------------------------------------------
   /// Extract the full path to the file.
   ///
@@ -620,22 +618,7 @@ public:
   /// Normalize a pathname by collapsing redundant separators and
   /// up-level references.
   //------------------------------------------------------------------
-  void NormalizePath();
-
-  //------------------------------------------------------------------
-  /// Run through the input string, replaying the effect of any ".." and produce
-  /// the resultant path.  The input path is not required to be in the host file
-  /// system
-  /// format, but it is required to be normalized to that system.
-  ///
-  /// @param[in] input
-  ///     The input path to analyze.
-  ///
-  /// @param[out] result
-  ///     The backup-resolved path will be written here.
-  //------------------------------------------------------------------
-  static void RemoveBackupDots(const ConstString &input_const_str,
-                               ConstString &result_const_str);
+  FileSpec GetNormalizedPath() const;
 
   //------------------------------------------------------------------
   /// Change the file specified with a new path.

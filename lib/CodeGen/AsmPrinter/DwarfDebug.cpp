@@ -86,7 +86,7 @@ DwarfAccelTables("dwarf-accel-tables", cl::Hidden,
                  cl::desc("Output prototype dwarf accelerator tables."),
                  cl::values(clEnumVal(Default, "Default for platform"),
                             clEnumVal(Enable, "Enabled"),
-                            clEnumVal(Disable, "Disabled"), clEnumValEnd),
+                            clEnumVal(Disable, "Disabled")),
                  cl::init(Default));
 
 static cl::opt<DefaultOnOff>
@@ -94,7 +94,7 @@ SplitDwarf("split-dwarf", cl::Hidden,
            cl::desc("Output DWARF5 split debug info."),
            cl::values(clEnumVal(Default, "Default for platform"),
                       clEnumVal(Enable, "Enabled"),
-                      clEnumVal(Disable, "Disabled"), clEnumValEnd),
+                      clEnumVal(Disable, "Disabled")),
            cl::init(Default));
 
 static cl::opt<DefaultOnOff>
@@ -102,7 +102,7 @@ DwarfPubSections("generate-dwarf-pub-sections", cl::Hidden,
                  cl::desc("Generate DWARF pubnames and pubtypes sections"),
                  cl::values(clEnumVal(Default, "Default for platform"),
                             clEnumVal(Enable, "Enabled"),
-                            clEnumVal(Disable, "Disabled"), clEnumValEnd),
+                            clEnumVal(Disable, "Disabled")),
                  cl::init(Default));
 
 enum LinkageNameOption {
@@ -117,8 +117,7 @@ static cl::opt<LinkageNameOption>
                                             "Default for platform"),
                                  clEnumValN(AllLinkageNames, "All", "All"),
                                  clEnumValN(AbstractLinkageNames, "Abstract",
-                                            "Abstract subprograms"),
-                                 clEnumValEnd),
+                                            "Abstract subprograms")),
                       cl::init(DefaultLinkageNames));
 
 static const char *const DWARFGroupName = "DWARF Emission";
@@ -1407,6 +1406,7 @@ static void emitDebugLocValue(const AsmPrinter &AP, const DIBasicType *BT,
                               ByteStreamer &Streamer,
                               const DebugLocEntry::Value &Value,
                               unsigned PieceOffsetInBits) {
+  DIExpressionCursor ExprCursor(Value.getExpression());
   DebugLocDwarfExpression DwarfExpr(AP.getDwarfDebug()->getDwarfVersion(),
                                     Streamer);
   // Regular entry.
@@ -1418,25 +1418,23 @@ static void emitDebugLocValue(const AsmPrinter &AP, const DIBasicType *BT,
       DwarfExpr.AddUnsignedConstant(Value.getInt());
   } else if (Value.isLocation()) {
     MachineLocation Loc = Value.getLoc();
-    const DIExpression *Expr = Value.getExpression();
-    if (!Expr || !Expr->getNumElements())
+    if (!ExprCursor)
       // Regular entry.
       AP.EmitDwarfRegOp(Streamer, Loc);
     else {
       // Complex address entry.
       const TargetRegisterInfo &TRI = *AP.MF->getSubtarget().getRegisterInfo();
-      if (Loc.getOffset()) {
+      if (Loc.getOffset())
         DwarfExpr.AddMachineRegIndirect(TRI, Loc.getReg(), Loc.getOffset());
-        DwarfExpr.AddExpression(Expr->expr_op_begin(), Expr->expr_op_end(),
-                                PieceOffsetInBits);
-      } else
-        DwarfExpr.AddMachineRegExpression(TRI, Expr, Loc.getReg(),
+      else
+        DwarfExpr.AddMachineRegExpression(TRI, ExprCursor, Loc.getReg(),
                                           PieceOffsetInBits);
     }
   } else if (Value.isConstantFP()) {
     APInt RawBytes = Value.getConstantFP()->getValueAPF().bitcastToAPInt();
     DwarfExpr.AddUnsignedConstant(RawBytes);
   }
+  DwarfExpr.AddExpression(std::move(ExprCursor), PieceOffsetInBits);
 }
 
 void DebugLocEntry::finalize(const AsmPrinter &AP,
@@ -1524,14 +1522,14 @@ void DwarfDebug::emitDebugLocDWO() {
       // rather than two. We could get fancier and try to, say, reuse an
       // address we know we've emitted elsewhere (the start of the function?
       // The start of the CU or CU subrange that encloses this range?)
-      Asm->EmitInt8(dwarf::DW_LLE_start_length_entry);
+      Asm->EmitInt8(dwarf::DW_LLE_startx_length);
       unsigned idx = AddrPool.getIndex(Entry.BeginSym);
       Asm->EmitULEB128(idx);
       Asm->EmitLabelDifference(Entry.EndSym, Entry.BeginSym, 4);
 
       emitDebugLocEntryLocation(Entry);
     }
-    Asm->EmitInt8(dwarf::DW_LLE_end_of_list_entry);
+    Asm->EmitInt8(dwarf::DW_LLE_end_of_list);
   }
 }
 

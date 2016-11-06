@@ -27,6 +27,7 @@
 #include <cctype>
 #include <cstring>
 #include <limits>
+#include <list>
 
 using namespace llvm;
 using namespace object;
@@ -216,6 +217,42 @@ static void parseHeader(const MachOObjectFile *Obj, T &Header,
     Err = HeaderOrErr.takeError();
 }
 
+// This is used to check for overlapping of Mach-O elements.
+struct MachOElement {
+  uint64_t Offset;
+  uint64_t Size;
+  const char *Name;
+};
+
+static Error checkOverlappingElement(std::list<MachOElement> &Elements,
+                                     uint64_t Offset, uint64_t Size,
+                                     const char *Name) {
+  if (Size == 0)
+    return Error::success();
+
+  for (auto it=Elements.begin() ; it != Elements.end(); ++it) {
+    auto E = *it;
+    if ((Offset >= E.Offset && Offset < E.Offset + E.Size) ||
+        (Offset + Size > E.Offset && Offset + Size < E.Offset + E.Size) ||
+        (Offset <= E.Offset && Offset + Size >= E.Offset + E.Size))
+      return malformedError(Twine(Name) + " at offset " + Twine(Offset) +
+                            " with a size of " + Twine(Size) + ", overlaps " +
+                            E.Name + " at offset " + Twine(E.Offset) + " with "
+                            "a size of " + Twine(E.Size));
+    auto nt = it;
+    nt++;
+    if (nt != Elements.end()) {
+      auto N = *nt;
+      if (Offset + Size <= N.Offset) {
+        Elements.insert(nt, {Offset, Size, Name});
+        return Error::success();
+      }
+    }
+  }
+  Elements.push_back({Offset, Size, Name});
+  return Error::success();
+}
+
 // Parses LC_SEGMENT or LC_SEGMENT_64 load command, adds addresses of all
 // sections to \param Sections, and optionally sets
 // \param IsPageZeroSegment to true.
@@ -223,7 +260,8 @@ template <typename Segment, typename Section>
 static Error parseSegmentLoadCommand(
     const MachOObjectFile *Obj, const MachOObjectFile::LoadCommandInfo &Load,
     SmallVectorImpl<const char *> &Sections, bool &IsPageZeroSegment,
-    uint32_t LoadCommandIndex, const char *CmdName, uint64_t SizeOfHeaders) {
+    uint32_t LoadCommandIndex, const char *CmdName, uint64_t SizeOfHeaders,
+    std::list<MachOElement> &Elements) {
   const unsigned SegmentLoadSize = sizeof(Segment);
   if (Load.C.cmdsize < SegmentLoadSize)
     return malformedError("load command " + Twine(LoadCommandIndex) +
@@ -293,6 +331,13 @@ static Error parseSegmentLoadCommand(
                               Twine(LoadCommandIndex) +
                               " greater than than "
                               "the segment's vmaddr plus vmsize");
+      if (Obj->getHeader().filetype != MachO::MH_DYLIB_STUB &&
+          Obj->getHeader().filetype != MachO::MH_DSYM &&
+          s.flags != MachO::S_ZEROFILL &&
+          s.flags != MachO::S_THREAD_LOCAL_ZEROFILL)
+        if (Error Err = checkOverlappingElement(Elements, s.offset, s.size,
+                                                "section contents"))
+          return Err;
       if (s.reloff > FileSize)
         return malformedError("reloff field of section " + Twine(J) + " in " +
                               CmdName + " command " + Twine(LoadCommandIndex) +
@@ -306,6 +351,11 @@ static Error parseSegmentLoadCommand(
                               Twine(J) + " in " + CmdName + " command " +
                               Twine(LoadCommandIndex) +
                               " extends past the end of the file");
+      if (Error Err = checkOverlappingElement(Elements, s.reloff, s.nreloc *
+                                              sizeof(struct
+                                              MachO::relocation_info),
+                                              "section relocation entries"))
+        return Err;
     }
     if (S.fileoff > FileSize)
       return malformedError("load command " + Twine(LoadCommandIndex) +
@@ -331,7 +381,8 @@ static Error parseSegmentLoadCommand(
 static Error checkSymtabCommand(const MachOObjectFile *Obj,
                                 const MachOObjectFile::LoadCommandInfo &Load,
                                 uint32_t LoadCommandIndex,
-                                const char **SymtabLoadCmd) {
+                                const char **SymtabLoadCmd,
+                                std::list<MachOElement> &Elements) {
   if (Load.C.cmdsize < sizeof(MachO::symtab_command))
     return malformedError("load command " + Twine(LoadCommandIndex) +
                           " LC_SYMTAB cmdsize too small");
@@ -347,21 +398,25 @@ static Error checkSymtabCommand(const MachOObjectFile *Obj,
     return malformedError("symoff field of LC_SYMTAB command " +
                           Twine(LoadCommandIndex) + " extends past the end "
                           "of the file");
-  uint64_t BigSize = Symtab.nsyms;
+  uint64_t SymtabSize = Symtab.nsyms;
   const char *struct_nlist_name;
   if (Obj->is64Bit()) {
-    BigSize *= sizeof(MachO::nlist_64);
+    SymtabSize *= sizeof(MachO::nlist_64);
     struct_nlist_name = "struct nlist_64";
   } else {
-    BigSize *= sizeof(MachO::nlist);
+    SymtabSize *= sizeof(MachO::nlist);
     struct_nlist_name = "struct nlist";
   }
+  uint64_t BigSize = SymtabSize;
   BigSize += Symtab.symoff;
   if (BigSize > FileSize)
     return malformedError("symoff field plus nsyms field times sizeof(" +
                           Twine(struct_nlist_name) + ") of LC_SYMTAB command " +
                           Twine(LoadCommandIndex) + " extends past the end "
                           "of the file");
+  if (Error Err = checkOverlappingElement(Elements, Symtab.symoff, SymtabSize,
+                                          "symbol table"))
+    return Err;
   if (Symtab.stroff > FileSize)
     return malformedError("stroff field of LC_SYMTAB command " +
                           Twine(LoadCommandIndex) + " extends past the end "
@@ -372,6 +427,9 @@ static Error checkSymtabCommand(const MachOObjectFile *Obj,
     return malformedError("stroff field plus strsize field of LC_SYMTAB "
                           "command " + Twine(LoadCommandIndex) + " extends "
                           "past the end of the file");
+  if (Error Err = checkOverlappingElement(Elements, Symtab.stroff,
+                                          Symtab.strsize, "string table"))
+    return Err;
   *SymtabLoadCmd = Load.Ptr;
   return Error::success();
 }
@@ -379,7 +437,8 @@ static Error checkSymtabCommand(const MachOObjectFile *Obj,
 static Error checkDysymtabCommand(const MachOObjectFile *Obj,
                                  const MachOObjectFile::LoadCommandInfo &Load,
                                  uint32_t LoadCommandIndex,
-                                 const char **DysymtabLoadCmd) {
+                                 const char **DysymtabLoadCmd,
+                                 std::list<MachOElement> &Elements) {
   if (Load.C.cmdsize < sizeof(MachO::dysymtab_command))
     return malformedError("load command " + Twine(LoadCommandIndex) +
                           " LC_DYSYMTAB cmdsize too small");
@@ -403,25 +462,36 @@ static Error checkDysymtabCommand(const MachOObjectFile *Obj,
                           "dylib_table_of_contents) of LC_DYSYMTAB command " +
                           Twine(LoadCommandIndex) + " extends past the end of "
                           "the file");
+  if (Error Err = checkOverlappingElement(Elements, Dysymtab.tocoff,
+                                          Dysymtab.ntoc * sizeof(struct
+					  MachO::dylib_table_of_contents),
+					  "table of contents"))
+    return Err;
   if (Dysymtab.modtaboff > FileSize)
     return malformedError("modtaboff field of LC_DYSYMTAB command " +
                           Twine(LoadCommandIndex) + " extends past the end of "
                           "the file");
   BigSize = Dysymtab.nmodtab;
   const char *struct_dylib_module_name;
+  uint64_t sizeof_modtab;
   if (Obj->is64Bit()) {
-    BigSize *= sizeof(MachO::dylib_module_64);
+    sizeof_modtab = sizeof(MachO::dylib_module_64);
     struct_dylib_module_name = "struct dylib_module_64";
   } else {
-    BigSize *= sizeof(MachO::dylib_module);
+    sizeof_modtab = sizeof(MachO::dylib_module);
     struct_dylib_module_name = "struct dylib_module";
   }
+  BigSize *= sizeof_modtab;
   BigSize += Dysymtab.modtaboff;
   if (BigSize > FileSize)
     return malformedError("modtaboff field plus nmodtab field times sizeof(" +
                           Twine(struct_dylib_module_name) + ") of LC_DYSYMTAB "
                           "command " + Twine(LoadCommandIndex) + " extends "
                           "past the end of the file");
+  if (Error Err = checkOverlappingElement(Elements, Dysymtab.modtaboff,
+                                          Dysymtab.nmodtab * sizeof_modtab,
+					  "module table"))
+    return Err;
   if (Dysymtab.extrefsymoff > FileSize)
     return malformedError("extrefsymoff field of LC_DYSYMTAB command " +
                           Twine(LoadCommandIndex) + " extends past the end of "
@@ -434,6 +504,11 @@ static Error checkDysymtabCommand(const MachOObjectFile *Obj,
                           "sizeof(struct dylib_reference) of LC_DYSYMTAB "
                           "command " + Twine(LoadCommandIndex) + " extends "
                           "past the end of the file");
+  if (Error Err = checkOverlappingElement(Elements, Dysymtab.extrefsymoff,
+                                          Dysymtab.nextrefsyms *
+                                          sizeof(MachO::dylib_reference),
+					  "reference table"))
+    return Err;
   if (Dysymtab.indirectsymoff > FileSize)
     return malformedError("indirectsymoff field of LC_DYSYMTAB command " +
                           Twine(LoadCommandIndex) + " extends past the end of "
@@ -446,6 +521,11 @@ static Error checkDysymtabCommand(const MachOObjectFile *Obj,
                           "sizeof(uint32_t) of LC_DYSYMTAB command " +
                           Twine(LoadCommandIndex) + " extends past the end of "
                           "the file");
+  if (Error Err = checkOverlappingElement(Elements, Dysymtab.indirectsymoff,
+                                          Dysymtab.nindirectsyms *
+                                          sizeof(uint32_t),
+					  "indirect table"))
+    return Err;
   if (Dysymtab.extreloff > FileSize)
     return malformedError("extreloff field of LC_DYSYMTAB command " +
                           Twine(LoadCommandIndex) + " extends past the end of "
@@ -458,6 +538,11 @@ static Error checkDysymtabCommand(const MachOObjectFile *Obj,
                           "(struct relocation_info) of LC_DYSYMTAB command " +
                           Twine(LoadCommandIndex) + " extends past the end of "
                           "the file");
+  if (Error Err = checkOverlappingElement(Elements, Dysymtab.extreloff,
+                                          Dysymtab.nextrel *
+                                          sizeof(MachO::relocation_info),
+					  "external relocation table"))
+    return Err;
   if (Dysymtab.locreloff > FileSize)
     return malformedError("locreloff field of LC_DYSYMTAB command " +
                           Twine(LoadCommandIndex) + " extends past the end of "
@@ -470,6 +555,11 @@ static Error checkDysymtabCommand(const MachOObjectFile *Obj,
                           "(struct relocation_info) of LC_DYSYMTAB command " +
                           Twine(LoadCommandIndex) + " extends past the end of "
                           "the file");
+  if (Error Err = checkOverlappingElement(Elements, Dysymtab.locreloff,
+                                          Dysymtab.nlocrel *
+                                          sizeof(MachO::relocation_info),
+					  "local relocation table"))
+    return Err;
   *DysymtabLoadCmd = Load.Ptr;
   return Error::success();
 }
@@ -477,7 +567,9 @@ static Error checkDysymtabCommand(const MachOObjectFile *Obj,
 static Error checkLinkeditDataCommand(const MachOObjectFile *Obj,
                                  const MachOObjectFile::LoadCommandInfo &Load,
                                  uint32_t LoadCommandIndex,
-                                 const char **LoadCmd, const char *CmdName) {
+                                 const char **LoadCmd, const char *CmdName,
+                                 std::list<MachOElement> &Elements,
+                                 const char *ElementName) {
   if (Load.C.cmdsize < sizeof(MachO::linkedit_data_command))
     return malformedError("load command " + Twine(LoadCommandIndex) + " " +
                           CmdName + " cmdsize too small");
@@ -500,6 +592,9 @@ static Error checkLinkeditDataCommand(const MachOObjectFile *Obj,
                           Twine(CmdName) + " command " +
                           Twine(LoadCommandIndex) + " extends past the end of "
                           "the file");
+  if (Error Err = checkOverlappingElement(Elements, LinkData.dataoff,
+                                          LinkData.datasize, ElementName))
+    return Err;
   *LoadCmd = Load.Ptr;
   return Error::success();
 }
@@ -507,7 +602,8 @@ static Error checkLinkeditDataCommand(const MachOObjectFile *Obj,
 static Error checkDyldInfoCommand(const MachOObjectFile *Obj,
                                   const MachOObjectFile::LoadCommandInfo &Load,
                                   uint32_t LoadCommandIndex,
-                                  const char **LoadCmd, const char *CmdName) {
+                                  const char **LoadCmd, const char *CmdName,
+                                  std::list<MachOElement> &Elements) {
   if (Load.C.cmdsize < sizeof(MachO::dyld_info_command))
     return malformedError("load command " + Twine(LoadCommandIndex) + " " +
                           CmdName + " cmdsize too small");
@@ -531,6 +627,10 @@ static Error checkDyldInfoCommand(const MachOObjectFile *Obj,
                           Twine(CmdName) + " command " +
                           Twine(LoadCommandIndex) + " extends past the end of "
                           "the file");
+  if (Error Err = checkOverlappingElement(Elements, DyldInfo.rebase_off,
+                                          DyldInfo.rebase_size,
+                                          "dyld rebase info"))
+    return Err;
   if (DyldInfo.bind_off > FileSize)
     return malformedError("bind_off field of " + Twine(CmdName) +
                           " command " + Twine(LoadCommandIndex) + " extends "
@@ -542,6 +642,10 @@ static Error checkDyldInfoCommand(const MachOObjectFile *Obj,
                           Twine(CmdName) + " command " +
                           Twine(LoadCommandIndex) + " extends past the end of "
                           "the file");
+  if (Error Err = checkOverlappingElement(Elements, DyldInfo.bind_off,
+                                          DyldInfo.bind_size,
+                                          "dyld bind info"))
+    return Err;
   if (DyldInfo.weak_bind_off > FileSize)
     return malformedError("weak_bind_off field of " + Twine(CmdName) +
                           " command " + Twine(LoadCommandIndex) + " extends "
@@ -553,6 +657,10 @@ static Error checkDyldInfoCommand(const MachOObjectFile *Obj,
                           Twine(CmdName) + " command " +
                           Twine(LoadCommandIndex) + " extends past the end of "
                           "the file");
+  if (Error Err = checkOverlappingElement(Elements, DyldInfo.weak_bind_off,
+                                          DyldInfo.weak_bind_size,
+                                          "dyld weak bind info"))
+    return Err;
   if (DyldInfo.lazy_bind_off > FileSize)
     return malformedError("lazy_bind_off field of " + Twine(CmdName) +
                           " command " + Twine(LoadCommandIndex) + " extends "
@@ -564,6 +672,10 @@ static Error checkDyldInfoCommand(const MachOObjectFile *Obj,
                           Twine(CmdName) + " command " +
                           Twine(LoadCommandIndex) + " extends past the end of "
                           "the file");
+  if (Error Err = checkOverlappingElement(Elements, DyldInfo.lazy_bind_off,
+                                          DyldInfo.lazy_bind_size,
+                                          "dyld lazy bind info"))
+    return Err;
   if (DyldInfo.export_off > FileSize)
     return malformedError("export_off field of " + Twine(CmdName) +
                           " command " + Twine(LoadCommandIndex) + " extends "
@@ -575,6 +687,10 @@ static Error checkDyldInfoCommand(const MachOObjectFile *Obj,
                           Twine(CmdName) + " command " +
                           Twine(LoadCommandIndex) + " extends past the end of "
                           "the file");
+  if (Error Err = checkOverlappingElement(Elements, DyldInfo.export_off,
+                                          DyldInfo.export_size,
+                                          "dyld export info"))
+    return Err;
   *LoadCmd = Load.Ptr;
   return Error::success();
 }
@@ -722,20 +838,255 @@ static Error checkEncryptCommand(const MachOObjectFile *Obj,
   return Error::success();
 }
 
+static Error checkLinkerOptCommand(const MachOObjectFile *Obj,
+                                   const MachOObjectFile::LoadCommandInfo &Load,
+                                   uint32_t LoadCommandIndex) {
+  if (Load.C.cmdsize < sizeof(MachO::linker_option_command))
+    return malformedError("load command " + Twine(LoadCommandIndex) +
+                          " LC_LINKER_OPTION cmdsize too small");
+  MachO::linker_option_command L =
+    getStruct<MachO::linker_option_command>(Obj, Load.Ptr);
+  // Make sure the count of strings is correct.
+  const char *string = (const char *)Load.Ptr +
+                       sizeof(struct MachO::linker_option_command);
+  uint32_t left = L.cmdsize - sizeof(struct MachO::linker_option_command);
+  uint32_t i = 0;
+  while (left > 0) {
+    while (*string == '\0' && left > 0) {
+      string++;
+      left--;
+    }
+    if (left > 0) {
+      i++;
+      uint32_t NullPos = StringRef(string, left).find('\0');
+      uint32_t len = std::min(NullPos, left) + 1;
+      string += len;
+      left -= len;
+    }
+  }
+  if (L.count != i)
+    return malformedError("load command " + Twine(LoadCommandIndex) +
+                          " LC_LINKER_OPTION string count " + Twine(L.count) +
+                          " does not match number of strings");
+  return Error::success();
+}
+
+static Error checkSubCommand(const MachOObjectFile *Obj,
+                             const MachOObjectFile::LoadCommandInfo &Load,
+                             uint32_t LoadCommandIndex, const char *CmdName,
+                             size_t SizeOfCmd, const char *CmdStructName,
+                             uint32_t PathOffset, const char *PathFieldName) {
+  if (PathOffset < SizeOfCmd)
+    return malformedError("load command " + Twine(LoadCommandIndex) + " " +
+                          CmdName + " " + PathFieldName + ".offset field too "
+                          "small, not past the end of the " + CmdStructName);
+  if (PathOffset >= Load.C.cmdsize)
+    return malformedError("load command " + Twine(LoadCommandIndex) + " " +
+                          CmdName + " " + PathFieldName + ".offset field "
+                          "extends past the end of the load command");
+  // Make sure there is a null between the starting offset of the path and
+  // the end of the load command.
+  uint32_t i;
+  const char *P = (const char *)Load.Ptr;
+  for (i = PathOffset; i < Load.C.cmdsize; i++)
+    if (P[i] == '\0')
+      break;
+  if (i >= Load.C.cmdsize)
+    return malformedError("load command " + Twine(LoadCommandIndex) + " " +
+                          CmdName + " " + PathFieldName + " name extends past "
+                          "the end of the load command");
+  return Error::success();
+}
+
+static Error checkThreadCommand(const MachOObjectFile *Obj,
+                                const MachOObjectFile::LoadCommandInfo &Load,
+                                uint32_t LoadCommandIndex,
+                                const char *CmdName) {
+  if (Load.C.cmdsize < sizeof(MachO::thread_command))
+    return malformedError("load command " + Twine(LoadCommandIndex) +
+                          CmdName + " cmdsize too small");
+  MachO::thread_command T =
+    getStruct<MachO::thread_command>(Obj, Load.Ptr);
+  const char *state = Load.Ptr + sizeof(MachO::thread_command);
+  const char *end = Load.Ptr + T.cmdsize;
+  uint32_t nflavor = 0;
+  uint32_t cputype = getCPUType(Obj);
+  while (state < end) {
+    if(state + sizeof(uint32_t) > end)
+      return malformedError("load command " + Twine(LoadCommandIndex) +
+                            "flavor in " + CmdName + " extends past end of "
+                            "command");
+    uint32_t flavor;
+    memcpy(&flavor, state, sizeof(uint32_t));
+    if (Obj->isLittleEndian() != sys::IsLittleEndianHost)
+      sys::swapByteOrder(flavor);
+    state += sizeof(uint32_t);
+
+    if(state + sizeof(uint32_t) > end)
+      return malformedError("load command " + Twine(LoadCommandIndex) +
+                            " count in " + CmdName + " extends past end of "
+                            "command");
+    uint32_t count;
+    memcpy(&count, state, sizeof(uint32_t));
+    if (Obj->isLittleEndian() != sys::IsLittleEndianHost)
+      sys::swapByteOrder(count);
+    state += sizeof(uint32_t);
+
+    if (cputype == MachO::CPU_TYPE_X86_64) {
+      if (flavor == MachO::x86_THREAD_STATE64) {
+        if (count != MachO::x86_THREAD_STATE64_COUNT)
+          return malformedError("load command " + Twine(LoadCommandIndex) +
+                                " count not x86_THREAD_STATE64_COUNT for "
+                                "flavor number " + Twine(nflavor) + " which is "
+                                "a x86_THREAD_STATE64 flavor in " + CmdName +
+                                " command");
+        if (state + sizeof(MachO::x86_thread_state64_t) > end)
+          return malformedError("load command " + Twine(LoadCommandIndex) +
+                                " x86_THREAD_STATE64 extends past end of "
+                                "command in " + CmdName + " command");
+        state += sizeof(MachO::x86_thread_state64_t);
+      } else {
+        return malformedError("load command " + Twine(LoadCommandIndex) +
+                              " unknown flavor (" + Twine(flavor) + ") for "
+                              "flavor number " + Twine(nflavor) + " in " +
+                              CmdName + " command");
+      }
+    } else if (cputype == MachO::CPU_TYPE_ARM) {
+      if (flavor == MachO::ARM_THREAD_STATE) {
+        if (count != MachO::ARM_THREAD_STATE_COUNT)
+          return malformedError("load command " + Twine(LoadCommandIndex) +
+                                " count not ARM_THREAD_STATE_COUNT for "
+                                "flavor number " + Twine(nflavor) + " which is "
+                                "a ARM_THREAD_STATE flavor in " + CmdName +
+                                " command");
+        if (state + sizeof(MachO::arm_thread_state32_t) > end)
+          return malformedError("load command " + Twine(LoadCommandIndex) +
+                                " ARM_THREAD_STATE extends past end of "
+                                "command in " + CmdName + " command");
+        state += sizeof(MachO::arm_thread_state32_t);
+      } else {
+        return malformedError("load command " + Twine(LoadCommandIndex) +
+                              " unknown flavor (" + Twine(flavor) + ") for "
+                              "flavor number " + Twine(nflavor) + " in " +
+                              CmdName + " command");
+      }
+    } else if (cputype == MachO::CPU_TYPE_ARM64) {
+      if (flavor == MachO::ARM_THREAD_STATE64) {
+        if (count != MachO::ARM_THREAD_STATE64_COUNT)
+          return malformedError("load command " + Twine(LoadCommandIndex) +
+                                " count not ARM_THREAD_STATE64_COUNT for "
+                                "flavor number " + Twine(nflavor) + " which is "
+                                "a ARM_THREAD_STATE64 flavor in " + CmdName +
+                                " command");
+        if (state + sizeof(MachO::arm_thread_state64_t) > end)
+          return malformedError("load command " + Twine(LoadCommandIndex) +
+                                " ARM_THREAD_STATE64 extends past end of "
+                                "command in " + CmdName + " command");
+        state += sizeof(MachO::arm_thread_state64_t);
+      } else {
+        return malformedError("load command " + Twine(LoadCommandIndex) +
+                              " unknown flavor (" + Twine(flavor) + ") for "
+                              "flavor number " + Twine(nflavor) + " in " +
+                              CmdName + " command");
+      }
+    } else if (cputype == MachO::CPU_TYPE_POWERPC) {
+      if (flavor == MachO::PPC_THREAD_STATE) {
+        if (count != MachO::PPC_THREAD_STATE_COUNT)
+          return malformedError("load command " + Twine(LoadCommandIndex) +
+                                " count not PPC_THREAD_STATE_COUNT for "
+                                "flavor number " + Twine(nflavor) + " which is "
+                                "a PPC_THREAD_STATE flavor in " + CmdName +
+                                " command");
+        if (state + sizeof(MachO::ppc_thread_state32_t) > end)
+          return malformedError("load command " + Twine(LoadCommandIndex) +
+                                " PPC_THREAD_STATE extends past end of "
+                                "command in " + CmdName + " command");
+        state += sizeof(MachO::ppc_thread_state32_t);
+      } else {
+        return malformedError("load command " + Twine(LoadCommandIndex) +
+                              " unknown flavor (" + Twine(flavor) + ") for "
+                              "flavor number " + Twine(nflavor) + " in " +
+                              CmdName + " command");
+      }
+    } else {
+      return malformedError("unknown cputype (" + Twine(cputype) + ") load "
+                            "command " + Twine(LoadCommandIndex) + " for " +
+                            CmdName + " command can't be checked");
+    }
+    nflavor++;
+  }
+  return Error::success();
+}
+
+static Error checkTwoLevelHintsCommand(const MachOObjectFile *Obj,
+                                       const MachOObjectFile::LoadCommandInfo
+                                         &Load,
+                                       uint32_t LoadCommandIndex,
+                                       const char **LoadCmd,
+                                       std::list<MachOElement> &Elements) {
+  if (Load.C.cmdsize != sizeof(MachO::twolevel_hints_command))
+    return malformedError("load command " + Twine(LoadCommandIndex) +
+                          " LC_TWOLEVEL_HINTS has incorrect cmdsize");
+  if (*LoadCmd != nullptr)
+    return malformedError("more than one LC_TWOLEVEL_HINTS command");
+  MachO::twolevel_hints_command Hints =
+    getStruct<MachO::twolevel_hints_command>(Obj, Load.Ptr);
+  uint64_t FileSize = Obj->getData().size();
+  if (Hints.offset > FileSize)
+    return malformedError("offset field of LC_TWOLEVEL_HINTS command " +
+                          Twine(LoadCommandIndex) + " extends past the end of "
+                          "the file");
+  uint64_t BigSize = Hints.nhints;
+  BigSize *= Hints.nhints * sizeof(MachO::twolevel_hint);
+  BigSize += Hints.offset;
+  if (BigSize > FileSize)
+    return malformedError("offset field plus nhints times sizeof(struct "
+                          "twolevel_hint) field of LC_TWOLEVEL_HINTS command " +
+                          Twine(LoadCommandIndex) + " extends past the end of "
+                          "the file");
+  if (Error Err = checkOverlappingElement(Elements, Hints.offset, Hints.nhints *
+                                          sizeof(MachO::twolevel_hint),
+                                          "two level hints"))
+    return Err;
+  *LoadCmd = Load.Ptr;
+  return Error::success();
+}
+
+// Returns true if the libObject code does not support the load command and its
+// contents.  The cmd value it is treated as an unknown load command but with
+// an error message that says the cmd value is obsolete.
+static bool isLoadCommandObsolete(uint32_t cmd) {
+  if (cmd == MachO::LC_SYMSEG ||
+      cmd == MachO::LC_LOADFVMLIB ||
+      cmd == MachO::LC_IDFVMLIB ||
+      cmd == MachO::LC_IDENT ||
+      cmd == MachO::LC_FVMFILE ||
+      cmd == MachO::LC_PREPAGE ||
+      cmd == MachO::LC_PREBOUND_DYLIB ||
+      cmd == MachO::LC_TWOLEVEL_HINTS ||
+      cmd == MachO::LC_PREBIND_CKSUM)
+    return true;
+  return false;
+}
+
 Expected<std::unique_ptr<MachOObjectFile>>
 MachOObjectFile::create(MemoryBufferRef Object, bool IsLittleEndian,
-                        bool Is64Bits) {
+                        bool Is64Bits, uint32_t UniversalCputype,
+                        uint32_t UniversalIndex) {
   Error Err;
   std::unique_ptr<MachOObjectFile> Obj(
       new MachOObjectFile(std::move(Object), IsLittleEndian,
-                           Is64Bits, Err));
+                          Is64Bits, Err, UniversalCputype,
+                          UniversalIndex));
   if (Err)
     return std::move(Err);
   return std::move(Obj);
 }
 
 MachOObjectFile::MachOObjectFile(MemoryBufferRef Object, bool IsLittleEndian,
-                                 bool Is64bits, Error &Err)
+                                 bool Is64bits, Error &Err,
+                                 uint32_t UniversalCputype,
+                                 uint32_t UniversalIndex)
     : ObjectFile(getMachOType(IsLittleEndian, Is64bits), Object),
       SymtabLoadCmd(nullptr), DysymtabLoadCmd(nullptr),
       DataInCodeLoadCmd(nullptr), LinkOptHintsLoadCmd(nullptr),
@@ -743,12 +1094,15 @@ MachOObjectFile::MachOObjectFile(MemoryBufferRef Object, bool IsLittleEndian,
       HasPageZeroSegment(false) {
   ErrorAsOutParameter ErrAsOutParam(&Err);
   uint64_t SizeOfHeaders;
+  uint32_t cputype;
   if (is64Bit()) {
     parseHeader(this, Header64, Err);
     SizeOfHeaders = sizeof(MachO::mach_header_64);
+    cputype = Header64.cputype;
   } else {
     parseHeader(this, Header, Err);
     SizeOfHeaders = sizeof(MachO::mach_header);
+    cputype = Header.cputype;
   }
   if (Err)
     return;
@@ -757,6 +1111,14 @@ MachOObjectFile::MachOObjectFile(MemoryBufferRef Object, bool IsLittleEndian,
     Err = malformedError("load commands extend past the end of the file");
     return;
   }
+  if (UniversalCputype != 0 && cputype != UniversalCputype) {
+    Err = malformedError("universal header architecture: " +
+                         Twine(UniversalIndex) + "'s cputype does not match "
+                         "object file's mach header");
+    return;
+  }
+  std::list<MachOElement> Elements;
+  Elements.push_back({0, SizeOfHeaders, "Mach-O headers"});
 
   uint32_t LoadCommandCount = getHeader().ncmds;
   LoadCommandInfo Load;
@@ -773,10 +1135,14 @@ MachOObjectFile::MachOObjectFile(MemoryBufferRef Object, bool IsLittleEndian,
   const char *FuncStartsLoadCmd = nullptr;
   const char *SplitInfoLoadCmd = nullptr;
   const char *CodeSignDrsLoadCmd = nullptr;
+  const char *CodeSignLoadCmd = nullptr;
   const char *VersLoadCmd = nullptr;
   const char *SourceLoadCmd = nullptr;
   const char *EntryPointLoadCmd = nullptr;
   const char *EncryptLoadCmd = nullptr;
+  const char *RoutinesLoadCmd = nullptr;
+  const char *UnixThreadLoadCmd = nullptr;
+  const char *TwoLevelHintsLoadCmd = nullptr;
   for (unsigned I = 0; I < LoadCommandCount; ++I) {
     if (is64Bit()) {
       if (Load.C.cmdsize % 8 != 0) {
@@ -799,38 +1165,50 @@ MachOObjectFile::MachOObjectFile(MemoryBufferRef Object, bool IsLittleEndian,
     }
     LoadCommands.push_back(Load);
     if (Load.C.cmd == MachO::LC_SYMTAB) {
-      if ((Err = checkSymtabCommand(this, Load, I, &SymtabLoadCmd)))
+      if ((Err = checkSymtabCommand(this, Load, I, &SymtabLoadCmd, Elements)))
         return;
     } else if (Load.C.cmd == MachO::LC_DYSYMTAB) {
-      if ((Err = checkDysymtabCommand(this, Load, I, &DysymtabLoadCmd)))
+      if ((Err = checkDysymtabCommand(this, Load, I, &DysymtabLoadCmd,
+                                      Elements)))
         return;
     } else if (Load.C.cmd == MachO::LC_DATA_IN_CODE) {
       if ((Err = checkLinkeditDataCommand(this, Load, I, &DataInCodeLoadCmd,
-                                          "LC_DATA_IN_CODE")))
+                                          "LC_DATA_IN_CODE", Elements,
+                                          "data in code info")))
         return;
     } else if (Load.C.cmd == MachO::LC_LINKER_OPTIMIZATION_HINT) {
       if ((Err = checkLinkeditDataCommand(this, Load, I, &LinkOptHintsLoadCmd,
-                                          "LC_LINKER_OPTIMIZATION_HINT")))
+                                          "LC_LINKER_OPTIMIZATION_HINT",
+                                          Elements, "linker optimization "
+                                          "hints")))
         return;
     } else if (Load.C.cmd == MachO::LC_FUNCTION_STARTS) {
       if ((Err = checkLinkeditDataCommand(this, Load, I, &FuncStartsLoadCmd,
-                                          "LC_FUNCTION_STARTS")))
+                                          "LC_FUNCTION_STARTS", Elements,
+                                          "function starts data")))
         return;
     } else if (Load.C.cmd == MachO::LC_SEGMENT_SPLIT_INFO) {
       if ((Err = checkLinkeditDataCommand(this, Load, I, &SplitInfoLoadCmd,
-                                          "LC_SEGMENT_SPLIT_INFO")))
+                                          "LC_SEGMENT_SPLIT_INFO", Elements,
+                                          "split info data")))
         return;
     } else if (Load.C.cmd == MachO::LC_DYLIB_CODE_SIGN_DRS) {
       if ((Err = checkLinkeditDataCommand(this, Load, I, &CodeSignDrsLoadCmd,
-                                          "LC_DYLIB_CODE_SIGN_DRS")))
+                                          "LC_DYLIB_CODE_SIGN_DRS", Elements,
+                                          "code signing RDs data")))
+        return;
+    } else if (Load.C.cmd == MachO::LC_CODE_SIGNATURE) {
+      if ((Err = checkLinkeditDataCommand(this, Load, I, &CodeSignLoadCmd,
+                                          "LC_CODE_SIGNATURE", Elements,
+                                          "code signature data")))
         return;
     } else if (Load.C.cmd == MachO::LC_DYLD_INFO) {
       if ((Err = checkDyldInfoCommand(this, Load, I, &DyldInfoLoadCmd,
-                                      "LC_DYLD_INFO")))
+                                      "LC_DYLD_INFO", Elements)))
         return;
     } else if (Load.C.cmd == MachO::LC_DYLD_INFO_ONLY) {
       if ((Err = checkDyldInfoCommand(this, Load, I, &DyldInfoLoadCmd,
-                                      "LC_DYLD_INFO_ONLY")))
+                                      "LC_DYLD_INFO_ONLY", Elements)))
         return;
     } else if (Load.C.cmd == MachO::LC_UUID) {
       if (Load.C.cmdsize != sizeof(MachO::uuid_command)) {
@@ -847,13 +1225,13 @@ MachOObjectFile::MachOObjectFile(MemoryBufferRef Object, bool IsLittleEndian,
       if ((Err = parseSegmentLoadCommand<MachO::segment_command_64,
                                          MachO::section_64>(
                    this, Load, Sections, HasPageZeroSegment, I,
-                   "LC_SEGMENT_64", SizeOfHeaders)))
+                   "LC_SEGMENT_64", SizeOfHeaders, Elements)))
         return;
     } else if (Load.C.cmd == MachO::LC_SEGMENT) {
       if ((Err = parseSegmentLoadCommand<MachO::segment_command,
                                          MachO::section>(
                    this, Load, Sections, HasPageZeroSegment, I,
-                   "LC_SEGMENT", SizeOfHeaders)))
+                   "LC_SEGMENT", SizeOfHeaders, Elements)))
         return;
     } else if (Load.C.cmd == MachO::LC_ID_DYLIB) {
       if ((Err = checkDylibIdCommand(this, Load, I, &DyldIdLoadCmd)))
@@ -950,7 +1328,109 @@ MachOObjectFile::MachOObjectFile(MemoryBufferRef Object, bool IsLittleEndian,
       if ((Err = checkEncryptCommand(this, Load, I, E.cryptoff, E.cryptsize,
                                      &EncryptLoadCmd, "LC_ENCRYPTION_INFO_64")))
         return;
+    } else if (Load.C.cmd == MachO::LC_LINKER_OPTION) {
+      if ((Err = checkLinkerOptCommand(this, Load, I)))
+        return;
+    } else if (Load.C.cmd == MachO::LC_SUB_FRAMEWORK) {
+      if (Load.C.cmdsize < sizeof(MachO::sub_framework_command)) {
+        Err =  malformedError("load command " + Twine(I) +
+                              " LC_SUB_FRAMEWORK cmdsize too small");
+        return;
+      }
+      MachO::sub_framework_command S =
+        getStruct<MachO::sub_framework_command>(this, Load.Ptr);
+      if ((Err = checkSubCommand(this, Load, I, "LC_SUB_FRAMEWORK",
+                                 sizeof(MachO::sub_framework_command),
+                                 "sub_framework_command", S.umbrella,
+                                 "umbrella")))
+        return;
+    } else if (Load.C.cmd == MachO::LC_SUB_UMBRELLA) {
+      if (Load.C.cmdsize < sizeof(MachO::sub_umbrella_command)) {
+        Err =  malformedError("load command " + Twine(I) +
+                              " LC_SUB_UMBRELLA cmdsize too small");
+        return;
+      }
+      MachO::sub_umbrella_command S =
+        getStruct<MachO::sub_umbrella_command>(this, Load.Ptr);
+      if ((Err = checkSubCommand(this, Load, I, "LC_SUB_UMBRELLA",
+                                 sizeof(MachO::sub_umbrella_command),
+                                 "sub_umbrella_command", S.sub_umbrella,
+                                 "sub_umbrella")))
+        return;
+    } else if (Load.C.cmd == MachO::LC_SUB_LIBRARY) {
+      if (Load.C.cmdsize < sizeof(MachO::sub_library_command)) {
+        Err =  malformedError("load command " + Twine(I) +
+                              " LC_SUB_LIBRARY cmdsize too small");
+        return;
+      }
+      MachO::sub_library_command S =
+        getStruct<MachO::sub_library_command>(this, Load.Ptr);
+      if ((Err = checkSubCommand(this, Load, I, "LC_SUB_LIBRARY",
+                                 sizeof(MachO::sub_library_command),
+                                 "sub_library_command", S.sub_library,
+                                 "sub_library")))
+        return;
+    } else if (Load.C.cmd == MachO::LC_SUB_CLIENT) {
+      if (Load.C.cmdsize < sizeof(MachO::sub_client_command)) {
+        Err =  malformedError("load command " + Twine(I) +
+                              " LC_SUB_CLIENT cmdsize too small");
+        return;
+      }
+      MachO::sub_client_command S =
+        getStruct<MachO::sub_client_command>(this, Load.Ptr);
+      if ((Err = checkSubCommand(this, Load, I, "LC_SUB_CLIENT",
+                                 sizeof(MachO::sub_client_command),
+                                 "sub_client_command", S.client, "client")))
+        return;
+    } else if (Load.C.cmd == MachO::LC_ROUTINES) {
+      if (Load.C.cmdsize != sizeof(MachO::routines_command)) {
+        Err = malformedError("LC_ROUTINES command " + Twine(I) +
+                             " has incorrect cmdsize");
+        return;
+      }
+      if (RoutinesLoadCmd) {
+        Err = malformedError("more than one LC_ROUTINES and or LC_ROUTINES_64 "
+                             "command");
+        return;
+      }
+      RoutinesLoadCmd = Load.Ptr;
+    } else if (Load.C.cmd == MachO::LC_ROUTINES_64) {
+      if (Load.C.cmdsize != sizeof(MachO::routines_command_64)) {
+        Err = malformedError("LC_ROUTINES_64 command " + Twine(I) +
+                             " has incorrect cmdsize");
+        return;
+      }
+      if (RoutinesLoadCmd) {
+        Err = malformedError("more than one LC_ROUTINES_64 and or LC_ROUTINES "
+                             "command");
+        return;
+      }
+      RoutinesLoadCmd = Load.Ptr;
+    } else if (Load.C.cmd == MachO::LC_UNIXTHREAD) {
+      if ((Err = checkThreadCommand(this, Load, I, "LC_UNIXTHREAD")))
+        return;
+      if (UnixThreadLoadCmd) {
+        Err = malformedError("more than one LC_UNIXTHREAD command");
+        return;
+      }
+      UnixThreadLoadCmd = Load.Ptr;
+    } else if (Load.C.cmd == MachO::LC_THREAD) {
+      if ((Err = checkThreadCommand(this, Load, I, "LC_THREAD")))
+        return;
+    // Note: LC_TWOLEVEL_HINTS is really obsolete and is not supported.
+    } else if (Load.C.cmd == MachO::LC_TWOLEVEL_HINTS) {
+       if ((Err = checkTwoLevelHintsCommand(this, Load, I,
+                                            &TwoLevelHintsLoadCmd, Elements)))
+         return;
+    } else if (isLoadCommandObsolete(Load.C.cmd)) {
+      Err = malformedError("load command " + Twine(I) + " for cmd value of: " +
+                           Twine(Load.C.cmd) + " is obsolete and not "
+                           "supported");
+      return;
     }
+    // TODO: generate a error for unknown load commands by default.  But still
+    // need work out an approach to allow or not allow unknown values like this
+    // as an option for some uses like lldb.
     if (I < LoadCommandCount - 1) {
       if (auto LoadOrErr = getNextLoadCommandInfo(this, I, Load))
         Load = *LoadOrErr;
@@ -2990,16 +3470,22 @@ bool MachOObjectFile::isRelocatableObject() const {
 }
 
 Expected<std::unique_ptr<MachOObjectFile>>
-ObjectFile::createMachOObjectFile(MemoryBufferRef Buffer) {
+ObjectFile::createMachOObjectFile(MemoryBufferRef Buffer,
+                                  uint32_t UniversalCputype,
+                                  uint32_t UniversalIndex) {
   StringRef Magic = Buffer.getBuffer().slice(0, 4);
   if (Magic == "\xFE\xED\xFA\xCE")
-    return MachOObjectFile::create(Buffer, false, false);
+    return MachOObjectFile::create(Buffer, false, false,
+                                   UniversalCputype, UniversalIndex);
   if (Magic == "\xCE\xFA\xED\xFE")
-    return MachOObjectFile::create(Buffer, true, false);
+    return MachOObjectFile::create(Buffer, true, false,
+                                   UniversalCputype, UniversalIndex);
   if (Magic == "\xFE\xED\xFA\xCF")
-    return MachOObjectFile::create(Buffer, false, true);
+    return MachOObjectFile::create(Buffer, false, true,
+                                   UniversalCputype, UniversalIndex);
   if (Magic == "\xCF\xFA\xED\xFE")
-    return MachOObjectFile::create(Buffer, true, true);
+    return MachOObjectFile::create(Buffer, true, true,
+                                   UniversalCputype, UniversalIndex);
   return make_error<GenericBinaryError>("Unrecognized MachO magic number",
                                         object_error::invalid_file_type);
 }

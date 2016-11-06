@@ -16,8 +16,8 @@ class ConcurrentManyWatchpoints(ConcurrentEventsBase):
         TestBase.skipLongRunningTest(),
         "Skip this long running test")
     # Atomic sequences are not supported yet for MIPS in LLDB.
-    @expectedFailureAll(triple='^mips')
-    def test_many_watchpoints(self):
+    @skipIf(triple='^mips')
+    def test(self):
         """Test 100 watchpoints from 100 threads."""
         self.build(dictionary=self.getBuildFlags())
         self.do_thread_actions(num_watchpoint_threads=100)

@@ -79,6 +79,7 @@
 #include "Plugins/Platform/gdb-server/PlatformRemoteGDBServer.h"
 #include "Plugins/Process/elf-core/ProcessElfCore.h"
 #include "Plugins/Process/gdb-remote/ProcessGDBRemote.h"
+#include "Plugins/Process/minidump/ProcessMinidump.h"
 #include "Plugins/ScriptInterpreter/None/ScriptInterpreterNone.h"
 #include "Plugins/SymbolFile/DWARF/SymbolFileDWARF.h"
 #include "Plugins/SymbolFile/DWARF/SymbolFileDWARFDebugMap.h"
@@ -306,6 +307,7 @@ void SystemInitializerFull::Initialize() {
 
   JITLoaderGDB::Initialize();
   ProcessElfCore::Initialize();
+  minidump::ProcessMinidump::Initialize();
 #if defined(_MSC_VER)
   ProcessWinMiniDump::Initialize();
 #endif
@@ -432,6 +434,7 @@ void SystemInitializerFull::Terminate() {
 
   JITLoaderGDB::Terminate();
   ProcessElfCore::Terminate();
+  minidump::ProcessMinidump::Terminate();
 #if defined(_MSC_VER)
   ProcessWinMiniDump::Terminate();
 #endif

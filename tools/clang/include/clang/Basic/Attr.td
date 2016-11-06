@@ -810,6 +810,11 @@ def FastCall : InheritableAttr {
   let Documentation = [FastCallDocs];
 }
 
+def RegCall : InheritableAttr {
+  let Spellings = [GCC<"regcall">, Keyword<"__regcall">];
+  let Documentation = [RegCallDocs];
+}
+
 def Final : InheritableAttr {
   let Spellings = [Keyword<"final">, Keyword<"sealed">];
   let Accessors = [Accessor<"isSpelledAsSealed", [Keyword<"sealed">]>];
@@ -1024,6 +1029,12 @@ def NoDuplicate : InheritableAttr {
   let Spellings = [GNU<"noduplicate">, CXX11<"clang", "noduplicate">];
   let Subjects = SubjectList<[Function]>;
   let Documentation = [NoDuplicateDocs];
+}
+
+def Convergent : InheritableAttr {
+  let Spellings = [GNU<"convergent">, CXX11<"clang", "convergent">];
+  let Subjects = SubjectList<[Function]>;
+  let Documentation = [ConvergentDocs];
 }
 
 def NoInline : InheritableAttr {
@@ -1285,6 +1296,12 @@ def ObjCRootClass : InheritableAttr {
   let Documentation = [Undocumented];
 }
 
+def ObjCSubclassingRestricted : InheritableAttr {
+  let Spellings = [GNU<"objc_subclassing_restricted">];
+  let Subjects = SubjectList<[ObjCInterface], ErrorDiag>;
+  let Documentation = [ObjCSubclassingRestrictedDocs];
+}
+
 def ObjCExplicitProtocolImpl : InheritableAttr {
   let Spellings = [GNU<"objc_protocol_requires_explicit_implementation">];
   let Subjects = SubjectList<[ObjCProtocol], ErrorDiag>;
@@ -1542,7 +1559,8 @@ def Target : InheritableAttr {
 def TransparentUnion : InheritableAttr {
   let Spellings = [GCC<"transparent_union">];
 //  let Subjects = SubjectList<[Record, TypedefName]>;
-  let Documentation = [Undocumented];
+  let Documentation = [TransparentUnionDocs];
+  let LangOpts = [COnly];
 }
 
 def Unavailable : InheritableAttr {
@@ -1704,7 +1722,8 @@ def X86ForceAlignArgPointer : InheritableAttr, TargetSpecificAttr<TargetX86> {
 def NoSanitize : InheritableAttr {
   let Spellings = [GNU<"no_sanitize">, CXX11<"clang", "no_sanitize">];
   let Args = [VariadicStringArgument<"Sanitizers">];
-  let Subjects = SubjectList<[Function, ObjCMethod], ErrorDiag>;
+  let Subjects = SubjectList<[Function, ObjCMethod, GlobalVar], ErrorDiag,
+    "ExpectedFunctionMethodOrGlobalVar">;
   let Documentation = [NoSanitizeDocs];
   let AdditionalMembers = [{
     SanitizerMask getMask() const {
@@ -1726,7 +1745,8 @@ def NoSanitizeSpecific : InheritableAttr {
                    GCC<"no_sanitize_address">,
                    GCC<"no_sanitize_thread">,
                    GNU<"no_sanitize_memory">];
-  let Subjects = SubjectList<[Function], ErrorDiag>;
+  let Subjects = SubjectList<[Function, GlobalVar], ErrorDiag,
+        "ExpectedFunctionGlobalVarMethodOrProperty">;
   let Documentation = [NoSanitizeAddressDocs, NoSanitizeThreadDocs,
                        NoSanitizeMemoryDocs];
   let ASTNode = 0;

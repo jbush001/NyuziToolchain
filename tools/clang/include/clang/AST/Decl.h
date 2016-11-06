@@ -865,6 +865,11 @@ protected:
 
     unsigned : NumVarDeclBits;
 
+    // FIXME: We need something similar to CXXRecordDecl::DefinitionData.
+    /// \brief Whether this variable is a definition which was demoted due to
+    /// module merge.
+    unsigned IsThisDeclarationADemotedDefinition : 1;
+
     /// \brief Whether this variable is the exception variable in a C++ catch
     /// or an Objective-C @catch statement.
     unsigned ExceptionVar : 1;
@@ -1198,10 +1203,26 @@ public:
   InitializationStyle getInitStyle() const {
     return static_cast<InitializationStyle>(VarDeclBits.InitStyle);
   }
-
   /// \brief Whether the initializer is a direct-initializer (list or call).
   bool isDirectInit() const {
     return getInitStyle() != CInit;
+  }
+
+  /// \brief If this definition should pretend to be a declaration.
+  bool isThisDeclarationADemotedDefinition() const {
+    return isa<ParmVarDecl>(this) ? false :
+      NonParmVarDeclBits.IsThisDeclarationADemotedDefinition;
+  }
+
+  /// \brief This is a definition which should be demoted to a declaration.
+  ///
+  /// In some cases (mostly module merging) we can end up with two visible
+  /// definitions one of which needs to be demoted to a declaration to keep
+  /// the AST invariants.
+  void demoteThisDefinitionToDeclaration() {
+    assert (isThisDeclarationADefinition() && "Not a definition!");
+    assert (!isa<ParmVarDecl>(this) && "Cannot demote ParmVarDecls!");
+    NonParmVarDeclBits.IsThisDeclarationADemotedDefinition = 1;
   }
 
   /// \brief Determine whether this variable is the exception variable in a
@@ -1301,6 +1322,10 @@ public:
     assert(!isa<ParmVarDecl>(this));
     NonParmVarDeclBits.PreviousDeclInSameBlockScope = Same;
   }
+
+  /// \brief Retrieve the variable declaration from which this variable could
+  /// be instantiated, if it is an instantiation (rather than a non-template).
+  VarDecl *getTemplateInstantiationPattern() const;
 
   /// \brief If this variable is an instantiated static data member of a
   /// class template specialization, returns the templated static data member
@@ -1607,6 +1632,11 @@ private:
   /// skipped.
   unsigned HasSkippedBody : 1;
 
+  /// Indicates if the function declaration will have a body, once we're done
+  /// parsing it.  (We don't set it to false when we're done parsing, in the
+  /// hopes this is simpler.)
+  unsigned WillHaveBody : 1;
+
   /// \brief End part of this FunctionDecl's source range.
   ///
   /// We could compute the full range in getSourceRange(). However, when we're
@@ -1676,25 +1706,21 @@ private:
 
 protected:
   FunctionDecl(Kind DK, ASTContext &C, DeclContext *DC, SourceLocation StartLoc,
-               const DeclarationNameInfo &NameInfo,
-               QualType T, TypeSourceInfo *TInfo,
-               StorageClass S, bool isInlineSpecified,
+               const DeclarationNameInfo &NameInfo, QualType T,
+               TypeSourceInfo *TInfo, StorageClass S, bool isInlineSpecified,
                bool isConstexprSpecified)
-    : DeclaratorDecl(DK, DC, NameInfo.getLoc(), NameInfo.getName(), T, TInfo,
-                     StartLoc),
-      DeclContext(DK),
-      redeclarable_base(C),
-      ParamInfo(nullptr), Body(),
-      SClass(S),
-      IsInline(isInlineSpecified), IsInlineSpecified(isInlineSpecified),
-      IsVirtualAsWritten(false), IsPure(false), HasInheritedPrototype(false),
-      HasWrittenPrototype(true), IsDeleted(false), IsTrivial(false),
-      IsDefaulted(false), IsExplicitlyDefaulted(false),
-      HasImplicitReturnZero(false), IsLateTemplateParsed(false),
-      IsConstexpr(isConstexprSpecified), UsesSEHTry(false),
-      HasSkippedBody(false), EndRangeLoc(NameInfo.getEndLoc()),
-      TemplateOrSpecialization(),
-      DNLoc(NameInfo.getInfo()) {}
+      : DeclaratorDecl(DK, DC, NameInfo.getLoc(), NameInfo.getName(), T, TInfo,
+                       StartLoc),
+        DeclContext(DK), redeclarable_base(C), ParamInfo(nullptr), Body(),
+        SClass(S), IsInline(isInlineSpecified),
+        IsInlineSpecified(isInlineSpecified), IsVirtualAsWritten(false),
+        IsPure(false), HasInheritedPrototype(false), HasWrittenPrototype(true),
+        IsDeleted(false), IsTrivial(false), IsDefaulted(false),
+        IsExplicitlyDefaulted(false), HasImplicitReturnZero(false),
+        IsLateTemplateParsed(false), IsConstexpr(isConstexprSpecified),
+        UsesSEHTry(false), HasSkippedBody(false), WillHaveBody(false),
+        EndRangeLoc(NameInfo.getEndLoc()), TemplateOrSpecialization(),
+        DNLoc(NameInfo.getInfo()) {}
 
   typedef Redeclarable<FunctionDecl> redeclarable_base;
   FunctionDecl *getNextRedeclarationImpl() override {
@@ -1975,6 +2001,10 @@ public:
   /// \brief True if the function was a definition but its body was skipped.
   bool hasSkippedBody() const { return HasSkippedBody; }
   void setHasSkippedBody(bool Skipped = true) { HasSkippedBody = Skipped; }
+
+  /// True if this function will eventually have a body, once it's fully parsed.
+  bool willHaveBody() const { return WillHaveBody; }
+  void setWillHaveBody(bool V = true) { WillHaveBody = V; }
 
   void setPreviousDeclaration(FunctionDecl * PrevDecl);
 
@@ -2270,14 +2300,6 @@ public:
   /// the corresponding Builtin ID. If the function is not a memory function,
   /// returns 0.
   unsigned getMemoryFunctionKind() const;
-
-  /// Add a diagnostic to be emitted if and when this function is codegen'ed.
-  void addDeferredDiag(PartialDiagnosticAt PD);
-
-  /// Gets this object's list of deferred diagnostics, if there are any.
-  ///
-  /// Although this is logically const, it clears our list of deferred diags.
-  std::vector<PartialDiagnosticAt> takeDeferredDiags() const;
 
   // Implement isa/cast/dyncast/etc.
   static bool classof(const Decl *D) { return classofKind(D->getKind()); }

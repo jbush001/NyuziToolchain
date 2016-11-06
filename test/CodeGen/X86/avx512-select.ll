@@ -133,10 +133,9 @@ define i8 @select07(i8 %a.0, i8 %b.0, i8 %m) {
 ; CHECK-NEXT:    kmovw %edx, %k0
 ; CHECK-NEXT:    kmovw %edi, %k1
 ; CHECK-NEXT:    kmovw %esi, %k2
-; CHECK-NEXT:    kandw %k0, %k1, %k1
-; CHECK-NEXT:    knotw %k0, %k0
-; CHECK-NEXT:    kandw %k0, %k2, %k0
-; CHECK-NEXT:    korw %k0, %k1, %k0
+; CHECK-NEXT:    kandnw %k2, %k0, %k2
+; CHECK-NEXT:    kandw %k0, %k1, %k0
+; CHECK-NEXT:    korw %k2, %k0, %k0
 ; CHECK-NEXT:    kmovw %k0, %eax
 ; CHECK-NEXT:    retq
   %mask = bitcast i8 %m to <8 x i1>
@@ -159,27 +158,23 @@ define i64 @pr30249() {
   ret i64 %v
 }
 
-define double @pr30561_f64(double %a, double %b, i1 %c) {
+define double @pr30561_f64(double %b, double %a, i1 %c) {
 ; CHECK-LABEL: pr30561_f64:
 ; CHECK:       ## BB#0:
-; CHECK-NEXT:    testb $1, %dil
-; CHECK-NEXT:    jne LBB11_2
-; CHECK-NEXT:  ## BB#1:
-; CHECK-NEXT:    vmovaps %xmm1, %xmm0
-; CHECK-NEXT:  LBB11_2:
+; CHECK-NEXT:    andl $1, %edi
+; CHECK-NEXT:    kmovw %edi, %k1
+; CHECK-NEXT:    vmovsd %xmm1, %xmm0, %xmm0 {%k1}
 ; CHECK-NEXT:    retq
   %cond = select i1 %c, double %a, double %b
   ret double %cond
 }
 
-define float @pr30561_f32(float %a, float %b, i1 %c) {
+define float @pr30561_f32(float %b, float %a, i1 %c) {
 ; CHECK-LABEL: pr30561_f32:
 ; CHECK:       ## BB#0:
-; CHECK-NEXT:    testb $1, %dil
-; CHECK-NEXT:    jne LBB12_2
-; CHECK-NEXT:  ## BB#1:
-; CHECK-NEXT:    vmovaps %xmm1, %xmm0
-; CHECK-NEXT:  LBB12_2:
+; CHECK-NEXT:    andl $1, %edi
+; CHECK-NEXT:    kmovw %edi, %k1
+; CHECK-NEXT:    vmovss %xmm1, %xmm0, %xmm0 {%k1}
 ; CHECK-NEXT:    retq
   %cond = select i1 %c, float %a, float %b
   ret float %cond
