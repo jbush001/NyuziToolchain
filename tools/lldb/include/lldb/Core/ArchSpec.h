@@ -285,7 +285,7 @@ public:
   //------------------------------------------------------------------
   const ArchSpec &operator=(const ArchSpec &rhs);
 
-  static size_t AutoComplete(const char *name, StringList &matches);
+  static size_t AutoComplete(llvm::StringRef name, StringList &matches);
 
   //------------------------------------------------------------------
   /// Returns a static string representing the current architecture.

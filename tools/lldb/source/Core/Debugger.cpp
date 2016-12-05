@@ -97,7 +97,8 @@ OptionEnumValueElement g_language_enumerators[] = {
 
 #define MODULE_WITH_FUNC                                                       \
   "{ "                                                                         \
-  "${module.file.basename}{`${function.name-with-args}${function.pc-offset}}}"
+  "${module.file.basename}{`${function.name-with-args}"                        \
+  "{${frame.no-debug}${function.pc-offset}}}}"
 #define FILE_AND_LINE "{ at ${line.file.basename}:${line.number}}"
 #define IS_OPTIMIZED "{${function.is-optimized} [opt]}"
 
@@ -113,8 +114,18 @@ OptionEnumValueElement g_language_enumerators[] = {
   "{\\nCompleted expression: ${thread.completed-expression}}"                  \
   "\\n"
 
+#define DEFAULT_THREAD_STOP_FORMAT                                             \
+  "thread #${thread.index}{, name = '${thread.name}'}"                         \
+  "{, queue = '${thread.queue}'}"                                              \
+  "{, activity = '${thread.info.activity.name}'}"                              \
+  "{, ${thread.info.trace_messages} messages}"                                 \
+  "{, stop reason = ${thread.stop-reason}}"                                    \
+  "{\\nReturn value: ${thread.return-value}}"                                  \
+  "{\\nCompleted expression: ${thread.completed-expression}}"                  \
+  "\\n"
+
 #define DEFAULT_FRAME_FORMAT                                                   \
-  "frame #${frame.index}: ${frame.pc}" MODULE_WITH_FUNC FILE_AND_LINE          \
+  "frame #${frame.index}:{ ${frame.no-debug}${frame.pc}}" MODULE_WITH_FUNC FILE_AND_LINE          \
       IS_OPTIMIZED "\\n"
 
 // Three parts to this disassembly format specification:
@@ -210,6 +221,10 @@ static PropertyDefinition g_properties[] = {
     {"thread-format", OptionValue::eTypeFormatEntity, true, 0,
      DEFAULT_THREAD_FORMAT, nullptr, "The default thread format string to use "
                                      "when displaying thread information."},
+    {"thread-stop-format", OptionValue::eTypeFormatEntity, true, 0,
+     DEFAULT_THREAD_STOP_FORMAT, nullptr, "The default thread format  "
+                                     "string to usewhen displaying thread "
+                                     "information as part of the stop display."},
     {"use-external-editor", OptionValue::eTypeBoolean, true, false, nullptr,
      nullptr, "Whether to use an external editor or not."},
     {"use-color", OptionValue::eTypeBoolean, true, true, nullptr, nullptr,
@@ -247,6 +262,7 @@ enum {
   ePropertyStopShowColumnAnsiSuffix,
   ePropertyTerminalWidth,
   ePropertyThreadFormat,
+  ePropertyThreadStopFormat,
   ePropertyUseExternalEditor,
   ePropertyUseColor,
   ePropertyAutoOneLineSummaries,
@@ -260,11 +276,9 @@ LoadPluginCallbackType Debugger::g_load_plugin_callback = nullptr;
 
 Error Debugger::SetPropertyValue(const ExecutionContext *exe_ctx,
                                  VarSetOperationType op,
-                                 const char *property_path, const char *value) {
-  bool is_load_script =
-      strcmp(property_path, "target.load-script-from-symbol-file") == 0;
-  bool is_escape_non_printables =
-      strcmp(property_path, "escape-non-printables") == 0;
+  llvm::StringRef property_path, llvm::StringRef value) {
+  bool is_load_script = (property_path == "target.load-script-from-symbol-file");
+  bool is_escape_non_printables = (property_path == "escape-non-printables");
   TargetSP target_sp;
   LoadScriptFromSymFile load_script_old_value;
   if (is_load_script && exe_ctx->GetTargetSP()) {
@@ -275,7 +289,7 @@ Error Debugger::SetPropertyValue(const ExecutionContext *exe_ctx,
   Error error(Properties::SetPropertyValue(exe_ctx, op, property_path, value));
   if (error.Success()) {
     // FIXME it would be nice to have "on-change" callbacks for properties
-    if (strcmp(property_path, g_properties[ePropertyPrompt].name) == 0) {
+    if (property_path == g_properties[ePropertyPrompt].name) {
       llvm::StringRef new_prompt = GetPrompt();
       std::string str = lldb_utility::ansi::FormatAnsiTerminalCodes(
           new_prompt, GetUseColor());
@@ -286,8 +300,7 @@ Error Debugger::SetPropertyValue(const ExecutionContext *exe_ctx,
           new Event(CommandInterpreter::eBroadcastBitResetPrompt,
                     new EventDataBytes(new_prompt)));
       GetCommandInterpreter().BroadcastEvent(prompt_change_event_sp);
-    } else if (strcmp(property_path, g_properties[ePropertyUseColor].name) ==
-               0) {
+    } else if (property_path == g_properties[ePropertyUseColor].name) {
       // use-color changed. Ping the prompt so it can reset the ansi terminal
       // codes.
       SetPrompt(GetPrompt());
@@ -304,7 +317,7 @@ Error Debugger::SetPropertyValue(const ExecutionContext *exe_ctx,
               stream_sp->Printf("%s\n", error.AsCString());
             }
             if (feedback_stream.GetSize())
-              stream_sp->Printf("%s", feedback_stream.GetData());
+              stream_sp->PutCString(feedback_stream.GetString());
           }
         }
       }
@@ -356,6 +369,11 @@ void Debugger::SetPrompt(llvm::StringRef p) {
 
 const FormatEntity::Entry *Debugger::GetThreadFormat() const {
   const uint32_t idx = ePropertyThreadFormat;
+  return m_collection_sp->GetPropertyAtIndexAsFormatEntity(nullptr, idx);
+}
+
+const FormatEntity::Entry *Debugger::GetThreadStopFormat() const {
+  const uint32_t idx = ePropertyThreadStopFormat;
   return m_collection_sp->GetPropertyAtIndexAsFormatEntity(nullptr, idx);
 }
 
@@ -1460,12 +1478,13 @@ void Debugger::HandleThreadEvent(const EventSP &event_sp) {
   // and all we do for that is just reprint the thread status for that thread.
   using namespace lldb;
   const uint32_t event_type = event_sp->GetType();
+  const bool stop_format = true;
   if (event_type == Thread::eBroadcastBitStackChanged ||
       event_type == Thread::eBroadcastBitThreadSelected) {
     ThreadSP thread_sp(
         Thread::ThreadEventData::GetThreadFromEvent(event_sp.get()));
     if (thread_sp) {
-      thread_sp->GetStatus(*GetAsyncOutputStream(), 0, 1, 1);
+      thread_sp->GetStatus(*GetAsyncOutputStream(), 0, 1, 1, stop_format);
     }
   }
 }
@@ -1516,7 +1535,7 @@ void Debugger::DefaultEventHandler() {
   bool done = false;
   while (!done) {
     EventSP event_sp;
-    if (listener_sp->WaitForEvent(std::chrono::microseconds(0), event_sp)) {
+    if (listener_sp->GetEvent(event_sp, llvm::None)) {
       if (event_sp) {
         Broadcaster *broadcaster = event_sp->GetBroadcaster();
         if (broadcaster) {
@@ -1597,7 +1616,7 @@ bool Debugger::StartEventHandlerThread() {
     // to wait an infinite amount of time for it (nullptr timeout as the first
     // parameter)
     lldb::EventSP event_sp;
-    listener_sp->WaitForEvent(std::chrono::microseconds(0), event_sp);
+    listener_sp->GetEvent(event_sp, llvm::None);
   }
   return m_event_handler_thread.IsJoinable();
 }

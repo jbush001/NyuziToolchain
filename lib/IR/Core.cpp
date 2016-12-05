@@ -14,7 +14,7 @@
 
 #include "llvm-c/Core.h"
 #include "llvm/ADT/StringSwitch.h"
-#include "llvm/Bitcode/ReaderWriter.h"
+#include "llvm/Bitcode/BitcodeReader.h"
 #include "llvm/IR/Attributes.h"
 #include "AttributeSetNode.h"
 #include "llvm/IR/CallSite.h"
@@ -578,8 +578,11 @@ LLVMTypeRef LLVMVectorType(LLVMTypeRef ElementType, unsigned ElementCount) {
   return wrap(VectorType::get(unwrap(ElementType), ElementCount));
 }
 
-LLVMTypeRef LLVMGetElementType(LLVMTypeRef Ty) {
-  return wrap(unwrap<SequentialType>(Ty)->getElementType());
+LLVMTypeRef LLVMGetElementType(LLVMTypeRef WrappedTy) {
+  auto *Ty = unwrap<Type>(WrappedTy);
+  if (auto *PTy = dyn_cast<PointerType>(Ty))
+    return wrap(PTy->getElementType());
+  return wrap(cast<SequentialType>(Ty)->getElementType());
 }
 
 unsigned LLVMGetArrayLength(LLVMTypeRef ArrayTy) {
@@ -1842,12 +1845,16 @@ void LLVMAddAttributeAtIndex(LLVMValueRef F, LLVMAttributeIndex Idx,
 
 unsigned LLVMGetAttributeCountAtIndex(LLVMValueRef F, LLVMAttributeIndex Idx) {
   auto *ASN = AttributeSetNode::get(unwrap<Function>(F)->getAttributes(), Idx);
+  if (!ASN)
+    return 0;
   return ASN->getNumAttributes();
 }
 
 void LLVMGetAttributesAtIndex(LLVMValueRef F, LLVMAttributeIndex Idx,
                               LLVMAttributeRef *Attrs) {
   auto *ASN = AttributeSetNode::get(unwrap<Function>(F)->getAttributes(), Idx);
+  if (!ASN)
+    return;
   for (auto A: make_range(ASN->begin(), ASN->end()))
     *Attrs++ = wrap(A);
 }
@@ -2173,6 +2180,8 @@ unsigned LLVMGetCallSiteAttributeCount(LLVMValueRef C,
                                        LLVMAttributeIndex Idx) {
   auto CS = CallSite(unwrap<Instruction>(C));
   auto *ASN = AttributeSetNode::get(CS.getAttributes(), Idx);
+  if (!ASN)
+    return 0;
   return ASN->getNumAttributes();
 }
 
@@ -2180,6 +2189,8 @@ void LLVMGetCallSiteAttributes(LLVMValueRef C, LLVMAttributeIndex Idx,
                                LLVMAttributeRef *Attrs) {
   auto CS = CallSite(unwrap<Instruction>(C));
   auto *ASN = AttributeSetNode::get(CS.getAttributes(), Idx);
+  if (!ASN)
+    return;
   for (auto A: make_range(ASN->begin(), ASN->end()))
     *Attrs++ = wrap(A);
 }

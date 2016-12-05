@@ -54,14 +54,13 @@ private:
   void addReservedSymbols();
   void addInputSec(InputSectionBase<ELFT> *S);
   void createSections();
-  void forEachRelSec(std::function<void(InputSectionBase<ELFT> &,
-                                        const typename ELFT::Shdr &)> Fn);
+  void forEachRelSec(std::function<void(InputSectionBase<ELFT> &)> Fn);
   void sortSections();
   void finalizeSections();
   void addPredefinedSections();
-  bool needsGot();
 
   std::vector<Phdr> createPhdrs();
+  void addPtArmExid(std::vector<Phdr> &Phdrs);
   void assignAddresses();
   void assignFileOffsets();
   void assignFileOffsetsBinary();
@@ -77,13 +76,14 @@ private:
 
   std::unique_ptr<FileOutputBuffer> Buffer;
 
-  std::vector<OutputSectionBase<ELFT> *> OutputSections;
+  std::vector<OutputSectionBase *> OutputSections;
   OutputSectionFactory<ELFT> Factory;
 
   void addRelIpltSymbols();
   void addStartEndSymbols();
-  void addStartStopSymbols(OutputSectionBase<ELFT> *Sec);
-  OutputSectionBase<ELFT> *findSection(StringRef Name);
+  void addStartStopSymbols(OutputSectionBase *Sec);
+  uintX_t getEntryAddr();
+  OutputSectionBase *findSection(StringRef Name);
 
   std::vector<Phdr> Phdrs;
 
@@ -118,8 +118,7 @@ StringRef elf::getOutputSectionName(StringRef Name) {
 }
 
 template <class ELFT> void elf::reportDiscarded(InputSectionBase<ELFT> *IS) {
-  if (!Config->PrintGcSections || !IS || IS == &InputSection<ELFT>::Discarded ||
-      IS->Live)
+  if (!Config->PrintGcSections)
     return;
   errs() << "removing unused section from '" << IS->Name << "' in file '"
          << IS->getFile()->getName() << "'\n";
@@ -131,22 +130,38 @@ template <class ELFT> static bool needsInterpSection() {
          !Script<ELFT>::X->ignoreInterpSection();
 }
 
-template <class ELFT> void elf::writeResult() {
-  Writer<ELFT>().run();
-}
+template <class ELFT> void elf::writeResult() { Writer<ELFT>().run(); }
 
 // The main function of the writer.
 template <class ELFT> void Writer<ELFT>::run() {
+  // Create linker-synthesized sections such as .got or .plt.
+  // Such sections are of type input section.
   createSyntheticSections();
-  addReservedSymbols();
 
+  // We need to create some reserved symbols such as _end. Create them.
+  if (!Config->Relocatable)
+    addReservedSymbols();
+
+  // Some architectures use small displacements for jump instructions.
+  // It is linker's responsibility to create thunks containing long
+  // jump instructions if jump targets are too far. Create thunks.
   if (Target->NeedsThunks)
     forEachRelSec(createThunks<ELFT>);
 
+  // Create output sections.
   Script<ELFT>::X->OutputSections = &OutputSections;
   if (ScriptConfig->HasSections) {
-    Script<ELFT>::X->createSections(Factory);
+    // If linker script contains SECTIONS commands, let it create sections.
+    Script<ELFT>::X->processCommands(Factory);
+
+    // Linker scripts may have left some input sections unassigned.
+    // Assign such sections using the default rule.
+    Script<ELFT>::X->addOrphanSections(Factory);
   } else {
+    // If linker script does not contain SECTIONS commands, create
+    // output sections by default rules. We still need to give the
+    // linker script a chance to run, because it might contain
+    // non-SECTIONS commands such as ASSERT.
     createSections();
     Script<ELFT>::X->processCommands(Factory);
   }
@@ -154,16 +169,26 @@ template <class ELFT> void Writer<ELFT>::run() {
   if (Config->Discard != DiscardPolicy::All)
     copyLocalSymbols();
 
+  // Now that we have a complete set of output sections. This function
+  // completes section contents. For example, we need to add strings
+  // to the string table, and add entries to .got and .plt.
+  // finalizeSections does that.
   finalizeSections();
-  if (HasError)
+  if (ErrorCount)
     return;
 
   if (Config->Relocatable) {
     assignFileOffsets();
   } else {
-    Phdrs = Script<ELFT>::X->hasPhdrsCommands() ? Script<ELFT>::X->createPhdrs()
-                                                : createPhdrs();
-    fixHeaders();
+    // Binary output does not have PHDRS.
+    if (!Config->OFormatBinary) {
+      Phdrs = Script<ELFT>::X->hasPhdrsCommands()
+                  ? Script<ELFT>::X->createPhdrs()
+                  : createPhdrs();
+      addPtArmExid(Phdrs);
+      fixHeaders();
+    }
+
     if (ScriptConfig->HasSections) {
       Script<ELFT>::X->assignAddresses(Phdrs);
     } else {
@@ -180,8 +205,9 @@ template <class ELFT> void Writer<ELFT>::run() {
     fixAbsoluteSymbols();
   }
 
+  // Write the result down to a file.
   openFile();
-  if (HasError)
+  if (ErrorCount)
     return;
   if (!Config->OFormatBinary) {
     writeHeader();
@@ -189,17 +215,21 @@ template <class ELFT> void Writer<ELFT>::run() {
   } else {
     writeSectionsBinary();
   }
+
+  // Backfill .note.gnu.build-id section content. This is done at last
+  // because the content is usually a hash value of the entire output file.
   writeBuildId();
-  if (HasError)
+  if (ErrorCount)
     return;
+
   if (auto EC = Buffer->commit())
     error(EC, "failed to write to the output file");
-  if (Config->ExitEarly) {
-    // Flush the output streams and exit immediately.  A full shutdown is a good
-    // test that we are keeping track of all allocated memory, but actually
-    // freeing it is a waste of time in a regular linker run.
+
+  // Flush the output streams and exit immediately. A full shutdown
+  // is a good test that we are keeping track of all allocated memory,
+  // but actually freeing it is a waste of time in a regular linker run.
+  if (Config->ExitEarly)
     exitLld(0);
-  }
 }
 
 // Initialize Out<ELFT> members.
@@ -211,86 +241,119 @@ template <class ELFT> void Writer<ELFT>::createSyntheticSections() {
   // Create singleton output sections.
   Out<ELFT>::Bss =
       make<OutputSection<ELFT>>(".bss", SHT_NOBITS, SHF_ALLOC | SHF_WRITE);
-  Out<ELFT>::DynStrTab = make<StringTableSection<ELFT>>(".dynstr", true);
-  Out<ELFT>::Dynamic = make<DynamicSection<ELFT>>();
+  In<ELFT>::DynStrTab = make<StringTableSection<ELFT>>(".dynstr", true);
+  In<ELFT>::Dynamic = make<DynamicSection<ELFT>>();
   Out<ELFT>::EhFrame = make<EhOutputSection<ELFT>>();
-  Out<ELFT>::Got = make<GotSection<ELFT>>();
-  Out<ELFT>::Plt = make<PltSection<ELFT>>();
-  Out<ELFT>::RelaDyn = make<RelocationSection<ELFT>>(
+  In<ELFT>::RelaDyn = make<RelocationSection<ELFT>>(
       Config->Rela ? ".rela.dyn" : ".rel.dyn", Config->ZCombreloc);
-  Out<ELFT>::ShStrTab = make<StringTableSection<ELFT>>(".shstrtab", false);
-  Out<ELFT>::VerSym = make<VersionTableSection<ELFT>>();
-  Out<ELFT>::VerNeed = make<VersionNeedSection<ELFT>>();
+  In<ELFT>::ShStrTab = make<StringTableSection<ELFT>>(".shstrtab", false);
 
-  Out<ELFT>::ElfHeader = make<OutputSectionBase<ELFT>>("", 0, SHF_ALLOC);
-  Out<ELFT>::ElfHeader->setSize(sizeof(Elf_Ehdr));
-  Out<ELFT>::ProgramHeaders = make<OutputSectionBase<ELFT>>("", 0, SHF_ALLOC);
+  Out<ELFT>::ElfHeader = make<OutputSectionBase>("", 0, SHF_ALLOC);
+  Out<ELFT>::ElfHeader->Size = sizeof(Elf_Ehdr);
+  Out<ELFT>::ProgramHeaders = make<OutputSectionBase>("", 0, SHF_ALLOC);
   Out<ELFT>::ProgramHeaders->updateAlignment(sizeof(uintX_t));
 
   if (needsInterpSection<ELFT>()) {
-    In<ELFT>::Interp = make<InterpSection<ELFT>>();
+    In<ELFT>::Interp = createInterpSection<ELFT>();
     Symtab<ELFT>::X->Sections.push_back(In<ELFT>::Interp);
   } else {
     In<ELFT>::Interp = nullptr;
   }
 
-  if (!Symtab<ELFT>::X->getSharedFiles().empty() || Config->Pic) {
-    Out<ELFT>::DynSymTab =
-        make<SymbolTableSection<ELFT>>(*Out<ELFT>::DynStrTab);
-  }
+  if (!Config->Relocatable)
+    Symtab<ELFT>::X->Sections.push_back(createCommentSection<ELFT>());
 
-  if (Config->EhFrameHdr)
-    Out<ELFT>::EhFrameHdr = make<EhFrameHeader<ELFT>>();
-
-  if (Config->GnuHash)
-    Out<ELFT>::GnuHashTab = make<GnuHashTableSection<ELFT>>();
-  if (Config->SysvHash)
-    Out<ELFT>::HashTab = make<HashTableSection<ELFT>>();
-  if (Config->GdbIndex)
-    Out<ELFT>::GdbIndex = make<GdbIndexSection<ELFT>>();
-
-  Out<ELFT>::GotPlt = make<GotPltSection<ELFT>>();
-  Out<ELFT>::RelaPlt = make<RelocationSection<ELFT>>(
-      Config->Rela ? ".rela.plt" : ".rel.plt", false /*Sort*/);
   if (Config->Strip != StripPolicy::All) {
-    Out<ELFT>::StrTab = make<StringTableSection<ELFT>>(".strtab", false);
-    Out<ELFT>::SymTab = make<SymbolTableSection<ELFT>>(*Out<ELFT>::StrTab);
+    In<ELFT>::StrTab = make<StringTableSection<ELFT>>(".strtab", false);
+    In<ELFT>::SymTab = make<SymbolTableSection<ELFT>>(*In<ELFT>::StrTab);
   }
 
-  if (Config->EMachine == EM_MIPS && !Config->Shared) {
-    // This is a MIPS specific section to hold a space within the data segment
-    // of executable file which is pointed to by the DT_MIPS_RLD_MAP entry.
-    // See "Dynamic section" in Chapter 5 in the following document:
-    // ftp://www.linux-mips.org/pub/linux/mips/doc/ABI/mipsabi.pdf
-    Out<ELFT>::MipsRldMap = make<OutputSection<ELFT>>(".rld_map", SHT_PROGBITS,
-                                                      SHF_ALLOC | SHF_WRITE);
-    Out<ELFT>::MipsRldMap->setSize(sizeof(uintX_t));
-    Out<ELFT>::MipsRldMap->updateAlignment(sizeof(uintX_t));
-  }
-  if (!Config->VersionDefinitions.empty())
-    Out<ELFT>::VerDef = make<VersionDefinitionSection<ELFT>>();
-
-  // Initialize linker generated sections
-  if (Config->BuildId == BuildIdKind::Fast)
-    In<ELFT>::BuildId = make<BuildIdFastHash<ELFT>>();
-  else if (Config->BuildId == BuildIdKind::Md5)
-    In<ELFT>::BuildId = make<BuildIdMd5<ELFT>>();
-  else if (Config->BuildId == BuildIdKind::Sha1)
-    In<ELFT>::BuildId = make<BuildIdSha1<ELFT>>();
-  else if (Config->BuildId == BuildIdKind::Uuid)
-    In<ELFT>::BuildId = make<BuildIdUuid<ELFT>>();
-  else if (Config->BuildId == BuildIdKind::Hexstring)
-    In<ELFT>::BuildId = make<BuildIdHexstring<ELFT>>();
-  else
-    In<ELFT>::BuildId = nullptr;
-
-  if (In<ELFT>::BuildId)
+  if (Config->BuildId != BuildIdKind::None) {
+    In<ELFT>::BuildId = make<BuildIdSection<ELFT>>();
     Symtab<ELFT>::X->Sections.push_back(In<ELFT>::BuildId);
+  }
 
-  CommonSection<ELFT> *Common = make<CommonSection<ELFT>>();
+  InputSection<ELFT> *Common = createCommonSection<ELFT>();
   if (!Common->Data.empty()) {
     In<ELFT>::Common = Common;
     Symtab<ELFT>::X->Sections.push_back(Common);
+  }
+
+  // Add MIPS-specific sections.
+  bool HasDynSymTab = !Symtab<ELFT>::X->getSharedFiles().empty() || Config->Pic;
+  if (Config->EMachine == EM_MIPS) {
+    if (!Config->Shared && HasDynSymTab) {
+      In<ELFT>::MipsRldMap = make<MipsRldMapSection<ELFT>>();
+      Symtab<ELFT>::X->Sections.push_back(In<ELFT>::MipsRldMap);
+    }
+    if (auto *Sec = MipsAbiFlagsSection<ELFT>::create())
+      Symtab<ELFT>::X->Sections.push_back(Sec);
+    if (auto *Sec = MipsOptionsSection<ELFT>::create())
+      Symtab<ELFT>::X->Sections.push_back(Sec);
+    if (auto *Sec = MipsReginfoSection<ELFT>::create())
+      Symtab<ELFT>::X->Sections.push_back(Sec);
+  }
+
+  if (HasDynSymTab) {
+    In<ELFT>::DynSymTab = make<SymbolTableSection<ELFT>>(*In<ELFT>::DynStrTab);
+    Symtab<ELFT>::X->Sections.push_back(In<ELFT>::DynSymTab);
+
+    In<ELFT>::VerSym = make<VersionTableSection<ELFT>>();
+    Symtab<ELFT>::X->Sections.push_back(In<ELFT>::VerSym);
+
+    if (!Config->VersionDefinitions.empty()) {
+      In<ELFT>::VerDef = make<VersionDefinitionSection<ELFT>>();
+      Symtab<ELFT>::X->Sections.push_back(In<ELFT>::VerDef);
+    }
+
+    In<ELFT>::VerNeed = make<VersionNeedSection<ELFT>>();
+    Symtab<ELFT>::X->Sections.push_back(In<ELFT>::VerNeed);
+
+    if (Config->GnuHash) {
+      In<ELFT>::GnuHashTab = make<GnuHashTableSection<ELFT>>();
+      Symtab<ELFT>::X->Sections.push_back(In<ELFT>::GnuHashTab);
+    }
+
+    if (Config->SysvHash) {
+      In<ELFT>::HashTab = make<HashTableSection<ELFT>>();
+      Symtab<ELFT>::X->Sections.push_back(In<ELFT>::HashTab);
+    }
+
+    Symtab<ELFT>::X->Sections.push_back(In<ELFT>::Dynamic);
+    Symtab<ELFT>::X->Sections.push_back(In<ELFT>::DynStrTab);
+    Symtab<ELFT>::X->Sections.push_back(In<ELFT>::RelaDyn);
+  }
+
+  // Add .got. MIPS' .got is so different from the other archs,
+  // it has its own class.
+  if (Config->EMachine == EM_MIPS) {
+    In<ELFT>::MipsGot = make<MipsGotSection<ELFT>>();
+    Symtab<ELFT>::X->Sections.push_back(In<ELFT>::MipsGot);
+  } else {
+    In<ELFT>::Got = make<GotSection<ELFT>>();
+    Symtab<ELFT>::X->Sections.push_back(In<ELFT>::Got);
+  }
+
+  In<ELFT>::GotPlt = make<GotPltSection<ELFT>>();
+  Symtab<ELFT>::X->Sections.push_back(In<ELFT>::GotPlt);
+
+  if (Config->GdbIndex) {
+    In<ELFT>::GdbIndex = make<GdbIndexSection<ELFT>>();
+    Symtab<ELFT>::X->Sections.push_back(In<ELFT>::GdbIndex);
+  }
+
+  // We always need to add rel[a].plt to output if it has entries.
+  // Even for static linking it can contain R_[*]_IRELATIVE relocations.
+  In<ELFT>::RelaPlt = make<RelocationSection<ELFT>>(
+      Config->Rela ? ".rela.plt" : ".rel.plt", false /*Sort*/);
+  Symtab<ELFT>::X->Sections.push_back(In<ELFT>::RelaPlt);
+
+  In<ELFT>::Plt = make<PltSection<ELFT>>();
+  Symtab<ELFT>::X->Sections.push_back(In<ELFT>::Plt);
+
+  if (Config->EhFrameHdr) {
+    In<ELFT>::EhFrameHdr = make<EhFrameHeader<ELFT>>();
+    Symtab<ELFT>::X->Sections.push_back(In<ELFT>::EhFrameHdr);
   }
 }
 
@@ -346,31 +409,29 @@ template <class ELFT> static bool includeInSymtab(const SymbolBody &B) {
 // Local symbols are not in the linker's symbol table. This function scans
 // each object file's symbol table to copy local symbols to the output.
 template <class ELFT> void Writer<ELFT>::copyLocalSymbols() {
-  if (!Out<ELFT>::SymTab)
+  if (!In<ELFT>::SymTab)
     return;
   for (elf::ObjectFile<ELFT> *F : Symtab<ELFT>::X->getObjectFiles()) {
-    StringRef StrTab = F->getStringTable();
     for (SymbolBody *B : F->getLocalSymbols()) {
       if (!B->IsLocal)
-        fatal(getFilename(F) +
+        fatal(toString(F) +
               ": broken object: getLocalSymbols returns a non-local symbol");
       auto *DR = dyn_cast<DefinedRegular<ELFT>>(B);
+
       // No reason to keep local undefined symbol in symtab.
       if (!DR)
         continue;
       if (!includeInSymtab<ELFT>(*B))
         continue;
-      if (B->getNameOffset() >= StrTab.size())
-        fatal(getFilename(F) + ": invalid symbol name offset");
-      StringRef SymName(StrTab.data() + B->getNameOffset());
+
       InputSectionBase<ELFT> *Sec = DR->Section;
-      if (!shouldKeepInSymtab<ELFT>(Sec, SymName, *B))
+      if (!shouldKeepInSymtab<ELFT>(Sec, B->getName(), *B))
         continue;
-      ++Out<ELFT>::SymTab->NumLocals;
+      ++In<ELFT>::SymTab->NumLocals;
       if (Config->Relocatable)
-        B->DynsymIndex = Out<ELFT>::SymTab->NumLocals;
-      F->KeptLocalSyms.push_back(
-          std::make_pair(DR, Out<ELFT>::SymTab->StrTabSec.addString(SymName)));
+        B->DynsymIndex = In<ELFT>::SymTab->NumLocals;
+      F->KeptLocalSyms.push_back(std::make_pair(
+          DR, In<ELFT>::SymTab->StrTabSec.addString(B->getName())));
     }
   }
 }
@@ -391,22 +452,25 @@ static int getPPC64SectionRank(StringRef SectionName) {
       .Default(1);
 }
 
-template <class ELFT>
-bool elf::isRelroSection(const OutputSectionBase<ELFT> *Sec) {
+template <class ELFT> bool elf::isRelroSection(const OutputSectionBase *Sec) {
   if (!Config->ZRelro)
     return false;
-  typename ELFT::uint Flags = Sec->getFlags();
+  uint64_t Flags = Sec->Flags;
   if (!(Flags & SHF_ALLOC) || !(Flags & SHF_WRITE))
     return false;
   if (Flags & SHF_TLS)
     return true;
-  uint32_t Type = Sec->getType();
+  uint32_t Type = Sec->Type;
   if (Type == SHT_INIT_ARRAY || Type == SHT_FINI_ARRAY ||
       Type == SHT_PREINIT_ARRAY)
     return true;
-  if (Sec == Out<ELFT>::GotPlt)
+  if (Sec == In<ELFT>::GotPlt->OutSec)
     return Config->ZNow;
-  if (Sec == Out<ELFT>::Dynamic || Sec == Out<ELFT>::Got)
+  if (Sec == In<ELFT>::Dynamic->OutSec)
+    return true;
+  if (In<ELFT>::Got && Sec == In<ELFT>::Got->OutSec)
+    return true;
+  if (In<ELFT>::MipsGot && Sec == In<ELFT>::MipsGot->OutSec)
     return true;
   StringRef S = Sec->getName();
   return S == ".data.rel.ro" || S == ".ctors" || S == ".dtors" || S == ".jcr" ||
@@ -414,8 +478,8 @@ bool elf::isRelroSection(const OutputSectionBase<ELFT> *Sec) {
 }
 
 template <class ELFT>
-static bool compareSectionsNonScript(const OutputSectionBase<ELFT> *A,
-                                     const OutputSectionBase<ELFT> *B) {
+static bool compareSectionsNonScript(const OutputSectionBase *A,
+                                     const OutputSectionBase *B) {
   // Put .interp first because some loaders want to see that section
   // on the first page of the executable file when loaded into memory.
   bool AIsInterp = A->getName() == ".interp";
@@ -423,14 +487,10 @@ static bool compareSectionsNonScript(const OutputSectionBase<ELFT> *A,
   if (AIsInterp != BIsInterp)
     return AIsInterp;
 
-  typedef typename ELFT::uint uintX_t;
-  uintX_t AFlags = A->getFlags();
-  uintX_t BFlags = B->getFlags();
-
   // Allocatable sections go first to reduce the total PT_LOAD size and
   // so debug info doesn't change addresses in actual code.
-  bool AIsAlloc = AFlags & SHF_ALLOC;
-  bool BIsAlloc = BFlags & SHF_ALLOC;
+  bool AIsAlloc = A->Flags & SHF_ALLOC;
+  bool BIsAlloc = B->Flags & SHF_ALLOC;
   if (AIsAlloc != BIsAlloc)
     return AIsAlloc;
 
@@ -441,19 +501,19 @@ static bool compareSectionsNonScript(const OutputSectionBase<ELFT> *A,
 
   // We want the read only sections first so that they go in the PT_LOAD
   // covering the program headers at the start of the file.
-  bool AIsWritable = AFlags & SHF_WRITE;
-  bool BIsWritable = BFlags & SHF_WRITE;
+  bool AIsWritable = A->Flags & SHF_WRITE;
+  bool BIsWritable = B->Flags & SHF_WRITE;
   if (AIsWritable != BIsWritable)
     return BIsWritable;
 
-  if (!ScriptConfig->HasSections) {
+  if (!Config->SingleRoRx) {
     // For a corresponding reason, put non exec sections first (the program
     // header PT_LOAD is not executable).
     // We only do that if we are not using linker scripts, since with linker
     // scripts ro and rx sections are in the same PT_LOAD, so their relative
-    // order is not important.
-    bool AIsExec = AFlags & SHF_EXECINSTR;
-    bool BIsExec = BFlags & SHF_EXECINSTR;
+    // order is not important. The same applies for -no-rosegment.
+    bool AIsExec = A->Flags & SHF_EXECINSTR;
+    bool BIsExec = B->Flags & SHF_EXECINSTR;
     if (AIsExec != BIsExec)
       return BIsExec;
   }
@@ -464,8 +524,8 @@ static bool compareSectionsNonScript(const OutputSectionBase<ELFT> *A,
   // PT_LOAD, so stick TLS sections directly before R/W sections. The TLS NOBITS
   // sections are placed here as they don't take up virtual address space in the
   // PT_LOAD.
-  bool AIsTls = AFlags & SHF_TLS;
-  bool BIsTls = BFlags & SHF_TLS;
+  bool AIsTls = A->Flags & SHF_TLS;
+  bool BIsTls = B->Flags & SHF_TLS;
   if (AIsTls != BIsTls)
     return AIsTls;
 
@@ -474,14 +534,14 @@ static bool compareSectionsNonScript(const OutputSectionBase<ELFT> *A,
   // them is a p_memsz that is larger than p_filesz. Seeing that it
   // zeros the end of the PT_LOAD, so that has to correspond to the
   // nobits sections.
-  bool AIsNoBits = A->getType() == SHT_NOBITS;
-  bool BIsNoBits = B->getType() == SHT_NOBITS;
+  bool AIsNoBits = A->Type == SHT_NOBITS;
+  bool BIsNoBits = B->Type == SHT_NOBITS;
   if (AIsNoBits != BIsNoBits)
     return BIsNoBits;
 
   // We place RelRo section before plain r/w ones.
-  bool AIsRelRo = isRelroSection(A);
-  bool BIsRelRo = isRelroSection(B);
+  bool AIsRelRo = isRelroSection<ELFT>(A);
+  bool BIsRelRo = isRelroSection<ELFT>(B);
   if (AIsRelRo != BIsRelRo)
     return AIsRelRo;
 
@@ -496,8 +556,8 @@ static bool compareSectionsNonScript(const OutputSectionBase<ELFT> *A,
 
 // Output section ordering is determined by this function.
 template <class ELFT>
-static bool compareSections(const OutputSectionBase<ELFT> *A,
-                            const OutputSectionBase<ELFT> *B) {
+static bool compareSections(const OutputSectionBase *A,
+                            const OutputSectionBase *B) {
   // For now, put sections mentioned in a linker script first.
   int AIndex = Script<ELFT>::X->getSectionIndex(A->getName());
   int BIndex = Script<ELFT>::X->getSectionIndex(B->getName());
@@ -509,11 +569,7 @@ static bool compareSections(const OutputSectionBase<ELFT> *A,
   if (AInScript)
     return AIndex < BIndex;
 
-  return compareSectionsNonScript(A, B);
-}
-
-template <class ELFT> static bool isDiscarded(InputSectionBase<ELFT> *S) {
-  return !S || S == &InputSection<ELFT>::Discarded || !S->Live;
+  return compareSectionsNonScript<ELFT>(A, B);
 }
 
 // Program header entry
@@ -523,25 +579,46 @@ PhdrEntry<ELFT>::PhdrEntry(unsigned Type, unsigned Flags) {
   H.p_flags = Flags;
 }
 
-template <class ELFT> void PhdrEntry<ELFT>::add(OutputSectionBase<ELFT> *Sec) {
+template <class ELFT> void PhdrEntry<ELFT>::add(OutputSectionBase *Sec) {
   Last = Sec;
   if (!First)
     First = Sec;
-  H.p_align = std::max<typename ELFT::uint>(H.p_align, Sec->getAlignment());
+  H.p_align = std::max<typename ELFT::uint>(H.p_align, Sec->Addralign);
   if (H.p_type == PT_LOAD)
     Sec->FirstInPtLoad = First;
 }
 
 template <class ELFT>
-static Symbol *
-addOptionalSynthetic(StringRef Name, OutputSectionBase<ELFT> *Sec,
-                     typename ELFT::uint Val, uint8_t StOther = STV_HIDDEN) {
+static Symbol *addOptionalSynthetic(StringRef Name, OutputSectionBase *Sec,
+                                    typename ELFT::uint Val,
+                                    uint8_t StOther = STV_HIDDEN) {
   SymbolBody *S = Symtab<ELFT>::X->find(Name);
   if (!S)
     return nullptr;
   if (!S->isUndefined() && !S->isShared())
     return S->symbol();
   return Symtab<ELFT>::X->addSynthetic(Name, Sec, Val, StOther);
+}
+
+template <class ELFT>
+static Symbol *addRegular(StringRef Name, InputSectionBase<ELFT> *Sec,
+                          typename ELFT::uint Value) {
+  // The linker generated symbols are added as STB_WEAK to allow user defined
+  // ones to override them.
+  return Symtab<ELFT>::X->addRegular(Name, STV_HIDDEN, STT_NOTYPE, Value,
+                                     /*Size=*/0, STB_WEAK, Sec,
+                                     /*File=*/nullptr);
+}
+
+template <class ELFT>
+static Symbol *addOptionalRegular(StringRef Name, InputSectionBase<ELFT> *IS,
+                                  typename ELFT::uint Value) {
+  SymbolBody *S = Symtab<ELFT>::X->find(Name);
+  if (!S)
+    return nullptr;
+  if (!S->isUndefined() && !S->isShared())
+    return S->symbol();
+  return addRegular(Name, IS, Value);
 }
 
 // The beginning and the ending of .rel[a].plt section are marked
@@ -551,39 +628,37 @@ addOptionalSynthetic(StringRef Name, OutputSectionBase<ELFT> *Sec,
 // need these symbols, since IRELATIVE relocs are resolved through GOT
 // and PLT. For details, see http://www.airs.com/blog/archives/403.
 template <class ELFT> void Writer<ELFT>::addRelIpltSymbols() {
-  if (Out<ELFT>::DynSymTab || !Out<ELFT>::RelaPlt)
+  if (In<ELFT>::DynSymTab)
     return;
   StringRef S = Config->Rela ? "__rela_iplt_start" : "__rel_iplt_start";
-  addOptionalSynthetic(S, Out<ELFT>::RelaPlt, 0);
+  addOptionalRegular<ELFT>(S, In<ELFT>::RelaPlt, 0);
 
   S = Config->Rela ? "__rela_iplt_end" : "__rel_iplt_end";
-  addOptionalSynthetic(S, Out<ELFT>::RelaPlt,
-                       DefinedSynthetic<ELFT>::SectionEnd);
+  addOptionalRegular<ELFT>(S, In<ELFT>::RelaPlt, -1);
 }
 
 // The linker is expected to define some symbols depending on
 // the linking result. This function defines such symbols.
 template <class ELFT> void Writer<ELFT>::addReservedSymbols() {
-  if (Config->EMachine == EM_MIPS && !Config->Relocatable) {
+  if (Config->EMachine == EM_MIPS) {
     // Define _gp for MIPS. st_value of _gp symbol will be updated by Writer
     // so that it points to an absolute address which is relative to GOT.
+    // Default offset is 0x7ff0.
     // See "Global Data Symbols" in Chapter 6 in the following document:
     // ftp://www.linux-mips.org/pub/linux/mips/doc/ABI/mipsabi.pdf
-    Symtab<ELFT>::X->addSynthetic("_gp", Out<ELFT>::Got, MipsGPOffset,
-                                  STV_HIDDEN);
+    ElfSym<ELFT>::MipsGp = addRegular("_gp", In<ELFT>::MipsGot, 0x7ff0)->body();
 
     // On MIPS O32 ABI, _gp_disp is a magic symbol designates offset between
     // start of function and 'gp' pointer into GOT.
-    Symbol *Sym =
-        addOptionalSynthetic("_gp_disp", Out<ELFT>::Got, MipsGPOffset);
-    if (Sym)
-      ElfSym<ELFT>::MipsGpDisp = Sym->body();
+    if (Symbol *S = addOptionalRegular("_gp_disp", In<ELFT>::MipsGot, 0))
+      ElfSym<ELFT>::MipsGpDisp = cast<DefinedRegular<ELFT>>(S->body());
 
     // The __gnu_local_gp is a magic symbol equal to the current value of 'gp'
     // pointer. This symbol is used in the code generated by .cpload pseudo-op
     // in case of using -mno-shared option.
     // https://sourceware.org/ml/binutils/2004-12/msg00094.html
-    addOptionalSynthetic("__gnu_local_gp", Out<ELFT>::Got, MipsGPOffset);
+    if (Symbol *S = addOptionalRegular("__gnu_local_gp", In<ELFT>::MipsGot, 0))
+      ElfSym<ELFT>::MipsLocalGp = cast<DefinedRegular<ELFT>>(S->body());
   }
 
   // In the assembly for 32 bit x86 the _GLOBAL_OFFSET_TABLE_ symbol
@@ -598,8 +673,7 @@ template <class ELFT> void Writer<ELFT>::addReservedSymbols() {
   // an undefined symbol in the .o files.
   // Given that the symbol is effectively unused, we just create a dummy
   // hidden one to avoid the undefined symbol error.
-  if (!Config->Relocatable)
-    Symtab<ELFT>::X->addIgnored("_GLOBAL_OFFSET_TABLE_");
+  Symtab<ELFT>::X->addIgnored("_GLOBAL_OFFSET_TABLE_");
 
   // __tls_get_addr is defined by the dynamic linker for dynamic ELFs. For
   // static linking the linker is required to optimize away any references to
@@ -607,7 +681,7 @@ template <class ELFT> void Writer<ELFT>::addReservedSymbols() {
   // to avoid the undefined symbol error. As usual special cases are ARM and
   // MIPS - the libc for these targets defines __tls_get_addr itself because
   // there are no TLS optimizations for these targets.
-  if (!Out<ELFT>::DynSymTab &&
+  if (!In<ELFT>::DynSymTab &&
       (Config->EMachine != EM_MIPS && Config->EMachine != EM_ARM))
     Symtab<ELFT>::X->addIgnored("__tls_get_addr");
 
@@ -637,23 +711,54 @@ template <class ELFT> void Writer<ELFT>::addReservedSymbols() {
 
 // Sort input sections by section name suffixes for
 // __attribute__((init_priority(N))).
-template <class ELFT> static void sortInitFini(OutputSectionBase<ELFT> *S) {
+template <class ELFT> static void sortInitFini(OutputSectionBase *S) {
   if (S)
     reinterpret_cast<OutputSection<ELFT> *>(S)->sortInitFini();
 }
 
 // Sort input sections by the special rule for .ctors and .dtors.
-template <class ELFT> static void sortCtorsDtors(OutputSectionBase<ELFT> *S) {
+template <class ELFT> static void sortCtorsDtors(OutputSectionBase *S) {
   if (S)
     reinterpret_cast<OutputSection<ELFT> *>(S)->sortCtorsDtors();
 }
 
+// Sort input sections using the list provided by --symbol-ordering-file.
+template <class ELFT>
+static void sortBySymbolsOrder(ArrayRef<OutputSectionBase *> V) {
+  if (Config->SymbolOrderingFile.empty())
+    return;
+
+  // Build sections order map from symbols list.
+  DenseMap<InputSectionBase<ELFT> *, unsigned> SectionsOrder;
+  for (elf::ObjectFile<ELFT> *File : Symtab<ELFT>::X->getObjectFiles()) {
+    for (SymbolBody *Body : File->getSymbols()) {
+      auto *D = dyn_cast<DefinedRegular<ELFT>>(Body);
+      if (!D || !D->Section)
+        continue;
+      auto It =
+          Config->SymbolOrderingFile.find(CachedHashString(Body->getName()));
+      if (It == Config->SymbolOrderingFile.end())
+        continue;
+
+      auto It2 = SectionsOrder.insert({D->Section, It->second});
+      if (!It2.second)
+        It2.first->second = std::min(It->second, It2.first->second);
+    }
+  }
+
+  for (OutputSectionBase *Base : V)
+    if (OutputSection<ELFT> *Sec = dyn_cast<OutputSection<ELFT>>(Base))
+      Sec->sort([&](InputSection<ELFT> *S) {
+        auto It = SectionsOrder.find(S);
+        return It == SectionsOrder.end() ? UINT32_MAX : It->second;
+      });
+}
+
 template <class ELFT>
 void Writer<ELFT>::forEachRelSec(
-    std::function<void(InputSectionBase<ELFT> &, const typename ELFT::Shdr &)>
-        Fn) {
+    std::function<void(InputSectionBase<ELFT> &)> Fn) {
   for (InputSectionBase<ELFT> *IS : Symtab<ELFT>::X->Sections) {
-    if (isDiscarded(IS))
+    if (!IS->Live)
       continue;
     // Scan all relocations. Each relocation goes through a series
     // of tests to determine if it needs special treatment, such as
@@ -662,24 +767,21 @@ void Writer<ELFT>::forEachRelSec(
     // processed by InputSection::relocateNonAlloc.
     if (!(IS->Flags & SHF_ALLOC))
       continue;
-    if (auto *S = dyn_cast<InputSection<ELFT>>(IS)) {
-      for (const Elf_Shdr *RelSec : S->RelocSections)
-        Fn(*S, *RelSec);
-      continue;
-    }
-    if (auto *S = dyn_cast<EhInputSection<ELFT>>(IS))
-      if (S->RelocSection)
-        Fn(*S, *S->RelocSection);
+    if (isa<InputSection<ELFT>>(IS) || isa<EhInputSection<ELFT>>(IS))
+      Fn(*IS);
   }
 }
 
 template <class ELFT>
 void Writer<ELFT>::addInputSec(InputSectionBase<ELFT> *IS) {
-  if (isDiscarded(IS)) {
+  if (!IS)
+    return;
+
+  if (!IS->Live) {
     reportDiscarded(IS);
     return;
   }
-  OutputSectionBase<ELFT> *Sec;
+  OutputSectionBase *Sec;
   bool IsNew;
   StringRef OutsecName = getOutputSectionName(IS->Name);
   std::tie(Sec, IsNew) = Factory.create(IS, OutsecName);
@@ -692,16 +794,37 @@ template <class ELFT> void Writer<ELFT>::createSections() {
   for (InputSectionBase<ELFT> *IS : Symtab<ELFT>::X->Sections)
     addInputSec(IS);
 
-  sortInitFini(findSection(".init_array"));
-  sortInitFini(findSection(".fini_array"));
-  sortCtorsDtors(findSection(".ctors"));
-  sortCtorsDtors(findSection(".dtors"));
+  sortBySymbolsOrder<ELFT>(OutputSections);
+  sortInitFini<ELFT>(findSection(".init_array"));
+  sortInitFini<ELFT>(findSection(".fini_array"));
+  sortCtorsDtors<ELFT>(findSection(".ctors"));
+  sortCtorsDtors<ELFT>(findSection(".dtors"));
 
-  for (OutputSectionBase<ELFT> *Sec : OutputSections)
+  for (OutputSectionBase *Sec : OutputSections)
     Sec->assignOffsets();
 }
 
+template <class ELFT>
+static bool canSharePtLoad(const OutputSectionBase &S1,
+                           const OutputSectionBase &S2) {
+  if (!(S1.Flags & SHF_ALLOC) || !(S2.Flags & SHF_ALLOC))
+    return false;
+
+  bool S1IsWrite = S1.Flags & SHF_WRITE;
+  bool S2IsWrite = S2.Flags & SHF_WRITE;
+  if (S1IsWrite != S2IsWrite)
+    return false;
+
+  if (!S1IsWrite)
+    return true; // RO and RX share a PT_LOAD with linker scripts.
+  return (S1.Flags & SHF_EXECINSTR) == (S2.Flags & SHF_EXECINSTR);
+}
+
 template <class ELFT> void Writer<ELFT>::sortSections() {
+  // Don't sort if using -r. It is not necessary and we want to preserve the
+  // relative order for SHF_LINK_ORDER sections.
+  if (Config->Relocatable)
+    return;
   if (!ScriptConfig->HasSections) {
     std::stable_sort(OutputSections.begin(), OutputSections.end(),
                      compareSectionsNonScript<ELFT>);
@@ -729,25 +852,82 @@ template <class ELFT> void Writer<ELFT>::sortSections() {
   // The way we define an order then is:
   // *  First put script sections at the start and sort the script and
   //    non-script sections independently.
-  // *  Move each non-script section to the first position where it
-  //    compareSectionsNonScript less than the successor.
+  // *  Move each non-script section to its preferred position. We try
+  //    to put each section in the last position where it it can share
+  //    a PT_LOAD.
 
   std::stable_sort(OutputSections.begin(), OutputSections.end(),
                    compareSections<ELFT>);
 
   auto I = OutputSections.begin();
   auto E = OutputSections.end();
-  auto NonScriptI = std::find_if(I, E, [](OutputSectionBase<ELFT> *S) {
-    return Script<ELFT>::X->getSectionIndex(S->getName()) == INT_MAX;
-  });
+  auto NonScriptI =
+      std::find_if(OutputSections.begin(), E, [](OutputSectionBase *S) {
+        return Script<ELFT>::X->getSectionIndex(S->getName()) == INT_MAX;
+      });
   while (NonScriptI != E) {
-    auto FirstGreater =
-        std::find_if(I, NonScriptI, [&](OutputSectionBase<ELFT> *S) {
-          return compareSectionsNonScript<ELFT>(*NonScriptI, S);
+    auto BestPos = std::max_element(
+        I, NonScriptI, [&](OutputSectionBase *&A, OutputSectionBase *&B) {
+          bool ACanSharePtLoad = canSharePtLoad<ELFT>(**NonScriptI, *A);
+          bool BCanSharePtLoad = canSharePtLoad<ELFT>(**NonScriptI, *B);
+          if (ACanSharePtLoad != BCanSharePtLoad)
+            return BCanSharePtLoad;
+
+          bool ACmp = compareSectionsNonScript<ELFT>(*NonScriptI, A);
+          bool BCmp = compareSectionsNonScript<ELFT>(*NonScriptI, B);
+          if (ACmp != BCmp)
+            return BCmp; // FIXME: missing test
+
+          size_t PosA = &A - &OutputSections[0];
+          size_t PosB = &B - &OutputSections[0];
+          return ACmp ? PosA > PosB : PosA < PosB;
         });
-    std::rotate(FirstGreater, NonScriptI, NonScriptI + 1);
+
+    // max_element only returns NonScriptI if the range is empty. If the range
+    // is not empty we should consider moving the the element forward one
+    // position.
+    if (BestPos != NonScriptI &&
+        !compareSectionsNonScript<ELFT>(*NonScriptI, *BestPos))
+      ++BestPos;
+    std::rotate(BestPos, NonScriptI, NonScriptI + 1);
     ++NonScriptI;
-    ++I;
+  }
+
+  Script<ELFT>::X->adjustSectionsAfterSorting();
+}
+
+template <class ELFT>
+static void
+finalizeSynthetic(const std::vector<SyntheticSection<ELFT> *> &Sections) {
+  for (SyntheticSection<ELFT> *SS : Sections)
+    if (SS && SS->OutSec && !SS->empty()) {
+      SS->finalize();
+      SS->OutSec->Size = 0;
+      SS->OutSec->assignOffsets();
+    }
+}
+
+// We need to add input synthetic sections early in createSyntheticSections()
+// to make them visible from linkescript side. But not all sections are always
+// required to be in output. For example we don't need dynamic section content
+// sometimes. This function filters out such unused sections from output.
+template <class ELFT>
+static void removeUnusedSyntheticSections(std::vector<OutputSectionBase *> &V) {
+  // Input synthetic sections are placed after all regular ones. We iterate over
+  // them all and exit at first non-synthetic.
+  for (InputSectionBase<ELFT> *S : llvm::reverse(Symtab<ELFT>::X->Sections)) {
+    SyntheticSection<ELFT> *SS = dyn_cast<SyntheticSection<ELFT>>(S);
+    if (!SS)
+      return;
+    if (!SS->empty() || !SS->OutSec)
+      continue;
+
+    OutputSection<ELFT> *OutSec = cast<OutputSection<ELFT>>(SS->OutSec);
+    OutSec->Sections.erase(
+        std::find(OutSec->Sections.begin(), OutSec->Sections.end(), SS));
+    // If there is no other sections in output section, remove it from output.
+    if (OutSec->Sections.empty())
+      V.erase(std::find(V.begin(), V.end(), OutSec));
   }
 }
 
@@ -763,7 +943,7 @@ template <class ELFT> void Writer<ELFT>::finalizeSections() {
   // addresses of each section by section name. Add such symbols.
   if (!Config->Relocatable) {
     addStartEndSymbols();
-    for (OutputSectionBase<ELFT> *Sec : OutputSections)
+    for (OutputSectionBase *Sec : OutputSections)
       addStartStopSymbols(Sec);
   }
 
@@ -771,9 +951,8 @@ template <class ELFT> void Writer<ELFT>::finalizeSections() {
   // It should be okay as no one seems to care about the type.
   // Even the author of gold doesn't remember why gold behaves that way.
   // https://sourceware.org/ml/binutils/2002-03/msg00360.html
-  if (Out<ELFT>::DynSymTab)
-    Symtab<ELFT>::X->addSynthetic("_DYNAMIC", Out<ELFT>::Dynamic, 0,
-                                  STV_HIDDEN);
+  if (In<ELFT>::DynSymTab)
+    addRegular("_DYNAMIC", In<ELFT>::Dynamic, 0);
 
   // Define __rel[a]_iplt_{start,end} symbols if needed.
   addRelIpltSymbols();
@@ -794,126 +973,72 @@ template <class ELFT> void Writer<ELFT>::finalizeSections() {
 
     if (!includeInSymtab<ELFT>(*Body))
       continue;
-    if (Out<ELFT>::SymTab)
-      Out<ELFT>::SymTab->addSymbol(Body);
+    if (In<ELFT>::SymTab)
+      In<ELFT>::SymTab->addSymbol(Body);
 
-    if (Out<ELFT>::DynSymTab && S->includeInDynsym()) {
-      Out<ELFT>::DynSymTab->addSymbol(Body);
+    if (In<ELFT>::DynSymTab && S->includeInDynsym()) {
+      In<ELFT>::DynSymTab->addSymbol(Body);
       if (auto *SS = dyn_cast<SharedSymbol<ELFT>>(Body))
         if (SS->file()->isNeeded())
-          Out<ELFT>::VerNeed->addSymbol(SS);
+          In<ELFT>::VerNeed->addSymbol(SS);
     }
   }
 
   // Do not proceed if there was an undefined symbol.
-  if (HasError)
+  if (ErrorCount)
     return;
 
   // So far we have added sections from input object files.
   // This function adds linker-created Out<ELFT>::* sections.
   addPredefinedSections();
+  removeUnusedSyntheticSections<ELFT>(OutputSections);
 
   sortSections();
 
   unsigned I = 1;
-  for (OutputSectionBase<ELFT> *Sec : OutputSections) {
+  for (OutputSectionBase *Sec : OutputSections) {
     Sec->SectionIndex = I++;
-    Sec->setSHName(Out<ELFT>::ShStrTab->addString(Sec->getName()));
+    Sec->ShName = In<ELFT>::ShStrTab->addString(Sec->getName());
   }
-
-  // Finalizers fix each section's size.
-  // .dynsym is finalized early since that may fill up .gnu.hash.
-  if (Out<ELFT>::DynSymTab)
-    Out<ELFT>::DynSymTab->finalize();
 
   // Fill other section headers. The dynamic table is finalized
   // at the end because some tags like RELSZ depend on result
   // of finalizing other sections.
-  for (OutputSectionBase<ELFT> *Sec : OutputSections)
-    if (Sec != Out<ELFT>::Dynamic)
-      Sec->finalize();
+  for (OutputSectionBase *Sec : OutputSections)
+    Sec->finalize();
 
-  if (Out<ELFT>::DynSymTab)
-    Out<ELFT>::Dynamic->finalize();
-
-  // Now that all output offsets are fixed. Finalize mergeable sections
-  // to fix their maps from input offsets to output offsets.
-  for (OutputSectionBase<ELFT> *Sec : OutputSections)
-    Sec->finalizePieces();
+  // Dynamic section must be the last one in this list and dynamic
+  // symbol table section (DynSymTab) must be the first one.
+  finalizeSynthetic<ELFT>(
+      {In<ELFT>::DynSymTab, In<ELFT>::GnuHashTab, In<ELFT>::HashTab,
+       In<ELFT>::SymTab, In<ELFT>::ShStrTab, In<ELFT>::StrTab, In<ELFT>::VerDef,
+       In<ELFT>::DynStrTab, In<ELFT>::GdbIndex, In<ELFT>::Got,
+       In<ELFT>::MipsGot, In<ELFT>::GotPlt, In<ELFT>::RelaDyn,
+       In<ELFT>::RelaPlt, In<ELFT>::Plt, In<ELFT>::EhFrameHdr, In<ELFT>::VerSym,
+       In<ELFT>::VerNeed, In<ELFT>::Dynamic});
 }
 
-template <class ELFT> bool Writer<ELFT>::needsGot() {
-  if (!Out<ELFT>::Got->empty())
-    return true;
-
-  // We add the .got section to the result for dynamic MIPS target because
-  // its address and properties are mentioned in the .dynamic section.
-  if (Config->EMachine == EM_MIPS && !Config->Relocatable)
-    return true;
-
-  // If we have a relocation that is relative to GOT (such as GOTOFFREL),
-  // we need to emit a GOT even if it's empty.
-  return Out<ELFT>::Got->HasGotOffRel;
-}
-
-// This function add Out<ELFT>::* sections to OutputSections.
 template <class ELFT> void Writer<ELFT>::addPredefinedSections() {
-  auto Add = [&](OutputSectionBase<ELFT> *OS) {
-    if (OS)
-      OutputSections.push_back(OS);
-  };
+  if (Out<ELFT>::Bss->Size > 0)
+    OutputSections.push_back(Out<ELFT>::Bss);
 
-  // This order is not the same as the final output order
-  // because we sort the sections using their attributes below.
-  if (Out<ELFT>::GdbIndex && Out<ELFT>::DebugInfo)
-    Add(Out<ELFT>::GdbIndex);
-  Add(Out<ELFT>::SymTab);
-  Add(Out<ELFT>::ShStrTab);
-  Add(Out<ELFT>::StrTab);
-  if (Out<ELFT>::DynSymTab) {
-    Add(Out<ELFT>::DynSymTab);
+  auto OS = dyn_cast_or_null<OutputSection<ELFT>>(findSection(".ARM.exidx"));
+  if (OS && !OS->Sections.empty() && !Config->Relocatable)
+    OS->addSection(make<ARMExidxSentinelSection<ELFT>>());
 
-    bool HasVerNeed = Out<ELFT>::VerNeed->getNeedNum() != 0;
-    if (Out<ELFT>::VerDef || HasVerNeed)
-      Add(Out<ELFT>::VerSym);
-    Add(Out<ELFT>::VerDef);
-    if (HasVerNeed)
-      Add(Out<ELFT>::VerNeed);
-
-    Add(Out<ELFT>::GnuHashTab);
-    Add(Out<ELFT>::HashTab);
-    Add(Out<ELFT>::Dynamic);
-    Add(Out<ELFT>::DynStrTab);
-    if (Out<ELFT>::RelaDyn->hasRelocs())
-      Add(Out<ELFT>::RelaDyn);
-    Add(Out<ELFT>::MipsRldMap);
-  }
-
-  // We always need to add rel[a].plt to output if it has entries.
-  // Even during static linking it can contain R_[*]_IRELATIVE relocations.
-  if (Out<ELFT>::RelaPlt && Out<ELFT>::RelaPlt->hasRelocs())
-    Add(Out<ELFT>::RelaPlt);
-
-  if (needsGot())
-    Add(Out<ELFT>::Got);
-  if (Out<ELFT>::GotPlt && !Out<ELFT>::GotPlt->empty())
-    Add(Out<ELFT>::GotPlt);
-  if (!Out<ELFT>::Plt->empty())
-    Add(Out<ELFT>::Plt);
-  if (!Out<ELFT>::EhFrame->empty())
-    Add(Out<ELFT>::EhFrameHdr);
-  if (Out<ELFT>::Bss->getSize() > 0)
-    Add(Out<ELFT>::Bss);
+  addInputSec(In<ELFT>::SymTab);
+  addInputSec(In<ELFT>::ShStrTab);
+  addInputSec(In<ELFT>::StrTab);
 }
 
 // The linker is expected to define SECNAME_start and SECNAME_end
 // symbols for a few sections. This function defines them.
 template <class ELFT> void Writer<ELFT>::addStartEndSymbols() {
-  auto Define = [&](StringRef Start, StringRef End,
-                    OutputSectionBase<ELFT> *OS) {
+  auto Define = [&](StringRef Start, StringRef End, OutputSectionBase *OS) {
     // These symbols resolve to the image base if the section does not exist.
-    addOptionalSynthetic(Start, OS, 0);
-    addOptionalSynthetic(End, OS, OS ? DefinedSynthetic<ELFT>::SectionEnd : 0);
+    addOptionalSynthetic<ELFT>(Start, OS, 0);
+    addOptionalSynthetic<ELFT>(End, OS,
+                               OS ? DefinedSynthetic<ELFT>::SectionEnd : 0);
   };
 
   Define("__preinit_array_start", "__preinit_array_end",
@@ -921,7 +1046,7 @@ template <class ELFT> void Writer<ELFT>::addStartEndSymbols() {
   Define("__init_array_start", "__init_array_end", Out<ELFT>::InitArray);
   Define("__fini_array_start", "__fini_array_end", Out<ELFT>::FiniArray);
 
-  if (OutputSectionBase<ELFT> *Sec = findSection(".ARM.exidx"))
+  if (OutputSectionBase *Sec = findSection(".ARM.exidx"))
     Define("__exidx_start", "__exidx_end", Sec);
 }
 
@@ -931,31 +1056,31 @@ template <class ELFT> void Writer<ELFT>::addStartEndSymbols() {
 // respectively. This is not requested by the ELF standard, but GNU ld and
 // gold provide the feature, and used by many programs.
 template <class ELFT>
-void Writer<ELFT>::addStartStopSymbols(OutputSectionBase<ELFT> *Sec) {
+void Writer<ELFT>::addStartStopSymbols(OutputSectionBase *Sec) {
   StringRef S = Sec->getName();
   if (!isValidCIdentifier(S))
     return;
-  addOptionalSynthetic(Saver.save("__start_" + S), Sec, 0, STV_DEFAULT);
-  addOptionalSynthetic(Saver.save("__stop_" + S), Sec,
-                       DefinedSynthetic<ELFT>::SectionEnd, STV_DEFAULT);
+  addOptionalSynthetic<ELFT>(Saver.save("__start_" + S), Sec, 0, STV_DEFAULT);
+  addOptionalSynthetic<ELFT>(Saver.save("__stop_" + S), Sec,
+                             DefinedSynthetic<ELFT>::SectionEnd, STV_DEFAULT);
 }
 
 template <class ELFT>
-OutputSectionBase<ELFT> *Writer<ELFT>::findSection(StringRef Name) {
-  for (OutputSectionBase<ELFT> *Sec : OutputSections)
+OutputSectionBase *Writer<ELFT>::findSection(StringRef Name) {
+  for (OutputSectionBase *Sec : OutputSections)
     if (Sec->getName() == Name)
       return Sec;
   return nullptr;
 }
 
-template <class ELFT> static bool needsPtLoad(OutputSectionBase<ELFT> *Sec) {
-  if (!(Sec->getFlags() & SHF_ALLOC))
+template <class ELFT> static bool needsPtLoad(OutputSectionBase *Sec) {
+  if (!(Sec->Flags & SHF_ALLOC))
     return false;
 
   // Don't allocate VA space for TLS NOBITS sections. The PT_TLS PHDR is
   // responsible for allocating space for them, not the PT_LOAD that
   // contains the TLS initialization image.
-  if (Sec->getFlags() & SHF_TLS && Sec->getType() == SHT_NOBITS)
+  if (Sec->Flags & SHF_TLS && Sec->Type == SHT_NOBITS)
     return false;
   return true;
 }
@@ -966,7 +1091,9 @@ template <class ELFT> static bool needsPtLoad(OutputSectionBase<ELFT> *Sec) {
 // cannot create a PT_LOAD there.
 template <class ELFT>
 static typename ELFT::uint computeFlags(typename ELFT::uint F) {
-  if (ScriptConfig->HasSections && !(F & PF_W))
+  if (Config->OMagic)
+    return PF_R | PF_W | PF_X;
+  if (Config->SingleRoRx && !(F & PF_W))
     return F | PF_X;
   return F;
 }
@@ -985,7 +1112,7 @@ template <class ELFT> std::vector<PhdrEntry<ELFT>> Writer<ELFT>::createPhdrs() {
   Hdr.add(Out<ELFT>::ProgramHeaders);
 
   // PT_INTERP must be the second entry if exists.
-  if (OutputSectionBase<ELFT> *Sec = findSection(".interp")) {
+  if (OutputSectionBase *Sec = findSection(".interp")) {
     Phdr &Hdr = *AddHdr(PT_INTERP, Sec->getPhdrFlags());
     Hdr.add(Sec);
   }
@@ -1001,18 +1128,17 @@ template <class ELFT> std::vector<PhdrEntry<ELFT>> Writer<ELFT>::createPhdrs() {
   Phdr TlsHdr(PT_TLS, PF_R);
   Phdr RelRo(PT_GNU_RELRO, PF_R);
   Phdr Note(PT_NOTE, PF_R);
-  Phdr ARMExidx(PT_ARM_EXIDX, PF_R);
-  for (OutputSectionBase<ELFT> *Sec : OutputSections) {
-    if (!(Sec->getFlags() & SHF_ALLOC))
+  for (OutputSectionBase *Sec : OutputSections) {
+    if (!(Sec->Flags & SHF_ALLOC))
       break;
 
     // If we meet TLS section then we create TLS header
     // and put all TLS sections inside for further use when
     // assign addresses.
-    if (Sec->getFlags() & SHF_TLS)
+    if (Sec->Flags & SHF_TLS)
       TlsHdr.add(Sec);
 
-    if (!needsPtLoad(Sec))
+    if (!needsPtLoad<ELFT>(Sec))
       continue;
 
     // Segments are contiguous memory regions that has the same attributes
@@ -1028,12 +1154,10 @@ template <class ELFT> std::vector<PhdrEntry<ELFT>> Writer<ELFT>::createPhdrs() {
 
     Load->add(Sec);
 
-    if (isRelroSection(Sec))
+    if (isRelroSection<ELFT>(Sec))
       RelRo.add(Sec);
-    if (Sec->getType() == SHT_NOTE)
+    if (Sec->Type == SHT_NOTE)
       Note.add(Sec);
-    if (Config->EMachine == EM_ARM && Sec->getType() == SHT_ARM_EXIDX)
-      ARMExidx.add(Sec);
   }
 
   // Add the TLS segment unless it's empty.
@@ -1041,9 +1165,9 @@ template <class ELFT> std::vector<PhdrEntry<ELFT>> Writer<ELFT>::createPhdrs() {
     Ret.push_back(std::move(TlsHdr));
 
   // Add an entry for .dynamic.
-  if (Out<ELFT>::DynSymTab) {
-    Phdr &H = *AddHdr(PT_DYNAMIC, Out<ELFT>::Dynamic->getPhdrFlags());
-    H.add(Out<ELFT>::Dynamic);
+  if (In<ELFT>::DynSymTab) {
+    Phdr &H = *AddHdr(PT_DYNAMIC, In<ELFT>::Dynamic->OutSec->getPhdrFlags());
+    H.add(In<ELFT>::Dynamic->OutSec);
   }
 
   // PT_GNU_RELRO includes all sections that should be marked as
@@ -1052,22 +1176,19 @@ template <class ELFT> std::vector<PhdrEntry<ELFT>> Writer<ELFT>::createPhdrs() {
     Ret.push_back(std::move(RelRo));
 
   // PT_GNU_EH_FRAME is a special section pointing on .eh_frame_hdr.
-  if (!Out<ELFT>::EhFrame->empty() && Out<ELFT>::EhFrameHdr) {
-    Phdr &Hdr = *AddHdr(PT_GNU_EH_FRAME, Out<ELFT>::EhFrameHdr->getPhdrFlags());
-    Hdr.add(Out<ELFT>::EhFrameHdr);
+  if (!Out<ELFT>::EhFrame->empty() && In<ELFT>::EhFrameHdr) {
+    Phdr &Hdr =
+        *AddHdr(PT_GNU_EH_FRAME, In<ELFT>::EhFrameHdr->OutSec->getPhdrFlags());
+    Hdr.add(In<ELFT>::EhFrameHdr->OutSec);
   }
 
   // PT_OPENBSD_RANDOMIZE specifies the location and size of a part of the
   // memory image of the program that must be filled with random data before any
   // code in the object is executed.
-  if (OutputSectionBase<ELFT> *Sec = findSection(".openbsd.randomdata")) {
+  if (OutputSectionBase *Sec = findSection(".openbsd.randomdata")) {
     Phdr &Hdr = *AddHdr(PT_OPENBSD_RANDOMIZE, Sec->getPhdrFlags());
     Hdr.add(Sec);
   }
-
-  // PT_ARM_EXIDX is the ARM EHABI equivalent of PT_GNU_EH_FRAME
-  if (ARMExidx.First)
-    Ret.push_back(std::move(ARMExidx));
 
   // PT_GNU_STACK is a special section to tell the loader to make the
   // pages for the stack non-executable.
@@ -1089,6 +1210,22 @@ template <class ELFT> std::vector<PhdrEntry<ELFT>> Writer<ELFT>::createPhdrs() {
   return Ret;
 }
 
+template <class ELFT>
+void Writer<ELFT>::addPtArmExid(std::vector<PhdrEntry<ELFT>> &Phdrs) {
+  if (Config->EMachine != EM_ARM)
+    return;
+  auto I = std::find_if(
+      OutputSections.begin(), OutputSections.end(),
+      [](OutputSectionBase *Sec) { return Sec->Type == SHT_ARM_EXIDX; });
+  if (I == OutputSections.end())
+    return;
+
+  // PT_ARM_EXIDX is the ARM EHABI equivalent of PT_GNU_EH_FRAME
+  Phdr ARMExidx(PT_ARM_EXIDX, PF_R);
+  ARMExidx.add(*I);
+  Phdrs.push_back(ARMExidx);
+}
+
 // The first section of each PT_LOAD and the first section after PT_GNU_RELRO
 // have to be page aligned so that the dynamic linker can set the permissions.
 template <class ELFT> void Writer<ELFT>::fixSectionAlignments() {
@@ -1105,8 +1242,8 @@ template <class ELFT> void Writer<ELFT>::fixSectionAlignments() {
     auto I = std::find(OutputSections.begin(), End, P.Last);
     if (I == End || (I + 1) == End)
       continue;
-    OutputSectionBase<ELFT> *Sec = *(I + 1);
-    if (needsPtLoad(Sec))
+    OutputSectionBase *Sec = *(I + 1);
+    if (needsPtLoad<ELFT>(Sec))
       Sec->PageAlign = true;
   }
 }
@@ -1115,19 +1252,21 @@ template <class ELFT> void Writer<ELFT>::fixSectionAlignments() {
 // sections. These are special, we do not include them into output sections
 // list, but have them to simplify the code.
 template <class ELFT> void Writer<ELFT>::fixHeaders() {
-  uintX_t BaseVA = ScriptConfig->HasSections ? 0 : Config->ImageBase;
-  Out<ELFT>::ElfHeader->setVA(BaseVA);
-  uintX_t Off = Out<ELFT>::ElfHeader->getSize();
-  Out<ELFT>::ProgramHeaders->setVA(Off + BaseVA);
-  Out<ELFT>::ProgramHeaders->setSize(sizeof(Elf_Phdr) * Phdrs.size());
+  Out<ELFT>::ProgramHeaders->Size = sizeof(Elf_Phdr) * Phdrs.size();
+  // If the script has SECTIONS, assignAddresses will compute the values.
+  if (ScriptConfig->HasSections)
+    return;
+  uintX_t BaseVA = Config->ImageBase;
+  Out<ELFT>::ElfHeader->Addr = BaseVA;
+  Out<ELFT>::ProgramHeaders->Addr = BaseVA + Out<ELFT>::ElfHeader->Size;
 }
 
 // Assign VAs (addresses at run-time) to output sections.
 template <class ELFT> void Writer<ELFT>::assignAddresses() {
   uintX_t VA = Config->ImageBase + getHeaderSize<ELFT>();
   uintX_t ThreadBssOffset = 0;
-  for (OutputSectionBase<ELFT> *Sec : OutputSections) {
-    uintX_t Alignment = Sec->getAlignment();
+  for (OutputSectionBase *Sec : OutputSections) {
+    uintX_t Alignment = Sec->Addralign;
     if (Sec->PageAlign)
       Alignment = std::max<uintX_t>(Alignment, Config->MaxPageSize);
 
@@ -1136,15 +1275,15 @@ template <class ELFT> void Writer<ELFT>::assignAddresses() {
       VA = I->second;
 
     // We only assign VAs to allocated sections.
-    if (needsPtLoad(Sec)) {
+    if (needsPtLoad<ELFT>(Sec)) {
       VA = alignTo(VA, Alignment);
-      Sec->setVA(VA);
-      VA += Sec->getSize();
-    } else if (Sec->getFlags() & SHF_TLS && Sec->getType() == SHT_NOBITS) {
+      Sec->Addr = VA;
+      VA += Sec->Size;
+    } else if (Sec->Flags & SHF_TLS && Sec->Type == SHT_NOBITS) {
       uintX_t TVA = VA + ThreadBssOffset;
       TVA = alignTo(TVA, Alignment);
-      Sec->setVA(TVA);
-      ThreadBssOffset = TVA - VA + Sec->getSize();
+      Sec->Addr = TVA;
+      ThreadBssOffset = TVA - VA + Sec->Size;
     }
   }
 }
@@ -1154,13 +1293,13 @@ template <class ELFT> void Writer<ELFT>::assignAddresses() {
 // virtual address (modulo the page size) so that the loader can load
 // executables without any address adjustment.
 template <class ELFT, class uintX_t>
-static uintX_t getFileAlignment(uintX_t Off, OutputSectionBase<ELFT> *Sec) {
-  uintX_t Alignment = Sec->getAlignment();
+static uintX_t getFileAlignment(uintX_t Off, OutputSectionBase *Sec) {
+  uintX_t Alignment = Sec->Addralign;
   if (Sec->PageAlign)
     Alignment = std::max<uintX_t>(Alignment, Config->MaxPageSize);
   Off = alignTo(Off, Alignment);
 
-  OutputSectionBase<ELFT> *First = Sec->FirstInPtLoad;
+  OutputSectionBase *First = Sec->FirstInPtLoad;
   // If the section is not in a PT_LOAD, we have no other constraint.
   if (!First)
     return Off;
@@ -1168,38 +1307,38 @@ static uintX_t getFileAlignment(uintX_t Off, OutputSectionBase<ELFT> *Sec) {
   // If two sections share the same PT_LOAD the file offset is calculated using
   // this formula: Off2 = Off1 + (VA2 - VA1).
   if (Sec == First)
-    return alignTo(Off, Target->MaxPageSize, Sec->getVA());
-  return First->getFileOffset() + Sec->getVA() - First->getVA();
+    return alignTo(Off, Target->MaxPageSize, Sec->Addr);
+  return First->Offset + Sec->Addr - First->Addr;
 }
 
 template <class ELFT, class uintX_t>
-void setOffset(OutputSectionBase<ELFT> *Sec, uintX_t &Off) {
-  if (Sec->getType() == SHT_NOBITS) {
-    Sec->setFileOffset(Off);
+void setOffset(OutputSectionBase *Sec, uintX_t &Off) {
+  if (Sec->Type == SHT_NOBITS) {
+    Sec->Offset = Off;
     return;
   }
 
   Off = getFileAlignment<ELFT>(Off, Sec);
-  Sec->setFileOffset(Off);
-  Off += Sec->getSize();
+  Sec->Offset = Off;
+  Off += Sec->Size;
 }
 
 template <class ELFT> void Writer<ELFT>::assignFileOffsetsBinary() {
   uintX_t Off = 0;
-  for (OutputSectionBase<ELFT> *Sec : OutputSections)
-    if (Sec->getFlags() & SHF_ALLOC)
-      setOffset(Sec, Off);
+  for (OutputSectionBase *Sec : OutputSections)
+    if (Sec->Flags & SHF_ALLOC)
+      setOffset<ELFT>(Sec, Off);
   FileSize = alignTo(Off, sizeof(uintX_t));
 }
 
 // Assign file offsets to output sections.
 template <class ELFT> void Writer<ELFT>::assignFileOffsets() {
   uintX_t Off = 0;
-  setOffset(Out<ELFT>::ElfHeader, Off);
-  setOffset(Out<ELFT>::ProgramHeaders, Off);
+  setOffset<ELFT>(Out<ELFT>::ElfHeader, Off);
+  setOffset<ELFT>(Out<ELFT>::ProgramHeaders, Off);
 
-  for (OutputSectionBase<ELFT> *Sec : OutputSections)
-    setOffset(Sec, Off);
+  for (OutputSectionBase *Sec : OutputSections)
+    setOffset<ELFT>(Sec, Off);
 
   SectionHeaderOff = alignTo(Off, sizeof(uintX_t));
   FileSize = SectionHeaderOff + (OutputSections.size() + 1) * sizeof(Elf_Shdr);
@@ -1210,15 +1349,15 @@ template <class ELFT> void Writer<ELFT>::assignFileOffsets() {
 template <class ELFT> void Writer<ELFT>::setPhdrs() {
   for (Phdr &P : Phdrs) {
     Elf_Phdr &H = P.H;
-    OutputSectionBase<ELFT> *First = P.First;
-    OutputSectionBase<ELFT> *Last = P.Last;
+    OutputSectionBase *First = P.First;
+    OutputSectionBase *Last = P.Last;
     if (First) {
-      H.p_filesz = Last->getFileOff() - First->getFileOff();
-      if (Last->getType() != SHT_NOBITS)
-        H.p_filesz += Last->getSize();
-      H.p_memsz = Last->getVA() + Last->getSize() - First->getVA();
-      H.p_offset = First->getFileOff();
-      H.p_vaddr = First->getVA();
+      H.p_filesz = Last->Offset - First->Offset;
+      if (Last->Type != SHT_NOBITS)
+        H.p_filesz += Last->Size;
+      H.p_memsz = Last->Addr + Last->Size - First->Addr;
+      H.p_offset = First->Offset;
+      H.p_vaddr = First->Addr;
       if (!P.HasLMA)
         H.p_paddr = First->getLMA();
     }
@@ -1237,12 +1376,30 @@ template <class ELFT> void Writer<ELFT>::setPhdrs() {
   }
 }
 
-template <class ELFT> static typename ELFT::uint getEntryAddr() {
+// The entry point address is chosen in the following ways.
+//
+// 1. the '-e' entry command-line option;
+// 2. the ENTRY(symbol) command in a linker control script;
+// 3. the value of the symbol start, if present;
+// 4. the address of the first byte of the .text section, if present;
+// 5. the address 0.
+template <class ELFT> typename ELFT::uint Writer<ELFT>::getEntryAddr() {
+  // Case 1, 2 or 3
   if (Config->Entry.empty())
     return Config->EntryAddr;
   if (SymbolBody *B = Symtab<ELFT>::X->find(Config->Entry))
     return B->getVA<ELFT>();
-  warn("entry symbol " + Config->Entry + " not found, assuming 0");
+
+  // Case 4
+  if (OutputSectionBase *Sec = findSection(".text")) {
+    warn("cannot find entry symbol " + Config->Entry + "; defaulting to 0x" +
+         utohexstr(Sec->Addr));
+    return Sec->Addr;
+  }
+
+  // Case 5
+  warn("cannot find entry symbol " + Config->Entry +
+       "; not setting start address");
   return 0;
 }
 
@@ -1266,7 +1423,7 @@ static uint16_t getELFType() {
 template <class ELFT> void Writer<ELFT>::fixAbsoluteSymbols() {
   // __ehdr_start is the location of program headers.
   if (ElfSym<ELFT>::EhdrStart)
-    ElfSym<ELFT>::EhdrStart->Value = Out<ELFT>::ProgramHeaders->getVA();
+    ElfSym<ELFT>::EhdrStart->Value = Out<ELFT>::ProgramHeaders->Addr;
 
   auto Set = [](DefinedRegular<ELFT> *S1, DefinedRegular<ELFT> *S2, uintX_t V) {
     if (S1)
@@ -1290,6 +1447,16 @@ template <class ELFT> void Writer<ELFT>::fixAbsoluteSymbols() {
     else
       Set(ElfSym<ELFT>::Etext, ElfSym<ELFT>::Etext2, Val);
   }
+
+  // Setup MIPS _gp_disp/__gnu_local_gp symbols which should
+  // be equal to the _gp symbol's value.
+  if (Config->EMachine == EM_MIPS) {
+    uintX_t GpDisp = In<ELFT>::MipsGot->getGp() - In<ELFT>::MipsGot->getVA();
+    if (ElfSym<ELFT>::MipsGpDisp)
+      ElfSym<ELFT>::MipsGpDisp->Value = GpDisp;
+    if (ElfSym<ELFT>::MipsLocalGp)
+      ElfSym<ELFT>::MipsLocalGp->Value = GpDisp;
+  }
 }
 
 template <class ELFT> void Writer<ELFT>::writeHeader() {
@@ -1305,13 +1472,13 @@ template <class ELFT> void Writer<ELFT>::writeHeader() {
   EHdr->e_type = getELFType();
   EHdr->e_machine = Config->EMachine;
   EHdr->e_version = EV_CURRENT;
-  EHdr->e_entry = getEntryAddr<ELFT>();
+  EHdr->e_entry = getEntryAddr();
   EHdr->e_shoff = SectionHeaderOff;
   EHdr->e_ehsize = sizeof(Elf_Ehdr);
   EHdr->e_phnum = Phdrs.size();
   EHdr->e_shentsize = sizeof(Elf_Shdr);
   EHdr->e_shnum = OutputSections.size() + 1;
-  EHdr->e_shstrndx = Out<ELFT>::ShStrTab->SectionIndex;
+  EHdr->e_shstrndx = In<ELFT>::ShStrTab->OutSec->SectionIndex;
 
   if (Config->EMachine == EM_ARM)
     // We don't currently use any features incompatible with EF_ARM_EABI_VER5,
@@ -1333,8 +1500,8 @@ template <class ELFT> void Writer<ELFT>::writeHeader() {
 
   // Write the section header table. Note that the first table entry is null.
   auto *SHdrs = reinterpret_cast<Elf_Shdr *>(Buf + EHdr->e_shoff);
-  for (OutputSectionBase<ELFT> *Sec : OutputSections)
-    Sec->writeHeaderTo(++SHdrs);
+  for (OutputSectionBase *Sec : OutputSections)
+    Sec->writeHeaderTo<ELFT>(++SHdrs);
 }
 
 template <class ELFT> void Writer<ELFT>::openFile() {
@@ -1349,64 +1516,9 @@ template <class ELFT> void Writer<ELFT>::openFile() {
 
 template <class ELFT> void Writer<ELFT>::writeSectionsBinary() {
   uint8_t *Buf = Buffer->getBufferStart();
-  for (OutputSectionBase<ELFT> *Sec : OutputSections)
-    if (Sec->getFlags() & SHF_ALLOC)
-      Sec->writeTo(Buf + Sec->getFileOff());
-}
-
-// Convert the .ARM.exidx table entries that use relative PREL31 offsets to
-// Absolute addresses. This form is internal to LLD and is only used to
-// make reordering the table simpler.
-static void ARMExidxEntryPrelToAbs(uint8_t *Loc, uint64_t EntryVA) {
-  uint64_t Addr = Target->getImplicitAddend(Loc, R_ARM_PREL31) + EntryVA;
-  bool InlineEntry =
-      (read32le(Loc + 4) == 1 || (read32le(Loc + 4) & 0x80000000));
-  if (InlineEntry)
-    // Set flag in unused bit of code address so that when we convert back we
-    // know which table entries to leave alone.
-    Addr |= 0x1;
-  else
-    write32le(Loc + 4,
-              Target->getImplicitAddend(Loc + 4, R_ARM_PREL31) + EntryVA + 4);
-  write32le(Loc, Addr);
-}
-
-// Convert the .ARM.exidx table entries from the internal to LLD form using
-// absolute addresses back to relative PREL31 offsets.
-static void ARMExidxEntryAbsToPrel(uint8_t *Loc, uint64_t EntryVA) {
-  uint64_t Off = read32le(Loc) - EntryVA;
-  // ARMExidxEntryPreltoAbs sets bit 0 if the table entry has inline data
-  // that is not an address
-  bool InlineEntry = Off & 0x1;
-  Target->relocateOne(Loc, R_ARM_PREL31, Off & ~0x1);
-  if (!InlineEntry)
-    Target->relocateOne(Loc + 4, R_ARM_PREL31,
-                        read32le(Loc + 4) - (EntryVA + 4));
-}
-
-// The table formed by the .ARM.exidx OutputSection has entries with two
-// 4-byte fields:
-// | PREL31 offset to function | Action to take for function |
-// The table must be ordered in ascending virtual address of the functions
-// identified by the first field of the table. Instead of using the
-// SHF_LINK_ORDER dependency to reorder the sections prior to relocation we
-// sort the table post-relocation.
-// Ref: Exception handling ABI for the ARM architecture
-static void sortARMExidx(uint8_t *Buf, uint64_t OutSecVA, uint64_t Size) {
-  struct ARMExidxEntry {
-    ulittle32_t Target;
-    ulittle32_t Action;
-  };
-  ARMExidxEntry *Start = (ARMExidxEntry *)Buf;
-  size_t NumEnt = Size / sizeof(ARMExidxEntry);
-  for (uint64_t Off = 0; Off < Size; Off += 8)
-    ARMExidxEntryPrelToAbs(Buf + Off, OutSecVA + Off);
-  std::stable_sort(Start, Start + NumEnt,
-                   [](const ARMExidxEntry &A, const ARMExidxEntry &B) {
-                     return A.Target < B.Target;
-                   });
-  for (uint64_t Off = 0; Off < Size; Off += 8)
-    ARMExidxEntryAbsToPrel(Buf + Off, OutSecVA + Off);
+  for (OutputSectionBase *Sec : OutputSections)
+    if (Sec->Flags & SHF_ALLOC)
+      Sec->writeTo(Buf + Sec->Offset);
 }
 
 // Write section contents to a mmap'ed file.
@@ -1417,23 +1529,20 @@ template <class ELFT> void Writer<ELFT>::writeSections() {
   // before processing relocations in code-containing sections.
   Out<ELFT>::Opd = findSection(".opd");
   if (Out<ELFT>::Opd) {
-    Out<ELFT>::OpdBuf = Buf + Out<ELFT>::Opd->getFileOff();
-    Out<ELFT>::Opd->writeTo(Buf + Out<ELFT>::Opd->getFileOff());
+    Out<ELFT>::OpdBuf = Buf + Out<ELFT>::Opd->Offset;
+    Out<ELFT>::Opd->writeTo(Buf + Out<ELFT>::Opd->Offset);
   }
 
-  for (OutputSectionBase<ELFT> *Sec : OutputSections)
-    if (Sec != Out<ELFT>::Opd && Sec != Out<ELFT>::EhFrameHdr)
-      Sec->writeTo(Buf + Sec->getFileOff());
-
-  OutputSectionBase<ELFT> *ARMExidx = findSection(".ARM.exidx");
-  if (!Config->Relocatable)
-    if (auto *OS = dyn_cast_or_null<OutputSection<ELFT>>(ARMExidx))
-      sortARMExidx(Buf + OS->getFileOff(), OS->getVA(), OS->getSize());
+  OutputSectionBase *EhFrameHdr =
+      In<ELFT>::EhFrameHdr ? In<ELFT>::EhFrameHdr->OutSec : nullptr;
+  for (OutputSectionBase *Sec : OutputSections)
+    if (Sec != Out<ELFT>::Opd && Sec != EhFrameHdr)
+      Sec->writeTo(Buf + Sec->Offset);
 
   // The .eh_frame_hdr depends on .eh_frame section contents, therefore
   // it should be written after .eh_frame is written.
-  if (!Out<ELFT>::EhFrame->empty() && Out<ELFT>::EhFrameHdr)
-    Out<ELFT>::EhFrameHdr->writeTo(Buf + Out<ELFT>::EhFrameHdr->getFileOff());
+  if (!Out<ELFT>::EhFrame->empty() && EhFrameHdr)
+    EhFrameHdr->writeTo(Buf + EhFrameHdr->Offset);
 }
 
 template <class ELFT> void Writer<ELFT>::writeBuildId() {
@@ -1446,6 +1555,34 @@ template <class ELFT> void Writer<ELFT>::writeBuildId() {
   In<ELFT>::BuildId->writeBuildId({Start, End});
 }
 
+template <class ELFT> static std::string getErrorLoc(uint8_t *Loc) {
+  for (InputSectionData *D : Symtab<ELFT>::X->Sections) {
+    auto *IS = dyn_cast_or_null<InputSection<ELFT>>(D);
+    if (!IS || !IS->OutSec)
+      continue;
+
+    uint8_t *ISLoc = cast<OutputSection<ELFT>>(IS->OutSec)->Loc + IS->OutSecOff;
+    if (ISLoc <= Loc && ISLoc + IS->getSize() > Loc)
+      return IS->getLocation(Loc - ISLoc) + ": ";
+  }
+  return "";
+}
+
+std::string elf::getErrorLocation(uint8_t *Loc) {
+  switch (Config->EKind) {
+  case ELF32LEKind:
+    return getErrorLoc<ELF32LE>(Loc);
+  case ELF32BEKind:
+    return getErrorLoc<ELF32BE>(Loc);
+  case ELF64LEKind:
+    return getErrorLoc<ELF64LE>(Loc);
+  case ELF64BEKind:
+    return getErrorLoc<ELF64BE>(Loc);
+  default:
+    llvm_unreachable("unknown ELF type");
+  }
+}
+
 template void elf::writeResult<ELF32LE>();
 template void elf::writeResult<ELF32BE>();
 template void elf::writeResult<ELF64LE>();
@@ -1456,10 +1593,10 @@ template struct elf::PhdrEntry<ELF32BE>;
 template struct elf::PhdrEntry<ELF64LE>;
 template struct elf::PhdrEntry<ELF64BE>;
 
-template bool elf::isRelroSection<ELF32LE>(const OutputSectionBase<ELF32LE> *);
-template bool elf::isRelroSection<ELF32BE>(const OutputSectionBase<ELF32BE> *);
-template bool elf::isRelroSection<ELF64LE>(const OutputSectionBase<ELF64LE> *);
-template bool elf::isRelroSection<ELF64BE>(const OutputSectionBase<ELF64BE> *);
+template bool elf::isRelroSection<ELF32LE>(const OutputSectionBase *);
+template bool elf::isRelroSection<ELF32BE>(const OutputSectionBase *);
+template bool elf::isRelroSection<ELF64LE>(const OutputSectionBase *);
+template bool elf::isRelroSection<ELF64BE>(const OutputSectionBase *);
 
 template void elf::reportDiscarded<ELF32LE>(InputSectionBase<ELF32LE> *);
 template void elf::reportDiscarded<ELF32BE>(InputSectionBase<ELF32BE> *);

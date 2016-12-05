@@ -68,17 +68,6 @@ define <2 x i64> @test_x86_aesni_aeskeygenassist(<2 x i64> %a0) {
 declare <2 x i64> @llvm.x86.aesni.aeskeygenassist(<2 x i64>, i8) nounwind readnone
 
 
-define <2 x double> @test_x86_sse2_add_sd(<2 x double> %a0, <2 x double> %a1) {
-; CHECK-LABEL: test_x86_sse2_add_sd:
-; CHECK:       ## BB#0:
-; CHECK-NEXT:    vaddsd %xmm1, %xmm0, %xmm0 ## encoding: [0xc5,0xfb,0x58,0xc1]
-; CHECK-NEXT:    retl ## encoding: [0xc3]
-  %res = call <2 x double> @llvm.x86.sse2.add.sd(<2 x double> %a0, <2 x double> %a1) ; <<2 x double>> [#uses=1]
-  ret <2 x double> %res
-}
-declare <2 x double> @llvm.x86.sse2.add.sd(<2 x double>, <2 x double>) nounwind readnone
-
-
 define <2 x double> @test_x86_sse2_cmp_pd(<2 x double> %a0, <2 x double> %a1) {
 ; CHECK-LABEL: test_x86_sse2_cmp_pd:
 ; CHECK:       ## BB#0:
@@ -246,10 +235,15 @@ declare <4 x float> @llvm.x86.sse2.cvtdq2ps(<4 x i32>) nounwind readnone
 
 
 define <4 x i32> @test_x86_sse2_cvtpd2dq(<2 x double> %a0) {
-; CHECK-LABEL: test_x86_sse2_cvtpd2dq:
-; CHECK:       ## BB#0:
-; CHECK-NEXT:    vcvtpd2dq %xmm0, %xmm0 ## encoding: [0xc5,0xfb,0xe6,0xc0]
-; CHECK-NEXT:    retl ## encoding: [0xc3]
+; AVX-LABEL: test_x86_sse2_cvtpd2dq:
+; AVX:       ## BB#0:
+; AVX-NEXT:    vcvtpd2dq %xmm0, %xmm0 ## encoding: [0xc5,0xfb,0xe6,0xc0]
+; AVX-NEXT:    retl ## encoding: [0xc3]
+;
+; AVX512VL-LABEL: test_x86_sse2_cvtpd2dq:
+; AVX512VL:       ## BB#0:
+; AVX512VL-NEXT:    vcvtpd2dq %xmm0, %xmm0 ## encoding: [0x62,0xf1,0xff,0x08,0xe6,0xc0]
+; AVX512VL-NEXT:    retl ## encoding: [0xc3]
   %res = call <4 x i32> @llvm.x86.sse2.cvtpd2dq(<2 x double> %a0) ; <<4 x i32>> [#uses=1]
   ret <4 x i32> %res
 }
@@ -338,10 +332,15 @@ declare <2 x double> @llvm.x86.sse2.cvtss2sd(<2 x double>, <4 x float>) nounwind
 
 
 define <4 x i32> @test_x86_sse2_cvttpd2dq(<2 x double> %a0) {
-; CHECK-LABEL: test_x86_sse2_cvttpd2dq:
-; CHECK:       ## BB#0:
-; CHECK-NEXT:    vcvttpd2dq %xmm0, %xmm0 ## encoding: [0xc5,0xf9,0xe6,0xc0]
-; CHECK-NEXT:    retl ## encoding: [0xc3]
+; AVX-LABEL: test_x86_sse2_cvttpd2dq:
+; AVX:       ## BB#0:
+; AVX-NEXT:    vcvttpd2dq %xmm0, %xmm0 ## encoding: [0xc5,0xf9,0xe6,0xc0]
+; AVX-NEXT:    retl ## encoding: [0xc3]
+;
+; AVX512VL-LABEL: test_x86_sse2_cvttpd2dq:
+; AVX512VL:       ## BB#0:
+; AVX512VL-NEXT:    vcvttpd2dq %xmm0, %xmm0 ## encoding: [0x62,0xf1,0xfd,0x08,0xe6,0xc0]
+; AVX512VL-NEXT:    retl ## encoding: [0xc3]
   %res = call <4 x i32> @llvm.x86.sse2.cvttpd2dq(<2 x double> %a0) ; <<4 x i32>> [#uses=1]
   ret <4 x i32> %res
 }
@@ -349,10 +348,15 @@ declare <4 x i32> @llvm.x86.sse2.cvttpd2dq(<2 x double>) nounwind readnone
 
 
 define <4 x i32> @test_x86_sse2_cvttps2dq(<4 x float> %a0) {
-; CHECK-LABEL: test_x86_sse2_cvttps2dq:
-; CHECK:       ## BB#0:
-; CHECK-NEXT:    vcvttps2dq %xmm0, %xmm0 ## encoding: [0xc5,0xfa,0x5b,0xc0]
-; CHECK-NEXT:    retl ## encoding: [0xc3]
+; AVX-LABEL: test_x86_sse2_cvttps2dq:
+; AVX:       ## BB#0:
+; AVX-NEXT:    vcvttps2dq %xmm0, %xmm0 ## encoding: [0xc5,0xfa,0x5b,0xc0]
+; AVX-NEXT:    retl ## encoding: [0xc3]
+;
+; AVX512VL-LABEL: test_x86_sse2_cvttps2dq:
+; AVX512VL:       ## BB#0:
+; AVX512VL-NEXT:    vcvttps2dq %xmm0, %xmm0 ## encoding: [0x62,0xf1,0x7e,0x08,0x5b,0xc0]
+; AVX512VL-NEXT:    retl ## encoding: [0xc3]
   %res = call <4 x i32> @llvm.x86.sse2.cvttps2dq(<4 x float> %a0) ; <<4 x i32>> [#uses=1]
   ret <4 x i32> %res
 }
@@ -373,17 +377,6 @@ define i32 @test_x86_sse2_cvttsd2si(<2 x double> %a0) {
   ret i32 %res
 }
 declare i32 @llvm.x86.sse2.cvttsd2si(<2 x double>) nounwind readnone
-
-
-define <2 x double> @test_x86_sse2_div_sd(<2 x double> %a0, <2 x double> %a1) {
-; CHECK-LABEL: test_x86_sse2_div_sd:
-; CHECK:       ## BB#0:
-; CHECK-NEXT:    vdivsd %xmm1, %xmm0, %xmm0 ## encoding: [0xc5,0xfb,0x5e,0xc1]
-; CHECK-NEXT:    retl ## encoding: [0xc3]
-  %res = call <2 x double> @llvm.x86.sse2.div.sd(<2 x double> %a0, <2 x double> %a1) ; <<2 x double>> [#uses=1]
-  ret <2 x double> %res
-}
-declare <2 x double> @llvm.x86.sse2.div.sd(<2 x double>, <2 x double>) nounwind readnone
 
 
 
@@ -452,17 +445,6 @@ define i32 @test_x86_sse2_movmsk_pd(<2 x double> %a0) {
 declare i32 @llvm.x86.sse2.movmsk.pd(<2 x double>) nounwind readnone
 
 
-
-
-define <2 x double> @test_x86_sse2_mul_sd(<2 x double> %a0, <2 x double> %a1) {
-; CHECK-LABEL: test_x86_sse2_mul_sd:
-; CHECK:       ## BB#0:
-; CHECK-NEXT:    vmulsd %xmm1, %xmm0, %xmm0 ## encoding: [0xc5,0xfb,0x59,0xc1]
-; CHECK-NEXT:    retl ## encoding: [0xc3]
-  %res = call <2 x double> @llvm.x86.sse2.mul.sd(<2 x double> %a0, <2 x double> %a1) ; <<2 x double>> [#uses=1]
-  ret <2 x double> %res
-}
-declare <2 x double> @llvm.x86.sse2.mul.sd(<2 x double>, <2 x double>) nounwind readnone
 
 
 define <8 x i16> @test_x86_sse2_packssdw_128(<4 x i32> %a0, <4 x i32> %a1) {
@@ -1104,17 +1086,6 @@ define <2 x double> @test_x86_sse2_sqrt_sd(<2 x double> %a0) {
   ret <2 x double> %res
 }
 declare <2 x double> @llvm.x86.sse2.sqrt.sd(<2 x double>) nounwind readnone
-
-
-define <2 x double> @test_x86_sse2_sub_sd(<2 x double> %a0, <2 x double> %a1) {
-; CHECK-LABEL: test_x86_sse2_sub_sd:
-; CHECK:       ## BB#0:
-; CHECK-NEXT:    vsubsd %xmm1, %xmm0, %xmm0 ## encoding: [0xc5,0xfb,0x5c,0xc1]
-; CHECK-NEXT:    retl ## encoding: [0xc3]
-  %res = call <2 x double> @llvm.x86.sse2.sub.sd(<2 x double> %a0, <2 x double> %a1) ; <<2 x double>> [#uses=1]
-  ret <2 x double> %res
-}
-declare <2 x double> @llvm.x86.sse2.sub.sd(<2 x double>, <2 x double>) nounwind readnone
 
 
 define i32 @test_x86_sse2_ucomieq_sd(<2 x double> %a0, <2 x double> %a1) {
@@ -1944,17 +1915,6 @@ define <16 x i8> @test_x86_sse42_pcmpistrm128_load(<16 x i8> %a0, <16 x i8>* %a1
 }
 
 
-define <4 x float> @test_x86_sse_add_ss(<4 x float> %a0, <4 x float> %a1) {
-; CHECK-LABEL: test_x86_sse_add_ss:
-; CHECK:       ## BB#0:
-; CHECK-NEXT:    vaddss %xmm1, %xmm0, %xmm0 ## encoding: [0xc5,0xfa,0x58,0xc1]
-; CHECK-NEXT:    retl ## encoding: [0xc3]
-  %res = call <4 x float> @llvm.x86.sse.add.ss(<4 x float> %a0, <4 x float> %a1) ; <<4 x float>> [#uses=1]
-  ret <4 x float> %res
-}
-declare <4 x float> @llvm.x86.sse.add.ss(<4 x float>, <4 x float>) nounwind readnone
-
-
 define <4 x float> @test_x86_sse_cmp_ps(<4 x float> %a0, <4 x float> %a1) {
 ; CHECK-LABEL: test_x86_sse_cmp_ps:
 ; CHECK:       ## BB#0:
@@ -2155,17 +2115,6 @@ define i32 @test_x86_sse_cvttss2si(<4 x float> %a0) {
 declare i32 @llvm.x86.sse.cvttss2si(<4 x float>) nounwind readnone
 
 
-define <4 x float> @test_x86_sse_div_ss(<4 x float> %a0, <4 x float> %a1) {
-; CHECK-LABEL: test_x86_sse_div_ss:
-; CHECK:       ## BB#0:
-; CHECK-NEXT:    vdivss %xmm1, %xmm0, %xmm0 ## encoding: [0xc5,0xfa,0x5e,0xc1]
-; CHECK-NEXT:    retl ## encoding: [0xc3]
-  %res = call <4 x float> @llvm.x86.sse.div.ss(<4 x float> %a0, <4 x float> %a1) ; <<4 x float>> [#uses=1]
-  ret <4 x float> %res
-}
-declare <4 x float> @llvm.x86.sse.div.ss(<4 x float>, <4 x float>) nounwind readnone
-
-
 define void @test_x86_sse_ldmxcsr(i8* %a0) {
 ; CHECK-LABEL: test_x86_sse_ldmxcsr:
 ; CHECK:       ## BB#0:
@@ -2243,17 +2192,6 @@ define i32 @test_x86_sse_movmsk_ps(<4 x float> %a0) {
 }
 declare i32 @llvm.x86.sse.movmsk.ps(<4 x float>) nounwind readnone
 
-
-
-define <4 x float> @test_x86_sse_mul_ss(<4 x float> %a0, <4 x float> %a1) {
-; CHECK-LABEL: test_x86_sse_mul_ss:
-; CHECK:       ## BB#0:
-; CHECK-NEXT:    vmulss %xmm1, %xmm0, %xmm0 ## encoding: [0xc5,0xfa,0x59,0xc1]
-; CHECK-NEXT:    retl ## encoding: [0xc3]
-  %res = call <4 x float> @llvm.x86.sse.mul.ss(<4 x float> %a0, <4 x float> %a1) ; <<4 x float>> [#uses=1]
-  ret <4 x float> %res
-}
-declare <4 x float> @llvm.x86.sse.mul.ss(<4 x float>, <4 x float>) nounwind readnone
 
 
 define <4 x float> @test_x86_sse_rcp_ps(<4 x float> %a0) {
@@ -2342,17 +2280,6 @@ define void @test_x86_sse_stmxcsr(i8* %a0) {
   ret void
 }
 declare void @llvm.x86.sse.stmxcsr(i8*) nounwind
-
-
-define <4 x float> @test_x86_sse_sub_ss(<4 x float> %a0, <4 x float> %a1) {
-; CHECK-LABEL: test_x86_sse_sub_ss:
-; CHECK:       ## BB#0:
-; CHECK-NEXT:    vsubss %xmm1, %xmm0, %xmm0 ## encoding: [0xc5,0xfa,0x5c,0xc1]
-; CHECK-NEXT:    retl ## encoding: [0xc3]
-  %res = call <4 x float> @llvm.x86.sse.sub.ss(<4 x float> %a0, <4 x float> %a1) ; <<4 x float>> [#uses=1]
-  ret <4 x float> %res
-}
-declare <4 x float> @llvm.x86.sse.sub.ss(<4 x float>, <4 x float>) nounwind readnone
 
 
 define i32 @test_x86_sse_ucomieq_ss(<4 x float> %a0, <4 x float> %a1) {
@@ -2613,6 +2540,27 @@ define <8 x i16> @test_x86_ssse3_pmadd_ub_sw_128(<16 x i8> %a0, <16 x i8> %a1) {
 declare <8 x i16> @llvm.x86.ssse3.pmadd.ub.sw.128(<16 x i8>, <16 x i8>) nounwind readnone
 
 
+; Make sure we don't commute this operation.
+define <8 x i16> @test_x86_ssse3_pmadd_ub_sw_128_load_op0(<16 x i8>* %ptr, <16 x i8> %a1) {
+; AVX-LABEL: test_x86_ssse3_pmadd_ub_sw_128_load_op0:
+; AVX:       ## BB#0:
+; AVX-NEXT:    movl {{[0-9]+}}(%esp), %eax ## encoding: [0x8b,0x44,0x24,0x04]
+; AVX-NEXT:    vmovdqa (%eax), %xmm1 ## encoding: [0xc5,0xf9,0x6f,0x08]
+; AVX-NEXT:    vpmaddubsw %xmm0, %xmm1, %xmm0 ## encoding: [0xc4,0xe2,0x71,0x04,0xc0]
+; AVX-NEXT:    retl ## encoding: [0xc3]
+;
+; AVX512VL-LABEL: test_x86_ssse3_pmadd_ub_sw_128_load_op0:
+; AVX512VL:       ## BB#0:
+; AVX512VL-NEXT:    movl {{[0-9]+}}(%esp), %eax ## encoding: [0x8b,0x44,0x24,0x04]
+; AVX512VL-NEXT:    vmovdqu8 (%eax), %xmm1 ## encoding: [0x62,0xf1,0x7f,0x08,0x6f,0x08]
+; AVX512VL-NEXT:    vpmaddubsw %xmm0, %xmm1, %xmm0 ## encoding: [0x62,0xf2,0x75,0x08,0x04,0xc0]
+; AVX512VL-NEXT:    retl ## encoding: [0xc3]
+  %a0 = load <16 x i8>, <16 x i8>* %ptr
+  %res = call <8 x i16> @llvm.x86.ssse3.pmadd.ub.sw.128(<16 x i8> %a0, <16 x i8> %a1) ; <<8 x i16>> [#uses=1]
+  ret <8 x i16> %res
+}
+
+
 define <8 x i16> @test_x86_ssse3_pmul_hr_sw_128(<8 x i16> %a0, <8 x i16> %a1) {
 ; AVX-LABEL: test_x86_ssse3_pmul_hr_sw_128:
 ; AVX:       ## BB#0:
@@ -2818,7 +2766,7 @@ declare <8 x float> @llvm.x86.avx.cmp.ps.256(<8 x float>, <8 x float>, i8) nounw
 define <4 x float> @test_x86_avx_cvt_pd2_ps_256(<4 x double> %a0) {
 ; AVX-LABEL: test_x86_avx_cvt_pd2_ps_256:
 ; AVX:       ## BB#0:
-; AVX-NEXT:    vcvtpd2psy %ymm0, %xmm0 ## encoding: [0xc5,0xfd,0x5a,0xc0]
+; AVX-NEXT:    vcvtpd2ps %ymm0, %xmm0 ## encoding: [0xc5,0xfd,0x5a,0xc0]
 ; AVX-NEXT:    vzeroupper ## encoding: [0xc5,0xf8,0x77]
 ; AVX-NEXT:    retl ## encoding: [0xc3]
 ;
@@ -2835,13 +2783,13 @@ declare <4 x float> @llvm.x86.avx.cvt.pd2.ps.256(<4 x double>) nounwind readnone
 define <4 x i32> @test_x86_avx_cvt_pd2dq_256(<4 x double> %a0) {
 ; AVX-LABEL: test_x86_avx_cvt_pd2dq_256:
 ; AVX:       ## BB#0:
-; AVX-NEXT:    vcvtpd2dqy %ymm0, %xmm0 ## encoding: [0xc5,0xff,0xe6,0xc0]
+; AVX-NEXT:    vcvtpd2dq %ymm0, %xmm0 ## encoding: [0xc5,0xff,0xe6,0xc0]
 ; AVX-NEXT:    vzeroupper ## encoding: [0xc5,0xf8,0x77]
 ; AVX-NEXT:    retl ## encoding: [0xc3]
 ;
 ; AVX512VL-LABEL: test_x86_avx_cvt_pd2dq_256:
 ; AVX512VL:       ## BB#0:
-; AVX512VL-NEXT:    vcvtpd2dqy %ymm0, %xmm0 ## encoding: [0xc5,0xff,0xe6,0xc0]
+; AVX512VL-NEXT:    vcvtpd2dq %ymm0, %xmm0 ## encoding: [0x62,0xf1,0xff,0x28,0xe6,0xc0]
 ; AVX512VL-NEXT:    retl ## encoding: [0xc3]
   %res = call <4 x i32> @llvm.x86.avx.cvt.pd2dq.256(<4 x double> %a0) ; <<4 x i32>> [#uses=1]
   ret <4 x i32> %res
@@ -2879,13 +2827,13 @@ declare <8 x float> @llvm.x86.avx.cvtdq2.ps.256(<8 x i32>) nounwind readnone
 define <4 x i32> @test_x86_avx_cvtt_pd2dq_256(<4 x double> %a0) {
 ; AVX-LABEL: test_x86_avx_cvtt_pd2dq_256:
 ; AVX:       ## BB#0:
-; AVX-NEXT:    vcvttpd2dqy %ymm0, %xmm0 ## encoding: [0xc5,0xfd,0xe6,0xc0]
+; AVX-NEXT:    vcvttpd2dq %ymm0, %xmm0 ## encoding: [0xc5,0xfd,0xe6,0xc0]
 ; AVX-NEXT:    vzeroupper ## encoding: [0xc5,0xf8,0x77]
 ; AVX-NEXT:    retl ## encoding: [0xc3]
 ;
 ; AVX512VL-LABEL: test_x86_avx_cvtt_pd2dq_256:
 ; AVX512VL:       ## BB#0:
-; AVX512VL-NEXT:    vcvttpd2dqy %ymm0, %xmm0 ## encoding: [0xc5,0xfd,0xe6,0xc0]
+; AVX512VL-NEXT:    vcvttpd2dq %ymm0, %xmm0 ## encoding: [0x62,0xf1,0xfd,0x28,0xe6,0xc0]
 ; AVX512VL-NEXT:    retl ## encoding: [0xc3]
   %res = call <4 x i32> @llvm.x86.avx.cvtt.pd2dq.256(<4 x double> %a0) ; <<4 x i32>> [#uses=1]
   ret <4 x i32> %res
@@ -2894,10 +2842,15 @@ declare <4 x i32> @llvm.x86.avx.cvtt.pd2dq.256(<4 x double>) nounwind readnone
 
 
 define <8 x i32> @test_x86_avx_cvtt_ps2dq_256(<8 x float> %a0) {
-; CHECK-LABEL: test_x86_avx_cvtt_ps2dq_256:
-; CHECK:       ## BB#0:
-; CHECK-NEXT:    vcvttps2dq %ymm0, %ymm0 ## encoding: [0xc5,0xfe,0x5b,0xc0]
-; CHECK-NEXT:    retl ## encoding: [0xc3]
+; AVX-LABEL: test_x86_avx_cvtt_ps2dq_256:
+; AVX:       ## BB#0:
+; AVX-NEXT:    vcvttps2dq %ymm0, %ymm0 ## encoding: [0xc5,0xfe,0x5b,0xc0]
+; AVX-NEXT:    retl ## encoding: [0xc3]
+;
+; AVX512VL-LABEL: test_x86_avx_cvtt_ps2dq_256:
+; AVX512VL:       ## BB#0:
+; AVX512VL-NEXT:    vcvttps2dq %ymm0, %ymm0 ## encoding: [0x62,0xf1,0x7e,0x28,0x5b,0xc0]
+; AVX512VL-NEXT:    retl ## encoding: [0xc3]
   %res = call <8 x i32> @llvm.x86.avx.cvtt.ps2dq.256(<8 x float> %a0) ; <<8 x i32>> [#uses=1]
   ret <8 x i32> %res
 }
@@ -3785,8 +3738,8 @@ define void @movnt_dq(i8* %p, <2 x i64> %a1) nounwind {
 ; AVX-LABEL: movnt_dq:
 ; AVX:       ## BB#0:
 ; AVX-NEXT:    movl {{[0-9]+}}(%esp), %eax ## encoding: [0x8b,0x44,0x24,0x04]
-; AVX-NEXT:    vpaddq LCPI254_0, %xmm0, %xmm0 ## encoding: [0xc5,0xf9,0xd4,0x05,A,A,A,A]
-; AVX-NEXT:    ## fixup A - offset: 4, value: LCPI254_0, kind: FK_Data_4
+; AVX-NEXT:    vpaddq LCPI247_0, %xmm0, %xmm0 ## encoding: [0xc5,0xf9,0xd4,0x05,A,A,A,A]
+; AVX-NEXT:    ## fixup A - offset: 4, value: LCPI247_0, kind: FK_Data_4
 ; AVX-NEXT:    vmovntdq %ymm0, (%eax) ## encoding: [0xc5,0xfd,0xe7,0x00]
 ; AVX-NEXT:    vzeroupper ## encoding: [0xc5,0xf8,0x77]
 ; AVX-NEXT:    retl ## encoding: [0xc3]
@@ -3794,8 +3747,8 @@ define void @movnt_dq(i8* %p, <2 x i64> %a1) nounwind {
 ; AVX512VL-LABEL: movnt_dq:
 ; AVX512VL:       ## BB#0:
 ; AVX512VL-NEXT:    movl {{[0-9]+}}(%esp), %eax ## encoding: [0x8b,0x44,0x24,0x04]
-; AVX512VL-NEXT:    vpaddq LCPI254_0, %xmm0, %xmm0 ## encoding: [0x62,0xf1,0xfd,0x08,0xd4,0x05,A,A,A,A]
-; AVX512VL-NEXT:    ## fixup A - offset: 6, value: LCPI254_0, kind: FK_Data_4
+; AVX512VL-NEXT:    vpaddq LCPI247_0, %xmm0, %xmm0 ## encoding: [0x62,0xf1,0xfd,0x08,0xd4,0x05,A,A,A,A]
+; AVX512VL-NEXT:    ## fixup A - offset: 6, value: LCPI247_0, kind: FK_Data_4
 ; AVX512VL-NEXT:    vmovntdq %ymm0, (%eax) ## encoding: [0x62,0xf1,0x7d,0x28,0xe7,0x00]
 ; AVX512VL-NEXT:    retl ## encoding: [0xc3]
   %a2 = add <2 x i64> %a1, <i64 1, i64 1>

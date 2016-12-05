@@ -1,4 +1,4 @@
-//===-- CommandObjectSource.cpp ---------------------------------*- C++ -*-===//
+//===-- CommandObjectCommands.cpp -------------------------------*- C++ -*-===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -66,29 +66,26 @@ protected:
 
     ~CommandOptions() override = default;
 
-    Error SetOptionValue(uint32_t option_idx, const char *option_arg,
+    Error SetOptionValue(uint32_t option_idx, llvm::StringRef option_arg,
                          ExecutionContext *execution_context) override {
       Error error;
       const int short_option = m_getopt_table[option_idx].val;
-      llvm::StringRef option_strref =
-          llvm::StringRef::withNullAsEmpty(option_arg);
 
       switch (short_option) {
       case 'c':
-        error =
-            m_count.SetValueFromString(option_strref, eVarSetOperationAssign);
+        error = m_count.SetValueFromString(option_arg, eVarSetOperationAssign);
         break;
       case 's':
-        if (option_arg && strcmp("end", option_arg) == 0) {
+        if (option_arg == "end") {
           m_start_idx.SetCurrentValue(UINT64_MAX);
           m_start_idx.SetOptionWasSet();
         } else
-          error = m_start_idx.SetValueFromString(option_strref,
+          error = m_start_idx.SetValueFromString(option_arg,
                                                  eVarSetOperationAssign);
         break;
       case 'e':
-        error = m_stop_idx.SetValueFromString(option_strref,
-                                              eVarSetOperationAssign);
+        error =
+            m_stop_idx.SetValueFromString(option_arg, eVarSetOperationAssign);
         break;
       case 'C':
         m_clear.SetCurrentValue(true);
@@ -259,24 +256,22 @@ protected:
 
     ~CommandOptions() override = default;
 
-    Error SetOptionValue(uint32_t option_idx, const char *option_arg,
+    Error SetOptionValue(uint32_t option_idx, llvm::StringRef option_arg,
                          ExecutionContext *execution_context) override {
       Error error;
       const int short_option = m_getopt_table[option_idx].val;
-      llvm::StringRef option_strref =
-          llvm::StringRef::withNullAsEmpty(option_arg);
 
       switch (short_option) {
       case 'e':
-        error = m_stop_on_error.SetValueFromString(option_strref);
+        error = m_stop_on_error.SetValueFromString(option_arg);
         break;
 
       case 'c':
-        error = m_stop_on_continue.SetValueFromString(option_strref);
+        error = m_stop_on_continue.SetValueFromString(option_arg);
         break;
 
       case 's':
-        error = m_silent_run.SetValueFromString(option_strref);
+        error = m_silent_run.SetValueFromString(option_arg);
         break;
 
       default:
@@ -401,7 +396,6 @@ protected:
 
       return error;
     }
-    Error SetOptionValue(uint32_t, const char *, ExecutionContext *) = delete;
 
     void OptionParsingStarting(ExecutionContext *execution_context) override {
       m_help.Clear();
@@ -952,9 +946,9 @@ protected:
       const bool generate_apropos = true;
       const bool generate_type_lookup = false;
       CommandObjectHelp::GenerateAdditionalHelpAvenuesMessage(
-          &error_msg_stream, command_name, nullptr, nullptr, generate_apropos,
+          &error_msg_stream, command_name, llvm::StringRef(), llvm::StringRef(), generate_apropos,
           generate_type_lookup);
-      result.AppendErrorWithFormat("%s", error_msg_stream.GetData());
+      result.AppendError(error_msg_stream.GetString());
       result.SetStatus(eReturnStatusFailed);
     }
 
@@ -1229,7 +1223,7 @@ private:
 
     ~CommandOptions() override = default;
 
-    Error SetOptionValue(uint32_t option_idx, const char *option_arg,
+    Error SetOptionValue(uint32_t option_idx, llvm::StringRef option_arg,
                          ExecutionContext *execution_context) override {
       Error error;
       const int short_option = m_getopt_table[option_idx].val;
@@ -1288,11 +1282,11 @@ public:
       : CommandObjectRaw(interpreter, name),
         m_function_name(funct), m_synchro(synch), m_fetched_help_long(false) {
     if (!help.empty())
-      SetHelp(help.c_str());
+      SetHelp(help);
     else {
       StreamString stream;
       stream.Printf("For more information run 'help %s'", name.c_str());
-      SetHelp(stream.GetData());
+      SetHelp(stream.GetString());
     }
   }
 
@@ -1304,17 +1298,19 @@ public:
 
   ScriptedCommandSynchronicity GetSynchronicity() { return m_synchro; }
 
-  const char *GetHelpLong() override {
-    if (!m_fetched_help_long) {
-      ScriptInterpreter *scripter = m_interpreter.GetScriptInterpreter();
-      if (scripter) {
-        std::string docstring;
-        m_fetched_help_long = scripter->GetDocumentationForItem(
-            m_function_name.c_str(), docstring);
-        if (!docstring.empty())
-          SetHelpLong(docstring.c_str());
-      }
-    }
+  llvm::StringRef GetHelpLong() override {
+    if (m_fetched_help_long)
+      return CommandObjectRaw::GetHelpLong();
+
+    ScriptInterpreter *scripter = m_interpreter.GetScriptInterpreter();
+    if (!scripter)
+      return CommandObjectRaw::GetHelpLong();
+
+    std::string docstring;
+    m_fetched_help_long =
+        scripter->GetDocumentationForItem(m_function_name.c_str(), docstring);
+    if (!docstring.empty())
+      SetHelpLong(docstring);
     return CommandObjectRaw::GetHelpLong();
   }
 
@@ -1336,8 +1332,7 @@ protected:
     } else {
       // Don't change the status if the command already set it...
       if (result.GetStatus() == eReturnStatusInvalid) {
-        if (result.GetOutputData() == nullptr ||
-            result.GetOutputData()[0] == '\0')
+        if (result.GetOutputData().empty())
           result.SetStatus(eReturnStatusSuccessFinishNoResult);
         else
           result.SetStatus(eReturnStatusSuccessFinishResult);
@@ -1364,7 +1359,7 @@ public:
         m_fetched_help_long(false) {
     StreamString stream;
     stream.Printf("For more information run 'help %s'", name.c_str());
-    SetHelp(stream.GetData());
+    SetHelp(stream.GetString());
     if (ScriptInterpreter *scripter = m_interpreter.GetScriptInterpreter())
       GetFlags().Set(scripter->GetFlagsForCommandObject(cmd_obj_sp));
   }
@@ -1377,31 +1372,34 @@ public:
 
   ScriptedCommandSynchronicity GetSynchronicity() { return m_synchro; }
 
-  const char *GetHelp() override {
-    if (!m_fetched_help_short) {
-      ScriptInterpreter *scripter = m_interpreter.GetScriptInterpreter();
-      if (scripter) {
-        std::string docstring;
-        m_fetched_help_short =
-            scripter->GetShortHelpForCommandObject(m_cmd_obj_sp, docstring);
-        if (!docstring.empty())
-          SetHelp(docstring.c_str());
-      }
-    }
+  llvm::StringRef GetHelp() override {
+    if (m_fetched_help_short)
+      return CommandObjectRaw::GetHelp();
+    ScriptInterpreter *scripter = m_interpreter.GetScriptInterpreter();
+    if (!scripter)
+      return CommandObjectRaw::GetHelp();
+    std::string docstring;
+    m_fetched_help_short =
+        scripter->GetShortHelpForCommandObject(m_cmd_obj_sp, docstring);
+    if (!docstring.empty())
+      SetHelp(docstring);
+
     return CommandObjectRaw::GetHelp();
   }
 
-  const char *GetHelpLong() override {
-    if (!m_fetched_help_long) {
-      ScriptInterpreter *scripter = m_interpreter.GetScriptInterpreter();
-      if (scripter) {
-        std::string docstring;
-        m_fetched_help_long =
-            scripter->GetLongHelpForCommandObject(m_cmd_obj_sp, docstring);
-        if (!docstring.empty())
-          SetHelpLong(docstring.c_str());
-      }
-    }
+  llvm::StringRef GetHelpLong() override {
+    if (m_fetched_help_long)
+      return CommandObjectRaw::GetHelpLong();
+
+    ScriptInterpreter *scripter = m_interpreter.GetScriptInterpreter();
+    if (!scripter)
+      return CommandObjectRaw::GetHelpLong();
+
+    std::string docstring;
+    m_fetched_help_long =
+        scripter->GetLongHelpForCommandObject(m_cmd_obj_sp, docstring);
+    if (!docstring.empty())
+      SetHelpLong(docstring);
     return CommandObjectRaw::GetHelpLong();
   }
 
@@ -1422,8 +1420,7 @@ protected:
     } else {
       // Don't change the status if the command already set it...
       if (result.GetStatus() == eReturnStatusInvalid) {
-        if (result.GetOutputData() == nullptr ||
-            result.GetOutputData()[0] == '\0')
+        if (result.GetOutputData().empty())
           result.SetStatus(eReturnStatusSuccessFinishNoResult);
         else
           result.SetStatus(eReturnStatusSuccessFinishResult);
@@ -1479,12 +1476,12 @@ public:
                                int match_start_point, int max_return_elements,
                                bool &word_complete,
                                StringList &matches) override {
-    std::string completion_str(input.GetArgumentAtIndex(cursor_index));
-    completion_str.erase(cursor_char_position);
+    llvm::StringRef completion_str = input[cursor_index].ref;
+    completion_str = completion_str.take_front(cursor_char_position);
 
     CommandCompletions::InvokeCommonCompletionCallbacks(
         GetCommandInterpreter(), CommandCompletions::eDiskFileCompletion,
-        completion_str.c_str(), match_start_point, max_return_elements, nullptr,
+        completion_str, match_start_point, max_return_elements, nullptr,
         word_complete, matches);
     return matches.GetSize();
   }
@@ -1498,7 +1495,7 @@ protected:
 
     ~CommandOptions() override = default;
 
-    Error SetOptionValue(uint32_t option_idx, const char *option_arg,
+    Error SetOptionValue(uint32_t option_idx, llvm::StringRef option_arg,
                          ExecutionContext *execution_context) override {
       Error error;
       const int short_option = m_getopt_table[option_idx].val;
@@ -1630,32 +1627,32 @@ protected:
 
     ~CommandOptions() override = default;
 
-    Error SetOptionValue(uint32_t option_idx, const char *option_arg,
+    Error SetOptionValue(uint32_t option_idx, llvm::StringRef option_arg,
                          ExecutionContext *execution_context) override {
       Error error;
       const int short_option = m_getopt_table[option_idx].val;
 
       switch (short_option) {
       case 'f':
-        if (option_arg)
-          m_funct_name.assign(option_arg);
+        if (!option_arg.empty())
+          m_funct_name = option_arg;
         break;
       case 'c':
-        if (option_arg)
-          m_class_name.assign(option_arg);
+        if (!option_arg.empty())
+          m_class_name = option_arg;
         break;
       case 'h':
-        if (option_arg)
-          m_short_help.assign(option_arg);
+        if (!option_arg.empty())
+          m_short_help = option_arg;
         break;
       case 's':
         m_synchronicity =
             (ScriptedCommandSynchronicity)Args::StringToOptionEnum(
-                llvm::StringRef::withNullAsEmpty(option_arg),
-                GetDefinitions()[option_idx].enum_values, 0, error);
+                option_arg, GetDefinitions()[option_idx].enum_values, 0, error);
         if (!error.Success())
           error.SetErrorStringWithFormat(
-              "unrecognized value for synchronicity '%s'", option_arg);
+              "unrecognized value for synchronicity '%s'",
+              option_arg.str().c_str());
         break;
       default:
         error.SetErrorStringWithFormat("unrecognized option '%c'",

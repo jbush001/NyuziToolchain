@@ -27,7 +27,7 @@ __start:
 # CHECK-NEXT:   Version: 1
 # CHECK-NEXT:   Entry: 0x20000
 # CHECK-NEXT:   ProgramHeaderOffset: 0x34
-# CHECK-NEXT:   SectionHeaderOffset: 0x30088
+# CHECK-NEXT:   SectionHeaderOffset: 0x30098
 # CHECK-NEXT:   Flags [
 # CHECK-NEXT:     EF_MIPS_ABI_O32
 # CHECK-NEXT:     EF_MIPS_ARCH_32
@@ -37,8 +37,8 @@ __start:
 # CHECK-NEXT:   ProgramHeaderEntrySize: 32
 # CHECK-NEXT:   ProgramHeaderCount: 6
 # CHECK-NEXT:   SectionHeaderEntrySize: 40
-# CHECK-NEXT:   SectionHeaderCount: 10
-# CHECK-NEXT:   StringTableSectionIndex: 8
+# CHECK-NEXT:   SectionHeaderCount: 11
+# CHECK-NEXT:   StringTableSectionIndex: 9
 # CHECK-NEXT: }
 # CHECK-NEXT: Sections [
 # CHECK-NEXT:   Section {
@@ -57,23 +57,23 @@ __start:
 # CHECK-NEXT:   }
 # CHECK-NEXT:   Section {
 # CHECK-NEXT:     Index: 1
-# CHECK-NEXT:     Name: .reginfo
-# CHECK-NEXT:     Type: SHT_MIPS_REGINFO (0x70000006)
+# CHECK-NEXT:     Name: .MIPS.abiflags
+# CHECK-NEXT:     Type: SHT_MIPS_ABIFLAGS (0x7000002A)
 # CHECK-NEXT:     Flags [ (0x2)
 # CHECK-NEXT:       SHF_ALLOC (0x2)
 # CHECK-NEXT:     ]
-# CHECK-NEXT:     Address: 0x100F4
-# CHECK-NEXT:     Offset: 0xF4
+# CHECK-NEXT:     Address: 0x100F8
+# CHECK-NEXT:     Offset: 0xF8
 # CHECK-NEXT:     Size: 24
 # CHECK-NEXT:     Link: 0
 # CHECK-NEXT:     Info: 0
-# CHECK-NEXT:     AddressAlignment: 4
+# CHECK-NEXT:     AddressAlignment: 8
 # CHECK-NEXT:     EntrySize: 24
 # CHECK-NEXT:   }
 # CHECK-NEXT:   Section {
 # CHECK-NEXT:     Index: 2
-# CHECK-NEXT:     Name: .MIPS.abiflags
-# CHECK-NEXT:     Type: SHT_MIPS_ABIFLAGS (0x7000002A)
+# CHECK-NEXT:     Name: .reginfo
+# CHECK-NEXT:     Type: SHT_MIPS_REGINFO (0x70000006)
 # CHECK-NEXT:     Flags [ (0x2)
 # CHECK-NEXT:       SHF_ALLOC (0x2)
 # CHECK-NEXT:     ]
@@ -82,7 +82,7 @@ __start:
 # CHECK-NEXT:     Size: 24
 # CHECK-NEXT:     Link: 0
 # CHECK-NEXT:     Info: 0
-# CHECK-NEXT:     AddressAlignment: 8
+# CHECK-NEXT:     AddressAlignment: 4
 # CHECK-NEXT:     EntrySize: 24
 # CHECK-NEXT:   }
 # CHECK-NEXT:   Section {
@@ -152,40 +152,56 @@ __start:
 # CHECK-NEXT:   }
 # CHECK-NEXT:   Section {
 # CHECK-NEXT:     Index: 7
+# CHECK-NEXT:     Name: .comment
+# CHECK-NEXT:     Type: SHT_PROGBITS (0x1)
+# CHECK-NEXT:     Flags [ (0x30)
+# CHECK-NEXT:       SHF_MERGE (0x10)
+# CHECK-NEXT:       SHF_STRINGS (0x20)
+# CHECK-NEXT:     ]
+# CHECK-NEXT:     Address: 0x0
+# CHECK-NEXT:     Offset: 0x30000
+# CHECK-NEXT:     Size: 8
+# CHECK-NEXT:     Link: 0
+# CHECK-NEXT:     Info: 0
+# CHECK-NEXT:     AddressAlignment: 1
+# CHECK-NEXT:     EntrySize: 1
+# CHECK-NEXT:   }
+# CHECK-NEXT:   Section {
+# CHECK-NEXT:     Index: 8
 # CHECK-NEXT:     Name: .symtab
 # CHECK-NEXT:     Type: SHT_SYMTAB (0x2)
 # CHECK-NEXT:     Flags [ (0x0)
 # CHECK-NEXT:     ]
 # CHECK-NEXT:     Address: 0x0
-# CHECK-NEXT:     Offset: 0x30000
+# CHECK-NEXT:     Offset: 0x30008
 # CHECK-NEXT:     Size: 48
-# CHECK-NEXT:     Link: 9
+# CHECK-NEXT:     Link: 10
 # CHECK-NEXT:     Info: 1
 # CHECK-NEXT:     AddressAlignment: 4
 # CHECK-NEXT:     EntrySize: 16
 # CHECK-NEXT:   }
 # CHECK-NEXT:   Section {
-# CHECK-NEXT:     Index: 8
+# CHECK-NEXT:     Index: 9
 # CHECK-NEXT:     Name: .shstrtab
 # CHECK-NEXT:     Type: SHT_STRTAB (0x3)
 # CHECK-NEXT:     Flags [ (0x0)
 # CHECK-NEXT:     ]
 # CHECK-NEXT:     Address: 0x0
-# CHECK-NEXT:     Offset: 0x30030
-# CHECK-NEXT:     Size: 73
+# CHECK-NEXT:     Offset: 0x30038
+# CHECK-NEXT:     Size: 82
 # CHECK-NEXT:     Link: 0
 # CHECK-NEXT:     Info: 0
 # CHECK-NEXT:     AddressAlignment: 1
 # CHECK-NEXT:     EntrySize: 0
 # CHECK-NEXT:   }
 # CHECK-NEXT:   Section {
-# CHECK-NEXT:     Index: 9
+# CHECK-NEXT:     Index: 10
 # CHECK-NEXT:     Name: .strtab
 # CHECK-NEXT:     Type: SHT_STRTAB (0x3)
 # CHECK-NEXT:     Flags [ (0x0)
 # CHECK-NEXT:     ]
 # CHECK-NEXT:     Address: 0x0
-# CHECK-NEXT:     Offset: 0x30079
+# CHECK-NEXT:     Offset: 0x3008A
 # CHECK-NEXT:     Size: 13
 # CHECK-NEXT:     Link: 0
 # CHECK-NEXT:     Info: 0

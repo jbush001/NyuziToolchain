@@ -21,7 +21,7 @@ set( LLDB_USED_LIBS
   lldbPluginDynamicLoaderPosixDYLD
   lldbPluginDynamicLoaderHexagonDYLD
   lldbPluginDynamicLoaderWindowsDYLD
-  
+
   lldbPluginCPlusPlusLanguage
   lldbPluginGoLanguage
   lldbPluginJavaLanguage
@@ -91,8 +91,6 @@ set( LLDB_USED_LIBS
 # Windows-only libraries
 if ( CMAKE_SYSTEM_NAME MATCHES "Windows" )
   list(APPEND LLDB_USED_LIBS
-    lldbPluginProcessWindows
-    lldbPluginProcessWinMiniDump
     lldbPluginProcessWindowsCommon
     Ws2_32
     Rpcrt4

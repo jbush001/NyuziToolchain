@@ -80,7 +80,7 @@ void ArchiveFile::parse() {
   // Seen is a map from member files to boolean values. Initially
   // all members are mapped to false, which indicates all these files
   // are not read yet.
-  Error Err;
+  Error Err = Error::success();
   for (auto &Child : File->children(Err))
     Seen[Child.getChildOffset()].clear();
   if (Err)
@@ -150,13 +150,28 @@ void ObjectFile::initializeChunks() {
       Directives = std::string((const char *)Data.data(), Data.size());
       continue;
     }
-    // Skip non-DWARF debug info. MSVC linker converts the sections into
-    // a PDB file, but we don't support that.
-    if (Name == ".debug" || Name.startswith(".debug$"))
-      continue;
-    // We want to preserve DWARF debug sections only when /debug is on.
+
+    // Object files may have DWARF debug info or MS CodeView debug info
+    // (or both).
+    //
+    // DWARF sections don't need any special handling from the perspective
+    // of the linker; they are just a data section containing relocations.
+    // We can just link them to complete debug info.
+    //
+    // CodeView needs a linker support. We need to interpret and debug
+    // info, and then write it to a separate .pdb file.
+
+    // Ignore debug info unless /debug is given.
     if (!Config->Debug && Name.startswith(".debug"))
       continue;
+
+    // CodeView sections are stored to a different vector because they are
+    // not linked in the regular manner.
+    if (Name == ".debug" || Name.startswith(".debug$")) {
+      DebugChunks.push_back(new (Alloc) SectionChunk(this, Sec));
+      continue;
+    }
+
     if (Sec->Characteristics & llvm::COFF::IMAGE_SCN_LNK_REMOVE)
       continue;
     auto *C = new (Alloc) SectionChunk(this, Sec);

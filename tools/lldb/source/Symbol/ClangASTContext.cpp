@@ -113,7 +113,9 @@ ClangASTContextSupportsLanguage(lldb::LanguageType language) {
          Language::LanguageIsPascal(language) ||
          // Use Clang for Rust until there is a proper language plugin for it
          language == eLanguageTypeRust ||
-         language == eLanguageTypeExtRenderScript;
+         language == eLanguageTypeExtRenderScript ||
+         // Use Clang for D until there is a proper language plugin for it
+         language == eLanguageTypeD;
 }
 }
 
@@ -10050,14 +10052,14 @@ ClangASTContextForExpressions::ClangASTContextForExpressions(Target &target)
       m_persistent_variables(new ClangPersistentVariables) {}
 
 UserExpression *ClangASTContextForExpressions::GetUserExpression(
-    const char *expr, const char *expr_prefix, lldb::LanguageType language,
+    llvm::StringRef expr, llvm::StringRef prefix, lldb::LanguageType language,
     Expression::ResultType desired_type,
     const EvaluateExpressionOptions &options) {
   TargetSP target_sp = m_target_wp.lock();
   if (!target_sp)
     return nullptr;
 
-  return new ClangUserExpression(*target_sp.get(), expr, expr_prefix, language,
+  return new ClangUserExpression(*target_sp.get(), expr, prefix, language,
                                  desired_type, options);
 }
 

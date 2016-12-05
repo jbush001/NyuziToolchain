@@ -2452,7 +2452,7 @@ Sema::LookupInObjCMethod(LookupResult &Lookup, Scope *S,
     if (IFace && (IV = IFace->lookupInstanceVariable(II, ClassDeclared))) {
       // Diagnose using an ivar in a class method.
       if (IsClassMethod)
-        return ExprError(Diag(Loc, diag::error_ivar_use_in_class_method)
+        return ExprError(Diag(Loc, diag::err_ivar_use_in_class_method)
                          << IV->getDeclName());
 
       // If we're referencing an invalid decl, just return this as a silent
@@ -2468,7 +2468,7 @@ Sema::LookupInObjCMethod(LookupResult &Lookup, Scope *S,
       if (IV->getAccessControl() == ObjCIvarDecl::Private &&
           !declaresSameEntity(ClassDeclared, IFace) &&
           !getLangOpts().DebuggerSupport)
-        Diag(Loc, diag::error_private_ivar_access) << IV->getDeclName();
+        Diag(Loc, diag::err_private_ivar_access) << IV->getDeclName();
 
       // FIXME: This should use a new expr for a direct reference, don't
       // turn this into Self->ivar, just return a BareIVarExpr or something.
@@ -2524,7 +2524,7 @@ Sema::LookupInObjCMethod(LookupResult &Lookup, Scope *S,
              Lookup.getFoundDecl()->isDefinedOutsideFunctionOrMethod()) {
     // If accessing a stand-alone ivar in a class method, this is an error.
     if (const ObjCIvarDecl *IV = dyn_cast<ObjCIvarDecl>(Lookup.getFoundDecl()))
-      return ExprError(Diag(Loc, diag::error_ivar_use_in_class_method)
+      return ExprError(Diag(Loc, diag::err_ivar_use_in_class_method)
                        << IV->getDeclName());
   }
 
@@ -4513,16 +4513,15 @@ Sema::CreateBuiltinArraySubscriptExpr(Expr *Base, SourceLocation LLoc,
       ArraySubscriptExpr(LHSExp, RHSExp, ResultType, VK, OK, RLoc);
 }
 
-ExprResult Sema::BuildCXXDefaultArgExpr(SourceLocation CallLoc,
-                                        FunctionDecl *FD,
-                                        ParmVarDecl *Param) {
+bool Sema::CheckCXXDefaultArgExpr(SourceLocation CallLoc, FunctionDecl *FD,
+                                  ParmVarDecl *Param) {
   if (Param->hasUnparsedDefaultArg()) {
     Diag(CallLoc,
          diag::err_use_of_default_argument_to_function_declared_later) <<
       FD << cast<CXXRecordDecl>(FD->getDeclContext())->getDeclName();
     Diag(UnparsedDefaultArgLocs[Param],
          diag::note_default_argument_declared_here);
-    return ExprError();
+    return true;
   }
   
   if (Param->hasUninstantiatedDefaultArg()) {
@@ -4538,11 +4537,11 @@ ExprResult Sema::BuildCXXDefaultArgExpr(SourceLocation CallLoc,
     InstantiatingTemplate Inst(*this, CallLoc, Param,
                                MutiLevelArgList.getInnermost());
     if (Inst.isInvalid())
-      return ExprError();
+      return true;
     if (Inst.isAlreadyInstantiating()) {
       Diag(Param->getLocStart(), diag::err_recursive_default_argument) << FD;
       Param->setInvalidDecl();
-      return ExprError();
+      return true;
     }
 
     ExprResult Result;
@@ -4557,7 +4556,7 @@ ExprResult Sema::BuildCXXDefaultArgExpr(SourceLocation CallLoc,
                                 /*DirectInit*/false);
     }
     if (Result.isInvalid())
-      return ExprError();
+      return true;
 
     // Check the expression as an initializer for the parameter.
     InitializedEntity Entity
@@ -4570,12 +4569,12 @@ ExprResult Sema::BuildCXXDefaultArgExpr(SourceLocation CallLoc,
     InitializationSequence InitSeq(*this, Entity, Kind, ResultE);
     Result = InitSeq.Perform(*this, Entity, Kind, ResultE);
     if (Result.isInvalid())
-      return ExprError();
+      return true;
 
     Result = ActOnFinishFullExpr(Result.getAs<Expr>(),
                                  Param->getOuterLocStart());
     if (Result.isInvalid())
-      return ExprError();
+      return true;
 
     // Remember the instantiated default argument.
     Param->setDefaultArg(Result.getAs<Expr>());
@@ -4588,7 +4587,7 @@ ExprResult Sema::BuildCXXDefaultArgExpr(SourceLocation CallLoc,
   if (!Param->hasInit()) {
     Diag(Param->getLocStart(), diag::err_recursive_default_argument) << FD;
     Param->setInvalidDecl();
-    return ExprError();
+    return true;
   }
 
   // If the default expression creates temporaries, we need to
@@ -4615,9 +4614,15 @@ ExprResult Sema::BuildCXXDefaultArgExpr(SourceLocation CallLoc,
   // as being "referenced".
   MarkDeclarationsReferencedInExpr(Param->getDefaultArg(),
                                    /*SkipLocalVariables=*/true);
-  return CXXDefaultArgExpr::Create(Context, CallLoc, Param);
+  return false;
 }
 
+ExprResult Sema::BuildCXXDefaultArgExpr(SourceLocation CallLoc,
+                                        FunctionDecl *FD, ParmVarDecl *Param) {
+  if (CheckCXXDefaultArgExpr(CallLoc, FD, Param))
+    return ExprError();
+  return CXXDefaultArgExpr::Create(Context, CallLoc, Param);
+}
 
 Sema::VariadicCallType
 Sema::getVariadicCallType(FunctionDecl *FDecl, const FunctionProtoType *Proto,
@@ -9805,8 +9810,8 @@ static bool IsReadonlyMessage(Expr *E, Sema &S) {
   const MemberExpr *ME = dyn_cast<MemberExpr>(E);
   if (!ME) return false;
   if (!isa<FieldDecl>(ME->getMemberDecl())) return false;
-  ObjCMessageExpr *Base =
-    dyn_cast<ObjCMessageExpr>(ME->getBase()->IgnoreParenImpCasts());
+  ObjCMessageExpr *Base = dyn_cast<ObjCMessageExpr>(
+      ME->getBase()->IgnoreImplicit()->IgnoreParenImpCasts());
   if (!Base) return false;
   return Base->getMethodDecl() != nullptr;
 }
@@ -9889,7 +9894,7 @@ static void DiagnoseConstAssignment(Sema &S, const Expr *E,
   while (true) {
     IsDereference = NextIsDereference;
 
-    E = E->IgnoreParenImpCasts();
+    E = E->IgnoreImplicit()->IgnoreParenImpCasts();
     if (const MemberExpr *ME = dyn_cast<MemberExpr>(E)) {
       NextIsDereference = ME->isArrow();
       const ValueDecl *VD = ME->getMemberDecl();
@@ -10087,10 +10092,10 @@ static bool CheckForModifiableLvalue(Expr *E, SourceLocation Loc, Sema &S) {
   case Expr::MLV_NoSetterProperty:
     llvm_unreachable("readonly properties should be processed differently");
   case Expr::MLV_InvalidMessageExpression:
-    DiagID = diag::error_readonly_message_assignment;
+    DiagID = diag::err_readonly_message_assignment;
     break;
   case Expr::MLV_SubObjCPropertySetting:
-    DiagID = diag::error_no_subobject_property_setting;
+    DiagID = diag::err_no_subobject_property_setting;
     break;
   }
 
@@ -12756,7 +12761,7 @@ bool Sema::DiagnoseAssignmentResult(AssignConvertType ConvTy,
   Diag(Loc, FDiag);
   if (DiagKind == diag::warn_incompatible_qualified_id &&
       PDecl && IFace && !IFace->hasDefinition())
-      Diag(IFace->getLocation(), diag::not_incomplete_class_and_qualified_id)
+      Diag(IFace->getLocation(), diag::note_incomplete_class_and_qualified_id)
         << IFace->getName() << PDecl->getName();
     
   if (SecondType == Context.OverloadTy)
@@ -14079,7 +14084,8 @@ static void DoMarkVarDeclReferenced(Sema &SemaRef, SourceLocation Loc,
         (SemaRef.CurContext != Var->getDeclContext() &&
          Var->getDeclContext()->isFunctionOrMethod() && Var->hasLocalStorage());
     if (RefersToEnclosingScope) {
-      if (LambdaScopeInfo *const LSI = SemaRef.getCurLambda()) {
+      if (LambdaScopeInfo *const LSI =
+              SemaRef.getCurLambda(/*IgnoreCapturedRegions=*/true)) {
         // If a variable could potentially be odr-used, defer marking it so
         // until we finish analyzing the full expression for any
         // lvalue-to-rvalue
@@ -14773,6 +14779,13 @@ namespace {
           << E->getSourceRange();
         return ExprError();
       }
+
+      if (isa<CallExpr>(E->getSubExpr())) {
+        S.Diag(E->getOperatorLoc(), diag::err_unknown_any_addrof_call)
+          << E->getSourceRange();
+        return ExprError();
+      }
+
       assert(E->getValueKind() == VK_RValue);
       assert(E->getObjectKind() == OK_Ordinary);
       E->setType(DestType);

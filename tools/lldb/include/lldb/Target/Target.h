@@ -100,9 +100,9 @@ public:
 
   InlineStrategy GetInlineStrategy() const;
 
-  const char *GetArg0() const;
+  llvm::StringRef GetArg0() const;
 
-  void SetArg0(const char *arg);
+  void SetArg0(llvm::StringRef arg);
 
   bool GetRunArguments(Args &args) const;
 
@@ -512,7 +512,7 @@ public:
   void Dump(Stream *s, lldb::DescriptionLevel description_level);
 
   const lldb::ProcessSP &CreateProcess(lldb::ListenerSP listener,
-                                       const char *plugin_name,
+                                       llvm::StringRef plugin_name,
                                        const FileSpec *crash_file);
 
   const lldb::ProcessSP &GetProcessSP() const;
@@ -984,7 +984,7 @@ public:
   // Returns a new-ed object which the caller owns.
 
   UserExpression *GetUserExpressionForLanguage(
-      const char *expr, const char *expr_prefix, lldb::LanguageType language,
+      llvm::StringRef expr, llvm::StringRef prefix, lldb::LanguageType language,
       Expression::ResultType desired_type,
       const EvaluateExpressionOptions &options, Error &error);
 
@@ -1049,7 +1049,7 @@ public:
   // If an expression is going to be run, then it should have a frame filled
   // in in th execution context.
   lldb::ExpressionResults EvaluateExpression(
-      const char *expression, ExecutionContextScope *exe_scope,
+      llvm::StringRef expression, ExecutionContextScope *exe_scope,
       lldb::ValueObjectSP &result_valobj_sp,
       const EvaluateExpressionOptions &options = EvaluateExpressionOptions(),
       std::string *fixed_expression = nullptr);

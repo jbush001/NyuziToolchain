@@ -617,9 +617,11 @@ def skipIfHostIncompatibleWithRemote(func):
                 'i386') and host_arch != target_arch:
             return "skipping because target %s is not compatible with host architecture %s" % (
                 target_arch, host_arch)
-        elif target_platform != host_platform:
+        if target_platform != host_platform:
             return "skipping because target is %s but host is %s" % (
                 target_platform, host_platform)
+        if lldbplatformutil.match_android_device(target_arch):
+            return "skipping because target is android"
         return None
     return skipTestIfFn(is_host_incompatible_with_remote)(func)
 
@@ -656,31 +658,6 @@ def skipIfTargetAndroid(api_levels=None, archs=None):
             archs))
 
 
-def skipUnlessCompilerRt(func):
-    """Decorate the item to skip tests if testing remotely."""
-    def is_compiler_rt_missing():
-        compilerRtPath = os.path.join(
-            os.environ["LLDB_SRC"],
-            "..",
-            "..",
-            "..",
-            "llvm",
-            "projects",
-            "compiler-rt")
-        if not os.path.exists(compilerRtPath):
-            compilerRtPath = os.path.join(
-            os.environ["LLDB_SRC"],
-            "..",
-            "..",
-            "..",
-            "llvm",
-            "runtimes",
-            "compiler-rt")
-        return "compiler-rt not found" if not os.path.exists(
-            compilerRtPath) else None
-    return skipTestIfFn(is_compiler_rt_missing)(func)
-
-
 def skipUnlessThreadSanitizer(func):
     """Decorate the item to skip test unless Clang -fsanitize=thread is supported."""
 
@@ -689,6 +666,8 @@ def skipUnlessThreadSanitizer(func):
         compiler = os.path.basename(compiler_path)
         if not compiler.startswith("clang"):
             return "Test requires clang as compiler"
+        if lldbplatformutil.getPlatform() == 'windows':
+            return "TSAN tests not compatible with 'windows'"
         # rdar://28659145 - TSAN tests don't look like they're supported on i386
         if self.getArchitecture() == 'i386' and platform.system() == 'Darwin':
             return "TSAN tests not compatible with i386 targets"
@@ -701,3 +680,21 @@ def skipUnlessThreadSanitizer(func):
             return "Compiler cannot compile with -fsanitize=thread"
         return None
     return skipTestIfFn(is_compiler_clang_with_thread_sanitizer)(func)
+
+def skipUnlessAddressSanitizer(func):
+    """Decorate the item to skip test unless Clang -fsanitize=thread is supported."""
+
+    def is_compiler_with_address_sanitizer(self):
+        compiler_path = self.getCompiler()
+        compiler = os.path.basename(compiler_path)
+        f = tempfile.NamedTemporaryFile()
+        if lldbplatformutil.getPlatform() == 'windows':
+            return "ASAN tests not compatible with 'windows'"
+        cmd = "echo 'int main() {}' | %s -x c -o %s -" % (compiler_path, f.name)
+        if os.popen(cmd).close() is not None:
+            return None  # The compiler cannot compile at all, let's *not* skip the test
+        cmd = "echo 'int main() {}' | %s -fsanitize=address -x c -o %s -" % (compiler_path, f.name)
+        if os.popen(cmd).close() is not None:
+            return "Compiler cannot compile with -fsanitize=address"
+        return None
+    return skipTestIfFn(is_compiler_with_address_sanitizer)(func)

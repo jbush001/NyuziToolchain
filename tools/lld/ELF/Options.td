@@ -39,6 +39,9 @@ def allow_multiple_definition: F<"allow-multiple-definition">,
 def as_needed: F<"as-needed">,
   HelpText<"Only set DT_NEEDED for shared libraries if used">;
 
+def color_diagnostics: S<"color-diagnostics">,
+  HelpText<"Use colors in diagnostics">;
+
 def disable_new_dtags: F<"disable-new-dtags">,
   HelpText<"Disable new dynamic tags">;
 
@@ -67,6 +70,9 @@ def end_lib: F<"end-lib">,
 
 def entry: S<"entry">, MetaVarName<"<entry>">,
   HelpText<"Name of entry point symbol">;
+
+def error_limit: S<"error-limit">,
+  HelpText<"Maximum number of errors to emit before stopping (0 = no limit)">;
 
 def export_dynamic: F<"export-dynamic">,
   HelpText<"Put symbols in the dynamic symbol table">;
@@ -118,6 +124,9 @@ def nostdlib: F<"nostdlib">,
 def no_as_needed: F<"no-as-needed">,
   HelpText<"Always DT_NEEDED for shared libraries">;
 
+def no_color_diagnostics: F<"no-color-diagnostics">,
+  HelpText<"Do not use colors in diagnostics">;
+
 def no_demangle: F<"no-demangle">,
   HelpText<"Do not demangle symbol names">;
 
@@ -127,6 +136,9 @@ def no_gc_sections: F<"no-gc-sections">,
 def no_gnu_unique: F<"no-gnu-unique">,
   HelpText<"Disable STB_GNU_UNIQUE symbol binding">;
 
+def no_threads: F<"no-threads">,
+  HelpText<"Do not run the linker multi-threaded">;
+
 def no_whole_archive: F<"no-whole-archive">,
   HelpText<"Restores the default behavior of loading archive members">;
 
@@ -134,6 +146,8 @@ def noinhibit_exec: F<"noinhibit-exec">,
   HelpText<"Retain the executable output file whenever it is still usable">;
 
 def nopie: F<"nopie">, HelpText<"Do not create a position independent executable">;
+
+def no_rosegment: F<"no-rosegment">, HelpText<"Do not put read-only non-executable sections in their own segment">;
 
 def no_undefined: F<"no-undefined">,
   HelpText<"Report unresolved symbols even if the linker is creating a shared library">;
@@ -146,6 +160,9 @@ def o: JoinedOrSeparate<["-"], "o">, MetaVarName<"<path>">,
 
 def oformat: Separate<["--"], "oformat">, MetaVarName<"<format>">,
   HelpText<"Specify the binary format for the output object file">;
+
+def omagic: F<"omagic">, MetaVarName<"<magic>">,
+  HelpText<"Set the text and data sections to be readable and writable">;
 
 def pie: F<"pie">, HelpText<"Create a position independent executable">;
 
@@ -177,15 +194,18 @@ def strip_all: F<"strip-all">, HelpText<"Strip all symbols">;
 
 def strip_debug: F<"strip-debug">, HelpText<"Strip debugging information">;
 
+def symbol_ordering_file: S<"symbol-ordering-file">,
+  HelpText<"Layout sections in the order specified by symbol file">;
+
 def sysroot: J<"sysroot=">, HelpText<"Set the system root">;
 
 def target1_rel: F<"target1-rel">, HelpText<"Interpret R_ARM_TARGET1 as R_ARM_REL32">;
 
 def target1_abs: F<"target1-abs">, HelpText<"Interpret R_ARM_TARGET1 as R_ARM_ABS32">;
 
-def target2: J<"target2=">, MetaVarName<"<type>">, HelpText<"Interpret R_ARM_TARGET2 as <type>, where <type> is one of rel, abs, or got-rel.">;
+def target2: J<"target2=">, MetaVarName<"<type>">, HelpText<"Interpret R_ARM_TARGET2 as <type>, where <type> is one of rel, abs, or got-rel">;
 
-def threads: F<"threads">, HelpText<"Enable use of threads">;
+def threads: F<"threads">, HelpText<"Run the linker multi-threaded">;
 
 def trace: F<"trace">, HelpText<"Print the names of the input files">;
 
@@ -200,9 +220,11 @@ def unresolved_symbols: J<"unresolved-symbols=">,
 def rsp_quoting: J<"rsp-quoting=">,
   HelpText<"Quoting style for response files. Values supported: windows|posix">;
 
+def v: Flag<["-"], "v">, HelpText<"Display the version number">;
+
 def verbose: F<"verbose">, HelpText<"Verbose mode">;
 
-def version: F<"version">, HelpText<"Display the version number">;
+def version: F<"version">, HelpText<"Display the version number and exit">;
 
 def version_script: S<"version-script">,
   HelpText<"Read a version script">;
@@ -227,11 +249,13 @@ def alias_Bstatic_dn: F<"dn">, Alias<Bstatic>;
 def alias_Bstatic_non_shared: F<"non_shared">, Alias<Bstatic>;
 def alias_Bstatic_static: F<"static">, Alias<Bstatic>;
 def alias_L__library_path: J<"library-path=">, Alias<L>;
+def alias_color_diagnostics: J<"color-diagnostics=">, Alias<color_diagnostics>;
 def alias_discard_all_x: Flag<["-"], "x">, Alias<discard_all>;
 def alias_discard_locals_X: Flag<["-"], "X">, Alias<discard_locals>;
 def alias_dynamic_list: J<"dynamic-list=">, Alias<dynamic_list>;
 def alias_entry_e: JoinedOrSeparate<["-"], "e">, Alias<entry>;
 def alias_entry_entry: J<"entry=">, Alias<entry>;
+def alias_error_limit: J<"error-limit=">, Alias<error_limit>;
 def alias_export_dynamic_E: Flag<["-"], "E">, Alias<export_dynamic>;
 def alias_export_dynamic_symbol: J<"export-dynamic-symbol=">,
   Alias<export_dynamic_symbol>;
@@ -240,16 +264,18 @@ def alias_format_b: S<"b">, Alias<format>;
 def alias_hash_style_hash_style: J<"hash-style=">, Alias<hash_style>;
 def alias_init_init: J<"init=">, Alias<init>;
 def alias_l__library: J<"library=">, Alias<l>;
+def alias_omagic: Flag<["-"], "N">, Alias<omagic>;
 def alias_o_output: Joined<["--"], "output=">, Alias<o>;
 def alias_o_output2 : Separate<["--"], "output">, Alias<o>;
 def alias_pie_pic_executable: F<"pic-executable">, Alias<pie>;
 def alias_relocatable_r: Flag<["-"], "r">, Alias<relocatable>;
-def alias_rpath_R: Joined<["-"], "R">, Alias<rpath>;
+def alias_rpath_R: JoinedOrSeparate<["-"], "R">, Alias<rpath>;
 def alias_rpath_rpath: J<"rpath=">, Alias<rpath>;
 def alias_script_T: JoinedOrSeparate<["-"], "T">, Alias<script>;
 def alias_shared_Bshareable: F<"Bshareable">, Alias<shared>;
 def alias_soname_h: JoinedOrSeparate<["-"], "h">, Alias<soname>;
 def alias_soname_soname: S<"soname">, Alias<soname>;
+def alias_script: J<"script=">, Alias<script>;
 def alias_strip_all: Flag<["-"], "s">, Alias<strip_all>;
 def alias_strip_debug_S: Flag<["-"], "S">, Alias<strip_debug>;
 def alias_Tbss: J<"Tbss=">, Alias<Tbss>;
@@ -260,7 +286,6 @@ def alias_Ttext: J<"Ttext=">, Alias<Ttext>;
 def alias_undefined_eq: J<"undefined=">, Alias<undefined>;
 def alias_undefined_u: JoinedOrSeparate<["-"], "u">, Alias<undefined>;
 def alias_version_V: Flag<["-"], "V">, Alias<version>;
-def alias_version_v: Flag<["-"], "v">, Alias<version>;
 def alias_wrap_wrap: J<"wrap=">, Alias<wrap>;
 
 // Our symbol resolution algorithm handles symbols in archive files differently
@@ -285,10 +310,13 @@ def plugin_opt_eq: J<"plugin-opt=">;
 
 // Options listed below are silently ignored for now for compatibility.
 def allow_shlib_undefined: F<"allow-shlib-undefined">;
+def cref: Flag<["--"], "cref">;
 def define_common: F<"define-common">;
 def demangle: F<"demangle">;
 def detect_odr_violations: F<"detect-odr-violations">;
 def g: Flag<["-"], "g">;
+def M: Flag<["-"], "M">;
+def Map: JS<"Map">;
 def no_add_needed: F<"no-add-needed">;
 def no_allow_shlib_undefined: F<"no-allow-shlib-undefined">;
 def no_copy_dt_needed_entries: F<"no-copy-dt-needed-entries">,
@@ -301,6 +329,7 @@ def no_warn_mismatch: F<"no-warn-mismatch">;
 def rpath_link: S<"rpath-link">;
 def rpath_link_eq: J<"rpath-link=">;
 def sort_common: F<"sort-common">;
+def stats: F<"stats">;
 def warn_execstack: F<"warn-execstack">;
 def warn_shared_textrel: F<"warn-shared-textrel">;
 def EB : F<"EB">;
@@ -312,6 +341,7 @@ def Qy : F<"Qy">;
 def alias_define_common_d: Flag<["-"], "d">, Alias<define_common>;
 def alias_define_common_dc: F<"dc">, Alias<define_common>;
 def alias_define_common_dp: F<"dp">, Alias<define_common>;
+def alias_Map_eq: J<"Map=">, Alias<Map>;
 def alias_version_script_version_script: J<"version-script=">,
   Alias<version_script>;
 

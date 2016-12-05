@@ -40,8 +40,7 @@ void NyuziFrameLowering::emitPrologue(MachineFunction &MF,
   MachineFrameInfo &MFI = MF.getFrameInfo();
   const NyuziInstrInfo &TII =
       *static_cast<const NyuziInstrInfo *>(MF.getSubtarget().getInstrInfo());
-  MachineModuleInfo &MMI = MF.getMMI();
-  const MCRegisterInfo *MRI = MMI.getContext().getRegisterInfo();
+  const MCRegisterInfo *MRI = MF.getMMI().getContext().getRegisterInfo();
   MachineBasicBlock::iterator MBBI = MBB.begin();
 
   // Debug location must be unknown since the first debug location is used
@@ -59,7 +58,7 @@ void NyuziFrameLowering::emitPrologue(MachineFunction &MF,
   TII.adjustStackPointer(MBB, MBBI, DL, -StackSize);
 
   // Emit DW_CFA_def_cfa
-  unsigned CFIIndex = MMI.addFrameInst(
+  unsigned CFIIndex = MF.addFrameInst(
       MCCFIInstruction::createDefCfaOffset(nullptr, -StackSize));
   BuildMI(MBB, MBBI, DL, TII.get(TargetOpcode::CFI_INSTRUCTION))
       .addCFIIndex(CFIIndex);
@@ -77,7 +76,7 @@ void NyuziFrameLowering::emitPrologue(MachineFunction &MF,
     for (const auto &I : CSI) {
       int64_t Offset = MFI.getObjectOffset(I.getFrameIdx());
       unsigned Reg = I.getReg();
-      unsigned CFIIndex = MMI.addFrameInst(MCCFIInstruction::createOffset(
+      unsigned CFIIndex = MF.addFrameInst(MCCFIInstruction::createOffset(
           nullptr, MRI->getDwarfRegNum(Reg, 1), Offset));
       BuildMI(MBB, MBBI, DL, TII.get(TargetOpcode::CFI_INSTRUCTION))
           .addCFIIndex(CFIIndex);
@@ -91,7 +90,7 @@ void NyuziFrameLowering::emitPrologue(MachineFunction &MF,
         .addReg(Nyuzi::SP_REG);
 
     // emit ".cfi_def_cfa_register $fp" (debug information)
-    unsigned CFIIndex = MMI.addFrameInst(MCCFIInstruction::createDefCfaRegister(
+    unsigned CFIIndex = MF.addFrameInst(MCCFIInstruction::createDefCfaRegister(
         nullptr, MRI->getDwarfRegNum(Nyuzi::FP_REG, true)));
     BuildMI(MBB, MBBI, DL, TII.get(TargetOpcode::CFI_INSTRUCTION))
         .addCFIIndex(CFIIndex);

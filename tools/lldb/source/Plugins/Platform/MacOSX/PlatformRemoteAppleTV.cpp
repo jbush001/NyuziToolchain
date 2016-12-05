@@ -232,7 +232,7 @@ Error PlatformRemoteAppleTV::ResolveExecutable(
         error.SetErrorStringWithFormat(
             "'%s' doesn't contain any '%s' platform architectures: %s",
             resolved_module_spec.GetFileSpec().GetPath().c_str(),
-            GetPluginName().GetCString(), arch_names.GetString().c_str());
+            GetPluginName().GetCString(), arch_names.GetData());
       } else {
         error.SetErrorStringWithFormat(
             "'%s' is not readable",
@@ -258,6 +258,7 @@ PlatformRemoteAppleTV::GetContainedFilesIntoVectorOfStringsCallback(
 
 bool PlatformRemoteAppleTV::UpdateSDKDirectoryInfosIfNeeded() {
   Log *log = lldb_private::GetLogIfAllCategoriesSet(LIBLLDB_LOG_HOST);
+  std::lock_guard<std::mutex> guard(m_sdk_dir_mutex);
   if (m_sdk_directory_infos.empty()) {
     const char *device_support_dir = GetDeviceSupportDirectory();
     if (log) {
