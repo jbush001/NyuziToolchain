@@ -32,7 +32,7 @@ class ScriptParser;
 class SymbolBody;
 template <class ELFT> class InputSectionBase;
 template <class ELFT> class InputSection;
-template <class ELFT> class OutputSectionBase;
+class OutputSectionBase;
 template <class ELFT> class OutputSectionFactory;
 class InputSectionData;
 
@@ -43,12 +43,19 @@ class InputSectionData;
 struct Expr {
   std::function<uint64_t(uint64_t)> Val;
   std::function<bool()> IsAbsolute;
+
+  // If expression is section-relative the function below is used
+  // to get the output section pointer.
+  std::function<const OutputSectionBase *()> Section;
+
   uint64_t operator()(uint64_t Dot) const { return Val(Dot); }
   operator bool() const { return (bool)Val; }
 
-  Expr(std::function<uint64_t(uint64_t)> Val, std::function<bool()> IsAbsolute)
-      : Val(Val), IsAbsolute(IsAbsolute) {}
-  template <typename T> Expr(T V) : Expr(V, []() { return true; }) {}
+  Expr(std::function<uint64_t(uint64_t)> Val, std::function<bool()> IsAbsolute,
+       std::function<const OutputSectionBase *()> Section)
+      : Val(Val), IsAbsolute(IsAbsolute), Section(Section) {}
+  template <typename T>
+  Expr(T V) : Expr(V, [] { return true; }, [] { return nullptr; }) {}
   Expr() : Expr(nullptr) {}
 };
 
@@ -115,7 +122,7 @@ struct OutputSectionCommand : BaseCommand {
   Expr SubalignExpr;
   std::vector<std::unique_ptr<BaseCommand>> Commands;
   std::vector<StringRef> Phdrs;
-  std::vector<uint8_t> Filler;
+  uint32_t Filler = 0;
   ConstraintKind Constraint = ConstraintKind::NoConstraint;
 };
 
@@ -182,14 +189,14 @@ protected:
   ~LinkerScriptBase() = default;
 
 public:
-  virtual uint64_t getOutputSectionAddress(StringRef Name) = 0;
-  virtual uint64_t getOutputSectionSize(StringRef Name) = 0;
-  virtual uint64_t getOutputSectionAlign(StringRef Name) = 0;
-  virtual uint64_t getOutputSectionLMA(StringRef Name) = 0;
   virtual uint64_t getHeaderSize() = 0;
   virtual uint64_t getSymbolValue(StringRef S) = 0;
   virtual bool isDefined(StringRef S) = 0;
   virtual bool isAbsolute(StringRef S) = 0;
+  virtual const OutputSectionBase *getSymbolSection(StringRef S) = 0;
+  virtual const OutputSectionBase *getOutputSection(const Twine &Loc,
+                                                    StringRef S) = 0;
+  virtual uint64_t getOutputSectionSize(StringRef S) = 0;
 };
 
 // ScriptConfiguration holds linker script parse results.
@@ -218,29 +225,32 @@ public:
   ~LinkerScript();
 
   void processCommands(OutputSectionFactory<ELFT> &Factory);
-  void createSections(OutputSectionFactory<ELFT> &Factory);
+  void addOrphanSections(OutputSectionFactory<ELFT> &Factory);
+  void removeEmptyCommands();
   void adjustSectionsBeforeSorting();
+  void adjustSectionsAfterSorting();
 
   std::vector<PhdrEntry<ELFT>> createPhdrs();
   bool ignoreInterpSection();
 
-  ArrayRef<uint8_t> getFiller(StringRef Name);
+  uint32_t getFiller(StringRef Name);
   void writeDataBytes(StringRef Name, uint8_t *Buf);
   bool hasLMA(StringRef Name);
   bool shouldKeep(InputSectionBase<ELFT> *S);
   void assignOffsets(OutputSectionCommand *Cmd);
+  void placeOrphanSections();
   void assignAddresses(std::vector<PhdrEntry<ELFT>> &Phdrs);
   bool hasPhdrsCommands();
-  uint64_t getOutputSectionAddress(StringRef Name) override;
-  uint64_t getOutputSectionSize(StringRef Name) override;
-  uint64_t getOutputSectionAlign(StringRef Name) override;
-  uint64_t getOutputSectionLMA(StringRef Name) override;
   uint64_t getHeaderSize() override;
   uint64_t getSymbolValue(StringRef S) override;
   bool isDefined(StringRef S) override;
   bool isAbsolute(StringRef S) override;
+  const OutputSectionBase *getSymbolSection(StringRef S) override;
+  const OutputSectionBase *getOutputSection(const Twine &Loc,
+                                            StringRef S) override;
+  uint64_t getOutputSectionSize(StringRef S) override;
 
-  std::vector<OutputSectionBase<ELFT> *> *OutputSections;
+  std::vector<OutputSectionBase *> *OutputSections;
 
   int getSectionIndex(StringRef Name);
 
@@ -262,13 +272,13 @@ private:
 
   uintX_t Dot;
   uintX_t LMAOffset = 0;
-  OutputSectionBase<ELFT> *CurOutSec = nullptr;
+  OutputSectionBase *CurOutSec = nullptr;
   uintX_t ThreadBssOffset = 0;
-  void switchTo(OutputSectionBase<ELFT> *Sec);
+  void switchTo(OutputSectionBase *Sec);
   void flush();
   void output(InputSection<ELFT> *Sec);
   void process(BaseCommand &Base);
-  llvm::DenseSet<OutputSectionBase<ELFT> *> AlreadyOutputOS;
+  llvm::DenseSet<OutputSectionBase *> AlreadyOutputOS;
   llvm::DenseSet<InputSectionData *> AlreadyOutputIS;
 };
 

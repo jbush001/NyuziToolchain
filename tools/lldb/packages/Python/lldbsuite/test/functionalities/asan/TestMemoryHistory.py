@@ -23,7 +23,7 @@ class AsanTestCase(TestBase):
         bugnumber="non-core functionality, need to reenable and fix later (DES 2014.11.07)")
     @skipIfFreeBSD  # llvm.org/pr21136 runtimes not yet available by default
     @skipIfRemote
-    @skipUnlessCompilerRt
+    @skipUnlessAddressSanitizer
     def test(self):
         self.build()
         self.asan_tests()
@@ -121,7 +121,7 @@ class AsanTestCase(TestBase):
             "Process should be stopped due to ASan report",
             substrs=[
                 'stopped',
-                'stop reason = Use of deallocated memory detected'])
+                'stop reason = Use of deallocated memory'])
 
         # make sure the 'memory history' command still works even when we're
         # generating a report now

@@ -12,8 +12,8 @@
 // Fatal makes the program exit immediately with an error message.
 // You shouldn't use it except for reporting a corrupted input file.
 //
-// Error prints out an error message and set a global variable HasError
-// to true to record the fact that we met an error condition. It does
+// Error prints out an error message and increment a global variable
+// ErrorCount to record the fact that we met an error condition. It does
 // not exit, so it is safe for a lld-as-a-library use case. It is generally
 // useful because it can report more than one errors in a single run.
 //
@@ -31,7 +31,7 @@
 namespace lld {
 namespace elf {
 
-extern bool HasError;
+extern uint64_t ErrorCount;
 extern llvm::raw_ostream *ErrorOS;
 extern llvm::StringRef Argv0;
 
@@ -41,14 +41,12 @@ void warn(const Twine &Msg);
 void error(const Twine &Msg);
 void error(std::error_code EC, const Twine &Prefix);
 
-template <typename T> void error(const ErrorOr<T> &V, const Twine &Prefix) {
-  error(V.getError(), Prefix);
-}
-
 LLVM_ATTRIBUTE_NORETURN void exitLld(int Val);
 LLVM_ATTRIBUTE_NORETURN void fatal(const Twine &Msg);
 LLVM_ATTRIBUTE_NORETURN void fatal(std::error_code EC, const Twine &Prefix);
 
+// check() functions are convenient functions to strip errors
+// from error-or-value objects.
 template <class T> T check(ErrorOr<T> E) {
   if (auto EC = E.getError())
     fatal(EC.message());
@@ -57,7 +55,11 @@ template <class T> T check(ErrorOr<T> E) {
 
 template <class T> T check(Expected<T> E) {
   if (!E)
-    fatal(errorToErrorCode(E.takeError()).message());
+    handleAllErrors(std::move(E.takeError()),
+                    [](llvm::ErrorInfoBase &EIB) -> Error {
+                      fatal(EIB.message());
+                      return Error::success();
+                    });
   return std::move(*E);
 }
 

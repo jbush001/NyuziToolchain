@@ -165,7 +165,7 @@ CGIOperandList::ParseOperandName(const std::string &Op, bool AllowWholeOp) {
   std::string SubOpName;
 
   // Check to see if this is $foo.bar.
-  std::string::size_type DotIdx = OpName.find_first_of(".");
+  std::string::size_type DotIdx = OpName.find_first_of('.');
   if (DotIdx != std::string::npos) {
     SubOpName = OpName.substr(DotIdx+1);
     if (SubOpName.empty())
@@ -647,8 +647,8 @@ CodeGenInstAlias::CodeGenInstAlias(Record *R, unsigned Variant,
 
           // Take care to instantiate each of the suboperands with the correct
           // nomenclature: $foo.bar
-          ResultOperands.emplace_back(Result->getArgName(AliasOpNo) + "." +
-                                          MIOI->getArgName(SubOp),
+          ResultOperands.emplace_back(Result->getArgName(AliasOpNo).str()
+                                      + "." + MIOI->getArgName(SubOp).str(),
                                       SubRec);
           ResultInstOperandIndex.push_back(std::make_pair(i, SubOp));
          }

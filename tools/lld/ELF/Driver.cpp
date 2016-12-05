@@ -16,14 +16,16 @@
 #include "LinkerScript.h"
 #include "Memory.h"
 #include "Strings.h"
-#include "SymbolListFile.h"
 #include "SymbolTable.h"
 #include "Target.h"
+#include "Threads.h"
 #include "Writer.h"
 #include "lld/Config/Version.h"
 #include "lld/Driver/Driver.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/StringSwitch.h"
+#include "llvm/Support/CommandLine.h"
+#include "llvm/Support/Process.h"
 #include "llvm/Support/TargetSelect.h"
 #include "llvm/Support/raw_ostream.h"
 #include <cstdlib>
@@ -42,7 +44,7 @@ LinkerDriver *elf::Driver;
 
 bool elf::link(ArrayRef<const char *> Args, bool CanExitEarly,
                raw_ostream &Error) {
-  HasError = false;
+  ErrorCount = 0;
   ErrorOS = &Error;
   Argv0 = Args[0];
 
@@ -55,12 +57,11 @@ bool elf::link(ArrayRef<const char *> Args, bool CanExitEarly,
 
   Driver->main(Args, CanExitEarly);
   freeArena();
-  return !HasError;
+  return !ErrorCount;
 }
 
 // Parses a linker -m option.
-static std::tuple<ELFKind, uint16_t, uint8_t, bool>
-parseEmulation(StringRef Emul) {
+static std::tuple<ELFKind, uint16_t, uint8_t> parseEmulation(StringRef Emul) {
   uint8_t OSABI = 0;
   StringRef S = Emul;
   if (S.endswith("_fbsd")) {
@@ -92,8 +93,7 @@ parseEmulation(StringRef Emul) {
     else
       error("unknown emulation: " + Emul);
   }
-  bool IsMipsN32ABI = S == "elf32btsmipn32" || S == "elf32ltsmipn32";
-  return std::make_tuple(Ret.first, Ret.second, OSABI, IsMipsN32ABI);
+  return std::make_tuple(Ret.first, Ret.second, OSABI);
 }
 
 // Returns slices of MB by parsing MB as an archive file.
@@ -101,21 +101,24 @@ parseEmulation(StringRef Emul) {
 std::vector<MemoryBufferRef>
 LinkerDriver::getArchiveMembers(MemoryBufferRef MB) {
   std::unique_ptr<Archive> File =
-      check(Archive::create(MB), "failed to parse archive");
+      check(Archive::create(MB),
+            MB.getBufferIdentifier() + ": failed to parse archive");
 
   std::vector<MemoryBufferRef> V;
-  Error Err;
+  Error Err = Error::success();
   for (const ErrorOr<Archive::Child> &COrErr : File->children(Err)) {
-    Archive::Child C = check(COrErr, "could not get the child of the archive " +
-                                         File->getFileName());
+    Archive::Child C =
+        check(COrErr, MB.getBufferIdentifier() +
+                          ": could not get the child of the archive");
     MemoryBufferRef MBRef =
         check(C.getMemoryBufferRef(),
-              "could not get the buffer for a child of the archive " +
-                  File->getFileName());
+              MB.getBufferIdentifier() +
+                  ": could not get the buffer for a child of the archive");
     V.push_back(MBRef);
   }
   if (Err)
-    Error(Err);
+    fatal(MB.getBufferIdentifier() + ": Archive::children failed: " +
+          toString(std::move(Err)));
 
   // Take ownership of memory buffers created for members of thin archives.
   for (std::unique_ptr<MemoryBuffer> &MB : File->takeThinBuffers())
@@ -187,11 +190,10 @@ Optional<MemoryBufferRef> LinkerDriver::readFile(StringRef Path) {
 
 // Add a given library by searching it from input search paths.
 void LinkerDriver::addLibrary(StringRef Name) {
-  std::string Path = searchLibrary(Name);
-  if (Path.empty())
-    error("unable to find library -l" + Name);
+  if (Optional<std::string> Path = searchLibrary(Name))
+    addFile(*Path);
   else
-    addFile(Path);
+    error("unable to find library -l" + Name);
 }
 
 // This function is called on startup. We need this for LTO since
@@ -203,12 +205,6 @@ static void initLLVM(opt::InputArgList &Args) {
   InitializeAllTargetMCs();
   InitializeAllAsmPrinters();
   InitializeAllAsmParsers();
-
-  // This is a flag to discard all but GlobalValue names.
-  // We want to enable it by default because it saves memory.
-  // Disable it only when a developer option (-save-temps) is given.
-  Driver->Context.setDiscardValueNames(!Config->SaveTemps);
-  Driver->Context.enableDebugTypeODRUniquing();
 
   // Parse and evaluate -mllvm options.
   std::vector<const char *> V;
@@ -290,15 +286,48 @@ static uint64_t getZOptionValue(opt::InputArgList &Args, StringRef Key,
   return Default;
 }
 
+// Parse -color-diagnostics={auto,always,never} or -no-color-diagnostics.
+static bool getColorDiagnostics(opt::InputArgList &Args) {
+  bool Default = (ErrorOS == &errs() && Process::StandardErrHasColors());
+
+  auto *Arg = Args.getLastArg(OPT_color_diagnostics, OPT_no_color_diagnostics);
+  if (!Arg)
+    return Default;
+  if (Arg->getOption().getID() == OPT_no_color_diagnostics)
+    return false;
+
+  StringRef S = Arg->getValue();
+  if (S == "auto")
+    return Default;
+  if (S == "always")
+    return true;
+  if (S != "never")
+    error("unknown -color-diagnostics value: " + S);
+  return false;
+}
+
 void LinkerDriver::main(ArrayRef<const char *> ArgsArr, bool CanExitEarly) {
   ELFOptTable Parser;
   opt::InputArgList Args = Parser.parse(ArgsArr.slice(1));
+
+  // Read some flags early because error() depends on them.
+  Config->ErrorLimit = getInteger(Args, OPT_error_limit, 20);
+  Config->ColorDiagnostics = getColorDiagnostics(Args);
+
+  // Handle -help
   if (Args.hasArg(OPT_help)) {
     printHelp(ArgsArr[0]);
     return;
   }
-  if (Args.hasArg(OPT_version))
+
+  // GNU linkers disagree here. Though both -version and -v are mentioned
+  // in help to print the version information, GNU ld just normally exits,
+  // while gold can continue linking. We are compatible with ld.bfd here.
+  if (Args.hasArg(OPT_version) || Args.hasArg(OPT_v))
     outs() << getLLDVersion() << "\n";
+  if (Args.hasArg(OPT_version))
+    return;
+
   Config->ExitEarly = CanExitEarly && !Args.hasArg(OPT_full_shutdown);
 
   if (const char *Path = getReproduceOption(Args)) {
@@ -319,7 +348,7 @@ void LinkerDriver::main(ArrayRef<const char *> ArgsArr, bool CanExitEarly) {
   createFiles(Args);
   inferMachineType();
   checkOptions(Args);
-  if (HasError)
+  if (ErrorCount)
     return;
 
   switch (Config->EKind) {
@@ -391,6 +420,8 @@ static bool getArg(opt::InputArgList &Args, unsigned K1, unsigned K2,
 }
 
 static DiscardPolicy getDiscardOption(opt::InputArgList &Args) {
+  if (Config->Relocatable)
+    return DiscardPolicy::None;
   auto *Arg =
       Args.getLastArg(OPT_discard_all, OPT_discard_locals, OPT_discard_none);
   if (!Arg)
@@ -449,6 +480,18 @@ static SortSectionPolicy getSortKind(opt::InputArgList &Args) {
   return SortSectionPolicy::Default;
 }
 
+// Parse the --symbol-ordering-file argument. File has form:
+// symbolName1
+// [...]
+// symbolNameN
+static void parseSymbolOrderingList(MemoryBufferRef MB) {
+  unsigned I = 0;
+  SmallVector<StringRef, 0> Arr;
+  MB.getBuffer().split(Arr, '\n');
+  for (StringRef S : Arr)
+    Config->SymbolOrderingFile.insert({CachedHashStringRef(S.trim()), I++});
+}
+
 // Initializes Config members by the command line options.
 void LinkerDriver::readConfigs(opt::InputArgList &Args) {
   for (auto *Arg : Args.filtered(OPT_L))
@@ -463,8 +506,9 @@ void LinkerDriver::readConfigs(opt::InputArgList &Args) {
   if (auto *Arg = Args.getLastArg(OPT_m)) {
     // Parse ELF{32,64}{LE,BE} and CPU type.
     StringRef S = Arg->getValue();
-    std::tie(Config->EKind, Config->EMachine, Config->OSABI,
-             Config->MipsN32Abi) = parseEmulation(S);
+    std::tie(Config->EKind, Config->EMachine, Config->OSABI) =
+        parseEmulation(S);
+    Config->MipsN32Abi = (S == "elf32btsmipn32" || S == "elf32ltsmipn32");
     Config->Emulation = S;
   }
 
@@ -473,7 +517,6 @@ void LinkerDriver::readConfigs(opt::InputArgList &Args) {
   Config->BsymbolicFunctions = Args.hasArg(OPT_Bsymbolic_functions);
   Config->Demangle = getArg(Args, OPT_demangle, OPT_no_demangle, true);
   Config->DisableVerify = Args.hasArg(OPT_disable_verify);
-  Config->Discard = getDiscardOption(Args);
   Config->EhFrameHdr = Args.hasArg(OPT_eh_frame_hdr);
   Config->EnableNewDtags = !Args.hasArg(OPT_disable_new_dtags);
   Config->ExportDynamic = Args.hasArg(OPT_export_dynamic);
@@ -484,13 +527,16 @@ void LinkerDriver::readConfigs(opt::InputArgList &Args) {
   Config->NoGnuUnique = Args.hasArg(OPT_no_gnu_unique);
   Config->NoUndefinedVersion = Args.hasArg(OPT_no_undefined_version);
   Config->Nostdlib = Args.hasArg(OPT_nostdlib);
+  Config->OMagic = Args.hasArg(OPT_omagic);
   Config->Pie = getArg(Args, OPT_pie, OPT_nopie, false);
   Config->PrintGcSections = Args.hasArg(OPT_print_gc_sections);
   Config->Relocatable = Args.hasArg(OPT_relocatable);
+  Config->Discard = getDiscardOption(Args);
   Config->SaveTemps = Args.hasArg(OPT_save_temps);
+  Config->SingleRoRx = Args.hasArg(OPT_no_rosegment);
   Config->Shared = Args.hasArg(OPT_shared);
   Config->Target1Rel = getArg(Args, OPT_target1_rel, OPT_target1_abs, false);
-  Config->Threads = Args.hasArg(OPT_threads);
+  Config->Threads = getArg(Args, OPT_threads, OPT_no_threads, true);
   Config->Trace = Args.hasArg(OPT_trace);
   Config->Verbose = Args.hasArg(OPT_verbose);
   Config->WarnCommon = Args.hasArg(OPT_warn_common);
@@ -499,21 +545,21 @@ void LinkerDriver::readConfigs(opt::InputArgList &Args) {
   Config->Entry = getString(Args, OPT_entry);
   Config->Fini = getString(Args, OPT_fini, "_fini");
   Config->Init = getString(Args, OPT_init, "_init");
-  Config->LtoAAPipeline = getString(Args, OPT_lto_aa_pipeline);
-  Config->LtoNewPmPasses = getString(Args, OPT_lto_newpm_passes);
+  Config->LTOAAPipeline = getString(Args, OPT_lto_aa_pipeline);
+  Config->LTONewPmPasses = getString(Args, OPT_lto_newpm_passes);
   Config->OutputFile = getString(Args, OPT_o);
   Config->SoName = getString(Args, OPT_soname);
   Config->Sysroot = getString(Args, OPT_sysroot);
 
   Config->Optimize = getInteger(Args, OPT_O, 1);
-  Config->LtoO = getInteger(Args, OPT_lto_O, 2);
-  if (Config->LtoO > 3)
+  Config->LTOO = getInteger(Args, OPT_lto_O, 2);
+  if (Config->LTOO > 3)
     error("invalid optimization level for LTO: " + getString(Args, OPT_lto_O));
-  Config->LtoPartitions = getInteger(Args, OPT_lto_partitions, 1);
-  if (Config->LtoPartitions == 0)
+  Config->LTOPartitions = getInteger(Args, OPT_lto_partitions, 1);
+  if (Config->LTOPartitions == 0)
     error("--lto-partitions: number of threads must be > 0");
-  Config->ThinLtoJobs = getInteger(Args, OPT_thinlto_jobs, -1u);
-  if (Config->ThinLtoJobs == 0)
+  Config->ThinLTOJobs = getInteger(Args, OPT_thinlto_jobs, -1u);
+  if (Config->ThinLTOJobs == 0)
     error("--thinlto-jobs: number of threads must be > 0");
 
   Config->ZCombreloc = !hasZOption(Args, "nocombreloc");
@@ -530,6 +576,13 @@ void LinkerDriver::readConfigs(opt::InputArgList &Args) {
   Config->SortSection = getSortKind(Args);
   Config->Target2 = getTarget2Option(Args);
   Config->UnresolvedSymbols = getUnresolvedSymbolOption(Args);
+
+  // --omagic is an option to create old-fashioned executables in which
+  // .text segments are writable. Today, the option is still in use to
+  // create special-purpose programs such as boot loaders. It doesn't
+  // make sense to create PT_GNU_RELRO for such executables.
+  if (Config->OMagic)
+    Config->ZRelro = false;
 
   if (!Config->Relocatable)
     Config->Strip = getStripOption(Args);
@@ -555,7 +608,7 @@ void LinkerDriver::readConfigs(opt::InputArgList &Args) {
     StringRef S = Arg->getValue();
     if (S == "md5") {
       Config->BuildId = BuildIdKind::Md5;
-    } else if (S == "sha1") {
+    } else if (S == "sha1" || S == "tree") {
       Config->BuildId = BuildIdKind::Sha1;
     } else if (S == "uuid") {
       Config->BuildId = BuildIdKind::Uuid;
@@ -580,6 +633,10 @@ void LinkerDriver::readConfigs(opt::InputArgList &Args) {
   if (auto *Arg = Args.getLastArg(OPT_dynamic_list))
     if (Optional<MemoryBufferRef> Buffer = readFile(Arg->getValue()))
       parseDynamicList(*Buffer);
+
+  if (auto *Arg = Args.getLastArg(OPT_symbol_ordering_file))
+    if (Optional<MemoryBufferRef> Buffer = readFile(Arg->getValue()))
+      parseSymbolOrderingList(*Buffer);
 
   for (auto *Arg : Args.filtered(OPT_export_dynamic_symbol))
     Config->DynamicList.push_back(Arg->getValue());
@@ -644,7 +701,7 @@ void LinkerDriver::createFiles(opt::InputArgList &Args) {
     }
   }
 
-  if (Files.empty() && !HasError)
+  if (Files.empty() && ErrorCount == 0)
     error("no input files");
 }
 
@@ -741,7 +798,7 @@ template <class ELFT> void LinkerDriver::link(opt::InputArgList &Args) {
   if (Symtab.find(Config->Entry))
     Symtab.addUndefined(Config->Entry);
 
-  if (HasError)
+  if (ErrorCount)
     return; // There were duplicate symbols or incompatible files
 
   Symtab.scanUndefinedFlags();
@@ -749,8 +806,8 @@ template <class ELFT> void LinkerDriver::link(opt::InputArgList &Args) {
   Symtab.scanDynamicList();
   Symtab.scanVersionScript();
 
-  Symtab.addCombinedLtoObject();
-  if (HasError)
+  Symtab.addCombinedLTOObject();
+  if (ErrorCount)
     return;
 
   for (auto *Arg : Args.filtered(OPT_wrap))
@@ -761,7 +818,8 @@ template <class ELFT> void LinkerDriver::link(opt::InputArgList &Args) {
   // Aggregate all input sections into one place.
   for (elf::ObjectFile<ELFT> *F : Symtab.getObjectFiles())
     for (InputSectionBase<ELFT> *S : F->getSections())
-      Symtab.Sections.push_back(S);
+      if (S && S != &InputSection<ELFT>::Discarded)
+        Symtab.Sections.push_back(S);
   for (BinaryFile *F : Symtab.getBinaryFiles())
     for (InputSectionData *S : F->getSections())
       Symtab.Sections.push_back(cast<InputSection<ELFT>>(S));
@@ -774,14 +832,15 @@ template <class ELFT> void LinkerDriver::link(opt::InputArgList &Args) {
 
   // MergeInputSection::splitIntoPieces needs to be called before
   // any call of MergeInputSection::getOffset. Do that.
-  for (InputSectionBase<ELFT> *S : Symtab.Sections) {
-    if (!S || S == &InputSection<ELFT>::Discarded || !S->Live)
-      continue;
-    if (S->Compressed)
-      S->uncompress();
-    if (auto *MS = dyn_cast<MergeInputSection<ELFT>>(S))
-      MS->splitIntoPieces();
-  }
+  forEach(Symtab.Sections.begin(), Symtab.Sections.end(),
+          [](InputSectionBase<ELFT> *S) {
+            if (!S->Live)
+              return;
+            if (S->Compressed)
+              S->uncompress();
+            if (auto *MS = dyn_cast<MergeInputSection<ELFT>>(S))
+              MS->splitIntoPieces();
+          });
 
   // Write the result to the file.
   writeResult<ELFT>();

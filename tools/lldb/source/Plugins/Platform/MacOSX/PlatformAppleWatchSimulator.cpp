@@ -232,7 +232,7 @@ Error PlatformAppleWatchSimulator::ResolveExecutable(
         error.SetErrorStringWithFormat(
             "'%s' doesn't contain any '%s' platform architectures: %s",
             resolved_module_spec.GetFileSpec().GetPath().c_str(),
-            GetPluginName().GetCString(), arch_names.GetString().c_str());
+            GetPluginName().GetCString(), arch_names.GetString().str().c_str());
       } else {
         error.SetErrorStringWithFormat(
             "'%s' is not readable",
@@ -263,7 +263,7 @@ EnumerateDirectoryCallback(void *baton, FileSpec::FileType file_type,
 }
 
 const char *PlatformAppleWatchSimulator::GetSDKDirectoryAsCString() {
-  std::lock_guard<std::mutex> guard(m_mutex);
+  std::lock_guard<std::mutex> guard(m_sdk_dir_mutex);
   if (m_sdk_directory.empty()) {
     const char *developer_dir = GetDeveloperDirectory();
     if (developer_dir) {

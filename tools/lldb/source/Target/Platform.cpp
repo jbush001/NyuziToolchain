@@ -1758,8 +1758,8 @@ Error Platform::UnloadImage(lldb_private::Process *process,
   return Error("UnloadImage is not supported on the current platform");
 }
 
-lldb::ProcessSP Platform::ConnectProcess(const char *connect_url,
-                                         const char *plugin_name,
+lldb::ProcessSP Platform::ConnectProcess(llvm::StringRef connect_url,
+                                         llvm::StringRef plugin_name,
                                          lldb_private::Debugger &debugger,
                                          lldb_private::Target *target,
                                          lldb_private::Error &error) {
@@ -1767,8 +1767,8 @@ lldb::ProcessSP Platform::ConnectProcess(const char *connect_url,
 
   if (!target) {
     TargetSP new_target_sp;
-    error = debugger.GetTargetList().CreateTarget(
-        debugger, nullptr, nullptr, false, nullptr, new_target_sp);
+    error = debugger.GetTargetList().CreateTarget(debugger, "", "", false,
+                                                  nullptr, new_target_sp);
     target = new_target_sp.get();
   }
 

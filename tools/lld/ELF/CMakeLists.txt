@@ -20,7 +20,6 @@ add_lld_library(lldELF
   Relocations.cpp
   ScriptParser.cpp
   Strings.cpp
-  SymbolListFile.cpp
   SymbolTable.cpp
   Symbols.cpp
   SyntheticSections.cpp
@@ -52,6 +51,8 @@ add_lld_library(lldELF
   lldConfig
   lldCore
   ${PTHREAD_LIB}
-  )
 
-add_dependencies(lldELF intrinsics_gen ELFOptionsTableGen)
+  DEPENDS
+  ELFOptionsTableGen
+  intrinsics_gen
+  )

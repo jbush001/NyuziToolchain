@@ -110,7 +110,6 @@ public:
     }
     return error;
   }
-  Error SetOptionValue(uint32_t, const char *, ExecutionContext *) = delete;
 
   void OptionParsingStarting(ExecutionContext *execution_context) override {
     m_num_per_line.Clear();
@@ -811,7 +810,7 @@ protected:
         StreamString name_strm;
         name_strm.Printf("0x%" PRIx64, item_addr);
         ValueObjectSP valobj_sp(ValueObjectMemory::Create(
-            exe_scope, name_strm.GetString().c_str(), address, clang_ast_type));
+            exe_scope, name_strm.GetString(), address, clang_ast_type));
         if (valobj_sp) {
           Format format = m_format_options.GetFormat();
           if (format != eFormatDefault)
@@ -824,7 +823,7 @@ protected:
         } else {
           result.AppendErrorWithFormat(
               "failed to create a value object for: (%s) %s\n",
-              view_as_type_cstr, name_strm.GetString().c_str());
+              view_as_type_cstr, name_strm.GetData());
           result.SetStatus(eReturnStatusFailed);
           return false;
         }
@@ -942,7 +941,6 @@ public:
       }
       return error;
     }
-    Error SetOptionValue(uint32_t, const char *, ExecutionContext *) = delete;
 
     void OptionParsingStarting(ExecutionContext *execution_context) override {
       m_expr.Clear();
@@ -1064,8 +1062,7 @@ protected:
     DataBufferHeap buffer;
 
     if (m_memory_options.m_string.OptionWasSet())
-      buffer.CopyData(m_memory_options.m_string.GetStringValue(),
-                      strlen(m_memory_options.m_string.GetStringValue()));
+      buffer.CopyData(m_memory_options.m_string.GetStringValue());
     else if (m_memory_options.m_expr.OptionWasSet()) {
       StackFrame *frame = m_exe_ctx.GetFramePtr();
       ValueObjectSP result_sp;
@@ -1238,7 +1235,6 @@ public:
       }
       return error;
     }
-    Error SetOptionValue(uint32_t, const char *, ExecutionContext *) = delete;
 
     void OptionParsingStarting(ExecutionContext *execution_context) override {
       m_infile.Clear();
@@ -1580,7 +1576,7 @@ protected:
 
     if (!buffer.GetString().empty()) {
       Error error;
-      if (process->WriteMemory(addr, buffer.GetString().c_str(),
+      if (process->WriteMemory(addr, buffer.GetString().data(),
                                buffer.GetString().size(),
                                error) == buffer.GetString().size())
         return true;
@@ -1672,8 +1668,9 @@ protected:
 
     HistoryThreads thread_list = memory_history->GetHistoryThreads(addr);
 
+    const bool stop_format = false;
     for (auto thread : thread_list) {
-      thread->GetStatus(*output_stream, 0, UINT32_MAX, 0);
+      thread->GetStatus(*output_stream, 0, UINT32_MAX, 0, stop_format);
     }
 
     result.SetStatus(eReturnStatusSuccessFinishResult);

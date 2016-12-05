@@ -735,7 +735,7 @@ void Instruction::Dump(lldb_private::Stream *s, uint32_t max_opcode_byte_size,
     ss.PutCString(" ; ");
     ss.PutCString(m_comment);
   }
-  s->Write(ss.GetData(), ss.GetSize());
+  s->PutCString(ss.GetString());
 }
 
 bool Instruction::DumpEmulation(const ArchSpec &arch) {
@@ -1321,9 +1321,8 @@ void PseudoInstruction::SetOpcode(size_t opcode_size, void *opcode_data) {
   }
 }
 
-void PseudoInstruction::SetDescription(const char *description) {
-  if (description && strlen(description) > 0)
-    m_description = description;
+void PseudoInstruction::SetDescription(llvm::StringRef description) {
+  m_description = description;
 }
 
 Instruction::Operand Instruction::Operand::BuildRegister(ConstString &r) {

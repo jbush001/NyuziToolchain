@@ -49,6 +49,7 @@
 using namespace lldb;
 using namespace lldb_private;
 using namespace lldb_private::process_gdb_remote;
+using namespace std::chrono;
 
 //----------------------------------------------------------------------
 // GDBRemoteCommunicationClient constructor
@@ -122,9 +123,8 @@ bool GDBRemoteCommunicationClient::HandshakeWithServer(Error *error_ptr) {
     // GDB server and flush them all
     StringExtractorGDBRemote response;
     PacketResult packet_result = PacketResult::Success;
-    const uint32_t timeout_usec = 10 * 1000; // Wait for 10 ms for a response
     while (packet_result == PacketResult::Success)
-      packet_result = ReadPacket(response, timeout_usec, false);
+      packet_result = ReadPacket(response, milliseconds(10), false);
 
     // The return value from QueryNoAckModeSupported() is true if the packet
     // was sent and _any_ response (including UNIMPLEMENTED) was received),
@@ -202,8 +202,7 @@ bool GDBRemoteCommunicationClient::QueryNoAckModeSupported() {
     // longer than normal to receive a reply.  Wait at least 6 seconds for a
     // reply to this packet.
 
-    ScopedTimeout timeout(
-        *this, std::max(GetPacketTimeout(), std::chrono::seconds(6)));
+    ScopedTimeout timeout(*this, std::max(GetPacketTimeout(), seconds(6)));
 
     StringExtractorGDBRemote response;
     if (SendPacketAndWaitForResponse("QStartNoAckMode", response, false) ==
@@ -315,7 +314,7 @@ void GDBRemoteCommunicationClient::ResetDiscoverableSettings(bool did_exec) {
     m_hostname.clear();
     m_gdb_server_name.clear();
     m_gdb_server_version = UINT32_MAX;
-    m_default_packet_timeout = std::chrono::seconds(0);
+    m_default_packet_timeout = seconds(0);
     m_max_packet_size = 0;
     m_qSupported_response.clear();
     m_supported_async_json_packets_is_valid = false;
@@ -349,7 +348,7 @@ void GDBRemoteCommunicationClient::GetRemoteQSupported() {
   }
 
   StringExtractorGDBRemote response;
-  if (SendPacketAndWaitForResponse(packet.GetData(), response,
+  if (SendPacketAndWaitForResponse(packet.GetString(), response,
                                    /*send_async=*/false) ==
       PacketResult::Success) {
     const char *response_cstr = response.GetStringRef().c_str();
@@ -518,7 +517,7 @@ GDBRemoteCommunicationClient::SendThreadSpecificPacketAndWaitForResponse(
             GDBR_LOG_PROCESS | GDBR_LOG_PACKETS))
       log->Printf("GDBRemoteCommunicationClient::%s: Didn't get sequence mutex "
                   "for %s packet.",
-                  __FUNCTION__, payload.GetString().c_str());
+                  __FUNCTION__, payload.GetData());
     return PacketResult::ErrorNoSequenceLock;
   }
 
@@ -1200,7 +1199,7 @@ bool GDBRemoteCommunicationClient::GetHostInfo(bool force) {
           } else if (name.equals("default_packet_timeout")) {
             uint32_t timeout_seconds;
             if (!value.getAsInteger(0, timeout_seconds)) {
-              m_default_packet_timeout = std::chrono::seconds(timeout_seconds);
+              m_default_packet_timeout = seconds(timeout_seconds);
               SetPacketTimeout(m_default_packet_timeout);
               ++num_keys_decoded;
             }
@@ -1329,8 +1328,7 @@ GDBRemoteCommunicationClient::GetHostArchitecture() {
   return m_host_arch;
 }
 
-std::chrono::seconds
-GDBRemoteCommunicationClient::GetHostDefaultPacketTimeout() {
+seconds GDBRemoteCommunicationClient::GetHostDefaultPacketTimeout() {
   if (m_qHostInfo_is_valid == eLazyBoolCalculate)
     GetHostInfo();
   return m_default_packet_timeout;
@@ -2022,7 +2020,7 @@ uint32_t GDBRemoteCommunicationClient::FindProcesses(
     StringExtractorGDBRemote response;
     // Increase timeout as the first qfProcessInfo packet takes a long time
     // on Android. The value of 1min was arrived at empirically.
-    ScopedTimeout timeout(*this, std::chrono::seconds(60));
+    ScopedTimeout timeout(*this, minutes(1));
     if (SendPacketAndWaitForResponse(packet.GetString(), response, false) ==
         PacketResult::Success) {
       do {
@@ -2132,9 +2130,9 @@ static void MakeSpeedTestPacket(StreamString &packet, uint32_t send_size,
   }
 }
 
-std::chrono::duration<float> calculate_standard_deviation(
-    const std::vector<std::chrono::duration<float>> &v) {
-  using Dur = std::chrono::duration<float>;
+duration<float>
+calculate_standard_deviation(const std::vector<duration<float>> &v) {
+  using Dur = duration<float>;
   Dur sum = std::accumulate(std::begin(v), std::end(v), Dur());
   Dur mean = sum / v.size();
   float accum = 0;
@@ -2151,8 +2149,6 @@ void GDBRemoteCommunicationClient::TestPacketSpeed(const uint32_t num_packets,
                                                    uint32_t max_recv,
                                                    uint64_t recv_amount,
                                                    bool json, Stream &strm) {
-  using namespace std::chrono;
-
   uint32_t i;
   if (SendSpeedTestPacket(0, 0)) {
     StreamString packet;
@@ -2324,7 +2320,7 @@ bool GDBRemoteCommunicationClient::LaunchGDBServer(
     }
   }
   // give the process a few seconds to startup
-  ScopedTimeout timeout(*this, std::chrono::seconds(10));
+  ScopedTimeout timeout(*this, seconds(10));
 
   if (SendPacketAndWaitForResponse(stream.GetString(), response, false) ==
       PacketResult::Success) {
@@ -2685,15 +2681,15 @@ Error GDBRemoteCommunicationClient::MakeDirectory(const FileSpec &file_spec,
   stream.PutHex32(file_permissions);
   stream.PutChar(',');
   stream.PutCStringAsRawHex8(path.c_str());
-  const char *packet = stream.GetData();
+  llvm::StringRef packet = stream.GetString();
   StringExtractorGDBRemote response;
 
   if (SendPacketAndWaitForResponse(packet, response, false) !=
       PacketResult::Success)
-    return Error("failed to send '%s' packet", packet);
+    return Error("failed to send '%s' packet", packet.str().c_str());
 
   if (response.GetChar() != 'F')
-    return Error("invalid response to '%s' packet", packet);
+    return Error("invalid response to '%s' packet", packet.str().c_str());
 
   return Error(response.GetU32(UINT32_MAX), eErrorTypePOSIX);
 }
@@ -2706,15 +2702,15 @@ Error GDBRemoteCommunicationClient::SetFilePermissions(
   stream.PutHex32(file_permissions);
   stream.PutChar(',');
   stream.PutCStringAsRawHex8(path.c_str());
-  const char *packet = stream.GetData();
+  llvm::StringRef packet = stream.GetString();
   StringExtractorGDBRemote response;
 
   if (SendPacketAndWaitForResponse(packet, response, false) !=
       PacketResult::Success)
-    return Error("failed to send '%s' packet", packet);
+    return Error("failed to send '%s' packet", stream.GetData());
 
   if (response.GetChar() != 'F')
-    return Error("invalid response to '%s' packet", packet);
+    return Error("invalid response to '%s' packet", stream.GetData());
 
   return Error(response.GetU32(UINT32_MAX), eErrorTypePOSIX);
 }
@@ -2800,7 +2796,7 @@ Error GDBRemoteCommunicationClient::GetFilePermissions(
       PacketResult::Success) {
     if (response.GetChar() != 'F') {
       error.SetErrorStringWithFormat("invalid response to '%s' packet",
-                                     stream.GetString().c_str());
+                                     stream.GetData());
     } else {
       const uint32_t mode = response.GetS32(-1);
       if (static_cast<int32_t>(mode) == -1) {
@@ -2818,7 +2814,7 @@ Error GDBRemoteCommunicationClient::GetFilePermissions(
     }
   } else {
     error.SetErrorStringWithFormat("failed to send '%s' packet",
-                                   stream.GetString().c_str());
+                                   stream.GetData());
   }
   return error;
 }
@@ -3258,7 +3254,7 @@ GDBRemoteCommunicationClient::GetModulesInfo(
   unescaped_payload.PutCString("jModulesInfo:");
   module_array_sp->Write(unescaped_payload);
   StreamGDBRemote payload;
-  payload.PutEscapedBytes(unescaped_payload.GetData(),
+  payload.PutEscapedBytes(unescaped_payload.GetString().data(),
                           unescaped_payload.GetSize());
 
   StringExtractorGDBRemote response;
@@ -3569,7 +3565,7 @@ GDBRemoteCommunicationClient::GetSupportedStructuredDataPlugins() {
       m_supported_async_json_packets_sp->Dump(stream);
       log->Printf("GDBRemoteCommunicationClient::%s(): supported async "
                   "JSON packets: %s",
-                  __FUNCTION__, stream.GetString().c_str());
+                  __FUNCTION__, stream.GetData());
     }
   }
 
@@ -3600,7 +3596,7 @@ Error GDBRemoteCommunicationClient::ConfigureRemoteStructuredData(
     unescaped_stream.Flush();
 
     // Add it to the stream in escaped fashion.
-    stream.PutEscapedBytes(unescaped_stream.GetData(),
+    stream.PutEscapedBytes(unescaped_stream.GetString().data(),
                            unescaped_stream.GetSize());
   }
   stream.Flush();

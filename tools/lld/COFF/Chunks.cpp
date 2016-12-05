@@ -28,7 +28,7 @@ namespace lld {
 namespace coff {
 
 SectionChunk::SectionChunk(ObjectFile *F, const coff_section *H)
-    : Chunk(SectionKind), Repl(this), File(F), Header(H),
+    : Chunk(SectionKind), Repl(this), Header(H), File(F),
       Relocs(File->getCOFFObj()->getRelocations(Header)),
       NumRelocs(std::distance(Relocs.begin(), Relocs.end())) {
   // Initialize SectionName.
@@ -249,7 +249,7 @@ void SectionChunk::replace(SectionChunk *Other) {
 CommonChunk::CommonChunk(const COFFSymbolRef S) : Sym(S) {
   // Common symbols are aligned on natural boundaries up to 32 bytes.
   // This is what MSVC link.exe does.
-  Align = std::min(uint64_t(32), NextPowerOf2(Sym.getValue()));
+  Align = std::min(uint64_t(32), PowerOf2Ceil(Sym.getValue()));
 }
 
 uint32_t CommonChunk::getPermissions() const {

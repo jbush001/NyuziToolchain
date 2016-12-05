@@ -8,7 +8,14 @@
 //===----------------------------------------------------------------------===//
 
 #include "PDB.h"
+#include "Chunks.h"
+#include "Config.h"
 #include "Error.h"
+#include "SymbolTable.h"
+#include "Symbols.h"
+#include "llvm/DebugInfo/CodeView/SymbolDumper.h"
+#include "llvm/DebugInfo/CodeView/TypeDumper.h"
+#include "llvm/DebugInfo/MSF/ByteStream.h"
 #include "llvm/DebugInfo/MSF/MSFBuilder.h"
 #include "llvm/DebugInfo/MSF/MSFCommon.h"
 #include "llvm/DebugInfo/PDB/Raw/DbiStream.h"
@@ -22,16 +29,87 @@
 #include "llvm/Object/COFF.h"
 #include "llvm/Support/Endian.h"
 #include "llvm/Support/FileOutputBuffer.h"
+#include "llvm/Support/ScopedPrinter.h"
 #include <memory>
 
 using namespace lld;
+using namespace lld::coff;
 using namespace llvm;
+using namespace llvm::codeview;
 using namespace llvm::support;
 using namespace llvm::support::endian;
 
+using llvm::object::coff_section;
+
 static ExitOnError ExitOnErr;
 
-void coff::createPDB(StringRef Path, ArrayRef<uint8_t> SectionTable) {
+// Returns a list of all SectionChunks.
+static std::vector<coff_section> getInputSections(SymbolTable *Symtab) {
+  std::vector<coff_section> V;
+  for (Chunk *C : Symtab->getChunks())
+    if (auto *SC = dyn_cast<SectionChunk>(C))
+      V.push_back(*SC->Header);
+  return V;
+}
+
+static SectionChunk *findByName(std::vector<SectionChunk *> &Sections,
+                                StringRef Name) {
+  for (SectionChunk *C : Sections)
+    if (C->getSectionName() == Name)
+      return C;
+  return nullptr;
+}
+
+static void dumpDebugT(ScopedPrinter &W, ObjectFile *File) {
+  SectionChunk *Sec = findByName(File->getDebugChunks(), ".debug$T");
+  if (!Sec)
+    return;
+
+  // First 4 bytes are section magic.
+  ArrayRef<uint8_t> Data = Sec->getContents();
+  if (Data.size() < 4)
+    fatal(".debug$T too short");
+  if (read32le(Data.data()) != COFF::DEBUG_SECTION_MAGIC)
+    fatal(".debug$T has an invalid magic");
+
+  CVTypeDumper TypeDumper(&W, false);
+  if (auto EC = TypeDumper.dump(Data.slice(4)))
+    fatal(EC, "CVTypeDumper::dump failed");
+}
+
+static void dumpDebugS(ScopedPrinter &W, ObjectFile *File) {
+  SectionChunk *Sec = findByName(File->getDebugChunks(), ".debug$S");
+  if (!Sec)
+    return;
+
+  msf::ByteStream Stream(Sec->getContents());
+  CVSymbolArray Symbols;
+  msf::StreamReader Reader(Stream);
+  if (auto EC = Reader.readArray(Symbols, Reader.getLength()))
+    fatal(EC, "StreamReader.readArray<CVSymbolArray> failed");
+
+  CVTypeDumper TypeDumper(&W, false);
+  CVSymbolDumper SymbolDumper(W, TypeDumper, nullptr, false);
+  if (auto EC = SymbolDumper.dump(Symbols))
+    fatal(EC, "CVSymbolDumper::dump failed");
+}
+
+// Dump CodeView debug info. This is for debugging.
+static void dumpCodeView(SymbolTable *Symtab) {
+  ScopedPrinter W(outs());
+
+  for (ObjectFile *File : Symtab->ObjectFiles) {
+    dumpDebugT(W, File);
+    dumpDebugS(W, File);
+  }
+}
+
+// Creates a PDB file.
+void coff::createPDB(StringRef Path, SymbolTable *Symtab,
+                     ArrayRef<uint8_t> SectionTable) {
+  if (Config->DumpPdb)
+    dumpCodeView(Symtab);
+
   BumpPtrAllocator Alloc;
   pdb::PDBFileBuilder Builder(Alloc);
   ExitOnErr(Builder.initialize(4096)); // 4096 is blocksize
@@ -64,6 +142,11 @@ void coff::createPDB(StringRef Path, ArrayRef<uint8_t> SectionTable) {
   auto &IpiBuilder = Builder.getIpiBuilder();
   IpiBuilder.setVersionHeader(pdb::PdbTpiV80);
 
+  // Add Section Contributions.
+  std::vector<pdb::SectionContrib> Contribs =
+      pdb::DbiStreamBuilder::createSectionContribs(getInputSections(Symtab));
+  DbiBuilder.setSectionContribs(Contribs);
+
   // Add Section Map stream.
   ArrayRef<object::coff_section> Sections = {
       (const object::coff_section *)SectionTable.data(),
@@ -71,6 +154,8 @@ void coff::createPDB(StringRef Path, ArrayRef<uint8_t> SectionTable) {
   std::vector<pdb::SecMapEntry> SectionMap =
       pdb::DbiStreamBuilder::createSectionMap(Sections);
   DbiBuilder.setSectionMap(SectionMap);
+
+  ExitOnErr(DbiBuilder.addModuleInfo("", "* Linker *"));
 
   // Add COFF section header stream.
   ExitOnErr(

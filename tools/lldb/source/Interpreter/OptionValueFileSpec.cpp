@@ -79,7 +79,7 @@ Error OptionValueFileSpec::SetValueFromString(llvm::StringRef value,
       m_value_was_set = true;
       m_current_value.SetFile(value.str(), m_resolve);
       m_data_sp.reset();
-      m_data_mod_time.Clear();
+      m_data_mod_time = llvm::sys::TimePoint<>();
       NotifyValueChanged();
     } else {
       error.SetErrorString("invalid value string");
@@ -101,11 +101,9 @@ lldb::OptionValueSP OptionValueFileSpec::DeepCopy() const {
   return OptionValueSP(new OptionValueFileSpec(*this));
 }
 
-size_t OptionValueFileSpec::AutoComplete(CommandInterpreter &interpreter,
-                                         const char *s, int match_start_point,
-                                         int max_return_elements,
-                                         bool &word_complete,
-                                         StringList &matches) {
+size_t OptionValueFileSpec::AutoComplete(
+    CommandInterpreter &interpreter, llvm::StringRef s, int match_start_point,
+    int max_return_elements, bool &word_complete, StringList &matches) {
   word_complete = false;
   matches.Clear();
   CommandCompletions::InvokeCommonCompletionCallbacks(
@@ -117,8 +115,7 @@ size_t OptionValueFileSpec::AutoComplete(CommandInterpreter &interpreter,
 const lldb::DataBufferSP &
 OptionValueFileSpec::GetFileContents(bool null_terminate) {
   if (m_current_value) {
-    const TimeValue file_mod_time =
-        FileSystem::GetModificationTime(m_current_value);
+    const auto file_mod_time = FileSystem::GetModificationTime(m_current_value);
     if (m_data_sp && m_data_mod_time == file_mod_time)
       return m_data_sp;
     if (null_terminate)

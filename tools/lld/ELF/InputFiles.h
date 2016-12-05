@@ -85,7 +85,7 @@ private:
 };
 
 // Returns "(internal)", "foo.a(bar.o)" or "baz.o".
-std::string getFilename(const InputFile *F);
+std::string toString(const InputFile *F);
 
 template <typename ELFT> class ELFFileBase : public InputFile {
 public:
@@ -121,6 +121,8 @@ protected:
 // .o file.
 template <class ELFT> class ObjectFile : public ELFFileBase<ELFT> {
   typedef ELFFileBase<ELFT> Base;
+  typedef typename ELFT::Rel Elf_Rel;
+  typedef typename ELFT::Rela Elf_Rela;
   typedef typename ELFT::Sym Elf_Sym;
   typedef typename ELFT::Shdr Elf_Shdr;
   typedef typename ELFT::SymRange Elf_Sym_Range;
@@ -148,7 +150,7 @@ public:
 
   SymbolBody &getSymbolBody(uint32_t SymbolIndex) const {
     if (SymbolIndex >= SymbolBodies.size())
-      fatal(getFilename(this) + ": invalid symbol index");
+      fatal(toString(this) + ": invalid symbol index");
     return *SymbolBodies[SymbolIndex];
   }
 
@@ -162,10 +164,10 @@ public:
   // If no information is available, returns "".
   std::string getLineInfo(InputSectionBase<ELFT> *S, uintX_t Offset);
 
-  // Get MIPS GP0 value defined by this file. This value represents the gp value
+  // MIPS GP0 value defined by this file. This value represents the gp value
   // used to create the relocatable object and required to support
   // R_MIPS_GPREL16 / R_MIPS_GPREL32 relocations.
-  uint32_t getMipsGp0() const;
+  uint32_t MipsGp0 = 0;
 
   // The number is the offset in the string table. It will be used as the
   // st_name of the symbol.
@@ -178,9 +180,8 @@ public:
 
 private:
   void
-  initializeSections(llvm::DenseSet<llvm::CachedHashStringRef> &ComdatGroups,
-                     ArrayRef<Elf_Shdr> ObjSections);
-  void initializeSymbols(ArrayRef<Elf_Shdr> Sections);
+  initializeSections(llvm::DenseSet<llvm::CachedHashStringRef> &ComdatGroups);
+  void initializeSymbols();
   void initializeDwarfLine();
   InputSectionBase<ELFT> *getRelocTarget(const Elf_Shdr &Sec);
   InputSectionBase<ELFT> *createInputSection(const Elf_Shdr &Sec,
@@ -194,13 +195,6 @@ private:
 
   // List of all symbols referenced or defined by this file.
   std::vector<SymbolBody *> SymbolBodies;
-
-  // MIPS .reginfo section defined by this file.
-  std::unique_ptr<MipsReginfoInputSection<ELFT>> MipsReginfo;
-  // MIPS .MIPS.options section defined by this file.
-  std::unique_ptr<MipsOptionsInputSection<ELFT>> MipsOptions;
-  // MIPS .MIPS.abiflags section defined by this file.
-  std::unique_ptr<MipsAbiFlagsInputSection<ELFT>> MipsAbiFlags;
 
   // Debugging information to retrieve source file and line for error
   // reporting. Linker may find reasonable number of errors in a
@@ -269,12 +263,14 @@ private:
 // .so file.
 template <class ELFT> class SharedFile : public ELFFileBase<ELFT> {
   typedef ELFFileBase<ELFT> Base;
+  typedef typename ELFT::Dyn Elf_Dyn;
   typedef typename ELFT::Shdr Elf_Shdr;
   typedef typename ELFT::Sym Elf_Sym;
-  typedef typename ELFT::Word Elf_Word;
   typedef typename ELFT::SymRange Elf_Sym_Range;
-  typedef typename ELFT::Versym Elf_Versym;
   typedef typename ELFT::Verdef Elf_Verdef;
+  typedef typename ELFT::Versym Elf_Versym;
+  typedef typename ELFT::Word Elf_Word;
+  typedef typename ELFT::uint uintX_t;
 
   std::vector<StringRef> Undefs;
   StringRef SoName;

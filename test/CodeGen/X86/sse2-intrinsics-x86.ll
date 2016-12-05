@@ -3,22 +3,6 @@
 ; RUN: llc < %s -mtriple=i386-apple-darwin -mattr=+avx2 -show-mc-encoding | FileCheck %s --check-prefix=VCHECK --check-prefix=AVX2
 ; RUN: llc < %s -mtriple=i386-apple-darwin -mcpu=skx -show-mc-encoding | FileCheck %s --check-prefix=VCHECK --check-prefix=SKX
 
-define <2 x double> @test_x86_sse2_add_sd(<2 x double> %a0, <2 x double> %a1) {
-; SSE-LABEL: test_x86_sse2_add_sd:
-; SSE:       ## BB#0:
-; SSE-NEXT:    addsd %xmm1, %xmm0 ## encoding: [0xf2,0x0f,0x58,0xc1]
-; SSE-NEXT:    retl ## encoding: [0xc3]
-;
-; VCHECK-LABEL: test_x86_sse2_add_sd:
-; VCHECK:       ## BB#0:
-; VCHECK-NEXT:    vaddsd %xmm1, %xmm0, %xmm0 ## encoding: [0xc5,0xfb,0x58,0xc1]
-; VCHECK-NEXT:    retl ## encoding: [0xc3]
-  %res = call <2 x double> @llvm.x86.sse2.add.sd(<2 x double> %a0, <2 x double> %a1) ; <<2 x double>> [#uses=1]
-  ret <2 x double> %res
-}
-declare <2 x double> @llvm.x86.sse2.add.sd(<2 x double>, <2 x double>) nounwind readnone
-
-
 define <2 x double> @test_x86_sse2_cmp_pd(<2 x double> %a0, <2 x double> %a1) {
 ; SSE-LABEL: test_x86_sse2_cmp_pd:
 ; SSE:       ## BB#0:
@@ -252,10 +236,15 @@ define <4 x i32> @test_x86_sse2_cvtpd2dq(<2 x double> %a0) {
 ; SSE-NEXT:    cvtpd2dq %xmm0, %xmm0 ## encoding: [0xf2,0x0f,0xe6,0xc0]
 ; SSE-NEXT:    retl ## encoding: [0xc3]
 ;
-; VCHECK-LABEL: test_x86_sse2_cvtpd2dq:
-; VCHECK:       ## BB#0:
-; VCHECK-NEXT:    vcvtpd2dq %xmm0, %xmm0 ## encoding: [0xc5,0xfb,0xe6,0xc0]
-; VCHECK-NEXT:    retl ## encoding: [0xc3]
+; AVX2-LABEL: test_x86_sse2_cvtpd2dq:
+; AVX2:       ## BB#0:
+; AVX2-NEXT:    vcvtpd2dq %xmm0, %xmm0 ## encoding: [0xc5,0xfb,0xe6,0xc0]
+; AVX2-NEXT:    retl ## encoding: [0xc3]
+;
+; SKX-LABEL: test_x86_sse2_cvtpd2dq:
+; SKX:       ## BB#0:
+; SKX-NEXT:    vcvtpd2dq %xmm0, %xmm0 ## encoding: [0x62,0xf1,0xff,0x08,0xe6,0xc0]
+; SKX-NEXT:    retl ## encoding: [0xc3]
   %res = call <4 x i32> @llvm.x86.sse2.cvtpd2dq(<2 x double> %a0) ; <<4 x i32>> [#uses=1]
   ret <4 x i32> %res
 }
@@ -266,22 +255,16 @@ define <2 x i64> @test_mm_cvtpd_epi32_zext(<2 x double> %a0) nounwind {
 ; SSE-LABEL: test_mm_cvtpd_epi32_zext:
 ; SSE:       ## BB#0:
 ; SSE-NEXT:    cvtpd2dq %xmm0, %xmm0 ## encoding: [0xf2,0x0f,0xe6,0xc0]
-; SSE-NEXT:    movq %xmm0, %xmm0 ## encoding: [0xf3,0x0f,0x7e,0xc0]
-; SSE-NEXT:    ## xmm0 = xmm0[0],zero
 ; SSE-NEXT:    retl ## encoding: [0xc3]
 ;
 ; AVX2-LABEL: test_mm_cvtpd_epi32_zext:
 ; AVX2:       ## BB#0:
 ; AVX2-NEXT:    vcvtpd2dq %xmm0, %xmm0 ## encoding: [0xc5,0xfb,0xe6,0xc0]
-; AVX2-NEXT:    vmovq %xmm0, %xmm0 ## encoding: [0xc5,0xfa,0x7e,0xc0]
-; AVX2-NEXT:    ## xmm0 = xmm0[0],zero
 ; AVX2-NEXT:    retl ## encoding: [0xc3]
 ;
 ; SKX-LABEL: test_mm_cvtpd_epi32_zext:
 ; SKX:       ## BB#0:
-; SKX-NEXT:    vcvtpd2dq %xmm0, %xmm0 ## encoding: [0xc5,0xfb,0xe6,0xc0]
-; SKX-NEXT:    vmovq %xmm0, %xmm0 ## encoding: [0x62,0xf1,0xfe,0x08,0x7e,0xc0]
-; SKX-NEXT:    ## xmm0 = xmm0[0],zero
+; SKX-NEXT:    vcvtpd2dq %xmm0, %xmm0 ## encoding: [0x62,0xf1,0xff,0x08,0xe6,0xc0]
 ; SKX-NEXT:    retl ## encoding: [0xc3]
   %cvt = call <4 x i32> @llvm.x86.sse2.cvtpd2dq(<2 x double> %a0)
   %res = shufflevector <4 x i32> %cvt, <4 x i32> zeroinitializer, <4 x i32> <i32 0, i32 1, i32 4, i32 5>
@@ -324,8 +307,6 @@ define <4 x float> @test_x86_sse2_cvtpd2ps_zext(<2 x double> %a0) nounwind {
 ; SKX-LABEL: test_x86_sse2_cvtpd2ps_zext:
 ; SKX:       ## BB#0:
 ; SKX-NEXT:    vcvtpd2ps %xmm0, %xmm0 ## encoding: [0x62,0xf1,0xfd,0x08,0x5a,0xc0]
-; SKX-NEXT:    vmovq %xmm0, %xmm0 ## encoding: [0x62,0xf1,0xfe,0x08,0x7e,0xc0]
-; SKX-NEXT:    ## xmm0 = xmm0[0],zero
 ; SKX-NEXT:    retl ## encoding: [0xc3]
   %cvt = call <4 x float> @llvm.x86.sse2.cvtpd2ps(<2 x double> %a0)
   %res = shufflevector <4 x float> %cvt, <4 x float> zeroinitializer, <4 x i32> <i32 0, i32 1, i32 4, i32 5>
@@ -502,10 +483,15 @@ define <4 x i32> @test_x86_sse2_cvttpd2dq(<2 x double> %a0) {
 ; SSE-NEXT:    cvttpd2dq %xmm0, %xmm0 ## encoding: [0x66,0x0f,0xe6,0xc0]
 ; SSE-NEXT:    retl ## encoding: [0xc3]
 ;
-; VCHECK-LABEL: test_x86_sse2_cvttpd2dq:
-; VCHECK:       ## BB#0:
-; VCHECK-NEXT:    vcvttpd2dq %xmm0, %xmm0 ## encoding: [0xc5,0xf9,0xe6,0xc0]
-; VCHECK-NEXT:    retl ## encoding: [0xc3]
+; AVX2-LABEL: test_x86_sse2_cvttpd2dq:
+; AVX2:       ## BB#0:
+; AVX2-NEXT:    vcvttpd2dq %xmm0, %xmm0 ## encoding: [0xc5,0xf9,0xe6,0xc0]
+; AVX2-NEXT:    retl ## encoding: [0xc3]
+;
+; SKX-LABEL: test_x86_sse2_cvttpd2dq:
+; SKX:       ## BB#0:
+; SKX-NEXT:    vcvttpd2dq %xmm0, %xmm0 ## encoding: [0x62,0xf1,0xfd,0x08,0xe6,0xc0]
+; SKX-NEXT:    retl ## encoding: [0xc3]
   %res = call <4 x i32> @llvm.x86.sse2.cvttpd2dq(<2 x double> %a0) ; <<4 x i32>> [#uses=1]
   ret <4 x i32> %res
 }
@@ -516,22 +502,16 @@ define <2 x i64> @test_mm_cvttpd_epi32_zext(<2 x double> %a0) nounwind {
 ; SSE-LABEL: test_mm_cvttpd_epi32_zext:
 ; SSE:       ## BB#0:
 ; SSE-NEXT:    cvttpd2dq %xmm0, %xmm0 ## encoding: [0x66,0x0f,0xe6,0xc0]
-; SSE-NEXT:    movq %xmm0, %xmm0 ## encoding: [0xf3,0x0f,0x7e,0xc0]
-; SSE-NEXT:    ## xmm0 = xmm0[0],zero
 ; SSE-NEXT:    retl ## encoding: [0xc3]
 ;
 ; AVX2-LABEL: test_mm_cvttpd_epi32_zext:
 ; AVX2:       ## BB#0:
 ; AVX2-NEXT:    vcvttpd2dq %xmm0, %xmm0 ## encoding: [0xc5,0xf9,0xe6,0xc0]
-; AVX2-NEXT:    vmovq %xmm0, %xmm0 ## encoding: [0xc5,0xfa,0x7e,0xc0]
-; AVX2-NEXT:    ## xmm0 = xmm0[0],zero
 ; AVX2-NEXT:    retl ## encoding: [0xc3]
 ;
 ; SKX-LABEL: test_mm_cvttpd_epi32_zext:
 ; SKX:       ## BB#0:
-; SKX-NEXT:    vcvttpd2dq %xmm0, %xmm0 ## encoding: [0xc5,0xf9,0xe6,0xc0]
-; SKX-NEXT:    vmovq %xmm0, %xmm0 ## encoding: [0x62,0xf1,0xfe,0x08,0x7e,0xc0]
-; SKX-NEXT:    ## xmm0 = xmm0[0],zero
+; SKX-NEXT:    vcvttpd2dq %xmm0, %xmm0 ## encoding: [0x62,0xf1,0xfd,0x08,0xe6,0xc0]
 ; SKX-NEXT:    retl ## encoding: [0xc3]
   %cvt = call <4 x i32> @llvm.x86.sse2.cvttpd2dq(<2 x double> %a0)
   %res = shufflevector <4 x i32> %cvt, <4 x i32> zeroinitializer, <4 x i32> <i32 0, i32 1, i32 4, i32 5>
@@ -546,10 +526,15 @@ define <4 x i32> @test_x86_sse2_cvttps2dq(<4 x float> %a0) {
 ; SSE-NEXT:    cvttps2dq %xmm0, %xmm0 ## encoding: [0xf3,0x0f,0x5b,0xc0]
 ; SSE-NEXT:    retl ## encoding: [0xc3]
 ;
-; VCHECK-LABEL: test_x86_sse2_cvttps2dq:
-; VCHECK:       ## BB#0:
-; VCHECK-NEXT:    vcvttps2dq %xmm0, %xmm0 ## encoding: [0xc5,0xfa,0x5b,0xc0]
-; VCHECK-NEXT:    retl ## encoding: [0xc3]
+; AVX2-LABEL: test_x86_sse2_cvttps2dq:
+; AVX2:       ## BB#0:
+; AVX2-NEXT:    vcvttps2dq %xmm0, %xmm0 ## encoding: [0xc5,0xfa,0x5b,0xc0]
+; AVX2-NEXT:    retl ## encoding: [0xc3]
+;
+; SKX-LABEL: test_x86_sse2_cvttps2dq:
+; SKX:       ## BB#0:
+; SKX-NEXT:    vcvttps2dq %xmm0, %xmm0 ## encoding: [0x62,0xf1,0x7e,0x08,0x5b,0xc0]
+; SKX-NEXT:    retl ## encoding: [0xc3]
   %res = call <4 x i32> @llvm.x86.sse2.cvttps2dq(<4 x float> %a0) ; <<4 x i32>> [#uses=1]
   ret <4 x i32> %res
 }
@@ -575,23 +560,6 @@ define i32 @test_x86_sse2_cvttsd2si(<2 x double> %a0) {
   ret i32 %res
 }
 declare i32 @llvm.x86.sse2.cvttsd2si(<2 x double>) nounwind readnone
-
-
-define <2 x double> @test_x86_sse2_div_sd(<2 x double> %a0, <2 x double> %a1) {
-; SSE-LABEL: test_x86_sse2_div_sd:
-; SSE:       ## BB#0:
-; SSE-NEXT:    divsd %xmm1, %xmm0 ## encoding: [0xf2,0x0f,0x5e,0xc1]
-; SSE-NEXT:    retl ## encoding: [0xc3]
-;
-; VCHECK-LABEL: test_x86_sse2_div_sd:
-; VCHECK:       ## BB#0:
-; VCHECK-NEXT:    vdivsd %xmm1, %xmm0, %xmm0 ## encoding: [0xc5,0xfb,0x5e,0xc1]
-; VCHECK-NEXT:    retl ## encoding: [0xc3]
-  %res = call <2 x double> @llvm.x86.sse2.div.sd(<2 x double> %a0, <2 x double> %a1) ; <<2 x double>> [#uses=1]
-  ret <2 x double> %res
-}
-declare <2 x double> @llvm.x86.sse2.div.sd(<2 x double>, <2 x double>) nounwind readnone
-
 
 
 define <2 x double> @test_x86_sse2_max_pd(<2 x double> %a0, <2 x double> %a1) {
@@ -684,22 +652,6 @@ define i32 @test_x86_sse2_movmsk_pd(<2 x double> %a0) {
 declare i32 @llvm.x86.sse2.movmsk.pd(<2 x double>) nounwind readnone
 
 
-
-
-define <2 x double> @test_x86_sse2_mul_sd(<2 x double> %a0, <2 x double> %a1) {
-; SSE-LABEL: test_x86_sse2_mul_sd:
-; SSE:       ## BB#0:
-; SSE-NEXT:    mulsd %xmm1, %xmm0 ## encoding: [0xf2,0x0f,0x59,0xc1]
-; SSE-NEXT:    retl ## encoding: [0xc3]
-;
-; VCHECK-LABEL: test_x86_sse2_mul_sd:
-; VCHECK:       ## BB#0:
-; VCHECK-NEXT:    vmulsd %xmm1, %xmm0, %xmm0 ## encoding: [0xc5,0xfb,0x59,0xc1]
-; VCHECK-NEXT:    retl ## encoding: [0xc3]
-  %res = call <2 x double> @llvm.x86.sse2.mul.sd(<2 x double> %a0, <2 x double> %a1) ; <<2 x double>> [#uses=1]
-  ret <2 x double> %res
-}
-declare <2 x double> @llvm.x86.sse2.mul.sd(<2 x double>, <2 x double>) nounwind readnone
 
 
 define <8 x i16> @test_x86_sse2_packssdw_128(<4 x i32> %a0, <4 x i32> %a1) {
@@ -1546,22 +1498,6 @@ define <2 x double> @test_x86_sse2_sqrt_sd(<2 x double> %a0) {
   ret <2 x double> %res
 }
 declare <2 x double> @llvm.x86.sse2.sqrt.sd(<2 x double>) nounwind readnone
-
-
-define <2 x double> @test_x86_sse2_sub_sd(<2 x double> %a0, <2 x double> %a1) {
-; SSE-LABEL: test_x86_sse2_sub_sd:
-; SSE:       ## BB#0:
-; SSE-NEXT:    subsd %xmm1, %xmm0 ## encoding: [0xf2,0x0f,0x5c,0xc1]
-; SSE-NEXT:    retl ## encoding: [0xc3]
-;
-; VCHECK-LABEL: test_x86_sse2_sub_sd:
-; VCHECK:       ## BB#0:
-; VCHECK-NEXT:    vsubsd %xmm1, %xmm0, %xmm0 ## encoding: [0xc5,0xfb,0x5c,0xc1]
-; VCHECK-NEXT:    retl ## encoding: [0xc3]
-  %res = call <2 x double> @llvm.x86.sse2.sub.sd(<2 x double> %a0, <2 x double> %a1) ; <<2 x double>> [#uses=1]
-  ret <2 x double> %res
-}
-declare <2 x double> @llvm.x86.sse2.sub.sd(<2 x double>, <2 x double>) nounwind readnone
 
 
 define i32 @test_x86_sse2_ucomieq_sd(<2 x double> %a0, <2 x double> %a1) {

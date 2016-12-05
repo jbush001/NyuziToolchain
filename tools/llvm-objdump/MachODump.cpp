@@ -71,6 +71,9 @@ static cl::opt<bool> FullLeadingAddr("full-leading-addr",
 static cl::opt<bool> NoLeadingAddr("no-leading-addr",
                                    cl::desc("Print no leading address"));
 
+static cl::opt<bool> NoLeadingHeaders("no-leading-headers",
+                                      cl::desc("Print no leading headers"));
+
 cl::opt<bool> llvm::UniversalHeaders("universal-headers",
                                      cl::desc("Print Mach-O universal headers "
                                               "(requires -macho)"));
@@ -183,22 +186,12 @@ static const Target *GetTarget(const MachOObjectFile *MachOObj,
 struct SymbolSorter {
   bool operator()(const SymbolRef &A, const SymbolRef &B) {
     Expected<SymbolRef::Type> ATypeOrErr = A.getType();
-    if (!ATypeOrErr) {
-      std::string Buf;
-      raw_string_ostream OS(Buf);
-      logAllUnhandledErrors(ATypeOrErr.takeError(), OS, "");
-      OS.flush();
-      report_fatal_error(Buf);
-    }
+    if (!ATypeOrErr)
+      report_error(A.getObject()->getFileName(), ATypeOrErr.takeError());
     SymbolRef::Type AType = *ATypeOrErr;
     Expected<SymbolRef::Type> BTypeOrErr = B.getType();
-    if (!BTypeOrErr) {
-      std::string Buf;
-      raw_string_ostream OS(Buf);
-      logAllUnhandledErrors(BTypeOrErr.takeError(), OS, "");
-      OS.flush();
-      report_fatal_error(Buf);
-    }
+    if (!BTypeOrErr)
+      report_error(B.getObject()->getFileName(), BTypeOrErr.takeError());
     SymbolRef::Type BType = *BTypeOrErr;
     uint64_t AAddr = (AType != SymbolRef::ST_Function) ? 0 : A.getValue();
     uint64_t BAddr = (BType != SymbolRef::ST_Function) ? 0 : B.getValue();
@@ -295,13 +288,8 @@ static void getSectionsAndSymbols(MachOObjectFile *MachOObj,
                                   uint64_t &BaseSegmentAddress) {
   for (const SymbolRef &Symbol : MachOObj->symbols()) {
     Expected<StringRef> SymName = Symbol.getName();
-    if (!SymName) {
-      std::string Buf;
-      raw_string_ostream OS(Buf);
-      logAllUnhandledErrors(SymName.takeError(), OS, "");
-      OS.flush();
-      report_fatal_error(Buf);
-    }
+    if (!SymName)
+      report_error(MachOObj->getFileName(), SymName.takeError());
     if (!SymName->startswith("ltmp"))
       Symbols.push_back(Symbol);
   }
@@ -380,13 +368,8 @@ static void PrintIndirectSymbolTable(MachOObjectFile *O, bool verbose,
         symbol_iterator Sym = O->getSymbolByIndex(indirect_symbol);
         SymbolRef Symbol = *Sym;
         Expected<StringRef> SymName = Symbol.getName();
-        if (!SymName) {
-          std::string Buf;
-          raw_string_ostream OS(Buf);
-          logAllUnhandledErrors(SymName.takeError(), OS, "");
-          OS.flush();
-          report_fatal_error(Buf);
-        }
+        if (!SymName)
+          report_error(O->getFileName(), SymName.takeError());
         outs() << *SymName;
       } else {
         outs() << "?";
@@ -612,25 +595,15 @@ static void CreateSymbolAddressMap(MachOObjectFile *O,
   // Create a map of symbol addresses to symbol names.
   for (const SymbolRef &Symbol : O->symbols()) {
     Expected<SymbolRef::Type> STOrErr = Symbol.getType();
-    if (!STOrErr) {
-      std::string Buf;
-      raw_string_ostream OS(Buf);
-      logAllUnhandledErrors(STOrErr.takeError(), OS, "");
-      OS.flush();
-      report_fatal_error(Buf);
-    }
+    if (!STOrErr)
+      report_error(O->getFileName(), STOrErr.takeError());
     SymbolRef::Type ST = *STOrErr;
     if (ST == SymbolRef::ST_Function || ST == SymbolRef::ST_Data ||
         ST == SymbolRef::ST_Other) {
       uint64_t Address = Symbol.getValue();
       Expected<StringRef> SymNameOrErr = Symbol.getName();
-      if (!SymNameOrErr) {
-        std::string Buf;
-        raw_string_ostream OS(Buf);
-        logAllUnhandledErrors(SymNameOrErr.takeError(), OS, "");
-        OS.flush();
-        report_fatal_error(Buf);
-      }
+      if (!SymNameOrErr)
+        report_error(O->getFileName(), SymNameOrErr.takeError());
       StringRef SymName = *SymNameOrErr;
       if (!SymName.startswith(".objc"))
         (*AddrMap)[Address] = SymName;
@@ -865,13 +838,8 @@ static void DumpLiteralPointerSection(MachOObjectFile *O,
     if (Reloc != Relocs.end()) {
       symbol_iterator RelocSym = Reloc->second;
       Expected<StringRef> SymName = RelocSym->getName();
-      if (!SymName) {
-        std::string Buf;
-        raw_string_ostream OS(Buf);
-        logAllUnhandledErrors(SymName.takeError(), OS, "");
-        OS.flush();
-        report_fatal_error(Buf);
-      }
+      if (!SymName)
+        report_error(O->getFileName(), SymName.takeError());
       outs() << "external relocation entry for symbol:" << *SymName << "\n";
       continue;
     }
@@ -1216,7 +1184,7 @@ static void printObjcMetaData(MachOObjectFile *O, bool verbose);
 // archive member and or in a slice of a universal file.  It prints the
 // the file name and header info and then processes it according to the
 // command line options.
-static void ProcessMachO(StringRef Filename, MachOObjectFile *MachOOF,
+static void ProcessMachO(StringRef Name, MachOObjectFile *MachOOF,
                          StringRef ArchiveMemberName = StringRef(),
                          StringRef ArchitectureName = StringRef()) {
   // If we are doing some processing here on the Mach-O file print the header
@@ -1225,16 +1193,37 @@ static void ProcessMachO(StringRef Filename, MachOObjectFile *MachOOF,
   if (Disassemble || PrivateHeaders || ExportsTrie || Rebase || Bind || SymbolTable ||
       LazyBind || WeakBind || IndirectSymbols || DataInCode || LinkOptHints ||
       DylibsUsed || DylibId || ObjcMetaData || (FilterSections.size() != 0)) {
-    outs() << Filename;
-    if (!ArchiveMemberName.empty())
-      outs() << '(' << ArchiveMemberName << ')';
-    if (!ArchitectureName.empty())
-      outs() << " (architecture " << ArchitectureName << ")";
-    outs() << ":\n";
+    if (!NoLeadingHeaders) {
+      outs() << Name;
+      if (!ArchiveMemberName.empty())
+        outs() << '(' << ArchiveMemberName << ')';
+      if (!ArchitectureName.empty())
+        outs() << " (architecture " << ArchitectureName << ")";
+      outs() << ":\n";
+    }
+  }
+  // To use the report_error() form with an ArchiveName and FileName set
+  // these up based on what is passed for Name and ArchiveMemberName.
+  StringRef ArchiveName;
+  StringRef FileName;
+  if (!ArchiveMemberName.empty()) {
+    ArchiveName = Name;
+    FileName = ArchiveMemberName;
+  } else {
+    ArchiveName = StringRef();
+    FileName = Name;
   }
 
+  // If we need the symbol table to do the operation then check it here to
+  // produce a good error message as to where the Mach-O file comes from in
+  // the error message.
+  if (Disassemble || IndirectSymbols || FilterSections.size() != 0 ||
+      UnwindInfo)
+    if (Error Err = MachOOF->checkSymbolTable())
+      report_error(ArchiveName, FileName, std::move(Err), ArchitectureName);
+
   if (Disassemble)
-    DisassembleMachO(Filename, MachOOF, "__TEXT", "__text");
+    DisassembleMachO(FileName, MachOOF, "__TEXT", "__text");
   if (IndirectSymbols)
     PrintIndirectSymbols(MachOOF, !NonVerbose);
   if (DataInCode)
@@ -1248,17 +1237,15 @@ static void ProcessMachO(StringRef Filename, MachOObjectFile *MachOOF,
   if (SectionContents)
     PrintSectionContents(MachOOF);
   if (FilterSections.size() != 0)
-    DumpSectionContents(Filename, MachOOF, !NonVerbose);
+    DumpSectionContents(FileName, MachOOF, !NonVerbose);
   if (InfoPlist)
-    DumpInfoPlistSectionContents(Filename, MachOOF);
+    DumpInfoPlistSectionContents(FileName, MachOOF);
   if (DylibsUsed)
     PrintDylibs(MachOOF, false);
   if (DylibId)
     PrintDylibs(MachOOF, true);
-  if (SymbolTable) {
-    StringRef ArchiveName = ArchiveMemberName == StringRef() ? "" : Filename;
+  if (SymbolTable)
     PrintSymbolTable(MachOOF, ArchiveName, ArchitectureName);
-  }
   if (UnwindInfo)
     printMachOUnwindInfo(MachOOF);
   if (PrivateHeaders) {
@@ -1546,12 +1533,13 @@ static void printArchiveChild(StringRef Filename, const Archive::Child &C,
 static void printArchiveHeaders(StringRef Filename, Archive *A, bool verbose,
                                 bool print_offset,
                                 StringRef ArchitectureName = StringRef()) {
-  Error Err;
+  Error Err = Error::success();
+  ;
   for (const auto &C : A->children(Err, false))
     printArchiveChild(Filename, C, verbose, print_offset, ArchitectureName);
 
   if (Err)
-    report_error(Filename, std::move(Err));
+    report_error(StringRef(), Filename, std::move(Err), ArchitectureName);
 }
 
 // ParseInputMachO() parses the named Mach-O file in Filename and handles the
@@ -1583,7 +1571,7 @@ void llvm::ParseInputMachO(StringRef Filename) {
     if (ArchiveHeaders)
       printArchiveHeaders(Filename, A, !NonVerbose, ArchiveMemberOffsets);
 
-    Error Err;
+    Error Err = Error::success();
     for (auto &C : A->children(Err)) {
       Expected<std::unique_ptr<Binary>> ChildOrErr = C.getAsBinary();
       if (!ChildOrErr) {
@@ -1641,7 +1629,7 @@ void llvm::ParseInputMachO(StringRef Filename) {
               if (ArchiveHeaders)
                 printArchiveHeaders(Filename, A.get(), !NonVerbose,
                                     ArchiveMemberOffsets, ArchitectureName);
-              Error Err;
+              Error Err = Error::success();
               for (auto &C : A->children(Err)) {
                 Expected<std::unique_ptr<Binary>> ChildOrErr = C.getAsBinary();
                 if (!ChildOrErr) {
@@ -1697,7 +1685,7 @@ void llvm::ParseInputMachO(StringRef Filename) {
             if (ArchiveHeaders)
               printArchiveHeaders(Filename, A.get(), !NonVerbose,
                                   ArchiveMemberOffsets);
-            Error Err;
+            Error Err = Error::success();
             for (auto &C : A->children(Err)) {
               Expected<std::unique_ptr<Binary>> ChildOrErr = C.getAsBinary();
               if (!ChildOrErr) {
@@ -1749,7 +1737,7 @@ void llvm::ParseInputMachO(StringRef Filename) {
         if (ArchiveHeaders)
           printArchiveHeaders(Filename, A.get(), !NonVerbose,
                               ArchiveMemberOffsets, ArchitectureName);
-        Error Err;
+        Error Err = Error::success();
         for (auto &C : A->children(Err)) {
           Expected<std::unique_ptr<Binary>> ChildOrErr = C.getAsBinary();
           if (!ChildOrErr) {
@@ -1895,13 +1883,8 @@ static int SymbolizerGetOpInfo(void *DisInfo, uint64_t Pc, uint64_t Offset,
     }
     if (reloc_found && isExtern) {
       Expected<StringRef> SymName = Symbol.getName();
-      if (!SymName) {
-        std::string Buf;
-        raw_string_ostream OS(Buf);
-        logAllUnhandledErrors(SymName.takeError(), OS, "");
-        OS.flush();
-        report_fatal_error(Buf);
-      }
+      if (!SymName)
+        report_error(info->O->getFileName(), SymName.takeError());
       const char *name = SymName->data();
       op_info->AddSymbol.Present = 1;
       op_info->AddSymbol.Name = name;
@@ -1970,13 +1953,8 @@ static int SymbolizerGetOpInfo(void *DisInfo, uint64_t Pc, uint64_t Offset,
       if (info->O->getAnyRelocationPCRel(RE))
         op_info->Value -= Pc + Offset + Size;
       Expected<StringRef> SymName = Symbol.getName();
-      if (!SymName) {
-        std::string Buf;
-        raw_string_ostream OS(Buf);
-        logAllUnhandledErrors(SymName.takeError(), OS, "");
-        OS.flush();
-        report_fatal_error(Buf);
-      }
+      if (!SymName)
+        report_error(info->O->getFileName(), SymName.takeError());
       const char *name = SymName->data();
       unsigned Type = info->O->getAnyRelocationType(RE);
       if (Type == MachO::X86_64_RELOC_SUBTRACTOR) {
@@ -1992,13 +1970,8 @@ static int SymbolizerGetOpInfo(void *DisInfo, uint64_t Pc, uint64_t Offset,
           symbol_iterator RelocSymNext = info->O->getSymbolByIndex(SymbolNum);
           Symbol = *RelocSymNext;
           Expected<StringRef> SymNameNext = Symbol.getName();
-          if (!SymNameNext) {
-            std::string Buf;
-            raw_string_ostream OS(Buf);
-            logAllUnhandledErrors(SymNameNext.takeError(), OS, "");
-            OS.flush();
-            report_fatal_error(Buf);
-          }
+          if (!SymNameNext)
+            report_error(info->O->getFileName(), SymNameNext.takeError());
           name = SymNameNext->data();
         }
       }
@@ -2069,13 +2042,8 @@ static int SymbolizerGetOpInfo(void *DisInfo, uint64_t Pc, uint64_t Offset,
 
     if (isExtern) {
       Expected<StringRef> SymName = Symbol.getName();
-      if (!SymName) {
-        std::string Buf;
-        raw_string_ostream OS(Buf);
-        logAllUnhandledErrors(SymName.takeError(), OS, "");
-        OS.flush();
-        report_fatal_error(Buf);
-      }
+      if (!SymName)
+        report_error(info->O->getFileName(), SymName.takeError());
       const char *name = SymName->data();
       op_info->AddSymbol.Present = 1;
       op_info->AddSymbol.Name = name;
@@ -2097,7 +2065,7 @@ static int SymbolizerGetOpInfo(void *DisInfo, uint64_t Pc, uint64_t Offset,
     // If we have a branch that is not an external relocation entry then
     // return 0 so the code in tryAddingSymbolicOperand() can use the
     // SymbolLookUp call back with the branch target address to look up the
-    // symbol and possiblity add an annotation for a symbol stub.
+    // symbol and possibility add an annotation for a symbol stub.
     if (isExtern == 0 && (r_type == MachO::ARM_RELOC_BR24 ||
                           r_type == MachO::ARM_THUMB_RELOC_BR22))
       return 0;
@@ -2193,13 +2161,8 @@ static int SymbolizerGetOpInfo(void *DisInfo, uint64_t Pc, uint64_t Offset,
     if (!info->O->getPlainRelocationExternal(RE))
       return 0;
     Expected<StringRef> SymName = Reloc->getSymbol()->getName();
-    if (!SymName) {
-      std::string Buf;
-      raw_string_ostream OS(Buf);
-      logAllUnhandledErrors(SymName.takeError(), OS, "");
-      OS.flush();
-      report_fatal_error(Buf);
-    }
+    if (!SymName)
+      report_error(info->O->getFileName(), SymName.takeError());
     const char *name = SymName->data();
     op_info->AddSymbol.Present = 1;
     op_info->AddSymbol.Name = name;
@@ -2328,13 +2291,8 @@ static const char *GuessIndirectSymbol(uint64_t ReferenceValue,
               symbol_iterator Sym = info->O->getSymbolByIndex(indirect_symbol);
               SymbolRef Symbol = *Sym;
               Expected<StringRef> SymName = Symbol.getName();
-              if (!SymName) {
-                std::string Buf;
-                raw_string_ostream OS(Buf);
-                logAllUnhandledErrors(SymName.takeError(), OS, "");
-                OS.flush();
-                report_fatal_error(Buf);
-              }
+              if (!SymName)
+                report_error(info->O->getFileName(), SymName.takeError());
               const char *name = SymName->data();
               return name;
             }
@@ -2368,13 +2326,8 @@ static const char *GuessIndirectSymbol(uint64_t ReferenceValue,
               symbol_iterator Sym = info->O->getSymbolByIndex(indirect_symbol);
               SymbolRef Symbol = *Sym;
               Expected<StringRef> SymName = Symbol.getName();
-              if (!SymName) {
-                std::string Buf;
-                raw_string_ostream OS(Buf);
-                logAllUnhandledErrors(SymName.takeError(), OS, "");
-                OS.flush();
-                report_fatal_error(Buf);
-              }
+              if (!SymName)
+                report_error(info->O->getFileName(), SymName.takeError());
               const char *name = SymName->data();
               return name;
             }
@@ -2602,13 +2555,8 @@ static const char *get_symbol_64(uint32_t sect_offset, SectionRef S,
   if (reloc_found && isExtern) {
     n_value = Symbol.getValue();
     Expected<StringRef> NameOrError = Symbol.getName();
-    if (!NameOrError) {
-      std::string Buf;
-      raw_string_ostream OS(Buf);
-      logAllUnhandledErrors(NameOrError.takeError(), OS, "");
-      OS.flush();
-      report_fatal_error(Buf);
-    }
+    if (!NameOrError)
+      report_error(info->O->getFileName(), NameOrError.takeError());
     StringRef Name = *NameOrError;
     if (!Name.empty()) {
       SymbolName = Name.data();
@@ -6600,25 +6548,15 @@ static void DisassembleMachO(StringRef Filename, MachOObjectFile *MachOOF,
     bool DisSymNameFound = false;
     for (const SymbolRef &Symbol : MachOOF->symbols()) {
       Expected<SymbolRef::Type> STOrErr = Symbol.getType();
-      if (!STOrErr) {
-        std::string Buf;
-        raw_string_ostream OS(Buf);
-        logAllUnhandledErrors(STOrErr.takeError(), OS, "");
-        OS.flush();
-        report_fatal_error(Buf);
-      }
+      if (!STOrErr)
+        report_error(MachOOF->getFileName(), STOrErr.takeError());
       SymbolRef::Type ST = *STOrErr;
       if (ST == SymbolRef::ST_Function || ST == SymbolRef::ST_Data ||
           ST == SymbolRef::ST_Other) {
         uint64_t Address = Symbol.getValue();
         Expected<StringRef> SymNameOrErr = Symbol.getName();
-        if (!SymNameOrErr) {
-          std::string Buf;
-          raw_string_ostream OS(Buf);
-          logAllUnhandledErrors(SymNameOrErr.takeError(), OS, "");
-          OS.flush();
-          report_fatal_error(Buf);
-        }
+        if (!SymNameOrErr)
+          report_error(MachOOF->getFileName(), SymNameOrErr.takeError());
         StringRef SymName = *SymNameOrErr;
         AddrMap[Address] = SymName;
         if (!DisSymName.empty() && DisSymName == SymName)
@@ -6665,23 +6603,13 @@ static void DisassembleMachO(StringRef Filename, MachOObjectFile *MachOOF,
     // Disassemble symbol by symbol.
     for (unsigned SymIdx = 0; SymIdx != Symbols.size(); SymIdx++) {
       Expected<StringRef> SymNameOrErr = Symbols[SymIdx].getName();
-      if (!SymNameOrErr) {
-        std::string Buf;
-        raw_string_ostream OS(Buf);
-        logAllUnhandledErrors(SymNameOrErr.takeError(), OS, "");
-        OS.flush();
-        report_fatal_error(Buf);
-      }
+      if (!SymNameOrErr)
+        report_error(MachOOF->getFileName(), SymNameOrErr.takeError());
       StringRef SymName = *SymNameOrErr;
 
       Expected<SymbolRef::Type> STOrErr = Symbols[SymIdx].getType();
-      if (!STOrErr) {
-        std::string Buf;
-        raw_string_ostream OS(Buf);
-        logAllUnhandledErrors(STOrErr.takeError(), OS, "");
-        OS.flush();
-        report_fatal_error(Buf);
-      }
+      if (!STOrErr)
+        report_error(MachOOF->getFileName(), STOrErr.takeError());
       SymbolRef::Type ST = *STOrErr;
       if (ST != SymbolRef::ST_Function && ST != SymbolRef::ST_Data)
         continue;
@@ -6736,13 +6664,8 @@ static void DisassembleMachO(StringRef Filename, MachOObjectFile *MachOOF,
       uint64_t NextSymIdx = SymIdx + 1;
       while (Symbols.size() > NextSymIdx) {
         Expected<SymbolRef::Type> STOrErr = Symbols[NextSymIdx].getType();
-        if (!STOrErr) {
-          std::string Buf;
-          raw_string_ostream OS(Buf);
-          logAllUnhandledErrors(STOrErr.takeError(), OS, "");
-          OS.flush();
-          report_fatal_error(Buf);
-        }
+        if (!STOrErr)
+          report_error(MachOOF->getFileName(), STOrErr.takeError());
         SymbolRef::Type NextSymType = *STOrErr;
         if (NextSymType == SymbolRef::ST_Function) {
           containsNextSym =
@@ -6988,13 +6911,8 @@ static void findUnwindRelocNameAddend(const MachOObjectFile *Obj,
                                       StringRef &Name, uint64_t &Addend) {
   if (Reloc.getSymbol() != Obj->symbol_end()) {
     Expected<StringRef> NameOrErr = Reloc.getSymbol()->getName();
-    if (!NameOrErr) {
-      std::string Buf;
-      raw_string_ostream OS(Buf);
-      logAllUnhandledErrors(NameOrErr.takeError(), OS, "");
-      OS.flush();
-      report_fatal_error(Buf);
-    }
+    if (!NameOrErr)
+      report_error(Obj->getFileName(), NameOrErr.takeError());
     Name = *NameOrErr;
     Addend = Addr;
     return;
@@ -7018,24 +6936,14 @@ static void findUnwindRelocNameAddend(const MachOObjectFile *Obj,
   --Sym;
 
   auto SectOrErr = Sym->second.getSection();
-  if (!SectOrErr) {
-    std::string Buf;
-    raw_string_ostream OS(Buf);
-    logAllUnhandledErrors(SectOrErr.takeError(), OS, "");
-    OS.flush();
-    report_fatal_error(Buf);
-  }
+  if (!SectOrErr)
+    report_error(Obj->getFileName(), SectOrErr.takeError());
   section_iterator SymSection = *SectOrErr;
   if (RelocSection == *SymSection) {
     // There's a valid symbol in the same section before this reference.
     Expected<StringRef> NameOrErr = Sym->second.getName();
-    if (!NameOrErr) {
-      std::string Buf;
-      raw_string_ostream OS(Buf);
-      logAllUnhandledErrors(NameOrErr.takeError(), OS, "");
-      OS.flush();
-      report_fatal_error(Buf);
-    }
+    if (!NameOrErr)
+      report_error(Obj->getFileName(), NameOrErr.takeError());
     Name = *NameOrErr;
     Addend = Addr - Sym->first;
     return;
@@ -7068,8 +6976,10 @@ printMachOCompactUnwindSection(const MachOObjectFile *Obj,
                                std::map<uint64_t, SymbolRef> &Symbols,
                                const SectionRef &CompactUnwind) {
 
-  assert(Obj->isLittleEndian() &&
-         "There should not be a big-endian .o with __compact_unwind");
+  if (!Obj->isLittleEndian()) {
+    outs() << "Skipping big-endian __compact_unwind section\n";
+    return;
+  }
 
   bool Is64 = Obj->is64Bit();
   uint32_t PointerSize = Is64 ? sizeof(uint64_t) : sizeof(uint32_t);
@@ -7101,8 +7011,10 @@ printMachOCompactUnwindSection(const MachOObjectFile *Obj,
       Entry.PersonalityReloc = Reloc;
     else if (OffsetInEntry == 2 * PointerSize + 2 * sizeof(uint32_t))
       Entry.LSDAReloc = Reloc;
-    else
-      llvm_unreachable("Unexpected relocation in __compact_unwind section");
+    else {
+      outs() << "Invalid relocation in __compact_unwind section\n";
+      return;
+    }
   }
 
   // Finally, we're ready to print the data we've gathered.
@@ -7208,8 +7120,10 @@ static void printMachOUnwindInfoSection(const MachOObjectFile *Obj,
                                         std::map<uint64_t, SymbolRef> &Symbols,
                                         const SectionRef &UnwindInfo) {
 
-  assert(Obj->isLittleEndian() &&
-         "There should not be a big-endian .o with __unwind_info");
+  if (!Obj->isLittleEndian()) {
+    outs() << "Skipping big-endian __unwind_info section\n";
+    return;
+  }
 
   outs() << "Contents of __unwind_info section:\n";
 
@@ -7224,7 +7138,10 @@ static void printMachOUnwindInfoSection(const MachOObjectFile *Obj,
   uint32_t Version = readNext<uint32_t>(Pos);
   outs() << "  Version:                                   "
          << format("0x%" PRIx32, Version) << '\n';
-  assert(Version == 1 && "only understand version 1");
+  if (Version != 1) {
+    outs() << "    Skipping section with unknown version\n";
+    return;
+  }
 
   uint32_t CommonEncodingsStart = readNext<uint32_t>(Pos);
   outs() << "  Common encodings array section offset:     "
@@ -7364,7 +7281,8 @@ static void printMachOUnwindInfoSection(const MachOObjectFile *Obj,
       printCompressedSecondLevelUnwindPage(Pos, IndexEntries[i].FunctionOffset,
                                            CommonEncodings);
     else
-      llvm_unreachable("Do not know how to print this kind of 2nd level page");
+      outs() << "    Skipping 2nd level page with unknown kind " << Kind
+             << '\n';
   }
 }
 
