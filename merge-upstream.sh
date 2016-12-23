@@ -1,13 +1,14 @@
 #!/bin/bash
 
 git checkout upstream
-rm -rf .clang-format .arcconfig *
+rm -rf .clang-tidy .clang-format .arcconfig *
 
-SVNREV="$(svn info http://llvm.org/svn/llvm-project/llvm/trunk | grep Revision: | awk -F ' ' '{print $2}')"
-svn co http://llvm.org/svn/llvm-project/llvm/trunk@$SVNREV .
-svn co http://llvm.org/svn/llvm-project/cfe/trunk@$SVNREV tools/clang
-svn co http://llvm.org/svn/llvm-project/lldb/trunk@$SVNREV tools/lldb
-svn co http://llvm.org/svn/llvm-project/lld/trunk@$SVNREV tools/lld
+BASE_URL=http://llvm.org/svn/llvm-project
+SVNREV="$(svn info --show-item=revision $BASE_URL)"
+svn co $BASE_URL/llvm/trunk@$SVNREV .
+svn co $BASE_URL/cfe/trunk@$SVNREV tools/clang
+svn co $BASE_URL/lldb/trunk@$SVNREV tools/lldb
+svn co $BASE_URL/trunk@$SVNREV tools/lld
 
 find . -type d -name .svn -exec rm -rf {} \;
 find . -type f -name .gitignore -delete
