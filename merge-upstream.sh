@@ -8,7 +8,7 @@ SVNREV="$(svn info --show-item=revision $BASE_URL)"
 svn co $BASE_URL/llvm/trunk@$SVNREV .
 svn co $BASE_URL/cfe/trunk@$SVNREV tools/clang
 svn co $BASE_URL/lldb/trunk@$SVNREV tools/lldb
-svn co $BASE_URL/trunk@$SVNREV tools/lld
+svn co $BASE_URL/lld/trunk@$SVNREV tools/lld
 
 find . -type d -name .svn -exec rm -rf {} \;
 find . -type f -name .gitignore -delete
