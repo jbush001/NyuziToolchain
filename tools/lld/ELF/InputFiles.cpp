@@ -15,6 +15,7 @@
 #include "Memory.h"
 #include "SymbolTable.h"
 #include "Symbols.h"
+#include "SyntheticSections.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Bitcode/BitcodeReader.h"
 #include "llvm/CodeGen/Analysis.h"
@@ -58,7 +59,7 @@ template <class ELFT> void elf::ObjectFile<ELFT>::initializeDwarfLine() {
             "createObjectFile failed");
 
   ObjectInfo ObjInfo;
-  DWARFContextInMemory Dwarf(*Obj.get(), &ObjInfo);
+  DWARFContextInMemory Dwarf(*Obj, &ObjInfo);
   DwarfLine.reset(new DWARFDebugLine(&Dwarf.getLineSection().Relocs));
   DataExtractor LineData(Dwarf.getLineSection().Data,
                          ELFT::TargetEndianness == support::little,
@@ -86,16 +87,16 @@ std::string elf::ObjectFile<ELFT>::getLineInfo(InputSectionBase<ELFT> *S,
   // Use fake address calcuated by adding section file offset and offset in
   // section. See comments for ObjectInfo class.
   DILineInfo Info;
-  DILineInfoSpecifier Spec;
-  Tbl->getFileLineInfoForAddress(S->Offset + Offset, nullptr, Spec.FLIKind,
-                                 Info);
+  Tbl->getFileLineInfoForAddress(
+      S->Offset + Offset, nullptr,
+      DILineInfoSpecifier::FileLineInfoKind::AbsoluteFilePath, Info);
   if (Info.Line == 0)
     return "";
   return Info.FileName + ":" + std::to_string(Info.Line);
 }
 
 // Returns "(internal)", "foo.a(bar.o)" or "baz.o".
-std::string elf::toString(const InputFile *F) {
+std::string lld::toString(const InputFile *F) {
   if (!F)
     return "(internal)";
   if (!F->ArchiveName.empty())
@@ -335,8 +336,14 @@ elf::ObjectFile<ELFT>::createInputSection(const Elf_Shdr &Sec,
 
   switch (Sec.sh_type) {
   case SHT_ARM_ATTRIBUTES:
-    // FIXME: ARM meta-data section. At present attributes are ignored,
-    // they can be used to reason about object compatibility.
+    // FIXME: ARM meta-data section. Retain the first attribute section
+    // we see. The eglibc ARM dynamic loaders require the presence of an
+    // attribute section for dlopen to work.
+    // In a full implementation we would merge all attribute sections.
+    if (In<ELFT>::ARMAttributes == nullptr) {
+      In<ELFT>::ARMAttributes = make<InputSection<ELFT>>(this, &Sec, Name);
+      return In<ELFT>::ARMAttributes;
+    }
     return &InputSection<ELFT>::Discarded;
   case SHT_RELA:
   case SHT_REL: {
@@ -453,7 +460,7 @@ SymbolBody *elf::ObjectFile<ELFT>::createSymbolBody(const Elf_Sym *Sym) {
     StringRefZ Name = this->StringTable.data() + Sym->st_name;
     if (Sym->st_shndx == SHN_UNDEF)
       return new (BAlloc)
-          Undefined(Name, /*IsLocal=*/true, StOther, Type, this);
+          Undefined<ELFT>(Name, /*IsLocal=*/true, StOther, Type, this);
 
     return new (BAlloc) DefinedRegular<ELFT>(Name, /*IsLocal=*/true, StOther,
                                              Type, Value, Size, Sec, this);
@@ -517,9 +524,9 @@ ArchiveFile::getMember(const Archive::Symbol *Sym) {
             "could not get the buffer for the member defining symbol " +
                 Sym->getName());
 
-  if (C.getParent()->isThin() && Driver->Cpio)
-    Driver->Cpio->append(relativeToRoot(check(C.getFullName())),
-                         Ret.getBuffer());
+  if (C.getParent()->isThin() && Driver->Tar)
+    Driver->Tar->append(relativeToRoot(check(C.getFullName())),
+                        Ret.getBuffer());
   if (C.getParent()->isThin())
     return {Ret, 0};
   return {Ret, C.getChildOffset()};
@@ -644,6 +651,8 @@ template <class ELFT> void SharedFile<ELFT>::parseRest() {
       VersymIndex = Versym->vs_index;
       ++Versym;
     }
+    bool Hidden = VersymIndex & VERSYM_HIDDEN;
+    VersymIndex = VersymIndex & ~VERSYM_HIDDEN;
 
     StringRef Name = check(Sym.getName(this->StringTable));
     if (Sym.isUndefined()) {
@@ -651,15 +660,23 @@ template <class ELFT> void SharedFile<ELFT>::parseRest() {
       continue;
     }
 
-    if (Versym) {
-      // Ignore local symbols and non-default versions.
-      if (VersymIndex == VER_NDX_LOCAL || (VersymIndex & VERSYM_HIDDEN))
-        continue;
-    }
+    // Ignore local symbols.
+    if (Versym && VersymIndex == VER_NDX_LOCAL)
+      continue;
 
     const Elf_Verdef *V =
         VersymIndex == VER_NDX_GLOBAL ? nullptr : Verdefs[VersymIndex];
-    elf::Symtab<ELFT>::X->addShared(this, Name, Sym, V);
+
+    if (!Hidden)
+      elf::Symtab<ELFT>::X->addShared(this, Name, Sym, V);
+
+    // Also add the symbol with the versioned name to handle undefined symbols
+    // with explicit versions.
+    if (V) {
+      StringRef VerName = this->StringTable.data() + V->getAux()->vda_name;
+      Name = Saver.save(Twine(Name) + "@" + VerName);
+      elf::Symtab<ELFT>::X->addShared(this, Name, Sym, V);
+    }
   }
 }
 

@@ -1919,25 +1919,39 @@ class OffloadingActionBuilder final {
                               options::OPT_cuda_device_only);
 
       // Collect all cuda_gpu_arch parameters, removing duplicates.
-      llvm::SmallSet<CudaArch, 4> GpuArchs;
+      std::set<CudaArch> GpuArchs;
       bool Error = false;
       for (Arg *A : Args) {
-        if (!A->getOption().matches(options::OPT_cuda_gpu_arch_EQ))
+        if (!(A->getOption().matches(options::OPT_cuda_gpu_arch_EQ) ||
+              A->getOption().matches(options::OPT_no_cuda_gpu_arch_EQ)))
           continue;
         A->claim();
 
-        const auto &ArchStr = A->getValue();
+        const StringRef ArchStr = A->getValue();
+        if (A->getOption().matches(options::OPT_no_cuda_gpu_arch_EQ) &&
+            ArchStr == "all") {
+          GpuArchs.clear();
+          continue;
+        }
         CudaArch Arch = StringToCudaArch(ArchStr);
         if (Arch == CudaArch::UNKNOWN) {
           C.getDriver().Diag(clang::diag::err_drv_cuda_bad_gpu_arch) << ArchStr;
           Error = true;
-        } else if (GpuArchs.insert(Arch).second)
-          GpuArchList.push_back(Arch);
+        } else if (A->getOption().matches(options::OPT_cuda_gpu_arch_EQ))
+          GpuArchs.insert(Arch);
+        else if (A->getOption().matches(options::OPT_no_cuda_gpu_arch_EQ))
+          GpuArchs.erase(Arch);
+        else
+          llvm_unreachable("Unexpected option.");
       }
 
-      // Default to sm_20 which is the lowest common denominator for supported
-      // GPUs.
-      // sm_20 code should work correctly, if suboptimally, on all newer GPUs.
+      // Collect list of GPUs remaining in the set.
+      for (CudaArch Arch : GpuArchs)
+        GpuArchList.push_back(Arch);
+
+      // Default to sm_20 which is the lowest common denominator for
+      // supported GPUs.  sm_20 code should work correctly, if
+      // suboptimally, on all newer GPUs.
       if (GpuArchList.empty())
         GpuArchList.push_back(CudaArch::SM_20);
 
@@ -3749,6 +3763,9 @@ const ToolChain &Driver::getToolChain(const ArgList &Args,
       case llvm::Triple::wasm32:
       case llvm::Triple::wasm64:
         TC = new toolchains::WebAssembly(*this, Target, Args);
+        break;
+      case llvm::Triple::avr:
+        TC = new toolchains::AVRToolChain(*this, Target, Args);
         break;
       default:
         if (Target.getVendor() == llvm::Triple::Myriad)

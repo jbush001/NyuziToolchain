@@ -534,15 +534,10 @@ void CXXRecordDecl::addedMember(Decl *D) {
         SMKind |= SMF_MoveConstructor;
     }
 
-    // C++ [dcl.init.aggr]p1:
-    //   An aggregate is an array or a class with no user-declared
-    //   constructors [...].
     // C++11 [dcl.init.aggr]p1: DR1518
-    //  An aggregate is an array or a class with no user-provided, explicit, or
-    //  inherited constructors
-    if (getASTContext().getLangOpts().CPlusPlus11
-            ? (Constructor->isUserProvided() || Constructor->isExplicit())
-            : !Constructor->isImplicit())
+    //   An aggregate is an array or a class with no user-provided, explicit, or
+    //   inherited constructors
+    if (Constructor->isUserProvided() || Constructor->isExplicit())
       data().Aggregate = false;
   }
 
@@ -1739,7 +1734,7 @@ CXXCtorInitializer::CXXCtorInitializer(ASTContext &Context,
                                        SourceLocation EllipsisLoc)
   : Initializee(TInfo), MemberOrEllipsisLocation(EllipsisLoc), Init(Init), 
     LParenLoc(L), RParenLoc(R), IsDelegating(false), IsVirtual(IsVirtual), 
-    IsWritten(false), SourceOrderOrNumArrayIndices(0)
+    IsWritten(false), SourceOrder(0)
 {
 }
 
@@ -1750,7 +1745,7 @@ CXXCtorInitializer::CXXCtorInitializer(ASTContext &Context,
                                        SourceLocation R)
   : Initializee(Member), MemberOrEllipsisLocation(MemberLoc), Init(Init),
     LParenLoc(L), RParenLoc(R), IsDelegating(false), IsVirtual(false),
-    IsWritten(false), SourceOrderOrNumArrayIndices(0)
+    IsWritten(false), SourceOrder(0)
 {
 }
 
@@ -1761,7 +1756,7 @@ CXXCtorInitializer::CXXCtorInitializer(ASTContext &Context,
                                        SourceLocation R)
   : Initializee(Member), MemberOrEllipsisLocation(MemberLoc), Init(Init),
     LParenLoc(L), RParenLoc(R), IsDelegating(false), IsVirtual(false),
-    IsWritten(false), SourceOrderOrNumArrayIndices(0)
+    IsWritten(false), SourceOrder(0)
 {
 }
 
@@ -1771,36 +1766,8 @@ CXXCtorInitializer::CXXCtorInitializer(ASTContext &Context,
                                        SourceLocation R)
   : Initializee(TInfo), MemberOrEllipsisLocation(), Init(Init),
     LParenLoc(L), RParenLoc(R), IsDelegating(true), IsVirtual(false),
-    IsWritten(false), SourceOrderOrNumArrayIndices(0)
+    IsWritten(false), SourceOrder(0)
 {
-}
-
-CXXCtorInitializer::CXXCtorInitializer(ASTContext &Context,
-                                       FieldDecl *Member,
-                                       SourceLocation MemberLoc,
-                                       SourceLocation L, Expr *Init,
-                                       SourceLocation R,
-                                       VarDecl **Indices,
-                                       unsigned NumIndices)
-  : Initializee(Member), MemberOrEllipsisLocation(MemberLoc), Init(Init), 
-    LParenLoc(L), RParenLoc(R), IsDelegating(false), IsVirtual(false),
-    IsWritten(false), SourceOrderOrNumArrayIndices(NumIndices)
-{
-  std::uninitialized_copy(Indices, Indices + NumIndices,
-                          getTrailingObjects<VarDecl *>());
-}
-
-CXXCtorInitializer *CXXCtorInitializer::Create(ASTContext &Context,
-                                               FieldDecl *Member, 
-                                               SourceLocation MemberLoc,
-                                               SourceLocation L, Expr *Init,
-                                               SourceLocation R,
-                                               VarDecl **Indices,
-                                               unsigned NumIndices) {
-  void *Mem = Context.Allocate(totalSizeToAlloc<VarDecl *>(NumIndices),
-                               alignof(CXXCtorInitializer));
-  return new (Mem) CXXCtorInitializer(Context, Member, MemberLoc, L, Init, R,
-                                      Indices, NumIndices);
 }
 
 TypeLoc CXXCtorInitializer::getBaseClassLoc() const {
@@ -2278,15 +2245,37 @@ SourceRange UsingDecl::getSourceRange() const {
   return SourceRange(Begin, getNameInfo().getEndLoc());
 }
 
+void UsingPackDecl::anchor() { }
+
+UsingPackDecl *UsingPackDecl::Create(ASTContext &C, DeclContext *DC,
+                                     NamedDecl *InstantiatedFrom,
+                                     ArrayRef<NamedDecl *> UsingDecls) {
+  size_t Extra = additionalSizeToAlloc<NamedDecl *>(UsingDecls.size());
+  return new (C, DC, Extra) UsingPackDecl(DC, InstantiatedFrom, UsingDecls);
+}
+
+UsingPackDecl *UsingPackDecl::CreateDeserialized(ASTContext &C, unsigned ID,
+                                                 unsigned NumExpansions) {
+  size_t Extra = additionalSizeToAlloc<NamedDecl *>(NumExpansions);
+  auto *Result = new (C, ID, Extra) UsingPackDecl(nullptr, nullptr, None);
+  Result->NumExpansions = NumExpansions;
+  auto *Trail = Result->getTrailingObjects<NamedDecl *>();
+  for (unsigned I = 0; I != NumExpansions; ++I)
+    new (Trail + I) NamedDecl*(nullptr);
+  return Result;
+}
+
 void UnresolvedUsingValueDecl::anchor() { }
 
 UnresolvedUsingValueDecl *
 UnresolvedUsingValueDecl::Create(ASTContext &C, DeclContext *DC,
                                  SourceLocation UsingLoc,
                                  NestedNameSpecifierLoc QualifierLoc,
-                                 const DeclarationNameInfo &NameInfo) {
+                                 const DeclarationNameInfo &NameInfo,
+                                 SourceLocation EllipsisLoc) {
   return new (C, DC) UnresolvedUsingValueDecl(DC, C.DependentTy, UsingLoc,
-                                              QualifierLoc, NameInfo);
+                                              QualifierLoc, NameInfo,
+                                              EllipsisLoc);
 }
 
 UnresolvedUsingValueDecl *
@@ -2294,7 +2283,8 @@ UnresolvedUsingValueDecl::CreateDeserialized(ASTContext &C, unsigned ID) {
   return new (C, ID) UnresolvedUsingValueDecl(nullptr, QualType(),
                                               SourceLocation(),
                                               NestedNameSpecifierLoc(),
-                                              DeclarationNameInfo());
+                                              DeclarationNameInfo(),
+                                              SourceLocation());
 }
 
 SourceRange UnresolvedUsingValueDecl::getSourceRange() const {
@@ -2311,17 +2301,18 @@ UnresolvedUsingTypenameDecl::Create(ASTContext &C, DeclContext *DC,
                                     SourceLocation TypenameLoc,
                                     NestedNameSpecifierLoc QualifierLoc,
                                     SourceLocation TargetNameLoc,
-                                    DeclarationName TargetName) {
+                                    DeclarationName TargetName,
+                                    SourceLocation EllipsisLoc) {
   return new (C, DC) UnresolvedUsingTypenameDecl(
       DC, UsingLoc, TypenameLoc, QualifierLoc, TargetNameLoc,
-      TargetName.getAsIdentifierInfo());
+      TargetName.getAsIdentifierInfo(), EllipsisLoc);
 }
 
 UnresolvedUsingTypenameDecl *
 UnresolvedUsingTypenameDecl::CreateDeserialized(ASTContext &C, unsigned ID) {
   return new (C, ID) UnresolvedUsingTypenameDecl(
       nullptr, SourceLocation(), SourceLocation(), NestedNameSpecifierLoc(),
-      SourceLocation(), nullptr);
+      SourceLocation(), nullptr, SourceLocation());
 }
 
 void StaticAssertDecl::anchor() { }

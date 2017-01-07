@@ -47,7 +47,7 @@ namespace llvm {
       FCTIDZ, FCTIWZ,
 
       /// Newer FCTI[D,W]UZ floating-point-to-integer conversion instructions for
-      /// unsigned integers.
+      /// unsigned integers with round toward zero.
       FCTIDUZ, FCTIWUZ,
 
       /// VEXTS, ByteWidth - takes an input in VSFRC and produces an output in
@@ -815,6 +815,8 @@ namespace llvm {
                                 SelectionDAG &DAG, const SDLoc &dl) const;
     SDValue LowerFP_TO_INTDirectMove(SDValue Op, SelectionDAG &DAG,
                                      const SDLoc &dl) const;
+
+    bool directMoveIsProfitable(const SDValue &Op) const;
     SDValue LowerINT_TO_FPDirectMove(SDValue Op, SelectionDAG &DAG,
                                      const SDLoc &dl) const;
 

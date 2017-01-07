@@ -152,18 +152,23 @@ entry:
   ret <16 x i8> <i8 -127, i8 -127, i8 -127, i8 -127, i8 -127, i8 -127, i8 -127, i8 -127, i8 -127, i8 -127, i8 -127, i8 -127, i8 -127, i8 -127, i8 -127, i8 -127>
 }
 
+define <16 x i8> @test13E127() {
+entry:
+; CHECK-LABEL: test13E127
+; CHECK: xxspltib 34, 200
+; CHECK-BE-LABEL: test13E127
+; CHECK-BE: xxspltib 34, 200
+  ret <16 x i8> <i8 200, i8 200, i8 200, i8 200, i8 200, i8 200, i8 200, i8 200, i8 200, i8 200, i8 200, i8 200, i8 200, i8 200, i8 200, i8 200>
+}
+
 define <4 x i32> @test14(<4 x i32> %a, i32* nocapture readonly %b) {
 entry:
 ; CHECK-LABEL: test14
 ; CHECK: lwz [[LD:[0-9]+]],
-; FIXME: mtvsrws 34, [[LD]]
-; CHECK: mtvsrws [[SPLT:[0-9]+]], [[LD]]
-; CHECK: xxspltw 34, [[SPLT]], 3
+; CHECK: mtvsrws 34, [[LD]]
 ; CHECK-BE-LABEL: test14
 ; CHECK-BE: lwz [[LD:[0-9]+]],
-; FIXME: mtvsrws 34, [[LD]]
-; CHECK-BE: mtvsrws [[SPLT:[0-9]+]], [[LD]]
-; CHECK-BE: xxspltw 34, [[SPLT]], 0
+; CHECK-BE: mtvsrws 34, [[LD]]
   %0 = load i32, i32* %b, align 4
   %splat.splatinsert = insertelement <4 x i32> undef, i32 %0, i32 0
   %splat.splat = shufflevector <4 x i32> %splat.splatinsert, <4 x i32> undef, <4 x i32> zeroinitializer

@@ -25,7 +25,7 @@
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/StringSwitch.h"
 #include "llvm/Support/CommandLine.h"
-#include "llvm/Support/Process.h"
+#include "llvm/Support/Path.h"
 #include "llvm/Support/TargetSelect.h"
 #include "llvm/Support/raw_ostream.h"
 #include <cstdlib>
@@ -42,18 +42,19 @@ using namespace lld::elf;
 Configuration *elf::Config;
 LinkerDriver *elf::Driver;
 
+BumpPtrAllocator elf::BAlloc;
+StringSaver elf::Saver{BAlloc};
+std::vector<SpecificAllocBase *> elf::SpecificAllocBase::Instances;
+
 bool elf::link(ArrayRef<const char *> Args, bool CanExitEarly,
                raw_ostream &Error) {
   ErrorCount = 0;
   ErrorOS = &Error;
   Argv0 = Args[0];
 
-  Configuration C;
-  LinkerDriver D;
-  ScriptConfiguration SC;
-  Config = &C;
-  Driver = &D;
-  ScriptConfig = &SC;
+  Config = make<Configuration>();
+  Driver = make<LinkerDriver>();
+  ScriptConfig = make<ScriptConfiguration>();
 
   Driver->main(Args, CanExitEarly);
   freeArena();
@@ -122,7 +123,7 @@ LinkerDriver::getArchiveMembers(MemoryBufferRef MB) {
 
   // Take ownership of memory buffers created for members of thin archives.
   for (std::unique_ptr<MemoryBuffer> &MB : File->takeThinBuffers())
-    OwningMBs.push_back(std::move(MB));
+    make<std::unique_ptr<MemoryBuffer>>(std::move(MB));
 
   return V;
 }
@@ -180,10 +181,10 @@ Optional<MemoryBufferRef> LinkerDriver::readFile(StringRef Path) {
   }
   std::unique_ptr<MemoryBuffer> &MB = *MBOrErr;
   MemoryBufferRef MBRef = MB->getMemBufferRef();
-  OwningMBs.push_back(std::move(MB)); // take MB ownership
+  make<std::unique_ptr<MemoryBuffer>>(std::move(MB)); // take MB ownership
 
-  if (Cpio)
-    Cpio->append(relativeToRoot(Path), MBRef.getBuffer());
+  if (Tar)
+    Tar->append(relativeToRoot(Path), MBRef.getBuffer());
 
   return MBRef;
 }
@@ -221,9 +222,6 @@ static void checkOptions(opt::InputArgList &Args) {
   // table which is a relatively new feature.
   if (Config->EMachine == EM_MIPS && Config->GnuHash)
     error("the .gnu.hash section is not compatible with the MIPS target.");
-
-  if (Config->EMachine == EM_AMDGPU && !Config->Entry.empty())
-    error("-e option is not valid for AMDGPU.");
 
   if (Config->Pie && Config->Shared)
     error("-shared and -pie may not be used together");
@@ -286,33 +284,12 @@ static uint64_t getZOptionValue(opt::InputArgList &Args, StringRef Key,
   return Default;
 }
 
-// Parse -color-diagnostics={auto,always,never} or -no-color-diagnostics.
-static bool getColorDiagnostics(opt::InputArgList &Args) {
-  bool Default = (ErrorOS == &errs() && Process::StandardErrHasColors());
-
-  auto *Arg = Args.getLastArg(OPT_color_diagnostics, OPT_no_color_diagnostics);
-  if (!Arg)
-    return Default;
-  if (Arg->getOption().getID() == OPT_no_color_diagnostics)
-    return false;
-
-  StringRef S = Arg->getValue();
-  if (S == "auto")
-    return Default;
-  if (S == "always")
-    return true;
-  if (S != "never")
-    error("unknown -color-diagnostics value: " + S);
-  return false;
-}
-
 void LinkerDriver::main(ArrayRef<const char *> ArgsArr, bool CanExitEarly) {
   ELFOptTable Parser;
   opt::InputArgList Args = Parser.parse(ArgsArr.slice(1));
 
-  // Read some flags early because error() depends on them.
+  // Interpret this flag early because error() depends on them.
   Config->ErrorLimit = getInteger(Args, OPT_error_limit, 20);
-  Config->ColorDiagnostics = getColorDiagnostics(Args);
 
   // Handle -help
   if (Args.hasArg(OPT_help)) {
@@ -333,14 +310,16 @@ void LinkerDriver::main(ArrayRef<const char *> ArgsArr, bool CanExitEarly) {
   if (const char *Path = getReproduceOption(Args)) {
     // Note that --reproduce is a debug option so you can ignore it
     // if you are trying to understand the whole picture of the code.
-    ErrorOr<CpioFile *> F = CpioFile::create(Path);
-    if (F) {
-      Cpio.reset(*F);
-      Cpio->append("response.txt", createResponseFile(Args));
-      Cpio->append("version.txt", getLLDVersion() + "\n");
-    } else
-      error(F.getError(),
-            Twine("--reproduce: failed to open ") + Path + ".cpio");
+    Expected<std::unique_ptr<TarWriter>> ErrOrWriter =
+        TarWriter::create(Path, path::stem(Path));
+    if (ErrOrWriter) {
+      Tar = std::move(*ErrOrWriter);
+      Tar->append("response.txt", createResponseFile(Args));
+      Tar->append("version.txt", getLLDVersion() + "\n");
+    } else {
+      error(Twine("--reproduce: failed to open ") + Path + ": " +
+            toString(ErrOrWriter.takeError()));
+    }
   }
 
   readConfigs(Args);
@@ -447,7 +426,7 @@ static uint64_t parseSectionAddress(StringRef S, opt::Arg *Arg) {
   if (S.startswith("0x"))
     S = S.drop_front(2);
   if (S.getAsInteger(16, VA))
-    error("invalid argument: " + stringize(Arg));
+    error("invalid argument: " + toString(Arg));
   return VA;
 }
 
@@ -480,16 +459,17 @@ static SortSectionPolicy getSortKind(opt::InputArgList &Args) {
   return SortSectionPolicy::Default;
 }
 
-// Parse the --symbol-ordering-file argument. File has form:
-// symbolName1
-// [...]
-// symbolNameN
-static void parseSymbolOrderingList(MemoryBufferRef MB) {
-  unsigned I = 0;
+static std::vector<StringRef> getLines(MemoryBufferRef MB) {
   SmallVector<StringRef, 0> Arr;
   MB.getBuffer().split(Arr, '\n');
-  for (StringRef S : Arr)
-    Config->SymbolOrderingFile.insert({CachedHashStringRef(S.trim()), I++});
+
+  std::vector<StringRef> Ret;
+  for (StringRef S : Arr) {
+    S = S.trim();
+    if (!S.empty())
+      Ret.push_back(S);
+  }
+  return Ret;
 }
 
 // Initializes Config members by the command line options.
@@ -632,14 +612,33 @@ void LinkerDriver::readConfigs(opt::InputArgList &Args) {
 
   if (auto *Arg = Args.getLastArg(OPT_dynamic_list))
     if (Optional<MemoryBufferRef> Buffer = readFile(Arg->getValue()))
-      parseDynamicList(*Buffer);
+      readDynamicList(*Buffer);
 
   if (auto *Arg = Args.getLastArg(OPT_symbol_ordering_file))
     if (Optional<MemoryBufferRef> Buffer = readFile(Arg->getValue()))
-      parseSymbolOrderingList(*Buffer);
+      Config->SymbolOrderingFile = getLines(*Buffer);
+
+  // If --retain-symbol-file is used, we'll retail only the symbols listed in
+  // the file and discard all others.
+  if (auto *Arg = Args.getLastArg(OPT_retain_symbols_file)) {
+    Config->Discard = DiscardPolicy::RetainFile;
+    if (Optional<MemoryBufferRef> Buffer = readFile(Arg->getValue()))
+      for (StringRef S : getLines(*Buffer))
+        Config->RetainSymbolsFile.insert(S);
+  }
 
   for (auto *Arg : Args.filtered(OPT_export_dynamic_symbol))
-    Config->DynamicList.push_back(Arg->getValue());
+    Config->VersionScriptGlobals.push_back(
+        {Arg->getValue(), /*IsExternCpp*/ false, /*HasWildcard*/ false});
+
+  // Dynamic lists are a simplified linker script that doesn't need the
+  // "global:" and implicitly ends with a "local:*". Set the variables needed to
+  // simulate that.
+  if (Args.hasArg(OPT_dynamic_list) || Args.hasArg(OPT_export_dynamic_symbol)) {
+    Config->ExportDynamic = true;
+    if (!Config->Shared)
+      Config->DefaultSymbolVersion = VER_NDX_LOCAL;
+  }
 
   if (auto *Arg = Args.getLastArg(OPT_version_script))
     if (Optional<MemoryBufferRef> Buffer = readFile(Arg->getValue()))
@@ -722,6 +721,16 @@ void LinkerDriver::inferMachineType() {
   error("target emulation unknown: -m or at least one .o file required");
 }
 
+// Parse -z max-page-size=<value>. The default value is defined by
+// each target.
+static uint64_t getMaxPageSize(opt::InputArgList &Args) {
+  uint64_t Val =
+      getZOptionValue(Args, "max-page-size", Target->DefaultMaxPageSize);
+  if (!isPowerOf2_64(Val))
+    error("max-page-size: value isn't a power of 2");
+  return Val;
+}
+
 // Parses -image-base option.
 static uint64_t getImageBase(opt::InputArgList &Args) {
   // Use default if no -image-base option is given.
@@ -737,7 +746,7 @@ static uint64_t getImageBase(opt::InputArgList &Args) {
     error("-image-base: number expected, but got " + S);
     return 0;
   }
-  if ((V % Target->MaxPageSize) != 0)
+  if ((V % Config->MaxPageSize) != 0)
     warn("-image-base: address isn't multiple of page size: " + S);
   return V;
 }
@@ -747,63 +756,49 @@ static uint64_t getImageBase(opt::InputArgList &Args) {
 template <class ELFT> void LinkerDriver::link(opt::InputArgList &Args) {
   SymbolTable<ELFT> Symtab;
   elf::Symtab<ELFT>::X = &Symtab;
-
-  std::unique_ptr<TargetInfo> TI(createTarget());
-  Target = TI.get();
-  LinkerScript<ELFT> LS;
-  ScriptBase = Script<ELFT>::X = &LS;
+  Target = createTarget();
+  ScriptBase = Script<ELFT>::X = make<LinkerScript<ELFT>>();
 
   Config->Rela =
       ELFT::Is64Bits || Config->EMachine == EM_X86_64 || Config->MipsN32Abi;
   Config->Mips64EL =
       (Config->EMachine == EM_MIPS && Config->EKind == ELF64LEKind);
+  Config->MaxPageSize = getMaxPageSize(Args);
   Config->ImageBase = getImageBase(Args);
 
   // Default output filename is "a.out" by the Unix tradition.
   if (Config->OutputFile.empty())
     Config->OutputFile = "a.out";
 
+  // Use default entry point name if no name was given via the command
+  // line nor linker scripts. For some reason, MIPS entry point name is
+  // different from others.
+  Config->WarnMissingEntry =
+      (!Config->Entry.empty() || (!Config->Shared && !Config->Relocatable));
+  if (Config->Entry.empty() && !Config->Relocatable)
+    Config->Entry = (Config->EMachine == EM_MIPS) ? "__start" : "_start";
+
   // Handle --trace-symbol.
   for (auto *Arg : Args.filtered(OPT_trace_symbol))
     Symtab.trace(Arg->getValue());
 
-  // Initialize Config->MaxPageSize. The default value is defined by
-  // the target, but it can be overriden using the option.
-  Config->MaxPageSize =
-      getZOptionValue(Args, "max-page-size", Target->MaxPageSize);
-  if (!isPowerOf2_64(Config->MaxPageSize))
-    error("max-page-size: value isn't a power of 2");
-
-  // Add all files to the symbol table. After this, the symbol table
-  // contains all known names except a few linker-synthesized symbols.
+  // Add all files to the symbol table. This will add almost all
+  // symbols that we need to the symbol table.
   for (InputFile *F : Files)
     Symtab.addFile(F);
 
-  // Add the start symbol.
-  // It initializes either Config->Entry or Config->EntryAddr.
-  // Note that AMDGPU binaries have no entries.
-  if (!Config->Entry.empty()) {
-    // It is either "-e <addr>" or "-e <symbol>".
-    if (!Config->Entry.getAsInteger(0, Config->EntryAddr))
-      Config->Entry = "";
-  } else if (!Config->Shared && !Config->Relocatable &&
-             Config->EMachine != EM_AMDGPU) {
-    // -e was not specified. Use the default start symbol name
-    // if it is resolvable.
-    Config->Entry = (Config->EMachine == EM_MIPS) ? "__start" : "_start";
-  }
-
-  // If an object file defining the entry symbol is in an archive file,
-  // extract the file now.
+  // If an entry symbol is in a static archive, pull out that file now
+  // to complete the symbol table. After this, no new names except a
+  // few linker-synthesized ones will be added to the symbol table.
   if (Symtab.find(Config->Entry))
     Symtab.addUndefined(Config->Entry);
 
+  // Return if there were name resolution errors.
   if (ErrorCount)
-    return; // There were duplicate symbols or incompatible files
+    return;
 
   Symtab.scanUndefinedFlags();
   Symtab.scanShlibUndefined();
-  Symtab.scanDynamicList();
   Symtab.scanVersionScript();
 
   Symtab.addCombinedLTOObject();
@@ -836,7 +831,7 @@ template <class ELFT> void LinkerDriver::link(opt::InputArgList &Args) {
           [](InputSectionBase<ELFT> *S) {
             if (!S->Live)
               return;
-            if (S->Compressed)
+            if (S->isCompressed())
               S->uncompress();
             if (auto *MS = dyn_cast<MergeInputSection<ELFT>>(S))
               MS->splitIntoPieces();

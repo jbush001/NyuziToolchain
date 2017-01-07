@@ -70,18 +70,8 @@ using namespace lldb;
 using namespace lldb_private;
 using namespace std::chrono;
 
-// A temporary function to convert between old representations of timeouts (0
-// means infinite wait) and new Timeout class (0 means "poll").
-// TODO(labath): Fix up all callers and remove this.
-static Timeout<std::micro> ConvertTimeout(std::chrono::microseconds t) {
-  if (t == std::chrono::microseconds(0))
-    return llvm::None;
-  return t;
-}
-
 // Comment out line below to disable memory caching, overriding the process
-// setting
-// target.process.disable-memory-cache
+// setting target.process.disable-memory-cache
 #define ENABLE_MEMORY_CACHING
 
 #ifdef ENABLE_MEMORY_CACHING
@@ -899,6 +889,7 @@ void Process::Finalize() {
   m_public_run_lock.SetStopped();
   m_private_run_lock.TrySetRunning(); // This will do nothing if already locked
   m_private_run_lock.SetStopped();
+  m_structured_data_plugin_map.clear();
   m_finalize_called = true;
 }
 
@@ -4190,6 +4181,13 @@ void Process::ProcessEventData::DoOnRemoval(Event *event_ptr) {
   process_sp->SetPublicState(
       m_state, Process::ProcessEventData::GetRestartedFromEvent(event_ptr));
 
+  if (m_state == eStateStopped && !m_restarted) {
+    // Let process subclasses know we are about to do a public stop and
+    // do anything they might need to in order to speed up register and
+    // memory accesses.
+    process_sp->WillPublicStop();
+  }
+
   // If this is a halt event, even if the halt stopped with some reason other
   // than a plain interrupt (e.g. we had
   // already stopped for a breakpoint when the halt request came through) don't
@@ -4200,11 +4198,6 @@ void Process::ProcessEventData::DoOnRemoval(Event *event_ptr) {
 
   // If we're stopped and haven't restarted, then do the StopInfo actions here:
   if (m_state == eStateStopped && !m_restarted) {
-    // Let process subclasses know we are about to do a public stop and
-    // do anything they might need to in order to speed up register and
-    // memory accesses.
-    process_sp->WillPublicStop();
-
     ThreadList &curr_thread_list = process_sp->GetThreadList();
     uint32_t num_threads = curr_thread_list.GetSize();
     uint32_t idx;
@@ -4805,20 +4798,19 @@ GetOneThreadExpressionTimeout(const EvaluateExpressionOptions &options) {
   const milliseconds default_one_thread_timeout(250);
 
   // If the overall wait is forever, then we don't need to worry about it.
-  if (options.GetTimeoutUsec() == 0) {
-    if (options.GetOneThreadTimeoutUsec() != 0)
-      return microseconds(options.GetOneThreadTimeoutUsec());
-    return default_one_thread_timeout;
+  if (!options.GetTimeout()) {
+    return options.GetOneThreadTimeout() ? *options.GetOneThreadTimeout()
+                                         : default_one_thread_timeout;
   }
 
   // If the one thread timeout is set, use it.
-  if (options.GetOneThreadTimeoutUsec() != 0)
-    return microseconds(options.GetOneThreadTimeoutUsec());
+  if (options.GetOneThreadTimeout())
+    return *options.GetOneThreadTimeout();
 
   // Otherwise use half the total timeout, bounded by the
   // default_one_thread_timeout.
   return std::min<microseconds>(default_one_thread_timeout,
-                                microseconds(options.GetTimeoutUsec()) / 2);
+                                *options.GetTimeout() / 2);
 }
 
 static Timeout<std::micro>
@@ -4827,16 +4819,15 @@ GetExpressionTimeout(const EvaluateExpressionOptions &options,
   // If we are going to run all threads the whole time, or if we are only
   // going to run one thread, we can just return the overall timeout.
   if (!options.GetStopOthers() || !options.GetTryAllThreads())
-    return ConvertTimeout(microseconds(options.GetTimeoutUsec()));
+    return options.GetTimeout();
 
   if (before_first_timeout)
     return GetOneThreadExpressionTimeout(options);
 
-  if (options.GetTimeoutUsec() == 0)
+  if (!options.GetTimeout())
     return llvm::None;
   else
-    return microseconds(options.GetTimeoutUsec()) -
-           GetOneThreadExpressionTimeout(options);
+    return *options.GetTimeout() - GetOneThreadExpressionTimeout(options);
 }
 
 ExpressionResults
@@ -4921,8 +4912,8 @@ Process::RunThreadPlan(ExecutionContext &exe_ctx,
 
   // Make sure the timeout values make sense. The one thread timeout needs to be
   // smaller than the overall timeout.
-  if (options.GetOneThreadTimeoutUsec() != 0 && options.GetTimeoutUsec() != 0 &&
-      options.GetTimeoutUsec() < options.GetOneThreadTimeoutUsec()) {
+  if (options.GetOneThreadTimeout() && options.GetTimeout() &&
+      *options.GetTimeout() < *options.GetOneThreadTimeout()) {
     diagnostic_manager.PutString(eDiagnosticSeverityError,
                                  "RunThreadPlan called with one thread "
                                  "timeout greater than total timeout");

@@ -46,6 +46,7 @@ extern "C" void LLVMInitializeX86Target() {
   initializeGlobalISel(PR);
   initializeWinEHStatePassPass(PR);
   initializeFixupBWInstPassPass(PR);
+  initializeEvexToVexInstPassPass(PR);
 }
 
 static std::unique_ptr<TargetLoweringObjectFile> createTLOF(const Triple &TT) {
@@ -190,7 +191,7 @@ struct X86GISelActualAccessor : public GISelAccessor {
     //TODO: Implement
     return nullptr;
   }
-  const class LegalizerInfo *getLegalizerInfo() const override {
+  const LegalizerInfo *getLegalizerInfo() const override {
     //TODO: Implement
     return nullptr;
   }
@@ -399,5 +400,6 @@ void X86PassConfig::addPreEmitPass() {
     addPass(createX86FixupBWInsts());
     addPass(createX86PadShortFunctions());
     addPass(createX86FixupLEAs());
+    addPass(createX86EvexToVexInsts());
   }
 }

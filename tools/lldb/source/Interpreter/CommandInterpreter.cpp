@@ -72,6 +72,7 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/Support/Path.h"
+#include "llvm/Support/PrettyStackTrace.h"
 
 using namespace lldb;
 using namespace lldb_private;
@@ -1418,7 +1419,7 @@ Error CommandInterpreter::PreprocessCommand(std::string &command) {
           options.SetIgnoreBreakpoints(true);
           options.SetKeepInMemory(false);
           options.SetTryAllThreads(true);
-          options.SetTimeoutUsec(0);
+          options.SetTimeout(llvm::None);
 
           ExpressionResults expr_result = target->EvaluateExpression(
               expr_str.c_str(), exe_ctx.GetFramePtr(), expr_result_valobj_sp,
@@ -1526,13 +1527,8 @@ bool CommandInterpreter::HandleCommand(const char *command_line,
   std::string original_command_string(command_line);
 
   Log *log(lldb_private::GetLogIfAllCategoriesSet(LIBLLDB_LOG_COMMANDS));
-  Host::SetCrashDescriptionWithFormat("HandleCommand(command = \"%s\")",
-                                      command_line);
-
-  // Make a scoped cleanup object that will clear the crash description string
-  // on exit of this function.
-  lldb_utility::CleanUp<const char *> crash_description_cleanup(
-      nullptr, Host::SetCrashDescription);
+  llvm::PrettyStackTraceFormat stack_trace("HandleCommand(command = \"%s\")",
+                                   command_line);
 
   if (log)
     log->Printf("Processing command: %s", command_line);
@@ -2477,15 +2473,14 @@ void CommandInterpreter::HandleCommandsFromFile(
 }
 
 ScriptInterpreter *CommandInterpreter::GetScriptInterpreter(bool can_create) {
-  if (m_script_interpreter_sp)
-    return m_script_interpreter_sp.get();
-
-  if (!can_create)
-    return nullptr;
-
-  lldb::ScriptLanguage script_lang = GetDebugger().GetScriptLanguage();
-  m_script_interpreter_sp =
-      PluginManager::GetScriptInterpreterForLanguage(script_lang, *this);
+  std::lock_guard<std::mutex> locker(m_script_interpreter_mutex);
+  if (!m_script_interpreter_sp) {
+    if (!can_create)
+      return nullptr;
+    lldb::ScriptLanguage script_lang = GetDebugger().GetScriptLanguage();
+    m_script_interpreter_sp =
+        PluginManager::GetScriptInterpreterForLanguage(script_lang, *this);
+  }
   return m_script_interpreter_sp.get();
 }
 

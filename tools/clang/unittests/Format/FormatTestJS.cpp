@@ -377,6 +377,16 @@ TEST_F(FormatTestJS, AmbientDeclarations) {
       "declare function\n"
       "x();",  // TODO(martinprobst): should ideally be indented.
       NineCols);
+  verifyFormat("declare function foo();\n"
+               "let x = 1;\n");
+  verifyFormat("declare function foo(): string;\n"
+               "let x = 1;\n");
+  verifyFormat("declare function foo(): {x: number};\n"
+               "let x = 1;\n");
+  verifyFormat("declare class X {}\n"
+               "let x = 1;\n");
+  verifyFormat("declare interface Y {}\n"
+               "let x = 1;\n");
   verifyFormat(
       "declare enum X {\n"
       "}",
@@ -531,8 +541,8 @@ TEST_F(FormatTestJS, FunctionLiterals) {
                "      foo();\n"
                "      bar();\n"
                "    },\n"
-               "    this, arg1IsReallyLongAndNeeedsLineBreaks,\n"
-               "    arg3IsReallyLongAndNeeedsLineBreaks);");
+               "    this, arg1IsReallyLongAndNeedsLineBreaks,\n"
+               "    arg3IsReallyLongAndNeedsLineBreaks);");
   verifyFormat("var closure = goog.bind(function() {  // comment\n"
                "  foo();\n"
                "  bar();\n"

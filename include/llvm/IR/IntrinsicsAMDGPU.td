@@ -104,6 +104,13 @@ def int_amdgcn_dispatch_id :
 // Instruction Intrinsics
 //===----------------------------------------------------------------------===//
 
+// The first parameter is s_sendmsg immediate (i16),
+// the second one is copied to m0
+def int_amdgcn_s_sendmsg : GCCBuiltin<"__builtin_amdgcn_s_sendmsg">,
+  Intrinsic <[], [llvm_i32_ty, llvm_i32_ty], []>;
+def int_amdgcn_s_sendmsghalt : GCCBuiltin<"__builtin_amdgcn_s_sendmsghalt">,
+  Intrinsic <[], [llvm_i32_ty, llvm_i32_ty], []>;
+
 def int_amdgcn_s_barrier : GCCBuiltin<"__builtin_amdgcn_s_barrier">,
   Intrinsic<[], [], [IntrConvergent]>;
 
@@ -474,6 +481,14 @@ def int_amdgcn_s_decperflevel :
 def int_amdgcn_s_getreg :
   GCCBuiltin<"__builtin_amdgcn_s_getreg">,
   Intrinsic<[llvm_i32_ty], [llvm_i32_ty], [IntrReadMem]>;
+
+// __builtin_amdgcn_interp_mov <param>, <attr_chan>, <attr>, <m0>
+// param values: 0 = P10, 1 = P20, 2 = P0
+def int_amdgcn_interp_mov :
+  GCCBuiltin<"__builtin_amdgcn_interp_mov">,
+  Intrinsic<[llvm_float_ty],
+            [llvm_i32_ty, llvm_i32_ty, llvm_i32_ty, llvm_i32_ty],
+            [IntrNoMem]>;
 
 // __builtin_amdgcn_interp_p1 <i>, <attr_chan>, <attr>, <m0>
 def int_amdgcn_interp_p1 :

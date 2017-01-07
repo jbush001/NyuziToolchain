@@ -73,9 +73,22 @@ if(CMAKE_HOST_APPLE AND APPLE)
   if(CMAKE_LIBTOOL)
     set(CMAKE_LIBTOOL ${CMAKE_LIBTOOL} CACHE PATH "libtool executable")
     message(STATUS "Found libtool - ${CMAKE_LIBTOOL}")
+
+    execute_process(COMMAND ${CMAKE_LIBTOOL} -V
+      OUTPUT_VARIABLE LIBTOOL_V_OUTPUT
+      OUTPUT_STRIP_TRAILING_WHITESPACE)
+    if("${LIBTOOL_V_OUTPUT}" MATCHES ".*cctools-([0-9.]+).*")
+      string(REGEX REPLACE ".*cctools-([0-9.]+).*" "\\1" LIBTOOL_VERSION
+        ${LIBTOOL_V_OUTPUT})
+      if(NOT LIBTOOL_VERSION VERSION_LESS "862")
+        set(LIBTOOL_NO_WARNING_FLAG "-no_warning_for_no_symbols")
+      endif()
+    endif()
+    
     foreach(lang ${languages})
       set(CMAKE_${lang}_CREATE_STATIC_LIBRARY
-        "${CMAKE_LIBTOOL} -static -o <TARGET> <LINK_FLAGS> <OBJECTS> ")
+        "${CMAKE_LIBTOOL} -static ${LIBTOOL_NO_WARNING_FLAG} -o <TARGET> \
+        <LINK_FLAGS> <OBJECTS> ")
     endforeach()
   endif()
 
@@ -400,6 +413,9 @@ option(LLVM_ENABLE_EXPENSIVE_CHECKS "Enable expensive checks" OFF)
 
 set(LLVM_ABI_BREAKING_CHECKS "WITH_ASSERTS" CACHE STRING
   "Enable abi-breaking checks.  Can be WITH_ASSERTS, FORCE_ON or FORCE_OFF.")
+
+option(LLVM_DISABLE_ABI_BREAKING_CHECKS_ENFORCING
+  "Disable abi-breaking checks mismatch detection at link-tim." OFF)
 
 option(LLVM_FORCE_USE_OLD_HOST_TOOLCHAIN
        "Set to ON to force using an old, unsupported host toolchain." OFF)
@@ -862,7 +878,7 @@ if( LLVM_INCLUDE_TESTS )
   endif()
   add_subdirectory(test)
   add_subdirectory(unittests)
-  if (MSVC)
+  if (WIN32)
     # This utility is used to prevent crashing tests from calling Dr. Watson on
     # Windows.
     add_subdirectory(utils/KillTheDoctor)

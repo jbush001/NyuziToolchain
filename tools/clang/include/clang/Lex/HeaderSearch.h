@@ -147,7 +147,7 @@ class HeaderSearch {
   };
 
   /// \brief Header-search options used to initialize this header search.
-  IntrusiveRefCntPtr<HeaderSearchOptions> HSOpts;
+  std::shared_ptr<HeaderSearchOptions> HSOpts;
 
   DiagnosticsEngine &Diags;
   FileManager &FileMgr;
@@ -248,7 +248,7 @@ class HeaderSearch {
   friend class DirectoryLookup;
   
 public:
-  HeaderSearch(IntrusiveRefCntPtr<HeaderSearchOptions> HSOpts,
+  HeaderSearch(std::shared_ptr<HeaderSearchOptions> HSOpts,
                SourceManager &SourceMgr, DiagnosticsEngine &Diags,
                const LangOptions &LangOpts, const TargetInfo *Target);
   ~HeaderSearch();
@@ -464,6 +464,9 @@ public:
   /// FileEntry, uniquing them through the 'HeaderMaps' datastructure.
   const HeaderMap *CreateHeaderMap(const FileEntry *FE);
 
+  /// \brief Get filenames for all registered header maps.
+  void getHeaderMapFileNames(SmallVectorImpl<std::string> &Names) const;
+
   /// \brief Retrieve the name of the module file that should be used to 
   /// load the given module.
   ///
@@ -544,6 +547,19 @@ public:
   void loadTopLevelSystemModules();
 
 private:
+
+  /// \brief Lookup a module with the given module name and search-name.
+  ///
+  /// \param ModuleName The name of the module we're looking for.
+  ///
+  /// \param SearchName The "search-name" to derive filesystem paths from
+  /// when looking for the module map; this is usually equal to ModuleName,
+  /// but for compatibility with some buggy frameworks, additional attempts
+  /// may be made to find the module under a related-but-different search-name.
+  ///
+  /// \returns The module named ModuleName.
+  Module *lookupModule(StringRef ModuleName, StringRef SearchName);
+
   /// \brief Retrieve a module with the given name, which may be part of the
   /// given framework.
   ///

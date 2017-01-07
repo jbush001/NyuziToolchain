@@ -83,6 +83,7 @@ namespace clang {
     ICK_TransparentUnionConversion, ///< Transparent Union Conversions
     ICK_Writeback_Conversion,  ///< Objective-C ARC writeback conversion
     ICK_Zero_Event_Conversion, ///< Zero constant to event (OpenCL1.2 6.12.10)
+    ICK_Zero_Queue_Conversion, ///< Zero constant to queue
     ICK_C_Only_Conversion,     ///< Conversions allowed in C, but not C++
     ICK_Incompatible_Pointer_Conversion, ///< C-only conversion between pointers
                                          ///  with incompatible types
@@ -121,7 +122,11 @@ namespace clang {
 
     /// A narrowing conversion, because a non-constant-expression variable might
     /// have got narrowed.
-    NK_Variable_Narrowing
+    NK_Variable_Narrowing,
+
+    /// Cannot tell whether this is a narrowing conversion because the
+    /// expression is value-dependent.
+    NK_Dependent_Narrowing,
   };
 
   /// StandardConversionSequence - represents a standard conversion
@@ -592,7 +597,10 @@ namespace clang {
     ovl_fail_enable_if,
 
     /// This candidate was not viable because its address could not be taken.
-    ovl_fail_addr_not_available
+    ovl_fail_addr_not_available,
+
+    /// This candidate was not viable because its OpenCL extension is disabled.
+    ovl_fail_ext_disabled,
   };
 
   /// OverloadCandidate - A single candidate in an overload set (C++ 13.3).

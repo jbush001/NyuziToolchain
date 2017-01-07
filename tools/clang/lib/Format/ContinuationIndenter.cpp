@@ -460,7 +460,7 @@ unsigned ContinuationIndenter::addTokenOnNewLine(LineState &State,
   Penalty += State.NextToken->SplitPenalty;
 
   // Breaking before the first "<<" is generally not desirable if the LHS is
-  // short. Also always add the penalty if the LHS is split over mutliple lines
+  // short. Also always add the penalty if the LHS is split over multiple lines
   // to avoid unnecessary line breaks that just work around this penalty.
   if (NextNonComment->is(tok::lessless) &&
       State.Stack.back().FirstLessLess == 0 &&
@@ -560,6 +560,7 @@ unsigned ContinuationIndenter::addTokenOnNewLine(LineState &State,
   // and we need to avoid bin packing there.
   bool NestedBlockSpecialCase =
       Style.Language != FormatStyle::LK_Cpp &&
+      Style.Language != FormatStyle::LK_ObjC &&
       Current.is(tok::r_brace) && State.Stack.size() > 1 &&
       State.Stack[State.Stack.size() - 2].NestedBlockInlined;
   if (!NestedBlockSpecialCase)

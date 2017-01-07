@@ -221,7 +221,7 @@ bool ProcessKDP::GetHostArchitecture(ArchSpec &arch) {
   return false;
 }
 
-Error ProcessKDP::DoConnectRemote(Stream *strm, const char *remote_url) {
+Error ProcessKDP::DoConnectRemote(Stream *strm, llvm::StringRef remote_url) {
   Error error;
 
   // Don't let any JIT happen when doing KDP as we can't allocate
@@ -229,8 +229,8 @@ Error ProcessKDP::DoConnectRemote(Stream *strm, const char *remote_url) {
   // already be handling exceptions
   SetCanJIT(false);
 
-  if (remote_url == NULL || remote_url[0] == '\0') {
-    error.SetErrorStringWithFormat("invalid connection URL '%s'", remote_url);
+  if (remote_url.empty()) {
+    error.SetErrorStringWithFormat("empty connection URL");
     return error;
   }
 
@@ -360,7 +360,8 @@ Error ProcessKDP::DoConnectRemote(Stream *strm, const char *remote_url) {
     }
   } else {
     if (error.Success())
-      error.SetErrorStringWithFormat("failed to connect to '%s'", remote_url);
+      error.SetErrorStringWithFormat("failed to connect to '%s'",
+                                     remote_url.str().c_str());
   }
   if (error.Fail())
     m_comm.Disconnect();
@@ -479,8 +480,7 @@ Error ProcessKDP::DoResume() {
 
     default:
       // The only valid thread resume states are listed above
-      assert(!"invalid thread resume state");
-      break;
+      llvm_unreachable("invalid thread resume state");
     }
   }
 
