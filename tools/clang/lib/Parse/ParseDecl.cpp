@@ -177,8 +177,12 @@ void Parser::ParseGNUAttributes(ParsedAttributes &attrs,
       if (!ClassStack.empty() && !LateAttrs->parseSoon())
         getCurrentClass().LateParsedDeclarations.push_back(LA);
 
-      // consume everything up to and including the matching right parens
-      ConsumeAndStoreUntil(tok::r_paren, LA->Toks, true, false);
+      // Be sure ConsumeAndStoreUntil doesn't see the start l_paren, since it
+      // recursively consumes balanced parens.
+      LA->Toks.push_back(Tok);
+      ConsumeParen();
+      // Consume everything up to and including the matching right parens.
+      ConsumeAndStoreUntil(tok::r_paren, LA->Toks, /*StopAtSemi=*/true);
 
       Token Eof;
       Eof.startToken();
@@ -1506,7 +1510,6 @@ Parser::DeclGroupPtrTy Parser::ParseDeclaration(unsigned Context,
   ObjCDeclContextSwitch ObjCDC(*this);
 
   Decl *SingleDecl = nullptr;
-  Decl *OwnedType = nullptr;
   switch (Tok.getKind()) {
   case tok::kw_template:
   case tok::kw_export:
@@ -1526,9 +1529,8 @@ Parser::DeclGroupPtrTy Parser::ParseDeclaration(unsigned Context,
     ProhibitAttributes(attrs);
     return ParseNamespace(Context, DeclEnd);
   case tok::kw_using:
-    SingleDecl = ParseUsingDirectiveOrDeclaration(Context, ParsedTemplateInfo(),
-                                                  DeclEnd, attrs, &OwnedType);
-    break;
+    return ParseUsingDirectiveOrDeclaration(Context, ParsedTemplateInfo(),
+                                            DeclEnd, attrs);
   case tok::kw_static_assert:
   case tok::kw__Static_assert:
     ProhibitAttributes(attrs);
@@ -1539,9 +1541,8 @@ Parser::DeclGroupPtrTy Parser::ParseDeclaration(unsigned Context,
   }
 
   // This routine returns a DeclGroup, if the thing we parsed only contains a
-  // single decl, convert it now. Alias declarations can also declare a type;
-  // include that too if it is present.
-  return Actions.ConvertDeclToDeclGroup(SingleDecl, OwnedType);
+  // single decl, convert it now.
+  return Actions.ConvertDeclToDeclGroup(SingleDecl);
 }
 
 ///       simple-declaration: [C99 6.7: declaration] [C++ 7p1: dcl.dcl]
@@ -5264,6 +5265,14 @@ void Parser::ParseDirectDeclarator(Declarator &D) {
         // Change the declaration context for name lookup, until this function
         // is exited (and the declarator has been parsed).
         DeclScopeObj.EnterDeclaratorScope();
+      else if (getObjCDeclContext()) {
+        // Ensure that we don't interpret the next token as an identifier when
+        // dealing with declarations in an Objective-C container.
+        D.SetIdentifier(nullptr, Tok.getLocation());
+        D.setInvalidType(true);
+        ConsumeToken();
+        goto PastIdentifier;
+      }
     }
 
     // C++0x [dcl.fct]p14:
@@ -5819,6 +5828,21 @@ void Parser::ParseFunctionDeclarator(Declarator &D,
     }
   }
 
+  // Collect non-parameter declarations from the prototype if this is a function
+  // declaration. They will be moved into the scope of the function. Only do
+  // this in C and not C++, where the decls will continue to live in the
+  // surrounding context.
+  SmallVector<NamedDecl *, 0> DeclsInPrototype;
+  if (getCurScope()->getFlags() & Scope::FunctionDeclarationScope &&
+      !getLangOpts().CPlusPlus) {
+    for (Decl *D : getCurScope()->decls()) {
+      NamedDecl *ND = dyn_cast<NamedDecl>(D);
+      if (!ND || isa<ParmVarDecl>(ND))
+        continue;
+      DeclsInPrototype.push_back(ND);
+    }
+  }
+
   // Remember that we parsed a function type, and remember the attributes.
   D.AddTypeInfo(DeclaratorChunk::getFunction(HasProto,
                                              IsAmbiguous,
@@ -5838,6 +5862,7 @@ void Parser::ParseFunctionDeclarator(Declarator &D,
                                              NoexceptExpr.isUsable() ?
                                                NoexceptExpr.get() : nullptr,
                                              ExceptionSpecTokens,
+                                             DeclsInPrototype,
                                              StartLoc, LocalEndLoc, D,
                                              TrailingReturnType),
                 FnAttrs, EndLoc);

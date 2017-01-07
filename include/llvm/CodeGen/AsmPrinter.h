@@ -140,6 +140,9 @@ private:
   /// If the target supports dwarf debug info, this pointer is non-null.
   DwarfDebug *DD;
 
+  /// If the current module uses dwarf CFI annotations strictly for debugging.
+  bool isCFIMoveForDebugging;
+
 protected:
   explicit AsmPrinter(TargetMachine &TM, std::unique_ptr<MCStreamer> Streamer);
 
@@ -208,6 +211,8 @@ public:
     SledKind Kind;
     bool AlwaysInstrument;
     const class Function *Fn;
+
+    void emit(int, MCStreamer *, const MCSymbol *) const;
   };
 
   // All the sleds to be emitted.
@@ -215,6 +220,9 @@ public:
 
   // Helper function to record a given XRay sled.
   void recordSled(MCSymbol *Sled, const MachineInstr &MI, SledKind Kind);
+
+  /// Emit a table with all XRay instrumentation points.
+  void emitXRayTable();
 
   //===------------------------------------------------------------------===//
   // MachineFunctionPass Implementation.
@@ -256,6 +264,10 @@ public:
 
   enum CFIMoveType { CFI_M_None, CFI_M_EH, CFI_M_Debug };
   CFIMoveType needsCFIMoves();
+
+  /// Returns false if needsCFIMoves() == CFI_M_EH for any function
+  /// in the module.
+  bool needsOnlyDebugCFIMoves() const { return isCFIMoveForDebugging; }
 
   bool needsSEHMoves();
 
@@ -467,10 +479,6 @@ public:
 
   /// Get the value for DW_AT_APPLE_isa. Zero if no isa encoding specified.
   virtual unsigned getISAEncoding() { return 0; }
-
-  /// EmitDwarfRegOp - Emit a dwarf register operation.
-  virtual void EmitDwarfRegOp(ByteStreamer &BS,
-                              const MachineLocation &MLoc) const;
 
   //===------------------------------------------------------------------===//
   // Dwarf Lowering Routines

@@ -488,17 +488,17 @@ void MIPrinter::print(const MachineBasicBlock &MBB) {
   }
 
   // Print the live in registers.
-  const auto *TRI = MBB.getParent()->getSubtarget().getRegisterInfo();
-  assert(TRI && "Expected target register info");
-  if (!MBB.livein_empty()) {
+  const MachineRegisterInfo &MRI = MBB.getParent()->getRegInfo();
+  if (MRI.tracksLiveness() && !MBB.livein_empty()) {
+    const TargetRegisterInfo &TRI = *MRI.getTargetRegisterInfo();
     OS.indent(2) << "liveins: ";
     bool First = true;
     for (const auto &LI : MBB.liveins()) {
       if (!First)
         OS << ", ";
       First = false;
-      printReg(LI.PhysReg, OS, TRI);
-      if (LI.LaneMask != ~0u)
+      printReg(LI.PhysReg, OS, &TRI);
+      if (!LI.LaneMask.all())
         OS << ":0x" << PrintLaneMask(LI.LaneMask);
     }
     OS << "\n";
@@ -959,6 +959,9 @@ void MIPrinter::print(const MachineMemOperand &Op) {
       OS << "call-entry $";
       printLLVMNameWithoutPrefix(
           OS, cast<ExternalSymbolPseudoSourceValue>(PVal)->getSymbol());
+      break;
+    case PseudoSourceValue::TargetCustom:
+      llvm_unreachable("TargetCustom pseudo source values are not supported");
       break;
     }
   }

@@ -222,11 +222,15 @@ def S_MEMREALTIME   : SM_Time_Pseudo <"s_memrealtime", int_amdgcn_s_memrealtime>
 // Scalar Memory Patterns
 //===----------------------------------------------------------------------===//
 
+
 def smrd_load : PatFrag <(ops node:$ptr), (load node:$ptr), [{
   auto Ld = cast<LoadSDNode>(N);
   return Ld->getAlignment() >= 4  &&
-    Ld->getAddressSpace() == AMDGPUAS::CONSTANT_ADDRESS &&
-    static_cast<const SITargetLowering *>(getTargetLowering())->isMemOpUniform(N);
+    ((Ld->getAddressSpace() == AMDGPUAS::CONSTANT_ADDRESS &&
+    static_cast<const SITargetLowering *>(getTargetLowering())->isMemOpUniform(N)) ||
+    (Subtarget->getScalarizeGlobalBehavior() && Ld->getAddressSpace() == AMDGPUAS::GLOBAL_ADDRESS &&
+    static_cast<const SITargetLowering *>(getTargetLowering())->isMemOpUniform(N) &&
+    static_cast<const SITargetLowering *>(getTargetLowering())->isMemOpHasNoClobberedMemOperand(N)));
 }]>;
 
 def SMRDImm         : ComplexPattern<i64, 2, "SelectSMRDImm">;
@@ -394,16 +398,24 @@ multiclass SM_Real_Loads_vi<bits<8> op, string ps,
   }
 }
 
+class SMEM_Real_Store_vi <bits<8> op, SM_Pseudo ps> : SMEM_Real_vi <op, ps> {
+  // encoding
+  bits<7> sdata;
+
+  let sdst = ?;
+  let Inst{12-6}  = !if(ps.has_sdst, sdata{6-0}, ?);
+}
+
 multiclass SM_Real_Stores_vi<bits<8> op, string ps,
                             SM_Store_Pseudo immPs = !cast<SM_Store_Pseudo>(ps#_IMM),
                             SM_Store_Pseudo sgprPs = !cast<SM_Store_Pseudo>(ps#_SGPR)> {
   // FIXME: The operand name $offset is inconsistent with $soff used
   // in the pseudo
-  def _IMM_vi : SMEM_Real_vi <op, immPs> {
+  def _IMM_vi : SMEM_Real_Store_vi <op, immPs> {
     let InOperandList = (ins immPs.SrcClass:$sdata, immPs.BaseClass:$sbase, smrd_offset_20:$offset, GLC:$glc);
   }
 
-  def _SGPR_vi : SMEM_Real_vi <op, sgprPs> {
+  def _SGPR_vi : SMEM_Real_Store_vi <op, sgprPs> {
     let InOperandList = (ins sgprPs.SrcClass:$sdata, sgprPs.BaseClass:$sbase, SReg_32:$offset, GLC:$glc);
   }
 }
@@ -427,6 +439,7 @@ defm S_BUFFER_STORE_DWORD    : SM_Real_Stores_vi <0x18, "S_BUFFER_STORE_DWORD">;
 defm S_BUFFER_STORE_DWORDX2  : SM_Real_Stores_vi <0x19, "S_BUFFER_STORE_DWORDX2">;
 defm S_BUFFER_STORE_DWORDX4  : SM_Real_Stores_vi <0x1a, "S_BUFFER_STORE_DWORDX4">;
 
+// These instructions use same encoding
 def S_DCACHE_INV_vi         : SMEM_Real_vi <0x20, S_DCACHE_INV>;
 def S_DCACHE_WB_vi          : SMEM_Real_vi <0x21, S_DCACHE_WB>;
 def S_DCACHE_INV_VOL_vi     : SMEM_Real_vi <0x22, S_DCACHE_INV_VOL>;

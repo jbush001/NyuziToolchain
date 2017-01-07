@@ -514,7 +514,8 @@ struct AddressSanitizer : public FunctionPass {
   void instrumentAddress(Instruction *OrigIns, Instruction *InsertBefore,
                          Value *Addr, uint32_t TypeSize, bool IsWrite,
                          Value *SizeArgument, bool UseCalls, uint32_t Exp);
-  void instrumentUnusualSizeOrAlignment(Instruction *I, Value *Addr,
+  void instrumentUnusualSizeOrAlignment(Instruction *I,
+                                        Instruction *InsertBefore, Value *Addr,
                                         uint32_t TypeSize, bool IsWrite,
                                         Value *SizeArgument, bool UseCalls,
                                         uint32_t Exp);
@@ -1046,26 +1047,28 @@ Value *AddressSanitizer::isInterestingMemoryAccess(Instruction *I,
               F->getName().startswith("llvm.masked.store."))) {
       unsigned OpOffset = 0;
       if (F->getName().startswith("llvm.masked.store.")) {
+        if (!ClInstrumentWrites)
+          return nullptr;
         // Masked store has an initial operand for the value.
         OpOffset = 1;
         *IsWrite = true;
       } else {
+        if (!ClInstrumentReads)
+          return nullptr;
         *IsWrite = false;
       }
-      // Only instrument if the mask is constant for now.
-      if (isa<ConstantVector>(CI->getOperand(2 + OpOffset))) {
-        auto BasePtr = CI->getOperand(0 + OpOffset);
-        auto Ty = cast<PointerType>(BasePtr->getType())->getElementType();
-        *TypeSize = DL.getTypeStoreSizeInBits(Ty);
-        if (auto AlignmentConstant =
-                dyn_cast<ConstantInt>(CI->getOperand(1 + OpOffset)))
-          *Alignment = (unsigned)AlignmentConstant->getZExtValue();
-        else
-          *Alignment = 1; // No alignment guarantees. We probably got Undef
-        if (MaybeMask)
-          *MaybeMask = CI->getOperand(2 + OpOffset);
-        PtrOperand = BasePtr;
-      }
+
+      auto BasePtr = CI->getOperand(0 + OpOffset);
+      auto Ty = cast<PointerType>(BasePtr->getType())->getElementType();
+      *TypeSize = DL.getTypeStoreSizeInBits(Ty);
+      if (auto AlignmentConstant =
+              dyn_cast<ConstantInt>(CI->getOperand(1 + OpOffset)))
+        *Alignment = (unsigned)AlignmentConstant->getZExtValue();
+      else
+        *Alignment = 1; // No alignment guarantees. We probably got Undef
+      if (MaybeMask)
+        *MaybeMask = CI->getOperand(2 + OpOffset);
+      PtrOperand = BasePtr;
     }
   }
 
@@ -1126,24 +1129,25 @@ void AddressSanitizer::instrumentPointerComparisonOrSubtraction(
 }
 
 static void doInstrumentAddress(AddressSanitizer *Pass, Instruction *I,
-                                Value *Addr, unsigned Alignment,
-                                unsigned Granularity, uint32_t TypeSize,
-                                bool IsWrite, Value *SizeArgument,
-                                bool UseCalls, uint32_t Exp) {
+                                Instruction *InsertBefore, Value *Addr,
+                                unsigned Alignment, unsigned Granularity,
+                                uint32_t TypeSize, bool IsWrite,
+                                Value *SizeArgument, bool UseCalls,
+                                uint32_t Exp) {
   // Instrument a 1-, 2-, 4-, 8-, or 16- byte access with one check
   // if the data is properly aligned.
   if ((TypeSize == 8 || TypeSize == 16 || TypeSize == 32 || TypeSize == 64 ||
        TypeSize == 128) &&
       (Alignment >= Granularity || Alignment == 0 || Alignment >= TypeSize / 8))
-    return Pass->instrumentAddress(I, I, Addr, TypeSize, IsWrite, nullptr,
-                                   UseCalls, Exp);
-  Pass->instrumentUnusualSizeOrAlignment(I, Addr, TypeSize, IsWrite, nullptr,
-                                         UseCalls, Exp);
+    return Pass->instrumentAddress(I, InsertBefore, Addr, TypeSize, IsWrite,
+                                   nullptr, UseCalls, Exp);
+  Pass->instrumentUnusualSizeOrAlignment(I, InsertBefore, Addr, TypeSize,
+                                         IsWrite, nullptr, UseCalls, Exp);
 }
 
 static void instrumentMaskedLoadOrStore(AddressSanitizer *Pass,
                                         const DataLayout &DL, Type *IntptrTy,
-                                        ConstantVector *Mask, Instruction *I,
+                                        Value *Mask, Instruction *I,
                                         Value *Addr, unsigned Alignment,
                                         unsigned Granularity, uint32_t TypeSize,
                                         bool IsWrite, Value *SizeArgument,
@@ -1153,15 +1157,30 @@ static void instrumentMaskedLoadOrStore(AddressSanitizer *Pass,
   unsigned Num = VTy->getVectorNumElements();
   auto Zero = ConstantInt::get(IntptrTy, 0);
   for (unsigned Idx = 0; Idx < Num; ++Idx) {
-    // dyn_cast as we might get UndefValue
-    auto Masked = dyn_cast<ConstantInt>(Mask->getOperand(Idx));
-    if (Masked && Masked->isAllOnesValue()) {
+    Value *InstrumentedAddress = nullptr;
+    Instruction *InsertBefore = I;
+    if (auto *Vector = dyn_cast<ConstantVector>(Mask)) {
+      // dyn_cast as we might get UndefValue
+      if (auto *Masked = dyn_cast<ConstantInt>(Vector->getOperand(Idx))) {
+        if (Masked->isNullValue())
+          // Mask is constant false, so no instrumentation needed.
+          continue;
+        // If we have a true or undef value, fall through to doInstrumentAddress
+        // with InsertBefore == I
+      }
+    } else {
       IRBuilder<> IRB(I);
-      auto InstrumentedAddress =
-          IRB.CreateGEP(Addr, {Zero, ConstantInt::get(IntptrTy, Idx)});
-      doInstrumentAddress(Pass, I, InstrumentedAddress, Alignment, Granularity,
-                          ElemTypeSize, IsWrite, SizeArgument, UseCalls, Exp);
+      Value *MaskElem = IRB.CreateExtractElement(Mask, Idx);
+      TerminatorInst *ThenTerm = SplitBlockAndInsertIfThen(MaskElem, I, false);
+      InsertBefore = ThenTerm;
     }
+
+    IRBuilder<> IRB(InsertBefore);
+    InstrumentedAddress =
+        IRB.CreateGEP(Addr, {Zero, ConstantInt::get(IntptrTy, Idx)});
+    doInstrumentAddress(Pass, I, InsertBefore, InstrumentedAddress, Alignment,
+                        Granularity, ElemTypeSize, IsWrite, SizeArgument,
+                        UseCalls, Exp);
   }
 }
 
@@ -1216,12 +1235,11 @@ void AddressSanitizer::instrumentMop(ObjectSizeOffsetVisitor &ObjSizeVis,
 
   unsigned Granularity = 1 << Mapping.Scale;
   if (MaybeMask) {
-    auto Mask = cast<ConstantVector>(MaybeMask);
-    instrumentMaskedLoadOrStore(this, DL, IntptrTy, Mask, I, Addr, Alignment,
-                                Granularity, TypeSize, IsWrite, nullptr,
-                                UseCalls, Exp);
+    instrumentMaskedLoadOrStore(this, DL, IntptrTy, MaybeMask, I, Addr,
+                                Alignment, Granularity, TypeSize, IsWrite,
+                                nullptr, UseCalls, Exp);
   } else {
-    doInstrumentAddress(this, I, Addr, Alignment, Granularity, TypeSize,
+    doInstrumentAddress(this, I, I, Addr, Alignment, Granularity, TypeSize,
                         IsWrite, nullptr, UseCalls, Exp);
   }
 }
@@ -1338,9 +1356,9 @@ void AddressSanitizer::instrumentAddress(Instruction *OrigIns,
 // and the last bytes. We call __asan_report_*_n(addr, real_size) to be able
 // to report the actual access size.
 void AddressSanitizer::instrumentUnusualSizeOrAlignment(
-    Instruction *I, Value *Addr, uint32_t TypeSize, bool IsWrite,
-    Value *SizeArgument, bool UseCalls, uint32_t Exp) {
-  IRBuilder<> IRB(I);
+    Instruction *I, Instruction *InsertBefore, Value *Addr, uint32_t TypeSize,
+    bool IsWrite, Value *SizeArgument, bool UseCalls, uint32_t Exp) {
+  IRBuilder<> IRB(InsertBefore);
   Value *Size = ConstantInt::get(IntptrTy, TypeSize / 8);
   Value *AddrLong = IRB.CreatePointerCast(Addr, IntptrTy);
   if (UseCalls) {
@@ -1354,8 +1372,8 @@ void AddressSanitizer::instrumentUnusualSizeOrAlignment(
     Value *LastByte = IRB.CreateIntToPtr(
         IRB.CreateAdd(AddrLong, ConstantInt::get(IntptrTy, TypeSize / 8 - 1)),
         Addr->getType());
-    instrumentAddress(I, I, Addr, 8, IsWrite, Size, false, Exp);
-    instrumentAddress(I, I, LastByte, 8, IsWrite, Size, false, Exp);
+    instrumentAddress(I, InsertBefore, Addr, 8, IsWrite, Size, false, Exp);
+    instrumentAddress(I, InsertBefore, LastByte, 8, IsWrite, Size, false, Exp);
   }
 }
 
@@ -1651,7 +1669,7 @@ bool AddressSanitizerModule::InstrumentGlobals(IRBuilder<> &IRB, Module &M) {
 
     // Transfer the debug info.  The payload starts at offset zero so we can
     // copy the debug info over as is.
-    SmallVector<DIGlobalVariable *, 1> GVs;
+    SmallVector<DIGlobalVariableExpression *, 1> GVs;
     G->getDebugInfo(GVs);
     for (auto *GV : GVs)
       NewGlobal->addDebugInfo(GV);
@@ -1800,6 +1818,7 @@ bool AddressSanitizerModule::InstrumentGlobals(IRBuilder<> &IRB, Module &M) {
     RegisteredFlag = new GlobalVariable(
         M, IntptrTy, false, GlobalVariable::CommonLinkage,
         ConstantInt::get(IntptrTy, 0), kAsanGlobalsRegisteredFlagName);
+    RegisteredFlag->setVisibility(GlobalVariable::HiddenVisibility);
 
     // Update llvm.compiler.used, adding the new liveness globals. This is
     // needed so that during LTO these variables stay alive. The alternative
@@ -2062,11 +2081,20 @@ bool AddressSanitizer::runOnFunction(Function &F) {
     int NumInsnsPerBB = 0;
     for (auto &Inst : BB) {
       if (LooksLikeCodeInBug11395(&Inst)) return false;
+      Value *MaybeMask = nullptr;
       if (Value *Addr = isInterestingMemoryAccess(&Inst, &IsWrite, &TypeSize,
-                                                  &Alignment)) {
+                                                  &Alignment, &MaybeMask)) {
         if (ClOpt && ClOptSameTemp) {
-          if (!TempsToInstrument.insert(Addr).second)
-            continue;  // We've seen this temp in the current BB.
+          // If we have a mask, skip instrumentation if we've already
+          // instrumented the full object. But don't add to TempsToInstrument
+          // because we might get another load/store with a different mask.
+          if (MaybeMask) {
+            if (TempsToInstrument.count(Addr))
+              continue; // We've seen this (whole) temp in the current BB.
+          } else {
+            if (!TempsToInstrument.insert(Addr).second)
+              continue; // We've seen this temp in the current BB.
+          }
         }
       } else if (ClInvalidPointerPairs &&
                  isInterestingPointerComparisonOrSubtraction(&Inst)) {

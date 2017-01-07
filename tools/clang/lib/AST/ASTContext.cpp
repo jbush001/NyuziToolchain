@@ -704,8 +704,8 @@ static const LangAS::Map *getAddressSpaceMap(const TargetInfo &T,
     // language-specific address space.
     static const unsigned FakeAddrSpaceMap[] = {
       1, // opencl_global
-      2, // opencl_local
-      3, // opencl_constant
+      3, // opencl_local
+      2, // opencl_constant
       4, // opencl_generic
       5, // cuda_device
       6, // cuda_constant
@@ -1270,9 +1270,8 @@ void ASTContext::setClassScopeSpecializationPattern(FunctionDecl *FD,
 }
 
 NamedDecl *
-ASTContext::getInstantiatedFromUsingDecl(UsingDecl *UUD) {
-  llvm::DenseMap<UsingDecl *, NamedDecl *>::const_iterator Pos
-    = InstantiatedFromUsingDecl.find(UUD);
+ASTContext::getInstantiatedFromUsingDecl(NamedDecl *UUD) {
+  auto Pos = InstantiatedFromUsingDecl.find(UUD);
   if (Pos == InstantiatedFromUsingDecl.end())
     return nullptr;
 
@@ -1280,11 +1279,15 @@ ASTContext::getInstantiatedFromUsingDecl(UsingDecl *UUD) {
 }
 
 void
-ASTContext::setInstantiatedFromUsingDecl(UsingDecl *Inst, NamedDecl *Pattern) {
+ASTContext::setInstantiatedFromUsingDecl(NamedDecl *Inst, NamedDecl *Pattern) {
   assert((isa<UsingDecl>(Pattern) ||
           isa<UnresolvedUsingValueDecl>(Pattern) ||
           isa<UnresolvedUsingTypenameDecl>(Pattern)) && 
          "pattern decl is not a using decl");
+  assert((isa<UsingDecl>(Inst) ||
+          isa<UnresolvedUsingValueDecl>(Inst) ||
+          isa<UnresolvedUsingTypenameDecl>(Inst)) && 
+         "instantiation did not produce a using decl");
   assert(!InstantiatedFromUsingDecl[Inst] && "pattern already exists");
   InstantiatedFromUsingDecl[Inst] = Pattern;
 }
@@ -1455,7 +1458,9 @@ CharUnits ASTContext::getDeclAlign(const Decl *D, bool ForAlignof) const {
         T = getPointerType(RT->getPointeeType());
     }
     QualType BaseT = getBaseElementType(T);
-    if (!BaseT->isIncompleteType() && !T->isFunctionType()) {
+    if (T->isFunctionType())
+      Align = getTypeInfoImpl(T.getTypePtr()).Align;
+    else if (!BaseT->isIncompleteType()) {
       // Adjust alignments of declarations with array type by the
       // large-array alignment on the target.
       if (const ArrayType *arrayType = getAsArrayType(T)) {
@@ -2380,6 +2385,14 @@ static QualType getFunctionTypeWithExceptionSpec(
   return Context.getFunctionType(
       Proto->getReturnType(), Proto->getParamTypes(),
       Proto->getExtProtoInfo().withExceptionSpec(ESI));
+}
+
+bool ASTContext::hasSameFunctionTypeIgnoringExceptionSpec(QualType T,
+                                                          QualType U) {
+  return hasSameType(T, U) ||
+         (getLangOpts().CPlusPlus1z &&
+          hasSameType(getFunctionTypeWithExceptionSpec(*this, T, EST_None),
+                      getFunctionTypeWithExceptionSpec(*this, U, EST_None)));
 }
 
 void ASTContext::adjustExceptionSpec(
@@ -3859,6 +3872,44 @@ ASTContext::getDependentTemplateSpecializationType(
   Types.push_back(T);
   DependentTemplateSpecializationTypes.InsertNode(T, InsertPos);
   return QualType(T, 0);
+}
+
+void
+ASTContext::getInjectedTemplateArgs(const TemplateParameterList *Params,
+                                    SmallVectorImpl<TemplateArgument> &Args) {
+  Args.reserve(Args.size() + Params->size());
+
+  for (NamedDecl *Param : *Params) {
+    TemplateArgument Arg;
+    if (auto *TTP = dyn_cast<TemplateTypeParmDecl>(Param)) {
+      QualType ArgType = getTypeDeclType(TTP);
+      if (TTP->isParameterPack())
+        ArgType = getPackExpansionType(ArgType, None);
+
+      Arg = TemplateArgument(ArgType);
+    } else if (auto *NTTP = dyn_cast<NonTypeTemplateParmDecl>(Param)) {
+      Expr *E = new (*this) DeclRefExpr(
+          NTTP, /*enclosing*/false,
+          NTTP->getType().getNonLValueExprType(*this),
+          Expr::getValueKindForType(NTTP->getType()), NTTP->getLocation());
+
+      if (NTTP->isParameterPack())
+        E = new (*this) PackExpansionExpr(DependentTy, E, NTTP->getLocation(),
+                                          None);
+      Arg = TemplateArgument(E);
+    } else {
+      auto *TTP = cast<TemplateTemplateParmDecl>(Param);
+      if (TTP->isParameterPack())
+        Arg = TemplateArgument(TemplateName(TTP), Optional<unsigned>());
+      else
+        Arg = TemplateArgument(TemplateName(TTP));
+    }
+
+    if (Param->isTemplateParameterPack())
+      Arg = TemplateArgument::CreatePackCopy(*this, Arg);
+
+    Args.push_back(Arg);
+  }
 }
 
 QualType ASTContext::getPackExpansionType(QualType Pattern,
@@ -8718,8 +8769,8 @@ QualType ASTContext::GetBuiltinType(unsigned Id,
 
   bool Variadic = (TypeStr[0] == '.');
 
-  // We really shouldn't be making a no-proto type here, especially in C++.
-  if (ArgTypes.empty() && Variadic)
+  // We really shouldn't be making a no-proto type here.
+  if (ArgTypes.empty() && Variadic && !getLangOpts().CPlusPlus)
     return getFunctionNoProtoType(ResType, EI);
 
   FunctionProtoType::ExtProtoInfo EPI;
@@ -9424,6 +9475,16 @@ ASTContext::ObjCMethodsAreEqual(const ObjCMethodDecl *MethodDecl,
   }
   return (MethodDecl->isVariadic() == MethodImpl->isVariadic());
   
+}
+
+uint64_t ASTContext::getTargetNullPointerValue(QualType QT) const {
+  unsigned AS;
+  if (QT->getUnqualifiedDesugaredType()->isNullPtrType())
+    AS = 0;
+  else
+    AS = QT->getPointeeType().getAddressSpace();
+
+  return getTargetInfo().getNullPointerValue(AS);
 }
 
 // Explicitly instantiate this in case a Redeclarable<T> is used from a TU that

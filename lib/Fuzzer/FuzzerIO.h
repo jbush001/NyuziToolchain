@@ -8,6 +8,7 @@
 //===----------------------------------------------------------------------===//
 // IO interface.
 //===----------------------------------------------------------------------===//
+
 #ifndef LLVM_FUZZER_IO_H
 #define LLVM_FUZZER_IO_H
 
@@ -36,6 +37,9 @@ std::string DirPlusFile(const std::string &DirPath,
 // Returns the name of the dir, similar to the 'dirname' utility.
 std::string DirName(const std::string &FileName);
 
+// Returns path to a TmpDir.
+std::string TmpDir();
+
 void DupAndCloseStderr();
 
 void CloseStdout();
@@ -56,7 +60,8 @@ int CloseFile(int Fd);
 
 int DuplicateFile(int Fd);
 
-void DeleteFile(const std::string &Path);
+void RemoveFile(const std::string &Path);
 
 }  // namespace fuzzer
+
 #endif  // LLVM_FUZZER_IO_H

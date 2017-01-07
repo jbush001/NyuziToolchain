@@ -30,6 +30,7 @@ public:
   virtual uint32_t getDynRel(uint32_t Type) const { return Type; }
   virtual void writeGotPltHeader(uint8_t *Buf) const {}
   virtual void writeGotPlt(uint8_t *Buf, const SymbolBody &S) const {};
+  virtual void writeIgotPlt(uint8_t *Buf, const SymbolBody &S) const;
   virtual uint64_t getImplicitAddend(const uint8_t *Buf, uint32_t Type) const;
 
   // If lazy binding is supported, the first entry of the PLT has code
@@ -63,7 +64,7 @@ public:
 
   unsigned TlsGdRelaxSkip = 1;
   unsigned PageSize = 4096;
-  unsigned MaxPageSize = 4096;
+  unsigned DefaultMaxPageSize = 4096;
 
   // On FreeBSD x86_64 the first page cannot be mmaped.
   // On Linux that is controled by vm.mmap_min_addr. At least on some x86_64
@@ -103,12 +104,14 @@ public:
   virtual void relaxTlsLdToLe(uint8_t *Loc, uint32_t Type, uint64_t Val) const;
 };
 
-std::string toString(uint32_t RelType);
 uint64_t getPPC64TocBase();
+uint64_t getAArch64Page(uint64_t Expr);
 
 extern TargetInfo *Target;
 TargetInfo *createTarget();
 }
+
+std::string toString(uint32_t RelType);
 }
 
 #endif

@@ -108,15 +108,13 @@ set( CLANG_USED_LIBS
   )
 
 set(LLDB_SYSTEM_LIBS)
-if (NOT CMAKE_SYSTEM_NAME MATCHES "Windows" AND NOT __ANDROID_NDK__)
-  if (NOT LLDB_DISABLE_LIBEDIT)
-    list(APPEND LLDB_SYSTEM_LIBS edit)
-  endif()
-  if (NOT LLDB_DISABLE_CURSES)
-    list(APPEND LLDB_SYSTEM_LIBS ${CURSES_LIBRARIES})
-    if(LLVM_ENABLE_TERMINFO AND HAVE_TERMINFO)
-      list(APPEND LLDB_SYSTEM_LIBS ${TERMINFO_LIBS})
-    endif()
+if (NOT LLDB_DISABLE_LIBEDIT)
+  list(APPEND LLDB_SYSTEM_LIBS edit)
+endif()
+if (NOT LLDB_DISABLE_CURSES)
+  list(APPEND LLDB_SYSTEM_LIBS ${CURSES_LIBRARIES})
+  if(LLVM_ENABLE_TERMINFO AND HAVE_TERMINFO)
+    list(APPEND LLDB_SYSTEM_LIBS ${TERMINFO_LIBS})
   endif()
 endif()
 
@@ -167,7 +165,7 @@ set(LLVM_LINK_COMPONENTS
   target
   )
 
-add_lldb_executable(lldb-server INCLUDE_IN_FRAMEWORK
+add_lldb_tool(lldb-server INCLUDE_IN_FRAMEWORK
     Acceptor.cpp
     lldb-gdbserver.cpp
     lldb-platform.cpp
@@ -190,6 +188,3 @@ llvm_config(lldb-server ${LLVM_LINK_COMPONENTS})
 target_link_libraries(lldb-server ${LLDB_SYSTEM_LIBS})
 
 set_target_properties(lldb-server PROPERTIES VERSION ${LLDB_VERSION})
-
-install(TARGETS lldb-server
-  RUNTIME DESTINATION bin)

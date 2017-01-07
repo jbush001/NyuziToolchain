@@ -55,11 +55,10 @@ const unsigned RegisterBankInfo::InvalidMappingID = UINT_MAX - 1;
 RegisterBankInfo::RegisterBankInfo(RegisterBank **RegBanks,
                                    unsigned NumRegBanks)
     : RegBanks(RegBanks), NumRegBanks(NumRegBanks) {
-  DEBUG(for (unsigned Idx = 0, End = getNumRegBanks(); Idx != End; ++Idx) {
+#ifndef NDEBUG
+  for (unsigned Idx = 0, End = getNumRegBanks(); Idx != End; ++Idx)
     assert(RegBanks[Idx] != nullptr && "Invalid RegisterBank");
-    assert(!RegBanks[Idx]->isValid() &&
-           "RegisterBank should be invalid before initialization");
-  });
+#endif // NDEBUG
 }
 
 RegisterBankInfo::~RegisterBankInfo() {
@@ -70,13 +69,15 @@ RegisterBankInfo::~RegisterBankInfo() {
 }
 
 bool RegisterBankInfo::verify(const TargetRegisterInfo &TRI) const {
-  DEBUG(for (unsigned Idx = 0, End = getNumRegBanks(); Idx != End; ++Idx) {
+#ifndef NDEBUG
+  for (unsigned Idx = 0, End = getNumRegBanks(); Idx != End; ++Idx) {
     const RegisterBank &RegBank = getRegBank(Idx);
     assert(Idx == RegBank.getID() &&
            "ID does not match the index in the array");
     dbgs() << "Verify " << RegBank << '\n';
     assert(RegBank.verify(TRI) && "RegBank is invalid");
-  });
+  }
+#endif // NDEBUG
   return true;
 }
 
@@ -224,12 +225,11 @@ const TargetRegisterClass *RegisterBankInfo::constrainGenericRegister(
     return MRI.constrainRegClass(Reg, &RC);
 
   const RegisterBank *RB = RegClassOrBank.get<const RegisterBank *>();
-  assert(RB && "Generic register does not have a register bank");
-
   // Otherwise, all we can do is ensure the bank covers the class, and set it.
-  if (!RB->covers(RC))
+  if (RB && !RB->covers(RC))
     return nullptr;
 
+  // If nothing was set or the class is simply compatible, set it.
   MRI.setRegClass(Reg, &RC);
   return &RC;
 }

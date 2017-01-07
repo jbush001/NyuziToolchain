@@ -228,7 +228,7 @@ __start:
 # CHECK-NEXT:     Other [ (0x2)
 # CHECK-NEXT:       STV_HIDDEN (0x2)
 # CHECK-NEXT:     ]
-# CHECK-NEXT:     Section: .got
+# CHECK-NEXT:     Section: Absolute
 # CHECK-NEXT:   }
 # CHECK-NEXT:   Symbol {
 # CHECK-NEXT:     Name: __start
@@ -297,7 +297,7 @@ __start:
 # CHECK-NEXT:     VirtualAddress: 0x30000
 # CHECK-NEXT:     PhysicalAddress: 0x30000
 # CHECK-NEXT:     FileSize: 8
-# CHECK-NEXT:     MemSize: 8
+# CHECK-NEXT:     MemSize: 65536
 # CHECK-NEXT:     Flags [ (0x4)
 # CHECK-NEXT:       PF_R (0x4)
 # CHECK-NEXT:     ]

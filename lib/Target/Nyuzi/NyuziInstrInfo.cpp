@@ -173,7 +173,7 @@ bool NyuziInstrInfo::analyzeBranch(MachineBasicBlock &MBB,
 
   // Walk backwards from the end of the basic block until the branch is
   // analyzed or we give up.
-  while (I->isTerminator() || I->isDebugValue()) {
+  while (true) {
     // Flag to be raised on unanalyzeable instructions. This is useful in cases
     // where we want to clean up on the end of the basic block before we bail
     // out.
@@ -185,6 +185,9 @@ bool NyuziInstrInfo::analyzeBranch(MachineBasicBlock &MBB,
         return false;
       --I;
     }
+
+    if (!I->isTerminator())
+        break;
 
     if (isJumpTableBranchOpcode(I->getOpcode())) {
       // Jump tables can't be analyzed, but we still want

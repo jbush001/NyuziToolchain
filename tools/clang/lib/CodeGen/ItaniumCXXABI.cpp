@@ -366,11 +366,12 @@ public:
   void emitCXXStructor(const CXXMethodDecl *MD, StructorType Type) override;
 
  private:
-   bool hasAnyUsedVirtualInlineFunction(const CXXRecordDecl *RD) const {
+   bool hasAnyVirtualInlineFunction(const CXXRecordDecl *RD) const {
     const auto &VtableLayout =
         CGM.getItaniumVTableContext().getVTableLayout(RD);
 
     for (const auto &VtableComponent : VtableLayout.vtable_components()) {
+      // Skip empty slot.
       if (!VtableComponent.isUsedFunctionPointerKind())
         continue;
 
@@ -1479,7 +1480,7 @@ void ItaniumCXXABI::emitVTableDefinitions(CodeGenVTables &CGVT,
 
   // Create and set the initializer.
   ConstantInitBuilder Builder(CGM);
-  auto Components = Builder.beginArray(CGM.Int8PtrTy);
+  auto Components = Builder.beginStruct();
   CGVT.createVTableInitializer(Components, VTLayout, RTTI);
   Components.finishAndSetAsInitializer(VTable);
 
@@ -1537,17 +1538,21 @@ ItaniumCXXABI::getVTableAddressPoint(BaseSubobject Base,
                                      const CXXRecordDecl *VTableClass) {
   llvm::GlobalValue *VTable = getAddrOfVTable(VTableClass, CharUnits());
 
-  // Find the appropriate vtable within the vtable group.
-  uint64_t AddressPoint = CGM.getItaniumVTableContext()
-                              .getVTableLayout(VTableClass)
-                              .getAddressPoint(Base);
+  // Find the appropriate vtable within the vtable group, and the address point
+  // within that vtable.
+  VTableLayout::AddressPointLocation AddressPoint =
+      CGM.getItaniumVTableContext()
+          .getVTableLayout(VTableClass)
+          .getAddressPoint(Base);
   llvm::Value *Indices[] = {
     llvm::ConstantInt::get(CGM.Int32Ty, 0),
-    llvm::ConstantInt::get(CGM.Int32Ty, AddressPoint)
+    llvm::ConstantInt::get(CGM.Int32Ty, AddressPoint.VTableIndex),
+    llvm::ConstantInt::get(CGM.Int32Ty, AddressPoint.AddressPointIndex),
   };
 
-  return llvm::ConstantExpr::getInBoundsGetElementPtr(VTable->getValueType(),
-                                                      VTable, Indices);
+  return llvm::ConstantExpr::getGetElementPtr(VTable->getValueType(), VTable,
+                                              Indices, /*InBounds=*/true,
+                                              /*InRangeIndex=*/1);
 }
 
 llvm::Value *ItaniumCXXABI::getVTableAddressPointInStructorWithVTT(
@@ -1589,12 +1594,12 @@ llvm::GlobalVariable *ItaniumCXXABI::getAddrOfVTable(const CXXRecordDecl *RD,
   llvm::raw_svector_ostream Out(Name);
   getMangleContext().mangleCXXVTable(RD, Out);
 
-  ItaniumVTableContext &VTContext = CGM.getItaniumVTableContext();
-  llvm::ArrayType *ArrayType = llvm::ArrayType::get(
-      CGM.Int8PtrTy, VTContext.getVTableLayout(RD).vtable_components().size());
+  const VTableLayout &VTLayout =
+      CGM.getItaniumVTableContext().getVTableLayout(RD);
+  llvm::Type *VTableType = CGM.getVTables().getVTableType(VTLayout);
 
   VTable = CGM.CreateOrReplaceCXXRuntimeVariable(
-      Name, ArrayType, llvm::GlobalValue::ExternalLinkage);
+      Name, VTableType, llvm::GlobalValue::ExternalLinkage);
   VTable->setUnnamedAddr(llvm::GlobalValue::UnnamedAddr::Global);
 
   if (RD->hasAttr<DLLImportAttr>())
@@ -1683,7 +1688,7 @@ bool ItaniumCXXABI::canSpeculativelyEmitVTable(const CXXRecordDecl *RD) const {
   // then we are safe to emit available_externally copy of vtable.
   // FIXME we can still emit a copy of the vtable if we
   // can emit definition of the inline functions.
-  return !hasAnyUsedVirtualInlineFunction(RD) && !isVTableHidden(RD);
+  return !hasAnyVirtualInlineFunction(RD) && !isVTableHidden(RD);
 }
 static llvm::Value *performTypeAdjustment(CodeGenFunction &CGF,
                                           Address InitialPtr,
@@ -3133,7 +3138,7 @@ llvm::Constant *ItaniumRTTIBuilder::BuildTypeInfo(QualType Ty, bool Force,
     if (DLLExport || (RD && RD->hasAttr<DLLExportAttr>())) {
       TypeName->setDLLStorageClass(llvm::GlobalValue::DLLExportStorageClass);
       GV->setDLLStorageClass(llvm::GlobalValue::DLLExportStorageClass);
-    } else if (RD && RD->hasAttr<DLLImportAttr>()) {
+    } else if (CGM.getLangOpts().RTTI && RD && RD->hasAttr<DLLImportAttr>()) {
       TypeName->setDLLStorageClass(llvm::GlobalValue::DLLImportStorageClass);
       GV->setDLLStorageClass(llvm::GlobalValue::DLLImportStorageClass);
 
@@ -3895,7 +3900,8 @@ static llvm::Constant *getClangCallTerminateFn(CodeGenModule &CGM) {
   llvm::FunctionType *fnTy =
     llvm::FunctionType::get(CGM.VoidTy, CGM.Int8PtrTy, /*IsVarArgs=*/false);
   llvm::Constant *fnRef =
-    CGM.CreateRuntimeFunction(fnTy, "__clang_call_terminate");
+      CGM.CreateRuntimeFunction(fnTy, "__clang_call_terminate",
+                                llvm::AttributeSet(), /*Local=*/true);
 
   llvm::Function *fn = dyn_cast<llvm::Function>(fnRef);
   if (fn && fn->empty()) {

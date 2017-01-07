@@ -428,7 +428,11 @@ SDValue DAGTypeLegalizer::PromoteIntRes_FP_TO_XINT(SDNode *N) {
   // Assert that the converted value fits in the original type.  If it doesn't
   // (eg: because the value being converted is too big), then the result of the
   // original operation was undefined anyway, so the assert is still correct.
-  return DAG.getNode(NewOpc == ISD::FP_TO_UINT ?
+  //
+  // NOTE: fp-to-uint to fp-to-sint promotion guarantees zero extend. For example:
+  //   before legalization: fp-to-uint16, 65534. -> 0xfffe
+  //   after legalization: fp-to-sint32, 65534. -> 0x0000fffe
+  return DAG.getNode(N->getOpcode() == ISD::FP_TO_UINT ?
                      ISD::AssertZext : ISD::AssertSext, dl, NVT, Res,
                      DAG.getValueType(N->getValueType(0).getScalarType()));
 }
@@ -2189,7 +2193,9 @@ void DAGTypeLegalizer::ExpandIntRes_MUL(SDNode *N,
   GetExpandedInteger(N->getOperand(0), LL, LH);
   GetExpandedInteger(N->getOperand(1), RL, RH);
 
-  if (TLI.expandMUL(N, Lo, Hi, NVT, DAG, LL, LH, RL, RH))
+  if (TLI.expandMUL(N, Lo, Hi, NVT, DAG,
+                    TargetLowering::MulExpansionKind::OnlyLegalOrCustom,
+                    LL, LH, RL, RH))
     return;
 
   // If nothing else, we can make a libcall.
@@ -2203,7 +2209,7 @@ void DAGTypeLegalizer::ExpandIntRes_MUL(SDNode *N,
   else if (VT == MVT::i128)
     LC = RTLIB::MUL_I128;
 
-  if (LC == RTLIB::UNKNOWN_LIBCALL) {
+  if (LC == RTLIB::UNKNOWN_LIBCALL || !TLI.getLibcallName(LC)) {
     // We'll expand the multiplication by brute force because we have no other
     // options. This is a trivially-generalized version of the code from
     // Hacker's Delight (itself derived from Knuth's Algorithm M from section

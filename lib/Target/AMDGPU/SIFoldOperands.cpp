@@ -173,6 +173,13 @@ static bool tryAddToFoldList(std::vector<FoldCandidate> &FoldList,
       MI->setDesc(TII->get(Opc));
     }
 
+    // Special case for s_setreg_b32
+    if (Opc == AMDGPU::S_SETREG_B32 && OpToFold->isImm()) {
+      MI->setDesc(TII->get(AMDGPU::S_SETREG_IMM32_B32));
+      FoldList.push_back(FoldCandidate(MI, OpNo, OpToFold));
+      return true;
+    }
+
     // If we are already folding into another operand of MI, then
     // we can't commute the instruction, otherwise we risk making the
     // other fold illegal.
@@ -308,11 +315,13 @@ static void foldOperand(MachineOperand &OpToFold, MachineInstr *UseMI,
     return;
   }
 
-  APInt Imm(64, OpToFold.getImm());
 
   const MCInstrDesc &FoldDesc = OpToFold.getParent()->getDesc();
   const TargetRegisterClass *FoldRC =
     TRI.getRegClass(FoldDesc.OpInfo[0].RegClass);
+
+  APInt Imm(TII->operandBitWidth(FoldDesc.OpInfo[1].OperandType),
+            OpToFold.getImm());
 
   // Split 64-bit constants into 32-bits for folding.
   if (UseOp.getSubReg() && AMDGPU::getRegBitWidth(FoldRC->getID()) == 64) {
@@ -321,6 +330,8 @@ static void foldOperand(MachineOperand &OpToFold, MachineInstr *UseMI,
       = TargetRegisterInfo::isVirtualRegister(UseReg) ?
       MRI.getRegClass(UseReg) :
       TRI.getPhysRegClass(UseReg);
+
+    assert(Imm.getBitWidth() == 64);
 
     if (AMDGPU::getRegBitWidth(UseRC->getID()) != 64)
       return;
@@ -498,7 +509,6 @@ bool SIFoldOperands::runOnMachineFunction(MachineFunction &MF) {
       if (!isSafeToFold(MI))
         continue;
 
-      unsigned OpSize = TII->getOpSize(MI, 1);
       MachineOperand &OpToFold = MI.getOperand(1);
       bool FoldingImm = OpToFold.isImm() || OpToFold.isFI();
 
@@ -552,14 +562,15 @@ bool SIFoldOperands::runOnMachineFunction(MachineFunction &MF) {
                Use = MRI.use_begin(Dst.getReg()), E = MRI.use_end();
              Use != E; ++Use) {
           MachineInstr *UseMI = Use->getParent();
+          unsigned OpNo = Use.getOperandNo();
 
-          if (TII->isInlineConstant(OpToFold, OpSize)) {
-            foldOperand(OpToFold, UseMI, Use.getOperandNo(), FoldList,
+          if (TII->isInlineConstant(*UseMI, OpNo, OpToFold)) {
+            foldOperand(OpToFold, UseMI, OpNo, FoldList,
                         CopiesToReplace, TII, TRI, MRI);
           } else {
             if (++NumLiteralUses == 1) {
               NonInlineUse = &*Use;
-              NonInlineUseOpNo = Use.getOperandNo();
+              NonInlineUseOpNo = OpNo;
             }
           }
         }

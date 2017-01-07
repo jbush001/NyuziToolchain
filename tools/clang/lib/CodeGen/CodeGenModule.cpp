@@ -875,6 +875,13 @@ void CodeGenModule::SetLLVMFunctionAttributesForDefinition(const Decl *D,
     B.addAttribute(llvm::Attribute::StackProtectReq);
 
   if (!D) {
+    // If we don't have a declaration to control inlining, the function isn't
+    // explicitly marked as alwaysinline for semantic reasons, and inlining is
+    // disabled, mark the function as noinline.
+    if (!F->hasFnAttribute(llvm::Attribute::AlwaysInline) &&
+        CodeGenOpts.getInlining() == CodeGenOptions::OnlyAlwaysInlining)
+      B.addAttribute(llvm::Attribute::NoInline);
+
     F->addAttributes(llvm::AttributeSet::FunctionIndex,
                      llvm::AttributeSet::get(
                          F->getContext(),
@@ -882,7 +889,23 @@ void CodeGenModule::SetLLVMFunctionAttributesForDefinition(const Decl *D,
     return;
   }
 
-  if (D->hasAttr<NakedAttr>()) {
+  if (D->hasAttr<OptimizeNoneAttr>()) {
+    B.addAttribute(llvm::Attribute::OptimizeNone);
+
+    // OptimizeNone implies noinline; we should not be inlining such functions.
+    B.addAttribute(llvm::Attribute::NoInline);
+    assert(!F->hasFnAttribute(llvm::Attribute::AlwaysInline) &&
+           "OptimizeNone and AlwaysInline on same function!");
+
+    // We still need to handle naked functions even though optnone subsumes
+    // much of their semantics.
+    if (D->hasAttr<NakedAttr>())
+      B.addAttribute(llvm::Attribute::Naked);
+
+    // OptimizeNone wins over OptimizeForSize and MinSize.
+    F->removeFnAttr(llvm::Attribute::OptimizeForSize);
+    F->removeFnAttr(llvm::Attribute::MinSize);
+  } else if (D->hasAttr<NakedAttr>()) {
     // Naked implies noinline: we should not be inlining such functions.
     B.addAttribute(llvm::Attribute::Naked);
     B.addAttribute(llvm::Attribute::NoInline);
@@ -891,40 +914,46 @@ void CodeGenModule::SetLLVMFunctionAttributesForDefinition(const Decl *D,
   } else if (D->hasAttr<NoInlineAttr>()) {
     B.addAttribute(llvm::Attribute::NoInline);
   } else if (D->hasAttr<AlwaysInlineAttr>() &&
-             !F->getAttributes().hasAttribute(llvm::AttributeSet::FunctionIndex,
-                                              llvm::Attribute::NoInline)) {
+             !F->hasFnAttribute(llvm::Attribute::NoInline)) {
     // (noinline wins over always_inline, and we can't specify both in IR)
     B.addAttribute(llvm::Attribute::AlwaysInline);
+  } else if (CodeGenOpts.getInlining() == CodeGenOptions::OnlyAlwaysInlining) {
+    // If we're not inlining, then force everything that isn't always_inline to
+    // carry an explicit noinline attribute.
+    if (!F->hasFnAttribute(llvm::Attribute::AlwaysInline))
+      B.addAttribute(llvm::Attribute::NoInline);
+  } else {
+    // Otherwise, propagate the inline hint attribute and potentially use its
+    // absence to mark things as noinline.
+    if (auto *FD = dyn_cast<FunctionDecl>(D)) {
+      if (any_of(FD->redecls(), [&](const FunctionDecl *Redecl) {
+            return Redecl->isInlineSpecified();
+          })) {
+        B.addAttribute(llvm::Attribute::InlineHint);
+      } else if (CodeGenOpts.getInlining() ==
+                     CodeGenOptions::OnlyHintInlining &&
+                 !FD->isInlined() &&
+                 !F->hasFnAttribute(llvm::Attribute::AlwaysInline)) {
+        B.addAttribute(llvm::Attribute::NoInline);
+      }
+    }
   }
 
-  if (D->hasAttr<ColdAttr>()) {
-    if (!D->hasAttr<OptimizeNoneAttr>())
+  // Add other optimization related attributes if we are optimizing this
+  // function.
+  if (!D->hasAttr<OptimizeNoneAttr>()) {
+    if (D->hasAttr<ColdAttr>()) {
       B.addAttribute(llvm::Attribute::OptimizeForSize);
-    B.addAttribute(llvm::Attribute::Cold);
-  }
+      B.addAttribute(llvm::Attribute::Cold);
+    }
 
-  if (D->hasAttr<MinSizeAttr>())
-    B.addAttribute(llvm::Attribute::MinSize);
+    if (D->hasAttr<MinSizeAttr>())
+      B.addAttribute(llvm::Attribute::MinSize);
+  }
 
   F->addAttributes(llvm::AttributeSet::FunctionIndex,
                    llvm::AttributeSet::get(
                        F->getContext(), llvm::AttributeSet::FunctionIndex, B));
-
-  if (D->hasAttr<OptimizeNoneAttr>()) {
-    // OptimizeNone implies noinline; we should not be inlining such functions.
-    F->addFnAttr(llvm::Attribute::OptimizeNone);
-    F->addFnAttr(llvm::Attribute::NoInline);
-
-    // OptimizeNone wins over OptimizeForSize, MinSize, AlwaysInline.
-    F->removeFnAttr(llvm::Attribute::OptimizeForSize);
-    F->removeFnAttr(llvm::Attribute::MinSize);
-    assert(!F->hasFnAttribute(llvm::Attribute::AlwaysInline) &&
-           "OptimizeNone and AlwaysInline on same function!");
-
-    // Attribute 'inlinehint' has no effect on 'optnone' functions.
-    // Explicitly remove it from the set of function attributes.
-    F->removeFnAttr(llvm::Attribute::InlineHint);
-  }
 
   unsigned alignment = D->getMaxAlignment() / Context.getCharWidth();
   if (alignment)
@@ -2038,18 +2067,70 @@ llvm::Constant *CodeGenModule::GetAddrOfFunction(GlobalDecl GD,
                                  IsForDefinition);
 }
 
+static const FunctionDecl *
+GetRuntimeFunctionDecl(ASTContext &C, StringRef Name) {
+  TranslationUnitDecl *TUDecl = C.getTranslationUnitDecl();
+  DeclContext *DC = TranslationUnitDecl::castToDeclContext(TUDecl);
+
+  IdentifierInfo &CII = C.Idents.get(Name);
+  for (const auto &Result : DC->lookup(&CII))
+    if (const auto FD = dyn_cast<FunctionDecl>(Result))
+      return FD;
+
+  if (!C.getLangOpts().CPlusPlus)
+    return nullptr;
+
+  // Demangle the premangled name from getTerminateFn()
+  IdentifierInfo &CXXII =
+      (Name == "_ZSt9terminatev" || Name == "\01?terminate@@YAXXZ")
+          ? C.Idents.get("terminate")
+          : C.Idents.get(Name);
+
+  for (const auto &N : {"__cxxabiv1", "std"}) {
+    IdentifierInfo &NS = C.Idents.get(N);
+    for (const auto &Result : DC->lookup(&NS)) {
+      NamespaceDecl *ND = dyn_cast<NamespaceDecl>(Result);
+      if (auto LSD = dyn_cast<LinkageSpecDecl>(Result))
+        for (const auto &Result : LSD->lookup(&NS))
+          if ((ND = dyn_cast<NamespaceDecl>(Result)))
+            break;
+
+      if (ND)
+        for (const auto &Result : ND->lookup(&CXXII))
+          if (const auto *FD = dyn_cast<FunctionDecl>(Result))
+            return FD;
+    }
+  }
+
+  return nullptr;
+}
+
 /// CreateRuntimeFunction - Create a new runtime function with the specified
 /// type and name.
 llvm::Constant *
-CodeGenModule::CreateRuntimeFunction(llvm::FunctionType *FTy,
-                                     StringRef Name,
-                                     llvm::AttributeSet ExtraAttrs) {
+CodeGenModule::CreateRuntimeFunction(llvm::FunctionType *FTy, StringRef Name,
+                                     llvm::AttributeSet ExtraAttrs,
+                                     bool Local) {
   llvm::Constant *C =
       GetOrCreateLLVMFunction(Name, FTy, GlobalDecl(), /*ForVTable=*/false,
-                              /*DontDefer=*/false, /*IsThunk=*/false, ExtraAttrs);
-  if (auto *F = dyn_cast<llvm::Function>(C))
-    if (F->empty())
+                              /*DontDefer=*/false, /*IsThunk=*/false,
+                              ExtraAttrs);
+
+  if (auto *F = dyn_cast<llvm::Function>(C)) {
+    if (F->empty()) {
       F->setCallingConv(getRuntimeCC());
+
+      if (!Local && getTriple().isOSBinFormatCOFF() &&
+          !getCodeGenOpts().LTOVisibilityPublicStd) {
+        const FunctionDecl *FD = GetRuntimeFunctionDecl(Context, Name);
+        if (!FD || FD->hasAttr<DLLImportAttr>()) {
+          F->setDLLStorageClass(llvm::GlobalValue::DLLImportStorageClass);
+          F->setLinkage(llvm::GlobalValue::ExternalLinkage);
+        }
+      }
+    }
+  }
+
   return C;
 }
 
@@ -2219,29 +2300,30 @@ CodeGenModule::GetOrCreateLLVMGlobal(StringRef MangledName,
 llvm::Constant *
 CodeGenModule::GetAddrOfGlobal(GlobalDecl GD,
                                ForDefinition_t IsForDefinition) {
-  if (isa<CXXConstructorDecl>(GD.getDecl()))
-    return getAddrOfCXXStructor(cast<CXXConstructorDecl>(GD.getDecl()),
+  const Decl *D = GD.getDecl();
+  if (isa<CXXConstructorDecl>(D))
+    return getAddrOfCXXStructor(cast<CXXConstructorDecl>(D),
                                 getFromCtorType(GD.getCtorType()),
                                 /*FnInfo=*/nullptr, /*FnType=*/nullptr,
                                 /*DontDefer=*/false, IsForDefinition);
-  else if (isa<CXXDestructorDecl>(GD.getDecl()))
-    return getAddrOfCXXStructor(cast<CXXDestructorDecl>(GD.getDecl()),
+  else if (isa<CXXDestructorDecl>(D))
+    return getAddrOfCXXStructor(cast<CXXDestructorDecl>(D),
                                 getFromDtorType(GD.getDtorType()),
                                 /*FnInfo=*/nullptr, /*FnType=*/nullptr,
                                 /*DontDefer=*/false, IsForDefinition);
-  else if (isa<CXXMethodDecl>(GD.getDecl())) {
+  else if (isa<CXXMethodDecl>(D)) {
     auto FInfo = &getTypes().arrangeCXXMethodDeclaration(
-        cast<CXXMethodDecl>(GD.getDecl()));
+        cast<CXXMethodDecl>(D));
     auto Ty = getTypes().GetFunctionType(*FInfo);
     return GetAddrOfFunction(GD, Ty, /*ForVTable=*/false, /*DontDefer=*/false,
                              IsForDefinition);
-  } else if (isa<FunctionDecl>(GD.getDecl())) {
+  } else if (isa<FunctionDecl>(D)) {
     const CGFunctionInfo &FI = getTypes().arrangeGlobalDeclaration(GD);
     llvm::FunctionType *Ty = getTypes().GetFunctionType(FI);
     return GetAddrOfFunction(GD, Ty, /*ForVTable=*/false, /*DontDefer=*/false,
                              IsForDefinition);
   } else
-    return GetAddrOfGlobalVar(cast<VarDecl>(GD.getDecl()), /*Ty=*/nullptr,
+    return GetAddrOfGlobalVar(cast<VarDecl>(D), /*Ty=*/nullptr,
                               IsForDefinition);
 }
 
@@ -2611,9 +2693,16 @@ void CodeGenModule::EmitGlobalVarDefinition(const VarDecl *D,
   else
     GV->setDLLStorageClass(llvm::GlobalVariable::DefaultStorageClass);
 
-  if (Linkage == llvm::GlobalVariable::CommonLinkage)
+  if (Linkage == llvm::GlobalVariable::CommonLinkage) {
     // common vars aren't constant even if declared const.
     GV->setConstant(false);
+    // Tentative definition of global variables may be initialized with
+    // non-zero null pointers. In this case they should have weak linkage
+    // since common linkage must have zero initializer and must not have
+    // explicit section therefore cannot have non-zero initial value.
+    if (!GV->getInitializer()->isNullValue())
+      GV->setLinkage(llvm::GlobalVariable::WeakAnyLinkage);
+  }
 
   setNonAliasAttributes(D, GV);
 

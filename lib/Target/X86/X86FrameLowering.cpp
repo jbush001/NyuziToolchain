@@ -373,6 +373,10 @@ int X86FrameLowering::mergeSPUpdates(MachineBasicBlock &MBB,
   MachineBasicBlock::iterator PI = doMergeWithPrevious ? std::prev(MBBI) : MBBI;
   MachineBasicBlock::iterator NI = doMergeWithPrevious ? nullptr
                                                        : std::next(MBBI);
+  PI = skipDebugInstructionsBackward(PI, MBB.begin());
+  if (NI != nullptr)
+    NI = skipDebugInstructionsForward(NI, MBB.end());
+
   unsigned Opc = PI->getOpcode();
   int Offset = 0;
 
@@ -1550,19 +1554,22 @@ void X86FrameLowering::emitEpilogue(MachineFunction &MF,
   }
   uint64_t SEHStackAllocAmt = NumBytes;
 
+  MachineBasicBlock::iterator FirstCSPop = MBBI;
   // Skip the callee-saved pop instructions.
   while (MBBI != MBB.begin()) {
     MachineBasicBlock::iterator PI = std::prev(MBBI);
     unsigned Opc = PI->getOpcode();
 
-    if ((Opc != X86::POP32r || !PI->getFlag(MachineInstr::FrameDestroy)) &&
-        (Opc != X86::POP64r || !PI->getFlag(MachineInstr::FrameDestroy)) &&
-        Opc != X86::DBG_VALUE && !PI->isTerminator())
-      break;
+    if (Opc != X86::DBG_VALUE && !PI->isTerminator()) {
+      if ((Opc != X86::POP32r || !PI->getFlag(MachineInstr::FrameDestroy)) &&
+          (Opc != X86::POP64r || !PI->getFlag(MachineInstr::FrameDestroy)))
+        break;
+      FirstCSPop = PI;
+    }
 
     --MBBI;
   }
-  MachineBasicBlock::iterator FirstCSPop = MBBI;
+  MBBI = FirstCSPop;
 
   if (TargetMBB) {
     // Fill EAX/RAX with the address of the target block.
@@ -2583,6 +2590,7 @@ eliminateCallFramePseudoInstr(MachineFunction &MF, MachineBasicBlock &MBB,
   uint64_t Amount = !reserveCallFrame ? I->getOperand(0).getImm() : 0;
   uint64_t InternalAmt = (isDestroy || Amount) ? I->getOperand(1).getImm() : 0;
   I = MBB.erase(I);
+  auto InsertPos = skipDebugInstructionsForward(I, MBB.end());
 
   if (!reserveCallFrame) {
     // If the stack pointer can be changed after prologue, turn the
@@ -2612,7 +2620,7 @@ eliminateCallFramePseudoInstr(MachineFunction &MF, MachineBasicBlock &MBB,
 
     if (HasDwarfEHHandlers && !isDestroy &&
         MF.getInfo<X86MachineFunctionInfo>()->getHasPushSequences())
-      BuildCFI(MBB, I, DL,
+      BuildCFI(MBB, InsertPos, DL,
                MCCFIInstruction::createGnuArgsSize(nullptr, Amount));
 
     if (Amount == 0)
@@ -2626,7 +2634,7 @@ eliminateCallFramePseudoInstr(MachineFunction &MF, MachineBasicBlock &MBB,
     // If this is a callee-pop calling convention, emit a CFA adjust for
     // the amount the callee popped.
     if (isDestroy && InternalAmt && DwarfCFI && !hasFP(MF))
-      BuildCFI(MBB, I, DL, 
+      BuildCFI(MBB, InsertPos, DL,
                MCCFIInstruction::createAdjustCfaOffset(nullptr, -InternalAmt));
 
     // Add Amount to SP to destroy a frame, or subtract to setup.
@@ -2637,13 +2645,13 @@ eliminateCallFramePseudoInstr(MachineFunction &MF, MachineBasicBlock &MBB,
       // Merge with any previous or following adjustment instruction. Note: the
       // instructions merged with here do not have CFI, so their stack
       // adjustments do not feed into CfaAdjustment.
-      StackAdjustment += mergeSPUpdates(MBB, I, true);
-      StackAdjustment += mergeSPUpdates(MBB, I, false);
+      StackAdjustment += mergeSPUpdates(MBB, InsertPos, true);
+      StackAdjustment += mergeSPUpdates(MBB, InsertPos, false);
 
       if (StackAdjustment) {
         if (!(Fn->optForMinSize() &&
-              adjustStackWithPops(MBB, I, DL, StackAdjustment)))
-          BuildStackAdjustment(MBB, I, DL, StackAdjustment,
+              adjustStackWithPops(MBB, InsertPos, DL, StackAdjustment)))
+          BuildStackAdjustment(MBB, InsertPos, DL, StackAdjustment,
                                /*InEpilogue=*/false);
       }
     }
@@ -2659,8 +2667,9 @@ eliminateCallFramePseudoInstr(MachineFunction &MF, MachineBasicBlock &MBB,
       // TODO: When not using precise CFA, we also need to adjust for the
       // InternalAmt here.
       if (CfaAdjustment) {
-        BuildCFI(MBB, I, DL, MCCFIInstruction::createAdjustCfaOffset(
-                                 nullptr, CfaAdjustment));
+        BuildCFI(MBB, InsertPos, DL,
+                 MCCFIInstruction::createAdjustCfaOffset(nullptr,
+                                                         CfaAdjustment));
       }
     }
 

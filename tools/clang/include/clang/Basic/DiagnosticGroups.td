@@ -97,6 +97,8 @@ def UnavailableDeclarations : DiagGroup<"unavailable-declarations">;
 def UnguardedAvailability : DiagGroup<"unguarded-availability">;
 // partial-availability is an alias of unguarded-availability.
 def : DiagGroup<"partial-availability", [UnguardedAvailability]>;
+def DeprecatedDynamicExceptionSpec
+    : DiagGroup<"deprecated-dynamic-exception-spec">;
 def DeprecatedImplementations :DiagGroup<"deprecated-implementations">;
 def DeprecatedIncrementBool : DiagGroup<"deprecated-increment-bool">;
 def DeprecatedRegister : DiagGroup<"deprecated-register">;
@@ -105,10 +107,14 @@ def DeprecatedWritableStr : DiagGroup<"deprecated-writable-strings",
 // FIXME: Why is DeprecatedImplementations not in this group?
 def Deprecated : DiagGroup<"deprecated", [DeprecatedAttributes,
                                           DeprecatedDeclarations,
+                                          DeprecatedDynamicExceptionSpec,
                                           DeprecatedIncrementBool,
                                           DeprecatedRegister,
                                           DeprecatedWritableStr]>,
                  DiagCategory<"Deprecations">;
+
+def DynamicExceptionSpec
+    : DiagGroup<"dynamic-exception-spec", [DeprecatedDynamicExceptionSpec]>;
 
 def LibLTO : DiagGroup<"liblto">;
 def : DiagGroup<"disabled-optimization">;
@@ -237,6 +243,7 @@ def NonModularIncludeInModule : DiagGroup<"non-modular-include-in-module",
                                           [NonModularIncludeInFrameworkModule]>;
 def IncompleteModule : DiagGroup<"incomplete-module",
     [IncompleteUmbrella, NonModularIncludeInModule]>;
+def PrivateModule : DiagGroup<"private-module">;
 
 def CXX11InlineNamespace : DiagGroup<"c++11-inline-namespace">;
 def InvalidNoreturn : DiagGroup<"invalid-noreturn">;
@@ -256,6 +263,7 @@ def LoopAnalysis : DiagGroup<"loop-analysis", [ForLoopAnalysis,
 def MalformedWarningCheck : DiagGroup<"malformed-warning-check">;
 def Main : DiagGroup<"main">;
 def MainReturnType : DiagGroup<"main-return-type">;
+def MaxUnsignedZero : DiagGroup<"max-unsigned-zero">;
 def MissingBraces : DiagGroup<"missing-braces">;
 def MissingDeclarations: DiagGroup<"missing-declarations">;
 def : DiagGroup<"missing-format-attribute">;

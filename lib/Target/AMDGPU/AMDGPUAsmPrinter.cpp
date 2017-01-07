@@ -119,7 +119,7 @@ void AMDGPUAsmPrinter::EmitStartOfAsmFile(Module &M) {
                                     "AMD", "AMDGPU");
 
   // Emit runtime metadata.
-  TS->emitRuntimeMetadataAsNoteElement(M);
+  TS->EmitRuntimeMetadata(M);
 }
 
 bool AMDGPUAsmPrinter::isBlockOnlyReachableByFallthrough(
@@ -176,12 +176,14 @@ bool AMDGPUAsmPrinter::runOnMachineFunction(MachineFunction &MF) {
 
   SetupMachineFunction(MF);
 
-  MCContext &Context = getObjFileLowering().getContext();
-  MCSectionELF *ConfigSection =
-      Context.getELFSection(".AMDGPU.config", ELF::SHT_PROGBITS, 0);
-  OutStreamer->SwitchSection(ConfigSection);
-
   const AMDGPUSubtarget &STM = MF.getSubtarget<AMDGPUSubtarget>();
+  MCContext &Context = getObjFileLowering().getContext();
+  if (!STM.isAmdHsaOS()) {
+    MCSectionELF *ConfigSection =
+        Context.getELFSection(".AMDGPU.config", ELF::SHT_PROGBITS, 0);
+    OutStreamer->SwitchSection(ConfigSection);
+  }
+
   SIProgramInfo KernelInfo;
   if (STM.getGeneration() >= AMDGPUSubtarget::SOUTHERN_ISLANDS) {
     getSIProgramInfo(KernelInfo, MF);
@@ -391,7 +393,10 @@ void AMDGPUAsmPrinter::getSIProgramInfo(SIProgramInfo &ProgInfo,
         case AMDGPU::FLAT_SCR:
         case AMDGPU::FLAT_SCR_LO:
         case AMDGPU::FLAT_SCR_HI:
-          FlatUsed = true;
+          // Even if FLAT_SCRATCH is implicitly used, it has no effect if flat
+          // instructions aren't used to access the scratch buffer.
+          if (MFI->hasFlatScratchInit())
+            FlatUsed = true;
           continue;
 
         case AMDGPU::TBA:
@@ -489,6 +494,22 @@ void AMDGPUAsmPrinter::getSIProgramInfo(SIProgramInfo &ProgInfo,
       RI->getHWRegIndex(MFI->getScratchRSrcReg());
   }
 
+  // Check the addressable register limit before we add ExtraSGPRs.
+  if (STM.getGeneration() >= AMDGPUSubtarget::VOLCANIC_ISLANDS &&
+      !STM.hasSGPRInitBug()) {
+    unsigned MaxAddressableNumSGPRs = STM.getMaxNumSGPRs();
+    if (MaxSGPR + 1 > MaxAddressableNumSGPRs) {
+      // This can happen due to a compiler bug or when using inline asm.
+      LLVMContext &Ctx = MF.getFunction()->getContext();
+      DiagnosticInfoResourceLimit Diag(*MF.getFunction(),
+                                       "addressable scalar registers",
+                                       MaxSGPR + 1, DS_Error,
+                                       DK_ResourceLimit, MaxAddressableNumSGPRs);
+      Ctx.diagnose(Diag);
+      MaxSGPR = MaxAddressableNumSGPRs - 1;
+    }
+  }
+
   // Account for extra SGPRs and VGPRs reserved for debugger use.
   MaxSGPR += ExtraSGPRs;
   MaxVGPR += RI->getNumDebuggerReservedVGPRs(STM);
@@ -505,19 +526,22 @@ void AMDGPUAsmPrinter::getSIProgramInfo(SIProgramInfo &ProgInfo,
   ProgInfo.NumVGPRsForWavesPerEU = std::max(
     ProgInfo.NumVGPR, RI->getMinNumVGPRs(MFI->getMaxWavesPerEU()));
 
-  unsigned MaxNumSGPRs = STM.getMaxNumSGPRs();
-  if (ProgInfo.NumSGPR > MaxNumSGPRs) {
-    // This can happen due to a compiler bug or when using inline asm to use the
-    // registers which are usually reserved for vcc etc.
+  if (STM.getGeneration() <= AMDGPUSubtarget::SEA_ISLANDS ||
+      STM.hasSGPRInitBug()) {
+    unsigned MaxNumSGPRs = STM.getMaxNumSGPRs();
+    if (ProgInfo.NumSGPR > MaxNumSGPRs) {
+      // This can happen due to a compiler bug or when using inline asm to use the
+      // registers which are usually reserved for vcc etc.
 
-    LLVMContext &Ctx = MF.getFunction()->getContext();
-    DiagnosticInfoResourceLimit Diag(*MF.getFunction(),
-                                     "scalar registers",
-                                     ProgInfo.NumSGPR, DS_Error,
-                                     DK_ResourceLimit, MaxNumSGPRs);
-    Ctx.diagnose(Diag);
-    ProgInfo.NumSGPR = MaxNumSGPRs;
-    ProgInfo.NumSGPRsForWavesPerEU = MaxNumSGPRs;
+      LLVMContext &Ctx = MF.getFunction()->getContext();
+      DiagnosticInfoResourceLimit Diag(*MF.getFunction(),
+                                       "scalar registers",
+                                       ProgInfo.NumSGPR, DS_Error,
+                                       DK_ResourceLimit, MaxNumSGPRs);
+      Ctx.diagnose(Diag);
+      ProgInfo.NumSGPR = MaxNumSGPRs;
+      ProgInfo.NumSGPRsForWavesPerEU = MaxNumSGPRs;
+    }
   }
 
   if (STM.hasSGPRInitBug()) {
@@ -763,6 +787,11 @@ void AMDGPUAsmPrinter::EmitAmdKernelCodeT(const MachineFunction &MF,
   header.reserved_vgpr_first = KernelInfo.ReservedVGPRFirst;
   header.reserved_vgpr_count = KernelInfo.ReservedVGPRCount;
 
+  // These alignment values are specified in powers of two, so alignment =
+  // 2^n.  The minimum alignment is 2^4 = 16.
+  header.kernarg_segment_alignment = std::max((size_t)4,
+      countTrailingZeros(MFI->getMaxKernArgAlign()));
+
   if (STM.debuggerEmitPrologue()) {
     header.debug_wavefront_private_segment_offset_sgpr =
       KernelInfo.DebuggerWavefrontPrivateSegmentOffsetSGPR;
@@ -797,4 +826,3 @@ bool AMDGPUAsmPrinter::PrintAsmOperand(const MachineInstr *MI, unsigned OpNo,
                    *TM.getSubtargetImpl(*MF->getFunction())->getRegisterInfo());
   return false;
 }
-

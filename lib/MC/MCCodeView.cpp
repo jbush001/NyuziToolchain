@@ -200,7 +200,7 @@ void CodeViewContext::emitLineTableForFunction(MCObjectStreamer &OS,
   OS.EmitIntValue(unsigned(ModuleSubstreamKind::Lines), 4);
   OS.emitAbsoluteSymbolDiff(LineEnd, LineBegin, 4);
   OS.EmitLabel(LineBegin);
-  OS.EmitCOFFSecRel32(FuncBegin);
+  OS.EmitCOFFSecRel32(FuncBegin, /*Offset=*/0);
   OS.EmitCOFFSectionIndex(FuncBegin);
 
   // Actual line info.
@@ -361,7 +361,9 @@ void CodeViewContext::encodeInlineLineTable(MCAsmLayout &Layout,
     // Exit early if our line table would produce an oversized InlineSiteSym
     // record. Account for the ChangeCodeLength annotation emitted after the
     // loop ends.
-    size_t MaxBufferSize = MaxRecordLength - sizeof(InlineSiteSym::Hdr) - 8;
+    constexpr uint32_t InlineSiteSize = 12;
+    constexpr uint32_t AnnotationSize = 8;
+    size_t MaxBufferSize = MaxRecordLength - InlineSiteSize - AnnotationSize;
     if (Buffer.size() >= MaxBufferSize)
       break;
 

@@ -3,10 +3,38 @@
 // RUN: %clang_cc1 -std=c++14 %s -verify -fexceptions -fcxx-exceptions -pedantic-errors
 // RUN: %clang_cc1 -std=c++1z %s -verify -fexceptions -fcxx-exceptions -pedantic-errors
 
+namespace dr1315 { // dr1315: partial
+  template <int I, int J> struct A {};
+  template <int I> // expected-note {{non-deducible template parameter 'I'}}
+    struct A<I + 5, I * 2> {}; // expected-error {{contains a template parameter that cannot be deduced}}
+  template <int I> struct A<I, I> {};
+
+  template <int I, int J, int K> struct B;
+  template <int I, int K> struct B<I, I * 2, K> {}; // expected-note {{matches}}
+  B<1, 2, 3> b1;
+
+  // Multiple declarations with the same dependent expression are equivalent
+  // for partial ordering purposes.
+  template <int I> struct B<I, I * 2, 2> { typedef int type; };
+  B<1, 2, 2>::type b2;
+
+  // Multiple declarations with differing dependent expressions are unordered.
+  template <int I, int K> struct B<I, I + 1, K> {}; // expected-note {{matches}}
+  B<1, 2, 4> b3; // expected-error {{ambiguous}}
+
+  // FIXME: Under dr1315, this is perhaps valid, but that is not clear: this
+  // fails the "more specialized than the primary template" test because the
+  // dependent type of T::value is not the same as 'int'.
+  // A core issue will be opened to decide what is supposed to happen here.
+  template <typename T, int I> struct C;
+  template <typename T> struct C<T, T::value>;
+  // expected-error@-1 {{type of specialized non-type template argument depends on a template parameter of the partial specialization}}
+}
+
 namespace dr1330 { // dr1330: 4.0 c++11
   // exception-specifications are parsed in a context where the class is complete.
   struct A {
-    void f() throw(T) {}
+    void f() throw(T) {} // expected-error 0-1{{C++1z}} expected-note 0-1{{noexcept}}
     struct T {};
 
 #if __cplusplus >= 201103L
@@ -16,7 +44,7 @@ namespace dr1330 { // dr1330: 4.0 c++11
 #endif
   };
 
-  void (A::*af1)() throw(A::T) = &A::f;
+  void (A::*af1)() throw(A::T) = &A::f; // expected-error 0-1{{C++1z}} expected-note 0-1{{noexcept}}
   void (A::*af2)() throw() = &A::f; // expected-error-re {{{{not superset|different exception spec}}}}
 
 #if __cplusplus >= 201103L
@@ -26,7 +54,7 @@ namespace dr1330 { // dr1330: 4.0 c++11
   // Likewise, they're instantiated separately from an enclosing class template.
   template<typename U>
   struct B {
-    void f() throw(T, typename U::type) {}
+    void f() throw(T, typename U::type) {} // expected-error 0-1{{C++1z}} expected-note 0-1{{noexcept}}
     struct T {};
 
 #if __cplusplus >= 201103L
@@ -43,7 +71,7 @@ namespace dr1330 { // dr1330: 4.0 c++11
     static const int value = true;
   };
 
-  void (B<P>::*bpf1)() throw(B<P>::T, int) = &B<P>::f;
+  void (B<P>::*bpf1)() throw(B<P>::T, int) = &B<P>::f; // expected-error 0-1{{C++1z}} expected-note 0-1{{noexcept}}
 #if __cplusplus < 201103L
   // expected-error@-2 {{not superset}}
   // FIXME: We only delay instantiation in C++11 onwards. In C++98, something
@@ -54,7 +82,7 @@ namespace dr1330 { // dr1330: 4.0 c++11
   // the "T has not yet been instantiated" error here, rather than giving
   // confusing errors later on.
 #endif
-  void (B<P>::*bpf2)() throw(int) = &B<P>::f;
+  void (B<P>::*bpf2)() throw(int) = &B<P>::f; // expected-error 0-1{{C++1z}} expected-note 0-1{{noexcept}}
 #if __cplusplus <= 201402L
   // expected-error@-2 {{not superset}}
 #else
@@ -75,6 +103,9 @@ namespace dr1330 { // dr1330: 4.0 c++11
 #endif
 
   template<typename T> int f() throw(typename T::error) { return 0; } // expected-error 1-4{{prior to '::'}} expected-note 0-1{{instantiation of}}
+#if __cplusplus > 201402L
+    // expected-error@-2 0-1{{C++1z}} expected-note@-2 0-1{{noexcept}}
+#endif
   // An exception-specification is needed even if the function is only used in
   // an unevaluated operand.
   int f1 = sizeof(f<int>()); // expected-note {{instantiation of}}
@@ -86,6 +117,9 @@ namespace dr1330 { // dr1330: 4.0 c++11
 
   template<typename T> struct C {
     C() throw(typename T::type); // expected-error 1-2{{prior to '::'}}
+#if __cplusplus > 201402L
+    // expected-error@-2 0-1{{C++1z}} expected-note@-2 0-1{{noexcept}}
+#endif
   };
   struct D : C<void> {}; // ok
 #if __cplusplus < 201103L

@@ -196,6 +196,7 @@ Options:\n\
   --bindir          Directory containing LLVM executables.\n\
   --includedir      Directory containing LLVM headers.\n\
   --libdir          Directory containing LLVM libraries.\n\
+  --cmakedir        Directory containing LLVM cmake modules.\n\
   --cppflags        C preprocessor flags for files that include LLVM headers.\n\
   --cflags          C compiler flags for files that include LLVM headers.\n\
   --cxxflags        C++ compiler flags for files that include LLVM headers.\n\
@@ -215,6 +216,7 @@ Options:\n\
   --shared-mode     Print how the provided components can be collectively linked (`shared` or `static`).\n\
   --link-shared     Link the components as shared libraries.\n\
   --link-static     Link the component libraries statically.\n\
+  --ignore-libllvm  Ignore libLLVM and link component libraries instead.\n\
 Typical components:\n\
   all               All LLVM libraries (default).\n\
   engine            Either a native JIT or a bitcode interpreter.\n";
@@ -301,7 +303,8 @@ int main(int argc, char **argv) {
 
   // Compute various directory locations based on the derived location
   // information.
-  std::string ActivePrefix, ActiveBinDir, ActiveIncludeDir, ActiveLibDir;
+  std::string ActivePrefix, ActiveBinDir, ActiveIncludeDir, ActiveLibDir,
+              ActiveCMakeDir;
   std::string ActiveIncludeOption;
   if (IsInDevelopmentTree) {
     ActiveIncludeDir = std::string(LLVM_SRC_ROOT) + "/include";
@@ -313,12 +316,14 @@ int main(int argc, char **argv) {
     case CMakeStyle:
       ActiveBinDir = ActiveObjRoot + "/bin";
       ActiveLibDir = ActiveObjRoot + "/lib" + LLVM_LIBDIR_SUFFIX;
+      ActiveCMakeDir = ActiveLibDir + "/cmake/llvm";
       break;
     case CMakeBuildModeStyle:
       ActivePrefix = ActiveObjRoot;
       ActiveBinDir = ActiveObjRoot + "/bin/" + build_mode;
       ActiveLibDir =
           ActiveObjRoot + "/lib" + LLVM_LIBDIR_SUFFIX + "/" + build_mode;
+      ActiveCMakeDir = ActiveLibDir + "/cmake/llvm";
       break;
     }
 
@@ -330,6 +335,7 @@ int main(int argc, char **argv) {
     ActiveIncludeDir = ActivePrefix + "/include";
     ActiveBinDir = ActivePrefix + "/bin";
     ActiveLibDir = ActivePrefix + "/lib" + LLVM_LIBDIR_SUFFIX;
+    ActiveCMakeDir = ActiveLibDir + "/cmake/llvm";
     ActiveIncludeOption = "-I" + ActiveIncludeDir;
   }
 
@@ -356,6 +362,7 @@ int main(int argc, char **argv) {
       std::replace(ActivePrefix.begin(), ActivePrefix.end(), '/', '\\');
       std::replace(ActiveBinDir.begin(), ActiveBinDir.end(), '/', '\\');
       std::replace(ActiveLibDir.begin(), ActiveLibDir.end(), '/', '\\');
+      std::replace(ActiveCMakeDir.begin(), ActiveCMakeDir.end(), '/', '\\');
       std::replace(ActiveIncludeOption.begin(), ActiveIncludeOption.end(), '/',
                    '\\');
     }
@@ -432,7 +439,15 @@ int main(int argc, char **argv) {
                                          const bool Shared) {
     std::string LibFileName;
     if (Shared) {
-      LibFileName = (SharedPrefix + Lib + "." + SharedExt).str();
+      if (Lib == DyLibName) {
+        // Treat the DyLibName specially. It is not a component library and
+        // already has the necessary prefix and suffix (e.g. `.so`) added so
+        // just return it unmodified.
+        assert(Lib.endswith(SharedExt) && "DyLib is missing suffix");
+        LibFileName = Lib;
+      } else {
+        LibFileName = (SharedPrefix + Lib + "." + SharedExt).str();
+      }
     } else {
       // default to static
       LibFileName = (StaticPrefix + Lib + "." + StaticExt).str();
@@ -466,6 +481,8 @@ int main(int argc, char **argv) {
         OS << ActiveIncludeDir << '\n';
       } else if (Arg == "--libdir") {
         OS << ActiveLibDir << '\n';
+      } else if (Arg == "--cmakedir") {
+        OS << ActiveCMakeDir << '\n';
       } else if (Arg == "--cppflags") {
         OS << ActiveIncludeOption << ' ' << LLVM_CPPFLAGS << '\n';
       } else if (Arg == "--cflags") {
@@ -541,6 +558,9 @@ int main(int argc, char **argv) {
         OS << ActivePrefix << '\n';
       } else if (Arg == "--src-root") {
         OS << LLVM_SRC_ROOT << '\n';
+      } else if (Arg == "--ignore-libllvm") {
+        LinkDyLib = false;
+        LinkMode = BuiltSharedLibs ? LinkModeShared : LinkModeAuto;
       } else if (Arg == "--link-shared") {
         LinkMode = LinkModeShared;
       } else if (Arg == "--link-static") {
@@ -586,7 +606,7 @@ int main(int argc, char **argv) {
     if (!MissingLibs.empty()) {
       switch (LinkMode) {
       case LinkModeShared:
-        if (DyLibExists && !BuiltSharedLibs)
+        if (LinkDyLib && !BuiltSharedLibs)
           break;
         // Using component shared libraries.
         for (auto &Lib : MissingLibs)
@@ -662,7 +682,7 @@ int main(int argc, char **argv) {
         }
       };
 
-      if (LinkMode == LinkModeShared && !BuiltSharedLibs) {
+      if (LinkMode == LinkModeShared && LinkDyLib) {
         PrintForLib(DyLibName);
       } else {
         for (unsigned i = 0, e = RequiredLibs.size(); i != e; ++i) {
@@ -678,8 +698,12 @@ int main(int argc, char **argv) {
 
     // Print SYSTEM_LIBS after --libs.
     // FIXME: Each LLVM component may have its dependent system libs.
-    if (PrintSystemLibs)
-      OS << LLVM_SYSTEM_LIBS << '\n';
+    if (PrintSystemLibs) {
+      // Output system libraries only if linking against a static
+      // library (since the shared library links to all system libs
+      // already)
+      OS << (LinkMode == LinkModeStatic ? LLVM_SYSTEM_LIBS : "") << '\n';
+    }
   } else if (!Components.empty()) {
     errs() << "llvm-config: error: components given, but unused\n\n";
     usage();

@@ -13,6 +13,7 @@
 #include "Error.h"
 #include "SymbolTable.h"
 #include "Symbols.h"
+#include "llvm/DebugInfo/CodeView/CVDebugRecord.h"
 #include "llvm/DebugInfo/CodeView/SymbolDumper.h"
 #include "llvm/DebugInfo/CodeView/TypeDumper.h"
 #include "llvm/DebugInfo/MSF/ByteStream.h"
@@ -60,10 +61,10 @@ static SectionChunk *findByName(std::vector<SectionChunk *> &Sections,
   return nullptr;
 }
 
-static void dumpDebugT(ScopedPrinter &W, ObjectFile *File) {
+static ArrayRef<uint8_t> getDebugT(ObjectFile *File) {
   SectionChunk *Sec = findByName(File->getDebugChunks(), ".debug$T");
   if (!Sec)
-    return;
+    return {};
 
   // First 4 bytes are section magic.
   ArrayRef<uint8_t> Data = Sec->getContents();
@@ -71,9 +72,17 @@ static void dumpDebugT(ScopedPrinter &W, ObjectFile *File) {
     fatal(".debug$T too short");
   if (read32le(Data.data()) != COFF::DEBUG_SECTION_MAGIC)
     fatal(".debug$T has an invalid magic");
+  return Data.slice(4);
+}
 
+static void dumpDebugT(ScopedPrinter &W, ObjectFile *File) {
+  ArrayRef<uint8_t> Data = getDebugT(File);
+  if (Data.empty())
+    return;
+
+  msf::ByteStream Stream(Data);
   CVTypeDumper TypeDumper(&W, false);
-  if (auto EC = TypeDumper.dump(Data.slice(4)))
+  if (auto EC = TypeDumper.dump(Data))
     fatal(EC, "CVTypeDumper::dump failed");
 }
 
@@ -104,9 +113,27 @@ static void dumpCodeView(SymbolTable *Symtab) {
   }
 }
 
+static void addTypeInfo(SymbolTable *Symtab,
+                        pdb::TpiStreamBuilder &TpiBuilder) {
+  for (ObjectFile *File : Symtab->ObjectFiles) {
+    ArrayRef<uint8_t> Data = getDebugT(File);
+    if (Data.empty())
+      continue;
+
+    msf::ByteStream Stream(Data);
+    codeview::CVTypeArray Records;
+    msf::StreamReader Reader(Stream);
+    if (auto EC = Reader.readArray(Records, Reader.getLength()))
+      fatal(EC, "Reader.readArray failed");
+    for (const codeview::CVType &Rec : Records)
+      TpiBuilder.addTypeRecord(Rec);
+  }
+}
+
 // Creates a PDB file.
 void coff::createPDB(StringRef Path, SymbolTable *Symtab,
-                     ArrayRef<uint8_t> SectionTable) {
+                     ArrayRef<uint8_t> SectionTable,
+                     const llvm::codeview::DebugInfo *DI) {
   if (Config->DumpPdb)
     dumpCodeView(Symtab);
 
@@ -121,11 +148,9 @@ void coff::createPDB(StringRef Path, SymbolTable *Symtab,
 
   // Add an Info stream.
   auto &InfoBuilder = Builder.getInfoBuilder();
-  InfoBuilder.setAge(1);
-
-  // Should be a random number, 0 for now.
-  InfoBuilder.setGuid({});
-
+  InfoBuilder.setAge(DI->PDB70.Age);
+  InfoBuilder.setGuid(
+      *reinterpret_cast<const pdb::PDB_UniqueId *>(&DI->PDB70.Signature));
   // Should be the current time, but set 0 for reproducibilty.
   InfoBuilder.setSignature(0);
   InfoBuilder.setVersion(pdb::PdbRaw_ImplVer::PdbImplVC70);
@@ -137,6 +162,8 @@ void coff::createPDB(StringRef Path, SymbolTable *Symtab,
   // Add an empty TPI stream.
   auto &TpiBuilder = Builder.getTpiBuilder();
   TpiBuilder.setVersionHeader(pdb::PdbTpiV80);
+  if (Config->DebugPdb)
+    addTypeInfo(Symtab, TpiBuilder);
 
   // Add an empty IPI stream.
   auto &IpiBuilder = Builder.getIpiBuilder();

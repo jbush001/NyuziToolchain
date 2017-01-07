@@ -34,7 +34,7 @@ using namespace llvm;
 void RegScavenger::setRegUsed(unsigned Reg, LaneBitmask LaneMask) {
   for (MCRegUnitMaskIterator RUI(Reg, TRI); RUI.isValid(); ++RUI) {
     LaneBitmask UnitMask = (*RUI).second;
-    if (UnitMask == 0 || (LaneMask & UnitMask) != 0)
+    if (UnitMask.none() || (LaneMask & UnitMask).any())
       RegUnitsAvailable.reset((*RUI).first);
   }
 }
@@ -47,11 +47,6 @@ void RegScavenger::init(MachineBasicBlock &MBB) {
 
   assert((NumRegUnits == 0 || NumRegUnits == TRI->getNumRegUnits()) &&
          "Target changed?");
-
-  // It is not possible to use the register scavenger after late optimization
-  // passes that don't preserve accurate liveness information.
-  assert(MRI->tracksLiveness() &&
-         "Cannot use register scavenger with inaccurate liveness");
 
   // Self-initialize.
   if (!this->MBB) {

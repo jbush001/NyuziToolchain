@@ -520,17 +520,17 @@ getUuidAttrOfType(Sema &SemaRef, QualType QT,
   else if (QT->isArrayType())
     Ty = Ty->getBaseElementTypeUnsafe();
 
-  const auto *RD = Ty->getAsCXXRecordDecl();
-  if (!RD)
+  const auto *TD = Ty->getAsTagDecl();
+  if (!TD)
     return;
 
-  if (const auto *Uuid = RD->getMostRecentDecl()->getAttr<UuidAttr>()) {
+  if (const auto *Uuid = TD->getMostRecentDecl()->getAttr<UuidAttr>()) {
     UuidAttrs.insert(Uuid);
     return;
   }
 
   // __uuidof can grab UUIDs from template arguments.
-  if (const auto *CTSD = dyn_cast<ClassTemplateSpecializationDecl>(RD)) {
+  if (const auto *CTSD = dyn_cast<ClassTemplateSpecializationDecl>(TD)) {
     const TemplateArgumentList &TAL = CTSD->getTemplateArgs();
     for (const TemplateArgument &TA : TAL.asArray()) {
       const UuidAttr *UuidForTA = nullptr;
@@ -1289,10 +1289,6 @@ Sema::BuildCXXTypeConstructExpr(TypeSourceInfo *TInfo,
   if (!Ty->isVoidType() &&
       RequireCompleteType(TyBeginLoc, ElemTy,
                           diag::err_invalid_incomplete_type_use, FullRange))
-    return ExprError();
-
-  if (RequireNonAbstractType(TyBeginLoc, Ty,
-                             diag::err_allocation_of_abstract_type))
     return ExprError();
 
   InitializedEntity Entity = InitializedEntity::InitializeTemporary(TInfo);
@@ -3882,6 +3878,12 @@ Sema::PerformImplicitConversion(Expr *From, QualType ToType,
                              From->getValueKind()).get();
     break;
 
+  case ICK_Zero_Queue_Conversion:
+    From = ImpCastExprToType(From, ToType,
+                             CK_ZeroToOCLQueue,
+                             From->getValueKind()).get();
+    break;
+
   case ICK_Lvalue_To_Rvalue:
   case ICK_Array_To_Pointer:
   case ICK_Function_To_Pointer:
@@ -5203,8 +5205,7 @@ static bool TryClassUnification(Sema &Self, Expr *From, Expr *To,
   //
   // This actually refers very narrowly to the lvalue-to-rvalue conversion, not
   // to the array-to-pointer or function-to-pointer conversions.
-  if (!TTy->getAs<TagType>())
-    TTy = TTy.getUnqualifiedType();
+  TTy = TTy.getNonLValueExprType(Self.Context);
 
   InitializedEntity Entity = InitializedEntity::InitializeTemporary(TTy);
   InitializationSequence InitSeq(Self, Entity, Kind, From);
@@ -5411,13 +5412,19 @@ QualType Sema::CXXCheckConditionalOperands(ExprResult &Cond, ExprResult &LHS,
     if (CompareReferenceRelationship(
             QuestionLoc, LTy, RTy, DerivedToBase,
             ObjCConversion, ObjCLifetimeConversion) == Ref_Compatible &&
-        !DerivedToBase && !ObjCConversion && !ObjCLifetimeConversion) {
+        !DerivedToBase && !ObjCConversion && !ObjCLifetimeConversion &&
+        // [...] subject to the constraint that the reference must bind
+        // directly [...]
+        !RHS.get()->refersToBitField() &&
+        !RHS.get()->refersToVectorElement()) {
       RHS = ImpCastExprToType(RHS.get(), LTy, CK_NoOp, RVK);
       RTy = RHS.get()->getType();
     } else if (CompareReferenceRelationship(
                    QuestionLoc, RTy, LTy, DerivedToBase,
                    ObjCConversion, ObjCLifetimeConversion) == Ref_Compatible &&
-               !DerivedToBase && !ObjCConversion && !ObjCLifetimeConversion) {
+               !DerivedToBase && !ObjCConversion && !ObjCLifetimeConversion &&
+               !LHS.get()->refersToBitField() &&
+               !LHS.get()->refersToVectorElement()) {
       LHS = ImpCastExprToType(LHS.get(), RTy, CK_NoOp, LVK);
       LTy = LHS.get()->getType();
     }
@@ -5485,9 +5492,6 @@ QualType Sema::CXXCheckConditionalOperands(ExprResult &Cond, ExprResult &LHS,
   if (Context.getCanonicalType(LTy) == Context.getCanonicalType(RTy)) {
     if (LTy->isRecordType()) {
       // The operands have class type. Make a temporary copy.
-      if (RequireNonAbstractType(QuestionLoc, LTy,
-                                 diag::err_allocation_of_abstract_type))
-        return QualType();
       InitializedEntity Entity = InitializedEntity::InitializeTemporary(LTy);
 
       ExprResult LHSCopy = PerformCopyInitialization(Entity,
@@ -6836,6 +6840,16 @@ ExprResult Sema::IgnoredValueConversions(Expr *E) {
         return E;
       E = Res.get();
     }
+
+    // C++1z:
+    //   If the expression is a prvalue after this optional conversion, the
+    //   temporary materialization conversion is applied.
+    //
+    // We skip this step: IR generation is able to synthesize the storage for
+    // itself in the aggregate case, and adding the extra node to the AST is
+    // just clutter.
+    // FIXME: We don't emit lifetime markers for the temporaries due to this.
+    // FIXME: Do any other AST consumers care about this?
     return E;
   }
 
@@ -7248,6 +7262,8 @@ public:
     while (TypoCorrection TC = State.Consumer->getNextCorrection()) {
       if (InitDecl && TC.getFoundDecl() == InitDecl)
         continue;
+      // FIXME: If we would typo-correct to an invalid declaration, it's
+      // probably best to just suppress all errors from this typo correction.
       ExprResult NE = State.RecoveryHandler ?
           State.RecoveryHandler(SemaRef, E, TC) :
           attemptRecovery(SemaRef, *State.Consumer, TC);
@@ -7453,17 +7469,11 @@ Sema::CheckMicrosoftIfExistsSymbol(Scope *S, SourceLocation KeywordLoc,
                                    UnqualifiedId &Name) {
   DeclarationNameInfo TargetNameInfo = GetNameFromUnqualifiedId(Name);
 
-  // Check for unexpanded parameter packs.
-  SmallVector<UnexpandedParameterPack, 4> Unexpanded;
-  collectUnexpandedParameterPacks(SS, Unexpanded);
-  collectUnexpandedParameterPacks(TargetNameInfo, Unexpanded);
-  if (!Unexpanded.empty()) {
-    DiagnoseUnexpandedParameterPacks(KeywordLoc,
-                                     IsIfExists? UPPC_IfExists
-                                               : UPPC_IfNotExists,
-                                     Unexpanded);
+  // Check for an unexpanded parameter pack.
+  auto UPPC = IsIfExists ? UPPC_IfExists : UPPC_IfNotExists;
+  if (DiagnoseUnexpandedParameterPack(SS, UPPC) ||
+      DiagnoseUnexpandedParameterPack(TargetNameInfo, UPPC))
     return IER_Error;
-  }
 
   return CheckMicrosoftIfExistsSymbol(S, SS, TargetNameInfo);
 }

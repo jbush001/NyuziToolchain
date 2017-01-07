@@ -20,6 +20,7 @@
 namespace lld {
 namespace elf {
 
+struct PhdrEntry;
 class SymbolBody;
 struct EhSectionPiece;
 template <class ELFT> class EhInputSection;
@@ -110,7 +111,7 @@ public:
   typedef typename ELFT::uint uintX_t;
   OutputSection(StringRef Name, uint32_t Type, uintX_t Flags);
   void addSection(InputSectionData *C) override;
-  void sort(std::function<unsigned(InputSection<ELFT> *S)> Order);
+  void sort(std::function<int(InputSection<ELFT> *S)> Order);
   void sortInitFini();
   void sortCtorsDtors();
   void writeTo(uint8_t *Buf) override;
@@ -207,7 +208,7 @@ template <class ELFT> struct Out {
   static OutputSection<ELFT> *Bss;
   static OutputSectionBase *Opd;
   static uint8_t *OpdBuf;
-  static Elf_Phdr *TlsPhdr;
+  static PhdrEntry *TlsPhdr;
   static OutputSectionBase *DebugInfo;
   static OutputSectionBase *ElfHeader;
   static OutputSectionBase *ProgramHeaders;
@@ -216,12 +217,10 @@ template <class ELFT> struct Out {
   static OutputSectionBase *FiniArray;
 };
 
-template <bool Is64Bits> struct SectionKey {
-  typedef typename std::conditional<Is64Bits, uint64_t, uint32_t>::type uintX_t;
+struct SectionKey {
   StringRef Name;
-  uint32_t Type;
-  uintX_t Flags;
-  uintX_t Alignment;
+  uint64_t Flags;
+  uint64_t Alignment;
 };
 
 // This class knows how to create an output section for a given
@@ -231,16 +230,17 @@ template <bool Is64Bits> struct SectionKey {
 template <class ELFT> class OutputSectionFactory {
   typedef typename ELFT::Shdr Elf_Shdr;
   typedef typename ELFT::uint uintX_t;
-  typedef typename elf::SectionKey<ELFT::Is64Bits> Key;
 
 public:
+  OutputSectionFactory();
+  ~OutputSectionFactory();
   std::pair<OutputSectionBase *, bool> create(InputSectionBase<ELFT> *C,
                                               StringRef OutsecName);
-  std::pair<OutputSectionBase *, bool>
-  create(const SectionKey<ELFT::Is64Bits> &Key, InputSectionBase<ELFT> *C);
+  std::pair<OutputSectionBase *, bool> create(const SectionKey &Key,
+                                              InputSectionBase<ELFT> *C);
 
 private:
-  llvm::SmallDenseMap<Key, OutputSectionBase *> Map;
+  llvm::SmallDenseMap<SectionKey, OutputSectionBase *> Map;
 };
 
 template <class ELFT> uint64_t getHeaderSize() {
@@ -254,7 +254,7 @@ template <class ELFT> EhOutputSection<ELFT> *Out<ELFT>::EhFrame;
 template <class ELFT> OutputSection<ELFT> *Out<ELFT>::Bss;
 template <class ELFT> OutputSectionBase *Out<ELFT>::Opd;
 template <class ELFT> uint8_t *Out<ELFT>::OpdBuf;
-template <class ELFT> typename ELFT::Phdr *Out<ELFT>::TlsPhdr;
+template <class ELFT> PhdrEntry *Out<ELFT>::TlsPhdr;
 template <class ELFT> OutputSectionBase *Out<ELFT>::DebugInfo;
 template <class ELFT> OutputSectionBase *Out<ELFT>::ElfHeader;
 template <class ELFT> OutputSectionBase *Out<ELFT>::ProgramHeaders;
@@ -264,15 +264,5 @@ template <class ELFT> OutputSectionBase *Out<ELFT>::FiniArray;
 } // namespace elf
 } // namespace lld
 
-namespace llvm {
-template <bool Is64Bits> struct DenseMapInfo<lld::elf::SectionKey<Is64Bits>> {
-  typedef typename lld::elf::SectionKey<Is64Bits> Key;
-
-  static Key getEmptyKey();
-  static Key getTombstoneKey();
-  static unsigned getHashValue(const Key &Val);
-  static bool isEqual(const Key &LHS, const Key &RHS);
-};
-}
 
 #endif

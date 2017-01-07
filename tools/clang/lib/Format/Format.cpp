@@ -52,6 +52,7 @@ template <> struct ScalarEnumerationTraits<FormatStyle::LanguageKind> {
     IO.enumCase(Value, "Cpp", FormatStyle::LK_Cpp);
     IO.enumCase(Value, "Java", FormatStyle::LK_Java);
     IO.enumCase(Value, "JavaScript", FormatStyle::LK_JavaScript);
+    IO.enumCase(Value, "ObjC", FormatStyle::LK_ObjC);
     IO.enumCase(Value, "Proto", FormatStyle::LK_Proto);
     IO.enumCase(Value, "TableGen", FormatStyle::LK_TableGen);
   }
@@ -623,6 +624,8 @@ FormatStyle getGoogleStyle(FormatStyle::LanguageKind Language) {
   } else if (Language == FormatStyle::LK_Proto) {
     GoogleStyle.AllowShortFunctionsOnASingleLine = FormatStyle::SFS_None;
     GoogleStyle.SpacesInContainerLiterals = false;
+  } else if (Language == FormatStyle::LK_ObjC) {
+    GoogleStyle.ColumnLimit = 100;
   }
 
   return GoogleStyle;
@@ -635,6 +638,9 @@ FormatStyle getChromiumStyle(FormatStyle::LanguageKind Language) {
     ChromiumStyle.BreakAfterJavaFieldAnnotations = true;
     ChromiumStyle.ContinuationIndentWidth = 8;
     ChromiumStyle.IndentWidth = 4;
+  } else if (Language == FormatStyle::LK_JavaScript) {
+    ChromiumStyle.AllowShortIfStatementsOnASingleLine = false;
+    ChromiumStyle.AllowShortLoopsOnASingleLine = false;
   } else {
     ChromiumStyle.AllowAllParametersOfDeclarationOnNextLine = false;
     ChromiumStyle.AllowShortFunctionsOnASingleLine = FormatStyle::SFS_Inline;
@@ -652,10 +658,12 @@ FormatStyle getMozillaStyle() {
   MozillaStyle.AllowAllParametersOfDeclarationOnNextLine = false;
   MozillaStyle.AllowShortFunctionsOnASingleLine = FormatStyle::SFS_Inline;
   MozillaStyle.AlwaysBreakAfterReturnType =
-      FormatStyle::RTBS_TopLevelDefinitions;
+      FormatStyle::RTBS_TopLevel;
   MozillaStyle.AlwaysBreakAfterDefinitionReturnType =
       FormatStyle::DRTBS_TopLevel;
   MozillaStyle.AlwaysBreakTemplateDeclarations = true;
+  MozillaStyle.BinPackParameters = false;
+  MozillaStyle.BinPackArguments = false;
   MozillaStyle.BreakBeforeBraces = FormatStyle::BS_Mozilla;
   MozillaStyle.BreakConstructorInitializersBeforeComma = true;
   MozillaStyle.ConstructorInitializerIndentWidth = 2;
@@ -839,9 +847,10 @@ private:
               Env.getSourceManager(), Start, Length, ReplacementText));
           // FIXME: handle error. For now, print error message and skip the
           // replacement for release version.
-          if (Err)
+          if (Err) {
             llvm::errs() << llvm::toString(std::move(Err)) << "\n";
-          assert(!Err);
+            assert(false);
+          }
         };
         Replace(Start, 1, IsSingle ? "'" : "\"");
         Replace(FormatTok->Tok.getEndLoc().getLocWithOffset(-1), 1,
@@ -1188,9 +1197,10 @@ private:
           Fixes.add(tooling::Replacement(Env.getSourceManager(), SR, ""));
       // FIXME: better error handling. for now just print error message and skip
       // for the release version.
-      if (Err)
+      if (Err) {
         llvm::errs() << llvm::toString(std::move(Err)) << "\n";
-      assert(!Err && "Fixes must not conflict!");
+        assert(false && "Fixes must not conflict!");
+      }
       Idx = End + 1;
     }
 
@@ -1322,9 +1332,10 @@ static void sortCppIncludes(const FormatStyle &Style,
       FileName, Includes.front().Offset, IncludesBlockSize, result));
   // FIXME: better error handling. For now, just skip the replacement for the
   // release version.
-  if (Err)
+  if (Err) {
     llvm::errs() << llvm::toString(std::move(Err)) << "\n";
-  assert(!Err);
+    assert(false);
+  }
 }
 
 namespace {
@@ -1540,7 +1551,7 @@ bool checkAndConsumeDirectiveWithName(Lexer &Lex, StringRef Name, Token &Tok) {
   bool Matched = Tok.is(tok::hash) && !Lex.LexFromRawLexer(Tok) &&
                  Tok.is(tok::raw_identifier) &&
                  Tok.getRawIdentifier() == Name && !Lex.LexFromRawLexer(Tok) &&
-                 tok::raw_identifier;
+                 Tok.is(tok::raw_identifier);
   if (Matched)
     Lex.LexFromRawLexer(Tok);
   return Matched;
@@ -1677,7 +1688,9 @@ fixCppIncludeInsertions(StringRef Code, const tooling::Replacements &Replaces,
   unsigned MinInsertOffset =
       getOffsetAfterHeaderGuardsAndComments(FileName, Code, Style);
   StringRef TrimmedCode = Code.drop_front(MinInsertOffset);
+  // Max insertion offset in the original code.
   unsigned MaxInsertOffset =
+      MinInsertOffset +
       getMaxHeaderInsertionOffset(FileName, TrimmedCode, Style);
   SmallVector<StringRef, 32> Lines;
   TrimmedCode.split(Lines, '\n');
@@ -1859,6 +1872,8 @@ static FormatStyle::LanguageKind getLanguageByFileName(StringRef FileName) {
     return FormatStyle::LK_Java;
   if (FileName.endswith_lower(".js") || FileName.endswith_lower(".ts"))
     return FormatStyle::LK_JavaScript; // JavaScript or TypeScript.
+  if (FileName.endswith(".m") || FileName.endswith(".mm"))
+    return FormatStyle::LK_ObjC;
   if (FileName.endswith_lower(".proto") ||
       FileName.endswith_lower(".protodevel"))
     return FormatStyle::LK_Proto;
@@ -1868,12 +1883,21 @@ static FormatStyle::LanguageKind getLanguageByFileName(StringRef FileName) {
 }
 
 FormatStyle getStyle(StringRef StyleName, StringRef FileName,
-                     StringRef FallbackStyle, vfs::FileSystem *FS) {
+                     StringRef FallbackStyle, StringRef Code,
+                     vfs::FileSystem *FS) {
   if (!FS) {
     FS = vfs::getRealFileSystem().get();
   }
   FormatStyle Style = getLLVMStyle();
   Style.Language = getLanguageByFileName(FileName);
+
+  // This is a very crude detection of whether a header contains ObjC code that
+  // should be improved over time and probably be done on tokens, not one the
+  // bare content of the file.
+  if (Style.Language == FormatStyle::LK_Cpp && FileName.endswith(".h") &&
+      (Code.contains("\n- (") || Code.contains("\n+ (")))
+    Style.Language = FormatStyle::LK_ObjC;
+
   if (!getPredefinedStyle(FallbackStyle, Style.Language, &Style)) {
     llvm::errs() << "Invalid fallback style \"" << FallbackStyle
                  << "\" using LLVM style\n";
@@ -1899,7 +1923,11 @@ FormatStyle getStyle(StringRef StyleName, StringRef FileName,
   // Look for .clang-format/_clang-format file in the file's parent directories.
   SmallString<128> UnsuitableConfigFiles;
   SmallString<128> Path(FileName);
-  llvm::sys::fs::make_absolute(Path);
+  if (std::error_code EC = FS->makeAbsolute(Path)) {
+    llvm::errs() << EC.message() << "\n";
+    return Style;
+  }
+
   for (StringRef Directory = Path; !Directory.empty();
        Directory = llvm::sys::path::parent_path(Directory)) {
 

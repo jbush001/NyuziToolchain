@@ -195,8 +195,7 @@ Counters SIInsertWaits::getHwCounts(MachineInstr &MI) {
   Result.Named.VM = !!(TSFlags & SIInstrFlags::VM_CNT);
 
   // Only consider stores or EXP for EXP_CNT
-  Result.Named.EXP = !!(TSFlags & SIInstrFlags::EXP_CNT &&
-      (MI.getOpcode() == AMDGPU::EXP || MI.getDesc().mayStore()));
+  Result.Named.EXP = !!(TSFlags & SIInstrFlags::EXP_CNT) && MI.mayStore();
 
   // LGKM may uses larger values
   if (TSFlags & SIInstrFlags::LGKM_CNT) {
@@ -238,9 +237,10 @@ bool SIInsertWaits::isOpRelevant(MachineOperand &Op) {
   if (Op.isDef())
     return true;
 
-  // For exports all registers are relevant
+  // For exports all registers are relevant.
+  // TODO: Skip undef/disabled registers.
   MachineInstr &MI = *Op.getParent();
-  if (MI.getOpcode() == AMDGPU::EXP)
+  if (TII->isEXP(MI))
     return true;
 
   // For stores the stored value is also relevant
@@ -340,7 +340,7 @@ void SIInsertWaits::pushInstruction(MachineBasicBlock &MBB,
 
   // Remember which export instructions we have seen
   if (Increment.Named.EXP) {
-    ExpInstrTypesSeen |= I->getOpcode() == AMDGPU::EXP ? 1 : 2;
+    ExpInstrTypesSeen |= TII->isEXP(*I) ? 1 : 2;
   }
 
   for (unsigned i = 0, e = I->getNumOperands(); i != e; ++i) {
@@ -504,7 +504,7 @@ void SIInsertWaits::handleSendMsg(MachineBasicBlock &MBB,
     return;
 
   // There must be "S_NOP 0" between an instruction writing M0 and S_SENDMSG.
-  if (LastInstWritesM0 && I->getOpcode() == AMDGPU::S_SENDMSG) {
+  if (LastInstWritesM0 && (I->getOpcode() == AMDGPU::S_SENDMSG || I->getOpcode() == AMDGPU::S_SENDMSGHALT)) {
     BuildMI(MBB, I, DebugLoc(), TII->get(AMDGPU::S_NOP)).addImm(0);
     LastInstWritesM0 = false;
     return;
@@ -619,7 +619,8 @@ bool SIInsertWaits::runOnMachineFunction(MachineFunction &MF) {
       // signalling other hardware blocks
       if ((I->getOpcode() == AMDGPU::S_BARRIER &&
                ST->needWaitcntBeforeBarrier()) ||
-           I->getOpcode() == AMDGPU::S_SENDMSG)
+           I->getOpcode() == AMDGPU::S_SENDMSG ||
+           I->getOpcode() == AMDGPU::S_SENDMSGHALT)
         Required = LastIssued;
       else
         Required = handleOperands(*I);
