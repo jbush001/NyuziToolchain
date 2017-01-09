@@ -518,7 +518,7 @@ let isTerminator = 1 in {
     II_BRANCH> {
     bits<5> dest;
 
-    let Inst{31-30} = 3;
+    let Inst{31-29} = 0b110;
     let Inst{25-20} = 0xf;  // opcode: move
     let Inst{9-5} = 31;
     let Inst{4-0} = dest;
@@ -565,7 +565,7 @@ def RET : NyuziInstruction<
   [(return)],
   II_BRANCH> {
   // This is encoded as move pc, ra
-  let Inst{31-29} = 6;  // format A instruction
+  let Inst{31-29} = 0b110;  // format A instruction
   let Inst{25-20} = 0xf;  // opcode
   let Inst{9-5} = 31;    // dest (reg 31)
   let Inst{19-15} = 30;  // src (ra)
@@ -582,7 +582,7 @@ def ERET : NyuziInstruction<
   "eret",
   [],
   II_BRANCH> {
-  let Inst{31-28} = 0xf;
+  let Inst{31-28} = 0b1111;
   let Inst{27-25} = 7;  // Eret branch type
 
   let isReturn = 1;
@@ -669,8 +669,8 @@ def SYSCALL : NyuziInstruction<
   "syscall",
   [],
   II_INT> {
-  let Inst{31-29} = 6;
-  let Inst{25-20} = 0x3f;
+  let Inst{31-29} = 0b110;
+  let Inst{25-20} = 0x3f;   // opcode
 }
 
 def READ_CONTROL_REG : FormatMInst<

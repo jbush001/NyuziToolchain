@@ -210,7 +210,7 @@ class FormatRInst<dag outputs, dag inputs, string asmString, list<dag> pattern,
   bits <5> dest;
   bits <5> src2;
 
-  let Inst{31-29} = 6;
+  let Inst{31-29} = 0b110;
   let Inst{28-26} = fmt.Value;
   let Inst{25-20} = opcode;
   let Inst{19-15} = src2;
@@ -734,7 +734,7 @@ def FmtC_ITLBInsert : FmtC<7>;
 class FormatCInst<dag outputs, dag inputs, string asmString, list<dag> pattern,
   FmtC fmt>
   : NyuziInstruction<outputs, inputs, asmString, pattern, II_MEMORY> {
-  let Inst{31-28} = 0xe;
+  let Inst{31-28} = 0b1110;
   let Inst{27-25} = fmt.Value;
 }
 
@@ -779,7 +779,7 @@ class BranchInst<dag outputs, dag inputs, string asmString, list<dag> pattern,
 
   bits<20> dest;
 
-  let Inst{31-28} = 0xf;
+  let Inst{31-28} = 0b1111;
   let Inst{27-25} = type.Value;
   let Inst{24-5} = dest;
 }
