@@ -462,7 +462,7 @@ static const ArchDefinitionEntry g_elf_arch_entries[] = {
     {ArchSpec::eCore_kalimba5, llvm::ELF::EM_CSR_KALIMBA,
      llvm::Triple::KalimbaSubArch_v5, 0xFFFFFFFFu, 0xFFFFFFFFu}, // KALIMBA
     {ArchSpec::eCore_nyuzi, llvm::ELF::EM_NYUZI,
-     LLDB_INVALID_CPUTYPE, 0xFFFFFFFFu, 0xFFFFFFFFu} 
+     LLDB_INVALID_CPUTYPE, 0xFFFFFFFFu, 0xFFFFFFFFu}
 };
 
 static const ArchDefinition g_elf_arch_def = {

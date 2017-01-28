@@ -8024,8 +8024,8 @@ validateAsmConstraint(const char *&Name,
   default:
     return false;
 
-  case 's': 
-  case 'v': 
+  case 's':
+  case 'v':
     Info.setAllowsRegister();
     return true;
 
