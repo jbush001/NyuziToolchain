@@ -1363,9 +1363,9 @@ void Clang::AddAArch64TargetArgs(const ArgList &Args,
                                options::OPT_mno_global_merge)) {
     CmdArgs.push_back("-backend-option");
     if (A->getOption().matches(options::OPT_mno_global_merge))
-      CmdArgs.push_back("-aarch64-global-merge=false");
+      CmdArgs.push_back("-aarch64-enable-global-merge=false");
     else
-      CmdArgs.push_back("-aarch64-global-merge=true");
+      CmdArgs.push_back("-aarch64-enable-global-merge=true");
   }
 }
 
@@ -1540,8 +1540,54 @@ static void getMIPSTargetFeatures(const Driver &D, const llvm::Triple &Triple,
   mips::getMipsCPUAndABI(Args, Triple, CPUName, ABIName);
   ABIName = getGnuCompatibleMipsABIName(ABIName);
 
-  AddTargetFeature(Args, Features, options::OPT_mno_abicalls,
-                   options::OPT_mabicalls, "noabicalls");
+  // Historically, PIC code for MIPS was associated with -mabicalls, a.k.a
+  // SVR4 abicalls. Static code does not use SVR4 calling sequences. An ABI
+  // extension was developed by Richard Sandiford & Code Sourcery to support
+  // static code calling PIC code (CPIC). For O32 and N32 this means we have
+  // several combinations of PIC/static and abicalls. Pure static, static
+  // with the CPIC extension, and pure PIC code.
+
+  // At final link time, O32 and N32 with CPIC will have another section
+  // added to the binary which contains the stub functions to perform
+  // any fixups required for PIC code.
+
+  // For N64, the situation is more regular: code can either be static
+  // (non-abicalls) or PIC (abicalls). GCC has traditionally picked PIC code
+  // code for N64. Since Clang has already built the relocation model portion
+  // of the commandline, we pick add +noabicalls feature in the N64 static
+  // case.
+
+  // The is another case to be accounted for: -msym32, which enforces that all
+  // symbols have 32 bits in size. In this case, N64 can in theory use CPIC
+  // but it is unsupported.
+
+  // The combinations for N64 are:
+  // a) Static without abicalls and 64bit symbols.
+  // b) Static with abicalls and 32bit symbols.
+  // c) PIC with abicalls and 64bit symbols.
+
+  // For case (a) we need to add +noabicalls for N64.
+
+  bool IsN64 = ABIName == "64";
+  bool NonPIC = false;
+
+  Arg *LastPICArg = Args.getLastArg(options::OPT_fPIC, options::OPT_fno_PIC,
+                                    options::OPT_fpic, options::OPT_fno_pic,
+                                    options::OPT_fPIE, options::OPT_fno_PIE,
+                                    options::OPT_fpie, options::OPT_fno_pie);
+  if (LastPICArg) {
+    Option O = LastPICArg->getOption();
+    NonPIC =
+        (O.matches(options::OPT_fno_PIC) || O.matches(options::OPT_fno_pic) ||
+         O.matches(options::OPT_fno_PIE) || O.matches(options::OPT_fno_pie));
+  }
+
+  if (IsN64 && NonPIC) {
+    Features.push_back("+noabicalls");
+  } else {
+    AddTargetFeature(Args, Features, options::OPT_mno_abicalls,
+                     options::OPT_mabicalls, "noabicalls");
+  }
 
   mips::FloatABI FloatABI = getMipsFloatABI(D, Args);
   if (FloatABI == mips::FloatABI::Soft) {
@@ -3413,7 +3459,7 @@ static bool areOptimizationsEnabled(const ArgList &Args) {
   return false;
 }
 
-static bool mustUseFramePointerForTarget(const llvm::Triple &Triple) {
+static bool mustUseNonLeafFramePointerForTarget(const llvm::Triple &Triple) {
   switch (Triple.getArch()){
   default:
     return false;
@@ -3483,7 +3529,7 @@ static bool shouldUseFramePointer(const ArgList &Args,
   if (Arg *A = Args.getLastArg(options::OPT_fno_omit_frame_pointer,
                                options::OPT_fomit_frame_pointer))
     return A->getOption().matches(options::OPT_fno_omit_frame_pointer) ||
-           mustUseFramePointerForTarget(Triple);
+           mustUseNonLeafFramePointerForTarget(Triple);
 
   if (Args.hasArg(options::OPT_pg))
     return true;
@@ -3495,8 +3541,7 @@ static bool shouldUseLeafFramePointer(const ArgList &Args,
                                       const llvm::Triple &Triple) {
   if (Arg *A = Args.getLastArg(options::OPT_mno_omit_leaf_frame_pointer,
                                options::OPT_momit_leaf_frame_pointer))
-    return A->getOption().matches(options::OPT_mno_omit_leaf_frame_pointer) ||
-           mustUseFramePointerForTarget(Triple);
+    return A->getOption().matches(options::OPT_mno_omit_leaf_frame_pointer);
 
   if (Args.hasArg(options::OPT_pg))
     return true;
@@ -3981,6 +4026,13 @@ ParsePICArgs(const ToolChain &ToolChain, const ArgList &Args) {
   if ((ROPI || RWPI) && (PIC || PIE))
     ToolChain.getDriver().Diag(diag::err_drv_ropi_rwpi_incompatible_with_pic);
 
+  // When targettng MIPS64 with N64, the default is PIC, unless -mno-abicalls is
+  // used.
+  if ((Triple.getArch() == llvm::Triple::mips64 ||
+       Triple.getArch() == llvm::Triple::mips64el) &&
+      Args.hasArg(options::OPT_mno_abicalls))
+    return std::make_tuple(llvm::Reloc::Static, 0U, false);
+
   if (PIC)
     return std::make_tuple(llvm::Reloc::PIC_, IsPICLevelTwo ? 2U : 1U, PIE);
 
@@ -4246,8 +4298,16 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
     if (JA.getType() == types::TY_LLVM_BC)
       CmdArgs.push_back("-emit-llvm-uselists");
 
-    if (D.isUsingLTO())
+    if (D.isUsingLTO()) {
       Args.AddLastArg(CmdArgs, options::OPT_flto, options::OPT_flto_EQ);
+
+      // The Darwin linker currently uses the legacy LTO API, which does not
+      // support LTO unit features (CFI, whole program vtable opt) under
+      // ThinLTO.
+      if (!getToolChain().getTriple().isOSDarwin() ||
+          D.getLTOMode() == LTOK_Full)
+        CmdArgs.push_back("-flto-unit");
+    }
   }
 
   if (const Arg *A = Args.getLastArg(options::OPT_fthinlto_index_EQ)) {
@@ -4258,14 +4318,14 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
   }
 
   // Embed-bitcode option.
-  if (C.getDriver().embedBitcodeInObject() &&
+  if (C.getDriver().embedBitcodeInObject() && !C.getDriver().isUsingLTO() &&
       (isa<BackendJobAction>(JA) || isa<AssembleJobAction>(JA))) {
     // Add flags implied by -fembed-bitcode.
     Args.AddLastArg(CmdArgs, options::OPT_fembed_bitcode_EQ);
     // Disable all llvm IR level optimizations.
     CmdArgs.push_back("-disable-llvm-passes");
   }
-  if (C.getDriver().embedBitcodeMarkerOnly())
+  if (C.getDriver().embedBitcodeMarkerOnly() && !C.getDriver().isUsingLTO())
     CmdArgs.push_back("-fembed-bitcode=marker");
 
   // We normally speed up the clang process a bit by skipping destructors at
@@ -5615,6 +5675,10 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
       A->render(Args, CmdArgs);
   }
 
+  if (Args.hasFlag(options::OPT_fdebug_info_for_profiling,
+                   options::OPT_fno_debug_info_for_profiling, false))
+    CmdArgs.push_back("-fdebug-info-for-profiling");
+
   // -fbuiltin is default unless -mkernel is used.
   bool UseBuiltins =
       Args.hasFlag(options::OPT_fbuiltin, options::OPT_fno_builtin,
@@ -6014,7 +6078,13 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
                      options::OPT_fno_objc_arc_exceptions,
                      /*default*/ types::isCXX(InputType)))
       CmdArgs.push_back("-fobjc-arc-exceptions");
+  }
 
+  // Silence warning for full exception code emission options when explicitly
+  // set to use no ARC.
+  if (Args.hasArg(options::OPT_fno_objc_arc)) {
+    Args.ClaimAllArgs(options::OPT_fobjc_arc_exceptions);
+    Args.ClaimAllArgs(options::OPT_fno_objc_arc_exceptions);
   }
 
   // -fobjc-infer-related-result-type is the default, except in the Objective-C
@@ -6445,11 +6515,13 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
     A->claim();
 
     // We translate this by hand to the -cc1 argument, since nightly test uses
-    // it and developers have been trained to spell it with -mllvm.
-    if (StringRef(A->getValue(0)) == "-disable-llvm-passes") {
-      CmdArgs.push_back("-disable-llvm-passes");
-    } else
+    // it and developers have been trained to spell it with -mllvm. Both
+    // spellings are now deprecated and should be removed.
+    if (StringRef(A->getValue(0)) == "-disable-llvm-optzns") {
+      CmdArgs.push_back("-disable-llvm-optzns");
+    } else {
       A->render(Args, CmdArgs);
+    }
   }
 
   // With -save-temps, we want to save the unoptimized bitcode output from the
@@ -6461,7 +6533,8 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
   // pristine IR generated by the frontend. Ideally, a new compile action should
   // be added so both IR can be captured.
   if (C.getDriver().isSaveTempsEnabled() &&
-      !C.getDriver().embedBitcodeInObject() && isa<CompileJobAction>(JA))
+      !C.getDriver().embedBitcodeInObject() && !C.getDriver().isUsingLTO() &&
+      isa<CompileJobAction>(JA))
     CmdArgs.push_back("-disable-llvm-passes");
 
   if (Output.getType() == types::TY_Dependencies) {
@@ -8434,9 +8507,13 @@ void darwin::Linker::AddLinkArgs(Compilation &C, const ArgList &Args,
   // for embed-bitcode, use -bitcode_bundle in linker command
   if (C.getDriver().embedBitcodeEnabled()) {
     // Check if the toolchain supports bitcode build flow.
-    if (MachOTC.SupportsEmbeddedBitcode())
+    if (MachOTC.SupportsEmbeddedBitcode()) {
       CmdArgs.push_back("-bitcode_bundle");
-    else
+      if (C.getDriver().embedBitcodeMarkerOnly() && Version[0] >= 278) {
+        CmdArgs.push_back("-bitcode_process_mode");
+        CmdArgs.push_back("marker");
+      }
+    } else
       D.Diag(diag::err_drv_bitcode_unsupported_on_toolchain);
   }
 
@@ -9658,6 +9735,7 @@ void netbsd::Linker::ConstructJob(Compilation &C, const JobAction &JA,
   if (Major >= 7 || Major == 0) {
     switch (getToolChain().getArch()) {
     case llvm::Triple::aarch64:
+    case llvm::Triple::aarch64_be:
     case llvm::Triple::arm:
     case llvm::Triple::armeb:
     case llvm::Triple::thumb:
@@ -9844,7 +9922,8 @@ void gnutools::Assembler::ConstructJob(Compilation &C, const JobAction &JA,
 
     // LLVM doesn't support -mplt yet and acts as if it is always given.
     // However, -mplt has no effect with the N64 ABI.
-    CmdArgs.push_back(ABIName == "64" ? "-KPIC" : "-call_nonpic");
+    if (ABIName != "64" && !Args.hasArg(options::OPT_mno_abicalls))
+      CmdArgs.push_back("-call_nonpic");
 
     if (getToolChain().getArch() == llvm::Triple::mips ||
         getToolChain().getArch() == llvm::Triple::mips64)

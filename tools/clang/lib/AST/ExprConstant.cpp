@@ -1627,8 +1627,17 @@ static bool CheckLiteralType(EvalInfo &Info, const Expr *E,
   // C++1y: A constant initializer for an object o [...] may also invoke
   // constexpr constructors for o and its subobjects even if those objects
   // are of non-literal class types.
-  if (Info.getLangOpts().CPlusPlus14 && This &&
-      Info.EvaluatingDecl == This->getLValueBase())
+  //
+  // C++11 missed this detail for aggregates, so classes like this:
+  //   struct foo_t { union { int i; volatile int j; } u; };
+  // are not (obviously) initializable like so:
+  //   __attribute__((__require_constant_initialization__))
+  //   static const foo_t x = {{0}};
+  // because "i" is a subobject with non-literal initialization (due to the
+  // volatile member of the union). See:
+  //   http://www.open-std.org/jtc1/sc22/wg21/docs/cwg_active.html#1677
+  // Therefore, we use the C++1y behavior.
+  if (This && Info.EvaluatingDecl == This->getLValueBase())
     return true;
 
   // Prvalue constant expressions must be of literal types.
@@ -4543,6 +4552,12 @@ public:
                              Call.getLValueBase().dyn_cast<const ValueDecl*>());
       if (!FD)
         return Error(Callee);
+      // Don't call function pointers which have been cast to some other type.
+      // Per DR (no number yet), the caller and callee can differ in noexcept.
+      if (!Info.Ctx.hasSameFunctionTypeIgnoringExceptionSpec(
+        CalleeType->getPointeeType(), FD->getType())) {
+        return Error(E);
+      }
 
       // Overloaded operator calls to member functions are represented as normal
       // calls with '*this' as the first argument.
@@ -4558,14 +4573,42 @@ public:
           return false;
         This = &ThisVal;
         Args = Args.slice(1);
+      } else if (MD && MD->isLambdaStaticInvoker()) {   
+        // Map the static invoker for the lambda back to the call operator.
+        // Conveniently, we don't have to slice out the 'this' argument (as is
+        // being done for the non-static case), since a static member function
+        // doesn't have an implicit argument passed in.
+        const CXXRecordDecl *ClosureClass = MD->getParent();
+        assert(
+            ClosureClass->captures_begin() == ClosureClass->captures_end() &&
+            "Number of captures must be zero for conversion to function-ptr");
+
+        const CXXMethodDecl *LambdaCallOp =
+            ClosureClass->getLambdaCallOperator();
+
+        // Set 'FD', the function that will be called below, to the call
+        // operator.  If the closure object represents a generic lambda, find
+        // the corresponding specialization of the call operator.
+
+        if (ClosureClass->isGenericLambda()) {
+          assert(MD->isFunctionTemplateSpecialization() &&
+                 "A generic lambda's static-invoker function must be a "
+                 "template specialization");
+          const TemplateArgumentList *TAL = MD->getTemplateSpecializationArgs();
+          FunctionTemplateDecl *CallOpTemplate =
+              LambdaCallOp->getDescribedFunctionTemplate();
+          void *InsertPos = nullptr;
+          FunctionDecl *CorrespondingCallOpSpecialization =
+              CallOpTemplate->findSpecialization(TAL->asArray(), InsertPos);
+          assert(CorrespondingCallOpSpecialization &&
+                 "We must always have a function call operator specialization "
+                 "that corresponds to our static invoker specialization");
+          FD = cast<CXXMethodDecl>(CorrespondingCallOpSpecialization);
+        } else
+          FD = LambdaCallOp;
       }
 
-      // Don't call function pointers which have been cast to some other type.
-      // Per DR (no number yet), the caller and callee can differ in noexcept.
-      if (!Info.Ctx.hasSameFunctionTypeIgnoringExceptionSpec(
-              CalleeType->getPointeeType(), FD->getType())) {
-        return Error(E);
-      }
+      
     } else
       return Error(E);
 
@@ -5640,6 +5683,7 @@ bool PointerExprEvaluator::VisitBuiltinCallExpr(const CallExpr *E,
   case Builtin::BI__builtin_strchr:
   case Builtin::BI__builtin_wcschr:
   case Builtin::BI__builtin_memchr:
+  case Builtin::BI__builtin_char_memchr:
   case Builtin::BI__builtin_wmemchr: {
     if (!Visit(E->getArg(0)))
       return false;
@@ -5677,6 +5721,7 @@ bool PointerExprEvaluator::VisitBuiltinCallExpr(const CallExpr *E,
       // Fall through.
     case Builtin::BImemchr:
     case Builtin::BI__builtin_memchr:
+    case Builtin::BI__builtin_char_memchr:
       // memchr compares by converting both sides to unsigned char. That's also
       // correct for strchr if we get this far (to cope with plain char being
       // unsigned in the strchr case).
@@ -5834,6 +5879,7 @@ namespace {
     bool VisitCXXConstructExpr(const CXXConstructExpr *E) {
       return VisitCXXConstructExpr(E, E->getType());
     }
+    bool VisitLambdaExpr(const LambdaExpr *E);
     bool VisitCXXInheritedCtorInitExpr(const CXXInheritedCtorInitExpr *E);
     bool VisitCXXConstructExpr(const CXXConstructExpr *E, QualType T);
     bool VisitCXXStdInitializerListExpr(const CXXStdInitializerListExpr *E);
@@ -6168,6 +6214,21 @@ bool RecordExprEvaluator::VisitCXXStdInitializerListExpr(
   return true;
 }
 
+bool RecordExprEvaluator::VisitLambdaExpr(const LambdaExpr *E) {
+  const CXXRecordDecl *ClosureClass = E->getLambdaClass();
+  if (ClosureClass->isInvalidDecl()) return false;
+
+  if (Info.checkingPotentialConstantExpression()) return true;
+  if (E->capture_size()) {
+    Info.FFDiag(E, diag::note_unimplemented_constexpr_lambda_feature_ast)
+        << "can not evaluate lambda expressions with captures";
+    return false;
+  }
+  // FIXME: Implement captures.
+  Result = APValue(APValue::UninitStruct(), /*NumBases*/0, /*NumFields*/0);
+  return true;
+}
+
 static bool EvaluateRecord(const Expr *E, const LValue &This,
                            APValue &Result, EvalInfo &Info) {
   assert(E->isRValue() && E->getType()->isRecordType() &&
@@ -6215,6 +6276,9 @@ public:
     return VisitConstructExpr(E);
   }
   bool VisitCXXStdInitializerListExpr(const CXXStdInitializerListExpr *E) {
+    return VisitConstructExpr(E);
+  }
+  bool VisitLambdaExpr(const LambdaExpr *E) {
     return VisitConstructExpr(E);
   }
 };
@@ -6940,6 +7004,7 @@ static int EvaluateBuiltinClassifyType(const CallExpr *E,
   case Type::Vector:
   case Type::ExtVector:
   case Type::Auto:
+  case Type::DeducedTemplateSpecialization:
   case Type::ObjCObject:
   case Type::ObjCInterface:
   case Type::ObjCObjectPointer:
@@ -10357,9 +10422,24 @@ bool Expr::isCXX11ConstantExpr(const ASTContext &Ctx, APValue *Result,
 
 bool Expr::EvaluateWithSubstitution(APValue &Value, ASTContext &Ctx,
                                     const FunctionDecl *Callee,
-                                    ArrayRef<const Expr*> Args) const {
+                                    ArrayRef<const Expr*> Args,
+                                    const Expr *This) const {
   Expr::EvalStatus Status;
   EvalInfo Info(Ctx, Status, EvalInfo::EM_ConstantExpressionUnevaluated);
+
+  LValue ThisVal;
+  const LValue *ThisPtr = nullptr;
+  if (This) {
+#ifndef NDEBUG
+    auto *MD = dyn_cast<CXXMethodDecl>(Callee);
+    assert(MD && "Don't provide `this` for non-methods.");
+    assert(!MD->isStatic() && "Don't provide `this` for static methods.");
+#endif
+    if (EvaluateObjectArgument(Info, This, ThisVal))
+      ThisPtr = &ThisVal;
+    if (Info.EvalStatus.HasSideEffects)
+      return false;
+  }
 
   ArgVector ArgValues(Args.size());
   for (ArrayRef<const Expr*>::iterator I = Args.begin(), E = Args.end();
@@ -10373,7 +10453,7 @@ bool Expr::EvaluateWithSubstitution(APValue &Value, ASTContext &Ctx,
   }
 
   // Build fake call to Callee.
-  CallStackFrame Frame(Info, Callee->getLocation(), Callee, /*This*/nullptr,
+  CallStackFrame Frame(Info, Callee->getLocation(), Callee, ThisPtr,
                        ArgValues.data());
   return Evaluate(Value, Info, this) && !Info.EvalStatus.HasSideEffects;
 }

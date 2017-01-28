@@ -6,6 +6,21 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
+//
+// Synthetic sections represent chunks of linker-created data. If you
+// need to create a chunk of data that to be included in some section
+// in the result, you probably want to create it as a synthetic section.
+//
+// In reality, there are a few linker-synthesized chunks that are not
+// of synthetic sections, such as thunks. But we are rewriting them so
+// that eventually they are represented as synthetic sections.
+//
+// Synthetic sections are designed as input sections as opposed to
+// output sections because we want to allow them to be manipulated
+// using linker scripts just like other input sections from regular
+// files.
+//
+//===----------------------------------------------------------------------===//
 
 #ifndef LLD_ELF_SYNTHETIC_SECTION_H
 #define LLD_ELF_SYNTHETIC_SECTION_H
@@ -366,23 +381,26 @@ public:
   void finalize() override;
   void writeTo(uint8_t *Buf) override;
   size_t getSize() const override { return getNumSymbols() * sizeof(Elf_Sym); }
-  void addSymbol(SymbolBody *Body);
+  void addGlobal(SymbolBody *Body);
+  void addLocal(SymbolBody *Body);
   StringTableSection<ELFT> &getStrTabSec() const { return StrTabSec; }
-  unsigned getNumSymbols() const { return NumLocals + Symbols.size() + 1; }
+  unsigned getNumSymbols() const { return Symbols.size() + 1; }
+  size_t getSymbolIndex(SymbolBody *Body);
 
   ArrayRef<SymbolTableEntry> getSymbols() const { return Symbols; }
 
-  unsigned NumLocals = 0;
-  StringTableSection<ELFT> &StrTabSec;
+  static const OutputSectionBase *getOutputSection(SymbolBody *Sym);
 
 private:
   void writeLocalSymbols(uint8_t *&Buf);
   void writeGlobalSymbols(uint8_t *Buf);
 
-  const OutputSectionBase *getOutputSection(SymbolBody *Sym);
-
   // A vector of symbols and their string table offsets.
   std::vector<SymbolTableEntry> Symbols;
+
+  StringTableSection<ELFT> &StrTabSec;
+
+  unsigned NumLocals = 0;
 };
 
 // Outputs GNU Hash section. For detailed explanation see:
@@ -446,6 +464,7 @@ public:
   size_t getSize() const override;
   void addEntry(SymbolBody &Sym);
   bool empty() const override { return Entries.empty(); }
+  void addSymbols();
 
 private:
   std::vector<std::pair<const SymbolBody *, unsigned>> Entries;
@@ -461,6 +480,7 @@ public:
   size_t getSize() const override;
   void addEntry(SymbolBody &Sym);
   bool empty() const override { return Entries.empty(); }
+  void addSymbols();
 
 private:
   std::vector<std::pair<const SymbolBody *, unsigned>> Entries;
@@ -682,6 +702,10 @@ public:
 template <class ELFT> InputSection<ELFT> *createCommonSection();
 template <class ELFT> InputSection<ELFT> *createInterpSection();
 template <class ELFT> MergeInputSection<ELFT> *createCommentSection();
+template <class ELFT>
+SymbolBody *
+addSyntheticLocal(StringRef Name, uint8_t Type, typename ELFT::uint Value,
+                  typename ELFT::uint Size, InputSectionBase<ELFT> *Section);
 
 // Linker generated sections which can be used as inputs.
 template <class ELFT> struct In {

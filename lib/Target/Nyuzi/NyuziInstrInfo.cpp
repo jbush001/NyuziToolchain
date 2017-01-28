@@ -260,7 +260,7 @@ unsigned NyuziInstrInfo::insertBranch(MachineBasicBlock &MBB,
   assert(!BytesAdded && "code size not handled");
   if (FBB) {
     // Has a false block, this is a two way conditional branch
-    BuildMI(&MBB, DL, get(Cond[0].getImm())).addOperand(Cond[1]).addMBB(TBB);
+    BuildMI(&MBB, DL, get(Cond[0].getImm())).add(Cond[1]).addMBB(TBB);
     BuildMI(&MBB, DL, get(Nyuzi::GOTO)).addMBB(FBB);
     return 2;
   }
@@ -272,7 +272,7 @@ unsigned NyuziInstrInfo::insertBranch(MachineBasicBlock &MBB,
   }
 
   // One-way conditional branch
-  BuildMI(&MBB, DL, get(Cond[0].getImm())).addOperand(Cond[1]).addMBB(TBB);
+  BuildMI(&MBB, DL, get(Cond[0].getImm())).add(Cond[1]).addMBB(TBB);
   return 1;
 }
 

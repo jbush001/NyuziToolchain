@@ -173,12 +173,16 @@ namespace pr6249 {
 }
 
 namespace PR6723 {
-  template<unsigned char C> void f(int (&a)[C]); // expected-note {{candidate template ignored}} \
-  // expected-note{{substitution failure [with C = '\x00']}}
+  template<unsigned char C> void f(int (&a)[C]); // expected-note 3{{candidate template ignored: substitution failure [with C = '\x00']}}
+  // expected-note@-1 {{not viable: no known conversion from 'int [512]' to 'int (&)[0]'}}
   void g() {
     int arr512[512];
     f(arr512); // expected-error{{no matching function for call}}
     f<512>(arr512); // expected-error{{no matching function for call}}
+
+    int arr0[0];
+    f(arr0); // expected-error{{no matching function for call}}
+    f<0>(arr0); // expected-error{{no matching function for call}}
   }
 }
 
@@ -366,13 +370,13 @@ namespace PR17696 {
 }
 
 namespace partial_order_different_types {
-  // These are unordered because the type of the final argument doesn't match.
-  template<int, int, typename T, typename, T> struct A; // expected-note {{here}}
-  template<int N, typename T, typename U, T V> struct A<0, N, T, U, V> {}; // expected-note {{matches}}
-  template<typename T, typename U, U V> struct A<0, 0, T, U, V> {}; // expected-note {{matches}}
-  // expected-error@-1 {{not more specialized than the primary}}
-  // expected-note@-2 {{deduced non-type template argument does not have the same type as the corresponding template parameter ('U' vs 'type-parameter-0-0')}}
-  A<0, 0, int, int, 0> a; // expected-error {{ambiguous partial specializations}}
+  template<int, int, typename T, typename, T> struct A;
+  template<int N, typename T, typename U, T V> struct A<0, N, T, U, V>; // expected-note {{matches}}
+  // FIXME: It appears that this partial specialization should be ill-formed as
+  // it is not more specialized than the primary template. V is not deducible
+  // because it does not have the same type as the corresponding parameter.
+  template<int N, typename T, typename U, U V> struct A<0, N, T, U, V> {}; // expected-note {{matches}}
+  A<0, 0, int, int, 0> a; // expected-error {{ambiguous}}
 }
 
 namespace partial_order_references {
@@ -430,7 +434,7 @@ namespace dependent_nested_partial_specialization {
 
   template<typename T> struct E {
     template<typename U, U V> struct F; // expected-note {{template}}
-    template<typename W, T V> struct F<W, V> {}; // expected-error {{not more specialized than the primary}} expected-note {{does not have the same type}}
+    template<typename W, T V> struct F<W, V> {}; // expected-error {{not more specialized than the primary}}
   };
   E<int>::F<int, 0> e1; // expected-note {{instantiation of}}
 }
@@ -450,4 +454,12 @@ namespace nondependent_default_arg_ordering {
     X<int *, &n> x; f(x); // expected-error {{ambiguous}}
     X<int *, &m> y; f(y); // expected-error {{ambiguous}}
   }
+}
+
+namespace pointer_to_char_array {
+  typedef char T[4];
+  template<T *P> struct A { void f(); };
+  template<T *P> void A<P>::f() {}
+  T foo = "foo";
+  void g() { A<&foo>().f(); }
 }

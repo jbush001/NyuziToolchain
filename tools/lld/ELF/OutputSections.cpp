@@ -139,6 +139,13 @@ void OutputSection<ELFT>::addSection(InputSectionData *C) {
     this->Entsize = S->Entsize;
 }
 
+template <class ELFT>
+void OutputSection<ELFT>::forEachInputSection(
+    std::function<void(InputSectionData *)> F) {
+  for (InputSection<ELFT> *S : Sections)
+    F(S);
+}
+
 // This function is called after we sort input sections
 // and scan relocations to setup sections' offsets.
 template <class ELFT> void OutputSection<ELFT>::assignOffsets() {
@@ -264,6 +271,13 @@ template <class ELFT> void OutputSection<ELFT>::writeTo(uint8_t *Buf) {
 template <class ELFT>
 EhOutputSection<ELFT>::EhOutputSection()
     : OutputSectionBase(".eh_frame", SHT_PROGBITS, SHF_ALLOC) {}
+
+template <class ELFT>
+void EhOutputSection<ELFT>::forEachInputSection(
+    std::function<void(InputSectionData *)> F) {
+  for (EhInputSection<ELFT> *S : Sections)
+    F(S);
+}
 
 // Search for an existing CIE record or create a new one.
 // CIE records from input object files are uniquified by their contents
@@ -636,7 +650,12 @@ OutputSectionFactory<ELFT>::create(const SectionKey &Key,
     if (getIncompatibleFlags(Sec->Flags) != getIncompatibleFlags(C->Flags))
       error("Section has flags incompatible with others with the same name " +
             toString(C));
-    if (Sec->Type != C->Type)
+    // Convert notbits to progbits if they are mixed. This happens is some
+    // linker scripts.
+    if (Sec->Type == SHT_NOBITS && C->Type == SHT_PROGBITS)
+      Sec->Type = SHT_PROGBITS;
+    if (Sec->Type != C->Type &&
+        !(Sec->Type == SHT_PROGBITS && C->Type == SHT_NOBITS))
       error("Section has different type from others with the same name " +
             toString(C));
     Sec->Flags |= Flags;

@@ -399,7 +399,21 @@ template <class ELFT> static uint32_t getAlignment(SharedSymbol<ELFT> *SS) {
   return 1 << TrailingZeros;
 }
 
-// Reserve space in .bss for copy relocation.
+template <class ELFT> static bool isReadOnly(SharedSymbol<ELFT> *SS) {
+  typedef typename ELFT::uint uintX_t;
+  typedef typename ELFT::Phdr Elf_Phdr;
+
+  // Determine if the symbol is read-only by scanning the DSO's program headers.
+  uintX_t Value = SS->Sym.st_value;
+  for (const Elf_Phdr &Phdr : check(SS->file()->getObj().program_headers()))
+    if ((Phdr.p_type == ELF::PT_LOAD || Phdr.p_type == ELF::PT_GNU_RELRO) &&
+        !(Phdr.p_flags & ELF::PF_W) && Value >= Phdr.p_vaddr &&
+        Value < Phdr.p_vaddr + Phdr.p_memsz)
+      return true;
+  return false;
+}
+
+// Reserve space in .bss or .bss.rel.ro for copy relocation.
 template <class ELFT> static void addCopyRelSymbol(SharedSymbol<ELFT> *SS) {
   typedef typename ELFT::uint uintX_t;
   typedef typename ELFT::Sym Elf_Sym;
@@ -409,10 +423,16 @@ template <class ELFT> static void addCopyRelSymbol(SharedSymbol<ELFT> *SS) {
   if (SymSize == 0)
     fatal("cannot create a copy relocation for symbol " + toString(*SS));
 
+  // See if this symbol is in a read-only segment. If so, preserve the symbol's
+  // memory protection by reserving space in the .bss.rel.ro section.
+  bool IsReadOnly = isReadOnly(SS);
+  OutputSection<ELFT> *CopySec =
+      IsReadOnly ? Out<ELFT>::BssRelRo : Out<ELFT>::Bss;
+
   uintX_t Alignment = getAlignment(SS);
-  uintX_t Off = alignTo(Out<ELFT>::Bss->Size, Alignment);
-  Out<ELFT>::Bss->Size = Off + SymSize;
-  Out<ELFT>::Bss->updateAlignment(Alignment);
+  uintX_t Off = alignTo(CopySec->Size, Alignment);
+  CopySec->Size = Off + SymSize;
+  CopySec->updateAlignment(Alignment);
   uintX_t Shndx = SS->Sym.st_shndx;
   uintX_t Value = SS->Sym.st_value;
   // Look through the DSO's dynamic symbol table for aliases and create a
@@ -425,12 +445,12 @@ template <class ELFT> static void addCopyRelSymbol(SharedSymbol<ELFT> *SS) {
         Symtab<ELFT>::X->find(check(S.getName(SS->file()->getStringTable()))));
     if (!Alias)
       continue;
-    Alias->OffsetInBss = Off;
+    Alias->CopyIsInBssRelRo = IsReadOnly;
+    Alias->CopyOffset = Off;
     Alias->NeedsCopyOrPltAddr = true;
     Alias->symbol()->IsUsedInRegularObj = true;
   }
-  In<ELFT>::RelaDyn->addReloc(
-      {Target->CopyRel, Out<ELFT>::Bss, SS->OffsetInBss, false, SS, 0});
+  In<ELFT>::RelaDyn->addReloc({Target->CopyRel, CopySec, Off, false, SS, 0});
 }
 
 template <class ELFT>
@@ -447,7 +467,7 @@ static RelExpr adjustExpr(const elf::ObjectFile<ELFT> &File, SymbolBody &Body,
     if (Expr == R_GOT_PC && !isAbsoluteValue<ELFT>(Body))
       Expr = Target->adjustRelaxExpr(Type, Data, Expr);
   }
-  Expr = Target->getThunkExpr(Expr, Type, File, Body);
+  Expr = Target->getThunkExpr(Expr, Type, &File, Body);
 
   if (IsWrite || isStaticLinkTimeConstant<ELFT>(Expr, Type, Body, S, RelOff))
     return Expr;
@@ -537,17 +557,17 @@ static typename ELFT::uint computeAddend(const elf::ObjectFile<ELFT> &File,
 template <class ELFT>
 static void reportUndefined(SymbolBody &Sym, InputSectionBase<ELFT> &S,
                             typename ELFT::uint Offset) {
-  if (Config->UnresolvedSymbols == UnresolvedPolicy::Ignore)
-    return;
-
-  if (Config->Shared && Sym.symbol()->Visibility == STV_DEFAULT &&
-      Config->UnresolvedSymbols != UnresolvedPolicy::NoUndef)
+  bool CanBeExternal = Sym.symbol()->computeBinding() != STB_LOCAL &&
+                       Sym.getVisibility() == STV_DEFAULT;
+  if (Config->UnresolvedSymbols == UnresolvedPolicy::IgnoreAll ||
+      (Config->UnresolvedSymbols == UnresolvedPolicy::Ignore && CanBeExternal))
     return;
 
   std::string Msg =
       S.getLocation(Offset) + ": undefined symbol '" + toString(Sym) + "'";
 
-  if (Config->UnresolvedSymbols == UnresolvedPolicy::Warn)
+  if (Config->UnresolvedSymbols == UnresolvedPolicy::WarnAll ||
+      (Config->UnresolvedSymbols == UnresolvedPolicy::Warn && CanBeExternal))
     warn(Msg);
   else
     error(Msg);
@@ -785,31 +805,33 @@ template <class ELFT> void scanRelocations(InputSectionBase<ELFT> &S) {
     scanRelocs(S, S.rels());
 }
 
-template <class ELFT, class RelTy>
-static void createThunks(InputSectionBase<ELFT> &C, ArrayRef<RelTy> Rels) {
-  const elf::ObjectFile<ELFT> *File = C.getFile();
-  for (const RelTy &Rel : Rels) {
-    SymbolBody &Body = File->getRelocTargetSym(Rel);
-    uint32_t Type = Rel.getType(Config->Mips64EL);
-    RelExpr Expr = Target->getRelExpr(Type, Body);
-    if (!isPreemptible(Body, Type) && needsPlt(Expr))
-      Expr = fromPlt(Expr);
-    Expr = Target->getThunkExpr(Expr, Type, *File, Body);
-    // Some targets might require creation of thunks for relocations.
-    // Now we support only MIPS which requires LA25 thunk to call PIC
-    // code from non-PIC one, and ARM which requires interworking.
-    if (Expr == R_THUNK_ABS || Expr == R_THUNK_PC || Expr == R_THUNK_PLT_PC) {
-      auto *Sec = cast<InputSection<ELFT>>(&C);
-      addThunk<ELFT>(Type, Body, *Sec);
+template <class ELFT>
+void createThunks(ArrayRef<OutputSectionBase *> OutputSections) {
+  for (OutputSectionBase *Base : OutputSections) {
+    auto *OS = dyn_cast<OutputSection<ELFT>>(Base);
+    if (OS == nullptr)
+      continue;
+    for (InputSection<ELFT> *IS : OS->Sections) {
+      for (const Relocation &Rel : IS->Relocations) {
+        if (Rel.Sym == nullptr)
+          continue;
+        RelExpr Expr = Rel.Expr;
+        // Some targets might require creation of thunks for relocations.
+        // Now we support only MIPS which requires LA25 thunk to call PIC
+        // code from non-PIC one, and ARM which requires interworking.
+        if (Expr == R_THUNK_ABS || Expr == R_THUNK_PC ||
+            Expr == R_THUNK_PLT_PC)
+          addThunk<ELFT>(Rel.Type, *Rel.Sym, *IS);
+      }
     }
   }
-}
-
-template <class ELFT> void createThunks(InputSectionBase<ELFT> &S) {
-  if (S.AreRelocsRela)
-    createThunks(S, S.relas());
-  else
-    createThunks(S, S.rels());
+  // Added thunks may affect the output section offset
+  for (OutputSectionBase *Base : OutputSections)
+    if (auto *OS = dyn_cast<OutputSection<ELFT>>(Base))
+      if (OS->Type == SHT_PROGBITS) {
+        OS->Size = 0;
+        OS->assignOffsets();
+      }
 }
 
 template void scanRelocations<ELF32LE>(InputSectionBase<ELF32LE> &);
@@ -817,9 +839,9 @@ template void scanRelocations<ELF32BE>(InputSectionBase<ELF32BE> &);
 template void scanRelocations<ELF64LE>(InputSectionBase<ELF64LE> &);
 template void scanRelocations<ELF64BE>(InputSectionBase<ELF64BE> &);
 
-template void createThunks<ELF32LE>(InputSectionBase<ELF32LE> &);
-template void createThunks<ELF32BE>(InputSectionBase<ELF32BE> &);
-template void createThunks<ELF64LE>(InputSectionBase<ELF64LE> &);
-template void createThunks<ELF64BE>(InputSectionBase<ELF64BE> &);
+template void createThunks<ELF32LE>(ArrayRef<OutputSectionBase *>);
+template void createThunks<ELF32BE>(ArrayRef<OutputSectionBase *>);
+template void createThunks<ELF64LE>(ArrayRef<OutputSectionBase *>);
+template void createThunks<ELF64BE>(ArrayRef<OutputSectionBase *>);
 }
 }

@@ -6,6 +6,22 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
+//
+// The driver drives the entire linking process. It is responsible for
+// parsing command line options and doing whatever it is instructed to do.
+//
+// One notable thing in the LLD's driver when compared to other linkers is
+// that the LLD's driver is agnostic on the host operating system.
+// Other linkers usually have implicit default values (such as a dynamic
+// linker path or library paths) for each host OS.
+//
+// I don't think implicit default values are useful because they are
+// usually explicitly specified by the compiler driver. They can even
+// be harmful when you are doing cross-linking. Therefore, in LLD, we
+// simply trust the compiler driver to pass all required options to us
+// and don't try to make effort on our side.
+//
+//===----------------------------------------------------------------------===//
 
 #include "Driver.h"
 #include "Config.h"
@@ -24,8 +40,10 @@
 #include "lld/Driver/Driver.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/StringSwitch.h"
+#include "llvm/Object/Decompressor.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Path.h"
+#include "llvm/Support/TarWriter.h"
 #include "llvm/Support/TargetSelect.h"
 #include "llvm/Support/raw_ostream.h"
 #include <cstdlib>
@@ -51,6 +69,7 @@ bool elf::link(ArrayRef<const char *> Args, bool CanExitEarly,
   ErrorCount = 0;
   ErrorOS = &Error;
   Argv0 = Args[0];
+  Tar = nullptr;
 
   Config = make<Configuration>();
   Driver = make<LinkerDriver>();
@@ -168,25 +187,6 @@ void LinkerDriver::addFile(StringRef Path) {
     else
       Files.push_back(createObjectFile(MBRef));
   }
-}
-
-Optional<MemoryBufferRef> LinkerDriver::readFile(StringRef Path) {
-  if (Config->Verbose)
-    outs() << Path << "\n";
-
-  auto MBOrErr = MemoryBuffer::getFile(Path);
-  if (auto EC = MBOrErr.getError()) {
-    error(EC, "cannot open " + Path);
-    return None;
-  }
-  std::unique_ptr<MemoryBuffer> &MB = *MBOrErr;
-  MemoryBufferRef MBRef = MB->getMemBufferRef();
-  make<std::unique_ptr<MemoryBuffer>>(std::move(MB)); // take MB ownership
-
-  if (Tar)
-    Tar->append(relativeToRoot(Path), MBRef.getBuffer());
-
-  return MBRef;
 }
 
 // Add a given library by searching it from input search paths.
@@ -313,9 +313,10 @@ void LinkerDriver::main(ArrayRef<const char *> ArgsArr, bool CanExitEarly) {
     Expected<std::unique_ptr<TarWriter>> ErrOrWriter =
         TarWriter::create(Path, path::stem(Path));
     if (ErrOrWriter) {
-      Tar = std::move(*ErrOrWriter);
+      Tar = ErrOrWriter->get();
       Tar->append("response.txt", createResponseFile(Args));
       Tar->append("version.txt", getLLDVersion() + "\n");
+      make<std::unique_ptr<TarWriter>>(std::move(*ErrOrWriter));
     } else {
       error(Twine("--reproduce: failed to open ") + Path + ": " +
             toString(ErrOrWriter.takeError()));
@@ -349,22 +350,39 @@ void LinkerDriver::main(ArrayRef<const char *> ArgsArr, bool CanExitEarly) {
 }
 
 static UnresolvedPolicy getUnresolvedSymbolOption(opt::InputArgList &Args) {
-  if (Args.hasArg(OPT_noinhibit_exec))
-    return UnresolvedPolicy::Warn;
-  if (Args.hasArg(OPT_no_undefined) || hasZOption(Args, "defs"))
-    return UnresolvedPolicy::NoUndef;
-  if (Config->Relocatable)
-    return UnresolvedPolicy::Ignore;
-
-  if (auto *Arg = Args.getLastArg(OPT_unresolved_symbols)) {
-    StringRef S = Arg->getValue();
-    if (S == "ignore-all" || S == "ignore-in-object-files")
-      return UnresolvedPolicy::Ignore;
-    if (S == "ignore-in-shared-libs" || S == "report-all")
-      return UnresolvedPolicy::ReportError;
-    error("unknown --unresolved-symbols value: " + S);
+  // Find the last of --unresolved-symbols, --no-undefined and -z defs.
+  bool UnresolvedSymbolIsIgnoreAll = false;
+  bool ZDefs = false;
+  for (auto *Arg : Args) {
+    unsigned ID = Arg->getOption().getID();
+    if (ID == OPT_unresolved_symbols) {
+      StringRef S = Arg->getValue();
+      if (S == "ignore-all" || S == "ignore-in-object-files") {
+        ZDefs = false;
+        UnresolvedSymbolIsIgnoreAll = true;
+      } else if (S != "ignore-in-shared-libs" && S != "report-all") {
+        error("unknown --unresolved-symbols value: " + S);
+      }
+    } else if (ID == OPT_no_undefined ||
+               (ID == OPT_z && Arg->getValue() == StringRef("defs"))) {
+      ZDefs = true;
+      UnresolvedSymbolIsIgnoreAll = false;
+    }
   }
-  return UnresolvedPolicy::ReportError;
+
+  if (Args.hasArg(OPT_noinhibit_exec))
+    return UnresolvedPolicy::WarnAll;
+  if (Config->Relocatable)
+    return UnresolvedPolicy::IgnoreAll;
+
+  if (ZDefs || (!Config->Shared && !UnresolvedSymbolIsIgnoreAll)) {
+    if (auto *Arg = Args.getLastArg(OPT_warn_undef, OPT_error_undef))
+      if (Arg->getOption().getID() == OPT_warn_undef)
+        return UnresolvedPolicy::Warn;
+    return UnresolvedPolicy::ReportError;
+  }
+
+  return UnresolvedPolicy::Ignore;
 }
 
 static Target2Policy getTarget2Option(opt::InputArgList &Args) {
@@ -499,8 +517,10 @@ void LinkerDriver::readConfigs(opt::InputArgList &Args) {
   Config->DisableVerify = Args.hasArg(OPT_disable_verify);
   Config->EhFrameHdr = Args.hasArg(OPT_eh_frame_hdr);
   Config->EnableNewDtags = !Args.hasArg(OPT_disable_new_dtags);
-  Config->ExportDynamic = Args.hasArg(OPT_export_dynamic);
-  Config->FatalWarnings = Args.hasArg(OPT_fatal_warnings);
+  Config->ExportDynamic =
+      getArg(Args, OPT_export_dynamic, OPT_no_export_dynamic, false);
+  Config->FatalWarnings =
+      getArg(Args, OPT_fatal_warnings, OPT_no_fatal_warnings, false);
   Config->GcSections = getArg(Args, OPT_gc_sections, OPT_no_gc_sections, false);
   Config->GdbIndex = Args.hasArg(OPT_gdb_index);
   Config->ICF = Args.hasArg(OPT_icf);
@@ -511,6 +531,8 @@ void LinkerDriver::readConfigs(opt::InputArgList &Args) {
   Config->Pie = getArg(Args, OPT_pie, OPT_nopie, false);
   Config->PrintGcSections = Args.hasArg(OPT_print_gc_sections);
   Config->Relocatable = Args.hasArg(OPT_relocatable);
+  Config->DefineCommon = getArg(Args, OPT_define_common, OPT_no_define_common,
+                                !Config->Relocatable);
   Config->Discard = getDiscardOption(Args);
   Config->SaveTemps = Args.hasArg(OPT_save_temps);
   Config->SingleRoRx = Args.hasArg(OPT_no_rosegment);
@@ -527,6 +549,7 @@ void LinkerDriver::readConfigs(opt::InputArgList &Args) {
   Config->Init = getString(Args, OPT_init, "_init");
   Config->LTOAAPipeline = getString(Args, OPT_lto_aa_pipeline);
   Config->LTONewPmPasses = getString(Args, OPT_lto_newpm_passes);
+  Config->MapFile = getString(Args, OPT_Map);
   Config->OutputFile = getString(Args, OPT_o);
   Config->SoName = getString(Args, OPT_soname);
   Config->Sysroot = getString(Args, OPT_sysroot);
@@ -556,6 +579,9 @@ void LinkerDriver::readConfigs(opt::InputArgList &Args) {
   Config->SortSection = getSortKind(Args);
   Config->Target2 = getTarget2Option(Args);
   Config->UnresolvedSymbols = getUnresolvedSymbolOption(Args);
+
+  if (Args.hasArg(OPT_print_map))
+    Config->MapFile = "-";
 
   // --omagic is an option to create old-fashioned executables in which
   // .text segments are writable. Today, the option is still in use to
@@ -618,13 +644,14 @@ void LinkerDriver::readConfigs(opt::InputArgList &Args) {
     if (Optional<MemoryBufferRef> Buffer = readFile(Arg->getValue()))
       Config->SymbolOrderingFile = getLines(*Buffer);
 
-  // If --retain-symbol-file is used, we'll retail only the symbols listed in
+  // If --retain-symbol-file is used, we'll keep only the symbols listed in
   // the file and discard all others.
   if (auto *Arg = Args.getLastArg(OPT_retain_symbols_file)) {
-    Config->Discard = DiscardPolicy::RetainFile;
+    Config->DefaultSymbolVersion = VER_NDX_LOCAL;
     if (Optional<MemoryBufferRef> Buffer = readFile(Arg->getValue()))
       for (StringRef S : getLines(*Buffer))
-        Config->RetainSymbolsFile.insert(S);
+        Config->VersionScriptGlobals.push_back(
+            {S, /*IsExternCpp*/ false, /*HasWildcard*/ false});
   }
 
   for (auto *Arg : Args.filtered(OPT_export_dynamic_symbol))
@@ -831,7 +858,7 @@ template <class ELFT> void LinkerDriver::link(opt::InputArgList &Args) {
           [](InputSectionBase<ELFT> *S) {
             if (!S->Live)
               return;
-            if (S->isCompressed())
+            if (Decompressor::isCompressedELFSection(S->Flags, S->Name))
               S->uncompress();
             if (auto *MS = dyn_cast<MergeInputSection<ELFT>>(S))
               MS->splitIntoPieces();

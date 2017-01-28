@@ -914,7 +914,9 @@ namespace clang {
       /// \brief A PipeType record.
       TYPE_PIPE                  = 43,
       /// \brief An ObjCTypeParamType record.
-      TYPE_OBJC_TYPE_PARAM       = 44
+      TYPE_OBJC_TYPE_PARAM       = 44,
+      /// \brief A DeducedTemplateSpecializationType record.
+      TYPE_DEDUCED_TEMPLATE_SPECIALIZATION = 45
     };
 
     /// \brief The type IDs for special types constructed by semantic
@@ -1517,6 +1519,7 @@ namespace clang {
       STMT_OMP_TARGET_TEAMS_DISTRIBUTE_DIRECTIVE,
       STMT_OMP_TARGET_TEAMS_DISTRIBUTE_PARALLEL_FOR_DIRECTIVE,
       STMT_OMP_TARGET_TEAMS_DISTRIBUTE_PARALLEL_FOR_SIMD_DIRECTIVE,
+      STMT_OMP_TARGET_TEAMS_DISTRIBUTE_SIMD_DIRECTIVE,
       EXPR_OMP_ARRAY_SECTION,
 
       // ARC
