@@ -512,7 +512,7 @@ protected:
     Builder.defineMacro("__unix__");
     Builder.defineMacro("__ELF__");
     if (Opts.POSIXThreads)
-      Builder.defineMacro("_POSIX_THREADS");
+      Builder.defineMacro("_REENTRANT");
 
     switch (Triple.getArch()) {
     default:
@@ -2113,15 +2113,15 @@ public:
     for (auto &I : TargetOpts.FeaturesAsWritten) {
       if (I == "+fp32-denormals" || I == "-fp32-denormals")
         hasFP32Denormals = true;
-      if (I == "+fp64-denormals" || I == "-fp64-denormals")
+      if (I == "+fp64-fp16-denormals" || I == "-fp64-fp16-denormals")
         hasFP64Denormals = true;
     }
     if (!hasFP32Denormals)
       TargetOpts.Features.push_back((Twine(hasFullSpeedFP32Denorms &&
           !CGOpts.FlushDenorm ? '+' : '-') + Twine("fp32-denormals")).str());
-    // Always do not flush fp64 denorms.
+    // Always do not flush fp64 or fp16 denorms.
     if (!hasFP64Denormals && hasFP64)
-      TargetOpts.Features.push_back("+fp64-denormals");
+      TargetOpts.Features.push_back("+fp64-fp16-denormals");
   }
 
   ArrayRef<Builtin::Info> getTargetBuiltins() const override {
@@ -2663,6 +2663,12 @@ class X86TargetInfo : public TargetInfo {
     CK_BDVER4,
     //@}
 
+    /// \name zen
+    /// Zen architecture processors.
+    //@{
+    CK_ZNVER1,
+    //@}
+
     /// This specification is deprecated and will be removed in the future.
     /// Users should prefer \see CK_K8.
     // FIXME: Warn on this when the CPU is set to it.
@@ -2744,6 +2750,7 @@ class X86TargetInfo : public TargetInfo {
         .Case("bdver2", CK_BDVER2)
         .Case("bdver3", CK_BDVER3)
         .Case("bdver4", CK_BDVER4)
+        .Case("znver1", CK_ZNVER1)
         .Case("x86-64", CK_x86_64)
         .Case("geode", CK_Geode)
         .Default(CK_Generic);
@@ -2943,6 +2950,7 @@ public:
     case CK_BDVER2:
     case CK_BDVER3:
     case CK_BDVER4:
+    case CK_ZNVER1:
     case CK_x86_64:
       return true;
     }
@@ -3189,6 +3197,33 @@ bool X86TargetInfo::initFeatureMap(
     setFeatureEnabledImpl(Features, "prfchw", true);
     setFeatureEnabledImpl(Features, "cx16", true);
     setFeatureEnabledImpl(Features, "fxsr", true);
+    break;
+  case CK_ZNVER1:
+    setFeatureEnabledImpl(Features, "adx", true);
+    setFeatureEnabledImpl(Features, "aes", true);
+    setFeatureEnabledImpl(Features, "avx2", true);
+    setFeatureEnabledImpl(Features, "bmi", true);
+    setFeatureEnabledImpl(Features, "bmi2", true);
+    setFeatureEnabledImpl(Features, "clflushopt", true);
+    setFeatureEnabledImpl(Features, "cx16", true);
+    setFeatureEnabledImpl(Features, "f16c", true);
+    setFeatureEnabledImpl(Features, "fma", true);
+    setFeatureEnabledImpl(Features, "fsgsbase", true);
+    setFeatureEnabledImpl(Features, "fxsr", true);
+    setFeatureEnabledImpl(Features, "lzcnt", true);
+    setFeatureEnabledImpl(Features, "mwaitx", true);
+    setFeatureEnabledImpl(Features, "movbe", true);
+    setFeatureEnabledImpl(Features, "pclmul", true);
+    setFeatureEnabledImpl(Features, "popcnt", true);
+    setFeatureEnabledImpl(Features, "prfchw", true);
+    setFeatureEnabledImpl(Features, "rdrnd", true);
+    setFeatureEnabledImpl(Features, "rdseed", true);
+    setFeatureEnabledImpl(Features, "sha", true);
+    setFeatureEnabledImpl(Features, "sse4a", true);
+    setFeatureEnabledImpl(Features, "xsave", true);
+    setFeatureEnabledImpl(Features, "xsavec", true);
+    setFeatureEnabledImpl(Features, "xsaveopt", true);
+    setFeatureEnabledImpl(Features, "xsaves", true);
     break;
   case CK_BDVER4:
     setFeatureEnabledImpl(Features, "avx2", true);
@@ -3740,6 +3775,9 @@ void X86TargetInfo::getTargetDefines(const LangOptions &Opts,
     break;
   case CK_BDVER4:
     defineCPUMacros(Builder, "bdver4");
+    break;
+  case CK_ZNVER1:
+    defineCPUMacros(Builder, "znver1");
     break;
   case CK_Geode:
     defineCPUMacros(Builder, "geode");
@@ -8566,8 +8604,6 @@ static TargetInfo *AllocateTarget(const llvm::Triple &Triple,
       return new LinuxTargetInfo<ARMleTargetInfo>(Triple, Opts);
     case llvm::Triple::FreeBSD:
       return new FreeBSDTargetInfo<ARMleTargetInfo>(Triple, Opts);
-    case llvm::Triple::Fuchsia:
-      return new FuchsiaTargetInfo<ARMleTargetInfo>(Triple, Opts);
     case llvm::Triple::NetBSD:
       return new NetBSDTargetInfo<ARMleTargetInfo>(Triple, Opts);
     case llvm::Triple::OpenBSD:
@@ -8604,8 +8640,6 @@ static TargetInfo *AllocateTarget(const llvm::Triple &Triple,
       return new LinuxTargetInfo<ARMbeTargetInfo>(Triple, Opts);
     case llvm::Triple::FreeBSD:
       return new FreeBSDTargetInfo<ARMbeTargetInfo>(Triple, Opts);
-    case llvm::Triple::Fuchsia:
-      return new FuchsiaTargetInfo<ARMbeTargetInfo>(Triple, Opts);
     case llvm::Triple::NetBSD:
       return new NetBSDTargetInfo<ARMbeTargetInfo>(Triple, Opts);
     case llvm::Triple::OpenBSD:
@@ -8841,8 +8875,6 @@ static TargetInfo *AllocateTarget(const llvm::Triple &Triple,
       return new BitrigI386TargetInfo(Triple, Opts);
     case llvm::Triple::FreeBSD:
       return new FreeBSDTargetInfo<X86_32TargetInfo>(Triple, Opts);
-    case llvm::Triple::Fuchsia:
-      return new FuchsiaTargetInfo<X86_32TargetInfo>(Triple, Opts);
     case llvm::Triple::KFreeBSD:
       return new KFreeBSDTargetInfo<X86_32TargetInfo>(Triple, Opts);
     case llvm::Triple::Minix:
@@ -8938,11 +8970,19 @@ static TargetInfo *AllocateTarget(const llvm::Triple &Triple,
     return new SPIR64TargetInfo(Triple, Opts);
   }
   case llvm::Triple::wasm32:
-    if (!(Triple == llvm::Triple("wasm32-unknown-unknown")))
+    if (Triple.getSubArch() != llvm::Triple::NoSubArch ||
+        Triple.getVendor() != llvm::Triple::UnknownVendor ||
+        Triple.getOS() != llvm::Triple::UnknownOS ||
+        Triple.getEnvironment() != llvm::Triple::UnknownEnvironment ||
+        !(Triple.isOSBinFormatELF() || Triple.isOSBinFormatWasm()))
       return nullptr;
     return new WebAssemblyOSTargetInfo<WebAssembly32TargetInfo>(Triple, Opts);
   case llvm::Triple::wasm64:
-    if (!(Triple == llvm::Triple("wasm64-unknown-unknown")))
+    if (Triple.getSubArch() != llvm::Triple::NoSubArch ||
+        Triple.getVendor() != llvm::Triple::UnknownVendor ||
+        Triple.getOS() != llvm::Triple::UnknownOS ||
+        Triple.getEnvironment() != llvm::Triple::UnknownEnvironment ||
+        !(Triple.isOSBinFormatELF() || Triple.isOSBinFormatWasm()))
       return nullptr;
     return new WebAssemblyOSTargetInfo<WebAssembly64TargetInfo>(Triple, Opts);
 

@@ -262,7 +262,7 @@ static TargetLibraryInfoImpl *createTLII(llvm::Triple &TargetTriple,
     TLII->disableAllFunctions();
   else {
     // Disable individual libc/libm calls in TargetLibraryInfo.
-    LibFunc::Func F;
+    LibFunc F;
     for (auto &FuncName : CodeGenOpts.getNoBuiltinFuncs())
       if (TLII->getLibFunc(FuncName, F))
         TLII->setUnavailable(F);
@@ -334,13 +334,8 @@ void EmitAssemblyHelper::CreatePasses(legacy::PassManager &MPM,
 
   MPM.add(new TargetLibraryInfoWrapperPass(*TLII));
 
-  // Add target-specific passes that need to run as early as possible.
   if (TM)
-    PMBuilder.addExtension(
-        PassManagerBuilder::EP_EarlyAsPossible,
-        [&](const PassManagerBuilder &, legacy::PassManagerBase &PM) {
-          TM->addEarlyAsPossiblePasses(PM);
-        });
+    TM->adjustPassManager(PMBuilder);
 
   PMBuilder.addExtension(PassManagerBuilder::EP_EarlyAsPossible,
                          addAddDiscriminatorsPass);
@@ -573,6 +568,7 @@ void EmitAssemblyHelper::CreateTargetMachine(bool MustCreateTM) {
   Options.DisableIntegratedAS = CodeGenOpts.DisableIntegratedAS;
   Options.CompressDebugSections = CodeGenOpts.CompressDebugSections;
   Options.RelaxELFRelocations = CodeGenOpts.RelaxELFRelocations;
+  Options.DebugInfoForProfiling = CodeGenOpts.DebugInfoForProfiling;
 
   // Set EABI version.
   Options.EABIVersion = llvm::StringSwitch<llvm::EABI>(TargetOpts.EABIVersion)
@@ -688,9 +684,11 @@ void EmitAssemblyHelper::EmitAssembly(BackendAction Action,
     break;
 
   case Backend_EmitBC:
-    PerModulePasses.add(createBitcodeWriterPass(
-        *OS, CodeGenOpts.EmitLLVMUseLists, CodeGenOpts.EmitSummaryIndex,
-        CodeGenOpts.EmitSummaryIndex));
+    if (CodeGenOpts.EmitSummaryIndex)
+      PerModulePasses.add(createWriteThinLTOBitcodePass(*OS));
+    else
+      PerModulePasses.add(
+          createBitcodeWriterPass(*OS, CodeGenOpts.EmitLLVMUseLists));
     break;
 
   case Backend_EmitLL:
@@ -861,8 +859,26 @@ void EmitAssemblyHelper::EmitAssemblyWithNewPassManager(
   }
 }
 
+Expected<BitcodeModule> clang::FindThinLTOModule(MemoryBufferRef MBRef) {
+  Expected<std::vector<BitcodeModule>> BMsOrErr = getBitcodeModuleList(MBRef);
+  if (!BMsOrErr)
+    return BMsOrErr.takeError();
+
+  // The bitcode file may contain multiple modules, we want the one with a
+  // summary.
+  for (BitcodeModule &BM : *BMsOrErr) {
+    Expected<bool> HasSummary = BM.hasSummary();
+    if (HasSummary && *HasSummary)
+      return BM;
+  }
+
+  return make_error<StringError>("Could not find module summary",
+                                 inconvertibleErrorCode());
+}
+
 static void runThinLTOBackend(ModuleSummaryIndex *CombinedIndex, Module *M,
-                              std::unique_ptr<raw_pwrite_stream> OS) {
+                              std::unique_ptr<raw_pwrite_stream> OS,
+                              std::string SampleProfile) {
   StringMap<std::map<GlobalValue::GUID, GlobalValueSummary *>>
       ModuleToDefinedGVSummaries;
   CombinedIndex->collectDefinedGVSummariesPerModule(ModuleToDefinedGVSummaries);
@@ -897,32 +913,15 @@ static void runThinLTOBackend(ModuleSummaryIndex *CombinedIndex, Module *M,
       return;
     }
 
-    Expected<std::vector<BitcodeModule>> BMsOrErr =
-        getBitcodeModuleList(**MBOrErr);
-    if (!BMsOrErr) {
-      handleAllErrors(BMsOrErr.takeError(), [&](ErrorInfoBase &EIB) {
+    Expected<BitcodeModule> BMOrErr = FindThinLTOModule(**MBOrErr);
+    if (!BMOrErr) {
+      handleAllErrors(BMOrErr.takeError(), [&](ErrorInfoBase &EIB) {
         errs() << "Error loading imported file '" << I.first()
                << "': " << EIB.message() << '\n';
       });
       return;
     }
-
-    // The bitcode file may contain multiple modules, we want the one with a
-    // summary.
-    bool FoundModule = false;
-    for (BitcodeModule &BM : *BMsOrErr) {
-      Expected<bool> HasSummary = BM.hasSummary();
-      if (HasSummary && *HasSummary) {
-        ModuleMap.insert({I.first(), BM});
-        FoundModule = true;
-        break;
-      }
-    }
-    if (!FoundModule) {
-      errs() << "Error loading imported file '" << I.first()
-             << "': Could not find module summary\n";
-      return;
-    }
+    ModuleMap.insert({I.first(), *BMOrErr});
 
     OwnedImports.push_back(std::move(*MBOrErr));
   }
@@ -930,6 +929,7 @@ static void runThinLTOBackend(ModuleSummaryIndex *CombinedIndex, Module *M,
     return llvm::make_unique<lto::NativeObjectStream>(std::move(OS));
   };
   lto::Config Conf;
+  Conf.SampleProfile = SampleProfile;
   if (Error E = thinBackend(
           Conf, 0, AddStream, *M, *CombinedIndex, ImportList,
           ModuleToDefinedGVSummaries[M->getModuleIdentifier()], ModuleMap)) {
@@ -965,7 +965,8 @@ void clang::EmitBackendOutput(DiagnosticsEngine &Diags,
     // of an error).
     bool DoThinLTOBackend = CombinedIndex != nullptr;
     if (DoThinLTOBackend) {
-      runThinLTOBackend(CombinedIndex.get(), M, std::move(OS));
+      runThinLTOBackend(CombinedIndex.get(), M, std::move(OS),
+                        CGOpts.SampleProfileFile);
       return;
     }
   }
@@ -996,6 +997,7 @@ static const char* getSectionNameForBitcode(const Triple &T) {
     return "__LLVM,__bitcode";
   case Triple::COFF:
   case Triple::ELF:
+  case Triple::Wasm:
   case Triple::UnknownObjectFormat:
     return ".llvmbc";
   }
@@ -1008,6 +1010,7 @@ static const char* getSectionNameForCommandline(const Triple &T) {
     return "__LLVM,__cmdline";
   case Triple::COFF:
   case Triple::ELF:
+  case Triple::Wasm:
   case Triple::UnknownObjectFormat:
     return ".llvmcmd";
   }

@@ -1870,6 +1870,7 @@ bool CXXNameMangler::mangleUnresolvedTypeOrSimpleId(QualType Ty,
   case Type::Paren:
   case Type::Attributed:
   case Type::Auto:
+  case Type::DeducedTemplateSpecialization:
   case Type::PackExpansion:
   case Type::ObjCObject:
   case Type::ObjCInterface:
@@ -3043,6 +3044,7 @@ void CXXNameMangler::mangleType(const DependentNameType *T) {
   //                   ::= Te <name> # dependent elaborated type specifier using
   //                                 # 'enum'
   switch (T->getKeyword()) {
+    case ETK_None:
     case ETK_Typename:
       break;
     case ETK_Struct:
@@ -3056,8 +3058,6 @@ void CXXNameMangler::mangleType(const DependentNameType *T) {
     case ETK_Enum:
       Out << "Te";
       break;
-    default:
-      llvm_unreachable("unexpected keyword for dependent type name");
   }
   // Typename types are always nested
   Out << 'N';
@@ -3143,6 +3143,16 @@ void CXXNameMangler::mangleType(const AutoType *T) {
            "shouldn't need to mangle __auto_type!");
     Out << (T->isDecltypeAuto() ? "Dc" : "Da");
   } else
+    mangleType(D);
+}
+
+void CXXNameMangler::mangleType(const DeducedTemplateSpecializationType *T) {
+  // FIXME: This is not the right mangling. We also need to include a scope
+  // here in some cases.
+  QualType D = T->getDeducedType();
+  if (D.isNull())
+    mangleUnscopedTemplateName(T->getTemplateName(), nullptr);
+  else
     mangleType(D);
 }
 

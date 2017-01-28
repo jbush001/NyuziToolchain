@@ -55,6 +55,11 @@ struct MemIntrinsicInfo {
   // Same Id is set by the target for corresponding load/store intrinsics.
   unsigned short MatchingId;
   int NumMemRefs;
+
+  /// This is the pointer that the intrinsic is loading from or storing to.
+  /// If this is non-null, then analysis/optimization passes can assume that
+  /// this intrinsic is functionally equivalent to a load/store from this
+  /// pointer.
   Value *PtrVal;
 };
 
@@ -406,6 +411,11 @@ public:
   /// containing this constant value for the target.
   bool shouldBuildLookupTablesForConstant(Constant *C) const;
 
+  unsigned getScalarizationOverhead(Type *Ty, bool Insert, bool Extract) const;
+
+  unsigned getOperandsScalarizationOverhead(ArrayRef<const Value *> Args,
+                                            unsigned VF) const;
+
   /// \brief Don't restrict interleaved unrolling to small loops.
   bool enableAggressiveInterleaving(bool LoopHasReductions) const;
 
@@ -518,11 +528,15 @@ public:
   unsigned getMaxInterleaveFactor(unsigned VF) const;
 
   /// \return The expected cost of arithmetic ops, such as mul, xor, fsub, etc.
+  /// \p Args is an optional argument which holds the instruction operands  
+  /// values so the TTI can analyize those values searching for special 
+  /// cases\optimizations based on those values.
   int getArithmeticInstrCost(
       unsigned Opcode, Type *Ty, OperandValueKind Opd1Info = OK_AnyValue,
       OperandValueKind Opd2Info = OK_AnyValue,
       OperandValueProperties Opd1PropInfo = OP_None,
-      OperandValueProperties Opd2PropInfo = OP_None) const;
+      OperandValueProperties Opd2PropInfo = OP_None,
+      ArrayRef<const Value *> Args = ArrayRef<const Value *>()) const;
 
   /// \return The cost of a shuffle instruction of kind Kind and of type Tp.
   /// The index and subtype parameters are used by the subvector insertion and
@@ -734,6 +748,10 @@ public:
   virtual unsigned getJumpBufSize() = 0;
   virtual bool shouldBuildLookupTables() = 0;
   virtual bool shouldBuildLookupTablesForConstant(Constant *C) = 0;
+  virtual unsigned
+  getScalarizationOverhead(Type *Ty, bool Insert, bool Extract) = 0;
+  virtual unsigned getOperandsScalarizationOverhead(ArrayRef<const Value *> Args,
+                                                    unsigned VF) = 0;
   virtual bool enableAggressiveInterleaving(bool LoopHasReductions) = 0;
   virtual bool enableInterleavedAccessVectorization() = 0;
   virtual bool isFPVectorizationPotentiallyUnsafe() = 0;
@@ -763,7 +781,8 @@ public:
   getArithmeticInstrCost(unsigned Opcode, Type *Ty, OperandValueKind Opd1Info,
                          OperandValueKind Opd2Info,
                          OperandValueProperties Opd1PropInfo,
-                         OperandValueProperties Opd2PropInfo) = 0;
+                         OperandValueProperties Opd2PropInfo,
+                         ArrayRef<const Value *> Args) = 0;
   virtual int getShuffleCost(ShuffleKind Kind, Type *Tp, int Index,
                              Type *SubTp) = 0;
   virtual int getCastInstrCost(unsigned Opcode, Type *Dst, Type *Src) = 0;
@@ -923,6 +942,15 @@ public:
   bool shouldBuildLookupTablesForConstant(Constant *C) override {
     return Impl.shouldBuildLookupTablesForConstant(C);
   }
+  unsigned getScalarizationOverhead(Type *Ty, bool Insert,
+                                    bool Extract) override {
+    return Impl.getScalarizationOverhead(Ty, Insert, Extract);
+  }
+  unsigned getOperandsScalarizationOverhead(ArrayRef<const Value *> Args,
+                                            unsigned VF) override {
+    return Impl.getOperandsScalarizationOverhead(Args, VF);
+  }
+
   bool enableAggressiveInterleaving(bool LoopHasReductions) override {
     return Impl.enableAggressiveInterleaving(LoopHasReductions);
   }
@@ -984,9 +1012,10 @@ public:
   getArithmeticInstrCost(unsigned Opcode, Type *Ty, OperandValueKind Opd1Info,
                          OperandValueKind Opd2Info,
                          OperandValueProperties Opd1PropInfo,
-                         OperandValueProperties Opd2PropInfo) override {
+                         OperandValueProperties Opd2PropInfo,
+                         ArrayRef<const Value *> Args) override {
     return Impl.getArithmeticInstrCost(Opcode, Ty, Opd1Info, Opd2Info,
-                                       Opd1PropInfo, Opd2PropInfo);
+                                       Opd1PropInfo, Opd2PropInfo, Args);
   }
   int getShuffleCost(ShuffleKind Kind, Type *Tp, int Index,
                      Type *SubTp) override {

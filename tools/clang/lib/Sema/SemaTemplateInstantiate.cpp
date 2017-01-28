@@ -806,7 +806,8 @@ namespace {
     TransformTemplateName(CXXScopeSpec &SS, TemplateName Name,
                           SourceLocation NameLoc,
                           QualType ObjectType = QualType(),
-                          NamedDecl *FirstQualifierInScope = nullptr);
+                          NamedDecl *FirstQualifierInScope = nullptr,
+                          bool AllowInjectedClassName = false);
 
     const LoopHintAttr *TransformLoopHintAttr(const LoopHintAttr *LH);
 
@@ -1040,11 +1041,10 @@ TemplateInstantiator::RebuildElaboratedType(SourceLocation KeywordLoc,
                                                                     T);
 }
 
-TemplateName TemplateInstantiator::TransformTemplateName(CXXScopeSpec &SS,
-                                                         TemplateName Name,
-                                                         SourceLocation NameLoc,
-                                                         QualType ObjectType,
-                                             NamedDecl *FirstQualifierInScope) {
+TemplateName TemplateInstantiator::TransformTemplateName(
+    CXXScopeSpec &SS, TemplateName Name, SourceLocation NameLoc,
+    QualType ObjectType, NamedDecl *FirstQualifierInScope,
+    bool AllowInjectedClassName) {
   if (TemplateTemplateParmDecl *TTP
        = dyn_cast_or_null<TemplateTemplateParmDecl>(Name.getAsTemplateDecl())) {
     if (TTP->getDepth() < TemplateArgs.getNumLevels()) {
@@ -1095,9 +1095,10 @@ TemplateName TemplateInstantiator::TransformTemplateName(CXXScopeSpec &SS,
     Arg = getPackSubstitutedTemplateArgument(getSema(), Arg);
     return Arg.getAsTemplate();
   }
-  
-  return inherited::TransformTemplateName(SS, Name, NameLoc, ObjectType, 
-                                          FirstQualifierInScope);  
+
+  return inherited::TransformTemplateName(SS, Name, NameLoc, ObjectType,
+                                          FirstQualifierInScope,
+                                          AllowInjectedClassName);
 }
 
 ExprResult 
@@ -2264,9 +2265,6 @@ bool Sema::InstantiateInClassInitializer(
   if (auto *L = getASTMutationListener())
     L->DefaultMemberInitializerInstantiated(Instantiation);
 
-  // Exit the scope of this instantiation.
-  SavedContext.pop();
-
   // Return true if the in-class initializer is still missing.
   return !Instantiation->getInClassInitializer();
 }
@@ -2280,16 +2278,18 @@ namespace {
   };
 }
 
-bool Sema::InstantiateClassTemplateSpecialization(
-    SourceLocation PointOfInstantiation,
+/// Get the instantiation pattern to use to instantiate the definition of a
+/// given ClassTemplateSpecializationDecl (either the pattern of the primary
+/// template or of a partial specialization).
+static CXXRecordDecl *
+getPatternForClassTemplateSpecialization(
+    Sema &S, SourceLocation PointOfInstantiation,
     ClassTemplateSpecializationDecl *ClassTemplateSpec,
     TemplateSpecializationKind TSK, bool Complain) {
-  // Perform the actual instantiation on the canonical declaration.
-  ClassTemplateSpec = cast<ClassTemplateSpecializationDecl>(
-                                         ClassTemplateSpec->getCanonicalDecl());
-  if (ClassTemplateSpec->isInvalidDecl())
-    return true;
-  
+  Sema::InstantiatingTemplate Inst(S, PointOfInstantiation, ClassTemplateSpec);
+  if (Inst.isInvalid() || Inst.isAlreadyInstantiating())
+    return nullptr;
+
   ClassTemplateDecl *Template = ClassTemplateSpec->getSpecializedTemplate();
   CXXRecordDecl *Pattern = nullptr;
 
@@ -2309,15 +2309,13 @@ bool Sema::InstantiateClassTemplateSpecialization(
   for (unsigned I = 0, N = PartialSpecs.size(); I != N; ++I) {
     ClassTemplatePartialSpecializationDecl *Partial = PartialSpecs[I];
     TemplateDeductionInfo Info(FailedCandidates.getLocation());
-    if (TemplateDeductionResult Result
-          = DeduceTemplateArguments(Partial,
-                                    ClassTemplateSpec->getTemplateArgs(),
-                                    Info)) {
+    if (Sema::TemplateDeductionResult Result = S.DeduceTemplateArguments(
+            Partial, ClassTemplateSpec->getTemplateArgs(), Info)) {
       // Store the failed-deduction information for use in diagnostics, later.
       // TODO: Actually use the failed-deduction info?
       FailedCandidates.addCandidate().set(
           DeclAccessPair::make(Template, AS_public), Partial,
-          MakeDeductionFailureInfo(Context, Result, Info));
+          MakeDeductionFailureInfo(S.Context, Result, Info));
       (void)Result;
     } else {
       Matched.push_back(PartialSpecMatchResult());
@@ -2347,9 +2345,8 @@ bool Sema::InstantiateClassTemplateSpecialization(
       for (SmallVectorImpl<MatchResult>::iterator P = Best + 1,
                                                PEnd = Matched.end();
            P != PEnd; ++P) {
-        if (getMoreSpecializedPartialSpecialization(P->Partial, Best->Partial,
-                                                    PointOfInstantiation) 
-              == P->Partial)
+        if (S.getMoreSpecializedPartialSpecialization(
+                P->Partial, Best->Partial, PointOfInstantiation) == P->Partial)
           Best = P;
       }
       
@@ -2360,9 +2357,9 @@ bool Sema::InstantiateClassTemplateSpecialization(
                                                PEnd = Matched.end();
            P != PEnd; ++P) {
         if (P != Best &&
-            getMoreSpecializedPartialSpecialization(P->Partial, Best->Partial,
-                                                    PointOfInstantiation)
-              != Best->Partial) {
+            S.getMoreSpecializedPartialSpecialization(P->Partial, Best->Partial,
+                                                      PointOfInstantiation) !=
+                Best->Partial) {
           Ambiguous = true;
           break;
         }
@@ -2370,20 +2367,20 @@ bool Sema::InstantiateClassTemplateSpecialization(
        
       if (Ambiguous) {
         // Partial ordering did not produce a clear winner. Complain.
+        Inst.Clear();
         ClassTemplateSpec->setInvalidDecl();
-        Diag(PointOfInstantiation, diag::err_partial_spec_ordering_ambiguous)
+        S.Diag(PointOfInstantiation, diag::err_partial_spec_ordering_ambiguous)
           << ClassTemplateSpec;
         
         // Print the matching partial specializations.
         for (SmallVectorImpl<MatchResult>::iterator P = Matched.begin(),
                                                  PEnd = Matched.end();
              P != PEnd; ++P)
-          Diag(P->Partial->getLocation(), diag::note_partial_spec_match)
-            << getTemplateArgumentBindingsText(
-                                            P->Partial->getTemplateParameters(),
-                                               *P->Args);
+          S.Diag(P->Partial->getLocation(), diag::note_partial_spec_match)
+            << S.getTemplateArgumentBindingsText(
+                   P->Partial->getTemplateParameters(), *P->Args);
 
-        return true;
+        return nullptr;
       }
     }
     
@@ -2416,13 +2413,27 @@ bool Sema::InstantiateClassTemplateSpecialization(
     Pattern = OrigTemplate->getTemplatedDecl();
   }
 
-  bool Result = InstantiateClass(PointOfInstantiation, ClassTemplateSpec, 
-                                 Pattern,
-                                getTemplateInstantiationArgs(ClassTemplateSpec),
-                                 TSK,
-                                 Complain);
+  return Pattern;
+}
 
-  return Result;
+bool Sema::InstantiateClassTemplateSpecialization(
+    SourceLocation PointOfInstantiation,
+    ClassTemplateSpecializationDecl *ClassTemplateSpec,
+    TemplateSpecializationKind TSK, bool Complain) {
+  // Perform the actual instantiation on the canonical declaration.
+  ClassTemplateSpec = cast<ClassTemplateSpecializationDecl>(
+      ClassTemplateSpec->getCanonicalDecl());
+  if (ClassTemplateSpec->isInvalidDecl())
+    return true;
+
+  CXXRecordDecl *Pattern = getPatternForClassTemplateSpecialization(
+      *this, PointOfInstantiation, ClassTemplateSpec, TSK, Complain);
+  if (!Pattern)
+    return true;
+
+  return InstantiateClass(PointOfInstantiation, ClassTemplateSpec, Pattern,
+                          getTemplateInstantiationArgs(ClassTemplateSpec), TSK,
+                          Complain);
 }
 
 /// \brief Instantiates the definitions of all of the member

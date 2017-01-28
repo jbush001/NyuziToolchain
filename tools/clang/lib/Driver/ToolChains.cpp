@@ -1109,10 +1109,6 @@ Darwin::TranslateArgs(const DerivedArgList &Args, StringRef BoundArch,
                      options::OPT_fno_omit_frame_pointer, false))
       getDriver().Diag(clang::diag::warn_drv_unsupported_opt_for_target)
           << "-fomit-frame-pointer" << BoundArch;
-    if (Args.hasFlag(options::OPT_momit_leaf_frame_pointer,
-                     options::OPT_mno_omit_leaf_frame_pointer, false))
-      getDriver().Diag(clang::diag::warn_drv_unsupported_opt_for_target)
-          << "-momit-leaf-frame-pointer" << BoundArch;
   }
 
   return DAL;
@@ -1531,7 +1527,7 @@ bool Generic_GCC::GCCInstallationDetector::getBiarchSibling(Multilib &M) const {
   static const char *const AArch64LibDirs[] = {"/lib64", "/lib"};
   static const char *const AArch64Triples[] = {
       "aarch64-none-linux-gnu", "aarch64-linux-gnu", "aarch64-linux-android",
-      "aarch64-redhat-linux"};
+      "aarch64-redhat-linux", "aarch64-suse-linux"};
   static const char *const AArch64beLibDirs[] = {"/lib"};
   static const char *const AArch64beTriples[] = {"aarch64_be-none-linux-gnu",
                                                  "aarch64_be-linux-gnu"};
@@ -2892,6 +2888,9 @@ bool Generic_GCC::isPICDefault() const {
   case llvm::Triple::ppc64:
   case llvm::Triple::ppc64le:
     return !getTriple().isOSBinFormatMachO() && !getTriple().isMacOSX();
+  case llvm::Triple::mips64:
+  case llvm::Triple::mips64el:
+    return true;
   default:
     return false;
   }
@@ -3185,8 +3184,7 @@ std::string HexagonToolChain::getHexagonTargetDir(
 Optional<unsigned> HexagonToolChain::getSmallDataThreshold(
       const ArgList &Args) {
   StringRef Gn = "";
-  if (Arg *A = Args.getLastArg(options::OPT_G, options::OPT_G_EQ,
-                               options::OPT_msmall_data_threshold_EQ)) {
+  if (Arg *A = Args.getLastArg(options::OPT_G)) {
     Gn = A->getValue();
   } else if (Args.getLastArg(options::OPT_shared, options::OPT_fpic,
                              options::OPT_fPIC)) {
@@ -3812,6 +3810,7 @@ ToolChain::CXXStdlibType NetBSD::GetDefaultCXXStdlibType() const {
   if (Major >= 7 || Major == 0) {
     switch (getArch()) {
     case llvm::Triple::aarch64:
+    case llvm::Triple::aarch64_be:
     case llvm::Triple::arm:
     case llvm::Triple::armeb:
     case llvm::Triple::thumb:
@@ -4121,6 +4120,7 @@ Linux::Linux(const Driver &D, const llvm::Triple &Triple, const ArgList &Args)
 
   const bool IsAndroid = Triple.isAndroid();
   const bool IsMips = isMipsArch(Arch);
+  const bool IsHexagon = Arch == llvm::Triple::hexagon;
 
   if (IsMips && !SysRoot.empty())
     ExtraOpts.push_back("--sysroot=" + SysRoot);
@@ -4130,7 +4130,8 @@ Linux::Linux(const Driver &D, const llvm::Triple &Triple, const ArgList &Args)
   // .gnu.hash needs symbols to be grouped by hash code whereas the MIPS
   // ABI requires a mapping between the GOT and the symbol table.
   // Android loader does not support .gnu.hash.
-  if (!IsMips && !IsAndroid) {
+  // Hexagon linker/loader does not support .gnu.hash
+  if (!IsMips && !IsAndroid && !IsHexagon) {
     if (Distro.IsRedhat() || Distro.IsOpenSUSE() ||
         (Distro.IsUbuntu() && Distro >= Distro::UbuntuMaverick))
       ExtraOpts.push_back("--hash-style=gnu");

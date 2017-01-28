@@ -592,6 +592,11 @@ ASTDeclReader::VisitTypedefNameDecl(TypedefNameDecl *TD) {
     TD->setModedTypeSourceInfo(TInfo, modedT);
   } else
     TD->setTypeSourceInfo(TInfo);
+  // Read and discard the declaration for which this is a typedef name for
+  // linkage, if it exists. We cannot rely on our type to pull in this decl,
+  // because it might have been merged with a type from another module and
+  // thus might not refer to our version of the declaration.
+  ReadDecl();
   return Redecl;
 }
 
@@ -748,6 +753,7 @@ void ASTDeclReader::VisitFunctionDecl(FunctionDecl *FD) {
   FD->IsExplicitlyDefaulted = Record.readInt();
   FD->HasImplicitReturnZero = Record.readInt();
   FD->IsConstexpr = Record.readInt();
+  FD->UsesSEHTry = Record.readInt();
   FD->HasSkippedBody = Record.readInt();
   FD->IsLateTemplateParsed = Record.readInt();
   FD->setCachedLinkage(Linkage(Record.readInt()));
@@ -1830,7 +1836,7 @@ void ASTDeclReader::VisitImportDecl(ImportDecl *D) {
   SourceLocation *StoredLocs = D->getTrailingObjects<SourceLocation>();
   for (unsigned I = 0, N = Record.back(); I != N; ++I)
     StoredLocs[I] = ReadSourceLocation();
-  (void)Record.readInt(); // The number of stored source locations.
+  Record.skipInts(1); // The number of stored source locations.
 }
 
 void ASTDeclReader::VisitAccessSpecDecl(AccessSpecDecl *D) {
@@ -2470,12 +2476,11 @@ void ASTDeclReader::VisitOMPCapturedExprDecl(OMPCapturedExprDecl *D) {
 //===----------------------------------------------------------------------===//
 
 /// \brief Reads attributes from the current stream position.
-void ASTReader::ReadAttributes(ModuleFile &F, AttrVec &Attrs,
-                               const RecordData &Record, unsigned &Idx) {
-  for (unsigned i = 0, e = Record[Idx++]; i != e; ++i) {
+void ASTReader::ReadAttributes(ASTRecordReader &Record, AttrVec &Attrs) {
+  for (unsigned i = 0, e = Record.readInt(); i != e; ++i) {
     Attr *New = nullptr;
-    attr::Kind Kind = (attr::Kind)Record[Idx++];
-    SourceRange Range = ReadSourceRange(F, Record, Idx);
+    attr::Kind Kind = (attr::Kind)Record.readInt();
+    SourceRange Range = Record.readSourceRange();
 
 #include "clang/Serialization/AttrPCHRead.inc"
 

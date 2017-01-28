@@ -1780,10 +1780,6 @@ void llvm::ParseInputMachO(StringRef Filename) {
   llvm_unreachable("Input object can't be invalid at this point");
 }
 
-typedef std::pair<uint64_t, const char *> BindInfoEntry;
-typedef std::vector<BindInfoEntry> BindTable;
-typedef BindTable::iterator bind_table_iterator;
-
 // The block of info used by the Symbolizer call backs.
 struct DisassembleInfo {
   bool verbose;
@@ -1797,7 +1793,7 @@ struct DisassembleInfo {
   char *demangled_name;
   uint64_t adrp_addr;
   uint32_t adrp_inst;
-  BindTable *bindtable;
+  std::unique_ptr<SymbolAddressMap> bindtable;
   uint32_t depth;
 };
 
@@ -5311,9 +5307,6 @@ static void printObjc2_64bit_MetaData(MachOObjectFile *O, bool verbose) {
     II = get_section(O, "__DATA", "__objc_imageinfo");
   info.S = II;
   print_image_info64(II, &info);
-
-  if (info.bindtable != nullptr)
-    delete info.bindtable;
 }
 
 static void printObjc2_32bit_MetaData(MachOObjectFile *O, bool verbose) {
@@ -6841,14 +6834,10 @@ static void DisassembleMachO(StringRef Filename, MachOObjectFile *MachOOF,
       free(SymbolizerInfo.method);
     if (SymbolizerInfo.demangled_name != nullptr)
       free(SymbolizerInfo.demangled_name);
-    if (SymbolizerInfo.bindtable != nullptr)
-      delete SymbolizerInfo.bindtable;
     if (ThumbSymbolizerInfo.method != nullptr)
       free(ThumbSymbolizerInfo.method);
     if (ThumbSymbolizerInfo.demangled_name != nullptr)
       free(ThumbSymbolizerInfo.demangled_name);
-    if (ThumbSymbolizerInfo.bindtable != nullptr)
-      delete ThumbSymbolizerInfo.bindtable;
   }
 }
 
@@ -8180,6 +8169,51 @@ static void PrintVersionMinLoadCommand(MachO::version_min_command vd) {
   outs() << "\n";
 }
 
+static void PrintNoteLoadCommand(MachO::note_command Nt) {
+  outs() << "       cmd LC_NOTE\n";
+  outs() << "   cmdsize " << Nt.cmdsize;
+  if (Nt.cmdsize != sizeof(struct MachO::note_command))
+    outs() << " Incorrect size\n";
+  else
+    outs() << "\n";
+  const char *d = Nt.data_owner;
+  outs() << "data_owner " << format("%.16s\n", d);
+  outs() << "    offset " << Nt.offset << "\n";
+  outs() << "      size " << Nt.size << "\n";
+}
+
+static void PrintBuildToolVersion(MachO::build_tool_version bv) {
+  outs() << "      tool " << MachOObjectFile::getBuildTool(bv.tool) << "\n";
+  outs() << "   version " << MachOObjectFile::getVersionString(bv.version)
+         << "\n";
+}
+
+static void PrintBuildVersionLoadCommand(const MachOObjectFile *obj,
+                                         MachO::build_version_command bd) {
+  outs() << "       cmd LC_BUILD_VERSION\n";
+  outs() << "   cmdsize " << bd.cmdsize;
+  if (bd.cmdsize !=
+      sizeof(struct MachO::build_version_command) +
+          bd.ntools * sizeof(struct MachO::build_tool_version))
+    outs() << " Incorrect size\n";
+  else
+    outs() << "\n";
+  outs() << "  platform " << MachOObjectFile::getBuildPlatform(bd.platform)
+         << "\n";
+  if (bd.sdk)
+    outs() << "       sdk " << MachOObjectFile::getVersionString(bd.sdk)
+           << "\n";
+  else
+    outs() << "       sdk n/a\n";
+  outs() << "     minos " << MachOObjectFile::getVersionString(bd.minos)
+         << "\n";
+  outs() << "    ntools " << bd.ntools << "\n";
+  for (unsigned i = 0; i < bd.ntools; ++i) {
+    MachO::build_tool_version bv = obj->getBuildToolVersion(i);
+    PrintBuildToolVersion(bv);
+  }
+}
+
 static void PrintSourceVersionCommand(MachO::source_version_command sd) {
   outs() << "      cmd LC_SOURCE_VERSION\n";
   outs() << "  cmdsize " << sd.cmdsize;
@@ -8383,6 +8417,25 @@ static void PrintRoutinesCommand64(MachO::routines_command_64 r) {
   outs() << "    reserved4 " << r.reserved4 << "\n";
   outs() << "    reserved5 " << r.reserved5 << "\n";
   outs() << "    reserved6 " << r.reserved6 << "\n";
+}
+
+static void Print_x86_thread_state32_t(MachO::x86_thread_state32_t &cpu32) {
+  outs() << "\t    eax " << format("0x%08" PRIx32, cpu32.eax);
+  outs() << " ebx    " << format("0x%08" PRIx32, cpu32.ebx);
+  outs() << " ecx " << format("0x%08" PRIx32, cpu32.ecx);
+  outs() << " edx " << format("0x%08" PRIx32, cpu32.edx) << "\n";
+  outs() << "\t    edi " << format("0x%08" PRIx32, cpu32.edi);
+  outs() << " esi    " << format("0x%08" PRIx32, cpu32.esi);
+  outs() << " ebp " << format("0x%08" PRIx32, cpu32.ebp);
+  outs() << " esp " << format("0x%08" PRIx32, cpu32.esp) << "\n";
+  outs() << "\t    ss  " << format("0x%08" PRIx32, cpu32.ss);
+  outs() << " eflags " << format("0x%08" PRIx32, cpu32.eflags);
+  outs() << " eip " << format("0x%08" PRIx32, cpu32.eip);
+  outs() << " cs  " << format("0x%08" PRIx32, cpu32.cs) << "\n";
+  outs() << "\t    ds  " << format("0x%08" PRIx32, cpu32.ds);
+  outs() << " es     " << format("0x%08" PRIx32, cpu32.es);
+  outs() << " fs  " << format("0x%08" PRIx32, cpu32.fs);
+  outs() << " gs  " << format("0x%08" PRIx32, cpu32.gs) << "\n";
 }
 
 static void Print_x86_thread_state64_t(MachO::x86_thread_state64_t &cpu64) {
@@ -8622,7 +8675,85 @@ static void PrintThreadCommand(MachO::thread_command t, const char *Ptr,
   const char *begin = Ptr + sizeof(struct MachO::thread_command);
   const char *end = Ptr + t.cmdsize;
   uint32_t flavor, count, left;
-  if (cputype == MachO::CPU_TYPE_X86_64) {
+  if (cputype == MachO::CPU_TYPE_I386) {
+    while (begin < end) {
+      if (end - begin > (ptrdiff_t)sizeof(uint32_t)) {
+        memcpy((char *)&flavor, begin, sizeof(uint32_t));
+        begin += sizeof(uint32_t);
+      } else {
+        flavor = 0;
+        begin = end;
+      }
+      if (isLittleEndian != sys::IsLittleEndianHost)
+        sys::swapByteOrder(flavor);
+      if (end - begin > (ptrdiff_t)sizeof(uint32_t)) {
+        memcpy((char *)&count, begin, sizeof(uint32_t));
+        begin += sizeof(uint32_t);
+      } else {
+        count = 0;
+        begin = end;
+      }
+      if (isLittleEndian != sys::IsLittleEndianHost)
+        sys::swapByteOrder(count);
+      if (flavor == MachO::x86_THREAD_STATE32) {
+        outs() << "     flavor i386_THREAD_STATE\n";
+        if (count == MachO::x86_THREAD_STATE32_COUNT)
+          outs() << "      count i386_THREAD_STATE_COUNT\n";
+        else
+          outs() << "      count " << count
+                 << " (not x86_THREAD_STATE32_COUNT)\n";
+        MachO::x86_thread_state32_t cpu32;
+        left = end - begin;
+        if (left >= sizeof(MachO::x86_thread_state32_t)) {
+          memcpy(&cpu32, begin, sizeof(MachO::x86_thread_state32_t));
+          begin += sizeof(MachO::x86_thread_state32_t);
+        } else {
+          memset(&cpu32, '\0', sizeof(MachO::x86_thread_state32_t));
+          memcpy(&cpu32, begin, left);
+          begin += left;
+        }
+        if (isLittleEndian != sys::IsLittleEndianHost)
+          swapStruct(cpu32);
+        Print_x86_thread_state32_t(cpu32);
+      } else if (flavor == MachO::x86_THREAD_STATE) {
+        outs() << "     flavor x86_THREAD_STATE\n";
+        if (count == MachO::x86_THREAD_STATE_COUNT)
+          outs() << "      count x86_THREAD_STATE_COUNT\n";
+        else
+          outs() << "      count " << count
+                 << " (not x86_THREAD_STATE_COUNT)\n";
+        struct MachO::x86_thread_state_t ts;
+        left = end - begin;
+        if (left >= sizeof(MachO::x86_thread_state_t)) {
+          memcpy(&ts, begin, sizeof(MachO::x86_thread_state_t));
+          begin += sizeof(MachO::x86_thread_state_t);
+        } else {
+          memset(&ts, '\0', sizeof(MachO::x86_thread_state_t));
+          memcpy(&ts, begin, left);
+          begin += left;
+        }
+        if (isLittleEndian != sys::IsLittleEndianHost)
+          swapStruct(ts);
+        if (ts.tsh.flavor == MachO::x86_THREAD_STATE32) {
+          outs() << "\t    tsh.flavor x86_THREAD_STATE32 ";
+          if (ts.tsh.count == MachO::x86_THREAD_STATE32_COUNT)
+            outs() << "tsh.count x86_THREAD_STATE32_COUNT\n";
+          else
+            outs() << "tsh.count " << ts.tsh.count
+                   << " (not x86_THREAD_STATE32_COUNT\n";
+          Print_x86_thread_state32_t(ts.uts.ts32);
+        } else {
+          outs() << "\t    tsh.flavor " << ts.tsh.flavor << "  tsh.count "
+                 << ts.tsh.count << "\n";
+        }
+      } else {
+        outs() << "     flavor " << flavor << " (unknown)\n";
+        outs() << "      count " << count << "\n";
+        outs() << "      state (unknown)\n";
+        begin += count * sizeof(uint32_t);
+      }
+    }
+  } else if (cputype == MachO::CPU_TYPE_X86_64) {
     while (begin < end) {
       if (end - begin > (ptrdiff_t)sizeof(uint32_t)) {
         memcpy((char *)&flavor, begin, sizeof(uint32_t));
@@ -9025,6 +9156,13 @@ static void PrintLoadCommands(const MachOObjectFile *Obj, uint32_t filetype,
                Command.C.cmd == MachO::LC_VERSION_MIN_WATCHOS) {
       MachO::version_min_command Vd = Obj->getVersionMinLoadCommand(Command);
       PrintVersionMinLoadCommand(Vd);
+    } else if (Command.C.cmd == MachO::LC_NOTE) {
+      MachO::note_command Nt = Obj->getNoteLoadCommand(Command);
+      PrintNoteLoadCommand(Nt);
+    } else if (Command.C.cmd == MachO::LC_BUILD_VERSION) {
+      MachO::build_version_command Bv =
+          Obj->getBuildVersionLoadCommand(Command);
+      PrintBuildVersionLoadCommand(Obj, Bv);
     } else if (Command.C.cmd == MachO::LC_SOURCE_VERSION) {
       MachO::source_version_command Sd = Obj->getSourceVersionCommand(Command);
       PrintSourceVersionCommand(Sd);
@@ -9427,7 +9565,7 @@ void llvm::printMachOWeakBindTable(const object::MachOObjectFile *Obj) {
 static const char *get_dyld_bind_info_symbolname(uint64_t ReferenceValue,
                                                  struct DisassembleInfo *info) {
   if (info->bindtable == nullptr) {
-    info->bindtable = new (BindTable);
+    info->bindtable = llvm::make_unique<SymbolAddressMap>();
     SegInfo sectionTable(info->O);
     for (const llvm::object::MachOBindEntry &Entry : info->O->bindTable()) {
       uint32_t SegIndex = Entry.segmentIndex();
@@ -9435,21 +9573,11 @@ static const char *get_dyld_bind_info_symbolname(uint64_t ReferenceValue,
       if (!sectionTable.isValidSegIndexAndOffset(SegIndex, OffsetInSeg))
         continue;
       uint64_t Address = sectionTable.address(SegIndex, OffsetInSeg);
-      const char *SymbolName = nullptr;
       StringRef name = Entry.symbolName();
       if (!name.empty())
-        SymbolName = name.data();
-      info->bindtable->push_back(std::make_pair(Address, SymbolName));
+        (*info->bindtable)[Address] = name;
     }
   }
-  for (bind_table_iterator BI = info->bindtable->begin(),
-                           BE = info->bindtable->end();
-       BI != BE; ++BI) {
-    uint64_t Address = BI->first;
-    if (ReferenceValue == Address) {
-      const char *SymbolName = BI->second;
-      return SymbolName;
-    }
-  }
-  return nullptr;
+  auto name = info->bindtable->lookup(ReferenceValue);
+  return !name.empty() ? name.data() : nullptr;
 }

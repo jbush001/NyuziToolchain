@@ -369,7 +369,7 @@ void AArch64InstrInfo::instantiateCondBranch(
     // Folded compare-and-branch
     // Note that we use addOperand instead of addReg to keep the flags.
     const MachineInstrBuilder MIB =
-        BuildMI(&MBB, DL, get(Cond[1].getImm())).addOperand(Cond[2]);
+        BuildMI(&MBB, DL, get(Cond[1].getImm())).add(Cond[2]);
     if (Cond.size() > 3)
       MIB.addImm(Cond[3].getImm());
     MIB.addMBB(TBB);
@@ -1299,16 +1299,16 @@ bool AArch64InstrInfo::expandPostRAPseudo(MachineInstr &MI) const {
         .addMemOperand(*MI.memoperands_begin());
   } else if (TM.getCodeModel() == CodeModel::Large) {
     BuildMI(MBB, MI, DL, get(AArch64::MOVZXi), Reg)
-        .addGlobalAddress(GV, 0, AArch64II::MO_G3).addImm(48);
-    BuildMI(MBB, MI, DL, get(AArch64::MOVKXi), Reg)
-        .addReg(Reg, RegState::Kill)
-        .addGlobalAddress(GV, 0, AArch64II::MO_G2 | MO_NC).addImm(32);
+        .addGlobalAddress(GV, 0, AArch64II::MO_G0 | MO_NC).addImm(0);
     BuildMI(MBB, MI, DL, get(AArch64::MOVKXi), Reg)
         .addReg(Reg, RegState::Kill)
         .addGlobalAddress(GV, 0, AArch64II::MO_G1 | MO_NC).addImm(16);
     BuildMI(MBB, MI, DL, get(AArch64::MOVKXi), Reg)
         .addReg(Reg, RegState::Kill)
-        .addGlobalAddress(GV, 0, AArch64II::MO_G0 | MO_NC).addImm(0);
+        .addGlobalAddress(GV, 0, AArch64II::MO_G2 | MO_NC).addImm(32);
+    BuildMI(MBB, MI, DL, get(AArch64::MOVKXi), Reg)
+        .addReg(Reg, RegState::Kill)
+        .addGlobalAddress(GV, 0, AArch64II::MO_G3).addImm(48);
     BuildMI(MBB, MI, DL, get(AArch64::LDRXui), Reg)
         .addReg(Reg, RegState::Kill)
         .addImm(0)
@@ -1627,6 +1627,17 @@ bool AArch64InstrInfo::isUnscaledLdSt(MachineInstr &MI) const {
   return isUnscaledLdSt(MI.getOpcode());
 }
 
+bool AArch64InstrInfo::isTailCall(const MachineInstr &Inst) const
+{
+  switch (Inst.getOpcode()) {
+  case AArch64::TCRETURNdi:
+  case AArch64::TCRETURNri:
+    return true;
+  default:
+    return false;
+  }
+}
+
 // Is this a candidate for ld/st merging or pairing?  For example, we don't
 // touch volatiles or load/stores that have a hint to avoid pair formation.
 bool AArch64InstrInfo::isCandidateToMergeOrPair(MachineInstr &MI) const {
@@ -1652,7 +1663,7 @@ bool AArch64InstrInfo::isCandidateToMergeOrPair(MachineInstr &MI) const {
     return false;
 
   // On some CPUs quad load/store pairs are slower than two single load/stores.
-  if (Subtarget.avoidQuadLdStPairs()) {
+  if (Subtarget.isPaired128Slow()) {
     switch (MI.getOpcode()) {
     default:
       break;
@@ -3793,7 +3804,7 @@ void AArch64InstrInfo::genAlternativeCodeSequence(
     MachineInstrBuilder MIB1 =
         BuildMI(MF, Root.getDebugLoc(), TII->get(SubOpc), NewVR)
             .addReg(ZeroReg)
-            .addOperand(Root.getOperand(2));
+            .add(Root.getOperand(2));
     InsInstrs.push_back(MIB1);
     InstrIdxForVirtReg.insert(std::make_pair(NewVR, 0));
     MUL = genMaddR(MF, MRI, TII, Root, InsInstrs, 1, Opc, NewVR, RC);

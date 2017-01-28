@@ -1783,6 +1783,463 @@ TEST_F(FormatTest, CommentsInStaticInitializers) {
                "    0x00, 0x00, 0x00, 0x00};            // comment\n");
 }
 
+TEST_F(FormatTest, ReflowsComments) {
+  // Break a long line and reflow with the full next line.
+  EXPECT_EQ("// long long long\n"
+            "// long long",
+            format("// long long long long\n"
+                   "// long",
+                   getLLVMStyleWithColumns(20)));
+
+  // Keep the trailing newline while reflowing.
+  EXPECT_EQ("// long long long\n"
+            "// long long\n",
+            format("// long long long long\n"
+                   "// long\n",
+                   getLLVMStyleWithColumns(20)));
+
+  // Break a long line and reflow with a part of the next line.
+  EXPECT_EQ("// long long long\n"
+            "// long long\n"
+            "// long_long",
+            format("// long long long long\n"
+                   "// long long_long",
+                   getLLVMStyleWithColumns(20)));
+
+  // Break but do not reflow if the first word from the next line is too long.
+  EXPECT_EQ("// long long long\n"
+            "// long\n"
+            "// long_long_long\n",
+            format("// long long long long\n"
+                   "// long_long_long\n",
+                   getLLVMStyleWithColumns(20)));
+
+  // Don't break or reflow short lines.
+  verifyFormat("// long\n"
+               "// long long long lo\n"
+               "// long long long lo\n"
+               "// long",
+               getLLVMStyleWithColumns(20));
+
+  // Keep prefixes and decorations while reflowing.
+  EXPECT_EQ("/// long long long\n"
+            "/// long long\n",
+            format("/// long long long long\n"
+                   "/// long\n",
+                   getLLVMStyleWithColumns(20)));
+  EXPECT_EQ("//! long long long\n"
+            "//! long long\n",
+            format("//! long long long long\n"
+                   "//! long\n",
+                   getLLVMStyleWithColumns(20)));
+  EXPECT_EQ("/* long long long\n"
+            " * long long */",
+            format("/* long long long long\n"
+                   " * long */",
+                   getLLVMStyleWithColumns(20)));
+
+  // Don't bring leading whitespace up while reflowing.
+  EXPECT_EQ("/*  long long long\n"
+            " * long long long\n"
+            " */",
+            format("/*  long long long long\n"
+                   " *  long long\n"
+                   " */",
+                   getLLVMStyleWithColumns(20)));
+
+  // Reflow the last line of a block comment with its trailing '*/'.
+  EXPECT_EQ("/* long long long\n"
+            "   long long */",
+            format("/* long long long long\n"
+                   "   long */",
+                   getLLVMStyleWithColumns(20)));
+
+  // Reflow two short lines; keep the postfix of the last one.
+  EXPECT_EQ("/* long long long\n"
+            " * long long long */",
+            format("/* long long long long\n"
+                   " * long\n"
+                   " * long */",
+                   getLLVMStyleWithColumns(20)));
+
+  // Put the postfix of the last short reflow line on a newline if it doesn't
+  // fit.
+  EXPECT_EQ("/* long long long\n"
+            " * long long longg\n"
+            " */",
+            format("/* long long long long\n"
+                   " * long\n"
+                   " * longg */",
+                   getLLVMStyleWithColumns(20)));
+
+  // Break single line block comments that are first in the line with ' *'
+  // decoration.
+  EXPECT_EQ("/* long long long\n"
+            " * long */",
+            format("/* long long long long */", getLLVMStyleWithColumns(20)));
+
+  // Break single line block comment that are not first in the line with '  '
+  // decoration.
+  EXPECT_EQ("int i; /* long long\n"
+            "          long */",
+            format("int i; /* long long long */", getLLVMStyleWithColumns(20)));
+
+  // Reflow a line that goes just over the column limit.
+  EXPECT_EQ("// long long long\n"
+            "// lon long",
+            format("// long long long lon\n"
+                   "// long",
+                   getLLVMStyleWithColumns(20)));
+
+  // Stop reflowing if the next line has a different indentation than the
+  // previous line.
+  EXPECT_EQ("// long long long\n"
+            "// long\n"
+            "//  long long\n"
+            "//  long",
+            format("// long long long long\n"
+                   "//  long long\n"
+                   "//  long",
+                   getLLVMStyleWithColumns(20)));
+
+  // Reflow into the last part of a really long line that has been broken into
+  // multiple lines.
+  EXPECT_EQ("// long long long\n"
+            "// long long long\n"
+            "// long long long\n",
+            format("// long long long long long long long long\n"
+                   "// long\n",
+                   getLLVMStyleWithColumns(20)));
+
+  // Break the first line, then reflow the beginning of the second and third
+  // line up.
+  EXPECT_EQ("// long long long\n"
+            "// lon1 lon2 lon2\n"
+            "// lon2 lon3 lon3",
+            format("// long long long lon1\n"
+                   "// lon2 lon2 lon2\n"
+                   "// lon3 lon3",
+                   getLLVMStyleWithColumns(20)));
+
+  // Reflow the beginning of the second line, then break the rest.
+  EXPECT_EQ("// long long long\n"
+            "// lon1 lon2 lon2\n"
+            "// lon2 lon2 lon2\n"
+            "// lon3",
+            format("// long long long lon1\n"
+                   "// lon2 lon2 lon2 lon2 lon2 lon3",
+                   getLLVMStyleWithColumns(20)));
+
+  // Shrink the first line, then reflow the second line up.
+  EXPECT_EQ("// long long long", format("// long              long\n"
+                                        "// long",
+                                        getLLVMStyleWithColumns(20)));
+
+  // Don't shrink leading whitespace.
+  EXPECT_EQ("int i; ///           a",
+            format("int i; ///           a", getLLVMStyleWithColumns(20)));
+
+  // Shrink trailing whitespace if there is no postfix and reflow.
+  EXPECT_EQ("// long long long\n"
+            "// long long",
+            format("// long long long long    \n"
+                   "// long",
+                   getLLVMStyleWithColumns(20)));
+
+  // Shrink trailing whitespace to a single one if there is postfix.
+  EXPECT_EQ("/* long long long */",
+            format("/* long long long     */", getLLVMStyleWithColumns(20)));
+
+  // Break a block comment postfix if exceeding the line limit.
+  EXPECT_EQ("/*               long\n"
+            " */",
+            format("/*               long */", getLLVMStyleWithColumns(20)));
+
+  // Reflow indented comments.
+  EXPECT_EQ("{\n"
+            "  // long long long\n"
+            "  // long long\n"
+            "  int i; /* long lon\n"
+            "            g long\n"
+            "          */\n"
+            "}",
+            format("{\n"
+                   "  // long long long long\n"
+                   "  // long\n"
+                   "  int i; /* long lon g\n"
+                   "            long */\n"
+                   "}",
+                   getLLVMStyleWithColumns(20)));
+
+  // Don't realign trailing comments after reflow has happened.
+  EXPECT_EQ("// long long long\n"
+            "// long long\n"
+            "long i; // long",
+            format("// long long long long\n"
+                   "// long\n"
+                   "long i; // long",
+                   getLLVMStyleWithColumns(20)));
+  EXPECT_EQ("// long long long\n"
+            "// longng long long\n"
+            "// long lo",
+            format("// long long long longng\n"
+                   "// long long long\n"
+                   "// lo",
+                   getLLVMStyleWithColumns(20)));
+
+  // Reflow lines after a broken line.
+  EXPECT_EQ("int a; // Trailing\n"
+            "       // comment on\n"
+            "       // 2 or 3\n"
+            "       // lines.\n",
+            format("int a; // Trailing comment\n"
+                   "       // on 2\n"
+                   "       // or 3\n"
+                   "       // lines.\n",
+                   getLLVMStyleWithColumns(20)));
+  EXPECT_EQ("/// This long line\n"
+            "/// gets reflown.\n",
+            format("/// This long line gets\n"
+                   "/// reflown.\n",
+                   getLLVMStyleWithColumns(20)));
+  EXPECT_EQ("//! This long line\n"
+            "//! gets reflown.\n",
+            format(" //! This long line gets\n"
+                   " //! reflown.\n",
+                   getLLVMStyleWithColumns(20)));
+  EXPECT_EQ("/* This long line\n"
+            " * gets reflown.\n"
+            " */\n",
+            format("/* This long line gets\n"
+                   " * reflown.\n"
+                   " */\n",
+                   getLLVMStyleWithColumns(20)));
+
+  // Reflow after indentation makes a line too long.
+  EXPECT_EQ("{\n"
+            "  // long long long\n"
+            "  // lo long\n"
+            "}\n",
+            format("{\n"
+                   "// long long long lo\n"
+                   "// long\n"
+                   "}\n",
+                   getLLVMStyleWithColumns(20)));
+
+  // Break and reflow multiple lines.
+  EXPECT_EQ("/*\n"
+            " * Reflow the end of\n"
+            " * line by 11 22 33\n"
+            " * 4.\n"
+            " */\n",
+            format("/*\n"
+                   " * Reflow the end of line\n"
+                   " * by\n"
+                   " * 11\n"
+                   " * 22\n"
+                   " * 33\n"
+                   " * 4.\n"
+                   " */\n",
+                   getLLVMStyleWithColumns(20)));
+  EXPECT_EQ("/// First line gets\n"
+            "/// broken. Second\n"
+            "/// line gets\n"
+            "/// reflown and\n"
+            "/// broken. Third\n"
+            "/// gets reflown.\n",
+            format("/// First line gets broken.\n"
+                   "/// Second line gets reflown and broken.\n"
+                   "/// Third gets reflown.\n",
+                   getLLVMStyleWithColumns(20)));
+  EXPECT_EQ("int i; // first long\n"
+            "       // long snd\n"
+            "       // long.\n",
+            format("int i; // first long long\n"
+                   "       // snd long.\n",
+                   getLLVMStyleWithColumns(20)));
+  EXPECT_EQ("{\n"
+            "  // first long line\n"
+            "  // line second\n"
+            "  // long line line\n"
+            "  // third long line\n"
+            "  // line\n"
+            "}\n",
+            format("{\n"
+                   "  // first long line line\n"
+                   "  // second long line line\n"
+                   "  // third long line line\n"
+                   "}\n",
+                   getLLVMStyleWithColumns(20)));
+  EXPECT_EQ("int i; /* first line\n"
+            "        * second\n"
+            "        * line third\n"
+            "        * line\n"
+            "        */",
+            format("int i; /* first line\n"
+                   "        * second line\n"
+                   "        * third line\n"
+                   "        */",
+                   getLLVMStyleWithColumns(20)));
+
+  // Reflow the last two lines of a section that starts with a line having
+  // different indentation.
+  EXPECT_EQ(
+      "//     long\n"
+      "// long long long\n"
+      "// long long",
+      format("//     long\n"
+             "// long long long long\n"
+             "// long",
+             getLLVMStyleWithColumns(20)));
+
+  // Keep the block comment endling '*/' while reflowing.
+  EXPECT_EQ("/* Long long long\n"
+            " * line short */\n",
+            format("/* Long long long line\n"
+                   " * short */\n",
+                   getLLVMStyleWithColumns(20)));
+
+  // Don't reflow between separate blocks of comments.
+  EXPECT_EQ("/* First comment\n"
+            " * block will */\n"
+            "/* Snd\n"
+            " */\n",
+            format("/* First comment block\n"
+                   " * will */\n"
+                   "/* Snd\n"
+                   " */\n",
+                   getLLVMStyleWithColumns(20)));
+
+  // Don't reflow across blank comment lines.
+  EXPECT_EQ("int i; // This long\n"
+            "       // line gets\n"
+            "       // broken.\n"
+            "       //  \n"
+            "       // keep.\n",
+            format("int i; // This long line gets broken.\n"
+                   "       //  \n"
+                   "       // keep.\n",
+                   getLLVMStyleWithColumns(20)));
+  EXPECT_EQ("{\n"
+            "  /// long long long\n"
+            "  /// long long\n"
+            "  ///\n"
+            "  /// long\n"
+            "}",
+            format("{\n"
+                   "  /// long long long long\n"
+                   "  /// long\n"
+                   "  ///\n"
+                   "  /// long\n"
+                   "}",
+                   getLLVMStyleWithColumns(20)));
+  EXPECT_EQ("//! long long long\n"
+            "//! long\n"
+            "\n"
+            "//! long",
+            format("//! long long long long\n"
+                   "\n"
+                   "//! long",
+                   getLLVMStyleWithColumns(20)));
+  EXPECT_EQ("/* long long long\n"
+            "   long\n"
+            "\n"
+            "   long */",
+            format("/* long long long long\n"
+                   "\n"
+                   "   long */",
+                   getLLVMStyleWithColumns(20)));
+  EXPECT_EQ("/* long long long\n"
+            " * long\n"
+            " *\n"
+            " * long */",
+            format("/* long long long long\n"
+                   " *\n"
+                   " * long */",
+                   getLLVMStyleWithColumns(20)));
+  
+  // Don't reflow lines having content that is a single character.
+  EXPECT_EQ("// long long long\n"
+            "// long\n"
+            "// l",
+            format("// long long long long\n"
+                   "// l",
+                   getLLVMStyleWithColumns(20)));
+
+  // Don't reflow lines starting with two punctuation characters.
+  EXPECT_EQ("// long long long\n"
+            "// long\n"
+            "// ... --- ...",
+            format(
+                "// long long long long\n"
+                "// ... --- ...",
+                getLLVMStyleWithColumns(20)));
+  // Reflow lines that have a non-punctuation character among their first 2
+  // characters.
+  EXPECT_EQ("// long long long\n"
+            "// long 'long'",
+            format(
+                "// long long long long\n"
+                "// 'long'",
+                getLLVMStyleWithColumns(20)));
+
+  // Don't reflow between separate blocks of comments.
+  EXPECT_EQ("/* First comment\n"
+            " * block will */\n"
+            "/* Snd\n"
+            " */\n",
+            format("/* First comment block\n"
+                   " * will */\n"
+                   "/* Snd\n"
+                   " */\n",
+                   getLLVMStyleWithColumns(20)));
+
+  // Don't reflow lines having different indentation.
+  EXPECT_EQ("// long long long\n"
+            "// long\n"
+            "//  long",
+            format("// long long long long\n"
+                   "//  long",
+                   getLLVMStyleWithColumns(20)));
+
+  // Don't break or reflow after implicit string literals.
+  verifyFormat("#include <t> // l l l\n"
+               "             // l",
+               getLLVMStyleWithColumns(20));
+
+  // Don't break or reflow comments on import lines.
+  EXPECT_EQ("#include \"t\" /* l l l\n"
+            "                * l */",
+            format("#include \"t\" /* l l l\n"
+                   "                * l */",
+                   getLLVMStyleWithColumns(20)));
+
+  // Don't reflow between different trailing comment sections.
+  EXPECT_EQ("int i; // long long\n"
+            "       // long\n"
+            "int j; // long long\n"
+            "       // long\n",
+            format("int i; // long long long\n"
+                   "int j; // long long long\n",
+                   getLLVMStyleWithColumns(20)));
+
+  // Don't reflow if the first word on the next line is longer than the
+  // available space at current line.
+  EXPECT_EQ("int i; // trigger\n"
+            "       // reflow\n"
+            "       // longsec\n",
+            format("int i; // trigger reflow\n"
+                   "       // longsec\n",
+                   getLLVMStyleWithColumns(20)));
+
+  // Keep empty comment lines.
+  EXPECT_EQ("/**/", format(" /**/", getLLVMStyleWithColumns(20)));
+  EXPECT_EQ("/* */", format(" /* */", getLLVMStyleWithColumns(20)));
+  EXPECT_EQ("/*  */", format(" /*  */", getLLVMStyleWithColumns(20)));
+  EXPECT_EQ("//", format(" //  ", getLLVMStyleWithColumns(20)));
+  EXPECT_EQ("///", format(" ///  ", getLLVMStyleWithColumns(20)));
+}
+
 TEST_F(FormatTest, IgnoresIf0Contents) {
   EXPECT_EQ("#if 0\n"
             "}{)(&*(^%%#%@! fsadj f;ldjs ,:;| <<<>>>][)(][\n"
@@ -3353,9 +3810,10 @@ TEST_F(FormatTest, PreventConfusingIndents) {
       "    aaaaaaaaaaaaaaaaaaaaaaaa<\n"
       "        aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa>,\n"
       "    aaaaaaaaaaaaaaaaaaaaaaaa>;");
-  verifyFormat("int a = bbbb && ccc && fffff(\n"
+  verifyFormat("int a = bbbb && ccc &&\n"
+               "        fffff(\n"
                "#define A Just forcing a new line\n"
-               "                           ddd);");
+               "            ddd);");
 }
 
 TEST_F(FormatTest, LineBreakingInBinaryExpressions) {
@@ -3438,6 +3896,12 @@ TEST_F(FormatTest, LineBreakingInBinaryExpressions) {
       "    aaaaaaaaaaaaaaaaaaaaaaaaaaaa || aaaaaaaaaaaaaaaaaaaaaaaaaaaa ||\n"
       "    aaaaaaaaaaaaaaaaaaaaaaaaaaaa) {\n}",
       OnePerLine);
+
+  verifyFormat("int i = someFunction(aaaaaaa, 0)\n"
+               "                .aaa(aaaaaaaaaaaaa) *\n"
+               "            aaaaaaa +\n"
+               "        aaaaaaa;",
+               getLLVMStyleWithColumns(40));
 }
 
 TEST_F(FormatTest, ExpressionIndentation) {
@@ -4044,8 +4508,9 @@ TEST_F(FormatTest, BreaksDesireably) {
                "        aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa));");
 
   verifyFormat(
-      "aaaaaaaa(aaaaaaaaaaaaa, aaaaaaaaaaaaaaa(aaaaaaaaaaaaaaaaaaaaaaaaaaaaa(\n"
-      "                            aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa)),\n"
+      "aaaaaaaa(aaaaaaaaaaaaa,\n"
+      "         aaaaaaaaaaaaaaa(aaaaaaaaaaaaaaaaaaaaaaaaaaaaa(\n"
+      "             aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa)),\n"
       "         aaaaaaaa(aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa(\n"
       "             aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa)));");
 
@@ -4061,8 +4526,9 @@ TEST_F(FormatTest, BreaksDesireably) {
       "aaaaaa(new Aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa(\n"
       "    aaaaaaaaaaaaaaaaaaaaaaaaaaaaa));");
   verifyFormat(
-      "aaaaaa(aaa, new Aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa(\n"
-      "                aaaaaaaaaaaaaaaaaaaaaaaaaaaaa));");
+      "aaaaaa(aaa,\n"
+      "       new Aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa(\n"
+      "           aaaaaaaaaaaaaaaaaaaaaaaaaaaaa));");
   verifyFormat("aaaaaaaaaaaaaaaaa(aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa +\n"
                "                      aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,\n"
                "                  aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa);");
@@ -4620,10 +5086,9 @@ TEST_F(FormatTest, BreaksConditionalExpressions) {
       "                                            aaaaaaaaaaaaaaaaaaaaa\n"
       "                                      : aaaaaaaaaa;");
   verifyFormat(
-      "aaaaaa = aaaaaaaaaaaa\n"
-      "             ? aaaaaaaaaa ? aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
-      "                          : aaaaaaaaaaaaaaaaaaaaaa\n"
-      "             : aaaaaaaaaaaaaaaaaaaaaaaaaaaa;");
+      "aaaaaa = aaaaaaaaaaaa ? aaaaaaaaaa ? aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
+      "                                   : aaaaaaaaaaaaaaaaaaaaaa\n"
+      "                      : aaaaaaaaaaaaaaaaaaaaaaaaaaaa;");
 
   FormatStyle NoBinPacking = getLLVMStyle();
   NoBinPacking.BinPackArguments = false;
@@ -4820,10 +5285,11 @@ TEST_F(FormatTest, AlignsStringLiterals) {
   verifyFormat("someFunction(\"Always break between multi-line\"\n"
                "             \" string literals\",\n"
                "             and, other, parameters);");
-  EXPECT_EQ("fun + \"1243\" /* comment */\n"
-            "      \"5678\";",
+  EXPECT_EQ("fun +\n"
+            "    \"1243\" /* comment */\n"
+            "    \"5678\";",
             format("fun + \"1243\" /* comment */\n"
-                   "      \"5678\";",
+                   "    \"5678\";",
                    getLLVMStyleWithColumns(28)));
   EXPECT_EQ(
       "aaaaaa = \"aaaaaaaaaaaaaaaaaaaaaaaaaa aaaaaaaaaaaaaaaaaaaaaaaaaaaa \"\n"
@@ -4833,11 +5299,13 @@ TEST_F(FormatTest, AlignsStringLiterals) {
              "\"aaaaaaaaaaaaaaaaaaaaaaaaaa aaaaaaaaaaaaaaaaaaaaaaaaaaaa "
              "aaaaaaaaaaaaaaaaaaaaa\" "
              "\"aaaaaaaaaaaaaaaa\";"));
-  verifyFormat("a = a + \"a\"\n"
-               "        \"a\"\n"
-               "        \"a\";");
-  verifyFormat("f(\"a\", \"b\"\n"
-               "       \"c\");");
+  verifyFormat("a = a +\n"
+               "    \"a\"\n"
+               "    \"a\"\n"
+               "    \"a\";");
+  verifyFormat("f(\"a\",\n"
+               "  \"b\"\n"
+               "  \"c\");");
 
   verifyFormat(
       "#define LL_FORMAT \"ll\"\n"
@@ -5022,8 +5490,9 @@ TEST_F(FormatTest, AlwaysBreakBeforeMultilineStrings) {
                "    \"bbbb\"\n"
                "    \"cccc\");",
                Break);
-  verifyFormat("aaaa(qqq, \"bbbb\"\n"
-               "          \"cccc\");",
+  verifyFormat("aaaa(qqq,\n"
+               "     \"bbbb\"\n"
+               "     \"cccc\");",
                NoBreak);
   verifyFormat("aaaa(qqq,\n"
                "     \"bbbb\"\n"
@@ -5033,8 +5502,9 @@ TEST_F(FormatTest, AlwaysBreakBeforeMultilineStrings) {
                "     L\"bbbb\"\n"
                "     L\"cccc\");",
                Break);
-  verifyFormat("aaaaa(aaaaaa, aaaaaaa(\"aaaa\"\n"
-               "                      \"bbbb\"));",
+  verifyFormat("aaaaa(aaaaaa,\n"
+               "      aaaaaaa(\"aaaa\"\n"
+               "              \"bbbb\"));",
                Break);
   verifyFormat("string s = someFunction(\n"
                "    \"abc\"\n"
@@ -5450,8 +5920,9 @@ TEST_F(FormatTest, WrapsAtNestedNameSpecifiers) {
       "    aaaaaaaaaaaaaaaaaaaaaaa);");
 
   verifyFormat(
-      "aaaaaaaaaaaaaaaaaa(aaaaaaaa, aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa::\n"
-      "                                 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,\n"
+      "aaaaaaaaaaaaaaaaaa(aaaaaaaa,\n"
+      "                   aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa::\n"
+      "                       aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,\n"
       "                   aaaaaaaaaaaaaaaaaaaaa);",
       getLLVMStyleWithColumns(74));
 
@@ -5780,6 +6251,10 @@ TEST_F(FormatTest, UnderstandsUsesOfStarAndAmp) {
   verifyGoogleFormat("MACRO Constructor(const int& i) : a(a), b(b) {}");
   verifyFormat("void f() { f(a, c * d); }");
   verifyFormat("void f() { f(new a(), c * d); }");
+  verifyFormat("void f(const MyOverride &override);");
+  verifyFormat("void f(const MyFinal &final);");
+  verifyIndependentOfContext("bool a = f() && override.f();");
+  verifyIndependentOfContext("bool a = f() && final.f();");
 
   verifyIndependentOfContext("InvalidRegions[*R] = 0;");
 
@@ -6812,6 +7287,14 @@ TEST_F(FormatTest, FormatsBracedListsInColumnLayout) {
                "    aaaaaa.aaaaaaa,\n"
                "    aaaaaa.aaaaaaa,\n"
                "};");
+
+  // Don't create hanging lists.
+  verifyFormat("someFunction(Param,\n"
+               "             {List1, List2,\n"
+               "              List3});",
+               getLLVMStyleWithColumns(35));
+  verifyFormat("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa(aaaaaaaaaaaaaaaaaaa, {},\n"
+               "                               aaaaaaaaaaaaaaaaaaaaaaa);");
 }
 
 TEST_F(FormatTest, PullTrivialFunctionDefinitionsIntoSingleLine) {
@@ -7212,11 +7695,9 @@ TEST_F(FormatTest, BlockCommentsAtEndOfLine) {
             format("a = {1111 /*      */\n"
                    "};",
                    getLLVMStyleWithColumns(15)));
-
-  // FIXME: The formatting is still wrong here.
   EXPECT_EQ("a = {\n"
             "    1111 /*      a\n"
-            "            */\n"
+            "          */\n"
             "};",
             format("a = {1111 /*      a */\n"
                    "};",
@@ -10907,6 +11388,26 @@ TEST_F(FormatTest, DisableRegions) {
                    "  int j;\n"
                    " /* clang-format on */\n"
                    "   int   k;"));
+
+  // Don't reflow comments within disabled regions.
+  EXPECT_EQ(
+      "// clang-format off\n"
+      "// long long long long long long line\n"
+      "/* clang-format on */\n"
+      "/* long long long\n"
+      " * long long long\n"
+      " * line */\n"
+      "int i;\n"
+      "/* clang-format off */\n"
+      "/* long long long long long long line */\n",
+      format("// clang-format off\n"
+             "// long long long long long long line\n"
+             "/* clang-format on */\n"
+             "/* long long long long long long line */\n"
+             "int i;\n"
+             "/* clang-format off */\n"
+             "/* long long long long long long line */\n",
+             getLLVMStyleWithColumns(20)));
 }
 
 TEST_F(FormatTest, DoNotCrashOnInvalidInput) {
@@ -10949,13 +11450,33 @@ TEST(FormatStyle, GetStyleOfFile) {
   ASSERT_TRUE(
       FS.addFile("/a/test.cpp", 0, llvm::MemoryBuffer::getMemBuffer("int i;")));
   auto Style1 = getStyle("file", "/a/.clang-format", "Google", "", &FS);
-  ASSERT_EQ(Style1, getLLVMStyle());
+  ASSERT_TRUE((bool)Style1);
+  ASSERT_EQ(*Style1, getLLVMStyle());
 
-  // Test 2: fallback to default.
+  // Test 2.1: fallback to default.
   ASSERT_TRUE(
       FS.addFile("/b/test.cpp", 0, llvm::MemoryBuffer::getMemBuffer("int i;")));
   auto Style2 = getStyle("file", "/b/test.cpp", "Mozilla", "", &FS);
-  ASSERT_EQ(Style2, getMozillaStyle());
+  ASSERT_TRUE((bool)Style2);
+  ASSERT_EQ(*Style2, getMozillaStyle());
+
+  // Test 2.2: no format on 'none' fallback style.
+  Style2 = getStyle("file", "/b/test.cpp", "none", "", &FS);
+  ASSERT_TRUE((bool)Style2);
+  ASSERT_EQ(*Style2, getNoStyle());
+
+  // Test 2.3: format if config is found with no based style while fallback is
+  // 'none'.
+  ASSERT_TRUE(FS.addFile("/b/.clang-format", 0,
+                         llvm::MemoryBuffer::getMemBuffer("IndentWidth: 2")));
+  Style2 = getStyle("file", "/b/test.cpp", "none", "", &FS);
+  ASSERT_TRUE((bool)Style2);
+  ASSERT_EQ(*Style2, getLLVMStyle());
+
+  // Test 2.4: format if yaml with no based style, while fallback is 'none'.
+  Style2 = getStyle("{}", "a.h", "none", "", &FS);
+  ASSERT_TRUE((bool)Style2);
+  ASSERT_EQ(*Style2, getLLVMStyle());
 
   // Test 3: format file in parent directory.
   ASSERT_TRUE(
@@ -10964,7 +11485,34 @@ TEST(FormatStyle, GetStyleOfFile) {
   ASSERT_TRUE(FS.addFile("/c/sub/sub/sub/test.cpp", 0,
                          llvm::MemoryBuffer::getMemBuffer("int i;")));
   auto Style3 = getStyle("file", "/c/sub/sub/sub/test.cpp", "LLVM", "", &FS);
-  ASSERT_EQ(Style3, getGoogleStyle());
+  ASSERT_TRUE((bool)Style3);
+  ASSERT_EQ(*Style3, getGoogleStyle());
+
+  // Test 4: error on invalid fallback style
+  auto Style4 = getStyle("file", "a.h", "KungFu", "", &FS);
+  ASSERT_FALSE((bool)Style4);
+  llvm::consumeError(Style4.takeError());
+
+  // Test 5: error on invalid yaml on command line
+  auto Style5 = getStyle("{invalid_key=invalid_value}", "a.h", "LLVM", "", &FS);
+  ASSERT_FALSE((bool)Style5);
+  llvm::consumeError(Style5.takeError());
+
+  // Test 6: error on invalid style
+  auto Style6 = getStyle("KungFu", "a.h", "LLVM", "", &FS);
+  ASSERT_FALSE((bool)Style6);
+  llvm::consumeError(Style6.takeError());
+
+  // Test 7: found config file, error on parsing it
+  ASSERT_TRUE(
+      FS.addFile("/d/.clang-format", 0,
+                 llvm::MemoryBuffer::getMemBuffer("BasedOnStyle: LLVM\n"
+                                                  "InvalidKey: InvalidValue")));
+  ASSERT_TRUE(
+      FS.addFile("/d/test.cpp", 0, llvm::MemoryBuffer::getMemBuffer("int i;")));
+  auto Style7 = getStyle("file", "/d/.clang-format", "LLVM", "", &FS);
+  ASSERT_FALSE((bool)Style7);
+  llvm::consumeError(Style7.takeError());
 }
 
 TEST_F(ReplacementTest, FormatCodeAfterReplacements) {

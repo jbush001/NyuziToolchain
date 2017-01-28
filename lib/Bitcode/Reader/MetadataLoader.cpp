@@ -358,6 +358,9 @@ class PlaceholderQueue {
   std::deque<DistinctMDOperandPlaceholder> PHs;
 
 public:
+  ~PlaceholderQueue() {
+    assert(empty() && "PlaceholderQueue hasn't been flushed before being destroyed");
+  }
   bool empty() { return PHs.empty(); }
   DistinctMDOperandPlaceholder &getPlaceholderOp(unsigned ID);
   void flush(BitcodeReaderMetadataList &MetadataList);
@@ -429,7 +432,7 @@ class MetadataLoader::MetadataLoaderImpl {
   /// Populate the index above to enable lazily loading of metadata, and load
   /// the named metadata as well as the transitively referenced global
   /// Metadata.
-  Expected<bool> lazyLoadModuleMetadataBlock(PlaceholderQueue &Placeholders);
+  Expected<bool> lazyLoadModuleMetadataBlock();
 
   /// On-demand loading of a single metadata. Requires the index above to be
   /// populated.
@@ -456,7 +459,7 @@ class MetadataLoader::MetadataLoaderImpl {
                          PlaceholderQueue &Placeholders, StringRef Blob,
                          unsigned &NextMetadataNo);
   Error parseMetadataStrings(ArrayRef<uint64_t> Record, StringRef Blob,
-                             std::function<void(StringRef)> CallBack);
+                             function_ref<void(StringRef)> CallBack);
   Error parseGlobalObjectAttachment(GlobalObject &GO,
                                     ArrayRef<uint64_t> Record);
   Error parseMetadataKindRecord(SmallVectorImpl<uint64_t> &Record);
@@ -480,13 +483,26 @@ public:
                      bool IsImporting)
       : MetadataList(TheModule.getContext()), ValueList(ValueList),
         Stream(Stream), Context(TheModule.getContext()), TheModule(TheModule),
-        getTypeByID(getTypeByID), IsImporting(IsImporting) {}
+        getTypeByID(std::move(getTypeByID)), IsImporting(IsImporting) {}
 
   Error parseMetadata(bool ModuleLevel);
 
   bool hasFwdRefs() const { return MetadataList.hasFwdRefs(); }
-  Metadata *getMetadataFwdRef(unsigned Idx) {
-    return MetadataList.getMetadataFwdRef(Idx);
+
+  Metadata *getMetadataFwdRefOrLoad(unsigned ID) {
+    if (ID < MDStringRef.size())
+      return lazyLoadOneMDString(ID);
+    if (auto *MD = MetadataList.lookup(ID))
+      return MD;
+    // If lazy-loading is enabled, we try recursively to load the operand
+    // instead of creating a temporary.
+    if (ID < (MDStringRef.size() + GlobalMetadataBitPosIndex.size())) {
+      PlaceholderQueue Placeholders;
+      lazyLoadOneMetadata(ID, Placeholders);
+      resolveForwardRefsAndPlaceholders(Placeholders);
+      return MetadataList.lookup(ID);
+    }
+    return MetadataList.getMetadataFwdRef(ID);
   }
 
   MDNode *getMDNodeFwdRefOrNull(unsigned Idx) {
@@ -516,8 +532,8 @@ Error error(const Twine &Message) {
       Message, make_error_code(BitcodeError::CorruptedBitcode));
 }
 
-Expected<bool> MetadataLoader::MetadataLoaderImpl::lazyLoadModuleMetadataBlock(
-    PlaceholderQueue &Placeholders) {
+Expected<bool>
+MetadataLoader::MetadataLoaderImpl::lazyLoadModuleMetadataBlock() {
   IndexCursor = Stream;
   SmallVector<uint64_t, 64> Record;
   // Get the abbrevs, and preload record positions to make them lazy-loadable.
@@ -701,7 +717,7 @@ Error MetadataLoader::MetadataLoaderImpl::parseMetadata(bool ModuleLevel) {
   // then load individual record as needed, starting with the named metadata.
   if (ModuleLevel && IsImporting && MetadataList.empty() &&
       !DisableLazyLoading) {
-    auto SuccessOrErr = lazyLoadModuleMetadataBlock(Placeholders);
+    auto SuccessOrErr = lazyLoadModuleMetadataBlock();
     if (!SuccessOrErr)
       return SuccessOrErr.takeError();
     if (SuccessOrErr.get()) {
@@ -768,13 +784,12 @@ void MetadataLoader::MetadataLoaderImpl::lazyLoadOneMetadata(
     unsigned ID, PlaceholderQueue &Placeholders) {
   assert(ID < (MDStringRef.size()) + GlobalMetadataBitPosIndex.size());
   assert(ID >= MDStringRef.size() && "Unexpected lazy-loading of MDString");
-#ifndef NDEBUG
   // Lookup first if the metadata hasn't already been loaded.
   if (auto *MD = MetadataList.lookup(ID)) {
     auto *N = dyn_cast_or_null<MDNode>(MD);
-    assert(N && N->isTemporary() && "Lazy loading an already loaded metadata");
+    if (!N->isTemporary())
+      return;
   }
-#endif
   SmallVector<uint64_t, 64> Record;
   StringRef Blob;
   IndexCursor.JumpToBit(GlobalMetadataBitPosIndex[ID - MDStringRef.size()]);
@@ -827,8 +842,22 @@ Error MetadataLoader::MetadataLoaderImpl::parseOneMetadata(
   auto getMD = [&](unsigned ID) -> Metadata * {
     if (ID < MDStringRef.size())
       return lazyLoadOneMDString(ID);
-    if (!IsDistinct)
+    if (!IsDistinct) {
+      if (auto *MD = MetadataList.lookup(ID))
+        return MD;
+      // If lazy-loading is enabled, we try recursively to load the operand
+      // instead of creating a temporary.
+      if (ID < (MDStringRef.size() + GlobalMetadataBitPosIndex.size())) {
+        // Create a temporary for the node that is referencing the operand we
+        // will lazy-load. It is needed before recursing in case there are
+        // uniquing cycles.
+        MetadataList.getMetadataFwdRef(NextMetadataNo);
+        lazyLoadOneMetadata(ID, Placeholders);
+        return MetadataList.lookup(ID);
+      }
+      // Return a temporary.
       return MetadataList.getMetadataFwdRef(ID);
+    }
     if (auto *MD = MetadataList.getMetadataIfResolved(ID))
       return MD;
     return &Placeholders.getPlaceholderOp(ID);
@@ -893,7 +922,8 @@ Error MetadataLoader::MetadataLoaderImpl::parseOneMetadata(
     // If this isn't a LocalAsMetadata record, we're dropping it.  This used
     // to be legal, but there's no upgrade path.
     auto dropRecord = [&] {
-      MetadataList.assignValue(MDNode::get(Context, None), NextMetadataNo++);
+      MetadataList.assignValue(MDNode::get(Context, None), NextMetadataNo);
+      NextMetadataNo++;
     };
     if (Record.size() != 2) {
       dropRecord();
@@ -908,7 +938,8 @@ Error MetadataLoader::MetadataLoaderImpl::parseOneMetadata(
 
     MetadataList.assignValue(
         LocalAsMetadata::get(ValueList.getValueFwdRef(Record[1], Ty)),
-        NextMetadataNo++);
+        NextMetadataNo);
+    NextMetadataNo++;
     break;
   }
   case bitc::METADATA_OLD_NODE: {
@@ -933,7 +964,8 @@ Error MetadataLoader::MetadataLoaderImpl::parseOneMetadata(
       } else
         Elts.push_back(nullptr);
     }
-    MetadataList.assignValue(MDNode::get(Context, Elts), NextMetadataNo++);
+    MetadataList.assignValue(MDNode::get(Context, Elts), NextMetadataNo);
+    NextMetadataNo++;
     break;
   }
   case bitc::METADATA_VALUE: {
@@ -946,7 +978,8 @@ Error MetadataLoader::MetadataLoaderImpl::parseOneMetadata(
 
     MetadataList.assignValue(
         ValueAsMetadata::get(ValueList.getValueFwdRef(Record[1], Ty)),
-        NextMetadataNo++);
+        NextMetadataNo);
+    NextMetadataNo++;
     break;
   }
   case bitc::METADATA_DISTINCT_NODE:
@@ -959,7 +992,8 @@ Error MetadataLoader::MetadataLoaderImpl::parseOneMetadata(
       Elts.push_back(getMDOrNull(ID));
     MetadataList.assignValue(IsDistinct ? MDNode::getDistinct(Context, Elts)
                                         : MDNode::get(Context, Elts),
-                             NextMetadataNo++);
+                             NextMetadataNo);
+    NextMetadataNo++;
     break;
   }
   case bitc::METADATA_LOCATION: {
@@ -973,7 +1007,8 @@ Error MetadataLoader::MetadataLoaderImpl::parseOneMetadata(
     Metadata *InlinedAt = getMDOrNull(Record[4]);
     MetadataList.assignValue(
         GET_OR_DISTINCT(DILocation, (Context, Line, Column, Scope, InlinedAt)),
-        NextMetadataNo++);
+        NextMetadataNo);
+    NextMetadataNo++;
     break;
   }
   case bitc::METADATA_GENERIC_DEBUG: {
@@ -993,7 +1028,8 @@ Error MetadataLoader::MetadataLoaderImpl::parseOneMetadata(
       DwarfOps.push_back(getMDOrNull(Record[I]));
     MetadataList.assignValue(
         GET_OR_DISTINCT(GenericDINode, (Context, Tag, Header, DwarfOps)),
-        NextMetadataNo++);
+        NextMetadataNo);
+    NextMetadataNo++;
     break;
   }
   case bitc::METADATA_SUBRANGE: {
@@ -1004,7 +1040,8 @@ Error MetadataLoader::MetadataLoaderImpl::parseOneMetadata(
     MetadataList.assignValue(
         GET_OR_DISTINCT(DISubrange,
                         (Context, Record[1], unrotateSign(Record[2]))),
-        NextMetadataNo++);
+        NextMetadataNo);
+    NextMetadataNo++;
     break;
   }
   case bitc::METADATA_ENUMERATOR: {
@@ -1015,7 +1052,8 @@ Error MetadataLoader::MetadataLoaderImpl::parseOneMetadata(
     MetadataList.assignValue(
         GET_OR_DISTINCT(DIEnumerator, (Context, unrotateSign(Record[1]),
                                        getMDString(Record[2]))),
-        NextMetadataNo++);
+        NextMetadataNo);
+    NextMetadataNo++;
     break;
   }
   case bitc::METADATA_BASIC_TYPE: {
@@ -1027,7 +1065,8 @@ Error MetadataLoader::MetadataLoaderImpl::parseOneMetadata(
         GET_OR_DISTINCT(DIBasicType,
                         (Context, Record[1], getMDString(Record[2]), Record[3],
                          Record[4], Record[5])),
-        NextMetadataNo++);
+        NextMetadataNo);
+    NextMetadataNo++;
     break;
   }
   case bitc::METADATA_DERIVED_TYPE: {
@@ -1043,7 +1082,8 @@ Error MetadataLoader::MetadataLoaderImpl::parseOneMetadata(
                          getDITypeRefOrNull(Record[5]),
                          getDITypeRefOrNull(Record[6]), Record[7], Record[8],
                          Record[9], Flags, getDITypeRefOrNull(Record[11]))),
-        NextMetadataNo++);
+        NextMetadataNo);
+    NextMetadataNo++;
     break;
   }
   case bitc::METADATA_COMPOSITE_TYPE: {
@@ -1108,7 +1148,8 @@ Error MetadataLoader::MetadataLoaderImpl::parseOneMetadata(
     if (!IsNotUsedInTypeRef && Identifier)
       MetadataList.addTypeRef(*Identifier, *cast<DICompositeType>(CT));
 
-    MetadataList.assignValue(CT, NextMetadataNo++);
+    MetadataList.assignValue(CT, NextMetadataNo);
+    NextMetadataNo++;
     break;
   }
   case bitc::METADATA_SUBROUTINE_TYPE: {
@@ -1125,7 +1166,8 @@ Error MetadataLoader::MetadataLoaderImpl::parseOneMetadata(
 
     MetadataList.assignValue(
         GET_OR_DISTINCT(DISubroutineType, (Context, Flags, CC, Types)),
-        NextMetadataNo++);
+        NextMetadataNo);
+    NextMetadataNo++;
     break;
   }
 
@@ -1139,7 +1181,8 @@ Error MetadataLoader::MetadataLoaderImpl::parseOneMetadata(
                         (Context, getMDOrNull(Record[1]),
                          getMDString(Record[2]), getMDString(Record[3]),
                          getMDString(Record[4]), getMDString(Record[5]))),
-        NextMetadataNo++);
+        NextMetadataNo);
+    NextMetadataNo++;
     break;
   }
 
@@ -1155,7 +1198,8 @@ Error MetadataLoader::MetadataLoaderImpl::parseOneMetadata(
              Record.size() == 3 ? DIFile::CSK_None
                                 : static_cast<DIFile::ChecksumKind>(Record[3]),
              Record.size() == 3 ? nullptr : getMDString(Record[4]))),
-        NextMetadataNo++);
+        NextMetadataNo);
+    NextMetadataNo++;
     break;
   }
   case bitc::METADATA_COMPILE_UNIT: {
@@ -1174,7 +1218,8 @@ Error MetadataLoader::MetadataLoaderImpl::parseOneMetadata(
         Record.size() <= 14 ? 0 : Record[14],
         Record.size() <= 16 ? true : Record[16]);
 
-    MetadataList.assignValue(CU, NextMetadataNo++);
+    MetadataList.assignValue(CU, NextMetadataNo);
+    NextMetadataNo++;
 
     // Move the Upgrade the list of subprograms.
     if (Metadata *SPs = getMDOrNullWithoutPlaceholders(Record[11]))
@@ -1221,7 +1266,8 @@ Error MetadataLoader::MetadataLoaderImpl::parseOneMetadata(
                        getMDOrNull(Record[16 + Offset]), // declaration
                        getMDOrNull(Record[17 + Offset])  // variables
                        ));
-    MetadataList.assignValue(SP, NextMetadataNo++);
+    MetadataList.assignValue(SP, NextMetadataNo);
+    NextMetadataNo++;
 
     // Upgrade sp->function mapping to function->sp mapping.
     if (HasFn) {
@@ -1246,7 +1292,8 @@ Error MetadataLoader::MetadataLoaderImpl::parseOneMetadata(
         GET_OR_DISTINCT(DILexicalBlock,
                         (Context, getMDOrNull(Record[1]),
                          getMDOrNull(Record[2]), Record[3], Record[4])),
-        NextMetadataNo++);
+        NextMetadataNo);
+    NextMetadataNo++;
     break;
   }
   case bitc::METADATA_LEXICAL_BLOCK_FILE: {
@@ -1258,7 +1305,8 @@ Error MetadataLoader::MetadataLoaderImpl::parseOneMetadata(
         GET_OR_DISTINCT(DILexicalBlockFile,
                         (Context, getMDOrNull(Record[1]),
                          getMDOrNull(Record[2]), Record[3])),
-        NextMetadataNo++);
+        NextMetadataNo);
+    NextMetadataNo++;
     break;
   }
   case bitc::METADATA_NAMESPACE: {
@@ -1272,7 +1320,8 @@ Error MetadataLoader::MetadataLoaderImpl::parseOneMetadata(
                         (Context, getMDOrNull(Record[1]),
                          getMDOrNull(Record[2]), getMDString(Record[3]),
                          Record[4], ExportSymbols)),
-        NextMetadataNo++);
+        NextMetadataNo);
+    NextMetadataNo++;
     break;
   }
   case bitc::METADATA_MACRO: {
@@ -1284,7 +1333,8 @@ Error MetadataLoader::MetadataLoaderImpl::parseOneMetadata(
         GET_OR_DISTINCT(DIMacro,
                         (Context, Record[1], Record[2], getMDString(Record[3]),
                          getMDString(Record[4]))),
-        NextMetadataNo++);
+        NextMetadataNo);
+    NextMetadataNo++;
     break;
   }
   case bitc::METADATA_MACRO_FILE: {
@@ -1296,7 +1346,8 @@ Error MetadataLoader::MetadataLoaderImpl::parseOneMetadata(
         GET_OR_DISTINCT(DIMacroFile,
                         (Context, Record[1], Record[2], getMDOrNull(Record[3]),
                          getMDOrNull(Record[4]))),
-        NextMetadataNo++);
+        NextMetadataNo);
+    NextMetadataNo++;
     break;
   }
   case bitc::METADATA_TEMPLATE_TYPE: {
@@ -1307,7 +1358,8 @@ Error MetadataLoader::MetadataLoaderImpl::parseOneMetadata(
     MetadataList.assignValue(GET_OR_DISTINCT(DITemplateTypeParameter,
                                              (Context, getMDString(Record[1]),
                                               getDITypeRefOrNull(Record[2]))),
-                             NextMetadataNo++);
+                             NextMetadataNo);
+    NextMetadataNo++;
     break;
   }
   case bitc::METADATA_TEMPLATE_VALUE: {
@@ -1320,7 +1372,8 @@ Error MetadataLoader::MetadataLoaderImpl::parseOneMetadata(
                         (Context, Record[1], getMDString(Record[2]),
                          getDITypeRefOrNull(Record[3]),
                          getMDOrNull(Record[4]))),
-        NextMetadataNo++);
+        NextMetadataNo);
+    NextMetadataNo++;
     break;
   }
   case bitc::METADATA_GLOBAL_VAR: {
@@ -1338,7 +1391,8 @@ Error MetadataLoader::MetadataLoaderImpl::parseOneMetadata(
                            getMDOrNull(Record[4]), Record[5],
                            getDITypeRefOrNull(Record[6]), Record[7], Record[8],
                            getMDOrNull(Record[10]), Record[11])),
-          NextMetadataNo++);
+          NextMetadataNo);
+      NextMetadataNo++;
     } else if (Version == 0) {
       // Upgrade old metadata, which stored a global variable reference or a
       // ConstantInt here.
@@ -1370,7 +1424,8 @@ Error MetadataLoader::MetadataLoaderImpl::parseOneMetadata(
            getMDOrNull(Record[10]), AlignInBits));
 
       auto *DGVE = DIGlobalVariableExpression::getDistinct(Context, DGV, Expr);
-      MetadataList.assignValue(DGVE, NextMetadataNo++);
+      MetadataList.assignValue(DGVE, NextMetadataNo);
+      NextMetadataNo++;
       if (Attach)
         Attach->addDebugInfo(DGVE);
     } else
@@ -1403,7 +1458,8 @@ Error MetadataLoader::MetadataLoaderImpl::parseOneMetadata(
                          getMDOrNull(Record[3 + HasTag]), Record[4 + HasTag],
                          getDITypeRefOrNull(Record[5 + HasTag]),
                          Record[6 + HasTag], Flags, AlignInBits)),
-        NextMetadataNo++);
+        NextMetadataNo);
+    NextMetadataNo++;
     break;
   }
   case bitc::METADATA_EXPRESSION: {
@@ -1420,7 +1476,8 @@ Error MetadataLoader::MetadataLoaderImpl::parseOneMetadata(
 
     MetadataList.assignValue(
         GET_OR_DISTINCT(DIExpression, (Context, makeArrayRef(Record).slice(1))),
-        NextMetadataNo++);
+        NextMetadataNo);
+    NextMetadataNo++;
     break;
   }
   case bitc::METADATA_GLOBAL_VAR_EXPR: {
@@ -1431,7 +1488,8 @@ Error MetadataLoader::MetadataLoaderImpl::parseOneMetadata(
     MetadataList.assignValue(GET_OR_DISTINCT(DIGlobalVariableExpression,
                                              (Context, getMDOrNull(Record[1]),
                                               getMDOrNull(Record[2]))),
-                             NextMetadataNo++);
+                             NextMetadataNo);
+    NextMetadataNo++;
     break;
   }
   case bitc::METADATA_OBJC_PROPERTY: {
@@ -1445,7 +1503,8 @@ Error MetadataLoader::MetadataLoaderImpl::parseOneMetadata(
                          getMDOrNull(Record[2]), Record[3],
                          getMDString(Record[4]), getMDString(Record[5]),
                          Record[6], getDITypeRefOrNull(Record[7]))),
-        NextMetadataNo++);
+        NextMetadataNo);
+    NextMetadataNo++;
     break;
   }
   case bitc::METADATA_IMPORTED_ENTITY: {
@@ -1458,7 +1517,8 @@ Error MetadataLoader::MetadataLoaderImpl::parseOneMetadata(
                         (Context, Record[1], getMDOrNull(Record[2]),
                          getDITypeRefOrNull(Record[3]), Record[4],
                          getMDString(Record[5]))),
-        NextMetadataNo++);
+        NextMetadataNo);
+    NextMetadataNo++;
     break;
   }
   case bitc::METADATA_STRING_OLD: {
@@ -1468,13 +1528,15 @@ Error MetadataLoader::MetadataLoaderImpl::parseOneMetadata(
     HasSeenOldLoopTags |= mayBeOldLoopAttachmentTag(String);
     ++NumMDStringLoaded;
     Metadata *MD = MDString::get(Context, String);
-    MetadataList.assignValue(MD, NextMetadataNo++);
+    MetadataList.assignValue(MD, NextMetadataNo);
+    NextMetadataNo++;
     break;
   }
   case bitc::METADATA_STRINGS: {
     auto CreateNextMDString = [&](StringRef Str) {
       ++NumMDStringLoaded;
-      MetadataList.assignValue(MDString::get(Context, Str), NextMetadataNo++);
+      MetadataList.assignValue(MDString::get(Context, Str), NextMetadataNo);
+      NextMetadataNo++;
     };
     if (Error Err = parseMetadataStrings(Record, Blob, CreateNextMDString))
       return Err;
@@ -1506,7 +1568,7 @@ Error MetadataLoader::MetadataLoaderImpl::parseOneMetadata(
 
 Error MetadataLoader::MetadataLoaderImpl::parseMetadataStrings(
     ArrayRef<uint64_t> Record, StringRef Blob,
-    std::function<void(StringRef)> CallBack) {
+    function_ref<void(StringRef)> CallBack) {
   // All the MDStrings in the block are emitted together in a single
   // record.  The strings are concatenated and stored in a blob along with
   // their sizes.
@@ -1561,7 +1623,6 @@ Error MetadataLoader::MetadataLoaderImpl::parseMetadataAttachment(
     return error("Invalid record");
 
   SmallVector<uint64_t, 64> Record;
-
   PlaceholderQueue Placeholders;
 
   while (true) {
@@ -1608,10 +1669,12 @@ Error MetadataLoader::MetadataLoaderImpl::parseMetadataAttachment(
 
         auto Idx = Record[i + 1];
         if (Idx < (MDStringRef.size() + GlobalMetadataBitPosIndex.size()) &&
-            !MetadataList.lookup(Idx))
+            !MetadataList.lookup(Idx)) {
           // Load the attachment if it is in the lazy-loadable range and hasn't
           // been loaded yet.
           lazyLoadOneMetadata(Idx, Placeholders);
+          resolveForwardRefsAndPlaceholders(Placeholders);
+        }
 
         Metadata *Node = MetadataList.getMetadataFwdRef(Idx);
         if (isa<LocalAsMetadata>(Node))
@@ -1702,8 +1765,8 @@ MetadataLoader::MetadataLoader(BitstreamCursor &Stream, Module &TheModule,
                                BitcodeReaderValueList &ValueList,
                                bool IsImporting,
                                std::function<Type *(unsigned)> getTypeByID)
-    : Pimpl(llvm::make_unique<MetadataLoaderImpl>(Stream, TheModule, ValueList,
-                                                  getTypeByID, IsImporting)) {}
+    : Pimpl(llvm::make_unique<MetadataLoaderImpl>(
+          Stream, TheModule, ValueList, std::move(getTypeByID), IsImporting)) {}
 
 Error MetadataLoader::parseMetadata(bool ModuleLevel) {
   return Pimpl->parseMetadata(ModuleLevel);
@@ -1713,8 +1776,8 @@ bool MetadataLoader::hasFwdRefs() const { return Pimpl->hasFwdRefs(); }
 
 /// Return the given metadata, creating a replaceable forward reference if
 /// necessary.
-Metadata *MetadataLoader::getMetadataFwdRef(unsigned Idx) {
-  return Pimpl->getMetadataFwdRef(Idx);
+Metadata *MetadataLoader::getMetadataFwdRefOrLoad(unsigned Idx) {
+  return Pimpl->getMetadataFwdRefOrLoad(Idx);
 }
 
 MDNode *MetadataLoader::getMDNodeFwdRefOrNull(unsigned Idx) {

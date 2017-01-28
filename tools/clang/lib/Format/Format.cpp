@@ -421,6 +421,11 @@ std::error_code make_error_code(ParseError e) {
   return std::error_code(static_cast<int>(e), getParseCategory());
 }
 
+inline llvm::Error make_string_error(const llvm::Twine &Message) {
+  return llvm::make_error<llvm::StringError>(Message,
+                                             llvm::inconvertibleErrorCode());
+}
+
 const char *ParseErrorCategory::name() const noexcept {
   return "clang-format.parse_error";
 }
@@ -1457,11 +1462,21 @@ tooling::Replacements sortCppIncludes(const FormatStyle &Style, StringRef Code,
   return Replaces;
 }
 
+bool isMpegTS(StringRef Code) {
+  // MPEG transport streams use the ".ts" file extension. clang-format should
+  // not attempt to format those. MPEG TS' frame format starts with 0x47 every
+  // 189 bytes - detect that and return.
+  return Code.size() > 188 && Code[0] == 0x47 && Code[188] == 0x47;
+}
+
 tooling::Replacements sortIncludes(const FormatStyle &Style, StringRef Code,
                                    ArrayRef<tooling::Range> Ranges,
                                    StringRef FileName, unsigned *Cursor) {
   tooling::Replacements Replaces;
   if (!Style.SortIncludes)
+    return Replaces;
+  if (Style.Language == FormatStyle::LanguageKind::LK_JavaScript &&
+      isMpegTS(Code))
     return Replaces;
   if (Style.Language == FormatStyle::LanguageKind::LK_JavaScript)
     return sortJavaScriptImports(Style, Code, Ranges, FileName);
@@ -1808,7 +1823,8 @@ tooling::Replacements reformat(const FormatStyle &Style, StringRef Code,
   FormatStyle Expanded = expandPresets(Style);
   if (Expanded.DisableFormat)
     return tooling::Replacements();
-
+  if (Expanded.Language == FormatStyle::LK_JavaScript && isMpegTS(Code))
+    return tooling::Replacements();
   auto Env = Environment::CreateVirtualEnvironment(Code, FileName, Ranges);
 
   if (Style.Language == FormatStyle::LK_JavaScript &&
@@ -1882,9 +1898,9 @@ static FormatStyle::LanguageKind getLanguageByFileName(StringRef FileName) {
   return FormatStyle::LK_Cpp;
 }
 
-FormatStyle getStyle(StringRef StyleName, StringRef FileName,
-                     StringRef FallbackStyle, StringRef Code,
-                     vfs::FileSystem *FS) {
+llvm::Expected<FormatStyle> getStyle(StringRef StyleName, StringRef FileName,
+                                     StringRef FallbackStyleName,
+                                     StringRef Code, vfs::FileSystem *FS) {
   if (!FS) {
     FS = vfs::getRealFileSystem().get();
   }
@@ -1898,35 +1914,28 @@ FormatStyle getStyle(StringRef StyleName, StringRef FileName,
       (Code.contains("\n- (") || Code.contains("\n+ (")))
     Style.Language = FormatStyle::LK_ObjC;
 
-  if (!getPredefinedStyle(FallbackStyle, Style.Language, &Style)) {
-    llvm::errs() << "Invalid fallback style \"" << FallbackStyle
-                 << "\" using LLVM style\n";
-    return Style;
-  }
+  FormatStyle FallbackStyle = getNoStyle();
+  if (!getPredefinedStyle(FallbackStyleName, Style.Language, &FallbackStyle))
+    return make_string_error("Invalid fallback style \"" + FallbackStyleName);
 
   if (StyleName.startswith("{")) {
     // Parse YAML/JSON style from the command line.
-    if (std::error_code ec = parseConfiguration(StyleName, &Style)) {
-      llvm::errs() << "Error parsing -style: " << ec.message() << ", using "
-                   << FallbackStyle << " style\n";
-    }
+    if (std::error_code ec = parseConfiguration(StyleName, &Style))
+      return make_string_error("Error parsing -style: " + ec.message());
     return Style;
   }
 
   if (!StyleName.equals_lower("file")) {
     if (!getPredefinedStyle(StyleName, Style.Language, &Style))
-      llvm::errs() << "Invalid value for -style, using " << FallbackStyle
-                   << " style\n";
+      return make_string_error("Invalid value for -style");
     return Style;
   }
 
   // Look for .clang-format/_clang-format file in the file's parent directories.
   SmallString<128> UnsuitableConfigFiles;
   SmallString<128> Path(FileName);
-  if (std::error_code EC = FS->makeAbsolute(Path)) {
-    llvm::errs() << EC.message() << "\n";
-    return Style;
-  }
+  if (std::error_code EC = FS->makeAbsolute(Path))
+    return make_string_error(EC.message());
 
   for (StringRef Directory = Path; !Directory.empty();
        Directory = llvm::sys::path::parent_path(Directory)) {
@@ -1943,25 +1952,23 @@ FormatStyle getStyle(StringRef StyleName, StringRef FileName,
     DEBUG(llvm::dbgs() << "Trying " << ConfigFile << "...\n");
 
     Status = FS->status(ConfigFile.str());
-    bool IsFile =
+    bool FoundConfigFile =
         Status && (Status->getType() == llvm::sys::fs::file_type::regular_file);
-    if (!IsFile) {
+    if (!FoundConfigFile) {
       // Try _clang-format too, since dotfiles are not commonly used on Windows.
       ConfigFile = Directory;
       llvm::sys::path::append(ConfigFile, "_clang-format");
       DEBUG(llvm::dbgs() << "Trying " << ConfigFile << "...\n");
       Status = FS->status(ConfigFile.str());
-      IsFile = Status &&
-               (Status->getType() == llvm::sys::fs::file_type::regular_file);
+      FoundConfigFile = Status && (Status->getType() ==
+                                   llvm::sys::fs::file_type::regular_file);
     }
 
-    if (IsFile) {
+    if (FoundConfigFile) {
       llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> Text =
           FS->getBufferForFile(ConfigFile.str());
-      if (std::error_code EC = Text.getError()) {
-        llvm::errs() << EC.message() << "\n";
-        break;
-      }
+      if (std::error_code EC = Text.getError())
+        return make_string_error(EC.message());
       if (std::error_code ec =
               parseConfiguration(Text.get()->getBuffer(), &Style)) {
         if (ec == ParseError::Unsuitable) {
@@ -1970,20 +1977,18 @@ FormatStyle getStyle(StringRef StyleName, StringRef FileName,
           UnsuitableConfigFiles.append(ConfigFile);
           continue;
         }
-        llvm::errs() << "Error reading " << ConfigFile << ": " << ec.message()
-                     << "\n";
-        break;
+        return make_string_error("Error reading " + ConfigFile + ": " +
+                                 ec.message());
       }
       DEBUG(llvm::dbgs() << "Using configuration file " << ConfigFile << "\n");
       return Style;
     }
   }
-  if (!UnsuitableConfigFiles.empty()) {
-    llvm::errs() << "Configuration file(s) do(es) not support "
-                 << getLanguageName(Style.Language) << ": "
-                 << UnsuitableConfigFiles << "\n";
-  }
-  return Style;
+  if (!UnsuitableConfigFiles.empty())
+    return make_string_error("Configuration file(s) do(es) not support " +
+                             getLanguageName(Style.Language) + ": " +
+                             UnsuitableConfigFiles);
+  return FallbackStyle;
 }
 
 } // namespace format

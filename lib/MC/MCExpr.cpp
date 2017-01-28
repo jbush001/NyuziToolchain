@@ -129,16 +129,19 @@ void MCExpr::print(raw_ostream &OS, const MCAsmInfo *MAI, bool InParens) const {
   llvm_unreachable("Invalid expression kind!");
 }
 
+#if !defined(NDEBUG) || defined(LLVM_ENABLE_DUMP)
 LLVM_DUMP_METHOD void MCExpr::dump() const {
   dbgs() << *this;
   dbgs() << '\n';
 }
+#endif
 
 /* *** */
 
 const MCBinaryExpr *MCBinaryExpr::create(Opcode Opc, const MCExpr *LHS,
-                                         const MCExpr *RHS, MCContext &Ctx) {
-  return new (Ctx) MCBinaryExpr(Opc, LHS, RHS);
+                                         const MCExpr *RHS, MCContext &Ctx,
+                                         SMLoc Loc) {
+  return new (Ctx) MCBinaryExpr(Opc, LHS, RHS, Loc);
 }
 
 const MCUnaryExpr *MCUnaryExpr::create(Opcode Opc, const MCExpr *Expr,
@@ -153,8 +156,8 @@ const MCConstantExpr *MCConstantExpr::create(int64_t Value, MCContext &Ctx) {
 /* *** */
 
 MCSymbolRefExpr::MCSymbolRefExpr(const MCSymbol *Symbol, VariantKind Kind,
-                                 const MCAsmInfo *MAI)
-    : MCExpr(MCExpr::SymbolRef), Kind(Kind),
+                                 const MCAsmInfo *MAI, SMLoc Loc)
+    : MCExpr(MCExpr::SymbolRef, Loc), Kind(Kind),
       UseParensForSymbolVariant(MAI->useParensForSymbolVariant()),
       HasSubsectionsViaSymbols(MAI->hasSubsectionsViaSymbols()),
       Symbol(Symbol) {
@@ -163,8 +166,8 @@ MCSymbolRefExpr::MCSymbolRefExpr(const MCSymbol *Symbol, VariantKind Kind,
 
 const MCSymbolRefExpr *MCSymbolRefExpr::create(const MCSymbol *Sym,
                                                VariantKind Kind,
-                                               MCContext &Ctx) {
-  return new (Ctx) MCSymbolRefExpr(Sym, Kind, Ctx.getAsmInfo());
+                                               MCContext &Ctx, SMLoc Loc) {
+  return new (Ctx) MCSymbolRefExpr(Sym, Kind, Ctx.getAsmInfo(), Loc);
 }
 
 const MCSymbolRefExpr *MCSymbolRefExpr::create(StringRef Name, VariantKind Kind,

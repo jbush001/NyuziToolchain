@@ -191,7 +191,7 @@ void ICF<ELFT>::segregate(size_t Begin, size_t End, bool Constant) {
     size_t Mid = Bound - Sections.begin();
 
     // Now we split [Begin, End) into [Begin, Mid) and [Mid, End) by
-    // updating the sections in [Begin, End). We use Mid as an equivalence
+    // updating the sections in [Begin, Mid). We use Mid as an equivalence
     // class ID because every group ends with a unique index.
     for (size_t I = Begin; I < Mid; ++I)
       Sections[I]->Class[Next] = Mid;
@@ -245,7 +245,6 @@ bool ICF<ELFT>::variableEq(const InputSection<ELFT> *A, ArrayRef<RelTy> RelsA,
     if (&SA == &SB)
       return true;
 
-    // Or, the two sections must be in the same equivalence class.
     auto *DA = dyn_cast<DefinedRegular<ELFT>>(&SA);
     auto *DB = dyn_cast<DefinedRegular<ELFT>>(&SB);
     if (!DA || !DB)
@@ -253,6 +252,11 @@ bool ICF<ELFT>::variableEq(const InputSection<ELFT> *A, ArrayRef<RelTy> RelsA,
     if (DA->Value != DB->Value)
       return false;
 
+    // Either both symbols must be absolute...
+    if (!DA->Section || !DB->Section)
+      return !DA->Section && !DB->Section;
+
+    // Or the two sections must be in the same equivalence class.
     auto *X = dyn_cast<InputSection<ELFT>>(DA->Section);
     auto *Y = dyn_cast<InputSection<ELFT>>(DB->Section);
     if (!X || !Y)
@@ -291,7 +295,7 @@ template <class ELFT> size_t ICF<ELFT>::findBoundary(size_t Begin, size_t End) {
 // groups of sections, grouped by the class.
 //
 // This function calls Fn on every group that starts within [Begin, End).
-// Note that a group must starts in that range but doesn't necessarily
+// Note that a group must start in that range but doesn't necessarily
 // have to end before End.
 template <class ELFT>
 void ICF<ELFT>::forEachClassRange(size_t Begin, size_t End,

@@ -1282,9 +1282,7 @@ private:
       return TT_UnaryOperator;
 
     const FormatToken *NextToken = Tok.getNextNonComment();
-    if (!NextToken ||
-        NextToken->isOneOf(tok::arrow, Keywords.kw_final, tok::equal,
-                           Keywords.kw_override) ||
+    if (!NextToken || NextToken->isOneOf(tok::arrow, tok::equal) ||
         (NextToken->is(tok::l_brace) && !NextToken->getNextNonComment()))
       return TT_PointerOrReference;
 
@@ -1596,8 +1594,14 @@ void TokenAnnotator::setCommentLineLevels(
   for (SmallVectorImpl<AnnotatedLine *>::reverse_iterator I = Lines.rbegin(),
                                                           E = Lines.rend();
        I != E; ++I) {
-    if (NextNonCommentLine && (*I)->First->is(tok::comment) &&
-        (*I)->First->Next == nullptr)
+    bool CommentLine = (*I)->First;
+    for (const FormatToken *Tok = (*I)->First; Tok; Tok = Tok->Next) {
+      if (!Tok->is(tok::comment)) {
+        CommentLine = false;
+        break;
+      }
+    }
+    if (NextNonCommentLine && CommentLine)
       (*I)->Level = NextNonCommentLine->Level;
     else
       NextNonCommentLine = (*I)->First->isNot(tok::r_brace) ? (*I) : nullptr;
@@ -2088,9 +2092,9 @@ bool TokenAnnotator::spaceRequiredBetween(const AnnotatedLine &Line,
         !Line.IsMultiVariableDeclStmt)))
     return true;
   if (Left.is(TT_PointerOrReference))
-    return Right.Tok.isLiteral() ||
-           Right.isOneOf(TT_BlockComment, Keywords.kw_final,
-                         Keywords.kw_override) ||
+    return Right.Tok.isLiteral() || Right.is(TT_BlockComment) ||
+           (Right.isOneOf(Keywords.kw_override, Keywords.kw_final) &&
+            !Right.is(TT_StartOfName)) ||
            (Right.is(tok::l_brace) && Right.BlockKind == BK_Block) ||
            (!Right.isOneOf(TT_PointerOrReference, TT_ArraySubscriptLSquare,
                            tok::l_paren) &&

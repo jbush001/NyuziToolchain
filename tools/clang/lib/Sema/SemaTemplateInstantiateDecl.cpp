@@ -168,39 +168,59 @@ static void instantiateDependentAlignValueAttr(
                         Aligned->getSpellingListIndex());
 }
 
-static void instantiateDependentEnableIfAttr(
+static Expr *instantiateDependentFunctionAttrCondition(
     Sema &S, const MultiLevelTemplateArgumentList &TemplateArgs,
-    const EnableIfAttr *A, const Decl *Tmpl, Decl *New) {
+    const Attr *A, Expr *OldCond, const Decl *Tmpl, FunctionDecl *New) {
   Expr *Cond = nullptr;
   {
-    EnterExpressionEvaluationContext Unevaluated(S, Sema::Unevaluated);
-    ExprResult Result = S.SubstExpr(A->getCond(), TemplateArgs);
+    Sema::ContextRAII SwitchContext(S, New);
+    EnterExpressionEvaluationContext Unevaluated(S, Sema::ConstantEvaluated);
+    ExprResult Result = S.SubstExpr(OldCond, TemplateArgs);
     if (Result.isInvalid())
-      return;
+      return nullptr;
     Cond = Result.getAs<Expr>();
   }
   if (!Cond->isTypeDependent()) {
     ExprResult Converted = S.PerformContextuallyConvertToBool(Cond);
     if (Converted.isInvalid())
-      return;
+      return nullptr;
     Cond = Converted.get();
   }
 
   SmallVector<PartialDiagnosticAt, 8> Diags;
-  if (A->getCond()->isValueDependent() && !Cond->isValueDependent() &&
-      !Expr::isPotentialConstantExprUnevaluated(Cond, cast<FunctionDecl>(New),
-                                                Diags)) {
-    S.Diag(A->getLocation(), diag::err_enable_if_never_constant_expr);
-    for (int I = 0, N = Diags.size(); I != N; ++I)
-      S.Diag(Diags[I].first, Diags[I].second);
-    return;
+  if (OldCond->isValueDependent() && !Cond->isValueDependent() &&
+      !Expr::isPotentialConstantExprUnevaluated(Cond, New, Diags)) {
+    S.Diag(A->getLocation(), diag::err_attr_cond_never_constant_expr) << A;
+    for (const auto &P : Diags)
+      S.Diag(P.first, P.second);
+    return nullptr;
   }
+  return Cond;
+}
 
-  EnableIfAttr *EIA = new (S.getASTContext())
-                        EnableIfAttr(A->getLocation(), S.getASTContext(), Cond,
-                                     A->getMessage(),
-                                     A->getSpellingListIndex());
-  New->addAttr(EIA);
+static void instantiateDependentEnableIfAttr(
+    Sema &S, const MultiLevelTemplateArgumentList &TemplateArgs,
+    const EnableIfAttr *EIA, const Decl *Tmpl, FunctionDecl *New) {
+  Expr *Cond = instantiateDependentFunctionAttrCondition(
+      S, TemplateArgs, EIA, EIA->getCond(), Tmpl, New);
+
+  if (Cond)
+    New->addAttr(new (S.getASTContext()) EnableIfAttr(
+        EIA->getLocation(), S.getASTContext(), Cond, EIA->getMessage(),
+        EIA->getSpellingListIndex()));
+}
+
+static void instantiateDependentDiagnoseIfAttr(
+    Sema &S, const MultiLevelTemplateArgumentList &TemplateArgs,
+    const DiagnoseIfAttr *DIA, const Decl *Tmpl, FunctionDecl *New) {
+  Expr *Cond = instantiateDependentFunctionAttrCondition(
+      S, TemplateArgs, DIA, DIA->getCond(), Tmpl, New);
+
+  if (Cond)
+    New->addAttr(new (S.getASTContext()) DiagnoseIfAttr(
+        DIA->getLocation(), S.getASTContext(), Cond, DIA->getMessage(),
+        DIA->getDiagnosticType(), DIA->getArgDependent(), New,
+        DIA->getSpellingListIndex()));
 }
 
 // Constructs and adds to New a new instance of CUDALaunchBoundsAttr using
@@ -334,7 +354,13 @@ void Sema::InstantiateAttrs(const MultiLevelTemplateArgumentList &TemplateArgs,
 
     if (const auto *EnableIf = dyn_cast<EnableIfAttr>(TmplAttr)) {
       instantiateDependentEnableIfAttr(*this, TemplateArgs, EnableIf, Tmpl,
-                                       New);
+                                       cast<FunctionDecl>(New));
+      continue;
+    }
+
+    if (const auto *DiagnoseIf = dyn_cast<DiagnoseIfAttr>(TmplAttr)) {
+      instantiateDependentDiagnoseIfAttr(*this, TemplateArgs, DiagnoseIf, Tmpl,
+                                         cast<FunctionDecl>(New));
       continue;
     }
 
@@ -1193,8 +1219,10 @@ Decl *TemplateDeclInstantiator::VisitClassTemplateDecl(ClassTemplateDecl *D) {
 
   ClassTemplateDecl *Inst
     = ClassTemplateDecl::Create(SemaRef.Context, DC, D->getLocation(),
-                                D->getIdentifier(), InstParams, RecordInst,
-                                PrevClassTemplate);
+                                D->getIdentifier(), InstParams, RecordInst);
+  assert(!(isFriend && Owner->isDependentContext()));
+  Inst->setPreviousDecl(PrevClassTemplate);
+
   RecordInst->setDescribedClassTemplate(Inst);
 
   if (isFriend) {
@@ -1628,8 +1656,6 @@ Decl *TemplateDeclInstantiator::VisitFunctionDecl(FunctionDecl *D,
     FunctionTemplate->setLexicalDeclContext(LexicalDC);
 
     if (isFriend && D->isThisDeclarationADefinition()) {
-      // TODO: should we remember this connection regardless of whether
-      // the friend declaration provided a body?
       FunctionTemplate->setInstantiatedFromMemberTemplate(
                                            D->getDescribedFunctionTemplate());
     }
@@ -1640,13 +1666,10 @@ Decl *TemplateDeclInstantiator::VisitFunctionDecl(FunctionDecl *D,
                             TemplateArgumentList::CreateCopy(SemaRef.Context,
                                                              Innermost),
                                                 /*InsertPos=*/nullptr);
-  } else if (isFriend) {
-    // Note, we need this connection even if the friend doesn't have a body.
-    // Its body may exist but not have been attached yet due to deferred
-    // parsing.
-    // FIXME: It might be cleaner to set this when attaching the body to the
-    // friend function declaration, however that would require finding all the
-    // instantiations and modifying them.
+  } else if (isFriend && D->isThisDeclarationADefinition()) {
+    // Do not connect the friend to the template unless it's actually a
+    // definition. We don't want non-template functions to be marked as being
+    // template instantiations.
     Function->setInstantiationOfMemberFunction(D, TSK_ImplicitInstantiation);
   }
 
@@ -4059,7 +4082,6 @@ void Sema::InstantiateVariableInitializer(
     }
 
     if (!Init.isInvalid()) {
-      bool TypeMayContainAuto = true;
       Expr *InitExpr = Init.get();
 
       if (Var->hasAttr<DLLImportAttr>() &&
@@ -4068,9 +4090,9 @@ void Sema::InstantiateVariableInitializer(
         // Do not dynamically initialize dllimport variables.
       } else if (InitExpr) {
         bool DirectInit = OldVar->isDirectInit();
-        AddInitializerToDecl(Var, InitExpr, DirectInit, TypeMayContainAuto);
+        AddInitializerToDecl(Var, InitExpr, DirectInit);
       } else
-        ActOnUninitializedDecl(Var, TypeMayContainAuto);
+        ActOnUninitializedDecl(Var);
     } else {
       // FIXME: Not too happy about invalidating the declaration
       // because of a bogus initializer.
@@ -4093,7 +4115,7 @@ void Sema::InstantiateVariableInitializer(
     if (Var->isCXXForRangeDecl())
       return;
 
-    ActOnUninitializedDecl(Var, false);
+    ActOnUninitializedDecl(Var);
   }
 }
 

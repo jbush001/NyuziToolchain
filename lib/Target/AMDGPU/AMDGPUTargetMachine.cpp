@@ -33,6 +33,7 @@
 #include "llvm/Support/TargetRegistry.h"
 #include "llvm/Transforms/IPO.h"
 #include "llvm/Transforms/IPO/AlwaysInliner.h"
+#include "llvm/Transforms/IPO/PassManagerBuilder.h"
 #include "llvm/Transforms/Scalar.h"
 #include "llvm/Transforms/Scalar/GVN.h"
 #include "llvm/Transforms/Vectorize.h"
@@ -57,6 +58,11 @@ static cl::opt<bool> EnableSROA(
   cl::desc("Run SROA after promote alloca pass"),
   cl::ReallyHidden,
   cl::init(true));
+
+static cl::opt<bool>
+EnableEarlyIfConversion("amdgpu-early-ifcvt", cl::Hidden,
+                        cl::desc("Run early if-conversion"),
+                        cl::init(false));
 
 static cl::opt<bool> EnableR600IfConvert(
   "r600-if-convert",
@@ -86,6 +92,7 @@ extern "C" void LLVMInitializeAMDGPUTarget() {
   PassRegistry *PR = PassRegistry::getPassRegistry();
   initializeSILowerI1CopiesPass(*PR);
   initializeSIFixSGPRCopiesPass(*PR);
+  initializeSIFixVGPRCopiesPass(*PR);
   initializeSIFoldOperandsPass(*PR);
   initializeSIShrinkInstructionsPass(*PR);
   initializeSIFixControlFlowLiveIntervalsPass(*PR);
@@ -199,8 +206,12 @@ StringRef AMDGPUTargetMachine::getFeatureString(const Function &F) const {
     FSAttr.getValueAsString();
 }
 
-void AMDGPUTargetMachine::addEarlyAsPossiblePasses(PassManagerBase &PM) {
-  PM.add(createAMDGPUUnifyMetadataPass());
+void AMDGPUTargetMachine::adjustPassManager(PassManagerBuilder &Builder) {
+  Builder.addExtension(
+    PassManagerBuilder::EP_ModuleOptimizerEarly,
+    [&](const PassManagerBuilder &, legacy::PassManagerBase &PM) {
+      PM.add(createAMDGPUUnifyMetadataPass());
+    });
 }
 
 //===----------------------------------------------------------------------===//
@@ -359,6 +370,7 @@ public:
   void addIRPasses() override;
   bool addPreISel() override;
   void addMachineSSAOptimization() override;
+  bool addILPOpts() override;
   bool addInstSelector() override;
 #ifdef LLVM_BUILD_GLOBAL_ISEL
   bool addIRTranslator() override;
@@ -551,6 +563,14 @@ void GCNPassConfig::addMachineSSAOptimization() {
   addPass(&SILoadStoreOptimizerID);
 }
 
+bool GCNPassConfig::addILPOpts() {
+  if (EnableEarlyIfConversion)
+    addPass(&EarlyIfConverterID);
+
+  TargetPassConfig::addILPOpts();
+  return false;
+}
+
 void GCNPassConfig::addIRPasses() {
   // TODO: May want to move later or split into an early and late one.
   addPass(createAMDGPUCodeGenPreparePass(&getGCNTargetMachine()));
@@ -615,6 +635,7 @@ void GCNPassConfig::addOptimizedRegAlloc(FunctionPass *RegAllocPass) {
 }
 
 void GCNPassConfig::addPostRegAlloc() {
+  addPass(&SIFixVGPRCopiesID);
   addPass(&SIOptimizeExecMaskingID);
   TargetPassConfig::addPostRegAlloc();
 }

@@ -306,10 +306,11 @@ unsigned Parser::ParseAttributeArgsCommon(
 
     // Parse the non-empty comma-separated list of expressions.
     do {
-      bool ShouldEnter = attributeParsedArgsUnevaluated(*AttrName);
+      bool Uneval = attributeParsedArgsUnevaluated(*AttrName);
       EnterExpressionEvaluationContext Unevaluated(
-          Actions, Sema::Unevaluated, /*LambdaContextDecl=*/nullptr,
-          /*IsDecltype=*/false, ShouldEnter);
+          Actions, Uneval ? Sema::Unevaluated : Sema::ConstantEvaluated,
+          /*LambdaContextDecl=*/nullptr,
+          /*IsDecltype=*/false);
 
       ExprResult ArgExpr(
           Actions.CorrectDelayedTyposInExpr(ParseAssignmentExpression()));
@@ -1590,7 +1591,7 @@ Parser::ParseSimpleDeclaration(unsigned Context,
     DS.complete(TheDecl);
     if (AnonRecord) {
       Decl* decls[] = {AnonRecord, TheDecl};
-      return Actions.BuildDeclaratorGroup(decls, /*TypeMayContainAuto=*/false);
+      return Actions.BuildDeclaratorGroup(decls);
     }
     return Actions.ConvertDeclToDeclGroup(TheDecl);
   }
@@ -2044,8 +2045,6 @@ Decl *Parser::ParseDeclarationAfterDeclaratorAndAttributes(
     }
   }
 
-  bool TypeContainsAuto = D.getDeclSpec().containsPlaceholderType();
-
   // Parse declarator '=' initializer.
   // If a '==' or '+=' is found, suggest a fixit to '='.
   if (isTokenEqualOrEqualTypo()) {
@@ -2105,7 +2104,7 @@ Decl *Parser::ParseDeclarationAfterDeclaratorAndAttributes(
         Actions.ActOnInitializerError(ThisDecl);
       } else
         Actions.AddInitializerToDecl(ThisDecl, Init.get(),
-                                     /*DirectInit=*/false, TypeContainsAuto);
+                                     /*DirectInit=*/false);
     }
   } else if (Tok.is(tok::l_paren)) {
     // Parse C++ direct initializer: '(' expression-list ')'
@@ -2148,7 +2147,7 @@ Decl *Parser::ParseDeclarationAfterDeclaratorAndAttributes(
                                                           T.getCloseLocation(),
                                                           Exprs);
       Actions.AddInitializerToDecl(ThisDecl, Initializer.get(),
-                                   /*DirectInit=*/true, TypeContainsAuto);
+                                   /*DirectInit=*/true);
     }
   } else if (getLangOpts().CPlusPlus11 && Tok.is(tok::l_brace) &&
              (!CurParsedObjCImpl || !D.isFunctionDeclarator())) {
@@ -2170,11 +2169,10 @@ Decl *Parser::ParseDeclarationAfterDeclaratorAndAttributes(
     if (Init.isInvalid()) {
       Actions.ActOnInitializerError(ThisDecl);
     } else
-      Actions.AddInitializerToDecl(ThisDecl, Init.get(),
-                                   /*DirectInit=*/true, TypeContainsAuto);
+      Actions.AddInitializerToDecl(ThisDecl, Init.get(), /*DirectInit=*/true);
 
   } else {
-    Actions.ActOnUninitializedDecl(ThisDecl, TypeContainsAuto);
+    Actions.ActOnUninitializedDecl(ThisDecl);
   }
 
   Actions.FinalizeDeclaration(ThisDecl);
@@ -2826,44 +2824,23 @@ void Parser::ParseDeclarationSpecifiers(DeclSpec &DS,
             ->Kind == TNK_Type_template) {
         // We have a qualified template-id, e.g., N::A<int>
 
-        // C++ [class.qual]p2:
-        //   In a lookup in which the constructor is an acceptable lookup
-        //   result and the nested-name-specifier nominates a class C:
+        // If this would be a valid constructor declaration with template
+        // arguments, we will reject the attempt to form an invalid type-id
+        // referring to the injected-class-name when we annotate the token,
+        // per C++ [class.qual]p2.
         //
-        //     - if the name specified after the
-        //       nested-name-specifier, when looked up in C, is the
-        //       injected-class-name of C (Clause 9), or
-        //
-        //     - if the name specified after the nested-name-specifier
-        //       is the same as the identifier or the
-        //       simple-template-id's template-name in the last
-        //       component of the nested-name-specifier,
-        //
-        //   the name is instead considered to name the constructor of
-        //   class C.
-        //
-        // Thus, if the template-name is actually the constructor
-        // name, then the code is ill-formed; this interpretation is
-        // reinforced by the NAD status of core issue 635.
+        // To improve diagnostics for this case, parse the declaration as a
+        // constructor (and reject the extra template arguments later).
         TemplateIdAnnotation *TemplateId = takeTemplateIdAnnotation(Next);
         if ((DSContext == DSC_top_level || DSContext == DSC_class) &&
             TemplateId->Name &&
-            Actions.isCurrentClassName(*TemplateId->Name, getCurScope(), &SS)) {
-          if (isConstructorDeclarator(/*Unqualified*/false)) {
-            // The user meant this to be an out-of-line constructor
-            // definition, but template arguments are not allowed
-            // there.  Just allow this as a constructor; we'll
-            // complain about it later.
-            goto DoneWithDeclSpec;
-          }
-
-          // The user meant this to name a type, but it actually names
-          // a constructor with some extraneous template
-          // arguments. Complain, then parse it as a type as the user
-          // intended.
-          Diag(TemplateId->TemplateNameLoc,
-               diag::err_out_of_line_template_id_type_names_constructor)
-            << TemplateId->Name << 0 /* template name */;
+            Actions.isCurrentClassName(*TemplateId->Name, getCurScope(), &SS) &&
+            isConstructorDeclarator(/*Unqualified*/false)) {
+          // The user meant this to be an out-of-line constructor
+          // definition, but template arguments are not allowed
+          // there.  Just allow this as a constructor; we'll
+          // complain about it later.
+          goto DoneWithDeclSpec;
         }
 
         DS.getTypeSpecScope() = SS;
@@ -2894,30 +2871,21 @@ void Parser::ParseDeclarationSpecifiers(DeclSpec &DS,
       if (Next.isNot(tok::identifier))
         goto DoneWithDeclSpec;
 
-      // If we're in a context where the identifier could be a class name,
-      // check whether this is a constructor declaration.
+      // Check whether this is a constructor declaration. If we're in a
+      // context where the identifier could be a class name, and it has the
+      // shape of a constructor declaration, process it as one.
       if ((DSContext == DSC_top_level || DSContext == DSC_class) &&
           Actions.isCurrentClassName(*Next.getIdentifierInfo(), getCurScope(),
-                                     &SS)) {
-        if (isConstructorDeclarator(/*Unqualified*/false))
-          goto DoneWithDeclSpec;
-
-        // As noted in C++ [class.qual]p2 (cited above), when the name
-        // of the class is qualified in a context where it could name
-        // a constructor, its a constructor name. However, we've
-        // looked at the declarator, and the user probably meant this
-        // to be a type. Complain that it isn't supposed to be treated
-        // as a type, then proceed to parse it as a type.
-        Diag(Next.getLocation(),
-             diag::err_out_of_line_template_id_type_names_constructor)
-          << Next.getIdentifierInfo() << 1 /* type */;
-      }
+                                     &SS) &&
+          isConstructorDeclarator(/*Unqualified*/ false))
+        goto DoneWithDeclSpec;
 
       ParsedType TypeRep =
           Actions.getTypeName(*Next.getIdentifierInfo(), Next.getLocation(),
                               getCurScope(), &SS, false, false, nullptr,
                               /*IsCtorOrDtorName=*/false,
-                              /*NonTrivialSourceInfo=*/true);
+                              /*WantNonTrivialSourceInfo=*/true,
+                              isClassTemplateDeductionContext(DSContext));
 
       // If the referenced identifier is not a type, then this declspec is
       // erroneous: We already checked about that it has no type specifier, and
@@ -3031,9 +2999,10 @@ void Parser::ParseDeclarationSpecifiers(DeclSpec &DS,
         continue;
       }
 
-      ParsedType TypeRep =
-        Actions.getTypeName(*Tok.getIdentifierInfo(),
-                            Tok.getLocation(), getCurScope());
+      ParsedType TypeRep = Actions.getTypeName(
+          *Tok.getIdentifierInfo(), Tok.getLocation(), getCurScope(), nullptr,
+          false, false, nullptr, false, false,
+          isClassTemplateDeductionContext(DSContext));
 
       // If this is not a typedef name, don't parse it as part of the declspec,
       // it must be an implicit int or an error.

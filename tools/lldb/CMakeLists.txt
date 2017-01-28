@@ -4,7 +4,7 @@ include(cmake/modules/LLDBStandalone.cmake)
 include(cmake/modules/LLDBConfig.cmake)
 include(cmake/modules/AddLLDB.cmake)
 
-if (__ANDROID_NDK__ OR (CMAKE_SYSTEM_NAME MATCHES "Windows"))
+if (CMAKE_SYSTEM_NAME MATCHES "Windows|Android")
   set(LLDB_DEFAULT_DISABLE_LIBEDIT 1)
 else()
   set(LLDB_DEFAULT_DISABLE_LIBEDIT 0)
@@ -28,7 +28,7 @@ if (NOT LLDB_DISABLE_PYTHON)
     # Don't set -m when building the framework.
     set(FINISH_EXTRA_ARGS "-m")
   endif()
-  set(LLDB_WRAP_PYTHON ${LLDB_PYTHON_TARGET_DIR}/LLDBWrapPython.cpp)
+  set(LLDB_WRAP_PYTHON ${LLDB_BINARY_DIR}/scripts/LLDBWrapPython.cpp)
 
   add_subdirectory(scripts)
 endif ()

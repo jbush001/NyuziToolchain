@@ -858,6 +858,44 @@ TEST_F(FormatTestJS, AutomaticSemicolonInsertionHeuristic) {
                "return 1",
                "a = null\n"
                "  return   1");
+  // Below "class Y {}" should ideally be on its own line.
+  verifyFormat(
+      "x = {\n"
+      "  a: 1\n"
+      "} class Y {}",
+      "  x  =  {a  : 1}\n"
+      "   class  Y {  }");
+  verifyFormat(
+      "if (x) {\n"
+      "}\n"
+      "return 1",
+      "if (x) {}\n"
+      " return   1");
+  verifyFormat(
+      "if (x) {\n"
+      "}\n"
+      "class X {}",
+      "if (x) {}\n"
+      " class X {}");
+}
+
+TEST_F(FormatTestJS, ImportExportASI) {
+  verifyFormat(
+      "import {x} from 'y'\n"
+      "export function z() {}",
+      "import   {x} from 'y'\n"
+      "  export function z() {}");
+  // Below "class Y {}" should ideally be on its own line.
+  verifyFormat(
+      "export {x} class Y {}",
+      "  export {x}\n"
+      "  class  Y {\n}");
+  verifyFormat(
+      "if (x) {\n"
+      "}\n"
+      "export class Y {}",
+      "if ( x ) { }\n"
+      " export class Y {}");
 }
 
 TEST_F(FormatTestJS, ClosureStyleCasts) {
@@ -996,6 +1034,15 @@ TEST_F(FormatTestJS, RegexLiteralLength) {
 
 TEST_F(FormatTestJS, RegexLiteralExamples) {
   verifyFormat("var regex = search.match(/(?:\?|&)times=([^?&]+)/i);");
+}
+
+TEST_F(FormatTestJS, IgnoresMpegTS) {
+  std::string MpegTS(200, ' ');
+  MpegTS.replace(0, strlen("nearlyLooks  +   like +   ts + code;  "),
+                 "nearlyLooks  +   like +   ts + code;  ");
+  MpegTS[0] = 0x47;
+  MpegTS[188] = 0x47;
+  verifyFormat(MpegTS, MpegTS);
 }
 
 TEST_F(FormatTestJS, TypeAnnotations) {

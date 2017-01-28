@@ -43,7 +43,7 @@ def ObjCAtSynchronizedStmt : Stmt;
 def ObjCForCollectionStmt : Stmt;
 def ObjCAutoreleasePoolStmt : Stmt;
 
-// C++ statments
+// C++ statements
 def CXXCatchStmt : Stmt;
 def CXXTryStmt : Stmt;
 def CXXForRangeStmt : Stmt;
@@ -244,3 +244,4 @@ def OMPTargetTeamsDirective : DStmt<OMPExecutableDirective>;
 def OMPTargetTeamsDistributeDirective : DStmt<OMPLoopDirective>;
 def OMPTargetTeamsDistributeParallelForDirective : DStmt<OMPLoopDirective>;
 def OMPTargetTeamsDistributeParallelForSimdDirective : DStmt<OMPLoopDirective>;
+def OMPTargetTeamsDistributeSimdDirective : DStmt<OMPLoopDirective>;

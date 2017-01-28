@@ -425,10 +425,11 @@ void ARMBaseRegisterInfo::emitLoadConstPool(
   unsigned Idx = ConstantPool->getConstantPoolIndex(C, 4);
 
   BuildMI(MBB, MBBI, dl, TII.get(ARM::LDRcp))
-    .addReg(DestReg, getDefRegState(true), SubIdx)
-    .addConstantPoolIndex(Idx)
-    .addImm(0).addImm(Pred).addReg(PredReg)
-    .setMIFlags(MIFlags);
+      .addReg(DestReg, getDefRegState(true), SubIdx)
+      .addConstantPoolIndex(Idx)
+      .addImm(0)
+      .add(predOps(Pred, PredReg))
+      .setMIFlags(MIFlags);
 }
 
 bool ARMBaseRegisterInfo::
@@ -609,7 +610,7 @@ materializeFrameBaseRegister(MachineBasicBlock *MBB,
     .addFrameIndex(FrameIdx).addImm(Offset);
 
   if (!AFI->isThumb1OnlyFunction())
-    AddDefaultCC(AddDefaultPred(MIB));
+    MIB.add(predOps(ARMCC::AL)).add(condCodeOp());
 }
 
 void ARMBaseRegisterInfo::resolveFrameIndex(MachineInstr &MI, unsigned BaseReg,

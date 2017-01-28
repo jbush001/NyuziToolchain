@@ -16,7 +16,8 @@ if( CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR )
       "--libdir"
       "--includedir"
       "--prefix"
-      "--src-root")
+      "--src-root"
+      "--cmakedir")
     execute_process(
       COMMAND ${CONFIG_COMMAND}
       RESULT_VARIABLE HAD_ERROR
@@ -41,6 +42,7 @@ if( CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR )
   list(GET CONFIG_OUTPUT 3 INCLUDE_DIR)
   list(GET CONFIG_OUTPUT 4 LLVM_OBJ_ROOT)
   list(GET CONFIG_OUTPUT 5 MAIN_SRC_DIR)
+  list(GET CONFIG_OUTPUT 6 LLVM_CMAKE_PATH)
 
   if(NOT MSVC_IDE)
     set(LLVM_ENABLE_ASSERTIONS ${ENABLE_ASSERTIONS}
@@ -58,7 +60,6 @@ if( CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR )
   find_program(LLVM_TABLEGEN_EXE "llvm-tblgen" ${LLVM_TOOLS_BINARY_DIR}
     NO_DEFAULT_PATH)
 
-  set(LLVM_CMAKE_PATH "${LLVM_BINARY_DIR}/lib${LLVM_LIBDIR_SUFFIX}/cmake/llvm")
   set(LLVMCONFIG_FILE "${LLVM_CMAKE_PATH}/LLVMConfig.cmake")
   if(EXISTS ${LLVMCONFIG_FILE})
     list(APPEND CMAKE_MODULE_PATH "${LLVM_CMAKE_PATH}")
@@ -363,18 +364,7 @@ option(CLANG_BUILD_TOOLS
   "Build the Clang tools. If OFF, just generate build targets." ON)
 
 option(CLANG_ENABLE_ARCMT "Build ARCMT." ON)
-if (CLANG_ENABLE_ARCMT)
-  set(ENABLE_CLANG_ARCMT "1")
-else()
-  set(ENABLE_CLANG_ARCMT "0")
-endif()
-
 option(CLANG_ENABLE_STATIC_ANALYZER "Build static analyzer." ON)
-if (CLANG_ENABLE_STATIC_ANALYZER)
-  set(ENABLE_CLANG_STATIC_ANALYZER "1")
-else()
-  set(ENABLE_CLANG_STATIC_ANALYZER "0")
-endif()
 
 if (NOT CLANG_ENABLE_STATIC_ANALYZER AND CLANG_ENABLE_ARCMT)
   message(FATAL_ERROR "Cannot disable static analyzer while enabling ARCMT")
@@ -414,11 +404,6 @@ add_subdirectory(tools)
 add_subdirectory(runtime)
 
 option(CLANG_BUILD_EXAMPLES "Build CLANG example programs by default." OFF)
-if (CLANG_BUILD_EXAMPLES)
-  set(ENABLE_CLANG_EXAMPLES "1")
-else()
-  set(ENABLE_CLANG_EXAMPLES "0")
-endif()
 add_subdirectory(examples)
 
 if(APPLE)
@@ -514,6 +499,10 @@ if (CLANG_ENABLE_BOOTSTRAP)
   set(STAMP_DIR ${CMAKE_CURRENT_BINARY_DIR}/${NEXT_CLANG_STAGE}-stamps/)
   set(BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR}/${NEXT_CLANG_STAGE}-bins/)
 
+  if(BOOTSTRAP_LLVM_ENABLE_LLD)
+    add_dependencies(clang-bootstrap-deps lld)
+  endif()
+
   # If the next stage is LTO we need to depend on LTO and possibly lld or LLVMgold
   if(BOOTSTRAP_LLVM_ENABLE_LTO OR LLVM_ENABLE_LTO AND NOT LLVM_BUILD_INSTRUMENTED)
     if(APPLE)
@@ -530,9 +519,7 @@ if (CLANG_ENABLE_BOOTSTRAP)
         -DDYLD_LIBRARY_PATH=${LLVM_LIBRARY_OUTPUT_INTDIR})
     elseif(NOT WIN32)
       add_dependencies(clang-bootstrap-deps llvm-ar llvm-ranlib)
-      if(BOOTSTRAP_LLVM_ENABLE_LLD)
-        add_dependencies(clang-bootstrap-deps lld)
-      elseif(LLVM_BINUTILS_INCDIR)
+      if(NOT BOOTSTRAP_LLVM_ENABLE_LLD AND LLVM_BINUTILS_INCDIR)
         add_dependencies(clang-bootstrap-deps LLVMgold)
       endif()
       set(LTO_AR -DCMAKE_AR=${LLVM_RUNTIME_OUTPUT_INTDIR}/llvm-ar)

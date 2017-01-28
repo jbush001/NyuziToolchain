@@ -710,7 +710,7 @@ Parser::ParseUsingDeclaration(unsigned Context,
                                       : "using declaration"))
     SkipUntil(tok::semi);
 
-  return Actions.BuildDeclaratorGroup(DeclsInGroup, /*MayContainAuto*/false);
+  return Actions.BuildDeclaratorGroup(DeclsInGroup);
 }
 
 Decl *Parser::ParseAliasDeclarationAfterDeclarator(
@@ -1144,10 +1144,11 @@ TypeResult Parser::ParseBaseTypeSpecifier(SourceLocation &BaseLoc,
 
   // We have an identifier; check whether it is actually a type.
   IdentifierInfo *CorrectedII = nullptr;
-  ParsedType Type =
-      Actions.getTypeName(*Id, IdLoc, getCurScope(), &SS, true, false, nullptr,
-                          /*IsCtorOrDtorName=*/false,
-                          /*NonTrivialTypeSourceInfo=*/true, &CorrectedII);
+  ParsedType Type = Actions.getTypeName(
+      *Id, IdLoc, getCurScope(), &SS, true, false, nullptr,
+      /*IsCtorOrDtorName=*/false,
+      /*NonTrivialTypeSourceInfo=*/true,
+      /*IsClassTemplateDeductionContext*/ false, &CorrectedII);
   if (!Type) {
     Diag(IdLoc, diag::err_expected_class_name);
     return true;
@@ -2539,7 +2540,7 @@ Parser::ParseCXXClassMemberDeclaration(AccessSpecifier AS,
     DS.complete(TheDecl);
     if (AnonRecord) {
       Decl* decls[] = {AnonRecord, TheDecl};
-      return Actions.BuildDeclaratorGroup(decls, /*TypeMayContainAuto=*/false);
+      return Actions.BuildDeclaratorGroup(decls);
     }
     return Actions.ConvertDeclToDeclGroup(TheDecl);
   }
@@ -2769,11 +2770,10 @@ Parser::ParseCXXClassMemberDeclaration(AccessSpecifier AS,
       if (Init.isInvalid())
         SkipUntil(tok::comma, StopAtSemi | StopBeforeMatch);
       else if (ThisDecl)
-        Actions.AddInitializerToDecl(ThisDecl, Init.get(), EqualLoc.isInvalid(),
-                                     DS.containsPlaceholderType());
+        Actions.AddInitializerToDecl(ThisDecl, Init.get(), EqualLoc.isInvalid());
     } else if (ThisDecl && DS.getStorageClassSpec() == DeclSpec::SCS_static)
       // No initializer.
-      Actions.ActOnUninitializedDecl(ThisDecl, DS.containsPlaceholderType());
+      Actions.ActOnUninitializedDecl(ThisDecl);
 
     if (ThisDecl) {
       if (!ThisDecl->isInvalidDecl()) {
@@ -2958,56 +2958,50 @@ void Parser::SkipCXXMemberSpecification(SourceLocation RecordLoc,
 Parser::DeclGroupPtrTy Parser::ParseCXXClassMemberDeclarationWithPragmas(
     AccessSpecifier &AS, ParsedAttributesWithRange &AccessAttrs,
     DeclSpec::TST TagType, Decl *TagDecl) {
-  if (getLangOpts().MicrosoftExt &&
-      Tok.isOneOf(tok::kw___if_exists, tok::kw___if_not_exists)) {
+  switch (Tok.getKind()) {
+  case tok::kw___if_exists:
+  case tok::kw___if_not_exists:
     ParseMicrosoftIfExistsClassDeclaration(TagType, AS);
     return nullptr;
-  }
 
-  // Check for extraneous top-level semicolon.
-  if (Tok.is(tok::semi)) {
+  case tok::semi:
+    // Check for extraneous top-level semicolon.
     ConsumeExtraSemi(InsideStruct, TagType);
     return nullptr;
-  }
 
-  if (Tok.is(tok::annot_pragma_vis)) {
+    // Handle pragmas that can appear as member declarations.
+  case tok::annot_pragma_vis:
     HandlePragmaVisibility();
     return nullptr;
-  }
-
-  if (Tok.is(tok::annot_pragma_pack)) {
+  case tok::annot_pragma_pack:
     HandlePragmaPack();
     return nullptr;
-  }
-
-  if (Tok.is(tok::annot_pragma_align)) {
+  case tok::annot_pragma_align:
     HandlePragmaAlign();
     return nullptr;
-  }
-
-  if (Tok.is(tok::annot_pragma_ms_pointers_to_members)) {
+  case tok::annot_pragma_ms_pointers_to_members:
     HandlePragmaMSPointersToMembers();
     return nullptr;
-  }
-
-  if (Tok.is(tok::annot_pragma_ms_pragma)) {
+  case tok::annot_pragma_ms_pragma:
     HandlePragmaMSPragma();
     return nullptr;
-  }
-
-  if (Tok.is(tok::annot_pragma_ms_vtordisp)) {
+  case tok::annot_pragma_ms_vtordisp:
     HandlePragmaMSVtorDisp();
     return nullptr;
-  }
+  case tok::annot_pragma_dump:
+    HandlePragmaDump();
+    return nullptr;
 
-  // If we see a namespace here, a close brace was missing somewhere.
-  if (Tok.is(tok::kw_namespace)) {
+  case tok::kw_namespace:
+    // If we see a namespace here, a close brace was missing somewhere.
     DiagnoseUnexpectedNamespace(cast<NamedDecl>(TagDecl));
     return nullptr;
-  }
 
-  AccessSpecifier NewAS = getAccessSpecifierIfPresent();
-  if (NewAS != AS_none) {
+  case tok::kw_public:
+  case tok::kw_protected:
+  case tok::kw_private: {
+    AccessSpecifier NewAS = getAccessSpecifierIfPresent();
+    assert(NewAS != AS_none);
     // Current token is a C++ access specifier.
     AS = NewAS;
     SourceLocation ASLoc = Tok.getLocation();
@@ -3042,12 +3036,13 @@ Parser::DeclGroupPtrTy Parser::ParseCXXClassMemberDeclarationWithPragmas(
     return nullptr;
   }
 
-  if (Tok.is(tok::annot_pragma_openmp))
+  case tok::annot_pragma_openmp:
     return ParseOpenMPDeclarativeDirectiveWithExtDecl(AS, AccessAttrs, TagType,
                                                       TagDecl);
 
-  // Parse all the comma separated declarators.
-  return ParseCXXClassMemberDeclaration(AS, AccessAttrs.getList());
+  default:
+    return ParseCXXClassMemberDeclaration(AS, AccessAttrs.getList());
+  }
 }
 
 /// ParseCXXMemberSpecification - Parse the class definition.
@@ -3545,7 +3540,7 @@ Parser::tryParseExceptionSpecification(bool Delayed,
           Actions.CheckBooleanCondition(KeywordLoc, NoexceptExpr.get());
       NoexceptRange = SourceRange(KeywordLoc, T.getCloseLocation());
     } else {
-      NoexceptType = EST_None;
+      NoexceptType = EST_BasicNoexcept;
     }
   } else {
     // There is no argument.

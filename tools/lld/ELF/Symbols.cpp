@@ -73,6 +73,8 @@ static typename ELFT::uint getSymVA(const SymbolBody &Body,
     return VA;
   }
   case SymbolBody::DefinedCommonKind:
+    if (!Config->DefineCommon)
+      return 0;
     return In<ELFT>::Common->OutSec->Addr + In<ELFT>::Common->OutSecOff +
            cast<DefinedCommon>(Body).Offset;
   case SymbolBody::SharedKind: {
@@ -81,7 +83,7 @@ static typename ELFT::uint getSymVA(const SymbolBody &Body,
       return 0;
     if (SS.isFunc())
       return Body.getPltVA<ELFT>();
-    return Out<ELFT>::Bss->Addr + SS.OffsetInBss;
+    return SS.getBssSectionForCopy()->Addr + SS.CopyOffset;
   }
   case SymbolBody::UndefinedKind:
     return 0;
@@ -97,7 +99,8 @@ SymbolBody::SymbolBody(Kind K, StringRefZ Name, bool IsLocal, uint8_t StOther,
                        uint8_t Type)
     : SymbolKind(K), NeedsCopyOrPltAddr(false), IsLocal(IsLocal),
       IsInGlobalMipsGot(false), Is32BitMipsGot(false), IsInIplt(false),
-      IsInIgot(false), Type(Type), StOther(StOther), Name(Name) {}
+      IsInIgot(false), CopyIsInBssRelRo(false), Type(Type), StOther(StOther),
+      Name(Name) {}
 
 // Returns true if a symbol can be replaced at load-time by a symbol
 // with the same name defined in other ELF executable or DSO.
@@ -202,8 +205,8 @@ void SymbolBody::parseSymbolVersion() {
   // Truncate the symbol name so that it doesn't include the version string.
   Name = {S.data(), Pos};
 
-  // If this is an undefined or shared symbol it is not a definition.
-  if (isUndefined() || isShared())
+  // If this is not in this DSO, it is not a definition.
+  if (!isInCurrentDSO())
     return;
 
   // '@@' in a symbol name means the default version.
@@ -243,6 +246,12 @@ Undefined<ELFT>::Undefined(StringRefZ Name, bool IsLocal, uint8_t StOther,
                            uint8_t Type, InputFile *File)
     : SymbolBody(SymbolBody::UndefinedKind, Name, IsLocal, StOther, Type) {
   this->File = File;
+}
+
+template <typename ELFT>
+OutputSection<ELFT> *SharedSymbol<ELFT>::getBssSectionForCopy() const {
+  assert(needsCopy());
+  return CopyIsInBssRelRo ? Out<ELFT>::BssRelRo : Out<ELFT>::Bss;
 }
 
 DefinedCommon::DefinedCommon(StringRef Name, uint64_t Size, uint64_t Alignment,
@@ -287,10 +296,23 @@ InputFile *LazyObject::fetch() {
   return createObjectFile(MBRef);
 }
 
-bool Symbol::includeInDynsym() const {
+uint8_t Symbol::computeBinding() const {
+  if (Config->Relocatable)
+    return Binding;
   if (Visibility != STV_DEFAULT && Visibility != STV_PROTECTED)
+    return STB_LOCAL;
+  const SymbolBody *Body = body();
+  if (VersionId == VER_NDX_LOCAL && Body->isInCurrentDSO())
+    return STB_LOCAL;
+  if (Config->NoGnuUnique && Binding == STB_GNU_UNIQUE)
+    return STB_GLOBAL;
+  return Binding;
+}
+
+bool Symbol::includeInDynsym() const {
+  if (computeBinding() == STB_LOCAL)
     return false;
-  return (ExportDynamic && VersionId != VER_NDX_LOCAL) || body()->isShared() ||
+  return ExportDynamic || body()->isShared() ||
          (body()->isUndefined() && Config->Shared);
 }
 
@@ -365,6 +387,11 @@ template class elf::Undefined<ELF32LE>;
 template class elf::Undefined<ELF32BE>;
 template class elf::Undefined<ELF64LE>;
 template class elf::Undefined<ELF64BE>;
+
+template class elf::SharedSymbol<ELF32LE>;
+template class elf::SharedSymbol<ELF32BE>;
+template class elf::SharedSymbol<ELF64LE>;
+template class elf::SharedSymbol<ELF64BE>;
 
 template class elf::DefinedRegular<ELF32LE>;
 template class elf::DefinedRegular<ELF32BE>;

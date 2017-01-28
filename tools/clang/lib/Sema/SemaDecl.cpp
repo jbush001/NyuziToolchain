@@ -60,6 +60,11 @@ Sema::DeclGroupPtrTy Sema::ConvertDeclToDeclGroup(Decl *Ptr, Decl *OwnedType) {
   return DeclGroupPtrTy::make(DeclGroupRef(Ptr));
 }
 
+static bool isTypeTemplate(NamedDecl *ND) {
+  return isa<ClassTemplateDecl>(ND) || isa<TypeAliasTemplateDecl>(ND) ||
+         isa<TemplateTemplateParmDecl>(ND);
+}
+
 namespace {
 
 class TypeNameValidatorCCC : public CorrectionCandidateCallback {
@@ -67,7 +72,7 @@ class TypeNameValidatorCCC : public CorrectionCandidateCallback {
   TypeNameValidatorCCC(bool AllowInvalid, bool WantClass=false,
                        bool AllowTemplates=false)
       : AllowInvalidDecl(AllowInvalid), WantClassName(WantClass),
-        AllowClassTemplates(AllowTemplates) {
+        AllowTemplates(AllowTemplates) {
     WantExpressionKeywords = false;
     WantCXXNamedCasts = false;
     WantRemainingKeywords = false;
@@ -76,7 +81,7 @@ class TypeNameValidatorCCC : public CorrectionCandidateCallback {
   bool ValidateCandidate(const TypoCorrection &candidate) override {
     if (NamedDecl *ND = candidate.getCorrectionDecl()) {
       bool IsType = isa<TypeDecl>(ND) || isa<ObjCInterfaceDecl>(ND);
-      bool AllowedTemplate = AllowClassTemplates && isa<ClassTemplateDecl>(ND);
+      bool AllowedTemplate = AllowTemplates && isTypeTemplate(ND);
       return (IsType || AllowedTemplate) &&
              (AllowInvalidDecl || !ND->isInvalidDecl());
     }
@@ -86,7 +91,7 @@ class TypeNameValidatorCCC : public CorrectionCandidateCallback {
  private:
   bool AllowInvalidDecl;
   bool WantClassName;
-  bool AllowClassTemplates;
+  bool AllowTemplates;
 };
 
 } // end anonymous namespace
@@ -252,7 +257,13 @@ ParsedType Sema::getTypeName(const IdentifierInfo &II, SourceLocation NameLoc,
                              ParsedType ObjectTypePtr,
                              bool IsCtorOrDtorName,
                              bool WantNontrivialTypeSourceInfo,
+                             bool IsClassTemplateDeductionContext,
                              IdentifierInfo **CorrectedII) {
+  // FIXME: Consider allowing this outside C++1z mode as an extension.
+  bool AllowDeducedTemplate = IsClassTemplateDeductionContext &&
+                              getLangOpts().CPlusPlus1z && !IsCtorOrDtorName &&
+                              !isClassName && !HasTrailingDot;
+
   // Determine where we will perform name lookup.
   DeclContext *LookupCtx = nullptr;
   if (ObjectTypePtr) {
@@ -334,10 +345,11 @@ ParsedType Sema::getTypeName(const IdentifierInfo &II, SourceLocation NameLoc,
   case LookupResult::NotFound:
   case LookupResult::NotFoundInCurrentInstantiation:
     if (CorrectedII) {
-      TypoCorrection Correction = CorrectTypo(
-          Result.getLookupNameInfo(), Kind, S, SS,
-          llvm::make_unique<TypeNameValidatorCCC>(true, isClassName),
-          CTK_ErrorRecovery);
+      TypoCorrection Correction =
+          CorrectTypo(Result.getLookupNameInfo(), Kind, S, SS,
+                      llvm::make_unique<TypeNameValidatorCCC>(
+                          true, isClassName, AllowDeducedTemplate),
+                      CTK_ErrorRecovery);
       IdentifierInfo *NewII = Correction.getCorrectionAsIdentifierInfo();
       TemplateTy Template;
       bool MemberOfUnknownSpecialization;
@@ -359,7 +371,8 @@ ParsedType Sema::getTypeName(const IdentifierInfo &II, SourceLocation NameLoc,
         ParsedType Ty = getTypeName(*NewII, NameLoc, S, NewSSPtr,
                                     isClassName, HasTrailingDot, ObjectTypePtr,
                                     IsCtorOrDtorName,
-                                    WantNontrivialTypeSourceInfo);
+                                    WantNontrivialTypeSourceInfo,
+                                    IsClassTemplateDeductionContext);
         if (Ty) {
           diagnoseTypo(Correction,
                        PDiag(diag::err_unknown_type_or_class_name_suggest)
@@ -391,7 +404,8 @@ ParsedType Sema::getTypeName(const IdentifierInfo &II, SourceLocation NameLoc,
     // Look to see if we have a type anywhere in the list of results.
     for (LookupResult::iterator Res = Result.begin(), ResEnd = Result.end();
          Res != ResEnd; ++Res) {
-      if (isa<TypeDecl>(*Res) || isa<ObjCInterfaceDecl>(*Res)) {
+      if (isa<TypeDecl>(*Res) || isa<ObjCInterfaceDecl>(*Res) ||
+          (AllowDeducedTemplate && isTypeTemplate(*Res))) {
         if (!IIDecl ||
             (*Res)->getLocation().getRawEncoding() <
               IIDecl->getLocation().getRawEncoding())
@@ -425,33 +439,28 @@ ParsedType Sema::getTypeName(const IdentifierInfo &II, SourceLocation NameLoc,
 
   QualType T;
   if (TypeDecl *TD = dyn_cast<TypeDecl>(IIDecl)) {
+    // C++ [class.qual]p2: A lookup that would find the injected-class-name
+    // instead names the constructors of the class, except when naming a class.
+    // This is ill-formed when we're not actually forming a ctor or dtor name.
+    auto *LookupRD = dyn_cast_or_null<CXXRecordDecl>(LookupCtx);
+    auto *FoundRD = dyn_cast<CXXRecordDecl>(TD);
+    if (!isClassName && !IsCtorOrDtorName && LookupRD && FoundRD &&
+        FoundRD->isInjectedClassName() &&
+        declaresSameEntity(LookupRD, cast<Decl>(FoundRD->getParent())))
+      Diag(NameLoc, diag::err_out_of_line_qualified_id_type_names_constructor)
+          << &II << /*Type*/1;
+
     DiagnoseUseOfDecl(IIDecl, NameLoc);
 
     T = Context.getTypeDeclType(TD);
     MarkAnyDeclReferenced(TD->getLocation(), TD, /*OdrUse=*/false);
-
-    // NOTE: avoid constructing an ElaboratedType(Loc) if this is a
-    // constructor or destructor name (in such a case, the scope specifier
-    // will be attached to the enclosing Expr or Decl node).
-    if (SS && SS->isNotEmpty() && !IsCtorOrDtorName) {
-      if (WantNontrivialTypeSourceInfo) {
-        // Construct a type with type-source information.
-        TypeLocBuilder Builder;
-        Builder.pushTypeSpec(T).setNameLoc(NameLoc);
-
-        T = getElaboratedType(ETK_None, *SS, T);
-        ElaboratedTypeLoc ElabTL = Builder.push<ElaboratedTypeLoc>(T);
-        ElabTL.setElaboratedKeywordLoc(SourceLocation());
-        ElabTL.setQualifierLoc(SS->getWithLocInContext(Context));
-        return CreateParsedType(T, Builder.getTypeSourceInfo(Context, T));
-      } else {
-        T = getElaboratedType(ETK_None, *SS, T);
-      }
-    }
   } else if (ObjCInterfaceDecl *IDecl = dyn_cast<ObjCInterfaceDecl>(IIDecl)) {
     (void)DiagnoseUseOfDecl(IDecl, NameLoc);
     if (!HasTrailingDot)
       T = Context.getObjCInterfaceType(IDecl);
+  } else if (AllowDeducedTemplate && isTypeTemplate(IIDecl)) {
+    T = Context.getDeducedTemplateSpecializationType(
+        TemplateName(cast<TemplateDecl>(IIDecl)), QualType(), false);
   }
 
   if (T.isNull()) {
@@ -459,6 +468,27 @@ ParsedType Sema::getTypeName(const IdentifierInfo &II, SourceLocation NameLoc,
     Result.suppressDiagnostics();
     return nullptr;
   }
+
+  // NOTE: avoid constructing an ElaboratedType(Loc) if this is a
+  // constructor or destructor name (in such a case, the scope specifier
+  // will be attached to the enclosing Expr or Decl node).
+  if (SS && SS->isNotEmpty() && !IsCtorOrDtorName &&
+      !isa<ObjCInterfaceDecl>(IIDecl)) {
+    if (WantNontrivialTypeSourceInfo) {
+      // Construct a type with type-source information.
+      TypeLocBuilder Builder;
+      Builder.pushTypeSpec(T).setNameLoc(NameLoc);
+
+      T = getElaboratedType(ETK_None, *SS, T);
+      ElaboratedTypeLoc ElabTL = Builder.push<ElaboratedTypeLoc>(T);
+      ElabTL.setElaboratedKeywordLoc(SourceLocation());
+      ElabTL.setQualifierLoc(SS->getWithLocInContext(Context));
+      return CreateParsedType(T, Builder.getTypeSourceInfo(Context, T));
+    } else {
+      T = getElaboratedType(ETK_None, *SS, T);
+    }
+  }
+
   return ParsedType::make(T);
 }
 
@@ -636,6 +666,7 @@ void Sema::DiagnoseUnknownTypeName(IdentifierInfo *&II,
       if (Corrected.getCorrectionSpecifier())
         tmpSS.MakeTrivial(Context, Corrected.getCorrectionSpecifier(),
                           SourceRange(IILoc));
+      // FIXME: Support class template argument deduction here.
       SuggestedType =
           getTypeName(*Corrected.getCorrectionAsIdentifierInfo(), IILoc, S,
                       tmpSS.isSet() ? &tmpSS : SS, false, false, nullptr,
@@ -656,7 +687,8 @@ void Sema::DiagnoseUnknownTypeName(IdentifierInfo *&II,
                        Name, nullptr, true, TemplateResult,
                        MemberOfUnknownSpecialization) == TNK_Type_template) {
       TemplateName TplName = TemplateResult.get();
-      Diag(IILoc, diag::err_template_missing_args) << TplName;
+      Diag(IILoc, diag::err_template_missing_args)
+        << (int)getTemplateNameKindForDiagnostics(TplName) << TplName;
       if (TemplateDecl *TplDecl = TplName.getAsTemplateDecl()) {
         Diag(TplDecl->getLocation(), diag::note_template_decl_here)
           << TplDecl->getTemplateParameters()->getSourceRange();
@@ -782,6 +814,13 @@ Sema::ClassifyName(Scope *S, CXXScopeSpec &SS, IdentifierInfo *&Name,
   if (NextToken.is(tok::coloncolon)) {
     NestedNameSpecInfo IdInfo(Name, NameLoc, NextToken.getLocation());
     BuildCXXNestedNameSpecifier(S, IdInfo, false, SS, nullptr, false);
+  } else if (getLangOpts().CPlusPlus && SS.isSet() &&
+             isCurrentClassName(*Name, S, &SS)) {
+    // Per [class.qual]p2, this names the constructors of SS, not the
+    // injected-class-name. We don't have a classification for that.
+    // There's not much point caching this result, since the parser
+    // will reject it later.
+    return NameClassification::Unknown();
   }
 
   LookupResult Result(*this, Name, NameLoc, LookupOrdinaryName);
@@ -1044,7 +1083,8 @@ Corrected:
   }
 
   // We can have a type template here if we're classifying a template argument.
-  if (isa<TemplateDecl>(FirstDecl) && !isa<FunctionTemplateDecl>(FirstDecl))
+  if (isa<TemplateDecl>(FirstDecl) && !isa<FunctionTemplateDecl>(FirstDecl) &&
+      !isa<VarTemplateDecl>(FirstDecl))
     return NameClassification::TypeTemplate(
         TemplateName(cast<TemplateDecl>(FirstDecl)));
 
@@ -1069,6 +1109,24 @@ Corrected:
 
   bool ADL = UseArgumentDependentLookup(SS, Result, NextToken.is(tok::l_paren));
   return BuildDeclarationNameExpr(SS, Result, ADL);
+}
+
+Sema::TemplateNameKindForDiagnostics
+Sema::getTemplateNameKindForDiagnostics(TemplateName Name) {
+  auto *TD = Name.getAsTemplateDecl();
+  if (!TD)
+    return TemplateNameKindForDiagnostics::DependentTemplate;
+  if (isa<ClassTemplateDecl>(TD))
+    return TemplateNameKindForDiagnostics::ClassTemplate;
+  if (isa<FunctionTemplateDecl>(TD))
+    return TemplateNameKindForDiagnostics::FunctionTemplate;
+  if (isa<VarTemplateDecl>(TD))
+    return TemplateNameKindForDiagnostics::VarTemplate;
+  if (isa<TypeAliasTemplateDecl>(TD))
+    return TemplateNameKindForDiagnostics::AliasTemplate;
+  if (isa<TemplateTemplateParmDecl>(TD))
+    return TemplateNameKindForDiagnostics::TemplateTemplateParam;
+  return TemplateNameKindForDiagnostics::DependentTemplate;
 }
 
 // Determines the context to return to after temporarily entering a
@@ -4503,7 +4561,7 @@ Decl *Sema::BuildAnonymousStructOrUnion(Scope *S, DeclSpec &DS,
     // trivial in almost all cases, except if a union member has an in-class
     // initializer:
     //   union { int n = 0; };
-    ActOnUninitializedDecl(Anon, /*TypeMayContainAuto=*/false);
+    ActOnUninitializedDecl(Anon);
   }
   Anon->setImplicit();
 
@@ -6425,9 +6483,10 @@ NamedDecl *Sema::ActOnVariableDeclarator(
     }
   }
 
-  // Diagnose shadowed variables before filtering for scope.
-  if (D.getCXXScopeSpec().isEmpty())
-    CheckShadow(S, NewVD, Previous);
+  // Find the shadowed declaration before filtering for scope.
+  NamedDecl *ShadowedDecl = D.getCXXScopeSpec().isEmpty()
+                                ? getShadowedDeclaration(NewVD, Previous)
+                                : nullptr;
 
   // Don't consider existing declarations that are in a different
   // scope and are out-of-semantic-context declarations (if the new
@@ -6522,6 +6581,10 @@ NamedDecl *Sema::ActOnVariableDeclarator(
     }
   }
 
+  // Diagnose shadowed variables iff this isn't a redeclaration.
+  if (ShadowedDecl && !D.isRedeclaration())
+    CheckShadow(NewVD, ShadowedDecl, Previous);
+
   ProcessPragmaWeak(S, NewVD);
 
   // If this is the first declaration of an extern C variable, update
@@ -6595,33 +6658,40 @@ static SourceLocation getCaptureLocation(const LambdaScopeInfo *LSI,
   return SourceLocation();
 }
 
+/// \brief Return the declaration shadowed by the given variable \p D, or null
+/// if it doesn't shadow any declaration or shadowing warnings are disabled.
+NamedDecl *Sema::getShadowedDeclaration(const VarDecl *D,
+                                        const LookupResult &R) {
+  // Return if warning is ignored.
+  if (Diags.isIgnored(diag::warn_decl_shadow, R.getNameLoc()))
+    return nullptr;
+
+  // Don't diagnose declarations at file scope.
+  if (D->hasGlobalStorage())
+    return nullptr;
+
+  // Only diagnose if we're shadowing an unambiguous field or variable.
+  if (R.getResultKind() != LookupResult::Found)
+    return nullptr;
+
+  NamedDecl *ShadowedDecl = R.getFoundDecl();
+  return isa<VarDecl>(ShadowedDecl) || isa<FieldDecl>(ShadowedDecl)
+             ? ShadowedDecl
+             : nullptr;
+}
+
 /// \brief Diagnose variable or built-in function shadowing.  Implements
 /// -Wshadow.
 ///
 /// This method is called whenever a VarDecl is added to a "useful"
 /// scope.
 ///
-/// \param S the scope in which the shadowing name is being declared
+/// \param ShadowedDecl the declaration that is shadowed by the given variable
 /// \param R the lookup of the name
 ///
-void Sema::CheckShadow(Scope *S, VarDecl *D, const LookupResult& R) {
-  // Return if warning is ignored.
-  if (Diags.isIgnored(diag::warn_decl_shadow, R.getNameLoc()))
-    return;
-
-  // Don't diagnose declarations at file scope.
-  if (D->hasGlobalStorage())
-    return;
-
+void Sema::CheckShadow(VarDecl *D, NamedDecl *ShadowedDecl,
+                       const LookupResult &R) {
   DeclContext *NewDC = D->getDeclContext();
-
-  // Only diagnose if we're shadowing an unambiguous field or variable.
-  if (R.getResultKind() != LookupResult::Found)
-    return;
-
-  NamedDecl* ShadowedDecl = R.getFoundDecl();
-  if (!isa<VarDecl>(ShadowedDecl) && !isa<FieldDecl>(ShadowedDecl))
-    return;
 
   if (FieldDecl *FD = dyn_cast<FieldDecl>(ShadowedDecl)) {
     // Fields are not shadowed by variables in C++ static methods.
@@ -6732,7 +6802,8 @@ void Sema::CheckShadow(Scope *S, VarDecl *D) {
   LookupResult R(*this, D->getDeclName(), D->getLocation(),
                  Sema::LookupOrdinaryName, Sema::ForRedeclaration);
   LookupName(R, S);
-  CheckShadow(S, D, R);
+  if (NamedDecl *ShadowedDecl = getShadowedDeclaration(D, R))
+    CheckShadow(D, ShadowedDecl, R);
 }
 
 /// Check if 'E', which is an expression that is about to be modified, refers
@@ -9689,6 +9760,14 @@ QualType Sema::deduceVarTypeFromInitializer(VarDecl *VDecl,
 
   VarDeclOrName VN{VDecl, Name};
 
+  DeducedType *Deduced = Type->getContainedDeducedType();
+  assert(Deduced && "deduceVarTypeFromInitializer for non-deduced type");
+
+  if (isa<DeducedTemplateSpecializationType>(Deduced)) {
+    Diag(Init->getLocStart(), diag::err_deduced_class_template_not_supported);
+    return QualType();
+  }
+
   ArrayRef<Expr *> DeduceInits = Init;
   if (DirectInit) {
     if (auto *PL = dyn_cast<ParenListExpr>(Init))
@@ -9782,8 +9861,7 @@ QualType Sema::deduceVarTypeFromInitializer(VarDecl *VDecl,
 /// AddInitializerToDecl - Adds the initializer Init to the
 /// declaration dcl. If DirectInit is true, this is C++ direct
 /// initialization rather than copy initialization.
-void Sema::AddInitializerToDecl(Decl *RealDecl, Expr *Init,
-                                bool DirectInit, bool TypeMayContainAuto) {
+void Sema::AddInitializerToDecl(Decl *RealDecl, Expr *Init, bool DirectInit) {
   // If there is no declaration, there was an error parsing it.  Just ignore
   // the initializer.
   if (!RealDecl || RealDecl->isInvalidDecl()) {
@@ -9808,7 +9886,7 @@ void Sema::AddInitializerToDecl(Decl *RealDecl, Expr *Init,
   }
 
   // C++11 [decl.spec.auto]p6. Deduce the type which 'auto' stands in for.
-  if (TypeMayContainAuto && VDecl->getType()->isUndeducedType()) {
+  if (VDecl->getType()->isUndeducedType()) {
     // Attempt typo correction early so that the type of the init expression can
     // be deduced based on the chosen correction if the original init contains a
     // TypoExpr.
@@ -10280,8 +10358,7 @@ bool Sema::canInitializeWithParenthesizedList(QualType TargetType) {
          TargetType->getContainedAutoType();
 }
 
-void Sema::ActOnUninitializedDecl(Decl *RealDecl,
-                                  bool TypeMayContainAuto) {
+void Sema::ActOnUninitializedDecl(Decl *RealDecl) {
   // If there is no declaration, there was an error parsing it. Just ignore it.
   if (!RealDecl)
     return;
@@ -10297,7 +10374,7 @@ void Sema::ActOnUninitializedDecl(Decl *RealDecl,
     }
 
     // C++11 [dcl.spec.auto]p3
-    if (TypeMayContainAuto && Type->getContainedAutoType()) {
+    if (Type->isUndeducedType()) {
       Diag(Var->getLocation(), diag::err_auto_var_requires_init)
         << Var->getDeclName() << Type;
       Var->setInvalidDecl();
@@ -10853,7 +10930,8 @@ Sema::FinalizeDeclaration(Decl *ThisDecl) {
   if (unsigned MaxAlign = Context.getTargetInfo().getMaxTLSAlign()) {
     // Protect the check so that it's not performed on dependent types and
     // dependent alignments (we can't determine the alignment in that case).
-    if (VD->getTLSKind() && !hasDependentAlignment(VD)) {
+    if (VD->getTLSKind() && !hasDependentAlignment(VD) &&
+        !VD->isInvalidDecl()) {
       CharUnits MaxAlignChars = Context.toCharUnitsFromBits(MaxAlign);
       if (Context.getDeclAlign(VD) > MaxAlignChars) {
         Diag(VD->getLocation(), diag::err_tls_var_aligned_over_maximum)
@@ -11033,6 +11111,11 @@ Sema::FinalizeDeclaration(Decl *ThisDecl) {
   }
 }
 
+static bool hasDeducedAuto(DeclaratorDecl *DD) {
+  auto *VD = dyn_cast<VarDecl>(DD);
+  return VD && !VD->getType()->hasAutoForTrailingReturnType();
+}
+
 Sema::DeclGroupPtrTy Sema::FinalizeDeclaratorGroup(Scope *S, const DeclSpec &DS,
                                                    ArrayRef<Decl *> Group) {
   SmallVector<Decl*, 8> Decls;
@@ -11043,29 +11126,46 @@ Sema::DeclGroupPtrTy Sema::FinalizeDeclaratorGroup(Scope *S, const DeclSpec &DS,
   DeclaratorDecl *FirstDeclaratorInGroup = nullptr;
   DecompositionDecl *FirstDecompDeclaratorInGroup = nullptr;
   bool DiagnosedMultipleDecomps = false;
+  DeclaratorDecl *FirstNonDeducedAutoInGroup = nullptr;
+  bool DiagnosedNonDeducedAuto = false;
 
   for (unsigned i = 0, e = Group.size(); i != e; ++i) {
     if (Decl *D = Group[i]) {
-      auto *DD = dyn_cast<DeclaratorDecl>(D);
-      if (DD && !FirstDeclaratorInGroup)
-        FirstDeclaratorInGroup = DD;
+      // For declarators, there are some additional syntactic-ish checks we need
+      // to perform.
+      if (auto *DD = dyn_cast<DeclaratorDecl>(D)) {
+        if (!FirstDeclaratorInGroup)
+          FirstDeclaratorInGroup = DD;
+        if (!FirstDecompDeclaratorInGroup)
+          FirstDecompDeclaratorInGroup = dyn_cast<DecompositionDecl>(D);
+        if (!FirstNonDeducedAutoInGroup && DS.containsPlaceholderType() &&
+            !hasDeducedAuto(DD))
+          FirstNonDeducedAutoInGroup = DD;
 
-      auto *Decomp = dyn_cast<DecompositionDecl>(D);
-      if (Decomp && !FirstDecompDeclaratorInGroup)
-        FirstDecompDeclaratorInGroup = Decomp;
+        if (FirstDeclaratorInGroup != DD) {
+          // A decomposition declaration cannot be combined with any other
+          // declaration in the same group.
+          if (FirstDecompDeclaratorInGroup && !DiagnosedMultipleDecomps) {
+            Diag(FirstDecompDeclaratorInGroup->getLocation(),
+                 diag::err_decomp_decl_not_alone)
+                << FirstDeclaratorInGroup->getSourceRange()
+                << DD->getSourceRange();
+            DiagnosedMultipleDecomps = true;
+          }
 
-      // A decomposition declaration cannot be combined with any other
-      // declaration in the same group.
-      auto *OtherDD = FirstDeclaratorInGroup;
-      if (OtherDD == FirstDecompDeclaratorInGroup)
-        OtherDD = DD;
-      if (OtherDD && FirstDecompDeclaratorInGroup &&
-          OtherDD != FirstDecompDeclaratorInGroup &&
-          !DiagnosedMultipleDecomps) {
-        Diag(FirstDecompDeclaratorInGroup->getLocation(),
-             diag::err_decomp_decl_not_alone)
-          << OtherDD->getSourceRange();
-        DiagnosedMultipleDecomps = true;
+          // A declarator that uses 'auto' in any way other than to declare a
+          // variable with a deduced type cannot be combined with any other
+          // declarator in the same group.
+          if (FirstNonDeducedAutoInGroup && !DiagnosedNonDeducedAuto) {
+            Diag(FirstNonDeducedAutoInGroup->getLocation(),
+                 diag::err_auto_non_deduced_not_alone)
+                << FirstNonDeducedAutoInGroup->getType()
+                       ->hasAutoForTrailingReturnType()
+                << FirstDeclaratorInGroup->getSourceRange()
+                << DD->getSourceRange();
+            DiagnosedNonDeducedAuto = true;
+          }
+        }
       }
 
       Decls.push_back(D);
@@ -11081,50 +11181,39 @@ Sema::DeclGroupPtrTy Sema::FinalizeDeclaratorGroup(Scope *S, const DeclSpec &DS,
     }
   }
 
-  return BuildDeclaratorGroup(Decls, DS.containsPlaceholderType());
+  return BuildDeclaratorGroup(Decls);
 }
 
 /// BuildDeclaratorGroup - convert a list of declarations into a declaration
 /// group, performing any necessary semantic checking.
 Sema::DeclGroupPtrTy
-Sema::BuildDeclaratorGroup(MutableArrayRef<Decl *> Group,
-                           bool TypeMayContainAuto) {
-  // C++0x [dcl.spec.auto]p7:
-  //   If the type deduced for the template parameter U is not the same in each
+Sema::BuildDeclaratorGroup(MutableArrayRef<Decl *> Group) {
+  // C++14 [dcl.spec.auto]p7: (DR1347)
+  //   If the type that replaces the placeholder type is not the same in each
   //   deduction, the program is ill-formed.
-  // FIXME: When initializer-list support is added, a distinction is needed
-  // between the deduced type U and the deduced type which 'auto' stands for.
-  //   auto a = 0, b = { 1, 2, 3 };
-  // is legal because the deduced type U is 'int' in both cases.
-  if (TypeMayContainAuto && Group.size() > 1) {
+  if (Group.size() > 1) {
     QualType Deduced;
-    CanQualType DeducedCanon;
     VarDecl *DeducedDecl = nullptr;
     for (unsigned i = 0, e = Group.size(); i != e; ++i) {
-      if (VarDecl *D = dyn_cast<VarDecl>(Group[i])) {
-        AutoType *AT = D->getType()->getContainedAutoType();
-        // Don't reissue diagnostics when instantiating a template.
-        if (AT && D->isInvalidDecl())
-          break;
-        QualType U = AT ? AT->getDeducedType() : QualType();
-        if (!U.isNull()) {
-          CanQualType UCanon = Context.getCanonicalType(U);
-          if (Deduced.isNull()) {
-            Deduced = U;
-            DeducedCanon = UCanon;
-            DeducedDecl = D;
-          } else if (DeducedCanon != UCanon) {
-            Diag(D->getTypeSourceInfo()->getTypeLoc().getBeginLoc(),
-                 diag::err_auto_different_deductions)
-              << (unsigned)AT->getKeyword()
-              << Deduced << DeducedDecl->getDeclName()
-              << U << D->getDeclName()
-              << DeducedDecl->getInit()->getSourceRange()
-              << D->getInit()->getSourceRange();
-            D->setInvalidDecl();
-            break;
-          }
-        }
+      VarDecl *D = dyn_cast<VarDecl>(Group[i]);
+      if (!D || D->isInvalidDecl())
+        break;
+      AutoType *AT = D->getType()->getContainedAutoType();
+      if (!AT || AT->getDeducedType().isNull())
+        continue;
+      if (Deduced.isNull()) {
+        Deduced = AT->getDeducedType();
+        DeducedDecl = D;
+      } else if (!Context.hasSameType(AT->getDeducedType(), Deduced)) {
+        Diag(D->getTypeSourceInfo()->getTypeLoc().getBeginLoc(),
+             diag::err_auto_different_deductions)
+          << (unsigned)AT->getKeyword()
+          << Deduced << DeducedDecl->getDeclName()
+          << AT->getDeducedType() << D->getDeclName()
+          << DeducedDecl->getInit()->getSourceRange()
+          << D->getInit()->getSourceRange();
+        D->setInvalidDecl();
+        break;
       }
     }
   }

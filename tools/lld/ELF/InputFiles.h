@@ -29,6 +29,7 @@
 
 namespace llvm {
 class DWARFDebugLine;
+class TarWriter;
 namespace lto {
 class InputFile;
 }
@@ -48,6 +49,13 @@ using llvm::object::Archive;
 
 class Lazy;
 class SymbolBody;
+
+// If -reproduce option is given, all input files are written
+// to this tar archive.
+extern llvm::TarWriter *Tar;
+
+// Opens a given file.
+llvm::Optional<MemoryBufferRef> readFile(StringRef Path);
 
 // The root class of input files.
 class InputFile {
@@ -171,10 +179,6 @@ public:
   // used to create the relocatable object and required to support
   // R_MIPS_GPREL16 / R_MIPS_GPREL32 relocations.
   uint32_t MipsGp0 = 0;
-
-  // The number is the offset in the string table. It will be used as the
-  // st_name of the symbol.
-  std::vector<std::pair<const DefinedRegular<ELFT> *, unsigned>> KeptLocalSyms;
 
   // Name of source file obtained from STT_FILE symbol value,
   // or empty string if there is no such symbol in object file

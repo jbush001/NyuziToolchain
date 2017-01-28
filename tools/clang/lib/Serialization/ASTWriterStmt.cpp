@@ -1794,6 +1794,7 @@ void OMPClauseWriter::writeClause(OMPClause *C) {
 }
 
 void OMPClauseWriter::VisitOMPClauseWithPreInit(OMPClauseWithPreInit *C) {
+  Record.push_back(C->getCaptureRegion());
   Record.AddStmt(C->getPreInitStmt());
 }
 
@@ -1803,6 +1804,7 @@ void OMPClauseWriter::VisitOMPClauseWithPostUpdate(OMPClauseWithPostUpdate *C) {
 }
 
 void OMPClauseWriter::VisitOMPIfClause(OMPIfClause *C) {
+  VisitOMPClauseWithPreInit(C);
   Record.push_back(C->getNameModifier());
   Record.AddSourceLocation(C->getNameModifierLoc());
   Record.AddSourceLocation(C->getColonLoc());
@@ -1816,6 +1818,7 @@ void OMPClauseWriter::VisitOMPFinalClause(OMPFinalClause *C) {
 }
 
 void OMPClauseWriter::VisitOMPNumThreadsClause(OMPNumThreadsClause *C) {
+  VisitOMPClauseWithPreInit(C);
   Record.AddStmt(C->getNumThreads());
   Record.AddSourceLocation(C->getLParenLoc());
 }
@@ -2064,11 +2067,13 @@ void OMPClauseWriter::VisitOMPMapClause(OMPMapClause *C) {
 }
 
 void OMPClauseWriter::VisitOMPNumTeamsClause(OMPNumTeamsClause *C) {
+  VisitOMPClauseWithPreInit(C);
   Record.AddStmt(C->getNumTeams());
   Record.AddSourceLocation(C->getLParenLoc());
 }
 
 void OMPClauseWriter::VisitOMPThreadLimitClause(OMPThreadLimitClause *C) {
+  VisitOMPClauseWithPreInit(C);
   Record.AddStmt(C->getThreadLimit());
   Record.AddSourceLocation(C->getLParenLoc());
 }
@@ -2561,6 +2566,12 @@ void ASTStmtWriter::VisitOMPTargetTeamsDistributeParallelForSimdDirective(
   VisitOMPLoopDirective(D);
   Code = serialization::
       STMT_OMP_TARGET_TEAMS_DISTRIBUTE_PARALLEL_FOR_SIMD_DIRECTIVE;
+}
+
+void ASTStmtWriter::VisitOMPTargetTeamsDistributeSimdDirective(
+    OMPTargetTeamsDistributeSimdDirective *D) {
+  VisitOMPLoopDirective(D);
+  Code = serialization::STMT_OMP_TARGET_TEAMS_DISTRIBUTE_SIMD_DIRECTIVE;
 }
 
 //===----------------------------------------------------------------------===//

@@ -2694,6 +2694,7 @@ addAssociatedClassesAndNamespaces(AssociatedLookup &Result, QualType Ty) {
 
     // Non-deduced auto types only get here for error cases.
     case Type::Auto:
+    case Type::DeducedTemplateSpecialization:
       break;
 
     // If T is an Objective-C object or interface type, or a pointer to an 
@@ -3425,6 +3426,12 @@ NamedDecl *VisibleDeclsRecord::checkHidden(NamedDecl *ND) {
       if (D->getUnderlyingDecl()->isFunctionOrFunctionTemplate() &&
           ND->getUnderlyingDecl()->isFunctionOrFunctionTemplate() &&
           SM == ShadowMaps.rbegin())
+        continue;
+
+      // A shadow declaration that's created by a resolved using declaration
+      // is not hidden by the same using declaration.
+      if (isa<UsingShadowDecl>(ND) && isa<UsingDecl>(D) &&
+          cast<UsingShadowDecl>(ND)->getUsingDecl() == D)
         continue;
 
       // We've found a declaration that hides this one.

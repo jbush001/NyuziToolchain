@@ -600,11 +600,8 @@ private:
 public:
   // If NeedType is true, then TryAnnotateTypeOrScopeToken will try harder to
   // find a type name by attempting typo correction.
-  bool TryAnnotateTypeOrScopeToken(bool EnteringContext = false,
-                                   bool NeedType = false);
-  bool TryAnnotateTypeOrScopeTokenAfterScopeSpec(bool EnteringContext,
-                                                 bool NeedType,
-                                                 CXXScopeSpec &SS,
+  bool TryAnnotateTypeOrScopeToken();
+  bool TryAnnotateTypeOrScopeTokenAfterScopeSpec(CXXScopeSpec &SS,
                                                  bool IsNewScope);
   bool TryAnnotateCXXScopeToken(bool EnteringContext = false);
 
@@ -1833,6 +1830,26 @@ private:
     case DSC_trailing:
     case DSC_alias_declaration:
       return true;
+    }
+    llvm_unreachable("Missing DeclSpecContext case");
+  }
+
+  /// Is this a context in which we can perform class template argument
+  /// deduction?
+  static bool isClassTemplateDeductionContext(DeclSpecContext DSC) {
+    switch (DSC) {
+    case DSC_normal:
+    case DSC_class:
+    case DSC_top_level:
+    case DSC_condition:
+    case DSC_type_specifier:
+      return true;
+
+    case DSC_objc_method_result:
+    case DSC_template_type_arg:
+    case DSC_trailing:
+    case DSC_alias_declaration:
+      return false;
     }
     llvm_unreachable("Missing DeclSpecContext case");
   }
