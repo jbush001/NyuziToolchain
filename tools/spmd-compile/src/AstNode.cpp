@@ -34,7 +34,8 @@ Value *DivAst::generate(SPMDBuilder &Builder) {
 Value *AssignAst::generate(SPMDBuilder &Builder) {
   Symbol *Sym = static_cast<VariableAst *>(Lhs)->Sym;
   if (Sym->Val == nullptr)
-    Sym->Val = Builder.createLocalVariable(Sym->Name.c_str());
+    Sym->Val = Builder.createLocalVariable(Sym->Name.c_str(),
+      Builder.sFloatType);
 
   return Builder.assignLocalVariable(Sym->Val,
                                      Rhs->generate(Builder));
@@ -52,27 +53,27 @@ Value *IfAst::generate(SPMDBuilder &Builder) {
     Builder.shortCircuitZeroMask(ElseTopBB, ThenBB);
 
     // Generate 'then'
-    Builder.setInsertPoint(ThenBB);
+    Builder.startBasicBlock(ThenBB);
     Then->generate(Builder);
     Builder.branch(ElseTopBB);
 
     // Invert active mask
-    Builder.setInsertPoint(ElseTopBB);
+    Builder.startBasicBlock(ElseTopBB);
     Builder.invertLastPushedMask();
     Builder.shortCircuitZeroMask(EndifBB, ElseBodyBB);
 
     // Generate 'else'
-    Builder.setInsertPoint(ElseBodyBB);
+    Builder.startBasicBlock(ElseBodyBB);
     Else->generate(Builder);
     Builder.branch(EndifBB);
-    Builder.setInsertPoint(EndifBB);
+    Builder.startBasicBlock(EndifBB);
   } else {
     llvm::BasicBlock *ThenBB = Builder.createBasicBlock("then");
     llvm::BasicBlock *EndifBB = Builder.createBasicBlock("endif");
     Builder.shortCircuitZeroMask(EndifBB, ThenBB);
-    Builder.setInsertPoint(ThenBB);
+    Builder.startBasicBlock(ThenBB);
     Then->generate(Builder);
-    Builder.setInsertPoint(EndifBB);
+    Builder.startBasicBlock(EndifBB);
   }
 
   Builder.popMask();
@@ -86,17 +87,17 @@ Value *WhileAst::generate(SPMDBuilder &Builder) {
 
   // Loop check
   Builder.branch(LoopTopBB);
-  Builder.setInsertPoint(LoopTopBB);
+  Builder.startBasicBlock(LoopTopBB);
   Value *LoopCond = Cond->generate(Builder);
   Builder.pushMask(LoopCond);
   Builder.shortCircuitZeroMask(LoopEndBB, LoopBodyBB);
 
   // Loop body
-  Builder.setInsertPoint(LoopBodyBB);
+  Builder.startBasicBlock(LoopBodyBB);
   Body->generate(Builder);
   Builder.branch(LoopTopBB);
+  Builder.startBasicBlock(LoopEndBB);
   Builder.popMask();
-  Builder.setInsertPoint(LoopEndBB);
   return nullptr;
 }
 
@@ -109,23 +110,24 @@ Value *ForAst::generate(SPMDBuilder &Builder) {
 
   // Loop check
   Builder.branch(LoopTopBB);
-  Builder.setInsertPoint(LoopTopBB);
+  Builder.startBasicBlock(LoopTopBB);
   Value *LoopCond = Cond->generate(Builder);
   Builder.pushMask(LoopCond);
   Builder.shortCircuitZeroMask(LoopEndBB, LoopBodyBB);
 
   // Loop body
-  Builder.setInsertPoint(LoopBodyBB);
+  Builder.startBasicBlock(LoopBodyBB);
   Body->generate(Builder);
   Builder.branch(LoopTopBB);
+  Builder.startBasicBlock(LoopEndBB);
   Builder.popMask();
-  Builder.setInsertPoint(LoopEndBB);
   return nullptr;
 }
 
 Value *VariableAst::generate(SPMDBuilder &Builder) {
   if (Sym->Val == nullptr)
-    Sym->Val = Builder.createLocalVariable(Sym->Name.c_str());
+    Sym->Val = Builder.createLocalVariable(Sym->Name.c_str(),
+      Builder.sFloatType);
 
   return Builder.readLocalVariable(Sym->Val);
 }

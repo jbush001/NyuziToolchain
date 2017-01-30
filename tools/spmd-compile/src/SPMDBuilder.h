@@ -15,7 +15,7 @@ public:
 
   void createReturn(llvm::Value *ReturnValue);
 
-  llvm::Value *createLocalVariable(const char *Name);
+  llvm::Value *createLocalVariable(const char *Name, llvm::Type*);
 
   llvm::Value *readLocalVariable(llvm::Value *);
 
@@ -50,26 +50,27 @@ public:
 
   llvm::BasicBlock *createBasicBlock(const char *Name);
 
-  void setInsertPoint(llvm::BasicBlock *Block);
+  void startBasicBlock(llvm::BasicBlock *Block);
 
   llvm::Value *createConstant(float value);
+
+  llvm::Type *sFloatType;
 
 private:
   struct MaskStackEntry {
     // These entries point to the allocas that store the values.
     llvm::Value *ThisMask;
-    llvm::Value *CombinedValue;
+    llvm::Value *CombinedMask;
   };
-
-  // Returns pointer to alloca that contains value
-  llvm::Value *getCurrentMask();
 
   llvm::LLVMContext &Context;
   llvm::IRBuilder<> Builder;
   llvm::Module *MainModule;
   llvm::SmallVector<MaskStackEntry, 10> MaskStack;
+  llvm::Value *ActiveLanes;
   llvm::Function *CurrentFunction;
-  llvm::Value *Result;
+  llvm::Value *ReturnValuePtr;
+  llvm::Value *ReturnMaskPtr;
   llvm::Function *VMixFInt;
 };
 

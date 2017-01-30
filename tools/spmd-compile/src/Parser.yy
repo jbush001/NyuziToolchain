@@ -74,7 +74,7 @@ funcdecl		:		TOK_FLOAT TOK_IDENTIFIER enter_scope '(' parameters ')'
 							Function::arg_iterator AI = Builder->getFuncArguments();
 							for (auto Sym : ArgumentSyms)
 							{
-								Sym->Val = Builder->createLocalVariable(Sym->Name.c_str());
+								Sym->Val = Builder->createLocalVariable(Sym->Name.c_str(), Builder->sFloatType);
 								Builder->assignLocalVariable(Sym->Val, &*AI);
 								AI++;
 							}
