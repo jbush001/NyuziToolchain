@@ -15,6 +15,7 @@ set(LLVM_LINK_COMPONENTS
   SelectionDAG
   Support
   Target
+  IPO
   )
 
 add_llvm_tool(spmd-compile

@@ -21,6 +21,7 @@
 #include "llvm/Support/TargetRegistry.h"
 #include "llvm/Support/TargetSelect.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/Transforms/IPO/PassManagerBuilder.h"
 #include "llvm/Transforms/Scalar.h"
 #include <cctype>
 #include <cstdio>
@@ -65,13 +66,8 @@ bool generateTargetCode(Module *TheModule, raw_fd_ostream &Output) {
   TargetMachine &Target = *target.get();
   TheModule->setDataLayout(Target.createDataLayout());
 
-  // XXX find a way to add all necessary passes automatically. This probably
-  // doesn't cover them all, and there's probably a function somewhere that
-  // does the right thing.
-  PM.add(createPromoteMemoryToRegisterPass());
-  PM.add(createInstructionCombiningPass());
-  PM.add(createReassociatePass());
-  PM.add(createCFGSimplificationPass());
+  PassManagerBuilder PMBuilder;
+  PMBuilder.populateModulePassManager(PM);
 
   TargetMachine::CodeGenFileType FileType = OutputSource
     ? TargetMachine::CGFT_AssemblyFile
