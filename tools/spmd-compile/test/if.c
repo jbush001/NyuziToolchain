@@ -2,33 +2,32 @@
 
 float ifstmt(float a, float b)
 {
-    // CHECK: load_32 s1, .LCPI0_1
+    // CHECK: load_32
 
     float retval = 0;
 	if (a > 0) {
-        // CHECK: cmpgt_f s0, v0, s1
-        // CHECK: bfalse s0, .LBB0_1
+        // CHECK: cmpgt_f
+        // CHECK: bfalse s{{[0-9]+}}, [[LABEL1:\.LBB[0-9]_[0-9]+]]
         retval = a - b;
-    	// CHECK: move v2, s1
-    	// CHECK: sub_f_mask v2, s0, v0, v1
-    	// CHECK: load_32 s1, .LCPI0_0
-    	// CHECK: and s0, s0, s1
-    	// CHECK: cmpeq_i s2, s0, s1
-    	// CHECK: btrue s2, .LBB0_5
-    	// CHECK: xor s0, s0, s1
-    	// CHECK: goto .LBB0_4
+    	// CHECK: move
+    	// CHECK: sub_f_mask
+    	// CHECK: load_32
+    	// CHECK: and
+    	// CHECK: cmpeq_i
+    	// CHECK: btrue s{{[0-9]+}}, [[LABEL2:\.LBB[0-9]_[0-9]+]]
+    	// CHECK: xor
+    	// CHECK: goto [[LABEL3:\.LBB[0-9]_[0-9]+]]
 	} else {
-        // CHECK: .LBB0_1:
-        // CHECK: load_32 s0, .LCPI0_0
-        // CHECK: move v2, s1
-        // CHECK: .LBB0_4:
-        // CHECK: move_mask v2, s0, v1
+        // CHECK: [[LABEL1]]
+        // CHECK: move
+        // CHECK: [[LABEL3]]
+        // CHECK: move_mask
         retval = b;
     }
 
-    // CHECK: .LBB0_5:
-    // CHECK: load_32 s0, .LCPI0_0
-    // CHECK: move_mask v0, s0, v2
+    // CHECK: [[LABEL2]]
+    // CHECK: load_32
+    // CHECK: move_mask
     // CHECK: ret
 
     return retval;

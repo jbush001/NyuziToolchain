@@ -3,29 +3,28 @@
 float returnstmt(float a, float count)
 {
     if (a > count) {
-    	// CHECK: cmpgt_f s0, v0, v1
+    	// CHECK: cmpgt_f
 
         // Early out if no lanes match
-    	// CHECK: bfalse s0, .LBB0_1
+    	// CHECK: bfalse s{{[0-9]+}}, [[LABEL1:\.LBB[0-9]_[0-9]+]]
         return a;
 
-        // CHECK: move_mask v0, s0, v0
-    	// CHECK: load_32 s1, .LCPI0_0
-    	// CHECK: and s0, s0, s1
-    	// CHECK: cmpeq_i s2, s0, s1
-    	// CHECK: btrue s2, .LBB0_5
-        // CHECK: xor s0, s0, s1
-        // CHECK: goto .LBB0_4
+        // CHECK: move_mask
+    	// CHECK: load_32
+    	// CHECK: and
+    	// CHECK: cmpeq_i
+    	// CHECK: btrue s{{[0-9]+}}, [[LABEL2:\.LBB[0-9]_[0-9]+]]
+        // CHECK: xor
+        // CHECK: goto [[LABEL3:\.LBB[0-9]_[0-9]+]]
     }
 
-    // CHECK: .LBB0_1:
-    // CHECK: load_32 s0, .LCPI0_0
+    // CHECK: [[LABEL1]]
 
     return count + 1;
-    // CHECK: .LBB0_4:
-    // CHECK: load_32 s1, .LCPI0_1
-    // CHECK: add_f_mask v0, s0, v1, s1
-    // CHECK: .LBB0_5:
+    // CHECK: [[LABEL3]]
+    // CHECK: load_32
+    // CHECK: add_f_mask
+    // CHECK: [[LABEL2]]
     // CHECK: ret
 }
 
