@@ -7,6 +7,7 @@
 class AstNode {
 public:
   virtual llvm::Value *generate(SPMDBuilder &) = 0;
+  virtual ~AstNode() = default;
 };
 
 class SubAst : public AstNode {
