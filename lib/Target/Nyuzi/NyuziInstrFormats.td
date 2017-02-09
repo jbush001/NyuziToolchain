@@ -668,8 +668,7 @@ class FormatMInst<dag outputs, dag inputs, string asmString, list<dag> pattern,
   let Inst{29} = isLoad;
   let Inst{28-25} = fmt.Value;
   let Inst{9-5} = srcDest;
-
-  // XXX set hasSideEffects = 1, mayStore = 1 is !isLoad?
+  let hasSideEffects = 1;
 }
 
 class FormatMMaskedInst<dag outputs, dag inputs, string asmString, list<dag> pattern,
@@ -709,8 +708,6 @@ class ScalarStoreInst<string suffix, PatFrag op, FmtM fmt>
       [(op i32:$srcDest, ADDRri:$addr)],
       fmt,
       0> {
-  let hasSideEffects = 1;
-  let mayStore = 1;
 }
 
 

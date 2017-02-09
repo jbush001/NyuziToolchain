@@ -16,22 +16,25 @@
 // Arithmetic (Format R & I)
 //////////////////////////////////////////////////////////////////
 
-defm OR     : TwoOpIntArith<"or", or, 0x00>;
-defm AND    : TwoOpIntArith<"and", and, 0x01>;
-defm XOR    : TwoOpIntArith<"xor", xor, 0x03>;
-defm ADDI   : TwoOpIntArith<"add_i", add, 0x05>;
+let isCommutable = 1 in {
+    defm OR     : TwoOpIntArith<"or", or, 0x00>;
+    defm AND    : TwoOpIntArith<"and", and, 0x01>;
+    defm XOR    : TwoOpIntArith<"xor", xor, 0x03>;
+    defm ADDI   : TwoOpIntArith<"add_i", add, 0x05>;
+    defm MULLI  : TwoOpIntArith<"mull_i", mul, 0x07>;
+    defm MULHU  : TwoOpIntArith<"mulh_u", mulhu, 0x08>;
+    defm MULHI  : TwoOpIntArith<"mulh_i", mulhs, 0x1f>;
+    defm ADDF   : TwoOpFloatArith<"add_f", fadd, 0x20>;
+    defm MULF   : TwoOpFloatArith<"mul_f", fmul, 0x22>;
+}
+
 defm SUBI   : TwoOpIntArith<"sub_i", sub, 0x06>;
-defm MULLI  : TwoOpIntArith<"mull_i", mul, 0x07>;
-defm MULHU  : TwoOpIntArith<"mulh_u", mulhu, 0x08>;
-defm MULHI  : TwoOpIntArith<"mulh_i", mulhs, 0x1f>;
 defm SRA    : TwoOpIntArith<"ashr", sra, 0x09>;
 defm SRL    : TwoOpIntArith<"shr", srl, 0x0a>;
 defm SLL    : TwoOpIntArith<"shl", shl, 0x0b>;
 defm CLZ    : OneOpIntArith<"clz", ctlz, 0x0c>;
 defm CTZ    : OneOpIntArith<"ctz", cttz, 0x0e>;
-defm ADDF   : TwoOpFloatArith<"add_f", fadd, 0x20>;
 defm SUBF   : TwoOpFloatArith<"sub_f", fsub, 0x21>;
-defm MULF   : TwoOpFloatArith<"mul_f", fmul, 0x22>;
 defm RECIP  : OneOpFloatArith<"reciprocal", reciprocal, 0x1c>;
 
 def SEXT16 : FormatRUnmaskedOneOpInst<
@@ -266,95 +269,95 @@ def : Pat<(int_nyuzi_vector_mixf i32:$mask, (splat f32:$src2), v16f32:$oldvalue)
 //////////////////////////////////////////////////////////////////
 
 // Scalar
-def LBS : ScalarLoadInst<"s8", sextloadi8, FmtM_Byte_Signed>;
-def LBU : ScalarLoadInst<"u8", zextloadi8, FmtM_Byte_Unsigned>;
-def LSS : ScalarLoadInst<"s16", sextloadi16, FmtM_Short_Signed>;
-def LSU : ScalarLoadInst<"u16", zextloadi16, FmtM_Short_Unsigned>;
-def LW : ScalarLoadInst<"32", load, FmtM_Word>;
-def SB : ScalarStoreInst<"8", truncstorei8, FmtM_Byte_Signed>;
-def SS : ScalarStoreInst<"16", truncstorei16, FmtM_Short_Signed>;
-def SW : ScalarStoreInst<"32", store, FmtM_Word>;
+let mayLoad = 1 in {
+  def LBS : ScalarLoadInst<"s8", sextloadi8, FmtM_Byte_Signed>;
+  def LBU : ScalarLoadInst<"u8", zextloadi8, FmtM_Byte_Unsigned>;
+  def LSS : ScalarLoadInst<"s16", sextloadi16, FmtM_Short_Signed>;
+  def LSU : ScalarLoadInst<"u16", zextloadi16, FmtM_Short_Unsigned>;
+  def LW : ScalarLoadInst<"32", load, FmtM_Word>;
+  def LOAD_SYNC : FormatMUnmaskedInst<
+    (outs GPR32:$srcDest),
+    (ins MEMS15:$addr),
+    "load_sync $srcDest, $addr",
+    [],
+    FmtM_Sync,
+    1>;
+
+  def BLOCK_LOADI : FormatMUnmaskedInst<
+    (outs VR512:$srcDest),
+    (ins MEMS15:$addr),
+    "load_v $srcDest, $addr",
+    [(set v16i32:$srcDest, (load ADDRri:$addr))],
+    FmtM_Block,
+    1>;
+
+  def INT_BLOCK_LOADI_MASKED : FormatMMaskedInst<
+    (outs VR512:$srcDest),
+    (ins MEMS10:$addr, GPR32:$mask),
+    "load_v_mask $srcDest, $mask, $addr",
+    [(set v16i32:$srcDest, (int_nyuzi_block_loadi_masked ADDRri:$addr, i32:$mask))],
+    FmtM_BlockMasked,
+    1>;
+
+  def INT_GATHER_LOADI : FormatMUnmaskedInst<
+    (outs VR512:$srcDest),
+    (ins MEMV15:$addr),
+    "load_gath $srcDest, $addr",
+    [(set v16i32:$srcDest, (int_nyuzi_gather_loadi VADDRri:$addr))],
+    FmtM_ScGath,
+    1>;
+
+  def INT_GATHER_LOADI_MASKED : FormatMMaskedInst<
+    (outs VR512:$srcDest),
+    (ins MEMV10:$addr, GPR32:$mask),
+    "load_gath_mask $srcDest, $mask, $addr",
+    [(set v16i32:$srcDest, (int_nyuzi_gather_loadi_masked VADDRri:$addr, i32:$mask))],
+    FmtM_ScGathMasked,
+    1>;
+}
 
 def : Pat<(i32 (zextloadi1 ADDRri:$addr)), (LBU ADDRri:$addr)>;
 def : Pat<(i32 (extloadi1 ADDRri:$addr)), (LBU ADDRri:$addr)>;
 def : Pat<(i32 (extloadi8 ADDRri:$addr)), (LBU ADDRri:$addr)>;
 def : Pat<(i32 (extloadi16 ADDRri:$addr)), (LSS ADDRri:$addr)>;
 def : Pat<(f32 (load ADDRri:$addr)), (LW ADDRri:$addr)>;
-def : Pat<(store f32:$srcDest, ADDRri:$addr), (SW f32:$srcDest, ADDRri:$addr)>;
-
-def LOAD_SYNC : FormatMUnmaskedInst<
-  (outs GPR32:$srcDest),
-  (ins MEMS15:$addr),
-  "load_sync $srcDest, $addr",
-  [],
-  FmtM_Sync,
-  1>;
-
-def STORE_SYNC : FormatMUnmaskedInst<
-  (outs GPR32:$result),
-  (ins GPR32:$srcDest, MEMS15:$addr),
-  "store_sync $srcDest, $addr  ",
-  [],
-  FmtM_Sync,
-  0> {
-  let Constraints = "$result = $srcDest";
-}
-
-// Vector
-def BLOCK_LOADI : FormatMUnmaskedInst<
-  (outs VR512:$srcDest),
-  (ins MEMS15:$addr),
-  "load_v $srcDest, $addr",
-  [(set v16i32:$srcDest, (load ADDRri:$addr))],
-  FmtM_Block,
-  1>;
-
-def BLOCK_STOREI : FormatMUnmaskedInst<
-  (outs),
-  (ins VR512:$srcDest, MEMS15:$addr),
-  "store_v $srcDest, $addr",
-  [(store v16i32:$srcDest, ADDRri:$addr)],
-  FmtM_Block,
-  0> {
-  let hasSideEffects = 1;
-  let mayStore = 1;
-}
-
 def : Pat<(v16f32 (load ADDRri:$addr)), (BLOCK_LOADI ADDRri:$addr)>;
-def : Pat<(store v16f32:$srcDest, ADDRri:$addr), (BLOCK_STOREI v16f32:$srcDest, ADDRri:$addr)>;
-
-def INT_BLOCK_LOADI_MASKED : FormatMMaskedInst<
-  (outs VR512:$srcDest),
-  (ins MEMS10:$addr, GPR32:$mask),
-  "load_v_mask $srcDest, $mask, $addr",
-  [(set v16i32:$srcDest, (int_nyuzi_block_loadi_masked ADDRri:$addr, i32:$mask))],
-  FmtM_BlockMasked,
-  1>;
-
 def : Pat<(int_nyuzi_block_loadf_masked ADDRri:$addr, i32:$mask),
   (INT_BLOCK_LOADI_MASKED ADDRri:$addr, i32:$mask)>;
-
-def INT_GATHER_LOADI : FormatMUnmaskedInst<
-  (outs VR512:$srcDest),
-  (ins MEMV15:$addr),
-  "load_gath $srcDest, $addr",
-  [(set v16i32:$srcDest, (int_nyuzi_gather_loadi VADDRri:$addr))],
-  FmtM_ScGath,
-  1>;
-
-def INT_GATHER_LOADI_MASKED : FormatMMaskedInst<
-  (outs VR512:$srcDest),
-  (ins MEMV10:$addr, GPR32:$mask),
-  "load_gath_mask $srcDest, $mask, $addr",
-  [(set v16i32:$srcDest, (int_nyuzi_gather_loadi_masked VADDRri:$addr, i32:$mask))],
-  FmtM_ScGathMasked,
-  1>;
-
 def : Pat<(int_nyuzi_gather_loadf VADDRri:$addr), (INT_GATHER_LOADI VADDRri:$addr)>;
 def : Pat<(int_nyuzi_gather_loadf_masked VADDRri:$addr, i32:$mask),
   (INT_GATHER_LOADI_MASKED VADDRri:$addr, i32:$mask)>;
 
-let hasSideEffects = 1, mayStore = 1 in {
+let mayStore = 1 in {
+  def SB : ScalarStoreInst<"8", truncstorei8, FmtM_Byte_Signed>;
+  def SS : ScalarStoreInst<"16", truncstorei16, FmtM_Short_Signed>;
+  def SW : ScalarStoreInst<"32", store, FmtM_Word>;
+  def STORE_SYNC : FormatMUnmaskedInst<
+    (outs GPR32:$result),
+    (ins GPR32:$srcDest, MEMS15:$addr),
+    "store_sync $srcDest, $addr  ",
+    [],
+    FmtM_Sync,
+    0> {
+    let Constraints = "$result = $srcDest";
+  }
+
+  def BLOCK_STOREI : FormatMUnmaskedInst<
+    (outs),
+    (ins VR512:$srcDest, MEMS15:$addr),
+    "store_v $srcDest, $addr",
+    [(store v16i32:$srcDest, ADDRri:$addr)],
+    FmtM_Block,
+    0>;
+
+  def INT_BLOCK_STOREI_MASKED : FormatMMaskedInst<
+    (outs),
+    (ins VR512:$srcDest, MEMS10:$addr, GPR32:$mask), // XXX needs to
+    "store_v_mask $srcDest, $mask, $addr",
+    [(int_nyuzi_block_storei_masked ADDRri:$addr, v16i32:$srcDest, i32:$mask)],
+    FmtM_BlockMasked,
+    0>;
+
   def INT_SCATTER_STOREI : FormatMUnmaskedInst<
     (outs),
     (ins VR512:$srcDest, MEMV15:$addr),
@@ -370,22 +373,16 @@ let hasSideEffects = 1, mayStore = 1 in {
     [(int_nyuzi_scatter_storei_masked VADDRri:$addr, v16i32:$srcDest, i32:$mask)],
     FmtM_ScGathMasked,
     0>;
-
-  def INT_BLOCK_STOREI_MASKED : FormatMMaskedInst<
-    (outs),
-    (ins VR512:$srcDest, MEMS10:$addr, GPR32:$mask), // XXX needs to
-    "store_v_mask $srcDest, $mask, $addr",
-    [(int_nyuzi_block_storei_masked ADDRri:$addr, v16i32:$srcDest, i32:$mask)],
-    FmtM_BlockMasked,
-    0>;
 }
 
+def : Pat<(store f32:$srcDest, ADDRri:$addr), (SW f32:$srcDest, ADDRri:$addr)>;
+def : Pat<(store v16f32:$srcDest, ADDRri:$addr), (BLOCK_STOREI v16f32:$srcDest, ADDRri:$addr)>;
+def : Pat<(int_nyuzi_block_storef_masked ADDRri:$addr, v16f32:$srcDest, i32:$mask),
+  (INT_BLOCK_STOREI_MASKED v16f32:$srcDest, ADDRri:$addr, i32:$mask)>;
 def : Pat<(int_nyuzi_scatter_storef VADDRri:$addr, v16f32:$srcDest),
   (INT_SCATTER_STOREI v16f32:$srcDest, VADDRri:$addr)>;
 def : Pat<(int_nyuzi_scatter_storef_masked VADDRri:$addr, v16f32:$srcDest, i32:$mask),
   (INT_SCATTER_STOREI_MASKED v16f32:$srcDest, VADDRri:$addr, i32:$mask)>;
-def : Pat<(int_nyuzi_block_storef_masked ADDRri:$addr, v16f32:$srcDest, i32:$mask),
-  (INT_BLOCK_STOREI_MASKED v16f32:$srcDest, ADDRri:$addr, i32:$mask)>;
 
 // Atomics
 let usesCustomInserter = 1 in {
