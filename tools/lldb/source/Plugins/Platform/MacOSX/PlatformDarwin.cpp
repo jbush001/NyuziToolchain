@@ -593,7 +593,7 @@ PlatformDarwin::GetSoftwareBreakpointTrapOpcode(Target &target,
   } break;
 
   case llvm::Triple::nyuzi: {
-    static const uint8_t g_nyuzi_breakpoint_opcode[] = {0xff, 0xff, 0x7f, 0xc0};
+    static const uint8_t g_nyuzi_breakpoint_opcode[] = {0x00, 0x00, 0xe0, 0xc3};
     trap_opcode = g_nyuzi_breakpoint_opcode;
     trap_opcode_size = sizeof(g_nyuzi_breakpoint_opcode);
   } break;
