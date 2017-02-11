@@ -9,12 +9,6 @@ foo:  goto target0    # CHECK: encoding: [0bAAA00000,A,A,0b1111011A]
   bfalse s2, target2  # CHECK: encoding: [0bAAA00010,A,A,0b1111001A]
   # CHECK: #   fixup A - offset: 0, value: target2, kind: fixup_Nyuzi_PCRel_Branch
 
-  ball s3, target3 # CHECK: encoding: [0bAAA00011,A,A,0b1111000A]
-  # CHECK: #   fixup A - offset: 0, value: target3, kind: fixup_Nyuzi_PCRel_Branch
-
-  bnall s4, target4 # CHECK: encoding: [0bAAA00100,A,A,0b1111101A]
-  # CHECK: #   fixup A - offset: 0, value: target4, kind: fixup_Nyuzi_PCRel_Branch
-
   call target5  # CHECK: encoding: [0bAAA00000,A,A,0b1111100A]
   # CHECK: #   fixup A - offset: 0, value: target5, kind: fixup_Nyuzi_PCRel_Branch
 

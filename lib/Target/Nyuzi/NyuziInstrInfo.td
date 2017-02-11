@@ -492,20 +492,6 @@ let isTerminator = 1 in {
     [],
     BT_IfTrue>;
 
-  def BALL: ConditionalBranchInst<
-    (outs),
-    (ins GPR32:$test, brtarget:$dest),
-    "ball $test, $dest",
-    [],
-    BT_All>;
-
-  def BNALL: ConditionalBranchInst<
-    (outs),
-    (ins GPR32:$test, brtarget:$dest),
-    "bnall $test, $dest",
-    [],
-    BT_NAll>;
-
   // Converts to MOVE pc, <srcreg>
   def JUMPREG : NyuziInstruction<
     (outs),
