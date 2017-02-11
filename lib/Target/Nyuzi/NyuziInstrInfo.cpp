@@ -34,10 +34,10 @@
 using namespace llvm;
 
 namespace {
-bool isUncondBranchOpcode(int opc) { return opc == Nyuzi::GOTO; }
+bool isUncondBranchOpcode(int opc) { return opc == Nyuzi::B; }
 
 bool isCondBranchOpcode(int opc) {
-  return opc == Nyuzi::BTRUE || opc == Nyuzi::BFALSE;
+  return opc == Nyuzi::BNZ || opc == Nyuzi::BZ;
 
   // BALL/BNALL/etc. can't be analyzed
 }
@@ -261,13 +261,13 @@ unsigned NyuziInstrInfo::insertBranch(MachineBasicBlock &MBB,
   if (FBB) {
     // Has a false block, this is a two way conditional branch
     BuildMI(&MBB, DL, get(Cond[0].getImm())).add(Cond[1]).addMBB(TBB);
-    BuildMI(&MBB, DL, get(Nyuzi::GOTO)).addMBB(FBB);
+    BuildMI(&MBB, DL, get(Nyuzi::B)).addMBB(FBB);
     return 2;
   }
 
   if (Cond.empty()) {
     // Unconditional branch
-    BuildMI(&MBB, DL, get(Nyuzi::GOTO)).addMBB(TBB);
+    BuildMI(&MBB, DL, get(Nyuzi::B)).addMBB(TBB);
     return 1;
   }
 

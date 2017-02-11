@@ -1416,7 +1416,7 @@ NyuziTargetLowering::EmitSelectCC(MachineInstr &MI,
   BB->addSuccessor(Copy0MBB);
   BB->addSuccessor(SinkMBB);
 
-  BuildMI(BB, DL, TII->get(Nyuzi::BTRUE))
+  BuildMI(BB, DL, TII->get(Nyuzi::BNZ))
       .addReg(MI.getOperand(1).getReg())
       .addMBB(SinkMBB);
 
@@ -1499,7 +1499,7 @@ NyuziTargetLowering::EmitAtomicBinary(MachineInstr &MI, MachineBasicBlock *BB,
       .addReg(NewValue)
       .addReg(Ptr)
       .addImm(0);
-  BuildMI(BB, DL, TII->get(Nyuzi::BFALSE)).addReg(Success).addMBB(LoopMBB);
+  BuildMI(BB, DL, TII->get(Nyuzi::BZ)).addReg(Success).addMBB(LoopMBB);
   BB->addSuccessor(LoopMBB);
   BB->addSuccessor(ExitMBB);
 
@@ -1562,7 +1562,7 @@ NyuziTargetLowering::EmitAtomicCmpSwap(MachineInstr &MI,
   BuildMI(BB, DL, TII->get(Nyuzi::SNESISS), CmpResult)
       .addReg(Dest)
       .addReg(OldVal);
-  BuildMI(BB, DL, TII->get(Nyuzi::BTRUE)).addReg(CmpResult).addMBB(ExitMBB);
+  BuildMI(BB, DL, TII->get(Nyuzi::BNZ)).addReg(CmpResult).addMBB(ExitMBB);
 
   // Loop2MBB:
   //   move success, newval			; need a temporary because
@@ -1573,7 +1573,7 @@ NyuziTargetLowering::EmitAtomicCmpSwap(MachineInstr &MI,
       .addReg(NewVal)
       .addReg(Ptr)
       .addImm(0);
-  BuildMI(BB, DL, TII->get(Nyuzi::BFALSE)).addReg(Success).addMBB(Loop1MBB);
+  BuildMI(BB, DL, TII->get(Nyuzi::BZ)).addReg(Success).addMBB(Loop1MBB);
 
   MI.eraseFromParent(); // The instruction is gone now.
 

@@ -469,26 +469,26 @@ def ITLBINSERT : FormatCTwoOp<
 //////////////////////////////////////////////////////////////////
 
 let isTerminator = 1 in {
-  def GOTO : UnconditionalBranchInst<
+  def B : UnconditionalBranchInst<
     (outs),
     (ins brtarget:$dest),
-    "goto $dest",
+    "b $dest",
     [(br bb:$dest)],
     BT_Uncond> {
     let isBarrier = 1;
   }
 
-  def BFALSE : ConditionalBranchInst<
+  def BZ : ConditionalBranchInst<
     (outs),
     (ins GPR32:$test, brtarget:$dest),
-    "bfalse $test, $dest",
+    "bz $test, $dest",
     [],
     BT_IfFalse>;
 
-  def BTRUE : ConditionalBranchInst<
+  def BNZ : ConditionalBranchInst<
     (outs),
     (ins GPR32:$test, brtarget:$dest),
-    "btrue $test, $dest",
+    "bnz $test, $dest",
     [],
     BT_IfTrue>;
 
@@ -496,7 +496,7 @@ let isTerminator = 1 in {
   def JUMPREG : NyuziInstruction<
     (outs),
     (ins GPR32:$dest),
-    "goto $dest",
+    "b $dest",
     [(brind i32:$dest)],
     II_BRANCH> {
     bits<5> dest;
@@ -537,9 +537,9 @@ let isTerminator = 1 in {
 }
 
 // Branch patterns
-def : Pat<(brcond (i32 (setne i32:$lhs, 0)), bb:$dest), (BTRUE i32:$lhs, bb:$dest)>;
-def : Pat<(brcond (i32 (seteq i32:$lhs, 0)), bb:$dest), (BFALSE i32:$lhs, bb:$dest)>;
-def : Pat<(brcond i32:$lhs, bb:$dest), (BTRUE i32:$lhs, bb:$dest)>;
+def : Pat<(brcond (i32 (setne i32:$lhs, 0)), bb:$dest), (BNZ i32:$lhs, bb:$dest)>;
+def : Pat<(brcond (i32 (seteq i32:$lhs, 0)), bb:$dest), (BZ i32:$lhs, bb:$dest)>;
+def : Pat<(brcond i32:$lhs, bb:$dest), (BNZ i32:$lhs, bb:$dest)>;
 
 def RET : NyuziInstruction<
   (outs),
@@ -656,10 +656,10 @@ def SYSCALL : NyuziInstruction<
   let Inst{25-20} = 0x3f;   // opcode
 }
 
-def BREAKPOINT : NyuziInstruction<
+def BREAK : NyuziInstruction<
   (outs),
   (ins),
-  "breakpoint",
+  "break",
   [],
   II_INT> {
   let Inst{31-29} = 0b110;

@@ -20,7 +20,7 @@ define float @test_uitofp(i32 %a) { ; CHECK-LABEL: test_uitofp:
 
   ; CHECK: itof [[CONV:s[0-9]+]], [[SRCVAL:s[0-9]+]]
   ; CHECK: cmplt_i [[CMPVAL:s[0-9]+]], [[SRCVAL]], 0
-  ; CHECK: btrue [[CMPVAL]],
+  ; CHECK: bnz [[CMPVAL]],
   ; CHECK: add_f s{{[0-9]+}}, [[CONV]],
 
   ret float %conv

@@ -4,7 +4,7 @@
 # CHECK: RELOCATION RECORDS
 
 # These fixups will be resolved internally and will not create relocations.
-foo: goto foo
+foo: b foo
   # CHECK-RELOC-NOT: foo
   # CHECK-ENCODE: encoding: [0bAAA00000,A,A,0b1111011A]
   # CHECK-ENCODE: fixup A - offset: 0, value: foo, kind: fixup_Nyuzi_PCRel_Branch
@@ -22,7 +22,7 @@ bah: lea s3, bah
 # These fixups reference labels that are not defined here. Check that they
 # create relocations.
 
-goto memcpy
+b memcpy
   # CHECK-RELOC: 00000010 R_NYUZI_BRANCH memcpy
   # CHECK-ENCODE: encoding: [0bAAA00000,A,A,0b1111011A]
   # CHECK-ENCODE: fixup A - offset: 0, value: memcpy, kind: fixup_Nyuzi_PCRel_Branch

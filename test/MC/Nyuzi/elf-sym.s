@@ -3,7 +3,7 @@
 
 .text
 _start:  add_i s1, s2, s3
-aloop:	goto aloop
+aloop:	b aloop
 bloop:  sub_i s4, s5, s6
 
 .data

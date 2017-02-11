@@ -12,7 +12,7 @@ define i32 @max(i32 %a, i32 %b) {
 
   br i1 %cmp, label %if.then, label %if.else
 
-  ; CHECK: btrue s[[CHECKVAL]], [[FALSELABEL:[\.A-Z0-9_]+]]
+  ; CHECK: bnz s[[CHECKVAL]], [[FALSELABEL:[\.A-Z0-9_]+]]
 
 if.then:
   br label %return

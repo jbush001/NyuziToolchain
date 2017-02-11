@@ -15,5 +15,5 @@ CF25227:                                          ; preds = %CF25227, %BB
   %Shuff693 = shufflevector <4 x i32> undef, <4 x i32> %Sl591, <4 x i32> <i32 6, i32 0, i32 2, i32 4>
   br label %CF25227
 
-  ; CHECK: goto .LBB
+  ; CHECK: b .LBB
 }

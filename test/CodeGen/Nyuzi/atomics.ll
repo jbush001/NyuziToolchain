@@ -12,7 +12,7 @@ define i32 @atomic_add_reg(i32* %ptr, i32 %value) { ; CHECK-LABEL: atomic_add_re
   ; CHECK: move s{{[0-9]+}}, [[OLDVAL]]
   ; CHECK: add_i [[NEWVAL:s[0-9]+]], [[OLDVAL]], s1
   ; CHECK: store_sync [[NEWVAL]], (s0)
-  ; CHECK: bfalse [[NEWVAL]],
+  ; CHECK: bz [[NEWVAL]],
 
   ret i32 %tmp
 }
@@ -25,7 +25,7 @@ define i32 @atomic_add_imm(i32* %ptr) { ; CHECK-LABEL: atomic_add_imm:
   ; CHECK: move s{{[0-9]+}}, [[OLDVAL]]
   ; CHECK: add_i [[NEWVAL:s[0-9]+]], [[OLDVAL]], 13
   ; CHECK: store_sync [[NEWVAL]], (s0)
-  ; CHECK: bfalse [[NEWVAL]],
+  ; CHECK: bz [[NEWVAL]],
 
   ret i32 %tmp
 }
@@ -41,7 +41,7 @@ define i32 @atomic_add_large_imm(i32* %ptr) { ; CHECK-LABEL: atomic_add_large_im
   ; CHECK: move s{{[0-9]+}}, s{{[0-9]+}}
   ; CHECK: add_i [[NEWVAL:s[0-9]+]], s{{[0-9]+}}, [[CONSTREG1]]
   ; CHECK: store_sync [[NEWVAL]], (s0)
-  ; CHECK: bfalse [[NEWVAL]],
+  ; CHECK: bz [[NEWVAL]],
 
   ret i32 %tmp
 }
@@ -164,7 +164,7 @@ define i32 @atomic_xchg(i32* %ptr, i32 %value) { ; CHECK-LABEL: atomic_xchg:
   ; CHECK: load_sync [[OLDVAL:s[0-9]+]], (s0)
   ; CHECK: move s{{[0-9]+}}, [[OLDVAL]]
   ; CHECK: store_sync [[OLDVAL]], (s0)
-  ; CHECK: bfalse [[OLDVAL]],
+  ; CHECK: bz [[OLDVAL]],
 
   ret i32 %tmp
 }
@@ -174,10 +174,10 @@ define { i32, i1 } @atomic_cmpxchg(i32* %ptr, i32 %cmp, i32 %newvalue) { ; CHECK
 
   ; CHECK: load_sync [[DEST:s[0-9]+]], (
   ; CHECK: cmpne_i [[CMPRES:s[0-9]+]], [[DEST]], s1
-  ; CHECK: btrue [[CMPRES]],
+  ; CHECK: bnz [[CMPRES]],
   ; CHECK: move [[SUCCESS:s[0-9]+]], s2
   ; CHECK: store_sync [[RESULT:s[0-9]+]], (
-  ; CHECK: bfalse [[RESULT]],
+  ; CHECK: bz [[RESULT]],
 
   ret { i32, i1 } %tmp
 }

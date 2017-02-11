@@ -7,16 +7,16 @@ float ifstmt(float a, float b)
     float retval = 0;
 	if (a > 0) {
         // CHECK: cmpgt_f
-        // CHECK: bfalse s{{[0-9]+}}, [[LABEL1:\.LBB[0-9]_[0-9]+]]
+        // CHECK: bz s{{[0-9]+}}, [[LABEL1:\.LBB[0-9]_[0-9]+]]
         retval = a - b;
     	// CHECK: move
     	// CHECK: sub_f_mask
     	// CHECK: load_32
     	// CHECK: and
     	// CHECK: cmpeq_i
-    	// CHECK: btrue s{{[0-9]+}}, [[LABEL2:\.LBB[0-9]_[0-9]+]]
+    	// CHECK: bnz s{{[0-9]+}}, [[LABEL2:\.LBB[0-9]_[0-9]+]]
     	// CHECK: xor
-    	// CHECK: goto [[LABEL3:\.LBB[0-9]_[0-9]+]]
+    	// CHECK: b [[LABEL3:\.LBB[0-9]_[0-9]+]]
 	} else {
         // CHECK: [[LABEL1]]
         // CHECK: move

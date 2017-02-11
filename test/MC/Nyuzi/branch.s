@@ -1,18 +1,18 @@
 # RUN: llvm-mc -arch=nyuzi -show-encoding %s | FileCheck %s
 
-foo:  goto target0    # CHECK: encoding: [0bAAA00000,A,A,0b1111011A]
+foo:  b target0    # CHECK: encoding: [0bAAA00000,A,A,0b1111011A]
   # CHECK: fixup A - offset: 0, value: target0, kind: fixup_Nyuzi_PCRel_Branch
 
-  btrue s1, target1  # CHECK: encoding: [0bAAA00001,A,A,0b1111010A]
+  bnz s1, target1  # CHECK: encoding: [0bAAA00001,A,A,0b1111010A]
   # CHECK: #   fixup A - offset: 0, value: target1, kind: fixup_Nyuzi_PCRel_Branch
 
-  bfalse s2, target2  # CHECK: encoding: [0bAAA00010,A,A,0b1111001A]
+  bz s2, target2  # CHECK: encoding: [0bAAA00010,A,A,0b1111001A]
   # CHECK: #   fixup A - offset: 0, value: target2, kind: fixup_Nyuzi_PCRel_Branch
 
   call target5  # CHECK: encoding: [0bAAA00000,A,A,0b1111100A]
   # CHECK: #   fixup A - offset: 0, value: target5, kind: fixup_Nyuzi_PCRel_Branch
 
-  goto s2  # CHECK: encoding: [0xe2,0x03,0xf0,0xc0]
+  b s2  # CHECK: encoding: [0xe2,0x03,0xf0,0xc0]
 
   call s3 # CHECK: encoding: [0x63,0x00,0x00,0xfc]
 

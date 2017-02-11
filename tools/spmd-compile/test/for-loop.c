@@ -11,7 +11,7 @@ float f(float count)
         // CHECK: add_f_mask
         // CHECK: add_f_mask
         // CHECK: cmplt_f
-        // CHECK: btrue s{{[0-9]+}}, .LBB0_2
+        // CHECK: bnz s{{[0-9]+}}, .LBB0_2
     }
 
     // CHECK: .LBB0_3:
