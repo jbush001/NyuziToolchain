@@ -381,7 +381,8 @@ write_test_case('tlbinvalall', encode_d_instruction(6, 0))
 write_test_case('dtlbinsert s1, s2', encode_dprime_instruction(0, 1, 2))
 write_test_case('itlbinsert s3, s4', encode_dprime_instruction(7, 3, 4))
 
-# Syscall
+# Special instructions
+write_test_case('breakpoint', 0xc3e00000)
 write_test_case('syscall', 0xc3f00000)
 
 # Cleanup

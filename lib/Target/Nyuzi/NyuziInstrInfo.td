@@ -656,6 +656,16 @@ def SYSCALL : NyuziInstruction<
   let Inst{25-20} = 0x3f;   // opcode
 }
 
+def BREAKPOINT : NyuziInstruction<
+  (outs),
+  (ins),
+  "breakpoint",
+  [],
+  II_INT> {
+  let Inst{31-29} = 0b110;
+  let Inst{25-20} = 0x3e;   // opcode
+}
+
 def READ_CONTROL_REG : FormatMInst<
   (outs GPR32:$dest),
   (ins i32imm:$cr),
