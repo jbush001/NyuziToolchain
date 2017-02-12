@@ -870,11 +870,11 @@ SDValue NyuziTargetLowering::LowerVECTOR_SHUFFLE(SDValue Op,
   int SplatIndex = 0;
   Constant *ShuffleIndexValues[16];
 
-  for (unsigned int SourceLane = 0; SourceLane < 16; SourceLane++) {
-    unsigned int DestLaneIndex = ShuffleNode->getMaskElt(SourceLane);
-    // If this is undef, set to zero. There is potential for optimizations
+  for (int SourceLane = 0; SourceLane < 16; SourceLane++) {
+    int DestLaneIndex = ShuffleNode->getMaskElt(SourceLane);
+    // If this is undef (-1), set to zero. There is potential for optimizations
     // here, although this is rare.
-    if (DestLaneIndex == -1)
+    if (DestLaneIndex < 0)
       DestLaneIndex = 0;
 
     Mask <<= 1;
