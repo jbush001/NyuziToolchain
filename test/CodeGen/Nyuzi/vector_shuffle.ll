@@ -86,7 +86,7 @@ define <16 x i32> @test2(<16 x i32> %a, <16 x i32> %b) { ; CHECK-LABEL: test2:
 
 ; Select items from both vectors, but same lanes. Will be masked move
 ; CHECK: [[MM_CPE:.LCPI[0-9]+_[0-9]+]]
-; CHECK: .long 21845
+; CHECK: .long 43690
 define <16 x i32> @masked_move(<16 x i32> %a, <16 x i32> %b) { ; CHECK-LABEL: masked_move:
   %res = shufflevector <16 x i32> %a, <16 x i32> %b, <16 x i32> < i32 0, i32 17, i32 2, i32 19, i32 4, i32 21, i32 6, i32 23, i32 8, i32 25, i32 10, i32 27, i32 12, i32 29, i32 14, i32 31>
 
@@ -173,7 +173,7 @@ define <16 x i32> @shuffle_only2(<16 x i32> %a, <16 x i32> %b) { ; CHECK-LABEL: 
 ; CHECK: .long 1
 ; CHECK: .long 0
 ; CHECK: [[SM_MASKCP:.LCPI[0-9]+_[0-9]+]]
-; CHECK: .long 43690
+; CHECK: .long 21845
 
 define <16 x i32> @test_shuffle_mix(<16 x i32> %a, <16 x i32> %b) { ; CHECK-LABEL: test_shuffle_mix:
   %res = shufflevector <16 x i32> %a, <16 x i32> %b, <16 x i32> < i32 31, i32 14, i32 29, i32 12, i32 27, i32 10, i32 25, i32 8, i32 23, i32 6, i32 21, i32 4, i32 19, i32 2, i32 17, i32 0 >

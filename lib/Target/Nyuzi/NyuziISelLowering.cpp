@@ -877,9 +877,9 @@ SDValue NyuziTargetLowering::LowerVECTOR_SHUFFLE(SDValue Op,
     if (DestLaneIndex < 0)
       DestLaneIndex = 0;
 
-    Mask <<= 1;
+    Mask >>= 1;
     if (DestLaneIndex > 15)
-      Mask |= 1;
+      Mask |= 0x8000;
 
     if ((DestLaneIndex & 15) != SourceLane)
       IsIdentityShuffle = false;
@@ -969,7 +969,7 @@ SDValue NyuziTargetLowering::LowerVECTOR_SHUFFLE(SDValue Op,
 }
 
 // (VECTOR, VAL, IDX)
-// Convert to a move with a mask (0x8000 >> IDX) and a splatted scalar operand.
+// Convert to a move with a mask and a splatted scalar operand.
 SDValue NyuziTargetLowering::LowerINSERT_VECTOR_ELT(SDValue Op,
                                                     SelectionDAG &DAG) const {
   MVT VT = Op.getValueType().getSimpleVT();
@@ -978,7 +978,7 @@ SDValue NyuziTargetLowering::LowerINSERT_VECTOR_ELT(SDValue Op,
   // This could also be (1 << (15 - index)), which avoids the load of 0x8000
   // but requires more operations.
   SDValue Mask =
-      DAG.getNode(ISD::SRL, DL, MVT::i32, DAG.getConstant(0x8000, DL, MVT::i32),
+      DAG.getNode(ISD::SHL, DL, MVT::i32, DAG.getConstant(1, DL, MVT::i32),
                   Op.getOperand(2));
   SDValue Splat = DAG.getNode(NyuziISD::SPLAT, DL, VT, Op.getOperand(1));
   return DAG.getNode(
