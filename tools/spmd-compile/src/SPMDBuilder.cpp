@@ -7,9 +7,9 @@ using namespace llvm;
 
 SPMDBuilder::SPMDBuilder(Module *Mod, LLVMContext &_Context)
     : Context(_Context), Builder(_Context), MainModule(Mod), CurrentFunction(nullptr) {
-  VMixFInt = llvm::Intrinsic::getDeclaration(
-      MainModule, (llvm::Intrinsic::ID)Intrinsic::nyuzi_vector_mixf, None);
   sFloatType = Type::getFloatTy(Context);
+  sMaskType = VectorType::get(Type::getInt1Ty(Context), 16);
+  sMaskIntType = Type::getInt16Ty(Context);
 }
 
 SPMDBuilder::~SPMDBuilder() {}
@@ -36,8 +36,10 @@ void SPMDBuilder::startFunction(const char *Name,
 
   // ReturnMask indicates which lanes have returned values. Each bit is
   // 1 if the lane is still active (hasn't returned) and 0 if it has returned.
-  ReturnMaskPtr = Builder.CreateAlloca(Type::getInt32Ty(Context), 0, "return_mask");
-  Builder.CreateStore(ConstantInt::get(Type::getInt32Ty(Context), 0xffffLL), ReturnMaskPtr);
+  ReturnMaskPtr = Builder.CreateAlloca(sMaskType, nullptr, "return_mask");
+  Builder.CreateStore(
+      ConstantVector::getSplat(16, ConstantInt::getTrue(Context)),
+      ReturnMaskPtr);
 
   ActiveLanes = nullptr;
 }
@@ -71,7 +73,8 @@ void SPMDBuilder::createReturn(llvm::Value *ReturnValue) {
 
     // If all of the lanes have returned, jump to the exit.
     llvm::Value *ExitCond = Builder.CreateICmpEQ(
-        NewReturnMask, ConstantInt::get(Context, APInt(32, 0)));
+        Builder.CreateBitCast(NewReturnMask, sMaskIntType),
+        ConstantInt::get(sMaskType, 0));
 
     llvm::BasicBlock *NextBlock = createBasicBlock("noreturnyet");
     llvm::BasicBlock *ReturnBlock = createBasicBlock("doreturn");
@@ -106,8 +109,7 @@ llvm::Value *SPMDBuilder::assignLocalVariable(Value *VariablePtr,
   if (ActiveLanes) {
     // Need to predicate this instruction
     Value *OldValue = Builder.CreateLoad(VariablePtr);
-    Value *Ops[] = {ActiveLanes, NewValue, OldValue};
-    Value *Blended = Builder.CreateCall(VMixFInt, Ops);
+    Value *Blended = Builder.CreateSelect(ActiveLanes, NewValue, OldValue);
     Builder.CreateStore(Blended, VariablePtr);
   } else {
     assert(MaskStack.empty());
@@ -180,7 +182,8 @@ void SPMDBuilder::shortCircuitZeroMask(llvm::BasicBlock *SkipTo,
   assert(ActiveLanes);
 
   llvm::Value *BoolCond = Builder.CreateICmpEQ(
-      ActiveLanes, ConstantInt::get(Context, APInt(32, 0)));
+      Builder.CreateBitCast(ActiveLanes, sMaskIntType),
+      ConstantInt::get(sMaskIntType, 0));
   Builder.CreateCondBr(BoolCond, SkipTo, Next);
 }
 
@@ -188,90 +191,35 @@ void SPMDBuilder::branch(llvm::BasicBlock *Dest) { Builder.CreateBr(Dest); }
 
 Value *SPMDBuilder::createCompare(CmpInst::Predicate Type, Value *lhs,
                                   Value *rhs) {
-  unsigned IntrinsicId;
+
   switch (Type) {
   case CmpInst::FCMP_OEQ:
   case CmpInst::FCMP_UEQ:
-    IntrinsicId = Intrinsic::nyuzi_mask_cmpf_eq;
-    break;
+    return Builder.CreateFCmpUEQ(lhs, rhs);
 
   case CmpInst::FCMP_ONE:
   case CmpInst::FCMP_UNE:
-    IntrinsicId = Intrinsic::nyuzi_mask_cmpf_ne;
-    break;
+  return Builder.CreateFCmpUNE(lhs, rhs);
 
   case CmpInst::FCMP_OGT:
   case CmpInst::FCMP_UGT:
-    IntrinsicId = Intrinsic::nyuzi_mask_cmpf_gt;
-    break;
+  return Builder.CreateFCmpUGT(lhs, rhs);
 
   case CmpInst::FCMP_OGE:
   case CmpInst::FCMP_UGE:
-    IntrinsicId = Intrinsic::nyuzi_mask_cmpf_ge;
-    break;
+  return Builder.CreateFCmpUGE(lhs, rhs);
 
   case CmpInst::FCMP_OLT:
   case CmpInst::FCMP_ULT:
-    IntrinsicId = Intrinsic::nyuzi_mask_cmpf_lt;
-    break;
+  return Builder.CreateFCmpULT(lhs, rhs);
 
   case CmpInst::FCMP_OLE:
   case CmpInst::FCMP_ULE:
-    IntrinsicId = Intrinsic::nyuzi_mask_cmpf_le;
-    break;
-
-  case CmpInst::ICMP_EQ:
-    IntrinsicId = Intrinsic::nyuzi_mask_cmpi_eq;
-    break;
-
-  case CmpInst::ICMP_NE:
-    IntrinsicId = Intrinsic::nyuzi_mask_cmpi_ne;
-    break;
-
-  case CmpInst::ICMP_UGT:
-    IntrinsicId = Intrinsic::nyuzi_mask_cmpi_ugt;
-    break;
-
-  case CmpInst::ICMP_UGE:
-    IntrinsicId = Intrinsic::nyuzi_mask_cmpi_ugt;
-    break;
-
-  case CmpInst::ICMP_ULT:
-    IntrinsicId = Intrinsic::nyuzi_mask_cmpi_ult;
-    break;
-
-  case CmpInst::ICMP_ULE:
-    IntrinsicId = Intrinsic::nyuzi_mask_cmpi_ule;
-    break;
-
-  case CmpInst::ICMP_SGT:
-    IntrinsicId = Intrinsic::nyuzi_mask_cmpi_sgt;
-    break;
-
-  case CmpInst::ICMP_SGE:
-    IntrinsicId = Intrinsic::nyuzi_mask_cmpi_sge;
-    break;
-
-  case CmpInst::ICMP_SLT:
-    IntrinsicId = Intrinsic::nyuzi_mask_cmpi_slt;
-    break;
-
-  case CmpInst::ICMP_SLE:
-    IntrinsicId = Intrinsic::nyuzi_mask_cmpi_sle;
-    break;
+  return Builder.CreateFCmpULE(lhs, rhs);
 
   default:
     llvm_unreachable("Unknown comparision type");
   }
-
-  Function *CompareFunc =
-      Intrinsic::getDeclaration(MainModule, (Intrinsic::ID)IntrinsicId, None);
-
-  SmallVector<Value *, 2> Ops;
-  Ops.push_back(lhs);
-  Ops.push_back(rhs);
-
-  return Builder.CreateCall(CompareFunc, Ops, "pred");
 }
 
 Value *SPMDBuilder::createSub(Value *Lhs, Value *Rhs) {

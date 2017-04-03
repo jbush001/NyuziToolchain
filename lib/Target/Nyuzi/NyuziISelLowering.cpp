@@ -52,115 +52,12 @@ bool isSplatVector(SDNode *N) {
   return true;
 }
 
-// Return intrinsic for vector comparisons. These take two vectors as
-// operands and return a i32, where the low 16 bits represent the compare
-// mask
-Intrinsic::ID intrinsicForVectorCompare(ISD::CondCode CC, bool isFloat) {
-  if (isFloat) {
-    switch (CC) {
-    case ISD::SETOEQ:
-    case ISD::SETUEQ:
-    case ISD::SETEQ:
-      return Intrinsic::nyuzi_mask_cmpf_eq;
-
-    case ISD::SETONE:
-    case ISD::SETUNE:
-    case ISD::SETNE:
-      return Intrinsic::nyuzi_mask_cmpf_ne;
-
-    case ISD::SETOGT:
-    case ISD::SETUGT:
-    case ISD::SETGT:
-      return Intrinsic::nyuzi_mask_cmpf_gt;
-
-    case ISD::SETOGE:
-    case ISD::SETUGE:
-    case ISD::SETGE:
-      return Intrinsic::nyuzi_mask_cmpf_ge;
-
-    case ISD::SETOLT:
-    case ISD::SETULT:
-    case ISD::SETLT:
-      return Intrinsic::nyuzi_mask_cmpf_lt;
-
-    case ISD::SETOLE:
-    case ISD::SETULE:
-    case ISD::SETLE:
-      return Intrinsic::nyuzi_mask_cmpf_le;
-
-    default:; // falls through
-    }
-  } else {
-    switch (CC) {
-    case ISD::SETUEQ:
-    case ISD::SETEQ:
-      return Intrinsic::nyuzi_mask_cmpi_eq;
-
-    case ISD::SETUNE:
-    case ISD::SETNE:
-      return Intrinsic::nyuzi_mask_cmpi_ne;
-
-    case ISD::SETUGT:
-      return Intrinsic::nyuzi_mask_cmpi_ugt;
-
-    case ISD::SETGT:
-      return Intrinsic::nyuzi_mask_cmpi_sgt;
-
-    case ISD::SETUGE:
-      return Intrinsic::nyuzi_mask_cmpi_uge;
-
-    case ISD::SETGE:
-      return Intrinsic::nyuzi_mask_cmpi_sge;
-
-    case ISD::SETULT:
-      return Intrinsic::nyuzi_mask_cmpi_ult;
-
-    case ISD::SETLT:
-      return Intrinsic::nyuzi_mask_cmpi_slt;
-
-    case ISD::SETULE:
-      return Intrinsic::nyuzi_mask_cmpi_ule;
-
-    case ISD::SETLE:
-      return Intrinsic::nyuzi_mask_cmpi_sle;
-
-    default:; // falls through
-    }
-  }
-
-  llvm_unreachable("unhandled compare code");
-}
-
-// Native vector compare instructions return a bitmask. This function
-// returns v16i32 from a comparison by doing a predicated transfer.
-// clang seems to assume a vector lane should have 0xffffffff when the
-// result is true when folding constants, so we use that value here to be
-// consistent, even though that is not what a scalar compare would do.
-SDValue expandVectorComparison(SDValue Op, SelectionDAG &DAG) {
+// Turn a SETCC node into a (possibly different) target-specific float comparison
+// node  with the same operands as the SETCC node.
+SDValue morphSETCCNode(SDValue Op, NyuziISD::NodeType Compare, SelectionDAG &DAG) {
   SDLoc DL(Op);
-  Intrinsic::ID intrinsic = intrinsicForVectorCompare(
-      cast<CondCodeSDNode>(Op.getOperand(2))->get(),
-      Op.getOperand(0).getValueType().getSimpleVT().isFloatingPoint());
-
-  SDValue FalseVal = DAG.getNode(NyuziISD::SPLAT, DL, MVT::v16i32,
-                                 DAG.getConstant(0, DL, MVT::i32));
-  SDValue TrueVal = DAG.getNode(NyuziISD::SPLAT, DL, MVT::v16i32,
-                                DAG.getConstant(0xffffffff, DL, MVT::i32));
-  SDValue Mask = DAG.getNode(ISD::INTRINSIC_WO_CHAIN, DL, MVT::i32,
-                             DAG.getConstant(intrinsic, DL, MVT::i32),
-                             Op.getOperand(0), Op.getOperand(1));
-  return DAG.getNode(
-      ISD::INTRINSIC_WO_CHAIN, DL, MVT::v16i32,
-      DAG.getConstant(Intrinsic::nyuzi_vector_mixi, DL, MVT::i32), Mask,
-      TrueVal, FalseVal);
-}
-
-// Return a SETCC node with the same operands as the passed one, but
-// a different comparison type
-SDValue morphSETCCNode(SDValue Op, ISD::CondCode code, SelectionDAG &DAG) {
-  SDLoc DL(Op);
-  return DAG.getNode(ISD::SETCC, DL, Op.getValueType().getSimpleVT(),
-                     Op.getOperand(0), Op.getOperand(1), DAG.getCondCode(code));
+  return DAG.getNode(Compare, DL, Op.getValueType().getSimpleVT(),
+                     Op.getOperand(0), Op.getOperand(1));
 }
 }
 
@@ -176,6 +73,7 @@ NyuziTargetLowering::NyuziTargetLowering(const TargetMachine &TM,
 
   // Set up the register classes.
   addRegisterClass(MVT::i32, &Nyuzi::GPR32RegClass);
+  addRegisterClass(MVT::v16i1, &Nyuzi::GPR32RegClass);
   addRegisterClass(MVT::f32, &Nyuzi::GPR32RegClass);
   addRegisterClass(MVT::v16i32, &Nyuzi::VR512RegClass);
   addRegisterClass(MVT::v16f32, &Nyuzi::VR512RegClass);
@@ -185,12 +83,17 @@ NyuziTargetLowering::NyuziTargetLowering(const TargetMachine &TM,
 
   setOperationAction(ISD::BUILD_VECTOR, MVT::v16f32, Custom);
   setOperationAction(ISD::BUILD_VECTOR, MVT::v16i32, Custom);
+  setOperationAction(ISD::BUILD_VECTOR, MVT::v16i1, Custom);
   setOperationAction(ISD::INSERT_VECTOR_ELT, MVT::v16f32, Custom);
   setOperationAction(ISD::INSERT_VECTOR_ELT, MVT::v16i32, Custom);
+  setOperationAction(ISD::INSERT_VECTOR_ELT, MVT::v16i1, Custom);
+  setOperationAction(ISD::EXTRACT_VECTOR_ELT, MVT::v16i1, Custom);
   setOperationAction(ISD::VECTOR_SHUFFLE, MVT::v16i32, Custom);
   setOperationAction(ISD::VECTOR_SHUFFLE, MVT::v16f32, Custom);
+  setOperationAction(ISD::VECTOR_SHUFFLE, MVT::v16i1, Custom);
   setOperationAction(ISD::SCALAR_TO_VECTOR, MVT::v16i32, Custom);
   setOperationAction(ISD::SCALAR_TO_VECTOR, MVT::v16f32, Custom);
+  setOperationAction(ISD::SCALAR_TO_VECTOR, MVT::v16i1, Custom);
   setOperationAction(ISD::GlobalAddress, MVT::i32, Custom);
   setOperationAction(ISD::GlobalAddress, MVT::f32, Custom);
   setOperationAction(ISD::ConstantPool, MVT::i32, Custom);
@@ -206,20 +109,27 @@ NyuziTargetLowering::NyuziTargetLowering(const TargetMachine &TM,
   setOperationAction(ISD::BR_JT, MVT::Other, Custom);
   setOperationAction(ISD::FNEG, MVT::f32, Custom);
   setOperationAction(ISD::FNEG, MVT::v16f32, Custom);
+  setOperationAction(ISD::SETCC, MVT::v16f32, Custom);
   setOperationAction(ISD::SETCC, MVT::f32, Custom);
-  setOperationAction(ISD::SETCC, MVT::v16i32, Custom);
+  setOperationAction(ISD::SETCC, MVT::v16i1, Custom);
   setOperationAction(ISD::CTLZ_ZERO_UNDEF, MVT::i32, Custom);
   setOperationAction(ISD::CTTZ_ZERO_UNDEF, MVT::i32, Custom);
   setOperationAction(ISD::UINT_TO_FP, MVT::i32, Custom);
   setOperationAction(ISD::UINT_TO_FP, MVT::v16i32, Custom);
   setOperationAction(ISD::FRAMEADDR, MVT::i32, Custom);
   setOperationAction(ISD::RETURNADDR, MVT::i32, Custom);
-  setOperationAction(ISD::SIGN_EXTEND_INREG, MVT::v16i1, Custom);
   setOperationAction(ISD::VASTART, MVT::Other, Custom);
   setOperationAction(ISD::FABS, MVT::f32, Custom);
   setOperationAction(ISD::FABS, MVT::v16f32, Custom);
+  setOperationAction(ISD::TRUNCATE, MVT::v16i1, Custom);
+  setOperationAction(ISD::ZERO_EXTEND, MVT::v16i32, Custom);
+  setOperationAction(ISD::SIGN_EXTEND, MVT::v16i32, Custom);
+
   setOperationAction(ISD::BR_CC, MVT::i32, Expand);
   setOperationAction(ISD::BR_CC, MVT::f32, Expand);
+  setOperationAction(ISD::BR_CC, MVT::v16i32, Expand);
+  setOperationAction(ISD::BR_CC, MVT::v16f32, Expand);
+  setOperationAction(ISD::BR_CC, MVT::v16i1, Expand);
   setOperationAction(ISD::BRCOND, MVT::i32, Expand);
   setOperationAction(ISD::BRCOND, MVT::f32, Expand);
   setOperationAction(ISD::SIGN_EXTEND_INREG, MVT::i1, Expand);
@@ -256,22 +166,6 @@ NyuziTargetLowering::NyuziTargetLowering(const TargetMachine &TM,
   setOperationAction(ISD::ATOMIC_LOAD, MVT::i64, Expand);
   setOperationAction(ISD::ATOMIC_STORE, MVT::i32, Expand);
   setOperationAction(ISD::ATOMIC_STORE, MVT::i64, Expand);
-
-  setCondCodeAction(ISD::SETO, MVT::f32, Custom);
-  setCondCodeAction(ISD::SETUO, MVT::f32, Custom);
-  setCondCodeAction(ISD::SETUEQ, MVT::f32, Custom);
-  setCondCodeAction(ISD::SETUNE, MVT::f32, Custom);
-  setCondCodeAction(ISD::SETUGT, MVT::f32, Custom);
-  setCondCodeAction(ISD::SETUGE, MVT::f32, Custom);
-  setCondCodeAction(ISD::SETULT, MVT::f32, Custom);
-  setCondCodeAction(ISD::SETULE, MVT::f32, Custom);
-  setCondCodeAction(ISD::SETUEQ, MVT::v16f32, Custom);
-  setCondCodeAction(ISD::SETUNE, MVT::v16f32, Custom);
-  setCondCodeAction(ISD::SETUGT, MVT::v16f32, Custom);
-  setCondCodeAction(ISD::SETUGE, MVT::v16f32, Custom);
-  setCondCodeAction(ISD::SETULT, MVT::v16f32, Custom);
-  setCondCodeAction(ISD::SETULE, MVT::v16f32, Custom);
-
   setOperationAction(ISD::FCOPYSIGN, MVT::f32, Expand);
   setOperationAction(ISD::FFLOOR, MVT::f32, Expand);
   setOperationAction(ISD::FFLOOR, MVT::v16f32, Expand);
@@ -305,6 +199,8 @@ SDValue NyuziTargetLowering::LowerOperation(SDValue Op,
     return LowerVECTOR_SHUFFLE(Op, DAG);
   case ISD::INSERT_VECTOR_ELT:
     return LowerINSERT_VECTOR_ELT(Op, DAG);
+  case ISD::EXTRACT_VECTOR_ELT:
+    return LowerEXTRACT_VECTOR_ELT(Op, DAG);
   case ISD::SCALAR_TO_VECTOR:
     return LowerSCALAR_TO_VECTOR(Op, DAG);
   case ISD::SELECT_CC:
@@ -337,8 +233,12 @@ SDValue NyuziTargetLowering::LowerOperation(SDValue Op,
     return LowerFRAMEADDR(Op, DAG);
   case ISD::RETURNADDR:
     return LowerRETURNADDR(Op, DAG);
-  case ISD::SIGN_EXTEND_INREG:
-    return LowerSIGN_EXTEND_INREG(Op, DAG);
+  case ISD::SIGN_EXTEND:
+    return LowerSIGN_EXTEND(Op, DAG);
+  case ISD::ZERO_EXTEND:
+    return LowerZERO_EXTEND(Op, DAG);
+  case ISD::TRUNCATE:
+    return LowerTRUNCATE(Op, DAG);
   default:
     llvm_unreachable("Should not custom lower this!");
   }
@@ -422,7 +322,7 @@ SDValue NyuziTargetLowering::LowerFormalArguments(
       EVT RegVT = VA.getLocVT();
       const TargetRegisterClass *RC;
 
-      if (RegVT == MVT::i32 || RegVT == MVT::f32)
+      if (RegVT == MVT::i32 || RegVT == MVT::f32 || RegVT == MVT::v16i1)
         RC = &Nyuzi::GPR32RegClass;
       else if (RegVT == MVT::v16i32 || RegVT == MVT::v16f32)
         RC = &Nyuzi::VR512RegClass;
@@ -446,7 +346,7 @@ SDValue NyuziTargetLowering::LowerFormalArguments(
     SDValue FIPtr = DAG.getFrameIndex(FI, getPointerTy(DAG.getDataLayout()));
     SDValue Load;
     if (VA.getValVT() == MVT::i32 || VA.getValVT() == MVT::f32 ||
-        VA.getValVT() == MVT::v16i32) {
+        VA.getValVT() == MVT::v16i32 || VA.getValVT() == MVT::v16i1) {
       // Primitive Types are loaded directly from the stack
       Load = DAG.getLoad(VA.getValVT(), DL, Chain, FIPtr, MachinePointerInfo());
     } else {
@@ -750,6 +650,22 @@ const char *NyuziTargetLowering::getTargetNodeName(unsigned Opcode) const {
     return "NyuziISD::BR_JT";
   case NyuziISD::JT_WRAPPER:
     return "NyuziISD::JT_WRAPPER";
+  case NyuziISD::MASK_TO_INT:
+    return "NyuziISD::MASK_TO_INT";
+  case NyuziISD::MASK_FROM_INT:
+    return "NyuziISD::MASK_FROM_INT";
+  case NyuziISD::FGT:
+    return "NyuziISD::FGT";
+  case NyuziISD::FGE:
+    return "NyuziISD::FGE";
+  case NyuziISD::FLT:
+    return "NyuziISD::FLT";
+  case NyuziISD::FLE:
+    return "NyuziISD::FLE";
+  case NyuziISD::FEQ:
+    return "NyuziISD::FEQ";
+  case NyuziISD::FNE:
+    return "NyuziISD::FNE";
   default:
     return nullptr;
   }
@@ -800,10 +716,11 @@ bool NyuziTargetLowering::isOffsetFoldingLegal(
 EVT NyuziTargetLowering::getSetCCResultType(const DataLayout &,
                                             LLVMContext &Context,
                                             EVT VT) const {
-  if (!VT.isVector())
+  if (VT.isVector()) {
+    return EVT::getVectorVT(Context, MVT::i1, VT.getVectorNumElements());
+  } else {
     return MVT::i32;
-
-  return VT.changeVectorElementTypeToInteger();
+  }
 }
 
 // This is called to determine if a VECTOR_SHUFFLE should be lowered by this
@@ -847,13 +764,50 @@ SDValue NyuziTargetLowering::LowerBUILD_VECTOR(SDValue Op,
   MVT VT = Op.getValueType().getSimpleVT();
   SDLoc DL(Op);
 
-  if (isSplatVector(Op.getNode())) {
-    // This is a constant node that is duplicated to all lanes.
-    // Convert it to a SPLAT node.
-    return DAG.getNode(NyuziISD::SPLAT, DL, VT, Op.getOperand(0));
+  if (VT != MVT::v16i1) {
+    if (isSplatVector(Op.getNode())) {
+      // This is a constant node that is duplicated to all lanes.
+      // Convert it to a SPLAT node.
+      return DAG.getNode(NyuziISD::SPLAT, DL, VT, Op.getOperand(0));
+    }
+
+    return SDValue();  // Expand
   }
 
-  return SDValue(); // Expand
+  if (ISD::isBuildVectorOfConstantSDNodes(Op.getNode())) {
+    // If i1 vectors reach the constant pool, they get translated into a byte
+    // array with one byte per i1. This is wrong for this target as v16i1 are
+    // stored as tightly packed bit masks. So we compute the packed bit vector
+    // as an int and store *that* in the constant pool.
+    uint64_t Bits = 0, LaneIndex = 0;
+    for (auto Operand : Op.getNode()->op_values()) {
+      if (auto C = dyn_cast<ConstantSDNode>(Operand)) {
+        Bits |= C->getZExtValue() << LaneIndex;
+      } else {
+        // Lane is undef, treat as 0. This might allow the
+        // resulting value to fit into in an immediate operand.
+        assert(Operand.getOpcode() == ISD::UNDEF);
+      }
+      ++LaneIndex;
+    }
+    // Only 16 bits are needed, but i16 is not legal, so just use 32 bit.
+    auto BitsConstant = DAG.getConstant(Bits, DL, MVT::i32);
+    return DAG.getNode(NyuziISD::MASK_FROM_INT, DL, MVT::v16i1, BitsConstant);
+  } else {
+    // Non-constant BUILD_VECTOR. Expanding is incorrect for the same reason
+    // as in the constant case, so do insertions manually.
+    SDValue Bitmask = DAG.getConstant(0, DL, MVT::i32);
+    for (int i = 15; i >= 0; --i) {
+      // i1 is not legal, so the elements are i32.
+      // Additionally, the high bits may be undef (?)
+      auto LaneBit = DAG.getNode(ISD::AND, DL, MVT::i32, Op.getOperand(i),
+                                 DAG.getConstant(1, DL, MVT::i32));
+      Bitmask = DAG.getNode(ISD::SHL, DL, MVT::i32, Bitmask,
+                            DAG.getConstant(1, DL, MVT::i32));
+      Bitmask = DAG.getNode(ISD::OR, DL, MVT::i32, Bitmask, LaneBit);
+    }
+    return DAG.getNode(NyuziISD::MASK_FROM_INT, DL, MVT::v16i1, Bitmask);
+  }
 }
 
 // VECTOR_SHUFFLE(vec1, vec2, shuffle_indices)
@@ -862,6 +816,18 @@ SDValue NyuziTargetLowering::LowerVECTOR_SHUFFLE(SDValue Op,
   MVT VT = Op.getValueType().getSimpleVT();
   ShuffleVectorSDNode *ShuffleNode = dyn_cast<ShuffleVectorSDNode>(Op);
   SDLoc DL(Op);
+
+  if (VT == MVT::v16i1) {
+    // There is no instruction for shuffling bits, so extend to i32,
+    // shuffle those, and truncate back.
+    SDValue ExtVec0 =
+        DAG.getNode(ISD::ZERO_EXTEND, DL, MVT::v16i32, Op.getOperand(0));
+    SDValue ExtVec1 =
+        DAG.getNode(ISD::ZERO_EXTEND, DL, MVT::v16i32, Op.getOperand(1));
+    SDValue ExtShuffle = DAG.getVectorShuffle(MVT::v16i32, DL, ExtVec0, ExtVec1,
+                                              ShuffleNode->getMask());
+    return DAG.getNode(ISD::TRUNCATE, DL, MVT::v16i1, ExtShuffle);
+  }
 
   // Analyze the vector indices.
   unsigned int Mask = 0;
@@ -939,7 +905,6 @@ SDValue NyuziTargetLowering::LowerVECTOR_SHUFFLE(SDValue Op,
 
   SDValue NativeShuffleIntr =
       DAG.getConstant(Intrinsic::nyuzi_shufflei, DL, MVT::i32);
-  SDValue MixIntr = DAG.getConstant(Intrinsic::nyuzi_vector_mixi, DL, MVT::i32);
   if (Mask == 0xffff || Mask == 0) {
     // Only one of the vectors is referenced.
     SDValue ShuffleSource = Mask == 0 ? Op.getOperand(0) : Op.getOperand(1);
@@ -951,50 +916,98 @@ SDValue NyuziTargetLowering::LowerVECTOR_SHUFFLE(SDValue Op,
                          NativeShuffleIntr, ShuffleSource, ShuffleVector);
   } else if (IsIdentityShuffle) {
     // This is just a mix
-    SDValue MaskVal = DAG.getConstant(Mask, DL, MVT::i32);
-    return DAG.getNode(ISD::INTRINSIC_WO_CHAIN, DL, MVT::v16i32, MixIntr,
+    SDValue MaskInt = DAG.getConstant(Mask, DL, MVT::i32);
+    SDValue MaskVal = DAG.getNode(NyuziISD::MASK_FROM_INT,
+                                  DL, MVT::v16i1, MaskInt);
+    return DAG.getNode(ISD::VSELECT, DL, MVT::v16i32,
                        MaskVal, Op.getOperand(1), Op.getOperand(0));
   } else {
     // Need to shuffle both vectors and mix
-    SDValue MaskVal = DAG.getConstant(Mask, DL, MVT::i32);
     SDValue Shuffled0 =
         DAG.getNode(ISD::INTRINSIC_WO_CHAIN, DL, MVT::v16i32, NativeShuffleIntr,
                     Op.getOperand(0), ShuffleVector);
     SDValue Shuffled1 =
         DAG.getNode(ISD::INTRINSIC_WO_CHAIN, DL, MVT::v16i32, NativeShuffleIntr,
                     Op.getOperand(1), ShuffleVector);
-    return DAG.getNode(ISD::INTRINSIC_WO_CHAIN, DL, MVT::v16i32, MixIntr,
+
+    SDValue MaskInt = DAG.getConstant(Mask, DL, MVT::i32);
+    SDValue MaskVal = DAG.getNode(NyuziISD::MASK_FROM_INT,
+                                  DL, MVT::v16i1, MaskInt);
+    return DAG.getNode(ISD::VSELECT, DL, MVT::v16i32,
                        MaskVal, Shuffled1, Shuffled0);
   }
 }
 
 // (VECTOR, VAL, IDX)
-// Convert to a move with a mask and a splatted scalar operand.
 SDValue NyuziTargetLowering::LowerINSERT_VECTOR_ELT(SDValue Op,
                                                     SelectionDAG &DAG) const {
-  MVT VT = Op.getValueType().getSimpleVT();
   SDLoc DL(Op);
 
-  // This could also be (1 << (15 - index)), which avoids the load of 0x8000
-  // but requires more operations.
-  SDValue Mask =
-      DAG.getNode(ISD::SHL, DL, MVT::i32, DAG.getConstant(1, DL, MVT::i32),
-                  Op.getOperand(2));
-  SDValue Splat = DAG.getNode(NyuziISD::SPLAT, DL, VT, Op.getOperand(1));
-  return DAG.getNode(
-      ISD::INTRINSIC_WO_CHAIN, DL, VT,
-      DAG.getConstant(Intrinsic::nyuzi_vector_mixi, DL, MVT::i32), Mask, Splat,
-      Op.getOperand(0));
+  SDValue LaneIndex = Op.getOperand(2);
+  SDValue LaneMask = DAG.getNode(ISD::SHL, DL, MVT::i32,
+                                 DAG.getConstant(1, DL, MVT::i32), LaneIndex);
+  MVT VT = Op.getValueType().getSimpleVT();
+  if (VT == MVT::v16i1) {
+    // The element is promoted to i32 and the vector is in a scalar
+    // register, so we can't do a vselect as for other element types.
+    // Instead, insert by bit manipulation:
+    // (VECTOR & !LaneMask) | (VAL << IDX)
+    SDValue ElemBit = DAG.getNode(ISD::AND, DL, MVT::i32, Op.getOperand(1),
+                                  DAG.getConstant(1, DL, MVT::i32));
+    SDValue SetBit = DAG.getNode(ISD::SHL, DL, MVT::i32, ElemBit, LaneIndex);
+    SDValue UnsetBit = DAG.getNOT(DL, LaneMask, MVT::i32);
+    SDValue VecAsInt =
+        DAG.getNode(NyuziISD::MASK_TO_INT, DL, MVT::i32, Op.getOperand(0));
+    SDValue Result =
+        DAG.getNode(ISD::OR, DL, MVT::i32, SetBit,
+                    DAG.getNode(ISD::AND, DL, MVT::i32, VecAsInt, UnsetBit));
+    return DAG.getNode(NyuziISD::MASK_FROM_INT, DL, MVT::v16i1, Result);
+  } else {
+    // Put the element into the right lane with a masked move.
+    SDValue Splat = DAG.getNode(NyuziISD::SPLAT, DL, VT, Op.getOperand(1));
+    SDValue MaskVec =
+        DAG.getNode(NyuziISD::MASK_FROM_INT, DL, MVT::v16i1, LaneMask);
+    return DAG.getNode(ISD::VSELECT, DL, VT, MaskVec, Splat,
+                       Op.getOperand(0));
+  }
 }
 
-// SCALAR_TO_VECTOR loads the scalar register into lane 0 of the register.
-// The rest of the lanes are undefined.  For simplicity, we just load the same
-// value into all lanes.
+SDValue NyuziTargetLowering::LowerEXTRACT_VECTOR_ELT(SDValue Op,
+                                                     SelectionDAG &DAG) const {
+  SDLoc DL(Op);
+
+  SDValue Vector = Op.getOperand(0);
+  SDValue LaneIndex = Op.getOperand(1);
+
+  if (Vector.getSimpleValueType() != MVT::v16i1) {
+    // Let isel make it a getlane
+    return Op;
+  }
+
+  // Extract the bit by shifting.
+  SDValue MaskBits = DAG.getNode(NyuziISD::MASK_TO_INT, DL, MVT::i32, Vector);
+  SDValue Elem = DAG.getNode(ISD::SRL, DL, MVT::i32, MaskBits, LaneIndex);
+  // FIXME: could we skip masking out the higher bits?
+  return DAG.getNode(ISD::AND, DL, MVT::i32, Elem,
+                     DAG.getConstant(1, DL, MVT::i32));
+}
+
 SDValue NyuziTargetLowering::LowerSCALAR_TO_VECTOR(SDValue Op,
                                                    SelectionDAG &DAG) const {
   MVT VT = Op.getValueType().getSimpleVT();
   SDLoc DL(Op);
-  return DAG.getNode(NyuziISD::SPLAT, DL, VT, Op.getOperand(0));
+
+  // SCALAR_TO_VECTOR loads the scalar register into lane 0 of the register.
+  // The rest of the lanes are undefined.
+  if (VT == MVT::v16i1) {
+    // Lane 0 is the LSB of the mask register, which is exactly matches
+    // the operand (i1 promoted to i32), and the other bits don't matter
+    // because the corresponding lanes are undef.
+    return DAG.getNode(NyuziISD::MASK_FROM_INT, DL, MVT::i32, Op.getOperand(0));
+  } else {
+    // For simplicity, we just load the same value into all lanes.
+    return DAG.getNode(NyuziISD::SPLAT, DL, VT, Op.getOperand(0));
+  }
 }
 
 // This architecture does not support conditional moves for scalar registers.
@@ -1017,38 +1030,69 @@ SDValue NyuziTargetLowering::LowerSELECT_CC(SDValue Op,
 SDValue NyuziTargetLowering::LowerSETCC(SDValue Op, SelectionDAG &DAG) const {
   SDLoc DL(Op);
   ISD::CondCode CC = cast<CondCodeSDNode>(Op.getOperand(2))->get();
+  MVT OperandVT = Op.getOperand(0).getSimpleValueType();
+  MVT ResultVT = Op.getSimpleValueType();
 
-  // If this returns v16i32, expand
-  if (Op.getValueType().getSimpleVT() == MVT::v16i32)
-    return expandVectorComparison(Op, DAG);
+  // v16i1 comparisons are a bit odd and not generated by normal C code,
+  // so we don't really care how efficient it is. Just delegate to
+  // full v16i32 comparisons by sext.
+  // (If we did care, we could cook up some bitwise operations.)
+  // Note: It has to be sext, not zext, as i1 true is the "all ones" value
+  // and hence "negative" for the purpose of signed icmp.
+  if (OperandVT == MVT::v16i1) {
+    SDValue SExtOp0 = DAG.getNode(ISD::SIGN_EXTEND, DL, MVT::v16i32,
+                                  Op.getOperand(0));
+    SDValue SExtOp1 = DAG.getNode(ISD::SIGN_EXTEND, DL, MVT::v16i32,
+                                  Op.getOperand(1));
+    return DAG.getNode(ISD::SETCC, DL, MVT::v16i1,
+                       SExtOp0, SExtOp1, DAG.getCondCode(CC));
+  }
+  if (OperandVT == MVT::v16i32) {
+    // All integer comparisons are legal, nothing to do.
+    // XXX why does this even get called? Maybe because v16i1 SETCC is Custom?
+    return Op;
+  }
 
-  // Convert unordered or don't-care floating point comparisions to ordered
+  // The main job of this functions is to convert unordered or don't-care
+  // floating point comparisions to ordered ones. But we also map legal
+  // comparisons to target-specific SDNodes, to ensure the DAG combiner does
+  // not undo the work we do here. This does mean losing out on some
+  // optimizations, but this is okay as we're consciously choosing a less
+  // optimal/canonical form to legalize these comparisons. Besides,
+  // this runs very late in the pipeline, usually a constant or redundant
+  // comparison would be folded away long before legalization.
+  // Some things to keep in mind:
   // - Two comparison values are ordered if neither operand is NaN, otherwise
   //   they are unordered.
   // - An ordered comparison *operation* is always false if either operand is
   //   NaN. Unordered is always true if either operand is NaN.
   // - The hardware implements ordered comparisons.
   // - Clang usually emits ordered comparisons.
-  ISD::CondCode ComplementCompare;
+  NyuziISD::NodeType ComplementCompare;
   switch (CC) {
-  // Return this node unchanged
   default:
-    return Op;
+    llvm_unreachable("unhandled float comparison");
 
-  // These are "don't care" values. Convert them to ordered, which
-  // are natively supported
+  // Ordered comparisons are natively supported, and "don't care"
+  // comparisons can be converted to those as well.
   case ISD::SETGT:
-    return morphSETCCNode(Op, ISD::SETOGT, DAG);
+  case ISD::SETOGT:
+    return morphSETCCNode(Op, NyuziISD::FGT, DAG);
   case ISD::SETGE:
-    return morphSETCCNode(Op, ISD::SETOGE, DAG);
+  case ISD::SETOGE:
+    return morphSETCCNode(Op, NyuziISD::FGE, DAG);
   case ISD::SETLT:
-    return morphSETCCNode(Op, ISD::SETOLT, DAG);
+  case ISD::SETOLT:
+    return morphSETCCNode(Op, NyuziISD::FLT, DAG);
   case ISD::SETLE:
-    return morphSETCCNode(Op, ISD::SETOLE, DAG);
+  case ISD::SETOLE:
+    return morphSETCCNode(Op, NyuziISD::FLE, DAG);
   case ISD::SETEQ:
-    return morphSETCCNode(Op, ISD::SETOEQ, DAG);
+  case ISD::SETOEQ:
+    return morphSETCCNode(Op, NyuziISD::FEQ, DAG);
   case ISD::SETNE:
-    return morphSETCCNode(Op, ISD::SETONE, DAG);
+  case ISD::SETONE:
+    return morphSETCCNode(Op, NyuziISD::FNE, DAG);
 
   // Check for ordered and unordered values by using ordered equality
   // (which will only be false if the values are unordered)
@@ -1056,34 +1100,37 @@ SDValue NyuziTargetLowering::LowerSETCC(SDValue Op, SelectionDAG &DAG) const {
   case ISD::SETUO: {
     SDValue Op0 = Op.getOperand(0);
     SDValue IsOrdered =
-        DAG.getNode(ISD::SETCC, DL, Op.getValueType().getSimpleVT(), Op0, Op0,
-                    DAG.getCondCode(ISD::SETOEQ));
+        DAG.getNode(NyuziISD::FEQ, DL, ResultVT, Op0, Op0);
     if (CC == ISD::SETO)
       return IsOrdered;
 
-    // SETUO
-    return DAG.getNode(ISD::XOR, DL, Op.getValueType().getSimpleVT(), IsOrdered,
-                       DAG.getConstant(0xffff, DL, MVT::i32));
+    // The hardware sets all 16 bits even for scalar comparisons, so negate
+    // them all.
+    SDValue Negate = DAG.getConstant(0xffff, DL, MVT::i32);
+    if (ResultVT.isVector()) {
+      Negate = DAG.getNode(NyuziISD::MASK_FROM_INT, DL, MVT::v16i1, Negate);
+    }
+    return DAG.getNode(ISD::XOR, DL, MVT::i32, IsOrdered, Negate);
   }
 
   // Convert unordered comparisions to ordered by explicitly checking for NaN
   case ISD::SETUEQ:
-    ComplementCompare = ISD::SETONE;
+    ComplementCompare = NyuziISD::FNE;
     break;
   case ISD::SETUGT:
-    ComplementCompare = ISD::SETOLE;
+    ComplementCompare = NyuziISD::FLE;
     break;
   case ISD::SETUGE:
-    ComplementCompare = ISD::SETOLT;
+    ComplementCompare = NyuziISD::FLT;
     break;
   case ISD::SETULT:
-    ComplementCompare = ISD::SETOGE;
+    ComplementCompare = NyuziISD::FGE;
     break;
   case ISD::SETULE:
-    ComplementCompare = ISD::SETOGT;
+    ComplementCompare = NyuziISD::FGT;
     break;
   case ISD::SETUNE:
-    ComplementCompare = ISD::SETOEQ;
+    ComplementCompare = NyuziISD::FEQ;
     break;
   }
 
@@ -1091,8 +1138,13 @@ SDValue NyuziTargetLowering::LowerSETCC(SDValue Op, SelectionDAG &DAG) const {
   // be the same for ordered values, but will always be true for unordered
   // values.
   SDValue Comp2 = morphSETCCNode(Op, ComplementCompare, DAG);
-  return DAG.getNode(ISD::XOR, DL, Op.getValueType().getSimpleVT(), Comp2,
-                     DAG.getConstant(0xffff, DL, MVT::i32));
+  // The hardware sets all 16 bits even for scalar comparisons, so negate
+  // them all.
+  SDValue Negate = DAG.getConstant(0xffff, DL, MVT::i32);
+  if (ResultVT.isVector()) {
+    Negate = DAG.getNode(NyuziISD::MASK_FROM_INT, DL, MVT::v16i1, Negate);
+  }
+  return DAG.getNode(ISD::XOR, DL, ResultVT, Comp2, Negate);
 }
 
 SDValue NyuziTargetLowering::LowerConstantPool(SDValue Op,
@@ -1302,25 +1354,21 @@ SDValue NyuziTargetLowering::LowerUINT_TO_FP(SDValue Op,
     // Vector Result
     SDValue ZeroVec = DAG.getNode(NyuziISD::SPLAT, DL, MVT::v16i32,
                                   DAG.getConstant(0, DL, MVT::i32));
-    SDValue LtIntrinsic =
-        DAG.getConstant(Intrinsic::nyuzi_mask_cmpi_slt, DL, MVT::i32);
-    SDValue IsNegativeMask = DAG.getNode(ISD::INTRINSIC_WO_CHAIN, DL, MVT::i32,
-                                         LtIntrinsic, RVal, ZeroVec);
+    SDValue IsNegativeMask =
+        DAG.getSetCC(DL, MVT::v16i1, RVal, ZeroVec, ISD::SETLT);
+
     SDValue AdjustVec =
         DAG.getNode(NyuziISD::SPLAT, DL, MVT::v16f32, AdjustReg);
     SDValue Adjusted =
         DAG.getNode(ISD::FADD, DL, ResultVT, SignedVal, AdjustVec);
-    return DAG.getNode(
-        ISD::INTRINSIC_WO_CHAIN, DL, ResultVT,
-        DAG.getConstant(Intrinsic::nyuzi_vector_mixf, DL, MVT::i32),
-        IsNegativeMask, Adjusted, SignedVal);
+
+    return DAG.getNode(ISD::VSELECT, DL, ResultVT, IsNegativeMask, Adjusted,
+                       SignedVal);
   } else {
     // Scalar Result.  If the result is negative, add UINT_MASK to make it
     // positive
-    SDValue IsNegative =
-        DAG.getSetCC(DL, getSetCCResultType(DAG.getDataLayout(),
-                                            *DAG.getContext(), MVT::i32),
-                     RVal, DAG.getConstant(0, DL, MVT::i32), ISD::SETLT);
+    SDValue IsNegative = DAG.getSetCC(
+        DL, MVT::i32, RVal, DAG.getConstant(0, DL, MVT::i32), ISD::SETLT);
     SDValue Adjusted =
         DAG.getNode(ISD::FADD, DL, MVT::f32, SignedVal, AdjustReg);
     return DAG.getNode(NyuziISD::SEL_COND_RESULT, DL, MVT::f32, IsNegative,
@@ -1360,21 +1408,50 @@ SDValue NyuziTargetLowering::LowerRETURNADDR(SDValue Op,
   return DAG.getCopyFromReg(DAG.getEntryNode(), DL, Reg, VT);
 }
 
-//
-// This may be used to expand a vector comparison result into a vector.
-// Normally, vector compare results are a bitmask, so we need to do a
-// predicated transfer to expand it.
-// Note that clang seems to assume a vector lane should have 0xffffffff when the
-// result is true when folding constants, so we use that value here to be
-// consistent, even though that is not what a scalar compare would do.
-//
-SDValue NyuziTargetLowering::LowerSIGN_EXTEND_INREG(SDValue Op,
-                                                    SelectionDAG &DAG) const {
-  SDValue SetCcOp = Op.getOperand(0);
-  if (SetCcOp.getOpcode() != ISD::SETCC)
-    return SDValue();
+// Sign extension from v16i1 to v16i32, commonly emitted by clang
+// for vector comparisons. As v16i1 is a compact bitmask, this is
+// not a lane-wise sext, it needs a select predicated on the mask.
+// Note that sign extension of i1 true is i32 -1, not i32 1.
+SDValue NyuziTargetLowering::LowerSIGN_EXTEND(SDValue Op,
+                                              SelectionDAG &DAG) const {
+  SDLoc DL(Op);
 
-  return expandVectorComparison(SetCcOp, DAG);
+  SDValue FalseVal = DAG.getNode(NyuziISD::SPLAT, DL, MVT::v16i32,
+                                 DAG.getConstant(0, DL, MVT::i32));
+  SDValue TrueVal = DAG.getNode(NyuziISD::SPLAT, DL, MVT::v16i32,
+                                DAG.getConstant(0xffffffff, DL, MVT::i32));
+  SDValue Mask = Op.getOperand(0);
+  return DAG.getNode(ISD::VSELECT, DL, MVT::v16i32, Mask, TrueVal, FalseVal);
+}
+
+// Zero extension from v16i1 to v16i32, used for example when lowering
+// v16i1 shuffles. As v16i1 is a compact bitmask, this is not a lane-wise
+// zext, it needs a select predicated on the mask.
+SDValue NyuziTargetLowering::LowerZERO_EXTEND(SDValue Op,
+                                              SelectionDAG &DAG) const {
+  SDLoc DL(Op);
+
+  SDValue FalseVal = DAG.getNode(NyuziISD::SPLAT, DL, MVT::v16i32,
+                                 DAG.getConstant(0, DL, MVT::i32));
+  SDValue TrueVal = DAG.getNode(NyuziISD::SPLAT, DL, MVT::v16i32,
+                                DAG.getConstant(1, DL, MVT::i32));
+  SDValue Mask = Op.getOperand(0);
+  return DAG.getNode(ISD::VSELECT, DL, MVT::v16i32, Mask, TrueVal, FalseVal);
+}
+
+// Truncation from v16i32 to v16i1, used for example when lowering
+// v16i1 shuffles. Masks out the high bits of each i32 lane,
+// then compares the low bit of each lane to 1 to build a v16i1
+// that is true in the lanes where the v16i32 had its LSB set.
+SDValue NyuziTargetLowering::LowerTRUNCATE(SDValue Op,
+                                           SelectionDAG &DAG) const {
+  SDLoc DL(Op);
+
+  SDValue Op0 = Op.getOperand(0);
+  SDValue OnesVec = DAG.getNode(NyuziISD::SPLAT, DL, MVT::v16i32,
+                                DAG.getConstant(1, DL, MVT::i32));
+  SDValue LaneBits = DAG.getNode(ISD::AND, DL, MVT::v16i32, Op0, OnesVec);
+  return DAG.getSetCC(DL, MVT::v16i1, LaneBits, OnesVec, ISD::SETEQ);
 }
 
 MachineBasicBlock *

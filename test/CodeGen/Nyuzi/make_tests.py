@@ -60,24 +60,6 @@ op_test_fp.write('''; RUN: llc -mtriple nyuzi-elf %s -o - | FileCheck %s
 ; on them.
 
 target triple = "nyuzi"
-
-declare <16 x i32> @llvm.nyuzi.__builtin_nyuzi_vector_mixi(i32 %mask, <16 x i32> %a, <16 x i32> %b)
-declare <16 x float> @llvm.nyuzi.__builtin_nyuzi_vector_mixf(i32 %mask, <16 x float> %a, <16 x float> %b)
-declare i32 @llvm.nyuzi.__builtin_nyuzi_mask_cmpi_sgt(<16 x i32> %a, <16 x i32> %b)
-declare i32 @llvm.nyuzi.__builtin_nyuzi_mask_cmpi_sge(<16 x i32> %a, <16 x i32> %b)
-declare i32 @llvm.nyuzi.__builtin_nyuzi_mask_cmpi_slt(<16 x i32> %a, <16 x i32> %b)
-declare i32 @llvm.nyuzi.__builtin_nyuzi_mask_cmpi_sle(<16 x i32> %a, <16 x i32> %b)
-declare i32 @llvm.nyuzi.__builtin_nyuzi_mask_cmpi_eq(<16 x i32> %a, <16 x i32> %b)
-declare i32 @llvm.nyuzi.__builtin_nyuzi_mask_cmpi_ne(<16 x i32> %a, <16 x i32> %b)
-declare i32 @llvm.nyuzi.__builtin_nyuzi_mask_cmpi_ugt(<16 x i32> %a, <16 x i32> %b)
-declare i32 @llvm.nyuzi.__builtin_nyuzi_mask_cmpi_uge(<16 x i32> %a, <16 x i32> %b)
-declare i32 @llvm.nyuzi.__builtin_nyuzi_mask_cmpi_ult(<16 x i32> %a, <16 x i32> %b)
-declare i32 @llvm.nyuzi.__builtin_nyuzi_mask_cmpi_ule(<16 x i32> %a, <16 x i32> %b)
-declare i32 @llvm.nyuzi.__builtin_nyuzi_mask_cmpf_gt(<16 x float> %a, <16 x float> %b)
-declare i32 @llvm.nyuzi.__builtin_nyuzi_mask_cmpf_ge(<16 x float> %a, <16 x float> %b)
-declare i32 @llvm.nyuzi.__builtin_nyuzi_mask_cmpf_lt(<16 x float> %a, <16 x float> %b)
-declare i32 @llvm.nyuzi.__builtin_nyuzi_mask_cmpf_le(<16 x float> %a, <16 x float> %b)
-
 ''')
 
 ########################################
@@ -96,7 +78,7 @@ for llvmop, mnemonic in binary_ops:
         op_test_fp.write('define ' + rettype + ' @' +
                          funcname + '(' + rettype + ' %a, ')
         op_test_fp.write(get_type_string(s2regt == 'v', is_float) + ' %b' +
-                         (', i32 %mask' if is_masked else '') + ') { ; CHECK-LABEL: ' + funcname + ':\n')
+                         (', <16 x i1> %mask' if is_masked else '') + ') { ; CHECK-LABEL: ' + funcname + ':\n')
 
         # Expand scalar to vector type
         if s1regt == 'v' and s2regt == 's':
@@ -110,8 +92,8 @@ for llvmop, mnemonic in binary_ops:
             op_test_fp.write('  %1 = ' + llvmop + ' ' + rettype + ' %a,%b\n')
 
         if is_masked:
-            op_test_fp.write('  %2 = call ' + rettype +
-                             ' @llvm.nyuzi.__builtin_nyuzi_vector_mix' + ('f' if is_float else 'i') + '(i32 %mask, ' + rettype + ' %1, ' + rettype + ' %a)\n')
+            op_test_fp.write('  %2 = select <16 x i1> %mask, '
+                             + rettype + ' %1, ' + rettype + ' %a\n')
             op_test_fp.write('  ; CHECK: ' + mnemonic + '_mask ' + s1regt +
                              '{{[0-9]+}}, s{{[0-9]+}}, ' + s1regt + '{{[0-9]+}}, ' + s2regt + '{{[0-9]+}}\n')
             op_test_fp.write('  ret ' + rettype + ' %2\n}\n\n')
@@ -136,7 +118,7 @@ for llvmop, mnemonic in binary_ops:
         op_test_fp.write('define ' + rettype + ' @' + funcname +
                          '(' + get_type_string(s1regt == 'v', is_float) + ' %a')
         if is_masked:
-            op_test_fp.write(', i32 %mask) { ')
+            op_test_fp.write(', <16 x i1> %mask) { ')
         else:
             op_test_fp.write(') { ')
 
@@ -158,12 +140,12 @@ for llvmop, mnemonic in binary_ops:
             op_test_fp.write('27\n')
 
         if is_masked:
-            op_test_fp.write('  %2 = call ' + rettype +
-                             ' @llvm.nyuzi.__builtin_nyuzi_vector_mixi(i32 %mask, ' + rettype + ' %1, ' + rettype)
+            op_test_fp.write('  %2 = select <16 x i1> %mask, ' + rettype
+                             + ' %1, ' + rettype)
             if dregt == 'v' and s1regt == 's':
-                op_test_fp.write(' %splat)\n')
+                op_test_fp.write(' %splat\n')
             else:
-                op_test_fp.write(' %a)\n')
+                op_test_fp.write(' %a\n')
 
             op_test_fp.write('  ; CHECK: ' + mnemonic + '_mask ' + dregt +
                              '{{[0-9]+}}, s{{[0-9]+}}, ' + s1regt + '{{[0-9]+}}, ' + '27\n')
@@ -178,59 +160,66 @@ for llvmop, mnemonic in binary_ops:
 ########################################
 
 compare_tests = [
-    ('i_sgt', 'gt_i'),
-    ('i_sge', 'ge_i'),
-    ('i_slt', 'lt_i'),
-    ('i_sle', 'le_i'),
-    ('i_eq', 'eq_i'),
-    ('i_ne', 'ne_i'),
-    ('i_ugt', 'gt_u'),
-    ('i_uge', 'ge_u'),
-    ('i_ult', 'lt_u'),
-    ('i_ule', 'le_u'),
-    ('f_gt', 'gt_f'),
-    ('f_ge', 'ge_f'),
-    ('f_lt', 'lt_f'),
-    ('f_le', 'le_f'),
+    ('icmp sgt', 'gt_i', False),
+    ('icmp sge', 'ge_i', False),
+    ('icmp slt', 'lt_i', False),
+    ('icmp sle', 'le_i', False),
+    ('icmp eq', 'eq_i', False),
+    ('icmp ne', 'ne_i', False),
+    ('icmp ugt', 'gt_u', False),
+    ('icmp uge', 'ge_u', False),
+    ('icmp ult', 'lt_u', False),
+    ('icmp ule', 'le_u', False),
+    ('fcmp ogt', 'gt_f', False),
+    ('fcmp oge', 'ge_f', False),
+    ('fcmp olt', 'lt_f', False),
+    ('fcmp ole', 'le_f', False),
+    ('fcmp ugt', 'le_f', True),
+    ('fcmp uge', 'lt_f', True),
+    ('fcmp ult', 'ge_f', True),
+    ('fcmp ule', 'gt_f', True),
 ]
 
-for intr_suffix, instr_suffix in compare_tests:
+for llvminst, instr_suffix, must_invert in compare_tests:
     # Vector op vector
     etype = 'float' if instr_suffix[-2:] == '_f' else 'i32'
+    func_name = llvminst.replace(' ', '_')
 
-    op_test_fp.write('define i32 @cmp' + intr_suffix + 'vv(<16 x ' + etype +
-                     '> %a, <16 x ' + etype + '> %b) {	; CHECK-LABEL: cmp' + intr_suffix + 'vv:\n')
-    op_test_fp.write('  %c = call i32 @llvm.nyuzi.__builtin_nyuzi_mask_cmp' +
-                     intr_suffix + '(<16 x ' + etype + '> %a, <16 x ' + etype + '> %b)\n')
+    op_test_fp.write('define <16 x i1> @' + func_name + 'vv(<16 x ' + etype +
+                     '> %a, <16 x ' + etype + '> %b) {	; CHECK-LABEL: ' + func_name + 'vv:\n')
+    op_test_fp.write('  %c = ' + llvminst + ' <16 x ' + etype + '> %a, %b\n')
     op_test_fp.write('  ; CHECK: cmp' + instr_suffix +
                      ' s{{[0-9]+}}, v{{[0-9]+}}, v{{[0-9]+}}\n')
-    op_test_fp.write('  ret i32 %c\n')
+    if must_invert:
+        op_test_fp.write('  ; CHECK: xor s{{[0-9]+}}, s{{[0-9]+}}\n')
+    op_test_fp.write('  ret <16 x i1> %c\n')
     op_test_fp.write('}\n\n')
 
     # Vector op scalar
-    op_test_fp.write('define i32 @cmp' + intr_suffix + 'vs(<16 x ' + etype +
-                     '> %a, ' + etype + ' %b) {	; CHECK-LABEL: cmp' + intr_suffix + 'vs:\n')
+    op_test_fp.write('define <16 x i1> @' + func_name + 'vs(<16 x ' + etype +
+                     '> %a, ' + etype + ' %b) {	; CHECK-LABEL: ' + func_name + 'vs:\n')
     op_test_fp.write('  %single = insertelement <16 x ' +
                      etype + '> undef, ' + etype + ' %b, i32 0\n')
     op_test_fp.write('  %splat = shufflevector <16 x ' + etype +
                      '> %single, <16 x ' + etype + '> undef, <16 x i32> zeroinitializer\n')
 
-    op_test_fp.write('  %c = call i32 @llvm.nyuzi.__builtin_nyuzi_mask_cmp' +
-                     intr_suffix + '(<16 x ' + etype + '> %a, <16 x ' + etype + '> %splat)\n')
+    op_test_fp.write('  %c = ' + llvminst + ' <16 x ' + etype + '> %a, %splat\n')
     op_test_fp.write('  ; CHECK: cmp' + instr_suffix +
                      ' s{{[0-9]+}}, v{{[0-9]+}}, s{{[0-9]+}}\n')
-    op_test_fp.write('  ret i32 %c\n')
+    if must_invert:
+        op_test_fp.write('  ; CHECK: xor s{{[0-9]+}}, s{{[0-9]+}}\n')
+
+    op_test_fp.write('  ret <16 x i1> %c\n')
     op_test_fp.write('}\n\n')
 
     if instr_suffix[-2:] == '_f':
         continue
 
     # Vector op immediate
-    op_test_fp.write('define i32 @cmp' + intr_suffix + 'vI(<16 x ' + etype +
-                     '> %a, <16 x ' + etype + '> %b) {	; CHECK-LABEL: cmp' + intr_suffix + 'vI:\n')
-    op_test_fp.write('  %c = call i32 @llvm.nyuzi.__builtin_nyuzi_mask_cmp' + intr_suffix + '(<16 x ' + etype +
-                     '> %a, <16 x i32> <i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27>)\n')
+    op_test_fp.write('define <16 x i1> @' + func_name + 'vI(<16 x ' + etype +
+                     '> %a, <16 x ' + etype + '> %b) {	; CHECK-LABEL: ' + func_name + 'vI:\n')
+    op_test_fp.write('  %c = ' + llvminst + ' <16 x ' + etype + '> %a, <i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27>\n')
     op_test_fp.write('  ; CHECK: cmp' + instr_suffix +
                      ' s{{[0-9]+}}, v{{[0-9]+}}, 27\n')
-    op_test_fp.write('  ret i32 %c\n')
+    op_test_fp.write('  ret <16 x i1> %c\n')
     op_test_fp.write('}\n\n')
