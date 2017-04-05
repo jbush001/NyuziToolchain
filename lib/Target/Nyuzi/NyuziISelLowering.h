@@ -22,7 +22,7 @@ namespace llvm {
 class NyuziSubtarget;
 
 namespace NyuziISD {
-enum {
+enum NodeType {
   FIRST_NUMBER = ISD::BUILTIN_OP_END,
   CALL,
   RET_FLAG, // Return with a flag operand.
@@ -31,6 +31,15 @@ enum {
   RECIPROCAL_EST,
   BR_JT,
   JT_WRAPPER,
+  MASK_TO_INT,
+  MASK_FROM_INT,
+  // Float comparisons, see LowerSETCC
+  FGT,
+  FGE,
+  FLT,
+  FLE,
+  FEQ,
+  FNE,
 };
 }
 
@@ -74,6 +83,7 @@ private:
   SDValue LowerBUILD_VECTOR(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerVECTOR_SHUFFLE(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerINSERT_VECTOR_ELT(SDValue Op, SelectionDAG &DAG) const;
+  SDValue LowerEXTRACT_VECTOR_ELT(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerSCALAR_TO_VECTOR(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerSELECT_CC(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerSETCC(SDValue Op, SelectionDAG &DAG) const;
@@ -90,7 +100,9 @@ private:
   SDValue LowerUINT_TO_FP(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerFRAMEADDR(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerRETURNADDR(SDValue Op, SelectionDAG &DAG) const;
-  SDValue LowerSIGN_EXTEND_INREG(SDValue Op, SelectionDAG &DAG) const;
+  SDValue LowerSIGN_EXTEND(SDValue Op, SelectionDAG &DAG) const;
+  SDValue LowerZERO_EXTEND(SDValue Op, SelectionDAG &DAG) const;
+  SDValue LowerTRUNCATE(SDValue Op, SelectionDAG &DAG) const;
   MachineBasicBlock *EmitSelectCC(MachineInstr &MI,
                                   MachineBasicBlock *BB) const;
   MachineBasicBlock *EmitAtomicBinary(MachineInstr &MI, MachineBasicBlock *BB,

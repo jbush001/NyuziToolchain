@@ -196,5 +196,19 @@ define <16 x i32> @test_shuffle_undef(<16 x i32> %a, <16 x i32> %b) { ; CHECK-LA
   ret <16 x i32> %res
 }
 
+; v16i1 shuffles get translated to zext -> v16i32 shuffle -> trunc
+define <16 x i1> @test_shuffle_mix_bits(<16 x i1> %a, <16 x i1> %b) { ; CHECK-LABEL: test_shuffle_mix_bits:
+  %res = shufflevector <16 x i1> %a, <16 x i1> %b, <16 x i32> < i32 31, i32 14, i32 29, i32 12, i32 27, i32 10, i32 25, i32 8, i32 23, i32 6, i32 21, i32 4, i32 19, i32 2, i32 17, i32 0 >
 
+  ; CHECK: move v0, 0
+  ; CHECK: move_mask v0, s0, 1
+  ; CHECK: load_v [[SM_SHUFFLEVEC:v[0-9]+]], .LCPI
+  ; CHECK: shuffle v0, v0, [[SM_SHUFFLEVEC]]
+  ; CHECK: load_32 [[SM_MASK:s[0-9]+]], .LCPI
+  ; CHECK: shuffle_mask {{v[0-9]+}}, [[SM_MASK]], v1, [[SM_SHUFFLEVEC]]
+  ; CHECK: and {{v[0-9]+}}, {{v[0-9]+}}, 1
+  ; CHECK: cmpeq_i s0, {{v[0-9]+}}, 1
+
+  ret <16 x i1> %res
+}
 

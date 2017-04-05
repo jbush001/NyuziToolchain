@@ -7933,17 +7933,67 @@ Value *CodeGenFunction::EmitX86BuiltinExpr(unsigned BuiltinID,
   }
 }
 
+Value *MaskToInt(CGBuilderTy &Builder, Value *Mask)
+{
+  Value *Scalarized = Builder.CreateBitCast(Mask, Builder.getInt16Ty());
+  return Builder.CreateZExt(Scalarized, Builder.getInt32Ty());
+}
+
+Value *IntToMask(CGBuilderTy &Builder, Value *IntVal)
+{
+  Value *Truncated = Builder.CreateTrunc(IntVal, Builder.getInt16Ty());
+  return Builder.CreateBitCast(Truncated,
+    llvm::VectorType::get(Builder.getInt1Ty(), 16));
+}
+
 Value *CodeGenFunction::EmitNyuziBuiltinExpr(unsigned BuiltinID,
-                                           const CallExpr *E) {
+                                             const CallExpr *E) {
 	// Push parameters into array.
-  SmallVector<Value*, 2> Ops;
+  SmallVector<Value*, 3> Ops;
   for (unsigned i = 0; i < E->getNumArgs(); i++)
     Ops.push_back(EmitScalarExpr(E->getArg(i)));
 
-	// This maps directly to an LLVM intrinsic.  Look up the function name and create
-	// a call (which will be transformed automatically in the appropriate
-	// instruction in the backend).
-  llvm::Function *F;
+  switch (BuiltinID) {
+    case Nyuzi::BI__builtin_nyuzi_vector_mixi:
+    case Nyuzi::BI__builtin_nyuzi_vector_mixf:
+      return Builder.CreateSelect(IntToMask(Builder, Ops[0]), Ops[1], Ops[2]);
+
+    case Nyuzi::BI__builtin_nyuzi_mask_cmpi_ugt:
+      return MaskToInt(Builder, Builder.CreateICmpUGT(Ops[0], Ops[1]));
+    case Nyuzi::BI__builtin_nyuzi_mask_cmpi_uge:
+      return MaskToInt(Builder, Builder.CreateICmpUGE(Ops[0], Ops[1]));
+    case Nyuzi::BI__builtin_nyuzi_mask_cmpi_ult:
+      return MaskToInt(Builder, Builder.CreateICmpULT(Ops[0], Ops[1]));
+    case Nyuzi::BI__builtin_nyuzi_mask_cmpi_ule:
+      return MaskToInt(Builder, Builder.CreateICmpULE(Ops[0], Ops[1]));
+    case Nyuzi::BI__builtin_nyuzi_mask_cmpi_sgt:
+      return MaskToInt(Builder, Builder.CreateICmpSGT(Ops[0], Ops[1]));
+    case Nyuzi::BI__builtin_nyuzi_mask_cmpi_sge:
+      return MaskToInt(Builder, Builder.CreateICmpSGE(Ops[0], Ops[1]));
+    case Nyuzi::BI__builtin_nyuzi_mask_cmpi_slt:
+      return MaskToInt(Builder, Builder.CreateICmpSLT(Ops[0], Ops[1]));
+    case Nyuzi::BI__builtin_nyuzi_mask_cmpi_sle:
+      return MaskToInt(Builder, Builder.CreateICmpSLE(Ops[0], Ops[1]));
+    case Nyuzi::BI__builtin_nyuzi_mask_cmpi_eq:
+      return MaskToInt(Builder, Builder.CreateICmpEQ(Ops[0], Ops[1]));
+    case Nyuzi::BI__builtin_nyuzi_mask_cmpi_ne:
+      return MaskToInt(Builder, Builder.CreateICmpNE(Ops[0], Ops[1]));
+    case Nyuzi::BI__builtin_nyuzi_mask_cmpf_gt:
+      return MaskToInt(Builder, Builder.CreateFCmpOGT(Ops[0], Ops[1]));
+    case Nyuzi::BI__builtin_nyuzi_mask_cmpf_ge:
+      return MaskToInt(Builder, Builder.CreateFCmpOGE(Ops[0], Ops[1]));
+    case Nyuzi::BI__builtin_nyuzi_mask_cmpf_lt:
+      return MaskToInt(Builder, Builder.CreateFCmpOLT(Ops[0], Ops[1]));
+    case Nyuzi::BI__builtin_nyuzi_mask_cmpf_le:
+      return MaskToInt(Builder, Builder.CreateFCmpOLE(Ops[0], Ops[1]));
+    case Nyuzi::BI__builtin_nyuzi_mask_cmpf_eq:
+      return MaskToInt(Builder, Builder.CreateFCmpOEQ(Ops[0], Ops[1]));
+    case Nyuzi::BI__builtin_nyuzi_mask_cmpf_ne:
+      return MaskToInt(Builder, Builder.CreateFCmpONE(Ops[0], Ops[1]));
+  }
+
+  // Map directly to intrinsics
+  llvm::Function *F = nullptr;
   switch (BuiltinID) {
     case Nyuzi::BI__builtin_nyuzi_read_control_reg:
       F = CGM.getIntrinsic(Intrinsic::nyuzi_read_control_reg);
@@ -7957,23 +8007,11 @@ Value *CodeGenFunction::EmitNyuziBuiltinExpr(unsigned BuiltinID,
     case Nyuzi::BI__builtin_nyuzi_shufflef:
       F = CGM.getIntrinsic(Intrinsic::nyuzi_shufflef);
       break;
-    case Nyuzi::BI__builtin_nyuzi_vector_mixi:
-      F = CGM.getIntrinsic(Intrinsic::nyuzi_vector_mixi);
-      break;
-    case Nyuzi::BI__builtin_nyuzi_vector_mixf:
-      F = CGM.getIntrinsic(Intrinsic::nyuzi_vector_mixf);
-      break;
     case Nyuzi::BI__builtin_nyuzi_gather_loadi:
       F = CGM.getIntrinsic(Intrinsic::nyuzi_gather_loadi);
       break;
     case Nyuzi::BI__builtin_nyuzi_gather_loadf:
       F = CGM.getIntrinsic(Intrinsic::nyuzi_gather_loadf);
-      break;
-    case Nyuzi::BI__builtin_nyuzi_gather_loadi_masked:
-      F = CGM.getIntrinsic(Intrinsic::nyuzi_gather_loadi_masked);
-      break;
-    case Nyuzi::BI__builtin_nyuzi_gather_loadf_masked:
-      F = CGM.getIntrinsic(Intrinsic::nyuzi_gather_loadf_masked);
       break;
     case Nyuzi::BI__builtin_nyuzi_scatter_storei:
       F = CGM.getIntrinsic(Intrinsic::nyuzi_scatter_storei);
@@ -7981,79 +8019,75 @@ Value *CodeGenFunction::EmitNyuziBuiltinExpr(unsigned BuiltinID,
     case Nyuzi::BI__builtin_nyuzi_scatter_storef:
       F = CGM.getIntrinsic(Intrinsic::nyuzi_scatter_storef);
       break;
+  }
+
+  if (F)
+    return Builder.CreateCall(F, Ops);
+
+  // These are all masked memory operands.
+  // XXX These nyuzi types should be replaced by existing LLVM intrinsics.
+  SmallVector<Value*, 2> MemOps;
+  MemOps.push_back(EmitScalarExpr(E->getArg(0)));
+  switch (BuiltinID) {
+    // (vec16_t ptrs, int mask)
+    case Nyuzi::BI__builtin_nyuzi_gather_loadi_masked:
+      F = CGM.getIntrinsic(Intrinsic::nyuzi_gather_loadi_masked);
+      MemOps.push_back(IntToMask(Builder, EmitScalarExpr(E->getArg(1))));
+      break;
+    case Nyuzi::BI__builtin_nyuzi_gather_loadf_masked:
+      F = CGM.getIntrinsic(Intrinsic::nyuzi_gather_loadf_masked);
+      MemOps.push_back(IntToMask(Builder, EmitScalarExpr(E->getArg(1))));
+      break;
+
+    // (vec16_t *ptrs, vec16_t values)
+    case Nyuzi::BI__builtin_nyuzi_scatter_storef:
+      F = CGM.getIntrinsic(Intrinsic::nyuzi_scatter_storef);
+      MemOps.push_back(EmitScalarExpr(E->getArg(1)));
+      break;
+    case Nyuzi::BI__builtin_nyuzi_scatter_storei:
+      F = CGM.getIntrinsic(Intrinsic::nyuzi_scatter_storei);
+      MemOps.push_back(EmitScalarExpr(E->getArg(1)));
+      break;
+
+    // (vec16_t ptrs, vecf16_t values, int mask)
     case Nyuzi::BI__builtin_nyuzi_scatter_storei_masked:
       F = CGM.getIntrinsic(Intrinsic::nyuzi_scatter_storei_masked);
+      MemOps.push_back(EmitScalarExpr(E->getArg(1)));
+      MemOps.push_back(IntToMask(Builder, EmitScalarExpr(E->getArg(2))));
       break;
     case Nyuzi::BI__builtin_nyuzi_scatter_storef_masked:
       F = CGM.getIntrinsic(Intrinsic::nyuzi_scatter_storef_masked);
+      MemOps.push_back(EmitScalarExpr(E->getArg(1)));
+      MemOps.push_back(IntToMask(Builder, EmitScalarExpr(E->getArg(2))));
       break;
+
+    // (vec16_t *ptr, int mask)
     case Nyuzi::BI__builtin_nyuzi_block_loadi_masked:
       F = CGM.getIntrinsic(Intrinsic::nyuzi_block_loadi_masked);
+      MemOps.push_back(IntToMask(Builder, EmitScalarExpr(E->getArg(1))));
       break;
     case Nyuzi::BI__builtin_nyuzi_block_loadf_masked:
       F = CGM.getIntrinsic(Intrinsic::nyuzi_block_loadf_masked);
+      MemOps.push_back(IntToMask(Builder, EmitScalarExpr(E->getArg(1))));
       break;
+
+    // (vec16_t *ptr, vec16_t values, int mask)
     case Nyuzi::BI__builtin_nyuzi_block_storei_masked:
       F = CGM.getIntrinsic(Intrinsic::nyuzi_block_storei_masked);
+      MemOps.push_back(EmitScalarExpr(E->getArg(1)));
+      MemOps.push_back(IntToMask(Builder, EmitScalarExpr(E->getArg(2))));
       break;
     case Nyuzi::BI__builtin_nyuzi_block_storef_masked:
       F = CGM.getIntrinsic(Intrinsic::nyuzi_block_storef_masked);
+      MemOps.push_back(EmitScalarExpr(E->getArg(1)));
+      MemOps.push_back(IntToMask(Builder, EmitScalarExpr(E->getArg(2))));
       break;
 
-    // Vector comparisions
-    case Nyuzi::BI__builtin_nyuzi_mask_cmpi_ugt:
-      F = CGM.getIntrinsic(Intrinsic::nyuzi_mask_cmpi_ugt);
-      break;
-    case Nyuzi::BI__builtin_nyuzi_mask_cmpi_uge:
-      F = CGM.getIntrinsic(Intrinsic::nyuzi_mask_cmpi_uge);
-      break;
-    case Nyuzi::BI__builtin_nyuzi_mask_cmpi_ult:
-      F = CGM.getIntrinsic(Intrinsic::nyuzi_mask_cmpi_ult);
-      break;
-    case Nyuzi::BI__builtin_nyuzi_mask_cmpi_ule:
-      F = CGM.getIntrinsic(Intrinsic::nyuzi_mask_cmpi_ule);
-      break;
-    case Nyuzi::BI__builtin_nyuzi_mask_cmpi_sgt:
-      F = CGM.getIntrinsic(Intrinsic::nyuzi_mask_cmpi_sgt);
-      break;
-    case Nyuzi::BI__builtin_nyuzi_mask_cmpi_sge:
-      F = CGM.getIntrinsic(Intrinsic::nyuzi_mask_cmpi_sge);
-      break;
-    case Nyuzi::BI__builtin_nyuzi_mask_cmpi_slt:
-      F = CGM.getIntrinsic(Intrinsic::nyuzi_mask_cmpi_slt);
-      break;
-    case Nyuzi::BI__builtin_nyuzi_mask_cmpi_sle:
-      F = CGM.getIntrinsic(Intrinsic::nyuzi_mask_cmpi_sle);
-      break;
-    case Nyuzi::BI__builtin_nyuzi_mask_cmpi_eq:
-      F = CGM.getIntrinsic(Intrinsic::nyuzi_mask_cmpi_eq);
-      break;
-    case Nyuzi::BI__builtin_nyuzi_mask_cmpi_ne:
-      F = CGM.getIntrinsic(Intrinsic::nyuzi_mask_cmpi_ne);
-      break;
-    case Nyuzi::BI__builtin_nyuzi_mask_cmpf_gt:
-      F = CGM.getIntrinsic(Intrinsic::nyuzi_mask_cmpf_gt);
-      break;
-    case Nyuzi::BI__builtin_nyuzi_mask_cmpf_ge:
-      F = CGM.getIntrinsic(Intrinsic::nyuzi_mask_cmpf_ge);
-      break;
-    case Nyuzi::BI__builtin_nyuzi_mask_cmpf_lt:
-      F = CGM.getIntrinsic(Intrinsic::nyuzi_mask_cmpf_lt);
-      break;
-    case Nyuzi::BI__builtin_nyuzi_mask_cmpf_le:
-      F = CGM.getIntrinsic(Intrinsic::nyuzi_mask_cmpf_le);
-      break;
-    case Nyuzi::BI__builtin_nyuzi_mask_cmpf_eq:
-      F = CGM.getIntrinsic(Intrinsic::nyuzi_mask_cmpf_eq);
-      break;
-    case Nyuzi::BI__builtin_nyuzi_mask_cmpf_ne:
-      F = CGM.getIntrinsic(Intrinsic::nyuzi_mask_cmpf_ne);
-      break;
     default:
-      return 0;
+      llvm_unreachable("Unknown builtin");
   }
 
-  return Builder.CreateCall(F, Ops, "");
+  return Builder.CreateCall(F, MemOps);
 }
 
 Value *CodeGenFunction::EmitPPCBuiltinExpr(unsigned BuiltinID,

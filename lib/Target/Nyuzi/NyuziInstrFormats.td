@@ -27,6 +27,13 @@ def wrapper : SDNode<"NyuziISD::WRAPPER", SDTIntUnaryOp>;
 def reciprocal : SDNode<"NyuziISD::RECIPROCAL_EST", SDTFPUnaryOp>;
 def jtwrapper : SDNode<"NyuziISD::JT_WRAPPER", SDTIntUnaryOp>;
 
+// Nop conversions between i1 vectors and integers.
+// Mapped to pseudo instructions because ISel doesn't like type punning in patterns.
+def mask_to_int : SDNode<"NyuziISD::MASK_TO_INT", SDTypeProfile<1, 1,
+  [SDTCisVT<0, i32>, SDTCisVT<1, v16i1>]>>;
+def mask_from_int : SDNode<"NyuziISD::MASK_FROM_INT", SDTypeProfile<1, 1,
+  [SDTCisVT<0, v16i1>, SDTCisVT<1, i32>]>>;
+
 def SDT_BRJT : SDTypeProfile<0, 2, [SDTCisPtrTy<0>, SDTCisVT<1, i32>]>;
 def brjt : SDNode<"NyuziISD::BR_JT", SDT_BRJT, [SDNPHasChain]>;
 
@@ -328,7 +335,7 @@ multiclass TwoOpIntArith<string operator, SDNode OpNode, bits<6> opcode> {
       (outs VR512:$dest),
       (ins GPR32:$mask, VR512:$src1, VR512:$src2, VR512:$oldvalue),
       operator # "_mask $dest, $mask, $src1, $src2",
-      [(set v16i32:$dest, (int_nyuzi_vector_mixi i32:$mask, (OpNode v16i32:$src1, v16i32:$src2), v16i32:$oldvalue))],
+      [(set v16i32:$dest, (vselect v16i1:$mask, (OpNode v16i32:$src1, v16i32:$src2), v16i32:$oldvalue))],
       opcode,
       FmtR_VVVM,
       II_INT>;
@@ -338,7 +345,7 @@ multiclass TwoOpIntArith<string operator, SDNode OpNode, bits<6> opcode> {
       (outs VR512:$dest),
       (ins GPR32:$mask, VR512:$src1, GPR32:$src2, VR512:$oldvalue),
       operator # "_mask $dest, $mask, $src1, $src2",
-      [(set v16i32:$dest, (int_nyuzi_vector_mixi i32:$mask, (OpNode v16i32:$src1, (splat i32:$src2)), v16i32:$oldvalue))],
+      [(set v16i32:$dest, (vselect v16i1:$mask, (OpNode v16i32:$src1, (splat i32:$src2)), v16i32:$oldvalue))],
       opcode,
       FmtR_VVSM,
       II_INT>;
@@ -381,7 +388,7 @@ multiclass TwoOpIntArith<string operator, SDNode OpNode, bits<6> opcode> {
       (outs VR512:$dest),
       (ins GPR32:$mask, VR512:$src1, SIMM8OP:$imm, VR512:$oldvalue),
       operator # "_mask $dest, $mask, $src1, $imm",
-      [(set v16i32:$dest, (int_nyuzi_vector_mixi i32:$mask, (OpNode v16i32:$src1, (splat simm8:$imm)), v16i32:$oldvalue))],
+      [(set v16i32:$dest, (vselect v16i1:$mask, (OpNode v16i32:$src1, (splat simm8:$imm)), v16i32:$oldvalue))],
       opcode{4-0},
       FmtI_VVM,
       II_INT>;
@@ -391,7 +398,7 @@ multiclass TwoOpIntArith<string operator, SDNode OpNode, bits<6> opcode> {
       (outs VR512:$dest),
       (ins GPR32:$mask, GPR32:$src1, SIMM8OP:$imm, VR512:$oldvalue),
       operator # "_mask $dest, $mask, $src1, $imm",
-      [(set v16i32:$dest, (int_nyuzi_vector_mixi i32:$mask, (OpNode (splat i32:$src1), (splat simm8:$imm)), v16i32:$oldvalue))],
+      [(set v16i32:$dest, (vselect v16i1:$mask, (OpNode (splat i32:$src1), (splat simm8:$imm)), v16i32:$oldvalue))],
       opcode{4-0},
       FmtI_VSM,
       II_INT>;
@@ -436,7 +443,7 @@ multiclass TwoOpFloatArith<string operator, SDNode OpNode, bits<6> opcode> {
       (outs VR512:$dest),
       (ins GPR32:$mask, VR512:$src1, VR512:$src2, VR512:$oldvalue),
       operator # "_mask $dest, $mask, $src1, $src2",
-      [(set VR512:$dest, (int_nyuzi_vector_mixf i32:$mask, (OpNode v16f32:$src1,
+      [(set VR512:$dest, (vselect v16i1:$mask, (OpNode v16f32:$src1,
         v16f32:$src2), v16f32:$oldvalue))],
       opcode,
       FmtR_VVVM,
@@ -447,7 +454,7 @@ multiclass TwoOpFloatArith<string operator, SDNode OpNode, bits<6> opcode> {
       (outs VR512:$dest),
       (ins GPR32:$mask, VR512:$src1, GPR32:$src2, VR512:$oldvalue),
       operator # "_mask $dest, $mask, $src1, $src2",
-      [(set v16f32:$dest, (int_nyuzi_vector_mixf i32:$mask, (OpNode v16f32:$src1,
+      [(set v16f32:$dest, (vselect v16i1:$mask, (OpNode v16f32:$src1,
         (splat f32:$src2)), v16f32:$oldvalue))],
       opcode,
       FmtR_VVSM,
@@ -489,7 +496,7 @@ multiclass OneOpIntArith<string operator, SDNode OpNode, bits<6> opcode> {
       (outs VR512:$dest),
       (ins GPR32:$mask, VR512:$src2, VR512:$oldvalue),
       operator # "_mask $dest, $mask, $src2",
-      [(set v16i32:$dest, (int_nyuzi_vector_mixi i32:$mask, (OpNode v16i32:$src2),
+      [(set v16i32:$dest, (vselect v16i1:$mask, (OpNode v16i32:$src2),
         v16i32:$oldvalue))],
       opcode,
       FmtR_VVVM,
@@ -499,7 +506,7 @@ multiclass OneOpIntArith<string operator, SDNode OpNode, bits<6> opcode> {
       (outs VR512:$dest),
       (ins GPR32:$mask, GPR32:$src2, VR512:$oldvalue),
       operator # "_mask $dest, $mask, $src2",
-      [(set v16i32:$dest, (int_nyuzi_vector_mixi i32:$mask, (OpNode (splat i32:$src2)),
+      [(set v16i32:$dest, (vselect v16i1:$mask, (OpNode (splat i32:$src2)),
         v16i32:$oldvalue))],
       opcode,
       FmtR_VVSM,
@@ -541,7 +548,7 @@ multiclass OneOpFloatArith<string operator, SDNode OpNode, bits<6> opcode> {
       (outs VR512:$dest),
       (ins GPR32:$mask, VR512:$src2, VR512:$oldvalue),
       operator # "_mask $dest, $mask, $src2",
-      [(set v16f32:$dest, (int_nyuzi_vector_mixf i32:$mask, (OpNode v16f32:$src2),
+      [(set v16f32:$dest, (vselect v16i1:$mask, (OpNode v16f32:$src2),
         v16f32:$oldvalue))],
       opcode,
       FmtR_VVVM,
@@ -551,7 +558,7 @@ multiclass OneOpFloatArith<string operator, SDNode OpNode, bits<6> opcode> {
       (outs VR512:$dest),
       (ins GPR32:$mask, GPR32:$src2, VR512:$oldvalue),
       operator # "_mask $dest, $mask, $src2",
-      [(set v16f32:$dest, (int_nyuzi_vector_mixf i32:$mask, (OpNode (splat f32:$src2)),
+      [(set v16f32:$dest, (vselect v16i1:$mask, (OpNode (splat f32:$src2)),
         v16f32:$oldvalue))],
       opcode,
       FmtR_VVSM,
@@ -560,7 +567,7 @@ multiclass OneOpFloatArith<string operator, SDNode OpNode, bits<6> opcode> {
 }
 
 multiclass IntCompareInst<string operator, CondCode condition,
-  bits<6> opcode, Intrinsic vectorIntr> {
+  bits<6> opcode> {
   // Instruction format A, integer
   def SS : FormatRUnmaskedTwoOpInst<
     (outs GPR32:$dest),
@@ -575,7 +582,7 @@ multiclass IntCompareInst<string operator, CondCode condition,
     (outs GPR32:$dest),
     (ins VR512:$src1, VR512:$src2),
     operator # " $dest, $src1, $src2",
-    [(set i32:$dest, (vectorIntr v16i32:$src1, v16i32:$src2))],
+    [(set v16i1:$dest, (setcc v16i32:$src1, v16i32:$src2, condition))],
     opcode,
     FmtR_VVV,
     II_INT>;
@@ -584,7 +591,7 @@ multiclass IntCompareInst<string operator, CondCode condition,
     (outs GPR32:$dest),
     (ins VR512:$src1, GPR32:$src2),
     operator # " $dest, $src1, $src2",
-    [(set i32:$dest, (vectorIntr v16i32:$src1, (splat i32:$src2)))],
+    [(set v16i1:$dest, (setcc v16i32:$src1, (splat i32:$src2), condition))],
     opcode,
     FmtR_VVS,
     II_INT>;
@@ -603,19 +610,18 @@ multiclass IntCompareInst<string operator, CondCode condition,
     (outs GPR32:$dest),
     (ins VR512:$src1, SIMM13OP:$imm),
     operator # " $dest, $src1, $imm",
-    [(set i32:$dest, (vectorIntr v16i32:$src1, (splat simm13:$imm)))],
+    [(set v16i1:$dest, (setcc v16i32:$src1, (splat simm13:$imm), condition))],
     opcode{4-0},
     FmtI_VV,
     II_INT>;
 }
 
-multiclass FloatCompareInst<string operator, CondCode condition, bits<6> opcode,
-  Intrinsic vectorIntr> {
+multiclass FloatCompareInst<string operator, SDNode OpNode, bits<6> opcode> {
   def SS : FormatRUnmaskedTwoOpInst<
     (outs GPR32:$dest),
     (ins GPR32:$src1, GPR32:$src2),
     operator # "_f $dest, $src1, $src2",
-    [(set i32:$dest, (setcc f32:$src1, f32:$src2, condition))],
+    [(set i32:$dest, (OpNode f32:$src1, f32:$src2))],
     opcode,
     FmtR_SSS,
     II_FLOAT>;
@@ -624,7 +630,7 @@ multiclass FloatCompareInst<string operator, CondCode condition, bits<6> opcode,
     (outs GPR32:$dest),
     (ins VR512:$src1, VR512:$src2),
     operator # "_f $dest, $src1, $src2",
-    [(set i32:$dest, (vectorIntr v16f32:$src1, v16f32:$src2))],
+    [(set v16i1:$dest, (OpNode v16f32:$src1, v16f32:$src2))],
     opcode,
     FmtR_VVV,
     II_FLOAT>;
@@ -633,11 +639,12 @@ multiclass FloatCompareInst<string operator, CondCode condition, bits<6> opcode,
     (outs GPR32:$dest),
     (ins VR512:$src1, GPR32:$src2),
     operator # "_f $dest, $src1, $src2",
-    [(set i32:$dest, (vectorIntr v16f32:$src1, (splat f32:$src2)))],
+    [(set v16i1:$dest, (OpNode v16f32:$src1, (splat f32:$src2)))],
     opcode,
     FmtR_VVS,
     II_FLOAT>;
 }
+
 
 //////////////////////////////////////////////////////////////////
 // Format M: Memory instructions

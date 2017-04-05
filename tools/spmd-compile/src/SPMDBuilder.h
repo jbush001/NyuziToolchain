@@ -55,6 +55,8 @@ public:
   llvm::Value *createConstant(float value);
 
   llvm::Type *sFloatType;
+  llvm::Type *sMaskType;
+  llvm::Type *sMaskIntType;
 
 private:
   struct MaskStackEntry {

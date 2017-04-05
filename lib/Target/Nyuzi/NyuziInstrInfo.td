@@ -110,23 +110,46 @@ def FTOSIVS : FormatRUnmaskedOneOpInst<
   FmtR_VVS,
   II_FLOAT>;
 
-defm SGTSI : IntCompareInst<"cmpgt_i", SETGT, 0x12, int_nyuzi_mask_cmpi_sgt>;
-defm SGESI : IntCompareInst<"cmpge_i", SETGE, 0x13, int_nyuzi_mask_cmpi_sge>;
-defm SLTSI : IntCompareInst<"cmplt_i", SETLT, 0x14, int_nyuzi_mask_cmpi_slt>;
-defm SLESI : IntCompareInst<"cmple_i", SETLE, 0x15, int_nyuzi_mask_cmpi_sle>;
-defm SEQSI : IntCompareInst<"cmpeq_i", SETEQ, 0x10, int_nyuzi_mask_cmpi_eq>;
-defm SNESI : IntCompareInst<"cmpne_i", SETNE, 0x11, int_nyuzi_mask_cmpi_ne>;
-defm SGTUI : IntCompareInst<"cmpgt_u", SETUGT, 0x16, int_nyuzi_mask_cmpi_ugt>;
-defm SGEUI : IntCompareInst<"cmpge_u", SETUGE, 0x17, int_nyuzi_mask_cmpi_uge>;
-defm SLTUI : IntCompareInst<"cmplt_u", SETULT, 0x18, int_nyuzi_mask_cmpi_ult>;
-defm SLEUI : IntCompareInst<"cmple_u", SETULE, 0x19, int_nyuzi_mask_cmpi_ule>;
+defm SGTSI : IntCompareInst<"cmpgt_i", SETGT, 0x12>;
+defm SGESI : IntCompareInst<"cmpge_i", SETGE, 0x13>;
+defm SLTSI : IntCompareInst<"cmplt_i", SETLT, 0x14>;
+defm SLESI : IntCompareInst<"cmple_i", SETLE, 0x15>;
+defm SEQSI : IntCompareInst<"cmpeq_i", SETEQ, 0x10>;
+defm SNESI : IntCompareInst<"cmpne_i", SETNE, 0x11>;
+defm SGTUI : IntCompareInst<"cmpgt_u", SETUGT, 0x16>;
+defm SGEUI : IntCompareInst<"cmpge_u", SETUGE, 0x17>;
+defm SLTUI : IntCompareInst<"cmplt_u", SETULT, 0x18>;
+defm SLEUI : IntCompareInst<"cmple_u", SETULE, 0x19>;
 
-defm SGTFO : FloatCompareInst<"cmpgt", SETOGT, 0x2c, int_nyuzi_mask_cmpf_gt>;
-defm SGEFO : FloatCompareInst<"cmpge", SETOGE, 0x2d, int_nyuzi_mask_cmpf_ge>;
-defm SLTFO : FloatCompareInst<"cmplt", SETOLT, 0x2e, int_nyuzi_mask_cmpf_lt>;
-defm SLEFO : FloatCompareInst<"cmple", SETOLE, 0x2f, int_nyuzi_mask_cmpf_le>;
-defm SEQFO : FloatCompareInst<"cmpeq", SETOEQ, 0x30, int_nyuzi_mask_cmpf_eq>;
-defm SNEFO : FloatCompareInst<"cmpne", SETONE, 0x31, int_nyuzi_mask_cmpf_ne>;
+// Float comparisons are lowered to custom SDNodes so that unsupported
+// comparisons can be turned into legal comparisons plus some logical
+// operations, which may lead to an infinite loop
+def FloatCompareType: SDTypeProfile<1, 2, [
+  SDTCisInt<0>, SDTCisFP<1>, SDTCisSameAs<1, 2>
+]>;
+def FGT: SDNode<"NyuziISD::FGT", FloatCompareType>;
+def FGE: SDNode<"NyuziISD::FGE", FloatCompareType>;
+def FLT: SDNode<"NyuziISD::FLT", FloatCompareType>;
+def FLE: SDNode<"NyuziISD::FLE", FloatCompareType>;
+def FEQ: SDNode<"NyuziISD::FEQ", FloatCompareType>;
+def FNE: SDNode<"NyuziISD::FNE", FloatCompareType>;
+
+defm SGTFO : FloatCompareInst<"cmpgt", FGT, 0x2c>;
+defm SGEFO : FloatCompareInst<"cmpge", FGE, 0x2d>;
+defm SLTFO : FloatCompareInst<"cmplt", FLT, 0x2e>;
+defm SLEFO : FloatCompareInst<"cmple", FLE, 0x2f>;
+defm SEQFO : FloatCompareInst<"cmpeq", FEQ, 0x30>;
+defm SNEFO : FloatCompareInst<"cmpne", FNE, 0x31>;
+
+// Mask operations (register-register)
+def : Pat<(or v16i1:$src1, v16i1:$src2), (ORSSS v16i1:$src1, v16i1:$src2)>;
+def : Pat<(and v16i1:$src1, v16i1:$src2), (ANDSSS v16i1:$src1, v16i1:$src2)>;
+def : Pat<(xor v16i1:$src1, v16i1:$src2), (XORSSS v16i1:$src1, v16i1:$src2)>;
+// Mask operations (register-immediate)
+def : Pat<(or v16i1:$src1, (mask_from_int simm13:$src2)), (ORSSI v16i1:$src1, simm13:$src2)>;
+def : Pat<(and v16i1:$src1, (mask_from_int simm13:$src2)), (ANDSSI v16i1:$src1, simm13:$src2)>;
+def : Pat<(xor v16i1:$src1, (mask_from_int simm13:$src2)), (XORSSI v16i1:$src1, simm13:$src2)>;
+
 
 def GET_LANEI : FormatRUnmaskedTwoOpInst<
   (outs GPR32:$dest),
@@ -165,19 +188,20 @@ let Constraints = "$dest = $oldvalue" in {
     (outs VR512:$dest),
     (ins GPR32:$mask, VR512:$src1, VR512:$src2, VR512:$oldvalue),
     "shuffle_mask $dest, $mask, $src1, $src2",
-    [(set v16i32:$dest, (int_nyuzi_vector_mixi i32:$mask, (int_nyuzi_shufflei v16i32:$src1,
+    [(set v16i32:$dest, (vselect v16i1:$mask, (int_nyuzi_shufflei v16i32:$src1,
       v16i32:$src2), v16i32:$oldvalue))],
     0x0d,
     FmtR_VVVM,
     II_INT>;
 }
 
+
 // Floating point shuffle forms
 def : Pat<(int_nyuzi_shufflef v16f32:$src1, v16i32:$src2),
   (SHUFFLEI v16f32:$src1, v16i32:$src2)>;
-def : Pat<(int_nyuzi_vector_mixf i32:$mask, (int_nyuzi_shufflef v16f32:$src1, v16i32:$src2),
+def : Pat<(vselect v16i1:$mask, (int_nyuzi_shufflef v16f32:$src1, v16i32:$src2),
   v16f32:$oldvalue),
-  (SHUFFLEI_MASK i32:$mask, v16f32:$src1, v16i32:$src2, v16f32:$oldvalue)>;
+  (SHUFFLEI_MASK v16i1:$mask, v16f32:$src1, v16i32:$src2, v16f32:$oldvalue)>;
 
 def MOVESS : FormatRUnmaskedOneOpInst<
   (outs GPR32:$dest),
@@ -187,6 +211,11 @@ def MOVESS : FormatRUnmaskedOneOpInst<
   0xf,
   FmtR_SSS,
   II_INT>;
+
+// v16i1<->i32 type punning. Lowered to a generic COPY MachineInst,
+// which is transparent to the rest of LLVM and can be optimized.
+def : Pat<(i32 (mask_to_int v16i1:$src)), (COPY $src)>;
+def : Pat<(v16i1 (mask_from_int i32:$src)), (COPY $src)>;
 
 // This should only be invoked for types that will fit in the immediate field
 // of the instruction.  The lowering code will transform other types into
@@ -235,7 +264,7 @@ let Constraints = "$dest = $oldvalue" in {
     (outs VR512:$dest),
     (ins GPR32:$mask, VR512:$src2, VR512:$oldvalue),
     "move_mask $dest, $mask, $src2",
-    [(set v16i32:$dest, (int_nyuzi_vector_mixi i32:$mask, v16i32:$src2, v16i32:$oldvalue))],
+    [(set v16i32:$dest, (vselect v16i1:$mask, v16i32:$src2, v16i32:$oldvalue))],
     0xf,
     FmtR_VVVM,
     II_INT>;
@@ -244,7 +273,7 @@ let Constraints = "$dest = $oldvalue" in {
     (outs VR512:$dest),
     (ins GPR32:$mask, SIMM8OP:$imm, VR512:$oldvalue),
     "move_mask $dest, $mask, $imm",
-    [(set v16i32:$dest, (int_nyuzi_vector_mixi i32:$mask, (splat imm:$imm), v16i32:$oldvalue))],  // simm8?
+    [(set v16i32:$dest, (vselect v16i1:$mask, (splat imm:$imm), v16i32:$oldvalue))],  // simm8?
     0xf,
     FmtI_VSM,
     II_INT>;
@@ -253,16 +282,16 @@ let Constraints = "$dest = $oldvalue" in {
     (outs VR512:$dest),
     (ins GPR32:$mask, GPR32:$src2, VR512:$oldvalue),
     "move_mask $dest, $mask, $src2",
-    [(set v16i32:$dest, (int_nyuzi_vector_mixi i32:$mask, (splat i32:$src2), v16i32:$oldvalue))],
+    [(set v16i32:$dest, (vselect v16i1:$mask, (splat i32:$src2), v16i32:$oldvalue))],
     0xf,
     FmtR_VVSM,
     II_INT>;
 }
 
-def : Pat<(int_nyuzi_vector_mixf i32:$mask, v16f32:$src2, v16f32:$oldvalue),
-  (MOVEVVMI i32:$mask, v16f32:$src2, v16f32:$oldvalue)>;
-def : Pat<(int_nyuzi_vector_mixf i32:$mask, (splat f32:$src2), v16f32:$oldvalue),
-  (MOVEVSMI i32:$mask, f32:$src2, v16f32:$oldvalue)>;
+def : Pat<(vselect v16i1:$mask, v16f32:$src2, v16f32:$oldvalue),
+  (MOVEVVMI v16i1:$mask, v16f32:$src2, v16f32:$oldvalue)>;
+def : Pat<(vselect v16i1:$mask, (splat f32:$src2), v16f32:$oldvalue),
+  (MOVEVSMI v16i1:$mask, f32:$src2, v16f32:$oldvalue)>;
 
 //////////////////////////////////////////////////////////////////
 // Memory Access (Format C)
@@ -295,7 +324,7 @@ let mayLoad = 1 in {
     (outs VR512:$srcDest),
     (ins MEMS10:$addr, GPR32:$mask),
     "load_v_mask $srcDest, $mask, $addr",
-    [(set v16i32:$srcDest, (int_nyuzi_block_loadi_masked ADDRri:$addr, i32:$mask))],
+    [(set v16i32:$srcDest, (int_nyuzi_block_loadi_masked ADDRri:$addr, v16i1:$mask))],
     FmtM_BlockMasked,
     1>;
 
@@ -303,15 +332,14 @@ let mayLoad = 1 in {
     (outs VR512:$srcDest),
     (ins MEMV15:$addr),
     "load_gath $srcDest, $addr",
-    [(set v16i32:$srcDest, (int_nyuzi_gather_loadi VADDRri:$addr))],
-    FmtM_ScGath,
+    [(set v16i32:$srcDest, (int_nyuzi_gather_loadi VADDRri:$addr))], FmtM_ScGath,
     1>;
 
   def INT_GATHER_LOADI_MASKED : FormatMMaskedInst<
     (outs VR512:$srcDest),
     (ins MEMV10:$addr, GPR32:$mask),
     "load_gath_mask $srcDest, $mask, $addr",
-    [(set v16i32:$srcDest, (int_nyuzi_gather_loadi_masked VADDRri:$addr, i32:$mask))],
+    [(set v16i32:$srcDest, (int_nyuzi_gather_loadi_masked VADDRri:$addr, v16i1:$mask))],
     FmtM_ScGathMasked,
     1>;
 }
@@ -322,11 +350,12 @@ def : Pat<(i32 (extloadi8 ADDRri:$addr)), (LBU ADDRri:$addr)>;
 def : Pat<(i32 (extloadi16 ADDRri:$addr)), (LSS ADDRri:$addr)>;
 def : Pat<(f32 (load ADDRri:$addr)), (LW ADDRri:$addr)>;
 def : Pat<(v16f32 (load ADDRri:$addr)), (BLOCK_LOADI ADDRri:$addr)>;
-def : Pat<(int_nyuzi_block_loadf_masked ADDRri:$addr, i32:$mask),
-  (INT_BLOCK_LOADI_MASKED ADDRri:$addr, i32:$mask)>;
+def : Pat<(int_nyuzi_block_loadf_masked ADDRri:$addr, v16i1:$mask),
+  (INT_BLOCK_LOADI_MASKED ADDRri:$addr, v16i1:$mask)>;
 def : Pat<(int_nyuzi_gather_loadf VADDRri:$addr), (INT_GATHER_LOADI VADDRri:$addr)>;
-def : Pat<(int_nyuzi_gather_loadf_masked VADDRri:$addr, i32:$mask),
-  (INT_GATHER_LOADI_MASKED VADDRri:$addr, i32:$mask)>;
+def : Pat<(int_nyuzi_gather_loadf_masked VADDRri:$addr, v16i1:$mask),
+  (INT_GATHER_LOADI_MASKED VADDRri:$addr, v16i1:$mask)>;
+def : Pat<(v16i1 (load ADDRri:$addr)), (LSU ADDRri:$addr)>;
 
 let mayStore = 1 in {
   def SB : ScalarStoreInst<"8", truncstorei8, FmtM_Byte_Signed>;
@@ -354,7 +383,7 @@ let mayStore = 1 in {
     (outs),
     (ins VR512:$srcDest, MEMS10:$addr, GPR32:$mask), // XXX needs to
     "store_v_mask $srcDest, $mask, $addr",
-    [(int_nyuzi_block_storei_masked ADDRri:$addr, v16i32:$srcDest, i32:$mask)],
+    [(int_nyuzi_block_storei_masked ADDRri:$addr, v16i32:$srcDest, v16i1:$mask)],
     FmtM_BlockMasked,
     0>;
 
@@ -370,19 +399,20 @@ let mayStore = 1 in {
     (outs),
     (ins VR512:$srcDest, MEMV10:$addr, GPR32:$mask),
     "store_scat_mask $srcDest, $mask, $addr",
-    [(int_nyuzi_scatter_storei_masked VADDRri:$addr, v16i32:$srcDest, i32:$mask)],
+    [(int_nyuzi_scatter_storei_masked VADDRri:$addr, v16i32:$srcDest, v16i1:$mask)],
     FmtM_ScGathMasked,
     0>;
 }
 
 def : Pat<(store f32:$srcDest, ADDRri:$addr), (SW f32:$srcDest, ADDRri:$addr)>;
 def : Pat<(store v16f32:$srcDest, ADDRri:$addr), (BLOCK_STOREI v16f32:$srcDest, ADDRri:$addr)>;
-def : Pat<(int_nyuzi_block_storef_masked ADDRri:$addr, v16f32:$srcDest, i32:$mask),
-  (INT_BLOCK_STOREI_MASKED v16f32:$srcDest, ADDRri:$addr, i32:$mask)>;
+def : Pat<(int_nyuzi_block_storef_masked ADDRri:$addr, v16f32:$srcDest, v16i1:$mask),
+  (INT_BLOCK_STOREI_MASKED v16f32:$srcDest, ADDRri:$addr, v16i1:$mask)>;
 def : Pat<(int_nyuzi_scatter_storef VADDRri:$addr, v16f32:$srcDest),
   (INT_SCATTER_STOREI v16f32:$srcDest, VADDRri:$addr)>;
-def : Pat<(int_nyuzi_scatter_storef_masked VADDRri:$addr, v16f32:$srcDest, i32:$mask),
-  (INT_SCATTER_STOREI_MASKED v16f32:$srcDest, VADDRri:$addr, i32:$mask)>;
+def : Pat<(int_nyuzi_scatter_storef_masked VADDRri:$addr, v16f32:$srcDest, v16i1:$mask),
+  (INT_SCATTER_STOREI_MASKED v16f32:$srcDest, VADDRri:$addr, v16i1:$mask)>;
+def : Pat<(store v16i1:$srcDest, ADDRri:$addr), (SS v16i1:$srcDest, ADDRri:$addr)>;
 
 // Atomics
 let usesCustomInserter = 1 in {

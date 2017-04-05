@@ -30,8 +30,8 @@ let Namespace = "Nyuzi" in {
   }
 }
 
-def GPR32 : RegisterClass<"Nyuzi", [i32, f32], 32, (add (sequence "S%u", 0, 27),
-  FP_REG, SP_REG, RA_REG, PC_REG)>;
+def GPR32 : RegisterClass<"Nyuzi", [i32, f32, v16i1], 32, 
+  (add (sequence "S%u", 0, 27), FP_REG, SP_REG, RA_REG, PC_REG)>;
 
 def VR512 : RegisterClass<"Nyuzi", [v16i32, v16f32], 512, (sequence "V%u", 0, 31)>;
 

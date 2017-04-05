@@ -36,3 +36,21 @@ define float @testfimm(<16 x float> %a, i32 %b) { ; CHECK-LABEL: testfimm:
 
   ret float %elem
 }
+
+define i1 @testmaskimm(<16 x i1> %a) { ; CHECK-LABEL: testmaskimm:
+  %elem = extractelement <16 x i1> %a, i32 9
+
+  ; CHECK: shr s0, s0, 9
+  ; CHECK: and s0, s0, 1
+
+  ret i1 %elem
+}
+
+define i1 @testmask(<16 x i1> %a, i32 %b) { ; CHECK-LABEL: testmask:
+  %elem = extractelement <16 x i1> %a, i32 %b
+
+  ; CHECK: shr s0, s0, s1
+  ; CHECK: and s0, s0, 1
+
+  ret i1 %elem
+}
