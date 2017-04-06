@@ -117,7 +117,9 @@ NyuziTargetLowering::NyuziTargetLowering(const TargetMachine &TM,
   setOperationAction(ISD::CTLZ_ZERO_UNDEF, MVT::i32, Custom);
   setOperationAction(ISD::CTTZ_ZERO_UNDEF, MVT::i32, Custom);
   setOperationAction(ISD::UINT_TO_FP, MVT::i32, Custom);
+  setOperationAction(ISD::UINT_TO_FP, MVT::v16i1, Custom);
   setOperationAction(ISD::UINT_TO_FP, MVT::v16i32, Custom);
+  setOperationAction(ISD::SINT_TO_FP, MVT::v16i1, Custom);
   setOperationAction(ISD::FRAMEADDR, MVT::i32, Custom);
   setOperationAction(ISD::RETURNADDR, MVT::i32, Custom);
   setOperationAction(ISD::VASTART, MVT::Other, Custom);
@@ -233,6 +235,8 @@ SDValue NyuziTargetLowering::LowerOperation(SDValue Op,
     return LowerCTTZ_ZERO_UNDEF(Op, DAG);
   case ISD::UINT_TO_FP:
     return LowerUINT_TO_FP(Op, DAG);
+  case ISD::SINT_TO_FP:
+    return LowerSINT_TO_FP(Op, DAG);
   case ISD::FRAMEADDR:
     return LowerFRAMEADDR(Op, DAG);
   case ISD::RETURNADDR:
@@ -1343,19 +1347,31 @@ SDValue NyuziTargetLowering::LowerCTTZ_ZERO_UNDEF(SDValue Op,
 }
 
 
-//
-// The architecture only supports signed integer to floating point.  If the
-// source value is negative (when treated as signed), then add UINT_MAX to the
-// resulting floating point value to adjust it.
-// This is a simpler version of SelectionDAGLegalize::ExpandLegalINT_TO_FP.
-// I've done a custom expansion because the default version uses arithmetic
-// with constant pool symbols, and that gets clobbered (see comments in
-// NyuziMCInstLower::Lower)
-//
 SDValue NyuziTargetLowering::LowerUINT_TO_FP(SDValue Op,
                                              SelectionDAG &DAG) const {
   SDLoc DL(Op);
 
+  if (Op.getOperand(0).getSimpleValueType() == MVT::v16i1) {
+    // Convert a v16i1 mask into floating point values with predicated
+    // move.
+    EVT ElementType = Op.getValueType().getVectorElementType();
+    SDValue FalseVal = DAG.getNode(NyuziISD::SPLAT, DL, MVT::v16f32,
+                                   DAG.getConstantFP(0.0, DL, ElementType));
+    SDValue TrueVal = DAG.getNode(NyuziISD::SPLAT, DL, MVT::v16f32,
+                                  DAG.getConstantFP(1.0, DL, ElementType));
+    return DAG.getNode(ISD::VSELECT, DL, MVT::v16i32, Op.getOperand(0),
+                       TrueVal, FalseVal);
+  }
+
+  //
+  // The architecture only supports signed integer to floating point.  If the
+  // source value is negative (when treated as signed), then add UINT_MAX to the
+  // resulting floating point value to adjust it.
+  // This is a simpler version of SelectionDAGLegalize::ExpandLegalINT_TO_FP.
+  // I've done a custom expansion because the default version uses arithmetic
+  // with constant pool symbols, and that gets clobbered (see comments in
+  // NyuziMCInstLower::Lower)
+  //
   MVT ResultVT = Op.getValueType().getSimpleVT();
   SDValue RVal = Op.getOperand(0);
   SDValue SignedVal = DAG.getNode(ISD::SINT_TO_FP, DL, ResultVT, RVal);
@@ -1395,6 +1411,22 @@ SDValue NyuziTargetLowering::LowerUINT_TO_FP(SDValue Op,
     return DAG.getNode(NyuziISD::SEL_COND_RESULT, DL, MVT::f32, IsNegative,
                        Adjusted, SignedVal);
   }
+}
+
+SDValue NyuziTargetLowering::LowerSINT_TO_FP(SDValue Op,
+                                             SelectionDAG &DAG) const {
+  SDLoc DL(Op);
+
+  // Convert a v16i1 mask into floating point values with predicated
+  // move. This is similar to UINT_TO_FP, but the values are sign
+  // extended so they are negative.
+  EVT ElementType = Op.getValueType().getVectorElementType();
+  SDValue FalseVal = DAG.getNode(NyuziISD::SPLAT, DL, MVT::v16f32,
+                                 DAG.getConstantFP(0.0, DL, ElementType));
+  SDValue TrueVal = DAG.getNode(NyuziISD::SPLAT, DL, MVT::v16f32,
+                                DAG.getConstantFP(-1.0, DL, ElementType));
+  return DAG.getNode(ISD::VSELECT, DL, MVT::v16i32, Op.getOperand(0),
+                     TrueVal, FalseVal);
 }
 
 SDValue NyuziTargetLowering::LowerFRAMEADDR(SDValue Op,

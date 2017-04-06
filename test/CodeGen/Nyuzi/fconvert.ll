@@ -81,3 +81,20 @@ define <16 x i32> @test_sftoipvs(float %a) { ; CHECK-LABEL: test_sftoipvs:
 
   ret <16 x i32> %conv
 }
+
+define <16 x float> @test_umtofv(<16 x i1> %mask) { ; CHECK-LABEL: test_umtofv
+  %res = uitofp <16 x i1> %mask to <16 x float>
+
+  ; CHECK: move_mask v0, s0
+
+  ret <16 x float> %res
+}
+
+define <16 x float> @test_smtofv(<16 x i1> %mask) { ; CHECK-LABEL: test_smtofv
+  %res = sitofp <16 x i1> %mask to <16 x float>
+
+  ; CHECK: move_mask v0, s0
+
+  ret <16 x float> %res
+}
+
