@@ -102,8 +102,10 @@ NyuziTargetLowering::NyuziTargetLowering(const TargetMachine &TM,
   setOperationAction(ISD::BlockAddress, MVT::i32, Custom);
   setOperationAction(ISD::SELECT_CC, MVT::i32, Custom);
   setOperationAction(ISD::SELECT_CC, MVT::f32, Custom);
+  setOperationAction(ISD::SELECT_CC, MVT::v16i1, Custom);
   setOperationAction(ISD::SELECT_CC, MVT::v16i32, Custom);
   setOperationAction(ISD::SELECT_CC, MVT::v16f32, Custom);
+  setOperationAction(ISD::SELECT, MVT::v16i1, Custom);
   setOperationAction(ISD::FDIV, MVT::f32, Custom);
   setOperationAction(ISD::FDIV, MVT::v16f32, Custom);
   setOperationAction(ISD::BR_JT, MVT::Other, Custom);
@@ -205,6 +207,8 @@ SDValue NyuziTargetLowering::LowerOperation(SDValue Op,
     return LowerSCALAR_TO_VECTOR(Op, DAG);
   case ISD::SELECT_CC:
     return LowerSELECT_CC(Op, DAG);
+  case ISD::SELECT:
+    return LowerSELECT(Op, DAG);
   case ISD::SETCC:
     return LowerSETCC(Op, DAG);
   case ISD::ConstantPool:
@@ -585,6 +589,7 @@ NyuziTargetLowering::EmitInstrWithCustomInserter(MachineInstr &MI,
   case Nyuzi::SELECTF:
   case Nyuzi::SELECTVI:
   case Nyuzi::SELECTVF:
+  case Nyuzi::SELECTMASK:
     return EmitSelectCC(MI, BB);
 
   case Nyuzi::ATOMIC_LOAD_ADDR:
@@ -1027,6 +1032,22 @@ SDValue NyuziTargetLowering::LowerSELECT_CC(SDValue Op,
                      Op.getOperand(2), Op.getOperand(3));
 }
 
+// The default expansion of SELECT with v16i1 operands produces horrible
+// code (41 instructions). Convert to a simpler branch.
+SDValue NyuziTargetLowering::LowerSELECT(SDValue Op,
+                                         SelectionDAG &DAG) const {
+  SDLoc DL(Op);
+  SDValue Pred = DAG.getNode(ISD::SETCC, DL, getSetCCResultType(DAG.getDataLayout(),
+                             *DAG.getContext(), MVT::i1),
+                             Op.getOperand(0),
+                             DAG.getConstant(0, DL, MVT::i32),
+                             DAG.getCondCode(ISD::SETNE));
+
+
+  return DAG.getNode(NyuziISD::SEL_COND_RESULT, DL, Op.getValueType(), Pred,
+                     Op.getOperand(1), Op.getOperand(2));
+}
+
 SDValue NyuziTargetLowering::LowerSETCC(SDValue Op, SelectionDAG &DAG) const {
   SDLoc DL(Op);
   ISD::CondCode CC = cast<CondCodeSDNode>(Op.getOperand(2))->get();
@@ -1321,6 +1342,7 @@ SDValue NyuziTargetLowering::LowerCTTZ_ZERO_UNDEF(SDValue Op,
   return DAG.getNode(ISD::CTTZ, DL, Op.getValueType(), Op.getOperand(0));
 }
 
+
 //
 // The architecture only supports signed integer to floating point.  If the
 // source value is negative (when treated as signed), then add UINT_MAX to the
@@ -1330,7 +1352,6 @@ SDValue NyuziTargetLowering::LowerCTTZ_ZERO_UNDEF(SDValue Op,
 // with constant pool symbols, and that gets clobbered (see comments in
 // NyuziMCInstLower::Lower)
 //
-
 SDValue NyuziTargetLowering::LowerUINT_TO_FP(SDValue Op,
                                              SelectionDAG &DAG) const {
   SDLoc DL(Op);

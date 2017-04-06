@@ -5,7 +5,8 @@
 
 target triple = "nyuzi-elf-none"
 
-define i32 @seli(i32 %a) {  ; CHECK-LABEL: seli:
+; This will use the SELECT_CC opcode
+define i32 @seli1(i32 %a) {  ; CHECK-LABEL: seli1:
   %cmp = icmp eq i32 %a, 4
 
   ; CHECK: cmpeq_i [[PRED:s[0-9]+]], s0, 4
@@ -19,7 +20,25 @@ define i32 @seli(i32 %a) {  ; CHECK-LABEL: seli:
   ret i32 %val
 }
 
-define float @self(float %a, float %b, float %c) {  ; CHECK-LABEL: self:
+; This will use the SELECT opcode, which gets expanded to SELECT_CC
+define i32 @seli2(i1 %a) {  ; CHECK-LABEL: seli2:
+  %val = select i1 %a, i32 2, i32 3
+
+  ; CHECK: cmpne_i [[PRED:s[0-9]+]], s0, 0
+  ; CHECK: bnz [[PRED]], [[TRUELABEL:[\.A-Z0-9a-z_]+]]
+  ; move s{{[0-9]+}}, 3
+  ; ret
+  ; [[TRUELABEL]]:
+  ; move s0, 2
+
+  ret i32 %val
+}
+
+;
+; Tests below have same pattern of SELECT_CC/SELECT
+;
+
+define float @self1(float %a, float %b, float %c) {  ; CHECK-LABEL: self1:
   %cmp = fcmp oeq float %a, %b
 
   ; CHECK: cmpeq_f [[PRED:s[0-9]+]], s0, s1
@@ -32,7 +51,20 @@ define float @self(float %a, float %b, float %c) {  ; CHECK-LABEL: self:
   ret float %val
 }
 
-define <16 x i32> @selvi(i32 %a, <16 x i32> %b, <16 x i32> %c) { ; CHECK-LABEL: selvi:
+define float @self2(i1 %a, float %b, float %c) {  ; CHECK-LABEL: self2:
+  %val = select i1 %a, float %b, float %c
+
+  ; CHECK: cmpne_i [[PRED:s[0-9]+]], s0, 0
+  ; CHECK: bnz [[PRED]], [[TRUELABEL:[\.A-Z0-9a-z_]+]]
+  ; move s{{[0-9]+}}, s2
+  ; ret
+  ; [[TRUELABEL]]:
+  ; move s0, s1
+
+  ret float %val
+}
+
+define <16 x i32> @selvi1(i32 %a, <16 x i32> %b, <16 x i32> %c) { ; CHECK-LABEL: selvi1:
   %cmp = icmp eq i32 %a, 4
 
   ; CHECK: cmpeq_i [[PRED:s[0-9]+]], s0, 4
@@ -46,7 +78,26 @@ define <16 x i32> @selvi(i32 %a, <16 x i32> %b, <16 x i32> %c) { ; CHECK-LABEL: 
   ret <16 x i32> %val
 }
 
-define <16 x float> @selvf(i32 %a, <16 x float> %b, <16 x float> %c) { ; CHECK-LABEL: selvf:
+define <16 x i32> @selvi2(i1 %a, <16 x i32> %b, <16 x i32> %c) { ; CHECK-LABEL: selvi2:
+  %val = select i1 %a, <16 x i32> %b, <16 x i32> %c
+
+  ; CHECK: cmpne_i [[PRED:s[0-9]+]], s0, 0
+  ; CHECK: bnz [[PRED]], [[TRUELABEL:[\.A-Z0-9a-z_]+]]
+  ; CHECK: move s0, 0
+  ; CHECK: b [[FALSELABEL:[\.A-Z0-9a-z_]+]]
+  ; CHECK: [[TRUELABEL]]:
+  ; CHECK: move s0, -1
+  ; CHECK: [[FALSELABEL]]:
+  ; CHECK: and v0, v0, s0
+  ; CHECK: xor v2, s0, -1
+  ; CHECK: and v1, v1, v2
+  ; CHECK: or v0, v0, v1
+  ; CHECK: ret
+
+  ret <16 x i32> %val
+}
+
+define <16 x float> @selvf1(i32 %a, <16 x float> %b, <16 x float> %c) { ; CHECK-LABEL: selvf1:
   %cmp = icmp eq i32 %a, 4
   ; CHECK: cmpeq_i [[PRED:s[0-9]+]], s0, 4
 
@@ -56,4 +107,49 @@ define <16 x float> @selvf(i32 %a, <16 x float> %b, <16 x float> %c) { ; CHECK-L
   ; [[TRUELABEL]]:
 
   ret <16 x float> %val
+}
+
+define <16 x float> @selvf2(i1 %a, <16 x float> %b, <16 x float> %c) { ; CHECK-LABEL: selvf2:
+  %val = select i1 %a, <16 x float> %b, <16 x float> %c
+
+  ; CHECK: cmpne_i [[PRED:s[0-9]+]], s0, 0
+  ; CHECK: bnz [[PRED]], [[TRUELABEL:[\.A-Z0-9a-z_]+]]
+  ; CHECK: move s0, 0
+  ; CHECK: b [[FALSELABEL:[\.A-Z0-9a-z_]+]]
+  ; CHECK: [[TRUELABEL]]:
+  ; CHECK: move s0, -1
+  ; CHECK: [[FALSELABEL]]:
+  ; CHECK: and v0, v0, s0
+  ; CHECK: xor v2, s0, -1
+  ; CHECK: and v1, v1, v2
+  ; CHECK: or v0, v0, v1
+  ; CHECK: ret
+
+  ret <16 x float> %val
+}
+
+define <16 x i1> @selmask1(i32 %a, <16 x i1> %b, <16 x i1> %c) { ; CHECK-LABEL: selmask1
+  %cmp = icmp eq i32 %a, 4
+  ; CHECK: cmpeq_i [[PRED:s[0-9]+]], s0, 4
+
+  %val = select i1 %cmp, <16 x i1> %b, <16 x i1> %c
+
+  ; CHECK: bnz [[PRED]], [[TRUELABEL:[\.A-Z0-9a-z_]+]]
+  ; move s{{[0-9]+}}, s0
+  ; [[TRUELABEL]]:
+
+  ret <16 x i1> %val
+}
+
+define <16 x i1> @selmask2(i1 %a, <16 x i1> %b, <16 x i1> %c) { ; CHECK-LABEL: selmask2
+  %val = select i1 %a, <16 x i1> %b, <16 x i1> %c
+
+  ; CHECK: cmpne_i s0, s0, 0
+  ; CHECK: bnz s0, [[TRUELABEL:[\.A-Z0-9a-z_]+]]
+  ; CHECK: move s1, s2
+  ; CHECK: [[TRUELABEL]]:
+  ; CHECK: move s0, s1
+  ; CHECK: ret
+
+  ret <16 x i1> %val
 }

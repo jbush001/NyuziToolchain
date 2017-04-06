@@ -661,6 +661,11 @@ let usesCustomInserter = 1 in {
     (ins GPR32:$pred, GPR32:$true, GPR32:$false),
     [(set f32:$dest, (selcondresult i32:$pred, f32:$true, f32:$false))]>;
 
+  def SELECTMASK : Pseudo<
+    (outs GPR32:$dest),
+    (ins GPR32:$pred, GPR32:$true, GPR32:$false),
+    [(set v16i1:$dest, (selcondresult i32:$pred, v16i1:$true, v16i1:$false))]>;
+
   def SELECTVI : Pseudo<
     (outs VR512:$dest),
     (ins GPR32:$pred, VR512:$true, VR512:$false),
