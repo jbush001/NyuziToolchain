@@ -98,3 +98,14 @@ define <16 x float> @test_smtofv(<16 x i1> %mask) { ; CHECK-LABEL: test_smtofv
   ret <16 x float> %res
 }
 
+; This form with a constant will attempt to replace the result with a constant.
+; This is a regression test. Previously, there was a bug in NyuziTargetLowering::LowerSINT_TO_F
+; where the return type of the conversion was wrong and would assert.
+define <16 x float> @test_const_smtofv(<16 x i1> %mask) { ; CHECK-LABEL: test_const_smtofv
+  %res = sitofp <16 x i1> <i1 1, i1 undef, i1 undef, i1 undef, i1 undef, i1 undef, i1 undef, i1 undef, i1 undef, i1 undef, i1 undef, i1 undef, i1 undef, i1 undef, i1 undef, i1 undef> to <16 x float>
+
+  ; CHECK: move v0, s0
+
+  ret <16 x float> %res
+}
+
