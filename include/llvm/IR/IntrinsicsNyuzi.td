@@ -47,12 +47,6 @@ def int_nyuzi_scatter_storei_masked : Intrinsic<[], [llvm_v16i32_ty, llvm_v16i32
 def int_nyuzi_scatter_storef_masked : Intrinsic<[], [llvm_v16i32_ty, llvm_v16f32_ty, llvm_v16i1_ty],
 	[IntrWriteMem], "llvm.nyuzi.__builtin_nyuzi_scatter_storef_masked">;
 
-def int_nyuzi_block_loadi_masked : Intrinsic<[llvm_v16i32_ty], [v16i32_ptr_ty, llvm_v16i1_ty],
-	[IntrReadMem, IntrArgMemOnly], "llvm.nyuzi.__builtin_nyuzi_block_loadi_masked">;
-
-def int_nyuzi_block_loadf_masked : Intrinsic<[llvm_v16f32_ty], [v16i32_ptr_ty, llvm_v16i1_ty],
-	[IntrReadMem, IntrArgMemOnly], "llvm.nyuzi.__builtin_nyuzi_block_loadf_masked">;
-
 def int_nyuzi_block_storei_masked : Intrinsic<[], [v16i32_ptr_ty, llvm_v16i32_ty, llvm_v16i1_ty],
 	[IntrWriteMem, IntrArgMemOnly],   "llvm.nyuzi.__builtin_nyuzi_block_storei_masked">;
 

@@ -8061,16 +8061,6 @@ Value *CodeGenFunction::EmitNyuziBuiltinExpr(unsigned BuiltinID,
       MemOps.push_back(IntToMask(Builder, EmitScalarExpr(E->getArg(2))));
       break;
 
-    // (vec16_t *ptr, int mask)
-    case Nyuzi::BI__builtin_nyuzi_block_loadi_masked:
-      F = CGM.getIntrinsic(Intrinsic::nyuzi_block_loadi_masked);
-      MemOps.push_back(IntToMask(Builder, EmitScalarExpr(E->getArg(1))));
-      break;
-    case Nyuzi::BI__builtin_nyuzi_block_loadf_masked:
-      F = CGM.getIntrinsic(Intrinsic::nyuzi_block_loadf_masked);
-      MemOps.push_back(IntToMask(Builder, EmitScalarExpr(E->getArg(1))));
-      break;
-
     // (vec16_t *ptr, vec16_t values, int mask)
     case Nyuzi::BI__builtin_nyuzi_block_storei_masked:
       F = CGM.getIntrinsic(Intrinsic::nyuzi_block_storei_masked);

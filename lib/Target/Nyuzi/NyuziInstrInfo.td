@@ -324,9 +324,10 @@ let mayLoad = 1 in {
     (outs VR512:$srcDest),
     (ins MEMS10:$addr, GPR32:$mask),
     "load_v_mask $srcDest, $mask, $addr",
-    [(set v16i32:$srcDest, (int_nyuzi_block_loadi_masked ADDRri:$addr, v16i1:$mask))],
+    [],
     FmtM_BlockMasked,
     1>;
+
 
   def INT_GATHER_LOADI : FormatMUnmaskedInst<
     (outs VR512:$srcDest),
@@ -350,8 +351,6 @@ def : Pat<(i32 (extloadi8 ADDRri:$addr)), (LBU ADDRri:$addr)>;
 def : Pat<(i32 (extloadi16 ADDRri:$addr)), (LSS ADDRri:$addr)>;
 def : Pat<(f32 (load ADDRri:$addr)), (LW ADDRri:$addr)>;
 def : Pat<(v16f32 (load ADDRri:$addr)), (BLOCK_LOADI ADDRri:$addr)>;
-def : Pat<(int_nyuzi_block_loadf_masked ADDRri:$addr, v16i1:$mask),
-  (INT_BLOCK_LOADI_MASKED ADDRri:$addr, v16i1:$mask)>;
 def : Pat<(int_nyuzi_gather_loadf VADDRri:$addr), (INT_GATHER_LOADI VADDRri:$addr)>;
 def : Pat<(int_nyuzi_gather_loadf_masked VADDRri:$addr, v16i1:$mask),
   (INT_GATHER_LOADI_MASKED VADDRri:$addr, v16i1:$mask)>;

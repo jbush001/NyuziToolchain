@@ -19,10 +19,6 @@ declare void @llvm.nyuzi.__builtin_nyuzi_scatter_storei_masked(<16 x i32> %ptr,
   <16 x i32> %value, <16 x i1> %mask)
 declare void @llvm.nyuzi.__builtin_nyuzi_scatter_storef_masked(<16 x i32> %ptr,
   <16 x float> %value, <16 x i1> %mask)
-declare <16 x i32> @llvm.nyuzi.__builtin_nyuzi_block_loadi_masked(<16 x i32>* %ptr,
-  <16 x i1> %mask)
-declare <16 x float> @llvm.nyuzi.__builtin_nyuzi_block_loadf_masked(<16 x i32>* %ptr,
-  <16 x i1> %mask)
 declare void @llvm.nyuzi.__builtin_nyuzi_block_storei_masked(<16 x i32>* %ptr,
   <16 x i32> %value, <16 x i1> %mask)
 declare void @llvm.nyuzi.__builtin_nyuzi_block_storef_masked(<16 x i32>* %ptr,
@@ -110,24 +106,6 @@ define void @scatter_storef_masked(<16 x i32> %ptr, <16 x float> %value, <16 x i
   ; CHECK: store_scat_mask v1, s0, (v0)
 
   ret void
-}
-
-define <16 x i32> @test_block_loadi_masked(<16 x i32>* %ptr, <16 x i1> %mask) { ; CHECK-LABEL: test_block_loadi_masked:
-  %result = call <16 x i32> @llvm.nyuzi.__builtin_nyuzi_block_loadi_masked(
-    <16 x i32>* %ptr, <16 x i1> %mask)
-
-  ; CHECK: load_v_mask v0, s1, (s0)
-
-  ret <16 x i32> %result
-}
-
-define <16 x float> @test_block_loadf_masked(<16 x i32>* %ptr, <16 x i1> %mask) { ; CHECK-LABEL: test_block_loadf_masked
-  %result = call <16 x float> @llvm.nyuzi.__builtin_nyuzi_block_loadf_masked(
-    <16 x i32>* %ptr, <16 x i1> %mask)
-
-  ; CHECK: load_v_mask v0, s1, (s0)
-
-  ret <16 x float> %result
 }
 
 define void @test_block_storei_masked(<16 x i32>* %ptr, <16 x i32> %value, <16 x i1> %mask) { ; CHECK-LABEL: test_block_storei_masked

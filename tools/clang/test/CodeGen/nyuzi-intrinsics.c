@@ -89,22 +89,6 @@ void test_scatter_storef_masked(veci16_t ptr, vecf16_t value,
   // CHECK: store_scat_mask v1, s0, (v0)
 }
 
-veci16_t test_block_loadi_masked(veci16_t *ptr,
-                                 int mask)  // CHECK: test_block_loadi_masked:
-{
-  return __builtin_nyuzi_block_loadi_masked(ptr, mask);
-
-  // CHECK: load_v_mask v{{[0-9]+}}, s1, (s0)
-}
-
-vecf16_t test_block_loadf_masked(veci16_t *ptr,
-                                 int mask)  // CHECK: test_block_loadf_masked:
-{
-  return __builtin_nyuzi_block_loadf_masked(ptr, mask);
-
-  // CHECK: load_v_mask v{{[0-9]+}}, s1, (s0)
-}
-
 void test_block_storei_masked(veci16_t *ptr, veci16_t value,
                               int mask)  // CHECK: test_block_storei_masked:
 {
