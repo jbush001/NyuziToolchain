@@ -9,8 +9,8 @@ int subdivideTile(
 	int trivialAcceptMask = __builtin_nyuzi_mask_cmpi_sle(acceptStep1, (veci16_t) 0)
 		& __builtin_nyuzi_mask_cmpi_sle(acceptStep2, (veci16_t) 0);
 
-	// CHECK: cmple_i s{{[0-9]+}}, v{{[0-9]+}}
-	// CHECK: cmple_i s{{[0-9]+}}, v{{[0-9]+}}
+	// CHECK: cmplt_i s{{[0-9]+}}, v{{[0-9]+}}, 1
+	// CHECK: cmplt_i s{{[0-9]+}}, v{{[0-9]+}}, 1
 	// CHECK: and
 
 	return trivialAcceptMask;
