@@ -181,10 +181,12 @@ NyuziTargetLowering::NyuziTargetLowering(const TargetMachine &TM,
   setOperationAction(ISD::SDIV, MVT::i32, Expand); // __divsi3
   setOperationAction(ISD::SREM, MVT::i32, Expand); // __modsi3
 
+  // Floating point operations that aren't supported in hardware
   setOperationAction(ISD::FSQRT, MVT::f32, Expand); // sqrtf
   setOperationAction(ISD::FSIN, MVT::f32, Expand);  // sinf
   setOperationAction(ISD::FCOS, MVT::f32, Expand);  // cosf
   setOperationAction(ISD::FSINCOS, MVT::f32, Expand);
+  setOperationAction(ISD::FREM, MVT::f32, Expand);
 
   setStackPointerRegisterToSaveRestore(Nyuzi::SP_REG);
   setMinFunctionAlignment(2);
