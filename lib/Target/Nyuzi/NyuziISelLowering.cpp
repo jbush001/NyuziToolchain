@@ -176,18 +176,30 @@ NyuziTargetLowering::NyuziTargetLowering(const TargetMachine &TM,
 
   // Hardware does not have an integer divider, so convert these to
   // library calls
-  setOperationAction(ISD::UDIV, MVT::i32, Expand); // __udivsi3
-  setOperationAction(ISD::UREM, MVT::i32, Expand); // __umodsi3
-  setOperationAction(ISD::SDIV, MVT::i32, Expand); // __divsi3
-  setOperationAction(ISD::SREM, MVT::i32, Expand); // __modsi3
+  ISD::NodeType IntLibCalls[] = {
+    ISD::UDIV, // __udivsi3
+    ISD::UREM, // __umodsi3
+    ISD::SDIV, // __divsi3
+    ISD::SREM  // __modsi3
+  };
 
-  // Floating point operations that aren't supported in hardware
-  setOperationAction(ISD::FSQRT, MVT::f32, Expand); // sqrtf
-  setOperationAction(ISD::FSIN, MVT::f32, Expand);  // sinf
-  setOperationAction(ISD::FCOS, MVT::f32, Expand);  // cosf
-  setOperationAction(ISD::FSINCOS, MVT::f32, Expand);
-  setOperationAction(ISD::FREM, MVT::f32, Expand);
-  setOperationAction(ISD::FREM, MVT::v16f32, Expand);
+  for (auto Op : IntLibCalls) {
+    setOperationAction(Op, MVT::i32, Expand); // __udivsi3
+    setOperationAction(Op, MVT::v16i32, Expand);
+  }
+
+  ISD::NodeType FloatLibCalls[] = {
+    ISD::FSQRT, // sqrtf
+    ISD::FSIN,  // sinf
+    ISD::FCOS,  // cosf
+    ISD::FREM,   // remf
+    ISD::FSINCOS
+  };
+
+  for (auto Op : FloatLibCalls) {
+    setOperationAction(Op, MVT::f32, Expand); // sqrtf
+    setOperationAction(Op, MVT::v16f32, Expand);  // sinf
+  }
 
   setStackPointerRegisterToSaveRestore(Nyuzi::SP_REG);
   setMinFunctionAlignment(2);
