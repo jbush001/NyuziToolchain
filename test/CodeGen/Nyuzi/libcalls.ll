@@ -7,7 +7,6 @@
 declare float @llvm.sqrt.f32(float %Val)
 declare float @llvm.sin.f32(float %Val)
 declare float @llvm.cos.f32(float %Val)
-declare float @llvm.rem.f32(float %a, float %b)
 
 define i32 @call_udiv(i32 %ptr, i32 %a, i32 %b) { ; CHECK-LABEL: call_udiv:
   %result = udiv i32 %a, %b
@@ -66,11 +65,35 @@ define float @call_cosf(float %a) { ; CHECK-LABEL: call_cosf
 }
 
 define float @call_remf(float %a, float %b) { ; CHECK-LABEL: call_remf
-  %result = call float @llvm.rem.f32(float %a, float %b)
+  %result = frem float %a, %b
 
-  ; CHECK: call llvm.rem.f32
+  ; CHECK: call fmodf
 
   ret float %result
 }
 
-// XXX how to generate sincos?
+define <16 x float> @call_remfv(<16 x float> %a, <16 x float> %b) { ; CHECK-LABEL: call_remfv
+  %result = frem <16 x float> %a, %b
+
+  ; CHECK: call fmodf
+  ; CHECK: call fmodf
+  ; CHECK: call fmodf
+  ; CHECK: call fmodf
+  ; CHECK: call fmodf
+  ; CHECK: call fmodf
+  ; CHECK: call fmodf
+  ; CHECK: call fmodf
+  ; CHECK: call fmodf
+  ; CHECK: call fmodf
+  ; CHECK: call fmodf
+  ; CHECK: call fmodf
+  ; CHECK: call fmodf
+  ; CHECK: call fmodf
+  ; CHECK: call fmodf
+  ; CHECK: call fmodf
+
+
+  ret <16 x float> %result
+}
+
+; XXX how to generate sincos?
