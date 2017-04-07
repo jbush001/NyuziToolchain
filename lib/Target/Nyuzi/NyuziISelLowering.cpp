@@ -81,98 +81,114 @@ NyuziTargetLowering::NyuziTargetLowering(const TargetMachine &TM,
   for (MVT VT : MVT::integer_valuetypes())
     setLoadExtAction(ISD::SEXTLOAD, VT, MVT::i1, Promote);
 
-  setOperationAction(ISD::BUILD_VECTOR, MVT::v16f32, Custom);
-  setOperationAction(ISD::BUILD_VECTOR, MVT::v16i32, Custom);
-  setOperationAction(ISD::BUILD_VECTOR, MVT::v16i1, Custom);
-  setOperationAction(ISD::INSERT_VECTOR_ELT, MVT::v16f32, Custom);
-  setOperationAction(ISD::INSERT_VECTOR_ELT, MVT::v16i32, Custom);
-  setOperationAction(ISD::INSERT_VECTOR_ELT, MVT::v16i1, Custom);
-  setOperationAction(ISD::EXTRACT_VECTOR_ELT, MVT::v16i1, Custom);
-  setOperationAction(ISD::VECTOR_SHUFFLE, MVT::v16i32, Custom);
-  setOperationAction(ISD::VECTOR_SHUFFLE, MVT::v16f32, Custom);
-  setOperationAction(ISD::VECTOR_SHUFFLE, MVT::v16i1, Custom);
-  setOperationAction(ISD::SCALAR_TO_VECTOR, MVT::v16i32, Custom);
-  setOperationAction(ISD::SCALAR_TO_VECTOR, MVT::v16f32, Custom);
-  setOperationAction(ISD::SCALAR_TO_VECTOR, MVT::v16i1, Custom);
-  setOperationAction(ISD::GlobalAddress, MVT::i32, Custom);
-  setOperationAction(ISD::GlobalAddress, MVT::f32, Custom);
-  setOperationAction(ISD::ConstantPool, MVT::i32, Custom);
-  setOperationAction(ISD::ConstantPool, MVT::f32, Custom);
-  setOperationAction(ISD::Constant, MVT::i32, Custom);
-  setOperationAction(ISD::BlockAddress, MVT::i32, Custom);
-  setOperationAction(ISD::SELECT_CC, MVT::i32, Custom);
-  setOperationAction(ISD::SELECT_CC, MVT::f32, Custom);
-  setOperationAction(ISD::SELECT_CC, MVT::v16i1, Custom);
-  setOperationAction(ISD::SELECT_CC, MVT::v16i32, Custom);
-  setOperationAction(ISD::SELECT_CC, MVT::v16f32, Custom);
-  setOperationAction(ISD::SELECT, MVT::v16i1, Custom);
-  setOperationAction(ISD::FDIV, MVT::f32, Custom);
-  setOperationAction(ISD::FDIV, MVT::v16f32, Custom);
-  setOperationAction(ISD::BR_JT, MVT::Other, Custom);
-  setOperationAction(ISD::FNEG, MVT::f32, Custom);
-  setOperationAction(ISD::FNEG, MVT::v16f32, Custom);
-  setOperationAction(ISD::SETCC, MVT::v16f32, Custom);
-  setOperationAction(ISD::SETCC, MVT::f32, Custom);
-  setOperationAction(ISD::SETCC, MVT::v16i1, Custom);
-  setOperationAction(ISD::CTLZ_ZERO_UNDEF, MVT::i32, Custom);
-  setOperationAction(ISD::CTTZ_ZERO_UNDEF, MVT::i32, Custom);
-  setOperationAction(ISD::UINT_TO_FP, MVT::i32, Custom);
-  setOperationAction(ISD::UINT_TO_FP, MVT::v16i1, Custom);
-  setOperationAction(ISD::UINT_TO_FP, MVT::v16i32, Custom);
-  setOperationAction(ISD::SINT_TO_FP, MVT::v16i1, Custom);
-  setOperationAction(ISD::FRAMEADDR, MVT::i32, Custom);
-  setOperationAction(ISD::RETURNADDR, MVT::i32, Custom);
-  setOperationAction(ISD::VASTART, MVT::Other, Custom);
-  setOperationAction(ISD::FABS, MVT::f32, Custom);
-  setOperationAction(ISD::FABS, MVT::v16f32, Custom);
-  setOperationAction(ISD::TRUNCATE, MVT::v16i1, Custom);
-  setOperationAction(ISD::ZERO_EXTEND, MVT::v16i32, Custom);
-  setOperationAction(ISD::SIGN_EXTEND, MVT::v16i32, Custom);
+  struct {
+    ISD::NodeType Operation;
+    MVT Type;
+  } CustomActions[] = {
+    { ISD::BUILD_VECTOR, MVT::v16f32 },
+    { ISD::BUILD_VECTOR, MVT::v16i32 },
+    { ISD::BUILD_VECTOR, MVT::v16i1 },
+    { ISD::INSERT_VECTOR_ELT, MVT::v16f32 },
+    { ISD::INSERT_VECTOR_ELT, MVT::v16i32 },
+    { ISD::INSERT_VECTOR_ELT, MVT::v16i1 },
+    { ISD::EXTRACT_VECTOR_ELT, MVT::v16i1 },
+    { ISD::VECTOR_SHUFFLE, MVT::v16i32 },
+    { ISD::VECTOR_SHUFFLE, MVT::v16f32 },
+    { ISD::VECTOR_SHUFFLE, MVT::v16i1 },
+    { ISD::SCALAR_TO_VECTOR, MVT::v16i32 },
+    { ISD::SCALAR_TO_VECTOR, MVT::v16f32 },
+    { ISD::SCALAR_TO_VECTOR, MVT::v16i1 },
+    { ISD::GlobalAddress, MVT::i32 },
+    { ISD::GlobalAddress, MVT::f32 },
+    { ISD::ConstantPool, MVT::i32 },
+    { ISD::ConstantPool, MVT::f32 },
+    { ISD::Constant, MVT::i32 },
+    { ISD::BlockAddress, MVT::i32 },
+    { ISD::SELECT_CC, MVT::i32 },
+    { ISD::SELECT_CC, MVT::f32 },
+    { ISD::SELECT_CC, MVT::v16i1 },
+    { ISD::SELECT_CC, MVT::v16i32 },
+    { ISD::SELECT_CC, MVT::v16f32 },
+    { ISD::SELECT, MVT::v16i1 },
+    { ISD::FDIV, MVT::f32 },
+    { ISD::FDIV, MVT::v16f32 },
+    { ISD::BR_JT, MVT::Other },
+    { ISD::FNEG, MVT::f32 },
+    { ISD::FNEG, MVT::v16f32 },
+    { ISD::SETCC, MVT::v16f32 },
+    { ISD::SETCC, MVT::f32 },
+    { ISD::SETCC, MVT::v16i1 },
+    { ISD::CTLZ_ZERO_UNDEF, MVT::i32 },
+    { ISD::CTTZ_ZERO_UNDEF, MVT::i32 },
+    { ISD::UINT_TO_FP, MVT::i32 },
+    { ISD::UINT_TO_FP, MVT::v16i1 },
+    { ISD::UINT_TO_FP, MVT::v16i32 },
+    { ISD::SINT_TO_FP, MVT::v16i1 },
+    { ISD::FRAMEADDR, MVT::i32 },
+    { ISD::RETURNADDR, MVT::i32 },
+    { ISD::VASTART, MVT::Other },
+    { ISD::FABS, MVT::f32 },
+    { ISD::FABS, MVT::v16f32 },
+    { ISD::TRUNCATE, MVT::v16i1 },
+    { ISD::ZERO_EXTEND, MVT::v16i32 },
+    { ISD::SIGN_EXTEND, MVT::v16i32 }
+  };
 
-  setOperationAction(ISD::BR_CC, MVT::i32, Expand);
-  setOperationAction(ISD::BR_CC, MVT::f32, Expand);
-  setOperationAction(ISD::BR_CC, MVT::v16i32, Expand);
-  setOperationAction(ISD::BR_CC, MVT::v16f32, Expand);
-  setOperationAction(ISD::BR_CC, MVT::v16i1, Expand);
-  setOperationAction(ISD::BRCOND, MVT::i32, Expand);
-  setOperationAction(ISD::BRCOND, MVT::f32, Expand);
-  setOperationAction(ISD::SIGN_EXTEND_INREG, MVT::i1, Expand);
-  setOperationAction(ISD::CTPOP, MVT::i32, Expand);
-  setOperationAction(ISD::SELECT, MVT::i32, Expand);
-  setOperationAction(ISD::SELECT, MVT::v16i32, Expand);
-  setOperationAction(ISD::SELECT, MVT::f32, Expand);
-  setOperationAction(ISD::SELECT, MVT::v16f32, Expand);
-  setOperationAction(ISD::ROTL, MVT::i32, Expand);
-  setOperationAction(ISD::ROTR, MVT::i32, Expand);
-  setOperationAction(ISD::ROTL, MVT::v16i32, Expand);
-  setOperationAction(ISD::ROTR, MVT::v16i32, Expand);
-  setOperationAction(ISD::UDIVREM, MVT::i32, Expand);
-  setOperationAction(ISD::SDIVREM, MVT::i32, Expand);
-  setOperationAction(ISD::UMUL_LOHI, MVT::i32, Expand);
-  setOperationAction(ISD::SMUL_LOHI, MVT::i32, Expand);
-  setOperationAction(ISD::FP_TO_UINT, MVT::i32, Expand);
-  setOperationAction(ISD::FP_TO_UINT, MVT::v16i32, Expand);
-  setOperationAction(ISD::DYNAMIC_STACKALLOC, MVT::i32, Expand);
-  setOperationAction(ISD::STACKSAVE, MVT::Other, Expand);
-  setOperationAction(ISD::STACKRESTORE, MVT::Other, Expand);
-  setOperationAction(ISD::BSWAP, MVT::i32, Expand);
-  setOperationAction(ISD::ADDC, MVT::i32, Expand);
-  setOperationAction(ISD::ADDE, MVT::i32, Expand);
-  setOperationAction(ISD::SUBC, MVT::i32, Expand);
-  setOperationAction(ISD::SUBE, MVT::i32, Expand);
-  setOperationAction(ISD::SRA_PARTS, MVT::i32, Expand);
-  setOperationAction(ISD::SRL_PARTS, MVT::i32, Expand);
-  setOperationAction(ISD::SHL_PARTS, MVT::i32, Expand);
-  setOperationAction(ISD::VAARG, MVT::Other, Expand);
-  setOperationAction(ISD::VACOPY, MVT::Other, Expand);
-  setOperationAction(ISD::VAEND, MVT::Other, Expand);
-  setOperationAction(ISD::ATOMIC_LOAD, MVT::i32, Expand);
-  setOperationAction(ISD::ATOMIC_LOAD, MVT::i64, Expand);
-  setOperationAction(ISD::ATOMIC_STORE, MVT::i32, Expand);
-  setOperationAction(ISD::ATOMIC_STORE, MVT::i64, Expand);
-  setOperationAction(ISD::FCOPYSIGN, MVT::f32, Expand);
-  setOperationAction(ISD::FFLOOR, MVT::f32, Expand);
-  setOperationAction(ISD::FFLOOR, MVT::v16f32, Expand);
+  for (auto Action : CustomActions)
+    setOperationAction(Action.Operation, Action.Type, Custom);
+
+  struct {
+    ISD::NodeType Operation;
+    MVT Type;
+  } ExpandActions[] = {
+    { ISD::BR_CC, MVT::i32 },
+    { ISD::BR_CC, MVT::f32 },
+    { ISD::BR_CC, MVT::v16i32 },
+    { ISD::BR_CC, MVT::v16f32 },
+    { ISD::BR_CC, MVT::v16i1 },
+    { ISD::BRCOND, MVT::i32 },
+    { ISD::BRCOND, MVT::f32 },
+    { ISD::SIGN_EXTEND_INREG, MVT::i1 },
+    { ISD::CTPOP, MVT::i32 },
+    { ISD::SELECT, MVT::i32 },
+    { ISD::SELECT, MVT::v16i32 },
+    { ISD::SELECT, MVT::f32 },
+    { ISD::SELECT, MVT::v16f32 },
+    { ISD::ROTL, MVT::i32 },
+    { ISD::ROTR, MVT::i32 },
+    { ISD::ROTL, MVT::v16i32 },
+    { ISD::ROTR, MVT::v16i32 },
+    { ISD::UDIVREM, MVT::i32 },
+    { ISD::SDIVREM, MVT::i32 },
+    { ISD::UMUL_LOHI, MVT::i32 },
+    { ISD::SMUL_LOHI, MVT::i32 },
+    { ISD::FP_TO_UINT, MVT::i32 },
+    { ISD::FP_TO_UINT, MVT::v16i32 },
+    { ISD::DYNAMIC_STACKALLOC, MVT::i32 },
+    { ISD::STACKSAVE, MVT::Other },
+    { ISD::STACKRESTORE, MVT::Other },
+    { ISD::BSWAP, MVT::i32 },
+    { ISD::ADDC, MVT::i32 },
+    { ISD::ADDE, MVT::i32 },
+    { ISD::SUBC, MVT::i32 },
+    { ISD::SUBE, MVT::i32 },
+    { ISD::SRA_PARTS, MVT::i32 },
+    { ISD::SRL_PARTS, MVT::i32 },
+    { ISD::SHL_PARTS, MVT::i32 },
+    { ISD::VAARG, MVT::Other },
+    { ISD::VACOPY, MVT::Other },
+    { ISD::VAEND, MVT::Other },
+    { ISD::ATOMIC_LOAD, MVT::i32 },
+    { ISD::ATOMIC_LOAD, MVT::i64 },
+    { ISD::ATOMIC_STORE, MVT::i32 },
+    { ISD::ATOMIC_STORE, MVT::i64 },
+    { ISD::FCOPYSIGN, MVT::f32 },
+    { ISD::FFLOOR, MVT::f32 },
+    { ISD::FFLOOR, MVT::v16f32 }
+  };
+
+  for (auto Action : ExpandActions)
+    setOperationAction(Action.Operation, Action.Type, Expand);
 
   // Hardware does not have an integer divider, so convert these to
   // library calls
