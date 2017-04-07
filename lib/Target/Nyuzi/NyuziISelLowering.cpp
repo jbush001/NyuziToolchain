@@ -530,7 +530,7 @@ SDValue NyuziTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
       break;
 
     case CCValAssign::BCvt:
-      Arg = DAG.getNode(ISD::BITCAST, DL, VA.getLocVT(), Arg);
+      Arg = DAG.getBitcast(VA.getLocVT(), Arg);
       break;
 
     default:
@@ -1078,12 +1078,9 @@ SDValue NyuziTargetLowering::LowerSELECT_CC(SDValue Op,
 SDValue NyuziTargetLowering::LowerSELECT(SDValue Op,
                                          SelectionDAG &DAG) const {
   SDLoc DL(Op);
-  SDValue Pred = DAG.getNode(ISD::SETCC, DL, getSetCCResultType(DAG.getDataLayout(),
-                             *DAG.getContext(), MVT::i1),
-                             Op.getOperand(0),
-                             DAG.getConstant(0, DL, MVT::i32),
-                             DAG.getCondCode(ISD::SETNE));
-
+  SDValue Pred = DAG.getSetCC(DL, getSetCCResultType(DAG.getDataLayout(),
+                              *DAG.getContext(), MVT::i1), Op.getOperand(0),
+                              DAG.getConstant(0, DL, MVT::i32), ISD::SETNE);
 
   return DAG.getNode(NyuziISD::SEL_COND_RESULT, DL, Op.getValueType(), Pred,
                      Op.getOperand(1), Op.getOperand(2));
@@ -1106,8 +1103,7 @@ SDValue NyuziTargetLowering::LowerSETCC(SDValue Op, SelectionDAG &DAG) const {
                                   Op.getOperand(0));
     SDValue SExtOp1 = DAG.getNode(ISD::SIGN_EXTEND, DL, MVT::v16i32,
                                   Op.getOperand(1));
-    return DAG.getNode(ISD::SETCC, DL, MVT::v16i1,
-                       SExtOp0, SExtOp1, DAG.getCondCode(CC));
+    return DAG.getSetCC(DL, MVT::v16i1, SExtOp0, SExtOp1, CC);
   }
   if (OperandVT == MVT::v16i32) {
     // All integer comparisons are legal, nothing to do.
@@ -1313,9 +1309,9 @@ SDValue NyuziTargetLowering::LowerFNEG(SDValue Op, SelectionDAG &DAG) const {
   if (ResultVT.isVector())
     rhs = DAG.getNode(NyuziISD::SPLAT, DL, MVT::v16i32, rhs);
 
-  iconv = DAG.getNode(ISD::BITCAST, DL, IntermediateVT, Op.getOperand(0));
+  iconv = DAG.getBitcast(IntermediateVT, Op.getOperand(0));
   SDValue flipped = DAG.getNode(ISD::XOR, DL, IntermediateVT, iconv, rhs);
-  return DAG.getNode(ISD::BITCAST, DL, ResultVT, flipped);
+  return DAG.getBitcast(ResultVT, flipped);
 }
 
 // Mask off the sign bit
@@ -1329,9 +1325,9 @@ SDValue NyuziTargetLowering::LowerFABS(SDValue Op, SelectionDAG &DAG) const {
   if (ResultVT.isVector())
     rhs = DAG.getNode(NyuziISD::SPLAT, DL, MVT::v16i32, rhs);
 
-  iconv = DAG.getNode(ISD::BITCAST, DL, IntermediateVT, Op.getOperand(0));
+  iconv = DAG.getBitcast(IntermediateVT, Op.getOperand(0));
   SDValue flipped = DAG.getNode(ISD::AND, DL, IntermediateVT, iconv, rhs);
-  return DAG.getNode(ISD::BITCAST, DL, ResultVT, flipped);
+  return DAG.getBitcast(ResultVT, flipped);
 }
 
 // Branch using jump table (used for switch statements)
