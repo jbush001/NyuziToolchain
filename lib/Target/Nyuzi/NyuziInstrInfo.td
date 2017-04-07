@@ -46,6 +46,15 @@ def SEXT16 : FormatRUnmaskedOneOpInst<
   FmtR_SSS,
   II_INT>;
 
+def SEXT16V : FormatRUnmaskedOneOpInst<
+  (outs VR512:$dest),
+  (ins VR512:$src2),
+  "sext_16 $dest, $src2",
+  [(set VR512:$dest, (sext_inreg v16i32:$src2, v16i16))],
+  0x1e,
+  FmtR_VVV,
+  II_INT>;
+
 def SEXT8 : FormatRUnmaskedOneOpInst<
   (outs GPR32:$dest),
   (ins GPR32:$src2),
@@ -53,6 +62,15 @@ def SEXT8 : FormatRUnmaskedOneOpInst<
   [(set GPR32:$dest, (sext_inreg i32:$src2, i8))],
   0x1d,
   FmtR_SSS,
+  II_INT>;
+
+def SEXT8V : FormatRUnmaskedOneOpInst<
+  (outs VR512:$dest),
+  (ins VR512:$src2),
+  "sext_8 $dest, $src2",
+  [(set VR512:$dest, (sext_inreg v16i32:$src2, v16i8))],
+  0x1d,
+  FmtR_VVV,
   II_INT>;
 
 // XXX need predicated versions of these
