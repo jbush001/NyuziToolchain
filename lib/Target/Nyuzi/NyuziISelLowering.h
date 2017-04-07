@@ -105,6 +105,7 @@ private:
   SDValue LowerSIGN_EXTEND(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerZERO_EXTEND(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerTRUNCATE(SDValue Op, SelectionDAG &DAG) const;
+  SDValue LowerFP_TO_XINT(SDValue Op, SelectionDAG &DAG) const;
   MachineBasicBlock *EmitSelectCC(MachineInstr &MI,
                                   MachineBasicBlock *BB) const;
   MachineBasicBlock *EmitAtomicBinary(MachineInstr &MI, MachineBasicBlock *BB,

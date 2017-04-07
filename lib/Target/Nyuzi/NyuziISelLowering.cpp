@@ -124,6 +124,8 @@ NyuziTargetLowering::NyuziTargetLowering(const TargetMachine &TM,
     { ISD::UINT_TO_FP, MVT::v16i1 },
     { ISD::UINT_TO_FP, MVT::v16i32 },
     { ISD::SINT_TO_FP, MVT::v16i1 },
+    { ISD::FP_TO_SINT, MVT::v16i1 },
+    { ISD::FP_TO_UINT, MVT::v16i1 },
     { ISD::FRAMEADDR, MVT::i32 },
     { ISD::RETURNADDR, MVT::i32 },
     { ISD::VASTART, MVT::Other },
@@ -278,6 +280,10 @@ SDValue NyuziTargetLowering::LowerOperation(SDValue Op,
     return LowerZERO_EXTEND(Op, DAG);
   case ISD::TRUNCATE:
     return LowerTRUNCATE(Op, DAG);
+  case ISD::FP_TO_SINT:
+  case ISD::FP_TO_UINT:
+    return LowerFP_TO_XINT(Op, DAG);
+    break;
   default:
     llvm_unreachable("Should not custom lower this!");
   }
@@ -1536,6 +1542,17 @@ SDValue NyuziTargetLowering::LowerTRUNCATE(SDValue Op,
                                 DAG.getConstant(1, DL, MVT::i32));
   SDValue LaneBits = DAG.getNode(ISD::AND, DL, MVT::v16i32, Op0, OnesVec);
   return DAG.getSetCC(DL, MVT::v16i1, LaneBits, OnesVec, ISD::SETEQ);
+}
+
+// This is only called when converting a floating point number to
+// v16i1. This is an odd operation, but added for completeness.
+// The result is same for unsigned or signed, so both versions call
+// here.
+SDValue NyuziTargetLowering::LowerFP_TO_XINT(SDValue Op, SelectionDAG &DAG) const {
+  SDLoc DL(Op);
+  SDValue Zero = DAG.getNode(NyuziISD::SPLAT, DL, MVT::v16f32,
+                             DAG.getConstantFP(0.0, DL, MVT::f32));
+  return DAG.getSetCC(DL, MVT::v16i1, Op.getOperand(0), Zero, ISD::SETNE);
 }
 
 MachineBasicBlock *

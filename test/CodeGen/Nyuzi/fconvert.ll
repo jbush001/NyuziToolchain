@@ -109,3 +109,20 @@ define <16 x float> @test_const_smtofv(<16 x i1> %mask) { ; CHECK-LABEL: test_co
   ret <16 x float> %res
 }
 
+define <16 x i1> @test_ftosmv(<16 x float> %val) { ; CHECK-LABEL: test_ftosmv:
+  %res = fptosi <16 x float> %val to <16 x i1>
+
+  ; CHECK: cmpne_f s0, v0, s
+
+  ret <16 x i1> %res
+}
+
+define <16 x i1> @test_ftoumv(<16 x float> %val) { ; CHECK-LABEL: test_ftoumv:
+  %res = fptoui <16 x float> %val to <16 x i1>
+
+  ; CHECK: cmpne_f s0, v0, s
+
+  ret <16 x i1> %res
+}
+
+
