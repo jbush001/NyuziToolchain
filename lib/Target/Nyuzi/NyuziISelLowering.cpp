@@ -828,7 +828,7 @@ SDValue NyuziTargetLowering::LowerBUILD_VECTOR(SDValue Op,
     uint64_t Bits = 0, LaneIndex = 0;
     for (auto Operand : Op.getNode()->op_values()) {
       if (auto C = dyn_cast<ConstantSDNode>(Operand)) {
-        Bits |= C->getZExtValue() << LaneIndex;
+        Bits |= (C->getZExtValue() & 1) << LaneIndex;
       } else {
         // Lane is undef, treat as 0. This might allow the
         // resulting value to fit into in an immediate operand.
@@ -844,8 +844,8 @@ SDValue NyuziTargetLowering::LowerBUILD_VECTOR(SDValue Op,
     // as in the constant case, so do insertions manually.
     SDValue Bitmask = DAG.getConstant(0, DL, MVT::i32);
     for (int i = 15; i >= 0; --i) {
-      // i1 is not legal, so the elements are i32.
-      // Additionally, the high bits may be undef (?)
+      // The elements may be arbitrary i32 values, truncate them
+      // (in accordance with the definition of BUILD_VECTOR).
       auto LaneBit = DAG.getNode(ISD::AND, DL, MVT::i32, Op.getOperand(i),
                                  DAG.getConstant(1, DL, MVT::i32));
       Bitmask = DAG.getNode(ISD::SHL, DL, MVT::i32, Bitmask,

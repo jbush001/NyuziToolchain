@@ -59,3 +59,13 @@ entry:
   %1 = insertelement <16 x i1> %0, i1 %b, i32 13
   ret <16 x i1> %1
 }
+
+; Checks that constant BUILD_VECTOR with i32 elements works
+; This is legal (elements of larger types are truncated),
+; but a bit hard to trigger, hence this weird function.
+define <16 x i1> @complicated_const_buildvector() { ; CHECK-LABEL: complicated_const_buildvector:
+  %a = icmp ult <16 x i32> zeroinitializer, <i32 16, i32 16, i32 16, i32 16, i32 16, i32 16, i32 16, i32 16, i32 16, i32 16, i32 16, i32 16, i32 16, i32 16, i32 16, i32 16>
+  %b = and <16 x i1> <i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true>, %a
+  ; CHECK: load_32 s0, .LCPI
+  ret <16 x i1> %b
+}
