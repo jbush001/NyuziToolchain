@@ -1174,7 +1174,7 @@ SDValue NyuziTargetLowering::LowerSETCC(SDValue Op, SelectionDAG &DAG) const {
     if (ResultVT.isVector()) {
       Negate = DAG.getNode(NyuziISD::MASK_FROM_INT, DL, MVT::v16i1, Negate);
     }
-    return DAG.getNode(ISD::XOR, DL, MVT::i32, IsOrdered, Negate);
+    return DAG.getNode(ISD::XOR, DL, ResultVT, IsOrdered, Negate);
   }
 
   // Convert unordered comparisions to ordered by explicitly checking for NaN
