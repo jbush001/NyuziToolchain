@@ -192,6 +192,16 @@ NyuziTargetLowering::NyuziTargetLowering(const TargetMachine &TM,
   for (auto Action : ExpandActions)
     setOperationAction(Action.Operation, Action.Type, Expand);
 
+  // Compiler will expand these to a series of scalar stores/loads.
+  setTruncStoreAction(MVT::v16i32, MVT::v16i16, Expand);
+  setTruncStoreAction(MVT::v16i32, MVT::v16i8, Expand);
+  setLoadExtAction(ISD::ZEXTLOAD, MVT::v16i32, MVT::v16i16, Expand);
+  setLoadExtAction(ISD::ZEXTLOAD, MVT::v16i32, MVT::v16i8, Expand);
+  setLoadExtAction(ISD::SEXTLOAD, MVT::v16i32, MVT::v16i16, Expand);
+  setLoadExtAction(ISD::SEXTLOAD, MVT::v16i32, MVT::v16i8, Expand);
+  setLoadExtAction(ISD::EXTLOAD, MVT::v16i32, MVT::v16i16, Expand);
+  setLoadExtAction(ISD::EXTLOAD, MVT::v16i32, MVT::v16i8, Expand);
+
   // Hardware does not have an integer divider, so convert these to
   // library calls
   ISD::NodeType IntLibCalls[] = {

@@ -153,3 +153,173 @@ define <16 x float> @loadfvec(<16 x float>* %array) { ; CHECK-LABEL: loadfvec:
 
   ret <16 x float> %tmp
 }
+
+; The next two match ISD::EXTLOAD (any extension)
+define <16 x i8> @extloadi8vec(<16 x i8>* %array) { ; CHECK-LABEL: extloadi8vec:
+  %ptr = getelementptr inbounds <16 x i8>, <16 x i8>* %array, i32 0
+  %tmp = load <16 x i8>, <16 x i8>* %ptr
+
+	; CHECK: lea s1, (sp)
+	; CHECK: or s2, s1, 60
+	; CHECK: load_{{[su]}}8 s3, 15(s0)
+	; CHECK: store_32 s3, (s2)
+  ; ...
+  ; CHECK: load_v v0, (sp)
+
+  ret <16 x i8> %tmp
+}
+
+define <16 x i16> @extloadi16vec(<16 x i16>* %array) { ; CHECK-LABEL: extloadi16vec:
+  %ptr = getelementptr inbounds <16 x i16>, <16 x i16>* %array, i32 0
+  %tmp = load <16 x i16>, <16 x i16>* %ptr
+
+	; CHECK: lea s1, (sp)
+	; CHECK: or s2, s1, 60
+	; CHECK: load_{{[su]}}16 s3, 30(s0)
+	; CHECK: store_32 s3, (s2)
+  ; ...
+  ; CHECK: load_v v0, (sp)
+
+  ret <16 x i16> %tmp
+}
+
+; ISD::ZEXTLOAD
+define <16 x i32> @zextloadi8vec(<16 x i8>* %array) { ; CHECK-LABEL: zextloadi8vec:
+  %ptr = getelementptr inbounds <16 x i8>, <16 x i8>* %array, i32 0
+  %tmp1 = load <16 x i8>, <16 x i8>* %ptr
+  %tmp2 = zext <16 x i8> %tmp1 to <16 x i32>
+
+	; CHECK: lea s1, (sp)
+	; CHECK: or s2, s1, 60
+	; CHECK: load_u8 s3, 15(s0)
+	; CHECK: store_32 s3, (s2)
+  ; ...
+  ; CHECK: load_v v0, (sp)
+
+  ret <16 x i32> %tmp2
+}
+
+define <16 x i32> @zextloadi16vec(<16 x i16>* %array) { ; CHECK-LABEL: zextloadi16vec:
+  %ptr = getelementptr inbounds <16 x i16>, <16 x i16>* %array, i32 0
+  %tmp1 = load <16 x i16>, <16 x i16>* %ptr
+  %tmp2 = zext <16 x i16> %tmp1 to <16 x i32>
+
+	; CHECK: lea s1, (sp)
+	; CHECK: or s2, s1, 60
+	; CHECK: load_u16 s3, 30(s0)
+	; CHECK: store_32 s3, (s2)
+  ; ...
+  ; CHECK: load_v v0, (sp)
+
+  ret <16 x i32> %tmp2
+}
+
+; ISD::SEXTLOAD
+define <16 x i32> @sextloadi8vec(<16 x i8>* %array) { ; CHECK-LABEL: sextloadi8vec:
+  %ptr = getelementptr inbounds <16 x i8>, <16 x i8>* %array, i32 0
+  %tmp1 = load <16 x i8>, <16 x i8>* %ptr
+  %tmp2 = sext <16 x i8> %tmp1 to <16 x i32>
+
+	; CHECK: lea s1, (sp)
+	; CHECK: or s2, s1, 60
+	; CHECK: load_s8 s3, 15(s0)
+	; CHECK: store_32 s3, (s2)
+  ; ...
+  ; CHECK: load_v v0, (sp)
+
+  ret <16 x i32> %tmp2
+}
+
+define <16 x i32> @sextloadi16vec(<16 x i16>* %array) { ; CHECK-LABEL: sextloadi16vec:
+  %ptr = getelementptr inbounds <16 x i16>, <16 x i16>* %array, i32 0
+  %tmp1 = load <16 x i16>, <16 x i16>* %ptr
+  %tmp2 = sext <16 x i16> %tmp1 to <16 x i32>
+
+	; CHECK: lea s1, (sp)
+	; CHECK: or s2, s1, 60
+	; CHECK: load_s16 s3, 30(s0)
+	; CHECK: store_32 s3, (s2)
+  ; ...
+  ; CHECK: load_v v0, (sp)
+
+  ret <16 x i32> %tmp2
+}
+
+define void @truncstorei8vec(<16 x i8>* %ptr, <16 x i8> %value) { ; CHECK-LABEL: truncstorei8vec
+  store <16 x i8> %value, <16 x i8>* %ptr, align 1
+
+	; CHECK: getlane s1, v0, 15
+	; CHECK: store_8 s1, 15(s0)
+	; CHECK: getlane s1, v0, 14
+	; CHECK: store_8 s1, 14(s0)
+	; CHECK: getlane s1, v0, 13
+	; CHECK: store_8 s1, 13(s0)
+	; CHECK: getlane s1, v0, 12
+	; CHECK: store_8 s1, 12(s0)
+	; CHECK: getlane s1, v0, 11
+	; CHECK: store_8 s1, 11(s0)
+	; CHECK: getlane s1, v0, 10
+	; CHECK: store_8 s1, 10(s0)
+	; CHECK: getlane s1, v0, 9
+	; CHECK: store_8 s1, 9(s0)
+	; CHECK: getlane s1, v0, 8
+	; CHECK: store_8 s1, 8(s0)
+	; CHECK: getlane s1, v0, 7
+	; CHECK: store_8 s1, 7(s0)
+	; CHECK: getlane s1, v0, 6
+	; CHECK: store_8 s1, 6(s0)
+	; CHECK: getlane s1, v0, 5
+	; CHECK: store_8 s1, 5(s0)
+	; CHECK: getlane s1, v0, 4
+	; CHECK: store_8 s1, 4(s0)
+	; CHECK: getlane s1, v0, 3
+	; CHECK: store_8 s1, 3(s0)
+	; CHECK: getlane s1, v0, 2
+	; CHECK: store_8 s1, 2(s0)
+	; CHECK: getlane s1, v0, 1
+	; CHECK: store_8 s1, 1(s0)
+	; CHECK: getlane s1, v0, 0
+	; CHECK: store_8 s1, (s0)
+
+
+  ret void
+}
+
+define void @truncstorei16vec(<16 x i16>* %ptr, <16 x i16> %value) { ; CHECK-LABEL: truncstorei16vec
+  store <16 x i16> %value, <16 x i16>* %ptr, align 2
+
+	; CHECK: getlane s1, v0, 15
+	; CHECK: store_16 s1, 30(s0)
+	; CHECK: getlane s1, v0, 14
+	; CHECK: store_16 s1, 28(s0)
+	; CHECK: getlane s1, v0, 13
+	; CHECK: store_16 s1, 26(s0)
+	; CHECK: getlane s1, v0, 12
+	; CHECK: store_16 s1, 24(s0)
+	; CHECK: getlane s1, v0, 11
+	; CHECK: store_16 s1, 22(s0)
+	; CHECK: getlane s1, v0, 10
+	; CHECK: store_16 s1, 20(s0)
+	; CHECK: getlane s1, v0, 9
+	; CHECK: store_16 s1, 18(s0)
+	; CHECK: getlane s1, v0, 8
+	; CHECK: store_16 s1, 16(s0)
+	; CHECK: getlane s1, v0, 7
+	; CHECK: store_16 s1, 14(s0)
+	; CHECK: getlane s1, v0, 6
+	; CHECK: store_16 s1, 12(s0)
+	; CHECK: getlane s1, v0, 5
+	; CHECK: store_16 s1, 10(s0)
+	; CHECK: getlane s1, v0, 4
+	; CHECK: store_16 s1, 8(s0)
+	; CHECK: getlane s1, v0, 3
+	; CHECK: store_16 s1, 6(s0)
+	; CHECK: getlane s1, v0, 2
+	; CHECK: store_16 s1, 4(s0)
+	; CHECK: getlane s1, v0, 1
+	; CHECK: store_16 s1, 2(s0)
+	; CHECK: getlane s1, v0, 0
+	; CHECK: store_16 s1, (s0)
+
+  ret void
+}
