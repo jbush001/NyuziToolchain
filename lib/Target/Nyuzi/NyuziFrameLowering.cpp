@@ -162,9 +162,11 @@ void NyuziFrameLowering::determineCalleeSaves(MachineFunction &MF,
   // The register scavenger allows us to allocate virtual registers during
   // epilogue/prologue insertion, after register allocation has run. We only
   // need to do this if the frame is too large to be addressed by immediate
-  // offsets. If it isn't, don't bother creating a stack slot for it.  Note
-  // that we may in some cases create the scavenge slot when it isn't needed.
-  if (getWorstCaseStackSize(MF) < 0x2000)
+  // offsets. If it isn't, don't bother creating a stack slot for it.
+  // This may create the scavenge slot when it isn't needed.
+  // This check must match the size of the one in
+  // NyuziRegisterInfo::eliminateFrameIndex
+  if (isInt<13>(getWorstCaseStackSize(MF)))
     return;
 
   const TargetRegisterClass *RC = &Nyuzi::GPR32RegClass;
