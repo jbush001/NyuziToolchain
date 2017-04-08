@@ -195,12 +195,9 @@ NyuziTargetLowering::NyuziTargetLowering(const TargetMachine &TM,
   // Compiler will expand these to a series of scalar stores/loads.
   setTruncStoreAction(MVT::v16i32, MVT::v16i16, Expand);
   setTruncStoreAction(MVT::v16i32, MVT::v16i8, Expand);
-  setLoadExtAction(ISD::ZEXTLOAD, MVT::v16i32, MVT::v16i16, Expand);
-  setLoadExtAction(ISD::ZEXTLOAD, MVT::v16i32, MVT::v16i8, Expand);
-  setLoadExtAction(ISD::SEXTLOAD, MVT::v16i32, MVT::v16i16, Expand);
-  setLoadExtAction(ISD::SEXTLOAD, MVT::v16i32, MVT::v16i8, Expand);
-  setLoadExtAction(ISD::EXTLOAD, MVT::v16i32, MVT::v16i16, Expand);
-  setLoadExtAction(ISD::EXTLOAD, MVT::v16i32, MVT::v16i8, Expand);
+  for (auto Op : { ISD::ZEXTLOAD, ISD::SEXTLOAD, ISD::EXTLOAD })
+    for (auto Type : { MVT::v16i16, MVT::v16i8 })
+      setLoadExtAction(Op, MVT::v16i32, Type, Expand);
 
   // Hardware does not have an integer divider, so convert these to
   // library calls
@@ -212,7 +209,7 @@ NyuziTargetLowering::NyuziTargetLowering(const TargetMachine &TM,
   };
 
   for (auto Op : IntLibCalls) {
-    setOperationAction(Op, MVT::i32, Expand); // __udivsi3
+    setOperationAction(Op, MVT::i32, Expand);
     setOperationAction(Op, MVT::v16i32, Expand);
   }
 
@@ -293,7 +290,6 @@ SDValue NyuziTargetLowering::LowerOperation(SDValue Op,
   case ISD::FP_TO_SINT:
   case ISD::FP_TO_UINT:
     return LowerFP_TO_XINT(Op, DAG);
-    break;
   default:
     llvm_unreachable("Should not custom lower this!");
   }
