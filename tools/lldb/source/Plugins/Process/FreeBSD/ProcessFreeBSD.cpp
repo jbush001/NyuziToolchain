@@ -10,6 +10,13 @@
 
 // C Includes
 #include <errno.h>
+#include <pthread.h>
+#include <pthread_np.h>
+#include <stdlib.h>
+#include <sys/sysctl.h>
+#include <sys/types.h>
+#include <sys/user.h>
+#include <machine/elf.h>
 
 // C++ Includes
 #include <mutex>
@@ -17,6 +24,7 @@
 
 // Other libraries and framework includes
 #include "lldb/Core/PluginManager.h"
+#include "lldb/Core/RegisterValue.h"
 #include "lldb/Core/State.h"
 #include "lldb/Host/Host.h"
 #include "lldb/Symbol/ObjectFile.h"
@@ -37,14 +45,18 @@
 #include "lldb/Core/ModuleSpec.h"
 #include "lldb/Core/PluginManager.h"
 #include "lldb/Core/State.h"
-#include "lldb/Host/FileSpec.h"
 #include "lldb/Host/Host.h"
 #include "lldb/Symbol/ObjectFile.h"
 #include "lldb/Target/DynamicLoader.h"
 #include "lldb/Target/Platform.h"
 #include "lldb/Target/Target.h"
+#include "lldb/Utility/DataBufferHeap.h"
+#include "lldb/Utility/FileSpec.h"
 
 #include "lldb/Host/posix/Fcntl.h"
+
+#include "llvm/Support/FileSystem.h"
+#include "llvm/Support/Threading.h"
 
 using namespace lldb;
 using namespace lldb_private;
@@ -71,12 +83,11 @@ ProcessFreeBSD::CreateInstance(lldb::TargetSP target_sp,
 }
 
 void ProcessFreeBSD::Initialize() {
-  static std::once_flag g_once_flag;
+  static llvm::once_flag g_once_flag;
 
-  std::call_once(g_once_flag, []() {
+  llvm::call_once(g_once_flag, []() {
     PluginManager::RegisterPlugin(GetPluginNameStatic(),
                                   GetPluginDescriptionStatic(), CreateInstance);
-    ProcessPOSIXLog::Initialize(GetPluginNameStatic());
   });
 }
 
@@ -288,8 +299,7 @@ Error ProcessFreeBSD::DoAttachToProcessWithID(
   assert(m_monitor == NULL);
 
   Log *log(ProcessPOSIXLog::GetLogIfAllCategoriesSet(POSIX_LOG_PROCESS));
-  if (log && log->GetMask().Test(POSIX_LOG_VERBOSE))
-    log->Printf("ProcessFreeBSD::%s(pid = %" PRIi64 ")", __FUNCTION__, GetID());
+  LLDB_LOGV(log, "pid = {0}", GetID());
 
   m_monitor = new ProcessMonitor(this, pid, error);
 
@@ -361,9 +371,9 @@ Error ProcessFreeBSD::DoLaunch(Module *module, ProcessLaunchInfo &launch_info) {
   assert(m_monitor == NULL);
 
   FileSpec working_dir = launch_info.GetWorkingDirectory();
-  if (working_dir &&
-      (!working_dir.ResolvePath() ||
-       working_dir.GetFileType() != FileSpec::eFileTypeDirectory)) {
+  namespace fs = llvm::sys::fs;
+  if (working_dir && (!working_dir.ResolvePath() ||
+                      !fs::is_directory(working_dir.GetPath()))) {
     error.SetErrorStringWithFormat("No such file or directory: %s",
                                    working_dir.GetCString());
     return error;
@@ -535,9 +545,7 @@ ProcessFreeBSD::CreateNewFreeBSDThread(lldb_private::Process &process,
 
 void ProcessFreeBSD::RefreshStateAfterStop() {
   Log *log(ProcessPOSIXLog::GetLogIfAllCategoriesSet(POSIX_LOG_PROCESS));
-  if (log && log->GetMask().Test(POSIX_LOG_VERBOSE))
-    log->Printf("ProcessFreeBSD::%s(), message_queue size = %d", __FUNCTION__,
-                (int)m_message_queue.size());
+  LLDB_LOGV(log, "message_queue size = {0}", m_message_queue.size());
 
   std::lock_guard<std::recursive_mutex> guard(m_message_mutex);
 
@@ -549,10 +557,8 @@ void ProcessFreeBSD::RefreshStateAfterStop() {
 
     // Resolve the thread this message corresponds to and pass it along.
     lldb::tid_t tid = message.GetTID();
-    if (log)
-      log->Printf(
-          "ProcessFreeBSD::%s(), message_queue size = %d, pid = %" PRIi64,
-          __FUNCTION__, (int)m_message_queue.size(), tid);
+    LLDB_LOGV(log, " message_queue size = {0}, pid = {1}",
+              m_message_queue.size(), tid);
 
     m_thread_list.RefreshStateAfterStop();
 
@@ -564,10 +570,7 @@ void ProcessFreeBSD::RefreshStateAfterStop() {
     if (message.GetKind() == ProcessMessage::eExitMessage) {
       // FIXME: We should tell the user about this, but the limbo message is
       // probably better for that.
-      if (log)
-        log->Printf("ProcessFreeBSD::%s() removing thread, tid = %" PRIi64,
-                    __FUNCTION__, tid);
-
+      LLDB_LOG(log, "removing thread, tid = {0}", tid);
       std::lock_guard<std::recursive_mutex> guard(m_thread_list.GetMutex());
 
       ThreadSP thread_sp = m_thread_list.RemoveThreadByID(tid, false);
@@ -910,15 +913,18 @@ bool ProcessFreeBSD::IsAThreadRunning() {
 const DataBufferSP ProcessFreeBSD::GetAuxvData() {
   // If we're the local platform, we can ask the host for auxv data.
   PlatformSP platform_sp = GetTarget().GetPlatform();
-  if (platform_sp && platform_sp->IsHost())
-    return lldb_private::Host::GetAuxvData(this);
+  assert(platform_sp && platform_sp->IsHost());
 
-  // Somewhat unexpected - the process is not running locally or we don't have a
-  // platform.
-  assert(
-      false &&
-      "no platform or not the host - how did we get here with ProcessFreeBSD?");
-  return DataBufferSP();
+  int mib[4] = {CTL_KERN, KERN_PROC, KERN_PROC_AUXV, (int)m_process->GetID()};
+  size_t auxv_size = AT_COUNT * sizeof(Elf_Auxinfo);
+  DataBufferSP buf_sp(new DataBufferHeap(auxv_size, 0));
+
+  if (::sysctl(mib, 4, buf_sp->GetBytes(), &auxv_size, NULL, 0) != 0) {
+    perror("sysctl failed on auxv");
+    buf_sp.reset();
+  }
+
+  return buf_sp;
 }
 
 struct EmulatorBaton {

@@ -12,17 +12,17 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/DebugInfo/CodeView/TypeIndex.h"
 #include "llvm/DebugInfo/CodeView/TypeRecord.h"
-#include "llvm/DebugInfo/MSF/ByteStream.h"
 #include "llvm/DebugInfo/MSF/MSFBuilder.h"
 #include "llvm/DebugInfo/MSF/MappedBlockStream.h"
-#include "llvm/DebugInfo/MSF/StreamArray.h"
-#include "llvm/DebugInfo/MSF/StreamReader.h"
-#include "llvm/DebugInfo/MSF/StreamWriter.h"
 #include "llvm/DebugInfo/PDB/Native/PDBFile.h"
 #include "llvm/DebugInfo/PDB/Native/RawError.h"
 #include "llvm/DebugInfo/PDB/Native/RawTypes.h"
 #include "llvm/DebugInfo/PDB/Native/TpiStream.h"
 #include "llvm/Support/Allocator.h"
+#include "llvm/Support/BinaryByteStream.h"
+#include "llvm/Support/BinaryStreamArray.h"
+#include "llvm/Support/BinaryStreamReader.h"
+#include "llvm/Support/BinaryStreamWriter.h"
 #include "llvm/Support/Endian.h"
 #include "llvm/Support/Error.h"
 #include <algorithm>
@@ -43,9 +43,12 @@ void TpiStreamBuilder::setVersionHeader(PdbRaw_TpiVer Version) {
   VerHeader = Version;
 }
 
-void TpiStreamBuilder::addTypeRecord(const codeview::CVType &Record) {
+void TpiStreamBuilder::addTypeRecord(ArrayRef<uint8_t> Record,
+                                     Optional<uint32_t> Hash) {
+  TypeRecordBytes += Record.size();
   TypeRecords.push_back(Record);
-  TypeRecordStream.setItems(TypeRecords);
+  if (Hash)
+    TypeHashes.push_back(*Hash);
 }
 
 Error TpiStreamBuilder::finalize() {
@@ -61,7 +64,7 @@ Error TpiStreamBuilder::finalize() {
   H->HeaderSize = sizeof(TpiStreamHeader);
   H->TypeIndexBegin = codeview::TypeIndex::FirstNonSimpleIndex;
   H->TypeIndexEnd = H->TypeIndexBegin + Count;
-  H->TypeRecordBytes = TypeRecordStream.getLength();
+  H->TypeRecordBytes = TypeRecordBytes;
 
   H->HashStreamIndex = HashStreamIndex;
   H->HashAuxStreamIndex = kInvalidStreamIndex;
@@ -82,14 +85,14 @@ Error TpiStreamBuilder::finalize() {
   return Error::success();
 }
 
-uint32_t TpiStreamBuilder::calculateSerializedLength() const {
-  return sizeof(TpiStreamHeader) + TypeRecordStream.getLength();
+uint32_t TpiStreamBuilder::calculateSerializedLength() {
+  return sizeof(TpiStreamHeader) + TypeRecordBytes;
 }
 
 uint32_t TpiStreamBuilder::calculateHashBufferSize() const {
-  if (TypeRecords.empty() || !TypeRecords[0].Hash.hasValue())
-    return 0;
-  return TypeRecords.size() * sizeof(ulittle32_t);
+  assert(TypeHashes.size() == TypeHashes.size() &&
+         "either all or no type records should have hashes");
+  return TypeHashes.size() * sizeof(ulittle32_t);
 }
 
 Error TpiStreamBuilder::finalizeMsfLayout() {
@@ -106,37 +109,38 @@ Error TpiStreamBuilder::finalizeMsfLayout() {
   if (!ExpectedIndex)
     return ExpectedIndex.takeError();
   HashStreamIndex = *ExpectedIndex;
-  ulittle32_t *H = Allocator.Allocate<ulittle32_t>(TypeRecords.size());
-  MutableArrayRef<ulittle32_t> HashBuffer(H, TypeRecords.size());
-  for (uint32_t I = 0; I < TypeRecords.size(); ++I) {
-    HashBuffer[I] = *TypeRecords[I].Hash % MinTpiHashBuckets;
+  ulittle32_t *H = Allocator.Allocate<ulittle32_t>(TypeHashes.size());
+  MutableArrayRef<ulittle32_t> HashBuffer(H, TypeHashes.size());
+  for (uint32_t I = 0; I < TypeHashes.size(); ++I) {
+    HashBuffer[I] = TypeHashes[I] % MinTpiHashBuckets;
   }
   ArrayRef<uint8_t> Bytes(reinterpret_cast<const uint8_t *>(HashBuffer.data()),
                           HashBufferSize);
-  HashValueStream = llvm::make_unique<ByteStream>(Bytes);
+  HashValueStream =
+      llvm::make_unique<BinaryByteStream>(Bytes, llvm::support::little);
   return Error::success();
 }
 
 Error TpiStreamBuilder::commit(const msf::MSFLayout &Layout,
-                               const msf::WritableStream &Buffer) {
+                               WritableBinaryStreamRef Buffer) {
   if (auto EC = finalize())
     return EC;
 
   auto InfoS =
       WritableMappedBlockStream::createIndexedStream(Layout, Buffer, Idx);
 
-  StreamWriter Writer(*InfoS);
+  BinaryStreamWriter Writer(*InfoS);
   if (auto EC = Writer.writeObject(*Header))
     return EC;
 
-  auto RecordArray = VarStreamArray<codeview::CVType>(TypeRecordStream);
-  if (auto EC = Writer.writeArray(RecordArray))
-    return EC;
+  for (auto Rec : TypeRecords)
+    if (auto EC = Writer.writeBytes(Rec))
+      return EC;
 
   if (HashStreamIndex != kInvalidStreamIndex) {
     auto HVS = WritableMappedBlockStream::createIndexedStream(Layout, Buffer,
                                                               HashStreamIndex);
-    StreamWriter HW(*HVS);
+    BinaryStreamWriter HW(*HVS);
     if (auto EC = HW.writeStreamRef(*HashValueStream))
       return EC;
   }

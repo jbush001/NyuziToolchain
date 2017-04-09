@@ -75,7 +75,7 @@ public:
   EVT getSetCCResultType(const DataLayout &, LLVMContext &Context,
                          EVT VT) const override;
   bool isShuffleMaskLegal(const SmallVectorImpl<int> &M, EVT VT) const override;
-  bool isIntDivCheap(EVT VT, AttributeSet Attr) const override;
+  bool isIntDivCheap(EVT VT, AttributeList Attr) const override;
   bool shouldInsertFencesForAtomic(const Instruction *I) const override;
 
 private:

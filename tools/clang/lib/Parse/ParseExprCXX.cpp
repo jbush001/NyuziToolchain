@@ -10,13 +10,13 @@
 // This file implements the Expression parsing implementation for C++.
 //
 //===----------------------------------------------------------------------===//
+#include "clang/Parse/Parser.h"
 #include "clang/AST/ASTContext.h"
-#include "RAIIObjectsForParser.h"
 #include "clang/AST/DeclTemplate.h"
 #include "clang/Basic/PrettyStackTrace.h"
 #include "clang/Lex/LiteralSupport.h"
 #include "clang/Parse/ParseDiagnostic.h"
-#include "clang/Parse/Parser.h"
+#include "clang/Parse/RAIIObjectsForParser.h"
 #include "clang/Sema/DeclSpec.h"
 #include "clang/Sema/ParsedTemplate.h"
 #include "clang/Sema/Scope.h"
@@ -141,13 +141,16 @@ void Parser::CheckForTemplateAndDigraph(Token &Next, ParsedType ObjectType,
 /// filled in with the leading identifier in the last component of the
 /// nested-name-specifier, if any.
 ///
+/// \param OnlyNamespace If true, only considers namespaces in lookup.
+///
 /// \returns true if there was an error parsing a scope specifier
 bool Parser::ParseOptionalCXXScopeSpecifier(CXXScopeSpec &SS,
                                             ParsedType ObjectType,
                                             bool EnteringContext,
                                             bool *MayBePseudoDestructor,
                                             bool IsTypename,
-                                            IdentifierInfo **LastII) {
+                                            IdentifierInfo **LastII,
+                                            bool OnlyNamespace) {
   assert(getLangOpts().CPlusPlus &&
          "Call sites of this function should be guarded by checking for C++");
 
@@ -216,7 +219,10 @@ bool Parser::ParseOptionalCXXScopeSpecifier(CXXScopeSpec &SS,
     SourceLocation EndLoc  = ParseDecltypeSpecifier(DS);
 
     SourceLocation CCLoc;
-    if (!TryConsumeToken(tok::coloncolon, CCLoc)) {
+    // Work around a standard defect: 'decltype(auto)::' is not a
+    // nested-name-specifier.
+    if (DS.getTypeSpecType() == DeclSpec::TST_decltype_auto ||
+        !TryConsumeToken(tok::coloncolon, CCLoc)) {
       AnnotateExistingDecltypeSpecifier(DS, DeclLoc, EndLoc);
       return false;
     }
@@ -447,9 +453,9 @@ bool Parser::ParseOptionalCXXScopeSpecifier(CXXScopeSpec &SS,
 
       bool IsCorrectedToColon = false;
       bool *CorrectionFlagPtr = ColonIsSacred ? &IsCorrectedToColon : nullptr;
-      if (Actions.ActOnCXXNestedNameSpecifier(getCurScope(), IdInfo,
-                                              EnteringContext, SS,
-                                              false, CorrectionFlagPtr)) {
+      if (Actions.ActOnCXXNestedNameSpecifier(
+              getCurScope(), IdInfo, EnteringContext, SS, false,
+              CorrectionFlagPtr, OnlyNamespace)) {
         // Identifier is not recognized as a nested name, but we can have
         // mistyped '::' instead of ':'.
         if (CorrectionFlagPtr && IsCorrectedToColon) {
@@ -546,6 +552,7 @@ ExprResult Parser::tryParseCXXIdExpression(CXXScopeSpec &SS, bool isAddressOfOpe
                          /*EnteringContext=*/false,
                          /*AllowDestructorName=*/false,
                          /*AllowConstructorName=*/false,
+                         /*AllowDeductionGuide=*/false,
                          /*ObjectType=*/nullptr, TemplateKWLoc, Name))
     return ExprError();
 
@@ -859,8 +866,8 @@ Optional<unsigned> Parser::ParseLambdaIntroducer(LambdaIntroducer &Intro,
         // Each lambda init-capture forms its own full expression, which clears
         // Actions.MaybeODRUseExprs. So create an expression evaluation context
         // to save the necessary state, and restore it later.
-        EnterExpressionEvaluationContext EC(Actions,
-                                            Sema::PotentiallyEvaluated);
+        EnterExpressionEvaluationContext EC(
+            Actions, Sema::ExpressionEvaluationContext::PotentiallyEvaluated);
 
         if (TryConsumeToken(tok::equal))
           InitKind = LambdaCaptureInitKind::CopyInit;
@@ -1398,8 +1405,9 @@ ExprResult Parser::ParseCXXTypeid() {
   // We enter the unevaluated context before trying to determine whether we
   // have a type-id, because the tentative parse logic will try to resolve
   // names, and must treat them as unevaluated.
-  EnterExpressionEvaluationContext Unevaluated(Actions, Sema::Unevaluated,
-                                               Sema::ReuseLambdaContextDecl);
+  EnterExpressionEvaluationContext Unevaluated(
+      Actions, Sema::ExpressionEvaluationContext::Unevaluated,
+      Sema::ReuseLambdaContextDecl);
 
   if (isTypeIdInParens()) {
     TypeResult Ty = ParseTypeName();
@@ -1462,7 +1470,8 @@ ExprResult Parser::ParseCXXUuidof() {
                                     Ty.get().getAsOpaquePtr(), 
                                     T.getCloseLocation());
   } else {
-    EnterExpressionEvaluationContext Unevaluated(Actions, Sema::Unevaluated);
+    EnterExpressionEvaluationContext Unevaluated(
+        Actions, Sema::ExpressionEvaluationContext::Unevaluated);
     Result = ParseExpression();
 
     // Match the ')'.
@@ -2429,6 +2438,8 @@ bool Parser::ParseUnqualifiedIdOperator(CXXScopeSpec &SS, bool EnteringContext,
 ///
 /// \param AllowConstructorName whether we allow parsing a constructor name.
 ///
+/// \param AllowDeductionGuide whether we allow parsing a deduction guide name.
+///
 /// \param ObjectType if this unqualified-id occurs within a member access
 /// expression, the type of the base object whose member is being accessed.
 ///
@@ -2438,6 +2449,7 @@ bool Parser::ParseUnqualifiedIdOperator(CXXScopeSpec &SS, bool EnteringContext,
 bool Parser::ParseUnqualifiedId(CXXScopeSpec &SS, bool EnteringContext,
                                 bool AllowDestructorName,
                                 bool AllowConstructorName,
+                                bool AllowDeductionGuide,
                                 ParsedType ObjectType,
                                 SourceLocation& TemplateKWLoc,
                                 UnqualifiedId &Result) {
@@ -2466,6 +2478,7 @@ bool Parser::ParseUnqualifiedId(CXXScopeSpec &SS, bool EnteringContext,
       return false;
     }
 
+    ParsedTemplateTy TemplateName;
     if (AllowConstructorName && 
         Actions.isCurrentClassName(*Id, getCurScope(), &SS)) {
       // We have parsed a constructor name.
@@ -2474,6 +2487,12 @@ bool Parser::ParseUnqualifiedId(CXXScopeSpec &SS, bool EnteringContext,
                                           /*IsCtorOrDtorName=*/true,
                                           /*NonTrivialTypeSourceInfo=*/true);
       Result.setConstructorName(Ty, IdLoc, IdLoc);
+    } else if (getLangOpts().CPlusPlus1z &&
+               AllowDeductionGuide && SS.isEmpty() &&
+               Actions.isDeductionGuideName(getCurScope(), *Id, IdLoc,
+                                            &TemplateName)) {
+      // We have parsed a template-name naming a deduction guide.
+      Result.setDeductionGuideName(TemplateName, IdLoc);
     } else {
       // We have parsed an identifier.
       Result.setIdentifier(Id, IdLoc);      
@@ -2566,7 +2585,8 @@ bool Parser::ParseUnqualifiedId(CXXScopeSpec &SS, bool EnteringContext,
     if (SS.isEmpty() && Tok.is(tok::kw_decltype)) {
       DeclSpec DS(AttrFactory);
       SourceLocation EndLoc = ParseDecltypeSpecifier(DS);
-      if (ParsedType Type = Actions.getDestructorType(DS, ObjectType)) {
+      if (ParsedType Type =
+              Actions.getDestructorTypeForDecltype(DS, ObjectType)) {
         Result.setDestructorName(TildeLoc, Type, EndLoc);
         return false;
       }

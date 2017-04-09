@@ -169,7 +169,8 @@ Pass *createLoopStrengthReducePass();
 //
 // LoopUnswitch - This pass is a simple loop unswitching pass.
 //
-Pass *createLoopUnswitchPass(bool OptimizeForSize = false);
+Pass *createLoopUnswitchPass(bool OptimizeForSize = false,
+                             bool hasBranchDivergence = false);
 
 //===----------------------------------------------------------------------===//
 //
@@ -181,11 +182,11 @@ Pass *createLoopInstSimplifyPass();
 //
 // LoopUnroll - This pass is a simple loop unrolling pass.
 //
-Pass *createLoopUnrollPass(int Threshold = -1, int Count = -1,
+Pass *createLoopUnrollPass(int OptLevel = 2, int Threshold = -1, int Count = -1,
                            int AllowPartial = -1, int Runtime = -1,
                            int UpperBound = -1);
 // Create an unrolling pass for full unrolling that uses exact trip count only.
-Pass *createSimpleLoopUnrollPass();
+Pass *createSimpleLoopUnrollPass(int OptLevel = 2);
 
 //===----------------------------------------------------------------------===//
 //
@@ -257,6 +258,14 @@ FunctionPass *createJumpThreadingPass(int Threshold = -1);
 // simplify terminator instructions, etc...
 //
 FunctionPass *createCFGSimplificationPass(
+    int Threshold = -1, std::function<bool(const Function &)> Ftor = nullptr);
+
+//===----------------------------------------------------------------------===//
+//
+// LateCFGSimplification - Like CFGSimplification, but may also
+// convert switches to lookup tables.
+//
+FunctionPass *createLateCFGSimplificationPass(
     int Threshold = -1, std::function<bool(const Function &)> Ftor = nullptr);
 
 //===----------------------------------------------------------------------===//
@@ -409,6 +418,15 @@ Pass *createLowerGuardIntrinsicPass();
 // ValuePropagation - Propagate CFG-derived value information
 //
 Pass *createCorrelatedValuePropagationPass();
+
+//===----------------------------------------------------------------------===//
+//
+// InferAddressSpaces - Modify users of addrspacecast instructions with values
+// in the source address space if using the destination address space is slower
+// on the target.
+//
+FunctionPass *createInferAddressSpacesPass();
+extern char &InferAddressSpacesID;
 
 //===----------------------------------------------------------------------===//
 //

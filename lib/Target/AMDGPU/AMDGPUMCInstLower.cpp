@@ -151,6 +151,28 @@ bool AMDGPUAsmPrinter::lowerOperand(const MachineOperand &MO,
   return MCInstLowering.lowerOperand(MO, MCOp);
 }
 
+const MCExpr *AMDGPUAsmPrinter::lowerConstant(const Constant *CV) {
+  // TargetMachine does not support llvm-style cast. Use C++-style cast.
+  // This is safe since TM is always of type AMDGPUTargetMachine or its
+  // derived class.
+  auto *AT = static_cast<AMDGPUTargetMachine*>(&TM);
+  auto *CE = dyn_cast<ConstantExpr>(CV);
+
+  // Lower null pointers in private and local address space.
+  // Clang generates addrspacecast for null pointers in private and local
+  // address space, which needs to be lowered.
+  if (CE && CE->getOpcode() == Instruction::AddrSpaceCast) {
+    auto Op = CE->getOperand(0);
+    auto SrcAddr = Op->getType()->getPointerAddressSpace();
+    if (Op->isNullValue() && AT->getNullPointerValue(SrcAddr) == 0) {
+      auto DstAddr = CE->getType()->getPointerAddressSpace();
+      return MCConstantExpr::create(AT->getNullPointerValue(DstAddr),
+        OutContext);
+    }
+  }
+  return AsmPrinter::lowerConstant(CV);
+}
+
 void AMDGPUAsmPrinter::EmitInstruction(const MachineInstr *MI) {
   if (emitPseudoExpansionLowering(*OutStreamer, MI))
     return;
@@ -173,8 +195,9 @@ void AMDGPUAsmPrinter::EmitInstruction(const MachineInstr *MI) {
       ++I;
     }
   } else {
-    // We don't want SI_MASK_BRANCH/SI_RETURN encoded. They are placeholder
-    // terminator instructions and should only be printed as comments.
+    // We don't want SI_MASK_BRANCH/SI_RETURN_TO_EPILOG encoded. They are
+    // placeholder terminator instructions and should only be printed as
+    // comments.
     if (MI->getOpcode() == AMDGPU::SI_MASK_BRANCH) {
       if (isVerbose()) {
         SmallVector<char, 16> BBStr;
@@ -190,9 +213,9 @@ void AMDGPUAsmPrinter::EmitInstruction(const MachineInstr *MI) {
       return;
     }
 
-    if (MI->getOpcode() == AMDGPU::SI_RETURN) {
+    if (MI->getOpcode() == AMDGPU::SI_RETURN_TO_EPILOG) {
       if (isVerbose())
-        OutStreamer->emitRawComment(" return");
+        OutStreamer->emitRawComment(" return to shader part epilog");
       return;
     }
 

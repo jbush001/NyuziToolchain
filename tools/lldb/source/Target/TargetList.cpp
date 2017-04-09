@@ -8,6 +8,7 @@
 //===----------------------------------------------------------------------===//
 
 // Project includes
+#include "lldb/Target/TargetList.h"
 #include "lldb/Core/Broadcaster.h"
 #include "lldb/Core/Debugger.h"
 #include "lldb/Core/Event.h"
@@ -22,7 +23,7 @@
 #include "lldb/Symbol/ObjectFile.h"
 #include "lldb/Target/Platform.h"
 #include "lldb/Target/Process.h"
-#include "lldb/Target/TargetList.h"
+#include "lldb/Utility/TildeExpressionResolver.h"
 
 // Other libraries and framework includes
 #include "llvm/ADT/SmallString.h"
@@ -347,10 +348,10 @@ Error TargetList::CreateTargetInternal(Debugger &debugger,
   FileSpec file(user_exe_path, false);
   if (!file.Exists() && user_exe_path.startswith("~")) {
     // we want to expand the tilde but we don't want to resolve any symbolic
-    // links
-    // so we can't use the FileSpec constructor's resolve flag
-    llvm::SmallString<64> unglobbed_path(user_exe_path);
-    FileSpec::ResolveUsername(unglobbed_path);
+    // links so we can't use the FileSpec constructor's resolve flag
+    llvm::SmallString<64> unglobbed_path;
+    StandardTildeExpressionResolver Resolver;
+    Resolver.ResolveFullPath(user_exe_path, unglobbed_path);
 
     if (unglobbed_path.empty())
       file = FileSpec(user_exe_path, false);
@@ -362,7 +363,7 @@ Error TargetList::CreateTargetInternal(Debugger &debugger,
   char resolved_bundle_exe_path[PATH_MAX];
   resolved_bundle_exe_path[0] = '\0';
   if (file) {
-    if (file.GetFileType() == FileSpec::eFileTypeDirectory)
+    if (llvm::sys::fs::is_directory(file.GetPath()))
       user_exe_path_is_bundle = true;
 
     if (file.IsRelative() && !user_exe_path.empty()) {

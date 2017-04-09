@@ -1,4 +1,4 @@
-//===---- CGBuiltin.cpp - Emit LLVM Code for builtins ---------------------===//
+//===---- CGObjC.cpp - Emit LLVM Code for Objective-C ---------------------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -427,7 +427,7 @@ RValue CodeGenFunction::EmitObjCMessageExpr(const ObjCMessageExpr *E,
   QualType ResultType = method ? method->getReturnType() : E->getType();
 
   CallArgList Args;
-  EmitCallArgs(Args, method, E->arguments());
+  EmitCallArgs(Args, method, E->arguments(), /*AC*/AbstractCallee(method));
 
   // For delegate init calls in ARC, do an unsafe store of null into
   // self.  This represents the call taking direct ownership of that
@@ -1316,7 +1316,7 @@ CodeGenFunction::generateObjCSetterBody(const ObjCImplementationDecl *classImpl,
 
   BinaryOperator assign(&ivarRef, finalArg, BO_Assign,
                         ivarRef.getType(), VK_RValue, OK_Ordinary,
-                        SourceLocation(), false);
+                        SourceLocation(), FPOptions());
   EmitStmt(&assign);
 }
 
@@ -1802,26 +1802,49 @@ void CodeGenFunction::EmitARCIntrinsicUse(ArrayRef<llvm::Value*> values) {
 }
 
 
-static llvm::Constant *createARCRuntimeFunction(CodeGenModule &CGM,
-                                                llvm::FunctionType *type,
-                                                StringRef fnName) {
-  llvm::Constant *fn = CGM.CreateRuntimeFunction(type, fnName);
+static bool IsForwarding(StringRef Name) {
+  return llvm::StringSwitch<bool>(Name)
+      .Cases("objc_autoreleaseReturnValue",             // ARCInstKind::AutoreleaseRV
+             "objc_autorelease",                        // ARCInstKind::Autorelease
+             "objc_retainAutoreleaseReturnValue",       // ARCInstKind::FusedRetainAutoreleaseRV
+             "objc_retainAutoreleasedReturnValue",      // ARCInstKind::RetainRV
+             "objc_retainAutorelease",                  // ARCInstKind::FusedRetainAutorelease
+             "objc_retainedObject",                     // ARCInstKind::NoopCast
+             "objc_retain",                             // ARCInstKind::Retain
+             "objc_unretainedObject",                   // ARCInstKind::NoopCast
+             "objc_unretainedPointer",                  // ARCInstKind::NoopCast
+             "objc_unsafeClaimAutoreleasedReturnValue", // ARCInstKind::ClaimRV
+             true)
+      .Default(false);
+}
 
-  if (llvm::Function *f = dyn_cast<llvm::Function>(fn)) {
+static llvm::Constant *createARCRuntimeFunction(CodeGenModule &CGM,
+                                                llvm::FunctionType *FTy,
+                                                StringRef Name) {
+  llvm::Constant *RTF = CGM.CreateRuntimeFunction(FTy, Name);
+
+  if (auto *F = dyn_cast<llvm::Function>(RTF)) {
     // If the target runtime doesn't naturally support ARC, emit weak
     // references to the runtime support library.  We don't really
     // permit this to fail, but we need a particular relocation style.
     if (!CGM.getLangOpts().ObjCRuntime.hasNativeARC() &&
         !CGM.getTriple().isOSBinFormatCOFF()) {
-      f->setLinkage(llvm::Function::ExternalWeakLinkage);
-    } else if (fnName == "objc_retain" || fnName  == "objc_release") {
+      F->setLinkage(llvm::Function::ExternalWeakLinkage);
+    } else if (Name == "objc_retain" || Name  == "objc_release") {
       // If we have Native ARC, set nonlazybind attribute for these APIs for
       // performance.
-      f->addFnAttr(llvm::Attribute::NonLazyBind);
+      F->addFnAttr(llvm::Attribute::NonLazyBind);
+    }
+
+    if (IsForwarding(Name)) {
+      llvm::AttrBuilder B;
+      B.addAttribute(llvm::Attribute::Returned);
+
+      F->arg_begin()->addAttr(llvm::AttributeList::get(F->getContext(), 1, B));
     }
   }
 
-  return fn;
+  return RTF;
 }
 
 /// Perform an operation having the signature
@@ -1832,7 +1855,8 @@ static llvm::Value *emitARCValueOperation(CodeGenFunction &CGF,
                                           llvm::Constant *&fn,
                                           StringRef fnName,
                                           bool isTailCall = false) {
-  if (isa<llvm::ConstantPointerNull>(value)) return value;
+  if (isa<llvm::ConstantPointerNull>(value))
+    return value;
 
   if (!fn) {
     llvm::FunctionType *fnType =
@@ -3239,7 +3263,7 @@ CodeGenFunction::GenerateObjCAtomicSetterCopyHelperFunction(
   CallExpr *CalleeExp = cast<CallExpr>(PID->getSetterCXXAssignment());
   CXXOperatorCallExpr TheCall(C, OO_Equal, CalleeExp->getCallee(),
                               Args, DestTy->getPointeeType(),
-                              VK_LValue, SourceLocation(), false);
+                              VK_LValue, SourceLocation(), FPOptions());
   
   EmitStmt(&TheCall);
 
@@ -3375,5 +3399,54 @@ CodeGenFunction::EmitBlockCopyAndAutorelease(llvm::Value *Block, QualType Ty) {
   return Val;
 }
 
+llvm::Value *
+CodeGenFunction::EmitBuiltinAvailable(ArrayRef<llvm::Value *> Args) {
+  assert(Args.size() == 3 && "Expected 3 argument here!");
+
+  if (!CGM.IsOSVersionAtLeastFn) {
+    llvm::FunctionType *FTy =
+        llvm::FunctionType::get(Int32Ty, {Int32Ty, Int32Ty, Int32Ty}, false);
+    CGM.IsOSVersionAtLeastFn =
+        CGM.CreateRuntimeFunction(FTy, "__isOSVersionAtLeast");
+  }
+
+  llvm::Value *CallRes =
+      EmitNounwindRuntimeCall(CGM.IsOSVersionAtLeastFn, Args);
+
+  return Builder.CreateICmpNE(CallRes, llvm::Constant::getNullValue(Int32Ty));
+}
+
+void CodeGenModule::emitAtAvailableLinkGuard() {
+  if (!IsOSVersionAtLeastFn)
+    return;
+  // @available requires CoreFoundation only on Darwin.
+  if (!Target.getTriple().isOSDarwin())
+    return;
+  // Add -framework CoreFoundation to the linker commands. We still want to
+  // emit the core foundation reference down below because otherwise if
+  // CoreFoundation is not used in the code, the linker won't link the
+  // framework.
+  auto &Context = getLLVMContext();
+  llvm::Metadata *Args[2] = {llvm::MDString::get(Context, "-framework"),
+                             llvm::MDString::get(Context, "CoreFoundation")};
+  LinkerOptionsMetadata.push_back(llvm::MDNode::get(Context, Args));
+  // Emit a reference to a symbol from CoreFoundation to ensure that
+  // CoreFoundation is linked into the final binary.
+  llvm::FunctionType *FTy =
+      llvm::FunctionType::get(Int32Ty, {VoidPtrTy}, false);
+  llvm::Constant *CFFunc =
+      CreateRuntimeFunction(FTy, "CFBundleGetVersionNumber");
+
+  llvm::FunctionType *CheckFTy = llvm::FunctionType::get(VoidTy, {}, false);
+  llvm::Function *CFLinkCheckFunc = cast<llvm::Function>(CreateBuiltinFunction(
+      CheckFTy, "__clang_at_available_requires_core_foundation_framework"));
+  CFLinkCheckFunc->setLinkage(llvm::GlobalValue::LinkOnceAnyLinkage);
+  CFLinkCheckFunc->setVisibility(llvm::GlobalValue::HiddenVisibility);
+  CodeGenFunction CGF(*this);
+  CGF.Builder.SetInsertPoint(CGF.createBasicBlock("", CFLinkCheckFunc));
+  CGF.EmitNounwindRuntimeCall(CFFunc, llvm::Constant::getNullValue(VoidPtrTy));
+  CGF.Builder.CreateUnreachable();
+  addCompilerUsedGlobal(CFLinkCheckFunc);
+}
 
 CGObjCRuntime::~CGObjCRuntime() {}

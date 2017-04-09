@@ -12,7 +12,7 @@
 #include "lldb/Host/Config.h"
 
 #include "GDBRemoteCommunicationServerLLGS.h"
-#include "lldb/Core/StreamGDBRemote.h"
+#include "lldb/Utility/StreamGDBRemote.h"
 
 // C Includes
 // C++ Includes
@@ -21,27 +21,27 @@
 #include <thread>
 
 // Other libraries and framework includes
-#include "lldb/Core/DataBuffer.h"
-#include "lldb/Core/Log.h"
 #include "lldb/Core/RegisterValue.h"
 #include "lldb/Core/State.h"
-#include "lldb/Core/StreamString.h"
 #include "lldb/Host/ConnectionFileDescriptor.h"
 #include "lldb/Host/Debug.h"
-#include "lldb/Host/Endian.h"
 #include "lldb/Host/File.h"
 #include "lldb/Host/FileSystem.h"
 #include "lldb/Host/Host.h"
 #include "lldb/Host/HostInfo.h"
-#include "lldb/Host/StringConvert.h"
 #include "lldb/Host/common/NativeProcessProtocol.h"
 #include "lldb/Host/common/NativeRegisterContext.h"
 #include "lldb/Host/common/NativeThreadProtocol.h"
 #include "lldb/Interpreter/Args.h"
 #include "lldb/Target/FileAction.h"
 #include "lldb/Target/MemoryRegionInfo.h"
+#include "lldb/Utility/DataBuffer.h"
+#include "lldb/Utility/Endian.h"
 #include "lldb/Utility/JSON.h"
 #include "lldb/Utility/LLDBAssert.h"
+#include "lldb/Utility/Log.h"
+#include "lldb/Utility/StreamString.h"
+#include "lldb/Utility/UriParser.h"
 #include "llvm/ADT/Triple.h"
 #include "llvm/Support/ScopedPrinter.h"
 
@@ -49,7 +49,6 @@
 #include "ProcessGDBRemote.h"
 #include "ProcessGDBRemoteLog.h"
 #include "Utility/StringExtractorGDBRemote.h"
-#include "Utility/UriParser.h"
 
 using namespace lldb;
 using namespace lldb_private;
@@ -81,7 +80,6 @@ GDBRemoteCommunicationServerLLGS::GDBRemoteCommunicationServerLLGS(
       m_continue_tid(LLDB_INVALID_THREAD_ID), m_debugged_process_mutex(),
       m_debugged_process_sp(), m_stdio_communication("process.stdio"),
       m_inferior_prev_state(StateType::eStateInvalid),
-      m_active_auxv_buffer_sp(), m_saved_registers_mutex(),
       m_saved_registers_map(), m_next_saved_registers_id(1),
       m_handshake_completed(false) {
   RegisterPacketHandlers();
@@ -181,6 +179,9 @@ void GDBRemoteCommunicationServerLLGS::RegisterPacketHandlers() {
                                 &GDBRemoteCommunicationServerLLGS::Handle_Z);
   RegisterMemberFunctionHandler(StringExtractorGDBRemote::eServerPacketType_z,
                                 &GDBRemoteCommunicationServerLLGS::Handle_z);
+  RegisterMemberFunctionHandler(
+      StringExtractorGDBRemote::eServerPacketType_QPassSignals,
+      &GDBRemoteCommunicationServerLLGS::Handle_QPassSignals);
 
   RegisterPacketHandler(StringExtractorGDBRemote::eServerPacketType_k,
                         [this](StringExtractorGDBRemote packet, Error &error,
@@ -2531,12 +2532,14 @@ GDBRemoteCommunicationServerLLGS::Handle_z(StringExtractorGDBRemote &packet) {
         packet, "Too short z packet, missing software/hardware specifier");
 
   bool want_breakpoint = true;
+  bool want_hardware = false;
 
   const GDBStoppointType stoppoint_type =
       GDBStoppointType(packet.GetS32(eStoppointInvalid));
   switch (stoppoint_type) {
   case eBreakpointHardware:
     want_breakpoint = true;
+    want_hardware = true;
     break;
   case eBreakpointSoftware:
     want_breakpoint = true;
@@ -2579,7 +2582,8 @@ GDBRemoteCommunicationServerLLGS::Handle_z(StringExtractorGDBRemote &packet) {
 
   if (want_breakpoint) {
     // Try to clear the breakpoint.
-    const Error error = m_debugged_process_sp->RemoveBreakpoint(addr);
+    const Error error =
+        m_debugged_process_sp->RemoveBreakpoint(addr, want_hardware);
     if (error.Success())
       return SendOKResponse();
     Log *log(GetLogIfAnyCategoriesSet(LIBLLDB_LOG_BREAKPOINTS));
@@ -2660,7 +2664,7 @@ GDBRemoteCommunication::PacketResult
 GDBRemoteCommunicationServerLLGS::Handle_qXfer_auxv_read(
     StringExtractorGDBRemote &packet) {
 // *BSD impls should be able to do this too.
-#if defined(__linux__)
+#if defined(__linux__) || defined(__NetBSD__)
   Log *log(GetLogIfAnyCategoriesSet(LIBLLDB_LOG_PROCESS));
 
   // Parse out the offset.
@@ -2688,7 +2692,7 @@ GDBRemoteCommunicationServerLLGS::Handle_qXfer_auxv_read(
                                  "qXfer:auxv:read:: packet missing length");
 
   // Grab the auxv data if we need it.
-  if (!m_active_auxv_buffer_sp) {
+  if (!m_active_auxv_buffer_up) {
     // Make sure we have a valid process.
     if (!m_debugged_process_sp ||
         (m_debugged_process_sp->GetID() == LLDB_INVALID_PROCESS_ID)) {
@@ -2700,55 +2704,45 @@ GDBRemoteCommunicationServerLLGS::Handle_qXfer_auxv_read(
     }
 
     // Grab the auxv data.
-    m_active_auxv_buffer_sp = Host::GetAuxvData(m_debugged_process_sp->GetID());
-    if (!m_active_auxv_buffer_sp ||
-        m_active_auxv_buffer_sp->GetByteSize() == 0) {
-      // Hmm, no auxv data, call that an error.
-      if (log)
-        log->Printf("GDBRemoteCommunicationServerLLGS::%s failed, no auxv data "
-                    "retrieved",
-                    __FUNCTION__);
-      m_active_auxv_buffer_sp.reset();
-      return SendErrorResponse(0x11);
+    auto buffer_or_error = m_debugged_process_sp->GetAuxvData();
+    if (!buffer_or_error) {
+      std::error_code ec = buffer_or_error.getError();
+      LLDB_LOG(log, "no auxv data retrieved: {0}", ec.message());
+      return SendErrorResponse(ec.value());
     }
+    m_active_auxv_buffer_up = std::move(*buffer_or_error);
   }
-
-  // FIXME find out if/how I lock the stream here.
 
   StreamGDBRemote response;
   bool done_with_buffer = false;
 
-  if (auxv_offset >= m_active_auxv_buffer_sp->GetByteSize()) {
+  llvm::StringRef buffer = m_active_auxv_buffer_up->getBuffer();
+  if (auxv_offset >= buffer.size()) {
     // We have nothing left to send.  Mark the buffer as complete.
     response.PutChar('l');
     done_with_buffer = true;
   } else {
     // Figure out how many bytes are available starting at the given offset.
-    const uint64_t bytes_remaining =
-        m_active_auxv_buffer_sp->GetByteSize() - auxv_offset;
-
-    // Figure out how many bytes we're going to read.
-    const uint64_t bytes_to_read =
-        (auxv_length > bytes_remaining) ? bytes_remaining : auxv_length;
+    buffer = buffer.drop_front(auxv_offset);
 
     // Mark the response type according to whether we're reading the remainder
     // of the auxv data.
-    if (bytes_to_read >= bytes_remaining) {
+    if (auxv_length >= buffer.size()) {
       // There will be nothing left to read after this
       response.PutChar('l');
       done_with_buffer = true;
     } else {
       // There will still be bytes to read after this request.
       response.PutChar('m');
+      buffer = buffer.take_front(auxv_length);
     }
 
     // Now write the data in encoded binary form.
-    response.PutEscapedBytes(m_active_auxv_buffer_sp->GetBytes() + auxv_offset,
-                             bytes_to_read);
+    response.PutEscapedBytes(buffer.data(), buffer.size());
   }
 
   if (done_with_buffer)
-    m_active_auxv_buffer_sp.reset();
+    m_active_auxv_buffer_up.reset();
 
   return SendPacketNoLock(response.GetString());
 #else
@@ -3037,9 +3031,14 @@ GDBRemoteCommunicationServerLLGS::Handle_qWatchpointSupportInfo(
   if (packet.GetChar() != ':')
     return SendErrorResponse(67);
 
-  uint32_t num = m_debugged_process_sp->GetMaxWatchpoints();
+  auto hw_debug_cap = m_debugged_process_sp->GetHardwareDebugSupportInfo();
+
   StreamGDBRemote response;
-  response.Printf("num:%d;", num);
+  if (hw_debug_cap == llvm::None)
+    response.Printf("num:0;");
+  else
+    response.Printf("num:%d;", hw_debug_cap->second);
+
   return SendPacketNoLock(response.GetString());
 }
 
@@ -3070,6 +3069,40 @@ GDBRemoteCommunicationServerLLGS::Handle_qFileLoadAddress(
   StreamGDBRemote response;
   response.PutHex64(file_load_address);
   return SendPacketNoLock(response.GetString());
+}
+
+GDBRemoteCommunication::PacketResult
+GDBRemoteCommunicationServerLLGS::Handle_QPassSignals(
+    StringExtractorGDBRemote &packet) {
+  std::vector<int> signals;
+  packet.SetFilePos(strlen("QPassSignals:"));
+
+  // Read sequence of hex signal numbers divided by a semicolon and
+  // optionally spaces.
+  while (packet.GetBytesLeft() > 0) {
+    int signal = packet.GetS32(-1, 16);
+    if (signal < 0)
+      return SendIllFormedResponse(packet, "Failed to parse signal number.");
+    signals.push_back(signal);
+
+    packet.SkipSpaces();
+    char separator = packet.GetChar();
+    if (separator == '\0')
+      break; // End of string
+    if (separator != ';')
+      return SendIllFormedResponse(packet, "Invalid separator,"
+                                            " expected semicolon.");
+  }
+
+  // Fail if we don't have a current process.
+  if (!m_debugged_process_sp)
+    return SendErrorResponse(68);
+
+  Error error = m_debugged_process_sp->IgnoreSignals(signals);
+  if (error.Fail())
+    return SendErrorResponse(69);
+
+  return SendOKResponse();
 }
 
 void GDBRemoteCommunicationServerLLGS::MaybeCloseInferiorTerminalConnection() {
@@ -3171,20 +3204,10 @@ uint32_t GDBRemoteCommunicationServerLLGS::GetNextSavedRegistersID() {
 }
 
 void GDBRemoteCommunicationServerLLGS::ClearProcessSpecificData() {
-  Log *log(GetLogIfAnyCategoriesSet(LIBLLDB_LOG_PROCESS | GDBR_LOG_PROCESS));
-  if (log)
-    log->Printf("GDBRemoteCommunicationServerLLGS::%s()", __FUNCTION__);
+  Log *log(GetLogIfAnyCategoriesSet(LIBLLDB_LOG_PROCESS));
 
-// Clear any auxv cached data.
-// *BSD impls should be able to do this too.
-#if defined(__linux__)
-  if (log)
-    log->Printf("GDBRemoteCommunicationServerLLGS::%s clearing auxv buffer "
-                "(previously %s)",
-                __FUNCTION__,
-                m_active_auxv_buffer_sp ? "was set" : "was not set");
-  m_active_auxv_buffer_sp.reset();
-#endif
+  LLDB_LOG(log, "clearing auxv buffer: {0}", m_active_auxv_buffer_up.get());
+  m_active_auxv_buffer_up.reset();
 }
 
 FileSpec

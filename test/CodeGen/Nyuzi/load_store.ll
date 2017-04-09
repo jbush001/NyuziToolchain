@@ -112,26 +112,24 @@ define void @test_store_float(%struct.foo* nocapture %f, float %value) { ; CHECK
 
 define void @storeivec(<16 x i32>* %array, <16 x i32> %val1, <16 x i32> %val2) { ; CHECK-LABEL: storeivec:
   store <16 x i32> %val1, <16 x i32>* %array, align 64
-
-  ; CHECK: store_v v0, (s0)
-
   %arrayidx1 = getelementptr inbounds <16 x i32>, <16 x i32>* %array, i32 1
   store <16 x i32> %val2, <16 x i32>* %arrayidx1, align 64
 
-  ; CHECK: store_v v1, 64(s0)
+  ; LLVM sometimes reorders these when there are upstream changes to the
+  ; optimizer, which is why they use CHECK-DAG
+  ; CHECK-DAG: store_v v0, (s0)
+  ; CHECK-DAG: store_v v1, 64(s0)
 
   ret void
 }
 
 define void @storefvec(<16 x float>* %array, <16 x float> %val1, <16 x float> %val2) { ; CHECK-LABEL: storefvec:
   store <16 x float> %val1, <16 x float>* %array, align 64
-
-  ; CHECK: store_v v0, (s0)
-
   %arrayidx1 = getelementptr inbounds <16 x float>, <16 x float>* %array, i32 1
   store <16 x float> %val2, <16 x float>* %arrayidx1, align 64
 
-  ; CHECK: store_v v1, 64(s0)
+  ; CHECK-DAG: store_v v0, (s0)
+  ; CHECK-DAG: store_v v1, 64(s0)
 
   ret void
 }

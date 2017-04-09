@@ -194,6 +194,9 @@ SystemZTargetLowering::SystemZTargetLowering(const TargetMachine &TM,
       setOperationAction(ISD::UMUL_LOHI, VT, Custom);
 
       // Only z196 and above have native support for conversions to unsigned.
+      // On z10, promoting to i64 doesn't generate an inexact condition for
+      // values that are outside the i32 range but in the i64 range, so use
+      // the default expansion.
       if (!Subtarget.hasFPExtension())
         setOperationAction(ISD::FP_TO_UINT, VT, Expand);
     }
@@ -2789,8 +2792,9 @@ SDValue SystemZTargetLowering::lowerBITCAST(SDValue Op,
   // but we need this case for bitcasts that are created during lowering
   // and which are then lowered themselves.
   if (auto *LoadN = dyn_cast<LoadSDNode>(In))
-    return DAG.getLoad(ResVT, DL, LoadN->getChain(), LoadN->getBasePtr(),
-                       LoadN->getMemOperand());
+    if (ISD::isNormalLoad(LoadN))
+      return DAG.getLoad(ResVT, DL, LoadN->getChain(), LoadN->getBasePtr(),
+                         LoadN->getMemOperand());
 
   if (InVT == MVT::i32 && ResVT == MVT::f32) {
     SDValue In64;
@@ -4732,9 +4736,12 @@ const char *SystemZTargetLowering::getTargetNodeName(unsigned Opcode) const {
 }
 
 // Return true if VT is a vector whose elements are a whole number of bytes
-// in width.
-static bool canTreatAsByteVector(EVT VT) {
-  return VT.isVector() && VT.getScalarSizeInBits() % 8 == 0;
+// in width. Also check for presence of vector support.
+bool SystemZTargetLowering::canTreatAsByteVector(EVT VT) const {
+  if (!Subtarget.hasVector())
+    return false;
+
+  return VT.isVector() && VT.getScalarSizeInBits() % 8 == 0 && VT.isSimple();
 }
 
 // Try to simplify an EXTRACT_VECTOR_ELT from a vector of type VecVT
@@ -4996,6 +5003,10 @@ SDValue SystemZTargetLowering::combineSTORE(
 
 SDValue SystemZTargetLowering::combineEXTRACT_VECTOR_ELT(
     SDNode *N, DAGCombinerInfo &DCI) const {
+
+  if (!Subtarget.hasVector())
+    return SDValue();
+
   // Try to simplify a vector extraction.
   if (auto *IndexN = dyn_cast<ConstantSDNode>(N->getOperand(1))) {
     SDValue Op0 = N->getOperand(0);

@@ -16,11 +16,12 @@
 #include "NativeRegisterContextLinux.h"
 #include "SingleStepCheck.h"
 
-#include "lldb/Core/Log.h"
 #include "lldb/Core/State.h"
 #include "lldb/Host/HostNativeThread.h"
 #include "lldb/Host/linux/Ptrace.h"
+#include "lldb/Host/linux/Support.h"
 #include "lldb/Utility/LLDBAssert.h"
+#include "lldb/Utility/Log.h"
 #include "lldb/lldb-enumerations.h"
 
 #include "llvm/ADT/SmallString.h"
@@ -90,15 +91,12 @@ NativeThreadLinux::NativeThreadLinux(NativeProcessLinux *process,
       m_stop_info(), m_reg_context_sp(), m_stop_description() {}
 
 std::string NativeThreadLinux::GetName() {
-  NativeProcessProtocolSP process_sp = m_process_wp.lock();
-  if (!process_sp)
-    return "<unknown: no process>";
+  NativeProcessLinux &process = GetProcess();
 
-  // const NativeProcessLinux *const process =
-  // reinterpret_cast<NativeProcessLinux*> (process_sp->get ());
-  llvm::SmallString<32> thread_name;
-  HostNativeThread::GetName(GetID(), thread_name);
-  return thread_name.c_str();
+  auto BufferOrError = getProcFile(process.GetID(), GetID(), "comm");
+  if (!BufferOrError)
+    return "";
+  return BufferOrError.get()->getBuffer().rtrim('\n');
 }
 
 lldb::StateType NativeThreadLinux::GetState() { return m_state; }
@@ -190,6 +188,38 @@ Error NativeThreadLinux::RemoveWatchpoint(lldb::addr_t addr) {
   return Error("Clearing hardware watchpoint failed.");
 }
 
+Error NativeThreadLinux::SetHardwareBreakpoint(lldb::addr_t addr, size_t size) {
+  if (m_state == eStateLaunching)
+    return Error();
+
+  Error error = RemoveHardwareBreakpoint(addr);
+  if (error.Fail())
+    return error;
+
+  NativeRegisterContextSP reg_ctx = GetRegisterContext();
+  uint32_t bp_index = reg_ctx->SetHardwareBreakpoint(addr, size);
+
+  if (bp_index == LLDB_INVALID_INDEX32)
+    return Error("Setting hardware breakpoint failed.");
+
+  m_hw_break_index_map.insert({addr, bp_index});
+  return Error();
+}
+
+Error NativeThreadLinux::RemoveHardwareBreakpoint(lldb::addr_t addr) {
+  auto bp = m_hw_break_index_map.find(addr);
+  if (bp == m_hw_break_index_map.end())
+    return Error();
+
+  uint32_t bp_index = bp->second;
+  if (GetRegisterContext()->ClearHardwareBreakpoint(bp_index)) {
+    m_hw_break_index_map.erase(bp);
+    return Error();
+  }
+
+  return Error("Clearing hardware breakpoint failed.");
+}
+
 Error NativeThreadLinux::Resume(uint32_t signo) {
   const StateType new_state = StateType::eStateRunning;
   MaybeLogStateChange(new_state);
@@ -211,6 +241,18 @@ Error NativeThreadLinux::Resume(uint32_t signo) {
     }
   }
 
+  // Set all active hardware breakpoint on all threads.
+  if (m_hw_break_index_map.empty()) {
+    NativeProcessLinux &process = GetProcess();
+
+    const auto &hw_breakpoint_map = process.GetHardwareBreakpointMap();
+    GetRegisterContext()->ClearAllHardwareBreakpoints();
+    for (const auto &pair : hw_breakpoint_map) {
+      const auto &bp = pair.second;
+      SetHardwareBreakpoint(bp.m_addr, bp.m_size);
+    }
+  }
+
   intptr_t data = 0;
 
   if (signo != LLDB_INVALID_SIGNAL_NUMBER)
@@ -225,7 +267,13 @@ Error NativeThreadLinux::SingleStep(uint32_t signo) {
   MaybeLogStateChange(new_state);
   m_state = new_state;
   m_stop_info.reason = StopReason::eStopReasonNone;
-  m_step_workaround = SingleStepWorkaround::Get(m_tid);
+
+  if(!m_step_workaround) {
+    // If we already hava a workaround inplace, don't reset it. Otherwise, the
+    // destructor of the existing instance will run after the new instance has
+    // fetched the cpu mask, and the thread will end up with the wrong mask.
+    m_step_workaround = SingleStepWorkaround::Get(m_tid);
+  }
 
   intptr_t data = 0;
   if (signo != LLDB_INVALID_SIGNAL_NUMBER)

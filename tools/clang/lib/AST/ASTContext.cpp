@@ -748,6 +748,8 @@ ASTContext::ASTContext(LangOptions &LOpts, SourceManager &SM,
       ExternCContext(nullptr), MakeIntegerSeqDecl(nullptr),
       TypePackElementDecl(nullptr), SourceMgr(SM), LangOpts(LOpts),
       SanitizerBL(new SanitizerBlacklist(LangOpts.SanitizerBlacklistFiles, SM)),
+      XRayFilter(new XRayFunctionFilter(LangOpts.XRayAlwaysInstrumentFiles,
+                                        LangOpts.XRayNeverInstrumentFiles, SM)),
       AddrSpaceMap(nullptr), Target(nullptr), AuxTarget(nullptr),
       PrintingPolicy(LOpts), Idents(idents), Selectors(sels),
       BuiltinInfo(builtins), DeclarationNames(*this), ExternalSource(nullptr),
@@ -1167,7 +1169,6 @@ void ASTContext::InitBuiltinTypes(const TargetInfo &Target,
     InitBuiltinType(OCLEventTy, BuiltinType::OCLEvent);
     InitBuiltinType(OCLClkEventTy, BuiltinType::OCLClkEvent);
     InitBuiltinType(OCLQueueTy, BuiltinType::OCLQueue);
-    InitBuiltinType(OCLNDRangeTy, BuiltinType::OCLNDRange);
     InitBuiltinType(OCLReserveIDTy, BuiltinType::OCLReserveID);
   }
   
@@ -1474,6 +1475,8 @@ CharUnits ASTContext::getDeclAlign(const Decl *D, bool ForAlignof) const {
         }
       }
       Align = std::max(Align, getPreferredTypeAlign(T.getTypePtr()));
+      if (BaseT.getQualifiers().hasUnaligned())
+        Align = Target->getCharWidth();
       if (const VarDecl *VD = dyn_cast<VarDecl>(D)) {
         if (VD->hasGlobalStorage() && !ForAlignof)
           Align = std::max(Align, getTargetInfo().getMinGlobalAlign());
@@ -1775,7 +1778,6 @@ TypeInfo ASTContext::getTypeInfoImpl(const Type *T) const {
     case BuiltinType::OCLEvent:
     case BuiltinType::OCLClkEvent:
     case BuiltinType::OCLQueue:
-    case BuiltinType::OCLNDRange:
     case BuiltinType::OCLReserveID:
       // Currently these types are pointers to opaque types.
       Width = Target->getPointerWidth(0);
@@ -2692,8 +2694,7 @@ QualType ASTContext::getConstantArrayType(QualType EltTy,
   // Convert the array size into a canonical width matching the pointer size for
   // the target.
   llvm::APInt ArySize(ArySizeIn);
-  ArySize =
-    ArySize.zextOrTrunc(Target->getPointerWidth(getTargetAddressSpace(EltTy)));
+  ArySize = ArySize.zextOrTrunc(Target->getMaxPointerWidth());
 
   llvm::FoldingSetNodeID ID;
   ConstantArrayType::Profile(ID, EltTy, ArySize, ASM, IndexTypeQuals);
@@ -3872,42 +3873,45 @@ ASTContext::getDependentTemplateSpecializationType(
   return QualType(T, 0);
 }
 
+TemplateArgument ASTContext::getInjectedTemplateArg(NamedDecl *Param) {
+  TemplateArgument Arg;
+  if (auto *TTP = dyn_cast<TemplateTypeParmDecl>(Param)) {
+    QualType ArgType = getTypeDeclType(TTP);
+    if (TTP->isParameterPack())
+      ArgType = getPackExpansionType(ArgType, None);
+
+    Arg = TemplateArgument(ArgType);
+  } else if (auto *NTTP = dyn_cast<NonTypeTemplateParmDecl>(Param)) {
+    Expr *E = new (*this) DeclRefExpr(
+        NTTP, /*enclosing*/false,
+        NTTP->getType().getNonLValueExprType(*this),
+        Expr::getValueKindForType(NTTP->getType()), NTTP->getLocation());
+
+    if (NTTP->isParameterPack())
+      E = new (*this) PackExpansionExpr(DependentTy, E, NTTP->getLocation(),
+                                        None);
+    Arg = TemplateArgument(E);
+  } else {
+    auto *TTP = cast<TemplateTemplateParmDecl>(Param);
+    if (TTP->isParameterPack())
+      Arg = TemplateArgument(TemplateName(TTP), Optional<unsigned>());
+    else
+      Arg = TemplateArgument(TemplateName(TTP));
+  }
+
+  if (Param->isTemplateParameterPack())
+    Arg = TemplateArgument::CreatePackCopy(*this, Arg);
+
+  return Arg;
+}
+
 void
 ASTContext::getInjectedTemplateArgs(const TemplateParameterList *Params,
                                     SmallVectorImpl<TemplateArgument> &Args) {
   Args.reserve(Args.size() + Params->size());
 
-  for (NamedDecl *Param : *Params) {
-    TemplateArgument Arg;
-    if (auto *TTP = dyn_cast<TemplateTypeParmDecl>(Param)) {
-      QualType ArgType = getTypeDeclType(TTP);
-      if (TTP->isParameterPack())
-        ArgType = getPackExpansionType(ArgType, None);
-
-      Arg = TemplateArgument(ArgType);
-    } else if (auto *NTTP = dyn_cast<NonTypeTemplateParmDecl>(Param)) {
-      Expr *E = new (*this) DeclRefExpr(
-          NTTP, /*enclosing*/false,
-          NTTP->getType().getNonLValueExprType(*this),
-          Expr::getValueKindForType(NTTP->getType()), NTTP->getLocation());
-
-      if (NTTP->isParameterPack())
-        E = new (*this) PackExpansionExpr(DependentTy, E, NTTP->getLocation(),
-                                          None);
-      Arg = TemplateArgument(E);
-    } else {
-      auto *TTP = cast<TemplateTemplateParmDecl>(Param);
-      if (TTP->isParameterPack())
-        Arg = TemplateArgument(TemplateName(TTP), Optional<unsigned>());
-      else
-        Arg = TemplateArgument(TemplateName(TTP));
-    }
-
-    if (Param->isTemplateParameterPack())
-      Arg = TemplateArgument::CreatePackCopy(*this, Arg);
-
-    Args.push_back(Arg);
-  }
+  for (NamedDecl *Param : *Params)
+    Args.push_back(getInjectedTemplateArg(Param));
 }
 
 QualType ASTContext::getPackExpansionType(QualType Pattern,
@@ -5942,7 +5946,6 @@ static char getObjCEncodingForPrimitiveKind(const ASTContext *C,
     case BuiltinType::OCLEvent:
     case BuiltinType::OCLClkEvent:
     case BuiltinType::OCLQueue:
-    case BuiltinType::OCLNDRange:
     case BuiltinType::OCLReserveID:
     case BuiltinType::OCLSampler:
     case BuiltinType::Dependent:
@@ -8064,20 +8067,12 @@ QualType ASTContext::mergeTypes(QualType LHS, QualType RHS,
   Qualifiers LQuals = LHSCan.getLocalQualifiers();
   Qualifiers RQuals = RHSCan.getLocalQualifiers();
   if (LQuals != RQuals) {
-    if (getLangOpts().OpenCL) {
-      if (LHSCan.getUnqualifiedType() != RHSCan.getUnqualifiedType() ||
-          LQuals.getCVRQualifiers() != RQuals.getCVRQualifiers())
-        return QualType();
-      if (LQuals.isAddressSpaceSupersetOf(RQuals))
-        return LHS;
-      if (RQuals.isAddressSpaceSupersetOf(LQuals))
-        return RHS;
-    }
     // If any of these qualifiers are different, we have a type
     // mismatch.
     if (LQuals.getCVRQualifiers() != RQuals.getCVRQualifiers() ||
         LQuals.getAddressSpace() != RQuals.getAddressSpace() ||
-        LQuals.getObjCLifetime() != RQuals.getObjCLifetime())
+        LQuals.getObjCLifetime() != RQuals.getObjCLifetime() ||
+        LQuals.hasUnaligned() != RQuals.hasUnaligned())
       return QualType();
 
     // Exactly one GC qualifier difference is allowed: __strong is
@@ -8196,6 +8191,20 @@ QualType ASTContext::mergeTypes(QualType LHS, QualType RHS,
     if (Unqualified) {
       LHSPointee = LHSPointee.getUnqualifiedType();
       RHSPointee = RHSPointee.getUnqualifiedType();
+    }
+    if (getLangOpts().OpenCL) {
+      Qualifiers LHSPteeQual = LHSPointee.getQualifiers();
+      Qualifiers RHSPteeQual = RHSPointee.getQualifiers();
+      // Blocks can't be an expression in a ternary operator (OpenCL v2.0
+      // 6.12.5) thus the following check is asymmetric.
+      if (!LHSPteeQual.isAddressSpaceSupersetOf(RHSPteeQual))
+        return QualType();
+      LHSPteeQual.removeAddressSpace();
+      RHSPteeQual.removeAddressSpace();
+      LHSPointee =
+          QualType(LHSPointee.getTypePtr(), LHSPteeQual.getAsOpaqueValue());
+      RHSPointee =
+          QualType(RHSPointee.getTypePtr(), RHSPteeQual.getAsOpaqueValue());
     }
     QualType ResultType = mergeTypes(LHSPointee, RHSPointee, OfBlockPointer,
                                      Unqualified);
@@ -8810,7 +8819,7 @@ static GVALinkage basicGVALinkageForFunction(const ASTContext &Context,
   if (!FD->isExternallyVisible())
     return GVA_Internal;
 
-  GVALinkage External = GVA_StrongExternal;
+  GVALinkage External;
   switch (FD->getTemplateSpecializationKind()) {
   case TSK_Undeclared:
   case TSK_ExplicitSpecialization:
@@ -8882,8 +8891,22 @@ static GVALinkage adjustGVALinkageForAttributes(const ASTContext &Context,
 }
 
 GVALinkage ASTContext::GetGVALinkageForFunction(const FunctionDecl *FD) const {
-  return adjustGVALinkageForAttributes(
+  auto L = adjustGVALinkageForAttributes(
       *this, basicGVALinkageForFunction(*this, FD), FD);
+  auto EK = ExternalASTSource::EK_ReplyHazy;
+  if (auto *Ext = getExternalSource())
+    EK = Ext->hasExternalDefinitions(FD->getOwningModuleID());
+  switch (EK) {
+  case ExternalASTSource::EK_Never:
+    if (L == GVA_DiscardableODR)
+      return GVA_StrongODR;
+    break;
+  case ExternalASTSource::EK_Always:
+    return GVA_AvailableExternally;
+  case ExternalASTSource::EK_ReplyHazy:
+    break;
+  }
+  return L;
 }
 
 static GVALinkage basicGVALinkageForVariable(const ASTContext &Context,
@@ -8968,7 +8991,7 @@ GVALinkage ASTContext::GetGVALinkageForVariable(const VarDecl *VD) {
       *this, basicGVALinkageForVariable(*this, VD), VD);
 }
 
-bool ASTContext::DeclMustBeEmitted(const Decl *D) {
+bool ASTContext::DeclMustBeEmitted(const Decl *D, bool ForModularCodegen) {
   if (const VarDecl *VD = dyn_cast<VarDecl>(D)) {
     if (!VD->isFileVarDecl())
       return false;
@@ -9032,10 +9055,15 @@ bool ASTContext::DeclMustBeEmitted(const Decl *D) {
       }
     }
 
+    GVALinkage Linkage = GetGVALinkageForFunction(FD);
+
+    if (Linkage == GVA_DiscardableODR && ForModularCodegen)
+      return true;
+
     // static, static inline, always_inline, and extern inline functions can
     // always be deferred.  Normal inline functions can be deferred in C99/C++.
     // Implicit template instantiations can also be deferred in C++.
-    return !isDiscardableGVALinkage(GetGVALinkageForFunction(FD));
+    return !isDiscardableGVALinkage(Linkage);
   }
   
   const VarDecl *VD = cast<VarDecl>(D);

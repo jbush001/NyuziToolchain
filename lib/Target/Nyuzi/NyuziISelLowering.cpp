@@ -790,7 +790,7 @@ bool NyuziTargetLowering::isShuffleMaskLegal(const SmallVectorImpl<int> &M,
   return true;
 }
 
-bool NyuziTargetLowering::isIntDivCheap(EVT, AttributeSet) const {
+bool NyuziTargetLowering::isIntDivCheap(EVT, AttributeList) const {
   return false;
 }
 

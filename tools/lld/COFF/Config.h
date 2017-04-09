@@ -89,7 +89,7 @@ struct Configuration {
   bool Debug = false;
   bool WriteSymtab = true;
   unsigned DebugTypes = static_cast<unsigned>(DebugType::None);
-  StringRef PDBPath;
+  llvm::SmallString<128> PDBPath;
 
   // Symbols in this set are considered as live by the garbage collector.
   std::set<SymbolBody *> GCRoot;
@@ -105,6 +105,8 @@ struct Configuration {
   std::map<std::string, int> DLLOrder;
   SymbolBody *DelayLoadHelper = nullptr;
 
+  bool SaveTemps = false;
+
   // Used for SafeSEH.
   Symbol *SEHTable = nullptr;
   Symbol *SEHCount = nullptr;
@@ -114,6 +116,8 @@ struct Configuration {
 
   // Used for /opt:lldltojobs=N
   unsigned LTOJobs = 1;
+  // Used for /opt:lldltopartitions=N
+  unsigned LTOPartitions = 1;
 
   // Used for /merge:from=to (e.g. /merge:.rdata=.text)
   std::map<StringRef, StringRef> Merge;
@@ -156,6 +160,7 @@ struct Configuration {
   bool TerminalServerAware = true;
   bool LargeAddressAware = false;
   bool HighEntropyVA = false;
+  bool AppContainer = false;
 
   // This is for debugging.
   bool DebugPdb = false;

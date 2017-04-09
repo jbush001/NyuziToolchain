@@ -613,9 +613,17 @@ def fno_gnu_inline_asm : Flag<["-"], "fno-gnu-inline-asm">, Group<f_Group>,
   Flags<[DriverOption, CC1Option]>,
   HelpText<"Disable GNU style inline asm">;
 
+def fprofile_sample_use : Flag<["-"], "fprofile-sample-use">, Group<f_Group>,
+    Flags<[CoreOption]>;
+def fno_profile_sample_use : Flag<["-"], "fno-profile-sample-use">, Group<f_Group>,
+    Flags<[CoreOption]>;
 def fprofile_sample_use_EQ : Joined<["-"], "fprofile-sample-use=">,
     Group<f_Group>, Flags<[DriverOption, CC1Option]>,
     HelpText<"Enable sample-based profile guided optimizations">;
+def fauto_profile : Flag<["-"], "fauto-profile">, Group<f_Group>,
+    Alias<fprofile_sample_use>;
+def fno_auto_profile : Flag<["-"], "fno-auto-profile">, Group<f_Group>,
+    Alias<fno_profile_sample_use>;
 def fauto_profile_EQ : Joined<["-"], "fauto-profile=">,
     Alias<fprofile_sample_use_EQ>;
 def fdebug_info_for_profiling : Flag<["-"], "fdebug-info-for-profiling">, Group<f_Group>,
@@ -954,10 +962,19 @@ def fxray_instruction_threshold_ :
   JoinedOrSeparate<["-"], "fxray-instruction-threshold">,
   Group<f_Group>, Flags<[CC1Option]>;
 
+def fxray_always_instrument :
+  JoinedOrSeparate<["-"], "fxray-always-instrument=">,
+  Group<f_Group>, Flags<[CC1Option]>,
+  HelpText<"Filename defining the whitelist for imbuing the 'always instrument' XRay attribute.">;
+def fxray_never_instrument :
+  JoinedOrSeparate<["-"], "fxray-never-instrument=">,
+  Group<f_Group>, Flags<[CC1Option]>,
+  HelpText<"Filename defining the whitelist for imbuing the 'never instrument' XRay attribute.">;
+
 def flat__namespace : Flag<["-"], "flat_namespace">;
 def flax_vector_conversions : Flag<["-"], "flax-vector-conversions">, Group<f_Group>;
 def flimited_precision_EQ : Joined<["-"], "flimited-precision=">, Group<f_Group>;
-def flto_EQ : Joined<["-"], "flto=">, Flags<[CC1Option]>, Group<f_Group>,
+def flto_EQ : Joined<["-"], "flto=">, Flags<[CoreOption, CC1Option]>, Group<f_Group>,
   HelpText<"Set LTO mode to either 'full' or 'thin'">;
 def flto : Flag<["-"], "flto">, Flags<[CoreOption, CC1Option]>, Group<f_Group>,
   HelpText<"Enable LTO in 'full' mode">;
@@ -1322,6 +1339,10 @@ def fno_standalone_debug : Flag<["-"], "fno-standalone-debug">, Group<f_Group>, 
   HelpText<"Limit debug information produced to reduce size of debug binary">;
 def flimit_debug_info : Flag<["-"], "flimit-debug-info">, Flags<[CoreOption]>, Alias<fno_standalone_debug>;
 def fno_limit_debug_info : Flag<["-"], "fno-limit-debug-info">, Flags<[CoreOption]>, Alias<fstandalone_debug>;
+def fdebug_macro : Flag<["-"], "fdebug-macro">, Group<f_Group>, Flags<[CoreOption]>,
+  HelpText<"Emit macro debug information">;
+def fno_debug_macro : Flag<["-"], "fno-debug-macro">, Group<f_Group>, Flags<[CoreOption]>,
+  HelpText<"Do not emit macro debug information">;
 def fstrict_aliasing : Flag<["-"], "fstrict-aliasing">, Group<f_Group>,
   Flags<[DriverOption, CoreOption]>;
 def fstrict_enums : Flag<["-"], "fstrict-enums">, Group<f_Group>, Flags<[CC1Option]>,
@@ -1444,8 +1465,8 @@ def fno_unique_section_names : Flag <["-"], "fno-unique-section-names">,
 
 def fstrict_return : Flag<["-"], "fstrict-return">, Group<f_Group>,
   Flags<[CC1Option]>,
-  HelpText<"Always treat control flow paths that fall off the end of a non-void"
-           "function as unreachable">;
+  HelpText<"Always treat control flow paths that fall off the end of a "
+           "non-void function as unreachable">;
 def fno_strict_return : Flag<["-"], "fno-strict-return">, Group<f_Group>,
   Flags<[CC1Option]>;
 
@@ -1520,6 +1541,11 @@ def idirafter : JoinedOrSeparate<["-"], "idirafter">, Group<clang_i_Group>, Flag
   HelpText<"Add directory to AFTER include search path">;
 def iframework : JoinedOrSeparate<["-"], "iframework">, Group<clang_i_Group>, Flags<[CC1Option]>,
   HelpText<"Add directory to SYSTEM framework search path">;
+def iframeworkwithsysroot : JoinedOrSeparate<["-"], "iframeworkwithsysroot">,
+  Group<clang_i_Group>,
+  HelpText<"Add directory to SYSTEM framework search path, "
+           "absolute paths are relative to -isysroot">,
+  MetaVarName<"<directory>">, Flags<[CC1Option]>;
 def imacros : JoinedOrSeparate<["-", "--"], "imacros">, Group<clang_i_Group>, Flags<[CC1Option]>,
   HelpText<"Include macros from file before parsing">, MetaVarName<"<file>">;
 def image__base : Separate<["-"], "image_base">;
@@ -1594,11 +1620,11 @@ def mpure_code : Flag<["-"], "mpure-code">, Alias<mexecute_only>; // Alias for G
 def mno_pure_code : Flag<["-"], "mno-pure-code">, Alias<mno_execute_only>;
 def mtvos_version_min_EQ : Joined<["-"], "mtvos-version-min=">, Group<m_Group>;
 def mappletvos_version_min_EQ : Joined<["-"], "mappletvos-version-min=">, Alias<mtvos_version_min_EQ>;
-def mtvos_simulator_version_min_EQ : Joined<["-"], "mtvos-simulator-version-min=">, Alias<mtvos_version_min_EQ>;
-def mappletvsimulator_version_min_EQ : Joined<["-"], "mappletvsimulator-version-min=">, Alias<mtvos_version_min_EQ>;
+def mtvos_simulator_version_min_EQ : Joined<["-"], "mtvos-simulator-version-min=">;
+def mappletvsimulator_version_min_EQ : Joined<["-"], "mappletvsimulator-version-min=">, Alias<mtvos_simulator_version_min_EQ>;
 def mwatchos_version_min_EQ : Joined<["-"], "mwatchos-version-min=">, Group<m_Group>;
-def mwatchos_simulator_version_min_EQ : Joined<["-"], "mwatchos-simulator-version-min=">, Alias<mwatchos_version_min_EQ>;
-def mwatchsimulator_version_min_EQ : Joined<["-"], "mwatchsimulator-version-min=">, Alias<mwatchos_version_min_EQ>;
+def mwatchos_simulator_version_min_EQ : Joined<["-"], "mwatchos-simulator-version-min=">;
+def mwatchsimulator_version_min_EQ : Joined<["-"], "mwatchsimulator-version-min=">, Alias<mwatchos_simulator_version_min_EQ>;
 def march_EQ : Joined<["-"], "march=">, Group<m_Group>;
 def masm_EQ : Joined<["-"], "masm=">, Group<m_Group>, Flags<[DriverOption]>;
 def mcmodel_EQ : Joined<["-"], "mcmodel=">, Group<m_Group>;
@@ -1627,8 +1653,8 @@ def mhard_float : Flag<["-"], "mhard-float">, Group<m_Group>;
 def miphoneos_version_min_EQ : Joined<["-"], "miphoneos-version-min=">, Group<m_Group>;
 def mios_version_min_EQ : Joined<["-"], "mios-version-min=">,
   Alias<miphoneos_version_min_EQ>, HelpText<"Set iOS deployment target">;
-def mios_simulator_version_min_EQ : Joined<["-"], "mios-simulator-version-min=">, Alias<miphoneos_version_min_EQ>;
-def miphonesimulator_version_min_EQ : Joined<["-"], "miphonesimulator-version-min=">, Alias<miphoneos_version_min_EQ>;
+def mios_simulator_version_min_EQ : Joined<["-"], "mios-simulator-version-min=">;
+def miphonesimulator_version_min_EQ : Joined<["-"], "miphonesimulator-version-min=">, Alias<mios_simulator_version_min_EQ>;
 def mkernel : Flag<["-"], "mkernel">, Group<m_Group>;
 def mlinker_version_EQ : Joined<["-"], "mlinker-version=">,
   Flags<[DriverOption]>;
@@ -1714,7 +1740,14 @@ def mno_xsaveopt : Flag<["-"], "mno-xsaveopt">, Group<m_x86_Features_Group>;
 def mno_xsavec : Flag<["-"], "mno-xsavec">, Group<m_x86_Features_Group>;
 def mno_xsaves : Flag<["-"], "mno-xsaves">, Group<m_x86_Features_Group>;
 def mno_mwaitx : Flag<["-"], "mno-mwaitx">, Group<m_x86_Features_Group>;
+def mno_clzero : Flag<["-"], "mno-clzero">, Group<m_x86_Features_Group>;
 def mno_pku : Flag<["-"], "mno-pku">, Group<m_x86_Features_Group>;
+def mno_clflushopt : Flag<["-"], "mno-clflushopt">, Group<m_x86_Features_Group>;
+def mno_clwb : Flag<["-"], "mno-clwb">, Group<m_x86_Features_Group>;
+def mno_movbe : Flag<["-"], "mno-movbe">, Group<m_x86_Features_Group>;
+def mno_mpx : Flag<["-"], "mno-mpx">, Group<m_x86_Features_Group>;
+def mno_sgx : Flag<["-"], "mno-sgx">, Group<m_x86_Features_Group>;
+def mno_prefetchwt1 : Flag<["-"], "mno-prefetchwt1">, Group<m_x86_Features_Group>;
 
 def munaligned_access : Flag<["-"], "munaligned-access">, Group<m_arm_Features_Group>,
   HelpText<"Allow memory accesses to be unaligned (AArch32/AArch64 only)">;
@@ -1736,6 +1769,8 @@ def mcrc : Flag<["-"], "mcrc">, Group<m_arm_Features_Group>,
   HelpText<"Allow use of CRC instructions (ARM only)">;
 def mnocrc : Flag<["-"], "mnocrc">, Group<m_arm_Features_Group>,
   HelpText<"Disallow use of CRC instructions (ARM only)">;
+def mno_neg_immediates: Flag<["-"], "mno-neg-immediates">, Group<m_arm_Features_Group>,
+  HelpText<"Disallow converting instructions with negative immediates to their negation or inversion.">;
 
 def mgeneral_regs_only : Flag<["-"], "mgeneral-regs-only">, Group<m_aarch64_Features_Group>,
   HelpText<"Generate code which only uses the general purpose registers (AArch64 only)">;
@@ -1758,6 +1793,10 @@ def mamdgpu_debugger_abi : Joined<["-"], "mamdgpu-debugger-abi=">,
   HelpText<"Generate additional code for specified <version> of debugger ABI (AMDGPU only)">,
   MetaVarName<"<version>">;
 
+def faltivec : Flag<["-"], "faltivec">, Group<f_Group>, Flags<[DriverOption]>;
+def fno_altivec : Flag<["-"], "fno-altivec">, Group<f_Group>, Flags<[DriverOption]>;
+def maltivec : Flag<["-"], "maltivec">, Group<m_ppc_Features_Group>;
+def mno_altivec : Flag<["-"], "mno-altivec">, Group<m_ppc_Features_Group>;
 def mvsx : Flag<["-"], "mvsx">, Group<m_ppc_Features_Group>;
 def mno_vsx : Flag<["-"], "mno-vsx">, Group<m_ppc_Features_Group>;
 def mpower8_vector : Flag<["-"], "mpower8-vector">,
@@ -1808,12 +1847,6 @@ def mlongcall: Flag<["-"], "mlongcall">,
 def mno_longcall : Flag<["-"], "mno-longcall">,
     Group<m_ppc_Features_Group>;
 
-def faltivec : Flag<["-"], "faltivec">, Group<f_Group>, Flags<[CC1Option]>,
-  HelpText<"Enable AltiVec vector initializer syntax">;
-def fno_altivec : Flag<["-"], "fno-altivec">, Group<f_Group>, Flags<[CC1Option]>;
-def maltivec : Flag<["-"], "maltivec">, Alias<faltivec>;
-def mno_altivec : Flag<["-"], "mno-altivec">, Alias<fno_altivec>;
-
 def mvx : Flag<["-"], "mvx">, Group<m_Group>;
 def mno_vx : Flag<["-"], "mno-vx">, Group<m_Group>;
 
@@ -1858,6 +1891,8 @@ def mpie_copy_relocations : Flag<["-"], "mpie-copy-relocations">, Group<m_Group>
   Flags<[CC1Option]>,
   HelpText<"Use copy relocations support for PIE builds">;
 def mno_pie_copy_relocations : Flag<["-"], "mno-pie-copy-relocations">, Group<m_Group>;
+def mfentry : Flag<["-"], "mfentry">, HelpText<"insert calls to fentry at function entry (x86 only)">,
+  Flags<[CC1Option]>, Group<m_Group>;
 def mx87 : Flag<["-"], "mx87">, Group<m_x86_Features_Group>;
 def m80387 : Flag<["-"], "m80387">, Alias<mx87>;
 def msse2 : Flag<["-"], "msse2">, Group<m_x86_Features_Group>;
@@ -1905,6 +1940,13 @@ def mxsaveopt : Flag<["-"], "mxsaveopt">, Group<m_x86_Features_Group>;
 def mxsavec : Flag<["-"], "mxsavec">, Group<m_x86_Features_Group>;
 def mxsaves : Flag<["-"], "mxsaves">, Group<m_x86_Features_Group>;
 def mmwaitx : Flag<["-"], "mmwaitx">, Group<m_x86_Features_Group>;
+def mclzero : Flag<["-"], "mclzero">, Group<m_x86_Features_Group>;
+def mclflushopt : Flag<["-"], "mclflushopt">, Group<m_x86_Features_Group>;
+def mclwb : Flag<["-"], "mclwb">, Group<m_x86_Features_Group>;
+def mmovbe : Flag<["-"], "mmovbe">, Group<m_x86_Features_Group>;
+def mmpx : Flag<["-"], "mmpx">, Group<m_x86_Features_Group>;
+def msgx : Flag<["-"], "msgx">, Group<m_x86_Features_Group>;
+def mprefetchwt1 : Flag<["-"], "mprefetchwt1">, Group<m_x86_Features_Group>;
 def mips16 : Flag<["-"], "mips16">, Group<m_Group>;
 def mno_mips16 : Flag<["-"], "mno-mips16">, Group<m_Group>;
 def mmicromips : Flag<["-"], "mmicromips">, Group<m_Group>;
@@ -2049,6 +2091,8 @@ def print_multi_os_directory : Flag<["-", "--"], "print-multi-os-directory">,
   Flags<[Unsupported]>;
 def print_prog_name_EQ : Joined<["-", "--"], "print-prog-name=">,
   HelpText<"Print the full program path of <name>">, MetaVarName<"<name>">;
+def print_resource_dir : Flag<["-", "--"], "print-resource-dir">,
+  HelpText<"Print the resource directory pathname">;
 def print_search_dirs : Flag<["-", "--"], "print-search-dirs">,
   HelpText<"Print the paths used for finding libraries and programs">;
 def private__bundle : Flag<["-"], "private_bundle">;
@@ -2073,6 +2117,10 @@ def resource_dir_EQ : Joined<["-"], "resource-dir=">, Flags<[DriverOption, CoreO
 def rpath : Separate<["-"], "rpath">, Flags<[LinkerInput]>, Group<Link_Group>;
 def rtlib_EQ : Joined<["-", "--"], "rtlib=">,
   HelpText<"Compiler runtime library to use">;
+def frtlib_add_rpath: Flag<["-"], "frtlib-add-rpath">, Flags<[NoArgumentUnused]>,
+  HelpText<"Add -rpath with architecture-specific resource directory to the linker flags">;
+def fno_rtlib_add_rpath: Flag<["-"], "fno-rtlib-add-rpath">, Flags<[NoArgumentUnused]>,
+  HelpText<"Do not add -rpath with architecture-specific resource directory to the linker flags">;
 def r : Flag<["-"], "r">, Flags<[LinkerInput,NoArgumentUnused]>,
         Group<Link_Group>;
 def save_temps_EQ : Joined<["-", "--"], "save-temps=">, Flags<[DriverOption]>,
@@ -2297,6 +2345,8 @@ def mv55 : Flag<["-"], "mv55">, Group<m_hexagon_Features_Group>,
            Alias<mcpu_EQ>, AliasArgs<["hexagonv55"]>;
 def mv60 : Flag<["-"], "mv60">, Group<m_hexagon_Features_Group>,
            Alias<mcpu_EQ>, AliasArgs<["hexagonv60"]>;
+def mv62 : Flag<["-"], "mv62">, Group<m_hexagon_Features_Group>,
+           Alias<mcpu_EQ>, AliasArgs<["hexagonv62"]>;
 def mhexagon_hvx : Flag<["-"], "mhvx">, Group<m_hexagon_Features_Group>,
     Flags<[CC1Option]>, HelpText<"Enable Hexagon Vector eXtensions">;
 def mno_hexagon_hvx : Flag<["-"], "mno-hvx">, Group<m_hexagon_Features_Group>,

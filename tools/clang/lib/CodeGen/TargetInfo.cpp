@@ -1901,10 +1901,10 @@ void X86_32TargetCodeGenInfo::setTargetAttributes(const Decl *D,
       // Now add the 'alignstack' attribute with a value of 16.
       llvm::AttrBuilder B;
       B.addStackAlignmentAttr(16);
-      Fn->addAttributes(llvm::AttributeSet::FunctionIndex,
-                      llvm::AttributeSet::get(CGM.getLLVMContext(),
-                                              llvm::AttributeSet::FunctionIndex,
-                                              B));
+      Fn->addAttributes(
+          llvm::AttributeList::FunctionIndex,
+          llvm::AttributeList::get(CGM.getLLVMContext(),
+                                   llvm::AttributeList::FunctionIndex, B));
     }
     if (FD->hasAttr<AnyX86InterruptAttr>()) {
       llvm::Function *Fn = cast<llvm::Function>(GV);
@@ -4835,7 +4835,7 @@ public:
       : TargetCodeGenInfo(new AArch64ABIInfo(CGT, Kind)) {}
 
   StringRef getARCRetainAutoreleasedReturnValueMarker() const override {
-    return "mov\tfp, fp\t\t; marker for objc_retainAutoreleaseReturnValue";
+    return "mov\tfp, fp\t\t# marker for objc_retainAutoreleaseReturnValue";
   }
 
   int getDwarfEHStackPointer(CodeGen::CodeGenModule &M) const override {
@@ -4917,7 +4917,7 @@ ABIArgInfo AArch64ABIInfo::classifyArgumentType(QualType Ty) const {
       return coerceToIntArray(Ty, getContext(), getVMContext());
     }
     unsigned Alignment = getContext().getTypeAlign(Ty);
-    Size = 64 * ((Size + 63) / 64); // round up to multiple of 8 bytes
+    Size = llvm::alignTo(Size, 64); // round up to multiple of 8 bytes
 
     // We use a pair of i64 for 16-byte aggregate with 8-byte alignment.
     // For aggregates with 16-byte alignment, we use i128.
@@ -4967,7 +4967,7 @@ ABIArgInfo AArch64ABIInfo::classifyReturnType(QualType RetTy) const {
       return coerceToIntArray(RetTy, getContext(), getVMContext());
     }
     unsigned Alignment = getContext().getTypeAlign(RetTy);
-    Size = 64 * ((Size + 63) / 64); // round up to multiple of 8 bytes
+    Size = llvm::alignTo(Size, 64); // round up to multiple of 8 bytes
 
     // We use a pair of i64 for 16-byte aggregate with 8-byte alignment.
     // For aggregates with 16-byte alignment, we use i128.
@@ -5449,10 +5449,10 @@ public:
     // the backend to perform a realignment as part of the function prologue.
     llvm::AttrBuilder B;
     B.addStackAlignmentAttr(8);
-    Fn->addAttributes(llvm::AttributeSet::FunctionIndex,
-                      llvm::AttributeSet::get(CGM.getLLVMContext(),
-                                              llvm::AttributeSet::FunctionIndex,
-                                              B));
+    Fn->addAttributes(
+        llvm::AttributeList::FunctionIndex,
+        llvm::AttributeList::get(CGM.getLLVMContext(),
+                                 llvm::AttributeList::FunctionIndex, B));
   }
 };
 
@@ -6900,6 +6900,31 @@ MIPSTargetCodeGenInfo::initDwarfEHRegSizeTable(CodeGen::CodeGenFunction &CGF,
 }
 
 //===----------------------------------------------------------------------===//
+// AVR ABI Implementation.
+//===----------------------------------------------------------------------===//
+
+namespace {
+class AVRTargetCodeGenInfo : public TargetCodeGenInfo {
+public:
+  AVRTargetCodeGenInfo(CodeGenTypes &CGT)
+    : TargetCodeGenInfo(new DefaultABIInfo(CGT)) { }
+
+  void setTargetAttributes(const Decl *D, llvm::GlobalValue *GV,
+                           CodeGen::CodeGenModule &CGM) const override {
+    const auto *FD = dyn_cast_or_null<FunctionDecl>(D);
+    if (!FD) return;
+    auto *Fn = cast<llvm::Function>(GV);
+
+    if (FD->getAttr<AVRInterruptAttr>())
+      Fn->addFnAttr("interrupt");
+
+    if (FD->getAttr<AVRSignalAttr>())
+      Fn->addFnAttr("signal");
+  }
+};
+}
+
+//===----------------------------------------------------------------------===//
 // TCE ABI Implementation (see http://tce.cs.tut.fi). Uses mostly the defaults.
 // Currently subclassed only to implement custom OpenCL C function attribute
 // handling.
@@ -7277,9 +7302,14 @@ void AMDGPUTargetCodeGenInfo::setTargetAttributes(
 
   llvm::Function *F = cast<llvm::Function>(GV);
 
-  if (const auto *Attr = FD->getAttr<AMDGPUFlatWorkGroupSizeAttr>()) {
-    unsigned Min = Attr->getMin();
-    unsigned Max = Attr->getMax();
+  const auto *ReqdWGS = M.getLangOpts().OpenCL ?
+    FD->getAttr<ReqdWorkGroupSizeAttr>() : nullptr;
+  const auto *FlatWGS = FD->getAttr<AMDGPUFlatWorkGroupSizeAttr>();
+  if (ReqdWGS || FlatWGS) {
+    unsigned Min = FlatWGS ? FlatWGS->getMin() : 0;
+    unsigned Max = FlatWGS ? FlatWGS->getMax() : 0;
+    if (ReqdWGS && Min == 0 && Max == 0)
+      Min = Max = ReqdWGS->getXDim() * ReqdWGS->getYDim() * ReqdWGS->getZDim();
 
     if (Min != 0) {
       assert(Min <= Max && "Min must be less than or equal Max");
@@ -8401,6 +8431,9 @@ const TargetCodeGenInfo &CodeGenModule::getTargetCodeGenInfo() {
   case llvm::Triple::mips64:
   case llvm::Triple::mips64el:
     return SetCGInfo(new MIPSTargetCodeGenInfo(Types, false));
+
+  case llvm::Triple::avr:
+    return SetCGInfo(new AVRTargetCodeGenInfo(Types));
 
   case llvm::Triple::aarch64:
   case llvm::Triple::aarch64_be: {

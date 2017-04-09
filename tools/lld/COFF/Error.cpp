@@ -55,6 +55,19 @@ static void print(StringRef S, raw_ostream::Colors C) {
   }
 }
 
+void log(const Twine &Msg) {
+  if (Config->Verbose) {
+    std::lock_guard<std::mutex> Lock(Mu);
+    outs() << Argv0 << ": " << Msg << "\n";
+  }
+}
+
+void message(const Twine &Msg) {
+  std::lock_guard<std::mutex> Lock(Mu);
+  outs() << Msg << "\n";
+  outs().flush();
+}
+
 void error(const Twine &Msg) {
   std::lock_guard<std::mutex> Lock(Mu);
 
@@ -64,7 +77,7 @@ void error(const Twine &Msg) {
   } else if (ErrorCount == Config->ErrorLimit) {
     print("error: ", raw_ostream::RED);
     *ErrorOS << "too many errors emitted, stopping now"
-             << " (use -error-limit=0 to see all errors)\n";
+             << " (use /ERRORLIMIT:0 to see all errors)\n";
     exitLld(1);
   }
 

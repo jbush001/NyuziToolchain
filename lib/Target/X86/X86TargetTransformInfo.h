@@ -51,7 +51,8 @@ public:
   /// @{
 
   unsigned getNumberOfRegisters(bool Vector);
-  unsigned getRegisterBitWidth(bool Vector);
+  unsigned getRegisterBitWidth(bool Vector) const;
+  unsigned getLoadStoreVecRegBitWidth(unsigned AS) const;
   unsigned getMaxInterleaveFactor(unsigned VF);
   int getArithmeticInstrCost(
       unsigned Opcode, Type *Ty,
@@ -74,9 +75,11 @@ public:
                                 const SCEV *Ptr);
 
   int getIntrinsicInstrCost(Intrinsic::ID IID, Type *RetTy,
-                            ArrayRef<Type *> Tys, FastMathFlags FMF);
+                            ArrayRef<Type *> Tys, FastMathFlags FMF,
+                            unsigned ScalarizationCostPassed = UINT_MAX);
   int getIntrinsicInstrCost(Intrinsic::ID IID, Type *RetTy,
-                            ArrayRef<Value *> Args, FastMathFlags FMF);
+                            ArrayRef<Value *> Args, FastMathFlags FMF,
+                            unsigned VF = 1);
 
   int getReductionCost(unsigned Opcode, Type *Ty, bool IsPairwiseForm);
 
