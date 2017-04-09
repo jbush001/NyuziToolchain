@@ -119,7 +119,7 @@ public:
   uint32_t operator()() { return Rand32(); }
   static constexpr result_type min() { return 0; }
   static constexpr result_type max() { return 0x7ffff; }
-  
+
 private:
   unsigned Seed;
 };
@@ -669,7 +669,7 @@ static void IntroduceControlFlow(Function *F, Random &R) {
       BoolInst.push_back(&Instr);
   }
 
-  std::shuffle(BoolInst.begin(), BoolInst.end(), R);
+  std::random_shuffle(BoolInst.begin(), BoolInst.end(), R);
 
   for (auto *Instr : BoolInst) {
     BasicBlock *Curr = Instr->getParent();
