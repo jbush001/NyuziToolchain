@@ -1398,7 +1398,7 @@ SDValue NyuziTargetLowering::LowerUINT_TO_FP(SDValue Op,
                                    DAG.getConstantFP(0.0, DL, ElementType));
     SDValue TrueVal = DAG.getNode(NyuziISD::SPLAT, DL, MVT::v16f32,
                                   DAG.getConstantFP(1.0, DL, ElementType));
-    return DAG.getNode(ISD::VSELECT, DL, MVT::v16i32, Op.getOperand(0),
+    return DAG.getNode(ISD::VSELECT, DL, MVT::v16f32, Op.getOperand(0),
                        TrueVal, FalseVal);
   }
 
