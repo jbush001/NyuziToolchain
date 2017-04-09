@@ -119,7 +119,7 @@ public:
   uint32_t operator()() { return Rand32() % max(); }
   static constexpr result_type min() { return 0; }
   static constexpr result_type max() { return 0x7ffff; }
-
+  
 private:
   unsigned Seed;
 };
