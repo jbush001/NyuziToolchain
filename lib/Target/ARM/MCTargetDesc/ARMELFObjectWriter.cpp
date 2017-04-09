@@ -9,6 +9,7 @@
 
 #include "MCTargetDesc/ARMFixupKinds.h"
 #include "MCTargetDesc/ARMMCTargetDesc.h"
+#include "llvm/MC/MCContext.h"
 #include "llvm/MC/MCELFObjectWriter.h"
 #include "llvm/MC/MCExpr.h"
 #include "llvm/MC/MCFixup.h"
@@ -25,9 +26,8 @@ namespace {
   class ARMELFObjectWriter : public MCELFObjectTargetWriter {
     enum { DefaultEABIVersion = 0x05000000U };
 
-    unsigned GetRelocTypeInner(const MCValue &Target,
-                               const MCFixup &Fixup,
-                               bool IsPCRel) const;
+    unsigned GetRelocTypeInner(const MCValue &Target, const MCFixup &Fixup,
+                               bool IsPCRel, MCContext &Ctx) const;
 
   public:
     ARMELFObjectWriter(uint8_t OSABI);
@@ -69,19 +69,20 @@ bool ARMELFObjectWriter::needsRelocateWithSymbol(const MCSymbol &Sym,
 unsigned ARMELFObjectWriter::getRelocType(MCContext &Ctx, const MCValue &Target,
                                           const MCFixup &Fixup,
                                           bool IsPCRel) const {
-  return GetRelocTypeInner(Target, Fixup, IsPCRel);
+  return GetRelocTypeInner(Target, Fixup, IsPCRel, Ctx);
 }
 
 unsigned ARMELFObjectWriter::GetRelocTypeInner(const MCValue &Target,
                                                const MCFixup &Fixup,
-                                               bool IsPCRel) const  {
+                                               bool IsPCRel,
+                                               MCContext &Ctx) const {
   MCSymbolRefExpr::VariantKind Modifier = Target.getAccessVariant();
 
   unsigned Type = 0;
   if (IsPCRel) {
     switch ((unsigned)Fixup.getKind()) {
     default:
-      report_fatal_error("unsupported relocation on symbol");
+      Ctx.reportFatalError(Fixup.getLoc(), "unsupported relocation on symbol");
       return ELF::R_ARM_NONE;
     case FK_Data_4:
       switch (Modifier) {
@@ -160,7 +161,7 @@ unsigned ARMELFObjectWriter::GetRelocTypeInner(const MCValue &Target,
   } else {
     switch ((unsigned)Fixup.getKind()) {
     default:
-      report_fatal_error("unsupported relocation on symbol");
+      Ctx.reportFatalError(Fixup.getLoc(), "unsupported relocation on symbol");
       return ELF::R_ARM_NONE;
     case FK_Data_1:
       switch (Modifier) {
@@ -269,10 +270,26 @@ unsigned ARMELFObjectWriter::GetRelocTypeInner(const MCValue &Target,
       }
       break;
     case ARM::fixup_t2_movt_hi16:
-      Type = ELF::R_ARM_THM_MOVT_ABS;
+      switch (Modifier) {
+      default: llvm_unreachable("Unsupported Modifier");
+      case MCSymbolRefExpr::VK_None:
+        Type = ELF::R_ARM_THM_MOVT_ABS;
+        break;
+      case MCSymbolRefExpr::VK_ARM_SBREL:
+        Type = ELF:: R_ARM_THM_MOVT_BREL;
+        break;
+      }
       break;
     case ARM::fixup_t2_movw_lo16:
-      Type = ELF::R_ARM_THM_MOVW_ABS_NC;
+      switch (Modifier) {
+      default: llvm_unreachable("Unsupported Modifier");
+      case MCSymbolRefExpr::VK_None:
+        Type = ELF::R_ARM_THM_MOVW_ABS_NC;
+        break;
+      case MCSymbolRefExpr::VK_ARM_SBREL:
+        Type = ELF:: R_ARM_THM_MOVW_BREL_NC;
+        break;
+      }
       break;
     }
   }

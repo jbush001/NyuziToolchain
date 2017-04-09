@@ -258,8 +258,12 @@ void Writer::run() {
   sortExceptionTable();
   writeBuildId();
 
-  if (!Config->PDBPath.empty())
-    createPDB(Config->PDBPath, Symtab, SectionTable, BuildId->DI);
+  if (!Config->PDBPath.empty()) {
+    const llvm::codeview::DebugInfo *DI = nullptr;
+    if (Config->DebugTypes & static_cast<unsigned>(coff::DebugType::CV))
+      DI = BuildId->DI;
+    createPDB(Config->PDBPath, Symtab, SectionTable, DI);
+  }
 
   writeMapFile(OutputSections);
 
@@ -598,6 +602,8 @@ template <typename PEHeaderTy> void Writer::writeHeader() {
   PE->SizeOfStackCommit = Config->StackCommit;
   PE->SizeOfHeapReserve = Config->HeapReserve;
   PE->SizeOfHeapCommit = Config->HeapCommit;
+  if (Config->AppContainer)
+    PE->DLLCharacteristics |= IMAGE_DLL_CHARACTERISTICS_APPCONTAINER;
   if (Config->DynamicBase)
     PE->DLLCharacteristics |= IMAGE_DLL_CHARACTERISTICS_DYNAMIC_BASE;
   if (Config->HighEntropyVA)
@@ -787,7 +793,7 @@ void Writer::writeBuildId() {
          "only PDB 7.0 is supported");
   assert(sizeof(Res) == sizeof(BuildId->DI->PDB70.Signature) &&
          "signature size mismatch");
-  memcpy(BuildId->DI->PDB70.Signature, Res,
+  memcpy(BuildId->DI->PDB70.Signature, Res.Bytes.data(),
          sizeof(codeview::PDB70DebugInfo::Signature));
   // TODO(compnerd) track the Age
   BuildId->DI->PDB70.Age = 1;

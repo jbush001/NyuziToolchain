@@ -39,6 +39,8 @@ if(MSVC)
   set(CMAKE_CXX_CREATE_SHARED_LIBRARY "<CMAKE_CXX_COMPILER> ${CMAKE_CXX_FLAGS} ${CRT_FLAG} /LD <CMAKE_SHARED_LIBRARY_CXX_FLAGS> <CMAKE_SHARED_LIBRARY_CREATE_CXX_FLAGS> <CMAKE_SHARED_LIBRARY_SONAME_CXX_FLAG> <TARGET_SONAME> -o <TARGET> <OBJECTS> <LINK_LIBRARIES> /link <LINK_FLAGS>")
 endif()
 
+add_custom_target(TestBinaries)
+
 # add_libfuzzer_test(<name>
 #   SOURCES source0.cpp [source1.cpp ...]
 #   )
@@ -63,11 +65,8 @@ function(add_libfuzzer_test name)
     PROPERTIES RUNTIME_OUTPUT_DIRECTORY
     "${CMAKE_BINARY_DIR}/lib/Fuzzer/test"
     )
-  set(TestBinaries ${TestBinaries} LLVMFuzzer-${name} PARENT_SCOPE)
+  add_dependencies(TestBinaries LLVMFuzzer-${name})
 endfunction()
-
-# Variable to keep track of all test targets
-set(TestBinaries)
 
 ###############################################################################
 # Basic tests
@@ -77,10 +76,12 @@ set(Tests
   AbsNegAndConstantTest
   AbsNegAndConstant64Test
   AccumulateAllocationsTest
+  BadStrcmpTest
   BogusInitializeTest
   BufferOverflowOnInput
   CallerCalleeTest
   CounterTest
+  CustomCrossOverAndMutateTest
   CustomCrossOverTest
   CustomMutatorTest
   CxxStringEqTest
@@ -91,6 +92,7 @@ set(Tests
   FourIndependentBranchesTest
   FullCoverageSetTest
   InitializeTest
+  Memcmp64BytesTest
   MemcmpTest
   LeakTest
   LeakTimeoutTest
@@ -122,11 +124,13 @@ set(Tests
   SwapCmpTest
   SwitchTest
   Switch2Test
+  TableLookupTest
   ThreadedLeakTest
   ThreadedTest
   TimeoutTest
   TimeoutEmptyTest
   TraceMallocTest
+  TwoDifferentBugsTest
   )
 
 if(APPLE OR MSVC)
@@ -142,6 +146,18 @@ endif()
 foreach(Test ${Tests})
   add_libfuzzer_test(${Test} SOURCES ${Test}.cpp)
 endforeach()
+
+function(test_export_symbol target symbol)
+  if(MSVC)
+    set_target_properties(LLVMFuzzer-${target} PROPERTIES LINK_FLAGS
+        "-export:${symbol}")
+  endif()
+endfunction()
+
+test_export_symbol(InitializeTest "LLVMFuzzerInitialize")
+test_export_symbol(BogusInitializeTest "LLVMFuzzerInitialize")
+test_export_symbol(CustomCrossOverTest "LLVMFuzzerCustomCrossOver")
+test_export_symbol(CustomMutatorTest "LLVMFuzzerCustomMutator")
 
 ###############################################################################
 # Unit tests
@@ -166,13 +182,13 @@ target_include_directories(LLVMFuzzer-Unittest PRIVATE
   "${LLVM_MAIN_SRC_DIR}/utils/unittest/googletest/include"
   )
 
-set(TestBinaries ${TestBinaries} LLVMFuzzer-Unittest)
+add_dependencies(TestBinaries LLVMFuzzer-Unittest)
 set_target_properties(LLVMFuzzer-Unittest
   PROPERTIES RUNTIME_OUTPUT_DIRECTORY
   "${CMAKE_CURRENT_BINARY_DIR}"
 )
 
-set(TestBinaries ${TestBinaries} LLVMFuzzer-StandaloneInitializeTest)
+add_dependencies(TestBinaries LLVMFuzzer-StandaloneInitializeTest)
 set_target_properties(LLVMFuzzer-StandaloneInitializeTest
   PROPERTIES RUNTIME_OUTPUT_DIRECTORY
   "${CMAKE_CURRENT_BINARY_DIR}"
@@ -186,6 +202,7 @@ include_directories(..)
 
 # add_subdirectory(uninstrumented)
 add_subdirectory(no-coverage)
+add_subdirectory(trace-pc)
 add_subdirectory(ubsan)
 
 add_library(LLVMFuzzer-DSO1 SHARED DSO1.cpp)
@@ -218,7 +235,7 @@ else(MSVC)
     LIBRARY_DIR "${CMAKE_BINARY_DIR}/lib/Fuzzer/lib")
 endif()
 
-set(TestBinaries ${TestBinaries} LLVMFuzzer-DSOTest)
+add_dependencies(TestBinaries LLVMFuzzer-DSOTest)
 
 ###############################################################################
 # Configure lit to run the tests
@@ -226,6 +243,10 @@ set(TestBinaries ${TestBinaries} LLVMFuzzer-DSOTest)
 # Note this is done after declaring all tests so we can inform lit if any tests
 # need to be disabled.
 ###############################################################################
+set(LIBFUZZER_POSIX 1)
+if (MSVC)
+  set(LIBFUZZER_POSIX 0)
+endif()
 
 configure_lit_site_cfg(
   ${CMAKE_CURRENT_SOURCE_DIR}/lit.site.cfg.in
@@ -239,7 +260,7 @@ configure_lit_site_cfg(
 
 add_lit_testsuite(check-fuzzer "Running Fuzzer tests"
     ${CMAKE_CURRENT_BINARY_DIR}
-    DEPENDS ${TestBinaries}
+    DEPENDS TestBinaries
     )
 
 # Don't add dependencies on Windows. The linker step would fail on Windows,

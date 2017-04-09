@@ -175,9 +175,15 @@ class InstrItineraryData;
       VMULLs,       // ...signed
       VMULLu,       // ...unsigned
 
+      SMULWB,       // Signed multiply word by half word, bottom
+      SMULWT,       // Signed multiply word by half word, top
       UMLAL,        // 64bit Unsigned Accumulate Multiply
       SMLAL,        // 64bit Signed Accumulate Multiply
       UMAAL,        // 64-bit Unsigned Accumulate Accumulate Multiply
+      SMLALBB,      // 64-bit signed accumulate multiply bottom, bottom 16
+      SMLALBT,      // 64-bit signed accumulate multiply bottom, top 16
+      SMLALTB,      // 64-bit signed accumulate multiply top, bottom 16
+      SMLALTT,      // 64-bit signed accumulate multiply top, top 16
 
       // Operands of the standard BUILD_VECTOR node are not legalized, which
       // is fine if BUILD_VECTORs are always lowered to shuffles or other
@@ -346,6 +352,7 @@ class InstrItineraryData;
 
     void computeKnownBitsForTargetNode(const SDValue Op, APInt &KnownZero,
                                        APInt &KnownOne,
+                                       const APInt &DemandedElts,
                                        const SelectionDAG &DAG,
                                        unsigned Depth) const override;
 
@@ -500,8 +507,17 @@ class InstrItineraryData;
     bool canCombineStoreAndExtract(Type *VectorTy, Value *Idx,
                                    unsigned &Cost) const override;
 
+    bool canMergeStoresTo(EVT MemVT) const override {
+      // Do not merge to larger than i32.
+      return (MemVT.getSizeInBits() <= 32);
+    }
+
     bool isCheapToSpeculateCttz() const override;
     bool isCheapToSpeculateCtlz() const override;
+
+    bool convertSetCCLogicToBitwiseLogic(EVT VT) const override {
+      return VT.isScalarInteger();
+    }
 
     bool supportSwiftError() const override {
       return true;
@@ -698,7 +714,7 @@ class InstrItineraryData;
     SDValue getARMCmp(SDValue LHS, SDValue RHS, ISD::CondCode CC,
                       SDValue &ARMcc, SelectionDAG &DAG, const SDLoc &dl) const;
     SDValue getVFPCmp(SDValue LHS, SDValue RHS, SelectionDAG &DAG,
-                      const SDLoc &dl) const;
+                      const SDLoc &dl, bool InvalidOnQNaN) const;
     SDValue duplicateCmp(SDValue Cmp, SelectionDAG &DAG) const;
 
     SDValue OptimizeVFPBrcond(SDValue Op, SelectionDAG &DAG) const;

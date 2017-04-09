@@ -304,8 +304,7 @@ bool MergeFunctions::doSanityCheck(std::vector<WeakVH> &Worklist) {
         if (Res1 != -Res2) {
           dbgs() << "MERGEFUNC-SANITY: Non-symmetric; triple: " << TripleNumber
                  << "\n";
-          F1->dump();
-          F2->dump();
+          dbgs() << *F1 << '\n' << *F2 << '\n';
           Valid = false;
         }
 
@@ -340,9 +339,7 @@ bool MergeFunctions::doSanityCheck(std::vector<WeakVH> &Worklist) {
                    << TripleNumber << "\n";
             dbgs() << "Res1, Res3, Res4: " << Res1 << ", " << Res3 << ", "
                    << Res4 << "\n";
-            F1->dump();
-            F2->dump();
-            F3->dump();
+            dbgs() << *F1 << '\n' << *F2 << '\n' << *F3 << '\n';
             Valid = false;
           }
         }
@@ -439,10 +436,10 @@ void MergeFunctions::replaceDirectCallers(Function *Old, Function *New) {
       auto CallSiteAttrs = CS.getAttributes();
 
       CallSiteAttrs = CallSiteAttrs.addAttributes(
-          Context, AttributeSet::ReturnIndex, NewFuncAttrs.getRetAttributes());
+          Context, AttributeList::ReturnIndex, NewFuncAttrs.getRetAttributes());
 
       for (unsigned argIdx = 0; argIdx < CS.arg_size(); argIdx++) {
-        AttributeSet Attrs = NewFuncAttrs.getParamAttributes(argIdx);
+        AttributeList Attrs = NewFuncAttrs.getParamAttributes(argIdx);
         if (Attrs.getNumSlots())
           CallSiteAttrs = CallSiteAttrs.addAttributes(Context, argIdx, Attrs);
       }

@@ -987,7 +987,7 @@ void StringLiteral::outputString(raw_ostream &OS) const {
 void StringLiteral::setString(const ASTContext &C, StringRef Str,
                               StringKind Kind, bool IsPascal) {
   //FIXME: we assume that the string data comes from a target that uses the same
-  // code unit size and endianess for the type of string.
+  // code unit size and endianness for the type of string.
   this->Kind = Kind;
   this->IsPascal = IsPascal;
   
@@ -1880,6 +1880,11 @@ bool InitListExpr::isTransparent() const {
   // Otherwise, we're sugar if and only if we have exactly one initializer that
   // is of the same type.
   if (getNumInits() != 1 || !getInit(0))
+    return false;
+
+  // Don't confuse aggregate initialization of a struct X { X &x; }; with a
+  // transparent struct copy.
+  if (!getInit(0)->isRValue() && getType()->isRecordType())
     return false;
 
   return getType().getCanonicalType() ==
@@ -2953,6 +2958,7 @@ bool Expr::HasSideEffects(const ASTContext &Ctx,
   case CXXNewExprClass:
   case CXXDeleteExprClass:
   case CoawaitExprClass:
+  case DependentCoawaitExprClass:
   case CoyieldExprClass:
     // These always have a side-effect.
     return true;

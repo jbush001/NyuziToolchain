@@ -2264,6 +2264,7 @@ ASTNodeImporter::ImportDeclarationNameLoc(const DeclarationNameInfo &From,
   case DeclarationName::ObjCOneArgSelector:
   case DeclarationName::ObjCMultiArgSelector:
   case DeclarationName::CXXUsingDirective:
+  case DeclarationName::CXXDeductionGuideName:
     return;
 
   case DeclarationName::CXXOperatorName: {
@@ -2362,8 +2363,10 @@ bool ASTNodeImporter::ImportDefinition(RecordDecl *From, RecordDecl *To,
     ToData.UserProvidedDefaultConstructor
       = FromData.UserProvidedDefaultConstructor;
     ToData.DeclaredSpecialMembers = FromData.DeclaredSpecialMembers;
-    ToData.ImplicitCopyConstructorHasConstParam
-      = FromData.ImplicitCopyConstructorHasConstParam;
+    ToData.ImplicitCopyConstructorCanHaveConstParamForVBase
+      = FromData.ImplicitCopyConstructorCanHaveConstParamForVBase;
+    ToData.ImplicitCopyConstructorCanHaveConstParamForNonVBase
+      = FromData.ImplicitCopyConstructorCanHaveConstParamForNonVBase;
     ToData.ImplicitCopyAssignmentHasConstParam
       = FromData.ImplicitCopyAssignmentHasConstParam;
     ToData.HasDeclaredCopyConstructorWithConstParam
@@ -2916,7 +2919,7 @@ Decl *ASTNodeImporter::VisitEnumDecl(EnumDecl *D) {
   if (!DC->isFunctionOrMethod() && SearchName) {
     SmallVector<NamedDecl *, 4> ConflictingDecls;
     SmallVector<NamedDecl *, 2> FoundDecls;
-    DC->getRedeclContext()->localUncachedLookup(Name, FoundDecls);
+    DC->getRedeclContext()->localUncachedLookup(SearchName, FoundDecls);
     for (unsigned I = 0, N = FoundDecls.size(); I != N; ++I) {
       if (!FoundDecls[I]->isInIdentifierNamespace(IDNS))
         continue;
@@ -3005,7 +3008,7 @@ Decl *ASTNodeImporter::VisitRecordDecl(RecordDecl *D) {
   if (!DC->isFunctionOrMethod()) {
     SmallVector<NamedDecl *, 4> ConflictingDecls;
     SmallVector<NamedDecl *, 2> FoundDecls;
-    DC->getRedeclContext()->localUncachedLookup(Name, FoundDecls);
+    DC->getRedeclContext()->localUncachedLookup(SearchName, FoundDecls);
     for (unsigned I = 0, N = FoundDecls.size(); I != N; ++I) {
       if (!FoundDecls[I]->isInIdentifierNamespace(IDNS))
         continue;
@@ -3858,8 +3861,27 @@ Decl *ASTNodeImporter::VisitParmVarDecl(ParmVarDecl *D) {
                                      Importer.Import(D->getInnerLocStart()),
                                             Loc, Name.getAsIdentifierInfo(),
                                             T, TInfo, D->getStorageClass(),
-                                            /*FIXME: Default argument*/nullptr);
+                                            /*DefaultArg*/ nullptr);
+
+  // Set the default argument.
   ToParm->setHasInheritedDefaultArg(D->hasInheritedDefaultArg());
+  ToParm->setKNRPromoted(D->isKNRPromoted());
+
+  Expr *ToDefArg = nullptr;
+  Expr *FromDefArg = nullptr;
+  if (D->hasUninstantiatedDefaultArg()) {
+    FromDefArg = D->getUninstantiatedDefaultArg();
+    ToDefArg = Importer.Import(FromDefArg);
+    ToParm->setUninstantiatedDefaultArg(ToDefArg);
+  } else if (D->hasUnparsedDefaultArg()) {
+    ToParm->setUnparsedDefaultArg();
+  } else if (D->hasDefaultArg()) {
+    FromDefArg = D->getDefaultArg();
+    ToDefArg = Importer.Import(FromDefArg);
+    ToParm->setDefaultArg(ToDefArg);
+  }
+  if (FromDefArg && !ToDefArg)
+    return nullptr;
 
   if (D->isUsed())
     ToParm->setIsUsed();
@@ -4558,8 +4580,10 @@ Decl *ASTNodeImporter::VisitObjCPropertyDecl(ObjCPropertyDecl *D) {
   ToProperty->setPropertyAttributes(D->getPropertyAttributes());
   ToProperty->setPropertyAttributesAsWritten(
                                       D->getPropertyAttributesAsWritten());
-  ToProperty->setGetterName(Importer.Import(D->getGetterName()));
-  ToProperty->setSetterName(Importer.Import(D->getSetterName()));
+  ToProperty->setGetterName(Importer.Import(D->getGetterName()),
+                            Importer.Import(D->getGetterNameLoc()));
+  ToProperty->setSetterName(Importer.Import(D->getSetterName()),
+                            Importer.Import(D->getSetterNameLoc()));
   ToProperty->setGetterMethodDecl(
      cast_or_null<ObjCMethodDecl>(Importer.Import(D->getGetterMethodDecl())));
   ToProperty->setSetterMethodDecl(
@@ -5196,13 +5220,17 @@ Stmt *ASTNodeImporter::VisitGCCAsmStmt(GCCAsmStmt *S) {
   SmallVector<IdentifierInfo *, 4> Names;
   for (unsigned I = 0, E = S->getNumOutputs(); I != E; I++) {
     IdentifierInfo *ToII = Importer.Import(S->getOutputIdentifier(I));
-    if (!ToII)
+    // ToII is nullptr when no symbolic name is given for output operand
+    // see ParseStmtAsm::ParseAsmOperandsOpt
+    if (!ToII && S->getOutputIdentifier(I))
       return nullptr;
     Names.push_back(ToII);
   }
   for (unsigned I = 0, E = S->getNumInputs(); I != E; I++) {
     IdentifierInfo *ToII = Importer.Import(S->getInputIdentifier(I));
-    if (!ToII)
+    // ToII is nullptr when no symbolic name is given for input operand
+    // see ParseStmtAsm::ParseAsmOperandsOpt
+    if (!ToII && S->getInputIdentifier(I))
       return nullptr;
     Names.push_back(ToII);
   }
@@ -6046,7 +6074,7 @@ Expr *ASTNodeImporter::VisitBinaryOperator(BinaryOperator *E) {
                                                       T, E->getValueKind(),
                                                       E->getObjectKind(),
                                            Importer.Import(E->getOperatorLoc()),
-                                                      E->isFPContractable());
+                                                      E->getFPFeatures());
 }
 
 Expr *ASTNodeImporter::VisitConditionalOperator(ConditionalOperator *E) {
@@ -6196,7 +6224,7 @@ Expr *ASTNodeImporter::VisitCompoundAssignOperator(CompoundAssignOperator *E) {
                                                E->getObjectKind(),
                                                CompLHSType, CompResultType,
                                            Importer.Import(E->getOperatorLoc()),
-                                               E->isFPContractable());
+                                               E->getFPFeatures());
 }
 
 bool ASTNodeImporter::ImportCastPath(CastExpr *CE, CXXCastPath &Path) {
@@ -7446,6 +7474,14 @@ DeclarationName ASTImporter::Import(DeclarationName FromName) {
 
     return ToContext.DeclarationNames.getCXXDestructorName(
                                                ToContext.getCanonicalType(T));
+  }
+
+  case DeclarationName::CXXDeductionGuideName: {
+    TemplateDecl *Template = cast_or_null<TemplateDecl>(
+        Import(FromName.getCXXDeductionGuideTemplate()));
+    if (!Template)
+      return DeclarationName();
+    return ToContext.DeclarationNames.getCXXDeductionGuideName(Template);
   }
 
   case DeclarationName::CXXConversionFunctionName: {

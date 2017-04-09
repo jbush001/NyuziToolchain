@@ -331,13 +331,13 @@ def int_get_dynamic_area_offset : Intrinsic<[llvm_anyint_ty]>;
 def int_thread_pointer : Intrinsic<[llvm_ptr_ty], [], [IntrNoMem]>,
                          GCCBuiltin<"__builtin_thread_pointer">;
 
-// IntrArgMemOnly is more pessimistic than strictly necessary for prefetch,
-// however it does conveniently prevent the prefetch from being reordered
-// with respect to nearby accesses to the same memory.
-def int_prefetch      : Intrinsic<[],
-                                  [llvm_ptr_ty, llvm_i32_ty, llvm_i32_ty,
-                                   llvm_i32_ty],
-                                  [IntrArgMemOnly, NoCapture<0>]>;
+// IntrInaccessibleMemOrArgMemOnly is a little more pessimistic than strictly
+// necessary for prefetch, however it does conveniently prevent the prefetch
+// from being reordered overly much with respect to nearby access to the same
+// memory while not impeding optimization.
+def int_prefetch
+    : Intrinsic<[], [ llvm_ptr_ty, llvm_i32_ty, llvm_i32_ty, llvm_i32_ty ],
+                [ IntrInaccessibleMemOrArgMemOnly, ReadOnly<0>, NoCapture<0> ]>;
 def int_pcmarker      : Intrinsic<[], [llvm_i32_ty]>;
 
 def int_readcyclecounter : Intrinsic<[llvm_i64_ty]>;
@@ -441,7 +441,8 @@ def int_sigsetjmp  : Intrinsic<[llvm_i32_ty] , [llvm_ptr_ty, llvm_i32_ty]>;
 def int_siglongjmp : Intrinsic<[], [llvm_ptr_ty, llvm_i32_ty], [IntrNoReturn]>;
 
 // Internal interface for object size checking
-def int_objectsize : Intrinsic<[llvm_anyint_ty], [llvm_anyptr_ty, llvm_i1_ty],
+def int_objectsize : Intrinsic<[llvm_anyint_ty],
+                               [llvm_anyptr_ty, llvm_i1_ty, llvm_i1_ty],
                                [IntrNoMem]>,
                                GCCBuiltin<"__builtin_object_size">;
 
@@ -666,7 +667,7 @@ def int_coro_begin : Intrinsic<[llvm_ptr_ty], [llvm_token_ty, llvm_ptr_ty],
 def int_coro_free : Intrinsic<[llvm_ptr_ty], [llvm_token_ty, llvm_ptr_ty], 
                               [IntrReadMem, IntrArgMemOnly, ReadOnly<1>, 
                                NoCapture<1>]>;
-def int_coro_end : Intrinsic<[], [llvm_ptr_ty, llvm_i1_ty], []>;
+def int_coro_end : Intrinsic<[llvm_i1_ty], [llvm_ptr_ty, llvm_i1_ty], []>;
 
 def int_coro_frame : Intrinsic<[llvm_ptr_ty], [], [IntrNoMem]>;
 def int_coro_size : Intrinsic<[llvm_anyint_ty], [], [IntrNoMem]>;
@@ -781,6 +782,10 @@ def int_memcpy_element_atomic  : Intrinsic<[],
                                  [IntrArgMemOnly, NoCapture<0>, NoCapture<1>,
                                   WriteOnly<0>, ReadOnly<1>]>;
 
+//===----- Intrinsics that are used to provide predicate information -----===//
+
+def int_ssa_copy : Intrinsic<[llvm_any_ty], [LLVMMatchType<0>],
+                             [IntrNoMem, Returned<0>]>;
 //===----------------------------------------------------------------------===//
 // Target-specific intrinsics
 //===----------------------------------------------------------------------===//

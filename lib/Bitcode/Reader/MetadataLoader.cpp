@@ -451,6 +451,7 @@ class MetadataLoader::MetadataLoaderImpl {
 
   bool StripTBAA = false;
   bool HasSeenOldLoopTags = false;
+  bool NeedUpgradeToDIGlobalVariableExpression = false;
 
   /// True if metadata is being parsed for a module being ThinLTO imported.
   bool IsImporting = false;
@@ -474,6 +475,45 @@ class MetadataLoader::MetadataLoaderImpl {
           if (auto *SP = dyn_cast_or_null<MDNode>(Op))
             SP->replaceOperandWith(7, CU_SP.first);
     CUSubprograms.clear();
+  }
+
+  /// Upgrade old-style bare DIGlobalVariables to DIGlobalVariableExpressions.
+  void upgradeCUVariables() {
+    if (!NeedUpgradeToDIGlobalVariableExpression)
+      return;
+
+    // Upgrade list of variables attached to the CUs.
+    if (NamedMDNode *CUNodes = TheModule.getNamedMetadata("llvm.dbg.cu"))
+      for (unsigned I = 0, E = CUNodes->getNumOperands(); I != E; ++I) {
+        auto *CU = cast<DICompileUnit>(CUNodes->getOperand(I));
+        if (auto *GVs = dyn_cast_or_null<MDTuple>(CU->getRawGlobalVariables()))
+          for (unsigned I = 0; I < GVs->getNumOperands(); I++)
+            if (auto *GV =
+                    dyn_cast_or_null<DIGlobalVariable>(GVs->getOperand(I))) {
+              auto *DGVE =
+                  DIGlobalVariableExpression::getDistinct(Context, GV, nullptr);
+              GVs->replaceOperandWith(I, DGVE);
+            }
+      }
+
+    // Upgrade variables attached to globals.
+    for (auto &GV : TheModule.globals()) {
+      SmallVector<MDNode *, 1> MDs, NewMDs;
+      GV.getMetadata(LLVMContext::MD_dbg, MDs);
+      GV.eraseMetadata(LLVMContext::MD_dbg);
+      for (auto *MD : MDs)
+        if (auto *DGV = dyn_cast_or_null<DIGlobalVariable>(MD)) {
+          auto *DGVE =
+              DIGlobalVariableExpression::getDistinct(Context, DGV, nullptr);
+          GV.addMetadata(LLVMContext::MD_dbg, *DGVE);
+        } else
+          GV.addMetadata(LLVMContext::MD_dbg, *MD);
+    }
+  }
+
+  void upgradeDebugInfo() {
+    upgradeCUSubprograms();
+    upgradeCUVariables();
   }
 
 public:
@@ -527,7 +567,7 @@ public:
   void shrinkTo(unsigned N) { MetadataList.shrinkTo(N); }
 };
 
-Error error(const Twine &Message) {
+static Error error(const Twine &Message) {
   return make_error<StringError>(
       Message, make_error_code(BitcodeError::CorruptedBitcode));
 }
@@ -729,7 +769,7 @@ Error MetadataLoader::MetadataLoaderImpl::parseMetadata(bool ModuleLevel) {
       // Reading the named metadata created forward references and/or
       // placeholders, that we flush here.
       resolveForwardRefsAndPlaceholders(Placeholders);
-      upgradeCUSubprograms();
+      upgradeDebugInfo();
       // Return at the beginning of the block, since it is easy to skip it
       // entirely from there.
       Stream.ReadBlockEnd(); // Pop the abbrev block context.
@@ -753,7 +793,7 @@ Error MetadataLoader::MetadataLoaderImpl::parseMetadata(bool ModuleLevel) {
       return error("Malformed block");
     case BitstreamEntry::EndBlock:
       resolveForwardRefsAndPlaceholders(Placeholders);
-      upgradeCUSubprograms();
+      upgradeDebugInfo();
       return Error::success();
     case BitstreamEntry::Record:
       // The interesting case.
@@ -1070,8 +1110,14 @@ Error MetadataLoader::MetadataLoaderImpl::parseOneMetadata(
     break;
   }
   case bitc::METADATA_DERIVED_TYPE: {
-    if (Record.size() != 12)
+    if (Record.size() < 12 || Record.size() > 13)
       return error("Invalid record");
+
+    // DWARF address space is encoded as N->getDWARFAddressSpace() + 1. 0 means
+    // that there is no DWARF address space associated with DIDerivedType.
+    Optional<unsigned> DWARFAddressSpace;
+    if (Record.size() > 12 && Record[12])
+      DWARFAddressSpace = Record[12] - 1;
 
     IsDistinct = Record[0];
     DINode::DIFlags Flags = static_cast<DINode::DIFlags>(Record[10]);
@@ -1081,7 +1127,8 @@ Error MetadataLoader::MetadataLoaderImpl::parseOneMetadata(
                          getMDOrNull(Record[3]), Record[4],
                          getDITypeRefOrNull(Record[5]),
                          getDITypeRefOrNull(Record[6]), Record[7], Record[8],
-                         Record[9], Flags, getDITypeRefOrNull(Record[11]))),
+                         Record[9], DWARFAddressSpace, Flags,
+                         getDITypeRefOrNull(Record[11]))),
         NextMetadataNo);
     NextMetadataNo++;
     break;
@@ -1203,7 +1250,7 @@ Error MetadataLoader::MetadataLoaderImpl::parseOneMetadata(
     break;
   }
   case bitc::METADATA_COMPILE_UNIT: {
-    if (Record.size() < 14 || Record.size() > 17)
+    if (Record.size() < 14 || Record.size() > 18)
       return error("Invalid record");
 
     // Ignore Record[0], which indicates whether this compile unit is
@@ -1216,7 +1263,8 @@ Error MetadataLoader::MetadataLoaderImpl::parseOneMetadata(
         getMDOrNull(Record[12]), getMDOrNull(Record[13]),
         Record.size() <= 15 ? nullptr : getMDOrNull(Record[15]),
         Record.size() <= 14 ? 0 : Record[14],
-        Record.size() <= 16 ? true : Record[16]);
+        Record.size() <= 16 ? true : Record[16],
+        Record.size() <= 17 ? false : Record[17]);
 
     MetadataList.assignValue(CU, NextMetadataNo);
     NextMetadataNo++;
@@ -1396,6 +1444,7 @@ Error MetadataLoader::MetadataLoaderImpl::parseOneMetadata(
     } else if (Version == 0) {
       // Upgrade old metadata, which stored a global variable reference or a
       // ConstantInt here.
+      NeedUpgradeToDIGlobalVariableExpression = true;
       Metadata *Expr = getMDOrNull(Record[9]);
       uint32_t AlignInBits = 0;
       if (Record.size() > 11) {
@@ -1423,11 +1472,15 @@ Error MetadataLoader::MetadataLoaderImpl::parseOneMetadata(
            getDITypeRefOrNull(Record[6]), Record[7], Record[8],
            getMDOrNull(Record[10]), AlignInBits));
 
-      auto *DGVE = DIGlobalVariableExpression::getDistinct(Context, DGV, Expr);
-      MetadataList.assignValue(DGVE, NextMetadataNo);
-      NextMetadataNo++;
+      DIGlobalVariableExpression *DGVE = nullptr;
+      if (Attach || Expr)
+        DGVE = DIGlobalVariableExpression::getDistinct(Context, DGV, Expr);
       if (Attach)
         Attach->addDebugInfo(DGVE);
+
+      auto *MDNode = Expr ? cast<Metadata>(DGVE) : cast<Metadata>(DGV);
+      MetadataList.assignValue(MDNode, NextMetadataNo);
+      NextMetadataNo++;
     } else
       return error("Invalid record");
 
@@ -1442,7 +1495,7 @@ Error MetadataLoader::MetadataLoaderImpl::parseOneMetadata(
     bool HasAlignment = Record[0] & 2;
     // 2nd field used to be an artificial tag, either DW_TAG_auto_variable or
     // DW_TAG_arg_variable, if we have alignment flag encoded it means, that
-    // this is newer version of record which doesn't have artifical tag.
+    // this is newer version of record which doesn't have artificial tag.
     bool HasTag = !HasAlignment && Record.size() > 8;
     DINode::DIFlags Flags = static_cast<DINode::DIFlags>(Record[7 + HasTag]);
     uint32_t AlignInBits = 0;

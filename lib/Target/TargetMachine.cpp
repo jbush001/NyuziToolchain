@@ -35,10 +35,6 @@ cl::opt<bool> EnableIPRA("enable-ipra", cl::init(false), cl::Hidden,
                          cl::desc("Enable interprocedural register allocation "
                                   "to reduce load/store at procedure calls."));
 
-cl::opt<bool> DebugInfoForProfiling(
-    "debug-info-for-profiling", cl::init(false), cl::Hidden,
-    cl::desc("Emit extra debug info to make sample profile more accurate."));
-
 //---------------------------------------------------------------------------
 // TargetMachine Class
 //
@@ -51,8 +47,6 @@ TargetMachine::TargetMachine(const Target &T, StringRef DataLayoutString,
       RequireStructuredCFG(false), DefaultOptions(Options), Options(Options) {
   if (EnableIPRA.getNumOccurrences())
     this->Options.EnableIPRA = EnableIPRA;
-  if (DebugInfoForProfiling.getNumOccurrences())
-    this->Options.DebugInfoForProfiling = DebugInfoForProfiling;
 }
 
 TargetMachine::~TargetMachine() {
@@ -80,7 +74,6 @@ void TargetMachine::resetTargetOptions(const Function &F) const {
       Options.X = DefaultOptions.X;                                            \
   } while (0)
 
-  RESET_OPTION(LessPreciseFPMADOption, "less-precise-fpmad");
   RESET_OPTION(UnsafeFPMath, "unsafe-fp-math");
   RESET_OPTION(NoInfsFPMath, "no-infs-fp-math");
   RESET_OPTION(NoNaNsFPMath, "no-nans-fp-math");

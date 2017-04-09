@@ -258,11 +258,10 @@ void LLVMSetTarget(LLVMModuleRef M, const char *Triple) {
   unwrap(M)->setTargetTriple(Triple);
 }
 
-#if !defined(NDEBUG) || defined(LLVM_ENABLE_DUMP)
-LLVM_DUMP_METHOD void LLVMDumpModule(LLVMModuleRef M) {
-  unwrap(M)->dump();
+void LLVMDumpModule(LLVMModuleRef M) {
+  unwrap(M)->print(errs(), nullptr,
+                   /*ShouldPreserveUseListOrder=*/false, /*IsForDebug=*/true);
 }
-#endif
 
 LLVMBool LLVMPrintModuleToFile(LLVMModuleRef M, const char *Filename,
                                char **ErrorMessage) {
@@ -644,11 +643,9 @@ void LLVMSetValueName(LLVMValueRef Val, const char *Name) {
   unwrap(Val)->setName(Name);
 }
 
-#if !defined(NDEBUG) || defined(LLVM_ENABLE_DUMP)
 LLVM_DUMP_METHOD void LLVMDumpValue(LLVMValueRef Val) {
-  unwrap(Val)->dump();
+  unwrap(Val)->print(errs(), /*IsForDebug=*/true);
 }
-#endif
 
 char* LLVMPrintValueToString(LLVMValueRef Val) {
   std::string buf;
@@ -1891,12 +1888,12 @@ void LLVMRemoveStringAttributeAtIndex(LLVMValueRef F, LLVMAttributeIndex Idx,
 void LLVMAddTargetDependentFunctionAttr(LLVMValueRef Fn, const char *A,
                                         const char *V) {
   Function *Func = unwrap<Function>(Fn);
-  AttributeSet::AttrIndex Idx =
-    AttributeSet::AttrIndex(AttributeSet::FunctionIndex);
+  AttributeList::AttrIndex Idx =
+      AttributeList::AttrIndex(AttributeList::FunctionIndex);
   AttrBuilder B;
 
   B.addAttribute(A, V);
-  AttributeSet Set = AttributeSet::get(Func->getContext(), Idx, B);
+  AttributeList Set = AttributeList::get(Func->getContext(), Idx, B);
   Func->addAttributes(Idx, Set);
 }
 
@@ -1916,10 +1913,8 @@ void LLVMGetParams(LLVMValueRef FnRef, LLVMValueRef *ParamRefs) {
 }
 
 LLVMValueRef LLVMGetParam(LLVMValueRef FnRef, unsigned index) {
-  Function::arg_iterator AI = unwrap<Function>(FnRef)->arg_begin();
-  while (index --> 0)
-    AI++;
-  return wrap(&*AI);
+  Function *Fn = unwrap<Function>(FnRef);
+  return wrap(&Fn->arg_begin()[index]);
 }
 
 LLVMValueRef LLVMGetParamParent(LLVMValueRef V) {
@@ -1944,25 +1939,24 @@ LLVMValueRef LLVMGetLastParam(LLVMValueRef Fn) {
 
 LLVMValueRef LLVMGetNextParam(LLVMValueRef Arg) {
   Argument *A = unwrap<Argument>(Arg);
-  Function::arg_iterator I(A);
-  if (++I == A->getParent()->arg_end())
+  Function *Fn = A->getParent();
+  if (A->getArgNo() + 1 >= Fn->arg_size())
     return nullptr;
-  return wrap(&*I);
+  return wrap(&Fn->arg_begin()[A->getArgNo() + 1]);
 }
 
 LLVMValueRef LLVMGetPreviousParam(LLVMValueRef Arg) {
   Argument *A = unwrap<Argument>(Arg);
-  Function::arg_iterator I(A);
-  if (I == A->getParent()->arg_begin())
+  if (A->getArgNo() == 0)
     return nullptr;
-  return wrap(&*--I);
+  return wrap(&A->getParent()->arg_begin()[A->getArgNo() - 1]);
 }
 
 void LLVMSetParamAlignment(LLVMValueRef Arg, unsigned align) {
   Argument *A = unwrap<Argument>(Arg);
   AttrBuilder B;
   B.addAlignmentAttr(align);
-  A->addAttr(AttributeSet::get(A->getContext(),A->getArgNo() + 1, B));
+  A->addAttr(AttributeList::get(A->getContext(), A->getArgNo() + 1, B));
 }
 
 /*--.. Operations on basic blocks ..........................................--*/
@@ -2171,10 +2165,9 @@ void LLVMSetInstrParamAlignment(LLVMValueRef Instr, unsigned index,
   CallSite Call = CallSite(unwrap<Instruction>(Instr));
   AttrBuilder B;
   B.addAlignmentAttr(align);
-  Call.setAttributes(Call.getAttributes()
-                       .addAttributes(Call->getContext(), index,
-                                      AttributeSet::get(Call->getContext(),
-                                                        index, B)));
+  Call.setAttributes(Call.getAttributes().addAttributes(
+      Call->getContext(), index,
+      AttributeList::get(Call->getContext(), index, B)));
 }
 
 void LLVMAddCallSiteAttribute(LLVMValueRef C, LLVMAttributeIndex Idx,

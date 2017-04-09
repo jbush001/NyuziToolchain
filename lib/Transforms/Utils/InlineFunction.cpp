@@ -25,6 +25,7 @@
 #include "llvm/Analysis/CaptureTracking.h"
 #include "llvm/Analysis/EHPersonalities.h"
 #include "llvm/Analysis/InstructionSimplify.h"
+#include "llvm/Analysis/ProfileSummaryInfo.h"
 #include "llvm/Analysis/ValueTracking.h"
 #include "llvm/IR/Attributes.h"
 #include "llvm/IR/CallSite.h"
@@ -1108,26 +1109,23 @@ static void AddAlignmentAssumptions(CallSite CS, InlineFunctionInfo &IFI) {
   bool DTCalculated = false;
 
   Function *CalledFunc = CS.getCalledFunction();
-  for (Function::arg_iterator I = CalledFunc->arg_begin(),
-                              E = CalledFunc->arg_end();
-       I != E; ++I) {
-    unsigned Align = I->getType()->isPointerTy() ? I->getParamAlignment() : 0;
-    if (Align && !I->hasByValOrInAllocaAttr() && !I->hasNUses(0)) {
+  for (Argument &Arg : CalledFunc->args()) {
+    unsigned Align = Arg.getType()->isPointerTy() ? Arg.getParamAlignment() : 0;
+    if (Align && !Arg.hasByValOrInAllocaAttr() && !Arg.hasNUses(0)) {
       if (!DTCalculated) {
-        DT.recalculate(const_cast<Function&>(*CS.getInstruction()->getParent()
-                                               ->getParent()));
+        DT.recalculate(*CS.getCaller());
         DTCalculated = true;
       }
 
       // If we can already prove the asserted alignment in the context of the
       // caller, then don't bother inserting the assumption.
-      Value *Arg = CS.getArgument(I->getArgNo());
-      if (getKnownAlignment(Arg, DL, CS.getInstruction(), AC, &DT) >= Align)
+      Value *ArgVal = CS.getArgument(Arg.getArgNo());
+      if (getKnownAlignment(ArgVal, DL, CS.getInstruction(), AC, &DT) >= Align)
         continue;
 
-      CallInst *NewAssumption = IRBuilder<>(CS.getInstruction())
-                                    .CreateAlignmentAssumption(DL, Arg, Align);
-      AC->registerAssumption(NewAssumption);
+      CallInst *NewAsmp = IRBuilder<>(CS.getInstruction())
+                              .CreateAlignmentAssumption(DL, ArgVal, Align);
+      AC->registerAssumption(NewAsmp);
     }
   }
 }
@@ -1141,7 +1139,7 @@ static void UpdateCallGraphAfterInlining(CallSite CS,
                                          ValueToValueMapTy &VMap,
                                          InlineFunctionInfo &IFI) {
   CallGraph &CG = *IFI.CG;
-  const Function *Caller = CS.getInstruction()->getParent()->getParent();
+  const Function *Caller = CS.getCaller();
   const Function *Callee = CS.getCalledFunction();
   CallGraphNode *CalleeNode = CG[Callee];
   CallGraphNode *CallerNode = CG[Caller];
@@ -1226,7 +1224,7 @@ static Value *HandleByValArgument(Value *Arg, Instruction *TheCall,
   PointerType *ArgTy = cast<PointerType>(Arg->getType());
   Type *AggTy = ArgTy->getElementType();
 
-  Function *Caller = TheCall->getParent()->getParent();
+  Function *Caller = TheCall->getFunction();
 
   // If the called function is readonly, then it could not mutate the caller's
   // copy of the byval'd memory.  In this case, it is safe to elide the copy and
@@ -1411,9 +1409,16 @@ static void updateCallerBFI(BasicBlock *CallSiteBlock,
       continue;
     auto *OrigBB = cast<BasicBlock>(Entry.first);
     auto *ClonedBB = cast<BasicBlock>(Entry.second);
-    ClonedBBs.insert(ClonedBB);
-    CallerBFI->setBlockFreq(ClonedBB,
-                            CalleeBFI->getBlockFreq(OrigBB).getFrequency());
+    uint64_t Freq = CalleeBFI->getBlockFreq(OrigBB).getFrequency();
+    if (!ClonedBBs.insert(ClonedBB).second) {
+      // Multiple blocks in the callee might get mapped to one cloned block in
+      // the caller since we prune the callee as we clone it. When that happens,
+      // we want to use the maximum among the original blocks' frequencies.
+      uint64_t NewFreq = CallerBFI->getBlockFreq(ClonedBB).getFrequency();
+      if (NewFreq > Freq)
+        Freq = NewFreq;
+    }
+    CallerBFI->setBlockFreq(ClonedBB, Freq);
   }
   BasicBlock *EntryClone = cast<BasicBlock>(VMap.lookup(&CalleeEntryBlock));
   CallerBFI->setBlockFreqAndScale(
@@ -1421,28 +1426,54 @@ static void updateCallerBFI(BasicBlock *CallSiteBlock,
       ClonedBBs);
 }
 
+/// Update the branch metadata for cloned call instructions.
+static void updateCallProfile(Function *Callee, const ValueToValueMapTy &VMap,
+                              const Optional<uint64_t> &CalleeEntryCount,
+                              const Instruction *TheCall) {
+  if (!CalleeEntryCount.hasValue() || CalleeEntryCount.getValue() < 1)
+    return;
+  Optional<uint64_t> CallSiteCount =
+      ProfileSummaryInfo::getProfileCount(TheCall, nullptr);
+  uint64_t CallCount =
+      std::min(CallSiteCount.hasValue() ? CallSiteCount.getValue() : 0,
+               CalleeEntryCount.getValue());
+
+  for (auto const &Entry : VMap)
+    if (isa<CallInst>(Entry.first))
+      if (auto *CI = dyn_cast_or_null<CallInst>(Entry.second))
+        CI->updateProfWeight(CallCount, CalleeEntryCount.getValue());
+  for (BasicBlock &BB : *Callee)
+    // No need to update the callsite if it is pruned during inlining.
+    if (VMap.count(&BB))
+      for (Instruction &I : BB)
+        if (CallInst *CI = dyn_cast<CallInst>(&I))
+          CI->updateProfWeight(CalleeEntryCount.getValue() - CallCount,
+                               CalleeEntryCount.getValue());
+}
+
 /// Update the entry count of callee after inlining.
 ///
 /// The callsite's block count is subtracted from the callee's function entry
 /// count.
-static void updateCalleeCount(BlockFrequencyInfo &CallerBFI, BasicBlock *CallBB,
-                              Function *Callee) {
+static void updateCalleeCount(BlockFrequencyInfo *CallerBFI, BasicBlock *CallBB,
+                              Instruction *CallInst, Function *Callee) {
   // If the callee has a original count of N, and the estimated count of
   // callsite is M, the new callee count is set to N - M. M is estimated from
   // the caller's entry count, its entry block frequency and the block frequency
   // of the callsite.
   Optional<uint64_t> CalleeCount = Callee->getEntryCount();
-  if (!CalleeCount)
+  if (!CalleeCount.hasValue())
     return;
-  Optional<uint64_t> CallSiteCount = CallerBFI.getBlockProfileCount(CallBB);
-  if (!CallSiteCount)
+  Optional<uint64_t> CallCount =
+      ProfileSummaryInfo::getProfileCount(CallInst, CallerBFI);
+  if (!CallCount.hasValue())
     return;
   // Since CallSiteCount is an estimate, it could exceed the original callee
   // count and has to be set to 0.
-  if (CallSiteCount.getValue() > CalleeCount.getValue())
+  if (CallCount.getValue() > CalleeCount.getValue())
     Callee->setEntryCount(0);
   else
-    Callee->setEntryCount(CalleeCount.getValue() - CallSiteCount.getValue());
+    Callee->setEntryCount(CalleeCount.getValue() - CallCount.getValue());
 }
 
 /// This function inlines the called function into the basic block of the
@@ -1456,8 +1487,8 @@ static void updateCalleeCount(BlockFrequencyInfo &CallerBFI, BasicBlock *CallBB,
 bool llvm::InlineFunction(CallSite CS, InlineFunctionInfo &IFI,
                           AAResults *CalleeAAR, bool InsertLifetime) {
   Instruction *TheCall = CS.getInstruction();
-  assert(TheCall->getParent() && TheCall->getParent()->getParent() &&
-         "Instruction not in function!");
+  assert(TheCall->getParent() && TheCall->getFunction()
+         && "Instruction not in function!");
 
   // If IFI has any state in it, zap it before we fill it in.
   IFI.reset();
@@ -1599,7 +1630,7 @@ bool llvm::InlineFunction(CallSite CS, InlineFunctionInfo &IFI,
     // matches up the formal to the actual argument values.
     CallSite::arg_iterator AI = CS.arg_begin();
     unsigned ArgNo = 0;
-    for (Function::const_arg_iterator I = CalledFunc->arg_begin(),
+    for (Function::arg_iterator I = CalledFunc->arg_begin(),
          E = CalledFunc->arg_end(); I != E; ++I, ++AI, ++ArgNo) {
       Value *ActualArg = *AI;
 
@@ -1632,13 +1663,14 @@ bool llvm::InlineFunction(CallSite CS, InlineFunctionInfo &IFI,
     // Remember the first block that is newly cloned over.
     FirstNewBlock = LastBlock; ++FirstNewBlock;
 
-    if (IFI.CallerBFI != nullptr && IFI.CalleeBFI != nullptr) {
+    if (IFI.CallerBFI != nullptr && IFI.CalleeBFI != nullptr)
       // Update the BFI of blocks cloned into the caller.
       updateCallerBFI(OrigBB, VMap, IFI.CallerBFI, IFI.CalleeBFI,
                       CalledFunc->front());
-      // Update the profile count of callee.
-      updateCalleeCount(*IFI.CallerBFI, OrigBB, CalledFunc);
-    }
+
+    updateCallProfile(CalledFunc, VMap, CalledFunc->getEntryCount(), TheCall);
+    // Update the profile count of callee.
+    updateCalleeCount(IFI.CallerBFI, OrigBB, TheCall, CalledFunc);
 
     // Inject byval arguments initialization.
     for (std::pair<Value*, Value*> &Init : ByValInit)

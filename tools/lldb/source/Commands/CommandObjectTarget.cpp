@@ -19,6 +19,7 @@
 #include "lldb/Core/Timer.h"
 #include "lldb/Core/ValueObjectVariable.h"
 #include "lldb/DataFormatters/ValueObjectPrinter.h"
+#include "lldb/Host/OptionParser.h"
 #include "lldb/Host/StringConvert.h"
 #include "lldb/Host/Symbols.h"
 #include "lldb/Interpreter/Args.h"
@@ -49,6 +50,8 @@
 #include "lldb/Target/StackFrame.h"
 #include "lldb/Target/Thread.h"
 #include "lldb/Target/ThreadSpec.h"
+
+#include "llvm/Support/FileSystem.h"
 
 // C Includes
 // C++ Includes
@@ -4136,20 +4139,21 @@ protected:
         module_sp->SetSymbolFileFileSpec(FileSpec());
       }
 
+      namespace fs = llvm::sys::fs;
       if (module_spec.GetUUID().IsValid()) {
         StreamString ss_symfile_uuid;
         module_spec.GetUUID().Dump(&ss_symfile_uuid);
         result.AppendErrorWithFormat(
             "symbol file '%s' (%s) does not match any existing module%s\n",
             symfile_path, ss_symfile_uuid.GetData(),
-            (symbol_fspec.GetFileType() != FileSpec::eFileTypeRegular)
+            !fs::is_regular_file(symbol_fspec.GetPath())
                 ? "\n       please specify the full path to the symbol file"
                 : "");
       } else {
         result.AppendErrorWithFormat(
             "symbol file '%s' does not match any existing module%s\n",
             symfile_path,
-            (symbol_fspec.GetFileType() != FileSpec::eFileTypeRegular)
+            !fs::is_regular_file(symbol_fspec.GetPath())
                 ? "\n       please specify the full path to the symbol file"
                 : "");
       }

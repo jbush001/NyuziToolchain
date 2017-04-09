@@ -41,18 +41,66 @@ class StringRef;
 class ARMSubtarget : public ARMGenSubtargetInfo {
 protected:
   enum ARMProcFamilyEnum {
-    Others, CortexA5, CortexA7, CortexA8, CortexA9, CortexA12, CortexA15,
-    CortexA17, CortexR4, CortexR4F, CortexR5, CortexR7, CortexR52, CortexM3,
-    CortexA32, CortexA35, CortexA53, CortexA57, CortexA72, CortexA73,
-    Krait, Swift, ExynosM1
+    Others,
+
+    CortexA12,
+    CortexA15,
+    CortexA17,
+    CortexA32,
+    CortexA35,
+    CortexA5,
+    CortexA53,
+    CortexA57,
+    CortexA7,
+    CortexA72,
+    CortexA73,
+    CortexA8,
+    CortexA9,
+    CortexM3,
+    CortexR4,
+    CortexR4F,
+    CortexR5,
+    CortexR52,
+    CortexR7,
+    ExynosM1,
+    Krait,
+    Kryo,
+    Swift
   };
   enum ARMProcClassEnum {
-    None, AClass, RClass, MClass
+    None,
+
+    AClass,
+    MClass,
+    RClass
   };
   enum ARMArchEnum {
-    ARMv2, ARMv2a, ARMv3, ARMv3m, ARMv4, ARMv4t, ARMv5, ARMv5t, ARMv5te,
-    ARMv5tej, ARMv6, ARMv6k, ARMv6kz, ARMv6t2, ARMv6m, ARMv6sm, ARMv7a, ARMv7r,
-    ARMv7m, ARMv7em, ARMv8a, ARMv81a, ARMv82a, ARMv8mMainline, ARMv8mBaseline,
+    ARMv2,
+    ARMv2a,
+    ARMv3,
+    ARMv3m,
+    ARMv4,
+    ARMv4t,
+    ARMv5,
+    ARMv5t,
+    ARMv5te,
+    ARMv5tej,
+    ARMv6,
+    ARMv6k,
+    ARMv6kz,
+    ARMv6m,
+    ARMv6sm,
+    ARMv6t2,
+    ARMv7a,
+    ARMv7em,
+    ARMv7m,
+    ARMv7r,
+    ARMv7ve,
+    ARMv81a,
+    ARMv82a,
+    ARMv8a,
+    ARMv8mBaseline,
+    ARMv8mMainline,
     ARMv8r
   };
 
@@ -165,10 +213,6 @@ protected:
 
   /// HasHardwareDivideInARM - True if subtarget supports [su]div in ARM mode
   bool HasHardwareDivideInARM = false;
-
-  /// HasT2ExtractPack - True if subtarget supports thumb2 extract/pack
-  /// instructions.
-  bool HasT2ExtractPack = false;
 
   /// HasDataBarrier - True if the subtarget supports DMB / DSB data barrier
   /// instructions.
@@ -307,6 +351,10 @@ protected:
 
   /// UseSjLjEH - If true, the target uses SjLj exception handling (e.g. iOS).
   bool UseSjLjEH = false;
+
+  /// Implicitly convert an instruction to a different one if its immediates
+  /// cannot be encoded. For example, ADD r0, r1, #FFFFFFFF -> SUB r0, r1, #1.
+  bool NegativeImmediates = true;
 
   /// stackAlignment - The minimum alignment known to hold of the stack frame on
   /// entry to the function and which must be maintained by every function.
@@ -461,7 +509,6 @@ public:
 
   bool hasDivide() const { return HasHardwareDivide; }
   bool hasDivideInARMMode() const { return HasHardwareDivideInARM; }
-  bool hasT2ExtractPack() const { return HasT2ExtractPack; }
   bool hasDataBarrier() const { return HasDataBarrier; }
   bool hasV7Clrex() const { return HasV7Clrex; }
   bool hasAcquireRelease() const { return HasAcquireRelease; }

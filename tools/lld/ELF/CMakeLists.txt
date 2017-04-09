@@ -11,6 +11,7 @@ add_lld_library(lldELF
   DriverUtils.cpp
   EhFrame.cpp
   Error.cpp
+  Filesystem.cpp
   GdbIndex.cpp
   ICF.cpp
   InputFiles.cpp
@@ -22,6 +23,7 @@ add_lld_library(lldELF
   Mips.cpp
   OutputSections.cpp
   Relocations.cpp
+  ScriptLexer.cpp
   ScriptParser.cpp
   Strings.cpp
   SymbolTable.cpp
@@ -54,7 +56,7 @@ add_lld_library(lldELF
   LINK_LIBS
   lldConfig
   lldCore
-  ${PTHREAD_LIB}
+  ${LLVM_PTHREAD_LIB}
 
   DEPENDS
   ELFOptionsTableGen
