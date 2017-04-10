@@ -955,8 +955,8 @@ SDValue NyuziTargetLowering::LowerVECTOR_SHUFFLE(SDValue Op,
       MVT::v16i32, DL, DAG.getEntryNode(), ShuffleVectorCP,
       MachinePointerInfo::getConstantPool(DAG.getMachineFunction()), 64);
 
-  SDValue NativeShuffleIntr =
-      DAG.getConstant(Intrinsic::nyuzi_shufflei, DL, MVT::i32);
+  SDValue NativeShuffleIntr = DAG.getConstant(VT.isFloatingPoint()
+    ? Intrinsic::nyuzi_shufflef : Intrinsic::nyuzi_shufflei, DL, MVT::i32);
   if (Mask == 0xffff || Mask == 0) {
     // Only one of the vectors is referenced.
     SDValue ShuffleSource = Mask == 0 ? Op.getOperand(0) : Op.getOperand(1);
@@ -964,14 +964,14 @@ SDValue NyuziTargetLowering::LowerVECTOR_SHUFFLE(SDValue Op,
     if (IsIdentityShuffle)
       return ShuffleSource; // Is just a copy
     else
-      return DAG.getNode(ISD::INTRINSIC_WO_CHAIN, DL, MVT::v16i32,
+      return DAG.getNode(ISD::INTRINSIC_WO_CHAIN, DL, VT,
                          NativeShuffleIntr, ShuffleSource, ShuffleVector);
   } else if (IsIdentityShuffle) {
     // This is just a mix
     SDValue MaskInt = DAG.getConstant(Mask, DL, MVT::i32);
     SDValue MaskVal = DAG.getNode(NyuziISD::MASK_FROM_INT,
                                   DL, MVT::v16i1, MaskInt);
-    return DAG.getNode(ISD::VSELECT, DL, MVT::v16i32,
+    return DAG.getNode(ISD::VSELECT, DL, VT,
                        MaskVal, Op.getOperand(1), Op.getOperand(0));
   } else {
     // Need to shuffle both vectors and mix
@@ -985,7 +985,7 @@ SDValue NyuziTargetLowering::LowerVECTOR_SHUFFLE(SDValue Op,
     SDValue MaskInt = DAG.getConstant(Mask, DL, MVT::i32);
     SDValue MaskVal = DAG.getNode(NyuziISD::MASK_FROM_INT,
                                   DL, MVT::v16i1, MaskInt);
-    return DAG.getNode(ISD::VSELECT, DL, MVT::v16i32,
+    return DAG.getNode(ISD::VSELECT, DL, VT,
                        MaskVal, Shuffled1, Shuffled0);
   }
 }
