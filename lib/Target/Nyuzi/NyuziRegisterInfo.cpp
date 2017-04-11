@@ -113,12 +113,15 @@ void NyuziRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator MBBI,
 
     MachineRegisterInfo &RegInfo = MBB.getParent()->getRegInfo();
     unsigned Reg = RegInfo.createVirtualRegister(&Nyuzi::GPR32RegClass);
-    BuildMI(MBB, MBBI, DL, TII.get(Nyuzi::MOVESimm), Reg).addImm(Offset >> 12);
-    BuildMI(MBB, MBBI, DL, TII.get(Nyuzi::SLLSSI), Reg).addReg(Reg).addImm(12);
-    BuildMI(MBB, MBBI, DL, TII.get(Nyuzi::ADDISSS), Reg)
-        .addReg(FrameReg)
-        .addReg(Reg);
-    MI.getOperand(FIOperandNum).ChangeToRegister(Reg, false);
+    BuildMI(MBB, MBBI, DL, TII.get(Nyuzi::MOVESimm)).addReg(Reg, RegState::Define)
+      .addImm(Offset >> 12);
+    BuildMI(MBB, MBBI, DL, TII.get(Nyuzi::SLLSSI)).addReg(Reg, RegState::Define)
+      .addReg(Reg).addImm(12);
+    BuildMI(MBB, MBBI, DL, TII.get(Nyuzi::ADDISSS)).addReg(Reg, RegState::Define)
+      .addReg(FrameReg)
+      .addReg(Reg);
+
+    MI.getOperand(FIOperandNum).ChangeToRegister(Reg, false, false, true /* isKill */);
     MI.getOperand(FIOperandNum + 1).ChangeToImmediate(Offset & 0xfff);
   } else
     report_fatal_error("frame index out of bounds: frame too large");
