@@ -15,8 +15,8 @@
 // Node types
 //////////////////////////////////////////////////////////////////
 
-def simm13  : PatLeaf<(imm), [{ return isInt<13>(N->getSExtValue()); }]>;
-def simm8  : PatLeaf<(imm), [{ return isInt<8>(N->getSExtValue()); }]>;
+def simm14  : PatLeaf<(imm), [{ return isInt<14>(N->getSExtValue()); }]>;
+def simm9  : PatLeaf<(imm), [{ return isInt<9>(N->getSExtValue()); }]>;
 
 // A splat is a vector with the same value in all lanes. NyuziTargetLowering
 // detects this condition and converts it to a SPLAT node.
@@ -129,24 +129,24 @@ def calltarget : Operand<iPTR> {
   let DecoderMethod = "decodeBranchTargetOpValue";
 }
 
-def SImmOperand13 : AsmOperandClass {
-  let Name = "SImm13";
-  let ParserMethod = "ParseSImm13Value";
+def SImmOperand14 : AsmOperandClass {
+  let Name = "SImm14";
+  let ParserMethod = "ParseSImm14Value";
 }
 
-def SImmOperand8 : AsmOperandClass  {
-  let Name = "SImm8";
-  let ParserMethod = "ParseSImm8Value";
+def SImmOperand9 : AsmOperandClass  {
+  let Name = "SImm9";
+  let ParserMethod = "ParseSImm9Value";
 }
 
-def SIMM13OP : Operand<i32> {
-  let DecoderMethod = "decodeSimm13Value";
-  let ParserMatchClass = SImmOperand13;
+def SIMM14OP : Operand<i32> {
+  let DecoderMethod = "decodeSimm14Value";
+  let ParserMatchClass = SImmOperand14;
 }
 
-def SIMM8OP : Operand<i32> {
-  let DecoderMethod = "decodeSimm8Value";
-  let ParserMatchClass = SImmOperand8;
+def SIMM9OP : Operand<i32> {
+  let DecoderMethod = "decodeSimm9Value";
+  let ParserMatchClass = SImmOperand9;
 }
 
 def SDT_SPCallSeqStart : SDCallSeqStart<[ SDTCisVT<0, i32> ]>;
@@ -193,8 +193,8 @@ multiclass AtomicBinary<SDNode OpNode> {
 
   def I : Pseudo<
     (outs GPR32:$dest),
-    (ins GPR32:$ptr, SIMM13OP:$amt),
-    [(set i32:$dest, (OpNode GPR32:$ptr, simm13:$amt))]>;
+    (ins GPR32:$ptr, SIMM14OP:$amt),
+    [(set i32:$dest, (OpNode GPR32:$ptr, simm14:$amt))]>;
 }
 
 //////////////////////////////////////////////////////////////////
@@ -258,15 +258,13 @@ class FormatRMaskedTwoOpInst<dag outputs, dag inputs, string asmString, list<dag
 // Format I: Immediate Arithmetic
 //////////////////////////////////////////////////////////////////
 
-class FmtI<bits<3> val> {
-  bits<3> Value = val;
+class FmtI<bits<2> val> {
+  bits<2> Value = val;
 }
 
-def FmtI_SS : FmtI<0>;
-def FmtI_VV : FmtI<1>;
-def FmtI_VVM : FmtI<2>;
-def FmtI_VS : FmtI<4>;
-def FmtI_VSM : FmtI<5>;
+def FmtI_S : FmtI<0>;
+def FmtI_V : FmtI<1>;
+def FmtI_VM : FmtI<3>;
 
 class FormatIInst<dag outputs, dag inputs, string asmString, list<dag> pattern,
   bits<5> opcode, FmtI fmt, InstrItinClass itin>
@@ -275,8 +273,8 @@ class FormatIInst<dag outputs, dag inputs, string asmString, list<dag> pattern,
   bits <5> src1;
 
   let Inst{31} = 0;
-  let Inst{30-28} = fmt.Value;
-  let Inst{27-23} = opcode;
+  let Inst{30-29} = fmt.Value;
+  let Inst{28-24} = opcode;
   let Inst{9-5} = dest;
   let Inst{4-0} = src1;
 }
@@ -285,16 +283,16 @@ class FormatIMaskedInst<dag outputs, dag inputs, string asmString, list<dag> pat
   bits<5> opcode, FmtI fmt, InstrItinClass itin>
   : FormatIInst<outputs, inputs, asmString, pattern, opcode, fmt, itin> {
   bits <5> mask;
-  bits <8> imm;
-  let Inst{22-15} = imm;
+  bits <9> imm;
+  let Inst{23-15} = imm;
   let Inst{14-10} = mask;
 }
 
 class FormatIUnmaskedInst<dag outputs, dag inputs, string asmString, list<dag> pattern,
   bits<5> opcode, FmtI fmt, InstrItinClass itin>
   : FormatIInst<outputs, inputs, asmString, pattern, opcode, fmt, itin> {
-  bits <13> imm;
-  let Inst{22-10} = imm;
+  bits <14> imm;
+  let Inst{23-10} = imm;
 }
 
 multiclass TwoOpIntArith<string operator, SDNode OpNode, bits<6> opcode> {
@@ -355,52 +353,32 @@ multiclass TwoOpIntArith<string operator, SDNode OpNode, bits<6> opcode> {
   // Scalar = Scalar Op Immediate
   def SSI : FormatIUnmaskedInst<
     (outs GPR32:$dest),
-    (ins GPR32:$src1, SIMM13OP:$imm),
+    (ins GPR32:$src1, SIMM14OP:$imm),
     operator # " $dest, $src1, $imm",
-    [(set i32:$dest, (OpNode i32:$src1, (i32 simm13:$imm)))],
+    [(set i32:$dest, (OpNode i32:$src1, (i32 simm14:$imm)))],
     opcode{4-0},
-    FmtI_SS,
+    FmtI_S,
     II_INT>;
 
   // Vector = Vector Op Immediate
   def VVI : FormatIUnmaskedInst<
     (outs VR512:$dest),
-    (ins VR512:$src1, SIMM13OP:$imm),
+    (ins VR512:$src1, SIMM14OP:$imm),
     operator # " $dest, $src1, $imm",
-    [(set v16i32:$dest, (OpNode v16i32:$src1, (splat simm13:$imm)))],
+    [(set v16i32:$dest, (OpNode v16i32:$src1, (splat simm14:$imm)))],
     opcode{4-0},
-    FmtI_VV,
-    II_INT>;
-
-  // Vector = Scalar Op Immediate
-  def VSI : FormatIUnmaskedInst<
-    (outs VR512:$dest),
-    (ins GPR32:$src1, SIMM13OP:$imm),
-    operator # " $dest, $src1, $imm",
-    [(set v16i32:$dest, (OpNode (splat i32:$src1), (splat simm13:$imm)))],
-    opcode{4-0},
-    FmtI_VS,
+    FmtI_V,
     II_INT>;
 
   let Constraints = "$dest = $oldvalue" in {
     // Vector = Vector Op Immediate, masked
     def VVIM : FormatIMaskedInst<
       (outs VR512:$dest),
-      (ins GPR32:$mask, VR512:$src1, SIMM8OP:$imm, VR512:$oldvalue),
+      (ins GPR32:$mask, VR512:$src1, SIMM9OP:$imm, VR512:$oldvalue),
       operator # "_mask $dest, $mask, $src1, $imm",
-      [(set v16i32:$dest, (vselect v16i1:$mask, (OpNode v16i32:$src1, (splat simm8:$imm)), v16i32:$oldvalue))],
+      [(set v16i32:$dest, (vselect v16i1:$mask, (OpNode v16i32:$src1, (splat simm9:$imm)), v16i32:$oldvalue))],
       opcode{4-0},
-      FmtI_VVM,
-      II_INT>;
-
-    // Vector = Scalar Op Immediate, masked
-    def VSIM : FormatIMaskedInst<
-      (outs VR512:$dest),
-      (ins GPR32:$mask, GPR32:$src1, SIMM8OP:$imm, VR512:$oldvalue),
-      operator # "_mask $dest, $mask, $src1, $imm",
-      [(set v16i32:$dest, (vselect v16i1:$mask, (OpNode (splat i32:$src1), (splat simm8:$imm)), v16i32:$oldvalue))],
-      opcode{4-0},
-      FmtI_VSM,
+      FmtI_VM,
       II_INT>;
   }
 }
@@ -599,20 +577,20 @@ multiclass IntCompareInst<string operator, CondCode condition,
   // Instruction format B
   def SI : FormatIUnmaskedInst<
     (outs GPR32:$dest),
-    (ins GPR32:$src1, SIMM13OP:$imm),
+    (ins GPR32:$src1, SIMM14OP:$imm),
     operator # " $dest, $src1, $imm",
-    [(set i32:$dest, (setcc i32:$src1, simm13:$imm, condition))],
+    [(set i32:$dest, (setcc i32:$src1, simm14:$imm, condition))],
     opcode{4-0},
-    FmtI_SS,
+    FmtI_S,
     II_INT>;
 
   def VI : FormatIUnmaskedInst<
     (outs GPR32:$dest),
-    (ins VR512:$src1, SIMM13OP:$imm),
+    (ins VR512:$src1, SIMM14OP:$imm),
     operator # " $dest, $src1, $imm",
-    [(set v16i1:$dest, (setcc v16i32:$src1, (splat simm13:$imm), condition))],
+    [(set v16i1:$dest, (setcc v16i32:$src1, (splat simm14:$imm), condition))],
     opcode{4-0},
-    FmtI_VV,
+    FmtI_V,
     II_INT>;
 }
 

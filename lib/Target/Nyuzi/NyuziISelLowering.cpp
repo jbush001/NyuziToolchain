@@ -1240,7 +1240,7 @@ SDValue NyuziTargetLowering::LowerConstant(SDValue Op,
   SDLoc DL(Op);
   ConstantSDNode *C = cast<ConstantSDNode>(Op);
 
-  const int kMaxImmediateSize = 13;
+  const int kMaxImmediateSize = 14;
 
   if (C->getAPIntValue().abs().ult((1 << (kMaxImmediateSize - 1)) - 1)) {
     // Don't need to convert to constant pool reference.  This will fit in

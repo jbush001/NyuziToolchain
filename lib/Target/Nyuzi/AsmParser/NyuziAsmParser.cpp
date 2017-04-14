@@ -54,8 +54,8 @@ class NyuziAsmParser : public MCTargetAsmParser {
   OperandMatchResultTy ParseMemoryOperand(OperandVector &Operands, int MaxBits,
                                           bool IsVector);
   OperandMatchResultTy ParseImmediate(OperandVector &Ops, int MaxBits);
-  OperandMatchResultTy ParseSImm13Value(OperandVector &Operands);
-  OperandMatchResultTy ParseSImm8Value(OperandVector &Operands);
+  OperandMatchResultTy ParseSImm14Value(OperandVector &Operands);
+  OperandMatchResultTy ParseSImm9Value(OperandVector &Operands);
 
 public:
   NyuziAsmParser(const MCSubtargetInfo &sti, MCAsmParser &_Parser,
@@ -155,8 +155,8 @@ public:
   // Functions for testing operand type
   bool isReg() const { return Kind == Register; }
   bool isImm() const { return Kind == Immediate; }
-  bool isSImm13() const { return Kind == Immediate; }
-  bool isSImm8() const { return Kind == Immediate; }
+  bool isSImm14() const { return Kind == Immediate; }
+  bool isSImm9() const { return Kind == Immediate; }
   bool isToken() const { return Kind == Token; }
   bool isMemS10() const { return Kind == Memory; }
   bool isMemS15() const { return Kind == Memory; }
@@ -184,12 +184,12 @@ public:
     addExpr(Inst, getImm());
   }
 
-  void addSImm13Operands(MCInst &Inst, unsigned N) const {
+  void addSImm14Operands(MCInst &Inst, unsigned N) const {
     assert(N == 1 && "Invalid number of operands!");
     addExpr(Inst, getImm());
   }
 
-  void addSImm8Operands(MCInst &Inst, unsigned N) const {
+  void addSImm9Operands(MCInst &Inst, unsigned N) const {
     assert(N == 1 && "Invalid number of operands!");
     addExpr(Inst, getImm());
   }
@@ -505,13 +505,13 @@ NyuziAsmParser::ParseMemoryOperand(OperandVector &Operands, int MaxBits,
 }
 
 OperandMatchResultTy
-NyuziAsmParser::ParseSImm13Value(OperandVector &Operands) {
-  return ParseImmediate(Operands, 13);
+NyuziAsmParser::ParseSImm14Value(OperandVector &Operands) {
+  return ParseImmediate(Operands, 14);
 }
 
 OperandMatchResultTy
-NyuziAsmParser::ParseSImm8Value(OperandVector &Operands) {
-  return ParseImmediate(Operands, 8);
+NyuziAsmParser::ParseSImm9Value(OperandVector &Operands) {
+  return ParseImmediate(Operands, 9);
 }
 
 bool NyuziAsmParser::ParseInstruction(ParseInstructionInfo &Info,

@@ -14,7 +14,7 @@ boo: load_32 s5, boo
   # CHECK-ENCODE: fixup A - offset: 0, value: boo, kind: fixup_Nyuzi_PCRel_MemAccExt
 bah: lea s3, bah
   # CHECK-RELOC-NOT: bah
-  # CHECK-ENCODE: encoding: [0x7f,0bAAAAAA00,0b1AAAAAAA,0x02]
+  # CHECK-ENCODE: encoding: [0x7f,0bAAAAAA00,A,0x05]
   # CHECK-ENCODE: fixup A - offset: 0, value: bah, kind: fixup_Nyuzi_PCRel_ComputeLabelAddress
   buz: .long buz      # FK_Data_4
   # CHECK-RELOC-NOT: buz
@@ -34,7 +34,7 @@ load_32 s0, bar
 
 lea s1, baz
   # CHECK-RELOC: 00000018 R_NYUZI_PCREL_LEA baz
-  # CHECK-ENCODE: encoding: [0x3f,0bAAAAAA00,0b1AAAAAAA,0x02]
+  # CHECK-ENCODE: encoding: [0x3f,0bAAAAAA00,A,0x05]
   # CHECK-ENCODE: fixup A - offset: 0, value: baz, kind: fixup_Nyuzi_PCRel_ComputeLabelAddress
 
 .long ioctl

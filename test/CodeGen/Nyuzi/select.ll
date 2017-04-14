@@ -89,7 +89,8 @@ define <16 x i32> @selvi2(i1 %a, <16 x i32> %b, <16 x i32> %c) { ; CHECK-LABEL: 
   ; CHECK: move s0, -1
   ; CHECK: [[FALSELABEL]]:
   ; CHECK: and v0, v0, s0
-  ; CHECK: xor v2, s0, -1
+  ; CHECK: move v2, s0
+  ; CHECK: xor v2, v2, -1
   ; CHECK: and v1, v1, v2
   ; CHECK: or v0, v0, v1
   ; CHECK: ret
@@ -120,7 +121,8 @@ define <16 x float> @selvf2(i1 %a, <16 x float> %b, <16 x float> %c) { ; CHECK-L
   ; CHECK: move s0, -1
   ; CHECK: [[FALSELABEL]]:
   ; CHECK: and v0, v0, s0
-  ; CHECK: xor v2, s0, -1
+  ; CHECK: move v2, s0
+  ; CHECK: xor v2, v2, -1
   ; CHECK: and v1, v1, v2
   ; CHECK: or v0, v0, v1
   ; CHECK: ret

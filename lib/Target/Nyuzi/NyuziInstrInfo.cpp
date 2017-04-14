@@ -145,7 +145,7 @@ void NyuziInstrInfo::storeRegToStackSlot(MachineBasicBlock &MBB,
 void NyuziInstrInfo::adjustStackPointer(MachineBasicBlock &MBB,
                                         MachineBasicBlock::iterator MBBI,
                                         const DebugLoc &DL, int Amount) const {
-  if (isInt<13>(Amount)) {
+  if (isInt<14>(Amount)) {
     BuildMI(MBB, MBBI, DL, get(Nyuzi::ADDISSI), Nyuzi::SP_REG)
         .addReg(Nyuzi::SP_REG)
         .addImm(Amount);
@@ -334,17 +334,17 @@ unsigned int NyuziInstrInfo::loadConstant(MachineBasicBlock &MBB,
     report_fatal_error("NyuziInstrInfo::loadConstant: value out of range");
 
   BuildMI(MBB, MBBI, DL, get(Nyuzi::MOVESimm)).addReg(Reg, RegState::Define)
-    .addImm(Value >> 12);
+    .addImm(Value >> 13);
   BuildMI(MBB, MBBI, DL, get(Nyuzi::SLLSSI)).addReg(Reg, RegState::Define)
-    .addReg(Reg).addImm(12);
+    .addReg(Reg).addImm(13);
 
-  if ((Value & 0xfff) != 0) {
+  if ((Value & 0x1fff) != 0) {
     // Load bits 11-0 into register (note we only load 12 bits because we
     // don't want sign extension)
     BuildMI(MBB, MBBI, DL, get(Nyuzi::ORSSI))
         .addReg(Reg, RegState::Define)
         .addReg(Reg)
-        .addImm(Value & 0xfff);
+        .addImm(Value & 0x1fff);
   }
 
   return Reg;

@@ -100,7 +100,7 @@ void NyuziRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator MBBI,
     FrameReg = getFrameRegister(MF);
 
   // Replace frame index with a frame pointer reference.
-  if (isInt<13>(Offset)) {
+  if (isInt<14>(Offset)) {
     // If the offset is small enough to fit in the immediate field, directly
     // encode it.
     MI.getOperand(FIOperandNum).ChangeToRegister(FrameReg, false);
@@ -114,15 +114,15 @@ void NyuziRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator MBBI,
     MachineRegisterInfo &RegInfo = MBB.getParent()->getRegInfo();
     unsigned Reg = RegInfo.createVirtualRegister(&Nyuzi::GPR32RegClass);
     BuildMI(MBB, MBBI, DL, TII.get(Nyuzi::MOVESimm)).addReg(Reg, RegState::Define)
-      .addImm(Offset >> 12);
+      .addImm(Offset >> 13);
     BuildMI(MBB, MBBI, DL, TII.get(Nyuzi::SLLSSI)).addReg(Reg, RegState::Define)
-      .addReg(Reg).addImm(12);
+      .addReg(Reg).addImm(13);
     BuildMI(MBB, MBBI, DL, TII.get(Nyuzi::ADDISSS)).addReg(Reg, RegState::Define)
       .addReg(FrameReg)
       .addReg(Reg);
 
     MI.getOperand(FIOperandNum).ChangeToRegister(Reg, false, false, true /* isKill */);
-    MI.getOperand(FIOperandNum + 1).ChangeToImmediate(Offset & 0xfff);
+    MI.getOperand(FIOperandNum + 1).ChangeToImmediate(Offset & 0x1fff);
   } else
     report_fatal_error("frame index out of bounds: frame too large");
 }

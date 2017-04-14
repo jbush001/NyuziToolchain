@@ -9,36 +9,42 @@ import random
 import sys
 
 
-def encode_a_instruction(fmt, opcode, dest, src1, src2, mask):
+# Register arithmetic
+def encode_r_instruction(fmt, opcode, dest, src1, src2, mask):
     return ((6 << 29) | (fmt << 26) | (opcode << 20) | (src2 << 15)
             | (mask << 10) | (dest << 5) | src1)
 
 
-def encode_b_instruction(fmt, opcode, dest, src1, imm, mask):
-    return ((fmt << 28) | (opcode << 23) | ((imm & 0xff) << 15)
+# Immediate arithmetic
+def encode_i_instruction(fmt, opcode, dest, src1, imm, mask):
+    return ((fmt << 29) | (opcode << 24) | ((imm & 0x1ff) << 15)
             | (mask << 10) | (dest << 5) | src1)
 
 
-def encode_bprime_instruction(fmt, opcode, dest, src1, imm):
-    return ((fmt << 28) | (opcode << 23) | ((imm & 0x1fff) << 10)
+# Immediate arithmetic masked
+def encode_im_instruction(fmt, opcode, dest, src1, imm):
+    return ((fmt << 29) | (opcode << 24) | ((imm & 0x3fff) << 10)
             | (dest << 5) | src1)
 
 
-def encode_c_instruction(isLoad, op, srcDest, ptr, offs, mask):
+# Memory
+def encode_m_instruction(isLoad, op, srcDest, ptr, offs, mask):
     return ((1 << 31) | (isLoad << 29) | (op << 25) | (offs << 15)
             | (mask << 10) | (srcDest << 5) | ptr)
 
 
-def encode_cprime_instruction(isLoad, op, srcDest, ptr, offs):
+# Memory masked
+def encode_mm_instruction(isLoad, op, srcDest, ptr, offs):
     return ((1 << 31) | (isLoad << 29) | (op << 25) | (offs << 10)
             | (srcDest << 5) | ptr)
 
-
-def encode_d_instruction(op, reg):
+# Cache control
+def encode_c_instruction(op, reg):
     return 0xe0000000 | (op << 25) | reg
 
 
-def encode_dprime_instruction(op, reg, physReg):
+# Cache control TLB
+def encode_cprime_instruction(op, reg, physReg):
     return 0xe0000000 | (op << 25) | (physReg << 5) | reg
 
 
@@ -112,7 +118,7 @@ binary_ops = [
     (0x1f, 'mulh_i'),
 ]
 
-a_instruction_types = [
+r_instruction_types = [
     ('s', 's', 's', 0, False),
     ('v', 'v', 's', 1, False),
     ('v', 'v', 's', 2, True),
@@ -120,21 +126,19 @@ a_instruction_types = [
     ('v', 'v', 'v', 5, True)
 ]
 
-b_instruction_types = [
-    ('s', 's', 0, False),
-    ('v', 'v', 1, False),
-    ('v', 'v', 2, True),
-    ('v', 's', 4, False),
-    ('v', 's', 5, True)
+i_instruction_types = [
+    ('s', 0, False),
+    ('v', 1, False),
+    ('v', 3, True),
 ]
 
 for opcode, mnemonic in binary_ops:
-    for dregt, s1regt, s2regt, fmt, is_masked in a_instruction_types:
+    for dregt, s1regt, s2regt, fmt, is_masked in r_instruction_types:
         dreg = getnextreg()
         s1reg = getnextreg()
         s2reg = getnextreg()
         mreg = getnextreg()
-        encoded = encode_a_instruction(
+        encoded = encode_r_instruction(
             fmt, opcode, dreg, s1reg, s2reg, mreg if is_masked else 0)
         asm_str = mnemonic + ('_mask ' if is_masked else ' ') + \
             dregt + str(dreg) + ', '
@@ -147,22 +151,22 @@ for opcode, mnemonic in binary_ops:
     if mnemonic[-2:] == '_f':
         continue  # Can't do immediate for FP instructions
 
-    for dregt, sregt, fmt, is_masked in b_instruction_types:
+    for regt, fmt, is_masked in i_instruction_types:
         dreg = getnextreg()
         sreg = getnextreg()
         mreg = getnextreg()
         imm = random.randint(-128, 127)
         if is_masked:
-            encoded = encode_b_instruction(fmt, opcode, dreg, sreg, imm, mreg)
+            encoded = encode_i_instruction(fmt, opcode, dreg, sreg, imm, mreg)
         else:
-            encoded = encode_bprime_instruction(fmt, opcode, dreg, sreg, imm)
+            encoded = encode_im_instruction(fmt, opcode, dreg, sreg, imm)
 
         asm_str = mnemonic + ('_mask ' if is_masked else ' ') + \
-            dregt + str(dreg) + ', '
+            regt + str(dreg) + ', '
         if is_masked:
             asm_str += 's' + str(mreg) + ', '
 
-        asm_str += sregt + str(sreg) + ', ' + str(imm)
+        asm_str += regt + str(sreg) + ', ' + str(imm)
         write_test_case(asm_str, encoded)
 
 unary_ops = [
@@ -197,43 +201,41 @@ for opcode, mnemonic in unary_ops:
         if is_masked:
             write_test_case(mnemonic + '_mask' + ' ' + destregt + str(rega) + ', ' +
                                 's' + str(regm) + ', ' + src1regt + str(regb),
-                               encode_a_instruction(fmt, opcode, rega, 0, regb, regm))
+                               encode_r_instruction(fmt, opcode, rega, 0, regb, regm))
         else:
             write_test_case(mnemonic + ' ' + destregt + str(rega) + ', ' +
                                 src1regt + str(regb),
-                               encode_a_instruction(fmt, opcode, rega, 0, regb, 0))
+                               encode_r_instruction(fmt, opcode, rega, 0, regb, 0))
 
 nextreg = 0
 
 # XXX Source register needs to be set to 1 to pass. Investigate in
 # LLVM assembler.
-write_test_case('move s1, 72', encode_bprime_instruction(0, 0xf, 1, 1, 72))
-write_test_case('move v1, 72', encode_bprime_instruction(4, 0xf, 1, 1, 72))
-write_test_case('move_mask v1, s3, 72',
-                   encode_b_instruction(5, 0xf, 1, 1, 72, 3))
+write_test_case('move s1, 72', encode_im_instruction(0, 0xf, 1, 1, 72))
+write_test_case('move v1, 72', encode_im_instruction(1, 0xf, 1, 1, 72))
 
 write_test_case('shuffle v1, v2, v3',
-                   encode_a_instruction(4, 0xd, 1, 2, 3, 0))
+                   encode_r_instruction(4, 0xd, 1, 2, 3, 0))
 write_test_case('shuffle_mask v1, s4, v2, v3',
-                   encode_a_instruction(5, 0xd, 1, 2, 3, 4))
+                   encode_r_instruction(5, 0xd, 1, 2, 3, 4))
 
 write_test_case('getlane s4, v5, s6',
-                   encode_a_instruction(1, 0x1a, 4, 5, 6, 0))
+                   encode_r_instruction(1, 0x1a, 4, 5, 6, 0))
 write_test_case('getlane s4, v5, 7',
-                   encode_bprime_instruction(1, 0x1a, 4, 5, 7))
+                   encode_im_instruction(1, 0x1a, 4, 5, 7))
 
 # XXX HACK: These instructions should support all forms, but this is here
 # in the interim
-write_test_case('sext_8 s8, s9', encode_a_instruction(0, 0x1d, 8, 0, 9, 0))
-write_test_case('sext_16 s8, s9', encode_a_instruction(0, 0x1e, 8, 0, 9, 0))
-write_test_case('itof s8, s9', encode_a_instruction(0, 0x2a, 8, 0, 9, 0))
-write_test_case('ftoi s8, s9', encode_a_instruction(0, 0x1b, 8, 0, 9, 0))
-write_test_case('itof v8, v9', encode_a_instruction(4, 0x2a, 8, 0, 9, 0))
-write_test_case('ftoi v8, v9', encode_a_instruction(4, 0x1b, 8, 0, 9, 0))
-write_test_case('itof v8, s9', encode_a_instruction(1, 0x2a, 8, 0, 9, 0))
-write_test_case('ftoi v8, s9', encode_a_instruction(1, 0x1b, 8, 0, 9, 0))
+write_test_case('sext_8 s8, s9', encode_r_instruction(0, 0x1d, 8, 0, 9, 0))
+write_test_case('sext_16 s8, s9', encode_r_instruction(0, 0x1e, 8, 0, 9, 0))
+write_test_case('itof s8, s9', encode_r_instruction(0, 0x2a, 8, 0, 9, 0))
+write_test_case('ftoi s8, s9', encode_r_instruction(0, 0x1b, 8, 0, 9, 0))
+write_test_case('itof v8, v9', encode_r_instruction(4, 0x2a, 8, 0, 9, 0))
+write_test_case('ftoi v8, v9', encode_r_instruction(4, 0x1b, 8, 0, 9, 0))
+write_test_case('itof v8, s9', encode_r_instruction(1, 0x2a, 8, 0, 9, 0))
+write_test_case('ftoi v8, s9', encode_r_instruction(1, 0x1b, 8, 0, 9, 0))
 
-write_test_case('nop', encode_b_instruction(0, 0, 0, 0, 0, 0))
+write_test_case('nop', encode_i_instruction(0, 0, 0, 0, 0, 0))
 
 #
 # Comparisons
@@ -264,15 +266,15 @@ for opcode, mnemonic in compare_ops:
 
     write_test_case('cmp' + mnemonic + ' s' + str(rega) + ', s'
                        + str(regb) + ', s' + str(regc),
-                       encode_a_instruction(0, opcode, rega, regb, regc, 0))
+                       encode_r_instruction(0, opcode, rega, regb, regc, 0))
 
     write_test_case('cmp' + mnemonic + ' s' + str(rega) + ', v' + str(regb)
                        + ', s' + str(regc),
-                       encode_a_instruction(1, opcode, rega, regb, regc, 0))
+                       encode_r_instruction(1, opcode, rega, regb, regc, 0))
 
     write_test_case('cmp' + mnemonic + ' s' + str(rega) + ', v' + str(regb)
                        + ', v' + str(regc),
-                       encode_a_instruction(4, opcode, rega, regb, regc, 0))
+                       encode_r_instruction(4, opcode, rega, regb, regc, 0))
 
     if mnemonic[-2:] == '_f':
         continue  # Can't do immediate for FP instructions
@@ -280,11 +282,11 @@ for opcode, mnemonic in compare_ops:
     imm = random.randint(0, 255)
     write_test_case('cmp' + mnemonic + ' s' + str(rega) + ', s' + str(regb)
                        + ', ' + str(imm),
-                       encode_bprime_instruction(0, opcode, rega, regb, imm))
+                       encode_im_instruction(0, opcode, rega, regb, imm))
 
     write_test_case('cmp' + mnemonic + ' s' + str(rega) + ', v' + str(regb)
                        + ', ' + str(imm),
-                       encode_bprime_instruction(1, opcode, rega, regb, imm))
+                       encode_im_instruction(1, opcode, rega, regb, imm))
 
 
 #
@@ -310,9 +312,9 @@ for stem, fmt, isLoad in scalarMemFormats:
     regb = getnextreg()
     offs = getnextreg()
     write_test_case(stem + ' s' + str(rega) + ', (s' + str(regb) + ')',
-                       encode_cprime_instruction(isLoad, fmt, rega, regb, 0))  # No offset
+                       encode_mm_instruction(isLoad, fmt, rega, regb, 0))  # No offset
     write_test_case(stem + ' s' + str(rega) + ', ' + str(offs) + '(s' + str(regb) + ')',
-                       encode_cprime_instruction(isLoad, fmt, rega, regb, offs))  # offset
+                       encode_mm_instruction(isLoad, fmt, rega, regb, offs))  # offset
 
 #
 # Vector load/stores
@@ -335,51 +337,51 @@ for load_suffix, store_suffix, ptr_type, op in vector_mem_fmts:
     # Offset
     write_test_case(load_stem + ' v' + str(rega) + ', ' + str(offs) + '('
                        + ptr_type + str(regb) + ')',
-                       encode_cprime_instruction(1, op, rega, regb, offs))
+                       encode_mm_instruction(1, op, rega, regb, offs))
     write_test_case(load_stem + '_mask v' + str(rega) + ', s' + str(mask)
                        + ', ' + str(offs) + '(' + ptr_type + str(regb) + ')',
-                       encode_c_instruction(1, op + 1, rega, regb, offs, mask))
+                       encode_m_instruction(1, op + 1, rega, regb, offs, mask))
 
     # No offset
     write_test_case(load_stem + ' v' + str(rega) + ', (' + ptr_type
                        + str(regb) + ')',
-                       encode_cprime_instruction(1, op, rega, regb, 0))
+                       encode_mm_instruction(1, op, rega, regb, 0))
     write_test_case(load_stem + '_mask v' + str(rega) + ', s' + str(mask)
                        + ', (' + ptr_type + str(regb) + ')',
-                       encode_c_instruction(1, op + 1, rega, regb, 0, mask))
+                       encode_m_instruction(1, op + 1, rega, regb, 0, mask))
 
     storeStem = 'store_' + store_suffix
 
     # Offset
     write_test_case(storeStem + ' v' + str(rega) + ', ' + str(offs)
                        + '(' + ptr_type + str(regb) + ')',
-                       encode_cprime_instruction(0, op, rega, regb, offs))
+                       encode_mm_instruction(0, op, rega, regb, offs))
     write_test_case(storeStem + '_mask v' + str(rega) + ', s' + str(mask)
                        + ', ' + str(offs) + '(' + ptr_type + str(regb) + ')',
-                       encode_c_instruction(0, op + 1, rega, regb, offs, mask))
+                       encode_m_instruction(0, op + 1, rega, regb, offs, mask))
 
     # No offset
     write_test_case(storeStem + ' v' + str(rega) + ', (' + ptr_type
                        + str(regb) + ')',
-                       encode_cprime_instruction(0, op, rega, regb, 0))
+                       encode_mm_instruction(0, op, rega, regb, 0))
     write_test_case(storeStem + '_mask v' + str(rega) + ', s' + str(mask)
                        + ', (' + ptr_type + str(regb) + ')',
-                       encode_c_instruction(0, op + 1, rega, regb, 0, mask))
+                       encode_m_instruction(0, op + 1, rega, regb, 0, mask))
 
 # Control register
 nextreg = 0
-write_test_case('getcr s7, 9', encode_cprime_instruction(1, 6, 7, 9, 0))
-write_test_case('setcr s11, 13', encode_cprime_instruction(0, 6, 11, 13, 0))
+write_test_case('getcr s7, 9', encode_mm_instruction(1, 6, 7, 9, 0))
+write_test_case('setcr s11, 13', encode_mm_instruction(0, 6, 11, 13, 0))
 
 # Cache control
-write_test_case('dflush s7', encode_d_instruction(2, 7))
-write_test_case('membar', encode_d_instruction(4, 0))
-write_test_case('dinvalidate s9', encode_d_instruction(1, 9))
-write_test_case('iinvalidate s11', encode_d_instruction(3, 11))
-write_test_case('tlbinval s12', encode_d_instruction(5, 12))
-write_test_case('tlbinvalall', encode_d_instruction(6, 0))
-write_test_case('dtlbinsert s1, s2', encode_dprime_instruction(0, 1, 2))
-write_test_case('itlbinsert s3, s4', encode_dprime_instruction(7, 3, 4))
+write_test_case('dflush s7', encode_c_instruction(2, 7))
+write_test_case('membar', encode_c_instruction(4, 0))
+write_test_case('dinvalidate s9', encode_c_instruction(1, 9))
+write_test_case('iinvalidate s11', encode_c_instruction(3, 11))
+write_test_case('tlbinval s12', encode_c_instruction(5, 12))
+write_test_case('tlbinvalall', encode_c_instruction(6, 0))
+write_test_case('dtlbinsert s1, s2', encode_cprime_instruction(0, 1, 2))
+write_test_case('itlbinsert s3, s4', encode_cprime_instruction(7, 3, 4))
 
 # Special instructions
 write_test_case('break', 0xc3e00000)

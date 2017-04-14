@@ -166,7 +166,7 @@ void NyuziFrameLowering::determineCalleeSaves(MachineFunction &MF,
   // This may create the scavenge slot when it isn't needed.
   // This check must match the size of the one in
   // NyuziRegisterInfo::eliminateFrameIndex
-  if (isInt<13>(getWorstCaseStackSize(MF)))
+  if (isInt<14>(getWorstCaseStackSize(MF)))
     return;
 
   const TargetRegisterClass *RC = &Nyuzi::GPR32RegClass;

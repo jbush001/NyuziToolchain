@@ -50,10 +50,10 @@ private:
 
 } // namespace llvm
 
-static DecodeStatus decodeSimm8Value(MCInst &Inst, unsigned Insn,
+static DecodeStatus decodeSimm9Value(MCInst &Inst, unsigned Insn,
                                      uint64_t Address, const void *Decoder);
 
-static DecodeStatus decodeSimm13Value(MCInst &Inst, unsigned Insn,
+static DecodeStatus decodeSimm14Value(MCInst &Inst, unsigned Insn,
                                       uint64_t Address, const void *Decoder);
 
 static DecodeStatus decodeScalarMemoryOpValue(MCInst &Inst, unsigned Insn,
@@ -154,16 +154,16 @@ static DecodeStatus decodeScalarMemoryOpValue(MCInst &Inst, unsigned Insn,
                              Nyuzi::GPR32RegClassID);
 }
 
-static DecodeStatus decodeSimm13Value(MCInst &Inst, unsigned Insn,
+static DecodeStatus decodeSimm14Value(MCInst &Inst, unsigned Insn,
                                       uint64_t Address, const void *Decoder) {
-  Inst.addOperand(MCOperand::createImm(SignExtend32<13>(Insn)));
+  Inst.addOperand(MCOperand::createImm(SignExtend32<14>(Insn)));
   return MCDisassembler::Success;
 }
 
-static DecodeStatus decodeSimm8Value(MCInst &Inst, unsigned Insn,
+static DecodeStatus decodeSimm9Value(MCInst &Inst, unsigned Insn,
                                      uint64_t Address, const void *Decoder) {
 
-  Inst.addOperand(MCOperand::createImm(SignExtend32<8>(Insn)));
+  Inst.addOperand(MCOperand::createImm(SignExtend32<9>(Insn)));
   return MCDisassembler::Success;
 }
 

@@ -2483,7 +2483,7 @@ void NyuziTargetInfo::relocateOne(uint8_t *Loc, uint32_t Type, uint64_t Val) con
     applyNyuziReloc<15, 10>(Loc, Type, Val - 4);
     break;
   case R_NYUZI_PCREL_LEA:
-    applyNyuziReloc<13, 10>(Loc, Type, Val - 4);
+    applyNyuziReloc<14, 10>(Loc, Type, Val - 4);
     break;
   }
 }

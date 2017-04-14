@@ -164,9 +164,9 @@ def : Pat<(or v16i1:$src1, v16i1:$src2), (ORSSS v16i1:$src1, v16i1:$src2)>;
 def : Pat<(and v16i1:$src1, v16i1:$src2), (ANDSSS v16i1:$src1, v16i1:$src2)>;
 def : Pat<(xor v16i1:$src1, v16i1:$src2), (XORSSS v16i1:$src1, v16i1:$src2)>;
 // Mask operations (register-immediate)
-def : Pat<(or v16i1:$src1, (mask_from_int simm13:$src2)), (ORSSI v16i1:$src1, simm13:$src2)>;
-def : Pat<(and v16i1:$src1, (mask_from_int simm13:$src2)), (ANDSSI v16i1:$src1, simm13:$src2)>;
-def : Pat<(xor v16i1:$src1, (mask_from_int simm13:$src2)), (XORSSI v16i1:$src1, simm13:$src2)>;
+def : Pat<(or v16i1:$src1, (mask_from_int simm14:$src2)), (ORSSI v16i1:$src1, simm14:$src2)>;
+def : Pat<(and v16i1:$src1, (mask_from_int simm14:$src2)), (ANDSSI v16i1:$src1, simm14:$src2)>;
+def : Pat<(xor v16i1:$src1, (mask_from_int simm14:$src2)), (XORSSI v16i1:$src1, simm14:$src2)>;
 
 
 def GET_LANEI : FormatRUnmaskedTwoOpInst<
@@ -180,16 +180,16 @@ def GET_LANEI : FormatRUnmaskedTwoOpInst<
 
 def GET_LANEIimm : FormatIUnmaskedInst<
   (outs GPR32:$dest),
-  (ins VR512:$src1, SIMM13OP:$imm),
+  (ins VR512:$src1, SIMM14OP:$imm),
   "getlane $dest, $src1, $imm",
-  [(set i32:$dest, (extractelt v16i32:$src1, simm13:$imm))],
+  [(set i32:$dest, (extractelt v16i32:$src1, simm14:$imm))],
   0x1a,
-  FmtI_VV,
+  FmtI_V,
   II_INT>;
 
 def : Pat<(extractelt v16f32:$src1, i32:$src2),
   (GET_LANEI v16f32:$src1, i32:$src2)>;
-def : Pat<(extractelt v16f32:$src1, simm13:$imm),
+def : Pat<(extractelt v16f32:$src1, simm14:$imm),
   (GET_LANEIimm v16f32:$src1, imm:$imm)>;
 
 def SHUFFLEI : FormatRUnmaskedTwoOpInst<
@@ -240,11 +240,11 @@ def : Pat<(v16i1 (mask_from_int i32:$src)), (COPY $src)>;
 // constant pool loads.
 def MOVESimm : FormatIUnmaskedInst<
   (outs GPR32:$dest),
-  (ins SIMM13OP:$imm),
+  (ins SIMM14OP:$imm),
   "move $dest, $imm",
-  [(set i32:$dest, imm:$imm)],  // XXX should this be simm13?
+  [(set i32:$dest, imm:$imm)],  // XXX should this be simm14?
   0x0f,
-  FmtI_SS,
+  FmtI_S,
   II_INT>;
 
 def MOVEVSI : FormatRUnmaskedOneOpInst<
@@ -258,11 +258,11 @@ def MOVEVSI : FormatRUnmaskedOneOpInst<
 
 def MOVEVimm : FormatIUnmaskedInst<
   (outs VR512:$dest),
-  (ins SIMM13OP:$imm),
+  (ins SIMM14OP:$imm),
   "move $dest, $imm",
-  [(set v16i32:$dest, (splat imm:$imm))],  // Should this be simm13
+  [(set v16i32:$dest, (splat imm:$imm))],  // Should this be simm14
   0xf,
-  FmtI_VS,
+  FmtI_V,
   II_INT>;
 
 def : Pat<(v16f32 (splat f32:$src2)), (MOVEVSI f32:$src2)>;
@@ -289,11 +289,11 @@ let Constraints = "$dest = $oldvalue" in {
 
   def MOVEVVMIimm : FormatIMaskedInst<
     (outs VR512:$dest),
-    (ins GPR32:$mask, SIMM8OP:$imm, VR512:$oldvalue),
+    (ins GPR32:$mask, SIMM9OP:$imm, VR512:$oldvalue),
     "move_mask $dest, $mask, $imm",
-    [(set v16i32:$dest, (vselect v16i1:$mask, (splat imm:$imm), v16i32:$oldvalue))],  // simm8?
+    [(set v16i32:$dest, (vselect v16i1:$mask, (splat imm:$imm), v16i32:$oldvalue))],  // simm9?
     0xf,
-    FmtI_VSM,
+    FmtI_VM,
     II_INT>;
 
   def MOVEVSMI : FormatRMaskedOneOpInst<
@@ -757,9 +757,9 @@ def LOAD_EFFECTIVE_ADDR : NyuziInstruction<
   bits<20> addr;
   bits<5> dest;
 
-  let Inst{30-28} = FmtI_SS.Value;
-  let Inst{27-23} = 5;  // Add
-  let Inst{22-10} = addr{17-5};  // Grab the offset part of address
+  let Inst{30-29} = FmtI_S.Value;
+  let Inst{28-24} = 5;  // Add
+  let Inst{23-10} = addr{18-5};  // Grab the offset part of address
   let Inst{9-5} = dest;
   let Inst{4-0} = addr{4-0};    // base register
 }
@@ -777,12 +777,12 @@ def LOAD_JTABLE_ADDR : NyuziInstruction<
   II_INT> {
   let isCodeGenOnly = 1;  // Don't use for assembler or disassembler
 
-  bits<13> addr;
+  bits<14> addr;
   bits<5> dest;
 
-  let Inst{30-28} = FmtI_SS.Value;
-  let Inst{27-23} = 5;    // Add
-  let Inst{22-10} = addr; // Offset from PC
+  let Inst{30-29} = FmtI_S.Value;
+  let Inst{28-24} = 5;    // Add
+  let Inst{23-10} = addr; // Offset from PC
   let Inst{9-5} = dest;
   let Inst{4-0} = 31;     // base register (PC)
 }

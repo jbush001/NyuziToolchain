@@ -74,7 +74,7 @@ void SPMDBuilder::createReturn(llvm::Value *ReturnValue) {
     // If all of the lanes have returned, jump to the exit.
     llvm::Value *ExitCond = Builder.CreateICmpEQ(
         Builder.CreateBitCast(NewReturnMask, sMaskIntType),
-        ConstantInt::get(sMaskType, 0));
+        ConstantInt::get(sMaskIntType, 0));
 
     llvm::BasicBlock *NextBlock = createBasicBlock("noreturnyet");
     llvm::BasicBlock *ReturnBlock = createBasicBlock("doreturn");
