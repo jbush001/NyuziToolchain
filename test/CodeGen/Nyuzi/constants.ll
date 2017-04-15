@@ -23,34 +23,69 @@ define float @loadconstf() { ; CHECK-LABEL: loadconstf:
   ; CHECK: load_32 s{{[0-9]+}}, [[CONSTF_LBL]]
 }
 
+; Largest positive constant that will fit in the 14-bit immediate field
 define i32 @loadconsti_pos_little() { ; CHECK-LABEL: loadconsti_pos_little:
-  ret i32 13
-  ; CHECK: move s{{[0-9]+}}, 13
+  ret i32 8191
+  ; CHECK: move s{{[0-9]+}}, 8191
 }
 
+; Largest negative constant that will fit in the 14-bit immediate field
 define i32 @loadconsti_neg_little() { ; CHECK-LABEL: loadconsti_neg_little:
-  ret i32 -13
-  ; CHECK: move s{{[0-9]+}}, -13
+  ret i32 -8192
+  ; CHECK: move s{{[0-9]+}}, -8192
 }
 
-define i32 @loadconsti_big_hionly() { ; CHECK-LABEL: loadconsti_big_hionly:
-  ret i32 305455104  ; 0x1234e000
-  ; CHECK: movehi s0, 37287
+; This only requires a movehi because the low bits aren't set
+; One more than loadconsti_pos_little
+define i32 @loadconsti_pos_big1() { ; CHECK-LABEL: loadconsti_pos_big1:
+  ret i32 8192
+  ; CHECK: movehi s0, 1
   ; CHECK-NOT: or
 }
 
-define i32 @loadconsti_big() { ; CHECK-LABEL: loadconsti_big:
-  ret i32 -4123456780
-  ; CHECK: movehi s0, 20936
-  ; CHECK: or s0, s0, 2804
+; This requires movehi and an or to set the low bits
+define i32 @loadconsti_pos_big2() { ; CHECK-LABEL: loadconsti_pos_big2:
+  ret i32 8193
+  ; CHECK: movehi s0, 1
+  ; CHECK: or s0, s0, 1
 }
 
+; Largest positive 32-bit constant
+define i32 @loadconsti_pos_big3() { ; CHECK-LABEL: loadconsti_pos_big3:
+  ret i32 2147483647
+  ; CHECK: movehi s0, 262143
+  ; CHECK: or s0, s0, 8191
+  ; CHECK-NOT: or
+}
+
+; This only requires a movehi because the low bits aren't set
+define i32 @loadconsti_neg_big1() { ; CHECK-LABEL: loadconsti_neg_big1:
+  ret i32 -16384
+  ; CHECK: movehi s0, 524286
+  ; CHECK-NOT: or
+}
+
+; This requires a movehi and an or to set the low bits
+define i32 @loadconsti_neg_big2() { ; CHECK-LABEL: loadconsti_neg_big2:
+  ret i32 -16385
+  ; CHECK: movehi s0, 524285
+  ; CHECK: or s0, s0, 8191
+}
+
+; Largest negative 32-bit constant
+define i32 @loadconsti_neg_big3() { ; CHECK-LABEL: loadconsti_neg_big3:
+  ret i32 -2147483648
+  ; CHECK: movehi s0, 262144
+  ; CHECK-NOT: or
+}
+
+; Ensure constant operands are lowered properly
 define i32 @largeoperand(i32 %a) { ; CHECK-LABEL: largeoperand:
   %1 = add i32 %a, 1234567
 
-    ; CHECK: movehi [[CONSTREG:s[0-9]+]], 150
-	  ; CHECK: or [[CONSTREG]], [[CONSTREG]], 5767
-    ; CHECK: add_i s0, s0, [[CONSTREG]]
+  ; CHECK: movehi [[CONSTREG:s[0-9]+]], 150
+  ; CHECK: or [[CONSTREG]], [[CONSTREG]], 5767
+  ; CHECK: add_i s0, s0, [[CONSTREG]]
 
   ret i32 %1
 };
