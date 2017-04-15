@@ -11,7 +11,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-
 //////////////////////////////////////////////////////////////////
 // Arithmetic (Format R & I)
 //////////////////////////////////////////////////////////////////
@@ -242,7 +241,7 @@ def MOVESimm : FormatIUnmaskedInst<
   (outs GPR32:$dest),
   (ins SIMM14OP:$imm),
   "move $dest, $imm",
-  [(set i32:$dest, imm:$imm)],  // XXX should this be simm14?
+  [(set i32:$dest, simm14:$imm)],
   0x0f,
   FmtI_S,
   II_INT>;
@@ -260,7 +259,7 @@ def MOVEVimm : FormatIUnmaskedInst<
   (outs VR512:$dest),
   (ins SIMM14OP:$imm),
   "move $dest, $imm",
-  [(set v16i32:$dest, (splat imm:$imm))],  // Should this be simm14
+  [(set v16i32:$dest, (splat simm14:$imm))],
   0xf,
   FmtI_V,
   II_INT>;
@@ -291,7 +290,7 @@ let Constraints = "$dest = $oldvalue" in {
     (outs VR512:$dest),
     (ins GPR32:$mask, SIMM9OP:$imm, VR512:$oldvalue),
     "move_mask $dest, $mask, $imm",
-    [(set v16i32:$dest, (vselect v16i1:$mask, (splat imm:$imm), v16i32:$oldvalue))],  // simm9?
+    [(set v16i32:$dest, (vselect v16i1:$mask, (splat simm9:$imm), v16i32:$oldvalue))],
     0xf,
     FmtI_VM,
     II_INT>;
@@ -817,3 +816,26 @@ def : Pat<(v16f32 (bitconvert (v16i32 VR512:$src))), (v16f32 VR512:$src)>;
 def : Pat<(v16i32 (bitconvert (v16f32 VR512:$src))), (v16i32 VR512:$src)>;
 def : Pat<(f32 (bitconvert (i32 GPR32:$src))), (f32 GPR32:$src)>;
 def : Pat<(i32 (bitconvert (f32 GPR32:$src))), (i32 GPR32:$src)>;
+
+def HI19 : SDNodeXForm<imm, [{
+  return CurDAG->getTargetConstant((uint64_t)N->getZExtValue() >> 13, SDLoc(N),
+                                   MVT::i32);
+}]>;
+
+def LO13 : SDNodeXForm<imm, [{
+  return CurDAG->getTargetConstant((uint64_t)N->getZExtValue() & 0x1fff,
+                                   SDLoc(N), MVT::i32);
+}]>;
+
+// Checks if the immediate can be created using only movehi (low bits are 0)
+def imm_hi  : PatLeaf<(imm), [{ return (N->getZExtValue() & 0x1fff) == 0; }]>;
+
+// Any constants that are not matched in patterns as small immediates will
+// get picked up by the following patterns, which synthesize them using the
+// movehi instruction.
+
+// If only high bits are set, use movehi only
+def : Pat<(i32 imm_hi:$imm), (MOVEHI (HI19 imm:$imm))>;
+
+// If low bits are set use movehi/or combination
+def : Pat<(i32 imm:$imm), (ORSSI (MOVEHI (HI19 imm:$imm)), (LO13 imm:$imm))>;

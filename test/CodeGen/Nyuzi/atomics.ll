@@ -17,29 +17,13 @@ define i32 @atomic_add_reg(i32* %ptr, i32 %value) { ; CHECK-LABEL: atomic_add_re
   ret i32 %tmp
 }
 
-; Note constant operand.  This will use an immediate instruction form.
+; Constant addend.  This will use an immediate instruction form.
 define i32 @atomic_add_imm(i32* %ptr) { ; CHECK-LABEL: atomic_add_imm:
   %tmp = atomicrmw volatile add i32* %ptr, i32 13 monotonic
 
   ; CHECK: load_sync [[OLDVAL:s[0-9]+]], (s0)
   ; CHECK: move s{{[0-9]+}}, [[OLDVAL]]
   ; CHECK: add_i [[NEWVAL:s[0-9]+]], [[OLDVAL]], 13
-  ; CHECK: store_sync [[NEWVAL]], (s0)
-  ; CHECK: bz [[NEWVAL]],
-
-  ret i32 %tmp
-}
-
-; This one has an constant operand, but it doesn't fit in an immediate instruction,
-; so this should load the addend from the constant pool
-
-define i32 @atomic_add_large_imm(i32* %ptr) { ; CHECK-LABEL: atomic_add_large_imm:
-  %tmp = atomicrmw volatile add i32* %ptr, i32 1300000 monotonic
-
-  ; CHECK: load_32 [[CONSTREG1:s[0-9]+]], .LCPI
-  ; CHECK: load_sync s{{[0-9]+}}, (s0)
-  ; CHECK: move s{{[0-9]+}}, s{{[0-9]+}}
-  ; CHECK: add_i [[NEWVAL:s[0-9]+]], s{{[0-9]+}}, [[CONSTREG1]]
   ; CHECK: store_sync [[NEWVAL]], (s0)
   ; CHECK: bz [[NEWVAL]],
 
@@ -64,16 +48,6 @@ define i32 @atomic_sub_imm(i32* %ptr) { ; CHECK-LABEL: atomic_sub_imm:
   ret i32 %tmp
 }
 
-define i32 @atomic_sub_large_imm(i32* %ptr) { ; CHECK-LABEL: atomic_sub_large_imm:
-  %tmp = atomicrmw volatile sub i32* %ptr, i32 1300000 monotonic
-
-  ; CHECK: load_32 [[CONSTREG2:s[0-9]+]], .LCPI
-  ; CHECK: sub_i [[NEWVAL:s[0-9]+]], s{{[0-9]+}}, [[CONSTREG2]]
-  ; CHECK: store_sync [[NEWVAL]], (s0)
-
-  ret i32 %tmp
-}
-
 define i32 @atomic_and_reg(i32* %ptr, i32 %value) { ; CHECK-LABEL: atomic_and_reg:
   %tmp = atomicrmw volatile and i32* %ptr, i32 %value monotonic
 
@@ -87,16 +61,6 @@ define i32 @atomic_and_imm(i32* %ptr) { ; CHECK-LABEL: atomic_and_imm:
   %tmp = atomicrmw volatile and i32* %ptr, i32 13 monotonic
 
   ; CHECK: and [[NEWVAL:s[0-9]+]], s{{[0-9]+}}, 13
-  ; CHECK: store_sync [[NEWVAL]], (s0)
-
-  ret i32 %tmp
-}
-
-define i32 @atomic_and_large_imm(i32* %ptr) { ; CHECK-LABEL: atomic_and_large_imm:
-  %tmp = atomicrmw volatile and i32* %ptr, i32 1300000 monotonic
-
-  ; CHECK: load_32 [[CONST:s[0-9]+]], .LCPI
-  ; CHECK: and [[NEWVAL:s[0-9]+]], s{{[0-9]+}}, [[CONST]]
   ; CHECK: store_sync [[NEWVAL]], (s0)
 
   ret i32 %tmp
@@ -120,16 +84,6 @@ define i32 @atomic_or_imm(i32* %ptr) { ; CHECK-LABEL: atomic_or_imm:
   ret i32 %tmp
 }
 
-define i32 @atomic_or_large_imm(i32* %ptr) { ; CHECK-LABEL: atomic_or_large_imm:
-  %tmp = atomicrmw volatile or i32* %ptr, i32 1300000 monotonic
-
-  ; CHECK: load_32 [[CONST:s[0-9]+]], .LCPI
-  ; CHECK: or [[NEWVAL:s[0-9]+]], s{{[0-9]+}}, [[CONST]]
-  ; CHECK: store_sync [[NEWVAL]], (s0)
-
-  ret i32 %tmp
-}
-
 define i32 @atomic_xor_reg(i32* %ptr, i32 %value) { ; CHECK-LABEL: atomic_xor_reg:
   %tmp = atomicrmw volatile xor i32* %ptr, i32 %value monotonic
 
@@ -143,16 +97,6 @@ define i32 @atomic_xor_imm(i32* %ptr) { ; CHECK-LABEL: atomic_xor_imm:
   %tmp = atomicrmw volatile xor i32* %ptr, i32 13 monotonic
 
   ; CHECK: xor [[NEWVAL:s[0-9]+]], s{{[0-9]+}}, 13
-  ; CHECK: store_sync [[NEWVAL]], (s0)
-
-  ret i32 %tmp
-}
-
-define i32 @atomic_xor_large_imm(i32* %ptr) { ; CHECK-LABEL: atomic_xor_large_imm:
-  %tmp = atomicrmw volatile xor i32* %ptr, i32 1300000 monotonic
-
-  ; CHECK: load_32 [[CONST:s[0-9]+]], .LCPI
-  ; CHECK: xor [[NEWVAL:s[0-9]+]], s{{[0-9]+}}, [[CONST]]
   ; CHECK: store_sync [[NEWVAL]], (s0)
 
   ret i32 %tmp

@@ -102,7 +102,6 @@ NyuziTargetLowering::NyuziTargetLowering(const TargetMachine &TM,
     { ISD::GlobalAddress, MVT::f32 },
     { ISD::ConstantPool, MVT::i32 },
     { ISD::ConstantPool, MVT::f32 },
-    { ISD::Constant, MVT::i32 },
     { ISD::BlockAddress, MVT::i32 },
     { ISD::SELECT_CC, MVT::i32 },
     { ISD::SELECT_CC, MVT::f32 },
@@ -255,8 +254,6 @@ SDValue NyuziTargetLowering::LowerOperation(SDValue Op,
     return LowerSETCC(Op, DAG);
   case ISD::ConstantPool:
     return LowerConstantPool(Op, DAG);
-  case ISD::Constant:
-    return LowerConstant(Op, DAG);
   case ISD::FDIV:
     return LowerFDIV(Op, DAG);
   case ISD::FNEG:
@@ -1226,34 +1223,6 @@ SDValue NyuziTargetLowering::LowerConstantPool(SDValue Op,
   }
 
   return Res;
-}
-
-//
-// XXX The intent of this function is to check if the immediate will fit in the
-// instruction or needs to be loaded from the constant pool. However, other
-// backends don't seem to need to do this. This may be overkill (it also
-// doens't work quite correctly, since we don't know which instruction this
-// will be used for, and thus don't know the capacity).
-//
-SDValue NyuziTargetLowering::LowerConstant(SDValue Op,
-                                           SelectionDAG &DAG) const {
-  SDLoc DL(Op);
-  ConstantSDNode *C = cast<ConstantSDNode>(Op);
-
-  const int kMaxImmediateSize = 14;
-
-  if (C->getAPIntValue().abs().ult((1 << (kMaxImmediateSize - 1)) - 1)) {
-    // Don't need to convert to constant pool reference.  This will fit in
-    // the immediate field of a single instruction, sign extended.
-    return Op;
-  }
-
-  // XXX New versions of LLVM will expand to a constant pool as the expand
-  // action, so this is probably unnecessary.
-  SDValue CPIdx = DAG.getConstantPool(C->getConstantIntValue(), MVT::i32);
-  return DAG.getLoad(
-      MVT::i32, DL, DAG.getEntryNode(), CPIdx,
-      MachinePointerInfo::getConstantPool(DAG.getMachineFunction()), 4);
 }
 
 // There is no native floating point division, but we can convert this to a

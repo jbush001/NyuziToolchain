@@ -89,7 +89,6 @@ private:
   SDValue LowerSELECT(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerSETCC(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerConstantPool(SDValue Op, SelectionDAG &DAG) const;
-  SDValue LowerConstant(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerFDIV(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerFNEG(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerFABS(SDValue Op, SelectionDAG &DAG) const;

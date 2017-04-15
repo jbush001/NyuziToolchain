@@ -85,12 +85,11 @@ define <16 x i32> @test2(<16 x i32> %a, <16 x i32> %b) { ; CHECK-LABEL: test2:
 }
 
 ; Select items from both vectors, but same lanes. Will be masked move
-; CHECK: [[MM_CPE:.LCPI[0-9]+_[0-9]+]]
-; CHECK: .long 43690
 define <16 x i32> @masked_move(<16 x i32> %a, <16 x i32> %b) { ; CHECK-LABEL: masked_move:
   %res = shufflevector <16 x i32> %a, <16 x i32> %b, <16 x i32> < i32 0, i32 17, i32 2, i32 19, i32 4, i32 21, i32 6, i32 23, i32 8, i32 25, i32 10, i32 27, i32 12, i32 29, i32 14, i32 31>
 
-  ; CHECK: load_32 [[MM_SREG:s[0-9]+]], [[MM_CPE]]
+	; CHECK: movehi [[TMP1:s[0-9]+]], 5
+	; CHECK: or [[MM_SREG:s[0-9]+]], [[TMP1]], 2730
   ; CHECK-NEXT: move_mask {{v[0-9]+}}, [[MM_SREG]], v1
   ; CHECK-NOT: shuffle
 
@@ -172,15 +171,14 @@ define <16 x i32> @shuffle_only2(<16 x i32> %a, <16 x i32> %b) { ; CHECK-LABEL: 
 ; CHECK: .long 2
 ; CHECK: .long 1
 ; CHECK: .long 0
-; CHECK: [[SM_MASKCP:.LCPI[0-9]+_[0-9]+]]
-; CHECK: .long 21845
 
 define <16 x i32> @test_shuffle_mix(<16 x i32> %a, <16 x i32> %b) { ; CHECK-LABEL: test_shuffle_mix:
   %res = shufflevector <16 x i32> %a, <16 x i32> %b, <16 x i32> < i32 31, i32 14, i32 29, i32 12, i32 27, i32 10, i32 25, i32 8, i32 23, i32 6, i32 21, i32 4, i32 19, i32 2, i32 17, i32 0 >
 
   ; CHECK: load_v [[SM_SHUFFLEVEC:v[0-9]+]], [[SM_SHUFFLEVECCP]]
   ; CHECK: shuffle v0, v0, [[SM_SHUFFLEVEC]]
-  ; CHECK: load_32 [[SM_MASK:s[0-9]+]], [[SM_MASKCP]]
+	; CHECK: movehi [[TMP5:s[0-9]+]], 2
+	; CHECK: or [[SM_MASK:s[0-9]+]], [[TMP5]], 5461
   ; CHECK: shuffle_mask {{v[0-9]+}}, [[SM_MASK]], v1, [[SM_SHUFFLEVEC]]
 
   ret <16 x i32> %res
@@ -204,7 +202,8 @@ define <16 x i1> @test_shuffle_mix_bits(<16 x i1> %a, <16 x i1> %b) { ; CHECK-LA
   ; CHECK: move_mask v0, s0, 1
   ; CHECK: load_v [[SM_SHUFFLEVEC:v[0-9]+]], .LCPI
   ; CHECK: shuffle v0, v0, [[SM_SHUFFLEVEC]]
-  ; CHECK: load_32 [[SM_MASK:s[0-9]+]], .LCPI
+	; CHECK: movehi [[TMP3:s[0-9]+]], 2
+	; CHECK: or [[SM_MASK:s[0-9]+]], [[TMP3]], 5461
   ; CHECK: shuffle_mask {{v[0-9]+}}, [[SM_MASK]], v1, [[SM_SHUFFLEVEC]]
   ; CHECK: and {{v[0-9]+}}, {{v[0-9]+}}, 1
   ; CHECK: cmpeq_i s0, {{v[0-9]+}}, 1

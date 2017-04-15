@@ -7,10 +7,8 @@ target triple = "nyuzi"
 
 ; Checks that a large i1 vector is correctly mapped
 ; to an i32 constant pool entry
-; CHECK: [[MASK_CP:.LCPI[0-9]+_[0-9]+]]
-; CHECK-NEXT: .long 40960 # 0xa000
 define <16 x i1> @large_literal() { ; CHECK-LABEL: large_literal:
-  ; CHECK: load_32 s0, [[MASK_CP]]
+  ; CHECK: movehi s0, 5
   ; CHECK-NEXT: ret
   ret <16 x i1> <i1 false, i1 false, i1 false, i1 false, i1 false, i1 false, i1 false, i1 false, i1 false, i1 false, i1 false, i1 false, i1 false, i1 true, i1 false, i1 true>
 }
@@ -24,11 +22,10 @@ define <16 x i1> @small_literal() { ; CHECK-LABEL: small_literal:
 }
 
 ; Checks that the lowering doesn't try to get too smart about splats.
-; CHECK: [[MASK_CP:.LCPI[0-9]+_[0-9]+]]
-; CHECK-NEXT: .long 65535
 define <16 x i1> @splat() { ; CHECK-LABEL: splat:
 entry:
-  ; CHECK: load_32 s0, [[MASK_CP]]
+  ; CHECK: movehi s0, 7
+  ; CHECK: or s0, s0, 8191
   ; CHECK-NEXT: ret
   %.splatinsert = insertelement <16 x i1> undef, i1 true, i32 0
   %.splat = shufflevector <16 x i1> %.splatinsert, <16 x i1> undef, <16 x i32> zeroinitializer
@@ -66,6 +63,7 @@ entry:
 define <16 x i1> @complicated_const_buildvector() { ; CHECK-LABEL: complicated_const_buildvector:
   %a = icmp ult <16 x i32> zeroinitializer, <i32 16, i32 16, i32 16, i32 16, i32 16, i32 16, i32 16, i32 16, i32 16, i32 16, i32 16, i32 16, i32 16, i32 16, i32 16, i32 16>
   %b = and <16 x i1> <i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true>, %a
-  ; CHECK: load_32 s0, .LCPI
+  ; CHECK: movehi s0, 7
+	; CHECK: or s0, s0, 8191
   ret <16 x i1> %b
 }

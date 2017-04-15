@@ -23,26 +23,33 @@ define float @loadconstf() { ; CHECK-LABEL: loadconstf:
   ; CHECK: load_32 s{{[0-9]+}}, [[CONSTF_LBL]]
 }
 
-define i32 @loadconsti_little() { ; CHECK-LABEL: loadconsti_little:
+define i32 @loadconsti_pos_little() { ; CHECK-LABEL: loadconsti_pos_little:
   ret i32 13
   ; CHECK: move s{{[0-9]+}}, 13
 }
 
-; CHECK: [[CONSTI_LBL:\.L[A-Z0-9_]+]]:
-; CHECK: .long 3735928559
-define i32 @loadconsti_big() { ; CHECK-LABEL: loadconsti_big:
-  ret i32 -559038737
-  ; CHECK: load_32 s{{[0-9]+}}, [[CONSTI_LBL]]
+define i32 @loadconsti_neg_little() { ; CHECK-LABEL: loadconsti_neg_little:
+  ret i32 -13
+  ; CHECK: move s{{[0-9]+}}, -13
 }
 
-; Ensures the backend creates constant pool entries when
-; instruction operands won't fit in the immediate field
-; CHECK: [[CONSTOP_LBL:\.L[A-Z0-9_]+]]:
-; CHECK: .long 1234567
+define i32 @loadconsti_big_hionly() { ; CHECK-LABEL: loadconsti_big_hionly:
+  ret i32 305455104  ; 0x1234e000
+  ; CHECK: movehi s0, 37287
+  ; CHECK-NOT: or
+}
+
+define i32 @loadconsti_big() { ; CHECK-LABEL: loadconsti_big:
+  ret i32 -4123456780
+  ; CHECK: movehi s0, 20936
+  ; CHECK: or s0, s0, 2804
+}
+
 define i32 @largeoperand(i32 %a) { ; CHECK-LABEL: largeoperand:
   %1 = add i32 %a, 1234567
 
-    ; CHECK: load_32 [[CONSTREG:s[0-9]+]], [[CONSTOP_LBL]]
+    ; CHECK: movehi [[CONSTREG:s[0-9]+]], 150
+	  ; CHECK: or [[CONSTREG]], [[CONSTREG]], 5767
     ; CHECK: add_i s0, s0, [[CONSTREG]]
 
   ret i32 %1
