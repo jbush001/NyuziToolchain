@@ -311,6 +311,24 @@ def : Pat<(vselect v16i1:$mask, v16f32:$src2, v16f32:$oldvalue),
 def : Pat<(vselect v16i1:$mask, (splat f32:$src2), v16f32:$oldvalue),
   (MOVEVSMI v16i1:$mask, f32:$src2, v16f32:$oldvalue)>;
 
+def MOVEHI : NyuziInstruction<
+  (outs GPR32:$dest),
+  (ins SIMM19OP:$imm),
+  "movehi $dest, $imm",
+  [],
+  II_INT> {
+
+  bits<19> imm;
+  bits<5> dest;
+
+  let Inst{31} = 0;
+  let Inst{30-29} = FmtI_EXT.Value;
+  let Inst{28-24} = 15; // Move
+  let Inst{23-10} = imm{18-5};
+  let Inst{9-5} = dest;
+  let Inst{4-0} = imm{4-0};
+}
+
 //////////////////////////////////////////////////////////////////
 // Memory Access (Format C)
 //////////////////////////////////////////////////////////////////

@@ -33,3 +33,6 @@ move_mask v0, s0, 0xff # CHECK-NOT: [[@LINE]]:{{[0-9]+}}: error:
 move_mask v0, s0, -0x100 # CHECK-NOT: [[@LINE]]:{{[0-9]+}}: error:
 move_mask v0, s0, 0x100 # CHECK: immediate-out-of-range.s:[[@LINE]]:{{[0-9]+}}: error: immediate operand out of range
 move_mask v0, s0, -0x101 # CHECK: immediate-out-of-range.s:[[@LINE]]:{{[0-9]+}}: error: immediate operand out of range
+
+movehi s0, 0x7ffff # CHECK-NOT: [[@LINE]]:{{[0-9]+}}: error:
+movehi s0, 0x80000 # CHECK: immediate-out-of-range.s:[[@LINE]]:{{[0-9]+}}: error: immediate operand out of range

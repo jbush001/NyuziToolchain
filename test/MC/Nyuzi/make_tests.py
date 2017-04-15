@@ -1,3 +1,4 @@
+#!/usr/bin/python
 #
 # This automatically generates assembler-tests.s and disassembler-tests.s
 # with all instruction encoding types.  To use,
@@ -16,13 +17,13 @@ def encode_r_instruction(fmt, opcode, dest, src1, src2, mask):
 
 
 # Immediate arithmetic
-def encode_i_instruction(fmt, opcode, dest, src1, imm, mask):
+def encode_im_instruction(fmt, opcode, dest, src1, imm, mask):
     return ((fmt << 29) | (opcode << 24) | ((imm & 0x1ff) << 15)
             | (mask << 10) | (dest << 5) | src1)
 
 
 # Immediate arithmetic masked
-def encode_im_instruction(fmt, opcode, dest, src1, imm):
+def encode_i_instruction(fmt, opcode, dest, src1, imm):
     return ((fmt << 29) | (opcode << 24) | ((imm & 0x3fff) << 10)
             | (dest << 5) | src1)
 
@@ -157,9 +158,9 @@ for opcode, mnemonic in binary_ops:
         mreg = getnextreg()
         imm = random.randint(-128, 127)
         if is_masked:
-            encoded = encode_i_instruction(fmt, opcode, dreg, sreg, imm, mreg)
+            encoded = encode_im_instruction(fmt, opcode, dreg, sreg, imm, mreg)
         else:
-            encoded = encode_im_instruction(fmt, opcode, dreg, sreg, imm)
+            encoded = encode_i_instruction(fmt, opcode, dreg, sreg, imm)
 
         asm_str = mnemonic + ('_mask ' if is_masked else ' ') + \
             regt + str(dreg) + ', '
@@ -168,6 +169,11 @@ for opcode, mnemonic in binary_ops:
 
         asm_str += regt + str(sreg) + ', ' + str(imm)
         write_test_case(asm_str, encoded)
+
+# The low bits of the extended immediate field are where the source register
+# normally goes. I'm manually splitting up the value.
+write_test_case('movehi s2, 371769', encode_i_instruction(2, 0xf, 2, (0x5ac39 & 0x1f),
+    (0x5ac39 >> 5)))
 
 unary_ops = [
     (12, 'clz'),
@@ -211,8 +217,8 @@ nextreg = 0
 
 # XXX Source register needs to be set to 1 to pass. Investigate in
 # LLVM assembler.
-write_test_case('move s1, 72', encode_im_instruction(0, 0xf, 1, 1, 72))
-write_test_case('move v1, 72', encode_im_instruction(1, 0xf, 1, 1, 72))
+write_test_case('move s1, 72', encode_i_instruction(0, 0xf, 1, 1, 72))
+write_test_case('move v1, 72', encode_i_instruction(1, 0xf, 1, 1, 72))
 
 write_test_case('shuffle v1, v2, v3',
                    encode_r_instruction(4, 0xd, 1, 2, 3, 0))
@@ -222,7 +228,7 @@ write_test_case('shuffle_mask v1, s4, v2, v3',
 write_test_case('getlane s4, v5, s6',
                    encode_r_instruction(1, 0x1a, 4, 5, 6, 0))
 write_test_case('getlane s4, v5, 7',
-                   encode_im_instruction(1, 0x1a, 4, 5, 7))
+                   encode_i_instruction(1, 0x1a, 4, 5, 7))
 
 # XXX HACK: These instructions should support all forms, but this is here
 # in the interim
@@ -235,7 +241,7 @@ write_test_case('ftoi v8, v9', encode_r_instruction(4, 0x1b, 8, 0, 9, 0))
 write_test_case('itof v8, s9', encode_r_instruction(1, 0x2a, 8, 0, 9, 0))
 write_test_case('ftoi v8, s9', encode_r_instruction(1, 0x1b, 8, 0, 9, 0))
 
-write_test_case('nop', encode_i_instruction(0, 0, 0, 0, 0, 0))
+write_test_case('nop', encode_im_instruction(0, 0, 0, 0, 0, 0))
 
 #
 # Comparisons
@@ -282,11 +288,11 @@ for opcode, mnemonic in compare_ops:
     imm = random.randint(0, 255)
     write_test_case('cmp' + mnemonic + ' s' + str(rega) + ', s' + str(regb)
                        + ', ' + str(imm),
-                       encode_im_instruction(0, opcode, rega, regb, imm))
+                       encode_i_instruction(0, opcode, rega, regb, imm))
 
     write_test_case('cmp' + mnemonic + ' s' + str(rega) + ', v' + str(regb)
                        + ', ' + str(imm),
-                       encode_im_instruction(1, opcode, rega, regb, imm))
+                       encode_i_instruction(1, opcode, rega, regb, imm))
 
 
 #

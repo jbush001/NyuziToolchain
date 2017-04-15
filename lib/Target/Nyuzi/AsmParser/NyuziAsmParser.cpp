@@ -53,9 +53,10 @@ class NyuziAsmParser : public MCTargetAsmParser {
   OperandMatchResultTy ParseMemoryOperandV15(OperandVector &Operands);
   OperandMatchResultTy ParseMemoryOperand(OperandVector &Operands, int MaxBits,
                                           bool IsVector);
-  OperandMatchResultTy ParseImmediate(OperandVector &Ops, int MaxBits);
-  OperandMatchResultTy ParseSImm14Value(OperandVector &Operands);
+  OperandMatchResultTy ParseImmediate(OperandVector &Ops, int MaxBits, bool isSigned);
   OperandMatchResultTy ParseSImm9Value(OperandVector &Operands);
+  OperandMatchResultTy ParseSImm14Value(OperandVector &Operands);
+  OperandMatchResultTy ParseSImm19Value(OperandVector &Operands);
 
 public:
   NyuziAsmParser(const MCSubtargetInfo &sti, MCAsmParser &_Parser,
@@ -155,8 +156,9 @@ public:
   // Functions for testing operand type
   bool isReg() const { return Kind == Register; }
   bool isImm() const { return Kind == Immediate; }
-  bool isSImm14() const { return Kind == Immediate; }
   bool isSImm9() const { return Kind == Immediate; }
+  bool isSImm14() const { return Kind == Immediate; }
+  bool isSImm19() const { return Kind == Immediate; }
   bool isToken() const { return Kind == Token; }
   bool isMemS10() const { return Kind == Memory; }
   bool isMemS15() const { return Kind == Memory; }
@@ -184,12 +186,17 @@ public:
     addExpr(Inst, getImm());
   }
 
+  void addSImm9Operands(MCInst &Inst, unsigned N) const {
+    assert(N == 1 && "Invalid number of operands!");
+    addExpr(Inst, getImm());
+  }
+
   void addSImm14Operands(MCInst &Inst, unsigned N) const {
     assert(N == 1 && "Invalid number of operands!");
     addExpr(Inst, getImm());
   }
 
-  void addSImm9Operands(MCInst &Inst, unsigned N) const {
+  void addSImm19Operands(MCInst &Inst, unsigned N) const {
     assert(N == 1 && "Invalid number of operands!");
     addExpr(Inst, getImm());
   }
@@ -342,7 +349,7 @@ bool NyuziAsmParser::ParseRegister(unsigned &RegNo, SMLoc &StartLoc,
 }
 
 OperandMatchResultTy
-NyuziAsmParser::ParseImmediate(OperandVector &Ops, int MaxBits) {
+NyuziAsmParser::ParseImmediate(OperandVector &Ops, int MaxBits, bool isSigned) {
   SMLoc S = Parser.getTok().getLoc();
   SMLoc E = SMLoc::getFromPointer(Parser.getTok().getLoc().getPointer() - 1);
 
@@ -359,8 +366,16 @@ NyuziAsmParser::ParseImmediate(OperandVector &Ops, int MaxBits) {
     int64_t ans;
     EVal->evaluateAsAbsolute(ans);
     if (MaxBits < 32) {
-      int MaxVal = 0xffffffffu >> (33 - MaxBits);
-      int MinVal = 0xffffffff << (MaxBits - 1);
+      int MaxVal;
+      int MinVal;
+      if (isSigned) {
+        MaxVal = 0xffffffffu >> (33 - MaxBits);
+        MinVal = 0xffffffff << (MaxBits - 1);
+      } else {
+        MaxVal = 0xffffffffu >> (32 - MaxBits);
+        MinVal = 0;
+      }
+
       if (ans > MaxVal || ans < MinVal) {
         Error(S, "immediate operand out of range");
         return MatchOperand_ParseFail;
@@ -395,7 +410,7 @@ bool NyuziAsmParser::ParseOperand(OperandVector &Operands, StringRef Mnemonic) {
   }
 
   // XXX Is this needed?
-  if (ParseImmediate(Operands, 32) == MatchOperand_Success)
+  if (ParseImmediate(Operands, 32, false) == MatchOperand_Success)
     return false;
 
   // Identifier
@@ -505,13 +520,18 @@ NyuziAsmParser::ParseMemoryOperand(OperandVector &Operands, int MaxBits,
 }
 
 OperandMatchResultTy
-NyuziAsmParser::ParseSImm14Value(OperandVector &Operands) {
-  return ParseImmediate(Operands, 14);
+NyuziAsmParser::ParseSImm9Value(OperandVector &Operands) {
+  return ParseImmediate(Operands, 9, true);
 }
 
 OperandMatchResultTy
-NyuziAsmParser::ParseSImm9Value(OperandVector &Operands) {
-  return ParseImmediate(Operands, 9);
+NyuziAsmParser::ParseSImm14Value(OperandVector &Operands) {
+  return ParseImmediate(Operands, 14, true);
+}
+
+OperandMatchResultTy
+NyuziAsmParser::ParseSImm19Value(OperandVector &Operands) {
+  return ParseImmediate(Operands, 19, false);
 }
 
 bool NyuziAsmParser::ParseInstruction(ParseInstructionInfo &Info,

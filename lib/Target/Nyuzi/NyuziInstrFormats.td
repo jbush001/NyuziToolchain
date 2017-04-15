@@ -15,8 +15,8 @@
 // Node types
 //////////////////////////////////////////////////////////////////
 
-def simm14  : PatLeaf<(imm), [{ return isInt<14>(N->getSExtValue()); }]>;
 def simm9  : PatLeaf<(imm), [{ return isInt<9>(N->getSExtValue()); }]>;
+def simm14  : PatLeaf<(imm), [{ return isInt<14>(N->getSExtValue()); }]>;
 
 // A splat is a vector with the same value in all lanes. NyuziTargetLowering
 // detects this condition and converts it to a SPLAT node.
@@ -129,14 +129,24 @@ def calltarget : Operand<iPTR> {
   let DecoderMethod = "decodeBranchTargetOpValue";
 }
 
+def SImmOperand9 : AsmOperandClass  {
+  let Name = "SImm9";
+  let ParserMethod = "ParseSImm9Value";
+}
+
 def SImmOperand14 : AsmOperandClass {
   let Name = "SImm14";
   let ParserMethod = "ParseSImm14Value";
 }
 
-def SImmOperand9 : AsmOperandClass  {
-  let Name = "SImm9";
-  let ParserMethod = "ParseSImm9Value";
+def SImmOperand19 : AsmOperandClass {
+  let Name = "SImm19";
+  let ParserMethod = "ParseSImm19Value";
+}
+
+def SIMM9OP : Operand<i32> {
+  let DecoderMethod = "decodeSimm9Value";
+  let ParserMatchClass = SImmOperand9;
 }
 
 def SIMM14OP : Operand<i32> {
@@ -144,9 +154,9 @@ def SIMM14OP : Operand<i32> {
   let ParserMatchClass = SImmOperand14;
 }
 
-def SIMM9OP : Operand<i32> {
-  let DecoderMethod = "decodeSimm9Value";
-  let ParserMatchClass = SImmOperand9;
+def SIMM19OP : Operand<i32> {
+  let DecoderMethod = "decodeSimm19Value";
+  let ParserMatchClass = SImmOperand19;
 }
 
 def SDT_SPCallSeqStart : SDCallSeqStart<[ SDTCisVT<0, i32> ]>;
@@ -264,6 +274,7 @@ class FmtI<bits<2> val> {
 
 def FmtI_S : FmtI<0>;
 def FmtI_V : FmtI<1>;
+def FmtI_EXT : FmtI<2>;
 def FmtI_VM : FmtI<3>;
 
 class FormatIInst<dag outputs, dag inputs, string asmString, list<dag> pattern,
