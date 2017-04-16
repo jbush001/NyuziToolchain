@@ -20,7 +20,7 @@ def get_type_string(is_vector, is_float):
 
     return rettype
 
-binary_ops = [
+BINARY_OPS = [
     ('or', 'or'),
     ('and', 'and'),
     ('xor', 'xor'),
@@ -34,7 +34,7 @@ binary_ops = [
     ('fmul', 'mul_f')
 ]
 
-reg_instruction_types = [
+REG_INSTRUCTION_TYPES = [
     ('s', 's', False),
     ('v', 's', False),
     ('v', 's', True),
@@ -42,7 +42,7 @@ reg_instruction_types = [
     ('v', 'v', True)
 ]
 
-imm_instruction_types = [
+IMM_INSTRUCTION_TYPES = [
     ('s', False),
     ('v', False),
     ('v', True),
@@ -64,11 +64,11 @@ target triple = "nyuzi"
 # Arithmetic Tests
 ########################################
 
-for llvmop, mnemonic in binary_ops:
+for llvmop, mnemonic in BINARY_OPS:
     is_float = mnemonic[-2:] == '_f'
 
     # Register operations
-    for s1regt, s2regt, is_masked in reg_instruction_types:
+    for s1regt, s2regt, is_masked in REG_INSTRUCTION_TYPES:
         is_vector = s1regt == 'v'
         rettype = get_type_string(is_vector, is_float)
         funcname = 'test_' + llvmop + s1regt + \
@@ -104,7 +104,7 @@ for llvmop, mnemonic in binary_ops:
         continue  # Can't do immediate for FP instructions
 
     # Immediate operations
-    for regt, is_masked in imm_instruction_types:
+    for regt, is_masked in IMM_INSTRUCTION_TYPES:
         # XXXX Ugh. LLVM converts a scalar immediate subtract into a add with
         # a negative immediate. Skip this test. :(
         if mnemonic == 'sub_i' and regt == 's':
@@ -144,7 +144,7 @@ for llvmop, mnemonic in binary_ops:
 # Vector Compare tests
 ########################################
 
-compare_tests = [
+COMPARE_TESTS = [
     ('icmp sgt', 'gt_i', False),
     ('icmp sge', 'ge_i', False),
     ('icmp slt', 'lt_i', False),
@@ -165,7 +165,7 @@ compare_tests = [
     ('fcmp ule', 'gt_f', True),
 ]
 
-for llvminst, instr_suffix, must_invert in compare_tests:
+for llvminst, instr_suffix, must_invert in COMPARE_TESTS:
     # Vector op vector
     etype = 'float' if instr_suffix[-2:] == '_f' else 'i32'
     func_name = llvminst.replace(' ', '_')
@@ -188,7 +188,8 @@ for llvminst, instr_suffix, must_invert in compare_tests:
     op_test_fp.write('  %splat = shufflevector <16 x ' + etype +
                      '> %single, <16 x ' + etype + '> undef, <16 x i32> zeroinitializer\n')
 
-    op_test_fp.write('  %c = ' + llvminst + ' <16 x ' + etype + '> %a, %splat\n')
+    op_test_fp.write('  %c = ' + llvminst + ' <16 x ' +
+                     etype + '> %a, %splat\n')
     op_test_fp.write('  ; CHECK: cmp' + instr_suffix +
                      ' s{{[0-9]+}}, v{{[0-9]+}}, s{{[0-9]+}}\n')
     if must_invert:
@@ -203,7 +204,8 @@ for llvminst, instr_suffix, must_invert in compare_tests:
     # Vector op immediate
     op_test_fp.write('define <16 x i1> @' + func_name + 'vI(<16 x ' + etype +
                      '> %a, <16 x ' + etype + '> %b) {	; CHECK-LABEL: ' + func_name + 'vI:\n')
-    op_test_fp.write('  %c = ' + llvminst + ' <16 x ' + etype + '> %a, <i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27>\n')
+    op_test_fp.write('  %c = ' + llvminst + ' <16 x ' + etype +
+                     '> %a, <i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27, i32 27>\n')
     op_test_fp.write('  ; CHECK: cmp' + instr_suffix +
                      ' s{{[0-9]+}}, v{{[0-9]+}}, 27\n')
     op_test_fp.write('  ret <16 x i1> %c\n')
