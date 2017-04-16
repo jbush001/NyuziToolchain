@@ -817,6 +817,9 @@ def : Pat<(v16i32 (bitconvert (v16f32 VR512:$src))), (v16i32 VR512:$src)>;
 def : Pat<(f32 (bitconvert (i32 GPR32:$src))), (f32 GPR32:$src)>;
 def : Pat<(i32 (bitconvert (f32 GPR32:$src))), (i32 GPR32:$src)>;
 
+//
+// Constants
+//
 def HI19 : SDNodeXForm<imm, [{
   return CurDAG->getTargetConstant((uint64_t)N->getZExtValue() >> 13, SDLoc(N),
                                    MVT::i32);
@@ -839,3 +842,13 @@ def : Pat<(i32 imm_hi:$imm), (MOVEHI (HI19 imm:$imm))>;
 
 // If low bits are set use movehi/or combination
 def : Pat<(i32 imm:$imm), (ORSSI (MOVEHI (HI19 imm:$imm)), (LO13 imm:$imm))>;
+
+def LI : NyuziInstruction<
+  (outs GPR32:$dest),
+  (ins i32imm:$imm),
+  "li $dest, $imm",
+  [],
+  II_PSEUDO> {
+  let isPseudo = 1;
+}
+

@@ -42,6 +42,8 @@ class NyuziAsmParser : public MCTargetAsmParser {
   bool ParseDirective(AsmToken DirectiveID) override;
 
   bool ParseOperand(OperandVector &Operands, StringRef Name);
+  bool ProcessInstruction(MCInst &Inst, const SMLoc &Loc,
+                          MCStreamer &Out);
 
 // Auto-generated instruction matching functions
 #define GET_ASSEMBLER_HEADER
@@ -304,8 +306,8 @@ bool NyuziAsmParser::MatchAndEmitInstruction(SMLoc IDLoc, unsigned &Opcode,
   default:
     break;
   case Match_Success:
-    Inst.setLoc(IDLoc);
-    Out.EmitInstruction(Inst, getSTI());
+    if (ProcessInstruction(Inst, IDLoc, Out))
+      return true;
     return false;
   case Match_MissingFeature:
     return Error(IDLoc, "instruction use requires option to be enabled");
@@ -424,6 +426,49 @@ bool NyuziAsmParser::ParseOperand(OperandVector &Operands, StringRef Mnemonic) {
 
   // Error
   return true;
+}
+
+bool NyuziAsmParser::ProcessInstruction(MCInst &Inst, const SMLoc &Loc,
+                                        MCStreamer &Out) {
+  if (Inst.getOpcode() == Nyuzi::LI) {
+    // load immediate (li) pseudo instruction
+    MCOperand Value = Inst.getOperand(1);
+    int64_t IntVal = Value.getImm();
+    if (isInt<14>(IntVal)) {
+      // This will fit in the immediate field of the instruction.
+      // (assumes scalar move)
+      MCInst NewInst;
+      NewInst.setOpcode(Nyuzi::MOVESimm);
+      NewInst.addOperand(Inst.getOperand(0));  // Dest
+      NewInst.addOperand(Inst.getOperand(1));  // Value
+      NewInst.setLoc(Loc);
+      Out.EmitInstruction(NewInst, getSTI());
+    } else  {
+      // Need to use movehi to set high bits
+      MCInst NewInst;
+      NewInst.setOpcode(Nyuzi::MOVEHI);
+      NewInst.addOperand(Inst.getOperand(0));  // Dest
+      NewInst.addOperand(MCOperand::createImm((IntVal >> 13) & 0x7ffff));
+      NewInst.setLoc(Loc);
+      Out.EmitInstruction(NewInst, getSTI());
+
+      if ((IntVal & 0x1fff) != 0) {
+        // Also need to set low bits
+        MCInst NewInst;
+        NewInst.setOpcode(Nyuzi::ORSSI);
+        NewInst.addOperand(Inst.getOperand(0));  // Dest
+        NewInst.addOperand(Inst.getOperand(0));  // Source
+        NewInst.addOperand(MCOperand::createImm(IntVal & 0x1fff));
+        NewInst.setLoc(Loc);
+        Out.EmitInstruction(NewInst, getSTI());
+      }
+    }
+  } else {
+    Inst.setLoc(Loc);
+    Out.EmitInstruction(Inst, getSTI());
+  }
+
+  return false;
 }
 
 OperandMatchResultTy
