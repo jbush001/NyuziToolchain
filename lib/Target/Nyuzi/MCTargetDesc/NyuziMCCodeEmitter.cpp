@@ -14,6 +14,7 @@
 #define DEBUG_TYPE "mccodeemitter"
 
 #include "MCTargetDesc/NyuziFixupKinds.h"
+#include "MCTargetDesc/NyuziMCExpr.h"
 #include "MCTargetDesc/NyuziMCTargetDesc.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/MC/MCCodeEmitter.h"
@@ -107,6 +108,25 @@ NyuziMCCodeEmitter::getMachineOpValue(const MCInst &MI, const MCOperand &MO,
   if (MO.isImm())
     return static_cast<unsigned>(MO.getImm());
 
+  assert(MO.isExpr());
+  const MCExpr *Expr = MO.getExpr();
+  if (const NyuziMCExpr *McExpr = dyn_cast<NyuziMCExpr>(Expr)) {
+    switch (McExpr->getKind()) {
+    case NyuziMCExpr::VK_Nyuzi_ABS_HI:
+      Fixups.push_back(MCFixup::create(0, MO.getExpr(), MCFixupKind(
+                       Nyuzi::fixup_Nyuzi_HI19)));
+      break;
+
+    case NyuziMCExpr::VK_Nyuzi_ABS_LO:
+      Fixups.push_back(MCFixup::create(0, MO.getExpr(), MCFixupKind(
+                       Nyuzi::fixup_Nyuzi_IMM_LO13)));
+      break;
+
+    default:
+      llvm_unreachable("Unknown fixup type");
+    }
+  }
+
   return 0;
 }
 
@@ -197,7 +217,7 @@ NyuziMCCodeEmitter::encodeMemoryOpValue(const MCInst &MI, unsigned Op,
   }
 
   // Register
-  // This is register/offset.  No need for relocation.
+  // This is register/offset.
   assert(baseReg.isReg() && "First operand is not register.");
   encoding = Ctx.getRegisterInfo()->getEncodingValue(baseReg.getReg());
 

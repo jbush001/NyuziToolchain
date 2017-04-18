@@ -47,17 +47,22 @@ public:
                             MCContext *Ctx) const {
     const MCFixupKindInfo &Info = getFixupKindInfo(Fixup.getKind());
     APInt OffsetVal(64, Value);
-    if (!OffsetVal.isSignedIntN(Info.TargetSize) && Ctx != 0) {
-      Ctx->reportError(Fixup.getLoc(), "fixup out of range");
-      return 0;
-    }
 
     switch ((unsigned int)Fixup.getKind()) {
     case Nyuzi::fixup_Nyuzi_PCRel_MemAccExt:
     case Nyuzi::fixup_Nyuzi_PCRel_Branch:
     case Nyuzi::fixup_Nyuzi_PCRel_ComputeLabelAddress:
+      if (!OffsetVal.isSignedIntN(Info.TargetSize) && Ctx != 0) {
+        Ctx->reportError(Fixup.getLoc(), "fixup out of range");
+        return 0;
+      }
+
       Value -= 4; // source location is PC + 4
       break;
+    case Nyuzi::fixup_Nyuzi_HI19:
+      // Immediate value is split between two instruction fields. Align
+      // to proper locations
+      return ((Value >> 13) & 0x1f) | (((Value >> 18) & 0x3fff) << 10);
     default:;
     }
 
@@ -97,7 +102,10 @@ public:
         {"fixup_Nyuzi_PCRel_MemAccExt", 10, 15, MCFixupKindInfo::FKF_IsPCRel},
         {"fixup_Nyuzi_PCRel_Branch", 5, 20, MCFixupKindInfo::FKF_IsPCRel},
         {"fixup_Nyuzi_PCRel_ComputeLabelAddress", 10, 14,
-         MCFixupKindInfo::FKF_IsPCRel}};
+         MCFixupKindInfo::FKF_IsPCRel},
+        {"fixup_Nyuzi_HI19", 0, 32, 0},
+        {"fixup_Nyuzi_IMM_LO13", 10, 13, 0},  // This is unsigned, don't take top bit
+    };
 
     if (Kind < FirstTargetFixupKind)
       return MCAsmBackend::getFixupKindInfo(Kind);

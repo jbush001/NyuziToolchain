@@ -29,6 +29,8 @@ enum Fixups {
   fixup_Nyuzi_PCRel_Branch,              // PC relative for branch instruction
   fixup_Nyuzi_PCRel_ComputeLabelAddress, // For getting jump table
                                          // addresses
+  fixup_Nyuzi_HI19,                      // Fix up 19 bit movehi value
+  fixup_Nyuzi_IMM_LO13,                     // Immediate instruction w/ 13 bit offs
 
   // Marker
   LastTargetFixupKind,

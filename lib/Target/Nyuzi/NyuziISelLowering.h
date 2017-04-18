@@ -33,6 +33,9 @@ enum NodeType {
   JT_WRAPPER,
   MASK_TO_INT,
   MASK_FROM_INT,
+  MOVEHI,
+  ORLO,
+
   // Float comparisons, see LowerSETCC
   FGT,
   FGE,

@@ -43,7 +43,6 @@ public:
 
   void EmitInstruction(const MachineInstr *MI) override;
   void EmitFunctionBodyStart() override;
-  void EmitConstantPool() override;
 
   // Print operand for inline assembly
   bool PrintAsmOperand(const MachineInstr *MI, unsigned OpNo,

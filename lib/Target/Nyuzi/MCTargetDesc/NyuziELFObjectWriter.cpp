@@ -44,6 +44,7 @@ unsigned NyuziELFObjectWriter::getRelocType(MCContext &Ctx,
     break;
 
   case Nyuzi::fixup_Nyuzi_PCRel_Branch:
+    assert(IsPCRel);
     Type = ELF::R_NYUZI_BRANCH;
     break;
 
@@ -53,11 +54,23 @@ unsigned NyuziELFObjectWriter::getRelocType(MCContext &Ctx,
   // if there is an undefined symbol in assembly code. This will cause
   // an error later during linking.
   case Nyuzi::fixup_Nyuzi_PCRel_MemAccExt:
+    assert(IsPCRel);
     Type = ELF::R_NYUZI_PCREL_MEM_EXT;
     break;
 
   case Nyuzi::fixup_Nyuzi_PCRel_ComputeLabelAddress:
+    assert(IsPCRel);
     Type = ELF::R_NYUZI_PCREL_LEA;
+    break;
+
+  case Nyuzi::fixup_Nyuzi_HI19:
+    assert(!IsPCRel);
+    Type = ELF::R_NYUZI_HI19;
+    break;
+
+  case Nyuzi::fixup_Nyuzi_IMM_LO13:
+    assert(!IsPCRel);
+    Type = ELF::R_NYUZI_IMM_LO13;
     break;
   }
   return Type;

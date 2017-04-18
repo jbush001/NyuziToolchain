@@ -32,11 +32,9 @@ public:
   void Lower(const MachineInstr *MI, MCInst &OutMI) const;
 
 private:
-  typedef MachineOperand::MachineOperandType MachineOperandType;
-
-  MCOperand LowerOperand(const MachineOperand &MO, unsigned offset = 0) const;
+  MCOperand LowerOperand(const MachineOperand &MO) const;
   MCOperand LowerSymbolOperand(const MachineOperand &MO,
-                               MachineOperandType MOTy, unsigned Offset) const;
+                               MCSymbol *Sym) const;
 
   MCContext *Ctx;
   NyuziAsmPrinter &AsmPrinter;

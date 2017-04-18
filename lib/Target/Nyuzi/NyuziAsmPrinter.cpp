@@ -51,30 +51,6 @@ void NyuziAsmPrinter::EmitFunctionBodyStart() {
   MCInstLowering.Initialize(&MF->getContext());
 }
 
-void NyuziAsmPrinter::EmitConstantPool() {
-  const MachineConstantPool *MCP = MF->getConstantPool();
-  const std::vector<MachineConstantPoolEntry> &CP = MCP->getConstants();
-  if (CP.empty())
-    return;
-
-  // Emit constants for this function in the same section as the function so
-  // they are close by and can be accessed with PC relative addresses.
-  const Function *F = MF->getFunction();
-  OutStreamer->SwitchSection(getObjFileLowering().SectionForGlobal(F, TM));
-  OutStreamer->EmitDataRegion(MCDR_DataRegion);
-  for (unsigned i = 0, e = CP.size(); i != e; ++i) {
-    const MachineConstantPoolEntry &CPE = CP[i];
-    EmitAlignment(Log2_32(CPE.getAlignment()));
-    OutStreamer->EmitLabel(GetCPISymbol(i));
-    if (CPE.isMachineConstantPoolEntry())
-      EmitMachineConstantPoolValue(CPE.Val.MachineCPVal);
-    else
-      EmitGlobalConstant(MF->getDataLayout(), CPE.Val.ConstVal);
-  }
-
-  OutStreamer->EmitDataRegion(MCDR_DataRegionEnd);
-}
-
 // Print operand for inline assembly
 bool NyuziAsmPrinter::PrintAsmOperand(const MachineInstr *MI, unsigned OpNo,
                                       unsigned AsmVariant,

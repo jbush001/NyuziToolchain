@@ -4,6 +4,7 @@ add_llvm_library(LLVMNyuziDesc
   NyuziMCCodeEmitter.cpp
   NyuziAsmBackend.cpp
   NyuziELFObjectWriter.cpp
+  NyuziMCExpr.cpp
   )
 
 add_dependencies(LLVMNyuziDesc NyuziCommonTableGen)

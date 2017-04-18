@@ -12,7 +12,9 @@ target triple = "nyuzi-elf-none"
 ; CHECK: .long   48
 
 define <16 x i32> @loadconstv() { ; CHECK-LABEL: loadconstv:
-  ; CHECK: load_v v{{[0-9]+}}, [[CONSTV_LBL]]
+  ; CHECK: movehi s0, hi([[CONSTV_LBL]])
+  ; CHECK: or s0, s0, lo([[CONSTV_LBL]])
+  ; CHECK: load_v v{{[0-9]+}}, (s0)
   ret <16 x i32> <i32 0, i32 16, i32 32, i32 48, i32 0, i32 16, i32 32, i32 48, i32 0, i32 16, i32 32, i32 48, i32 0, i32 16, i32 32, i32 48>
 }
 
@@ -20,7 +22,9 @@ define <16 x i32> @loadconstv() { ; CHECK-LABEL: loadconstv:
 ; CHECK: .long  1075419546
 define float @loadconstf() { ; CHECK-LABEL: loadconstf:
   ret float 0x4003333340000000
-  ; CHECK: load_32 s{{[0-9]+}}, [[CONSTF_LBL]]
+  ; CHECK: movehi s0, hi([[CONSTF_LBL]])
+  ; CHECK: or s0, s0, lo([[CONSTF_LBL]])
+  ; CHECK: load_32 s{{[0-9]+}}, (s0)
 }
 
 ; Largest positive constant that will fit in the 14-bit immediate field

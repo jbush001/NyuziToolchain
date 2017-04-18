@@ -88,8 +88,8 @@ define <16 x i32> @test2(<16 x i32> %a, <16 x i32> %b) { ; CHECK-LABEL: test2:
 define <16 x i32> @masked_move(<16 x i32> %a, <16 x i32> %b) { ; CHECK-LABEL: masked_move:
   %res = shufflevector <16 x i32> %a, <16 x i32> %b, <16 x i32> < i32 0, i32 17, i32 2, i32 19, i32 4, i32 21, i32 6, i32 23, i32 8, i32 25, i32 10, i32 27, i32 12, i32 29, i32 14, i32 31>
 
-	; CHECK: movehi [[TMP1:s[0-9]+]], 5
-	; CHECK: or [[MM_SREG:s[0-9]+]], [[TMP1]], 2730
+  ; CHECK: movehi [[TMP1:s[0-9]+]], 5
+  ; CHECK: or [[MM_SREG:s[0-9]+]], [[TMP1]], 2730
   ; CHECK-NEXT: move_mask {{v[0-9]+}}, [[MM_SREG]], v1
   ; CHECK-NOT: shuffle
 
@@ -118,7 +118,9 @@ define <16 x i32> @masked_move(<16 x i32> %a, <16 x i32> %b) { ; CHECK-LABEL: ma
 define <16 x i32> @shuffle_only1(<16 x i32> %a, <16 x i32> %b) { ; CHECK-LABEL: shuffle_only1:
   %res = shufflevector <16 x i32> %a, <16 x i32> %b, <16 x i32> < i32 15, i32 14, i32 13, i32 12, i32 11, i32 10, i32 9, i32 8, i32 7, i32 6, i32 5, i32 4, i32 3, i32 2, i32 1, i32 0 >
 
-  ; CHECK: load_v [[SO1_SHUFFLEVEC:v[0-9]+]], [[SO1_SHUFFLEVECCP]]
+  ; CHECK: movehi s0, hi([[SO1_SHUFFLEVECCP]])
+  ; CHECK: or s0, s0, lo([[SO1_SHUFFLEVECCP]])
+  ; CHECK: load_v [[SO1_SHUFFLEVEC:v[0-9]+]], (s0)
   ; CHECK-NEXT: shuffle v0, v0, [[SO1_SHUFFLEVEC]]
   ; CHECK-NEXT: ret
 
@@ -146,7 +148,9 @@ define <16 x i32> @shuffle_only1(<16 x i32> %a, <16 x i32> %b) { ; CHECK-LABEL: 
 define <16 x i32> @shuffle_only2(<16 x i32> %a, <16 x i32> %b) { ; CHECK-LABEL: shuffle_only2:
   %res = shufflevector <16 x i32> %a, <16 x i32> %b, <16 x i32> < i32 31, i32 30, i32 29, i32 28, i32 27, i32 26, i32 25, i32 24, i32 23, i32 22, i32 21, i32 20, i32 19, i32 18, i32 17, i32 16 >
 
-  ; CHECK: load_v [[SO2_SHUFFLEVEC:v[0-9]+]], [[SO2_SHUFFLEVECCP]]
+  ; CHECK: movehi s0, hi([[SO2_SHUFFLEVECCP]])
+  ; CHECK: or s0, s0, lo([[SO2_SHUFFLEVECCP]])
+  ; CHECK: load_v [[SO2_SHUFFLEVEC:v[0-9]+]], (s0)
   ; CHECK-NEXT: shuffle v0, v1, [[SO2_SHUFFLEVEC]]
   ; CHECK-NEXT: ret
 
@@ -175,10 +179,12 @@ define <16 x i32> @shuffle_only2(<16 x i32> %a, <16 x i32> %b) { ; CHECK-LABEL: 
 define <16 x i32> @test_shuffle_mix(<16 x i32> %a, <16 x i32> %b) { ; CHECK-LABEL: test_shuffle_mix:
   %res = shufflevector <16 x i32> %a, <16 x i32> %b, <16 x i32> < i32 31, i32 14, i32 29, i32 12, i32 27, i32 10, i32 25, i32 8, i32 23, i32 6, i32 21, i32 4, i32 19, i32 2, i32 17, i32 0 >
 
-  ; CHECK: load_v [[SM_SHUFFLEVEC:v[0-9]+]], [[SM_SHUFFLEVECCP]]
+  ; CHECK: movehi s0, hi([[SM_SHUFFLEVECCP]])
+  ; CHECK: or s0, s0, lo([[SM_SHUFFLEVECCP]])
+  ; CHECK: load_v [[SM_SHUFFLEVEC:v[0-9]+]], (s0)
   ; CHECK: shuffle v0, v0, [[SM_SHUFFLEVEC]]
-	; CHECK: movehi [[TMP5:s[0-9]+]], 2
-	; CHECK: or [[SM_MASK:s[0-9]+]], [[TMP5]], 5461
+  ; CHECK: movehi [[TMP5:s[0-9]+]], 2
+  ; CHECK: or [[SM_MASK:s[0-9]+]], [[TMP5]], 5461
   ; CHECK: shuffle_mask {{v[0-9]+}}, [[SM_MASK]], v1, [[SM_SHUFFLEVEC]]
 
   ret <16 x i32> %res
@@ -199,14 +205,18 @@ define <16 x i1> @test_shuffle_mix_bits(<16 x i1> %a, <16 x i1> %b) { ; CHECK-LA
   %res = shufflevector <16 x i1> %a, <16 x i1> %b, <16 x i32> < i32 31, i32 14, i32 29, i32 12, i32 27, i32 10, i32 25, i32 8, i32 23, i32 6, i32 21, i32 4, i32 19, i32 2, i32 17, i32 0 >
 
   ; CHECK: move v0, 0
+  ; CHECK: move v1, v0
+  ; CHECK: move_mask v1, s1, 1
   ; CHECK: move_mask v0, s0, 1
-  ; CHECK: load_v [[SM_SHUFFLEVEC:v[0-9]+]], .LCPI
-  ; CHECK: shuffle v0, v0, [[SM_SHUFFLEVEC]]
-	; CHECK: movehi [[TMP3:s[0-9]+]], 2
-	; CHECK: or [[SM_MASK:s[0-9]+]], [[TMP3]], 5461
-  ; CHECK: shuffle_mask {{v[0-9]+}}, [[SM_MASK]], v1, [[SM_SHUFFLEVEC]]
-  ; CHECK: and {{v[0-9]+}}, {{v[0-9]+}}, 1
-  ; CHECK: cmpeq_i s0, {{v[0-9]+}}, 1
+  ; CHECK: movehi s0, hi(.LCPI12_0)
+  ; CHECK: or s0, s0, lo(.LCPI12_0)
+  ; CHECK: load_v v2, (s0)
+  ; CHECK: shuffle v0, v0, v2
+  ; CHECK: movehi s0, 2
+  ; CHECK: or s0, s0, 5461
+  ; CHECK: shuffle_mask v0, s0, v1, v2
+  ; CHECK: and v0, v0, 1
+  ; CHECK: cmpeq_i s0, v0, 1
 
   ret <16 x i1> %res
 }

@@ -8,7 +8,9 @@
 //===----------------------------------------------------------------------===//
 
 #include "MCTargetDesc/NyuziMCTargetDesc.h"
+#include "MCTargetDesc/NyuziMCExpr.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/MC/MCContext.h"
 #include "llvm/MC/MCExpr.h"
 #include "llvm/MC/MCInst.h"
 #include "llvm/MC/MCParser/MCAsmLexer.h"
@@ -26,7 +28,6 @@ struct NyuziOperand;
 
 class NyuziAsmParser : public MCTargetAsmParser {
   MCAsmParser &Parser;
-  MCAsmParser &getParser() const { return Parser; }
   MCAsmLexer &getLexer() const { return Parser.getLexer(); }
 
   bool MatchAndEmitInstruction(SMLoc IDLoc, unsigned &Opcode,
@@ -55,7 +56,7 @@ class NyuziAsmParser : public MCTargetAsmParser {
   OperandMatchResultTy ParseMemoryOperandV15(OperandVector &Operands);
   OperandMatchResultTy ParseMemoryOperand(OperandVector &Operands, int MaxBits,
                                           bool IsVector);
-  OperandMatchResultTy ParseImmediate(OperandVector &Ops, int MaxBits, bool isSigned);
+  OperandMatchResultTy ParseImmediate(OperandVector &Operands, int MaxBits, bool isSigned);
   OperandMatchResultTy ParseSImm9Value(OperandVector &Operands);
   OperandMatchResultTy ParseSImm14Value(OperandVector &Operands);
   OperandMatchResultTy ParseSImm19Value(OperandVector &Operands);
@@ -351,22 +352,58 @@ bool NyuziAsmParser::ParseRegister(unsigned &RegNo, SMLoc &StartLoc,
 }
 
 OperandMatchResultTy
-NyuziAsmParser::ParseImmediate(OperandVector &Ops, int MaxBits, bool isSigned) {
+NyuziAsmParser::ParseImmediate(OperandVector &Operands, int MaxBits, bool isSigned) {
+  NyuziMCExpr::VariantKind Kind = NyuziMCExpr::VK_Nyuzi_NONE;
   SMLoc S = Parser.getTok().getLoc();
-  SMLoc E = SMLoc::getFromPointer(Parser.getTok().getLoc().getPointer() - 1);
+  if (getLexer().getKind() == AsmToken::Identifier) {
+    StringRef lookahead = getLexer().getTok().getString();
+    if (lookahead.equals_lower("hi"))
+      Kind = NyuziMCExpr::VK_Nyuzi_ABS_HI;
+    else if (lookahead.equals_lower("lo"))
+      Kind = NyuziMCExpr::VK_Nyuzi_ABS_LO;
+  }
 
-  const MCExpr *EVal;
-  switch (getLexer().getKind()) {
-  default:
-    return MatchOperand_NoMatch;
-  case AsmToken::Plus:
-  case AsmToken::Minus:
-  case AsmToken::Integer:
-    if (getParser().parseExpression(EVal))
+  if (Kind != NyuziMCExpr::VK_Nyuzi_NONE) {
+    getLexer().Lex(); // Eat prefix
+
+    if (getLexer().getKind() != AsmToken::LParen) {
+      Error(getLexer().getLoc(), "Expected '('");
+      return MatchOperand_ParseFail;
+    }
+    getLexer().Lex(); // eat '('
+
+    // Parse identifier
+    StringRef Identifier;
+    if (Parser.parseIdentifier(Identifier))
+      return MatchOperand_ParseFail;
+
+    if (getLexer().getKind() != AsmToken::RParen) {
+      Error(getLexer().getLoc(), "Expected ')'");
+      return MatchOperand_ParseFail;
+    }
+    getLexer().Lex(); // eat ')'
+
+    MCSymbol *Sym = getContext().getOrCreateSymbol(Identifier);
+    const MCExpr *Expr = MCSymbolRefExpr::create(Sym, getContext());
+    if (Kind != NyuziMCExpr::VK_Nyuzi_NONE)
+      Expr = NyuziMCExpr::create(Kind, Expr, getContext());
+
+    SMLoc E = SMLoc::getFromPointer(Parser.getTok().getLoc().getPointer() - 1);
+    Operands.push_back(NyuziOperand::createImm(Expr, S, E));
+    return MatchOperand_Success;
+  } else {
+    // If this is a register, bail out, as this isn't an immediate.
+    if (getLexer().getKind() == AsmToken::Identifier
+      && MatchRegisterName(getLexer().getTok().getIdentifier()) != 0)
+      return MatchOperand_NoMatch;
+
+    const MCExpr *EVal;
+    if (Parser.parseExpression(EVal))
       return MatchOperand_ParseFail;
 
     int64_t ans;
     EVal->evaluateAsAbsolute(ans);
+    S = Parser.getTok().getLoc();
     if (MaxBits < 32) {
       int MaxVal;
       int MinVal;
@@ -384,7 +421,8 @@ NyuziAsmParser::ParseImmediate(OperandVector &Ops, int MaxBits, bool isSigned) {
       }
     }
 
-    Ops.push_back(NyuziOperand::createImm(EVal, S, E));
+    SMLoc E = SMLoc::getFromPointer(Parser.getTok().getLoc().getPointer() - 1);
+    Operands.push_back(NyuziOperand::createImm(EVal, S, E));
     return MatchOperand_Success;
   }
 }
@@ -400,26 +438,20 @@ bool NyuziAsmParser::ParseOperand(OperandVector &Operands, StringRef Mnemonic) {
 
   // MatchOperand_NoMatch. No custom parser, fall back to matching generically.
 
-  unsigned RegNo;
-
-  SMLoc StartLoc;
-  SMLoc EndLoc;
-
   // Attempt to parse token as register
-  if (!ParseRegister(RegNo, StartLoc, EndLoc)) {
-    Operands.push_back(NyuziOperand::createReg(RegNo, StartLoc, EndLoc));
+  unsigned RegNo;
+  SMLoc S;
+  SMLoc E;
+  if (!ParseRegister(RegNo, S, E)) {
+    Operands.push_back(NyuziOperand::createReg(RegNo, S, E));
     return false;
   }
 
-  // XXX Is this needed?
-  if (ParseImmediate(Operands, 32, false) == MatchOperand_Success)
-    return false;
-
-  // Identifier
+  // Parse as numeric expression/immediate
   const MCExpr *IdVal;
-  SMLoc S = Parser.getTok().getLoc();
-  if (!getParser().parseExpression(IdVal)) {
-    SMLoc E = SMLoc::getFromPointer(Parser.getTok().getLoc().getPointer() - 1);
+  S = Parser.getTok().getLoc();
+  if (!Parser.parseExpression(IdVal)) {
+    E = SMLoc::getFromPointer(Parser.getTok().getLoc().getPointer() - 1);
     Operands.push_back(NyuziOperand::createImm(IdVal, S, E));
     return false;
   }
@@ -500,7 +532,7 @@ NyuziAsmParser::ParseMemoryOperand(OperandVector &Operands, int MaxBits,
     // load_32 s0, aLabel
 
     const MCExpr *IdVal;
-    if (getParser().parseExpression(IdVal))
+    if (Parser.parseExpression(IdVal))
       return MatchOperand_ParseFail; // Bad identifier
 
     SMLoc E = SMLoc::getFromPointer(Parser.getTok().getLoc().getPointer() - 1);
@@ -515,7 +547,7 @@ NyuziAsmParser::ParseMemoryOperand(OperandVector &Operands, int MaxBits,
   if (getLexer().is(AsmToken::Integer) || getLexer().is(AsmToken::Minus) ||
       getLexer().is(AsmToken::Plus)) {
     // Has a memory offset. e.g. load_32 s0, -12(s1)
-    if (getParser().parseExpression(Offset))
+    if (Parser.parseExpression(Offset))
       return MatchOperand_ParseFail;
 
     // Check if offset is in range
@@ -582,6 +614,7 @@ NyuziAsmParser::ParseSImm19Value(OperandVector &Operands) {
 bool NyuziAsmParser::ParseInstruction(ParseInstructionInfo &Info,
                                       StringRef Mnemonic, SMLoc NameLoc,
                                       OperandVector &Operands) {
+
   Operands.push_back(NyuziOperand::createToken(Mnemonic, NameLoc));
 
   // If there are no more operands, then finish

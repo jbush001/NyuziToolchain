@@ -2460,7 +2460,6 @@ bool MipsTargetInfo<ELFT>::usesOnlyLowPageBits(uint32_t Type) const {
 template <uint8_t SIZE, uint8_t BASE>
 static void applyNyuziReloc(uint8_t *Loc, uint32_t Type, uint64_t V) {
   uint32_t Mask = (0xffffffff >> (32 - SIZE)) << BASE;
-  checkInt<SIZE>(Loc, V, Type);
   write32le(Loc, (read32le(Loc) & ~Mask) | ((V << BASE) & Mask));
 }
 
@@ -2477,13 +2476,23 @@ void NyuziTargetInfo::relocateOne(uint8_t *Loc, uint32_t Type, uint64_t Val) con
     write32le(Loc, Val);
     break;
   case R_NYUZI_BRANCH:
+    checkInt<20>(Loc, Val - 4, Type);
     applyNyuziReloc<20, 5>(Loc, Type, Val - 4);
     break;
   case R_NYUZI_PCREL_MEM_EXT:
+    checkInt<15>(Loc, Val - 4, Type);
     applyNyuziReloc<15, 10>(Loc, Type, Val - 4);
     break;
   case R_NYUZI_PCREL_LEA:
+    checkInt<14>(Loc, Val - 4, Type);
     applyNyuziReloc<14, 10>(Loc, Type, Val - 4);
+    break;
+  case R_NYUZI_HI19:
+    applyNyuziReloc<5, 0>(Loc, Type, (Val >> 13) & 0x1f);
+    applyNyuziReloc<14, 10>(Loc, Type, (Val >> 18) & 0x3fff);
+    break;
+  case R_NYUZI_IMM_LO13:
+    applyNyuziReloc<13, 10>(Loc, Type, Val & 0x1fff);
     break;
   }
 }
@@ -2494,11 +2503,12 @@ RelExpr NyuziTargetInfo::getRelExpr(uint32_t Type, const SymbolBody &S,
   default:
     fatal("unrecognized reloc " + Twine(Type));
   case R_NYUZI_ABS32:
+  case R_NYUZI_IMM_LO13:
+  case R_NYUZI_HI19:
     return R_ABS;
+
   case R_NYUZI_BRANCH:
-    return R_PC;
   case R_NYUZI_PCREL_MEM_EXT:
-    return R_PC;
   case R_NYUZI_PCREL_LEA:
     return R_PC;
   }

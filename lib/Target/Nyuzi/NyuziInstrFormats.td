@@ -26,6 +26,8 @@ def splat : SDNode<"NyuziISD::SPLAT", SDTypeProfile<1, 1, [SDTCisEltOfVec<1, 0>]
 def wrapper : SDNode<"NyuziISD::WRAPPER", SDTIntUnaryOp>;
 def reciprocal : SDNode<"NyuziISD::RECIPROCAL_EST", SDTFPUnaryOp>;
 def jtwrapper : SDNode<"NyuziISD::JT_WRAPPER", SDTIntUnaryOp>;
+def movehi : SDNode<"NyuziISD::MOVEHI", SDTIntUnaryOp>;
+def orlo : SDNode<"NyuziISD::ORLO", SDTypeProfile<1, 2, [SDTCisSameAs<0, 1>, SDTCisSameAs<0, 2>]>>;
 
 // Nop conversions between i1 vectors and integers.
 // Mapped to pseudo instructions because ISel doesn't like type punning in patterns.

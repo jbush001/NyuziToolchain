@@ -19,9 +19,9 @@ define void @bad(i32 %i) {
 
   ; CHECK: move s0, 13
   ; CHECK: call __modsi3
-  ; CHECK: load_32 s1, .LCPI
-  ; CHECK: store_32 s1, (sp)
-  ; CHECK: store_32 s0, 8(sp)
+  ; CHECK: movehi s0, hi(.L.str)
+  ; CHECK: or s0, s0, lo(.L.str)
+  ; CHECK: store_32 s0, (sp)
   ; CHECK: call printf
 
   ret void

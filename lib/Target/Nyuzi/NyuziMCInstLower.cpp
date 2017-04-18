@@ -10,6 +10,8 @@
 #include "NyuziMCInstLower.h"
 #include "NyuziAsmPrinter.h"
 #include "NyuziInstrInfo.h"
+#include "MCTargetDesc/NyuziMCExpr.h"
+#include "MCTargetDesc/NyuziBaseInfo.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineInstr.h"
 #include "llvm/CodeGen/MachineOperand.h"
@@ -36,8 +38,7 @@ void NyuziMCInstLower::Lower(const MachineInstr *MI, MCInst &OutMI) const {
   // possible for MO_ConstantPoolIndex to appear in arithmetic.  In this
   // situation, the instruction would be clobbered.
   if (MI->getNumOperands() > 1 &&
-      (MI->getOperand(1).getType() == MachineOperand::MO_ConstantPoolIndex ||
-       MI->getOperand(1).getType() == MachineOperand::MO_JumpTableIndex)) {
+      (MI->getOperand(1).getType() == MachineOperand::MO_JumpTableIndex)) {
     OutMI.addOperand(LowerOperand(MI->getOperand(0))); // result
 
     const MachineOperand &cpEntry = MI->getOperand(1);
@@ -68,30 +69,33 @@ void NyuziMCInstLower::Lower(const MachineInstr *MI, MCInst &OutMI) const {
   }
 }
 
-MCOperand NyuziMCInstLower::LowerOperand(const MachineOperand &MO,
-                                         unsigned offset) const {
-  MachineOperandType MOTy = MO.getType();
-
-  switch (MOTy) {
+MCOperand NyuziMCInstLower::LowerOperand(const MachineOperand &MO) const {
+  switch (MO.getType()) {
   default:
     llvm_unreachable("unknown operand type");
   case MachineOperand::MO_Register:
     // Ignore all implicit register operands.
     if (MO.isImplicit())
       break;
+
     return MCOperand::createReg(MO.getReg());
-
   case MachineOperand::MO_Immediate:
-    return MCOperand::createImm(MO.getImm() + offset);
-
+    return MCOperand::createImm(MO.getImm());
   case MachineOperand::MO_MachineBasicBlock:
+    return MCOperand::createExpr(MCSymbolRefExpr::create(
+        MO.getMBB()->getSymbol(), *Ctx));
   case MachineOperand::MO_GlobalAddress:
+    return LowerSymbolOperand(MO, AsmPrinter.getSymbol(MO.getGlobal()));
   case MachineOperand::MO_ExternalSymbol:
+    return LowerSymbolOperand(MO, AsmPrinter.GetExternalSymbolSymbol(
+                              MO.getSymbolName()));
   case MachineOperand::MO_JumpTableIndex:
+    return LowerSymbolOperand(MO, AsmPrinter.GetJTISymbol(MO.getIndex()));
   case MachineOperand::MO_ConstantPoolIndex:
+    return LowerSymbolOperand(MO, AsmPrinter.GetCPISymbol(MO.getIndex()));
   case MachineOperand::MO_BlockAddress:
-    return LowerSymbolOperand(MO, MOTy, offset);
-
+    return LowerSymbolOperand(MO, AsmPrinter.GetBlockAddressSymbol(
+                              MO.getBlockAddress()));
   case MachineOperand::MO_RegisterMask:
     break;
   }
@@ -100,52 +104,32 @@ MCOperand NyuziMCInstLower::LowerOperand(const MachineOperand &MO,
 }
 
 MCOperand NyuziMCInstLower::LowerSymbolOperand(const MachineOperand &MO,
-                                               MachineOperandType MOTy,
-                                               unsigned Offset) const {
-  MCSymbolRefExpr::VariantKind Kind = MCSymbolRefExpr::VK_None;
-  const MCSymbol *Symbol;
+                                               MCSymbol *Sym) const {
+   NyuziMCExpr::VariantKind Kind;
+   switch (MO.getTargetFlags()) {
+   case Nyuzi::MO_NO_FLAG:
+     Kind = NyuziMCExpr::VK_Nyuzi_NONE;
+     break;
+   case Nyuzi::MO_ABS_HI:
+     Kind = NyuziMCExpr::VK_Nyuzi_ABS_HI;
+     break;
+   case Nyuzi::MO_ABS_LO:
+     Kind = NyuziMCExpr::VK_Nyuzi_ABS_LO;
+     break;
+   default:
+     llvm_unreachable("Unknown target flag on operand");
+   }
 
-  switch (MOTy) {
-  case MachineOperand::MO_MachineBasicBlock:
-    Symbol = MO.getMBB()->getSymbol();
-    break;
+  const MCExpr *Expr = MCSymbolRefExpr::create(Sym,
+    MCSymbolRefExpr::VK_None, *Ctx);
 
-  case MachineOperand::MO_GlobalAddress:
-    Symbol = AsmPrinter.getSymbol(MO.getGlobal());
-    Offset += MO.getOffset();
-    break;
-
-  case MachineOperand::MO_BlockAddress:
-    Symbol = AsmPrinter.GetBlockAddressSymbol(MO.getBlockAddress());
-    Offset += MO.getOffset();
-    break;
-
-  case MachineOperand::MO_ExternalSymbol:
-    Symbol = AsmPrinter.GetExternalSymbolSymbol(MO.getSymbolName());
-    Offset += MO.getOffset();
-    break;
-
-  case MachineOperand::MO_JumpTableIndex:
-    Symbol = AsmPrinter.GetJTISymbol(MO.getIndex());
-    break;
-
-  case MachineOperand::MO_ConstantPoolIndex:
-    Symbol = AsmPrinter.GetCPISymbol(MO.getIndex());
-    Offset += MO.getOffset();
-    break;
-
-  default:
-    llvm_unreachable("<unknown operand type>");
+  if (!MO.isJTI() && MO.getOffset()) {
+    const MCConstantExpr *OffsetExpr = MCConstantExpr::create(MO.getOffset(), *Ctx);
+    Expr = MCBinaryExpr::createAdd(Expr, OffsetExpr, *Ctx);
   }
 
-  const MCSymbolRefExpr *MCSym = MCSymbolRefExpr::create(Symbol, Kind, *Ctx);
-  if (!Offset)
-    return MCOperand::createExpr(MCSym);
+  if (Kind != NyuziMCExpr::VK_Nyuzi_NONE)
+    Expr = NyuziMCExpr::create(Kind, Expr, *Ctx);
 
-  // Assume offset is never negative.
-  assert(Offset > 0);
-
-  const MCConstantExpr *OffsetExpr = MCConstantExpr::create(Offset, *Ctx);
-  const MCBinaryExpr *Add = MCBinaryExpr::createAdd(MCSym, OffsetExpr, *Ctx);
-  return MCOperand::createExpr(Add);
+  return MCOperand::createExpr(Expr);
 }

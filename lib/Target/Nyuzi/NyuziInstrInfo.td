@@ -852,3 +852,10 @@ def LI : NyuziInstruction<
   let isPseudo = 1;
 }
 
+def : Pat<(movehi tconstpool:$dst), (MOVEHI tconstpool:$dst)>;
+def : Pat<(orlo i32:$val, tconstpool:$dst), (ORSSI i32:$val, tconstpool:$dst)>;
+def : Pat<(movehi tglobaladdr:$dst), (MOVEHI tglobaladdr:$dst)>;
+def : Pat<(orlo i32:$val, tglobaladdr:$dst), (ORSSI i32:$val, tglobaladdr:$dst)>;
+def : Pat<(movehi tblockaddress:$dst), (MOVEHI tblockaddress:$dst)>;
+def : Pat<(orlo i32:$val, tblockaddress:$dst), (ORSSI i32:$val, tblockaddress:$dst)>;
+

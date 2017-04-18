@@ -15,6 +15,7 @@
 #define DEBUG_TYPE "nyuzi-isel-lowering"
 
 #include "NyuziISelLowering.h"
+#include "MCTargetDesc/NyuziBaseInfo.h"
 #include "MCTargetDesc/NyuziMCTargetDesc.h"
 #include "NyuziMachineFunctionInfo.h"
 #include "NyuziTargetMachine.h"
@@ -101,6 +102,7 @@ NyuziTargetLowering::NyuziTargetLowering(const TargetMachine &TM,
     { ISD::GlobalAddress, MVT::i32 },
     { ISD::GlobalAddress, MVT::f32 },
     { ISD::ConstantPool, MVT::i32 },
+    { ISD::ConstantPool, MVT::v16i32 },
     { ISD::ConstantPool, MVT::f32 },
     { ISD::BlockAddress, MVT::i32 },
     { ISD::SELECT_CC, MVT::i32 },
@@ -703,6 +705,10 @@ const char *NyuziTargetLowering::getTargetNodeName(unsigned Opcode) const {
     return "NyuziISD::MASK_TO_INT";
   case NyuziISD::MASK_FROM_INT:
     return "NyuziISD::MASK_FROM_INT";
+  case NyuziISD::MOVEHI:
+    return "NyuziISD::MOVEHI";
+  case NyuziISD::ORLO:
+    return "NyuziISD::ORLO";
   case NyuziISD::FGT:
     return "NyuziISD::FGT";
   case NyuziISD::FGE:
@@ -802,10 +808,15 @@ SDValue NyuziTargetLowering::LowerGlobalAddress(SDValue Op,
                                                 SelectionDAG &DAG) const {
   SDLoc DL(Op);
   const GlobalValue *GV = cast<GlobalAddressSDNode>(Op)->getGlobal();
-  SDValue CPIdx = DAG.getTargetConstantPool(GV, MVT::i32);
-  return DAG.getLoad(
-      MVT::i32, DL, DAG.getEntryNode(), CPIdx,
-      MachinePointerInfo::getConstantPool(DAG.getMachineFunction()), 4);
+  int64_t Offset = cast<GlobalAddressSDNode>(Op)->getOffset();
+
+  SDValue Hi = DAG.getTargetGlobalAddress(
+    GV, DL, getPointerTy(DAG.getDataLayout()), Offset, Nyuzi::MO_ABS_HI);
+  SDValue Lo = DAG.getTargetGlobalAddress(
+    GV, DL, getPointerTy(DAG.getDataLayout()), Offset, Nyuzi::MO_ABS_LO);
+
+  SDValue MoveHi = DAG.getNode(NyuziISD::MOVEHI, DL, MVT::i32, Hi);
+  return DAG.getNode(NyuziISD::ORLO, DL, MVT::i32, MoveHi, Lo);
 }
 
 SDValue NyuziTargetLowering::LowerBUILD_VECTOR(SDValue Op,
@@ -947,7 +958,7 @@ SDValue NyuziTargetLowering::LowerVECTOR_SHUFFLE(SDValue Op,
 
   Constant *ShuffleConstVector = ConstantVector::get(ShuffleIndexValues);
   SDValue ShuffleVectorCP =
-      DAG.getTargetConstantPool(ShuffleConstVector, MVT::v16i32);
+      DAG.getConstantPool(ShuffleConstVector, MVT::v16i32);
   SDValue ShuffleVector = DAG.getLoad(
       MVT::v16i32, DL, DAG.getEntryNode(), ShuffleVectorCP,
       MachinePointerInfo::getConstantPool(DAG.getMachineFunction()), 64);
@@ -1211,18 +1222,15 @@ SDValue NyuziTargetLowering::LowerSETCC(SDValue Op, SelectionDAG &DAG) const {
 SDValue NyuziTargetLowering::LowerConstantPool(SDValue Op,
                                                SelectionDAG &DAG) const {
   SDLoc DL(Op);
-  EVT PtrVT = Op.getValueType();
-  ConstantPoolSDNode *CP = cast<ConstantPoolSDNode>(Op);
-  SDValue Res;
-  if (CP->isMachineConstantPoolEntry()) {
-    Res = DAG.getTargetConstantPool(CP->getMachineCPVal(), PtrVT,
-                                    CP->getAlignment());
-  } else {
-    Res =
-        DAG.getTargetConstantPool(CP->getConstVal(), PtrVT, CP->getAlignment());
-  }
+  ConstantPoolSDNode *N = cast<ConstantPoolSDNode>(Op);
+  const Constant *C = N->getConstVal();
 
-  return Res;
+  SDValue Hi = DAG.getTargetConstantPool(C, MVT::i32, N->getAlignment(),
+                                         N->getOffset(), Nyuzi::MO_ABS_HI);
+  SDValue Lo = DAG.getTargetConstantPool(C, MVT::i32, N->getAlignment(),
+                                         N->getOffset(), Nyuzi::MO_ABS_LO);
+  SDValue MoveHi = DAG.getNode(NyuziISD::MOVEHI, DL, MVT::i32, Hi);
+  return DAG.getNode(NyuziISD::ORLO, DL, MVT::i32, MoveHi, Lo);
 }
 
 // There is no native floating point division, but we can convert this to a
@@ -1325,10 +1333,11 @@ SDValue NyuziTargetLowering::LowerBlockAddress(SDValue Op,
                                                SelectionDAG &DAG) const {
   SDLoc DL(Op);
   const BlockAddress *BA = cast<BlockAddressSDNode>(Op)->getBlockAddress();
-  SDValue CPIdx = DAG.getTargetConstantPool(BA, MVT::i32);
-  return DAG.getLoad(
-      MVT::i32, DL, DAG.getEntryNode(), CPIdx,
-      MachinePointerInfo::getConstantPool(DAG.getMachineFunction()), 4);
+
+  SDValue Hi = DAG.getBlockAddress(BA, MVT::i32, true, Nyuzi::MO_ABS_HI);
+  SDValue Lo = DAG.getBlockAddress(BA, MVT::i32, true, Nyuzi::MO_ABS_LO);
+  SDValue MoveHi = DAG.getNode(NyuziISD::MOVEHI, DL, MVT::i32, Hi);
+  return DAG.getNode(NyuziISD::ORLO, DL, MVT::i32, MoveHi, Lo);
 }
 
 SDValue NyuziTargetLowering::LowerVASTART(SDValue Op, SelectionDAG &DAG) const {
