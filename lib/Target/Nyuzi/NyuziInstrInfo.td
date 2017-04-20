@@ -781,9 +781,6 @@ def LOAD_EFFECTIVE_ADDR : NyuziInstruction<
   let Inst{4-0} = addr{4-0};    // base register
 }
 
-def : Pat<(i32 (load tconstpool:$addr)), (LW tconstpool:$addr, 0)>;
-def : Pat<(f32 (load tconstpool:$addr)), (LW tconstpool:$addr, 0)>;
-
 // Get address of jump table
 // This turns into add.i <destreg>, pc, <offset from pc>
 def LOAD_JTABLE_ADDR : NyuziInstruction<
