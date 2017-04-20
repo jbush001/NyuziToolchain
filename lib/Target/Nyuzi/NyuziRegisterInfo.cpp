@@ -113,10 +113,8 @@ void NyuziRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator MBBI,
 
     MachineRegisterInfo &RegInfo = MBB.getParent()->getRegInfo();
     unsigned Reg = RegInfo.createVirtualRegister(&Nyuzi::GPR32RegClass);
-    BuildMI(MBB, MBBI, DL, TII.get(Nyuzi::MOVESimm)).addReg(Reg, RegState::Define)
-      .addImm(Offset >> 13);
-    BuildMI(MBB, MBBI, DL, TII.get(Nyuzi::SLLSSI)).addReg(Reg, RegState::Define)
-      .addReg(Reg).addImm(13);
+    BuildMI(MBB, MBBI, DL, TII.get(Nyuzi::MOVEHI)).addReg(Reg, RegState::Define)
+      .addImm((Offset >> 13) & 0x7ffff);
     BuildMI(MBB, MBBI, DL, TII.get(Nyuzi::ADDISSS)).addReg(Reg, RegState::Define)
       .addReg(FrameReg)
       .addReg(Reg);

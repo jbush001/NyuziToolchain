@@ -333,10 +333,10 @@ unsigned int NyuziInstrInfo::loadConstant(MachineBasicBlock &MBB,
   if (!isInt<24>(Value))
     report_fatal_error("NyuziInstrInfo::loadConstant: value out of range");
 
-  BuildMI(MBB, MBBI, DL, get(Nyuzi::MOVESimm)).addReg(Reg, RegState::Define)
-    .addImm(Value >> 13);
-  BuildMI(MBB, MBBI, DL, get(Nyuzi::SLLSSI)).addReg(Reg, RegState::Define)
-    .addReg(Reg).addImm(13);
+  if (!isInt<13>(Value)) {
+    BuildMI(MBB, MBBI, DL, get(Nyuzi::MOVEHI)).addReg(Reg, RegState::Define)
+      .addImm((Value >> 13) & 0x7ffff);
+  }
 
   if ((Value & 0x1fff) != 0) {
     // Load bits 11-0 into register (note we only load 12 bits because we
