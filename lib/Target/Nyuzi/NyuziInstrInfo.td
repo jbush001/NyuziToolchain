@@ -582,12 +582,14 @@ def RET : NyuziInstruction<
   "ret",
   [(return)],
   II_BRANCH> {
-  // This is encoded as move pc, ra
-  let Inst{31-29} = 0b110;  // format A instruction
-  let Inst{25-20} = 0xf;  // opcode
-  let Inst{9-5} = 31;    // dest (reg 31)
-  let Inst{19-15} = 30;  // src (ra)
 
+  // Jump to
+  let Inst{31-28} = 0b1111;
+  let Inst{27-25} = BT_Reg.Value;
+  let Inst{24-5} = 0;
+  let Inst{4-0} = 30;  // src (ra)
+
+  let Uses = [ RA_REG ];
   let isReturn = 1;
   let isTerminator = 1;
   let isBarrier = 1;
@@ -601,7 +603,7 @@ def ERET : NyuziInstruction<
   [],
   II_BRANCH> {
   let Inst{31-28} = 0b1111;
-  let Inst{27-25} = 7;  // Eret branch type
+  let Inst{27-25} = BT_Eret.Value;
 
   let isReturn = 1;
   let isTerminator = 1;

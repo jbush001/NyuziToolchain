@@ -16,6 +16,8 @@ foo:  b target0    # CHECK: encoding: [0bAAA00000,A,A,0b1111011A]
 
   call s3 # CHECK: encoding: [0x63,0x00,0x00,0xfc]
 
+  ret # CHECK: encoding: [0x1e,0x00,0x00,0xf0]
+
   eret  # CHECK: encoding: [0x00,0x00,0x00,0xfe]
 
 target0: nop
