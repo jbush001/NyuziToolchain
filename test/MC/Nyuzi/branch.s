@@ -12,7 +12,7 @@ foo:  b target0    # CHECK: encoding: [0bAAA00000,A,A,0b1111011A]
   call target5  # CHECK: encoding: [0bAAA00000,A,A,0b1111100A]
   # CHECK: #   fixup A - offset: 0, value: target5, kind: fixup_Nyuzi_PCRel_Branch
 
-  b s2  # CHECK: encoding: [0xe2,0x03,0xf0,0xc0]
+  b s2  # CHECK: encoding: [0x02,0x00,0x00,0xf0]
 
   call s3 # CHECK: encoding: [0x63,0x00,0x00,0xfc]
 

@@ -33,39 +33,10 @@ void NyuziMCInstLower::Initialize(MCContext *C) { Ctx = C; }
 
 void NyuziMCInstLower::Lower(const MachineInstr *MI, MCInst &OutMI) const {
   OutMI.setOpcode(MI->getOpcode());
-
-  // XXX note that this chunk of code assumes a load instruction. It's also
-  // possible for MO_ConstantPoolIndex to appear in arithmetic.  In this
-  // situation, the instruction would be clobbered.
-  if (MI->getNumOperands() > 1 &&
-      (MI->getOperand(1).getType() == MachineOperand::MO_JumpTableIndex)) {
-    OutMI.addOperand(LowerOperand(MI->getOperand(0))); // result
-
-    const MachineOperand &cpEntry = MI->getOperand(1);
-
-    // This is a PC relative constant pool access.  Add the PC register
-    // to this instruction to match what the assembly parser produces
-    // (and InstPrinter/Encoder expects)
-    // It should look like this:
-    // <MCInst #97 LWi <MCOperand Reg:8> <MCOperand Reg:3> <MCOperand
-    // Expr:(foo)>>
-    OutMI.addOperand(MCOperand::createReg(Nyuzi::PC_REG));
-    const MCSymbol *Symbol;
-    if (MI->getOperand(1).getType() == MachineOperand::MO_ConstantPoolIndex)
-      Symbol = AsmPrinter.GetCPISymbol(cpEntry.getIndex());
-    else
-      Symbol = AsmPrinter.GetJTISymbol(cpEntry.getIndex());
-
-    const MCSymbolRefExpr *MCSym =
-        MCSymbolRefExpr::create(Symbol, MCSymbolRefExpr::VK_None, *Ctx);
-    MCOperand MCOp = MCOperand::createExpr(MCSym);
-    OutMI.addOperand(MCOp);
-  } else {
-    for (const MachineOperand &MO : MI->operands()) {
-      MCOperand MCOp = LowerOperand(MO);
-      if (MCOp.isValid())
-        OutMI.addOperand(MCOp);
-    }
+  for (const MachineOperand &MO : MI->operands()) {
+    MCOperand MCOp = LowerOperand(MO);
+    if (MCOp.isValid())
+      OutMI.addOperand(MCOp);
   }
 }
 

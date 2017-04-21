@@ -25,7 +25,6 @@ def simm14  : PatLeaf<(imm), [{ return isInt<14>(N->getSExtValue()); }]>;
 def splat : SDNode<"NyuziISD::SPLAT", SDTypeProfile<1, 1, [SDTCisEltOfVec<1, 0>]>>;
 def wrapper : SDNode<"NyuziISD::WRAPPER", SDTIntUnaryOp>;
 def reciprocal : SDNode<"NyuziISD::RECIPROCAL_EST", SDTFPUnaryOp>;
-def jtwrapper : SDNode<"NyuziISD::JT_WRAPPER", SDTIntUnaryOp>;
 def movehi : SDNode<"NyuziISD::MOVEHI", SDTIntUnaryOp>;
 def orlo : SDNode<"NyuziISD::ORLO", SDTypeProfile<1, 2, [SDTCisSameAs<0, 1>, SDTCisSameAs<0, 2>]>>;
 
@@ -35,9 +34,6 @@ def mask_to_int : SDNode<"NyuziISD::MASK_TO_INT", SDTypeProfile<1, 1,
   [SDTCisVT<0, i32>, SDTCisVT<1, v16i1>]>>;
 def mask_from_int : SDNode<"NyuziISD::MASK_FROM_INT", SDTypeProfile<1, 1,
   [SDTCisVT<0, v16i1>, SDTCisVT<1, i32>]>>;
-
-def SDT_BRJT : SDTypeProfile<0, 2, [SDTCisPtrTy<0>, SDTCisVT<1, i32>]>;
-def brjt : SDNode<"NyuziISD::BR_JT", SDT_BRJT, [SDNPHasChain]>;
 
 def return : SDNode<"NyuziISD::RET_FLAG",
   SDTypeProfile<0, 0, []>,
@@ -109,11 +105,6 @@ def LEAri : Operand<iPTR> {
   let EncoderMethod = "encodeLEAValue";
   let ParserMatchClass = MemAsmOperandS15;
   let MIOperandInfo = (ops GPR32, i32imm);
-}
-
-def JTADDR : Operand<iPTR> {
-  let EncoderMethod = "encodeJumpTableAddr";
-  let PrintMethod = "printJumpTableOperand";
 }
 
 def cpooladdr : Operand<iPTR> {
@@ -758,12 +749,11 @@ class BranchType<bits<3> val> {
   bits<3> Value = val;
 }
 
-def BT_All : BranchType<0>;
-def BT_IfFalse : BranchType<1>;
-def BT_IfTrue : BranchType<2>;
+def BT_Reg : BranchType<0>;
+def BT_IfZero : BranchType<1>;
+def BT_IfNotZero : BranchType<2>;
 def BT_Uncond : BranchType<3>;
 def BT_Call : BranchType<4>;
-def BT_NAll : BranchType<5>;
 def BT_CallReg : BranchType<6>;
 def BT_Eret : BranchType<7>;
 

@@ -29,8 +29,6 @@ enum NodeType {
   SPLAT,    // Copy scalar register into all lanes of a vector
   SEL_COND_RESULT,
   RECIPROCAL_EST,
-  BR_JT,
-  JT_WRAPPER,
   MASK_TO_INT,
   MASK_FROM_INT,
   MOVEHI,
@@ -68,7 +66,6 @@ public:
   MachineBasicBlock *
   EmitInstrWithCustomInserter(MachineInstr &MI,
                               MachineBasicBlock *MBB) const override;
-  unsigned getJumpTableEncoding() const override;
   const char *getTargetNodeName(unsigned Opcode) const override;
   ConstraintType getConstraintType(StringRef Constraint) const override;
   std::pair<unsigned, const TargetRegisterClass *>
@@ -83,6 +80,7 @@ public:
 
 private:
   SDValue LowerGlobalAddress(SDValue Op, SelectionDAG &DAG) const;
+  SDValue LowerJumpTable(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerBUILD_VECTOR(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerVECTOR_SHUFFLE(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerINSERT_VECTOR_ELT(SDValue Op, SelectionDAG &DAG) const;

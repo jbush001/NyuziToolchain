@@ -24,7 +24,6 @@
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
-#include "llvm/CodeGen/MachineJumpTableInfo.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
 #include "llvm/CodeGen/SelectionDAG.h"
 #include "llvm/CodeGen/TargetLoweringObjectFileImpl.h"
@@ -113,7 +112,6 @@ NyuziTargetLowering::NyuziTargetLowering(const TargetMachine &TM,
     { ISD::SELECT, MVT::v16i1 },
     { ISD::FDIV, MVT::f32 },
     { ISD::FDIV, MVT::v16f32 },
-    { ISD::BR_JT, MVT::Other },
     { ISD::FNEG, MVT::f32 },
     { ISD::FNEG, MVT::v16f32 },
     { ISD::SETCC, MVT::v16f32 },
@@ -134,7 +132,8 @@ NyuziTargetLowering::NyuziTargetLowering(const TargetMachine &TM,
     { ISD::FABS, MVT::v16f32 },
     { ISD::TRUNCATE, MVT::v16i1 },
     { ISD::ZERO_EXTEND, MVT::v16i32 },
-    { ISD::SIGN_EXTEND, MVT::v16i32 }
+    { ISD::SIGN_EXTEND, MVT::v16i32 },
+    { ISD::JumpTable, MVT::i32 }
   };
 
   for (auto Action : CustomActions)
@@ -187,7 +186,8 @@ NyuziTargetLowering::NyuziTargetLowering(const TargetMachine &TM,
     { ISD::ATOMIC_STORE, MVT::i64 },
     { ISD::FCOPYSIGN, MVT::f32 },
     { ISD::FFLOOR, MVT::f32 },
-    { ISD::FFLOOR, MVT::v16f32 }
+    { ISD::FFLOOR, MVT::v16f32 },
+    { ISD::BR_JT, MVT::Other }
   };
 
   for (auto Action : ExpandActions)
@@ -262,8 +262,6 @@ SDValue NyuziTargetLowering::LowerOperation(SDValue Op,
     return LowerFNEG(Op, DAG);
   case ISD::FABS:
     return LowerFABS(Op, DAG);
-  case ISD::BR_JT:
-    return LowerBR_JT(Op, DAG);
   case ISD::BlockAddress:
     return LowerBlockAddress(Op, DAG);
   case ISD::VASTART:
@@ -289,6 +287,8 @@ SDValue NyuziTargetLowering::LowerOperation(SDValue Op,
   case ISD::FP_TO_SINT:
   case ISD::FP_TO_UINT:
     return LowerFP_TO_XINT(Op, DAG);
+  case ISD::JumpTable:
+    return LowerJumpTable(Op, DAG);
   default:
     llvm_unreachable("Should not custom lower this!");
   }
@@ -681,10 +681,6 @@ NyuziTargetLowering::EmitInstrWithCustomInserter(MachineInstr &MI,
   }
 }
 
-unsigned NyuziTargetLowering::getJumpTableEncoding() const {
-  return MachineJumpTableInfo::EK_Inline;
-}
-
 const char *NyuziTargetLowering::getTargetNodeName(unsigned Opcode) const {
   switch (Opcode) {
   case NyuziISD::CALL:
@@ -697,10 +693,6 @@ const char *NyuziTargetLowering::getTargetNodeName(unsigned Opcode) const {
     return "NyuziISD::SEL_COND_RESULT";
   case NyuziISD::RECIPROCAL_EST:
     return "NyuziISD::RECIPROCAL_EST";
-  case NyuziISD::BR_JT:
-    return "NyuziISD::BR_JT";
-  case NyuziISD::JT_WRAPPER:
-    return "NyuziISD::JT_WRAPPER";
   case NyuziISD::MASK_TO_INT:
     return "NyuziISD::MASK_TO_INT";
   case NyuziISD::MASK_FROM_INT:
@@ -802,8 +794,6 @@ bool NyuziTargetLowering::shouldInsertFencesForAtomic(
   return true;
 }
 
-// Global addresses are stored in the per-function constant pool.
-// This is hard coded for a static linking model and does not support PIC.
 SDValue NyuziTargetLowering::LowerGlobalAddress(SDValue Op,
                                                 SelectionDAG &DAG) const {
   SDLoc DL(Op);
@@ -814,6 +804,20 @@ SDValue NyuziTargetLowering::LowerGlobalAddress(SDValue Op,
     GV, DL, getPointerTy(DAG.getDataLayout()), Offset, Nyuzi::MO_ABS_HI);
   SDValue Lo = DAG.getTargetGlobalAddress(
     GV, DL, getPointerTy(DAG.getDataLayout()), Offset, Nyuzi::MO_ABS_LO);
+
+  SDValue MoveHi = DAG.getNode(NyuziISD::MOVEHI, DL, MVT::i32, Hi);
+  return DAG.getNode(NyuziISD::ORLO, DL, MVT::i32, MoveHi, Lo);
+}
+
+SDValue NyuziTargetLowering::LowerJumpTable(SDValue Op,
+                                            SelectionDAG &DAG) const {
+  SDLoc DL(Op);
+  JumpTableSDNode *JT = cast<JumpTableSDNode>(Op);
+
+  SDValue Hi = DAG.getTargetJumpTable(
+    JT->getIndex(), getPointerTy(DAG.getDataLayout()), Nyuzi::MO_ABS_HI);
+  SDValue Lo = DAG.getTargetJumpTable(
+    JT->getIndex(), getPointerTy(DAG.getDataLayout()), Nyuzi::MO_ABS_LO);
 
   SDValue MoveHi = DAG.getNode(NyuziISD::MOVEHI, DL, MVT::i32, Hi);
   return DAG.getNode(NyuziISD::ORLO, DL, MVT::i32, MoveHi, Lo);
@@ -1311,22 +1315,6 @@ SDValue NyuziTargetLowering::LowerFABS(SDValue Op, SelectionDAG &DAG) const {
   iconv = DAG.getBitcast(IntermediateVT, Op.getOperand(0));
   SDValue flipped = DAG.getNode(ISD::AND, DL, IntermediateVT, iconv, rhs);
   return DAG.getBitcast(ResultVT, flipped);
-}
-
-// Branch using jump table (used for switch statements)
-SDValue NyuziTargetLowering::LowerBR_JT(SDValue Op, SelectionDAG &DAG) const {
-  SDValue Chain = Op.getOperand(0);
-  SDValue Table = Op.getOperand(1);
-  SDValue Index = Op.getOperand(2);
-  SDLoc DL(Op);
-  EVT PTy = getPointerTy(DAG.getDataLayout());
-  JumpTableSDNode *JT = cast<JumpTableSDNode>(Table);
-  SDValue JTI = DAG.getTargetJumpTable(JT->getIndex(), PTy);
-  SDValue TableWrapper = DAG.getNode(NyuziISD::JT_WRAPPER, DL, PTy, JTI);
-  SDValue TableMul =
-      DAG.getNode(ISD::MUL, DL, PTy, Index, DAG.getConstant(4, DL, PTy));
-  SDValue JTAddr = DAG.getNode(ISD::ADD, DL, PTy, TableWrapper, TableMul);
-  return DAG.getNode(NyuziISD::BR_JT, DL, MVT::Other, Chain, JTAddr, JTI);
 }
 
 SDValue NyuziTargetLowering::LowerBlockAddress(SDValue Op,

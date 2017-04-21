@@ -542,62 +542,33 @@ let isTerminator = 1 in {
     let isBarrier = 1;
   }
 
+  def BREG : UnconditionalBranchInst<
+    (outs),
+    (ins GPR32:$targetreg),
+    "b $targetreg",
+    [(brind GPR32:$targetreg)],
+    BT_Reg> {
+    bits<5> targetreg;
+
+    let isBarrier = 1;
+    let isIndirectBranch = 1;
+    let Inst{4-0} = targetreg;
+    let dest = 0;
+  }
+
   def BZ : ConditionalBranchInst<
     (outs),
     (ins GPR32:$test, brtarget:$dest),
     "bz $test, $dest",
     [],
-    BT_IfFalse>;
+    BT_IfZero>;
 
   def BNZ : ConditionalBranchInst<
     (outs),
     (ins GPR32:$test, brtarget:$dest),
     "bnz $test, $dest",
     [],
-    BT_IfTrue>;
-
-  // Converts to MOVE pc, <srcreg>
-  def JUMPREG : NyuziInstruction<
-    (outs),
-    (ins GPR32:$dest),
-    "b $dest",
-    [(brind i32:$dest)],
-    II_BRANCH> {
-    bits<5> dest;
-
-    let Inst{31-29} = 0b110;
-    let Inst{25-20} = 0xf;  // opcode: move
-    let Inst{9-5} = 31;
-    let Inst{4-0} = dest;
-
-    let isBranch = 1;
-    let isIndirectBranch = 1;
-    let isBarrier = 1;
-  }
-
-  // This loads the destination from the jump table directly into PC,
-  // branching as a side effect.
-  // $jumptable is not a real instruction operand. The AsmPrinter
-  // will use it to output the jump table in-line.
-  def JUMP_TABLE : NyuziInstruction<
-    (outs),
-    (ins GPR32:$tableptr, GPR32:$jt),
-    "load_32 pc, ( $tableptr )",
-    [(brjt i32:$tableptr, tjumptable:$jt)],
-    II_MEMORY> {
-    let isBranch = 1;
-    let isIndirectBranch = 1;
-    let isBarrier = 1;
-    let isCodeGenOnly = 1;  // Don't use this for assembler or disassembler
-
-    bits<5> tableptr;
-
-    let Inst{31} = 1;
-    let Inst{29} = 1;    // Is load
-    let Inst{28-25} = 4;  // Scalar, 32-bit
-    let Inst{9-5} = 31;    // PC is destination
-    let Inst{4-0} = tableptr;  // Register holds computed pointer into table
-  }
+    BT_IfNotZero>;
 }
 
 // Branch patterns
@@ -781,26 +752,6 @@ def LOAD_EFFECTIVE_ADDR : NyuziInstruction<
   let Inst{4-0} = addr{4-0};    // base register
 }
 
-// Get address of jump table
-// This turns into add.i <destreg>, pc, <offset from pc>
-def LOAD_JTABLE_ADDR : NyuziInstruction<
-  (outs GPR32:$dest),
-  (ins JTADDR:$addr),
-  "lea $dest, $addr",
-  [(set i32:$dest, (jtwrapper tjumptable:$addr))],
-  II_INT> {
-  let isCodeGenOnly = 1;  // Don't use for assembler or disassembler
-
-  bits<14> addr;
-  bits<5> dest;
-
-  let Inst{30-29} = FmtI_S.Value;
-  let Inst{28-24} = 5;    // Add
-  let Inst{23-10} = addr; // Offset from PC
-  let Inst{9-5} = dest;
-  let Inst{4-0} = 31;     // base register (PC)
-}
-
 def NOP : NyuziInstruction<
   (outs),
   (ins),
@@ -855,4 +806,7 @@ def : Pat<(movehi tglobaladdr:$dst), (MOVEHI tglobaladdr:$dst)>;
 def : Pat<(orlo i32:$val, tglobaladdr:$dst), (ORSSI i32:$val, tglobaladdr:$dst)>;
 def : Pat<(movehi tblockaddress:$dst), (MOVEHI tblockaddress:$dst)>;
 def : Pat<(orlo i32:$val, tblockaddress:$dst), (ORSSI i32:$val, tblockaddress:$dst)>;
+
+def : Pat<(movehi tjumptable:$dst), (MOVEHI tjumptable:$dst)>;
+def : Pat<(orlo i32:$val, tjumptable:$dst), (ORSSI i32:$val, tjumptable:$dst)>;
 

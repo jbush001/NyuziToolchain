@@ -41,8 +41,6 @@ bool isCondBranchOpcode(int opc) {
 
   // BALL/BNALL/etc. can't be analyzed
 }
-
-bool isJumpTableBranchOpcode(int opc) { return opc == Nyuzi::JUMP_TABLE; }
 }
 
 const NyuziInstrInfo *NyuziInstrInfo::create(NyuziSubtarget &ST) {
@@ -189,11 +187,7 @@ bool NyuziInstrInfo::analyzeBranch(MachineBasicBlock &MBB,
     if (!I->isTerminator())
         break;
 
-    if (isJumpTableBranchOpcode(I->getOpcode())) {
-      // Jump tables can't be analyzed, but we still want
-      // to clean up any instructions at the tail of the basic block.
-      CantAnalyze = true;
-    } else if (isUncondBranchOpcode(I->getOpcode())) {
+    if (isUncondBranchOpcode(I->getOpcode())) {
       TBB = I->getOperand(0).getMBB();
     } else if (isCondBranchOpcode(I->getOpcode())) {
       // Bail out if we encounter multiple conditional branches.
@@ -217,8 +211,7 @@ bool NyuziInstrInfo::analyzeBranch(MachineBasicBlock &MBB,
 
     // Cleanup code - to be run for unconditional branches and
     //                returns.
-    if (isUncondBranchOpcode(I->getOpcode()) ||
-        isJumpTableBranchOpcode(I->getOpcode()) || I->isReturn()) {
+    if (isUncondBranchOpcode(I->getOpcode())) {
       // Forget any previous condition branch information - it no longer
       // applies.
       Cond.clear();

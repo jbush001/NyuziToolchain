@@ -20,7 +20,6 @@
 #include "llvm/CodeGen/AsmPrinter.h"
 #include "llvm/CodeGen/MachineConstantPool.h"
 #include "llvm/CodeGen/MachineInstr.h"
-#include "llvm/CodeGen/MachineJumpTableInfo.h"
 #include "llvm/MC/MCAsmInfo.h"
 #include "llvm/MC/MCContext.h"
 #include "llvm/MC/MCExpr.h"
@@ -42,8 +41,6 @@ void NyuziAsmPrinter::EmitInstruction(const MachineInstr *MI) {
     MCInst TmpInst;
     MCInstLowering.Lower(MI, TmpInst);
     EmitToStreamer(*OutStreamer, TmpInst);
-    if (MI->getOpcode() == Nyuzi::JUMP_TABLE)
-      EmitInlineJumpTable(MI);
   } while ((++I != E) && I->isInsideBundle());
 }
 
@@ -81,30 +78,6 @@ bool NyuziAsmPrinter::PrintAsmMemoryOperand(const MachineInstr *MI,
   O << "(" << NyuziInstPrinter::getRegisterName(MO.getReg()) << ")";
 
   return false;
-}
-
-MCSymbol *NyuziAsmPrinter::GetJumpTableLabel(unsigned uid) const {
-  SmallString<60> Name;
-  raw_svector_ostream(Name) << MAI->getPrivateGlobalPrefix() << "JTI"
-                            << getFunctionNumber() << '_' << uid;
-  return OutContext.getOrCreateSymbol(Name.str());
-}
-
-void NyuziAsmPrinter::EmitInlineJumpTable(const MachineInstr *MI) {
-  const MachineOperand &MO1 = MI->getOperand(1);
-  unsigned JTI = MO1.getIndex();
-  MCSymbol *JTISymbol = GetJumpTableLabel(JTI);
-  OutStreamer->EmitLabel(JTISymbol);
-  const MachineJumpTableInfo *MJTI = MF->getJumpTableInfo();
-  const std::vector<MachineJumpTableEntry> &JT = MJTI->getJumpTables();
-  const std::vector<MachineBasicBlock *> &JTBBs = JT[JTI].MBBs;
-  OutStreamer->EmitDataRegion(MCDR_DataRegionJT32);
-  for (const auto &MBB : JTBBs) {
-    const MCExpr *Expr = MCSymbolRefExpr::create(MBB->getSymbol(), OutContext);
-    OutStreamer->EmitValue(Expr, 4);
-  }
-
-  OutStreamer->EmitDataRegion(MCDR_DataRegionEnd);
 }
 
 // Force static initialization.

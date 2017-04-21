@@ -51,10 +51,6 @@ public:
   bool PrintAsmMemoryOperand(const MachineInstr *MI, unsigned OpNum,
                              unsigned AsmVariant, const char *ExtraCode,
                              raw_ostream &O) override;
-
-private:
-  MCSymbol *GetJumpTableLabel(unsigned uid) const;
-  void EmitInlineJumpTable(const MachineInstr *MI);
 };
 }
 

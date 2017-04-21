@@ -16,8 +16,12 @@ entry:
     i32 3, label %sw.bb4
   ]
 
-  ; CHECK: lea s{{[0-9]+}}, .LJTI
-  ; CHECK: load_32 pc,
+  ; CHECK: movehi s2, hi(.LJTI0_0)
+  ; CHECK: or s2, s2, lo(.LJTI0_0)
+  ; CHECK: shl s0, s0, 2
+  ; CHECK: add_i s0, s0, s2
+  ; CHECK: load_32 s0, (s0)
+  ; CHECK: b s0
 
 sw.bb:
   %add = add nsw i32 %j, 1
@@ -40,3 +44,10 @@ return:
   %retval.0 = phi i32 [ %shl, %sw.bb4 ], [ %mul3, %sw.bb2 ], [ %mul, %sw.bb1 ], [ %add, %sw.bb ], [ %j, %entry ]
   ret i32 %retval.0
 }
+
+; CHECK: .LJTI0_0:
+; CHECK: .long .LBB0_2
+; CHECK: .long .LBB0_3
+; CHECK: .long .LBB0_4
+; CHECK: .long .LBB0_5
+
