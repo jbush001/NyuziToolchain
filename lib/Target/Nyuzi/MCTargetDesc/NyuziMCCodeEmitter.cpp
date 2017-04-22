@@ -54,17 +54,9 @@ public:
                                SmallVectorImpl<MCFixup> &Fixups,
                                const MCSubtargetInfo &STI) const;
 
-  unsigned encodeLEAValue(const MCInst &MI, unsigned Op,
-                          SmallVectorImpl<MCFixup> &Fixups,
-                          const MCSubtargetInfo &STI) const;
-
   unsigned encodeBranchTargetOpValue(const MCInst &MI, unsigned OpNo,
                                      SmallVectorImpl<MCFixup> &Fixups,
                                      const MCSubtargetInfo &STI) const;
-
-  unsigned encodeJumpTableAddr(const MCInst &MI, unsigned OpNo,
-                               SmallVectorImpl<MCFixup> &Fixups,
-                               const MCSubtargetInfo &STI) const;
 
   // Emit one byte through output stream (from MCBlazeMCCodeEmitter)
   void EmitByte(unsigned char C, raw_ostream &OS) const { OS << (char)C; }
@@ -159,41 +151,6 @@ void NyuziMCCodeEmitter::encodeInstruction(const MCInst &MI, raw_ostream &OS,
   EmitLEConstant(Value, 4, OS);
 }
 
-unsigned
-NyuziMCCodeEmitter::encodeJumpTableAddr(const MCInst &MI, unsigned Op,
-                                        SmallVectorImpl<MCFixup> &Fixups,
-                                        const MCSubtargetInfo &STI) const {
-  MCOperand label = MI.getOperand(2);
-  Fixups.push_back(MCFixup::create(
-      0, label.getExpr(),
-      MCFixupKind(Nyuzi::fixup_Nyuzi_PCRel_ComputeLabelAddress), MI.getLoc()));
-  return 0;
-}
-
-unsigned NyuziMCCodeEmitter::encodeLEAValue(const MCInst &MI, unsigned Op,
-                                            SmallVectorImpl<MCFixup> &Fixups,
-                                            const MCSubtargetInfo &STI) const {
-
-  MCOperand baseReg = MI.getOperand(1);
-  MCOperand offsetOp = MI.getOperand(2);
-
-  assert(baseReg.isReg() && "First operand of LEA op is not register.");
-  unsigned encoding = Ctx.getRegisterInfo()->getEncodingValue(baseReg.getReg());
-
-  if (offsetOp.isExpr()) {
-    // Load with a label. This is a PC relative load.  Add a fixup.
-    Fixups.push_back(MCFixup::create(
-        0, offsetOp.getExpr(),
-        MCFixupKind(Nyuzi::fixup_Nyuzi_PCRel_ComputeLabelAddress),
-        MI.getLoc()));
-  } else if (offsetOp.isImm())
-    encoding |= static_cast<short>(offsetOp.getImm()) << 5;
-  else
-    assert(offsetOp.isImm() && "Second operand of LEA op is unknown type.");
-
-  return encoding;
-}
-
 // Encode Nyuzi Memory Operand.  The result is a packed field with the
 // register in the low 5 bits and the offset in the remainder.  The instruction
 // patterns will put these into the proper part of the instruction
@@ -221,19 +178,8 @@ NyuziMCCodeEmitter::encodeMemoryOpValue(const MCInst &MI, unsigned Op,
   assert(baseReg.isReg() && "First operand is not register.");
   encoding = Ctx.getRegisterInfo()->getEncodingValue(baseReg.getReg());
 
-  // Offset
-  if (offsetOp.isExpr()) {
-    // Load with a label. This is a PC relative load.  Add a fixup.
-    // XXX Note that this assumes unmasked instructions.  A masked
-    // instruction will not work and should not be used. Check for this
-    // and return an error.
-    Fixups.push_back(MCFixup::create(
-        0, offsetOp.getExpr(), MCFixupKind(Nyuzi::fixup_Nyuzi_PCRel_MemAccExt),
-        MI.getLoc()));
-  } else if (offsetOp.isImm())
-    encoding |= static_cast<short>(offsetOp.getImm()) << 5;
-  else
-    assert(offsetOp.isImm() && "Second operand of memory op is unknown type.");
+  assert(offsetOp.isImm() && "Second operand of memory op is unknown type.");
+  encoding |= static_cast<short>(offsetOp.getImm()) << 5;
 
   return encoding;
 }

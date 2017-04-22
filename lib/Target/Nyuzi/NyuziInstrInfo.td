@@ -736,13 +736,15 @@ def WRITE_CONTROL_REG : FormatMInst<
   let Inst{9-5} = src;
 }
 
-def LOAD_EFFECTIVE_ADDR : NyuziInstruction<
+// Note this takes MEMS14 operand (vs. the MEMS15 format a normal memory
+// instruction would) because it is an I format instruction and has a smaller
+// immediate field.
+def LEA_MEM : NyuziInstruction<
   (outs GPR32:$dest),
-  (ins LEAri:$addr),
+  (ins MEMS14:$addr),
   "lea $dest, $addr",
   [(set i32:$dest, ADDRri:$addr)],
   II_INT> {
-  let isAsmParserOnly = 1;   // Don't disassemble
 
   bits<20> addr;
   bits<5> dest;
@@ -753,6 +755,16 @@ def LOAD_EFFECTIVE_ADDR : NyuziInstruction<
   let Inst{9-5} = dest;
   let Inst{4-0} = addr{4-0};    // base register
 }
+
+def LEA_SYM : NyuziInstruction<
+  (outs GPR32:$dest),
+  (ins symref:$label),
+  "lea $dest, $label",
+  [],
+  II_INT> {
+  let isPseudo = 1;
+}
+
 
 def NOP : NyuziInstruction<
   (outs),

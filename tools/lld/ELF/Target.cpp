@@ -2479,14 +2479,6 @@ void NyuziTargetInfo::relocateOne(uint8_t *Loc, uint32_t Type, uint64_t Val) con
     checkInt<20>(Loc, Val - 4, Type);
     applyNyuziReloc<20, 5>(Loc, Type, Val - 4);
     break;
-  case R_NYUZI_PCREL_MEM_EXT:
-    checkInt<15>(Loc, Val - 4, Type);
-    applyNyuziReloc<15, 10>(Loc, Type, Val - 4);
-    break;
-  case R_NYUZI_PCREL_LEA:
-    checkInt<14>(Loc, Val - 4, Type);
-    applyNyuziReloc<14, 10>(Loc, Type, Val - 4);
-    break;
   case R_NYUZI_HI19:
     applyNyuziReloc<5, 0>(Loc, Type, (Val >> 13) & 0x1f);
     applyNyuziReloc<14, 10>(Loc, Type, (Val >> 18) & 0x3fff);
@@ -2508,8 +2500,6 @@ RelExpr NyuziTargetInfo::getRelExpr(uint32_t Type, const SymbolBody &S,
     return R_ABS;
 
   case R_NYUZI_BRANCH:
-  case R_NYUZI_PCREL_MEM_EXT:
-  case R_NYUZI_PCREL_LEA:
     return R_PC;
   }
 }

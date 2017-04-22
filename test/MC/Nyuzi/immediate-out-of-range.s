@@ -36,3 +36,26 @@ move_mask v0, s0, -0x101 # CHECK: immediate-out-of-range.s:[[@LINE]]:{{[0-9]+}}:
 
 movehi s0, 0x7ffff # CHECK-NOT: [[@LINE]]:{{[0-9]+}}: error:
 movehi s0, 0x80000 # CHECK: immediate-out-of-range.s:[[@LINE]]:{{[0-9]+}}: error: immediate operand out of range
+
+load_32 s0, 0x3fff(s0) # CHECK-NOT: [[@LINE]]:{{[0-9]+}}: error:
+load_32 s1, -0x4000(s0) # CHECK-NOT: [[@LINE]]:{{[0-9]+}}: error:
+load_32 s2, 0x4000(s0) # CHECK: immediate-out-of-range.s:[[@LINE]]:{{[0-9]+}}: error: offset out of range
+load_32 s3, -0x4001(s0) # CHECK: immediate-out-of-range.s:[[@LINE]]:{{[0-9]+}}: error: offset out of range
+load_v v0, 0x3fff(s0) # CHECK-NOT: [[@LINE]]:{{[0-9]+}}: error:
+load_v v1, -0x4000(s0) # CHECK-NOT: [[@LINE]]:{{[0-9]+}}: error:
+load_v v2, 0x4000(s0) # CHECK: immediate-out-of-range.s:[[@LINE]]:{{[0-9]+}}: error: offset out of range
+load_v v3, -0x4001(s0) # CHECK: immediate-out-of-range.s:[[@LINE]]:{{[0-9]+}}: error: offset out of range
+
+# Masked vector loads have a smaller immediate field
+load_v_mask v0, s0, 0x1ff(s0) # CHECK-NOT: [[@LINE]]:{{[0-9]+}}: error:
+load_v_mask v1, s0, -0x200(s0) # CHECK-NOT: [[@LINE]]:{{[0-9]+}}: error:
+load_v_mask v2, s0, 0x200(s0) # CHECK: immediate-out-of-range.s:[[@LINE]]:{{[0-9]+}}: error: offset out of range
+load_v_mask v3, s0, -0x201(s0) # CHECK: immediate-out-of-range.s:[[@LINE]]:{{[0-9]+}}: error: offset out of range
+
+# Load effective address: since this is actually an add, the immediate field is 14
+# bits instead of 15 like the memory instructions.
+lea s0, 0x1fff(s0) # CHECK-NOT: [[@LINE]]:{{[0-9]+}}: error:
+lea s1, -0x2000(s0) # CHECK-NOT: [[@LINE]]:{{[0-9]+}}: error:
+lea s2, 0x2000(s0) # CHECK: immediate-out-of-range.s:[[@LINE]]:{{[0-9]+}}: error: offset out of range
+lea s3, -0x2001(s0) # CHECK: immediate-out-of-range.s:[[@LINE]]:{{[0-9]+}}: error: offset out of range
+

@@ -48,21 +48,6 @@ unsigned NyuziELFObjectWriter::getRelocType(MCContext &Ctx,
     Type = ELF::R_NYUZI_BRANCH;
     break;
 
-  // In normal cases, these types should not be emitted because they can be
-  // fixed up immediately (the compiler uses it to access constant pool
-  // entries at the beginning of each function). We hit this code path
-  // if there is an undefined symbol in assembly code. This will cause
-  // an error later during linking.
-  case Nyuzi::fixup_Nyuzi_PCRel_MemAccExt:
-    assert(IsPCRel);
-    Type = ELF::R_NYUZI_PCREL_MEM_EXT;
-    break;
-
-  case Nyuzi::fixup_Nyuzi_PCRel_ComputeLabelAddress:
-    assert(IsPCRel);
-    Type = ELF::R_NYUZI_PCREL_LEA;
-    break;
-
   case Nyuzi::fixup_Nyuzi_HI19:
     assert(!IsPCRel);
     Type = ELF::R_NYUZI_HI19;

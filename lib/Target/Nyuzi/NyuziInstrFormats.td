@@ -56,6 +56,11 @@ def MemAsmOperandS15 : AsmOperandClass {
   let ParserMethod = "ParseMemoryOperandS15";
 }
 
+def MemAsmOperandS14 : AsmOperandClass {
+  let Name = "MemS14";
+  let ParserMethod = "ParseMemoryOperandS14";
+}
+
 def MemAsmOperandV10 : AsmOperandClass {
   let Name = "MemV10";
   let ParserMethod = "ParseMemoryOperandV10";
@@ -73,6 +78,12 @@ class MEMS : Operand<iPTR> {
 
 def MEMS10 : MEMS {
   let ParserMatchClass = MemAsmOperandS10;
+  let MIOperandInfo = (ops GPR32, i32imm);
+  let DecoderMethod = "decodeScalarMemoryOpValue";
+}
+
+def MEMS14 : MEMS {
+  let ParserMatchClass = MemAsmOperandS14;
   let MIOperandInfo = (ops GPR32, i32imm);
   let DecoderMethod = "decodeScalarMemoryOpValue";
 }
@@ -100,13 +111,6 @@ def MEMV15 : MEMV {
   let DecoderMethod = "decodeVectorMemoryOpValue";
 }
 
-def LEAri : Operand<iPTR> {
-  let PrintMethod = "printMemOperand";
-  let EncoderMethod = "encodeLEAValue";
-  let ParserMatchClass = MemAsmOperandS15;
-  let MIOperandInfo = (ops GPR32, i32imm);
-}
-
 def cpooladdr : Operand<iPTR> {
   let PrintMethod = "printMemOperand";
   let EncoderMethod = "encodeMemoryOpValue";
@@ -121,6 +125,8 @@ def calltarget : Operand<iPTR> {
   let EncoderMethod = "encodeBranchTargetOpValue";
   let DecoderMethod = "decodeBranchTargetOpValue";
 }
+
+def symref : Operand<OtherVT> {}
 
 def SImmOperand9 : AsmOperandClass  {
   let Name = "SImm9";

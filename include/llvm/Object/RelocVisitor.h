@@ -228,8 +228,6 @@ private:
           return visitELF_NYUZI_ABS32(R, Value);
         case llvm::ELF::R_NYUZI_BRANCH:
           return visitELF_NYUZI_BRANCH(R, Value);
-        case llvm::ELF::R_NYUZI_PCREL_LEA:
-          return visitELF_NYUZI_PCREL_LEA(R, Value);
         default:
           HasError = true;
           return RelocToApply();
