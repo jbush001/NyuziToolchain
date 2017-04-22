@@ -99,21 +99,16 @@ void NyuziInstPrinter::printOperand(const MCInst *MI, unsigned OpNo,
 
 void NyuziInstPrinter::printMemOperand(const MCInst *MI, int opNum,
                                        raw_ostream &O) {
-  if (MI->getOperand(opNum + 1).isExpr()) {
-    // PC relative memory access to a local label
+  // Register/offset
+  assert(MI->getOperand(opNum).isReg());
+  assert(MI->getOperand(opNum + 1).isImm());
+
+  if (MI->getOperand(opNum + 1).getImm())
     printOperand(MI, opNum + 1, O);
-  } else {
-    // Register/offset
-    assert(MI->getOperand(opNum).isReg());
-    assert(MI->getOperand(opNum + 1).isImm());
 
-    if (MI->getOperand(opNum + 1).getImm())
-      printOperand(MI, opNum + 1, O);
-
-    O << "(";
-    printOperand(MI, opNum, O);
-    O << ")";
-  }
+  O << "(";
+  printOperand(MI, opNum, O);
+  O << ")";
 }
 
 void NyuziInstPrinter::printJumpTableOperand(const MCInst *MI, int opNum,
