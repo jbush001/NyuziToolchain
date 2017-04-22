@@ -62,8 +62,6 @@ public:
   }
 
   bool CodeAddressIsValid(lldb::addr_t pc) override {
-    // We have a 64 bit address space, so anything is valid as opcodes
-    // aren't fixed width...
     return true;
   }
 

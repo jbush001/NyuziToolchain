@@ -51,7 +51,6 @@ BitVector NyuziRegisterInfo::getReservedRegs(const MachineFunction &MF) const {
   BitVector Reserved(getNumRegs());
   Reserved.set(Nyuzi::SP_REG);
   Reserved.set(Nyuzi::RA_REG);
-  Reserved.set(Nyuzi::PC_REG);
   Reserved.set(Nyuzi::FP_REG);
   return Reserved;
 }

@@ -587,7 +587,7 @@ def RET : NyuziInstruction<
   let Inst{31-28} = 0b1111;
   let Inst{27-25} = BT_Reg.Value;
   let Inst{24-5} = 0;
-  let Inst{4-0} = 30;  // src (ra)
+  let Inst{4-0} = 31;  // src (ra)
 
   let Uses = [ RA_REG ];
   let isReturn = 1;

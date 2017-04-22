@@ -342,46 +342,46 @@ static RegisterInfo g_register_infos[] = {
      nullptr,
      nullptr,
      0},
-    {"fp",
-     "r28",
+    {"s28",
+     "",
      4,
      0,
      eEncodingUint,
      eFormatAddressInfo,
-     {28, 28, LLDB_REGNUM_GENERIC_FP, 28, 28},
+     {28, 28, LLDB_INVALID_REGNUM, 28, 28},
+     nullptr,
+     nullptr,
+     nullptr,
+     0},
+    {"fp",
+     "s29",
+     4,
+     0,
+     eEncodingUint,
+     eFormatAddressInfo,
+     {29, 29, LLDB_REGNUM_GENERIC_FP, 29, 29},
      nullptr,
      nullptr,
      nullptr,
      0},
     {"sp",
-     "r29",
+     "s30",
      4,
      0,
      eEncodingUint,
      eFormatAddressInfo,
-     {29, 29, LLDB_REGNUM_GENERIC_SP, 29, 29},
+     {30, 30, LLDB_REGNUM_GENERIC_SP, 30, 30},
      nullptr,
      nullptr,
      nullptr,
      0},
-    {"link",
-     "r30",
+    {"ra",
+     "s31",
      4,
      0,
      eEncodingUint,
      eFormatAddressInfo,
-     {30, 30, LLDB_REGNUM_GENERIC_RA, 30, 30},
-     nullptr,
-     nullptr,
-     nullptr,
-     0},
-    {"pc",
-     "r31",
-     4,
-     0,
-     eEncodingUint,
-     eFormatAddressInfo,
-     {31, 31, LLDB_REGNUM_GENERIC_PC, 31, 31},
+     {31, 31, LLDB_REGNUM_GENERIC_RA, 31, 31},
      nullptr,
      nullptr,
      nullptr,
@@ -737,7 +737,19 @@ static RegisterInfo g_register_infos[] = {
      nullptr,
      nullptr,
      nullptr,
-     0}};
+     0},
+    {"pc",
+     "",
+     4,
+     0,
+     eEncodingUint,
+     eFormatAddressInfo,
+     {64, 64, LLDB_REGNUM_GENERIC_PC, 64, 64},
+     nullptr,
+     nullptr,
+     nullptr,
+     0}
+};
 
 static const uint32_t k_num_register_infos =
     sizeof(g_register_infos) / sizeof(RegisterInfo);
@@ -787,8 +799,6 @@ bool ABINyuzi::PrepareTrivialCall(Thread &thread, lldb::addr_t sp,
 }
 
 bool ABINyuzi::GetArgumentValues(Thread &thread, ValueList &values) const {
-  printf("ABINyuzi::GetArgumentValues %d\n", values.GetSize());
-
   assert(0);
 
   return false;
@@ -819,12 +829,12 @@ ABINyuzi::GetReturnValueObjectImpl(Thread &thread,
 bool ABINyuzi::CreateFunctionEntryUnwindPlan(UnwindPlan &unwind_plan) {
   unwind_plan.Clear();
   unwind_plan.SetRegisterKind(eRegisterKindDWARF);
-  unwind_plan.SetReturnAddressRegister(30);
+  unwind_plan.SetReturnAddressRegister(31);
 
   UnwindPlan::RowSP row(new UnwindPlan::Row);
 
   // Our Call Frame Address is the stack pointer value
-  row->GetCFAValue().SetIsRegisterPlusOffset(29, 0);
+  row->GetCFAValue().SetIsRegisterPlusOffset(30, 0);
 
   unwind_plan.AppendRow(row);
 
@@ -836,10 +846,10 @@ bool ABINyuzi::CreateFunctionEntryUnwindPlan(UnwindPlan &unwind_plan) {
 bool ABINyuzi::CreateDefaultUnwindPlan(UnwindPlan &unwind_plan) {
   unwind_plan.Clear();
   unwind_plan.SetRegisterKind(eRegisterKindDWARF);
-  unwind_plan.SetReturnAddressRegister(30);
+  unwind_plan.SetReturnAddressRegister(31);
   UnwindPlan::RowSP row(new UnwindPlan::Row);
 
-  row->GetCFAValue().SetIsRegisterPlusOffset(29, 0);
+  row->GetCFAValue().SetIsRegisterPlusOffset(30, 0);
 
   unwind_plan.AppendRow(row);
   unwind_plan.SetSourceName("nyuzi default unwind plan");
@@ -853,10 +863,10 @@ bool ABINyuzi::CreateDefaultUnwindPlan(UnwindPlan &unwind_plan) {
 // PC must be marked not volatile.
 bool ABINyuzi::RegisterIsVolatile(const RegisterInfo *reg_info) {
   int reg = reg_info->kinds[eRegisterKindDWARF];
-  if (reg == 30) // link register
+  if (reg == 31) // link register
     return true;
 
-  if ((reg >= 24 && reg <= 31) || reg >= 26 + 32)
+  if ((reg >= 24 && reg < 31) || reg >= 26 + 32)
     return false;
 
   return true;

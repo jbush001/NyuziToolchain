@@ -56,7 +56,7 @@ static MCAsmInfo *createNyuziMCAsmInfo(const MCRegisterInfo &MRI,
 
   // Put an instruction into the common information entry (CIE), shared
   // by all frame description entries (FDE), which indicates the stack
-  // pointer register (r29) is used to find the canonical frame address (CFA).
+  // pointer register (r30) is used to find the canonical frame address (CFA).
   unsigned SP = MRI.getDwarfRegNum(Nyuzi::SP_REG, true);
   MCCFIInstruction Inst = MCCFIInstruction::createDefCfa(nullptr, SP, 0);
   MAI->addInitialFrameState(Inst);
