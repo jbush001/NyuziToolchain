@@ -51,14 +51,14 @@ def MemAsmOperandS10 : AsmOperandClass {
   let ParserMethod = "ParseMemoryOperandS10";
 }
 
-def MemAsmOperandS15 : AsmOperandClass {
-  let Name = "MemS15";
-  let ParserMethod = "ParseMemoryOperandS15";
-}
-
 def MemAsmOperandS14 : AsmOperandClass {
   let Name = "MemS14";
   let ParserMethod = "ParseMemoryOperandS14";
+}
+
+def MemAsmOperandS15 : AsmOperandClass {
+  let Name = "MemS15";
+  let ParserMethod = "ParseMemoryOperandS15";
 }
 
 def MemAsmOperandV10 : AsmOperandClass {

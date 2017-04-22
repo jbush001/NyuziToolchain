@@ -47,8 +47,6 @@ private:
 
  explicit NyuziMCExpr(VariantKind Kind, const MCExpr *Expr)
      : Kind(Kind), Expr(Expr) {}
-
-
 };
 
 } // end namespace llvm
