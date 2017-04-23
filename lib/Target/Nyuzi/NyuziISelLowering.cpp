@@ -119,9 +119,7 @@ NyuziTargetLowering::NyuziTargetLowering(const TargetMachine &TM,
     { ISD::SETCC, MVT::v16i1 },
     { ISD::CTLZ_ZERO_UNDEF, MVT::i32 },
     { ISD::CTTZ_ZERO_UNDEF, MVT::i32 },
-    { ISD::UINT_TO_FP, MVT::i32 },
     { ISD::UINT_TO_FP, MVT::v16i1 },
-    { ISD::UINT_TO_FP, MVT::v16i32 },
     { ISD::SINT_TO_FP, MVT::v16i1 },
     { ISD::FP_TO_SINT, MVT::v16i1 },
     { ISD::FP_TO_UINT, MVT::v16i1 },
@@ -187,7 +185,9 @@ NyuziTargetLowering::NyuziTargetLowering(const TargetMachine &TM,
     { ISD::FCOPYSIGN, MVT::f32 },
     { ISD::FFLOOR, MVT::f32 },
     { ISD::FFLOOR, MVT::v16f32 },
-    { ISD::BR_JT, MVT::Other }
+    { ISD::BR_JT, MVT::Other },
+    { ISD::UINT_TO_FP, MVT::i32 },
+    { ISD::UINT_TO_FP, MVT::v16i32 }
   };
 
   for (auto Action : ExpandActions)
@@ -1366,55 +1366,6 @@ SDValue NyuziTargetLowering::LowerUINT_TO_FP(SDValue Op,
                                   DAG.getConstantFP(1.0, DL, ElementType));
     return DAG.getNode(ISD::VSELECT, DL, MVT::v16f32, Op.getOperand(0),
                        TrueVal, FalseVal);
-  }
-
-  //
-  // The architecture only supports signed integer to floating point.  If the
-  // source value is negative (when treated as signed), then add UINT_MAX to the
-  // resulting floating point value to adjust it.
-  // This is a simpler version of SelectionDAGLegalize::ExpandLegalINT_TO_FP.
-  // I've done a custom expansion because the default version uses arithmetic
-  // with constant pool symbols, and that gets clobbered (see comments in
-  // NyuziMCInstLower::Lower)
-  //
-  MVT ResultVT = Op.getValueType().getSimpleVT();
-  SDValue RVal = Op.getOperand(0);
-  SDValue SignedVal = DAG.getNode(ISD::SINT_TO_FP, DL, ResultVT, RVal);
-
-  // Load constant offset to adjust
-  Constant *AdjustConst =
-      ConstantInt::get(Type::getInt32Ty(*DAG.getContext()),
-                       0x4f800000); // UINT_MAX in float format
-  SDValue CPIdx = DAG.getConstantPool(AdjustConst, MVT::f32);
-
-  // XXX is this necessary, or will codegen call LowerConstantPool to convert
-  // to a load?
-  SDValue AdjustReg = DAG.getLoad(
-      MVT::f32, DL, DAG.getEntryNode(), CPIdx,
-      MachinePointerInfo::getConstantPool(DAG.getMachineFunction()), 4);
-  if (ResultVT.isVector()) {
-    // Vector Result
-    SDValue ZeroVec = DAG.getNode(NyuziISD::SPLAT, DL, MVT::v16i32,
-                                  DAG.getConstant(0, DL, MVT::i32));
-    SDValue IsNegativeMask =
-        DAG.getSetCC(DL, MVT::v16i1, RVal, ZeroVec, ISD::SETLT);
-
-    SDValue AdjustVec =
-        DAG.getNode(NyuziISD::SPLAT, DL, MVT::v16f32, AdjustReg);
-    SDValue Adjusted =
-        DAG.getNode(ISD::FADD, DL, ResultVT, SignedVal, AdjustVec);
-
-    return DAG.getNode(ISD::VSELECT, DL, ResultVT, IsNegativeMask, Adjusted,
-                       SignedVal);
-  } else {
-    // Scalar Result.  If the result is negative, add UINT_MASK to make it
-    // positive
-    SDValue IsNegative = DAG.getSetCC(
-        DL, MVT::i32, RVal, DAG.getConstant(0, DL, MVT::i32), ISD::SETLT);
-    SDValue Adjusted =
-        DAG.getNode(ISD::FADD, DL, MVT::f32, SignedVal, AdjustReg);
-    return DAG.getNode(NyuziISD::SEL_COND_RESULT, DL, MVT::f32, IsNegative,
-                       Adjusted, SignedVal);
   }
 }
 

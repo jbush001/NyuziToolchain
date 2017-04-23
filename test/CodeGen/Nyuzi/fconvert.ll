@@ -18,10 +18,9 @@ define float @test_sitofp(i32 %a) { ; CHECK-LABEL: test_sitofp:
 define float @test_uitofp(i32 %a) { ; CHECK-LABEL: test_uitofp:
   %conv = uitofp i32 %a to float
 
-  ; CHECK: itof [[CONV:s[0-9]+]], [[SRCVAL:s[0-9]+]]
-  ; CHECK: cmplt_i [[CMPVAL:s[0-9]+]], [[SRCVAL]], 0
-  ; CHECK: bnz [[CMPVAL]],
-  ; CHECK: add_f s{{[0-9]+}}, [[CONV]],
+  ; CHECK: cmplt_i s{{[0-9]+}}, s{{[0-9]+}}, 0
+  ; CHECK: itof s{{[0-9]+}}, s{{[0-9]+}}
+  ; CHECK: add_f s{{[0-9]+}}, s{{[0-9]+}}, s{{[0-9]+}}
 
   ret float %conv
 }
@@ -42,14 +41,11 @@ define <16 x float> @test_sitofpv(<16 x i32> %a) { ; CHECK-LABEL: test_sitofpv:
   ret <16 x float> %conv
 }
 
-; This must adjust signed results like uitofp, but does it with a predicated
-; instruction because it's working on vectors.
+; This must adjust signed results like uitofp, but expands differently.
 define <16 x float> @test_uitofpv(<16 x i32> %a) { ; CHECK-LABEL: test_uitofpv:
   %conv = uitofp <16 x i32> %a to <16 x float>
 
-  ; CHECK: itof [[CONV:v[0-9]+]], [[SRCVAL:v[0-9]+]]
-  ; CHECK: cmplt_i [[CMPVAL:s[0-9]+]], [[SRCVAL]], 0
-  ; CHECK: add_f_mask v{{[0-9]+}}, [[CMPVAL]], [[CONV]],
+  ; CHECK: itof v{{[0-9]+}}, v{{[0-9]+}}
 
   ret <16 x float> %conv
 }
