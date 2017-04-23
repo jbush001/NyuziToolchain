@@ -13,6 +13,7 @@
 #include "llvm/MC/MCContext.h"
 #include "llvm/MC/MCExpr.h"
 #include "llvm/MC/MCInst.h"
+#include "llvm/MC/MCRegisterInfo.h"
 #include "llvm/MC/MCParser/MCAsmLexer.h"
 #include "llvm/MC/MCParser/MCParsedAsmOperand.h"
 #include "llvm/MC/MCParser/MCTargetAsmParser.h"
@@ -56,7 +57,7 @@ class NyuziAsmParser : public MCTargetAsmParser {
   OperandMatchResultTy ParseMemoryOperandV10(OperandVector &Operands);
   OperandMatchResultTy ParseMemoryOperandV15(OperandVector &Operands);
   OperandMatchResultTy ParseMemoryOperand(OperandVector &Operands, int MaxBits,
-                                          bool IsVector);
+                                          bool OpIsVector);
   OperandMatchResultTy ParseImmediate(OperandVector &Operands, int MaxBits, bool isSigned);
   OperandMatchResultTy ParseSImm9Value(OperandVector &Operands);
   OperandMatchResultTy ParseSImm14Value(OperandVector &Operands);
@@ -570,7 +571,7 @@ NyuziAsmParser::ParseMemoryOperandV15(OperandVector &Operands) {
 
 OperandMatchResultTy
 NyuziAsmParser::ParseMemoryOperand(OperandVector &Operands, int MaxBits,
-                                   bool IsVector) {
+                                   bool OpIsVector) {
   SMLoc S = Parser.getTok().getLoc();
   const MCExpr *Offset = nullptr;
   if (getLexer().is(AsmToken::Integer) || getLexer().is(AsmToken::Minus) ||
@@ -603,10 +604,10 @@ NyuziAsmParser::ParseMemoryOperand(OperandVector &Operands, int MaxBits,
     return MatchOperand_ParseFail;
   }
 
-  // XXX hack: should probably use tablegen'd register info to determine
-  // if this is a vector register rather than hard coding indices.
-  if ((IsVector && RegNo < 32) || (!IsVector && RegNo >= 32)) {
-    Error(Parser.getTok().getLoc(), "invalid operand for instruction");
+  bool RegIsVector = NyuziMCRegisterClasses[Nyuzi::VR512RegClassID]
+    .contains(RegNo);
+  if (RegIsVector != OpIsVector) {
+    Error(_S, "invalid operand for instruction");
     return MatchOperand_ParseFail;
   }
 
