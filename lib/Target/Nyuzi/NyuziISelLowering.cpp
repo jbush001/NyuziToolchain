@@ -1356,17 +1356,17 @@ SDValue NyuziTargetLowering::LowerUINT_TO_FP(SDValue Op,
                                              SelectionDAG &DAG) const {
   SDLoc DL(Op);
 
-  if (Op.getOperand(0).getSimpleValueType() == MVT::v16i1) {
-    // Convert a v16i1 mask into floating point values with predicated
-    // move.
-    EVT ElementType = Op.getValueType().getVectorElementType();
-    SDValue FalseVal = DAG.getNode(NyuziISD::SPLAT, DL, MVT::v16f32,
-                                   DAG.getConstantFP(0.0, DL, ElementType));
-    SDValue TrueVal = DAG.getNode(NyuziISD::SPLAT, DL, MVT::v16f32,
-                                  DAG.getConstantFP(1.0, DL, ElementType));
-    return DAG.getNode(ISD::VSELECT, DL, MVT::v16f32, Op.getOperand(0),
-                       TrueVal, FalseVal);
-  }
+  assert(Op.getOperand(0).getSimpleValueType() == MVT::v16i1);
+
+  // Convert a v16i1 mask into floating point values with predicated
+  // move.
+  EVT ElementType = Op.getValueType().getVectorElementType();
+  SDValue FalseVal = DAG.getNode(NyuziISD::SPLAT, DL, MVT::v16f32,
+                                 DAG.getConstantFP(0.0, DL, ElementType));
+  SDValue TrueVal = DAG.getNode(NyuziISD::SPLAT, DL, MVT::v16f32,
+                                DAG.getConstantFP(1.0, DL, ElementType));
+  return DAG.getNode(ISD::VSELECT, DL, MVT::v16f32, Op.getOperand(0),
+                     TrueVal, FalseVal);
 }
 
 SDValue NyuziTargetLowering::LowerSINT_TO_FP(SDValue Op,
