@@ -110,9 +110,3 @@ void NyuziInstPrinter::printMemOperand(const MCInst *MI, int opNum,
   printOperand(MI, opNum, O);
   O << ")";
 }
-
-void NyuziInstPrinter::printJumpTableOperand(const MCInst *MI, int opNum,
-                                             raw_ostream &O) {
-  const MCOperand &Op = MI->getOperand(2);
-  printExpr(Op.getExpr(), &MAI, O);
-}
