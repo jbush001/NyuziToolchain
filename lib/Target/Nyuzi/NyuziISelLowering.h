@@ -109,7 +109,7 @@ private:
   MachineBasicBlock *EmitSelectCC(MachineInstr &MI,
                                   MachineBasicBlock *BB) const;
   MachineBasicBlock *EmitAtomicBinary(MachineInstr &MI, MachineBasicBlock *BB,
-                                      unsigned Opcode) const;
+                                      unsigned Opcode, bool InvertResult = false) const;
   MachineBasicBlock *EmitAtomicCmpSwap(MachineInstr &MI,
                                        MachineBasicBlock *BB) const;
 

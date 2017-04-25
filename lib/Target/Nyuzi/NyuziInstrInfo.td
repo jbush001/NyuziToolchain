@@ -455,6 +455,7 @@ let usesCustomInserter = 1 in {
   defm ATOMIC_LOAD_AND : AtomicBinary<atomic_load_and>;
   defm ATOMIC_LOAD_OR  : AtomicBinary<atomic_load_or>;
   defm ATOMIC_LOAD_XOR : AtomicBinary<atomic_load_xor>;
+  defm ATOMIC_LOAD_NAND : AtomicBinary<atomic_load_nand>;
 
   def ATOMIC_CMP_SWAP : Pseudo<
     (outs GPR32:$dest),

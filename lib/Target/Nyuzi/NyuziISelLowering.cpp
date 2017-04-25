@@ -647,6 +647,9 @@ NyuziTargetLowering::EmitInstrWithCustomInserter(MachineInstr &MI,
   case Nyuzi::ATOMIC_LOAD_SUBR:
     return EmitAtomicBinary(MI, BB, Nyuzi::SUBISSS);
 
+    case Nyuzi::ATOMIC_LOAD_NANDR:
+      return EmitAtomicBinary(MI, BB, Nyuzi::ANDSSS, true);
+
   case Nyuzi::ATOMIC_LOAD_SUBI:
     return EmitAtomicBinary(MI, BB, Nyuzi::SUBISSI);
 
@@ -668,7 +671,8 @@ NyuziTargetLowering::EmitInstrWithCustomInserter(MachineInstr &MI,
   case Nyuzi::ATOMIC_LOAD_XORI:
     return EmitAtomicBinary(MI, BB, Nyuzi::XORSSI);
 
-  // XXX ATOMIC_LOAD_NAND is not supported
+  case Nyuzi::ATOMIC_LOAD_NANDI:
+    return EmitAtomicBinary(MI, BB, Nyuzi::ANDSSI, true);
 
   case Nyuzi::ATOMIC_SWAP:
     return EmitAtomicBinary(MI, BB, 0);
@@ -1542,7 +1546,7 @@ NyuziTargetLowering::EmitSelectCC(MachineInstr &MI,
 
 MachineBasicBlock *
 NyuziTargetLowering::EmitAtomicBinary(MachineInstr &MI, MachineBasicBlock *BB,
-                                      unsigned Opcode) const {
+                                      unsigned Opcode, bool InvertResult) const {
   const TargetInstrInfo *TII = Subtarget.getInstrInfo();
 
   unsigned Dest = MI.getOperand(0).getReg();
@@ -1579,16 +1583,25 @@ NyuziTargetLowering::EmitAtomicBinary(MachineInstr &MI, MachineBasicBlock *BB,
   if (Opcode != 0) {
     // Perform an operation
     NewValue = MRI.createVirtualRegister(&Nyuzi::GPR32RegClass);
-    if (MI.getOperand(2).getType() == MachineOperand::MO_Register)
+    if (MI.getOperand(2).getType() == MachineOperand::MO_Register) {
       BuildMI(BB, DL, TII->get(Opcode), NewValue)
           .addReg(OldValue)
           .addReg(MI.getOperand(2).getReg());
-    else if (MI.getOperand(2).getType() == MachineOperand::MO_Immediate)
+    } else if (MI.getOperand(2).getType() == MachineOperand::MO_Immediate) {
       BuildMI(BB, DL, TII->get(Opcode), NewValue)
           .addReg(OldValue)
           .addImm(MI.getOperand(2).getImm());
-    else
+    } else
       llvm_unreachable("Unknown operand type");
+
+    if (InvertResult) {
+      // This is used with AND to create NAND.
+      unsigned int Inverted = MRI.createVirtualRegister(&Nyuzi::GPR32RegClass);
+      BuildMI(BB, DL, TII->get(Nyuzi::XORSSI), Inverted)
+          .addReg(NewValue)
+          .addImm(-1);
+      NewValue = Inverted;
+    }
   } else
     NewValue = OldValue; // This is just swap: use old value
 

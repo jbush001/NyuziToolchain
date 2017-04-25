@@ -102,6 +102,26 @@ define i32 @atomic_xor_imm(i32* %ptr) { ; CHECK-LABEL: atomic_xor_imm:
   ret i32 %tmp
 }
 
+define i32 @atomic_nand_reg(i32* %ptr, i32 %value) { ; CHECK-LABEL: atomic_nand_reg:
+  %tmp = atomicrmw volatile nand i32* %ptr, i32 %value monotonic
+
+  ; CHECK: and [[NEWVAL1:s[0-9]+]], s{{[0-9]+}}, s1
+  ; CHECK: xor [[NEWVAL2:s[0-9]+]], [[NEWVAL1]], -1
+  ; CHECK: store_sync [[NEWVAL2]], (s0)
+
+  ret i32 %tmp
+}
+
+define i32 @atomic_nand_imm(i32* %ptr) { ; CHECK-LABEL: atomic_nand_imm:
+  %tmp = atomicrmw volatile nand i32* %ptr, i32 13 monotonic
+
+  ; CHECK: and [[NEWVAL1:s[0-9]+]], s{{[0-9]+}}, 13
+  ; CHECK: xor [[NEWVAL2:s[0-9]+]], [[NEWVAL1]], -1
+  ; CHECK: store_sync [[NEWVAL2]], (s0)
+
+  ret i32 %tmp
+}
+
 define i32 @atomic_xchg(i32* %ptr, i32 %value) { ; CHECK-LABEL: atomic_xchg:
   %tmp = atomicrmw volatile xchg i32* %ptr, i32 %value monotonic
 
