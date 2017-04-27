@@ -12,11 +12,11 @@ BB:
   ; SETUO node.
   %res = fcmp une <16 x float> %a, %a
 
-  ; CHECK: cmpeq_f [[CMPVAL:s[0-9]+]], v0, v0
+  ; CHECK-DAG: cmpeq_f [[CMPVAL:s[0-9]+]], v0, v0
   ; 0xffff
-	; CHECK: movehi [[TMP1:s[0-9]+]], 7
-	; CHECK: or [[TMP2:s[0-9]+]], [[TMP1]], 8191
-  ; CHECK: xor s0, [[CMPVAL]], [[TMP2]]
+	; CHECK-DAG: movehi [[TMP1:s[0-9]+]], 7
+	; CHECK-DAG: or [[TMP2:s[0-9]+]], [[TMP1]], 8191
+  ; CHECK-DAG: xor s0, [[CMPVAL]], [[TMP2]]
 
   ret <16 x i1> %res
 }

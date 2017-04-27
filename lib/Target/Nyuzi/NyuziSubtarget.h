@@ -57,14 +57,12 @@ public:
   const SelectionDAGTargetInfo *getSelectionDAGInfo() const override {
     return &TSInfo;
   }
-
-  // Currently disabled because these cause bad code gen with large stack frames
-  //  bool enableMachineScheduler() const override {
-  //    return true;
-  //  }
-  //  bool enablePostRAScheduler() const override {
-  //    return true;
-  //  }
+  bool enableMachineScheduler() const override {
+    return true;
+  }
+  bool enablePostRAScheduler() const override {
+    return true;
+  }
   const InstrItineraryData *getInstrItineraryData() const override {
     return &InstrItins;
   }

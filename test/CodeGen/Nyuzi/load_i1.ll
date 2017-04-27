@@ -13,10 +13,12 @@ define i32 @sextloadi1() { ; CHECK-LABEL: sextloadi1:
   %1 = load i1, i1* @glob, align 4
   %2 = sext i1 %1 to i32
 
-	; CHECK: load_u8 s0, (s0)
-	; CHECK: and s0, s0, 1
-	; CHECK: move s1, 0
-	; CHECK: sub_i s0, s1, s0
+	; CHECK-DAG: movehi [[A:s[0-9]+]], hi(glob)
+	; CHECK-DAG: or [[B:s[0-9]+]], [[A]], lo(glob)
+	; CHECK-DAG: load_u8 [[C:s[0-9]+]], ([[B]])
+	; CHECK-DAG: move [[D:s[0-9]+]], 0
+	; CHECK-DAG: and [[E:s[0-9]+]], [[C]], 1
+	; CHECK-DAG: sub_i s0, [[D]], [[E]]
 
   ret i32 %2
 }

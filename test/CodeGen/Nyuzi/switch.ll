@@ -16,12 +16,12 @@ entry:
     i32 3, label %sw.bb4
   ]
 
-  ; CHECK: movehi s2, hi(.LJTI0_0)
-  ; CHECK: or s2, s2, lo(.LJTI0_0)
-  ; CHECK: shl s0, s0, 2
-  ; CHECK: add_i s0, s0, s2
-  ; CHECK: load_32 s0, (s0)
-  ; CHECK: b s0
+  ; CHECK-DAG: movehi [[A:s[0-9]+]], hi(.LJTI0_0)
+  ; CHECK-DAG: or [[B:s[0-9]+]], [[A]], lo(.LJTI0_0)
+  ; CHECK-DAG: shl [[D:s[0-9]+]], s0, 2
+  ; CHECK-DAG: add_i [[E:s[0-9]+]], [[D]], [[B]]
+  ; CHECK: load_32 [[C:s[0-9]+]], ([[E]])
+  ; CHECK: b [[C]]
 
 sw.bb:
   %add = add nsw i32 %j, 1

@@ -47,11 +47,11 @@ entry:
 define <16 x i1> @nonconst(i1 %a, i1 %b) { ; CHECK-LABEL: nonconst:
 entry:
   ; CHECK-NOT: load_32
-  ; CHECK: and s0, s0, 1
-  ; CHECK: and s1, s1, 1
-  ; CHECK: shl s1, s1, 8
-  ; CHECK: or s0, s1, s0
-  ; CHECK: shl s0, s0, 5
+  ; CHECK-DAG: and [[A:s[0-9]+]], s0, 1
+  ; CHECK-DAG: and [[B:s[0-9]+]], s1, 1
+  ; CHECK-DAG: shl [[E:s[0-9]+]], [[B]], 8
+  ; CHECK-DAG: or [[F:s[0-9]+]], [[E]], [[A]]
+  ; CHECK: shl [[G:s[0-9]+]], [[A]], 5
   %0 = insertelement <16 x i1> zeroinitializer, i1 %a, i32 5
   %1 = insertelement <16 x i1> %0, i1 %b, i32 13
   ret <16 x i1> %1

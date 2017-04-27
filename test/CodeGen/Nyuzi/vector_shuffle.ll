@@ -179,13 +179,13 @@ define <16 x i32> @shuffle_only2(<16 x i32> %a, <16 x i32> %b) { ; CHECK-LABEL: 
 define <16 x i32> @test_shuffle_mix(<16 x i32> %a, <16 x i32> %b) { ; CHECK-LABEL: test_shuffle_mix:
   %res = shufflevector <16 x i32> %a, <16 x i32> %b, <16 x i32> < i32 31, i32 14, i32 29, i32 12, i32 27, i32 10, i32 25, i32 8, i32 23, i32 6, i32 21, i32 4, i32 19, i32 2, i32 17, i32 0 >
 
-  ; CHECK: movehi s0, hi([[SM_SHUFFLEVECCP]])
-  ; CHECK: or s0, s0, lo([[SM_SHUFFLEVECCP]])
-  ; CHECK: load_v [[SM_SHUFFLEVEC:v[0-9]+]], (s0)
-  ; CHECK: shuffle v0, v0, [[SM_SHUFFLEVEC]]
-  ; CHECK: movehi [[TMP5:s[0-9]+]], 2
-  ; CHECK: or [[SM_MASK:s[0-9]+]], [[TMP5]], 5461
-  ; CHECK: shuffle_mask {{v[0-9]+}}, [[SM_MASK]], v1, [[SM_SHUFFLEVEC]]
+  ; CHECK-DAG: movehi s0, hi([[SM_SHUFFLEVECCP]])
+  ; CHECK-DAG: or s0, s0, lo([[SM_SHUFFLEVECCP]])
+  ; CHECK-DAG: load_v [[SM_SHUFFLEVEC:v[0-9]+]], (s0)
+  ; CHECK-DAG: shuffle v0, v0, [[SM_SHUFFLEVEC]]
+  ; CHECK-DAG: movehi [[TMP5:s[0-9]+]], 2
+  ; CHECK-DAG: or [[SM_MASK:s[0-9]+]], [[TMP5]], 5461
+  ; CHECK-DAG: shuffle_mask {{v[0-9]+}}, [[SM_MASK]], v1, [[SM_SHUFFLEVEC]]
 
   ret <16 x i32> %res
 }
@@ -204,19 +204,19 @@ define <16 x i32> @test_shuffle_undef(<16 x i32> %a, <16 x i32> %b) { ; CHECK-LA
 define <16 x i1> @test_shuffle_mix_bits(<16 x i1> %a, <16 x i1> %b) { ; CHECK-LABEL: test_shuffle_mix_bits:
   %res = shufflevector <16 x i1> %a, <16 x i1> %b, <16 x i32> < i32 31, i32 14, i32 29, i32 12, i32 27, i32 10, i32 25, i32 8, i32 23, i32 6, i32 21, i32 4, i32 19, i32 2, i32 17, i32 0 >
 
-  ; CHECK: move v0, 0
-  ; CHECK: move v1, v0
-  ; CHECK: move_mask v1, s1, 1
-  ; CHECK: move_mask v0, s0, 1
-  ; CHECK: movehi s0, hi(.LCPI12_0)
-  ; CHECK: or s0, s0, lo(.LCPI12_0)
-  ; CHECK: load_v v2, (s0)
-  ; CHECK: shuffle v0, v0, v2
-  ; CHECK: movehi s0, 2
-  ; CHECK: or s0, s0, 5461
-  ; CHECK: shuffle_mask v0, s0, v1, v2
-  ; CHECK: and v0, v0, 1
-  ; CHECK: cmpeq_i s0, v0, 1
+  ; CHECK-DAG: movehi [[A:s[0-9]+]], hi(.LCPI12_0)
+  ; CHECK-DAG: or [[B:s[0-9]+]], [[A]], lo(.LCPI12_0)
+  ; CHECK-DAG: load_v [[C:v[0-9]+]], ([[B]])
+  ; CHECK-DAG: move [[D:v[0-9]+]], 0
+  ; CHECK-DAG: move [[E:v[0-9]+]], [[D]]
+  ; CHECK-DAG: move_mask [[D]], s0, 1
+  ; CHECK-DAG: movehi [[G:s[0-9]+]], 2
+  ; CHECK-DAG: move_mask [[E]], s1, 1
+  ; CHECK-DAG: shuffle [[I:v[0-9]+]], [[D]], [[C]]
+  ; CHECK-DAG: or [[H:s[0-9]+]], [[G]], 5461
+  ; CHECK-DAG: shuffle_mask [[J:v[0-9]+]], [[H]], [[E]], [[C]]
+  ; CHECK-DAG: and [[C]], [[J]], 1
+  ; CHECK-DAG: cmpeq_i s0, [[C]], 1
 
   ret <16 x i1> %res
 }

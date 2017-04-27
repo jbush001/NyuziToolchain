@@ -157,12 +157,12 @@ define <16 x i8> @extloadi8vec(<16 x i8>* %array) { ; CHECK-LABEL: extloadi8vec:
   %ptr = getelementptr inbounds <16 x i8>, <16 x i8>* %array, i32 0
   %tmp = load <16 x i8>, <16 x i8>* %ptr
 
-	; CHECK: lea s1, (sp)
-	; CHECK: or s2, s1, 60
-	; CHECK: load_{{[su]}}8 s3, 15(s0)
-	; CHECK: store_32 s3, (s2)
+	; CHECK-DAG: lea [[A:s[0-9]+]], (sp)
+	; CHECK-DAG: or [[B:s[0-9]+]], [[A]], 60
+	; CHECK-DAG: load_{{[us]}}8 [[C:s[0-9]+]], 15(s0)
+	; CHECK-DAG: store_32 [[C]], ([[B]])
   ; ...
-  ; CHECK: load_v v0, (sp)
+  ; CHECK-DAG: load_v v0, (sp)
 
   ret <16 x i8> %tmp
 }
@@ -171,12 +171,12 @@ define <16 x i16> @extloadi16vec(<16 x i16>* %array) { ; CHECK-LABEL: extloadi16
   %ptr = getelementptr inbounds <16 x i16>, <16 x i16>* %array, i32 0
   %tmp = load <16 x i16>, <16 x i16>* %ptr
 
-	; CHECK: lea s1, (sp)
-	; CHECK: or s2, s1, 60
-	; CHECK: load_{{[su]}}16 s3, 30(s0)
-	; CHECK: store_32 s3, (s2)
+	; CHECK-DAG: lea [[A:s[0-9]+]], (sp)
+	; CHECK-DAG: or [[B:s[0-9]+]], [[A]], 60
+	; CHECK-DAG: load_{{[us]}}16 [[C:s[0-9]+]], 30(s0)
+	; CHECK-DAG: store_32 [[C]], ([[B]])
   ; ...
-  ; CHECK: load_v v0, (sp)
+  ; CHECK-DAG: load_v v0, (sp)
 
   ret <16 x i16> %tmp
 }
@@ -187,12 +187,12 @@ define <16 x i32> @zextloadi8vec(<16 x i8>* %array) { ; CHECK-LABEL: zextloadi8v
   %tmp1 = load <16 x i8>, <16 x i8>* %ptr
   %tmp2 = zext <16 x i8> %tmp1 to <16 x i32>
 
-	; CHECK: lea s1, (sp)
-	; CHECK: or s2, s1, 60
-	; CHECK: load_u8 s3, 15(s0)
-	; CHECK: store_32 s3, (s2)
+	; CHECK-DAG: lea [[A:s[0-9]+]], (sp)
+	; CHECK-DAG: or [[B:s[0-9]+]], [[A]], 60
+	; CHECK-DAG: load_u8 [[C:s[0-9]+]], 15(s0)
+	; CHECK-DAG: store_32 [[C]], ([[B]])
   ; ...
-  ; CHECK: load_v v0, (sp)
+  ; CHECK-DAG: load_v v0, (sp)
 
   ret <16 x i32> %tmp2
 }
@@ -202,12 +202,12 @@ define <16 x i32> @zextloadi16vec(<16 x i16>* %array) { ; CHECK-LABEL: zextloadi
   %tmp1 = load <16 x i16>, <16 x i16>* %ptr
   %tmp2 = zext <16 x i16> %tmp1 to <16 x i32>
 
-	; CHECK: lea s1, (sp)
-	; CHECK: or s2, s1, 60
-	; CHECK: load_u16 s3, 30(s0)
-	; CHECK: store_32 s3, (s2)
+	; CHECK-DAG: lea [[A:s[0-9]+]], (sp)
+	; CHECK-DAG: or [[B:s[0-9]+]], [[A]], 60
+	; CHECK-DAG: load_u16 [[C:s[0-9]+]], 30(s0)
+	; CHECK-DAG: store_32 [[C]], ([[B]])
   ; ...
-  ; CHECK: load_v v0, (sp)
+  ; CHECK-DAG: load_v v0, (sp)
 
   ret <16 x i32> %tmp2
 }
@@ -218,12 +218,12 @@ define <16 x i32> @sextloadi8vec(<16 x i8>* %array) { ; CHECK-LABEL: sextloadi8v
   %tmp1 = load <16 x i8>, <16 x i8>* %ptr
   %tmp2 = sext <16 x i8> %tmp1 to <16 x i32>
 
-	; CHECK: lea s1, (sp)
-	; CHECK: or s2, s1, 60
-	; CHECK: load_s8 s3, 15(s0)
-	; CHECK: store_32 s3, (s2)
+	; CHECK-DAG: lea [[A:s[0-9]+]], (sp)
+	; CHECK-DAG: or [[B:s[0-9]+]], [[A]], 60
+	; CHECK-DAG: load_s8 [[C:s[0-9]+]], 15(s0)
+	; CHECK-DAG: store_32 [[C]], ([[B]])
   ; ...
-  ; CHECK: load_v v0, (sp)
+  ; CHECK-DAG: load_v v0, (sp)
 
   ret <16 x i32> %tmp2
 }
@@ -233,12 +233,12 @@ define <16 x i32> @sextloadi16vec(<16 x i16>* %array) { ; CHECK-LABEL: sextloadi
   %tmp1 = load <16 x i16>, <16 x i16>* %ptr
   %tmp2 = sext <16 x i16> %tmp1 to <16 x i32>
 
-	; CHECK: lea s1, (sp)
-	; CHECK: or s2, s1, 60
-	; CHECK: load_s16 s3, 30(s0)
-	; CHECK: store_32 s3, (s2)
+	; CHECK-DAG: lea [[A:s[0-9]+]], (sp)
+	; CHECK-DAG: or [[B:s[0-9]+]], [[A]], 60
+	; CHECK-DAG: load_s16 [[C:s[0-9]+]], 30(s0)
+	; CHECK-DAG: store_32 [[C]], ([[B]])
   ; ...
-  ; CHECK: load_v v0, (sp)
+  ; CHECK-DAG: load_v v0, (sp)
 
   ret <16 x i32> %tmp2
 }

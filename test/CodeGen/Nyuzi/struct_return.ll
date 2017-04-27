@@ -20,12 +20,12 @@ define void @return_struct(%struct.foo* sret %retval, i32 %param1) { ; CHECK-LAB
   %elem1ptr = getelementptr %struct.foo, %struct.foo* %retval, i32 0, i32 1
   store i32 12, i32* %elem1ptr, align 4
 
-  ; CHECK: move [[TMP:s[0-9]+]], 12
 
   ; LLVM sometimes reorders these when there are upstream changes to the
   ; optimizer, which is why they use CHECK-DAG
-  ; CHECK-DAG: store_32 [[TMP]], 4(s0)
-  ; CHECK-DAG: store_32 s1, (s0)
+  ; CHECK: store_32 s1, (s0)
+  ; CHECK: move s1, 12
+  ; CHECK: store_32 s1, 4(s0)
 
   ret void
 }

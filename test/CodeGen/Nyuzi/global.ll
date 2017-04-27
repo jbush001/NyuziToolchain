@@ -12,12 +12,12 @@ define i32 @test() {
   %1 = load i32, i32* @foo, align 4
   store i32 %1, i32* @bar, align 4
 
-  ; CHECK: movehi s0, hi(bar)
-  ; CHECK: or s1, s0, lo(bar)
-  ; CHECK: movehi s0, hi(foo)
-  ; CHECK: or s0, s0, lo(foo)
-  ; CHECK: load_32 s0, (s0)
-  ; CHECK: store_32 s0, (s1)
+  ; CHECK-DAG: movehi [[SRC1:s[0-9]+]], hi(foo)
+  ; CHECK-DAG: or [[SRC2:s[0-9]+]], [[SRC1]], lo(foo)
+  ; CHECK-DAG: load_32 [[VALUE:s[0-9]+]], ([[SRC2]])
+  ; CHECK-DAG: movehi [[DST1:s[0-9]+]], hi(bar)
+  ; CHECK-DAG: or [[DST2:s[0-9]+]], [[DST1]], lo(bar)
+  ; CHECK-DAG: store_32 [[VALUE]], ([[DST2]])
 
   ret i32 %1
 }

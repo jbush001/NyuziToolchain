@@ -54,8 +54,8 @@ define <16 x i32> @test_insert_undef(i32 %a) {  ; CHECK-LABEL: test_insert_undef
 define <16 x i1> @test_v16i1_insert(<16 x i1> %orig, i1 %a) { ; CHECK-LABEL: test_v16i1_insert
   %result = insertelement <16 x i1> %orig, i1 %a, i32 6
 
-  ; CHECK: and s0, s0, -65
   ; CHECK: and s1, s1, 1
+  ; CHECK: and s0, s0, -65
   ; CHECK: shl s1, s1, 6
   ; CHECK: or s0, s1, s0
 

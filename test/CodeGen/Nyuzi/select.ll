@@ -83,16 +83,16 @@ define <16 x i32> @selvi2(i1 %a, <16 x i32> %b, <16 x i32> %c) { ; CHECK-LABEL: 
 
   ; CHECK: cmpne_i [[PRED:s[0-9]+]], s0, 0
   ; CHECK: bnz [[PRED]], [[TRUELABEL:[\.A-Z0-9a-z_]+]]
-  ; CHECK: move s0, 0
+  ; CHECK: move [[MASK:s[0-9]+]], 0
   ; CHECK: b [[FALSELABEL:[\.A-Z0-9a-z_]+]]
   ; CHECK: [[TRUELABEL]]:
-  ; CHECK: move s0, -1
+  ; CHECK: move [[MASK]], -1
   ; CHECK: [[FALSELABEL]]:
-  ; CHECK: and v0, v0, s0
-  ; CHECK: move v2, s0
-  ; CHECK: xor v2, v2, -1
-  ; CHECK: and v1, v1, v2
-  ; CHECK: or v0, v0, v1
+  ; CHECK-DAG: move [[A:v[0-9]+]], [[MASK]]
+  ; CHECK-DAG: xor [[B:v[0-9]+]], [[A]], -1
+  ; CHECK-DAG: and [[C:v[0-9]+]], v0, [[MASK]]
+  ; CHECK-DAG: and [[D:v[0-9]+]], v1, v2
+  ; CHECK-DAG: or v0, [[C]], [[D]]
   ; CHECK: ret
 
   ret <16 x i32> %val
@@ -104,7 +104,7 @@ define <16 x float> @selvf1(i32 %a, <16 x float> %b, <16 x float> %c) { ; CHECK-
 
   %val = select i1 %cmp, <16 x float> %b, <16 x float> %c
   ; CHECK: bnz [[PRED]], [[TRUELABEL:[\.A-Z0-9a-z_]+]]
-  ; move v{{[0-9]+}}, v0
+  ; move v0, v1
   ; [[TRUELABEL]]:
 
   ret <16 x float> %val
@@ -115,16 +115,16 @@ define <16 x float> @selvf2(i1 %a, <16 x float> %b, <16 x float> %c) { ; CHECK-L
 
   ; CHECK: cmpne_i [[PRED:s[0-9]+]], s0, 0
   ; CHECK: bnz [[PRED]], [[TRUELABEL:[\.A-Z0-9a-z_]+]]
-  ; CHECK: move s0, 0
+  ; CHECK: move [[MASK:s[0-9]+]], 0
   ; CHECK: b [[FALSELABEL:[\.A-Z0-9a-z_]+]]
   ; CHECK: [[TRUELABEL]]:
-  ; CHECK: move s0, -1
+  ; CHECK: move [[MASK]], -1
   ; CHECK: [[FALSELABEL]]:
-  ; CHECK: and v0, v0, s0
-  ; CHECK: move v2, s0
-  ; CHECK: xor v2, v2, -1
-  ; CHECK: and v1, v1, v2
-  ; CHECK: or v0, v0, v1
+  ; CHECK-DAG: move [[A:v[0-9]+]], [[MASK]]
+  ; CHECK-DAG: xor [[B:v[0-9]+]], [[A]], -1
+  ; CHECK-DAG: and [[C:v[0-9]+]], v0, [[MASK]]
+  ; CHECK-DAG: and [[D:v[0-9]+]], v1, v2
+  ; CHECK-DAG: or v0, [[C]], [[D]]
   ; CHECK: ret
 
   ret <16 x float> %val
