@@ -6,8 +6,8 @@ int atomic_add(volatile int *lockvar)
 	return __sync_fetch_and_and(lockvar, 1);
 
 	// CHECK: load_sync [[SCRATCH1:s[0-9]+]], (s0)
-	// CHECK: move {{s[0-9]+}}, [[SCRATCH1]]
-	// CHECK: and [[SCRATCH2:s[0-9]+]], [[SCRATCH1]],
+	// CHECK-DAG: move {{s[0-9]+}}, [[SCRATCH1]]
+	// CHECK-DAG: and [[SCRATCH2:s[0-9]+]], [[SCRATCH1]],
 	// CHECK: store_sync [[SCRATCH2]], (s0)
 	// CHECK: bz [[SCRATCH2]],
 }
