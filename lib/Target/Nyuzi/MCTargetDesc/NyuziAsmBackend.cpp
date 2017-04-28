@@ -49,7 +49,8 @@ public:
     APInt OffsetVal(64, Value);
 
     switch ((unsigned int)Fixup.getKind()) {
-    case Nyuzi::fixup_Nyuzi_PCRel_Branch:
+    case Nyuzi::fixup_Nyuzi_Branch20:
+    case Nyuzi::fixup_Nyuzi_Branch25:
       if (!OffsetVal.isSignedIntN(Info.TargetSize) && Ctx != 0) {
         Ctx->reportError(Fixup.getLoc(), "fixup out of range");
         return 0;
@@ -97,7 +98,8 @@ public:
         // NyuziFixupKinds.h.
         //
         // name                          offset  bits  flags
-        {"fixup_Nyuzi_PCRel_Branch", 5, 20, MCFixupKindInfo::FKF_IsPCRel},
+        {"fixup_Nyuzi_Branch20", 5, 20, MCFixupKindInfo::FKF_IsPCRel},
+        {"fixup_Nyuzi_Branch25", 0, 25, MCFixupKindInfo::FKF_IsPCRel},
         {"fixup_Nyuzi_HI19", 0, 32, 0},
         {"fixup_Nyuzi_IMM_LO13", 10, 13, 0},  // This is unsigned, don't take top bit
     };

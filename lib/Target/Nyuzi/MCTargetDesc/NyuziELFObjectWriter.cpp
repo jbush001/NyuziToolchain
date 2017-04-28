@@ -43,9 +43,14 @@ unsigned NyuziELFObjectWriter::getRelocType(MCContext &Ctx,
     Type = ELF::R_NYUZI_ABS32;
     break;
 
-  case Nyuzi::fixup_Nyuzi_PCRel_Branch:
+  case Nyuzi::fixup_Nyuzi_Branch20:
     assert(IsPCRel);
-    Type = ELF::R_NYUZI_BRANCH;
+    Type = ELF::R_NYUZI_BRANCH20;
+    break;
+
+  case Nyuzi::fixup_Nyuzi_Branch25:
+    assert(IsPCRel);
+    Type = ELF::R_NYUZI_BRANCH25;
     break;
 
   case Nyuzi::fixup_Nyuzi_HI19:

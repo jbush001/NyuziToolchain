@@ -4,6 +4,7 @@
 
 ELF_RELOC(R_NYUZI_NONE,                   0x00)
 ELF_RELOC(R_NYUZI_ABS32,                  0x01)
-ELF_RELOC(R_NYUZI_BRANCH,                 0x02)
-ELF_RELOC(R_NYUZI_HI19,                   0x03)
-ELF_RELOC(R_NYUZI_IMM_LO13,               0x04)
+ELF_RELOC(R_NYUZI_BRANCH20,               0x02)
+ELF_RELOC(R_NYUZI_BRANCH25,               0x03)
+ELF_RELOC(R_NYUZI_HI19,                   0x04)
+ELF_RELOC(R_NYUZI_IMM_LO13,               0x05)

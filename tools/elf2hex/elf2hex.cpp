@@ -49,7 +49,7 @@ int main(int argc, const char *argv[]) {
     errs() << "Not an elf file\n";
     return 1;
   }
-  
+
   if (eheader.e_machine != EM_NYUZI) {
     errs() << "Incorrect architecture\n";
     return 1;
@@ -75,7 +75,7 @@ int main(int argc, const char *argv[]) {
       unsigned int highAddr = pheader[segment].p_vaddr + pheader[segment].p_memsz;
       if (highAddr > maxAddress)
         maxAddress = highAddr;
-    
+
       if (pheader[segment].p_vaddr < BaseAddress) {
         errs() << "Program segment " << segment << " @" << pheader[segment].p_vaddr
   		    << " is before requested base address " << BaseAddress << "\n";
@@ -105,7 +105,7 @@ int main(int argc, const char *argv[]) {
   fclose(inputFile);
 
   // Convert the first word into a jump instruction to the appropriate location
-  *((unsigned int *)memoryImage) = 0xf6000000 | ((eheader.e_entry - 4 - BaseAddress) << 5);
+  *((unsigned int *)memoryImage) = 0xf6000000 | (eheader.e_entry - 4 - BaseAddress);
 
   FILE *outputFile = fopen(OutputFilename.c_str(), "wb");
   if (!outputFile) {

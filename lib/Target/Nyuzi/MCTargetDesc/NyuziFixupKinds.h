@@ -23,7 +23,8 @@ namespace Nyuzi {
 // in NyuziAsmBackend.cpp.
 //
 enum Fixups {
-  fixup_Nyuzi_PCRel_Branch = FirstTargetFixupKind,  // Branch
+  fixup_Nyuzi_Branch20 = FirstTargetFixupKind,
+  fixup_Nyuzi_Branch25,
   fixup_Nyuzi_HI19,                         // Fix up 19 bit movehi value
   fixup_Nyuzi_IMM_LO13,                     // Immediate instruction w/ 13 bit offs
 

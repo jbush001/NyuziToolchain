@@ -116,14 +116,19 @@ def cpooladdr : Operand<iPTR> {
   let EncoderMethod = "encodeMemoryOpValue";
 }
 
-def brtarget : Operand<OtherVT> {
-  let EncoderMethod = "encodeBranchTargetOpValue";
-  let DecoderMethod = "decodeBranchTargetOpValue";
+def brtarget20 : Operand<OtherVT> {
+  let EncoderMethod = "encodeBranchTargetOpValue20";
+  let DecoderMethod = "decodeBranchTargetOpValue20";
+}
+
+def brtarget25 : Operand<OtherVT> {
+  let EncoderMethod = "encodeBranchTargetOpValue25";
+  let DecoderMethod = "decodeBranchTargetOpValue25";
 }
 
 def calltarget : Operand<iPTR> {
-  let EncoderMethod = "encodeBranchTargetOpValue";
-  let DecoderMethod = "decodeBranchTargetOpValue";
+  let EncoderMethod = "encodeBranchTargetOpValue25";
+  let DecoderMethod = "decodeBranchTargetOpValue25";
 }
 
 def symref : Operand<OtherVT> {}
@@ -767,22 +772,25 @@ class BranchInst<dag outputs, dag inputs, string asmString, list<dag> pattern,
   BranchType type>
   : NyuziInstruction<outputs, inputs, asmString, pattern, II_BRANCH> {
   let isBranch = 1;
-
-  bits<20> dest;
-
   let Inst{31-28} = 0b1111;
   let Inst{27-25} = type.Value;
-  let Inst{24-5} = dest;
 }
 
-class ConditionalBranchInst<dag outputs, dag inputs, string asmString, list<dag> pattern,
+class RegisterBranchInst<dag outputs, dag inputs, string asmString, list<dag> pattern,
   BranchType type>
   : BranchInst<outputs, inputs, asmString, pattern, type> {
-  bits<5> test;
 
-  let Inst{4-0} = test;
+  bits<5> reg;
+  bits<20> dest;
+
+  let Inst{24-5} = dest;
+  let Inst{4-0} = reg;
 }
 
-class UnconditionalBranchInst<dag outputs, dag inputs, string asmString, list<dag> pattern,
-  BranchType type>
-  : BranchInst<outputs, inputs, asmString, pattern, type> {}
+class NonRegisterBranchInst<dag outputs, dag inputs, string asmString,
+  list<dag> pattern, BranchType type>
+  : BranchInst<outputs, inputs, asmString, pattern, type>
+{
+  bits<25> dest;
+  let Inst{24-0} = dest;
+}

@@ -534,40 +534,38 @@ def ITLBINSERT : FormatCTwoOp<
 //////////////////////////////////////////////////////////////////
 
 let isTerminator = 1 in {
-  def B : UnconditionalBranchInst<
+  def B : NonRegisterBranchInst<
     (outs),
-    (ins brtarget:$dest),
+    (ins brtarget25:$dest),
     "b $dest",
     [(br bb:$dest)],
     BT_Uncond> {
     let isBarrier = 1;
   }
 
-  def BREG : UnconditionalBranchInst<
+  def BREG : RegisterBranchInst<
     (outs),
-    (ins GPR32:$targetreg),
-    "b $targetreg",
-    [(brind GPR32:$targetreg)],
+    (ins GPR32:$reg),
+    "b $reg",
+    [(brind GPR32:$reg)],
     BT_Reg> {
-    bits<5> targetreg;
 
     let isBarrier = 1;
     let isIndirectBranch = 1;
-    let Inst{4-0} = targetreg;
     let dest = 0;
   }
 
-  def BZ : ConditionalBranchInst<
+  def BZ : RegisterBranchInst<
     (outs),
-    (ins GPR32:$test, brtarget:$dest),
-    "bz $test, $dest",
+    (ins GPR32:$reg, brtarget20:$dest),
+    "bz $reg, $dest",
     [],
     BT_IfZero>;
 
-  def BNZ : ConditionalBranchInst<
+  def BNZ : RegisterBranchInst<
     (outs),
-    (ins GPR32:$test, brtarget:$dest),
-    "bnz $test, $dest",
+    (ins GPR32:$reg, brtarget20:$dest),
+    "bnz $reg, $dest",
     [],
     BT_IfNotZero>;
 }
@@ -577,19 +575,14 @@ def : Pat<(brcond (i32 (setne i32:$lhs, 0)), bb:$dest), (BNZ i32:$lhs, bb:$dest)
 def : Pat<(brcond (i32 (seteq i32:$lhs, 0)), bb:$dest), (BZ i32:$lhs, bb:$dest)>;
 def : Pat<(brcond i32:$lhs, bb:$dest), (BNZ i32:$lhs, bb:$dest)>;
 
-def RET : NyuziInstruction<
+def RET : RegisterBranchInst<
   (outs),
   (ins),
   "ret",
   [(return)],
-  II_BRANCH> {
-
-  // Jump to
-  let Inst{31-28} = 0b1111;
-  let Inst{27-25} = BT_Reg.Value;
-  let Inst{24-5} = 0;
-  let Inst{4-0} = 31;  // src (ra)
-
+  BT_Reg> {
+  let reg = 31; // return address
+  let dest = 0;
   let Uses = [ RA_REG ];
   let isReturn = 1;
   let isTerminator = 1;
@@ -597,15 +590,14 @@ def RET : NyuziInstruction<
 }
 
 // Return from exception
-def ERET : NyuziInstruction<
+def ERET : RegisterBranchInst<
   (outs),
   (ins),
   "eret",
   [],
-  II_BRANCH> {
-  let Inst{31-28} = 0b1111;
-  let Inst{27-25} = BT_Eret.Value;
-
+  BT_Eret> {
+  let reg = 0;
+  let dest = 0;
   let isReturn = 1;
   let isTerminator = 1;
   let isBarrier = 1;
@@ -629,22 +621,19 @@ let Defs = [ SP_REG ], Uses = [ SP_REG ], hasSideEffects = 1 in {
 // Note: Unlike other branches, call is not a terminator: it does not end a
 // basic block (subtle and serious bugs occur if it is marked as such).
 let isCall = 1, Defs = [ RA_REG ] in {
-  def CALLSYM : UnconditionalBranchInst<
+  def CALLSYM : NonRegisterBranchInst<
     (outs),
     (ins calltarget:$dest, variable_ops),
     "call $dest",
     [],
     BT_Call>;
 
-  def CALLREG : UnconditionalBranchInst<
+  def CALLREG : RegisterBranchInst<
     (outs),
-    (ins GPR32:$targetreg, variable_ops),
-    "call $targetreg",
-    [(call i32:$targetreg)],
+    (ins GPR32:$reg, variable_ops),
+    "call $reg",
+    [(call i32:$reg)],
     BT_CallReg> {
-    bits<5> targetreg;
-
-    let Inst{4-0} = targetreg;
   }
 }
 

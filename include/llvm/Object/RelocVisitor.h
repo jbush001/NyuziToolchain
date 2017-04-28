@@ -226,8 +226,10 @@ private:
         switch (RelocType) {
         case llvm::ELF::R_NYUZI_ABS32:
           return visitELF_NYUZI_ABS32(R, Value);
-        case llvm::ELF::R_NYUZI_BRANCH:
-          return visitELF_NYUZI_BRANCH(R, Value);
+        case llvm::ELF::R_NYUZI_BRANCH20:
+          return visitELF_NYUZI_BRANCH20(R, Value);
+        case llvm::ELF::R_NYUZI_BRANCH25:
+          return visitELF_NYUZI_BRANCH25(R, Value);
         default:
           HasError = true;
           return RelocToApply();
@@ -421,7 +423,15 @@ private:
     return RelocToApply(static_cast<uint32_t>(Res), 4);
   }
 
-  RelocToApply visitELF_NYUZI_BRANCH(RelocationRef R, uint64_t Value) {
+  RelocToApply visitELF_NYUZI_BRANCH20(RelocationRef R, uint64_t Value) {
+    int64_t Res =  Value + getELFAddend(R) - R.getOffset();
+
+    // XX bounds checking
+
+    return RelocToApply(static_cast<uint32_t>(Res), 4);
+  }
+
+  RelocToApply visitELF_NYUZI_BRANCH25(RelocationRef R, uint64_t Value) {
     int64_t Res =  Value + getELFAddend(R) - R.getOffset();
 
     // XX bounds checking

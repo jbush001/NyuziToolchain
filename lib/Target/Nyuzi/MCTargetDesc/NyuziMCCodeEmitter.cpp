@@ -54,9 +54,12 @@ public:
                                SmallVectorImpl<MCFixup> &Fixups,
                                const MCSubtargetInfo &STI) const;
 
-  unsigned encodeBranchTargetOpValue(const MCInst &MI, unsigned OpNo,
-                                     SmallVectorImpl<MCFixup> &Fixups,
-                                     const MCSubtargetInfo &STI) const;
+  unsigned encodeBranchTargetOpValue20(const MCInst &MI, unsigned OpNo,
+                                       SmallVectorImpl<MCFixup> &Fixups,
+                                       const MCSubtargetInfo &STI) const;
+  unsigned encodeBranchTargetOpValue25(const MCInst &MI, unsigned OpNo,
+                                       SmallVectorImpl<MCFixup> &Fixups,
+                                       const MCSubtargetInfo &STI) const;
 
   // Emit one byte through output stream (from MCBlazeMCCodeEmitter)
   void EmitByte(unsigned char C, raw_ostream &OS) const { OS << (char)C; }
@@ -125,7 +128,7 @@ NyuziMCCodeEmitter::getMachineOpValue(const MCInst &MI, const MCOperand &MO,
 // encodeBranchTargetOpValue - Return binary encoding of the jump
 // target operand. If the machine operand requires relocation,
 // record the relocation and return zero.
-unsigned NyuziMCCodeEmitter::encodeBranchTargetOpValue(
+unsigned NyuziMCCodeEmitter::encodeBranchTargetOpValue20(
     const MCInst &MI, unsigned OpNo, SmallVectorImpl<MCFixup> &Fixups,
     const MCSubtargetInfo &STI) const {
 
@@ -137,7 +140,24 @@ unsigned NyuziMCCodeEmitter::encodeBranchTargetOpValue(
          "encodeBranchTargetOpValue expects only expressions or an immediate");
 
   Fixups.push_back(MCFixup::create(0, MO.getExpr(),
-                                   MCFixupKind(Nyuzi::fixup_Nyuzi_PCRel_Branch),
+                                   MCFixupKind(Nyuzi::fixup_Nyuzi_Branch20),
+                                   MI.getLoc()));
+  return 0;
+}
+
+unsigned NyuziMCCodeEmitter::encodeBranchTargetOpValue25(
+    const MCInst &MI, unsigned OpNo, SmallVectorImpl<MCFixup> &Fixups,
+    const MCSubtargetInfo &STI) const {
+
+  const MCOperand &MO = MI.getOperand(OpNo);
+  if (MO.isImm())
+    return MO.getImm();
+
+  assert(MO.isExpr() &&
+         "encodeBranchTargetOpValue expects only expressions or an immediate");
+
+  Fixups.push_back(MCFixup::create(0, MO.getExpr(),
+                                   MCFixupKind(Nyuzi::fixup_Nyuzi_Branch25),
                                    MI.getLoc()));
   return 0;
 }
