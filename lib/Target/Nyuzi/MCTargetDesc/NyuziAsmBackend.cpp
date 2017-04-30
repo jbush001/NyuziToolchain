@@ -46,18 +46,20 @@ public:
   unsigned adjustFixupValue(const MCFixup &Fixup, uint64_t Value,
                             MCContext *Ctx) const {
     const MCFixupKindInfo &Info = getFixupKindInfo(Fixup.getKind());
-    APInt OffsetVal(64, Value);
 
     switch ((unsigned int)Fixup.getKind()) {
     case Nyuzi::fixup_Nyuzi_Branch20:
-    case Nyuzi::fixup_Nyuzi_Branch25:
-      if (!OffsetVal.isSignedIntN(Info.TargetSize) && Ctx != 0) {
+    case Nyuzi::fixup_Nyuzi_Branch25: {
+      // source location is PC + 4. Divide by 4, because the hardware
+      // will multiply it.
+      Value = static_cast<uint64_t>(static_cast<int64_t>(Value - 4) / 4);
+      if (!APInt(64, Value).isSignedIntN(Info.TargetSize) && Ctx != 0) {
         Ctx->reportError(Fixup.getLoc(), "fixup out of range");
         return 0;
       }
 
-      Value -= 4; // source location is PC + 4
-      break;
+      return Value;
+    }
     case Nyuzi::fixup_Nyuzi_HI19:
       // Immediate value is split between two instruction fields. Align
       // to proper locations

@@ -2469,6 +2469,7 @@ NyuziTargetInfo::NyuziTargetInfo() {
 }
 
 void NyuziTargetInfo::relocateOne(uint8_t *Loc, uint32_t Type, uint64_t Val) const {
+  int64_t Offset;
   switch (Type) {
   default:
     fatal("unrecognized reloc " + Twine(Type));
@@ -2476,12 +2477,14 @@ void NyuziTargetInfo::relocateOne(uint8_t *Loc, uint32_t Type, uint64_t Val) con
     write32le(Loc, Val);
     break;
   case R_NYUZI_BRANCH20:
-    checkInt<20>(Loc, Val - 4, Type);
-    applyNyuziReloc<20, 5>(Loc, Type, Val - 4);
+    Offset = (static_cast<int64_t>(Val) - 4) / 4;
+    checkInt<20>(Loc, Offset, Type);
+    applyNyuziReloc<20, 5>(Loc, Type, Offset);
     break;
   case R_NYUZI_BRANCH25:
-    checkInt<25>(Loc, Val - 4, Type);
-    applyNyuziReloc<25, 0>(Loc, Type, Val - 4);
+  Offset = (static_cast<int64_t>(Val) - 4) / 4;
+    checkInt<25>(Loc, Offset, Type);
+    applyNyuziReloc<25, 0>(Loc, Type, Offset);
     break;
   case R_NYUZI_HI19:
     applyNyuziReloc<5, 0>(Loc, Type, (Val >> 13) & 0x1f);

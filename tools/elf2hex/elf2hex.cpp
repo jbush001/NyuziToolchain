@@ -105,7 +105,8 @@ int main(int argc, const char *argv[]) {
   fclose(inputFile);
 
   // Convert the first word into a jump instruction to the appropriate location
-  *((unsigned int *)memoryImage) = 0xf6000000 | (eheader.e_entry - 4 - BaseAddress);
+  *((unsigned int *)memoryImage) = 0xf6000000 | ((eheader.e_entry - 4
+      - BaseAddress) / 4);
 
   FILE *outputFile = fopen(OutputFilename.c_str(), "wb");
   if (!outputFile) {
