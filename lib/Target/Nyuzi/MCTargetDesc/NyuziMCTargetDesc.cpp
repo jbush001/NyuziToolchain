@@ -95,7 +95,7 @@ public:
     switch (Info->get(Inst.getOpcode()).OpInfo[NumOps - 1].OperandType) {
     case MCOI::OPERAND_UNKNOWN:
     case MCOI::OPERAND_IMMEDIATE:
-      Target = Addr + 4 + Inst.getOperand(NumOps - 1).getImm();
+      Target = Addr + Inst.getOperand(NumOps - 1).getImm();
       return true;
     default:
       return false;

@@ -2477,12 +2477,12 @@ void NyuziTargetInfo::relocateOne(uint8_t *Loc, uint32_t Type, uint64_t Val) con
     write32le(Loc, Val);
     break;
   case R_NYUZI_BRANCH20:
-    Offset = (static_cast<int64_t>(Val) - 4) / 4;
+    Offset = static_cast<int64_t>(Val) / 4;
     checkInt<20>(Loc, Offset, Type);
     applyNyuziReloc<20, 5>(Loc, Type, Offset);
     break;
   case R_NYUZI_BRANCH25:
-  Offset = (static_cast<int64_t>(Val) - 4) / 4;
+    Offset = static_cast<int64_t>(Val) / 4;
     checkInt<25>(Loc, Offset, Type);
     applyNyuziReloc<25, 0>(Loc, Type, Offset);
     break;

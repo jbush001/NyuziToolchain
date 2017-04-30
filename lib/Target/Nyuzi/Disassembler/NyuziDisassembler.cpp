@@ -67,11 +67,11 @@ static DecodeStatus decodeVectorMemoryOpValue(MCInst &Inst, unsigned Insn,
                                               uint64_t Address,
                                               const void *Decoder);
 
-static DecodeStatus decodeBranchTargetOpValue20(MCInst &Inst, unsigned Insn,
+static DecodeStatus decodeBranchTargetOpValue20(MCInst &Inst, unsigned Offset,
                                                 uint64_t Address,
                                                 const void *Decoder);
 
-static DecodeStatus decodeBranchTargetOpValue25(MCInst &Inst, unsigned Insn,
+static DecodeStatus decodeBranchTargetOpValue25(MCInst &Inst, unsigned Offset,
                                                 uint64_t Address,
                                                 const void *Decoder);
 
@@ -187,25 +187,28 @@ static DecodeStatus decodeVectorMemoryOpValue(MCInst &Inst, unsigned Insn,
                              Nyuzi::VR512RegClassID);
 }
 
-static DecodeStatus decodeBranchTargetOpValue20(MCInst &Inst, unsigned Insn,
+static DecodeStatus decodeBranchTargetOpValue20(MCInst &Inst, unsigned Offset,
                                               uint64_t Address,
                                               const void *Decoder) {
+
   const MCDisassembler *Dis = static_cast<const MCDisassembler *>(Decoder);
-  if (!Dis->tryAddingSymbolicOperand(Inst, Address + 4 + SignExtend32<20>(Insn),
-                                     Address, true, 0, 4)) {
-    Inst.addOperand(MCOperand::createImm(SignExtend32<20>(Insn)));
+  int32_t AdjustedOffset = SignExtend32<20>(Offset) * 4;
+  if (!Dis->tryAddingSymbolicOperand(Inst, Address + AdjustedOffset,
+                                     Address, true, 0, 20)) {
+    Inst.addOperand(MCOperand::createImm(AdjustedOffset));
   }
 
   return MCDisassembler::Success;
 }
 
-static DecodeStatus decodeBranchTargetOpValue25(MCInst &Inst, unsigned Insn,
+static DecodeStatus decodeBranchTargetOpValue25(MCInst &Inst, unsigned Offset,
                                               uint64_t Address,
                                               const void *Decoder) {
   const MCDisassembler *Dis = static_cast<const MCDisassembler *>(Decoder);
-  if (!Dis->tryAddingSymbolicOperand(Inst, Address + 4 + SignExtend32<25>(Insn),
-                                     Address, true, 0, 4)) {
-    Inst.addOperand(MCOperand::createImm(SignExtend32<25>(Insn)));
+  int32_t AdjustedOffset = SignExtend32<25>(Offset) * 4;
+  if (!Dis->tryAddingSymbolicOperand(Inst, Address + AdjustedOffset,
+                                     Address, true, 0, 25)) {
+    Inst.addOperand(MCOperand::createImm(AdjustedOffset));
   }
 
   return MCDisassembler::Success;
