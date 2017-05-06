@@ -5,7 +5,8 @@
 # CHECK-NEXT:   Section (2) .rel.text {
 # CHECK-NEXT:     0x0 R_NYUZI_ABS32 main 0x0
 # CHECK-NEXT:     0x4 R_NYUZI_NONE - 0x0
-# CHECK-NEXT:     0x8 R_NYUZI_BRANCH - 0x0
+# CHECK-NEXT:     0x8 R_NYUZI_BRANCH20 - 0x0
+# CHECK-NEXT:     0xC R_NYUZI_BRANCH25 - 0x0
 # CHECK-NEXT:   }
 # CHECK-NEXT: ]
 
@@ -35,7 +36,10 @@ Sections:
         Type:            R_NYUZI_NONE
       - Offset:          0x8
         Symbol:          b
-        Type:            R_NYUZI_BRANCH
+        Type:            R_NYUZI_BRANCH20
+      - Offset:          0xc
+        Symbol:          c
+        Type:            R_NYUZI_BRANCH25
 
 
 Symbols:
