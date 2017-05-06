@@ -193,6 +193,8 @@ NyuziTargetLowering::NyuziTargetLowering(const TargetMachine &TM,
   for (auto Action : ExpandActions)
     setOperationAction(Action.Operation, Action.Type, Expand);
 
+  setOperationAction(ISD::TRAP, MVT::Other, Legal);
+
   // Compiler will expand these to a series of scalar stores/loads.
   setTruncStoreAction(MVT::v16i32, MVT::v16i16, Expand);
   setTruncStoreAction(MVT::v16i32, MVT::v16i8, Expand);

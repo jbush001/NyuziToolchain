@@ -692,7 +692,7 @@ def BREAK : NyuziInstruction<
   (outs),
   (ins),
   "break",
-  [],
+  [(trap)],
   II_INT> {
   let Inst{31-29} = 0b110;
   let Inst{25-20} = 0x3e;   // opcode

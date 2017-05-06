@@ -27,6 +27,7 @@ declare i32 @llvm.ctlz.i32(i32 %val)
 declare i32 @llvm.cttz.i32(i32 %val)
 declare <16 x i32> @llvm.nyuzi.__builtin_nyuzi_shufflei(<16 x i32> %a, <16 x i32> %b)
 declare <16 x float> @llvm.nyuzi.__builtin_nyuzi_shufflef(<16 x float> %a, <16 x i32> %b)
+declare void @llvm.trap()
 
 define i32 @get_control_reg() { ; CHECK-LABEL: get_control_reg:
   %1 = call i32 @llvm.nyuzi.__builtin_nyuzi_read_control_reg(i32 7)
@@ -246,4 +247,11 @@ define <16 x float> @movevsm_f(<16 x i1> %mask, <16 x float> %a, float %b) { ; C
   ; CHECK: move_mask [[DEST]], s0, v0
 
   ret <16 x float> %blended
+}
+
+define void @test_builtin_trap() {  ; CHECK-LABEL: test_builtin_trap
+  call void @llvm.trap()
+  ; CHECK: break
+
+  ret void
 }
