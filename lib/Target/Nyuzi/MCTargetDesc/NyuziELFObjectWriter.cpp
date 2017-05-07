@@ -18,7 +18,7 @@ using namespace llvm;
 namespace {
 class NyuziELFObjectWriter : public MCELFObjectTargetWriter {
 public:
-  NyuziELFObjectWriter(uint8_t OSABI);
+  explicit NyuziELFObjectWriter(uint8_t OSABI);
 
 protected:
   unsigned getRelocType(MCContext &Ctx, const MCValue &Target,

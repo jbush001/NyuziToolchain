@@ -20,9 +20,9 @@ namespace llvm {
 
 class NyuziMachineFunctionInfo : public MachineFunctionInfo {
 public:
-  NyuziMachineFunctionInfo() : SRetReturnReg(0) {}
+  NyuziMachineFunctionInfo() {}
 
-  explicit NyuziMachineFunctionInfo(MachineFunction &MF) : SRetReturnReg(0) {}
+  explicit NyuziMachineFunctionInfo(MachineFunction &MF) {}
 
   unsigned getSRetReturnReg() const { return SRetReturnReg; }
   void setSRetReturnReg(unsigned Reg) { SRetReturnReg = Reg; }
@@ -34,8 +34,8 @@ private:
 
   /// SRetReturnReg - Holds the virtual register into which the sret
   /// argument is passed.
-  unsigned SRetReturnReg;
-  int VarArgsFrameIndex;
+  unsigned SRetReturnReg = 0;
+  int VarArgsFrameIndex = -1;
 };
 }
 

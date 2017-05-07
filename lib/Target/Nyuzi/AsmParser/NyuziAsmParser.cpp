@@ -76,7 +76,7 @@ public:
 /// instruction
 struct NyuziOperand : public MCParsedAsmOperand {
 
-  enum KindTy { Token, Register, Immediate, Memory } Kind;
+  enum KindTy { K_Token, K_Register, K_Immediate, K_Memory } Kind;
 
   struct Token {
     const char *Data;
@@ -105,7 +105,7 @@ struct NyuziOperand : public MCParsedAsmOperand {
     struct MemoryOperand Mem;
   };
 
-  NyuziOperand(KindTy K) : MCParsedAsmOperand(), Kind(K) {}
+  explicit NyuziOperand(KindTy K) : MCParsedAsmOperand(), Kind(K) {}
 
 public:
   NyuziOperand(const NyuziOperand &o) : MCParsedAsmOperand() {
@@ -113,16 +113,16 @@ public:
     StartLoc = o.StartLoc;
     EndLoc = o.EndLoc;
     switch (Kind) {
-    case Register:
+    case K_Register:
       Reg = o.Reg;
       break;
-    case Immediate:
+    case K_Immediate:
       Imm = o.Imm;
       break;
-    case Token:
+    case K_Token:
       Tok = o.Tok;
       break;
-    case Memory:
+    case K_Memory:
       Mem = o.Mem;
       break;
     }
@@ -135,43 +135,43 @@ public:
   SMLoc getEndLoc() const { return EndLoc; }
 
   unsigned getReg() const {
-    assert(Kind == Register && "Invalid type access!");
+    assert(Kind == K_Register && "Invalid type access!");
     return Reg.RegNum;
   }
 
   const MCExpr *getImm() const {
-    assert(Kind == Immediate && "Invalid type access!");
+    assert(Kind == K_Immediate && "Invalid type access!");
     return Imm.Val;
   }
 
   StringRef getToken() const {
-    assert(Kind == Token && "Invalid type access!");
+    assert(Kind == K_Token && "Invalid type access!");
     return StringRef(Tok.Data, Tok.Length);
   }
 
   unsigned getMemBase() const {
-    assert((Kind == Memory) && "Invalid access!");
+    assert((Kind == K_Memory) && "Invalid access!");
     return Mem.BaseReg;
   }
 
   const MCExpr *getMemOff() const {
-    assert((Kind == Memory) && "Invalid access!");
+    assert((Kind == K_Memory) && "Invalid access!");
     return Mem.Off;
   }
 
   // Functions for testing operand type
-  bool isReg() const { return Kind == Register; }
-  bool isImm() const { return Kind == Immediate; }
-  bool isSImm9() const { return Kind == Immediate; }
-  bool isSImm14() const { return Kind == Immediate; }
-  bool isSImm19() const { return Kind == Immediate; }
-  bool isToken() const { return Kind == Token; }
-  bool isMemS10() const { return Kind == Memory; }
-  bool isMemS14() const { return Kind == Memory; }
-  bool isMemS15() const { return Kind == Memory; }
-  bool isMemV10() const { return Kind == Memory; }
-  bool isMemV15() const { return Kind == Memory; }
-  bool isMem() const { return Kind == Memory; }
+  bool isReg() const { return Kind == K_Register; }
+  bool isImm() const { return Kind == K_Immediate; }
+  bool isSImm9() const { return Kind == K_Immediate; }
+  bool isSImm14() const { return Kind == K_Immediate; }
+  bool isSImm19() const { return Kind == K_Immediate; }
+  bool isToken() const { return Kind == K_Token; }
+  bool isMemS10() const { return Kind == K_Memory; }
+  bool isMemS14() const { return Kind == K_Memory; }
+  bool isMemS15() const { return Kind == K_Memory; }
+  bool isMemV10() const { return Kind == K_Memory; }
+  bool isMemV15() const { return Kind == K_Memory; }
+  bool isMem() const { return Kind == K_Memory; }
 
   void addExpr(MCInst &Inst, const MCExpr *Expr) const {
     // Add as immediates where possible. Null MCExpr = 0
@@ -240,18 +240,18 @@ public:
 
   void print(raw_ostream &OS) const {
     switch (Kind) {
-    case Token:
+    case K_Token:
       OS << "Tok ";
       OS.write(Tok.Data, Tok.Length);
       break;
-    case Register:
+    case K_Register:
       OS << "Reg " << Reg.RegNum;
       break;
-    case Immediate:
+    case K_Immediate:
       OS << "Imm ";
       OS << *Imm.Val;
       break;
-    case Memory:
+    case K_Memory:
       OS << "Mem " << Mem.BaseReg << " ";
       if (Mem.Off)
         OS << *Mem.Off;
@@ -263,7 +263,7 @@ public:
   }
 
   static std::unique_ptr<NyuziOperand> createToken(StringRef Str, SMLoc S) {
-    auto Op = make_unique<NyuziOperand>(Token);
+    auto Op = make_unique<NyuziOperand>(K_Token);
     Op->Tok.Data = Str.data();
     Op->Tok.Length = Str.size();
     Op->StartLoc = S;
@@ -273,7 +273,7 @@ public:
 
   static std::unique_ptr<NyuziOperand> createReg(unsigned RegNo, SMLoc S,
                                                  SMLoc E) {
-    auto Op = make_unique<NyuziOperand>(Register);
+    auto Op = make_unique<NyuziOperand>(K_Register);
     Op->Reg.RegNum = RegNo;
     Op->StartLoc = S;
     Op->EndLoc = E;
@@ -282,7 +282,7 @@ public:
 
   static std::unique_ptr<NyuziOperand> createImm(const MCExpr *Val, SMLoc S,
                                                  SMLoc E) {
-    auto Op = make_unique<NyuziOperand>(Immediate);
+    auto Op = make_unique<NyuziOperand>(K_Immediate);
     Op->Imm.Val = Val;
     Op->StartLoc = S;
     Op->EndLoc = E;
@@ -291,7 +291,7 @@ public:
 
   static std::unique_ptr<NyuziOperand>
   createMem(unsigned BaseReg, const MCExpr *Offset, SMLoc S, SMLoc E) {
-    auto Op = make_unique<NyuziOperand>(Memory);
+    auto Op = make_unique<NyuziOperand>(K_Memory);
     Op->Mem.BaseReg = BaseReg;
     Op->Mem.Off = Offset;
     Op->StartLoc = S;

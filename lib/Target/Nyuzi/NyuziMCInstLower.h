@@ -27,7 +27,7 @@ class NyuziAsmPrinter;
 
 class LLVM_LIBRARY_VISIBILITY NyuziMCInstLower {
 public:
-  NyuziMCInstLower(NyuziAsmPrinter &asmprinter);
+  explicit NyuziMCInstLower(NyuziAsmPrinter &asmprinter);
   void Initialize(MCContext *C);
   void Lower(const MachineInstr *MI, MCInst &OutMI) const;
 
@@ -36,7 +36,7 @@ private:
   MCOperand LowerSymbolOperand(const MachineOperand &MO,
                                MCSymbol *Sym) const;
 
-  MCContext *Ctx;
+  MCContext *Ctx = nullptr;
   NyuziAsmPrinter &AsmPrinter;
 };
 }
