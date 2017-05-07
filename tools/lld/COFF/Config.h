@@ -43,6 +43,7 @@ struct Export {
   bool Noname = false;
   bool Data = false;
   bool Private = false;
+  bool Constant = false;
 
   // If an export is a form of /export:foo=dllname.bar, that means
   // that foo should be exported as an alias to bar in the DLL.
@@ -115,7 +116,7 @@ struct Configuration {
   unsigned LTOOptLevel = 2;
 
   // Used for /opt:lldltojobs=N
-  unsigned LTOJobs = 1;
+  unsigned LTOJobs = 0;
   // Used for /opt:lldltopartitions=N
   unsigned LTOPartitions = 1;
 

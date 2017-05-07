@@ -1783,6 +1783,7 @@ StmtResult
 Sema::ActOnObjCForCollectionStmt(SourceLocation ForLoc,
                                  Stmt *First, Expr *collection,
                                  SourceLocation RParenLoc) {
+  getCurFunction()->setHasBranchProtectedScope();
 
   ExprResult CollectionExprResult =
     CheckObjCForCollectionOperand(ForLoc, collection);
@@ -2827,7 +2828,7 @@ Sema::PerformMoveOrCopyInitialization(const InitializedEntity &Entity,
 
         // [...] If the first overload resolution fails or was not performed, or
         // if the type of the first parameter of the selected constructor is not
-        // an rvalue reference to the object’s type (possibly cv-qualified),
+        // an rvalue reference to the object's type (possibly cv-qualified),
         // overload resolution is performed again, considering the object as an
         // lvalue.
         if (!RRefType ||

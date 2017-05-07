@@ -49,8 +49,7 @@ void Argument::setParent(Function *parent) {
 
 bool Argument::hasNonNullAttr() const {
   if (!getType()->isPointerTy()) return false;
-  if (getParent()->getAttributes().
-        hasAttribute(getArgNo()+1, Attribute::NonNull))
+  if (getParent()->hasParamAttribute(getArgNo(), Attribute::NonNull))
     return true;
   else if (getDereferenceableBytes() > 0 &&
            getType()->getPointerAddressSpace() == 0)
@@ -64,13 +63,11 @@ bool Argument::hasByValAttr() const {
 }
 
 bool Argument::hasSwiftSelfAttr() const {
-  return getParent()->getAttributes().
-    hasAttribute(getArgNo()+1, Attribute::SwiftSelf);
+  return getParent()->hasParamAttribute(getArgNo(), Attribute::SwiftSelf);
 }
 
 bool Argument::hasSwiftErrorAttr() const {
-  return getParent()->getAttributes().
-    hasAttribute(getArgNo()+1, Attribute::SwiftError);
+  return getParent()->hasParamAttribute(getArgNo(), Attribute::SwiftError);
 }
 
 bool Argument::hasInAllocaAttr() const {
@@ -81,26 +78,27 @@ bool Argument::hasInAllocaAttr() const {
 bool Argument::hasByValOrInAllocaAttr() const {
   if (!getType()->isPointerTy()) return false;
   AttributeList Attrs = getParent()->getAttributes();
-  return Attrs.hasAttribute(getArgNo() + 1, Attribute::ByVal) ||
-         Attrs.hasAttribute(getArgNo() + 1, Attribute::InAlloca);
+  return Attrs.hasParamAttribute(getArgNo(), Attribute::ByVal) ||
+         Attrs.hasParamAttribute(getArgNo(), Attribute::InAlloca);
 }
 
 unsigned Argument::getParamAlignment() const {
   assert(getType()->isPointerTy() && "Only pointers have alignments");
-  return getParent()->getParamAlignment(getArgNo()+1);
-
+  return getParent()->getParamAlignment(getArgNo());
 }
 
 uint64_t Argument::getDereferenceableBytes() const {
   assert(getType()->isPointerTy() &&
          "Only pointers have dereferenceable bytes");
-  return getParent()->getDereferenceableBytes(getArgNo()+1);
+  return getParent()->getDereferenceableBytes(getArgNo() +
+                                              AttributeList::FirstArgIndex);
 }
 
 uint64_t Argument::getDereferenceableOrNullBytes() const {
   assert(getType()->isPointerTy() &&
          "Only pointers have dereferenceable bytes");
-  return getParent()->getDereferenceableOrNullBytes(getArgNo()+1);
+  return getParent()->getDereferenceableOrNullBytes(
+      getArgNo() + AttributeList::FirstArgIndex);
 }
 
 bool Argument::hasNestAttr() const {
@@ -136,32 +134,32 @@ bool Argument::hasSExtAttr() const {
 }
 
 bool Argument::onlyReadsMemory() const {
-  return getParent()->getAttributes().
-      hasAttribute(getArgNo()+1, Attribute::ReadOnly) ||
-      getParent()->getAttributes().
-      hasAttribute(getArgNo()+1, Attribute::ReadNone);
+  AttributeList Attrs = getParent()->getAttributes();
+  return Attrs.hasParamAttribute(getArgNo(), Attribute::ReadOnly) ||
+         Attrs.hasParamAttribute(getArgNo(), Attribute::ReadNone);
 }
 
-void Argument::addAttr(AttributeList AS) {
-  assert(AS.getNumSlots() <= 1 &&
-         "Trying to add more than one attribute set to an argument!");
-  AttrBuilder B(AS, AS.getSlotIndex(0));
-  getParent()->addAttributes(
-      getArgNo() + 1,
-      AttributeList::get(Parent->getContext(), getArgNo() + 1, B));
+void Argument::addAttrs(AttrBuilder &B) {
+  AttributeList AL = getParent()->getAttributes();
+  AL = AL.addAttributes(Parent->getContext(),
+                        getArgNo() + AttributeList::FirstArgIndex, B);
+  getParent()->setAttributes(AL);
 }
 
-void Argument::removeAttr(AttributeList AS) {
-  assert(AS.getNumSlots() <= 1 &&
-         "Trying to remove more than one attribute set from an argument!");
-  AttrBuilder B(AS, AS.getSlotIndex(0));
-  getParent()->removeAttributes(
-      getArgNo() + 1,
-      AttributeList::get(Parent->getContext(), getArgNo() + 1, B));
+void Argument::addAttr(Attribute::AttrKind Kind) {
+  getParent()->addAttribute(getArgNo() + AttributeList::FirstArgIndex, Kind);
+}
+
+void Argument::addAttr(Attribute Attr) {
+  getParent()->addAttribute(getArgNo() + AttributeList::FirstArgIndex, Attr);
+}
+
+void Argument::removeAttr(Attribute::AttrKind Kind) {
+  getParent()->removeAttribute(getArgNo() + AttributeList::FirstArgIndex, Kind);
 }
 
 bool Argument::hasAttribute(Attribute::AttrKind Kind) const {
-  return getParent()->hasAttribute(getArgNo() + 1, Kind);
+  return getParent()->hasParamAttribute(getArgNo(), Kind);
 }
 
 //===----------------------------------------------------------------------===//
@@ -333,7 +331,7 @@ void Function::addAttribute(unsigned i, Attribute Attr) {
   setAttributes(PAL);
 }
 
-void Function::addAttributes(unsigned i, AttributeList Attrs) {
+void Function::addAttributes(unsigned i, const AttrBuilder &Attrs) {
   AttributeList PAL = getAttributes();
   PAL = PAL.addAttributes(getContext(), i, Attrs);
   setAttributes(PAL);
@@ -351,7 +349,7 @@ void Function::removeAttribute(unsigned i, StringRef Kind) {
   setAttributes(PAL);
 }
 
-void Function::removeAttributes(unsigned i, AttributeList Attrs) {
+void Function::removeAttributes(unsigned i, const AttrBuilder &Attrs) {
   AttributeList PAL = getAttributes();
   PAL = PAL.removeAttributes(getContext(), i, Attrs);
   setAttributes(PAL);
@@ -579,12 +577,11 @@ enum IIT_Info {
   IIT_SAME_VEC_WIDTH_ARG = 31,
   IIT_PTR_TO_ARG = 32,
   IIT_PTR_TO_ELT = 33,
-  IIT_VEC_OF_PTRS_TO_ELT = 34,
+  IIT_VEC_OF_ANYPTRS_TO_ELT = 34,
   IIT_I128 = 35,
   IIT_V512 = 36,
   IIT_V1024 = 37
 };
-
 
 static void DecodeIITType(unsigned &NextElt, ArrayRef<unsigned char> Infos,
                       SmallVectorImpl<Intrinsic::IITDescriptor> &OutputTable) {
@@ -721,10 +718,11 @@ static void DecodeIITType(unsigned &NextElt, ArrayRef<unsigned char> Infos,
     OutputTable.push_back(IITDescriptor::get(IITDescriptor::PtrToElt, ArgInfo));
     return;
   }
-  case IIT_VEC_OF_PTRS_TO_ELT: {
-    unsigned ArgInfo = (NextElt == Infos.size() ? 0 : Infos[NextElt++]);
-    OutputTable.push_back(IITDescriptor::get(IITDescriptor::VecOfPtrsToElt,
-                                             ArgInfo));
+  case IIT_VEC_OF_ANYPTRS_TO_ELT: {
+    unsigned short ArgNo = (NextElt == Infos.size() ? 0 : Infos[NextElt++]);
+    unsigned short RefNo = (NextElt == Infos.size() ? 0 : Infos[NextElt++]);
+    OutputTable.push_back(
+        IITDescriptor::get(IITDescriptor::VecOfAnyPtrsToElt, ArgNo, RefNo));
     return;
   }
   case IIT_EMPTYSTRUCT:
@@ -813,7 +811,6 @@ static Type *DecodeFixedType(ArrayRef<Intrinsic::IITDescriptor> &Infos,
       Elts[i] = DecodeFixedType(Infos, Tys, Context);
     return StructType::get(Context, makeArrayRef(Elts,D.Struct_NumElements));
   }
-
   case IITDescriptor::Argument:
     return Tys[D.getArgumentNumber()];
   case IITDescriptor::ExtendArgument: {
@@ -855,15 +852,9 @@ static Type *DecodeFixedType(ArrayRef<Intrinsic::IITDescriptor> &Infos,
     Type *EltTy = VTy->getVectorElementType();
     return PointerType::getUnqual(EltTy);
   }
-  case IITDescriptor::VecOfPtrsToElt: {
-    Type *Ty = Tys[D.getArgumentNumber()];
-    VectorType *VTy = dyn_cast<VectorType>(Ty);
-    if (!VTy)
-      llvm_unreachable("Expected an argument of Vector Type");
-    Type *EltTy = VTy->getVectorElementType();
-    return VectorType::get(PointerType::getUnqual(EltTy),
-                           VTy->getNumElements());
-  }
+  case IITDescriptor::VecOfAnyPtrsToElt:
+    // Return the overloaded type (which determines the pointers address space)
+    return Tys[D.getOverloadArgNumber()];
  }
   llvm_unreachable("unhandled");
 }
@@ -1059,11 +1050,22 @@ bool Intrinsic::matchIntrinsicType(Type *Ty, ArrayRef<Intrinsic::IITDescriptor> 
       return (!ThisArgType || !ReferenceType ||
               ThisArgType->getElementType() != ReferenceType->getElementType());
     }
-    case IITDescriptor::VecOfPtrsToElt: {
-      if (D.getArgumentNumber() >= ArgTys.size())
+    case IITDescriptor::VecOfAnyPtrsToElt: {
+      unsigned RefArgNumber = D.getRefArgNumber();
+
+      // This may only be used when referring to a previous argument.
+      if (RefArgNumber >= ArgTys.size())
         return true;
-      VectorType * ReferenceType =
-              dyn_cast<VectorType> (ArgTys[D.getArgumentNumber()]);
+
+      // Record the overloaded type
+      assert(D.getOverloadArgNumber() == ArgTys.size() &&
+             "Table consistency error");
+      ArgTys.push_back(Ty);
+
+      // Verify the overloaded type "matches" the Ref type.
+      // i.e. Ty is a vector with the same width as Ref.
+      // Composed of pointers to the same element type as Ref.
+      VectorType *ReferenceType = dyn_cast<VectorType>(ArgTys[RefArgNumber]);
       VectorType *ThisArgVecTy = dyn_cast<VectorType>(Ty);
       if (!ThisArgVecTy || !ReferenceType ||
           (ReferenceType->getVectorNumElements() !=

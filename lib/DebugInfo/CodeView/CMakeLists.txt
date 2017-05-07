@@ -7,9 +7,15 @@ add_llvm_library(LLVMDebugInfoCodeView
   EnumTables.cpp
   Formatters.cpp
   Line.cpp
-  ModuleSubstream.cpp
-  ModuleSubstreamVisitor.cpp
+  ModuleDebugFileChecksumFragment.cpp
+  ModuleDebugFragment.cpp
+  ModuleDebugFragmentRecord.cpp
+  ModuleDebugFragmentVisitor.cpp
+  ModuleDebugInlineeLinesFragment.cpp
+  ModuleDebugLineFragment.cpp
+  ModuleDebugUnknownFragment.cpp
   RecordSerialization.cpp
+  StringTable.cpp
   SymbolRecordMapping.cpp
   SymbolDumper.cpp
   SymbolSerializer.cpp

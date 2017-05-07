@@ -1636,11 +1636,22 @@ private:
   transformFunctionTypeParam(ParmVarDecl *OldParam,
                              MultiLevelTemplateArgumentList &Args) {
     TypeSourceInfo *OldDI = OldParam->getTypeSourceInfo();
-    TypeSourceInfo *NewDI =
-        Args.getNumLevels()
-            ? SemaRef.SubstType(OldDI, Args, OldParam->getLocation(),
-                                OldParam->getDeclName())
-            : OldDI;
+    TypeSourceInfo *NewDI;
+    if (!Args.getNumLevels())
+      NewDI = OldDI;
+    else if (auto PackTL = OldDI->getTypeLoc().getAs<PackExpansionTypeLoc>()) {
+      // Expand out the one and only element in each inner pack.
+      Sema::ArgumentPackSubstitutionIndexRAII SubstIndex(SemaRef, 0);
+      NewDI =
+          SemaRef.SubstType(PackTL.getPatternLoc(), Args,
+                            OldParam->getLocation(), OldParam->getDeclName());
+      if (!NewDI) return nullptr;
+      NewDI =
+          SemaRef.CheckPackExpansion(NewDI, PackTL.getEllipsisLoc(),
+                                     PackTL.getTypePtr()->getNumExpansions());
+    } else
+      NewDI = SemaRef.SubstType(OldDI, Args, OldParam->getLocation(),
+                                OldParam->getDeclName());
     if (!NewDI)
       return nullptr;
 
@@ -2109,7 +2120,6 @@ struct DependencyChecker : RecursiveASTVisitor<DependencyChecker> {
   typedef RecursiveASTVisitor<DependencyChecker> super;
 
   unsigned Depth;
-  bool FindLessThanDepth;
 
   // Whether we're looking for a use of a template parameter that makes the
   // overall construct type-dependent / a dependent type. This is strictly
@@ -2120,16 +2130,25 @@ struct DependencyChecker : RecursiveASTVisitor<DependencyChecker> {
   bool Match;
   SourceLocation MatchLoc;
 
-  DependencyChecker(unsigned Depth, bool IgnoreNonTypeDependent,
-                    bool FindLessThanDepth = false)
-      : Depth(Depth), FindLessThanDepth(FindLessThanDepth),
-        IgnoreNonTypeDependent(IgnoreNonTypeDependent), Match(false) {}
+  DependencyChecker(unsigned Depth, bool IgnoreNonTypeDependent)
+      : Depth(Depth), IgnoreNonTypeDependent(IgnoreNonTypeDependent),
+        Match(false) {}
 
   DependencyChecker(TemplateParameterList *Params, bool IgnoreNonTypeDependent)
-      : DependencyChecker(Params->getDepth(), IgnoreNonTypeDependent) {}
+      : IgnoreNonTypeDependent(IgnoreNonTypeDependent), Match(false) {
+    NamedDecl *ND = Params->getParam(0);
+    if (TemplateTypeParmDecl *PD = dyn_cast<TemplateTypeParmDecl>(ND)) {
+      Depth = PD->getDepth();
+    } else if (NonTypeTemplateParmDecl *PD =
+                 dyn_cast<NonTypeTemplateParmDecl>(ND)) {
+      Depth = PD->getDepth();
+    } else {
+      Depth = cast<TemplateTemplateParmDecl>(ND)->getDepth();
+    }
+  }
 
   bool Matches(unsigned ParmDepth, SourceLocation Loc = SourceLocation()) {
-    if (FindLessThanDepth ^ (ParmDepth >= Depth)) {
+    if (ParmDepth >= Depth) {
       Match = true;
       MatchLoc = Loc;
       return true;
@@ -6432,15 +6451,6 @@ Sema::BuildExpressionFromIntegralTemplateArgument(const TemplateArgument &Arg,
   return E;
 }
 
-static bool isDependentOnOuter(NonTypeTemplateParmDecl *NTTP) {
-  if (NTTP->getDepth() == 0 || !NTTP->getType()->isDependentType())
-    return false;
-  DependencyChecker Checker(NTTP->getDepth(), /*IgnoreNonTypeDependent*/ false,
-                            /*FindLessThanDepth*/ true);
-  Checker.TraverseType(NTTP->getType());
-  return Checker.Match;
-}
-
 /// \brief Match two template parameters within template parameter lists.
 static bool MatchTemplateParameterKind(Sema &S, NamedDecl *New, NamedDecl *Old,
                                        bool Complain,
@@ -6497,10 +6507,11 @@ static bool MatchTemplateParameterKind(Sema &S, NamedDecl *New, NamedDecl *Old,
 
     // If we are matching a template template argument to a template
     // template parameter and one of the non-type template parameter types
-    // is dependent on an outer template's parameter, then we must wait until
-    // template instantiation time to actually compare the arguments.
+    // is dependent, then we must wait until template instantiation time
+    // to actually compare the arguments.
     if (Kind == Sema::TPL_TemplateTemplateArgumentMatch &&
-        (isDependentOnOuter(OldNTTP) || isDependentOnOuter(NewNTTP)))
+        (OldNTTP->getType()->isDependentType() ||
+         NewNTTP->getType()->isDependentType()))
       return true;
 
     if (!S.Context.hasSameType(OldNTTP->getType(), NewNTTP->getType())) {

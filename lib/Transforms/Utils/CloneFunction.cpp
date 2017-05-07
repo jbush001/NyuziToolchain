@@ -103,21 +103,20 @@ void llvm::CloneFunctionInto(Function *NewFunc, const Function *OldFunc,
                  ModuleLevelChanges ? RF_None : RF_NoModuleLevelChanges,
                  TypeMapper, Materializer));
 
+  SmallVector<AttributeSet, 4> NewArgAttrs(NewFunc->arg_size());
   AttributeList OldAttrs = OldFunc->getAttributes();
+
   // Clone any argument attributes that are present in the VMap.
-  for (const Argument &OldArg : OldFunc->args())
+  for (const Argument &OldArg : OldFunc->args()) {
     if (Argument *NewArg = dyn_cast<Argument>(VMap[&OldArg])) {
-      AttributeList attrs = OldAttrs.getParamAttributes(OldArg.getArgNo() + 1);
-      if (attrs.getNumSlots() > 0)
-        NewArg->addAttr(attrs);
+      NewArgAttrs[NewArg->getArgNo()] =
+          OldAttrs.getParamAttributes(OldArg.getArgNo());
     }
+  }
 
   NewFunc->setAttributes(
-      NewFunc->getAttributes()
-          .addAttributes(NewFunc->getContext(), AttributeList::ReturnIndex,
-                         OldAttrs.getRetAttributes())
-          .addAttributes(NewFunc->getContext(), AttributeList::FunctionIndex,
-                         OldAttrs.getFnAttributes()));
+      AttributeList::get(NewFunc->getContext(), OldAttrs.getFnAttributes(),
+                         OldAttrs.getRetAttributes(), NewArgAttrs));
 
   SmallVector<std::pair<unsigned, MDNode *>, 1> MDs;
   OldFunc->getAllMetadata(MDs);
@@ -246,7 +245,7 @@ namespace {
 void PruningFunctionCloner::CloneBlock(const BasicBlock *BB,
                                        BasicBlock::const_iterator StartingInst,
                                        std::vector<const BasicBlock*> &ToClone){
-  WeakVH &BBEntry = VMap[BB];
+  WeakTrackingVH &BBEntry = VMap[BB];
 
   // Have we already cloned this block?
   if (BBEntry) return;
@@ -352,7 +351,7 @@ void PruningFunctionCloner::CloneBlock(const BasicBlock *BB,
       Cond = dyn_cast_or_null<ConstantInt>(V);
     }
     if (Cond) {     // Constant fold to uncond branch!
-      SwitchInst::ConstCaseIt Case = SI->findCaseValue(Cond);
+      SwitchInst::ConstCaseHandle Case = *SI->findCaseValue(Cond);
       BasicBlock *Dest = const_cast<BasicBlock*>(Case.getCaseSuccessor());
       VMap[OldTI] = BranchInst::Create(Dest, NewBB);
       ToClone.push_back(Dest);
@@ -548,7 +547,7 @@ void llvm::CloneAndPruneIntoFromInst(Function *NewFunc, const Function *OldFunc,
   // Make a second pass over the PHINodes now that all of them have been
   // remapped into the new function, simplifying the PHINode and performing any
   // recursive simplifications exposed. This will transparently update the
-  // WeakVH in the VMap. Notably, we rely on that so that if we coalesce
+  // WeakTrackingVH in the VMap. Notably, we rely on that so that if we coalesce
   // two PHINodes, the iteration over the old PHIs remains valid, and the
   // mapping will just map us to the new node (which may not even be a PHI
   // node).

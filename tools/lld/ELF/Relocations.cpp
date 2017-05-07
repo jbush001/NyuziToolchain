@@ -147,17 +147,18 @@ template <class ELFT>
 static unsigned handleARMTlsRelocation(uint32_t Type, SymbolBody &Body,
                                        InputSectionBase &C, uint64_t Offset,
                                        int64_t Addend, RelExpr Expr) {
-  auto addModuleReloc = [&](uint64_t Off, bool LD) {
-    // The Dynamic TLS Module Index Relocation can be statically resolved to 1
-    // if we know that the TLS Symbol is in an executable.
-    if (!Body.isPreemptible() && !Config->Pic)
-      In<ELFT>::Got->Relocations.push_back(
-          {R_ABS, Target->TlsModuleIndexRel, Off, 0, &Body});
-    else {
-      SymbolBody *Dest = LD ? nullptr : &Body;
-      In<ELFT>::RelaDyn->addReloc(
-          {Target->TlsModuleIndexRel, In<ELFT>::Got, Off, false, Dest, 0});
-    }
+  // The Dynamic TLS Module Index Relocation for a symbol defined in an
+  // executable is always 1. If the target Symbol is not preemtible then
+  // we know the offset into the TLS block at static link time.
+  bool NeedDynId = Body.isPreemptible() || Config->Shared;
+  bool NeedDynOff = Body.isPreemptible();
+
+  auto AddTlsReloc = [&](uint64_t Off, uint32_t Type, SymbolBody *Dest,
+                         bool Dyn) {
+    if (Dyn)
+      In<ELFT>::RelaDyn->addReloc({Type, In<ELFT>::Got, Off, false, Dest, 0});
+    else
+      In<ELFT>::Got->Relocations.push_back({R_ABS, Type, Off, 0, Dest});
   };
 
   // Local Dynamic is for access to module local TLS variables, while still
@@ -165,7 +166,8 @@ static unsigned handleARMTlsRelocation(uint32_t Type, SymbolBody &Body,
   // GOT[e0] is the module index, with a special value of 0 for the current
   // module. GOT[e1] is unused. There only needs to be one module index entry.
   if (Expr == R_TLSLD_PC && In<ELFT>::Got->addTlsIndex()) {
-    addModuleReloc(In<ELFT>::Got->getTlsIndexOff(), true);
+    AddTlsReloc(In<ELFT>::Got->getTlsIndexOff(), Target->TlsModuleIndexRel,
+                NeedDynId ? nullptr : &Body, NeedDynId);
     C.Relocations.push_back({Expr, Type, Offset, Addend, &Body});
     return 1;
   }
@@ -176,13 +178,9 @@ static unsigned handleARMTlsRelocation(uint32_t Type, SymbolBody &Body,
   if (Expr == R_TLSGD_PC) {
     if (In<ELFT>::Got->addDynTlsEntry(Body)) {
       uint64_t Off = In<ELFT>::Got->getGlobalDynOffset(Body);
-      addModuleReloc(Off, false);
-      if (Body.isPreemptible())
-        In<ELFT>::RelaDyn->addReloc({Target->TlsOffsetRel, In<ELFT>::Got,
-                                     Off + Config->Wordsize, false, &Body, 0});
-      else
-        In<ELFT>::Got->Relocations.push_back(
-            {R_ABS, R_ARM_ABS32, Off + Config->Wordsize, 0, &Body});
+      AddTlsReloc(Off, Target->TlsModuleIndexRel, &Body, NeedDynId);
+      AddTlsReloc(Off + Config->Wordsize, Target->TlsOffsetRel, &Body,
+                  NeedDynOff);
     }
     C.Relocations.push_back({Expr, Type, Offset, Addend, &Body});
     return 1;
@@ -235,7 +233,7 @@ handleTlsRelocation(uint32_t Type, SymbolBody &Body, InputSectionBase &C,
   }
 
   // Local-Dynamic relocs can be relaxed to Local-Exec.
-  if (Target->isTlsLocalDynamicRel(Type) && !Config->Shared) {
+  if (isRelExprOneOf<R_ABS, R_TLSLD, R_TLSLD_PC>(Expr) && !Config->Shared) {
     C.Relocations.push_back(
         {R_RELAX_TLS_LD_TO_LE, Type, Offset, Addend, &Body});
     return 1;
@@ -284,7 +282,8 @@ handleTlsRelocation(uint32_t Type, SymbolBody &Body, InputSectionBase &C,
 
   // Initial-Exec relocs can be relaxed to Local-Exec if the symbol is locally
   // defined.
-  if (Target->isTlsInitialExecRel(Type) && !Config->Shared && !IsPreemptible) {
+  if (isRelExprOneOf<R_GOT, R_GOT_FROM_END, R_GOT_PC, R_GOT_PAGE_PC>(Expr) &&
+      !Config->Shared && !IsPreemptible) {
     C.Relocations.push_back(
         {R_RELAX_TLS_IE_TO_LE, Type, Offset, Addend, &Body});
     return 1;
@@ -696,17 +695,6 @@ static void reportUndefined(SymbolBody &Sym, InputSectionBase &S,
     warn(Msg);
   } else {
     error(Msg);
-
-    if (Config->ArchiveWithoutSymbolsSeen) {
-      message("At least one archive listed no symbols in its index."
-              " This can happen when creating archives with a version"
-              " of ar that does not understand the object files in"
-              " the archive. For example, if you are using LLVM"
-              " bitcode objects (such as created by -flto), you may"
-              " need to use llvm-ar or GNU ar with a plugin.");
-      // Reset to false so that we print the message only once.
-      Config->ArchiveWithoutSymbolsSeen = false;
-    }
   }
 }
 

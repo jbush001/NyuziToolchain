@@ -586,36 +586,14 @@ void tools::gnutools::Linker::ConstructJob(Compilation &C, const JobAction &JA,
       bool WantPthread = Args.hasArg(options::OPT_pthread) ||
                          Args.hasArg(options::OPT_pthreads);
 
-      if (Args.hasFlag(options::OPT_fopenmp, options::OPT_fopenmp_EQ,
-                       options::OPT_fno_openmp, false)) {
+      // FIXME: Only pass GompNeedsRT = true for platforms with libgomp that
+      // require librt. Most modern Linux platforms do, but some may not.
+      if (addOpenMPRuntime(CmdArgs, ToolChain, Args,
+                           JA.isHostOffloading(Action::OFK_OpenMP),
+                           /* GompNeedsRT= */ true))
         // OpenMP runtimes implies pthreads when using the GNU toolchain.
         // FIXME: Does this really make sense for all GNU toolchains?
         WantPthread = true;
-
-        // Also link the particular OpenMP runtimes.
-        switch (ToolChain.getDriver().getOpenMPRuntime(Args)) {
-        case Driver::OMPRT_OMP:
-          CmdArgs.push_back("-lomp");
-          break;
-        case Driver::OMPRT_GOMP:
-          CmdArgs.push_back("-lgomp");
-
-          // FIXME: Exclude this for platforms with libgomp that don't require
-          // librt. Most modern Linux platforms require it, but some may not.
-          CmdArgs.push_back("-lrt");
-          break;
-        case Driver::OMPRT_IOMP5:
-          CmdArgs.push_back("-liomp5");
-          break;
-        case Driver::OMPRT_Unknown:
-          // Already diagnosed.
-          break;
-        }
-        if (JA.isHostOffloading(Action::OFK_OpenMP))
-          CmdArgs.push_back("-lomptarget");
-
-        addArchSpecificRPath(ToolChain, Args, CmdArgs);
-      }
 
       AddRunTimeLibs(ToolChain, D, CmdArgs, Args);
 
@@ -770,6 +748,12 @@ void tools::gnutools::Assembler::ConstructJob(Compilation &C,
     Args.AddLastArg(CmdArgs, options::OPT_mfpu_EQ);
     break;
   }
+  case llvm::Triple::aarch64:
+  case llvm::Triple::aarch64_be: {
+    Args.AddLastArg(CmdArgs, options::OPT_march_EQ);
+    Args.AddLastArg(CmdArgs, options::OPT_mcpu_EQ);
+    break;
+  }
   case llvm::Triple::mips:
   case llvm::Triple::mipsel:
   case llvm::Triple::mips64:
@@ -909,6 +893,8 @@ static bool isSoftFloatABI(const ArgList &Args) {
           A->getValue() == StringRef("soft"));
 }
 
+/// \p Flag must be a flag accepted by the driver with its leading '-' removed,
+//     otherwise '-print-multi-lib' will not emit them correctly.
 static void addMultilibFlag(bool Enabled, const char *const Flag,
                             std::vector<std::string> &Flags) {
   if (Enabled)
@@ -1453,17 +1439,17 @@ static void findAndroidArmMultilibs(const Driver &D,
   // Find multilibs with subdirectories like armv7-a, thumb, armv7-a/thumb.
   FilterNonExistent NonExistent(Path, "/crtbegin.o", D.getVFS());
   Multilib ArmV7Multilib = makeMultilib("/armv7-a")
-                               .flag("+armv7")
-                               .flag("-thumb");
+                               .flag("+march=armv7-a")
+                               .flag("-mthumb");
   Multilib ThumbMultilib = makeMultilib("/thumb")
-                               .flag("-armv7")
-                               .flag("+thumb");
+                               .flag("-march=armv7-a")
+                               .flag("+mthumb");
   Multilib ArmV7ThumbMultilib = makeMultilib("/armv7-a/thumb")
-                               .flag("+armv7")
-                               .flag("+thumb");
+                               .flag("+march=armv7-a")
+                               .flag("+mthumb");
   Multilib DefaultMultilib = makeMultilib("")
-                               .flag("-armv7")
-                               .flag("-thumb");
+                               .flag("-march=armv7-a")
+                               .flag("-mthumb");
   MultilibSet AndroidArmMultilibs =
       MultilibSet()
           .Either(ThumbMultilib, ArmV7Multilib,
@@ -1481,8 +1467,8 @@ static void findAndroidArmMultilibs(const Driver &D,
   bool IsArmV7Mode = (IsArmArch || IsThumbArch) &&
       (llvm::ARM::parseArchVersion(Arch) == 7 ||
        (IsArmArch && Arch == "" && IsV7SubArch));
-  addMultilibFlag(IsArmV7Mode, "armv7", Flags);
-  addMultilibFlag(IsThumbMode, "thumb", Flags);
+  addMultilibFlag(IsArmV7Mode, "march=armv7-a", Flags);
+  addMultilibFlag(IsThumbMode, "mthumb", Flags);
 
   if (AndroidArmMultilibs.select(Flags, Result.SelectedMultilib))
     Result.Multilibs = AndroidArmMultilibs;
@@ -1763,7 +1749,9 @@ bool Generic_GCC::GCCInstallationDetector::getBiarchSibling(Multilib &M) const {
   static const char *const ARMTriples[] = {"arm-linux-gnueabi",
                                            "arm-linux-androideabi"};
   static const char *const ARMHFTriples[] = {"arm-linux-gnueabihf",
-                                             "armv7hl-redhat-linux-gnueabi"};
+                                             "armv7hl-redhat-linux-gnueabi",
+                                             "armv6hl-suse-linux-gnueabi",
+                                             "armv7hl-suse-linux-gnueabi"};
   static const char *const ARMebLibDirs[] = {"/lib"};
   static const char *const ARMebTriples[] = {"armeb-linux-gnueabi",
                                              "armeb-linux-androideabi"};
@@ -2173,6 +2161,7 @@ bool Generic_GCC::GCCInstallationDetector::ScanGentooGccConfig(
     SmallVector<StringRef, 2> Lines;
     File.get()->getBuffer().split(Lines, "\n");
     for (StringRef Line : Lines) {
+      Line = Line.trim();
       // CURRENT=triple-version
       if (Line.consume_front("CURRENT=")) {
         const std::pair<StringRef, StringRef> ActiveVersion =

@@ -184,6 +184,10 @@ class InstrItineraryData;
       SMLALBT,      // 64-bit signed accumulate multiply bottom, top 16
       SMLALTB,      // 64-bit signed accumulate multiply top, bottom 16
       SMLALTT,      // 64-bit signed accumulate multiply top, top 16
+      SMLALD,       // Signed multiply accumulate long dual
+      SMLALDX,      // Signed multiply accumulate long dual exchange
+      SMLSLD,       // Signed multiply subtract long dual
+      SMLSLDX,      // Signed multiply subtract long dual exchange
 
       // Operands of the standard BUILD_VECTOR node are not legalized, which
       // is fine if BUILD_VECTORs are always lowered to shuffles or other
@@ -350,8 +354,7 @@ class InstrItineraryData;
                                     SDValue &Offset, ISD::MemIndexedMode &AM,
                                     SelectionDAG &DAG) const override;
 
-    void computeKnownBitsForTargetNode(const SDValue Op, APInt &KnownZero,
-                                       APInt &KnownOne,
+    void computeKnownBitsForTargetNode(const SDValue Op, KnownBits &Known,
                                        const APInt &DemandedElts,
                                        const SelectionDAG &DAG,
                                        unsigned Depth) const override;
@@ -530,6 +533,19 @@ class InstrItineraryData;
     CCAssignFn *CCAssignFnForCall(CallingConv::ID CC, bool isVarArg) const;
     CCAssignFn *CCAssignFnForReturn(CallingConv::ID CC, bool isVarArg) const;
 
+    /// Returns true if \p VecTy is a legal interleaved access type. This
+    /// function checks the vector element type and the overall width of the
+    /// vector.
+    bool isLegalInterleavedAccessType(VectorType *VecTy,
+                                      const DataLayout &DL) const;
+
+    /// Returns the number of interleaved accesses that will be generated when
+    /// lowering accesses of the given type.
+    unsigned getNumInterleavedAccesses(VectorType *VecTy,
+                                       const DataLayout &DL) const;
+
+    void finalizeLowering(MachineFunction &MF) const override;
+
   protected:
     std::pair<const TargetRegisterClass *, uint8_t>
     findRepresentativeClass(const TargetRegisterInfo *TRI,
@@ -706,7 +722,7 @@ class InstrItineraryData;
 
     bool isUsedByReturnOnly(SDNode *N, SDValue &Chain) const override;
 
-    bool mayBeEmittedAsTailCall(CallInst *CI) const override;
+    bool mayBeEmittedAsTailCall(const CallInst *CI) const override;
 
     SDValue getCMOV(const SDLoc &dl, EVT VT, SDValue FalseVal, SDValue TrueVal,
                     SDValue ARMcc, SDValue CCR, SDValue Cmp,

@@ -207,19 +207,6 @@ define <2 x i1> @test18vec(<2 x i32> %A) {
   ret <2 x i1> %D
 }
 
-define i1 @test19(i32 %A) {
-; CHECK-LABEL: @test19(
-; CHECK-NEXT:    [[TMP1:%.*]] = or i32 %A, 1
-; CHECK-NEXT:    [[TMP2:%.*]] = icmp eq i32 [[TMP1]], 51
-; CHECK-NEXT:    ret i1 [[TMP2]]
-;
-  %B = icmp eq i32 %A, 50
-  %C = icmp eq i32 %A, 51
-  ;; (A&-2) == 50
-  %D = or i1 %B, %C
-  ret i1 %D
-}
-
 define i32 @test20(i32 %x) {
 ; CHECK-LABEL: @test20(
 ; CHECK-NEXT:    ret i32 %x
@@ -628,59 +615,6 @@ define i32 @test42_commuted_xor(i32 %a, i32 %b) {
   %nega = xor i32 %a, -1
   %xor = xor i32 %b, %nega
   %and = and i32 %a, %b
-  %or = or i32 %xor, %and
-  ret i32 %or
-}
-
-; (A & ~B) | (A ^ B) -> A ^ B
-
-define i32 @test43(i32 %a, i32 %b) {
-; CHECK-LABEL: @test43(
-; CHECK-NEXT:    [[OR:%.*]] = xor i32 %a, %b
-; CHECK-NEXT:    ret i32 [[OR]]
-;
-  %neg = xor i32 %b, -1
-  %and = and i32 %a, %neg
-  %xor = xor i32 %a, %b
-  %or = or i32 %and, %xor
-  ret i32 %or
-}
-
-define i32 @test43_commuted_and(i32 %a, i32 %b) {
-; CHECK-LABEL: @test43_commuted_and(
-; CHECK-NEXT:    [[OR:%.*]] = xor i32 %a, %b
-; CHECK-NEXT:    ret i32 [[OR]]
-;
-  %neg = xor i32 %b, -1
-  %and = and i32 %neg, %a
-  %xor = xor i32 %a, %b
-  %or = or i32 %and, %xor
-  ret i32 %or
-}
-
-; Commute operands of the 'or'.
-; (A ^ B) | (A & ~B) -> A ^ B
-
-define i32 @test44(i32 %a, i32 %b) {
-; CHECK-LABEL: @test44(
-; CHECK-NEXT:    [[OR:%.*]] = xor i32 %a, %b
-; CHECK-NEXT:    ret i32 [[OR]]
-;
-  %xor = xor i32 %a, %b
-  %neg = xor i32 %b, -1
-  %and = and i32 %a, %neg
-  %or = or i32 %xor, %and
-  ret i32 %or
-}
-
-define i32 @test44_commuted_and(i32 %a, i32 %b) {
-; CHECK-LABEL: @test44_commuted_and(
-; CHECK-NEXT:    [[OR:%.*]] = xor i32 %a, %b
-; CHECK-NEXT:    ret i32 [[OR]]
-;
-  %xor = xor i32 %a, %b
-  %neg = xor i32 %b, -1
-  %and = and i32 %neg, %a
   %or = or i32 %xor, %and
   ret i32 %or
 }

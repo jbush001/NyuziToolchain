@@ -169,9 +169,10 @@ void NyuziFrameLowering::determineCalleeSaves(MachineFunction &MF,
   if (isInt<14>(getWorstCaseStackSize(MF)))
     return;
 
-  const TargetRegisterClass *RC = &Nyuzi::GPR32RegClass;
-  int FI = MF.getFrameInfo().CreateStackObject(RC->getSize(),
-                                               RC->getAlignment(), false);
+  const TargetRegisterInfo *TRI = MF.getSubtarget().getRegisterInfo();
+  const TargetRegisterClass &RC = Nyuzi::GPR32RegClass;
+  int FI = MF.getFrameInfo().CreateStackObject(TRI->getSpillSize(RC),
+                                               TRI->getSpillAlignment(RC), false);
   RS->addScavengingFrameIndex(FI);
 }
 
@@ -203,7 +204,8 @@ NyuziFrameLowering::getWorstCaseStackSize(const MachineFunction &MF) const {
 
   // Conservatively assume all callee-saved registers will be saved.
   for (const uint16_t *R = TRI.getCalleeSavedRegs(&MF); *R; ++R) {
-    unsigned Size = TRI.getMinimalPhysRegClass(*R)->getSize();
+    const TargetRegisterClass *RC = TRI.getMinimalPhysRegClass(*R);
+    unsigned Size = TRI.getRegSizeInBits(*RC);
     Offset = alignTo(Offset + Size, Size);
   }
 

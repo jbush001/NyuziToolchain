@@ -91,14 +91,6 @@ DwarfAccelTables("dwarf-accel-tables", cl::Hidden,
                  cl::init(Default));
 
 static cl::opt<DefaultOnOff>
-SplitDwarf("split-dwarf", cl::Hidden,
-           cl::desc("Output DWARF5 split debug info."),
-           cl::values(clEnumVal(Default, "Default for platform"),
-                      clEnumVal(Enable, "Enabled"),
-                      clEnumVal(Disable, "Disabled")),
-           cl::init(Default));
-
-static cl::opt<DefaultOnOff>
 DwarfPubSections("generate-dwarf-pub-sections", cl::Hidden,
                  cl::desc("Generate DWARF pubnames and pubtypes sections"),
                  cl::values(clEnumVal(Default, "Default for platform"),
@@ -253,11 +245,8 @@ DwarfDebug::DwarfDebug(AsmPrinter *A, Module *M)
 
   HasAppleExtensionAttributes = tuneForLLDB();
 
-  // Handle split DWARF. Off by default for now.
-  if (SplitDwarf == Default)
-    HasSplitDwarf = false;
-  else
-    HasSplitDwarf = SplitDwarf == Enable;
+  // Handle split DWARF.
+  HasSplitDwarf = !Asm->TM.Options.MCOptions.SplitDwarfFile.empty();
 
   // Pubnames/pubtypes on by default for GDB.
   if (DwarfPubSections == Default)
@@ -412,7 +401,7 @@ DwarfDebug::constructDwarfCompileUnit(const DICompileUnit *DIUnit) {
   if (useSplitDwarf()) {
     NewCU.setSkeleton(constructSkeletonCU(NewCU));
     NewCU.addString(Die, dwarf::DW_AT_GNU_dwo_name,
-                    DIUnit->getSplitDebugFilename());
+                  Asm->TM.Options.MCOptions.SplitDwarfFile);
   }
 
   // LTO with assembly output shares a single line table amongst multiple CUs.
@@ -1517,13 +1506,12 @@ static void emitDebugLocValue(const AsmPrinter &AP, const DIBasicType *BT,
       DwarfExpr.addUnsignedConstant(Value.getInt());
   } else if (Value.isLocation()) {
     MachineLocation Location = Value.getLoc();
-
+    if (Location.isIndirect())
+      DwarfExpr.setMemoryLocationKind();
     SmallVector<uint64_t, 8> Ops;
-    // FIXME: Should this condition be Location.isIndirect() instead?
-    if (Location.getOffset()) {
+    if (Location.isIndirect() && Location.getOffset()) {
       Ops.push_back(dwarf::DW_OP_plus);
       Ops.push_back(Location.getOffset());
-      Ops.push_back(dwarf::DW_OP_deref);
     }
     Ops.append(DIExpr->elements_begin(), DIExpr->elements_end());
     DIExpressionCursor Cursor(Ops);
@@ -1578,7 +1566,7 @@ void DwarfDebug::emitDebugLoc() {
   // Start the dwarf loc section.
   Asm->OutStreamer->SwitchSection(
       Asm->getObjFileLowering().getDwarfLocSection());
-  unsigned char Size = Asm->getDataLayout().getPointerSize();
+  unsigned char Size = Asm->MAI->getCodePointerSize();
   for (const auto &List : DebugLocs.getLists()) {
     Asm->OutStreamer->EmitLabel(List.Label);
     const DwarfCompileUnit *CU = List.CU;
@@ -1708,7 +1696,7 @@ void DwarfDebug::emitDebugARanges() {
   Asm->OutStreamer->SwitchSection(
       Asm->getObjFileLowering().getDwarfARangesSection());
 
-  unsigned PtrSize = Asm->getDataLayout().getPointerSize();
+  unsigned PtrSize = Asm->MAI->getCodePointerSize();
 
   // Build a list of CUs used.
   std::vector<DwarfCompileUnit *> CUs;
@@ -1791,7 +1779,7 @@ void DwarfDebug::emitDebugRanges() {
       Asm->getObjFileLowering().getDwarfRangesSection());
 
   // Size for our labels.
-  unsigned char Size = Asm->getDataLayout().getPointerSize();
+  unsigned char Size = Asm->MAI->getCodePointerSize();
 
   // Grab the specific ranges for the compile units in the module.
   for (const auto &I : CUMap) {
@@ -1886,7 +1874,7 @@ void DwarfDebug::emitDebugMacinfo() {
 void DwarfDebug::initSkeletonUnit(const DwarfUnit &U, DIE &Die,
                                   std::unique_ptr<DwarfCompileUnit> NewU) {
   NewU->addString(Die, dwarf::DW_AT_GNU_dwo_name,
-                  U.getCUNode()->getSplitDebugFilename());
+                  Asm->TM.Options.MCOptions.SplitDwarfFile);
 
   if (!CompilationDir.empty())
     NewU->addString(Die, dwarf::DW_AT_comp_dir, CompilationDir);

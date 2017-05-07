@@ -9,6 +9,7 @@
 
 #include "LLVMOutputStyle.h"
 
+#include "C13DebugFragmentVisitor.h"
 #include "CompactTypeDumpVisitor.h"
 #include "StreamUtil.h"
 #include "llvm-pdbdump.h"
@@ -16,23 +17,29 @@
 #include "llvm/DebugInfo/CodeView/CVTypeDumper.h"
 #include "llvm/DebugInfo/CodeView/CVTypeVisitor.h"
 #include "llvm/DebugInfo/CodeView/EnumTables.h"
-#include "llvm/DebugInfo/CodeView/ModuleSubstreamVisitor.h"
+#include "llvm/DebugInfo/CodeView/Line.h"
+#include "llvm/DebugInfo/CodeView/ModuleDebugFileChecksumFragment.h"
+#include "llvm/DebugInfo/CodeView/ModuleDebugFragmentVisitor.h"
+#include "llvm/DebugInfo/CodeView/ModuleDebugInlineeLinesFragment.h"
+#include "llvm/DebugInfo/CodeView/ModuleDebugLineFragment.h"
+#include "llvm/DebugInfo/CodeView/ModuleDebugUnknownFragment.h"
 #include "llvm/DebugInfo/CodeView/SymbolDumper.h"
 #include "llvm/DebugInfo/CodeView/TypeDatabaseVisitor.h"
 #include "llvm/DebugInfo/CodeView/TypeDeserializer.h"
 #include "llvm/DebugInfo/CodeView/TypeDumpVisitor.h"
 #include "llvm/DebugInfo/CodeView/TypeVisitorCallbackPipeline.h"
 #include "llvm/DebugInfo/MSF/MappedBlockStream.h"
+#include "llvm/DebugInfo/PDB/Native/DbiModuleDescriptor.h"
 #include "llvm/DebugInfo/PDB/Native/DbiStream.h"
 #include "llvm/DebugInfo/PDB/Native/EnumTables.h"
 #include "llvm/DebugInfo/PDB/Native/GlobalsStream.h"
 #include "llvm/DebugInfo/PDB/Native/ISectionContribVisitor.h"
 #include "llvm/DebugInfo/PDB/Native/InfoStream.h"
-#include "llvm/DebugInfo/PDB/Native/ModInfo.h"
-#include "llvm/DebugInfo/PDB/Native/ModStream.h"
+#include "llvm/DebugInfo/PDB/Native/ModuleDebugStream.h"
 #include "llvm/DebugInfo/PDB/Native/PDBFile.h"
 #include "llvm/DebugInfo/PDB/Native/PublicsStream.h"
 #include "llvm/DebugInfo/PDB/Native/RawError.h"
+#include "llvm/DebugInfo/PDB/Native/TpiHashing.h"
 #include "llvm/DebugInfo/PDB/Native/TpiStream.h"
 #include "llvm/DebugInfo/PDB/PDBExtras.h"
 #include "llvm/Object/COFF.h"
@@ -73,6 +80,127 @@ struct PageStats {
 
   // Pages which are marked free in the FPM but are used.
   BitVector UseAfterFreePages;
+};
+
+class C13RawVisitor : public C13DebugFragmentVisitor {
+public:
+  C13RawVisitor(ScopedPrinter &P, PDBFile &F, TypeDatabase &IPI)
+      : C13DebugFragmentVisitor(F), P(P), IPI(IPI) {}
+
+  Error handleLines() override {
+    if (Lines.empty())
+      return Error::success();
+
+    DictScope DD(P, "Lines");
+
+    for (const auto &Fragment : Lines) {
+      DictScope DDD(P, "Block");
+      P.printNumber("RelocSegment", Fragment.header()->RelocSegment);
+      P.printNumber("RelocOffset", Fragment.header()->RelocOffset);
+      P.printNumber("CodeSize", Fragment.header()->CodeSize);
+      P.printBoolean("HasColumns", Fragment.hasColumnInfo());
+
+      for (const auto &L : Fragment) {
+        DictScope DDDD(P, "Lines");
+
+        if (auto EC = printFileName("FileName", L.NameIndex))
+          return EC;
+
+        for (const auto &N : L.LineNumbers) {
+          DictScope DDD(P, "Line");
+          LineInfo LI(N.Flags);
+          P.printNumber("Offset", N.Offset);
+          if (LI.isAlwaysStepInto())
+            P.printString("StepInto", StringRef("Always"));
+          else if (LI.isNeverStepInto())
+            P.printString("StepInto", StringRef("Never"));
+          else
+            P.printNumber("LineNumberStart", LI.getStartLine());
+          P.printNumber("EndDelta", LI.getLineDelta());
+          P.printBoolean("IsStatement", LI.isStatement());
+        }
+        for (const auto &C : L.Columns) {
+          DictScope DDD(P, "Column");
+          P.printNumber("Start", C.StartColumn);
+          P.printNumber("End", C.EndColumn);
+        }
+      }
+    }
+
+    return Error::success();
+  }
+
+  Error handleFileChecksums() override {
+    if (!Checksums.hasValue())
+      return Error::success();
+
+    DictScope DD(P, "FileChecksums");
+    for (const auto &CS : *Checksums) {
+      DictScope DDD(P, "Checksum");
+      if (auto Result = getNameFromStringTable(CS.FileNameOffset))
+        P.printString("FileName", *Result);
+      else
+        return Result.takeError();
+      P.printEnum("Kind", uint8_t(CS.Kind), getFileChecksumNames());
+      P.printBinaryBlock("Checksum", CS.Checksum);
+    }
+    return Error::success();
+  }
+
+  Error handleInlineeLines() override {
+    if (InlineeLines.empty())
+      return Error::success();
+
+    DictScope D(P, "InlineeLines");
+    for (const auto &IL : InlineeLines) {
+      P.printBoolean("HasExtraFiles", IL.hasExtraFiles());
+      ListScope LS(P, "Lines");
+      for (const auto &L : IL) {
+        DictScope DDD(P, "Inlinee");
+        if (auto EC = printFileName("FileName", L.Header->FileID))
+          return EC;
+
+        if (auto EC = dumpTypeRecord("Function", IPI, L.Header->Inlinee))
+          return EC;
+        P.printNumber("SourceLine", L.Header->SourceLineNum);
+        if (IL.hasExtraFiles()) {
+          ListScope DDDD(P, "ExtraFiles");
+          for (const auto &EF : L.ExtraFiles) {
+            if (auto EC = printFileName("File", EF))
+              return EC;
+          }
+        }
+      }
+    }
+    return Error::success();
+  }
+
+private:
+  Error dumpTypeRecord(StringRef Label, TypeDatabase &DB, TypeIndex Index) {
+    CompactTypeDumpVisitor CTDV(DB, Index, &P);
+    CVTypeVisitor Visitor(CTDV);
+    DictScope D(P, Label);
+    if (DB.containsTypeIndex(Index)) {
+      CVType &Type = DB.getTypeRecord(Index);
+      if (auto EC = Visitor.visitTypeRecord(Type))
+        return EC;
+    } else {
+      P.printString(
+          llvm::formatv("Index: {0:x} (unknown function)", Index.getIndex())
+              .str());
+    }
+    return Error::success();
+  }
+  Error printFileName(StringRef Label, uint32_t Offset) {
+    if (auto Result = getNameFromChecksumsBuffer(Offset)) {
+      P.printString(Label, *Result);
+      return Error::success();
+    } else
+      return Result.takeError();
+  }
+
+  ScopedPrinter &P;
+  TypeDatabase &IPI;
 };
 }
 
@@ -316,6 +444,27 @@ Error LLVMOutputStyle::dumpBlockRanges() {
   return Error::success();
 }
 
+static Error parseStreamSpec(StringRef Str, uint32_t &SI, uint32_t &Offset,
+                             uint32_t &Size) {
+  if (Str.consumeInteger(0, SI))
+    return make_error<RawError>(raw_error_code::invalid_format,
+                                "Invalid Stream Specification");
+  if (Str.consume_front(":")) {
+    if (Str.consumeInteger(0, Offset))
+      return make_error<RawError>(raw_error_code::invalid_format,
+                                  "Invalid Stream Specification");
+  }
+  if (Str.consume_front("@")) {
+    if (Str.consumeInteger(0, Size))
+      return make_error<RawError>(raw_error_code::invalid_format,
+                                  "Invalid Stream Specification");
+  }
+  if (!Str.empty())
+    return make_error<RawError>(raw_error_code::invalid_format,
+                                "Invalid Stream Specification");
+  return Error::success();
+}
+
 Error LLVMOutputStyle::dumpStreamBytes() {
   if (opts::raw::DumpStreamData.empty())
     return Error::success();
@@ -324,7 +473,15 @@ Error LLVMOutputStyle::dumpStreamBytes() {
     discoverStreamPurposes(File, StreamPurposes);
 
   DictScope D(P, "Stream Data");
-  for (uint32_t SI : opts::raw::DumpStreamData) {
+  for (auto &Str : opts::raw::DumpStreamData) {
+    uint32_t SI = 0;
+    uint32_t Begin = 0;
+    uint32_t Size = 0;
+    uint32_t End = 0;
+
+    if (auto EC = parseStreamSpec(Str, SI, Begin, Size))
+      return EC;
+
     if (SI >= File.getNumStreams())
       return make_error<RawError>(raw_error_code::no_stream);
 
@@ -333,6 +490,14 @@ Error LLVMOutputStyle::dumpStreamBytes() {
     if (!S)
       continue;
     DictScope DD(P, "Stream");
+    if (Size == 0)
+      End = S->getLength();
+    else {
+      End = Begin + Size;
+      if (End >= S->getLength())
+        return make_error<RawError>(raw_error_code::index_out_of_bounds,
+                                    "Stream is not long enough!");
+    }
 
     P.printNumber("Index", SI);
     P.printString("Type", StreamPurposes[SI]);
@@ -344,7 +509,9 @@ Error LLVMOutputStyle::dumpStreamBytes() {
     ArrayRef<uint8_t> StreamData;
     if (auto EC = R.readBytes(StreamData, S->getLength()))
       return EC;
-    P.printBinaryBlock("Data", StreamData);
+    Size = End - Begin;
+    StreamData = StreamData.slice(Begin, Size);
+    P.printBinaryBlock("Data", StreamData, Begin);
   }
   return Error::success();
 }
@@ -359,14 +526,17 @@ Error LLVMOutputStyle::dumpStringTable() {
 
   DictScope D(P, "String Table");
   for (uint32_t I : IS->name_ids()) {
-    StringRef S = IS->getStringForID(I);
-    if (!S.empty()) {
-      llvm::SmallString<32> Str;
-      Str.append("'");
-      Str.append(S);
-      Str.append("'");
-      P.printString(Str);
-    }
+    auto ES = IS->getStringForID(I);
+    if (!ES)
+      return ES.takeError();
+
+    if (ES->empty())
+      continue;
+    llvm::SmallString<32> Str;
+    Str.append("'");
+    Str.append(*ES);
+    Str.append("'");
+    P.printString(Str);
   }
   return Error::success();
 }
@@ -439,11 +609,9 @@ Error LLVMOutputStyle::dumpTpiStream(uint32_t StreamIdx) {
     Label = "Type Info Stream (IPI)";
     VerLabel = "IPI Version";
   }
-  if (!DumpRecordBytes && !DumpRecords && !DumpTpiHash &&
-      !opts::raw::DumpModuleSyms)
-    return Error::success();
 
-  bool IsSilentDatabaseBuild = !DumpRecordBytes && !DumpRecords && !DumpTpiHash;
+  if (!DumpRecordBytes && !DumpRecords && !DumpTpiHash)
+    return Error::success();
 
   auto Tpi = (StreamIdx == StreamTPI) ? File.getPDBTpiStream()
                                       : File.getPDBIpiStream();
@@ -453,38 +621,43 @@ Error LLVMOutputStyle::dumpTpiStream(uint32_t StreamIdx) {
   std::unique_ptr<DictScope> StreamScope;
   std::unique_ptr<ListScope> RecordScope;
 
-  if (!IsSilentDatabaseBuild) {
-    StreamScope = llvm::make_unique<DictScope>(P, Label);
-    P.printNumber(VerLabel, Tpi->getTpiVersion());
-    P.printNumber("Record count", Tpi->NumTypeRecords());
+  StreamScope = llvm::make_unique<DictScope>(P, Label);
+  P.printNumber(VerLabel, Tpi->getTpiVersion());
+  P.printNumber("Record count", Tpi->getNumTypeRecords());
+
+  Optional<TypeDatabase> &StreamDB = (StreamIdx == StreamTPI) ? TypeDB : ItemDB;
+
+  std::vector<std::unique_ptr<TypeVisitorCallbacks>> Visitors;
+
+  Visitors.push_back(make_unique<TypeDeserializer>());
+  if (!StreamDB.hasValue()) {
+    StreamDB.emplace(Tpi->getNumTypeRecords());
+    Visitors.push_back(make_unique<TypeDatabaseVisitor>(*StreamDB));
   }
+  // If we're in dump mode, add a dumper with the appropriate detail level.
+  if (DumpRecords) {
+    std::unique_ptr<TypeVisitorCallbacks> Dumper;
+    if (opts::raw::CompactRecords)
+      Dumper = make_unique<CompactTypeDumpVisitor>(*StreamDB, &P);
+    else {
+      assert(TypeDB.hasValue());
 
-  TypeDatabase &StreamDB = (StreamIdx == StreamTPI) ? TypeDB : ItemDB;
-
-  TypeDatabaseVisitor DBV(StreamDB);
-  CompactTypeDumpVisitor CTDV(StreamDB, &P);
-  TypeDumpVisitor TDV(TypeDB, &P, false);
-  if (StreamIdx == StreamIPI)
-    TDV.setItemDB(ItemDB);
-  RecordBytesVisitor RBV(P);
-  TypeDeserializer Deserializer;
+      auto X = make_unique<TypeDumpVisitor>(*TypeDB, &P, false);
+      if (StreamIdx == StreamIPI)
+        X->setItemDB(*ItemDB);
+      Dumper = std::move(X);
+    }
+    Visitors.push_back(std::move(Dumper));
+  }
+  if (DumpRecordBytes)
+    Visitors.push_back(make_unique<RecordBytesVisitor>(P));
 
   // We always need to deserialize and add it to the type database.  This is
   // true if even if we're not dumping anything, because we could need the
   // type database for the purposes of dumping symbols.
   TypeVisitorCallbackPipeline Pipeline;
-  Pipeline.addCallbackToPipeline(Deserializer);
-  Pipeline.addCallbackToPipeline(DBV);
-
-  // If we're in dump mode, add a dumper with the appropriate detail level.
-  if (DumpRecords) {
-    if (opts::raw::CompactRecords)
-      Pipeline.addCallbackToPipeline(CTDV);
-    else
-      Pipeline.addCallbackToPipeline(TDV);
-  }
-  if (DumpRecordBytes)
-    Pipeline.addCallbackToPipeline(RBV);
+  for (const auto &V : Visitors)
+    Pipeline.addCallbackToPipeline(*V);
 
   CVTypeVisitor Visitor(Pipeline);
 
@@ -502,6 +675,7 @@ Error LLVMOutputStyle::dumpTpiStream(uint32_t StreamIdx) {
 
     if (auto EC = Visitor.visitTypeRecord(Type))
       return EC;
+    T.setIndex(T.getIndex() + 1);
   }
   if (HadError)
     return make_error<RawError>(raw_error_code::corrupt_file,
@@ -509,7 +683,7 @@ Error LLVMOutputStyle::dumpTpiStream(uint32_t StreamIdx) {
 
   if (DumpTpiHash) {
     DictScope DD(P, "Hash");
-    P.printNumber("Number of Hash Buckets", Tpi->NumHashBuckets());
+    P.printNumber("Number of Hash Buckets", Tpi->getNumHashBuckets());
     P.printNumber("Hash Key Size", Tpi->getHashKeySize());
     P.printList("Values", Tpi->getHashValues());
 
@@ -520,23 +694,58 @@ Error LLVMOutputStyle::dumpTpiStream(uint32_t StreamIdx) {
     const auto &ST = *ExpectedST;
     for (const auto &E : Tpi->getHashAdjusters()) {
       DictScope DHA(P);
-      StringRef Name = ST.getStringForID(E.first);
-      P.printString("Type", Name);
+      auto Name = ST.getStringForID(E.first);
+      if (!Name)
+        return Name.takeError();
+
+      P.printString("Type", *Name);
       P.printHex("TI", E.second);
     }
   }
 
-  if (!IsSilentDatabaseBuild) {
-    ListScope L(P, "TypeIndexOffsets");
-    for (const auto &IO : Tpi->getTypeIndexOffsets()) {
-      P.printString(formatv("Index: {0:x}, Offset: {1:N}", IO.Type.getIndex(),
-                            (uint32_t)IO.Offset)
-                        .str());
-    }
+  ListScope L(P, "TypeIndexOffsets");
+  for (const auto &IO : Tpi->getTypeIndexOffsets()) {
+    P.printString(formatv("Index: {0:x}, Offset: {1:N}", IO.Type.getIndex(),
+                          (uint32_t)IO.Offset)
+                      .str());
   }
 
   P.flush();
   return Error::success();
+}
+
+Error LLVMOutputStyle::buildTypeDatabase(uint32_t SN) {
+  assert(SN == StreamIPI || SN == StreamTPI);
+
+  auto &DB = (SN == StreamIPI) ? ItemDB : TypeDB;
+
+  if (DB.hasValue())
+    return Error::success();
+
+  auto Tpi =
+      (SN == StreamTPI) ? File.getPDBTpiStream() : File.getPDBIpiStream();
+
+  if (!Tpi)
+    return Tpi.takeError();
+
+  DB.emplace(Tpi->getNumTypeRecords());
+
+  TypeVisitorCallbackPipeline Pipeline;
+  TypeDeserializer Deserializer;
+  TypeDatabaseVisitor DBV(*DB);
+  Pipeline.addCallbackToPipeline(Deserializer);
+  Pipeline.addCallbackToPipeline(DBV);
+
+  auto HashValues = Tpi->getHashValues();
+  std::unique_ptr<TpiHashVerifier> HashVerifier;
+  if (!HashValues.empty()) {
+    HashVerifier =
+        make_unique<TpiHashVerifier>(HashValues, Tpi->getNumHashBuckets());
+    Pipeline.addCallbackToPipeline(*HashVerifier);
+  }
+
+  CVTypeVisitor Visitor(Pipeline);
+  return Visitor.visitTypeStream(Tpi->types(nullptr));
 }
 
 Error LLVMOutputStyle::dumpDbiStream() {
@@ -576,43 +785,46 @@ Error LLVMOutputStyle::dumpDbiStream() {
 
   if (DumpModules) {
     ListScope L(P, "Modules");
-    for (auto &Modi : DS->modules()) {
+    const DbiModuleList &Modules = DS->modules();
+    for (uint32_t I = 0; I < Modules.getModuleCount(); ++I) {
+      const DbiModuleDescriptor &Modi = Modules.getModuleDescriptor(I);
       DictScope DD(P);
-      P.printString("Name", Modi.Info.getModuleName().str());
-      P.printNumber("Debug Stream Index", Modi.Info.getModuleStreamIndex());
-      P.printString("Object File Name", Modi.Info.getObjFileName().str());
-      P.printNumber("Num Files", Modi.Info.getNumberOfFiles());
-      P.printNumber("Source File Name Idx", Modi.Info.getSourceFileNameIndex());
-      P.printNumber("Pdb File Name Idx", Modi.Info.getPdbFilePathNameIndex());
-      P.printNumber("Line Info Byte Size", Modi.Info.getLineInfoByteSize());
-      P.printNumber("C13 Line Info Byte Size",
-                    Modi.Info.getC13LineInfoByteSize());
-      P.printNumber("Symbol Byte Size", Modi.Info.getSymbolDebugInfoByteSize());
-      P.printNumber("Type Server Index", Modi.Info.getTypeServerIndex());
-      P.printBoolean("Has EC Info", Modi.Info.hasECInfo());
+      P.printString("Name", Modi.getModuleName().str());
+      P.printNumber("Debug Stream Index", Modi.getModuleStreamIndex());
+      P.printString("Object File Name", Modi.getObjFileName().str());
+      P.printNumber("Num Files", Modi.getNumberOfFiles());
+      P.printNumber("Source File Name Idx", Modi.getSourceFileNameIndex());
+      P.printNumber("Pdb File Name Idx", Modi.getPdbFilePathNameIndex());
+      P.printNumber("Line Info Byte Size", Modi.getC11LineInfoByteSize());
+      P.printNumber("C13 Line Info Byte Size", Modi.getC13LineInfoByteSize());
+      P.printNumber("Symbol Byte Size", Modi.getSymbolDebugInfoByteSize());
+      P.printNumber("Type Server Index", Modi.getTypeServerIndex());
+      P.printBoolean("Has EC Info", Modi.hasECInfo());
       if (opts::raw::DumpModuleFiles) {
-        std::string FileListName =
-            to_string(Modi.SourceFiles.size()) + " Contributing Source Files";
+        std::string FileListName = to_string(Modules.getSourceFileCount(I)) +
+                                   " Contributing Source Files";
         ListScope LL(P, FileListName);
-        for (auto File : Modi.SourceFiles)
-          P.printString(File.str());
+        for (auto File : Modules.source_files(I))
+          P.printString(File);
       }
-      bool HasModuleDI =
-          (Modi.Info.getModuleStreamIndex() < File.getNumStreams());
+      bool HasModuleDI = (Modi.getModuleStreamIndex() < File.getNumStreams());
       bool ShouldDumpSymbols =
           (opts::raw::DumpModuleSyms || opts::raw::DumpSymRecordBytes);
       if (HasModuleDI && (ShouldDumpSymbols || opts::raw::DumpLineInfo)) {
         auto ModStreamData = MappedBlockStream::createIndexedStream(
             File.getMsfLayout(), File.getMsfBuffer(),
-            Modi.Info.getModuleStreamIndex());
+            Modi.getModuleStreamIndex());
 
-        ModStream ModS(Modi.Info, std::move(ModStreamData));
+        ModuleDebugStreamRef ModS(Modi, std::move(ModStreamData));
         if (auto EC = ModS.reload())
           return EC;
 
         if (ShouldDumpSymbols) {
+          if (auto EC = buildTypeDatabase(StreamTPI))
+            return EC;
+
           ListScope SS(P, "Symbols");
-          codeview::CVSymbolDumper SD(P, TypeDB, nullptr, false);
+          codeview::CVSymbolDumper SD(P, *TypeDB, nullptr, false);
           bool HadError = false;
           for (auto S : ModS.symbols(&HadError)) {
             DictScope LL(P, "");
@@ -633,97 +845,13 @@ Error LLVMOutputStyle::dumpDbiStream() {
         }
         if (opts::raw::DumpLineInfo) {
           ListScope SS(P, "LineInfo");
-          bool HadError = false;
-          // Define a locally scoped visitor to print the different
-          // substream types types.
-          class RecordVisitor : public codeview::IModuleSubstreamVisitor {
-          public:
-            RecordVisitor(ScopedPrinter &P, PDBFile &F) : P(P), F(F) {}
-            Error visitUnknown(ModuleSubstreamKind Kind,
-                               BinaryStreamRef Stream) override {
-              DictScope DD(P, "Unknown");
-              ArrayRef<uint8_t> Data;
-              BinaryStreamReader R(Stream);
-              if (auto EC = R.readBytes(Data, R.bytesRemaining())) {
-                return make_error<RawError>(
-                    raw_error_code::corrupt_file,
-                    "DBI stream contained corrupt line info record");
-              }
-              P.printBinaryBlock("Data", Data);
-              return Error::success();
-            }
-            Error
-            visitFileChecksums(BinaryStreamRef Data,
-                               const FileChecksumArray &Checksums) override {
-              DictScope DD(P, "FileChecksums");
-              for (const auto &C : Checksums) {
-                DictScope DDD(P, "Checksum");
-                if (auto Result = getFileNameForOffset(C.FileNameOffset))
-                  P.printString("FileName", Result.get());
-                else
-                  return Result.takeError();
-                P.flush();
-                P.printEnum("Kind", uint8_t(C.Kind), getFileChecksumNames());
-                P.printBinaryBlock("Checksum", C.Checksum);
-              }
-              return Error::success();
-            }
+          if (auto EC = buildTypeDatabase(StreamIPI))
+            return EC;
 
-            Error visitLines(BinaryStreamRef Data,
-                             const LineSubstreamHeader *Header,
-                             const LineInfoArray &Lines) override {
-              DictScope DD(P, "Lines");
-              for (const auto &L : Lines) {
-                if (auto Result = getFileNameForOffset2(L.NameIndex))
-                  P.printString("FileName", Result.get());
-                else
-                  return Result.takeError();
-                P.flush();
-                for (const auto &N : L.LineNumbers) {
-                  DictScope DDD(P, "Line");
-                  LineInfo LI(N.Flags);
-                  P.printNumber("Offset", N.Offset);
-                  if (LI.isAlwaysStepInto())
-                    P.printString("StepInto", StringRef("Always"));
-                  else if (LI.isNeverStepInto())
-                    P.printString("StepInto", StringRef("Never"));
-                  else
-                    P.printNumber("LineNumberStart", LI.getStartLine());
-                  P.printNumber("EndDelta", LI.getLineDelta());
-                  P.printBoolean("IsStatement", LI.isStatement());
-                }
-                for (const auto &C : L.Columns) {
-                  DictScope DDD(P, "Column");
-                  P.printNumber("Start", C.StartColumn);
-                  P.printNumber("End", C.EndColumn);
-                }
-              }
-              return Error::success();
-            }
-
-          private:
-            Expected<StringRef> getFileNameForOffset(uint32_t Offset) {
-              auto ST = F.getStringTable();
-              if (!ST)
-                return ST.takeError();
-
-              return ST->getStringForID(Offset);
-            }
-            Expected<StringRef> getFileNameForOffset2(uint32_t Offset) {
-              auto DS = F.getPDBDbiStream();
-              if (!DS)
-                return DS.takeError();
-              return DS->getFileNameForIndex(Offset);
-            }
-            ScopedPrinter &P;
-            PDBFile &F;
-          };
-
-          RecordVisitor V(P, File);
-          for (const auto &L : ModS.lines(&HadError)) {
-            if (auto EC = codeview::visitModuleSubstream(L, V))
-              return EC;
-          }
+          C13RawVisitor V(P, File, *ItemDB);
+          if (auto EC = codeview::visitModuleDebugFragments(
+                  ModS.linesAndChecksums(), V))
+            return EC;
         }
       }
     }
@@ -758,9 +886,10 @@ Error LLVMOutputStyle::dumpSectionContribs() {
       {
         DictScope DD(P, "Module");
         P.printNumber("Index", SC.Imod);
-        auto M = DS.modules();
-        if (M.size() > SC.Imod) {
-          P.printString("Name", M[SC.Imod].Info.getModuleName());
+        const DbiModuleList &Modules = DS.modules();
+        if (Modules.getModuleCount() > SC.Imod) {
+          P.printString("Name",
+                        Modules.getModuleDescriptor(SC.Imod).getModuleName());
         }
       }
       P.printNumber("Data CRC", SC.DataCrc);
@@ -837,7 +966,10 @@ Error LLVMOutputStyle::dumpPublicsStream() {
   P.printList("Section Offsets", Publics->getSectionOffsets(),
               printSectionOffset);
   ListScope L(P, "Symbols");
-  codeview::CVSymbolDumper SD(P, TypeDB, nullptr, false);
+  if (auto EC = buildTypeDatabase(StreamTPI))
+    return EC;
+
+  codeview::CVSymbolDumper SD(P, *TypeDB, nullptr, false);
   bool HadError = false;
   for (auto S : Publics->getSymbols(&HadError)) {
     DictScope DD(P, "");

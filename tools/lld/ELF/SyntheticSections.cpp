@@ -97,7 +97,7 @@ static ArrayRef<uint8_t> getVersion() {
 
 // Creates a .comment section containing LLD version info.
 // With this feature, you can identify LLD-generated binaries easily
-// by "objdump -s -j .comment <file>".
+// by "readelf --string-dump .comment <file>".
 // The returned object is a mergeable string section.
 template <class ELFT> MergeInputSection *elf::createCommentSection() {
   typename ELFT::Shdr Hdr = {};
@@ -534,13 +534,20 @@ template <class ELFT> void EhFrameSection<ELFT>::finalizeContents() {
   size_t Off = 0;
   for (CieRecord *Cie : Cies) {
     Cie->Piece->OutputOff = Off;
-    Off += alignTo(Cie->Piece->size(), sizeof(uintX_t));
+    Off += alignTo(Cie->Piece->size(), Config->Wordsize);
 
     for (EhSectionPiece *Fde : Cie->FdePieces) {
       Fde->OutputOff = Off;
-      Off += alignTo(Fde->size(), sizeof(uintX_t));
+      Off += alignTo(Fde->size(), Config->Wordsize);
     }
   }
+
+  // The LSB standard does not allow a .eh_frame section with zero
+  // Call Frame Information records. Therefore add a CIE record length
+  // 0 as a terminator if this .eh_frame section is empty.
+  if (Off == 0)
+    Off = 4;
+
   this->Size = Off;
 }
 
@@ -564,8 +571,8 @@ template <class ELFT> static uint64_t readFdeAddr(uint8_t *Buf, int Size) {
 // Returns the VA to which a given FDE (on a mmap'ed buffer) is applied to.
 // We need it to create .eh_frame_hdr section.
 template <class ELFT>
-typename ELFT::uint EhFrameSection<ELFT>::getFdePc(uint8_t *Buf, size_t FdeOff,
-                                                   uint8_t Enc) {
+uint64_t EhFrameSection<ELFT>::getFdePc(uint8_t *Buf, size_t FdeOff,
+                                        uint8_t Enc) {
   // The starting address to which this FDE applies is
   // stored at FDE + 8 byte.
   size_t Off = FdeOff + 8;
@@ -603,8 +610,8 @@ template <class ELFT> void EhFrameSection<ELFT>::writeTo(uint8_t *Buf) {
     for (CieRecord *Cie : Cies) {
       uint8_t Enc = getFdeEncoding<ELFT>(Cie->Piece);
       for (SectionPiece *Fde : Cie->FdePieces) {
-        uintX_t Pc = getFdePc(Buf, Fde->OutputOff, Enc);
-        uintX_t FdeVA = this->OutSec->Addr + Fde->OutputOff;
+        uint64_t Pc = getFdePc(Buf, Fde->OutputOff, Enc);
+        uint64_t FdeVA = this->OutSec->Addr + Fde->OutputOff;
         In<ELFT>::EhFrameHdr->addFde(Pc, FdeVA);
       }
     }
@@ -635,25 +642,23 @@ template <class ELFT> bool GotSection<ELFT>::addDynTlsEntry(SymbolBody &Sym) {
 template <class ELFT> bool GotSection<ELFT>::addTlsIndex() {
   if (TlsIndexOff != uint32_t(-1))
     return false;
-  TlsIndexOff = NumEntries * sizeof(uintX_t);
+  TlsIndexOff = NumEntries * Config->Wordsize;
   NumEntries += 2;
   return true;
 }
 
 template <class ELFT>
-typename GotSection<ELFT>::uintX_t
-GotSection<ELFT>::getGlobalDynAddr(const SymbolBody &B) const {
-  return this->getVA() + B.GlobalDynIndex * sizeof(uintX_t);
+uint64_t GotSection<ELFT>::getGlobalDynAddr(const SymbolBody &B) const {
+  return this->getVA() + B.GlobalDynIndex * Config->Wordsize;
 }
 
 template <class ELFT>
-typename GotSection<ELFT>::uintX_t
-GotSection<ELFT>::getGlobalDynOffset(const SymbolBody &B) const {
-  return B.GlobalDynIndex * sizeof(uintX_t);
+uint64_t GotSection<ELFT>::getGlobalDynOffset(const SymbolBody &B) const {
+  return B.GlobalDynIndex * Config->Wordsize;
 }
 
 template <class ELFT> void GotSection<ELFT>::finalizeContents() {
-  Size = NumEntries * sizeof(uintX_t);
+  Size = NumEntries * Config->Wordsize;
 }
 
 template <class ELFT> bool GotSection<ELFT>::empty() const {
@@ -1004,7 +1009,7 @@ static unsigned getVerDefNum() { return Config->VersionDefinitions.size() + 1; }
 
 template <class ELFT>
 DynamicSection<ELFT>::DynamicSection()
-    : SyntheticSection(SHF_ALLOC | SHF_WRITE, SHT_DYNAMIC, sizeof(uintX_t),
+    : SyntheticSection(SHF_ALLOC | SHF_WRITE, SHT_DYNAMIC, Config->Wordsize,
                        ".dynamic") {
   this->Entsize = ELFT::Is64Bits ? 16 : 8;
 
@@ -1024,12 +1029,12 @@ template <class ELFT> void DynamicSection<ELFT>::addEntries() {
   // fixed early.
   for (StringRef S : Config->AuxiliaryList)
     add({DT_AUXILIARY, In<ELFT>::DynStrTab->addString(S)});
-  if (!Config->RPath.empty())
+  if (!Config->Rpath.empty())
     add({Config->EnableNewDtags ? DT_RUNPATH : DT_RPATH,
-         In<ELFT>::DynStrTab->addString(Config->RPath)});
+         In<ELFT>::DynStrTab->addString(Config->Rpath)});
   for (SharedFile<ELFT> *F : Symtab<ELFT>::X->getSharedFiles())
     if (F->isNeeded())
-      add({DT_NEEDED, In<ELFT>::DynStrTab->addString(F->getSoName())});
+      add({DT_NEEDED, In<ELFT>::DynStrTab->addString(F->SoName)});
   if (!Config->SoName.empty())
     add({DT_SONAME, In<ELFT>::DynStrTab->addString(Config->SoName)});
 
@@ -1071,7 +1076,7 @@ template <class ELFT> void DynamicSection<ELFT>::finalizeContents() {
     add({IsRela ? DT_RELA : DT_REL, In<ELFT>::RelaDyn});
     add({IsRela ? DT_RELASZ : DT_RELSZ, In<ELFT>::RelaDyn->OutSec->Size});
     add({IsRela ? DT_RELAENT : DT_RELENT,
-         uintX_t(IsRela ? sizeof(Elf_Rela) : sizeof(Elf_Rel))});
+         uint64_t(IsRela ? sizeof(Elf_Rela) : sizeof(Elf_Rel))});
 
     // MIPS dynamic loader does not support RELCOUNT tag.
     // The problem is in the tight relation between dynamic
@@ -1197,7 +1202,7 @@ uint32_t DynamicReloc::getSymIndex() const {
 template <class ELFT>
 RelocationSection<ELFT>::RelocationSection(StringRef Name, bool Sort)
     : SyntheticSection(SHF_ALLOC, Config->IsRela ? SHT_RELA : SHT_REL,
-                       sizeof(uintX_t), Name),
+                       Config->Wordsize, Name),
       Sort(Sort) {
   this->Entsize = Config->IsRela ? sizeof(Elf_Rela) : sizeof(Elf_Rel);
 }
@@ -1261,9 +1266,9 @@ template <class ELFT> void RelocationSection<ELFT>::finalizeContents() {
 
 template <class ELFT>
 SymbolTableSection<ELFT>::SymbolTableSection(StringTableSection &StrTabSec)
-    : SyntheticSection(StrTabSec.isDynamic() ? (uintX_t)SHF_ALLOC : 0,
+    : SyntheticSection(StrTabSec.isDynamic() ? (uint64_t)SHF_ALLOC : 0,
                        StrTabSec.isDynamic() ? SHT_DYNSYM : SHT_SYMTAB,
-                       sizeof(uintX_t),
+                       Config->Wordsize,
                        StrTabSec.isDynamic() ? ".dynsym" : ".symtab"),
       StrTabSec(StrTabSec) {
   this->Entsize = sizeof(Elf_Sym);
@@ -1910,7 +1915,7 @@ template <class ELFT> void EhFrameHeader<ELFT>::writeTo(uint8_t *Buf) {
   write32<E>(Buf + 8, Fdes.size());
   Buf += 12;
 
-  uintX_t VA = this->getVA();
+  uint64_t VA = this->getVA();
   for (FdeData &Fde : Fdes) {
     write32<E>(Buf, Fde.Pc - VA);
     write32<E>(Buf + 4, Fde.FdeVA - VA);
@@ -2044,7 +2049,7 @@ void VersionNeedSection<ELFT>::addSymbol(SharedSymbol *SS) {
   // to create one by adding it to our needed list and creating a dynstr entry
   // for the soname.
   if (File->VerdefMap.empty())
-    Needed.push_back({File, In<ELFT>::DynStrTab->addString(File->getSoName())});
+    Needed.push_back({File, In<ELFT>::DynStrTab->addString(File->SoName)});
   typename SharedFile<ELFT>::NeededVer &NV = File->VerdefMap[Ver];
   // If we don't already know that we need an Elf_Vernaux for this Elf_Verdef,
   // prepare to create one by allocating a version identifier and creating a

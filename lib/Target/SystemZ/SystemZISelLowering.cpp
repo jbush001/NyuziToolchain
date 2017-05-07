@@ -20,8 +20,9 @@
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
 #include "llvm/CodeGen/TargetLoweringObjectFileImpl.h"
-#include "llvm/Support/CommandLine.h"
 #include "llvm/IR/Intrinsics.h"
+#include "llvm/Support/CommandLine.h"
+#include "llvm/Support/KnownBits.h"
 #include <cctype>
 
 using namespace llvm;
@@ -347,9 +348,13 @@ SystemZTargetLowering::SystemZTargetLowering(const TargetMachine &TM,
     // There should be no need to check for float types other than v2f64
     // since <2 x f32> isn't a legal type.
     setOperationAction(ISD::FP_TO_SINT, MVT::v2i64, Legal);
+    setOperationAction(ISD::FP_TO_SINT, MVT::v2f64, Legal);
     setOperationAction(ISD::FP_TO_UINT, MVT::v2i64, Legal);
+    setOperationAction(ISD::FP_TO_UINT, MVT::v2f64, Legal);
     setOperationAction(ISD::SINT_TO_FP, MVT::v2i64, Legal);
+    setOperationAction(ISD::SINT_TO_FP, MVT::v2f64, Legal);
     setOperationAction(ISD::UINT_TO_FP, MVT::v2i64, Legal);
+    setOperationAction(ISD::UINT_TO_FP, MVT::v2f64, Legal);
   }
 
   // Handle floating-point types.
@@ -825,7 +830,7 @@ bool SystemZTargetLowering::allowTruncateForTailCall(Type *FromType,
   return isTruncateFree(FromType, ToType);
 }
 
-bool SystemZTargetLowering::mayBeEmittedAsTailCall(CallInst *CI) const {
+bool SystemZTargetLowering::mayBeEmittedAsTailCall(const CallInst *CI) const {
   return CI->isTailCall();
 }
 
@@ -3062,14 +3067,14 @@ SDValue SystemZTargetLowering::lowerOR(SDValue Op, SelectionDAG &DAG) const {
 
   // Get the known-zero masks for each operand.
   SDValue Ops[] = { Op.getOperand(0), Op.getOperand(1) };
-  APInt KnownZero[2], KnownOne[2];
-  DAG.computeKnownBits(Ops[0], KnownZero[0], KnownOne[0]);
-  DAG.computeKnownBits(Ops[1], KnownZero[1], KnownOne[1]);
+  KnownBits Known[2];
+  DAG.computeKnownBits(Ops[0], Known[0]);
+  DAG.computeKnownBits(Ops[1], Known[1]);
 
   // See if the upper 32 bits of one operand and the lower 32 bits of the
   // other are known zero.  They are the low and high operands respectively.
-  uint64_t Masks[] = { KnownZero[0].getZExtValue(),
-                       KnownZero[1].getZExtValue() };
+  uint64_t Masks[] = { Known[0].Zero.getZExtValue(),
+                       Known[1].Zero.getZExtValue() };
   unsigned High, Low;
   if ((Masks[0] >> 32) == 0xffffffff && uint32_t(Masks[1]) == 0xffffffff)
     High = 1, Low = 0;
@@ -3154,9 +3159,9 @@ SDValue SystemZTargetLowering::lowerCTPOP(SDValue Op,
   }
 
   // Get the known-zero mask for the operand.
-  APInt KnownZero, KnownOne;
-  DAG.computeKnownBits(Op, KnownZero, KnownOne);
-  unsigned NumSignificantBits = (~KnownZero).getActiveBits();
+  KnownBits Known;
+  DAG.computeKnownBits(Op, Known);
+  unsigned NumSignificantBits = (~Known.Zero).getActiveBits();
   if (NumSignificantBits == 0)
     return DAG.getConstant(0, DL, VT);
 

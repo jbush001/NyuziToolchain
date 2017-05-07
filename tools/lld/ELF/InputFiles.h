@@ -142,7 +142,6 @@ template <class ELFT> class ObjectFile : public ELFFileBase<ELFT> {
   typedef typename ELFT::Rela Elf_Rela;
   typedef typename ELFT::Sym Elf_Sym;
   typedef typename ELFT::Shdr Elf_Shdr;
-  typedef typename ELFT::SymRange Elf_Sym_Range;
   typedef typename ELFT::Word Elf_Word;
 
   StringRef getShtGroupSignature(ArrayRef<Elf_Shdr> Sections,
@@ -156,9 +155,8 @@ public:
 
   ArrayRef<SymbolBody *> getSymbols();
   ArrayRef<SymbolBody *> getLocalSymbols();
-  ArrayRef<SymbolBody *> getNonLocalSymbols();
 
-  explicit ObjectFile(MemoryBufferRef M);
+  ObjectFile(MemoryBufferRef M, StringRef ArchiveName);
   void parse(llvm::DenseSet<llvm::CachedHashStringRef> &ComdatGroups);
 
   InputSectionBase *getSection(const Elf_Sym &Sym) const;
@@ -221,7 +219,11 @@ private:
 // archive file semantics.
 class LazyObjectFile : public InputFile {
 public:
-  explicit LazyObjectFile(MemoryBufferRef M) : InputFile(LazyObjectKind, M) {}
+  LazyObjectFile(MemoryBufferRef M, StringRef ArchiveName,
+                 uint64_t OffsetInArchive)
+      : InputFile(LazyObjectKind, M), OffsetInArchive(OffsetInArchive) {
+    this->ArchiveName = ArchiveName;
+  }
 
   static bool classof(const InputFile *F) {
     return F->kind() == LazyObjectKind;
@@ -229,6 +231,7 @@ public:
 
   template <class ELFT> void parse();
   MemoryBufferRef getBuffer();
+  InputFile *fetch();
 
 private:
   std::vector<StringRef> getSymbols();
@@ -236,12 +239,13 @@ private:
   std::vector<StringRef> getBitcodeSymbols();
 
   bool Seen = false;
+  uint64_t OffsetInArchive;
 };
 
 // An ArchiveFile object represents a .a file.
 class ArchiveFile : public InputFile {
 public:
-  explicit ArchiveFile(MemoryBufferRef M) : InputFile(ArchiveKind, M) {}
+  explicit ArchiveFile(std::unique_ptr<Archive> &&File);
   static bool classof(const InputFile *F) { return F->kind() == ArchiveKind; }
   template <class ELFT> void parse();
 
@@ -258,18 +262,13 @@ private:
 
 class BitcodeFile : public InputFile {
 public:
-  BitcodeFile(MemoryBufferRef M, uint64_t OffsetInArchive);
+  BitcodeFile(MemoryBufferRef M, StringRef ArchiveName,
+              uint64_t OffsetInArchive);
   static bool classof(const InputFile *F) { return F->kind() == BitcodeKind; }
   template <class ELFT>
   void parse(llvm::DenseSet<llvm::CachedHashStringRef> &ComdatGroups);
   ArrayRef<Symbol *> getSymbols() { return Symbols; }
   std::unique_ptr<llvm::lto::InputFile> Obj;
-
-  // If this file is in an archive, the member contains the offset of
-  // the file in the archive. Otherwise, it's just zero. We store this
-  // field so that we can pass it to lib/LTO in order to disambiguate
-  // between objects.
-  uint64_t OffsetInArchive;
 
 private:
   std::vector<Symbol *> Symbols;
@@ -284,15 +283,14 @@ template <class ELFT> class SharedFile : public ELFFileBase<ELFT> {
   typedef typename ELFT::SymRange Elf_Sym_Range;
   typedef typename ELFT::Verdef Elf_Verdef;
   typedef typename ELFT::Versym Elf_Versym;
-  typedef typename ELFT::Word Elf_Word;
 
   std::vector<StringRef> Undefs;
-  StringRef SoName;
   const Elf_Shdr *VersymSec = nullptr;
   const Elf_Shdr *VerdefSec = nullptr;
 
 public:
-  StringRef getSoName() const { return SoName; }
+  std::string SoName;
+
   const Elf_Shdr *getSection(const Elf_Sym &Sym) const;
   llvm::ArrayRef<StringRef> getUndefinedSymbols() { return Undefs; }
 
@@ -300,7 +298,7 @@ public:
     return F->kind() == Base::SharedKind;
   }
 
-  explicit SharedFile(MemoryBufferRef M);
+  SharedFile(MemoryBufferRef M, StringRef DefaultSoName);
 
   void parseSoName();
   void parseRest();
@@ -333,7 +331,7 @@ public:
 
 InputFile *createObjectFile(MemoryBufferRef MB, StringRef ArchiveName = "",
                             uint64_t OffsetInArchive = 0);
-InputFile *createSharedFile(MemoryBufferRef MB);
+InputFile *createSharedFile(MemoryBufferRef MB, StringRef DefaultSoName);
 
 } // namespace elf
 } // namespace lld

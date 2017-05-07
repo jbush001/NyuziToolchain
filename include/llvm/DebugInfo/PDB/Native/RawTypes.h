@@ -200,7 +200,7 @@ struct FileInfoSubstreamHeader {
 };
 
 struct ModInfoFlags {
-  ///  uint16_t fWritten : 1;   // True if ModInfo is dirty
+  ///  uint16_t fWritten : 1;   // True if DbiModuleDescriptor is dirty
   ///  uint16_t fECEnabled : 1; // Is EC symbolic info present?  (What is EC?)
   ///  uint16_t unused : 6;     // Reserved
   ///  uint16_t iTSM : 8;       // Type Server Index for this module
@@ -211,7 +211,7 @@ struct ModInfoFlags {
 };
 
 /// The header preceeding each entry in the Module Info substream of the DBI
-/// stream.
+/// stream.  Corresponds to the type MODI in the reference implementation.
 struct ModuleInfoHeader {
   /// Currently opened module. This field is a pointer in the reference
   /// implementation, but that won't work on 64-bit systems, and anyway it
@@ -231,8 +231,8 @@ struct ModuleInfoHeader {
   /// Size of local symbol debug info in above stream
   support::ulittle32_t SymBytes;
 
-  /// Size of line number debug info in above stream
-  support::ulittle32_t LineBytes;
+  /// Size of C11 line number info in above stream
+  support::ulittle32_t C11Bytes;
 
   /// Size of C13 line number info in above stream
   support::ulittle32_t C13Bytes;
@@ -243,9 +243,12 @@ struct ModuleInfoHeader {
   /// Padding so the next field is 4-byte aligned.
   char Padding1[2];
 
-  /// Array of [0..NumFiles) DBI name buffer offsets.  This field is a pointer
-  /// in the reference implementation, but as with `Mod`, we ignore it for now
-  /// since it is unused.
+  /// Array of [0..NumFiles) DBI name buffer offsets.  In the reference
+  /// implementation this field is a pointer.  But since you can't portably
+  /// serialize a pointer, on 64-bit platforms they copy all the values except
+  /// this one into the 32-bit version of the struct and use that for
+  /// serialization.  Regardless, this field is unused, it is only there to
+  /// store a pointer that can be accessed at runtime.
   support::ulittle32_t FileNameOffs;
 
   /// Name Index for src file name
@@ -307,13 +310,13 @@ struct InfoStreamHeader {
 };
 
 /// The header preceeding the /names stream.
-struct StringTableHeader {
-  support::ulittle32_t Signature;
-  support::ulittle32_t HashVersion;
-  support::ulittle32_t ByteSize;
+struct PDBStringTableHeader {
+  support::ulittle32_t Signature;   // PDBStringTableSignature
+  support::ulittle32_t HashVersion; // 1 or 2
+  support::ulittle32_t ByteSize;    // Number of bytes of names buffer.
 };
 
-const uint32_t StringTableSignature = 0xEFFEEFFE;
+const uint32_t PDBStringTableSignature = 0xEFFEEFFE;
 
 } // namespace pdb
 } // namespace llvm

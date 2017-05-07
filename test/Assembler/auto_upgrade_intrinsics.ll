@@ -85,6 +85,23 @@ define void @tests.masked.store(<2 x double>* %ptr, <2 x i1> %mask, <2 x double>
   ret void
 }
 
+declare <2 x double> @llvm.masked.gather.v2f64(<2 x double*> %ptrs, i32, <2 x i1> %mask, <2 x double> %src0)
+
+define <2 x double> @tests.masked.gather(<2 x double*> %ptr, <2 x i1> %mask, <2 x double> %passthru)  {
+; CHECK-LABEL: @tests.masked.gather(
+; CHECK: @llvm.masked.gather.v2f64.v2p0f64
+  %res = call <2 x double> @llvm.masked.gather.v2f64(<2 x double*> %ptr, i32 1, <2 x i1> %mask, <2 x double> %passthru)
+  ret <2 x double> %res
+}
+
+declare void @llvm.masked.scatter.v2f64(<2 x double> %val, <2 x double*> %ptrs, i32, <2 x i1> %mask)
+
+define void @tests.masked.scatter(<2 x double*> %ptr, <2 x i1> %mask, <2 x double> %val)  {
+; CHECK-LABEL: @tests.masked.scatter(
+; CHECK: @llvm.masked.scatter.v2f64.v2p0f64
+  call void @llvm.masked.scatter.v2f64(<2 x double> %val, <2 x double*> %ptr, i32 3, <2 x i1> %mask)
+  ret void
+}
 
 declare {}* @llvm.invariant.start(i64, i8* nocapture) nounwind readonly
 declare void @llvm.invariant.end({}*, i64, i8* nocapture) nounwind
@@ -110,6 +127,25 @@ define void @test.stackprotectorcheck() {
   ret void
 }
 
+declare void  @llvm.lifetime.start(i64, i8* nocapture) nounwind readonly
+declare void @llvm.lifetime.end(i64, i8* nocapture) nounwind
+
+define void @tests.lifetime.start.end() {
+  ; CHECK-LABEL: @tests.lifetime.start.end(
+  %a = alloca i8
+  call void @llvm.lifetime.start(i64 1, i8* %a)
+  ; CHECK: call void @llvm.lifetime.start.p0i8(i64 1, i8* %a)
+  store i8 0, i8* %a
+  call void @llvm.lifetime.end(i64 1, i8* %a)
+  ; CHECK: call void @llvm.lifetime.end.p0i8(i64 1, i8* %a)
+  ret void
+}
+
+
 ; This is part of @test.objectsize(), since llvm.objectsize declaration gets
 ; emitted at the end.
 ; CHECK: declare i32 @llvm.objectsize.i32.p0i8
+
+
+; CHECK: declare void @llvm.lifetime.start.p0i8(i64, i8* nocapture)
+; CHECK: declare void @llvm.lifetime.end.p0i8(i64, i8* nocapture)

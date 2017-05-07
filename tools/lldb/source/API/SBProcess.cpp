@@ -44,6 +44,8 @@
 #include "lldb/API/SBStructuredData.h"
 #include "lldb/API/SBThread.h"
 #include "lldb/API/SBThreadCollection.h"
+#include "lldb/API/SBTrace.h"
+#include "lldb/API/SBTraceOptions.h"
 #include "lldb/API/SBUnixSignals.h"
 
 using namespace lldb;
@@ -347,6 +349,26 @@ size_t SBProcess::GetAsyncProfileData(char *dst, size_t dst_len) const {
         dst, static_cast<uint64_t>(dst_len), static_cast<uint64_t>(bytes_read));
 
   return bytes_read;
+}
+
+lldb::SBTrace SBProcess::StartTrace(SBTraceOptions &options,
+                                    lldb::SBError &error) {
+  Log *log(lldb_private::GetLogIfAllCategoriesSet(LIBLLDB_LOG_API));
+  ProcessSP process_sp(GetSP());
+  error.Clear();
+  SBTrace trace_instance;
+  trace_instance.SetSP(process_sp);
+  lldb::user_id_t uid = LLDB_INVALID_UID;
+
+  if (!process_sp) {
+    error.SetErrorString("invalid process");
+  } else {
+
+    uid = process_sp->StartTrace(options.m_traceoptions_sp, error.ref());
+    trace_instance.SetTraceUID(uid);
+    LLDB_LOG(log, "SBProcess::returned uid - %" PRIx64, uid);
+  }
+  return trace_instance;
 }
 
 void SBProcess::ReportEventState(const SBEvent &event, FILE *out) const {
@@ -1135,22 +1157,34 @@ uint32_t SBProcess::LoadImage(lldb::SBFileSpec &sb_remote_image_spec,
 uint32_t SBProcess::LoadImage(const lldb::SBFileSpec &sb_local_image_spec,
                               const lldb::SBFileSpec &sb_remote_image_spec,
                               lldb::SBError &sb_error) {
+  Log *log(lldb_private::GetLogIfAllCategoriesSet(LIBLLDB_LOG_API));
   ProcessSP process_sp(GetSP());
   if (process_sp) {
     Process::StopLocker stop_locker;
     if (stop_locker.TryLock(&process_sp->GetRunLock())) {
+      if (log)
+        log->Printf("SBProcess(%p)::LoadImage() => calling Platform::LoadImage"
+                    "for: %s",
+                    static_cast<void *>(process_sp.get()),
+                    sb_local_image_spec.GetFilename());
+
       std::lock_guard<std::recursive_mutex> guard(
-          process_sp->GetTarget().GetAPIMutex());
+        process_sp->GetTarget().GetAPIMutex());
       PlatformSP platform_sp = process_sp->GetTarget().GetPlatform();
       return platform_sp->LoadImage(process_sp.get(), *sb_local_image_spec,
                                     *sb_remote_image_spec, sb_error.ref());
     } else {
-      Log *log(lldb_private::GetLogIfAllCategoriesSet(LIBLLDB_LOG_API));
       if (log)
         log->Printf("SBProcess(%p)::LoadImage() => error: process is running",
                     static_cast<void *>(process_sp.get()));
       sb_error.SetErrorString("process is running");
     }
+  } else { 
+    if (log)
+      log->Printf("SBProcess(%p)::LoadImage() => error: called with invalid"
+                    " process",
+                    static_cast<void *>(process_sp.get()));
+    sb_error.SetErrorString("process is invalid");
   }
   return LLDB_INVALID_IMAGE_TOKEN;
 }

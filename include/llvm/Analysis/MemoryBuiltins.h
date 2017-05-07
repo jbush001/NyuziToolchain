@@ -54,6 +54,11 @@ bool isCallocLikeFn(const Value *V, const TargetLibraryInfo *TLI,
                     bool LookThroughBitCast = false);
 
 /// \brief Tests if a value is a call or invoke to a library function that
+/// allocates memory similar to malloc or calloc.
+bool isMallocOrCallocLikeFn(const Value *V, const TargetLibraryInfo *TLI,
+                            bool LookThroughBitCast = false);
+
+/// \brief Tests if a value is a call or invoke to a library function that
 /// allocates memory (either malloc, calloc, or strdup like).
 bool isAllocLikeFn(const Value *V, const TargetLibraryInfo *TLI,
                    bool LookThroughBitCast = false);
@@ -230,7 +235,7 @@ class ObjectSizeOffsetEvaluator
   : public InstVisitor<ObjectSizeOffsetEvaluator, SizeOffsetEvalType> {
 
   typedef IRBuilder<TargetFolder> BuilderTy;
-  typedef std::pair<WeakVH, WeakVH> WeakEvalType;
+  typedef std::pair<WeakTrackingVH, WeakTrackingVH> WeakEvalType;
   typedef DenseMap<const Value*, WeakEvalType> CacheMapTy;
   typedef SmallPtrSet<const Value*, 8> PtrSetTy;
 

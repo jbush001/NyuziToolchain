@@ -9528,7 +9528,8 @@ static void DiagnoseBadConversion(Sema &S, OverloadCandidate *Cand,
         << (unsigned) FnKind << FnDesc
         << (FromExpr ? FromExpr->getSourceRange() : SourceRange())
         << FromTy
-        << FromQs.getAddressSpace() << ToQs.getAddressSpace()
+        << FromQs.getAddressSpaceAttributePrintValue()
+        << ToQs.getAddressSpaceAttributePrintValue()
         << (unsigned) isObjectArgument << I+1;
       MaybeEmitInheritedConstructorNote(S, Cand->FoundDecl);
       return;
@@ -11425,6 +11426,10 @@ static void AddOverloadedCallCandidate(Sema &S,
       assert(!KnownValid && "Explicit template arguments?");
       return;
     }
+    // Prevent ill-formed function decls to be added as overload candidates.
+    if (!dyn_cast<FunctionProtoType>(Func->getType()->getAs<FunctionType>()))
+      return;
+
     S.AddOverloadCandidate(Func, FoundDecl, Args, CandidateSet,
                            /*SuppressUsedConversions=*/false,
                            PartialOverloading);
