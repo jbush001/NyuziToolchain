@@ -800,33 +800,63 @@ bool NyuziTargetLowering::shouldInsertFencesForAtomic(
   return true;
 }
 
-SDValue NyuziTargetLowering::LowerGlobalAddress(SDValue Op,
-                                                SelectionDAG &DAG) const {
-  SDLoc DL(Op);
-  const GlobalValue *GV = cast<GlobalAddressSDNode>(Op)->getGlobal();
-  int64_t Offset = cast<GlobalAddressSDNode>(Op)->getOffset();
+SDValue NyuziTargetLowering::getTargetNode(const GlobalAddressSDNode *N, EVT Ty,
+                                           SelectionDAG &DAG,
+                                           unsigned int Flag) const {
+  return DAG.getTargetGlobalAddress(N->getGlobal(), SDLoc(N), Ty, 0, Flag);
+}
 
-  SDValue Hi = DAG.getTargetGlobalAddress(
-    GV, DL, getPointerTy(DAG.getDataLayout()), Offset, Nyuzi::MO_ABS_HI);
-  SDValue Lo = DAG.getTargetGlobalAddress(
-    GV, DL, getPointerTy(DAG.getDataLayout()), Offset, Nyuzi::MO_ABS_LO);
+SDValue NyuziTargetLowering::getTargetNode(const JumpTableSDNode *N, EVT Ty,
+                                           SelectionDAG &DAG,
+                                           unsigned int Flag) const {
+  return DAG.getTargetJumpTable(N->getIndex(), Ty, Flag);
+}
 
+SDValue NyuziTargetLowering::getTargetNode(const ConstantPoolSDNode *N, EVT Ty,
+                                           SelectionDAG &DAG,
+                                           unsigned int Flag) const {
+  return DAG.getTargetConstantPool(N->getConstVal(), Ty, N->getAlignment(),
+                                   N->getOffset(), Flag);
+}
+
+SDValue NyuziTargetLowering::getTargetNode(const BlockAddressSDNode *N, EVT Ty,
+                                           SelectionDAG &DAG,
+                                           unsigned int Flag) const {
+  return DAG.getTargetBlockAddress(N->getBlockAddress(), Ty, 0, Flag);
+}
+
+template <class NodeTy>
+SDValue NyuziTargetLowering::getAddr(const NodeTy *N, SelectionDAG &DAG) const {
+  SDLoc DL(N);
+  EVT Ty = getPointerTy(DAG.getDataLayout());
+  SDValue Hi = getTargetNode(N, Ty, DAG, Nyuzi::MO_ABS_HI);
+  SDValue Lo = getTargetNode(N, Ty, DAG, Nyuzi::MO_ABS_LO);
   SDValue MoveHi = DAG.getNode(NyuziISD::MOVEHI, DL, MVT::i32, Hi);
   return DAG.getNode(NyuziISD::ORLO, DL, MVT::i32, MoveHi, Lo);
 }
 
+SDValue NyuziTargetLowering::LowerGlobalAddress(SDValue Op,
+                                                SelectionDAG &DAG) const {
+  const GlobalAddressSDNode *N = cast<GlobalAddressSDNode>(Op);
+  return getAddr(N, DAG);
+}
+
 SDValue NyuziTargetLowering::LowerJumpTable(SDValue Op,
                                             SelectionDAG &DAG) const {
-  SDLoc DL(Op);
-  JumpTableSDNode *JT = cast<JumpTableSDNode>(Op);
+  JumpTableSDNode *N = cast<JumpTableSDNode>(Op);
+  return getAddr(N, DAG);
+}
 
-  SDValue Hi = DAG.getTargetJumpTable(
-    JT->getIndex(), getPointerTy(DAG.getDataLayout()), Nyuzi::MO_ABS_HI);
-  SDValue Lo = DAG.getTargetJumpTable(
-    JT->getIndex(), getPointerTy(DAG.getDataLayout()), Nyuzi::MO_ABS_LO);
+SDValue NyuziTargetLowering::LowerConstantPool(SDValue Op,
+                                               SelectionDAG &DAG) const {
+  ConstantPoolSDNode *N = cast<ConstantPoolSDNode>(Op);
+  return getAddr(N, DAG);
+}
 
-  SDValue MoveHi = DAG.getNode(NyuziISD::MOVEHI, DL, MVT::i32, Hi);
-  return DAG.getNode(NyuziISD::ORLO, DL, MVT::i32, MoveHi, Lo);
+SDValue NyuziTargetLowering::LowerBlockAddress(SDValue Op,
+                                               SelectionDAG &DAG) const {
+  const BlockAddressSDNode *N = cast<BlockAddressSDNode>(Op);
+  return getAddr(N, DAG);
 }
 
 SDValue NyuziTargetLowering::LowerBUILD_VECTOR(SDValue Op,
@@ -1229,20 +1259,6 @@ SDValue NyuziTargetLowering::LowerSETCC(SDValue Op, SelectionDAG &DAG) const {
   return DAG.getNode(ISD::XOR, DL, ResultVT, Comp2, Negate);
 }
 
-SDValue NyuziTargetLowering::LowerConstantPool(SDValue Op,
-                                               SelectionDAG &DAG) const {
-  SDLoc DL(Op);
-  ConstantPoolSDNode *N = cast<ConstantPoolSDNode>(Op);
-  const Constant *C = N->getConstVal();
-
-  SDValue Hi = DAG.getTargetConstantPool(C, MVT::i32, N->getAlignment(),
-                                         N->getOffset(), Nyuzi::MO_ABS_HI);
-  SDValue Lo = DAG.getTargetConstantPool(C, MVT::i32, N->getAlignment(),
-                                         N->getOffset(), Nyuzi::MO_ABS_LO);
-  SDValue MoveHi = DAG.getNode(NyuziISD::MOVEHI, DL, MVT::i32, Hi);
-  return DAG.getNode(NyuziISD::ORLO, DL, MVT::i32, MoveHi, Lo);
-}
-
 // There is no native floating point division, but we can convert this to a
 // reciprocal/multiply operation.  If the first parameter is constant 1.0, then
 // just a reciprocal will suffice.
@@ -1321,17 +1337,6 @@ SDValue NyuziTargetLowering::LowerFABS(SDValue Op, SelectionDAG &DAG) const {
   iconv = DAG.getBitcast(IntermediateVT, Op.getOperand(0));
   SDValue flipped = DAG.getNode(ISD::AND, DL, IntermediateVT, iconv, rhs);
   return DAG.getBitcast(ResultVT, flipped);
-}
-
-SDValue NyuziTargetLowering::LowerBlockAddress(SDValue Op,
-                                               SelectionDAG &DAG) const {
-  SDLoc DL(Op);
-  const BlockAddress *BA = cast<BlockAddressSDNode>(Op)->getBlockAddress();
-
-  SDValue Hi = DAG.getBlockAddress(BA, MVT::i32, true, Nyuzi::MO_ABS_HI);
-  SDValue Lo = DAG.getBlockAddress(BA, MVT::i32, true, Nyuzi::MO_ABS_LO);
-  SDValue MoveHi = DAG.getNode(NyuziISD::MOVEHI, DL, MVT::i32, Hi);
-  return DAG.getNode(NyuziISD::ORLO, DL, MVT::i32, MoveHi, Lo);
 }
 
 SDValue NyuziTargetLowering::LowerVASTART(SDValue Op, SelectionDAG &DAG) const {
