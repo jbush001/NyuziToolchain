@@ -324,7 +324,7 @@ class Preprocessor {
 
   /// \brief If the current lexer is for a submodule that is being built, this
   /// is that submodule.
-  Module *CurSubmodule;
+  Module *CurLexerSubmodule;
 
   /// \brief Keeps track of the stack of files currently
   /// \#included, and macros currently being expanded from, not counting
@@ -507,16 +507,19 @@ class Preprocessor {
 
   /// \brief Information about a submodule that we're currently building.
   struct BuildingSubmoduleInfo {
-    BuildingSubmoduleInfo(Module *M, SourceLocation ImportLoc,
+    BuildingSubmoduleInfo(Module *M, SourceLocation ImportLoc, bool IsPragma,
                           SubmoduleState *OuterSubmoduleState,
                           unsigned OuterPendingModuleMacroNames)
-        : M(M), ImportLoc(ImportLoc), OuterSubmoduleState(OuterSubmoduleState),
+        : M(M), ImportLoc(ImportLoc), IsPragma(IsPragma),
+          OuterSubmoduleState(OuterSubmoduleState),
           OuterPendingModuleMacroNames(OuterPendingModuleMacroNames) {}
 
     /// The module that we are building.
     Module *M;
     /// The location at which the module was included.
     SourceLocation ImportLoc;
+    /// Whether we entered this submodule via a pragma.
+    bool IsPragma;
     /// The previous SubmoduleState.
     SubmoduleState *OuterSubmoduleState;
     /// The number of pending module macro names when we started building this.
@@ -773,8 +776,9 @@ public:
   /// expansions going on at the time.
   PreprocessorLexer *getCurrentFileLexer() const;
 
-  /// \brief Return the submodule owning the file being lexed.
-  Module *getCurrentSubmodule() const { return CurSubmodule; }
+  /// \brief Return the submodule owning the file being lexed. This may not be
+  /// the current module if we have changed modules since entering the file.
+  Module *getCurrentLexerSubmodule() const { return CurLexerSubmodule; }
 
   /// \brief Returns the FileID for the preprocessor predefines.
   FileID getPredefinesFileID() const { return PredefinesFileID; }
@@ -1263,6 +1267,10 @@ public:
       CachedTokens[CachedLexPos-1] = Tok;
   }
 
+  /// Enter an annotation token into the token stream.
+  void EnterAnnotationToken(SourceRange Range, tok::TokenKind Kind,
+                            void *AnnotationVal);
+
   /// Update the current token to represent the provided
   /// identifier, in order to cache an action performed by typo correction.
   void TypoCorrectToken(const Token &Tok) {
@@ -1602,6 +1610,7 @@ private:
                  *Ident_AbnormalTermination;
 
   const char *getCurLexerEndPos();
+  void diagnoseMissingHeaderInUmbrellaDir(const Module &Mod);
 
 public:
   void PoisonSEHIdentifiers(bool Poison = true); // Borland
@@ -1686,7 +1695,7 @@ public:
                               SmallVectorImpl<char> *SearchPath,
                               SmallVectorImpl<char> *RelativePath,
                               ModuleMap::KnownHeader *SuggestedModule,
-                              bool SkipCache = false);
+                              bool *IsMapped, bool SkipCache = false);
 
   /// \brief Get the DirectoryLookup structure used to find the current
   /// FileEntry, if CurLexer is non-null and if applicable. 
@@ -1721,13 +1730,16 @@ public:
   bool CheckMacroName(Token &MacroNameTok, MacroUse isDefineUndef,
                       bool *ShadowFlag = nullptr);
 
-private:
+  void EnterSubmodule(Module *M, SourceLocation ImportLoc, bool ForPragma);
+  Module *LeaveSubmodule(bool ForPragma);
 
+private:
   void PushIncludeMacroStack() {
     assert(CurLexerKind != CLK_CachingLexer && "cannot push a caching lexer");
-    IncludeMacroStack.emplace_back(
-        CurLexerKind, CurSubmodule, std::move(CurLexer), std::move(CurPTHLexer),
-        CurPPLexer, std::move(CurTokenLexer), CurDirLookup);
+    IncludeMacroStack.emplace_back(CurLexerKind, CurLexerSubmodule,
+                                   std::move(CurLexer), std::move(CurPTHLexer),
+                                   CurPPLexer, std::move(CurTokenLexer),
+                                   CurDirLookup);
     CurPPLexer = nullptr;
   }
 
@@ -1737,15 +1749,12 @@ private:
     CurPPLexer = IncludeMacroStack.back().ThePPLexer;
     CurTokenLexer = std::move(IncludeMacroStack.back().TheTokenLexer);
     CurDirLookup  = IncludeMacroStack.back().TheDirLookup;
-    CurSubmodule = IncludeMacroStack.back().TheSubmodule;
+    CurLexerSubmodule = IncludeMacroStack.back().TheSubmodule;
     CurLexerKind = IncludeMacroStack.back().CurLexerKind;
     IncludeMacroStack.pop_back();
   }
 
   void PropagateLineStartLeadingSpaceInfo(Token &Result);
-
-  void EnterSubmodule(Module *M, SourceLocation ImportLoc);
-  void LeaveSubmodule();
 
   /// Determine whether we need to create module macros for #defines in the
   /// current context.

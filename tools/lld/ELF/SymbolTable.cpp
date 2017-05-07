@@ -52,6 +52,9 @@ template <class ELFT> static bool isCompatible(InputFile *F) {
 
 // Add symbols in File to the symbol table.
 template <class ELFT> void SymbolTable<ELFT>::addFile(InputFile *File) {
+  if (!Config->FirstElf && isa<ELFFileBase<ELFT>>(File))
+    Config->FirstElf = File;
+
   if (!isCompatible<ELFT>(File))
     return;
 
@@ -81,7 +84,7 @@ template <class ELFT> void SymbolTable<ELFT>::addFile(InputFile *File) {
   if (auto *F = dyn_cast<SharedFile<ELFT>>(File)) {
     // DSOs are uniquified not by filename but by soname.
     F->parseSoName();
-    if (ErrorCount || !SoNames.insert(F->getSoName()).second)
+    if (ErrorCount || !SoNames.insert(F->SoName).second)
       return;
     SharedFiles.push_back(F);
     F->parseRest();
@@ -166,6 +169,19 @@ template <class ELFT> void SymbolTable<ELFT>::wrap(StringRef Name) {
   // old symbol to instead refer to the new symbol.
   memcpy(Real->Body.buffer, Sym->Body.buffer, sizeof(Sym->Body));
   memcpy(Sym->Body.buffer, Wrap->Body.buffer, sizeof(Wrap->Body));
+}
+
+// Creates alias for symbol. Used to implement --defsym=ALIAS=SYM.
+template <class ELFT>
+void SymbolTable<ELFT>::alias(StringRef Alias, StringRef Name) {
+  SymbolBody *B = find(Name);
+  if (!B) {
+    error("-defsym: undefined symbol: " + Name);
+    return;
+  }
+  Symbol *Sym = B->symbol();
+  Symbol *AliasSym = addUndefined(Alias);
+  memcpy(AliasSym->Body.buffer, Sym->Body.buffer, sizeof(AliasSym->Body));
 }
 
 static uint8_t getMinVisibility(uint8_t VA, uint8_t VB) {
@@ -263,9 +279,10 @@ Symbol *SymbolTable<ELFT>::addUndefined(StringRef Name, bool IsLocal,
     return S;
   }
   if (Binding != STB_WEAK) {
-    if (S->body()->isShared() || S->body()->isLazy())
+    SymbolBody *B = S->body();
+    if (B->isShared() || B->isLazy() || B->isUndefined())
       S->Binding = Binding;
-    if (auto *SS = dyn_cast<SharedSymbol>(S->body()))
+    if (auto *SS = dyn_cast<SharedSymbol>(B))
       cast<SharedFile<ELFT>>(SS->File)->IsUsed = true;
   }
   if (auto *L = dyn_cast<Lazy>(S->body())) {
@@ -523,13 +540,10 @@ void SymbolTable<ELFT>::addLazyObject(StringRef Name, LazyObjectFile &Obj) {
     return;
 
   // See comment for addLazyArchive above.
-  if (S->isWeak()) {
+  if (S->isWeak())
     replaceBody<LazyObject>(S, Name, Obj, S->body()->Type);
-  } else {
-    MemoryBufferRef MBRef = Obj.getBuffer();
-    if (!MBRef.getBuffer().empty())
-      addFile(createObjectFile(MBRef));
-  }
+  else if (InputFile *F = Obj.fetch())
+    addFile(F);
 }
 
 // Process undefined (-u) flags by loading lazy symbols named by those flags.
@@ -548,11 +562,20 @@ template <class ELFT> void SymbolTable<ELFT>::scanUndefinedFlags() {
 // shared libraries can find them.
 // Except this, we ignore undefined symbols in DSOs.
 template <class ELFT> void SymbolTable<ELFT>::scanShlibUndefined() {
-  for (SharedFile<ELFT> *File : SharedFiles)
-    for (StringRef U : File->getUndefinedSymbols())
-      if (SymbolBody *Sym = find(U))
-        if (Sym->isDefined())
-          Sym->symbol()->ExportDynamic = true;
+  for (SharedFile<ELFT> *File : SharedFiles) {
+    for (StringRef U : File->getUndefinedSymbols()) {
+      SymbolBody *Sym = find(U);
+      if (!Sym || !Sym->isDefined())
+        continue;
+      Sym->symbol()->ExportDynamic = true;
+
+      // If -dynamic-list is given, the default version is set to
+      // VER_NDX_LOCAL, which prevents a symbol to be exported via .dynsym.
+      // Set to VER_NDX_GLOBAL so the symbol will be handled as if it were
+      // specified by -dynamic-list.
+      Sym->symbol()->VersionId = VER_NDX_GLOBAL;
+    }
+  }
 }
 
 // Initialize DemangledSyms with a map from demangled symbols to symbol

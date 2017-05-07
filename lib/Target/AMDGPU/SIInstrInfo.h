@@ -626,13 +626,13 @@ public:
       return 4;
     }
 
-    return RI.getRegClass(OpInfo.RegClass)->getSize();
+    return RI.getRegSizeInBits(*RI.getRegClass(OpInfo.RegClass)) / 8;
   }
 
   /// \brief This form should usually be preferred since it handles operands
   /// with unknown register classes.
   unsigned getOpSize(const MachineInstr &MI, unsigned OpNo) const {
-    return getOpRegClass(MI, OpNo)->getSize();
+    return RI.getRegSizeInBits(*getOpRegClass(MI, OpNo)) / 8;
   }
 
   /// \returns true if it is legal for the operand at index \p OpNo
@@ -761,6 +761,15 @@ public:
   CreateTargetPostRAHazardRecognizer(const MachineFunction &MF) const override;
 
   bool isBasicBlockPrologue(const MachineInstr &MI) const override;
+
+  /// \brief Return a partially built integer add instruction without carry.
+  /// Caller must add source operands.
+  /// For pre-GFX9 it will generate unused carry destination operand.
+  /// TODO: After GFX9 it should return a no-carry operation.
+  MachineInstrBuilder getAddNoCarry(MachineBasicBlock &MBB,
+                                    MachineBasicBlock::iterator I,
+                                    const DebugLoc &DL,
+                                    unsigned DestReg) const;
 };
 
 namespace AMDGPU {

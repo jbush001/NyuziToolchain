@@ -17,6 +17,7 @@
 #define LLVM_LIB_TARGET_AMDGPU_AMDGPUISELLOWERING_H
 
 #include "AMDGPU.h"
+#include "llvm/CodeGen/CallingConvLower.h"
 #include "llvm/Target/TargetLowering.h"
 
 namespace llvm {
@@ -114,8 +115,6 @@ protected:
                                     SmallVectorImpl<SDValue> &Results) const;
   void analyzeFormalArgumentsCompute(CCState &State,
                               const SmallVectorImpl<ISD::InputArg> &Ins) const;
-  void AnalyzeFormalArguments(CCState &State,
-                              const SmallVectorImpl<ISD::InputArg> &Ins) const;
   void AnalyzeReturn(CCState &State,
                      const SmallVectorImpl<ISD::OutputArg> &Outs) const;
 
@@ -126,8 +125,9 @@ public:
     if (getTargetMachine().Options.NoSignedZerosFPMath)
       return true;
 
-    if (const auto *BO = dyn_cast<BinaryWithFlagsSDNode>(Op))
-      return BO->Flags.hasNoSignedZeros();
+    const auto Flags = Op.getNode()->getFlags();
+    if (Flags.isDefined())
+      return Flags.hasNoSignedZeros();
 
     return false;
   }
@@ -161,6 +161,7 @@ public:
   bool isCheapToSpeculateCttz() const override;
   bool isCheapToSpeculateCtlz() const override;
 
+  static CCAssignFn *CCAssignFnForCall(CallingConv::ID CC, bool IsVarArg);
   SDValue LowerReturn(SDValue Chain, CallingConv::ID CallConv, bool isVarArg,
                       const SmallVectorImpl<ISD::OutputArg> &Outs,
                       const SmallVectorImpl<SDValue> &OutVals, const SDLoc &DL,
@@ -199,8 +200,7 @@ public:
   /// either zero or one and return them in the \p KnownZero and \p KnownOne
   /// bitsets.
   void computeKnownBitsForTargetNode(const SDValue Op,
-                                     APInt &KnownZero,
-                                     APInt &KnownOne,
+                                     KnownBits &Known,
                                      const APInt &DemandedElts,
                                      const SelectionDAG &DAG,
                                      unsigned Depth = 0) const override;
@@ -231,6 +231,10 @@ public:
   AMDGPUAS getAMDGPUAS() const {
     return AMDGPUASI;
   }
+
+  MVT getFenceOperandTy(const DataLayout &DL) const override {
+    return MVT::i32;
+  }
 };
 
 namespace AMDGPUISD {
@@ -244,6 +248,7 @@ enum NodeType : unsigned {
 
   // Function call.
   CALL,
+  TRAP,
 
   // Masked control flow nodes.
   IF,
@@ -365,6 +370,8 @@ enum NodeType : unsigned {
   BUILD_VERTICAL_VECTOR,
   /// Pointer to the start of the shader's constant data.
   CONST_DATA_PTR,
+  INIT_EXEC,
+  INIT_EXEC_FROM_INPUT,
   SENDMSG,
   SENDMSGHALT,
   INTERP_MOV,

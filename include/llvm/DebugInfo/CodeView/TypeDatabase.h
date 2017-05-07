@@ -21,7 +21,7 @@ namespace llvm {
 namespace codeview {
 class TypeDatabase {
 public:
-  TypeDatabase() : TypeNameStorage(Allocator) {}
+  explicit TypeDatabase(uint32_t ExpectedSize);
 
   /// Gets the type index for the next type record.
   TypeIndex getNextTypeIndex() const;
@@ -35,6 +35,7 @@ public:
   StringRef getTypeName(TypeIndex Index) const;
 
   const CVType &getTypeRecord(TypeIndex Index) const;
+  CVType &getTypeRecord(TypeIndex Index);
 
   bool containsTypeIndex(TypeIndex Index) const;
 

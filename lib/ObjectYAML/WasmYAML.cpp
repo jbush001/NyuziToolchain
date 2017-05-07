@@ -50,7 +50,11 @@ static void commonSectionMapping(IO &IO, WasmYAML::Section &Section) {
 static void sectionMapping(IO &IO, WasmYAML::CustomSection &Section) {
   commonSectionMapping(IO, Section);
   IO.mapRequired("Name", Section.Name);
-  IO.mapRequired("Payload", Section.Payload);
+  if (Section.Name == "name") {
+    IO.mapOptional("FunctionNames", Section.FunctionNames);
+  } else {
+    IO.mapRequired("Payload", Section.Payload);
+  }
 }
 
 static void sectionMapping(IO &IO, WasmYAML::TypeSection &Section) {
@@ -223,7 +227,13 @@ void MappingTraits<WasmYAML::Relocation>::mapping(
   IO.mapRequired("Type", Relocation.Type);
   IO.mapRequired("Index", Relocation.Index);
   IO.mapRequired("Offset", Relocation.Offset);
-  IO.mapRequired("Addend", Relocation.Addend);
+  IO.mapOptional("Addend", Relocation.Addend, 0);
+}
+
+void MappingTraits<WasmYAML::NameEntry>::mapping(
+    IO &IO, WasmYAML::NameEntry &NameEntry) {
+  IO.mapRequired("Index", NameEntry.Index);
+  IO.mapRequired("Name", NameEntry.Name);
 }
 
 void MappingTraits<WasmYAML::LocalDecl>::mapping(
@@ -293,6 +303,9 @@ void MappingTraits<wasm::WasmInitExpr>::mapping(IO &IO,
     break;
   case wasm::WASM_OPCODE_F64_CONST:
     IO.mapRequired("Value", Expr.Value.Float64);
+    break;
+  case wasm::WASM_OPCODE_GET_GLOBAL:
+    IO.mapRequired("Index", Expr.Value.Global);
     break;
   }
 }

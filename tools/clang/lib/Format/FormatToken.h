@@ -53,6 +53,8 @@ namespace format {
   TYPE(InlineASMColon) \
   TYPE(JavaAnnotation) \
   TYPE(JsComputedPropertyName) \
+  TYPE(JsExponentiation) \
+  TYPE(JsExponentiationEqual) \
   TYPE(JsFatArrow) \
   TYPE(JsNonNullAssertion) \
   TYPE(JsTypeColon) \
@@ -617,10 +619,12 @@ struct AdditionalKeywords {
     kw_finally = &IdentTable.get("finally");
     kw_from = &IdentTable.get("from");
     kw_function = &IdentTable.get("function");
+    kw_get = &IdentTable.get("get");
     kw_import = &IdentTable.get("import");
     kw_is = &IdentTable.get("is");
     kw_let = &IdentTable.get("let");
     kw_module = &IdentTable.get("module");
+    kw_set = &IdentTable.get("set");
     kw_type = &IdentTable.get("type");
     kw_var = &IdentTable.get("var");
     kw_yield = &IdentTable.get("yield");
@@ -675,10 +679,12 @@ struct AdditionalKeywords {
   IdentifierInfo *kw_finally;
   IdentifierInfo *kw_from;
   IdentifierInfo *kw_function;
+  IdentifierInfo *kw_get;
   IdentifierInfo *kw_import;
   IdentifierInfo *kw_is;
   IdentifierInfo *kw_let;
   IdentifierInfo *kw_module;
+  IdentifierInfo *kw_set;
   IdentifierInfo *kw_type;
   IdentifierInfo *kw_var;
   IdentifierInfo *kw_yield;

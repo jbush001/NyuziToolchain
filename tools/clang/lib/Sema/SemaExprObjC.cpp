@@ -595,7 +595,6 @@ ExprResult Sema::BuildObjCBoxedExpr(SourceRange SR, Expr *ValueExpr) {
         break;
       }
     }
-    CheckForIntOverflow(ValueExpr);
     // FIXME:  Do I need to do anything special with BoolTy expressions?
     
     // Look for the appropriate method within NSNumber.
@@ -3355,7 +3354,7 @@ namespace {
       if (isAnyRetainable(TargetClass) &&
           isAnyRetainable(SourceClass) &&
           var &&
-          var->getStorageClass() == SC_Extern &&
+          !var->hasDefinition(Context) &&
           var->getType().isConstQualified()) {
 
         // In system headers, they can also be assumed to be immune to retains.

@@ -228,7 +228,7 @@ protected:
   MemoryRegion *findMemoryRegion(OutputSectionCommand *Cmd);
 
   void switchTo(OutputSection *Sec);
-  void flush();
+  uint64_t advance(uint64_t Size, unsigned Align);
   void output(InputSection *Sec);
   void process(BaseCommand &Base);
 
@@ -242,9 +242,6 @@ protected:
   OutputSection *CurOutSec = nullptr;
   MemoryRegion *CurMemRegion = nullptr;
 
-  llvm::DenseSet<OutputSection *> AlreadyOutputOS;
-  llvm::DenseSet<InputSectionBase *> AlreadyOutputIS;
-
 public:
   bool hasPhdrsCommands() { return !Opt.PhdrsCommands.empty(); }
   uint64_t getDot() { return Dot; }
@@ -256,6 +253,7 @@ public:
   bool isDefined(StringRef S);
 
   std::vector<OutputSection *> *OutputSections;
+  void fabricateDefaultCommands();
   void addOrphanSections(OutputSectionFactory &Factory);
   void removeEmptyCommands();
   void adjustSectionsBeforeSorting();
@@ -270,10 +268,10 @@ public:
   void assignOffsets(OutputSectionCommand *Cmd);
   void placeOrphanSections();
   void processNonSectionCommands();
+  void synchronize();
   void assignAddresses(std::vector<PhdrEntry> &Phdrs);
-  int getSectionIndex(StringRef Name);
 
-  void writeDataBytes(StringRef Name, uint8_t *Buf);
+  void writeDataBytes(OutputSection *Sec, uint8_t *Buf);
   void addSymbol(SymbolAssignment *Cmd);
   void processCommands(OutputSectionFactory &Factory);
 

@@ -570,8 +570,14 @@ bool CodeGenPrepare::splitIndirectCriticalEdges(Function &F) {
     ValueToValueMapTy VMap;
     BasicBlock *DirectSucc = CloneBasicBlock(Target, VMap, ".clone", &F);
 
-    for (BasicBlock *Pred : OtherPreds)
-      Pred->getTerminator()->replaceUsesOfWith(Target, DirectSucc);
+    for (BasicBlock *Pred : OtherPreds) {
+      // If the target is a loop to itself, then the terminator of the split
+      // block needs to be updated.
+      if (Pred == Target)
+        BodyBlock->getTerminator()->replaceUsesOfWith(Target, DirectSucc);
+      else
+        Pred->getTerminator()->replaceUsesOfWith(Target, DirectSucc);
+    }
 
     // Ok, now fix up the PHIs. We know the two blocks only have PHIs, and that
     // they are clones, so the number of PHIs are the same.
@@ -2220,10 +2226,11 @@ bool CodeGenPrepare::optimizeCallInst(CallInst *CI, bool& ModifiedDT) {
       ConstantInt *RetVal =
           lowerObjectSizeCall(II, *DL, TLInfo, /*MustSucceed=*/true);
       // Substituting this can cause recursive simplifications, which can
-      // invalidate our iterator.  Use a WeakVH to hold onto it in case this
+      // invalidate our iterator.  Use a WeakTrackingVH to hold onto it in case
+      // this
       // happens.
       Value *CurValue = &*CurInstIterator;
-      WeakVH IterHandle(CurValue);
+      WeakTrackingVH IterHandle(CurValue);
 
       replaceAndRecursivelySimplify(CI, RetVal, TLInfo, nullptr);
 
@@ -4436,9 +4443,9 @@ bool CodeGenPrepare::optimizeMemoryInst(Instruction *MemoryInst, Value *Addr,
   // using it.
   if (Repl->use_empty()) {
     // This can cause recursive deletion, which can invalidate our iterator.
-    // Use a WeakVH to hold onto it in case this happens.
+    // Use a WeakTrackingVH to hold onto it in case this happens.
     Value *CurValue = &*CurInstIterator;
-    WeakVH IterHandle(CurValue);
+    WeakTrackingVH IterHandle(CurValue);
     BasicBlock *BB = CurInstIterator->getParent();
 
     RecursivelyDeleteTriviallyDeadInstructions(Repl, TLInfo);
@@ -5059,16 +5066,14 @@ bool CodeGenPrepare::optimizeLoadExt(LoadInst *Load) {
       if (!ShlC)
         return false;
       uint64_t ShiftAmt = ShlC->getLimitedValue(BitWidth - 1);
-      auto ShlDemandBits = APInt::getAllOnesValue(BitWidth).lshr(ShiftAmt);
-      DemandBits |= ShlDemandBits;
+      DemandBits.setLowBits(BitWidth - ShiftAmt);
       break;
     }
 
     case llvm::Instruction::Trunc: {
       EVT TruncVT = TLI->getValueType(*DL, I->getType());
       unsigned TruncBitWidth = TruncVT.getSizeInBits();
-      auto TruncBits = APInt::getAllOnesValue(TruncBitWidth).zext(BitWidth);
-      DemandBits |= TruncBits;
+      DemandBits.setLowBits(TruncBitWidth);
       break;
     }
 
@@ -5457,7 +5462,7 @@ bool CodeGenPrepare::optimizeSwitchInst(SwitchInst *SI) {
   auto *ExtInst = CastInst::Create(ExtType, Cond, NewType);
   ExtInst->insertBefore(SI);
   SI->setCondition(ExtInst);
-  for (SwitchInst::CaseIt Case : SI->cases()) {
+  for (auto Case : SI->cases()) {
     APInt NarrowConst = Case.getCaseValue()->getValue();
     APInt WideConst = (ExtType == Instruction::ZExt) ?
                       NarrowConst.zext(RegWidth) : NarrowConst.sext(RegWidth);
@@ -5955,7 +5960,7 @@ bool CodeGenPrepare::optimizeInst(Instruction *I, bool& ModifiedDT) {
     // It is possible for very late stage optimizations (such as SimplifyCFG)
     // to introduce PHI nodes too late to be cleaned up.  If we detect such a
     // trivial PHI, go ahead and zap it here.
-    if (Value *V = SimplifyInstruction(P, *DL, TLInfo, nullptr)) {
+    if (Value *V = SimplifyInstruction(P, {*DL, TLInfo})) {
       P->replaceAllUsesWith(V);
       P->eraseFromParent();
       ++NumPHIsElim;

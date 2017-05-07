@@ -1901,10 +1901,7 @@ void X86_32TargetCodeGenInfo::setTargetAttributes(const Decl *D,
       // Now add the 'alignstack' attribute with a value of 16.
       llvm::AttrBuilder B;
       B.addStackAlignmentAttr(16);
-      Fn->addAttributes(
-          llvm::AttributeList::FunctionIndex,
-          llvm::AttributeList::get(CGM.getLLVMContext(),
-                                   llvm::AttributeList::FunctionIndex, B));
+      Fn->addAttributes(llvm::AttributeList::FunctionIndex, B);
     }
     if (FD->hasAttr<AnyX86InterruptAttr>()) {
       llvm::Function *Fn = cast<llvm::Function>(GV);
@@ -4893,10 +4890,16 @@ ABIArgInfo AArch64ABIInfo::classifyArgumentType(QualType Ty) const {
 
   // Empty records are always ignored on Darwin, but actually passed in C++ mode
   // elsewhere for GNU compatibility.
-  if (isEmptyRecord(getContext(), Ty, true)) {
+  uint64_t Size = getContext().getTypeSize(Ty);
+  bool IsEmpty = isEmptyRecord(getContext(), Ty, true);
+  if (IsEmpty || Size == 0) {
     if (!getContext().getLangOpts().CPlusPlus || isDarwinPCS())
       return ABIArgInfo::getIgnore();
 
+    // GNU C mode. The only argument that gets ignored is an empty one with size
+    // 0.
+    if (IsEmpty && Size == 0)
+      return ABIArgInfo::getIgnore();
     return ABIArgInfo::getDirect(llvm::Type::getInt8Ty(getVMContext()));
   }
 
@@ -4909,7 +4912,6 @@ ABIArgInfo AArch64ABIInfo::classifyArgumentType(QualType Ty) const {
   }
 
   // Aggregates <= 16 bytes are passed directly in registers or on the stack.
-  uint64_t Size = getContext().getTypeSize(Ty);
   if (Size <= 128) {
     // On RenderScript, coerce Aggregates <= 16 bytes to an integer array of
     // same size and alignment.
@@ -4949,7 +4951,8 @@ ABIArgInfo AArch64ABIInfo::classifyReturnType(QualType RetTy) const {
                 : ABIArgInfo::getDirect());
   }
 
-  if (isEmptyRecord(getContext(), RetTy, true))
+  uint64_t Size = getContext().getTypeSize(RetTy);
+  if (isEmptyRecord(getContext(), RetTy, true) || Size == 0)
     return ABIArgInfo::getIgnore();
 
   const Type *Base = nullptr;
@@ -4959,7 +4962,6 @@ ABIArgInfo AArch64ABIInfo::classifyReturnType(QualType RetTy) const {
     return ABIArgInfo::getDirect();
 
   // Aggregates <= 16 bytes are returned directly in registers or on the stack.
-  uint64_t Size = getContext().getTypeSize(RetTy);
   if (Size <= 128) {
     // On RenderScript, coerce Aggregates <= 16 bytes to an integer array of
     // same size and alignment.
@@ -5449,10 +5451,7 @@ public:
     // the backend to perform a realignment as part of the function prologue.
     llvm::AttrBuilder B;
     B.addStackAlignmentAttr(8);
-    Fn->addAttributes(
-        llvm::AttributeList::FunctionIndex,
-        llvm::AttributeList::get(CGM.getLLVMContext(),
-                                 llvm::AttributeList::FunctionIndex, B));
+    Fn->addAttributes(llvm::AttributeList::FunctionIndex, B);
   }
 };
 

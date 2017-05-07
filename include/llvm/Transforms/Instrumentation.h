@@ -131,7 +131,8 @@ FunctionPass *createAddressSanitizerFunctionPass(bool CompileKernel = false,
                                                  bool Recover = false,
                                                  bool UseAfterScope = false);
 ModulePass *createAddressSanitizerModulePass(bool CompileKernel = false,
-                                             bool Recover = false);
+                                             bool Recover = false,
+                                             bool UseGlobalsGC = true);
 
 // Insert MemorySanitizer instrumentation (detection of uninitialized reads)
 FunctionPass *createMemorySanitizerPass(int TrackOrigins = 0,
@@ -176,6 +177,7 @@ struct SanitizerCoverageOptions {
   bool Use8bitCounters = false;
   bool TracePC = false;
   bool TracePCGuard = false;
+  bool NoPrune = false;
 
   SanitizerCoverageOptions() = default;
 };

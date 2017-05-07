@@ -45,8 +45,22 @@ TEST(Attributes, Ordering) {
                          AttributeList::get(C, 1, Attribute::SExt)};
 
   AttributeList SetA = AttributeList::get(C, ASs);
-  AttributeList SetB = SetA.removeAttributes(C, 1, ASs[1]);
+  AttributeList SetB = SetA.removeAttributes(C, 1, ASs[1].getAttributes(1));
   EXPECT_NE(SetA, SetB);
+}
+
+TEST(Attributes, AddAttributes) {
+  LLVMContext C;
+  AttributeList AL;
+  AttrBuilder B;
+  B.addAttribute(Attribute::NoReturn);
+  AL = AL.addAttributes(C, AttributeList::FunctionIndex, AttributeSet::get(C, B));
+  EXPECT_TRUE(AL.hasFnAttribute(Attribute::NoReturn));
+  B.clear();
+  B.addAttribute(Attribute::SExt);
+  AL = AL.addAttributes(C, AttributeList::ReturnIndex, B);
+  EXPECT_TRUE(AL.hasAttribute(AttributeList::ReturnIndex, Attribute::SExt));
+  EXPECT_TRUE(AL.hasFnAttribute(Attribute::NoReturn));
 }
 
 } // end anonymous namespace

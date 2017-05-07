@@ -104,8 +104,9 @@ void SystemZInstrInfo::splitMove(MachineBasicBlock::iterator MI,
   MachineOperand &LowOffsetOp = MI->getOperand(2);
   LowOffsetOp.setImm(LowOffsetOp.getImm() + 8);
 
-  // Clear the kill flags for the base and index registers in the first
-  // instruction.
+  // Clear the kill flags on the registers in the first instruction.
+  if (EarlierMI->getOperand(0).isReg() && EarlierMI->getOperand(0).isUse())
+    EarlierMI->getOperand(0).setIsKill(false);
   EarlierMI->getOperand(1).setIsKill(false);
   EarlierMI->getOperand(3).setIsKill(false);
 
@@ -849,12 +850,18 @@ void SystemZInstrInfo::copyPhysReg(MachineBasicBlock &MBB,
                                    MachineBasicBlock::iterator MBBI,
                                    const DebugLoc &DL, unsigned DestReg,
                                    unsigned SrcReg, bool KillSrc) const {
-  // Split 128-bit GPR moves into two 64-bit moves.  This handles ADDR128 too.
+  // Split 128-bit GPR moves into two 64-bit moves. Add implicit uses of the
+  // super register in case one of the subregs is undefined.
+  // This handles ADDR128 too.
   if (SystemZ::GR128BitRegClass.contains(DestReg, SrcReg)) {
     copyPhysReg(MBB, MBBI, DL, RI.getSubReg(DestReg, SystemZ::subreg_h64),
                 RI.getSubReg(SrcReg, SystemZ::subreg_h64), KillSrc);
+    MachineInstrBuilder(*MBB.getParent(), std::prev(MBBI))
+      .addReg(SrcReg, RegState::Implicit);
     copyPhysReg(MBB, MBBI, DL, RI.getSubReg(DestReg, SystemZ::subreg_l64),
                 RI.getSubReg(SrcReg, SystemZ::subreg_l64), KillSrc);
+    MachineInstrBuilder(*MBB.getParent(), std::prev(MBBI))
+      .addReg(SrcReg, (getKillRegState(KillSrc) | RegState::Implicit));
     return;
   }
 
@@ -1114,10 +1121,9 @@ MachineInstr *SystemZInstrInfo::foldMemoryOperandImpl(
     return nullptr;
 
   unsigned OpNum = Ops[0];
-  assert(Size ==
-             MF.getRegInfo()
-                 .getRegClass(MI.getOperand(OpNum).getReg())
-                 ->getSize() &&
+  assert(Size * 8 ==
+           TRI->getRegSizeInBits(*MF.getRegInfo()
+                               .getRegClass(MI.getOperand(OpNum).getReg())) &&
          "Invalid size combination");
 
   if ((Opcode == SystemZ::AHI || Opcode == SystemZ::AGHI) && OpNum == 0 &&

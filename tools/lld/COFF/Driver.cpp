@@ -509,8 +509,25 @@ filterBitcodeFiles(StringRef Path, std::vector<std::string> &TemporaryFiles) {
 
 // Create response file contents and invoke the MSVC linker.
 void LinkerDriver::invokeMSVC(opt::InputArgList &Args) {
-  std::string Rsp = "/nologo ";
+  std::string Rsp = "/nologo\n";
   std::vector<std::string> Temps;
+
+  // Write out archive members that we used in symbol resolution and pass these
+  // to MSVC before any archives, so that MSVC uses the same objects to satisfy
+  // references.
+  for (const auto *O : Symtab.ObjectFiles) {
+    if (O->ParentName.empty())
+      continue;
+    SmallString<128> S;
+    int Fd;
+    if (auto EC = sys::fs::createTemporaryFile(
+            "lld-" + sys::path::filename(O->ParentName), ".obj", Fd, S))
+      fatal(EC, "cannot create a temporary file");
+    raw_fd_ostream OS(Fd, /*shouldClose*/ true);
+    OS << O->MB.getBuffer();
+    Temps.push_back(S.str());
+    Rsp += quote(S) + "\n";
+  }
 
   for (auto *Arg : Args) {
     switch (Arg->getOption().getID()) {
@@ -528,14 +545,14 @@ void LinkerDriver::invokeMSVC(opt::InputArgList &Args) {
     case OPT_INPUT: {
       if (Optional<StringRef> Path = doFindFile(Arg->getValue())) {
         if (Optional<std::string> S = filterBitcodeFiles(*Path, Temps))
-          Rsp += quote(*S) + " ";
+          Rsp += quote(*S) + "\n";
         continue;
       }
-      Rsp += quote(Arg->getValue()) + " ";
+      Rsp += quote(Arg->getValue()) + "\n";
       break;
     }
     default:
-      Rsp += toString(Arg) + " ";
+      Rsp += toString(Arg) + "\n";
     }
   }
 
@@ -616,7 +633,7 @@ void LinkerDriver::link(ArrayRef<const char *> ArgsArr) {
     }
   }
 
-  if (Args.filtered_begin(OPT_INPUT) == Args.filtered_end())
+  if (!Args.hasArgNoClaim(OPT_INPUT))
     fatal("no input files");
 
   // Construct search path list.
@@ -917,7 +934,7 @@ void LinkerDriver::link(ArrayRef<const char *> ArgsArr) {
   // Set default image name if neither /out or /def set it.
   if (Config->OutputFile.empty()) {
     Config->OutputFile =
-        getOutputPath((*Args.filtered_begin(OPT_INPUT))->getValue());
+        getOutputPath((*Args.filtered(OPT_INPUT).begin())->getValue());
   }
 
   // Put the PDB next to the image if no /pdb flag was passed.

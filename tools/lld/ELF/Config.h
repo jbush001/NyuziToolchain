@@ -89,7 +89,7 @@ struct Configuration {
   llvm::StringRef SoName;
   llvm::StringRef Sysroot;
   llvm::StringRef ThinLTOCacheDir;
-  std::string RPath;
+  std::string Rpath;
   std::vector<VersionDefinition> VersionDefinitions;
   std::vector<llvm::StringRef> AuxiliaryList;
   std::vector<llvm::StringRef> SearchPaths;
@@ -99,11 +99,11 @@ struct Configuration {
   std::vector<SymbolVersion> VersionScriptLocals;
   std::vector<uint8_t> BuildIdVector;
   bool AllowMultipleDefinition;
-  bool ArchiveWithoutSymbolsSeen = false;
   bool AsNeeded = false;
   bool Bsymbolic;
   bool BsymbolicFunctions;
   bool ColorDiagnostics = false;
+  bool CompressDebugSections;
   bool DefineCommon;
   bool Demangle = true;
   bool DisableVerify;
@@ -125,7 +125,6 @@ struct Configuration {
   bool OptRemarksWithHotness;
   bool Pie;
   bool PrintGcSections;
-  bool Rela;
   bool Relocatable;
   bool SaveTemps;
   bool SingleRoRx;

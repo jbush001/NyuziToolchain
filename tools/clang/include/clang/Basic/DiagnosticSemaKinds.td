@@ -730,6 +730,9 @@ def err_super_in_lambda_unsupported : Error<
 def warn_pragma_unused_undeclared_var : Warning<
   "undeclared variable %0 used as an argument for '#pragma unused'">,
   InGroup<IgnoredPragmas>;
+def warn_atl_uuid_deprecated : Warning<
+  "specifying 'uuid' as an ATL attribute is deprecated; use __declspec instead">,
+  InGroup<DeprecatedDeclarations>;
 def warn_pragma_unused_expected_var_arg : Warning<
   "only variables can be arguments to '#pragma unused'">,
   InGroup<IgnoredPragmas>;
@@ -749,6 +752,25 @@ def err_pragma_loop_compatibility : Error<
   "%select{incompatible|duplicate}0 directives '%1' and '%2'">;
 def err_pragma_loop_precedes_nonloop : Error<
   "expected a for, while, or do-while loop to follow '%0'">;
+
+def err_pragma_attribute_matcher_subrule_contradicts_rule : Error<
+  "redundant attribute subject matcher sub-rule '%0'; '%1' already matches "
+  "those declarations">;
+def err_pragma_attribute_matcher_negated_subrule_contradicts_subrule : Error<
+  "negated attribute subject matcher sub-rule '%0' contradicts sub-rule '%1'">;
+def err_pragma_attribute_invalid_matchers : Error<
+  "attribute %0 can't be applied to %1">;
+def err_pragma_attribute_stack_mismatch : Error<
+  "'#pragma clang attribute pop' with no matching '#pragma clang attribute push'">;
+def warn_pragma_attribute_unused : Warning<
+  "unused attribute %0 in '#pragma clang attribute push' region">,
+  InGroup<PragmaClangAttribute>;
+def note_pragma_attribute_region_ends_here : Note<
+  "'#pragma clang attribute push' regions ends here">;
+def err_pragma_attribute_no_pop_eof : Error<"unterminated "
+  "'#pragma clang attribute push' at end of file">;
+def note_pragma_attribute_applied_decl_here : Note<
+  "when applied to this declaration">;
 
 /// Objective-C parser diagnostics
 def err_duplicate_class_def : Error<
@@ -1160,6 +1182,10 @@ def err_objc_kindof_nonobject : Error<
   "'__kindof' specifier cannot be applied to non-object type %0">;
 def err_objc_kindof_wrong_position : Error<
   "'__kindof' type specifier must precede the declarator">;
+
+def err_objc_method_unsupported_param_ret_type : Error<
+  "%0 %select{parameter|return}1 type is unsupported; "
+  "support for vector types for this target is introduced in %2">;
 
 // C++ declarations
 def err_static_assert_expression_is_not_constant : Error<
@@ -2065,7 +2091,7 @@ def err_enum_invalid_underlying : Error<
   "non-integral type %0 is an invalid underlying type">;
 def err_enumerator_too_large : Error<
   "enumerator value is not representable in the underlying type %0">;
-def ext_enumerator_too_large : ExtWarn<
+def ext_enumerator_too_large : Extension<
   "enumerator value is not representable in the underlying type %0">,
   InGroup<MicrosoftEnumValue>;
 def err_enumerator_wrapped : Error<
@@ -2797,9 +2823,9 @@ def warn_cconv_structors : Warning<
 def err_regparm_mismatch : Error<"function declared with regparm(%0) "
   "attribute was previously declared "
   "%plural{0:without the regparm|:with the regparm(%1)}1 attribute">;
-def err_returns_retained_mismatch : Error<
-  "function declared with the ns_returns_retained attribute "
-  "was previously declared without the ns_returns_retained attribute">;
+def err_function_attribute_mismatch : Error<
+  "function declared with %0 attribute "
+  "was previously declared without the %0 attribute">;
 def err_objc_precise_lifetime_bad_type : Error<
   "objc_precise_lifetime only applies to retainable types; type here is %0">;
 def warn_objc_precise_lifetime_meaningless : Error<
@@ -2845,7 +2871,8 @@ def warn_partial_availability : Warning<"%0 is only available conditionally">,
 def note_partial_availability_silence : Note<
   "explicitly redeclare %0 to silence this warning">;
 def note_unguarded_available_silence : Note<
-  "enclose %0 in an @available check to silence this warning">;
+  "enclose %0 in %select{an @available|a __builtin_available}1 check to silence"
+  " this warning">;
 def warn_partial_message : Warning<"%0 is partial: %1">,
     InGroup<UnguardedAvailability>, DefaultIgnore;
 def warn_partial_fwdclass_message : Warning<
@@ -4736,7 +4763,7 @@ def ext_forward_ref_enum : Extension<
   "ISO C forbids forward references to 'enum' types">;
 def err_forward_ref_enum : Error<
   "ISO C++ forbids forward references to 'enum' types">;
-def ext_ms_forward_ref_enum : Extension<
+def ext_ms_forward_ref_enum : ExtWarn<
   "forward references to 'enum' types are a Microsoft extension">,
   InGroup<MicrosoftEnumForwardReference>;
 def ext_forward_ref_enum_def : Extension<
@@ -4981,6 +5008,8 @@ def note_protected_by_if_available : Note<
   "jump enters controlled statement of if available">;
 def note_protected_by_vla : Note<
   "jump bypasses initialization of variable length array">;
+def note_protected_by_objc_fast_enumeration : Note<
+  "jump enters Objective-C fast enumeration loop">;
 def note_protected_by_objc_try : Note<
   "jump bypasses initialization of @try block">;
 def note_protected_by_objc_catch : Note<
@@ -7895,7 +7924,11 @@ def warn_empty_switch_body : Warning<
 def note_empty_body_on_separate_line : Note<
   "put the semicolon on a separate line to silence this warning">;
 
-def err_va_start_used_in_non_variadic_function : Error<
+def err_va_start_captured_stmt : Error<
+  "'va_start' cannot be used in a captured statement">;
+def err_va_start_outside_function : Error<
+  "'va_start' cannot be used outside a function">;
+def err_va_start_fixed_function : Error<
   "'va_start' used in function with fixed args">;
 def err_va_start_used_in_wrong_abi_function : Error<
   "'va_start' used in %select{System V|Win64}0 ABI function">;
@@ -8020,7 +8053,7 @@ def err_64_bit_builtin_32_bit_tgt : Error<
   "this builtin is only available on 64-bit targets">;
 def err_ppc_builtin_only_on_pwr7 : Error<
   "this builtin is only valid on POWER7 or later CPUs">;
-def err_x86_builtin_32_bit_tgt : Error<
+def err_x86_builtin_64_only : Error<
   "this builtin is only available on x86-64 targets">;
 def err_x86_builtin_invalid_rounding : Error<
   "invalid rounding argument">;
@@ -8780,9 +8813,11 @@ def err_invalid_type_for_program_scope_var : Error<
 }
 
 let CategoryName = "Modules Issue" in {
+def err_module_decl_in_module_map_module : Error<
+  "'module' declaration found while building module from module map">;
 def err_module_interface_implementation_mismatch : Error<
-  "%select{'module'|'module partition'|'module implementation'}0 declaration "
-  "found while %select{not |not |}0building module interface">;
+  "missing 'export' specifier in module declaration while "
+  "building module interface">;
 def err_current_module_name_mismatch : Error<
   "module name '%0' specified on command line does not match name of module">;
 def err_module_redefinition : Error<
@@ -8825,8 +8860,13 @@ def err_module_self_import : Error<
   "import of module '%0' appears within same top-level module '%1'">;
 def err_module_import_in_implementation : Error<
   "@import of module '%0' in implementation of '%1'; use #import">;
+
+// C++ Modules TS
 def err_export_within_export : Error<
   "export declaration appears within another export declaration">;
+def err_export_not_in_module_interface : Error<
+  "export declaration can only be used within a module interface unit after "
+  "the module declaration">;
 
 def ext_equivalent_internal_linkage_decl_in_modules : ExtWarn<
   "ambiguous use of internal linkage declaration %0 defined in multiple modules">,
@@ -8854,6 +8894,11 @@ def err_coroutine_invalid_func_context : Error<
 def err_implied_coroutine_type_not_found : Error<
   "%0 type was not found; include <experimental/coroutine> before defining "
   "a coroutine">;
+def err_implicit_coroutine_std_nothrow_type_not_found : Error<
+  "std::nothrow was not found; include <new> before defining a coroutine which "
+  "uses get_return_object_on_allocation_failure()">;
+def err_malformed_std_nothrow : Error<
+  "std::nothrow must be a valid variable declaration">;
 def err_malformed_std_coroutine_handle : Error<
   "std::experimental::coroutine_handle must be a class template">;
 def err_coroutine_handle_missing_member : Error<
@@ -8873,16 +8918,21 @@ def err_coroutine_promise_return_ill_formed : Error<
   "%0 declares both 'return_value' and 'return_void'">;
 def note_coroutine_promise_implicit_await_transform_required_here : Note<
   "call to 'await_transform' implicitly required by 'co_await' here">;
-def note_coroutine_promise_call_implicitly_required : Note<
+def note_coroutine_promise_suspend_implicitly_required : Note<
   "call to '%select{initial_suspend|final_suspend}0' implicitly "
   "required by the %select{initial suspend point|final suspend point}0">;
 def err_coroutine_promise_unhandled_exception_required : Error<
   "%0 is required to declare the member 'unhandled_exception()'">;
 def warn_coroutine_promise_unhandled_exception_required_with_exceptions : Warning<
   "%0 is required to declare the member 'unhandled_exception()' when exceptions are enabled">,
-  InGroup<Coroutine>;
+  InGroup<CoroutineMissingUnhandledException>;
 def err_coroutine_promise_get_return_object_on_allocation_failure : Error<
   "%0: 'get_return_object_on_allocation_failure()' must be a static member function">;
+def err_coroutine_promise_new_requires_nothrow : Error<
+  "%0 is required to have a non-throwing noexcept specification when the promise "
+   "type declares 'get_return_object_on_allocation_failure()'">;
+def note_coroutine_promise_call_implicitly_required : Note<
+  "call to %0 implicitly required by coroutine function here">;
 }
 
 let CategoryName = "Documentation Issue" in {
@@ -8893,8 +8943,13 @@ def warn_not_a_doxygen_trailing_member_comment : Warning<
 let CategoryName = "Instrumentation Issue" in {
 def warn_profile_data_out_of_date : Warning<
   "profile data may be out of date: of %0 function%s0, %1 %plural{1:has|:have}1"
-  " no data and %2 %plural{1:has|:have}2 mismatched data that will be ignored">,
+  " mismatched data that will be ignored">,
   InGroup<ProfileInstrOutOfDate>;
+def warn_profile_data_missing : Warning<
+  "profile data may be incomplete: of %0 function%s0, %1 %plural{1:has|:have}1"
+  " no data">,
+  InGroup<ProfileInstrMissing>,
+  DefaultIgnore;
 def warn_profile_data_unprofiled : Warning<
   "no profile data available for file \"%0\"">,
   InGroup<ProfileInstrUnprofiled>;
@@ -8924,6 +8979,9 @@ def warn_nullability_lost : Warning<
   "implicit conversion from nullable pointer %0 to non-nullable pointer "
   "type %1">,
   InGroup<NullableToNonNullConversion>, DefaultIgnore;
+def warn_zero_as_null_pointer_constant : Warning<
+  "zero as null pointer constant">,
+  InGroup<DiagGroup<"zero-as-null-pointer-constant">>, DefaultIgnore;
 
 def err_nullability_cs_multilevel : Error<
   "nullability keyword %0 cannot be applied to multi-level pointer type %1">;

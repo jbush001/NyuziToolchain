@@ -65,12 +65,18 @@ BitVector AVRRegisterInfo::getReservedRegs(const MachineFunction &MF) const {
   Reserved.set(AVR::SPH);
   Reserved.set(AVR::SP);
 
-  // Reserve the frame pointer registers r28 and r29 if the function requires one.
-  if (TFI->hasFP(MF)) {
-    Reserved.set(AVR::R28);
-    Reserved.set(AVR::R29);
-    Reserved.set(AVR::R29R28);
-  }
+  // We tenatively reserve the frame pointer register r29:r28 because the
+  // function may require one, but we cannot tell until register allocation
+  // is complete, which can be too late.
+  //
+  // Instead we just unconditionally reserve the Y register.
+  //
+  // TODO: Write a pass to enumerate functions which reserved the Y register
+  //       but didn't end up needing a frame pointer. In these, we can
+  //       convert one or two of the spills inside to use the Y register.
+  Reserved.set(AVR::R28);
+  Reserved.set(AVR::R29);
+  Reserved.set(AVR::R29R28);
 
   return Reserved;
 }
@@ -78,11 +84,12 @@ BitVector AVRRegisterInfo::getReservedRegs(const MachineFunction &MF) const {
 const TargetRegisterClass *
 AVRRegisterInfo::getLargestLegalSuperClass(const TargetRegisterClass *RC,
                                            const MachineFunction &MF) const {
-  if (RC->hasType(MVT::i16)) {
+  const TargetRegisterInfo *TRI = MF.getSubtarget().getRegisterInfo();
+  if (TRI->isTypeLegalForClass(*RC, MVT::i16)) {
     return &AVR::DREGSRegClass;
   }
 
-  if (RC->hasType(MVT::i8)) {
+  if (TRI->isTypeLegalForClass(*RC, MVT::i8)) {
     return &AVR::GPR8RegClass;
   }
 

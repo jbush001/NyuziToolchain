@@ -420,7 +420,7 @@ static bool fixupFPReturnAndCall(Function &F, Module *M,
                            Attribute::ReadNone);
         A = A.addAttribute(C, AttributeList::FunctionIndex,
                            Attribute::NoInline);
-        Value *F = (M->getOrInsertFunction(Name, A, MyVoid, T, nullptr));
+        Value *F = (M->getOrInsertFunction(Name, A, MyVoid, T));
         CallInst::Create(F, Params, "", &I);
       } else if (const CallInst *CI = dyn_cast<CallInst>(&I)) {
         FunctionType *FT = CI->getFunctionType();
@@ -490,15 +490,14 @@ static void createFPFnStub(Function *F, Module *M, FPParamVariant PV,
 // remove the use-soft-float attribute
 //
 static void removeUseSoftFloat(Function &F) {
-  AttributeList A;
+  AttrBuilder B;
   DEBUG(errs() << "removing -use-soft-float\n");
-  A = A.addAttribute(F.getContext(), AttributeList::FunctionIndex,
-                     "use-soft-float", "false");
-  F.removeAttributes(AttributeList::FunctionIndex, A);
+  B.addAttribute("use-soft-float", "false");
+  F.removeAttributes(AttributeList::FunctionIndex, B);
   if (F.hasFnAttribute("use-soft-float")) {
     DEBUG(errs() << "still has -use-soft-float\n");
   }
-  F.addAttributes(AttributeList::FunctionIndex, A);
+  F.addAttributes(AttributeList::FunctionIndex, B);
 }
 
 

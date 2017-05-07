@@ -13,6 +13,9 @@
 #include "llvm/DebugInfo/PDB/IPDBEnumChildren.h"
 #include "llvm/DebugInfo/PDB/Native/NativeSession.h"
 #include "llvm/DebugInfo/PDB/PDBExtras.h"
+#include "llvm/DebugInfo/PDB/PDBSymbolTypeBuiltin.h"
+#include "llvm/DebugInfo/PDB/PDBSymbolTypeVTable.h"
+#include "llvm/DebugInfo/PDB/PDBSymbolTypeVTableShape.h"
 #include "llvm/Support/ConvertUTF.h"
 #include "llvm/Support/raw_ostream.h"
 
@@ -316,6 +319,11 @@ uint32_t NativeRawSymbol::getVirtualBaseOffset() const {
 
 uint32_t NativeRawSymbol::getVirtualTableShapeId() const {
   return 0;
+}
+
+std::unique_ptr<PDBSymbolTypeBuiltin>
+NativeRawSymbol::getVirtualBaseTableType() const {
+  return nullptr;
 }
 
 PDB_DataKind NativeRawSymbol::getDataKind() const {

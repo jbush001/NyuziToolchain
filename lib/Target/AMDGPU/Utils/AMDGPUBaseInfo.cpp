@@ -36,19 +36,12 @@
 #include <cstring>
 #include <utility>
 
-#define GET_SUBTARGETINFO_ENUM
-#include "AMDGPUGenSubtargetInfo.inc"
-#undef GET_SUBTARGETINFO_ENUM
+#include "MCTargetDesc/AMDGPUMCTargetDesc.h"
 
-#define GET_REGINFO_ENUM
-#include "AMDGPUGenRegisterInfo.inc"
-#undef GET_REGINFO_ENUM
 
 #define GET_INSTRINFO_NAMED_OPS
-#define GET_INSTRINFO_ENUM
 #include "AMDGPUGenInstrInfo.inc"
 #undef GET_INSTRINFO_NAMED_OPS
-#undef GET_INSTRINFO_ENUM
 
 namespace {
 
@@ -100,6 +93,12 @@ unsigned getVmcntBitWidthHi() { return 2; }
 } // end namespace anonymous
 
 namespace llvm {
+
+static cl::opt<bool> EnablePackedInlinableLiterals(
+    "enable-packed-inlinable-literals",
+    cl::desc("Enable packed inlinable literals (v2f16, v2i16)"),
+    cl::init(false));
+
 namespace AMDGPU {
 
 namespace IsaInfo {
@@ -504,6 +503,7 @@ unsigned getInitialPSInputAddr(const Function &F) {
 bool isShader(CallingConv::ID cc) {
   switch(cc) {
     case CallingConv::AMDGPU_VS:
+    case CallingConv::AMDGPU_HS:
     case CallingConv::AMDGPU_GS:
     case CallingConv::AMDGPU_PS:
     case CallingConv::AMDGPU_CS:
@@ -515,6 +515,10 @@ bool isShader(CallingConv::ID cc) {
 
 bool isCompute(CallingConv::ID cc) {
   return !isShader(cc) || cc == CallingConv::AMDGPU_CS;
+}
+
+bool isEntryFunctionCC(CallingConv::ID CC) {
+  return true;
 }
 
 bool isSI(const MCSubtargetInfo &STI) {
@@ -705,6 +709,9 @@ bool isInlinableLiteral16(int16_t Literal, bool HasInv2Pi) {
 
 bool isInlinableLiteralV216(int32_t Literal, bool HasInv2Pi) {
   assert(HasInv2Pi);
+
+  if (!EnablePackedInlinableLiterals)
+    return false;
 
   int16_t Lo16 = static_cast<int16_t>(Literal);
   int16_t Hi16 = static_cast<int16_t>(Literal >> 16);

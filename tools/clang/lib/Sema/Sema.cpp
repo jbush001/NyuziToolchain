@@ -71,42 +71,35 @@ void Sema::ActOnTranslationUnitScope(Scope *S) {
 }
 
 Sema::Sema(Preprocessor &pp, ASTContext &ctxt, ASTConsumer &consumer,
-           TranslationUnitKind TUKind,
-           CodeCompleteConsumer *CodeCompleter)
-  : ExternalSource(nullptr),
-    isMultiplexExternalSource(false), FPFeatures(pp.getLangOpts()),
-    LangOpts(pp.getLangOpts()), PP(pp), Context(ctxt), Consumer(consumer),
-    Diags(PP.getDiagnostics()), SourceMgr(PP.getSourceManager()),
-    CollectStats(false), CodeCompleter(CodeCompleter),
-    CurContext(nullptr), OriginalLexicalContext(nullptr),
-    MSStructPragmaOn(false),
-    MSPointerToMemberRepresentationMethod(
-        LangOpts.getMSPointerToMemberRepresentationMethod()),
-    VtorDispStack(MSVtorDispAttr::Mode(LangOpts.VtorDispMode)),
-    PackStack(0), DataSegStack(nullptr), BSSSegStack(nullptr),
-    ConstSegStack(nullptr), CodeSegStack(nullptr), CurInitSeg(nullptr),
-    VisContext(nullptr),
-    IsBuildingRecoveryCallExpr(false),
-    Cleanup{}, LateTemplateParser(nullptr),
-    LateTemplateParserCleanup(nullptr), OpaqueParser(nullptr), IdResolver(pp),
-    StdExperimentalNamespaceCache(nullptr), StdInitializerList(nullptr),
-    CXXTypeInfoDecl(nullptr), MSVCGuidDecl(nullptr),
-    NSNumberDecl(nullptr), NSValueDecl(nullptr),
-    NSStringDecl(nullptr), StringWithUTF8StringMethod(nullptr),
-    ValueWithBytesObjCTypeMethod(nullptr),
-    NSArrayDecl(nullptr), ArrayWithObjectsMethod(nullptr),
-    NSDictionaryDecl(nullptr), DictionaryWithObjectsMethod(nullptr),
-    GlobalNewDeleteDeclared(false),
-    TUKind(TUKind),
-    NumSFINAEErrors(0),
-    CachedFakeTopLevelModule(nullptr),
-    AccessCheckingSFINAE(false), InNonInstantiationSFINAEContext(false),
-    NonInstantiationEntries(0), ArgumentPackSubstitutionIndex(-1),
-    CurrentInstantiationScope(nullptr), DisableTypoCorrection(false),
-    TyposCorrected(0), AnalysisWarnings(*this), ThreadSafetyDeclCache(nullptr),
-    VarDataSharingAttributesStack(nullptr), CurScope(nullptr),
-    Ident_super(nullptr), Ident___float128(nullptr)
-{
+           TranslationUnitKind TUKind, CodeCompleteConsumer *CodeCompleter)
+    : ExternalSource(nullptr), isMultiplexExternalSource(false),
+      FPFeatures(pp.getLangOpts()), LangOpts(pp.getLangOpts()), PP(pp),
+      Context(ctxt), Consumer(consumer), Diags(PP.getDiagnostics()),
+      SourceMgr(PP.getSourceManager()), CollectStats(false),
+      CodeCompleter(CodeCompleter), CurContext(nullptr),
+      OriginalLexicalContext(nullptr), MSStructPragmaOn(false),
+      MSPointerToMemberRepresentationMethod(
+          LangOpts.getMSPointerToMemberRepresentationMethod()),
+      VtorDispStack(MSVtorDispAttr::Mode(LangOpts.VtorDispMode)), PackStack(0),
+      DataSegStack(nullptr), BSSSegStack(nullptr), ConstSegStack(nullptr),
+      CodeSegStack(nullptr), CurInitSeg(nullptr), VisContext(nullptr),
+      PragmaAttributeCurrentTargetDecl(nullptr),
+      IsBuildingRecoveryCallExpr(false), Cleanup{}, LateTemplateParser(nullptr),
+      LateTemplateParserCleanup(nullptr), OpaqueParser(nullptr), IdResolver(pp),
+      StdExperimentalNamespaceCache(nullptr), StdInitializerList(nullptr),
+      CXXTypeInfoDecl(nullptr), MSVCGuidDecl(nullptr), NSNumberDecl(nullptr),
+      NSValueDecl(nullptr), NSStringDecl(nullptr),
+      StringWithUTF8StringMethod(nullptr),
+      ValueWithBytesObjCTypeMethod(nullptr), NSArrayDecl(nullptr),
+      ArrayWithObjectsMethod(nullptr), NSDictionaryDecl(nullptr),
+      DictionaryWithObjectsMethod(nullptr), GlobalNewDeleteDeclared(false),
+      TUKind(TUKind), NumSFINAEErrors(0), CachedFakeTopLevelModule(nullptr),
+      AccessCheckingSFINAE(false), InNonInstantiationSFINAEContext(false),
+      NonInstantiationEntries(0), ArgumentPackSubstitutionIndex(-1),
+      CurrentInstantiationScope(nullptr), DisableTypoCorrection(false),
+      TyposCorrected(0), AnalysisWarnings(*this),
+      ThreadSafetyDeclCache(nullptr), VarDataSharingAttributesStack(nullptr),
+      CurScope(nullptr), Ident_super(nullptr), Ident___float128(nullptr) {
   TUScope = nullptr;
 
   LoadedExternalKnownNamespaces = false;
@@ -390,6 +383,19 @@ void Sema::diagnoseNullableToNonnullConversion(QualType DstType,
   Diag(Loc, diag::warn_nullability_lost) << SrcType << DstType;
 }
 
+void Sema::diagnoseZeroToNullptrConversion(CastKind Kind, const Expr* E) {
+  if (Kind != CK_NullToPointer && Kind != CK_NullToMemberPointer)
+    return;
+  if (E->getType()->isNullPtrType())
+    return;
+  // nullptr only exists from C++11 on, so don't warn on its absence earlier.
+  if (!getLangOpts().CPlusPlus11)
+    return;
+
+  Diag(E->getLocStart(), diag::warn_zero_as_null_pointer_constant)
+      << FixItHint::CreateReplacement(E->getSourceRange(), "nullptr");
+}
+
 /// ImpCastExprToType - If Expr is not of type 'Type', insert an implicit cast.
 /// If there is already an implicit cast, merge into the existing one.
 /// The result is of the given category.
@@ -414,6 +420,7 @@ ExprResult Sema::ImpCastExprToType(Expr *E, QualType Ty,
 #endif
 
   diagnoseNullableToNonnullConversion(Ty, E->getType(), E->getLocStart());
+  diagnoseZeroToNullptrConversion(Kind, E);
 
   QualType ExprTy = Context.getCanonicalType(E->getType());
   QualType TypeTy = Context.getCanonicalType(Ty);
@@ -730,6 +737,8 @@ void Sema::ActOnEndOfTranslationUnit() {
 
     CheckDelayedMemberExceptionSpecs();
   }
+
+  DiagnoseUnterminatedPragmaAttribute();
 
   // All delayed member exception specs should be checked or we end up accepting
   // incompatible declarations.
@@ -1166,10 +1175,14 @@ void Sema::PushFunctionScope() {
     // memory for a new scope.
     FunctionScopes.back()->Clear();
     FunctionScopes.push_back(FunctionScopes.back());
+    if (LangOpts.OpenMP)
+      pushOpenMPFunctionRegion();
     return;
   }
 
   FunctionScopes.push_back(new FunctionScopeInfo(getDiagnostics()));
+  if (LangOpts.OpenMP)
+    pushOpenMPFunctionRegion();
 }
 
 void Sema::PushBlockScope(Scope *BlockScope, BlockDecl *Block) {
@@ -1196,6 +1209,9 @@ void Sema::PopFunctionScopeInfo(const AnalysisBasedWarnings::Policy *WP,
                                 const Decl *D, const BlockExpr *blkExpr) {
   FunctionScopeInfo *Scope = FunctionScopes.pop_back_val();
   assert(!FunctionScopes.empty() && "mismatched push/pop!");
+
+  if (LangOpts.OpenMP)
+    popOpenMPFunctionRegion(Scope);
 
   // Issue any analysis-based warnings.
   if (WP && D)

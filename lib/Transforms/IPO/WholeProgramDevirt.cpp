@@ -1221,7 +1221,7 @@ void DevirtModule::importResolution(VTableSlot Slot, VTableSlotInfo &SlotInfo) {
     // The type of the function in the declaration is irrelevant because every
     // call site will cast it to the correct type.
     auto *SingleImpl = M.getOrInsertFunction(
-        Res.SingleImplName, Type::getVoidTy(M.getContext()), nullptr);
+        Res.SingleImplName, Type::getVoidTy(M.getContext()));
 
     // This is the import phase so we should not be exporting anything.
     bool IsExported = false;
@@ -1322,7 +1322,7 @@ bool DevirtModule::run() {
     }
 
     for (auto &P : *ExportSummary) {
-      for (auto &S : P.second) {
+      for (auto &S : P.second.SummaryList) {
         auto *FS = dyn_cast<FunctionSummary>(S.get());
         if (!FS)
           continue;

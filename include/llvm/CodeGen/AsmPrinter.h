@@ -112,6 +112,9 @@ public:
   typedef std::pair<const GlobalVariable *, unsigned> GOTEquivUsePair;
   MapVector<const MCSymbol *, GOTEquivUsePair> GlobalGOTEquivs;
 
+  /// Enable print [latency:throughput] in output
+  bool EnablePrintSchedInfo = false;
+
 private:
   MCSymbol *CurrentFnBegin = nullptr;
   MCSymbol *CurrentFnEnd = nullptr;
@@ -239,7 +242,7 @@ public:
   };
 
   // All the sleds to be emitted.
-  std::vector<XRayFunctionEntry> Sleds;
+  SmallVector<XRayFunctionEntry, 4> Sleds;
 
   // Helper function to record a given XRay sled.
   void recordSled(MCSymbol *Sled, const MachineInstr &MI, SledKind Kind);

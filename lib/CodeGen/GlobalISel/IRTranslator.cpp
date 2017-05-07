@@ -381,18 +381,19 @@ bool IRTranslator::translateInsertValue(const User &U,
   uint64_t Offset = 8 * DL->getIndexedOffsetInType(Src->getType(), Indices);
 
   unsigned Res = getOrCreateVReg(U);
-  const Value &Inserted = *U.getOperand(1);
-  MIRBuilder.buildInsert(Res, getOrCreateVReg(*Src), getOrCreateVReg(Inserted),
-                         Offset);
+  unsigned Inserted = getOrCreateVReg(*U.getOperand(1));
+  MIRBuilder.buildInsert(Res, getOrCreateVReg(*Src), Inserted, Offset);
 
   return true;
 }
 
 bool IRTranslator::translateSelect(const User &U,
                                    MachineIRBuilder &MIRBuilder) {
-  MIRBuilder.buildSelect(getOrCreateVReg(U), getOrCreateVReg(*U.getOperand(0)),
-                         getOrCreateVReg(*U.getOperand(1)),
-                         getOrCreateVReg(*U.getOperand(2)));
+  unsigned Res = getOrCreateVReg(U);
+  unsigned Tst = getOrCreateVReg(*U.getOperand(0));
+  unsigned Op0 = getOrCreateVReg(*U.getOperand(1));
+  unsigned Op1 = getOrCreateVReg(*U.getOperand(2));
+  MIRBuilder.buildSelect(Res, Tst, Op0, Op1);
   return true;
 }
 
@@ -984,9 +985,11 @@ bool IRTranslator::translateInsertElement(const User &U,
     ValToVReg[&U] = Elt;
     return true;
   }
-  MIRBuilder.buildInsertVectorElement(
-      getOrCreateVReg(U), getOrCreateVReg(*U.getOperand(0)),
-      getOrCreateVReg(*U.getOperand(1)), getOrCreateVReg(*U.getOperand(2)));
+  unsigned Res = getOrCreateVReg(U);
+  unsigned Val = getOrCreateVReg(*U.getOperand(0));
+  unsigned Elt = getOrCreateVReg(*U.getOperand(1));
+  unsigned Idx = getOrCreateVReg(*U.getOperand(2));
+  MIRBuilder.buildInsertVectorElement(Res, Val, Elt, Idx);
   return true;
 }
 
@@ -999,9 +1002,10 @@ bool IRTranslator::translateExtractElement(const User &U,
     ValToVReg[&U] = Elt;
     return true;
   }
-  MIRBuilder.buildExtractVectorElement(getOrCreateVReg(U),
-                                       getOrCreateVReg(*U.getOperand(0)),
-                                       getOrCreateVReg(*U.getOperand(1)));
+  unsigned Res = getOrCreateVReg(U);
+  unsigned Val = getOrCreateVReg(*U.getOperand(0));
+  unsigned Idx = getOrCreateVReg(*U.getOperand(1));
+  MIRBuilder.buildExtractVectorElement(Res, Val, Idx);
   return true;
 }
 
@@ -1104,6 +1108,14 @@ bool IRTranslator::translate(const Constant &C, unsigned Reg) {
     default:
       return false;
     }
+  } else if (auto CV = dyn_cast<ConstantVector>(&C)) {
+    if (CV->getNumOperands() == 1)
+      return translate(*CV->getOperand(0), Reg);
+    SmallVector<unsigned, 4> Ops;
+    for (unsigned i = 0; i < CV->getNumOperands(); ++i) {
+      Ops.push_back(getOrCreateVReg(*CV->getOperand(i)));
+    }
+    EntryBuilder.buildMerge(Reg, Ops);
   } else
     return false;
 
@@ -1194,10 +1206,6 @@ bool IRTranslator::runOnMachineFunction(MachineFunction &CurMF) {
   }
 
   finishPendingPhis();
-
-  // Now that the MachineFrameInfo has been configured, no further changes to
-  // the reserved registers are possible.
-  MRI->freezeReservedRegs(*MF);
 
   // Merge the argument lowering and constants block with its single
   // successor, the LLVM-IR entry block.  We want the basic block to

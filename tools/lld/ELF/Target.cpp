@@ -124,8 +124,6 @@ public:
   int64_t getImplicitAddend(const uint8_t *Buf, uint32_t Type) const override;
   void writeGotPltHeader(uint8_t *Buf) const override;
   uint32_t getDynRel(uint32_t Type) const override;
-  bool isTlsLocalDynamicRel(uint32_t Type) const override;
-  bool isTlsInitialExecRel(uint32_t Type) const override;
   void writeGotPlt(uint8_t *Buf, const SymbolBody &S) const override;
   void writeIgotPlt(uint8_t *Buf, const SymbolBody &S) const override;
   void writePltHeader(uint8_t *Buf) const override;
@@ -147,8 +145,6 @@ public:
   RelExpr getRelExpr(uint32_t Type, const SymbolBody &S,
                      const uint8_t *Loc) const override;
   bool isPicRel(uint32_t Type) const override;
-  bool isTlsLocalDynamicRel(uint32_t Type) const override;
-  bool isTlsInitialExecRel(uint32_t Type) const override;
   void writeGotPltHeader(uint8_t *Buf) const override;
   void writeGotPlt(uint8_t *Buf, const SymbolBody &S) const override;
   void writePltHeader(uint8_t *Buf) const override;
@@ -193,7 +189,6 @@ public:
   RelExpr getRelExpr(uint32_t Type, const SymbolBody &S,
                      const uint8_t *Loc) const override;
   bool isPicRel(uint32_t Type) const override;
-  bool isTlsInitialExecRel(uint32_t Type) const override;
   void writeGotPlt(uint8_t *Buf, const SymbolBody &S) const override;
   void writePltHeader(uint8_t *Buf) const override;
   void writePlt(uint8_t *Buf, uint64_t GotPltEntryAddr, uint64_t PltEntryAddr,
@@ -223,8 +218,6 @@ public:
   bool isPicRel(uint32_t Type) const override;
   uint32_t getDynRel(uint32_t Type) const override;
   int64_t getImplicitAddend(const uint8_t *Buf, uint32_t Type) const override;
-  bool isTlsLocalDynamicRel(uint32_t Type) const override;
-  bool isTlsInitialExecRel(uint32_t Type) const override;
   void writeGotPlt(uint8_t *Buf, const SymbolBody &S) const override;
   void writeIgotPlt(uint8_t *Buf, const SymbolBody &S) const override;
   void writePltHeader(uint8_t *Buf) const override;
@@ -245,7 +238,6 @@ public:
   int64_t getImplicitAddend(const uint8_t *Buf, uint32_t Type) const override;
   bool isPicRel(uint32_t Type) const override;
   uint32_t getDynRel(uint32_t Type) const override;
-  bool isTlsLocalDynamicRel(uint32_t Type) const override;
   void writeGotPlt(uint8_t *Buf, const SymbolBody &S) const override;
   void writePltHeader(uint8_t *Buf) const override;
   void writePlt(uint8_t *Buf, uint64_t GotPltEntryAddr, uint64_t PltEntryAddr,
@@ -305,10 +297,6 @@ bool TargetInfo::needsThunk(RelExpr Expr, uint32_t RelocType,
                             const InputFile *File, const SymbolBody &S) const {
   return false;
 }
-
-bool TargetInfo::isTlsInitialExecRel(uint32_t Type) const { return false; }
-
-bool TargetInfo::isTlsLocalDynamicRel(uint32_t Type) const { return false; }
 
 void TargetInfo::writeIgotPlt(uint8_t *Buf, const SymbolBody &S) const {
   writeGotPlt(Buf, S);
@@ -454,14 +442,6 @@ uint32_t X86TargetInfo::getDynRel(uint32_t Type) const {
   return Type;
 }
 
-bool X86TargetInfo::isTlsLocalDynamicRel(uint32_t Type) const {
-  return Type == R_386_TLS_LDO_32 || Type == R_386_TLS_LDM;
-}
-
-bool X86TargetInfo::isTlsInitialExecRel(uint32_t Type) const {
-  return Type == R_386_TLS_IE || Type == R_386_TLS_GOTIE;
-}
-
 void X86TargetInfo::writePltHeader(uint8_t *Buf) const {
   if (Config->Pic) {
     const uint8_t V[] = {
@@ -532,6 +512,7 @@ int64_t X86TargetInfo::getImplicitAddend(const uint8_t *Buf,
   case R_386_GOTPC:
   case R_386_PC32:
   case R_386_PLT32:
+  case R_386_TLS_LDO_32:
   case R_386_TLS_LE:
     return SignExtend64<32>(read32le(Buf));
   }
@@ -771,17 +752,6 @@ void X86_64TargetInfo<ELFT>::writePlt(uint8_t *Buf, uint64_t GotPltEntryAddr,
 template <class ELFT>
 bool X86_64TargetInfo<ELFT>::isPicRel(uint32_t Type) const {
   return Type != R_X86_64_PC32 && Type != R_X86_64_32;
-}
-
-template <class ELFT>
-bool X86_64TargetInfo<ELFT>::isTlsInitialExecRel(uint32_t Type) const {
-  return Type == R_X86_64_GOTTPOFF;
-}
-
-template <class ELFT>
-bool X86_64TargetInfo<ELFT>::isTlsLocalDynamicRel(uint32_t Type) const {
-  return Type == R_X86_64_DTPOFF32 || Type == R_X86_64_DTPOFF64 ||
-         Type == R_X86_64_TLSLD;
 }
 
 template <class ELFT>
@@ -1326,8 +1296,8 @@ RelExpr AArch64TargetInfo::getRelExpr(uint32_t Type, const SymbolBody &S,
     return R_ABS;
   case R_AARCH64_TLSDESC_ADR_PAGE21:
     return R_TLSDESC_PAGE;
-  case R_AARCH64_TLSDESC_LD64_LO12_NC:
-  case R_AARCH64_TLSDESC_ADD_LO12_NC:
+  case R_AARCH64_TLSDESC_LD64_LO12:
+  case R_AARCH64_TLSDESC_ADD_LO12:
     return R_TLSDESC;
   case R_AARCH64_TLSDESC_CALL:
     return R_TLSDESC_CALL;
@@ -1378,16 +1348,11 @@ bool AArch64TargetInfo::usesOnlyLowPageBits(uint32_t Type) const {
   case R_AARCH64_LDST32_ABS_LO12_NC:
   case R_AARCH64_LDST64_ABS_LO12_NC:
   case R_AARCH64_LDST8_ABS_LO12_NC:
-  case R_AARCH64_TLSDESC_ADD_LO12_NC:
-  case R_AARCH64_TLSDESC_LD64_LO12_NC:
+  case R_AARCH64_TLSDESC_ADD_LO12:
+  case R_AARCH64_TLSDESC_LD64_LO12:
   case R_AARCH64_TLSIE_LD64_GOTTPREL_LO12_NC:
     return true;
   }
-}
-
-bool AArch64TargetInfo::isTlsInitialExecRel(uint32_t Type) const {
-  return Type == R_AARCH64_TLSIE_ADR_GOTTPREL_PAGE21 ||
-         Type == R_AARCH64_TLSIE_LD64_GOTTPREL_LO12_NC;
 }
 
 bool AArch64TargetInfo::isPicRel(uint32_t Type) const {
@@ -1505,7 +1470,7 @@ void AArch64TargetInfo::relocateOne(uint8_t *Loc, uint32_t Type,
     break;
   case R_AARCH64_LD64_GOT_LO12_NC:
   case R_AARCH64_TLSIE_LD64_GOTTPREL_LO12_NC:
-  case R_AARCH64_TLSDESC_LD64_LO12_NC:
+  case R_AARCH64_TLSDESC_LD64_LO12:
     checkAlignment<8>(Loc, Val, Type);
     or32le(Loc, (Val & 0xFF8) << 7);
     break;
@@ -1545,7 +1510,7 @@ void AArch64TargetInfo::relocateOne(uint8_t *Loc, uint32_t Type,
     or32AArch64Imm(Loc, Val >> 12);
     break;
   case R_AARCH64_TLSLE_ADD_TPREL_LO12_NC:
-  case R_AARCH64_TLSDESC_ADD_LO12_NC:
+  case R_AARCH64_TLSDESC_ADD_LO12:
     or32AArch64Imm(Loc, Val);
     break;
   default:
@@ -1557,8 +1522,8 @@ void AArch64TargetInfo::relaxTlsGdToLe(uint8_t *Loc, uint32_t Type,
                                        uint64_t Val) const {
   // TLSDESC Global-Dynamic relocation are in the form:
   //   adrp    x0, :tlsdesc:v             [R_AARCH64_TLSDESC_ADR_PAGE21]
-  //   ldr     x1, [x0, #:tlsdesc_lo12:v  [R_AARCH64_TLSDESC_LD64_LO12_NC]
-  //   add     x0, x0, :tlsdesc_los:v     [_AARCH64_TLSDESC_ADD_LO12_NC]
+  //   ldr     x1, [x0, #:tlsdesc_lo12:v  [R_AARCH64_TLSDESC_LD64_LO12]
+  //   add     x0, x0, :tlsdesc_los:v     [R_AARCH64_TLSDESC_ADD_LO12]
   //   .tlsdesccall                       [R_AARCH64_TLSDESC_CALL]
   //   blr     x1
   // And it can optimized to:
@@ -1569,14 +1534,14 @@ void AArch64TargetInfo::relaxTlsGdToLe(uint8_t *Loc, uint32_t Type,
   checkUInt<32>(Loc, Val, Type);
 
   switch (Type) {
-  case R_AARCH64_TLSDESC_ADD_LO12_NC:
+  case R_AARCH64_TLSDESC_ADD_LO12:
   case R_AARCH64_TLSDESC_CALL:
     write32le(Loc, 0xd503201f); // nop
     return;
   case R_AARCH64_TLSDESC_ADR_PAGE21:
     write32le(Loc, 0xd2a00000 | (((Val >> 16) & 0xffff) << 5)); // movz
     return;
-  case R_AARCH64_TLSDESC_LD64_LO12_NC:
+  case R_AARCH64_TLSDESC_LD64_LO12:
     write32le(Loc, 0xf2800000 | ((Val & 0xffff) << 5)); // movk
     return;
   default:
@@ -1588,8 +1553,8 @@ void AArch64TargetInfo::relaxTlsGdToIe(uint8_t *Loc, uint32_t Type,
                                        uint64_t Val) const {
   // TLSDESC Global-Dynamic relocation are in the form:
   //   adrp    x0, :tlsdesc:v             [R_AARCH64_TLSDESC_ADR_PAGE21]
-  //   ldr     x1, [x0, #:tlsdesc_lo12:v  [R_AARCH64_TLSDESC_LD64_LO12_NC]
-  //   add     x0, x0, :tlsdesc_los:v     [_AARCH64_TLSDESC_ADD_LO12_NC]
+  //   ldr     x1, [x0, #:tlsdesc_lo12:v  [R_AARCH64_TLSDESC_LD64_LO12]
+  //   add     x0, x0, :tlsdesc_los:v     [R_AARCH64_TLSDESC_ADD_LO12]
   //   .tlsdesccall                       [R_AARCH64_TLSDESC_CALL]
   //   blr     x1
   // And it can optimized to:
@@ -1599,7 +1564,7 @@ void AArch64TargetInfo::relaxTlsGdToIe(uint8_t *Loc, uint32_t Type,
   //   nop
 
   switch (Type) {
-  case R_AARCH64_TLSDESC_ADD_LO12_NC:
+  case R_AARCH64_TLSDESC_ADD_LO12:
   case R_AARCH64_TLSDESC_CALL:
     write32le(Loc, 0xd503201f); // nop
     break;
@@ -1607,7 +1572,7 @@ void AArch64TargetInfo::relaxTlsGdToIe(uint8_t *Loc, uint32_t Type,
     write32le(Loc, 0x90000000); // adrp
     relocateOne(Loc, R_AARCH64_TLSIE_ADR_GOTTPREL_PAGE21, Val);
     break;
-  case R_AARCH64_TLSDESC_LD64_LO12_NC:
+  case R_AARCH64_TLSDESC_LD64_LO12:
     write32le(Loc, 0xf9400000); // ldr
     relocateOne(Loc, R_AARCH64_TLSIE_LD64_GOTTPREL_LO12_NC, Val);
     break;
@@ -1874,6 +1839,7 @@ void ARMTargetInfo::relocateOne(uint8_t *Loc, uint32_t Type,
   case R_ARM_TLS_LDO32:
   case R_ARM_TLS_LE32:
   case R_ARM_TLS_TPOFF32:
+  case R_ARM_TLS_DTPOFF32:
     write32le(Loc, Val);
     break;
   case R_ARM_TLS_DTPMOD32:
@@ -2064,14 +2030,6 @@ int64_t ARMTargetInfo::getImplicitAddend(const uint8_t *Buf,
   }
 }
 
-bool ARMTargetInfo::isTlsLocalDynamicRel(uint32_t Type) const {
-  return Type == R_ARM_TLS_LDO32 || Type == R_ARM_TLS_LDM32;
-}
-
-bool ARMTargetInfo::isTlsInitialExecRel(uint32_t Type) const {
-  return Type == R_ARM_TLS_IE32;
-}
-
 template <class ELFT> MipsTargetInfo<ELFT>::MipsTargetInfo() {
   GotPltHeaderEntriesNum = 2;
   DefaultMaxPageSize = 65536;
@@ -2161,11 +2119,6 @@ template <class ELFT> bool MipsTargetInfo<ELFT>::isPicRel(uint32_t Type) const {
 template <class ELFT>
 uint32_t MipsTargetInfo<ELFT>::getDynRel(uint32_t Type) const {
   return RelativeRel;
-}
-
-template <class ELFT>
-bool MipsTargetInfo<ELFT>::isTlsLocalDynamicRel(uint32_t Type) const {
-  return Type == R_MIPS_TLS_LDM;
 }
 
 template <class ELFT>

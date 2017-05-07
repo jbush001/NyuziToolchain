@@ -19,7 +19,6 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/Triple.h"
 #include "llvm/ADT/Twine.h"
-#include "llvm/Bitcode/BitcodeReader.h"
 #include "llvm/Object/Binary.h"
 #include "llvm/Object/COFF.h"
 #include "llvm/Support/COFF.h"
@@ -328,6 +327,9 @@ void ImportFile::parse() {
 
   ImpSym = cast<DefinedImportData>(
       Symtab->addImportData(ImpName, this)->body());
+  if (Hdr->getType() == llvm::COFF::IMPORT_CONST)
+    ConstSym =
+        cast<DefinedImportData>(Symtab->addImportData(Name, this)->body());
 
   // If type is function, we need to create a thunk which jump to an
   // address pointed by the __imp_ symbol. (This allows you to call
@@ -364,10 +366,7 @@ void BitcodeFile::parse() {
 }
 
 MachineTypes BitcodeFile::getMachineType() {
-  Expected<std::string> ET = getBitcodeTargetTriple(MB);
-  if (!ET)
-    return IMAGE_FILE_MACHINE_UNKNOWN;
-  switch (Triple(*ET).getArch()) {
+  switch (Triple(Obj->getTargetTriple()).getArch()) {
   case Triple::x86_64:
     return AMD64;
   case Triple::x86:

@@ -517,7 +517,7 @@ multiclass ADD_SUB_i1<SDNode OpNode> {
 defm ADD_i1 : ADD_SUB_i1<add>;
 defm SUB_i1 : ADD_SUB_i1<sub>;
 
-// int16, int32, and int64 signed addition.  Since nvptx is 2's compliment, we
+// int16, int32, and int64 signed addition.  Since nvptx is 2's complement, we
 // also use these for unsigned arithmetic.
 defm ADD : I3<"add.s", add>;
 defm SUB : I3<"sub.s", sub>;
@@ -547,15 +547,14 @@ defm UREM : I3<"rem.u", urem>;
 // Integer absolute value.  NumBits should be one minus the bit width of RC.
 // This idiom implements the algorithm at
 // http://graphics.stanford.edu/~seander/bithacks.html#IntegerAbs.
-multiclass ABS<RegisterClass RC, int NumBits, string SizeName> {
+multiclass ABS<RegisterClass RC, string SizeName> {
   def : NVPTXInst<(outs RC:$dst), (ins RC:$a),
                   !strconcat("abs", SizeName, " \t$dst, $a;"),
-                  [(set RC:$dst, (xor (add (sra RC:$a, (i32 NumBits)), RC:$a),
-                                      (sra RC:$a, (i32 NumBits))))]>;
+                  [(set RC:$dst, (abs RC:$a))]>;
 }
-defm ABS_16 : ABS<Int16Regs, 15, ".s16">;
-defm ABS_32 : ABS<Int32Regs, 31, ".s32">;
-defm ABS_64 : ABS<Int64Regs, 63, ".s64">;
+defm ABS_16 : ABS<Int16Regs, ".s16">;
+defm ABS_32 : ABS<Int32Regs, ".s32">;
+defm ABS_64 : ABS<Int64Regs, ".s64">;
 
 // Integer min/max.
 defm SMAX : I3<"max.s", smax>;

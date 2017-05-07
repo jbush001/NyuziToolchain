@@ -490,6 +490,7 @@ NVPTXTargetLowering::NVPTXTargetLowering(const NVPTXTargetMachine &TM,
   setOperationAction(ISD::INTRINSIC_W_CHAIN, MVT::i8, Custom);
 
   for (const auto& Ty : {MVT::i16, MVT::i32, MVT::i64}) {
+    setOperationAction(ISD::ABS,  Ty, Legal);
     setOperationAction(ISD::SMIN, Ty, Legal);
     setOperationAction(ISD::SMAX, Ty, Legal);
     setOperationAction(ISD::UMIN, Ty, Legal);
@@ -2395,7 +2396,7 @@ SDValue NVPTXTargetLowering::LowerFormalArguments(
     // to newly created nodes. The SDNodes for params have to
     // appear in the same order as their order of appearance
     // in the original function. "idx+1" holds that order.
-    if (!PAL.hasAttribute(i + 1, Attribute::ByVal)) {
+    if (!PAL.hasParamAttribute(i, Attribute::ByVal)) {
       bool aggregateIsPacked = false;
       if (StructType *STy = dyn_cast<StructType>(Ty))
         aggregateIsPacked = STy->isPacked();

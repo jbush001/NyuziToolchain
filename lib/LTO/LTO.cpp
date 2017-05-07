@@ -25,7 +25,6 @@
 #include "llvm/LTO/LTOBackend.h"
 #include "llvm/Linker/IRMover.h"
 #include "llvm/Object/IRObjectFile.h"
-#include "llvm/Object/ModuleSummaryIndexObjectFile.h"
 #include "llvm/Support/Error.h"
 #include "llvm/Support/ManagedStatic.h"
 #include "llvm/Support/MemoryBuffer.h"
@@ -35,6 +34,7 @@
 #include "llvm/Support/TargetRegistry.h"
 #include "llvm/Support/ThreadPool.h"
 #include "llvm/Support/Threading.h"
+#include "llvm/Support/VCSRevision.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Target/TargetOptions.h"
@@ -74,7 +74,7 @@ static void computeCacheKey(
 
   // Start with the compiler revision
   Hasher.update(LLVM_VERSION_STRING);
-#ifdef HAVE_LLVM_REVISION
+#ifdef LLVM_REVISION
   Hasher.update(LLVM_REVISION);
 #endif
 
@@ -274,13 +274,14 @@ void llvm::thinLTOResolveWeakForLinkerInIndex(
   // when needed.
   DenseSet<GlobalValueSummary *> GlobalInvolvedWithAlias;
   for (auto &I : Index)
-    for (auto &S : I.second)
+    for (auto &S : I.second.SummaryList)
       if (auto AS = dyn_cast<AliasSummary>(S.get()))
         GlobalInvolvedWithAlias.insert(&AS->getAliasee());
 
   for (auto &I : Index)
-    thinLTOResolveWeakForLinkerGUID(I.second, I.first, GlobalInvolvedWithAlias,
-                                    isPrevailing, recordNewLinkage);
+    thinLTOResolveWeakForLinkerGUID(I.second.SummaryList, I.first,
+                                    GlobalInvolvedWithAlias, isPrevailing,
+                                    recordNewLinkage);
 }
 
 static void thinLTOInternalizeAndPromoteGUID(
@@ -301,7 +302,7 @@ void llvm::thinLTOInternalizeAndPromoteInIndex(
     ModuleSummaryIndex &Index,
     function_ref<bool(StringRef, GlobalValue::GUID)> isExported) {
   for (auto &I : Index)
-    thinLTOInternalizeAndPromoteGUID(I.second, I.first, isExported);
+    thinLTOInternalizeAndPromoteGUID(I.second.SummaryList, I.first, isExported);
 }
 
 // Requires a destructor for std::vector<InputModule>.
@@ -350,6 +351,7 @@ Expected<std::unique_ptr<InputFile>> InputFile::create(MemoryBufferRef Object) {
 
   irsymtab::Reader R({Symtab.data(), Symtab.size()},
                      {File->Strtab.data(), File->Strtab.size()});
+  File->TargetTriple = R.getTargetTriple();
   File->SourceFileName = R.getSourceFileName();
   File->COFFLinkerOpts = R.getCOFFLinkerOpts();
   File->ComdatTable = R.getComdatTable();
@@ -413,7 +415,8 @@ void LTO::addSymbolToGlobalRes(const InputFile::Symbol &Sym,
   // Flag as visible outside of ThinLTO if visible from a regular object or
   // if this is a reference in the regular LTO partition.
   GlobalRes.VisibleOutsideThinLTO |=
-      (Res.VisibleToRegularObj || (Partition == GlobalResolution::RegularLTO));
+      (Res.VisibleToRegularObj || Sym.isUsed() ||
+       Partition == GlobalResolution::RegularLTO);
 }
 
 static void writeToResolutionFile(raw_ostream &OS, InputFile *Input,
@@ -589,11 +592,9 @@ Error LTO::addThinLTO(BitcodeModule BM,
                       ArrayRef<InputFile::Symbol> Syms,
                       const SymbolResolution *&ResI,
                       const SymbolResolution *ResE) {
-  Expected<std::unique_ptr<ModuleSummaryIndex>> SummaryOrErr = BM.getSummary();
-  if (!SummaryOrErr)
-    return SummaryOrErr.takeError();
-  ThinLTO.CombinedIndex.mergeFrom(std::move(*SummaryOrErr),
-                                  ThinLTO.ModuleMap.size());
+  if (Error Err =
+          BM.readSummary(ThinLTO.CombinedIndex, ThinLTO.ModuleMap.size()))
+    return Err;
 
   for (const InputFile::Symbol &Sym : Syms) {
     assert(ResI != ResE);
