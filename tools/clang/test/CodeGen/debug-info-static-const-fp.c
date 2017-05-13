@@ -20,6 +20,7 @@
 // value when the size does not exceed 64 bits.
 //
 // NOTE that PR26619 is not yet fixed for types greater than 64 bits.
+// XFAIL: nyuzi
 
 static const __fp16 hVal = 29/13.0f;            //    2.2307692307692307692     (2.23046875)
 

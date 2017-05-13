@@ -102,6 +102,11 @@ llvm-lit tools/lld/test/ELF/nyuzi-*
 
 All tests should pass.
 
+*The command above for the LLD tests uses a wildcard to only run tests for the Nyuzi
+target. This is because many tests are architecture specific but don't specify a
+REQUIRES line in the file. They are assuming LLVM is built for all architectures,
+where I have modified the build files in this project to only build for Nyuzi.*
+
 ## Running Whole Program Tests
 
 There is a set of tests in
