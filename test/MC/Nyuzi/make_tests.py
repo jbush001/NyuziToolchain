@@ -1,10 +1,13 @@
 #!/usr/bin/python
-#
-# This automatically generates assembler-tests.s and disassembler-tests.s
-# with all instruction encoding types.  To use,
-#
-#   python encode_tests.py
-#
+
+"""
+ This automatically generates assembler-tests.s and disassembler-tests.s
+ with all instruction types and formats.  To use:
+
+   python encode_tests.py
+
+"""
+
 
 import random
 import sys
@@ -177,17 +180,15 @@ write_test_case('movehi s2, 371769', encode_i_instruction(2, 0xf, 2, (0x5ac39 & 
                                                           (0x5ac39 >> 5)))
 
 UNARY_OPS = [
-    (12, 'clz'),
-    (14, 'ctz'),
+    (0xc, 'clz'),
+    (0xe, 'ctz'),
     (0xf, 'move'),
     (0x1c, 'reciprocal'),
+	(0x1b, 'ftoi'),
+	(0x1d, 'sext_8'),
+	(0x1e, 'sext_16'),
+	(0x2a, 'itof')
 ]
-
-# These unary ops do not support all forms
-#	(0x1b, 'ftoi'),
-#	(0x1d, 'sext_8'),
-#	(0x1e, 'sext_16'),
-#	(0x2a, 'itof')
 
 UNARY_OP_TYPES = [
     (0, 's', 's', False),
@@ -195,7 +196,6 @@ UNARY_OP_TYPES = [
     (2, 'v', 's', True),
     (4, 'v', 'v', False),
     (5, 'v', 'v', True)
-
 ]
 
 nextreg = 0
@@ -216,10 +216,8 @@ for opcode, mnemonic in UNARY_OPS:
 
 nextreg = 0
 
-# XXX Source register needs to be set to 1 to pass. Investigate in
-# LLVM assembler.
-write_test_case('move s1, 72', encode_i_instruction(0, 0xf, 1, 1, 72))
-write_test_case('move v1, 72', encode_i_instruction(1, 0xf, 1, 1, 72))
+write_test_case('move s2, 72', encode_i_instruction(0, 0xf, 2, 0, 72))
+write_test_case('move v3, 72', encode_i_instruction(1, 0xf, 3, 0, 72))
 
 write_test_case('shuffle v1, v2, v3',
                 encode_r_instruction(4, 0xd, 1, 2, 3, 0))

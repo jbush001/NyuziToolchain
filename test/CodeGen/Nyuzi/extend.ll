@@ -32,7 +32,7 @@ define i32 @test_sext16(i16 %v) { ; CHECK-LABEL: test_sext16:
 define i32 @test_zext16(i16 %v) { ; CHECK-LABEL: test_zext16:
   %tmp1 = zext i16 %v to i32
 
-  ; The mask is large enough that it needs to be loaded from the constant pool.
+  ; The mask is large enough that it needs to be loaded separately
   ; and s0, s0, s{{[0-9]+}}
 
   ret i32 %tmp1

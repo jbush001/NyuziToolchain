@@ -36,44 +36,113 @@ defm CTZ    : OneOpIntArith<"ctz", cttz, 0x0e>;
 defm SUBF   : TwoOpFloatArith<"sub_f", fsub, 0x21>;
 defm RECIP  : OneOpFloatArith<"reciprocal", reciprocal, 0x1c>;
 
-def SEXT16 : FormatRUnmaskedOneOpInst<
-  (outs GPR32:$dest),
-  (ins GPR32:$src2),
-  "sext_16 $dest, $src2",
-  [(set GPR32:$dest, (sext_inreg i32:$src2, i16))],
-  0x1e,
-  FmtR_SSS,
-  II_INT>;
+// XXX there must be some way to generate SEXT8/SEXT16/SITOF/FTOSI using
+// a multipattern instead of all of the duplication below. Need a way to
+// parameterize the operand types
+//
+// XXX The instruction matching patterns for masked and vector/scalar versions
+// of sext8/sext16 are commented out as they cause a type inference
+// contradiction in TableGen. It's not clear why only these instructions
+// cause the issue. It's not a big deal, the compiler will generate a few
+// extra instructions to transfer to an intermediate register. These are rare
+// enough that the performance impact is negligible.
 
-def SEXT16V : FormatRUnmaskedOneOpInst<
-  (outs VR512:$dest),
-  (ins VR512:$src2),
-  "sext_16 $dest, $src2",
-  [(set VR512:$dest, (sext_inreg v16i32:$src2, v16i16))],
-  0x1e,
-  FmtR_VVV,
-  II_INT>;
-
-def SEXT8 : FormatRUnmaskedOneOpInst<
+def SEXT8SS : FormatRUnmaskedOneOpInst<
   (outs GPR32:$dest),
   (ins GPR32:$src2),
   "sext_8 $dest, $src2",
-  [(set GPR32:$dest, (sext_inreg i32:$src2, i8))],
+  [(set i32:$dest, (sext_inreg i32:$src2, i8))],
   0x1d,
   FmtR_SSS,
   II_INT>;
 
-def SEXT8V : FormatRUnmaskedOneOpInst<
+def SEXT8VS : FormatRUnmaskedOneOpInst<
+  (outs VR512:$dest),
+  (ins GPR32:$src2),
+  "sext_8 $dest, $src2",
+  [/*(set v16i32:$dest, (sext_inreg (splat i32:$src2), i8))*/],
+  0x1d,
+  FmtR_VVS,
+  II_INT>;
+
+def SEXT8VV : FormatRUnmaskedOneOpInst<
   (outs VR512:$dest),
   (ins VR512:$src2),
   "sext_8 $dest, $src2",
-  [(set VR512:$dest, (sext_inreg v16i32:$src2, v16i8))],
+  [(set v16i32:$dest, (sext_inreg v16i32:$src2, v16i8))],
   0x1d,
   FmtR_VVV,
   II_INT>;
 
-// XXX need predicated versions of these
-def ITOFSS : FormatRUnmaskedOneOpInst<
+let Constraints = "$dest = $oldvalue" in {
+  def SEXT8VVM : FormatRMaskedOneOpInst<
+    (outs VR512:$dest),
+    (ins GPR32:$mask, VR512:$src2, VR512:$oldvalue),
+    "sext_8_mask $dest, $mask, $src2",
+    [/*(set v16i32:$dest, (vselect v16i1:$mask, (sext_inreg v16i32:$src2, i8), v16i32:$oldvalue))*/],
+    0x1d,
+    FmtR_VVVM,
+    II_INT>;
+
+  def SEXT8VSM : FormatRMaskedOneOpInst<
+    (outs VR512:$dest),
+    (ins GPR32:$mask, GPR32:$src2, VR512:$oldvalue),
+    "sext_8_mask $dest, $mask, $src2",
+    [/*(set v16i32:$dest, (vselect v16i1:$mask, (sext_inreg (splat i32:$src2), i8), v16i32:$oldvalue))*/],
+    0x1d,
+    FmtR_VVSM,
+    II_INT>;
+}
+
+def SEXT16SS : FormatRUnmaskedOneOpInst<
+  (outs GPR32:$dest),
+  (ins GPR32:$src2),
+  "sext_16 $dest, $src2",
+  [(set i32:$dest, (sext_inreg i32:$src2, i16))],
+  0x1e,
+  FmtR_SSS,
+  II_INT>;
+
+def SEXT16VS : FormatRUnmaskedOneOpInst<
+  (outs VR512:$dest),
+  (ins GPR32:$src2),
+  "sext_16 $dest, $src2",
+  [/*(set v16i32:$dest, (sext_inreg (splat i32:$src2), i16))*/],
+  0x1e,
+  FmtR_VVS,
+  II_INT>;
+
+def SEXT16VV : FormatRUnmaskedOneOpInst<
+  (outs VR512:$dest),
+  (ins VR512:$src2),
+  "sext_16 $dest, $src2",
+  [(set v16i32:$dest, (sext_inreg v16i32:$src2, v16i16))],
+  0x1e,
+  FmtR_VVV,
+  II_INT>;
+
+let Constraints = "$dest = $oldvalue" in {
+  def SEXT16VVM : FormatRMaskedOneOpInst<
+    (outs VR512:$dest),
+    (ins GPR32:$mask, VR512:$src2, VR512:$oldvalue),
+    "sext_16_mask $dest, $mask, $src2",
+    [/*(set v16i32:$dest, (vselect v16i1:$mask, (sext_inreg v16i32:$src2, i16), v16i32:$oldvalue))*/],
+    0x1e,
+    FmtR_VVVM,
+    II_INT>;
+
+  def SEXT16VSM : FormatRMaskedOneOpInst<
+    (outs VR512:$dest),
+    (ins GPR32:$mask, GPR32:$src2, VR512:$oldvalue),
+    "sext_16_mask $dest, $mask, $src2",
+    [/*(set v16i32:$dest, (vselect v16i1:$mask, (sext_inreg (splat i32:$src2), i16),
+      VR512:$oldvalue))*/],
+    0x1e,
+    FmtR_VVSM,
+    II_INT>;
+}
+
+def SITOFSS : FormatRUnmaskedOneOpInst<
   (outs GPR32:$dest),
   (ins GPR32:$src2),
   "itof $dest, $src2",
@@ -82,16 +151,7 @@ def ITOFSS : FormatRUnmaskedOneOpInst<
   FmtR_SSS,
   II_FLOAT>;
 
-def ITOFVV : FormatRUnmaskedOneOpInst<
-  (outs VR512:$dest),
-  (ins VR512:$src2),
-  "itof $dest, $src2",
-  [(set v16f32:$dest, (sint_to_fp v16i32:$src2))],
-  0x2a,
-  FmtR_VVV,
-  II_FLOAT>;
-
-def ITOFVS : FormatRUnmaskedOneOpInst<
+def SITOFVS : FormatRUnmaskedOneOpInst<
   (outs VR512:$dest),
   (ins GPR32:$src2),
   "itof $dest, $src2",
@@ -100,6 +160,36 @@ def ITOFVS : FormatRUnmaskedOneOpInst<
   FmtR_VVS,
   II_FLOAT>;
 
+def SITOFVV : FormatRUnmaskedOneOpInst<
+  (outs VR512:$dest),
+  (ins VR512:$src2),
+  "itof $dest, $src2",
+  [(set v16f32:$dest, (sint_to_fp v16i32:$src2))],
+  0x2a,
+  FmtR_VVV,
+  II_FLOAT>;
+
+let Constraints = "$dest = $oldvalue" in {
+  def SITOFVSM : FormatRMaskedOneOpInst<
+    (outs VR512:$dest),
+    (ins GPR32:$mask, GPR32:$src2, VR512:$oldvalue),
+    "itof_mask $dest, $mask, $src2",
+    [(set v16f32:$dest, (vselect v16i1:$mask, (sint_to_fp (splat i32:$src2)),
+      v16f32:$oldvalue))],
+    0x2a,
+    FmtR_VVSM,
+    II_FLOAT>;
+
+  def SITOFVVM : FormatRMaskedOneOpInst<
+    (outs VR512:$dest),
+    (ins GPR32:$mask, VR512:$src2, VR512:$oldvalue),
+    "itof_mask $dest, $mask, $src2",
+    [(set v16f32:$dest, (vselect v16i1:$mask, (sint_to_fp v16i32:$src2), v16f32:$oldvalue))],
+    0x2a,
+    FmtR_VVVM,
+    II_FLOAT>;
+}
+
 def FTOIISS : FormatRUnmaskedOneOpInst<
   (outs GPR32:$dest),
   (ins GPR32:$src2),
@@ -107,6 +197,15 @@ def FTOIISS : FormatRUnmaskedOneOpInst<
   [(set i32:$dest, (fp_to_sint f32:$src2))],
   0x1b,
   FmtR_SSS,
+  II_FLOAT>;
+
+def FTOSIVS : FormatRUnmaskedOneOpInst<
+  (outs VR512:$dest),
+  (ins GPR32:$src2),
+  "ftoi $dest, $src2",
+  [(set v16i32:$dest, (fp_to_sint (splat f32:$src2)))],
+  0x1b,
+  FmtR_VVS,
   II_FLOAT>;
 
 def FTOSIVV : FormatRUnmaskedOneOpInst<
@@ -118,14 +217,26 @@ def FTOSIVV : FormatRUnmaskedOneOpInst<
   FmtR_VVV,
   II_FLOAT>;
 
-def FTOSIVS : FormatRUnmaskedOneOpInst<
-  (outs VR512:$dest),
-  (ins GPR32:$src2),
-  "ftoi $dest, $src2",
-  [(set v16i32:$dest, (fp_to_sint (splat f32:$src2)))],
-  0x1b,
-  FmtR_VVS,
-  II_FLOAT>;
+let Constraints = "$dest = $oldvalue" in {
+  def FTOSIVSM : FormatRMaskedOneOpInst<
+    (outs VR512:$dest),
+    (ins GPR32:$mask, GPR32:$src2, VR512:$oldvalue),
+    "ftoi_mask $dest, $mask, $src2",
+    [(set v16i32:$dest, (vselect v16i1:$mask, (fp_to_sint (splat f32:$src2)),
+      v16i32:$oldvalue))],
+    0x1b,
+    FmtR_VVSM,
+    II_FLOAT>;
+
+  def FTOSIVVM : FormatRMaskedOneOpInst<
+    (outs VR512:$dest),
+    (ins GPR32:$mask, VR512:$src2, VR512:$oldvalue),
+    "ftoi_mask $dest, $mask, $src2",
+    [(set v16i32:$dest, (vselect v16i1:$mask, (fp_to_sint v16f32:$src2), v16i32:$oldvalue))],
+    0x1b,
+    FmtR_VVVM,
+    II_FLOAT>;
+}
 
 defm SGTSI : IntCompareInst<"cmpgt_i", SETGT, 0x12>;
 defm SGESI : IntCompareInst<"cmpge_i", SETGE, 0x13>;
@@ -244,7 +355,9 @@ def MOVESimm : FormatIUnmaskedInst<
   [(set i32:$dest, simm14:$imm)],
   0x0f,
   FmtI_S,
-  II_INT>;
+  II_INT> {
+  let src1 = 0;
+}
 
 def MOVEVSI : FormatRUnmaskedOneOpInst<
   (outs VR512:$dest),
@@ -262,7 +375,9 @@ def MOVEVimm : FormatIUnmaskedInst<
   [(set v16i32:$dest, (splat simm14:$imm))],
   0xf,
   FmtI_V,
-  II_INT>;
+  II_INT> {
+  let src1 = 0;
+}
 
 def : Pat<(v16f32 (splat f32:$src2)), (MOVEVSI f32:$src2)>;
 
