@@ -7,6 +7,8 @@
 # CHECK-NEXT:     0x4 R_NYUZI_NONE - 0x0
 # CHECK-NEXT:     0x8 R_NYUZI_BRANCH20 - 0x0
 # CHECK-NEXT:     0xC R_NYUZI_BRANCH25 - 0x0
+# CHECK-NEXT:     0x10 R_NYUZI_HI19 - 0x0
+# CHECK-NEXT:     0x14 R_NYUZI_IMM_LO13 - 0x0
 # CHECK-NEXT:   }
 # CHECK-NEXT: ]
 
@@ -40,7 +42,12 @@ Sections:
       - Offset:          0xc
         Symbol:          c
         Type:            R_NYUZI_BRANCH25
-
+      - Offset:          0x10
+        Symbol:          d
+        Type:            R_NYUZI_HI19
+      - Offset:          0x14
+        Symbol:          e
+        Type:            R_NYUZI_IMM_LO13
 
 Symbols:
   Local:
