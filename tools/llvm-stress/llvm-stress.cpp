@@ -116,10 +116,10 @@ public:
 
   /// Make this like a C++11 random device
   typedef uint32_t result_type;
-  uint32_t operator()() { return Rand32() % max(); }
+  uint32_t operator()() { return Rand(); }
   static constexpr result_type min() { return 0; }
   static constexpr result_type max() { return 0x7ffff; }
-  
+
 private:
   unsigned Seed;
 };

@@ -289,7 +289,7 @@ TargetInfo *createTarget() {
       return make<X86_64TargetInfo<ELF32LE>>();
     return make<X86_64TargetInfo<ELF64LE>>();
   case EM_NYUZI:
-    return new NyuziTargetInfo();
+    return make<NyuziTargetInfo>();
   }
   fatal("unknown target machine");
 }

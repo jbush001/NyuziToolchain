@@ -8131,7 +8131,8 @@ class NyuziTargetInfo : public TargetInfo {
   static const char *const GCCRegNames[];
   static const Builtin::Info BuiltinInfo[];
 public:
-  NyuziTargetInfo(const llvm::Triple &Triple) : TargetInfo(Triple) {
+  NyuziTargetInfo(const llvm::Triple &Triple, const TargetOptions &Opts)
+    : TargetInfo(Triple) {
     BigEndian = false;
     TLSSupported = false;
     IntWidth = IntAlign = 32;
@@ -9304,7 +9305,7 @@ static TargetInfo *AllocateTarget(const llvm::Triple &Triple,
     }
 
   case llvm::Triple::nyuzi:
-    return new NyuziTargetInfo(Triple);
+    return new NyuziTargetInfo(Triple, Opts);
 
   case llvm::Triple::mipsel:
     switch (os) {
