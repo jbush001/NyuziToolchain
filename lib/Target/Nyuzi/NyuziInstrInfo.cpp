@@ -43,10 +43,6 @@ bool isCondBranchOpcode(int opc) {
 }
 }
 
-const NyuziInstrInfo *NyuziInstrInfo::create(NyuziSubtarget &ST) {
-  return new NyuziInstrInfo(ST);
-}
-
 NyuziInstrInfo::NyuziInstrInfo(NyuziSubtarget &ST)
     : NyuziGenInstrInfo(Nyuzi::ADJCALLSTACKDOWN, Nyuzi::ADJCALLSTACKUP), RI() {}
 

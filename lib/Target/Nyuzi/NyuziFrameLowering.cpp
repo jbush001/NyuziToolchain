@@ -30,10 +30,6 @@
 
 using namespace llvm;
 
-const NyuziFrameLowering *NyuziFrameLowering::create(const NyuziSubtarget &ST) {
-  return new NyuziFrameLowering(ST);
-}
-
 void NyuziFrameLowering::emitPrologue(MachineFunction &MF,
                                       MachineBasicBlock &MBB) const {
   assert(&MF.front() == &MBB);

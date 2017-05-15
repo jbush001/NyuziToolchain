@@ -46,9 +46,6 @@ enum NodeType {
 
 class NyuziTargetLowering : public TargetLowering {
 public:
-  static const NyuziTargetLowering *create(const NyuziTargetMachine &TM,
-                                           const NyuziSubtarget &STI);
-
   explicit NyuziTargetLowering(const TargetMachine &TM,
                                const NyuziSubtarget &STI);
   SDValue LowerOperation(SDValue Op, SelectionDAG &DAG) const override;

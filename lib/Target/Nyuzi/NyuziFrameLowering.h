@@ -17,8 +17,6 @@ class NyuziSubtarget;
 
 class NyuziFrameLowering : public TargetFrameLowering {
 public:
-  static const NyuziFrameLowering *create(const NyuziSubtarget &ST);
-
   explicit NyuziFrameLowering(const NyuziSubtarget &ST)
       : TargetFrameLowering(TargetFrameLowering::StackGrowsDown, 64, 0, 64) {}
 

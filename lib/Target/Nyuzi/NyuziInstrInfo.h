@@ -25,8 +25,6 @@ namespace llvm {
 
 class NyuziInstrInfo : public NyuziGenInstrInfo {
 public:
-  static const NyuziInstrInfo *create(NyuziSubtarget &ST);
-
   explicit NyuziInstrInfo(NyuziSubtarget &ST);
 
   const NyuziRegisterInfo &getRegisterInfo() const { return RI; }

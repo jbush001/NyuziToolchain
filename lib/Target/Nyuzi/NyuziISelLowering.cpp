@@ -61,12 +61,6 @@ SDValue morphSETCCNode(SDValue Op, NyuziISD::NodeType Compare, SelectionDAG &DAG
 }
 }
 
-const NyuziTargetLowering *
-NyuziTargetLowering::create(const NyuziTargetMachine &TM,
-                            const NyuziSubtarget &STI) {
-  return new NyuziTargetLowering(TM, STI);
-}
-
 NyuziTargetLowering::NyuziTargetLowering(const TargetMachine &TM,
                                          const NyuziSubtarget &STI)
     : TargetLowering(TM), Subtarget(STI) {

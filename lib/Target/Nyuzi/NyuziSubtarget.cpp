@@ -30,9 +30,9 @@ NyuziSubtarget::NyuziSubtarget(const Triple &TT, const std::string &CPU,
                                const std::string &FS,
                                const NyuziTargetMachine &TM)
     : NyuziGenSubtargetInfo(TT, CPU, FS),
-      InstrInfo(NyuziInstrInfo::create(*this)),
-      TLInfo(NyuziTargetLowering::create(TM, *this)), TSInfo(),
-      FrameLowering(NyuziFrameLowering::create(*this)) {
+      InstrInfo(*this),
+      TargetLowering(TM, *this),
+      FrameLowering(*this) {
 
   std::string CPUName = CPU;
 
