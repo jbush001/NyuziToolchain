@@ -229,17 +229,6 @@ write_test_case('getlane s4, v5, s6',
 write_test_case('getlane s4, v5, 7',
                 encode_i_instruction(1, 0x1a, 4, 5, 7))
 
-# XXX HACK: These instructions should support all forms, but this is here
-# in the interim
-write_test_case('sext_8 s8, s9', encode_r_instruction(0, 0x1d, 8, 0, 9, 0))
-write_test_case('sext_16 s8, s9', encode_r_instruction(0, 0x1e, 8, 0, 9, 0))
-write_test_case('itof s8, s9', encode_r_instruction(0, 0x2a, 8, 0, 9, 0))
-write_test_case('ftoi s8, s9', encode_r_instruction(0, 0x1b, 8, 0, 9, 0))
-write_test_case('itof v8, v9', encode_r_instruction(4, 0x2a, 8, 0, 9, 0))
-write_test_case('ftoi v8, v9', encode_r_instruction(4, 0x1b, 8, 0, 9, 0))
-write_test_case('itof v8, s9', encode_r_instruction(1, 0x2a, 8, 0, 9, 0))
-write_test_case('ftoi v8, s9', encode_r_instruction(1, 0x1b, 8, 0, 9, 0))
-
 write_test_case('nop', encode_im_instruction(0, 0, 0, 0, 0, 0))
 
 #
