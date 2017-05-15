@@ -20,7 +20,7 @@ namespace llvm {
 
 class NyuziMachineFunctionInfo : public MachineFunctionInfo {
 public:
-  NyuziMachineFunctionInfo() {}
+  NyuziMachineFunctionInfo() = default;
 
   explicit NyuziMachineFunctionInfo(MachineFunction &MF) {}
 
