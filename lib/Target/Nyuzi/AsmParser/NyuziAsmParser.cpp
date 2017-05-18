@@ -377,18 +377,20 @@ NyuziAsmParser::ParseImmediate(OperandVector &Operands, int MaxBits, bool isSign
     getLexer().Lex(); // Eat prefix
 
     if (getLexer().getKind() != AsmToken::LParen) {
-      Error(getLexer().getLoc(), "Expected '('");
+      Error(getLexer().getLoc(), "expected '('");
       return MatchOperand_ParseFail;
     }
     getLexer().Lex(); // eat '('
 
     // Parse identifier
     StringRef Identifier;
-    if (Parser.parseIdentifier(Identifier))
+    if (Parser.parseIdentifier(Identifier)) {
+      Error(getLexer().getLoc(), "expected identifier");
       return MatchOperand_ParseFail;
+    }
 
     if (getLexer().getKind() != AsmToken::RParen) {
-      Error(getLexer().getLoc(), "Expected ')'");
+      Error(getLexer().getLoc(), "expected ')'");
       return MatchOperand_ParseFail;
     }
     getLexer().Lex(); // eat ')'
@@ -590,7 +592,7 @@ NyuziAsmParser::ParseMemoryOperand(OperandVector &Operands, int MaxBits,
     }
 
     if (!getLexer().is(AsmToken::LParen)) {
-      Error(Parser.getTok().getLoc(), "missing (");
+      Error(Parser.getTok().getLoc(), "expected (");
       return MatchOperand_ParseFail;
     }
   } else if (!getLexer().is(AsmToken::LParen))
@@ -612,7 +614,7 @@ NyuziAsmParser::ParseMemoryOperand(OperandVector &Operands, int MaxBits,
   }
 
   if (getLexer().isNot(AsmToken::RParen)) {
-    Error(Parser.getTok().getLoc(), "missing )");
+    Error(Parser.getTok().getLoc(), "expected )");
     return MatchOperand_ParseFail;
   }
 
