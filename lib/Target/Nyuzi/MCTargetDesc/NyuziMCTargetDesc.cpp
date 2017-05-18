@@ -102,7 +102,8 @@ public:
     }
   }
 };
-}
+
+} // namespace
 
 static MCInstrAnalysis *createNyuziMCInstrAnalysis(const MCInstrInfo *Info) {
   return new NyuziMCInstrAnalysis(Info);

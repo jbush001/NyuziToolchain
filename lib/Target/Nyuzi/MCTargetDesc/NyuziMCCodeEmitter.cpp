@@ -82,7 +82,7 @@ private:
   void operator=(const NyuziMCCodeEmitter &) = delete;
   MCContext &Ctx;
 };
-} // end anonymous namepsace
+} // namespace
 
 MCCodeEmitter *llvm::createNyuziMCCodeEmitter(const MCInstrInfo &MCII,
                                               const MCRegisterInfo &MRI,

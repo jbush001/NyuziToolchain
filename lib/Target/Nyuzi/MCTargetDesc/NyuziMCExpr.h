@@ -42,10 +42,10 @@ public:
   }
 
 private:
- const VariantKind Kind;
- const MCExpr *Expr;
+  const VariantKind Kind;
+  const MCExpr *Expr;
 
- explicit NyuziMCExpr(VariantKind Kind, const MCExpr *Expr)
+  explicit NyuziMCExpr(VariantKind Kind, const MCExpr *Expr)
      : Kind(Kind), Expr(Expr) {}
 };
 

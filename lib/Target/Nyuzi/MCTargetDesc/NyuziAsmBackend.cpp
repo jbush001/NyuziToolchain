@@ -148,7 +148,9 @@ public:
   }
 
 private:
-  unsigned getNumFixupKinds() const override { return Nyuzi::NumTargetFixupKinds; }
+  unsigned getNumFixupKinds() const override {
+    return Nyuzi::NumTargetFixupKinds;
+  }
 
 }; // class NyuziAsmBackend
 

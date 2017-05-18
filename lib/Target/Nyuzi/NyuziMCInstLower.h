@@ -33,12 +33,12 @@ public:
 
 private:
   MCOperand LowerOperand(const MachineOperand &MO) const;
-  MCOperand LowerSymbolOperand(const MachineOperand &MO,
-                               MCSymbol *Sym) const;
+  MCOperand LowerSymbolOperand(const MachineOperand &MO, MCSymbol *Sym) const;
 
   MCContext *Ctx = nullptr;
   NyuziAsmPrinter &AsmPrinter;
 };
-}
+
+} // namespace llvm
 
 #endif

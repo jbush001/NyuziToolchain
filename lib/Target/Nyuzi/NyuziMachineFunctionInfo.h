@@ -37,6 +37,7 @@ private:
   unsigned SRetReturnReg = 0;
   int VarArgsFrameIndex = -1;
 };
-}
+
+} // namespace llvm
 
 #endif

@@ -34,6 +34,6 @@ private:
   uint64_t getWorstCaseStackSize(const MachineFunction &MF) const;
 };
 
-} // End llvm namespace
+} // namespace llvm
 
 #endif

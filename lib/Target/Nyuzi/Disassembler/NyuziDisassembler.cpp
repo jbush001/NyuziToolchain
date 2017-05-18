@@ -188,8 +188,8 @@ static DecodeStatus decodeVectorMemoryOpValue(MCInst &Inst, unsigned Insn,
 }
 
 static DecodeStatus decodeBranchTargetOpValue20(MCInst &Inst, unsigned Offset,
-                                              uint64_t Address,
-                                              const void *Decoder) {
+                                                uint64_t Address,
+                                                const void *Decoder) {
 
   const MCDisassembler *Dis = static_cast<const MCDisassembler *>(Decoder);
   int32_t AdjustedOffset = SignExtend32<20>(Offset) * 4;
@@ -202,8 +202,8 @@ static DecodeStatus decodeBranchTargetOpValue20(MCInst &Inst, unsigned Offset,
 }
 
 static DecodeStatus decodeBranchTargetOpValue25(MCInst &Inst, unsigned Offset,
-                                              uint64_t Address,
-                                              const void *Decoder) {
+                                                uint64_t Address,
+                                                const void *Decoder) {
   const MCDisassembler *Dis = static_cast<const MCDisassembler *>(Decoder);
   int32_t AdjustedOffset = SignExtend32<25>(Offset) * 4;
   if (!Dis->tryAddingSymbolicOperand(Inst, Address + AdjustedOffset,

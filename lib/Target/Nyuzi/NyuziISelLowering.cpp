@@ -59,7 +59,8 @@ SDValue morphSETCCNode(SDValue Op, NyuziISD::NodeType Compare, SelectionDAG &DAG
   return DAG.getNode(Compare, DL, Op.getValueType().getSimpleVT(),
                      Op.getOperand(0), Op.getOperand(1));
 }
-}
+
+} // namespace
 
 NyuziTargetLowering::NyuziTargetLowering(const TargetMachine &TM,
                                          const NyuziSubtarget &STI)
@@ -220,7 +221,7 @@ NyuziTargetLowering::NyuziTargetLowering(const TargetMachine &TM,
 
   for (auto Op : FloatLibCalls) {
     setOperationAction(Op, MVT::f32, Expand); // sqrtf
-    setOperationAction(Op, MVT::v16f32, Expand);  // sinf
+    setOperationAction(Op, MVT::v16f32, Expand); // sinf
   }
 
   setStackPointerRegisterToSaveRestore(Nyuzi::SP_REG);
@@ -643,8 +644,8 @@ NyuziTargetLowering::EmitInstrWithCustomInserter(MachineInstr &MI,
   case Nyuzi::ATOMIC_LOAD_SUBR:
     return EmitAtomicBinary(MI, BB, Nyuzi::SUBISSS);
 
-    case Nyuzi::ATOMIC_LOAD_NANDR:
-      return EmitAtomicBinary(MI, BB, Nyuzi::ANDSSS, true);
+  case Nyuzi::ATOMIC_LOAD_NANDR:
+    return EmitAtomicBinary(MI, BB, Nyuzi::ANDSSS, true);
 
   case Nyuzi::ATOMIC_LOAD_SUBI:
     return EmitAtomicBinary(MI, BB, Nyuzi::SUBISSI);
@@ -865,7 +866,7 @@ SDValue NyuziTargetLowering::LowerBUILD_VECTOR(SDValue Op,
       return DAG.getNode(NyuziISD::SPLAT, DL, VT, Op.getOperand(0));
     }
 
-    return SDValue();  // Expand
+    return SDValue(); // Expand
   }
 
   if (ISD::isBuildVectorOfConstantSDNodes(Op.getNode())) {
@@ -1355,7 +1356,6 @@ SDValue NyuziTargetLowering::LowerCTTZ_ZERO_UNDEF(SDValue Op,
   SDLoc DL(Op);
   return DAG.getNode(ISD::CTTZ, DL, Op.getValueType(), Op.getOperand(0));
 }
-
 
 SDValue NyuziTargetLowering::LowerUINT_TO_FP(SDValue Op,
                                              SelectionDAG &DAG) const {

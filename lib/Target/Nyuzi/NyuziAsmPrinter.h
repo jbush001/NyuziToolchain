@@ -52,6 +52,7 @@ public:
                              unsigned AsmVariant, const char *ExtraCode,
                              raw_ostream &O) override;
 };
-}
+
+} // namespace llvm
 
 #endif

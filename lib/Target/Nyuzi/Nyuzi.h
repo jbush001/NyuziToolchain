@@ -23,6 +23,6 @@ class NyuziTargetMachine;
 
 FunctionPass *createNyuziISelDag(NyuziTargetMachine &TM);
 
-} // end namespace llvm;
+} // namespace llvm
 
 #endif

@@ -75,6 +75,7 @@ private:
                                    MachineMemOperand::Flags) const;
   const NyuziRegisterInfo RI;
 };
-}
+
+} // namespace llvm
 
 #endif

@@ -8,10 +8,10 @@
 //===----------------------------------------------------------------------===//
 
 #include "NyuziMCInstLower.h"
+#include "MCTargetDesc/NyuziBaseInfo.h"
+#include "MCTargetDesc/NyuziMCExpr.h"
 #include "NyuziAsmPrinter.h"
 #include "NyuziInstrInfo.h"
-#include "MCTargetDesc/NyuziMCExpr.h"
-#include "MCTargetDesc/NyuziBaseInfo.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineInstr.h"
 #include "llvm/CodeGen/MachineOperand.h"
@@ -76,23 +76,23 @@ MCOperand NyuziMCInstLower::LowerOperand(const MachineOperand &MO) const {
 
 MCOperand NyuziMCInstLower::LowerSymbolOperand(const MachineOperand &MO,
                                                MCSymbol *Sym) const {
-   NyuziMCExpr::VariantKind Kind;
-   switch (MO.getTargetFlags()) {
-   case Nyuzi::MO_NO_FLAG:
-     Kind = NyuziMCExpr::VK_Nyuzi_NONE;
-     break;
-   case Nyuzi::MO_ABS_HI:
-     Kind = NyuziMCExpr::VK_Nyuzi_ABS_HI;
-     break;
-   case Nyuzi::MO_ABS_LO:
-     Kind = NyuziMCExpr::VK_Nyuzi_ABS_LO;
-     break;
-   default:
-     llvm_unreachable("Unknown target flag on operand");
-   }
+  NyuziMCExpr::VariantKind Kind;
+  switch (MO.getTargetFlags()) {
+  case Nyuzi::MO_NO_FLAG:
+    Kind = NyuziMCExpr::VK_Nyuzi_NONE;
+    break;
+  case Nyuzi::MO_ABS_HI:
+    Kind = NyuziMCExpr::VK_Nyuzi_ABS_HI;
+    break;
+  case Nyuzi::MO_ABS_LO:
+    Kind = NyuziMCExpr::VK_Nyuzi_ABS_LO;
+    break;
+  default:
+    llvm_unreachable("Unknown target flag on operand");
+  }
 
   const MCExpr *Expr = MCSymbolRefExpr::create(Sym,
-    MCSymbolRefExpr::VK_None, *Ctx);
+   MCSymbolRefExpr::VK_None, *Ctx);
 
   if (!MO.isJTI() && MO.getOffset()) {
     const MCConstantExpr *OffsetExpr = MCConstantExpr::create(MO.getOffset(), *Ctx);

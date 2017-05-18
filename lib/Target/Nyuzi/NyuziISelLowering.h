@@ -122,6 +122,6 @@ private:
 
   const NyuziSubtarget &Subtarget;
 };
-} // end namespace llvm
+} // namespace llvm
 
 #endif // NYUZI_ISELLOWERING_H

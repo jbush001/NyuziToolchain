@@ -46,7 +46,8 @@ Reloc::Model getEffectiveRelocModel(const Triple &TT,
     return Reloc::Static;
   return *RM;
 }
-}
+
+} // namespace
 
 NyuziTargetMachine::NyuziTargetMachine(const Target &T, const Triple &TT,
                                        StringRef CPU, StringRef FS,

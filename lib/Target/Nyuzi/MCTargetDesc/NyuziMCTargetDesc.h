@@ -44,7 +44,7 @@ MCAsmBackend *createNyuziAsmBackend(const Target &T, const MCRegisterInfo &MRI,
                                     const Triple &TT, StringRef CPU,
                                     const MCTargetOptions &Options);
 
-} // End llvm namespace
+} // namespace llvm
 
 // Defines symbolic names for Nyuzi registers.  This defines a mapping from
 // register name to register number.

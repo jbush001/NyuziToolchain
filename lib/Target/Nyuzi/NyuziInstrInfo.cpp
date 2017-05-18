@@ -41,7 +41,8 @@ bool isCondBranchOpcode(int opc) {
 
   // BALL/BNALL/etc. can't be analyzed
 }
-}
+
+} // namespace
 
 NyuziInstrInfo::NyuziInstrInfo(NyuziSubtarget &ST)
     : NyuziGenInstrInfo(Nyuzi::ADJCALLSTACKDOWN, Nyuzi::ADJCALLSTACKUP), RI() {}
@@ -181,7 +182,7 @@ bool NyuziInstrInfo::analyzeBranch(MachineBasicBlock &MBB,
     }
 
     if (!I->isTerminator())
-        break;
+      break;
 
     if (isUncondBranchOpcode(I->getOpcode())) {
       TBB = I->getOperand(0).getMBB();

@@ -58,7 +58,7 @@ void printExpr(const MCExpr *Expr, const MCAsmInfo *MAI, raw_ostream &OS) {
   if (Kind != MCSymbolRefExpr::VK_None)
     OS << ')';
 }
-}
+} // namespace
 
 void NyuziInstPrinter::printRegName(raw_ostream &OS, unsigned RegNo) const {
   OS << StringRef(getRegisterName(RegNo)).lower();

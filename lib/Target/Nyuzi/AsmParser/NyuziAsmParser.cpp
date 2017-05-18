@@ -7,16 +7,16 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "MCTargetDesc/NyuziMCTargetDesc.h"
 #include "MCTargetDesc/NyuziMCExpr.h"
+#include "MCTargetDesc/NyuziMCTargetDesc.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/MC/MCContext.h"
 #include "llvm/MC/MCExpr.h"
 #include "llvm/MC/MCInst.h"
-#include "llvm/MC/MCRegisterInfo.h"
 #include "llvm/MC/MCParser/MCAsmLexer.h"
 #include "llvm/MC/MCParser/MCParsedAsmOperand.h"
 #include "llvm/MC/MCParser/MCTargetAsmParser.h"
+#include "llvm/MC/MCRegisterInfo.h"
 #include "llvm/MC/MCStreamer.h"
 #include "llvm/MC/MCSubtargetInfo.h"
 #include "llvm/Support/Debug.h"
@@ -44,8 +44,7 @@ class NyuziAsmParser : public MCTargetAsmParser {
   bool ParseDirective(AsmToken DirectiveID) override;
 
   bool ParseOperand(OperandVector &Operands, StringRef Name);
-  bool ProcessInstruction(MCInst &Inst, const SMLoc &Loc,
-                          MCStreamer &Out);
+  bool ProcessInstruction(MCInst &Inst, const SMLoc &Loc, MCStreamer &Out);
 
 // Auto-generated instruction matching functions
 #define GET_ASSEMBLER_HEADER
@@ -58,7 +57,8 @@ class NyuziAsmParser : public MCTargetAsmParser {
   OperandMatchResultTy ParseMemoryOperandV15(OperandVector &Operands);
   OperandMatchResultTy ParseMemoryOperand(OperandVector &Operands, int MaxBits,
                                           bool OpIsVector);
-  OperandMatchResultTy ParseImmediate(OperandVector &Operands, int MaxBits, bool isSigned);
+  OperandMatchResultTy ParseImmediate(OperandVector &Operands, int MaxBits,
+                                      bool isSigned);
   OperandMatchResultTy ParseSImm9Value(OperandVector &Operands);
   OperandMatchResultTy ParseSImm14Value(OperandVector &Operands);
   OperandMatchResultTy ParseSImm19Value(OperandVector &Operands);
@@ -362,7 +362,8 @@ bool NyuziAsmParser::ParseRegister(unsigned &RegNo, SMLoc &StartLoc,
 }
 
 OperandMatchResultTy
-NyuziAsmParser::ParseImmediate(OperandVector &Operands, int MaxBits, bool isSigned) {
+NyuziAsmParser::ParseImmediate(OperandVector &Operands, int MaxBits,
+                               bool isSigned) {
   NyuziMCExpr::VariantKind Kind = NyuziMCExpr::VK_Nyuzi_NONE;
   SMLoc S = Parser.getTok().getLoc();
   if (getLexer().getKind() == AsmToken::Identifier) {
@@ -485,15 +486,15 @@ bool NyuziAsmParser::ProcessInstruction(MCInst &Inst, const SMLoc &Loc,
       // (assumes scalar move)
       MCInst NewInst;
       NewInst.setOpcode(Nyuzi::MOVESimm);
-      NewInst.addOperand(Inst.getOperand(0));  // Dest
-      NewInst.addOperand(Inst.getOperand(1));  // Value
+      NewInst.addOperand(Inst.getOperand(0)); // Dest
+      NewInst.addOperand(Inst.getOperand(1)); // Value
       NewInst.setLoc(Loc);
       Out.EmitInstruction(NewInst, getSTI());
-    } else  {
+    } else {
       // Need to use movehi to set high bits
       MCInst NewInst;
       NewInst.setOpcode(Nyuzi::MOVEHI);
-      NewInst.addOperand(Inst.getOperand(0));  // Dest
+      NewInst.addOperand(Inst.getOperand(0)); // Dest
       NewInst.addOperand(MCOperand::createImm((IntVal >> 13) & 0x7ffff));
       NewInst.setLoc(Loc);
       Out.EmitInstruction(NewInst, getSTI());
@@ -502,8 +503,8 @@ bool NyuziAsmParser::ProcessInstruction(MCInst &Inst, const SMLoc &Loc,
         // Also need to set low bits
         MCInst NewInst;
         NewInst.setOpcode(Nyuzi::ORSSI);
-        NewInst.addOperand(Inst.getOperand(0));  // Dest
-        NewInst.addOperand(Inst.getOperand(0));  // Source
+        NewInst.addOperand(Inst.getOperand(0)); // Dest
+        NewInst.addOperand(Inst.getOperand(0)); // Source
         NewInst.addOperand(MCOperand::createImm(IntVal & 0x1fff));
         NewInst.setLoc(Loc);
         Out.EmitInstruction(NewInst, getSTI());
@@ -518,7 +519,7 @@ bool NyuziAsmParser::ProcessInstruction(MCInst &Inst, const SMLoc &Loc,
     // Load high bits
     MCInst NewInst1;
     NewInst1.setOpcode(Nyuzi::MOVEHI);
-    NewInst1.addOperand(Inst.getOperand(0));  // Dest
+    NewInst1.addOperand(Inst.getOperand(0)); // Dest
     const MCExpr *HighAddr = NyuziMCExpr::create(NyuziMCExpr::VK_Nyuzi_ABS_HI,
       Symbol, getContext());
     NewInst1.addOperand(MCOperand::createExpr(HighAddr));
@@ -528,8 +529,8 @@ bool NyuziAsmParser::ProcessInstruction(MCInst &Inst, const SMLoc &Loc,
     // Load low bits
     MCInst NewInst2;
     NewInst2.setOpcode(Nyuzi::ORSSI);
-    NewInst2.addOperand(Inst.getOperand(0));  // Dest
-    NewInst2.addOperand(Inst.getOperand(0));  // Source
+    NewInst2.addOperand(Inst.getOperand(0)); // Dest
+    NewInst2.addOperand(Inst.getOperand(0)); // Source
     const MCExpr *LowAddr = NyuziMCExpr::create(NyuziMCExpr::VK_Nyuzi_ABS_LO,
       Symbol, getContext());
     NewInst2.addOperand(MCOperand::createExpr(LowAddr));
