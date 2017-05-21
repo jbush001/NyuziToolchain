@@ -348,15 +348,19 @@ def : Pat<(v16i1 (mask_from_int i32:$src)), (COPY $src)>;
 // This should only be invoked for types that will fit in the immediate field
 // of the instruction.  The lowering code will transform other types into
 // constant pool loads.
-def MOVESimm : FormatIUnmaskedInst<
+def MOVESimm :  NyuziInstruction<
   (outs GPR32:$dest),
   (ins SIMM14OP:$imm),
   "move $dest, $imm",
   [(set i32:$dest, simm14:$imm)],
-  0x0f,
-  FmtI_S,
   II_INT> {
-  let src1 = 0;
+  bits <5> dest;
+  bits <14> imm;
+
+  let Inst{30-29} = FmtI_S.Value;
+  let Inst{28-24} = 0xf;  // MOVE
+  let Inst{9-5} = dest;
+  let Inst{23-10} = imm;
 }
 
 def MOVEVSI : FormatRUnmaskedOneOpInst<
