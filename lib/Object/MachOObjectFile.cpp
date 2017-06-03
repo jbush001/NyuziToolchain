@@ -1820,6 +1820,10 @@ uint64_t MachOObjectFile::getSectionAddress(DataRefImpl Sec) const {
   return getSection(Sec).addr;
 }
 
+uint64_t MachOObjectFile::getSectionIndex(DataRefImpl Sec) const {
+  return Sec.d.a;
+}
+
 uint64_t MachOObjectFile::getSectionSize(DataRefImpl Sec) const {
   // In the case if a malformed Mach-O file where the section offset is past
   // the end of the file or some part of the section size is past the end of
@@ -3265,7 +3269,6 @@ void MachOBindEntry::moveNext() {
       if (ImmValue) {
         SignExtended = MachO::BIND_OPCODE_MASK | ImmValue;
         Ordinal = SignExtended;
-        LibraryOrdinalSet = true;
         if (Ordinal < MachO::BIND_SPECIAL_DYLIB_FLAT_LOOKUP) {
           *E = malformedError("for BIND_OPCODE_SET_DYLIB_SPECIAL_IMM unknown "
                "special ordinal: " + Twine((int)Ordinal) + " for opcode at: "
@@ -3275,6 +3278,7 @@ void MachOBindEntry::moveNext() {
         }
       } else
         Ordinal = 0;
+      LibraryOrdinalSet = true;
       DEBUG_WITH_TYPE(
           "mach-o-bind",
           dbgs() << "BIND_OPCODE_SET_DYLIB_SPECIAL_IMM: "

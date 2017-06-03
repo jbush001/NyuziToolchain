@@ -325,10 +325,10 @@ void ICF<ELFT>::forEachClass(std::function<void(size_t, size_t)> Fn) {
   // Split sections into 256 shards and call Fn in parallel.
   size_t NumShards = 256;
   size_t Step = Sections.size() / NumShards;
-  parallelFor(0, NumShards, [&](size_t I) {
-    forEachClassRange(I * Step, (I + 1) * Step, Fn);
+  parallelForEachN(0, NumShards, [&](size_t I) {
+    size_t End = (I == NumShards - 1) ? Sections.size() : (I + 1) * Step;
+    forEachClassRange(I * Step, End, Fn);
   });
-  forEachClassRange(Step * NumShards, Sections.size(), Fn);
   ++Cnt;
 }
 

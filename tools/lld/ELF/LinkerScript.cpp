@@ -20,10 +20,13 @@
 #include "SymbolTable.h"
 #include "Symbols.h"
 #include "SyntheticSections.h"
+#include "Target.h"
+#include "Threads.h"
 #include "Writer.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/Casting.h"
+#include "llvm/Support/Compression.h"
 #include "llvm/Support/ELF.h"
 #include "llvm/Support/Endian.h"
 #include "llvm/Support/ErrorHandling.h"
@@ -48,9 +51,13 @@ using namespace lld::elf;
 LinkerScript *elf::Script;
 
 uint64_t ExprValue::getValue() const {
-  if (Sec)
-    return Sec->getOffset(Val) + Sec->getOutputSection()->Addr;
-  return Val;
+  if (Sec) {
+    if (OutputSection *OS = Sec->getOutputSection())
+      return alignTo(Sec->getOffset(Val) + OS->Addr, Alignment);
+    error("unable to evaluate expression: input section " + Sec->Name +
+          " has no output section assigned");
+  }
+  return alignTo(Val, Alignment);
 }
 
 uint64_t ExprValue::getSecAddr() const {
@@ -78,29 +85,28 @@ template <class ELFT> static SymbolBody *addRegular(SymbolAssignment *Cmd) {
   return Sym->body();
 }
 
-OutputSection *LinkerScript::getOutputSection(const Twine &Loc,
-                                              StringRef Name) {
-  for (OutputSection *Sec : *OutputSections)
-    if (Sec->Name == Name)
-      return Sec;
-
-  static OutputSection Dummy("", 0, 0);
-  if (ErrorOnMissingSection)
-    error(Loc + ": undefined section " + Name);
-  return &Dummy;
+OutputSectionCommand *
+LinkerScript::createOutputSectionCommand(StringRef Name, StringRef Location) {
+  OutputSectionCommand *&CmdRef = NameToOutputSectionCommand[Name];
+  OutputSectionCommand *Cmd;
+  if (CmdRef && CmdRef->Location.empty()) {
+    // There was a forward reference.
+    Cmd = CmdRef;
+  } else {
+    Cmd = make<OutputSectionCommand>(Name);
+    if (!CmdRef)
+      CmdRef = Cmd;
+  }
+  Cmd->Location = Location;
+  return Cmd;
 }
 
-// This function is essentially the same as getOutputSection(Name)->Size,
-// but it won't print out an error message if a given section is not found.
-//
-// Linker script does not create an output section if its content is empty.
-// We want to allow SIZEOF(.foo) where .foo is a section which happened to
-// be empty. That is why this function is different from getOutputSection().
-uint64_t LinkerScript::getOutputSectionSize(StringRef Name) {
-  for (OutputSection *Sec : *OutputSections)
-    if (Sec->Name == Name)
-      return Sec->Size;
-  return 0;
+OutputSectionCommand *
+LinkerScript::getOrCreateOutputSectionCommand(StringRef Name) {
+  OutputSectionCommand *&CmdRef = NameToOutputSectionCommand[Name];
+  if (!CmdRef)
+    CmdRef = make<OutputSectionCommand>(Name);
+  return CmdRef;
 }
 
 void LinkerScript::setDot(Expr E, const Twine &Loc, bool InSec) {
@@ -137,7 +143,7 @@ void LinkerScript::assignSymbol(SymbolAssignment *Cmd, bool InSec) {
   } else {
     Sym->Section = V.Sec;
     if (Sym->Section->Flags & SHF_ALLOC)
-      Sym->Value = V.Val;
+      Sym->Value = alignTo(V.Val, V.Alignment);
     else
       Sym->Value = V.getValue();
   }
@@ -192,6 +198,15 @@ bool SymbolAssignment::classof(const BaseCommand *C) {
 
 bool OutputSectionCommand::classof(const BaseCommand *C) {
   return C->Kind == OutputSectionKind;
+}
+
+// Fill [Buf, Buf + Size) with Filler.
+// This is used for linker script "=fillexp" command.
+static void fill(uint8_t *Buf, size_t Size, uint32_t Filler) {
+  size_t I = 0;
+  for (; I + 4 < Size; I += 4)
+    memcpy(Buf + I, &Filler, 4);
+  memcpy(Buf + I, &Filler, Size - I);
 }
 
 bool InputSectionDescription::classof(const BaseCommand *C) {
@@ -259,16 +274,16 @@ static bool matchConstraints(ArrayRef<InputSectionBase *> Sections,
          (!IsRW && Kind == ConstraintKind::ReadOnly);
 }
 
-static void sortSections(InputSectionBase **Begin, InputSectionBase **End,
+static void sortSections(InputSection **Begin, InputSection **End,
                          SortSectionPolicy K) {
   if (K != SortSectionPolicy::Default && K != SortSectionPolicy::None)
     std::stable_sort(Begin, End, getComparator(K));
 }
 
 // Compute and remember which sections the InputSectionDescription matches.
-std::vector<InputSectionBase *>
+std::vector<InputSection *>
 LinkerScript::computeInputSections(const InputSectionDescription *Cmd) {
-  std::vector<InputSectionBase *> Ret;
+  std::vector<InputSection *> Ret;
 
   // Collects all sections that satisfy constraints of Cmd.
   for (const SectionPattern &Pat : Cmd->SectionPatterns) {
@@ -277,6 +292,11 @@ LinkerScript::computeInputSections(const InputSectionDescription *Cmd) {
     for (InputSectionBase *Sec : InputSections) {
       if (Sec->Assigned)
         continue;
+
+      if (!Sec->Live) {
+        reportDiscarded(Sec);
+        continue;
+      }
 
       // For -emit-relocs we have to ignore entries like
       //   .rela.dyn : { *(.rela.data) }
@@ -290,7 +310,7 @@ LinkerScript::computeInputSections(const InputSectionDescription *Cmd) {
           !Pat.SectionPat.match(Sec->Name))
         continue;
 
-      Ret.push_back(Sec);
+      Ret.push_back(cast<InputSection>(Sec));
       Sec->Assigned = true;
     }
 
@@ -305,8 +325,8 @@ LinkerScript::computeInputSections(const InputSectionDescription *Cmd) {
     //    --sort-section is handled as an inner SORT command.
     // 3. If one SORT command is given, and if it is SORT_NONE, don't sort.
     // 4. If no SORT command is given, sort according to --sort-section.
-    InputSectionBase **Begin = Ret.data() + SizeBefore;
-    InputSectionBase **End = Ret.data() + Ret.size();
+    InputSection **Begin = Ret.data() + SizeBefore;
+    InputSection **End = Ret.data() + Ret.size();
     if (Pat.SortOuter != SortSectionPolicy::None) {
       if (Pat.SortInner == SortSectionPolicy::Default)
         sortSections(Begin, End, Config->SortSection);
@@ -406,18 +426,12 @@ void LinkerScript::processCommands(OutputSectionFactory &Factory) {
       }
 
       // Add input sections to an output section.
-      unsigned Pos = 0;
-      for (InputSectionBase *S : V) {
-        // The actual offset will be computed during
-        // assignAddresses. For now, use the index as a very crude
-        // approximation so that it is at least easy for other code to
-        // know the section order.
-        cast<InputSection>(S)->OutSecOff = Pos++;
+      for (InputSectionBase *S : V)
         Factory.addInputSec(S, Cmd->Name, Cmd->Sec);
-      }
       if (OutputSection *Sec = Cmd->Sec) {
         assert(Sec->SectionIndex == INT_MAX);
         Sec->SectionIndex = I;
+        SecToCommand[Sec] = Cmd;
       }
     }
   }
@@ -442,21 +456,14 @@ void LinkerScript::fabricateDefaultCommands() {
   // For each OutputSection that needs a VA fabricate an OutputSectionCommand
   // with an InputSectionDescription describing the InputSections
   for (OutputSection *Sec : *OutputSections) {
-    if (!(Sec->Flags & SHF_ALLOC))
-      continue;
-
-    auto *OSCmd = make<OutputSectionCommand>(Sec->Name);
+    auto *OSCmd = createOutputSectionCommand(Sec->Name, "<internal>");
     OSCmd->Sec = Sec;
+    SecToCommand[Sec] = OSCmd;
 
     // Prefer user supplied address over additional alignment constraint
     auto I = Config->SectionStartMap.find(Sec->Name);
     if (I != Config->SectionStartMap.end())
-      Commands.push_back(
-          make<SymbolAssignment>(".", [=] { return I->second; }, ""));
-    else if (Sec->PageAlign)
-      OSCmd->AddrExpr = [=] {
-        return alignTo(Script->getDot(), Config->MaxPageSize);
-      };
+      OSCmd->AddrExpr = [=] { return I->second; };
 
     Commands.push_back(OSCmd);
     if (Sec->Sections.size()) {
@@ -476,7 +483,7 @@ void LinkerScript::fabricateDefaultCommands() {
 // Add sections that didn't match any sections command.
 void LinkerScript::addOrphanSections(OutputSectionFactory &Factory) {
   for (InputSectionBase *S : InputSections) {
-    if (!S->Live || S->OutSec)
+    if (!S->Live || S->Parent)
       continue;
     StringRef Name = getOutputSectionName(S->Name);
     auto I = std::find_if(
@@ -491,12 +498,13 @@ void LinkerScript::addOrphanSections(OutputSectionFactory &Factory) {
       auto *Cmd = cast<OutputSectionCommand>(*I);
       Factory.addInputSec(S, Name, Cmd->Sec);
       if (OutputSection *Sec = Cmd->Sec) {
+        SecToCommand[Sec] = Cmd;
         unsigned Index = std::distance(Opt.Commands.begin(), I);
         assert(Sec->SectionIndex == INT_MAX || Sec->SectionIndex == Index);
         Sec->SectionIndex = Index;
       }
       auto *ISD = make<InputSectionDescription>("");
-      ISD->Sections.push_back(S);
+      ISD->Sections.push_back(cast<InputSection>(S));
       Cmd->Commands.push_back(ISD);
     }
   }
@@ -578,7 +586,7 @@ void LinkerScript::process(BaseCommand &Base) {
   // It calculates and assigns the offsets for each section and also
   // updates the output section size.
   auto &Cmd = cast<InputSectionDescription>(Base);
-  for (InputSectionBase *Sec : Cmd.Sections) {
+  for (InputSection *Sec : Cmd.Sections) {
     // We tentatively added all synthetic sections at the beginning and removed
     // empty ones afterwards (because there is no way to know whether they were
     // going be empty or not other than actually running linker scripts.)
@@ -589,8 +597,8 @@ void LinkerScript::process(BaseCommand &Base) {
 
     if (!Sec->Live)
       continue;
-    assert(CurOutSec == Sec->OutSec);
-    output(cast<InputSection>(Sec));
+    assert(CurOutSec == Sec->getParent());
+    output(Sec);
   }
 }
 
@@ -648,6 +656,11 @@ void LinkerScript::assignOffsets(OutputSectionCommand *Cmd) {
     Dot = CurMemRegion->Offset;
   switchTo(Sec);
 
+  // We do not support custom layout for compressed debug sectons.
+  // At this point we already know their size and have compressed content.
+  if (CurOutSec->Flags & SHF_COMPRESSED)
+    return;
+
   for (BaseCommand *C : Cmd->Commands)
     process(*C);
 }
@@ -682,7 +695,6 @@ void LinkerScript::adjustSectionsBeforeSorting() {
   // '.' is assigned to, but creating these section should not have any bad
   // consequeces and gives us a section to put the symbol in.
   uint64_t Flags = SHF_ALLOC;
-  uint32_t Type = SHT_PROGBITS;
 
   for (int I = 0, E = Opt.Commands.size(); I != E; ++I) {
     auto *Cmd = dyn_cast<OutputSectionCommand>(Opt.Commands[I]);
@@ -690,17 +702,17 @@ void LinkerScript::adjustSectionsBeforeSorting() {
       continue;
     if (OutputSection *Sec = Cmd->Sec) {
       Flags = Sec->Flags;
-      Type = Sec->Type;
       continue;
     }
 
     if (isAllSectionDescription(*Cmd))
       continue;
 
-    auto *OutSec = make<OutputSection>(Cmd->Name, Type, Flags);
+    auto *OutSec = make<OutputSection>(Cmd->Name, SHT_PROGBITS, Flags);
     OutSec->SectionIndex = I;
     OutputSections->push_back(OutSec);
     Cmd->Sec = OutSec;
+    SecToCommand[OutSec] = Cmd;
   }
 }
 
@@ -824,16 +836,14 @@ void LinkerScript::placeOrphanSections() {
     // If there is no command corresponding to this output section,
     // create one and put a InputSectionDescription in it so that both
     // representations agree on which input sections to use.
-    auto Pos = std::find_if(CmdIter, E, [&](BaseCommand *Base) {
-      auto *Cmd = dyn_cast<OutputSectionCommand>(Base);
-      return Cmd && Cmd->Name == Name;
-    });
-    if (Pos == E) {
-      auto *Cmd = make<OutputSectionCommand>(Name);
+    OutputSectionCommand *Cmd = getCmd(Sec);
+    if (!Cmd) {
+      Cmd = createOutputSectionCommand(Name, "<internal>");
       Opt.Commands.insert(CmdIter, Cmd);
       ++CmdIndex;
 
       Cmd->Sec = Sec;
+      SecToCommand[Sec] = Cmd;
       auto *ISD = make<InputSectionDescription>("");
       for (InputSection *IS : Sec->Sections)
         ISD->Sections.push_back(IS);
@@ -843,7 +853,11 @@ void LinkerScript::placeOrphanSections() {
     }
 
     // Continue from where we found it.
-    CmdIndex = (Pos - Opt.Commands.begin()) + 1;
+    while (*CmdIter != Cmd) {
+      ++CmdIter;
+      ++CmdIndex;
+    }
+    ++CmdIndex;
   }
 }
 
@@ -870,20 +884,20 @@ void LinkerScript::synchronize() {
     if (!Cmd)
       continue;
     ArrayRef<InputSection *> Sections = Cmd->Sec->Sections;
-    std::vector<InputSectionBase **> ScriptSections;
-    DenseSet<InputSectionBase *> ScriptSectionsSet;
+    std::vector<InputSection **> ScriptSections;
+    DenseSet<InputSection *> ScriptSectionsSet;
     for (BaseCommand *Base : Cmd->Commands) {
       auto *ISD = dyn_cast<InputSectionDescription>(Base);
       if (!ISD)
         continue;
-      for (InputSectionBase *&IS : ISD->Sections) {
+      for (InputSection *&IS : ISD->Sections) {
         if (IS->Live) {
           ScriptSections.push_back(&IS);
           ScriptSectionsSet.insert(IS);
         }
       }
     }
-    std::vector<InputSectionBase *> Missing;
+    std::vector<InputSection *> Missing;
     for (InputSection *IS : Sections)
       if (!ScriptSectionsSet.count(IS))
         Missing.push_back(IS);
@@ -891,7 +905,7 @@ void LinkerScript::synchronize() {
       auto ISD = make<InputSectionDescription>("");
       ISD->Sections = Missing;
       Cmd->Commands.push_back(ISD);
-      for (InputSectionBase *&IS : ISD->Sections)
+      for (InputSection *&IS : ISD->Sections)
         if (IS->Live)
           ScriptSections.push_back(&IS);
     }
@@ -901,9 +915,10 @@ void LinkerScript::synchronize() {
   }
 }
 
-static bool allocateHeaders(std::vector<PhdrEntry> &Phdrs,
-                            ArrayRef<OutputSection *> OutputSections,
-                            uint64_t Min) {
+static bool
+allocateHeaders(std::vector<PhdrEntry> &Phdrs,
+                ArrayRef<OutputSectionCommand *> OutputSectionCommands,
+                uint64_t Min) {
   auto FirstPTLoad =
       std::find_if(Phdrs.begin(), Phdrs.end(),
                    [](const PhdrEntry &E) { return E.p_type == PT_LOAD; });
@@ -920,16 +935,19 @@ static bool allocateHeaders(std::vector<PhdrEntry> &Phdrs,
 
   assert(FirstPTLoad->First == Out::ElfHeader);
   OutputSection *ActualFirst = nullptr;
-  for (OutputSection *Sec : OutputSections) {
+  for (OutputSectionCommand *Cmd : OutputSectionCommands) {
+    OutputSection *Sec = Cmd->Sec;
     if (Sec->FirstInPtLoad == Out::ElfHeader) {
       ActualFirst = Sec;
       break;
     }
   }
   if (ActualFirst) {
-    for (OutputSection *Sec : OutputSections)
+    for (OutputSectionCommand *Cmd : OutputSectionCommands) {
+      OutputSection *Sec = Cmd->Sec;
       if (Sec->FirstInPtLoad == Out::ElfHeader)
         Sec->FirstInPtLoad = ActualFirst;
+    }
     FirstPTLoad->First = ActualFirst;
   } else {
     Phdrs.erase(FirstPTLoad);
@@ -943,7 +961,9 @@ static bool allocateHeaders(std::vector<PhdrEntry> &Phdrs,
   return false;
 }
 
-void LinkerScript::assignAddresses(std::vector<PhdrEntry> &Phdrs) {
+void LinkerScript::assignAddresses(
+    std::vector<PhdrEntry> &Phdrs,
+    ArrayRef<OutputSectionCommand *> OutputSectionCommands) {
   // Assign addresses as instructed by linker script SECTIONS sub-commands.
   Dot = 0;
   ErrorOnMissingSection = true;
@@ -965,14 +985,15 @@ void LinkerScript::assignAddresses(std::vector<PhdrEntry> &Phdrs) {
   }
 
   uint64_t MinVA = std::numeric_limits<uint64_t>::max();
-  for (OutputSection *Sec : *OutputSections) {
+  for (OutputSectionCommand *Cmd : OutputSectionCommands) {
+    OutputSection *Sec = Cmd->Sec;
     if (Sec->Flags & SHF_ALLOC)
       MinVA = std::min<uint64_t>(MinVA, Sec->Addr);
     else
       Sec->Addr = 0;
   }
 
-  allocateHeaders(Phdrs, *OutputSections, MinVA);
+  allocateHeaders(Phdrs, OutputSectionCommands, MinVA);
 }
 
 // Creates program headers as instructed by PHDRS linker script command.
@@ -1002,7 +1023,7 @@ std::vector<PhdrEntry> LinkerScript::createPhdrs() {
       break;
 
     // Assign headers specified by linker script
-    for (size_t Id : getPhdrIndices(Sec->Name)) {
+    for (size_t Id : getPhdrIndices(Sec)) {
       Ret[Id].add(Sec);
       if (Opt.PhdrsCommands[Id].Flags == UINT_MAX)
         Ret[Id].p_flags |= Sec->getPhdrFlags();
@@ -1022,12 +1043,19 @@ bool LinkerScript::ignoreInterpSection() {
   return true;
 }
 
-Optional<uint32_t> LinkerScript::getFiller(StringRef Name) {
-  for (BaseCommand *Base : Opt.Commands)
-    if (auto *Cmd = dyn_cast<OutputSectionCommand>(Base))
-      if (Cmd->Name == Name)
-        return Cmd->Filler;
-  return None;
+OutputSectionCommand *LinkerScript::getCmd(OutputSection *Sec) const {
+  auto I = SecToCommand.find(Sec);
+  if (I == SecToCommand.end())
+    return nullptr;
+  return I->second;
+}
+
+uint32_t OutputSectionCommand::getFiller() {
+  if (Filler)
+    return *Filler;
+  if (Sec->Flags & SHF_EXECINSTR)
+    return Target->TrapInstr;
+  return 0;
 }
 
 static void writeInt(uint8_t *Buf, uint64_t Data, uint64_t Size) {
@@ -1043,27 +1071,86 @@ static void writeInt(uint8_t *Buf, uint64_t Data, uint64_t Size) {
     llvm_unreachable("unsupported Size argument");
 }
 
-void LinkerScript::writeDataBytes(OutputSection *Sec, uint8_t *Buf) {
-  auto I = std::find_if(Opt.Commands.begin(), Opt.Commands.end(),
-                        [=](BaseCommand *Base) {
-                          if (auto *Cmd = dyn_cast<OutputSectionCommand>(Base))
-                            if (Cmd->Sec == Sec)
-                              return true;
-                          return false;
-                        });
-  if (I == Opt.Commands.end())
+// Compress section contents if this section contains debug info.
+template <class ELFT> void OutputSectionCommand::maybeCompress() {
+  typedef typename ELFT::Chdr Elf_Chdr;
+
+  // Compress only DWARF debug sections.
+  if (!Config->CompressDebugSections || (Sec->Flags & SHF_ALLOC) ||
+      !Name.startswith(".debug_"))
     return;
-  auto *Cmd = cast<OutputSectionCommand>(*I);
-  for (BaseCommand *Base : Cmd->Commands)
+
+  // Create a section header.
+  Sec->ZDebugHeader.resize(sizeof(Elf_Chdr));
+  auto *Hdr = reinterpret_cast<Elf_Chdr *>(Sec->ZDebugHeader.data());
+  Hdr->ch_type = ELFCOMPRESS_ZLIB;
+  Hdr->ch_size = Sec->Size;
+  Hdr->ch_addralign = Sec->Alignment;
+
+  // Write section contents to a temporary buffer and compress it.
+  std::vector<uint8_t> Buf(Sec->Size);
+  writeTo<ELFT>(Buf.data());
+  if (Error E = zlib::compress(toStringRef(Buf), Sec->CompressedData))
+    fatal("compress failed: " + llvm::toString(std::move(E)));
+
+  // Update section headers.
+  Sec->Size = sizeof(Elf_Chdr) + Sec->CompressedData.size();
+  Sec->Flags |= SHF_COMPRESSED;
+}
+
+template <class ELFT> void OutputSectionCommand::writeTo(uint8_t *Buf) {
+  Sec->Loc = Buf;
+
+  // We may have already rendered compressed content when using
+  // -compress-debug-sections option. Write it together with header.
+  if (!Sec->CompressedData.empty()) {
+    memcpy(Buf, Sec->ZDebugHeader.data(), Sec->ZDebugHeader.size());
+    memcpy(Buf + Sec->ZDebugHeader.size(), Sec->CompressedData.data(),
+           Sec->CompressedData.size());
+    return;
+  }
+
+  if (Sec->Type == SHT_NOBITS)
+    return;
+
+  // Write leading padding.
+  std::vector<InputSection *> Sections;
+  for (BaseCommand *Cmd : Commands)
+    if (auto *ISD = dyn_cast<InputSectionDescription>(Cmd))
+      for (InputSection *IS : ISD->Sections)
+        if (IS->Live)
+          Sections.push_back(IS);
+  uint32_t Filler = getFiller();
+  if (Filler)
+    fill(Buf, Sections.empty() ? Sec->Size : Sections[0]->OutSecOff, Filler);
+
+  parallelForEachN(0, Sections.size(), [=](size_t I) {
+    InputSection *IS = Sections[I];
+    IS->writeTo<ELFT>(Buf);
+
+    // Fill gaps between sections.
+    if (Filler) {
+      uint8_t *Start = Buf + IS->OutSecOff + IS->getSize();
+      uint8_t *End;
+      if (I + 1 == Sections.size())
+        End = Buf + Sec->Size;
+      else
+        End = Buf + Sections[I + 1]->OutSecOff;
+      fill(Start, End - Start, Filler);
+    }
+  });
+
+  // Linker scripts may have BYTE()-family commands with which you
+  // can write arbitrary bytes to the output. Process them if any.
+  for (BaseCommand *Base : Commands)
     if (auto *Data = dyn_cast<BytesDataCommand>(Base))
       writeInt(Buf + Data->Offset, Data->Expression().getValue(), Data->Size);
 }
 
-bool LinkerScript::hasLMA(StringRef Name) {
-  for (BaseCommand *Base : Opt.Commands)
-    if (auto *Cmd = dyn_cast<OutputSectionCommand>(Base))
-      if (Cmd->LMAExpr && Cmd->Name == Name)
-        return true;
+bool LinkerScript::hasLMA(OutputSection *Sec) {
+  if (OutputSectionCommand *Cmd = getCmd(Sec))
+    if (Cmd->LMAExpr)
+      return true;
   return false;
 }
 
@@ -1082,15 +1169,10 @@ ExprValue LinkerScript::getSymbolValue(const Twine &Loc, StringRef S) {
 
 bool LinkerScript::isDefined(StringRef S) { return findSymbol(S) != nullptr; }
 
-// Returns indices of ELF headers containing specific section, identified
-// by Name. Each index is a zero based number of ELF header listed within
-// PHDRS {} script block.
-std::vector<size_t> LinkerScript::getPhdrIndices(StringRef SectionName) {
-  for (BaseCommand *Base : Opt.Commands) {
-    auto *Cmd = dyn_cast<OutputSectionCommand>(Base);
-    if (!Cmd || Cmd->Name != SectionName)
-      continue;
-
+// Returns indices of ELF headers containing specific section. Each index is a
+// zero based number of ELF header listed within PHDRS {} script block.
+std::vector<size_t> LinkerScript::getPhdrIndices(OutputSection *Sec) {
+  if (OutputSectionCommand *Cmd = getCmd(Sec)) {
     std::vector<size_t> Ret;
     for (StringRef PhdrName : Cmd->Phdrs)
       Ret.push_back(getPhdrIndex(Cmd->Location, PhdrName));
@@ -1109,3 +1191,13 @@ size_t LinkerScript::getPhdrIndex(const Twine &Loc, StringRef PhdrName) {
   error(Loc + ": section header '" + PhdrName + "' is not listed in PHDRS");
   return 0;
 }
+
+template void OutputSectionCommand::writeTo<ELF32LE>(uint8_t *Buf);
+template void OutputSectionCommand::writeTo<ELF32BE>(uint8_t *Buf);
+template void OutputSectionCommand::writeTo<ELF64LE>(uint8_t *Buf);
+template void OutputSectionCommand::writeTo<ELF64BE>(uint8_t *Buf);
+
+template void OutputSectionCommand::maybeCompress<ELF32LE>();
+template void OutputSectionCommand::maybeCompress<ELF32BE>();
+template void OutputSectionCommand::maybeCompress<ELF64LE>();
+template void OutputSectionCommand::maybeCompress<ELF64BE>();

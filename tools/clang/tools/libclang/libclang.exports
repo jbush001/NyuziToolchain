@@ -35,6 +35,7 @@ clang_Cursor_getReceiverType
 clang_Cursor_isAnonymous
 clang_Cursor_isBitField
 clang_Cursor_isDynamicCall
+clang_Cursor_isExternalSymbol
 clang_Cursor_isNull
 clang_Cursor_isObjCOptional
 clang_Cursor_isVariadic
@@ -304,6 +305,7 @@ clang_remap_getFilenames
 clang_remap_getNumFiles
 clang_reparseTranslationUnit
 clang_saveTranslationUnit
+clang_suspendTranslationUnit
 clang_sortCodeCompletionResults
 clang_toggleCrashRecovery
 clang_tokenize

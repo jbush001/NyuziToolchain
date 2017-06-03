@@ -50,6 +50,7 @@ public:
   template <typename ELFT> void writeHeaderTo(typename ELFT::Shdr *SHdr);
 
   unsigned SectionIndex;
+  unsigned SortRank;
 
   uint32_t getPhdrFlags() const;
 
@@ -57,10 +58,6 @@ public:
     if (Val > Alignment)
       Alignment = Val;
   }
-
-  // If true, this section will be page aligned on disk.
-  // Typically the first section of each PT_LOAD segment has this flag.
-  bool PageAlign = false;
 
   // Pointer to the first section in PT_LOAD segment, which this section
   // also resides in. This field is used to correctly compute file offset
@@ -81,10 +78,7 @@ public:
   void sort(std::function<int(InputSectionBase *S)> Order);
   void sortInitFini();
   void sortCtorsDtors();
-  uint32_t getFiller();
-  template <class ELFT> void writeTo(uint8_t *Buf);
   template <class ELFT> void finalize();
-  template <class ELFT> void maybeCompress();
   void assignOffsets();
   std::vector<InputSection *> Sections;
 
@@ -150,6 +144,7 @@ private:
 };
 
 uint64_t getHeaderSize();
+void reportDiscarded(InputSectionBase *IS);
 
 } // namespace elf
 } // namespace lld

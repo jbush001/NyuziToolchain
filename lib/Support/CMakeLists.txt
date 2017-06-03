@@ -39,6 +39,7 @@ add_llvm_library(LLVMSupport
   Allocator.cpp
   BinaryStreamError.cpp
   BinaryStreamReader.cpp
+  BinaryStreamRef.cpp
   BinaryStreamWriter.cpp
   BlockFrequency.cpp
   BranchProbability.cpp
@@ -81,6 +82,7 @@ add_llvm_library(LLVMSupport
   MD5.cpp
   NativeFormatting.cpp
   Options.cpp
+  Parallel.cpp
   PluginLoader.cpp
   PrettyStackTrace.cpp
   RandomNumberGenerator.cpp

@@ -114,11 +114,15 @@ static void computeCacheKey(
   AddUnsigned((unsigned)Conf.Options.DebuggerTuning);
   for (auto &A : Conf.MAttrs)
     AddString(A);
-  AddUnsigned(Conf.RelocModel);
+  if (Conf.RelocModel)
+    AddUnsigned(*Conf.RelocModel);
+  else
+    AddUnsigned(-1);
   AddUnsigned(Conf.CodeModel);
   AddUnsigned(Conf.CGOptLevel);
   AddUnsigned(Conf.CGFileType);
   AddUnsigned(Conf.OptLevel);
+  AddUnsigned(Conf.UseNewPM);
   AddString(Conf.OptPipeline);
   AddString(Conf.AAPipeline);
   AddString(Conf.OverrideTriple);
@@ -539,16 +543,10 @@ Error LTO::addRegularLTO(BitcodeModule BM,
         if (Sym.isUndefined())
           continue;
         Keep.push_back(GV);
-        switch (GV->getLinkage()) {
-        default:
-          break;
-        case GlobalValue::LinkOnceAnyLinkage:
-          GV->setLinkage(GlobalValue::WeakAnyLinkage);
-          break;
-        case GlobalValue::LinkOnceODRLinkage:
-          GV->setLinkage(GlobalValue::WeakODRLinkage);
-          break;
-        }
+        GlobalValue::LinkageTypes OriginalLinkage = GV->getLinkage();
+        if (GlobalValue::isLinkOnceLinkage(OriginalLinkage))
+          GV->setLinkage(GlobalValue::getWeakLinkage(
+              GlobalValue::isLinkOnceODRLinkage(OriginalLinkage)));
       } else if (isa<GlobalObject>(GV) &&
                  (GV->hasLinkOnceODRLinkage() || GV->hasWeakODRLinkage() ||
                   GV->hasAvailableExternallyLinkage()) &&
@@ -624,6 +622,19 @@ unsigned LTO::getMaxTasks() const {
 }
 
 Error LTO::run(AddStreamFn AddStream, NativeObjectCache Cache) {
+  // Compute "dead" symbols, we don't want to import/export these!
+  DenseSet<GlobalValue::GUID> GUIDPreservedSymbols;
+  for (auto &Res : GlobalResolutions) {
+    if (Res.second.VisibleOutsideThinLTO &&
+        // IRName will be defined if we have seen the prevailing copy of
+        // this value. If not, no need to preserve any ThinLTO copies.
+        !Res.second.IRName.empty())
+      GUIDPreservedSymbols.insert(GlobalValue::getGUID(
+          GlobalValue::dropLLVMManglingEscape(Res.second.IRName)));
+  }
+
+  computeDeadSymbols(ThinLTO.CombinedIndex, GUIDPreservedSymbols);
+
   // Save the status of having a regularLTO combined module, as
   // this is needed for generating the ThinLTO Task ID, and
   // the CombinedModule will be moved at the end of runRegularLTO.
@@ -933,6 +944,17 @@ ThinBackend lto::createWriteIndexesThinBackend(std::string OldPrefix,
   };
 }
 
+static bool IsLiveByGUID(const ModuleSummaryIndex &Index,
+                         GlobalValue::GUID GUID) {
+  auto VI = Index.getValueInfo(GUID);
+  if (!VI)
+    return false;
+  for (auto &I : VI.getSummaryList())
+    if (Index.isGlobalValueLive(I.get()))
+      return true;
+  return false;
+}
+
 Error LTO::runThinLTO(AddStreamFn AddStream, NativeObjectCache Cache,
                       bool HasRegularLTO) {
   if (ThinLTO.ModuleMap.empty())
@@ -965,22 +987,8 @@ Error LTO::runThinLTO(AddStreamFn AddStream, NativeObjectCache Cache,
   StringMap<std::map<GlobalValue::GUID, GlobalValue::LinkageTypes>> ResolvedODR;
 
   if (Conf.OptLevel > 0) {
-    // Compute "dead" symbols, we don't want to import/export these!
-    DenseSet<GlobalValue::GUID> GUIDPreservedSymbols;
-    for (auto &Res : GlobalResolutions) {
-      if (Res.second.VisibleOutsideThinLTO &&
-          // IRName will be defined if we have seen the prevailing copy of
-          // this value. If not, no need to preserve any ThinLTO copies.
-          !Res.second.IRName.empty())
-        GUIDPreservedSymbols.insert(GlobalValue::getGUID(
-            GlobalValue::getRealLinkageName(Res.second.IRName)));
-    }
-
-    auto DeadSymbols =
-        computeDeadSymbols(ThinLTO.CombinedIndex, GUIDPreservedSymbols);
-
     ComputeCrossModuleImport(ThinLTO.CombinedIndex, ModuleToDefinedGVSummaries,
-                             ImportLists, ExportLists, &DeadSymbols);
+                             ImportLists, ExportLists);
 
     std::set<GlobalValue::GUID> ExportedGUIDs;
     for (auto &Res : GlobalResolutions) {
@@ -993,16 +1001,12 @@ Error LTO::runThinLTO(AddStreamFn AddStream, NativeObjectCache Cache,
       if (Res.second.IRName.empty())
         continue;
       auto GUID = GlobalValue::getGUID(
-          GlobalValue::getRealLinkageName(Res.second.IRName));
+          GlobalValue::dropLLVMManglingEscape(Res.second.IRName));
       // Mark exported unless index-based analysis determined it to be dead.
-      if (!DeadSymbols.count(GUID))
+      if (IsLiveByGUID(ThinLTO.CombinedIndex, GUID))
         ExportedGUIDs.insert(GUID);
     }
 
-    auto isPrevailing = [&](GlobalValue::GUID GUID,
-                            const GlobalValueSummary *S) {
-      return ThinLTO.PrevailingModuleForGUID[GUID] == S->modulePath();
-    };
     auto isExported = [&](StringRef ModuleIdentifier, GlobalValue::GUID GUID) {
       const auto &ExportList = ExportLists.find(ModuleIdentifier);
       return (ExportList != ExportLists.end() &&
@@ -1010,16 +1014,19 @@ Error LTO::runThinLTO(AddStreamFn AddStream, NativeObjectCache Cache,
              ExportedGUIDs.count(GUID);
     };
     thinLTOInternalizeAndPromoteInIndex(ThinLTO.CombinedIndex, isExported);
-
-    auto recordNewLinkage = [&](StringRef ModuleIdentifier,
-                                GlobalValue::GUID GUID,
-                                GlobalValue::LinkageTypes NewLinkage) {
-      ResolvedODR[ModuleIdentifier][GUID] = NewLinkage;
-    };
-
-    thinLTOResolveWeakForLinkerInIndex(ThinLTO.CombinedIndex, isPrevailing,
-                                       recordNewLinkage);
   }
+
+  auto isPrevailing = [&](GlobalValue::GUID GUID,
+                          const GlobalValueSummary *S) {
+    return ThinLTO.PrevailingModuleForGUID[GUID] == S->modulePath();
+  };
+  auto recordNewLinkage = [&](StringRef ModuleIdentifier,
+                              GlobalValue::GUID GUID,
+                              GlobalValue::LinkageTypes NewLinkage) {
+    ResolvedODR[ModuleIdentifier][GUID] = NewLinkage;
+  };
+  thinLTOResolveWeakForLinkerInIndex(ThinLTO.CombinedIndex, isPrevailing,
+                                     recordNewLinkage);
 
   std::unique_ptr<ThinBackendProc> BackendProc =
       ThinLTO.Backend(Conf, ThinLTO.CombinedIndex, ModuleToDefinedGVSummaries,

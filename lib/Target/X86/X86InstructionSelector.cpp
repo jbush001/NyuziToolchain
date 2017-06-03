@@ -19,6 +19,7 @@
 #include "X86Subtarget.h"
 #include "X86TargetMachine.h"
 #include "llvm/CodeGen/GlobalISel/InstructionSelector.h"
+#include "llvm/CodeGen/GlobalISel/Utils.h"
 #include "llvm/CodeGen/MachineBasicBlock.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineInstr.h"
@@ -56,20 +57,23 @@ private:
   bool selectImpl(MachineInstr &I) const;
 
   // TODO: remove after suported by Tablegen-erated instruction selection.
-  unsigned getFAddOp(LLT &Ty, const RegisterBank &RB) const;
-  unsigned getFSubOp(LLT &Ty, const RegisterBank &RB) const;
   unsigned getLoadStoreOp(LLT &Ty, const RegisterBank &RB, unsigned Opc,
                           uint64_t Alignment) const;
 
-  bool selectBinaryOp(MachineInstr &I, MachineRegisterInfo &MRI,
-                      MachineFunction &MF) const;
   bool selectLoadStoreOp(MachineInstr &I, MachineRegisterInfo &MRI,
                          MachineFunction &MF) const;
-  bool selectFrameIndex(MachineInstr &I, MachineRegisterInfo &MRI,
-                        MachineFunction &MF) const;
+  bool selectFrameIndexOrGep(MachineInstr &I, MachineRegisterInfo &MRI,
+                             MachineFunction &MF) const;
   bool selectConstant(MachineInstr &I, MachineRegisterInfo &MRI,
                       MachineFunction &MF) const;
   bool selectTrunc(MachineInstr &I, MachineRegisterInfo &MRI,
+                   MachineFunction &MF) const;
+  bool selectZext(MachineInstr &I, MachineRegisterInfo &MRI,
+                  MachineFunction &MF) const;
+  bool selectCmp(MachineInstr &I, MachineRegisterInfo &MRI,
+                 MachineFunction &MF) const;
+
+  bool selectUadde(MachineInstr &I, MachineRegisterInfo &MRI,
                    MachineFunction &MF) const;
 
   const X86TargetMachine &TM;
@@ -226,122 +230,27 @@ bool X86InstructionSelector::select(MachineInstr &I) const {
          "Generic instruction has unexpected implicit operands\n");
 
   if (selectImpl(I))
-     return true;
+    return true;
 
   DEBUG(dbgs() << " C++ instruction selection: "; I.print(dbgs()));
 
   // TODO: This should be implemented by tblgen.
-  if (selectBinaryOp(I, MRI, MF))
-    return true;
   if (selectLoadStoreOp(I, MRI, MF))
     return true;
-  if (selectFrameIndex(I, MRI, MF))
+  if (selectFrameIndexOrGep(I, MRI, MF))
     return true;
   if (selectConstant(I, MRI, MF))
     return true;
   if (selectTrunc(I, MRI, MF))
     return true;
+  if (selectZext(I, MRI, MF))
+    return true;
+  if (selectCmp(I, MRI, MF))
+    return true;
+  if (selectUadde(I, MRI, MF))
+    return true;
 
   return false;
-}
-
-unsigned X86InstructionSelector::getFAddOp(LLT &Ty,
-                                           const RegisterBank &RB) const {
-
-  if (X86::VECRRegBankID != RB.getID())
-    return TargetOpcode::G_FADD;
-
-  if (Ty == LLT::scalar(32)) {
-    if (STI.hasAVX512()) {
-      return X86::VADDSSZrr;
-    } else if (STI.hasAVX()) {
-      return X86::VADDSSrr;
-    } else if (STI.hasSSE1()) {
-      return X86::ADDSSrr;
-    }
-  } else if (Ty == LLT::scalar(64)) {
-    if (STI.hasAVX512()) {
-      return X86::VADDSDZrr;
-    } else if (STI.hasAVX()) {
-      return X86::VADDSDrr;
-    } else if (STI.hasSSE2()) {
-      return X86::ADDSDrr;
-    }
-  } else if (Ty == LLT::vector(4, 32)) {
-    if ((STI.hasAVX512()) && (STI.hasVLX())) {
-      return X86::VADDPSZ128rr;
-    } else if (STI.hasAVX()) {
-      return X86::VADDPSrr;
-    } else if (STI.hasSSE1()) {
-      return X86::ADDPSrr;
-    }
-  }
-
-  return TargetOpcode::G_FADD;
-}
-
-unsigned X86InstructionSelector::getFSubOp(LLT &Ty,
-                                           const RegisterBank &RB) const {
-
-  if (X86::VECRRegBankID != RB.getID())
-    return TargetOpcode::G_FSUB;
-
-  if (Ty == LLT::scalar(32)) {
-    if (STI.hasAVX512()) {
-      return X86::VSUBSSZrr;
-    } else if (STI.hasAVX()) {
-      return X86::VSUBSSrr;
-    } else if (STI.hasSSE1()) {
-      return X86::SUBSSrr;
-    }
-  } else if (Ty == LLT::scalar(64)) {
-    if (STI.hasAVX512()) {
-      return X86::VSUBSDZrr;
-    } else if (STI.hasAVX()) {
-      return X86::VSUBSDrr;
-    } else if (STI.hasSSE2()) {
-      return X86::SUBSDrr;
-    }
-  } else if (Ty == LLT::vector(4, 32)) {
-    if ((STI.hasAVX512()) && (STI.hasVLX())) {
-      return X86::VSUBPSZ128rr;
-    } else if (STI.hasAVX()) {
-      return X86::VSUBPSrr;
-    } else if (STI.hasSSE1()) {
-      return X86::SUBPSrr;
-    }
-  }
-
-  return TargetOpcode::G_FSUB;
-}
-
-bool X86InstructionSelector::selectBinaryOp(MachineInstr &I,
-                                            MachineRegisterInfo &MRI,
-                                            MachineFunction &MF) const {
-
-  const unsigned DefReg = I.getOperand(0).getReg();
-  LLT Ty = MRI.getType(DefReg);
-  const RegisterBank &RB = *RBI.getRegBank(DefReg, MRI, TRI);
-
-  unsigned NewOpc = I.getOpcode();
-
-  switch (NewOpc) {
-  case TargetOpcode::G_FADD:
-    NewOpc = getFAddOp(Ty, RB);
-    break;
-  case TargetOpcode::G_FSUB:
-    NewOpc = getFSubOp(Ty, RB);
-    break;
-  default:
-    break;
-  }
-
-  if (NewOpc == I.getOpcode())
-    return false;
-
-  I.setDesc(TII.get(NewOpc));
-
-  return constrainSelectedInstRegOperands(I, TII, TRI, RBI);
 }
 
 unsigned X86InstructionSelector::getLoadStoreOp(LLT &Ty, const RegisterBank &RB,
@@ -393,6 +302,26 @@ unsigned X86InstructionSelector::getLoadStoreOp(LLT &Ty, const RegisterBank &RB,
                               : HasAVX512
                                     ? X86::VMOVUPSZ128mr_NOVLX
                                     : HasAVX ? X86::VMOVUPSmr : X86::MOVUPSmr);
+  } else if (Ty.isVector() && Ty.getSizeInBits() == 256) {
+    if (Alignment >= 32)
+      return Isload ? (HasVLX ? X86::VMOVAPSZ256rm
+                              : HasAVX512 ? X86::VMOVAPSZ256rm_NOVLX
+                                          : X86::VMOVAPSYrm)
+                    : (HasVLX ? X86::VMOVAPSZ256mr
+                              : HasAVX512 ? X86::VMOVAPSZ256mr_NOVLX
+                                          : X86::VMOVAPSYmr);
+    else
+      return Isload ? (HasVLX ? X86::VMOVUPSZ256rm
+                              : HasAVX512 ? X86::VMOVUPSZ256rm_NOVLX
+                                          : X86::VMOVUPSYrm)
+                    : (HasVLX ? X86::VMOVUPSZ256mr
+                              : HasAVX512 ? X86::VMOVUPSZ256mr_NOVLX
+                                          : X86::VMOVUPSYmr);
+  } else if (Ty.isVector() && Ty.getSizeInBits() == 512) {
+    if (Alignment >= 64)
+      return Isload ? X86::VMOVAPSZrm : X86::VMOVAPSZmr;
+    else
+      return Isload ? X86::VMOVUPSZrm : X86::VMOVUPSZmr;
   }
   return Opc;
 }
@@ -427,27 +356,37 @@ bool X86InstructionSelector::selectLoadStoreOp(MachineInstr &I,
   return constrainSelectedInstRegOperands(I, TII, TRI, RBI);
 }
 
-bool X86InstructionSelector::selectFrameIndex(MachineInstr &I,
-                                              MachineRegisterInfo &MRI,
-                                              MachineFunction &MF) const {
-  if (I.getOpcode() != TargetOpcode::G_FRAME_INDEX)
+bool X86InstructionSelector::selectFrameIndexOrGep(MachineInstr &I,
+                                                   MachineRegisterInfo &MRI,
+                                                   MachineFunction &MF) const {
+  unsigned Opc = I.getOpcode();
+
+  if (Opc != TargetOpcode::G_FRAME_INDEX && Opc != TargetOpcode::G_GEP)
     return false;
 
   const unsigned DefReg = I.getOperand(0).getReg();
   LLT Ty = MRI.getType(DefReg);
 
-  // Use LEA to calculate frame index.
+  // Use LEA to calculate frame index and GEP
   unsigned NewOpc;
   if (Ty == LLT::pointer(0, 64))
     NewOpc = X86::LEA64r;
   else if (Ty == LLT::pointer(0, 32))
     NewOpc = STI.isTarget64BitILP32() ? X86::LEA64_32r : X86::LEA32r;
   else
-    llvm_unreachable("Can't select G_FRAME_INDEX, unsupported type.");
+    llvm_unreachable("Can't select G_FRAME_INDEX/G_GEP, unsupported type.");
 
   I.setDesc(TII.get(NewOpc));
   MachineInstrBuilder MIB(MF, I);
-  addOffset(MIB, 0);
+
+  if (Opc == TargetOpcode::G_FRAME_INDEX) {
+    addOffset(MIB, 0);
+  } else {
+    MachineOperand &InxOp = I.getOperand(2);
+    I.addOperand(InxOp);        // set IndexReg
+    InxOp.ChangeToImmediate(1); // set Scale
+    MIB.addImm(0).addReg(0);
+  }
 
   return constrainSelectedInstRegOperands(I, TII, TRI, RBI);
 }
@@ -530,25 +469,190 @@ bool X86InstructionSelector::selectTrunc(MachineInstr &I,
   if (!SrcRC)
     return false;
 
+  unsigned SubIdx;
+  if (DstRC == SrcRC) {
+    // Nothing to be done
+    SubIdx = X86::NoSubRegister;
+  } else if (DstRC == &X86::GR32RegClass) {
+    SubIdx = X86::sub_32bit;
+  } else if (DstRC == &X86::GR16RegClass) {
+    SubIdx = X86::sub_16bit;
+  } else if (DstRC == &X86::GR8RegClass) {
+    SubIdx = X86::sub_8bit;
+  } else {
+    return false;
+  }
+
+  SrcRC = TRI.getSubClassWithSubReg(SrcRC, SubIdx);
+
   if (!RBI.constrainGenericRegister(SrcReg, *SrcRC, MRI) ||
       !RBI.constrainGenericRegister(DstReg, *DstRC, MRI)) {
     DEBUG(dbgs() << "Failed to constrain G_TRUNC\n");
     return false;
   }
 
-  if (DstRC == SrcRC) {
-    // Nothing to be done
-  } else if (DstRC == &X86::GR32RegClass) {
-    I.getOperand(1).setSubReg(X86::sub_32bit);
-  } else if (DstRC == &X86::GR16RegClass) {
-    I.getOperand(1).setSubReg(X86::sub_16bit);
-  } else if (DstRC == &X86::GR8RegClass) {
-    I.getOperand(1).setSubReg(X86::sub_8bit);
-  } else {
-    return false;
-  }
+  I.getOperand(1).setSubReg(SubIdx);
 
   I.setDesc(TII.get(X86::COPY));
+  return true;
+}
+
+bool X86InstructionSelector::selectZext(MachineInstr &I,
+                                        MachineRegisterInfo &MRI,
+                                        MachineFunction &MF) const {
+  if (I.getOpcode() != TargetOpcode::G_ZEXT)
+    return false;
+
+  const unsigned DstReg = I.getOperand(0).getReg();
+  const unsigned SrcReg = I.getOperand(1).getReg();
+
+  const LLT DstTy = MRI.getType(DstReg);
+  const LLT SrcTy = MRI.getType(SrcReg);
+
+  if (SrcTy == LLT::scalar(1)) {
+
+    unsigned AndOpc;
+    if (DstTy == LLT::scalar(32))
+      AndOpc = X86::AND32ri8;
+    else if (DstTy == LLT::scalar(64))
+      AndOpc = X86::AND64ri8;
+    else
+      return false;
+
+    const RegisterBank &RegBank = *RBI.getRegBank(DstReg, MRI, TRI);
+    unsigned DefReg =
+        MRI.createVirtualRegister(getRegClassForTypeOnBank(DstTy, RegBank));
+
+    BuildMI(*I.getParent(), I, I.getDebugLoc(),
+            TII.get(TargetOpcode::SUBREG_TO_REG), DefReg)
+        .addImm(0)
+        .addReg(SrcReg)
+        .addImm(X86::sub_8bit);
+
+    MachineInstr &AndInst =
+        *BuildMI(*I.getParent(), I, I.getDebugLoc(), TII.get(AndOpc), DstReg)
+             .addReg(DefReg)
+             .addImm(1);
+
+    constrainSelectedInstRegOperands(AndInst, TII, TRI, RBI);
+
+    I.eraseFromParent();
+    return true;
+  }
+
+  return false;
+}
+
+bool X86InstructionSelector::selectCmp(MachineInstr &I,
+                                       MachineRegisterInfo &MRI,
+                                       MachineFunction &MF) const {
+  if (I.getOpcode() != TargetOpcode::G_ICMP)
+    return false;
+
+  X86::CondCode CC;
+  bool SwapArgs;
+  std::tie(CC, SwapArgs) = X86::getX86ConditionCode(
+      (CmpInst::Predicate)I.getOperand(1).getPredicate());
+  unsigned OpSet = X86::getSETFromCond(CC);
+
+  unsigned LHS = I.getOperand(2).getReg();
+  unsigned RHS = I.getOperand(3).getReg();
+
+  if (SwapArgs)
+    std::swap(LHS, RHS);
+
+  unsigned OpCmp;
+  LLT Ty = MRI.getType(LHS);
+
+  switch (Ty.getSizeInBits()) {
+  default:
+    return false;
+  case 8:
+    OpCmp = X86::CMP8rr;
+    break;
+  case 16:
+    OpCmp = X86::CMP16rr;
+    break;
+  case 32:
+    OpCmp = X86::CMP32rr;
+    break;
+  case 64:
+    OpCmp = X86::CMP64rr;
+    break;
+  }
+
+  MachineInstr &CmpInst =
+      *BuildMI(*I.getParent(), I, I.getDebugLoc(), TII.get(OpCmp))
+           .addReg(LHS)
+           .addReg(RHS);
+
+  MachineInstr &SetInst = *BuildMI(*I.getParent(), I, I.getDebugLoc(),
+                                   TII.get(OpSet), I.getOperand(0).getReg());
+
+  constrainSelectedInstRegOperands(CmpInst, TII, TRI, RBI);
+  constrainSelectedInstRegOperands(SetInst, TII, TRI, RBI);
+
+  I.eraseFromParent();
+  return true;
+}
+
+bool X86InstructionSelector::selectUadde(MachineInstr &I,
+                                         MachineRegisterInfo &MRI,
+                                         MachineFunction &MF) const {
+  if (I.getOpcode() != TargetOpcode::G_UADDE)
+    return false;
+
+  const unsigned DstReg = I.getOperand(0).getReg();
+  const unsigned CarryOutReg = I.getOperand(1).getReg();
+  const unsigned Op0Reg = I.getOperand(2).getReg();
+  const unsigned Op1Reg = I.getOperand(3).getReg();
+  unsigned CarryInReg = I.getOperand(4).getReg();
+
+  const LLT DstTy = MRI.getType(DstReg);
+
+  if (DstTy != LLT::scalar(32))
+    return false;
+
+  // find CarryIn def instruction.
+  MachineInstr *Def = MRI.getVRegDef(CarryInReg);
+  while (Def->getOpcode() == TargetOpcode::G_TRUNC) {
+    CarryInReg = Def->getOperand(1).getReg();
+    Def = MRI.getVRegDef(CarryInReg);
+  }
+
+  unsigned Opcode;
+  if (Def->getOpcode() == TargetOpcode::G_UADDE) {
+    // carry set by prev ADD.
+
+    BuildMI(*I.getParent(), I, I.getDebugLoc(), TII.get(X86::COPY), X86::EFLAGS)
+        .addReg(CarryInReg);
+
+    if (!RBI.constrainGenericRegister(CarryInReg, X86::GR32RegClass, MRI))
+      return false;
+
+    Opcode = X86::ADC32rr;
+  } else if (auto val = getConstantVRegVal(CarryInReg, MRI)) {
+    // carry is constant, support only 0.
+    if (*val != 0)
+      return false;
+
+    Opcode = X86::ADD32rr;
+  } else
+    return false;
+
+  MachineInstr &AddInst =
+      *BuildMI(*I.getParent(), I, I.getDebugLoc(), TII.get(Opcode), DstReg)
+           .addReg(Op0Reg)
+           .addReg(Op1Reg);
+
+  BuildMI(*I.getParent(), I, I.getDebugLoc(), TII.get(X86::COPY), CarryOutReg)
+      .addReg(X86::EFLAGS);
+
+  if (!constrainSelectedInstRegOperands(AddInst, TII, TRI, RBI) ||
+      !RBI.constrainGenericRegister(CarryOutReg, X86::GR32RegClass, MRI))
+    return false;
+
+  I.eraseFromParent();
   return true;
 }
 

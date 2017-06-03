@@ -1,4 +1,4 @@
-//===-- llvm/Value.h - Definition of the Value class ------------*- C++ -*-===//
+//===- llvm/Value.h - Definition of the Value class -------------*- C++ -*-===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -21,6 +21,7 @@
 #include "llvm-c/Types.h"
 #include <cassert>
 #include <iterator>
+#include <memory>
 
 namespace llvm {
 
@@ -44,12 +45,12 @@ class LLVMContext;
 class Module;
 class ModuleSlotTracker;
 class raw_ostream;
+template<typename ValueTy> class StringMapEntry;
 class StringRef;
 class Twine;
 class Type;
 
-template<typename ValueTy> class StringMapEntry;
-typedef StringMapEntry<Value*> ValueName;
+using ValueName = StringMapEntry<Value*>;
 
 //===----------------------------------------------------------------------===//
 //                                 Value Class
@@ -69,6 +70,8 @@ typedef StringMapEntry<Value*> ValueName;
 /// objects that watch it and listen to RAUW and Destroy events.  See
 /// llvm/IR/ValueHandle.h for details.
 class Value {
+  // The least-significant bit of the first word of Value *must* be zero:
+  //   http://www.llvm.org/docs/ProgrammersManual.html#the-waymarking-algorithm
   Type *VTy;
   Use *UseList;
 
@@ -120,9 +123,11 @@ private:
   template <typename UseT> // UseT == 'Use' or 'const Use'
   class use_iterator_impl
       : public std::iterator<std::forward_iterator_tag, UseT *> {
-    UseT *U;
-    explicit use_iterator_impl(UseT *u) : U(u) {}
     friend class Value;
+
+    UseT *U;
+
+    explicit use_iterator_impl(UseT *u) : U(u) {}
 
   public:
     use_iterator_impl() : U() {}
@@ -198,10 +203,19 @@ private:
 protected:
   Value(Type *Ty, unsigned scid);
 
+  /// Value's destructor should be virtual by design, but that would require
+  /// that Value and all of its subclasses have a vtable that effectively
+  /// duplicates the information in the value ID. As a size optimization, the
+  /// destructor has been protected, and the caller should manually call
+  /// deleteValue.
+  ~Value(); // Use deleteValue() to delete a generic Value.
+
 public:
   Value(const Value &) = delete;
   void operator=(const Value &) = delete;
-  virtual ~Value();
+
+  /// Delete a pointer to a generic Value.
+  void deleteValue();
 
   /// \brief Support for debugging, callable in GDB: V->dump()
   void dump() const;
@@ -309,8 +323,9 @@ public:
     return UseList == nullptr;
   }
 
-  typedef use_iterator_impl<Use> use_iterator;
-  typedef use_iterator_impl<const Use> const_use_iterator;
+  using use_iterator = use_iterator_impl<Use>;
+  using const_use_iterator = use_iterator_impl<const Use>;
+
   use_iterator materialized_use_begin() { return use_iterator(UseList); }
   const_use_iterator materialized_use_begin() const {
     return const_use_iterator(UseList);
@@ -345,8 +360,9 @@ public:
     return UseList == nullptr;
   }
 
-  typedef user_iterator_impl<User> user_iterator;
-  typedef user_iterator_impl<const User> const_user_iterator;
+  using user_iterator = user_iterator_impl<User>;
+  using const_user_iterator = user_iterator_impl<const User>;
+
   user_iterator materialized_user_begin() { return user_iterator(UseList); }
   const_user_iterator materialized_user_begin() const {
     return const_user_iterator(UseList);
@@ -560,7 +576,6 @@ public:
   /// block.
   const Value *DoPHITranslation(const BasicBlock *CurBB,
                                 const BasicBlock *PredBB) const;
-
   Value *DoPHITranslation(const BasicBlock *CurBB, const BasicBlock *PredBB) {
     return const_cast<Value *>(
              static_cast<const Value *>(this)->DoPHITranslation(CurBB, PredBB));
@@ -606,7 +621,7 @@ private:
     Use *Merged;
     Use **Next = &Merged;
 
-    for (;;) {
+    while (true) {
       if (!L) {
         *Next = R;
         break;
@@ -639,6 +654,13 @@ protected:
   unsigned short getSubclassDataFromValue() const { return SubclassData; }
   void setValueSubclassData(unsigned short D) { SubclassData = D; }
 };
+
+struct ValueDeleter { void operator()(Value *V) { V->deleteValue(); } };
+
+/// Use this instead of std::unique_ptr<Value> or std::unique_ptr<Instruction>.
+/// Those don't work because Value and Instruction's destructors are protected,
+/// aren't virtual, and won't destroy the complete object.
+typedef std::unique_ptr<Value, ValueDeleter> unique_value;
 
 inline raw_ostream &operator<<(raw_ostream &OS, const Value &V) {
   V.print(OS);

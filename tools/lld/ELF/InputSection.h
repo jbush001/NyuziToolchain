@@ -18,6 +18,7 @@
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/TinyPtrVector.h"
 #include "llvm/Object/ELF.h"
+#include "llvm/Support/Threading.h"
 #include <mutex>
 
 namespace lld {
@@ -119,7 +120,12 @@ public:
                    uint64_t Entsize, uint32_t Link, uint32_t Info,
                    uint32_t Alignment, ArrayRef<uint8_t> Data, StringRef Name,
                    Kind SectionKind);
-  OutputSection *OutSec = nullptr;
+
+  // Input sections are part of an output section. Special sections
+  // like .eh_frame and merge sections are first combined into a
+  // synthetic section that is then added to an output section. In all
+  // cases this points one level up.
+  SectionBase *Parent = nullptr;
 
   // Relocations that refer to this section.
   const void *FirstRelocation = nullptr;
@@ -157,7 +163,7 @@ public:
     return getFile<ELFT>()->getObj();
   }
 
-  InputSectionBase *getLinkOrderDep() const;
+  InputSection *getLinkOrderDep() const;
 
   void uncompress();
 
@@ -167,6 +173,8 @@ public:
   template <class ELFT> std::string getObjMsg(uint64_t Offset);
 
   template <class ELFT> void relocate(uint8_t *Buf, uint8_t *BufEnd);
+  void relocateAlloc(uint8_t *Buf, uint8_t *BufEnd);
+  template <class ELFT> void relocateNonAlloc(uint8_t *Buf, uint8_t *BufEnd);
 
   std::vector<Relocation> Relocations;
 
@@ -234,10 +242,7 @@ public:
   SectionPiece *getSectionPiece(uint64_t Offset);
   const SectionPiece *getSectionPiece(uint64_t Offset) const;
 
-  // MergeInputSections are aggregated to a synthetic input sections,
-  // and then added to an OutputSection. This pointer points to a
-  // synthetic MergeSyntheticSection which this section belongs to.
-  MergeSyntheticSection *MergeSec = nullptr;
+  SyntheticSection *getParent() const;
 
 private:
   void splitStrings(ArrayRef<uint8_t> A, size_t Size);
@@ -246,7 +251,7 @@ private:
   std::vector<uint32_t> Hashes;
 
   mutable llvm::DenseMap<uint64_t, uint64_t> OffsetMap;
-  mutable std::once_flag InitOffsetMap;
+  mutable llvm::once_flag InitOffsetMap;
 
   llvm::DenseSet<uint64_t> LiveOffsets;
 };
@@ -277,7 +282,8 @@ public:
   // Splittable sections are handled as a sequence of data
   // rather than a single large blob of data.
   std::vector<EhSectionPiece> Pieces;
-  SyntheticSection *EHSec = nullptr;
+
+  SyntheticSection *getParent() const;
 };
 
 // This is a section that is added directly to an output section
@@ -295,6 +301,8 @@ public:
   // Write this section to a mmap'ed file, assuming Buf is pointing to
   // beginning of the output section.
   template <class ELFT> void writeTo(uint8_t *Buf);
+
+  OutputSection *getParent() const;
 
   // The offset from beginning of the output sections this section was assigned
   // to. The writer sets a value.
@@ -316,6 +324,8 @@ public:
 private:
   template <class ELFT, class RelTy>
   void copyRelocations(uint8_t *Buf, llvm::ArrayRef<RelTy> Rels);
+
+  void copyShtGroup(uint8_t *Buf);
 };
 
 // The list of all input sections.
