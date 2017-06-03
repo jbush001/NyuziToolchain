@@ -24,13 +24,13 @@ template <class ELFT> class ObjectFile;
 template <class ELFT> class SymbolTable;
 template <class ELFT> void writeResult();
 template <class ELFT> void markLive();
-template <class ELFT> bool isRelroSection(const OutputSection *Sec);
+bool isRelroSection(const OutputSection *Sec);
 
 // This describes a program header entry.
 // Each contains type, access flags and range of output sections that will be
 // placed in it.
 struct PhdrEntry {
-  PhdrEntry(unsigned Type, unsigned Flags);
+  PhdrEntry(unsigned Type, unsigned Flags) : p_type(Type), p_flags(Flags) {}
   void add(OutputSection *Sec);
 
   uint64_t p_paddr = 0;

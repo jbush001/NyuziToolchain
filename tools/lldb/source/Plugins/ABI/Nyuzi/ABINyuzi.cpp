@@ -804,9 +804,9 @@ bool ABINyuzi::GetArgumentValues(Thread &thread, ValueList &values) const {
   return false;
 }
 
-Error ABINyuzi::SetReturnValueObject(lldb::StackFrameSP &frame_sp,
+Status ABINyuzi::SetReturnValueObject(lldb::StackFrameSP &frame_sp,
                                      lldb::ValueObjectSP &new_value_sp) {
-  Error error;
+  Status error;
 
   // XXX implement me
   assert(0);

@@ -292,6 +292,33 @@ static bool checkLanguageOptions(const LangOptions &LangOpts,
     return true;
   }
 
+  // Sanitizer feature mismatches are treated as compatible differences. If
+  // compatible differences aren't allowed, we still only want to check for
+  // mismatches of non-modular sanitizers (the only ones which can affect AST
+  // generation).
+  if (!AllowCompatibleDifferences) {
+    SanitizerMask ModularSanitizers = getPPTransparentSanitizers();
+    SanitizerSet ExistingSanitizers = ExistingLangOpts.Sanitize;
+    SanitizerSet ImportedSanitizers = LangOpts.Sanitize;
+    ExistingSanitizers.clear(ModularSanitizers);
+    ImportedSanitizers.clear(ModularSanitizers);
+    if (ExistingSanitizers.Mask != ImportedSanitizers.Mask) {
+      const std::string Flag = "-fsanitize=";
+      if (Diags) {
+#define SANITIZER(NAME, ID)                                                    \
+  {                                                                            \
+    bool InExistingModule = ExistingSanitizers.has(SanitizerKind::ID);         \
+    bool InImportedModule = ImportedSanitizers.has(SanitizerKind::ID);         \
+    if (InExistingModule != InImportedModule)                                  \
+      Diags->Report(diag::err_pch_targetopt_feature_mismatch)                  \
+          << InExistingModule << (Flag + NAME);                                \
+  }
+#include "clang/Basic/Sanitizers.def"
+      }
+      return true;
+    }
+  }
+
   return false;
 }
 
@@ -1534,9 +1561,8 @@ MacroInfo *ASTReader::ReadMacroRecord(ModuleFile &F, uint64_t Offset) {
         return Macro;
 
       unsigned NextIndex = 1; // Skip identifier ID.
-      SubmoduleID SubModID = getGlobalSubmoduleID(F, Record[NextIndex++]);
       SourceLocation Loc = ReadSourceLocation(F, Record, NextIndex);
-      MacroInfo *MI = PP.AllocateDeserializedMacroInfo(Loc, SubModID);
+      MacroInfo *MI = PP.AllocateMacroInfo(Loc);
       MI->setDefinitionEndLoc(ReadSourceLocation(F, Record, NextIndex));
       MI->setIsUsed(Record[NextIndex++]);
       MI->setUsedForHeaderGuard(Record[NextIndex++]);
@@ -2757,7 +2783,8 @@ ASTReader::ReadASTBlock(ModuleFile &F, unsigned ClientLoadCapabilities) {
       // If we've already loaded the decl, perform the updates when we finish
       // loading this block.
       if (Decl *D = GetExistingDecl(ID))
-        PendingUpdateRecords.push_back(std::make_pair(ID, D));
+        PendingUpdateRecords.push_back(
+            PendingUpdateRecord(ID, D, /*JustLoaded=*/false));
       break;
     }
 
@@ -2925,6 +2952,21 @@ ASTReader::ReadASTBlock(ModuleFile &F, unsigned ClientLoadCapabilities) {
       }
       break;
 
+    case PP_CONDITIONAL_STACK:
+      if (!Record.empty()) {
+        SmallVector<PPConditionalInfo, 4> ConditionalStack;
+        for (unsigned Idx = 0, N = Record.size() - 1; Idx < N; /* in loop */) {
+          auto Loc = ReadSourceLocation(F, Record, Idx);
+          bool WasSkipping = Record[Idx++];
+          bool FoundNonSkip = Record[Idx++];
+          bool FoundElse = Record[Idx++];
+          ConditionalStack.push_back(
+              {Loc, WasSkipping, FoundNonSkip, FoundElse});
+        }
+        PP.setReplayablePreambleConditionalStack(ConditionalStack);
+      }
+      break;
+
     case PP_COUNTER_VALUE:
       if (!Record.empty() && Listener)
         Listener->ReadCounter(F, Record[0]);
@@ -3087,7 +3129,8 @@ ASTReader::ReadASTBlock(ModuleFile &F, unsigned ClientLoadCapabilities) {
         // If we've already loaded the decl, perform the updates when we finish
         // loading this block.
         if (Decl *D = GetExistingDecl(ID))
-          PendingUpdateRecords.push_back(std::make_pair(ID, D));
+          PendingUpdateRecords.push_back(
+              PendingUpdateRecord(ID, D, /*JustLoaded=*/false));
       }
       break;
     }
@@ -3654,6 +3697,8 @@ static void updateModuleTimestamp(ModuleFile &MF) {
   if (EC)
     return;
   OS << "Timestamp file\n";
+  OS.close();
+  OS.clear_error(); // Avoid triggering a fatal error.
 }
 
 /// \brief Given a cursor at the start of an AST file, scan ahead and drop the
@@ -8957,7 +9002,7 @@ void ASTReader::finishPendingActions() {
     while (!PendingUpdateRecords.empty()) {
       auto Update = PendingUpdateRecords.pop_back_val();
       ReadingKindTracker ReadingKind(Read_Decl, *this);
-      loadDeclUpdateRecords(Update.first, Update.second);
+      loadDeclUpdateRecords(Update);
     }
   }
 
@@ -9349,12 +9394,6 @@ void ASTReader::diagnoseOdrViolations() {
         return Hash.CalculateHash();
       };
 
-      auto ComputeDeclNameODRHash = [&Hash](const DeclarationName Name) {
-        Hash.clear();
-        Hash.AddDeclarationName(Name);
-        return Hash.CalculateHash();
-      };
-
       auto ComputeQualTypeODRHash = [&Hash](QualType Ty) {
         Hash.clear();
         Hash.AddQualType(Ty);
@@ -9447,11 +9486,8 @@ void ASTReader::diagnoseOdrViolations() {
 
         QualType FirstType = FirstField->getType();
         QualType SecondType = SecondField->getType();
-        const TypedefType *FirstTypedef = dyn_cast<TypedefType>(FirstType);
-        const TypedefType *SecondTypedef = dyn_cast<TypedefType>(SecondType);
-
-        if ((FirstTypedef && !SecondTypedef) ||
-            (!FirstTypedef && SecondTypedef)) {
+        if (ComputeQualTypeODRHash(FirstType) !=
+            ComputeQualTypeODRHash(SecondType)) {
           ODRDiagError(FirstField->getLocation(), FirstField->getSourceRange(),
                        FieldTypeName)
               << FirstII << FirstType;
@@ -9461,24 +9497,6 @@ void ASTReader::diagnoseOdrViolations() {
 
           Diagnosed = true;
           break;
-        }
-
-        if (FirstTypedef && SecondTypedef) {
-          unsigned FirstHash = ComputeDeclNameODRHash(
-              FirstTypedef->getDecl()->getDeclName());
-          unsigned SecondHash = ComputeDeclNameODRHash(
-              SecondTypedef->getDecl()->getDeclName());
-          if (FirstHash != SecondHash) {
-            ODRDiagError(FirstField->getLocation(),
-                         FirstField->getSourceRange(), FieldTypeName)
-                << FirstII << FirstType;
-            ODRDiagNote(SecondField->getLocation(),
-                        SecondField->getSourceRange(), FieldTypeName)
-                << SecondII << SecondType;
-
-            Diagnosed = true;
-            break;
-          }
         }
 
         const bool IsFirstBitField = FirstField->isBitField();

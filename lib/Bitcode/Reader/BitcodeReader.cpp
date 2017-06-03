@@ -93,13 +93,6 @@ static cl::opt<bool> PrintSummaryGUIDs(
     cl::desc(
         "Print the global id for each value when reading the module summary"));
 
-// FIXME: This flag should either be removed or moved to clang as a driver flag.
-static llvm::cl::opt<bool> IgnoreEmptyThinLTOIndexFile(
-    "ignore-empty-index-file", llvm::cl::ZeroOrMore,
-    llvm::cl::desc(
-        "Ignore an empty index file and perform non-ThinLTO compilation"),
-    llvm::cl::init(false));
-
 namespace {
 
 enum {
@@ -872,11 +865,11 @@ static GlobalValueSummary::GVFlags getDecodedGVSummaryFlags(uint64_t RawFlags,
   auto Linkage = GlobalValue::LinkageTypes(RawFlags & 0xF); // 4 bits
   RawFlags = RawFlags >> 4;
   bool NotEligibleToImport = (RawFlags & 0x1) || Version < 3;
-  // The LiveRoot flag wasn't introduced until version 3. For dead stripping
+  // The Live flag wasn't introduced until version 3. For dead stripping
   // to work correctly on earlier versions, we must conservatively treat all
   // values as live.
-  bool LiveRoot = (RawFlags & 0x2) || Version < 3;
-  return GlobalValueSummary::GVFlags(Linkage, NotEligibleToImport, LiveRoot);
+  bool Live = (RawFlags & 0x2) || Version < 3;
+  return GlobalValueSummary::GVFlags(Linkage, NotEligibleToImport, Live);
 }
 
 static GlobalValue::VisibilityTypes getDecodedVisibility(unsigned Val) {
@@ -2750,7 +2743,7 @@ Error BitcodeReader::parseComdatRecord(ArrayRef<uint64_t> Record) {
 Error BitcodeReader::parseGlobalVarRecord(ArrayRef<uint64_t> Record) {
   // v1: [pointer type, isconst, initid, linkage, alignment, section,
   // visibility, threadlocal, unnamed_addr, externally_initialized,
-  // dllstorageclass, comdat] (name in VST)
+  // dllstorageclass, comdat, attributes] (name in VST)
   // v2: [strtab_offset, strtab_size, v1]
   StringRef Name;
   std::tie(Name, Record) = readNameFromStrtab(Record);
@@ -2829,6 +2822,11 @@ Error BitcodeReader::parseGlobalVarRecord(ArrayRef<uint64_t> Record) {
     }
   } else if (hasImplicitComdat(RawLinkage)) {
     NewGV->setComdat(reinterpret_cast<Comdat *>(1));
+  }
+
+  if (Record.size() > 12) {
+    auto AS = getAttributes(Record[12]).getFnAttributes();
+    NewGV->setAttributes(AS);
   }
   return Error::success();
 }
@@ -4491,11 +4489,11 @@ Error BitcodeReader::parseFunctionBody(Function *F) {
     // Add instruction to end of current BB.  If there is no current BB, reject
     // this file.
     if (!CurBB) {
-      delete I;
+      I->deleteValue();
       return error("Invalid instruction with no BB");
     }
     if (!OperandBundles.empty()) {
-      delete I;
+      I->deleteValue();
       return error("Operand bundles found with no consumer");
     }
     CurBB->getInstList().push_back(I);
@@ -5658,7 +5656,8 @@ Expected<bool> llvm::hasGlobalValueSummary(MemoryBufferRef Buffer) {
 }
 
 Expected<std::unique_ptr<ModuleSummaryIndex>>
-llvm::getModuleSummaryIndexForFile(StringRef Path) {
+llvm::getModuleSummaryIndexForFile(StringRef Path,
+                                   bool IgnoreEmptyThinLTOIndexFile) {
   ErrorOr<std::unique_ptr<MemoryBuffer>> FileOrErr =
       MemoryBuffer::getFileOrSTDIN(Path);
   if (!FileOrErr)

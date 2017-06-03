@@ -1378,16 +1378,14 @@ static Instruction *foldCttzCtlz(IntrinsicInst &II, InstCombiner &IC) {
   if (!IT)
     return nullptr;
 
-  unsigned BitWidth = IT->getBitWidth();
-  KnownBits Known(BitWidth);
-  IC.computeKnownBits(Op0, Known, 0, &II);
+  KnownBits Known = IC.computeKnownBits(Op0, 0, &II);
 
   // Create a mask for bits above (ctlz) or below (cttz) the first known one.
   bool IsTZ = II.getIntrinsicID() == Intrinsic::cttz;
-  unsigned PossibleZeros = IsTZ ? Known.One.countTrailingZeros()
-                                : Known.One.countLeadingZeros();
-  unsigned DefiniteZeros = IsTZ ? Known.Zero.countTrailingOnes()
-                                : Known.Zero.countLeadingOnes();
+  unsigned PossibleZeros = IsTZ ? Known.countMaxTrailingZeros()
+                                : Known.countMaxLeadingZeros();
+  unsigned DefiniteZeros = IsTZ ? Known.countMinTrailingZeros()
+                                : Known.countMinLeadingZeros();
 
   // If all bits above (ctlz) or below (cttz) the first known one are known
   // zero, this value is constant.
@@ -1401,7 +1399,9 @@ static Instruction *foldCttzCtlz(IntrinsicInst &II, InstCombiner &IC) {
   // If the input to cttz/ctlz is known to be non-zero,
   // then change the 'ZeroIsUndef' parameter to 'true'
   // because we know the zero behavior can't affect the result.
-  if (Known.One != 0 || isKnownNonZero(Op0, IC.getDataLayout())) {
+  if (Known.One != 0 ||
+      isKnownNonZero(Op0, IC.getDataLayout(), 0, &IC.getAssumptionCache(), &II,
+                     &IC.getDominatorTree())) {
     if (!match(II.getArgOperand(1), m_One())) {
       II.setOperand(1, IC.Builder->getTrue());
       return &II;
@@ -3838,24 +3838,24 @@ Instruction *InstCombiner::visitCallSite(CallSite CS) {
   // Mark any parameters that are known to be non-null with the nonnull
   // attribute.  This is helpful for inlining calls to functions with null
   // checks on their arguments.
-  SmallVector<unsigned, 4> Indices;
+  SmallVector<unsigned, 4> ArgNos;
   unsigned ArgNo = 0;
 
   for (Value *V : CS.args()) {
     if (V->getType()->isPointerTy() &&
         !CS.paramHasAttr(ArgNo, Attribute::NonNull) &&
         isKnownNonNullAt(V, CS.getInstruction(), &DT))
-      Indices.push_back(ArgNo + AttributeList::FirstArgIndex);
+      ArgNos.push_back(ArgNo);
     ArgNo++;
   }
 
   assert(ArgNo == CS.arg_size() && "sanity check");
 
-  if (!Indices.empty()) {
+  if (!ArgNos.empty()) {
     AttributeList AS = CS.getAttributes();
     LLVMContext &Ctx = CS.getInstruction()->getContext();
-    AS = AS.addAttribute(Ctx, Indices,
-                         Attribute::get(Ctx, Attribute::NonNull));
+    AS = AS.addParamAttribute(Ctx, ArgNos,
+                              Attribute::get(Ctx, Attribute::NonNull));
     CS.setAttributes(AS);
     Changed = true;
   }

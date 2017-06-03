@@ -252,7 +252,8 @@ static SourceLocation ReadOriginalFileName(CompilerInstance &CI,
 
   if (AddLineNote)
     CI.getSourceManager().AddLineNote(
-        LineNoLoc, LineNo, SourceMgr.getLineTableFilenameID(InputFile));
+        LineNoLoc, LineNo, SourceMgr.getLineTableFilenameID(InputFile), false,
+        false, SrcMgr::C_User);
 
   return T.getLocation();
 }
@@ -288,13 +289,27 @@ static void addHeaderInclude(StringRef HeaderName,
 ///
 /// \param Includes Will be augmented with the set of \#includes or \#imports
 /// needed to load all of the named headers.
-static std::error_code
-collectModuleHeaderIncludes(const LangOptions &LangOpts, FileManager &FileMgr,
-                            ModuleMap &ModMap, clang::Module *Module,
-                            SmallVectorImpl<char> &Includes) {
+static std::error_code collectModuleHeaderIncludes(
+    const LangOptions &LangOpts, FileManager &FileMgr, DiagnosticsEngine &Diag,
+    ModuleMap &ModMap, clang::Module *Module, SmallVectorImpl<char> &Includes) {
   // Don't collect any headers for unavailable modules.
   if (!Module->isAvailable())
     return std::error_code();
+
+  // Resolve all lazy header directives to header files.
+  ModMap.resolveHeaderDirectives(Module);
+
+  // If any headers are missing, we can't build this module. In most cases,
+  // diagnostics for this should have already been produced; we only get here
+  // if explicit stat information was provided.
+  // FIXME: If the name resolves to a file with different stat information,
+  // produce a better diagnostic.
+  if (!Module->MissingHeaders.empty()) {
+    auto &MissingHeader = Module->MissingHeaders.front();
+    Diag.Report(MissingHeader.FileNameLoc, diag::err_module_header_missing)
+      << MissingHeader.IsUmbrella << MissingHeader.FileName;
+    return std::error_code();
+  }
 
   // Add includes for each of these headers.
   for (auto HK : {Module::HK_Normal, Module::HK_Private}) {
@@ -366,16 +381,17 @@ collectModuleHeaderIncludes(const LangOptions &LangOpts, FileManager &FileMgr,
                                       SubEnd = Module->submodule_end();
        Sub != SubEnd; ++Sub)
     if (std::error_code Err = collectModuleHeaderIncludes(
-            LangOpts, FileMgr, ModMap, *Sub, Includes))
+            LangOpts, FileMgr, Diag, ModMap, *Sub, Includes))
       return Err;
 
   return std::error_code();
 }
 
-static bool
-loadModuleMapForModuleBuild(CompilerInstance &CI, StringRef Filename,
-                            bool IsSystem, bool IsPreprocessed,
-                            unsigned &Offset) {
+static bool loadModuleMapForModuleBuild(CompilerInstance &CI,
+                                        StringRef Filename, bool IsSystem,
+                                        bool IsPreprocessed,
+                                        std::string &PresumedModuleMapFile,
+                                        unsigned &Offset) {
   auto &SrcMgr = CI.getSourceManager();
   HeaderSearch &HS = CI.getPreprocessor().getHeaderSearchInfo();
 
@@ -387,16 +403,15 @@ loadModuleMapForModuleBuild(CompilerInstance &CI, StringRef Filename,
   // line directives are not part of the module map syntax in general.
   Offset = 0;
   if (IsPreprocessed) {
-    std::string PresumedModuleMapFile;
     SourceLocation EndOfLineMarker =
         ReadOriginalFileName(CI, PresumedModuleMapFile, /*AddLineNote*/true);
     if (EndOfLineMarker.isValid())
       Offset = CI.getSourceManager().getDecomposedLoc(EndOfLineMarker).second;
-    // FIXME: Use PresumedModuleMapFile as the MODULE_MAP_FILE in the PCM.
   }
 
   // Load the module map file.
-  if (HS.loadModuleMapFile(ModuleMap, IsSystem, ModuleMapID, &Offset))
+  if (HS.loadModuleMapFile(ModuleMap, IsSystem, ModuleMapID, &Offset,
+                           PresumedModuleMapFile))
     return true;
 
   if (SrcMgr.getBuffer(ModuleMapID)->getBufferSize() == Offset)
@@ -493,7 +508,7 @@ getInputBufferForModule(CompilerInstance &CI, Module *M) {
     addHeaderInclude(UmbrellaHeader.NameAsWritten, HeaderContents,
                      CI.getLangOpts(), M->IsExternC);
   Err = collectModuleHeaderIncludes(
-      CI.getLangOpts(), FileMgr,
+      CI.getLangOpts(), FileMgr, CI.getDiagnostics(),
       CI.getPreprocessor().getHeaderSearchInfo().getModuleMap(), M,
       HeaderContents);
 
@@ -663,14 +678,18 @@ bool FrontendAction::BeginSourceFile(CompilerInstance &CI,
   if (Input.getKind().getFormat() == InputKind::ModuleMap) {
     CI.getLangOpts().setCompilingModule(LangOptions::CMK_ModuleMap);
 
+    std::string PresumedModuleMapFile;
     unsigned OffsetToContents;
     if (loadModuleMapForModuleBuild(CI, Input.getFile(), Input.isSystem(),
-                                    Input.isPreprocessed(), OffsetToContents))
+                                    Input.isPreprocessed(),
+                                    PresumedModuleMapFile, OffsetToContents))
       goto failure;
 
     auto *CurrentModule = prepareToBuildModule(CI, Input.getFile());
     if (!CurrentModule)
       goto failure;
+
+    CurrentModule->PresumedModuleMapFile = PresumedModuleMapFile;
 
     if (OffsetToContents)
       // If the module contents are in the same file, skip to them.

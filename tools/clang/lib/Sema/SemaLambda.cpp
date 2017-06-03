@@ -337,6 +337,7 @@ Sema::getCurrentMangleNumberContext(const DeclContext *DC,
       return nullptr;
     }
     // Fall through to get the current context.
+    LLVM_FALLTHROUGH;
 
   case DataMember:
     //  -- the in-class initializers of class members
@@ -1591,6 +1592,7 @@ ExprResult Sema::BuildLambdaExpr(SourceLocation StartLoc, SourceLocation EndLoc,
   // its constexpr-ness, supressing diagnostics while doing so.
   if (getLangOpts().CPlusPlus1z && !CallOperator->isInvalidDecl() &&
       !CallOperator->isConstexpr() &&
+      !isa<CoroutineBodyStmt>(CallOperator->getBody()) &&
       !Class->getDeclContext()->isDependentContext()) {
     TentativeAnalysisScope DiagnosticScopeGuard(*this);
     CallOperator->setConstexpr(

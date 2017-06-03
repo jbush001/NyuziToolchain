@@ -61,6 +61,24 @@ def FeatureFlatAddressSpace : SubtargetFeature<"flat-address-space",
   "Support flat address space"
 >;
 
+def FeatureFlatInstOffsets : SubtargetFeature<"flat-inst-offsets",
+  "FlatInstOffsets",
+  "true",
+  "Flat instructions have immediate offset addressing mode"
+>;
+
+def FeatureFlatGlobalInsts : SubtargetFeature<"flat-global-insts",
+  "FlatGlobalInsts",
+  "true",
+  "Have global_* flat memory instructions"
+>;
+
+def FeatureFlatScratchInsts : SubtargetFeature<"flat-scratch-insts",
+  "FlatScratchInsts",
+  "true",
+  "Have scratch_* flat memory instructions"
+>;
+
 def FeatureUnalignedBufferAccess : SubtargetFeature<"unaligned-buffer-access",
   "UnalignedBufferAccess",
   "true",
@@ -347,6 +365,13 @@ def FeatureFlatForGlobal : SubtargetFeature<"flat-for-global",
   "Force to generate flat instruction for global"
 >;
 
+def FeatureAutoWaitcntBeforeBarrier : SubtargetFeature <
+  "auto-waitcnt-before-barrier",
+  "AutoWaitcntBeforeBarrier",
+  "true",
+  "Hardware automatically inserts waitcnt before barrier"
+>;
+
 // Dummy feature used to disable assembler instructions.
 def FeatureDisable : SubtargetFeature<"",
   "FeatureDisable","true",
@@ -407,7 +432,8 @@ def FeatureGFX9 : SubtargetFeatureGeneration<"GFX9",
    FeatureGCN3Encoding, FeatureCIInsts, Feature16BitInsts,
    FeatureSMemRealTime, FeatureScalarStores, FeatureInv2PiInlineImm,
    FeatureApertureRegs, FeatureGFX9Insts, FeatureVOP3P, FeatureVGPRIndexMode,
-   FeatureFastFMAF32, FeatureDPP
+   FeatureFastFMAF32, FeatureSDWA, FeatureDPP,
+   FeatureFlatInstOffsets, FeatureFlatGlobalInsts, FeatureFlatScratchInsts
   ]
 >;
 
@@ -515,10 +541,12 @@ def AMDGPUAsmVariants {
   int VOP3_ID = 1;
   string SDWA = "SDWA";
   int SDWA_ID = 2;
+  string SDWA9 = "SDWA9";
+  int SDWA9_ID = 3;
   string DPP = "DPP";
-  int DPP_ID = 3;
+  int DPP_ID = 4;
   string Disable = "Disable";
-  int Disable_ID = 4;
+  int Disable_ID = 5;
 }
 
 def DefaultAMDGPUAsmParserVariant : AsmParserVariant {
@@ -536,6 +564,12 @@ def SDWAAsmParserVariant : AsmParserVariant {
   let Name = AMDGPUAsmVariants.SDWA;
 }
 
+def SDWA9AsmParserVariant : AsmParserVariant {
+  let Variant = AMDGPUAsmVariants.SDWA9_ID;
+  let Name = AMDGPUAsmVariants.SDWA9;
+}
+
+
 def DPPAsmParserVariant : AsmParserVariant {
   let Variant = AMDGPUAsmVariants.DPP_ID;
   let Name = AMDGPUAsmVariants.DPP;
@@ -548,6 +582,7 @@ def AMDGPU : Target {
   let AssemblyParserVariants = [DefaultAMDGPUAsmParserVariant,
                                 VOP3AsmParserVariant,
                                 SDWAAsmParserVariant,
+                                SDWA9AsmParserVariant,
                                 DPPAsmParserVariant];
   let AssemblyWriters = [AMDGPUAsmWriter];
 }
@@ -588,7 +623,10 @@ def HasVOP3PInsts : Predicate<"Subtarget->hasVOP3PInsts()">,
   AssemblerPredicate<"FeatureVOP3P">;
 
 def HasSDWA : Predicate<"Subtarget->hasSDWA()">,
-  AssemblerPredicate<"FeatureSDWA">;
+  AssemblerPredicate<"FeatureSDWA,FeatureVolcanicIslands">;
+
+def HasSDWA9 : Predicate<"Subtarget->hasSDWA()">,
+  AssemblerPredicate<"FeatureSDWA,FeatureGFX9">;
 
 def HasDPP : Predicate<"Subtarget->hasDPP()">,
   AssemblerPredicate<"FeatureDPP">;

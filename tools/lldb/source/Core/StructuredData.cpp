@@ -12,9 +12,9 @@
 #include "lldb/Host/File.h"
 #include "lldb/Host/StringConvert.h"
 #include "lldb/Utility/DataBuffer.h"
-#include "lldb/Utility/Error.h"
 #include "lldb/Utility/FileSpec.h"
 #include "lldb/Utility/JSON.h"
+#include "lldb/Utility/Status.h"
 #include "lldb/Utility/Stream.h" // for Stream
 #include "lldb/Utility/StreamString.h"
 #include "lldb/lldb-enumerations.h" // for FilePermissions::eFilePermiss...
@@ -40,7 +40,7 @@ static StructuredData::ObjectSP ParseJSONObject(JSONParser &json_parser);
 static StructuredData::ObjectSP ParseJSONArray(JSONParser &json_parser);
 
 StructuredData::ObjectSP
-StructuredData::ParseJSONFromFile(const FileSpec &input_spec, Error &error) {
+StructuredData::ParseJSONFromFile(const FileSpec &input_spec, Status &error) {
   StructuredData::ObjectSP return_sp;
   if (!input_spec.Exists()) {
     error.SetErrorStringWithFormat("input file %s does not exist.",
@@ -184,7 +184,7 @@ StructuredData::ObjectSP StructuredData::ParseJSON(std::string json_text) {
 
 StructuredData::ObjectSP
 StructuredData::Object::GetObjectForDotSeparatedPath(llvm::StringRef path) {
-  if (this->GetType() == Type::eTypeDictionary) {
+  if (this->GetType() == lldb::eStructuredDataTypeDictionary) {
     std::pair<llvm::StringRef, llvm::StringRef> match = path.split('.');
     std::string key = match.first.str();
     ObjectSP value = this->GetAsDictionary()->GetValueForKey(key);
@@ -200,7 +200,7 @@ StructuredData::Object::GetObjectForDotSeparatedPath(llvm::StringRef path) {
     return ObjectSP();
   }
 
-  if (this->GetType() == Type::eTypeArray) {
+  if (this->GetType() == lldb::eStructuredDataTypeArray) {
     std::pair<llvm::StringRef, llvm::StringRef> match = path.split('[');
     if (match.second.size() == 0) {
       return this->shared_from_this();

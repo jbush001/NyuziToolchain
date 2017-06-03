@@ -91,7 +91,7 @@ define <16 x i32> @masked_move(<16 x i32> %a, <16 x i32> %b) { ; CHECK-LABEL: ma
   ; CHECK: movehi [[TMP1:s[0-9]+]], 5
   ; CHECK: or [[MM_SREG:s[0-9]+]], [[TMP1]], 2730
   ; CHECK-NEXT: move_mask {{v[0-9]+}}, [[MM_SREG]], v1
-  ; CHECK-NOT: shuffle
+  ; CHECK-NOT: shuffle {{v[0-9]}}
 
   ret <16 x i32> %res
 }

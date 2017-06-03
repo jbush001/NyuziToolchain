@@ -495,8 +495,7 @@ SDValue NyuziTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
   }
 
   // CALLSEQ_START will decrement the stack to reserve space
-  Chain = DAG.getCALLSEQ_START(Chain, DAG.getIntPtrConstant(ArgsSize, DL, true),
-                               DL);
+  Chain = DAG.getCALLSEQ_START(Chain, ArgsSize, 0, DL);
 
   SmallVector<std::pair<unsigned, SDValue>, 8> RegsToPass;
   SmallVector<SDValue, 8> MemOpChains;

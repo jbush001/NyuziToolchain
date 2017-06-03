@@ -133,7 +133,7 @@ MachineBasicBlock::iterator NyuziFrameLowering::eliminateCallFramePseudoInstr(
   // Note the check for hasReservedCallFrame.  If it returns true,
   // PEI::calculateFrameObjectOffsets has already reserved stack locations for
   // these variables and we don't need to adjust the stack here.
-  int Amount = MI.getOperand(0).getImm();
+  int Amount = TII.getFrameSize(MI);
   if (Amount != 0 && !hasReservedCallFrame(MF)) {
     assert(hasFP(MF) &&
            "Cannot adjust stack mid-function without a frame pointer");

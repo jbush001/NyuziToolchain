@@ -149,6 +149,10 @@ bool TargetTransformInfo::isLegalMaskedScatter(Type *DataType) const {
   return TTIImpl->isLegalMaskedGather(DataType);
 }
 
+bool TargetTransformInfo::prefersVectorizedAddressing() const {
+  return TTIImpl->prefersVectorizedAddressing();
+}
+
 int TargetTransformInfo::getScalingFactorCost(Type *Ty, GlobalValue *BaseGV,
                                               int64_t BaseOffset,
                                               bool HasBaseReg,
@@ -209,6 +213,10 @@ bool TargetTransformInfo::supportsEfficientVectorElementLoadStore() const {
 
 bool TargetTransformInfo::enableAggressiveInterleaving(bool LoopHasReductions) const {
   return TTIImpl->enableAggressiveInterleaving(LoopHasReductions);
+}
+
+bool TargetTransformInfo::expandMemCmp(Instruction *I, unsigned &MaxLoadSize) const {
+  return TTIImpl->expandMemCmp(I, MaxLoadSize);
 }
 
 bool TargetTransformInfo::enableInterleavedAccessVectorization() const {
@@ -277,6 +285,10 @@ unsigned TargetTransformInfo::getNumberOfRegisters(bool Vector) const {
 
 unsigned TargetTransformInfo::getRegisterBitWidth(bool Vector) const {
   return TTIImpl->getRegisterBitWidth(Vector);
+}
+
+unsigned TargetTransformInfo::getMinVectorRegisterBitWidth() const {
+  return TTIImpl->getMinVectorRegisterBitWidth();
 }
 
 bool TargetTransformInfo::shouldConsiderAddressTypePromotion(
@@ -498,6 +510,15 @@ unsigned TargetTransformInfo::getStoreVectorFactor(unsigned VF,
                                                    unsigned ChainSizeInBytes,
                                                    VectorType *VecTy) const {
   return TTIImpl->getStoreVectorFactor(VF, StoreSize, ChainSizeInBytes, VecTy);
+}
+
+bool TargetTransformInfo::useReductionIntrinsic(unsigned Opcode,
+                                                Type *Ty, ReductionFlags Flags) const {
+  return TTIImpl->useReductionIntrinsic(Opcode, Ty, Flags);
+}
+
+bool TargetTransformInfo::shouldExpandReduction(const IntrinsicInst *II) const {
+  return TTIImpl->shouldExpandReduction(II);
 }
 
 TargetTransformInfo::Concept::~Concept() {}

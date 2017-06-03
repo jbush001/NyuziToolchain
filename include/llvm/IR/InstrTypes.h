@@ -62,30 +62,15 @@ protected:
                  Use *Ops, unsigned NumOps, BasicBlock *InsertAtEnd)
     : Instruction(Ty, iType, Ops, NumOps, InsertAtEnd) {}
 
-  // Out of line virtual method, so the vtable, etc has a home.
-  ~TerminatorInst() override;
-
-  /// Virtual methods - Terminators should overload these and provide inline
-  /// overrides of non-V methods.
-  virtual BasicBlock *getSuccessorV(unsigned idx) const = 0;
-  virtual unsigned getNumSuccessorsV() const = 0;
-  virtual void setSuccessorV(unsigned idx, BasicBlock *B) = 0;
-
 public:
   /// Return the number of successors that this terminator has.
-  unsigned getNumSuccessors() const {
-    return getNumSuccessorsV();
-  }
+  unsigned getNumSuccessors() const;
 
   /// Return the specified successor.
-  BasicBlock *getSuccessor(unsigned idx) const {
-    return getSuccessorV(idx);
-  }
+  BasicBlock *getSuccessor(unsigned idx) const;
 
   /// Update the specified successor to point at the provided block.
-  void setSuccessor(unsigned idx, BasicBlock *B) {
-    setSuccessorV(idx, B);
-  }
+  void setSuccessor(unsigned idx, BasicBlock *B);
 
   // Methods for support type inquiry through isa, cast, and dyn_cast:
   static inline bool classof(const Instruction *I) {
@@ -310,9 +295,6 @@ public:
   }
 
   void *operator new(size_t, unsigned) = delete;
-
-  // Out of line virtual method, so the vtable, etc has a home.
-  ~UnaryInstruction() override;
 
   /// Transparently provide more efficient getOperand methods.
   DECLARE_TRANSPARENT_OPERAND_ACCESSORS(Value);
@@ -580,8 +562,6 @@ DEFINE_TRANSPARENT_OPERAND_ACCESSORS(BinaryOperator, Value)
 /// if (isa<CastInst>(Instr)) { ... }
 /// @brief Base class of casting instructions.
 class CastInst : public UnaryInstruction {
-  void anchor() override;
-
 protected:
   /// @brief Constructor with insert-before-instruction semantics for subclasses
   CastInst(Type *Ty, unsigned iType, Value *S,
@@ -925,8 +905,6 @@ protected:
   CmpInst(Type *ty, Instruction::OtherOps op, Predicate pred,
           Value *LHS, Value *RHS, const Twine &Name,
           BasicBlock *InsertAtEnd);
-
-  void anchor() override; // Out of line virtual method.
 
 public:
   CmpInst() = delete;

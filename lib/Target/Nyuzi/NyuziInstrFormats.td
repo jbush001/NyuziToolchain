@@ -163,12 +163,13 @@ def SIMM19OP : Operand<i32> {
   let ParserMatchClass = SImmOperand19;
 }
 
-def SDT_SPCallSeqStart : SDCallSeqStart<[ SDTCisVT<0, i32> ]>;
-def SDT_SPCallSeqEnd   : SDCallSeqEnd<[ SDTCisVT<0, i32>, SDTCisVT<1, i32> ]>;
-def callseq_start : SDNode<"ISD::CALLSEQ_START", SDT_SPCallSeqStart,
+def SDT_NyuziCallSeqStart : SDCallSeqStart<[SDTCisVT<0, i32>, SDTCisVT<1, i32>]>;
+def SDT_NyuziCallSeqEnd : SDCallSeqEnd<[SDTCisVT<0, i32>, SDTCisVT<1, i32>]>;
+def callseq_start : SDNode<"ISD::CALLSEQ_START", SDT_NyuziCallSeqStart,
                            [SDNPHasChain, SDNPSideEffect, SDNPOutGlue]>;
-def callseq_end   : SDNode<"ISD::CALLSEQ_END",   SDT_SPCallSeqEnd,
-                           [SDNPHasChain, SDNPSideEffect, SDNPOptInGlue, SDNPOutGlue]>;
+def callseq_end : SDNode<"ISD::CALLSEQ_END", SDT_NyuziCallSeqEnd,
+                           [SDNPHasChain, SDNPSideEffect,
+                            SDNPOptInGlue, SDNPOutGlue]>;
 def SDT_SPCall : SDTypeProfile<0, -1, [SDTCisVT<0, i32>]>;
 def call       : SDNode<"NyuziISD::CALL", SDT_SPCall,
                         [SDNPHasChain, SDNPOptInGlue, SDNPOutGlue,

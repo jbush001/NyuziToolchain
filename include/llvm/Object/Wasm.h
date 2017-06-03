@@ -67,7 +67,8 @@ public:
   WasmObjectFile(MemoryBufferRef Object, Error &Err);
 
   const wasm::WasmObjectHeader &getHeader() const;
-  const WasmSymbol &getWasmSymbol(DataRefImpl Symb) const;
+  const WasmSymbol &getWasmSymbol(const DataRefImpl &Symb) const;
+  const WasmSymbol &getWasmSymbol(const SymbolRef &Symbol) const;
   const WasmSection &getWasmSection(const SectionRef &Section) const;
   const wasm::WasmRelocation &getWasmRelocation(const RelocationRef& Ref) const;
 
@@ -80,6 +81,10 @@ public:
   const std::vector<wasm::WasmLimits>& memories() const { return Memories; }
   const std::vector<wasm::WasmGlobal>& globals() const { return Globals; }
   const std::vector<wasm::WasmExport>& exports() const { return Exports; }
+
+  uint32_t getNumberOfSymbols() const {
+    return Symbols.size();
+  }
 
   const std::vector<wasm::WasmElemSegment>& elements() const {
     return ElemSegments;
@@ -114,6 +119,7 @@ public:
   std::error_code getSectionName(DataRefImpl Sec,
                                  StringRef &Res) const override;
   uint64_t getSectionAddress(DataRefImpl Sec) const override;
+  uint64_t getSectionIndex(DataRefImpl Sec) const override;
   uint64_t getSectionSize(DataRefImpl Sec) const override;
   std::error_code getSectionContents(DataRefImpl Sec,
                                      StringRef &Res) const override;

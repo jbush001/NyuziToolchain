@@ -13,7 +13,8 @@
 #include "llvm/ADT/StringRef.h"
 
 #include "lldb/Utility/ConstString.h"
-#include "lldb/Utility/FileSpec.h" // for FileSpec
+#include "lldb/Utility/FileSpec.h"  // for FileSpec
+#include "lldb/lldb-enumerations.h" // for StructuredDataType
 
 #include <functional>
 #include <map>
@@ -28,7 +29,7 @@
 #include <stdint.h> // for uint64_t
 
 namespace lldb_private {
-class Error;
+class Status;
 }
 namespace lldb_private {
 class Stream;
@@ -71,46 +72,38 @@ public:
   typedef std::shared_ptr<Dictionary> DictionarySP;
   typedef std::shared_ptr<Generic> GenericSP;
 
-  enum class Type {
-    eTypeInvalid = -1,
-    eTypeNull = 0,
-    eTypeGeneric,
-    eTypeArray,
-    eTypeInteger,
-    eTypeFloat,
-    eTypeBoolean,
-    eTypeString,
-    eTypeDictionary
-  };
-
   class Object : public std::enable_shared_from_this<Object> {
   public:
-    Object(Type t = Type::eTypeInvalid) : m_type(t) {}
+    Object(lldb::StructuredDataType t = lldb::eStructuredDataTypeInvalid)
+        : m_type(t) {}
 
     virtual ~Object() = default;
 
     virtual bool IsValid() const { return true; }
 
-    virtual void Clear() { m_type = Type::eTypeInvalid; }
+    virtual void Clear() { m_type = lldb::eStructuredDataTypeInvalid; }
 
-    Type GetType() const { return m_type; }
+    lldb::StructuredDataType GetType() const { return m_type; }
 
-    void SetType(Type t) { m_type = t; }
+    void SetType(lldb::StructuredDataType t) { m_type = t; }
 
     Array *GetAsArray() {
-      return ((m_type == Type::eTypeArray) ? static_cast<Array *>(this)
-                                           : nullptr);
-    }
-
-    Dictionary *GetAsDictionary() {
-      return ((m_type == Type::eTypeDictionary)
-                  ? static_cast<Dictionary *>(this)
+      return ((m_type == lldb::eStructuredDataTypeArray)
+                  ? static_cast<Array *>(this)
                   : nullptr);
     }
 
+    Dictionary *GetAsDictionary() {
+      return (
+          (m_type == lldb::eStructuredDataTypeDictionary)
+              ? static_cast<Dictionary *>(this)
+              : nullptr);
+    }
+
     Integer *GetAsInteger() {
-      return ((m_type == Type::eTypeInteger) ? static_cast<Integer *>(this)
-                                             : nullptr);
+      return ((m_type == lldb::eStructuredDataTypeInteger)
+                  ? static_cast<Integer *>(this)
+                  : nullptr);
     }
 
     uint64_t GetIntegerValue(uint64_t fail_value = 0) {
@@ -119,8 +112,9 @@ public:
     }
 
     Float *GetAsFloat() {
-      return ((m_type == Type::eTypeFloat) ? static_cast<Float *>(this)
-                                           : nullptr);
+      return ((m_type == lldb::eStructuredDataTypeFloat)
+                  ? static_cast<Float *>(this)
+                  : nullptr);
     }
 
     double GetFloatValue(double fail_value = 0.0) {
@@ -129,8 +123,9 @@ public:
     }
 
     Boolean *GetAsBoolean() {
-      return ((m_type == Type::eTypeBoolean) ? static_cast<Boolean *>(this)
-                                             : nullptr);
+      return ((m_type == lldb::eStructuredDataTypeBoolean)
+                  ? static_cast<Boolean *>(this)
+                  : nullptr);
     }
 
     bool GetBooleanValue(bool fail_value = false) {
@@ -139,24 +134,23 @@ public:
     }
 
     String *GetAsString() {
-      return ((m_type == Type::eTypeString) ? static_cast<String *>(this)
-                                            : nullptr);
+      return ((m_type == lldb::eStructuredDataTypeString)
+                  ? static_cast<String *>(this)
+                  : nullptr);
     }
 
-    std::string GetStringValue(const char *fail_value = nullptr) {
+    llvm::StringRef GetStringValue(const char *fail_value = nullptr) {
       String *s = GetAsString();
       if (s)
         return s->GetValue();
 
-      if (fail_value && fail_value[0])
-        return std::string(fail_value);
-
-      return std::string();
+      return fail_value;
     }
 
     Generic *GetAsGeneric() {
-      return ((m_type == Type::eTypeGeneric) ? static_cast<Generic *>(this)
-                                             : nullptr);
+      return ((m_type == lldb::eStructuredDataTypeGeneric)
+                  ? static_cast<Generic *>(this)
+                  : nullptr);
     }
 
     ObjectSP GetObjectForDotSeparatedPath(llvm::StringRef path);
@@ -166,12 +160,12 @@ public:
     virtual void Dump(Stream &s, bool pretty_print = true) const = 0;
 
   private:
-    Type m_type;
+    lldb::StructuredDataType m_type;
   };
 
   class Array : public Object {
   public:
-    Array() : Object(Type::eTypeArray) {}
+    Array() : Object(lldb::eStructuredDataTypeArray) {}
 
     ~Array() override = default;
 
@@ -220,7 +214,7 @@ public:
       return success;
     }
 
-    bool GetItemAtIndexAsString(size_t idx, std::string &result) const {
+    bool GetItemAtIndexAsString(size_t idx, llvm::StringRef &result) const {
       ObjectSP value_sp = GetItemAtIndex(idx);
       if (value_sp.get()) {
         if (auto string_value = value_sp->GetAsString()) {
@@ -231,8 +225,8 @@ public:
       return false;
     }
 
-    bool GetItemAtIndexAsString(size_t idx, std::string &result,
-                                const std::string &default_val) const {
+    bool GetItemAtIndexAsString(size_t idx, llvm::StringRef &result,
+                                llvm::StringRef default_val) const {
       bool success = GetItemAtIndexAsString(idx, result);
       if (!success)
         result = default_val;
@@ -291,7 +285,8 @@ public:
 
   class Integer : public Object {
   public:
-    Integer(uint64_t i = 0) : Object(Type::eTypeInteger), m_value(i) {}
+    Integer(uint64_t i = 0)
+        : Object(lldb::eStructuredDataTypeInteger), m_value(i) {}
 
     ~Integer() override = default;
 
@@ -307,7 +302,8 @@ public:
 
   class Float : public Object {
   public:
-    Float(double d = 0.0) : Object(Type::eTypeFloat), m_value(d) {}
+    Float(double d = 0.0) : Object(lldb::eStructuredDataTypeFloat),
+          m_value(d) {}
 
     ~Float() override = default;
 
@@ -323,7 +319,8 @@ public:
 
   class Boolean : public Object {
   public:
-    Boolean(bool b = false) : Object(Type::eTypeBoolean), m_value(b) {}
+    Boolean(bool b = false) : Object(lldb::eStructuredDataTypeBoolean),
+          m_value(b) {}
 
     ~Boolean() override = default;
 
@@ -339,18 +336,14 @@ public:
 
   class String : public Object {
   public:
-    String(const char *cstr = nullptr) : Object(Type::eTypeString), m_value() {
-      if (cstr)
-        m_value = cstr;
-    }
+    String() : Object(lldb::eStructuredDataTypeString) {}
+    explicit String(llvm::StringRef S)
+        : Object(lldb::eStructuredDataTypeString),
+          m_value(S) {}
 
-    String(const std::string &s) : Object(Type::eTypeString), m_value(s) {}
+    void SetValue(llvm::StringRef S) { m_value = S; }
 
-    String(const std::string &&s) : Object(Type::eTypeString), m_value(s) {}
-
-    void SetValue(const std::string &string) { m_value = string; }
-
-    const std::string &GetValue() { return m_value; }
+    llvm::StringRef GetValue() { return m_value; }
 
     void Dump(Stream &s, bool pretty_print = true) const override;
 
@@ -360,7 +353,8 @@ public:
 
   class Dictionary : public Object {
   public:
-    Dictionary() : Object(Type::eTypeDictionary), m_dict() {}
+    Dictionary() : Object(lldb::eStructuredDataTypeDictionary),
+          m_dict() {}
 
     ~Dictionary() override = default;
 
@@ -430,7 +424,7 @@ public:
     }
 
     bool GetValueForKeyAsString(llvm::StringRef key,
-                                std::string &result) const {
+                                llvm::StringRef &result) const {
       ObjectSP value_sp = GetValueForKey(key);
       if (value_sp.get()) {
         if (auto string_value = value_sp->GetAsString()) {
@@ -441,14 +435,14 @@ public:
       return false;
     }
 
-    bool GetValueForKeyAsString(llvm::StringRef key, std::string &result,
+    bool GetValueForKeyAsString(llvm::StringRef key, llvm::StringRef &result,
                                 const char *default_val) const {
       bool success = GetValueForKeyAsString(key, result);
       if (!success) {
         if (default_val)
           result = default_val;
         else
-          result.clear();
+          result = llvm::StringRef();
       }
       return success;
     }
@@ -513,7 +507,7 @@ public:
       AddItem(key, std::make_shared<Float>(value));
     }
 
-    void AddStringItem(llvm::StringRef key, std::string value) {
+    void AddStringItem(llvm::StringRef key, llvm::StringRef value) {
       AddItem(key, std::make_shared<String>(std::move(value)));
     }
 
@@ -530,7 +524,7 @@ public:
 
   class Null : public Object {
   public:
-    Null() : Object(Type::eTypeNull) {}
+    Null() : Object(lldb::eStructuredDataTypeNull) {}
 
     ~Null() override = default;
 
@@ -542,7 +536,7 @@ public:
   class Generic : public Object {
   public:
     explicit Generic(void *object = nullptr)
-        : Object(Type::eTypeGeneric), m_object(object) {}
+        : Object(lldb::eStructuredDataTypeGeneric), m_object(object) {}
 
     void SetValue(void *value) { m_object = value; }
 
@@ -558,7 +552,7 @@ public:
 
   static ObjectSP ParseJSON(std::string json_text);
 
-  static ObjectSP ParseJSONFromFile(const FileSpec &file, Error &error);
+  static ObjectSP ParseJSONFromFile(const FileSpec &file, Status &error);
 };
 
 } // namespace lldb_private

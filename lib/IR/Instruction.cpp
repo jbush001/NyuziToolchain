@@ -43,8 +43,6 @@ Instruction::Instruction(Type *ty, unsigned it, Use *Ops, unsigned NumOps,
   InsertAtEnd->getInstList().push_back(this);
 }
 
-
-// Out of line virtual method, so the vtable, etc has a home.
 Instruction::~Instruction() {
   assert(!Parent && "Instruction still linked in the program!");
   if (hasMetadataHashEntry())
@@ -531,6 +529,30 @@ bool Instruction::isAtomic() const {
     return cast<LoadInst>(this)->getOrdering() != AtomicOrdering::NotAtomic;
   case Instruction::Store:
     return cast<StoreInst>(this)->getOrdering() != AtomicOrdering::NotAtomic;
+  }
+}
+
+bool Instruction::hasAtomicLoad() const {
+  assert(isAtomic());
+  switch (getOpcode()) {
+  default:
+    return false;
+  case Instruction::AtomicCmpXchg:
+  case Instruction::AtomicRMW:
+  case Instruction::Load:
+    return true;
+  }
+}
+
+bool Instruction::hasAtomicStore() const {
+  assert(isAtomic());
+  switch (getOpcode()) {
+  default:
+    return false;
+  case Instruction::AtomicCmpXchg:
+  case Instruction::AtomicRMW:
+  case Instruction::Store:
+    return true;
   }
 }
 

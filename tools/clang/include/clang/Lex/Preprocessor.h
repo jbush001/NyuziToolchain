@@ -283,6 +283,44 @@ class Preprocessor {
   /// This is used when loading a precompiled preamble.
   std::pair<int, bool> SkipMainFilePreamble;
 
+  class PreambleConditionalStackStore {
+    enum State {
+      Off = 0,
+      Recording = 1,
+      Replaying = 2,
+    };
+
+  public:
+    PreambleConditionalStackStore() : ConditionalStackState(Off) {}
+
+    void startRecording() { ConditionalStackState = Recording; }
+    void startReplaying() { ConditionalStackState = Replaying; }
+    bool isRecording() const { return ConditionalStackState == Recording; }
+    bool isReplaying() const { return ConditionalStackState == Replaying; }
+
+    ArrayRef<PPConditionalInfo> getStack() const {
+      return ConditionalStack;
+    }
+
+    void doneReplaying() {
+      ConditionalStack.clear();
+      ConditionalStackState = Off;
+    }
+
+    void setStack(ArrayRef<PPConditionalInfo> s) {
+      if (!isRecording() && !isReplaying())
+        return;
+      ConditionalStack.clear();
+      ConditionalStack.append(s.begin(), s.end());
+    }
+
+    bool hasRecordedPreamble() const { return !ConditionalStack.empty(); }
+
+  private:
+    SmallVector<PPConditionalInfo, 4> ConditionalStack;
+    State ConditionalStackState;
+  } PreambleConditionalStack;
+
   /// \brief The current top of the stack that we're lexing from if
   /// not expanding a macro and we are lexing directly from source code.
   ///
@@ -643,14 +681,6 @@ class Preprocessor {
   /// MacroInfos are managed as a chain for easy disposal.  This is the head
   /// of that list.
   MacroInfoChain *MIChainHead;
-
-  struct DeserializedMacroInfoChain {
-    MacroInfo MI;
-    unsigned OwningModuleID; // MUST be immediately after the MacroInfo object
-                     // so it can be accessed by MacroInfo::getOwningModuleID().
-    DeserializedMacroInfoChain *Next;
-  };
-  DeserializedMacroInfoChain *DeserialMIChainHead;
 
   void updateOutOfDateIdentifier(IdentifierInfo &II) const;
 
@@ -1669,10 +1699,6 @@ public:
   /// \brief Allocate a new MacroInfo object with the provided SourceLocation.
   MacroInfo *AllocateMacroInfo(SourceLocation L);
 
-  /// \brief Allocate a new MacroInfo object loaded from an AST file.
-  MacroInfo *AllocateDeserializedMacroInfo(SourceLocation L,
-                                           unsigned SubModuleID);
-
   /// \brief Turn the specified lexer token into a fully checked and spelled
   /// filename, e.g. as an operand of \#include. 
   ///
@@ -1706,6 +1732,11 @@ public:
 
   /// \brief Return true if we're in the top-level file, not in a \#include.
   bool isInPrimaryFile() const;
+
+  /// \brief Return true if we're in the main file (specifically, if we are 0
+  /// (zero) levels deep \#include. This is used by the lexer to determine if
+  /// it needs to generate errors about unterminated \#if directives.
+  bool isInMainFile() const;
 
   /// \brief Handle cases where the \#include name is expanded
   /// from a macro as multiple tokens, which need to be glued together. 
@@ -1763,9 +1794,6 @@ private:
   /// Update the set of active module macros and ambiguity flag for a module
   /// macro name.
   void updateModuleMacroInfo(const IdentifierInfo *II, ModuleMacroInfo &Info);
-
-  /// \brief Allocate a new MacroInfo object.
-  MacroInfo *AllocateMacroInfo();
 
   DefMacroDirective *AllocateDefMacroDirective(MacroInfo *MI,
                                                SourceLocation Loc);
@@ -1932,14 +1960,11 @@ public:
   /// into a module, or is outside any module, returns nullptr.
   Module *getModuleForLocation(SourceLocation Loc);
 
-  /// \brief Find the module that contains the specified location, either
-  /// directly or indirectly.
-  Module *getModuleContainingLocation(SourceLocation Loc);
-
   /// \brief We want to produce a diagnostic at location IncLoc concerning a
   /// missing module import.
   ///
   /// \param IncLoc The location at which the missing import was detected.
+  /// \param M The desired module.
   /// \param MLoc A location within the desired module at which some desired
   ///        effect occurred (eg, where a desired entity was declared).
   ///
@@ -1947,7 +1972,29 @@ public:
   ///         Null if no such file could be determined or if a #include is not
   ///         appropriate.
   const FileEntry *getModuleHeaderToIncludeForDiagnostics(SourceLocation IncLoc,
+                                                          Module *M,
                                                           SourceLocation MLoc);
+
+  bool isRecordingPreamble() const {
+    return PreambleConditionalStack.isRecording();
+  }
+
+  bool hasRecordedPreamble() const {
+    return PreambleConditionalStack.hasRecordedPreamble();
+  }
+
+  ArrayRef<PPConditionalInfo> getPreambleConditionalStack() const {
+      return PreambleConditionalStack.getStack();
+  }
+
+  void setRecordedPreambleConditionalStack(ArrayRef<PPConditionalInfo> s) {
+    PreambleConditionalStack.setStack(s);
+  }
+
+  void setReplayablePreambleConditionalStack(ArrayRef<PPConditionalInfo> s) {
+    PreambleConditionalStack.startReplaying();
+    PreambleConditionalStack.setStack(s);
+  }
 
 private:
   // Macro handling.

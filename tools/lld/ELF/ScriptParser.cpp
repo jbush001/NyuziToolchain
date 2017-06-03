@@ -55,6 +55,7 @@ public:
 
 private:
   void addFile(StringRef Path);
+  OutputSection *checkSection(OutputSectionCommand *Cmd, StringRef Loccation);
 
   void readAsNeeded();
   void readEntry();
@@ -564,8 +565,8 @@ uint32_t ScriptParser::readFill() {
 
 OutputSectionCommand *
 ScriptParser::readOutputSectionDescription(StringRef OutSec) {
-  OutputSectionCommand *Cmd = make<OutputSectionCommand>(OutSec);
-  Cmd->Location = getCurrentLocation();
+  OutputSectionCommand *Cmd =
+      Script->createOutputSectionCommand(OutSec, getCurrentLocation());
 
   // Read an address expression.
   // https://sourceware.org/binutils/docs/ld/Output-Section-Address.html
@@ -639,7 +640,7 @@ ScriptParser::readOutputSectionDescription(StringRef OutSec) {
 // We are compatible with ld.gold because it's easier to implement.
 uint32_t ScriptParser::parseFill(StringRef Tok) {
   uint32_t V = 0;
-  if (Tok.getAsInteger(0, V))
+  if (!to_integer(Tok, V))
     setError("invalid filler expression: " + Tok);
 
   uint32_t Buf;
@@ -778,23 +779,23 @@ static Optional<uint64_t> parseInt(StringRef Tok) {
 
   // Hexadecimal
   uint64_t Val;
-  if (Tok.startswith_lower("0x") && !Tok.substr(2).getAsInteger(16, Val))
+  if (Tok.startswith_lower("0x") && to_integer(Tok.substr(2), Val, 16))
     return Val;
-  if (Tok.endswith_lower("H") && !Tok.drop_back().getAsInteger(16, Val))
+  if (Tok.endswith_lower("H") && to_integer(Tok.drop_back(), Val, 16))
     return Val;
 
   // Decimal
   if (Tok.endswith_lower("K")) {
-    if (Tok.drop_back().getAsInteger(10, Val))
+    if (!to_integer(Tok.drop_back(), Val, 10))
       return None;
     return Val * 1024;
   }
   if (Tok.endswith_lower("M")) {
-    if (Tok.drop_back().getAsInteger(10, Val))
+    if (!to_integer(Tok.drop_back(), Val, 10))
       return None;
     return Val * 1024 * 1024;
   }
-  if (Tok.getAsInteger(10, Val))
+  if (!to_integer(Tok, Val, 10))
     return None;
   return Val;
 }
@@ -817,6 +818,16 @@ StringRef ScriptParser::readParenLiteral() {
   StringRef Tok = next();
   expect(")");
   return Tok;
+}
+
+OutputSection *ScriptParser::checkSection(OutputSectionCommand *Cmd,
+                                          StringRef Location) {
+  if (Cmd->Location.empty() && Script->ErrorOnMissingSection)
+    error(Location + ": undefined section " + Cmd->Name);
+  if (Cmd->Sec)
+    return Cmd->Sec;
+  static OutputSection Dummy("", 0, 0);
+  return &Dummy;
 }
 
 Expr ScriptParser::readPrimary() {
@@ -847,9 +858,8 @@ Expr ScriptParser::readPrimary() {
   }
   if (Tok == "ADDR") {
     StringRef Name = readParenLiteral();
-    return [=]() -> ExprValue {
-      return {Script->getOutputSection(Location, Name), 0};
-    };
+    OutputSectionCommand *Cmd = Script->getOrCreateOutputSectionCommand(Name);
+    return [=]() -> ExprValue { return {checkSection(Cmd, Location), 0}; };
   }
   if (Tok == "ALIGN") {
     expect("(");
@@ -859,11 +869,16 @@ Expr ScriptParser::readPrimary() {
     expect(",");
     Expr E2 = readExpr();
     expect(")");
-    return [=] { return alignTo(E().getValue(), E2().getValue()); };
+    return [=] {
+      ExprValue V = E();
+      V.Alignment = E2().getValue();
+      return V;
+    };
   }
   if (Tok == "ALIGNOF") {
     StringRef Name = readParenLiteral();
-    return [=] { return Script->getOutputSection(Location, Name)->Alignment; };
+    OutputSectionCommand *Cmd = Script->getOrCreateOutputSectionCommand(Name);
+    return [=] { return checkSection(Cmd, Location)->Alignment; };
   }
   if (Tok == "ASSERT")
     return readAssertExpr();
@@ -900,9 +915,22 @@ Expr ScriptParser::readPrimary() {
     StringRef Name = readParenLiteral();
     return [=] { return Script->isDefined(Name) ? 1 : 0; };
   }
+  if (Tok == "LENGTH") {
+    StringRef Name = readParenLiteral();
+    if (Script->Opt.MemoryRegions.count(Name) == 0)
+      setError("memory region not defined: " + Name);
+    return [=] { return Script->Opt.MemoryRegions[Name].Length; };
+  }
   if (Tok == "LOADADDR") {
     StringRef Name = readParenLiteral();
-    return [=] { return Script->getOutputSection(Location, Name)->getLMA(); };
+    OutputSectionCommand *Cmd = Script->getOrCreateOutputSectionCommand(Name);
+    return [=] { return checkSection(Cmd, Location)->getLMA(); };
+  }
+  if (Tok == "ORIGIN") {
+    StringRef Name = readParenLiteral();
+    if (Script->Opt.MemoryRegions.count(Name) == 0)
+      setError("memory region not defined: " + Name);
+    return [=] { return Script->Opt.MemoryRegions[Name].Origin; };
   }
   if (Tok == "SEGMENT_START") {
     expect("(");
@@ -914,7 +942,11 @@ Expr ScriptParser::readPrimary() {
   }
   if (Tok == "SIZEOF") {
     StringRef Name = readParenLiteral();
-    return [=] { return Script->getOutputSectionSize(Name); };
+    OutputSectionCommand *Cmd = Script->getOrCreateOutputSectionCommand(Name);
+    // Linker script does not create an output section if its content is empty.
+    // We want to allow SIZEOF(.foo) where .foo is a section which happened to
+    // be empty.
+    return [=] { return Cmd->Sec ? Cmd->Sec->Size : 0; };
   }
   if (Tok == "SIZEOF_HEADERS")
     return [=] { return elf::getHeaderSize(); };

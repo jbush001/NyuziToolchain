@@ -281,7 +281,7 @@ size_t SBProcess::PutSTDIN(const char *src, size_t src_len) {
   size_t ret_val = 0;
   ProcessSP process_sp(GetSP());
   if (process_sp) {
-    Error error;
+    Status error;
     ret_val = process_sp->PutSTDIN(src, src_len, error);
   }
 
@@ -298,7 +298,7 @@ size_t SBProcess::GetSTDOUT(char *dst, size_t dst_len) const {
   size_t bytes_read = 0;
   ProcessSP process_sp(GetSP());
   if (process_sp) {
-    Error error;
+    Status error;
     bytes_read = process_sp->GetSTDOUT(dst, dst_len, error);
   }
 
@@ -317,7 +317,7 @@ size_t SBProcess::GetSTDERR(char *dst, size_t dst_len) const {
   size_t bytes_read = 0;
   ProcessSP process_sp(GetSP());
   if (process_sp) {
-    Error error;
+    Status error;
     bytes_read = process_sp->GetSTDERR(dst, dst_len, error);
   }
 
@@ -336,7 +336,7 @@ size_t SBProcess::GetAsyncProfileData(char *dst, size_t dst_len) const {
   size_t bytes_read = 0;
   ProcessSP process_sp(GetSP());
   if (process_sp) {
-    Error error;
+    Status error;
     bytes_read = process_sp->GetAsyncProfileData(dst, dst_len, error);
   }
 
@@ -363,10 +363,9 @@ lldb::SBTrace SBProcess::StartTrace(SBTraceOptions &options,
   if (!process_sp) {
     error.SetErrorString("invalid process");
   } else {
-
-    uid = process_sp->StartTrace(options.m_traceoptions_sp, error.ref());
+    uid = process_sp->StartTrace(*(options.m_traceoptions_sp), error.ref());
     trace_instance.SetTraceUID(uid);
-    LLDB_LOG(log, "SBProcess::returned uid - %" PRIx64, uid);
+    LLDB_LOG(log, "SBProcess::returned uid - {0}", uid);
   }
   return trace_instance;
 }

@@ -28,7 +28,7 @@ The following sections describe how to install these packages.
 - zlib (including headers)
 - bison 2.7+
 - flex 2.5+
-- swig (http://www.swig.org/) with python wrappers
+- swig 3.0.11+ (http://www.swig.org/) with python wrappers
 - libedit (http://thrysoee.dk/editline/)
 - ncurses
 

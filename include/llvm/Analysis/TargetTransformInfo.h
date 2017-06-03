@@ -396,6 +396,9 @@ public:
   bool isLegalMaskedScatter(Type *DataType) const;
   bool isLegalMaskedGather(Type *DataType) const;
 
+  /// Return true if target doesn't mind addresses in vectors.
+  bool prefersVectorizedAddressing() const;
+
   /// \brief Return the cost of the scaling factor used in the addressing
   /// mode represented by AM for this target, for a load/store
   /// of the specified type.
@@ -450,6 +453,9 @@ public:
 
   /// \brief Don't restrict interleaved unrolling to small loops.
   bool enableAggressiveInterleaving(bool LoopHasReductions) const;
+
+  /// \brief Enable inline expansion of memcmp
+  bool expandMemCmp(Instruction *I, unsigned &MaxLoadSize) const;
 
   /// \brief Enable matching of interleaved access groups.
   bool enableInterleavedAccessVectorization() const;
@@ -536,6 +542,9 @@ public:
 
   /// \return The width of the largest scalar or vector register type.
   unsigned getRegisterBitWidth(bool Vector) const;
+
+  /// \return The width of the smallest vector register type.
+  unsigned getMinVectorRegisterBitWidth() const;
 
   /// \return True if it should be considered for address type promotion.
   /// \p AllowPromotionWithoutCommonHeader Set true if promoting \p I is
@@ -740,6 +749,22 @@ public:
                                 unsigned ChainSizeInBytes,
                                 VectorType *VecTy) const;
 
+  /// Flags describing the kind of vector reduction.
+  struct ReductionFlags {
+    ReductionFlags() : IsMaxOp(false), IsSigned(false), NoNaN(false) {}
+    bool IsMaxOp;  ///< If the op a min/max kind, true if it's a max operation.
+    bool IsSigned; ///< Whether the operation is a signed int reduction.
+    bool NoNaN;    ///< If op is an fp min/max, whether NaNs may be present.
+  };
+
+  /// \returns True if the target wants to handle the given reduction idiom in
+  /// the intrinsics form instead of the shuffle form.
+  bool useReductionIntrinsic(unsigned Opcode, Type *Ty,
+                             ReductionFlags Flags) const;
+
+  /// \returns True if the target wants to expand the given reduction intrinsic
+  /// into a shuffle sequence.
+  bool shouldExpandReduction(const IntrinsicInst *II) const;
   /// @}
 
 private:
@@ -788,6 +813,7 @@ public:
   virtual bool isLegalMaskedLoad(Type *DataType) = 0;
   virtual bool isLegalMaskedScatter(Type *DataType) = 0;
   virtual bool isLegalMaskedGather(Type *DataType) = 0;
+  virtual bool prefersVectorizedAddressing() = 0;
   virtual int getScalingFactorCost(Type *Ty, GlobalValue *BaseGV,
                                    int64_t BaseOffset, bool HasBaseReg,
                                    int64_t Scale, unsigned AddrSpace) = 0;
@@ -805,6 +831,7 @@ public:
                                                     unsigned VF) = 0;
   virtual bool supportsEfficientVectorElementLoadStore() = 0;
   virtual bool enableAggressiveInterleaving(bool LoopHasReductions) = 0;
+  virtual bool expandMemCmp(Instruction *I, unsigned &MaxLoadSize) = 0;
   virtual bool enableInterleavedAccessVectorization() = 0;
   virtual bool isFPVectorizationPotentiallyUnsafe() = 0;
   virtual bool allowsMisalignedMemoryAccesses(LLVMContext &Context,
@@ -824,6 +851,7 @@ public:
                             Type *Ty) = 0;
   virtual unsigned getNumberOfRegisters(bool Vector) = 0;
   virtual unsigned getRegisterBitWidth(bool Vector) = 0;
+  virtual unsigned getMinVectorRegisterBitWidth() = 0;
   virtual bool shouldConsiderAddressTypePromotion(
       const Instruction &I, bool &AllowPromotionWithoutCommonHeader) = 0;
   virtual unsigned getCacheLineSize() = 0;
@@ -895,6 +923,9 @@ public:
   virtual unsigned getStoreVectorFactor(unsigned VF, unsigned StoreSize,
                                         unsigned ChainSizeInBytes,
                                         VectorType *VecTy) const = 0;
+  virtual bool useReductionIntrinsic(unsigned Opcode, Type *Ty,
+                                     ReductionFlags) const = 0;
+  virtual bool shouldExpandReduction(const IntrinsicInst *II) const = 0;
 };
 
 template <typename T>
@@ -977,6 +1008,9 @@ public:
   bool isLegalMaskedGather(Type *DataType) override {
     return Impl.isLegalMaskedGather(DataType);
   }
+  bool prefersVectorizedAddressing() override {
+    return Impl.prefersVectorizedAddressing();
+  }
   int getScalingFactorCost(Type *Ty, GlobalValue *BaseGV, int64_t BaseOffset,
                            bool HasBaseReg, int64_t Scale,
                            unsigned AddrSpace) override {
@@ -1017,6 +1051,9 @@ public:
   bool enableAggressiveInterleaving(bool LoopHasReductions) override {
     return Impl.enableAggressiveInterleaving(LoopHasReductions);
   }
+  bool expandMemCmp(Instruction *I, unsigned &MaxLoadSize) override {
+    return Impl.expandMemCmp(I, MaxLoadSize);
+  }
   bool enableInterleavedAccessVectorization() override {
     return Impl.enableInterleavedAccessVectorization();
   }
@@ -1056,6 +1093,9 @@ public:
   }
   unsigned getRegisterBitWidth(bool Vector) override {
     return Impl.getRegisterBitWidth(Vector);
+  }
+  unsigned getMinVectorRegisterBitWidth() override {
+    return Impl.getMinVectorRegisterBitWidth();
   }
   bool shouldConsiderAddressTypePromotion(
       const Instruction &I, bool &AllowPromotionWithoutCommonHeader) override {
@@ -1199,6 +1239,13 @@ public:
                                 unsigned ChainSizeInBytes,
                                 VectorType *VecTy) const override {
     return Impl.getStoreVectorFactor(VF, StoreSize, ChainSizeInBytes, VecTy);
+  }
+  bool useReductionIntrinsic(unsigned Opcode, Type *Ty,
+                             ReductionFlags Flags) const override {
+    return Impl.useReductionIntrinsic(Opcode, Ty, Flags);
+  }
+  bool shouldExpandReduction(const IntrinsicInst *II) const override {
+    return Impl.shouldExpandReduction(II);
   }
 };
 

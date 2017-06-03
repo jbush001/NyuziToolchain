@@ -88,7 +88,7 @@ Preprocessor::Preprocessor(std::shared_ptr<PreprocessorOptions> PPOpts,
       CurDirLookup(nullptr), CurLexerKind(CLK_Lexer),
       CurLexerSubmodule(nullptr), Callbacks(nullptr),
       CurSubmoduleState(&NullSubmoduleState), MacroArgCache(nullptr),
-      Record(nullptr), MIChainHead(nullptr), DeserialMIChainHead(nullptr) {
+      Record(nullptr), MIChainHead(nullptr) {
   OwnsHeaderSearch = OwnsHeaders;
   
   CounterValue = 0; // __COUNTER__ starts at 0.
@@ -150,6 +150,9 @@ Preprocessor::Preprocessor(std::shared_ptr<PreprocessorOptions> PPOpts,
     Ident_GetExceptionInfo = Ident_GetExceptionCode = nullptr;
     Ident_AbnormalTermination = nullptr;
   }
+
+  if (this->PPOpts->GeneratePreamble)
+    PreambleConditionalStack.startRecording();
 }
 
 Preprocessor::~Preprocessor() {
@@ -168,11 +171,6 @@ Preprocessor::~Preprocessor() {
   // before the code below that frees up the MacroArgCache list.
   std::fill(TokenLexerCache, TokenLexerCache + NumCachedTokenLexers, nullptr);
   CurTokenLexer.reset();
-
-  while (DeserializedMacroInfoChain *I = DeserialMIChainHead) {
-    DeserialMIChainHead = I->Next;
-    I->~DeserializedMacroInfoChain();
-  }
 
   // Free any cached MacroArgs.
   for (MacroArgs *ArgList = MacroArgCache; ArgList;)
@@ -537,6 +535,12 @@ void Preprocessor::EnterMainSourceFile() {
 
   // Start parsing the predefines.
   EnterSourceFile(FID, nullptr, SourceLocation());
+
+  // Restore the conditional stack from the preamble, if there is one.
+  if (PreambleConditionalStack.isReplaying()) {
+    CurPPLexer->setConditionalLevels(PreambleConditionalStack.getStack());
+    PreambleConditionalStack.doneReplaying();
+  }
 }
 
 void Preprocessor::EndSourceFile() {

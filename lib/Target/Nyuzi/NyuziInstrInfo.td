@@ -728,8 +728,8 @@ def ERET : RegisterBranchInst<
 let Defs = [ SP_REG ], Uses = [ SP_REG ], hasSideEffects = 1 in {
   def ADJCALLSTACKDOWN : Pseudo<
     (outs),
-    (ins i32imm:$amt),
-    [(callseq_start timm:$amt)]>;
+    (ins i32imm:$amt1, i32imm:$amt2),
+    [(callseq_start timm:$amt1, timm:$amt2)]>;
 
   def ADJCALLSTACKUP : Pseudo<
     (outs),

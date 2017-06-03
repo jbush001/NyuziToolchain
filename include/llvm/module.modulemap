@@ -95,8 +95,8 @@ module LLVM_DebugInfo_CodeView {
   module * { export * }
 
   // These are intended for (repeated) textual inclusion.
-  textual header "DebugInfo/CodeView/TypeRecords.def"
-  textual header "DebugInfo/CodeView/CVSymbolTypes.def"
+  textual header "DebugInfo/CodeView/CodeViewTypes.def"
+  textual header "DebugInfo/CodeView/CodeViewSymbols.def"
 }
 
 module LLVM_ExecutionEngine {
@@ -148,6 +148,7 @@ module LLVM_intrinsic_gen {
   module IR_Attributes { header "IR/Attributes.h" export * }
   module IR_CallSite { header "IR/CallSite.h" export * }
   module IR_ConstantFolder { header "IR/ConstantFolder.h" export * }
+  module IR_GlobalVariable { header "IR/GlobalVariable.h" export * }
   module IR_NoFolder { header "IR/NoFolder.h" export * }
   module IR_Module { header "IR/Module.h" export * }
   module IR_ModuleSummaryIndex { header "IR/ModuleSummaryIndex.h" export * }

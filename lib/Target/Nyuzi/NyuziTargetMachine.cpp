@@ -30,7 +30,7 @@ namespace {
 /// Nyuzi Code Generator Pass Configuration Options.
 class NyuziPassConfig : public TargetPassConfig {
 public:
-  NyuziPassConfig(NyuziTargetMachine *TM, PassManagerBase &PM)
+  NyuziPassConfig(NyuziTargetMachine &TM, PassManagerBase &PM)
       : TargetPassConfig(TM, PM) {}
 
   NyuziTargetMachine &getNyuziTargetMachine() const {
@@ -63,7 +63,7 @@ NyuziTargetMachine::NyuziTargetMachine(const Target &T, const Triple &TT,
 }
 
 TargetPassConfig *NyuziTargetMachine::createPassConfig(PassManagerBase &PM) {
-  return new NyuziPassConfig(this, PM);
+  return new NyuziPassConfig(*this, PM);
 }
 
 bool NyuziPassConfig::addInstSelector() {

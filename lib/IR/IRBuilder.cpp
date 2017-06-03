@@ -161,6 +161,94 @@ CreateMemMove(Value *Dst, Value *Src, Value *Size, unsigned Align,
   return CI;  
 }
 
+static CallInst *getReductionIntrinsic(IRBuilderBase *Builder, Intrinsic::ID ID,
+                                    Value *Src) {
+  Module *M = Builder->GetInsertBlock()->getParent()->getParent();
+  Value *Ops[] = {Src};
+  Type *Tys[] = { Src->getType()->getVectorElementType(), Src->getType() };
+  auto Decl = Intrinsic::getDeclaration(M, ID, Tys);
+  return createCallHelper(Decl, Ops, Builder);
+}
+
+CallInst *IRBuilderBase::CreateFAddReduce(Value *Acc, Value *Src) {
+  Module *M = GetInsertBlock()->getParent()->getParent();
+  Value *Ops[] = {Acc, Src};
+  Type *Tys[] = {Src->getType()->getVectorElementType(), Acc->getType(),
+                 Src->getType()};
+  auto Decl = Intrinsic::getDeclaration(
+      M, Intrinsic::experimental_vector_reduce_fadd, Tys);
+  return createCallHelper(Decl, Ops, this);
+}
+
+CallInst *IRBuilderBase::CreateFMulReduce(Value *Acc, Value *Src) {
+  Module *M = GetInsertBlock()->getParent()->getParent();
+  Value *Ops[] = {Acc, Src};
+  Type *Tys[] = {Src->getType()->getVectorElementType(), Acc->getType(),
+                 Src->getType()};
+  auto Decl = Intrinsic::getDeclaration(
+      M, Intrinsic::experimental_vector_reduce_fmul, Tys);
+  return createCallHelper(Decl, Ops, this);
+}
+
+CallInst *IRBuilderBase::CreateAddReduce(Value *Src) {
+  return getReductionIntrinsic(this, Intrinsic::experimental_vector_reduce_add,
+                               Src);
+}
+
+CallInst *IRBuilderBase::CreateMulReduce(Value *Src) {
+  return getReductionIntrinsic(this, Intrinsic::experimental_vector_reduce_mul,
+                               Src);
+}
+
+CallInst *IRBuilderBase::CreateAndReduce(Value *Src) {
+  return getReductionIntrinsic(this, Intrinsic::experimental_vector_reduce_and,
+                               Src);
+}
+
+CallInst *IRBuilderBase::CreateOrReduce(Value *Src) {
+  return getReductionIntrinsic(this, Intrinsic::experimental_vector_reduce_or,
+                               Src);
+}
+
+CallInst *IRBuilderBase::CreateXorReduce(Value *Src) {
+  return getReductionIntrinsic(this, Intrinsic::experimental_vector_reduce_xor,
+                               Src);
+}
+
+CallInst *IRBuilderBase::CreateIntMaxReduce(Value *Src, bool IsSigned) {
+  auto ID = IsSigned ? Intrinsic::experimental_vector_reduce_smax
+                     : Intrinsic::experimental_vector_reduce_umax;
+  return getReductionIntrinsic(this, ID, Src);
+}
+
+CallInst *IRBuilderBase::CreateIntMinReduce(Value *Src, bool IsSigned) {
+  auto ID = IsSigned ? Intrinsic::experimental_vector_reduce_smin
+                     : Intrinsic::experimental_vector_reduce_umin;
+  return getReductionIntrinsic(this, ID, Src);
+}
+
+CallInst *IRBuilderBase::CreateFPMaxReduce(Value *Src, bool NoNaN) {
+  auto Rdx = getReductionIntrinsic(
+      this, Intrinsic::experimental_vector_reduce_fmax, Src);
+  if (NoNaN) {
+    FastMathFlags FMF;
+    FMF.setNoNaNs();
+    Rdx->setFastMathFlags(FMF);
+  }
+  return Rdx;
+}
+
+CallInst *IRBuilderBase::CreateFPMinReduce(Value *Src, bool NoNaN) {
+  auto Rdx = getReductionIntrinsic(
+      this, Intrinsic::experimental_vector_reduce_fmin, Src);
+  if (NoNaN) {
+    FastMathFlags FMF;
+    FMF.setNoNaNs();
+    Rdx->setFastMathFlags(FMF);
+  }
+  return Rdx;
+}
+
 CallInst *IRBuilderBase::CreateLifetimeStart(Value *Ptr, ConstantInt *Size) {
   assert(isa<PointerType>(Ptr->getType()) &&
          "lifetime.start only applies to pointers.");
@@ -293,8 +381,11 @@ CallInst *IRBuilderBase::CreateMaskedGather(Value *Ptrs, unsigned Align,
     Mask = Constant::getAllOnesValue(VectorType::get(Type::getInt1Ty(Context),
                                      NumElts));
 
+  if (!PassThru)
+    PassThru = UndefValue::get(DataTy);
+
   Type *OverloadedTypes[] = {DataTy, PtrsTy};
-  Value * Ops[] = {Ptrs, getInt32(Align), Mask, UndefValue::get(DataTy)};
+  Value * Ops[] = {Ptrs, getInt32(Align), Mask, PassThru};
 
   // We specify only one type when we create this intrinsic. Types of other
   // arguments are derived from this type.

@@ -43,8 +43,8 @@
 #include "lldb/Target/Target.h"
 #include "lldb/Target/Thread.h"
 #include "lldb/Utility/Endian.h"
-#include "lldb/Utility/Error.h"
 #include "lldb/Utility/Log.h"
+#include "lldb/Utility/Status.h"
 #include "lldb/lldb-private.h"
 #include "clang/AST/ASTConsumer.h"
 #include "clang/AST/ASTContext.h"
@@ -191,7 +191,7 @@ bool ClangExpressionDeclMap::AddPersistentVariable(const NamedDecl *decl,
     return false;
 
   if (m_parser_vars->m_materializer && is_result) {
-    Error err;
+    Status err;
 
     ExecutionContext &exe_ctx = m_parser_vars->m_exe_ctx;
     Target *target = exe_ctx.GetTargetPtr();
@@ -364,7 +364,7 @@ bool ClangExpressionDeclMap::AddValueToStruct(const NamedDecl *decl,
   if (m_parser_vars->m_materializer) {
     uint32_t offset = 0;
 
-    Error err;
+    Status err;
 
     if (is_persistent_variable) {
       ExpressionVariableSP var_sp(var->shared_from_this());
@@ -589,103 +589,6 @@ addr_t ClangExpressionDeclMap::GetSymbolAddress(const ConstString &name,
   return GetSymbolAddress(m_parser_vars->m_exe_ctx.GetTargetRef(),
                           m_parser_vars->m_exe_ctx.GetProcessPtr(), name,
                           symbol_type);
-}
-
-const Symbol *ClangExpressionDeclMap::FindGlobalDataSymbol(
-    Target &target, const ConstString &name, lldb_private::Module *module) {
-  SymbolContextList sc_list;
-
-  if (module)
-    module->FindSymbolsWithNameAndType(name, eSymbolTypeAny, sc_list);
-  else
-    target.GetImages().FindSymbolsWithNameAndType(name, eSymbolTypeAny,
-                                                  sc_list);
-
-  const uint32_t matches = sc_list.GetSize();
-  for (uint32_t i = 0; i < matches; ++i) {
-    SymbolContext sym_ctx;
-    sc_list.GetContextAtIndex(i, sym_ctx);
-    if (sym_ctx.symbol) {
-      const Symbol *symbol = sym_ctx.symbol;
-      const Address sym_address = symbol->GetAddress();
-
-      if (sym_address.IsValid()) {
-        switch (symbol->GetType()) {
-        case eSymbolTypeData:
-        case eSymbolTypeRuntime:
-        case eSymbolTypeAbsolute:
-        case eSymbolTypeObjCClass:
-        case eSymbolTypeObjCMetaClass:
-        case eSymbolTypeObjCIVar:
-          if (symbol->GetDemangledNameIsSynthesized()) {
-            // If the demangled name was synthesized, then don't use it
-            // for expressions. Only let the symbol match if the mangled
-            // named matches for these symbols.
-            if (symbol->GetMangled().GetMangledName() != name)
-              break;
-          }
-          return symbol;
-
-        case eSymbolTypeReExported: {
-          ConstString reexport_name = symbol->GetReExportedSymbolName();
-          if (reexport_name) {
-            ModuleSP reexport_module_sp;
-            ModuleSpec reexport_module_spec;
-            reexport_module_spec.GetPlatformFileSpec() =
-                symbol->GetReExportedSymbolSharedLibrary();
-            if (reexport_module_spec.GetPlatformFileSpec()) {
-              reexport_module_sp =
-                  target.GetImages().FindFirstModule(reexport_module_spec);
-              if (!reexport_module_sp) {
-                reexport_module_spec.GetPlatformFileSpec()
-                    .GetDirectory()
-                    .Clear();
-                reexport_module_sp =
-                    target.GetImages().FindFirstModule(reexport_module_spec);
-              }
-            }
-            // Don't allow us to try and resolve a re-exported symbol if it is
-            // the same
-            // as the current symbol
-            if (name == symbol->GetReExportedSymbolName() &&
-                module == reexport_module_sp.get())
-              return NULL;
-
-            return FindGlobalDataSymbol(target,
-                                        symbol->GetReExportedSymbolName(),
-                                        reexport_module_sp.get());
-          }
-        } break;
-
-        case eSymbolTypeCode: // We already lookup functions elsewhere
-        case eSymbolTypeVariable:
-        case eSymbolTypeLocal:
-        case eSymbolTypeParam:
-        case eSymbolTypeTrampoline:
-        case eSymbolTypeInvalid:
-        case eSymbolTypeException:
-        case eSymbolTypeSourceFile:
-        case eSymbolTypeHeaderFile:
-        case eSymbolTypeObjectFile:
-        case eSymbolTypeCommonBlock:
-        case eSymbolTypeBlock:
-        case eSymbolTypeVariableType:
-        case eSymbolTypeLineEntry:
-        case eSymbolTypeLineHeader:
-        case eSymbolTypeScopeBegin:
-        case eSymbolTypeScopeEnd:
-        case eSymbolTypeAdditional:
-        case eSymbolTypeCompiler:
-        case eSymbolTypeInstrumentation:
-        case eSymbolTypeUndefined:
-        case eSymbolTypeResolver:
-          break;
-        }
-      }
-    }
-  }
-
-  return NULL;
 }
 
 lldb::VariableSP ClangExpressionDeclMap::FindGlobalVariable(
@@ -1526,9 +1429,18 @@ void ClangExpressionDeclMap::FindExternalVisibleDecls(
       // We couldn't find a non-symbol variable for this.  Now we'll hunt for
       // a generic
       // data symbol, and -- if it is found -- treat it as a variable.
-
-      const Symbol *data_symbol = FindGlobalDataSymbol(*target, name);
-
+      Status error;
+      
+      const Symbol *data_symbol =
+          m_parser_vars->m_sym_ctx.FindBestGlobalDataSymbol(name, error);
+      
+      if (!error.Success()) {
+        const unsigned diag_id =
+            m_ast_context->getDiagnostics().getCustomDiagID(
+                clang::DiagnosticsEngine::Level::Error, "%0");
+        m_ast_context->getDiagnostics().Report(diag_id) << error.AsCString();
+      }
+                                          
       if (data_symbol) {
         std::string warning("got name from symbols: ");
         warning.append(name.AsCString());
@@ -1630,7 +1542,7 @@ bool ClangExpressionDeclMap::GetVariableValue(VariableSP &var,
   DWARFExpression &var_location_expr = var->LocationExpression();
 
   Target *target = m_parser_vars->m_exe_ctx.GetTargetPtr();
-  Error err;
+  Status err;
 
   if (var->GetLocationIsConstantValueData()) {
     DataExtractor const_value_extractor;
@@ -1987,8 +1899,33 @@ void ClangExpressionDeclMap::AddOneFunction(NameSearchContext &context,
                 .GetOpaqueDeclContext();
         clang::FunctionDecl *src_function_decl =
             llvm::dyn_cast_or_null<clang::FunctionDecl>(src_decl_context);
-
-        if (src_function_decl) {
+        if (src_function_decl &&
+            src_function_decl->getTemplateSpecializationInfo()) {
+          clang::FunctionTemplateDecl *function_template =
+              src_function_decl->getTemplateSpecializationInfo()->getTemplate();
+          clang::FunctionTemplateDecl *copied_function_template =
+              llvm::dyn_cast_or_null<clang::FunctionTemplateDecl>(
+                 m_ast_importer_sp->CopyDecl(m_ast_context,
+                                             src_ast->getASTContext(),
+                                             function_template));
+          if (copied_function_template) {
+            if (log) {
+              ASTDumper ast_dumper((clang::Decl *)copied_function_template);
+              
+              StreamString ss;
+              
+              function->DumpSymbolContext(&ss);
+              
+              log->Printf("  CEDM::FEVD[%u] Imported decl for function template"
+                          " %s (description %s), returned %s",
+                          current_id,
+                          copied_function_template->getNameAsString().c_str(),
+                          ss.GetData(), ast_dumper.GetCString());
+            }
+            
+            context.AddNamedDecl(copied_function_template);
+          }
+        } else if (src_function_decl) {
           if (clang::FunctionDecl *copied_function_decl =
                   llvm::dyn_cast_or_null<clang::FunctionDecl>(
                       m_ast_importer_sp->CopyDecl(m_ast_context,
