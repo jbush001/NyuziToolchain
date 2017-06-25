@@ -184,9 +184,23 @@ struct FormatStyle {
   enum ShortFunctionStyle {
     /// \brief Never merge functions into a single line.
     SFS_None,
+    /// \brief Only merge functions defined inside a class. Same as "inline",
+    /// except it does not implies "empty": i.e. top level empty functions
+    /// are not merged either.
+    /// \code
+    ///   class Foo {
+    ///     void f() { foo(); }
+    ///   };
+    ///   void f() {
+    ///     foo();
+    ///   }
+    ///   void f() {
+    ///   }
+    /// \endcode
+    SFS_InlineOnly,
     /// \brief Only merge empty functions.
     /// \code
-    ///   void f() { bar(); }
+    ///   void f() {}
     ///   void f2() {
     ///     bar2();
     ///   }
@@ -197,6 +211,10 @@ struct FormatStyle {
     ///   class Foo {
     ///     void f() { foo(); }
     ///   };
+    ///   void f() {
+    ///     foo();
+    ///   }
+    ///   void f() {}
     /// \endcode
     SFS_Inline,
     /// \brief Merge all functions fitting on a single line.
@@ -634,12 +652,12 @@ struct FormatStyle {
     ///   struct foo
     ///   {
     ///     int x;
-    ///   }
+    ///   };
     ///
     ///   false:
     ///   struct foo {
     ///     int x;
-    ///   }
+    ///   };
     /// \endcode
     bool AfterStruct;
     /// \brief Wrap union definitions.
@@ -688,6 +706,18 @@ struct FormatStyle {
     bool BeforeElse;
     /// \brief Indent the wrapped braces themselves.
     bool IndentBraces;
+    /// \brief If ``false``, empty function body can be put on a single line.
+    /// This option is used only if the opening brace of the function has
+    /// already been wrapped, i.e. the `AfterFunction` brace wrapping mode is
+    /// set, and the function could/should not be put on a single line (as per
+    /// `AllowShortFunctionsOnASingleLine` and constructor formatting options).
+    /// \code
+    ///   int f()   vs.   inf f()
+    ///   {}              {
+    ///                   }
+    /// \endcode
+    ///
+    bool SplitEmptyFunctionBody;
   };
 
   /// \brief Control of individual brace wrapping cases.
@@ -703,7 +733,7 @@ struct FormatStyle {
   ///        ? firstValue
   ///        : SecondValueVeryVeryVeryVeryLong;
   ///
-  ///    true:
+  ///    false:
   ///    veryVeryVeryVeryVeryVeryVeryVeryVeryVeryVeryLongDescription ?
   ///        firstValue :
   ///        SecondValueVeryVeryVeryVeryLong;
@@ -711,8 +741,7 @@ struct FormatStyle {
   bool BreakBeforeTernaryOperators;
 
   /// \brief Different ways to break initializers.
-  enum BreakConstructorInitializersStyle
-  {
+  enum BreakConstructorInitializersStyle {
     /// Break constructor initializers before the colon and after the commas.
     /// \code
     /// Constructor()
@@ -737,7 +766,7 @@ struct FormatStyle {
     BCIS_AfterColon
   };
 
-  /// \brief The constructor initializers style to use..
+  /// \brief The constructor initializers style to use.
   BreakConstructorInitializersStyle BreakConstructorInitializers;
 
   /// \brief Break after each annotation on a field in Java files.
@@ -778,6 +807,29 @@ struct FormatStyle {
   ///    };
   /// \endcode
   bool BreakBeforeInheritanceComma;
+
+  /// \brief If ``true``, consecutive namespace declarations will be on the same
+  /// line. If ``false``, each namespace is declared on a new line.
+  /// \code
+  ///   true:
+  ///   namespace Foo { namespace Bar {
+  ///   }}
+  ///
+  ///   false:
+  ///   namespace Foo {
+  ///   namespace Bar {
+  ///   }
+  ///   }
+  /// \endcode
+  ///
+  /// If it does not fit on a single line, the overflowing namespaces get
+  /// wrapped:
+  /// \code
+  ///   namespace Foo { namespace Bar {
+  ///   namespace Extra {
+  ///   }}}
+  /// \endcode
+  bool CompactNamespaces;
 
   /// \brief If the constructor initializers don't fit on a line, put each
   /// initializer on its own line.
@@ -1218,6 +1270,14 @@ struct FormatStyle {
   /// \endcode
   bool SortIncludes;
 
+  /// \brief If ``true``, clang-format will sort using declarations.
+  /// \code
+  ///    false:                                 true:
+  ///    using std::cout;               vs.     using std::cin;
+  ///    using std::cin;                        using std::cout;
+  /// \endcode
+  bool SortUsingDeclarations;
+
   /// \brief If ``true``, a space is inserted after C style casts.
   /// \code
   ///    true:                                  false:
@@ -1410,6 +1470,7 @@ struct FormatStyle {
            BreakBeforeBraces == R.BreakBeforeBraces &&
            BreakBeforeTernaryOperators == R.BreakBeforeTernaryOperators &&
            BreakConstructorInitializers == R.BreakConstructorInitializers &&
+           CompactNamespaces == R.CompactNamespaces &&
            BreakAfterJavaFieldAnnotations == R.BreakAfterJavaFieldAnnotations &&
            BreakStringLiterals == R.BreakStringLiterals &&
            ColumnLimit == R.ColumnLimit && CommentPragmas == R.CommentPragmas &&
@@ -1604,6 +1665,16 @@ tooling::Replacements fixNamespaceEndComments(const FormatStyle &Style,
                                               StringRef Code,
                                               ArrayRef<tooling::Range> Ranges,
                                               StringRef FileName = "<stdin>");
+
+/// \brief Sort consecutive using declarations in the given \p Ranges in
+/// \p Code.
+///
+/// Returns the ``Replacements`` that sort the using declarations in all
+/// \p Ranges in \p Code.
+tooling::Replacements sortUsingDeclarations(const FormatStyle &Style,
+                                            StringRef Code,
+                                            ArrayRef<tooling::Range> Ranges,
+                                            StringRef FileName = "<stdin>");
 
 /// \brief Returns the ``LangOpts`` that the formatter expects you to set.
 ///

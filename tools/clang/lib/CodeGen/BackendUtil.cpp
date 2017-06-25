@@ -410,7 +410,7 @@ static void initTargetOptions(llvm::TargetOptions &Options,
 
   Options.UseInitArray = CodeGenOpts.UseInitArray;
   Options.DisableIntegratedAS = CodeGenOpts.DisableIntegratedAS;
-  Options.CompressDebugSections = CodeGenOpts.CompressDebugSections;
+  Options.CompressDebugSections = CodeGenOpts.getCompressDebugSections();
   Options.RelaxELFRelocations = CodeGenOpts.RelaxELFRelocations;
 
   // Set EABI version.
@@ -964,11 +964,11 @@ Expected<BitcodeModule> clang::FindThinLTOModule(MemoryBufferRef MBRef) {
   if (!BMsOrErr)
     return BMsOrErr.takeError();
 
-  // The bitcode file may contain multiple modules, we want the one with a
-  // summary.
+  // The bitcode file may contain multiple modules, we want the one that is
+  // marked as being the ThinLTO module.
   for (BitcodeModule &BM : *BMsOrErr) {
-    Expected<bool> HasSummary = BM.hasSummary();
-    if (HasSummary && *HasSummary)
+    Expected<BitcodeLTOInfo> LTOInfo = BM.getLTOInfo();
+    if (LTOInfo && LTOInfo->IsThinLTO)
       return BM;
   }
 

@@ -11,6 +11,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "llvm/CodeGen/AsmPrinter.h"
 #include "AsmPrinterHandler.h"
 #include "CodeViewDebug.h"
 #include "DwarfDebug.h"
@@ -19,18 +20,19 @@
 #include "llvm/ADT/APFloat.h"
 #include "llvm/ADT/APInt.h"
 #include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/Statistic.h"
-#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/Triple.h"
 #include "llvm/ADT/Twine.h"
 #include "llvm/Analysis/ConstantFolding.h"
 #include "llvm/Analysis/ObjectUtils.h"
+#include "llvm/BinaryFormat/Dwarf.h"
+#include "llvm/BinaryFormat/ELF.h"
 #include "llvm/CodeGen/Analysis.h"
-#include "llvm/CodeGen/AsmPrinter.h"
 #include "llvm/CodeGen/GCMetadata.h"
 #include "llvm/CodeGen/GCMetadataPrinter.h"
 #include "llvm/CodeGen/GCStrategy.h"
@@ -82,14 +84,12 @@
 #include "llvm/Pass.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/Compiler.h"
-#include "llvm/Support/Dwarf.h"
-#include "llvm/Support/ELF.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/Format.h"
 #include "llvm/Support/MathExtras.h"
-#include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/TargetRegistry.h"
 #include "llvm/Support/Timer.h"
+#include "llvm/Support/raw_ostream.h"
 #include "llvm/Target/TargetFrameLowering.h"
 #include "llvm/Target/TargetInstrInfo.h"
 #include "llvm/Target/TargetLowering.h"
@@ -1286,11 +1286,7 @@ bool AsmPrinter::doFinalization(Module &M) {
 
   const TargetLoweringObjectFile &TLOF = getObjFileLowering();
 
-  // Emit module flags.
-  SmallVector<Module::ModuleFlagEntry, 8> ModuleFlags;
-  M.getModuleFlagsMetadata(ModuleFlags);
-  if (!ModuleFlags.empty())
-    TLOF.emitModuleFlags(*OutStreamer, ModuleFlags, TM);
+  TLOF.emitModuleMetadata(*OutStreamer, M, TM);
 
   if (TM.getTargetTriple().isOSBinFormatELF()) {
     MachineModuleInfoELF &MMIELF = MMI->getObjFileInfo<MachineModuleInfoELF>();
@@ -2805,26 +2801,24 @@ void AsmPrinter::emitXRayTable() {
   }
 
   // Before we switch over, we force a reference to a label inside the
-  // xray_instr_map and xray_fn_idx sections. Since this function is always
-  // called just before the function's end, we assume that this is happening
-  // after the last return instruction. We also use the synthetic label in the
-  // xray_inster_map as a delimeter for the range of sleds for this function in
-  // the index.
+  // xray_fn_idx sections. This makes sure that the xray_fn_idx section is kept
+  // live by the linker if the function is not garbage-collected. Since this
+  // function is always called just before the function's end, we assume that
+  // this is happening after the last return instruction.
   auto WordSizeBytes = MAI->getCodePointerSize();
-  MCSymbol *SledsStart = OutContext.createTempSymbol("xray_synthetic_", true);
   MCSymbol *IdxRef = OutContext.createTempSymbol("xray_fn_idx_synth_", true);
   OutStreamer->EmitCodeAlignment(16);
-  OutStreamer->EmitSymbolValue(SledsStart, WordSizeBytes, false);
   OutStreamer->EmitSymbolValue(IdxRef, WordSizeBytes, false);
 
   // Now we switch to the instrumentation map section. Because this is done
   // per-function, we are able to create an index entry that will represent the
   // range of sleds associated with a function.
+  MCSymbol *SledsStart = OutContext.createTempSymbol("xray_sleds_start", true);
   OutStreamer->SwitchSection(InstMap);
   OutStreamer->EmitLabel(SledsStart);
   for (const auto &Sled : Sleds)
     Sled.emit(WordSizeBytes, OutStreamer.get(), CurrentFnSym);
-  MCSymbol *SledsEnd = OutContext.createTempSymbol("xray_synthetic_end", true);
+  MCSymbol *SledsEnd = OutContext.createTempSymbol("xray_sleds_end", true);
   OutStreamer->EmitLabel(SledsEnd);
 
   // We then emit a single entry in the index per function. We use the symbols

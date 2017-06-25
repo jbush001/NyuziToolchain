@@ -181,7 +181,7 @@ void OutputSection::addChunk(Chunk *C) {
   uint64_t Off = Header.VirtualSize;
   Off = alignTo(Off, C->getAlign());
   C->setRVA(Off);
-  C->setOutputSectionOff(Off);
+  C->OutputSectionOff = Off;
   Off += C->getSize();
   Header.VirtualSize = Off;
   if (C->hasData())
@@ -213,13 +213,16 @@ void OutputSection::writeHeaderTo(uint8_t *Buf) {
 uint64_t Defined::getSecrel() {
   if (auto *D = dyn_cast<DefinedRegular>(this))
     return getRVA() - D->getChunk()->getOutputSection()->getRVA();
-  fatal("SECREL relocation points to a non-regular symbol");
+  fatal("SECREL relocation points to a non-regular symbol: " + toString(*this));
 }
 
 uint64_t Defined::getSectionIndex() {
   if (auto *D = dyn_cast<DefinedRegular>(this))
     return D->getChunk()->getOutputSection()->SectionIndex;
-  fatal("SECTION relocation points to a non-regular symbol");
+  if (isa<DefinedAbsolute>(this))
+    return DefinedAbsolute::OutputSectionIndex;
+  fatal("SECTION relocation points to a non-regular symbol: " +
+        toString(*this));
 }
 
 bool Defined::isExecutable() {
@@ -445,9 +448,12 @@ Optional<coff_symbol16> Writer::createSymbol(Defined *Def) {
   if (isa<DefinedRelative>(Def))
     return None;
 
-  if (auto *D = dyn_cast<DefinedRegular>(Def))
-    if (!D->getChunk()->isLive())
+  if (auto *D = dyn_cast<DefinedRegular>(Def)) {
+    // Don't write dead symbols or symbols in codeview sections to the symbol
+    // table.
+    if (!D->getChunk()->isLive() || D->getChunk()->isCodeView())
       return None;
+  }
 
   if (auto *Sym = dyn_cast<DefinedImportData>(Def))
     if (!Sym->File->Live)
@@ -599,6 +605,15 @@ template <typename PEHeaderTy> void Writer::writeHeader() {
   auto *PE = reinterpret_cast<PEHeaderTy *>(Buf);
   Buf += sizeof(*PE);
   PE->Magic = Config->is64() ? PE32Header::PE32_PLUS : PE32Header::PE32;
+
+  // If {Major,Minor}LinkerVersion is left at 0.0, then for some
+  // reason signing the resulting PE file with Authenticode produces a
+  // signature that fails to validate on Windows 7 (but is OK on 10).
+  // Set it to 14.0, which is what VS2015 outputs, and which avoids
+  // that problem.
+  PE->MajorLinkerVersion = 14;
+  PE->MinorLinkerVersion = 0;
+
   PE->ImageBase = Config->ImageBase;
   PE->SectionAlignment = PageSize;
   PE->FileAlignment = SectorSize;
@@ -762,6 +777,10 @@ void Writer::setSectionPermissions() {
 
 // Write section contents to a mmap'ed file.
 void Writer::writeSections() {
+  // Record the section index that should be used when resolving a section
+  // relocation against an absolute symbol.
+  DefinedAbsolute::OutputSectionIndex = OutputSections.size() + 1;
+
   uint8_t *Buf = Buffer->getBufferStart();
   for (OutputSection *Sec : OutputSections) {
     uint8_t *SecBuf = Buf + Sec->getFileOff();

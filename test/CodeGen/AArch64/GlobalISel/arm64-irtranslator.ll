@@ -31,10 +31,13 @@ define i64 @muli64(i64 %arg1, i64 %arg2) {
 ; Tests for alloca
 ; CHECK-LABEL: name: allocai64
 ; CHECK: stack:
-; CHECK-NEXT:   - { id: 0, name: ptr1, offset: 0, size: 8, alignment: 8 }
-; CHECK-NEXT:   - { id: 1, name: ptr2, offset: 0, size: 8, alignment: 1 }
-; CHECK-NEXT:   - { id: 2, name: ptr3, offset: 0, size: 128, alignment: 8 }
-; CHECK-NEXT:   - { id: 3, name: ptr4, offset: 0, size: 1, alignment: 8 }
+; CHECK-NEXT:   - { id: 0, name: ptr1, type: default, offset: 0, size: 8, alignment: 8,
+; CHECK-NEXT:       callee-saved-register: '', di-variable: '', di-expression: '', di-location: '' }
+; CHECK-NEXT:   - { id: 1, name: ptr2, type: default, offset: 0, size: 8, alignment: 1,
+; CHECK-NEXT:       callee-saved-register: '', di-variable: '', di-expression: '', di-location: '' }
+; CHECK-NEXT:   - { id: 2, name: ptr3, type: default, offset: 0, size: 128, alignment: 8,
+; CHECK-NEXT:       callee-saved-register: '', di-variable: '', di-expression: '', di-location: '' }
+; CHECK-NEXT:   - { id: 3, name: ptr4, type: default, offset: 0, size: 1, alignment: 8,
 ; CHECK: %{{[0-9]+}}(p0) = G_FRAME_INDEX %stack.0.ptr1
 ; CHECK: %{{[0-9]+}}(p0) = G_FRAME_INDEX %stack.1.ptr2
 ; CHECK: %{{[0-9]+}}(p0) = G_FRAME_INDEX %stack.2.ptr3
@@ -804,7 +807,9 @@ define float @test_frem(float %arg1, float %arg2) {
 ; CHECK: [[RHS:%[0-9]+]](s32) = COPY %w1
 ; CHECK: [[ADDR:%[0-9]+]](p0) = COPY %x2
 ; CHECK: [[VAL:%[0-9]+]](s32), [[OVERFLOW:%[0-9]+]](s1) = G_SADDO [[LHS]], [[RHS]]
-; CHECK: [[RES:%[0-9]+]](s64) = G_SEQUENCE [[VAL]](s32), 0, [[OVERFLOW]](s1), 32
+; CHECK: [[TMP:%[0-9]+]](s64) = IMPLICIT_DEF
+; CHECK: [[TMP1:%[0-9]+]](s64) = G_INSERT [[TMP]], [[VAL]](s32), 0
+; CHECK: [[RES:%[0-9]+]](s64) = G_INSERT [[TMP1]], [[OVERFLOW]](s1), 32
 ; CHECK: G_STORE [[RES]](s64), [[ADDR]](p0)
 declare { i32, i1 } @llvm.sadd.with.overflow.i32(i32, i32)
 define void @test_sadd_overflow(i32 %lhs, i32 %rhs, { i32, i1 }* %addr) {
@@ -819,7 +824,9 @@ define void @test_sadd_overflow(i32 %lhs, i32 %rhs, { i32, i1 }* %addr) {
 ; CHECK: [[ADDR:%[0-9]+]](p0) = COPY %x2
 ; CHECK: [[ZERO:%[0-9]+]](s1) = G_CONSTANT i1 false
 ; CHECK: [[VAL:%[0-9]+]](s32), [[OVERFLOW:%[0-9]+]](s1) = G_UADDE [[LHS]], [[RHS]], [[ZERO]]
-; CHECK: [[RES:%[0-9]+]](s64) = G_SEQUENCE [[VAL]](s32), 0, [[OVERFLOW]](s1), 32
+; CHECK: [[TMP:%[0-9]+]](s64) = IMPLICIT_DEF
+; CHECK: [[TMP1:%[0-9]+]](s64) = G_INSERT [[TMP]], [[VAL]](s32), 0
+; CHECK: [[RES:%[0-9]+]](s64) = G_INSERT [[TMP1]], [[OVERFLOW]](s1), 32
 ; CHECK: G_STORE [[RES]](s64), [[ADDR]](p0)
 declare { i32, i1 } @llvm.uadd.with.overflow.i32(i32, i32)
 define void @test_uadd_overflow(i32 %lhs, i32 %rhs, { i32, i1 }* %addr) {
@@ -833,7 +840,9 @@ define void @test_uadd_overflow(i32 %lhs, i32 %rhs, { i32, i1 }* %addr) {
 ; CHECK: [[RHS:%[0-9]+]](s32) = COPY %w1
 ; CHECK: [[ADDR:%[0-9]+]](p0) = COPY %x2
 ; CHECK: [[VAL:%[0-9]+]](s32), [[OVERFLOW:%[0-9]+]](s1) = G_SSUBO [[LHS]], [[RHS]]
-; CHECK: [[RES:%[0-9]+]](s64) = G_SEQUENCE [[VAL]](s32), 0, [[OVERFLOW]](s1), 32
+; CHECK: [[TMP:%[0-9]+]](s64) = IMPLICIT_DEF
+; CHECK: [[TMP1:%[0-9]+]](s64) = G_INSERT [[TMP]], [[VAL]](s32), 0
+; CHECK: [[RES:%[0-9]+]](s64) = G_INSERT [[TMP1]], [[OVERFLOW]](s1), 32
 ; CHECK: G_STORE [[RES]](s64), [[ADDR]](p0)
 declare { i32, i1 } @llvm.ssub.with.overflow.i32(i32, i32)
 define void @test_ssub_overflow(i32 %lhs, i32 %rhs, { i32, i1 }* %subr) {
@@ -848,7 +857,9 @@ define void @test_ssub_overflow(i32 %lhs, i32 %rhs, { i32, i1 }* %subr) {
 ; CHECK: [[ADDR:%[0-9]+]](p0) = COPY %x2
 ; CHECK: [[ZERO:%[0-9]+]](s1) = G_CONSTANT i1 false
 ; CHECK: [[VAL:%[0-9]+]](s32), [[OVERFLOW:%[0-9]+]](s1) = G_USUBE [[LHS]], [[RHS]], [[ZERO]]
-; CHECK: [[RES:%[0-9]+]](s64) = G_SEQUENCE [[VAL]](s32), 0, [[OVERFLOW]](s1), 32
+; CHECK: [[TMP:%[0-9]+]](s64) = IMPLICIT_DEF
+; CHECK: [[TMP1:%[0-9]+]](s64) = G_INSERT [[TMP]], [[VAL]](s32), 0
+; CHECK: [[RES:%[0-9]+]](s64) = G_INSERT [[TMP1]], [[OVERFLOW]](s1), 32
 ; CHECK: G_STORE [[RES]](s64), [[ADDR]](p0)
 declare { i32, i1 } @llvm.usub.with.overflow.i32(i32, i32)
 define void @test_usub_overflow(i32 %lhs, i32 %rhs, { i32, i1 }* %subr) {
@@ -862,7 +873,9 @@ define void @test_usub_overflow(i32 %lhs, i32 %rhs, { i32, i1 }* %subr) {
 ; CHECK: [[RHS:%[0-9]+]](s32) = COPY %w1
 ; CHECK: [[ADDR:%[0-9]+]](p0) = COPY %x2
 ; CHECK: [[VAL:%[0-9]+]](s32), [[OVERFLOW:%[0-9]+]](s1) = G_SMULO [[LHS]], [[RHS]]
-; CHECK: [[RES:%[0-9]+]](s64) = G_SEQUENCE [[VAL]](s32), 0, [[OVERFLOW]](s1), 32
+; CHECK: [[TMP:%[0-9]+]](s64) = IMPLICIT_DEF
+; CHECK: [[TMP1:%[0-9]+]](s64) = G_INSERT [[TMP]], [[VAL]](s32), 0
+; CHECK: [[RES:%[0-9]+]](s64) = G_INSERT [[TMP1]], [[OVERFLOW]](s1), 32
 ; CHECK: G_STORE [[RES]](s64), [[ADDR]](p0)
 declare { i32, i1 } @llvm.smul.with.overflow.i32(i32, i32)
 define void @test_smul_overflow(i32 %lhs, i32 %rhs, { i32, i1 }* %addr) {
@@ -876,7 +889,9 @@ define void @test_smul_overflow(i32 %lhs, i32 %rhs, { i32, i1 }* %addr) {
 ; CHECK: [[RHS:%[0-9]+]](s32) = COPY %w1
 ; CHECK: [[ADDR:%[0-9]+]](p0) = COPY %x2
 ; CHECK: [[VAL:%[0-9]+]](s32), [[OVERFLOW:%[0-9]+]](s1) = G_UMULO [[LHS]], [[RHS]]
-; CHECK: [[RES:%[0-9]+]](s64) = G_SEQUENCE [[VAL]](s32), 0, [[OVERFLOW]](s1), 32
+; CHECK: [[TMP:%[0-9]+]](s64) = IMPLICIT_DEF
+; CHECK: [[TMP1:%[0-9]+]](s64) = G_INSERT [[TMP]], [[VAL]](s32), 0
+; CHECK: [[RES:%[0-9]+]](s64) = G_INSERT [[TMP1]], [[OVERFLOW]](s1), 32
 ; CHECK: G_STORE [[RES]](s64), [[ADDR]](p0)
 declare { i32, i1 } @llvm.umul.with.overflow.i32(i32, i32)
 define void @test_umul_overflow(i32 %lhs, i32 %rhs, { i32, i1 }* %addr) {
@@ -1244,6 +1259,18 @@ define float @test_pow_intrin(float %l, float %r) {
   ret float %res
 }
 
+declare float @llvm.fma.f32(float, float, float)
+define float @test_fma_intrin(float %a, float %b, float %c) {
+; CHECK-LABEL: name: test_fma_intrin
+; CHECK: [[A:%[0-9]+]](s32) = COPY %s0
+; CHECK: [[B:%[0-9]+]](s32) = COPY %s1
+; CHECK: [[C:%[0-9]+]](s32) = COPY %s2
+; CHECK: [[RES:%[0-9]+]](s32) = G_FMA [[A]], [[B]], [[C]]
+; CHECK: %s0 = COPY [[RES]]
+  %res = call float @llvm.fma.f32(float %a, float %b, float %c)
+  ret float %res
+}
+
 declare void @llvm.lifetime.start.p0i8(i64, i8*)
 declare void @llvm.lifetime.end.p0i8(i64, i8*)
 define void @test_lifetime_intrin() {
@@ -1550,3 +1577,15 @@ define <16 x i8> @test_shufflevector_v8s8_v16s8(<8 x i8> %arg1, <8 x i8> %arg2) 
 define <4 x half> @test_constant_vector() {
   ret <4 x half> <half undef, half undef, half undef, half 0xH3C00>
 }
+
+define i32 @test_target_mem_intrinsic(i32* %addr) {
+; CHECK-LABEL: name: test_target_mem_intrinsic
+; CHECK: [[ADDR:%[0-9]+]](p0) = COPY %x0
+; CHECK: [[VAL:%[0-9]+]](s64) = G_INTRINSIC_W_SIDE_EFFECTS intrinsic(@llvm.aarch64.ldxr), [[ADDR]](p0) :: (volatile load 4 from %ir.addr)
+; CHECK: G_TRUNC [[VAL]](s64)
+  %val = call i64 @llvm.aarch64.ldxr.p0i32(i32* %addr)
+  %trunc = trunc i64 %val to i32
+  ret i32 %trunc
+}
+
+declare i64 @llvm.aarch64.ldxr.p0i32(i32*) nounwind

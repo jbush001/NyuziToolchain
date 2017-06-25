@@ -27,9 +27,10 @@
 #include "Threads.h"
 #include "Writer.h"
 #include "lld/Config/Version.h"
+#include "llvm/BinaryFormat/Dwarf.h"
 #include "llvm/DebugInfo/DWARF/DWARFDebugPubTable.h"
+#include "llvm/Object/Decompressor.h"
 #include "llvm/Object/ELFObjectFile.h"
-#include "llvm/Support/Dwarf.h"
 #include "llvm/Support/Endian.h"
 #include "llvm/Support/MD5.h"
 #include "llvm/Support/RandomNumberGenerator.h"
@@ -1691,49 +1692,44 @@ static uint32_t hash(StringRef Str) {
   return R;
 }
 
-static std::vector<std::pair<uint64_t, uint64_t>>
-readCuList(DWARFContext &Dwarf, InputSection *Sec) {
-  std::vector<std::pair<uint64_t, uint64_t>> Ret;
+static std::vector<CompilationUnitEntry> readCuList(DWARFContext &Dwarf,
+                                                    InputSection *Sec) {
+  std::vector<CompilationUnitEntry> Ret;
   for (std::unique_ptr<DWARFCompileUnit> &CU : Dwarf.compile_units())
     Ret.push_back({Sec->OutSecOff + CU->getOffset(), CU->getLength() + 4});
   return Ret;
 }
 
-static InputSection *findSection(ArrayRef<InputSectionBase *> Arr,
-                                 uint64_t Offset) {
-  for (InputSectionBase *S : Arr)
-    if (auto *IS = dyn_cast_or_null<InputSection>(S))
-      if (IS != &InputSection::Discarded && IS->Live &&
-          Offset >= IS->getOffsetInFile() &&
-          Offset < IS->getOffsetInFile() + IS->getSize())
-        return IS;
-  return nullptr;
-}
-
-static std::vector<AddressEntry>
-readAddressArea(DWARFContext &Dwarf, InputSection *Sec, size_t CurrentCU) {
+static std::vector<AddressEntry> readAddressArea(DWARFContext &Dwarf,
+                                                 InputSection *Sec) {
   std::vector<AddressEntry> Ret;
 
+  uint32_t CurrentCu = 0;
   for (std::unique_ptr<DWARFCompileUnit> &CU : Dwarf.compile_units()) {
     DWARFAddressRangesVector Ranges;
     CU->collectAddressRanges(Ranges);
 
     ArrayRef<InputSectionBase *> Sections = Sec->File->getSections();
-    for (DWARFAddressRange &R : Ranges)
-      if (InputSection *S = findSection(Sections, R.LowPC))
-        Ret.push_back({S, R.LowPC - S->getOffsetInFile(),
-                       R.HighPC - S->getOffsetInFile(), CurrentCU});
-    ++CurrentCU;
+    for (DWARFAddressRange &R : Ranges) {
+      InputSectionBase *S = Sections[R.SectionIndex];
+      if (!S || S == &InputSection::Discarded || !S->Live)
+        continue;
+      // Range list with zero size has no effect.
+      if (R.LowPC == R.HighPC)
+        continue;
+      Ret.push_back({cast<InputSection>(S), R.LowPC, R.HighPC, CurrentCu});
+    }
+    ++CurrentCu;
   }
   return Ret;
 }
 
-static std::vector<std::pair<StringRef, uint8_t>>
-readPubNamesAndTypes(DWARFContext &Dwarf, bool IsLE) {
+static std::vector<NameTypeEntry> readPubNamesAndTypes(DWARFContext &Dwarf,
+                                                       bool IsLE) {
   StringRef Data[] = {Dwarf.getGnuPubNamesSection(),
                       Dwarf.getGnuPubTypesSection()};
 
-  std::vector<std::pair<StringRef, uint8_t>> Ret;
+  std::vector<NameTypeEntry> Ret;
   for (StringRef D : Data) {
     DWARFDebugPubTable PubTable(D, IsLE, true);
     for (const DWARFDebugPubTable::Set &Set : PubTable.getData())
@@ -1743,52 +1739,77 @@ readPubNamesAndTypes(DWARFContext &Dwarf, bool IsLE) {
   return Ret;
 }
 
-class ObjInfoTy : public llvm::LoadedObjectInfo {
-  uint64_t getSectionLoadAddress(const object::SectionRef &Sec) const override {
-    auto &S = static_cast<const object::ELFSectionRef &>(Sec);
-    if (S.getFlags() & ELF::SHF_ALLOC)
-      return S.getOffset();
-    return 0;
+static std::vector<InputSection *> getDebugInfoSections() {
+  std::vector<InputSection *> Ret;
+  for (InputSectionBase *S : InputSections)
+    if (InputSection *IS = dyn_cast<InputSection>(S))
+      if (IS->getParent() && IS->Name == ".debug_info")
+        Ret.push_back(IS);
+  return Ret;
+}
+
+void GdbIndexSection::buildIndex() {
+  std::vector<InputSection *> V = getDebugInfoSections();
+  if (V.empty())
+    return;
+
+  for (InputSection *Sec : V)
+    Chunks.push_back(readDwarf(Sec));
+
+  uint32_t CuId = 0;
+  for (GdbIndexChunk &D : Chunks) {
+    for (AddressEntry &E : D.AddressArea)
+      E.CuIndex += CuId;
+
+    // Populate constant pool area.
+    for (NameTypeEntry &NameType : D.NamesAndTypes) {
+      uint32_t Hash = hash(NameType.Name);
+      size_t Offset = StringPool.add(NameType.Name);
+
+      bool IsNew;
+      GdbSymbol *Sym;
+      std::tie(IsNew, Sym) = SymbolTable.add(Hash, Offset);
+      if (IsNew) {
+        Sym->CuVectorIndex = CuVectors.size();
+        CuVectors.resize(CuVectors.size() + 1);
+      }
+
+      CuVectors[Sym->CuVectorIndex].insert(CuId | (NameType.Type << 24));
+    }
+
+    CuId += D.CompilationUnits.size();
   }
+}
 
-  std::unique_ptr<llvm::LoadedObjectInfo> clone() const override { return {}; }
-};
-
-void GdbIndexSection::readDwarf(InputSection *Sec) {
+GdbIndexChunk GdbIndexSection::readDwarf(InputSection *Sec) {
   Expected<std::unique_ptr<object::ObjectFile>> Obj =
       object::ObjectFile::createObjectFile(Sec->File->MB);
   if (!Obj) {
     error(toString(Sec->File) + ": error creating DWARF context");
-    return;
+    return {};
   }
 
-  ObjInfoTy ObjInfo;
-  DWARFContextInMemory Dwarf(*Obj.get(), &ObjInfo);
+  DWARFContextInMemory Dwarf(*Obj.get());
 
-  size_t CuId = CompilationUnits.size();
-  for (std::pair<uint64_t, uint64_t> &P : readCuList(Dwarf, Sec))
-    CompilationUnits.push_back(P);
+  GdbIndexChunk Ret;
+  Ret.CompilationUnits = readCuList(Dwarf, Sec);
+  Ret.AddressArea = readAddressArea(Dwarf, Sec);
+  Ret.NamesAndTypes = readPubNamesAndTypes(Dwarf, Config->IsLE);
+  return Ret;
+}
 
-  for (AddressEntry &Ent : readAddressArea(Dwarf, Sec, CuId))
-    AddressArea.push_back(Ent);
+static size_t getCuSize(std::vector<GdbIndexChunk> &C) {
+  size_t Ret = 0;
+  for (GdbIndexChunk &D : C)
+    Ret += D.CompilationUnits.size();
+  return Ret;
+}
 
-  std::vector<std::pair<StringRef, uint8_t>> NamesAndTypes =
-      readPubNamesAndTypes(Dwarf, Config->IsLE);
-
-  for (std::pair<StringRef, uint8_t> &Pair : NamesAndTypes) {
-    uint32_t Hash = hash(Pair.first);
-    size_t Offset = StringPool.add(Pair.first);
-
-    bool IsNew;
-    GdbSymbol *Sym;
-    std::tie(IsNew, Sym) = SymbolTable.add(Hash, Offset);
-    if (IsNew) {
-      Sym->CuVectorIndex = CuVectors.size();
-      CuVectors.resize(CuVectors.size() + 1);
-    }
-
-    CuVectors[Sym->CuVectorIndex].insert((Pair.second << 24) | (uint32_t)CuId);
-  }
+static size_t getAddressAreaSize(std::vector<GdbIndexChunk> &C) {
+  size_t Ret = 0;
+  for (GdbIndexChunk &D : C)
+    Ret += D.AddressArea.size();
+  return Ret;
 }
 
 void GdbIndexSection::finalizeContents() {
@@ -1796,17 +1817,14 @@ void GdbIndexSection::finalizeContents() {
     return;
   Finalized = true;
 
-  for (InputSectionBase *S : InputSections)
-    if (InputSection *IS = dyn_cast<InputSection>(S))
-      if (IS->getParent() && IS->Name == ".debug_info")
-        readDwarf(IS);
+  buildIndex();
 
   SymbolTable.finalizeContents();
 
   // GdbIndex header consist from version fields
   // and 5 more fields with different kinds of offsets.
-  CuTypesOffset = CuListOffset + CompilationUnits.size() * CompilationUnitSize;
-  SymTabOffset = CuTypesOffset + AddressArea.size() * AddressEntrySize;
+  CuTypesOffset = CuListOffset + getCuSize(Chunks) * CompilationUnitSize;
+  SymTabOffset = CuTypesOffset + getAddressAreaSize(Chunks) * AddressEntrySize;
 
   ConstantPoolOffset =
       SymTabOffset + SymbolTable.getCapacity() * SymTabEntrySize;
@@ -1835,19 +1853,24 @@ void GdbIndexSection::writeTo(uint8_t *Buf) {
   Buf += 24;
 
   // Write the CU list.
-  for (std::pair<uint64_t, uint64_t> CU : CompilationUnits) {
-    write64le(Buf, CU.first);
-    write64le(Buf + 8, CU.second);
-    Buf += 16;
+  for (GdbIndexChunk &D : Chunks) {
+    for (CompilationUnitEntry &Cu : D.CompilationUnits) {
+      write64le(Buf, Cu.CuOffset);
+      write64le(Buf + 8, Cu.CuLength);
+      Buf += 16;
+    }
   }
 
   // Write the address area.
-  for (AddressEntry &E : AddressArea) {
-    uint64_t BaseAddr = E.Section->getParent()->Addr + E.Section->getOffset(0);
-    write64le(Buf, BaseAddr + E.LowAddress);
-    write64le(Buf + 8, BaseAddr + E.HighAddress);
-    write32le(Buf + 16, E.CuIndex);
-    Buf += 20;
+  for (GdbIndexChunk &D : Chunks) {
+    for (AddressEntry &E : D.AddressArea) {
+      uint64_t BaseAddr =
+          E.Section->getParent()->Addr + E.Section->getOffset(0);
+      write64le(Buf, BaseAddr + E.LowAddress);
+      write64le(Buf + 8, BaseAddr + E.HighAddress);
+      write32le(Buf + 16, E.CuIndex);
+      Buf += 20;
+    }
   }
 
   // Write the symbol table.
@@ -2111,7 +2134,6 @@ MergeSyntheticSection::MergeSyntheticSection(StringRef Name, uint32_t Type,
       Builder(StringTableBuilder::RAW, Alignment) {}
 
 void MergeSyntheticSection::addSection(MergeInputSection *MS) {
-  assert(!Finalized);
   MS->Parent = this;
   Sections.push_back(MS);
 }
@@ -2156,9 +2178,6 @@ void MergeSyntheticSection::finalizeNoTailMerge() {
 }
 
 void MergeSyntheticSection::finalizeContents() {
-  if (Finalized)
-    return;
-  Finalized = true;
   if (shouldTailMerge())
     finalizeTailMerge();
   else
@@ -2166,9 +2185,63 @@ void MergeSyntheticSection::finalizeContents() {
 }
 
 size_t MergeSyntheticSection::getSize() const {
-  // We should finalize string builder to know the size.
-  const_cast<MergeSyntheticSection *>(this)->finalizeContents();
   return Builder.getSize();
+}
+
+// This function decompresses compressed sections and scans over the input
+// sections to create mergeable synthetic sections. It removes
+// MergeInputSections from the input section array and adds new synthetic
+// sections at the location of the first input section that it replaces. It then
+// finalizes each synthetic section in order to compute an output offset for
+// each piece of each input section.
+void elf::decompressAndMergeSections() {
+  // splitIntoPieces needs to be called on each MergeInputSection before calling
+  // finalizeContents(). Do that first.
+  parallelForEach(InputSections.begin(), InputSections.end(),
+                  [](InputSectionBase *S) {
+                    if (!S->Live)
+                      return;
+                    if (Decompressor::isCompressedELFSection(S->Flags, S->Name))
+                      S->uncompress();
+                    if (auto *MS = dyn_cast<MergeInputSection>(S))
+                      MS->splitIntoPieces();
+                  });
+
+  std::vector<MergeSyntheticSection *> MergeSections;
+  for (InputSectionBase *&S : InputSections) {
+    MergeInputSection *MS = dyn_cast<MergeInputSection>(S);
+    if (!MS)
+      continue;
+
+    // We do not want to handle sections that are not alive, so just remove
+    // them instead of trying to merge.
+    if (!MS->Live)
+      continue;
+
+    StringRef OutsecName = getOutputSectionName(MS->Name);
+    uint64_t Flags = MS->Flags & ~(uint64_t)SHF_GROUP;
+    uint32_t Alignment = std::max<uint32_t>(MS->Alignment, MS->Entsize);
+
+    auto I = llvm::find_if(MergeSections, [=](MergeSyntheticSection *Sec) {
+      return Sec->Name == OutsecName && Sec->Flags == Flags &&
+             Sec->Alignment == Alignment;
+    });
+    if (I == MergeSections.end()) {
+      MergeSyntheticSection *Syn =
+          make<MergeSyntheticSection>(OutsecName, MS->Type, Flags, Alignment);
+      MergeSections.push_back(Syn);
+      I = std::prev(MergeSections.end());
+      S = Syn;
+    } else {
+      S = nullptr;
+    }
+    (*I)->addSection(MS);
+  }
+  for (auto *MS : MergeSections)
+    MS->finalizeContents();
+
+  std::vector<InputSectionBase *> &V = InputSections;
+  V.erase(std::remove(V.begin(), V.end(), nullptr), V.end());
 }
 
 MipsRldMapSection::MipsRldMapSection()

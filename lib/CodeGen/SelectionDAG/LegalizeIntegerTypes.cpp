@@ -615,9 +615,8 @@ SDValue DAGTypeLegalizer::PromoteIntRes_SETCC(SDNode *N) {
   SDValue SetCC = DAG.getNode(N->getOpcode(), dl, SVT, LHS, RHS,
                               N->getOperand(2));
 
-  assert(NVT.bitsLE(SVT) && "Integer type overpromoted?");
   // Convert to the expected type.
-  return DAG.getNode(ISD::TRUNCATE, dl, NVT, SetCC);
+  return DAG.getSExtOrTrunc(SetCC, dl, NVT);
 }
 
 SDValue DAGTypeLegalizer::PromoteIntRes_SHL(SDNode *N) {
@@ -1828,10 +1827,11 @@ void DAGTypeLegalizer::ExpandIntRes_ADDSUB(SDNode *N,
     TLI.isOperationLegalOrCustom(N->getOpcode() == ISD::ADD ?
                                    ISD::UADDO : ISD::USUBO,
                                  TLI.getTypeToExpandTo(*DAG.getContext(), NVT));
+  TargetLoweringBase::BooleanContent BoolType = TLI.getBooleanContents(NVT);
+
   if (hasOVF) {
     EVT OvfVT = getSetCCResultType(NVT);
     SDVTList VTList = DAG.getVTList(NVT, OvfVT);
-    TargetLoweringBase::BooleanContent BoolType = TLI.getBooleanContents(NVT);
     int RevOpc;
     if (N->getOpcode() == ISD::ADD) {
       RevOpc = ISD::SUB;
@@ -1864,6 +1864,13 @@ void DAGTypeLegalizer::ExpandIntRes_ADDSUB(SDNode *N,
     Hi = DAG.getNode(ISD::ADD, dl, NVT, makeArrayRef(HiOps, 2));
     SDValue Cmp1 = DAG.getSetCC(dl, getSetCCResultType(NVT), Lo, LoOps[0],
                                 ISD::SETULT);
+
+    if (BoolType == TargetLoweringBase::ZeroOrOneBooleanContent) {
+      SDValue Carry = DAG.getZExtOrTrunc(Cmp1, dl, NVT);
+      Hi = DAG.getNode(ISD::ADD, dl, NVT, Hi, Carry);
+      return;
+    }
+
     SDValue Carry1 = DAG.getSelect(dl, NVT, Cmp1,
                                    DAG.getConstant(1, dl, NVT),
                                    DAG.getConstant(0, dl, NVT));
@@ -1878,9 +1885,14 @@ void DAGTypeLegalizer::ExpandIntRes_ADDSUB(SDNode *N,
     SDValue Cmp =
       DAG.getSetCC(dl, getSetCCResultType(LoOps[0].getValueType()),
                    LoOps[0], LoOps[1], ISD::SETULT);
-    SDValue Borrow = DAG.getSelect(dl, NVT, Cmp,
-                                   DAG.getConstant(1, dl, NVT),
-                                   DAG.getConstant(0, dl, NVT));
+
+    SDValue Borrow;
+    if (BoolType == TargetLoweringBase::ZeroOrOneBooleanContent)
+      Borrow = DAG.getZExtOrTrunc(Cmp, dl, NVT);
+    else
+      Borrow = DAG.getSelect(dl, NVT, Cmp, DAG.getConstant(1, dl, NVT),
+                             DAG.getConstant(0, dl, NVT));
+
     Hi = DAG.getNode(ISD::SUB, dl, NVT, Hi, Borrow);
   }
 }

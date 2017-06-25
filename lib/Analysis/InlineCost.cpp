@@ -869,7 +869,7 @@ bool CallAnalyzer::simplifyCallSite(Function *F, CallSite CS) {
   // because we have to continually rebuild the argument list even when no
   // simplifications can be performed. Until that is fixed with remapping
   // inside of instsimplify, directly constant fold calls here.
-  if (!canConstantFoldCallTo(F))
+  if (!canConstantFoldCallTo(CS, F))
     return false;
 
   // Try to re-map the arguments to constants.
@@ -885,7 +885,7 @@ bool CallAnalyzer::simplifyCallSite(Function *F, CallSite CS) {
 
     ConstantArgs.push_back(C);
   }
-  if (Constant *C = ConstantFoldCall(F, ConstantArgs)) {
+  if (Constant *C = ConstantFoldCall(CS, F, ConstantArgs)) {
     SimplifiedValues[CS.getInstruction()] = C;
     return true;
   }
@@ -1022,12 +1022,15 @@ bool CallAnalyzer::visitSwitchInst(SwitchInst &SI) {
   // inlining those. It will prevent inlining in cases where the optimization
   // does not (yet) fire.
 
+  // Maximum valid cost increased in this function.
+  int CostUpperBound = INT_MAX - InlineConstants::InstrCost - 1;
+
   // Exit early for a large switch, assuming one case needs at least one
   // instruction.
   // FIXME: This is not true for a bit test, but ignore such case for now to
   // save compile-time.
   int64_t CostLowerBound =
-      std::min((int64_t)INT_MAX,
+      std::min((int64_t)CostUpperBound,
                (int64_t)SI.getNumCases() * InlineConstants::InstrCost + Cost);
 
   if (CostLowerBound > Threshold) {
@@ -1044,7 +1047,8 @@ bool CallAnalyzer::visitSwitchInst(SwitchInst &SI) {
   if (JumpTableSize) {
     int64_t JTCost = (int64_t)JumpTableSize * InlineConstants::InstrCost +
                      4 * InlineConstants::InstrCost;
-    Cost = std::min((int64_t)INT_MAX, JTCost + Cost);
+
+    Cost = std::min((int64_t)CostUpperBound, JTCost + Cost);
     return false;
   }
 
@@ -1068,10 +1072,12 @@ bool CallAnalyzer::visitSwitchInst(SwitchInst &SI) {
     Cost += NumCaseCluster * 2 * InlineConstants::InstrCost;
     return false;
   }
-  int64_t ExpectedNumberOfCompare = 3 * (uint64_t)NumCaseCluster / 2 - 1;
-  uint64_t SwitchCost =
+
+  int64_t ExpectedNumberOfCompare = 3 * (int64_t)NumCaseCluster / 2 - 1;
+  int64_t SwitchCost =
       ExpectedNumberOfCompare * 2 * InlineConstants::InstrCost;
-  Cost = std::min((uint64_t)INT_MAX, SwitchCost + Cost);
+
+  Cost = std::min((int64_t)CostUpperBound, SwitchCost + Cost);
   return false;
 }
 

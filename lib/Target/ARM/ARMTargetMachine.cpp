@@ -17,6 +17,7 @@
 #include "ARMRegisterBankInfo.h"
 #endif
 #include "ARMSubtarget.h"
+#include "ARMMacroFusion.h"
 #include "ARMTargetMachine.h"
 #include "ARMTargetObjectFile.h"
 #include "ARMTargetTransformInfo.h"
@@ -37,6 +38,7 @@
 #include "llvm/CodeGen/GlobalISel/RegBankSelect.h"
 #include "llvm/CodeGen/GlobalISel/RegisterBankInfo.h"
 #include "llvm/CodeGen/MachineFunction.h"
+#include "llvm/CodeGen/MachineScheduler.h"
 #include "llvm/CodeGen/Passes.h"
 #include "llvm/CodeGen/TargetPassConfig.h"
 #include "llvm/IR/Attributes.h"
@@ -387,6 +389,26 @@ public:
 
   ARMBaseTargetMachine &getARMTargetMachine() const {
     return getTM<ARMBaseTargetMachine>();
+  }
+
+  ScheduleDAGInstrs *
+  createMachineScheduler(MachineSchedContext *C) const override {
+    ScheduleDAGMILive *DAG = createGenericSchedLive(C);
+    // add DAG Mutations here.
+    const ARMSubtarget &ST = C->MF->getSubtarget<ARMSubtarget>();
+    if (ST.hasFusion())
+      DAG->addMutation(createARMMacroFusionDAGMutation());
+    return DAG;
+  }
+
+  ScheduleDAGInstrs *
+  createPostMachineScheduler(MachineSchedContext *C) const override {
+    ScheduleDAGMI *DAG = createGenericSchedPostRA(C);
+    // add DAG Mutations here.
+    const ARMSubtarget &ST = C->MF->getSubtarget<ARMSubtarget>();
+    if (ST.hasFusion())
+      DAG->addMutation(createARMMacroFusionDAGMutation());
+    return DAG;
   }
 
   void addIRPasses() override;
