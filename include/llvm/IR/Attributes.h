@@ -16,13 +16,13 @@
 #ifndef LLVM_IR_ATTRIBUTES_H
 #define LLVM_IR_ATTRIBUTES_H
 
+#include "llvm-c/Types.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/FoldingSet.h"
-#include "llvm/ADT/iterator_range.h"
 #include "llvm/ADT/Optional.h"
 #include "llvm/ADT/StringRef.h"
+#include "llvm/ADT/iterator_range.h"
 #include "llvm/Support/PointerLikeTypeTraits.h"
-#include "llvm-c/Types.h"
 #include <bitset>
 #include <cassert>
 #include <cstdint>
@@ -622,7 +622,8 @@ public:
   // AttributeList Introspection
   //===--------------------------------------------------------------------===//
 
-  typedef const AttributeSet *iterator;
+  using iterator = const AttributeSet *;
+
   iterator begin() const;
   iterator end() const;
 
@@ -830,8 +831,8 @@ bool areInlineCompatible(const Function &Caller, const Function &Callee);
 /// \brief Merge caller's and callee's attributes.
 void mergeAttributesForInlining(Function &Caller, const Function &Callee);
 
-} // end AttributeFuncs namespace
+} // end namespace AttributeFuncs
 
-} // end llvm namespace
+} // end namespace llvm
 
 #endif // LLVM_IR_ATTRIBUTES_H

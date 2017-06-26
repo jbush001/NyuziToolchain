@@ -26,12 +26,33 @@ namespace codeview {
 class DebugStringTableSubsection;
 class DebugStringTableSubsectionRef;
 class DebugChecksumsSubsectionRef;
+class DebugStringTableSubsection;
+class DebugChecksumsSubsection;
+class StringsAndChecksums;
+class StringsAndChecksumsRef;
 }
 namespace CodeViewYAML {
 
 namespace detail {
 struct YAMLSubsectionBase;
 }
+
+struct YAMLFrameData {
+  uint32_t RvaStart;
+  uint32_t CodeSize;
+  uint32_t LocalSize;
+  uint32_t ParamsSize;
+  uint32_t MaxStackSize;
+  StringRef FrameFunc;
+  uint32_t PrologSize;
+  uint32_t SavedRegsSize;
+  uint32_t Flags;
+};
+
+struct YAMLCrossModuleImport {
+  StringRef ModuleName;
+  std::vector<uint32_t> ImportIds;
+};
 
 struct SourceLineEntry {
   uint32_t Offset;
@@ -84,16 +105,24 @@ struct InlineeInfo {
 
 struct YAMLDebugSubsection {
   static Expected<YAMLDebugSubsection>
-  fromCodeViewSubection(const codeview::DebugStringTableSubsectionRef &Strings,
-                        const codeview::DebugChecksumsSubsectionRef &Checksums,
+  fromCodeViewSubection(const codeview::StringsAndChecksumsRef &SC,
                         const codeview::DebugSubsectionRecord &SS);
 
   std::shared_ptr<detail::YAMLSubsectionBase> Subsection;
 };
 
-Expected<std::vector<std::unique_ptr<codeview::DebugSubsection>>>
-convertSubsectionList(ArrayRef<YAMLDebugSubsection> Subsections,
-                      codeview::DebugStringTableSubsection &Strings);
+struct DebugSubsectionState {};
+
+Expected<std::vector<std::shared_ptr<codeview::DebugSubsection>>>
+toCodeViewSubsectionList(BumpPtrAllocator &Allocator,
+                         ArrayRef<YAMLDebugSubsection> Subsections,
+                         const codeview::StringsAndChecksums &SC);
+
+std::vector<YAMLDebugSubsection>
+fromDebugS(ArrayRef<uint8_t> Data, const codeview::StringsAndChecksumsRef &SC);
+
+void initializeStringsAndChecksums(ArrayRef<YAMLDebugSubsection> Sections,
+                                   codeview::StringsAndChecksums &SC);
 
 } // namespace CodeViewYAML
 } // namespace llvm

@@ -10,28 +10,27 @@
 #ifndef LLVM_DEBUGINFO_DWARF_DWARFUNIT_H
 #define LLVM_DEBUGINFO_DWARF_DWARFUNIT_H
 
-#include "llvm/ADT/iterator_range.h"
 #include "llvm/ADT/Optional.h"
-#include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
+#include "llvm/ADT/iterator_range.h"
+#include "llvm/BinaryFormat/Dwarf.h"
 #include "llvm/DebugInfo/DWARF/DWARFDebugInfoEntry.h"
 #include "llvm/DebugInfo/DWARF/DWARFDebugRangeList.h"
 #include "llvm/DebugInfo/DWARF/DWARFDie.h"
 #include "llvm/DebugInfo/DWARF/DWARFRelocMap.h"
 #include "llvm/DebugInfo/DWARF/DWARFSection.h"
 #include "llvm/DebugInfo/DWARF/DWARFUnitIndex.h"
-#include "llvm/Object/Binary.h"
-#include "llvm/Object/ObjectFile.h"
 #include "llvm/Support/DataExtractor.h"
-#include "llvm/Support/Dwarf.h"
 #include <algorithm>
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
-#include <memory>
-#include <vector>
 #include <map>
+#include <memory>
+#include <utility>
+#include <vector>
 
 namespace llvm {
 
@@ -57,8 +56,9 @@ protected:
 
   virtual void parseImpl(DWARFContext &Context, const DWARFSection &Section,
                          const DWARFDebugAbbrev *DA, const DWARFSection *RS,
-                         StringRef SS, StringRef SOS, const DWARFSection *AOS,
-                         StringRef LS, bool isLittleEndian, bool isDWO) = 0;
+                         StringRef SS, const DWARFSection &SOS,
+                         const DWARFSection *AOS, StringRef LS,
+                         bool isLittleEndian, bool isDWO) = 0;
 };
 
 const DWARFUnitIndex &getDWARFUnitIndex(DWARFContext &Context,
@@ -71,9 +71,9 @@ class DWARFUnitSection final : public SmallVector<std::unique_ptr<UnitType>, 1>,
   bool Parsed = false;
 
 public:
-  typedef SmallVectorImpl<std::unique_ptr<UnitType>> UnitVector;
-  typedef typename UnitVector::iterator iterator;
-  typedef llvm::iterator_range<typename UnitVector::iterator> iterator_range;
+  using UnitVector = SmallVectorImpl<std::unique_ptr<UnitType>>;
+  using iterator = typename UnitVector::iterator;
+  using iterator_range = llvm::iterator_range<typename UnitVector::iterator>;
 
   UnitType *getUnitForOffset(uint32_t Offset) const override {
     auto *CU = std::upper_bound(
@@ -89,7 +89,7 @@ public:
 private:
   void parseImpl(DWARFContext &Context, const DWARFSection &Section,
                  const DWARFDebugAbbrev *DA, const DWARFSection *RS,
-                 StringRef SS, StringRef SOS, const DWARFSection *AOS,
+                 StringRef SS, const DWARFSection &SOS, const DWARFSection *AOS,
                  StringRef LS, bool LE, bool IsDWO) override {
     if (Parsed)
       return;
@@ -119,7 +119,8 @@ class DWARFUnit {
   uint32_t RangeSectionBase;
   StringRef LineSection;
   StringRef StringSection;
-  StringRef StringOffsetSection;
+  const DWARFSection &StringOffsetSection;
+  uint64_t StringOffsetSectionBase = 0;
   const DWARFSection *AddrOffsetSection;
   uint32_t AddrOffsetSectionBase;
   bool isLittleEndian;
@@ -140,8 +141,9 @@ class DWARFUnit {
   /// IntervalMap does not support range removal, as a result, we use the
   /// std::map::upper_bound for address range lookup.
   std::map<uint64_t, std::pair<uint64_t, DWARFDie>> AddrDieMap;
-  typedef iterator_range<std::vector<DWARFDebugInfoEntry>::iterator>
-      die_iterator_range;
+
+  using die_iterator_range =
+      iterator_range<std::vector<DWARFDebugInfoEntry>::iterator>;
 
   std::shared_ptr<DWARFUnit> DWO;
 
@@ -162,8 +164,8 @@ protected:
 public:
   DWARFUnit(DWARFContext &Context, const DWARFSection &Section,
             const DWARFDebugAbbrev *DA, const DWARFSection *RS, StringRef SS,
-            StringRef SOS, const DWARFSection *AOS, StringRef LS, bool LE,
-            bool IsDWO, const DWARFUnitSectionBase &UnitSection,
+            const DWARFSection &SOS, const DWARFSection *AOS, StringRef LS,
+            bool LE, bool IsDWO, const DWARFUnitSectionBase &UnitSection,
             const DWARFUnitIndex::Entry *IndexEntry = nullptr);
 
   virtual ~DWARFUnit();
@@ -172,7 +174,9 @@ public:
 
   StringRef getLineSection() const { return LineSection; }
   StringRef getStringSection() const { return StringSection; }
-  StringRef getStringOffsetSection() const { return StringOffsetSection; }
+  const DWARFSection &getStringOffsetSection() const {
+    return StringOffsetSection;
+  }
 
   void setAddrOffsetSection(const DWARFSection *AOS, uint32_t Base) {
     AddrOffsetSection = AOS;
@@ -189,7 +193,8 @@ public:
 
   bool getAddrOffsetSectionItem(uint32_t Index, uint64_t &Result) const;
   // FIXME: Result should be uint64_t in DWARF64.
-  bool getStringOffsetSectionItem(uint32_t Index, uint32_t &Result) const;
+  bool getStringOffsetSectionItem(uint32_t Index, uint64_t &Result) const;
+  uint64_t getStringOffsetSectionRelocation(uint32_t Index) const;
 
   DataExtractor getDebugInfoExtractor() const {
     return DataExtractor(InfoSection.Data, isLittleEndian, AddrSize);
@@ -200,6 +205,9 @@ public:
   }
 
   const RelocAddrMap *getRelocMap() const { return &InfoSection.Relocs; }
+  const RelocAddrMap &getStringOffsetsRelocMap() const {
+    return StringOffsetSection.Relocs;
+  }
 
   bool extract(DataExtractor debug_info, uint32_t* offset_ptr);
 

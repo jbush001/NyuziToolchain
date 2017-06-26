@@ -13,6 +13,7 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/StringSwitch.h"
+#include "llvm/BinaryFormat/Dwarf.h"
 #include "llvm/DebugInfo/DWARF/DWARFAcceleratorTable.h"
 #include "llvm/DebugInfo/DWARF/DWARFCompileUnit.h"
 #include "llvm/DebugInfo/DWARF/DWARFDebugAbbrev.h"
@@ -36,7 +37,6 @@
 #include "llvm/Object/RelocVisitor.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/DataExtractor.h"
-#include "llvm/Support/Debug.h"
 #include "llvm/Support/Error.h"
 #include "llvm/Support/Format.h"
 #include "llvm/Support/MemoryBuffer.h"
@@ -44,8 +44,8 @@
 #include <algorithm>
 #include <cstdint>
 #include <map>
-#include <set>
 #include <string>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -55,9 +55,9 @@ using namespace object;
 
 #define DEBUG_TYPE "dwarf"
 
-typedef DWARFDebugLine::LineTable DWARFLineTable;
-typedef DILineInfoSpecifier::FileLineInfoKind FileLineInfoKind;
-typedef DILineInfoSpecifier::FunctionNameKind FunctionNameKind;
+using DWARFLineTable = DWARFDebugLine::LineTable;
+using FileLineInfoKind = DILineInfoSpecifier::FileLineInfoKind;
+using FunctionNameKind = DILineInfoSpecifier::FunctionNameKind;
 
 uint64_t llvm::getRelocatedValue(const DataExtractor &Data, uint32_t Size,
                                  uint32_t *Off, const RelocAddrMap *Relocs,
@@ -84,8 +84,124 @@ static void dumpAccelSection(raw_ostream &OS, StringRef Name,
   Accel.dump(OS);
 }
 
-void DWARFContext::dump(raw_ostream &OS, DIDumpOptions DumpOpts){
+static void
+dumpDWARFv5StringOffsetsSection(raw_ostream &OS, StringRef SectionName,
+                                const DWARFSection &StringOffsetsSection,
+                                StringRef StringSection, bool LittleEndian) {
+  DataExtractor StrOffsetExt(StringOffsetsSection.Data, LittleEndian, 0);
+  uint32_t Offset = 0;
+  uint64_t SectionSize = StringOffsetsSection.Data.size();
 
+  while (Offset < SectionSize) {
+    unsigned Version = 0;
+    DwarfFormat Format = DWARF32;
+    unsigned EntrySize = 4;
+    // Perform validation and extract the segment size from the header.
+    if (!StrOffsetExt.isValidOffsetForDataOfSize(Offset, 4)) {
+      OS << "error: invalid contribution to string offsets table in section ."
+         << SectionName << ".\n";
+      return;
+    }
+    uint32_t ContributionStart = Offset;
+    uint64_t ContributionSize = StrOffsetExt.getU32(&Offset);
+    // A contribution size of 0xffffffff indicates DWARF64, with the actual size
+    // in the following 8 bytes. Otherwise, the DWARF standard mandates that
+    // the contribution size must be at most 0xfffffff0.
+    if (ContributionSize == 0xffffffff) {
+      if (!StrOffsetExt.isValidOffsetForDataOfSize(Offset, 8)) {
+        OS << "error: invalid contribution to string offsets table in section ."
+           << SectionName << ".\n";
+        return;
+      }
+      Format = DWARF64;
+      EntrySize = 8;
+      ContributionSize = StrOffsetExt.getU64(&Offset);
+    } else if (ContributionSize > 0xfffffff0) {
+      OS << "error: invalid contribution to string offsets table in section ."
+         << SectionName << ".\n";
+      return;
+    }
+
+    // We must ensure that we don't read a partial record at the end, so we
+    // validate for a multiple of EntrySize. Also, we're expecting a version
+    // number and padding, which adds an additional 4 bytes.
+    uint64_t ValidationSize =
+        4 + ((ContributionSize + EntrySize - 1) & (-(uint64_t)EntrySize));
+    if (!StrOffsetExt.isValidOffsetForDataOfSize(Offset, ValidationSize)) {
+      OS << "error: contribution to string offsets table in section ."
+         << SectionName << " has invalid length.\n";
+      return;
+    }
+
+    Version = StrOffsetExt.getU16(&Offset);
+    Offset += 2;
+    OS << format("0x%8.8x: ", ContributionStart);
+    OS << "Contribution size = " << ContributionSize
+       << ", Version = " << Version << "\n";
+
+    uint32_t ContributionBase = Offset;
+    DataExtractor StrData(StringSection, LittleEndian, 0);
+    while (Offset - ContributionBase < ContributionSize) {
+      OS << format("0x%8.8x: ", Offset);
+      // FIXME: We can only extract strings in DWARF32 format at the moment.
+      uint64_t StringOffset = getRelocatedValue(
+          StrOffsetExt, EntrySize, &Offset, &StringOffsetsSection.Relocs);
+      if (Format == DWARF32) {
+        OS << format("%8.8x ", StringOffset);
+        uint32_t StringOffset32 = (uint32_t)StringOffset;
+        const char *S = StrData.getCStr(&StringOffset32);
+        if (S)
+          OS << format("\"%s\"", S);
+      } else
+        OS << format("%16.16x ", StringOffset);
+      OS << "\n";
+    }
+  }
+}
+
+// Dump a DWARF string offsets section. This may be a DWARF v5 formatted
+// string offsets section, where each compile or type unit contributes a
+// number of entries (string offsets), with each contribution preceded by
+// a header containing size and version number. Alternatively, it may be a
+// monolithic series of string offsets, as generated by the pre-DWARF v5
+// implementation of split DWARF.
+static void dumpStringOffsetsSection(raw_ostream &OS, StringRef SectionName,
+                                     const DWARFSection &StringOffsetsSection,
+                                     StringRef StringSection, bool LittleEndian,
+                                     unsigned MaxVersion) {
+  if (StringOffsetsSection.Data.empty())
+    return;
+  OS << "\n." << SectionName << " contents:\n";
+  // If we have at least one (compile or type) unit with DWARF v5 or greater,
+  // we assume that the section is formatted like a DWARF v5 string offsets
+  // section.
+  if (MaxVersion >= 5)
+    dumpDWARFv5StringOffsetsSection(OS, SectionName, StringOffsetsSection,
+                                    StringSection, LittleEndian);
+  else {
+    DataExtractor strOffsetExt(StringOffsetsSection.Data, LittleEndian, 0);
+    uint32_t offset = 0;
+    uint64_t size = StringOffsetsSection.Data.size();
+    // Ensure that size is a multiple of the size of an entry.
+    if (size & ((uint64_t)(sizeof(uint32_t) - 1))) {
+      OS << "error: size of ." << SectionName << " is not a multiple of "
+         << sizeof(uint32_t) << ".\n";
+      size &= -(uint64_t)sizeof(uint32_t);
+    }
+    DataExtractor StrData(StringSection, LittleEndian, 0);
+    while (offset < size) {
+      OS << format("0x%8.8x: ", offset);
+      uint32_t StringOffset = strOffsetExt.getU32(&offset);
+      OS << format("%8.8x  ", StringOffset);
+      const char *S = StrData.getCStr(&StringOffset);
+      if (S)
+        OS << format("\"%s\"", S);
+      OS << "\n";
+    }
+  }
+}
+
+void DWARFContext::dump(raw_ostream &OS, DIDumpOptions DumpOpts) {
   DIDumpType DumpType = DumpOpts.DumpType;
   bool DumpEH = DumpOpts.DumpEH;
   bool SummarizeTypes = DumpOpts.SummarizeTypes;
@@ -104,14 +220,14 @@ void DWARFContext::dump(raw_ostream &OS, DIDumpOptions DumpOpts){
   if (DumpType == DIDT_All || DumpType == DIDT_Info) {
     OS << "\n.debug_info contents:\n";
     for (const auto &CU : compile_units())
-      CU->dump(OS);
+      CU->dump(OS, DumpOpts);
   }
 
   if ((DumpType == DIDT_All || DumpType == DIDT_InfoDwo) &&
       getNumDWOCompileUnits()) {
     OS << "\n.debug_info.dwo contents:\n";
     for (const auto &DWOCU : dwo_compile_units())
-      DWOCU->dump(OS);
+      DWOCU->dump(OS, DumpOpts);
   }
 
   if ((DumpType == DIDT_All || DumpType == DIDT_Types) && getNumTypeUnits()) {
@@ -258,17 +374,15 @@ void DWARFContext::dump(raw_ostream &OS, DIDumpOptions DumpOpts){
                        true /* GnuStyle */)
         .dump("debug_gnu_pubtypes", OS);
 
-  if ((DumpType == DIDT_All || DumpType == DIDT_StrOffsetsDwo) &&
-      !getStringOffsetDWOSection().empty()) {
-    OS << "\n.debug_str_offsets.dwo contents:\n";
-    DataExtractor strOffsetExt(getStringOffsetDWOSection(), isLittleEndian(),
-                               0);
-    offset = 0;
-    uint64_t size = getStringOffsetDWOSection().size();
-    while (offset < size) {
-      OS << format("0x%8.8x: ", offset);
-      OS << format("%8.8x\n", strOffsetExt.getU32(&offset));
-    }
+  if (DumpType == DIDT_All || DumpType == DIDT_StrOffsets)
+    dumpStringOffsetsSection(OS, "debug_str_offsets", getStringOffsetSection(),
+                             getStringSection(), isLittleEndian(),
+                             getMaxVersion());
+
+  if (DumpType == DIDT_All || DumpType == DIDT_StrOffsetsDwo) {
+    dumpStringOffsetsSection(OS, "debug_str_offsets.dwo",
+                             getStringOffsetDWOSection(), getStringDWOSection(),
+                             isLittleEndian(), getMaxVersion());
   }
 
   if ((DumpType == DIDT_All || DumpType == DIDT_GdbIndex) &&
@@ -310,248 +424,6 @@ DWARFDie DWARFContext::getDIEForOffset(uint32_t Offset) {
   return DWARFDie();
 }
 
-namespace {
-  
-class Verifier {
-  raw_ostream &OS;
-  DWARFContext &DCtx;
-public:
-  Verifier(raw_ostream &S, DWARFContext &D) : OS(S), DCtx(D) {}
-  
-  bool HandleDebugInfo() {
-    bool Success = true;
-    // A map that tracks all references (converted absolute references) so we
-    // can verify each reference points to a valid DIE and not an offset that
-    // lies between to valid DIEs.
-    std::map<uint64_t, std::set<uint32_t>> ReferenceToDIEOffsets;
-
-    OS << "Verifying .debug_info...\n";
-    for (const auto &CU : DCtx.compile_units()) {
-      unsigned NumDies = CU->getNumDIEs();
-      for (unsigned I = 0; I < NumDies; ++I) {
-        auto Die = CU->getDIEAtIndex(I);
-        const auto Tag = Die.getTag();
-        if (Tag == DW_TAG_null)
-          continue;
-        for (auto AttrValue : Die.attributes()) {
-          const auto Attr = AttrValue.Attr;
-          const auto Form = AttrValue.Value.getForm();
-          switch (Attr) {
-            case DW_AT_ranges:
-              // Make sure the offset in the DW_AT_ranges attribute is valid.
-              if (auto SectionOffset = AttrValue.Value.getAsSectionOffset()) {
-                if (*SectionOffset >= DCtx.getRangeSection().Data.size()) {
-                  Success = false;
-                  OS << "error: DW_AT_ranges offset is beyond .debug_ranges "
-                  "bounds:\n";
-                  Die.dump(OS, 0);
-                  OS << "\n";
-                }
-              } else {
-                Success = false;
-                OS << "error: DIE has invalid DW_AT_ranges encoding:\n";
-                Die.dump(OS, 0);
-                OS << "\n";
-              }
-              break;
-            case DW_AT_stmt_list:
-              // Make sure the offset in the DW_AT_stmt_list attribute is valid.
-              if (auto SectionOffset = AttrValue.Value.getAsSectionOffset()) {
-                if (*SectionOffset >= DCtx.getLineSection().Data.size()) {
-                  Success = false;
-                  OS << "error: DW_AT_stmt_list offset is beyond .debug_line "
-                  "bounds: "
-                  << format("0x%08" PRIx32, *SectionOffset) << "\n";
-                  CU->getUnitDIE().dump(OS, 0);
-                  OS << "\n";
-                }
-              } else {
-                Success = false;
-                OS << "error: DIE has invalid DW_AT_stmt_list encoding:\n";
-                Die.dump(OS, 0);
-                OS << "\n";
-              }
-              break;
-              
-            default:
-              break;
-          }
-          switch (Form) {
-            case DW_FORM_ref1:
-            case DW_FORM_ref2:
-            case DW_FORM_ref4:
-            case DW_FORM_ref8:
-            case DW_FORM_ref_udata: {
-              // Verify all CU relative references are valid CU offsets.
-              Optional<uint64_t> RefVal = AttrValue.Value.getAsReference();
-              assert(RefVal);
-              if (RefVal) {
-                auto DieCU = Die.getDwarfUnit();
-                auto CUSize = DieCU->getNextUnitOffset() - DieCU->getOffset();
-                auto CUOffset = AttrValue.Value.getRawUValue();
-                if (CUOffset >= CUSize) {
-                  Success = false;
-                  OS << "error: " << FormEncodingString(Form) << " CU offset "
-                  << format("0x%08" PRIx32, CUOffset)
-                  << " is invalid (must be less than CU size of "
-                  << format("0x%08" PRIx32, CUSize) << "):\n";
-                  Die.dump(OS, 0);
-                  OS << "\n";
-                } else {
-                  // Valid reference, but we will verify it points to an actual
-                  // DIE later.
-                  ReferenceToDIEOffsets[*RefVal].insert(Die.getOffset());
-                }
-              }
-              break;
-            }
-            case DW_FORM_ref_addr: {
-              // Verify all absolute DIE references have valid offsets in the
-              // .debug_info section.
-              Optional<uint64_t> RefVal = AttrValue.Value.getAsReference();
-              assert(RefVal);
-              if (RefVal) {
-                if(*RefVal >= DCtx.getInfoSection().Data.size()) {
-                  Success = false;
-                  OS << "error: DW_FORM_ref_addr offset beyond .debug_info "
-                        "bounds:\n";
-                  Die.dump(OS, 0);
-                  OS << "\n";
-                } else {
-                  // Valid reference, but we will verify it points to an actual
-                  // DIE later.
-                  ReferenceToDIEOffsets[*RefVal].insert(Die.getOffset());
-                }
-              }
-              break;
-            }
-            case DW_FORM_strp: {
-              auto SecOffset = AttrValue.Value.getAsSectionOffset();
-              assert(SecOffset); // DW_FORM_strp is a section offset.
-              if (SecOffset && *SecOffset >= DCtx.getStringSection().size()) {
-                Success = false;
-                OS << "error: DW_FORM_strp offset beyond .debug_str bounds:\n";
-                Die.dump(OS, 0);
-                OS << "\n";
-              }
-              break;
-            }
-            default:
-              break;
-          }
-        }
-      }
-    }
-
-    // Take all references and make sure they point to an actual DIE by
-    // getting the DIE by offset and emitting an error
-    OS << "Verifying .debug_info references...\n";
-    for (auto Pair: ReferenceToDIEOffsets) {
-      auto Die = DCtx.getDIEForOffset(Pair.first);
-      if (Die)
-        continue;
-      Success = false;
-      OS << "error: invalid DIE reference " << format("0x%08" PRIx64, Pair.first)
-         << ". Offset is in between DIEs:\n";
-      for (auto Offset: Pair.second) {
-        auto ReferencingDie = DCtx.getDIEForOffset(Offset);
-        ReferencingDie.dump(OS, 0);
-        OS << "\n";
-      }
-      OS << "\n";
-    }
-    return Success;
-  }
-
-  bool HandleDebugLine() {
-    std::map<uint64_t, DWARFDie> StmtListToDie;
-    bool Success = true;
-    OS << "Verifying .debug_line...\n";
-    for (const auto &CU : DCtx.compile_units()) {
-      uint32_t LineTableOffset = 0;
-      auto CUDie = CU->getUnitDIE();
-      auto StmtFormValue = CUDie.find(DW_AT_stmt_list);
-      if (!StmtFormValue) {
-        // No line table for this compile unit.
-        continue;
-      }
-      // Get the attribute value as a section offset. No need to produce an
-      // error here if the encoding isn't correct because we validate this in
-      // the .debug_info verifier.
-      if (auto StmtSectionOffset = toSectionOffset(StmtFormValue)) {
-        LineTableOffset = *StmtSectionOffset;
-        if (LineTableOffset >= DCtx.getLineSection().Data.size()) {
-          // Make sure we don't get a valid line table back if the offset
-          // is wrong.
-          assert(DCtx.getLineTableForUnit(CU.get()) == nullptr);
-          // Skip this line table as it isn't valid. No need to create an error
-          // here because we validate this in the .debug_info verifier.
-          continue;
-        } else {
-          auto Iter = StmtListToDie.find(LineTableOffset);
-          if (Iter != StmtListToDie.end()) {
-            Success = false;
-            OS << "error: two compile unit DIEs, "
-               << format("0x%08" PRIx32, Iter->second.getOffset()) << " and "
-               << format("0x%08" PRIx32, CUDie.getOffset())
-               << ", have the same DW_AT_stmt_list section offset:\n";
-            Iter->second.dump(OS, 0);
-            CUDie.dump(OS, 0);
-            OS << '\n';
-            // Already verified this line table before, no need to do it again.
-            continue;
-          }
-          StmtListToDie[LineTableOffset] = CUDie;
-        }
-      }
-      auto LineTable = DCtx.getLineTableForUnit(CU.get());
-      if (!LineTable) {
-        Success = false;
-        OS << "error: .debug_line[" << format("0x%08" PRIx32, LineTableOffset)
-           << "] was not able to be parsed for CU:\n";
-        CUDie.dump(OS, 0);
-        OS << '\n';
-        continue;
-      }
-      uint32_t MaxFileIndex = LineTable->Prologue.FileNames.size();
-      uint64_t PrevAddress = 0;
-      uint32_t RowIndex = 0;
-      for (const auto &Row : LineTable->Rows) {
-        if (Row.Address < PrevAddress) {
-          Success = false;
-          OS << "error: .debug_line[" << format("0x%08" PRIx32, LineTableOffset)
-             << "] row[" << RowIndex
-             << "] decreases in address from previous row:\n";
-
-          DWARFDebugLine::Row::dumpTableHeader(OS);
-          if (RowIndex > 0)
-            LineTable->Rows[RowIndex - 1].dump(OS);
-          Row.dump(OS);
-          OS << '\n';
-        }
-
-        if (Row.File > MaxFileIndex) {
-          Success = false;
-          OS << "error: .debug_line[" << format("0x%08" PRIx32, LineTableOffset)
-             << "][" << RowIndex << "] has invalid file index " << Row.File
-             << " (valid values are [1," << MaxFileIndex << "]):\n";
-          DWARFDebugLine::Row::dumpTableHeader(OS);
-          Row.dump(OS);
-          OS << '\n';
-        }
-        if (Row.EndSequence)
-          PrevAddress = 0;
-        else
-          PrevAddress = Row.Address;
-        ++RowIndex;
-      }
-    }
-    return Success;
-  }
-};
-  
-} // anonymous namespace
-
 bool DWARFContext::verify(raw_ostream &OS, DIDumpType DumpType) {
   bool Success = true;
   DWARFVerifier verifier(OS, *this);
@@ -563,8 +435,13 @@ bool DWARFContext::verify(raw_ostream &OS, DIDumpType DumpType) {
     if (!verifier.handleDebugLine())
       Success = false;
   }
+  if (DumpType == DIDT_All || DumpType == DIDT_AppleNames) {
+    if (!verifier.handleAppleNames())
+      Success = false;
+  }
   return Success;
 }
+
 const DWARFUnitIndex &DWARFContext::getCUIndex() {
   if (CUIndex)
     return *CUIndex;
@@ -1109,6 +986,10 @@ DWARFContextInMemory::DWARFContextInMemory(const object::ObjectFile &Obj,
       TypesDWOSections[Section].Data = data;
     }
 
+    // Map platform specific debug section names to DWARF standard section
+    // names.
+    name = Obj.mapDebugSectionName(name);
+
     if (RelocatedSection == Obj.section_end())
       continue;
 
@@ -1131,7 +1012,7 @@ DWARFContextInMemory::DWARFContextInMemory(const object::ObjectFile &Obj,
       continue;
 
     RelSecName = RelSecName.substr(
-        RelSecName.find_first_not_of("._")); // Skip . and _ prefixes.
+        RelSecName.find_first_not_of("._z")); // Skip . and _ prefixes.
 
     // TODO: Add support for relocations in other sections as needed.
     // Record relocations for the debug_info and debug_line sections.
@@ -1141,6 +1022,7 @@ DWARFContextInMemory::DWARFContextInMemory(const object::ObjectFile &Obj,
             .Case("debug_loc", &LocSection.Relocs)
             .Case("debug_info.dwo", &InfoDWOSection.Relocs)
             .Case("debug_line", &LineSection.Relocs)
+            .Case("debug_str_offsets", &StringOffsetSection.Relocs)
             .Case("debug_ranges", &RangeSection.Relocs)
             .Case("debug_addr", &AddrSection.Relocs)
             .Case("apple_names", &AppleNamesSection.Relocs)
@@ -1185,7 +1067,7 @@ DWARFContextInMemory::DWARFContextInMemory(const object::ObjectFile &Obj,
         errs() << "error: failed to compute relocation: " << Name << "\n";
         continue;
       }
-      llvm::RelocAddrEntry Rel = {SymInfoOrErr->SectionIndex, Val};
+      RelocAddrEntry Rel = {SymInfoOrErr->SectionIndex, Val};
       Map->insert({Reloc.getOffset(), Rel});
     }
   }
@@ -1211,6 +1093,7 @@ StringRef *DWARFContextInMemory::MapSectionToMember(StringRef Name) {
       .Case("debug_frame", &DebugFrameSection)
       .Case("eh_frame", &EHFrameSection)
       .Case("debug_str", &StringSection)
+      .Case("debug_str_offsets", &StringOffsetSection.Data)
       .Case("debug_ranges", &RangeSection.Data)
       .Case("debug_macinfo", &MacinfoSection)
       .Case("debug_pubnames", &PubNamesSection)
@@ -1222,7 +1105,7 @@ StringRef *DWARFContextInMemory::MapSectionToMember(StringRef Name) {
       .Case("debug_loc.dwo", &LocDWOSection.Data)
       .Case("debug_line.dwo", &LineDWOSection.Data)
       .Case("debug_str.dwo", &StringDWOSection)
-      .Case("debug_str_offsets.dwo", &StringOffsetDWOSection)
+      .Case("debug_str_offsets.dwo", &StringOffsetDWOSection.Data)
       .Case("debug_addr", &AddrSection.Data)
       .Case("apple_names", &AppleNamesSection.Data)
       .Case("apple_types", &AppleTypesSection.Data)

@@ -11,9 +11,9 @@
 #define LLVM_DEBUGINFO_DWARFACCELERATORTABLE_H
 
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/BinaryFormat/Dwarf.h"
 #include "llvm/DebugInfo/DWARF/DWARFRelocMap.h"
 #include "llvm/Support/DataExtractor.h"
-#include "llvm/Support/Dwarf.h"
 #include <cstdint>
 #include <utility>
 
@@ -32,8 +32,9 @@ class DWARFAcceleratorTable {
   };
 
   struct HeaderData {
-    typedef uint16_t AtomType;
-    typedef dwarf::Form Form;
+    using AtomType = uint16_t;
+    using Form = dwarf::Form;
+
     uint32_t DIEOffsetBase;
     SmallVector<std::pair<AtomType, Form>, 3> Atoms;
   };
@@ -50,6 +51,10 @@ public:
     : AccelSection(AccelSection), StringSection(StringSection), Relocs(Relocs) {}
 
   bool extract();
+  uint32_t getNumBuckets();
+  uint32_t getNumHashes();
+  uint32_t getSizeHdr();
+  uint32_t getHeaderDataLength();
   void dump(raw_ostream &OS) const;
 };
 

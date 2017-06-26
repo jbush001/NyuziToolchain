@@ -235,6 +235,11 @@ public:
   /// starting with the sources of divergence.
   bool isSourceOfDivergence(const Value *V) const;
 
+  // \brief Returns true for the target specific
+  // set of operations which produce uniform result
+  // even taking non-unform arguments
+  bool isAlwaysUniform(const Value *V) const;
+
   /// Returns the address space ID for a target's 'flat' address space. Note
   /// this is not necessarily the same as addrspace(0), which LLVM sometimes
   /// refers to as the generic address space. The flat address space is a
@@ -266,6 +271,19 @@ public:
   /// query more accurately as a call is a single small instruction, but
   /// incurs significant execution cost.
   bool isLoweredToCall(const Function *F) const;
+
+  struct LSRCost {
+    /// TODO: Some of these could be merged. Also, a lexical ordering
+    /// isn't always optimal.
+    unsigned Insns;
+    unsigned NumRegs;
+    unsigned AddRecCost;
+    unsigned NumIVMuls;
+    unsigned NumBaseAdds;
+    unsigned ImmCost;
+    unsigned SetupCost;
+    unsigned ScaleCost;
+  };
 
   /// Parameters that control the generic loop unrolling transformation.
   struct UnrollingPreferences {
@@ -384,6 +402,10 @@ public:
   bool isLegalAddressingMode(Type *Ty, GlobalValue *BaseGV, int64_t BaseOffset,
                              bool HasBaseReg, int64_t Scale,
                              unsigned AddrSpace = 0) const;
+
+  /// \brief Return true if LSR cost of C1 is lower than C1.
+  bool isLSRCostLess(TargetTransformInfo::LSRCost &C1,
+                     TargetTransformInfo::LSRCost &C2) const;
 
   /// \brief Return true if the target supports masked load/store
   /// AVX2 and AVX-512 targets allow masks for consecutive load and store
@@ -705,6 +727,10 @@ public:
   /// if false is returned.
   bool getTgtMemIntrinsic(IntrinsicInst *Inst, MemIntrinsicInfo &Info) const;
 
+  /// \returns The maximum element size, in bytes, for an element
+  /// unordered-atomic memory intrinsic.
+  unsigned getAtomicMemIntrinsicMaxElementSize() const;
+
   /// \returns A value which is the result of the given memory intrinsic.  New
   /// instructions may be created to extract the result from the given intrinsic
   /// memory operation.  Returns nullptr if the target cannot create a result
@@ -800,6 +826,7 @@ public:
   virtual int getUserCost(const User *U) = 0;
   virtual bool hasBranchDivergence() = 0;
   virtual bool isSourceOfDivergence(const Value *V) = 0;
+  virtual bool isAlwaysUniform(const Value *V) = 0;
   virtual unsigned getFlatAddressSpace() = 0;
   virtual bool isLoweredToCall(const Function *F) = 0;
   virtual void getUnrollingPreferences(Loop *L, UnrollingPreferences &UP) = 0;
@@ -809,6 +836,8 @@ public:
                                      int64_t BaseOffset, bool HasBaseReg,
                                      int64_t Scale,
                                      unsigned AddrSpace) = 0;
+  virtual bool isLSRCostLess(TargetTransformInfo::LSRCost &C1,
+                             TargetTransformInfo::LSRCost &C2) = 0;
   virtual bool isLegalMaskedStore(Type *DataType) = 0;
   virtual bool isLegalMaskedLoad(Type *DataType) = 0;
   virtual bool isLegalMaskedScatter(Type *DataType) = 0;
@@ -850,7 +879,7 @@ public:
   virtual int getIntImmCost(Intrinsic::ID IID, unsigned Idx, const APInt &Imm,
                             Type *Ty) = 0;
   virtual unsigned getNumberOfRegisters(bool Vector) = 0;
-  virtual unsigned getRegisterBitWidth(bool Vector) = 0;
+  virtual unsigned getRegisterBitWidth(bool Vector) const = 0;
   virtual unsigned getMinVectorRegisterBitWidth() = 0;
   virtual bool shouldConsiderAddressTypePromotion(
       const Instruction &I, bool &AllowPromotionWithoutCommonHeader) = 0;
@@ -904,6 +933,7 @@ public:
   virtual unsigned getCostOfKeepingLiveOverCall(ArrayRef<Type *> Tys) = 0;
   virtual bool getTgtMemIntrinsic(IntrinsicInst *Inst,
                                   MemIntrinsicInfo &Info) = 0;
+  virtual unsigned getAtomicMemIntrinsicMaxElementSize() const = 0;
   virtual Value *getOrCreateResultFromMemIntrinsic(IntrinsicInst *Inst,
                                                    Type *ExpectedType) = 0;
   virtual bool areInlineCompatible(const Function *Caller,
@@ -974,6 +1004,10 @@ public:
     return Impl.isSourceOfDivergence(V);
   }
 
+  bool isAlwaysUniform(const Value *V) override {
+    return Impl.isAlwaysUniform(V);
+  }
+
   unsigned getFlatAddressSpace() override {
     return Impl.getFlatAddressSpace();
   }
@@ -995,6 +1029,10 @@ public:
                              unsigned AddrSpace) override {
     return Impl.isLegalAddressingMode(Ty, BaseGV, BaseOffset, HasBaseReg,
                                       Scale, AddrSpace);
+  }
+  bool isLSRCostLess(TargetTransformInfo::LSRCost &C1,
+                     TargetTransformInfo::LSRCost &C2) override {
+    return Impl.isLSRCostLess(C1, C2);
   }
   bool isLegalMaskedStore(Type *DataType) override {
     return Impl.isLegalMaskedStore(DataType);
@@ -1091,7 +1129,7 @@ public:
   unsigned getNumberOfRegisters(bool Vector) override {
     return Impl.getNumberOfRegisters(Vector);
   }
-  unsigned getRegisterBitWidth(bool Vector) override {
+  unsigned getRegisterBitWidth(bool Vector) const override {
     return Impl.getRegisterBitWidth(Vector);
   }
   unsigned getMinVectorRegisterBitWidth() override {
@@ -1200,6 +1238,9 @@ public:
   bool getTgtMemIntrinsic(IntrinsicInst *Inst,
                           MemIntrinsicInfo &Info) override {
     return Impl.getTgtMemIntrinsic(Inst, Info);
+  }
+  unsigned getAtomicMemIntrinsicMaxElementSize() const override {
+    return Impl.getAtomicMemIntrinsicMaxElementSize();
   }
   Value *getOrCreateResultFromMemIntrinsic(IntrinsicInst *Inst,
                                            Type *ExpectedType) override {

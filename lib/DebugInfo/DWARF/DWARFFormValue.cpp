@@ -13,10 +13,10 @@
 #include "llvm/ADT/None.h"
 #include "llvm/ADT/Optional.h"
 #include "llvm/ADT/StringRef.h"
+#include "llvm/BinaryFormat/Dwarf.h"
 #include "llvm/DebugInfo/DWARF/DWARFContext.h"
 #include "llvm/DebugInfo/DWARF/DWARFRelocMap.h"
 #include "llvm/DebugInfo/DWARF/DWARFUnit.h"
-#include "llvm/Support/Dwarf.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/Format.h"
 #include "llvm/Support/raw_ostream.h"
@@ -137,6 +137,9 @@ static Optional<uint8_t> getFixedByteSize(dwarf::Form Form, const T *U) {
   case DW_FORM_strx2:
   case DW_FORM_addrx2:
     return 2;
+
+  case DW_FORM_strx3:
+    return 3;
 
   case DW_FORM_data4:
   case DW_FORM_ref4:
@@ -301,6 +304,11 @@ bool DWARFFormValue::isFormClass(DWARFFormValue::FormClass FC) const {
     return (FC == FC_Address);
   case DW_FORM_GNU_str_index:
   case DW_FORM_GNU_strp_alt:
+  case DW_FORM_strx:
+  case DW_FORM_strx1:
+  case DW_FORM_strx2:
+  case DW_FORM_strx3:
+  case DW_FORM_strx4:
     return (FC == FC_String);
   case DW_FORM_implicit_const:
     return (FC == FC_Constant);
@@ -367,6 +375,9 @@ bool DWARFFormValue::extractValue(const DataExtractor &Data,
     case DW_FORM_addrx2:
       Value.uval = Data.getU16(OffsetPtr);
       break;
+    case DW_FORM_strx3:
+      Value.uval = Data.getU24(OffsetPtr);
+      break;
     case DW_FORM_data4:
     case DW_FORM_ref4:
     case DW_FORM_ref_sup4:
@@ -415,6 +426,7 @@ bool DWARFFormValue::extractValue(const DataExtractor &Data,
       break;
     case DW_FORM_GNU_addr_index:
     case DW_FORM_GNU_str_index:
+    case DW_FORM_strx:
       Value.uval = Data.getULEB128(OffsetPtr);
       break;
     default:
@@ -542,6 +554,11 @@ void DWARFFormValue::dump(raw_ostream &OS) const {
     OS << format(" .debug_str[0x%8.8x] = ", (uint32_t)UValue);
     dumpString(OS);
     break;
+  case DW_FORM_strx:
+  case DW_FORM_strx1:
+  case DW_FORM_strx2:
+  case DW_FORM_strx3:
+  case DW_FORM_strx4:
   case DW_FORM_GNU_str_index:
     OS << format(" indexed (%8.8x) string = ", (uint32_t)UValue);
     dumpString(OS);
@@ -620,10 +637,13 @@ Optional<const char *> DWARFFormValue::getAsCString() const {
   if (Form == DW_FORM_GNU_strp_alt || U == nullptr)
     return None;
   uint32_t Offset = Value.uval;
-  if (Form == DW_FORM_GNU_str_index) {
-    uint32_t StrOffset;
+  if (Form == DW_FORM_GNU_str_index || Form == DW_FORM_strx ||
+      Form == DW_FORM_strx1 || Form == DW_FORM_strx2 || Form == DW_FORM_strx3 ||
+      Form == DW_FORM_strx4) {
+    uint64_t StrOffset;
     if (!U->getStringOffsetSectionItem(Offset, StrOffset))
       return None;
+    StrOffset += U->getStringOffsetSectionRelocation(Offset);
     Offset = StrOffset;
   }
   if (const char *Str = U->getStringExtractor().getCStr(&Offset)) {

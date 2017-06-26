@@ -27,9 +27,9 @@ define i32 @large_frame() {
 
   ; Access a pointer with a large offset
   %retval = load i32, i32* %1
-  ; CHECK:	movehi s1, 1
-	; CHECK: add_i s1, sp, s1
-	; CHECK: load_32 s0, 56(s1)
+  ; CHECK: movehi [[PTRREG:s[0-9+]]], 1
+  ; CHECK: add_i [[PTRREG]], sp, [[PTRREG]]
+  ; CHECK: load_32 {{s[0-9]+}}, 56([[PTRREG]])
 
   ; CHECK: load_32 ra,
 

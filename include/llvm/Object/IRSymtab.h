@@ -25,8 +25,8 @@
 #define LLVM_OBJECT_IRSYMTAB_H
 
 #include "llvm/ADT/ArrayRef.h"
-#include "llvm/ADT/iterator_range.h"
 #include "llvm/ADT/StringRef.h"
+#include "llvm/ADT/iterator_range.h"
 #include "llvm/IR/GlobalValue.h"
 #include "llvm/Object/SymbolicFile.h"
 #include "llvm/Support/Endian.h"
@@ -36,6 +36,10 @@
 #include <vector>
 
 namespace llvm {
+
+struct BitcodeFileContents;
+class StringTableBuilder;
+
 namespace irsymtab {
 
 namespace storage {
@@ -133,9 +137,10 @@ struct Header {
 
 } // end namespace storage
 
-/// Fills in Symtab and Strtab with a valid symbol and string table for Mods.
+/// Fills in Symtab and StrtabBuilder with a valid symbol and string table for
+/// Mods.
 Error build(ArrayRef<Module *> Mods, SmallVector<char, 0> &Symtab,
-            SmallVector<char, 0> &Strtab);
+            StringTableBuilder &StrtabBuilder, BumpPtrAllocator &Alloc);
 
 /// This represents a symbol that has been read from a storage::Symbol and
 /// possibly a storage::Uncommon.
@@ -313,6 +318,16 @@ inline Reader::symbol_range Reader::module_symbols(unsigned I) const {
   return {SymbolRef(MBegin, MEnd, Uncommons.begin() + M.UncBegin, this),
           SymbolRef(MEnd, MEnd, nullptr, this)};
 }
+
+/// The contents of the irsymtab in a bitcode file. Any underlying data for the
+/// irsymtab are owned by Symtab and Strtab.
+struct FileContents {
+  SmallVector<char, 0> Symtab, Strtab;
+  Reader TheReader;
+};
+
+/// Reads the contents of a bitcode file, creating its irsymtab if necessary.
+Expected<FileContents> readBitcode(const BitcodeFileContents &BFC);
 
 } // end namespace irsymtab
 } // end namespace llvm

@@ -16,6 +16,7 @@
 #define LLVM_LIB_TARGET_NYUZI_NYUZI_H
 
 #include "llvm/Support/CodeGen.h"
+#include "llvm/Target/TargetMachine.h"
 
 namespace llvm {
 class FunctionPass;

@@ -52,7 +52,7 @@ public:
     case Nyuzi::fixup_Nyuzi_Branch25: {
       // Divide by 4, because the hardware will multiply it.
       Value = static_cast<uint64_t>(static_cast<int64_t>(Value) / 4);
-      if (!APInt(64, Value).isSignedIntN(Info.TargetSize) && Ctx != 0) {
+      if (!APInt(64, Value).isSignedIntN(Info.TargetSize)) {
         Ctx->reportError(Fixup.getLoc(), "fixup out of range");
         return 0;
       }
@@ -69,10 +69,12 @@ public:
     return Value;
   }
 
-  void applyFixup(const MCFixup &Fixup, char *Data, unsigned DataSize,
-                  uint64_t Value, bool IsPCRel, MCContext &Ctx) const override {
+  void applyFixup(const MCAssembler &Asm, const MCFixup &Fixup,
+                  const MCValue &Target, MutableArrayRef<char> Data,
+                  uint64_t Value, bool IsPCRel) const override {
+
     const MCFixupKindInfo &Info = getFixupKindInfo(Fixup.getKind());
-    Value = adjustFixupValue(Fixup, Value, nullptr);
+    Value = adjustFixupValue(Fixup, Value, &Asm.getContext());
     unsigned Offset = Fixup.getOffset();
     unsigned NumBytes = 4;
 
@@ -134,17 +136,6 @@ public:
   bool writeNopData(uint64_t Count, MCObjectWriter *OW) const override {
     OW->WriteZeros(Count);
     return true;
-  }
-
-  void processFixupValue(const MCAssembler &Asm, const MCAsmLayout &Layout,
-                         const MCFixup &Fixup, const MCFragment *DF,
-                         const MCValue &Target, uint64_t &Value,
-                         bool &IsResolved) override {
-    // Ignore the value returned from adjustFixupValue (it is also called from
-    // applyFixup, which does the work of patching it). It is only called
-    // from here to report errors if it is out of range (because MCContext
-    // is only available here).
-    (void)adjustFixupValue(Fixup, Value, &Asm.getContext());
   }
 
 private:

@@ -14,7 +14,7 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/raw_ostream.h"
 #include <llvm/Support/Compiler.h>
-#include <llvm/Support/ELF.h>
+#include <llvm/BinaryFormat/ELF.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>

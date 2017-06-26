@@ -23,11 +23,11 @@
 #include "llvm/IR/Dominators.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/PatternMatch.h"
-#include "llvm/Transforms/Scalar.h"
-#include "llvm/Transforms/Utils/Local.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/KnownBits.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/Transforms/Scalar.h"
+#include "llvm/Transforms/Utils/Local.h"
 
 #include <algorithm>
 #include <array>
@@ -1744,7 +1744,8 @@ bool PolynomialMultiplyRecognize::recognize() {
     // wide as the target's pmpy instruction.
     if (!promoteTypes(LoopB, ExitB))
       return false;
-    convertShiftsToLeft(LoopB, ExitB, IterCount);
+    if (!convertShiftsToLeft(LoopB, ExitB, IterCount))
+      return false;
     cleanupLoopBody(LoopB);
   }
 

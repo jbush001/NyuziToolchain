@@ -10,6 +10,7 @@
 #ifndef LLVM_LIB_TARGET_NYUZI_NYUZIFRAMELOWERING_H
 #define LLVM_LIB_TARGET_NYUZI_NYUZIFRAMELOWERING_H
 
+#include "Nyuzi.h"
 #include "llvm/Target/TargetFrameLowering.h"
 
 namespace llvm {

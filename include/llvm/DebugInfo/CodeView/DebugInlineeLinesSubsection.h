@@ -19,7 +19,7 @@
 namespace llvm {
 namespace codeview {
 
-class DebugInlineeLinesSubsectionsRef;
+class DebugInlineeLinesSubsectionRef;
 class DebugChecksumsSubsection;
 
 enum class InlineeLinesSignature : uint32_t {
@@ -43,10 +43,9 @@ struct InlineeSourceLine {
 }
 
 template <> struct VarStreamArrayExtractor<codeview::InlineeSourceLine> {
-  typedef bool ContextType;
-
-  static Error extract(BinaryStreamRef Stream, uint32_t &Len,
-                       codeview::InlineeSourceLine &Item, bool HasExtraFiles);
+  Error operator()(BinaryStreamRef Stream, uint32_t &Len,
+                   codeview::InlineeSourceLine &Item);
+  bool HasExtraFiles = false;
 };
 
 namespace codeview {

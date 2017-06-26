@@ -16,10 +16,10 @@
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Analysis/OptimizationDiagnosticInfo.h"
-#include "llvm/CodeGen/GlobalISel/CallLowering.h"
 #include "llvm/CodeGen/Analysis.h"
-#include "llvm/CodeGen/MachineFunction.h"
+#include "llvm/CodeGen/GlobalISel/CallLowering.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
+#include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineModuleInfo.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
 #include "llvm/CodeGen/TargetPassConfig.h"
@@ -582,7 +582,7 @@ bool IRTranslator::translateOverflowIntrinsic(const CallInst &CI, unsigned Op,
     MIB.addUse(Zero);
   }
 
-  MIRBuilder.buildSequence(getOrCreateVReg(CI), Res, 0, Overflow, Width);
+  MIRBuilder.buildSequence(getOrCreateVReg(CI), {Res, Overflow}, {0, Width});
   return true;
 }
 
@@ -686,6 +686,13 @@ bool IRTranslator::translateKnownIntrinsic(const CallInst &CI, Intrinsic::ID ID,
         .addUse(getOrCreateVReg(*CI.getArgOperand(0)))
         .addUse(getOrCreateVReg(*CI.getArgOperand(1)));
     return true;
+  case Intrinsic::fma:
+    MIRBuilder.buildInstr(TargetOpcode::G_FMA)
+        .addDef(getOrCreateVReg(CI))
+        .addUse(getOrCreateVReg(*CI.getArgOperand(0)))
+        .addUse(getOrCreateVReg(*CI.getArgOperand(1)))
+        .addUse(getOrCreateVReg(*CI.getArgOperand(2)));
+    return true;
   case Intrinsic::memcpy:
   case Intrinsic::memmove:
   case Intrinsic::memset:
@@ -784,6 +791,21 @@ bool IRTranslator::translateCall(const User &U, MachineIRBuilder &MIRBuilder) {
       return false;
     MIB.addUse(getOrCreateVReg(*Arg));
   }
+
+  // Add a MachineMemOperand if it is a target mem intrinsic.
+  const TargetLowering &TLI = *MF->getSubtarget().getTargetLowering();
+  TargetLowering::IntrinsicInfo Info;
+  // TODO: Add a GlobalISel version of getTgtMemIntrinsic.
+  if (TLI.getTgtMemIntrinsic(Info, CI, ID)) {
+    MachineMemOperand::Flags Flags =
+        Info.vol ? MachineMemOperand::MOVolatile : MachineMemOperand::MONone;
+    Flags |=
+        Info.readMem ? MachineMemOperand::MOLoad : MachineMemOperand::MOStore;
+    uint64_t Size = Info.memVT.getSizeInBits() >> 3;
+    MIB.addMemOperand(MF->getMachineMemOperand(MachinePointerInfo(Info.ptrVal),
+                                               Flags, Size, Info.align));
+  }
+
   return true;
 }
 

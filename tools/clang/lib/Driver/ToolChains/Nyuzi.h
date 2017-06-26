@@ -51,7 +51,7 @@ public:
   bool IsUnwindTablesDefault() const override;
 
 protected:
-  virtual Tool *buildLinker() const;
+  Tool *buildLinker() const override;
 };
 
 } // end namespace toolchains

@@ -111,6 +111,21 @@ public:
       : OSTargetInfo<Target>(Triple, Opts) {}
 };
 
+// Ananas target
+template<typename Target>
+class AnanasTargetInfo : public OSTargetInfo<Target> {
+protected:
+  void getOSDefines(const LangOptions &Opts, const llvm::Triple &Triple,
+                    MacroBuilder &Builder) const override {
+    // Ananas defines
+    Builder.defineMacro("__Ananas__");
+    Builder.defineMacro("__ELF__");
+  }
+public:
+  AnanasTargetInfo(const llvm::Triple &Triple, const TargetOptions &Opts)
+      : OSTargetInfo<Target>(Triple, Opts) {}
+};
+
 static void getDarwinDefines(MacroBuilder &Builder, const LangOptions &Opts,
                              const llvm::Triple &Triple,
                              StringRef &PlatformName,
@@ -5385,6 +5400,10 @@ public:
     // ARM has atomics up to 8 bytes
     setAtomic();
 
+    // Maximum alignment for ARM NEON data types should be 64-bits (AAPCS)
+    if (IsAAPCS && (Triple.getEnvironment() != llvm::Triple::Android))
+       MaxVectorAlign = 64;
+
     // Do force alignment of members that follow zero length bitfields.  If
     // the alignment of the zero-length bitfield is greater than the member
     // that follows it, `bar', `bar' will be aligned as the  type of the
@@ -5438,7 +5457,24 @@ public:
       if (Feature[0] == '+')
         Features[Feature.drop_front(1)] = true;
 
-    return TargetInfo::initFeatureMap(Features, Diags, CPU, FeaturesVec);
+    // Enable or disable thumb-mode explicitly per function to enable mixed
+    // ARM and Thumb code generation.
+    if (isThumb())
+      Features["thumb-mode"] = true;
+    else
+      Features["thumb-mode"] = false;
+
+    // Convert user-provided arm and thumb GNU target attributes to
+    // [-|+]thumb-mode target features respectively.
+    std::vector<std::string> UpdatedFeaturesVec(FeaturesVec);
+    for (auto &Feature : UpdatedFeaturesVec) {
+      if (Feature.compare("+arm") == 0)
+        Feature = "-thumb-mode";
+      else if (Feature.compare("+thumb") == 0)
+        Feature = "+thumb-mode";
+    }
+
+    return TargetInfo::initFeatureMap(Features, Diags, CPU, UpdatedFeaturesVec);
   }
 
   bool handleTargetFeatures(std::vector<std::string> &Features,
@@ -6151,6 +6187,8 @@ class AArch64TargetInfo : public TargetInfo {
   unsigned Crypto;
   unsigned Unaligned;
   unsigned V8_1A;
+  unsigned V8_2A;
+  unsigned HasFullFP16;
 
   static const Builtin::Info BuiltinInfo[];
 
@@ -6282,6 +6320,8 @@ public:
 
     if (V8_1A)
       Builder.defineMacro("__ARM_FEATURE_QRDMX", "1");
+    if (V8_2A && FPU == NeonMode && HasFullFP16)
+      Builder.defineMacro("__ARM_FEATURE_FP16_VECTOR_ARITHMETIC", "1");
 
     // All of the __sync_(bool|val)_compare_and_swap_(1|2|4|8) builtins work.
     Builder.defineMacro("__GCC_HAVE_SYNC_COMPARE_AND_SWAP_1");
@@ -6309,6 +6349,8 @@ public:
     Crypto = 0;
     Unaligned = 1;
     V8_1A = 0;
+    V8_2A = 0;
+    HasFullFP16 = 0;
 
     for (const auto &Feature : Features) {
       if (Feature == "+neon")
@@ -6321,6 +6363,10 @@ public:
         Unaligned = 0;
       if (Feature == "+v8.1a")
         V8_1A = 1;
+      if (Feature == "+v8.2a")
+        V8_2A = 1;
+      if (Feature == "+fullfp16")
+        HasFullFP16 = 1;
     }
 
     setDataLayout();
@@ -7472,7 +7518,7 @@ public:
     IntPtrType = SignedInt;
     PtrDiffType = SignedInt;
     SigAtomicType = SignedLong;
-    resetDataLayout("e-m:e-p:16:16-i32:16:32-a:16-n8:16");
+    resetDataLayout("e-m:e-p:16:16-i32:16-i64:16-f32:16-f64:16-a:8-n8:16-S16");
   }
   void getTargetDefines(const LangOptions &Opts,
                         MacroBuilder &Builder) const override {
@@ -7716,6 +7762,7 @@ class MipsTargetInfo : public TargetInfo {
     NoDSP, DSP1, DSP2
   } DspRev;
   bool HasMSA;
+  bool DisableMadd4;
 
 protected:
   bool HasFP64;
@@ -7726,7 +7773,7 @@ public:
       : TargetInfo(Triple), IsMips16(false), IsMicromips(false),
         IsNan2008(false), IsSingleFloat(false), IsNoABICalls(false),
         CanUseBSDABICalls(false), FloatABI(HardFloat), DspRev(NoDSP),
-        HasMSA(false), HasFP64(false) {
+        HasMSA(false), DisableMadd4(false), HasFP64(false) {
     TheCXXABI.set(TargetCXXABI::GenericMIPS);
 
     setABI((getTriple().getArch() == llvm::Triple::mips ||
@@ -7972,6 +8019,9 @@ public:
     if (HasMSA)
       Builder.defineMacro("__mips_msa", Twine(1));
 
+    if (DisableMadd4)
+      Builder.defineMacro("__mips_no_madd4", Twine(1));
+
     Builder.defineMacro("_MIPS_SZPTR", Twine(getPointerWidth(0)));
     Builder.defineMacro("_MIPS_SZINT", Twine(getIntWidth()));
     Builder.defineMacro("_MIPS_SZLONG", Twine(getLongWidth()));
@@ -8134,6 +8184,8 @@ public:
         DspRev = std::max(DspRev, DSP2);
       else if (Feature == "+msa")
         HasMSA = true;
+      else if (Feature == "+nomadd4")
+        DisableMadd4 = true;
       else if (Feature == "+fp64")
         HasFP64 = true;
       else if (Feature == "-fp64")
@@ -8569,7 +8621,7 @@ public:
   explicit WebAssembly32TargetInfo(const llvm::Triple &T,
                                    const TargetOptions &Opts)
       : WebAssemblyTargetInfo(T, Opts) {
-    MaxAtomicPromoteWidth = MaxAtomicInlineWidth = 32;
+    MaxAtomicPromoteWidth = MaxAtomicInlineWidth = 64;
     resetDataLayout("e-m:e-p:32:32-i64:64-n32:64-S128");
   }
 
@@ -9599,6 +9651,8 @@ static TargetInfo *AllocateTarget(const llvm::Triple &Triple,
       return new DarwinI386TargetInfo(Triple, Opts);
 
     switch (os) {
+    case llvm::Triple::Ananas:
+      return new AnanasTargetInfo<X86_32TargetInfo>(Triple, Opts);
     case llvm::Triple::CloudABI:
       return new CloudABITargetInfo<X86_32TargetInfo>(Triple, Opts);
     case llvm::Triple::Linux: {
@@ -9654,6 +9708,8 @@ static TargetInfo *AllocateTarget(const llvm::Triple &Triple,
       return new DarwinX86_64TargetInfo(Triple, Opts);
 
     switch (os) {
+    case llvm::Triple::Ananas:
+      return new AnanasTargetInfo<X86_64TargetInfo>(Triple, Opts);
     case llvm::Triple::CloudABI:
       return new CloudABITargetInfo<X86_64TargetInfo>(Triple, Opts);
     case llvm::Triple::Linux: {

@@ -96,7 +96,7 @@ directory):
 export PATH=<BUILDDIR>/build/bin:$PATH
 llvm-lit test
 llvm-lit tools/clang/test/CodeGen/
-llvm-lit tools/spmd_compile/test/
+llvm-lit tools/spmd-compile/test/
 llvm-lit tools/lld/test/ELF/nyuzi-*
 ```
 
