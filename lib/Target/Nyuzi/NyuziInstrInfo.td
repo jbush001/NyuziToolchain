@@ -11,6 +11,8 @@
 //
 //===----------------------------------------------------------------------===//
 
+include "NyuziInstrFormats.td"
+
 //////////////////////////////////////////////////////////////////
 // Arithmetic (Format R & I)
 //////////////////////////////////////////////////////////////////
@@ -534,7 +536,7 @@ let mayStore = 1 in {
 
   def INT_BLOCK_STOREI_MASKED : FormatMMaskedInst<
     (outs),
-    (ins VR512:$srcDest, MEMS10:$addr, GPR32:$mask), // XXX needs to
+    (ins VR512:$srcDest, MEMS10:$addr, GPR32:$mask),
     "store_v_mask $srcDest, $mask, $addr",
     [(int_nyuzi_block_storei_masked ADDRri:$addr, v16i32:$srcDest, v16i1:$mask)],
     FmtM_BlockMasked,

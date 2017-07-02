@@ -20,7 +20,6 @@ include "llvm/Target/Target.td"
 include "NyuziRegisterInfo.td"
 include "NyuziCallingConv.td"
 include "NyuziSchedule.td"
-include "NyuziInstrFormats.td"
 include "NyuziInstrInfo.td"
 
 def NyuziInstrInfo : InstrInfo;
