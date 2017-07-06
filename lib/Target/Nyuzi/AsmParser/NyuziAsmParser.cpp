@@ -108,26 +108,6 @@ struct NyuziOperand : public MCParsedAsmOperand {
   explicit NyuziOperand(KindTy K) : MCParsedAsmOperand(), Kind(K) {}
 
 public:
-  NyuziOperand(const NyuziOperand &o) : MCParsedAsmOperand() {
-    Kind = o.Kind;
-    StartLoc = o.StartLoc;
-    EndLoc = o.EndLoc;
-    switch (Kind) {
-    case K_Register:
-      Reg = o.Reg;
-      break;
-    case K_Immediate:
-      Imm = o.Imm;
-      break;
-    case K_Token:
-      Tok = o.Tok;
-      break;
-    case K_Memory:
-      Mem = o.Mem;
-      break;
-    }
-  }
-
   /// getStartLoc - Gets location of the first token of this operand
   SMLoc getStartLoc() const { return StartLoc; }
 
