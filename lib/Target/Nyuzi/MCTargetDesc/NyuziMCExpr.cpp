@@ -1,4 +1,4 @@
-//===- NyuziMCExpr.cpp - Mips specific MC expression classes ---*- C++ -*-===//
+//===- NyuziMCExpr.cpp - Nyuzi specific MC expression classes ---*- C++ -*-===//
 //
 //                     The LLVM Compiler Infrastructure
 //

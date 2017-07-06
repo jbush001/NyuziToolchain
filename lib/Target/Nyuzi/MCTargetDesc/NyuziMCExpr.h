@@ -1,4 +1,4 @@
-//===- NyuziMCExpr.h - Mips specific MC expression classes -----*- C++ -*-===//
+//===- NyuziMCExpr.h - Nyuzi specific MC expression classes -----*- C++ -*-===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -7,8 +7,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_LIB_TARGET_NYUZI_MCTARGETDESC_MIPSMCEXPR_H
-#define LLVM_LIB_TARGET_NYUZI_MCTARGETDESC_MIPSMCEXPR_H
+#ifndef LLVM_LIB_TARGET_NYUZI_MCTARGETDESC_NYUZIMCEXPR_H
+#define LLVM_LIB_TARGET_NYUZI_MCTARGETDESC_NYUZIMCEXPR_H
 
 #include "llvm/MC/MCExpr.h"
 #include "llvm/MC/MCValue.h"

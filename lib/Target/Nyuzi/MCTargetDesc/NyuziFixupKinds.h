@@ -1,4 +1,4 @@
-//===-- MipsFixupKinds.h - Mips Specific Fixup Entries ----------*- C++ -*-===//
+//===-- NyuziFixupKinds.h - Nyuzi Specific Fixup Entries -------*- C++ -*-===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -35,4 +35,4 @@ enum Fixups {
 } // namespace Nyuzi
 } // namespace llvm
 
-#endif // LLVM_MIPS_NYUZIFIXUPKINDS_H
+#endif // LLVM_NYUZI_NYUZIFIXUPKINDS_H

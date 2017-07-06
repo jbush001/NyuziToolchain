@@ -1,4 +1,4 @@
-//===-- MipsAsmPrinter.h - Mips LLVM Assembly Printer ----------*- C++ -*--===//
+//===-- NyuziAsmPrinter.h - Nyuzi LLVM Assembly Printer --------*- C++ -*--===//
 //
 //                     The LLVM Compiler Infrastructure
 //
