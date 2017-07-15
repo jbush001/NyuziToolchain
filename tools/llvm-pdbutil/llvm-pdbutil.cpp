@@ -114,6 +114,31 @@ cl::OptionCategory TypeCategory("Symbol Type Options");
 cl::OptionCategory FilterCategory("Filtering and Sorting Options");
 cl::OptionCategory OtherOptions("Other Options");
 
+cl::ValuesClass ChunkValues = cl::values(
+    clEnumValN(ModuleSubsection::CrossScopeExports, "cme",
+               "Cross module exports (DEBUG_S_CROSSSCOPEEXPORTS subsection)"),
+    clEnumValN(ModuleSubsection::CrossScopeImports, "cmi",
+               "Cross module imports (DEBUG_S_CROSSSCOPEIMPORTS subsection)"),
+    clEnumValN(ModuleSubsection::FileChecksums, "fc",
+               "File checksums (DEBUG_S_CHECKSUMS subsection)"),
+    clEnumValN(ModuleSubsection::InlineeLines, "ilines",
+               "Inlinee lines (DEBUG_S_INLINEELINES subsection)"),
+    clEnumValN(ModuleSubsection::Lines, "lines",
+               "Lines (DEBUG_S_LINES subsection)"),
+    clEnumValN(ModuleSubsection::StringTable, "strings",
+               "String Table (DEBUG_S_STRINGTABLE subsection) (not "
+               "typically present in PDB file)"),
+    clEnumValN(ModuleSubsection::FrameData, "frames",
+               "Frame Data (DEBUG_S_FRAMEDATA subsection)"),
+    clEnumValN(ModuleSubsection::Symbols, "symbols",
+               "Symbols (DEBUG_S_SYMBOLS subsection) (not typically "
+               "present in PDB file)"),
+    clEnumValN(ModuleSubsection::CoffSymbolRVAs, "rvas",
+               "COFF Symbol RVAs (DEBUG_S_COFF_SYMBOL_RVA subsection)"),
+    clEnumValN(ModuleSubsection::Unknown, "unknown",
+               "Any subsection not covered by another option"),
+    clEnumValN(ModuleSubsection::All, "all", "All known subsections"));
+
 namespace pretty {
 cl::list<std::string> InputFilenames(cl::Positional,
                                      cl::desc("<input PDB files>"),
@@ -259,9 +284,32 @@ cl::opt<bool> NoEnumDefs("no-enum-definitions",
 }
 
 namespace diff {
-cl::list<std::string> InputFilenames(cl::Positional,
-                                     cl::desc("<first> <second>"),
-                                     cl::OneOrMore, cl::sub(DiffSubcommand));
+cl::opt<bool> PrintValueColumns(
+    "values", cl::init(true),
+    cl::desc("Print one column for each PDB with the field value"),
+    cl::Optional, cl::sub(DiffSubcommand));
+cl::opt<bool>
+    PrintResultColumn("result", cl::init(false),
+                      cl::desc("Print a column with the result status"),
+                      cl::Optional, cl::sub(DiffSubcommand));
+
+cl::opt<std::string> LeftRoot(
+    "left-bin-root", cl::Optional,
+    cl::desc("Treats the specified path as the root of the tree containing "
+             "binaries referenced by the left PDB.  The root is stripped from "
+             "embedded paths when doing equality comparisons."),
+    cl::sub(DiffSubcommand));
+cl::opt<std::string> RightRoot(
+    "right-bin-root", cl::Optional,
+    cl::desc("Treats the specified path as the root of the tree containing "
+             "binaries referenced by the right PDB.  The root is stripped from "
+             "embedded paths when doing equality comparisons"),
+    cl::sub(DiffSubcommand));
+
+cl::opt<std::string> Left(cl::Positional, cl::desc("<left>"),
+                          cl::sub(DiffSubcommand));
+cl::opt<std::string> Right(cl::Positional, cl::desc("<right>"),
+                           cl::sub(DiffSubcommand));
 }
 
 cl::OptionCategory FileOptions("Module & File Options");
@@ -328,9 +376,14 @@ cl::opt<bool> ModuleSyms("syms", cl::desc("Dump symbol record substream"),
 cl::opt<bool> ModuleC11("c11-chunks", cl::Hidden,
                         cl::desc("Dump C11 CodeView debug chunks"),
                         cl::sub(BytesSubcommand), cl::cat(ModuleCategory));
-cl::opt<bool> ModuleC13("chunks", cl::desc("Dump C13 CodeView debug chunks"),
+cl::opt<bool> ModuleC13("chunks",
+                        cl::desc("Dump C13 CodeView debug chunk subsection"),
                         cl::sub(BytesSubcommand), cl::cat(ModuleCategory));
-
+cl::opt<bool> SplitChunks(
+    "split-chunks",
+    cl::desc(
+        "When dumping debug chunks, show a different section for each chunk"),
+    cl::sub(BytesSubcommand), cl::cat(ModuleCategory));
 cl::list<std::string> InputFilenames(cl::Positional,
                                      cl::desc("<input PDB files>"),
                                      cl::OneOrMore, cl::sub(BytesSubcommand));
@@ -369,7 +422,7 @@ cl::opt<bool> DumpTypeExtras("type-extras",
                              cl::cat(TypeOptions), cl::sub(DumpSubcommand));
 
 cl::list<uint32_t> DumpTypeIndex(
-    "type-index", cl::ZeroOrMore,
+    "type-index", cl::ZeroOrMore, cl::CommaSeparated,
     cl::desc("only dump types with the specified hexadecimal type index"),
     cl::cat(TypeOptions), cl::sub(DumpSubcommand));
 
@@ -385,8 +438,15 @@ cl::opt<bool> DumpIdExtras("id-extras",
                            cl::desc("dump id hashes and index offsets"),
                            cl::cat(TypeOptions), cl::sub(DumpSubcommand));
 cl::list<uint32_t> DumpIdIndex(
-    "id-index", cl::ZeroOrMore,
+    "id-index", cl::ZeroOrMore, cl::CommaSeparated,
     cl::desc("only dump ids with the specified hexadecimal type index"),
+    cl::cat(TypeOptions), cl::sub(DumpSubcommand));
+
+cl::opt<bool> DumpTypeDependents(
+    "dependents",
+    cl::desc("In conjunection with -type-index and -id-index, dumps the entire "
+             "dependency graph for the specified index instead of "
+             "just the single record with the specified index"),
     cl::cat(TypeOptions), cl::sub(DumpSubcommand));
 
 // SYMBOL OPTIONS
@@ -501,33 +561,7 @@ cl::opt<bool> DumpModuleFiles("module-files", cl::desc("dump file information"),
                               cl::sub(PdbToYamlSubcommand));
 cl::list<ModuleSubsection> DumpModuleSubsections(
     "subsections", cl::ZeroOrMore, cl::CommaSeparated,
-    cl::desc("dump subsections from each module's debug stream"),
-    cl::values(
-        clEnumValN(
-            ModuleSubsection::CrossScopeExports, "cme",
-            "Cross module exports (DEBUG_S_CROSSSCOPEEXPORTS subsection)"),
-        clEnumValN(
-            ModuleSubsection::CrossScopeImports, "cmi",
-            "Cross module imports (DEBUG_S_CROSSSCOPEIMPORTS subsection)"),
-        clEnumValN(ModuleSubsection::FileChecksums, "fc",
-                   "File checksums (DEBUG_S_CHECKSUMS subsection)"),
-        clEnumValN(ModuleSubsection::InlineeLines, "ilines",
-                   "Inlinee lines (DEBUG_S_INLINEELINES subsection)"),
-        clEnumValN(ModuleSubsection::Lines, "lines",
-                   "Lines (DEBUG_S_LINES subsection)"),
-        clEnumValN(ModuleSubsection::StringTable, "strings",
-                   "String Table (DEBUG_S_STRINGTABLE subsection) (not "
-                   "typically present in PDB file)"),
-        clEnumValN(ModuleSubsection::FrameData, "frames",
-                   "Frame Data (DEBUG_S_FRAMEDATA subsection)"),
-        clEnumValN(ModuleSubsection::Symbols, "symbols",
-                   "Symbols (DEBUG_S_SYMBOLS subsection) (not typically "
-                   "present in PDB file)"),
-        clEnumValN(ModuleSubsection::CoffSymbolRVAs, "rvas",
-                   "COFF Symbol RVAs (DEBUG_S_COFF_SYMBOL_RVA subsection)"),
-        clEnumValN(ModuleSubsection::Unknown, "unknown",
-                   "Any subsection not covered by another option"),
-        clEnumValN(ModuleSubsection::All, "all", "All known subsections")),
+    cl::desc("dump subsections from each module's debug stream"), ChunkValues,
     cl::cat(FileOptions), cl::sub(PdbToYamlSubcommand));
 cl::opt<bool> DumpModuleSyms("module-syms", cl::desc("dump module symbols"),
                              cl::cat(FileOptions),
@@ -980,6 +1014,15 @@ static bool parseRange(StringRef Str,
   return true;
 }
 
+static void simplifyChunkList(llvm::cl::list<opts::ModuleSubsection> &Chunks) {
+  // If this list contains "All" plus some other stuff, remove the other stuff
+  // and just keep "All" in the list.
+  if (!llvm::is_contained(Chunks, opts::ModuleSubsection::All))
+    return;
+  Chunks.reset();
+  Chunks.push_back(opts::ModuleSubsection::All);
+}
+
 int main(int argc_, const char *argv_[]) {
   // Print a stack trace if we signal out.
   sys::PrintStackTraceOnErrorSignal(argv_[0]);
@@ -1050,19 +1093,19 @@ int main(int argc_, const char *argv_[]) {
       opts::pdb2yaml::DumpModuleSyms = true;
       opts::pdb2yaml::DumpModuleSubsections.push_back(
           opts::ModuleSubsection::All);
-      if (llvm::is_contained(opts::pdb2yaml::DumpModuleSubsections,
-                             opts::ModuleSubsection::All)) {
-        opts::pdb2yaml::DumpModuleSubsections.reset();
-        opts::pdb2yaml::DumpModuleSubsections.push_back(
-            opts::ModuleSubsection::All);
-      }
     }
+    simplifyChunkList(opts::pdb2yaml::DumpModuleSubsections);
 
     if (opts::pdb2yaml::DumpModuleSyms || opts::pdb2yaml::DumpModuleFiles)
       opts::pdb2yaml::DumpModules = true;
 
     if (opts::pdb2yaml::DumpModules)
       opts::pdb2yaml::DbiStream = true;
+  }
+  if (opts::DiffSubcommand) {
+    if (!opts::diff::PrintResultColumn && !opts::diff::PrintValueColumns) {
+      llvm::errs() << "WARNING: No diff columns specified\n";
+    }
   }
 
   llvm::sys::InitializeCOMRAII COM(llvm::sys::COMThreadingMode::MultiThreaded);
@@ -1122,11 +1165,7 @@ int main(int argc_, const char *argv_[]) {
     std::for_each(opts::bytes::InputFilenames.begin(),
                   opts::bytes::InputFilenames.end(), dumpBytes);
   } else if (opts::DiffSubcommand) {
-    if (opts::diff::InputFilenames.size() != 2) {
-      errs() << "diff subcommand expects exactly 2 arguments.\n";
-      exit(1);
-    }
-    diff(opts::diff::InputFilenames[0], opts::diff::InputFilenames[1]);
+    diff(opts::diff::Left, opts::diff::Right);
   } else if (opts::MergeSubcommand) {
     if (opts::merge::InputFilenames.size() < 2) {
       errs() << "merge subcommand requires at least 2 input files.\n";

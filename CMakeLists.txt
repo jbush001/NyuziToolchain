@@ -213,7 +213,7 @@ endif()
 include(VersionFromVCS)
 
 option(LLVM_APPEND_VC_REV
-  "Append the version control system revision id to LLVM version" OFF)
+  "Embed the version control system revision id in LLVM" ON)
 
 if( LLVM_APPEND_VC_REV )
   add_version_info_from_vcs(PACKAGE_VERSION)
@@ -293,6 +293,10 @@ endif()
 set(LLVM_LIBDIR_SUFFIX "" CACHE STRING "Define suffix of library directory name (32/64)" )
 
 set(LLVM_TOOLS_INSTALL_DIR "bin" CACHE STRING "Path for binary subdirectory (defaults to 'bin')")
+mark_as_advanced(LLVM_TOOLS_INSTALL_DIR)
+
+set(LLVM_UTILS_INSTALL_DIR "bin" CACHE STRING
+    "Path to install LLVM utilities (enabled by LLVM_INSTALL_UTILS=ON) (defaults to LLVM_TOOLS_INSTALL_DIR)")
 mark_as_advanced(LLVM_TOOLS_INSTALL_DIR)
 
 # They are used as destination of target generators.

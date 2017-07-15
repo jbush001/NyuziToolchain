@@ -990,17 +990,14 @@ static SDValue performMADD_MSUBCombine(SDNode *ROOTNode, SelectionDAG &CurDAG,
   // this optimization pre-legalization.
   SDValue MultLHS = Mult->getOperand(0);
   SDValue MultRHS = Mult->getOperand(1);
-  unsigned LHSSB = CurDAG.ComputeNumSignBits(MultLHS);
-  unsigned RHSSB = CurDAG.ComputeNumSignBits(MultRHS);
 
-  if (LHSSB < 32 || RHSSB < 32)
+  bool IsSigned = MultLHS->getOpcode() == ISD::SIGN_EXTEND &&
+                  MultRHS->getOpcode() == ISD::SIGN_EXTEND;
+  bool IsUnsigned = MultLHS->getOpcode() == ISD::ZERO_EXTEND &&
+                    MultRHS->getOpcode() == ISD::ZERO_EXTEND;
+
+  if (!IsSigned && !IsUnsigned)
     return SDValue();
-
-  APInt HighMask =
-      APInt::getHighBitsSet(Mult->getValueType(0).getScalarSizeInBits(), 32);
-  bool IsUnsigned = CurDAG.MaskedValueIsZero(Mult->getOperand(0), HighMask) &&
-                    CurDAG.MaskedValueIsZero(Mult->getOperand(1), HighMask) &&
-                    CurDAG.MaskedValueIsZero(AddOperand, HighMask);
 
   // Initialize accumulator.
   SDLoc DL(ROOTNode);
@@ -3151,6 +3148,20 @@ MipsTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
   SDValue CalleeLo;
   EVT Ty = Callee.getValueType();
   bool GlobalOrExternal = false, IsCallReloc = false;
+
+  // The long-calls feature is ignored in case of PIC.
+  // While we do not support -mshared / -mno-shared properly,
+  // ignore long-calls in case of -mabicalls too.
+  if (Subtarget.useLongCalls() && !Subtarget.isABICalls() && !IsPIC) {
+    // Get the address of the callee into a register to prevent
+    // using of the `jal` instruction for the direct call.
+    if (auto *N = dyn_cast<GlobalAddressSDNode>(Callee))
+      Callee = Subtarget.hasSym32() ? getAddrNonPIC(N, SDLoc(N), Ty, DAG)
+                                    : getAddrNonPICSym64(N, SDLoc(N), Ty, DAG);
+    else if (auto *N = dyn_cast<ExternalSymbolSDNode>(Callee))
+      Callee = Subtarget.hasSym32() ? getAddrNonPIC(N, SDLoc(N), Ty, DAG)
+                                    : getAddrNonPICSym64(N, SDLoc(N), Ty, DAG);
+  }
 
   if (GlobalAddressSDNode *G = dyn_cast<GlobalAddressSDNode>(Callee)) {
     if (IsPIC) {

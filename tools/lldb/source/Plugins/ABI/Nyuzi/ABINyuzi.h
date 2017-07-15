@@ -20,9 +20,9 @@
 //
 class ABINyuzi : public lldb_private::ABI {
 public:
-  ~ABINyuzi(void) {}
+  ~ABINyuzi() override = default;
 
-  size_t GetRedZoneSize(void) const override;
+  size_t GetRedZoneSize() const override;
 
   bool PrepareTrivialCall(lldb_private::Thread &thread, lldb::addr_t sp,
                           lldb::addr_t functionAddress,
@@ -71,26 +71,29 @@ public:
   //------------------------------------------------------------------
   // Static Functions
   //------------------------------------------------------------------
-  static void Initialize(void);
+  static void Initialize();
 
-  static void Terminate(void);
+  static void Terminate();
 
-  static lldb::ABISP CreateInstance(const lldb_private::ArchSpec &arch);
+  static lldb::ABISP CreateInstance(lldb::ProcessSP process_sp,
+    const lldb_private::ArchSpec &arch);
 
-  static lldb_private::ConstString GetPluginNameStatic(void);
+  static lldb_private::ConstString GetPluginNameStatic();
 
   //------------------------------------------------------------------
   // PluginInterface protocol
   //------------------------------------------------------------------
-  lldb_private::ConstString GetPluginName(void) override;
+  lldb_private::ConstString GetPluginName() override;
 
-  uint32_t GetPluginVersion(void) override;
+  uint32_t GetPluginVersion() override;
 
 protected:
-  void CreateRegisterMapIfNeeded(void);
+  void CreateRegisterMapIfNeeded();
 
 private:
-  ABINyuzi(void) : lldb_private::ABI() {} // Call CreateInstance instead.
+  ABINyuzi(lldb::ProcessSP process_sp) : lldb_private::ABI(process_sp) {
+    // Call CreateInstance instead.
+  }
 };
 
 #endif // liblldb_ABINyuzi_h_

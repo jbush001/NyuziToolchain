@@ -262,8 +262,8 @@ def FeatureSDWAMac : SubtargetFeature<"sdwa-mav",
   "Support v_mac_f32/f16 with SDWA (Sub-DWORD Addressing) extension"
 >;
 
-def FeatureSDWAClampVOPC : SubtargetFeature<"sdwa-clamp-vopc",
-  "HasSDWAClampVOPC",
+def FeatureSDWAOutModsVOPC : SubtargetFeature<"sdwa-out-mods-vopc",
+  "HasSDWAOutModsVOPC",
   "true",
   "Support clamp for VOPC with SDWA (Sub-DWORD Addressing) extension"
 >;
@@ -452,7 +452,7 @@ def FeatureVolcanicIslands : SubtargetFeatureGeneration<"VOLCANIC_ISLANDS",
    FeatureGCN3Encoding, FeatureCIInsts, Feature16BitInsts,
    FeatureSMemRealTime, FeatureVGPRIndexMode, FeatureMovrel,
    FeatureScalarStores, FeatureInv2PiInlineImm,
-   FeatureSDWA, FeatureSDWAClampVOPC, FeatureSDWAMac, FeatureDPP
+   FeatureSDWA, FeatureSDWAOutModsVOPC, FeatureSDWAMac, FeatureDPP
   ]
 >;
 
@@ -480,14 +480,14 @@ class SubtargetFeatureISAVersion <int Major, int Minor, int Stepping,
 
 def FeatureISAVersion6_0_0 : SubtargetFeatureISAVersion <6,0,0,
   [FeatureSouthernIslands,
-   FeatureFastFMAF32, 
+   FeatureFastFMAF32,
    HalfRate64Ops,
    FeatureLDSBankCount32]>;
 
 def FeatureISAVersion6_0_1 : SubtargetFeatureISAVersion <6,0,1,
   [FeatureSouthernIslands,
    FeatureLDSBankCount32]>;
-   
+
 def FeatureISAVersion7_0_0 : SubtargetFeatureISAVersion <7,0,0,
   [FeatureSeaIslands,
    FeatureLDSBankCount32]>;

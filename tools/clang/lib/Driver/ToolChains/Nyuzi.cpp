@@ -77,7 +77,8 @@ bool NyuziToolChain::isPICDefaultForced() const
 }
 
 void NyuziToolChain::addClangTargetOptions(const ArgList &DriverArgs,
-                                  ArgStringList &CC1Args) const {
+                                  ArgStringList &CC1Args,
+                                  Action::OffloadKind DeviceOffloadKind) const {
   CC1Args.push_back("-nostdsysteminc");
   if (DriverArgs.hasFlag(options::OPT_fuse_init_array,
                          options::OPT_fno_use_init_array,

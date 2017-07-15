@@ -166,17 +166,22 @@ MachineInstrBuilder MachineIRBuilder::buildGlobalValue(unsigned Res,
       .addGlobalAddress(GV);
 }
 
-MachineInstrBuilder MachineIRBuilder::buildAdd(unsigned Res, unsigned Op0,
+MachineInstrBuilder MachineIRBuilder::buildBinaryOp(unsigned Opcode, unsigned Res, unsigned Op0,
                                                unsigned Op1) {
   assert((MRI->getType(Res).isScalar() || MRI->getType(Res).isVector()) &&
          "invalid operand type");
   assert(MRI->getType(Res) == MRI->getType(Op0) &&
          MRI->getType(Res) == MRI->getType(Op1) && "type mismatch");
 
-  return buildInstr(TargetOpcode::G_ADD)
+  return buildInstr(Opcode)
       .addDef(Res)
       .addUse(Op0)
       .addUse(Op1);
+}
+
+MachineInstrBuilder MachineIRBuilder::buildAdd(unsigned Res, unsigned Op0,
+                                               unsigned Op1) {
+  return buildBinaryOp(TargetOpcode::G_ADD, Res, Op0, Op1);
 }
 
 MachineInstrBuilder MachineIRBuilder::buildGEP(unsigned Res, unsigned Op0,
@@ -222,41 +227,22 @@ MachineInstrBuilder MachineIRBuilder::buildPtrMask(unsigned Res, unsigned Op0,
 
 MachineInstrBuilder MachineIRBuilder::buildSub(unsigned Res, unsigned Op0,
                                                unsigned Op1) {
-  assert((MRI->getType(Res).isScalar() || MRI->getType(Res).isVector()) &&
-         "invalid operand type");
-  assert(MRI->getType(Res) == MRI->getType(Op0) &&
-         MRI->getType(Res) == MRI->getType(Op1) && "type mismatch");
-
-  return buildInstr(TargetOpcode::G_SUB)
-      .addDef(Res)
-      .addUse(Op0)
-      .addUse(Op1);
+  return buildBinaryOp(TargetOpcode::G_SUB, Res, Op0, Op1);
 }
 
 MachineInstrBuilder MachineIRBuilder::buildMul(unsigned Res, unsigned Op0,
                                                unsigned Op1) {
-  assert((MRI->getType(Res).isScalar() || MRI->getType(Res).isVector()) &&
-         "invalid operand type");
-  assert(MRI->getType(Res) == MRI->getType(Op0) &&
-         MRI->getType(Res) == MRI->getType(Op1) && "type mismatch");
-
-  return buildInstr(TargetOpcode::G_MUL)
-      .addDef(Res)
-      .addUse(Op0)
-      .addUse(Op1);
+  return buildBinaryOp(TargetOpcode::G_MUL, Res, Op0, Op1);
 }
 
 MachineInstrBuilder MachineIRBuilder::buildAnd(unsigned Res, unsigned Op0,
                                                unsigned Op1) {
-  assert((MRI->getType(Res).isScalar() || MRI->getType(Res).isVector()) &&
-         "invalid operand type");
-  assert(MRI->getType(Res) == MRI->getType(Op0) &&
-         MRI->getType(Res) == MRI->getType(Op1) && "type mismatch");
+  return buildBinaryOp(TargetOpcode::G_AND, Res, Op0, Op1);
+}
 
-  return buildInstr(TargetOpcode::G_AND)
-      .addDef(Res)
-      .addUse(Op0)
-      .addUse(Op1);
+MachineInstrBuilder MachineIRBuilder::buildOr(unsigned Res, unsigned Op0,
+                                              unsigned Op1) {
+  return buildBinaryOp(TargetOpcode::G_OR, Res, Op0, Op1);
 }
 
 MachineInstrBuilder MachineIRBuilder::buildBr(MachineBasicBlock &Dest) {
@@ -264,10 +250,13 @@ MachineInstrBuilder MachineIRBuilder::buildBr(MachineBasicBlock &Dest) {
 }
 
 MachineInstrBuilder MachineIRBuilder::buildBrIndirect(unsigned Tgt) {
+  assert(MRI->getType(Tgt).isPointer() && "invalid branch destination");
   return buildInstr(TargetOpcode::G_BRINDIRECT).addUse(Tgt);
 }
 
 MachineInstrBuilder MachineIRBuilder::buildCopy(unsigned Res, unsigned Op) {
+  assert(MRI->getType(Res) == LLT() || MRI->getType(Op) == LLT() ||
+         MRI->getType(Res) == MRI->getType(Op));
   return buildInstr(TargetOpcode::COPY).addDef(Res).addUse(Op);
 }
 
@@ -364,26 +353,35 @@ MachineInstrBuilder MachineIRBuilder::buildZExt(unsigned Res, unsigned Op) {
 
 MachineInstrBuilder MachineIRBuilder::buildSExtOrTrunc(unsigned Res,
                                                        unsigned Op) {
+  assert(MRI->getType(Res).isScalar() || MRI->getType(Res).isVector());
+  assert(MRI->getType(Res).isScalar() == MRI->getType(Op).isScalar());
+
   unsigned Opcode = TargetOpcode::COPY;
   if (MRI->getType(Res).getSizeInBits() > MRI->getType(Op).getSizeInBits())
     Opcode = TargetOpcode::G_SEXT;
   else if (MRI->getType(Res).getSizeInBits() < MRI->getType(Op).getSizeInBits())
     Opcode = TargetOpcode::G_TRUNC;
+  else
+    assert(MRI->getType(Res) == MRI->getType(Op));
 
   return buildInstr(Opcode).addDef(Res).addUse(Op);
 }
 
 MachineInstrBuilder MachineIRBuilder::buildZExtOrTrunc(unsigned Res,
                                                        unsigned Op) {
+  assert(MRI->getType(Res).isScalar() || MRI->getType(Res).isVector());
+  assert(MRI->getType(Res).isScalar() == MRI->getType(Op).isScalar());
+
   unsigned Opcode = TargetOpcode::COPY;
   if (MRI->getType(Res).getSizeInBits() > MRI->getType(Op).getSizeInBits())
     Opcode = TargetOpcode::G_ZEXT;
   else if (MRI->getType(Res).getSizeInBits() < MRI->getType(Op).getSizeInBits())
     Opcode = TargetOpcode::G_TRUNC;
+  else
+    assert(MRI->getType(Res) == MRI->getType(Op));
 
   return buildInstr(Opcode).addDef(Res).addUse(Op);
 }
-
 
 MachineInstrBuilder MachineIRBuilder::buildCast(unsigned Dst, unsigned Src) {
   LLT SrcTy = MRI->getType(Src);
@@ -466,7 +464,7 @@ void MachineIRBuilder::buildSequence(unsigned Res, ArrayRef<unsigned> Ops,
 }
 
 MachineInstrBuilder MachineIRBuilder::buildUndef(unsigned Res) {
-  return buildInstr(TargetOpcode::IMPLICIT_DEF).addDef(Res);
+  return buildInstr(TargetOpcode::G_IMPLICIT_DEF).addDef(Res);
 }
 
 MachineInstrBuilder MachineIRBuilder::buildMerge(unsigned Res,
@@ -481,6 +479,9 @@ MachineInstrBuilder MachineIRBuilder::buildMerge(unsigned Res,
              MRI->getType(Res).getSizeInBits() &&
          "input operands do not cover output register");
 #endif
+
+  if (Ops.size() == 1)
+    return buildCast(Res, Ops[0]);
 
   MachineInstrBuilder MIB = buildInstr(TargetOpcode::G_MERGE_VALUES);
   MIB.addDef(Res);
@@ -511,8 +512,11 @@ MachineInstrBuilder MachineIRBuilder::buildUnmerge(ArrayRef<unsigned> Res,
 
 MachineInstrBuilder MachineIRBuilder::buildInsert(unsigned Res, unsigned Src,
                                                   unsigned Op, unsigned Index) {
+  assert(Index + MRI->getType(Op).getSizeInBits() <=
+             MRI->getType(Res).getSizeInBits() &&
+         "insertion past the end of a register");
+
   if (MRI->getType(Res).getSizeInBits() == MRI->getType(Op).getSizeInBits()) {
-    assert(Index == 0 && "insertion past the end of a register");
     return buildCast(Res, Op);
   }
 

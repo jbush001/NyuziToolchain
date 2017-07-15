@@ -115,7 +115,7 @@ public:
 
   void applyFixup(const MCAssembler &Asm, const MCFixup &Fixup,
                   const MCValue &Target, MutableArrayRef<char> Data,
-                  uint64_t Value, bool IsPCRel) const override {
+                  uint64_t Value, bool IsResolved) const override {
     Value = adjustFixupValue(Fixup.getKind(), Value);
     if (!Value) return;           // Doesn't change encoding.
 
@@ -131,10 +131,11 @@ public:
     }
   }
 
-  void processFixupValue(const MCAssembler &Asm, const MCFixup &Fixup,
-                         const MCValue &Target, bool &IsResolved) override {
+  bool shouldForceRelocation(const MCAssembler &Asm, const MCFixup &Fixup,
+                             const MCValue &Target) override {
     switch ((PPC::Fixups)Fixup.getKind()) {
-    default: break;
+    default:
+      return false;
     case PPC::fixup_ppc_br24:
     case PPC::fixup_ppc_br24abs:
       // If the target symbol has a local entry point we must not attempt
@@ -147,10 +148,10 @@ public:
           // and thus the shift to pack it.
           unsigned Other = S->getOther() << 2;
           if ((Other & ELF::STO_PPC64_LOCAL_MASK) != 0)
-            IsResolved = false;
+            return true;
         }
       }
-      break;
+      return false;
     }
   }
 

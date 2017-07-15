@@ -781,11 +781,11 @@ size_t ABINyuzi::GetRedZoneSize() const { return 0; }
 // Static Functions
 //------------------------------------------------------------------
 ABISP
-ABINyuzi::CreateInstance(const ArchSpec &arch) {
+ABINyuzi::CreateInstance(lldb::ProcessSP process_sp, const ArchSpec &arch) {
   static ABISP g_abi_sp;
   if (arch.GetTriple().getArch() == llvm::Triple::nyuzi) {
     if (!g_abi_sp)
-      g_abi_sp.reset(new ABINyuzi);
+      g_abi_sp.reset(new ABINyuzi(process_sp));
     return g_abi_sp;
   }
   return ABISP();
@@ -872,12 +872,12 @@ bool ABINyuzi::RegisterIsVolatile(const RegisterInfo *reg_info) {
   return true;
 }
 
-void ABINyuzi::Initialize(void) {
+void ABINyuzi::Initialize() {
   PluginManager::RegisterPlugin(GetPluginNameStatic(), "Nyuzi ABI",
                                 CreateInstance);
 }
 
-void ABINyuzi::Terminate(void) {
+void ABINyuzi::Terminate() {
   PluginManager::UnregisterPlugin(CreateInstance);
 }
 
@@ -886,11 +886,11 @@ lldb_private::ConstString ABINyuzi::GetPluginNameStatic() {
   return g_name;
 }
 
-lldb_private::ConstString ABINyuzi::GetPluginName(void) {
+lldb_private::ConstString ABINyuzi::GetPluginName() {
   return GetPluginNameStatic();
 }
 
-uint32_t ABINyuzi::GetPluginVersion(void) { return 1; }
+uint32_t ABINyuzi::GetPluginVersion() { return 1; }
 
 lldb::ValueObjectSP
 ABINyuzi::GetReturnValueObjectImpl(lldb_private::Thread &thread,

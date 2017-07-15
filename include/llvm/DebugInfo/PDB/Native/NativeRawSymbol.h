@@ -1,4 +1,4 @@
-//===- NativeRawSymbol.h - Native implementation of IPDBRawSymbol - C++ -*-===//
+//==- NativeRawSymbol.h - Native implementation of IPDBRawSymbol -*- C++ -*-==//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -11,15 +11,19 @@
 #define LLVM_DEBUGINFO_PDB_NATIVE_NATIVERAWSYMBOL_H
 
 #include "llvm/DebugInfo/PDB/IPDBRawSymbol.h"
+#include <cstdint>
+#include <memory>
 
 namespace llvm {
 namespace pdb {
 
 class NativeSession;
 
+typedef uint32_t SymIndexId;
+
 class NativeRawSymbol : public IPDBRawSymbol {
 public:
-  NativeRawSymbol(NativeSession &PDBSession, uint32_t SymbolId);
+  NativeRawSymbol(NativeSession &PDBSession, SymIndexId SymbolId);
 
   virtual std::unique_ptr<NativeRawSymbol> clone() const = 0;
 
@@ -36,7 +40,7 @@ public:
   std::unique_ptr<IPDBEnumSymbols>
     findInlineFramesByRVA(uint32_t RVA) const override;
 
-  void getDataBytes(llvm::SmallVector<uint8_t, 32> &Bytes) const override;
+  void getDataBytes(SmallVector<uint8_t, 32> &Bytes) const override;
   void getFrontEndVersion(VersionInfo &Version) const override;
   void getBackEndVersion(VersionInfo &Version) const override;
   PDB_MemberAccess getAccess() const override;
@@ -203,10 +207,10 @@ public:
 
 protected:
   NativeSession &Session;
-  uint32_t SymbolId;
+  SymIndexId SymbolId;
 };
 
-}
-}
+} // end namespace pdb
+} // end namespace llvm
 
-#endif
+#endif // LLVM_DEBUGINFO_PDB_NATIVE_NATIVERAWSYMBOL_H

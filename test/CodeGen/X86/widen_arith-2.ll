@@ -8,7 +8,7 @@ define void @update(i64* %dst_i, i64* %src_i, i32 %n) nounwind {
 ; CHECK:       # BB#0: # %entry
 ; CHECK-NEXT:    subl $12, %esp
 ; CHECK-NEXT:    movl $0, (%esp)
-; CHECK-NEXT:    movdqa {{.*#+}} xmm0 = [1,1,1,1,1,1,1,1]
+; CHECK-NEXT:    pcmpeqd %xmm0, %xmm0
 ; CHECK-NEXT:    movdqa {{.*#+}} xmm1 = [4,4,4,4,4,4,4,4]
 ; CHECK-NEXT:    movdqa {{.*#+}} xmm2 = <0,2,4,6,8,10,12,14,u,u,u,u,u,u,u,u>
 ; CHECK-NEXT:    jmp .LBB0_1
@@ -16,20 +16,17 @@ define void @update(i64* %dst_i, i64* %src_i, i32 %n) nounwind {
 ; CHECK-NEXT:  .LBB0_2: # %forbody
 ; CHECK-NEXT:    # in Loop: Header=BB0_1 Depth=1
 ; CHECK-NEXT:    movl (%esp), %eax
-; CHECK-NEXT:    shll $3, %eax
-; CHECK-NEXT:    addl {{[0-9]+}}(%esp), %eax
-; CHECK-NEXT:    movl %eax, {{[0-9]+}}(%esp)
-; CHECK-NEXT:    movl (%esp), %eax
-; CHECK-NEXT:    shll $3, %eax
-; CHECK-NEXT:    addl {{[0-9]+}}(%esp), %eax
-; CHECK-NEXT:    movl %eax, {{[0-9]+}}(%esp)
-; CHECK-NEXT:    movl (%esp), %ecx
+; CHECK-NEXT:    leal (,%eax,8), %ecx
 ; CHECK-NEXT:    movl {{[0-9]+}}(%esp), %edx
+; CHECK-NEXT:    addl %ecx, %edx
+; CHECK-NEXT:    movl %edx, {{[0-9]+}}(%esp)
+; CHECK-NEXT:    addl {{[0-9]+}}(%esp), %ecx
+; CHECK-NEXT:    movl %ecx, {{[0-9]+}}(%esp)
 ; CHECK-NEXT:    pmovzxbw {{.*#+}} xmm3 = mem[0],zero,mem[1],zero,mem[2],zero,mem[3],zero,mem[4],zero,mem[5],zero,mem[6],zero,mem[7],zero
-; CHECK-NEXT:    paddw %xmm0, %xmm3
+; CHECK-NEXT:    psubw %xmm0, %xmm3
 ; CHECK-NEXT:    pand %xmm1, %xmm3
 ; CHECK-NEXT:    pshufb %xmm2, %xmm3
-; CHECK-NEXT:    movq %xmm3, (%edx,%ecx,8)
+; CHECK-NEXT:    movq %xmm3, (%edx,%eax,8)
 ; CHECK-NEXT:    incl (%esp)
 ; CHECK-NEXT:  .LBB0_1: # %forcond
 ; CHECK-NEXT:    # =>This Inner Loop Header: Depth=1

@@ -45,12 +45,6 @@ class DataExtractor;
 class MemoryBuffer;
 class raw_ostream;
 
-/// Reads a value from data extractor and applies a relocation to the result if
-/// one exists for the given offset.
-uint64_t getRelocatedValue(const DataExtractor &Data, uint32_t Size,
-                           uint32_t *Off, const RelocAddrMap *Relocs,
-                           uint64_t *SecNdx = nullptr);
-
 /// DWARFContext
 /// This data structure is the top level entity that deals with dwarf debug
 /// information parsing. The actual data is supplied through pure virtual
@@ -232,11 +226,7 @@ public:
   virtual bool isLittleEndian() const = 0;
   virtual uint8_t getAddressSize() const = 0;
   virtual const DWARFSection &getInfoSection() = 0;
-
-  using TypeSectionMap = MapVector<object::SectionRef, DWARFSection,
-                                   std::map<object::SectionRef, unsigned>>;
-
-  virtual const TypeSectionMap &getTypesSections() = 0;
+  virtual void forEachTypesSections(function_ref<void(DWARFSection &)> F) = 0;
   virtual StringRef getAbbrevSection() = 0;
   virtual const DWARFSection &getLocSection() = 0;
   virtual StringRef getARangeSection() = 0;
@@ -258,7 +248,8 @@ public:
 
   // Sections for DWARF5 split dwarf proposal.
   virtual const DWARFSection &getInfoDWOSection() = 0;
-  virtual const TypeSectionMap &getTypesDWOSections() = 0;
+  virtual void
+  forEachTypesDWOSections(function_ref<void(DWARFSection &)> F) = 0;
   virtual StringRef getAbbrevDWOSection() = 0;
   virtual const DWARFSection &getLineDWOSection() = 0;
   virtual const DWARFSection &getLocDWOSection() = 0;
@@ -289,11 +280,19 @@ private:
   DWARFCompileUnit *getCompileUnitForAddress(uint64_t Address);
 };
 
+/// Used as a return value for a error callback passed to DWARF context.
+/// Callback should return Halt if client application wants to stop
+/// object parsing, or should return Continue otherwise.
+enum class ErrorPolicy { Halt, Continue };
+
 /// DWARFContextInMemory is the simplest possible implementation of a
 /// DWARFContext. It assumes all content is available in memory and stores
 /// pointers to it.
 class DWARFContextInMemory : public DWARFContext {
   virtual void anchor();
+
+  using TypeSectionMap = MapVector<object::SectionRef, DWARFSection,
+                                   std::map<object::SectionRef, unsigned>>;
 
   StringRef FileName;
   bool IsLittleEndian;
@@ -339,16 +338,22 @@ class DWARFContextInMemory : public DWARFContext {
 
   SmallVector<SmallString<32>, 4> UncompressedSections;
 
-  StringRef *MapSectionToMember(StringRef Name);
+  DWARFSection *mapNameToDWARFSection(StringRef Name);
+  StringRef *mapSectionToMember(StringRef Name);
 
   /// If Sec is compressed section, decompresses and updates its contents
   /// provided by Data. Otherwise leaves it unchanged.
   Error maybeDecompress(const object::SectionRef &Sec, StringRef Name,
                         StringRef &Data);
 
+  /// Function used to handle default error reporting policy. Prints a error
+  /// message and returns Continue, so DWARF context ignores the error.
+  static ErrorPolicy defaultErrorHandler(Error E);
+
 public:
-  DWARFContextInMemory(const object::ObjectFile &Obj,
-    const LoadedObjectInfo *L = nullptr);
+  DWARFContextInMemory(
+      const object::ObjectFile &Obj, const LoadedObjectInfo *L = nullptr,
+      function_ref<ErrorPolicy(Error)> HandleError = defaultErrorHandler);
 
   DWARFContextInMemory(const StringMap<std::unique_ptr<MemoryBuffer>> &Sections,
                        uint8_t AddrSize,
@@ -358,7 +363,10 @@ public:
   bool isLittleEndian() const override { return IsLittleEndian; }
   uint8_t getAddressSize() const override { return AddressSize; }
   const DWARFSection &getInfoSection() override { return InfoSection; }
-  const TypeSectionMap &getTypesSections() override { return TypesSections; }
+  void forEachTypesSections(function_ref<void(DWARFSection &)> F) override {
+    for (auto &P : TypesSections)
+      F(P.second);
+  }
   StringRef getAbbrevSection() override { return AbbrevSection; }
   const DWARFSection &getLocSection() override { return LocSection; }
   StringRef getARangeSection() override { return ARangeSection; }
@@ -385,8 +393,9 @@ public:
   // Sections for DWARF5 split dwarf proposal.
   const DWARFSection &getInfoDWOSection() override { return InfoDWOSection; }
 
-  const TypeSectionMap &getTypesDWOSections() override {
-    return TypesDWOSections;
+  void forEachTypesDWOSections(function_ref<void(DWARFSection &)> F) override {
+    for (auto &P : TypesDWOSections)
+      F(P.second);
   }
 
   StringRef getAbbrevDWOSection() override { return AbbrevDWOSection; }

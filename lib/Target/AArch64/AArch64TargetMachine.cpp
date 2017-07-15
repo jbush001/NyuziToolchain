@@ -138,6 +138,9 @@ static cl::opt<int> EnableGlobalISelAtO(
     cl::desc("Enable GlobalISel at or below an opt level (-1 to disable)"),
     cl::init(-1));
 
+static cl::opt<bool> EnableFalkorHWPFFix("aarch64-enable-falkor-hwpf-fix",
+                                         cl::init(true), cl::Hidden);
+
 extern "C" void LLVMInitializeAArch64Target() {
   // Register the target.
   RegisterTargetMachine<AArch64leTargetMachine> X(getTheAArch64leTarget());
@@ -158,6 +161,7 @@ extern "C" void LLVMInitializeAArch64Target() {
   initializeAArch64PromoteConstantPass(*PR);
   initializeAArch64RedundantCopyEliminationPass(*PR);
   initializeAArch64StorePairSuppressPass(*PR);
+  initializeFalkorMarkStridedAccessesLegacyPass(*PR);
   initializeLDTLSCleanupPass(*PR);
 }
 
@@ -167,6 +171,8 @@ extern "C" void LLVMInitializeAArch64Target() {
 static std::unique_ptr<TargetLoweringObjectFile> createTLOF(const Triple &TT) {
   if (TT.isOSBinFormatMachO())
     return llvm::make_unique<AArch64_MachoTargetObjectFile>();
+  if (TT.isOSBinFormatCOFF())
+    return llvm::make_unique<AArch64_COFFTargetObjectFile>();
 
   return llvm::make_unique<AArch64_ELFTargetObjectFile>();
 }
@@ -179,6 +185,8 @@ static std::string computeDataLayout(const Triple &TT,
     return "e-m:e-p:32:32-i8:8-i16:16-i64:64-S128";
   if (TT.isOSBinFormatMachO())
     return "e-m:o-i64:64-i128:128-n32:64-S128";
+  if (TT.isOSBinFormatCOFF())
+    return "e-m:w-i64:64-i128:128-n32:64-S128";
   if (LittleEndian)
     return "e-m:e-i8:8:32-i16:16:32-i64:64-i128:128-n32:64-S128";
   return "E-m:e-i8:8:32-i16:16:32-i64:64-i128:128-n32:64-S128";
@@ -273,17 +281,19 @@ public:
 
   ScheduleDAGInstrs *
   createMachineScheduler(MachineSchedContext *C) const override {
+    const AArch64Subtarget &ST = C->MF->getSubtarget<AArch64Subtarget>();
     ScheduleDAGMILive *DAG = createGenericSchedLive(C);
     DAG->addMutation(createLoadClusterDAGMutation(DAG->TII, DAG->TRI));
     DAG->addMutation(createStoreClusterDAGMutation(DAG->TII, DAG->TRI));
-    DAG->addMutation(createAArch64MacroFusionDAGMutation());
+    if (ST.hasFusion())
+      DAG->addMutation(createAArch64MacroFusionDAGMutation());
     return DAG;
   }
 
   ScheduleDAGInstrs *
   createPostMachineScheduler(MachineSchedContext *C) const override {
     const AArch64Subtarget &ST = C->MF->getSubtarget<AArch64Subtarget>();
-    if (ST.hasFuseAES() || ST.hasFuseLiterals()) {
+    if (ST.hasFusion()) {
       // Run the Macro Fusion after RA again since literals are expanded from
       // pseudos then (v. addPreSched2()).
       ScheduleDAGMI *DAG = createGenericSchedPostRA(C);
@@ -340,8 +350,12 @@ void AArch64PassConfig::addIRPasses() {
   //
   // Run this before LSR to remove the multiplies involved in computing the
   // pointer values N iterations ahead.
-  if (TM->getOptLevel() != CodeGenOpt::None && EnableLoopDataPrefetch)
-    addPass(createLoopDataPrefetchPass());
+  if (TM->getOptLevel() != CodeGenOpt::None) {
+    if (EnableLoopDataPrefetch)
+      addPass(createLoopDataPrefetchPass());
+    if (EnableFalkorHWPFFix)
+      addPass(createFalkorMarkStridedAccessesPass());
+  }
 
   TargetPassConfig::addIRPasses();
 

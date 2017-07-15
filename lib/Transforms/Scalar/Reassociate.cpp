@@ -1894,6 +1894,8 @@ void ReassociatePass::EraseInst(Instruction *I) {
         Op = Op->user_back();
       RedoInsts.insert(Op);
     }
+
+  MadeChange = true;
 }
 
 // Canonicalize expressions of the following form:
@@ -2146,7 +2148,7 @@ void ReassociatePass::ReassociateExpression(BinaryOperator *I) {
     if (I->getOpcode() == Instruction::Mul &&
         cast<Instruction>(I->user_back())->getOpcode() == Instruction::Add &&
         isa<ConstantInt>(Ops.back().Op) &&
-        cast<ConstantInt>(Ops.back().Op)->isAllOnesValue()) {
+        cast<ConstantInt>(Ops.back().Op)->isMinusOne()) {
       ValueEntry Tmp = Ops.pop_back_val();
       Ops.insert(Ops.begin(), Tmp);
     } else if (I->getOpcode() == Instruction::FMul &&
