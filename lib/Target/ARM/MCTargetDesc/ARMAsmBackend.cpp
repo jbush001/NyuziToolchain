@@ -361,9 +361,8 @@ static uint32_t joinHalfWords(uint32_t FirstHalf, uint32_t SecondHalf,
 unsigned ARMAsmBackend::adjustFixupValue(const MCAssembler &Asm,
                                          const MCFixup &Fixup,
                                          const MCValue &Target, uint64_t Value,
-                                         bool IsPCRel, MCContext &Ctx,
-                                         bool IsLittleEndian,
-                                         bool IsResolved) const {
+                                         bool IsResolved, MCContext &Ctx,
+                                         bool IsLittleEndian) const {
   unsigned Kind = Fixup.getKind();
 
   // MachO tries to make .o files that look vaguely pre-linked, so for MOVW/MOVT
@@ -392,7 +391,7 @@ unsigned ARMAsmBackend::adjustFixupValue(const MCAssembler &Asm,
   case FK_SecRel_4:
     return Value;
   case ARM::fixup_arm_movt_hi16:
-    if (!IsPCRel)
+    if (IsResolved || !STI->getTargetTriple().isOSBinFormatELF())
       Value >>= 16;
     LLVM_FALLTHROUGH;
   case ARM::fixup_arm_movw_lo16: {
@@ -404,7 +403,7 @@ unsigned ARMAsmBackend::adjustFixupValue(const MCAssembler &Asm,
     return Value;
   }
   case ARM::fixup_t2_movt_hi16:
-    if (!IsPCRel)
+    if (IsResolved || !STI->getTargetTriple().isOSBinFormatELF())
       Value >>= 16;
     LLVM_FALLTHROUGH;
   case ARM::fixup_t2_movw_lo16: {
@@ -738,13 +737,13 @@ unsigned ARMAsmBackend::adjustFixupValue(const MCAssembler &Asm,
   }
 }
 
-void ARMAsmBackend::processFixupValue(const MCAssembler &Asm,
-                                      const MCFixup &Fixup,
-                                      const MCValue &Target, bool &IsResolved) {
+bool ARMAsmBackend::shouldForceRelocation(const MCAssembler &Asm,
+                                          const MCFixup &Fixup,
+                                          const MCValue &Target) {
   const MCSymbolRefExpr *A = Target.getSymA();
   const MCSymbol *Sym = A ? &A->getSymbol() : nullptr;
   const unsigned FixupKind = Fixup.getKind() ;
-  if (IsResolved && (unsigned)Fixup.getKind() == ARM::fixup_arm_thumb_bl) {
+  if ((unsigned)Fixup.getKind() == ARM::fixup_arm_thumb_bl) {
     assert(Sym && "How did we resolve this?");
 
     // If the symbol is external the linker will handle it.
@@ -753,7 +752,7 @@ void ARMAsmBackend::processFixupValue(const MCAssembler &Asm,
     // If the symbol is out of range, produce a relocation and hope the
     // linker can handle it. GNU AS produces an error in this case.
     if (Sym->isExternal())
-      IsResolved = false;
+      return true;
   }
   // Create relocations for unconditional branches to function symbols with
   // different execution mode in ELF binaries.
@@ -761,12 +760,12 @@ void ARMAsmBackend::processFixupValue(const MCAssembler &Asm,
     unsigned Type = dyn_cast<MCSymbolELF>(Sym)->getType();
     if ((Type == ELF::STT_FUNC || Type == ELF::STT_GNU_IFUNC)) {
       if (Asm.isThumbFunc(Sym) && (FixupKind == ARM::fixup_arm_uncondbranch))
-        IsResolved = false;
+        return true;
       if (!Asm.isThumbFunc(Sym) && (FixupKind == ARM::fixup_arm_thumb_br ||
                                     FixupKind == ARM::fixup_arm_thumb_bl ||
                                     FixupKind == ARM::fixup_t2_condbranch ||
                                     FixupKind == ARM::fixup_t2_uncondbranch))
-        IsResolved = false;
+        return true;
     }
   }
   // We must always generate a relocation for BL/BLX instructions if we have
@@ -776,7 +775,8 @@ void ARMAsmBackend::processFixupValue(const MCAssembler &Asm,
             FixupKind == ARM::fixup_arm_blx ||
             FixupKind == ARM::fixup_arm_uncondbl ||
             FixupKind == ARM::fixup_arm_condbl))
-    IsResolved = false;
+    return true;
+  return false;
 }
 
 /// getFixupKindNumBytes - The number of bytes the fixup may change.
@@ -884,11 +884,11 @@ static unsigned getFixupKindContainerSizeBytes(unsigned Kind) {
 void ARMAsmBackend::applyFixup(const MCAssembler &Asm, const MCFixup &Fixup,
                                const MCValue &Target,
                                MutableArrayRef<char> Data, uint64_t Value,
-                               bool IsPCRel) const {
+                               bool IsResolved) const {
   unsigned NumBytes = getFixupKindNumBytes(Fixup.getKind());
   MCContext &Ctx = Asm.getContext();
-  Value = adjustFixupValue(Asm, Fixup, Target, Value, IsPCRel, Ctx,
-                           IsLittleEndian, true);
+  Value = adjustFixupValue(Asm, Fixup, Target, Value, IsResolved, Ctx,
+                           IsLittleEndian);
   if (!Value)
     return; // Doesn't change encoding.
 

@@ -31,20 +31,19 @@ using namespace llvm;
 STATISTIC(NumDeleted, "Number of loops deleted");
 
 /// This function deletes dead loops. The caller of this function needs to
-/// guarantee that the loop is infact dead.  Here we handle two kinds of dead
+/// guarantee that the loop is infact dead. Here we handle two kinds of dead
 /// loop. The first kind (\p isLoopDead) is where only invariant values from
 /// within the loop are used outside of it. The second kind (\p
 /// isLoopNeverExecuted) is where the loop is provably never executed. We can
-/// always remove never executed loops since they will not cause any
-/// difference to program behaviour.
+/// always remove never executed loops since they will not cause any difference
+/// to program behaviour.
 /// 
 /// This also updates the relevant analysis information in \p DT, \p SE, and \p
 /// LI. It also updates the loop PM if an updater struct is provided.
 // TODO: This function will be used by loop-simplifyCFG as well. So, move this
 // to LoopUtils.cpp
 static void deleteDeadLoop(Loop *L, DominatorTree &DT, ScalarEvolution &SE,
-                           LoopInfo &LI, bool LoopIsNeverExecuted,
-                           LPMUpdater *Updater = nullptr);
+                           LoopInfo &LI, LPMUpdater *Updater = nullptr);
 /// Determines if a loop is dead.
 ///
 /// This assumes that we've already checked for unique exit and exiting blocks,
@@ -149,26 +148,35 @@ static bool deleteLoopIfDead(Loop *L, DominatorTree &DT, ScalarEvolution &SE,
                              LoopInfo &LI, LPMUpdater *Updater = nullptr) {
   assert(L->isLCSSAForm(DT) && "Expected LCSSA!");
 
-  // We can only remove the loop if there is a preheader that we can
-  // branch from after removing it.
+  // We can only remove the loop if there is a preheader that we can branch from
+  // after removing it. Also, if LoopSimplify form is not available, stay out
+  // of trouble.
   BasicBlock *Preheader = L->getLoopPreheader();
-  if (!Preheader)
+  if (!Preheader || !L->hasDedicatedExits()) {
+    DEBUG(dbgs()
+          << "Deletion requires Loop with preheader and dedicated exits.\n");
     return false;
-
-  // If LoopSimplify form is not available, stay out of trouble.
-  if (!L->hasDedicatedExits())
-    return false;
-
+  }
   // We can't remove loops that contain subloops.  If the subloops were dead,
   // they would already have been removed in earlier executions of this pass.
-  if (L->begin() != L->end())
+  if (L->begin() != L->end()) {
+    DEBUG(dbgs() << "Loop contains subloops.\n");
     return false;
+  }
 
 
   BasicBlock *ExitBlock = L->getUniqueExitBlock();
 
   if (ExitBlock && isLoopNeverExecuted(L)) {
-    deleteDeadLoop(L, DT, SE, LI, true /* LoopIsNeverExecuted */, Updater);
+    DEBUG(dbgs() << "Loop is proven to never execute, delete it!");
+    // Set incoming value to undef for phi nodes in the exit block.
+    BasicBlock::iterator BI = ExitBlock->begin();
+    while (PHINode *P = dyn_cast<PHINode>(BI)) {
+      for (unsigned i = 0; i < P->getNumIncomingValues(); i++)
+        P->setIncomingValue(i, UndefValue::get(P->getType()));
+      BI++;
+    }
+    deleteDeadLoop(L, DT, SE, LI, Updater);
     ++NumDeleted;
     return true;
   }
@@ -182,29 +190,34 @@ static bool deleteLoopIfDead(Loop *L, DominatorTree &DT, ScalarEvolution &SE,
   // be in the situation of needing to be able to solve statically which exit
   // block will be branched to, or trying to preserve the branching logic in
   // a loop invariant manner.
-  if (!ExitBlock)
+  if (!ExitBlock) {
+    DEBUG(dbgs() << "Deletion requires single exit block\n");
     return false;
-
+  }
   // Finally, we have to check that the loop really is dead.
   bool Changed = false;
-  if (!isLoopDead(L, SE, ExitingBlocks, ExitBlock, Changed, Preheader))
+  if (!isLoopDead(L, SE, ExitingBlocks, ExitBlock, Changed, Preheader)) {
+    DEBUG(dbgs() << "Loop is not invariant, cannot delete.\n");
     return Changed;
+  }
 
   // Don't remove loops for which we can't solve the trip count.
   // They could be infinite, in which case we'd be changing program behavior.
   const SCEV *S = SE.getMaxBackedgeTakenCount(L);
-  if (isa<SCEVCouldNotCompute>(S))
+  if (isa<SCEVCouldNotCompute>(S)) {
+    DEBUG(dbgs() << "Could not compute SCEV MaxBackedgeTakenCount.\n");
     return Changed;
+  }
 
-  deleteDeadLoop(L, DT, SE, LI, false /* LoopIsNeverExecuted */, Updater);
+  DEBUG(dbgs() << "Loop is invariant, delete it!");
+  deleteDeadLoop(L, DT, SE, LI, Updater);
   ++NumDeleted;
 
   return true;
 }
 
 static void deleteDeadLoop(Loop *L, DominatorTree &DT, ScalarEvolution &SE,
-                           LoopInfo &LI, bool LoopIsNeverExecuted,
-                           LPMUpdater *Updater) {
+                           LoopInfo &LI, LPMUpdater *Updater) {
   assert(L->isLCSSAForm(DT) && "Expected LCSSA!");
   auto *Preheader = L->getLoopPreheader();
   assert(Preheader && "Preheader should exist!");
@@ -246,8 +259,6 @@ static void deleteDeadLoop(Loop *L, DominatorTree &DT, ScalarEvolution &SE,
     // other incoming values. Given the loop has dedicated exits, all other
     // incoming values must be from the exiting blocks.
     int PredIndex = 0;
-    if (LoopIsNeverExecuted)
-      P->setIncomingValue(PredIndex, UndefValue::get(P->getType()));
     P->setIncomingBlock(PredIndex, Preheader);
     // Removes all incoming values from all other exiting blocks (including
     // duplicate values from an exiting block).
@@ -308,6 +319,9 @@ static void deleteDeadLoop(Loop *L, DominatorTree &DT, ScalarEvolution &SE,
 PreservedAnalyses LoopDeletionPass::run(Loop &L, LoopAnalysisManager &AM,
                                         LoopStandardAnalysisResults &AR,
                                         LPMUpdater &Updater) {
+
+  DEBUG(dbgs() << "Analyzing Loop for deletion: ");
+  DEBUG(L.dump());
   if (!deleteLoopIfDead(&L, AR.DT, AR.SE, AR.LI, &Updater))
     return PreservedAnalyses::all();
 
@@ -347,5 +361,7 @@ bool LoopDeletionLegacyPass::runOnLoop(Loop *L, LPPassManager &) {
   ScalarEvolution &SE = getAnalysis<ScalarEvolutionWrapperPass>().getSE();
   LoopInfo &LI = getAnalysis<LoopInfoWrapperPass>().getLoopInfo();
 
+  DEBUG(dbgs() << "Analyzing Loop for deletion: ");
+  DEBUG(L->dump());
   return deleteLoopIfDead(L, DT, SE, LI);
 }

@@ -2338,9 +2338,11 @@ bool Generic_GCC::IsIntegratedAssemblerDefault() const {
     return true;
   case llvm::Triple::mips64:
   case llvm::Triple::mips64el:
-    // Enabled for Debian mips64/mips64el only. Other targets are unable to
-    // distinguish N32 from N64.
-    if (getTriple().getEnvironment() == llvm::Triple::GNUABI64)
+    // Enabled for Debian and Android mips64/mipsel, as they can precisely
+    // identify the ABI in use (Debian) or only use N64 for MIPS64 (Android).
+    // Other targets are unable to distinguish N32 from N64.
+    if (getTriple().getEnvironment() == llvm::Triple::GNUABI64 ||
+        getTriple().isAndroid())
       return true;
     return false;
   default:
@@ -2459,7 +2461,8 @@ Generic_GCC::TranslateArgs(const llvm::opt::DerivedArgList &Args, StringRef,
 void Generic_ELF::anchor() {}
 
 void Generic_ELF::addClangTargetOptions(const ArgList &DriverArgs,
-                                        ArgStringList &CC1Args) const {
+                                        ArgStringList &CC1Args,
+                                        Action::OffloadKind) const {
   const Generic_GCC::GCCVersion &V = GCCInstallation.getVersion();
   bool UseInitArrayDefault =
       getTriple().getArch() == llvm::Triple::aarch64 ||
@@ -2468,7 +2471,8 @@ void Generic_ELF::addClangTargetOptions(const ArgList &DriverArgs,
        (!V.isOlderThan(4, 7, 0) || getTriple().isAndroid())) ||
       getTriple().getOS() == llvm::Triple::NaCl ||
       (getTriple().getVendor() == llvm::Triple::MipsTechnologies &&
-       !getTriple().hasEnvironment());
+       !getTriple().hasEnvironment()) ||
+      getTriple().getOS() == llvm::Triple::Solaris;
 
   if (DriverArgs.hasFlag(options::OPT_fuse_init_array,
                          options::OPT_fno_use_init_array, UseInitArrayDefault))

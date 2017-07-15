@@ -117,7 +117,7 @@ extern llvm::cl::opt<uint32_t> ModuleIndex;
 extern llvm::cl::opt<bool> ModuleSyms;
 extern llvm::cl::opt<bool> ModuleC11;
 extern llvm::cl::opt<bool> ModuleC13;
-
+extern llvm::cl::opt<bool> SplitChunks;
 } // namespace bytes
 
 namespace dump {
@@ -135,6 +135,7 @@ extern llvm::cl::opt<bool> DumpTypes;
 extern llvm::cl::opt<bool> DumpTypeData;
 extern llvm::cl::opt<bool> DumpTypeExtras;
 extern llvm::cl::list<uint32_t> DumpTypeIndex;
+extern llvm::cl::opt<bool> DumpTypeDependents;
 
 extern llvm::cl::opt<bool> DumpIds;
 extern llvm::cl::opt<bool> DumpIdData;
@@ -167,6 +168,13 @@ extern llvm::cl::opt<bool> DumpModuleFiles;
 extern llvm::cl::list<ModuleSubsection> DumpModuleSubsections;
 extern llvm::cl::opt<bool> DumpModuleSyms;
 } // namespace pdb2yaml
+
+namespace diff {
+extern llvm::cl::opt<bool> PrintValueColumns;
+extern llvm::cl::opt<bool> PrintResultColumn;
+extern llvm::cl::opt<std::string> LeftRoot;
+extern llvm::cl::opt<std::string> RightRoot;
+} // namespace diff
 }
 
 #endif

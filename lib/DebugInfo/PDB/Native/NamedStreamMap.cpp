@@ -1,4 +1,4 @@
-//===- NamedStreamMap.cpp - PDB Named Stream Map ----------------*- C++ -*-===//
+//===- NamedStreamMap.cpp - PDB Named Stream Map --------------------------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -8,17 +8,20 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/DebugInfo/PDB/Native/NamedStreamMap.h"
-
-#include "llvm/ADT/SparseBitVector.h"
 #include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/iterator_range.h"
 #include "llvm/DebugInfo/PDB/Native/HashTable.h"
 #include "llvm/DebugInfo/PDB/Native/RawError.h"
 #include "llvm/Support/BinaryStreamReader.h"
+#include "llvm/Support/BinaryStreamRef.h"
+#include "llvm/Support/BinaryStreamWriter.h"
+#include "llvm/Support/Endian.h"
 #include "llvm/Support/Error.h"
 #include <algorithm>
+#include <cassert>
 #include <cstdint>
+#include <tuple>
 
 using namespace llvm;
 using namespace llvm::pdb;
@@ -83,7 +86,8 @@ Error NamedStreamMap::commit(BinaryStreamWriter &Writer) const {
 
   for (const auto &Name : OrderedStreamNames) {
     auto Item = Mapping.find(Name);
-    assert(Item != Mapping.end());
+    if (Item == Mapping.end())
+      continue;
     if (auto EC = Writer.writeCString(Item->getKey()))
       return EC;
   }
@@ -105,7 +109,8 @@ uint32_t NamedStreamMap::finalize() {
 
   for (const auto &Name : OrderedStreamNames) {
     auto Item = Mapping.find(Name);
-    assert(Item != Mapping.end());
+    if (Item == Mapping.end())
+      continue;
     FinalizedHashTable.set(FinalizedInfo->StringDataBytes, Item->getValue());
     FinalizedInfo->StringDataBytes += Item->getKeyLength() + 1;
   }

@@ -55,8 +55,8 @@ std::vector<SpecificAllocBase *> SpecificAllocBase::Instances;
 bool link(ArrayRef<const char *> Args, raw_ostream &Diag) {
   ErrorCount = 0;
   ErrorOS = &Diag;
-  Argv0 = Args[0];
   Config = make<Configuration>();
+  Config->Argv = {Args.begin(), Args.end()};
   Config->ColorDiagnostics =
       (ErrorOS == &llvm::errs() && Process::StandardErrHasColors());
   Driver = make<LinkerDriver>();
@@ -1026,10 +1026,10 @@ void LinkerDriver::link(ArrayRef<const char *> ArgsArr) {
   if (Config->ImageBase == uint64_t(-1))
     Config->ImageBase = getDefaultImageBase();
 
-  Symtab.addRelative(mangle("__ImageBase"), 0);
+  Symtab.addSynthetic(mangle("__ImageBase"), nullptr);
   if (Config->Machine == I386) {
-    Config->SEHTable = Symtab.addRelative("___safe_se_handler_table", 0);
-    Config->SEHCount = Symtab.addAbsolute("___safe_se_handler_count", 0);
+    Symtab.addAbsolute("___safe_se_handler_table", 0);
+    Symtab.addAbsolute("___safe_se_handler_count", 0);
   }
 
   // We do not support /guard:cf (control flow protection) yet.

@@ -58,8 +58,6 @@
 #include "lldb/Core/Communication.h"
 #include "lldb/Core/Module.h"
 #include "lldb/Core/ModuleSpec.h"
-#include "lldb/Core/StreamFile.h"
-#include "lldb/Core/StructuredData.h"
 #include "lldb/Host/ConnectionFileDescriptor.h"
 #include "lldb/Host/HostInfo.h"
 #include "lldb/Host/ThreadLauncher.h"
@@ -73,8 +71,10 @@
 #include "lldb/Utility/Log.h"
 #include "lldb/Utility/NameMatches.h"
 #include "lldb/Utility/StreamString.h"
+#include "lldb/Utility/StructuredData.h"
 
 #include "llvm/Support/FileSystem.h"
+#include "llvm/Support/Errno.h"
 
 #include "cfcpp/CFCBundle.h"
 #include "cfcpp/CFCMutableArray.h"
@@ -1664,10 +1664,7 @@ HostThread Host::StartMonitoringChildProcess(
       int wait_pid = 0;
       bool cancel = false;
       bool exited = false;
-      do {
-        wait_pid = ::waitpid(pid, &status, 0);
-      } while (wait_pid < 0 && errno == EINTR);
-
+      wait_pid = llvm::sys::RetryAfterSignal(-1, ::waitpid, pid, &status, 0);
       if (wait_pid >= 0) {
         int signal = 0;
         int exit_status = 0;

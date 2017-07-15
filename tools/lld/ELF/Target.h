@@ -66,6 +66,10 @@ public:
   // Given that, the smallest value that can be used in here is 0x10000.
   uint64_t DefaultImageBase = 0x10000;
 
+  // Offset of _GLOBAL_OFFSET_TABLE_ from base of .got section. Use -1 for
+  // end of .got
+  uint64_t GotBaseSymOff = 0;
+
   uint32_t CopyRel;
   uint32_t GotRel;
   uint32_t PltRel;
@@ -108,6 +112,7 @@ TargetInfo *getARMTargetInfo();
 TargetInfo *getAVRTargetInfo();
 TargetInfo *getPPC64TargetInfo();
 TargetInfo *getPPCTargetInfo();
+TargetInfo *getSPARCV9TargetInfo();
 TargetInfo *getX32TargetInfo();
 TargetInfo *getX86TargetInfo();
 TargetInfo *getX86_64TargetInfo();

@@ -45,13 +45,10 @@ namespace {
 // LLVM DWARF parser will not be able to parse .debug_line correctly, unless
 // we assign each section some unique address. This callback method assigns
 // each section an address equal to its offset in ELF object file.
-class ObjectInfo : public LoadedObjectInfo {
+class ObjectInfo : public LoadedObjectInfoHelper<ObjectInfo> {
 public:
   uint64_t getSectionLoadAddress(const object::SectionRef &Sec) const override {
     return static_cast<const ELFSectionRef &>(Sec).getOffset();
-  }
-  std::unique_ptr<LoadedObjectInfo> clone() const override {
-    return std::unique_ptr<LoadedObjectInfo>();
   }
 };
 }
@@ -79,9 +76,9 @@ template <class ELFT> void elf::ObjectFile<ELFT>::initializeDwarfLine() {
 
   ObjectInfo ObjInfo;
   DWARFContextInMemory Dwarf(*Obj, &ObjInfo);
-  DwarfLine.reset(new DWARFDebugLine(&Dwarf.getLineSection().Relocs));
-  DataExtractor LineData(Dwarf.getLineSection().Data, Config->IsLE,
-                         Config->Wordsize);
+  DwarfLine.reset(new DWARFDebugLine);
+  DWARFDataExtractor LineData(Dwarf.getLineSection(), Config->IsLE,
+                              Config->Wordsize);
 
   // The second parameter is offset in .debug_line section
   // for compilation unit (CU) of interest. We have only one

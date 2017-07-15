@@ -153,7 +153,7 @@ protected:
   bool HasSDWAScalar;
   bool HasSDWASdst;
   bool HasSDWAMac;
-  bool HasSDWAClampVOPC;
+  bool HasSDWAOutModsVOPC;
   bool HasDPP;
   bool FlatAddressSpace;
   bool FlatInstOffsets;
@@ -359,6 +359,10 @@ public:
     return FP64FP16Denormals;
   }
 
+  bool supportsMinMaxDenormModes() const {
+    return getGeneration() >= AMDGPUSubtarget::GFX9;
+  }
+
   bool hasFPExceptions() const {
     return FPExceptions;
   }
@@ -452,8 +456,8 @@ public:
     return HasSDWAMac;
   }
 
-  bool hasSDWAClampVOPC() const {
-    return HasSDWAClampVOPC;
+  bool hasSDWAOutModsVOPC() const {
+    return HasSDWAOutModsVOPC;
   }
 
   /// \brief Returns the offset in bytes from the start of the input buffer

@@ -12,8 +12,9 @@
 
 #include "llvm/ADT/StringRef.h"
 #include "llvm/DebugInfo/DIContext.h"
+#include "llvm/DebugInfo/DWARF/DWARFDataExtractor.h"
+#include "llvm/DebugInfo/DWARF/DWARFFormValue.h"
 #include "llvm/DebugInfo/DWARF/DWARFRelocMap.h"
-#include "llvm/Support/DataExtractor.h"
 #include <cstdint>
 #include <map>
 #include <string>
@@ -25,9 +26,6 @@ class raw_ostream;
 
 class DWARFDebugLine {
 public:
-  DWARFDebugLine(const RelocAddrMap *LineInfoRelocMap)
-      : RelocMap(LineInfoRelocMap) {}
-
   struct FileNameEntry {
     FileNameEntry() = default;
 
@@ -43,10 +41,10 @@ public:
     /// The size in bytes of the statement information for this compilation unit
     /// (not including the total_length field itself).
     uint64_t TotalLength;
-    /// Version identifier for the statement information format.
-    uint16_t Version;
-    /// In v5, size in bytes of an address (or segment offset).
-    uint8_t AddressSize;
+    /// Version, address size (starting in v5), and DWARF32/64 format; these
+    /// parameters affect interpretation of forms (used in the directory and
+    /// file tables starting with v5).
+    DWARFFormParams FormParams;
     /// In v5, size in bytes of a segment selector.
     uint8_t SegSelectorSize;
     /// The number of bytes following the prologue_length field to the beginning
@@ -71,15 +69,18 @@ public:
     std::vector<StringRef> IncludeDirectories;
     std::vector<FileNameEntry> FileNames;
 
-    bool IsDWARF64;
+    const DWARFFormParams getFormParams() const { return FormParams; }
+    uint16_t getVersion() const { return FormParams.Version; }
+    uint8_t getAddressSize() const { return FormParams.AddrSize; }
+    bool isDWARF64() const { return FormParams.Format == dwarf::DWARF64; }
 
-    uint32_t sizeofTotalLength() const { return IsDWARF64 ? 12 : 4; }
+    uint32_t sizeofTotalLength() const { return isDWARF64() ? 12 : 4; }
 
-    uint32_t sizeofPrologueLength() const { return IsDWARF64 ? 8 : 4; }
+    uint32_t sizeofPrologueLength() const { return isDWARF64() ? 8 : 4; }
 
     /// Length of the prologue in bytes.
     uint32_t getLength() const {
-      return PrologueLength + sizeofTotalLength() + sizeof(Version) +
+      return PrologueLength + sizeofTotalLength() + sizeof(getVersion()) +
              sizeofPrologueLength();
     }
 
@@ -94,7 +95,7 @@ public:
 
     void clear();
     void dump(raw_ostream &OS) const;
-    bool parse(DataExtractor DebugLineData, uint32_t *OffsetPtr);
+    bool parse(const DWARFDataExtractor &DebugLineData, uint32_t *OffsetPtr);
   };
 
   /// Standard .debug_line state machine structure.
@@ -216,8 +217,7 @@ public:
     void clear();
 
     /// Parse prologue and all rows.
-    bool parse(DataExtractor DebugLineData, const RelocAddrMap *RMap,
-               uint32_t *OffsetPtr);
+    bool parse(const DWARFDataExtractor &DebugLineData, uint32_t *OffsetPtr);
 
     using RowVector = std::vector<Row>;
     using RowIter = RowVector::const_iterator;
@@ -234,7 +234,7 @@ public:
   };
 
   const LineTable *getLineTable(uint32_t Offset) const;
-  const LineTable *getOrParseLineTable(DataExtractor DebugLineData,
+  const LineTable *getOrParseLineTable(const DWARFDataExtractor &DebugLineData,
                                        uint32_t Offset);
 
 private:
@@ -257,7 +257,6 @@ private:
   using LineTableIter = LineTableMapTy::iterator;
   using LineTableConstIter = LineTableMapTy::const_iterator;
 
-  const RelocAddrMap *RelocMap;
   LineTableMapTy LineTableMap;
 };
 
