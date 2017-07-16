@@ -71,7 +71,7 @@ public:
 
   void applyFixup(const MCAssembler &Asm, const MCFixup &Fixup,
                   const MCValue &Target, MutableArrayRef<char> Data,
-                  uint64_t Value, bool IsPCRel) const override {
+                  uint64_t Value, bool IsResolved) const override {
 
     const MCFixupKindInfo &Info = getFixupKindInfo(Fixup.getKind());
     Value = adjustFixupValue(Fixup, Value, &Asm.getContext());
