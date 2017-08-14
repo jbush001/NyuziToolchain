@@ -71,7 +71,7 @@ public:
   bool isOffsetFoldingLegal(const GlobalAddressSDNode *GA) const override;
   EVT getSetCCResultType(const DataLayout &, LLVMContext &Context,
                          EVT VT) const override;
-  bool isShuffleMaskLegal(const SmallVectorImpl<int> &M, EVT VT) const override;
+  bool isShuffleMaskLegal(ArrayRef<int> Mask, EVT VT) const override;
   bool isIntDivCheap(EVT VT, AttributeList Attr) const override;
   bool shouldInsertFencesForAtomic(const Instruction *I) const override;
 

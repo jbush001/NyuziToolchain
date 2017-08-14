@@ -49,7 +49,7 @@ public:
   void addClangTargetOptions(const llvm::opt::ArgList &DriverArgs,
      llvm::opt::ArgStringList &CC1Args,
      Action::OffloadKind DeviceOffloadKind) const override;
-  bool IsUnwindTablesDefault() const override;
+  bool IsUnwindTablesDefault(const llvm::opt::ArgList &Args) const override;
 
 protected:
   Tool *buildLinker() const override;

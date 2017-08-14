@@ -29,7 +29,8 @@ class Nyuzi final : public TargetInfo {
 public:
   Nyuzi();
   void relocateOne(uint8_t *Loc, uint32_t Type, uint64_t Val) const override;
-  RelExpr getRelExpr(uint32_t Type, const SymbolBody &S, const uint8_t *Loc) const override;
+  RelExpr getRelExpr(uint32_t Type, const SymbolBody &S, const InputFile &File,
+                     const uint8_t *Loc) const override;
 };
 
 template <uint8_t SIZE, uint8_t BASE>
@@ -73,7 +74,7 @@ void Nyuzi::relocateOne(uint8_t *Loc, uint32_t Type, uint64_t Val) const {
 }
 
 RelExpr Nyuzi::getRelExpr(uint32_t Type, const SymbolBody &S,
-                                    const uint8_t *Loc) const {
+                          const InputFile &File, const uint8_t *Loc) const {
   switch (Type) {
   default:
     fatal("unrecognized reloc " + Twine(Type));

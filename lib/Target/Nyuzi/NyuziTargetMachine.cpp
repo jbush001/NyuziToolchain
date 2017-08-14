@@ -47,16 +47,23 @@ Reloc::Model getEffectiveRelocModel(const Triple &TT,
   return *RM;
 }
 
+CodeModel::Model getEffectiveCodeModel(Optional<CodeModel::Model> CM) {
+  if (CM)
+    return *CM;
+  return CodeModel::Medium;
+}
+
 } // namespace
 
 NyuziTargetMachine::NyuziTargetMachine(const Target &T, const Triple &TT,
                                        StringRef CPU, StringRef FS,
                                        const TargetOptions &Options,
                                        Optional<Reloc::Model> RM,
-                                       CodeModel::Model CM,
-                                       CodeGenOpt::Level OL)
+                                       Optional<CodeModel::Model> CM,
+                                       CodeGenOpt::Level OL, bool JIT)
     : LLVMTargetMachine(T, "e-m:e-p:32:32", TT, CPU, FS, Options,
-                        getEffectiveRelocModel(TT, RM), CM, OL),
+                        getEffectiveRelocModel(TT, RM),
+                        getEffectiveCodeModel(CM), OL),
       TLOF(make_unique<NyuziTargetObjectFile>()),
       Subtarget(TT, CPU, FS, *this) {
   initAsmInfo();

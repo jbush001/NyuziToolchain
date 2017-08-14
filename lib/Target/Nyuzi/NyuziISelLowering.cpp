@@ -772,12 +772,12 @@ EVT NyuziTargetLowering::getSetCCResultType(const DataLayout &,
 
 // This is called to determine if a VECTOR_SHUFFLE should be lowered by this
 // file.
-bool NyuziTargetLowering::isShuffleMaskLegal(const SmallVectorImpl<int> &M,
+bool NyuziTargetLowering::isShuffleMaskLegal(ArrayRef<int> Mask,
                                              EVT VT) const {
-  if (M.size() != 16)
+  if (Mask.size() != 16)
     return false;
 
-  for (int val : M) {
+  for (int val : Mask) {
     if (val > 31)
       return false;
   }

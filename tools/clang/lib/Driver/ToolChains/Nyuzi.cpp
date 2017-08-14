@@ -89,7 +89,7 @@ void NyuziToolChain::addClangTargetOptions(const ArgList &DriverArgs,
 }
 
 // Emit .eh_frame to allow stack unwinding.
-bool NyuziToolChain::IsUnwindTablesDefault() const {
+bool NyuziToolChain::IsUnwindTablesDefault(const ArgList &Args) const {
   return true;
 }
 

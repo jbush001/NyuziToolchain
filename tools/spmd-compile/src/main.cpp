@@ -62,7 +62,7 @@ bool generateTargetCode(Module *TheModule, raw_fd_ostream &Output) {
   Options.MCOptions.AsmVerbose = true;
   std::unique_ptr<TargetMachine> target(TheTarget->createTargetMachine(
       TheTriple.getTriple(), "", "", Options, getRelocModel(),
-      CodeModel::Default, CodeGenOpt::Aggressive));
+      CodeModel::Medium, CodeGenOpt::Aggressive));
   TargetMachine &Target = *target.get();
   TheModule->setDataLayout(Target.createDataLayout());
 
@@ -72,8 +72,7 @@ bool generateTargetCode(Module *TheModule, raw_fd_ostream &Output) {
   TargetMachine::CodeGenFileType FileType = OutputSource
     ? TargetMachine::CGFT_AssemblyFile
     : TargetMachine::CGFT_ObjectFile;
-  if (Target.addPassesToEmitFile(PM, Output, FileType,
-                                 true, 0, 0)) {
+  if (Target.addPassesToEmitFile(PM, Output, FileType, true)) {
     errs() << "target does not support generation of this"
            << " file type!\n";
     return false;
