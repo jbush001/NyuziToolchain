@@ -393,7 +393,8 @@ SDValue NyuziTargetLowering::LowerFormalArguments(
     SDValue FIPtr = DAG.getFrameIndex(FI, getPointerTy(DAG.getDataLayout()));
     SDValue Load;
     if (VA.getValVT() == MVT::i32 || VA.getValVT() == MVT::f32 ||
-        VA.getValVT() == MVT::v16i32 || VA.getValVT() == MVT::v16i1) {
+        VA.getValVT() == MVT::v16i32 || VA.getValVT() == MVT::v16f32 ||
+        VA.getValVT() == MVT::v16i1) {
       // Primitive Types are loaded directly from the stack
       Load = DAG.getLoad(VA.getValVT(), DL, Chain, FIPtr, MachinePointerInfo());
     } else {

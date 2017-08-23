@@ -1,14 +1,16 @@
 ; RUN: llc %s -o - | FileCheck %s
 ;
 ; Test passing vector arguments. There is one scalar arg here to ensure it
-; doesn't mess up vector argument handling.
+; doesn't mess up vector argument handling. The last argument is <16 x float>
+; to validate a bug where LowerFormalArguments was not handling this type
+; correctly.
 ;
 
 target triple = "nyuzi-elf-none"
 
 define <16 x i32> @somefunc(i32 %arg0, <16 x i32> %arg1, <16 x i32> %arg2, <16 x i32> %arg3,
   <16 x i32> %arg4, <16 x i32> %arg5, <16 x i32> %arg6, <16 x i32> %arg7, <16 x i32> %arg8,
-  <16 x i32> %arg9, <16 x i32> %arg10) { ; CHECK-LABEL: somefunc:
+  <16 x i32> %arg9, <16 x i32> %arg10, <16 x float> %arg11) { ; CHECK-LABEL: somefunc:
 
   %result = alloca <16 x i32>
 
@@ -55,9 +57,16 @@ define <16 x i32> @somefunc(i32 %arg0, <16 x i32> %arg1, <16 x i32> %arg2, <16 x
   %9 = add <16 x i32> %8, %arg10
 
   ; CHECK-DAG: load_v [[TMPREG2:v[0-9]+]], 128(sp)
-  ; CHECK-DAG: add_i v{{[0-9]+}}, [[RES7]], [[TMPREG2]]
+  ; CHECK-DAG: add_i [[RES8:v[0-9]+]], [[RES7]], [[TMPREG2]]
 
-  ret <16 x i32> %9
+  %10 = fptosi <16 x float> %arg11 to <16 x i32>
+  %11 = add <16 x i32> %9, %10
+
+  ; CHECK-DAG: load_v [[TMPREG3:v[0-9]+]], 192(sp)
+  ; CHECK-DAG: ftoi [[TMPREG4:v[0-9]+]], [[TMPREG3]]
+  ; CHECK-DAG: add_i v{{[0-9]+}}, [[RES8]], [[TMPREG4]]
+
+  ret <16 x i32> %11
 }
 
 define <16 x i32> @main() {  ; CHECK-LABEL: main:
@@ -72,15 +81,17 @@ define <16 x i32> @main() {  ; CHECK-LABEL: main:
     <16 x i32> <i32 7, i32 7, i32 7, i32 7, i32 7, i32 7, i32 7, i32 7, i32 7, i32 7, i32 7, i32 7, i32 7, i32 7, i32 7, i32 7>,
     <16 x i32> <i32 8, i32 8, i32 8, i32 8, i32 8, i32 8, i32 8, i32 8, i32 8, i32 8, i32 8, i32 8, i32 8, i32 8, i32 8, i32 8>,
     <16 x i32> <i32 9, i32 9, i32 9, i32 9, i32 9, i32 9, i32 9, i32 9, i32 9, i32 9, i32 9, i32 9, i32 9, i32 9, i32 9, i32 9>,
-    <16 x i32> <i32 10, i32 10, i32 10, i32 10, i32 10, i32 10, i32 10, i32 10, i32 10, i32 10, i32 10, i32 10, i32 10, i32 10, i32 10, i32 10>)
+    <16 x i32> <i32 10, i32 10, i32 10, i32 10, i32 10, i32 10, i32 10, i32 10, i32 10, i32 10, i32 10, i32 10, i32 10, i32 10, i32 10, i32 10>,
+    <16 x float> <float 11.0, float 11.0, float 11.0, float 11.0, float 11.0, float 11.0, float 11.0, float 11.0, float 11.0, float 11.0, float 11.0, float 11.0, float 11.0, float 11.0, float 11.0, float 11.0>)
 
   ; The first eight arguments will be passed in registers. The remainders will
   ; be copied onto the stack.
 
-  ; CHECK-DAG: move [[TMPVEC1:v[0-9]+]], 10
-  ; CHECK-DAG: store_v [[TMPVEC1]], 64(sp)
-  ; CHECK-DAG: move [[TMPVEC2:v[0-9]+]], 9
-  ; CHECK-DAG: store_v [[TMPVEC2]], (sp)
+  ; CHECK-DAG: store_v {{v[0-9]+}}, 128(sp)
+  ; CHECK-DAG: move [[TMPVEC2:v[0-9]+]], 10
+  ; CHECK-DAG: store_v [[TMPVEC2]], 64(sp)
+  ; CHECK-DAG: move [[TMPVEC3:v[0-9]+]], 9
+  ; CHECK-DAG: store_v [[TMPVEC3]], (sp)
   ; CHECK-DAG: move s0, 123
   ; CHECK-DAG: move v0, 1
   ; CHECK-DAG: move v1, 2
