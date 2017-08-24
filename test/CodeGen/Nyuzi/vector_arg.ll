@@ -1,9 +1,8 @@
 ; RUN: llc %s -o - | FileCheck %s
 ;
-; Test passing vector arguments. There is one scalar arg here to ensure it
-; doesn't mess up vector argument handling. The last argument is <16 x float>
-; to validate a bug where LowerFormalArguments was not handling this type
-; correctly.
+; Test passing vector arguments.
+; This validates NyuziTargetLowering::LowerFormalArguments and
+; NyuziTargetLowering::LowerCall
 ;
 
 target triple = "nyuzi-elf-none"
@@ -20,12 +19,14 @@ define <16 x i32> @somefunc(i32 %arg0, <16 x float> %arg1, <16 x i32> %arg2, <16
 
   ; CHECK: add_i sp, sp, -64
 
+  ; Floating point register argument
   %1 = fptosi <16 x float> %arg1 to <16 x i32>
   %2 = add <16 x i32> %1, %arg2
 
   ; CHECK-DAG: ftoi [[TMP1:v[0-9]+]], v0
   ; CHECK-DAG: add_i [[RES1:v[0-9]+]], [[TMP1]], v1
 
+  ; Integer register argument
   %3 = add <16 x i32> %2, %arg3
 
   ; CHECK-DAG: add_i [[RES2:v[0-9]+]], [[RES1]], v2
@@ -52,7 +53,7 @@ define <16 x i32> @somefunc(i32 %arg0, <16 x float> %arg1, <16 x i32> %arg2, <16
 
   %9 = add <16 x i32> %8, %arg9
 
-  ; Check that these are loaded from the stack
+  ; Stack integer argument
   ; CHECK-DAG: load_v [[TMP2:v[0-9]+]], 64(sp)
   ; CHECK-DAG: add_i [[RES7:v[0-9]+]], [[RES6]], [[TMP2]]
 
@@ -61,6 +62,7 @@ define <16 x i32> @somefunc(i32 %arg0, <16 x float> %arg1, <16 x i32> %arg2, <16
   ; CHECK-DAG: load_v [[TMP3:v[0-9]+]], 128(sp)
   ; CHECK-DAG: add_i [[RES8:v[0-9]+]], [[RES7]], [[TMP3]]
 
+  ; Stack floating point argument
   %11 = fptosi <16 x float> %arg11 to <16 x i32>
   %12 = add <16 x i32> %10, %11
 

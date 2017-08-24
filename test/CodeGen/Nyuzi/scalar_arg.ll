@@ -1,6 +1,8 @@
 ; RUN: llc %s -o - | FileCheck %s
 ;
 ; Test passing scalar arguments to a called function.
+; This validates NyuziTargetLowering::LowerFormalArguments and
+; NyuziTargetLowering::LowerCall
 ;
 
 target triple = "nyuzi-elf-none"
@@ -17,13 +19,14 @@ define i32 @somefunc(float %arg1, i32 %arg2, i32 %arg3,
 
   ; CHECK: add_i sp, sp, -64
 
-  ; First argument is a float to ensure these are passed in registers correctly.
+  ; Floating point register argument
   %1 = fptosi float %arg1 to i32
   %2 = add i32 %1, %arg2
 
   ; CHECK-DAG: ftoi [[TMP1:s[0-9]+]], s0
   ; CHECK-DAG: add_i [[RES1:s[0-9]+]], [[TMP1]], s1
 
+  ; Integer register argument
   %3 = add i32 %2, %arg3
 
   ; CHECK-DAG: add_i [[RES2:s[0-9]+]], [[RES1]], s2
@@ -50,7 +53,7 @@ define i32 @somefunc(float %arg1, i32 %arg2, i32 %arg3,
 
   %9 = add i32 %8, %arg9
 
-  ; Check that these are loaded from the stack
+  ; Stack integer argument
   ; CHECK-DAG: load_32 [[TMP2:s[0-9]+]], 64(sp)
   ; CHECK-DAG: add_i [[RES7:s[0-9]+]], [[RES6]], [[TMP2]]
 
@@ -59,7 +62,7 @@ define i32 @somefunc(float %arg1, i32 %arg2, i32 %arg3,
   ; CHECK-DAG: load_32 [[TMP3:s[0-9]+]], 68(sp)
   ; CHECK-DAG: add_i [[RES8:s[0-9]+]], [[RES7]], [[TMP3]]
 
-  ; Use a stack floating point argument to ensure that is handled properly.
+  ; Stack floating point argument
   %11 = fptosi float %arg11 to i32
   %12 = add i32 %10, %11
 
@@ -67,12 +70,14 @@ define i32 @somefunc(float %arg1, i32 %arg2, i32 %arg3,
   ; CHECK-DAG: ftoi [[TMP5:s[0-9]+]], [[TMP4]]
   ; CHECK-DAG: add_i [[RES9:s[0-9]+]], [[RES8]], [[TMP5]]
 
+  ; Stack i8 argument
   %13 = sext i8 %arg12 to i32
   %14 = add i32 %12, %13
 
   ; CHECK-DAG: load_s8 [[TMP6:s[0-9]+]], 76(sp)
   ; CHECK-DAG: add_i [[RES10:s[0-9]+]], [[RES9]], [[TMP6]]
 
+  ; Stack i16 argument
   %15 = sext i16 %arg13 to i32
   %16 = add i32 %14, %15
 
