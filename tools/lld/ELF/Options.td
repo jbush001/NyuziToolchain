@@ -35,7 +35,7 @@ defm defsym: Eq<"defsym">, HelpText<"Define a symbol alias">;
 defm library_path: Eq<"library-path">,
   HelpText<"Add a directory to the library search path">, MetaVarName<"<dir>">;
 
-def O: Joined<["-"], "O">, HelpText<"Optimize output file size">;
+def O: JoinedOrSeparate<["-"], "O">, HelpText<"Optimize output file size">;
 
 defm Tbss: Eq<"Tbss">,
   HelpText<"Same as --section-start with .bss as the sectionname">;
@@ -176,11 +176,17 @@ def no_demangle: F<"no-demangle">,
 def no_dynamic_linker: F<"no-dynamic-linker">,
   HelpText<"Inhibit output of .interp section">;
 
+def no_eh_frame_hdr: F<"no-eh-frame-hdr">,
+  HelpText<"Do not create .eh_frame_hdr section">;
+
 def no_export_dynamic: F<"no-export-dynamic">;
 def no_fatal_warnings: F<"no-fatal-warnings">;
 
 def no_gc_sections: F<"no-gc-sections">,
   HelpText<"Disable garbage collection of unused sections">;
+
+def no_gdb_index: F<"no-gdb-index">,
+  HelpText<"Do not generate .gdb_index section">;
 
 def no_gnu_unique: F<"no-gnu-unique">,
   HelpText<"Disable STB_GNU_UNIQUE symbol binding">;
@@ -362,6 +368,8 @@ def opt_remarks_filename: Separate<["--"], "opt-remarks-filename">,
   HelpText<"YAML output file for optimization remarks">;
 def opt_remarks_with_hotness: Flag<["--"], "opt-remarks-with-hotness">,
   HelpText<"Include hotness informations in the optimization remarks file">;
+defm plugin_opt: Eq<"plugin-opt">,
+  HelpText<"specifies LTO options for compatibility with GNU linkers">;
 def save_temps: F<"save-temps">;
 def thinlto_cache_dir: J<"thinlto-cache-dir=">,
   HelpText<"Path to ThinLTO cached object file directory">;
@@ -378,8 +386,6 @@ def thinlto_jobs: J<"thinlto-jobs=">, HelpText<"Number of ThinLTO jobs">;
 // --version output.
 def plugin: S<"plugin">;
 def plugin_eq: J<"plugin=">;
-def plugin_opt: S<"plugin-opt">;
-def plugin_opt_eq: J<"plugin-opt=">;
 
 // Options listed below are silently ignored for now for compatibility.
 def allow_shlib_undefined: F<"allow-shlib-undefined">;

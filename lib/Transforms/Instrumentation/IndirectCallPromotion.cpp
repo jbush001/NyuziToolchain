@@ -142,10 +142,15 @@ private:
 } // end anonymous namespace
 
 char PGOIndirectCallPromotionLegacyPass::ID = 0;
-INITIALIZE_PASS(PGOIndirectCallPromotionLegacyPass, "pgo-icall-prom",
-                "Use PGO instrumentation profile to promote indirect calls to "
-                "direct calls.",
-                false, false)
+INITIALIZE_PASS_BEGIN(PGOIndirectCallPromotionLegacyPass, "pgo-icall-prom",
+                      "Use PGO instrumentation profile to promote indirect "
+                      "calls to direct calls.",
+                      false, false)
+INITIALIZE_PASS_DEPENDENCY(ProfileSummaryInfoWrapperPass)
+INITIALIZE_PASS_END(PGOIndirectCallPromotionLegacyPass, "pgo-icall-prom",
+                    "Use PGO instrumentation profile to promote indirect "
+                    "calls to direct calls.",
+                    false, false)
 
 ModulePass *llvm::createPGOIndirectCallPromotionLegacyPass(bool InLTO,
                                                            bool SamplePGO) {
@@ -503,6 +508,9 @@ static void insertCallRetPHI(Instruction *Inst, Instruction *CallResult,
   if (Inst->getType()->isVoidTy())
     return;
 
+  if (Inst->use_empty())
+    return;
+
   BasicBlock *RetValBB = CallResult->getParent();
 
   BasicBlock *PHIBB;
@@ -558,8 +566,8 @@ Instruction *llvm::promoteIndirectCall(Instruction *Inst,
     SmallVector<uint32_t, 1> Weights;
     Weights.push_back(Count);
     MDBuilder MDB(NewInst->getContext());
-    dyn_cast<Instruction>(NewInst->stripPointerCasts())
-        ->setMetadata(LLVMContext::MD_prof, MDB.createBranchWeights(Weights));
+    if (Instruction *DI = dyn_cast<Instruction>(NewInst->stripPointerCasts()))
+      DI->setMetadata(LLVMContext::MD_prof, MDB.createBranchWeights(Weights));
   }
 
   // Move Inst from MergeBB to IndirectCallBB.
