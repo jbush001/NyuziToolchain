@@ -113,12 +113,8 @@ static std::tuple<ELFKind, uint16_t, uint8_t> parseEmulation(StringRef Emul) {
           .Case("elf_iamcu", {ELF32LEKind, EM_IAMCU})
           .Default({ELFNoneKind, EM_NONE});
 
-  if (Ret.first == ELFNoneKind) {
-    if (S == "i386pe" || S == "i386pep" || S == "thumb2pe")
-      error("Windows targets are not supported on the ELF frontend: " + Emul);
-    else
-      error("unknown emulation: " + Emul);
-  }
+  if (Ret.first == ELFNoneKind)
+    error("unknown emulation: " + Emul);
   return std::make_tuple(Ret.first, Ret.second, OSABI);
 }
 
@@ -283,7 +279,7 @@ static int getInteger(opt::InputArgList &Args, unsigned Key, int Default) {
   if (auto *Arg = Args.getLastArg(Key)) {
     StringRef S = Arg->getValue();
     if (!to_integer(S, V, 10))
-      error(Arg->getSpelling() + ": number expected, but got " + S);
+      error(Arg->getSpelling() + ": number expected, but got '" + S + "'");
   }
   return V;
 }
@@ -611,6 +607,13 @@ static bool getCompressDebugSections(opt::InputArgList &Args) {
   return true;
 }
 
+static int parseInt(StringRef S, opt::Arg *Arg) {
+  int V = 0;
+  if (!to_integer(S, V, 10))
+    error(Arg->getSpelling() + ": number expected, but got '" + S + "'");
+  return V;
+}
+
 // Initializes Config members by the command line options.
 void LinkerDriver::readConfigs(opt::InputArgList &Args) {
   Config->AllowMultipleDefinition =
@@ -626,7 +629,8 @@ void LinkerDriver::readConfigs(opt::InputArgList &Args) {
   Config->DisableVerify = Args.hasArg(OPT_disable_verify);
   Config->Discard = getDiscard(Args);
   Config->DynamicLinker = getDynamicLinker(Args);
-  Config->EhFrameHdr = Args.hasArg(OPT_eh_frame_hdr);
+  Config->EhFrameHdr =
+      getArg(Args, OPT_eh_frame_hdr, OPT_no_eh_frame_hdr, false);
   Config->EmitRelocs = Args.hasArg(OPT_emit_relocs);
   Config->EnableNewDtags = !Args.hasArg(OPT_disable_new_dtags);
   Config->Entry = Args.getLastArgValue(OPT_entry);
@@ -637,7 +641,7 @@ void LinkerDriver::readConfigs(opt::InputArgList &Args) {
   Config->FilterList = getArgs(Args, OPT_filter);
   Config->Fini = Args.getLastArgValue(OPT_fini, "_fini");
   Config->GcSections = getArg(Args, OPT_gc_sections, OPT_no_gc_sections, false);
-  Config->GdbIndex = Args.hasArg(OPT_gdb_index);
+  Config->GdbIndex = getArg(Args, OPT_gdb_index, OPT_no_gdb_index, false);
   Config->ICF = getArg(Args, OPT_icf_all, OPT_icf_none, false);
   Config->Init = Args.getLastArgValue(OPT_init, "_init");
   Config->LTOAAPipeline = Args.getLastArgValue(OPT_lto_aa_pipeline);
@@ -694,16 +698,35 @@ void LinkerDriver::readConfigs(opt::InputArgList &Args) {
   Config->ZText = !hasZOption(Args, "notext");
   Config->ZWxneeded = hasZOption(Args, "wxneeded");
 
+  // Parse LTO plugin-related options for compatibility with gold.
+  for (auto *Arg : Args.filtered(OPT_plugin_opt, OPT_plugin_opt_eq)) {
+    StringRef S = Arg->getValue();
+    if (S == "disable-verify")
+      Config->DisableVerify = true;
+    else if (S == "save-temps")
+      Config->SaveTemps = true;
+    else if (S.startswith("O"))
+      Config->LTOO = parseInt(S.substr(1), Arg);
+    else if (S.startswith("lto-partitions="))
+      Config->LTOPartitions = parseInt(S.substr(15), Arg);
+    else if (S.startswith("jobs="))
+      Config->ThinLTOJobs = parseInt(S.substr(5), Arg);
+    else if (!S.startswith("/") && !S.startswith("-fresolution=") &&
+             !S.startswith("-pass-through=") && !S.startswith("mcpu=") &&
+             !S.startswith("thinlto") && S != "-function-sections" &&
+             S != "-data-sections")
+      error(Arg->getSpelling() + ": unknown option: " + S);
+  }
+
   if (Config->LTOO > 3)
-    error("invalid optimization level for LTO: " +
-          Args.getLastArgValue(OPT_lto_O));
+    error("invalid optimization level for LTO: " + Twine(Config->LTOO));
   if (Config->LTOPartitions == 0)
     error("--lto-partitions: number of threads must be > 0");
   if (Config->ThinLTOJobs == 0)
     error("--thinlto-jobs: number of threads must be > 0");
 
+  // Parse ELF{32,64}{LE,BE} and CPU type.
   if (auto *Arg = Args.getLastArg(OPT_m)) {
-    // Parse ELF{32,64}{LE,BE} and CPU type.
     StringRef S = Arg->getValue();
     std::tie(Config->EKind, Config->EMachine, Config->OSABI) =
         parseEmulation(S);
@@ -986,6 +1009,20 @@ template <class ELFT> void LinkerDriver::link(opt::InputArgList &Args) {
   for (InputFile *F : Files)
     Symtab->addFile<ELFT>(F);
 
+  // Now that we have every file, we can decide if we will need a
+  // dynamic symbol table.
+  // We need one if we were asked to export dynamic symbols or if we are
+  // producing a shared library.
+  // We also need one if any shared libraries are used and for pie executables
+  // (probably because the dynamic linker needs it).
+  Config->HasDynSymTab = !SharedFile<ELFT>::Instances.empty() || Config->Pic ||
+                         Config->ExportDynamic;
+
+  // Some symbols (such as __ehdr_start) are defined lazily only when there
+  // are undefined symbols for them, so we add these to trigger that logic.
+  for (StringRef Sym : Script->Opt.ReferencedSymbols)
+    Symtab->addUndefined<ELFT>(Sym);
+
   // If an entry symbol is in a static archive, pull out that file now
   // to complete the symbol table. After this, no new names except a
   // few linker-synthesized ones will be added to the symbol table.
@@ -1020,11 +1057,6 @@ template <class ELFT> void LinkerDriver::link(opt::InputArgList &Args) {
   Symtab->addCombinedLTOObject<ELFT>();
   if (ErrorCount)
     return;
-
-  // Some symbols (such as __ehdr_start) are defined lazily only when there
-  // are undefined symbols for them, so we add these to trigger that logic.
-  for (StringRef Sym : Script->Opt.ReferencedSymbols)
-    Symtab->addUndefined<ELFT>(Sym);
 
   // Apply symbol renames for -wrap and -defsym
   Symtab->applySymbolRenames();

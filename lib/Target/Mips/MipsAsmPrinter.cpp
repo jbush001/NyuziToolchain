@@ -108,7 +108,7 @@ bool MipsAsmPrinter::lowerOperand(const MachineOperand &MO, MCOperand &MCOp) {
 #include "MipsGenMCPseudoLowering.inc"
 
 // Lower PseudoReturn/PseudoIndirectBranch/PseudoIndirectBranch64 to JR, JR_MM,
-// JALR, or JALR64 as appropriate for the target
+// JALR, or JALR64 as appropriate for the target.
 void MipsAsmPrinter::emitPseudoIndirectBranch(MCStreamer &OutStreamer,
                                               const MachineInstr *MI) {
   bool HasLinkReg = false;
@@ -718,7 +718,7 @@ void MipsAsmPrinter::EmitStartOfAsmFile(Module &M) {
   StringRef CPU = MIPS_MC::selectMipsCPU(TT, TM.getTargetCPU());
   StringRef FS = TM.getTargetFeatureString();
   const MipsTargetMachine &MTM = static_cast<const MipsTargetMachine &>(TM);
-  const MipsSubtarget STI(TT, CPU, FS, MTM.isLittleEndian(), MTM);
+  const MipsSubtarget STI(TT, CPU, FS, MTM.isLittleEndian(), MTM, 0);
 
   bool IsABICalls = STI.isABICalls();
   const MipsABIInfo &ABI = MTM.getABI();

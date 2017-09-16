@@ -451,7 +451,7 @@ ObjectFile *ObjectFileELF::CreateMemoryInstance(
     if (ELFHeader::MagicBytesMatch(magic)) {
       unsigned address_size = ELFHeader::AddressSizeInBytes(magic);
       if (address_size == 4 || address_size == 8) {
-        std::auto_ptr<ObjectFileELF> objfile_ap(
+        std::unique_ptr<ObjectFileELF> objfile_ap(
             new ObjectFileELF(module_sp, data_sp, process_sp, header_addr));
         ArchSpec spec;
         if (objfile_ap->GetArchitecture(spec) &&
@@ -1835,6 +1835,7 @@ void ObjectFileELF::CreateSections(SectionList &unified_section_list) {
       static ConstString g_sect_name_dwarf_debug_abbrev(".debug_abbrev");
       static ConstString g_sect_name_dwarf_debug_addr(".debug_addr");
       static ConstString g_sect_name_dwarf_debug_aranges(".debug_aranges");
+      static ConstString g_sect_name_dwarf_debug_cu_index(".debug_cu_index");
       static ConstString g_sect_name_dwarf_debug_frame(".debug_frame");
       static ConstString g_sect_name_dwarf_debug_info(".debug_info");
       static ConstString g_sect_name_dwarf_debug_line(".debug_line");
@@ -1904,6 +1905,8 @@ void ObjectFileELF::CreateSections(SectionList &unified_section_list) {
         sect_type = eSectionTypeDWARFDebugAddr;
       else if (name == g_sect_name_dwarf_debug_aranges)
         sect_type = eSectionTypeDWARFDebugAranges;
+      else if (name == g_sect_name_dwarf_debug_cu_index)
+        sect_type = eSectionTypeDWARFDebugCuIndex;
       else if (name == g_sect_name_dwarf_debug_frame)
         sect_type = eSectionTypeDWARFDebugFrame;
       else if (name == g_sect_name_dwarf_debug_info)
@@ -1987,7 +1990,9 @@ void ObjectFileELF::CreateSections(SectionList &unified_section_list) {
               ? m_arch_spec.GetDataByteSize()
               : eSectionTypeCode == sect_type ? m_arch_spec.GetCodeByteSize()
                                               : 1;
-
+      const addr_t sect_file_addr = header.sh_flags & SHF_ALLOC
+                                                    ? header.sh_addr
+                                                    : LLDB_INVALID_ADDRESS;
       elf::elf_xword log2align =
           (header.sh_addralign == 0) ? 0 : llvm::Log2_64(header.sh_addralign);
       SectionSP section_sp(new Section(
@@ -1997,7 +2002,7 @@ void ObjectFileELF::CreateSections(SectionList &unified_section_list) {
           SectionIndex(I),     // Section ID.
           name,                // Section name.
           sect_type,           // Section type.
-          header.sh_addr,      // VM address.
+          sect_file_addr,      // VM address.
           vm_size,             // VM size in bytes of this section.
           header.sh_offset,    // Offset of this section in the file.
           file_size,           // Size of the section as found in the file.
@@ -2015,13 +2020,14 @@ void ObjectFileELF::CreateSections(SectionList &unified_section_list) {
   if (m_sections_ap.get()) {
     if (GetType() == eTypeDebugInfo) {
       static const SectionType g_sections[] = {
-          eSectionTypeDWARFDebugAbbrev,     eSectionTypeDWARFDebugAddr,
-          eSectionTypeDWARFDebugAranges,    eSectionTypeDWARFDebugFrame,
-          eSectionTypeDWARFDebugInfo,       eSectionTypeDWARFDebugLine,
-          eSectionTypeDWARFDebugLoc,        eSectionTypeDWARFDebugMacInfo,
-          eSectionTypeDWARFDebugPubNames,   eSectionTypeDWARFDebugPubTypes,
-          eSectionTypeDWARFDebugRanges,     eSectionTypeDWARFDebugStr,
-          eSectionTypeDWARFDebugStrOffsets, eSectionTypeELFSymbolTable,
+          eSectionTypeDWARFDebugAbbrev,   eSectionTypeDWARFDebugAddr,
+          eSectionTypeDWARFDebugAranges,  eSectionTypeDWARFDebugCuIndex,
+          eSectionTypeDWARFDebugFrame,    eSectionTypeDWARFDebugInfo,
+          eSectionTypeDWARFDebugLine,     eSectionTypeDWARFDebugLoc,
+          eSectionTypeDWARFDebugMacInfo,  eSectionTypeDWARFDebugPubNames,
+          eSectionTypeDWARFDebugPubTypes, eSectionTypeDWARFDebugRanges,
+          eSectionTypeDWARFDebugStr,      eSectionTypeDWARFDebugStrOffsets,
+          eSectionTypeELFSymbolTable,
       };
       SectionList *elf_section_list = m_sections_ap.get();
       for (size_t idx = 0; idx < sizeof(g_sections) / sizeof(g_sections[0]);

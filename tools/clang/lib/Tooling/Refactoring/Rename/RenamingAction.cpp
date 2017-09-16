@@ -22,8 +22,13 @@
 #include "clang/Lex/Preprocessor.h"
 #include "clang/Tooling/CommonOptionsParser.h"
 #include "clang/Tooling/Refactoring.h"
+#include "clang/Tooling/Refactoring/RefactoringAction.h"
+#include "clang/Tooling/Refactoring/RefactoringActionRules.h"
+#include "clang/Tooling/Refactoring/Rename/USRFinder.h"
+#include "clang/Tooling/Refactoring/Rename/USRFindingAction.h"
 #include "clang/Tooling/Refactoring/Rename/USRLocFinder.h"
 #include "clang/Tooling/Tooling.h"
+#include "llvm/ADT/STLExtras.h"
 #include <string>
 #include <vector>
 
@@ -31,6 +36,102 @@ using namespace llvm;
 
 namespace clang {
 namespace tooling {
+
+namespace {
+
+class LocalRename : public RefactoringAction {
+public:
+  StringRef getCommand() const override { return "local-rename"; }
+
+  StringRef getDescription() const override {
+    return "Finds and renames symbols in code with no indexer support";
+  }
+
+  /// Returns a set of refactoring actions rules that are defined by this
+  /// action.
+  RefactoringActionRules createActionRules() const override {
+    using namespace refactoring_action_rules;
+    RefactoringActionRules Rules;
+    Rules.push_back(createRefactoringRule(
+        renameOccurrences, requiredSelection(SymbolSelectionRequirement())));
+    return Rules;
+  }
+
+private:
+  static Expected<AtomicChanges>
+  renameOccurrences(const RefactoringRuleContext &Context,
+                    const NamedDecl *ND) {
+    std::vector<std::string> USRs =
+        getUSRsForDeclaration(ND, Context.getASTContext());
+    std::string PrevName = ND->getNameAsString();
+    auto Occurrences = getOccurrencesOfUSRs(
+        USRs, PrevName, Context.getASTContext().getTranslationUnitDecl());
+
+    // FIXME: This is a temporary workaround that's needed until the refactoring
+    // options are implemented.
+    StringRef NewName = "Bar";
+    return createRenameReplacements(
+        Occurrences, Context.getASTContext().getSourceManager(), NewName);
+  }
+
+  class SymbolSelectionRequirement : public selection::Requirement {
+  public:
+    Expected<Optional<const NamedDecl *>>
+    evaluateSelection(const RefactoringRuleContext &Context,
+                      selection::SourceSelectionRange Selection) const {
+      const NamedDecl *ND = getNamedDeclAt(Context.getASTContext(),
+                                           Selection.getRange().getBegin());
+      if (!ND)
+        return None;
+      return getCanonicalSymbolDeclaration(ND);
+    }
+  };
+};
+
+} // end anonymous namespace
+
+std::unique_ptr<RefactoringAction> createLocalRenameAction() {
+  return llvm::make_unique<LocalRename>();
+}
+
+Expected<std::vector<AtomicChange>>
+createRenameReplacements(const SymbolOccurrences &Occurrences,
+                         const SourceManager &SM,
+                         ArrayRef<StringRef> NewNameStrings) {
+  // FIXME: A true local rename can use just one AtomicChange.
+  std::vector<AtomicChange> Changes;
+  for (const auto &Occurrence : Occurrences) {
+    ArrayRef<SourceRange> Ranges = Occurrence.getNameRanges();
+    assert(NewNameStrings.size() == Ranges.size() &&
+           "Mismatching number of ranges and name pieces");
+    AtomicChange Change(SM, Ranges[0].getBegin());
+    for (const auto &Range : llvm::enumerate(Ranges)) {
+      auto Error =
+          Change.replace(SM, CharSourceRange::getCharRange(Range.value()),
+                         NewNameStrings[Range.index()]);
+      if (Error)
+        return std::move(Error);
+    }
+    Changes.push_back(std::move(Change));
+  }
+  return std::move(Changes);
+}
+
+/// Takes each atomic change and inserts its replacements into the set of
+/// replacements that belong to the appropriate file.
+static void convertChangesToFileReplacements(
+    ArrayRef<AtomicChange> AtomicChanges,
+    std::map<std::string, tooling::Replacements> *FileToReplaces) {
+  for (const auto &AtomicChange : AtomicChanges) {
+    for (const auto &Replace : AtomicChange.getReplacements()) {
+      llvm::Error Err = (*FileToReplaces)[Replace.getFilePath()].add(Replace);
+      if (Err) {
+        llvm::errs() << "Renaming failed in " << Replace.getFilePath() << "! "
+                     << llvm::toString(std::move(Err)) << "\n";
+      }
+    }
+  }
+}
 
 class RenamingASTConsumer : public ASTConsumer {
 public:
@@ -44,37 +145,42 @@ public:
         FileToReplaces(FileToReplaces), PrintLocations(PrintLocations) {}
 
   void HandleTranslationUnit(ASTContext &Context) override {
-    for (unsigned I = 0; I < NewNames.size(); ++I)
+    for (unsigned I = 0; I < NewNames.size(); ++I) {
+      // If the previous name was not found, ignore this rename request.
+      if (PrevNames[I].empty())
+        continue;
+
       HandleOneRename(Context, NewNames[I], PrevNames[I], USRList[I]);
+    }
   }
 
   void HandleOneRename(ASTContext &Context, const std::string &NewName,
                        const std::string &PrevName,
                        const std::vector<std::string> &USRs) {
     const SourceManager &SourceMgr = Context.getSourceManager();
-    std::vector<SourceLocation> RenamingCandidates;
-    std::vector<SourceLocation> NewCandidates;
 
-    NewCandidates = tooling::getLocationsOfUSRs(
+    SymbolOccurrences Occurrences = tooling::getOccurrencesOfUSRs(
         USRs, PrevName, Context.getTranslationUnitDecl());
-    RenamingCandidates.insert(RenamingCandidates.end(), NewCandidates.begin(),
-                              NewCandidates.end());
-
-    unsigned PrevNameLen = PrevName.length();
-    for (const auto &Loc : RenamingCandidates) {
-      if (PrintLocations) {
-        FullSourceLoc FullLoc(Loc, SourceMgr);
-        errs() << "clang-rename: renamed at: " << SourceMgr.getFilename(Loc)
+    if (PrintLocations) {
+      for (const auto &Occurrence : Occurrences) {
+        FullSourceLoc FullLoc(Occurrence.getNameRanges()[0].getBegin(),
+                              SourceMgr);
+        errs() << "clang-rename: renamed at: " << SourceMgr.getFilename(FullLoc)
                << ":" << FullLoc.getSpellingLineNumber() << ":"
                << FullLoc.getSpellingColumnNumber() << "\n";
       }
-      // FIXME: better error handling.
-      tooling::Replacement Replace(SourceMgr, Loc, PrevNameLen, NewName);
-      llvm::Error Err = FileToReplaces[Replace.getFilePath()].add(Replace);
-      if (Err)
-        llvm::errs() << "Renaming failed in " << Replace.getFilePath() << "! "
-                     << llvm::toString(std::move(Err)) << "\n";
     }
+    // FIXME: Support multi-piece names.
+    // FIXME: better error handling (propagate error out).
+    StringRef NewNameRef = NewName;
+    Expected<std::vector<AtomicChange>> Change =
+        createRenameReplacements(Occurrences, SourceMgr, NewNameRef);
+    if (!Change) {
+      llvm::errs() << "Failed to create renaming replacements for '" << PrevName
+                   << "'! " << llvm::toString(Change.takeError()) << "\n";
+      return;
+    }
+    convertChangesToFileReplacements(*Change, &FileToReplaces);
   }
 
 private:
@@ -103,15 +209,7 @@ public:
       // ready.
       auto AtomicChanges = tooling::createRenameAtomicChanges(
           USRList[I], NewNames[I], Context.getTranslationUnitDecl());
-      for (const auto AtomicChange : AtomicChanges) {
-        for (const auto &Replace : AtomicChange.getReplacements()) {
-          llvm::Error Err = FileToReplaces[Replace.getFilePath()].add(Replace);
-          if (Err) {
-            llvm::errs() << "Renaming failed in " << Replace.getFilePath()
-                         << "! " << llvm::toString(std::move(Err)) << "\n";
-          }
-        }
-      }
+      convertChangesToFileReplacements(AtomicChanges, &FileToReplaces);
     }
   }
 

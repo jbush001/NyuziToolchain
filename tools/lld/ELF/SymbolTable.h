@@ -87,9 +87,10 @@ public:
   void scanVersionScript();
 
   SymbolBody *find(StringRef Name);
-  SymbolBody *findInCurrentDSO(StringRef Name);
 
   void trace(StringRef Name);
+
+  void handleDynamicList();
 
 private:
   std::vector<SymbolBody *> findByVersion(SymbolVersion Ver);

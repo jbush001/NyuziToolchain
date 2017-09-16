@@ -179,7 +179,7 @@ _start:
 # CHECK-NEXT:     VirtualAddress: 0x201000
 # CHECK-NEXT:     PhysicalAddress: 0x201000
 # CHECK-NEXT:     FileSize: 4096
-# CHECK-NEXT:     MemSize: 16
+# CHECK-NEXT:     MemSize: 4096
 # CHECK-NEXT:     Flags [ (0x5)
 # CHECK-NEXT:       PF_R (0x4)
 # CHECK-NEXT:       PF_X (0x1)
@@ -246,7 +246,9 @@ _start:
 # UNKNOWN_EMUL: unknown emulation: wrong_emul_fbsd
 
 # RUN: not ld.lld %t --lto-partitions=0 2>&1 | FileCheck --check-prefix=NOTHREADS %s
+# RUN: not ld.lld %t --plugin-opt=lto-partitions=0 2>&1 | FileCheck --check-prefix=NOTHREADS %s
 # NOTHREADS: --lto-partitions: number of threads must be > 0
 
 # RUN: not ld.lld %t --thinlto-jobs=0 2>&1 | FileCheck --check-prefix=NOTHREADSTHIN %s
+# RUN: not ld.lld %t --plugin-opt=jobs=0 2>&1 | FileCheck --check-prefix=NOTHREADSTHIN %s
 # NOTHREADSTHIN: --thinlto-jobs: number of threads must be > 0

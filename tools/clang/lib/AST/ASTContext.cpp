@@ -57,7 +57,7 @@ unsigned ASTContext::NumImplicitDestructors;
 unsigned ASTContext::NumImplicitDestructorsDeclared;
 
 enum FloatingRank {
-  HalfRank, FloatRank, DoubleRank, LongDoubleRank, Float128Rank
+  Float16Rank, HalfRank, FloatRank, DoubleRank, LongDoubleRank, Float128Rank
 };
 
 RawComment *ASTContext::getRawCommentForDeclNoCache(const Decl *D) const {
@@ -1093,6 +1093,9 @@ void ASTContext::InitBuiltinTypes(const TargetInfo &Target,
   // GNU extension, __float128 for IEEE quadruple precision
   InitBuiltinType(Float128Ty,          BuiltinType::Float128);
 
+  // C11 extension ISO/IEC TS 18661-3
+  InitBuiltinType(Float16Ty,           BuiltinType::Float16);
+
   // GNU extension, 128-bit integers.
   InitBuiltinType(Int128Ty,            BuiltinType::Int128);
   InitBuiltinType(UnsignedInt128Ty,    BuiltinType::UInt128);
@@ -1420,7 +1423,9 @@ const llvm::fltSemantics &ASTContext::getFloatTypeSemantics(QualType T) const {
   assert(BT && "Not a floating point type!");
   switch (BT->getKind()) {
   default: llvm_unreachable("Not a floating point type!");
-  case BuiltinType::Half:       return Target->getHalfFormat();
+  case BuiltinType::Float16:
+  case BuiltinType::Half:
+    return Target->getHalfFormat();
   case BuiltinType::Float:      return Target->getFloatFormat();
   case BuiltinType::Double:     return Target->getDoubleFormat();
   case BuiltinType::LongDouble: return Target->getLongDoubleFormat();
@@ -1631,6 +1636,7 @@ TypeInfo ASTContext::getTypeInfoImpl(const Type *T) const {
   uint64_t Width = 0;
   unsigned Align = 8;
   bool AlignIsRequired = false;
+  unsigned AS = 0;
   switch (T->getTypeClass()) {
 #define TYPE(Class, Base)
 #define ABSTRACT_TYPE(Class, Base)
@@ -1747,6 +1753,7 @@ TypeInfo ASTContext::getTypeInfoImpl(const Type *T) const {
       Width = 128;
       Align = 128; // int128_t is 128-bit aligned on all targets.
       break;
+    case BuiltinType::Float16:
     case BuiltinType::Half:
       Width = Target->getHalfWidth();
       Align = Target->getHalfAlign();
@@ -1777,28 +1784,18 @@ TypeInfo ASTContext::getTypeInfoImpl(const Type *T) const {
       Width = Target->getPointerWidth(0); 
       Align = Target->getPointerAlign(0);
       break;
-    case BuiltinType::OCLSampler: {
-      auto AS = getTargetAddressSpace(LangAS::opencl_constant);
-      Width = Target->getPointerWidth(AS);
-      Align = Target->getPointerAlign(AS);
-      break;
-    }
+    case BuiltinType::OCLSampler:
     case BuiltinType::OCLEvent:
     case BuiltinType::OCLClkEvent:
     case BuiltinType::OCLQueue:
     case BuiltinType::OCLReserveID:
-      // Currently these types are pointers to opaque types.
-      Width = Target->getPointerWidth(0);
-      Align = Target->getPointerAlign(0);
-      break;
 #define IMAGE_TYPE(ImgType, Id, SingletonId, Access, Suffix) \
     case BuiltinType::Id:
 #include "clang/Basic/OpenCLImageTypes.def"
-      {
-        auto AS = getTargetAddressSpace(Target->getOpenCLImageAddrSpace());
-        Width = Target->getPointerWidth(AS);
-        Align = Target->getPointerAlign(AS);
-      }
+      AS = getTargetAddressSpace(Target->getOpenCLTypeAddrSpace(T));
+      Width = Target->getPointerWidth(AS);
+      Align = Target->getPointerAlign(AS);
+      break;
     }
     break;
   case Type::ObjCObjectPointer:
@@ -1806,8 +1803,7 @@ TypeInfo ASTContext::getTypeInfoImpl(const Type *T) const {
     Align = Target->getPointerAlign(0);
     break;
   case Type::BlockPointer: {
-    unsigned AS = getTargetAddressSpace(
-        cast<BlockPointerType>(T)->getPointeeType());
+    AS = getTargetAddressSpace(cast<BlockPointerType>(T)->getPointeeType());
     Width = Target->getPointerWidth(AS);
     Align = Target->getPointerAlign(AS);
     break;
@@ -1816,14 +1812,13 @@ TypeInfo ASTContext::getTypeInfoImpl(const Type *T) const {
   case Type::RValueReference: {
     // alignof and sizeof should never enter this code path here, so we go
     // the pointer route.
-    unsigned AS = getTargetAddressSpace(
-        cast<ReferenceType>(T)->getPointeeType());
+    AS = getTargetAddressSpace(cast<ReferenceType>(T)->getPointeeType());
     Width = Target->getPointerWidth(AS);
     Align = Target->getPointerAlign(AS);
     break;
   }
   case Type::Pointer: {
-    unsigned AS = getTargetAddressSpace(cast<PointerType>(T)->getPointeeType());
+    AS = getTargetAddressSpace(cast<PointerType>(T)->getPointeeType());
     Width = Target->getPointerWidth(AS);
     Align = Target->getPointerAlign(AS);
     break;
@@ -5058,6 +5053,7 @@ static FloatingRank getFloatingRank(QualType T) {
   assert(T->getAs<BuiltinType>() && "getFloatingRank(): not a floating type");
   switch (T->getAs<BuiltinType>()->getKind()) {
   default: llvm_unreachable("getFloatingRank(): not a floating type");
+  case BuiltinType::Float16:    return Float16Rank;
   case BuiltinType::Half:       return HalfRank;
   case BuiltinType::Float:      return FloatRank;
   case BuiltinType::Double:     return DoubleRank;
@@ -5075,6 +5071,7 @@ QualType ASTContext::getFloatingTypeOfSizeWithinDomain(QualType Size,
   FloatingRank EltRank = getFloatingRank(Size);
   if (Domain->isComplexType()) {
     switch (EltRank) {
+    case Float16Rank:
     case HalfRank: llvm_unreachable("Complex half is not supported");
     case FloatRank:      return FloatComplexTy;
     case DoubleRank:     return DoubleComplexTy;
@@ -5085,6 +5082,7 @@ QualType ASTContext::getFloatingTypeOfSizeWithinDomain(QualType Size,
 
   assert(Domain->isRealFloatingType() && "Unknown domain!");
   switch (EltRank) {
+  case Float16Rank:    return HalfTy;
   case HalfRank:       return HalfTy;
   case FloatRank:      return FloatTy;
   case DoubleRank:     return DoubleTy;
@@ -5942,6 +5940,7 @@ static char getObjCEncodingForPrimitiveKind(const ASTContext *C,
     case BuiltinType::LongDouble: return 'D';
     case BuiltinType::NullPtr:    return '*'; // like char*
 
+    case BuiltinType::Float16:
     case BuiltinType::Float128:
     case BuiltinType::Half:
       // FIXME: potentially need @encodes for these!
@@ -8919,7 +8918,7 @@ static GVALinkage basicGVALinkageForFunction(const ASTContext &Context,
 }
 
 static GVALinkage adjustGVALinkageForAttributes(const ASTContext &Context,
-                                                GVALinkage L, const Decl *D) {
+                                                const Decl *D, GVALinkage L) {
   // See http://msdn.microsoft.com/en-us/library/xa0d9ste.aspx
   // dllexport/dllimport on inline functions.
   if (D->hasAttr<DLLImportAttr>()) {
@@ -8938,23 +8937,35 @@ static GVALinkage adjustGVALinkageForAttributes(const ASTContext &Context,
   return L;
 }
 
-GVALinkage ASTContext::GetGVALinkageForFunction(const FunctionDecl *FD) const {
-  auto L = adjustGVALinkageForAttributes(
-      *this, basicGVALinkageForFunction(*this, FD), FD);
-  auto EK = ExternalASTSource::EK_ReplyHazy;
-  if (auto *Ext = getExternalSource())
-    EK = Ext->hasExternalDefinitions(FD);
-  switch (EK) {
+/// Adjust the GVALinkage for a declaration based on what an external AST source
+/// knows about whether there can be other definitions of this declaration.
+static GVALinkage
+adjustGVALinkageForExternalDefinitionKind(const ASTContext &Ctx, const Decl *D,
+                                          GVALinkage L) {
+  ExternalASTSource *Source = Ctx.getExternalSource();
+  if (!Source)
+    return L;
+
+  switch (Source->hasExternalDefinitions(D)) {
   case ExternalASTSource::EK_Never:
+    // Other translation units rely on us to provide the definition.
     if (L == GVA_DiscardableODR)
       return GVA_StrongODR;
     break;
+
   case ExternalASTSource::EK_Always:
     return GVA_AvailableExternally;
+
   case ExternalASTSource::EK_ReplyHazy:
     break;
   }
   return L;
+}
+
+GVALinkage ASTContext::GetGVALinkageForFunction(const FunctionDecl *FD) const {
+  return adjustGVALinkageForExternalDefinitionKind(*this, FD,
+           adjustGVALinkageForAttributes(*this, FD,
+             basicGVALinkageForFunction(*this, FD)));
 }
 
 static GVALinkage basicGVALinkageForVariable(const ASTContext &Context,
@@ -9035,8 +9046,9 @@ static GVALinkage basicGVALinkageForVariable(const ASTContext &Context,
 }
 
 GVALinkage ASTContext::GetGVALinkageForVariable(const VarDecl *VD) {
-  return adjustGVALinkageForAttributes(
-      *this, basicGVALinkageForVariable(*this, VD), VD);
+  return adjustGVALinkageForExternalDefinitionKind(*this, VD,
+           adjustGVALinkageForAttributes(*this, VD,
+             basicGVALinkageForVariable(*this, VD)));
 }
 
 bool ASTContext::DeclMustBeEmitted(const Decl *D) {
@@ -9119,8 +9131,13 @@ bool ASTContext::DeclMustBeEmitted(const Decl *D) {
     return false;
 
   // Variables that can be needed in other TUs are required.
-  if (!isDiscardableGVALinkage(GetGVALinkageForVariable(VD)))
+  auto Linkage = GetGVALinkageForVariable(VD);
+  if (!isDiscardableGVALinkage(Linkage))
     return true;
+
+  // We never need to emit a variable that is available in another TU.
+  if (Linkage == GVA_AvailableExternally)
+    return false;
 
   // Variables that have destruction with side-effects are required.
   if (VD->getType().isDestructedType())

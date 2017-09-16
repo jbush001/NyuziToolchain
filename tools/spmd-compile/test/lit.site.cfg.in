@@ -1,8 +1,4 @@
-import os
+@LIT_SITE_CFG_IN_HEADER@
 
-# Preserve the obj_root, for use by the main lit.cfg.
-config.example_obj_root = os.path.dirname(__file__)
-
-lit.load_config(config, os.path.join(config.test_source_root,
-                                     'lit.cfg'))
+lit_config.load_config(config, '@SPMD_COMPILE_SOURCE_DIR@/test/lit.cfg')
 

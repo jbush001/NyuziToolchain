@@ -133,6 +133,12 @@ namespace {
     void PreprocessISelDAG() override;
     void PostprocessISelDAG() override;
 
+    /// getI16Imm - Return a target constant with the specified value, of type
+    /// i16.
+    inline SDValue getI16Imm(unsigned Imm, const SDLoc &dl) {
+      return CurDAG->getTargetConstant(Imm, dl, MVT::i16);
+    }
+
     /// getI32Imm - Return a target constant with the specified value, of type
     /// i32.
     inline SDValue getI32Imm(unsigned Imm, const SDLoc &dl) {
@@ -282,11 +288,6 @@ private:
     // SExtInvert - invert the condition code, sign-extend value
     enum SetccInGPROpts { ZExtOrig, ZExtInvert, SExtOrig, SExtInvert };
 
-    // Comparisons against zero to emit GPR code sequences for. Each of these
-    // sequences may need to be emitted for two or more equivalent patterns.
-    // For example (a >= 0) == (a > -1).
-    enum ZeroCompare { GEZExt, GESExt, LEZExt, LESExt };
-
     bool trySETCC(SDNode *N);
     bool tryEXTEND(SDNode *N);
     bool tryLogicOpOfCompares(SDNode *N);
@@ -294,8 +295,6 @@ private:
     SDValue signExtendInputIfNeeded(SDValue Input);
     SDValue zeroExtendInputIfNeeded(SDValue Input);
     SDValue addExtOrTrunc(SDValue NatWidthRes, ExtOrTruncConversion Conv);
-    SDValue getCompoundZeroComparisonInGPR(SDValue LHS, SDLoc dl,
-                                           ZeroCompare CmpTy);
     SDValue get32BitZExtCompare(SDValue LHS, SDValue RHS, ISD::CondCode CC,
                                 int64_t RHSValue, SDLoc dl);
     SDValue get32BitSExtCompare(SDValue LHS, SDValue RHS, ISD::CondCode CC,
@@ -455,6 +454,12 @@ static bool isInt64Immediate(SDNode *N, uint64_t &Imm) {
 // If so Imm will receive the 32 bit value.
 static bool isInt32Immediate(SDValue N, unsigned &Imm) {
   return isInt32Immediate(N.getNode(), Imm);
+}
+
+/// isInt64Immediate - This method tests to see if the value is a 64-bit
+/// constant operand. If so Imm will receive the 64-bit value.
+static bool isInt64Immediate(SDValue N, uint64_t &Imm) {
+  return isInt64Immediate(N.getNode(), Imm);
 }
 
 static unsigned getBranchHint(unsigned PCC, FunctionLoweringInfo *FuncInfo,
@@ -2804,77 +2809,6 @@ SDValue PPCDAGToDAGISel::addExtOrTrunc(SDValue NatWidthRes,
                                         NatWidthRes, SubRegIdx), 0);
 }
 
-// Produce a GPR sequence for compound comparisons (<=, >=) against zero.
-// Handle both zero-extensions and sign-extensions.
-SDValue PPCDAGToDAGISel::getCompoundZeroComparisonInGPR(SDValue LHS, SDLoc dl,
-                                                        ZeroCompare CmpTy) {
-  EVT InVT = LHS.getValueType();
-  bool Is32Bit = InVT == MVT::i32;
-  SDValue ToExtend;
-
-  // Produce the value that needs to be either zero or sign extended.
-  switch (CmpTy) {
-  case ZeroCompare::GEZExt:
-  case ZeroCompare::GESExt:
-    ToExtend = SDValue(CurDAG->getMachineNode(Is32Bit ? PPC::NOR : PPC::NOR8,
-                                              dl, InVT, LHS, LHS), 0);
-    break;
-  case ZeroCompare::LEZExt:
-  case ZeroCompare::LESExt: {
-    if (Is32Bit) {
-      SDValue Neg =
-        SDValue(CurDAG->getMachineNode(PPC::NEG, dl, MVT::i32, LHS), 0);
-      ToExtend =
-        SDValue(CurDAG->getMachineNode(PPC::RLDICL_32, dl, MVT::i32,
-                                       Neg, getI64Imm(1, dl),
-                                       getI64Imm(63, dl)), 0);
-    } else {
-      SDValue Addi =
-        SDValue(CurDAG->getMachineNode(PPC::ADDI8, dl, MVT::i64, LHS,
-                                       getI64Imm(~0ULL, dl)), 0);
-      ToExtend = SDValue(CurDAG->getMachineNode(PPC::OR8, dl, MVT::i64,
-                                                Addi, LHS), 0);
-    }
-    break;
-  }
-  }
-
-  // For 64-bit sequences, the extensions are the same for the GE/LE cases.
-  if (!Is32Bit &&
-      (CmpTy == ZeroCompare::GEZExt || CmpTy == ZeroCompare::LEZExt))
-    return SDValue(CurDAG->getMachineNode(PPC::RLDICL, dl, MVT::i64,
-                                          ToExtend, getI64Imm(1, dl),
-                                          getI64Imm(63, dl)), 0);
-  if (!Is32Bit &&
-      (CmpTy == ZeroCompare::GESExt || CmpTy == ZeroCompare::LESExt))
-    return SDValue(CurDAG->getMachineNode(PPC::SRADI, dl, MVT::i64, ToExtend,
-                                          getI64Imm(63, dl)), 0);
-
-  assert(Is32Bit && "Should have handled the 32-bit sequences above.");
-  // For 32-bit sequences, the extensions differ between GE/LE cases.
-  switch (CmpTy) {
-  case ZeroCompare::GEZExt: {
-    SDValue ShiftOps[] =
-      { ToExtend, getI32Imm(1, dl), getI32Imm(31, dl), getI32Imm(31, dl) };
-    return SDValue(CurDAG->getMachineNode(PPC::RLWINM, dl, MVT::i32,
-                                          ShiftOps), 0);
-  }
-  case ZeroCompare::GESExt:
-    return SDValue(CurDAG->getMachineNode(PPC::SRAWI, dl, MVT::i32, ToExtend,
-                                          getI32Imm(31, dl)), 0);
-  case ZeroCompare::LEZExt:
-    return SDValue(CurDAG->getMachineNode(PPC::XORI, dl, MVT::i32, ToExtend,
-                   getI32Imm(1, dl)), 0);
-  case ZeroCompare::LESExt:
-    return SDValue(CurDAG->getMachineNode(PPC::ADDI, dl, MVT::i32, ToExtend,
-                                          getI32Imm(-1, dl)), 0);
-  }
-
-  // The above case covers all the enumerators so it can't have a default clause
-  // to avoid compiler warnings.
-  llvm_unreachable("Unknown zero-comparison type.");
-}
-
 /// Produces a zero-extended result of comparing two 32-bit values according to
 /// the passed condition code.
 SDValue PPCDAGToDAGISel::get32BitZExtCompare(SDValue LHS, SDValue RHS,
@@ -2908,32 +2842,6 @@ SDValue PPCDAGToDAGISel::get32BitZExtCompare(SDValue LHS, SDValue RHS,
       SDValue(CurDAG->getMachineNode(PPC::RLWINM, dl, MVT::i32, ShiftOps), 0);
     return SDValue(CurDAG->getMachineNode(PPC::XORI, dl, MVT::i32, Shift,
                                           getI32Imm(1, dl)), 0);
-  }
-  case ISD::SETGE: {
-    // (zext (setcc %a, %b, setge)) -> (xor (lshr (sub %a, %b), 63), 1)
-    // (zext (setcc %a, 0, setge))  -> (lshr (~ %a), 31)
-    if(IsRHSZero)
-      return getCompoundZeroComparisonInGPR(LHS, dl, ZeroCompare::GEZExt);
-
-    // Not a special case (i.e. RHS == 0). Handle (%a >= %b) as (%b <= %a)
-    // by swapping inputs and falling through.
-    std::swap(LHS, RHS);
-    ConstantSDNode *RHSConst = dyn_cast<ConstantSDNode>(RHS);
-    IsRHSZero = RHSConst && RHSConst->isNullValue();
-    LLVM_FALLTHROUGH;
-  }
-  case ISD::SETLE: {
-    // (zext (setcc %a, %b, setle)) -> (xor (lshr (sub %b, %a), 63), 1)
-    // (zext (setcc %a, 0, setle))  -> (xor (lshr (- %a), 63), 1)
-    if(IsRHSZero)
-      return getCompoundZeroComparisonInGPR(LHS, dl, ZeroCompare::LEZExt);
-    SDValue Sub =
-      SDValue(CurDAG->getMachineNode(PPC::SUBF, dl, MVT::i32, LHS, RHS), 0);
-    SDValue Shift =
-      SDValue(CurDAG->getMachineNode(PPC::RLDICL_32, dl, MVT::i32, Sub,
-                                     getI64Imm(1, dl), getI64Imm(63, dl)), 0);
-    return SDValue(CurDAG->getMachineNode(PPC::XORI, dl,
-                   MVT::i32, Shift, getI32Imm(1, dl)), 0);
   }
   }
 }
@@ -2981,34 +2889,6 @@ SDValue PPCDAGToDAGISel::get32BitSExtCompare(SDValue LHS, SDValue RHS,
       SDValue(CurDAG->getMachineNode(PPC::XORI, dl, MVT::i32, Shift,
                                      getI32Imm(1, dl)), 0);
     return SDValue(CurDAG->getMachineNode(PPC::NEG, dl, MVT::i32, Xori), 0);
-  }
-  case ISD::SETGE: {
-    // (sext (setcc %a, %b, setge)) -> (add (lshr (sub %a, %b), 63), -1)
-    // (sext (setcc %a, 0, setge))  -> (ashr (~ %a), 31)
-    if (IsRHSZero)
-      return getCompoundZeroComparisonInGPR(LHS, dl, ZeroCompare::GESExt);
-
-    // Not a special case (i.e. RHS == 0). Handle (%a >= %b) as (%b <= %a)
-    // by swapping inputs and falling through.
-    std::swap(LHS, RHS);
-    ConstantSDNode *RHSConst = dyn_cast<ConstantSDNode>(RHS);
-    IsRHSZero = RHSConst && RHSConst->isNullValue();
-    LLVM_FALLTHROUGH;
-  }
-  case ISD::SETLE: {
-    // (sext (setcc %a, %b, setge)) -> (add (lshr (sub %b, %a), 63), -1)
-    // (sext (setcc %a, 0, setle))  -> (add (lshr (- %a), 63), -1)
-    if (IsRHSZero)
-      return getCompoundZeroComparisonInGPR(LHS, dl, ZeroCompare::LESExt);
-    SDValue SUBFNode =
-      SDValue(CurDAG->getMachineNode(PPC::SUBF, dl, MVT::i32, MVT::Glue,
-                                     LHS, RHS), 0);
-    SDValue Srdi =
-      SDValue(CurDAG->getMachineNode(PPC::RLDICL_32, dl, MVT::i32,
-                                     SUBFNode, getI64Imm(1, dl),
-                                     getI64Imm(63, dl)), 0);
-    return SDValue(CurDAG->getMachineNode(PPC::ADDI, dl, MVT::i32, Srdi,
-                                          getI32Imm(-1, dl)), 0);
   }
   }
 }
@@ -3175,8 +3055,18 @@ bool PPCDAGToDAGISel::isOffsetMultipleOf(SDNode *N, unsigned Val) const {
     AddrOp = STN->getOperand(2);
 
   short Imm = 0;
-  if (AddrOp.getOpcode() == ISD::ADD)
+  if (AddrOp.getOpcode() == ISD::ADD) {
+    // If op0 is a frame index that is under aligned, we can't do it either,
+    // because it is translated to r31 or r1 + slot + offset. We won't know the
+    // slot number until the stack frame is finalized.
+    if (FrameIndexSDNode *FI = dyn_cast<FrameIndexSDNode>(AddrOp.getOperand(0))) {
+      const MachineFrameInfo &MFI = CurDAG->getMachineFunction().getFrameInfo();
+      unsigned SlotAlign = MFI.getObjectAlignment(FI->getIndex());
+      if ((SlotAlign % Val) != 0)
+        return false;
+    }
     return isIntS16Immediate(AddrOp.getOperand(1), Imm) && !(Imm % Val);
+  }
 
   // If the address comes from the outside, the offset will be zero.
   return AddrOp.getOpcode() == ISD::CopyFromReg;
@@ -3507,12 +3397,51 @@ void PPCDAGToDAGISel::Select(SDNode *N) {
       }
     }
 
+    // OR with a 32-bit immediate can be handled by ori + oris
+    // without creating an immediate in a GPR.
+    uint64_t Imm64 = 0;
+    bool IsPPC64 = PPCSubTarget->isPPC64();
+    if (IsPPC64 && isInt64Immediate(N->getOperand(1), Imm64) &&
+        (Imm64 & ~0xFFFFFFFFuLL) == 0) {
+      // If ImmHi (ImmHi) is zero, only one ori (oris) is generated later.
+      uint64_t ImmHi = Imm64 >> 16;
+      uint64_t ImmLo = Imm64 & 0xFFFF;
+      if (ImmHi != 0 && ImmLo != 0) {
+        SDNode *Lo = CurDAG->getMachineNode(PPC::ORI8, dl, MVT::i64,
+                                            N->getOperand(0),
+                                            getI16Imm(ImmLo, dl));
+        SDValue Ops1[] = { SDValue(Lo, 0), getI16Imm(ImmHi, dl)};
+        CurDAG->SelectNodeTo(N, PPC::ORIS8, MVT::i64, Ops1);
+        return;
+      }
+    }
+
     // Other cases are autogenerated.
     break;
   }
   case ISD::XOR: {
     if (tryLogicOpOfCompares(N))
       return;
+
+    // XOR with a 32-bit immediate can be handled by xori + xoris
+    // without creating an immediate in a GPR.
+    uint64_t Imm64 = 0;
+    bool IsPPC64 = PPCSubTarget->isPPC64();
+    if (IsPPC64 && isInt64Immediate(N->getOperand(1), Imm64) &&
+        (Imm64 & ~0xFFFFFFFFuLL) == 0) {
+      // If ImmHi (ImmHi) is zero, only one xori (xoris) is generated later.
+      uint64_t ImmHi = Imm64 >> 16;
+      uint64_t ImmLo = Imm64 & 0xFFFF;
+      if (ImmHi != 0 && ImmLo != 0) {
+        SDNode *Lo = CurDAG->getMachineNode(PPC::XORI8, dl, MVT::i64,
+                                            N->getOperand(0),
+                                            getI16Imm(ImmLo, dl));
+        SDValue Ops1[] = { SDValue(Lo, 0), getI16Imm(ImmHi, dl)};
+        CurDAG->SelectNodeTo(N, PPC::XORIS8, MVT::i64, Ops1);
+        return;
+      }
+    }
+
     break;
   }
   case ISD::ADD: {

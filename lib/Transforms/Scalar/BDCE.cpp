@@ -40,21 +40,26 @@ STATISTIC(NumSimplified, "Number of instructions trivialized (dead bits)");
 /// instruction may need to be cleared of assumptions that can no longer be
 /// guaranteed correct.
 static void clearAssumptionsOfUsers(Instruction *I, DemandedBits &DB) {
-  // Any value we're trivializing should be an integer value, and moreover,
-  // any conversion between an integer value and a non-integer value should
-  // demand all of the bits. This will cause us to stop looking down the
-  // use/def chain, so we should only see integer-typed instructions here.
-  auto isExternallyVisible = [](Instruction *I, DemandedBits &DB) {
-    assert(I->getType()->isIntegerTy() && "Trivializing a non-integer value?");
-    return DB.getDemandedBits(I).isAllOnesValue();
-  };
+  assert(I->getType()->isIntegerTy() && "Trivializing a non-integer value?");
 
   // Initialize the worklist with eligible direct users.
   SmallVector<Instruction *, 16> WorkList;
   for (User *JU : I->users()) {
+    // If all bits of a user are demanded, then we know that nothing below that
+    // in the def-use chain needs to be changed.
     auto *J = dyn_cast<Instruction>(JU);
-    if (J && !isExternallyVisible(J, DB))
+    if (J && J->getType()->isSized() &&
+        !DB.getDemandedBits(J).isAllOnesValue())
       WorkList.push_back(J);
+
+    // Note that we need to check for unsized types above before asking for
+    // demanded bits. Normally, the only way to reach an instruction with an
+    // unsized type is via an instruction that has side effects (or otherwise
+    // will demand its input bits). However, if we have a readnone function
+    // that returns an unsized type (e.g., void), we must avoid asking for the
+    // demanded bits of the function call's return value. A void-returning
+    // readnone function is always dead (and so we can stop walking the use/def
+    // chain here), but the check is necessary to avoid asserting.
   }
 
   // DFS through subsequent users while tracking visits to avoid cycles.
@@ -72,8 +77,11 @@ static void clearAssumptionsOfUsers(Instruction *I, DemandedBits &DB) {
     Visited.insert(J);
 
     for (User *KU : J->users()) {
+      // If all bits of a user are demanded, then we know that nothing below
+      // that in the def-use chain needs to be changed.
       auto *K = dyn_cast<Instruction>(KU);
-      if (K && !Visited.count(K) && !isExternallyVisible(K, DB))
+      if (K && !Visited.count(K) && K->getType()->isSized() &&
+          !DB.getDemandedBits(K).isAllOnesValue())
         WorkList.push_back(K);
     }
   }
