@@ -477,8 +477,8 @@ static Error checkDysymtabCommand(const MachOObjectFile &Obj,
                           "the file");
   if (Error Err = checkOverlappingElement(Elements, Dysymtab.tocoff,
                                           Dysymtab.ntoc * sizeof(struct
-					  MachO::dylib_table_of_contents),
-					  "table of contents"))
+                                          MachO::dylib_table_of_contents),
+                                          "table of contents"))
     return Err;
   if (Dysymtab.modtaboff > FileSize)
     return malformedError("modtaboff field of LC_DYSYMTAB command " +
@@ -537,7 +537,7 @@ static Error checkDysymtabCommand(const MachOObjectFile &Obj,
   if (Error Err = checkOverlappingElement(Elements, Dysymtab.indirectsymoff,
                                           Dysymtab.nindirectsyms *
                                           sizeof(uint32_t),
-					  "indirect table"))
+                                          "indirect table"))
     return Err;
   if (Dysymtab.extreloff > FileSize)
     return malformedError("extreloff field of LC_DYSYMTAB command " +
@@ -1115,7 +1115,7 @@ static Error checkTwoLevelHintsCommand(const MachOObjectFile &Obj,
                           Twine(LoadCommandIndex) + " extends past the end of "
                           "the file");
   uint64_t BigSize = Hints.nhints;
-  BigSize *= Hints.nhints * sizeof(MachO::twolevel_hint);
+  BigSize *= sizeof(MachO::twolevel_hint);
   BigSize += Hints.offset;
   if (BigSize > FileSize)
     return malformedError("offset field plus nhints times sizeof(struct "
@@ -1926,6 +1926,12 @@ bool MachOObjectFile::isSectionBitcode(DataRefImpl Sec) const {
   if (!getSectionName(Sec, SectName))
     return (SegmentName == "__LLVM" && SectName == "__bitcode");
   return false;
+}
+
+bool MachOObjectFile::isSectionStripped(DataRefImpl Sec) const {
+  if (is64Bit())
+    return getSection64(Sec).offset == 0;
+  return getSection(Sec).offset == 0;
 }
 
 relocation_iterator MachOObjectFile::section_rel_begin(DataRefImpl Sec) const {

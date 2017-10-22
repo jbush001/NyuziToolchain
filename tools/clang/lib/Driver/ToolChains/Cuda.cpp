@@ -87,8 +87,7 @@ CudaInstallationDetector::CudaInstallationDetector(
     LibDevicePath = InstallPath + "/nvvm/libdevice";
 
     auto &FS = D.getVFS();
-    if (!(FS.exists(IncludePath) && FS.exists(BinPath) &&
-          FS.exists(LibDevicePath)))
+    if (!(FS.exists(IncludePath) && FS.exists(BinPath)))
       continue;
 
     // On Linux, we have both lib and lib64 directories, and we need to choose
@@ -167,17 +166,9 @@ CudaInstallationDetector::CudaInstallationDetector(
       }
     }
 
-    // This code prevents IsValid from being set when
-    // no libdevice has been found.
-    bool allEmpty = true;
-    std::string LibDeviceFile;
-    for (auto key : LibDeviceMap.keys()) {
-      LibDeviceFile = LibDeviceMap.lookup(key);
-      if (!LibDeviceFile.empty())
-        allEmpty = false;
-    }
-
-    if (allEmpty)
+    // Check that we have found at least one libdevice that we can link in if
+    // -nocudalib hasn't been specified.
+    if (LibDeviceMap.empty() && !Args.hasArg(options::OPT_nocudalib))
       continue;
 
     IsValid = true;
@@ -438,7 +429,7 @@ void NVPTX::OpenMPLinker::ConstructJob(Compilation &C, const JobAction &JA,
     if (!II.isFilename())
       continue;
 
-    SmallString<256> Name = llvm::sys::path::filename(II.getFilename());
+    SmallString<256> Name(II.getFilename());
     llvm::sys::path::replace_extension(Name, "cubin");
 
     const char *CubinF =
@@ -492,14 +483,18 @@ void CudaToolChain::addClangTargetOptions(
     if (DriverArgs.hasFlag(options::OPT_fcuda_approx_transcendentals,
                            options::OPT_fno_cuda_approx_transcendentals, false))
       CC1Args.push_back("-fcuda-approx-transcendentals");
-
-    if (DriverArgs.hasArg(options::OPT_nocudalib))
-      return;
   }
+
+  if (DriverArgs.hasArg(options::OPT_nocudalib))
+    return;
 
   std::string LibDeviceFile = CudaInstallation.getLibDeviceFile(GpuArch);
 
   if (LibDeviceFile.empty()) {
+    if (DeviceOffloadingKind == Action::OFK_OpenMP &&
+        DriverArgs.hasArg(options::OPT_S))
+      return;
+
     getDriver().Diag(diag::err_drv_no_cuda_libdevice) << GpuArch;
     return;
   }
@@ -507,11 +502,17 @@ void CudaToolChain::addClangTargetOptions(
   CC1Args.push_back("-mlink-cuda-bitcode");
   CC1Args.push_back(DriverArgs.MakeArgString(LibDeviceFile));
 
-  // Libdevice in CUDA-7.0 requires PTX version that's more recent
-  // than LLVM defaults to. Use PTX4.2 which is the PTX version that
-  // came with CUDA-7.0.
-  CC1Args.push_back("-target-feature");
-  CC1Args.push_back("+ptx42");
+  if (CudaInstallation.version() >= CudaVersion::CUDA_90) {
+    // CUDA-9 uses new instructions that are only available in PTX6.0
+    CC1Args.push_back("-target-feature");
+    CC1Args.push_back("+ptx60");
+  } else {
+    // Libdevice in CUDA-7.0 requires PTX version that's more recent
+    // than LLVM defaults to. Use PTX4.2 which is the PTX version that
+    // came with CUDA-7.0.
+    CC1Args.push_back("-target-feature");
+    CC1Args.push_back("+ptx42");
+  }
 }
 
 void CudaToolChain::AddCudaIncludeArgs(const ArgList &DriverArgs,
@@ -541,9 +542,9 @@ CudaToolChain::TranslateArgs(const llvm::opt::DerivedArgList &Args,
   // flags are not duplicated.
   // Also append the compute capability.
   if (DeviceOffloadKind == Action::OFK_OpenMP) {
-    for (Arg *A : Args){
+    for (Arg *A : Args) {
       bool IsDuplicate = false;
-      for (Arg *DALArg : *DAL){
+      for (Arg *DALArg : *DAL) {
         if (A == DALArg) {
           IsDuplicate = true;
           break;
@@ -554,14 +555,9 @@ CudaToolChain::TranslateArgs(const llvm::opt::DerivedArgList &Args,
     }
 
     StringRef Arch = DAL->getLastArgValue(options::OPT_march_EQ);
-    if (Arch.empty()) {
-      // Default compute capability for CUDA toolchain is the
-      // lowest compute capability supported by the installed
-      // CUDA version.
-      DAL->AddJoinedArg(nullptr,
-          Opts.getOption(options::OPT_march_EQ),
-          CudaInstallation.getLowestExistingArch());
-    }
+    if (Arch.empty())
+      DAL->AddJoinedArg(nullptr, Opts.getOption(options::OPT_march_EQ),
+                        CLANG_OPENMP_NVPTX_DEFAULT_ARCH);
 
     return DAL;
   }

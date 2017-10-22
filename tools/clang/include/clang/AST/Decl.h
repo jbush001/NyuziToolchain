@@ -339,6 +339,12 @@ public:
     return clang::isExternallyVisible(getLinkageInternal());
   }
 
+  /// Determine whether this declaration can be redeclared in a
+  /// different translation unit.
+  bool isExternallyDeclarable() const {
+    return isExternallyVisible() && !getOwningModuleForLinkage();
+  }
+
   /// \brief Determines the visibility of this entity.
   Visibility getVisibility() const {
     return getLinkageAndVisibility().getVisibility();
@@ -349,7 +355,14 @@ public:
 
   /// Kinds of explicit visibility.
   enum ExplicitVisibilityKind {
+    /// Do an LV computation for, ultimately, a type.
+    /// Visibility may be restricted by type visibility settings and
+    /// the visibility of template arguments.
     VisibilityForType,
+
+    /// Do an LV computation for, ultimately, a non-type declaration.
+    /// Visibility may be restricted by value visibility settings and
+    /// the visibility of template arguments.
     VisibilityForValue
   };
 
@@ -371,10 +384,6 @@ public:
   bool hasLinkageBeenComputed() const {
     return hasCachedLinkage();
   }
-
-  /// Get the module that owns this declaration for linkage purposes.
-  /// There only ever is such a module under the C++ Modules TS.
-  Module *getOwningModuleForLinkage() const;
 
   /// \brief Looks through UsingDecls and ObjCCompatibleAliasDecls for
   /// the underlying named decl.
@@ -1669,10 +1678,18 @@ private:
   /// skipped.
   unsigned HasSkippedBody : 1;
 
-  /// Indicates if the function declaration will have a body, once we're done
-  /// parsing it.
-  unsigned WillHaveBody : 1;
-
+protected:
+  // Since a Deduction Guide [C++17] will never have a body, we can share the
+  // storage, and use a different name.
+  union {
+    /// Indicates if the function declaration will have a body, once we're done
+    /// parsing it.
+    unsigned WillHaveBody : 1;
+    /// Indicates that the Deduction Guide is the implicitly generated 'copy
+    /// deduction candidate' (is used during overload resolution).
+    unsigned IsCopyDeductionCandidate : 1;
+  };
+private:
   /// \brief End part of this FunctionDecl's source range.
   ///
   /// We could compute the full range in getSourceRange(). However, when we're
@@ -2026,6 +2043,9 @@ public:
   /// If this function is an aligned allocation/deallocation function, return
   /// true through IsAligned.
   bool isReplaceableGlobalAllocationFunction(bool *IsAligned = nullptr) const;
+
+  /// \brief Determine whether this is a destroying operator delete.
+  bool isDestroyingOperatorDelete() const;
 
   /// Compute the language linkage.
   LanguageLinkage getLanguageLinkage() const;

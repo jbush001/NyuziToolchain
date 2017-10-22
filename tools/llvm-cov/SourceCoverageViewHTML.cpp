@@ -365,8 +365,8 @@ void CoveragePrinterHTML::emitFileSummary(raw_ostream &OS, StringRef SF,
 }
 
 Error CoveragePrinterHTML::createIndexFile(
-    ArrayRef<std::string> SourceFiles,
-    const coverage::CoverageMapping &Coverage) {
+    ArrayRef<std::string> SourceFiles, const CoverageMapping &Coverage,
+    const CoverageFiltersMatchAll &Filters) {
   // Emit the default stylesheet.
   auto CSSOrErr = createOutputStream("style", "css", /*InToplevel=*/true);
   if (Error E = CSSOrErr.takeError())
@@ -404,8 +404,8 @@ Error CoveragePrinterHTML::createIndexFile(
   OSRef << BeginCenteredDiv << BeginTable;
   emitColumnLabelsForIndex(OSRef, Opts);
   FileCoverageSummary Totals("TOTALS");
-  auto FileReports =
-      CoverageReport::prepareFileReports(Coverage, Totals, SourceFiles, Opts);
+  auto FileReports = CoverageReport::prepareFileReports(
+      Coverage, Totals, SourceFiles, Opts, Filters);
   bool EmptyFiles = false;
   for (unsigned I = 0, E = FileReports.size(); I < E; ++I) {
     if (FileReports[I].FunctionCoverage.getNumFunctions())
@@ -419,7 +419,7 @@ Error CoveragePrinterHTML::createIndexFile(
   // Emit links to files which don't contain any functions. These are normally
   // not very useful, but could be relevant for code which abuses the
   // preprocessor.
-  if (EmptyFiles) {
+  if (EmptyFiles && Filters.empty()) {
     OSRef << tag("p", "Files which contain no functions. (These "
                       "files contain code pulled into other files "
                       "by the preprocessor.)\n");
@@ -467,9 +467,9 @@ void SourceCoverageViewHTML::renderViewDivider(raw_ostream &, unsigned) {
   // The table-based output makes view dividers unnecessary.
 }
 
-void SourceCoverageViewHTML::renderLine(
-    raw_ostream &OS, LineRef L, const coverage::CoverageSegment *WrappedSegment,
-    CoverageSegmentArray Segments, unsigned ExpansionCol, unsigned) {
+void SourceCoverageViewHTML::renderLine(raw_ostream &OS, LineRef L,
+                                        const LineCoverageStats &LCS,
+                                        unsigned ExpansionCol, unsigned) {
   StringRef Line = L.Line;
   unsigned LineNo = L.LineNo;
 
@@ -481,6 +481,7 @@ void SourceCoverageViewHTML::renderLine(
   //    at the end of the line. Both are required but may be empty.
 
   SmallVector<std::string, 8> Snippets;
+  CoverageSegmentArray Segments = LCS.getLineSegments();
 
   unsigned LCol = 1;
   auto Snip = [&](unsigned Start, unsigned Len) {
@@ -505,7 +506,7 @@ void SourceCoverageViewHTML::renderLine(
   //    1 to set the highlight for snippet 2, segment 2 to set the highlight for
   //    snippet 3, and so on.
 
-  Optional<std::string> Color;
+  Optional<StringRef> Color;
   SmallVector<std::pair<unsigned, unsigned>, 2> HighlightedRanges;
   auto Highlight = [&](const std::string &Snippet, unsigned LC, unsigned RC) {
     if (getOptions().Debug)
@@ -513,11 +514,11 @@ void SourceCoverageViewHTML::renderLine(
     return tag("span", Snippet, Color.getValue());
   };
 
-  auto CheckIfUncovered = [](const coverage::CoverageSegment *S) {
+  auto CheckIfUncovered = [](const CoverageSegment *S) {
     return S && S->HasCount && S->Count == 0;
   };
 
-  if (CheckIfUncovered(WrappedSegment)) {
+  if (CheckIfUncovered(LCS.getWrappedSegment())) {
     Color = "red";
     if (!Snippets[0].empty())
       Snippets[0] = Highlight(Snippets[0], 1, 1 + Snippets[0].size());
@@ -527,7 +528,8 @@ void SourceCoverageViewHTML::renderLine(
     const auto *CurSeg = Segments[I];
     if (CurSeg->Col == ExpansionCol)
       Color = "cyan";
-    else if (CheckIfUncovered(CurSeg))
+    else if ((!CurSeg->IsGapRegion || (Color && *Color == "red")) &&
+             CheckIfUncovered(CurSeg))
       Color = "red";
     else
       Color = None;
@@ -560,6 +562,8 @@ void SourceCoverageViewHTML::renderLine(
       const auto *CurSeg = Segments[I];
       if (!CurSeg->IsRegionEntry)
         continue;
+      if (CurSeg->Count == LCS.getExecutionCount())
+        continue;
 
       Snippets[I + 1] =
           tag("div", Snippets[I + 1] + tag("span", formatCount(CurSeg->Count),
@@ -588,9 +592,9 @@ void SourceCoverageViewHTML::renderLineCoverageColumn(
     raw_ostream &OS, const LineCoverageStats &Line) {
   std::string Count = "";
   if (Line.isMapped())
-    Count = tag("pre", formatCount(Line.ExecutionCount));
+    Count = tag("pre", formatCount(Line.getExecutionCount()));
   std::string CoverageClass =
-      (Line.ExecutionCount > 0) ? "covered-line" : "uncovered-line";
+      (Line.getExecutionCount() > 0) ? "covered-line" : "uncovered-line";
   OS << tag("td", Count, CoverageClass);
 }
 
@@ -603,16 +607,17 @@ void SourceCoverageViewHTML::renderLineNumberColumn(raw_ostream &OS,
 }
 
 void SourceCoverageViewHTML::renderRegionMarkers(raw_ostream &,
-                                                 CoverageSegmentArray,
+                                                 const LineCoverageStats &Line,
                                                  unsigned) {
   // Region markers are rendered in-line using tooltips.
 }
 
-void SourceCoverageViewHTML::renderExpansionSite(
-    raw_ostream &OS, LineRef L, const coverage::CoverageSegment *WrappedSegment,
-    CoverageSegmentArray Segments, unsigned ExpansionCol, unsigned ViewDepth) {
+void SourceCoverageViewHTML::renderExpansionSite(raw_ostream &OS, LineRef L,
+                                                 const LineCoverageStats &LCS,
+                                                 unsigned ExpansionCol,
+                                                 unsigned ViewDepth) {
   // Render the line containing the expansion site. No extra formatting needed.
-  renderLine(OS, L, WrappedSegment, Segments, ExpansionCol, ViewDepth);
+  renderLine(OS, L, LCS, ExpansionCol, ViewDepth);
 }
 
 void SourceCoverageViewHTML::renderExpansionView(raw_ostream &OS,
@@ -620,7 +625,7 @@ void SourceCoverageViewHTML::renderExpansionView(raw_ostream &OS,
                                                  unsigned ViewDepth) {
   OS << BeginExpansionDiv;
   ESV.View->print(OS, /*WholeFile=*/false, /*ShowSourceName=*/false,
-                  ViewDepth + 1);
+                  /*ShowTitle=*/false, ViewDepth + 1);
   OS << EndExpansionDiv;
 }
 
@@ -636,7 +641,7 @@ void SourceCoverageViewHTML::renderInstantiationView(raw_ostream &OS,
        << EndSourceNameDiv;
   else
     ISV.View->print(OS, /*WholeFile=*/false, /*ShowSourceName=*/true,
-                    ViewDepth);
+                    /*ShowTitle=*/false, ViewDepth);
   OS << EndExpansionDiv;
 }
 

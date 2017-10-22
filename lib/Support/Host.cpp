@@ -211,6 +211,8 @@ StringRef sys::detail::getHostCPUNameForARM(
             .Case("0x211", "kryo")
             .Case("0x800", "cortex-a73")
             .Case("0x801", "cortex-a73")
+            .Case("0xc00", "falkor")
+            .Case("0xc01", "saphira")
             .Default("generic");
 
   return "generic";
@@ -337,6 +339,7 @@ enum ProcessorTypes {
   AMD_BTVER1,
   AMD_BTVER2,
   AMDFAM17H,
+  INTEL_KNM,
   // Entries below this are not in libgcc/compiler-rt.
   INTEL_i386,
   INTEL_i486,
@@ -757,6 +760,9 @@ getIntelProcessorTypeAndSubtype(unsigned Family, unsigned Model,
     case 0x57:
       *Type = INTEL_KNL; // knl
       break;
+    case 0x85:
+      *Type = INTEL_KNM; // knm
+      break;
 
     default: // Unknown family 6 CPU, try to guess.
       if (Features & (1 << FEATURE_AVX512F)) {
@@ -1165,6 +1171,8 @@ StringRef sys::getHostCPUName() {
       return "goldmont";
     case INTEL_KNL:
       return "knl";
+    case INTEL_KNM:
+      return "knm";
     case INTEL_X86_64:
       return "x86-64";
     case INTEL_NOCONA:

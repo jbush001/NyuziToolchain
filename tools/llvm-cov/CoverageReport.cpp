@@ -306,7 +306,7 @@ void CoverageReport::renderFunctionReports(ArrayRef<std::string> Files,
     OS << "\n";
     FunctionCoverageSummary Totals("TOTAL");
     for (const auto &F : Functions) {
-      FunctionCoverageSummary Function = FunctionCoverageSummary::get(F);
+      auto Function = FunctionCoverageSummary::get(Coverage, F);
       ++Totals.ExecutionCount;
       Totals.RegionCoverage += Function.RegionCoverage;
       Totals.LineCoverage += Function.LineCoverage;
@@ -322,7 +322,8 @@ void CoverageReport::renderFunctionReports(ArrayRef<std::string> Files,
 
 std::vector<FileCoverageSummary> CoverageReport::prepareFileReports(
     const coverage::CoverageMapping &Coverage, FileCoverageSummary &Totals,
-    ArrayRef<std::string> Files, const CoverageViewOptions &Options) {
+    ArrayRef<std::string> Files, const CoverageViewOptions &Options,
+    const CoverageFilter &Filters) {
   std::vector<FileCoverageSummary> FileReports;
   unsigned LCP = getRedundantPrefixLen(Files);
 
@@ -332,11 +333,15 @@ std::vector<FileCoverageSummary> CoverageReport::prepareFileReports(
     for (const auto &Group : Coverage.getInstantiationGroups(Filename)) {
       std::vector<FunctionCoverageSummary> InstantiationSummaries;
       for (const coverage::FunctionRecord *F : Group.getInstantiations()) {
-        auto InstantiationSummary = FunctionCoverageSummary::get(*F);
+        if (!Filters.matches(Coverage, *F))
+          continue;
+        auto InstantiationSummary = FunctionCoverageSummary::get(Coverage, *F);
         Summary.addInstantiation(InstantiationSummary);
         Totals.addInstantiation(InstantiationSummary);
         InstantiationSummaries.push_back(InstantiationSummary);
       }
+      if (InstantiationSummaries.empty())
+        continue;
 
       auto GroupSummary =
           FunctionCoverageSummary::get(Group, InstantiationSummaries);
@@ -362,10 +367,17 @@ void CoverageReport::renderFileReports(raw_ostream &OS) const {
   renderFileReports(OS, UniqueSourceFiles);
 }
 
-void CoverageReport::renderFileReports(raw_ostream &OS,
-                                       ArrayRef<std::string> Files) const {
+void CoverageReport::renderFileReports(
+    raw_ostream &OS, ArrayRef<std::string> Files) const {
+  renderFileReports(OS, Files, CoverageFiltersMatchAll());
+}
+
+void CoverageReport::renderFileReports(
+    raw_ostream &OS, ArrayRef<std::string> Files,
+    const CoverageFiltersMatchAll &Filters) const {
   FileCoverageSummary Totals("TOTAL");
-  auto FileReports = prepareFileReports(Coverage, Totals, Files, Options);
+  auto FileReports =
+      prepareFileReports(Coverage, Totals, Files, Options, Filters);
 
   std::vector<StringRef> Filenames;
   for (const FileCoverageSummary &FCS : FileReports)
@@ -398,7 +410,7 @@ void CoverageReport::renderFileReports(raw_ostream &OS,
       EmptyFiles = true;
   }
 
-  if (EmptyFiles) {
+  if (EmptyFiles && Filters.empty()) {
     OS << "\n"
        << "Files which contain no functions:\n";
 

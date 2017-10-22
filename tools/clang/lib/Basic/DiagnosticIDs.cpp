@@ -43,7 +43,7 @@ struct StaticDiagInfoRec {
   unsigned SFINAE : 2;
   unsigned WarnNoWerror : 1;
   unsigned WarnShowInSystemHeader : 1;
-  unsigned Category : 5;
+  unsigned Category : 6;
 
   uint16_t OptionGroupIndex;
 
@@ -88,6 +88,7 @@ VALIDATE_DIAG_SIZE(AST)
 VALIDATE_DIAG_SIZE(COMMENT)
 VALIDATE_DIAG_SIZE(SEMA)
 VALIDATE_DIAG_SIZE(ANALYSIS)
+VALIDATE_DIAG_SIZE(REFACTORING)
 #undef VALIDATE_DIAG_SIZE
 #undef STRINGIFY_NAME
 
@@ -109,8 +110,10 @@ static const StaticDiagInfoRec StaticDiagInfo[] = {
 #include "clang/Basic/DiagnosticParseKinds.inc"
 #include "clang/Basic/DiagnosticASTKinds.inc"
 #include "clang/Basic/DiagnosticCommentKinds.inc"
+#include "clang/Basic/DiagnosticCrossTUKinds.inc"
 #include "clang/Basic/DiagnosticSemaKinds.inc"
 #include "clang/Basic/DiagnosticAnalysisKinds.inc"
+#include "clang/Basic/DiagnosticRefactoringKinds.inc"
 #undef DIAG
 };
 
@@ -146,8 +149,10 @@ CATEGORY(LEX, SERIALIZATION)
 CATEGORY(PARSE, LEX)
 CATEGORY(AST, PARSE)
 CATEGORY(COMMENT, AST)
-CATEGORY(SEMA, COMMENT)
+CATEGORY(CROSSTU, COMMENT)
+CATEGORY(SEMA, CROSSTU)
 CATEGORY(ANALYSIS, SEMA)
+CATEGORY(REFACTORING, ANALYSIS)
 #undef CATEGORY
 
   // Avoid out of bounds reads.

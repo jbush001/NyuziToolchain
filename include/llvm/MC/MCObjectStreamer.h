@@ -34,7 +34,10 @@ class raw_pwrite_stream;
 /// to that file format or custom semantics expected by the object writer
 /// implementation.
 class MCObjectStreamer : public MCStreamer {
-  MCAssembler *Assembler;
+  std::unique_ptr<MCObjectWriter> ObjectWriter;
+  std::unique_ptr<MCAsmBackend> TAB;
+  std::unique_ptr<MCCodeEmitter> Emitter;
+  std::unique_ptr<MCAssembler> Assembler;
   MCSection::iterator CurInsertionPoint;
   bool EmitEHFrame;
   bool EmitDebugFrame;
@@ -43,11 +46,13 @@ class MCObjectStreamer : public MCStreamer {
   virtual void EmitInstToData(const MCInst &Inst, const MCSubtargetInfo&) = 0;
   void EmitCFIStartProcImpl(MCDwarfFrameInfo &Frame) override;
   void EmitCFIEndProcImpl(MCDwarfFrameInfo &Frame) override;
+  MCSymbol *EmitCFILabel() override;
 
 protected:
-  MCObjectStreamer(MCContext &Context, MCAsmBackend &TAB, raw_pwrite_stream &OS,
-                   MCCodeEmitter *Emitter);
-  ~MCObjectStreamer() override;
+  MCObjectStreamer(MCContext &Context, std::unique_ptr<MCAsmBackend> TAB,
+                   raw_pwrite_stream &OS,
+                   std::unique_ptr<MCCodeEmitter> Emitter);
+  ~MCObjectStreamer();
 
 public:
   /// state management
@@ -140,6 +145,7 @@ public:
       StringRef FixedSizePortion) override;
   void EmitCVStringTableDirective() override;
   void EmitCVFileChecksumsDirective() override;
+  void EmitCVFileChecksumOffsetDirective(unsigned FileNo) override;
   void EmitDTPRel32Value(const MCExpr *Value) override;
   void EmitDTPRel64Value(const MCExpr *Value) override;
   void EmitTPRel32Value(const MCExpr *Value) override;

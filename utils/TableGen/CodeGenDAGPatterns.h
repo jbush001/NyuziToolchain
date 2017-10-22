@@ -20,25 +20,170 @@
 #include "CodeGenTarget.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringMap.h"
+#include "llvm/ADT/StringSet.h"
 #include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/MathExtras.h"
 #include <algorithm>
+#include <array>
 #include <map>
 #include <set>
 #include <vector>
 
 namespace llvm {
-  class Record;
-  class Init;
-  class ListInit;
-  class DagInit;
-  class SDNodeInfo;
-  class TreePattern;
-  class TreePatternNode;
-  class CodeGenDAGPatterns;
-  class ComplexPattern;
 
-struct TypeSetByHwMode : public InfoByHwMode<std::set<MVT>> {
-  typedef std::set<MVT> SetType;
+class Record;
+class Init;
+class ListInit;
+class DagInit;
+class SDNodeInfo;
+class TreePattern;
+class TreePatternNode;
+class CodeGenDAGPatterns;
+class ComplexPattern;
+
+/// This represents a set of MVTs. Since the underlying type for the MVT
+/// is uint8_t, there are at most 256 values. To reduce the number of memory
+/// allocations and deallocations, represent the set as a sequence of bits.
+/// To reduce the allocations even further, make MachineValueTypeSet own
+/// the storage and use std::array as the bit container.
+struct MachineValueTypeSet {
+  static_assert(std::is_same<std::underlying_type<MVT::SimpleValueType>::type,
+                             uint8_t>::value,
+                "Change uint8_t here to the SimpleValueType's type");
+  static unsigned constexpr Capacity = std::numeric_limits<uint8_t>::max()+1;
+  using WordType = uint64_t;
+  static unsigned constexpr WordWidth = CHAR_BIT*sizeof(WordType);
+  static unsigned constexpr NumWords = Capacity/WordWidth;
+  static_assert(NumWords*WordWidth == Capacity,
+                "Capacity should be a multiple of WordWidth");
+
+  LLVM_ATTRIBUTE_ALWAYS_INLINE
+  MachineValueTypeSet() {
+    clear();
+  }
+
+  LLVM_ATTRIBUTE_ALWAYS_INLINE
+  unsigned size() const {
+    unsigned Count = 0;
+    for (WordType W : Words)
+      Count += countPopulation(W);
+    return Count;
+  }
+  LLVM_ATTRIBUTE_ALWAYS_INLINE
+  void clear() {
+    std::memset(Words.data(), 0, NumWords*sizeof(WordType));
+  }
+  LLVM_ATTRIBUTE_ALWAYS_INLINE
+  bool empty() const {
+    for (WordType W : Words)
+      if (W != 0)
+        return false;
+    return true;
+  }
+  LLVM_ATTRIBUTE_ALWAYS_INLINE
+  unsigned count(MVT T) const {
+    return (Words[T.SimpleTy / WordWidth] >> (T.SimpleTy % WordWidth)) & 1;
+  }
+  std::pair<MachineValueTypeSet&,bool> insert(MVT T) {
+    bool V = count(T.SimpleTy);
+    Words[T.SimpleTy / WordWidth] |= WordType(1) << (T.SimpleTy % WordWidth);
+    return {*this, V};
+  }
+  MachineValueTypeSet &insert(const MachineValueTypeSet &S) {
+    for (unsigned i = 0; i != NumWords; ++i)
+      Words[i] |= S.Words[i];
+    return *this;
+  }
+  LLVM_ATTRIBUTE_ALWAYS_INLINE
+  void erase(MVT T) {
+    Words[T.SimpleTy / WordWidth] &= ~(WordType(1) << (T.SimpleTy % WordWidth));
+  }
+
+  struct const_iterator {
+    // Some implementations of the C++ library require these traits to be
+    // defined.
+    using iterator_category = std::forward_iterator_tag;
+    using value_type = MVT;
+    using difference_type = ptrdiff_t;
+    using pointer = const MVT*;
+    using reference = const MVT&;
+
+    LLVM_ATTRIBUTE_ALWAYS_INLINE
+    MVT operator*() const {
+      assert(Pos != Capacity);
+      return MVT::SimpleValueType(Pos);
+    }
+    LLVM_ATTRIBUTE_ALWAYS_INLINE
+    const_iterator(const MachineValueTypeSet *S, bool End) : Set(S) {
+      Pos = End ? Capacity : find_from_pos(0);
+    }
+    LLVM_ATTRIBUTE_ALWAYS_INLINE
+    const_iterator &operator++() {
+      assert(Pos != Capacity);
+      Pos = find_from_pos(Pos+1);
+      return *this;
+    }
+
+    LLVM_ATTRIBUTE_ALWAYS_INLINE
+    bool operator==(const const_iterator &It) const {
+      return Set == It.Set && Pos == It.Pos;
+    }
+    LLVM_ATTRIBUTE_ALWAYS_INLINE
+    bool operator!=(const const_iterator &It) const {
+      return !operator==(It);
+    }
+
+  private:
+    unsigned find_from_pos(unsigned P) const {
+      unsigned SkipWords = P / WordWidth;
+      unsigned SkipBits = P % WordWidth;
+      unsigned Count = SkipWords * WordWidth;
+
+      // If P is in the middle of a word, process it manually here, because
+      // the trailing bits need to be masked off to use findFirstSet.
+      if (SkipBits != 0) {
+        WordType W = Set->Words[SkipWords];
+        W &= maskLeadingOnes<WordType>(WordWidth-SkipBits);
+        if (W != 0)
+          return Count + findFirstSet(W);
+        Count += WordWidth;
+        SkipWords++;
+      }
+
+      for (unsigned i = SkipWords; i != NumWords; ++i) {
+        WordType W = Set->Words[i];
+        if (W != 0)
+          return Count + findFirstSet(W);
+        Count += WordWidth;
+      }
+      return Capacity;
+    }
+
+    const MachineValueTypeSet *Set;
+    unsigned Pos;
+  };
+
+  LLVM_ATTRIBUTE_ALWAYS_INLINE
+  const_iterator begin() const { return const_iterator(this, false); }
+  LLVM_ATTRIBUTE_ALWAYS_INLINE
+  const_iterator end()   const { return const_iterator(this, true); }
+
+  LLVM_ATTRIBUTE_ALWAYS_INLINE
+  bool operator==(const MachineValueTypeSet &S) const {
+    return Words == S.Words;
+  }
+  LLVM_ATTRIBUTE_ALWAYS_INLINE
+  bool operator!=(const MachineValueTypeSet &S) const {
+    return !operator==(S);
+  }
+
+private:
+  friend struct const_iterator;
+  std::array<WordType,NumWords> Words;
+};
+
+struct TypeSetByHwMode : public InfoByHwMode<MachineValueTypeSet> {
+  using SetType = MachineValueTypeSet;
 
   TypeSetByHwMode() = default;
   TypeSetByHwMode(const TypeSetByHwMode &VTS) = default;
@@ -56,29 +201,33 @@ struct TypeSetByHwMode : public InfoByHwMode<std::set<MVT>> {
 
   bool isValueTypeByHwMode(bool AllowEmpty) const;
   ValueTypeByHwMode getValueTypeByHwMode() const;
+
+  LLVM_ATTRIBUTE_ALWAYS_INLINE
   bool isMachineValueType() const {
     return isDefaultOnly() && Map.begin()->second.size() == 1;
   }
 
+  LLVM_ATTRIBUTE_ALWAYS_INLINE
   MVT getMachineValueType() const {
     assert(isMachineValueType());
     return *Map.begin()->second.begin();
   }
 
   bool isPossible() const;
+
+  LLVM_ATTRIBUTE_ALWAYS_INLINE
   bool isDefaultOnly() const {
-    return Map.size() == 1 &&
-           Map.begin()->first == DefaultMode;
+    return Map.size() == 1 && Map.begin()->first == DefaultMode;
   }
 
   bool insert(const ValueTypeByHwMode &VVT);
   bool constrain(const TypeSetByHwMode &VTS);
   template <typename Predicate> bool constrain(Predicate P);
-  template <typename Predicate> bool assign_if(const TypeSetByHwMode &VTS,
-                                               Predicate P);
+  template <typename Predicate>
+  bool assign_if(const TypeSetByHwMode &VTS, Predicate P);
 
-  std::string getAsString() const;
-  static std::string getAsString(const SetType &S);
+  void writeToStream(raw_ostream &OS) const;
+  static void writeToStream(const SetType &S, raw_ostream &OS);
 
   bool operator==(const TypeSetByHwMode &VTS) const;
   bool operator!=(const TypeSetByHwMode &VTS) const { return !(*this == VTS); }
@@ -90,6 +239,8 @@ private:
   /// Intersect two sets. Return true if anything has changed.
   bool intersect(SetType &Out, const SetType &In);
 };
+
+raw_ostream &operator<<(raw_ostream &OS, const TypeSetByHwMode &T);
 
 struct TypeInfer {
   TypeInfer(TreePattern &T) : TP(T), ForceMode(0) {}
@@ -178,10 +329,14 @@ struct TypeInfer {
 
 private:
   TypeSetByHwMode getLegalTypes();
+
+  /// Cached legal types.
+  bool LegalTypesCached = false;
+  TypeSetByHwMode::SetType LegalCache = {};
 };
 
 /// Set type used to track multiply used variables in patterns
-typedef std::set<std::string> MultipleUseVarSet;
+typedef StringSet<> MultipleUseVarSet;
 
 /// SDTypeConstraint - This is a discriminated union of constraints,
 /// corresponding to the SDTypeConstraint tablegen class in Target.td.
@@ -274,7 +429,7 @@ public:
   /// found, an error is flagged.
   bool ApplyTypeConstraints(TreePatternNode *N, TreePattern &TP) const;
 };
-  
+
 /// TreePredicateFn - This is an abstraction that represents the predicates on
 /// a PatFrag node.  This is a simple one-word wrapper around a pointer to
 /// provide nice accessors.
@@ -286,14 +441,14 @@ public:
   /// TreePredicateFn constructor.  Here 'N' is a subclass of PatFrag.
   TreePredicateFn(TreePattern *N);
 
-  
+
   TreePattern *getOrigPatFragRecord() const { return PatFragRec; }
-  
+
   /// isAlwaysTrue - Return true if this is a noop predicate.
   bool isAlwaysTrue() const;
-  
-  bool isImmediatePattern() const { return !getImmCode().empty(); }
-  
+
+  bool isImmediatePattern() const { return hasImmCode(); }
+
   /// getImmediatePredicateCode - Return the code that evaluates this pattern if
   /// this is an immediate predicate.  It is an error to call this on a
   /// non-immediate pattern.
@@ -302,8 +457,7 @@ public:
     assert(!Result.empty() && "Isn't an immediate pattern!");
     return Result;
   }
-  
-  
+
   bool operator==(const TreePredicateFn &RHS) const {
     return PatFragRec == RHS.PatFragRec;
   }
@@ -313,18 +467,60 @@ public:
   /// Return the name to use in the generated code to reference this, this is
   /// "Predicate_foo" if from a pattern fragment "foo".
   std::string getFnName() const;
-  
+
   /// getCodeToRunOnSDNode - Return the code for the function body that
   /// evaluates this predicate.  The argument is expected to be in "Node",
   /// not N.  This handles casting and conversion to a concrete node type as
   /// appropriate.
   std::string getCodeToRunOnSDNode() const;
-  
+
+  /// Get the data type of the argument to getImmediatePredicateCode().
+  StringRef getImmType() const;
+
+  /// Get a string that describes the type returned by getImmType() but is
+  /// usable as part of an identifier.
+  StringRef getImmTypeIdentifier() const;
+
+  // Is the desired predefined predicate for a load?
+  bool isLoad() const;
+  // Is the desired predefined predicate for a store?
+  bool isStore() const;
+
+  /// Is this predicate the predefined unindexed load predicate?
+  /// Is this predicate the predefined unindexed store predicate?
+  bool isUnindexed() const;
+  /// Is this predicate the predefined non-extending load predicate?
+  bool isNonExtLoad() const;
+  /// Is this predicate the predefined any-extend load predicate?
+  bool isAnyExtLoad() const;
+  /// Is this predicate the predefined sign-extend load predicate?
+  bool isSignExtLoad() const;
+  /// Is this predicate the predefined zero-extend load predicate?
+  bool isZeroExtLoad() const;
+  /// Is this predicate the predefined non-truncating store predicate?
+  bool isNonTruncStore() const;
+  /// Is this predicate the predefined truncating store predicate?
+  bool isTruncStore() const;
+
+  /// If non-null, indicates that this predicate is a predefined memory VT
+  /// predicate for a load/store and returns the ValueType record for the memory VT.
+  Record *getMemoryVT() const;
+  /// If non-null, indicates that this predicate is a predefined memory VT
+  /// predicate (checking only the scalar type) for load/store and returns the
+  /// ValueType record for the memory VT.
+  Record *getScalarMemoryVT() const;
+
 private:
+  bool hasPredCode() const;
+  bool hasImmCode() const;
   std::string getPredCode() const;
   std::string getImmCode() const;
+  bool immCodeUsesAPInt() const;
+  bool immCodeUsesAPFloat() const;
+
+  bool isPredefinedPredicateEqualTo(StringRef Field, bool Value) const;
 };
-  
+
 
 /// FIXME: TreePatternNode's can be shared in some cases (due to dag-shaped
 /// patterns), and as such should be ref counted.  We currently just leak all
@@ -417,7 +613,7 @@ public:
   bool setDefaultMode(unsigned Mode);
 
   bool hasAnyPredicate() const { return !PredicateFns.empty(); }
-  
+
   const std::vector<TreePredicateFn> &getPredicateFns() const {
     return PredicateFns;
   }
@@ -843,15 +1039,17 @@ public:
   Record *getSDNodeNamed(const std::string &Name) const;
 
   const SDNodeInfo &getSDNodeInfo(Record *R) const {
-    assert(SDNodes.count(R) && "Unknown node!");
-    return SDNodes.find(R)->second;
+    auto F = SDNodes.find(R);
+    assert(F != SDNodes.end() && "Unknown node!");
+    return F->second;
   }
 
   // Node transformation lookups.
   typedef std::pair<Record*, std::string> NodeXForm;
   const NodeXForm &getSDNodeTransform(Record *R) const {
-    assert(SDNodeXForms.count(R) && "Invalid transform!");
-    return SDNodeXForms.find(R)->second;
+    auto F = SDNodeXForms.find(R);
+    assert(F != SDNodeXForms.end() && "Invalid transform!");
+    return F->second;
   }
 
   typedef std::map<Record*, NodeXForm, LessRecordByID>::const_iterator
@@ -861,8 +1059,9 @@ public:
 
 
   const ComplexPattern &getComplexPattern(Record *R) const {
-    assert(ComplexPatterns.count(R) && "Unknown addressing mode!");
-    return ComplexPatterns.find(R)->second;
+    auto F = ComplexPatterns.find(R);
+    assert(F != ComplexPatterns.end() && "Unknown addressing mode!");
+    return F->second;
   }
 
   const CodeGenIntrinsic &getIntrinsic(Record *R) const {
@@ -890,19 +1089,22 @@ public:
   }
 
   const DAGDefaultOperand &getDefaultOperand(Record *R) const {
-    assert(DefaultOperands.count(R) &&"Isn't an analyzed default operand!");
-    return DefaultOperands.find(R)->second;
+    auto F = DefaultOperands.find(R);
+    assert(F != DefaultOperands.end() &&"Isn't an analyzed default operand!");
+    return F->second;
   }
 
   // Pattern Fragment information.
   TreePattern *getPatternFragment(Record *R) const {
-    assert(PatternFragments.count(R) && "Invalid pattern fragment request!");
-    return PatternFragments.find(R)->second.get();
+    auto F = PatternFragments.find(R);
+    assert(F != PatternFragments.end() && "Invalid pattern fragment request!");
+    return F->second.get();
   }
   TreePattern *getPatternFragmentIfRead(Record *R) const {
-    if (!PatternFragments.count(R))
+    auto F = PatternFragments.find(R);
+    if (F == PatternFragments.end())
       return nullptr;
-    return PatternFragments.find(R)->second.get();
+    return F->second.get();
   }
 
   typedef std::map<Record *, std::unique_ptr<TreePattern>,
@@ -924,8 +1126,9 @@ public:
       DAGInstMap &DAGInsts);
 
   const DAGInstruction &getInstruction(Record *R) const {
-    assert(Instructions.count(R) && "Unknown instruction!");
-    return Instructions.find(R)->second;
+    auto F = Instructions.find(R);
+    assert(F != Instructions.end() && "Unknown instruction!");
+    return F->second;
   }
 
   Record *get_intrinsic_void_sdnode() const {

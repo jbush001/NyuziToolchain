@@ -1955,7 +1955,7 @@ SDValue DAGTypeLegalizer::SplitVecOp_MSCATTER(MaskedScatterSDNode *N,
   else
     std::tie(IndexLo, IndexHi) = DAG.SplitVector(Index, DL);
 
-  SDValue Lo, Hi;
+  SDValue Lo;
   MachineMemOperand *MMO = DAG.getMachineFunction().
     getMachineMemOperand(N->getPointerInfo(),
                          MachineMemOperand::MOStore, LoMemVT.getStoreSize(),
@@ -2941,7 +2941,7 @@ SDValue DAGTypeLegalizer::WidenVecRes_MLOAD(MaskedLoadSDNode *N) {
   SDValue Res = DAG.getMaskedLoad(WidenVT, dl, N->getChain(), N->getBasePtr(),
                                   Mask, Src0, N->getMemoryVT(),
                                   N->getMemOperand(), ExtType,
-	                                N->isExpandingLoad());
+                                        N->isExpandingLoad());
   // Legalize the chain result - switch anything that used the old chain to
   // use the new one.
   ReplaceValueWith(SDValue(N, 1), Res.getValue(1));

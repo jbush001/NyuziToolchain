@@ -48,11 +48,16 @@ class SourceMappingRegion {
   /// Whether this region should be emitted after its parent is emitted.
   bool DeferRegion;
 
+  /// Whether this region is a gap region. The count from a gap region is set
+  /// as the line execution count if there are no other regions on the line.
+  bool GapRegion;
+
 public:
   SourceMappingRegion(Counter Count, Optional<SourceLocation> LocStart,
-                      Optional<SourceLocation> LocEnd, bool DeferRegion = false)
+                      Optional<SourceLocation> LocEnd, bool DeferRegion = false,
+                      bool GapRegion = false)
       : Count(Count), LocStart(LocStart), LocEnd(LocEnd),
-        DeferRegion(DeferRegion) {}
+        DeferRegion(DeferRegion), GapRegion(GapRegion) {}
 
   const Counter &getCounter() const { return Count; }
 
@@ -79,6 +84,10 @@ public:
   bool isDeferred() const { return DeferRegion; }
 
   void setDeferred(bool Deferred) { DeferRegion = Deferred; }
+
+  bool isGap() const { return GapRegion; }
+
+  void setGap(bool Gap) { GapRegion = Gap; }
 };
 
 /// Spelling locations for the start and end of a source region.
@@ -322,9 +331,16 @@ public:
       // Find the spelling locations for the mapping region.
       SpellingRegion SR{SM, LocStart, LocEnd};
       assert(SR.isInSourceOrder() && "region start and end out of order");
-      MappingRegions.push_back(CounterMappingRegion::makeRegion(
-          Region.getCounter(), *CovFileID, SR.LineStart, SR.ColumnStart,
-          SR.LineEnd, SR.ColumnEnd));
+
+      if (Region.isGap()) {
+        MappingRegions.push_back(CounterMappingRegion::makeGapRegion(
+            Region.getCounter(), *CovFileID, SR.LineStart, SR.ColumnStart,
+            SR.LineEnd, SR.ColumnEnd));
+      } else {
+        MappingRegions.push_back(CounterMappingRegion::makeRegion(
+            Region.getCounter(), *CovFileID, SR.LineStart, SR.ColumnStart,
+            SR.LineEnd, SR.ColumnEnd));
+      }
     }
   }
 
@@ -496,6 +512,7 @@ struct CounterCoverageMappingBuilder
     if (!SpellingRegion(SM, DR.getStartLoc(), DeferredEndLoc).isInSourceOrder())
       return Index;
 
+    DR.setGap(true);
     DR.setCounter(Count);
     DR.setEndLoc(DeferredEndLoc);
     handleFileExit(DeferredEndLoc);
@@ -741,6 +758,22 @@ struct CounterCoverageMappingBuilder
     handleFileExit(getEnd(S));
   }
 
+  /// Determine whether the final deferred region emitted in \p Body should be
+  /// discarded.
+  static bool discardFinalDeferredRegionInDecl(Stmt *Body) {
+    if (auto *CS = dyn_cast<CompoundStmt>(Body)) {
+      Stmt *LastStmt = CS->body_back();
+      if (auto *IfElse = dyn_cast<IfStmt>(LastStmt)) {
+        if (auto *Else = dyn_cast_or_null<CompoundStmt>(IfElse->getElse()))
+          LastStmt = Else->body_back();
+        else
+          LastStmt = IfElse->getElse();
+      }
+      return dyn_cast_or_null<ReturnStmt>(LastStmt);
+    }
+    return false;
+  }
+
   void VisitDecl(const Decl *D) {
     assert(!DeferredRegion && "Deferred region never completed");
 
@@ -753,8 +786,14 @@ struct CounterCoverageMappingBuilder
     Counter ExitCount = propagateCounts(getRegionCounter(Body), Body);
     assert(RegionStack.empty() && "Regions entered but never exited");
 
-    // Complete any deferred regions introduced by the last statement in a decl.
-    popRegions(completeDeferred(ExitCount, getEnd(Body)));
+    if (DeferredRegion) {
+      // Complete (or discard) any deferred regions introduced by the last
+      // statement.
+      if (discardFinalDeferredRegionInDecl(Body))
+        DeferredRegion = None;
+      else
+        popRegions(completeDeferred(ExitCount, getEnd(Body)));
+    }
   }
 
   void VisitReturnStmt(const ReturnStmt *S) {
@@ -1060,16 +1099,18 @@ struct CounterCoverageMappingBuilder
   }
 
   void VisitBinLAnd(const BinaryOperator *E) {
-    extendRegion(E);
-    Visit(E->getLHS());
+    extendRegion(E->getLHS());
+    propagateCounts(getRegion().getCounter(), E->getLHS());
+    handleFileExit(getEnd(E->getLHS()));
 
     extendRegion(E->getRHS());
     propagateCounts(getRegionCounter(E), E->getRHS());
   }
 
   void VisitBinLOr(const BinaryOperator *E) {
-    extendRegion(E);
-    Visit(E->getLHS());
+    extendRegion(E->getLHS());
+    propagateCounts(getRegion().getCounter(), E->getLHS());
+    handleFileExit(getEnd(E->getLHS()));
 
     extendRegion(E->getRHS());
     propagateCounts(getRegionCounter(E), E->getRHS());
@@ -1111,6 +1152,9 @@ static void dump(llvm::raw_ostream &OS, StringRef FunctionName,
       break;
     case CounterMappingRegion::SkippedRegion:
       OS << "Skipped,";
+      break;
+    case CounterMappingRegion::GapRegion:
+      OS << "Gap,";
       break;
     }
 

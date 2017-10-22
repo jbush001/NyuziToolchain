@@ -67,18 +67,11 @@ struct VersionDefinition {
   size_t NameOff = 0; // Offset in the string table
 };
 
-// Structure for mapping renamed symbols
-struct RenamedSymbol {
-  Symbol *Target;
-  uint8_t OriginalBinding;
-};
-
 // This struct contains the global configuration for the linker.
 // Most fields are direct mapping from the command line options
 // and such fields have the same name as the corresponding options.
 // Most fields are initialized by the driver.
 struct Configuration {
-  InputFile *FirstElf = nullptr;
   uint8_t OSABI = 0;
   llvm::CachePruningPolicy ThinLTOCachePolicy;
   llvm::StringMap<uint64_t> SectionStartMap;
@@ -108,7 +101,6 @@ struct Configuration {
   std::vector<SymbolVersion> VersionScriptGlobals;
   std::vector<SymbolVersion> VersionScriptLocals;
   std::vector<uint8_t> BuildIdVector;
-  llvm::MapVector<Symbol *, RenamedSymbol> RenamedSymbols;
   bool AllowMultipleDefinition;
   bool AsNeeded = false;
   bool Bsymbolic;
@@ -125,7 +117,7 @@ struct Configuration {
   bool FatalWarnings;
   bool GcSections;
   bool GdbIndex;
-  bool GnuHash;
+  bool GnuHash = false;
   bool HasDynamicList = false;
   bool HasDynSymTab;
   bool ICF;
@@ -144,9 +136,8 @@ struct Configuration {
   bool SingleRoRx;
   bool Shared;
   bool Static = false;
-  bool SysvHash;
+  bool SysvHash = false;
   bool Target1Rel;
-  bool Threads;
   bool Trace;
   bool Verbose;
   bool WarnCommon;
@@ -173,7 +164,7 @@ struct Configuration {
   uint16_t DefaultSymbolVersion = llvm::ELF::VER_NDX_GLOBAL;
   uint16_t EMachine = llvm::ELF::EM_NONE;
   uint64_t ErrorLimit = 20;
-  uint64_t ImageBase;
+  llvm::Optional<uint64_t> ImageBase;
   uint64_t MaxPageSize;
   uint64_t ZStackSize;
   unsigned LTOPartitions;
@@ -210,6 +201,12 @@ struct Configuration {
   // little-endian written in the little-endian order, but I don't know
   // if that's true.)
   bool IsMips64EL;
+
+  // Holds set of ELF header flags for MIPS targets. The set calculated
+  // by the `elf::calcMipsEFlags` function and cached in this field. For
+  // the calculation we iterate over all input object files and combine
+  // their ELF flags.
+  uint32_t MipsEFlags = 0;
 
   // The ELF spec defines two types of relocation table entries, RELA and
   // REL. RELA is a triplet of (offset, info, addend) while REL is a

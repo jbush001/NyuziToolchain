@@ -195,8 +195,7 @@ template <class T> bool moveOnNoError(llvm::ErrorOr<T> Val, T &Output) {
 PreambleBounds clang::ComputePreambleBounds(const LangOptions &LangOpts,
                                             llvm::MemoryBuffer *Buffer,
                                             unsigned MaxLines) {
-  auto Pre = Lexer::ComputePreamble(Buffer->getBuffer(), LangOpts, MaxLines);
-  return PreambleBounds(Pre.first, Pre.second);
+  return Lexer::ComputePreamble(Buffer->getBuffer(), LangOpts, MaxLines);
 }
 
 llvm::ErrorOr<PrecompiledPreamble> PrecompiledPreamble::Build(
@@ -235,6 +234,8 @@ llvm::ErrorOr<PrecompiledPreamble> PrecompiledPreamble::Build(
   FrontendOpts.OutputFile = PreamblePCHFile->getFilePath();
   PreprocessorOpts.PrecompiledPreambleBytes.first = 0;
   PreprocessorOpts.PrecompiledPreambleBytes.second = false;
+  // Inform preprocessor to record conditional stack when building the preamble.
+  PreprocessorOpts.GeneratePreamble = true;
 
   // Create the compiler instance to use for building the precompiled preamble.
   std::unique_ptr<CompilerInstance> Clang(

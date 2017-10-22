@@ -35,7 +35,7 @@
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/Analysis/MemoryBuiltins.h"
 #include "llvm/Analysis/MemoryDependenceAnalysis.h"
-#include "llvm/Analysis/OptimizationDiagnosticInfo.h"
+#include "llvm/Analysis/OptimizationRemarkEmitter.h"
 #include "llvm/Analysis/PHITransAddr.h"
 #include "llvm/Analysis/TargetLibraryInfo.h"
 #include "llvm/IR/Attributes.h"
@@ -1245,8 +1245,10 @@ bool GVN::PerformLoadPRE(LoadInst *LI, AvailValInBlkVect &ValuesPerBlock,
   if (V->getType()->isPtrOrPtrVectorTy())
     MD->invalidateCachedPointerInfo(V);
   markInstructionForDeletion(LI);
-  ORE->emit(OptimizationRemark(DEBUG_TYPE, "LoadPRE", LI)
-            << "load eliminated by PRE");
+  ORE->emit([&]() {
+    return OptimizationRemark(DEBUG_TYPE, "LoadPRE", LI)
+           << "load eliminated by PRE";
+  });
   ++NumPRELoad;
   return true;
 }
@@ -1255,10 +1257,12 @@ static void reportLoadElim(LoadInst *LI, Value *AvailableValue,
                            OptimizationRemarkEmitter *ORE) {
   using namespace ore;
 
-  ORE->emit(OptimizationRemark(DEBUG_TYPE, "LoadElim", LI)
-            << "load of type " << NV("Type", LI->getType()) << " eliminated"
-            << setExtraArgs() << " in favor of "
-            << NV("InfavorOfValue", AvailableValue));
+  ORE->emit([&]() {
+    return OptimizationRemark(DEBUG_TYPE, "LoadElim", LI)
+           << "load of type " << NV("Type", LI->getType()) << " eliminated"
+           << setExtraArgs() << " in favor of "
+           << NV("InfavorOfValue", AvailableValue);
+  });
 }
 
 /// Attempt to eliminate a load whose dependencies are
@@ -1361,6 +1365,11 @@ bool GVN::processAssumeIntrinsic(IntrinsicInst *IntrinsicI) {
                     IntrinsicI);
     }
     markInstructionForDeletion(IntrinsicI);
+    return false;
+  } else if (isa<Constant>(V)) {
+    // If it's not false, and constant, it must evaluate to true. This means our
+    // assume is assume(true), and thus, pointless, and we don't want to do
+    // anything more here.
     return false;
   }
 

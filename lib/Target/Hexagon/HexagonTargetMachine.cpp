@@ -28,6 +28,9 @@
 
 using namespace llvm;
 
+static cl::opt<bool> EnableCExtOpt("hexagon-cext", cl::Hidden, cl::ZeroOrMore,
+  cl::init(true), cl::desc("Enable Hexagon constant-extender optimization"));
+
 static cl::opt<bool> EnableRDFOpt("rdf-opt", cl::Hidden, cl::ZeroOrMore,
   cl::init(true), cl::desc("Enable RDF-based optimizations"));
 
@@ -119,20 +122,25 @@ SchedCustomRegistry("hexagon", "Run Hexagon's custom scheduler",
 
 namespace llvm {
   extern char &HexagonExpandCondsetsID;
+  void initializeHexagonConstExtendersPass(PassRegistry&);
   void initializeHexagonEarlyIfConversionPass(PassRegistry&);
   void initializeHexagonExpandCondsetsPass(PassRegistry&);
   void initializeHexagonGenMuxPass(PassRegistry&);
+  void initializeHexagonHardwareLoopsPass(PassRegistry&);
   void initializeHexagonLoopIdiomRecognizePass(PassRegistry&);
+  void initializeHexagonVectorLoopCarriedReusePass(PassRegistry&);
   void initializeHexagonNewValueJumpPass(PassRegistry&);
   void initializeHexagonOptAddrModePass(PassRegistry&);
   void initializeHexagonPacketizerPass(PassRegistry&);
   Pass *createHexagonLoopIdiomPass();
+  Pass *createHexagonVectorLoopCarriedReusePass();
 
   FunctionPass *createHexagonBitSimplify();
   FunctionPass *createHexagonBranchRelaxation();
   FunctionPass *createHexagonCallFrameInformation();
   FunctionPass *createHexagonCFGOptimizer();
   FunctionPass *createHexagonCommonGEP();
+  FunctionPass *createHexagonConstExtenders();
   FunctionPass *createHexagonConstPropagationPass();
   FunctionPass *createHexagonCopyToCombine();
   FunctionPass *createHexagonEarlyIfConversion();
@@ -174,9 +182,12 @@ extern "C" void LLVMInitializeHexagonTarget() {
   RegisterTargetMachine<HexagonTargetMachine> X(getTheHexagonTarget());
 
   PassRegistry &PR = *PassRegistry::getPassRegistry();
+  initializeHexagonConstExtendersPass(PR);
   initializeHexagonEarlyIfConversionPass(PR);
   initializeHexagonGenMuxPass(PR);
+  initializeHexagonHardwareLoopsPass(PR);
   initializeHexagonLoopIdiomRecognizePass(PR);
+  initializeHexagonVectorLoopCarriedReusePass(PR);
   initializeHexagonNewValueJumpPass(PR);
   initializeHexagonOptAddrModePass(PR);
   initializeHexagonPacketizerPass(PR);
@@ -236,6 +247,11 @@ void HexagonTargetMachine::adjustPassManager(PassManagerBuilder &PMB) {
     PassManagerBuilder::EP_LateLoopOptimizations,
     [&](const PassManagerBuilder &, legacy::PassManagerBase &PM) {
       PM.add(createHexagonLoopIdiomPass());
+    });
+  PMB.addExtension(
+    PassManagerBuilder::EP_LoopOptimizerEnd,
+    [&](const PassManagerBuilder &, legacy::PassManagerBase &PM) {
+      PM.add(createHexagonVectorLoopCarriedReusePass());
     });
 }
 
@@ -332,6 +348,8 @@ bool HexagonPassConfig::addInstSelector() {
 
 void HexagonPassConfig::addPreRegAlloc() {
   if (getOptLevel() != CodeGenOpt::None) {
+    if (EnableCExtOpt)
+      addPass(createHexagonConstExtenders());
     if (EnableExpandCondsets)
       insertPass(&RegisterCoalescerID, &HexagonExpandCondsetsID);
     if (!DisableStoreWidening)

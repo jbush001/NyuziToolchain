@@ -1062,6 +1062,7 @@ RetainSummaryManager::getFunctionSummary(const FunctionDecl *FD) {
 
     // Inspect the result type.
     QualType RetTy = FT->getReturnType();
+    std::string RetTyName = RetTy.getAsString();
 
     // FIXME: This should all be refactored into a chain of "summary lookup"
     //  filters.
@@ -1081,12 +1082,14 @@ RetainSummaryManager::getFunctionSummary(const FunctionDecl *FD) {
       AllowAnnotations = false;
     } else if (FName == "CFPlugInInstanceCreate") {
       S = getPersistentSummary(RetEffect::MakeNoRet());
-    } else if (FName == "IOBSDNameMatching" ||
+    } else if (FName == "IORegistryEntrySearchCFProperty"
+        || (RetTyName == "CFMutableDictionaryRef" && (
+               FName == "IOBSDNameMatching" ||
                FName == "IOServiceMatching" ||
                FName == "IOServiceNameMatching" ||
-               FName == "IORegistryEntrySearchCFProperty" ||
                FName == "IORegistryEntryIDMatching" ||
-               FName == "IOOpenFirmwarePathMatching") {
+               FName == "IOOpenFirmwarePathMatching"
+            ))) {
       // Part of <rdar://problem/6961230>. (IOKit)
       // This should be addressed using a API table.
       S = getPersistentSummary(RetEffect::MakeOwned(RetEffect::CF),
@@ -1167,6 +1170,11 @@ RetainSummaryManager::getFunctionSummary(const FunctionDecl *FD) {
       if (cocoa::isRefType(RetTy, "CF", FName)) {
         if (isRetain(FD, FName)) {
           S = getUnarySummary(FT, cfretain);
+          // CFRetain isn't supposed to be annotated. However, this may as well
+          // be a user-made "safe" CFRetain function that is incorrectly
+          // annotated as cf_returns_retained due to lack of better options.
+          // We want to ignore such annotation.
+          AllowAnnotations = false;
         } else if (isAutorelease(FD, FName)) {
           S = getUnarySummary(FT, cfautorelease);
           // The headers use cf_consumed, but we can fully model CFAutorelease

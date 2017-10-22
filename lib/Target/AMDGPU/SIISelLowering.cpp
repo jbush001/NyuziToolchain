@@ -468,6 +468,7 @@ SITargetLowering::SITargetLowering(const TargetMachine &TM,
     setOperationAction(ISD::EXTRACT_VECTOR_ELT, MVT::v2i16, Custom);
     setOperationAction(ISD::EXTRACT_VECTOR_ELT, MVT::v2f16, Custom);
 
+    setOperationAction(ISD::ANY_EXTEND, MVT::v2i32, Expand);
     setOperationAction(ISD::ZERO_EXTEND, MVT::v2i32, Expand);
     setOperationAction(ISD::SIGN_EXTEND, MVT::v2i32, Expand);
     setOperationAction(ISD::FP_EXTEND, MVT::v2f32, Expand);
@@ -502,6 +503,7 @@ SITargetLowering::SITargetLowering(const TargetMachine &TM,
   setTargetDAGCombine(ISD::SCALAR_TO_VECTOR);
   setTargetDAGCombine(ISD::ZERO_EXTEND);
   setTargetDAGCombine(ISD::EXTRACT_VECTOR_ELT);
+  setTargetDAGCombine(ISD::BUILD_VECTOR);
 
   // All memory operations. Some folding on the pointer operand is done to help
   // matching the constant offsets in the addressing modes.
@@ -1491,14 +1493,31 @@ SDValue SITargetLowering::LowerFormalArguments(
     // - At least one of PERSP_* (0xF) or LINEAR_* (0x70) must be enabled.
     // - If POS_W_FLOAT (11) is enabled, at least one of PERSP_* must be
     //   enabled too.
-    if (CallConv == CallingConv::AMDGPU_PS &&
-        ((Info->getPSInputAddr() & 0x7F) == 0 ||
-         ((Info->getPSInputAddr() & 0xF) == 0 &&
-          Info->isPSInputAllocated(11)))) {
-      CCInfo.AllocateReg(AMDGPU::VGPR0);
-      CCInfo.AllocateReg(AMDGPU::VGPR1);
-      Info->markPSInputAllocated(0);
-      Info->markPSInputEnabled(0);
+    if (CallConv == CallingConv::AMDGPU_PS) {
+      if ((Info->getPSInputAddr() & 0x7F) == 0 ||
+           ((Info->getPSInputAddr() & 0xF) == 0 &&
+            Info->isPSInputAllocated(11))) {
+        CCInfo.AllocateReg(AMDGPU::VGPR0);
+        CCInfo.AllocateReg(AMDGPU::VGPR1);
+        Info->markPSInputAllocated(0);
+        Info->markPSInputEnabled(0);
+      }
+      if (Subtarget->isAmdPalOS()) {
+        // For isAmdPalOS, the user does not enable some bits after compilation
+        // based on run-time states; the register values being generated here are
+        // the final ones set in hardware. Therefore we need to apply the
+        // workaround to PSInputAddr and PSInputEnable together.  (The case where
+        // a bit is set in PSInputAddr but not PSInputEnable is where the
+        // frontend set up an input arg for a particular interpolation mode, but
+        // nothing uses that input arg. Really we should have an earlier pass
+        // that removes such an arg.)
+        unsigned PsInputBits = Info->getPSInputAddr() & Info->getPSInputEnable();
+        if ((PsInputBits & 0x7F) == 0 ||
+            ((PsInputBits & 0xF) == 0 &&
+             (PsInputBits >> 11 & 1)))
+          Info->markPSInputEnabled(
+              countTrailingZeros(Info->getPSInputAddr(), ZB_Undefined));
+      }
     }
 
     assert(!Info->hasDispatchPtr() &&
@@ -3011,15 +3030,18 @@ MachineBasicBlock *SITargetLowering::EmitInstrWithCustomInserter(
 
     unsigned DstLo = MRI.createVirtualRegister(&AMDGPU::VGPR_32RegClass);
     unsigned DstHi = MRI.createVirtualRegister(&AMDGPU::VGPR_32RegClass);
+    unsigned SrcCondCopy = MRI.createVirtualRegister(&AMDGPU::SReg_64_XEXECRegClass);
 
+    BuildMI(*BB, MI, DL, TII->get(AMDGPU::COPY), SrcCondCopy)
+      .addReg(SrcCond);
     BuildMI(*BB, MI, DL, TII->get(AMDGPU::V_CNDMASK_B32_e64), DstLo)
       .addReg(Src0, 0, AMDGPU::sub0)
       .addReg(Src1, 0, AMDGPU::sub0)
-      .addReg(SrcCond);
+      .addReg(SrcCondCopy);
     BuildMI(*BB, MI, DL, TII->get(AMDGPU::V_CNDMASK_B32_e64), DstHi)
       .addReg(Src0, 0, AMDGPU::sub1)
       .addReg(Src1, 0, AMDGPU::sub1)
-      .addReg(SrcCond);
+      .addReg(SrcCondCopy);
 
     BuildMI(*BB, MI, DL, TII->get(AMDGPU::REG_SEQUENCE), Dst)
       .addReg(DstLo)
@@ -3083,6 +3105,10 @@ MachineBasicBlock *SITargetLowering::EmitInstrWithCustomInserter(
   default:
     return AMDGPUTargetLowering::EmitInstrWithCustomInserter(MI, BB);
   }
+}
+
+bool SITargetLowering::hasBitPreservingFPLogic(EVT VT) const {
+  return isTypeLegal(VT.getScalarType());
 }
 
 bool SITargetLowering::enableAggressiveFMAFusion(EVT VT) const {
@@ -5853,7 +5879,7 @@ SDValue SITargetLowering::performExtractVectorEltCombine(
   SDNode *N, DAGCombinerInfo &DCI) const {
   SDValue Vec = N->getOperand(0);
 
-  SelectionDAG &DAG= DCI.DAG;
+  SelectionDAG &DAG = DCI.DAG;
   if (Vec.getOpcode() == ISD::FNEG && allUsesHaveSourceMods(N)) {
     SDLoc SL(N);
     EVT EltVT = N->getValueType(0);
@@ -5866,6 +5892,47 @@ SDValue SITargetLowering::performExtractVectorEltCombine(
   return SDValue();
 }
 
+static bool convertBuildVectorCastElt(SelectionDAG &DAG,
+                                      SDValue &Lo, SDValue &Hi) {
+  if (Hi.getOpcode() == ISD::BITCAST &&
+      Hi.getOperand(0).getValueType() == MVT::f16 &&
+      (isa<ConstantSDNode>(Lo) || Lo.isUndef())) {
+    Lo = DAG.getNode(ISD::BITCAST, SDLoc(Lo), MVT::f16, Lo);
+    Hi = Hi.getOperand(0);
+    return true;
+  }
+
+  return false;
+}
+
+SDValue SITargetLowering::performBuildVectorCombine(
+  SDNode *N, DAGCombinerInfo &DCI) const {
+  SDLoc SL(N);
+
+  if (!isTypeLegal(MVT::v2i16))
+    return SDValue();
+  SelectionDAG &DAG = DCI.DAG;
+  EVT VT = N->getValueType(0);
+
+  if (VT == MVT::v2i16) {
+    SDValue Lo = N->getOperand(0);
+    SDValue Hi = N->getOperand(1);
+
+    // v2i16 build_vector (const|undef), (bitcast f16:$x)
+    // -> bitcast (v2f16 build_vector const|undef, $x
+    if (convertBuildVectorCastElt(DAG, Lo, Hi)) {
+      SDValue NewVec = DAG.getBuildVector(MVT::v2f16, SL, { Lo, Hi  });
+      return DAG.getNode(ISD::BITCAST, SL, VT, NewVec);
+    }
+
+    if (convertBuildVectorCastElt(DAG, Hi, Lo)) {
+      SDValue NewVec = DAG.getBuildVector(MVT::v2f16, SL, { Hi, Lo  });
+      return DAG.getNode(ISD::BITCAST, SL, VT, NewVec);
+    }
+  }
+
+  return SDValue();
+}
 
 unsigned SITargetLowering::getFusedOpcode(const SelectionDAG &DAG,
                                           const SDNode *N0,
@@ -6287,6 +6354,8 @@ SDValue SITargetLowering::PerformDAGCombine(SDNode *N,
   }
   case ISD::EXTRACT_VECTOR_ELT:
     return performExtractVectorEltCombine(N, DCI);
+  case ISD::BUILD_VECTOR:
+    return performBuildVectorCombine(N, DCI);
   }
   return AMDGPUTargetLowering::PerformDAGCombine(N, DCI);
 }
@@ -6438,8 +6507,7 @@ SDNode *SITargetLowering::legalizeTargetIndependentNode(SDNode *Node,
                                      Node->getOperand(i)), 0));
   }
 
-  DAG.UpdateNodeOperands(Node, Ops);
-  return Node;
+  return DAG.UpdateNodeOperands(Node, Ops);
 }
 
 /// \brief Fold the instructions after selecting them.

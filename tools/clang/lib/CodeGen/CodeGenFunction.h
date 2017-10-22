@@ -76,6 +76,10 @@ class ObjCAtThrowStmt;
 class ObjCAtSynchronizedStmt;
 class ObjCAutoreleasePoolStmt;
 
+namespace analyze_os_log {
+class OSLogBufferLayout;
+}
+
 namespace CodeGen {
 class CodeGenTypes;
 class CGCallee;
@@ -263,9 +267,9 @@ public:
         if (I->capturesThis())
           CXXThisFieldDecl = *Field;
         else if (I->capturesVariable())
-          CaptureFields[I->getCapturedVar()] = *Field;
+          CaptureFields[I->getCapturedVar()->getCanonicalDecl()] = *Field;
         else if (I->capturesVariableByCopy())
-          CaptureFields[I->getCapturedVar()] = *Field;
+          CaptureFields[I->getCapturedVar()->getCanonicalDecl()] = *Field;
       }
     }
 
@@ -279,7 +283,7 @@ public:
 
     /// \brief Lookup the captured field decl for a variable.
     virtual const FieldDecl *lookup(const VarDecl *VD) const {
-      return CaptureFields.lookup(VD);
+      return CaptureFields.lookup(VD->getCanonicalDecl());
     }
 
     bool isCXXThisExprCaptured() const { return getThisFieldDecl() != nullptr; }
@@ -1580,13 +1584,21 @@ public:
   //                                  Block Bits
   //===--------------------------------------------------------------------===//
 
-  llvm::Value *EmitBlockLiteral(const BlockExpr *);
+  /// Emit block literal.
+  /// \return an LLVM value which is a pointer to a struct which contains
+  /// information about the block, including the block invoke function, the
+  /// captured variables, etc.
+  /// \param InvokeF will contain the block invoke function if it is not
+  /// nullptr.
+  llvm::Value *EmitBlockLiteral(const BlockExpr *,
+                                llvm::Function **InvokeF = nullptr);
   static void destroyBlockInfos(CGBlockInfo *info);
 
   llvm::Function *GenerateBlockFunction(GlobalDecl GD,
                                         const CGBlockInfo &Info,
                                         const DeclMapTy &ldm,
-                                        bool IsLambdaConversionToBlock);
+                                        bool IsLambdaConversionToBlock,
+                                        bool BuildGlobalBlock);
 
   llvm::Constant *GenerateCopyHelperFunction(const CGBlockInfo &blockInfo);
   llvm::Constant *GenerateDestroyHelperFunction(const CGBlockInfo &blockInfo);
@@ -1906,33 +1918,48 @@ public:
   //===--------------------------------------------------------------------===//
 
   LValue MakeAddrLValue(Address Addr, QualType T,
-                        LValueBaseInfo BaseInfo =
-                            LValueBaseInfo(AlignmentSource::Type)) {
-    return LValue::MakeAddr(Addr, T, getContext(), BaseInfo,
-                            CGM.getTBAAInfo(T));
+                        AlignmentSource Source = AlignmentSource::Type) {
+    return LValue::MakeAddr(Addr, T, getContext(),
+                            LValueBaseInfo(Source, false),
+                            CGM.getTBAAAccessInfo(T));
+  }
+
+  LValue MakeAddrLValue(Address Addr, QualType T, LValueBaseInfo BaseInfo,
+                        TBAAAccessInfo TBAAInfo) {
+    return LValue::MakeAddr(Addr, T, getContext(), BaseInfo, TBAAInfo);
   }
 
   LValue MakeAddrLValue(llvm::Value *V, QualType T, CharUnits Alignment,
-                        LValueBaseInfo BaseInfo =
-                            LValueBaseInfo(AlignmentSource::Type)) {
+                        AlignmentSource Source = AlignmentSource::Type) {
     return LValue::MakeAddr(Address(V, Alignment), T, getContext(),
-                            BaseInfo, CGM.getTBAAInfo(T));
+                            LValueBaseInfo(Source, false),
+                            CGM.getTBAAAccessInfo(T));
+  }
+
+  LValue MakeAddrLValue(llvm::Value *V, QualType T, CharUnits Alignment,
+                        LValueBaseInfo BaseInfo, TBAAAccessInfo TBAAInfo) {
+    return LValue::MakeAddr(Address(V, Alignment), T, getContext(),
+                            BaseInfo, TBAAInfo);
   }
 
   LValue MakeNaturalAlignPointeeAddrLValue(llvm::Value *V, QualType T);
   LValue MakeNaturalAlignAddrLValue(llvm::Value *V, QualType T);
   CharUnits getNaturalTypeAlignment(QualType T,
                                     LValueBaseInfo *BaseInfo = nullptr,
+                                    TBAAAccessInfo *TBAAInfo = nullptr,
                                     bool forPointeeType = false);
   CharUnits getNaturalPointeeTypeAlignment(QualType T,
-                                           LValueBaseInfo *BaseInfo = nullptr);
+                                           LValueBaseInfo *BaseInfo = nullptr,
+                                           TBAAAccessInfo *TBAAInfo = nullptr);
 
   Address EmitLoadOfReference(Address Ref, const ReferenceType *RefTy,
-                              LValueBaseInfo *BaseInfo = nullptr);
+                              LValueBaseInfo *BaseInfo = nullptr,
+                              TBAAAccessInfo *TBAAInfo = nullptr);
   LValue EmitLoadOfReferenceLValue(Address Ref, const ReferenceType *RefTy);
 
   Address EmitLoadOfPointer(Address Ptr, const PointerType *PtrTy,
-                            LValueBaseInfo *BaseInfo = nullptr);
+                            LValueBaseInfo *BaseInfo = nullptr,
+                            TBAAAccessInfo *TBAAInfo = nullptr);
   LValue EmitLoadOfPointerLValue(Address Ptr, const PointerType *PtrTy);
 
   /// CreateTempAlloca - This creates an alloca and inserts it into the entry
@@ -2354,6 +2381,12 @@ public:
     /// Checking the value assigned to a _Nonnull pointer. Must not be null.
     TCK_NonnullAssign
   };
+
+  /// Determine whether the pointer type check \p TCK permits null pointers.
+  static bool isNullPointerAllowed(TypeCheckKind TCK);
+
+  /// Determine whether the pointer type check \p TCK requires a vptr check.
+  static bool isVptrCheckRequired(TypeCheckKind TCK, QualType Ty);
 
   /// \brief Whether any type-checking sanitizers are enabled. If \c false,
   /// calls to EmitTypeCheck can be skipped.
@@ -2885,9 +2918,15 @@ public:
                               const CodeGenLoopBoundsTy &CodeGenLoopBounds,
                               const CodeGenDispatchBoundsTy &CGDispatchBounds);
 
+  /// Emits the lvalue for the expression with possibly captured variable.
+  LValue EmitOMPSharedLValue(const Expr *E);
+
 private:
-  /// Helpers for blocks
-  llvm::Value *EmitBlockLiteral(const CGBlockInfo &Info);
+  /// Helpers for blocks. Returns invoke function by \p InvokeF if it is not
+  /// nullptr. It should be called without \p InvokeF if the caller does not
+  /// need invoke function to be returned.
+  llvm::Value *EmitBlockLiteral(const CGBlockInfo &Info,
+                                llvm::Function **InvokeF = nullptr);
 
   /// Helpers for the OpenMP loop directives.
   void EmitOMPSimdInit(const OMPLoopDirective &D, bool IsMonotonic = false);
@@ -3044,11 +3083,16 @@ public:
   /// the LLVM value representation.
   llvm::Value *EmitLoadOfScalar(Address Addr, bool Volatile, QualType Ty,
                                 SourceLocation Loc,
-                                LValueBaseInfo BaseInfo =
-                                    LValueBaseInfo(AlignmentSource::Type),
-                                llvm::MDNode *TBAAInfo = nullptr,
-                                QualType TBAABaseTy = QualType(),
-                                uint64_t TBAAOffset = 0,
+                                AlignmentSource Source = AlignmentSource::Type,
+                                bool isNontemporal = false) {
+    return EmitLoadOfScalar(Addr, Volatile, Ty, Loc,
+                            LValueBaseInfo(Source, false),
+                            CGM.getTBAAAccessInfo(Ty), isNontemporal);
+  }
+
+  llvm::Value *EmitLoadOfScalar(Address Addr, bool Volatile, QualType Ty,
+                                SourceLocation Loc, LValueBaseInfo BaseInfo,
+                                TBAAAccessInfo TBAAInfo,
                                 bool isNontemporal = false);
 
   /// EmitLoadOfScalar - Load a scalar value from an address, taking
@@ -3062,11 +3106,16 @@ public:
   /// the LLVM value representation.
   void EmitStoreOfScalar(llvm::Value *Value, Address Addr,
                          bool Volatile, QualType Ty,
-                         LValueBaseInfo BaseInfo =
-                             LValueBaseInfo(AlignmentSource::Type),
-                         llvm::MDNode *TBAAInfo = nullptr, bool isInit = false,
-                         QualType TBAABaseTy = QualType(),
-                         uint64_t TBAAOffset = 0, bool isNontemporal = false);
+                         AlignmentSource Source = AlignmentSource::Type,
+                         bool isInit = false, bool isNontemporal = false) {
+    EmitStoreOfScalar(Value, Addr, Volatile, Ty, LValueBaseInfo(Source, false),
+                      CGM.getTBAAAccessInfo(Ty), isInit, isNontemporal);
+  }
+
+  void EmitStoreOfScalar(llvm::Value *Value, Address Addr,
+                         bool Volatile, QualType Ty,
+                         LValueBaseInfo BaseInfo, TBAAAccessInfo TBAAInfo,
+                         bool isInit = false, bool isNontemporal = false);
 
   /// EmitStoreOfScalar - Store a scalar value to an address, taking
   /// care to appropriately convert from the memory representation to
@@ -3136,7 +3185,8 @@ public:
   RValue EmitRValueForField(LValue LV, const FieldDecl *FD, SourceLocation Loc);
 
   Address EmitArrayToPointerDecay(const Expr *Array,
-                                  LValueBaseInfo *BaseInfo = nullptr);
+                                  LValueBaseInfo *BaseInfo = nullptr,
+                                  TBAAAccessInfo *TBAAInfo = nullptr);
 
   class ConstantEmission {
     llvm::PointerIntPair<llvm::Constant*, 1, bool> ValueAndIsReference;
@@ -3278,7 +3328,8 @@ public:
   Address EmitCXXMemberDataPointerAddress(const Expr *E, Address base,
                                           llvm::Value *memberPtr,
                                           const MemberPointerType *memberPtrType,
-                                          LValueBaseInfo *BaseInfo = nullptr);
+                                          LValueBaseInfo *BaseInfo = nullptr,
+                                          TBAAAccessInfo *TBAAInfo = nullptr);
   RValue EmitCXXMemberPointerCallExpr(const CXXMemberCallExpr *E,
                                       ReturnValueSlot ReturnValue);
 
@@ -3296,6 +3347,13 @@ public:
   RValue EmitBuiltinExpr(const FunctionDecl *FD,
                          unsigned BuiltinID, const CallExpr *E,
                          ReturnValueSlot ReturnValue);
+
+  /// Emit IR for __builtin_os_log_format.
+  RValue emitBuiltinOSLogFormat(const CallExpr &E);
+
+  llvm::Function *generateBuiltinOSLogHelperFunction(
+      const analyze_os_log::OSLogBufferLayout &Layout,
+      CharUnits BufferAlignment);
 
   RValue EmitBlockCallExpr(const CallExpr *E, ReturnValueSlot ReturnValue);
 
@@ -3850,7 +3908,8 @@ public:
   /// reasonable to just ignore the returned alignment when it isn't from an
   /// explicit source.
   Address EmitPointerWithAlignment(const Expr *Addr,
-                                   LValueBaseInfo *BaseInfo = nullptr);
+                                   LValueBaseInfo *BaseInfo = nullptr,
+                                   TBAAAccessInfo *TBAAInfo = nullptr);
 
   void EmitSanitizerStatReport(llvm::SanitizerStatKind SSK);
 
@@ -3869,6 +3928,7 @@ private:
   llvm::Value *EmitX86CpuIs(StringRef CPUStr);
   llvm::Value *EmitX86CpuSupports(const CallExpr *E);
   llvm::Value *EmitX86CpuSupports(ArrayRef<StringRef> FeatureStrs);
+  llvm::Value *EmitX86CpuInit();
 };
 
 /// Helper class with most of the code for saving a value for a

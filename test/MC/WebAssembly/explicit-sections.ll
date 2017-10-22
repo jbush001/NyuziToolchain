@@ -63,3 +63,21 @@
 ; CHECK-NEXT:           Opcode:          I32_CONST
 ; CHECK-NEXT:           Value:           24
 ; CHECK-NEXT:         Content:         '08000000'
+
+; CHECK:        - Type:            CUSTOM
+; CHECK-NEXT:     Name:            linking
+; CHECK-NEXT:     DataSize:        28
+; CHECK-NEXT:     SegmentInfo:    
+; CHECK-NEXT:       - Index:           0
+; CHECK-NEXT:         Name:            .data.global0
+; CHECK-NEXT:         Alignment:       8
+; CHECK-NEXT:         Flags:           0
+; CHECK-NEXT:       - Index:           1
+; CHECK-NEXT:         Name:            .sec1
+; CHECK-NEXT:         Alignment:       8
+; CHECK-NEXT:         Flags:           0
+; CHECK-NEXT:       - Index:           2
+; CHECK-NEXT:         Name:            .sec2
+; CHECK-NEXT:         Alignment:       8
+; CHECK-NEXT:         Flags:           0
+; CHECK-NEXT: ...

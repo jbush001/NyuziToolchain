@@ -15,7 +15,7 @@
 #include "SymbolTable.h"
 #include "SyntheticSections.h"
 #include "Target.h"
-#include "Threads.h"
+#include "lld/Common/Threads.h"
 #include "llvm/BinaryFormat/Dwarf.h"
 #include "llvm/Support/Compression.h"
 #include "llvm/Support/MD5.h"
@@ -76,43 +76,87 @@ OutputSection::OutputSection(StringRef Name, uint32_t Type, uint64_t Flags)
   Live = false;
 }
 
-static uint64_t updateOffset(uint64_t Off, InputSection *S) {
-  Off = alignTo(Off, S->Alignment);
-  S->OutSecOff = Off;
-  return Off + S->getSize();
+// We allow sections of types listed below to merged into a
+// single progbits section. This is typically done by linker
+// scripts. Merging nobits and progbits will force disk space
+// to be allocated for nobits sections. Other ones don't require
+// any special treatment on top of progbits, so there doesn't
+// seem to be a harm in merging them.
+static bool canMergeToProgbits(unsigned Type) {
+  return Type == SHT_NOBITS || Type == SHT_PROGBITS || Type == SHT_INIT_ARRAY ||
+         Type == SHT_PREINIT_ARRAY || Type == SHT_FINI_ARRAY ||
+         Type == SHT_NOTE;
 }
 
-void OutputSection::addSection(InputSection *S) {
-  assert(S->Live);
-  Live = true;
-  S->Parent = this;
-  this->updateAlignment(S->Alignment);
+void OutputSection::addSection(InputSection *IS) {
+  if (!IS->Live) {
+    reportDiscarded(IS);
+    return;
+  }
+
+  if (!Live) {
+    // If IS is the first section to be added to this section,
+    // initialize Type by IS->Type.
+    Live = true;
+    Type = IS->Type;
+  } else {
+    // Otherwise, check if new type or flags are compatible with existing ones.
+    if ((Flags & (SHF_ALLOC | SHF_TLS)) != (IS->Flags & (SHF_ALLOC | SHF_TLS)))
+      error("incompatible section flags for " + Name + "\n>>> " + toString(IS) +
+            ": 0x" + utohexstr(IS->Flags) + "\n>>> output section " + Name +
+            ": 0x" + utohexstr(Flags));
+
+    if (Type != IS->Type) {
+      if (!canMergeToProgbits(Type) || !canMergeToProgbits(IS->Type))
+        error("section type mismatch for " + IS->Name + "\n>>> " +
+              toString(IS) + ": " +
+              getELFSectionTypeName(Config->EMachine, IS->Type) +
+              "\n>>> output section " + Name + ": " +
+              getELFSectionTypeName(Config->EMachine, Type));
+      Type = SHT_PROGBITS;
+    }
+  }
+
+  IS->Parent = this;
+  Flags |= IS->Flags;
+  Alignment = std::max(Alignment, IS->Alignment);
 
   // The actual offsets will be computed by assignAddresses. For now, use
   // crude approximation so that it is at least easy for other code to know the
   // section order. It is also used to calculate the output section size early
   // for compressed debug sections.
-  this->Size = updateOffset(Size, S);
+  IS->OutSecOff = alignTo(Size, IS->Alignment);
+  this->Size = IS->OutSecOff + IS->getSize();
 
   // If this section contains a table of fixed-size entries, sh_entsize
   // holds the element size. Consequently, if this contains two or more
   // input sections, all of them must have the same sh_entsize. However,
   // you can put different types of input sections into one output
-  // sectin by using linker scripts. I don't know what to do here.
+  // section by using linker scripts. I don't know what to do here.
   // Probably we sholuld handle that as an error. But for now we just
   // pick the largest sh_entsize.
-  this->Entsize = std::max(this->Entsize, S->Entsize);
+  this->Entsize = std::max(this->Entsize, IS->Entsize);
 
-  if (!S->Assigned) {
-    S->Assigned = true;
-    if (Commands.empty() || !isa<InputSectionDescription>(Commands.back()))
-      Commands.push_back(make<InputSectionDescription>(""));
-    auto *ISD = cast<InputSectionDescription>(Commands.back());
-    ISD->Sections.push_back(S);
+  if (!IS->Assigned) {
+    IS->Assigned = true;
+    if (SectionCommands.empty() ||
+        !isa<InputSectionDescription>(SectionCommands.back()))
+      SectionCommands.push_back(make<InputSectionDescription>(""));
+    auto *ISD = cast<InputSectionDescription>(SectionCommands.back());
+    ISD->Sections.push_back(IS);
   }
 }
 
-static SectionKey createKey(InputSectionBase *C, StringRef OutsecName) {
+static SectionKey createKey(InputSectionBase *IS, StringRef OutsecName) {
+  // When control reaches here, mergeable sections have already been
+  // merged except the -r case. If that's the case, we want to combine
+  // mergeable sections by sh_entsize and sh_flags.
+  if (Config->Relocatable && (IS->Flags & SHF_MERGE)) {
+    uint64_t Flags = IS->Flags & (SHF_MERGE | SHF_STRINGS);
+    uint32_t Alignment = std::max<uint32_t>(IS->Alignment, IS->Entsize);
+    return SectionKey{OutsecName, Flags, Alignment};
+  }
+
   //  The ELF spec just says
   // ----------------------------------------------------------------
   // In the first phase, input sections that match in name, type and
@@ -155,34 +199,10 @@ static SectionKey createKey(InputSectionBase *C, StringRef OutsecName) {
   //
   // Given the above issues, we instead merge sections by name and error on
   // incompatible types and flags.
-
-  uint32_t Alignment = 0;
-  uint64_t Flags = 0;
-  if (Config->Relocatable && (C->Flags & SHF_MERGE)) {
-    Alignment = std::max<uint64_t>(C->Alignment, C->Entsize);
-    Flags = C->Flags & (SHF_MERGE | SHF_STRINGS);
-  }
-
-  return SectionKey{OutsecName, Flags, Alignment};
+  return SectionKey{OutsecName, 0, 0};
 }
 
 OutputSectionFactory::OutputSectionFactory() {}
-
-static uint64_t getIncompatibleFlags(uint64_t Flags) {
-  return Flags & (SHF_ALLOC | SHF_TLS);
-}
-
-// We allow sections of types listed below to merged into a
-// single progbits section. This is typically done by linker
-// scripts. Merging nobits and progbits will force disk space
-// to be allocated for nobits sections. Other ones don't require
-// any special treatment on top of progbits, so there doesn't
-// seem to be a harm in merging them.
-static bool canMergeToProgbits(unsigned Type) {
-  return Type == SHT_NOBITS || Type == SHT_PROGBITS || Type == SHT_INIT_ARRAY ||
-         Type == SHT_PREINIT_ARRAY || Type == SHT_FINI_ARRAY ||
-         Type == SHT_NOTE;
-}
 
 void elf::sortByOrder(MutableArrayRef<InputSection *> In,
                       std::function<int(InputSectionBase *S)> Order) {
@@ -205,61 +225,30 @@ void elf::reportDiscarded(InputSectionBase *IS) {
           IS->File->getName() + "'");
 }
 
-static OutputSection *addSection(InputSectionBase *IS, StringRef OutsecName,
-                                 OutputSection *Sec) {
-  if (Sec && Sec->Live) {
-    if (getIncompatibleFlags(Sec->Flags) != getIncompatibleFlags(IS->Flags))
-      error("incompatible section flags for " + Sec->Name + "\n>>> " +
-            toString(IS) + ": 0x" + utohexstr(IS->Flags) +
-            "\n>>> output section " + Sec->Name + ": 0x" +
-            utohexstr(Sec->Flags));
-    if (Sec->Type != IS->Type) {
-      if (canMergeToProgbits(Sec->Type) && canMergeToProgbits(IS->Type))
-        Sec->Type = SHT_PROGBITS;
-      else
-        error("section type mismatch for " + IS->Name + "\n>>> " +
-              toString(IS) + ": " +
-              getELFSectionTypeName(Config->EMachine, IS->Type) +
-              "\n>>> output section " + Sec->Name + ": " +
-              getELFSectionTypeName(Config->EMachine, Sec->Type));
-    }
-    Sec->Flags |= IS->Flags;
-  } else {
-    if (!Sec) {
-      Sec = Script->createOutputSection(OutsecName, "<internal>");
-      Script->Opt.Commands.push_back(Sec);
-    }
-    Sec->Type = IS->Type;
-    Sec->Flags = IS->Flags;
-  }
-
+static OutputSection *createSection(InputSectionBase *IS, StringRef OutsecName) {
+  OutputSection *Sec = Script->createOutputSection(OutsecName, "<internal>");
+  Sec->Type = IS->Type;
+  Sec->Flags = IS->Flags;
   Sec->addSection(cast<InputSection>(IS));
   return Sec;
 }
 
-void OutputSectionFactory::addInputSec(InputSectionBase *IS,
-                                       StringRef OutsecName,
-                                       OutputSection *OS) {
+OutputSection *OutputSectionFactory::addInputSec(InputSectionBase *IS,
+                                                 StringRef OutsecName) {
   if (!IS->Live) {
     reportDiscarded(IS);
-    return;
+    return nullptr;
   }
 
-  // If we have destination output section - use it directly.
-  if (OS) {
-    addSection(IS, OutsecName, OS);
-    return;
-  }
-
-  // Sections with the SHT_GROUP attribute reach here only when the - r option
-  // is given. Such sections define "section groups", and InputFiles.cpp has
-  // dedup'ed section groups by their signatures. For the -r, we want to pass
-  // through all SHT_GROUP sections without merging them because merging them
-  // creates broken section contents.
-  if (IS->Type == SHT_GROUP) {
-    addSection(IS, OutsecName, nullptr);
-    return;
-  }
+  // Sections with SHT_GROUP or SHF_GROUP attributes reach here only when the -r
+  // option is given. A section with SHT_GROUP defines a "section group", and
+  // its members have SHF_GROUP attribute. Usually these flags have already been
+  // stripped by InputFiles.cpp as section groups are processed and uniquified.
+  // However, for the -r option, we want to pass through all section groups
+  // as-is because adding/removing members or merging them with other groups
+  // change their semantics.
+  if (IS->Type == SHT_GROUP || (IS->Flags & SHF_GROUP))
+    return createSection(IS, OutsecName);
 
   // Imagine .zed : { *(.foo) *(.bar) } script. Both foo and bar may have
   // relocation sections .rela.foo and .rela.bar for example. Most tools do
@@ -271,13 +260,25 @@ void OutputSectionFactory::addInputSec(InputSectionBase *IS,
       (IS->Type == SHT_REL || IS->Type == SHT_RELA)) {
     auto *Sec = cast<InputSection>(IS);
     OutputSection *Out = Sec->getRelocatedSection()->getOutputSection();
-    Out->RelocationSection = addSection(IS, OutsecName, Out->RelocationSection);
-    return;
+
+    if (Out->RelocationSection) {
+      Out->RelocationSection->addSection(Sec);
+      return nullptr;
+    }
+
+    Out->RelocationSection = createSection(IS, OutsecName);
+    return Out->RelocationSection;
   }
 
   SectionKey Key = createKey(IS, OutsecName);
   OutputSection *&Sec = Map[Key];
-  Sec = addSection(IS, OutsecName, Sec);
+  if (Sec) {
+    Sec->addSection(cast<InputSection>(IS));
+    return nullptr;
+  }
+
+  Sec = createSection(IS, OutsecName);
+  return Sec;
 }
 
 OutputSectionFactory::~OutputSectionFactory() {}
@@ -311,8 +312,9 @@ bool OutputSection::classof(const BaseCommand *C) {
 }
 
 void OutputSection::sort(std::function<int(InputSectionBase *S)> Order) {
-  assert(Commands.size() == 1);
-  sortByOrder(cast<InputSectionDescription>(Commands[0])->Sections, Order);
+  assert(SectionCommands.size() == 1);
+  sortByOrder(cast<InputSectionDescription>(SectionCommands[0])->Sections,
+              Order);
 }
 
 // Fill [Buf, Buf + Size) with Filler.
@@ -382,7 +384,7 @@ template <class ELFT> void OutputSection::writeTo(uint8_t *Buf) {
 
   // Write leading padding.
   std::vector<InputSection *> Sections;
-  for (BaseCommand *Cmd : Commands)
+  for (BaseCommand *Cmd : SectionCommands)
     if (auto *ISD = dyn_cast<InputSectionDescription>(Cmd))
       for (InputSection *IS : ISD->Sections)
         if (IS->Live)
@@ -391,7 +393,7 @@ template <class ELFT> void OutputSection::writeTo(uint8_t *Buf) {
   if (Filler)
     fill(Buf, Sections.empty() ? Size : Sections[0]->OutSecOff, Filler);
 
-  parallelForEachN(0, Sections.size(), [=](size_t I) {
+  parallelForEachN(0, Sections.size(), [&](size_t I) {
     InputSection *IS = Sections[I];
     IS->writeTo<ELFT>(Buf);
 
@@ -409,8 +411,8 @@ template <class ELFT> void OutputSection::writeTo(uint8_t *Buf) {
 
   // Linker scripts may have BYTE()-family commands with which you
   // can write arbitrary bytes to the output. Process them if any.
-  for (BaseCommand *Base : Commands)
-    if (auto *Data = dyn_cast<BytesDataCommand>(Base))
+  for (BaseCommand *Base : SectionCommands)
+    if (auto *Data = dyn_cast<ByteCommand>(Base))
       writeInt(Buf + Data->Offset, Data->Expression().getValue(), Data->Size);
 }
 
@@ -449,12 +451,14 @@ template <class ELFT> void OutputSection::finalize() {
   // but sort must consider them all at once.
   std::vector<InputSection **> ScriptSections;
   std::vector<InputSection *> Sections;
-  for (BaseCommand *Base : Commands)
-    if (auto *ISD = dyn_cast<InputSectionDescription>(Base))
+  for (BaseCommand *Base : SectionCommands) {
+    if (auto *ISD = dyn_cast<InputSectionDescription>(Base)) {
       for (InputSection *&IS : ISD->Sections) {
         ScriptSections.push_back(&IS);
         Sections.push_back(IS);
       }
+    }
+  }
 
   if (Flags & SHF_LINK_ORDER) {
     std::stable_sort(Sections.begin(), Sections.end(), compareByFilePosition);
@@ -544,8 +548,8 @@ static bool compCtors(const InputSection *A, const InputSection *B) {
 // Unfortunately, the rules are different from the one for .{init,fini}_array.
 // Read the comment above.
 void OutputSection::sortCtorsDtors() {
-  assert(Commands.size() == 1);
-  auto *ISD = cast<InputSectionDescription>(Commands[0]);
+  assert(SectionCommands.size() == 1);
+  auto *ISD = cast<InputSectionDescription>(SectionCommands[0]);
   std::stable_sort(ISD->Sections.begin(), ISD->Sections.end(), compCtors);
 }
 

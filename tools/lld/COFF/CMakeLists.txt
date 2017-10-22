@@ -17,6 +17,7 @@ add_lld_library(lldCOFF
   LTO.cpp
   MapFile.cpp
   MarkLive.cpp
+  MinGW.cpp
   PDB.cpp
   Strings.cpp
   SymbolTable.cpp
@@ -26,23 +27,20 @@ add_lld_library(lldCOFF
   LINK_COMPONENTS
   ${LLVM_TARGETS_TO_BUILD}
   BinaryFormat
-  BitReader
   Core
   DebugInfoCodeView
   DebugInfoMSF
   DebugInfoPDB
-  LTO
   LibDriver
-  Object
+  LTO
   MC
-  MCDisassembler
-  Target
+  Object
   Option
   Support
   WindowsManifest
 
   LINK_LIBS
-  lldCore
+  lldCommon
   ${LLVM_PTHREAD_LIB}
 
   DEPENDS

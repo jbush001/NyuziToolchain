@@ -119,6 +119,7 @@ protected:
   bool DX10Clamp;
   bool FlatForGlobal;
   bool AutoWaitcntBeforeBarrier;
+  bool CodeObjectV3;
   bool UnalignedScratchAccess;
   bool UnalignedBufferAccess;
   bool HasApertureRegs;
@@ -212,6 +213,10 @@ public:
   bool isOpenCLEnv() const {
     return TargetTriple.getEnvironment() == Triple::OpenCL ||
            TargetTriple.getEnvironmentName() == "amdgizcl";
+  }
+
+  bool isAmdPalOS() const {
+    return TargetTriple.getOS() == Triple::AMDPAL;
   }
 
   Generation getGeneration() const {
@@ -393,6 +398,10 @@ public:
 
   bool hasAutoWaitcntBeforeBarrier() const {
     return AutoWaitcntBeforeBarrier;
+  }
+
+  bool hasCodeObjectV3() const {
+    return CodeObjectV3;
   }
 
   bool hasUnalignedBufferAccess() const {
@@ -883,6 +892,10 @@ public:
   /// subtarget's specifications, or does not meet number of waves per execution
   /// unit requirement.
   unsigned getMaxNumVGPRs(const MachineFunction &MF) const;
+
+  void getPostRAMutations(
+      std::vector<std::unique_ptr<ScheduleDAGMutation>> &Mutations)
+      const override;
 };
 
 } // end namespace llvm

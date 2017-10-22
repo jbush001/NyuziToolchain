@@ -51,6 +51,8 @@ public:
   int getIntImmCost(Intrinsic::ID IID, unsigned Idx, const APInt &Imm,
                     Type *Ty);
 
+  unsigned getUserCost(const User *U, ArrayRef<const Value *> Operands);
+
   TTI::PopcntSupportKind getPopcntSupport(unsigned TyWidth);
   void getUnrollingPreferences(Loop *L, ScalarEvolution &SE,
                                TTI::UnrollingPreferences &UP);
@@ -61,7 +63,7 @@ public:
   /// @{
 
   bool enableAggressiveInterleaving(bool LoopHasReductions);
-  bool expandMemCmp(Instruction *I, unsigned &MaxLoadSize);
+  bool enableMemCmpExpansion(unsigned &MaxLoadSize);
   bool enableInterleavedAccessVectorization();
   unsigned getNumberOfRegisters(bool Vector);
   unsigned getRegisterBitWidth(bool Vector) const;

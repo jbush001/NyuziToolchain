@@ -15,8 +15,8 @@
 #include "InputSection.h"
 #include "Symbols.h"
 
-#include "lld/Core/LLVM.h"
-#include "lld/Core/Reproduce.h"
+#include "lld/Common/LLVM.h"
+#include "lld/Common/Reproduce.h"
 #include "llvm/ADT/CachedHashString.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/STLExtras.h"
@@ -128,7 +128,7 @@ public:
   }
 
   llvm::object::ELFFile<ELFT> getObj() const {
-    return llvm::object::ELFFile<ELFT>(MB.getBuffer());
+    return check(llvm::object::ELFFile<ELFT>::create(MB.getBuffer()));
   }
 
   StringRef getStringTable() const { return StringTable; }
@@ -161,8 +161,6 @@ template <class ELFT> class ObjFile : public ELFFileBase<ELFT> {
 
 public:
   static bool classof(const InputFile *F) { return F->kind() == Base::ObjKind; }
-
-  static std::vector<ObjFile<ELFT> *> Instances;
 
   ArrayRef<SymbolBody *> getLocalSymbols();
 
@@ -221,8 +219,6 @@ private:
   llvm::once_flag InitDwarfLine;
 };
 
-template <class ELFT> std::vector<ObjFile<ELFT> *> ObjFile<ELFT>::Instances;
-
 // LazyObjFile is analogous to ArchiveFile in the sense that
 // the file contains lazy symbols. The difference is that
 // LazyObjFile wraps a single file instead of multiple files.
@@ -279,7 +275,6 @@ public:
   template <class ELFT>
   void parse(llvm::DenseSet<llvm::CachedHashStringRef> &ComdatGroups);
   std::unique_ptr<llvm::lto::InputFile> Obj;
-  static std::vector<BitcodeFile *> Instances;
 };
 
 // .so file.
@@ -298,8 +293,6 @@ template <class ELFT> class SharedFile : public ELFFileBase<ELFT> {
 
 public:
   std::string SoName;
-
-  static std::vector<SharedFile<ELFT> *> Instances;
 
   const Elf_Shdr *getSection(const Elf_Sym &Sym) const;
   llvm::ArrayRef<StringRef> getUndefinedSymbols() { return Undefs; }
@@ -332,20 +325,21 @@ public:
   bool isNeeded() const { return !AsNeeded || IsUsed; }
 };
 
-template <class ELFT>
-std::vector<SharedFile<ELFT> *> SharedFile<ELFT>::Instances;
-
 class BinaryFile : public InputFile {
 public:
   explicit BinaryFile(MemoryBufferRef M) : InputFile(BinaryKind, M) {}
   static bool classof(const InputFile *F) { return F->kind() == BinaryKind; }
   template <class ELFT> void parse();
-  static std::vector<BinaryFile *> Instances;
 };
 
 InputFile *createObjectFile(MemoryBufferRef MB, StringRef ArchiveName = "",
                             uint64_t OffsetInArchive = 0);
 InputFile *createSharedFile(MemoryBufferRef MB, StringRef DefaultSoName);
+
+extern std::vector<BinaryFile *> BinaryFiles;
+extern std::vector<BitcodeFile *> BitcodeFiles;
+extern std::vector<InputFile *> ObjectFiles;
+extern std::vector<InputFile *> SharedFiles;
 
 } // namespace elf
 } // namespace lld

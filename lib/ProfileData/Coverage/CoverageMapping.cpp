@@ -217,7 +217,7 @@ Error CoverageMapping::loadFunctionRecord(
                                                 Record.FunctionHash, Counts)) {
     instrprof_error IPE = InstrProfError::take(std::move(E));
     if (IPE == instrprof_error::hash_mismatch) {
-      MismatchedFunctionCount++;
+      FuncHashMismatches.emplace_back(Record.FunctionName, Record.FunctionHash);
       return Error::success();
     } else if (IPE != instrprof_error::unknown_function)
       return make_error<InstrProfError>(IPE);
@@ -237,7 +237,8 @@ Error CoverageMapping::loadFunctionRecord(
     Function.pushRegion(Region, *ExecutionCount);
   }
   if (Function.CountedRegions.size() != Record.MappingRegions.size()) {
-    MismatchedFunctionCount++;
+    FuncCounterMismatches.emplace_back(Record.FunctionName,
+                                       Function.CountedRegions.size());
     return Error::success();
   }
 
@@ -320,7 +321,7 @@ class SegmentBuilder {
 
   /// Emit a segment with the count from \p Region starting at \p StartLoc.
   //
-  /// \p IsRegionEntry: The segment is at the start of a new region.
+  /// \p IsRegionEntry: The segment is at the start of a new non-gap region.
   /// \p EmitSkippedRegion: The segment must be emitted as a skipped region.
   void startSegment(const CountedRegion &Region, LineColPair StartLoc,
                     bool IsRegionEntry, bool EmitSkippedRegion = false) {
@@ -337,7 +338,8 @@ class SegmentBuilder {
 
     if (HasCount)
       Segments.emplace_back(StartLoc.first, StartLoc.second,
-                            Region.ExecutionCount, IsRegionEntry);
+                            Region.ExecutionCount, IsRegionEntry,
+                            Region.Kind == CounterMappingRegion::GapRegion);
     else
       Segments.emplace_back(StartLoc.first, StartLoc.second, IsRegionEntry);
 
@@ -346,7 +348,8 @@ class SegmentBuilder {
       dbgs() << "Segment at " << Last.Line << ":" << Last.Col
              << " (count = " << Last.Count << ")"
              << (Last.IsRegionEntry ? ", RegionEntry" : "")
-             << (!Last.HasCount ? ", Skipped" : "") << "\n";
+             << (!Last.HasCount ? ", Skipped" : "")
+             << (Last.IsGapRegion ? ", Gap" : "") << "\n";
     });
   }
 
@@ -419,20 +422,22 @@ class SegmentBuilder {
         completeRegionsUntil(CurStartLoc, FirstCompletedRegion);
       }
 
+      bool GapRegion = CR.value().Kind == CounterMappingRegion::GapRegion;
+
       // Try to emit a segment for the current region.
       if (CurStartLoc == CR.value().endLoc()) {
         // Avoid making zero-length regions active. If it's the last region,
         // emit a skipped segment. Otherwise use its predecessor's count.
         const bool Skipped = (CR.index() + 1) == Regions.size();
         startSegment(ActiveRegions.empty() ? CR.value() : *ActiveRegions.back(),
-                     CurStartLoc, true, Skipped);
+                     CurStartLoc, !GapRegion, Skipped);
         continue;
       }
       if (CR.index() + 1 == Regions.size() ||
           CurStartLoc != Regions[CR.index() + 1].startLoc()) {
         // Emit a segment if the next region doesn't start at the same location
         // as this one.
-        startSegment(CR.value(), CurStartLoc, true);
+        startSegment(CR.value(), CurStartLoc, !GapRegion);
       }
 
       // This region is active (i.e not completed).
@@ -664,6 +669,59 @@ CoverageData CoverageMapping::getCoverageForExpansion(
   ExpansionCoverage.Segments = SegmentBuilder::buildSegments(Regions);
 
   return ExpansionCoverage;
+}
+
+LineCoverageStats::LineCoverageStats(
+    ArrayRef<const CoverageSegment *> LineSegments,
+    const CoverageSegment *WrappedSegment, unsigned Line)
+    : ExecutionCount(0), HasMultipleRegions(false), Mapped(false), Line(Line),
+      LineSegments(LineSegments), WrappedSegment(WrappedSegment) {
+  // Find the minimum number of regions which start in this line.
+  unsigned MinRegionCount = 0;
+  auto isStartOfRegion = [](const CoverageSegment *S) {
+    return !S->IsGapRegion && S->HasCount && S->IsRegionEntry;
+  };
+  for (unsigned I = 0; I < LineSegments.size() && MinRegionCount < 2; ++I)
+    if (isStartOfRegion(LineSegments[I]))
+      ++MinRegionCount;
+
+  bool StartOfSkippedRegion = !LineSegments.empty() &&
+                              !LineSegments.front()->HasCount &&
+                              LineSegments.front()->IsRegionEntry;
+
+  HasMultipleRegions = MinRegionCount > 1;
+  Mapped =
+      !StartOfSkippedRegion &&
+      ((WrappedSegment && WrappedSegment->HasCount) || (MinRegionCount > 0));
+
+  if (!Mapped)
+    return;
+
+  // Pick the max count from the non-gap, region entry segments. If there
+  // aren't any, use the wrapped count.
+  if (!MinRegionCount) {
+    ExecutionCount = WrappedSegment->Count;
+    return;
+  }
+  for (const auto *LS : LineSegments)
+    if (isStartOfRegion(LS))
+      ExecutionCount = std::max(ExecutionCount, LS->Count);
+}
+
+LineCoverageIterator &LineCoverageIterator::operator++() {
+  if (Next == CD.end()) {
+    Stats = LineCoverageStats();
+    Ended = true;
+    return *this;
+  }
+  if (Segments.size())
+    WrappedSegment = Segments.back();
+  Segments.clear();
+  while (Next != CD.end() && Next->Line == Line)
+    Segments.push_back(&*Next++);
+  Stats = LineCoverageStats(Segments, WrappedSegment, Line);
+  ++Line;
+  return *this;
 }
 
 static std::string getCoverageMapErrString(coveragemap_error Err) {

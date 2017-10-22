@@ -26,7 +26,7 @@
 #include "llvm/Analysis/AliasAnalysis.h"
 #include "llvm/Analysis/BranchProbabilityInfo.h"
 #include "llvm/Analysis/CFG.h"
-#include "llvm/Analysis/OptimizationDiagnosticInfo.h"
+#include "llvm/Analysis/OptimizationRemarkEmitter.h"
 #include "llvm/Analysis/TargetLibraryInfo.h"
 #include "llvm/CodeGen/FastISel.h"
 #include "llvm/CodeGen/FunctionLoweringInfo.h"
@@ -494,10 +494,9 @@ bool SelectionDAGISel::runOnMachineFunction(MachineFunction &mf) {
 
   DenseMap<unsigned, unsigned> LiveInMap;
   if (!FuncInfo->ArgDbgValues.empty())
-    for (MachineRegisterInfo::livein_iterator LI = RegInfo->livein_begin(),
-           E = RegInfo->livein_end(); LI != E; ++LI)
-      if (LI->second)
-        LiveInMap.insert(std::make_pair(LI->first, LI->second));
+    for (std::pair<unsigned, unsigned> LI : RegInfo->liveins())
+      if (LI.second)
+        LiveInMap.insert(LI);
 
   // Insert DBG_VALUE instructions for function arguments to the entry block.
   for (unsigned i = 0, e = FuncInfo->ArgDbgValues.size(); i != e; ++i) {
@@ -1182,12 +1181,7 @@ static void propagateSwiftErrorVRegs(FunctionLoweringInfo *FuncInfo) {
 
   // For each machine basic block in reverse post order.
   ReversePostOrderTraversal<MachineFunction *> RPOT(FuncInfo->MF);
-  for (ReversePostOrderTraversal<MachineFunction *>::rpo_iterator
-           It = RPOT.begin(),
-           E = RPOT.end();
-       It != E; ++It) {
-    MachineBasicBlock *MBB = *It;
-
+  for (MachineBasicBlock *MBB : RPOT) {
     // For each swifterror value in the function.
     for(const auto *SwiftErrorVal : FuncInfo->SwiftErrorVals) {
       auto Key = std::make_pair(MBB, SwiftErrorVal);
@@ -1258,6 +1252,8 @@ static void propagateSwiftErrorVRegs(FunctionLoweringInfo *FuncInfo) {
       // If we don't need a phi create a copy to the upward exposed vreg.
       if (!needPHI) {
         assert(UpwardsUse);
+        assert(!VRegs.empty() &&
+               "No predecessors?  Is the Calling Convention correct?");
         unsigned DestReg = UUseVReg;
         BuildMI(*MBB, MBB->getFirstNonPHI(), DLoc, TII->get(TargetOpcode::COPY),
                 DestReg)

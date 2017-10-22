@@ -16,7 +16,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "lld/Driver/Driver.h"
+#include "lld/Common/Driver.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/StringSwitch.h"
 #include "llvm/ADT/Twine.h"
@@ -45,7 +45,7 @@ static Flavor getFlavor(StringRef S) {
   return StringSwitch<Flavor>(S)
       .CasesLower("ld", "ld.lld", "gnu", Gnu)
       .CaseLower("link", WinLink)
-      .CaseLower("darwin", Darwin)
+      .CasesLower("ld64", "ld64.lld", "darwin", Darwin)
       .Default(Invalid);
 }
 

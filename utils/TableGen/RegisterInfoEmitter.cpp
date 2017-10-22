@@ -868,8 +868,8 @@ RegisterInfoEmitter::runMCDesc(raw_ostream &OS, CodeGenTarget &Target,
 
     // Compute the corresponding sub-register indexes.
     SubRegIdxVec &SRIs = SubRegIdxLists[i];
-    for (unsigned j = 0, je = SR.size(); j != je; ++j)
-      SRIs.push_back(Reg.getSubRegIndex(SR[j]));
+    for (const CodeGenRegister *S : SR)
+      SRIs.push_back(Reg.getSubRegIndex(S));
     SubRegIdxSeqs.add(SRIs);
 
     // Super-registers are already computed.
@@ -1007,8 +1007,7 @@ RegisterInfoEmitter::runMCDesc(raw_ostream &OS, CodeGenTarget &Target,
     OS << "  // " << Name << " Register Class...\n"
        << "  const MCPhysReg " << Name
        << "[] = {\n    ";
-    for (unsigned i = 0, e = Order.size(); i != e; ++i) {
-      Record *Reg = Order[i];
+    for (Record *Reg : Order) {
       OS << getQualifiedName(Reg) << ", ";
     }
     OS << "\n  };\n\n";
@@ -1017,8 +1016,7 @@ RegisterInfoEmitter::runMCDesc(raw_ostream &OS, CodeGenTarget &Target,
        << "  const uint8_t " << Name
        << "Bits[] = {\n    ";
     BitVectorEmitter BVE;
-    for (unsigned i = 0, e = Order.size(); i != e; ++i) {
-      Record *Reg = Order[i];
+    for (Record *Reg : Order) {
       BVE.add(Target.getRegBank().getReg(Reg)->EnumValue);
     }
     BVE.print(OS);
@@ -1236,7 +1234,6 @@ RegisterInfoEmitter::runTargetDesc(raw_ostream &OS, CodeGenTarget &Target,
        << " = {\n";
     for (unsigned M = 0; M < NumModes; ++M) {
       unsigned EV = 0;
-      (void)EV;
       OS << "  // Mode = " << M << " (";
       if (M == 0)
         OS << "Default";
@@ -1245,6 +1242,7 @@ RegisterInfoEmitter::runTargetDesc(raw_ostream &OS, CodeGenTarget &Target,
       OS << ")\n";
       for (const auto &RC : RegisterClasses) {
         assert(RC.EnumValue == EV++ && "Unexpected order of register classes");
+        (void)EV;
         const RegSizeInfo &RI = RC.RSI.get(M);
         OS << "  { " << RI.RegSize << ", " << RI.SpillSize << ", "
            << RI.SpillAlignment;

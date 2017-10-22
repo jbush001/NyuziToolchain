@@ -159,7 +159,7 @@ representation.
   misunderstood instruction.
 
 :doc:`Frontend/PerformanceTips`
-   A collection of tips for frontend authors on how to generate IR 
+   A collection of tips for frontend authors on how to generate IR
    which LLVM is able to effectively optimize.
 
 :doc:`Docker`
@@ -183,6 +183,7 @@ For developers of applications which use LLVM as a library.
    ProgrammersManual
    Extensions
    LibFuzzer
+   FuzzingLLVM
    ScudoHardenedAllocator
    OptBisect
 
@@ -227,6 +228,9 @@ For developers of applications which use LLVM as a library.
 
 :doc:`LibFuzzer`
   A library for writing in-process guided fuzzers.
+
+:doc:`FuzzingLLVM`
+  Information on writing and using Fuzzers to find bugs in LLVM.
 
 :doc:`ScudoHardenedAllocator`
   A library that implements a security-hardened `malloc()`.
@@ -281,6 +285,7 @@ For API clients and LLVM developers.
    XRayExample
    XRayFDRFormat
    PDB/index
+   CFIVerify
 
 :doc:`WritingAnLLVMPass`
    Information on how to write LLVM transformations and analyses.
@@ -410,6 +415,9 @@ For API clients and LLVM developers.
 
 :doc:`The Microsoft PDB File Format <PDB/index>`
   A detailed description of the Microsoft PDB (Program Database) file format.
+
+:doc:`CFIVerify`
+  A description of the verification tool for Control Flow Integrity.
 
 Development Process Documentation
 =================================

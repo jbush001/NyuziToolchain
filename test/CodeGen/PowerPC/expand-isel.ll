@@ -1,3 +1,4 @@
+; XFAIL: *
 target datalayout = "E-p:64:64:64-i1:8:8-i8:8:8-i16:16:16-i32:32:32-i64:64:64-f32:32:32-f64:64:64-v128:128:128-n32:64"
 target triple = "powerpc64-unknown-linux-gnu"
 ; RUN: llc -verify-machineinstrs -O2 -ppc-asm-full-reg-names -mcpu=pwr7 -ppc-gen-isel=false < %s | FileCheck %s --implicit-check-not isel
@@ -214,9 +215,7 @@ cleanup:
 ; CHECK-LABEL: @testComplexISEL
 ; CHECK-DAG: [[LI:r[0-9]+]], 1
 ; CHECK-DAG: cmplwi [[LD:r[0-9]+]], 0
-; CHECK: beq cr0, [[EQ:.LBB[0-9_]+]]
-; CHECK: blr
-; CHECK: [[EQ]]
+; CHECK: bnelr cr0
 ; CHECK: xor [[XOR:r[0-9]+]]
 ; CHECK: cntlzd [[CZ:r[0-9]+]], [[XOR]]
 ; CHECK: rldicl [[SH:r[0-9]+]], [[CZ]], 58, 63

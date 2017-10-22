@@ -612,6 +612,7 @@ void ASTDeclWriter::VisitFunctionDecl(FunctionDecl *D) {
 
 void ASTDeclWriter::VisitCXXDeductionGuideDecl(CXXDeductionGuideDecl *D) {
   VisitFunctionDecl(D);
+  Record.push_back(D->isCopyDeductionCandidate());
   Code = serialization::DECL_CXX_DEDUCTION_GUIDE;
 }
 
@@ -1309,6 +1310,8 @@ void ASTDeclWriter::VisitCXXDestructorDecl(CXXDestructorDecl *D) {
   VisitCXXMethodDecl(D);
 
   Record.AddDeclRef(D->getOperatorDelete());
+  if (D->getOperatorDelete())
+    Record.AddStmt(D->getOperatorDeleteThisArg());
 
   Code = serialization::DECL_CXX_DESTRUCTOR;
 }

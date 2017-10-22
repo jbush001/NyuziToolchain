@@ -19,6 +19,7 @@
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/CodeGen/LiveRegUnits.h"
 #include "llvm/CodeGen/MachineBasicBlock.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineFunction.h"
@@ -736,6 +737,7 @@ bool AArch64InstrInfo::isAsCheapAsAMove(const MachineInstr &MI) const {
 
 bool AArch64InstrInfo::isExynosShiftLeftFast(const MachineInstr &MI) const {
   unsigned Imm, Shift;
+  AArch64_AM::ShiftExtendType Ext;
 
   switch (MI.getOpcode()) {
   default:
@@ -779,8 +781,8 @@ bool AArch64InstrInfo::isExynosShiftLeftFast(const MachineInstr &MI) const {
   case AArch64::SUBXrs:
     Imm = MI.getOperand(3).getImm();
     Shift = AArch64_AM::getShiftValue(Imm);
-    return (Shift == 0 ||
-            (Shift <= 3 && AArch64_AM::getShiftType(Imm) == AArch64_AM::LSL));
+    Ext = AArch64_AM::getShiftType(Imm);
+    return (Shift == 0 || (Shift <= 3 && Ext == AArch64_AM::LSL));
 
   // WriteIEReg
   case AArch64::ADDSWrx:
@@ -797,8 +799,62 @@ bool AArch64InstrInfo::isExynosShiftLeftFast(const MachineInstr &MI) const {
   case AArch64::SUBXrx64:
     Imm = MI.getOperand(3).getImm();
     Shift = AArch64_AM::getArithShiftValue(Imm);
-    return (Shift == 0 ||
-            (Shift <= 3 && AArch64_AM::getExtendType(Imm) == AArch64_AM::UXTX));
+    Ext = AArch64_AM::getArithExtendType(Imm);
+    return (Shift == 0 || (Shift <= 3 && Ext == AArch64_AM::UXTX));
+
+  case AArch64::PRFMroW:
+  case AArch64::PRFMroX:
+
+  // WriteLDIdx
+  case AArch64::LDRBBroW:
+  case AArch64::LDRBBroX:
+  case AArch64::LDRHHroW:
+  case AArch64::LDRHHroX:
+  case AArch64::LDRSBWroW:
+  case AArch64::LDRSBWroX:
+  case AArch64::LDRSBXroW:
+  case AArch64::LDRSBXroX:
+  case AArch64::LDRSHWroW:
+  case AArch64::LDRSHWroX:
+  case AArch64::LDRSHXroW:
+  case AArch64::LDRSHXroX:
+  case AArch64::LDRSWroW:
+  case AArch64::LDRSWroX:
+  case AArch64::LDRWroW:
+  case AArch64::LDRWroX:
+  case AArch64::LDRXroW:
+  case AArch64::LDRXroX:
+
+  case AArch64::LDRBroW:
+  case AArch64::LDRBroX:
+  case AArch64::LDRDroW:
+  case AArch64::LDRDroX:
+  case AArch64::LDRHroW:
+  case AArch64::LDRHroX:
+  case AArch64::LDRSroW:
+  case AArch64::LDRSroX:
+
+  // WriteSTIdx
+  case AArch64::STRBBroW:
+  case AArch64::STRBBroX:
+  case AArch64::STRHHroW:
+  case AArch64::STRHHroX:
+  case AArch64::STRWroW:
+  case AArch64::STRWroX:
+  case AArch64::STRXroW:
+  case AArch64::STRXroX:
+
+  case AArch64::STRBroW:
+  case AArch64::STRBroX:
+  case AArch64::STRDroW:
+  case AArch64::STRDroX:
+  case AArch64::STRHroW:
+  case AArch64::STRHroX:
+  case AArch64::STRSroW:
+  case AArch64::STRSroX:
+    Imm = MI.getOperand(3).getImm();
+    Ext = AArch64_AM::getMemExtendType(Imm);
+    return (Ext == AArch64_AM::SXTX || Ext == AArch64_AM::UXTX);
   }
 }
 
@@ -982,6 +1038,12 @@ bool AArch64InstrInfo::areMemAccessesTriviallyDisjoint(
 bool AArch64InstrInfo::analyzeCompare(const MachineInstr &MI, unsigned &SrcReg,
                                       unsigned &SrcReg2, int &CmpMask,
                                       int &CmpValue) const {
+  // The first operand can be a frame index where we'd normally expect a
+  // register.
+  assert(MI.getNumOperands() >= 2 && "All AArch64 cmps should have 2 operands");
+  if (!MI.getOperand(1).isReg())
+    return false;
+
   switch (MI.getOpcode()) {
   default:
     break;
@@ -4479,38 +4541,135 @@ AArch64InstrInfo::getSerializableMachineMemOperandTargetFlags() const {
   return makeArrayRef(TargetFlags);
 }
 
-// Constants defining how certain sequences should be outlined.
-const unsigned MachineOutlinerDefaultFn = 0;
-const unsigned MachineOutlinerTailCallFn = 1;
+/// Constants defining how certain sequences should be outlined.
+/// This encompasses how an outlined function should be called, and what kind of
+/// frame should be emitted for that outlined function.
+///
+/// \p MachineOutlinerDefault implies that the function should be called with
+/// a save and restore of LR to the stack.
+///
+/// That is,
+///
+/// I1     Save LR                    OUTLINED_FUNCTION:
+/// I2 --> BL OUTLINED_FUNCTION       I1
+/// I3     Restore LR                 I2
+///                                   I3
+///                                   RET
+///
+/// * Call construction overhead: 3 (save + BL + restore)
+/// * Frame construction overhead: 1 (ret)
+/// * Requires stack fixups? Yes
+///
+/// \p MachineOutlinerTailCall implies that the function is being created from
+/// a sequence of instructions ending in a return.
+///
+/// That is,
+///
+/// I1                             OUTLINED_FUNCTION:
+/// I2 --> B OUTLINED_FUNCTION     I1
+/// RET                            I2
+///                                RET
+///
+/// * Call construction overhead: 1 (B)
+/// * Frame construction overhead: 0 (Return included in sequence)
+/// * Requires stack fixups? No
+///
+/// \p MachineOutlinerNoLRSave implies that the function should be called using
+/// a BL instruction, but doesn't require LR to be saved and restored. This
+/// happens when LR is known to be dead.
+///
+/// That is,
+///
+/// I1                                OUTLINED_FUNCTION:
+/// I2 --> BL OUTLINED_FUNCTION       I1
+/// I3                                I2
+///                                   I3
+///                                   RET
+///
+/// * Call construction overhead: 1 (BL)
+/// * Frame construction overhead: 1 (RET)
+/// * Requires stack fixups? No
+///
+enum MachineOutlinerClass {
+  MachineOutlinerDefault,  /// Emit a save, restore, call, and return.
+  MachineOutlinerTailCall, /// Only emit a branch.
+  MachineOutlinerNoLRSave  /// Emit a call and return.
+};
 
-std::pair<size_t, unsigned> AArch64InstrInfo::getOutliningCallOverhead(
-    MachineBasicBlock::iterator &StartIt,
-    MachineBasicBlock::iterator &EndIt) const {
-  // Is this a tail-call?
-  if (EndIt->isTerminator()) {
-    // Yes, so we only have to emit a call. Return a cost of 1 + signify that
-    // this candidate should be tail-called.
-    return std::make_pair(1, MachineOutlinerTailCallFn);
+bool AArch64InstrInfo::canOutlineWithoutLRSave(
+    MachineBasicBlock::iterator &CallInsertionPt) const {
+  // Was LR saved in the function containing this basic block?
+  MachineBasicBlock &MBB = *(CallInsertionPt->getParent());
+  LiveRegUnits LRU(getRegisterInfo());
+  LRU.addLiveOuts(MBB);
+
+  // Get liveness information from the end of the block to the end of the
+  // prospective outlined region.
+  std::for_each(MBB.rbegin(),
+               (MachineBasicBlock::reverse_iterator)CallInsertionPt,
+               [&LRU](MachineInstr &MI) {LRU.stepBackward(MI);}
+               );
+
+  // If the link register is available at this point, then we can safely outline
+  // the region without saving/restoring LR. Otherwise, we must emit a save and
+  // restore.
+  return LRU.available(AArch64::LR);
+}
+
+AArch64GenInstrInfo::MachineOutlinerInfo
+AArch64InstrInfo::getOutlininingCandidateInfo(
+    std::vector<
+        std::pair<MachineBasicBlock::iterator, MachineBasicBlock::iterator>>
+        &RepeatedSequenceLocs) const {
+
+  unsigned CallID = MachineOutlinerDefault;
+  unsigned FrameID = MachineOutlinerDefault;
+  unsigned NumInstrsForCall = 3;
+  unsigned NumInstrsToCreateFrame = 1;
+
+  auto DoesntNeedLRSave =
+      [this](std::pair<MachineBasicBlock::iterator, MachineBasicBlock::iterator>
+                 &I) { return canOutlineWithoutLRSave(I.second); };
+
+  // If the last instruction in any candidate is a terminator, then we should
+  // tail call all of the candidates.
+  if (RepeatedSequenceLocs[0].second->isTerminator()) {
+    CallID = MachineOutlinerTailCall;
+    FrameID = MachineOutlinerTailCall;
+    NumInstrsForCall = 1;
+    NumInstrsToCreateFrame = 0;
   }
 
-  // No, so save + restore LR.
-  return std::make_pair(3, MachineOutlinerDefaultFn);
+  else if (std::all_of(RepeatedSequenceLocs.begin(), RepeatedSequenceLocs.end(),
+                       DoesntNeedLRSave)) {
+    CallID = MachineOutlinerNoLRSave;
+    FrameID = MachineOutlinerNoLRSave;
+    NumInstrsForCall = 1;
+    NumInstrsToCreateFrame = 1;
+  }
+
+  return MachineOutlinerInfo(NumInstrsForCall, NumInstrsToCreateFrame, CallID,
+                             FrameID);
 }
 
-std::pair<size_t, unsigned> AArch64InstrInfo::getOutliningFrameOverhead(
-    std::vector<std::pair<MachineBasicBlock::iterator,
-                          MachineBasicBlock::iterator>> &CandidateClass) const {
+bool AArch64InstrInfo::isFunctionSafeToOutlineFrom(MachineFunction &MF,
+                                           bool OutlineFromLinkOnceODRs) const {
+  const Function *F = MF.getFunction();
 
-  // Is the last instruction in this class a terminator?
-  if (CandidateClass[0].second->isTerminator())
-    return std::make_pair(0, MachineOutlinerTailCallFn);
+  // If F uses a redzone, then don't outline from it because it might mess up
+  // the stack.
+  if (!F->hasFnAttribute(Attribute::NoRedZone))
+    return false;
 
-  // No, so we have to add a return to the end.
-  return std::make_pair(1, MachineOutlinerDefaultFn);
-}
+  // If anyone is using the address of this function, don't outline from it.
+  if (F->hasAddressTaken())
+    return false;
 
-bool AArch64InstrInfo::isFunctionSafeToOutlineFrom(MachineFunction &MF) const {
-  return MF.getFunction()->hasFnAttribute(Attribute::NoRedZone);
+  // Can F be deduplicated by the linker? If it can, don't outline from it.
+  if (!OutlineFromLinkOnceODRs && F->hasLinkOnceODRLinkage())
+    return false;
+  
+  return true;
 }
 
 AArch64GenInstrInfo::MachineOutlinerInstrType
@@ -4551,6 +4710,10 @@ AArch64InstrInfo::getOutliningType(MachineInstr &MI) const {
   for (const MachineOperand &MOP : MI.operands()) {
     if (MOP.isCPI() || MOP.isJTI() || MOP.isCFIIndex() || MOP.isFI() ||
         MOP.isTargetIndex())
+      return MachineOutlinerInstrType::Illegal;
+
+    // Don't outline anything that uses the link register.
+    if (MOP.isReg() && getRegisterInfo().regsOverlap(MOP.getReg(), AArch64::LR))
       return MachineOutlinerInstrType::Illegal;
   }
 
@@ -4621,12 +4784,12 @@ void AArch64InstrInfo::fixupPostOutline(MachineBasicBlock &MBB) const {
   }
 }
 
-void AArch64InstrInfo::insertOutlinerEpilogue(MachineBasicBlock &MBB,
-                                              MachineFunction &MF,
-                                              unsigned FrameClass) const {
+void AArch64InstrInfo::insertOutlinerEpilogue(
+    MachineBasicBlock &MBB, MachineFunction &MF,
+    const MachineOutlinerInfo &MInfo) const {
 
   // If this is a tail call outlined function, then there's already a return.
-  if (FrameClass == MachineOutlinerTailCallFn)
+  if (MInfo.FrameConstructionID == MachineOutlinerTailCall)
     return;
 
   // It's not a tail call, so we have to insert the return ourselves.
@@ -4634,28 +4797,40 @@ void AArch64InstrInfo::insertOutlinerEpilogue(MachineBasicBlock &MBB,
                           .addReg(AArch64::LR, RegState::Undef);
   MBB.insert(MBB.end(), ret);
 
+  // Did we have to modify the stack by saving the link register?
+  if (MInfo.FrameConstructionID == MachineOutlinerNoLRSave)
+    return;
+
+  // We modified the stack.
   // Walk over the basic block and fix up all the stack accesses.
   fixupPostOutline(MBB);
 }
 
-void AArch64InstrInfo::insertOutlinerPrologue(MachineBasicBlock &MBB,
-                                              MachineFunction &MF,
-                                              unsigned FrameClass) const {}
+void AArch64InstrInfo::insertOutlinerPrologue(
+    MachineBasicBlock &MBB, MachineFunction &MF,
+    const MachineOutlinerInfo &MInfo) const {}
 
 MachineBasicBlock::iterator AArch64InstrInfo::insertOutlinedCall(
     Module &M, MachineBasicBlock &MBB, MachineBasicBlock::iterator &It,
-    MachineFunction &MF, unsigned CallClass) const {
+    MachineFunction &MF, const MachineOutlinerInfo &MInfo) const {
 
   // Are we tail calling?
-  if (CallClass == MachineOutlinerTailCallFn) {
+  if (MInfo.CallConstructionID == MachineOutlinerTailCall) {
     // If yes, then we can just branch to the label.
     It = MBB.insert(It, BuildMI(MF, DebugLoc(), get(AArch64::B))
                             .addGlobalAddress(M.getNamedValue(MF.getName())));
     return It;
   }
 
-  // We're not tail calling, so we have to save LR before the call and restore
-  // it after.
+  // Are we saving the link register?
+  if (MInfo.CallConstructionID == MachineOutlinerNoLRSave) {
+    // No, so just insert the call.
+    It = MBB.insert(It, BuildMI(MF, DebugLoc(), get(AArch64::BL))
+                            .addGlobalAddress(M.getNamedValue(MF.getName())));
+    return It;
+  }
+
+  // We have a default call. Save the link register.
   MachineInstr *STRXpre = BuildMI(MF, DebugLoc(), get(AArch64::STRXpre))
                               .addReg(AArch64::SP, RegState::Define)
                               .addReg(AArch64::LR)

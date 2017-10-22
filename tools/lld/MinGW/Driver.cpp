@@ -11,7 +11,7 @@
 ///
 //===----------------------------------------------------------------------===//
 
-#include "lld/Driver/Driver.h"
+#include "lld/Common/Driver.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/Optional.h"
 #include "llvm/ADT/StringExtras.h"
@@ -136,6 +136,8 @@ bool mingw::link(ArrayRef<const char *> ArgsArr, raw_ostream &Diag) {
     Add("-implib:" + StringRef(A->getValue()));
   if (auto *A = Args.getLastArg(OPT_stack))
     Add("-stack:" + StringRef(A->getValue()));
+  if (auto *A = Args.getLastArg(OPT_output_def))
+    Add("-output-def:" + StringRef(A->getValue()));
 
   if (auto *A = Args.getLastArg(OPT_o))
     Add("-out:" + StringRef(A->getValue()));
@@ -148,6 +150,8 @@ bool mingw::link(ArrayRef<const char *> ArgsArr, raw_ostream &Diag) {
     Add("-dll");
   if (Args.hasArg(OPT_verbose))
     Add("-verbose");
+  if (Args.hasArg(OPT_export_all_symbols))
+    Add("-export-all-symbols");
 
   if (auto *A = Args.getLastArg(OPT_m)) {
     StringRef S = A->getValue();

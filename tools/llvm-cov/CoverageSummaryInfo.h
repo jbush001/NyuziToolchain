@@ -154,8 +154,8 @@ struct FunctionCoverageSummary {
 
   /// \brief Compute the code coverage summary for the given function coverage
   /// mapping record.
-  static FunctionCoverageSummary
-  get(const coverage::FunctionRecord &Function);
+  static FunctionCoverageSummary get(const coverage::CoverageMapping &CM,
+                                     const coverage::FunctionRecord &Function);
 
   /// Compute the code coverage summary for an instantiation group \p Group,
   /// given a list of summaries for each instantiation in \p Summaries.

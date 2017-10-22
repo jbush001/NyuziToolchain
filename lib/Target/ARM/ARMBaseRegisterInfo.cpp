@@ -93,8 +93,13 @@ ARMBaseRegisterInfo::getCalleeSavedRegs(const MachineFunction *MF) const {
   }
 
   if (STI.getTargetLowering()->supportSwiftError() &&
-      F->getAttributes().hasAttrSomewhere(Attribute::SwiftError))
-    return CSR_iOS_SwiftError_SaveList;
+      F->getAttributes().hasAttrSomewhere(Attribute::SwiftError)) {
+    if (STI.isTargetDarwin())
+      return CSR_iOS_SwiftError_SaveList;
+
+    return UseSplitPush ? CSR_AAPCS_SplitPush_SwiftError_SaveList :
+      CSR_AAPCS_SwiftError_SaveList;
+  }
 
   if (STI.isTargetDarwin() && F->getCallingConv() == CallingConv::CXX_FAST_TLS)
     return MF->getInfo<ARMFunctionInfo>()->isSplitCSR()
@@ -122,7 +127,8 @@ ARMBaseRegisterInfo::getCallPreservedMask(const MachineFunction &MF,
 
   if (STI.getTargetLowering()->supportSwiftError() &&
       MF.getFunction()->getAttributes().hasAttrSomewhere(Attribute::SwiftError))
-    return CSR_iOS_SwiftError_RegMask;
+    return STI.isTargetDarwin() ? CSR_iOS_SwiftError_RegMask
+                                : CSR_AAPCS_SwiftError_RegMask;
 
   if (STI.isTargetDarwin() && CC == CallingConv::CXX_FAST_TLS)
     return CSR_iOS_CXX_TLS_RegMask;
@@ -385,15 +391,11 @@ bool ARMBaseRegisterInfo::hasBasePointer(const MachineFunction &MF) const {
 
 bool ARMBaseRegisterInfo::canRealignStack(const MachineFunction &MF) const {
   const MachineRegisterInfo *MRI = &MF.getRegInfo();
-  const ARMFunctionInfo *AFI = MF.getInfo<ARMFunctionInfo>();
   const ARMFrameLowering *TFI = getFrameLowering(MF);
   // We can't realign the stack if:
   // 1. Dynamic stack realignment is explicitly disabled,
-  // 2. This is a Thumb1 function (it's not useful, so we don't bother), or
-  // 3. There are VLAs in the function and the base pointer is disabled.
+  // 2. There are VLAs in the function and the base pointer is disabled.
   if (!TargetRegisterInfo::canRealignStack(MF))
-    return false;
-  if (AFI->isThumb1OnlyFunction())
     return false;
   // Stack realignment requires a frame pointer.  If we already started
   // register allocation with frame pointer elimination, it is too late now.
@@ -801,7 +803,8 @@ bool ARMBaseRegisterInfo::shouldCoalesce(MachineInstr *MI,
                                   unsigned SubReg,
                                   const TargetRegisterClass *DstRC,
                                   unsigned DstSubReg,
-                                  const TargetRegisterClass *NewRC) const {
+                                  const TargetRegisterClass *NewRC,
+                                  LiveIntervals &LIS) const {
   auto MBB = MI->getParent();
   auto MF = MBB->getParent();
   const MachineRegisterInfo &MRI = MF->getRegInfo();

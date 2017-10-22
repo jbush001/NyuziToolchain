@@ -26,7 +26,8 @@
 #include "Strings.h"
 #include "SymbolTable.h"
 #include "SyntheticSections.h"
-#include "Threads.h"
+
+#include "lld/Common/Threads.h"
 
 #include "llvm/Support/raw_ostream.h"
 
@@ -50,7 +51,7 @@ static std::string indent(int Depth) { return std::string(Depth * 8, ' '); }
 // Returns a list of all symbols that we want to print out.
 template <class ELFT> static std::vector<Defined *> getSymbols() {
   std::vector<Defined *> V;
-  for (ObjFile<ELFT> *File : ObjFile<ELFT>::Instances) {
+  for (InputFile *File : ObjectFiles) {
     for (SymbolBody *B : File->getSymbols()) {
       if (auto *DR = dyn_cast<DefinedRegular>(B)) {
         if (DR->getFile() == File && !DR->isSection() && DR->Section &&
@@ -133,7 +134,7 @@ template <class ELFT> void elf::writeMapFile() {
     OS << OSec->Name << '\n';
 
     // Dump symbols for each input section.
-    for (BaseCommand *Base : OSec->Commands) {
+    for (BaseCommand *Base : OSec->SectionCommands) {
       auto *ISD = dyn_cast<InputSectionDescription>(Base);
       if (!ISD)
         continue;

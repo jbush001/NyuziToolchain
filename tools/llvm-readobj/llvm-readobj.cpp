@@ -22,12 +22,14 @@
 #include "llvm-readobj.h"
 #include "Error.h"
 #include "ObjDumper.h"
+#include "WindowsResourceDumper.h"
 #include "llvm/DebugInfo/CodeView/TypeTableBuilder.h"
 #include "llvm/Object/Archive.h"
 #include "llvm/Object/COFFImportFile.h"
 #include "llvm/Object/ELFObjectFile.h"
 #include "llvm/Object/MachOUniversal.h"
 #include "llvm/Object/ObjectFile.h"
+#include "llvm/Object/WindowsResource.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/DataTypes.h"
@@ -197,11 +199,6 @@ namespace opts {
   // -mips-options
   cl::opt<bool> MipsOptions("mips-options",
                             cl::desc("Display the MIPS .MIPS.options section"));
-
-  // -amdgpu-code-object-metadata
-  cl::opt<bool> AMDGPUCodeObjectMetadata(
-      "amdgpu-code-object-metadata",
-      cl::desc("Display AMDGPU code object metadata"));
 
   // -coff-imports
   cl::opt<bool>
@@ -438,9 +435,6 @@ static void dumpObject(const ObjectFile *Obj) {
       if (opts::MipsOptions)
         Dumper->printMipsOptions();
     }
-    if (Obj->getArch() == llvm::Triple::amdgcn)
-      if (opts::AMDGPUCodeObjectMetadata)
-        Dumper->printAMDGPUCodeObjectMetadata();
     if (opts::SectionGroups)
       Dumper->printGroupSections();
     if (opts::HashHistogram)
@@ -522,6 +516,15 @@ static void dumpMachOUniversalBinary(const MachOUniversalBinary *UBinary) {
   }
 }
 
+/// @brief Dumps \a WinRes, Windows Resource (.res) file;
+static void dumpWindowsResourceFile(WindowsResource *WinRes) {
+  ScopedPrinter Printer{outs()};
+  WindowsRes::Dumper Dumper(WinRes, Printer);
+  if (auto Err = Dumper.printData())
+    reportError(WinRes->getFileName(), std::move(Err));
+}
+
+
 /// @brief Opens \a File and dumps it.
 static void dumpInput(StringRef File) {
 
@@ -540,6 +543,8 @@ static void dumpInput(StringRef File) {
     dumpObject(Obj);
   else if (COFFImportFile *Import = dyn_cast<COFFImportFile>(&Binary))
     dumpCOFFImportFile(Import);
+  else if (WindowsResource *WinRes = dyn_cast<WindowsResource>(&Binary))
+    dumpWindowsResourceFile(WinRes);
   else
     reportError(File, readobj_error::unrecognized_file_format);
 }

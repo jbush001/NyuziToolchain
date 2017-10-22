@@ -67,9 +67,7 @@ define void @i24_insert_bit(i24* %a, i1 zeroext %bit) {
 ; X86-LABEL: i24_insert_bit:
 ; X86:       # BB#0:
 ; X86-NEXT:    pushl %esi
-; X86-NEXT:  .Lcfi0:
 ; X86-NEXT:    .cfi_def_cfa_offset 8
-; X86-NEXT:  .Lcfi1:
 ; X86-NEXT:    .cfi_offset %esi, -8
 ; X86-NEXT:    movl {{[0-9]+}}(%esp), %ecx
 ; X86-NEXT:    movzbl {{[0-9]+}}(%esp), %edx
@@ -87,16 +85,15 @@ define void @i24_insert_bit(i24* %a, i1 zeroext %bit) {
 ;
 ; X64-LABEL: i24_insert_bit:
 ; X64:       # BB#0:
-; X64-NEXT:    movzbl %sil, %eax
-; X64-NEXT:    movzwl (%rdi), %ecx
-; X64-NEXT:    movzbl 2(%rdi), %edx
-; X64-NEXT:    movb %dl, 2(%rdi)
-; X64-NEXT:    shll $16, %edx
-; X64-NEXT:    orl %ecx, %edx
-; X64-NEXT:    shll $13, %eax
-; X64-NEXT:    andl $16769023, %edx # imm = 0xFFDFFF
-; X64-NEXT:    orl %eax, %edx
-; X64-NEXT:    movw %dx, (%rdi)
+; X64-NEXT:    movzwl (%rdi), %eax
+; X64-NEXT:    movzbl 2(%rdi), %ecx
+; X64-NEXT:    movb %cl, 2(%rdi)
+; X64-NEXT:    shll $16, %ecx
+; X64-NEXT:    orl %eax, %ecx
+; X64-NEXT:    shll $13, %esi
+; X64-NEXT:    andl $16769023, %ecx # imm = 0xFFDFFF
+; X64-NEXT:    orl %esi, %ecx
+; X64-NEXT:    movw %cx, (%rdi)
 ; X64-NEXT:    retq
   %extbit = zext i1 %bit to i24
   %b = load i24, i24* %a, align 1
@@ -185,7 +182,7 @@ define void @i56_insert_bit(i56* %a, i1 zeroext %bit) {
 ;
 ; X64-LABEL: i56_insert_bit:
 ; X64:       # BB#0:
-; X64-NEXT:    movzbl %sil, %eax
+; X64-NEXT:    movl %esi, %eax
 ; X64-NEXT:    movzwl 4(%rdi), %ecx
 ; X64-NEXT:    movzbl 6(%rdi), %edx
 ; X64-NEXT:    movb %dl, 6(%rdi)

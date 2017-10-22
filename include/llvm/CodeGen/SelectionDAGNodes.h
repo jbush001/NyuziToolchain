@@ -1434,6 +1434,9 @@ public:
   const APInt &getAPIntValue() const { return Value->getValue(); }
   uint64_t getZExtValue() const { return Value->getZExtValue(); }
   int64_t getSExtValue() const { return Value->getSExtValue(); }
+  uint64_t getLimitedValue(uint64_t Limit = UINT64_MAX) {
+    return Value->getLimitedValue(Limit);
+  }
 
   bool isOne() const { return Value->isOne(); }
   bool isNullValue() const { return Value->isZero(); }
@@ -1487,11 +1490,7 @@ public:
   /// convenient to write "2.0" and the like.  Without this function we'd
   /// have to duplicate its logic everywhere it's called.
   bool isExactlyValue(double V) const {
-    bool ignored;
-    APFloat Tmp(V);
-    Tmp.convert(Value->getValueAPF().getSemantics(),
-                APFloat::rmNearestTiesToEven, &ignored);
-    return isExactlyValue(Tmp);
+    return Value->getValueAPF().isExactlyValue(V);
   }
   bool isExactlyValue(const APFloat& V) const;
 

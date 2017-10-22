@@ -10,6 +10,8 @@
 #include "Error.h"
 #include "Config.h"
 
+#include "lld/Common/Threads.h"
+
 #include "llvm/ADT/Twine.h"
 #include "llvm/Support/Error.h"
 #include "llvm/Support/ManagedStatic.h"
@@ -100,6 +102,8 @@ void elf::error(const Twine &Msg) {
 }
 
 void elf::exitLld(int Val) {
+  waitForBackgroundThreads();
+
   // Dealloc/destroy ManagedStatic variables before calling
   // _exit(). In a non-LTO build, this is a nop. In an LTO
   // build allows us to get the output of -time-passes.
