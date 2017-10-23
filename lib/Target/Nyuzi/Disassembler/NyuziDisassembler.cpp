@@ -36,6 +36,8 @@ public:
                     const MCRegisterInfo *Info)
       : MCDisassembler(STI, Ctx), RegInfo(Info) {}
 
+  ~NyuziDisassembler() override = default;
+
   const MCRegisterInfo *getRegInfo() const { return RegInfo; }
 
   /// getInstruction - See MCDisassembler.

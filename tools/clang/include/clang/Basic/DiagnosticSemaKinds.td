@@ -295,8 +295,20 @@ def warn_empty_parens_are_function_decl : Warning<
 def warn_parens_disambiguated_as_function_declaration : Warning<
   "parentheses were disambiguated as a function declaration">,
   InGroup<VexingParse>;
+def warn_parens_disambiguated_as_variable_declaration : Warning<
+  "parentheses were disambiguated as redundant parentheses around declaration "
+  "of variable named %0">, InGroup<VexingParse>;
+def warn_redundant_parens_around_declarator : Warning<
+  "redundant parentheses surrounding declarator">,
+  InGroup<DiagGroup<"redundant-parens">>, DefaultIgnore;
 def note_additional_parens_for_variable_declaration : Note<
   "add a pair of parentheses to declare a variable">;
+def note_raii_guard_add_name : Note<
+  "add a variable name to declare a %0 initialized with %1">;
+def note_function_style_cast_add_parentheses : Note<
+  "add enclosing parentheses to perform a function-style cast">;
+def note_remove_parens_for_variable_declaration : Note<
+  "remove parentheses to silence this warning">;
 def note_empty_parens_function_call : Note<
   "change this ',' to a ';' to call %0">;
 def note_empty_parens_default_ctor : Note<
@@ -343,7 +355,7 @@ def warn_implicit_function_decl : Warning<
   "implicit declaration of function %0">,
   InGroup<ImplicitFunctionDeclare>, DefaultIgnore;
 def ext_implicit_function_decl : ExtWarn<
-  "implicit declaration of function %0 is invalid in C99">,
+  "implicit declaration of function %0 is invalid in %select{C99|OpenCL}1">,
   InGroup<ImplicitFunctionDeclare>;
 def note_function_suggestion : Note<"did you mean %0?">;
 
@@ -354,8 +366,10 @@ def err_language_linkage_spec_unknown : Error<"unknown linkage language">;
 def err_language_linkage_spec_not_ascii : Error<
   "string literal in language linkage specifier cannot have an "
   "encoding-prefix">;
-def warn_use_out_of_scope_declaration : Warning<
-  "use of out-of-scope declaration of %0">;
+def ext_use_out_of_scope_declaration : ExtWarn<
+  "use of out-of-scope declaration of %0%select{| whose type is not "
+  "compatible with that of an implicit declaration}1">,
+  InGroup<DiagGroup<"out-of-scope-function">>;
 def err_inline_non_function : Error<
   "'inline' can only appear on functions%select{| and non-local variables}0">;
 def err_noreturn_non_function : Error<
@@ -1661,6 +1675,11 @@ def err_conflicting_overriding_cc_attributes : Error<
   "virtual function %0 has different calling convention attributes "
   "%diff{($) than the function it overrides (which has calling convention $)|"
   "than the function it overrides}1,2">;
+def warn_overriding_method_missing_noescape : Warning<
+  "parameter of overriding method should be annotated with "
+  "__attribute__((noescape))">, InGroup<MissingNoEscape>;
+def note_overridden_marked_noescape : Note<
+  "parameter of overridden method is annotated with __attribute__((noescape))">;
 
 def err_covariant_return_inaccessible_base : Error<
   "invalid covariant return for virtual function: %1 is a "
@@ -2615,6 +2634,8 @@ def err_attribute_section_invalid_for_target : Error<
   "argument to 'section' attribute is not valid for this target: %0">;
 def warn_mismatched_section : Warning<
   "section does not match previous declaration">, InGroup<Section>;
+def warn_attribute_section_on_redeclaration : Warning<
+  "section attribute is specified on redeclared variable">, InGroup<Section>;
 
 def err_anonymous_property: Error<
   "anonymous property is not supported">;
@@ -4707,6 +4728,14 @@ def note_deleted_assign_field : Note<
 def warn_undefined_internal : Warning<
   "%select{function|variable}0 %q1 has internal linkage but is not defined">,
   InGroup<DiagGroup<"undefined-internal">>;
+def err_undefined_internal_type : Error<
+  "%select{function|variable}0 %q1 is used but not defined in this "
+  "translation unit, and cannot be defined in any other translation unit "
+  "because its type does not have linkage">;
+def ext_undefined_internal_type : Extension<
+  "ISO C++ requires a definition in this translation unit for "
+  "%select{function|variable}0 %q1 because its type does not have linkage">,
+  InGroup<DiagGroup<"undefined-internal-type">>;
 def warn_undefined_inline : Warning<"inline function %q0 is not defined">,
   InGroup<DiagGroup<"undefined-inline">>;
 def err_undefined_inline_var : Error<"inline variable %q0 is not defined">;
@@ -4772,6 +4801,9 @@ def err_thread_non_thread : Error<
 def err_thread_thread_different_kind : Error<
   "thread-local declaration of %0 with %select{static|dynamic}1 initialization "
   "follows declaration with %select{dynamic|static}1 initialization">;
+def err_mismatched_owning_module : Error<
+  "declaration of %0 in %select{the global module|module %2}1 follows "
+  "declaration in %select{the global module|module %4}3">;
 def err_redefinition_different_type : Error<
   "redefinition of %0 with a different type%diff{: $ vs $|}1,2">;
 def err_redefinition_different_kind : Error<
@@ -5501,6 +5533,12 @@ def err_offsetof_field_of_virtual_base : Error<
 def warn_sub_ptr_zero_size_types : Warning<
   "subtraction of pointers to type %0 of zero size has undefined behavior">,
   InGroup<PointerArith>;
+def warn_pointer_arith_null_ptr : Warning<
+  "performing pointer arithmetic on a null pointer has undefined behavior%select{| if the offset is nonzero}0">,
+  InGroup<NullPointerArithmetic>, DefaultIgnore;
+def warn_gnu_null_ptr_arith : Warning<
+  "arithmetic on a null pointer treated as a cast from integer to pointer is a GNU extension">,
+  InGroup<NullPointerArithmetic>, DefaultIgnore;
 
 def warn_floatingpoint_eq : Warning<
   "comparing floating point with == or != is unsafe">,
@@ -5888,6 +5926,8 @@ def err_typecheck_assign_const : Error<
   "cannot assign to %select{non-|}1static data member %2 "
   "with const-qualified type %3|"
   "cannot assign to non-static data member within const member function %1|"
+  "cannot assign to %select{variable %2|non-static data member %2|lvalue}1 "
+  "with %select{|nested }3const-qualified data member %4|"
   "read-only variable is not assignable}0">;
 
 def note_typecheck_assign_const : Note<
@@ -5895,21 +5935,29 @@ def note_typecheck_assign_const : Note<
   "function %1 which returns const-qualified type %2 declared here|"
   "variable %1 declared const here|"
   "%select{non-|}1static data member %2 declared const here|"
-  "member function %q1 is declared const here}0">;
+  "member function %q1 is declared const here|"
+  "%select{|nested }1data member %2 declared const here}0">;
+
+def warn_unsigned_always_true_comparison : Warning<
+  "comparison of %select{%3|unsigned expression}0 %2 "
+  "%select{unsigned expression|%3}0 is always %select{false|true}4">,
+  InGroup<TautologicalUnsignedZeroCompare>;
+def warn_unsigned_enum_always_true_comparison : Warning<
+  "comparison of %select{%3|unsigned enum expression}0 %2 "
+  "%select{unsigned enum expression|%3}0 is always %select{false|true}4">,
+  InGroup<TautologicalUnsignedEnumZeroCompare>;
+def warn_tautological_constant_compare : Warning<
+  "comparison %select{%3|%1}0 %2 "
+  "%select{%1|%3}0 is always %select{false|true}4">,
+  InGroup<TautologicalConstantCompare>;
 
 def warn_mixed_sign_comparison : Warning<
   "comparison of integers of different signs: %0 and %1">,
   InGroup<SignCompare>, DefaultIgnore;
-def warn_lunsigned_always_true_comparison : Warning<
-  "comparison of unsigned%select{| enum}2 expression %0 is always %1">,
-  InGroup<TautologicalUnsignedZeroCompare>;
 def warn_out_of_range_compare : Warning<
   "comparison of %select{constant %0|true|false}1 with " 
   "%select{expression of type %2|boolean expression}3 is always "
   "%select{false|true}4">, InGroup<TautologicalOutOfRangeCompare>;
-def warn_runsigned_always_true_comparison : Warning<
-  "comparison of %0 unsigned%select{| enum}2 expression is always %1">,
-  InGroup<TautologicalUnsignedZeroCompare>;
 def warn_comparison_of_mixed_enum_types : Warning<
   "comparison of two values with different enumeration types"
   "%diff{ ($ and $)|}0,1">,
@@ -7564,6 +7612,11 @@ def err_operator_delete_dependent_param_type : Error<
   "%0 cannot take a dependent type as first parameter; use %1 instead">;
 def err_operator_delete_param_type : Error<
   "first parameter of %0 must have type %1">;
+def err_destroying_operator_delete_not_usual : Error<
+  "destroying operator delete can have only an optional size and optional "
+  "alignment parameter">;
+def note_implicit_delete_this_in_destructor_here : Note<
+  "while checking implicit 'delete this' for virtual destructor">;
 
 // C++ literal operators
 def err_literal_operator_outside_namespace : Error<
@@ -8235,12 +8288,12 @@ def err_c99_array_usage_cxx : Error<
   "feature, not permitted in C++">;
 def err_type_unsupported : Error<
   "%0 is not supported on this target">;
-def err_nsconsumed_attribute_mismatch : Error<
+def warn_nsconsumed_attribute_mismatch : Warning<
   "overriding method has mismatched ns_consumed attribute on its"
-  " parameter">;
-def err_nsreturns_retained_attribute_mismatch : Error<
+  " parameter">, InGroup<NSConsumedMismatch>;
+def warn_nsreturns_retained_attribute_mismatch : Warning<
   "overriding method has mismatched ns_returns_%select{not_retained|retained}0"
-  " attributes">;
+  " attributes">, InGroup<NSReturnsMismatch>;
   
 def note_getter_unavailable : Note<
   "or because setter is declared here, but no getter method %0 is found">;
@@ -8404,8 +8457,6 @@ def err_opencl_scalar_type_rank_greater_than_vector_type : Error<
     "element. (%0 and %1)">;
 def err_bad_kernel_param_type : Error<
   "%0 cannot be used as the type of a kernel parameter">;
-def err_opencl_implicit_function_decl : Error<
-  "implicit declaration of function %0 is invalid in OpenCL">;
 def err_record_with_pointers_kernel_param : Error<
   "%select{struct|union}0 kernel parameters may not contain pointers">;
 def note_within_field_of_type : Note<
@@ -8866,7 +8917,7 @@ def note_omp_critical_no_hint : Note<
 def err_omp_depend_clause_thread_simd : Error<
   "'depend' clauses cannot be mixed with '%0' clause">;
 def err_omp_depend_sink_expected_loop_iteration : Error<
-  "expected %0 loop iteration variable">;
+  "expected%select{| %1}0 loop iteration variable">;
 def err_omp_depend_sink_unexpected_expr : Error<
   "unexpected expression: number of expressions is larger than the number of associated loops">;
 def err_omp_depend_sink_expected_plus_minus : Error<
@@ -8948,6 +8999,14 @@ def err_module_redefinition : Error<
   "redefinition of module '%0'">;
 def note_prev_module_definition : Note<"previously defined here">;
 def note_prev_module_definition_from_ast_file : Note<"module loaded from '%0'">;
+def err_module_not_defined : Error<
+  "definition of module '%0' is not available; use -fmodule-file= to specify "
+  "path to precompiled module interface">;
+def err_module_redeclaration : Error<
+  "translation unit contains multiple module declarations">;
+def note_prev_module_declaration : Note<"previous module declaration is here">;
+def err_module_declaration_missing : Error<
+  "missing 'export module' declaration in module interface unit">;
 def err_module_private_specialization : Error<
   "%select{template|partial|member}0 specialization cannot be "
   "declared __module_private__">;

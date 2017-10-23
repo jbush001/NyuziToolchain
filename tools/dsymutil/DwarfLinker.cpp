@@ -525,6 +525,9 @@ public:
   /// Emit the string table described by \p Pool.
   void emitStrings(const NonRelocatableStringpool &Pool);
 
+  /// Emit the swift_ast section stored in \p Buffer.
+  void emitSwiftAST(StringRef Buffer);
+
   /// Emit debug_ranges for \p FuncRange by translating the
   /// original \p Entries.
   void emitRangesEntries(
@@ -620,7 +623,8 @@ bool DwarfStreamer::init(Triple TheTriple, StringRef OutputFilename) {
 
   MCTargetOptions MCOptions = InitMCTargetOptionsFromFlags();
   MS = TheTarget->createMCObjectStreamer(
-      TheTriple, *MC, *MAB, *OutFile, MCE, *MSTI, MCOptions.MCRelaxAll,
+      TheTriple, *MC, std::unique_ptr<MCAsmBackend>(MAB), *OutFile,
+      std::unique_ptr<MCCodeEmitter>(MCE), *MSTI, MCOptions.MCRelaxAll,
       MCOptions.MCIncrementalLinkerCompatible,
       /*DWARFMustBeAtTheEnd*/ false);
   if (!MS)
@@ -706,6 +710,14 @@ void DwarfStreamer::emitStrings(const NonRelocatableStringpool &Pool) {
        Entry = Pool.getNextEntry(Entry))
     Asm->OutStreamer->EmitBytes(
         StringRef(Entry->getKey().data(), Entry->getKey().size() + 1));
+}
+
+/// Emit the swift_ast section stored in \p Buffers.
+void DwarfStreamer::emitSwiftAST(StringRef Buffer) {
+  MCSection *SwiftASTSection = MOFI->getDwarfSwiftASTSection();
+  SwiftASTSection->setAlignment(1 << 5);
+  MS->SwitchSection(SwiftASTSection);
+  MS->EmitBytes(Buffer);
 }
 
 /// Emit the debug_range section contents for \p FuncRange by
@@ -1495,8 +1507,12 @@ static DWARFDie resolveDIEReference(
   uint64_t RefOffset = *RefValue.getAsReference();
 
   if ((RefCU = getUnitForOffset(Units, RefOffset)))
-    if (const auto RefDie = RefCU->getOrigUnit().getDIEForOffset(RefOffset))
-      return RefDie;
+    if (const auto RefDie = RefCU->getOrigUnit().getDIEForOffset(RefOffset)) {
+      // In a file with broken references, an attribute might point to a NULL
+      // DIE.
+      if(!RefDie.isNULL())
+        return RefDie;
+    }
 
   Linker.reportWarning("could not find referenced DIE", &DIE);
   return DWARFDie();
@@ -1744,10 +1760,11 @@ void DwarfLinker::reportWarning(const Twine &Warning,
     return;
 
   DIDumpOptions DumpOpts;
+  DumpOpts.RecurseDepth = 0;
   DumpOpts.Verbose = Options.Verbose;
 
   errs() << "    in DIE:\n";
-  DIE->dump(errs(), 0 /* RecurseDepth */, 6 /* Indent */, DumpOpts);
+  DIE->dump(errs(), 6 /* Indent */, DumpOpts);
 }
 
 bool DwarfLinker::createStreamer(const Triple &TheTriple,
@@ -1787,7 +1804,8 @@ static bool analyzeContextInfo(const DWARFDie &DIE,
   //
   // We treat non-C++ modules like namespaces for this reason.
   if (DIE.getTag() == dwarf::DW_TAG_module && ParentIdx == 0 &&
-      dwarf::toString(DIE.find(dwarf::DW_AT_name), "") != CU.getClangModuleName()) {
+      dwarf::toString(DIE.find(dwarf::DW_AT_name), "") !=
+          CU.getClangModuleName()) {
     InImportedModule = true;
   }
 
@@ -2112,8 +2130,9 @@ unsigned DwarfLinker::shouldKeepVariableDIE(RelocationManager &RelocMgr,
 
   if (Options.Verbose) {
     DIDumpOptions DumpOpts;
+    DumpOpts.RecurseDepth = 0;
     DumpOpts.Verbose = Options.Verbose;
-    DIE.dump(outs(), 0, 8 /* Indent */, DumpOpts);
+    DIE.dump(outs(), 8 /* Indent */, DumpOpts);
   }
 
   return Flags | TF_Keep;
@@ -2147,8 +2166,9 @@ unsigned DwarfLinker::shouldKeepSubprogramDIE(
 
   if (Options.Verbose) {
     DIDumpOptions DumpOpts;
+    DumpOpts.RecurseDepth = 0;
     DumpOpts.Verbose = Options.Verbose;
-    DIE.dump(outs(), 0, 8 /* Indent */, DumpOpts);
+    DIE.dump(outs(), 8 /* Indent */, DumpOpts);
   }
 
   Flags |= TF_Keep;
@@ -2789,11 +2809,13 @@ DIE *DwarfLinker::DIECloner::cloneDIE(
     // file might be start address of another function which got moved
     // independantly by the linker). The computation of the actual
     // high_pc value is done in cloneAddressAttribute().
-    AttrInfo.OrigHighPc = dwarf::toAddress(InputDIE.find(dwarf::DW_AT_high_pc), 0);
+    AttrInfo.OrigHighPc =
+        dwarf::toAddress(InputDIE.find(dwarf::DW_AT_high_pc), 0);
     // Also store the low_pc. It might get relocated in an
     // inline_subprogram that happens at the beginning of its
     // inlining function.
-    AttrInfo.OrigLowPc = dwarf::toAddress(InputDIE.find(dwarf::DW_AT_low_pc), UINT64_MAX);
+    AttrInfo.OrigLowPc =
+        dwarf::toAddress(InputDIE.find(dwarf::DW_AT_low_pc), UINT64_MAX);
   }
 
   // Reset the Offset to 0 as we will be working on the local copy of
@@ -2914,7 +2936,8 @@ void DwarfLinker::patchRangesForUnit(const CompileUnit &Unit,
   auto InvalidRange = FunctionRanges.end(), CurrRange = InvalidRange;
   DWARFUnit &OrigUnit = Unit.getOrigUnit();
   auto OrigUnitDie = OrigUnit.getUnitDIE(false);
-  uint64_t OrigLowPc = dwarf::toAddress(OrigUnitDie.find(dwarf::DW_AT_low_pc), -1ULL);
+  uint64_t OrigLowPc =
+      dwarf::toAddress(OrigUnitDie.find(dwarf::DW_AT_low_pc), -1ULL);
   // Ranges addresses are based on the unit's low_pc. Compute the
   // offset we need to apply to adapt to the new unit's low_pc.
   int64_t UnitPcOffset = 0;
@@ -3318,8 +3341,8 @@ void DwarfLinker::loadClangModule(StringRef Filename, StringRef ModulePath,
   else
     sys::path::append(Path, Filename);
   BinaryHolder ObjHolder(Options.Verbose);
-  auto &Obj =
-      ModuleMap.addDebugMapObject(Path, sys::TimePoint<std::chrono::seconds>());
+  auto &Obj = ModuleMap.addDebugMapObject(
+      Path, sys::TimePoint<std::chrono::seconds>(), MachO::N_OSO);
   auto ErrOrObj = loadObject(ObjHolder, Obj, ModuleMap);
   if (!ErrOrObj) {
     // Try and emit more helpful warnings by applying some heuristics.
@@ -3464,6 +3487,35 @@ bool DwarfLinker::link(const DebugMap &Map) {
 
     if (Options.Verbose)
       outs() << "DEBUG MAP OBJECT: " << Obj->getObjectFilename() << "\n";
+
+    // N_AST objects (swiftmodule files) should get dumped directly into the
+    // appropriate DWARF section.
+    if (Obj->getType() == MachO::N_AST) {
+      StringRef File = Obj->getObjectFilename();
+      auto ErrorOrMem = MemoryBuffer::getFile(File);
+      if (!ErrorOrMem) {
+        errs() << "Warning: Could not open " << File << "\n";
+        continue;
+      }
+      sys::fs::file_status Stat;
+      if (auto errc = sys::fs::status(File, Stat)) {
+        errs() << "Warning: " << errc.message() << "\n";
+        continue;
+      }
+      if (!Options.NoTimestamp && Stat.getLastModificationTime() !=
+                                      sys::TimePoint<>(Obj->getTimestamp())) {
+        errs() << "Warning: Timestamp mismatch for " << File << ": "
+               << Stat.getLastModificationTime() << " and "
+               << sys::TimePoint<>(Obj->getTimestamp()) << "\n";
+        continue;
+      }
+
+      // Copy the module into the .swift_ast section.
+      if (!Options.NoOutput)
+        Streamer->emitSwiftAST((*ErrorOrMem)->getBuffer());
+      continue;
+    }
+
     auto ErrOrObj = loadObject(BinHolder, *Obj, Map);
     if (!ErrOrObj)
       continue;
@@ -3486,8 +3538,9 @@ bool DwarfLinker::link(const DebugMap &Map) {
       if (Options.Verbose) {
         outs() << "Input compilation unit:";
         DIDumpOptions DumpOpts;
+        DumpOpts.RecurseDepth = 0;
         DumpOpts.Verbose = Options.Verbose;
-        CUDie.dump(outs(), 0, 0, DumpOpts);
+        CUDie.dump(outs(), 0, DumpOpts);
       }
 
       if (!registerModuleReference(CUDie, *CU, ModuleMap)) {

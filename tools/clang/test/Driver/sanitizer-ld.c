@@ -17,7 +17,20 @@
 // CHECK-ASAN-LINUX: "-ldl"
 
 // RUN: %clang -no-canonical-prefixes %s -### -o %t.o 2>&1 \
+// RUN:     -target i386-unknown-linux -fuse-ld=ld -fsanitize=address -shared-libsan \
+// RUN:     -resource-dir=%S/Inputs/resource_dir \
+// RUN:     --sysroot=%S/Inputs/basic_linux_tree \
+// RUN:   | FileCheck --check-prefix=CHECK-SHARED-ASAN-LINUX %s
+
+// RUN: %clang -no-canonical-prefixes %s -### -o %t.o 2>&1 \
 // RUN:     -target i386-unknown-linux -fuse-ld=ld -fsanitize=address -shared-libasan \
+// RUN:     -resource-dir=%S/Inputs/resource_dir \
+// RUN:     --sysroot=%S/Inputs/basic_linux_tree \
+// RUN:   | FileCheck --check-prefix=CHECK-SHARED-ASAN-LINUX %s
+
+// RUN: %clang -no-canonical-prefixes %s -### -o %t.o 2>&1 \
+// RUN:     -target i386-unknown-linux -fuse-ld=ld -fsanitize=address \
+// RUN:     -shared-libsan -static-libsan -shared-libasan             \
 // RUN:     -resource-dir=%S/Inputs/resource_dir \
 // RUN:     --sysroot=%S/Inputs/basic_linux_tree \
 // RUN:   | FileCheck --check-prefix=CHECK-SHARED-ASAN-LINUX %s
@@ -34,7 +47,7 @@
 // CHECK-SHARED-ASAN-LINUX-NOT: "--dynamic-list"
 
 // RUN: %clang -no-canonical-prefixes %s -### -o %t.so -shared 2>&1 \
-// RUN:     -target i386-unknown-linux -fuse-ld=ld -fsanitize=address -shared-libasan \
+// RUN:     -target i386-unknown-linux -fuse-ld=ld -fsanitize=address -shared-libsan \
 // RUN:     -resource-dir=%S/Inputs/resource_dir \
 // RUN:     --sysroot=%S/Inputs/basic_linux_tree \
 // RUN:   | FileCheck --check-prefix=CHECK-DSO-SHARED-ASAN-LINUX %s
@@ -131,6 +144,39 @@
 // CHECK-ASAN-ANDROID-NOT: "-lpthread"
 // CHECK-ASAN-ANDROID: libclang_rt.asan-arm-android.so"
 // CHECK-ASAN-ANDROID-NOT: "-lpthread"
+
+// RUN: %clang -no-canonical-prefixes %s -### -o %t.o 2>&1 \
+// RUN:     -target arm-linux-androideabi -fuse-ld=ld -fsanitize=address \
+// RUN:     --sysroot=%S/Inputs/basic_android_tree/sysroot \
+// RUN:     -static-libsan \
+// RUN:   | FileCheck --check-prefix=CHECK-ASAN-ANDROID-STATICLIBASAN %s
+//
+// CHECK-ASAN-ANDROID-STATICLIBASAN: "{{(.*[^.0-9A-Z_a-z])?}}ld{{(.exe)?}}"
+// CHECK-ASAN-ANDROID-STATICLIBASAN: libclang_rt.asan-arm-android.a"
+// CHECK-ASAN-ANDROID-STATICLIBASAN: "-lpthread"
+
+// RUN: %clang -no-canonical-prefixes %s -### -o %t.o 2>&1 \
+// RUN:     -target arm-linux-androideabi -fuse-ld=ld -fsanitize=undefined \
+// RUN:     --sysroot=%S/Inputs/basic_android_tree/sysroot \
+// RUN:   | FileCheck --check-prefix=CHECK-UBSAN-ANDROID %s
+//
+// CHECK-UBSAN-ANDROID: "{{(.*[^.0-9A-Z_a-z])?}}ld{{(.exe)?}}"
+// CHECK-UBSAN-ANDROID-NOT: "-lc"
+// CHECK-UBSAN-ANDROID-NOT: "-pie"
+// CHECK-UBSAN-ANDROID-NOT: "-lpthread"
+// CHECK-UBSAN-ANDROID: libclang_rt.ubsan_standalone-arm-android.so"
+// CHECK-UBSAN-ANDROID-NOT: "-lpthread"
+
+// RUN: %clang -no-canonical-prefixes %s -### -o %t.o 2>&1 \
+// RUN:     -target arm-linux-androideabi -fuse-ld=ld -fsanitize=undefined \
+// RUN:     --sysroot=%S/Inputs/basic_android_tree/sysroot \
+// RUN:     -static-libsan \
+// RUN:   | FileCheck --check-prefix=CHECK-UBSAN-ANDROID-STATICLIBASAN %s
+//
+// CHECK-UBSAN-ANDROID-STATICLIBASAN: "{{(.*[^.0-9A-Z_a-z])?}}ld{{(.exe)?}}"
+// CHECK-UBSAN-ANDROID-STATICLIBASAN: libclang_rt.ubsan_standalone-arm-android.a"
+// CHECK-UBSAN-ANDROID-STATICLIBASAN: "-lpthread"
+
 //
 // RUN: %clang -no-canonical-prefixes %s -### -o %t.o 2>&1 \
 // RUN:     -target i686-linux-android -fuse-ld=ld -fsanitize=address \
@@ -147,10 +193,10 @@
 // RUN: %clang -no-canonical-prefixes %s -### -o %t.o 2>&1 \
 // RUN:     -target arm-linux-androideabi -fsanitize=address \
 // RUN:     --sysroot=%S/Inputs/basic_android_tree/sysroot \
-// RUN:     -shared-libasan \
+// RUN:     -shared-libsan \
 // RUN:   | FileCheck --check-prefix=CHECK-ASAN-ANDROID-SHARED-LIBASAN %s
 //
-// CHECK-ASAN-ANDROID-SHARED-LIBASAN-NOT: argument unused during compilation: '-shared-libasan'
+// CHECK-ASAN-ANDROID-SHARED-LIBASAN-NOT: argument unused during compilation: '-shared-libsan'
 //
 // RUN: %clang -no-canonical-prefixes %s -### -o %t.o 2>&1 \
 // RUN:     -target arm-linux-androideabi -fuse-ld=ld -fsanitize=address \
@@ -214,6 +260,13 @@
 // RUN:     -target i386-unknown-linux -fuse-ld=ld \
 // RUN:     --sysroot=%S/Inputs/basic_linux_tree \
 // RUN:   | FileCheck --check-prefix=CHECK-UBSAN-LINUX %s
+
+// RUN: %clang -fsanitize=undefined %s -### -o %t.o 2>&1 \
+// RUN:     -target i386-unknown-linux -fuse-ld=ld \
+// RUN:     --sysroot=%S/Inputs/basic_linux_tree \
+// RUN:     -static-libsan \
+// RUN:   | FileCheck --check-prefix=CHECK-UBSAN-LINUX %s
+
 // CHECK-UBSAN-LINUX: "{{.*}}ld{{(.exe)?}}"
 // CHECK-UBSAN-LINUX-NOT: libclang_rt.asan
 // CHECK-UBSAN-LINUX-NOT: libclang_rt.ubsan_standalone_cxx
@@ -222,6 +275,27 @@
 // CHECK-UBSAN-LINUX-NOT: libclang_rt.ubsan_standalone_cxx
 // CHECK-UBSAN-LINUX-NOT: "-lstdc++"
 // CHECK-UBSAN-LINUX: "-lpthread"
+
+// RUN: %clang -fsanitize=undefined %s -### -o %t.o 2>&1 \
+// RUN:     -target i386-unknown-linux -fuse-ld=ld \
+// RUN:     --sysroot=%S/Inputs/basic_linux_tree \
+// RUN:     -shared-libsan \
+// RUN:   | FileCheck --check-prefix=CHECK-UBSAN-LINUX-SHAREDLIBASAN %s
+
+// RUN: %clang -fsanitize=undefined %s -### -o %t.o 2>&1 \
+// RUN:     -target i386-unknown-linux -fuse-ld=ld \
+// RUN:     --sysroot=%S/Inputs/basic_linux_tree \
+// RUN:     -static-libsan -shared-libsan \
+// RUN:   | FileCheck --check-prefix=CHECK-UBSAN-LINUX-SHAREDLIBASAN %s
+
+// RUN: %clang -fsanitize=undefined %s -### -o %t.o 2>&1 \
+// RUN:     -target i386-unknown-linux -fuse-ld=ld \
+// RUN:     --sysroot=%S/Inputs/basic_linux_tree \
+// RUN:     -shared -shared-libsan \
+// RUN:   | FileCheck --check-prefix=CHECK-UBSAN-LINUX-SHAREDLIBASAN %s
+
+// CHECK-UBSAN-LINUX-SHAREDLIBASAN: "{{.*}}ld{{(.exe)?}}"
+// CHECK-UBSAN-LINUX-SHAREDLIBASAN: "{{.*}}libclang_rt.ubsan_standalone-i386.so{{.*}}"
 
 // RUN: %clang -fsanitize=undefined -fsanitize-link-c++-runtime %s -### -o %t.o 2>&1 \
 // RUN:     -target i386-unknown-linux \
@@ -260,6 +334,13 @@
 // RUN:   | FileCheck --check-prefix=CHECK-UBSAN-MINIMAL-DARWIN %s
 // CHECK-UBSAN-MINIMAL-DARWIN: "{{.*}}ld{{(.exe)?}}"
 // CHECK-UBSAN-MINIMAL-DARWIN: "{{.*}}libclang_rt.ubsan_minimal_osx_dynamic.dylib"
+
+// RUN: %clang -fsanitize=undefined %s -### -o %t.o 2>&1 \
+// RUN:     -target x86_64-apple-darwin -fuse-ld=ld -static-libsan \
+// RUN:     --sysroot=%S/Inputs/basic_linux_tree \
+// RUN:   | FileCheck --check-prefix=CHECK-UBSAN-STATIC-DARWIN %s
+// CHECK-UBSAN-STATIC-DARWIN: "{{.*}}ld{{(.exe)?}}"
+// CHECK-UBSAN-STATIC-DARWIN: "{{.*}}libclang_rt.ubsan_osx.a"
 
 // RUN: %clang -fsanitize=address,undefined %s -### -o %t.o 2>&1 \
 // RUN:     -target i386-unknown-linux -fuse-ld=ld \
@@ -427,6 +508,24 @@
 // CHECK-CFI-CROSS-DSO-DIAG-LINUX: "-whole-archive" "{{[^"]*}}libclang_rt.cfi_diag-x86_64.a" "-no-whole-archive"
 // CHECK-CFI-CROSS-DSO-DIAG-LINUX: -export-dynamic
 
+// Cross-DSO CFI on Android does not link runtime libraries.
+// RUN: %clang -fsanitize=cfi -fsanitize-cfi-cross-dso %s -### -o %t.o 2>&1 \
+// RUN:     -target aarch64-linux-android -fuse-ld=ld \
+// RUN:     --sysroot=%S/Inputs/basic_android_tree \
+// RUN:   | FileCheck --check-prefix=CHECK-CFI-CROSS-DSO-ANDROID %s
+// CHECK-CFI-CROSS-DSO-ANDROID: "{{.*}}ld{{(.exe)?}}"
+// CHECK-CFI-CROSS-DSO-ANDROID-NOT: libclang_rt.
+
+// Cross-DSO CFI with diagnostics on Android links just the UBSAN runtime.
+// RUN: %clang -fsanitize=cfi -fsanitize-cfi-cross-dso %s -### -o %t.o 2>&1 \
+// RUN:     -fno-sanitize-trap=cfi -fsanitize-recover=cfi \
+// RUN:     -target aarch64-linux-android -fuse-ld=ld \
+// RUN:     --sysroot=%S/Inputs/basic_android_tree \
+// RUN:   | FileCheck --check-prefix=CHECK-CFI-CROSS-DSO-DIAG-ANDROID %s
+// CHECK-CFI-CROSS-DSO-DIAG-ANDROID: "{{.*}}ld{{(.exe)?}}"
+// CHECK-CFI-CROSS-DSO-DIAG-ANDROID: "{{[^"]*}}libclang_rt.ubsan_standalone-aarch64-android.so"
+// CHECK-CFI-CROSS-DSO-DIAG-ANDROID: "-export-dynamic-symbol=__cfi_check"
+
 // RUN: %clangxx -fsanitize=address %s -### -o %t.o 2>&1 \
 // RUN:     -mmacosx-version-min=10.6 \
 // RUN:     -target x86_64-apple-darwin13.4.0 -fuse-ld=ld -stdlib=platform \
@@ -514,26 +613,6 @@
 //
 // CHECK-SAFESTACK-ANDROID-AARCH64: "{{(.*[^-.0-9A-Z_a-z])?}}ld{{(.exe)?}}"
 // CHECK-SAFESTACK-ANDROID-AARCH64-NOT: libclang_rt.safestack
-
-// RUN: %clang -no-canonical-prefixes %s -### -o %t.o 2>&1 \
-// RUN:     -target arm-linux-androideabi -fuse-ld=ld -fsanitize=cfi \
-// RUN:     --sysroot=%S/Inputs/basic_android_tree \
-// RUN:   | FileCheck --check-prefix=CHECK-CFI-ANDROID %s
-//
-// CHECK-CFI-ANDROID: "{{(.*[^-.0-9A-Z_a-z])?}}ld{{(.exe)?}}"
-// CHECK-CFI-ANDROID-NOT: libclang_rt.cfi
-// CHECK-CFI-ANDROID-NOT: __cfi_check
-
-// RUN: %clang -no-canonical-prefixes %s -### -o %t.o 2>&1 \
-// RUN:     -target arm-linux-androideabi -fuse-ld=ld -fsanitize=cfi \
-// RUN:     -fsanitize-cfi-cross-dso \
-// RUN:     --sysroot=%S/Inputs/basic_android_tree \
-// RUN:   | FileCheck --check-prefix=CHECK-CROSSDSO-CFI-ANDROID %s
-//
-// CHECK-CROSSDSO-CFI-ANDROID: "{{(.*[^-.0-9A-Z_a-z])?}}ld{{(.exe)?}}"
-// CHECK-CROSSDSO-CFI-ANDROID-NOT: libclang_rt.cfi
-// CHECK-CROSSDSO-CFI-ANDROID: -export-dynamic-symbol=__cfi_check
-// CHECK-CROSSDSO-CFI-ANDROID-NOT: libclang_rt.cfi
 
 // RUN: %clang -fsanitize=undefined %s -### -o %t.o 2>&1 \
 // RUN:     -target x86_64-scei-ps4 -fuse-ld=ld \

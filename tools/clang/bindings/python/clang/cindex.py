@@ -94,6 +94,9 @@ if sys.version_info[0] == 3:
                 return cls(param)
             if isinstance(param, bytes):
                 return cls(param)
+            if param is None:
+                # Support passing null to C functions expecting char arrays
+                return None
             raise TypeError("Cannot convert '{}' to '{}'".format(type(param).__name__, cls.__name__))
 
         @staticmethod
@@ -1549,6 +1552,14 @@ class Cursor(Structure):
         return self._loc
 
     @property
+    def linkage(self):
+        """Return the linkage of this cursor."""
+        if not hasattr(self, '_linkage'):
+            self._linkage = conf.lib.clang_getCursorLinkage(self)
+
+        return LinkageKind.from_id(self._linkage)
+
+    @property
     def tls_kind(self):
         """Return the thread-local storage (TLS) kind of this cursor."""
         if not hasattr(self, '_tls_kind'):
@@ -1577,6 +1588,16 @@ class Cursor(Structure):
             self._storage_class = conf.lib.clang_Cursor_getStorageClass(self)
 
         return StorageClass.from_id(self._storage_class)
+
+    @property
+    def availability(self):
+        """
+        Retrieves the availability of the entity pointed at by the cursor.
+        """
+        if not hasattr(self, '_availability'):
+            self._availability = conf.lib.clang_getCursorAvailability(self)
+
+        return AvailabilityKind.from_id(self._availability)
 
     @property
     def access_specifier(self):
@@ -1915,6 +1936,24 @@ StorageClass.OPENCLWORKGROUPLOCAL = StorageClass(5)
 StorageClass.AUTO = StorageClass(6)
 StorageClass.REGISTER = StorageClass(7)
 
+### Availability Kinds ###
+
+class AvailabilityKind(BaseEnumeration):
+    """
+    Describes the availability of an entity.
+    """
+
+    # The unique kind objects, indexed by id.
+    _kinds = []
+    _name_map = None
+
+    def __repr__(self):
+        return 'AvailabilityKind.%s' % (self.name,)
+
+AvailabilityKind.AVAILABLE = AvailabilityKind(0)
+AvailabilityKind.DEPRECATED = AvailabilityKind(1)
+AvailabilityKind.NOT_AVAILABLE = AvailabilityKind(2)
+AvailabilityKind.NOT_ACCESSIBLE = AvailabilityKind(3)
 
 ### C++ access specifiers ###
 
@@ -2068,6 +2107,25 @@ class RefQualifierKind(BaseEnumeration):
 RefQualifierKind.NONE = RefQualifierKind(0)
 RefQualifierKind.LVALUE = RefQualifierKind(1)
 RefQualifierKind.RVALUE = RefQualifierKind(2)
+
+class LinkageKind(BaseEnumeration):
+    """Describes the kind of linkage of a cursor."""
+
+    # The unique kind objects, indexed by id.
+    _kinds = []
+    _name_map = None
+
+    def from_param(self):
+        return self.value
+
+    def __repr__(self):
+        return 'LinkageKind.%s' % (self.name,)
+
+LinkageKind.INVALID = LinkageKind(0)
+LinkageKind.NO_LINKAGE = LinkageKind(1)
+LinkageKind.INTERNAL = LinkageKind(2)
+LinkageKind.UNIQUE_EXTERNAL = LinkageKind(3)
+LinkageKind.EXTERNAL = LinkageKind(4)
 
 class TLSKind(BaseEnumeration):
     """Describes the kind of thread-local storage (TLS) of a cursor."""
@@ -3216,6 +3274,7 @@ class Token(Structure):
     def cursor(self):
         """The Cursor this Token corresponds to."""
         cursor = Cursor()
+        cursor._tu = self._tu
 
         conf.lib.clang_annotateTokens(self._tu, byref(self), 1, byref(cursor))
 
@@ -3462,6 +3521,10 @@ functionList = [
   ("clang_getCursor",
    [TranslationUnit, SourceLocation],
    Cursor),
+
+  ("clang_getCursorAvailability",
+   [Cursor],
+   c_int),
 
   ("clang_getCursorDefinition",
    [Cursor],
@@ -4078,6 +4141,7 @@ conf = Config()
 register_enumerations()
 
 __all__ = [
+    'AvailabilityKind',
     'Config',
     'CodeCompletionResults',
     'CompilationDatabase',
@@ -4089,6 +4153,7 @@ __all__ = [
     'File',
     'FixIt',
     'Index',
+    'LinkageKind',
     'SourceLocation',
     'SourceRange',
     'TLSKind',

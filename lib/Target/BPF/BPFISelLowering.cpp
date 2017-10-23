@@ -139,6 +139,22 @@ bool BPFTargetLowering::isOffsetFoldingLegal(const GlobalAddressSDNode *GA) cons
   return false;
 }
 
+std::pair<unsigned, const TargetRegisterClass *>
+BPFTargetLowering::getRegForInlineAsmConstraint(const TargetRegisterInfo *TRI,
+                                                StringRef Constraint,
+                                                MVT VT) const {
+  if (Constraint.size() == 1)
+    // GCC Constraint Letters
+    switch (Constraint[0]) {
+    case 'r': // GENERAL_REGS
+      return std::make_pair(0U, &BPF::GPRRegClass);
+    default:
+      break;
+    }
+
+  return TargetLowering::getRegForInlineAsmConstraint(TRI, Constraint, VT);
+}
+
 SDValue BPFTargetLowering::LowerOperation(SDValue Op, SelectionDAG &DAG) const {
   switch (Op.getOpcode()) {
   case ISD::BR_CC:
@@ -595,11 +611,15 @@ BPFTargetLowering::EmitInstrWithCustomInserter(MachineInstr &MI,
         .addReg(LHS)
         .addReg(MI.getOperand(2).getReg())
         .addMBB(Copy1MBB);
-  else
+  else {
+    int64_t imm32 = MI.getOperand(2).getImm();
+    // sanity check before we build J*_ri instruction.
+    assert (isInt<32>(imm32));
     BuildMI(BB, DL, TII.get(NewCC))
         .addReg(LHS)
-        .addImm(MI.getOperand(2).getImm())
+        .addImm(imm32)
         .addMBB(Copy1MBB);
+  }
 
   // Copy0MBB:
   //  %FalseValue = ...

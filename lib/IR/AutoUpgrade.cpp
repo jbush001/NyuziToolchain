@@ -27,6 +27,7 @@
 #include "llvm/IR/IntrinsicInst.h"
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Module.h"
+#include "llvm/IR/Verifier.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/Regex.h"
 #include <cstring>
@@ -77,6 +78,7 @@ static bool ShouldUpgradeX86Intrinsic(Function *F, StringRef Name) {
       Name=="ssse3.pabs.d.128" || // Added in 6.0
       Name.startswith("avx2.pabs.") || // Added in 6.0
       Name.startswith("avx512.mask.pabs.") || // Added in 6.0
+      Name.startswith("avx512.mask.pbroadcast") || // Added in 6.0
       Name.startswith("sse2.pcmpeq.") || // Added in 3.1
       Name.startswith("sse2.pcmpgt.") || // Added in 3.1
       Name.startswith("avx2.pcmpeq.") || // Added in 3.1
@@ -246,14 +248,8 @@ static bool ShouldUpgradeX86Intrinsic(Function *F, StringRef Name) {
       Name.startswith("avx2.pblendd.") || // Added in 3.7
       Name.startswith("avx.vbroadcastf128") || // Added in 4.0
       Name == "avx2.vbroadcasti128" || // Added in 3.7
-      Name.startswith("avx512.mask.broadcastf32x4.") || // Added in 6.0
-      Name.startswith("avx512.mask.broadcastf64x2.") || // Added in 6.0
-      Name.startswith("avx512.mask.broadcasti32x4.") || // Added in 6.0
-      Name.startswith("avx512.mask.broadcasti64x2.") || // Added in 6.0
-      Name == "avx512.mask.broadcastf32x8.512" || // Added in 6.0
-      Name == "avx512.mask.broadcasti32x8.512" || // Added in 6.0
-      Name == "avx512.mask.broadcastf64x4.512" || // Added in 6.0
-      Name == "avx512.mask.broadcasti64x4.512" || // Added in 6.0
+      Name.startswith("avx512.mask.broadcastf") || // Added in 6.0
+      Name.startswith("avx512.mask.broadcasti") || // Added in 6.0
       Name == "xop.vpcmov" || // Added in 3.8
       Name == "xop.vpcmov.256" || // Added in 5.0
       Name.startswith("avx512.mask.move.s") || // Added in 4.0
@@ -1031,6 +1027,12 @@ void llvm::UpgradeIntrinsicCall(CallInst *CI, Function *NewFn) {
       Rep = Builder.CreateICmp(CmpEq ? ICmpInst::ICMP_EQ : ICmpInst::ICMP_SGT,
                                CI->getArgOperand(0), CI->getArgOperand(1));
       Rep = Builder.CreateSExt(Rep, CI->getType(), "");
+    } else if (IsX86 && (Name.startswith("avx512.mask.pbroadcast"))){
+      unsigned NumElts =
+          CI->getArgOperand(1)->getType()->getVectorNumElements();
+      Rep = Builder.CreateVectorSplat(NumElts, CI->getArgOperand(0));
+      Rep = EmitX86Select(Builder, CI->getArgOperand(2), Rep,
+                          CI->getArgOperand(1));
     } else if (IsX86 && (Name == "sse.add.ss" || Name == "sse2.add.sd")) {
       Type *I32Ty = Type::getInt32Ty(C);
       Value *Elt0 = Builder.CreateExtractElement(CI->getArgOperand(0),
@@ -2357,15 +2359,26 @@ Value *llvm::UpgradeBitCastExpr(unsigned Opc, Constant *C, Type *DestTy) {
 /// info. Return true if module is modified.
 bool llvm::UpgradeDebugInfo(Module &M) {
   unsigned Version = getDebugMetadataVersionFromModule(M);
-  if (Version == DEBUG_METADATA_VERSION)
-    return false;
-
-  bool RetCode = StripDebugInfo(M);
-  if (RetCode) {
+  if (Version == DEBUG_METADATA_VERSION) {
+    bool BrokenDebugInfo = false;
+    if (verifyModule(M, &llvm::errs(), &BrokenDebugInfo))
+      report_fatal_error("Broken module found, compilation aborted!");
+    if (!BrokenDebugInfo)
+      // Everything is ok.
+      return false;
+    else {
+      // Diagnose malformed debug info.
+      DiagnosticInfoIgnoringInvalidDebugMetadata Diag(M);
+      M.getContext().diagnose(Diag);
+    }
+  }
+  bool Modified = StripDebugInfo(M);
+  if (Modified && Version != DEBUG_METADATA_VERSION) {
+    // Diagnose a version mismatch.
     DiagnosticInfoDebugMetadataVersion DiagVersion(M, Version);
     M.getContext().diagnose(DiagVersion);
   }
-  return RetCode;
+  return Modified;
 }
 
 bool llvm::UpgradeModuleFlags(Module &M) {
@@ -2433,6 +2446,35 @@ bool llvm::UpgradeModuleFlags(Module &M) {
   }
 
   return Changed;
+}
+
+void llvm::UpgradeSectionAttributes(Module &M) {
+  auto TrimSpaces = [](StringRef Section) -> std::string {
+    SmallVector<StringRef, 5> Components;
+    Section.split(Components, ',');
+
+    SmallString<32> Buffer;
+    raw_svector_ostream OS(Buffer);
+
+    for (auto Component : Components)
+      OS << ',' << Component.trim();
+
+    return OS.str().substr(1);
+  };
+
+  for (auto &GV : M.globals()) {
+    if (!GV.hasSection())
+      continue;
+
+    StringRef Section = GV.getSection();
+
+    if (!Section.startswith("__DATA, __objc_catlist"))
+      continue;
+
+    // __DATA, __objc_catlist, regular, no_dead_strip
+    // __DATA,__objc_catlist,regular,no_dead_strip
+    GV.setSection(TrimSpaces(Section));
+  }
 }
 
 static bool isOldLoopArgument(Metadata *MD) {

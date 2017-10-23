@@ -27,8 +27,6 @@
 #include "llvm/ADT/MapVector.h"
 #include "llvm/MC/StringTableBuilder.h"
 
-#include <set>
-
 namespace lld {
 namespace elf {
 
@@ -59,8 +57,8 @@ public:
 };
 
 struct CieRecord {
-  EhSectionPiece *Piece = nullptr;
-  std::vector<EhSectionPiece *> FdePieces;
+  EhSectionPiece *Cie = nullptr;
+  std::vector<EhSectionPiece *> Fdes;
 };
 
 // Section for .eh_frame.
@@ -68,11 +66,6 @@ template <class ELFT> class EhFrameSection final : public SyntheticSection {
   typedef typename ELFT::Shdr Elf_Shdr;
   typedef typename ELFT::Rel Elf_Rel;
   typedef typename ELFT::Rela Elf_Rela;
-
-  void updateAlignment(uint64_t Val) {
-    if (Val > this->Alignment)
-      this->Alignment = Val;
-  }
 
 public:
   EhFrameSection();
@@ -100,10 +93,11 @@ private:
 
   uint64_t getFdePc(uint8_t *Buf, size_t Off, uint8_t Enc);
 
-  std::vector<CieRecord *> Cies;
+  std::vector<CieRecord *> CieRecords;
 
   // CIE records are uniquified by their contents and personality functions.
-  llvm::DenseMap<std::pair<ArrayRef<uint8_t>, SymbolBody *>, CieRecord> CieMap;
+  llvm::DenseMap<std::pair<ArrayRef<uint8_t>, SymbolBody *>, CieRecord *>
+      CieMap;
 };
 
 class GotSection : public SyntheticSection {
@@ -158,14 +152,13 @@ private:
 // respectively.
 class BssSection final : public SyntheticSection {
 public:
-  BssSection(StringRef Name);
+  BssSection(StringRef Name, uint64_t Size, uint32_t Alignment);
   void writeTo(uint8_t *) override {}
   bool empty() const override { return getSize() == 0; }
-  size_t reserveSpace(uint64_t Size, uint32_t Alignment);
   size_t getSize() const override { return Size; }
 
 private:
-  uint64_t Size = 0;
+  uint64_t Size;
 };
 
 class MipsGotSection final : public SyntheticSection {
@@ -419,6 +412,10 @@ protected:
   std::vector<SymbolTableEntry> Symbols;
 
   StringTableSection &StrTabSec;
+
+  llvm::once_flag OnceFlag;
+  llvm::DenseMap<SymbolBody *, size_t> SymbolIndexMap;
+  llvm::DenseMap<OutputSection *, size_t> SectionIndexMap;
 };
 
 template <class ELFT>
@@ -461,7 +458,7 @@ private:
   size_t Size = 0;
 };
 
-template <class ELFT> class HashTableSection final : public SyntheticSection {
+class HashTableSection final : public SyntheticSection {
 public:
   HashTableSection();
   void finalizeContents() override;
@@ -493,13 +490,40 @@ private:
   size_t HeaderSize;
 };
 
-class GdbIndexSection final : public SyntheticSection {
-  const unsigned OffsetTypeSize = 4;
-  const unsigned CuListOffset = 6 * OffsetTypeSize;
-  const unsigned CompilationUnitSize = 16;
-  const unsigned AddressEntrySize = 16 + OffsetTypeSize;
-  const unsigned SymTabEntrySize = 2 * OffsetTypeSize;
+// GdbIndexChunk is created for each .debug_info section and contains
+// information to create a part of .gdb_index for a given input section.
+struct GdbIndexChunk {
+  struct AddressEntry {
+    InputSection *Section;
+    uint64_t LowAddress;
+    uint64_t HighAddress;
+    uint32_t CuIndex;
+  };
 
+  struct CuEntry {
+    uint64_t CuOffset;
+    uint64_t CuLength;
+  };
+
+  struct NameTypeEntry {
+    llvm::CachedHashStringRef Name;
+    uint8_t Type;
+  };
+
+  InputSection *DebugInfoSec;
+  std::vector<AddressEntry> AddressAreas;
+  std::vector<CuEntry> CompilationUnits;
+  std::vector<NameTypeEntry> NamesAndTypes;
+};
+
+// The symbol type for the .gdb_index section.
+struct GdbSymbol {
+  uint32_t NameHash;
+  size_t NameOffset;
+  size_t CuVectorIndex;
+};
+
+class GdbIndexSection final : public SyntheticSection {
 public:
   GdbIndexSection(std::vector<GdbIndexChunk> &&Chunks);
   void writeTo(uint8_t *Buf) override;
@@ -507,29 +531,31 @@ public:
   bool empty() const override;
 
 private:
-  // Symbol table is a hash table for types and names.
-  // It is the area of gdb index.
-  GdbHashTab HashTab;
+  void fixCuIndex();
+  std::vector<std::vector<uint32_t>> createCuVectors();
+  std::vector<GdbSymbol *> createGdbSymtab();
+
+  // A symbol table for this .gdb_index section.
+  std::vector<GdbSymbol *> GdbSymtab;
 
   // CU vector is a part of constant pool area of section.
-  std::vector<std::set<uint32_t>> CuVectors;
+  std::vector<std::vector<uint32_t>> CuVectors;
 
-  // String pool is also a part of constant pool, it follows CU vectors.
-  llvm::StringTableBuilder StringPool;
+  // Symbol table contents.
+  llvm::DenseMap<llvm::CachedHashStringRef, GdbSymbol *> Symbols;
 
   // Each chunk contains information gathered from a debug sections of single
   // object and used to build different areas of gdb index.
   std::vector<GdbIndexChunk> Chunks;
 
-  void buildIndex();
-
+  static constexpr uint32_t CuListOffset = 24;
   uint32_t CuTypesOffset;
-  uint32_t SymTabOffset;
+  uint32_t SymtabOffset;
   uint32_t ConstantPoolOffset;
   uint32_t StringPoolOffset;
+  uint32_t StringPoolSize;
 
-  size_t CuVectorsSize = 0;
-  std::vector<size_t> CuVectorsOffset;
+  std::vector<size_t> CuVectorOffsets;
 };
 
 template <class ELFT> GdbIndexSection *createGdbIndex();
@@ -633,22 +659,58 @@ public:
 // with different attributes in a single output sections. To do that
 // we put them into MergeSyntheticSection synthetic input sections which are
 // attached to regular output sections.
-class MergeSyntheticSection final : public SyntheticSection {
+class MergeSyntheticSection : public SyntheticSection {
 public:
-  MergeSyntheticSection(StringRef Name, uint32_t Type, uint64_t Flags,
-                        uint32_t Alignment);
   void addSection(MergeInputSection *MS);
+
+protected:
+  MergeSyntheticSection(StringRef Name, uint32_t Type, uint64_t Flags,
+                        uint32_t Alignment)
+      : SyntheticSection(Flags, Type, Alignment, Name) {}
+
+  std::vector<MergeInputSection *> Sections;
+};
+
+class MergeTailSection final : public MergeSyntheticSection {
+public:
+  MergeTailSection(StringRef Name, uint32_t Type, uint64_t Flags,
+                   uint32_t Alignment);
+
+  size_t getSize() const override;
   void writeTo(uint8_t *Buf) override;
   void finalizeContents() override;
-  bool shouldTailMerge() const;
-  size_t getSize() const override;
 
 private:
-  void finalizeTailMerge();
-  void finalizeNoTailMerge();
-
   llvm::StringTableBuilder Builder;
-  std::vector<MergeInputSection *> Sections;
+};
+
+class MergeNoTailSection final : public MergeSyntheticSection {
+public:
+  MergeNoTailSection(StringRef Name, uint32_t Type, uint64_t Flags,
+                     uint32_t Alignment)
+      : MergeSyntheticSection(Name, Type, Flags, Alignment) {}
+
+  size_t getSize() const override { return Size; }
+  void writeTo(uint8_t *Buf) override;
+  void finalizeContents() override;
+
+private:
+  // We use the most significant bits of a hash as a shard ID.
+  // The reason why we don't want to use the least significant bits is
+  // because DenseMap also uses lower bits to determine a bucket ID.
+  // If we use lower bits, it significantly increases the probability of
+  // hash collisons.
+  size_t getShardId(uint32_t Hash) {
+    return Hash >> (32 - llvm::countTrailingZeros(NumShards));
+  }
+
+  // Section size
+  size_t Size;
+
+  // String table contents
+  constexpr static size_t NumShards = 32;
+  std::vector<llvm::StringTableBuilder> Shards;
+  size_t ShardOffsets[NumShards];
 };
 
 // .MIPS.abiflags section.
@@ -740,10 +802,11 @@ private:
   size_t Size = 0;
 };
 
-std::vector<InputSection *> createCommonSections();
+template <class ELFT> void createCommonSections();
 InputSection *createInterpSection();
 template <class ELFT> MergeInputSection *createCommentSection();
-void decompressAndMergeSections();
+void decompressSections();
+void mergeSections();
 
 SymbolBody *addSyntheticLocal(StringRef Name, uint8_t Type, uint64_t Value,
                               uint64_t Size, InputSectionBase *Section);
@@ -758,6 +821,7 @@ struct InX {
   static StringTableSection *DynStrTab;
   static SymbolTableBaseSection *DynSymTab;
   static GnuHashTableSection *GnuHashTab;
+  static HashTableSection *HashTab;
   static InputSection *Interp;
   static GdbIndexSection *GdbIndex;
   static GotSection *Got;
@@ -775,7 +839,6 @@ struct InX {
 template <class ELFT> struct In : public InX {
   static EhFrameHeader<ELFT> *EhFrameHdr;
   static EhFrameSection<ELFT> *EhFrame;
-  static HashTableSection<ELFT> *HashTab;
   static RelocationSection<ELFT> *RelaDyn;
   static RelocationSection<ELFT> *RelaPlt;
   static RelocationSection<ELFT> *RelaIplt;
@@ -786,7 +849,6 @@ template <class ELFT> struct In : public InX {
 
 template <class ELFT> EhFrameHeader<ELFT> *In<ELFT>::EhFrameHdr;
 template <class ELFT> EhFrameSection<ELFT> *In<ELFT>::EhFrame;
-template <class ELFT> HashTableSection<ELFT> *In<ELFT>::HashTab;
 template <class ELFT> RelocationSection<ELFT> *In<ELFT>::RelaDyn;
 template <class ELFT> RelocationSection<ELFT> *In<ELFT>::RelaPlt;
 template <class ELFT> RelocationSection<ELFT> *In<ELFT>::RelaIplt;

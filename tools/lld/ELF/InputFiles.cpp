@@ -35,6 +35,11 @@ using namespace llvm::sys::fs;
 using namespace lld;
 using namespace lld::elf;
 
+std::vector<BinaryFile *> elf::BinaryFiles;
+std::vector<BitcodeFile *> elf::BitcodeFiles;
+std::vector<InputFile *> elf::ObjectFiles;
+std::vector<InputFile *> elf::SharedFiles;
+
 TarWriter *elf::Tar;
 
 InputFile::InputFile(Kind K, MemoryBufferRef M) : MB(M), FileKind(K) {}
@@ -339,7 +344,7 @@ void ObjFile<ELFT>::initializeSections(
         fatal(toString(this) + ": invalid sh_link index: " +
               Twine(Sec.sh_link));
       this->Sections[Sec.sh_link]->DependentSections.push_back(
-          this->Sections[I]);
+          cast<InputSection>(this->Sections[I]));
     }
   }
 }
@@ -477,20 +482,6 @@ InputSectionBase *ObjFile<ELFT>::createInputSection(const Elf_Shdr &Sec) {
   if (Config->Strip != StripPolicy::None && Name.startswith(".debug"))
     return &InputSection::Discarded;
 
-  // If -gdb-index is given, LLD creates .gdb_index section, and that
-  // section serves the same purpose as .debug_gnu_pub{names,types} sections.
-  // If that's the case, we want to eliminate .debug_gnu_pub{names,types}
-  // because they are redundant and can waste large amount of disk space
-  // (for example, they are about 400 MiB in total for a clang debug build.)
-  // We still create the section and mark it dead so that the gdb index code
-  // can use the InputSection to access the data.
-  if (Config->GdbIndex &&
-      (Name == ".debug_gnu_pubnames" || Name == ".debug_gnu_pubtypes")) {
-    auto *Ret = make<InputSection>(this, &Sec, Name);
-    Script->discard({Ret});
-    return Ret;
-  }
-
   // The linkonce feature is a sort of proto-comdat. Some glibc i386 object
   // files contain definitions of symbol "__x86.get_pc_thunk.bx" in linkonce
   // sections. Drop those sections to avoid duplicate symbol errors.
@@ -611,7 +602,8 @@ ArchiveFile::ArchiveFile(std::unique_ptr<Archive> &&File)
 template <class ELFT> void ArchiveFile::parse() {
   Symbols.reserve(File->getNumberOfSymbols());
   for (const Archive::Symbol &Sym : File->symbols())
-    Symbols.push_back(Symtab->addLazyArchive<ELFT>(this, Sym)->body());
+    Symbols.push_back(
+        Symtab->addLazyArchive<ELFT>(Sym.getName(), this, Sym)->body());
 }
 
 // Returns a buffer pointing to a member file containing a given symbol.
@@ -769,19 +761,26 @@ template <class ELFT> void SharedFile<ELFT>::parseRest() {
     // Ignore local symbols.
     if (Versym && VersymIndex == VER_NDX_LOCAL)
       continue;
-
-    const Elf_Verdef *V =
-        VersymIndex == VER_NDX_GLOBAL ? nullptr : Verdefs[VersymIndex];
+    const Elf_Verdef *V = nullptr;
+    if (VersymIndex != VER_NDX_GLOBAL) {
+      if (VersymIndex >= Verdefs.size()) {
+        error("corrupt input file: version definition index " +
+              Twine(VersymIndex) + " for symbol " + Name +
+              " is out of bounds\n>>> defined in " + toString(this));
+        continue;
+      }
+      V = Verdefs[VersymIndex];
+    }
 
     if (!Hidden)
-      Symtab->addShared(this, Name, Sym, V);
+      Symtab->addShared(Name, this, Sym, V);
 
     // Also add the symbol with the versioned name to handle undefined symbols
     // with explicit versions.
     if (V) {
       StringRef VerName = this->StringTable.data() + V->getAux()->vda_name;
       Name = Saver.save(Name + "@" + VerName);
-      Symtab->addShared(this, Name, Sym, V);
+      Symtab->addShared(Name, this, Sym, V);
     }
   }
 }
@@ -819,8 +818,6 @@ static uint8_t getBitcodeMachineKind(StringRef Path, const Triple &T) {
           T.str());
   }
 }
-
-std::vector<BitcodeFile *> BitcodeFile::Instances;
 
 BitcodeFile::BitcodeFile(MemoryBufferRef MB, StringRef ArchiveName,
                          uint64_t OffsetInArchive)
@@ -917,8 +914,6 @@ static ELFKind getELFKind(MemoryBufferRef MB) {
   return (Endian == ELFDATA2LSB) ? ELF64LEKind : ELF64BEKind;
 }
 
-std::vector<BinaryFile *> BinaryFile::Instances;
-
 template <class ELFT> void BinaryFile::parse() {
   ArrayRef<uint8_t> Data = toArrayRef(MB.getBuffer());
   auto *Section =
@@ -931,7 +926,7 @@ template <class ELFT> void BinaryFile::parse() {
   // characters in a filename are replaced with underscore.
   std::string S = "_binary_" + MB.getBufferIdentifier().str();
   for (size_t I = 0; I < S.size(); ++I)
-    if (!elf::isAlnum(S[I]))
+    if (!isAlnum(S[I]))
       S[I] = '_';
 
   Symtab->addRegular<ELFT>(Saver.save(S + "_start"), STV_DEFAULT, STT_OBJECT,
@@ -1005,7 +1000,7 @@ template <class ELFT> std::vector<StringRef> LazyObjFile::getElfSymbols() {
   typedef typename ELFT::Sym Elf_Sym;
   typedef typename ELFT::SymRange Elf_Sym_Range;
 
-  const ELFFile<ELFT> Obj(this->MB.getBuffer());
+  ELFFile<ELFT> Obj = check(ELFFile<ELFT>::create(this->MB.getBuffer()));
   ArrayRef<Elf_Shdr> Sections = check(Obj.sections(), toString(this));
   for (const Elf_Shdr &Sec : Sections) {
     if (Sec.sh_type != SHT_SYMTAB)

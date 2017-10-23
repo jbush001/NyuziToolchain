@@ -130,6 +130,50 @@ members, and static locals.
   }];
 }
 
+def NoEscapeDocs : Documentation {
+  let Category = DocCatVariable;
+  let Content = [{
+``noescape`` placed on a function parameter of a pointer type is used to inform
+the compiler that the pointer cannot escape: that is, no reference to the object
+the pointer points to that is derived from the parameter value will survive
+after the function returns. Users are responsible for making sure parameters
+annotated with ``noescape`` do not actuallly escape.
+
+For example:
+
+.. code-block:: c
+
+  int *gp;
+
+  void nonescapingFunc(__attribute__((noescape)) int *p) {
+    *p += 100; // OK.
+  }
+
+  void escapingFunc(__attribute__((noescape)) int *p) {
+    gp = p; // Not OK.
+  }
+
+Additionally, when the parameter is a `block pointer
+<https://clang.llvm.org/docs/BlockLanguageSpec.html>`, the same restriction
+applies to copies of the block. For example:
+
+.. code-block:: c
+
+  typedef void (^BlockTy)();
+  BlockTy g0, g1;
+
+  void nonescapingFunc(__attribute__((noescape)) BlockTy block) {
+    block(); // OK.
+  }
+
+  void escapingFunc(__attribute__((noescape)) BlockTy block) {
+    g0 = block; // Not OK.
+    g1 = Block_copy(block); // Not OK either.
+  }
+
+  }];
+}
+
 def CarriesDependencyDocs : Documentation {
   let Category = DocCatFunction;
   let Content = [{
@@ -1249,6 +1293,7 @@ Here is an example:
 
 def ARMInterruptDocs : Documentation {
   let Category = DocCatFunction;
+  let Heading = "interrupt (ARM)";
   let Content = [{
 Clang supports the GNU style ``__attribute__((interrupt("TYPE")))`` attribute on
 ARM targets. This attribute may be attached to a function definition and
@@ -1290,6 +1335,7 @@ The semantics are as follows:
 
 def MipsInterruptDocs : Documentation {
   let Category = DocCatFunction;
+  let Heading = "interrupt (MIPS)";
   let Content = [{
 Clang supports the GNU style ``__attribute__((interrupt("ARGUMENT")))`` attribute on
 MIPS targets. This attribute may be attached to a function definition and instructs
@@ -1386,6 +1432,7 @@ as ``-mlong-calls`` and ``-mno-long-calls``.
 
 def AVRInterruptDocs : Documentation {
   let Category = DocCatFunction;
+  let Heading = "interrupt (AVR)";
   let Content = [{
 Clang supports the GNU style ``__attribute__((interrupt))`` attribute on
 AVR targets. This attribute may be attached to a function definition and instructs
@@ -2686,6 +2733,18 @@ Marking virtual functions as ``not_tail_called`` is an error:
   }];
 }
 
+def NoThrowDocs : Documentation {
+  let Category = DocCatFunction;
+  let Content = [{
+Clang supports the GNU style ``__attribute__((nothrow))`` and Microsoft style
+``__declspec(nothrow)`` attribute as an equivilent of `noexcept` on function
+declarations. This attribute informs the compiler that the annotated function
+does not throw an exception. This prevents exception-unwinding. This attribute
+is particularly useful on functions in the C Standard Library that are
+guaranteed to not throw an exception.
+    }];
+}
+
 def InternalLinkageDocs : Documentation {
   let Category = DocCatFunction;
   let Content = [{
@@ -2731,59 +2790,6 @@ Marking virtual functions as ``disable_tail_calls`` is legal.
       }
     };
 
-  }];
-}
-
-def AnyX86InterruptDocs : Documentation {
-  let Category = DocCatFunction;
-  let Content = [{
-Clang supports the GNU style ``__attribute__((interrupt))`` attribute on
-x86/x86-64 targets.The compiler generates function entry and exit sequences
-suitable for use in an interrupt handler when this attribute is present.
-The 'IRET' instruction, instead of the 'RET' instruction, is used to return
-from interrupt or exception handlers.  All registers, except for the EFLAGS
-register which is restored by the 'IRET' instruction, are preserved by the
-compiler.
-
-Any interruptible-without-stack-switch code must be compiled with
--mno-red-zone since interrupt handlers can and will, because of the
-hardware design, touch the red zone.
-
-1. interrupt handler must be declared with a mandatory pointer argument:
-
-  .. code-block:: c
-
-    struct interrupt_frame
-    {
-      uword_t ip;
-      uword_t cs;
-      uword_t flags;
-      uword_t sp;
-      uword_t ss;
-    };
-
-    __attribute__ ((interrupt))
-    void f (struct interrupt_frame *frame) {
-      ...
-    }
-
-2. exception handler:
-
-  The exception handler is very similar to the interrupt handler with
-  a different mandatory function signature:
-
-  .. code-block:: c
-
-    __attribute__ ((interrupt))
-    void f (struct interrupt_frame *frame, uword_t error_code) {
-      ...
-    }
-
-  and compiler pops 'ERROR_CODE' off stack before the 'IRET' instruction.
-
-  The exception handler should only be used for exceptions which push an
-  error code and all other exceptions must use the interrupt handler.
-  The system will crash if the wrong handler is used.
   }];
 }
 

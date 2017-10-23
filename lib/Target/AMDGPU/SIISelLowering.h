@@ -111,6 +111,7 @@ class SITargetLowering final : public AMDGPUTargetLowering {
   SDValue performFMed3Combine(SDNode *N, DAGCombinerInfo &DCI) const;
   SDValue performCvtPkRTZCombine(SDNode *N, DAGCombinerInfo &DCI) const;
   SDValue performExtractVectorEltCombine(SDNode *N, DAGCombinerInfo &DCI) const;
+  SDValue performBuildVectorCombine(SDNode *N, DAGCombinerInfo &DCI) const;
 
   unsigned getFusedOpcode(const SelectionDAG &DAG,
                           const SDNode *N0, const SDNode *N1) const;
@@ -245,6 +246,8 @@ public:
   MachineBasicBlock *
   EmitInstrWithCustomInserter(MachineInstr &MI,
                               MachineBasicBlock *BB) const override;
+
+  bool hasBitPreservingFPLogic(EVT VT) const override;
   bool enableAggressiveFMAFusion(EVT VT) const override;
   EVT getSetCCResultType(const DataLayout &DL, LLVMContext &Context,
                          EVT VT) const override;

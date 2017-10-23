@@ -14,10 +14,13 @@
 //===----------------------------------------------------------------------===//
 
 #include "TestSupport.h"
+#include "clang/Frontend/CommandLineSourceLoc.h"
+#include "clang/Frontend/TextDiagnosticPrinter.h"
 #include "clang/Rewrite/Core/Rewriter.h"
 #include "clang/Tooling/CommonOptionsParser.h"
 #include "clang/Tooling/Refactoring.h"
 #include "clang/Tooling/Refactoring/RefactoringAction.h"
+#include "clang/Tooling/Refactoring/RefactoringOptions.h"
 #include "clang/Tooling/Refactoring/Rename/RenamingAction.h"
 #include "clang/Tooling/Tooling.h"
 #include "llvm/Support/CommandLine.h"
@@ -32,11 +35,16 @@ namespace cl = llvm::cl;
 
 namespace opts {
 
-static cl::OptionCategory CommonRefactorOptions("Common refactoring options");
+static cl::OptionCategory CommonRefactorOptions("Refactoring options");
 
 static cl::opt<bool> Verbose("v", cl::desc("Use verbose output"),
-                             cl::cat(CommonRefactorOptions),
+                             cl::cat(cl::GeneralCategory),
                              cl::sub(*cl::AllSubCommands));
+
+static cl::opt<bool> Inplace("i", cl::desc("Inplace edit <file>s"),
+                             cl::cat(cl::GeneralCategory),
+                             cl::sub(*cl::AllSubCommands));
+
 } // end namespace opts
 
 namespace {
@@ -53,7 +61,7 @@ public:
 
   /// Prints any additional state associated with the selection argument to
   /// the given output stream.
-  virtual void print(raw_ostream &OS) = 0;
+  virtual void print(raw_ostream &OS) {}
 
   /// Returns a replacement refactoring result consumer (if any) that should
   /// consume the results of a refactoring operation.
@@ -63,7 +71,8 @@ public:
   /// logic into the refactoring operation. The test-specific consumer
   /// ensures that the individual results in a particular test group are
   /// identical.
-  virtual std::unique_ptr<RefactoringResultConsumer> createCustomConsumer() {
+  virtual std::unique_ptr<ClangRefactorToolConsumerInterface>
+  createCustomConsumer() {
     return nullptr;
   }
 
@@ -83,7 +92,8 @@ public:
 
   void print(raw_ostream &OS) override { TestSelections.dump(OS); }
 
-  std::unique_ptr<RefactoringResultConsumer> createCustomConsumer() override {
+  std::unique_ptr<ClangRefactorToolConsumerInterface>
+  createCustomConsumer() override {
     return TestSelections.createConsumer();
   }
 
@@ -98,6 +108,41 @@ private:
   TestSelectionRangesInFile TestSelections;
 };
 
+/// Stores the parsed -selection=filename:line:column[-line:column] option.
+class SourceRangeSelectionArgument final : public SourceSelectionArgument {
+public:
+  SourceRangeSelectionArgument(ParsedSourceRange Range)
+      : Range(std::move(Range)) {}
+
+  bool forAllRanges(const SourceManager &SM,
+                    llvm::function_ref<void(SourceRange R)> Callback) override {
+    const FileEntry *FE = SM.getFileManager().getFile(Range.FileName);
+    FileID FID = FE ? SM.translateFile(FE) : FileID();
+    if (!FE || FID.isInvalid()) {
+      llvm::errs() << "error: -selection=" << Range.FileName
+                   << ":... : given file is not in the target TU\n";
+      return true;
+    }
+
+    SourceLocation Start = SM.getMacroArgExpandedLocation(
+        SM.translateLineCol(FID, Range.Begin.first, Range.Begin.second));
+    SourceLocation End = SM.getMacroArgExpandedLocation(
+        SM.translateLineCol(FID, Range.End.first, Range.End.second));
+    if (Start.isInvalid() || End.isInvalid()) {
+      llvm::errs() << "error: -selection=" << Range.FileName << ':'
+                   << Range.Begin.first << ':' << Range.Begin.second << '-'
+                   << Range.End.first << ':' << Range.End.second
+                   << " : invalid source location\n";
+      return true;
+    }
+    Callback(SourceRange(Start, End));
+    return false;
+  }
+
+private:
+  ParsedSourceRange Range;
+};
+
 std::unique_ptr<SourceSelectionArgument>
 SourceSelectionArgument::fromString(StringRef Value) {
   if (Value.startswith("test:")) {
@@ -109,12 +154,100 @@ SourceSelectionArgument::fromString(StringRef Value) {
     return llvm::make_unique<TestSourceSelectionArgument>(
         std::move(*ParsedTestSelection));
   }
-  // FIXME: Support true selection ranges.
+  Optional<ParsedSourceRange> Range = ParsedSourceRange::fromString(Value);
+  if (Range)
+    return llvm::make_unique<SourceRangeSelectionArgument>(std::move(*Range));
   llvm::errs() << "error: '-selection' option must be specified using "
                   "<file>:<line>:<column> or "
-                  "<file>:<line>:<column>-<line>:<column> format";
+                  "<file>:<line>:<column>-<line>:<column> format\n";
   return nullptr;
 }
+
+/// A container that stores the command-line options used by a single
+/// refactoring option.
+class RefactoringActionCommandLineOptions {
+public:
+  void addStringOption(const RefactoringOption &Option,
+                       std::unique_ptr<cl::opt<std::string>> CLOption) {
+    StringOptions[&Option] = std::move(CLOption);
+  }
+
+  const cl::opt<std::string> &
+  getStringOption(const RefactoringOption &Opt) const {
+    auto It = StringOptions.find(&Opt);
+    return *It->second;
+  }
+
+private:
+  llvm::DenseMap<const RefactoringOption *,
+                 std::unique_ptr<cl::opt<std::string>>>
+      StringOptions;
+};
+
+/// Passes the command-line option values to the options used by a single
+/// refactoring action rule.
+class CommandLineRefactoringOptionVisitor final
+    : public RefactoringOptionVisitor {
+public:
+  CommandLineRefactoringOptionVisitor(
+      const RefactoringActionCommandLineOptions &Options)
+      : Options(Options) {}
+
+  void visit(const RefactoringOption &Opt,
+             Optional<std::string> &Value) override {
+    const cl::opt<std::string> &CLOpt = Options.getStringOption(Opt);
+    if (!CLOpt.getValue().empty()) {
+      Value = CLOpt.getValue();
+      return;
+    }
+    Value = None;
+    if (Opt.isRequired())
+      MissingRequiredOptions.push_back(&Opt);
+  }
+
+  ArrayRef<const RefactoringOption *> getMissingRequiredOptions() const {
+    return MissingRequiredOptions;
+  }
+
+private:
+  llvm::SmallVector<const RefactoringOption *, 4> MissingRequiredOptions;
+  const RefactoringActionCommandLineOptions &Options;
+};
+
+/// Creates the refactoring options used by all the rules in a single
+/// refactoring action.
+class CommandLineRefactoringOptionCreator final
+    : public RefactoringOptionVisitor {
+public:
+  CommandLineRefactoringOptionCreator(
+      cl::OptionCategory &Category, cl::SubCommand &Subcommand,
+      RefactoringActionCommandLineOptions &Options)
+      : Category(Category), Subcommand(Subcommand), Options(Options) {}
+
+  void visit(const RefactoringOption &Opt, Optional<std::string> &) override {
+    if (Visited.insert(&Opt).second)
+      Options.addStringOption(Opt, create<std::string>(Opt));
+  }
+
+private:
+  template <typename T>
+  std::unique_ptr<cl::opt<T>> create(const RefactoringOption &Opt) {
+    if (!OptionNames.insert(Opt.getName()).second)
+      llvm::report_fatal_error("Multiple identical refactoring options "
+                               "specified for one refactoring action");
+    // FIXME: cl::Required can be specified when this option is present
+    // in all rules in an action.
+    return llvm::make_unique<cl::opt<T>>(
+        Opt.getName(), cl::desc(Opt.getDescription()), cl::Optional,
+        cl::cat(Category), cl::sub(Subcommand));
+  }
+
+  llvm::SmallPtrSet<const RefactoringOption *, 8> Visited;
+  llvm::StringSet<> OptionNames;
+  cl::OptionCategory &Category;
+  cl::SubCommand &Subcommand;
+  RefactoringActionCommandLineOptions &Options;
+};
 
 /// A subcommand that corresponds to individual refactoring action.
 class RefactoringActionSubcommand : public cl::SubCommand {
@@ -138,6 +271,12 @@ public:
                    "<file>:<line>:<column>)"),
           cl::cat(Category), cl::sub(*this));
     }
+    // Create the refactoring options.
+    for (const auto &Rule : this->ActionRules) {
+      CommandLineRefactoringOptionCreator OptionCreator(Category, *this,
+                                                        Options);
+      Rule->visitRefactoringOptions(OptionCreator);
+    }
   }
 
   ~RefactoringActionSubcommand() { unregisterSubCommand(); }
@@ -160,20 +299,47 @@ public:
     assert(Selection && "selection not supported!");
     return ParsedSelection.get();
   }
+
+  const RefactoringActionCommandLineOptions &getOptions() const {
+    return Options;
+  }
+
 private:
   std::unique_ptr<RefactoringAction> Action;
   RefactoringActionRules ActionRules;
   std::unique_ptr<cl::opt<std::string>> Selection;
   std::unique_ptr<SourceSelectionArgument> ParsedSelection;
+  RefactoringActionCommandLineOptions Options;
 };
 
-class ClangRefactorConsumer : public RefactoringResultConsumer {
+class ClangRefactorConsumer final : public ClangRefactorToolConsumerInterface {
 public:
-  void handleError(llvm::Error Err) {
-    llvm::errs() << llvm::toString(std::move(Err)) << "\n";
+  ClangRefactorConsumer() {}
+
+  void handleError(llvm::Error Err) override {
+    Optional<PartialDiagnosticAt> Diag = DiagnosticError::take(Err);
+    if (!Diag) {
+      llvm::errs() << llvm::toString(std::move(Err)) << "\n";
+      return;
+    }
+    llvm::cantFail(std::move(Err)); // This is a success.
+    DiagnosticBuilder DB(
+        getDiags().Report(Diag->first, Diag->second.getDiagID()));
+    Diag->second.Emit(DB);
   }
 
-  // FIXME: Consume atomic changes and apply them to files.
+  void handle(AtomicChanges Changes) override {
+    SourceChanges.insert(SourceChanges.begin(), Changes.begin(), Changes.end());
+  }
+
+  void handle(SymbolOccurrences Occurrences) override {
+    llvm_unreachable("symbol occurrence results are not handled yet");
+  }
+
+  const AtomicChanges &getSourceChanges() const { return SourceChanges; }
+
+private:
+  AtomicChanges SourceChanges;
 };
 
 class ClangRefactorTool {
@@ -226,12 +392,12 @@ public:
       ActionWrapper(TUCallbackType Callback) : Callback(Callback) {}
 
       std::unique_ptr<ASTConsumer> newASTConsumer() {
-        return llvm::make_unique<ToolASTConsumer>(std::move(Callback));
+        return llvm::make_unique<ToolASTConsumer>(Callback);
       }
     };
 
     ClangTool Tool(DB, Sources);
-    ActionWrapper ToolAction(std::move(Callback));
+    ActionWrapper ToolAction(Callback);
     std::unique_ptr<tooling::FrontendActionFactory> Factory =
         tooling::newFrontendActionFactory(&ToolAction);
     return Tool.run(Factory.get());
@@ -253,6 +419,44 @@ public:
     }
   }
 
+  bool applySourceChanges(const AtomicChanges &Replacements) {
+    std::set<std::string> Files;
+    for (const auto &Change : Replacements)
+      Files.insert(Change.getFilePath());
+    // FIXME: Add automatic formatting support as well.
+    tooling::ApplyChangesSpec Spec;
+    // FIXME: We should probably cleanup the result by default as well.
+    Spec.Cleanup = false;
+    for (const auto &File : Files) {
+      llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> BufferErr =
+          llvm::MemoryBuffer::getFile(File);
+      if (!BufferErr) {
+        llvm::errs() << "error: failed to open " << File << " for rewriting\n";
+        return true;
+      }
+      auto Result = tooling::applyAtomicChanges(File, (*BufferErr)->getBuffer(),
+                                                Replacements, Spec);
+      if (!Result) {
+        llvm::errs() << toString(Result.takeError());
+        return true;
+      }
+
+      if (opts::Inplace) {
+        std::error_code EC;
+        llvm::raw_fd_ostream OS(File, EC, llvm::sys::fs::F_Text);
+        if (EC) {
+          llvm::errs() << EC.message() << "\n";
+          return true;
+        }
+        OS << *Result;
+        continue;
+      }
+
+      llvm::outs() << *Result;
+    }
+    return false;
+  }
+
   bool invokeAction(RefactoringActionSubcommand &Subcommand,
                     const CompilationDatabase &DB,
                     ArrayRef<std::string> Sources) {
@@ -262,14 +466,22 @@ public:
 
     bool HasSelection = false;
     for (const auto &Rule : Subcommand.getActionRules()) {
+      bool SelectionMatches = true;
       if (Rule->hasSelectionRequirement()) {
         HasSelection = true;
-        if (Subcommand.getSelection())
-          MatchingRules.push_back(Rule.get());
-        else
+        if (!Subcommand.getSelection()) {
           MissingOptions.insert("selection");
+          SelectionMatches = false;
+        }
       }
-      // FIXME (Alex L): Support custom options.
+      CommandLineRefactoringOptionVisitor Visitor(Subcommand.getOptions());
+      Rule->visitRefactoringOptions(Visitor);
+      if (SelectionMatches && Visitor.getMissingRequiredOptions().empty()) {
+        MatchingRules.push_back(Rule.get());
+        continue;
+      }
+      for (const RefactoringOption *Opt : Visitor.getMissingRequiredOptions())
+        MissingOptions.insert(Opt->getName());
     }
     if (MatchingRules.empty()) {
       llvm::errs() << "error: '" << Subcommand.getName()
@@ -279,8 +491,8 @@ public:
       return true;
     }
 
-    bool HasFailed = false;
     ClangRefactorConsumer Consumer;
+    bool HasFailed = false;
     if (foreachTranslationUnit(DB, Sources, [&](ASTContext &AST) {
           RefactoringRuleContext Context(AST.getSourceManager());
           Context.setASTContext(AST);
@@ -299,24 +511,30 @@ public:
                 "The action must have at least one selection rule");
           };
 
+          std::unique_ptr<ClangRefactorToolConsumerInterface> CustomConsumer;
+          if (HasSelection)
+            CustomConsumer = Subcommand.getSelection()->createCustomConsumer();
+          ClangRefactorToolConsumerInterface &ActiveConsumer =
+              CustomConsumer ? *CustomConsumer : Consumer;
+          ActiveConsumer.beginTU(AST);
           if (HasSelection) {
             assert(Subcommand.getSelection() && "Missing selection argument?");
             if (opts::Verbose)
               Subcommand.getSelection()->print(llvm::outs());
-            auto CustomConsumer =
-                Subcommand.getSelection()->createCustomConsumer();
             if (Subcommand.getSelection()->forAllRanges(
                     Context.getSources(), [&](SourceRange R) {
                       Context.setSelectionRange(R);
-                      InvokeRule(CustomConsumer ? *CustomConsumer : Consumer);
+                      InvokeRule(ActiveConsumer);
                     }))
               HasFailed = true;
+            ActiveConsumer.endTU();
             return;
           }
           // FIXME (Alex L): Implement non-selection based invocation path.
+          ActiveConsumer.endTU();
         }))
       return true;
-    return HasFailed;
+    return HasFailed || applySourceChanges(Consumer.getSourceChanges());
   }
 };
 
@@ -326,7 +544,7 @@ int main(int argc, const char **argv) {
   ClangRefactorTool Tool;
 
   CommonOptionsParser Options(
-      argc, argv, opts::CommonRefactorOptions, cl::ZeroOrMore,
+      argc, argv, cl::GeneralCategory, cl::ZeroOrMore,
       "Clang-based refactoring tool for C, C++ and Objective-C");
 
   // Figure out which action is specified by the user. The user must specify

@@ -11,6 +11,13 @@ include(LLDBStandalone)
 include(LLDBConfig)
 include(AddLLDB)
 
+# Define the LLDB_CONFIGURATION_xxx matching the build type
+if( uppercase_CMAKE_BUILD_TYPE STREQUAL "DEBUG" )
+  add_definitions( -DLLDB_CONFIGURATION_DEBUG )
+else()
+  add_definitions( -DLLDB_CONFIGURATION_RELEASE )
+endif()
+
 if (CMAKE_SYSTEM_NAME MATCHES "Windows|Android")
   set(LLDB_DEFAULT_DISABLE_LIBEDIT 1)
 else()
@@ -50,10 +57,15 @@ if (NOT LLDB_DISABLE_PYTHON)
   add_subdirectory(scripts)
 endif ()
 add_subdirectory(source)
-add_subdirectory(test)
 add_subdirectory(tools)
-add_subdirectory(unittests)
-add_subdirectory(lit)
+
+option(LLDB_INCLUDE_TESTS "Generate build targets for the LLDB unit tests."
+  ${LLVM_INCLUDE_TESTS})
+if(LLDB_INCLUDE_TESTS)
+  add_subdirectory(test)
+  add_subdirectory(unittests)
+  add_subdirectory(lit)
+endif()
 
 if (NOT LLDB_DISABLE_PYTHON)
     # Add a Post-Build Event to copy over Python files and create the symlink

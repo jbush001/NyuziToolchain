@@ -33,7 +33,7 @@ class SanitizerArgs {
   bool MsanUseAfterDtor = false;
   bool CfiCrossDso = false;
   int AsanFieldPadding = 0;
-  bool AsanSharedRuntime = false;
+  bool SharedRuntime = false;
   bool AsanUseAfterScope = true;
   bool AsanGlobalsDeadStripping = false;
   bool LinkCXXRuntimes = false;
@@ -44,13 +44,16 @@ class SanitizerArgs {
   bool TsanFuncEntryExit = true;
   bool TsanAtomics = true;
   bool MinimalRuntime = false;
+  // True if cross-dso CFI support if provided by the system (i.e. Android).
+  bool ImplicitCfiRuntime = false;
 
  public:
   /// Parses the sanitizer arguments from an argument list.
   SanitizerArgs(const ToolChain &TC, const llvm::opt::ArgList &Args);
 
+  bool needsSharedRt() const { return SharedRuntime; }
+
   bool needsAsanRt() const { return Sanitizers.has(SanitizerKind::Address); }
-  bool needsSharedAsanRt() const { return AsanSharedRuntime; }
   bool needsTsanRt() const { return Sanitizers.has(SanitizerKind::Thread); }
   bool needsMsanRt() const { return Sanitizers.has(SanitizerKind::Memory); }
   bool needsFuzzer() const { return Sanitizers.has(SanitizerKind::Fuzzer); }

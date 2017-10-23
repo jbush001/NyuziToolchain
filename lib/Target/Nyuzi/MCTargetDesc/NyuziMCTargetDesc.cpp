@@ -65,11 +65,11 @@ static MCAsmInfo *createNyuziMCAsmInfo(const MCRegisterInfo &MRI,
 }
 
 static MCStreamer *createNyuziMCStreamer(const Triple &T, MCContext &Context,
-                                         MCAsmBackend &MAB,
+                                         std::unique_ptr<MCAsmBackend> &&MAB,
                                          raw_pwrite_stream &OS,
-                                         MCCodeEmitter *Emitter,
+                                         std::unique_ptr<MCCodeEmitter> &&Emitter,
                                          bool RelaxAll) {
-  return createELFStreamer(Context, MAB, OS, Emitter, RelaxAll);
+  return createELFStreamer(Context, std::move(MAB), OS, std::move(Emitter), RelaxAll);
 }
 
 static MCInstPrinter *createNyuziMCInstPrinter(const Triple &T,

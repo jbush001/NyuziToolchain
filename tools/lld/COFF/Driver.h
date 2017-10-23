@@ -12,8 +12,8 @@
 
 #include "Config.h"
 #include "SymbolTable.h"
-#include "lld/Core/LLVM.h"
-#include "lld/Core/Reproduce.h"
+#include "lld/Common/LLVM.h"
+#include "lld/Common/Reproduce.h"
 #include "llvm/ADT/Optional.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Object/Archive.h"
@@ -74,6 +74,8 @@ public:
   void enqueueArchiveMember(const Archive::Child &C, StringRef SymName,
                             StringRef ParentName);
 
+  MemoryBufferRef takeBuffer(std::unique_ptr<MemoryBuffer> MB);
+
 private:
   std::unique_ptr<llvm::TarWriter> Tar; // for /linkrepro
 
@@ -109,7 +111,6 @@ private:
 
   void invokeMSVC(llvm::opt::InputArgList &Args);
 
-  MemoryBufferRef takeBuffer(std::unique_ptr<MemoryBuffer> MB);
   void addBuffer(std::unique_ptr<MemoryBuffer> MB, bool WholeArchive);
   void addArchiveBuffer(MemoryBufferRef MBRef, StringRef SymName,
                         StringRef ParentName);
@@ -169,10 +170,8 @@ void assignExportOrdinals();
 // incompatible objects.
 void checkFailIfMismatch(StringRef Arg);
 
-// Convert Windows resource files (.res files) to a .obj file
-// using cvtres.exe.
-std::unique_ptr<MemoryBuffer>
-convertResToCOFF(const std::vector<MemoryBufferRef> &MBs);
+// Convert Windows resource files (.res files) to a .obj file.
+MemoryBufferRef convertResToCOFF(const std::vector<MemoryBufferRef> &MBs);
 
 void runMSVCLinker(std::string Rsp, ArrayRef<StringRef> Objects);
 

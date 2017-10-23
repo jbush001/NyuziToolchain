@@ -117,10 +117,10 @@ static cl::opt<bool> EnableSIInsertWaitcntsPass(
   cl::init(true));
 
 // Option to run late CFG structurizer
-static cl::opt<bool> LateCFGStructurize(
+static cl::opt<bool, true> LateCFGStructurize(
   "amdgpu-late-structurize",
   cl::desc("Enable late CFG structurization"),
-  cl::init(false),
+  cl::location(AMDGPUTargetMachine::EnableLateStructurizeCFG),
   cl::Hidden);
 
 static cl::opt<bool> EnableAMDGPUFunctionCalls(
@@ -161,6 +161,7 @@ extern "C" void LLVMInitializeAMDGPUTarget() {
   initializeAMDGPUAnnotateUniformValuesPass(*PR);
   initializeAMDGPUArgumentUsageInfoPass(*PR);
   initializeAMDGPULowerIntrinsicsPass(*PR);
+  initializeAMDGPUOpenCLEnqueuedBlockLoweringPass(*PR);
   initializeAMDGPUPromoteAllocaPass(*PR);
   initializeAMDGPUCodeGenPreparePass(*PR);
   initializeAMDGPURewriteOutArgumentsPass(*PR);
@@ -179,6 +180,7 @@ extern "C" void LLVMInitializeAMDGPUTarget() {
   initializeAMDGPUAAWrapperPassPass(*PR);
   initializeAMDGPUUseNativeCallsPass(*PR);
   initializeAMDGPUSimplifyLibCallsPass(*PR);
+  initializeAMDGPUInlinerPass(*PR);
 }
 
 static std::unique_ptr<TargetLoweringObjectFile> createTLOF(const Triple &TT) {
@@ -298,6 +300,8 @@ AMDGPUTargetMachine::AMDGPUTargetMachine(const Target &T, const Triple &TT,
 
 AMDGPUTargetMachine::~AMDGPUTargetMachine() = default;
 
+bool AMDGPUTargetMachine::EnableLateStructurizeCFG = false;
+
 StringRef AMDGPUTargetMachine::getGPUName(const Function &F) const {
   Attribute GPUAttr = F.getFnAttribute("target-cpu");
   return GPUAttr.hasAttribute(Attribute::None) ?
@@ -319,15 +323,38 @@ static ImmutablePass *createAMDGPUExternalAAWrapperPass() {
       });
 }
 
+/// Predicate for Internalize pass.
+bool mustPreserveGV(const GlobalValue &GV) {
+  if (const Function *F = dyn_cast<Function>(&GV))
+    return F->isDeclaration() || AMDGPU::isEntryFunctionCC(F->getCallingConv());
+
+  return !GV.use_empty();
+}
+
 void AMDGPUTargetMachine::adjustPassManager(PassManagerBuilder &Builder) {
   Builder.DivergentTarget = true;
 
   bool EnableOpt = getOptLevel() > CodeGenOpt::None;
-  bool Internalize = InternalizeSymbols && EnableOpt &&
-                     (getTargetTriple().getArch() == Triple::amdgcn);
-  bool EarlyInline = EarlyInlineAll && EnableOpt;
+  bool Internalize = InternalizeSymbols;
+  bool EarlyInline = EarlyInlineAll && EnableOpt && !EnableAMDGPUFunctionCalls;
   bool AMDGPUAA = EnableAMDGPUAliasAnalysis && EnableOpt;
   bool LibCallSimplify = EnableLibCallSimplify && EnableOpt;
+
+  if (EnableAMDGPUFunctionCalls) {
+    delete Builder.Inliner;
+    Builder.Inliner = createAMDGPUFunctionInliningPass();
+  }
+
+  if (Internalize) {
+    // If we're generating code, we always have the whole program available. The
+    // relocations expected for externally visible functions aren't supported,
+    // so make sure every non-entry function is hidden.
+    Builder.addExtension(
+      PassManagerBuilder::EP_EnabledOnOptLevel0,
+      [](const PassManagerBuilder &, legacy::PassManagerBase &PM) {
+        PM.add(createInternalizePass(mustPreserveGV));
+      });
+  }
 
   Builder.addExtension(
     PassManagerBuilder::EP_ModuleOptimizerEarly,
@@ -339,42 +366,25 @@ void AMDGPUTargetMachine::adjustPassManager(PassManagerBuilder &Builder) {
       }
       PM.add(createAMDGPUUnifyMetadataPass());
       if (Internalize) {
-        PM.add(createInternalizePass([=](const GlobalValue &GV) -> bool {
-          if (const Function *F = dyn_cast<Function>(&GV)) {
-            if (F->isDeclaration())
-                return true;
-            switch (F->getCallingConv()) {
-            default:
-              return false;
-            case CallingConv::AMDGPU_VS:
-            case CallingConv::AMDGPU_HS:
-            case CallingConv::AMDGPU_GS:
-            case CallingConv::AMDGPU_PS:
-            case CallingConv::AMDGPU_CS:
-            case CallingConv::AMDGPU_KERNEL:
-            case CallingConv::SPIR_KERNEL:
-              return true;
-            }
-          }
-          return !GV.use_empty();
-        }));
+        PM.add(createInternalizePass(mustPreserveGV));
         PM.add(createGlobalDCEPass());
       }
       if (EarlyInline)
         PM.add(createAMDGPUAlwaysInlinePass(false));
   });
 
+  const auto &Opt = Options;
   Builder.addExtension(
     PassManagerBuilder::EP_EarlyAsPossible,
-    [AMDGPUAA, LibCallSimplify](const PassManagerBuilder &,
-                                legacy::PassManagerBase &PM) {
+    [AMDGPUAA, LibCallSimplify, &Opt](const PassManagerBuilder &,
+                                      legacy::PassManagerBase &PM) {
       if (AMDGPUAA) {
         PM.add(createAMDGPUAAWrapperPass());
         PM.add(createAMDGPUExternalAAWrapperPass());
       }
       PM.add(llvm::createAMDGPUUseNativeCallsPass());
       if (LibCallSimplify)
-        PM.add(llvm::createAMDGPUSimplifyLibCallsPass());
+        PM.add(llvm::createAMDGPUSimplifyLibCallsPass(Opt));
   });
 
   Builder.addExtension(
@@ -602,6 +612,9 @@ void AMDGPUPassConfig::addIRPasses() {
 
   // Handle uses of OpenCL image2d_t, image3d_t and sampler_t arguments.
   addPass(createAMDGPUOpenCLImageTypeLoweringPass());
+
+  // Replace OpenCL enqueued block function pointers with global variables.
+  addPass(createAMDGPUOpenCLEnqueuedBlockLoweringPass());
 
   if (TM.getOptLevel() > CodeGenOpt::None) {
     addPass(createInferAddressSpacesPass());

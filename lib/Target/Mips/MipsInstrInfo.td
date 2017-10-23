@@ -1222,6 +1222,20 @@ def immZExtRange2To64 : PatLeaf<(imm), [{
          (N->getZExtValue() <= 64);
 }]>;
 
+def ORiPred  : PatLeaf<(imm), [{
+  return isUInt<16>(N->getZExtValue()) && !isInt<16>(N->getSExtValue());
+}], LO16>;
+
+def LUiPred : PatLeaf<(imm), [{
+  int64_t Val = N->getSExtValue();
+  return !isInt<16>(Val) && isInt<32>(Val) && !(Val & 0xffff);
+}]>;
+
+def LUiORiPred  : PatLeaf<(imm), [{
+  int64_t SVal = N->getSExtValue();
+  return isInt<32>(SVal) && (SVal & 0xffff);
+}]>;
+
 // Mips Address Mode! SDNode frameindex could possibily be a match
 // since load and store instructions from stack used it.
 def addr :
@@ -1399,27 +1413,47 @@ class SW_FT3<string opstr, RegisterOperand RC, InstrItinClass Itin,
 
 // Conditional Branch
 class CBranch<string opstr, DAGOperand opnd, PatFrag cond_op,
-              RegisterOperand RO, bit DelaySlot = 1> :
+              RegisterOperand RO> :
   InstSE<(outs), (ins RO:$rs, RO:$rt, opnd:$offset),
          !strconcat(opstr, "\t$rs, $rt, $offset"),
          [(brcond (i32 (cond_op RO:$rs, RO:$rt)), bb:$offset)], II_BCC,
          FrmI, opstr> {
   let isBranch = 1;
   let isTerminator = 1;
-  let hasDelaySlot = DelaySlot;
+  let hasDelaySlot = 1;
+  let Defs = [AT];
+  bit isCTI = 1;
+}
+
+class CBranchLikely<string opstr, DAGOperand opnd, RegisterOperand RO> :
+  InstSE<(outs), (ins RO:$rs, RO:$rt, opnd:$offset),
+         !strconcat(opstr, "\t$rs, $rt, $offset"), [], II_BCC, FrmI, opstr> {
+  let isBranch = 1;
+  let isTerminator = 1;
+  let hasDelaySlot = 1;
   let Defs = [AT];
   bit isCTI = 1;
 }
 
 class CBranchZero<string opstr, DAGOperand opnd, PatFrag cond_op,
-                  RegisterOperand RO, bit DelaySlot = 1> :
+                  RegisterOperand RO> :
   InstSE<(outs), (ins RO:$rs, opnd:$offset),
          !strconcat(opstr, "\t$rs, $offset"),
          [(brcond (i32 (cond_op RO:$rs, 0)), bb:$offset)], II_BCCZ,
          FrmI, opstr> {
   let isBranch = 1;
   let isTerminator = 1;
-  let hasDelaySlot = DelaySlot;
+  let hasDelaySlot = 1;
+  let Defs = [AT];
+  bit isCTI = 1;
+}
+
+class CBranchZeroLikely<string opstr, DAGOperand opnd, RegisterOperand RO> :
+  InstSE<(outs), (ins RO:$rs, opnd:$offset),
+         !strconcat(opstr, "\t$rs, $offset"), [], II_BCCZ, FrmI, opstr> {
+  let isBranch = 1;
+  let isTerminator = 1;
+  let hasDelaySlot = 1;
   let Defs = [AT];
   bit isCTI = 1;
 }
@@ -1495,10 +1529,10 @@ let isCall=1, hasDelaySlot=1, isCTI=1, Defs = [RA] in {
            [], II_JALR, FrmR, opstr>;
 
   class BGEZAL_FT<string opstr, DAGOperand opnd,
-                  RegisterOperand RO, bit DelaySlot = 1> :
+                  RegisterOperand RO> :
     InstSE<(outs), (ins RO:$rs, opnd:$offset),
            !strconcat(opstr, "\t$rs, $offset"), [], II_BCCZAL, FrmI, opstr> {
-    let hasDelaySlot = DelaySlot;
+    let hasDelaySlot = 1;
   }
 
 }
@@ -2011,26 +2045,26 @@ def J       : MMRel, JumpFJ<jmptarget, "j", br, bb, "j">, FJ<2>,
               AdditionalRequires<[RelocNotPIC]>, IsBranch;
 def JR      : MMRel, IndirectBranch<"jr", GPR32Opnd>, MTLO_FM<8>, ISA_MIPS1_NOT_32R6_64R6; 
 def BEQ     : MMRel, CBranch<"beq", brtarget, seteq, GPR32Opnd>, BEQ_FM<4>;
-def BEQL    : MMRel, CBranch<"beql", brtarget, seteq, GPR32Opnd, 0>,
+def BEQL    : MMRel, CBranchLikely<"beql", brtarget, GPR32Opnd>,
               BEQ_FM<20>, ISA_MIPS2_NOT_32R6_64R6;
 def BNE     : MMRel, CBranch<"bne", brtarget, setne, GPR32Opnd>, BEQ_FM<5>;
-def BNEL    : MMRel, CBranch<"bnel", brtarget, setne, GPR32Opnd, 0>,
+def BNEL    : MMRel, CBranchLikely<"bnel", brtarget, GPR32Opnd>,
               BEQ_FM<21>, ISA_MIPS2_NOT_32R6_64R6;
 def BGEZ    : MMRel, CBranchZero<"bgez", brtarget, setge, GPR32Opnd>,
               BGEZ_FM<1, 1>;
-def BGEZL   : MMRel, CBranchZero<"bgezl", brtarget, setge, GPR32Opnd, 0>,
+def BGEZL   : MMRel, CBranchZeroLikely<"bgezl", brtarget, GPR32Opnd>,
               BGEZ_FM<1, 3>, ISA_MIPS2_NOT_32R6_64R6;
 def BGTZ    : MMRel, CBranchZero<"bgtz", brtarget, setgt, GPR32Opnd>,
               BGEZ_FM<7, 0>;
-def BGTZL   : MMRel, CBranchZero<"bgtzl", brtarget, setgt, GPR32Opnd, 0>,
+def BGTZL   : MMRel, CBranchZeroLikely<"bgtzl", brtarget, GPR32Opnd>,
               BGEZ_FM<23, 0>, ISA_MIPS2_NOT_32R6_64R6;
 def BLEZ    : MMRel, CBranchZero<"blez", brtarget, setle, GPR32Opnd>,
               BGEZ_FM<6, 0>;
-def BLEZL   : MMRel, CBranchZero<"blezl", brtarget, setle, GPR32Opnd, 0>,
+def BLEZL   : MMRel, CBranchZeroLikely<"blezl", brtarget, GPR32Opnd>,
               BGEZ_FM<22, 0>, ISA_MIPS2_NOT_32R6_64R6;
 def BLTZ    : MMRel, CBranchZero<"bltz", brtarget, setlt, GPR32Opnd>,
               BGEZ_FM<1, 0>;
-def BLTZL   : MMRel, CBranchZero<"bltzl", brtarget, setlt, GPR32Opnd, 0>,
+def BLTZL   : MMRel, CBranchZeroLikely<"bltzl", brtarget, GPR32Opnd>,
               BGEZ_FM<1, 2>, ISA_MIPS2_NOT_32R6_64R6;
 def B       : UncondBranch<BEQ>;
 
@@ -2044,11 +2078,11 @@ def JALX : MMRel, JumpLink<"jalx", calltarget>, FJ<0x1D>,
            ISA_MIPS32_NOT_32R6_64R6;
 def BGEZAL : MMRel, BGEZAL_FT<"bgezal", brtarget, GPR32Opnd>, BGEZAL_FM<0x11>,
              ISA_MIPS1_NOT_32R6_64R6;
-def BGEZALL : MMRel, BGEZAL_FT<"bgezall", brtarget, GPR32Opnd, 0>,
+def BGEZALL : MMRel, BGEZAL_FT<"bgezall", brtarget, GPR32Opnd>,
               BGEZAL_FM<0x13>, ISA_MIPS2_NOT_32R6_64R6;
 def BLTZAL : MMRel, BGEZAL_FT<"bltzal", brtarget, GPR32Opnd>, BGEZAL_FM<0x10>,
              ISA_MIPS1_NOT_32R6_64R6;
-def BLTZALL : MMRel, BGEZAL_FT<"bltzall", brtarget, GPR32Opnd, 0>,
+def BLTZALL : MMRel, BGEZAL_FT<"bltzall", brtarget, GPR32Opnd>,
               BGEZAL_FM<0x12>, ISA_MIPS2_NOT_32R6_64R6;
 def BAL_BR : BAL_BR_Pseudo<BGEZAL>;
 
@@ -2696,15 +2730,20 @@ multiclass MaterializeImms<ValueType VT, Register ZEROReg,
                            Instruction ADDiuOp, Instruction LUiOp,
                            Instruction ORiOp> {
 
-// Small immediates
-def : MipsPat<(VT immSExt16:$imm), (ADDiuOp ZEROReg, imm:$imm)>;
-def : MipsPat<(VT immZExt16:$imm), (ORiOp ZEROReg, imm:$imm)>;
-
-// Bits 32-16 set, sign/zero extended.
-def : MipsPat<(VT immSExt32Low16Zero:$imm), (LUiOp (HI16 imm:$imm))>;
+// Constant synthesis previously relied on the ordering of the patterns below.
+// By making the predicates they use non-overlapping, the patterns were
+// reordered so that the effect of the newly introduced predicates can be
+// observed.
 
 // Arbitrary immediates
-def : MipsPat<(VT immSExt32:$imm), (ORiOp (LUiOp (HI16 imm:$imm)), (LO16 imm:$imm))>;
+def : MipsPat<(VT LUiORiPred:$imm), (ORiOp (LUiOp (HI16 imm:$imm)), (LO16 imm:$imm))>;
+
+// Bits 32-16 set, sign/zero extended.
+def : MipsPat<(VT LUiPred:$imm), (LUiOp (HI16 imm:$imm))>;
+
+// Small immediates
+def : MipsPat<(VT ORiPred:$imm), (ORiOp ZEROReg, imm:$imm)>;
+def : MipsPat<(VT immSExt16:$imm), (ADDiuOp ZEROReg, imm:$imm)>;
 }
 
 let AdditionalPredicates = [NotInMicroMips] in

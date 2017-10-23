@@ -147,6 +147,25 @@ IsaVersion getIsaVersion(const FeatureBitset &Features) {
   return {7, 0, 0};
 }
 
+void streamIsaVersion(const MCSubtargetInfo *STI, raw_ostream &Stream) {
+  auto TargetTriple = STI->getTargetTriple();
+  auto ISAVersion = IsaInfo::getIsaVersion(STI->getFeatureBits());
+
+  Stream << TargetTriple.getArchName() << '-'
+         << TargetTriple.getVendorName() << '-'
+         << TargetTriple.getOSName() << '-'
+         << TargetTriple.getEnvironmentName() << '-'
+         << "gfx"
+         << ISAVersion.Major
+         << ISAVersion.Minor
+         << ISAVersion.Stepping;
+  Stream.flush();
+}
+
+bool hasCodeObjectV3(const FeatureBitset &Features) {
+  return Features.test(FeatureCodeObjectV3);
+}
+
 unsigned getWavefrontSize(const FeatureBitset &Features) {
   if (Features.test(FeatureWavefrontSize16))
     return 16;
@@ -486,7 +505,9 @@ unsigned getInitialPSInputAddr(const Function &F) {
 bool isShader(CallingConv::ID cc) {
   switch(cc) {
     case CallingConv::AMDGPU_VS:
+    case CallingConv::AMDGPU_LS:
     case CallingConv::AMDGPU_HS:
+    case CallingConv::AMDGPU_ES:
     case CallingConv::AMDGPU_GS:
     case CallingConv::AMDGPU_PS:
     case CallingConv::AMDGPU_CS:
@@ -508,7 +529,9 @@ bool isEntryFunctionCC(CallingConv::ID CC) {
   case CallingConv::AMDGPU_GS:
   case CallingConv::AMDGPU_PS:
   case CallingConv::AMDGPU_CS:
+  case CallingConv::AMDGPU_ES:
   case CallingConv::AMDGPU_HS:
+  case CallingConv::AMDGPU_LS:
     return true;
   default:
     return false;
@@ -744,7 +767,9 @@ bool isArgPassedInSGPR(const Argument *A) {
   case CallingConv::SPIR_KERNEL:
     return true;
   case CallingConv::AMDGPU_VS:
+  case CallingConv::AMDGPU_LS:
   case CallingConv::AMDGPU_HS:
+  case CallingConv::AMDGPU_ES:
   case CallingConv::AMDGPU_GS:
   case CallingConv::AMDGPU_PS:
   case CallingConv::AMDGPU_CS:

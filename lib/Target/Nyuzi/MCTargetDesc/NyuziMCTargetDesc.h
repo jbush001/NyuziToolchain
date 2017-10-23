@@ -37,8 +37,8 @@ MCCodeEmitter *createNyuziMCCodeEmitter(const MCInstrInfo &MCII,
                                         const MCRegisterInfo &MRI,
                                         MCContext &Ctx);
 
-MCObjectWriter *createNyuziELFObjectWriter(raw_pwrite_stream &OS,
-                                           uint8_t OSABI);
+std::unique_ptr<MCObjectWriter> createNyuziELFObjectWriter(raw_pwrite_stream &OS,
+                                                           uint8_t OSABI);
 
 MCAsmBackend *createNyuziAsmBackend(const Target &T, const MCRegisterInfo &MRI,
                                     const Triple &TT, StringRef CPU,

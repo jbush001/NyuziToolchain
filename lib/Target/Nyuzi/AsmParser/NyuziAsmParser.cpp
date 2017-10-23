@@ -67,7 +67,7 @@ class NyuziAsmParser : public MCTargetAsmParser {
 public:
   NyuziAsmParser(const MCSubtargetInfo &sti, MCAsmParser &_Parser,
                  const MCInstrInfo &MII, const MCTargetOptions &Options)
-      : MCTargetAsmParser(Options, sti), Parser(_Parser) {
+      : MCTargetAsmParser(Options, sti, MII), Parser(_Parser) {
     setAvailableFeatures(ComputeAvailableFeatures(sti.getFeatureBits()));
   }
 };

@@ -42,10 +42,10 @@ This installs the Clang binary as
 ``./third_party/llvm-build/Release+Asserts/bin/clang``)
 
 The libFuzzer code resides in the LLVM repository, and requires a recent Clang
-compiler to build (and is used to `fuzz various parts of LLVM itself`_).
-However the fuzzer itself does not (and should not) depend on any part of LLVM
-infrastructure and can be used for other projects without requiring the rest
-of LLVM.
+compiler to build (and is used to :doc:`fuzz various parts of LLVM itself
+<FuzzingLLVM>`).  However the fuzzer itself does not (and should not) depend on
+any part of LLVM infrastructure and can be used for other projects without
+requiring the rest of LLVM.
 
 
 Getting Started
@@ -137,6 +137,8 @@ Finally, link with ``libFuzzer.a``::
 
   clang -fsanitize-coverage=trace-pc-guard -fsanitize=address your_lib.cc fuzz_target.cc libFuzzer.a -o my_fuzzer
 
+.. _libfuzzer-corpus:
+  
 Corpus
 ------
 
@@ -627,66 +629,6 @@ which was configured with ``-DLIBFUZZER_ENABLE_TESTS=ON`` flag.
     ninja check-fuzzer
 
 
-Fuzzing components of LLVM
-==========================
-.. contents::
-   :local:
-   :depth: 1
-
-To build any of the LLVM fuzz targets use the build instructions above.
-
-clang-format-fuzzer
--------------------
-The inputs are random pieces of C++-like text.
-
-.. code-block:: console
-
-    ninja clang-format-fuzzer
-    mkdir CORPUS_DIR
-    ./bin/clang-format-fuzzer CORPUS_DIR
-
-Optionally build other kinds of binaries (ASan+Debug, MSan, UBSan, etc).
-
-Tracking bug: https://llvm.org/bugs/show_bug.cgi?id=23052
-
-clang-fuzzer
-------------
-
-The behavior is very similar to ``clang-format-fuzzer``.
-
-Tracking bug: https://llvm.org/bugs/show_bug.cgi?id=23057
-
-llvm-as-fuzzer
---------------
-
-Tracking bug: https://llvm.org/bugs/show_bug.cgi?id=24639
-
-llvm-mc-fuzzer
---------------
-
-This tool fuzzes the MC layer. Currently it is only able to fuzz the
-disassembler but it is hoped that assembly, and round-trip verification will be
-added in future.
-
-When run in dissassembly mode, the inputs are opcodes to be disassembled. The
-fuzzer will consume as many instructions as possible and will stop when it
-finds an invalid instruction or runs out of data.
-
-Please note that the command line interface differs slightly from that of other
-fuzzers. The fuzzer arguments should follow ``--fuzzer-args`` and should have
-a single dash, while other arguments control the operation mode and target in a
-similar manner to ``llvm-mc`` and should have two dashes. For example:
-
-.. code-block:: console
-
-  llvm-mc-fuzzer --triple=aarch64-linux-gnu --disassemble --fuzzer-args -max_len=4 -jobs=10
-
-Buildbot
---------
-
-A buildbot continuously runs the above fuzzers for LLVM components, with results
-shown at http://lab.llvm.org:8011/builders/sanitizer-x86_64-linux-fuzzer .
-
 FAQ
 =========================
 
@@ -789,6 +731,8 @@ Trophies
 
 * `Wireshark <https://bugs.wireshark.org/bugzilla/buglist.cgi?bug_status=UNCONFIRMED&bug_status=CONFIRMED&bug_status=IN_PROGRESS&bug_status=INCOMPLETE&bug_status=RESOLVED&bug_status=VERIFIED&f0=OP&f1=OP&f2=product&f3=component&f4=alias&f5=short_desc&f7=content&f8=CP&f9=CP&j1=OR&o2=substring&o3=substring&o4=substring&o5=substring&o6=substring&o7=matches&order=bug_id%20DESC&query_format=advanced&v2=libfuzzer&v3=libfuzzer&v4=libfuzzer&v5=libfuzzer&v6=libfuzzer&v7=%22libfuzzer%22>`_
 
+* `QEMU <https://researchcenter.paloaltonetworks.com/2017/09/unit42-palo-alto-networks-discovers-new-qemu-vulnerability/>`_
+
 .. _pcre2: http://www.pcre.org/
 .. _AFL: http://lcamtuf.coredump.cx/afl/
 .. _Radamsa: https://github.com/aoh/radamsa
@@ -806,4 +750,4 @@ Trophies
 .. _`value profile`: #value-profile
 .. _`caller-callee pairs`: http://clang.llvm.org/docs/SanitizerCoverage.html#caller-callee-coverage
 .. _BoringSSL: https://boringssl.googlesource.com/boringssl/
-.. _`fuzz various parts of LLVM itself`: `Fuzzing components of LLVM`_
+

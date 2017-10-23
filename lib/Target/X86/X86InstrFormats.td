@@ -231,6 +231,9 @@ class FoldGenData<string _RegisterForm> {
     string FoldGenRegForm = _RegisterForm;
 }
 
+// Mark the instruction as "illegal to memory fold/unfold"
+class NotMemoryFoldable { bit isMemoryFoldable = 0; }
+
 class X86Inst<bits<8> opcod, Format f, ImmType i, dag outs, dag ins,
               string AsmStr,
               InstrItinClass itin,
@@ -313,6 +316,8 @@ class X86Inst<bits<8> opcod, Format f, ImmType i, dag outs, dag ins,
   // Used in the memory folding generation (TableGen backend) to point to an alternative
   // instruction to replace the current one in case it got picked during generation.
   string FoldGenRegForm = ?;
+
+  bit isMemoryFoldable = 1;     // Is it allowed to memory fold/unfold this instruction?
 
   // TSFlags layout should be kept in sync with X86BaseInfo.h.
   let TSFlags{6-0}   = FormBits;
@@ -839,18 +844,18 @@ class AVX512<bits<8> o, Format F, dag outs, dag ins, string asm,
 class AES8I<bits<8> o, Format F, dag outs, dag ins, string asm,
             list<dag>pattern, InstrItinClass itin = IIC_AES>
       : I<o, F, outs, ins, asm, pattern, itin, SSEPackedInt>, T8PD,
-        Requires<[HasAES]>;
+        Requires<[NoAVX, HasAES]>;
 
 class AESAI<bits<8> o, Format F, dag outs, dag ins, string asm,
             list<dag> pattern, InstrItinClass itin = NoItinerary>
       : Ii8<o, F, outs, ins, asm, pattern, itin, SSEPackedInt>, TAPD,
-        Requires<[HasAES]>;
+        Requires<[NoAVX, HasAES]>;
 
 // PCLMUL Instruction Templates
 class PCLMULIi8<bits<8> o, Format F, dag outs, dag ins, string asm,
                list<dag>pattern, InstrItinClass itin = NoItinerary>
       : Ii8<o, F, outs, ins, asm, pattern, itin, SSEPackedInt>, TAPD,
-        Requires<[HasPCLMUL]>;
+        Requires<[NoAVX, HasPCLMUL]>;
 
 class AVXPCLMULIi8<bits<8> o, Format F, dag outs, dag ins, string asm,
                   list<dag>pattern, InstrItinClass itin = NoItinerary>

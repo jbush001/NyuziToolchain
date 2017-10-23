@@ -38,7 +38,8 @@ public:
   NyuziAsmBackend(const Target &T, Triple::OSType _OSType)
       : MCAsmBackend(), OSType(_OSType) {}
 
-  MCObjectWriter *createObjectWriter(raw_pwrite_stream &OS) const override {
+  std::unique_ptr<MCObjectWriter>
+  createObjectWriter(raw_pwrite_stream &OS) const override {
     return createNyuziELFObjectWriter(
         OS, MCELFObjectTargetWriter::getOSABI(OSType));
   }

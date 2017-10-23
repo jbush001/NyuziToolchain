@@ -78,6 +78,9 @@ private:
   void lowerScalarAbs(SetVectorType &Worklist,
                       MachineInstr &Inst) const;
 
+  void lowerScalarXnor(SetVectorType &Worklist,
+                       MachineInstr &Inst) const;
+
   void splitScalar64BitUnaryOp(SetVectorType &Worklist,
                                MachineInstr &Inst, unsigned Opcode) const;
 
@@ -815,6 +818,7 @@ public:
   unsigned isStoreToStackSlot(const MachineInstr &MI,
                               int &FrameIndex) const override;
 
+  unsigned getInstBundleSize(const MachineInstr &MI) const;
   unsigned getInstSizeInBytes(const MachineInstr &MI) const override;
 
   bool mayAccessFlatAddressSpace(const MachineInstr &MI) const;

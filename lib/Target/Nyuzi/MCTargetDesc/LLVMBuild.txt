@@ -19,5 +19,5 @@
 type = Library
 name = NyuziDesc
 parent = Nyuzi
-required_libraries = NyuziAsmPrinter MC NyuziInfo Support
+required_libraries = NyuziAsmPrinter MC MCDisassembler NyuziInfo Support
 add_to_library_groups = Nyuzi

@@ -1290,6 +1290,7 @@ const SCEV *ScalarEvolution::getTruncateExpr(const SCEV *Op,
   SCEV *S = new (SCEVAllocator) SCEVTruncateExpr(ID.Intern(SCEVAllocator),
                                                  Op, Ty);
   UniqueSCEVs.InsertNode(S, IP);
+  addToLoopUseLists(S);
   return S;
 }
 
@@ -1580,6 +1581,7 @@ ScalarEvolution::getZeroExtendExpr(const SCEV *Op, Type *Ty, unsigned Depth) {
     SCEV *S = new (SCEVAllocator) SCEVZeroExtendExpr(ID.Intern(SCEVAllocator),
                                                      Op, Ty);
     UniqueSCEVs.InsertNode(S, IP);
+    addToLoopUseLists(S);
     return S;
   }
 
@@ -1766,6 +1768,7 @@ ScalarEvolution::getZeroExtendExpr(const SCEV *Op, Type *Ty, unsigned Depth) {
   SCEV *S = new (SCEVAllocator) SCEVZeroExtendExpr(ID.Intern(SCEVAllocator),
                                                    Op, Ty);
   UniqueSCEVs.InsertNode(S, IP);
+  addToLoopUseLists(S);
   return S;
 }
 
@@ -1803,6 +1806,7 @@ ScalarEvolution::getSignExtendExpr(const SCEV *Op, Type *Ty, unsigned Depth) {
     SCEV *S = new (SCEVAllocator) SCEVSignExtendExpr(ID.Intern(SCEVAllocator),
                                                      Op, Ty);
     UniqueSCEVs.InsertNode(S, IP);
+    addToLoopUseLists(S);
     return S;
   }
 
@@ -2014,6 +2018,7 @@ ScalarEvolution::getSignExtendExpr(const SCEV *Op, Type *Ty, unsigned Depth) {
   SCEV *S = new (SCEVAllocator) SCEVSignExtendExpr(ID.Intern(SCEVAllocator),
                                                    Op, Ty);
   UniqueSCEVs.InsertNode(S, IP);
+  addToLoopUseLists(S);
   return S;
 }
 
@@ -2338,12 +2343,23 @@ const SCEV *ScalarEvolution::getAddExpr(SmallVectorImpl<const SCEV *> &Ops,
 
   // Check for truncates. If all the operands are truncated from the same
   // type, see if factoring out the truncate would permit the result to be
-  // folded. eg., trunc(x) + m*trunc(n) --> trunc(x + trunc(m)*n)
+  // folded. eg., n*trunc(x) + m*trunc(y) --> trunc(trunc(m)*x + trunc(n)*y)
   // if the contents of the resulting outer trunc fold to something simple.
-  for (; Idx < Ops.size() && isa<SCEVTruncateExpr>(Ops[Idx]); ++Idx) {
-    const SCEVTruncateExpr *Trunc = cast<SCEVTruncateExpr>(Ops[Idx]);
-    Type *DstType = Trunc->getType();
-    Type *SrcType = Trunc->getOperand()->getType();
+  auto FindTruncSrcType = [&]() -> Type * {
+    // We're ultimately looking to fold an addrec of truncs and muls of only
+    // constants and truncs, so if we find any other types of SCEV
+    // as operands of the addrec then we bail and return nullptr here.
+    // Otherwise, we return the type of the operand of a trunc that we find.
+    if (auto *T = dyn_cast<SCEVTruncateExpr>(Ops[Idx]))
+      return T->getOperand()->getType();
+    if (const auto *Mul = dyn_cast<SCEVMulExpr>(Ops[Idx])) {
+      const auto *LastOp = Mul->getOperand(Mul->getNumOperands() - 1);
+      if (const auto *T = dyn_cast<SCEVTruncateExpr>(LastOp))
+        return T->getOperand()->getType();
+    }
+    return nullptr;
+  };
+  if (auto *SrcType = FindTruncSrcType()) {
     SmallVector<const SCEV *, 8> LargeOps;
     bool Ok = true;
     // Check all the operands to see if they can be represented in the
@@ -2386,7 +2402,7 @@ const SCEV *ScalarEvolution::getAddExpr(SmallVectorImpl<const SCEV *> &Ops,
       const SCEV *Fold = getAddExpr(LargeOps, Flags, Depth + 1);
       // If it folds to something simple, use it. Otherwise, don't.
       if (isa<SCEVConstant>(Fold) || isa<SCEVUnknown>(Fold))
-        return getTruncateExpr(Fold, DstType);
+        return getTruncateExpr(Fold, Ty);
     }
   }
 
@@ -2651,6 +2667,7 @@ ScalarEvolution::getOrCreateAddExpr(SmallVectorImpl<const SCEV *> &Ops,
     S = new (SCEVAllocator)
         SCEVAddExpr(ID.Intern(SCEVAllocator), O, Ops.size());
     UniqueSCEVs.InsertNode(S, IP);
+    addToLoopUseLists(S);
   }
   S->setNoWrapFlags(Flags);
   return S;
@@ -2672,6 +2689,7 @@ ScalarEvolution::getOrCreateMulExpr(SmallVectorImpl<const SCEV *> &Ops,
     S = new (SCEVAllocator) SCEVMulExpr(ID.Intern(SCEVAllocator),
                                         O, Ops.size());
     UniqueSCEVs.InsertNode(S, IP);
+    addToLoopUseLists(S);
   }
   S->setNoWrapFlags(Flags);
   return S;
@@ -3124,6 +3142,7 @@ const SCEV *ScalarEvolution::getUDivExpr(const SCEV *LHS,
   SCEV *S = new (SCEVAllocator) SCEVUDivExpr(ID.Intern(SCEVAllocator),
                                              LHS, RHS);
   UniqueSCEVs.InsertNode(S, IP);
+  addToLoopUseLists(S);
   return S;
 }
 
@@ -3304,6 +3323,7 @@ ScalarEvolution::getAddRecExpr(SmallVectorImpl<const SCEV *> &Operands,
     S = new (SCEVAllocator) SCEVAddRecExpr(ID.Intern(SCEVAllocator),
                                            O, Operands.size(), L);
     UniqueSCEVs.InsertNode(S, IP);
+    addToLoopUseLists(S);
   }
   S->setNoWrapFlags(Flags);
   return S;
@@ -3459,6 +3479,7 @@ ScalarEvolution::getSMaxExpr(SmallVectorImpl<const SCEV *> &Ops) {
   SCEV *S = new (SCEVAllocator) SCEVSMaxExpr(ID.Intern(SCEVAllocator),
                                              O, Ops.size());
   UniqueSCEVs.InsertNode(S, IP);
+  addToLoopUseLists(S);
   return S;
 }
 
@@ -3560,6 +3581,7 @@ ScalarEvolution::getUMaxExpr(SmallVectorImpl<const SCEV *> &Ops) {
   SCEV *S = new (SCEVAllocator) SCEVUMaxExpr(ID.Intern(SCEVAllocator),
                                              O, Ops.size());
   UniqueSCEVs.InsertNode(S, IP);
+  addToLoopUseLists(S);
   return S;
 }
 
@@ -4264,27 +4286,27 @@ static Optional<BinaryOp> MatchBinaryOp(Value *V, DominatorTree &DT) {
   return None;
 }
 
-/// Helper function to createAddRecFromPHIWithCasts. We have a phi 
+/// Helper function to createAddRecFromPHIWithCasts. We have a phi
 /// node whose symbolic (unknown) SCEV is \p SymbolicPHI, which is updated via
-/// the loop backedge by a SCEVAddExpr, possibly also with a few casts on the 
-/// way. This function checks if \p Op, an operand of this SCEVAddExpr, 
+/// the loop backedge by a SCEVAddExpr, possibly also with a few casts on the
+/// way. This function checks if \p Op, an operand of this SCEVAddExpr,
 /// follows one of the following patterns:
 /// Op == (SExt ix (Trunc iy (%SymbolicPHI) to ix) to iy)
 /// Op == (ZExt ix (Trunc iy (%SymbolicPHI) to ix) to iy)
 /// If the SCEV expression of \p Op conforms with one of the expected patterns
 /// we return the type of the truncation operation, and indicate whether the
-/// truncated type should be treated as signed/unsigned by setting 
+/// truncated type should be treated as signed/unsigned by setting
 /// \p Signed to true/false, respectively.
 static Type *isSimpleCastedPHI(const SCEV *Op, const SCEVUnknown *SymbolicPHI,
                                bool &Signed, ScalarEvolution &SE) {
-  // The case where Op == SymbolicPHI (that is, with no type conversions on 
-  // the way) is handled by the regular add recurrence creating logic and 
+  // The case where Op == SymbolicPHI (that is, with no type conversions on
+  // the way) is handled by the regular add recurrence creating logic and
   // would have already been triggered in createAddRecForPHI. Reaching it here
-  // means that createAddRecFromPHI had failed for this PHI before (e.g., 
+  // means that createAddRecFromPHI had failed for this PHI before (e.g.,
   // because one of the other operands of the SCEVAddExpr updating this PHI is
-  // not invariant). 
+  // not invariant).
   //
-  // Here we look for the case where Op = (ext(trunc(SymbolicPHI))), and in 
+  // Here we look for the case where Op = (ext(trunc(SymbolicPHI))), and in
   // this case predicates that allow us to prove that Op == SymbolicPHI will
   // be added.
   if (Op == SymbolicPHI)
@@ -4336,7 +4358,7 @@ static const Loop *isIntegerLoopHeaderPHI(const PHINode *PN, LoopInfo &LI) {
 //    It will visitMul->visitAdd->visitSExt->visitTrunc->visitUnknown(%X),
 //    and call this function with %SymbolicPHI = %X.
 //
-//    The analysis will find that the value coming around the backedge has 
+//    The analysis will find that the value coming around the backedge has
 //    the following SCEV:
 //         BEValue = ((sext i32 (trunc i64 %X to i32) to i64) + %Step)
 //    Upon concluding that this matches the desired pattern, the function
@@ -4349,21 +4371,21 @@ static const Loop *isIntegerLoopHeaderPHI(const PHINode *PN, LoopInfo &LI) {
 //    The returned pair means that SymbolicPHI can be rewritten into NewAddRec
 //    under the predicates {P1,P2,P3}.
 //    This predicated rewrite will be cached in PredicatedSCEVRewrites:
-//         PredicatedSCEVRewrites[{%X,L}] = {NewAddRec, {P1,P2,P3)} 
+//         PredicatedSCEVRewrites[{%X,L}] = {NewAddRec, {P1,P2,P3)}
 //
 // TODO's:
 //
 // 1) Extend the Induction descriptor to also support inductions that involve
-//    casts: When needed (namely, when we are called in the context of the 
-//    vectorizer induction analysis), a Set of cast instructions will be 
+//    casts: When needed (namely, when we are called in the context of the
+//    vectorizer induction analysis), a Set of cast instructions will be
 //    populated by this method, and provided back to isInductionPHI. This is
 //    needed to allow the vectorizer to properly record them to be ignored by
 //    the cost model and to avoid vectorizing them (otherwise these casts,
-//    which are redundant under the runtime overflow checks, will be 
-//    vectorized, which can be costly).  
+//    which are redundant under the runtime overflow checks, will be
+//    vectorized, which can be costly).
 //
 // 2) Support additional induction/PHISCEV patterns: We also want to support
-//    inductions where the sext-trunc / zext-trunc operations (partly) occur 
+//    inductions where the sext-trunc / zext-trunc operations (partly) occur
 //    after the induction update operation (the induction increment):
 //
 //      (Trunc iy (SExt/ZExt ix (%SymbolicPHI + InvariantAccum) to iy) to ix)
@@ -4377,9 +4399,9 @@ Optional<std::pair<const SCEV *, SmallVector<const SCEVPredicate *, 3>>>
 ScalarEvolution::createAddRecFromPHIWithCastsImpl(const SCEVUnknown *SymbolicPHI) {
   SmallVector<const SCEVPredicate *, 3> Predicates;
 
-  // *** Part1: Analyze if we have a phi-with-cast pattern for which we can 
+  // *** Part1: Analyze if we have a phi-with-cast pattern for which we can
   // return an AddRec expression under some predicate.
- 
+
   auto *PN = cast<PHINode>(SymbolicPHI->getValue());
   const Loop *L = isIntegerLoopHeaderPHI(PN, LI);
   assert(L && "Expecting an integer loop header phi");
@@ -4417,12 +4439,12 @@ ScalarEvolution::createAddRecFromPHIWithCastsImpl(const SCEVUnknown *SymbolicPHI
     return None;
 
   // If there is a single occurrence of the symbolic value, possibly
-  // casted, replace it with a recurrence. 
+  // casted, replace it with a recurrence.
   unsigned FoundIndex = Add->getNumOperands();
   Type *TruncTy = nullptr;
   bool Signed;
   for (unsigned i = 0, e = Add->getNumOperands(); i != e; ++i)
-    if ((TruncTy = 
+    if ((TruncTy =
              isSimpleCastedPHI(Add->getOperand(i), SymbolicPHI, Signed, *this)))
       if (FoundIndex == e) {
         FoundIndex = i;
@@ -4444,52 +4466,52 @@ ScalarEvolution::createAddRecFromPHIWithCastsImpl(const SCEVUnknown *SymbolicPHI
   if (!isLoopInvariant(Accum, L))
     return None;
 
-  // *** Part2: Create the predicates 
+  // *** Part2: Create the predicates
 
   // Analysis was successful: we have a phi-with-cast pattern for which we
   // can return an AddRec expression under the following predicates:
   //
   // P1: A Wrap predicate that guarantees that Trunc(Start) + i*Trunc(Accum)
   //     fits within the truncated type (does not overflow) for i = 0 to n-1.
-  // P2: An Equal predicate that guarantees that 
+  // P2: An Equal predicate that guarantees that
   //     Start = (Ext ix (Trunc iy (Start) to ix) to iy)
-  // P3: An Equal predicate that guarantees that 
+  // P3: An Equal predicate that guarantees that
   //     Accum = (Ext ix (Trunc iy (Accum) to ix) to iy)
   //
-  // As we next prove, the above predicates guarantee that: 
+  // As we next prove, the above predicates guarantee that:
   //     Start + i*Accum = (Ext ix (Trunc iy ( Start + i*Accum ) to ix) to iy)
   //
   //
   // More formally, we want to prove that:
-  //     Expr(i+1) = Start + (i+1) * Accum 
-  //               = (Ext ix (Trunc iy (Expr(i)) to ix) to iy) + Accum 
+  //     Expr(i+1) = Start + (i+1) * Accum
+  //               = (Ext ix (Trunc iy (Expr(i)) to ix) to iy) + Accum
   //
   // Given that:
-  // 1) Expr(0) = Start 
-  // 2) Expr(1) = Start + Accum 
+  // 1) Expr(0) = Start
+  // 2) Expr(1) = Start + Accum
   //            = (Ext ix (Trunc iy (Start) to ix) to iy) + Accum :: from P2
   // 3) Induction hypothesis (step i):
-  //    Expr(i) = (Ext ix (Trunc iy (Expr(i-1)) to ix) to iy) + Accum 
+  //    Expr(i) = (Ext ix (Trunc iy (Expr(i-1)) to ix) to iy) + Accum
   //
   // Proof:
   //  Expr(i+1) =
   //   = Start + (i+1)*Accum
   //   = (Start + i*Accum) + Accum
-  //   = Expr(i) + Accum  
-  //   = (Ext ix (Trunc iy (Expr(i-1)) to ix) to iy) + Accum + Accum 
+  //   = Expr(i) + Accum
+  //   = (Ext ix (Trunc iy (Expr(i-1)) to ix) to iy) + Accum + Accum
   //                                                             :: from step i
   //
-  //   = (Ext ix (Trunc iy (Start + (i-1)*Accum) to ix) to iy) + Accum + Accum 
+  //   = (Ext ix (Trunc iy (Start + (i-1)*Accum) to ix) to iy) + Accum + Accum
   //
   //   = (Ext ix (Trunc iy (Start + (i-1)*Accum) to ix) to iy)
   //     + (Ext ix (Trunc iy (Accum) to ix) to iy)
   //     + Accum                                                     :: from P3
   //
-  //   = (Ext ix (Trunc iy ((Start + (i-1)*Accum) + Accum) to ix) to iy) 
+  //   = (Ext ix (Trunc iy ((Start + (i-1)*Accum) + Accum) to ix) to iy)
   //     + Accum                            :: from P1: Ext(x)+Ext(y)=>Ext(x+y)
   //
   //   = (Ext ix (Trunc iy (Start + i*Accum) to ix) to iy) + Accum
-  //   = (Ext ix (Trunc iy (Expr(i)) to ix) to iy) + Accum 
+  //   = (Ext ix (Trunc iy (Expr(i)) to ix) to iy) + Accum
   //
   // By induction, the same applies to all iterations 1<=i<n:
   //
@@ -4512,8 +4534,7 @@ ScalarEvolution::createAddRecFromPHIWithCastsImpl(const SCEVUnknown *SymbolicPHI
                : SCEVWrapPredicate::IncrementNUSW;
     const SCEVPredicate *AddRecPred = getWrapPredicate(AR, AddedFlags);
     Predicates.push_back(AddRecPred);
-  } else
-    assert(isa<SCEVConstant>(PHISCEV) && "Expected constant SCEV");
+  }
 
   // Create the Equal Predicates P2,P3:
 
@@ -4572,7 +4593,7 @@ ScalarEvolution::createAddRecFromPHIWithCastsImpl(const SCEVUnknown *SymbolicPHI
   // *** Part3: Predicates are ready. Now go ahead and create the new addrec in
   // which the casts had been folded away. The caller can rewrite SymbolicPHI
   // into NewAR if it will also add the runtime overflow checks specified in
-  // Predicates.  
+  // Predicates.
   auto *NewAR = getAddRecExpr(StartVal, Accum, L, SCEV::FlagAnyWrap);
 
   std::pair<const SCEV *, SmallVector<const SCEVPredicate *, 3>> PredRewrite =
@@ -4595,7 +4616,7 @@ ScalarEvolution::createAddRecFromPHIWithCasts(const SCEVUnknown *SymbolicPHI) {
     std::pair<const SCEV *, SmallVector<const SCEVPredicate *, 3>> Rewrite =
         I->second;
     // Analysis was done before and failed to create an AddRec:
-    if (Rewrite.first == SymbolicPHI) 
+    if (Rewrite.first == SymbolicPHI)
       return None;
     // Analysis was done before and succeeded to create an AddRec under
     // a predicate:
@@ -6380,6 +6401,13 @@ void ScalarEvolution::forgetLoop(const Loop *L) {
         PredicatedSCEVRewrites.erase(I++);
       else
         ++I;
+    }
+
+    auto LoopUsersItr = LoopUsers.find(CurrL);
+    if (LoopUsersItr != LoopUsers.end()) {
+      for (auto *S : LoopUsersItr->second)
+        forgetMemoizedResults(S);
+      LoopUsers.erase(LoopUsersItr);
     }
 
     // Drop information about expressions based on loop-header PHIs.
@@ -9661,14 +9689,54 @@ const SCEV *ScalarEvolution::computeBECount(const SCEV *Delta, const SCEV *Step,
   return getUDivExpr(Delta, Step);
 }
 
+const SCEV *ScalarEvolution::computeMaxBECountForLT(const SCEV *Start,
+                                                    const SCEV *Stride,
+                                                    const SCEV *End,
+                                                    unsigned BitWidth,
+                                                    bool IsSigned) {
+
+  assert(!isKnownNonPositive(Stride) &&
+         "Stride is expected strictly positive!");
+  // Calculate the maximum backedge count based on the range of values
+  // permitted by Start, End, and Stride.
+  const SCEV *MaxBECount;
+  APInt MinStart =
+      IsSigned ? getSignedRangeMin(Start) : getUnsignedRangeMin(Start);
+
+  APInt StrideForMaxBECount;
+
+  bool PositiveStride = isKnownPositive(Stride);
+  if (PositiveStride)
+    StrideForMaxBECount =
+        IsSigned ? getSignedRangeMin(Stride) : getUnsignedRangeMin(Stride);
+  else
+    // Using a stride of 1 is safe when computing max backedge taken count for
+    // a loop with unknown stride.
+    StrideForMaxBECount = APInt(BitWidth, 1, IsSigned);
+
+  APInt MaxValue = IsSigned ? APInt::getSignedMaxValue(BitWidth)
+                            : APInt::getMaxValue(BitWidth);
+  APInt Limit = MaxValue - (StrideForMaxBECount - 1);
+
+  // Although End can be a MAX expression we estimate MaxEnd considering only
+  // the case End = RHS of the loop termination condition. This is safe because
+  // in the other case (End - Start) is zero, leading to a zero maximum backedge
+  // taken count.
+  APInt MaxEnd = IsSigned ? APIntOps::smin(getSignedRangeMax(End), Limit)
+                          : APIntOps::umin(getUnsignedRangeMax(End), Limit);
+
+  MaxBECount = computeBECount(getConstant(MaxEnd - MinStart) /* Delta */,
+                              getConstant(StrideForMaxBECount) /* Step */,
+                              false /* Equality */);
+
+  return MaxBECount;
+}
+
 ScalarEvolution::ExitLimit
 ScalarEvolution::howManyLessThans(const SCEV *LHS, const SCEV *RHS,
                                   const Loop *L, bool IsSigned,
                                   bool ControlsExit, bool AllowPredicates) {
   SmallPtrSet<const SCEVPredicate *, 4> Predicates;
-  // We handle only IV < Invariant
-  if (!isLoopInvariant(RHS, L))
-    return getCouldNotCompute();
 
   const SCEVAddRecExpr *IV = dyn_cast<SCEVAddRecExpr>(LHS);
   bool PredicatedIV = false;
@@ -9751,6 +9819,17 @@ ScalarEvolution::howManyLessThans(const SCEV *LHS, const SCEV *RHS,
                                       : ICmpInst::ICMP_ULT;
   const SCEV *Start = IV->getStart();
   const SCEV *End = RHS;
+  // When the RHS is not invariant, we do not know the end bound of the loop and
+  // cannot calculate the ExactBECount needed by ExitLimit. However, we can
+  // calculate the MaxBECount, given the start, stride and max value for the end
+  // bound of the loop (RHS), and the fact that IV does not overflow (which is
+  // checked above).
+  if (!isLoopInvariant(RHS, L)) {
+    const SCEV *MaxBECount = computeMaxBECountForLT(
+        Start, Stride, RHS, getTypeSizeInBits(LHS->getType()), IsSigned);
+    return ExitLimit(getCouldNotCompute() /* ExactNotTaken */, MaxBECount,
+                     false /*MaxOrZero*/, Predicates);
+  }
   // If the backedge is taken at least once, then it will be taken
   // (End-Start)/Stride times (rounded up to a multiple of Stride), where Start
   // is the LHS value of the less-than comparison the first time it is evaluated
@@ -9783,37 +9862,8 @@ ScalarEvolution::howManyLessThans(const SCEV *LHS, const SCEV *RHS,
     MaxBECount = BECountIfBackedgeTaken;
     MaxOrZero = true;
   } else {
-    // Calculate the maximum backedge count based on the range of values
-    // permitted by Start, End, and Stride.
-    APInt MinStart = IsSigned ? getSignedRangeMin(Start)
-                              : getUnsignedRangeMin(Start);
-
-    unsigned BitWidth = getTypeSizeInBits(LHS->getType());
-
-    APInt StrideForMaxBECount;
-
-    if (PositiveStride)
-      StrideForMaxBECount =
-        IsSigned ? getSignedRangeMin(Stride)
-                 : getUnsignedRangeMin(Stride);
-    else
-      // Using a stride of 1 is safe when computing max backedge taken count for
-      // a loop with unknown stride.
-      StrideForMaxBECount = APInt(BitWidth, 1, IsSigned);
-
-    APInt Limit =
-      IsSigned ? APInt::getSignedMaxValue(BitWidth) - (StrideForMaxBECount - 1)
-               : APInt::getMaxValue(BitWidth) - (StrideForMaxBECount - 1);
-
-    // Although End can be a MAX expression we estimate MaxEnd considering only
-    // the case End = RHS. This is safe because in the other case (End - Start)
-    // is zero, leading to a zero maximum backedge taken count.
-    APInt MaxEnd =
-      IsSigned ? APIntOps::smin(getSignedRangeMax(RHS), Limit)
-               : APIntOps::umin(getUnsignedRangeMax(RHS), Limit);
-
-    MaxBECount = computeBECount(getConstant(MaxEnd - MinStart),
-                                getConstant(StrideForMaxBECount), false);
+    MaxBECount = computeMaxBECountForLT(
+        Start, Stride, RHS, getTypeSizeInBits(LHS->getType()), IsSigned);
   }
 
   if (isa<SCEVCouldNotCompute>(MaxBECount) &&
@@ -10564,6 +10614,7 @@ ScalarEvolution::ScalarEvolution(ScalarEvolution &&Arg)
       UniqueSCEVs(std::move(Arg.UniqueSCEVs)),
       UniquePreds(std::move(Arg.UniquePreds)),
       SCEVAllocator(std::move(Arg.SCEVAllocator)),
+      LoopUsers(std::move(Arg.LoopUsers)),
       PredicatedSCEVRewrites(std::move(Arg.PredicatedSCEVRewrites)),
       FirstUnknown(Arg.FirstUnknown) {
   Arg.FirstUnknown = nullptr;
@@ -10974,7 +11025,7 @@ ScalarEvolution::forgetMemoizedResults(const SCEV *S, bool EraseExitLimit) {
   HasRecMap.erase(S);
   MinTrailingZerosCache.erase(S);
 
-  for (auto I = PredicatedSCEVRewrites.begin(); 
+  for (auto I = PredicatedSCEVRewrites.begin();
        I != PredicatedSCEVRewrites.end();) {
     std::pair<const SCEV *, const Loop *> Entry = I->first;
     if (Entry.first == S)
@@ -11004,6 +11055,25 @@ ScalarEvolution::forgetMemoizedResults(const SCEV *S, bool EraseExitLimit) {
     for (auto I = ExitLimits.begin(), E = ExitLimits.end(); I != E; ++I)
       if (I->second.hasOperand(S))
         ExitLimits.erase(I);
+}
+
+void ScalarEvolution::addToLoopUseLists(const SCEV *S) {
+  struct FindUsedLoops {
+    SmallPtrSet<const Loop *, 8> LoopsUsed;
+    bool follow(const SCEV *S) {
+      if (auto *AR = dyn_cast<SCEVAddRecExpr>(S))
+        LoopsUsed.insert(AR->getLoop());
+      return true;
+    }
+
+    bool isDone() const { return false; }
+  };
+
+  FindUsedLoops F;
+  SCEVTraversal<FindUsedLoops>(F).visitAll(S);
+
+  for (auto *L : F.LoopsUsed)
+    LoopUsers[L].push_back(S);
 }
 
 void ScalarEvolution::verify() const {
@@ -11271,10 +11341,10 @@ private:
   }
 
   // If \p Expr represents a PHINode, we try to see if it can be represented
-  // as an AddRec, possibly under a predicate (PHISCEVPred). If it is possible 
+  // as an AddRec, possibly under a predicate (PHISCEVPred). If it is possible
   // to add this predicate as a runtime overflow check, we return the AddRec.
-  // If \p Expr does not meet these conditions (is not a PHI node, or we 
-  // couldn't create an AddRec for it, or couldn't add the predicate), we just 
+  // If \p Expr does not meet these conditions (is not a PHI node, or we
+  // couldn't create an AddRec for it, or couldn't add the predicate), we just
   // return \p Expr.
   const SCEV *convertToAddRecWithPreds(const SCEVUnknown *Expr) {
     if (!isa<PHINode>(Expr->getValue()))
@@ -11289,7 +11359,7 @@ private:
     }
     return PredicatedRewrite->first;
   }
-  
+
   SmallPtrSetImpl<const SCEVPredicate *> *NewPreds;
   SCEVUnionPredicate *Pred;
   const Loop *L;

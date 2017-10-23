@@ -10,6 +10,7 @@
 #include "MCTargetDesc/NyuziFixupKinds.h"
 #include "MCTargetDesc/NyuziMCTargetDesc.h"
 #include "llvm/MC/MCELFObjectWriter.h"
+#include "llvm/MC/MCObjectWriter.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/raw_ostream.h"
 
@@ -66,8 +67,9 @@ unsigned NyuziELFObjectWriter::getRelocType(MCContext &Ctx,
   return Type;
 }
 
-MCObjectWriter *llvm::createNyuziELFObjectWriter(raw_pwrite_stream &OS,
-                                                 uint8_t OSABI) {
-  MCELFObjectTargetWriter *MOTW = new NyuziELFObjectWriter(OSABI);
-  return createELFObjectWriter(MOTW, OS, true);
+std::unique_ptr<MCObjectWriter>
+llvm::createNyuziELFObjectWriter(raw_pwrite_stream &OS,
+                                 uint8_t OSABI) {
+  return createELFObjectWriter(llvm::make_unique<NyuziELFObjectWriter>(OSABI),
+                               OS, true);
 }

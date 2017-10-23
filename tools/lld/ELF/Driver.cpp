@@ -38,10 +38,10 @@
 #include "SymbolTable.h"
 #include "SyntheticSections.h"
 #include "Target.h"
-#include "Threads.h"
 #include "Writer.h"
-#include "lld/Config/Version.h"
-#include "lld/Driver/Driver.h"
+#include "lld/Common/Driver.h"
+#include "lld/Common/Threads.h"
+#include "lld/Common/Version.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/StringSwitch.h"
 #include "llvm/Support/CommandLine.h"
@@ -75,7 +75,12 @@ bool elf::link(ArrayRef<const char *> Args, bool CanExitEarly,
   ErrorCount = 0;
   ErrorOS = &Error;
   InputSections.clear();
+  OutputSections.clear();
   Tar = nullptr;
+  BinaryFiles.clear();
+  BitcodeFiles.clear();
+  ObjectFiles.clear();
+  SharedFiles.clear();
 
   Config = make<Configuration>();
   Driver = make<LinkerDriver>();
@@ -84,6 +89,14 @@ bool elf::link(ArrayRef<const char *> Args, bool CanExitEarly,
   Config->Argv = {Args.begin(), Args.end()};
 
   Driver->main(Args, CanExitEarly);
+  waitForBackgroundThreads();
+
+  // Exit immediately if we don't need to return to the caller.
+  // This saves time because the overhead of calling destructors
+  // for all globally-allocated objects is not negligible.
+  if (Config->ExitEarly)
+    exitLld(ErrorCount ? 1 : 0);
+
   freeArena();
   return !ErrorCount;
 }
@@ -128,6 +141,7 @@ std::vector<std::pair<MemoryBufferRef, uint64_t>> static getArchiveMembers(
 
   std::vector<std::pair<MemoryBufferRef, uint64_t>> V;
   Error Err = Error::success();
+  bool AddToTar = File->isThin() && Tar;
   for (const ErrorOr<Archive::Child> &COrErr : File->children(Err)) {
     Archive::Child C =
         check(COrErr, MB.getBufferIdentifier() +
@@ -136,6 +150,8 @@ std::vector<std::pair<MemoryBufferRef, uint64_t>> static getArchiveMembers(
         check(C.getMemoryBufferRef(),
               MB.getBufferIdentifier() +
                   ": could not get the buffer for a child of the archive");
+    if (AddToTar)
+      Tar->append(relativeToRoot(check(C.getFullName())), MBRef.getBuffer());
     V.push_back(std::make_pair(MBRef, C.getChildOffset()));
   }
   if (Err)
@@ -545,17 +561,6 @@ static SortSectionPolicy getSortSection(opt::InputArgList &Args) {
   return SortSectionPolicy::Default;
 }
 
-static std::pair<bool, bool> getHashStyle(opt::InputArgList &Args) {
-  StringRef S = Args.getLastArgValue(OPT_hash_style, "sysv");
-  if (S == "sysv")
-    return {true, false};
-  if (S == "gnu")
-    return {false, true};
-  if (S != "both")
-    error("unknown -hash-style: " + S);
-  return {true, true};
-}
-
 // Parse --build-id or --build-id=<style>. We handle "tree" as a
 // synonym for "sha1" because all our hash functions including
 // -build-id=sha1 are actually tree hashes for performance reasons.
@@ -679,7 +684,7 @@ void LinkerDriver::readConfigs(opt::InputArgList &Args) {
       parseCachePruningPolicy(Args.getLastArgValue(OPT_thinlto_cache_policy)),
       "--thinlto-cache-policy: invalid cache policy");
   Config->ThinLTOJobs = getInteger(Args, OPT_thinlto_jobs, -1u);
-  Config->Threads = getArg(Args, OPT_threads, OPT_no_threads, true);
+  ThreadsEnabled = getArg(Args, OPT_threads, OPT_no_threads, true);
   Config->Trace = Args.hasArg(OPT_trace);
   Config->Undefined = getArgs(Args, OPT_undefined);
   Config->UnresolvedSymbols = getUnresolvedSymbolPolicy(Args);
@@ -734,6 +739,19 @@ void LinkerDriver::readConfigs(opt::InputArgList &Args) {
     Config->Emulation = S;
   }
 
+  // Parse -hash-style={sysv,gnu,both}.
+  if (auto *Arg = Args.getLastArg(OPT_hash_style)) {
+    StringRef S = Arg->getValue();
+    if (S == "sysv")
+      Config->SysvHash = true;
+    else if (S == "gnu")
+      Config->GnuHash = true;
+    else if (S == "both")
+      Config->SysvHash = Config->GnuHash = true;
+    else
+      error("unknown -hash-style: " + S);
+  }
+
   if (Args.hasArg(OPT_print_map))
     Config->MapFile = "-";
 
@@ -744,7 +762,6 @@ void LinkerDriver::readConfigs(opt::InputArgList &Args) {
   if (Config->Omagic)
     Config->ZRelro = false;
 
-  std::tie(Config->SysvHash, Config->GnuHash) = getHashStyle(Args);
   std::tie(Config->BuildId, Config->BuildIdVector) = getBuildId(Args);
 
   if (auto *Arg = Args.getLastArg(OPT_symbol_ordering_file))
@@ -773,18 +790,8 @@ void LinkerDriver::readConfigs(opt::InputArgList &Args) {
         readDynamicList(*Buffer);
 
     for (auto *Arg : Args.filtered(OPT_export_dynamic_symbol))
-      Config->VersionScriptGlobals.push_back(
+      Config->DynamicList.push_back(
           {Arg->getValue(), /*IsExternCpp*/ false, /*HasWildcard*/ false});
-
-    // Dynamic lists are a simplified linker script that doesn't need the
-    // "global:" and implicitly ends with a "local:*". Set the variables
-    // needed to simulate that.
-    if (Args.hasArg(OPT_dynamic_list) ||
-        Args.hasArg(OPT_export_dynamic_symbol)) {
-      Config->ExportDynamic = true;
-      if (!Config->Shared)
-        Config->DefaultSymbolVersion = VER_NDX_LOCAL;
-    }
   }
 
   if (auto *Arg = Args.getLastArg(OPT_version_script))
@@ -901,13 +908,12 @@ static uint64_t getMaxPageSize(opt::InputArgList &Args) {
 }
 
 // Parses -image-base option.
-static uint64_t getImageBase(opt::InputArgList &Args) {
-  // Use default if no -image-base option is given.
-  // Because we are using "Target" here, this function
-  // has to be called after the variable is initialized.
+static Optional<uint64_t> getImageBase(opt::InputArgList &Args) {
+  // Because we are using "Config->MaxPageSize" here, this function has to be
+  // called after the variable is initialized.
   auto *Arg = Args.getLastArg(OPT_image_base);
   if (!Arg)
-    return Config->Pic ? 0 : Target->DefaultImageBase;
+    return None;
 
   StringRef S = Arg->getValue();
   uint64_t V;
@@ -978,6 +984,15 @@ template <class ELFT> void LinkerDriver::link(opt::InputArgList &Args) {
   Config->MaxPageSize = getMaxPageSize(Args);
   Config->ImageBase = getImageBase(Args);
 
+  // If a -hash-style option was not given, set to a default value,
+  // which varies depending on the target.
+  if (!Args.hasArg(OPT_hash_style)) {
+    if (Config->EMachine == EM_MIPS)
+      Config->SysvHash = true;
+    else
+      Config->SysvHash = Config->GnuHash = true;
+  }
+
   // Default output filename is "a.out" by the Unix tradition.
   if (Config->OutputFile.empty())
     Config->OutputFile = "a.out";
@@ -1015,26 +1030,26 @@ template <class ELFT> void LinkerDriver::link(opt::InputArgList &Args) {
   // producing a shared library.
   // We also need one if any shared libraries are used and for pie executables
   // (probably because the dynamic linker needs it).
-  Config->HasDynSymTab = !SharedFile<ELFT>::Instances.empty() || Config->Pic ||
-                         Config->ExportDynamic;
+  Config->HasDynSymTab =
+      !SharedFiles.empty() || Config->Pic || Config->ExportDynamic;
 
   // Some symbols (such as __ehdr_start) are defined lazily only when there
   // are undefined symbols for them, so we add these to trigger that logic.
-  for (StringRef Sym : Script->Opt.ReferencedSymbols)
+  for (StringRef Sym : Script->ReferencedSymbols)
     Symtab->addUndefined<ELFT>(Sym);
+
+  // Handle the `--undefined <sym>` options.
+  for (StringRef S : Config->Undefined)
+    Symtab->fetchIfLazy<ELFT>(S);
 
   // If an entry symbol is in a static archive, pull out that file now
   // to complete the symbol table. After this, no new names except a
   // few linker-synthesized ones will be added to the symbol table.
-  if (Symtab->find(Config->Entry))
-    Symtab->addUndefined<ELFT>(Config->Entry);
+  Symtab->fetchIfLazy<ELFT>(Config->Entry);
 
   // Return if there were name resolution errors.
   if (ErrorCount)
     return;
-
-  // Handle the `--undefined <sym>` options.
-  Symtab->scanUndefinedFlags<ELFT>();
 
   // Handle undefined symbols in DSOs.
   Symtab->scanShlibUndefined<ELFT>();
@@ -1064,13 +1079,16 @@ template <class ELFT> void LinkerDriver::link(opt::InputArgList &Args) {
   // Now that we have a complete list of input files.
   // Beyond this point, no new files are added.
   // Aggregate all input sections into one place.
-  for (ObjFile<ELFT> *F : ObjFile<ELFT>::Instances)
+  for (InputFile *F : ObjectFiles)
     for (InputSectionBase *S : F->getSections())
       if (S && S != &InputSection::Discarded)
         InputSections.push_back(S);
-  for (BinaryFile *F : BinaryFile::Instances)
+  for (BinaryFile *F : BinaryFiles)
     for (InputSectionBase *S : F->getSections())
       InputSections.push_back(cast<InputSection>(S));
+
+  if (Config->EMachine == EM_MIPS)
+    Config->MipsEFlags = calcMipsEFlags<ELFT>();
 
   // This adds a .comment section containing a version string. We have to add it
   // before decompressAndMergeSections because the .comment section is a
@@ -1078,11 +1096,19 @@ template <class ELFT> void LinkerDriver::link(opt::InputArgList &Args) {
   if (!Config->Relocatable)
     InputSections.push_back(createCommentSection<ELFT>());
 
+  // Create a .bss section for each common symbol and then replace the common
+  // symbol with a DefinedRegular symbol. As a result, all common symbols are
+  // "instantiated" as regular defined symbols, so that we don't need to care
+  // about common symbols beyond this point. Note that if -r is given, we just
+  // need to pass through common symbols as-is.
+  if (Config->DefineCommon)
+    createCommonSections<ELFT>();
+
   // Do size optimizations: garbage collection, merging of SHF_MERGE sections
   // and identical code folding.
-  if (Config->GcSections)
-    markLive<ELFT>();
-  decompressAndMergeSections();
+  markLive<ELFT>();
+  decompressSections();
+  mergeSections();
   if (Config->ICF)
     doIcf<ELFT>();
 

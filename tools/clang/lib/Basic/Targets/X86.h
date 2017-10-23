@@ -126,7 +126,6 @@ class LLVM_LIBRARY_VISIBILITY X86TargetInfo : public TargetInfo {
     CK_PentiumPro,
     CK_Pentium2,
     CK_Pentium3,
-    CK_Pentium3M,
     CK_PentiumM,
     CK_C3_2,
 
@@ -140,7 +139,6 @@ class LLVM_LIBRARY_VISIBILITY X86TargetInfo : public TargetInfo {
     /// Netburst microarchitecture based processors.
     //@{
     CK_Pentium4,
-    CK_Pentium4M,
     CK_Prescott,
     CK_Nocona,
     //@}
@@ -205,6 +203,10 @@ class LLVM_LIBRARY_VISIBILITY X86TargetInfo : public TargetInfo {
     /// Knights Landing processor.
     CK_KNL,
 
+    /// \name Knights Mill
+    /// Knights Mill processor.
+    CK_KNM,
+
     /// \name Lakemont
     /// Lakemont microarchitecture based processors.
     CK_Lakemont,
@@ -221,22 +223,14 @@ class LLVM_LIBRARY_VISIBILITY X86TargetInfo : public TargetInfo {
     /// K7 architecture processors.
     //@{
     CK_Athlon,
-    CK_AthlonThunderbird,
-    CK_Athlon4,
     CK_AthlonXP,
-    CK_AthlonMP,
     //@}
 
     /// \name K8
     /// K8 architecture processors.
     //@{
-    CK_Athlon64,
-    CK_Athlon64SSE3,
-    CK_AthlonFX,
     CK_K8,
     CK_K8SSE3,
-    CK_Opteron,
-    CK_OpteronSSE3,
     CK_AMDFAM10,
     //@}
 
@@ -298,22 +292,17 @@ class LLVM_LIBRARY_VISIBILITY X86TargetInfo : public TargetInfo {
     case CK_PentiumPro:
     case CK_Pentium2:
     case CK_Pentium3:
-    case CK_Pentium3M:
     case CK_PentiumM:
     case CK_Yonah:
     case CK_C3_2:
     case CK_Pentium4:
-    case CK_Pentium4M:
     case CK_Lakemont:
     case CK_Prescott:
     case CK_K6:
     case CK_K6_2:
     case CK_K6_3:
     case CK_Athlon:
-    case CK_AthlonThunderbird:
-    case CK_Athlon4:
     case CK_AthlonXP:
-    case CK_AthlonMP:
     case CK_Geode:
       // Only accept certain architectures when compiling in 32-bit mode.
       if (getTriple().getArch() != llvm::Triple::x86)
@@ -336,13 +325,9 @@ class LLVM_LIBRARY_VISIBILITY X86TargetInfo : public TargetInfo {
     case CK_SkylakeServer:
     case CK_Cannonlake:
     case CK_KNL:
-    case CK_Athlon64:
-    case CK_Athlon64SSE3:
-    case CK_AthlonFX:
+    case CK_KNM:
     case CK_K8:
     case CK_K8SSE3:
-    case CK_Opteron:
-    case CK_OpteronSSE3:
     case CK_AMDFAM10:
     case CK_BTVER1:
     case CK_BTVER2:
@@ -659,7 +644,6 @@ class LLVM_LIBRARY_VISIBILITY WindowsX86_32TargetInfo
 public:
   WindowsX86_32TargetInfo(const llvm::Triple &Triple, const TargetOptions &Opts)
       : WindowsTargetInfo<X86_32TargetInfo>(Triple, Opts) {
-    WCharType = UnsignedShort;
     DoubleAlign = LongLongAlign = 64;
     bool IsWinCOFF =
         getTriple().isOSWindows() && getTriple().isOSBinFormatCOFF();
@@ -720,7 +704,7 @@ class LLVM_LIBRARY_VISIBILITY CygwinX86_32TargetInfo : public X86_32TargetInfo {
 public:
   CygwinX86_32TargetInfo(const llvm::Triple &Triple, const TargetOptions &Opts)
       : X86_32TargetInfo(Triple, Opts) {
-    WCharType = UnsignedShort;
+    this->WCharType = TargetInfo::UnsignedShort;
     DoubleAlign = LongLongAlign = 64;
     resetDataLayout("e-m:x-p:32:32-i64:64-f80:32-n8:16:32-a:0:32-S32");
   }
@@ -834,7 +818,7 @@ public:
 
     // x86-64 has atomics up to 16 bytes.
     MaxAtomicPromoteWidth = 128;
-    MaxAtomicInlineWidth = 128;
+    MaxAtomicInlineWidth = 64;
   }
 
   BuiltinVaListKind getBuiltinVaListKind() const override {
@@ -892,6 +876,11 @@ public:
                                                          HasSizeMismatch);
   }
 
+  void setMaxAtomicWidth() override {
+    if (hasFeature("cx16"))
+      MaxAtomicInlineWidth = 128;
+  }
+
   ArrayRef<Builtin::Info> getTargetBuiltins() const override;
 };
 
@@ -901,7 +890,6 @@ class LLVM_LIBRARY_VISIBILITY WindowsX86_64TargetInfo
 public:
   WindowsX86_64TargetInfo(const llvm::Triple &Triple, const TargetOptions &Opts)
       : WindowsTargetInfo<X86_64TargetInfo>(Triple, Opts) {
-    WCharType = UnsignedShort;
     LongWidth = LongAlign = 32;
     DoubleAlign = LongLongAlign = 64;
     IntMaxType = SignedLongLong;
@@ -930,6 +918,8 @@ public:
     case CC_C:
     case CC_X86VectorCall:
     case CC_IntelOclBicc:
+    case CC_PreserveMost:
+    case CC_PreserveAll:
     case CC_X86_64SysV:
     case CC_Swift:
     case CC_X86RegCall:
@@ -992,8 +982,8 @@ class LLVM_LIBRARY_VISIBILITY CygwinX86_64TargetInfo : public X86_64TargetInfo {
 public:
   CygwinX86_64TargetInfo(const llvm::Triple &Triple, const TargetOptions &Opts)
       : X86_64TargetInfo(Triple, Opts) {
+    this->WCharType = TargetInfo::UnsignedShort;
     TLSSupported = false;
-    WCharType = UnsignedShort;
   }
 
   void getTargetDefines(const LangOptions &Opts,

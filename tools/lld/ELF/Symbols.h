@@ -18,7 +18,7 @@
 #include "InputSection.h"
 #include "Strings.h"
 
-#include "lld/Core/LLVM.h"
+#include "lld/Common/LLVM.h"
 #include "llvm/Object/Archive.h"
 #include "llvm/Object/ELF.h"
 
@@ -62,25 +62,26 @@ public:
   bool isUndefined() const { return SymbolKind == UndefinedKind; }
   bool isDefined() const { return SymbolKind <= DefinedLast; }
   bool isCommon() const { return SymbolKind == DefinedCommonKind; }
+  bool isShared() const { return SymbolKind == SharedKind; }
+  bool isLocal() const { return IsLocal; }
+
   bool isLazy() const {
     return SymbolKind == LazyArchiveKind || SymbolKind == LazyObjectKind;
   }
-  bool isShared() const { return SymbolKind == SharedKind; }
+
   bool isInCurrentDSO() const {
-    return !isUndefined() && !isShared() && !isLazy();
+    return SymbolKind == DefinedRegularKind || SymbolKind == DefinedCommonKind;
   }
-  bool isLocal() const { return IsLocal; }
 
   // True is this is an undefined weak symbol. This only works once
   // all input files have been added.
   bool isUndefWeak() const;
 
   InputFile *getFile() const;
-  bool isPreemptible() const { return IsPreemptible; }
   StringRef getName() const { return Name; }
   uint8_t getVisibility() const { return StOther & 0x3; }
   void parseSymbolVersion();
-  void copy(SymbolBody *Other);
+  void copyFrom(SymbolBody *Other);
 
   bool isInGot() const { return GotIndex != -1U; }
   bool isInPlt() const { return PltIndex != -1U; }
@@ -107,14 +108,13 @@ protected:
 
   const unsigned SymbolKind : 8;
 
+  // True if this is a local symbol.
+  unsigned IsLocal : 1;
+
 public:
   // True the symbol should point to its PLT entry.
   // For SharedSymbol only.
   unsigned NeedsPltAddr : 1;
-
-  // True if this is a local symbol.
-  unsigned IsLocal : 1;
-
   // True if this symbol has an entry in the global part of MIPS GOT.
   unsigned IsInGlobalMipsGot : 1;
 
@@ -167,11 +167,6 @@ public:
     return S->kind() == SymbolBody::DefinedCommonKind;
   }
 
-  // True if this symbol is not GC'ed. Liveness is usually a notion of
-  // input sections and not of symbols, but since common symbols don't
-  // belong to any input section, their liveness is managed by this bit.
-  bool Live;
-
   // The maximum alignment we have seen for this symbol.
   uint32_t Alignment;
 
@@ -220,8 +215,23 @@ public:
                const void *ElfSym, const void *Verdef)
       : Defined(SymbolBody::SharedKind, Name, /*IsLocal=*/false, StOther, Type),
         Verdef(Verdef), ElfSym(ElfSym) {
-    // IFuncs defined in DSOs are treated as functions by the static linker.
-    if (isGnuIFunc())
+    // GNU ifunc is a mechanism to allow user-supplied functions to
+    // resolve PLT slot values at load-time. This is contrary to the
+    // regualr symbol resolution scheme in which symbols are resolved just
+    // by name. Using this hook, you can program how symbols are solved
+    // for you program. For example, you can make "memcpy" to be resolved
+    // to a SSE-enabled version of memcpy only when a machine running the
+    // program supports the SSE instruction set.
+    //
+    // Naturally, such symbols should always be called through their PLT
+    // slots. What GNU ifunc symbols point to are resolver functions, and
+    // calling them directly doesn't make sense (unless you are writing a
+    // loader).
+    //
+    // For DSO symbols, we always call them through PLT slots anyway.
+    // So there's no difference between GNU ifunc and regular function
+    // symbols if they are in DSOs. So we can handle GNU_IFUNC as FUNC.
+    if (this->Type == llvm::ELF::STT_GNU_IFUNC)
       this->Type = llvm::ELF::STT_FUNC;
   }
 
@@ -246,8 +256,8 @@ public:
   // This field is a pointer to the symbol's version definition.
   const void *Verdef;
 
-  // CopyRelSec and CopyRelSecOff are significant only when NeedsCopy is true.
-  InputSection *CopyRelSec;
+  // If not null, there is a copy relocation to this section.
+  InputSection *CopyRelSec = nullptr;
 
 private:
   template <class ELFT> const typename ELFT::Sym &getSym() const {
@@ -364,6 +374,11 @@ struct Symbol {
   // executables, by most symbols in DSOs and executables built with
   // --export-dynamic, and by dynamic lists.
   unsigned ExportDynamic : 1;
+
+  // False if LTO shouldn't inline whatever this symbol points to. If a symbol
+  // is overwritten after LTO, LTO shouldn't inline the symbol because it
+  // doesn't know the final contents of the symbol.
+  unsigned CanInline : 1;
 
   // True if this symbol is specified by --trace-symbol option.
   unsigned Traced : 1;

@@ -328,7 +328,7 @@ struct Str {
 
 extern char externalvar[];
 constexpr bool constaddress = (void *)externalvar == (void *)0x4000UL; // expected-error {{must be initialized by a constant expression}} expected-note {{reinterpret_cast}}
-constexpr bool litaddress = "foo" == "foo"; // expected-error {{must be initialized by a constant expression}} expected-warning {{unspecified}}
+constexpr bool litaddress = "foo" == "foo"; // expected-error {{must be initialized by a constant expression}}
 static_assert(0 != "foo", "");
 
 }
@@ -364,7 +364,7 @@ void foo() {
   constexpr B b3 { { 1 }, { 2 } }; // expected-error {{constant expression}} expected-note {{reference to temporary}} expected-note {{here}}
 }
 
-constexpr B &&b4 = ((1, 2), 3, 4, B { {10}, {{20}} }); // expected-warning 4{{unused}}
+constexpr B &&b4 = ((1, 2), 3, 4, B { {10}, {{20}} });
 static_assert(&b4 != &b2, "");
 
 // Proposed DR: copy-elision doesn't trigger lifetime extension.
@@ -604,20 +604,31 @@ static_assert(NATDCArray{}[1][1].n == 0, "");
 
 }
 
-// Tests for indexes into arrays of unknown bounds.
+// Per current CWG direction, we reject any cases where pointer arithmetic is
+// not statically known to be valid.
 namespace ArrayOfUnknownBound {
-  // This is a corner case of the language where it's not clear whether this
-  // should be an error: When we see the initializer for Z::a, the bounds of
-  // Z::b aren't known yet, but they will be known by the end of the translation
-  // unit, so the compiler can in theory check the indexing into Z::b.
-  // For the time being, as long as this is unclear, we want to make sure that
-  // this compiles.
-  struct Z {
-    static const void *const a[];
-    static const void *const b[];
+  extern int arr[];
+  constexpr int *a = arr;
+  constexpr int *b = &arr[0];
+  static_assert(a == b, "");
+  constexpr int *c = &arr[1]; // expected-error {{constant}} expected-note {{indexing of array without known bound}}
+  constexpr int *d = &a[1]; // expected-error {{constant}} expected-note {{indexing of array without known bound}}
+  constexpr int *e = a + 1; // expected-error {{constant}} expected-note {{indexing of array without known bound}}
+
+  struct X {
+    int a;
+    int b[]; // expected-warning {{C99}}
   };
-  constexpr const void *Z::a[] = {&b[0], &b[1]};
-  constexpr const void *Z::b[] = {&a[0], &a[1]};
+  extern X x;
+  constexpr int *xb = x.b; // expected-error {{constant}} expected-note {{not supported}}
+
+  struct Y { int a; };
+  extern Y yarr[];
+  constexpr Y *p = yarr;
+  constexpr int *q = &p->a;
+
+  extern const int carr[]; // expected-note {{here}}
+  constexpr int n = carr[0]; // expected-error {{constant}} expected-note {{non-constexpr variable}}
 }
 
 namespace DependentValues {
@@ -1965,7 +1976,7 @@ namespace NeverConstantTwoWays {
 
   constexpr int n = // expected-error {{must be initialized by a constant expression}}
       (int *)(long)&n == &n ? // expected-note {{reinterpret_cast}}
-        1 / 0 : // expected-warning {{division by zero}}
+        1 / 0 :
         0;
 }
 

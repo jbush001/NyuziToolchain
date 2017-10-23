@@ -297,11 +297,11 @@ void MIRPrinter::convert(yaml::MachineFunction &MF,
   }
 
   // Print the live ins.
-  for (auto I = RegInfo.livein_begin(), E = RegInfo.livein_end(); I != E; ++I) {
+  for (std::pair<unsigned, unsigned> LI : RegInfo.liveins()) {
     yaml::MachineFunctionLiveIn LiveIn;
-    printReg(I->first, LiveIn.Register, TRI);
-    if (I->second)
-      printReg(I->second, LiveIn.VirtualRegister, TRI);
+    printReg(LI.first, LiveIn.Register, TRI);
+    if (LI.second)
+      printReg(LI.second, LiveIn.VirtualRegister, TRI);
     MF.LiveIns.push_back(LiveIn);
   }
 
@@ -407,10 +407,15 @@ void MIRPrinter::convertStackObjects(yaml::MachineFunction &YMF,
     assert(StackObjectInfo != StackObjectOperandMapping.end() &&
            "Invalid stack object index");
     const FrameIndexOperand &StackObject = StackObjectInfo->second;
-    if (StackObject.IsFixed)
+    if (StackObject.IsFixed) {
       YMF.FixedStackObjects[StackObject.ID].CalleeSavedRegister = Reg;
-    else
+      YMF.FixedStackObjects[StackObject.ID].CalleeSavedRestored =
+        CSInfo.isRestored();
+    } else {
       YMF.StackObjects[StackObject.ID].CalleeSavedRegister = Reg;
+      YMF.StackObjects[StackObject.ID].CalleeSavedRestored =
+        CSInfo.isRestored();
+    }
   }
   for (unsigned I = 0, E = MFI.getLocalFrameObjectCount(); I < E; ++I) {
     auto LocalObject = MFI.getLocalFrameObjectMap(I);
@@ -598,8 +603,14 @@ void MIPrinter::print(const MachineBasicBlock &MBB) {
   bool HasLineAttributes = false;
   // Print the successors
   bool canPredictProbs = canPredictBranchProbabilities(MBB);
-  if (!MBB.succ_empty() && (!SimplifyMIR || !canPredictProbs ||
-                            !canPredictSuccessors(MBB))) {
+  // Even if the list of successors is empty, if we cannot guess it,
+  // we need to print it to tell the parser that the list is empty.
+  // This is needed, because MI model unreachable as empty blocks
+  // with an empty successor list. If the parser would see that
+  // without the successor list, it would guess the code would
+  // fallthrough.
+  if ((!MBB.succ_empty() && !SimplifyMIR) || !canPredictProbs ||
+      !canPredictSuccessors(MBB)) {
     OS.indent(2) << "successors: ";
     for (auto I = MBB.succ_begin(), E = MBB.succ_end(); I != E; ++I) {
       if (I != MBB.succ_begin())
@@ -692,7 +703,7 @@ static LLT getTypeToPrint(const MachineInstr &MI, unsigned OpIdx,
 }
 
 void MIPrinter::print(const MachineInstr &MI) {
-  const auto *MF = MI.getParent()->getParent();
+  const auto *MF = MI.getMF();
   const auto &MRI = MF->getRegInfo();
   const auto &SubTarget = MF->getSubtarget();
   const auto *TRI = SubTarget.getRegisterInfo();
@@ -843,8 +854,7 @@ static const char *getTargetFlagName(const TargetInstrInfo *TII, unsigned TF) {
 void MIPrinter::printTargetFlags(const MachineOperand &Op) {
   if (!Op.getTargetFlags())
     return;
-  const auto *TII =
-      Op.getParent()->getParent()->getParent()->getSubtarget().getInstrInfo();
+  const auto *TII = Op.getParent()->getMF()->getSubtarget().getInstrInfo();
   assert(TII && "expected instruction info");
   auto Flags = TII->decomposeMachineOperandsTargetFlags(Op.getTargetFlags());
   OS << "target-flags(";
@@ -953,8 +963,8 @@ void MIPrinter::print(const MachineOperand &Op, const TargetRegisterInfo *TRI,
     break;
   case MachineOperand::MO_TargetIndex:
     OS << "target-index(";
-    if (const auto *Name = getTargetIndexName(
-            *Op.getParent()->getParent()->getParent(), Op.getIndex()))
+    if (const auto *Name =
+            getTargetIndexName(*Op.getParent()->getMF(), Op.getIndex()))
       OS << Name;
     else
       OS << "<unknown>";
@@ -1018,7 +1028,7 @@ void MIPrinter::print(const MachineOperand &Op, const TargetRegisterInfo *TRI,
     OS << "<mcsymbol " << *Op.getMCSymbol() << ">";
     break;
   case MachineOperand::MO_CFIIndex: {
-    const MachineFunction &MF = *Op.getParent()->getParent()->getParent();
+    const MachineFunction &MF = *Op.getParent()->getMF();
     print(MF.getFrameInstructions()[Op.getCFIIndex()], TRI);
     break;
   }
@@ -1027,7 +1037,7 @@ void MIPrinter::print(const MachineOperand &Op, const TargetRegisterInfo *TRI,
     if (ID < Intrinsic::num_intrinsics)
       OS << "intrinsic(@" << Intrinsic::getName(ID, None) << ')';
     else {
-      const MachineFunction &MF = *Op.getParent()->getParent()->getParent();
+      const MachineFunction &MF = *Op.getParent()->getMF();
       const TargetIntrinsicInfo *TII = MF.getTarget().getIntrinsicInfo();
       OS << "intrinsic(@" << TII->getName(ID) << ')';
     }

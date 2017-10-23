@@ -575,9 +575,7 @@ public:
   /// preserve conservative kill flag information.
   void clearKillFlags(unsigned Reg) const;
 
-#ifndef NDEBUG
   void dumpUses(unsigned RegNo) const;
-#endif
 
   /// Returns true if PhysReg is unallocatable and constant throughout the
   /// function. Writing to a constant register has no effect.
@@ -843,6 +841,10 @@ public:
   livein_iterator livein_begin() const { return LiveIns.begin(); }
   livein_iterator livein_end()   const { return LiveIns.end(); }
   bool            livein_empty() const { return LiveIns.empty(); }
+
+  ArrayRef<std::pair<unsigned, unsigned>> liveins() const {
+    return LiveIns;
+  }
 
   bool isLiveIn(unsigned Reg) const;
 

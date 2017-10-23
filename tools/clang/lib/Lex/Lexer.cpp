@@ -552,9 +552,9 @@ namespace {
 
 } // end anonymous namespace
 
-std::pair<unsigned, bool> Lexer::ComputePreamble(StringRef Buffer,
-                                                 const LangOptions &LangOpts,
-                                                 unsigned MaxLines) {
+PreambleBounds Lexer::ComputePreamble(StringRef Buffer,
+                                      const LangOptions &LangOpts,
+                                      unsigned MaxLines) {
   // Create a lexer starting at the beginning of the file. Note that we use a
   // "fake" file source location at offset 1 so that the lexer will track our
   // position within the file.
@@ -563,9 +563,6 @@ std::pair<unsigned, bool> Lexer::ComputePreamble(StringRef Buffer,
   Lexer TheLexer(FileLoc, LangOpts, Buffer.begin(), Buffer.begin(),
                  Buffer.end());
   TheLexer.SetCommentRetentionState(true);
-
-  // StartLoc will differ from FileLoc if there is a BOM that was skipped.
-  SourceLocation StartLoc = TheLexer.getSourceLocation();
 
   bool InPreprocessorDirective = false;
   Token TheTok;
@@ -688,7 +685,7 @@ std::pair<unsigned, bool> Lexer::ComputePreamble(StringRef Buffer,
   else
     End = TheTok.getLocation();
 
-  return std::make_pair(End.getRawEncoding() - StartLoc.getRawEncoding(),
+  return PreambleBounds(End.getRawEncoding() - FileLoc.getRawEncoding(),
                         TheTok.isAtStartOfLine());
 }
 
@@ -1394,9 +1391,9 @@ Slash:
 // Helper methods for lexing.
 //===----------------------------------------------------------------------===//
 
-/// \brief Routine that indiscriminately skips bytes in the source file.
-void Lexer::SkipBytes(unsigned Bytes, bool StartOfLine) {
-  BufferPtr += Bytes;
+/// \brief Routine that indiscriminately sets the offset into the source file.
+void Lexer::SetByteOffset(unsigned Offset, bool StartOfLine) {
+  BufferPtr = BufferStart + Offset;
   if (BufferPtr > BufferEnd)
     BufferPtr = BufferEnd;
   // FIXME: What exactly does the StartOfLine bit mean?  There are two
@@ -2147,7 +2144,8 @@ bool Lexer::SkipLineComment(Token &Result, const char *CurPtr,
     // If we read multiple characters, and one of those characters was a \r or
     // \n, then we had an escaped newline within the comment.  Emit diagnostic
     // unless the next line is also a // comment.
-    if (CurPtr != OldPtr+1 && C != '/' && CurPtr[0] != '/') {
+    if (CurPtr != OldPtr + 1 && C != '/' &&
+        (CurPtr == BufferEnd + 1 || CurPtr[0] != '/')) {
       for (; OldPtr != CurPtr; ++OldPtr)
         if (OldPtr[0] == '\n' || OldPtr[0] == '\r') {
           // Okay, we found a // comment that ends in a newline, if the next
@@ -3545,7 +3543,8 @@ LexNextToken:
     } else if (LangOpts.Digraphs && Char == '%') {     // '<%' -> '{'
       CurPtr = ConsumeChar(CurPtr, SizeTmp, Result);
       Kind = tok::l_brace;
-    } else if (Char == '#' && lexEditorPlaceholder(Result, CurPtr)) {
+    } else if (Char == '#' && /*Not a trigraph*/ SizeTmp == 1 &&
+               lexEditorPlaceholder(Result, CurPtr)) {
       return true;
     } else {
       Kind = tok::less;
@@ -3613,7 +3612,9 @@ LexNextToken:
     if (LangOpts.Digraphs && Char == '>') {
       Kind = tok::r_square; // ':>' -> ']'
       CurPtr = ConsumeChar(CurPtr, SizeTmp, Result);
-    } else if (LangOpts.CPlusPlus && Char == ':') {
+    } else if ((LangOpts.CPlusPlus ||
+                LangOpts.DoubleSquareBracketAttributes) &&
+               Char == ':') {
       Kind = tok::coloncolon;
       CurPtr = ConsumeChar(CurPtr, SizeTmp, Result);
     } else {

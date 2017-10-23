@@ -43,6 +43,12 @@ void X86IntelInstPrinter::printInst(const MCInst *MI, raw_ostream &OS,
   if (TSFlags & X86II::LOCK)
     OS << "\tlock\n";
 
+  unsigned Flags = MI->getFlags();
+  if (Flags & X86::IP_HAS_REPEAT_NE)
+    OS << "\trepne\n";
+  else if (Flags & X86::IP_HAS_REPEAT)
+    OS << "\trep\n";
+
   printInstruction(MI, OS);
 
   // Next always print the annotation.
@@ -152,6 +158,7 @@ void X86IntelInstPrinter::printOperand(const MCInst *MI, unsigned OpNo,
     O << formatImm((int64_t)Op.getImm());
   } else {
     assert(Op.isExpr() && "unknown operand kind in printOperand");
+    O << "offset ";
     Op.getExpr()->print(O, &MAI);
   }
 }

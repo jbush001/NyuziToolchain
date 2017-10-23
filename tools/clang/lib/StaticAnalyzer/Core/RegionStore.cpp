@@ -1393,16 +1393,19 @@ SVal RegionStoreManager::getBinding(RegionBindingsConstRef B, Loc L, QualType T)
     return UnknownVal();
   }
 
-  if (isa<AllocaRegion>(MR) ||
-      isa<SymbolicRegion>(MR) ||
-      isa<CodeTextRegion>(MR)) {
+  if (!isa<TypedValueRegion>(MR)) {
     if (T.isNull()) {
       if (const TypedRegion *TR = dyn_cast<TypedRegion>(MR))
-        T = TR->getLocationType();
-      else {
-        const SymbolicRegion *SR = cast<SymbolicRegion>(MR);
-        T = SR->getSymbol()->getType();
-      }
+        T = TR->getLocationType()->getPointeeType();
+      else if (const SymbolicRegion *SR = dyn_cast<SymbolicRegion>(MR))
+        T = SR->getSymbol()->getType()->getPointeeType();
+      else if (isa<AllocaRegion>(MR))
+        T = Ctx.VoidTy;
+    }
+    assert(!T.isNull() && "Unable to auto-detect binding type!");
+    if (T->isVoidType()) {
+      // When trying to dereference a void pointer, read the first byte.
+      T = Ctx.CharTy;
     }
     MR = GetElementZeroRegion(cast<SubRegion>(MR), T);
   }
@@ -2085,15 +2088,12 @@ RegionStoreManager::bindArray(RegionBindingsConstRef B,
   if (const ConstantArrayType* CAT = dyn_cast<ConstantArrayType>(AT))
     Size = CAT->getSize().getZExtValue();
 
-  // Check if the init expr is a string literal.
+  // Check if the init expr is a literal. If so, bind the rvalue instead.
+  // FIXME: It's not responsibility of the Store to transform this lvalue
+  // to rvalue. ExprEngine or maybe even CFG should do this before binding.
   if (Optional<loc::MemRegionVal> MRV = Init.getAs<loc::MemRegionVal>()) {
-    const StringRegion *S = cast<StringRegion>(MRV->getRegion());
-
-    // Treat the string as a lazy compound value.
-    StoreRef store(B.asStore(), *this);
-    nonloc::LazyCompoundVal LCV = svalBuilder.makeLazyCompoundVal(store, S)
-        .castAs<nonloc::LazyCompoundVal>();
-    return bindAggregate(B, R, LCV);
+    SVal V = getBinding(B.asStore(), *MRV, R->getValueType());
+    return bindAggregate(B, R, V);
   }
 
   // Handle lazy compound values.

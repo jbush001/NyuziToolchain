@@ -31,6 +31,7 @@ AArch64LegalizerInfo::AArch64LegalizerInfo() {
   const LLT s16 = LLT::scalar(16);
   const LLT s32 = LLT::scalar(32);
   const LLT s64 = LLT::scalar(64);
+  const LLT s128 = LLT::scalar(128);
   const LLT v2s32 = LLT::vector(2, 32);
   const LLT v4s32 = LLT::vector(4, 32);
   const LLT v2s64 = LLT::vector(2, 64);
@@ -38,11 +39,14 @@ AArch64LegalizerInfo::AArch64LegalizerInfo() {
   for (auto Ty : {p0, s1, s8, s16, s32, s64})
     setAction({G_IMPLICIT_DEF, Ty}, Legal);
 
-  for (auto Ty : {s16, s32, s64})
+  for (auto Ty : {s16, s32, s64, p0})
     setAction({G_PHI, Ty}, Legal);
 
   for (auto Ty : {s1, s8})
     setAction({G_PHI, Ty}, WidenScalar);
+
+  for (auto Ty : { s32, s64 })
+    setAction({G_BSWAP, Ty}, Legal);
 
   for (unsigned BinOp : {G_ADD, G_SUB, G_MUL, G_AND, G_OR, G_XOR, G_SHL}) {
     // These operations naturally get the right answer when used on
@@ -226,7 +230,8 @@ AArch64LegalizerInfo::AArch64LegalizerInfo() {
   setAction({G_INTTOPTR, 1, s64}, Legal);
 
   // Casts for 32 and 64-bit width type are just copies.
-  for (auto Ty : {s1, s8, s16, s32, s64}) {
+  // Same for 128-bit width type, except they are on the FPR bank.
+  for (auto Ty : {s1, s8, s16, s32, s64, s128}) {
     setAction({G_BITCAST, 0, Ty}, Legal);
     setAction({G_BITCAST, 1, Ty}, Legal);
   }
