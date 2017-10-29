@@ -107,8 +107,8 @@ target. This is because many tests are architecture specific but don't specify a
 REQUIRES line in the file. They are assuming LLVM is built for all architectures,
 where I have modified the build files in this project to only build for Nyuzi.*
 
-It is also useful to run the (random test generator)
-[https://github.com/jbush001/NyuziToolchain/wiki/Validating-LLVM-with-random-programs] to
+It is also useful to run the [random test generator]
+(https://github.com/jbush001/NyuziToolchain/wiki/Validating-LLVM-with-random-programs) to
 validate the backend.
 
 ## Running Whole Program Tests
