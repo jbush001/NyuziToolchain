@@ -42,8 +42,12 @@
 #include "llvm/CodeGen/ScheduleDFS.h"
 #include "llvm/CodeGen/ScheduleHazardRecognizer.h"
 #include "llvm/CodeGen/SlotIndexes.h"
+#include "llvm/CodeGen/TargetInstrInfo.h"
+#include "llvm/CodeGen/TargetLowering.h"
 #include "llvm/CodeGen/TargetPassConfig.h"
+#include "llvm/CodeGen/TargetRegisterInfo.h"
 #include "llvm/CodeGen/TargetSchedule.h"
+#include "llvm/CodeGen/TargetSubtargetInfo.h"
 #include "llvm/MC/LaneBitmask.h"
 #include "llvm/Pass.h"
 #include "llvm/Support/CommandLine.h"
@@ -52,10 +56,6 @@
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/GraphWriter.h"
 #include "llvm/Support/raw_ostream.h"
-#include "llvm/Target/TargetInstrInfo.h"
-#include "llvm/Target/TargetLowering.h"
-#include "llvm/Target/TargetRegisterInfo.h"
-#include "llvm/Target/TargetSubtargetInfo.h"
 #include <algorithm>
 #include <cassert>
 #include <cstdint>
@@ -1831,6 +1831,13 @@ static const unsigned InvalidCycle = ~0U;
 
 SchedBoundary::~SchedBoundary() { delete HazardRec; }
 
+/// Given a Count of resource usage and a Latency value, return true if a
+/// SchedBoundary becomes resource limited.
+static bool checkResourceLimit(unsigned LFactor, unsigned Count,
+                               unsigned Latency) {
+  return (int)(Count - (Latency * LFactor)) > (int)LFactor;
+}
+
 void SchedBoundary::reset() {
   // A new HazardRec is created for each DAG and owned by SchedBoundary.
   // Destroying and reconstructing it is very expensive though. So keep
@@ -2085,10 +2092,9 @@ void SchedBoundary::bumpCycle(unsigned NextCycle) {
     }
   }
   CheckPending = true;
-  unsigned LFactor = SchedModel->getLatencyFactor();
   IsResourceLimited =
-    (int)(getCriticalCount() - (getScheduledLatency() * LFactor))
-    > (int)LFactor;
+      checkResourceLimit(SchedModel->getLatencyFactor(), getCriticalCount(),
+                         getScheduledLatency());
 
   DEBUG(dbgs() << "Cycle: " << CurrCycle << ' ' << Available.getName() << '\n');
 }
@@ -2241,16 +2247,15 @@ void SchedBoundary::bumpNode(SUnit *SU) {
           << " BotLatency SU(" << SU->NodeNum << ") " << BotLatency << "c\n");
   }
   // If we stall for any reason, bump the cycle.
-  if (NextCycle > CurrCycle) {
+  if (NextCycle > CurrCycle)
     bumpCycle(NextCycle);
-  } else {
+  else
     // After updating ZoneCritResIdx and ExpectedLatency, check if we're
     // resource limited. If a stall occurred, bumpCycle does this.
-    unsigned LFactor = SchedModel->getLatencyFactor();
     IsResourceLimited =
-      (int)(getCriticalCount() - (getScheduledLatency() * LFactor))
-      > (int)LFactor;
-  }
+        checkResourceLimit(SchedModel->getLatencyFactor(), getCriticalCount(),
+                           getScheduledLatency());
+
   // Update CurrMOps after calling bumpCycle to handle stalls, since bumpCycle
   // resets CurrMOps. Loop to handle instructions with more MOps than issue in
   // one cycle.  Since we commonly reach the max MOps here, opportunistically
@@ -2435,10 +2440,10 @@ void GenericSchedulerBase::setPolicy(CandPolicy &Policy, bool IsPostRA,
     OtherZone ? OtherZone->getOtherResourceCount(OtherCritIdx) : 0;
 
   bool OtherResLimited = false;
-  if (SchedModel->hasInstrSchedModel()) {
-    unsigned LFactor = SchedModel->getLatencyFactor();
-    OtherResLimited = (int)(OtherCount - (RemLatency * LFactor)) > (int)LFactor;
-  }
+  if (SchedModel->hasInstrSchedModel())
+    OtherResLimited = checkResourceLimit(SchedModel->getLatencyFactor(),
+                                         OtherCount, RemLatency);
+
   // Schedule aggressively for latency in PostRA mode. We don't check for
   // acyclic latency during PostRA, and highly out-of-order processors will
   // skip PostRA scheduling.

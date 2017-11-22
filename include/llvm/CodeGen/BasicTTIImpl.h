@@ -27,6 +27,8 @@
 #include "llvm/Analysis/TargetTransformInfoImpl.h"
 #include "llvm/CodeGen/ISDOpcodes.h"
 #include "llvm/CodeGen/MachineValueType.h"
+#include "llvm/CodeGen/TargetLowering.h"
+#include "llvm/CodeGen/TargetSubtargetInfo.h"
 #include "llvm/CodeGen/ValueTypes.h"
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/CallSite.h"
@@ -46,8 +48,6 @@
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/MathExtras.h"
-#include "llvm/Target/TargetLowering.h"
-#include "llvm/Target/TargetSubtargetInfo.h"
 #include <algorithm>
 #include <cassert>
 #include <cstdint>
@@ -1023,6 +1023,7 @@ public:
     // FIXME: We should return 0 whenever getIntrinsicCost == TCC_Free.
     case Intrinsic::lifetime_start:
     case Intrinsic::lifetime_end:
+    case Intrinsic::sideeffect:
       return 0;
     case Intrinsic::masked_store:
       return static_cast<T *>(this)

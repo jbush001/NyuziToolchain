@@ -58,6 +58,7 @@ class MachineModuleInfo;
 class MachineOptimizationRemarkEmitter;
 class MCAsmInfo;
 class MCCFIInstruction;
+struct MCCodePaddingContext;
 class MCContext;
 class MCExpr;
 class MCInst;
@@ -113,7 +114,7 @@ public:
   using GOTEquivUsePair = std::pair<const GlobalVariable *, unsigned>;
   MapVector<const MCSymbol *, GOTEquivUsePair> GlobalGOTEquivs;
 
-  /// Enable print [latency:throughput] in output
+  /// Enable print [latency:throughput] in output.
   bool EnablePrintSchedInfo = false;
 
 private:
@@ -377,7 +378,7 @@ public:
   virtual void EmitBasicBlockStart(const MachineBasicBlock &MBB) const;
 
   /// Targets can override this to emit stuff at the end of a basic block.
-  virtual void EmitBasicBlockEnd(const MachineBasicBlock &MBB) {}
+  virtual void EmitBasicBlockEnd(const MachineBasicBlock &MBB);
 
   /// Targets should implement this to emit instructions.
   virtual void EmitInstruction(const MachineInstr *) {
@@ -626,6 +627,8 @@ private:
   /// Emit GlobalAlias or GlobalIFunc.
   void emitGlobalIndirectSymbol(Module &M,
                                 const GlobalIndirectSymbol& GIS);
+  void setupCodePaddingContext(const MachineBasicBlock &MBB,
+                               MCCodePaddingContext &Context) const;
 };
 
 } // end namespace llvm

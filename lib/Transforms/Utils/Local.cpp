@@ -649,9 +649,13 @@ void llvm::MergeBasicBlockIntoOnlyPred(BasicBlock *DestBB, DominatorTree *DT) {
     DestBB->moveAfter(PredBB);
 
   if (DT) {
-    BasicBlock *PredBBIDom = DT->getNode(PredBB)->getIDom()->getBlock();
-    DT->changeImmediateDominator(DestBB, PredBBIDom);
-    DT->eraseNode(PredBB);
+    // For some irreducible CFG we end up having forward-unreachable blocks
+    // so check if getNode returns a valid node before updating the domtree.
+    if (DomTreeNode *DTN = DT->getNode(PredBB)) {
+      BasicBlock *PredBBIDom = DTN->getIDom()->getBlock();
+      DT->changeImmediateDominator(DestBB, PredBBIDom);
+      DT->eraseNode(PredBB);
+    }
   }
   // Nuke BB.
   PredBB->eraseFromParent();
@@ -1289,6 +1293,15 @@ void llvm::findDbgValues(SmallVectorImpl<DbgValueInst *> &DbgValues, Value *V) {
           DbgValues.push_back(DVI);
 }
 
+static void findDbgUsers(SmallVectorImpl<DbgInfoIntrinsic *> &DbgUsers,
+                         Value *V) {
+  if (auto *L = LocalAsMetadata::getIfExists(V))
+    if (auto *MDV = MetadataAsValue::getIfExists(V->getContext(), L))
+      for (User *U : MDV->users())
+        if (DbgInfoIntrinsic *DII = dyn_cast<DbgInfoIntrinsic>(U))
+          DbgUsers.push_back(DII);
+}
+
 bool llvm::replaceDbgDeclare(Value *Address, Value *NewAddress,
                              Instruction *InsertBefore, DIBuilder &Builder,
                              bool Deref, int Offset) {
@@ -1358,17 +1371,27 @@ void llvm::salvageDebugInfo(Instruction &I) {
   SmallVector<DbgValueInst *, 1> DbgValues;
   auto &M = *I.getModule();
 
-  auto MDWrap = [&](Value *V) {
+  auto wrapMD = [&](Value *V) {
     return MetadataAsValue::get(I.getContext(), ValueAsMetadata::get(V));
   };
 
-  if (isa<BitCastInst>(&I)) {
-    findDbgValues(DbgValues, &I);
-    for (auto *DVI : DbgValues) {
-      // Bitcasts are entirely irrelevant for debug info. Rewrite the dbg.value
-      // to use the cast's source.
-      DVI->setOperand(0, MDWrap(I.getOperand(0)));
-      DEBUG(dbgs() << "SALVAGE: " << *DVI << '\n');
+  auto applyOffset = [&](DbgValueInst *DVI, uint64_t Offset) {
+    auto *DIExpr = DVI->getExpression();
+    DIExpr = DIExpression::prepend(DIExpr, DIExpression::NoDeref, Offset,
+                                   DIExpression::WithStackValue);
+    DVI->setOperand(0, wrapMD(I.getOperand(0)));
+    DVI->setOperand(2, MetadataAsValue::get(I.getContext(), DIExpr));
+    DEBUG(dbgs() << "SALVAGE: " << *DVI << '\n');
+  };
+
+  if (isa<BitCastInst>(&I) || isa<IntToPtrInst>(&I)) {
+    // Bitcasts are entirely irrelevant for debug info. Rewrite dbg.value,
+    // dbg.addr, and dbg.declare to use the cast's source.
+    SmallVector<DbgInfoIntrinsic *, 1> DbgUsers;
+    findDbgUsers(DbgUsers, &I);
+    for (auto *DII : DbgUsers) {
+      DII->setOperand(0, wrapMD(I.getOperand(0)));
+      DEBUG(dbgs() << "SALVAGE: " << *DII << '\n');
     }
   } else if (auto *GEP = dyn_cast<GetElementPtrInst>(&I)) {
     findDbgValues(DbgValues, &I);
@@ -1379,26 +1402,26 @@ void llvm::salvageDebugInfo(Instruction &I) {
       // Rewrite a constant GEP into a DIExpression.  Since we are performing
       // arithmetic to compute the variable's *value* in the DIExpression, we
       // need to mark the expression with a DW_OP_stack_value.
-      if (GEP->accumulateConstantOffset(M.getDataLayout(), Offset)) {
-        auto *DIExpr = DVI->getExpression();
-        DIBuilder DIB(M, /*AllowUnresolved*/ false);
+      if (GEP->accumulateConstantOffset(M.getDataLayout(), Offset))
         // GEP offsets are i32 and thus always fit into an int64_t.
-        DIExpr = DIExpression::prepend(DIExpr, DIExpression::NoDeref,
-                                       Offset.getSExtValue(),
-                                       DIExpression::WithStackValue);
-        DVI->setOperand(0, MDWrap(I.getOperand(0)));
-        DVI->setOperand(2, MetadataAsValue::get(I.getContext(), DIExpr));
-        DEBUG(dbgs() << "SALVAGE: " << *DVI << '\n');
-      }
+        applyOffset(DVI, Offset.getSExtValue());
     }
+  } else if (auto *BI = dyn_cast<BinaryOperator>(&I)) {
+    if (BI->getOpcode() == Instruction::Add)
+      if (auto *ConstInt = dyn_cast<ConstantInt>(I.getOperand(1)))
+        if (ConstInt->getBitWidth() <= 64) {
+          APInt Offset = ConstInt->getValue();
+          findDbgValues(DbgValues, &I);
+          for (auto *DVI : DbgValues)
+            applyOffset(DVI, Offset.getSExtValue());
+        }
   } else if (isa<LoadInst>(&I)) {
     findDbgValues(DbgValues, &I);
     for (auto *DVI : DbgValues) {
       // Rewrite the load into DW_OP_deref.
       auto *DIExpr = DVI->getExpression();
-      DIBuilder DIB(M, /*AllowUnresolved*/ false);
       DIExpr = DIExpression::prepend(DIExpr, DIExpression::WithDeref);
-      DVI->setOperand(0, MDWrap(I.getOperand(0)));
+      DVI->setOperand(0, wrapMD(I.getOperand(0)));
       DVI->setOperand(2, MetadataAsValue::get(I.getContext(), DIExpr));
       DEBUG(dbgs() << "SALVAGE:  " << *DVI << '\n');
     }

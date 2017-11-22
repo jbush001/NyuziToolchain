@@ -4133,8 +4133,10 @@ bool SROA::splitAlloca(AllocaInst &AI, AllocaSlices &AS) {
                  "new fragment is outside of original fragment");
           Start -= OrigFragment->OffsetInBits;
         }
-        FragmentExpr =
-            DIExpression::createFragmentExpression(Expr, Start, Size);
+        if (auto E = DIExpression::createFragmentExpression(Expr, Start, Size))
+          FragmentExpr = *E;
+        else
+          continue;
       }
 
       // Remove any existing intrinsics describing the same alloca.
@@ -4241,8 +4243,9 @@ bool SROA::runOnAlloca(AllocaInst &AI) {
 ///
 /// We also record the alloca instructions deleted here so that they aren't
 /// subsequently handed to mem2reg to promote.
-void SROA::deleteDeadInstructions(
+bool SROA::deleteDeadInstructions(
     SmallPtrSetImpl<AllocaInst *> &DeletedAllocas) {
+  bool Changed = false;
   while (!DeadInsts.empty()) {
     Instruction *I = DeadInsts.pop_back_val();
     DEBUG(dbgs() << "Deleting dead instruction: " << *I << "\n");
@@ -4268,7 +4271,9 @@ void SROA::deleteDeadInstructions(
 
     ++NumDeleted;
     I->eraseFromParent();
+    Changed = true;
   }
+  return Changed;
 }
 
 /// \brief Promote the allocas, using the best available technique.
@@ -4310,7 +4315,7 @@ PreservedAnalyses SROA::runImpl(Function &F, DominatorTree &RunDT,
   do {
     while (!Worklist.empty()) {
       Changed |= runOnAlloca(*Worklist.pop_back_val());
-      deleteDeadInstructions(DeletedAllocas);
+      Changed |= deleteDeadInstructions(DeletedAllocas);
 
       // Remove the deleted allocas from various lists so that we don't try to
       // continue processing them.

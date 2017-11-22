@@ -28,6 +28,10 @@
 #include "llvm/CodeGen/MachineOperand.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
 #include "llvm/CodeGen/Passes.h"
+#include "llvm/CodeGen/TargetInstrInfo.h"
+#include "llvm/CodeGen/TargetOpcodes.h"
+#include "llvm/CodeGen/TargetRegisterInfo.h"
+#include "llvm/CodeGen/TargetSubtargetInfo.h"
 #include "llvm/MC/MCInstrDesc.h"
 #include "llvm/MC/MCRegisterInfo.h"
 #include "llvm/Pass.h"
@@ -35,10 +39,6 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/RecyclingAllocator.h"
 #include "llvm/Support/raw_ostream.h"
-#include "llvm/Target/TargetInstrInfo.h"
-#include "llvm/Target/TargetOpcodes.h"
-#include "llvm/Target/TargetRegisterInfo.h"
-#include "llvm/Target/TargetSubtargetInfo.h"
 #include <cassert>
 #include <iterator>
 #include <utility>
@@ -250,8 +250,8 @@ bool MachineCSE::hasLivePhysRegDefUses(const MachineInstr *MI,
       continue;
     if (TargetRegisterInfo::isVirtualRegister(Reg))
       continue;
-    // Reading constant physregs is ok.
-    if (!MRI->isConstantPhysReg(Reg))
+    // Reading either caller preserved or constant physregs is ok.
+    if (!MRI->isCallerPreservedOrConstPhysReg(Reg))
       for (MCRegAliasIterator AI(Reg, TRI, true); AI.isValid(); ++AI)
         PhysRefs.insert(*AI);
   }

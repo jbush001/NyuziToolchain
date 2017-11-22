@@ -17,6 +17,7 @@
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
+#include "llvm/ADT/MapVector.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/MemoryBuffer.h"
 #include <cstddef>
@@ -28,8 +29,8 @@
 namespace lld {
 namespace elf {
 
-class DefinedRegular;
-class SymbolBody;
+class Defined;
+class Symbol;
 class InputSectionBase;
 class InputSection;
 class OutputSection;
@@ -95,7 +96,7 @@ struct SymbolAssignment : BaseCommand {
 
   // The LHS of an expression. Name is either a symbol name or ".".
   StringRef Name;
-  DefinedRegular *Sym = nullptr;
+  Defined *Sym = nullptr;
 
   // The RHS of an expression.
   Expr Expression;
@@ -138,6 +139,7 @@ struct SectionPattern {
   SortSectionPolicy SortInner;
 };
 
+class ThunkSection;
 struct InputSectionDescription : BaseCommand {
   InputSectionDescription(StringRef FilePattern)
       : BaseCommand(InputSectionKind), FilePat(FilePattern) {}
@@ -153,6 +155,11 @@ struct InputSectionDescription : BaseCommand {
   std::vector<SectionPattern> SectionPatterns;
 
   std::vector<InputSection *> Sections;
+
+  // Temporary record of synthetic ThunkSection instances and the pass that
+  // they were created in. This is used to insert newly created ThunkSections
+  // into Sections at the end of a createThunks() pass.
+  std::vector<std::pair<ThunkSection *, uint32_t>> ThunkSections;
 };
 
 // Represents an ASSERT().
@@ -222,7 +229,14 @@ class LinkerScript final {
 
   void assignOffsets(OutputSection *Sec);
 
-  std::unique_ptr<AddressState> Ctx;
+  // Ctx captures the local AddressState and makes it accessible
+  // deliberately. This is needed as there are some cases where we cannot just
+  // thread the current state through to a lambda function created by the
+  // script parser.
+  // This should remain a plain pointer as its lifetime is smaller than
+  // LinkerScript.
+  AddressState *Ctx = nullptr;
+
   OutputSection *Aether;
 
   uint64_t Dot;
@@ -237,8 +251,7 @@ public:
 
   ExprValue getSymbolValue(StringRef Name, const Twine &Loc);
 
-  void fabricateDefaultCommands();
-  void addOrphanSections(OutputSectionFactory &Factory);
+  void addOrphanSections();
   void removeEmptyCommands();
   void adjustSectionsBeforeSorting();
   void adjustSectionsAfterSorting();
@@ -265,7 +278,7 @@ public:
   std::vector<InputSectionDescription *> KeptSections;
 
   // A map from memory region name to a memory region descriptor.
-  llvm::DenseMap<llvm::StringRef, MemoryRegion *> MemoryRegions;
+  llvm::MapVector<llvm::StringRef, MemoryRegion *> MemoryRegions;
 
   // A list of symbols referenced by the script.
   std::vector<llvm::StringRef> ReferencedSymbols;

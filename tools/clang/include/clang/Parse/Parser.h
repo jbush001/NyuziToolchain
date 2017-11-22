@@ -506,6 +506,12 @@ private:
            Kind == tok::annot_module_end || Kind == tok::annot_module_include;
   }
 
+  /// \brief Checks if the \p Level is valid for use in a fold expression.
+  bool isFoldOperator(prec::Level Level) const;
+
+  /// \brief Checks if the \p Kind is a valid operator for fold expressions.
+  bool isFoldOperator(tok::TokenKind Kind) const;
+
   /// \brief Initialize all pragma handlers.
   void initializePragmaHandlers();
 
@@ -2782,7 +2788,7 @@ private:
   //===--------------------------------------------------------------------===//
   // Modules
   DeclGroupPtrTy ParseModuleDecl();
-  DeclGroupPtrTy ParseModuleImport(SourceLocation AtLoc);
+  Decl *ParseModuleImport(SourceLocation AtLoc);
   bool parseMisplacedModuleImport();
   bool tryParseMisplacedModuleImport() {
     tok::TokenKind Kind = Tok.getKind();

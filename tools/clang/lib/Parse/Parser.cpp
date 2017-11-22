@@ -556,10 +556,6 @@ bool Parser::ParseTopLevelDecl(DeclGroupPtrTy &Result) {
     HandlePragmaUnused();
     return false;
 
-  case tok::kw_import:
-    Result = ParseModuleImport(SourceLocation());
-    return false;
-
   case tok::kw_export:
     if (NextToken().isNot(tok::kw_module))
       break;
@@ -637,6 +633,9 @@ bool Parser::ParseTopLevelDecl(DeclGroupPtrTy &Result) {
 ///           ';'
 ///
 /// [C++0x/GNU] 'extern' 'template' declaration
+///
+/// [Modules-TS] module-import-declaration
+///
 Parser::DeclGroupPtrTy
 Parser::ParseExternalDeclaration(ParsedAttributesWithRange &attrs,
                                  ParsingDeclSpec *DS) {
@@ -753,11 +752,20 @@ Parser::ParseExternalDeclaration(ParsedAttributesWithRange &attrs,
     SingleDecl = ParseObjCMethodDefinition();
     break;
   case tok::code_completion:
-      Actions.CodeCompleteOrdinaryName(getCurScope(), 
-                             CurParsedObjCImpl? Sema::PCC_ObjCImplementation
-                                              : Sema::PCC_Namespace);
+    if (CurParsedObjCImpl) {
+      // Code-complete Objective-C methods even without leading '-'/'+' prefix.
+      Actions.CodeCompleteObjCMethodDecl(getCurScope(),
+                                         /*IsInstanceMethod=*/None,
+                                         /*ReturnType=*/nullptr);
+    }
+    Actions.CodeCompleteOrdinaryName(
+        getCurScope(),
+        CurParsedObjCImpl ? Sema::PCC_ObjCImplementation : Sema::PCC_Namespace);
     cutOffParsing();
     return nullptr;
+  case tok::kw_import:
+    SingleDecl = ParseModuleImport(SourceLocation());
+    break;
   case tok::kw_export:
     if (getLangOpts().ModulesTS) {
       SingleDecl = ParseExportDeclaration();
@@ -2086,7 +2094,7 @@ Parser::DeclGroupPtrTy Parser::ParseModuleDecl() {
 ///           '@' 'import' module-name ';'
 /// [ModTS] module-import-declaration:
 ///           'import' module-name attribute-specifier-seq[opt] ';'
-Parser::DeclGroupPtrTy Parser::ParseModuleImport(SourceLocation AtLoc) {
+Decl *Parser::ParseModuleImport(SourceLocation AtLoc) {
   assert((AtLoc.isInvalid() ? Tok.is(tok::kw_import)
                             : Tok.isObjCAtKeyword(tok::objc_import)) &&
          "Improper start to module import");
@@ -2113,7 +2121,7 @@ Parser::DeclGroupPtrTy Parser::ParseModuleImport(SourceLocation AtLoc) {
   if (Import.isInvalid())
     return nullptr;
 
-  return Actions.ConvertDeclToDeclGroup(Import.get());
+  return Import.get();
 }
 
 /// Parse a C++ Modules TS / Objective-C module name (both forms use the same

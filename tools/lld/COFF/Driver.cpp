@@ -9,7 +9,6 @@
 
 #include "Driver.h"
 #include "Config.h"
-#include "Error.h"
 #include "InputFiles.h"
 #include "Memory.h"
 #include "MinGW.h"
@@ -17,6 +16,8 @@
 #include "Symbols.h"
 #include "Writer.h"
 #include "lld/Common/Driver.h"
+#include "lld/Common/ErrorHandler.h"
+#include "lld/Common/Version.h"
 #include "llvm/ADT/Optional.h"
 #include "llvm/ADT/StringSwitch.h"
 #include "llvm/BinaryFormat/Magic.h"
@@ -53,19 +54,28 @@ BumpPtrAllocator BAlloc;
 StringSaver Saver{BAlloc};
 std::vector<SpecificAllocBase *> SpecificAllocBase::Instances;
 
-bool link(ArrayRef<const char *> Args, raw_ostream &Diag) {
-  ErrorCount = 0;
-  ErrorOS = &Diag;
-
+bool link(ArrayRef<const char *> Args, bool CanExitEarly, raw_ostream &Diag) {
+  errorHandler().LogName = Args[0];
+  errorHandler().ErrorOS = &Diag;
+  errorHandler().ColorDiagnostics = Diag.has_colors();
+  errorHandler().ErrorLimitExceededMsg =
+      "too many errors emitted, stopping now"
+      " (use /ERRORLIMIT:0 to see all errors)";
   Config = make<Configuration>();
   Config->Argv = {Args.begin(), Args.end()};
-  Config->ColorDiagnostics = ErrorOS->has_colors();
+  Config->CanExitEarly = CanExitEarly;
 
   Symtab = make<SymbolTable>();
 
   Driver = make<LinkerDriver>();
   Driver->link(Args);
-  return !ErrorCount;
+
+  // Call exit() if we can to avoid calling destructors.
+  if (CanExitEarly)
+    exitLld(errorCount() ? 1 : 0);
+
+  freeArena();
+  return !errorCount();
 }
 
 // Drop directory components and replace extension with ".exe" or ".dll".
@@ -204,15 +214,16 @@ void LinkerDriver::enqueueArchiveMember(const Archive::Child &C,
   enqueueTask([=]() {
     auto MBOrErr = Future->get();
     if (MBOrErr.second)
-      fatal(MBOrErr.second,
-            "could not get the buffer for the member defining " + SymName);
+      fatal("could not get the buffer for the member defining " + SymName +
+            ": " + MBOrErr.second.message());
     Driver->addArchiveBuffer(takeBuffer(std::move(MBOrErr.first)), SymName,
                              ParentName);
   });
 }
 
 static bool isDecorated(StringRef Sym) {
-  return Sym.startswith("_") || Sym.startswith("@") || Sym.startswith("?");
+  return Sym.startswith("@") || Sym.contains("@@") || Sym.startswith("?") ||
+         (!Config->MinGW && Sym.contains('@'));
 }
 
 // Parses .drectve section contents and returns a list of files
@@ -342,9 +353,12 @@ void LinkerDriver::addLibSearchPaths() {
   }
 }
 
-SymbolBody *LinkerDriver::addUndefined(StringRef Name) {
-  SymbolBody *B = Symtab->addUndefined(Name);
-  Config->GCRoot.insert(B);
+Symbol *LinkerDriver::addUndefined(StringRef Name) {
+  Symbol *B = Symtab->addUndefined(Name);
+  if (!B->IsGCRoot) {
+    B->IsGCRoot = true;
+    Config->GCRoot.push_back(B);
+  }
   return B;
 }
 
@@ -367,7 +381,7 @@ StringRef LinkerDriver::findDefaultEntry() {
   };
   for (auto E : Entries) {
     StringRef Entry = Symtab->findMangle(mangle(E[0]));
-    if (!Entry.empty() && !isa<Undefined>(Symtab->find(Entry)->body()))
+    if (!Entry.empty() && !isa<Undefined>(Symtab->find(Entry)))
       return mangle(E[1]);
   }
   return "";
@@ -401,6 +415,12 @@ static std::string createResponseFile(const opt::InputArgList &Args,
     case OPT_INPUT:
     case OPT_defaultlib:
     case OPT_libpath:
+    case OPT_manifest:
+    case OPT_manifest_colon:
+    case OPT_manifestdependency:
+    case OPT_manifestfile:
+    case OPT_manifestinput:
+    case OPT_manifestuac:
       break;
     default:
       OS << toString(Arg) << "\n";
@@ -510,8 +530,8 @@ static void createImportLibrary(bool AsLib) {
 static void parseModuleDefs(StringRef Path) {
   std::unique_ptr<MemoryBuffer> MB = check(
     MemoryBuffer::getFile(Path, -1, false, true), "could not open " + Path);
-  COFFModuleDefinition M =
-      check(parseCOFFModuleDefinition(MB->getMemBufferRef(), Config->Machine));
+  COFFModuleDefinition M = check(parseCOFFModuleDefinition(
+      MB->getMemBufferRef(), Config->Machine, Config->MinGW));
 
   if (Config->OutputFile.empty())
     Config->OutputFile = Saver.save(M.OutputFile);
@@ -604,7 +624,7 @@ filterBitcodeFiles(StringRef Path, std::vector<std::string> &TemporaryFiles) {
   SmallString<128> S;
   if (auto EC = sys::fs::createTemporaryFile("lld-" + sys::path::stem(Path),
                                              ".lib", S))
-    fatal(EC, "cannot create a temporary file");
+    fatal("cannot create a temporary file: " + EC.message());
   std::string Temp = S.str();
   TemporaryFiles.push_back(Temp);
 
@@ -633,7 +653,7 @@ void LinkerDriver::invokeMSVC(opt::InputArgList &Args) {
     int Fd;
     if (auto EC = sys::fs::createTemporaryFile(
             "lld-" + sys::path::filename(Obj->ParentName), ".obj", Fd, S))
-      fatal(EC, "cannot create a temporary file");
+      fatal("cannot create a temporary file: " + EC.message());
     raw_fd_ostream OS(Fd, /*shouldClose*/ true);
     OS << Obj->MB.getBuffer();
     Temps.push_back(S.str());
@@ -721,12 +741,20 @@ void LinkerDriver::link(ArrayRef<const char *> ArgsArr) {
     StringRef S = Arg->getValue();
     if (S.getAsInteger(10, N))
       error(Arg->getSpelling() + " number expected, but got " + S);
-    Config->ErrorLimit = N;
+    errorHandler().ErrorLimit = N;
   }
 
   // Handle /help
   if (Args.hasArg(OPT_help)) {
     printHelp(ArgsArr[0]);
+    return;
+  }
+
+  // Handle --version, which is an lld extension. This option is a bit odd
+  // because it doesn't start with "/", but we deliberately chose "--" to
+  // avoid conflict with /version and for compatibility with clang-cl.
+  if (Args.hasArg(OPT_dash_dash_version)) {
+    outs() << getLLDVersion() << "\n";
     return;
   }
 
@@ -769,13 +797,14 @@ void LinkerDriver::link(ArrayRef<const char *> ArgsArr) {
   // Handle /verbose
   if (Args.hasArg(OPT_verbose))
     Config->Verbose = true;
+  errorHandler().Verbose = Config->Verbose;
 
   // Handle /force or /force:unresolved
   if (Args.hasArg(OPT_force) || Args.hasArg(OPT_force_unresolved))
     Config->Force = true;
 
   // Handle /debug
-  if (Args.hasArg(OPT_debug)) {
+  if (Args.hasArg(OPT_debug) || Args.hasArg(OPT_debug_dwarf)) {
     Config->Debug = true;
     if (auto *Arg = Args.getLastArg(OPT_debugtype))
       Config->DebugTypes = parseDebugType(Arg->getValue());
@@ -801,9 +830,18 @@ void LinkerDriver::link(ArrayRef<const char *> ArgsArr) {
     Config->ManifestID = 2;
   }
 
-  // Handle /fixed
-  if (Args.hasArg(OPT_fixed)) {
-    if (Args.hasArg(OPT_dynamicbase)) {
+  // Handle /dynamicbase and /fixed. We can't use hasFlag for /dynamicbase
+  // because we need to explicitly check whether that option or its inverse was
+  // present in the argument list in order to handle /fixed.
+  auto *DynamicBaseArg = Args.getLastArg(OPT_dynamicbase, OPT_dynamicbase_no);
+  if (DynamicBaseArg &&
+      DynamicBaseArg->getOption().getID() == OPT_dynamicbase_no)
+    Config->DynamicBase = false;
+
+  bool Fixed = Args.hasFlag(OPT_fixed, OPT_fixed_no, false);
+  if (Fixed) {
+    if (DynamicBaseArg &&
+        DynamicBaseArg->getOption().getID() == OPT_dynamicbase) {
       error("/fixed must not be specified with /dynamicbase");
     } else {
       Config->Relocatable = false;
@@ -811,8 +849,9 @@ void LinkerDriver::link(ArrayRef<const char *> ArgsArr) {
     }
   }
 
-  if (Args.hasArg(OPT_appcontainer))
-    Config->AppContainer = true;
+  // Handle /appcontainer
+  Config->AppContainer =
+      Args.hasFlag(OPT_appcontainer, OPT_appcontainer_no, false);
 
   // Handle /machine
   if (auto *Arg = Args.getLastArg(OPT_machine))
@@ -860,49 +899,50 @@ void LinkerDriver::link(ArrayRef<const char *> ArgsArr) {
   if (auto *Arg = Args.getLastArg(OPT_implib))
     Config->Implib = Arg->getValue();
 
-  // Handle /opt
+  // Handle /opt.
+  bool DoGC = !Args.hasArg(OPT_debug);
+  unsigned ICFLevel = 1; // 0: off, 1: limited, 2: on
   for (auto *Arg : Args.filtered(OPT_opt)) {
     std::string Str = StringRef(Arg->getValue()).lower();
     SmallVector<StringRef, 1> Vec;
     StringRef(Str).split(Vec, ',');
     for (StringRef S : Vec) {
-      if (S == "noref") {
-        Config->DoGC = false;
-        Config->DoICF = false;
-        continue;
-      }
-      if (S == "icf" || S.startswith("icf=")) {
-        Config->DoICF = true;
-        continue;
-      }
-      if (S == "noicf") {
-        Config->DoICF = false;
-        continue;
-      }
-      if (S.startswith("lldlto=")) {
+      if (S == "ref") {
+        DoGC = true;
+      } else if (S == "noref") {
+        DoGC = false;
+      } else if (S == "icf" || S.startswith("icf=")) {
+        ICFLevel = 2;
+      } else if (S == "noicf") {
+        ICFLevel = 0;
+      } else if (S.startswith("lldlto=")) {
         StringRef OptLevel = S.substr(7);
         if (OptLevel.getAsInteger(10, Config->LTOOptLevel) ||
             Config->LTOOptLevel > 3)
           error("/opt:lldlto: invalid optimization level: " + OptLevel);
-        continue;
-      }
-      if (S.startswith("lldltojobs=")) {
+      } else if (S.startswith("lldltojobs=")) {
         StringRef Jobs = S.substr(11);
         if (Jobs.getAsInteger(10, Config->LTOJobs) || Config->LTOJobs == 0)
           error("/opt:lldltojobs: invalid job count: " + Jobs);
-        continue;
-      }
-      if (S.startswith("lldltopartitions=")) {
+      } else if (S.startswith("lldltopartitions=")) {
         StringRef N = S.substr(17);
         if (N.getAsInteger(10, Config->LTOPartitions) ||
             Config->LTOPartitions == 0)
           error("/opt:lldltopartitions: invalid partition count: " + N);
-        continue;
-      }
-      if (S != "ref" && S != "lbr" && S != "nolbr")
+      } else if (S != "lbr" && S != "nolbr")
         error("/opt: unknown option: " + S);
     }
   }
+
+  // Limited ICF is enabled if GC is enabled and ICF was never mentioned
+  // explicitly.
+  // FIXME: LLD only implements "limited" ICF, i.e. it only merges identical
+  // code. If the user passes /OPT:ICF explicitly, LLD should merge identical
+  // comdat readonly data.
+  if (ICFLevel == 1 && !DoGC)
+    ICFLevel = 0;
+  Config->DoGC = DoGC;
+  Config->DoICF = ICFLevel > 0;
 
   // Handle /lldsavetemps
   if (Args.hasArg(OPT_lldsavetemps))
@@ -925,6 +965,10 @@ void LinkerDriver::link(ArrayRef<const char *> ArgsArr) {
   // Handle /merge
   for (auto *Arg : Args.filtered(OPT_merge))
     parseMerge(Arg->getValue());
+
+  // Add default section merging rules after user rules. User rules take
+  // precedence, but we will emit a warning if there is a conflict.
+  parseMerge(".xdata=.rdata");
 
   // Handle /section
   for (auto *Arg : Args.filtered(OPT_section))
@@ -967,22 +1011,16 @@ void LinkerDriver::link(ArrayRef<const char *> ArgsArr) {
   }
 
   // Handle miscellaneous boolean flags.
-  if (Args.hasArg(OPT_allowbind_no))
-    Config->AllowBind = false;
-  if (Args.hasArg(OPT_allowisolation_no))
-    Config->AllowIsolation = false;
-  if (Args.hasArg(OPT_dynamicbase_no))
-    Config->DynamicBase = false;
-  if (Args.hasArg(OPT_nxcompat_no))
-    Config->NxCompat = false;
-  if (Args.hasArg(OPT_tsaware_no))
-    Config->TerminalServerAware = false;
-  if (Args.hasArg(OPT_nosymtab))
-    Config->WriteSymtab = false;
+  Config->AllowBind = Args.hasFlag(OPT_allowbind, OPT_allowbind_no, true);
+  Config->AllowIsolation =
+      Args.hasFlag(OPT_allowisolation, OPT_allowisolation_no, true);
+  Config->NxCompat = Args.hasFlag(OPT_nxcompat, OPT_nxcompat_no, true);
+  Config->TerminalServerAware = Args.hasFlag(OPT_tsaware, OPT_tsaware_no, true);
+  Config->DebugDwarf = Args.hasArg(OPT_debug_dwarf);
 
   Config->MapFile = getMapFile(Args);
 
-  if (ErrorCount)
+  if (errorCount())
     return;
 
   bool WholeArchiveFlag = Args.hasArg(OPT_wholearchive_flag);
@@ -1031,12 +1069,13 @@ void LinkerDriver::link(ArrayRef<const char *> ArgsArr) {
                                    ArrayRef<StringRef>(SearchPaths).slice(1)));
 
   // Handle /largeaddressaware
-  if (Config->is64() || Args.hasArg(OPT_largeaddressaware))
-    Config->LargeAddressAware = true;
+  Config->LargeAddressAware = Args.hasFlag(
+      OPT_largeaddressaware, OPT_largeaddressaware_no, Config->is64());
 
   // Handle /highentropyva
-  if (Config->is64() && !Args.hasArg(OPT_highentropyva_no))
-    Config->HighEntropyVA = true;
+  Config->HighEntropyVA =
+      Config->is64() &&
+      Args.hasFlag(OPT_highentropyva, OPT_highentropyva_no, true);
 
   // Handle /entry and /dll
   if (auto *Arg = Args.getLastArg(OPT_entry)) {
@@ -1077,7 +1116,7 @@ void LinkerDriver::link(ArrayRef<const char *> ArgsArr) {
   if (!Args.hasArg(OPT_INPUT)) {
     fixupExports();
     createImportLibrary(/*AsLib=*/true);
-    exit(0);
+    return;
   }
 
   // Handle /delayload
@@ -1103,7 +1142,7 @@ void LinkerDriver::link(ArrayRef<const char *> ArgsArr) {
   }
 
   // Disable PDB generation if the user requested it.
-  if (Args.hasArg(OPT_nopdb))
+  if (Args.hasArg(OPT_nopdb) || Args.hasArg(OPT_debug_dwarf))
     Config->PDBPath = "";
 
   // Set default image base if /base is not given.
@@ -1152,7 +1191,7 @@ void LinkerDriver::link(ArrayRef<const char *> ArgsArr) {
       Symbol *Sym = Symtab->find(From);
       if (!Sym)
         continue;
-      if (auto *U = dyn_cast<Undefined>(Sym->body()))
+      if (auto *U = dyn_cast<Undefined>(Sym))
         if (!U->WeakAlias)
           U->WeakAlias = Symtab->addUndefined(To);
     }
@@ -1162,14 +1201,14 @@ void LinkerDriver::link(ArrayRef<const char *> ArgsArr) {
       addUndefined(mangle("_load_config_used"));
   } while (run());
 
-  if (ErrorCount)
+  if (errorCount())
     return;
 
   // If /msvclto is given, we use the MSVC linker to link LTO output files.
   // This is useful because MSVC link.exe can generate complete PDBs.
   if (Args.hasArg(OPT_msvclto)) {
     invokeMSVC(Args);
-    exit(0);
+    return;
   }
 
   // Do LTO by compiling bitcode input files to a set of native COFF files then
@@ -1179,7 +1218,7 @@ void LinkerDriver::link(ArrayRef<const char *> ArgsArr) {
 
   // Make sure we have resolved all symbols.
   Symtab->reportRemainingUndefines();
-  if (ErrorCount)
+  if (errorCount())
     return;
 
   // Windows specific -- if no /subsystem is given, we need to infer
@@ -1191,11 +1230,11 @@ void LinkerDriver::link(ArrayRef<const char *> ArgsArr) {
   }
 
   // Handle /safeseh.
-  if (Args.hasArg(OPT_safeseh)) {
+  if (Args.hasFlag(OPT_safeseh, OPT_safeseh_no, false)) {
     for (ObjFile *File : ObjFile::Instances)
       if (!File->SEHCompat)
         error("/safeseh: " + File->getName() + " is not compatible with SEH");
-    if (ErrorCount)
+    if (errorCount())
       return;
   }
 
@@ -1206,12 +1245,15 @@ void LinkerDriver::link(ArrayRef<const char *> ArgsArr) {
     AutoExporter Exporter;
 
     Symtab->forEachSymbol([=](Symbol *S) {
-      auto *Def = dyn_cast<Defined>(S->body());
+      auto *Def = dyn_cast<Defined>(S);
       if (!Exporter.shouldExport(Def))
         return;
       Export E;
       E.Name = Def->getName();
       E.Sym = Def;
+      if (Def->getChunk() &&
+          !(Def->getChunk()->getPermissions() & IMAGE_SCN_MEM_EXECUTE))
+        E.Data = true;
       Config->Exports.push_back(E);
     });
   }
@@ -1239,7 +1281,7 @@ void LinkerDriver::link(ArrayRef<const char *> ArgsArr) {
       continue;
     }
 
-    auto *DC = dyn_cast<DefinedCommon>(Sym->body());
+    auto *DC = dyn_cast<DefinedCommon>(Sym);
     if (!DC) {
       warn("/aligncomm symbol " + Name + " of wrong kind");
       continue;
@@ -1263,12 +1305,6 @@ void LinkerDriver::link(ArrayRef<const char *> ArgsArr) {
 
   // Write the result.
   writeResult();
-
-  if (ErrorCount)
-    return;
-
-  // Call exit to avoid calling destructors.
-  exit(0);
 }
 
 } // namespace coff

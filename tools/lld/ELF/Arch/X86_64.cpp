@@ -7,11 +7,11 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "Error.h"
 #include "InputFiles.h"
 #include "Symbols.h"
 #include "SyntheticSections.h"
 #include "Target.h"
+#include "lld/Common/ErrorHandler.h"
 #include "llvm/Object/ELF.h"
 #include "llvm/Support/Endian.h"
 
@@ -26,11 +26,11 @@ namespace {
 template <class ELFT> class X86_64 final : public TargetInfo {
 public:
   X86_64();
-  RelExpr getRelExpr(RelType Type, const SymbolBody &S,
+  RelExpr getRelExpr(RelType Type, const Symbol &S,
                      const uint8_t *Loc) const override;
   bool isPicRel(RelType Type) const override;
   void writeGotPltHeader(uint8_t *Buf) const override;
-  void writeGotPlt(uint8_t *Buf, const SymbolBody &S) const override;
+  void writeGotPlt(uint8_t *Buf, const Symbol &S) const override;
   void writePltHeader(uint8_t *Buf) const override;
   void writePlt(uint8_t *Buf, uint64_t GotPltEntryAddr, uint64_t PltEntryAddr,
                 int32_t Index, unsigned RelOff) const override;
@@ -73,7 +73,7 @@ template <class ELFT> X86_64<ELFT>::X86_64() {
 }
 
 template <class ELFT>
-RelExpr X86_64<ELFT>::getRelExpr(RelType Type, const SymbolBody &S,
+RelExpr X86_64<ELFT>::getRelExpr(RelType Type, const Symbol &S,
                                  const uint8_t *Loc) const {
   switch (Type) {
   case R_X86_64_8:
@@ -122,7 +122,7 @@ template <class ELFT> void X86_64<ELFT>::writeGotPltHeader(uint8_t *Buf) const {
 }
 
 template <class ELFT>
-void X86_64<ELFT>::writeGotPlt(uint8_t *Buf, const SymbolBody &S) const {
+void X86_64<ELFT>::writeGotPlt(uint8_t *Buf, const Symbol &S) const {
   // See comments in X86::writeGotPlt.
   write32le(Buf, S.getPltVA() + 6);
 }

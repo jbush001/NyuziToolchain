@@ -10,24 +10,26 @@
 #ifndef LLD_ELF_TARGET_H
 #define LLD_ELF_TARGET_H
 
-#include "Error.h"
 #include "InputSection.h"
+#include "lld/Common/ErrorHandler.h"
 #include "llvm/Object/ELF.h"
 
 namespace lld {
 std::string toString(elf::RelType Type);
 
 namespace elf {
+class Defined;
 class InputFile;
-class SymbolBody;
+class Symbol;
 
 class TargetInfo {
 public:
+  virtual uint32_t calcEFlags() const { return 0; }
   virtual bool isPicRel(RelType Type) const { return true; }
   virtual RelType getDynRel(RelType Type) const { return Type; }
   virtual void writeGotPltHeader(uint8_t *Buf) const {}
-  virtual void writeGotPlt(uint8_t *Buf, const SymbolBody &S) const {};
-  virtual void writeIgotPlt(uint8_t *Buf, const SymbolBody &S) const;
+  virtual void writeGotPlt(uint8_t *Buf, const Symbol &S) const {};
+  virtual void writeIgotPlt(uint8_t *Buf, const Symbol &S) const;
   virtual int64_t getImplicitAddend(const uint8_t *Buf, RelType Type) const;
 
   // If lazy binding is supported, the first entry of the PLT has code
@@ -50,13 +52,13 @@ public:
 
   // Decide whether a Thunk is needed for the relocation from File
   // targeting S.
-  virtual bool needsThunk(RelExpr Expr, RelType Type, const InputFile *File,
-                          const SymbolBody &S) const;
-
-  // Return true if we can reach Dst from Src with Relocation Type
-  virtual bool inBranchRange(RelType Type, uint64_t Src, uint64_t Dst) const;
-
-  virtual RelExpr getRelExpr(RelType Type, const SymbolBody &S,
+  virtual bool needsThunk(RelExpr Expr, RelType RelocType,
+                          const InputFile *File, uint64_t BranchAddr,
+                          const Symbol &S) const;
+  // Return true if we can reach Dst from Src with Relocation RelocType
+  virtual bool inBranchRange(RelType Type, uint64_t Src,
+                             uint64_t Dst) const;
+  virtual RelExpr getRelExpr(RelType Type, const Symbol &S,
                              const uint8_t *Loc) const = 0;
 
   virtual void relocateOne(uint8_t *Loc, RelType Type, uint64_t Val) const = 0;
@@ -72,6 +74,10 @@ public:
   // Offset of _GLOBAL_OFFSET_TABLE_ from base of .got section. Use -1 for
   // end of .got
   uint64_t GotBaseSymOff = 0;
+
+  // On systems with range extensions we place collections of Thunks at
+  // regular spacings that enable the majority of branches reach the Thunks.
+  uint32_t ThunkSectionSpacing = 0;
 
   RelType CopyRel;
   RelType GotRel;
@@ -135,6 +141,8 @@ uint64_t getAArch64Page(uint64_t Expr);
 
 extern TargetInfo *Target;
 TargetInfo *getTarget();
+
+template <class ELFT> bool isMipsPIC(const Defined *Sym);
 
 template <unsigned N>
 static void checkInt(uint8_t *Loc, int64_t V, RelType Type) {

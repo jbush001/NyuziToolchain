@@ -82,6 +82,9 @@ def SDTLockBinaryArithWithFlags : SDTypeProfile<1, 2, [SDTCisVT<0, i32>,
                                                        SDTCisPtrTy<1>,
                                                        SDTCisInt<2>]>;
 
+def SDTLockUnaryArithWithFlags : SDTypeProfile<1, 1, [SDTCisVT<0, i32>,
+                                                      SDTCisPtrTy<1>]>;
+
 def SDTX86Ret     : SDTypeProfile<0, -1, [SDTCisVT<0, i32>]>;
 
 def SDT_X86CallSeqStart : SDCallSeqStart<[SDTCisVT<0, i32>,
@@ -268,6 +271,13 @@ def X86lock_xor  : SDNode<"X86ISD::LXOR",  SDTLockBinaryArithWithFlags,
                           [SDNPHasChain, SDNPMayStore, SDNPMayLoad,
                            SDNPMemOperand]>;
 def X86lock_and  : SDNode<"X86ISD::LAND",  SDTLockBinaryArithWithFlags,
+                          [SDNPHasChain, SDNPMayStore, SDNPMayLoad,
+                           SDNPMemOperand]>;
+
+def X86lock_inc  : SDNode<"X86ISD::LINC",  SDTLockUnaryArithWithFlags,
+                          [SDNPHasChain, SDNPMayStore, SDNPMayLoad,
+                           SDNPMemOperand]>;
+def X86lock_dec  : SDNode<"X86ISD::LDEC",  SDTLockUnaryArithWithFlags,
                           [SDNPHasChain, SDNPMayStore, SDNPMayLoad,
                            SDNPMemOperand]>;
 
@@ -822,15 +832,22 @@ def NoVLX        : Predicate<"!Subtarget->hasVLX()">;
 def NoVLX_Or_NoBWI : Predicate<"!Subtarget->hasVLX() || !Subtarget->hasBWI()">;
 def NoVLX_Or_NoDQI : Predicate<"!Subtarget->hasVLX() || !Subtarget->hasDQI()">;
 def PKU        : Predicate<"Subtarget->hasPKU()">;
+def HasVNNI    : Predicate<"Subtarget->hasVNNI()">;
 
+def HasBITALG    : Predicate<"Subtarget->hasBITALG()">;
 def HasPOPCNT    : Predicate<"Subtarget->hasPOPCNT()">;
 def HasAES       : Predicate<"Subtarget->hasAES()">;
+def HasVAES      : Predicate<"Subtarget->hasVAES()">;
+def NoVLX_Or_NoVAES : Predicate<"!Subtarget->hasVLX() || !Subtarget->hasVAES()">;
 def HasFXSR      : Predicate<"Subtarget->hasFXSR()">;
 def HasXSAVE     : Predicate<"Subtarget->hasXSAVE()">;
 def HasXSAVEOPT  : Predicate<"Subtarget->hasXSAVEOPT()">;
 def HasXSAVEC    : Predicate<"Subtarget->hasXSAVEC()">;
 def HasXSAVES    : Predicate<"Subtarget->hasXSAVES()">;
 def HasPCLMUL    : Predicate<"Subtarget->hasPCLMUL()">;
+def NoVLX_Or_NoVPCLMULQDQ :
+                    Predicate<"!Subtarget->hasVLX() || !Subtarget->hasVPCLMULQDQ()">;
+def HasVPCLMULQDQ : Predicate<"Subtarget->hasVPCLMULQDQ()">;
 def HasFMA       : Predicate<"Subtarget->hasFMA()">;
 def HasFMA4      : Predicate<"Subtarget->hasFMA4()">;
 def HasXOP       : Predicate<"Subtarget->hasXOP()">;
@@ -840,7 +857,6 @@ def HasLWP       : Predicate<"Subtarget->hasLWP()">;
 def HasMOVBE     : Predicate<"Subtarget->hasMOVBE()">;
 def HasRDRAND    : Predicate<"Subtarget->hasRDRAND()">;
 def HasF16C      : Predicate<"Subtarget->hasF16C()">;
-def NoF16C       : Predicate<"!Subtarget->hasF16C()">;
 def HasFSGSBase  : Predicate<"Subtarget->hasFSGSBase()">;
 def HasLZCNT     : Predicate<"Subtarget->hasLZCNT()">;
 def HasBMI       : Predicate<"Subtarget->hasBMI()">;
@@ -848,6 +864,7 @@ def HasBMI2      : Predicate<"Subtarget->hasBMI2()">;
 def NoBMI2       : Predicate<"!Subtarget->hasBMI2()">;
 def HasVBMI      : Predicate<"Subtarget->hasVBMI()">,
                      AssemblerPredicate<"FeatureVBMI", "AVX-512 VBMI ISA">;
+def HasVBMI2     : Predicate<"Subtarget->hasVBMI2()">;
 def HasIFMA      : Predicate<"Subtarget->hasIFMA()">,
                      AssemblerPredicate<"FeatureIFMA", "AVX-512 IFMA ISA">;
 def HasRTM       : Predicate<"Subtarget->hasRTM()">;
@@ -2180,13 +2197,13 @@ let Predicates = [HasMOVBE] in {
 let Predicates = [HasRDRAND], Defs = [EFLAGS] in {
   def RDRAND16r : I<0xC7, MRM6r, (outs GR16:$dst), (ins),
                     "rdrand{w}\t$dst",
-                    [(set GR16:$dst, EFLAGS, (X86rdrand))]>, OpSize16, TB;
+                    [(set GR16:$dst, EFLAGS, (X86rdrand))]>, OpSize16, PS;
   def RDRAND32r : I<0xC7, MRM6r, (outs GR32:$dst), (ins),
                     "rdrand{l}\t$dst",
-                    [(set GR32:$dst, EFLAGS, (X86rdrand))]>, OpSize32, TB;
+                    [(set GR32:$dst, EFLAGS, (X86rdrand))]>, OpSize32, PS;
   def RDRAND64r : RI<0xC7, MRM6r, (outs GR64:$dst), (ins),
                      "rdrand{q}\t$dst",
-                     [(set GR64:$dst, EFLAGS, (X86rdrand))]>, TB;
+                     [(set GR64:$dst, EFLAGS, (X86rdrand))]>, PS;
 }
 
 //===----------------------------------------------------------------------===//
@@ -2195,13 +2212,13 @@ let Predicates = [HasRDRAND], Defs = [EFLAGS] in {
 let Predicates = [HasRDSEED], Defs = [EFLAGS] in {
   def RDSEED16r : I<0xC7, MRM7r, (outs GR16:$dst), (ins),
                     "rdseed{w}\t$dst",
-                    [(set GR16:$dst, EFLAGS, (X86rdseed))]>, OpSize16, TB;
+                    [(set GR16:$dst, EFLAGS, (X86rdseed))]>, OpSize16, PS;
   def RDSEED32r : I<0xC7, MRM7r, (outs GR32:$dst), (ins),
                     "rdseed{l}\t$dst",
-                    [(set GR32:$dst, EFLAGS, (X86rdseed))]>, OpSize32, TB;
+                    [(set GR32:$dst, EFLAGS, (X86rdseed))]>, OpSize32, PS;
   def RDSEED64r : RI<0xC7, MRM7r, (outs GR64:$dst), (ins),
                      "rdseed{q}\t$dst",
-                     [(set GR64:$dst, EFLAGS, (X86rdseed))]>, TB;
+                     [(set GR64:$dst, EFLAGS, (X86rdseed))]>, PS;
 }
 
 //===----------------------------------------------------------------------===//
@@ -2545,12 +2562,12 @@ def SLWPCB64 : I<0x12, MRM1r, (outs GR64:$dst), (ins), "slwpcb\t$dst",
 multiclass lwpins_intr<RegisterClass RC> {
   def rri : Ii32<0x12, MRM0r, (outs), (ins RC:$src0, GR32:$src1, i32imm:$cntl),
                  "lwpins\t{$cntl, $src1, $src0|$src0, $src1, $cntl}",
-                 [(set EFLAGS, (X86lwpins RC:$src0, GR32:$src1, imm:$cntl))]>,
+                 [(set EFLAGS, (X86lwpins RC:$src0, GR32:$src1, imm:$cntl))], IIC_LWP>,
                  XOP_4V, XOPA;
   let mayLoad = 1 in
   def rmi : Ii32<0x12, MRM0m, (outs), (ins RC:$src0, i32mem:$src1, i32imm:$cntl),
                  "lwpins\t{$cntl, $src1, $src0|$src0, $src1, $cntl}",
-                 [(set EFLAGS, (X86lwpins RC:$src0, (loadi32 addr:$src1), imm:$cntl))]>,
+                 [(set EFLAGS, (X86lwpins RC:$src0, (loadi32 addr:$src1), imm:$cntl))], IIC_LWP>,
                  XOP_4V, XOPA;
 }
 
@@ -3148,8 +3165,8 @@ def : InstAlias<"jmpl\t$seg, $off",  (FARJMP32i  i32imm:$off, i16imm:$seg)>, Req
 // Force mov without a suffix with a segment and mem to prefer the 'l' form of
 // the move.  All segment/mem forms are equivalent, this has the shortest
 // encoding.
-def : InstAlias<"mov\t{$mem, $seg|$seg, $mem}", (MOV32sm SEGMENT_REG:$seg, i32mem:$mem), 0>;
-def : InstAlias<"mov\t{$seg, $mem|$mem, $seg}", (MOV32ms i32mem:$mem, SEGMENT_REG:$seg), 0>;
+def : InstAlias<"mov\t{$mem, $seg|$seg, $mem}", (MOV16sm SEGMENT_REG:$seg, i16mem:$mem), 0>;
+def : InstAlias<"mov\t{$seg, $mem|$mem, $seg}", (MOV16ms i16mem:$mem, SEGMENT_REG:$seg), 0>;
 
 // Match 'movq <largeimm>, <reg>' as an alias for movabsq.
 def : InstAlias<"mov{q}\t{$imm, $reg|$reg, $imm}", (MOV64ri GR64:$reg, i64imm:$imm), 0>;

@@ -5635,14 +5635,14 @@ ASTContext::getInlineVariableDefinitionKind(const VarDecl *VD) const {
 
   // In almost all cases, it's a weak definition.
   auto *First = VD->getFirstDecl();
-  if (!First->isConstexpr() || First->isInlineSpecified() ||
-      !VD->isStaticDataMember())
+  if (First->isInlineSpecified() || !First->isStaticDataMember())
     return InlineVariableDefinitionKind::Weak;
 
   // If there's a file-context declaration in this translation unit, it's a
   // non-discardable definition.
   for (auto *D : VD->redecls())
-    if (D->getLexicalDeclContext()->isFileContext())
+    if (D->getLexicalDeclContext()->isFileContext() &&
+        !D->isInlineSpecified() && (D->isConstexpr() || First->isConstexpr()))
       return InlineVariableDefinitionKind::Strong;
 
   // If we've not seen one yet, we don't know.
@@ -8963,6 +8963,12 @@ static GVALinkage basicGVALinkageForFunction(const ASTContext &Context,
   if (!FD->isExternallyVisible())
     return GVA_Internal;
 
+  // Non-user-provided functions get emitted as weak definitions with every
+  // use, no matter whether they've been explicitly instantiated etc.
+  if (auto *MD = dyn_cast<CXXMethodDecl>(FD))
+    if (!MD->isUserProvided())
+      return GVA_DiscardableODR;
+
   GVALinkage External;
   switch (FD->getTemplateSpecializationKind()) {
   case TSK_Undeclared:
@@ -9269,7 +9275,7 @@ CallingConv ASTContext::getDefaultCallingConvention(bool IsVariadic,
   case LangOptions::DCC_CDecl:
     return CC_C;
   case LangOptions::DCC_FastCall:
-    if (getTargetInfo().hasFeature("sse2"))
+    if (getTargetInfo().hasFeature("sse2") && !IsVariadic)
       return CC_X86FastCall;
     break;
   case LangOptions::DCC_StdCall:
@@ -9280,6 +9286,11 @@ CallingConv ASTContext::getDefaultCallingConvention(bool IsVariadic,
     // __vectorcall cannot be applied to variadic functions.
     if (!IsVariadic)
       return CC_X86VectorCall;
+    break;
+  case LangOptions::DCC_RegCall:
+    // __regcall cannot be applied to variadic functions.
+    if (!IsVariadic)
+      return CC_X86RegCall;
     break;
   }
   return Target->getDefaultCallingConv(TargetInfo::CCMT_Unknown);

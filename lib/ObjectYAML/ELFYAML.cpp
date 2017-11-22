@@ -388,7 +388,7 @@ void ScalarEnumerationTraits<ELFYAML::ELF_SHT>::enumeration(
 #define ECase(X) IO.enumCase(Value, #X, ELF::X)
   ECase(SHT_NULL);
   ECase(SHT_PROGBITS);
-  // No SHT_SYMTAB. Use the top-level `Symbols` key instead.
+  ECase(SHT_SYMTAB);
   // FIXME: Issue a diagnostic with this information.
   ECase(SHT_STRTAB);
   ECase(SHT_RELA);
@@ -405,6 +405,8 @@ void ScalarEnumerationTraits<ELFYAML::ELF_SHT>::enumeration(
   ECase(SHT_GROUP);
   ECase(SHT_SYMTAB_SHNDX);
   ECase(SHT_LOOS);
+  ECase(SHT_ANDROID_REL);
+  ECase(SHT_ANDROID_RELA);
   ECase(SHT_LLVM_ODRTAB);
   ECase(SHT_GNU_ATTRIBUTES);
   ECase(SHT_GNU_HASH);
@@ -717,6 +719,7 @@ void MappingTraits<ELFYAML::ProgramHeader>::mapping(
   IO.mapOptional("Sections", Phdr.Sections);
   IO.mapOptional("VAddr", Phdr.VAddr, Hex64(0));
   IO.mapOptional("PAddr", Phdr.PAddr, Hex64(0));
+  IO.mapOptional("Align", Phdr.Align);
 }
 
 namespace {
@@ -930,6 +933,7 @@ void MappingTraits<ELFYAML::Object>::mapping(IO &IO, ELFYAML::Object &Object) {
   IO.mapOptional("ProgramHeaders", Object.ProgramHeaders);
   IO.mapOptional("Sections", Object.Sections);
   IO.mapOptional("Symbols", Object.Symbols);
+  IO.mapOptional("DynamicSymbols", Object.DynamicSymbols);
   IO.setContext(nullptr);
 }
 

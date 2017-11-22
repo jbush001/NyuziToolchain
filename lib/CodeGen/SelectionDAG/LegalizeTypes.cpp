@@ -835,33 +835,6 @@ void DAGTypeLegalizer::GetExpandedInteger(SDValue Op, SDValue &Lo,
   Hi = Entry.second;
 }
 
-/// Transfer debug values by generating fragment expressions for split-up
-/// values.
-static void transferDbgValues(SelectionDAG &DAG, SDValue From, SDValue To,
-                              unsigned OffsetInBits) {
-  SDNode *FromNode = From.getNode();
-  SDNode *ToNode = To.getNode();
-  assert(FromNode != ToNode);
-
-  SmallVector<SDDbgValue *, 2> ClonedDVs;
-  for (SDDbgValue *Dbg : DAG.GetDbgValues(FromNode)) {
-    if (Dbg->getKind() != SDDbgValue::SDNODE)
-      break;
-
-    DIVariable *Var = Dbg->getVariable();
-    auto *Fragment = DIExpression::createFragmentExpression(
-        Dbg->getExpression(), OffsetInBits, To.getValueSizeInBits());
-    SDDbgValue *Clone =
-        DAG.getDbgValue(Var, Fragment, ToNode, To.getResNo(), Dbg->isIndirect(),
-                        Dbg->getDebugLoc(), Dbg->getOrder());
-    Dbg->setIsInvalidated();
-    ClonedDVs.push_back(Clone);
-  }
-
-  for (SDDbgValue *Dbg : ClonedDVs)
-    DAG.AddDbgValue(Dbg, ToNode, false);
-}
-
 void DAGTypeLegalizer::SetExpandedInteger(SDValue Op, SDValue Lo,
                                           SDValue Hi) {
   assert(Lo.getValueType() ==
@@ -872,13 +845,16 @@ void DAGTypeLegalizer::SetExpandedInteger(SDValue Op, SDValue Lo,
   AnalyzeNewValue(Lo);
   AnalyzeNewValue(Hi);
 
-  // Transfer debug values.
+  // Transfer debug values. Don't invalidate the source debug value until it's
+  // been transferred to the high and low bits.
   if (DAG.getDataLayout().isBigEndian()) {
-    transferDbgValues(DAG, Op, Hi, 0);
-    transferDbgValues(DAG, Op, Lo, Hi.getValueSizeInBits());
+    DAG.transferDbgValues(Op, Hi, 0, Hi.getValueSizeInBits(), false);
+    DAG.transferDbgValues(Op, Lo, Hi.getValueSizeInBits(),
+                          Lo.getValueSizeInBits());
   } else {
-    transferDbgValues(DAG, Op, Lo, 0);
-    transferDbgValues(DAG, Op, Hi, Lo.getValueSizeInBits());
+    DAG.transferDbgValues(Op, Lo, 0, Lo.getValueSizeInBits(), false);
+    DAG.transferDbgValues(Op, Hi, Lo.getValueSizeInBits(),
+                          Hi.getValueSizeInBits());
   }
 
   // Remember that this is the result of the node.
@@ -1051,8 +1027,13 @@ bool DAGTypeLegalizer::CustomWidenLowerNode(SDNode *N, EVT VT) {
   // Update the widening map.
   assert(Results.size() == N->getNumValues() &&
          "Custom lowering returned the wrong number of results!");
-  for (unsigned i = 0, e = Results.size(); i != e; ++i)
-    SetWidenedVector(SDValue(N, i), Results[i]);
+  for (unsigned i = 0, e = Results.size(); i != e; ++i) {
+    // If this is a chain output just replace it.
+    if (Results[i].getValueType() == MVT::Other)
+      ReplaceValueWith(SDValue(N, i), Results[i]);
+    else
+      SetWidenedVector(SDValue(N, i), Results[i]);
+  }
   return true;
 }
 
@@ -1191,9 +1172,11 @@ void DAGTypeLegalizer::SplitInteger(SDValue Op,
   assert(LoVT.getSizeInBits() + HiVT.getSizeInBits() ==
          Op.getValueSizeInBits() && "Invalid integer splitting!");
   Lo = DAG.getNode(ISD::TRUNCATE, dl, LoVT, Op);
-  Hi = DAG.getNode(ISD::SRL, dl, Op.getValueType(), Op,
-                   DAG.getConstant(LoVT.getSizeInBits(), dl,
-                                   TLI.getPointerTy(DAG.getDataLayout())));
+  Hi =
+      DAG.getNode(ISD::SRL, dl, Op.getValueType(), Op,
+                  DAG.getConstant(LoVT.getSizeInBits(), dl,
+                                  TLI.getScalarShiftAmountTy(
+                                      DAG.getDataLayout(), Op.getValueType())));
   Hi = DAG.getNode(ISD::TRUNCATE, dl, HiVT, Hi);
 }
 

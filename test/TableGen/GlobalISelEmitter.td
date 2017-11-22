@@ -89,9 +89,11 @@ def HasC : Predicate<"Subtarget->hasC()"> { let RecomputePerFunction = 1; }
 
 // CHECK-LABEL: // LLT Objects.
 // CHECK-NEXT:  enum {
+// CHECK-NEXT:    GILLT_s16,
 // CHECK-NEXT:    GILLT_s32,
 // CHECK-NEXT:  }
 // CHECK-NEXT:  const static LLT TypeObjects[] = {
+// CHECK-NEXT:    LLT::scalar(16),
 // CHECK-NEXT:    LLT::scalar(32),
 // CHECK-NEXT:  };
 
@@ -151,7 +153,7 @@ def HasC : Predicate<"Subtarget->hasC()"> { let RecomputePerFunction = 1; }
 // CHECK-NEXT:    &MyTargetInstructionSelector::selectComplexPatternRR, // gi_complex_rr
 // CHECK-NEXT:  }
 
-// CHECK: bool MyTargetInstructionSelector::selectImpl(MachineInstr &I) const {
+// CHECK: bool MyTargetInstructionSelector::selectImpl(MachineInstr &I, CodeGenCoverage &CoverageInfo) const {
 // CHECK-NEXT: MachineFunction &MF = *I.getParent()->getParent();
 // CHECK-NEXT: MachineRegisterInfo &MRI = MF.getRegInfo();
 // CHECK:      AvailableFunctionFeatures = computeAvailableFunctionFeatures(&STI, &MF);
@@ -192,13 +194,16 @@ def HasC : Predicate<"Subtarget->hasC()"> { let RecomputePerFunction = 1; }
 // CHECK-NEXT:  // Label 0: @[[LABEL]]
 
 def INSN3 : I<(outs GPR32:$dst),
-              (ins GPR32Op:$src1, GPR32:$src2a, GPR32:$src2b, GPR32:$src3, complex:$src4, i32imm:$src5a, i32imm:$src5b), []>;
+              (ins GPR32Op:$src1, GPR32:$src2a, GPR32:$src2b, GPR32:$scr), []>;
+def INSN4 : I<(outs GPR32:$scr),
+              (ins GPR32:$src3, complex:$src4, i32imm:$src5a, i32imm:$src5b), []>;
 def : Pat<(select GPR32:$src1, (complex_rr GPR32:$src2a, GPR32:$src2b),
                                (select GPR32:$src3,
                                        complex:$src4,
                                        (complex i32imm:$src5a, i32imm:$src5b))),
-          (INSN3 GPR32:$src1, GPR32:$src2b, GPR32:$src2a, GPR32:$src3,
-                 complex:$src4, i32imm:$src5a, i32imm:$src5b)>;
+          (INSN3 GPR32:$src1, GPR32:$src2b, GPR32:$src2a,
+                 (INSN4 GPR32:$src3, complex:$src4, i32imm:$src5a,
+                        i32imm:$src5b))>;
 
 //===- Test a pattern with multiple ComplexPattern operands. --------------===//
 //
@@ -232,16 +237,20 @@ def : Pat<(select GPR32:$src1, (complex_rr GPR32:$src2a, GPR32:$src2b),
 // CHECK-NEXT:    GIM_CheckType, /*MI*/1, /*Op*/3, /*Type*/GILLT_s32,
 // CHECK-NEXT:    GIM_CheckComplexPattern, /*MI*/1, /*Op*/3, /*Renderer*/2, GICP_gi_complex,
 // CHECK-NEXT:    GIM_CheckIsSafeToFold, /*InsnID*/1,
-// CHECK-NEXT:    // (select:{ *:[i32] } GPR32:{ *:[i32] }:$src1, (complex_rr:{ *:[i32] } GPR32:{ *:[i32] }:$src2a, GPR32:{ *:[i32] }:$src2b), (select:{ *:[i32] } GPR32:{ *:[i32] }:$src3, complex:{ *:[i32] }:$src4, (complex:{ *:[i32] } i32imm:{ *:[i32] }:$src5a, i32imm:{ *:[i32] }:$src5b)))  =>  (INSN3:{ *:[i32] } GPR32:{ *:[i32] }:$src1, GPR32:{ *:[i32] }:$src2b, GPR32:{ *:[i32] }:$src2a, GPR32:{ *:[i32] }:$src3, complex:{ *:[i32] }:$src4, i32imm:{ *:[i32] }:$src5a, i32imm:{ *:[i32] }:$src5b)
+// CHECK-NEXT:    // (select:{ *:[i32] } GPR32:{ *:[i32] }:$src1, (complex_rr:{ *:[i32] } GPR32:{ *:[i32] }:$src2a, GPR32:{ *:[i32] }:$src2b), (select:{ *:[i32] } GPR32:{ *:[i32] }:$src3, complex:{ *:[i32] }:$src4, (complex:{ *:[i32] } i32imm:{ *:[i32] }:$src5a, i32imm:{ *:[i32] }:$src5b)))  =>  (INSN3:{ *:[i32] } GPR32:{ *:[i32] }:$src1, GPR32:{ *:[i32] }:$src2b, GPR32:{ *:[i32] }:$src2a, (INSN4:{ *:[i32] } GPR32:{ *:[i32] }:$src3, complex:{ *:[i32] }:$src4, i32imm:{ *:[i32] }:$src5a, i32imm:{ *:[i32] }:$src5b))
+// CHECK-NEXT:    GIR_MakeTempReg, /*TempRegID*/0, /*TypeID*/GILLT_s32,
+// CHECK-NEXT:    GIR_BuildMI, /*InsnID*/1, /*Opcode*/MyTarget::INSN4,
+// CHECK-NEXT:    GIR_AddTempRegister, /*InsnID*/1, /*TempRegID*/0, /*TempRegFlags*/RegState::Define,
+// CHECK-NEXT:    GIR_Copy, /*NewInsnID*/1, /*OldInsnID*/1, /*OpIdx*/1, // src3
+// CHECK-NEXT:    GIR_ComplexRenderer, /*InsnID*/1, /*RendererID*/1,
+// CHECK-NEXT:    GIR_ComplexSubOperandRenderer, /*InsnID*/1, /*RendererID*/2, /*SubOperand*/0, // src5a
+// CHECK-NEXT:    GIR_ComplexSubOperandRenderer, /*InsnID*/1, /*RendererID*/2, /*SubOperand*/1, // src5b
 // CHECK-NEXT:    GIR_BuildMI, /*InsnID*/0, /*Opcode*/MyTarget::INSN3,
 // CHECK-NEXT:    GIR_Copy, /*NewInsnID*/0, /*OldInsnID*/0, /*OpIdx*/0, // dst
 // CHECK-NEXT:    GIR_Copy, /*NewInsnID*/0, /*OldInsnID*/0, /*OpIdx*/1, // src1
 // CHECK-NEXT:    GIR_ComplexSubOperandRenderer, /*InsnID*/0, /*RendererID*/0, /*SubOperand*/1, // src2b
 // CHECK-NEXT:    GIR_ComplexSubOperandRenderer, /*InsnID*/0, /*RendererID*/0, /*SubOperand*/0, // src2a
-// CHECK-NEXT:    GIR_Copy, /*NewInsnID*/0, /*OldInsnID*/1, /*OpIdx*/1, // src3
-// CHECK-NEXT:    GIR_ComplexRenderer, /*InsnID*/0, /*RendererID*/1,
-// CHECK-NEXT:    GIR_ComplexSubOperandRenderer, /*InsnID*/0, /*RendererID*/2, /*SubOperand*/0, // src5a
-// CHECK-NEXT:    GIR_ComplexSubOperandRenderer, /*InsnID*/0, /*RendererID*/2, /*SubOperand*/1, // src5b
+// CHECK-NEXT:    GIR_AddTempRegister, /*InsnID*/0, /*TempRegID*/0, /*TempRegFlags*/0,
 // CHECK-NEXT:    GIR_EraseFromParent, /*InsnID*/0,
 // CHECK-NEXT:    GIR_ConstrainSelectedInstOperands, /*InsnID*/0,
 // CHECK-NEXT:    GIR_Done,
@@ -838,9 +847,43 @@ def MOVfpimmz : I<(outs FPR32:$dst), (ins f32imm:$imm), [(set FPR32:$dst, fpimmz
 
 def LOAD : I<(outs GPR32:$dst), (ins GPR32:$src1),
             [(set GPR32:$dst, (load GPR32:$src1))]>;
-//===- Test a pattern with an MBB operand. --------------------------------===//
+
+//===- Test a simple pattern with a sextload -------------------------------===//
 
 // CHECK-NEXT:  GIM_Try, /*On fail goto*//*Label 23*/ [[LABEL:[0-9]+]],
+// CHECK-NEXT:    GIM_CheckNumOperands, /*MI*/0, /*Expected*/2,
+// CHECK-NEXT:    GIM_RecordInsn, /*DefineMI*/1, /*MI*/0, /*OpIdx*/1, // MIs[1]
+// CHECK-NEXT:    GIM_CheckNumOperands, /*MI*/1, /*Expected*/2,
+// CHECK-NEXT:    GIM_CheckOpcode, /*MI*/0, TargetOpcode::G_SEXT,
+// CHECK-NEXT:    // MIs[0] dst
+// CHECK-NEXT:    GIM_CheckType, /*MI*/0, /*Op*/0, /*Type*/GILLT_s32,
+// CHECK-NEXT:    GIM_CheckRegBankForClass, /*MI*/0, /*Op*/0, /*RC*/MyTarget::GPR32RegClassID,
+// CHECK-NEXT:    // MIs[0] Operand 1
+// CHECK-NEXT:    GIM_CheckType, /*MI*/0, /*Op*/1, /*Type*/GILLT_s16,
+// CHECK-NEXT:    GIM_CheckOpcode, /*MI*/1, TargetOpcode::G_LOAD,
+// CHECK-NEXT:    GIM_CheckNonAtomic, /*MI*/1,
+// CHECK-NEXT:    // MIs[1] Operand 0
+// CHECK-NEXT:    GIM_CheckType, /*MI*/1, /*Op*/0, /*Type*/GILLT_s16,
+// CHECK-NEXT:    // MIs[1] src1
+// CHECK-NEXT:    GIM_CheckPointerToAny, /*MI*/1, /*Op*/1, /*SizeInBits*/32,
+// CHECK-NEXT:    GIM_CheckRegBankForClass, /*MI*/1, /*Op*/1, /*RC*/MyTarget::GPR32RegClassID,
+// CHECK-NEXT:    GIM_CheckIsSafeToFold, /*InsnID*/1,
+// CHECK-NEXT:    // (sext:{ *:[i32] } (ld:{ *:[i16] } GPR32:{ *:[i32] }:$src1)<<P:Predicate_unindexedload>>)  =>  (SEXTLOAD:{ *:[i32] } GPR32:{ *:[i32] }:$src1)
+// CHECK-NEXT:    GIR_BuildMI, /*InsnID*/0, /*Opcode*/MyTarget::SEXTLOAD,
+// CHECK-NEXT:    GIR_Copy, /*NewInsnID*/0, /*OldInsnID*/0, /*OpIdx*/0, // dst
+// CHECK-NEXT:    GIR_Copy, /*NewInsnID*/0, /*OldInsnID*/1, /*OpIdx*/1, // src1
+// CHECK-NEXT:    GIR_MergeMemOperands, /*InsnID*/0, /*MergeInsnID's*/0, 1, GIU_MergeMemOperands_EndOfList,
+// CHECK-NEXT:    GIR_EraseFromParent, /*InsnID*/0,
+// CHECK-NEXT:    GIR_ConstrainSelectedInstOperands, /*InsnID*/0,
+// CHECK-NEXT:    GIR_Done,
+// CHECK-NEXT:  // Label 23: @[[LABEL]]
+
+def SEXTLOAD : I<(outs GPR32:$dst), (ins GPR32:$src1),
+                 [(set GPR32:$dst, (sextloadi16 GPR32:$src1))]>;
+
+//===- Test a pattern with an MBB operand. --------------------------------===//
+
+// CHECK-NEXT:  GIM_Try, /*On fail goto*//*Label 24*/ [[LABEL:[0-9]+]],
 // CHECK-NEXT:    GIM_CheckNumOperands, /*MI*/0, /*Expected*/1,
 // CHECK-NEXT:    GIM_CheckOpcode, /*MI*/0, TargetOpcode::G_BR,
 // CHECK-NEXT:    // MIs[0] target
@@ -849,13 +892,13 @@ def LOAD : I<(outs GPR32:$dst), (ins GPR32:$src1),
 // CHECK-NEXT:    GIR_MutateOpcode, /*InsnID*/0, /*RecycleInsnID*/0, /*Opcode*/MyTarget::BR,
 // CHECK-NEXT:    GIR_ConstrainSelectedInstOperands, /*InsnID*/0,
 // CHECK-NEXT:    GIR_Done,
-// CHECK-NEXT:  // Label 23: @[[LABEL]]
+// CHECK-NEXT:  // Label 24: @[[LABEL]]
 
 def BR : I<(outs), (ins unknown:$target),
             [(br bb:$target)]>;
 
 // CHECK-NEXT:    GIM_Reject,
 // CHECK-NEXT:  };
-// CHECK-NEXT:  if (executeMatchTable(*this, OutMIs, State, MatcherInfo, MatchTable0, TII, MRI, TRI, RBI, AvailableFeatures)) {
+// CHECK-NEXT:  if (executeMatchTable(*this, OutMIs, State, MatcherInfo, MatchTable0, TII, MRI, TRI, RBI, AvailableFeatures, CoverageInfo)) {
 // CHECK-NEXT:    return true;
 // CHECK-NEXT:  }

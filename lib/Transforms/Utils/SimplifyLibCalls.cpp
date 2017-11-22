@@ -1074,6 +1074,51 @@ static Value *getPow(Value *InnerChain[33], unsigned Exp, IRBuilder<> &B) {
   return InnerChain[Exp];
 }
 
+/// Use square root in place of pow(x, +/-0.5).
+Value *LibCallSimplifier::replacePowWithSqrt(CallInst *Pow, IRBuilder<> &B) {
+  // TODO: There is some subset of 'fast' under which these transforms should
+  // be allowed.
+  if (!Pow->isFast())
+    return nullptr;
+
+  const APFloat *Arg1C;
+  if (!match(Pow->getArgOperand(1), m_APFloat(Arg1C)))
+    return nullptr;
+  if (!Arg1C->isExactlyValue(0.5) && !Arg1C->isExactlyValue(-0.5))
+    return nullptr;
+
+  // Fast-math flags from the pow() are propagated to all replacement ops.
+  IRBuilder<>::FastMathFlagGuard Guard(B);
+  B.setFastMathFlags(Pow->getFastMathFlags());
+  Type *Ty = Pow->getType();
+  Value *Sqrt;
+  if (Pow->hasFnAttr(Attribute::ReadNone)) {
+    // We know that errno is never set, so replace with an intrinsic:
+    // pow(x, 0.5) --> llvm.sqrt(x)
+    // llvm.pow(x, 0.5) --> llvm.sqrt(x)
+    auto *F = Intrinsic::getDeclaration(Pow->getModule(), Intrinsic::sqrt, Ty);
+    Sqrt = B.CreateCall(F, Pow->getArgOperand(0));
+  } else if (hasUnaryFloatFn(TLI, Ty, LibFunc_sqrt, LibFunc_sqrtf,
+                             LibFunc_sqrtl)) {
+    // Errno could be set, so we must use a sqrt libcall.
+    // TODO: We also should check that the target can in fact lower the sqrt
+    // libcall. We currently have no way to ask this question, so we ask
+    // whether the target has a sqrt libcall which is not exactly the same.
+    Sqrt = emitUnaryFloatFnCall(Pow->getArgOperand(0),
+                                TLI->getName(LibFunc_sqrt), B,
+                                Pow->getCalledFunction()->getAttributes());
+  } else {
+    // We can't replace with an intrinsic or a libcall.
+    return nullptr;
+  }
+
+  // If this is pow(x, -0.5), get the reciprocal.
+  if (Arg1C->isExactlyValue(-0.5))
+    Sqrt = B.CreateFDiv(ConstantFP::get(Ty, 1.0), Sqrt);
+
+  return Sqrt;
+}
+
 Value *LibCallSimplifier::optimizePow(CallInst *CI, IRBuilder<> &B) {
   Function *Callee = CI->getCalledFunction();
   Value *Ret = nullptr;
@@ -1111,7 +1156,7 @@ Value *LibCallSimplifier::optimizePow(CallInst *CI, IRBuilder<> &B) {
   // Example: x = 1000, y = 0.001.
   // pow(exp(x), y) = pow(inf, 0.001) = inf, whereas exp(x*y) = exp(1).
   auto *OpC = dyn_cast<CallInst>(Op1);
-  if (OpC && OpC->hasUnsafeAlgebra() && CI->hasUnsafeAlgebra()) {
+  if (OpC && OpC->isFast() && CI->isFast()) {
     LibFunc Func;
     Function *OpCCallee = OpC->getCalledFunction();
     if (OpCCallee && TLI->getLibFunc(OpCCallee->getName(), Func) &&
@@ -1124,6 +1169,9 @@ Value *LibCallSimplifier::optimizePow(CallInst *CI, IRBuilder<> &B) {
     }
   }
 
+  if (Value *Sqrt = replacePowWithSqrt(CI, B))
+    return Sqrt;
+
   ConstantFP *Op2C = dyn_cast<ConstantFP>(Op2);
   if (!Op2C)
     return Ret;
@@ -1131,42 +1179,10 @@ Value *LibCallSimplifier::optimizePow(CallInst *CI, IRBuilder<> &B) {
   if (Op2C->getValueAPF().isZero()) // pow(x, 0.0) -> 1.0
     return ConstantFP::get(CI->getType(), 1.0);
 
-  if (Op2C->isExactlyValue(-0.5) &&
-      hasUnaryFloatFn(TLI, Op2->getType(), LibFunc_sqrt, LibFunc_sqrtf,
-                      LibFunc_sqrtl)) {
-    // If -ffast-math:
-    // pow(x, -0.5) -> 1.0 / sqrt(x)
-    if (CI->hasUnsafeAlgebra()) {
-      IRBuilder<>::FastMathFlagGuard Guard(B);
-      B.setFastMathFlags(CI->getFastMathFlags());
-
-      // TODO: If the pow call is an intrinsic, we should lower to the sqrt
-      // intrinsic, so we match errno semantics.  We also should check that the
-      // target can in fact lower the sqrt intrinsic -- we currently have no way
-      // to ask this question other than asking whether the target has a sqrt
-      // libcall, which is a sufficient but not necessary condition.
-      Value *Sqrt = emitUnaryFloatFnCall(Op1, TLI->getName(LibFunc_sqrt), B,
-                                         Callee->getAttributes());
-
-      return B.CreateFDiv(ConstantFP::get(CI->getType(), 1.0), Sqrt, "sqrtrecip");
-    }
-  }
-
+  // FIXME: Correct the transforms and pull this into replacePowWithSqrt().
   if (Op2C->isExactlyValue(0.5) &&
       hasUnaryFloatFn(TLI, Op2->getType(), LibFunc_sqrt, LibFunc_sqrtf,
                       LibFunc_sqrtl)) {
-
-    // In -ffast-math, pow(x, 0.5) -> sqrt(x).
-    if (CI->hasUnsafeAlgebra()) {
-      IRBuilder<>::FastMathFlagGuard Guard(B);
-      B.setFastMathFlags(CI->getFastMathFlags());
-
-      // TODO: As above, we should lower to the sqrt intrinsic if the pow is an
-      // intrinsic, to match errno semantics.
-      return emitUnaryFloatFnCall(Op1, TLI->getName(LibFunc_sqrt), B,
-                                  Callee->getAttributes());
-    }
-
     // Expand pow(x, 0.5) to (x == -infinity ? +infinity : fabs(sqrt(x))).
     // This is faster than calling pow, and still handles negative zero
     // and negative infinity correctly.
@@ -1196,7 +1212,7 @@ Value *LibCallSimplifier::optimizePow(CallInst *CI, IRBuilder<> &B) {
     return B.CreateFDiv(ConstantFP::get(CI->getType(), 1.0), Op1, "powrecip");
 
   // In -ffast-math, generate repeated fmul instead of generating pow(x, n).
-  if (CI->hasUnsafeAlgebra()) {
+  if (CI->isFast()) {
     APFloat V = abs(Op2C->getValueAPF());
     // We limit to a max of 7 fmul(s). Thus max exponent is 32.
     // This transformation applies to integer exponents only.
@@ -1284,9 +1300,9 @@ Value *LibCallSimplifier::optimizeFMinFMax(CallInst *CI, IRBuilder<> &B) {
 
   IRBuilder<>::FastMathFlagGuard Guard(B);
   FastMathFlags FMF;
-  if (CI->hasUnsafeAlgebra()) {
-    // Unsafe algebra sets all fast-math-flags to true.
-    FMF.setUnsafeAlgebra();
+  if (CI->isFast()) {
+    // If the call is 'fast', then anything we create here will also be 'fast'.
+    FMF.setFast();
   } else {
     // At a minimum, no-nans-fp-math must be true.
     if (!CI->hasNoNaNs())
@@ -1317,13 +1333,13 @@ Value *LibCallSimplifier::optimizeLog(CallInst *CI, IRBuilder<> &B) {
   if (UnsafeFPShrink && hasFloatVersion(Name))
     Ret = optimizeUnaryDoubleFP(CI, B, true);
 
-  if (!CI->hasUnsafeAlgebra())
+  if (!CI->isFast())
     return Ret;
   Value *Op1 = CI->getArgOperand(0);
   auto *OpC = dyn_cast<CallInst>(Op1);
 
-  // The earlier call must also be unsafe in order to do these transforms.
-  if (!OpC || !OpC->hasUnsafeAlgebra())
+  // The earlier call must also be 'fast' in order to do these transforms.
+  if (!OpC || !OpC->isFast())
     return Ret;
 
   // log(pow(x,y)) -> y*log(x)
@@ -1333,7 +1349,7 @@ Value *LibCallSimplifier::optimizeLog(CallInst *CI, IRBuilder<> &B) {
 
   IRBuilder<>::FastMathFlagGuard Guard(B);
   FastMathFlags FMF;
-  FMF.setUnsafeAlgebra();
+  FMF.setFast();
   B.setFastMathFlags(FMF);
 
   LibFunc Func;
@@ -1365,11 +1381,11 @@ Value *LibCallSimplifier::optimizeSqrt(CallInst *CI, IRBuilder<> &B) {
                                   Callee->getIntrinsicID() == Intrinsic::sqrt))
     Ret = optimizeUnaryDoubleFP(CI, B, true);
 
-  if (!CI->hasUnsafeAlgebra())
+  if (!CI->isFast())
     return Ret;
 
   Instruction *I = dyn_cast<Instruction>(CI->getArgOperand(0));
-  if (!I || I->getOpcode() != Instruction::FMul || !I->hasUnsafeAlgebra())
+  if (!I || I->getOpcode() != Instruction::FMul || !I->isFast())
     return Ret;
 
   // We're looking for a repeated factor in a multiplication tree,
@@ -1391,8 +1407,7 @@ Value *LibCallSimplifier::optimizeSqrt(CallInst *CI, IRBuilder<> &B) {
     Value *OtherMul0, *OtherMul1;
     if (match(Op0, m_FMul(m_Value(OtherMul0), m_Value(OtherMul1)))) {
       // Pattern: sqrt((x * y) * z)
-      if (OtherMul0 == OtherMul1 &&
-          cast<Instruction>(Op0)->hasUnsafeAlgebra()) {
+      if (OtherMul0 == OtherMul1 && cast<Instruction>(Op0)->isFast()) {
         // Matched: sqrt((x * x) * z)
         RepeatOp = OtherMul0;
         OtherOp = Op1;
@@ -1437,8 +1452,8 @@ Value *LibCallSimplifier::optimizeTan(CallInst *CI, IRBuilder<> &B) {
   if (!OpC)
     return Ret;
 
-  // Both calls must allow unsafe optimizations in order to remove them.
-  if (!CI->hasUnsafeAlgebra() || !OpC->hasUnsafeAlgebra())
+  // Both calls must be 'fast' in order to remove them.
+  if (!CI->isFast() || !OpC->isFast())
     return Ret;
 
   // tan(atan(x)) -> x
@@ -2167,10 +2182,10 @@ Value *LibCallSimplifier::optimizeCall(CallInst *CI) {
 
   // Command-line parameter overrides instruction attribute.
   // This can't be moved to optimizeFloatingPointLibCall() because it may be
-  // used by the intrinsic optimizations. 
+  // used by the intrinsic optimizations.
   if (EnableUnsafeFPShrink.getNumOccurrences() > 0)
     UnsafeFPShrink = EnableUnsafeFPShrink;
-  else if (isa<FPMathOperator>(CI) && CI->hasUnsafeAlgebra())
+  else if (isa<FPMathOperator>(CI) && CI->isFast())
     UnsafeFPShrink = true;
 
   // First, check for intrinsics.

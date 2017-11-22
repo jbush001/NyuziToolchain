@@ -26,6 +26,9 @@
 #include "llvm/CodeGen/RuntimeLibcalls.h"
 #include "llvm/CodeGen/SelectionDAG.h"
 #include "llvm/CodeGen/SelectionDAGNodes.h"
+#include "llvm/CodeGen/TargetFrameLowering.h"
+#include "llvm/CodeGen/TargetLowering.h"
+#include "llvm/CodeGen/TargetSubtargetInfo.h"
 #include "llvm/CodeGen/ValueTypes.h"
 #include "llvm/IR/CallingConv.h"
 #include "llvm/IR/Constants.h"
@@ -40,11 +43,8 @@
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/MathExtras.h"
 #include "llvm/Support/raw_ostream.h"
-#include "llvm/Target/TargetFrameLowering.h"
-#include "llvm/Target/TargetLowering.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Target/TargetOptions.h"
-#include "llvm/Target/TargetSubtargetInfo.h"
 #include <algorithm>
 #include <cassert>
 #include <cstdint>
@@ -971,7 +971,9 @@ getStrictFPOpcodeAction(const TargetLowering &TLI, unsigned Opcode, EVT VT) {
 void SelectionDAGLegalize::LegalizeOp(SDNode *Node) {
   DEBUG(dbgs() << "\nLegalizing: "; Node->dump(&DAG));
 
-  if (Node->getOpcode() == ISD::TargetConstant) // Allow illegal target nodes.
+  // Allow illegal target nodes and illegal registers.
+  if (Node->getOpcode() == ISD::TargetConstant ||
+      Node->getOpcode() == ISD::Register)
     return;
 
 #ifndef NDEBUG
@@ -985,7 +987,8 @@ void SelectionDAGLegalize::LegalizeOp(SDNode *Node) {
     assert((TLI.getTypeAction(*DAG.getContext(), Op.getValueType()) ==
               TargetLowering::TypeLegal ||
             TLI.isTypeLegal(Op.getValueType()) ||
-            Op.getOpcode() == ISD::TargetConstant) &&
+            Op.getOpcode() == ISD::TargetConstant ||
+            Op.getOpcode() == ISD::Register) &&
             "Unexpected illegal type!");
 #endif
 

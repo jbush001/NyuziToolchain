@@ -18,13 +18,6 @@ if(NOT APPLE)
   set(CLANG_DEFAULT_LINKER lld CACHE STRING "")
 endif()
 
-# This is a "Does your linker support it?" option that only applies
-# to x86-64 ELF targets.  All Fuchsia target linkers do support it.
-# For x86-64 Linux, it's supported by LLD and by GNU linkers since
-# binutils 2.27, so one can hope that all Linux hosts in use handle it.
-# Ideally this would be settable as a per-target option.
-set(ENABLE_X86_RELAX_RELOCATIONS ON CACHE BOOL "")
-
 if(APPLE)
   set(LLDB_CODESIGN_IDENTITY "" CACHE STRING "")
 endif()
@@ -33,15 +26,11 @@ set(CMAKE_BUILD_TYPE RelWithDebInfo CACHE STRING "")
 set(CMAKE_C_FLAGS_RELWITHDEBINFO "-O3 -gline-tables-only -DNDEBUG" CACHE STRING "")
 set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "-O3 -gline-tables-only -DNDEBUG" CACHE STRING "")
 
-set(LLVM_BUILTIN_TARGETS "x86_64-fuchsia;aarch64-fuchsia" CACHE STRING "")
+set(LLVM_BUILTIN_TARGETS "default;x86_64-fuchsia;aarch64-fuchsia" CACHE STRING "")
 foreach(target x86_64;aarch64)
   set(BUILTINS_${target}-fuchsia_CMAKE_SYSROOT ${FUCHSIA_${target}_SYSROOT} CACHE PATH "")
   set(BUILTINS_${target}-fuchsia_CMAKE_SYSTEM_NAME Fuchsia CACHE STRING "")
 endforeach()
-
-if(NOT APPLE)
-  set(LLVM_BUILTIN_TARGETS "default;${LLVM_BUILTIN_TARGETS}" CACHE STRING "" FORCE)
-endif()
 
 set(LLVM_RUNTIME_TARGETS "default;x86_64-fuchsia;aarch64-fuchsia;x86_64-fuchsia-asan:x86_64-fuchsia;aarch64-fuchsia-asan:aarch64-fuchsia" CACHE STRING "")
 foreach(target x86_64;aarch64)
@@ -97,6 +86,7 @@ set(LLVM_DISTRIBUTION_COMPONENTS
   LTO
   clang-format
   clang-headers
+  clang-refactor
   clang-tidy
   clangd
   builtins

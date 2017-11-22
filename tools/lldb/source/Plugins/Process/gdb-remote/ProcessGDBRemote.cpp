@@ -29,7 +29,6 @@
 #include <sstream>
 
 #include "lldb/Breakpoint/Watchpoint.h"
-#include "lldb/Core/ArchSpec.h"
 #include "lldb/Core/Debugger.h"
 #include "lldb/Core/Module.h"
 #include "lldb/Core/ModuleSpec.h"
@@ -244,7 +243,7 @@ bool ProcessGDBRemote::CanDebug(lldb::TargetSP target_sp,
 //----------------------------------------------------------------------
 ProcessGDBRemote::ProcessGDBRemote(lldb::TargetSP target_sp,
                                    ListenerSP listener_sp)
-    : Process(target_sp, listener_sp), m_flags(0), m_gdb_comm(),
+    : Process(target_sp, listener_sp),
       m_debugserver_pid(LLDB_INVALID_PROCESS_ID), m_last_stop_packet_mutex(),
       m_register_info(),
       m_async_broadcaster(NULL, "lldb.process.gdb-remote.async-broadcaster"),
@@ -3255,7 +3254,6 @@ Status ProcessGDBRemote::DisableWatchpoint(Watchpoint *wp, bool notify) {
 }
 
 void ProcessGDBRemote::Clear() {
-  m_flags = 0;
   m_thread_list_real.Clear();
   m_thread_list.Clear();
 }

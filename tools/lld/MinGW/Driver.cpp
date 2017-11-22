@@ -138,6 +138,8 @@ bool mingw::link(ArrayRef<const char *> ArgsArr, raw_ostream &Diag) {
     Add("-stack:" + StringRef(A->getValue()));
   if (auto *A = Args.getLastArg(OPT_output_def))
     Add("-output-def:" + StringRef(A->getValue()));
+  if (auto *A = Args.getLastArg(OPT_image_base))
+    Add("-base:" + StringRef(A->getValue()));
 
   if (auto *A = Args.getLastArg(OPT_o))
     Add("-out:" + StringRef(A->getValue()));
@@ -152,6 +154,29 @@ bool mingw::link(ArrayRef<const char *> ArgsArr, raw_ostream &Diag) {
     Add("-verbose");
   if (Args.hasArg(OPT_export_all_symbols))
     Add("-export-all-symbols");
+  if (!Args.hasArg(OPT_strip_all))
+    Add("-debug:dwarf");
+  if (Args.hasArg(OPT_large_address_aware))
+    Add("-largeaddressaware");
+
+  Add(Args.hasArg(OPT_dynamicbase) ? "-dynamicbase" : "-dynamicbase:no");
+
+  if (Args.hasFlag(OPT_gc_sections, OPT_no_gc_sections, false))
+    Add("-opt:ref");
+  else
+    Add("-opt:noref");
+
+  if (auto *A = Args.getLastArg(OPT_icf)) {
+    StringRef S = A->getValue();
+    if (S == "all")
+      Add("-opt:icf");
+    else if (S == "safe" || S == "none")
+      Add("-opt:noicf");
+    else
+      error("unknown parameter: --icf=" + S);
+  } else {
+    Add("-opt:noicf");
+  }
 
   if (auto *A = Args.getLastArg(OPT_m)) {
     StringRef S = A->getValue();
@@ -169,6 +194,9 @@ bool mingw::link(ArrayRef<const char *> ArgsArr, raw_ostream &Diag) {
 
   for (auto *A : Args.filtered(OPT_mllvm))
     Add("-mllvm:" + StringRef(A->getValue()));
+
+  for (auto *A : Args.filtered(OPT_Xlink))
+    Add(A->getValue());
 
   if (Args.getLastArgValue(OPT_m) == "i386pe")
     Add("-alternatename:__image_base__=___ImageBase");
@@ -217,5 +245,5 @@ bool mingw::link(ArrayRef<const char *> ArgsArr, raw_ostream &Diag) {
   std::vector<const char *> Vec;
   for (const std::string &S : LinkArgs)
     Vec.push_back(S.c_str());
-  return coff::link(Vec);
+  return coff::link(Vec, true);
 }

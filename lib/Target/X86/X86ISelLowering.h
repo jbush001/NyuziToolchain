@@ -17,7 +17,8 @@
 
 #include "llvm/CodeGen/CallingConvLower.h"
 #include "llvm/CodeGen/SelectionDAG.h"
-#include "llvm/Target/TargetLowering.h"
+#include "llvm/CodeGen/TargetLowering.h"
+#include "llvm/Support/MathExtras.h"
 #include "llvm/Target/TargetOptions.h"
 
 namespace llvm {
@@ -214,7 +215,7 @@ namespace llvm {
       // FP vector get exponent.
       FGETEXP_RND, FGETEXPS_RND,
       // Extract Normalized Mantissas.
-      VGETMANT, VGETMANTS,
+      VGETMANT, VGETMANT_RND, VGETMANTS, VGETMANTS_RND,
       // FP Scale.
       SCALEF,
       SCALEFS,
@@ -254,7 +255,9 @@ namespace llvm {
       /// Note that these typically require refinement
       /// in order to obtain suitable precision.
       FRSQRT, FRCP,
-      FRSQRTS, FRCPS,
+
+      // AVX-512 reciprocal approximations with a little more precision.
+      RSQRT14, RSQRT14S, RCP14, RCP14S,
 
       // Thread Local Storage.
       TLSADDR,
@@ -388,6 +391,11 @@ namespace llvm {
       PSHUFHW,
       PSHUFLW,
       SHUFP,
+      // VBMI2 Concat & Shift.
+      VSHLD,
+      VSHRD,
+      VSHLDV,
+      VSHRDV,
       //Shuffle Packed Values at 128-bit granularity.
       SHUF128,
       MOVDDUP,
@@ -424,11 +432,13 @@ namespace llvm {
       VFIXUPIMM,
       VFIXUPIMMS,
       // Range Restriction Calculation For Packed Pairs of Float32/64 values.
-      VRANGE,
+      VRANGE, VRANGE_RND, VRANGES, VRANGES_RND,
       // Reduce - Perform Reduction Transformation on scalar\packed FP.
-      VREDUCE, VREDUCES,
+      VREDUCE, VREDUCE_RND, VREDUCES, VREDUCES_RND,
       // RndScale - Round FP Values To Include A Given Number Of Fraction Bits.
-      VRNDSCALE, VRNDSCALES,
+      // Also used by the legacy (V)ROUND intrinsics where we mask out the
+      // scaling part of the immediate.
+      VRNDSCALE, VRNDSCALE_RND, VRNDSCALES, VRNDSCALES_RND,
       // Tests Types Of a FP Values for packed types.
       VFPCLASS,
       // Tests Types Of a FP Values for scalar types.
@@ -471,6 +481,12 @@ namespace llvm {
       // op0 x op1 + op2.
       VPMADD52L, VPMADD52H,
 
+      // VNNI
+      VPDPBUSD,
+      VPDPBUSDS,
+      VPDPWSSD,
+      VPDPWSSDS,
+
       // FMA nodes.
       // We use the target independent ISD::FMA for the non-inverted case.
       FNMADD,
@@ -486,6 +502,12 @@ namespace llvm {
       FNMSUB_RND,
       FMADDSUB_RND,
       FMSUBADD_RND,
+
+      // Scalar intrinsic FMA.
+      FMADDS1, FMADDS3,
+      FNMADDS1, FNMADDS3,
+      FMSUBS1, FMSUBS3,
+      FNMSUBS1, FNMSUBS3,
 
       // Scalar intrinsic FMA with rounding mode.
       // Two versions, passthru bits on op1 or op3.
@@ -555,7 +577,7 @@ namespace llvm {
       RSQRT28, RSQRT28S, RCP28, RCP28S, EXP2,
 
       // Conversions between float and half-float.
-      CVTPS2PH, CVTPH2PS,
+      CVTPS2PH, CVTPH2PS, CVTPH2PS_RND,
 
       // LWP insert record.
       LWPINS,
@@ -569,7 +591,7 @@ namespace llvm {
 
       /// LOCK-prefixed arithmetic read-modify-write instructions.
       /// EFLAGS, OUTCHAIN = LADD(INCHAIN, PTR, RHS)
-      LADD, LSUB, LOR, LXOR, LAND,
+      LADD, LSUB, LOR, LXOR, LAND, LINC, LDEC,
 
       // Load, scalar_to_vector, and zero extend.
       VZEXT_LOAD,
@@ -615,8 +637,8 @@ namespace llvm {
       // Vector truncating masked store with unsigned/signed saturation
       VMTRUNCSTOREUS, VMTRUNCSTORES,
 
-      // X86 specific gather
-      MGATHER
+      // X86 specific gather and scatter
+      MGATHER, MSCATTER,
 
       // WARNING: Do not add anything in the end unless you want the node to
       // have memop! In fact, starting from FIRST_TARGET_MEMORY_OPCODE all
@@ -654,8 +676,14 @@ namespace llvm {
     void markLibCallAttributes(MachineFunction *MF, unsigned CC,
                                ArgListTy &Args) const override;
 
-    MVT getScalarShiftAmountTy(const DataLayout &, EVT) const override {
-      return MVT::i8;
+    // For i512, DAGTypeLegalizer::SplitInteger needs a shift amount 256,
+    // which cannot be held by i8, therefore use i16 instead. In all the
+    // other situations i8 is sufficient.
+    MVT getScalarShiftAmountTy(const DataLayout &, EVT VT) const override {
+      MVT T = VT.getSizeInBits() >= 512 ? MVT::i16 : MVT::i8;
+      assert((VT.getSizeInBits() + 1) / 2 < (1U << T.getSizeInBits()) &&
+             "Scalar shift amount type too small");
+      return T;
     }
 
     const MCExpr *
@@ -1395,16 +1423,48 @@ namespace llvm {
     }
   };
 
-  // X86 specific Gather node.
-  class X86MaskedGatherSDNode : public MaskedGatherScatterSDNode {
+  // X86 specific Gather/Scatter nodes.
+  // The class has the same order of operands as MaskedGatherScatterSDNode for
+  // convenience.
+  class X86MaskedGatherScatterSDNode : public MemSDNode {
   public:
-    X86MaskedGatherSDNode(unsigned Order,
-                          const DebugLoc &dl, SDVTList VTs, EVT MemVT,
-                          MachineMemOperand *MMO)
-      : MaskedGatherScatterSDNode(X86ISD::MGATHER, Order, dl, VTs, MemVT, MMO)
-    {}
+    X86MaskedGatherScatterSDNode(unsigned Opc, unsigned Order,
+                                 const DebugLoc &dl, SDVTList VTs, EVT MemVT,
+                                 MachineMemOperand *MMO)
+        : MemSDNode(Opc, Order, dl, VTs, MemVT, MMO) {}
+
+    const SDValue &getBasePtr() const { return getOperand(3); }
+    const SDValue &getIndex()   const { return getOperand(4); }
+    const SDValue &getMask()    const { return getOperand(2); }
+    const SDValue &getValue()   const { return getOperand(1); }
+
+    static bool classof(const SDNode *N) {
+      return N->getOpcode() == X86ISD::MGATHER ||
+             N->getOpcode() == X86ISD::MSCATTER;
+    }
+  };
+
+  class X86MaskedGatherSDNode : public X86MaskedGatherScatterSDNode {
+  public:
+    X86MaskedGatherSDNode(unsigned Order, const DebugLoc &dl, SDVTList VTs,
+                          EVT MemVT, MachineMemOperand *MMO)
+        : X86MaskedGatherScatterSDNode(X86ISD::MGATHER, Order, dl, VTs, MemVT,
+                                       MMO) {}
+
     static bool classof(const SDNode *N) {
       return N->getOpcode() == X86ISD::MGATHER;
+    }
+  };
+
+  class X86MaskedScatterSDNode : public X86MaskedGatherScatterSDNode {
+  public:
+    X86MaskedScatterSDNode(unsigned Order, const DebugLoc &dl, SDVTList VTs,
+                           EVT MemVT, MachineMemOperand *MMO)
+        : X86MaskedGatherScatterSDNode(X86ISD::MSCATTER, Order, dl, VTs, MemVT,
+                                       MMO) {}
+
+    static bool classof(const SDNode *N) {
+      return N->getOpcode() == X86ISD::MSCATTER;
     }
   };
 

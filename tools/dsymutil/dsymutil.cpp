@@ -1,4 +1,4 @@
-//===-- dsymutil.cpp - Debug info dumping utility for llvm ----------------===//
+//===- dsymutil.cpp - Debug info dumping utility for llvm -----------------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -12,27 +12,35 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "dsymutil.h"
 #include "DebugMap.h"
 #include "MachOUtils.h"
-#include "dsymutil.h"
+#include "llvm/ADT/SmallString.h"
+#include "llvm/ADT/SmallVector.h"
+#include "llvm/ADT/StringRef.h"
+#include "llvm/ADT/Triple.h"
 #include "llvm/Object/MachO.h"
+#include "llvm/Support/CommandLine.h"
 #include "llvm/Support/FileSystem.h"
-#include "llvm/Support/FileUtilities.h"
 #include "llvm/Support/ManagedStatic.h"
-#include "llvm/Support/Options.h"
+#include "llvm/Support/Path.h"
 #include "llvm/Support/PrettyStackTrace.h"
 #include "llvm/Support/Signals.h"
-#include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/TargetSelect.h"
+#include "llvm/Support/ThreadPool.h"
+#include "llvm/Support/raw_ostream.h"
+#include "llvm/Support/thread.h"
+#include <algorithm>
 #include <cstdint>
+#include <cstdlib>
 #include <string>
+#include <system_error>
 
+using namespace llvm;
+using namespace llvm::cl;
 using namespace llvm::dsymutil;
 
-namespace {
-using namespace llvm::cl;
-
-OptionCategory DsymCategory("Specific Options");
+static OptionCategory DsymCategory("Specific Options");
 static opt<bool> Help("h", desc("Alias for -help"), Hidden);
 static opt<bool> Version("v", desc("Alias for -version"), Hidden);
 
@@ -61,6 +69,14 @@ static opt<bool> FlatOut("flat",
                          init(false), cat(DsymCategory));
 static alias FlatOutA("f", desc("Alias for --flat"), aliasopt(FlatOut));
 
+static opt<unsigned> NumThreads(
+    "num-threads",
+    desc("Specifies the maximum number (n) of simultaneous threads to use\n"
+         "when linking multiple architectures."),
+    value_desc("n"), init(0), cat(DsymCategory));
+static alias NumThreadsA("j", desc("Alias for --num-threads"),
+                         aliasopt(NumThreads));
+
 static opt<bool> Verbose("verbose", desc("Verbosity level"), init(false),
                          cat(DsymCategory));
 
@@ -68,16 +84,18 @@ static opt<bool>
     NoOutput("no-output",
              desc("Do the link in memory, but do not emit the result file."),
              init(false), cat(DsymCategory));
+
 static opt<bool>
     NoTimestamp("no-swiftmodule-timestamp",
                 desc("Don't check timestamp for swiftmodule files."),
                 init(false), cat(DsymCategory));
+
 static list<std::string> ArchFlags(
     "arch",
     desc("Link DWARF debug information only for specified CPU architecture\n"
          "types. This option can be specified multiple times, once for each\n"
-         "desired architecture.  All cpu architectures will be linked by\n"
-         "default."),
+         "desired architecture. All CPU architectures will be linked by\n"
+         "default."), value_desc("arch"),
     ZeroOrMore, cat(DsymCategory));
 
 static opt<bool>
@@ -94,7 +112,6 @@ static opt<bool> DumpDebugMap(
 static opt<bool> InputIsYAMLDebugMap(
     "y", desc("Treat the input file is a YAML debug map rather than a binary."),
     init(false), cat(DsymCategory));
-}
 
 static bool createPlistFile(llvm::StringRef BundleRoot) {
   if (NoOutput)
@@ -164,43 +181,7 @@ static bool createBundleDir(llvm::StringRef BundleBase) {
   return true;
 }
 
-static std::error_code getUniqueFile(const llvm::Twine &Model, int &ResultFD,
-                                     llvm::SmallVectorImpl<char> &ResultPath) {
-  // If in NoOutput mode, use the createUniqueFile variant that
-  // doesn't open the file but still generates a somewhat unique
-  // name. In the real usage scenario, we'll want to ensure that the
-  // file is trully unique, and creating it is the only way to achieve
-  // that.
-  if (NoOutput)
-    return llvm::sys::fs::createUniqueFile(Model, ResultPath);
-  return llvm::sys::fs::createUniqueFile(Model, ResultFD, ResultPath);
-}
-
-static std::string getOutputFileName(llvm::StringRef InputFile,
-                                     bool TempFile = false) {
-  if (TempFile) {
-    llvm::SmallString<128> TmpFile;
-    llvm::sys::path::system_temp_directory(true, TmpFile);
-    llvm::StringRef Basename =
-        OutputFileOpt.empty() ? InputFile : llvm::StringRef(OutputFileOpt);
-    llvm::sys::path::append(TmpFile, llvm::sys::path::filename(Basename));
-
-    int FD;
-    llvm::SmallString<128> UniqueFile;
-    if (auto EC = getUniqueFile(TmpFile + ".tmp%%%%%.dwarf", FD, UniqueFile)) {
-      llvm::errs() << "error: failed to create temporary outfile '"
-                   << TmpFile << "': " << EC.message() << '\n';
-      return "";
-    }
-    llvm::sys::RemoveFileOnSignal(UniqueFile);
-    if (!NoOutput) {
-      // Close the file immediately. We know it is unique. It will be
-      // reopened and written to later.
-      llvm::raw_fd_ostream CloseImmediately(FD, true /* shouldClose */, true);
-    }
-    return UniqueFile.str();
-  }
-
+static std::string getOutputFileName(llvm::StringRef InputFile) {
   if (FlatOut) {
     // If a flat dSYM has been requested, things are pretty simple.
     if (OutputFileOpt.empty()) {
@@ -233,19 +214,32 @@ static std::string getOutputFileName(llvm::StringRef InputFile,
   return BundleDir.str();
 }
 
-void llvm::dsymutil::exitDsymutil(int ExitStatus) {
-  // Cleanup temporary files.
-  llvm::sys::RunInterruptHandlers();
-  exit(ExitStatus);
+static Expected<sys::fs::TempFile> createTempFile() {
+  llvm::SmallString<128> TmpModel;
+  llvm::sys::path::system_temp_directory(true, TmpModel);
+  llvm::sys::path::append(TmpModel, "dsym.tmp%%%%%.dwarf");
+  return sys::fs::TempFile::create(TmpModel);
 }
+
+namespace {
+struct TempFileVector {
+  std::vector<sys::fs::TempFile> Files;
+  ~TempFileVector() {
+    for (sys::fs::TempFile &Tmp : Files) {
+      if (Error E = Tmp.discard())
+        errs() << toString(std::move(E));
+    }
+  }
+};
+} // namespace
 
 int main(int argc, char **argv) {
   llvm::sys::PrintStackTraceOnErrorSignal(argv[0]);
   llvm::PrettyStackTraceProgram StackPrinter(argc, argv);
   llvm::llvm_shutdown_obj Shutdown;
   LinkOptions Options;
-  void *MainAddr = (void *)(intptr_t)&exitDsymutil;
-  std::string SDKPath = llvm::sys::fs::getMainExecutable(argv[0], MainAddr);
+  void *P = (void *)(intptr_t)getOutputFileName;
+  std::string SDKPath = llvm::sys::fs::getMainExecutable(argv[0], P);
   SDKPath = llvm::sys::path::parent_path(SDKPath);
 
   HideUnrelatedOptions(DsymCategory);
@@ -291,14 +285,14 @@ int main(int argc, char **argv) {
     if (Arch != "*" && Arch != "all" &&
         !llvm::object::MachOObjectFile::isValidArch(Arch)) {
       llvm::errs() << "error: Unsupported cpu architecture: '" << Arch << "'\n";
-      exitDsymutil(1);
+      return 1;
     }
 
   for (auto &InputFile : InputFiles) {
     // Dump the symbol table for each input file and requested arch
     if (DumpStab) {
       if (!dumpStab(InputFile, ArchFlags, OsoPrependPath))
-        exitDsymutil(1);
+        return 1;
       continue;
     }
 
@@ -308,18 +302,26 @@ int main(int argc, char **argv) {
     if (auto EC = DebugMapPtrsOrErr.getError()) {
       llvm::errs() << "error: cannot parse the debug map for \"" << InputFile
                    << "\": " << EC.message() << '\n';
-      exitDsymutil(1);
+      return 1;
     }
 
     if (DebugMapPtrsOrErr->empty()) {
       llvm::errs() << "error: no architecture to link\n";
-      exitDsymutil(1);
+      return 1;
     }
+
+    if (NumThreads == 0)
+      NumThreads = llvm::thread::hardware_concurrency();
+    if (DumpDebugMap || Verbose)
+      NumThreads = 1;
+    NumThreads = std::min<unsigned>(NumThreads, DebugMapPtrsOrErr->size());
+
 
     // If there is more than one link to execute, we need to generate
     // temporary files.
     bool NeedsTempFiles = !DumpDebugMap && (*DebugMapPtrsOrErr).size() != 1;
     llvm::SmallVector<MachOUtils::ArchAndFilename, 4> TempFiles;
+    TempFileVector TempFileStore;
     for (auto &Map : *DebugMapPtrsOrErr) {
       if (Verbose || DumpDebugMap)
         Map->print(llvm::outs());
@@ -332,20 +334,56 @@ int main(int argc, char **argv) {
                      << MachOUtils::getArchName(Map->getTriple().getArchName())
                      << ")\n";
 
-      std::string OutputFile = getOutputFileName(InputFile, NeedsTempFiles);
-      if (OutputFile.empty() || !linkDwarf(OutputFile, *Map, Options))
-        exitDsymutil(1);
+      std::string OutputFile = getOutputFileName(InputFile);
+      std::unique_ptr<raw_fd_ostream> OS;
+      if (NeedsTempFiles) {
+        Expected<sys::fs::TempFile> T = createTempFile();
+        if (!T) {
+          errs() << toString(T.takeError());
+          return 1;
+        }
+        OS = llvm::make_unique<raw_fd_ostream>(T->FD, /*shouldClose*/ false);
+        OutputFile = T->TmpName;
+        TempFileStore.Files.push_back(std::move(*T));
+      } else {
+        std::error_code EC;
+        OS = llvm::make_unique<raw_fd_ostream>(NoOutput ? "-" : OutputFile, EC,
+                                         sys::fs::F_None);
+        if (EC) {
+          errs() << OutputFile << ": " << EC.message();
+          return 1;
+        }
+      }
+
+      std::atomic_char AllOK(1);
+      auto LinkLambda = [&]() {
+        AllOK.fetch_and(linkDwarf(*OS, *Map, Options));
+      };
+
+      // FIXME: The DwarfLinker can have some very deep recursion that can max
+      // out the (significantly smaller) stack when using threads. We don't
+      // want this limitation when we only have a single thread.
+      if (NumThreads == 1) {
+        LinkLambda();
+      } else {
+        llvm::ThreadPool Threads(NumThreads);
+        Threads.async(LinkLambda);
+        Threads.wait();
+      }
+      if (!AllOK)
+        return 1;
 
       if (NeedsTempFiles)
         TempFiles.emplace_back(Map->getTriple().getArchName().str(),
                                OutputFile);
     }
 
+
     if (NeedsTempFiles &&
         !MachOUtils::generateUniversalBinary(
             TempFiles, getOutputFileName(InputFile), Options, SDKPath))
-      exitDsymutil(1);
+      return 1;
   }
 
-  exitDsymutil(0);
+  return 0;
 }

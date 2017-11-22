@@ -141,6 +141,10 @@ def err_vla_decl_has_extern_linkage : Error<
   "variable length array declaration cannot have 'extern' linkage">;
 def ext_vla_folded_to_constant : Extension<
   "variable length array folded to constant array as an extension">, InGroup<GNUFoldingConstant>;
+def err_vla_unsupported : Error<
+  "variable length arrays are not supported for the current target">;
+def note_vla_unsupported : Note<
+  "variable length arrays are not supported for the current target">;
 
 // C99 variably modified types
 def err_variably_modified_template_arg : Error<
@@ -2778,7 +2782,7 @@ def err_attribute_weakref_not_global_context : Error<
 def err_attribute_weakref_without_alias : Error<
   "weakref declaration of %0 must also have an alias attribute">;
 def err_alias_not_supported_on_darwin : Error <
-  "only weak aliases are supported on darwin">;
+  "aliases are not supported on darwin">;
 def err_alias_to_undefined : Error<
   "%select{alias|ifunc}0 must point to a defined %select{variable or |}1function">;
 def warn_alias_to_weak_alias : Warning<
@@ -5222,6 +5226,28 @@ def ext_flexible_array_empty_aggregate_gnu : Extension<
 def ext_flexible_array_union_gnu : Extension<
   "flexible array member %0 in a union is a GNU extension">, InGroup<GNUFlexibleArrayUnionMember>;
 
+def err_flexible_array_not_at_end : Error<
+  "flexible array member %0 with type %1 is not at the end of"
+  " %select{struct|interface|union|class|enum}2">;
+def err_objc_variable_sized_type_not_at_end : Error<
+  "field %0 with variable sized type %1 is not at the end of class">;
+def note_next_field_declaration : Note<
+  "next field declaration is here">;
+def note_next_ivar_declaration : Note<
+  "next %select{instance variable declaration|synthesized instance variable}0"
+  " is here">;
+def err_synthesize_variable_sized_ivar : Error<
+  "synthesized property with variable size type %0"
+  " requires an existing instance variable">;
+def err_flexible_array_arc_retainable : Error<
+  "ARC forbids flexible array members with retainable object type">;
+def warn_variable_sized_ivar_visibility : Warning<
+  "field %0 with variable sized type %1 is not visible to subclasses and"
+  " can conflict with their instance variables">, InGroup<ObjCFlexibleArray>;
+def warn_superclass_variable_sized_type_not_at_end : Warning<
+  "field %0 can overwrite instance variable %1 with variable sized type %2"
+  " in superclass %3">, InGroup<ObjCFlexibleArray>;
+
 let CategoryName = "ARC Semantic Issue" in {
 
 // ARC-mode diagnostics.
@@ -5520,9 +5546,6 @@ def err_offsetof_incomplete_type : Error<
 def err_offsetof_record_type : Error<
   "offsetof requires struct, union, or class type, %0 invalid">;
 def err_offsetof_array_type : Error<"offsetof requires array type, %0 invalid">;
-def ext_offsetof_extended_field_designator : Extension<
-  "using extended field designator is an extension">,
-  InGroup<DiagGroup<"extended-offsetof">>;
 def ext_offsetof_non_pod_type : ExtWarn<"offset of on non-POD type %0">,
   InGroup<InvalidOffsetof>;
 def ext_offsetof_non_standardlayout_type : ExtWarn<
@@ -7543,6 +7566,9 @@ def err_ambiguous_derived_to_base_conv : Error<
 def err_ambiguous_memptr_conv : Error<
   "ambiguous conversion from pointer to member of %select{base|derived}0 "
   "class %1 to pointer to member of %select{derived|base}0 class %2:%3">;
+def ext_ms_ambiguous_direct_base : ExtWarn<
+  "accessing inaccessible direct base %0 of %1 is a Microsoft extension">,
+  InGroup<MicrosoftInaccessibleBase>;
 
 def err_memptr_conv_via_virtual : Error<
   "conversion from pointer to member of class %0 to pointer to member "
@@ -8958,6 +8984,8 @@ def err_omp_reduction_non_addressable_expression : Error<
   "expected addressable reduction item for the task-based directives">;
 def err_omp_reduction_with_nogroup : Error<
   "'reduction' clause cannot be used with 'nogroup' clause">;
+def err_omp_reduction_vla_unsupported : Error<
+  "cannot generate code for reduction on %select{|array section, which requires a }0variable length array">;
 } // end of OpenMP category
 
 let CategoryName = "Related Result Type Issue" in {

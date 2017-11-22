@@ -16,8 +16,10 @@
 #ifndef LLVM_CODEGEN_GLOBALISEL_INSTRUCTIONSELECTOR_H
 #define LLVM_CODEGEN_GLOBALISEL_INSTRUCTIONSELECTOR_H
 
-#include "llvm/ADT/SmallVector.h"
+#include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/Optional.h"
+#include "llvm/ADT/SmallVector.h"
+#include "llvm/Support/CodeGenCoverage.h"
 #include <bitset>
 #include <cstddef>
 #include <cstdint>
@@ -32,6 +34,7 @@ class APFloat;
 class LLT;
 class MachineInstr;
 class MachineInstrBuilder;
+class MachineFunction;
 class MachineOperand;
 class MachineRegisterInfo;
 class RegisterBankInfo;
@@ -187,6 +190,13 @@ enum {
   /// - OldInsnID - Instruction ID to copy from
   /// - OpIdx - The operand to copy
   GIR_Copy,
+  /// Copy an operand to the specified instruction or add a zero register if the
+  /// operand is a zero immediate.
+  /// - NewInsnID - Instruction ID to modify
+  /// - OldInsnID - Instruction ID to copy from
+  /// - OpIdx - The operand to copy
+  /// - ZeroReg - The zero register to use
+  GIR_CopyOrAddZeroReg,
   /// Copy an operand to the specified instruction
   /// - NewInsnID - Instruction ID to modify
   /// - OldInsnID - Instruction ID to copy from
@@ -205,6 +215,10 @@ enum {
   /// - InsnID - Instruction ID to modify
   /// - RegNum - The register to add
   GIR_AddRegister,
+  /// Add a a temporary register to the specified instruction
+  /// - InsnID - Instruction ID to modify
+  /// - TempRegID - The temporary register ID to add
+  GIR_AddTempRegister,
   /// Add an immediate to the specified instruction
   /// - InsnID - Instruction ID to modify
   /// - Imm - The immediate to add
@@ -243,9 +257,17 @@ enum {
   /// Erase from parent.
   /// - InsnID - Instruction ID to erase
   GIR_EraseFromParent,
+  /// Create a new temporary register that's not constrained.
+  /// - TempRegID - The temporary register ID to initialize.
+  /// - Expected type
+  GIR_MakeTempReg,
 
   /// A successful emission
   GIR_Done,
+
+  /// Increment the rule coverage counter.
+  /// - RuleID - The ID of the rule that was covered.
+  GIR_Coverage,
 };
 
 enum {
@@ -273,7 +295,7 @@ public:
   ///   if returns true:
   ///     for I in all mutated/inserted instructions:
   ///       !isPreISelGenericOpcode(I.getOpcode())
-  virtual bool select(MachineInstr &I) const = 0;
+  virtual bool select(MachineInstr &I, CodeGenCoverage &CoverageInfo) const = 0;
 
 protected:
   using ComplexRendererFns =
@@ -284,6 +306,7 @@ protected:
   struct MatcherState {
     std::vector<ComplexRendererFns::value_type> Renderers;
     RecordedMIVector MIs;
+    DenseMap<unsigned, unsigned> TempRegisters;
 
     MatcherState(unsigned MaxRenderers);
   };
@@ -311,8 +334,8 @@ protected:
       const MatcherInfoTy<PredicateBitset, ComplexMatcherMemFn> &MatcherInfo,
       const int64_t *MatchTable, const TargetInstrInfo &TII,
       MachineRegisterInfo &MRI, const TargetRegisterInfo &TRI,
-      const RegisterBankInfo &RBI,
-      const PredicateBitset &AvailableFeatures) const;
+      const RegisterBankInfo &RBI, const PredicateBitset &AvailableFeatures,
+      CodeGenCoverage &CoverageInfo) const;
 
   /// Constrain a register operand of an instruction \p I to a specified
   /// register class. This could involve inserting COPYs before (for uses) or
@@ -347,7 +370,10 @@ protected:
   bool isBaseWithConstantOffset(const MachineOperand &Root,
                                 const MachineRegisterInfo &MRI) const;
 
-  bool isObviouslySafeToFold(MachineInstr &MI) const;
+  /// Return true if MI can obviously be folded into IntoMI.
+  /// MI and IntoMI do not need to be in the same basic blocks, but MI must
+  /// preceed IntoMI.
+  bool isObviouslySafeToFold(MachineInstr &MI, MachineInstr &IntoMI) const;
 };
 
 } // end namespace llvm

@@ -62,9 +62,9 @@ static DenseMap<StringRef, std::vector<InputSectionBase *>> CNamedSections;
 template <class ELFT, class RelT>
 static void resolveReloc(InputSectionBase &Sec, RelT &Rel,
                          std::function<void(InputSectionBase *, uint64_t)> Fn) {
-  SymbolBody &B = Sec.getFile<ELFT>()->getRelocTargetSym(Rel);
+  Symbol &B = Sec.getFile<ELFT>()->getRelocTargetSym(Rel);
 
-  if (auto *D = dyn_cast<DefinedRegular>(&B)) {
+  if (auto *D = dyn_cast<Defined>(&B)) {
     if (!D->Section)
       return;
     uint64_t Offset = D->Value;
@@ -74,7 +74,7 @@ static void resolveReloc(InputSectionBase &Sec, RelT &Rel,
     return;
   }
 
-  if (!B.isInCurrentDSO())
+  if (!B.isDefined())
     for (InputSectionBase *Sec : CNamedSections.lookup(B.getName()))
       Fn(Sec, 0);
 }
@@ -162,9 +162,9 @@ scanEhFrameSection(EhInputSection &EH,
     scanEhFrameSection<ELFT>(EH, EH.template rels<ELFT>(), Fn);
 }
 
-// We do not garbage-collect two types of sections:
-// 1) Sections used by the loader (.init, .fini, .ctors, .dtors or .jcr)
-// 2) Non-allocatable sections which typically contain debugging information
+// Some sections are used directly by the loader, so they should never be
+// garbage-collected. This function returns true if a given section is such
+// section.
 template <class ELFT> static bool isReserved(InputSectionBase *Sec) {
   switch (Sec->Type) {
   case SHT_FINI_ARRAY:
@@ -173,9 +173,6 @@ template <class ELFT> static bool isReserved(InputSectionBase *Sec) {
   case SHT_PREINIT_ARRAY:
     return true;
   default:
-    if (!(Sec->Flags & SHF_ALLOC))
-      return true;
-
     StringRef S = Sec->Name;
     return S.startswith(".ctors") || S.startswith(".dtors") ||
            S.startswith(".init") || S.startswith(".fini") ||
@@ -198,9 +195,6 @@ template <class ELFT> static void doGcSections() {
     if (Sec == &InputSection::Discarded)
       return;
 
-    // We don't gc non alloc sections.
-    if (!(Sec->Flags & SHF_ALLOC))
-      return;
 
     // Usually, a whole section is marked as live or dead, but in mergeable
     // (splittable) sections, each piece of data has independent liveness bit.
@@ -217,8 +211,8 @@ template <class ELFT> static void doGcSections() {
       Q.push_back(S);
   };
 
-  auto MarkSymbol = [&](SymbolBody *Sym) {
-    if (auto *D = dyn_cast_or_null<DefinedRegular>(Sym))
+  auto MarkSymbol = [&](Symbol *Sym) {
+    if (auto *D = dyn_cast_or_null<Defined>(Sym))
       if (auto *IS = cast_or_null<InputSectionBase>(D->Section))
         Enqueue(IS, D->Value);
   };
@@ -236,7 +230,7 @@ template <class ELFT> static void doGcSections() {
   // file can interrupt other ELF file's symbols at runtime.
   for (Symbol *S : Symtab->getSymbols())
     if (S->includeInDynsym())
-      MarkSymbol(S->body());
+      MarkSymbol(S);
 
   // Preserve special sections and those which are specified in linker
   // script KEEP command.
@@ -295,6 +289,13 @@ template <class ELFT> void elf::markLive() {
 
   // Follow the graph to mark all live sections.
   doGcSections<ELFT>();
+
+  // Report garbage-collected sections.
+  if (Config->PrintGcSections)
+    for (InputSectionBase *Sec : InputSections)
+      if (!Sec->Live)
+        message("removing unused section from '" + Sec->Name + "' in file '" +
+                Sec->File->getName() + "'");
 }
 
 template void elf::markLive<ELF32LE>();

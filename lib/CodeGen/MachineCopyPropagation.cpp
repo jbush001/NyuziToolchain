@@ -23,13 +23,13 @@
 #include "llvm/CodeGen/MachineInstr.h"
 #include "llvm/CodeGen/MachineOperand.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
+#include "llvm/CodeGen/TargetInstrInfo.h"
+#include "llvm/CodeGen/TargetRegisterInfo.h"
+#include "llvm/CodeGen/TargetSubtargetInfo.h"
 #include "llvm/MC/MCRegisterInfo.h"
 #include "llvm/Pass.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/raw_ostream.h"
-#include "llvm/Target/TargetInstrInfo.h"
-#include "llvm/Target/TargetRegisterInfo.h"
-#include "llvm/Target/TargetSubtargetInfo.h"
 #include <cassert>
 #include <iterator>
 
@@ -187,6 +187,8 @@ bool MachineCopyPropagation::eraseIfRedundant(MachineInstr &Copy, unsigned Src,
 
   // Check that the existing copy uses the correct sub registers.
   MachineInstr &PrevCopy = *CI->second;
+  if (PrevCopy.getOperand(0).isDead())
+    return false;
   if (!isNopCopy(PrevCopy, Src, Def, TRI))
     return false;
 

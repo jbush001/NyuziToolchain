@@ -10,9 +10,6 @@
 #include "ObjectFilePECOFF.h"
 #include "WindowsMiniDump.h"
 
-#include "llvm/BinaryFormat/COFF.h"
-
-#include "lldb/Core/ArchSpec.h"
 #include "lldb/Core/FileSpecList.h"
 #include "lldb/Core/Module.h"
 #include "lldb/Core/ModuleSpec.h"
@@ -23,12 +20,14 @@
 #include "lldb/Target/Process.h"
 #include "lldb/Target/SectionLoadList.h"
 #include "lldb/Target/Target.h"
+#include "lldb/Utility/ArchSpec.h"
 #include "lldb/Utility/DataBufferHeap.h"
 #include "lldb/Utility/DataBufferLLVM.h"
 #include "lldb/Utility/FileSpec.h"
 #include "lldb/Utility/StreamString.h"
 #include "lldb/Utility/Timer.h"
 #include "lldb/Utility/UUID.h"
+#include "llvm/BinaryFormat/COFF.h"
 
 #include "llvm/Support/MemoryBuffer.h"
 
@@ -134,6 +133,11 @@ size_t ObjectFilePECOFF::GetModuleSpecifications(
           spec.SetTriple("i386-pc-windows");
           specs.Append(ModuleSpec(file, spec));
           spec.SetTriple("i686-pc-windows");
+          specs.Append(ModuleSpec(file, spec));
+        }
+        else if (coff_header.machine == MachineArmNt)
+        {
+          spec.SetTriple("arm-pc-windows");
           specs.Append(ModuleSpec(file, spec));
         }
       }

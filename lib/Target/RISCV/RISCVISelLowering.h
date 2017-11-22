@@ -17,14 +17,16 @@
 
 #include "RISCV.h"
 #include "llvm/CodeGen/SelectionDAG.h"
-#include "llvm/Target/TargetLowering.h"
+#include "llvm/CodeGen/TargetLowering.h"
 
 namespace llvm {
 class RISCVSubtarget;
 namespace RISCVISD {
 enum NodeType : unsigned {
   FIRST_NUMBER = ISD::BUILTIN_OP_END,
-  RET_FLAG
+  RET_FLAG,
+  CALL,
+  SELECT_CC
 };
 }
 
@@ -41,6 +43,10 @@ public:
   // This method returns the name of a target specific DAG node.
   const char *getTargetNodeName(unsigned Opcode) const override;
 
+  MachineBasicBlock *
+  EmitInstrWithCustomInserter(MachineInstr &MI,
+                              MachineBasicBlock *BB) const override;
+
 private:
   // Lower incoming arguments, copy physregs into vregs
   SDValue LowerFormalArguments(SDValue Chain, CallingConv::ID CallConv,
@@ -52,10 +58,16 @@ private:
                       const SmallVectorImpl<ISD::OutputArg> &Outs,
                       const SmallVectorImpl<SDValue> &OutVals, const SDLoc &DL,
                       SelectionDAG &DAG) const override;
+  SDValue LowerCall(TargetLowering::CallLoweringInfo &CLI,
+                    SmallVectorImpl<SDValue> &InVals) const override;
   bool shouldConvertConstantLoadToIntImm(const APInt &Imm,
                                          Type *Ty) const override {
     return true;
   }
+  SDValue lowerGlobalAddress(SDValue Op, SelectionDAG &DAG) const;
+  SDValue lowerBlockAddress(SDValue Op, SelectionDAG &DAG) const;
+  SDValue lowerExternalSymbol(SDValue Op, SelectionDAG &DAG) const;
+  SDValue lowerSELECT(SDValue Op, SelectionDAG &DAG) const;
 };
 }
 

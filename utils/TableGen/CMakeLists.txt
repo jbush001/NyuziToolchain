@@ -26,6 +26,7 @@ add_tablegen(llvm-tblgen LLVM
   GlobalISelEmitter.cpp
   InfoByHwMode.cpp
   InstrInfoEmitter.cpp
+  InstrDocsEmitter.cpp
   IntrinsicEmitter.cpp
   OptParserEmitter.cpp
   PseudoLoweringEmitter.cpp
@@ -43,3 +44,4 @@ add_tablegen(llvm-tblgen LLVM
   X86RecognizableInstr.cpp
   CTagsEmitter.cpp
   )
+set_target_properties(llvm-tblgen PROPERTIES FOLDER "Tablegenning")

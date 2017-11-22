@@ -31,8 +31,7 @@ class DefinedAbsolute;
 class DefinedRelative;
 class Lazy;
 class SectionChunk;
-class SymbolBody;
-struct Symbol;
+class Symbol;
 
 // SymbolTable is a bucket of all known symbols, including defined,
 // undefined, or lazy symbols (the last one is symbols in archive
@@ -66,7 +65,7 @@ public:
   // mangled symbol. This function tries to find a mangled name
   // for U from the symbol table, and if found, set the symbol as
   // a weak alias for U.
-  void mangleMaybe(SymbolBody *B);
+  void mangleMaybe(Symbol *B);
   StringRef findMangle(StringRef Name);
 
   // Build a set of COFF objects representing the combined contents of
@@ -76,7 +75,7 @@ public:
   std::vector<StringRef> compileBitcodeFiles();
 
   // Creates an Undefined symbol for a given name.
-  SymbolBody *addUndefined(StringRef Name);
+  Symbol *addUndefined(StringRef Name);
 
   Symbol *addSynthetic(StringRef N, Chunk *C);
   Symbol *addAbsolute(StringRef N, uint64_t VA);

@@ -30,8 +30,9 @@
 #include "llvm/IR/InlineAsm.h"
 #include "llvm/IR/Intrinsics.h"
 #include "llvm/IR/MDBuilder.h"
-#include "llvm/Support/ScopedPrinter.h"
 #include "llvm/Support/ConvertUTF.h"
+#include "llvm/Support/ScopedPrinter.h"
+#include "llvm/Support/TargetParser.h"
 #include <sstream>
 
 using namespace clang;
@@ -1431,7 +1432,7 @@ RValue CodeGenFunction::EmitBuiltinExpr(const FunctionDecl *FD,
     EmitNonNullArgCheck(RValue::get(Dest.getPointer()), E->getArg(0)->getType(),
                         E->getArg(0)->getExprLoc(), FD, 0);
     Builder.CreateMemSet(Dest, Builder.getInt8(0), SizeVal, false);
-    return RValue::get(Dest.getPointer());
+    return RValue::get(nullptr);
   }
   case Builtin::BImemcpy:
   case Builtin::BI__builtin_memcpy: {
@@ -2072,24 +2073,21 @@ RValue CodeGenFunction::EmitBuiltinExpr(const FunctionDecl *FD,
     return RValue::get(nullptr);
   }
 
-    // Library functions with special handling.
   case Builtin::BIsqrt:
   case Builtin::BIsqrtf:
-  case Builtin::BIsqrtl: {
-    // Transform a call to sqrt* into a @llvm.sqrt.* intrinsic call, but only
-    // in finite- or unsafe-math mode (the intrinsic has different semantics
-    // for handling negative numbers compared to the library function, so
-    // -fmath-errno=0 is not enough).
-    if (!FD->hasAttr<ConstAttr>())
-      break;
-    if (!(CGM.getCodeGenOpts().UnsafeFPMath ||
-          CGM.getCodeGenOpts().NoNaNsFPMath))
-      break;
-    Value *Arg0 = EmitScalarExpr(E->getArg(0));
-    llvm::Type *ArgType = Arg0->getType();
-    Value *F = CGM.getIntrinsic(Intrinsic::sqrt, ArgType);
-    return RValue::get(Builder.CreateCall(F, Arg0));
-  }
+  case Builtin::BIsqrtl:
+    // Builtins have the same semantics as library functions. The LLVM intrinsic
+    // has the same semantics as the library function except it does not set
+    // errno. Thus, we can transform either sqrt or __builtin_sqrt to @llvm.sqrt
+    // if the call is 'const' (the call must not set errno).
+    //
+    // FIXME: The builtin cases are not here because they are marked 'const' in
+    // Builtins.def. So that means they are wrongly defined to have different
+    // semantics than the library functions. If we included them here, we would
+    // turn them into LLVM intrinsics regardless of whether -fmath-errno was on.
+    if (FD->hasAttr<ConstAttr>())
+      return RValue::get(emitUnaryBuiltin(*this, E, Intrinsic::sqrt));
+    break;
 
   case Builtin::BI__builtin_pow:
   case Builtin::BI__builtin_powf:
@@ -2112,15 +2110,11 @@ RValue CodeGenFunction::EmitBuiltinExpr(const FunctionDecl *FD,
   case Builtin::BIfmal:
   case Builtin::BI__builtin_fma:
   case Builtin::BI__builtin_fmaf:
-  case Builtin::BI__builtin_fmal: {
-    // Rewrite fma to intrinsic.
-    Value *FirstArg = EmitScalarExpr(E->getArg(0));
-    llvm::Type *ArgType = FirstArg->getType();
-    Value *F = CGM.getIntrinsic(Intrinsic::fma, ArgType);
-    return RValue::get(
-        Builder.CreateCall(F, {FirstArg, EmitScalarExpr(E->getArg(1)),
-                               EmitScalarExpr(E->getArg(2))}));
-  }
+  case Builtin::BI__builtin_fmal:
+    // A constant libcall or builtin is equivalent to the LLVM intrinsic.
+    if (FD->hasAttr<ConstAttr>())
+      return RValue::get(emitTernaryBuiltin(*this, E, Intrinsic::fma));
+    break;
 
   case Builtin::BI__builtin_signbit:
   case Builtin::BI__builtin_signbitf:
@@ -4633,8 +4627,8 @@ static bool HasExtraNeonArgument(unsigned BuiltinID) {
   case NEON::BI__builtin_neon_vsha1cq_u32:
   case NEON::BI__builtin_neon_vsha1pq_u32:
   case NEON::BI__builtin_neon_vsha1mq_u32:
-  case ARM::BI_MoveToCoprocessor:
-  case ARM::BI_MoveToCoprocessor2:
+  case clang::ARM::BI_MoveToCoprocessor:
+  case clang::ARM::BI_MoveToCoprocessor2:
     return false;
   }
   return true;
@@ -7504,78 +7498,6 @@ Value *CodeGenFunction::EmitX86CpuIs(const CallExpr *E) {
 
 Value *CodeGenFunction::EmitX86CpuIs(StringRef CPUStr) {
 
-  // This enum contains the vendor, type, and subtype enums from the
-  // runtime library concatenated together. The _START labels mark
-  // the start and are used to adjust the value into the correct
-  // encoding space.
-  enum X86CPUs {
-    INTEL = 1,
-    AMD,
-    CPU_TYPE_START,
-    INTEL_BONNELL,
-    INTEL_CORE2,
-    INTEL_COREI7,
-    AMDFAM10H,
-    AMDFAM15H,
-    INTEL_SILVERMONT,
-    INTEL_KNL,
-    AMD_BTVER1,
-    AMD_BTVER2,
-    AMDFAM17H,
-    CPU_SUBTYPE_START,
-    INTEL_COREI7_NEHALEM,
-    INTEL_COREI7_WESTMERE,
-    INTEL_COREI7_SANDYBRIDGE,
-    AMDFAM10H_BARCELONA,
-    AMDFAM10H_SHANGHAI,
-    AMDFAM10H_ISTANBUL,
-    AMDFAM15H_BDVER1,
-    AMDFAM15H_BDVER2,
-    AMDFAM15H_BDVER3,
-    AMDFAM15H_BDVER4,
-    AMDFAM17H_ZNVER1,
-    INTEL_COREI7_IVYBRIDGE,
-    INTEL_COREI7_HASWELL,
-    INTEL_COREI7_BROADWELL,
-    INTEL_COREI7_SKYLAKE,
-    INTEL_COREI7_SKYLAKE_AVX512,
-  };
-
-  X86CPUs CPU =
-    StringSwitch<X86CPUs>(CPUStr)
-      .Case("amd", AMD)
-      .Case("amdfam10h", AMDFAM10H)
-      .Case("amdfam10", AMDFAM10H)
-      .Case("amdfam15h", AMDFAM15H)
-      .Case("amdfam15", AMDFAM15H)
-      .Case("amdfam17h", AMDFAM17H)
-      .Case("atom", INTEL_BONNELL)
-      .Case("barcelona", AMDFAM10H_BARCELONA)
-      .Case("bdver1", AMDFAM15H_BDVER1)
-      .Case("bdver2", AMDFAM15H_BDVER2)
-      .Case("bdver3", AMDFAM15H_BDVER3)
-      .Case("bdver4", AMDFAM15H_BDVER4)
-      .Case("bonnell", INTEL_BONNELL)
-      .Case("broadwell", INTEL_COREI7_BROADWELL)
-      .Case("btver1", AMD_BTVER1)
-      .Case("btver2", AMD_BTVER2)
-      .Case("core2", INTEL_CORE2)
-      .Case("corei7", INTEL_COREI7)
-      .Case("haswell", INTEL_COREI7_HASWELL)
-      .Case("intel", INTEL)
-      .Case("istanbul", AMDFAM10H_ISTANBUL)
-      .Case("ivybridge", INTEL_COREI7_IVYBRIDGE)
-      .Case("knl", INTEL_KNL)
-      .Case("nehalem", INTEL_COREI7_NEHALEM)
-      .Case("sandybridge", INTEL_COREI7_SANDYBRIDGE)
-      .Case("shanghai", AMDFAM10H_SHANGHAI)
-      .Case("silvermont", INTEL_SILVERMONT)
-      .Case("skylake", INTEL_COREI7_SKYLAKE)
-      .Case("skylake-avx512", INTEL_COREI7_SKYLAKE_AVX512)
-      .Case("slm", INTEL_SILVERMONT)
-      .Case("westmere", INTEL_COREI7_WESTMERE)
-      .Case("znver1", AMDFAM17H_ZNVER1);
-
   llvm::Type *Int32Ty = Builder.getInt32Ty();
 
   // Matching the struct layout from the compiler-rt/libgcc structure that is
@@ -7594,22 +7516,22 @@ Value *CodeGenFunction::EmitX86CpuIs(StringRef CPUStr) {
   // range. Also adjust the expected value.
   unsigned Index;
   unsigned Value;
-  if (CPU > CPU_SUBTYPE_START) {
-    Index = 2;
-    Value = CPU - CPU_SUBTYPE_START;
-  } else if (CPU > CPU_TYPE_START) {
-    Index = 1;
-    Value = CPU - CPU_TYPE_START;
-  } else {
-    Index = 0;
-    Value = CPU;
-  }
+  std::tie(Index, Value) = StringSwitch<std::pair<unsigned, unsigned>>(CPUStr)
+#define X86_VENDOR(ENUM, STRING)                                               \
+  .Case(STRING, {0u, static_cast<unsigned>(llvm::X86::ENUM)})
+#define X86_CPU_TYPE_COMPAT_WITH_ALIAS(ARCHNAME, ENUM, STR, ALIAS)             \
+  .Cases(STR, ALIAS, {1u, static_cast<unsigned>(llvm::X86::ENUM)})
+#define X86_CPU_TYPE_COMPAT(ARCHNAME, ENUM, STR)                               \
+  .Case(STR, {1u, static_cast<unsigned>(llvm::X86::ENUM)})
+#define X86_CPU_SUBTYPE_COMPAT(ARCHNAME, ENUM, STR)                            \
+  .Case(STR, {2u, static_cast<unsigned>(llvm::X86::ENUM)})
+#include "llvm/Support/X86TargetParser.def"
+                               .Default({0, 0});
+  assert(Value != 0 && "Invalid CPUStr passed to CpuIs");
 
   // Grab the appropriate field from __cpu_model.
-  llvm::Value *Idxs[] = {
-    ConstantInt::get(Int32Ty, 0),
-    ConstantInt::get(Int32Ty, Index)
-  };
+  llvm::Value *Idxs[] = {ConstantInt::get(Int32Ty, 0),
+                         ConstantInt::get(Int32Ty, Index)};
   llvm::Value *CpuValue = Builder.CreateGEP(STy, CpuModel, Idxs);
   CpuValue = Builder.CreateAlignedLoad(CpuValue, CharUnits::fromQuantity(4));
 
@@ -7625,82 +7547,16 @@ Value *CodeGenFunction::EmitX86CpuSupports(const CallExpr *E) {
 }
 
 Value *CodeGenFunction::EmitX86CpuSupports(ArrayRef<StringRef> FeatureStrs) {
-  // TODO: When/if this becomes more than x86 specific then use a TargetInfo
-  // based mapping.
   // Processor features and mapping to processor feature value.
-  enum X86Features {
-    CMOV = 0,
-    MMX,
-    POPCNT,
-    SSE,
-    SSE2,
-    SSE3,
-    SSSE3,
-    SSE4_1,
-    SSE4_2,
-    AVX,
-    AVX2,
-    SSE4_A,
-    FMA4,
-    XOP,
-    FMA,
-    AVX512F,
-    BMI,
-    BMI2,
-    AES,
-    PCLMUL,
-    AVX512VL,
-    AVX512BW,
-    AVX512DQ,
-    AVX512CD,
-    AVX512ER,
-    AVX512PF,
-    AVX512VBMI,
-    AVX512IFMA,
-    AVX5124VNNIW,
-    AVX5124FMAPS,
-    AVX512VPOPCNTDQ,
-    MAX
-  };
 
   uint32_t FeaturesMask = 0;
 
   for (const StringRef &FeatureStr : FeatureStrs) {
-    X86Features Feature =
-        StringSwitch<X86Features>(FeatureStr)
-            .Case("cmov", X86Features::CMOV)
-            .Case("mmx", X86Features::MMX)
-            .Case("popcnt", X86Features::POPCNT)
-            .Case("sse", X86Features::SSE)
-            .Case("sse2", X86Features::SSE2)
-            .Case("sse3", X86Features::SSE3)
-            .Case("ssse3", X86Features::SSSE3)
-            .Case("sse4.1", X86Features::SSE4_1)
-            .Case("sse4.2", X86Features::SSE4_2)
-            .Case("avx", X86Features::AVX)
-            .Case("avx2", X86Features::AVX2)
-            .Case("sse4a", X86Features::SSE4_A)
-            .Case("fma4", X86Features::FMA4)
-            .Case("xop", X86Features::XOP)
-            .Case("fma", X86Features::FMA)
-            .Case("avx512f", X86Features::AVX512F)
-            .Case("bmi", X86Features::BMI)
-            .Case("bmi2", X86Features::BMI2)
-            .Case("aes", X86Features::AES)
-            .Case("pclmul", X86Features::PCLMUL)
-            .Case("avx512vl", X86Features::AVX512VL)
-            .Case("avx512bw", X86Features::AVX512BW)
-            .Case("avx512dq", X86Features::AVX512DQ)
-            .Case("avx512cd", X86Features::AVX512CD)
-            .Case("avx512er", X86Features::AVX512ER)
-            .Case("avx512pf", X86Features::AVX512PF)
-            .Case("avx512vbmi", X86Features::AVX512VBMI)
-            .Case("avx512ifma", X86Features::AVX512IFMA)
-            .Case("avx5124vnniw", X86Features::AVX5124VNNIW)
-            .Case("avx5124fmaps", X86Features::AVX5124FMAPS)
-            .Case("avx512vpopcntdq", X86Features::AVX512VPOPCNTDQ)
-            .Default(X86Features::MAX);
-    assert(Feature != X86Features::MAX && "Invalid feature!");
+    unsigned Feature =
+        StringSwitch<unsigned>(FeatureStr)
+#define X86_FEATURE_COMPAT(VAL, ENUM, STR) .Case(STR, VAL)
+#include "llvm/Support/X86TargetParser.def"
+        ;
     FeaturesMask |= (1U << Feature);
   }
 
@@ -8145,32 +8001,6 @@ Value *CodeGenFunction::EmitX86BuiltinExpr(unsigned BuiltinID,
   case X86::BI__builtin_ia32_selectpd_256:
   case X86::BI__builtin_ia32_selectpd_512:
     return EmitX86Select(*this, Ops[0], Ops[1], Ops[2]);
-  case X86::BI__builtin_ia32_pcmpeqb128_mask:
-  case X86::BI__builtin_ia32_pcmpeqb256_mask:
-  case X86::BI__builtin_ia32_pcmpeqb512_mask:
-  case X86::BI__builtin_ia32_pcmpeqw128_mask:
-  case X86::BI__builtin_ia32_pcmpeqw256_mask:
-  case X86::BI__builtin_ia32_pcmpeqw512_mask:
-  case X86::BI__builtin_ia32_pcmpeqd128_mask:
-  case X86::BI__builtin_ia32_pcmpeqd256_mask:
-  case X86::BI__builtin_ia32_pcmpeqd512_mask:
-  case X86::BI__builtin_ia32_pcmpeqq128_mask:
-  case X86::BI__builtin_ia32_pcmpeqq256_mask:
-  case X86::BI__builtin_ia32_pcmpeqq512_mask:
-    return EmitX86MaskedCompare(*this, 0, false, Ops);
-  case X86::BI__builtin_ia32_pcmpgtb128_mask:
-  case X86::BI__builtin_ia32_pcmpgtb256_mask:
-  case X86::BI__builtin_ia32_pcmpgtb512_mask:
-  case X86::BI__builtin_ia32_pcmpgtw128_mask:
-  case X86::BI__builtin_ia32_pcmpgtw256_mask:
-  case X86::BI__builtin_ia32_pcmpgtw512_mask:
-  case X86::BI__builtin_ia32_pcmpgtd128_mask:
-  case X86::BI__builtin_ia32_pcmpgtd256_mask:
-  case X86::BI__builtin_ia32_pcmpgtd512_mask:
-  case X86::BI__builtin_ia32_pcmpgtq128_mask:
-  case X86::BI__builtin_ia32_pcmpgtq256_mask:
-  case X86::BI__builtin_ia32_pcmpgtq512_mask:
-    return EmitX86MaskedCompare(*this, 6, true, Ops);
   case X86::BI__builtin_ia32_cmpb128_mask:
   case X86::BI__builtin_ia32_cmpb256_mask:
   case X86::BI__builtin_ia32_cmpb512_mask:
@@ -9581,6 +9411,16 @@ Value *CodeGenFunction::EmitNVPTXBuiltinExpr(unsigned BuiltinID,
     Value *FnALAF32 =
         CGM.getIntrinsic(Intrinsic::nvvm_atomic_load_add_f32, Ptr->getType());
     return Builder.CreateCall(FnALAF32, {Ptr, Val});
+  }
+
+  case NVPTX::BI__nvvm_atom_add_gen_d: {
+    Value *Ptr = EmitScalarExpr(E->getArg(0));
+    Value *Val = EmitScalarExpr(E->getArg(1));
+    // atomicrmw only deals with integer arguments, so we need to use
+    // LLVM's nvvm_atomic_load_add_f64 intrinsic.
+    Value *FnALAF64 =
+        CGM.getIntrinsic(Intrinsic::nvvm_atomic_load_add_f64, Ptr->getType());
+    return Builder.CreateCall(FnALAF64, {Ptr, Val});
   }
 
   case NVPTX::BI__nvvm_atom_inc_gen_ui: {

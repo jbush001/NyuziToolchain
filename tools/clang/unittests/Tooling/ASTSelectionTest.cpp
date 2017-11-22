@@ -840,4 +840,246 @@ void f() {
       });
 }
 
+TEST(ASTSelectionFinder, SelectEntireDeclStmtRange) {
+  StringRef Source = R"(
+void f(int x, int y) {
+   int a = x * y;
+}
+)";
+  // 'int a = x * y'
+  findSelectedASTNodesWithRange(
+      Source, {3, 4}, FileRange{{3, 4}, {3, 17}},
+      [](SourceRange SelectionRange, Optional<SelectedASTNode> Node) {
+        EXPECT_TRUE(Node);
+        Optional<CodeRangeASTSelection> SelectedCode =
+            CodeRangeASTSelection::create(SelectionRange, std::move(*Node));
+        EXPECT_TRUE(SelectedCode);
+        EXPECT_EQ(SelectedCode->size(), 1u);
+        EXPECT_TRUE(isa<DeclStmt>((*SelectedCode)[0]));
+        ArrayRef<SelectedASTNode::ReferenceType> Parents =
+            SelectedCode->getParents();
+        EXPECT_EQ(Parents.size(), 3u);
+        EXPECT_TRUE(
+            isa<TranslationUnitDecl>(Parents[0].get().Node.get<Decl>()));
+        // Function 'f' definition.
+        EXPECT_TRUE(isa<FunctionDecl>(Parents[1].get().Node.get<Decl>()));
+        // Function body of function 'F'.
+        EXPECT_TRUE(isa<CompoundStmt>(Parents[2].get().Node.get<Stmt>()));
+      });
+}
+
+TEST(ASTSelectionFinder, SelectEntireDeclStmtRangeWithMultipleDecls) {
+  StringRef Source = R"(
+void f(int x, int y) {
+   int a = x * y, b = x - y;
+}
+)";
+  // 'b = x - y'
+  findSelectedASTNodesWithRange(
+      Source, {3, 19}, FileRange{{3, 19}, {3, 28}},
+      [](SourceRange SelectionRange, Optional<SelectedASTNode> Node) {
+        EXPECT_TRUE(Node);
+        Optional<CodeRangeASTSelection> SelectedCode =
+            CodeRangeASTSelection::create(SelectionRange, std::move(*Node));
+        EXPECT_TRUE(SelectedCode);
+        EXPECT_EQ(SelectedCode->size(), 1u);
+        EXPECT_TRUE(isa<DeclStmt>((*SelectedCode)[0]));
+        ArrayRef<SelectedASTNode::ReferenceType> Parents =
+            SelectedCode->getParents();
+        EXPECT_EQ(Parents.size(), 3u);
+        EXPECT_TRUE(
+            isa<TranslationUnitDecl>(Parents[0].get().Node.get<Decl>()));
+        // Function 'f' definition.
+        EXPECT_TRUE(isa<FunctionDecl>(Parents[1].get().Node.get<Decl>()));
+        // Function body of function 'F'.
+        EXPECT_TRUE(isa<CompoundStmt>(Parents[2].get().Node.get<Stmt>()));
+      });
+}
+
+TEST(ASTSelectionFinder, SimpleCodeRangeASTSelectionInObjCMethod) {
+  StringRef Source = R"(@interface I @end
+@implementation I
+- (void) f:(int)x with:(int) y {
+  int z = x;
+  [self f: 2 with: 3];
+  if (x == 0) {
+    return;
+  }
+  x = 1;
+  return;
+}
+- (void)f2 {
+  int m = 0;
+}
+@end
+)";
+  // Range that spans multiple methods is an invalid code range.
+  findSelectedASTNodesWithRange(
+      Source, {9, 2}, FileRange{{9, 2}, {13, 1}},
+      [](SourceRange SelectionRange, Optional<SelectedASTNode> Node) {
+        EXPECT_TRUE(Node);
+        Optional<CodeRangeASTSelection> SelectedCode =
+            CodeRangeASTSelection::create(SelectionRange, std::move(*Node));
+        EXPECT_FALSE(SelectedCode);
+      },
+      SelectionFinderVisitor::Lang_OBJC);
+  // Just 'z = x;':
+  findSelectedASTNodesWithRange(
+      Source, {4, 2}, FileRange{{4, 2}, {4, 13}},
+      [](SourceRange SelectionRange, Optional<SelectedASTNode> Node) {
+        EXPECT_TRUE(Node);
+        Optional<CodeRangeASTSelection> SelectedCode =
+            CodeRangeASTSelection::create(SelectionRange, std::move(*Node));
+        EXPECT_TRUE(SelectedCode);
+        EXPECT_EQ(SelectedCode->size(), 1u);
+        EXPECT_TRUE(isa<DeclStmt>((*SelectedCode)[0]));
+        ArrayRef<SelectedASTNode::ReferenceType> Parents =
+            SelectedCode->getParents();
+        EXPECT_EQ(Parents.size(), 4u);
+        EXPECT_TRUE(
+            isa<TranslationUnitDecl>(Parents[0].get().Node.get<Decl>()));
+        // 'I' @implementation.
+        EXPECT_TRUE(isa<ObjCImplDecl>(Parents[1].get().Node.get<Decl>()));
+        // Function 'f' definition.
+        EXPECT_TRUE(isa<ObjCMethodDecl>(Parents[2].get().Node.get<Decl>()));
+        // Function body of function 'F'.
+        EXPECT_TRUE(isa<CompoundStmt>(Parents[3].get().Node.get<Stmt>()));
+      },
+      SelectionFinderVisitor::Lang_OBJC);
+  // From '[self f: 2 with: 3]' until just before 'x = 1;':
+  findSelectedASTNodesWithRange(
+      Source, {5, 2}, FileRange{{5, 2}, {9, 1}},
+      [](SourceRange SelectionRange, Optional<SelectedASTNode> Node) {
+        EXPECT_TRUE(Node);
+        Optional<CodeRangeASTSelection> SelectedCode =
+            CodeRangeASTSelection::create(SelectionRange, std::move(*Node));
+        EXPECT_TRUE(SelectedCode);
+        EXPECT_EQ(SelectedCode->size(), 2u);
+        EXPECT_TRUE(isa<ObjCMessageExpr>((*SelectedCode)[0]));
+        EXPECT_TRUE(isa<IfStmt>((*SelectedCode)[1]));
+        ArrayRef<SelectedASTNode::ReferenceType> Parents =
+            SelectedCode->getParents();
+        EXPECT_EQ(Parents.size(), 4u);
+        EXPECT_TRUE(
+            isa<TranslationUnitDecl>(Parents[0].get().Node.get<Decl>()));
+        // 'I' @implementation.
+        EXPECT_TRUE(isa<ObjCImplDecl>(Parents[1].get().Node.get<Decl>()));
+        // Function 'f' definition.
+        EXPECT_TRUE(isa<ObjCMethodDecl>(Parents[2].get().Node.get<Decl>()));
+        // Function body of function 'F'.
+        EXPECT_TRUE(isa<CompoundStmt>(Parents[3].get().Node.get<Stmt>()));
+      },
+      SelectionFinderVisitor::Lang_OBJC);
+}
+
+TEST(ASTSelectionFinder, CanonicalizeObjCStringLiteral) {
+  StringRef Source = R"(
+void foo() {
+  (void)@"test";
+}
+      )";
+  // Just '"test"':
+  findSelectedASTNodesWithRange(
+      Source, {3, 10}, FileRange{{3, 10}, {3, 16}},
+      [](SourceRange SelectionRange, Optional<SelectedASTNode> Node) {
+        EXPECT_TRUE(Node);
+        Optional<CodeRangeASTSelection> SelectedCode =
+            CodeRangeASTSelection::create(SelectionRange, std::move(*Node));
+        EXPECT_TRUE(SelectedCode);
+        EXPECT_EQ(SelectedCode->size(), 1u);
+        EXPECT_TRUE(isa<ObjCStringLiteral>((*SelectedCode)[0]));
+      },
+      SelectionFinderVisitor::Lang_OBJC);
+  // Just 'test':
+  findSelectedASTNodesWithRange(
+      Source, {3, 11}, FileRange{{3, 11}, {3, 15}},
+      [](SourceRange SelectionRange, Optional<SelectedASTNode> Node) {
+        EXPECT_TRUE(Node);
+        Optional<CodeRangeASTSelection> SelectedCode =
+            CodeRangeASTSelection::create(SelectionRange, std::move(*Node));
+        EXPECT_TRUE(SelectedCode);
+        EXPECT_EQ(SelectedCode->size(), 1u);
+        EXPECT_TRUE(isa<ObjCStringLiteral>((*SelectedCode)[0]));
+      },
+      SelectionFinderVisitor::Lang_OBJC);
+}
+
+TEST(ASTSelectionFinder, CanonicalizeMemberCalleeToCall) {
+  StringRef Source = R"(
+class AClass { public:
+  void method();
+  int afield;
+  void selectWholeCallWhenJustMethodSelected(int &i) {
+    method();
+  }
+};
+void selectWholeCallWhenJustMethodSelected() {
+  AClass a;
+  a.method();
+}
+void dontSelectArgument(AClass &a) {
+  a.selectWholeCallWhenJustMethodSelected(a.afield);
+}
+     )";
+  // Just 'method' with implicit 'this':
+  findSelectedASTNodesWithRange(
+      Source, {6, 5}, FileRange{{6, 5}, {6, 11}},
+      [](SourceRange SelectionRange, Optional<SelectedASTNode> Node) {
+        EXPECT_TRUE(Node);
+        Optional<CodeRangeASTSelection> SelectedCode =
+            CodeRangeASTSelection::create(SelectionRange, std::move(*Node));
+        EXPECT_TRUE(SelectedCode);
+        EXPECT_EQ(SelectedCode->size(), 1u);
+        EXPECT_TRUE(isa<CXXMemberCallExpr>((*SelectedCode)[0]));
+      });
+  // Just 'method':
+  findSelectedASTNodesWithRange(
+      Source, {11, 5}, FileRange{{11, 5}, {11, 11}},
+      [](SourceRange SelectionRange, Optional<SelectedASTNode> Node) {
+        EXPECT_TRUE(Node);
+        Optional<CodeRangeASTSelection> SelectedCode =
+            CodeRangeASTSelection::create(SelectionRange, std::move(*Node));
+        EXPECT_TRUE(SelectedCode);
+        EXPECT_EQ(SelectedCode->size(), 1u);
+        EXPECT_TRUE(isa<CXXMemberCallExpr>((*SelectedCode)[0]));
+      });
+  // Just 'afield', which should not select the call.
+  findSelectedASTNodesWithRange(
+      Source, {14, 5}, FileRange{{14, 45}, {14, 51}},
+      [](SourceRange SelectionRange, Optional<SelectedASTNode> Node) {
+        EXPECT_TRUE(Node);
+        Optional<CodeRangeASTSelection> SelectedCode =
+            CodeRangeASTSelection::create(SelectionRange, std::move(*Node));
+        EXPECT_TRUE(SelectedCode);
+        EXPECT_EQ(SelectedCode->size(), 1u);
+        EXPECT_FALSE(isa<CXXMemberCallExpr>((*SelectedCode)[0]));
+      });
+}
+
+TEST(ASTSelectionFinder, CanonicalizeFuncCalleeToCall) {
+  StringRef Source = R"(
+void function();
+
+void test() {
+  function();
+}
+     )";
+  // Just 'function':
+  findSelectedASTNodesWithRange(
+      Source, {5, 3}, FileRange{{5, 3}, {5, 11}},
+      [](SourceRange SelectionRange, Optional<SelectedASTNode> Node) {
+        EXPECT_TRUE(Node);
+        Node->dump();
+        Optional<CodeRangeASTSelection> SelectedCode =
+            CodeRangeASTSelection::create(SelectionRange, std::move(*Node));
+        EXPECT_TRUE(SelectedCode);
+        EXPECT_EQ(SelectedCode->size(), 1u);
+        EXPECT_TRUE(isa<CallExpr>((*SelectedCode)[0]));
+        EXPECT_TRUE(isa<CompoundStmt>(
+            SelectedCode->getParents()[SelectedCode->getParents().size() - 1]
+                .get()
+                .Node.get<Stmt>()));
+      });
+}
+
 } // end anonymous namespace

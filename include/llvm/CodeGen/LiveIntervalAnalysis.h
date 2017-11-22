@@ -28,11 +28,11 @@
 #include "llvm/CodeGen/MachineBasicBlock.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/CodeGen/SlotIndexes.h"
+#include "llvm/CodeGen/TargetRegisterInfo.h"
 #include "llvm/MC/LaneBitmask.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Compiler.h"
 #include "llvm/Support/ErrorHandling.h"
-#include "llvm/Target/TargetRegisterInfo.h"
 #include <cassert>
 #include <cstdint>
 #include <utility>
@@ -106,6 +106,11 @@ class VirtRegMap;
     static float getSpillWeight(bool isDef, bool isUse,
                                 const MachineBlockFrequencyInfo *MBFI,
                                 const MachineInstr &Instr);
+
+    /// Calculate the spill weight to assign to a single instruction.
+    static float getSpillWeight(bool isDef, bool isUse,
+                                const MachineBlockFrequencyInfo *MBFI,
+                                const MachineBasicBlock *MBB);
 
     LiveInterval &getInterval(unsigned Reg) {
       if (hasInterval(Reg))

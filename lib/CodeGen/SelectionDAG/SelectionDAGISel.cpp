@@ -11,6 +11,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "llvm/CodeGen/SelectionDAGISel.h"
 #include "ScheduleDAGSDNodes.h"
 #include "SelectionDAGBuilder.h"
 #include "llvm/ADT/APInt.h"
@@ -45,9 +46,12 @@
 #include "llvm/CodeGen/MachineValueType.h"
 #include "llvm/CodeGen/SchedulerRegistry.h"
 #include "llvm/CodeGen/SelectionDAG.h"
-#include "llvm/CodeGen/SelectionDAGISel.h"
 #include "llvm/CodeGen/SelectionDAGNodes.h"
 #include "llvm/CodeGen/StackProtector.h"
+#include "llvm/CodeGen/TargetInstrInfo.h"
+#include "llvm/CodeGen/TargetLowering.h"
+#include "llvm/CodeGen/TargetRegisterInfo.h"
+#include "llvm/CodeGen/TargetSubtargetInfo.h"
 #include "llvm/CodeGen/ValueTypes.h"
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/Constants.h"
@@ -80,13 +84,9 @@
 #include "llvm/Support/KnownBits.h"
 #include "llvm/Support/Timer.h"
 #include "llvm/Support/raw_ostream.h"
-#include "llvm/Target/TargetInstrInfo.h"
 #include "llvm/Target/TargetIntrinsicInfo.h"
-#include "llvm/Target/TargetLowering.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Target/TargetOptions.h"
-#include "llvm/Target/TargetRegisterInfo.h"
-#include "llvm/Target/TargetSubtargetInfo.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
 #include <algorithm>
 #include <cassert>
@@ -1142,7 +1142,7 @@ static void processDbgDeclares(FunctionLoweringInfo *FuncInfo) {
 
       // Look through casts and constant offset GEPs. These mostly come from
       // inalloca.
-      APInt Offset(DL.getPointerSizeInBits(0), 0);
+      APInt Offset(DL.getTypeSizeInBits(Address->getType()), 0);
       Address = Address->stripAndAccumulateInBoundsConstantOffsets(DL, Offset);
 
       // Check if the variable is a static alloca or a byval or inalloca
@@ -2775,6 +2775,12 @@ static unsigned IsPredicateKnownToFail(const unsigned char *Table,
     Result = !::CheckType(Table, Index, N, SDISel.TLI,
                           SDISel.CurDAG->getDataLayout());
     return Index;
+  case SelectionDAGISel::OPC_CheckTypeRes: {
+    unsigned Res = Table[Index++];
+    Result = !::CheckType(Table, Index, N.getValue(Res), SDISel.TLI,
+                          SDISel.CurDAG->getDataLayout());
+    return Index;
+  }
   case SelectionDAGISel::OPC_CheckChild0Type:
   case SelectionDAGISel::OPC_CheckChild1Type:
   case SelectionDAGISel::OPC_CheckChild2Type:
@@ -3177,6 +3183,14 @@ void SelectionDAGISel::SelectCodeCommon(SDNode *NodeToMatch,
         break;
       continue;
 
+    case OPC_CheckTypeRes: {
+      unsigned Res = MatcherTable[MatcherIndex++];
+      if (!::CheckType(MatcherTable, MatcherIndex, N.getValue(Res), TLI,
+                       CurDAG->getDataLayout()))
+        break;
+      continue;
+    }
+
     case OPC_SwitchOpcode: {
       unsigned CurNodeOpcode = N.getOpcode();
       unsigned SwitchStart = MatcherIndex-1; (void)SwitchStart;
@@ -3550,6 +3564,7 @@ void SelectionDAGISel::SelectCodeCommon(SDNode *NodeToMatch,
                "NodeToMatch was removed partway through selection");
         SelectionDAG::DAGNodeDeletedListener NDL(*CurDAG, [&](SDNode *N,
                                                               SDNode *E) {
+          CurDAG->salvageDebugInfo(*N);
           auto &Chain = ChainNodesMatched;
           assert((!E || !is_contained(Chain, N)) &&
                  "Chain node replaced during MorphNode");

@@ -34,6 +34,8 @@
 #include "llvm/CodeGen/MachineRegisterInfo.h"
 #include "llvm/CodeGen/Passes.h"
 #include "llvm/CodeGen/SlotIndexes.h"
+#include "llvm/CodeGen/TargetRegisterInfo.h"
+#include "llvm/CodeGen/TargetSubtargetInfo.h"
 #include "llvm/CodeGen/VirtRegMap.h"
 #include "llvm/MC/LaneBitmask.h"
 #include "llvm/MC/MCRegisterInfo.h"
@@ -44,8 +46,6 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/MathExtras.h"
 #include "llvm/Support/raw_ostream.h"
-#include "llvm/Target/TargetRegisterInfo.h"
-#include "llvm/Target/TargetSubtargetInfo.h"
 #include <algorithm>
 #include <cassert>
 #include <cstdint>
@@ -824,7 +824,13 @@ LiveIntervals::hasPHIKill(const LiveInterval &LI, const VNInfo *VNI) const {
 float LiveIntervals::getSpillWeight(bool isDef, bool isUse,
                                     const MachineBlockFrequencyInfo *MBFI,
                                     const MachineInstr &MI) {
-  BlockFrequency Freq = MBFI->getBlockFreq(MI.getParent());
+  return getSpillWeight(isDef, isUse, MBFI, MI.getParent());
+}
+
+float LiveIntervals::getSpillWeight(bool isDef, bool isUse,
+                                    const MachineBlockFrequencyInfo *MBFI,
+                                    const MachineBasicBlock *MBB) {
+  BlockFrequency Freq = MBFI->getBlockFreq(MBB);
   const float Scale = 1.0f / MBFI->getEntryFreq();
   return (isDef + isUse) * (Freq.getFrequency() * Scale);
 }

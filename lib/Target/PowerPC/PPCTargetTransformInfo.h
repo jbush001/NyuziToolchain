@@ -21,7 +21,7 @@
 #include "PPCTargetMachine.h"
 #include "llvm/Analysis/TargetTransformInfo.h"
 #include "llvm/CodeGen/BasicTTIImpl.h"
-#include "llvm/Target/TargetLowering.h"
+#include "llvm/CodeGen/TargetLowering.h"
 
 namespace llvm {
 
@@ -63,7 +63,8 @@ public:
   /// @{
 
   bool enableAggressiveInterleaving(bool LoopHasReductions);
-  bool enableMemCmpExpansion(unsigned &MaxLoadSize);
+  const TTI::MemCmpExpansionOptions *enableMemCmpExpansion(
+      bool IsZeroCmp) const;
   bool enableInterleavedAccessVectorization();
   unsigned getNumberOfRegisters(bool Vector);
   unsigned getRegisterBitWidth(bool Vector) const;

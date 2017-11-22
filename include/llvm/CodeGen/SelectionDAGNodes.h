@@ -2015,6 +2015,9 @@ public:
   /// For integers this is the same as doing a TRUNCATE and storing the result.
   /// For floats, it is the same as doing an FP_ROUND and storing the result.
   bool isTruncatingStore() const { return StoreSDNodeBits.IsTruncating; }
+  void setTruncatingStore(bool Truncating) {
+    StoreSDNodeBits.IsTruncating = Truncating;
+  }
 
   const SDValue &getValue() const { return getOperand(1); }
   const SDValue &getBasePtr() const { return getOperand(2); }
@@ -2111,7 +2114,7 @@ class MaskedGatherScatterSDNode : public MemSDNode {
 public:
   friend class SelectionDAG;
 
-  MaskedGatherScatterSDNode(unsigned NodeTy, unsigned Order,
+  MaskedGatherScatterSDNode(ISD::NodeType NodeTy, unsigned Order,
                             const DebugLoc &dl, SDVTList VTs, EVT MemVT,
                             MachineMemOperand *MMO)
       : MemSDNode(NodeTy, Order, dl, VTs, MemVT, MMO) {}

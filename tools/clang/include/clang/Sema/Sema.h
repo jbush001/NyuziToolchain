@@ -1724,7 +1724,6 @@ public:
     ExprResult Expr;
     TemplateName Template;
     ParsedType Type;
-    const IdentifierInfo *Keyword;
 
     explicit NameClassification(NameClassificationKind Kind) : Kind(Kind) {}
 
@@ -1733,8 +1732,7 @@ public:
 
     NameClassification(ParsedType Type) : Kind(NC_Type), Type(Type) {}
 
-    NameClassification(const IdentifierInfo *Keyword)
-      : Kind(NC_Keyword), Keyword(Keyword) { }
+    NameClassification(const IdentifierInfo *Keyword) : Kind(NC_Keyword) {}
 
     static NameClassification Error() {
       return NameClassification(NC_Error);
@@ -2707,7 +2705,8 @@ public:
                       OverloadCandidateSet &CandidateSet,
                       TemplateArgumentListInfo *ExplicitTemplateArgs = nullptr,
                       bool SuppressUserConversions = false,
-                      bool PartialOverloading = false);
+                      bool PartialOverloading = false,
+                      bool FirstArgumentIsBase = false);
   void AddMethodCandidate(DeclAccessPair FoundDecl,
                           QualType ObjectType,
                           Expr::Classification ObjectClassification,
@@ -8654,9 +8653,17 @@ public:
                                     NamedDeclSetType &SameDirectiveDecls);
   /// Check declaration inside target region.
   void checkDeclIsAllowedInOpenMPTarget(Expr *E, Decl *D);
-  /// Return true inside OpenMP target region.
+  /// Return true inside OpenMP declare target region.
   bool isInOpenMPDeclareTargetContext() const {
     return IsInOpenMPDeclareTargetContext;
+  }
+  /// Return true inside OpenMP target region.
+  bool isInOpenMPTargetExecutionDirective() const;
+  /// Return true if (un)supported features for the current target should be
+  /// diagnosed if OpenMP (offloading) is enabled.
+  bool shouldDiagnoseTargetSupportFromOpenMP() const {
+    return !getLangOpts().OpenMPIsDevice || isInOpenMPDeclareTargetContext() ||
+      isInOpenMPTargetExecutionDirective();
   }
 
   /// Return the number of captured regions created for an OpenMP directive.
@@ -8787,12 +8794,14 @@ public:
   /// parsing of the associated statement.
   StmtResult ActOnOpenMPTargetEnterDataDirective(ArrayRef<OMPClause *> Clauses,
                                                  SourceLocation StartLoc,
-                                                 SourceLocation EndLoc);
+                                                 SourceLocation EndLoc,
+                                                 Stmt *AStmt);
   /// \brief Called on well-formed '\#pragma omp target exit data' after
   /// parsing of the associated statement.
   StmtResult ActOnOpenMPTargetExitDataDirective(ArrayRef<OMPClause *> Clauses,
                                                 SourceLocation StartLoc,
-                                                SourceLocation EndLoc);
+                                                SourceLocation EndLoc,
+                                                Stmt *AStmt);
   /// \brief Called on well-formed '\#pragma omp target parallel' after
   /// parsing of the associated statement.
   StmtResult ActOnOpenMPTargetParallelDirective(ArrayRef<OMPClause *> Clauses,
@@ -8841,7 +8850,8 @@ public:
   /// \brief Called on well-formed '\#pragma omp target update'.
   StmtResult ActOnOpenMPTargetUpdateDirective(ArrayRef<OMPClause *> Clauses,
                                               SourceLocation StartLoc,
-                                              SourceLocation EndLoc);
+                                              SourceLocation EndLoc,
+                                              Stmt *AStmt);
   /// \brief Called on well-formed '\#pragma omp distribute parallel for' after
   /// parsing of the associated statement.
   StmtResult ActOnOpenMPDistributeParallelForDirective(
@@ -10210,8 +10220,7 @@ public:
   void CodeCompleteObjCPropertyDefinition(Scope *S);
   void CodeCompleteObjCPropertySynthesizeIvar(Scope *S,
                                               IdentifierInfo *PropertyName);
-  void CodeCompleteObjCMethodDecl(Scope *S,
-                                  bool IsInstanceMethod,
+  void CodeCompleteObjCMethodDecl(Scope *S, Optional<bool> IsInstanceMethod,
                                   ParsedType ReturnType);
   void CodeCompleteObjCMethodDeclSelector(Scope *S,
                                           bool IsInstanceMethod,

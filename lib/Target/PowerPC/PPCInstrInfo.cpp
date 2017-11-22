@@ -1715,38 +1715,47 @@ bool PPCInstrInfo::optimizeCompareInstr(MachineInstr &CmpInstr, unsigned SrcReg,
   else if (MI->getParent() != CmpInstr.getParent())
     return false;
   else if (Value != 0) {
-    // The record-form instructions set CR bit based on signed comparison against 0.
-    // We try to convert a compare against 1 or -1 into a compare against 0.
-    bool Success = false;
-    if (!equalityOnly && MRI->hasOneUse(CRReg)) {
-      MachineInstr *UseMI = &*MRI->use_instr_begin(CRReg);
-      if (UseMI->getOpcode() == PPC::BCC) {
-        PPC::Predicate Pred = (PPC::Predicate)UseMI->getOperand(0).getImm();
-        unsigned PredCond = PPC::getPredicateCondition(Pred);
-        unsigned PredHint = PPC::getPredicateHint(Pred);
-        int16_t Immed = (int16_t)Value;
+    // The record-form instructions set CR bit based on signed comparison
+    // against 0. We try to convert a compare against 1 or -1 into a compare
+    // against 0 to exploit record-form instructions. For example, we change
+    // the condition "greater than -1" into "greater than or equal to 0"
+    // and "less than 1" into "less than or equal to 0".
 
-        // When modyfing the condition in the predicate, we propagate hint bits
-        // from the original predicate to the new one.
-        if (Immed == -1 && PredCond == PPC::PRED_GT) {
-          // We convert "greater than -1" into "greater than or equal to 0",
-          // since we are assuming signed comparison by !equalityOnly
-          PredsToUpdate.push_back(std::make_pair(&(UseMI->getOperand(0)),
-                                  PPC::getPredicate(PPC::PRED_GE, PredHint)));
-          Success = true;
-        }
-        else if (Immed == 1 && PredCond == PPC::PRED_LT) {
-          // We convert "less than 1" into "less than or equal to 0".
-          PredsToUpdate.push_back(std::make_pair(&(UseMI->getOperand(0)),
-                                  PPC::getPredicate(PPC::PRED_LE, PredHint)));
-          Success = true;
-        }
-      }
-    }
-
-    // PPC does not have a record-form SUBri.
-    if (!Success)
+    // Since we optimize comparison based on a specific branch condition,
+    // we don't optimize if condition code is used by more than once.
+    if (equalityOnly || !MRI->hasOneUse(CRReg))
       return false;
+
+    MachineInstr *UseMI = &*MRI->use_instr_begin(CRReg);
+    if (UseMI->getOpcode() != PPC::BCC)
+      return false;
+
+    PPC::Predicate Pred = (PPC::Predicate)UseMI->getOperand(0).getImm();
+    PPC::Predicate NewPred = Pred;
+    unsigned PredCond = PPC::getPredicateCondition(Pred);
+    unsigned PredHint = PPC::getPredicateHint(Pred);
+    int16_t Immed = (int16_t)Value;
+
+    // When modyfing the condition in the predicate, we propagate hint bits
+    // from the original predicate to the new one.
+    if (Immed == -1 && PredCond == PPC::PRED_GT)
+      // We convert "greater than -1" into "greater than or equal to 0",
+      // since we are assuming signed comparison by !equalityOnly
+      NewPred = PPC::getPredicate(PPC::PRED_GE, PredHint);
+    else if (Immed == -1 && PredCond == PPC::PRED_LE)
+      // We convert "less than or equal to -1" into "less than 0".
+      NewPred = PPC::getPredicate(PPC::PRED_LT, PredHint);
+    else if (Immed == 1 && PredCond == PPC::PRED_LT)
+      // We convert "less than 1" into "less than or equal to 0".
+      NewPred = PPC::getPredicate(PPC::PRED_LE, PredHint);
+    else if (Immed == 1 && PredCond == PPC::PRED_GE)
+      // We convert "greater than or equal to 1" into "greater than 0".
+      NewPred = PPC::getPredicate(PPC::PRED_GT, PredHint);
+    else
+      return false;
+
+    PredsToUpdate.push_back(std::make_pair(&(UseMI->getOperand(0)),
+                                            NewPred));
   }
 
   // Search for Sub.
@@ -1968,29 +1977,13 @@ PPCInstrInfo::getSerializableBitmaskMachineOperandTargetFlags() const {
   return makeArrayRef(TargetFlags);
 }
 
-bool PPCInstrInfo::expandPostRAPseudo(MachineInstr &MI) const {
-  auto &MBB = *MI.getParent();
-  auto DL = MI.getDebugLoc();
-  switch (MI.getOpcode()) {
-  case TargetOpcode::LOAD_STACK_GUARD: {
-    assert(Subtarget.isTargetLinux() &&
-           "Only Linux target is expected to contain LOAD_STACK_GUARD");
-    const int64_t Offset = Subtarget.isPPC64() ? -0x7010 : -0x7008;
-    const unsigned Reg = Subtarget.isPPC64() ? PPC::X13 : PPC::R2;
-    MI.setDesc(get(Subtarget.isPPC64() ? PPC::LD : PPC::LWZ));
-    MachineInstrBuilder(*MI.getParent()->getParent(), MI)
-        .addImm(Offset)
-        .addReg(Reg);
-    return true;
-  }
-  case PPC::DFLOADf32:
-  case PPC::DFLOADf64:
-  case PPC::DFSTOREf32:
-  case PPC::DFSTOREf64: {
-    assert(Subtarget.hasP9Vector() &&
-           "Invalid D-Form Pseudo-ops on non-P9 target.");
-    assert(MI.getOperand(2).isReg() && MI.getOperand(1).isImm() &&
-           "D-form op must have register and immediate operands");
+// Expand VSX Memory Pseudo instruction to either a VSX or a FP instruction.
+// The VSX versions have the advantage of a full 64-register target whereas
+// the FP ones have the advantage of lower latency and higher throughput. So
+// what we are after is using the faster instructions in low register pressure
+// situations and using the larger register file in high register pressure
+// situations.
+bool PPCInstrInfo::expandVSXMemPseudo(MachineInstr &MI) const {
     unsigned UpperOpcode, LowerOpcode;
     switch (MI.getOpcode()) {
     case PPC::DFLOADf32:
@@ -2009,7 +2002,38 @@ bool PPCInstrInfo::expandPostRAPseudo(MachineInstr &MI) const {
       UpperOpcode = PPC::STXSD;
       LowerOpcode = PPC::STFD;
       break;
+    case PPC::XFLOADf32:
+      UpperOpcode = PPC::LXSSPX;
+      LowerOpcode = PPC::LFSX;
+      break;
+    case PPC::XFLOADf64:
+      UpperOpcode = PPC::LXSDX;
+      LowerOpcode = PPC::LFDX;
+      break;
+    case PPC::XFSTOREf32:
+      UpperOpcode = PPC::STXSSPX;
+      LowerOpcode = PPC::STFSX;
+      break;
+    case PPC::XFSTOREf64:
+      UpperOpcode = PPC::STXSDX;
+      LowerOpcode = PPC::STFDX;
+      break;
+    case PPC::LIWAX:
+      UpperOpcode = PPC::LXSIWAX;
+      LowerOpcode = PPC::LFIWAX;
+      break;
+    case PPC::LIWZX:
+      UpperOpcode = PPC::LXSIWZX;
+      LowerOpcode = PPC::LFIWZX;
+      break;
+    case PPC::STIWX:
+      UpperOpcode = PPC::STXSIWX;
+      LowerOpcode = PPC::STFIWX;
+      break;
+    default:
+      llvm_unreachable("Unknown Operation!");
     }
+
     unsigned TargetReg = MI.getOperand(0).getReg();
     unsigned Opcode;
     if ((TargetReg >= PPC::F0 && TargetReg <= PPC::F31) ||
@@ -2019,6 +2043,52 @@ bool PPCInstrInfo::expandPostRAPseudo(MachineInstr &MI) const {
       Opcode = UpperOpcode;
     MI.setDesc(get(Opcode));
     return true;
+}
+
+bool PPCInstrInfo::expandPostRAPseudo(MachineInstr &MI) const {
+  auto &MBB = *MI.getParent();
+  auto DL = MI.getDebugLoc();
+
+  switch (MI.getOpcode()) {
+  case TargetOpcode::LOAD_STACK_GUARD: {
+    assert(Subtarget.isTargetLinux() &&
+           "Only Linux target is expected to contain LOAD_STACK_GUARD");
+    const int64_t Offset = Subtarget.isPPC64() ? -0x7010 : -0x7008;
+    const unsigned Reg = Subtarget.isPPC64() ? PPC::X13 : PPC::R2;
+    MI.setDesc(get(Subtarget.isPPC64() ? PPC::LD : PPC::LWZ));
+    MachineInstrBuilder(*MI.getParent()->getParent(), MI)
+        .addImm(Offset)
+        .addReg(Reg);
+    return true;
+  }
+  case PPC::DFLOADf32:
+  case PPC::DFLOADf64:
+  case PPC::DFSTOREf32:
+  case PPC::DFSTOREf64: {
+    assert(Subtarget.hasP9Vector() &&
+           "Invalid D-Form Pseudo-ops on Pre-P9 target.");
+    assert(MI.getOperand(2).isReg() && MI.getOperand(1).isImm() &&
+           "D-form op must have register and immediate operands");
+    return expandVSXMemPseudo(MI);
+  }
+  case PPC::XFLOADf32:
+  case PPC::XFSTOREf32:
+  case PPC::LIWAX:
+  case PPC::LIWZX:
+  case PPC::STIWX: {
+    assert(Subtarget.hasP8Vector() &&
+           "Invalid X-Form Pseudo-ops on Pre-P8 target.");
+    assert(MI.getOperand(2).isReg() && MI.getOperand(1).isReg() &&
+           "X-form op must have register and register operands");
+    return expandVSXMemPseudo(MI);
+  }
+  case PPC::XFLOADf64:
+  case PPC::XFSTOREf64: {
+    assert(Subtarget.hasVSX() &&
+           "Invalid X-Form Pseudo-ops on target that has no VSX.");
+    assert(MI.getOperand(2).isReg() && MI.getOperand(1).isReg() &&
+           "X-form op must have register and register operands");
+    return expandVSXMemPseudo(MI);
   }
   case PPC::SPILLTOVSR_LD: {
     unsigned TargetReg = MI.getOperand(0).getReg();

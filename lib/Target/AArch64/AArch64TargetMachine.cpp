@@ -27,6 +27,7 @@
 #include "llvm/CodeGen/GlobalISel/RegBankSelect.h"
 #include "llvm/CodeGen/MachineScheduler.h"
 #include "llvm/CodeGen/Passes.h"
+#include "llvm/CodeGen/TargetLoweringObjectFile.h"
 #include "llvm/CodeGen/TargetPassConfig.h"
 #include "llvm/IR/Attributes.h"
 #include "llvm/IR/Function.h"
@@ -35,7 +36,6 @@
 #include "llvm/Support/CodeGen.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/TargetRegistry.h"
-#include "llvm/Target/TargetLoweringObjectFile.h"
 #include "llvm/Target/TargetOptions.h"
 #include "llvm/Transforms/Scalar.h"
 #include <memory>
@@ -365,7 +365,7 @@ void AArch64PassConfig::addIRPasses() {
   // determine whether it succeeded. We can exploit existing control-flow in
   // ldrex/strex loops to simplify this, but it needs tidying up.
   if (TM->getOptLevel() != CodeGenOpt::None && EnableAtomicTidy)
-    addPass(createLateCFGSimplificationPass());
+    addPass(createCFGSimplificationPass(1, true, true, false));
 
   // Run LoopDataPrefetch
   //
