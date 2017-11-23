@@ -107,9 +107,15 @@ target. This is because many tests are architecture specific but don't specify a
 REQUIRES line in the file. They are assuming LLVM is built for all architectures,
 where I have modified the build files in this project to only build for Nyuzi.*
 
-It is also useful to run the 
-[random test generator](https://github.com/jbush001/NyuziToolchain/wiki/Validating-LLVM-with-random-programs) 
+It is also useful to run the
+[random test generator](https://github.com/jbush001/NyuziToolchain/wiki/Validating-LLVM-with-random-programs)
 to validate the backend.
+
+There are a few other tests in the NyuziProcessor repository.
+[tests/compiler](https://github.com/jbush001/NyuziProcessor/tree/master/tests/compiler),
+contains whole program tests. The
+[tests/compiler](https://github.com/jbush001/NyuziProcessor/tree/master/tests/lldb)
+directory validates the lldb debugger by running a real program in the emulator.
 
 ## Running Whole Program Tests
 
