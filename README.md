@@ -86,7 +86,7 @@ platform, so it should theoretically be possible.
 * The toolchain is installed into /usr/local/llvm-nyuzi/
 * The triple for this target is 'nyuzi-'.
 
-## Running Regression Tests
+## Tests
 
 Change PATH environment variable to include the binary directory (build/bin). This is only required
 for llvm-lit based tests. Run the tests as follows (assuming you are at the top of the project
@@ -111,17 +111,12 @@ It is also useful to run the
 [random test generator](https://github.com/jbush001/NyuziToolchain/wiki/Validating-LLVM-with-random-programs)
 to validate the backend.
 
-There are a few other tests in the NyuziProcessor repository.
-[tests/compiler](https://github.com/jbush001/NyuziProcessor/tree/master/tests/compiler),
-contains whole program tests. The
-[tests/compiler](https://github.com/jbush001/NyuziProcessor/tree/master/tests/lldb)
-directory validates the lldb debugger by running a real program in the emulator.
-
-## Running Whole Program Tests
-
-There is a set of tests in
-https://github.com/jbush001/NyuziProcessor/tree/master/tests/compiler Each test
-case is compiled and then run in the instruction set simulator, which checks
-the output for validity. This is similar to the test-suite project in LLVM.
+There is a set of whole-program tests in the NyuziProcessor repository
+[test/compiler](https://github.com/jbush001/NyuziProcessor/tree/master/tests/compiler)
+Each test case is compiled and then run in the instruction set simulator, which
+checks the output for validity. This is similar to the test-suite project in LLVM.
 Instructions are in that directory.
 
+In the same repository, there is also a test to validates the LLDB debugger by
+running a real program in the emulator:
+[tests/lldb](https://github.com/jbush001/NyuziProcessor/tree/master/tests/lldb)
