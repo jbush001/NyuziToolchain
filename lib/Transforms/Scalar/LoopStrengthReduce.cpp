@@ -1037,7 +1037,7 @@ struct LSRFixup {
   Value *OperandValToReplace = nullptr;
 
   /// If this user is to use the post-incremented value of an induction
-  /// variable, this variable is non-null and holds the loop associated with the
+  /// variable, this set is non-empty and holds the loops associated with the
   /// induction variable.
   PostIncLoopSet PostIncLoops;
 
@@ -2970,7 +2970,7 @@ void LSRInstance::CollectChains() {
       // consider leaf IV Users. This effectively rediscovers a portion of
       // IVUsers analysis but in program order this time.
       if (SE.isSCEVable(I.getType()) && !isa<SCEVUnknown>(SE.getSCEV(&I)))
-        continue;
+          continue;
 
       // Remove this instruction from any NearUsers set it may be in.
       for (unsigned ChainIdx = 0, NChains = IVChainVec.size();

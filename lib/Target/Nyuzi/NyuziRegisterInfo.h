@@ -15,7 +15,7 @@
 #ifndef LLVM_LIB_TARGET_NYUZI_NYUZIREGISTERINFO_H
 #define LLVM_LIB_TARGET_NYUZI_NYUZIREGISTERINFO_H
 
-#include "llvm/Target/TargetRegisterInfo.h"
+#include "llvm/CodeGen/TargetRegisterInfo.h"
 
 #define GET_REGINFO_HEADER
 #include "NyuziGenRegisterInfo.inc"

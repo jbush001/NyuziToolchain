@@ -11,9 +11,9 @@
 #define LLD_ELF_INPUT_FILES_H
 
 #include "Config.h"
-#include "Error.h"
 #include "InputSection.h"
 #include "Symbols.h"
+#include "lld/Common/ErrorHandler.h"
 
 #include "lld/Common/LLVM.h"
 #include "lld/Common/Reproduce.h"
@@ -50,7 +50,7 @@ namespace elf {
 using llvm::object::Archive;
 
 class Lazy;
-class SymbolBody;
+class Symbol;
 
 // If -reproduce option is given, all input files are written
 // to this tar archive.
@@ -85,7 +85,7 @@ public:
 
   // Returns object file symbols. It is a runtime error to call this
   // function on files of other types.
-  ArrayRef<SymbolBody *> getSymbols() {
+  ArrayRef<Symbol *> getSymbols() {
     assert(FileKind == ObjKind || FileKind == BitcodeKind ||
            FileKind == ArchiveKind);
     return Symbols;
@@ -108,7 +108,7 @@ public:
 protected:
   InputFile(Kind K, MemoryBufferRef M);
   std::vector<InputSectionBase *> Sections;
-  std::vector<SymbolBody *> Symbols;
+  std::vector<Symbol *> Symbols;
 
 private:
   const Kind FileKind;
@@ -162,29 +162,29 @@ template <class ELFT> class ObjFile : public ELFFileBase<ELFT> {
 public:
   static bool classof(const InputFile *F) { return F->kind() == Base::ObjKind; }
 
-  ArrayRef<SymbolBody *> getLocalSymbols();
+  ArrayRef<Symbol *> getLocalSymbols();
 
   ObjFile(MemoryBufferRef M, StringRef ArchiveName);
   void parse(llvm::DenseSet<llvm::CachedHashStringRef> &ComdatGroups);
 
-  InputSectionBase *getSection(const Elf_Sym &Sym) const;
+  InputSectionBase *getSection(uint32_t Index) const;
 
-  SymbolBody &getSymbolBody(uint32_t SymbolIndex) const {
+  Symbol &getSymbol(uint32_t SymbolIndex) const {
     if (SymbolIndex >= this->Symbols.size())
       fatal(toString(this) + ": invalid symbol index");
     return *this->Symbols[SymbolIndex];
   }
 
-  template <typename RelT>
-  SymbolBody &getRelocTargetSym(const RelT &Rel) const {
+  template <typename RelT> Symbol &getRelocTargetSym(const RelT &Rel) const {
     uint32_t SymIndex = Rel.getSymbol(Config->IsMips64EL);
-    return getSymbolBody(SymIndex);
+    return getSymbol(SymIndex);
   }
 
   // Returns source line information for a given offset.
   // If no information is available, returns "".
   std::string getLineInfo(InputSectionBase *S, uint64_t Offset);
   llvm::Optional<llvm::DILineInfo> getDILineInfo(InputSectionBase *, uint64_t);
+  llvm::Optional<std::pair<std::string, unsigned>> getVariableLoc(StringRef Name);
 
   // MIPS GP0 value defined by this file. This value represents the gp value
   // used to create the relocatable object and required to support
@@ -200,13 +200,13 @@ private:
   void
   initializeSections(llvm::DenseSet<llvm::CachedHashStringRef> &ComdatGroups);
   void initializeSymbols();
-  void initializeDwarfLine();
+  void initializeDwarf();
   InputSectionBase *getRelocTarget(const Elf_Shdr &Sec);
   InputSectionBase *createInputSection(const Elf_Shdr &Sec);
   StringRef getSectionName(const Elf_Shdr &Sec);
 
   bool shouldMerge(const Elf_Shdr &Sec);
-  SymbolBody *createSymbolBody(const Elf_Sym *Sym);
+  Symbol *createSymbol(const Elf_Sym *Sym);
 
   // .shstrtab contents.
   StringRef SectionStringTable;
@@ -216,6 +216,7 @@ private:
   // single object file, so we cache debugging information in order to
   // parse it only once for each object file we link.
   std::unique_ptr<llvm::DWARFDebugLine> DwarfLine;
+  llvm::DenseMap<StringRef, std::pair<unsigned, unsigned>> VariableLoc;
   llvm::once_flag InitDwarfLine;
 };
 
@@ -294,7 +295,6 @@ template <class ELFT> class SharedFile : public ELFFileBase<ELFT> {
 public:
   std::string SoName;
 
-  const Elf_Shdr *getSection(const Elf_Sym &Sym) const;
   llvm::ArrayRef<StringRef> getUndefinedSymbols() { return Undefs; }
 
   static bool classof(const InputFile *F) {

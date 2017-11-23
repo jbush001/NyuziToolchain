@@ -16,7 +16,7 @@
 #define LLVM_LIB_TARGET_NYUZI_NYUZIISELLOWERING_H
 
 #include "Nyuzi.h"
-#include "llvm/Target/TargetLowering.h"
+#include "llvm/CodeGen/TargetLowering.h"
 
 namespace llvm {
 class NyuziSubtarget;

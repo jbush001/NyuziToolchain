@@ -42,6 +42,8 @@
 #include "llvm/CodeGen/RuntimeLibcalls.h"
 #include "llvm/CodeGen/SelectionDAG.h"
 #include "llvm/CodeGen/SelectionDAGNodes.h"
+#include "llvm/CodeGen/TargetCallingConv.h"
+#include "llvm/CodeGen/TargetInstrInfo.h"
 #include "llvm/CodeGen/ValueTypes.h"
 #include "llvm/IR/Attributes.h"
 #include "llvm/IR/Constants.h"
@@ -70,8 +72,6 @@
 #include "llvm/Support/KnownBits.h"
 #include "llvm/Support/MathExtras.h"
 #include "llvm/Support/raw_ostream.h"
-#include "llvm/Target/TargetCallingConv.h"
-#include "llvm/Target/TargetInstrInfo.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Target/TargetOptions.h"
 #include <algorithm>
@@ -3487,6 +3487,10 @@ AArch64TargetLowering::LowerCall(CallLoweringInfo &CLI,
         AArch64II::MO_GOT) {
       Callee = DAG.getTargetGlobalAddress(GV, DL, PtrVT, 0, AArch64II::MO_GOT);
       Callee = DAG.getNode(AArch64ISD::LOADgot, DL, PtrVT, Callee);
+    } else if (Subtarget->isTargetCOFF() && GV->hasDLLImportStorageClass()) {
+      assert(Subtarget->isTargetWindows() &&
+             "Windows is the only supported COFF target");
+      Callee = getGOT(G, DAG, AArch64II::MO_DLLIMPORT);
     } else {
       const GlobalValue *GV = G->getGlobal();
       Callee = DAG.getTargetGlobalAddress(GV, DL, PtrVT, 0, 0);
@@ -3687,11 +3691,12 @@ SDValue AArch64TargetLowering::getTargetNode(BlockAddressSDNode* N, EVT Ty,
 
 // (loadGOT sym)
 template <class NodeTy>
-SDValue AArch64TargetLowering::getGOT(NodeTy *N, SelectionDAG &DAG) const {
+SDValue AArch64TargetLowering::getGOT(NodeTy *N, SelectionDAG &DAG,
+                                      unsigned Flags) const {
   DEBUG(dbgs() << "AArch64TargetLowering::getGOT\n");
   SDLoc DL(N);
   EVT Ty = getPointerTy(DAG.getDataLayout());
-  SDValue GotAddr = getTargetNode(N, Ty, DAG, AArch64II::MO_GOT);
+  SDValue GotAddr = getTargetNode(N, Ty, DAG, AArch64II::MO_GOT | Flags);
   // FIXME: Once remat is capable of dealing with instructions with register
   // operands, expand this into two nodes instead of using a wrapper node.
   return DAG.getNode(AArch64ISD::LOADgot, DL, Ty, GotAddr);
@@ -3699,29 +3704,30 @@ SDValue AArch64TargetLowering::getGOT(NodeTy *N, SelectionDAG &DAG) const {
 
 // (wrapper %highest(sym), %higher(sym), %hi(sym), %lo(sym))
 template <class NodeTy>
-SDValue AArch64TargetLowering::getAddrLarge(NodeTy *N, SelectionDAG &DAG)
-  const {
+SDValue AArch64TargetLowering::getAddrLarge(NodeTy *N, SelectionDAG &DAG,
+                                            unsigned Flags) const {
   DEBUG(dbgs() << "AArch64TargetLowering::getAddrLarge\n");
   SDLoc DL(N);
   EVT Ty = getPointerTy(DAG.getDataLayout());
   const unsigned char MO_NC = AArch64II::MO_NC;
   return DAG.getNode(
-        AArch64ISD::WrapperLarge, DL, Ty,
-        getTargetNode(N, Ty, DAG, AArch64II::MO_G3),
-        getTargetNode(N, Ty, DAG, AArch64II::MO_G2 | MO_NC),
-        getTargetNode(N, Ty, DAG, AArch64II::MO_G1 | MO_NC),
-        getTargetNode(N, Ty, DAG, AArch64II::MO_G0 | MO_NC));
+      AArch64ISD::WrapperLarge, DL, Ty,
+      getTargetNode(N, Ty, DAG, AArch64II::MO_G3 | Flags),
+      getTargetNode(N, Ty, DAG, AArch64II::MO_G2 | MO_NC | Flags),
+      getTargetNode(N, Ty, DAG, AArch64II::MO_G1 | MO_NC | Flags),
+      getTargetNode(N, Ty, DAG, AArch64II::MO_G0 | MO_NC | Flags));
 }
 
 // (addlow (adrp %hi(sym)) %lo(sym))
 template <class NodeTy>
-SDValue AArch64TargetLowering::getAddr(NodeTy *N, SelectionDAG &DAG) const {
+SDValue AArch64TargetLowering::getAddr(NodeTy *N, SelectionDAG &DAG,
+                                       unsigned Flags) const {
   DEBUG(dbgs() << "AArch64TargetLowering::getAddr\n");
   SDLoc DL(N);
   EVT Ty = getPointerTy(DAG.getDataLayout());
-  SDValue Hi = getTargetNode(N, Ty, DAG, AArch64II::MO_PAGE);
+  SDValue Hi = getTargetNode(N, Ty, DAG, AArch64II::MO_PAGE | Flags);
   SDValue Lo = getTargetNode(N, Ty, DAG,
-                             AArch64II::MO_PAGEOFF | AArch64II::MO_NC);
+                             AArch64II::MO_PAGEOFF | AArch64II::MO_NC | Flags);
   SDValue ADRP = DAG.getNode(AArch64ISD::ADRP, DL, Ty, Hi);
   return DAG.getNode(AArch64ISD::ADDlow, DL, Ty, ADRP, Lo);
 }
@@ -3730,6 +3736,9 @@ SDValue AArch64TargetLowering::LowerGlobalAddress(SDValue Op,
                                                   SelectionDAG &DAG) const {
   GlobalAddressSDNode *GN = cast<GlobalAddressSDNode>(Op);
   const GlobalValue *GV = GN->getGlobal();
+  const AArch64II::TOF TargetFlags =
+      (GV->hasDLLImportStorageClass() ? AArch64II::MO_DLLIMPORT
+                                      : AArch64II::MO_NO_FLAG);
   unsigned char OpFlags =
       Subtarget->ClassifyGlobalReference(GV, getTargetMachine());
 
@@ -3738,14 +3747,21 @@ SDValue AArch64TargetLowering::LowerGlobalAddress(SDValue Op,
 
   // This also catches the large code model case for Darwin.
   if ((OpFlags & AArch64II::MO_GOT) != 0) {
-    return getGOT(GN, DAG);
+    return getGOT(GN, DAG, TargetFlags);
   }
 
+  SDValue Result;
   if (getTargetMachine().getCodeModel() == CodeModel::Large) {
-    return getAddrLarge(GN, DAG);
+    Result = getAddrLarge(GN, DAG, TargetFlags);
   } else {
-    return getAddr(GN, DAG);
+    Result = getAddr(GN, DAG, TargetFlags);
   }
+  EVT PtrVT = getPointerTy(DAG.getDataLayout());
+  SDLoc DL(GN);
+  if (GV->hasDLLImportStorageClass())
+    Result = DAG.getLoad(PtrVT, DL, DAG.getEntryNode(), Result,
+                         MachinePointerInfo::getGOT(DAG.getMachineFunction()));
+  return Result;
 }
 
 /// \brief Convert a TLS address reference into the correct sequence of loads
@@ -3779,7 +3795,8 @@ SDValue AArch64TargetLowering::LowerGlobalAddress(SDValue Op,
 SDValue
 AArch64TargetLowering::LowerDarwinGlobalTLSAddress(SDValue Op,
                                                    SelectionDAG &DAG) const {
-  assert(Subtarget->isTargetDarwin() && "TLS only supported on Darwin");
+  assert(Subtarget->isTargetDarwin() &&
+         "This function expects a Darwin target");
 
   SDLoc DL(Op);
   MVT PtrVT = getPointerTy(DAG.getDataLayout());
@@ -4965,7 +4982,7 @@ static SDValue getEstimate(const AArch64Subtarget *ST, unsigned Opcode,
       // the initial estimate is 2^-8.  Thus the number of extra steps to refine
       // the result for float (23 mantissa bits) is 2 and for double (52
       // mantissa bits) is 3.
-      ExtraSteps = VT == MVT::f64 ? 3 : 2;
+      ExtraSteps = VT.getScalarType() == MVT::f64 ? 3 : 2;
 
     return DAG.getNode(Opcode, SDLoc(Operand), VT, Operand);
   }

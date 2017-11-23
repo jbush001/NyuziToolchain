@@ -2183,6 +2183,12 @@ QualType Sema::BuildArrayType(QualType T, ArrayType::ArraySizeModifier ASM,
   // CUDA device code doesn't support VLAs.
   if (getLangOpts().CUDA && T->isVariableArrayType())
     CUDADiagIfDeviceCode(Loc, diag::err_cuda_vla) << CurrentCUDATarget();
+  // Some targets don't support VLAs.
+  if (T->isVariableArrayType() && !Context.getTargetInfo().isVLASupported() &&
+      shouldDiagnoseTargetSupportFromOpenMP()) {
+    Diag(Loc, diag::err_vla_unsupported);
+    return QualType();
+  }
 
   // If this is not C99, extwarn about VLA's and C99 array size modifiers.
   if (!getLangOpts().C99) {
@@ -3482,13 +3488,20 @@ classifyPointerDeclarator(Sema &S, QualType type, Declarator &declarator,
         isCFError = (S.CFError == recordDecl);
       } else {
         // Check whether this is CFError, which we identify based on its bridge
-        // to NSError.
+        // to NSError. CFErrorRef used to be declared with "objc_bridge" but is
+        // now declared with "objc_bridge_mutable", so look for either one of
+        // the two attributes.
         if (recordDecl->getTagKind() == TTK_Struct && numNormalPointers > 0) {
-          if (auto bridgeAttr = recordDecl->getAttr<ObjCBridgeAttr>()) {
-            if (bridgeAttr->getBridgedType() == S.getNSErrorIdent()) {
-              S.CFError = recordDecl;
-              isCFError = true;
-            }
+          IdentifierInfo *bridgedType = nullptr;
+          if (auto bridgeAttr = recordDecl->getAttr<ObjCBridgeAttr>())
+            bridgedType = bridgeAttr->getBridgedType();
+          else if (auto bridgeAttr =
+                       recordDecl->getAttr<ObjCBridgeMutableAttr>())
+            bridgedType = bridgeAttr->getBridgedType();
+
+          if (bridgedType == S.getNSErrorIdent()) {
+            S.CFError = recordDecl;
+            isCFError = true;
           }
         }
       }

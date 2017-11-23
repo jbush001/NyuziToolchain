@@ -1301,14 +1301,21 @@ def: AccRRR_pat<M4_xor_or,    Xor, Su<Or>,        I32,  I32>;
 def: AccRRR_pat<M2_xor_xacc,  Xor, Su<Xor>,       I32,  I32>;
 def: AccRRR_pat<M4_xor_xacc,  Xor, Su<Xor>,       I64,  I64>;
 
-def: AccRRR_pat<M4_and_andn,  And, Su<Not2<And>>, I32,  I32>;
-def: AccRRR_pat<M4_or_andn,   Or,  Su<Not2<And>>, I32,  I32>;
-def: AccRRR_pat<M4_xor_andn,  Xor, Su<Not2<And>>, I32,  I32>;
+// For dags like (or (and (not _), _), (shl _, _)) where the "or" with
+// one argument matches the patterns below, and with the other argument
+// matches S2_asl_r_r_or, etc, prefer the patterns below.
+let AddedComplexity = 110 in {  // greater than S2_asl_r_r_and/or/xor.
+  def: AccRRR_pat<M4_and_andn,  And, Su<Not2<And>>, I32,  I32>;
+  def: AccRRR_pat<M4_or_andn,   Or,  Su<Not2<And>>, I32,  I32>;
+  def: AccRRR_pat<M4_xor_andn,  Xor, Su<Not2<And>>, I32,  I32>;
+}
 
 // S4_addaddi and S4_subaddi don't have tied operands, so give them
 // a bit of preference.
 let AddedComplexity = 30 in {
   def: Pat<(add I32:$Rs, (Su<Add> I32:$Ru, anyimm:$s6)),
+           (S4_addaddi IntRegs:$Rs, IntRegs:$Ru, imm:$s6)>;
+  def: Pat<(add anyimm:$s6, (Su<Add> I32:$Rs, I32:$Ru)),
            (S4_addaddi IntRegs:$Rs, IntRegs:$Ru, imm:$s6)>;
   def: Pat<(add I32:$Rs, (Su<Sub> anyimm:$s6, I32:$Ru)),
            (S4_subaddi IntRegs:$Rs, imm:$s6, IntRegs:$Ru)>;
@@ -1416,10 +1423,18 @@ def : Pat <(mulhs I64:$Rss, I64:$Rtt),
       (A2_andp (S2_asr_i_p $Rss, 63), (ClearSign $Rtt)),
       (A2_andp (S2_asr_i_p $Rtt, 63), (ClearSign $Rss))))>;
 
-def: Pat<(add (Su<Mul> I32:$Rs, u6_0ImmPred:$U6), anyimm:$u6),
-         (M4_mpyri_addi imm:$u6, IntRegs:$Rs, imm:$U6)>;
-def: Pat<(add (Su<Mul> I32:$Rs, I32:$Rt), anyimm:$u6),
-         (M4_mpyrr_addi imm:$u6, IntRegs:$Rs, IntRegs:$Rt)>;
+// Prefer these instructions over M2_macsip/M2_macsin: the macsi* instructions
+// will put the immediate addend into a register, while these instructions will
+// use it directly. Such a construct does not appear in the middle of a gep,
+// where M2_macsip would be preferable.
+let AddedComplexity = 20 in {
+  def: Pat<(add (Su<Mul> I32:$Rs, u6_0ImmPred:$U6), anyimm:$u6),
+           (M4_mpyri_addi imm:$u6, IntRegs:$Rs, imm:$U6)>;
+  def: Pat<(add (Su<Mul> I32:$Rs, I32:$Rt), anyimm:$u6),
+           (M4_mpyrr_addi imm:$u6, IntRegs:$Rs, IntRegs:$Rt)>;
+}
+
+// Keep these instructions less preferable to M2_macsip/M2_macsin.
 def: Pat<(add I32:$Ru, (Su<Mul> I32:$Rs, u6_2ImmPred:$u6_2)),
          (M4_mpyri_addr_u2 IntRegs:$Ru, imm:$u6_2, IntRegs:$Rs)>;
 def: Pat<(add I32:$Ru, (Su<Mul> I32:$Rs, anyimm:$u6)),
@@ -1597,6 +1612,16 @@ def: Pat<(i1 (setne (and I32:$Rs, I32:$Rt), 0)),
 def: Pat<(i1 (setne (and I32:$Rs, I32:$Rt), I32:$Rt)),
          (C4_nbitsset I32:$Rs, I32:$Rt)>;
 
+// Special patterns to address certain cases where the "top-down" matching
+// algorithm would cause suboptimal selection.
+
+let AddedComplexity = 100 in {
+  // Avoid A4_rcmp[n]eqi in these cases:
+  def: Pat<(i32 (zext (i1 (setne (and (shl 1, I32:$Rt), I32:$Rs), 0)))),
+           (I1toI32 (S2_tstbit_r IntRegs:$Rs, IntRegs:$Rt))>;
+  def: Pat<(i32 (zext (i1 (seteq (and (shl 1, I32:$Rt), I32:$Rs), 0)))),
+           (I1toI32 (S4_ntstbit_r IntRegs:$Rs, IntRegs:$Rt))>;
+}
 
 // --(11) Load -----------------------------------------------------------
 //
@@ -1681,28 +1706,27 @@ multiclass Loadxim_pat<PatFrag Load, ValueType VT, PatFrag ValueMod,
   defm: Loadxgim_pat<Load, VT, ValueMod, ImmPred, MI>;
 }
 
-// Patterns to select load reg reg-indexed: Rs + Rt<<u2.
-multiclass Loadxr_pat<PatFrag Load, ValueType VT, InstHexagon MI> {
-  let AddedComplexity = 40 in
-  def: Pat<(VT (Load (add I32:$Rs, (i32 (shl I32:$Rt, u2_0ImmPred:$u2))))),
-           (VT (MI IntRegs:$Rs, IntRegs:$Rt, imm:$u2))>;
+// Pattern to select load reg reg-indexed: Rs + Rt<<u2.
+class Loadxr_shl_pat<PatFrag Load, ValueType VT, InstHexagon MI>
+  : Pat<(VT (Load (add I32:$Rs, (i32 (shl I32:$Rt, u2_0ImmPred:$u2))))),
+        (VT (MI IntRegs:$Rs, IntRegs:$Rt, imm:$u2))>;
 
-  let AddedComplexity = 20 in
-  def: Pat<(VT (Load (add I32:$Rs, I32:$Rt))),
-           (VT (MI IntRegs:$Rs, IntRegs:$Rt, 0))>;
-}
+// Pattern to select load reg reg-indexed: Rs + Rt<<0.
+class Loadxr_add_pat<PatFrag Load, ValueType VT, InstHexagon MI>
+  : Pat<(VT (Load (add I32:$Rs, I32:$Rt))),
+        (VT (MI IntRegs:$Rs, IntRegs:$Rt, 0))>;
 
-// Patterns to select load reg reg-indexed: Rs + Rt<<u2 with value modifier.
-multiclass Loadxrm_pat<PatFrag Load, ValueType VT, PatFrag ValueMod,
-                       InstHexagon MI> {
-  let AddedComplexity = 40 in
-  def: Pat<(VT (Load (add I32:$Rs, (i32 (shl I32:$Rt, u2_0ImmPred:$u2))))),
-           (VT (ValueMod (MI IntRegs:$Rs, IntRegs:$Rt, imm:$u2)))>;
+// Pattern to select load reg reg-indexed: Rs + Rt<<u2 with value modifier.
+class Loadxrm_shl_pat<PatFrag Load, ValueType VT, PatFrag ValueMod,
+                      InstHexagon MI>
+  : Pat<(VT (Load (add I32:$Rs, (i32 (shl I32:$Rt, u2_0ImmPred:$u2))))),
+        (VT (ValueMod (MI IntRegs:$Rs, IntRegs:$Rt, imm:$u2)))>;
 
-  let AddedComplexity = 20 in
-  def: Pat<(VT (Load (add I32:$Rs, I32:$Rt))),
-           (VT (ValueMod (MI IntRegs:$Rs, IntRegs:$Rt, 0)))>;
-}
+// Pattern to select load reg reg-indexed: Rs + Rt<<0 with value modifier.
+class Loadxrm_add_pat<PatFrag Load, ValueType VT, PatFrag ValueMod,
+                      InstHexagon MI>
+  : Pat<(VT (Load (add I32:$Rs, I32:$Rt))),
+        (VT (ValueMod (MI IntRegs:$Rs, IntRegs:$Rt, 0)))>;
 
 // Pattern to select load long-offset reg-indexed: Addr + Rt<<u2.
 // Don't match for u2==0, instead use reg+imm for those cases.
@@ -1752,17 +1776,19 @@ let AddedComplexity = 20 in {
   defm: Loadxi_pat<atomic_load_64,  i64, anyimm3, L2_loadrd_io>;
 }
 
-defm: Loadxim_pat<extloadi1,    i64, ToZext64, anyimm0, L2_loadrub_io>;
-defm: Loadxim_pat<extloadi8,    i64, ToZext64, anyimm0, L2_loadrub_io>;
-defm: Loadxim_pat<extloadi16,   i64, ToZext64, anyimm1, L2_loadruh_io>;
-defm: Loadxim_pat<extloadi32,   i64, ToZext64, anyimm2, L2_loadri_io>;
-defm: Loadxim_pat<zextloadi1,   i64, ToZext64, anyimm0, L2_loadrub_io>;
-defm: Loadxim_pat<zextloadi8,   i64, ToZext64, anyimm0, L2_loadrub_io>;
-defm: Loadxim_pat<zextloadi16,  i64, ToZext64, anyimm1, L2_loadruh_io>;
-defm: Loadxim_pat<zextloadi32,  i64, ToZext64, anyimm2, L2_loadri_io>;
-defm: Loadxim_pat<sextloadi8,   i64, ToSext64, anyimm0, L2_loadrb_io>;
-defm: Loadxim_pat<sextloadi16,  i64, ToSext64, anyimm1, L2_loadrh_io>;
-defm: Loadxim_pat<sextloadi32,  i64, ToSext64, anyimm2, L2_loadri_io>;
+let AddedComplexity = 30 in {
+  defm: Loadxim_pat<extloadi1,    i64, ToZext64, anyimm0, L2_loadrub_io>;
+  defm: Loadxim_pat<extloadi8,    i64, ToZext64, anyimm0, L2_loadrub_io>;
+  defm: Loadxim_pat<extloadi16,   i64, ToZext64, anyimm1, L2_loadruh_io>;
+  defm: Loadxim_pat<extloadi32,   i64, ToZext64, anyimm2, L2_loadri_io>;
+  defm: Loadxim_pat<zextloadi1,   i64, ToZext64, anyimm0, L2_loadrub_io>;
+  defm: Loadxim_pat<zextloadi8,   i64, ToZext64, anyimm0, L2_loadrub_io>;
+  defm: Loadxim_pat<zextloadi16,  i64, ToZext64, anyimm1, L2_loadruh_io>;
+  defm: Loadxim_pat<zextloadi32,  i64, ToZext64, anyimm2, L2_loadri_io>;
+  defm: Loadxim_pat<sextloadi8,   i64, ToSext64, anyimm0, L2_loadrb_io>;
+  defm: Loadxim_pat<sextloadi16,  i64, ToSext64, anyimm1, L2_loadrh_io>;
+  defm: Loadxim_pat<sextloadi32,  i64, ToSext64, anyimm2, L2_loadri_io>;
+}
 
 let AddedComplexity  = 60 in {
   def: Loadxu_pat<extloadi8,    i32,   anyimm0, L4_loadrub_ur>;
@@ -1793,26 +1819,55 @@ let AddedComplexity  = 60 in {
   def: Loadxum_pat<extloadi32,  i64, anyimm2, ToZext64, L4_loadri_ur>;
 }
 
-defm: Loadxr_pat<extloadi8,     i32, L4_loadrub_rr>;
-defm: Loadxr_pat<zextloadi8,    i32, L4_loadrub_rr>;
-defm: Loadxr_pat<sextloadi8,    i32, L4_loadrb_rr>;
-defm: Loadxr_pat<extloadi16,    i32, L4_loadruh_rr>;
-defm: Loadxr_pat<zextloadi16,   i32, L4_loadruh_rr>;
-defm: Loadxr_pat<sextloadi16,   i32, L4_loadrh_rr>;
-defm: Loadxr_pat<load,          i32, L4_loadri_rr>;
-defm: Loadxr_pat<load,          i64, L4_loadrd_rr>;
-defm: Loadxr_pat<load,          f32, L4_loadri_rr>;
-defm: Loadxr_pat<load,          f64, L4_loadrd_rr>;
+let AddedComplexity = 40 in {
+  def: Loadxr_shl_pat<extloadi8,     i32, L4_loadrub_rr>;
+  def: Loadxr_shl_pat<zextloadi8,    i32, L4_loadrub_rr>;
+  def: Loadxr_shl_pat<sextloadi8,    i32, L4_loadrb_rr>;
+  def: Loadxr_shl_pat<extloadi16,    i32, L4_loadruh_rr>;
+  def: Loadxr_shl_pat<zextloadi16,   i32, L4_loadruh_rr>;
+  def: Loadxr_shl_pat<sextloadi16,   i32, L4_loadrh_rr>;
+  def: Loadxr_shl_pat<load,          i32, L4_loadri_rr>;
+  def: Loadxr_shl_pat<load,          i64, L4_loadrd_rr>;
+  def: Loadxr_shl_pat<load,          f32, L4_loadri_rr>;
+  def: Loadxr_shl_pat<load,          f64, L4_loadrd_rr>;
+}
 
-defm: Loadxrm_pat<extloadi8,    i64, ToZext64, L4_loadrub_rr>;
-defm: Loadxrm_pat<zextloadi8,   i64, ToZext64, L4_loadrub_rr>;
-defm: Loadxrm_pat<sextloadi8,   i64, ToSext64, L4_loadrb_rr>;
-defm: Loadxrm_pat<extloadi16,   i64, ToZext64, L4_loadruh_rr>;
-defm: Loadxrm_pat<zextloadi16,  i64, ToZext64, L4_loadruh_rr>;
-defm: Loadxrm_pat<sextloadi16,  i64, ToSext64, L4_loadrh_rr>;
-defm: Loadxrm_pat<extloadi32,   i64, ToZext64, L4_loadri_rr>;
-defm: Loadxrm_pat<zextloadi32,  i64, ToZext64, L4_loadri_rr>;
-defm: Loadxrm_pat<sextloadi32,  i64, ToSext64, L4_loadri_rr>;
+let AddedComplexity = 20 in {
+  def: Loadxr_add_pat<extloadi8,     i32, L4_loadrub_rr>;
+  def: Loadxr_add_pat<zextloadi8,    i32, L4_loadrub_rr>;
+  def: Loadxr_add_pat<sextloadi8,    i32, L4_loadrb_rr>;
+  def: Loadxr_add_pat<extloadi16,    i32, L4_loadruh_rr>;
+  def: Loadxr_add_pat<zextloadi16,   i32, L4_loadruh_rr>;
+  def: Loadxr_add_pat<sextloadi16,   i32, L4_loadrh_rr>;
+  def: Loadxr_add_pat<load,          i32, L4_loadri_rr>;
+  def: Loadxr_add_pat<load,          i64, L4_loadrd_rr>;
+  def: Loadxr_add_pat<load,          f32, L4_loadri_rr>;
+  def: Loadxr_add_pat<load,          f64, L4_loadrd_rr>;
+}
+
+let AddedComplexity = 40 in {
+  def: Loadxrm_shl_pat<extloadi8,    i64, ToZext64, L4_loadrub_rr>;
+  def: Loadxrm_shl_pat<zextloadi8,   i64, ToZext64, L4_loadrub_rr>;
+  def: Loadxrm_shl_pat<sextloadi8,   i64, ToSext64, L4_loadrb_rr>;
+  def: Loadxrm_shl_pat<extloadi16,   i64, ToZext64, L4_loadruh_rr>;
+  def: Loadxrm_shl_pat<zextloadi16,  i64, ToZext64, L4_loadruh_rr>;
+  def: Loadxrm_shl_pat<sextloadi16,  i64, ToSext64, L4_loadrh_rr>;
+  def: Loadxrm_shl_pat<extloadi32,   i64, ToZext64, L4_loadri_rr>;
+  def: Loadxrm_shl_pat<zextloadi32,  i64, ToZext64, L4_loadri_rr>;
+  def: Loadxrm_shl_pat<sextloadi32,  i64, ToSext64, L4_loadri_rr>;
+}
+
+let AddedComplexity = 20 in {
+  def: Loadxrm_add_pat<extloadi8,    i64, ToZext64, L4_loadrub_rr>;
+  def: Loadxrm_add_pat<zextloadi8,   i64, ToZext64, L4_loadrub_rr>;
+  def: Loadxrm_add_pat<sextloadi8,   i64, ToSext64, L4_loadrb_rr>;
+  def: Loadxrm_add_pat<extloadi16,   i64, ToZext64, L4_loadruh_rr>;
+  def: Loadxrm_add_pat<zextloadi16,  i64, ToZext64, L4_loadruh_rr>;
+  def: Loadxrm_add_pat<sextloadi16,  i64, ToSext64, L4_loadrh_rr>;
+  def: Loadxrm_add_pat<extloadi32,   i64, ToZext64, L4_loadri_rr>;
+  def: Loadxrm_add_pat<zextloadi32,  i64, ToZext64, L4_loadri_rr>;
+  def: Loadxrm_add_pat<sextloadi32,  i64, ToSext64, L4_loadri_rr>;
+}
 
 // Absolute address
 

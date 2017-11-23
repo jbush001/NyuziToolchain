@@ -17,5 +17,5 @@ using namespace llvm;
 Target llvm::TheNyuziTarget;
 
 extern "C" void LLVMInitializeNyuziTargetInfo() {
-  RegisterTarget<Triple::nyuzi> X(TheNyuziTarget, "nyuzi", "Nyuzi");
+  RegisterTarget<Triple::nyuzi> X(TheNyuziTarget, "nyuzi", "Nyuzi", "Nyuzi");
 }

@@ -17,7 +17,7 @@
 #include "llvm/CodeGen/GlobalISel/RegisterBank.h"
 #include "llvm/CodeGen/GlobalISel/RegisterBankInfo.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
-#include "llvm/Target/TargetRegisterInfo.h"
+#include "llvm/CodeGen/TargetRegisterInfo.h"
 
 #define GET_TARGET_REGBANK_IMPL
 #include "ARMGenRegisterBank.inc"
@@ -242,11 +242,10 @@ ARMRegisterBankInfo::getInstrMapping(const MachineInstr &MI) const {
             : &ARM::ValueMappings[ARM::GPR3OpsIdx];
     break;
   }
-  case G_FADD: {
+  case G_FADD:
+  case G_FSUB: {
     LLT Ty = MRI.getType(MI.getOperand(0).getReg());
-    assert((Ty.getSizeInBits() == 32 || Ty.getSizeInBits() == 64) &&
-           "Unsupported size for G_FADD");
-    OperandsMapping = Ty.getSizeInBits() == 64
+    OperandsMapping =Ty.getSizeInBits() == 64
                           ? &ARM::ValueMappings[ARM::DPR3OpsIdx]
                           : &ARM::ValueMappings[ARM::SPR3OpsIdx];
     break;

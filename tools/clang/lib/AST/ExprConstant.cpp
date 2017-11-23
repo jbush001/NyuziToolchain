@@ -1351,10 +1351,11 @@ namespace {
         Designator.setInvalid();
         return;
       }
-
-      assert(getType(Base)->isPointerType() || getType(Base)->isArrayType());
-      Designator.FirstEntryIsAnUnsizedArray = true;
-      Designator.addUnsizedArrayUnchecked(ElemTy);
+      if (checkSubobject(Info, E, CSK_ArrayToPointer)) {
+        assert(getType(Base)->isPointerType() || getType(Base)->isArrayType());
+        Designator.FirstEntryIsAnUnsizedArray = true;
+        Designator.addUnsizedArrayUnchecked(ElemTy);
+      }
     }
     void addArray(EvalInfo &Info, const Expr *E, const ConstantArrayType *CAT) {
       if (checkSubobject(Info, E, CSK_ArrayToPointer))
@@ -1818,6 +1819,9 @@ static bool CheckConstantExpression(EvalInfo &Info, SourceLocation DiagLoc,
       }
     }
     for (const auto *I : RD->fields()) {
+      if (I->isUnnamedBitfield())
+        continue;
+
       if (!CheckConstantExpression(Info, DiagLoc, I->getType(),
                                    Value.getStructField(I->getFieldIndex())))
         return false;

@@ -20,6 +20,7 @@
 #include "AArch64TargetMachine.h"
 #include "MCTargetDesc/AArch64AddressingModes.h"
 #include "llvm/CodeGen/GlobalISel/InstructionSelector.h"
+#include "llvm/CodeGen/GlobalISel/InstructionSelectorImpl.h"
 #include "llvm/CodeGen/GlobalISel/Utils.h"
 #include "llvm/CodeGen/MachineBasicBlock.h"
 #include "llvm/CodeGen/MachineFunction.h"
@@ -32,8 +33,6 @@
 #include "llvm/Support/raw_ostream.h"
 
 #define DEBUG_TYPE "aarch64-isel"
-
-#include "llvm/CodeGen/GlobalISel/InstructionSelectorImpl.h"
 
 using namespace llvm;
 
@@ -49,12 +48,13 @@ public:
                              const AArch64Subtarget &STI,
                              const AArch64RegisterBankInfo &RBI);
 
-  bool select(MachineInstr &I) const override;
+  bool select(MachineInstr &I, CodeGenCoverage &CoverageInfo) const override;
+  static const char *getName() { return DEBUG_TYPE; }
 
 private:
   /// tblgen-erated 'select' implementation, used as the initial selector for
   /// the patterns that don't require complex C++.
-  bool selectImpl(MachineInstr &I) const;
+  bool selectImpl(MachineInstr &I, CodeGenCoverage &CoverageInfo) const;
 
   bool selectVaStartAAPCS(MachineInstr &I, MachineFunction &MF,
                           MachineRegisterInfo &MRI) const;
@@ -609,7 +609,8 @@ bool AArch64InstructionSelector::selectVaStartDarwin(
   return true;
 }
 
-bool AArch64InstructionSelector::select(MachineInstr &I) const {
+bool AArch64InstructionSelector::select(MachineInstr &I,
+                                        CodeGenCoverage &CoverageInfo) const {
   assert(I.getParent() && "Instruction should be in a basic block!");
   assert(I.getParent()->getParent() && "Instruction should be in a function!");
 
@@ -667,7 +668,7 @@ bool AArch64InstructionSelector::select(MachineInstr &I) const {
     return false;
   }
 
-  if (selectImpl(I))
+  if (selectImpl(I, CoverageInfo))
     return true;
 
   LLT Ty =

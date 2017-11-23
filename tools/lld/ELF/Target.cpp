@@ -25,11 +25,11 @@
 //===----------------------------------------------------------------------===//
 
 #include "Target.h"
-#include "Error.h"
 #include "InputFiles.h"
 #include "OutputSections.h"
 #include "SymbolTable.h"
 #include "Symbols.h"
+#include "lld/Common/ErrorHandler.h"
 #include "llvm/Object/ELF.h"
 
 using namespace llvm;
@@ -126,7 +126,7 @@ int64_t TargetInfo::getImplicitAddend(const uint8_t *Buf, RelType Type) const {
 bool TargetInfo::usesOnlyLowPageBits(RelType Type) const { return false; }
 
 bool TargetInfo::needsThunk(RelExpr Expr, RelType Type, const InputFile *File,
-                            const SymbolBody &S) const {
+                            uint64_t BranchAddr, const Symbol &S) const {
   return false;
 }
 
@@ -134,7 +134,7 @@ bool TargetInfo::inBranchRange(RelType Type, uint64_t Src, uint64_t Dst) const {
   return true;
 }
 
-void TargetInfo::writeIgotPlt(uint8_t *Buf, const SymbolBody &S) const {
+void TargetInfo::writeIgotPlt(uint8_t *Buf, const Symbol &S) const {
   writeGotPlt(Buf, S);
 }
 

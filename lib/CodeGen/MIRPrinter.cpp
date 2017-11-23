@@ -12,16 +12,18 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "llvm/CodeGen/MIRPrinter.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/None.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallBitVector.h"
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/SmallVector.h"
-#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/Twine.h"
 #include "llvm/CodeGen/GlobalISel/RegisterBank.h"
+#include "llvm/CodeGen/MIRYamlMapping.h"
 #include "llvm/CodeGen/MachineBasicBlock.h"
 #include "llvm/CodeGen/MachineConstantPool.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
@@ -31,19 +33,20 @@
 #include "llvm/CodeGen/MachineMemOperand.h"
 #include "llvm/CodeGen/MachineOperand.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
-#include "llvm/CodeGen/MIRPrinter.h"
-#include "llvm/CodeGen/MIRYamlMapping.h"
 #include "llvm/CodeGen/PseudoSourceValue.h"
+#include "llvm/CodeGen/TargetInstrInfo.h"
+#include "llvm/CodeGen/TargetRegisterInfo.h"
+#include "llvm/CodeGen/TargetSubtargetInfo.h"
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DebugInfo.h"
 #include "llvm/IR/DebugLoc.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/GlobalValue.h"
+#include "llvm/IR/IRPrintingPasses.h"
 #include "llvm/IR/InstrTypes.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/Intrinsics.h"
-#include "llvm/IR/IRPrintingPasses.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/ModuleSlotTracker.h"
 #include "llvm/IR/Value.h"
@@ -57,13 +60,10 @@
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/Format.h"
 #include "llvm/Support/LowLevelTypeImpl.h"
-#include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/YAMLTraits.h"
-#include "llvm/Target/TargetInstrInfo.h"
+#include "llvm/Support/raw_ostream.h"
 #include "llvm/Target/TargetIntrinsicInfo.h"
 #include "llvm/Target/TargetMachine.h"
-#include "llvm/Target/TargetRegisterInfo.h"
-#include "llvm/Target/TargetSubtargetInfo.h"
 #include <algorithm>
 #include <cassert>
 #include <cinttypes>
@@ -162,8 +162,8 @@ public:
   void printStackObjectReference(int FrameIndex);
   void printOffset(int64_t Offset);
   void printTargetFlags(const MachineOperand &Op);
-  void print(const MachineOperand &Op, const TargetRegisterInfo *TRI,
-             unsigned I, bool ShouldPrintRegisterTies,
+  void print(const MachineInstr &MI, unsigned OpIdx,
+             const TargetRegisterInfo *TRI, bool ShouldPrintRegisterTies,
              LLT TypeToPrint, bool IsDef = false);
   void print(const LLVMContext &Context, const TargetInstrInfo &TII,
              const MachineMemOperand &Op);
@@ -270,6 +270,28 @@ static void printCustomRegMask(const uint32_t *RegMask, raw_ostream &OS,
   OS << ')';
 }
 
+static void printRegClassOrBank(unsigned Reg, raw_ostream &OS,
+                                const MachineRegisterInfo &RegInfo,
+                                const TargetRegisterInfo *TRI) {
+  if (RegInfo.getRegClassOrNull(Reg))
+    OS << StringRef(TRI->getRegClassName(RegInfo.getRegClass(Reg))).lower();
+  else if (RegInfo.getRegBankOrNull(Reg))
+    OS << StringRef(RegInfo.getRegBankOrNull(Reg)->getName()).lower();
+  else {
+    OS << "_";
+    assert((RegInfo.def_empty(Reg) || RegInfo.getType(Reg).isValid()) &&
+           "Generic registers must have a valid type");
+  }
+}
+
+static void printRegClassOrBank(unsigned Reg, yaml::StringValue &Dest,
+                                const MachineRegisterInfo &RegInfo,
+                                const TargetRegisterInfo *TRI) {
+  raw_string_ostream OS(Dest.Value);
+  printRegClassOrBank(Reg, OS, RegInfo, TRI);
+}
+
+
 void MIRPrinter::convert(yaml::MachineFunction &MF,
                          const MachineRegisterInfo &RegInfo,
                          const TargetRegisterInfo *TRI) {
@@ -280,16 +302,7 @@ void MIRPrinter::convert(yaml::MachineFunction &MF,
     unsigned Reg = TargetRegisterInfo::index2VirtReg(I);
     yaml::VirtualRegisterDefinition VReg;
     VReg.ID = I;
-    if (RegInfo.getRegClassOrNull(Reg))
-      VReg.Class =
-          StringRef(TRI->getRegClassName(RegInfo.getRegClass(Reg))).lower();
-    else if (RegInfo.getRegBankOrNull(Reg))
-      VReg.Class = StringRef(RegInfo.getRegBankOrNull(Reg)->getName()).lower();
-    else {
-      VReg.Class = std::string("_");
-      assert((RegInfo.def_empty(Reg) || RegInfo.getType(Reg).isValid()) &&
-             "Generic registers must have a valid type");
-    }
+    printRegClassOrBank(Reg, VReg.Class, RegInfo, TRI);
     unsigned PreferredReg = RegInfo.getSimpleHint(Reg);
     if (PreferredReg)
       printReg(PreferredReg, VReg.PreferredRegister, TRI);
@@ -721,7 +734,7 @@ void MIPrinter::print(const MachineInstr &MI) {
        ++I) {
     if (I)
       OS << ", ";
-    print(MI.getOperand(I), TRI, I, ShouldPrintRegisterTies,
+    print(MI, I, TRI, ShouldPrintRegisterTies,
           getTypeToPrint(MI, I, PrintedTypes, MRI),
           /*IsDef=*/true);
   }
@@ -738,7 +751,7 @@ void MIPrinter::print(const MachineInstr &MI) {
   for (; I < E; ++I) {
     if (NeedComma)
       OS << ", ";
-    print(MI.getOperand(I), TRI, I, ShouldPrintRegisterTies,
+    print(MI, I, TRI, ShouldPrintRegisterTies,
           getTypeToPrint(MI, I, PrintedTypes, MRI));
     NeedComma = true;
   }
@@ -910,12 +923,15 @@ static const char *getTargetIndexName(const MachineFunction &MF, int Index) {
   return nullptr;
 }
 
-void MIPrinter::print(const MachineOperand &Op, const TargetRegisterInfo *TRI,
-                      unsigned I, bool ShouldPrintRegisterTies, LLT TypeToPrint,
+void MIPrinter::print(const MachineInstr &MI, unsigned OpIdx,
+                      const TargetRegisterInfo *TRI,
+                      bool ShouldPrintRegisterTies, LLT TypeToPrint,
                       bool IsDef) {
+  const MachineOperand &Op = MI.getOperand(OpIdx);
   printTargetFlags(Op);
   switch (Op.getType()) {
-  case MachineOperand::MO_Register:
+  case MachineOperand::MO_Register: {
+    unsigned Reg = Op.getReg();
     if (Op.isImplicit())
       OS << (Op.isDef() ? "implicit-def " : "implicit ");
     else if (!IsDef && Op.isDef())
@@ -933,17 +949,28 @@ void MIPrinter::print(const MachineOperand &Op, const TargetRegisterInfo *TRI,
       OS << "early-clobber ";
     if (Op.isDebug())
       OS << "debug-use ";
-    printReg(Op.getReg(), OS, TRI);
+    printReg(Reg, OS, TRI);
     // Print the sub register.
     if (Op.getSubReg() != 0)
       OS << '.' << TRI->getSubRegIndexName(Op.getSubReg());
+    if (TargetRegisterInfo::isVirtualRegister(Reg)) {
+      const MachineRegisterInfo &MRI = Op.getParent()->getMF()->getRegInfo();
+      if (IsDef || MRI.def_empty(Reg)) {
+        OS << ':';
+        printRegClassOrBank(Reg, OS, MRI, TRI);
+      }
+    }
     if (ShouldPrintRegisterTies && Op.isTied() && !Op.isDef())
-      OS << "(tied-def " << Op.getParent()->findTiedOperandIdx(I) << ")";
+      OS << "(tied-def " << Op.getParent()->findTiedOperandIdx(OpIdx) << ")";
     if (TypeToPrint.isValid())
       OS << '(' << TypeToPrint << ')';
     break;
+  }
   case MachineOperand::MO_Immediate:
-    OS << Op.getImm();
+    if (MI.isOperandSubregIdx(OpIdx))
+      OS << "%subreg." << TRI->getSubRegIndexName(Op.getImm());
+    else
+      OS << Op.getImm();
     break;
   case MachineOperand::MO_CImmediate:
     Op.getCImm()->printAsOperand(OS, /*PrintType=*/true, MST);
@@ -1220,6 +1247,12 @@ void MIPrinter::print(const MCCFIInstruction &CFI,
       OS << "<mcsymbol> ";
     printCFIRegister(CFI.getRegister(), OS, TRI);
     OS << ", " << CFI.getOffset();
+    break;
+  case MCCFIInstruction::OpRestore:
+    OS << "restore ";
+    if (CFI.getLabel())
+      OS << "<mcsymbol> ";
+    printCFIRegister(CFI.getRegister(), OS, TRI);
     break;
   default:
     // TODO: Print the other CFI Operations.

@@ -152,6 +152,7 @@ public:
 
     case Intrinsic::annotation:
     case Intrinsic::assume:
+    case Intrinsic::sideeffect:
     case Intrinsic::dbg_declare:
     case Intrinsic::dbg_value:
     case Intrinsic::invariant_start:
@@ -255,6 +256,8 @@ public:
 
   bool hasDivRemOp(Type *DataType, bool IsSigned) { return false; }
 
+  bool hasVolatileVariant(Instruction *I, unsigned AddrSpace) { return false; }
+
   bool prefersVectorizedAddressing() { return true; }
 
   int getScalingFactorCost(Type *Ty, GlobalValue *BaseGV, int64_t BaseOffset,
@@ -292,7 +295,10 @@ public:
 
   bool enableAggressiveInterleaving(bool LoopHasReductions) { return false; }
 
-  bool enableMemCmpExpansion(unsigned &MaxLoadSize) { return false; }
+  const TTI::MemCmpExpansionOptions *enableMemCmpExpansion(
+      bool IsZeroCmp) const {
+    return nullptr;
+  }
 
   bool enableInterleavedAccessVectorization() { return false; }
 

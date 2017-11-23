@@ -19,8 +19,8 @@
 //===----------------------------------------------------------------------===//
 
 #include "Chunks.h"
-#include "Error.h"
 #include "Symbols.h"
+#include "lld/Common/ErrorHandler.h"
 #include "llvm/ADT/Hashing.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/Parallel.h"
@@ -73,12 +73,21 @@ uint32_t ICF::getHash(SectionChunk *C) {
 // 2017) says that /opt:icf folds both functions and read-only data.
 // Despite that, the MSVC linker folds only functions. We found
 // a few instances of programs that are not safe for data merging.
-// Therefore, we merge only functions just like the MSVC tool.
+// Therefore, we merge only functions just like the MSVC tool. However, we merge
+// identical .xdata sections, because the address of unwind information is
+// insignificant to the user program and the Visual C++ linker does this.
 bool ICF::isEligible(SectionChunk *C) {
-  bool Global = C->Sym && C->Sym->isExternal();
-  bool Executable = C->getPermissions() & llvm::COFF::IMAGE_SCN_MEM_EXECUTE;
+  // Non-comdat chunks, dead chunks, and writable chunks are not elegible.
   bool Writable = C->getPermissions() & llvm::COFF::IMAGE_SCN_MEM_WRITE;
-  return C->isCOMDAT() && C->isLive() && Global && Executable && !Writable;
+  if (!C->isCOMDAT() || !C->isLive() || Writable)
+    return false;
+
+  // Code sections are eligible.
+  if (C->getPermissions() & llvm::COFF::IMAGE_SCN_MEM_EXECUTE)
+    return true;
+
+  // .xdata unwind info sections are eligble.
+  return C->getSectionName().split('$').first == ".xdata";
 }
 
 // Split an equivalence class into smaller classes.
@@ -119,8 +128,8 @@ bool ICF::equalsConstant(const SectionChunk *A, const SectionChunk *B) {
         R1.VirtualAddress != R2.VirtualAddress) {
       return false;
     }
-    SymbolBody *B1 = A->File->getSymbolBody(R1.SymbolTableIndex);
-    SymbolBody *B2 = B->File->getSymbolBody(R2.SymbolTableIndex);
+    Symbol *B1 = A->File->getSymbol(R1.SymbolTableIndex);
+    Symbol *B2 = B->File->getSymbol(R2.SymbolTableIndex);
     if (B1 == B2)
       return true;
     if (auto *D1 = dyn_cast<DefinedRegular>(B1))
@@ -143,8 +152,8 @@ bool ICF::equalsConstant(const SectionChunk *A, const SectionChunk *B) {
 bool ICF::equalsVariable(const SectionChunk *A, const SectionChunk *B) {
   // Compare relocations.
   auto Eq = [&](const coff_relocation &R1, const coff_relocation &R2) {
-    SymbolBody *B1 = A->File->getSymbolBody(R1.SymbolTableIndex);
-    SymbolBody *B2 = B->File->getSymbolBody(R2.SymbolTableIndex);
+    Symbol *B1 = A->File->getSymbol(R1.SymbolTableIndex);
+    Symbol *B2 = B->File->getSymbol(R2.SymbolTableIndex);
     if (B1 == B2)
       return true;
     if (auto *D1 = dyn_cast<DefinedRegular>(B1))

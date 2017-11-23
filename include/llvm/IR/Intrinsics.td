@@ -711,8 +711,8 @@ def int_invariant_end   : Intrinsic<[],
 // which is valid.
 // The argument also can't be marked with 'returned' attribute, because
 // it would remove barrier.
-def int_invariant_group_barrier : Intrinsic<[llvm_ptr_ty],
-                                            [llvm_ptr_ty],
+def int_invariant_group_barrier : Intrinsic<[llvm_anyptr_ty],
+                                            [LLVMMatchType<0>],
                                             [IntrReadMem, IntrArgMemOnly]>;
 
 //===------------------------ Stackmap Intrinsics -------------------------===//
@@ -809,6 +809,12 @@ def int_experimental_guard : Intrinsic<[], [llvm_i1_ty, llvm_vararg_ty],
 
 // NOP: calls/invokes to this intrinsic are removed by codegen
 def int_donothing : Intrinsic<[], [], [IntrNoMem]>;
+
+// This instruction has no actual effect, though it is treated by the optimizer
+// has having opaque side effects. This may be inserted into loops to ensure
+// that they are not removed even if they turn out to be empty, for languages
+// which specify that infinite loops must be preserved.
+def int_sideeffect : Intrinsic<[], [], [IntrInaccessibleMemOnly]>;
 
 // Intrisics to support half precision floating point format
 let IntrProperties = [IntrNoMem] in {

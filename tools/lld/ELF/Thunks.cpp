@@ -23,13 +23,13 @@
 
 #include "Thunks.h"
 #include "Config.h"
-#include "Error.h"
 #include "InputSection.h"
 #include "Memory.h"
 #include "OutputSections.h"
 #include "Symbols.h"
 #include "SyntheticSections.h"
 #include "Target.h"
+#include "lld/Common/ErrorHandler.h"
 #include "llvm/BinaryFormat/ELF.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/Endian.h"
@@ -52,7 +52,7 @@ namespace {
 // Source State, TargetState, Target Requirement, ABS or PI, Range
 class ARMV7ABSLongThunk final : public Thunk {
 public:
-  ARMV7ABSLongThunk(const SymbolBody &Dest) : Thunk(Dest) {}
+  ARMV7ABSLongThunk(Symbol &Dest) : Thunk(Dest) {}
 
   uint32_t size() const override { return 12; }
   void writeTo(uint8_t *Buf, ThunkSection &IS) const override;
@@ -62,7 +62,7 @@ public:
 
 class ARMV7PILongThunk final : public Thunk {
 public:
-  ARMV7PILongThunk(const SymbolBody &Dest) : Thunk(Dest) {}
+  ARMV7PILongThunk(Symbol &Dest) : Thunk(Dest) {}
 
   uint32_t size() const override { return 16; }
   void writeTo(uint8_t *Buf, ThunkSection &IS) const override;
@@ -72,7 +72,7 @@ public:
 
 class ThumbV7ABSLongThunk final : public Thunk {
 public:
-  ThumbV7ABSLongThunk(const SymbolBody &Dest) : Thunk(Dest) { Alignment = 2; }
+  ThumbV7ABSLongThunk(Symbol &Dest) : Thunk(Dest) { Alignment = 2; }
 
   uint32_t size() const override { return 10; }
   void writeTo(uint8_t *Buf, ThunkSection &IS) const override;
@@ -82,7 +82,7 @@ public:
 
 class ThumbV7PILongThunk final : public Thunk {
 public:
-  ThumbV7PILongThunk(const SymbolBody &Dest) : Thunk(Dest) { Alignment = 2; }
+  ThumbV7PILongThunk(Symbol &Dest) : Thunk(Dest) { Alignment = 2; }
 
   uint32_t size() const override { return 12; }
   void writeTo(uint8_t *Buf, ThunkSection &IS) const override;
@@ -93,7 +93,7 @@ public:
 // MIPS LA25 thunk
 class MipsThunk final : public Thunk {
 public:
-  MipsThunk(const SymbolBody &Dest) : Thunk(Dest) {}
+  MipsThunk(Symbol &Dest) : Thunk(Dest) {}
 
   uint32_t size() const override { return 16; }
   void writeTo(uint8_t *Buf, ThunkSection &IS) const override;
@@ -104,7 +104,7 @@ public:
 // microMIPS R2-R5 LA25 thunk
 class MicroMipsThunk final : public Thunk {
 public:
-  MicroMipsThunk(const SymbolBody &Dest) : Thunk(Dest) {}
+  MicroMipsThunk(Symbol &Dest) : Thunk(Dest) {}
 
   uint32_t size() const override { return 14; }
   void writeTo(uint8_t *Buf, ThunkSection &IS) const override;
@@ -115,7 +115,7 @@ public:
 // microMIPS R6 LA25 thunk
 class MicroMipsR6Thunk final : public Thunk {
 public:
-  MicroMipsR6Thunk(const SymbolBody &Dest) : Thunk(Dest) {}
+  MicroMipsR6Thunk(Symbol &Dest) : Thunk(Dest) {}
 
   uint32_t size() const override { return 12; }
   void writeTo(uint8_t *Buf, ThunkSection &IS) const override;
@@ -126,7 +126,7 @@ public:
 } // end anonymous namespace
 
 // ARM Target Thunks
-static uint64_t getARMThunkDestVA(const SymbolBody &S) {
+static uint64_t getARMThunkDestVA(const Symbol &S) {
   uint64_t V = S.isInPlt() ? S.getPltVA() : S.getVA();
   return SignExtend64<32>(V);
 }
@@ -251,14 +251,14 @@ void MipsThunk::addSymbols(ThunkSection &IS) {
 }
 
 InputSection *MipsThunk::getTargetInputSection() const {
-  auto *DR = dyn_cast<DefinedRegular>(&Destination);
+  auto *DR = dyn_cast<Defined>(&Destination);
   return dyn_cast<InputSection>(DR->Section);
 }
 
 // Write microMIPS R2-R5 LA25 thunk code
 // to call PIC function from the non-PIC one.
 void MicroMipsThunk::writeTo(uint8_t *Buf, ThunkSection &) const {
-  uint64_t S = Destination.getVA();
+  uint64_t S = Destination.getVA() | 1;
   write16(Buf, 0x41b9, Config->Endianness);       // lui   $25, %hi(func)
   write16(Buf + 4, 0xd400, Config->Endianness);   // j     func
   write16(Buf + 8, 0x3339, Config->Endianness);   // addiu $25, $25, %lo(func)
@@ -276,14 +276,14 @@ void MicroMipsThunk::addSymbols(ThunkSection &IS) {
 }
 
 InputSection *MicroMipsThunk::getTargetInputSection() const {
-  auto *DR = dyn_cast<DefinedRegular>(&Destination);
+  auto *DR = dyn_cast<Defined>(&Destination);
   return dyn_cast<InputSection>(DR->Section);
 }
 
 // Write microMIPS R6 LA25 thunk code
 // to call PIC function from the non-PIC one.
 void MicroMipsR6Thunk::writeTo(uint8_t *Buf, ThunkSection &) const {
-  uint64_t S = Destination.getVA();
+  uint64_t S = Destination.getVA() | 1;
   uint64_t P = ThunkSym->getVA();
   write16(Buf, 0x1320, Config->Endianness);       // lui   $25, %hi(func)
   write16(Buf + 4, 0x3339, Config->Endianness);   // addiu $25, $25, %lo(func)
@@ -301,16 +301,16 @@ void MicroMipsR6Thunk::addSymbols(ThunkSection &IS) {
 }
 
 InputSection *MicroMipsR6Thunk::getTargetInputSection() const {
-  auto *DR = dyn_cast<DefinedRegular>(&Destination);
+  auto *DR = dyn_cast<Defined>(&Destination);
   return dyn_cast<InputSection>(DR->Section);
 }
 
-Thunk::Thunk(const SymbolBody &D) : Destination(D), Offset(0) {}
+Thunk::Thunk(Symbol &D) : Destination(D), Offset(0) {}
 
 Thunk::~Thunk() = default;
 
 // Creates a thunk for Thumb-ARM interworking.
-static Thunk *addThunkArm(RelType Reloc, SymbolBody &S) {
+static Thunk *addThunkArm(RelType Reloc, Symbol &S) {
   // ARM relocations need ARM to Thumb interworking Thunks.
   // Thumb relocations need Thumb to ARM relocations.
   // Use position independent Thunks if we require position independent code.
@@ -318,11 +318,13 @@ static Thunk *addThunkArm(RelType Reloc, SymbolBody &S) {
   case R_ARM_PC24:
   case R_ARM_PLT32:
   case R_ARM_JUMP24:
+  case R_ARM_CALL:
     if (Config->Pic)
       return make<ARMV7PILongThunk>(S);
     return make<ARMV7ABSLongThunk>(S);
   case R_ARM_THM_JUMP19:
   case R_ARM_THM_JUMP24:
+  case R_ARM_THM_CALL:
     if (Config->Pic)
       return make<ThumbV7PILongThunk>(S);
     return make<ThumbV7ABSLongThunk>(S);
@@ -330,7 +332,7 @@ static Thunk *addThunkArm(RelType Reloc, SymbolBody &S) {
   fatal("unrecognized relocation type");
 }
 
-static Thunk *addThunkMips(RelType Type, SymbolBody &S) {
+static Thunk *addThunkMips(RelType Type, Symbol &S) {
   if ((S.StOther & STO_MIPS_MICROMIPS) && isMipsR6())
     return make<MicroMipsR6Thunk>(S);
   if (S.StOther & STO_MIPS_MICROMIPS)
@@ -338,7 +340,7 @@ static Thunk *addThunkMips(RelType Type, SymbolBody &S) {
   return make<MipsThunk>(S);
 }
 
-Thunk *addThunk(RelType Type, SymbolBody &S) {
+Thunk *addThunk(RelType Type, Symbol &S) {
   if (Config->EMachine == EM_ARM)
     return addThunkArm(Type, S);
   else if (Config->EMachine == EM_MIPS)

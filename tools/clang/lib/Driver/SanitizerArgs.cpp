@@ -30,7 +30,7 @@ enum : SanitizerMask {
   NeedsUbsanCxxRt = Vptr | CFI,
   NotAllowedWithTrap = Vptr,
   NotAllowedWithMinimalRuntime = Vptr,
-  RequiresPIE = DataFlow,
+  RequiresPIE = DataFlow | Scudo,
   NeedsUnwindTables = Address | Thread | Memory | DataFlow,
   SupportsCoverage = Address | KernelAddress | Memory | Leak | Undefined |
                      Integer | Nullability | DataFlow | Fuzzer | FuzzerNoLink,
@@ -173,7 +173,7 @@ static SanitizerMask parseSanitizeTrapArgs(const Driver &D,
 bool SanitizerArgs::needsUbsanRt() const {
   // All of these include ubsan.
   if (needsAsanRt() || needsMsanRt() || needsTsanRt() || needsDfsanRt() ||
-      needsLsanRt() || needsCfiDiagRt())
+      needsLsanRt() || needsCfiDiagRt() || needsScudoRt())
     return false;
 
   return (Sanitizers.Mask & NeedsUbsanRt & ~TrapSanitizers.Mask) ||
@@ -370,17 +370,14 @@ SanitizerArgs::SanitizerArgs(const ToolChain &TC,
 
   // Warn about incompatible groups of sanitizers.
   std::pair<SanitizerMask, SanitizerMask> IncompatibleGroups[] = {
-      std::make_pair(Address, Thread), std::make_pair(Address, Memory),
-      std::make_pair(Thread, Memory), std::make_pair(Leak, Thread),
-      std::make_pair(Leak, Memory), std::make_pair(KernelAddress, Address),
-      std::make_pair(KernelAddress, Leak),
-      std::make_pair(KernelAddress, Thread),
-      std::make_pair(KernelAddress, Memory),
-      std::make_pair(Efficiency, Address),
-      std::make_pair(Efficiency, Leak),
-      std::make_pair(Efficiency, Thread),
-      std::make_pair(Efficiency, Memory),
-      std::make_pair(Efficiency, KernelAddress)};
+      std::make_pair(Address, Thread | Memory),
+      std::make_pair(Thread, Memory),
+      std::make_pair(Leak, Thread | Memory),
+      std::make_pair(KernelAddress, Address| Leak | Thread | Memory),
+      std::make_pair(Efficiency, Address | Leak | Thread | Memory |
+                                 KernelAddress),
+      std::make_pair(Scudo, Address | Leak | Thread | Memory | KernelAddress |
+                            Efficiency) };
   for (auto G : IncompatibleGroups) {
     SanitizerMask Group = G.first;
     if (Kinds & Group) {
@@ -520,6 +517,13 @@ SanitizerArgs::SanitizerArgs(const ToolChain &TC,
     // Without PIE, external function address may resolve to a PLT record, which
     // can not be verified by the target module.
     NeedPIE |= CfiCrossDso;
+    CfiICallGeneralizePointers =
+        Args.hasArg(options::OPT_fsanitize_cfi_icall_generalize_pointers);
+
+    if (CfiCrossDso && CfiICallGeneralizePointers)
+      D.Diag(diag::err_drv_argument_not_allowed_with)
+          << "-fsanitize-cfi-cross-dso"
+          << "-fsanitize-cfi-icall-generalize-pointers";
   }
 
   Stats = Args.hasFlag(options::OPT_fsanitize_stats,
@@ -622,7 +626,7 @@ SanitizerArgs::SanitizerArgs(const ToolChain &TC,
   ImplicitCfiRuntime = TC.getTriple().isAndroid();
 
   if (AllAddedKinds & Address) {
-    NeedPIE |= TC.getTriple().isAndroid() || TC.getTriple().isOSFuchsia();
+    NeedPIE |= TC.getTriple().isOSFuchsia();
     if (Arg *A =
             Args.getLastArg(options::OPT_fsanitize_address_field_padding)) {
         StringRef S = A->getValue();
@@ -807,6 +811,9 @@ void SanitizerArgs::addArgs(const ToolChain &TC, const llvm::opt::ArgList &Args,
   if (CfiCrossDso)
     CmdArgs.push_back("-fsanitize-cfi-cross-dso");
 
+  if (CfiICallGeneralizePointers)
+    CmdArgs.push_back("-fsanitize-cfi-icall-generalize-pointers");
+
   if (Stats)
     CmdArgs.push_back("-fsanitize-stats");
 
@@ -825,7 +832,7 @@ void SanitizerArgs::addArgs(const ToolChain &TC, const llvm::opt::ArgList &Args,
 
   // MSan: Workaround for PR16386.
   // ASan: This is mainly to help LSan with cases such as
-  // https://code.google.com/p/address-sanitizer/issues/detail?id=373
+  // https://github.com/google/sanitizers/issues/373
   // We can't make this conditional on -fsanitize=leak, as that flag shouldn't
   // affect compilation.
   if (Sanitizers.has(Memory) || Sanitizers.has(Address))

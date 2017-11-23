@@ -690,13 +690,25 @@ size_t CompilerType::GetNumTemplateArguments() const {
   return 0;
 }
 
-CompilerType
-CompilerType::GetTemplateArgument(size_t idx,
-                                  lldb::TemplateArgumentKind &kind) const {
+TemplateArgumentKind CompilerType::GetTemplateArgumentKind(size_t idx) const {
+  if (IsValid())
+    return m_type_system->GetTemplateArgumentKind(m_type, idx);
+  return eTemplateArgumentKindNull;
+}
+
+CompilerType CompilerType::GetTypeTemplateArgument(size_t idx) const {
   if (IsValid()) {
-    return m_type_system->GetTemplateArgument(m_type, idx, kind);
+    return m_type_system->GetTypeTemplateArgument(m_type, idx);
   }
   return CompilerType();
+}
+
+std::pair<llvm::APSInt, CompilerType>
+CompilerType::GetIntegralTemplateArgument(size_t idx) const
+{
+  if (IsValid())
+    return m_type_system->GetIntegralTemplateArgument(m_type, idx);
+  return {llvm::APSInt(0), CompilerType()};
 }
 
 CompilerType CompilerType::GetTypeForFormatters() const {
@@ -997,7 +1009,7 @@ bool CompilerType::ReadFromMemory(lldb_private::ExecutionContext *exe_ctx,
       if (addr == 0)
         return false;
       // The address is an address in this process, so just copy it
-      memcpy(dst, (uint8_t *)nullptr + addr, byte_size);
+      memcpy(dst, reinterpret_cast<uint8_t *>(addr), byte_size);
       return true;
     } else {
       Process *process = nullptr;

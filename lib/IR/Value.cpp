@@ -15,6 +15,7 @@
 #include "LLVMContextImpl.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallString.h"
+#include "llvm/ADT/SetVector.h"
 #include "llvm/IR/CallSite.h"
 #include "llvm/IR/Constant.h"
 #include "llvm/IR/Constants.h"
@@ -50,6 +51,7 @@ Value::Value(Type *ty, unsigned scid)
     : VTy(checkType(ty)), UseList(nullptr), SubclassID(scid),
       HasValueHandle(0), SubclassOptionalData(0), SubclassData(0),
       NumUserOperands(0), IsUsedByMD(false), HasName(false) {
+  static_assert(ConstantFirstVal == 0, "!(SubclassID < ConstantFirstVal)");
   // FIXME: Why isn't this in the subclass gunk??
   // Note, we cannot call isa<CallInst> before the CallInst has been
   // constructed.
@@ -57,7 +59,7 @@ Value::Value(Type *ty, unsigned scid)
     assert((VTy->isFirstClassType() || VTy->isVoidTy() || VTy->isStructTy()) &&
            "invalid CallInst type!");
   else if (SubclassID != BasicBlockVal &&
-           (SubclassID < ConstantFirstVal || SubclassID > ConstantLastVal))
+           (/*SubclassID < ConstantFirstVal ||*/ SubclassID > ConstantLastVal))
     assert((VTy->isFirstClassType() || VTy->isVoidTy()) &&
            "Cannot create non-first-class values except for constants!");
   static_assert(sizeof(Value) == 2 * sizeof(void *) + 2 * sizeof(unsigned),
@@ -452,6 +454,35 @@ void Value::replaceUsesOutsideBlock(Value *New, BasicBlock *BB) {
       continue;
     U.set(New);
   }
+}
+
+void Value::replaceUsesExceptBlockAddr(Value *New) {
+  SmallSetVector<Constant *, 4> Constants;
+  use_iterator UI = use_begin(), E = use_end();
+  for (; UI != E;) {
+    Use &U = *UI;
+    ++UI;
+
+    if (isa<BlockAddress>(U.getUser()))
+      continue;
+
+    // Must handle Constants specially, we cannot call replaceUsesOfWith on a
+    // constant because they are uniqued.
+    if (auto *C = dyn_cast<Constant>(U.getUser())) {
+      if (!isa<GlobalValue>(C)) {
+        // Save unique users to avoid processing operand replacement
+        // more than once.
+        Constants.insert(C);
+        continue;
+      }
+    }
+
+    U.set(New);
+  }
+
+  // Process operand replacement of saved constants.
+  for (auto *C : Constants)
+    C->handleOperandChange(this, New);
 }
 
 namespace {

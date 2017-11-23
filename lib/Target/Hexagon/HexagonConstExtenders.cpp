@@ -548,13 +548,14 @@ static unsigned ReplaceCounter = 0;
 
 char HCE::ID = 0;
 
+#ifndef NDEBUG
 LLVM_DUMP_METHOD void RangeTree::dump() const {
   dbgs() << "Root: " << Root << '\n';
   if (Root)
     dump(Root);
 }
 
-void RangeTree::dump(const Node *N) const {
+LLVM_DUMP_METHOD void RangeTree::dump(const Node *N) const {
   dbgs() << "Node: " << N << '\n';
   dbgs() << "  Height: " << N->Height << '\n';
   dbgs() << "  Count: " << N->Count << '\n';
@@ -568,6 +569,7 @@ void RangeTree::dump(const Node *N) const {
   if (N->Right)
     dump(N->Right);
 }
+#endif
 
 void RangeTree::order(Node *N, SmallVectorImpl<Node*> &Seq) const {
   if (N == nullptr)
@@ -1040,10 +1042,13 @@ OffsetRange HCE::getOffsetRange(Register Rb, const MachineInstr &MI) const {
   unsigned L = Log2_32(A);
   unsigned S = 10+L;  // sint11_L
   int32_t Min = -alignDown((1<<S)-1, A);
-  int32_t Max = 0;  // Force non-negative offsets.
+
+  // The range will be shifted by Off. To prefer non-negative offsets,
+  // adjust Max accordingly.
+  int32_t Off = MI.getOperand(OffP).getImm();
+  int32_t Max = Off >= 0 ? 0 : -Off;
 
   OffsetRange R = { Min, Max, A };
-  int32_t Off = MI.getOperand(OffP).getImm();
   return R.shift(Off);
 }
 
@@ -1622,6 +1627,9 @@ bool HCE::replaceInstrExpr(const ExtDesc &ED, const ExtenderInit &ExtI,
 #ifndef NDEBUG
     // Make sure the output is within allowable range for uses.
     OffsetRange Uses = getOffsetRange(MI.getOperand(0));
+    if (!Uses.contains(Diff))
+      dbgs() << "Diff: " << Diff << " out of range " << Uses
+             << " for " << MI;
     assert(Uses.contains(Diff));
 #endif
     MBB.erase(MI);
@@ -1753,7 +1761,7 @@ bool HCE::replaceInstr(unsigned Idx, Register ExtR, const ExtenderInit &ExtI) {
     // Update offsets of the def's uses.
     for (std::pair<MachineInstr*,unsigned> P : RegOps) {
       unsigned J = P.second;
-      assert(P.first->getNumOperands() < J+1 &&
+      assert(P.first->getNumOperands() > J+1 &&
              P.first->getOperand(J+1).isImm());
       MachineOperand &ImmOp = P.first->getOperand(J+1);
       ImmOp.setImm(ImmOp.getImm() + Diff);

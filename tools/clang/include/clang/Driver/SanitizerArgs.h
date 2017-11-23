@@ -32,6 +32,7 @@ class SanitizerArgs {
   int MsanTrackOrigins = 0;
   bool MsanUseAfterDtor = false;
   bool CfiCrossDso = false;
+  bool CfiICallGeneralizePointers = false;
   int AsanFieldPadding = 0;
   bool SharedRuntime = false;
   bool AsanUseAfterScope = true;
@@ -71,6 +72,7 @@ class SanitizerArgs {
   bool needsEsanRt() const {
     return Sanitizers.hasOneOf(SanitizerKind::Efficiency);
   }
+  bool needsScudoRt() const { return Sanitizers.has(SanitizerKind::Scudo); }
 
   bool requiresPIE() const;
   bool needsUnwindTables() const;

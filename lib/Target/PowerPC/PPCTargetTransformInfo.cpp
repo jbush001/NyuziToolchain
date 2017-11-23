@@ -10,10 +10,10 @@
 #include "PPCTargetTransformInfo.h"
 #include "llvm/Analysis/TargetTransformInfo.h"
 #include "llvm/CodeGen/BasicTTIImpl.h"
+#include "llvm/CodeGen/CostTable.h"
+#include "llvm/CodeGen/TargetLowering.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
-#include "llvm/Target/CostTable.h"
-#include "llvm/Target/TargetLowering.h"
 using namespace llvm;
 
 #define DEBUG_TYPE "ppctti"
@@ -226,9 +226,17 @@ bool PPCTTIImpl::enableAggressiveInterleaving(bool LoopHasReductions) {
   return LoopHasReductions;
 }
 
-bool PPCTTIImpl::enableMemCmpExpansion(unsigned &MaxLoadSize) {
-  MaxLoadSize = 8;
-  return true;
+const PPCTTIImpl::TTI::MemCmpExpansionOptions *
+PPCTTIImpl::enableMemCmpExpansion(bool IsZeroCmp) const {
+  static const auto Options = []() {
+    TTI::MemCmpExpansionOptions Options;
+    Options.LoadSizes.push_back(8);
+    Options.LoadSizes.push_back(4);
+    Options.LoadSizes.push_back(2);
+    Options.LoadSizes.push_back(1);
+    return Options;
+  }();
+  return &Options;
 }
 
 bool PPCTTIImpl::enableInterleavedAccessVectorization() {

@@ -175,11 +175,7 @@ def MOV64rs : RI<0x8C, MRMDestReg, (outs GR64:$dst), (ins SEGMENT_REG:$src),
                  "mov{q}\t{$src, $dst|$dst, $src}", [], IIC_MOV_REG_SR>;
 let mayStore = 1 in {
 def MOV16ms : I<0x8C, MRMDestMem, (outs), (ins i16mem:$dst, SEGMENT_REG:$src),
-                "mov{w}\t{$src, $dst|$dst, $src}", [], IIC_MOV_MEM_SR>, OpSize16;
-def MOV32ms : I<0x8C, MRMDestMem, (outs), (ins i32mem:$dst, SEGMENT_REG:$src),
-                "mov{l}\t{$src, $dst|$dst, $src}", [], IIC_MOV_MEM_SR>, OpSize32;
-def MOV64ms : RI<0x8C, MRMDestMem, (outs), (ins i64mem:$dst, SEGMENT_REG:$src),
-                 "mov{q}\t{$src, $dst|$dst, $src}", [], IIC_MOV_MEM_SR>;
+                "mov{w}\t{$src, $dst|$dst, $src}", [], IIC_MOV_MEM_SR>, OpSizeIgnore;
 }
 def MOV16sr : I<0x8E, MRMSrcReg, (outs SEGMENT_REG:$dst), (ins GR16:$src),
                 "mov{w}\t{$src, $dst|$dst, $src}", [], IIC_MOV_SR_REG>, OpSize16;
@@ -189,11 +185,7 @@ def MOV64sr : RI<0x8E, MRMSrcReg, (outs SEGMENT_REG:$dst), (ins GR64:$src),
                  "mov{q}\t{$src, $dst|$dst, $src}", [], IIC_MOV_SR_REG>;
 let mayLoad = 1 in {
 def MOV16sm : I<0x8E, MRMSrcMem, (outs SEGMENT_REG:$dst), (ins i16mem:$src),
-                "mov{w}\t{$src, $dst|$dst, $src}", [], IIC_MOV_SR_MEM>, OpSize16;
-def MOV32sm : I<0x8E, MRMSrcMem, (outs SEGMENT_REG:$dst), (ins i32mem:$src),
-                "mov{l}\t{$src, $dst|$dst, $src}", [], IIC_MOV_SR_MEM>, OpSize32;
-def MOV64sm : RI<0x8E, MRMSrcMem, (outs SEGMENT_REG:$dst), (ins i64mem:$src),
-                 "mov{q}\t{$src, $dst|$dst, $src}", [], IIC_MOV_SR_MEM>;
+                "mov{w}\t{$src, $dst|$dst, $src}", [], IIC_MOV_SR_MEM>, OpSizeIgnore;
 }
 } // SchedRW
 
@@ -506,16 +498,16 @@ let Uses = [EDX, EAX] in {
 let Predicates = [HasXSAVE] in {
   def XSAVE : I<0xAE, MRM4m, (outs), (ins opaque512mem:$dst),
                 "xsave\t$dst",
-                [(int_x86_xsave addr:$dst, EDX, EAX)]>, TB;
+                [(int_x86_xsave addr:$dst, EDX, EAX)]>, PS;
   def XSAVE64 : RI<0xAE, MRM4m, (outs), (ins opaque512mem:$dst),
                    "xsave64\t$dst",
-                   [(int_x86_xsave64 addr:$dst, EDX, EAX)]>, TB, Requires<[In64BitMode]>;
+                   [(int_x86_xsave64 addr:$dst, EDX, EAX)]>, PS, Requires<[In64BitMode]>;
   def XRSTOR : I<0xAE, MRM5m, (outs), (ins opaque512mem:$dst),
                  "xrstor\t$dst",
-                 [(int_x86_xrstor addr:$dst, EDX, EAX)]>, TB;
+                 [(int_x86_xrstor addr:$dst, EDX, EAX)]>, PS;
   def XRSTOR64 : RI<0xAE, MRM5m, (outs), (ins opaque512mem:$dst),
                     "xrstor64\t$dst",
-                    [(int_x86_xrstor64 addr:$dst, EDX, EAX)]>, TB, Requires<[In64BitMode]>;
+                    [(int_x86_xrstor64 addr:$dst, EDX, EAX)]>, PS, Requires<[In64BitMode]>;
 }
 let Predicates = [HasXSAVEOPT] in {
   def XSAVEOPT : I<0xAE, MRM6m, (outs), (ins opaque512mem:$dst),
@@ -635,3 +627,24 @@ let Defs = [EFLAGS] in {
 let Uses = [RAX, RBX, RCX, RDX], Defs = [RAX, RBX, RCX] in {
   def GETSEC : I<0x37, RawFrm, (outs), (ins), "getsec", []>, TB;
 }
+
+//===----------------------------------------------------------------------===//
+// RDPID Instruction
+def RDPID32 : I<0xC7, MRM7r, (outs GR32:$src), (ins),
+              "rdpid\t$src", []>, XS,
+              Requires<[Not64BitMode]>;
+def RDPID64 : I<0xC7, MRM7r, (outs GR64:$src), (ins),
+              "rdpid\t$src", []>, XS,
+              Requires<[In64BitMode]>;
+
+//===----------------------------------------------------------------------===//
+// PTWRITE Instruction
+def PTWRITEm: I<0xAE, MRM4m, (outs), (ins i32mem:$dst),
+                "ptwrite{l}\t$dst", []>, XS;
+def PTWRITE64m : RI<0xAE, MRM4m, (outs), (ins i64mem:$dst),
+                    "ptwrite{q}\t$dst", []>, XS, Requires<[In64BitMode]>;
+
+def PTWRITEr : I<0xAE, MRM4r, (outs), (ins GR32:$dst),
+                "ptwrite{l}\t$dst", []>, XS;
+def PTWRITE64r : RI<0xAE, MRM4r, (outs), (ins GR64:$dst),
+                   "ptwrite{q}\t$dst", []>, XS, Requires<[In64BitMode]>;

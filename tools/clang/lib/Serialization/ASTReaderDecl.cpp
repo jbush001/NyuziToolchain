@@ -1863,8 +1863,7 @@ ASTDeclReader::VisitCXXRecordDeclImpl(CXXRecordDecl *D) {
 
 void ASTDeclReader::VisitCXXDeductionGuideDecl(CXXDeductionGuideDecl *D) {
   VisitFunctionDecl(D);
-  if (Record.readInt())
-    D->setIsCopyDeductionCandidate();
+  D->IsCopyDeductionCandidate = Record.readInt();
 }
 
 void ASTDeclReader::VisitCXXMethodDecl(CXXMethodDecl *D) {
@@ -3988,6 +3987,8 @@ void ASTDeclReader::UpdateDecl(Decl *D,
       VarDecl *VD = cast<VarDecl>(D);
       VD->getMemberSpecializationInfo()->setPointOfInstantiation(
           ReadSourceLocation());
+      VD->NonParmVarDeclBits.IsInline = Record.readInt();
+      VD->NonParmVarDeclBits.IsInlineSpecified = Record.readInt();
       uint64_t Val = Record.readInt();
       if (Val && !VD->getInit()) {
         VD->setInit(Record.readExpr());

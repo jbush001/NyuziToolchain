@@ -11,7 +11,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "llvm/Target/TargetLowering.h"
+#include "llvm/CodeGen/TargetLowering.h"
 #include "llvm/ADT/BitVector.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/CodeGen/CallingConvLower.h"
@@ -20,6 +20,9 @@
 #include "llvm/CodeGen/MachineJumpTableInfo.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
 #include "llvm/CodeGen/SelectionDAG.h"
+#include "llvm/CodeGen/TargetLoweringObjectFile.h"
+#include "llvm/CodeGen/TargetRegisterInfo.h"
+#include "llvm/CodeGen/TargetSubtargetInfo.h"
 #include "llvm/IR/DataLayout.h"
 #include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/GlobalVariable.h"
@@ -29,10 +32,7 @@
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/KnownBits.h"
 #include "llvm/Support/MathExtras.h"
-#include "llvm/Target/TargetLoweringObjectFile.h"
 #include "llvm/Target/TargetMachine.h"
-#include "llvm/Target/TargetRegisterInfo.h"
-#include "llvm/Target/TargetSubtargetInfo.h"
 #include <cctype>
 using namespace llvm;
 
@@ -1286,6 +1286,19 @@ void TargetLowering::computeKnownBitsForTargetNode(const SDValue Op,
          "Should use MaskedValueIsZero if you don't know whether Op"
          " is a target node!");
   Known.resetAll();
+}
+
+void TargetLowering::computeKnownBitsForFrameIndex(const SDValue Op,
+                                                   KnownBits &Known,
+                                                   const APInt &DemandedElts,
+                                                   const SelectionDAG &DAG,
+                                                   unsigned Depth) const {
+  assert(isa<FrameIndexSDNode>(Op) && "expected FrameIndex");
+
+  if (unsigned Align = DAG.InferPtrAlignment(Op)) {
+    // The low bits are known zero if the pointer is aligned.
+    Known.Zero.setLowBits(Log2_32(Align));
+  }
 }
 
 /// This method can be implemented by targets that want to expose additional

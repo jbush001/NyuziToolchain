@@ -11,6 +11,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "llvm/CodeGen/TargetRegisterInfo.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/BitVector.h"
 #include "llvm/ADT/STLExtras.h"
@@ -18,6 +19,8 @@
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
 #include "llvm/CodeGen/MachineValueType.h"
+#include "llvm/CodeGen/TargetFrameLowering.h"
+#include "llvm/CodeGen/TargetSubtargetInfo.h"
 #include "llvm/CodeGen/VirtRegMap.h"
 #include "llvm/IR/Attributes.h"
 #include "llvm/IR/Function.h"
@@ -27,9 +30,6 @@
 #include "llvm/Support/MathExtras.h"
 #include "llvm/Support/Printable.h"
 #include "llvm/Support/raw_ostream.h"
-#include "llvm/Target/TargetFrameLowering.h"
-#include "llvm/Target/TargetRegisterInfo.h"
-#include "llvm/Target/TargetSubtargetInfo.h"
 #include <cassert>
 #include <utility>
 
@@ -360,7 +360,7 @@ bool TargetRegisterInfo::shouldRewriteCopySrc(const TargetRegisterClass *DefRC,
 }
 
 // Compute target-independent register allocator hints to help eliminate copies.
-void
+bool
 TargetRegisterInfo::getRegAllocationHints(unsigned VirtReg,
                                           ArrayRef<MCPhysReg> Order,
                                           SmallVectorImpl<MCPhysReg> &Hints,
@@ -382,17 +382,18 @@ TargetRegisterInfo::getRegAllocationHints(unsigned VirtReg,
 
   // Check that Phys is a valid hint in VirtReg's register class.
   if (!isPhysicalRegister(Phys))
-    return;
+    return false;
   if (MRI.isReserved(Phys))
-    return;
+    return false;
   // Check that Phys is in the allocation order. We shouldn't heed hints
   // from VirtReg's register class if they aren't in the allocation order. The
   // target probably has a reason for removing the register.
   if (!is_contained(Order, Phys))
-    return;
+    return false;
 
   // All clear, tell the register allocator to prefer this register.
   Hints.push_back(Phys);
+  return false;
 }
 
 bool TargetRegisterInfo::canRealignStack(const MachineFunction &MF) const {

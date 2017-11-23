@@ -1315,6 +1315,14 @@ TEST(Matcher, IsDefinition) {
     cxxMethodDecl(hasName("a"), isDefinition());
   EXPECT_TRUE(matches("class A { void a() {} };", DefinitionOfMethodA));
   EXPECT_TRUE(notMatches("class A { void a(); };", DefinitionOfMethodA));
+
+  DeclarationMatcher DefinitionOfObjCMethodA =
+    objcMethodDecl(hasName("a"), isDefinition());
+  EXPECT_TRUE(matchesObjC("@interface A @end "
+                          "@implementation A; -(void)a {} @end",
+                          DefinitionOfObjCMethodA));
+  EXPECT_TRUE(notMatchesObjC("@interface A; - (void)a; @end",
+                             DefinitionOfObjCMethodA));
 }
 
 TEST(Matcher, HandlesNullQualTypes) {
@@ -1981,6 +1989,13 @@ TEST(HasExternalFormalLinkage, Basic) {
   // translation units.
   EXPECT_TRUE(matches("namespace { int a = 0; }",
                       namedDecl(hasExternalFormalLinkage())));
+}
+
+TEST(HasDefaultArgument, Basic) {
+  EXPECT_TRUE(matches("void x(int val = 0) {}", 
+                      parmVarDecl(hasDefaultArgument())));
+  EXPECT_TRUE(notMatches("void x(int val) {}",
+                      parmVarDecl(hasDefaultArgument())));
 }
 
 } // namespace ast_matchers

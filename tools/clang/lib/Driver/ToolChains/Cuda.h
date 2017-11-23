@@ -40,7 +40,7 @@ private:
 
   // CUDA architectures for which we have raised an error in
   // CheckCudaVersionSupportsArch.
-  mutable llvm::SmallSet<CudaArch, 4> ArchsWithVersionTooLowErrors;
+  mutable llvm::SmallSet<CudaArch, 4> ArchsWithBadVersion;
 
 public:
   CudaInstallationDetector(const Driver &D, const llvm::Triple &HostTriple,
@@ -137,9 +137,11 @@ public:
                 const ToolChain &HostTC, const llvm::opt::ArgList &Args,
                 const Action::OffloadKind OK);
 
-  virtual const llvm::Triple *getAuxTriple() const override {
+  const llvm::Triple *getAuxTriple() const override {
     return &HostTC.getTriple();
   }
+
+  std::string getInputFilename(const InputInfo &Input) const override;
 
   llvm::opt::DerivedArgList *
   TranslateArgs(const llvm::opt::DerivedArgList &Args, StringRef BoundArch,
@@ -156,7 +158,7 @@ public:
   bool isPIEDefault() const override { return false; }
   bool isPICDefaultForced() const override { return false; }
   bool SupportsProfiling() const override { return false; }
-  bool SupportsObjCGC() const override { return false; }
+  bool IsMathErrnoDefault() const override { return false; }
 
   void AddCudaIncludeArgs(const llvm::opt::ArgList &DriverArgs,
                           llvm::opt::ArgStringList &CC1Args) const override;

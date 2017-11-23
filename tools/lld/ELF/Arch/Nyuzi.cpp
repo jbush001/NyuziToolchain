@@ -8,7 +8,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "Error.h"
 #include "InputFiles.h"
 #include "Symbols.h"
 #include "SyntheticSections.h"
@@ -29,7 +28,7 @@ class Nyuzi final : public TargetInfo {
 public:
   Nyuzi();
   void relocateOne(uint8_t *Loc, uint32_t Type, uint64_t Val) const override;
-  RelExpr getRelExpr(RelType Type, const SymbolBody &S,
+  RelExpr getRelExpr(RelType Type, const Symbol &S,
                      const uint8_t *Loc) const override;
 };
 
@@ -73,8 +72,8 @@ void Nyuzi::relocateOne(uint8_t *Loc, uint32_t Type, uint64_t Val) const {
   }
 }
 
-RelExpr Nyuzi::getRelExpr(RelType Type, const SymbolBody &S,
-                          const uint8_t *Loc) const {
+RelExpr Nyuzi::getRelExpr(RelType Type, const Symbol&,
+                          const uint8_t*) const {
   switch (Type) {
   default:
     fatal("unrecognized reloc " + Twine(Type));

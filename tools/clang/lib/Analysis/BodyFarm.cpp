@@ -12,7 +12,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "BodyFarm.h"
+#include "clang/Analysis/BodyFarm.h"
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/CXXInheritance.h"
 #include "clang/AST/Decl.h"
@@ -96,8 +96,8 @@ public:
   /// Create a Return statement.
   ReturnStmt *makeReturn(const Expr *RetVal);
   
-  /// Create an integer literal.
-  IntegerLiteral *makeIntegerLiteral(uint64_t value);
+  /// Create an integer literal expression of the given type.
+  IntegerLiteral *makeIntegerLiteral(uint64_t Value, QualType Ty);
 
   /// Create a member expression.
   MemberExpr *makeMemberExpression(Expr *base, ValueDecl *MemberDecl,
@@ -168,10 +168,10 @@ ASTMaker::makeLvalueToRvalue(const VarDecl *Arg,
 ImplicitCastExpr *ASTMaker::makeImplicitCast(const Expr *Arg, QualType Ty,
                                              CastKind CK) {
   return ImplicitCastExpr::Create(C, Ty,
-                                  /* CastKind= */ CK,
-                                  /* Expr= */ const_cast<Expr *>(Arg),
-                                  /* CXXCastPath= */ nullptr,
-                                  /* ExprValueKind= */ VK_RValue);
+                                  /* CastKind=*/ CK,
+                                  /* Expr=*/ const_cast<Expr *>(Arg),
+                                  /* CXXCastPath=*/ nullptr,
+                                  /* ExprValueKind=*/ VK_RValue);
 }
 
 Expr *ASTMaker::makeIntegralCast(const Expr *Arg, QualType Ty) {
@@ -206,11 +206,9 @@ ReturnStmt *ASTMaker::makeReturn(const Expr *RetVal) {
                             nullptr);
 }
 
-IntegerLiteral *ASTMaker::makeIntegerLiteral(uint64_t value) {
-  return IntegerLiteral::Create(C,
-                                llvm::APInt(
-                                    /*numBits=*/C.getTypeSize(C.IntTy), value),
-                                /*QualType=*/C.IntTy, SourceLocation());
+IntegerLiteral *ASTMaker::makeIntegerLiteral(uint64_t Value, QualType Ty) {
+  llvm::APInt APValue = llvm::APInt(C.getTypeSize(Ty), Value);
+  return IntegerLiteral::Create(C, APValue, Ty, SourceLocation());
 }
 
 MemberExpr *ASTMaker::makeMemberExpression(Expr *base, ValueDecl *MemberDecl,
@@ -222,7 +220,7 @@ MemberExpr *ASTMaker::makeMemberExpression(Expr *base, ValueDecl *MemberDecl,
       C, base, IsArrow, SourceLocation(), NestedNameSpecifierLoc(),
       SourceLocation(), MemberDecl, FoundDecl,
       DeclarationNameInfo(MemberDecl->getDeclName(), SourceLocation()),
-      /* TemplateArgumentListInfo= */ nullptr, MemberDecl->getType(), ValueKind,
+      /* TemplateArgumentListInfo=*/ nullptr, MemberDecl->getType(), ValueKind,
       OK_Ordinary);
 }
 
@@ -231,7 +229,7 @@ ValueDecl *ASTMaker::findMemberField(const RecordDecl *RD, StringRef Name) {
   CXXBasePaths Paths(
       /* FindAmbiguities=*/false,
       /* RecordPaths=*/false,
-      /* DetectVirtual= */ false);
+      /* DetectVirtual=*/ false);
   const IdentifierInfo &II = C.Idents.get(Name);
   DeclarationName DeclName = C.DeclarationNames.getIdentifier(&II);
 
@@ -253,13 +251,23 @@ static CallExpr *create_call_once_funcptr_call(ASTContext &C, ASTMaker M,
                                                const ParmVarDecl *Callback,
                                                ArrayRef<Expr *> CallArgs) {
 
-  return new (C) CallExpr(
-      /*ASTContext=*/C,
-      /*StmtClass=*/M.makeLvalueToRvalue(/*Expr=*/Callback),
-      /*args=*/CallArgs,
-      /*QualType=*/C.VoidTy,
-      /*ExprValueType=*/VK_RValue,
-      /*SourceLocation=*/SourceLocation());
+  QualType Ty = Callback->getType();
+  DeclRefExpr *Call = M.makeDeclRefExpr(Callback);
+  CastKind CK;
+  if (Ty->isRValueReferenceType()) {
+    CK = CK_LValueToRValue;
+  } else {
+    assert(Ty->isLValueReferenceType());
+    CK = CK_FunctionToPointerDecay;
+    Ty = C.getPointerType(Ty.getNonReferenceType());
+  }
+
+  return new (C)
+      CallExpr(C, M.makeImplicitCast(Call, Ty.getNonReferenceType(), CK),
+               /*args=*/CallArgs,
+               /*QualType=*/C.VoidTy,
+               /*ExprValueType=*/VK_RValue,
+               /*SourceLocation=*/SourceLocation());
 }
 
 static CallExpr *create_call_once_lambda_call(ASTContext &C, ASTMaker M,
@@ -272,14 +280,14 @@ static CallExpr *create_call_once_lambda_call(ASTContext &C, ASTMaker M,
   assert(callOperatorDecl != nullptr);
 
   DeclRefExpr *callOperatorDeclRef =
-      DeclRefExpr::Create(/* Ctx = */ C,
-                          /* QualifierLoc = */ NestedNameSpecifierLoc(),
-                          /* TemplateKWLoc = */ SourceLocation(),
+      DeclRefExpr::Create(/* Ctx =*/ C,
+                          /* QualifierLoc =*/ NestedNameSpecifierLoc(),
+                          /* TemplateKWLoc =*/ SourceLocation(),
                           const_cast<FunctionDecl *>(callOperatorDecl),
-                          /* RefersToEnclosingVariableOrCapture= */ false,
-                          /* NameLoc = */ SourceLocation(),
-                          /* T = */ callOperatorDecl->getType(),
-                          /* VK = */ VK_LValue);
+                          /* RefersToEnclosingVariableOrCapture=*/ false,
+                          /* NameLoc =*/ SourceLocation(),
+                          /* T =*/ callOperatorDecl->getType(),
+                          /* VK =*/ VK_LValue);
 
   return new (C)
       CXXOperatorCallExpr(/*AstContext=*/C, OO_Call, callOperatorDeclRef,
@@ -315,6 +323,16 @@ static Stmt *create_call_once(ASTContext &C, const FunctionDecl *D) {
 
   const ParmVarDecl *Flag = D->getParamDecl(0);
   const ParmVarDecl *Callback = D->getParamDecl(1);
+
+  if (!Callback->getType()->isReferenceType()) {
+    llvm::dbgs() << "libcxx03 std::call_once implementation, skipping.\n";
+    return nullptr;
+  }
+  if (!Flag->getType()->isReferenceType()) {
+    llvm::dbgs() << "unknown std::call_once implementation, skipping.\n";
+    return nullptr;
+  }
+
   QualType CallbackType = Callback->getType().getNonReferenceType();
 
   // Nullable pointer, non-null iff function is a CXXRecordDecl.
@@ -336,15 +354,13 @@ static Stmt *create_call_once(ASTContext &C, const FunctionDecl *D) {
   // Otherwise, try libstdc++ implementation, with a field
   // `_M_once`
   if (!FlagFieldDecl) {
-    DEBUG(llvm::dbgs() << "No field __state_ found on std::once_flag struct, "
-                       << "assuming libstdc++ implementation\n");
     FlagFieldDecl = M.findMemberField(FlagRecordDecl, "_M_once");
   }
 
   if (!FlagFieldDecl) {
-    DEBUG(llvm::dbgs() << "No field _M_once found on std::once flag struct: "
-                       << "unknown std::call_once implementation, "
-                       << "ignoring the call");
+    DEBUG(llvm::dbgs() << "No field _M_once or __state_ found on "
+                       << "std::once_flag struct: unknown std::call_once "
+                       << "implementation, ignoring the call.");
     return nullptr;
   }
 
@@ -362,13 +378,15 @@ static Stmt *create_call_once(ASTContext &C, const FunctionDecl *D) {
     // Lambda requires callback itself inserted as a first parameter.
     CallArgs.push_back(
         M.makeDeclRefExpr(Callback,
-                          /* RefersToEnclosingVariableOrCapture= */ true));
+                          /* RefersToEnclosingVariableOrCapture=*/ true));
     CallbackFunctionType = CallbackRecordDecl->getLambdaCallOperator()
                                ->getType()
                                ->getAs<FunctionProtoType>();
-  } else {
+  } else if (!CallbackType->getPointeeType().isNull()) {
     CallbackFunctionType =
         CallbackType->getPointeeType()->getAs<FunctionProtoType>();
+  } else {
+    CallbackFunctionType = CallbackType->getAs<FunctionProtoType>();
   }
 
   if (!CallbackFunctionType)
@@ -376,9 +394,9 @@ static Stmt *create_call_once(ASTContext &C, const FunctionDecl *D) {
 
   // First two arguments are used for the flag and for the callback.
   if (D->getNumParams() != CallbackFunctionType->getNumParams() + 2) {
-    DEBUG(llvm::dbgs() << "Number of params of the callback does not match "
-                       << "the number of params passed to std::call_once, "
-                       << "ignoring the call");
+    DEBUG(llvm::dbgs() << "Types of params of the callback do not match "
+                       << "params passed to std::call_once, "
+                       << "ignoring the call\n");
     return nullptr;
   }
 
@@ -417,25 +435,26 @@ static Stmt *create_call_once(ASTContext &C, const FunctionDecl *D) {
 
   // Negation predicate.
   UnaryOperator *FlagCheck = new (C) UnaryOperator(
-      /* input= */
+      /* input=*/
       M.makeImplicitCast(M.makeLvalueToRvalue(Deref, DerefType), DerefType,
                          CK_IntegralToBoolean),
-      /* opc= */ UO_LNot,
-      /* QualType= */ C.IntTy,
-      /* ExprValueKind= */ VK_RValue,
-      /* ExprObjectKind= */ OK_Ordinary, SourceLocation());
+      /* opc=*/ UO_LNot,
+      /* QualType=*/ C.IntTy,
+      /* ExprValueKind=*/ VK_RValue,
+      /* ExprObjectKind=*/ OK_Ordinary, SourceLocation());
 
   // Create assignment.
   BinaryOperator *FlagAssignment = M.makeAssignment(
-      Deref, M.makeIntegralCast(M.makeIntegerLiteral(1), DerefType), DerefType);
+      Deref, M.makeIntegralCast(M.makeIntegerLiteral(1, C.IntTy), DerefType),
+      DerefType);
 
   IfStmt *Out = new (C)
       IfStmt(C, SourceLocation(),
-             /* IsConstexpr= */ false,
-             /* init= */ nullptr,
-             /* var= */ nullptr,
-             /* cond= */ FlagCheck,
-             /* then= */ M.makeCompound({CallbackCall, FlagAssignment}));
+             /* IsConstexpr=*/ false,
+             /* init=*/ nullptr,
+             /* var=*/ nullptr,
+             /* cond=*/ FlagCheck,
+             /* then=*/ M.makeCompound({CallbackCall, FlagAssignment}));
 
   return Out;
 }
@@ -466,8 +485,8 @@ static Stmt *create_dispatch_once(ASTContext &C, const FunctionDecl *D) {
   // sets it, and calls the block.  Basically, an AST dump of:
   //
   // void dispatch_once(dispatch_once_t *predicate, dispatch_block_t block) {
-  //  if (!*predicate) {
-  //    *predicate = 1;
+  //  if (*predicate != ~0l) {
+  //    *predicate = ~0l;
   //    block();
   //  }
   // }
@@ -484,7 +503,9 @@ static Stmt *create_dispatch_once(ASTContext &C, const FunctionDecl *D) {
       /*SourceLocation=*/SourceLocation());
 
   // (2) Create the assignment to the predicate.
-  IntegerLiteral *IL = M.makeIntegerLiteral(1);
+  Expr *DoneValue =
+      new (C) UnaryOperator(M.makeIntegerLiteral(0, C.LongTy), UO_Not, C.LongTy,
+                            VK_RValue, OK_Ordinary, SourceLocation());
 
   BinaryOperator *B =
     M.makeAssignment(
@@ -492,7 +513,7 @@ static Stmt *create_dispatch_once(ASTContext &C, const FunctionDecl *D) {
           M.makeLvalueToRvalue(
             M.makeDeclRefExpr(Predicate), PredicateQPtrTy),
             PredicateTy),
-       M.makeIntegralCast(IL, PredicateTy),
+       M.makeIntegralCast(DoneValue, PredicateTy),
        PredicateTy);
   
   // (3) Create the compound statement.
@@ -508,21 +529,15 @@ static Stmt *create_dispatch_once(ASTContext &C, const FunctionDecl *D) {
           PredicateQPtrTy),
         PredicateTy),
     PredicateTy);
-  
-  UnaryOperator *UO = new (C) UnaryOperator(
-      /* input= */ LValToRval,
-      /* opc= */ UO_LNot,
-      /* QualType= */ C.IntTy,
-      /* ExprValueKind= */ VK_RValue,
-      /* ExprObjectKind= */ OK_Ordinary, SourceLocation());
-  
+
+  Expr *GuardCondition = M.makeComparison(LValToRval, DoneValue, BO_NE);
   // (5) Create the 'if' statement.
   IfStmt *If = new (C) IfStmt(C, SourceLocation(),
-                              /* IsConstexpr= */ false,
-                              /* init= */ nullptr,
-                              /* var= */ nullptr,
-                              /* cond= */ UO,
-                              /* then= */ CS);
+                              /* IsConstexpr=*/ false,
+                              /* init=*/ nullptr,
+                              /* var=*/ nullptr,
+                              /* cond=*/ GuardCondition,
+                              /* then=*/ CS);
   return If;
 }
 

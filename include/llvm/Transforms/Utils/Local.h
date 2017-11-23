@@ -60,16 +60,41 @@ class TargetTransformInfo;
 /// replaced by lookup tables and selects.
 struct SimplifyCFGOptions {
   int BonusInstThreshold;
+  bool ForwardSwitchCondToPhi;
   bool ConvertSwitchToLookupTable;
   bool NeedCanonicalLoop;
   AssumptionCache *AC;
 
-  SimplifyCFGOptions(int BonusThreshold = 1, bool SwitchToLookup = false,
-                     bool CanonicalLoops = true,
+  SimplifyCFGOptions(unsigned BonusThreshold = 1,
+                     bool ForwardSwitchCond = false,
+                     bool SwitchToLookup = false, bool CanonicalLoops = true,
                      AssumptionCache *AssumpCache = nullptr)
       : BonusInstThreshold(BonusThreshold),
+        ForwardSwitchCondToPhi(ForwardSwitchCond),
         ConvertSwitchToLookupTable(SwitchToLookup),
         NeedCanonicalLoop(CanonicalLoops), AC(AssumpCache) {}
+
+  // Support 'builder' pattern to set members by name at construction time.
+  SimplifyCFGOptions &bonusInstThreshold(int I) {
+    BonusInstThreshold = I;
+    return *this;
+  }
+  SimplifyCFGOptions &forwardSwitchCondToPhi(bool B) {
+    ForwardSwitchCondToPhi = B;
+    return *this;
+  }
+  SimplifyCFGOptions &convertSwitchToLookupTable(bool B) {
+    ConvertSwitchToLookupTable = B;
+    return *this;
+  }
+  SimplifyCFGOptions &needCanonicalLoops(bool B) {
+    NeedCanonicalLoop = B;
+    return *this;
+  }
+  SimplifyCFGOptions &setAssumptionCache(AssumptionCache *Cache) {
+    AC = Cache;
+    return *this;
+  }
 };
 
 //===----------------------------------------------------------------------===//
@@ -206,10 +231,10 @@ unsigned getOrEnforceKnownAlignment(Value *V, unsigned PrefAlign,
                                     const DominatorTree *DT = nullptr);
 
 /// Try to infer an alignment for the specified pointer.
-static inline unsigned getKnownAlignment(Value *V, const DataLayout &DL,
-                                         const Instruction *CxtI = nullptr,
-                                         AssumptionCache *AC = nullptr,
-                                         const DominatorTree *DT = nullptr) {
+inline unsigned getKnownAlignment(Value *V, const DataLayout &DL,
+                                  const Instruction *CxtI = nullptr,
+                                  AssumptionCache *AC = nullptr,
+                                  const DominatorTree *DT = nullptr) {
   return getOrEnforceKnownAlignment(V, 0, DL, CxtI, AC, DT);
 }
 

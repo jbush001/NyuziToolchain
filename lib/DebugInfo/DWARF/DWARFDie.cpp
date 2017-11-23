@@ -208,7 +208,8 @@ static void dumpAttribute(raw_ostream &OS, const DWARFDie &Die,
   DWARFUnit *U = Die.getDwarfUnit();
   DWARFFormValue formValue(Form);
 
-  if (!formValue.extractValue(U->getDebugInfoExtractor(), OffsetPtr, U))
+  if (!formValue.extractValue(U->getDebugInfoExtractor(), OffsetPtr,
+                              U->getFormParams(), U))
     return;
 
   OS << "\t(";
@@ -234,7 +235,8 @@ static void dumpAttribute(raw_ostream &OS, const DWARFDie &Die,
   else if (Attr == DW_AT_decl_line || Attr == DW_AT_call_line)
     OS << *formValue.getAsUnsignedConstant();
   else if (Attr == DW_AT_location || Attr == DW_AT_frame_base ||
-           Attr == DW_AT_data_member_location)
+           Attr == DW_AT_data_member_location ||
+           Attr == DW_AT_GNU_call_site_value)
     dumpLocation(OS, formValue, U, sizeof(BaseIndent) + Indent + 4, DumpOpts);
   else
     formValue.dump(OS, DumpOpts);
@@ -510,6 +512,12 @@ DWARFDie DWARFDie::getSibling() const {
   return DWARFDie();
 }
 
+DWARFDie DWARFDie::getFirstChild() const {
+  if (isValid())
+    return U->getFirstChild(Die);
+  return DWARFDie();
+}
+
 iterator_range<DWARFDie::attribute_iterator> DWARFDie::attributes() const {
   return make_range(attribute_iterator(*this, false),
                     attribute_iterator(*this, true));
@@ -543,7 +551,7 @@ void DWARFDie::attribute_iterator::updateForIndex(
     auto U = Die.getDwarfUnit();
     assert(U && "Die must have valid DWARF unit");
     bool b = AttrValue.Value.extractValue(U->getDebugInfoExtractor(),
-                                          &ParseOffset, U);
+                                          &ParseOffset, U->getFormParams(), U);
     (void)b;
     assert(b && "extractValue cannot fail on fully parsed DWARF");
     AttrValue.ByteSize = ParseOffset - AttrValue.Offset;

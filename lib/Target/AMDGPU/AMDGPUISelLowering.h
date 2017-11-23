@@ -18,7 +18,7 @@
 
 #include "AMDGPU.h"
 #include "llvm/CodeGen/CallingConvLower.h"
-#include "llvm/Target/TargetLowering.h"
+#include "llvm/CodeGen/TargetLowering.h"
 
 namespace llvm {
 
@@ -35,7 +35,8 @@ private:
   SDValue getFFBX_U32(SelectionDAG &DAG, SDValue Op, const SDLoc &DL, unsigned Opc) const;
 
 public:
-  static bool isOrEquivalentToAdd(SelectionDAG &DAG, SDValue Op);
+  static unsigned numBitsUnsigned(SDValue Op, SelectionDAG &DAG);
+  static unsigned numBitsSigned(SDValue Op, SelectionDAG &DAG);
 
 protected:
   const AMDGPUSubtarget *Subtarget;
@@ -379,6 +380,8 @@ enum NodeType : unsigned {
   MULHI_I24,
   MAD_U24,
   MAD_I24,
+  MAD_U64_U32,
+  MAD_I64_I32,
   MUL_LOHI_I24,
   MUL_LOHI_U24,
   TEXTURE_FETCH,
@@ -442,6 +445,19 @@ enum NodeType : unsigned {
   ATOMIC_DEC,
   BUFFER_LOAD,
   BUFFER_LOAD_FORMAT,
+  BUFFER_STORE,
+  BUFFER_STORE_FORMAT,
+  BUFFER_ATOMIC_SWAP,
+  BUFFER_ATOMIC_ADD,
+  BUFFER_ATOMIC_SUB,
+  BUFFER_ATOMIC_SMIN,
+  BUFFER_ATOMIC_UMIN,
+  BUFFER_ATOMIC_SMAX,
+  BUFFER_ATOMIC_UMAX,
+  BUFFER_ATOMIC_AND,
+  BUFFER_ATOMIC_OR,
+  BUFFER_ATOMIC_XOR,
+  BUFFER_ATOMIC_CMPSWAP,
   LAST_AMDGPU_ISD_NUMBER
 };
 

@@ -149,8 +149,13 @@ endfunction(add_llvm_symbol_exports)
 
 if(NOT WIN32 AND NOT APPLE)
   # Detect what linker we have here
+  if( LLVM_USE_LINKER )
+    set(command ${CMAKE_C_COMPILER} -fuse-ld=${LLVM_USE_LINKER} -Wl,--version)
+  else()
+    set(command ${CMAKE_C_COMPILER} -Wl,--version)
+  endif()
   execute_process(
-    COMMAND ${CMAKE_C_COMPILER} -Wl,--version
+    COMMAND ${command}
     OUTPUT_VARIABLE stdout
     ERROR_VARIABLE stderr
     )
@@ -164,7 +169,8 @@ if(NOT WIN32 AND NOT APPLE)
   elseif("${stdout}" MATCHES "GNU ld")
     set(LLVM_LINKER_IS_GNULD ON)
     message(STATUS "Linker detection: GNU ld")
-  elseif("${stderr}" MATCHES "Solaris Link Editors")
+  elseif("${stderr}" MATCHES "Solaris Link Editors" OR
+         "${stdout}" MATCHES "Solaris Link Editors")
     set(LLVM_LINKER_IS_SOLARISLD ON)
     message(STATUS "Linker detection: Solaris ld")
   else()
@@ -263,14 +269,14 @@ endfunction()
 #
 function(add_windows_version_resource_file OUT_VAR)
   set(sources ${ARGN})
-  if (MSVC)
+  if (MSVC AND CMAKE_HOST_SYSTEM_NAME STREQUAL "Windows")
     set(resource_file ${LLVM_SOURCE_DIR}/resources/windows_version_resource.rc)
     if(EXISTS ${resource_file})
       set(sources ${sources} ${resource_file})
       source_group("Resource Files" ${resource_file})
       set(windows_resource_file ${resource_file} PARENT_SCOPE)
     endif()
-  endif(MSVC)
+  endif(MSVC AND CMAKE_HOST_SYSTEM_NAME STREQUAL "Windows")
 
   set(${OUT_VAR} ${sources} PARENT_SCOPE)
 endfunction(add_windows_version_resource_file)
@@ -1038,6 +1044,13 @@ function(add_unittest test_suite test_name)
     set(EXCLUDE_FROM_ALL ON)
   endif()
 
+  # Our current version of gtest does not properly recognize C++11 support
+  # with MSVC, so it falls back to tr1 / experimental classes.  Since LLVM
+  # itself requires C++11, we can safely force it on unconditionally so that
+  # we don't have to fight with the buggy gtest check.  
+  add_definitions(-DGTEST_LANG_CXX11=1)
+  add_definitions(-DGTEST_HAS_TR1_TUPLE=0)
+
   include_directories(${LLVM_MAIN_SRC_DIR}/utils/unittest/googletest/include)
   include_directories(${LLVM_MAIN_SRC_DIR}/utils/unittest/googlemock/include)
   if (NOT LLVM_ENABLE_THREADS)
@@ -1113,6 +1126,15 @@ function(llvm_canonicalize_cmake_booleans)
   endforeach()
 endfunction(llvm_canonicalize_cmake_booleans)
 
+macro(set_llvm_build_mode)
+  # Configuration-time: See Unit/lit.site.cfg.in
+  if (CMAKE_CFG_INTDIR STREQUAL ".")
+    set(LLVM_BUILD_MODE ".")
+  else ()
+    set(LLVM_BUILD_MODE "%(build_mode)s")
+  endif ()
+endmacro()
+
 # This function provides an automatic way to 'configure'-like generate a file
 # based on a set of common and custom variables, specifically targeting the
 # variables needed for the 'lit.site.cfg' files. This function bundles the
@@ -1136,12 +1158,7 @@ function(configure_lit_site_cfg site_in site_out)
 
   set(SHLIBEXT "${LTDL_SHLIB_EXT}")
 
-  # Configuration-time: See Unit/lit.site.cfg.in
-  if (CMAKE_CFG_INTDIR STREQUAL ".")
-    set(LLVM_BUILD_MODE ".")
-  else ()
-    set(LLVM_BUILD_MODE "%(build_mode)s")
-  endif ()
+  set_llvm_build_mode()
 
   # They below might not be the build tree but provided binary tree.
   set(LLVM_SOURCE_DIR ${LLVM_MAIN_SRC_DIR})
