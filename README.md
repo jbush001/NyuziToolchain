@@ -112,7 +112,7 @@ It is also useful to run the
 to validate the backend.
 
 There is a set of whole-program tests in the NyuziProcessor repository
-[test/compiler](https://github.com/jbush001/NyuziProcessor/tree/master/tests/compiler)
+[test/whole-program](https://github.com/jbush001/NyuziProcessor/tree/master/tests/whole-program)
 Each test case is compiled and then run in the instruction set simulator, which
 checks the output for validity. This is similar to the test-suite project in LLVM.
 Instructions are in that directory.
