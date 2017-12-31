@@ -18,10 +18,10 @@
 #include "Spiller.h"
 #include "llvm/Analysis/AliasAnalysis.h"
 #include "llvm/CodeGen/CalcSpillWeights.h"
-#include "llvm/CodeGen/LiveIntervalAnalysis.h"
+#include "llvm/CodeGen/LiveIntervals.h"
 #include "llvm/CodeGen/LiveRangeEdit.h"
 #include "llvm/CodeGen/LiveRegMatrix.h"
-#include "llvm/CodeGen/LiveStackAnalysis.h"
+#include "llvm/CodeGen/LiveStacks.h"
 #include "llvm/CodeGen/MachineBlockFrequencyInfo.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/CodeGen/MachineInstr.h"
@@ -219,8 +219,8 @@ bool RABasic::spillInterferences(LiveInterval &VirtReg, unsigned PhysReg,
       Intfs.push_back(Intf);
     }
   }
-  DEBUG(dbgs() << "spilling " << TRI->getName(PhysReg) <<
-        " interferences with " << VirtReg << "\n");
+  DEBUG(dbgs() << "spilling " << printReg(PhysReg, TRI)
+               << " interferences with " << VirtReg << "\n");
   assert(!Intfs.empty() && "expected interference");
 
   // Spill each interfering vreg allocated to PhysReg or an alias.

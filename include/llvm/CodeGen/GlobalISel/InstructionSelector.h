@@ -111,9 +111,12 @@ enum {
   /// - InsnID - Instruction ID
   /// - The predicate to test
   GIM_CheckAPFloatImmPredicate,
-  /// Check a memory operation is non-atomic.
+  /// Check a memory operation has the specified atomic ordering.
   /// - InsnID - Instruction ID
-  GIM_CheckNonAtomic,
+  /// - Ordering - The AtomicOrdering value
+  GIM_CheckAtomicOrdering,
+  GIM_CheckAtomicOrderingOrStrongerThan,
+  GIM_CheckAtomicOrderingWeakerThan,
 
   /// Check the type for the specified operand
   /// - InsnID - Instruction ID
@@ -279,10 +282,6 @@ enum {
 /// Provides the logic to select generic machine instructions.
 class InstructionSelector {
 public:
-  using I64ImmediatePredicateFn = bool (*)(int64_t);
-  using APIntImmediatePredicateFn = bool (*)(const APInt &);
-  using APFloatImmediatePredicateFn = bool (*)(const APFloat &);
-
   virtual ~InstructionSelector() = default;
 
   /// Select the (possibly generic) instruction \p I to only use target-specific
@@ -316,9 +315,6 @@ public:
   struct MatcherInfoTy {
     const LLT *TypeObjects;
     const PredicateBitset *FeatureBitsets;
-    const I64ImmediatePredicateFn *I64ImmPredicateFns;
-    const APIntImmediatePredicateFn *APIntImmPredicateFns;
-    const APFloatImmediatePredicateFn *APFloatImmPredicateFns;
     const ComplexMatcherMemFn *ComplexPredicates;
   };
 
@@ -336,6 +332,16 @@ protected:
       MachineRegisterInfo &MRI, const TargetRegisterInfo &TRI,
       const RegisterBankInfo &RBI, const PredicateBitset &AvailableFeatures,
       CodeGenCoverage &CoverageInfo) const;
+
+  virtual bool testImmPredicate_I64(unsigned, int64_t) const {
+    llvm_unreachable("Subclasses must override this to use tablegen");
+  }
+  virtual bool testImmPredicate_APInt(unsigned, const APInt &) const {
+    llvm_unreachable("Subclasses must override this to use tablegen");
+  }
+  virtual bool testImmPredicate_APFloat(unsigned, const APFloat &) const {
+    llvm_unreachable("Subclasses must override this to use tablegen");
+  }
 
   /// Constrain a register operand of an instruction \p I to a specified
   /// register class. This could involve inserting COPYs before (for uses) or

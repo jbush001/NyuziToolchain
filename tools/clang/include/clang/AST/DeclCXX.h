@@ -1487,10 +1487,10 @@ public:
   /// We resolve DR1361 by ignoring the second bullet. We resolve DR1452 by
   /// treating types with trivial default constructors as literal types.
   ///
-  /// Only in C++1z and beyond, are lambdas literal types.
+  /// Only in C++17 and beyond, are lambdas literal types.
   bool isLiteral() const {
     return hasTrivialDestructor() &&
-           (!isLambda() || getASTContext().getLangOpts().CPlusPlus1z) &&
+           (!isLambda() || getASTContext().getLangOpts().CPlusPlus17) &&
            !hasNonLiteralTypeFieldsOrBases() &&
            (isAggregate() || isLambda() ||
             hasConstexprNonCopyMoveConstructor() ||
@@ -2015,7 +2015,7 @@ public:
     if (CD->isVirtualAsWritten() || CD->isPure())
       return true;
 
-    return (CD->begin_overridden_methods() != CD->end_overridden_methods());
+    return CD->size_overridden_methods() != 0;
   }
 
   /// If it's possible to devirtualize a call to this method, return the called

@@ -639,6 +639,7 @@ static bool ParseCodeGenArgs(CodeGenOptions &Opts, ArgList &Args, InputKind IK,
                         Args.hasArg(OPT_cl_no_signed_zeros) ||
                         Args.hasArg(OPT_cl_unsafe_math_optimizations) ||
                         Args.hasArg(OPT_cl_fast_relaxed_math));
+  Opts.Reassociate = Args.hasArg(OPT_mreassociate);
   Opts.FlushDenorm = Args.hasArg(OPT_cl_denorms_are_zero);
   Opts.CorrectlyRoundedDivSqrt =
       Args.hasArg(OPT_cl_fp32_correctly_rounded_divide_sqrt);
@@ -713,6 +714,8 @@ static bool ParseCodeGenArgs(CodeGenOptions &Opts, ArgList &Args, InputKind IK,
   Opts.VectorizeLoop = Args.hasArg(OPT_vectorize_loops);
   Opts.VectorizeSLP = Args.hasArg(OPT_vectorize_slp);
 
+  Opts.PreferVectorWidth = Args.getLastArgValue(OPT_mprefer_vector_width_EQ);
+
   Opts.MainFileName = Args.getLastArgValue(OPT_main_file_name);
   Opts.VerifyModule = !Args.hasArg(OPT_disable_llvm_verifier);
 
@@ -785,6 +788,8 @@ static bool ParseCodeGenArgs(CodeGenOptions &Opts, ArgList &Args, InputKind IK,
   Opts.InstrumentFunctionEntryBare =
       Args.hasArg(OPT_finstrument_function_entry_bare);
   Opts.XRayInstrumentFunctions = Args.hasArg(OPT_fxray_instrument);
+  Opts.XRayAlwaysEmitCustomEvents =
+      Args.hasArg(OPT_fxray_always_emit_customevents);
   Opts.XRayInstructionThreshold =
       getLastArgIntValue(Args, OPT_fxray_instruction_threshold_EQ, 200, Diags);
   Opts.InstrumentForProfiling = Args.hasArg(OPT_pg);
@@ -1067,6 +1072,26 @@ static bool parseShowColorsArgs(const ArgList &Args, bool DefaultColor) {
           llvm::sys::Process::StandardErrHasColors());
 }
 
+static bool checkVerifyPrefixes(const std::vector<std::string> &VerifyPrefixes,
+                                DiagnosticsEngine *Diags) {
+  bool Success = true;
+  for (const auto &Prefix : VerifyPrefixes) {
+    // Every prefix must start with a letter and contain only alphanumeric
+    // characters, hyphens, and underscores.
+    auto BadChar = std::find_if(Prefix.begin(), Prefix.end(),
+                                [](char C){return !isAlphanumeric(C)
+                                                  && C != '-' && C != '_';});
+    if (BadChar != Prefix.end() || !isLetter(Prefix[0])) {
+      Success = false;
+      if (Diags) {
+        Diags->Report(diag::err_drv_invalid_value) << "-verify=" << Prefix;
+        Diags->Report(diag::note_drv_verify_prefix_spelling);
+      }
+    }
+  }
+  return Success;
+}
+
 bool clang::ParseDiagnosticArgs(DiagnosticOptions &Opts, ArgList &Args,
                                 DiagnosticsEngine *Diags,
                                 bool DefaultDiagColor, bool DefaultShowOpt) {
@@ -1154,7 +1179,18 @@ bool clang::ParseDiagnosticArgs(DiagnosticOptions &Opts, ArgList &Args,
   Opts.ShowSourceRanges = Args.hasArg(OPT_fdiagnostics_print_source_range_info);
   Opts.ShowParseableFixits = Args.hasArg(OPT_fdiagnostics_parseable_fixits);
   Opts.ShowPresumedLoc = !Args.hasArg(OPT_fno_diagnostics_use_presumed_location);
-  Opts.VerifyDiagnostics = Args.hasArg(OPT_verify);
+  Opts.VerifyDiagnostics = Args.hasArg(OPT_verify) || Args.hasArg(OPT_verify_EQ);
+  Opts.VerifyPrefixes = Args.getAllArgValues(OPT_verify_EQ);
+  if (Args.hasArg(OPT_verify))
+    Opts.VerifyPrefixes.push_back("expected");
+  // Keep VerifyPrefixes in its original order for the sake of diagnostics, and
+  // then sort it to prepare for fast lookup using std::binary_search.
+  if (!checkVerifyPrefixes(Opts.VerifyPrefixes, Diags)) {
+    Opts.VerifyDiagnostics = false;
+    Success = false;
+  }
+  else
+    std::sort(Opts.VerifyPrefixes.begin(), Opts.VerifyPrefixes.end());
   DiagnosticLevelMask DiagMask = DiagnosticLevelMask::None;
   Success &= parseDiagnosticLevelMask("-verify-ignore-unexpected=",
     Args.getAllArgValues(OPT_verify_ignore_unexpected_EQ),
@@ -1376,6 +1412,8 @@ static InputKind ParseFrontendArgs(FrontendOptions &Opts, ArgList &Args,
     = Args.hasArg(OPT_code_completion_patterns);
   Opts.CodeCompleteOpts.IncludeGlobals
     = !Args.hasArg(OPT_no_code_completion_globals);
+  Opts.CodeCompleteOpts.IncludeNamespaceLevelDecls
+    = !Args.hasArg(OPT_no_code_completion_ns_level_decls);
   Opts.CodeCompleteOpts.IncludeBriefComments
     = Args.hasArg(OPT_code_completion_brief_comments);
 
@@ -1727,11 +1765,7 @@ void CompilerInvocation::setLangDefaults(LangOptions &Opts, InputKind IK,
       break;
     case InputKind::CXX:
     case InputKind::ObjCXX:
-      // The PS4 uses C++11 as the default C++ standard.
-      if (T.isPS4())
-        LangStd = LangStandard::lang_gnucxx11;
-      else
-        LangStd = LangStandard::lang_gnucxx98;
+      LangStd = LangStandard::lang_gnucxx14;
       break;
     case InputKind::RenderScript:
       LangStd = LangStandard::lang_c99;
@@ -1743,10 +1777,11 @@ void CompilerInvocation::setLangDefaults(LangOptions &Opts, InputKind IK,
   Opts.LineComment = Std.hasLineComments();
   Opts.C99 = Std.isC99();
   Opts.C11 = Std.isC11();
+  Opts.C17 = Std.isC17();
   Opts.CPlusPlus = Std.isCPlusPlus();
   Opts.CPlusPlus11 = Std.isCPlusPlus11();
   Opts.CPlusPlus14 = Std.isCPlusPlus14();
-  Opts.CPlusPlus1z = Std.isCPlusPlus1z();
+  Opts.CPlusPlus17 = Std.isCPlusPlus17();
   Opts.CPlusPlus2a = Std.isCPlusPlus2a();
   Opts.Digraphs = Std.hasDigraphs();
   Opts.GNUMode = Std.isGNUMode();
@@ -1802,7 +1837,7 @@ void CompilerInvocation::setLangDefaults(LangOptions &Opts, InputKind IK,
   Opts.GNUKeywords = Opts.GNUMode;
   Opts.CXXOperatorNames = Opts.CPlusPlus;
 
-  Opts.AlignedAllocation = Opts.CPlusPlus1z;
+  Opts.AlignedAllocation = Opts.CPlusPlus17;
 
   Opts.DollarIdents = !Opts.AsmPreprocessor;
 }
@@ -2121,7 +2156,7 @@ static void ParseLangArgs(LangOptions &Opts, ArgList &Args, InputKind IK,
   // Mimicing gcc's behavior, trigraphs are only enabled if -trigraphs
   // is specified, or -std is set to a conforming mode.
   // Trigraphs are disabled by default in c++1z onwards.
-  Opts.Trigraphs = !Opts.GNUMode && !Opts.MSVCCompat && !Opts.CPlusPlus1z;
+  Opts.Trigraphs = !Opts.GNUMode && !Opts.MSVCCompat && !Opts.CPlusPlus17;
   Opts.Trigraphs =
       Args.hasFlag(OPT_ftrigraphs, OPT_fno_trigraphs, Opts.Trigraphs);
 
@@ -2141,7 +2176,18 @@ static void ParseLangArgs(LangOptions &Opts, ArgList &Args, InputKind IK,
   Opts.Exceptions = Args.hasArg(OPT_fexceptions);
   Opts.ObjCExceptions = Args.hasArg(OPT_fobjc_exceptions);
   Opts.CXXExceptions = Args.hasArg(OPT_fcxx_exceptions);
-  Opts.SjLjExceptions = Args.hasArg(OPT_fsjlj_exceptions);
+
+  // Handle exception personalities
+  Arg *A = Args.getLastArg(options::OPT_fsjlj_exceptions,
+                           options::OPT_fseh_exceptions,
+                           options::OPT_fdwarf_exceptions);
+  if (A) {
+    const Option &Opt = A->getOption();
+    Opts.SjLjExceptions = Opt.matches(options::OPT_fsjlj_exceptions);
+    Opts.SEHExceptions = Opt.matches(options::OPT_fseh_exceptions);
+    Opts.DWARFExceptions = Opt.matches(options::OPT_fdwarf_exceptions);
+  }
+
   Opts.ExternCNoUnwind = Args.hasArg(OPT_fexternc_nounwind);
   Opts.TraditionalCPP = Args.hasArg(OPT_traditional_cpp);
 
@@ -2151,7 +2197,7 @@ static void ParseLangArgs(LangOptions &Opts, ArgList &Args, InputKind IK,
     && Opts.OpenCLVersion >= 200);
   Opts.BlocksRuntimeOptional = Args.hasArg(OPT_fblocks_runtime_optional);
   Opts.CoroutinesTS = Args.hasArg(OPT_fcoroutines_ts);
-  
+
   // Enable [[]] attributes in C++11 by default.
   Opts.DoubleSquareBracketAttributes =
       Args.hasFlag(OPT_fdouble_square_bracket_attributes,
@@ -2361,16 +2407,22 @@ static void ParseLangArgs(LangOptions &Opts, ArgList &Args, InputKind IK,
 
   // Check if -fopenmp is specified.
   Opts.OpenMP = Args.hasArg(options::OPT_fopenmp) ? 1 : 0;
+  // Check if -fopenmp-simd is specified.
+  Opts.OpenMPSimd = !Opts.OpenMP && Args.hasFlag(options::OPT_fopenmp_simd,
+                                                 options::OPT_fno_openmp_simd,
+                                                 /*Default=*/false);
   Opts.OpenMPUseTLS =
       Opts.OpenMP && !Args.hasArg(options::OPT_fnoopenmp_use_tls);
   Opts.OpenMPIsDevice =
       Opts.OpenMP && Args.hasArg(options::OPT_fopenmp_is_device);
 
-  if (Opts.OpenMP) {
-    int Version =
-        getLastArgIntValue(Args, OPT_fopenmp_version_EQ, Opts.OpenMP, Diags);
-    if (Version != 0)
+  if (Opts.OpenMP || Opts.OpenMPSimd) {
+    if (int Version =
+            getLastArgIntValue(Args, OPT_fopenmp_version_EQ,
+                               Opts.OpenMPSimd ? 45 : Opts.OpenMP, Diags))
       Opts.OpenMP = Version;
+    else if (Opts.OpenMPSimd)
+      Opts.OpenMP = 45;
     // Provide diagnostic when a given target is not expected to be an OpenMP
     // device or host.
     if (!Opts.OpenMPIsDevice) {
@@ -2491,6 +2543,11 @@ static void ParseLangArgs(LangOptions &Opts, ArgList &Args, InputKind IK,
   // -fxray-instrument
   Opts.XRayInstrument =
       Args.hasFlag(OPT_fxray_instrument, OPT_fnoxray_instrument, false);
+
+  // -fxray-always-emit-customevents
+  Opts.XRayAlwaysEmitCustomEvents =
+      Args.hasFlag(OPT_fxray_always_emit_customevents,
+                   OPT_fnoxray_always_emit_customevents, false);
 
   // -fxray-{always,never}-instrument= filenames.
   Opts.XRayAlwaysInstrumentFiles =

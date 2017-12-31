@@ -808,10 +808,6 @@ public:
   /// Return true if this is a trivially copyable type (C++0x [basic.types]p9)
   bool isTriviallyCopyableType(const ASTContext &Context) const;
 
-  /// Return true if this has unique object representations according to (C++17
-  /// [meta.unary.prop]p9)
-  bool hasUniqueObjectRepresentations(const ASTContext &Context) const;
-
   // Don't promise in the API that anything besides 'const' can be
   // easily added.
 
@@ -980,16 +976,14 @@ public:
     return LHS.Value != RHS.Value;
   }
 
-  std::string getAsString() const {
-    return getAsString(split());
+  static std::string getAsString(SplitQualType split,
+                                 const PrintingPolicy &Policy) {
+    return getAsString(split.Ty, split.Quals, Policy);
   }
+  static std::string getAsString(const Type *ty, Qualifiers qs,
+                                 const PrintingPolicy &Policy);
 
-  static std::string getAsString(SplitQualType split) {
-    return getAsString(split.Ty, split.Quals);
-  }
-
-  static std::string getAsString(const Type *ty, Qualifiers qs);
-
+  std::string getAsString() const; 
   std::string getAsString(const PrintingPolicy &Policy) const;
 
   void print(raw_ostream &OS, const PrintingPolicy &Policy,
@@ -1164,9 +1158,6 @@ public:
   QualType getAtomicUnqualifiedType() const;
 
 private:
-  bool unionHasUniqueObjectRepresentations(const ASTContext& Context) const;
-  bool structHasUniqueObjectRepresentations(const ASTContext& Context) const;
-
   // These methods are implemented in a separate translation unit;
   // "static"-ize them to avoid creating temporary QualTypes in the
   // caller.
@@ -4533,21 +4524,6 @@ public:
   static bool anyDependentTemplateArguments(const TemplateArgumentListInfo &,
                                             bool &InstantiationDependent);
 
-  /// \brief Print a template argument list, including the '<' and '>'
-  /// enclosing the template arguments.
-  static void PrintTemplateArgumentList(raw_ostream &OS,
-                                        ArrayRef<TemplateArgument> Args,
-                                        const PrintingPolicy &Policy,
-                                        bool SkipBrackets = false);
-
-  static void PrintTemplateArgumentList(raw_ostream &OS,
-                                        ArrayRef<TemplateArgumentLoc> Args,
-                                        const PrintingPolicy &Policy);
-
-  static void PrintTemplateArgumentList(raw_ostream &OS,
-                                        const TemplateArgumentListInfo &,
-                                        const PrintingPolicy &Policy);
-
   /// True if this template specialization type matches a current
   /// instantiation in the context in which it is found.
   bool isCurrentInstantiation() const {
@@ -4622,6 +4598,20 @@ public:
     return T->getTypeClass() == TemplateSpecialization;
   }
 };
+
+/// \brief Print a template argument list, including the '<' and '>'
+/// enclosing the template arguments.
+void printTemplateArgumentList(raw_ostream &OS,
+                               ArrayRef<TemplateArgument> Args,
+                               const PrintingPolicy &Policy);
+
+void printTemplateArgumentList(raw_ostream &OS,
+                               ArrayRef<TemplateArgumentLoc> Args,
+                               const PrintingPolicy &Policy);
+
+void printTemplateArgumentList(raw_ostream &OS,
+                               const TemplateArgumentListInfo &Args,
+                               const PrintingPolicy &Policy);
 
 /// The injected class name of a C++ class template or class
 /// template partial specialization.  Used to record that a type was

@@ -15,9 +15,9 @@
 
 #include "Config.h"
 #include "Driver.h"
-#include "Memory.h"
 #include "Symbols.h"
 #include "lld/Common/ErrorHandler.h"
+#include "lld/Common/Memory.h"
 #include "llvm/ADT/Optional.h"
 #include "llvm/ADT/StringSwitch.h"
 #include "llvm/BinaryFormat/COFF.h"
@@ -317,7 +317,7 @@ public:
   // is called (you cannot remove an opened file on Windows.)
   std::unique_ptr<MemoryBuffer> getMemoryBuffer() {
     // IsVolatileSize=true forces MemoryBuffer to not use mmap().
-    return check(MemoryBuffer::getFile(Path, /*FileSize=*/-1,
+    return CHECK(MemoryBuffer::getFile(Path, /*FileSize=*/-1,
                                        /*RequiresNullTerminator=*/false,
                                        /*IsVolatileSize=*/true),
                  "could not open " + Path);
@@ -402,7 +402,7 @@ static std::string createManifestXmlWithExternalMt(StringRef DefaultXml) {
   E.add("/out:" + StringRef(User.Path));
   E.run();
 
-  return check(MemoryBuffer::getFile(User.Path), "could not open " + User.Path)
+  return CHECK(MemoryBuffer::getFile(User.Path), "could not open " + User.Path)
       .get()
       ->getBuffer();
 }
@@ -642,7 +642,7 @@ void checkFailIfMismatch(StringRef Arg) {
 }
 
 // Convert Windows resource files (.res files) to a .obj file.
-MemoryBufferRef convertResToCOFF(const std::vector<MemoryBufferRef> &MBs) {
+MemoryBufferRef convertResToCOFF(ArrayRef<MemoryBufferRef> MBs) {
   object::WindowsResourceParser Parser;
 
   for (MemoryBufferRef MB : MBs) {
@@ -750,6 +750,22 @@ opt::InputArgList ArgParser::parse(ArrayRef<const char *> Argv) {
   return Args;
 }
 
+// Tokenizes and parses a given string as command line in .drective section.
+opt::InputArgList ArgParser::parseDirectives(StringRef S) {
+  // Make InputArgList from string vectors.
+  unsigned MissingIndex;
+  unsigned MissingCount;
+
+  opt::InputArgList Args =
+      Table.ParseArgs(tokenize(S), MissingIndex, MissingCount);
+
+  if (MissingCount)
+    fatal(Twine(Args.getArgString(MissingIndex)) + ": missing argument");
+  for (auto *Arg : Args.filtered(OPT_UNKNOWN))
+    warn("ignoring unknown argument: " + Arg->getSpelling());
+  return Args;
+}
+
 // link.exe has an interesting feature. If LINK or _LINK_ environment
 // variables exist, their contents are handled as command line strings.
 // So you can pass extra arguments using them.
@@ -773,8 +789,7 @@ std::vector<const char *> ArgParser::tokenize(StringRef S) {
 }
 
 void printHelp(const char *Argv0) {
-  COFFOptTable Table;
-  Table.PrintHelp(outs(), Argv0, "LLVM Linker", false);
+  COFFOptTable().PrintHelp(outs(), Argv0, "LLVM Linker", false);
 }
 
 } // namespace coff

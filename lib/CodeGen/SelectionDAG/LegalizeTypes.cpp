@@ -17,10 +17,8 @@
 #include "SDNodeDbgValue.h"
 #include "llvm/ADT/SetVector.h"
 #include "llvm/CodeGen/MachineFunction.h"
-#include "llvm/CodeGen/MachineModuleInfo.h"
 #include "llvm/IR/CallingConv.h"
 #include "llvm/IR/DataLayout.h"
-#include "llvm/IR/DebugInfoMetadata.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/raw_ostream.h"
@@ -226,7 +224,7 @@ bool DAGTypeLegalizer::run() {
     assert(N->getNodeId() == ReadyToProcess &&
            "Node should be ready if on worklist!");
 
-    DEBUG(dbgs() << "Legalizing node: "; N->dump());
+    DEBUG(dbgs() << "Legalizing node: "; N->dump(&DAG));
     if (IgnoreNodeResults(N)) {
       DEBUG(dbgs() << "Ignoring node results\n");
       goto ScanOperands;
@@ -298,7 +296,7 @@ ScanOperands:
         continue;
 
       const auto Op = N->getOperand(i);
-      DEBUG(dbgs() << "Analyzing operand: "; Op.dump());
+      DEBUG(dbgs() << "Analyzing operand: "; Op.dump(&DAG));
       EVT OpVT = Op.getValueType();
       switch (getTypeAction(OpVT)) {
       case TargetLowering::TypeLegal:
@@ -447,7 +445,7 @@ NodeDone:
         if (!isTypeLegal(Node.getValueType(i)) &&
             !TLI.isTypeLegal(Node.getValueType(i))) {
           dbgs() << "Result type " << i << " illegal: ";
-          Node.dump();
+          Node.dump(&DAG);
           Failed = true;
         }
 
@@ -457,7 +455,7 @@ NodeDone:
           !isTypeLegal(Node.getOperand(i).getValueType()) &&
           !TLI.isTypeLegal(Node.getOperand(i).getValueType())) {
         dbgs() << "Operand type " << i << " illegal: ";
-        Node.getOperand(i).dump();
+        Node.getOperand(i).dump(&DAG);
         Failed = true;
       }
 
@@ -1147,23 +1145,6 @@ SDValue DAGTypeLegalizer::PromoteTargetBoolean(SDValue Bool, EVT ValVT) {
   return DAG.getNode(ExtendCode, dl, BoolVT, Bool);
 }
 
-/// Widen the given target boolean to a target boolean of the given type.
-/// The boolean vector is widened and then promoted to match the target boolean
-/// type of the given ValVT.
-SDValue DAGTypeLegalizer::WidenTargetBoolean(SDValue Bool, EVT ValVT,
-                                             bool WithZeroes) {
-  SDLoc dl(Bool);
-  EVT BoolVT = Bool.getValueType();
-
-  assert(ValVT.getVectorNumElements() > BoolVT.getVectorNumElements() &&
-         TLI.isTypeLegal(ValVT) &&
-         "Unexpected types in WidenTargetBoolean");
-  EVT WideVT = EVT::getVectorVT(*DAG.getContext(), BoolVT.getScalarType(),
-                                ValVT.getVectorNumElements());
-  Bool = ModifyToType(Bool, WideVT, WithZeroes);
-  return PromoteTargetBoolean(Bool, ValVT);
-}
-
 /// Return the lower LoVT bits of Op in Lo and the upper HiVT bits in Hi.
 void DAGTypeLegalizer::SplitInteger(SDValue Op,
                                     EVT LoVT, EVT HiVT,
@@ -1172,11 +1153,14 @@ void DAGTypeLegalizer::SplitInteger(SDValue Op,
   assert(LoVT.getSizeInBits() + HiVT.getSizeInBits() ==
          Op.getValueSizeInBits() && "Invalid integer splitting!");
   Lo = DAG.getNode(ISD::TRUNCATE, dl, LoVT, Op);
-  Hi =
-      DAG.getNode(ISD::SRL, dl, Op.getValueType(), Op,
-                  DAG.getConstant(LoVT.getSizeInBits(), dl,
-                                  TLI.getScalarShiftAmountTy(
-                                      DAG.getDataLayout(), Op.getValueType())));
+  unsigned ReqShiftAmountInBits =
+      Log2_32_Ceil(Op.getValueType().getSizeInBits());
+  MVT ShiftAmountTy =
+      TLI.getScalarShiftAmountTy(DAG.getDataLayout(), Op.getValueType());
+  if (ReqShiftAmountInBits > ShiftAmountTy.getSizeInBits())
+    ShiftAmountTy = MVT::getIntegerVT(NextPowerOf2(ReqShiftAmountInBits));
+  Hi = DAG.getNode(ISD::SRL, dl, Op.getValueType(), Op,
+                   DAG.getConstant(LoVT.getSizeInBits(), dl, ShiftAmountTy));
   Hi = DAG.getNode(ISD::TRUNCATE, dl, HiVT, Hi);
 }
 

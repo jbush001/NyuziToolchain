@@ -1,6 +1,8 @@
 add_lldb_unittest(LLDBServerTests
-  TestClient.cpp
+  LLGSTest.cpp
   MessageObjects.cpp
+  TestBase.cpp
+  TestClient.cpp
   ThreadIdsInJstopinfoTest.cpp
 
   LINK_LIBS
@@ -15,3 +17,6 @@ add_lldb_unittest(LLDBServerTests
   LINK_COMPONENTS
     Support
   )
+
+# Disable lldb server for Nyuzi
+#add_dependencies(LLDBServerTests lldb-server ${ALL_LLDB_TEST_EXECUTABLES})

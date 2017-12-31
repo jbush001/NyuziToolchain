@@ -1243,6 +1243,7 @@
 // AARCH64-FREEBSD:#define __WCHAR_TYPE__ unsigned int
 // AARCH64-FREEBSD:#define __WCHAR_UNSIGNED__ 1
 // AARCH64-FREEBSD:#define __WCHAR_WIDTH__ 32
+// AARCH64-FREEBSD:#define __WINT_MAX__ 2147483647
 // AARCH64-FREEBSD:#define __WINT_TYPE__ int
 // AARCH64-FREEBSD:#define __WINT_WIDTH__ 32
 // AARCH64-FREEBSD:#define __aarch64__ 1
@@ -1442,6 +1443,7 @@
 //
 // ARM-MSVC: #define _M_ARM_NT 1
 // ARM-MSVC: #define _WIN32 1
+// ARM-MSVC-NOT:#define __ARM_DWARF_EH__ 1
 
 // RUN: %clang_cc1 -E -dM -ffreestanding -triple=aarch64-windows-msvc < /dev/null | FileCheck -match-full-lines -check-prefix AARCH64-MSVC %s
 //
@@ -8439,6 +8441,7 @@
 // X86_64-CLOUDABI:#define __WCHAR_MAX__ 2147483647
 // X86_64-CLOUDABI:#define __WCHAR_TYPE__ int
 // X86_64-CLOUDABI:#define __WCHAR_WIDTH__ 32
+// X86_64-CLOUDABI:#define __WINT_MAX__ 2147483647
 // X86_64-CLOUDABI:#define __WINT_TYPE__ int
 // X86_64-CLOUDABI:#define __WINT_WIDTH__ 32
 // X86_64-CLOUDABI:#define __amd64 1
@@ -9363,6 +9366,7 @@
 // WEBASSEMBLY32-NEXT:#define __WCHAR_TYPE__ int
 // WEBASSEMBLY32-NOT:#define __WCHAR_UNSIGNED__
 // WEBASSEMBLY32-NEXT:#define __WCHAR_WIDTH__ 32
+// WEBASSEMBLY32-NEXT:#define __WINT_MAX__ 2147483647
 // WEBASSEMBLY32-NEXT:#define __WINT_TYPE__ int
 // WEBASSEMBLY32-NOT:#define __WINT_UNSIGNED__
 // WEBASSEMBLY32-NEXT:#define __WINT_WIDTH__ 32
@@ -9694,6 +9698,7 @@
 // WEBASSEMBLY64-NEXT:#define __WCHAR_TYPE__ int
 // WEBASSEMBLY64-NOT:#define __WCHAR_UNSIGNED__
 // WEBASSEMBLY64-NEXT:#define __WCHAR_WIDTH__ 32
+// WEBASSEMBLY64-NEXT:#define __WINT_MAX__ 2147483647
 // WEBASSEMBLY64-NEXT:#define __WINT_TYPE__ int
 // WEBASSEMBLY64-NOT:#define __WINT_UNSIGNED__
 // WEBASSEMBLY64-NEXT:#define __WINT_WIDTH__ 32

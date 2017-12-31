@@ -796,6 +796,24 @@ public:
   /// \brief Create a logical NOT operation as (XOR Val, BooleanOne).
   SDValue getLogicalNOT(const SDLoc &DL, SDValue Val, EVT VT);
 
+  /// \brief Create an add instruction with appropriate flags when used for
+  /// addressing some offset of an object. i.e. if a load is split into multiple
+  /// components, create an add nuw from the base pointer to the offset.
+  SDValue getObjectPtrOffset(const SDLoc &SL, SDValue Op, int64_t Offset) {
+    EVT VT = Op.getValueType();
+    return getObjectPtrOffset(SL, Op, getConstant(Offset, SL, VT));
+  }
+
+  SDValue getObjectPtrOffset(const SDLoc &SL, SDValue Op, SDValue Offset) {
+    EVT VT = Op.getValueType();
+
+    // The object itself can't wrap around the address space, so it shouldn't be
+    // possible for the adds of the offsets to the split parts to overflow.
+    SDNodeFlags Flags;
+    Flags.setNoUnsignedWrap(true);
+    return getNode(ISD::ADD, SL, VT, Op, Offset, Flags);
+  }
+
   /// Return a new CALLSEQ_START node, that starts new call frame, in which
   /// InSize bytes are set up inside CALLSEQ_START..CALLSEQ_END sequence and
   /// OutSize specifies part of the frame set up prior to the sequence.
@@ -970,11 +988,14 @@ public:
   /// result and takes a list of operands. Opcode may be INTRINSIC_VOID,
   /// INTRINSIC_W_CHAIN, or a target-specific opcode with a value not
   /// less than FIRST_TARGET_MEMORY_OPCODE.
-  SDValue getMemIntrinsicNode(unsigned Opcode, const SDLoc &dl, SDVTList VTList,
-                              ArrayRef<SDValue> Ops, EVT MemVT,
-                              MachinePointerInfo PtrInfo, unsigned Align = 0,
-                              bool Vol = false, bool ReadMem = true,
-                              bool WriteMem = true, unsigned Size = 0);
+  SDValue getMemIntrinsicNode(
+    unsigned Opcode, const SDLoc &dl, SDVTList VTList,
+    ArrayRef<SDValue> Ops, EVT MemVT,
+    MachinePointerInfo PtrInfo,
+    unsigned Align = 0,
+    MachineMemOperand::Flags Flags
+    = MachineMemOperand::MOLoad | MachineMemOperand::MOStore,
+    unsigned Size = 0);
 
   SDValue getMemIntrinsicNode(unsigned Opcode, const SDLoc &dl, SDVTList VTList,
                               ArrayRef<SDValue> Ops, EVT MemVT,
@@ -1229,7 +1250,7 @@ public:
   void ReplaceAllUsesWith(SDNode *From, const SDValue *To);
 
   /// Replace any uses of From with To, leaving
-  /// uses of other values produced by From.Val alone.
+  /// uses of other values produced by From.getNode() alone.
   void ReplaceAllUsesOfValueWith(SDValue From, SDValue To);
 
   /// Like ReplaceAllUsesOfValueWith, but for multiple values at once.

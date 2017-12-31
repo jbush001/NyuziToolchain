@@ -353,13 +353,14 @@ std::unique_ptr<CoverageMapping> CodeCoverageTool::load() {
   auto Coverage = std::move(CoverageOrErr.get());
   unsigned Mismatched = Coverage->getMismatchedCount();
   if (Mismatched) {
-    warning(utostr(Mismatched) + " functions have mismatched data");
+    warning(Twine(Mismatched) + " functions have mismatched data");
 
     if (ViewOpts.Debug) {
       for (const auto &HashMismatch : Coverage->getHashMismatches())
         errs() << "hash-mismatch: "
                << "No profile record found for '" << HashMismatch.first << "'"
-               << " with hash = 0x" << utohexstr(HashMismatch.second) << "\n";
+               << " with hash = 0x" << Twine::utohexstr(HashMismatch.second)
+               << '\n';
 
       for (const auto &CounterMismatch : Coverage->getCounterMismatches())
         errs() << "counter-mismatch: "
@@ -631,6 +632,10 @@ int CodeCoverageTool::run(Command Cmd, int argc, const char **argv) {
       "show-instantiation-summary", cl::Optional,
       cl::desc("Show instantiation statistics in summary table"));
 
+  cl::opt<bool> SummaryOnly(
+      "summary-only", cl::Optional,
+      cl::desc("Export only summary information for each source file"));
+
   auto commandLineParser = [&, this](int argc, const char **argv) -> int {
     cl::ParseCommandLineOptions(argc, argv, "LLVM code coverage tool\n");
     ViewOpts.Debug = DebugDump;
@@ -743,6 +748,7 @@ int CodeCoverageTool::run(Command Cmd, int argc, const char **argv) {
 
     ViewOpts.ShowRegionSummary = RegionSummary;
     ViewOpts.ShowInstantiationSummary = InstantiationSummary;
+    ViewOpts.ExportSummaryOnly = SummaryOnly;
 
     return 0;
   };

@@ -323,7 +323,7 @@ NyuziTargetLowering::LowerReturn(SDValue Chain, CallingConv::ID CallConv,
     RetOps.push_back(DAG.getRegister(VA.getLocReg(), VA.getLocVT()));
   }
 
-  if (MF.getFunction()->hasStructRetAttr()) {
+  if (MF.getFunction().hasStructRetAttr()) {
     NyuziMachineFunctionInfo *VFI = MF.getInfo<NyuziMachineFunctionInfo>();
     unsigned Reg = VFI->getSRetReturnReg();
     if (!Reg)
@@ -422,7 +422,7 @@ SDValue NyuziTargetLowering::LowerFormalArguments(
     VFI->setVarArgsFrameIndex(FirstVarArg);
   }
 
-  if (MF.getFunction()->hasStructRetAttr()) {
+  if (MF.getFunction().hasStructRetAttr()) {
     // When a function returns a structure, the address of the return value
     // is placed in the first physical register.
     unsigned Reg = VFI->getSRetReturnReg();

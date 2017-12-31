@@ -1,10 +1,7 @@
-; RUN: llc -filetype=obj %p/Inputs/ret32.ll -o %t.ret32.o
-; RUN: llc -filetype=obj %s -o %t.o
+; RUN: llc -filetype=obj -mtriple=wasm32-unknown-unknown-wasm %p/Inputs/ret32.ll -o %t.ret32.o
+; RUN: llc -filetype=obj -mtriple=wasm32-unknown-unknown-wasm %s -o %t.o
 ; RUN: lld -flavor wasm -o %t.wasm %t.o %t.ret32.o
 ; RUN: obj2yaml %t.wasm | FileCheck %s
-
-target datalayout = "e-m:e-p:32:32-i64:64-n32:64-S128"
-target triple = "wasm32-unknown-unknown-wasm"
 
 ; Function Attrs: nounwind
 define hidden void @_start() local_unnamed_addr #0 {
@@ -37,7 +34,7 @@ declare i32 @ret32(float) local_unnamed_addr #1
 ; CHECK-NEXT:     DataSize:        0
 ; CHECK-NEXT:   - Type:            CUSTOM
 ; CHECK-NEXT:     Name:            name
-; CHECK-NEXT:     FunctionNames:   
+; CHECK-NEXT:     FunctionNames:
 ; CHECK-NEXT:       - Index:           0
 ; CHECK-NEXT:         Name:            _start
 ; CHECK-NEXT:       - Index:           1

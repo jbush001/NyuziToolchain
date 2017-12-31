@@ -81,6 +81,8 @@ CXTranslationUnit cxtu::MakeCXTranslationUnit(CIndexer *CIdx,
   D->Diagnostics = nullptr;
   D->OverridenCursorsPool = createOverridenCXCursorsPool();
   D->CommentToXML = nullptr;
+  D->ParsingOptions = 0;
+  D->Arguments = {};
   return D;
 }
 
@@ -1025,8 +1027,9 @@ bool CursorVisitor::VisitObjCContainerDecl(ObjCContainerDecl *D) {
             [&SM](Decl *A, Decl *B) {
     SourceLocation L_A = A->getLocStart();
     SourceLocation L_B = B->getLocStart();
-    assert(L_A.isValid() && L_B.isValid());
-    return SM.isBeforeInTranslationUnit(L_A, L_B);
+    return L_A != L_B ?
+           SM.isBeforeInTranslationUnit(L_A, L_B) :
+           SM.isBeforeInTranslationUnit(A->getLocEnd(), B->getLocEnd());
   });
 
   // Now visit the decls.
@@ -3254,6 +3257,12 @@ unsigned clang_CXIndex_getGlobalOptions(CXIndex CIdx) {
   return 0;
 }
 
+void clang_CXIndex_setInvocationEmissionPathOption(CXIndex CIdx,
+                                                   const char *Path) {
+  if (CIdx)
+    static_cast<CIndexer *>(CIdx)->setInvocationEmissionPath(Path ? Path : "");
+}
+
 void clang_toggleCrashRecovery(unsigned isEnabled) {
   if (isEnabled)
     llvm::CrashRecoveryContext::Enable();
@@ -3430,6 +3439,11 @@ clang_parseTranslationUnit_Impl(CXIndex CIdx, const char *source_filename,
   // faster, trading for a slower (first) reparse.
   unsigned PrecompilePreambleAfterNParses =
       !PrecompilePreamble ? 0 : 2 - CreatePreambleOnFirstParse;
+
+  LibclangInvocationReporter InvocationReporter(
+      *CXXIdx, LibclangInvocationReporter::OperationKind::ParseOperation,
+      options, llvm::makeArrayRef(*Args), /*InvocationArgs=*/None,
+      unsaved_files);
   std::unique_ptr<ASTUnit> Unit(ASTUnit::LoadFromCommandLine(
       Args->data(), Args->data() + Args->size(),
       CXXIdx->getPCHContainerOperations(), Diags,
@@ -3456,7 +3470,14 @@ clang_parseTranslationUnit_Impl(CXIndex CIdx, const char *source_filename,
     return CXError_ASTReadError;
 
   *out_TU = MakeCXTranslationUnit(CXXIdx, std::move(Unit));
-  return *out_TU ? CXError_Success : CXError_Failure;
+  if (CXTranslationUnitImpl *TU = *out_TU) {
+    TU->ParsingOptions = options;
+    TU->Arguments.reserve(Args->size());
+    for (const char *Arg : *Args)
+      TU->Arguments.push_back(Arg);
+    return CXError_Success;
+  }
+  return CXError_Failure;
 }
 
 CXTranslationUnit
@@ -4151,6 +4172,27 @@ CXFile clang_getFile(CXTranslationUnit TU, const char *file_name) {
   return const_cast<FileEntry *>(FMgr.getFile(file_name));
 }
 
+const char *clang_getFileContents(CXTranslationUnit TU, CXFile file,
+                                  size_t *size) {
+  if (isNotUsableTU(TU)) {
+    LOG_BAD_TU(TU);
+    return nullptr;
+  }
+
+  const SourceManager &SM = cxtu::getASTUnit(TU)->getSourceManager();
+  FileID fid = SM.translateFile(static_cast<FileEntry *>(file));
+  bool Invalid = true;
+  llvm::MemoryBuffer *buf = SM.getBuffer(fid, &Invalid);
+  if (Invalid) {
+    if (size)
+      *size = 0;
+    return nullptr;
+  }
+  if (size)
+    *size = buf->getBufferSize();
+  return buf->getBufferStart();
+}
+
 unsigned clang_isFileMultipleIncludeGuarded(CXTranslationUnit TU,
                                             CXFile file) {
   if (isNotUsableTU(TU)) {
@@ -4718,12 +4760,12 @@ CXString clang_getCursorDisplayName(CXCursor C) {
     // If the type was explicitly written, use that.
     if (TypeSourceInfo *TSInfo = ClassSpec->getTypeAsWritten())
       return cxstring::createDup(TSInfo->getType().getAsString(Policy));
-    
+
     SmallString<128> Str;
     llvm::raw_svector_ostream OS(Str);
     OS << *ClassSpec;
-    TemplateSpecializationType::PrintTemplateArgumentList(
-        OS, ClassSpec->getTemplateArgs().asArray(), Policy);
+    printTemplateArgumentList(OS, ClassSpec->getTemplateArgs().asArray(),
+                              Policy);
     return cxstring::createDup(OS.str());
   }
   
@@ -7875,6 +7917,17 @@ unsigned clang_CXXMethod_isVirtual(CXCursor C) {
   const CXXMethodDecl *Method =
       D ? dyn_cast_or_null<CXXMethodDecl>(D->getAsFunction()) : nullptr;
   return (Method && Method->isVirtual()) ? 1 : 0;
+}
+
+unsigned clang_CXXRecord_isAbstract(CXCursor C) {
+  if (!clang_isDeclaration(C.kind))
+    return 0;
+
+  const auto *D = cxcursor::getCursorDecl(C);
+  const auto *RD = dyn_cast_or_null<CXXRecordDecl>(D);
+  if (RD)
+    RD = RD->getDefinition();
+  return (RD && RD->isAbstract()) ? 1 : 0;
 }
 
 unsigned clang_EnumDecl_isScoped(CXCursor C) {

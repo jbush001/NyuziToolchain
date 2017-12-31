@@ -1,4 +1,4 @@
-; RUN: llc -mtriple wasm32-unknown-unknown-wasm -filetype=obj -o %t.o %s
+; RUN: llc -mtriple=wasm32-unknown-unknown-wasm -filetype=obj -o %t.o %s
 ; RUN: lld -flavor wasm -strip-debug %t.o -o %t.wasm
 ; RUN: obj2yaml %t.wasm | FileCheck %s
 
@@ -9,16 +9,16 @@
 
 declare extern_weak i32 @foo()
 
-define hidden i8* @get_address_of_foo() #0 {
+define i8* @get_address_of_foo() #0 {
 entry:
   ret i8* bitcast (i32 ()* @foo to i8*)
 }
 
-define hidden i32* @get_address_of_global_var() #0 {
+define i32* @get_address_of_global_var() #0 {
   ret i32* @global_var
 }
 
-define hidden i32 @_start() #0 {
+define i32 @_start() #0 {
 entry:
     %0 = load i32, i32* @global_var, align 4
     ret i32 %0
@@ -36,10 +36,10 @@ entry:
 ; CHECK-NEXT:   - Type:            FUNCTION
 ; CHECK-NEXT:     FunctionTypes:   [ 0, 0, 0 ]
 ; CHECK-NEXT:   - Type:            TABLE
-; CHECK-NEXT:     Tables:          
+; CHECK-NEXT:     Tables:
 ; CHECK-NEXT:       - ElemType:        ANYFUNC
-; CHECK-NEXT:         Limits:          
-; CHECK-NEXT:           Flags:           0x00000001
+; CHECK-NEXT:         Limits:
+; CHECK-NEXT:           Flags:           [ HAS_MAX ]
 ; CHECK-NEXT:           Initial:         0x00000002
 ; CHECK-NEXT:           Maximum:         0x00000002
 ; CHECK-NEXT:   - Type:            MEMORY
@@ -57,18 +57,18 @@ entry:
 ; CHECK-NEXT:       - Name:            memory
 ; CHECK-NEXT:         Kind:            MEMORY
 ; CHECK-NEXT:         Index:           0
+; CHECK-NEXT:       - Name:            _start
+; CHECK-NEXT:         Kind:            FUNCTION
+; CHECK-NEXT:         Index:           2
 ; CHECK-NEXT:       - Name:            get_address_of_foo
 ; CHECK-NEXT:         Kind:            FUNCTION
 ; CHECK-NEXT:         Index:           0
 ; CHECK-NEXT:       - Name:            get_address_of_global_var
 ; CHECK-NEXT:         Kind:            FUNCTION
 ; CHECK-NEXT:         Index:           1
-; CHECK-NEXT:       - Name:            _start
-; CHECK-NEXT:         Kind:            FUNCTION
-; CHECK-NEXT:         Index:           2
 ; CHECK-NEXT:   - Type:            ELEM
-; CHECK-NEXT:     Segments:        
-; CHECK-NEXT:       - Offset:          
+; CHECK-NEXT:     Segments:
+; CHECK-NEXT:       - Offset:
 ; CHECK-NEXT:           Opcode:          I32_CONST
 ; CHECK-NEXT:           Value:           1
 ; CHECK-NEXT:         Functions:       [ 0 ]

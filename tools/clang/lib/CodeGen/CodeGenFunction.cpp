@@ -103,6 +103,9 @@ CodeGenFunction::CodeGenFunction(CodeGenModule &cgm, bool suppressNewContext)
   if (CGM.getCodeGenOpts().ReciprocalMath) {
     FMF.setAllowReciprocal();
   }
+  if (CGM.getCodeGenOpts().Reassociate) {
+    FMF.setAllowReassoc();
+  }
   Builder.setFastMathFlags(FMF);
 }
 
@@ -456,6 +459,12 @@ bool CodeGenFunction::ShouldInstrumentFunction() {
 /// instrumented with XRay nop sleds.
 bool CodeGenFunction::ShouldXRayInstrumentFunction() const {
   return CGM.getCodeGenOpts().XRayInstrumentFunctions;
+}
+
+/// AlwaysEmitXRayCustomEvents - Return true if we should emit IR for calls to
+/// the __xray_customevent(...) builin calls, when doing XRay instrumentation.
+bool CodeGenFunction::AlwaysEmitXRayCustomEvents() const {
+  return CGM.getCodeGenOpts().XRayAlwaysEmitCustomEvents;
 }
 
 llvm::Constant *
@@ -840,6 +849,8 @@ void CodeGenFunction::StartFunction(GlobalDecl GD,
   // Apply sanitizer attributes to the function.
   if (SanOpts.hasOneOf(SanitizerKind::Address | SanitizerKind::KernelAddress))
     Fn->addFnAttr(llvm::Attribute::SanitizeAddress);
+  if (SanOpts.hasOneOf(SanitizerKind::HWAddress))
+    Fn->addFnAttr(llvm::Attribute::SanitizeHWAddress);
   if (SanOpts.has(SanitizerKind::Thread))
     Fn->addFnAttr(llvm::Attribute::SanitizeThread);
   if (SanOpts.has(SanitizerKind::Memory))
@@ -890,10 +901,6 @@ void CodeGenFunction::StartFunction(GlobalDecl GD,
             llvm::itostr(CGM.getCodeGenOpts().XRayInstructionThreshold));
     }
   }
-
-  if (const FunctionDecl *FD = dyn_cast_or_null<FunctionDecl>(D))
-    if (CGM.getLangOpts().OpenMP && FD->hasAttr<OMPDeclareSimdDeclAttr>())
-      CGM.getOpenMPRuntime().emitDeclareSimdFunction(FD, Fn);
 
   // Add no-jump-tables value.
   Fn->addFnAttr("no-jump-tables",

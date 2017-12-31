@@ -312,6 +312,8 @@ private:
         return Value;
       }
       break;
+    default:
+      break;
     }
     HasError = true;
     return 0;

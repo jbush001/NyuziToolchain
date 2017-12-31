@@ -18,6 +18,7 @@
 #include "llvm/Support/raw_ostream.h"
 
 using llvm::object::WasmSymbol;
+using llvm::wasm::WasmSignature;
 
 namespace lld {
 namespace wasm {
@@ -41,24 +42,25 @@ public:
   void addFile(InputFile *File);
 
   std::vector<ObjFile *> ObjectFiles;
-  std::vector<Symbol *> SyntheticSymbols;
 
   void reportDuplicate(Symbol *Existing, InputFile *NewFile);
   void reportRemainingUndefines();
 
+  ArrayRef<Symbol *> getSymbols() const { return SymVector; }
   Symbol *find(StringRef Name);
 
   Symbol *addDefined(InputFile *F, const WasmSymbol *Sym,
                      const InputSegment *Segment = nullptr);
   Symbol *addUndefined(InputFile *F, const WasmSymbol *Sym);
-  Symbol *addUndefinedFunction(StringRef Name);
+  Symbol *addUndefinedFunction(StringRef Name, const WasmSignature *Type);
   Symbol *addDefinedGlobal(StringRef Name);
   void addLazy(ArchiveFile *F, const Archive::Symbol *Sym);
 
 private:
   std::pair<Symbol *, bool> insert(StringRef Name);
 
-  llvm::DenseMap<llvm::CachedHashStringRef, Symbol *> Symtab;
+  llvm::DenseMap<llvm::CachedHashStringRef, Symbol *> SymMap;
+  std::vector<Symbol *> SymVector;
 };
 
 extern SymbolTable *Symtab;

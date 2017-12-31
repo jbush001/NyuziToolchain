@@ -11,10 +11,9 @@
 
 #include "Config.h"
 #include "InputSegment.h"
-#include "Memory.h"
-#include "Strings.h"
 #include "SymbolTable.h"
 #include "lld/Common/ErrorHandler.h"
+#include "lld/Common/Memory.h"
 #include "llvm/Object/Binary.h"
 #include "llvm/Object/Wasm.h"
 #include "llvm/Support/raw_ostream.h"
@@ -47,8 +46,6 @@ void ObjFile::dumpInfo() const {
   log("reloc info for: " + getName() + "\n" +
       "        FunctionIndexOffset : " + Twine(FunctionIndexOffset) + "\n" +
       "         NumFunctionImports : " + Twine(NumFunctionImports()) + "\n" +
-      "           TableIndexOffset : " + Twine(TableIndexOffset) + "\n" +
-      "          GlobalIndexOffset : " + Twine(GlobalIndexOffset) + "\n" +
       "           NumGlobalImports : " + Twine(NumGlobalImports()) + "\n");
 }
 
@@ -56,11 +53,15 @@ bool ObjFile::isImportedFunction(uint32_t Index) const {
   return Index < NumFunctionImports();
 }
 
-const Symbol *ObjFile::getFunctionSymbol(uint32_t Index) const {
+Symbol *ObjFile::getFunctionSymbol(uint32_t Index) const {
   return FunctionSymbols[Index];
 }
 
-const Symbol *ObjFile::getGlobalSymbol(uint32_t Index) const {
+Symbol *ObjFile::getTableSymbol(uint32_t Index) const {
+  return TableSymbols[Index];
+}
+
+Symbol *ObjFile::getGlobalSymbol(uint32_t Index) const {
   return GlobalSymbols[Index];
 }
 
@@ -69,15 +70,10 @@ uint32_t ObjFile::getRelocatedAddress(uint32_t Index) const {
 }
 
 uint32_t ObjFile::relocateFunctionIndex(uint32_t Original) const {
-  DEBUG(dbgs() << "relocateFunctionIndex: " << Original);
-  const Symbol *Sym = getFunctionSymbol(Original);
-  uint32_t Index;
-  if (Sym)
-    Index = Sym->getOutputIndex();
-  else
-    Index = Original + FunctionIndexOffset;
-
-  DEBUG(dbgs() << " -> " << Index << "\n");
+  Symbol *Sym = getFunctionSymbol(Original);
+  uint32_t Index = Sym->getOutputIndex();
+  DEBUG(dbgs() << "relocateFunctionIndex: " << toString(*Sym) << ": "
+               << Original << " -> " << Index << "\n");
   return Index;
 }
 
@@ -86,26 +82,25 @@ uint32_t ObjFile::relocateTypeIndex(uint32_t Original) const {
 }
 
 uint32_t ObjFile::relocateTableIndex(uint32_t Original) const {
-  return Original + TableIndexOffset;
+  Symbol *Sym = getTableSymbol(Original);
+  uint32_t Index = Sym->getTableIndex();
+  DEBUG(dbgs() << "relocateTableIndex: " << toString(*Sym) << ": " << Original
+               << " -> " << Index << "\n");
+  return Index;
 }
 
 uint32_t ObjFile::relocateGlobalIndex(uint32_t Original) const {
-  DEBUG(dbgs() << "relocateGlobalIndex: " << Original);
-  uint32_t Index;
-  const Symbol *Sym = getGlobalSymbol(Original);
-  if (Sym)
-    Index = Sym->getOutputIndex();
-  else
-    Index = Original + GlobalIndexOffset;
-
-  DEBUG(dbgs() << " -> " << Index << "\n");
+  Symbol *Sym = getGlobalSymbol(Original);
+  uint32_t Index = Sym->getOutputIndex();
+  DEBUG(dbgs() << "relocateGlobalIndex: " << toString(*Sym) << ": " << Original
+               << " -> " << Index << "\n");
   return Index;
 }
 
 void ObjFile::parse() {
   // Parse a memory buffer as a wasm file.
   DEBUG(dbgs() << "Parsing object: " << toString(this) << "\n");
-  std::unique_ptr<Binary> Bin = check(createBinary(MB), toString(this));
+  std::unique_ptr<Binary> Bin = CHECK(createBinary(MB), toString(this));
 
   auto *Obj = dyn_cast<WasmObjectFile>(Bin.get());
   if (!Obj)
@@ -140,8 +135,16 @@ InputSegment *ObjFile::getSegment(const WasmSymbol &WasmSym) {
       return Segment;
     }
   }
-  error("Symbol not found in any segment: " + WasmSym.Name);
+  error("symbol not found in any segment: " + WasmSym.Name);
   return nullptr;
+}
+
+static void copyRelocationsRange(std::vector<WasmRelocation> &To,
+                                 ArrayRef<WasmRelocation> From, size_t Start,
+                                 size_t End) {
+  for (const WasmRelocation &R : From)
+    if (R.Offset >= Start && R.Offset < End)
+      To.push_back(R);
 }
 
 void ObjFile::initializeSymbols() {
@@ -161,12 +164,19 @@ void ObjFile::initializeSymbols() {
   FunctionSymbols.resize(FunctionImports + WasmObj->functions().size());
   GlobalSymbols.resize(GlobalImports + WasmObj->globals().size());
 
-  for (const WasmSegment &Seg : WasmObj->dataSegments())
-    Segments.emplace_back(make<InputSegment>(&Seg, this));
+  for (const WasmSegment &S : WasmObj->dataSegments()) {
+    InputSegment *Seg = make<InputSegment>(&S, this);
+    copyRelocationsRange(Seg->Relocations, DataSection->Relocations,
+                         Seg->getInputSectionOffset(),
+                         Seg->getInputSectionOffset() + Seg->getSize());
+    Segments.emplace_back(Seg);
+  }
 
-  Symbol *S;
+  // Populate `FunctionSymbols` and `GlobalSymbols` based on the WasmSymbols
+  // in the object
   for (const SymbolRef &Sym : WasmObj->symbols()) {
     const WasmSymbol &WasmSym = WasmObj->getWasmSymbol(Sym.getRawDataRefImpl());
+    Symbol *S;
     switch (WasmSym.Type) {
     case WasmSymbol::SymbolType::FUNCTION_IMPORT:
     case WasmSymbol::SymbolType::GLOBAL_IMPORT:
@@ -188,15 +198,42 @@ void ObjFile::initializeSymbols() {
       DEBUG(dbgs() << "Function: " << WasmSym.ElementIndex << " -> "
                    << toString(*S) << "\n");
       FunctionSymbols[WasmSym.ElementIndex] = S;
+      if (WasmSym.HasAltIndex)
+        FunctionSymbols[WasmSym.AltIndex] = S;
     } else {
       DEBUG(dbgs() << "Global: " << WasmSym.ElementIndex << " -> "
                    << toString(*S) << "\n");
       GlobalSymbols[WasmSym.ElementIndex] = S;
+      if (WasmSym.HasAltIndex)
+        GlobalSymbols[WasmSym.AltIndex] = S;
     }
   }
 
-  DEBUG(dbgs() << "Functions: " << FunctionSymbols.size() << "\n");
-  DEBUG(dbgs() << "Globals  : " << GlobalSymbols.size() << "\n");
+  DEBUG(for (size_t I = 0; I < FunctionSymbols.size(); ++I)
+            assert(FunctionSymbols[I] != nullptr);
+        for (size_t I = 0; I < GlobalSymbols.size(); ++I)
+            assert(GlobalSymbols[I] != nullptr););
+
+  // Populate `TableSymbols` with all symbols that are called indirectly
+  uint32_t SegmentCount = WasmObj->elements().size();
+  if (SegmentCount) {
+    if (SegmentCount > 1)
+      fatal(getName() + ": contains more than one element segment");
+    const WasmElemSegment &Segment = WasmObj->elements()[0];
+    if (Segment.Offset.Opcode != WASM_OPCODE_I32_CONST)
+      fatal(getName() + ": unsupported element segment");
+    if (Segment.TableIndex != 0)
+      fatal(getName() + ": unsupported table index in elem segment");
+    if (Segment.Offset.Value.Int32 != 0)
+      fatal(getName() + ": unsupported element segment offset");
+    TableSymbols.reserve(Segment.Functions.size());
+    for (uint64_t FunctionIndex : Segment.Functions)
+      TableSymbols.push_back(getFunctionSymbol(FunctionIndex));
+  }
+
+  DEBUG(dbgs() << "TableSymbols: " << TableSymbols.size() << "\n");
+  DEBUG(dbgs() << "Functions   : " << FunctionSymbols.size() << "\n");
+  DEBUG(dbgs() << "Globals     : " << GlobalSymbols.size() << "\n");
 }
 
 Symbol *ObjFile::createUndefined(const WasmSymbol &Sym) {
@@ -224,7 +261,7 @@ Symbol *ObjFile::createDefined(const WasmSymbol &Sym,
 void ArchiveFile::parse() {
   // Parse a MemoryBufferRef as an archive file.
   DEBUG(dbgs() << "Parsing library: " << toString(this) << "\n");
-  File = check(Archive::create(MB), toString(this));
+  File = CHECK(Archive::create(MB), toString(this));
 
   // Read the symbol table to construct Lazy symbols.
   int Count = 0;
@@ -237,7 +274,7 @@ void ArchiveFile::parse() {
 
 void ArchiveFile::addMember(const Archive::Symbol *Sym) {
   const Archive::Child &C =
-      check(Sym->getMember(),
+      CHECK(Sym->getMember(),
             "could not get the member for symbol " + Sym->getName());
 
   // Don't try to load the same member twice (this can happen when members
@@ -245,11 +282,11 @@ void ArchiveFile::addMember(const Archive::Symbol *Sym) {
   if (!Seen.insert(C.getChildOffset()).second)
     return;
 
-  DEBUG(dbgs() << "loading lazy: " << displayName(Sym->getName()) << "\n");
+  DEBUG(dbgs() << "loading lazy: " << Sym->getName() << "\n");
   DEBUG(dbgs() << "from archive: " << toString(this) << "\n");
 
   MemoryBufferRef MB =
-      check(C.getMemoryBufferRef(),
+      CHECK(C.getMemoryBufferRef(),
             "could not get the buffer for the member defining symbol " +
                 Sym->getName());
 
@@ -264,7 +301,7 @@ void ArchiveFile::addMember(const Archive::Symbol *Sym) {
 }
 
 // Returns a string in the format of "foo.o" or "foo.a(bar.o)".
-std::string lld::toString(wasm::InputFile *File) {
+std::string lld::toString(const wasm::InputFile *File) {
   if (!File)
     return "<internal>";
 

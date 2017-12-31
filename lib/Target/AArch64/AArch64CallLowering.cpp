@@ -220,7 +220,7 @@ void AArch64CallLowering::splitToValueTypes(
 bool AArch64CallLowering::lowerReturn(MachineIRBuilder &MIRBuilder,
                                       const Value *Val, unsigned VReg) const {
   MachineFunction &MF = MIRBuilder.getMF();
-  const Function &F = *MF.getFunction();
+  const Function &F = MF.getFunction();
 
   auto MIB = MIRBuilder.buildInstrNoInsert(AArch64::RET_ReallyLR);
   assert(((Val && VReg) || (!Val && !VReg)) && "Return value without a vreg");
@@ -259,6 +259,8 @@ bool AArch64CallLowering::lowerFormalArguments(MachineIRBuilder &MIRBuilder,
   SmallVector<ArgInfo, 8> SplitArgs;
   unsigned i = 0;
   for (auto &Arg : F.args()) {
+    if (DL.getTypeStoreSize(Arg.getType()) == 0)
+      continue;
     ArgInfo OrigArg{VRegs[i], Arg.getType()};
     setArgFlags(OrigArg, i + AttributeList::FirstArgIndex, DL, F);
     bool Split = false;
@@ -320,7 +322,7 @@ bool AArch64CallLowering::lowerCall(MachineIRBuilder &MIRBuilder,
                                     const ArgInfo &OrigRet,
                                     ArrayRef<ArgInfo> OrigArgs) const {
   MachineFunction &MF = MIRBuilder.getMF();
-  const Function &F = *MF.getFunction();
+  const Function &F = MF.getFunction();
   MachineRegisterInfo &MRI = MF.getRegInfo();
   auto &DL = F.getParent()->getDataLayout();
 

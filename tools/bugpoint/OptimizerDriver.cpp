@@ -18,21 +18,17 @@
 #include "BugDriver.h"
 #include "llvm/Bitcode/BitcodeWriter.h"
 #include "llvm/IR/DataLayout.h"
-#include "llvm/IR/LegacyPassManager.h"
 #include "llvm/IR/Module.h"
-#include "llvm/IR/Verifier.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/FileUtilities.h"
 #include "llvm/Support/Path.h"
 #include "llvm/Support/Program.h"
-#include "llvm/Support/SystemUtils.h"
 #include "llvm/Support/ToolOutputFile.h"
 
 #define DONT_GET_PLUGIN_LOADER_OPTION
 #include "llvm/Support/PluginLoader.h"
 
-#include <fstream>
 
 using namespace llvm;
 
@@ -251,9 +247,6 @@ bool BugDriver::runPasses(Module *Program,
   // remove it now.  This may fail if the file was never created, but that's ok.
   if (DeleteOutput || result != 0)
     sys::fs::remove(OutputFilename);
-
-  // Remove the temporary input file as well
-  consumeError(Temp->discard());
 
   if (!Quiet) {
     if (result == 0)

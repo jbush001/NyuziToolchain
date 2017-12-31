@@ -12,11 +12,11 @@
 #include "DLL.h"
 #include "InputFiles.h"
 #include "MapFile.h"
-#include "Memory.h"
 #include "PDB.h"
 #include "SymbolTable.h"
 #include "Symbols.h"
 #include "lld/Common/ErrorHandler.h"
+#include "lld/Common/Memory.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/StringSwitch.h"
@@ -322,6 +322,11 @@ void Writer::run() {
 
 static StringRef getOutputSection(StringRef Name) {
   StringRef S = Name.split('$').first;
+
+  // Treat a later period as a separator for MinGW, for sections like
+  // ".ctors.01234".
+  S = S.substr(0, S.find('.', 1));
+
   auto It = Config->Merge.find(S);
   if (It == Config->Merge.end())
     return S;
@@ -683,6 +688,9 @@ template <typename PEHeaderTy> void Writer::writeHeader() {
     PE->DLLCharacteristics |= IMAGE_DLL_CHARACTERISTICS_NX_COMPAT;
   if (!Config->AllowIsolation)
     PE->DLLCharacteristics |= IMAGE_DLL_CHARACTERISTICS_NO_ISOLATION;
+  if (Config->Machine == I386 && !SEHTable &&
+      !Symtab->findUnderscore("_load_config_used"))
+    PE->DLLCharacteristics |= IMAGE_DLL_CHARACTERISTICS_NO_SEH;
   if (Config->TerminalServerAware)
     PE->DLLCharacteristics |= IMAGE_DLL_CHARACTERISTICS_TERMINAL_SERVER_AWARE;
   PE->NumberOfRvaAndSize = NumberfOfDataDirectory;
@@ -779,7 +787,7 @@ template <typename PEHeaderTy> void Writer::writeHeader() {
 }
 
 void Writer::openFile(StringRef Path) {
-  Buffer = check(
+  Buffer = CHECK(
       FileOutputBuffer::create(Path, FileSize, FileOutputBuffer::F_executable),
       "failed to open " + Path);
 }
@@ -794,11 +802,10 @@ void Writer::createSEHTable(OutputSection *RData) {
   for (ObjFile *File : ObjFile::Instances) {
     if (!File->SEHCompat)
       return;
-    for (Symbol *B : File->SEHandlers) {
-      // Make sure the handler is still live.
-      if (B->isLive())
-        Handlers.insert(cast<Defined>(B));
-    }
+    for (uint32_t I : File->SXData)
+      if (Symbol *B = File->getSymbol(I))
+        if (B->isLive())
+          Handlers.insert(cast<Defined>(B));
   }
 
   if (Handlers.empty())
@@ -879,7 +886,7 @@ void Writer::sortExceptionTable() {
          [](const Entry &A, const Entry &B) { return A.Begin < B.Begin; });
     return;
   }
-  if (Config->Machine == ARMNT) {
+  if (Config->Machine == ARMNT || Config->Machine == ARM64) {
     struct Entry { ulittle32_t Begin, Unwind; };
     sort(parallel::par, (Entry *)Begin, (Entry *)End,
          [](const Entry &A, const Entry &B) { return A.Begin < B.Begin; });

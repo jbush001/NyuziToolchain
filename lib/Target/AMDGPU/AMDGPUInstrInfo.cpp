@@ -23,7 +23,6 @@
 using namespace llvm;
 
 #define GET_INSTRINFO_CTOR_DTOR
-#define GET_INSTRMAP_INFO
 #include "AMDGPUGenInstrInfo.inc"
 
 // Pin the vtable to this file.
@@ -56,15 +55,6 @@ bool AMDGPUInstrInfo::shouldScheduleLoadsNear(SDNode *Load0, SDNode *Load1,
   return (NumLoads <= 16 && (Offset1 - Offset0) < 64);
 }
 
-int AMDGPUInstrInfo::getMaskedMIMGOp(uint16_t Opcode, unsigned Channels) const {
-  switch (Channels) {
-  default: return Opcode;
-  case 1: return AMDGPU::getMaskedMIMGOp(Opcode, AMDGPU::Channels_1);
-  case 2: return AMDGPU::getMaskedMIMGOp(Opcode, AMDGPU::Channels_2);
-  case 3: return AMDGPU::getMaskedMIMGOp(Opcode, AMDGPU::Channels_3);
-  }
-}
-
 // This must be kept in sync with the SIEncodingFamily class in SIInstrInfo.td
 enum SIEncodingFamily {
   SI = 0,
@@ -73,17 +63,6 @@ enum SIEncodingFamily {
   SDWA9 = 3,
   GFX9 = 4
 };
-
-// Wrapper for Tablegen'd function.  enum Subtarget is not defined in any
-// header files, so we need to wrap it in a function that takes unsigned
-// instead.
-namespace llvm {
-namespace AMDGPU {
-static int getMCOpcode(uint16_t Opcode, unsigned Gen) {
-  return getMCOpcodeGen(Opcode, static_cast<Subtarget>(Gen));
-}
-}
-}
 
 static SIEncodingFamily subtargetEncodingFamily(const AMDGPUSubtarget &ST) {
   switch (ST.getGeneration()) {

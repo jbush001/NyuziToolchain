@@ -265,8 +265,7 @@ StringRef CGDebugInfo::getFunctionName(const FunctionDecl *FD) {
   // Add any template specialization args.
   if (Info) {
     const TemplateArgumentList *TArgs = Info->TemplateArguments;
-    TemplateSpecializationType::PrintTemplateArgumentList(OS, TArgs->asArray(),
-                                                          getPrintingPolicy());
+    printTemplateArgumentList(OS, TArgs->asArray(), getPrintingPolicy());
   }
 
   // Copy this name on the side and use its reference.
@@ -941,11 +940,8 @@ llvm::DIType *CGDebugInfo::CreateType(const TemplateSpecializationType *Ty,
 
   SmallString<128> NS;
   llvm::raw_svector_ostream OS(NS);
-  Ty->getTemplateName().print(OS, getPrintingPolicy(),
-                              /*qualified*/ false);
-
-  TemplateSpecializationType::PrintTemplateArgumentList(
-      OS, Ty->template_arguments(), getPrintingPolicy());
+  Ty->getTemplateName().print(OS, getPrintingPolicy(), /*qualified*/ false);
+  printTemplateArgumentList(OS, Ty->template_arguments(), getPrintingPolicy());
 
   auto *AliasDecl = cast<TypeAliasTemplateDecl>(
       Ty->getTemplateName().getAsTemplateDecl())->getTemplatedDecl();
@@ -1399,7 +1395,7 @@ llvm::DISubprogram *CGDebugInfo::CreateCXXMemberFunction(
       // C++ ABI does not include all virtual methods from non-primary bases in
       // the vtable for the most derived class. For example, if C inherits from
       // A and B, C's primary vftable will not include B's virtual methods.
-      if (Method->begin_overridden_methods() == Method->end_overridden_methods())
+      if (Method->size_overridden_methods() == 0)
         Flags |= llvm::DINode::FlagIntroducedVirtual;
 
       // The 'this' adjustment accounts for both the virtual and non-virtual
@@ -2657,7 +2653,6 @@ llvm::DIModule *CGDebugInfo::getParentModuleOrNull(const Decl *D) {
     // file where the type's definition is located, so it might be
     // best to make this behavior a command line or debugger tuning
     // option.
-    FullSourceLoc Loc(D->getLocation(), CGM.getContext().getSourceManager());
     if (Module *M = D->getOwningModule()) {
       // This is a (sub-)module.
       auto Info = ExternalASTSource::ASTSourceDescriptor(*M);

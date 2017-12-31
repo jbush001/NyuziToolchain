@@ -361,6 +361,7 @@ void MipsAsmPrinter::EmitFunctionEntryLabel() {
   if (Subtarget->inMicroMipsMode()) {
     TS.emitDirectiveSetMicroMips();
     TS.setUsesMicroMips();
+    TS.updateABIInfo(*Subtarget);
   } else
     TS.emitDirectiveSetNoMicroMips();
 
@@ -380,7 +381,7 @@ void MipsAsmPrinter::EmitFunctionBodyStart() {
 
   MCInstLowering.Initialize(&MF->getContext());
 
-  bool IsNakedFunction = MF->getFunction()->hasFnAttribute(Attribute::Naked);
+  bool IsNakedFunction = MF->getFunction().hasFnAttribute(Attribute::Naked);
   if (!IsNakedFunction)
     emitFrameDirective();
 

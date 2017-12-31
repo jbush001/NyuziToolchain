@@ -15,11 +15,10 @@
 #include "llvm/Analysis/TargetLibraryInfo.h"
 #include "llvm/Bitcode/BitcodeReader.h"
 #include "llvm/Bitcode/BitcodeWriter.h"
-#include "llvm/CodeGen/CommandFlags.h"
+#include "llvm/CodeGen/CommandFlags.def"
 #include "llvm/FuzzMutate/FuzzerCLI.h"
 #include "llvm/FuzzMutate/IRMutator.h"
 #include "llvm/FuzzMutate/Operations.h"
-#include "llvm/FuzzMutate/Random.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/LegacyPassManager.h"
@@ -32,7 +31,6 @@
 #include "llvm/Support/TargetRegistry.h"
 #include "llvm/Support/TargetSelect.h"
 #include "llvm/Target/TargetMachine.h"
-#include <random>
 
 #define DEBUG_TYPE "isel-fuzzer"
 

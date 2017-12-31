@@ -38,9 +38,6 @@ SectionChunk::SectionChunk(ObjFile *F, const coff_section *H)
 
   Alignment = Header->getAlignment();
 
-  // Chunks may be discarded during comdat merging.
-  Discarded = false;
-
   // If linker GC is disabled, every chunk starts out alive.  If linker GC is
   // enabled, treat non-comdat sections as roots. Generally optimized object
   // files will be built with -ffunction-sections or /Gy, so most things worth
@@ -132,6 +129,8 @@ void applyMOV32T(uint8_t *Off, uint32_t V) {
 }
 
 static void applyBranch20T(uint8_t *Off, int32_t V) {
+  if (!isInt<21>(V))
+    fatal("relocation out of range");
   uint32_t S = V < 0 ? 1 : 0;
   uint32_t J1 = (V >> 19) & 1;
   uint32_t J2 = (V >> 18) & 1;
@@ -362,12 +361,8 @@ bool SectionChunk::isCOMDAT() const {
 void SectionChunk::printDiscardedMessage() const {
   // Removed by dead-stripping. If it's removed by ICF, ICF already
   // printed out the name, so don't repeat that here.
-  if (Sym && this == Repl) {
-    if (Discarded)
-      message("Discarded comdat symbol " + Sym->getName());
-    else if (!Live)
-      message("Discarded " + Sym->getName());
-  }
+  if (Sym && this == Repl)
+    message("Discarded " + Sym->getName());
 }
 
 StringRef SectionChunk::getDebugName() {

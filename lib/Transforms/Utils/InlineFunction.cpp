@@ -1810,7 +1810,8 @@ bool llvm::InlineFunction(CallSite CS, InlineFunctionInfo &IFI,
     // Move any dbg.declares describing the allocas into the entry basic block.
     DIBuilder DIB(*Caller->getParent());
     for (auto &AI : IFI.StaticAllocas)
-      replaceDbgDeclareForAlloca(AI, AI, DIB, /*Deref=*/false);
+      replaceDbgDeclareForAlloca(AI, AI, DIB, DIExpression::NoDeref, 0,
+                                 DIExpression::NoDeref);
   }
 
   SmallVector<Value*,4> VarArgsToForward;
@@ -1850,7 +1851,8 @@ bool llvm::InlineFunction(CallSite CS, InlineFunctionInfo &IFI,
         //    f ->          g -> musttail f  ==>  f ->          f
         //    f ->          g ->     tail f  ==>  f ->          f
         CallInst::TailCallKind ChildTCK = CI->getTailCallKind();
-        ChildTCK = std::min(CallSiteTailKind, ChildTCK);
+        if (ChildTCK != CallInst::TCK_NoTail)
+          ChildTCK = std::min(CallSiteTailKind, ChildTCK);
         CI->setTailCallKind(ChildTCK);
         InlinedMustTailCalls |= CI->isMustTailCall();
 
@@ -1859,10 +1861,12 @@ bool llvm::InlineFunction(CallSite CS, InlineFunctionInfo &IFI,
         if (MarkNoUnwind)
           CI->setDoesNotThrow();
 
-        if (ForwardVarArgsTo && CI->getCalledFunction() == ForwardVarArgsTo) {
+        if (ForwardVarArgsTo && !VarArgsToForward.empty() &&
+            CI->getCalledFunction() == ForwardVarArgsTo) {
           SmallVector<Value*, 6> Params(CI->arg_operands());
           Params.append(VarArgsToForward.begin(), VarArgsToForward.end());
           CallInst *Call = CallInst::Create(CI->getCalledFunction(), Params, "", CI);
+          Call->setDebugLoc(CI->getDebugLoc());
           CI->replaceAllUsesWith(Call);
           CI->eraseFromParent();
         }

@@ -1554,21 +1554,26 @@ bool Sema::CheckARMBuiltinFunctionCall(unsigned BuiltinID, CallExpr *TheCall) {
 
   // For intrinsics which take an immediate value as part of the instruction,
   // range check them here.
-  unsigned i = 0, l = 0, u = 0;
+  // FIXME: VFP Intrinsics should error if VFP not present.
   switch (BuiltinID) {
   default: return false;
-  case ARM::BI__builtin_arm_ssat: i = 1; l = 1; u = 31; break;
-  case ARM::BI__builtin_arm_usat: i = 1; u = 31; break;
+  case ARM::BI__builtin_arm_ssat:
+    return SemaBuiltinConstantArgRange(TheCall, 1, 1, 32);
+  case ARM::BI__builtin_arm_usat:
+    return SemaBuiltinConstantArgRange(TheCall, 1, 0, 31);
+  case ARM::BI__builtin_arm_ssat16:
+    return SemaBuiltinConstantArgRange(TheCall, 1, 1, 16);
+  case ARM::BI__builtin_arm_usat16:
+    return SemaBuiltinConstantArgRange(TheCall, 1, 0, 15);
   case ARM::BI__builtin_arm_vcvtr_f:
-  case ARM::BI__builtin_arm_vcvtr_d: i = 1; u = 1; break;
+  case ARM::BI__builtin_arm_vcvtr_d:
+    return SemaBuiltinConstantArgRange(TheCall, 1, 0, 1);
   case ARM::BI__builtin_arm_dmb:
   case ARM::BI__builtin_arm_dsb:
   case ARM::BI__builtin_arm_isb:
-  case ARM::BI__builtin_arm_dbg: l = 0; u = 15; break;
+  case ARM::BI__builtin_arm_dbg:
+    return SemaBuiltinConstantArgRange(TheCall, 0, 0, 15);
   }
-
-  // FIXME: VFP Intrinsics should error if VFP not present.
-  return SemaBuiltinConstantArgRange(TheCall, i, l, u + l);
 }
 
 bool Sema::CheckAArch64BuiltinFunctionCall(unsigned BuiltinID,
@@ -2273,7 +2278,7 @@ bool Sema::CheckX86BuiltinFunctionCall(unsigned BuiltinID, CallExpr *TheCall) {
   default:
     return false;
   case X86::BI_mm_prefetch:
-    i = 1; l = 0; u = 3;
+    i = 1; l = 0; u = 7;
     break;
   case X86::BI__builtin_ia32_sha1rnds4:
   case X86::BI__builtin_ia32_shuf_f32x4_256_mask:
@@ -2754,7 +2759,7 @@ void Sema::checkCall(NamedDecl *FDecl, const FunctionProtoType *Proto,
     // Type safety checking.
     if (FDecl) {
       for (const auto *I : FDecl->specific_attrs<ArgumentWithTypeTagAttr>())
-        CheckArgumentWithTypeTag(I, Args.data());
+        CheckArgumentWithTypeTag(I, Args, Loc);
     }
   }
 
@@ -3015,7 +3020,7 @@ ExprResult Sema::SemaAtomicOpsOverloaded(ExprResult TheCallResult,
   case AtomicExpr::AO__atomic_add_fetch:
   case AtomicExpr::AO__atomic_sub_fetch:
     IsAddSub = true;
-    // Fall through.
+    LLVM_FALLTHROUGH;
   case AtomicExpr::AO__c11_atomic_fetch_and:
   case AtomicExpr::AO__c11_atomic_fetch_or:
   case AtomicExpr::AO__c11_atomic_fetch_xor:
@@ -7274,8 +7279,8 @@ static bool CheckMemorySizeofForComparison(Sema &S, const Expr *E,
   if (!Size)
     return false;
 
-  // if E is binop and op is >, <, >=, <=, ==, &&, ||:
-  if (!Size->isComparisonOp() && !Size->isEqualityOp() && !Size->isLogicalOp())
+  // if E is binop and op is <=>, >, <, >=, <=, ==, &&, ||:
+  if (!Size->isComparisonOp() && !Size->isLogicalOp())
     return false;
 
   SourceRange SizeRange = Size->getSourceRange();
@@ -8260,11 +8265,12 @@ struct IntRange {
     } else if (const EnumType *ET = dyn_cast<EnumType>(T)) {
       // For enum types in C++, use the known bit width of the enumerators.
       EnumDecl *Enum = ET->getDecl();
-      // In C++11, enums without definitions can have an explicitly specified
-      // underlying type.  Use this type to compute the range.
-      if (!Enum->isCompleteDefinition())
+      // In C++11, enums can have a fixed underlying type. Use this type to
+      // compute the range.
+      if (Enum->isFixed()) {
         return IntRange(C.getIntWidth(QualType(T, 0)),
                         !ET->isSignedIntegerOrEnumerationType());
+      }
 
       unsigned NumPositive = Enum->getNumPositiveBits();
       unsigned NumNegative = Enum->getNumNegativeBits();
@@ -8427,6 +8433,8 @@ static IntRange GetExprRange(ASTContext &C, const Expr *E, unsigned MaxWidth) {
 
   if (const auto *BO = dyn_cast<BinaryOperator>(E)) {
     switch (BO->getOpcode()) {
+    case BO_Cmp:
+      llvm_unreachable("builtin <=> should have class type");
 
     // Boolean-valued operations are single-bit and positive.
     case BO_LAnd:
@@ -8479,7 +8487,7 @@ static IntRange GetExprRange(ASTContext &C, const Expr *E, unsigned MaxWidth) {
           return IntRange(R.Width, /*NonNegative*/ true);
         }
       }
-      // fallthrough
+      LLVM_FALLTHROUGH;
 
     case BO_ShlAssign:
       return IntRange::forValueOfType(C, GetExprType(E));
@@ -8649,68 +8657,135 @@ static bool IsEnumConstOrFromMacro(Sema &S, Expr *E) {
   return false;
 }
 
-static bool isNonBooleanIntegerValue(Expr *E) {
-  return !E->isKnownToHaveBooleanValue() && E->getType()->isIntegerType();
-}
-
-static bool isNonBooleanUnsignedValue(Expr *E) {
-  // We are checking that the expression is not known to have boolean value,
-  // is an integer type; and is either unsigned after implicit casts,
-  // or was unsigned before implicit casts.
-  return isNonBooleanIntegerValue(E) &&
+static bool isKnownToHaveUnsignedValue(Expr *E) {
+  return E->getType()->isIntegerType() &&
          (!E->getType()->isSignedIntegerType() ||
           !E->IgnoreParenImpCasts()->getType()->isSignedIntegerType());
 }
 
 namespace {
+/// The promoted range of values of a type. In general this has the
+/// following structure:
+///
+///     |-----------| . . . |-----------|
+///     ^           ^       ^           ^
+///    Min       HoleMin  HoleMax      Max
+///
+/// ... where there is only a hole if a signed type is promoted to unsigned
+/// (in which case Min and Max are the smallest and largest representable
+/// values).
+struct PromotedRange {
+  // Min, or HoleMax if there is a hole.
+  llvm::APSInt PromotedMin;
+  // Max, or HoleMin if there is a hole.
+  llvm::APSInt PromotedMax;
 
-enum class LimitType {
-  Max = 1U << 0U,  // e.g. 32767 for short
-  Min = 1U << 1U,  // e.g. -32768 for short
-  Both = Max | Min // When the value is both the Min and the Max limit at the
-                   // same time; e.g. in C++, A::a in enum A { a = 0 };
+  PromotedRange(IntRange R, unsigned BitWidth, bool Unsigned) {
+    if (R.Width == 0)
+      PromotedMin = PromotedMax = llvm::APSInt(BitWidth, Unsigned);
+    else if (R.Width >= BitWidth && !Unsigned) {
+      // Promotion made the type *narrower*. This happens when promoting
+      // a < 32-bit unsigned / <= 32-bit signed bit-field to 'signed int'.
+      // Treat all values of 'signed int' as being in range for now.
+      PromotedMin = llvm::APSInt::getMinValue(BitWidth, Unsigned);
+      PromotedMax = llvm::APSInt::getMaxValue(BitWidth, Unsigned);
+    } else {
+      PromotedMin = llvm::APSInt::getMinValue(R.Width, R.NonNegative)
+                        .extOrTrunc(BitWidth);
+      PromotedMin.setIsUnsigned(Unsigned);
+
+      PromotedMax = llvm::APSInt::getMaxValue(R.Width, R.NonNegative)
+                        .extOrTrunc(BitWidth);
+      PromotedMax.setIsUnsigned(Unsigned);
+    }
+  }
+
+  // Determine whether this range is contiguous (has no hole).
+  bool isContiguous() const { return PromotedMin <= PromotedMax; }
+
+  // Where a constant value is within the range.
+  enum ComparisonResult {
+    LT = 0x1,
+    LE = 0x2,
+    GT = 0x4,
+    GE = 0x8,
+    EQ = 0x10,
+    NE = 0x20,
+    InRangeFlag = 0x40,
+
+    Less = LE | LT | NE,
+    Min = LE | InRangeFlag,
+    InRange = InRangeFlag,
+    Max = GE | InRangeFlag,
+    Greater = GE | GT | NE,
+
+    OnlyValue = LE | GE | EQ | InRangeFlag,
+    InHole = NE
+  };
+
+  ComparisonResult compare(const llvm::APSInt &Value) const {
+    assert(Value.getBitWidth() == PromotedMin.getBitWidth() &&
+           Value.isUnsigned() == PromotedMin.isUnsigned());
+    if (!isContiguous()) {
+      assert(Value.isUnsigned() && "discontiguous range for signed compare");
+      if (Value.isMinValue()) return Min;
+      if (Value.isMaxValue()) return Max;
+      if (Value >= PromotedMin) return InRange;
+      if (Value <= PromotedMax) return InRange;
+      return InHole;
+    }
+
+    switch (llvm::APSInt::compareValues(Value, PromotedMin)) {
+    case -1: return Less;
+    case 0: return PromotedMin == PromotedMax ? OnlyValue : Min;
+    case 1:
+      switch (llvm::APSInt::compareValues(Value, PromotedMax)) {
+      case -1: return InRange;
+      case 0: return Max;
+      case 1: return Greater;
+      }
+    }
+
+    llvm_unreachable("impossible compare result");
+  }
+
+  static llvm::Optional<StringRef>
+  constantValue(BinaryOperatorKind Op, ComparisonResult R, bool ConstantOnRHS) {
+    if (Op == BO_Cmp) {
+      ComparisonResult LTFlag = LT, GTFlag = GT;
+      if (ConstantOnRHS) std::swap(LTFlag, GTFlag);
+
+      if (R & EQ) return StringRef("'std::strong_ordering::equal'");
+      if (R & LTFlag) return StringRef("'std::strong_ordering::less'");
+      if (R & GTFlag) return StringRef("'std::strong_ordering::greater'");
+      return llvm::None;
+    }
+
+    ComparisonResult TrueFlag, FalseFlag;
+    if (Op == BO_EQ) {
+      TrueFlag = EQ;
+      FalseFlag = NE;
+    } else if (Op == BO_NE) {
+      TrueFlag = NE;
+      FalseFlag = EQ;
+    } else {
+      if ((Op == BO_LT || Op == BO_GE) ^ ConstantOnRHS) {
+        TrueFlag = LT;
+        FalseFlag = GE;
+      } else {
+        TrueFlag = GT;
+        FalseFlag = LE;
+      }
+      if (Op == BO_GE || Op == BO_LE)
+        std::swap(TrueFlag, FalseFlag);
+    }
+    if (R & TrueFlag)
+      return StringRef("true");
+    if (R & FalseFlag)
+      return StringRef("false");
+    return llvm::None;
+  }
 };
-
-} // namespace
-
-/// Checks whether Expr 'Constant' may be the
-/// std::numeric_limits<>::max() or std::numeric_limits<>::min()
-/// of the Expr 'Other'. If true, then returns the limit type (min or max).
-/// The Value is the evaluation of Constant
-static llvm::Optional<LimitType> IsTypeLimit(Sema &S, Expr *Constant,
-                                             Expr *Other,
-                                             const llvm::APSInt &Value) {
-  if (IsEnumConstOrFromMacro(S, Constant))
-    return llvm::Optional<LimitType>();
-
-  if (isNonBooleanUnsignedValue(Other) && Value == 0)
-    return LimitType::Min;
-
-  // TODO: Investigate using GetExprRange() to get tighter bounds
-  // on the bit ranges.
-  QualType OtherT = Other->IgnoreParenImpCasts()->getType();
-  if (const auto *AT = OtherT->getAs<AtomicType>())
-    OtherT = AT->getValueType();
-
-  IntRange OtherRange = IntRange::forValueOfType(S.Context, OtherT);
-
-  // Special-case for C++ for enum with one enumerator with value of 0.
-  if (OtherRange.Width == 0)
-    return Value == 0 ? LimitType::Both : llvm::Optional<LimitType>();
-
-  if (llvm::APSInt::isSameValue(
-          llvm::APSInt::getMaxValue(OtherRange.Width,
-                                    OtherT->isUnsignedIntegerType()),
-          Value))
-    return LimitType::Max;
-
-  if (llvm::APSInt::isSameValue(
-          llvm::APSInt::getMinValue(OtherRange.Width,
-                                    OtherT->isUnsignedIntegerType()),
-          Value))
-    return LimitType::Min;
-
-  return llvm::None;
 }
 
 static bool HasEnumType(Expr *E) {
@@ -8725,65 +8800,42 @@ static bool HasEnumType(Expr *E) {
   return E->getType()->isEnumeralType();
 }
 
+static int classifyConstantValue(Expr *Constant) {
+  // The values of this enumeration are used in the diagnostics
+  // diag::warn_out_of_range_compare and diag::warn_tautological_bool_compare.
+  enum ConstantValueKind {
+    Miscellaneous = 0,
+    LiteralTrue,
+    LiteralFalse
+  };
+  if (auto *BL = dyn_cast<CXXBoolLiteralExpr>(Constant))
+    return BL->getValue() ? ConstantValueKind::LiteralTrue
+                          : ConstantValueKind::LiteralFalse;
+  return ConstantValueKind::Miscellaneous;
+}
+
 static bool CheckTautologicalComparison(Sema &S, BinaryOperator *E,
                                         Expr *Constant, Expr *Other,
                                         const llvm::APSInt &Value,
                                         bool RhsConstant) {
-  // Disable warning in template instantiations
-  // and only analyze <, >, <= and >= operations.
-  if (S.inTemplateInstantiation() || !E->isRelationalOp())
-    return false;
-
-  BinaryOperatorKind Op = E->getOpcode();
-
-  QualType OType = Other->IgnoreParenImpCasts()->getType();
-
-  llvm::Optional<LimitType> ValueType; // Which limit (min/max) is the constant?
-
-  if (!(isNonBooleanIntegerValue(Other) &&
-        (ValueType = IsTypeLimit(S, Constant, Other, Value))))
-    return false;
-
-  bool ConstIsLowerBound = (Op == BO_LT || Op == BO_LE) ^ RhsConstant;
-  bool ResultWhenConstEqualsOther = (Op == BO_LE || Op == BO_GE);
-  if (ValueType != LimitType::Both) {
-    bool ResultWhenConstNeOther =
-        ConstIsLowerBound ^ (ValueType == LimitType::Max);
-    if (ResultWhenConstEqualsOther != ResultWhenConstNeOther)
-      return false; // The comparison is not tautological.
-  } else if (ResultWhenConstEqualsOther == ConstIsLowerBound)
-    return false; // The comparison is not tautological.
-
-  const bool Result = ResultWhenConstEqualsOther;
-
-  unsigned Diag = (isNonBooleanUnsignedValue(Other) && Value == 0)
-                      ? (HasEnumType(Other)
-                             ? diag::warn_unsigned_enum_always_true_comparison
-                             : diag::warn_unsigned_always_true_comparison)
-                      : diag::warn_tautological_constant_compare;
-
-  // Should be enough for uint128 (39 decimal digits)
-  SmallString<64> PrettySourceValue;
-  llvm::raw_svector_ostream OS(PrettySourceValue);
-  OS << Value;
-
-  S.Diag(E->getOperatorLoc(), Diag)
-      << RhsConstant << OType << E->getOpcodeStr() << OS.str() << Result
-      << E->getLHS()->getSourceRange() << E->getRHS()->getSourceRange();
-
-  return true;
-}
-
-static bool DiagnoseOutOfRangeComparison(Sema &S, BinaryOperator *E,
-                                         Expr *Constant, Expr *Other,
-                                         const llvm::APSInt &Value,
-                                         bool RhsConstant) {
-  // Disable warning in template instantiations.
   if (S.inTemplateInstantiation())
     return false;
 
+  Expr *OriginalOther = Other;
+
   Constant = Constant->IgnoreParenImpCasts();
   Other = Other->IgnoreParenImpCasts();
+
+  // Suppress warnings on tautological comparisons between values of the same
+  // enumeration type. There are only two ways we could warn on this:
+  //  - If the constant is outside the range of representable values of
+  //    the enumeration. In such a case, we should warn about the cast
+  //    to enumeration type, not about the comparison.
+  //  - If the constant is the maximum / minimum in-range value. For an
+  //    enumeratin type, such comparisons can be meaningful and useful.
+  if (Constant->getType()->isEnumeralType() &&
+      S.Context.hasSameUnqualifiedType(Constant->getType(), Other->getType()))
+    return false;
 
   // TODO: Investigate using GetExprRange() to get tighter bounds
   // on the bit ranges.
@@ -8791,175 +8843,32 @@ static bool DiagnoseOutOfRangeComparison(Sema &S, BinaryOperator *E,
   if (const auto *AT = OtherT->getAs<AtomicType>())
     OtherT = AT->getValueType();
   IntRange OtherRange = IntRange::forValueOfType(S.Context, OtherT);
-  unsigned OtherWidth = OtherRange.Width;
 
-  bool OtherIsBooleanType = Other->isKnownToHaveBooleanValue();
+  // Whether we're treating Other as being a bool because of the form of
+  // expression despite it having another type (typically 'int' in C).
+  bool OtherIsBooleanDespiteType =
+      !OtherT->isBooleanType() && Other->isKnownToHaveBooleanValue();
+  if (OtherIsBooleanDespiteType)
+    OtherRange = IntRange::forBoolType();
 
-  BinaryOperatorKind op = E->getOpcode();
-  bool IsTrue = true;
+  // Determine the promoted range of the other type and see if a comparison of
+  // the constant against that range is tautological.
+  PromotedRange OtherPromotedRange(OtherRange, Value.getBitWidth(),
+                                   Value.isUnsigned());
+  auto Cmp = OtherPromotedRange.compare(Value);
+  auto Result = PromotedRange::constantValue(E->getOpcode(), Cmp, RhsConstant);
+  if (!Result)
+    return false;
 
-  // Used for diagnostic printout.
-  enum {
-    LiteralConstant = 0,
-    CXXBoolLiteralTrue,
-    CXXBoolLiteralFalse
-  } LiteralOrBoolConstant = LiteralConstant;
-
-  if (!OtherIsBooleanType) {
-    QualType ConstantT = Constant->getType();
-    QualType CommonT = E->getLHS()->getType();
-
-    if (S.Context.hasSameUnqualifiedType(OtherT, ConstantT))
-      return false;
-    assert((OtherT->isIntegerType() && ConstantT->isIntegerType()) &&
-           "comparison with non-integer type");
-
-    bool ConstantSigned = ConstantT->isSignedIntegerType();
-    bool CommonSigned = CommonT->isSignedIntegerType();
-
-    bool EqualityOnly = false;
-
-    if (CommonSigned) {
-      // The common type is signed, therefore no signed to unsigned conversion.
-      if (!OtherRange.NonNegative) {
-        // Check that the constant is representable in type OtherT.
-        if (ConstantSigned) {
-          if (OtherWidth >= Value.getMinSignedBits())
-            return false;
-        } else { // !ConstantSigned
-          if (OtherWidth >= Value.getActiveBits() + 1)
-            return false;
-        }
-      } else { // !OtherSigned
-               // Check that the constant is representable in type OtherT.
-        // Negative values are out of range.
-        if (ConstantSigned) {
-          if (Value.isNonNegative() && OtherWidth >= Value.getActiveBits())
-            return false;
-        } else { // !ConstantSigned
-          if (OtherWidth >= Value.getActiveBits())
-            return false;
-        }
-      }
-    } else { // !CommonSigned
-      if (OtherRange.NonNegative) {
-        if (OtherWidth >= Value.getActiveBits())
-          return false;
-      } else { // OtherSigned
-        assert(!ConstantSigned &&
-               "Two signed types converted to unsigned types.");
-        // Check to see if the constant is representable in OtherT.
-        if (OtherWidth > Value.getActiveBits())
-          return false;
-        // Check to see if the constant is equivalent to a negative value
-        // cast to CommonT.
-        if (S.Context.getIntWidth(ConstantT) ==
-                S.Context.getIntWidth(CommonT) &&
-            Value.isNegative() && Value.getMinSignedBits() <= OtherWidth)
-          return false;
-        // The constant value rests between values that OtherT can represent
-        // after conversion.  Relational comparison still works, but equality
-        // comparisons will be tautological.
-        EqualityOnly = true;
-      }
-    }
-
-    bool PositiveConstant = !ConstantSigned || Value.isNonNegative();
-
-    if (op == BO_EQ || op == BO_NE) {
-      IsTrue = op == BO_NE;
-    } else if (EqualityOnly) {
-      return false;
-    } else if (RhsConstant) {
-      if (op == BO_GT || op == BO_GE)
-        IsTrue = !PositiveConstant;
-      else // op == BO_LT || op == BO_LE
-        IsTrue = PositiveConstant;
-    } else {
-      if (op == BO_LT || op == BO_LE)
-        IsTrue = !PositiveConstant;
-      else // op == BO_GT || op == BO_GE
-        IsTrue = PositiveConstant;
-    }
-  } else {
-    // Other isKnownToHaveBooleanValue
-    enum CompareBoolWithConstantResult { AFals, ATrue, Unkwn };
-    enum ConstantValue { LT_Zero, Zero, One, GT_One, SizeOfConstVal };
-    enum ConstantSide { Lhs, Rhs, SizeOfConstSides };
-
-    static const struct LinkedConditions {
-      CompareBoolWithConstantResult BO_LT_OP[SizeOfConstSides][SizeOfConstVal];
-      CompareBoolWithConstantResult BO_GT_OP[SizeOfConstSides][SizeOfConstVal];
-      CompareBoolWithConstantResult BO_LE_OP[SizeOfConstSides][SizeOfConstVal];
-      CompareBoolWithConstantResult BO_GE_OP[SizeOfConstSides][SizeOfConstVal];
-      CompareBoolWithConstantResult BO_EQ_OP[SizeOfConstSides][SizeOfConstVal];
-      CompareBoolWithConstantResult BO_NE_OP[SizeOfConstSides][SizeOfConstVal];
-
-    } TruthTable = {
-        // Constant on LHS.              | Constant on RHS.              |
-        // LT_Zero| Zero  | One   |GT_One| LT_Zero| Zero  | One   |GT_One|
-        { { ATrue, Unkwn, AFals, AFals }, { AFals, AFals, Unkwn, ATrue } },
-        { { AFals, AFals, Unkwn, ATrue }, { ATrue, Unkwn, AFals, AFals } },
-        { { ATrue, ATrue, Unkwn, AFals }, { AFals, Unkwn, ATrue, ATrue } },
-        { { AFals, Unkwn, ATrue, ATrue }, { ATrue, ATrue, Unkwn, AFals } },
-        { { AFals, Unkwn, Unkwn, AFals }, { AFals, Unkwn, Unkwn, AFals } },
-        { { ATrue, Unkwn, Unkwn, ATrue }, { ATrue, Unkwn, Unkwn, ATrue } }
-      };
-
-    bool ConstantIsBoolLiteral = isa<CXXBoolLiteralExpr>(Constant);
-
-    enum ConstantValue ConstVal = Zero;
-    if (Value.isUnsigned() || Value.isNonNegative()) {
-      if (Value == 0) {
-        LiteralOrBoolConstant =
-            ConstantIsBoolLiteral ? CXXBoolLiteralFalse : LiteralConstant;
-        ConstVal = Zero;
-      } else if (Value == 1) {
-        LiteralOrBoolConstant =
-            ConstantIsBoolLiteral ? CXXBoolLiteralTrue : LiteralConstant;
-        ConstVal = One;
-      } else {
-        LiteralOrBoolConstant = LiteralConstant;
-        ConstVal = GT_One;
-      }
-    } else {
-      ConstVal = LT_Zero;
-    }
-
-    CompareBoolWithConstantResult CmpRes;
-
-    switch (op) {
-    case BO_LT:
-      CmpRes = TruthTable.BO_LT_OP[RhsConstant][ConstVal];
-      break;
-    case BO_GT:
-      CmpRes = TruthTable.BO_GT_OP[RhsConstant][ConstVal];
-      break;
-    case BO_LE:
-      CmpRes = TruthTable.BO_LE_OP[RhsConstant][ConstVal];
-      break;
-    case BO_GE:
-      CmpRes = TruthTable.BO_GE_OP[RhsConstant][ConstVal];
-      break;
-    case BO_EQ:
-      CmpRes = TruthTable.BO_EQ_OP[RhsConstant][ConstVal];
-      break;
-    case BO_NE:
-      CmpRes = TruthTable.BO_NE_OP[RhsConstant][ConstVal];
-      break;
-    default:
-      CmpRes = Unkwn;
-      break;
-    }
-
-    if (CmpRes == AFals) {
-      IsTrue = false;
-    } else if (CmpRes == ATrue) {
-      IsTrue = true;
-    } else {
-      return false;
-    }
-  }
+  // Suppress the diagnostic for an in-range comparison if the constant comes
+  // from a macro or enumerator. We don't want to diagnose
+  //
+  //   some_long_value <= INT_MAX
+  //
+  // when sizeof(int) == sizeof(long).
+  bool InRange = Cmp & PromotedRange::InRangeFlag;
+  if (InRange && IsEnumConstOrFromMacro(S, Constant))
+    return false;
 
   // If this is a comparison to an enum constant, include that
   // constant in the diagnostic.
@@ -8967,6 +8876,7 @@ static bool DiagnoseOutOfRangeComparison(Sema &S, BinaryOperator *E,
   if (const DeclRefExpr *DR = dyn_cast<DeclRefExpr>(Constant))
     ED = dyn_cast<EnumConstantDecl>(DR->getDecl());
 
+  // Should be enough for uint128 (39 decimal digits)
   SmallString<64> PrettySourceValue;
   llvm::raw_svector_ostream OS(PrettySourceValue);
   if (ED)
@@ -8974,14 +8884,30 @@ static bool DiagnoseOutOfRangeComparison(Sema &S, BinaryOperator *E,
   else
     OS << Value;
 
-  S.DiagRuntimeBehavior(
-    E->getOperatorLoc(), E,
-    S.PDiag(diag::warn_out_of_range_compare)
-        << OS.str() << LiteralOrBoolConstant
-        << OtherT << (OtherIsBooleanType && !OtherT->isBooleanType()) << IsTrue
-        << E->getLHS()->getSourceRange() << E->getRHS()->getSourceRange());
+  // FIXME: We use a somewhat different formatting for the in-range cases and
+  // cases involving boolean values for historical reasons. We should pick a
+  // consistent way of presenting these diagnostics.
+  if (!InRange || Other->isKnownToHaveBooleanValue()) {
+    S.DiagRuntimeBehavior(
+      E->getOperatorLoc(), E,
+      S.PDiag(!InRange ? diag::warn_out_of_range_compare
+                       : diag::warn_tautological_bool_compare)
+          << OS.str() << classifyConstantValue(Constant)
+          << OtherT << OtherIsBooleanDespiteType << *Result
+          << E->getLHS()->getSourceRange() << E->getRHS()->getSourceRange());
+  } else {
+    unsigned Diag = (isKnownToHaveUnsignedValue(OriginalOther) && Value == 0)
+                        ? (HasEnumType(OriginalOther)
+                               ? diag::warn_unsigned_enum_always_true_comparison
+                               : diag::warn_unsigned_always_true_comparison)
+                        : diag::warn_tautological_constant_compare;
 
-   return true;
+    S.Diag(E->getOperatorLoc(), Diag)
+        << RhsConstant << OtherT << E->getOpcodeStr() << OS.str() << *Result
+        << E->getLHS()->getSourceRange() << E->getRHS()->getSourceRange();
+  }
+
+  return true;
 }
 
 /// Analyze the operands of the given comparison.  Implements the
@@ -9031,11 +8957,7 @@ static void AnalyzeComparison(Sema &S, BinaryOperator *E) {
 
       // Check whether an integer constant comparison results in a value
       // of 'true' or 'false'.
-
       if (CheckTautologicalComparison(S, E, Const, Other, Value, RhsConstant))
-        return AnalyzeImpConvsInComparison(S, E);
-
-      if (DiagnoseOutOfRangeComparison(S, E, Const, Other, Value, RhsConstant))
         return AnalyzeImpConvsInComparison(S, E);
     }
   }
@@ -12329,10 +12251,18 @@ static bool IsSameCharType(QualType T1, QualType T2) {
 }
 
 void Sema::CheckArgumentWithTypeTag(const ArgumentWithTypeTagAttr *Attr,
-                                    const Expr * const *ExprArgs) {
+                                    const ArrayRef<const Expr *> ExprArgs,
+                                    SourceLocation CallSiteLoc) {
   const IdentifierInfo *ArgumentKind = Attr->getArgumentKind();
   bool IsPointerAttr = Attr->getIsPointer();
 
+  // Retrieve the argument representing the 'type_tag'.
+  if (Attr->getTypeTagIdx() >= ExprArgs.size()) {
+    // Add 1 to display the user's specified value.
+    Diag(CallSiteLoc, diag::err_tag_index_out_of_range)
+        << 0 << Attr->getTypeTagIdx() + 1;
+    return;
+  }
   const Expr *TypeTagExpr = ExprArgs[Attr->getTypeTagIdx()];
   bool FoundWrongKind;
   TypeTagData TypeInfo;
@@ -12346,6 +12276,13 @@ void Sema::CheckArgumentWithTypeTag(const ArgumentWithTypeTagAttr *Attr,
     return;
   }
 
+  // Retrieve the argument representing the 'arg_idx'.
+  if (Attr->getArgumentIdx() >= ExprArgs.size()) {
+    // Add 1 to display the user's specified value.
+    Diag(CallSiteLoc, diag::err_tag_index_out_of_range)
+        << 1 << Attr->getArgumentIdx() + 1;
+    return;
+  }
   const Expr *ArgumentExpr = ExprArgs[Attr->getArgumentIdx()];
   if (IsPointerAttr) {
     // Skip implicit cast of pointer to `void *' (as a function argument).
@@ -12437,8 +12374,9 @@ void Sema::DiscardMisalignedMemberAddress(const Type *T, Expr *E) {
                           MisalignedMember(Op));
       if (MA != MisalignedMembers.end() &&
           (T->isIntegerType() ||
-           (T->isPointerType() &&
-            Context.getTypeAlignInChars(T->getPointeeType()) <= MA->Alignment)))
+           (T->isPointerType() && (T->getPointeeType()->isIncompleteType() ||
+                                   Context.getTypeAlignInChars(
+                                       T->getPointeeType()) <= MA->Alignment))))
         MisalignedMembers.erase(MA);
     }
   }

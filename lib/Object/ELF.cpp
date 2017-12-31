@@ -144,6 +144,7 @@ StringRef llvm::object::getELFRelocationTypeName(uint32_t Machine,
     default:
       break;
     }
+    break;
   case ELF::EM_BPF:
     switch (Type) {
 #include "llvm/BinaryFormat/ELFRelocs/BPF.def"

@@ -7,7 +7,6 @@ add_lld_library(lldWasm
   InputFiles.cpp
   InputSegment.cpp
   OutputSections.cpp
-  Strings.cpp
   SymbolTable.cpp
   Symbols.cpp
   Writer.cpp
@@ -24,5 +23,4 @@ add_lld_library(lldWasm
 
   LINK_LIBS
   lldCommon
-  lldCore
   )

@@ -105,20 +105,16 @@ bool llvm::ConstantFoldTerminator(BasicBlock *BB, bool DeleteDeadConditions,
   IRBuilder<> Builder(T);
 
   // Branch - See if we are conditional jumping on constant
-  if (BranchInst *BI = dyn_cast<BranchInst>(T)) {
+  if (auto *BI = dyn_cast<BranchInst>(T)) {
     if (BI->isUnconditional()) return false;  // Can't optimize uncond branch
     BasicBlock *Dest1 = BI->getSuccessor(0);
     BasicBlock *Dest2 = BI->getSuccessor(1);
 
-    if (ConstantInt *Cond = dyn_cast<ConstantInt>(BI->getCondition())) {
+    if (auto *Cond = dyn_cast<ConstantInt>(BI->getCondition())) {
       // Are we branching on constant?
       // YES.  Change to unconditional branch...
       BasicBlock *Destination = Cond->getZExtValue() ? Dest1 : Dest2;
       BasicBlock *OldDest     = Cond->getZExtValue() ? Dest2 : Dest1;
-
-      //cerr << "Function: " << T->getParent()->getParent()
-      //     << "\nRemoving branch from " << T->getParent()
-      //     << "\n\nTo: " << OldDest << endl;
 
       // Let the basic block know that we are letting go of it.  Based on this,
       // it will adjust it's PHI nodes.
@@ -150,10 +146,10 @@ bool llvm::ConstantFoldTerminator(BasicBlock *BB, bool DeleteDeadConditions,
     return false;
   }
 
-  if (SwitchInst *SI = dyn_cast<SwitchInst>(T)) {
+  if (auto *SI = dyn_cast<SwitchInst>(T)) {
     // If we are switching on a constant, we can convert the switch to an
     // unconditional branch.
-    ConstantInt *CI = dyn_cast<ConstantInt>(SI->getCondition());
+    auto *CI = dyn_cast<ConstantInt>(SI->getCondition());
     BasicBlock *DefaultDest = SI->getDefaultDest();
     BasicBlock *TheOnlyDest = DefaultDest;
 
@@ -280,9 +276,9 @@ bool llvm::ConstantFoldTerminator(BasicBlock *BB, bool DeleteDeadConditions,
     return false;
   }
 
-  if (IndirectBrInst *IBI = dyn_cast<IndirectBrInst>(T)) {
+  if (auto *IBI = dyn_cast<IndirectBrInst>(T)) {
     // indirectbr blockaddress(@F, @BB) -> br label @BB
-    if (BlockAddress *BA =
+    if (auto *BA =
           dyn_cast<BlockAddress>(IBI->getAddress()->stripPointerCasts())) {
       BasicBlock *TheOnlyDest = BA->getBasicBlock();
       // Insert the new branch.
@@ -1304,14 +1300,14 @@ static void findDbgUsers(SmallVectorImpl<DbgInfoIntrinsic *> &DbgUsers,
 
 bool llvm::replaceDbgDeclare(Value *Address, Value *NewAddress,
                              Instruction *InsertBefore, DIBuilder &Builder,
-                             bool Deref, int Offset) {
+                             bool DerefBefore, int Offset, bool DerefAfter) {
   auto DbgAddrs = FindDbgAddrUses(Address);
   for (DbgInfoIntrinsic *DII : DbgAddrs) {
     DebugLoc Loc = DII->getDebugLoc();
     auto *DIVar = DII->getVariable();
     auto *DIExpr = DII->getExpression();
     assert(DIVar && "Missing variable");
-    DIExpr = DIExpression::prepend(DIExpr, Deref, Offset);
+    DIExpr = DIExpression::prepend(DIExpr, DerefBefore, Offset, DerefAfter);
     // Insert llvm.dbg.declare immediately after InsertBefore, and remove old
     // llvm.dbg.declare.
     Builder.insertDeclare(NewAddress, DIVar, DIExpr, Loc, InsertBefore);
@@ -1323,9 +1319,10 @@ bool llvm::replaceDbgDeclare(Value *Address, Value *NewAddress,
 }
 
 bool llvm::replaceDbgDeclareForAlloca(AllocaInst *AI, Value *NewAllocaAddress,
-                                      DIBuilder &Builder, bool Deref, int Offset) {
+                                      DIBuilder &Builder, bool DerefBefore,
+                                      int Offset, bool DerefAfter) {
   return replaceDbgDeclare(AI, NewAllocaAddress, AI->getNextNode(), Builder,
-                           Deref, Offset);
+                           DerefBefore, Offset, DerefAfter);
 }
 
 static void replaceOneDbgValueForAlloca(DbgValueInst *DVI, Value *NewAddress,
@@ -1378,6 +1375,7 @@ void llvm::salvageDebugInfo(Instruction &I) {
   auto applyOffset = [&](DbgValueInst *DVI, uint64_t Offset) {
     auto *DIExpr = DVI->getExpression();
     DIExpr = DIExpression::prepend(DIExpr, DIExpression::NoDeref, Offset,
+                                   DIExpression::NoDeref,
                                    DIExpression::WithStackValue);
     DVI->setOperand(0, wrapMD(I.getOperand(0)));
     DVI->setOperand(2, MetadataAsValue::get(I.getContext(), DIExpr));
@@ -2141,8 +2139,6 @@ static bool bitTransformIsCorrectForBitReverse(unsigned From, unsigned To,
   return From == BitWidth - To - 1;
 }
 
-/// Given an OR instruction, check to see if this is a bitreverse
-/// idiom. If so, insert the new intrinsic and return true.
 bool llvm::recognizeBSwapOrBitReverseIdiom(
     Instruction *I, bool MatchBSwaps, bool MatchBitReversals,
     SmallVectorImpl<Instruction *> &InsertedInsts) {

@@ -27,6 +27,8 @@
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/Path.h"
+#include "llvm/MC/MCAsmInfo.h"
+#include "llvm/MC/MCRegisterInfo.h"
 #include "llvm/Support/TargetParser.h"
 #include "llvm/Support/TargetRegistry.h"
 
@@ -77,6 +79,12 @@ ToolChain::ToolChain(const Driver &D, const llvm::Triple &T,
   std::string CandidateLibPath = getArchSpecificLibPath();
   if (getVFS().exists(CandidateLibPath))
     getFilePaths().push_back(CandidateLibPath);
+}
+
+void ToolChain::setTripleEnvironment(llvm::Triple::EnvironmentType Env) {
+  Triple.setEnvironment(Env);
+  if (EffectiveTriple != llvm::Triple())
+    EffectiveTriple.setEnvironment(Env);
 }
 
 ToolChain::~ToolChain() {
@@ -447,6 +455,13 @@ bool ToolChain::isCrossCompiling() const {
 ObjCRuntime ToolChain::getDefaultObjCRuntime(bool isNonFragile) const {
   return ObjCRuntime(isNonFragile ? ObjCRuntime::GNUstep : ObjCRuntime::GCC,
                      VersionTuple());
+}
+
+llvm::ExceptionHandling
+ToolChain::GetExceptionModel(const llvm::opt::ArgList &Args) const {
+  if (Triple.isOSWindows() && Triple.getArch() != llvm::Triple::x86)
+    return llvm::ExceptionHandling::WinEH;
+  return llvm::ExceptionHandling::None;
 }
 
 bool ToolChain::isThreadModelSupported(const StringRef Model) const {

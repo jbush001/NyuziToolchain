@@ -6,5 +6,5 @@
 
 .globl _start
 _start:               // CHECK: _start:
-          bz s0, far1 // CHECK: bz s0, 2097148 <_start+0x1FFFFC>
-          b far3      // CHECK: b 67108856 <_start+0x3FFFFFC>
+          bz s0, far1 // CHECK: bz s0, 2097148 <_start+0x1ffffc>
+          b far3      // CHECK: b 67108856 <_start+0x3fffffc>
