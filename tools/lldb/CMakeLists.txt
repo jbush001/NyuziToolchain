@@ -59,6 +59,9 @@ endif ()
 add_subdirectory(source)
 add_subdirectory(tools)
 
+# Disabed for Nyuzi. These options don't work in a cross-compiling 
+# environment.
+if (FALSE)
 option(LLDB_INCLUDE_TESTS "Generate build targets for the LLDB unit tests."
   ${LLVM_INCLUDE_TESTS})
 if(LLDB_INCLUDE_TESTS)
@@ -81,6 +84,7 @@ if(LLDB_INCLUDE_TESTS)
   add_subdirectory(test)
   add_subdirectory(unittests)
   add_subdirectory(lit)
+endif()
 endif()
 
 if (NOT LLDB_DISABLE_PYTHON)
