@@ -100,7 +100,7 @@ static const uint64_t kIOSSimShadowOffset64 = kDefaultShadowOffset64;
 static const uint64_t kSmallX86_64ShadowOffsetBase = 0x7FFFFFFF;  // < 2G.
 static const uint64_t kSmallX86_64ShadowOffsetAlignMask = ~0xFFFULL;
 static const uint64_t kLinuxKasan_ShadowOffset64 = 0xdffffc0000000000;
-static const uint64_t kPPC64_ShadowOffset64 = 1ULL << 41;
+static const uint64_t kPPC64_ShadowOffset64 = 1ULL << 44;
 static const uint64_t kSystemZ_ShadowOffset64 = 1ULL << 52;
 static const uint64_t kMIPS32_ShadowOffset32 = 0x0aaa0000;
 static const uint64_t kMIPS64_ShadowOffset64 = 1ULL << 37;
@@ -2702,9 +2702,10 @@ void FunctionStackPoisoner::copyArgsPassedByValToAllocas() {
       unsigned Align = Arg.getParamAlignment();
       if (Align == 0) Align = DL.getABITypeAlignment(Ty);
 
-      const std::string &Name = Arg.hasName() ? Arg.getName().str() :
-          "Arg" + llvm::to_string(Arg.getArgNo());
-      AllocaInst *AI = IRB.CreateAlloca(Ty, nullptr, Twine(Name) + ".byval");
+      AllocaInst *AI = IRB.CreateAlloca(
+          Ty, nullptr,
+          (Arg.hasName() ? Arg.getName() : "Arg" + Twine(Arg.getArgNo())) +
+              ".byval");
       AI->setAlignment(Align);
       Arg.replaceAllUsesWith(AI);
 
@@ -2869,8 +2870,12 @@ void FunctionStackPoisoner::processStaticAllocas() {
 
   Value *FakeStack;
   Value *LocalStackBase;
+  Value *LocalStackBaseAlloca;
+  bool Deref;
 
   if (DoStackMalloc) {
+    LocalStackBaseAlloca =
+        IRB.CreateAlloca(IntptrTy, nullptr, "asan_local_stack_base");
     // void *FakeStack = __asan_option_detect_stack_use_after_return
     //     ? __asan_stack_malloc_N(LocalStackSize)
     //     : nullptr;
@@ -2901,24 +2906,31 @@ void FunctionStackPoisoner::processStaticAllocas() {
     IRBIf.SetCurrentDebugLocation(EntryDebugLocation);
     Value *AllocaValue =
         DoDynamicAlloca ? createAllocaForLayout(IRBIf, L, true) : StaticAlloca;
+
     IRB.SetInsertPoint(InsBefore);
     IRB.SetCurrentDebugLocation(EntryDebugLocation);
     LocalStackBase = createPHI(IRB, NoFakeStack, AllocaValue, Term, FakeStack);
+    IRB.SetCurrentDebugLocation(EntryDebugLocation);
+    IRB.CreateStore(LocalStackBase, LocalStackBaseAlloca);
+    Deref = true;
   } else {
     // void *FakeStack = nullptr;
     // void *LocalStackBase = alloca(LocalStackSize);
     FakeStack = ConstantInt::get(IntptrTy, 0);
     LocalStackBase =
         DoDynamicAlloca ? createAllocaForLayout(IRB, L, true) : StaticAlloca;
+    LocalStackBaseAlloca = LocalStackBase;
+    Deref = false;
   }
 
   // Replace Alloca instructions with base+offset.
   for (const auto &Desc : SVD) {
     AllocaInst *AI = Desc.AI;
+    replaceDbgDeclareForAlloca(AI, LocalStackBaseAlloca, DIB, Deref,
+                               Desc.Offset, DIExpression::NoDeref);
     Value *NewAllocaPtr = IRB.CreateIntToPtr(
         IRB.CreateAdd(LocalStackBase, ConstantInt::get(IntptrTy, Desc.Offset)),
         AI->getType());
-    replaceDbgDeclareForAlloca(AI, NewAllocaPtr, DIB, DIExpression::NoDeref);
     AI->replaceAllUsesWith(NewAllocaPtr);
   }
 

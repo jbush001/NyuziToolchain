@@ -349,8 +349,9 @@ class X86Inst<bits<8> opcod, Format f, ImmType i, dag outs, dag ins,
   let TSFlags{54}    = hasEVEX_RC;
 }
 
-class PseudoI<dag oops, dag iops, list<dag> pattern>
-  : X86Inst<0, Pseudo, NoImm, oops, iops, "", NoItinerary> {
+class PseudoI<dag oops, dag iops, list<dag> pattern,
+              InstrItinClass itin = NoItinerary>
+  : X86Inst<0, Pseudo, NoImm, oops, iops, "", itin> {
   let Pattern = pattern;
 }
 
@@ -423,9 +424,8 @@ class FPI<bits<8> o, Format F, dag outs, dag ins, string asm,
 // FpI_ - Floating Point Pseudo Instruction template. Not Predicated.
 class FpI_<dag outs, dag ins, FPFormat fp, list<dag> pattern,
            InstrItinClass itin = NoItinerary>
-  : X86Inst<0, Pseudo, NoImm, outs, ins, "", itin> {
+  : PseudoI<outs, ins, pattern, itin> {
   let FPForm = fp;
-  let Pattern = pattern;
 }
 
 // Templates for instructions that use a 16- or 32-bit segmented address as
@@ -862,9 +862,13 @@ class PCLMULIi8<bits<8> o, Format F, dag outs, dag ins, string asm,
 class FMA3<bits<8> o, Format F, dag outs, dag ins, string asm,
            list<dag>pattern, InstrItinClass itin = NoItinerary>
       : I<o, F, outs, ins, asm, pattern, itin>, T8PD,
-        VEX_4V, FMASC, Requires<[HasFMA, NoVLX]>;
+        VEX_4V, FMASC, Requires<[HasFMA, NoFMA4, NoVLX]>;
 class FMA3S<bits<8> o, Format F, dag outs, dag ins, string asm,
             list<dag>pattern, InstrItinClass itin = NoItinerary>
+      : I<o, F, outs, ins, asm, pattern, itin>, T8PD,
+        VEX_4V, FMASC, Requires<[HasFMA, NoFMA4, NoAVX512]>;
+class FMA3S_Int<bits<8> o, Format F, dag outs, dag ins, string asm,
+                list<dag>pattern, InstrItinClass itin = NoItinerary>
       : I<o, F, outs, ins, asm, pattern, itin>, T8PD,
         VEX_4V, FMASC, Requires<[HasFMA, NoAVX512]>;
 
@@ -877,6 +881,10 @@ class FMA4S<bits<8> o, Format F, dag outs, dag ins, string asm,
             list<dag>pattern, InstrItinClass itin = NoItinerary>
       : Ii8Reg<o, F, outs, ins, asm, pattern, itin>, TAPD,
         VEX_4V, FMASC, Requires<[HasFMA4, NoAVX512]>;
+class FMA4S_Int<bits<8> o, Format F, dag outs, dag ins, string asm,
+                list<dag>pattern, InstrItinClass itin = NoItinerary>
+      : Ii8Reg<o, F, outs, ins, asm, pattern, itin>, TAPD,
+        VEX_4V, FMASC, Requires<[HasFMA4]>;
 
 // XOP 2, 3 and 4 Operand Instruction Template
 class IXOP<bits<8> o, Format F, dag outs, dag ins, string asm,

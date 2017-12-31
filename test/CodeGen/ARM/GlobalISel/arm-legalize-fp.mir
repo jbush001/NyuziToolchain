@@ -14,6 +14,12 @@
   define void @test_fsub_float() { ret void }
   define void @test_fsub_double() { ret void }
 
+  define void @test_fmul_float() { ret void }
+  define void @test_fmul_double() { ret void }
+
+  define void @test_fdiv_float() { ret void }
+  define void @test_fdiv_double() { ret void }
+
   define void @test_fcmp_true_s32() { ret void }
   define void @test_fcmp_false_s32() { ret void }
 
@@ -87,7 +93,7 @@ body:             |
     %2(s32) = G_FREM %0, %1
     ; CHECK: %r0 = COPY [[R]]
     %r0 = COPY %2(s32)
-    BX_RET 14, _, implicit %r0
+    BX_RET 14, %noreg, implicit %r0
 ...
 ---
 name:            test_frem_double
@@ -145,7 +151,7 @@ body:             |
     %7(s32), %8(s32) = G_UNMERGE_VALUES %6(s64)
     %r0 = COPY %7(s32)
     %r1 = COPY %8(s32)
-    BX_RET 14, _, implicit %r0, implicit %r1
+    BX_RET 14, %noreg, implicit %r0, implicit %r1
 ...
 ---
 name:            test_fpow_float
@@ -182,7 +188,7 @@ body:             |
     %2(s32) = G_FPOW %0, %1
     ; CHECK: %r0 = COPY [[R]]
     %r0 = COPY %2(s32)
-    BX_RET 14, _, implicit %r0
+    BX_RET 14, %noreg, implicit %r0
 ...
 ---
 name:            test_fpow_double
@@ -240,7 +246,7 @@ body:             |
     %7(s32), %8(s32) = G_UNMERGE_VALUES %6(s64)
     %r0 = COPY %7(s32)
     %r1 = COPY %8(s32)
-    BX_RET 14, _, implicit %r0, implicit %r1
+    BX_RET 14, %noreg, implicit %r0, implicit %r1
 ...
 ---
 name:            test_fadd_float
@@ -275,7 +281,7 @@ body:             |
     %2(s32) = G_FADD %0, %1
     ; CHECK: %r0 = COPY [[R]]
     %r0 = COPY %2(s32)
-    BX_RET 14, _, implicit %r0
+    BX_RET 14, %noreg, implicit %r0
 ...
 ---
 name:            test_fadd_double
@@ -327,7 +333,7 @@ body:             |
     %7(s32),%8(s32) = G_UNMERGE_VALUES %6(s64)
     %r0 = COPY %7(s32)
     %r1 = COPY %8(s32)
-    BX_RET 14, _, implicit %r0, implicit %r1
+    BX_RET 14, %noreg, implicit %r0, implicit %r1
 ...
 ---
 name:            test_fsub_float
@@ -362,7 +368,7 @@ body:             |
     %2(s32) = G_FSUB %0, %1
     ; CHECK: %r0 = COPY [[R]]
     %r0 = COPY %2(s32)
-    BX_RET 14, _, implicit %r0
+    BX_RET 14, %noreg, implicit %r0
 ...
 ---
 name:            test_fsub_double
@@ -414,7 +420,181 @@ body:             |
     %7(s32),%8(s32) = G_UNMERGE_VALUES %6(s64)
     %r0 = COPY %7(s32)
     %r1 = COPY %8(s32)
-    BX_RET 14, _, implicit %r0, implicit %r1
+    BX_RET 14, %noreg, implicit %r0, implicit %r1
+...
+---
+name:            test_fmul_float
+# CHECK-LABEL: name: test_fmul_float
+legalized:       false
+# CHECK: legalized: true
+regBankSelected: false
+selected:        false
+tracksRegLiveness: true
+registers:
+  - { id: 0, class: _ }
+  - { id: 1, class: _ }
+  - { id: 2, class: _ }
+body:             |
+  bb.0:
+    liveins: %r0, %r1
+
+    ; CHECK-DAG: [[X:%[0-9]+]]:_(s32) = COPY %r0
+    ; CHECK-DAG: [[Y:%[0-9]+]]:_(s32) = COPY %r1
+    %0(s32) = COPY %r0
+    %1(s32) = COPY %r1
+    ; HARD: [[R:%[0-9]+]]:_(s32) = G_FMUL [[X]], [[Y]]
+    ; SOFT-NOT: G_FMUL
+    ; SOFT: ADJCALLSTACKDOWN
+    ; SOFT-DAG: %r0 = COPY [[X]]
+    ; SOFT-DAG: %r1 = COPY [[Y]]
+    ; SOFT-AEABI: BL $__aeabi_fmul, {{.*}}, implicit %r0, implicit %r1, implicit-def %r0
+    ; SOFT-DEFAULT: BL $__mulsf3, {{.*}}, implicit %r0, implicit %r1, implicit-def %r0
+    ; SOFT: [[R:%[0-9]+]]:_(s32) = COPY %r0
+    ; SOFT: ADJCALLSTACKUP
+    ; SOFT-NOT: G_FMUL
+    %2(s32) = G_FMUL %0, %1
+    ; CHECK: %r0 = COPY [[R]]
+    %r0 = COPY %2(s32)
+    BX_RET 14, %noreg, implicit %r0
+...
+---
+name:            test_fmul_double
+# CHECK-LABEL: name: test_fmul_double
+legalized:       false
+# CHECK: legalized: true
+regBankSelected: false
+selected:        false
+tracksRegLiveness: true
+registers:
+  - { id: 0, class: _ }
+  - { id: 1, class: _ }
+  - { id: 2, class: _ }
+  - { id: 3, class: _ }
+  - { id: 4, class: _ }
+  - { id: 5, class: _ }
+  - { id: 6, class: _ }
+  - { id: 7, class: _ }
+  - { id: 8, class: _ }
+body:             |
+  bb.0:
+    liveins: %r0, %r1, %r2, %r3
+
+    ; CHECK-DAG: [[X0:%[0-9]+]]:_(s32) = COPY %r0
+    ; CHECK-DAG: [[X1:%[0-9]+]]:_(s32) = COPY %r1
+    ; CHECK-DAG: [[Y0:%[0-9]+]]:_(s32) = COPY %r2
+    ; CHECK-DAG: [[Y1:%[0-9]+]]:_(s32) = COPY %r3
+    %0(s32) = COPY %r0
+    %1(s32) = COPY %r1
+    %2(s32) = COPY %r2
+    %3(s32) = COPY %r3
+    ; HARD-DAG: [[X:%[0-9]+]]:_(s64) = G_MERGE_VALUES [[X0]]
+    ; HARD-DAG: [[Y:%[0-9]+]]:_(s64) = G_MERGE_VALUES [[Y0]]
+    %4(s64) = G_MERGE_VALUES %0(s32), %1(s32)
+    %5(s64) = G_MERGE_VALUES %2(s32), %3(s32)
+    ; HARD: [[R:%[0-9]+]]:_(s64) = G_FMUL [[X]], [[Y]]
+    ; SOFT-NOT: G_FMUL
+    ; SOFT: ADJCALLSTACKDOWN
+    ; SOFT-DAG: %r{{[0-1]}} = COPY [[X0]]
+    ; SOFT-DAG: %r{{[0-1]}} = COPY [[X1]]
+    ; SOFT-DAG: %r{{[2-3]}} = COPY [[Y0]]
+    ; SOFT-DAG: %r{{[2-3]}} = COPY [[Y1]]
+    ; SOFT-AEABI: BL $__aeabi_dmul, {{.*}}, implicit %r0, implicit %r1, implicit %r2, implicit %r3, implicit-def %r0, implicit-def %r1
+    ; SOFT-DEFAULT: BL $__muldf3, {{.*}}, implicit %r0, implicit %r1, implicit %r2, implicit %r3, implicit-def %r0, implicit-def %r1
+    ; SOFT: ADJCALLSTACKUP
+    ; SOFT-NOT: G_FMUL
+    %6(s64) = G_FMUL %4, %5
+    ; HARD-DAG: G_UNMERGE_VALUES [[R]](s64)
+    %7(s32),%8(s32) = G_UNMERGE_VALUES %6(s64)
+    %r0 = COPY %7(s32)
+    %r1 = COPY %8(s32)
+    BX_RET 14, %noreg, implicit %r0, implicit %r1
+...
+---
+name:            test_fdiv_float
+# CHECK-LABEL: name: test_fdiv_float
+legalized:       false
+# CHECK: legalized: true
+regBankSelected: false
+selected:        false
+tracksRegLiveness: true
+registers:
+  - { id: 0, class: _ }
+  - { id: 1, class: _ }
+  - { id: 2, class: _ }
+body:             |
+  bb.0:
+    liveins: %r0, %r1
+
+    ; CHECK-DAG: [[X:%[0-9]+]]:_(s32) = COPY %r0
+    ; CHECK-DAG: [[Y:%[0-9]+]]:_(s32) = COPY %r1
+    %0(s32) = COPY %r0
+    %1(s32) = COPY %r1
+    ; HARD: [[R:%[0-9]+]]:_(s32) = G_FDIV [[X]], [[Y]]
+    ; SOFT-NOT: G_FDIV
+    ; SOFT: ADJCALLSTACKDOWN
+    ; SOFT-DAG: %r0 = COPY [[X]]
+    ; SOFT-DAG: %r1 = COPY [[Y]]
+    ; SOFT-AEABI: BL $__aeabi_fdiv, {{.*}}, implicit %r0, implicit %r1, implicit-def %r0
+    ; SOFT-DEFAULT: BL $__divsf3, {{.*}}, implicit %r0, implicit %r1, implicit-def %r0
+    ; SOFT: [[R:%[0-9]+]]:_(s32) = COPY %r0
+    ; SOFT: ADJCALLSTACKUP
+    ; SOFT-NOT: G_FDIV
+    %2(s32) = G_FDIV %0, %1
+    ; CHECK: %r0 = COPY [[R]]
+    %r0 = COPY %2(s32)
+    BX_RET 14, %noreg, implicit %r0
+...
+---
+name:            test_fdiv_double
+# CHECK-LABEL: name: test_fdiv_double
+legalized:       false
+# CHECK: legalized: true
+regBankSelected: false
+selected:        false
+tracksRegLiveness: true
+registers:
+  - { id: 0, class: _ }
+  - { id: 1, class: _ }
+  - { id: 2, class: _ }
+  - { id: 3, class: _ }
+  - { id: 4, class: _ }
+  - { id: 5, class: _ }
+  - { id: 6, class: _ }
+  - { id: 7, class: _ }
+  - { id: 8, class: _ }
+body:             |
+  bb.0:
+    liveins: %r0, %r1, %r2, %r3
+
+    ; CHECK-DAG: [[X0:%[0-9]+]]:_(s32) = COPY %r0
+    ; CHECK-DAG: [[X1:%[0-9]+]]:_(s32) = COPY %r1
+    ; CHECK-DAG: [[Y0:%[0-9]+]]:_(s32) = COPY %r2
+    ; CHECK-DAG: [[Y1:%[0-9]+]]:_(s32) = COPY %r3
+    %0(s32) = COPY %r0
+    %1(s32) = COPY %r1
+    %2(s32) = COPY %r2
+    %3(s32) = COPY %r3
+    ; HARD-DAG: [[X:%[0-9]+]]:_(s64) = G_MERGE_VALUES [[X0]]
+    ; HARD-DAG: [[Y:%[0-9]+]]:_(s64) = G_MERGE_VALUES [[Y0]]
+    %4(s64) = G_MERGE_VALUES %0(s32), %1(s32)
+    %5(s64) = G_MERGE_VALUES %2(s32), %3(s32)
+    ; HARD: [[R:%[0-9]+]]:_(s64) = G_FDIV [[X]], [[Y]]
+    ; SOFT-NOT: G_FDIV
+    ; SOFT: ADJCALLSTACKDOWN
+    ; SOFT-DAG: %r{{[0-1]}} = COPY [[X0]]
+    ; SOFT-DAG: %r{{[0-1]}} = COPY [[X1]]
+    ; SOFT-DAG: %r{{[2-3]}} = COPY [[Y0]]
+    ; SOFT-DAG: %r{{[2-3]}} = COPY [[Y1]]
+    ; SOFT-AEABI: BL $__aeabi_ddiv, {{.*}}, implicit %r0, implicit %r1, implicit %r2, implicit %r3, implicit-def %r0, implicit-def %r1
+    ; SOFT-DEFAULT: BL $__divdf3, {{.*}}, implicit %r0, implicit %r1, implicit %r2, implicit %r3, implicit-def %r0, implicit-def %r1
+    ; SOFT: ADJCALLSTACKUP
+    ; SOFT-NOT: G_FDIV
+    %6(s64) = G_FDIV %4, %5
+    ; HARD-DAG: G_UNMERGE_VALUES [[R]](s64)
+    %7(s32),%8(s32) = G_UNMERGE_VALUES %6(s64)
+    %r0 = COPY %7(s32)
+    %r1 = COPY %8(s32)
+    BX_RET 14, %noreg, implicit %r0, implicit %r1
 ...
 ---
 name:            test_fcmp_true_s32
@@ -438,7 +618,7 @@ body:             |
     %2(s1) = G_FCMP floatpred(true), %0(s32), %1
     %3(s32) = G_ZEXT %2(s1)
     %r0 = COPY %3(s32)
-    BX_RET 14, _, implicit %r0
+    BX_RET 14, %noreg, implicit %r0
     ; HARD-DAG: [[X:%[0-9]+]]:_(s32) = COPY %r0
     ; HARD-DAG: [[Y:%[0-9]+]]:_(s32) = COPY %r1
     ; HARD: [[R:%[0-9]+]]:_(s1) = G_FCMP floatpred(true), [[X]](s32), [[Y]]
@@ -475,7 +655,7 @@ body:             |
     %2(s1) = G_FCMP floatpred(false), %0(s32), %1
     %3(s32) = G_ZEXT %2(s1)
     %r0 = COPY %3(s32)
-    BX_RET 14, _, implicit %r0
+    BX_RET 14, %noreg, implicit %r0
     ; HARD-DAG: [[X:%[0-9]+]]:_(s32) = COPY %r0
     ; HARD-DAG: [[Y:%[0-9]+]]:_(s32) = COPY %r1
     ; HARD: [[R:%[0-9]+]]:_(s1) = G_FCMP floatpred(false), [[X]](s32), [[Y]]
@@ -534,7 +714,7 @@ body:             |
     %3(s32) = G_ZEXT %2(s1)
     %r0 = COPY %3(s32)
     ; CHECK: %r0 = COPY [[REXT]]
-    BX_RET 14, _, implicit %r0
+    BX_RET 14, %noreg, implicit %r0
 ...
 ---
 name:            test_fcmp_ogt_s32
@@ -580,7 +760,7 @@ body:             |
     %3(s32) = G_ZEXT %2(s1)
     %r0 = COPY %3(s32)
     ; CHECK: %r0 = COPY [[REXT]]
-    BX_RET 14, _, implicit %r0
+    BX_RET 14, %noreg, implicit %r0
 ...
 ---
 name:            test_fcmp_oge_s32
@@ -626,7 +806,7 @@ body:             |
     %3(s32) = G_ZEXT %2(s1)
     %r0 = COPY %3(s32)
     ; CHECK: %r0 = COPY [[REXT]]
-    BX_RET 14, _, implicit %r0
+    BX_RET 14, %noreg, implicit %r0
 ...
 ---
 name:            test_fcmp_olt_s32
@@ -672,7 +852,7 @@ body:             |
     %3(s32) = G_ZEXT %2(s1)
     %r0 = COPY %3(s32)
     ; CHECK: %r0 = COPY [[REXT]]
-    BX_RET 14, _, implicit %r0
+    BX_RET 14, %noreg, implicit %r0
 ...
 ---
 name:            test_fcmp_ole_s32
@@ -718,7 +898,7 @@ body:             |
     %3(s32) = G_ZEXT %2(s1)
     %r0 = COPY %3(s32)
     ; CHECK: %r0 = COPY [[REXT]]
-    BX_RET 14, _, implicit %r0
+    BX_RET 14, %noreg, implicit %r0
 ...
 ---
 name:            test_fcmp_ord_s32
@@ -758,7 +938,7 @@ body:             |
     ; CHECK: [[REXT:%[0-9]+]]:_(s32) = G_ZEXT [[R]](s1)
     %r0 = COPY %3(s32)
     ; CHECK: %r0 = COPY [[REXT]]
-    BX_RET 14, _, implicit %r0
+    BX_RET 14, %noreg, implicit %r0
 ...
 ---
 name:            test_fcmp_ugt_s32
@@ -799,7 +979,7 @@ body:             |
     ; CHECK: [[REXT:%[0-9]+]]:_(s32) = G_ZEXT [[R]](s1)
     %r0 = COPY %3(s32)
     ; CHECK: %r0 = COPY [[REXT]]
-    BX_RET 14, _, implicit %r0
+    BX_RET 14, %noreg, implicit %r0
 ...
 ---
 name:            test_fcmp_uge_s32
@@ -840,7 +1020,7 @@ body:             |
     ; CHECK: [[REXT:%[0-9]+]]:_(s32) = G_ZEXT [[R]](s1)
     %r0 = COPY %3(s32)
     ; CHECK: %r0 = COPY [[REXT]]
-    BX_RET 14, _, implicit %r0
+    BX_RET 14, %noreg, implicit %r0
 ...
 ---
 name:            test_fcmp_ult_s32
@@ -881,7 +1061,7 @@ body:             |
     ; CHECK: [[REXT:%[0-9]+]]:_(s32) = G_ZEXT [[R]](s1)
     %r0 = COPY %3(s32)
     ; CHECK: %r0 = COPY [[REXT]]
-    BX_RET 14, _, implicit %r0
+    BX_RET 14, %noreg, implicit %r0
 ...
 ---
 name:            test_fcmp_ule_s32
@@ -922,7 +1102,7 @@ body:             |
     ; CHECK: [[REXT:%[0-9]+]]:_(s32) = G_ZEXT [[R]](s1)
     %r0 = COPY %3(s32)
     ; CHECK: %r0 = COPY [[REXT]]
-    BX_RET 14, _, implicit %r0
+    BX_RET 14, %noreg, implicit %r0
 ...
 ---
 name:            test_fcmp_une_s32
@@ -963,7 +1143,7 @@ body:             |
     ; CHECK: [[REXT:%[0-9]+]]:_(s32) = G_ZEXT [[R]](s1)
     %r0 = COPY %3(s32)
     ; CHECK: %r0 = COPY [[REXT]]
-    BX_RET 14, _, implicit %r0
+    BX_RET 14, %noreg, implicit %r0
 ...
 ---
 name:            test_fcmp_uno_s32
@@ -1009,7 +1189,7 @@ body:             |
     %3(s32) = G_ZEXT %2(s1)
     %r0 = COPY %3(s32)
     ; CHECK: %r0 = COPY [[REXT]]
-    BX_RET 14, _, implicit %r0
+    BX_RET 14, %noreg, implicit %r0
 ...
 ---
 name:            test_fcmp_one_s32
@@ -1069,7 +1249,7 @@ body:             |
     %3(s32) = G_ZEXT %2(s1)
     %r0 = COPY %3(s32)
     ; CHECK: %r0 = COPY [[REXT]]
-    BX_RET 14, _, implicit %r0
+    BX_RET 14, %noreg, implicit %r0
 ...
 ---
 name:            test_fcmp_ueq_s32
@@ -1129,7 +1309,7 @@ body:             |
     %3(s32) = G_ZEXT %2(s1)
     %r0 = COPY %3(s32)
     ; CHECK: %r0 = COPY [[REXT]]
-    BX_RET 14, _, implicit %r0
+    BX_RET 14, %noreg, implicit %r0
 ...
 ---
 name:            test_fcmp_true_s64
@@ -1178,7 +1358,7 @@ body:             |
     %7(s32) = G_ZEXT %6(s1)
     %r0 = COPY %7(s32)
     ; CHECK: %r0 = COPY [[REXT]]
-    BX_RET 14, _, implicit %r0
+    BX_RET 14, %noreg, implicit %r0
 ...
 ---
 name:            test_fcmp_false_s64
@@ -1228,7 +1408,7 @@ body:             |
     %7(s32) = G_ZEXT %6(s1)
     %r0 = COPY %7(s32)
     ; CHECK: %r0 = COPY [[REXT]]
-    BX_RET 14, _, implicit %r0
+    BX_RET 14, %noreg, implicit %r0
 ...
 ---
 name:            test_fcmp_oeq_s64
@@ -1288,7 +1468,7 @@ body:             |
     %7(s32) = G_ZEXT %6(s1)
     %r0 = COPY %7(s32)
     ; CHECK: %r0 = COPY [[REXT]]
-    BX_RET 14, _, implicit %r0
+    BX_RET 14, %noreg, implicit %r0
 ...
 ---
 name:            test_fcmp_ogt_s64
@@ -1348,7 +1528,7 @@ body:             |
     %7(s32) = G_ZEXT %6(s1)
     %r0 = COPY %7(s32)
     ; CHECK: %r0 = COPY [[REXT]]
-    BX_RET 14, _, implicit %r0
+    BX_RET 14, %noreg, implicit %r0
 ...
 ---
 name:            test_fcmp_oge_s64
@@ -1408,7 +1588,7 @@ body:             |
     %7(s32) = G_ZEXT %6(s1)
     %r0 = COPY %7(s32)
     ; CHECK: %r0 = COPY [[REXT]]
-    BX_RET 14, _, implicit %r0
+    BX_RET 14, %noreg, implicit %r0
 ...
 ---
 name:            test_fcmp_olt_s64
@@ -1468,7 +1648,7 @@ body:             |
     %7(s32) = G_ZEXT %6(s1)
     %r0 = COPY %7(s32)
     ; CHECK: %r0 = COPY [[REXT]]
-    BX_RET 14, _, implicit %r0
+    BX_RET 14, %noreg, implicit %r0
 ...
 ---
 name:            test_fcmp_ole_s64
@@ -1528,7 +1708,7 @@ body:             |
     %7(s32) = G_ZEXT %6(s1)
     %r0 = COPY %7(s32)
     ; CHECK: %r0 = COPY [[REXT]]
-    BX_RET 14, _, implicit %r0
+    BX_RET 14, %noreg, implicit %r0
 ...
 ---
 name:            test_fcmp_ord_s64
@@ -1582,7 +1762,7 @@ body:             |
     ; CHECK: [[REXT:%[0-9]+]]:_(s32) = G_ZEXT [[R]](s1)
     %r0 = COPY %7(s32)
     ; CHECK: %r0 = COPY [[REXT]]
-    BX_RET 14, _, implicit %r0
+    BX_RET 14, %noreg, implicit %r0
 ...
 ---
 name:            test_fcmp_ugt_s64
@@ -1637,7 +1817,7 @@ body:             |
     ; CHECK: [[REXT:%[0-9]+]]:_(s32) = G_ZEXT [[R]](s1)
     %r0 = COPY %7(s32)
     ; CHECK: %r0 = COPY [[REXT]]
-    BX_RET 14, _, implicit %r0
+    BX_RET 14, %noreg, implicit %r0
 ...
 ---
 name:            test_fcmp_uge_s64
@@ -1692,7 +1872,7 @@ body:             |
     ; CHECK: [[REXT:%[0-9]+]]:_(s32) = G_ZEXT [[R]](s1)
     %r0 = COPY %7(s32)
     ; CHECK: %r0 = COPY [[REXT]]
-    BX_RET 14, _, implicit %r0
+    BX_RET 14, %noreg, implicit %r0
 ...
 ---
 name:            test_fcmp_ult_s64
@@ -1747,7 +1927,7 @@ body:             |
     ; CHECK: [[REXT:%[0-9]+]]:_(s32) = G_ZEXT [[R]](s1)
     %r0 = COPY %7(s32)
     ; CHECK: %r0 = COPY [[REXT]]
-    BX_RET 14, _, implicit %r0
+    BX_RET 14, %noreg, implicit %r0
 ...
 ---
 name:            test_fcmp_ule_s64
@@ -1802,7 +1982,7 @@ body:             |
     ; CHECK: [[REXT:%[0-9]+]]:_(s32) = G_ZEXT [[R]](s1)
     %r0 = COPY %7(s32)
     ; CHECK: %r0 = COPY [[REXT]]
-    BX_RET 14, _, implicit %r0
+    BX_RET 14, %noreg, implicit %r0
 ...
 ---
 name:            test_fcmp_une_s64
@@ -1857,7 +2037,7 @@ body:             |
     ; CHECK: [[REXT:%[0-9]+]]:_(s32) = G_ZEXT [[R]](s1)
     %r0 = COPY %7(s32)
     ; CHECK: %r0 = COPY [[REXT]]
-    BX_RET 14, _, implicit %r0
+    BX_RET 14, %noreg, implicit %r0
 ...
 ---
 name:            test_fcmp_uno_s64
@@ -1917,7 +2097,7 @@ body:             |
     %7(s32) = G_ZEXT %6(s1)
     %r0 = COPY %7(s32)
     ; CHECK: %r0 = COPY [[REXT]]
-    BX_RET 14, _, implicit %r0
+    BX_RET 14, %noreg, implicit %r0
 ...
 ---
 name:            test_fcmp_one_s64
@@ -1993,7 +2173,7 @@ body:             |
     %7(s32) = G_ZEXT %6(s1)
     %r0 = COPY %7(s32)
     ; CHECK: %r0 = COPY [[REXT]]
-    BX_RET 14, _, implicit %r0
+    BX_RET 14, %noreg, implicit %r0
 ...
 ---
 name:            test_fcmp_ueq_s64
@@ -2069,5 +2249,5 @@ body:             |
     %7(s32) = G_ZEXT %6(s1)
     %r0 = COPY %7(s32)
     ; CHECK: %r0 = COPY [[REXT]]
-    BX_RET 14, _, implicit %r0
+    BX_RET 14, %noreg, implicit %r0
 ...

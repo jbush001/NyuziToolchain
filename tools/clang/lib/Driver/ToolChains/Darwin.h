@@ -247,8 +247,9 @@ public:
 
   bool UseDwarfDebugFlags() const override;
 
-  bool UseSjLjExceptions(const llvm::opt::ArgList &Args) const override {
-    return false;
+  llvm::ExceptionHandling
+  GetExceptionModel(const llvm::opt::ArgList &Args) const override {
+    return llvm::ExceptionHandling::None;
   }
 
   /// }
@@ -267,14 +268,17 @@ public:
   enum DarwinPlatformKind {
     MacOS,
     IPhoneOS,
-    IPhoneOSSimulator,
     TvOS,
-    TvOSSimulator,
     WatchOS,
-    WatchOSSimulator
+    LastDarwinPlatform = WatchOS
+  };
+  enum DarwinEnvironmentKind {
+    NativeEnvironment,
+    Simulator,
   };
 
   mutable DarwinPlatformKind TargetPlatform;
+  mutable DarwinEnvironmentKind TargetEnvironment;
 
   /// The OS version we are targeting.
   mutable VersionTuple TargetVersion;
@@ -316,29 +320,34 @@ protected:
 
   // FIXME: Eliminate these ...Target functions and derive separate tool chains
   // for these targets and put version in constructor.
-  void setTarget(DarwinPlatformKind Platform, unsigned Major, unsigned Minor,
-                 unsigned Micro) const {
+  void setTarget(DarwinPlatformKind Platform, DarwinEnvironmentKind Environment,
+                 unsigned Major, unsigned Minor, unsigned Micro) const {
     // FIXME: For now, allow reinitialization as long as values don't
     // change. This will go away when we move away from argument translation.
     if (TargetInitialized && TargetPlatform == Platform &&
+        TargetEnvironment == Environment &&
         TargetVersion == VersionTuple(Major, Minor, Micro))
       return;
 
     assert(!TargetInitialized && "Target already initialized!");
     TargetInitialized = true;
     TargetPlatform = Platform;
+    TargetEnvironment = Environment;
     TargetVersion = VersionTuple(Major, Minor, Micro);
+    if (Environment == Simulator)
+      const_cast<Darwin *>(this)->setTripleEnvironment(llvm::Triple::Simulator);
   }
 
   bool isTargetIPhoneOS() const {
     assert(TargetInitialized && "Target not initialized!");
-    return TargetPlatform == IPhoneOS || TargetPlatform == TvOS;
+    return (TargetPlatform == IPhoneOS || TargetPlatform == TvOS) &&
+           TargetEnvironment == NativeEnvironment;
   }
 
   bool isTargetIOSSimulator() const {
     assert(TargetInitialized && "Target not initialized!");
-    return TargetPlatform == IPhoneOSSimulator ||
-           TargetPlatform == TvOSSimulator;
+    return (TargetPlatform == IPhoneOS || TargetPlatform == TvOS) &&
+           TargetEnvironment == Simulator;
   }
 
   bool isTargetIOSBased() const {
@@ -348,32 +357,32 @@ protected:
 
   bool isTargetTvOS() const {
     assert(TargetInitialized && "Target not initialized!");
-    return TargetPlatform == TvOS;
+    return TargetPlatform == TvOS && TargetEnvironment == NativeEnvironment;
   }
 
   bool isTargetTvOSSimulator() const {
     assert(TargetInitialized && "Target not initialized!");
-    return TargetPlatform == TvOSSimulator;
+    return TargetPlatform == TvOS && TargetEnvironment == Simulator;
   }
 
   bool isTargetTvOSBased() const {
     assert(TargetInitialized && "Target not initialized!");
-    return TargetPlatform == TvOS || TargetPlatform == TvOSSimulator;
+    return TargetPlatform == TvOS;
   }
 
   bool isTargetWatchOS() const {
     assert(TargetInitialized && "Target not initialized!");
-    return TargetPlatform == WatchOS;
+    return TargetPlatform == WatchOS && TargetEnvironment == NativeEnvironment;
   }
 
   bool isTargetWatchOSSimulator() const {
     assert(TargetInitialized && "Target not initialized!");
-    return TargetPlatform == WatchOSSimulator;
+    return TargetPlatform == WatchOS && TargetEnvironment == Simulator;
   }
 
   bool isTargetWatchOSBased() const {
     assert(TargetInitialized && "Target not initialized!");
-    return TargetPlatform == WatchOS || TargetPlatform == WatchOSSimulator;
+    return TargetPlatform == WatchOS;
   }
 
   bool isTargetMacOS() const {
@@ -409,10 +418,11 @@ protected:
                              Action::OffloadKind DeviceOffloadKind) const override;
 
   StringRef getPlatformFamily() const;
-  static StringRef getSDKName(StringRef isysroot);
   StringRef getOSLibraryNameSuffix() const;
 
 public:
+  static StringRef getSDKName(StringRef isysroot);
+
   /// }
   /// @name ToolChain Implementation
   /// {
@@ -455,7 +465,8 @@ public:
 
   void CheckObjCARC() const override;
 
-  bool UseSjLjExceptions(const llvm::opt::ArgList &Args) const override;
+  llvm::ExceptionHandling GetExceptionModel(
+      const llvm::opt::ArgList &Args) const override;
 
   bool SupportsEmbeddedBitcode() const override;
 

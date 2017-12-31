@@ -58,7 +58,7 @@ public:
   virtual ~InputFile() {}
 
   // Returns the filename.
-  StringRef getName() { return MB.getBufferIdentifier(); }
+  StringRef getName() const { return MB.getBufferIdentifier(); }
 
   // Reads a file (the constructor doesn't do that).
   virtual void parse() = 0;
@@ -108,9 +108,9 @@ public:
   static bool classof(const InputFile *F) { return F->kind() == ObjectKind; }
   void parse() override;
   MachineTypes getMachineType() override;
-  std::vector<Chunk *> &getChunks() { return Chunks; }
-  std::vector<SectionChunk *> &getDebugChunks() { return DebugChunks; }
-  std::vector<Symbol *> &getSymbols() { return Symbols; }
+  ArrayRef<Chunk *> getChunks() { return Chunks; }
+  ArrayRef<SectionChunk *> getDebugChunks() { return DebugChunks; }
+  ArrayRef<Symbol *> getSymbols() { return Symbols; }
 
   // Returns a Symbol object for the SymbolIndex'th symbol in the
   // underlying object file.
@@ -127,9 +127,9 @@ public:
   // COFF-specific and x86-only.
   bool SEHCompat = false;
 
-  // The list of safe exception handlers listed in .sxdata section.
+  // The symbol table indexes of the safe exception handlers.
   // COFF-specific and x86-only.
-  std::set<Symbol *> SEHandlers;
+  ArrayRef<llvm::support::ulittle32_t> SXData;
 
   // Pointer to the PDB module descriptor builder. Various debug info records
   // will reference object files by "module index", which is here. Things like
@@ -140,13 +140,23 @@ public:
 private:
   void initializeChunks();
   void initializeSymbols();
-  void initializeSEH();
 
-  Symbol *createDefined(COFFSymbolRef Sym, const void *Aux, bool IsFirst);
+  SectionChunk *
+  readSection(uint32_t SectionNumber,
+              const llvm::object::coff_aux_section_definition *Def);
+
+  void readAssociativeDefinition(
+      COFFSymbolRef COFFSym,
+      const llvm::object::coff_aux_section_definition *Def);
+
+  llvm::Optional<Symbol *>
+  createDefined(COFFSymbolRef Sym,
+                std::vector<const llvm::object::coff_aux_section_definition *>
+                    &ComdatDefs);
+  Symbol *createRegular(COFFSymbolRef Sym);
   Symbol *createUndefined(COFFSymbolRef Sym);
 
   std::unique_ptr<COFFObjectFile> COFFObj;
-  const coff_section *SXData = nullptr;
 
   // List of all chunks defined by this file. This includes both section
   // chunks and non-section chunks for common symbols.
@@ -207,7 +217,7 @@ class BitcodeFile : public InputFile {
 public:
   explicit BitcodeFile(MemoryBufferRef M) : InputFile(BitcodeKind, M) {}
   static bool classof(const InputFile *F) { return F->kind() == BitcodeKind; }
-  std::vector<Symbol *> &getSymbols() { return SymbolBodies; }
+  ArrayRef<Symbol *> getSymbols() { return SymbolBodies; }
   MachineTypes getMachineType() override;
   static std::vector<BitcodeFile *> Instances;
   std::unique_ptr<llvm::lto::InputFile> Obj;
@@ -219,7 +229,7 @@ private:
 };
 } // namespace coff
 
-std::string toString(coff::InputFile *File);
+std::string toString(const coff::InputFile *File);
 } // namespace lld
 
 #endif

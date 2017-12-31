@@ -136,10 +136,10 @@ static bool updateIDomWithKnownCommonDominator(BasicBlock *BB,
 // FIXME: Neither of these issues are a big deal and could be addressed with
 // some amount of refactoring of IDFCalculator. That would allow us to share
 // the core logic here (which is solving the same core problem).
-void appendDomFrontier(DomTreeNode *Node,
-                       SmallSetVector<BasicBlock *, 4> &Worklist,
-                       SmallVectorImpl<DomTreeNode *> &DomNodes,
-                       SmallPtrSetImpl<BasicBlock *> &DomSet) {
+static void appendDomFrontier(DomTreeNode *Node,
+                              SmallSetVector<BasicBlock *, 4> &Worklist,
+                              SmallVectorImpl<DomTreeNode *> &DomNodes,
+                              SmallPtrSetImpl<BasicBlock *> &DomSet) {
   assert(DomNodes.empty() && "Must start with no dominator nodes.");
   assert(DomSet.empty() && "Must start with an empty dominator set.");
 
@@ -271,19 +271,14 @@ static bool areLoopExitPHIsLoopInvariant(Loop &L, BasicBlock &ExitingBB,
 static void rewritePHINodesForUnswitchedExitBlock(BasicBlock &UnswitchedBB,
                                                   BasicBlock &OldExitingBB,
                                                   BasicBlock &OldPH) {
-  for (Instruction &I : UnswitchedBB) {
-    auto *PN = dyn_cast<PHINode>(&I);
-    if (!PN)
-      // No more PHIs to check.
-      break;
-
+  for (PHINode &PN : UnswitchedBB.phis()) {
     // When the loop exit is directly unswitched we just need to update the
     // incoming basic block. We loop to handle weird cases with repeated
     // incoming blocks, but expect to typically only have one operand here.
-    for (auto i : seq<int>(0, PN->getNumOperands())) {
-      assert(PN->getIncomingBlock(i) == &OldExitingBB &&
+    for (auto i : seq<int>(0, PN.getNumOperands())) {
+      assert(PN.getIncomingBlock(i) == &OldExitingBB &&
              "Found incoming block different from unique predecessor!");
-      PN->setIncomingBlock(i, &OldPH);
+      PN.setIncomingBlock(i, &OldPH);
     }
   }
 }
@@ -302,14 +297,9 @@ static void rewritePHINodesForExitAndUnswitchedBlocks(BasicBlock &ExitBB,
   assert(&ExitBB != &UnswitchedBB &&
          "Must have different loop exit and unswitched blocks!");
   Instruction *InsertPt = &*UnswitchedBB.begin();
-  for (Instruction &I : ExitBB) {
-    auto *PN = dyn_cast<PHINode>(&I);
-    if (!PN)
-      // No more PHIs to check.
-      break;
-
-    auto *NewPN = PHINode::Create(PN->getType(), /*NumReservedValues*/ 2,
-                                  PN->getName() + ".split", InsertPt);
+  for (PHINode &PN : ExitBB.phis()) {
+    auto *NewPN = PHINode::Create(PN.getType(), /*NumReservedValues*/ 2,
+                                  PN.getName() + ".split", InsertPt);
 
     // Walk backwards over the old PHI node's inputs to minimize the cost of
     // removing each one. We have to do this weird loop manually so that we
@@ -320,18 +310,18 @@ static void rewritePHINodesForExitAndUnswitchedBlocks(BasicBlock &ExitBB,
     // allowed us to create a single entry for a predecessor block without
     // having separate entries for each "edge" even though these edges are
     // required to produce identical results.
-    for (int i = PN->getNumIncomingValues() - 1; i >= 0; --i) {
-      if (PN->getIncomingBlock(i) != &OldExitingBB)
+    for (int i = PN.getNumIncomingValues() - 1; i >= 0; --i) {
+      if (PN.getIncomingBlock(i) != &OldExitingBB)
         continue;
 
-      Value *Incoming = PN->removeIncomingValue(i);
+      Value *Incoming = PN.removeIncomingValue(i);
       NewPN->addIncoming(Incoming, &OldPH);
     }
 
     // Now replace the old PHI with the new one and wire the old one in as an
     // input to the new one.
-    PN->replaceAllUsesWith(NewPN);
-    NewPN->addIncoming(PN, &ExitBB);
+    PN.replaceAllUsesWith(NewPN);
+    NewPN->addIncoming(&PN, &ExitBB);
   }
 }
 

@@ -181,7 +181,7 @@ bool InstructionSelector::executeMatchTable(
       else
         llvm_unreachable("Expected Imm or CImm operand");
 
-      if (!MatcherInfo.I64ImmPredicateFns[Predicate](Value))
+      if (!testImmPredicate_I64(Predicate, Value))
         if (handleReject() == RejectAndGiveUp)
           return false;
       break;
@@ -202,7 +202,7 @@ bool InstructionSelector::executeMatchTable(
       else
         llvm_unreachable("Expected Imm or CImm operand");
 
-      if (!MatcherInfo.APIntImmPredicateFns[Predicate](Value))
+      if (!testImmPredicate_APInt(Predicate, Value))
         if (handleReject() == RejectAndGiveUp)
           return false;
       break;
@@ -221,32 +221,67 @@ bool InstructionSelector::executeMatchTable(
       assert(Predicate > GIPFP_APFloat_Invalid && "Expected a valid predicate");
       APFloat Value = State.MIs[InsnID]->getOperand(1).getFPImm()->getValueAPF();
 
-      if (!MatcherInfo.APFloatImmPredicateFns[Predicate](Value))
+      if (!testImmPredicate_APFloat(Predicate, Value))
         if (handleReject() == RejectAndGiveUp)
           return false;
       break;
     }
-    case GIM_CheckNonAtomic: {
+    case GIM_CheckAtomicOrdering: {
       int64_t InsnID = MatchTable[CurrentIdx++];
+      AtomicOrdering Ordering = (AtomicOrdering)MatchTable[CurrentIdx++];
       DEBUG_WITH_TYPE(TgtInstructionSelector::getName(),
-                      dbgs() << CurrentIdx << ": GIM_CheckNonAtomic(MIs["
-                             << InsnID << "])\n");
+                      dbgs() << CurrentIdx << ": GIM_CheckAtomicOrdering(MIs["
+                             << InsnID << "], " << (uint64_t)Ordering << ")\n");
       assert(State.MIs[InsnID] != nullptr && "Used insn before defined");
-      assert((State.MIs[InsnID]->getOpcode() == TargetOpcode::G_LOAD ||
-              State.MIs[InsnID]->getOpcode() == TargetOpcode::G_STORE) &&
-             "Expected G_LOAD/G_STORE");
 
       if (!State.MIs[InsnID]->hasOneMemOperand())
         if (handleReject() == RejectAndGiveUp)
           return false;
 
       for (const auto &MMO : State.MIs[InsnID]->memoperands())
-        if (MMO->getOrdering() != AtomicOrdering::NotAtomic)
+        if (MMO->getOrdering() != Ordering)
           if (handleReject() == RejectAndGiveUp)
             return false;
       break;
     }
+    case GIM_CheckAtomicOrderingOrStrongerThan: {
+      int64_t InsnID = MatchTable[CurrentIdx++];
+      AtomicOrdering Ordering = (AtomicOrdering)MatchTable[CurrentIdx++];
+      DEBUG_WITH_TYPE(TgtInstructionSelector::getName(),
+                      dbgs() << CurrentIdx
+                             << ": GIM_CheckAtomicOrderingOrStrongerThan(MIs["
+                             << InsnID << "], " << (uint64_t)Ordering << ")\n");
+      assert(State.MIs[InsnID] != nullptr && "Used insn before defined");
 
+      if (!State.MIs[InsnID]->hasOneMemOperand())
+        if (handleReject() == RejectAndGiveUp)
+          return false;
+
+      for (const auto &MMO : State.MIs[InsnID]->memoperands())
+        if (!isAtLeastOrStrongerThan(MMO->getOrdering(), Ordering))
+          if (handleReject() == RejectAndGiveUp)
+            return false;
+      break;
+    }
+    case GIM_CheckAtomicOrderingWeakerThan: {
+      int64_t InsnID = MatchTable[CurrentIdx++];
+      AtomicOrdering Ordering = (AtomicOrdering)MatchTable[CurrentIdx++];
+      DEBUG_WITH_TYPE(TgtInstructionSelector::getName(),
+                      dbgs() << CurrentIdx
+                             << ": GIM_CheckAtomicOrderingWeakerThan(MIs["
+                             << InsnID << "], " << (uint64_t)Ordering << ")\n");
+      assert(State.MIs[InsnID] != nullptr && "Used insn before defined");
+
+      if (!State.MIs[InsnID]->hasOneMemOperand())
+        if (handleReject() == RejectAndGiveUp)
+          return false;
+
+      for (const auto &MMO : State.MIs[InsnID]->memoperands())
+        if (!isStrongerThan(Ordering, MMO->getOrdering()))
+          if (handleReject() == RejectAndGiveUp)
+            return false;
+      break;
+    }
     case GIM_CheckType: {
       int64_t InsnID = MatchTable[CurrentIdx++];
       int64_t OpIdx = MatchTable[CurrentIdx++];
@@ -340,6 +375,11 @@ bool InstructionSelector::executeMatchTable(
                              << InsnID << "]->getOperand(" << OpIdx
                              << "), Value=" << Value << ")\n");
       assert(State.MIs[InsnID] != nullptr && "Used insn before defined");
+
+      // isOperandImmEqual() will sign-extend to 64-bits, so should we.
+      LLT Ty = MRI.getType(State.MIs[InsnID]->getOperand(OpIdx).getReg());
+      Value = SignExtend64(Value, Ty.getSizeInBits());
+
       if (!isOperandImmEqual(State.MIs[InsnID]->getOperand(OpIdx), Value,
                              MRI)) {
         if (handleReject() == RejectAndGiveUp)

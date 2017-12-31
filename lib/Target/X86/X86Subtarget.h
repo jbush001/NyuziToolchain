@@ -128,6 +128,9 @@ protected:
   bool HasPCLMUL;
   bool HasVPCLMULQDQ;
 
+  /// Target has Galois Field Arithmetic instructions
+  bool HasGFNI;
+
   /// Target has 3-operand fused multiply-add
   bool HasFMA;
 
@@ -198,7 +201,7 @@ protected:
   bool HasCLZERO;
 
   /// Processor has Prefetch with intent to Write instruction
-  bool HasPFPREFETCHWT1;
+  bool HasPREFETCHWT1;
 
   /// True if SHLD instructions are slow.
   bool IsSHLDSlow;
@@ -225,9 +228,17 @@ protected:
   /// the stack pointer. This is an optimization for Intel Atom processors.
   bool UseLeaForSP;
 
+  /// True if its preferable to combine to a single shuffle using a variable
+  /// mask over multiple fixed shuffles.
+  bool HasFastVariableShuffle;
+
   /// True if there is no performance penalty to writing only the lower parts
   /// of a YMM or ZMM register without clearing the upper part.
   bool HasFastPartialYMMorZMMWrite;
+
+  /// True if gather is reasonably fast. This is true for Skylake client and
+  /// all AVX-512 CPUs.
+  bool HasFastGather;
 
   /// True if hardware SQRTSS instruction is at least as fast (latency) as
   /// RSQRTSS followed by a Newton-Raphson iteration.
@@ -312,6 +323,14 @@ protected:
 
   /// Processor supports MPX - Memory Protection Extensions
   bool HasMPX;
+
+  /// Processor supports CET SHSTK - Control-Flow Enforcement Technology
+  /// using Shadow Stack
+  bool HasSHSTK;
+
+  /// Processor supports CET IBT - Control-Flow Enforcement Technology
+  /// using Indirect Branch Tracking
+  bool HasIBT;
 
   /// Processor has Software Guard Extensions
   bool HasSGX;
@@ -476,9 +495,10 @@ public:
   bool hasXSAVES() const { return HasXSAVES; }
   bool hasPCLMUL() const { return HasPCLMUL; }
   bool hasVPCLMULQDQ() const { return HasVPCLMULQDQ; }
+  bool hasGFNI() const { return HasGFNI; }
   // Prefer FMA4 to FMA - its better for commutation/memory folding and
   // has equal or better performance on all supported targets.
-  bool hasFMA() const { return HasFMA && !HasFMA4; }
+  bool hasFMA() const { return HasFMA; }
   bool hasFMA4() const { return HasFMA4; }
   bool hasAnyFMA() const { return hasFMA() || hasFMA4(); }
   bool hasXOP() const { return HasXOP; }
@@ -497,7 +517,14 @@ public:
   bool hasRTM() const { return HasRTM; }
   bool hasADX() const { return HasADX; }
   bool hasSHA() const { return HasSHA; }
-  bool hasPRFCHW() const { return HasPRFCHW; }
+  bool hasPRFCHW() const { return HasPRFCHW || HasPREFETCHWT1; }
+  bool hasPREFETCHWT1() const { return HasPREFETCHWT1; }
+  bool hasSSEPrefetch() const {
+    // We implicitly enable these when we have a write prefix supporting cache
+    // level OR if we have prfchw, but don't already have a read prefetch from
+    // 3dnow.
+    return hasSSE1() || (hasPRFCHW() && !has3DNow()) || hasPREFETCHWT1();
+  }
   bool hasRDSEED() const { return HasRDSEED; }
   bool hasLAHFSAHF() const { return HasLAHFSAHF; }
   bool hasMWAITX() const { return HasMWAITX; }
@@ -511,9 +538,13 @@ public:
   bool hasSSEUnalignedMem() const { return HasSSEUnalignedMem; }
   bool hasCmpxchg16b() const { return HasCmpxchg16b; }
   bool useLeaForSP() const { return UseLeaForSP; }
+  bool hasFastVariableShuffle() const {
+    return HasFastVariableShuffle;
+  }
   bool hasFastPartialYMMorZMMWrite() const {
     return HasFastPartialYMMorZMMWrite;
   }
+  bool hasFastGather() const { return HasFastGather; }
   bool hasFastScalarFSQRT() const { return HasFastScalarFSQRT; }
   bool hasFastVectorFSQRT() const { return HasFastVectorFSQRT; }
   bool hasFastLZCNT() const { return HasFastLZCNT; }
@@ -539,6 +570,8 @@ public:
   bool hasVNNI() const { return HasVNNI; }
   bool hasBITALG() const { return HasBITALG; }
   bool hasMPX() const { return HasMPX; }
+  bool hasSHSTK() const { return HasSHSTK; }
+  bool hasIBT() const { return HasIBT; }
   bool hasCLFLUSHOPT() const { return HasCLFLUSHOPT; }
   bool hasCLWB() const { return HasCLWB; }
 
@@ -662,17 +695,6 @@ public:
 
   /// Return true if the subtarget allows calls to immediate address.
   bool isLegalToCallImmediateAddr() const;
-
-  /// This function returns the name of a function which has an interface
-  /// like the non-standard bzero function, if such a function exists on
-  /// the current subtarget and it is considered prefereable over
-  /// memset with zero passed as the second argument. Otherwise it
-  /// returns null.
-  const char *getBZeroEntry() const;
-
-  /// This function returns true if the target has sincos() routine in its
-  /// compiler runtime or math libraries.
-  bool hasSinCos() const;
 
   /// Enable the MachineScheduler pass for all X86 subtargets.
   bool enableMachineScheduler() const override { return true; }

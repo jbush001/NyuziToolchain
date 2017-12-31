@@ -182,6 +182,9 @@ def X86cmpmu    : SDNode<"X86ISD::CMPMU",    X86CmpMaskCC>;
 def X86cmpms    : SDNode<"X86ISD::FSETCCM",   X86CmpMaskCCScalar>;
 def X86cmpmsRnd : SDNode<"X86ISD::FSETCCM_RND",   X86CmpMaskCCScalarRound>;
 
+def X86phminpos: SDNode<"X86ISD::PHMINPOS", 
+                 SDTypeProfile<1, 1, [SDTCisVT<0, v8i16>, SDTCisVT<1, v8i16>]>>;
+
 def X86vshiftuniform : SDTypeProfile<1, 2, [SDTCisVec<0>, SDTCisSameAs<0,1>,
                                             SDTCisVec<2>, SDTCisInt<0>,
                                             SDTCisInt<1>]>;
@@ -462,9 +465,10 @@ def X86SubVBroadcast : SDNode<"X86ISD::SUBV_BROADCAST",
 
 def X86VBroadcast : SDNode<"X86ISD::VBROADCAST", SDTVBroadcast>;
 def X86VBroadcastm : SDNode<"X86ISD::VBROADCASTM", SDTVBroadcastm>;
-def X86Vextract   : SDNode<"X86ISD::VEXTRACT",  SDTypeProfile<1, 2,
-                              [SDTCisVec<1>,
-                               SDTCisPtrTy<2>]>, []>;
+def X86kextract : SDNode<"ISD::EXTRACT_VECTOR_ELT",
+                         SDTypeProfile<1, 2, [SDTCisVT<0, i32>,
+                                              SDTCVecEltisVT<1, i1>,
+                                              SDTCisPtrTy<2>]>>;
 
 def X86Blendi    : SDNode<"X86ISD::BLENDI",   SDTBlend>;
 
@@ -502,6 +506,12 @@ def X86FmsubRnd     : SDNode<"X86ISD::FMSUB_RND",     SDTFmaRound, [SDNPCommutat
 def X86FnmsubRnd    : SDNode<"X86ISD::FNMSUB_RND",    SDTFmaRound, [SDNPCommutative]>;
 def X86FmaddsubRnd  : SDNode<"X86ISD::FMADDSUB_RND",  SDTFmaRound, [SDNPCommutative]>;
 def X86FmsubaddRnd  : SDNode<"X86ISD::FMSUBADD_RND",  SDTFmaRound, [SDNPCommutative]>;
+
+// Scalar FMA4 intrinsics which zero the non-scalar bits.
+def X86Fmadd4s  : SDNode<"X86ISD::FMADD4S",  SDTFPTernaryOp, [SDNPCommutative]>;
+def X86Fnmadd4s : SDNode<"X86ISD::FNMADD4S", SDTFPTernaryOp, [SDNPCommutative]>;
+def X86Fmsub4s  : SDNode<"X86ISD::FMSUB4S",  SDTFPTernaryOp, [SDNPCommutative]>;
+def X86Fnmsub4s : SDNode<"X86ISD::FNMSUB4S", SDTFPTernaryOp, [SDNPCommutative]>;
 
 // Scalar FMA intrinsics with passthru bits in operand 1.
 def X86Fmadds1  : SDNode<"X86ISD::FMADDS1",  SDTFPTernaryOp>;
@@ -574,6 +584,13 @@ def X86compress: SDNode<"X86ISD::COMPRESS", SDTypeProfile<1, 1,
                               [SDTCisSameAs<0, 1>, SDTCisVec<1>]>, []>;
 def X86expand  : SDNode<"X86ISD::EXPAND", SDTypeProfile<1, 1,
                               [SDTCisSameAs<0, 1>, SDTCisVec<1>]>, []>;
+
+// vpshufbitqmb
+def X86Vpshufbitqmb : SDNode<"X86ISD::VPSHUFBITQMB",
+                             SDTypeProfile<1, 2, [SDTCisVec<0>, SDTCisVec<1>,
+                                                  SDTCisSameAs<1,2>,
+                                                  SDTCVecEltisVT<0,i1>,
+                                                  SDTCisSameNumEltsAs<0,1>]>>;
 
 def SDTintToFPRound: SDTypeProfile<1, 3, [SDTCisVec<0>, SDTCisFP<0>,
                                           SDTCisSameAs<0,1>, SDTCisInt<2>,
@@ -655,6 +672,11 @@ def X86vfproundRnd: SDNode<"X86ISD::VFPROUND_RND",
                                              SDTCisVT<2, i32>]>>;
 
 def X86cvt2mask   : SDNode<"X86ISD::CVT2MASK", SDTIntTruncOp>;
+
+// galois field arithmetic
+def X86GF2P8affineinvqb : SDNode<"X86ISD::GF2P8AFFINEINVQB", SDTBlend>;
+def X86GF2P8affineqb    : SDNode<"X86ISD::GF2P8AFFINEQB", SDTBlend>;
+def X86GF2P8mulb        : SDNode<"X86ISD::GF2P8MULB", SDTIntBinOp>;
 
 //===----------------------------------------------------------------------===//
 // SSE Complex Patterns

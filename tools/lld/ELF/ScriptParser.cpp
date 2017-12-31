@@ -17,11 +17,11 @@
 #include "Driver.h"
 #include "InputSection.h"
 #include "LinkerScript.h"
-#include "Memory.h"
 #include "OutputSections.h"
 #include "ScriptLexer.h"
 #include "Symbols.h"
 #include "Target.h"
+#include "lld/Common/Memory.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/StringSet.h"
@@ -151,6 +151,9 @@ static ExprValue add(ExprValue A, ExprValue B) {
 }
 
 static ExprValue sub(ExprValue A, ExprValue B) {
+  // The distance between two symbols in sections is absolute.
+  if (!A.isAbsolute() && !B.isAbsolute())
+    return A.getValue() - B.getValue();
   return {A.Sec, false, A.getSectionOffset() - B.getValue(), A.Loc};
 }
 
@@ -705,8 +708,6 @@ OutputSection *ScriptParser::readOutputSectionDescription(StringRef OutSec) {
 
   if (consume(">"))
     Cmd->MemoryRegionName = next();
-  else if (peek().startswith(">"))
-    Cmd->MemoryRegionName = next().drop_front();
 
   Cmd->Phdrs = readOutputSectionPhdrs();
 

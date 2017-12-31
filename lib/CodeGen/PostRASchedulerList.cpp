@@ -25,7 +25,6 @@
 #include "llvm/Analysis/AliasAnalysis.h"
 #include "llvm/CodeGen/LatencyPriorityQueue.h"
 #include "llvm/CodeGen/MachineDominators.h"
-#include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/CodeGen/MachineLoopInfo.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
@@ -280,7 +279,7 @@ bool PostRAScheduler::enablePostRAScheduler(
 }
 
 bool PostRAScheduler::runOnMachineFunction(MachineFunction &Fn) {
-  if (skipFunction(*Fn.getFunction()))
+  if (skipFunction(Fn.getFunction()))
     return false;
 
   TII = Fn.getSubtarget().getInstrInfo();
@@ -322,8 +321,8 @@ bool PostRAScheduler::runOnMachineFunction(MachineFunction &Fn) {
       static int bbcnt = 0;
       if (bbcnt++ % DebugDiv != DebugMod)
         continue;
-      dbgs() << "*** DEBUG scheduling " << Fn.getName()
-             << ":BB#" << MBB.getNumber() << " ***\n";
+      dbgs() << "*** DEBUG scheduling " << Fn.getName() << ":"
+             << printMBBReference(MBB) << " ***\n";
     }
 #endif
 

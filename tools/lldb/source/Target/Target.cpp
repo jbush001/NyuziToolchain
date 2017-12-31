@@ -2313,7 +2313,7 @@ ExpressionResults Target::EvaluateExpression(
     result_valobj_sp = persistent_var_sp->GetValueObject();
     execution_results = eExpressionCompleted;
   } else {
-    const char *prefix = GetExpressionPrefixContentsAsCString();
+    llvm::StringRef prefix = GetExpressionPrefixContents();
     Status error;
     execution_results = UserExpression::Evaluate(exe_ctx, options, expr, prefix,
                                                  result_valobj_sp, error,
@@ -2679,6 +2679,10 @@ void Target::RunStopHooks() {
 
   if (!m_process_sp)
     return;
+    
+  // Somebody might have restarted the process:
+  if (m_process_sp->GetState() != eStateStopped)
+    return;
 
   // <rdar://problem/12027563> make sure we check that we are not stopped
   // because of us running a user expression
@@ -2784,9 +2788,12 @@ void Target::RunStopHooks() {
         // running the stop hooks.
         if ((result.GetStatus() == eReturnStatusSuccessContinuingNoResult) ||
             (result.GetStatus() == eReturnStatusSuccessContinuingResult)) {
-          result.AppendMessageWithFormat("Aborting stop hooks, hook %" PRIu64
-                                         " set the program running.",
-                                         cur_hook_sp->GetID());
+          // But only complain if there were more stop hooks to do:
+          StopHookCollection::iterator tmp = pos;
+          if (++tmp != end)
+            result.AppendMessageWithFormat("\nAborting stop hooks, hook %" PRIu64
+                                           " set the program running.\n",
+                                           cur_hook_sp->GetID());
           keep_going = false;
         }
       }
@@ -4039,18 +4046,19 @@ LanguageType TargetProperties::GetLanguage() const {
   return LanguageType();
 }
 
-const char *TargetProperties::GetExpressionPrefixContentsAsCString() {
+llvm::StringRef TargetProperties::GetExpressionPrefixContents() {
   const uint32_t idx = ePropertyExprPrefix;
   OptionValueFileSpec *file =
       m_collection_sp->GetPropertyAtIndexAsOptionValueFileSpec(nullptr, false,
                                                                idx);
   if (file) {
-    const bool null_terminate = true;
-    DataBufferSP data_sp(file->GetFileContents(null_terminate));
+    DataBufferSP data_sp(file->GetFileContents());
     if (data_sp)
-      return (const char *)data_sp->GetBytes();
+      return llvm::StringRef(
+          reinterpret_cast<const char *>(data_sp->GetBytes()),
+          data_sp->GetByteSize());
   }
-  return nullptr;
+  return "";
 }
 
 bool TargetProperties::GetBreakpointsConsultPlatformAvoidList() {

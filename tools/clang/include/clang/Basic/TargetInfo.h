@@ -46,7 +46,6 @@ class MacroBuilder;
 class QualType;
 class SourceLocation;
 class SourceManager;
-class Type;
 
 namespace Builtin { struct Info; }
 
@@ -560,6 +559,14 @@ public:
     return ComplexLongDoubleUsesFP2Ret;
   }
 
+  /// Check whether llvm intrinsics such as llvm.convert.to.fp16 should be used
+  /// to convert to and from __fp16.
+  /// FIXME: This function should be removed once all targets stop using the
+  /// conversion intrinsics.
+  virtual bool useFP16ConversionIntrinsics() const {
+    return true;
+  }
+
   /// \brief Specify if mangling based on address space map should be used or
   /// not for language specific address spaces
   bool useAddressSpaceMapMangling() const {
@@ -1057,8 +1064,19 @@ public:
       return getTargetOpts().SupportedOpenCLOptions;
   }
 
+  enum OpenCLTypeKind {
+    OCLTK_Default,
+    OCLTK_ClkEvent,
+    OCLTK_Event,
+    OCLTK_Image,
+    OCLTK_Pipe,
+    OCLTK_Queue,
+    OCLTK_ReserveID,
+    OCLTK_Sampler,
+  };
+
   /// \brief Get address space for OpenCL type.
-  virtual LangAS getOpenCLTypeAddrSpace(const Type *T) const;
+  virtual LangAS getOpenCLTypeAddrSpace(OpenCLTypeKind TK) const;
 
   /// \returns Target specific vtbl ptr address space.
   virtual unsigned getVtblPtrAddressSpace() const {

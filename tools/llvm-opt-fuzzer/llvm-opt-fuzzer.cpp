@@ -13,11 +13,9 @@
 
 #include "llvm/Bitcode/BitcodeReader.h"
 #include "llvm/Bitcode/BitcodeWriter.h"
-#include "llvm/CodeGen/CommandFlags.h"
+#include "llvm/CodeGen/CommandFlags.def"
 #include "llvm/FuzzMutate/FuzzerCLI.h"
 #include "llvm/FuzzMutate/IRMutator.h"
-#include "llvm/FuzzMutate/Operations.h"
-#include "llvm/FuzzMutate/Random.h"
 #include "llvm/IR/Verifier.h"
 #include "llvm/Passes/PassBuilder.h"
 #include "llvm/Support/SourceMgr.h"

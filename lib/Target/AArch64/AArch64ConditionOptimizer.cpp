@@ -207,7 +207,7 @@ MachineInstr *AArch64ConditionOptimizer::findSuitableCompare(
       return nullptr;
     }
   }
-  DEBUG(dbgs() << "Flags not defined in BB#" << MBB->getNumber() << '\n');
+  DEBUG(dbgs() << "Flags not defined in " << printMBBReference(*MBB) << '\n');
   return nullptr;
 }
 
@@ -327,7 +327,7 @@ bool AArch64ConditionOptimizer::adjustTo(MachineInstr *CmpMI,
 bool AArch64ConditionOptimizer::runOnMachineFunction(MachineFunction &MF) {
   DEBUG(dbgs() << "********** AArch64 Conditional Compares **********\n"
                << "********** Function: " << MF.getName() << '\n');
-  if (skipFunction(*MF.getFunction()))
+  if (skipFunction(MF.getFunction()))
     return false;
 
   TII = MF.getSubtarget().getInstrInfo();

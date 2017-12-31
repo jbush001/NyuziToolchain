@@ -70,7 +70,7 @@ llvm::Optional<unsigned> X86TTIImpl::getCacheSize(
   TargetTransformInfo::CacheLevel Level) const {
   switch (Level) {
   case TargetTransformInfo::CacheLevel::L1D:
-    //   - Penry
+    //   - Penryn
     //   - Nehalem
     //   - Westmere
     //   - Sandy Bridge
@@ -81,7 +81,7 @@ llvm::Optional<unsigned> X86TTIImpl::getCacheSize(
     //   - Kabylake
     return 32 * 1024;  //  32 KByte
   case TargetTransformInfo::CacheLevel::L2D:
-    //   - Penry
+    //   - Penryn
     //   - Nehalem
     //   - Westmere
     //   - Sandy Bridge
@@ -98,7 +98,7 @@ llvm::Optional<unsigned> X86TTIImpl::getCacheSize(
 
 llvm::Optional<unsigned> X86TTIImpl::getCacheAssociativity(
   TargetTransformInfo::CacheLevel Level) const {
-  //   - Penry
+  //   - Penryn
   //   - Nehalem
   //   - Westmere
   //   - Sandy Bridge
@@ -2518,9 +2518,11 @@ bool X86TTIImpl::isLegalMaskedGather(Type *DataTy) {
   int DataWidth = isa<PointerType>(ScalarTy) ?
     DL.getPointerSizeInBits() : ScalarTy->getPrimitiveSizeInBits();
 
-  // AVX-512 and Skylake AVX2 allows gather and scatter
-  return (DataWidth == 32 || DataWidth == 64) && (ST->hasAVX512() ||
-      ST->getProcFamily() == X86Subtarget::IntelSkylake);
+  // Some CPUs have better gather performance than others.
+  // TODO: Remove the explicit ST->hasAVX512()?, That would mean we would only
+  // enable gather with a -march.
+  return (DataWidth == 32 || DataWidth == 64) &&
+    (ST->hasAVX512() || (ST->hasFastGather() && ST->hasAVX2()));
 }
 
 bool X86TTIImpl::isLegalMaskedScatter(Type *DataType) {
@@ -2533,6 +2535,10 @@ bool X86TTIImpl::isLegalMaskedScatter(Type *DataType) {
 bool X86TTIImpl::hasDivRemOp(Type *DataType, bool IsSigned) {
   EVT VT = TLI->getValueType(DL, DataType);
   return TLI->isOperationLegal(IsSigned ? ISD::SDIVREM : ISD::UDIVREM, VT);
+}
+
+bool X86TTIImpl::isFCmpOrdCheaperThanFCmpZero(Type *Ty) {
+  return false;
 }
 
 bool X86TTIImpl::areInlineCompatible(const Function *Caller,
@@ -2833,21 +2839,16 @@ int X86TTIImpl::getInterleavedMemoryOpCost(unsigned Opcode, Type *VecTy,
                                            ArrayRef<unsigned> Indices,
                                            unsigned Alignment,
                                            unsigned AddressSpace) {
-  auto isSupportedOnAVX512 = [](Type *VecTy, bool &RequiresBW) {
-    RequiresBW = false;
+  auto isSupportedOnAVX512 = [](Type *VecTy, bool HasBW) {
     Type *EltTy = VecTy->getVectorElementType();
     if (EltTy->isFloatTy() || EltTy->isDoubleTy() || EltTy->isIntegerTy(64) ||
         EltTy->isIntegerTy(32) || EltTy->isPointerTy())
       return true;
-    if (EltTy->isIntegerTy(16) || EltTy->isIntegerTy(8)) {
-      RequiresBW = true;
-      return true;
-    }
+    if (EltTy->isIntegerTy(16) || EltTy->isIntegerTy(8))
+      return HasBW;
     return false;
   };
-  bool RequiresBW;
-  bool HasAVX512Solution = isSupportedOnAVX512(VecTy, RequiresBW);
-  if (ST->hasAVX512() && HasAVX512Solution && (!RequiresBW || ST->hasBWI()))
+  if (ST->hasAVX512() && isSupportedOnAVX512(VecTy, ST->hasBWI()))
     return getInterleavedMemoryOpCostAVX512(Opcode, VecTy, Factor, Indices,
                                             Alignment, AddressSpace);
   if (ST->hasAVX2())

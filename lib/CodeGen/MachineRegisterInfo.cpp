@@ -183,7 +183,7 @@ void MachineRegisterInfo::verifyUseList(unsigned Reg) const {
     MachineOperand *MO = &M;
     MachineInstr *MI = MO->getParent();
     if (!MI) {
-      errs() << PrintReg(Reg, getTargetRegisterInfo())
+      errs() << printReg(Reg, getTargetRegisterInfo())
              << " use list MachineOperand " << MO
              << " has no parent instruction.\n";
       Valid = false;
@@ -192,19 +192,19 @@ void MachineRegisterInfo::verifyUseList(unsigned Reg) const {
     MachineOperand *MO0 = &MI->getOperand(0);
     unsigned NumOps = MI->getNumOperands();
     if (!(MO >= MO0 && MO < MO0+NumOps)) {
-      errs() << PrintReg(Reg, getTargetRegisterInfo())
+      errs() << printReg(Reg, getTargetRegisterInfo())
              << " use list MachineOperand " << MO
              << " doesn't belong to parent MI: " << *MI;
       Valid = false;
     }
     if (!MO->isReg()) {
-      errs() << PrintReg(Reg, getTargetRegisterInfo())
+      errs() << printReg(Reg, getTargetRegisterInfo())
              << " MachineOperand " << MO << ": " << *MO
              << " is not a register\n";
       Valid = false;
     }
     if (MO->getReg() != Reg) {
-      errs() << PrintReg(Reg, getTargetRegisterInfo())
+      errs() << printReg(Reg, getTargetRegisterInfo())
              << " use-list MachineOperand " << MO << ": "
              << *MO << " is the wrong register\n";
       Valid = false;
@@ -531,7 +531,7 @@ static bool isNoReturnDef(const MachineOperand &MO) {
   const MachineFunction &MF = *MBB.getParent();
   // We need to keep correct unwind information even if the function will
   // not return, since the runtime may need it.
-  if (MF.getFunction()->hasFnAttribute(Attribute::UWTable))
+  if (MF.getFunction().hasFnAttribute(Attribute::UWTable))
     return false;
   const Function *Called = getCalledFunction(MI);
   return !(Called == nullptr || !Called->hasFnAttribute(Attribute::NoReturn) ||

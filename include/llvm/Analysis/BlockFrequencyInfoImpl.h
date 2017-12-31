@@ -1314,9 +1314,12 @@ BlockFrequencyInfoImpl<BT>::propagateMassToSuccessors(LoopData *OuterLoop,
       return false;
   } else {
     const BlockT *BB = getBlock(Node);
-    for (const auto Succ : children<const BlockT *>(BB))
-      if (!addToDist(Dist, OuterLoop, Node, getNode(Succ),
-                     getWeightFromBranchProb(BPI->getEdgeProbability(BB, Succ))))
+    for (auto SI = GraphTraits<const BlockT *>::child_begin(BB),
+              SE = GraphTraits<const BlockT *>::child_end(BB);
+         SI != SE; ++SI)
+      if (!addToDist(
+              Dist, OuterLoop, Node, getNode(*SI),
+              getWeightFromBranchProb(BPI->getEdgeProbability(BB, SI))))
         // Irreducible backedge.
         return false;
   }
@@ -1338,7 +1341,7 @@ raw_ostream &BlockFrequencyInfoImpl<BT>::print(raw_ostream &OS) const {
         << ", int = " << getBlockFreq(&BB).getFrequency();
     if (Optional<uint64_t> ProfileCount =
         BlockFrequencyInfoImplBase::getBlockProfileCount(
-            *F->getFunction(), getNode(&BB)))
+            F->getFunction(), getNode(&BB)))
       OS << ", count = " << ProfileCount.getValue();
     if (Optional<uint64_t> IrrLoopHeaderWeight =
         BB.getIrrLoopHeaderWeight())

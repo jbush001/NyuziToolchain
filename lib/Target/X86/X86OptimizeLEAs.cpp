@@ -568,6 +568,7 @@ MachineInstr *OptimizeLEAPass::replaceDebugValue(MachineInstr &MI,
 
   if (AddrDispShift != 0)
     Expr = DIExpression::prepend(Expr, DIExpression::NoDeref, AddrDispShift,
+                                 DIExpression::NoDeref,
                                  DIExpression::WithStackValue);
 
   // Replace DBG_VALUE instruction with modified version.
@@ -671,7 +672,7 @@ bool OptimizeLEAPass::removeRedundantLEAs(MemOpMap &LEAs) {
 bool OptimizeLEAPass::runOnMachineFunction(MachineFunction &MF) {
   bool Changed = false;
 
-  if (DisableX86LEAOpt || skipFunction(*MF.getFunction()))
+  if (DisableX86LEAOpt || skipFunction(MF.getFunction()))
     return false;
 
   MRI = &MF.getRegInfo();
@@ -695,7 +696,7 @@ bool OptimizeLEAPass::runOnMachineFunction(MachineFunction &MF) {
 
     // Remove redundant address calculations. Do it only for -Os/-Oz since only
     // a code size gain is expected from this part of the pass.
-    if (MF.getFunction()->optForSize())
+    if (MF.getFunction().optForSize())
       Changed |= removeRedundantAddrCalc(LEAs);
   }
 

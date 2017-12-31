@@ -7,13 +7,20 @@
 
 define i32 @rotl(i32 %x, i32 %y) {
 ; RV32I-LABEL: rotl:
-; RV32I:       # BB#0:
+; RV32I:       # %bb.0:
+; RV32I-NEXT:    addi sp, sp, -16
+; RV32I-NEXT:    sw ra, 12(sp)
+; RV32I-NEXT:    sw s0, 8(sp)
+; RV32I-NEXT:    addi s0, sp, 16
 ; RV32I-NEXT:    addi a2, zero, 32
 ; RV32I-NEXT:    sub a2, a2, a1
 ; RV32I-NEXT:    sll a1, a0, a1
 ; RV32I-NEXT:    srl a0, a0, a2
 ; RV32I-NEXT:    or a0, a1, a0
-; RV32I-NEXT:    jalr zero, ra, 0
+; RV32I-NEXT:    lw s0, 8(sp)
+; RV32I-NEXT:    lw ra, 12(sp)
+; RV32I-NEXT:    addi sp, sp, 16
+; RV32I-NEXT:    ret
   %z = sub i32 32, %y
   %b = shl i32 %x, %y
   %c = lshr i32 %x, %z
@@ -23,13 +30,20 @@ define i32 @rotl(i32 %x, i32 %y) {
 
 define i32 @rotr(i32 %x, i32 %y) {
 ; RV32I-LABEL: rotr:
-; RV32I:       # BB#0:
+; RV32I:       # %bb.0:
+; RV32I-NEXT:    addi sp, sp, -16
+; RV32I-NEXT:    sw ra, 12(sp)
+; RV32I-NEXT:    sw s0, 8(sp)
+; RV32I-NEXT:    addi s0, sp, 16
 ; RV32I-NEXT:    addi a2, zero, 32
 ; RV32I-NEXT:    sub a2, a2, a1
 ; RV32I-NEXT:    srl a1, a0, a1
 ; RV32I-NEXT:    sll a0, a0, a2
 ; RV32I-NEXT:    or a0, a1, a0
-; RV32I-NEXT:    jalr zero, ra, 0
+; RV32I-NEXT:    lw s0, 8(sp)
+; RV32I-NEXT:    lw ra, 12(sp)
+; RV32I-NEXT:    addi sp, sp, 16
+; RV32I-NEXT:    ret
   %z = sub i32 32, %y
   %b = lshr i32 %x, %y
   %c = shl i32 %x, %z

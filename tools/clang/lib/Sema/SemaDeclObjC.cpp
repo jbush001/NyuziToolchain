@@ -1538,7 +1538,7 @@ void Sema::actOnObjCTypeArgsOrProtocolQualifiers(
     DS.SetRangeEnd(loc);
 
     // Form the declarator.
-    Declarator D(DS, Declarator::TypeNameContext);
+    Declarator D(DS, DeclaratorContext::TypeNameContext);
 
     // If we have a typedef of an Objective-C class type that is missing a '*',
     // add the '*'.
@@ -4846,7 +4846,7 @@ Decl *Sema::ActOnObjCExceptionDecl(Scope *S, Declarator &D) {
   }
   if (DS.isInlineSpecified())
     Diag(DS.getInlineSpecLoc(), diag::err_inline_non_function)
-        << getLangOpts().CPlusPlus1z;
+        << getLangOpts().CPlusPlus17;
   if (DeclSpec::TSCS TSCS = D.getDeclSpec().getThreadStorageClassSpec())
     Diag(D.getDeclSpec().getThreadStorageClassSpecLoc(),
          diag::err_invalid_thread)

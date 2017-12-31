@@ -40,8 +40,8 @@ public:
   virtual void writePlt(uint8_t *Buf, uint64_t GotEntryAddr,
                         uint64_t PltEntryAddr, int32_t Index,
                         unsigned RelOff) const {}
-  virtual void addPltHeaderSymbols(InputSectionBase *IS) const {}
-  virtual void addPltSymbols(InputSectionBase *IS, uint64_t Off) const {}
+  virtual void addPltHeaderSymbols(InputSection &IS) const {}
+  virtual void addPltSymbols(InputSection &IS, uint64_t Off) const {}
 
   // Returns true if a relocation only uses the low bits of a value such that
   // all those bits are in in the same page. For example, if the relocation
@@ -144,32 +144,40 @@ TargetInfo *getTarget();
 
 template <class ELFT> bool isMipsPIC(const Defined *Sym);
 
+static inline void reportRangeError(uint8_t *Loc, RelType Type, const Twine &V,
+                                    int64_t Min, uint64_t Max) {
+  error(getErrorLocation(Loc) + "relocation " + lld::toString(Type) +
+        " out of range: " + V + " is not in [" + Twine(Min) + ", " +
+        Twine(Max) + "]");
+}
+
 template <unsigned N>
 static void checkInt(uint8_t *Loc, int64_t V, RelType Type) {
   if (!llvm::isInt<N>(V))
-    error(getErrorLocation(Loc) + "relocation " + lld::toString(Type) +
-          " out of range");
+    reportRangeError(Loc, Type, Twine(V), llvm::minIntN(N), llvm::maxIntN(N));
 }
 
 template <unsigned N>
 static void checkUInt(uint8_t *Loc, uint64_t V, RelType Type) {
   if (!llvm::isUInt<N>(V))
-    error(getErrorLocation(Loc) + "relocation " + lld::toString(Type) +
-          " out of range");
+    reportRangeError(Loc, Type, Twine(V), 0, llvm::maxUIntN(N));
 }
 
 template <unsigned N>
 static void checkIntUInt(uint8_t *Loc, uint64_t V, RelType Type) {
   if (!llvm::isInt<N>(V) && !llvm::isUInt<N>(V))
-    error(getErrorLocation(Loc) + "relocation " + lld::toString(Type) +
-          " out of range");
+    // For the error message we should cast V to a signed integer so that error
+    // messages show a small negative value rather than an extremely large one
+    reportRangeError(Loc, Type, Twine((int64_t)V), llvm::minIntN(N),
+                     llvm::maxUIntN(N));
 }
 
 template <unsigned N>
 static void checkAlignment(uint8_t *Loc, uint64_t V, RelType Type) {
   if ((V & (N - 1)) != 0)
     error(getErrorLocation(Loc) + "improper alignment for relocation " +
-          lld::toString(Type));
+          lld::toString(Type) + ": 0x" + llvm::utohexstr(V) +
+          " is not aligned to " + Twine(N) + " bytes");
 }
 } // namespace elf
 } // namespace lld

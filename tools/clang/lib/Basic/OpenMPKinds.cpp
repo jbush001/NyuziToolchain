@@ -885,23 +885,45 @@ void clang::getOpenMPCaptureRegions(
   case OMPD_parallel_for_simd:
   case OMPD_parallel_sections:
   case OMPD_distribute_parallel_for:
+  case OMPD_distribute_parallel_for_simd:
     CaptureRegions.push_back(OMPD_parallel);
     break;
   case OMPD_target_teams:
+  case OMPD_target_teams_distribute:
+  case OMPD_target_teams_distribute_simd:
     CaptureRegions.push_back(OMPD_target);
     CaptureRegions.push_back(OMPD_teams);
     break;
+  case OMPD_teams:
   case OMPD_teams_distribute:
+  case OMPD_teams_distribute_simd:
     CaptureRegions.push_back(OMPD_teams);
     break;
+  case OMPD_target:
   case OMPD_target_simd:
     CaptureRegions.push_back(OMPD_target);
     break;
   case OMPD_teams_distribute_parallel_for:
+  case OMPD_teams_distribute_parallel_for_simd:
     CaptureRegions.push_back(OMPD_teams);
     CaptureRegions.push_back(OMPD_parallel);
     break;
-  case OMPD_teams:
+  case OMPD_target_parallel:
+  case OMPD_target_parallel_for:
+  case OMPD_target_parallel_for_simd:
+    CaptureRegions.push_back(OMPD_target);
+    CaptureRegions.push_back(OMPD_parallel);
+    break;
+  case OMPD_task:
+  case OMPD_target_enter_data:
+  case OMPD_target_exit_data:
+  case OMPD_target_update:
+    CaptureRegions.push_back(OMPD_task);
+    break;
+  case OMPD_taskloop:
+  case OMPD_taskloop_simd:
+    CaptureRegions.push_back(OMPD_taskloop);
+    break;
   case OMPD_simd:
   case OMPD_for:
   case OMPD_for_simd:
@@ -915,30 +937,10 @@ void clang::getOpenMPCaptureRegions(
   case OMPD_ordered:
   case OMPD_atomic:
   case OMPD_target_data:
-  case OMPD_target:
-  case OMPD_task:
-  case OMPD_taskloop:
-  case OMPD_taskloop_simd:
-  case OMPD_distribute_parallel_for_simd:
   case OMPD_distribute_simd:
-  case OMPD_teams_distribute_simd:
-  case OMPD_teams_distribute_parallel_for_simd:
-  case OMPD_target_teams_distribute:
   case OMPD_target_teams_distribute_parallel_for:
   case OMPD_target_teams_distribute_parallel_for_simd:
-  case OMPD_target_teams_distribute_simd:
-    CaptureRegions.push_back(DKind);
-    break;
-  case OMPD_target_parallel:
-  case OMPD_target_parallel_for:
-  case OMPD_target_parallel_for_simd:
-    CaptureRegions.push_back(OMPD_target);
-    CaptureRegions.push_back(OMPD_parallel);
-    break;
-  case OMPD_target_enter_data:
-  case OMPD_target_exit_data:
-  case OMPD_target_update:
-    CaptureRegions.push_back(OMPD_task);
+    CaptureRegions.push_back(OMPD_unknown);
     break;
   case OMPD_threadprivate:
   case OMPD_taskyield:

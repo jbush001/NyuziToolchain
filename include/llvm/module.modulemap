@@ -25,6 +25,7 @@ module LLVM_Backend {
     exclude header "CodeGen/LinkAllCodegenComponents.h"
 
     // These are intended for (repeated) textual inclusion.
+    textual header "CodeGen/CommandFlags.def"
     textual header "CodeGen/DIEValue.def"
     textual header "CodeGen/RuntimeLibcalls.def"
     textual header "CodeGen/TargetOpcodes.def"
@@ -60,7 +61,7 @@ module LLVM_BinaryFormat {
     textual header "BinaryFormat/ELFRelocs/SystemZ.def"
     textual header "BinaryFormat/ELFRelocs/x86_64.def"
     textual header "BinaryFormat/ELFRelocs/WebAssembly.def"
-    textual header "BinaryFormat/WasmRelocs/WebAssembly.def"
+    textual header "BinaryFormat/WasmRelocs.def"
 }
 
 module LLVM_Config { requires cplusplus umbrella "Config" module * { export * } }
@@ -228,8 +229,7 @@ module LLVM_MC {
   umbrella "MC"
   module * { export * }
 
-  // Exclude this; it's fundamentally non-modular.
-  exclude header "MC/MCTargetOptionsCommandFlags.h"
+  textual header "MC/MCTargetOptionsCommandFlags.def"
 }
 
 // Used by llvm-tblgen

@@ -93,7 +93,7 @@ public:
 
 private:
   const Driver &D;
-  const llvm::Triple Triple;
+  llvm::Triple Triple;
   const llvm::opt::ArgList &Args;
   // We need to initialize CachedRTTIArg before CachedRTTIMode
   const llvm::opt::Arg *const CachedRTTIArg;
@@ -135,6 +135,8 @@ protected:
 
   ToolChain(const Driver &D, const llvm::Triple &T,
             const llvm::opt::ArgList &Args);
+
+  void setTripleEnvironment(llvm::Triple::EnvironmentType Env);
 
   virtual Tool *buildAssembler() const;
   virtual Tool *buildLinker() const;
@@ -397,10 +399,9 @@ public:
     return llvm::DebuggerKind::GDB;
   }
 
-  /// UseSjLjExceptions - Does this tool chain use SjLj exceptions.
-  virtual bool UseSjLjExceptions(const llvm::opt::ArgList &Args) const {
-    return false;
-  }
+  /// GetExceptionModel - Return the tool chain exception model.
+  virtual llvm::ExceptionHandling
+  GetExceptionModel(const llvm::opt::ArgList &Args) const;
 
   /// SupportsEmbeddedBitcode - Does this tool chain support embedded bitcode.
   virtual bool SupportsEmbeddedBitcode() const {

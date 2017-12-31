@@ -26,15 +26,17 @@
 #include "InputSection.h"
 #include "llvm/ADT/MapVector.h"
 #include "llvm/MC/StringTableBuilder.h"
+#include <functional>
 
 namespace lld {
 namespace elf {
+class SharedSymbol;
 
 class SyntheticSection : public InputSection {
 public:
   SyntheticSection(uint64_t Flags, uint32_t Type, uint32_t Alignment,
                    StringRef Name)
-      : InputSection(Flags, Type, Alignment, {}, Name,
+      : InputSection(nullptr, Flags, Type, Alignment, {}, Name,
                      InputSectionBase::Synthetic) {
     this->Live = true;
   }
@@ -335,29 +337,8 @@ template <class ELFT> class DynamicSection final : public SyntheticSection {
   typedef typename ELFT::Shdr Elf_Shdr;
   typedef typename ELFT::Sym Elf_Sym;
 
-  // The .dynamic section contains information for the dynamic linker.
-  // The section consists of fixed size entries, which consist of
-  // type and value fields. Value are one of plain integers, symbol
-  // addresses, or section addresses. This struct represents the entry.
-  struct Entry {
-    int32_t Tag;
-    union {
-      OutputSection *OutSec;
-      InputSection *InSec;
-      uint64_t Val;
-      const Symbol *Sym;
-    };
-    enum KindT { SecAddr, SecSize, SymAddr, PlainInt, InSecAddr } Kind;
-    Entry(int32_t Tag, OutputSection *OutSec, KindT Kind = SecAddr)
-        : Tag(Tag), OutSec(OutSec), Kind(Kind) {}
-    Entry(int32_t Tag, InputSection *Sec)
-        : Tag(Tag), InSec(Sec), Kind(InSecAddr) {}
-    Entry(int32_t Tag, uint64_t Val) : Tag(Tag), Val(Val), Kind(PlainInt) {}
-    Entry(int32_t Tag, const Symbol *Sym) : Tag(Tag), Sym(Sym), Kind(SymAddr) {}
-  };
-
   // finalizeContents() fills this vector with the section contents.
-  std::vector<Entry> Entries;
+  std::vector<std::pair<int32_t, std::function<uint64_t()>>> Entries;
 
 public:
   DynamicSection();
@@ -366,8 +347,13 @@ public:
   size_t getSize() const override { return Size; }
 
 private:
-  void addEntries();
-  void add(Entry E) { Entries.push_back(E); }
+  void add(int32_t Tag, std::function<uint64_t()> Fn);
+  void addInt(int32_t Tag, uint64_t Val);
+  void addInSec(int32_t Tag, InputSection *Sec);
+  void addOutSec(int32_t Tag, OutputSection *Sec);
+  void addSize(int32_t Tag, OutputSection *Sec);
+  void addSym(int32_t Tag, Symbol *Sym);
+
   uint64_t Size = 0;
 };
 
@@ -478,6 +464,7 @@ private:
     Symbol *Sym;
     size_t StrTabOffset;
     uint32_t Hash;
+    uint32_t BucketIdx;
   };
 
   std::vector<Entry> Symbols;
@@ -798,6 +785,9 @@ public:
   ARMExidxSentinelSection();
   size_t getSize() const override { return 8; }
   void writeTo(uint8_t *Buf) override;
+  bool empty() const override;
+
+  InputSection *Highest = 0;
 };
 
 // A container for one or more linker generated thunks. Instances of these
@@ -822,12 +812,12 @@ private:
 };
 
 InputSection *createInterpSection();
-template <class ELFT> MergeInputSection *createCommentSection();
+MergeInputSection *createCommentSection();
 void decompressSections();
 void mergeSections();
 
 Symbol *addSyntheticLocal(StringRef Name, uint8_t Type, uint64_t Value,
-                          uint64_t Size, InputSectionBase *Section);
+                          uint64_t Size, InputSectionBase &Section);
 
 // Linker generated sections which can be used as inputs.
 struct InX {
@@ -851,23 +841,20 @@ struct InX {
   static MipsRldMapSection *MipsRldMap;
   static PltSection *Plt;
   static PltSection *Iplt;
+  static RelocationBaseSection *RelaDyn;
+  static RelocationBaseSection *RelaPlt;
+  static RelocationBaseSection *RelaIplt;
   static StringTableSection *ShStrTab;
   static StringTableSection *StrTab;
   static SymbolTableBaseSection *SymTab;
 };
 
 template <class ELFT> struct In {
-  static RelocationBaseSection *RelaDyn;
-  static RelocationSection<ELFT> *RelaPlt;
-  static RelocationSection<ELFT> *RelaIplt;
   static VersionDefinitionSection<ELFT> *VerDef;
   static VersionTableSection<ELFT> *VerSym;
   static VersionNeedSection<ELFT> *VerNeed;
 };
 
-template <class ELFT> RelocationBaseSection *In<ELFT>::RelaDyn;
-template <class ELFT> RelocationSection<ELFT> *In<ELFT>::RelaPlt;
-template <class ELFT> RelocationSection<ELFT> *In<ELFT>::RelaIplt;
 template <class ELFT> VersionDefinitionSection<ELFT> *In<ELFT>::VerDef;
 template <class ELFT> VersionTableSection<ELFT> *In<ELFT>::VerSym;
 template <class ELFT> VersionNeedSection<ELFT> *In<ELFT>::VerNeed;

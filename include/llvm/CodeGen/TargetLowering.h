@@ -413,7 +413,7 @@ public:
   /// Allow store merging after legalization in addition to before legalization.
   /// This may catch stores that do not exist earlier (eg, stores created from
   /// intrinsics).
-  virtual bool mergeStoresAfterLegalization() const { return false; }
+  virtual bool mergeStoresAfterLegalization() const { return true; }
 
   /// Returns if it's reasonable to merge stores to MemVT size.
   virtual bool canMergeStoresTo(unsigned AS, EVT MemVT,
@@ -702,15 +702,16 @@ public:
   struct IntrinsicInfo {
     unsigned     opc = 0;          // target opcode
     EVT          memVT;            // memory VT
-    const Value* ptrVal = nullptr; // value representing memory location
+
+    // value representing memory location
+    PointerUnion<const Value *, const PseudoSourceValue *> ptrVal;
+
     int          offset = 0;       // offset off of ptrVal
     unsigned     size = 0;         // the size of the memory location
                                    // (taken from memVT if zero)
     unsigned     align = 1;        // alignment
-    bool         vol = false;      // is volatile?
-    bool         readMem = false;  // reads memory?
-    bool         writeMem = false; // writes memory?
 
+    MachineMemOperand::Flags flags = MachineMemOperand::MONone;
     IntrinsicInfo() = default;
   };
 
@@ -719,6 +720,7 @@ public:
   /// true and store the intrinsic information into the IntrinsicInfo that was
   /// passed to the function.
   virtual bool getTgtMemIntrinsic(IntrinsicInfo &, const CallInst &,
+                                  MachineFunction &,
                                   unsigned /*Intrinsic*/) const {
     return false;
   }
@@ -822,8 +824,8 @@ public:
   /// also combined within this function. Currently, the minimum size check is
   /// performed in findJumpTable() in SelectionDAGBuiler and
   /// getEstimatedNumberOfCaseClusters() in BasicTTIImpl.
-  bool isSuitableForJumpTable(const SwitchInst *SI, uint64_t NumCases,
-                              uint64_t Range) const {
+  virtual bool isSuitableForJumpTable(const SwitchInst *SI, uint64_t NumCases,
+                                      uint64_t Range) const {
     const bool OptForSize = SI->getParent()->getParent()->optForSize();
     const unsigned MinDensity = getMinimumJumpTableDensity(OptForSize);
     const unsigned MaxJumpTableSize =
@@ -1274,7 +1276,7 @@ public:
   }
 
   /// Return lower limit for number of blocks in a jump table.
-  unsigned getMinimumJumpTableEntries() const;
+  virtual unsigned getMinimumJumpTableEntries() const;
 
   /// Return lower limit of the density in a jump table.
   unsigned getMinimumJumpTableDensity(bool OptForSize) const;
@@ -1360,6 +1362,12 @@ public:
   /// getIRStackGuard returns nullptr.
   virtual Value *getSDagStackGuard(const Module &M) const;
 
+  /// If this function returns true, stack protection checks should XOR the
+  /// frame pointer (or whichever pointer is used to address locals) into the
+  /// stack guard value before checking it. getIRStackGuard must return nullptr
+  /// if this returns true.
+  virtual bool useStackGuardXorFP() const { return false; }
+
   /// If the target has a standard stack protection check function that
   /// performs validation and error handling, returns the function. Otherwise,
   /// returns nullptr. Must be previously inserted by insertSSPDeclarations.
@@ -1433,6 +1441,9 @@ public:
   /// are still natively supported below the minimum; they just
   /// require a more complex expansion.
   unsigned getMinCmpXchgSizeInBits() const { return MinCmpXchgSizeInBits; }
+
+  /// Whether the target supports unaligned atomic operations.
+  bool supportsUnalignedAtomics() const { return SupportsUnalignedAtomics; }
 
   /// Whether AtomicExpandPass should automatically insert fences and reduce
   /// ordering for this atomic. This should be true for most architectures with
@@ -1839,9 +1850,14 @@ protected:
     MaxAtomicSizeInBitsSupported = SizeInBits;
   }
 
-  // Sets the minimum cmpxchg or ll/sc size supported by the backend.
+  /// Sets the minimum cmpxchg or ll/sc size supported by the backend.
   void setMinCmpXchgSizeInBits(unsigned SizeInBits) {
     MinCmpXchgSizeInBits = SizeInBits;
+  }
+
+  /// Sets whether unaligned atomic operations are supported.
+  void setSupportsUnalignedAtomics(bool UnalignedSupported) {
+    SupportsUnalignedAtomics = UnalignedSupported;
   }
 
 public:
@@ -2325,6 +2341,9 @@ private:
   /// backend supports.
   unsigned MinCmpXchgSizeInBits;
 
+  /// This indicates if the target supports unaligned atomic operations.
+  bool SupportsUnalignedAtomics;
+
   /// If set to a physical register, this specifies the register that
   /// llvm.savestack/llvm.restorestack should save and restore.
   unsigned StackPointerRegisterToSaveRestore;
@@ -2410,7 +2429,7 @@ private:
     PromoteToType;
 
   /// Stores the name each libcall.
-  const char *LibcallRoutineNames[RTLIB::UNKNOWN_LIBCALL];
+  const char *LibcallRoutineNames[RTLIB::UNKNOWN_LIBCALL + 1];
 
   /// The ISD::CondCode that should be used to test the result of each of the
   /// comparison libcall against zero.
@@ -2418,6 +2437,9 @@ private:
 
   /// Stores the CallingConv that should be used for each libcall.
   CallingConv::ID LibcallCallingConvs[RTLIB::UNKNOWN_LIBCALL];
+
+  /// Set default libcall names and calling conventions.
+  void InitLibcalls(const Triple &TT);
 
 protected:
   /// Return true if the extension represented by \p I is free.
@@ -3485,6 +3507,11 @@ public:
   /// LOAD_STACK_GUARD node when it is lowering Intrinsic::stackprotector.
   virtual bool useLoadStackGuardNode() const {
     return false;
+  }
+
+  virtual SDValue emitStackGuardXorFP(SelectionDAG &DAG, SDValue Val,
+                                      const SDLoc &DL) const {
+    llvm_unreachable("not implemented for this target");
   }
 
   /// Lower TLS global address SDNode for target independent emulated TLS model.

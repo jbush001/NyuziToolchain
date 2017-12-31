@@ -21,10 +21,10 @@
 
 #include <vector>
 
+using llvm::object::Archive;
 using llvm::object::WasmObjectFile;
 using llvm::object::WasmSection;
 using llvm::object::WasmSymbol;
-using llvm::object::Archive;
 using llvm::wasm::WasmImport;
 
 namespace lld {
@@ -103,8 +103,6 @@ public:
   size_t NumGlobalImports() const { return GlobalImports; }
 
   int32_t FunctionIndexOffset = 0;
-  int32_t GlobalIndexOffset = 0;
-  int32_t TableIndexOffset = 0;
   const WasmSection *CodeSection = nullptr;
   std::vector<OutputRelocation> CodeRelocations;
   int32_t CodeOffset = 0;
@@ -113,7 +111,8 @@ public:
   std::vector<uint32_t> TypeMap;
   std::vector<InputSegment *> Segments;
 
-  const std::vector<Symbol *> &getSymbols() { return Symbols; }
+  ArrayRef<Symbol *> getSymbols() { return Symbols; }
+  ArrayRef<Symbol *> getTableSymbols() { return TableSymbols; }
 
 private:
   Symbol *createDefined(const WasmSymbol &Sym,
@@ -121,17 +120,21 @@ private:
   Symbol *createUndefined(const WasmSymbol &Sym);
   void initializeSymbols();
   InputSegment *getSegment(const WasmSymbol &WasmSym);
-  const Symbol *getFunctionSymbol(uint32_t Index) const;
-  const Symbol *getGlobalSymbol(uint32_t Index) const;
+  Symbol *getFunctionSymbol(uint32_t FunctionIndex) const;
+  Symbol *getTableSymbol(uint32_t TableIndex) const;
+  Symbol *getGlobalSymbol(uint32_t GlobalIndex) const;
 
   // List of all symbols referenced or defined by this file.
   std::vector<Symbol *> Symbols;
 
   // List of all function symbols indexed by the function index space
-  std::vector<const Symbol *> FunctionSymbols;
+  std::vector<Symbol *> FunctionSymbols;
 
   // List of all global symbols indexed by the global index space
-  std::vector<const Symbol *> GlobalSymbols;
+  std::vector<Symbol *> GlobalSymbols;
+
+  // List of all indirect symbols indexed by table index space.
+  std::vector<Symbol *> TableSymbols;
 
   uint32_t GlobalImports = 0;
   uint32_t FunctionImports = 0;
@@ -143,7 +146,7 @@ llvm::Optional<MemoryBufferRef> readFile(StringRef Path);
 
 } // namespace wasm
 
-std::string toString(wasm::InputFile *File);
+std::string toString(const wasm::InputFile *File);
 
 } // namespace lld
 

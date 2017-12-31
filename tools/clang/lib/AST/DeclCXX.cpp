@@ -170,7 +170,7 @@ CXXRecordDecl::setBases(CXXBaseSpecifier const * const *Bases,
     C.Deallocate(data().getBases());
 
   if (NumBases) {
-    if (!C.getLangOpts().CPlusPlus1z) {
+    if (!C.getLangOpts().CPlusPlus17) {
       // C++ [dcl.init.aggr]p1:
       //   An aggregate is [...] a class with [...] no base classes [...].
       data().Aggregate = false;
@@ -1642,9 +1642,7 @@ bool CXXMethodDecl::isStatic() const {
 
 static bool recursivelyOverrides(const CXXMethodDecl *DerivedMD,
                                  const CXXMethodDecl *BaseMD) {
-  for (CXXMethodDecl::method_iterator I = DerivedMD->begin_overridden_methods(),
-         E = DerivedMD->end_overridden_methods(); I != E; ++I) {
-    const CXXMethodDecl *MD = *I;
+  for (const CXXMethodDecl *MD : DerivedMD->overridden_methods()) {
     if (MD->getCanonicalDecl() == BaseMD->getCanonicalDecl())
       return true;
     if (recursivelyOverrides(MD, BaseMD))

@@ -388,6 +388,11 @@ class SegmentBuilder {
       if (CompletedSegmentLoc == CompletedRegion->endLoc())
         continue;
 
+      // Use the count from the last completed region which ends at this loc.
+      for (unsigned J = I + 1; J < E; ++J)
+        if (CompletedRegion->endLoc() == ActiveRegions[J]->endLoc())
+          CompletedRegion = ActiveRegions[J];
+
       startSegment(*CompletedRegion, CompletedSegmentLoc, false);
     }
 
@@ -623,7 +628,7 @@ CoverageMapping::getInstantiationGroups(StringRef Filename) const {
   }
 
   std::vector<InstantiationGroup> Result;
-  for (const auto &InstantiationSet : InstantiationSetCollector) {
+  for (auto &InstantiationSet : InstantiationSetCollector) {
     InstantiationGroup IG{InstantiationSet.first.first,
                           InstantiationSet.first.second,
                           std::move(InstantiationSet.second)};

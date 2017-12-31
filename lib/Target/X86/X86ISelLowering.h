@@ -18,7 +18,6 @@
 #include "llvm/CodeGen/CallingConvLower.h"
 #include "llvm/CodeGen/SelectionDAG.h"
 #include "llvm/CodeGen/TargetLowering.h"
-#include "llvm/Support/MathExtras.h"
 #include "llvm/Target/TargetOptions.h"
 
 namespace llvm {
@@ -336,6 +335,9 @@ namespace llvm {
       // Vector integer comparisons, the result is in a mask vector.
       PCMPEQM, PCMPGTM,
 
+      // v8i16 Horizontal minimum and position.
+      PHMINPOS,
+
       MULTISHIFT,
 
       /// Vector comparison generating mask bits for fp and
@@ -451,9 +453,6 @@ namespace llvm {
       // Broadcast subvector to vector.
       SUBV_BROADCAST,
 
-      // Extract vector element.
-      VEXTRACT,
-
       /// SSE4A Extraction and Insertion.
       EXTRQI, INSERTQI,
 
@@ -503,6 +502,9 @@ namespace llvm {
       FMADDSUB_RND,
       FMSUBADD_RND,
 
+      // FMA4 specific scalar intrinsics bits that zero the non-scalar bits.
+      FMADD4S, FNMADD4S, FMSUB4S, FNMSUB4S,
+
       // Scalar intrinsic FMA.
       FMADDS1, FMADDS3,
       FNMADDS1, FNMADDS3,
@@ -519,6 +521,9 @@ namespace llvm {
       // Compress and expand.
       COMPRESS,
       EXPAND,
+
+      // Bits shuffle
+      VPSHUFBITQMB,
 
       // Convert Unsigned/Integer to Floating-Point Value with rounding mode.
       SINT_TO_FP_RND, UINT_TO_FP_RND,
@@ -578,6 +583,9 @@ namespace llvm {
 
       // Conversions between float and half-float.
       CVTPS2PH, CVTPH2PS, CVTPH2PS_RND,
+
+      // Galois Field Arithmetic Instructions
+      GF2P8AFFINEINVQB, GF2P8AFFINEQB, GF2P8MULB,
 
       // LWP insert record.
       LWPINS,
@@ -676,14 +684,8 @@ namespace llvm {
     void markLibCallAttributes(MachineFunction *MF, unsigned CC,
                                ArgListTy &Args) const override;
 
-    // For i512, DAGTypeLegalizer::SplitInteger needs a shift amount 256,
-    // which cannot be held by i8, therefore use i16 instead. In all the
-    // other situations i8 is sufficient.
     MVT getScalarShiftAmountTy(const DataLayout &, EVT VT) const override {
-      MVT T = VT.getSizeInBits() >= 512 ? MVT::i16 : MVT::i8;
-      assert((VT.getSizeInBits() + 1) / 2 < (1U << T.getSizeInBits()) &&
-             "Scalar shift amount type too small");
-      return T;
+      return MVT::i8;
     }
 
     const MCExpr *
@@ -960,6 +962,7 @@ namespace llvm {
     /// true and stores the intrinsic information into the IntrinsicInfo that was
     /// passed to the function.
     bool getTgtMemIntrinsic(IntrinsicInfo &Info, const CallInst &I,
+                            MachineFunction &MF,
                             unsigned Intrinsic) const override;
 
     /// Returns true if the target can instruction select the
@@ -1020,6 +1023,8 @@ namespace llvm {
       return NumElem > 2;
     }
 
+    bool isLoadBitCastBeneficial(EVT LoadVT, EVT BitcastVT) const override;
+
     /// Intel processors have a unified instruction and data cache
     const char * getClearCacheBuiltinName() const override {
       return nullptr; // nothing to do, move along.
@@ -1050,9 +1055,13 @@ namespace llvm {
     Value *getIRStackGuard(IRBuilder<> &IRB) const override;
 
     bool useLoadStackGuardNode() const override;
+    bool useStackGuardXorFP() const override;
     void insertSSPDeclarations(Module &M) const override;
     Value *getSDagStackGuard(const Module &M) const override;
     Value *getSSPStackGuardCheck(const Module &M) const override;
+    SDValue emitStackGuardXorFP(SelectionDAG &DAG, SDValue Val,
+                                const SDLoc &DL) const override;
+
 
     /// Return true if the target stores SafeStack pointer at a fixed offset in
     /// some non-standard address space, and populates the address space and
@@ -1160,11 +1169,8 @@ namespace llvm {
                                                bool isReplace) const;
 
     SDValue LowerBUILD_VECTOR(SDValue Op, SelectionDAG &DAG) const;
-    SDValue LowerBUILD_VECTORvXi1(SDValue Op, SelectionDAG &DAG) const;
     SDValue LowerVSELECT(SDValue Op, SelectionDAG &DAG) const;
     SDValue LowerEXTRACT_VECTOR_ELT(SDValue Op, SelectionDAG &DAG) const;
-    SDValue ExtractBitFromMaskVector(SDValue Op, SelectionDAG &DAG) const;
-    SDValue InsertBitToMaskVector(SDValue Op, SelectionDAG &DAG) const;
     SDValue LowerINSERT_VECTOR_ELT(SDValue Op, SelectionDAG &DAG) const;
 
     unsigned getGlobalWrapperKind(const GlobalValue *GV = nullptr) const;
@@ -1178,9 +1184,6 @@ namespace llvm {
 
     SDValue LowerSINT_TO_FP(SDValue Op, SelectionDAG &DAG) const;
     SDValue LowerUINT_TO_FP(SDValue Op, SelectionDAG &DAG) const;
-    SDValue LowerUINT_TO_FP_i64(SDValue Op, SelectionDAG &DAG) const;
-    SDValue LowerUINT_TO_FP_i32(SDValue Op, SelectionDAG &DAG) const;
-    SDValue lowerUINT_TO_FP_vec(SDValue Op, SelectionDAG &DAG) const;
     SDValue LowerTRUNCATE(SDValue Op, SelectionDAG &DAG) const;
     SDValue LowerFP_TO_INT(SDValue Op, SelectionDAG &DAG) const;
     SDValue LowerSETCC(SDValue Op, SelectionDAG &DAG) const;
@@ -1220,8 +1223,8 @@ namespace llvm {
                         const SDLoc &dl, SelectionDAG &DAG) const override;
 
     bool supportSplitCSR(MachineFunction *MF) const override {
-      return MF->getFunction()->getCallingConv() == CallingConv::CXX_FAST_TLS &&
-          MF->getFunction()->hasFnAttribute(Attribute::NoUnwind);
+      return MF->getFunction().getCallingConv() == CallingConv::CXX_FAST_TLS &&
+          MF->getFunction().hasFnAttribute(Attribute::NoUnwind);
     }
     void initializeSplitCSR(MachineBasicBlock *Entry) const override;
     void insertCopiesSplitCSR(

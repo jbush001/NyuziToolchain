@@ -19,7 +19,6 @@
 #include "llvm/CodeGen/MachineBasicBlock.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
-#include "llvm/CodeGen/TargetInstrInfo.h"
 #include "llvm/CodeGen/TargetOpcodes.h"
 #include "llvm/CodeGen/TargetRegisterInfo.h"
 #include "llvm/CodeGen/TargetSubtargetInfo.h"
@@ -432,9 +431,9 @@ void RegisterBankInfo::applyDefaultMapping(const OperandsMapper &OpdMapper) {
     }
     unsigned OrigReg = MO.getReg();
     unsigned NewReg = *NewRegs.begin();
-    DEBUG(dbgs() << " changed, replace " << PrintReg(OrigReg, nullptr));
+    DEBUG(dbgs() << " changed, replace " << printReg(OrigReg, nullptr));
     MO.setReg(NewReg);
-    DEBUG(dbgs() << " with " << PrintReg(NewReg, nullptr));
+    DEBUG(dbgs() << " with " << printReg(NewReg, nullptr));
 
     // The OperandsMapper creates plain scalar, we may have to fix that.
     // Check if the types match and if not, fix that.
@@ -753,13 +752,13 @@ void RegisterBankInfo::OperandsMapper::print(raw_ostream &OS,
     if (!IsFirst)
       OS << ", ";
     IsFirst = false;
-    OS << '(' << PrintReg(getMI().getOperand(Idx).getReg(), TRI) << ", [";
+    OS << '(' << printReg(getMI().getOperand(Idx).getReg(), TRI) << ", [";
     bool IsFirstNewVReg = true;
     for (unsigned VReg : getVRegs(Idx)) {
       if (!IsFirstNewVReg)
         OS << ", ";
       IsFirstNewVReg = false;
-      OS << PrintReg(VReg, TRI);
+      OS << printReg(VReg, TRI);
     }
     OS << "])";
   }

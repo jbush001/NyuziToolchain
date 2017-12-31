@@ -21,11 +21,8 @@ define void @_Z3foov() {
 ; CHECK-NEXT:    [[TMP1:%.*]] = load float, float* [[ARRAYIDX]], align 4
 ; CHECK-NEXT:    [[TMP2:%.*]] = load float, float* [[ARRAYIDX2]], align 4
 ; CHECK-NEXT:    [[CMP_I:%.*]] = fcmp fast olt float [[TMP1]], [[TMP2]]
-; CHECK-NEXT:    [[__B___A_I:%.*]] = select i1 [[CMP_I]], float* [[ARRAYIDX2]], float* [[ARRAYIDX]]
-; CHECK-NEXT:    [[TMP3:%.*]] = bitcast float* [[__B___A_I]] to i32*
-; CHECK-NEXT:    [[TMP4:%.*]] = load i32, i32* [[TMP3]], align 4
-; CHECK-NEXT:    [[TMP5:%.*]] = bitcast float* [[ARRAYIDX]] to i32*
-; CHECK-NEXT:    store i32 [[TMP4]], i32* [[TMP5]], align 4
+; CHECK-NEXT:    [[TMP3:%.*]] = select i1 [[CMP_I]], float [[TMP2]], float [[TMP1]]
+; CHECK-NEXT:    store float [[TMP3]], float* [[ARRAYIDX]], align 4
 ; CHECK-NEXT:    [[INC]] = add nuw nsw i32 [[I_0]], 1
 ; CHECK-NEXT:    br label [[FOR_COND]]
 ;
@@ -54,4 +51,54 @@ for.body:                                         ; preds = %for.cond
   store i32 %4, i32* %5, align 4
   %inc = add nuw nsw i32 %i.0, 1
   br label %for.cond
+}
+
+define i32 @store_bitcasted_load(i1 %cond, float* dereferenceable(4) %addr1, float* dereferenceable(4) %addr2) {
+; CHECK-LABEL: @store_bitcasted_load(
+; CHECK-NEXT:    [[SEL:%.*]] = select i1 [[COND:%.*]], float* [[ADDR1:%.*]], float* [[ADDR2:%.*]]
+; CHECK-NEXT:    [[BC1:%.*]] = bitcast float* [[SEL]] to i32*
+; CHECK-NEXT:    [[LD:%.*]] = load i32, i32* [[BC1]], align 4
+; CHECK-NEXT:    ret i32 [[LD]]
+;
+  %sel = select i1 %cond, float* %addr1, float* %addr2
+  %bc1 = bitcast float* %sel to i32*
+  %ld = load i32, i32* %bc1
+  ret i32 %ld
+}
+
+define void @bitcasted_store(i1 %cond, float* %loadaddr1, float* %loadaddr2, float* %storeaddr) {
+; CHECK-LABEL: @bitcasted_store(
+; CHECK-NEXT:    [[SEL:%.*]] = select i1 [[COND:%.*]], float* [[LOADADDR1:%.*]], float* [[LOADADDR2:%.*]]
+; CHECK-NEXT:    [[INT_LOAD_ADDR:%.*]] = bitcast float* [[SEL]] to i32*
+; CHECK-NEXT:    [[LD:%.*]] = load i32, i32* [[INT_LOAD_ADDR]], align 4
+; CHECK-NEXT:    [[INT_STORE_ADDR:%.*]] = bitcast float* [[STOREADDR:%.*]] to i32*
+; CHECK-NEXT:    store i32 [[LD]], i32* [[INT_STORE_ADDR]], align 4
+; CHECK-NEXT:    ret void
+;
+  %sel = select i1 %cond, float* %loadaddr1, float* %loadaddr2
+  %int_load_addr = bitcast float* %sel to i32*
+  %ld = load i32, i32* %int_load_addr
+  %int_store_addr = bitcast float* %storeaddr to i32*
+  store i32 %ld, i32* %int_store_addr
+  ret void
+}
+
+define void @bitcasted_minmax_with_select_of_pointers(float* %loadaddr1, float* %loadaddr2, float* %storeaddr) {
+; CHECK-LABEL: @bitcasted_minmax_with_select_of_pointers(
+; CHECK-NEXT:    [[LD1:%.*]] = load float, float* [[LOADADDR1:%.*]], align 4
+; CHECK-NEXT:    [[LD2:%.*]] = load float, float* [[LOADADDR2:%.*]], align 4
+; CHECK-NEXT:    [[COND:%.*]] = fcmp ogt float [[LD1]], [[LD2]]
+; CHECK-NEXT:    [[LD3:%.*]] = select i1 [[COND]], float [[LD1]], float [[LD2]]
+; CHECK-NEXT:    store float [[LD3]], float* [[STOREADDR:%.*]], align 4
+; CHECK-NEXT:    ret void
+;
+  %ld1 = load float, float* %loadaddr1, align 4
+  %ld2 = load float, float* %loadaddr2, align 4
+  %cond = fcmp ogt float %ld1, %ld2
+  %sel = select i1 %cond, float* %loadaddr1, float* %loadaddr2
+  %int_load_addr = bitcast float* %sel to i32*
+  %ld = load i32, i32* %int_load_addr, align 4
+  %int_store_addr = bitcast float* %storeaddr to i32*
+  store i32 %ld, i32* %int_store_addr, align 4
+  ret void
 }

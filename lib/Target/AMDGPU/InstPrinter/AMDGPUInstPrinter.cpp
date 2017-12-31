@@ -72,9 +72,9 @@ void AMDGPUInstPrinter::printU16ImmDecOperand(const MCInst *MI, unsigned OpNo,
   O << formatDec(MI->getOperand(OpNo).getImm() & 0xffff);
 }
 
-void AMDGPUInstPrinter::printS16ImmDecOperand(const MCInst *MI, unsigned OpNo,
+void AMDGPUInstPrinter::printS13ImmDecOperand(const MCInst *MI, unsigned OpNo,
                                               raw_ostream &O) {
-  O << formatDec(static_cast<int16_t>(MI->getOperand(OpNo).getImm()));
+  O << formatDec(SignExtend32<13>(MI->getOperand(OpNo).getImm()));
 }
 
 void AMDGPUInstPrinter::printU32ImmOperand(const MCInst *MI, unsigned OpNo,
@@ -129,7 +129,7 @@ void AMDGPUInstPrinter::printOffsetS13(const MCInst *MI, unsigned OpNo,
   uint16_t Imm = MI->getOperand(OpNo).getImm();
   if (Imm != 0) {
     O << ((OpNo == 0)? "offset:" : " offset:");
-    printS16ImmDecOperand(MI, OpNo, O);
+    printS13ImmDecOperand(MI, OpNo, O);
   }
 }
 
@@ -335,25 +335,15 @@ void AMDGPUInstPrinter::printRegOperand(unsigned RegNo, raw_ostream &O,
   } else if (MRI.getRegClass(AMDGPU::VReg_256RegClassID).contains(RegNo)) {
     O << 'v';
     NumRegs = 8;
-  } else if (MRI.getRegClass(AMDGPU::SReg_256RegClassID).contains(RegNo)) {
+  } else if (MRI.getRegClass(AMDGPU::SGPR_256RegClassID).contains(RegNo)) {
     O << 's';
     NumRegs = 8;
   } else if (MRI.getRegClass(AMDGPU::VReg_512RegClassID).contains(RegNo)) {
     O << 'v';
     NumRegs = 16;
-  } else if (MRI.getRegClass(AMDGPU::SReg_512RegClassID).contains(RegNo)) {
+  } else if (MRI.getRegClass(AMDGPU::SGPR_512RegClassID).contains(RegNo)) {
     O << 's';
     NumRegs = 16;
-  } else if (MRI.getRegClass(AMDGPU::TTMP_64RegClassID).contains(RegNo)) {
-    O << "ttmp";
-    NumRegs = 2;
-    // Trap temps start at offset 112. TODO: Get this from tablegen.
-    RegIdx -= 112;
-  } else if (MRI.getRegClass(AMDGPU::TTMP_128RegClassID).contains(RegNo)) {
-    O << "ttmp";
-    NumRegs = 4;
-    // Trap temps start at offset 112. TODO: Get this from tablegen.
-    RegIdx -= 112;
   } else {
     O << getRegisterName(RegNo);
     return;

@@ -785,11 +785,10 @@ public:
   /// as returned from RegisterClassInfo::getOrder(). The hint registers must
   /// come from Order, and they must not be reserved.
   ///
-  /// The default implementation of this function can resolve
-  /// target-independent hints provided to MRI::setRegAllocationHint with
-  /// HintType == 0. Targets that override this function should defer to the
-  /// default implementation if they have no reason to change the allocation
-  /// order for VirtReg. There may be target-independent hints.
+  /// The default implementation of this function will only add target
+  /// independent register allocation hints. Targets that override this
+  /// function should typically call this default implementation as well and
+  /// expect to see generic copy hints added.
   virtual bool getRegAllocationHints(unsigned VirtReg,
                                      ArrayRef<MCPhysReg> Order,
                                      SmallVectorImpl<MCPhysReg> &Hints,
@@ -807,6 +806,13 @@ public:
                                   MachineFunction &MF) const {
     // Do nothing.
   }
+
+  /// The creation of multiple copy hints have been implemented in
+  /// weightCalcHelper(), but since this affects so many tests for many
+  /// targets, this is temporarily disabled per default. THIS SHOULD BE
+  /// "GENERAL GOODNESS" and hopefully all targets will update their tests
+  /// and enable this soon. This hook should then be removed.
+  virtual bool enableMultipleCopyHints() const { return false; }
 
   /// Allow the target to reverse allocation order of local live ranges. This
   /// will generally allocate shorter local live ranges first. For targets with
@@ -1138,28 +1144,33 @@ struct VirtReg2IndexFunctor {
 ///
 /// The format is:
 ///   %noreg          - NoRegister
-///   %vreg5          - a virtual register.
-///   %vreg5:sub_8bit - a virtual register with sub-register index (with TRI).
-///   %EAX            - a physical register
+///   %5              - a virtual register.
+///   %5:sub_8bit     - a virtual register with sub-register index (with TRI).
+///   %eax            - a physical register
 ///   %physreg17      - a physical register when no TRI instance given.
 ///
-/// Usage: OS << PrintReg(Reg, TRI) << '\n';
-Printable PrintReg(unsigned Reg, const TargetRegisterInfo *TRI = nullptr,
+/// Usage: OS << printReg(Reg, TRI, SubRegIdx) << '\n';
+Printable printReg(unsigned Reg, const TargetRegisterInfo *TRI = nullptr,
                    unsigned SubRegIdx = 0);
 
 /// Create Printable object to print register units on a \ref raw_ostream.
 ///
 /// Register units are named after their root registers:
 ///
-///   AL      - Single root.
-///   FP0~ST7 - Dual roots.
+///   al      - Single root.
+///   fp0~st7 - Dual roots.
 ///
-/// Usage: OS << PrintRegUnit(Unit, TRI) << '\n';
-Printable PrintRegUnit(unsigned Unit, const TargetRegisterInfo *TRI);
+/// Usage: OS << printRegUnit(Unit, TRI) << '\n';
+Printable printRegUnit(unsigned Unit, const TargetRegisterInfo *TRI);
 
 /// \brief Create Printable object to print virtual registers and physical
 /// registers on a \ref raw_ostream.
-Printable PrintVRegOrUnit(unsigned VRegOrUnit, const TargetRegisterInfo *TRI);
+Printable printVRegOrUnit(unsigned VRegOrUnit, const TargetRegisterInfo *TRI);
+
+/// \brief Create Printable object to print register classes or register banks
+/// on a \ref raw_ostream.
+Printable printRegClassOrBank(unsigned Reg, const MachineRegisterInfo &RegInfo,
+                              const TargetRegisterInfo *TRI);
 
 } // end namespace llvm
 

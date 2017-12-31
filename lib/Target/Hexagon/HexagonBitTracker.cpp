@@ -61,7 +61,7 @@ HexagonEvaluator::HexagonEvaluator(const HexagonRegisterInfo &tri,
   // passed via registers.
   unsigned InVirtReg, InPhysReg = 0;
 
-  for (const Argument &Arg : MF.getFunction()->args()) {
+  for (const Argument &Arg : MF.getFunction().args()) {
     Type *ATy = Arg.getType();
     unsigned Width = 0;
     if (ATy->isIntegerTy())
@@ -104,7 +104,7 @@ BT::BitMask HexagonEvaluator::mask(unsigned Reg, unsigned Sub) const {
       break;
   }
 #ifndef NDEBUG
-  dbgs() << PrintReg(Reg, &TRI, Sub) << " in reg class "
+  dbgs() << printReg(Reg, &TRI, Sub) << " in reg class "
          << TRI.getRegClassName(&RC) << '\n';
 #endif
   llvm_unreachable("Unexpected register/subregister");
