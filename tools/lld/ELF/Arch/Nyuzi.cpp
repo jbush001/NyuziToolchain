@@ -44,7 +44,7 @@ Nyuzi::Nyuzi() {
   PageSize = 0x1000;
   DefaultImageBase = 0;
 
-  GotRel = R_NYUZI_GOTREL;
+  GotRel = R_NYUZI_ABS32;
   PltRel = -1;
   TlsDescRel = -1;
   TlsGotRel = -1;
@@ -60,7 +60,6 @@ void Nyuzi::relocateOne(uint8_t *Loc, uint32_t Type, uint64_t Val) const {
   default:
     fatal("unrecognized reloc " + Twine(Type));
   case R_NYUZI_ABS32:
-  case R_NYUZI_GOTREL:
     write32le(Loc, Val);
     break;
   case R_NYUZI_BRANCH20:
@@ -95,7 +94,6 @@ RelExpr Nyuzi::getRelExpr(RelType Type, const Symbol&,
   case R_NYUZI_ABS32:
   case R_NYUZI_IMM_LO13:
   case R_NYUZI_HI19:
-  case R_NYUZI_GOTREL:
     return R_ABS;
 
   case R_NYUZI_BRANCH20:
