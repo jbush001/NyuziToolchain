@@ -53,3 +53,6 @@ load_gath v0, (s0) # CHECK: bad-memory-operand.s:[[@LINE]]:{{[0-9]+}}: error: in
 load_gath s0, (v0) # CHECK: bad-memory-operand.s:[[@LINE]]:{{[0-9]+}}: error: invalid operand for instruction
 store_scat v0, (s0) # CHECK: bad-memory-operand.s:[[@LINE]]:{{[0-9]+}}: error: invalid operand for instruction
 store_scat s0, (v0) # CHECK: bad-memory-operand.s:[[@LINE]]:{{[0-9]+}}: error: invalid operand for instruction
+
+load_gath v0, got(bloink)  # CHECK: bad-memory-operand.s:[[@LINE]]:{{[0-9]+}}: error: cannot use got expression with this type of memory access
+load_32 s0, floo(flum) # CHECK: bad-memory-operand.s:[[@LINE]]:{{[0-9]+}}: error: invalid operand for instruction

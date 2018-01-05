@@ -56,15 +56,15 @@ lea s1, baz
 	# CHECK-ENCODE: encoding: [0x21,0bAAAAAA00,0b0AAAAAAA,0x00]
   # CHECK-ENCODE:    fixup A - offset: 0, value: lo(baz), kind: fixup_Nyuzi_IMM_LO13
 
-movehi s3, hi(bam)
-  # CHECK-RELOC: 0000002c R_NYUZI_HI19 bam
+movehi s3, hi(bam1)
+  # CHECK-RELOC: 0000002c R_NYUZI_HI19 bam1
   # CHECK-ENCODE: encoding: [0x60'A',A,A,0x4f'A']
-  # CHECK-ENCODE: fixup A - offset: 0, value: hi(bam), kind: fixup_Nyuzi_HI19
+  # CHECK-ENCODE: fixup A - offset: 0, value: hi(bam1), kind: fixup_Nyuzi_HI19
 
-or s0, s0, lo(bam)
-  # CHECK-RELOC: 00000030 R_NYUZI_IMM_LO13 bam
+or s0, s0, lo(bam1)
+  # CHECK-RELOC: 00000030 R_NYUZI_IMM_LO13 bam1
   # CHECK-ENCODE: encoding: [0x00,0bAAAAAA00,0b0AAAAAAA,0x00]
-  # CHECK-ENCODE: fixup A - offset: 0, value: lo(bam), kind: fixup_Nyuzi_IMM_LO13
+  # CHECK-ENCODE: fixup A - offset: 0, value: lo(bam1), kind: fixup_Nyuzi_IMM_LO13
 
 .long ioctl
   # CHECK-RELOC: 00000034 R_NYUZI_ABS32 ioctl

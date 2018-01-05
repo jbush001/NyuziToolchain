@@ -27,6 +27,7 @@ enum TOF {
   // address.
   MO_ABS_HI,
   MO_ABS_LO,
+  MO_GOT
 };
 } // namespace Nyuzi
 } // namespace llvm

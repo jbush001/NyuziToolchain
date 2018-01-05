@@ -12,7 +12,7 @@ add_i s15, s16, s17
 add_i s18, s19, s20
 add_i s21, s22, s23
 add_i s24, s25, s26
-add_i s27, s28, fp
+add_i s27, gp, fp
 add_i sp, ra, s0
 
 # CHECK: add_i s0, s1, s2
@@ -24,13 +24,13 @@ add_i sp, ra, s0
 # CHECK: add_i s18, s19, s20
 # CHECK: add_i s21, s22, s23
 # CHECK: add_i s24, s25, s26
-# CHECK: add_i s27, s28, fp
+# CHECK: add_i s27, gp, fp
 # CHECK: add_i sp, ra, s0
 
 load_32 s0, (s1)
 load_32 s2, (s3)
-load_32 s28, (s28)
+load_32 s27, (s27)
 
 # CHECK: load_32 s0, (s1)
 # CHECK: load_32 s2, (s3)
-# CHECK: load_32 s28, (s28)
+# CHECK: load_32 s27, (s27)

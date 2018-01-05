@@ -847,6 +847,7 @@ def WRITE_CONTROL_REG : FormatMInst<
   let Inst{9-5} = src;
 }
 
+// This instruction is matched by forms like FrameIndex
 // Note this takes MEMS14 operand (vs. the MEMS15 format a normal memory
 // instruction would) because it is an I format instruction and has a smaller
 // immediate field.

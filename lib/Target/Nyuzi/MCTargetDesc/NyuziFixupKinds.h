@@ -27,6 +27,7 @@ enum Fixups {
   fixup_Nyuzi_Branch25,
   fixup_Nyuzi_HI19,                         // Fix up 19 bit movehi value
   fixup_Nyuzi_IMM_LO13,                     // Immediate instruction w/ 13 bit offs
+  fixup_Nyuzi_GOT,
 
   // Marker
   LastTargetFixupKind,

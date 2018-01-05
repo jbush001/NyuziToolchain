@@ -24,6 +24,9 @@ void NyuziMCExpr::printImpl(raw_ostream &OS, const MCAsmInfo *MAI) const {
   switch (Kind) {
   default:
     llvm_unreachable("Invalid kind!");
+  case VK_Nyuzi_GOT:
+    OS << "got";
+    break;
   case VK_Nyuzi_ABS_HI:
     OS << "hi";
     break;

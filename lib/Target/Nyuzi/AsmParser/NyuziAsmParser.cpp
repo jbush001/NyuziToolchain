@@ -16,6 +16,7 @@
 #include "llvm/MC/MCParser/MCAsmLexer.h"
 #include "llvm/MC/MCParser/MCParsedAsmOperand.h"
 #include "llvm/MC/MCParser/MCTargetAsmParser.h"
+#include "llvm/MC/MCObjectFileInfo.h"
 #include "llvm/MC/MCRegisterInfo.h"
 #include "llvm/MC/MCStreamer.h"
 #include "llvm/MC/MCSubtargetInfo.h"
@@ -500,27 +501,39 @@ bool NyuziAsmParser::ProcessInstruction(MCInst &Inst, const SMLoc &Loc,
 
   case Nyuzi::LEA_SYM: {
     const MCExpr *Symbol = Inst.getOperand(1).getExpr();
+    const MCExpr *GotSym = NyuziMCExpr::create(NyuziMCExpr::VK_Nyuzi_GOT,
+        Symbol, getContext());
 
-    // Load high bits
-    MCInst NewInst1;
-    NewInst1.setOpcode(Nyuzi::MOVEHI);
-    NewInst1.addOperand(Inst.getOperand(0)); // Dest
-    const MCExpr *HighAddr = NyuziMCExpr::create(NyuziMCExpr::VK_Nyuzi_ABS_HI,
-      Symbol, getContext());
-    NewInst1.addOperand(MCOperand::createExpr(HighAddr));
-    NewInst1.setLoc(Loc);
-    Out.EmitInstruction(NewInst1, getSTI());
+    if (getContext().getObjectFileInfo()->isPositionIndependent()) {
+      MCInst LoadInst;
+      LoadInst.setOpcode(Nyuzi::LW);
+      LoadInst.addOperand(Inst.getOperand(0)); // Dest
+      LoadInst.addOperand(MCOperand::createReg(Nyuzi::GP_REG));
+      LoadInst.addOperand(MCOperand::createExpr(GotSym));
+      LoadInst.setLoc(Loc);
+      Out.EmitInstruction(LoadInst, getSTI());
+    } else {
+      // Load high bits
+      MCInst NewInst1;
+      NewInst1.setOpcode(Nyuzi::MOVEHI);
+      NewInst1.addOperand(Inst.getOperand(0)); // Dest
+      const MCExpr *HighAddr = NyuziMCExpr::create(NyuziMCExpr::VK_Nyuzi_ABS_HI,
+        Symbol, getContext());
+      NewInst1.addOperand(MCOperand::createExpr(HighAddr));
+      NewInst1.setLoc(Loc);
+      Out.EmitInstruction(NewInst1, getSTI());
 
-    // Load low bits
-    MCInst NewInst2;
-    NewInst2.setOpcode(Nyuzi::ORSSI);
-    NewInst2.addOperand(Inst.getOperand(0)); // Dest
-    NewInst2.addOperand(Inst.getOperand(0)); // Source
-    const MCExpr *LowAddr = NyuziMCExpr::create(NyuziMCExpr::VK_Nyuzi_ABS_LO,
-      Symbol, getContext());
-    NewInst2.addOperand(MCOperand::createExpr(LowAddr));
-    NewInst2.setLoc(Loc);
-    Out.EmitInstruction(NewInst2, getSTI());
+      // Load low bits
+      MCInst NewInst2;
+      NewInst2.setOpcode(Nyuzi::ORSSI);
+      NewInst2.addOperand(Inst.getOperand(0)); // Dest
+      NewInst2.addOperand(Inst.getOperand(0)); // Source
+      const MCExpr *LowAddr = NyuziMCExpr::create(NyuziMCExpr::VK_Nyuzi_ABS_LO,
+        Symbol, getContext());
+      NewInst2.addOperand(MCOperand::createExpr(LowAddr));
+      NewInst2.setLoc(Loc);
+      Out.EmitInstruction(NewInst2, getSTI());
+    }
     break;
   }
 
@@ -562,8 +575,46 @@ NyuziAsmParser::ParseMemoryOperand(OperandVector &Operands, int MaxBits,
                                    bool OpIsVector) {
   SMLoc S = Parser.getTok().getLoc();
   const MCExpr *Offset = nullptr;
-  if (getLexer().is(AsmToken::Integer) || getLexer().is(AsmToken::Minus) ||
-      getLexer().is(AsmToken::Plus)) {
+
+  if (getLexer().getKind() == AsmToken::Identifier) {
+    // Is of the form load_xx reg, got(symbol)
+    StringRef lookahead = getLexer().getTok().getString();
+    if (!lookahead.equals_lower("got")) {
+      // If we're trying to parse LEA_MEM, this might be LEA_SYM
+      return MatchOperand_NoMatch;
+    }
+
+    if (MaxBits != 15 || OpIsVector) {
+      Error(Parser.getTok().getLoc(), "cannot use got expression with this type of memory access");
+      return MatchOperand_ParseFail;
+    }
+
+    getLexer().Lex(); // eat 'got'
+    if (!getLexer().is(AsmToken::LParen)) {
+      Error(Parser.getTok().getLoc(), "expected (");
+      return MatchOperand_ParseFail;
+    }
+
+    getLexer().Lex(); // eat '('
+
+    StringRef Identifier;
+    if (Parser.parseIdentifier(Identifier)) {
+      Error(getLexer().getLoc(), "expected identifier");
+      return MatchOperand_ParseFail;
+    }
+
+    if (getLexer().getKind() != AsmToken::RParen) {
+      Error(getLexer().getLoc(), "expected ')'");
+      return MatchOperand_ParseFail;
+    }
+    getLexer().Lex(); // eat ')'
+
+    MCSymbol *Sym = getContext().getOrCreateSymbol(Identifier);
+    const MCExpr *SymExpr = MCSymbolRefExpr::create(Sym, getContext());
+    Offset = NyuziMCExpr::create(NyuziMCExpr::VK_Nyuzi_GOT,
+        SymExpr, getContext());
+  } else if (getLexer().is(AsmToken::Integer) || getLexer().is(AsmToken::Minus)
+    || getLexer().is(AsmToken::Plus)) {
     // Has a memory offset. e.g. load_32 s0, -12(s1)
     if (Parser.parseExpression(Offset))
       return MatchOperand_ParseFail;
@@ -576,15 +627,14 @@ NyuziAsmParser::ParseMemoryOperand(OperandVector &Operands, int MaxBits,
       Error(Parser.getTok().getLoc(), "offset out of range");
       return MatchOperand_ParseFail;
     }
+  }
 
-    if (!getLexer().is(AsmToken::LParen)) {
-      Error(Parser.getTok().getLoc(), "expected (");
-      return MatchOperand_ParseFail;
-    }
-  } else if (!getLexer().is(AsmToken::LParen))
-    return MatchOperand_NoMatch;
+  if (!getLexer().is(AsmToken::LParen)) {
+    Error(Parser.getTok().getLoc(), "expected (");
+    return MatchOperand_ParseFail;
+  }
 
-  getLexer().Lex();
+  getLexer().Lex(); // eat '('
   unsigned RegNo;
   SMLoc _S, _E;
   if (ParseRegister(RegNo, _S, _E)) {
@@ -604,7 +654,7 @@ NyuziAsmParser::ParseMemoryOperand(OperandVector &Operands, int MaxBits,
     return MatchOperand_ParseFail;
   }
 
-  getLexer().Lex();
+  getLexer().Lex(); // eat ')'
 
   SMLoc E = SMLoc::getFromPointer(Parser.getTok().getLoc().getPointer() - 1);
   Operands.push_back(NyuziOperand::createMem(RegNo, Offset, S, E));

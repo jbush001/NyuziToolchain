@@ -20,7 +20,8 @@ public:
   enum VariantKind {
     VK_Nyuzi_NONE,
     VK_Nyuzi_ABS_HI,
-    VK_Nyuzi_ABS_LO
+    VK_Nyuzi_ABS_LO,
+    VK_Nyuzi_GOT
   };
 
   static const NyuziMCExpr *create(VariantKind Kind, const MCExpr *Expr,

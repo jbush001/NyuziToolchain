@@ -8,3 +8,6 @@ ELF_RELOC(R_NYUZI_BRANCH20,               0x02)
 ELF_RELOC(R_NYUZI_BRANCH25,               0x03)
 ELF_RELOC(R_NYUZI_HI19,                   0x04)
 ELF_RELOC(R_NYUZI_IMM_LO13,               0x05)
+ELF_RELOC(R_NYUZI_GOT,                    0x06)
+ELF_RELOC(R_NYUZI_GOTREL,                 0x07)
+

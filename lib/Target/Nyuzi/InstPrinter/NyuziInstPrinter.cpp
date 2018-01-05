@@ -99,11 +99,9 @@ void NyuziInstPrinter::printOperand(const MCInst *MI, unsigned OpNo,
 
 void NyuziInstPrinter::printMemOperand(const MCInst *MI, int opNum,
                                        raw_ostream &O) {
-  // Register/offset
-  assert(MI->getOperand(opNum).isReg());
-  assert(MI->getOperand(opNum + 1).isImm());
 
-  if (MI->getOperand(opNum + 1).getImm())
+  const MCOperand &Op1 = MI->getOperand(opNum + 1);
+  if (!Op1.isImm() || Op1.getImm() != 0)
     printOperand(MI, opNum + 1, O);
 
   O << "(";

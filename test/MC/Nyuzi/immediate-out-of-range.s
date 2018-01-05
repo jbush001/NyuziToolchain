@@ -52,10 +52,3 @@ load_v_mask v1, s0, -0x200(s0) # CHECK-NOT: [[@LINE]]:{{[0-9]+}}: error:
 load_v_mask v2, s0, 0x200(s0) # CHECK: immediate-out-of-range.s:[[@LINE]]:{{[0-9]+}}: error: offset out of range
 load_v_mask v3, s0, -0x201(s0) # CHECK: immediate-out-of-range.s:[[@LINE]]:{{[0-9]+}}: error: offset out of range
 
-# Load effective address: since this is actually an add, the immediate field is 14
-# bits instead of 15 like the memory instructions.
-lea s0, 0x1fff(s0) # CHECK-NOT: [[@LINE]]:{{[0-9]+}}: error:
-lea s1, -0x2000(s0) # CHECK-NOT: [[@LINE]]:{{[0-9]+}}: error:
-lea s2, 0x2000(s0) # CHECK: immediate-out-of-range.s:[[@LINE]]:{{[0-9]+}}: error: offset out of range
-lea s3, -0x2001(s0) # CHECK: immediate-out-of-range.s:[[@LINE]]:{{[0-9]+}}: error: offset out of range
-

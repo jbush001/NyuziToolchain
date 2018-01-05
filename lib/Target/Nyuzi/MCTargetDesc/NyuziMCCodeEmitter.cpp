@@ -198,8 +198,17 @@ NyuziMCCodeEmitter::encodeMemoryOpValue(const MCInst &MI, unsigned Op,
   assert(baseReg.isReg() && "First operand is not register.");
   encoding = Ctx.getRegisterInfo()->getEncodingValue(baseReg.getReg());
 
-  assert(offsetOp.isImm() && "Second operand of memory op is unknown type.");
-  encoding |= static_cast<short>(offsetOp.getImm()) << 5;
+  if (offsetOp.isImm())
+      encoding |= static_cast<short>(offsetOp.getImm()) << 5;
+  else if (const NyuziMCExpr *McExpr = dyn_cast<NyuziMCExpr>(offsetOp.getExpr())) {
+    if (McExpr->getKind() == NyuziMCExpr::VK_Nyuzi_GOT) {
+      Fixups.push_back(MCFixup::create(0, McExpr->getSubExpr(),
+                       MCFixupKind(Nyuzi::fixup_Nyuzi_GOT),
+                       MI.getLoc()));
+    } else
+      llvm_unreachable("Second operand of memory op is unknown type.");
+  } else
+    llvm_unreachable("Second operand of memory op is unknown type.");
 
   return encoding;
 }

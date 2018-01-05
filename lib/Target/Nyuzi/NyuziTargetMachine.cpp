@@ -42,8 +42,9 @@ public:
 
 Reloc::Model getEffectiveRelocModel(const Triple &TT,
                                     Optional<Reloc::Model> RM) {
-  if (!RM.hasValue())
+  if (!RM.hasValue() || *RM == Reloc::DynamicNoPIC)
     return Reloc::Static;
+
   return *RM;
 }
 

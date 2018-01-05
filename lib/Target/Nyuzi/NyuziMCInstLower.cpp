@@ -87,6 +87,9 @@ MCOperand NyuziMCInstLower::LowerSymbolOperand(const MachineOperand &MO,
   case Nyuzi::MO_ABS_LO:
     Kind = NyuziMCExpr::VK_Nyuzi_ABS_LO;
     break;
+  case Nyuzi::MO_GOT:
+    Kind = NyuziMCExpr::VK_Nyuzi_GOT;
+    break;
   default:
     llvm_unreachable("Unknown target flag on operand");
   }

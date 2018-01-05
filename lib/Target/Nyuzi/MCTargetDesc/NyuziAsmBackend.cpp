@@ -73,7 +73,6 @@ public:
   void applyFixup(const MCAssembler &Asm, const MCFixup &Fixup,
                   const MCValue &Target, MutableArrayRef<char> Data,
                   uint64_t Value, bool IsResolved) const override {
-
     const MCFixupKindInfo &Info = getFixupKindInfo(Fixup.getKind());
     Value = adjustFixupValue(Fixup, Value, &Asm.getContext());
     unsigned Offset = Fixup.getOffset();
@@ -106,6 +105,7 @@ public:
         {"fixup_Nyuzi_Branch25", 0, 25, MCFixupKindInfo::FKF_IsPCRel},
         {"fixup_Nyuzi_HI19", 0, 32, 0},
         {"fixup_Nyuzi_IMM_LO13", 10, 13, 0},  // This is unsigned, don't take top bit
+        {"fixup_Nyuzi_GOT", 10, 15, 0}
     };
 
     if (Kind < FirstTargetFixupKind)

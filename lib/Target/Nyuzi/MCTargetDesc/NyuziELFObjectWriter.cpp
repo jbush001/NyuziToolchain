@@ -63,6 +63,11 @@ unsigned NyuziELFObjectWriter::getRelocType(MCContext &Ctx,
     assert(!IsPCRel);
     Type = ELF::R_NYUZI_IMM_LO13;
     break;
+
+  case Nyuzi::fixup_Nyuzi_GOT:
+    assert(!IsPCRel);
+    Type = ELF::R_NYUZI_GOT;
+    break;
   }
   return Type;
 }
