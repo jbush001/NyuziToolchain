@@ -831,7 +831,8 @@ SDValue NyuziTargetLowering::getAddr(const NodeTy *N, SelectionDAG &DAG) const {
     SDValue GPReg = DAG.getRegister(Nyuzi::GP_REG, MVT::i32);
     SDValue Wrapper = DAG.getNode(NyuziISD::GOT_ADDR, DL, Ty, GPReg,
                               getTargetNode(N, Ty, DAG, Nyuzi::MO_GOT));
-    return DAG.getLoad(Ty, DL, DAG.getEntryNode(), Wrapper, MachinePointerInfo());
+    return DAG.getLoad(Ty, DL, DAG.getEntryNode(), Wrapper,
+      MachinePointerInfo::getGOT(DAG.getMachineFunction()));
   } else {
     SDValue Hi = getTargetNode(N, Ty, DAG, Nyuzi::MO_ABS_HI);
     SDValue Lo = getTargetNode(N, Ty, DAG, Nyuzi::MO_ABS_LO);
