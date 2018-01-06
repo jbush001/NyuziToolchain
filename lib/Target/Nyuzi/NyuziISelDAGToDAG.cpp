@@ -50,11 +50,18 @@ public:
 
 bool NyuziDAGToDAGISel::SelectADDRri(SDValue Addr, SDValue &Base,
                                      SDValue &Offset) {
+  if (Addr.getOpcode() == NyuziISD::GOT_ADDR) {
+    Base   = Addr.getOperand(0);
+    Offset = Addr.getOperand(1);
+    return true;
+  }
+
   if (FrameIndexSDNode *FIN = dyn_cast<FrameIndexSDNode>(Addr)) {
     Base = CurDAG->getTargetFrameIndex(FIN->getIndex(), MVT::i32);
     Offset = CurDAG->getTargetConstant(0, SDLoc(Addr), MVT::i32);
     return true;
   }
+
   if (Addr.getOpcode() == ISD::TargetExternalSymbol ||
       Addr.getOpcode() == ISD::TargetGlobalAddress)
     return false; // direct calls.

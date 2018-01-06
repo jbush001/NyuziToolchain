@@ -702,6 +702,8 @@ const char *NyuziTargetLowering::getTargetNodeName(unsigned Opcode) const {
     return "NyuziISD::MOVEHI";
   case NyuziISD::ORLO:
     return "NyuziISD::ORLO";
+  case NyuziISD::GOT_ADDR:
+    return "NyuziISD::GOT_ADDR";
   case NyuziISD::FGT:
     return "NyuziISD::FGT";
   case NyuziISD::FGE:
@@ -824,10 +826,18 @@ template <class NodeTy>
 SDValue NyuziTargetLowering::getAddr(const NodeTy *N, SelectionDAG &DAG) const {
   SDLoc DL(N);
   EVT Ty = getPointerTy(DAG.getDataLayout());
-  SDValue Hi = getTargetNode(N, Ty, DAG, Nyuzi::MO_ABS_HI);
-  SDValue Lo = getTargetNode(N, Ty, DAG, Nyuzi::MO_ABS_LO);
-  SDValue MoveHi = DAG.getNode(NyuziISD::MOVEHI, DL, MVT::i32, Hi);
-  return DAG.getNode(NyuziISD::ORLO, DL, MVT::i32, MoveHi, Lo);
+  if (isPositionIndependent()) {
+    // (load (wrapper gp, got(sym))
+    SDValue GPReg = DAG.getRegister(Nyuzi::GP_REG, MVT::i32);
+    SDValue Wrapper = DAG.getNode(NyuziISD::GOT_ADDR, DL, Ty, GPReg,
+                              getTargetNode(N, Ty, DAG, Nyuzi::MO_GOT));
+    return DAG.getLoad(Ty, DL, DAG.getEntryNode(), Wrapper, MachinePointerInfo());
+  } else {
+    SDValue Hi = getTargetNode(N, Ty, DAG, Nyuzi::MO_ABS_HI);
+    SDValue Lo = getTargetNode(N, Ty, DAG, Nyuzi::MO_ABS_LO);
+    SDValue MoveHi = DAG.getNode(NyuziISD::MOVEHI, DL, MVT::i32, Hi);
+    return DAG.getNode(NyuziISD::ORLO, DL, MVT::i32, MoveHi, Lo);
+  }
 }
 
 SDValue NyuziTargetLowering::LowerGlobalAddress(SDValue Op,

@@ -22,6 +22,8 @@ namespace llvm {
 class NyuziSubtarget;
 
 namespace NyuziISD {
+// When changing this enum, be sure to also update
+// NyuziTargetLowering::getTargetNodeName
 enum NodeType {
   FIRST_NUMBER = ISD::BUILTIN_OP_END,
   CALL,
@@ -33,6 +35,7 @@ enum NodeType {
   MASK_FROM_INT,
   MOVEHI,
   ORLO,
+  GOT_ADDR,
 
   // Float comparisons, see LowerSETCC
   FGT,
