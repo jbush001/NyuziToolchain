@@ -30,36 +30,6 @@ using namespace llvm;
 
 #include "NyuziGenAsmWriter.inc"
 
-namespace {
-void printExpr(const MCExpr *Expr, const MCAsmInfo *MAI, raw_ostream &OS) {
-  int Offset = 0;
-  const MCSymbolRefExpr *SRE;
-
-  if (const MCBinaryExpr *BE = dyn_cast<MCBinaryExpr>(Expr)) {
-    SRE = dyn_cast<MCSymbolRefExpr>(BE->getLHS());
-    const MCConstantExpr *CE = dyn_cast<MCConstantExpr>(BE->getRHS());
-    assert(SRE && CE && "Binary expression must be sym+const.");
-    Offset = CE->getValue();
-  } else if (!(SRE = dyn_cast<MCSymbolRefExpr>(Expr))) {
-    Expr->print(OS, MAI);
-    return;
-  }
-
-  MCSymbolRefExpr::VariantKind Kind = SRE->getKind();
-
-  OS << SRE->getSymbol();
-
-  if (Offset) {
-    if (Offset > 0)
-      OS << '+';
-    OS << Offset;
-  }
-
-  if (Kind != MCSymbolRefExpr::VK_None)
-    OS << ')';
-}
-} // namespace
-
 void NyuziInstPrinter::printRegName(raw_ostream &OS, unsigned RegNo) const {
   OS << StringRef(getRegisterName(RegNo)).lower();
 }
@@ -94,7 +64,7 @@ void NyuziInstPrinter::printOperand(const MCInst *MI, unsigned OpNo,
   }
 
   assert(Op.isExpr() && "unknown operand kind in printOperand");
-  printExpr(Op.getExpr(), &MAI, O);
+  Op.getExpr()->print(O, &MAI, true);
 }
 
 void NyuziInstPrinter::printMemOperand(const MCInst *MI, int opNum,

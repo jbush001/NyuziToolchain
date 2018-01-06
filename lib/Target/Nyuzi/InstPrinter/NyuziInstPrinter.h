@@ -35,6 +35,7 @@ public:
                  const MCSubtargetInfo &STI) override;
 
 private:
+  // Called by tblgen code
   void printOperand(const MCInst *MI, unsigned OpNo, raw_ostream &O);
   void printMemOperand(const MCInst *MI, int opNum, raw_ostream &O);
 };
