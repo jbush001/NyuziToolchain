@@ -1,4 +1,5 @@
-; RUN: llc %s -o - | FileCheck %s
+; RUN: llc %s -o - | FileCheck %s -check-prefix=CHECK-STATIC
+; RUN: llc -relocation-model=pic %s -o - | FileCheck %s -check-prefix=CHECK-PIC
 ;
 ; Test switch instruction
 ;
@@ -16,12 +17,19 @@ entry:
     i32 3, label %sw.bb4
   ]
 
-  ; CHECK-DAG: movehi [[A:s[0-9]+]], hi(.LJTI0_0)
-  ; CHECK-DAG: or [[B:s[0-9]+]], [[A]], lo(.LJTI0_0)
-  ; CHECK-DAG: shl [[D:s[0-9]+]], s0, 2
-  ; CHECK-DAG: add_i [[E:s[0-9]+]], [[D]], [[B]]
-  ; CHECK: load_32 [[C:s[0-9]+]], ([[E]])
-  ; CHECK: b [[C]]
+  ; CHECK-STATIC-DAG: movehi [[A:s[0-9]+]], hi(.LJTI0_0)
+  ; CHECK-STATIC-DAG: or [[B:s[0-9]+]], [[A]], lo(.LJTI0_0)
+  ; CHECK-STATIC-DAG: shl [[D:s[0-9]+]], s0, 2
+  ; CHECK-STATIC-DAG: add_i [[E:s[0-9]+]], [[D]], [[B]]
+  ; CHECK-STATIC: load_32 [[C:s[0-9]+]], ([[E]])
+  ; CHECK-STATIC: b [[C]]
+
+	; CHECK-PIC-DAG: load_32 [[A:s[0-9]+]], got(.LJTI0_0)(gp)
+	; CHECK-PIC-DAG: shl [[B:s[0-9]+]], s0, 2
+	; CHECK-PIC-DAG: add_i [[C:s[0-9]+]], [[B]], [[A]]
+	; CHECK-PIC-DAG: load_32 [[C:s[0-9]+]], ([[C]])
+	; CHECK-PIC: add_i [[D:s[0-9]+]], [[C]], [[A]]
+	; CHECK-PIC: b [[D]]
 
 sw.bb:
   %add = add nsw i32 %j, 1
@@ -45,9 +53,15 @@ return:
   ret i32 %retval.0
 }
 
-; CHECK: .LJTI0_0:
-; CHECK: .long .LBB0_2
-; CHECK: .long .LBB0_3
-; CHECK: .long .LBB0_4
-; CHECK: .long .LBB0_5
+; CHECK-STATIC: .LJTI0_0:
+; CHECK-STATIC: .long .LBB0_2
+; CHECK-STATIC: .long .LBB0_3
+; CHECK-STATIC: .long .LBB0_4
+; CHECK-STATIC: .long .LBB0_5
+
+; CHECK-PIC: .LJTI0_0:
+; CHECK-PIC: .long	.LBB0_2-.LJTI0_0
+; CHECK-PIC: .long	.LBB0_3-.LJTI0_0
+; CHECK-PIC: .long	.LBB0_4-.LJTI0_0
+; CHECK-PIC: .long	.LBB0_5-.LJTI0_0
 
