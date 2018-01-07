@@ -23,6 +23,8 @@ class TargetMachine;
 
 class NyuziTargetObjectFile : public TargetLoweringObjectFileELF {
   void Initialize(MCContext &Ctx, const TargetMachine &TM) override;
+  bool shouldPutJumpTableInFunctionSection(bool UsesLabelDifference,
+                                           const Function &F) const override;
 };
 
 } // end namespace llvm

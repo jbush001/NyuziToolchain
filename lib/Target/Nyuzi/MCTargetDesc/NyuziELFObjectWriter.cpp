@@ -31,15 +31,17 @@ protected:
 
 NyuziELFObjectWriter::NyuziELFObjectWriter(uint8_t OSABI)
     : MCELFObjectTargetWriter(/*Is64Bit*/ false, OSABI, ELF::EM_NYUZI,
-                              /*HasRelocationAddend*/ false) {}
+                              /*HasRelocationAddend*/ true) {}
 
-// I think this is always true because HasRelocationAddend is false above.
 bool NyuziELFObjectWriter::needsRelocateWithSymbol(const MCSymbol &Sym,
                              unsigned Type) const
 {
-  return true;
-}
+  // Cannot use addend in the GOT
+  if (Type == ELF::R_NYUZI_GOT)
+    return true;
 
+  return false;
+}
 
 unsigned NyuziELFObjectWriter::getRelocType(MCContext &Ctx,
                                             const MCValue &Target,

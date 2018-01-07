@@ -22,3 +22,10 @@ void NyuziTargetObjectFile::Initialize(MCContext &Ctx,
   TargetLoweringObjectFileELF::Initialize(Ctx, TM);
   InitializeELF(TM.Options.UseInitArray);
 }
+
+bool NyuziTargetObjectFile::shouldPutJumpTableInFunctionSection(bool UsesLabelDifference,
+                                         const Function &F) const {
+  // Needs to be in the same section for the difference to work correctly
+  // (since it is encoded as a constant addend).
+  return UsesLabelDifference;
+}
