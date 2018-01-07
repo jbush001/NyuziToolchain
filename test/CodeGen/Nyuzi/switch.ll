@@ -59,6 +59,8 @@ return:
 ; CHECK-STATIC: .long .LBB0_4
 ; CHECK-STATIC: .long .LBB0_5
 
+; Ensure these are emitted in the text section
+; CHECK-PIC-NOT: .rodata
 ; CHECK-PIC: .LJTI0_0:
 ; CHECK-PIC: .long	.LBB0_2-.LJTI0_0
 ; CHECK-PIC: .long	.LBB0_3-.LJTI0_0
