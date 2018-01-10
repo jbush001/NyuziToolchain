@@ -575,10 +575,26 @@ SDValue NyuziTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
   // If the callee is a GlobalAddress node (quite common, every direct call is)
   // turn it into a TargetGlobalAddress node so that legalize doesn't hack it.
   // Likewise ExternalSymbol -> TargetExternalSymbol.
-  if (GlobalAddressSDNode *G = dyn_cast<GlobalAddressSDNode>(Callee))
-    Callee = DAG.getTargetGlobalAddress(G->getGlobal(), DL, MVT::i32);
-  else if (ExternalSymbolSDNode *E = dyn_cast<ExternalSymbolSDNode>(Callee))
-    Callee = DAG.getTargetExternalSymbol(E->getSymbol(), MVT::i32);
+  bool functionInGot = isPositionIndependent();
+  if (GlobalAddressSDNode *G = dyn_cast<GlobalAddressSDNode>(Callee)) {
+    functionInGot &= !G->getGlobal()->hasLocalLinkage();
+    Callee = DAG.getTargetGlobalAddress(G->getGlobal(), DL, MVT::i32, 0,
+      functionInGot ? Nyuzi::MO_GOT : 0);
+  } else if (ExternalSymbolSDNode *E = dyn_cast<ExternalSymbolSDNode>(Callee)) {
+    Callee = DAG.getTargetExternalSymbol(E->getSymbol(), MVT::i32,
+      functionInGot ? Nyuzi::MO_GOT : 0);
+  }
+
+  // Need to put in got if this is possibly outside this shared library
+  // and PIC mode is enabled.
+  if (functionInGot) {
+    EVT Ty = getPointerTy(DAG.getDataLayout());
+    SDValue GPReg = DAG.getRegister(Nyuzi::GP_REG, MVT::i32);
+    SDValue Wrapper = DAG.getNode(NyuziISD::GOT_ADDR, DL, Ty, GPReg,
+                              Callee);
+    Callee = DAG.getLoad(Ty, DL, DAG.getEntryNode(), Wrapper,
+      MachinePointerInfo::getGOT(DAG.getMachineFunction()));
+  }
 
   // Returns a chain & a flag for retval copy to use
   SDVTList NodeTys = DAG.getVTList(MVT::Other, MVT::Glue);
