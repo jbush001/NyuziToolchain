@@ -63,6 +63,12 @@ let TargetPrefix = "x86" in {
               Intrinsic<[llvm_i64_ty], [llvm_i32_ty], []>;
 }
 
+// Read processor ID.
+let TargetPrefix = "x86" in {
+  def int_x86_rdpid : GCCBuiltin<"__builtin_ia32_rdpid">,
+              Intrinsic<[llvm_i32_ty], [], []>;
+}
+
 //===----------------------------------------------------------------------===//
 // CET SS
 let TargetPrefix = "x86" in {
@@ -3717,35 +3723,6 @@ let TargetPrefix = "x86" in {  // All intrinsics start with "llvm.x86.".
 //===----------------------------------------------------------------------===//
 // AVX512
 
-// Mask ops
-let TargetPrefix = "x86" in {  // All intrinsics start with "llvm.x86.".
-  // Mask instructions
-  // 16-bit mask
-  def int_x86_avx512_kand_w : // TODO: remove this intrinsic
-              Intrinsic<[llvm_i16_ty], [llvm_i16_ty, llvm_i16_ty],
-                         [IntrNoMem]>;
-  def int_x86_avx512_kandn_w : // TODO: remove this intrinsic
-              Intrinsic<[llvm_i16_ty], [llvm_i16_ty, llvm_i16_ty],
-                         [IntrNoMem]>;
-  def int_x86_avx512_knot_w : // TODO: remove this intrinsic
-              Intrinsic<[llvm_i16_ty], [llvm_i16_ty], [IntrNoMem]>;
-  def int_x86_avx512_kor_w : // TODO: remove this intrinsic
-              Intrinsic<[llvm_i16_ty], [llvm_i16_ty, llvm_i16_ty],
-                         [IntrNoMem]>;
-  def int_x86_avx512_kxor_w : // TODO: remove this intrinsic
-              Intrinsic<[llvm_i16_ty], [llvm_i16_ty, llvm_i16_ty],
-                         [IntrNoMem]>;
-  def int_x86_avx512_kxnor_w : // TODO: remove this intrinsic
-              Intrinsic<[llvm_i16_ty], [llvm_i16_ty, llvm_i16_ty],
-                         [IntrNoMem]>;
-  def int_x86_avx512_kortestz_w : GCCBuiltin<"__builtin_ia32_kortestzhi">,
-              Intrinsic<[llvm_i32_ty], [llvm_i16_ty, llvm_i16_ty],
-                        [IntrNoMem]>;
-  def int_x86_avx512_kortestc_w : GCCBuiltin<"__builtin_ia32_kortestchi">,
-              Intrinsic<[llvm_i32_ty], [llvm_i16_ty, llvm_i16_ty],
-                        [IntrNoMem]>;
-}
-
 // Conversion ops
 let TargetPrefix = "x86" in {  // All intrinsics start with "llvm.x86.".
   def int_x86_avx512_cvttss2si : GCCBuiltin<"__builtin_ia32_vcvttss2si32">,
@@ -3801,35 +3778,6 @@ let TargetPrefix = "x86" in {  // All intrinsics start with "llvm.x86.".
   def int_x86_avx512_cvtsi2sd64 : GCCBuiltin<"__builtin_ia32_cvtsi2sd64">,
               Intrinsic<[llvm_v2f64_ty], [llvm_v2f64_ty,
                          llvm_i64_ty, llvm_i32_ty], [IntrNoMem]>;
-
-  def int_x86_avx512_cvtb2mask_128 : GCCBuiltin<"__builtin_ia32_cvtb2mask128">,
-              Intrinsic<[llvm_i16_ty], [llvm_v16i8_ty], [IntrNoMem]>;
-  def int_x86_avx512_cvtb2mask_256 : GCCBuiltin<"__builtin_ia32_cvtb2mask256">,
-              Intrinsic<[llvm_i32_ty], [llvm_v32i8_ty], [IntrNoMem]>;
-  def int_x86_avx512_cvtb2mask_512 : GCCBuiltin<"__builtin_ia32_cvtb2mask512">,
-              Intrinsic<[llvm_i64_ty], [llvm_v64i8_ty], [IntrNoMem]>;
-
-  def int_x86_avx512_cvtw2mask_128 : GCCBuiltin<"__builtin_ia32_cvtw2mask128">,
-              Intrinsic<[llvm_i8_ty], [llvm_v8i16_ty], [IntrNoMem]>;
-  def int_x86_avx512_cvtw2mask_256 : GCCBuiltin<"__builtin_ia32_cvtw2mask256">,
-              Intrinsic<[llvm_i16_ty], [llvm_v16i16_ty], [IntrNoMem]>;
-  def int_x86_avx512_cvtw2mask_512 : GCCBuiltin<"__builtin_ia32_cvtw2mask512">,
-              Intrinsic<[llvm_i32_ty], [llvm_v32i16_ty], [IntrNoMem]>;
-
-  def int_x86_avx512_cvtd2mask_128 : GCCBuiltin<"__builtin_ia32_cvtd2mask128">,
-              Intrinsic<[llvm_i8_ty], [llvm_v4i32_ty], [IntrNoMem]>;
-  def int_x86_avx512_cvtd2mask_256 : GCCBuiltin<"__builtin_ia32_cvtd2mask256">,
-              Intrinsic<[llvm_i8_ty], [llvm_v8i32_ty], [IntrNoMem]>;
-  def int_x86_avx512_cvtd2mask_512 : GCCBuiltin<"__builtin_ia32_cvtd2mask512">,
-              Intrinsic<[llvm_i16_ty], [llvm_v16i32_ty], [IntrNoMem]>;
-
-  def int_x86_avx512_cvtq2mask_128 : GCCBuiltin<"__builtin_ia32_cvtq2mask128">,
-              Intrinsic<[llvm_i8_ty], [llvm_v2i64_ty], [IntrNoMem]>;
-  def int_x86_avx512_cvtq2mask_256 : GCCBuiltin<"__builtin_ia32_cvtq2mask256">,
-              Intrinsic<[llvm_i8_ty], [llvm_v4i64_ty], [IntrNoMem]>;
-  def int_x86_avx512_cvtq2mask_512 : GCCBuiltin<"__builtin_ia32_cvtq2mask512">,
-              Intrinsic<[llvm_i8_ty], [llvm_v8i64_ty], [IntrNoMem]>;
-
 }
 
 // Pack ops.

@@ -93,17 +93,19 @@ NativeProcessNetBSD::Factory::Launch(ProcessLaunchInfo &launch_info,
   }
   LLDB_LOG(log, "inferior started, now in stopped state");
 
-  ArchSpec arch;
-  if ((status = ResolveProcessArchitecture(pid, arch)).Fail())
-    return status.ToError();
+  ProcessInstanceInfo Info;
+  if (!Host::GetProcessInfo(pid, Info)) {
+    return llvm::make_error<StringError>("Cannot get process architecture",
+                                         llvm::inconvertibleErrorCode());
+  }
 
   // Set the architecture to the exe architecture.
   LLDB_LOG(log, "pid = {0:x}, detected architecture {1}", pid,
-           arch.GetArchitectureName());
+           Info.GetArchitecture().GetArchitectureName());
 
   std::unique_ptr<NativeProcessNetBSD> process_up(new NativeProcessNetBSD(
       pid, launch_info.GetPTY().ReleaseMasterFileDescriptor(), native_delegate,
-      arch, mainloop));
+      Info.GetArchitecture(), mainloop));
 
   status = process_up->ReinitializeThreads();
   if (status.Fail())
@@ -111,7 +113,7 @@ NativeProcessNetBSD::Factory::Launch(ProcessLaunchInfo &launch_info,
 
   for (const auto &thread : process_up->m_threads)
     static_cast<NativeThreadNetBSD &>(*thread).SetStoppedBySignal(SIGSTOP);
-  process_up->SetState(StateType::eStateStopped);
+  process_up->SetState(StateType::eStateStopped, false);
 
   return std::move(process_up);
 }
@@ -124,15 +126,16 @@ NativeProcessNetBSD::Factory::Attach(
   LLDB_LOG(log, "pid = {0:x}", pid);
 
   // Retrieve the architecture for the running process.
-  ArchSpec arch;
-  Status status = ResolveProcessArchitecture(pid, arch);
-  if (!status.Success())
-    return status.ToError();
+  ProcessInstanceInfo Info;
+  if (!Host::GetProcessInfo(pid, Info)) {
+    return llvm::make_error<StringError>("Cannot get process architecture",
+                                         llvm::inconvertibleErrorCode());
+  }
 
-  std::unique_ptr<NativeProcessNetBSD> process_up(
-      new NativeProcessNetBSD(pid, -1, native_delegate, arch, mainloop));
+  std::unique_ptr<NativeProcessNetBSD> process_up(new NativeProcessNetBSD(
+      pid, -1, native_delegate, Info.GetArchitecture(), mainloop));
 
-  status = process_up->Attach();
+  Status status = process_up->Attach();
   if (!status.Success())
     return status.ToError();
 
@@ -871,13 +874,13 @@ NativeProcessNetBSD::GetAuxvData() const {
    */
   size_t auxv_size = 100 * sizeof(AuxInfo);
 
-  ErrorOr<std::unique_ptr<MemoryBuffer>> buf =
-      llvm::MemoryBuffer::getNewMemBuffer(auxv_size);
+  ErrorOr<std::unique_ptr<WritableMemoryBuffer>> buf =
+      llvm::WritableMemoryBuffer::getNewMemBuffer(auxv_size);
 
   struct ptrace_io_desc io;
   io.piod_op = PIOD_READ_AUXV;
   io.piod_offs = 0;
-  io.piod_addr = const_cast<void *>(static_cast<const void *>(buf.get()->getBufferStart()));
+  io.piod_addr = static_cast<void *>(buf.get()->getBufferStart());
   io.piod_len = auxv_size;
 
   Status error = NativeProcessNetBSD::PtraceWrapper(PT_IO, GetID(), &io);
@@ -888,7 +891,7 @@ NativeProcessNetBSD::GetAuxvData() const {
   if (io.piod_len < 1)
     return std::error_code(ECANCELED, std::generic_category());
 
-  return buf;
+  return std::move(buf);
 }
 
 Status NativeProcessNetBSD::ReinitializeThreads() {

@@ -161,8 +161,9 @@ template <class ELFT> static uint32_t getHash(InputSection *S) {
 
 // Returns true if section S is subject of ICF.
 static bool isEligible(InputSection *S) {
-  // Don't merge read only data sections unless --icf-data was passed.
-  if (!(S->Flags & SHF_EXECINSTR) && !Config->ICFData)
+  // Don't merge read only data sections unless
+  // --ignore-data-address-equality was passed.
+  if (!(S->Flags & SHF_EXECINSTR) && !Config->IgnoreDataAddressEquality)
     return false;
 
   // .init and .fini contains instructions that must be executed to
@@ -423,14 +424,28 @@ template <class ELFT> void ICF<ELFT>::run() {
 
   log("ICF needed " + Twine(Cnt) + " iterations");
 
+  auto Print = [&](const Twine &Prefix, size_t I) {
+    if (!Config->PrintIcfSections && !errorHandler().Verbose)
+      return;
+    std::string Filename =
+        Sections[I]->File ? Sections[I]->File->getName() : "<internal>";
+    std::string S = (Prefix + " section '" + Sections[I]->Name +
+                     "' from file '" + Filename + "'")
+                        .str();
+    if (Config->PrintIcfSections)
+      message(S);
+    else
+      log(S);
+  };
+
   // Merge sections by the equivalence class.
-  forEachClass([&](size_t Begin, size_t End) {
+  forEachClassRange(0, Sections.size(), [&](size_t Begin, size_t End) {
     if (End - Begin == 1)
       return;
 
-    log("selected " + Sections[Begin]->Name);
+    Print("selected", Begin);
     for (size_t I = Begin + 1; I < End; ++I) {
-      log("  removed " + Sections[I]->Name);
+      Print("  removing identical", I);
       Sections[Begin]->replace(Sections[I]);
     }
   });

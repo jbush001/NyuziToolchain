@@ -38,7 +38,7 @@ class DarwinNSLogOutputTestCase(lldbtest.TestBase):
         self.source = 'main.m'
 
         # Output filename.
-        self.exe_name = 'a.out'
+        self.exe_name = self.getBuildArtifact("a.out")
         self.d = {'OBJC_SOURCES': self.source, 'EXE': self.exe_name}
 
         # Locate breakpoint.
@@ -111,7 +111,7 @@ class DarwinNSLogOutputTestCase(lldbtest.TestBase):
         self.build(dictionary=self.d)
         self.setTearDownCleanup(dictionary=self.d)
 
-        exe = os.path.join(os.getcwd(), self.exe_name)
+        exe = self.getBuildArtifact(self.exe_name)
         self.run_lldb_to_breakpoint(exe, self.source, self.line,
                                     settings_commands=settings_commands)
         self.expect_prompt()

@@ -44,7 +44,7 @@ MIR_PREFIX_DATA_RE = re.compile(r'^ *(;|bb.[0-9].*: *$|[a-z]+:( |$)|$)')
 VREG_CLASS_RE = re.compile(r'^ *- *{ id: ([0-9]+), class: ([a-z0-9_]+)', re.M)
 
 IR_FUNC_NAME_RE = re.compile(
-    r'^\s*define\s+(?:internal\s+)?[^@]*@(?P<func>\w+)\s*\(')
+    r'^\s*define\s+(?:internal\s+)?[^@]*@(?P<func>[A-Za-z0-9_.]+)\s*\(')
 IR_PREFIX_DATA_RE = re.compile(r'^ *(;|$)')
 
 MIR_FUNC_RE = re.compile(
@@ -360,7 +360,7 @@ def update_test_file(llc, test, remove_common_prefixes=False,
             if m:
                 state = 'ir function prefix'
                 func_name = m.group('func')
-            if input_line.strip() == '---':
+            if input_line.rstrip('| \r\n') == '---':
                 state = 'document'
             output_lines.append(input_line)
         elif state == 'document':

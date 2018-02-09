@@ -2113,6 +2113,11 @@ UUID ObjectFileMachO::GetSharedCacheUUID(FileSpec dyld_shared_cache,
            sizeof(uuid_t));
     dsc_uuid.SetBytes(uuid_bytes);
   }
+  Log *log(lldb_private::GetLogIfAllCategoriesSet(LIBLLDB_LOG_SYMBOLS));
+  if (log && dsc_uuid.IsValid()) {
+    log->Printf("Shared cache %s has UUID %s", dyld_shared_cache.GetPath().c_str(), 
+                dsc_uuid.GetAsString().c_str());
+  }
   return dsc_uuid;
 }
 
@@ -5136,10 +5141,8 @@ uint32_t ObjectFileMachO::GetDependentModules(FileSpecList &files) {
         FileSpec file_spec = 
             exec_dir.CopyByAppendingPathComponent(at_exec_relative_path);
         file_spec = file_spec.GetNormalizedPath();
-        if (file_spec.Exists() && files.AppendIfUnique(file_spec)) {
+        if (file_spec.Exists() && files.AppendIfUnique(file_spec))
           count++;
-          break;
-        }
       }
     }
   }
@@ -5686,6 +5689,9 @@ UUID ObjectFileMachO::GetProcessSharedCacheUUID(Process *process) {
     dl->GetSharedCacheInformation(load_address, uuid, using_shared_cache,
                                   private_shared_cache);
   }
+  Log *log(lldb_private::GetLogIfAllCategoriesSet(LIBLLDB_LOG_SYMBOLS | LIBLLDB_LOG_PROCESS));
+  if (log)
+    log->Printf("inferior process shared cache has a UUID of %s", uuid.GetAsString().c_str());
   return uuid;
 }
 
@@ -5716,7 +5722,20 @@ UUID ObjectFileMachO::GetLLDBSharedCacheUUID() {
         uuid.SetBytes(sharedCacheUUID_address);
       }
     }
+  } else {
+    // Exists in macOS 10.12 and later, iOS 10.0 and later - dyld SPI
+    bool *(*dyld_get_shared_cache_uuid)(uuid_t);
+    dyld_get_shared_cache_uuid = (bool *(*)(uuid_t))
+        dlsym(RTLD_DEFAULT, "_dyld_get_shared_cache_uuid");
+    if (dyld_get_shared_cache_uuid) {
+      uuid_t tmp_uuid;
+      if (dyld_get_shared_cache_uuid(tmp_uuid))
+        uuid.SetBytes(tmp_uuid);
+    }
   }
+  Log *log(lldb_private::GetLogIfAllCategoriesSet(LIBLLDB_LOG_SYMBOLS | LIBLLDB_LOG_PROCESS));
+  if (log && uuid.IsValid())
+    log->Printf("lldb's in-memory shared cache has a UUID of %s", uuid.GetAsString().c_str());
 #endif
   return uuid;
 }

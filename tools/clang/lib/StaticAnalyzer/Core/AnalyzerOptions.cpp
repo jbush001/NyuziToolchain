@@ -55,6 +55,25 @@ AnalyzerOptions::UserModeKind AnalyzerOptions::getUserMode() {
   return UserMode;
 }
 
+AnalyzerOptions::ExplorationStrategyKind
+AnalyzerOptions::getExplorationStrategy() {
+  if (ExplorationStrategy == ExplorationStrategyKind::NotSet) {
+    StringRef StratStr = Config.insert(
+            std::make_pair("exploration_strategy", "dfs")).first->second;
+    ExplorationStrategy = llvm::StringSwitch<ExplorationStrategyKind>(StratStr)
+      .Case("dfs", ExplorationStrategyKind::DFS)
+      .Case("bfs", ExplorationStrategyKind::BFS)
+      .Case("bfs_block_dfs_contents", ExplorationStrategyKind::BFSBlockDFSContents)
+      .Default(ExplorationStrategyKind::NotSet);
+    assert(ExplorationStrategy != ExplorationStrategyKind::NotSet
+        && "User mode is invalid.");
+  }
+  return ExplorationStrategy;
+
+}
+
+
+
 IPAKind AnalyzerOptions::getIPAMode() {
   if (IPAMode == IPAK_NotSet) {
 
@@ -185,7 +204,13 @@ bool AnalyzerOptions::includeLifetimeInCFG() {
 
 bool AnalyzerOptions::includeLoopExitInCFG() {
   return getBooleanOption(IncludeLoopExitInCFG, "cfg-loopexit",
-          /* Default = */ false);
+                          /* Default = */ false);
+}
+
+bool AnalyzerOptions::includeRichConstructorsInCFG() {
+  return getBooleanOption(IncludeRichConstructorsInCFG,
+                          "cfg-rich-constructors",
+                          /* Default = */ true);
 }
 
 bool AnalyzerOptions::mayInlineCXXStandardLibrary() {
@@ -203,7 +228,7 @@ bool AnalyzerOptions::mayInlineTemplateFunctions() {
 bool AnalyzerOptions::mayInlineCXXAllocator() {
   return getBooleanOption(InlineCXXAllocator,
                           "c++-allocator-inlining",
-                          /*Default=*/false);
+                          /*Default=*/true);
 }
 
 bool AnalyzerOptions::mayInlineCXXContainerMethods() {

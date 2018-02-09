@@ -3774,6 +3774,24 @@ void ScalarEvolution::eraseValueFromMap(Value *V) {
   }
 }
 
+/// Check whether value has nuw/nsw/exact set but SCEV does not.
+/// TODO: In reality it is better to check the poison recursevely
+/// but this is better than nothing.
+static bool SCEVLostPoisonFlags(const SCEV *S, const Value *V) {
+  if (auto *I = dyn_cast<Instruction>(V)) {
+    if (isa<OverflowingBinaryOperator>(I)) {
+      if (auto *NS = dyn_cast<SCEVNAryExpr>(S)) {
+        if (I->hasNoSignedWrap() && !NS->hasNoSignedWrap())
+          return true;
+        if (I->hasNoUnsignedWrap() && !NS->hasNoUnsignedWrap())
+          return true;
+      }
+    } else if (isa<PossiblyExactOperator>(I) && I->isExact())
+      return true;
+  }
+  return false;
+}
+
 /// Return an existing SCEV if it exists, otherwise analyze the expression and
 /// create a new one.
 const SCEV *ScalarEvolution::getSCEV(Value *V) {
@@ -3787,7 +3805,7 @@ const SCEV *ScalarEvolution::getSCEV(Value *V) {
     // ValueExprMap before insert S->{V, 0} into ExprValueMap.
     std::pair<ValueExprMapType::iterator, bool> Pair =
         ValueExprMap.insert({SCEVCallbackVH(V, this), S});
-    if (Pair.second) {
+    if (Pair.second && !SCEVLostPoisonFlags(S, V)) {
       ExprValueMap[S].insert({V, nullptr});
 
       // If S == Stripped + Offset, add Stripped -> {V, Offset} into
@@ -8651,7 +8669,8 @@ bool ScalarEvolution::isKnownPredicate(ICmpInst::Predicate Pred,
   bool RightGuarded = false;
   if (LAR) {
     const Loop *L = LAR->getLoop();
-    if (isLoopEntryGuardedByCond(L, Pred, LAR->getStart(), RHS) &&
+    if (isAvailableAtLoopEntry(RHS, L) &&
+        isLoopEntryGuardedByCond(L, Pred, LAR->getStart(), RHS) &&
         isLoopBackedgeGuardedByCond(L, Pred, LAR->getPostIncExpr(*this), RHS)) {
       if (!RAR) return true;
       LeftGuarded = true;
@@ -8659,7 +8678,8 @@ bool ScalarEvolution::isKnownPredicate(ICmpInst::Predicate Pred,
   }
   if (RAR) {
     const Loop *L = RAR->getLoop();
-    if (isLoopEntryGuardedByCond(L, Pred, LHS, RAR->getStart()) &&
+    if (isAvailableAtLoopEntry(LHS, L) &&
+        isLoopEntryGuardedByCond(L, Pred, LHS, RAR->getStart()) &&
         isLoopBackedgeGuardedByCond(L, Pred, LHS, RAR->getPostIncExpr(*this))) {
       if (!LAR) return true;
       RightGuarded = true;
@@ -9044,8 +9064,67 @@ ScalarEvolution::isLoopEntryGuardedByCond(const Loop *L,
   // (interprocedural conditions notwithstanding).
   if (!L) return false;
 
+  // Both LHS and RHS must be available at loop entry.
+  assert(isAvailableAtLoopEntry(LHS, L) &&
+         "LHS is not available at Loop Entry");
+  assert(isAvailableAtLoopEntry(RHS, L) &&
+         "RHS is not available at Loop Entry");
+
   if (isKnownPredicateViaConstantRanges(Pred, LHS, RHS))
     return true;
+
+  // If we cannot prove strict comparison (e.g. a > b), maybe we can prove
+  // the facts (a >= b && a != b) separately. A typical situation is when the
+  // non-strict comparison is known from ranges and non-equality is known from
+  // dominating predicates. If we are proving strict comparison, we always try
+  // to prove non-equality and non-strict comparison separately.
+  auto NonStrictPredicate = ICmpInst::getNonStrictPredicate(Pred);
+  const bool ProvingStrictComparison = (Pred != NonStrictPredicate);
+  bool ProvedNonStrictComparison = false;
+  bool ProvedNonEquality = false;
+
+  if (ProvingStrictComparison) {
+    ProvedNonStrictComparison =
+        isKnownPredicateViaConstantRanges(NonStrictPredicate, LHS, RHS);
+    ProvedNonEquality =
+        isKnownPredicateViaConstantRanges(ICmpInst::ICMP_NE, LHS, RHS);
+    if (ProvedNonStrictComparison && ProvedNonEquality)
+      return true;
+  }
+
+  // Try to prove (Pred, LHS, RHS) using isImpliedViaGuard.
+  auto ProveViaGuard = [&](BasicBlock *Block) {
+    if (isImpliedViaGuard(Block, Pred, LHS, RHS))
+      return true;
+    if (ProvingStrictComparison) {
+      if (!ProvedNonStrictComparison)
+        ProvedNonStrictComparison =
+            isImpliedViaGuard(Block, NonStrictPredicate, LHS, RHS);
+      if (!ProvedNonEquality)
+        ProvedNonEquality =
+            isImpliedViaGuard(Block, ICmpInst::ICMP_NE, LHS, RHS);
+      if (ProvedNonStrictComparison && ProvedNonEquality)
+        return true;
+    }
+    return false;
+  };
+
+  // Try to prove (Pred, LHS, RHS) using isImpliedCond.
+  auto ProveViaCond = [&](Value *Condition, bool Inverse) {
+    if (isImpliedCond(Pred, LHS, RHS, Condition, Inverse))
+      return true;
+    if (ProvingStrictComparison) {
+      if (!ProvedNonStrictComparison)
+        ProvedNonStrictComparison =
+            isImpliedCond(NonStrictPredicate, LHS, RHS, Condition, Inverse);
+      if (!ProvedNonEquality)
+        ProvedNonEquality =
+            isImpliedCond(ICmpInst::ICMP_NE, LHS, RHS, Condition, Inverse);
+      if (ProvedNonStrictComparison && ProvedNonEquality)
+        return true;
+    }
+    return false;
+  };
 
   // Starting at the loop predecessor, climb up the predecessor chain, as long
   // as there are predecessors that can be found that have unique successors
@@ -9055,7 +9134,7 @@ ScalarEvolution::isLoopEntryGuardedByCond(const Loop *L,
        Pair.first;
        Pair = getPredecessorWithUniqueSuccessorForBB(Pair.first)) {
 
-    if (isImpliedViaGuard(Pair.first, Pred, LHS, RHS))
+    if (ProveViaGuard(Pair.first))
       return true;
 
     BranchInst *LoopEntryPredicate =
@@ -9064,9 +9143,8 @@ ScalarEvolution::isLoopEntryGuardedByCond(const Loop *L,
         LoopEntryPredicate->isUnconditional())
       continue;
 
-    if (isImpliedCond(Pred, LHS, RHS,
-                      LoopEntryPredicate->getCondition(),
-                      LoopEntryPredicate->getSuccessor(0) != Pair.second))
+    if (ProveViaCond(LoopEntryPredicate->getCondition(),
+                     LoopEntryPredicate->getSuccessor(0) != Pair.second))
       return true;
   }
 
@@ -9078,7 +9156,7 @@ ScalarEvolution::isLoopEntryGuardedByCond(const Loop *L,
     if (!DT.dominates(CI, L->getHeader()))
       continue;
 
-    if (isImpliedCond(Pred, LHS, RHS, CI->getArgOperand(0), false))
+    if (ProveViaCond(CI->getArgOperand(0), false))
       return true;
   }
 
@@ -9400,7 +9478,8 @@ bool ScalarEvolution::isImpliedCondOperandsViaNoOverflow(
   }
 
   // Try to prove (1) or (2), as needed.
-  return isLoopEntryGuardedByCond(L, Pred, FoundRHS,
+  return isAvailableAtLoopEntry(FoundRHS, L) &&
+         isLoopEntryGuardedByCond(L, Pred, FoundRHS,
                                   getConstant(FoundRHSLimit));
 }
 

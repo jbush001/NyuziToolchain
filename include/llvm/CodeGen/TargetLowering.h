@@ -800,7 +800,7 @@ public:
   }
 
   /// Return true if lowering to a jump table is allowed.
-  bool areJTsAllowed(const Function *Fn) const {
+  virtual bool areJTsAllowed(const Function *Fn) const {
     if (Fn->getFnAttribute("no-jump-tables").getValueAsString() == "true")
       return false;
 
@@ -820,7 +820,7 @@ public:
   /// Return true if lowering to a jump table is suitable for a set of case
   /// clusters which may contain \p NumCases cases, \p Range range of values.
   /// FIXME: This function check the maximum table size and density, but the
-  /// minimum size is not checked. It would be nice if the the minimum size is
+  /// minimum size is not checked. It would be nice if the minimum size is
   /// also combined within this function. Currently, the minimum size check is
   /// performed in findJumpTable() in SelectionDAGBuiler and
   /// getEstimatedNumberOfCaseClusters() in BasicTTIImpl.
@@ -1200,6 +1200,18 @@ public:
   /// return the limit for functions that have OptSize attribute.
   unsigned getMaxExpandSizeMemcmp(bool OptSize) const {
     return OptSize ? MaxLoadsPerMemcmpOptSize : MaxLoadsPerMemcmp;
+  }
+
+  /// For memcmp expansion when the memcmp result is only compared equal or
+  /// not-equal to 0, allow up to this number of load pairs per block. As an
+  /// example, this may allow 'memcmp(a, b, 3) == 0' in a single block:
+  ///   a0 = load2bytes &a[0]
+  ///   b0 = load2bytes &b[0]
+  ///   a2 = load1byte  &a[2]
+  ///   b2 = load1byte  &b[2]
+  ///   r  = cmp eq (a0 ^ b0 | a2 ^ b2), 0
+  virtual unsigned getMemcmpEqZeroLoadsPerBlock() const {
+    return 1;
   }
 
   /// \brief Get maximum # of store operations permitted for llvm.memmove
@@ -2520,6 +2532,11 @@ protected:
   /// sequence of memory operands that is recognized by PrologEpilogInserter.
   MachineBasicBlock *emitPatchPoint(MachineInstr &MI,
                                     MachineBasicBlock *MBB) const;
+
+  /// Replace/modify the XRay custom event operands with target-dependent
+  /// details.
+  MachineBasicBlock *emitXRayCustomEvent(MachineInstr &MI,
+                                         MachineBasicBlock *MBB) const;
 };
 
 /// This class defines information used to lower LLVM code to legal SelectionDAG

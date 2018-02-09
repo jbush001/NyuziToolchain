@@ -30,8 +30,8 @@ cl::opt<bool>
                llvm::cl::desc("Use llvm.dbg.addr for all local variables"),
                cl::init(false), cl::Hidden);
 
-DIBuilder::DIBuilder(Module &m, bool AllowUnresolvedNodes)
-  : M(m), VMContext(M.getContext()), CUNode(nullptr),
+DIBuilder::DIBuilder(Module &m, bool AllowUnresolvedNodes, DICompileUnit *CU)
+  : M(m), VMContext(M.getContext()), CUNode(CU),
       DeclareFn(nullptr), ValueFn(nullptr),
       AllowUnresolvedNodes(AllowUnresolvedNodes) {}
 
@@ -333,6 +333,19 @@ static ConstantAsMetadata *getConstantOrNull(Constant *C) {
   return nullptr;
 }
 
+DIDerivedType *DIBuilder::createVariantMemberType(DIScope *Scope, StringRef Name,
+						  DIFile *File, unsigned LineNumber,
+						  uint64_t SizeInBits,
+						  uint32_t AlignInBits,
+						  uint64_t OffsetInBits,
+						  Constant *Discriminant,
+						  DINode::DIFlags Flags, DIType *Ty) {
+  return DIDerivedType::get(VMContext, dwarf::DW_TAG_member, Name, File,
+                            LineNumber, getNonCompileUnitScope(Scope), Ty,
+                            SizeInBits, AlignInBits, OffsetInBits, None, Flags,
+                            getConstantOrNull(Discriminant));
+}
+
 DIDerivedType *DIBuilder::createBitFieldMemberType(
     DIScope *Scope, StringRef Name, DIFile *File, unsigned LineNumber,
     uint64_t SizeInBits, uint64_t OffsetInBits, uint64_t StorageOffsetInBits,
@@ -454,6 +467,18 @@ DICompositeType *DIBuilder::createUnionType(
       VMContext, dwarf::DW_TAG_union_type, Name, File, LineNumber,
       getNonCompileUnitScope(Scope), nullptr, SizeInBits, AlignInBits, 0, Flags,
       Elements, RunTimeLang, nullptr, nullptr, UniqueIdentifier);
+  trackIfUnresolved(R);
+  return R;
+}
+
+DICompositeType *DIBuilder::createVariantPart(
+    DIScope *Scope, StringRef Name, DIFile *File, unsigned LineNumber,
+    uint64_t SizeInBits, uint32_t AlignInBits, DINode::DIFlags Flags,
+    DIDerivedType *Discriminator, DINodeArray Elements, StringRef UniqueIdentifier) {
+  auto *R = DICompositeType::get(
+      VMContext, dwarf::DW_TAG_variant_part, Name, File, LineNumber,
+      getNonCompileUnitScope(Scope), nullptr, SizeInBits, AlignInBits, 0, Flags,
+      Elements, 0, nullptr, nullptr, UniqueIdentifier, Discriminator);
   trackIfUnresolved(R);
   return R;
 }
@@ -580,6 +605,10 @@ DITypeRefArray DIBuilder::getOrCreateTypeArray(ArrayRef<Metadata *> Elements) {
 
 DISubrange *DIBuilder::getOrCreateSubrange(int64_t Lo, int64_t Count) {
   return DISubrange::get(VMContext, Count, Lo);
+}
+
+DISubrange *DIBuilder::getOrCreateSubrange(int64_t Lo, Metadata *CountNode) {
+  return DISubrange::get(VMContext, CountNode, Lo);
 }
 
 static void checkGlobalVariableScope(DIScope *Context) {

@@ -80,17 +80,9 @@ public:
   void setBlockCounter(BlockCounter C) { CurrentCounter = C; }
   BlockCounter getBlockCounter() const { return CurrentCounter; }
 
-  class Visitor {
-  public:
-    Visitor() {}
-    virtual ~Visitor();
-    virtual bool visit(const WorkListUnit &U) = 0;
-  };
-  virtual bool visitItemsInWorkList(Visitor &V) = 0;
-  
-  static WorkList *makeDFS();
-  static WorkList *makeBFS();
-  static WorkList *makeBFSBlockDFSContents();
+  static std::unique_ptr<WorkList> makeDFS();
+  static std::unique_ptr<WorkList> makeBFS();
+  static std::unique_ptr<WorkList> makeBFSBlockDFSContents();
 };
 
 } // end GR namespace

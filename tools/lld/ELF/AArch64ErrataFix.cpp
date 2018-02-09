@@ -47,6 +47,7 @@
 using namespace llvm;
 using namespace llvm::ELF;
 using namespace llvm::object;
+using namespace llvm::support;
 using namespace llvm::support::endian;
 
 using namespace lld;
@@ -357,7 +358,7 @@ static uint64_t scanCortexA53Errata843419(InputSection *IS, uint64_t &Off,
 
   uint64_t PatchOff = 0;
   const uint8_t *Buf = IS->Data.begin();
-  const uint32_t *InstBuf = reinterpret_cast<const uint32_t *>(Buf + Off);
+  const ulittle32_t *InstBuf = reinterpret_cast<const ulittle32_t *>(Buf + Off);
   uint32_t Instr1 = *InstBuf++;
   uint32_t Instr2 = *InstBuf++;
   uint32_t Instr3 = *InstBuf++;
@@ -554,9 +555,8 @@ static void implementPatch(uint64_t AdrpAddr, uint64_t PatcheeOffset,
   if (RelIt != IS->Relocations.end() && RelIt->Type == R_AARCH64_JUMP26)
     return;
 
-  if (Config->Verbose)
-    message("detected cortex-a53-843419 erratum sequence starting at " +
-            utohexstr(AdrpAddr) + " in unpatched output.");
+  log("detected cortex-a53-843419 erratum sequence starting at " +
+      utohexstr(AdrpAddr) + " in unpatched output.");
 
   auto *PS = make<Patch843419Section>(IS, PatcheeOffset);
   Patches.push_back(PS);
