@@ -796,16 +796,38 @@ public:
   /// searches to be performed in parallel, caching of results across
   /// queries and incremental addition to Worklist. Stops early if N is
   /// found but will resume. Remember to clear Visited and Worklists
-  /// if DAG changes.
+  /// if DAG changes. MaxSteps gives a maximum number of nodes to visit before
+  /// giving up. The TopologicalPrune flag signals that positive NodeIds are
+  /// topologically ordered (Operands have strictly smaller node id) and search
+  /// can be pruned leveraging this.
   static bool hasPredecessorHelper(const SDNode *N,
                                    SmallPtrSetImpl<const SDNode *> &Visited,
                                    SmallVectorImpl<const SDNode *> &Worklist,
-                                   unsigned int MaxSteps = 0) {
+                                   unsigned int MaxSteps = 0,
+                                   bool TopologicalPrune = false) {
+    SmallVector<const SDNode *, 8> DeferredNodes;
     if (Visited.count(N))
       return true;
+
+    // Node Id's are assigned in three places: As a topological
+    // ordering (> 0), during legalization (results in values set to
+    // 0), and new nodes (set to -1). If N has a topolgical id then we
+    // know that all nodes with ids smaller than it cannot be
+    // successors and we need not check them. Filter out all node
+    // that can't be matches. We add them to the worklist before exit
+    // in case of multiple calls.
+
+    int NId = N->getNodeId();
+
+    bool Found = false;
     while (!Worklist.empty()) {
       const SDNode *M = Worklist.pop_back_val();
-      bool Found = false;
+      int MId = M->getNodeId();
+      if (TopologicalPrune && M->getOpcode() != ISD::TokenFactor && (NId > 0) &&
+          (MId > 0) && (MId < NId)) {
+        DeferredNodes.push_back(M);
+        continue;
+      }
       for (const SDValue &OpV : M->op_values()) {
         SDNode *Op = OpV.getNode();
         if (Visited.insert(Op).second)
@@ -814,11 +836,13 @@ public:
           Found = true;
       }
       if (Found)
-        return true;
+        break;
       if (MaxSteps != 0 && Visited.size() >= MaxSteps)
-        return false;
+        break;
     }
-    return false;
+    // Push deferred nodes back on worklist.
+    Worklist.append(DeferredNodes.begin(), DeferredNodes.end());
+    return Found;
   }
 
   /// Return true if all the users of N are contained in Nodes.
@@ -2120,13 +2144,14 @@ public:
       : MemSDNode(NodeTy, Order, dl, VTs, MemVT, MMO) {}
 
   // In the both nodes address is Op1, mask is Op2:
-  // MaskedGatherSDNode  (Chain, src0, mask, base, index), src0 is a passthru value
-  // MaskedScatterSDNode (Chain, value, mask, base, index)
+  // MaskedGatherSDNode  (Chain, passthru, mask, base, index, scale)
+  // MaskedScatterSDNode (Chain, value, mask, base, index, scale)
   // Mask is a vector of i1 elements
   const SDValue &getBasePtr() const { return getOperand(3); }
   const SDValue &getIndex()   const { return getOperand(4); }
   const SDValue &getMask()    const { return getOperand(2); }
   const SDValue &getValue()   const { return getOperand(1); }
+  const SDValue &getScale()   const { return getOperand(5); }
 
   static bool classof(const SDNode *N) {
     return N->getOpcode() == ISD::MGATHER ||

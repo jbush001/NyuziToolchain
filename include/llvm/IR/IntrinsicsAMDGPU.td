@@ -238,6 +238,26 @@ def int_amdgcn_cvt_pkrtz : Intrinsic<
   [IntrNoMem, IntrSpeculatable]
 >;
 
+def int_amdgcn_cvt_pknorm_i16 : Intrinsic<
+  [llvm_v2i16_ty], [llvm_float_ty, llvm_float_ty],
+  [IntrNoMem, IntrSpeculatable]
+>;
+
+def int_amdgcn_cvt_pknorm_u16 : Intrinsic<
+  [llvm_v2i16_ty], [llvm_float_ty, llvm_float_ty],
+  [IntrNoMem, IntrSpeculatable]
+>;
+
+def int_amdgcn_cvt_pk_i16 : Intrinsic<
+  [llvm_v2i16_ty], [llvm_i32_ty, llvm_i32_ty],
+  [IntrNoMem, IntrSpeculatable]
+>;
+
+def int_amdgcn_cvt_pk_u16 : Intrinsic<
+  [llvm_v2i16_ty], [llvm_i32_ty, llvm_i32_ty],
+  [IntrNoMem, IntrSpeculatable]
+>;
+
 def int_amdgcn_class : Intrinsic<
   [llvm_i1_ty], [llvm_anyfloat_ty, llvm_i32_ty],
   [IntrNoMem, IntrSpeculatable]
@@ -294,6 +314,21 @@ class AMDGPUAtomicIncIntrin : Intrinsic<[llvm_anyint_ty],
 
 def int_amdgcn_atomic_inc : AMDGPUAtomicIncIntrin;
 def int_amdgcn_atomic_dec : AMDGPUAtomicIncIntrin;
+
+class AMDGPULDSF32Intrin<string clang_builtin> :
+  GCCBuiltin<clang_builtin>,
+  Intrinsic<[llvm_float_ty],
+    [LLVMQualPointerType<llvm_float_ty, 3>,
+    llvm_float_ty,
+    llvm_i32_ty, // ordering
+    llvm_i32_ty, // scope
+    llvm_i1_ty], // isVolatile
+    [IntrArgMemOnly, NoCapture<0>]
+>;
+
+def int_amdgcn_ds_fadd : AMDGPULDSF32Intrin<"__builtin_amdgcn_ds_fadd">;
+def int_amdgcn_ds_fmin : AMDGPULDSF32Intrin<"__builtin_amdgcn_ds_fmin">;
+def int_amdgcn_ds_fmax : AMDGPULDSF32Intrin<"__builtin_amdgcn_ds_fmax">;
 
 class AMDGPUImageLoad<bit NoMem = 0> : Intrinsic <
   [llvm_anyfloat_ty], // vdata(VGPR)

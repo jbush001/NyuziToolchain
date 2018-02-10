@@ -888,16 +888,7 @@ Status ProcessGDBRemote::DoLaunch(Module *exe_module,
       }
 
       // Send the environment and the program + arguments after we connect
-      const Args &environment = launch_info.GetEnvironmentEntries();
-      if (environment.GetArgumentCount()) {
-        size_t num_environment_entries = environment.GetArgumentCount();
-        for (size_t i = 0; i < num_environment_entries; ++i) {
-          const char *env_entry = environment.GetArgumentAtIndex(i);
-          if (env_entry == NULL ||
-              m_gdb_comm.SendEnvironmentPacket(env_entry) != 0)
-            break;
-        }
-      }
+      m_gdb_comm.SendEnvironment(launch_info.GetEnvironment());
 
       {
         // Scope for the scoped timeout object
@@ -4409,6 +4400,19 @@ bool ProcessGDBRemote::GetGDBServerRegisterInfo(ArchSpec &arch_to_use) {
         return true; // Keep iterating through all children of the target_node
       });
 
+      // If the target.xml includes an architecture entry like
+      //   <architecture>i386:x86-64</architecture> (seen from VMWare ESXi)
+      //   <architecture>arm</architecture> (seen from Segger JLink on unspecified arm board)
+      // use that if we don't have anything better.
+      if (!arch_to_use.IsValid() && !target_info.arch.empty()) {
+        if (target_info.arch == "i386:x86-64")
+        {
+          // We don't have any information about vendor or OS.
+          arch_to_use.SetTriple("x86_64--");
+          GetTarget().MergeArchitecture(arch_to_use);
+        }
+      }
+
       // Initialize these outside of ParseRegisters, since they should not be
       // reset inside each include feature
       uint32_t cur_reg_num = 0;
@@ -5154,10 +5158,11 @@ public:
 
       bool send_async = true;
       StringExtractorGDBRemote response;
-      process->GetGDBRemote().SendPacketAndWaitForResponse(
-          packet.GetString(), response, send_async);
-      result.SetStatus(eReturnStatusSuccessFinishResult);
       Stream &output_strm = result.GetOutputStream();
+      process->GetGDBRemote().SendPacketAndReceiveResponseWithOutputSupport(
+          packet.GetString(), response, send_async,
+          [&output_strm](llvm::StringRef output) { output_strm << output; });
+      result.SetStatus(eReturnStatusSuccessFinishResult);
       output_strm.Printf("  packet: %s\n", packet.GetData());
       const std::string &response_str = response.GetStringRef();
 

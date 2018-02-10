@@ -324,6 +324,10 @@ private:
   /// is defined once we get to the end of the of the translation unit.
   std::vector<GlobalDecl> Aliases;
 
+  /// List of multiversion functions that have to be emitted.  Used to make sure
+  /// we properly emit the iFunc.
+  std::vector<GlobalDecl> MultiVersionFuncs;
+
   typedef llvm::StringMap<llvm::TrackingVH<llvm::Constant> > ReplacementsTy;
   ReplacementsTy Replacements;
 
@@ -685,6 +689,11 @@ public:
   TBAAAccessInfo mergeTBAAInfoForConditionalOperator(TBAAAccessInfo InfoA,
                                                      TBAAAccessInfo InfoB);
 
+  /// mergeTBAAInfoForMemoryTransfer - Get merged TBAA information for the
+  /// purposes of memory transfer calls.
+  TBAAAccessInfo mergeTBAAInfoForMemoryTransfer(TBAAAccessInfo DestInfo,
+                                                TBAAAccessInfo SrcInfo);
+
   /// getTBAAInfoForSubobject - Get TBAA information for an access with a given
   /// base lvalue.
   TBAAAccessInfo getTBAAInfoForSubobject(LValue Base, QualType AccessType) {
@@ -710,8 +719,11 @@ public:
   llvm::ConstantInt *getSize(CharUnits numChars);
 
   /// Set the visibility for the given LLVM GlobalValue.
-  void setGlobalVisibility(llvm::GlobalValue *GV, const NamedDecl *D,
-                           ForDefinition_t IsForDefinition) const;
+  void setGlobalVisibility(llvm::GlobalValue *GV, const NamedDecl *D) const;
+
+  void setDSOLocal(llvm::GlobalValue *GV, const NamedDecl *D) const;
+
+  void setGVProperties(llvm::GlobalValue *GV, const NamedDecl *D) const;
 
   /// Set the TLS mode for the given LLVM GlobalValue for the thread-local
   /// variable declaration D.
@@ -1085,6 +1097,8 @@ public:
   /// value.
   void AddDependentLib(StringRef Lib);
 
+  void AddELFLibDirective(StringRef Lib);
+
   llvm::GlobalVariable::LinkageTypes getFunctionLinkage(GlobalDecl GD);
 
   void setFunctionLinkage(GlobalDecl GD, llvm::Function *F) {
@@ -1247,6 +1261,12 @@ private:
       llvm::AttributeList ExtraAttrs = llvm::AttributeList(),
       ForDefinition_t IsForDefinition = NotForDefinition);
 
+  llvm::Constant *GetOrCreateMultiVersionIFunc(GlobalDecl GD,
+                                               llvm::Type *DeclTy,
+                                               StringRef MangledName,
+                                               const FunctionDecl *FD);
+  void UpdateMultiVersionNames(GlobalDecl GD, const FunctionDecl *FD);
+
   llvm::Constant *GetOrCreateLLVMGlobal(StringRef MangledName,
                                         llvm::PointerType *PTy,
                                         const VarDecl *D,
@@ -1257,8 +1277,7 @@ private:
 
   /// Set function attributes for a function declaration.
   void SetFunctionAttributes(GlobalDecl GD, llvm::Function *F,
-                             bool IsIncompleteFunction, bool IsThunk,
-                             ForDefinition_t IsForDefinition);
+                             bool IsIncompleteFunction, bool IsThunk);
 
   void EmitGlobalDefinition(GlobalDecl D, llvm::GlobalValue *GV = nullptr);
 
@@ -1318,6 +1337,8 @@ private:
   void applyGlobalValReplacements();
 
   void checkAliases();
+
+  void emitMultiVersionFunctions();
 
   /// Emit any vtables which we deferred and still have a use for.
   void EmitDeferredVTables();

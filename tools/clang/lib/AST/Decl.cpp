@@ -779,7 +779,7 @@ LinkageComputer::getLVForNamespaceScopeDecl(const NamedDecl *D,
     // unique-external linkage, it's not legally usable from outside
     // this translation unit.  However, we should use the C linkage
     // rules instead for extern "C" declarations.
-    if (Context.getLangOpts().CPlusPlus && !Function->isInExternCContext()) {
+    if (Context.getLangOpts().CPlusPlus && !isFirstInExternCContext(Function)) {
       // Only look at the type-as-written. Otherwise, deducing the return type
       // of a function could change its linkage.
       QualType TypeAsWritten = Function->getType();
@@ -1165,7 +1165,7 @@ LinkageInfo LinkageComputer::getLVForLocalDecl(const NamedDecl *D,
                                                LVComputationKind computation) {
   if (const auto *Function = dyn_cast<FunctionDecl>(D)) {
     if (Function->isInAnonymousNamespace() &&
-        !Function->isInExternCContext())
+        !isFirstInExternCContext(Function))
       return getInternalLinkageFor(Function);
 
     // This is a "void f();" which got merged with a file static.
@@ -1188,7 +1188,7 @@ LinkageInfo LinkageComputer::getLVForLocalDecl(const NamedDecl *D,
 
   if (const auto *Var = dyn_cast<VarDecl>(D)) {
     if (Var->hasExternalStorage()) {
-      if (Var->isInAnonymousNamespace() && !Var->isInExternCContext())
+      if (Var->isInAnonymousNamespace() && !isFirstInExternCContext(Var))
         return getInternalLinkageFor(Var);
 
       LinkageInfo LV;
@@ -1497,9 +1497,10 @@ void NamedDecl::printQualifiedName(raw_ostream &OS,
   using ContextsTy = SmallVector<const DeclContext *, 8>;
   ContextsTy Contexts;
 
-  // Collect contexts.
-  while (Ctx && isa<NamedDecl>(Ctx)) {
-    Contexts.push_back(Ctx);
+  // Collect named contexts.
+  while (Ctx) {
+    if (isa<NamedDecl>(Ctx))
+      Contexts.push_back(Ctx);
     Ctx = Ctx->getParent();
   }
 
@@ -2899,6 +2900,13 @@ unsigned FunctionDecl::getBuiltinID() const {
   // the C99 standard headers are not available.
   if (Context.getLangOpts().OpenCL &&
       Context.BuiltinInfo.isPredefinedLibFunction(BuiltinID))
+    return 0;
+
+  // CUDA does not have device-side standard library. printf and malloc are the
+  // only special cases that are supported by device-side runtime.
+  if (Context.getLangOpts().CUDA && hasAttr<CUDADeviceAttr>() &&
+      !hasAttr<CUDAHostAttr>() &&
+      !(BuiltinID == Builtin::BIprintf || BuiltinID == Builtin::BImalloc))
     return 0;
 
   return BuiltinID;
@@ -4365,9 +4373,7 @@ bool TypedefNameDecl::isTransparentTagSlow() const {
   };
 
   bool isTransparent = determineIsTransparent();
-  CacheIsTransparentTag = 1;
-  if (isTransparent)
-    CacheIsTransparentTag |= 0x2;
+  MaybeModedTInfo.setInt((isTransparent << 1) | 1);
   return isTransparent;
 }
 

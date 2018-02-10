@@ -40,8 +40,9 @@ MCCodeEmitter *createNyuziMCCodeEmitter(const MCInstrInfo &MCII,
 std::unique_ptr<MCObjectWriter> createNyuziELFObjectWriter(raw_pwrite_stream &OS,
                                                            uint8_t OSABI);
 
-MCAsmBackend *createNyuziAsmBackend(const Target &T, const MCRegisterInfo &MRI,
-                                    const Triple &TT, StringRef CPU,
+MCAsmBackend *createNyuziAsmBackend(const Target &T,
+                                    const MCSubtargetInfo &STI,
+                                    const MCRegisterInfo &MRI,
                                     const MCTargetOptions &Options);
 
 } // namespace llvm

@@ -38,6 +38,10 @@ using namespace llvm;
 
 namespace {
 
+// Went we ceate the indirect function table we start at 1, so that there is
+// and emtpy slot at 0 and therefore calling a null function pointer will trap.
+static const uint32_t kInitialTableOffset = 1;
+
 // For patching purposes, we need to remember where each section starts, both
 // for patching up the section size field, and for patching up references to
 // locations within the section.
@@ -131,11 +135,16 @@ struct WasmExport {
 
 // A wasm global to be written into the global section.
 struct WasmGlobal {
-  wasm::ValType Type;
-  bool IsMutable;
-  bool HasImport;
+  wasm::WasmGlobalType Type;
   uint64_t InitialValue;
-  uint32_t ImportIndex;
+};
+
+// Information about a single item which is part of a COMDAT.  For each data
+// segment or function which is in the COMDAT, there is a corresponding
+// WasmComdatEntry.
+struct WasmComdatEntry {
+  unsigned Kind;
+  uint32_t Index;
 };
 
 // Information about a single relocation.
@@ -182,15 +191,6 @@ raw_ostream &operator<<(raw_ostream &OS, const WasmRelocationEntry &Rel) {
 #endif
 
 class WasmObjectWriter : public MCObjectWriter {
-  /// Helper struct for containing some precomputed information on symbols.
-  struct WasmSymbolData {
-    const MCSymbolWasm *Symbol;
-    StringRef Name;
-
-    // Support lexicographic sorting.
-    bool operator<(const WasmSymbolData &RHS) const { return Name < RHS.Name; }
-  };
-
   /// The target specific Wasm writer instance.
   std::unique_ptr<MCWasmObjectTargetWriter> TargetObjectWriter;
 
@@ -205,7 +205,7 @@ class WasmObjectWriter : public MCObjectWriter {
   DenseMap<const MCSymbolWasm *, uint32_t> TypeIndices;
   // Maps function symbols to the table element index space. Used
   // for TABLE_INDEX relocation types (i.e. address taken functions).
-  DenseMap<const MCSymbolWasm *, uint32_t> IndirectSymbolIndices;
+  DenseMap<const MCSymbolWasm *, uint32_t> TableIndices;
   // Maps function/global symbols to the function/global index space.
   DenseMap<const MCSymbolWasm *, uint32_t> SymbolIndices;
 
@@ -213,6 +213,7 @@ class WasmObjectWriter : public MCObjectWriter {
       FunctionTypeIndices;
   SmallVector<WasmFunctionType, 4> FunctionTypes;
   SmallVector<WasmGlobal, 4> Globals;
+  unsigned NumFunctionImports = 0;
   unsigned NumGlobalImports = 0;
 
   // TargetObjectWriter wrappers.
@@ -231,19 +232,20 @@ public:
       : MCObjectWriter(OS, /*IsLittleEndian=*/true),
         TargetObjectWriter(std::move(MOTW)) {}
 
-private:
   ~WasmObjectWriter() override;
 
+private:
   void reset() override {
     CodeRelocations.clear();
     DataRelocations.clear();
     TypeIndices.clear();
     SymbolIndices.clear();
-    IndirectSymbolIndices.clear();
+    TableIndices.clear();
     FunctionTypeIndices.clear();
     FunctionTypes.clear();
     Globals.clear();
     MCObjectWriter::reset();
+    NumFunctionImports = 0;
     NumGlobalImports = 0;
   }
 
@@ -277,15 +279,13 @@ private:
   void writeCodeSection(const MCAssembler &Asm, const MCAsmLayout &Layout,
                         ArrayRef<WasmFunction> Functions);
   void writeDataSection(ArrayRef<WasmDataSegment> Segments);
-  void writeNameSection(ArrayRef<WasmFunction> Functions,
-                        ArrayRef<WasmImport> Imports,
-                        uint32_t NumFuncImports);
   void writeCodeRelocSection();
   void writeDataRelocSection();
   void writeLinkingMetaDataSection(
       ArrayRef<WasmDataSegment> Segments, uint32_t DataSize,
-      const SmallVector<std::pair<StringRef, uint32_t>, 4> &SymbolFlags,
-      const SmallVector<std::pair<uint16_t, uint32_t>, 2> &InitFuncs);
+      ArrayRef<std::pair<StringRef, uint32_t>> SymbolFlags,
+      ArrayRef<std::pair<uint16_t, uint32_t>> InitFuncs,
+      const std::map<StringRef, std::vector<WasmComdatEntry>>& Comdats);
 
   uint32_t getProvisionalValue(const WasmRelocationEntry &RelEntry);
   void applyRelocations(ArrayRef<WasmRelocationEntry> Relocations,
@@ -485,25 +485,43 @@ static const MCSymbolWasm* ResolveSymbol(const MCSymbolWasm& Symbol) {
 }
 
 // Compute a value to write into the code at the location covered
-// by RelEntry. This value isn't used by the static linker, since
-// we have addends; it just serves to make the code more readable
-// and to make standalone wasm modules directly usable.
+// by RelEntry. This value isn't used by the static linker; it just serves
+// to make the object format more readable and more likely to be directly
+// useable.
 uint32_t
 WasmObjectWriter::getProvisionalValue(const WasmRelocationEntry &RelEntry) {
-  const MCSymbolWasm *Sym = ResolveSymbol(*RelEntry.Symbol);
+  switch (RelEntry.Type) {
+  case wasm::R_WEBASSEMBLY_TABLE_INDEX_SLEB:
+  case wasm::R_WEBASSEMBLY_TABLE_INDEX_I32: {
+    // Provisional value is table address of the resolved symbol itself
+    const MCSymbolWasm *Sym = ResolveSymbol(*RelEntry.Symbol);
+    assert(Sym->isFunction());
+    return TableIndices[Sym];
+  }
+  case wasm::R_WEBASSEMBLY_FUNCTION_INDEX_LEB:
+  case wasm::R_WEBASSEMBLY_TYPE_INDEX_LEB:
+  case wasm::R_WEBASSEMBLY_GLOBAL_INDEX_LEB:
+    // Provisional value is function/type/global index itself
+    return getRelocationIndexValue(RelEntry);
+  case wasm::R_WEBASSEMBLY_MEMORY_ADDR_LEB:
+  case wasm::R_WEBASSEMBLY_MEMORY_ADDR_I32:
+  case wasm::R_WEBASSEMBLY_MEMORY_ADDR_SLEB: {
+    // Provisional value is address of the global
+    const MCSymbolWasm *Sym = ResolveSymbol(*RelEntry.Symbol);
+    // For undefined symbols, use zero
+    if (!Sym->isDefined())
+      return 0;
 
-  // For undefined symbols, use a hopefully invalid value.
-  if (!Sym->isDefined(/*SetUsed=*/false))
-    return UINT32_MAX;
+    uint32_t GlobalIndex = SymbolIndices[Sym];
+    const WasmGlobal& Global = Globals[GlobalIndex - NumGlobalImports];
+    uint64_t Address = Global.InitialValue + RelEntry.Addend;
 
-  uint32_t GlobalIndex = SymbolIndices[Sym];
-  const WasmGlobal& Global = Globals[GlobalIndex - NumGlobalImports];
-  uint64_t Address = Global.InitialValue + RelEntry.Addend;
-
-  // Ignore overflow. LLVM allows address arithmetic to silently wrap.
-  uint32_t Value = Address;
-
-  return Value;
+    // Ignore overflow. LLVM allows address arithmetic to silently wrap.
+    return Address;
+  }
+  default:
+    llvm_unreachable("invalid relocation type");
+  }
 }
 
 static void addData(SmallVectorImpl<char> &DataBytes,
@@ -528,7 +546,10 @@ static void addData(SmallVectorImpl<char> &DataBytes,
                                              Align->getMaxBytesToEmit());
       DataBytes.resize(Size, Value);
     } else if (auto *Fill = dyn_cast<MCFillFragment>(&Frag)) {
-      DataBytes.insert(DataBytes.end(), Fill->getSize(), Fill->getValue());
+      int64_t Size;
+      if (!Fill->getSize().evaluateAsAbsolute(Size))
+        llvm_unreachable("The fill should be an assembler constant");
+      DataBytes.insert(DataBytes.end(), Size, Fill->getValue());
     } else {
       const auto &DataFrag = cast<MCDataFragment>(Frag);
       const SmallVectorImpl<char> &Contents = DataFrag.getContents();
@@ -547,32 +568,19 @@ static void addData(SmallVectorImpl<char> &DataBytes,
   DEBUG(dbgs() << "addData -> " << DataBytes.size() << "\n");
 }
 
-uint32_t WasmObjectWriter::getRelocationIndexValue(
-    const WasmRelocationEntry &RelEntry) {
-  switch (RelEntry.Type) {
-  case wasm::R_WEBASSEMBLY_TABLE_INDEX_SLEB:
-  case wasm::R_WEBASSEMBLY_TABLE_INDEX_I32:
-    if (!IndirectSymbolIndices.count(RelEntry.Symbol))
-      report_fatal_error("symbol not found in table index space: " +
-                         RelEntry.Symbol->getName());
-    return IndirectSymbolIndices[RelEntry.Symbol];
-  case wasm::R_WEBASSEMBLY_FUNCTION_INDEX_LEB:
-  case wasm::R_WEBASSEMBLY_GLOBAL_INDEX_LEB:
-  case wasm::R_WEBASSEMBLY_MEMORY_ADDR_LEB:
-  case wasm::R_WEBASSEMBLY_MEMORY_ADDR_SLEB:
-  case wasm::R_WEBASSEMBLY_MEMORY_ADDR_I32:
-    if (!SymbolIndices.count(RelEntry.Symbol))
-      report_fatal_error("symbol not found in function/global index space: " +
-                         RelEntry.Symbol->getName());
-    return SymbolIndices[RelEntry.Symbol];
-  case wasm::R_WEBASSEMBLY_TYPE_INDEX_LEB:
+uint32_t
+WasmObjectWriter::getRelocationIndexValue(const WasmRelocationEntry &RelEntry) {
+  if (RelEntry.Type == wasm::R_WEBASSEMBLY_TYPE_INDEX_LEB) {
     if (!TypeIndices.count(RelEntry.Symbol))
       report_fatal_error("symbol not found in type index space: " +
                          RelEntry.Symbol->getName());
     return TypeIndices[RelEntry.Symbol];
-  default:
-    llvm_unreachable("invalid relocation type");
   }
+
+  if (!SymbolIndices.count(RelEntry.Symbol))
+    report_fatal_error("symbol not found in function/global index space: " +
+                       RelEntry.Symbol->getName());
+  return SymbolIndices[RelEntry.Symbol];
 }
 
 // Apply the portions of the relocation records that we can handle ourselves
@@ -586,35 +594,23 @@ void WasmObjectWriter::applyRelocations(
                       RelEntry.Offset;
 
     DEBUG(dbgs() << "applyRelocation: " << RelEntry << "\n");
+    uint32_t Value = getProvisionalValue(RelEntry);
+
     switch (RelEntry.Type) {
-    case wasm::R_WEBASSEMBLY_TABLE_INDEX_SLEB:
     case wasm::R_WEBASSEMBLY_FUNCTION_INDEX_LEB:
     case wasm::R_WEBASSEMBLY_TYPE_INDEX_LEB:
-    case wasm::R_WEBASSEMBLY_GLOBAL_INDEX_LEB: {
-      uint32_t Index = getRelocationIndexValue(RelEntry);
-      WritePatchableSLEB(Stream, Index, Offset);
-      break;
-    }
-    case wasm::R_WEBASSEMBLY_TABLE_INDEX_I32: {
-      uint32_t Index = getRelocationIndexValue(RelEntry);
-      WriteI32(Stream, Index, Offset);
-      break;
-    }
-    case wasm::R_WEBASSEMBLY_MEMORY_ADDR_SLEB: {
-      uint32_t Value = getProvisionalValue(RelEntry);
-      WritePatchableSLEB(Stream, Value, Offset);
-      break;
-    }
-    case wasm::R_WEBASSEMBLY_MEMORY_ADDR_LEB: {
-      uint32_t Value = getProvisionalValue(RelEntry);
+    case wasm::R_WEBASSEMBLY_GLOBAL_INDEX_LEB:
+    case wasm::R_WEBASSEMBLY_MEMORY_ADDR_LEB:
       WritePatchableLEB(Stream, Value, Offset);
       break;
-    }
-    case wasm::R_WEBASSEMBLY_MEMORY_ADDR_I32: {
-      uint32_t Value = getProvisionalValue(RelEntry);
+    case wasm::R_WEBASSEMBLY_TABLE_INDEX_I32:
+    case wasm::R_WEBASSEMBLY_MEMORY_ADDR_I32:
       WriteI32(Stream, Value, Offset);
       break;
-    }
+    case wasm::R_WEBASSEMBLY_TABLE_INDEX_SLEB:
+    case wasm::R_WEBASSEMBLY_MEMORY_ADDR_SLEB:
+      WritePatchableSLEB(Stream, Value, Offset);
+      break;
     default:
       llvm_unreachable("invalid relocation type");
     }
@@ -729,18 +725,11 @@ void WasmObjectWriter::writeGlobalSection() {
 
   encodeULEB128(Globals.size(), getStream());
   for (const WasmGlobal &Global : Globals) {
-    writeValueType(Global.Type);
-    write8(Global.IsMutable);
+    writeValueType(static_cast<wasm::ValType>(Global.Type.Type));
+    write8(Global.Type.Mutable);
 
-    if (Global.HasImport) {
-      assert(Global.InitialValue == 0);
-      write8(wasm::WASM_OPCODE_GET_GLOBAL);
-      encodeULEB128(Global.ImportIndex, getStream());
-    } else {
-      assert(Global.ImportIndex == 0);
-      write8(wasm::WASM_OPCODE_I32_CONST);
-      encodeSLEB128(Global.InitialValue, getStream()); // offset
-    }
+    write8(wasm::WASM_OPCODE_I32_CONST);
+    encodeSLEB128(Global.InitialValue, getStream());
     write8(wasm::WASM_OPCODE_END);
   }
 
@@ -776,7 +765,7 @@ void WasmObjectWriter::writeElemSection(ArrayRef<uint32_t> TableElems) {
 
   // init expr for starting offset
   write8(wasm::WASM_OPCODE_I32_CONST);
-  encodeSLEB128(0, getStream());
+  encodeSLEB128(kInitialTableOffset, getStream());
   write8(wasm::WASM_OPCODE_END);
 
   encodeULEB128(TableElems.size(), getStream());
@@ -840,38 +829,6 @@ void WasmObjectWriter::writeDataSection(ArrayRef<WasmDataSegment> Segments) {
   endSection(Section);
 }
 
-void WasmObjectWriter::writeNameSection(
-    ArrayRef<WasmFunction> Functions,
-    ArrayRef<WasmImport> Imports,
-    unsigned NumFuncImports) {
-  uint32_t TotalFunctions = NumFuncImports + Functions.size();
-  if (TotalFunctions == 0)
-    return;
-
-  SectionBookkeeping Section;
-  startSection(Section, wasm::WASM_SEC_CUSTOM, "name");
-  SectionBookkeeping SubSection;
-  startSection(SubSection, wasm::WASM_NAMES_FUNCTION);
-
-  encodeULEB128(TotalFunctions, getStream());
-  uint32_t Index = 0;
-  for (const WasmImport &Import : Imports) {
-    if (Import.Kind == wasm::WASM_EXTERNAL_FUNCTION) {
-      encodeULEB128(Index, getStream());
-      writeString(Import.FieldName);
-      ++Index;
-    }
-  }
-  for (const WasmFunction &Func : Functions) {
-    encodeULEB128(Index, getStream());
-    writeString(Func.Sym->getName());
-    ++Index;
-  }
-
-  endSection(SubSection);
-  endSection(Section);
-}
-
 void WasmObjectWriter::writeCodeRelocSection() {
   // See: https://github.com/WebAssembly/tool-conventions/blob/master/Linking.md
   // for descriptions of the reloc sections.
@@ -910,8 +867,9 @@ void WasmObjectWriter::writeDataRelocSection() {
 
 void WasmObjectWriter::writeLinkingMetaDataSection(
     ArrayRef<WasmDataSegment> Segments, uint32_t DataSize,
-    const SmallVector<std::pair<StringRef, uint32_t>, 4> &SymbolFlags,
-    const SmallVector<std::pair<uint16_t, uint32_t>, 2> &InitFuncs) {
+    ArrayRef<std::pair<StringRef, uint32_t>> SymbolFlags,
+    ArrayRef<std::pair<uint16_t, uint32_t>> InitFuncs,
+    const std::map<StringRef, std::vector<WasmComdatEntry>>& Comdats) {
   SectionBookkeeping Section;
   startSection(Section, wasm::WASM_SEC_CUSTOM, "linking");
   SectionBookkeeping SubSection;
@@ -953,6 +911,21 @@ void WasmObjectWriter::writeLinkingMetaDataSection(
     endSection(SubSection);
   }
 
+  if (Comdats.size()) {
+    startSection(SubSection, wasm::WASM_COMDAT_INFO);
+    encodeULEB128(Comdats.size(), getStream());
+    for (const auto &C : Comdats) {
+      writeString(C.first);
+      encodeULEB128(0, getStream()); // flags for future use
+      encodeULEB128(C.second.size(), getStream());
+      for (const WasmComdatEntry &Entry : C.second) {
+        encodeULEB128(Entry.Kind, getStream());
+        encodeULEB128(Entry.Index, getStream());
+      }
+    }
+    endSection(SubSection);
+  }
+
   endSection(Section);
 }
 
@@ -985,7 +958,7 @@ void WasmObjectWriter::writeObject(MCAssembler &Asm,
                                    const MCAsmLayout &Layout) {
   DEBUG(dbgs() << "WasmObjectWriter::writeObject\n");
   MCContext &Ctx = Asm.getContext();
-  wasm::ValType PtrType = is64Bit() ? wasm::ValType::I64 : wasm::ValType::I32;
+  int32_t PtrType = is64Bit() ? wasm::WASM_TYPE_I64 : wasm::WASM_TYPE_I32;
 
   // Collect information from the available symbols.
   SmallVector<WasmFunction, 4> Functions;
@@ -994,67 +967,9 @@ void WasmObjectWriter::writeObject(MCAssembler &Asm,
   SmallVector<WasmExport, 4> Exports;
   SmallVector<std::pair<StringRef, uint32_t>, 4> SymbolFlags;
   SmallVector<std::pair<uint16_t, uint32_t>, 2> InitFuncs;
-  unsigned NumFuncImports = 0;
+  std::map<StringRef, std::vector<WasmComdatEntry>> Comdats;
   SmallVector<WasmDataSegment, 4> DataSegments;
   uint32_t DataSize = 0;
-
-  // In the special .global_variables section, we've encoded global
-  // variables used by the function. Translate them into the Globals
-  // list.
-  MCSectionWasm *GlobalVars =
-      Ctx.getWasmSection(".global_variables", SectionKind::getMetadata());
-  if (!GlobalVars->getFragmentList().empty()) {
-    if (GlobalVars->getFragmentList().size() != 1)
-      report_fatal_error("only one .global_variables fragment supported");
-    const MCFragment &Frag = *GlobalVars->begin();
-    if (Frag.hasInstructions() || Frag.getKind() != MCFragment::FT_Data)
-      report_fatal_error("only data supported in .global_variables");
-    const auto &DataFrag = cast<MCDataFragment>(Frag);
-    if (!DataFrag.getFixups().empty())
-      report_fatal_error("fixups not supported in .global_variables");
-    const SmallVectorImpl<char> &Contents = DataFrag.getContents();
-    for (const uint8_t *p = (const uint8_t *)Contents.data(),
-                     *end = (const uint8_t *)Contents.data() + Contents.size();
-         p != end; ) {
-      WasmGlobal G;
-      if (end - p < 3)
-        report_fatal_error("truncated global variable encoding");
-      G.Type = wasm::ValType(int8_t(*p++));
-      G.IsMutable = bool(*p++);
-      G.HasImport = bool(*p++);
-      if (G.HasImport) {
-        G.InitialValue = 0;
-
-        WasmImport Import;
-        Import.ModuleName = (const char *)p;
-        const uint8_t *nul = (const uint8_t *)memchr(p, '\0', end - p);
-        if (!nul)
-          report_fatal_error("global module name must be nul-terminated");
-        p = nul + 1;
-        nul = (const uint8_t *)memchr(p, '\0', end - p);
-        if (!nul)
-          report_fatal_error("global base name must be nul-terminated");
-        Import.FieldName = (const char *)p;
-        p = nul + 1;
-
-        Import.Kind = wasm::WASM_EXTERNAL_GLOBAL;
-        Import.Type = int32_t(G.Type);
-
-        G.ImportIndex = NumGlobalImports;
-        ++NumGlobalImports;
-
-        Imports.push_back(Import);
-      } else {
-        unsigned n;
-        G.InitialValue = decodeSLEB128(p, &n);
-        G.ImportIndex = 0;
-        if ((ptrdiff_t)n > end - p)
-          report_fatal_error("global initial value must be valid SLEB128");
-        p += n;
-      }
-      Globals.push_back(G);
-    }
-  }
 
   // For now, always emit the memory import, since loads and stores are not
   // valid without it. In the future, we could perhaps be more clever and omit
@@ -1084,8 +999,7 @@ void WasmObjectWriter::writeObject(MCAssembler &Asm,
     const auto &WS = static_cast<const MCSymbolWasm &>(S);
 
     // Register types for all functions, including those with private linkage
-    // (making them
-    // because wasm always needs a type signature.
+    // (because wasm always needs a type signature).
     if (WS.isFunction())
       registerFunctionType(WS);
 
@@ -1093,7 +1007,8 @@ void WasmObjectWriter::writeObject(MCAssembler &Asm,
       continue;
 
     // If the symbol is not defined in this translation unit, import it.
-    if (!WS.isDefined(/*SetUsed=*/false) || WS.isVariable()) {
+    if ((!WS.isDefined() && !WS.isComdat()) ||
+        WS.isVariable()) {
       WasmImport Import;
       Import.ModuleName = WS.getModuleName();
       Import.FieldName = WS.getName();
@@ -1101,11 +1016,11 @@ void WasmObjectWriter::writeObject(MCAssembler &Asm,
       if (WS.isFunction()) {
         Import.Kind = wasm::WASM_EXTERNAL_FUNCTION;
         Import.Type = getFunctionType(WS);
-        SymbolIndices[&WS] = NumFuncImports;
-        ++NumFuncImports;
+        SymbolIndices[&WS] = NumFunctionImports;
+        ++NumFunctionImports;
       } else {
         Import.Kind = wasm::WASM_EXTERNAL_GLOBAL;
-        Import.Type = int32_t(PtrType);
+        Import.Type = PtrType;
         Import.IsMutable = false;
         SymbolIndices[&WS] = NumGlobalImports;
 
@@ -1129,6 +1044,7 @@ void WasmObjectWriter::writeObject(MCAssembler &Asm,
     if (cast<MCSectionWasm>(Sec).getSectionName().startswith(".init_array"))
       continue;
 
+    uint32_t SegmentIndex = DataSegments.size();
     DataSize = alignTo(DataSize, Section.getAlignment());
     DataSegments.emplace_back();
     WasmDataSegment &Segment = DataSegments.back();
@@ -1140,6 +1056,11 @@ void WasmObjectWriter::writeObject(MCAssembler &Asm,
     Segment.Flags = 0;
     DataSize += Segment.Data.size();
     Section.setMemoryOffset(Segment.Offset);
+
+    if (const MCSymbolWasm *C = Section.getGroup()) {
+      Comdats[C->getName()].emplace_back(
+          WasmComdatEntry{wasm::WASM_COMDAT_DATA, SegmentIndex});
+    }
   }
 
   // Handle regular defined and undefined symbols.
@@ -1151,8 +1072,9 @@ void WasmObjectWriter::writeObject(MCAssembler &Asm,
 
     const auto &WS = static_cast<const MCSymbolWasm &>(S);
     DEBUG(dbgs() << "MCSymbol: '" << S << "'"
-                 << " isDefined=" << S.isDefined() << " isExternal="
-                 << S.isExternal() << " isTemporary=" << S.isTemporary()
+                 << " isDefined=" << S.isDefined()
+                 << " isExternal=" << S.isExternal()
+                 << " isTemporary=" << S.isTemporary()
                  << " isFunction=" << WS.isFunction()
                  << " isWeak=" << WS.isWeak()
                  << " isHidden=" << WS.isHidden()
@@ -1170,7 +1092,7 @@ void WasmObjectWriter::writeObject(MCAssembler &Asm,
     unsigned Index;
 
     if (WS.isFunction()) {
-      if (WS.isDefined(/*SetUsed=*/false)) {
+      if (WS.isDefined()) {
         if (WS.getOffset() != 0)
           report_fatal_error(
               "function sections must contain one function each");
@@ -1180,7 +1102,7 @@ void WasmObjectWriter::writeObject(MCAssembler &Asm,
               "function symbols must have a size set with .size");
 
         // A definition. Take the next available index.
-        Index = NumFuncImports + Functions.size();
+        Index = NumFunctionImports + Functions.size();
 
         // Prepare the function.
         WasmFunction Func;
@@ -1198,7 +1120,7 @@ void WasmObjectWriter::writeObject(MCAssembler &Asm,
       if (WS.isTemporary() && !WS.getSize())
         continue;
 
-      if (!WS.isDefined(/*SetUsed=*/false))
+      if (!WS.isDefined())
         continue;
 
       if (!WS.getSize())
@@ -1213,20 +1135,19 @@ void WasmObjectWriter::writeObject(MCAssembler &Asm,
       // address.  For externals these will also be named exports.
       Index = NumGlobalImports + Globals.size();
       auto &DataSection = static_cast<MCSectionWasm &>(WS.getSection());
+      assert(DataSection.isWasmData());
 
       WasmGlobal Global;
-      Global.Type = PtrType;
-      Global.IsMutable = false;
-      Global.HasImport = false;
+      Global.Type.Type = PtrType;
+      Global.Type.Mutable = false;
       Global.InitialValue = DataSection.getMemoryOffset() + Layout.getSymbolOffset(WS);
-      Global.ImportIndex = 0;
       SymbolIndices[&WS] = Index;
       DEBUG(dbgs() << "  -> global index: " << Index << "\n");
       Globals.push_back(Global);
     }
 
     // If the symbol is visible outside this translation unit, export it.
-    if (WS.isDefined(/*SetUsed=*/false)) {
+    if (WS.isDefined()) {
       WasmExport Export;
       Export.FieldName = WS.getName();
       Export.Index = Index;
@@ -1236,8 +1157,16 @@ void WasmObjectWriter::writeObject(MCAssembler &Asm,
         Export.Kind = wasm::WASM_EXTERNAL_GLOBAL;
       DEBUG(dbgs() << "  -> export " << Exports.size() << "\n");
       Exports.push_back(Export);
+
       if (!WS.isExternal())
         SymbolFlags.emplace_back(WS.getName(), wasm::WASM_SYMBOL_BINDING_LOCAL);
+
+      if (WS.isFunction()) {
+        auto &Section = static_cast<MCSectionWasm &>(WS.getSection());
+        if (const MCSymbolWasm *C = Section.getGroup())
+          Comdats[C->getName()].emplace_back(
+              WasmComdatEntry{wasm::WASM_COMDAT_FUNCTION, Index});
+      }
     }
   }
 
@@ -1248,7 +1177,7 @@ void WasmObjectWriter::writeObject(MCAssembler &Asm,
     if (!S.isVariable())
       continue;
 
-    assert(S.isDefined(/*SetUsed=*/false));
+    assert(S.isDefined());
 
     // Find the target symbol of this weak alias and export that index
     const auto &WS = static_cast<const MCSymbolWasm &>(S);
@@ -1274,25 +1203,21 @@ void WasmObjectWriter::writeObject(MCAssembler &Asm,
 
   {
     auto HandleReloc = [&](const WasmRelocationEntry &Rel) {
-      // Functions referenced by a relocation need to prepared to be called
-      // indirectly.
-      const MCSymbolWasm& WS = *Rel.Symbol;
-      if (WS.isFunction() && IndirectSymbolIndices.count(&WS) == 0) {
-        switch (Rel.Type) {
-        case wasm::R_WEBASSEMBLY_TABLE_INDEX_I32:
-        case wasm::R_WEBASSEMBLY_TABLE_INDEX_SLEB:
-        case wasm::R_WEBASSEMBLY_MEMORY_ADDR_I32:
-        case wasm::R_WEBASSEMBLY_MEMORY_ADDR_SLEB: {
-          uint32_t Index = SymbolIndices.find(&WS)->second;
-          IndirectSymbolIndices[&WS] = TableElems.size();
-          DEBUG(dbgs() << "  -> adding to table: " << TableElems.size() << "\n");
-          TableElems.push_back(Index);
-          registerFunctionType(WS);
-          break;
-        }
-        default:
-          break;
-        }
+      // Functions referenced by a relocation need to put in the table.  This is
+      // purely to make the object file's provisional values readable, and is
+      // ignored by the linker, which re-calculates the relocations itself.
+      if (Rel.Type != wasm::R_WEBASSEMBLY_TABLE_INDEX_I32 &&
+          Rel.Type != wasm::R_WEBASSEMBLY_TABLE_INDEX_SLEB)
+        return;
+      assert(Rel.Symbol->isFunction());
+      const MCSymbolWasm &WS = *ResolveSymbol(*Rel.Symbol);
+      uint32_t SymbolIndex = SymbolIndices.find(&WS)->second;
+      uint32_t TableIndex = TableElems.size() + kInitialTableOffset;
+      if (TableIndices.try_emplace(&WS, TableIndex).second) {
+        DEBUG(dbgs() << "  -> adding " << WS.getName()
+                     << " to table: " << TableIndex << "\n");
+        TableElems.push_back(SymbolIndex);
+        registerFunctionType(WS);
       }
     };
 
@@ -1365,11 +1290,10 @@ void WasmObjectWriter::writeObject(MCAssembler &Asm,
   writeElemSection(TableElems);
   writeCodeSection(Asm, Layout, Functions);
   writeDataSection(DataSegments);
-  writeNameSection(Functions, Imports, NumFuncImports);
   writeCodeRelocSection();
   writeDataRelocSection();
   writeLinkingMetaDataSection(DataSegments, DataSize, SymbolFlags,
-                              InitFuncs);
+                              InitFuncs, Comdats);
 
   // TODO: Translate the .comment section to the output.
   // TODO: Translate debug sections to the output.
@@ -1378,8 +1302,5 @@ void WasmObjectWriter::writeObject(MCAssembler &Asm,
 std::unique_ptr<MCObjectWriter>
 llvm::createWasmObjectWriter(std::unique_ptr<MCWasmObjectTargetWriter> MOTW,
                              raw_pwrite_stream &OS) {
-  // FIXME: Can't use make_unique<WasmObjectWriter>(...) as WasmObjectWriter's
-  //        destructor is private. Is that necessary?
-  return std::unique_ptr<MCObjectWriter>(
-      new WasmObjectWriter(std::move(MOTW), OS));
+  return llvm::make_unique<WasmObjectWriter>(std::move(MOTW), OS);
 }

@@ -359,7 +359,8 @@ public:
           std::pair<MachineBasicBlock::iterator, MachineBasicBlock::iterator>>
           &RepeatedSequenceLocs) const override;
   AArch64GenInstrInfo::MachineOutlinerInstrType
-  getOutliningType(MachineInstr &MI) const override;
+  getOutliningType(MachineBasicBlock::iterator &MIT, unsigned Flags) const override;
+  unsigned getMachineOutlinerMBBFlags(MachineBasicBlock &MBB) const override;
   void insertOutlinerEpilogue(MachineBasicBlock &MBB, MachineFunction &MF,
                               const MachineOutlinerInfo &MInfo) const override;
   void insertOutlinerPrologue(MachineBasicBlock &MBB, MachineFunction &MF,
@@ -368,6 +369,9 @@ public:
   insertOutlinedCall(Module &M, MachineBasicBlock &MBB,
                      MachineBasicBlock::iterator &It, MachineFunction &MF,
                      const MachineOutlinerInfo &MInfo) const override;
+  /// Returns true if the instruction sets to an immediate value that can be
+  /// executed more efficiently.
+  bool isExynosResetFast(const MachineInstr &MI) const;
   /// Returns true if the instruction has a shift left that can be executed
   /// more efficiently.
   bool isExynosShiftLeftFast(const MachineInstr &MI) const;

@@ -74,7 +74,7 @@ uint64_t ExprValue::getSectionOffset() const {
   // If the alignment is trivial, we don't have to compute the full
   // value to know the offset. This allows this function to succeed in
   // cases where the output section is not yet known.
-  if (Alignment == 1)
+  if (Alignment == 1 && (!Sec || !Sec->getOutputSection()))
     return Val;
   return getValue() - getSecAddr();
 }
@@ -114,16 +114,28 @@ void LinkerScript::setDot(Expr E, const Twine &Loc, bool InSec) {
     Ctx->OutSec->Size = Dot - Ctx->OutSec->Addr;
 }
 
+// Used for handling linker symbol assignments, for both finalizing
+// their values and doing early declarations. Returns true if symbol
+// should be defined from linker script.
+static bool shouldDefineSym(SymbolAssignment *Cmd) {
+  if (Cmd->Name == ".")
+    return false;
+
+  if (!Cmd->Provide)
+    return true;
+
+  // If a symbol was in PROVIDE(), we need to define it only
+  // when it is a referenced undefined symbol.
+  Symbol *B = Symtab->find(Cmd->Name);
+  if (!B || B->isDefined())
+    return false;
+  return true;
+}
+
 // This function is called from processSectionCommands,
 // while we are fixing the output section layout.
 void LinkerScript::addSymbol(SymbolAssignment *Cmd) {
-  if (Cmd->Name == ".")
-    return;
-
-  // If a symbol was in PROVIDE(), we need to define it only when
-  // it is a referenced undefined symbol.
-  Symbol *B = Symtab->find(Cmd->Name);
-  if (Cmd->Provide && (!B || B->isDefined()))
+  if (!shouldDefineSym(Cmd))
     return;
 
   // Define a symbol.
@@ -151,6 +163,30 @@ void LinkerScript::addSymbol(SymbolAssignment *Cmd) {
   replaceSymbol<Defined>(Sym, nullptr, Cmd->Name, STB_GLOBAL, Visibility,
                          STT_NOTYPE, SymValue, 0, Sec);
   Cmd->Sym = cast<Defined>(Sym);
+}
+
+// Symbols defined in script should not be inlined by LTO. At the same time
+// we don't know their final values until late stages of link. Here we scan
+// over symbol assignment commands and create placeholder symbols if needed.
+void LinkerScript::declareSymbols() {
+  assert(!Ctx);
+  for (BaseCommand *Base : SectionCommands) {
+    auto *Cmd = dyn_cast<SymbolAssignment>(Base);
+    if (!Cmd || !shouldDefineSym(Cmd))
+      continue;
+
+    // We can't calculate final value right now.
+    Symbol *Sym;
+    uint8_t Visibility = Cmd->Hidden ? STV_HIDDEN : STV_DEFAULT;
+    std::tie(Sym, std::ignore) =
+        Symtab->insert(Cmd->Name, /*Type*/ 0, Visibility,
+                       /*CanOmitFromDynSym*/ false,
+                       /*File*/ nullptr);
+    replaceSymbol<Defined>(Sym, nullptr, Cmd->Name, STB_GLOBAL, Visibility,
+                           STT_NOTYPE, 0, 0, nullptr);
+    Cmd->Sym = cast<Defined>(Sym);
+    Cmd->Provide = false;
+  }
 }
 
 // This function is called from assignAddresses, while we are
@@ -249,22 +285,10 @@ static void sortSections(MutableArrayRef<InputSection *> Vec,
 //    --sort-section is handled as an inner SORT command.
 // 3. If one SORT command is given, and if it is SORT_NONE, don't sort.
 // 4. If no SORT command is given, sort according to --sort-section.
-// 5. If no SORT commands are given and --sort-section is not specified,
-//    apply sorting provided by --symbol-ordering-file if any exist.
-static void sortInputSections(
-    MutableArrayRef<InputSection *> Vec, const SectionPattern &Pat,
-    const DenseMap<SectionBase *, int> &Order) {
+static void sortInputSections(MutableArrayRef<InputSection *> Vec,
+                              const SectionPattern &Pat) {
   if (Pat.SortOuter == SortSectionPolicy::None)
     return;
-
-  if (Pat.SortOuter == SortSectionPolicy::Default &&
-      Config->SortSection == SortSectionPolicy::Default) {
-    // If -symbol-ordering-file was given, sort accordingly.
-    // Usually, Order is empty.
-    if (!Order.empty())
-      sortByOrder(Vec, [&](InputSectionBase *S) { return Order.lookup(S); });
-    return;
-  }
 
   if (Pat.SortInner == SortSectionPolicy::Default)
     sortSections(Vec, Config->SortSection);
@@ -275,8 +299,7 @@ static void sortInputSections(
 
 // Compute and remember which sections the InputSectionDescription matches.
 std::vector<InputSection *>
-LinkerScript::computeInputSections(const InputSectionDescription *Cmd,
-                                   const DenseMap<SectionBase *, int> &Order) {
+LinkerScript::computeInputSections(const InputSectionDescription *Cmd) {
   std::vector<InputSection *> Ret;
 
   // Collects all sections that satisfy constraints of Cmd.
@@ -307,7 +330,7 @@ LinkerScript::computeInputSections(const InputSectionDescription *Cmd,
     }
 
     sortInputSections(MutableArrayRef<InputSection *>(Ret).slice(SizeBefore),
-                      Pat, Order);
+                      Pat);
   }
   return Ret;
 }
@@ -324,13 +347,13 @@ void LinkerScript::discard(ArrayRef<InputSection *> V) {
   }
 }
 
-std::vector<InputSection *> LinkerScript::createInputSectionList(
-    OutputSection &OutCmd, const DenseMap<SectionBase *, int> &Order) {
+std::vector<InputSection *>
+LinkerScript::createInputSectionList(OutputSection &OutCmd) {
   std::vector<InputSection *> Ret;
 
   for (BaseCommand *Base : OutCmd.SectionCommands) {
     if (auto *Cmd = dyn_cast<InputSectionDescription>(Base)) {
-      Cmd->Sections = computeInputSections(Cmd, Order);
+      Cmd->Sections = computeInputSections(Cmd);
       Ret.insert(Ret.end(), Cmd->Sections.begin(), Cmd->Sections.end());
     }
   }
@@ -359,7 +382,6 @@ void LinkerScript::processSectionCommands() {
   Ctx->OutSec = Aether;
 
   size_t I = 0;
-  DenseMap<SectionBase *, int> Order = buildSectionOrder();
   // Add input sections to output sections.
   for (BaseCommand *Base : SectionCommands) {
     // Handle symbol assignments outside of any output section.
@@ -369,7 +391,7 @@ void LinkerScript::processSectionCommands() {
     }
 
     if (auto *Sec = dyn_cast<OutputSection>(Base)) {
-      std::vector<InputSection *> V = createInputSectionList(*Sec, Order);
+      std::vector<InputSection *> V = createInputSectionList(*Sec);
 
       // The output section name `/DISCARD/' is special.
       // Any input section assigned to it is discarded.
@@ -589,8 +611,12 @@ void LinkerScript::output(InputSection *S) {
 
   // If there is a memory region associated with this input section, then
   // place the section in that region and update the region index.
+  if (Ctx->LMARegion)
+    Ctx->LMARegion->CurPos += Pos - Before;
+  // FIXME: should we also produce overflow errors for LMARegion?
+
   if (Ctx->MemRegion) {
-    uint64_t &CurOffset = Ctx->MemRegionOffset[Ctx->MemRegion];
+    uint64_t &CurOffset = Ctx->MemRegion->CurPos;
     CurOffset += Pos - Before;
     uint64_t CurSize = CurOffset - Ctx->MemRegion->Origin;
     if (CurSize > Ctx->MemRegion->Length) {
@@ -608,13 +634,6 @@ void LinkerScript::switchTo(OutputSection *Sec) {
 
   Ctx->OutSec = Sec;
   Ctx->OutSec->Addr = advance(0, Ctx->OutSec->Alignment);
-
-  // If neither AT nor AT> is specified for an allocatable section, the linker
-  // will set the LMA such that the difference between VMA and LMA for the
-  // section is the same as the preceding output section in the same region
-  // https://sourceware.org/binutils/docs-2.20/ld/Output-Section-LMA.html
-  if (Ctx->LMAOffset)
-    Ctx->OutSec->LMAOffset = Ctx->LMAOffset();
 }
 
 // This function searches for a memory region to place the given output
@@ -624,9 +643,8 @@ MemoryRegion *LinkerScript::findMemoryRegion(OutputSection *Sec) {
   // If a memory region name was specified in the output section command,
   // then try to find that region first.
   if (!Sec->MemoryRegionName.empty()) {
-    auto It = MemoryRegions.find(Sec->MemoryRegionName);
-    if (It != MemoryRegions.end())
-      return It->second;
+    if (MemoryRegion *M = MemoryRegions.lookup(Sec->MemoryRegionName))
+      return M;
     error("memory region '" + Sec->MemoryRegionName + "' not declared");
     return nullptr;
   }
@@ -659,20 +677,24 @@ void LinkerScript::assignOffsets(OutputSection *Sec) {
     setDot(Sec->AddrExpr, Sec->Location, false);
 
   Ctx->MemRegion = Sec->MemRegion;
+  Ctx->LMARegion = Sec->LMARegion;
   if (Ctx->MemRegion)
-    Dot = Ctx->MemRegionOffset[Ctx->MemRegion];
-
-  if (Sec->LMAExpr) {
-    uint64_t D = Dot;
-    Ctx->LMAOffset = [=] { return Sec->LMAExpr().getValue() - D; };
-  }
+    Dot = Ctx->MemRegion->CurPos;
 
   switchTo(Sec);
 
-  // We do not support custom layout for compressed debug sectons.
-  // At this point we already know their size and have compressed content.
-  if (Ctx->OutSec->Flags & SHF_COMPRESSED)
-    return;
+  if (Sec->LMAExpr)
+    Ctx->LMAOffset = Sec->LMAExpr().getValue() - Dot;
+
+  if (MemoryRegion *MR = Sec->LMARegion)
+    Ctx->LMAOffset = MR->CurPos - Dot;
+
+  // If neither AT nor AT> is specified for an allocatable section, the linker
+  // will set the LMA such that the difference between VMA and LMA for the
+  // section is the same as the preceding output section in the same region
+  // https://sourceware.org/binutils/docs-2.20/ld/Output-Section-LMA.html
+  if (PhdrEntry *L = Ctx->OutSec->PtLoad)
+    L->LMAOffset = Ctx->LMAOffset;
 
   // The Size previously denoted how many InputSections had been added to this
   // section, and was used for sorting SHF_LINK_ORDER sections. Reset it to
@@ -694,7 +716,9 @@ void LinkerScript::assignOffsets(OutputSection *Sec) {
       Cmd->Offset = Dot - Ctx->OutSec->Addr;
       Dot += Cmd->Size;
       if (Ctx->MemRegion)
-        Ctx->MemRegionOffset[Ctx->MemRegion] += Cmd->Size;
+        Ctx->MemRegion->CurPos += Cmd->Size;
+      if (Ctx->LMARegion)
+        Ctx->LMARegion->CurPos += Cmd->Size;
       Ctx->OutSec->Size = Dot - Ctx->OutSec->Addr;
       continue;
     }
@@ -793,6 +817,12 @@ void LinkerScript::adjustSectionsAfterSorting() {
     if (auto *Sec = dyn_cast<OutputSection>(Base)) {
       if (!Sec->Live)
         continue;
+      if (!Sec->LMARegionName.empty()) {
+        if (MemoryRegion *M = MemoryRegions.lookup(Sec->LMARegionName))
+          Sec->LMARegion = M;
+        else
+          error("memory region '" + Sec->LMARegionName + "' not declared");
+      }
       Sec->MemRegion = findMemoryRegion(Sec);
       // Handle align (e.g. ".foo : ALIGN(16) { ... }").
       if (Sec->AlignExpr)
@@ -883,8 +913,8 @@ void LinkerScript::allocateHeaders(std::vector<PhdrEntry *> &Phdrs) {
 
 LinkerScript::AddressState::AddressState() {
   for (auto &MRI : Script->MemoryRegions) {
-    const MemoryRegion *MR = MRI.second;
-    MemRegionOffset[MR] = MR->Origin;
+    MemoryRegion *MR = MRI.second;
+    MR->CurPos = MR->Origin;
   }
 }
 

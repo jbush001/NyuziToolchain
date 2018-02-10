@@ -3215,6 +3215,24 @@ ASTReader::ReadASTBlock(ModuleFile &F, unsigned ClientLoadCapabilities) {
       break;
     }
 
+    case PPD_SKIPPED_RANGES: {
+      F.PreprocessedSkippedRangeOffsets = (const PPSkippedRange*)Blob.data();
+      assert(Blob.size() % sizeof(PPSkippedRange) == 0);
+      F.NumPreprocessedSkippedRanges = Blob.size() / sizeof(PPSkippedRange);
+
+      if (!PP.getPreprocessingRecord())
+        PP.createPreprocessingRecord();
+      if (!PP.getPreprocessingRecord()->getExternalSource())
+        PP.getPreprocessingRecord()->SetExternalSource(*this);
+      F.BasePreprocessedSkippedRangeID = PP.getPreprocessingRecord()
+          ->allocateSkippedRanges(F.NumPreprocessedSkippedRanges);
+      
+      if (F.NumPreprocessedSkippedRanges > 0)
+        GlobalSkippedRangeMap.insert(
+            std::make_pair(F.BasePreprocessedSkippedRangeID, &F));
+      break;
+    }
+
     case DECL_UPDATE_OFFSETS:
       if (Record.size() % 2 != 0) {
         Error("invalid DECL_UPDATE_OFFSETS block in AST file");
@@ -5387,6 +5405,20 @@ ASTReader::getModuleFileLevelDecls(ModuleFile &Mod) {
                          Mod.FileSortedDecls + Mod.NumFileSortedDecls));
 }
 
+SourceRange ASTReader::ReadSkippedRange(unsigned GlobalIndex) {
+  auto I = GlobalSkippedRangeMap.find(GlobalIndex);
+  assert(I != GlobalSkippedRangeMap.end() &&
+    "Corrupted global skipped range map");
+  ModuleFile *M = I->second;
+  unsigned LocalIndex = GlobalIndex - M->BasePreprocessedSkippedRangeID;
+  assert(LocalIndex < M->NumPreprocessedSkippedRanges);
+  PPSkippedRange RawRange = M->PreprocessedSkippedRangeOffsets[LocalIndex];
+  SourceRange Range(TranslateSourceLocation(*M, RawRange.getBegin()),
+                    TranslateSourceLocation(*M, RawRange.getEnd()));
+  assert(Range.isValid());
+  return Range;
+}
+
 PreprocessedEntity *ASTReader::ReadPreprocessedEntity(unsigned Index) {
   PreprocessedEntityID PPID = Index+1;
   std::pair<ModuleFile *, unsigned> PPInfo = getModulePreprocessedEntity(Index);
@@ -5729,6 +5761,8 @@ void ASTReader::ReadPragmaDiagnosticMappings(DiagnosticsEngine &Diag) {
       Initial.ExtBehavior = (diag::Severity)Flags;
       FirstState = ReadDiagState(Initial, SourceLocation(), true);
 
+      assert(F.OriginalSourceFileID.isValid());
+
       // Set up the root buffer of the module to start with the initial
       // diagnostic state of the module itself, to cover files that contain no
       // explicit transitions (for which we did not serialize anything).
@@ -5749,6 +5783,7 @@ void ASTReader::ReadPragmaDiagnosticMappings(DiagnosticsEngine &Diag) {
              "Invalid data, missing pragma diagnostic states");
       SourceLocation Loc = ReadSourceLocation(F, Record[Idx++]);
       auto IDAndOffset = SourceMgr.getDecomposedLoc(Loc);
+      assert(IDAndOffset.first.isValid() && "invalid FileID for transition");
       assert(IDAndOffset.second == 0 && "not a start location for a FileID");
       unsigned Transitions = Record[Idx++];
 
@@ -10660,6 +10695,7 @@ void ASTReader::diagnoseOdrViolations() {
       Diagnosed = true;
       break;
     }
+    (void)Diagnosed;
     assert(Diagnosed && "Unable to emit ODR diagnostic.");
   }
 }

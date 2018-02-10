@@ -150,8 +150,8 @@ private:
 
 // MCAsmBackend
 MCAsmBackend *llvm::createNyuziAsmBackend(const Target &T,
+                                          const MCSubtargetInfo &STI,
                                           const MCRegisterInfo &MRI,
-                                          const Triple &TT, StringRef CPU,
                                           const MCTargetOptions &Options) {
-  return new NyuziAsmBackend(T, Triple(TT).getOS());
+  return new NyuziAsmBackend(T, STI.getTargetTriple().getOS());
 }

@@ -26,10 +26,8 @@
 // C++ Includes
 // Other libraries and framework includes
 // Project includes
-#include "lldb/Core/Module.h"
 #include "lldb/Host/Host.h"
 #include "lldb/Host/HostInfo.h"
-#include "lldb/Target/Platform.h"
 #include "lldb/Target/Process.h"
 #include "lldb/Utility/CleanUp.h"
 #include "lldb/Utility/DataBufferHeap.h"
@@ -243,14 +241,7 @@ bool Host::GetProcessInfo(lldb::pid_t pid, ProcessInstanceInfo &process_info) {
   return false;
 }
 
-size_t Host::GetEnvironment(StringList &env) {
-  char **host_env = environ;
-  char *env_entry;
-  size_t i;
-  for (i = 0; (env_entry = host_env[i]) != NULL; ++i)
-    env.AppendString(env_entry);
-  return i;
-}
+Environment Host::GetEnvironment() { return Environment(environ); }
 
 Status Host::ShellExpandArguments(ProcessLaunchInfo &launch_info) {
   return Status("unimplemented");

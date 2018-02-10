@@ -823,8 +823,8 @@ void CodeViewDebug::switchToDebugSectionForSymbol(const MCSymbol *GVSym) {
 
 void CodeViewDebug::emitDebugInfoForFunction(const Function *GV,
                                              FunctionInfo &FI) {
-  // For each function there is a separate subsection
-  // which holds the PC to file:line table.
+  // For each function there is a separate subsection which holds the PC to
+  // file:line table.
   const MCSymbol *Fn = Asm->getSymbol(GV);
   assert(Fn);
 
@@ -1281,6 +1281,8 @@ TypeIndex CodeViewDebug::lowerType(const DIType *Ty, const DIType *ClassTy) {
     return lowerTypeClass(cast<DICompositeType>(Ty));
   case dwarf::DW_TAG_union_type:
     return lowerTypeUnion(cast<DICompositeType>(Ty));
+  case dwarf::DW_TAG_unspecified_type:
+    return TypeIndex::None();
   default:
     // Use the null type index.
     return TypeIndex();
@@ -1323,7 +1325,9 @@ TypeIndex CodeViewDebug::lowerTypeArray(const DICompositeType *Ty) {
     const DISubrange *Subrange = cast<DISubrange>(Element);
     assert(Subrange->getLowerBound() == 0 &&
            "codeview doesn't support subranges with lower bounds");
-    int64_t Count = Subrange->getCount();
+    int64_t Count = -1;
+    if (auto *CI = Subrange->getCount().dyn_cast<ConstantInt*>())
+      Count = CI->getSExtValue();
 
     // Forward declarations of arrays without a size and VLAs use a count of -1.
     // Emit a count of zero in these cases to match what MSVC does for arrays
@@ -1573,6 +1577,11 @@ TypeIndex CodeViewDebug::lowerTypeFunction(const DISubroutineType *Ty) {
   for (DITypeRef ArgTypeRef : Ty->getTypeArray())
     ReturnAndArgTypeIndices.push_back(getTypeIndex(ArgTypeRef));
 
+  // MSVC uses type none for variadic argument.
+  if (ReturnAndArgTypeIndices.size() > 1 &&
+      ReturnAndArgTypeIndices.back() == TypeIndex::Void()) {
+    ReturnAndArgTypeIndices.back() = TypeIndex::None();
+  }
   TypeIndex ReturnTypeIndex = TypeIndex::Void();
   ArrayRef<TypeIndex> ArgTypeIndices = None;
   if (!ReturnAndArgTypeIndices.empty()) {
@@ -1602,6 +1611,11 @@ TypeIndex CodeViewDebug::lowerTypeMemberFunction(const DISubroutineType *Ty,
   for (DITypeRef ArgTypeRef : Ty->getTypeArray())
     ReturnAndArgTypeIndices.push_back(getTypeIndex(ArgTypeRef));
 
+  // MSVC uses type none for variadic argument.
+  if (ReturnAndArgTypeIndices.size() > 1 &&
+      ReturnAndArgTypeIndices.back() == TypeIndex::Void()) {
+    ReturnAndArgTypeIndices.back() = TypeIndex::None();
+  }
   TypeIndex ReturnTypeIndex = TypeIndex::Void();
   ArrayRef<TypeIndex> ArgTypeIndices = None;
   if (!ReturnAndArgTypeIndices.empty()) {
@@ -1956,6 +1970,7 @@ CodeViewDebug::lowerRecordFieldList(const DICompositeType *Ty) {
           VBTableIndex);
 
       ContinuationBuilder.writeMemberType(VBCR);
+      MemberCount++;
     } else {
       assert(I->getOffsetInBits() % 8 == 0 &&
              "bases must be on byte boundaries");
@@ -1963,6 +1978,7 @@ CodeViewDebug::lowerRecordFieldList(const DICompositeType *Ty) {
                           getTypeIndex(I->getBaseType()),
                           I->getOffsetInBits() / 8);
       ContinuationBuilder.writeMemberType(BCR);
+      MemberCount++;
     }
   }
 

@@ -85,19 +85,22 @@ void ExprEngine::performTrivialCopy(NodeBuilder &Bldr, ExplodedNode *Pred,
 
 
 /// Returns a region representing the first element of a (possibly
-/// multi-dimensional) array.
+/// multi-dimensional) array, for the purposes of element construction or
+/// destruction.
 ///
 /// On return, \p Ty will be set to the base type of the array.
 ///
 /// If the type is not an array type at all, the original value is returned.
+/// Otherwise the "IsArray" flag is set.
 static SVal makeZeroElementRegion(ProgramStateRef State, SVal LValue,
-                                  QualType &Ty) {
+                                  QualType &Ty, bool &IsArray) {
   SValBuilder &SVB = State->getStateManager().getSValBuilder();
   ASTContext &Ctx = SVB.getContext();
 
   while (const ArrayType *AT = Ctx.getAsArrayType(Ty)) {
     Ty = AT->getElementType();
     LValue = State->getLValue(Ty, SVB.makeZeroArrayIndex(), LValue);
+    IsArray = true;
   }
 
   return LValue;
@@ -106,7 +109,8 @@ static SVal makeZeroElementRegion(ProgramStateRef State, SVal LValue,
 
 const MemRegion *
 ExprEngine::getRegionForConstructedObject(const CXXConstructExpr *CE,
-                                          ExplodedNode *Pred) {
+                                          ExplodedNode *Pred,
+                                          EvalCallOptions &CallOpts) {
   const LocationContext *LCtx = Pred->getLocationContext();
   ProgramStateRef State = Pred->getState();
 
@@ -115,14 +119,34 @@ ExprEngine::getRegionForConstructedObject(const CXXConstructExpr *CE,
 
   if (auto Elem = findElementDirectlyInitializedByCurrentConstructor()) {
     if (Optional<CFGStmt> StmtElem = Elem->getAs<CFGStmt>()) {
-      auto *DS = cast<DeclStmt>(StmtElem->getStmt());
-      if (const auto *Var = dyn_cast<VarDecl>(DS->getSingleDecl())) {
-        if (Var->getInit() && Var->getInit()->IgnoreImplicit() == CE) {
-          SVal LValue = State->getLValue(Var, LCtx);
-          QualType Ty = Var->getType();
-          LValue = makeZeroElementRegion(State, LValue, Ty);
-          return LValue.getAsRegion();
+      if (const CXXNewExpr *CNE = dyn_cast<CXXNewExpr>(StmtElem->getStmt())) {
+        if (AMgr.getAnalyzerOptions().mayInlineCXXAllocator()) {
+          // TODO: Detect when the allocator returns a null pointer.
+          // Constructor shall not be called in this case.
+          if (const SubRegion *MR = dyn_cast_or_null<SubRegion>(
+                  getCXXNewAllocatorValue(State, CNE, LCtx).getAsRegion())) {
+            if (CNE->isArray()) {
+              // TODO: In fact, we need to call the constructor for every
+              // allocated element, not just the first one!
+              CallOpts.IsArrayConstructorOrDestructor = true;
+              return getStoreManager().GetElementZeroRegion(
+                  MR, CNE->getType()->getPointeeType());
+            }
+            return MR;
+          }
         }
+      } else if (auto *DS = dyn_cast<DeclStmt>(StmtElem->getStmt())) {
+        if (const auto *Var = dyn_cast<VarDecl>(DS->getSingleDecl())) {
+          if (Var->getInit() && Var->getInit()->IgnoreImplicit() == CE) {
+            SVal LValue = State->getLValue(Var, LCtx);
+            QualType Ty = Var->getType();
+            LValue = makeZeroElementRegion(
+                State, LValue, Ty, CallOpts.IsArrayConstructorOrDestructor);
+            return LValue.getAsRegion();
+          }
+        }
+      } else {
+        llvm_unreachable("Unexpected directly initialized element!");
       }
     } else if (Optional<CFGInitializer> InitElem = Elem->getAs<CFGInitializer>()) {
       const CXXCtorInitializer *Init = InitElem->getInitializer();
@@ -143,7 +167,8 @@ ExprEngine::getRegionForConstructedObject(const CXXConstructExpr *CE,
       }
 
       QualType Ty = Field->getType();
-      FieldVal = makeZeroElementRegion(State, FieldVal, Ty);
+      FieldVal = makeZeroElementRegion(State, FieldVal, Ty,
+                                       CallOpts.IsArrayConstructorOrDestructor);
       return FieldVal.getAsRegion();
     }
 
@@ -152,7 +177,8 @@ ExprEngine::getRegionForConstructedObject(const CXXConstructExpr *CE,
     // ExprEngine::VisitCXXConstructExpr.
   }
   // If we couldn't find an existing region to construct into, assume we're
-  // constructing a temporary.
+  // constructing a temporary. Notify the caller of our failure.
+  CallOpts.IsConstructorWithImproperlyModeledTargetRegion = true;
   MemRegionManager &MRMgr = getSValBuilder().getRegionManager();
   return MRMgr.getCXXTempObjectRegion(CE, LCtx);
 }
@@ -164,6 +190,9 @@ static bool canHaveDirectConstructor(CFGElement Elem){
 
   if (Optional<CFGStmt> StmtElem = Elem.getAs<CFGStmt>()) {
     if (isa<DeclStmt>(StmtElem->getStmt())) {
+      return true;
+    }
+    if (isa<CXXNewExpr>(StmtElem->getStmt())) {
       return true;
     }
   }
@@ -243,9 +272,11 @@ void ExprEngine::VisitCXXConstructExpr(const CXXConstructExpr *CE,
   // For now, we just run the first constructor (which should still invalidate
   // the entire array).
 
+  EvalCallOptions CallOpts;
+
   switch (CE->getConstructionKind()) {
   case CXXConstructExpr::CK_Complete: {
-    Target = getRegionForConstructedObject(CE, Pred);
+    Target = getRegionForConstructedObject(CE, Pred, CallOpts);
     break;
   }
   case CXXConstructExpr::CK_VirtualBase:
@@ -282,6 +313,7 @@ void ExprEngine::VisitCXXConstructExpr(const CXXConstructExpr *CE,
     if (dyn_cast_or_null<InitListExpr>(LCtx->getParentMap().getParent(CE))) {
       MemRegionManager &MRMgr = getSValBuilder().getRegionManager();
       Target = MRMgr.getCXXTempObjectRegion(CE, LCtx);
+      CallOpts.IsConstructorWithImproperlyModeledTargetRegion = true;
       break;
     }
     // FALLTHROUGH
@@ -349,10 +381,9 @@ void ExprEngine::VisitCXXConstructExpr(const CXXConstructExpr *CE,
   ExplodedNodeSet DstEvaluated;
   StmtNodeBuilder Bldr(DstPreCall, DstEvaluated, *currBldrCtx);
 
-  bool IsArray = isa<ElementRegion>(Target);
   if (CE->getConstructor()->isTrivial() &&
       CE->getConstructor()->isCopyOrMoveConstructor() &&
-      !IsArray) {
+      !CallOpts.IsArrayConstructorOrDestructor) {
     // FIXME: Handle other kinds of trivial constructors as well.
     for (ExplodedNodeSet::iterator I = DstPreCall.begin(), E = DstPreCall.end();
          I != E; ++I)
@@ -361,7 +392,7 @@ void ExprEngine::VisitCXXConstructExpr(const CXXConstructExpr *CE,
   } else {
     for (ExplodedNodeSet::iterator I = DstPreCall.begin(), E = DstPreCall.end();
          I != E; ++I)
-      defaultEvalCall(Bldr, *I, *Call);
+      defaultEvalCall(Bldr, *I, *Call, CallOpts);
   }
 
   // If the CFG was contructed without elements for temporary destructors
@@ -409,7 +440,11 @@ void ExprEngine::VisitCXXDestructor(QualType ObjectType,
   SVal DestVal = UnknownVal();
   if (Dest)
     DestVal = loc::MemRegionVal(Dest);
-  DestVal = makeZeroElementRegion(State, DestVal, ObjectType);
+
+  EvalCallOptions CallOpts;
+  DestVal = makeZeroElementRegion(State, DestVal, ObjectType,
+                                  CallOpts.IsArrayConstructorOrDestructor);
+
   Dest = DestVal.getAsRegion();
 
   const CXXRecordDecl *RecordDecl = ObjectType->getAsCXXRecordDecl();
@@ -432,7 +467,7 @@ void ExprEngine::VisitCXXDestructor(QualType ObjectType,
   StmtNodeBuilder Bldr(DstPreCall, DstInvalidated, *currBldrCtx);
   for (ExplodedNodeSet::iterator I = DstPreCall.begin(), E = DstPreCall.end();
        I != E; ++I)
-    defaultEvalCall(Bldr, *I, *Call);
+    defaultEvalCall(Bldr, *I, *Call, CallOpts);
 
   ExplodedNodeSet DstPostCall;
   getCheckerManager().runCheckersForPostCall(Dst, DstInvalidated,
@@ -455,15 +490,57 @@ void ExprEngine::VisitCXXNewAllocatorCall(const CXXNewExpr *CNE,
   getCheckerManager().runCheckersForPreCall(DstPreCall, Pred,
                                             *Call, *this);
 
-  ExplodedNodeSet DstInvalidated;
-  StmtNodeBuilder Bldr(DstPreCall, DstInvalidated, *currBldrCtx);
-  for (ExplodedNodeSet::iterator I = DstPreCall.begin(), E = DstPreCall.end();
-       I != E; ++I)
-    defaultEvalCall(Bldr, *I, *Call);
-  getCheckerManager().runCheckersForPostCall(Dst, DstInvalidated,
-                                             *Call, *this);
-}
+  ExplodedNodeSet DstPostCall;
+  StmtNodeBuilder CallBldr(DstPreCall, DstPostCall, *currBldrCtx);
+  for (auto I : DstPreCall) {
+    // FIXME: Provide evalCall for checkers?
+    defaultEvalCall(CallBldr, I, *Call);
+  }
+  // If the call is inlined, DstPostCall will be empty and we bail out now.
 
+  // Store return value of operator new() for future use, until the actual
+  // CXXNewExpr gets processed.
+  ExplodedNodeSet DstPostValue;
+  StmtNodeBuilder ValueBldr(DstPostCall, DstPostValue, *currBldrCtx);
+  for (auto I : DstPostCall) {
+    // FIXME: Because CNE serves as the "call site" for the allocator (due to
+    // lack of a better expression in the AST), the conjured return value symbol
+    // is going to be of the same type (C++ object pointer type). Technically
+    // this is not correct because the operator new's prototype always says that
+    // it returns a 'void *'. So we should change the type of the symbol,
+    // and then evaluate the cast over the symbolic pointer from 'void *' to
+    // the object pointer type. But without changing the symbol's type it
+    // is breaking too much to evaluate the no-op symbolic cast over it, so we
+    // skip it for now.
+    ProgramStateRef State = I->getState();
+    SVal RetVal = State->getSVal(CNE, LCtx);
+
+    // If this allocation function is not declared as non-throwing, failures
+    // /must/ be signalled by exceptions, and thus the return value will never
+    // be NULL. -fno-exceptions does not influence this semantics.
+    // FIXME: GCC has a -fcheck-new option, which forces it to consider the case
+    // where new can return NULL. If we end up supporting that option, we can
+    // consider adding a check for it here.
+    // C++11 [basic.stc.dynamic.allocation]p3.
+    if (const FunctionDecl *FD = CNE->getOperatorNew()) {
+      QualType Ty = FD->getType();
+      if (const auto *ProtoType = Ty->getAs<FunctionProtoType>())
+        if (!ProtoType->isNothrow(getContext()))
+          State = State->assume(RetVal.castAs<DefinedOrUnknownSVal>(), true);
+    }
+
+    ValueBldr.generateNode(CNE, I,
+                           setCXXNewAllocatorValue(State, CNE, LCtx, RetVal));
+  }
+
+  ExplodedNodeSet DstPostPostCallCallback;
+  getCheckerManager().runCheckersForPostCall(DstPostPostCallCallback,
+                                             DstPostValue, *Call, *this);
+  for (auto I : DstPostPostCallCallback) {
+    getCheckerManager().runCheckersForNewAllocator(
+        CNE, getCXXNewAllocatorValue(I->getState(), CNE, LCtx), Dst, I, *this);
+  }
+}
 
 void ExprEngine::VisitCXXNewExpr(const CXXNewExpr *CNE, ExplodedNode *Pred,
                                    ExplodedNodeSet &Dst) {
@@ -474,69 +551,74 @@ void ExprEngine::VisitCXXNewExpr(const CXXNewExpr *CNE, ExplodedNode *Pred,
 
   unsigned blockCount = currBldrCtx->blockCount();
   const LocationContext *LCtx = Pred->getLocationContext();
-  DefinedOrUnknownSVal symVal = UnknownVal();
+  SVal symVal = UnknownVal();
   FunctionDecl *FD = CNE->getOperatorNew();
 
-  bool IsStandardGlobalOpNewFunction = false;
-  if (FD && !isa<CXXMethodDecl>(FD) && !FD->isVariadic()) {
-    if (FD->getNumParams() == 2) {
-      QualType T = FD->getParamDecl(1)->getType();
-      if (const IdentifierInfo *II = T.getBaseTypeIdentifier())
-        // NoThrow placement new behaves as a standard new.
-        IsStandardGlobalOpNewFunction = II->getName().equals("nothrow_t");
-    }
-    else
-      // Placement forms are considered non-standard.
-      IsStandardGlobalOpNewFunction = (FD->getNumParams() == 1);
+  bool IsStandardGlobalOpNewFunction =
+      FD->isReplaceableGlobalAllocationFunction();
+
+  ProgramStateRef State = Pred->getState();
+
+  // Retrieve the stored operator new() return value.
+  if (AMgr.getAnalyzerOptions().mayInlineCXXAllocator()) {
+    symVal = getCXXNewAllocatorValue(State, CNE, LCtx);
+    State = clearCXXNewAllocatorValue(State, CNE, LCtx);
   }
 
   // We assume all standard global 'operator new' functions allocate memory in
   // heap. We realize this is an approximation that might not correctly model
   // a custom global allocator.
-  if (IsStandardGlobalOpNewFunction)
-    symVal = svalBuilder.getConjuredHeapSymbolVal(CNE, LCtx, blockCount);
-  else
-    symVal = svalBuilder.conjureSymbolVal(nullptr, CNE, LCtx, CNE->getType(),
-                                          blockCount);
+  if (symVal.isUnknown()) {
+    if (IsStandardGlobalOpNewFunction)
+      symVal = svalBuilder.getConjuredHeapSymbolVal(CNE, LCtx, blockCount);
+    else
+      symVal = svalBuilder.conjureSymbolVal(nullptr, CNE, LCtx, CNE->getType(),
+                                            blockCount);
+  }
 
-  ProgramStateRef State = Pred->getState();
   CallEventManager &CEMgr = getStateManager().getCallEventManager();
   CallEventRef<CXXAllocatorCall> Call =
     CEMgr.getCXXAllocatorCall(CNE, State, LCtx);
 
-  // Invalidate placement args.
-  // FIXME: Once we figure out how we want allocators to work,
-  // we should be using the usual pre-/(default-)eval-/post-call checks here.
-  State = Call->invalidateRegions(blockCount);
-  if (!State)
-    return;
+  if (!AMgr.getAnalyzerOptions().mayInlineCXXAllocator()) {
+    // Invalidate placement args.
+    // FIXME: Once we figure out how we want allocators to work,
+    // we should be using the usual pre-/(default-)eval-/post-call checks here.
+    State = Call->invalidateRegions(blockCount);
+    if (!State)
+      return;
 
-  // If this allocation function is not declared as non-throwing, failures
-  // /must/ be signalled by exceptions, and thus the return value will never be
-  // NULL. -fno-exceptions does not influence this semantics.
-  // FIXME: GCC has a -fcheck-new option, which forces it to consider the case
-  // where new can return NULL. If we end up supporting that option, we can
-  // consider adding a check for it here.
-  // C++11 [basic.stc.dynamic.allocation]p3.
-  if (FD) {
-    QualType Ty = FD->getType();
-    if (const FunctionProtoType *ProtoType = Ty->getAs<FunctionProtoType>())
-      if (!ProtoType->isNothrow(getContext()))
-        State = State->assume(symVal, true);
+    // If this allocation function is not declared as non-throwing, failures
+    // /must/ be signalled by exceptions, and thus the return value will never
+    // be NULL. -fno-exceptions does not influence this semantics.
+    // FIXME: GCC has a -fcheck-new option, which forces it to consider the case
+    // where new can return NULL. If we end up supporting that option, we can
+    // consider adding a check for it here.
+    // C++11 [basic.stc.dynamic.allocation]p3.
+    if (FD) {
+      QualType Ty = FD->getType();
+      if (const auto *ProtoType = Ty->getAs<FunctionProtoType>())
+        if (!ProtoType->isNothrow(getContext()))
+          if (auto dSymVal = symVal.getAs<DefinedOrUnknownSVal>())
+            State = State->assume(*dSymVal, true);
+    }
   }
 
   StmtNodeBuilder Bldr(Pred, Dst, *currBldrCtx);
 
+  SVal Result = symVal;
+
   if (CNE->isArray()) {
     // FIXME: allocating an array requires simulating the constructors.
     // For now, just return a symbolicated region.
-    const SubRegion *NewReg =
-        symVal.castAs<loc::MemRegionVal>().getRegionAs<SubRegion>();
-    QualType ObjTy = CNE->getType()->getAs<PointerType>()->getPointeeType();
-    const ElementRegion *EleReg =
-      getStoreManager().GetElementZeroRegion(NewReg, ObjTy);
-    State = State->BindExpr(CNE, Pred->getLocationContext(),
-                            loc::MemRegionVal(EleReg));
+    if (const SubRegion *NewReg =
+            dyn_cast_or_null<SubRegion>(symVal.getAsRegion())) {
+      QualType ObjTy = CNE->getType()->getAs<PointerType>()->getPointeeType();
+      const ElementRegion *EleReg =
+          getStoreManager().GetElementZeroRegion(NewReg, ObjTy);
+      Result = loc::MemRegionVal(EleReg);
+    }
+    State = State->BindExpr(CNE, Pred->getLocationContext(), Result);
     Bldr.generateNode(CNE, Pred, State);
     return;
   }
@@ -545,7 +627,6 @@ void ExprEngine::VisitCXXNewExpr(const CXXNewExpr *CNE, ExplodedNode *Pred,
   // CXXNewExpr, we need to make sure that the constructed object is not
   // immediately invalidated here. (The placement call should happen before
   // the constructor call anyway.)
-  SVal Result = symVal;
   if (FD && FD->isReservedGlobalPlacementOperator()) {
     // Non-array placement new should always return the placement location.
     SVal PlacementLoc = State->getSVal(CNE->getPlacementArg(0), LCtx);
