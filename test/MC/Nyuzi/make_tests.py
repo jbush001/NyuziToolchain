@@ -19,13 +19,13 @@ def encode_r_instruction(fmt, opcode, dest, src1, src2, mask):
             | (mask << 10) | (dest << 5) | src1)
 
 
-# Immediate arithmetic
+# Immediate arithmetic masked
 def encode_im_instruction(fmt, opcode, dest, src1, imm, mask):
     return ((fmt << 29) | (opcode << 24) | ((imm & 0x1ff) << 15)
             | (mask << 10) | (dest << 5) | src1)
 
 
-# Immediate arithmetic masked
+# Immediate arithmetic
 def encode_i_instruction(fmt, opcode, dest, src1, imm):
     return ((fmt << 29) | (opcode << 24) | ((imm & 0x3fff) << 10)
             | (dest << 5) | src1)
