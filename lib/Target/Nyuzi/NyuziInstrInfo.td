@@ -801,12 +801,14 @@ let usesCustomInserter = 1 in {
 
 def SYSCALL : NyuziInstruction<
   (outs),
-  (ins),
-  "syscall",
+  (ins SIMM14OP:$index),
+  "syscall $index",
   [],
   II_INT> {
-  let Inst{31-29} = 0b110;
-  let Inst{25-20} = 0x3f;   // opcode
+  // immediate, format 0
+  bits<14> index;
+  let Inst{23-10} = index;
+  let Inst{27-24} = 2;  // opcode
 }
 
 def BREAK : NyuziInstruction<

@@ -379,7 +379,9 @@ write_test_case('itlbinsert s3, s4', encode_cprime_instruction(7, 3, 4))
 
 # Special instructions
 write_test_case('break', 0xc3e00000)
-write_test_case('syscall', 0xc3f00000)
+write_test_case('syscall 0', encode_i_instruction(0, 2, 0, 0, 0))
+write_test_case('syscall 17', encode_i_instruction(0, 2, 0, 0, 17))
+write_test_case('syscall 1037', encode_i_instruction(0, 2, 0, 0, 1037))
 
 # Cleanup
 disasm_fp.close()
