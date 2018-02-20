@@ -88,7 +88,7 @@ if(${CMAKE_SOURCE_DIR} STREQUAL ${CMAKE_CURRENT_SOURCE_DIR})
   # This variable makes sure that e.g. llvm-lit is found.
   set(LLVM_MAIN_SRC_DIR ${LLVM_BUILD_MAIN_SRC_DIR})
 
-  if(APPLE)
+  if(APPLE AND XXX_DISABLE_NYUZI)
     set(LLVM_ENABLE_LIBCXX ON CACHE BOOL "")
   endif()
 

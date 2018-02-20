@@ -42,6 +42,7 @@ public:
   NyuziToolChain(const Driver &D, const llvm::Triple &Triple,
                       const llvm::opt::ArgList &Args);
   ~NyuziToolChain();
+  RuntimeLibType GetRuntimeLibType(const llvm::opt::ArgList &Args) const override;
   bool IsIntegratedAssemblerDefault() const override;
   bool isPICDefault() const override;
   bool isPIEDefault() const override;

@@ -11,6 +11,7 @@
 #include "Arch/ARM.h"
 #include "Arch/Mips.h"
 #include "Arch/Sparc.h"
+#include "clang/Driver/DriverDiagnostic.h"
 #include "CommonArgs.h"
 #include "clang/Driver/Compilation.h"
 #include "clang/Driver/Driver.h"
@@ -29,6 +30,7 @@ void nyuzi::Linker::ConstructJob(Compilation &C, const JobAction &JA,
                                  const ArgList &Args,
                                  const char *LinkingOutput) const {
   ArgStringList CmdArgs;
+  const ToolChain &TC = getToolChain();
 
   if (Output.isFilename()) {
     CmdArgs.push_back("-o");
@@ -37,7 +39,9 @@ void nyuzi::Linker::ConstructJob(Compilation &C, const JobAction &JA,
     assert(Output.isNothing() && "Invalid output.");
   }
 
-  AddLinkerInputs(getToolChain(), Inputs, Args, CmdArgs, JA);
+  AddLinkerInputs(TC, Inputs, Args, CmdArgs, JA);
+  if (!Args.hasArg(options::OPT_nostdlib, options::OPT_nodefaultlibs))
+    AddRunTimeLibs(TC, TC.getDriver(), CmdArgs, Args);
 
   const char *Exec = Args.MakeArgString(getToolChain().GetProgramPath("ld.lld"));
   C.addCommand(llvm::make_unique<Command>(JA, *this, Exec, CmdArgs, Inputs));
@@ -54,6 +58,19 @@ NyuziToolChain::NyuziToolChain(const Driver &D, const llvm::Triple &Triple,
 
 NyuziToolChain::~NyuziToolChain()
 {
+}
+
+ToolChain::RuntimeLibType
+NyuziToolChain::GetRuntimeLibType(const llvm::opt::ArgList &Args) const
+{
+  if (Arg *A = Args.getLastArg(clang::driver::options::OPT_rtlib_EQ)) {
+    StringRef Value = A->getValue();
+    if (Value != "compiler-rt")
+      getDriver().Diag(clang::diag::err_drv_invalid_rtlib_name)
+          << A->getAsString(Args);
+  }
+
+  return ToolChain::RLT_CompilerRT;
 }
 
 bool NyuziToolChain::IsIntegratedAssemblerDefault() const
