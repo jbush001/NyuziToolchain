@@ -488,7 +488,10 @@ set(wasm64_SOURCES
   ${GENERIC_SOURCES})
 
 set(nyuzi_SOURCES
-  ${GENERIC_SOURCES})
+  ${GENERIC_SOURCES}
+  nyuzi/ashldi3.S
+  nyuzi/lshrdi3.S
+  nyuzi/udivsi3.S)
 
 add_custom_target(builtins)
 set_target_properties(builtins PROPERTIES FOLDER "Compiler-RT Misc")
