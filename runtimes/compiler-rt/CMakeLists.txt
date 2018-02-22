@@ -369,7 +369,7 @@ pythonize_bool(COMPILER_RT_HAS_LLD)
 
 add_subdirectory(lib)
 
-if(COMPILER_RT_INCLUDE_TESTS)
+if(COMPILER_RT_INCLUDE_TESTS AND XXX_DISABLE_NYUZI)
   add_subdirectory(unittests)
   add_subdirectory(test)
   if (COMPILER_RT_STANDALONE_BUILD)

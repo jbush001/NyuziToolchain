@@ -179,7 +179,7 @@ if(${CMAKE_SOURCE_DIR} STREQUAL ${CMAKE_CURRENT_SOURCE_DIR})
     endif()
   endforeach()
 
-  if(LLVM_INCLUDE_TESTS)
+  if(LLVM_INCLUDE_TESTS AND XXX_DISABLE_NYUZI)
     # Add a global check rule now that all subdirectories have been traversed
     # and we know the total set of lit testsuites.
 
