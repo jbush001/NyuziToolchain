@@ -1581,8 +1581,8 @@ NyuziTargetLowering::EmitAtomicBinary(MachineInstr &MI, MachineBasicBlock *BB,
   unsigned Ptr = MI.getOperand(1).getReg();
   DebugLoc DL = MI.getDebugLoc();
   MachineRegisterInfo &MRI = BB->getParent()->getRegInfo();
-  unsigned OldValue = MRI.createVirtualRegister(&Nyuzi::GPR32RegClass);
   unsigned Success = MRI.createVirtualRegister(&Nyuzi::GPR32RegClass);
+  unsigned NewValue = MRI.createVirtualRegister(&Nyuzi::GPR32RegClass);
 
   const BasicBlock *LLVM_BB = BB->getBasicBlock();
   MachineFunction *MF = BB->getParent();
@@ -1604,13 +1604,12 @@ NyuziTargetLowering::EmitAtomicBinary(MachineInstr &MI, MachineBasicBlock *BB,
 
   //  LoopMBB:
   BB = LoopMBB;
-  BuildMI(BB, DL, TII->get(Nyuzi::LOAD_SYNC), OldValue).addReg(Ptr).addImm(0);
-  BuildMI(BB, DL, TII->get(Nyuzi::MOVESS), Dest).addReg(OldValue);
 
-  unsigned NewValue;
   if (Opcode != 0) {
-    // Perform an operation
-    NewValue = MRI.createVirtualRegister(&Nyuzi::GPR32RegClass);
+    unsigned OldValue = MRI.createVirtualRegister(&Nyuzi::GPR32RegClass);
+
+    BuildMI(BB, DL, TII->get(Nyuzi::LOAD_SYNC), OldValue).addReg(Ptr).addImm(0);
+    BuildMI(BB, DL, TII->get(Nyuzi::MOVESS), Dest).addReg(OldValue);
     if (MI.getOperand(2).getType() == MachineOperand::MO_Register) {
       BuildMI(BB, DL, TII->get(Opcode), NewValue)
           .addReg(OldValue)
@@ -1630,8 +1629,12 @@ NyuziTargetLowering::EmitAtomicBinary(MachineInstr &MI, MachineBasicBlock *BB,
           .addImm(-1);
       NewValue = Inverted;
     }
-  } else
-    NewValue = OldValue; // This is just swap: use old value
+  } else {
+    // Atomic swap
+    BuildMI(BB, DL, TII->get(Nyuzi::LOAD_SYNC), Dest).addReg(Ptr).addImm(0);
+    BuildMI(BB, DL, TII->get(Nyuzi::MOVESS), NewValue).addReg(
+            MI.getOperand(2).getReg());
+  }
 
   BuildMI(BB, DL, TII->get(Nyuzi::STORE_SYNC), Success)
       .addReg(NewValue)

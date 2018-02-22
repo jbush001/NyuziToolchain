@@ -126,9 +126,10 @@ define i32 @atomic_xchg(i32* %ptr, i32 %value) { ; CHECK-LABEL: atomic_xchg:
   %tmp = atomicrmw volatile xchg i32* %ptr, i32 %value monotonic
 
   ; CHECK: load_sync [[OLDVAL:s[0-9]+]], (s0)
-  ; CHECK: move s{{[0-9]+}}, [[OLDVAL]]
-  ; CHECK: store_sync [[OLDVAL]], (s0)
-  ; CHECK: bz [[OLDVAL]],
+  ; CHECK: move [[TMP:s[0-9]+]], s1
+  ; CHECK: store_sync [[TMP]], (s0)
+  ; CHECK: bz [[TMP]],
+  ; CHECK: move s0, [[OLDVAL]]
 
   ret i32 %tmp
 }
@@ -144,4 +145,18 @@ define { i32, i1 } @atomic_cmpxchg(i32* %ptr, i32 %cmp, i32 %newvalue) { ; CHECK
   ; CHECK: bz [[RESULT]],
 
   ret { i32, i1 } %tmp
+}
+
+
+define void @atomic_store(i32* %lk) { ; CHECK-LABEL: atomic_store:
+   store atomic i32 0, i32* %lk release, align 4
+
+  ; This gets expanded to an atomic xchg. It should be optimized to just
+  ; do a normal store.
+  ; CHECK: load_sync [[OLDVAL:s[0-9]+]], (s0)
+  ; CHECK: move [[TMP:s[0-9]+]], s1
+  ; CHECK: store_sync [[TMP]], (s0)
+  ; CHECK: bz [[TMP]],
+
+   ret void
 }
