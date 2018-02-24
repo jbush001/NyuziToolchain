@@ -31,6 +31,7 @@ The following sections describe how to install these packages.
 - swig 3.0.11+ (http://www.swig.org/) with python wrappers
 - libedit (http://thrysoee.dk/editline/)
 - ncurses
+- ninja
 
 ## Building on Linux
 
@@ -41,15 +42,15 @@ a recent version of your Linux distribution. Instructions are below are for Ubun
 for other distributions:
 
     sudo apt-get install libxml2-dev cmake gcc g++ python bison flex \
-        zlib1g-dev swig python-dev libedit-dev libncurses5-dev
+        zlib1g-dev swig python-dev libedit-dev libncurses5-dev ninja
 
     git clone git@github.com:jbush001/NyuziToolchain.git
     cd NyuziToolchain
     mkdir build
     cd build
-    cmake ..
-    make
-    sudo make install
+    cmake -G Ninja ..
+    ninja
+    sudo ninja install
 
 ## Building on MacOS
 
@@ -63,15 +64,15 @@ get the remaining dependencies. Open a new terminal to do the build after
 installing MacPorts, because it installs alternate versions of some utilities
 and updates the PATH. Once you have done this:
 
-    sudo port install cmake bison swig swig-python
+    sudo port install cmake bison swig swig-python ninja
 
     git clone https://github.com/jbush001/NyuziToolchain.git
     cd NyuziToolchain
     mkdir build
     cd build
-    cmake ..
-    make
-    sudo make install
+    cmake -G Ninja ..
+    ninja
+    sudo ninja install
 
 **Upgrading 'flex' using the package manager may cause build errors. I
 would recommend using the system supplied version.**
