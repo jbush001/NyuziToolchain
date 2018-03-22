@@ -562,7 +562,7 @@ multiclass OneOpFloatArith<string operator, SDNode OpNode, bits<6> opcode> {
 
 multiclass IntCompareInst<string operator, CondCode condition,
   bits<6> opcode> {
-  // Instruction format A, integer
+  // Register
   def SS : FormatRUnmaskedTwoOpInst<
     (outs GPR32:$dest),
     (ins GPR32:$src1, GPR32:$src2),
@@ -590,7 +590,7 @@ multiclass IntCompareInst<string operator, CondCode condition,
     FmtR_VVS,
     II_INT>;
 
-  // Instruction format B
+  // Immediate
   def SI : FormatIUnmaskedInst<
     (outs GPR32:$dest),
     (ins GPR32:$src1, SIMM14OP:$imm),

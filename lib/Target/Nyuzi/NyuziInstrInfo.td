@@ -14,7 +14,7 @@
 include "NyuziInstrFormats.td"
 
 //////////////////////////////////////////////////////////////////
-// Arithmetic (Format R & I)
+// Arithmetic
 //////////////////////////////////////////////////////////////////
 
 let isCommutable = 1 in {
@@ -591,7 +591,7 @@ let usesCustomInserter = 1 in {
 }
 
 //////////////////////////////////////////////////////////////////
-// Cache Control (format D)
+// Cache Control
 //////////////////////////////////////////////////////////////////
 
 def DFLUSH : FormatCOneOp<
@@ -851,7 +851,7 @@ def WRITE_CONTROL_REG : FormatMInst<
 
 // This instruction is matched by forms like FrameIndex
 // Note this takes MEMS14 operand (vs. the MEMS15 format a normal memory
-// instruction would) because it is an I format instruction and has a smaller
+// instruction would) because it is an format instruction and has a smaller
 // immediate field.
 def LEA_MEM : NyuziInstruction<
   (outs GPR32:$dest),
