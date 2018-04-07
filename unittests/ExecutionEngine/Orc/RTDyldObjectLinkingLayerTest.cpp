@@ -67,12 +67,12 @@ TEST(RTDyldObjectLinkingLayerTest, TestSetProcessAllSections) {
   bool DebugSectionSeen = false;
   auto MM = std::make_shared<MemoryManagerWrapper>(DebugSectionSeen);
 
-  SymbolStringPool SSP;
-  ExecutionSession ES(SSP);
+  ExecutionSession ES(std::make_shared<SymbolStringPool>());
 
-  RTDyldObjectLinkingLayer ObjLayer(
-      ES, [&MM](VModuleKey) { return MM; },
-      [](orc::VModuleKey) { return std::make_shared<NullResolver>(); });
+  RTDyldObjectLinkingLayer ObjLayer(ES, [&MM](VModuleKey) {
+    return RTDyldObjectLinkingLayer::Resources{
+        MM, std::make_shared<NullResolver>()};
+  });
 
   LLVMContext Context;
   auto M = llvm::make_unique<Module>("", Context);
@@ -94,14 +94,13 @@ TEST(RTDyldObjectLinkingLayerTest, TestSetProcessAllSections) {
   if (!TM)
     return;
 
-  auto Obj =
-    std::make_shared<object::OwningBinary<object::ObjectFile>>(
-      SimpleCompiler(*TM)(*M));
+  auto Obj = SimpleCompiler(*TM)(*M);
 
   {
     // Test with ProcessAllSections = false (the default).
     auto K = ES.allocateVModule();
-    cantFail(ObjLayer.addObject(K, Obj));
+    cantFail(ObjLayer.addObject(
+        K, MemoryBuffer::getMemBufferCopy(Obj->getBuffer())));
     cantFail(ObjLayer.emitAndFinalize(K));
     EXPECT_EQ(DebugSectionSeen, false)
       << "Unexpected debug info section";
@@ -112,7 +111,7 @@ TEST(RTDyldObjectLinkingLayerTest, TestSetProcessAllSections) {
     // Test with ProcessAllSections = true.
     ObjLayer.setProcessAllSections(true);
     auto K = ES.allocateVModule();
-    cantFail(ObjLayer.addObject(K, Obj));
+    cantFail(ObjLayer.addObject(K, std::move(Obj)));
     cantFail(ObjLayer.emitAndFinalize(K));
     EXPECT_EQ(DebugSectionSeen, true)
       << "Expected debug info section not seen";
@@ -121,25 +120,22 @@ TEST(RTDyldObjectLinkingLayerTest, TestSetProcessAllSections) {
 }
 
 TEST_F(RTDyldObjectLinkingLayerExecutionTest, NoDuplicateFinalization) {
-  if (!TM)
+  if (!SupportsJIT)
     return;
 
-  SymbolStringPool SSP;
-  ExecutionSession ES(SSP);
+  ExecutionSession ES(std::make_shared<SymbolStringPool>());
 
   auto MM = std::make_shared<SectionMemoryManagerWrapper>();
 
   std::map<orc::VModuleKey, std::shared_ptr<orc::SymbolResolver>> Resolvers;
 
-  RTDyldObjectLinkingLayer ObjLayer(ES, [&MM](VModuleKey) { return MM; },
-                                    [&](VModuleKey K) {
-                                      auto I = Resolvers.find(K);
-                                      assert(I != Resolvers.end() &&
-                                             "Missing resolver");
-                                      auto R = std::move(I->second);
-                                      Resolvers.erase(I);
-                                      return R;
-                                    });
+  RTDyldObjectLinkingLayer ObjLayer(ES, [&](VModuleKey K) {
+    auto I = Resolvers.find(K);
+    assert(I != Resolvers.end() && "Missing resolver");
+    auto R = std::move(I->second);
+    Resolvers.erase(I);
+    return RTDyldObjectLinkingLayer::Resources{MM, std::move(R)};
+  });
   SimpleCompiler Compile(*TM);
 
   // Create a pair of modules that will trigger recursive finalization:
@@ -165,9 +161,7 @@ TEST_F(RTDyldObjectLinkingLayerExecutionTest, NoDuplicateFinalization) {
     Builder.CreateRet(FourtyTwo);
   }
 
-  auto Obj1 =
-    std::make_shared<object::OwningBinary<object::ObjectFile>>(
-      Compile(*MB1.getModule()));
+  auto Obj1 = Compile(*MB1.getModule());
 
   ModuleBuilder MB2(Context, "", "dummy");
   {
@@ -178,9 +172,7 @@ TEST_F(RTDyldObjectLinkingLayerExecutionTest, NoDuplicateFinalization) {
     IRBuilder<> Builder(FooEntry);
     Builder.CreateRet(Builder.CreateCall(BarDecl));
   }
-  auto Obj2 =
-    std::make_shared<object::OwningBinary<object::ObjectFile>>(
-      Compile(*MB2.getModule()));
+  auto Obj2 = Compile(*MB2.getModule());
 
   auto K1 = ES.allocateVModule();
   Resolvers[K1] = std::make_shared<NullResolver>();
@@ -196,8 +188,9 @@ TEST_F(RTDyldObjectLinkingLayerExecutionTest, NoDuplicateFinalization) {
         return cantFail(
             lookupFlagsWithLegacyFn(SymbolFlags, Symbols, LegacyLookup));
       },
-      [&](AsynchronousSymbolQuery &Query, const SymbolNameSet &Symbols) {
-        return lookupWithLegacyFn(Query, Symbols, LegacyLookup);
+      [&](std::shared_ptr<AsynchronousSymbolQuery> Query,
+          const SymbolNameSet &Symbols) {
+        return lookupWithLegacyFn(*Query, Symbols, LegacyLookup);
       });
 
   cantFail(ObjLayer.addObject(K2, std::move(Obj2)));
@@ -211,17 +204,17 @@ TEST_F(RTDyldObjectLinkingLayerExecutionTest, NoDuplicateFinalization) {
 }
 
 TEST_F(RTDyldObjectLinkingLayerExecutionTest, NoPrematureAllocation) {
-  if (!TM)
+  if (!SupportsJIT)
     return;
 
-  SymbolStringPool SSP;
-  ExecutionSession ES(SSP);
+  ExecutionSession ES(std::make_shared<SymbolStringPool>());
 
   auto MM = std::make_shared<SectionMemoryManagerWrapper>();
 
-  RTDyldObjectLinkingLayer ObjLayer(
-      ES, [&MM](VModuleKey) { return MM; },
-      [](VModuleKey) { return std::make_shared<NullResolver>(); });
+  RTDyldObjectLinkingLayer ObjLayer(ES, [&MM](VModuleKey K) {
+    return RTDyldObjectLinkingLayer::Resources{
+        MM, std::make_shared<NullResolver>()};
+  });
   SimpleCompiler Compile(*TM);
 
   // Create a pair of unrelated modules:
@@ -248,9 +241,7 @@ TEST_F(RTDyldObjectLinkingLayerExecutionTest, NoPrematureAllocation) {
     Builder.CreateRet(FourtyTwo);
   }
 
-  auto Obj1 =
-    std::make_shared<object::OwningBinary<object::ObjectFile>>(
-      Compile(*MB1.getModule()));
+  auto Obj1 = Compile(*MB1.getModule());
 
   ModuleBuilder MB2(Context, "", "dummy");
   {
@@ -262,9 +253,7 @@ TEST_F(RTDyldObjectLinkingLayerExecutionTest, NoPrematureAllocation) {
     Value *Seven = ConstantInt::getSigned(Int32Ty, 7);
     Builder.CreateRet(Seven);
   }
-  auto Obj2 =
-    std::make_shared<object::OwningBinary<object::ObjectFile>>(
-      Compile(*MB2.getModule()));
+  auto Obj2 = Compile(*MB2.getModule());
 
   auto K = ES.allocateVModule();
   cantFail(ObjLayer.addObject(K, std::move(Obj1)));
@@ -279,12 +268,14 @@ TEST_F(RTDyldObjectLinkingLayerExecutionTest, NoPrematureAllocation) {
 }
 
 TEST_F(RTDyldObjectLinkingLayerExecutionTest, TestNotifyLoadedSignature) {
-  SymbolStringPool SSP;
-  ExecutionSession ES(SSP);
+  ExecutionSession ES(std::make_shared<SymbolStringPool>());
   RTDyldObjectLinkingLayer ObjLayer(
-      ES, [](VModuleKey) { return nullptr; },
-      [](VModuleKey) { return std::make_shared<NullResolver>(); },
-      [](VModuleKey, const RTDyldObjectLinkingLayer::ObjectPtr &obj,
+      ES,
+      [](VModuleKey) {
+        return RTDyldObjectLinkingLayer::Resources{
+            nullptr, std::make_shared<NullResolver>()};
+      },
+      [](VModuleKey, const object::ObjectFile &obj,
          const RuntimeDyld::LoadedObjectInfo &info) {});
 }
 

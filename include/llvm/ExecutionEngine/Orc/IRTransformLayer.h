@@ -40,7 +40,7 @@ public:
   ///        the layer below, along with the memory manager and symbol resolver.
   ///
   /// @return A handle for the added modules.
-  Error addModule(VModuleKey K, std::shared_ptr<Module> M) {
+  Error addModule(VModuleKey K, std::unique_ptr<Module> M) {
     return BaseLayer.addModule(std::move(K), Transform(std::move(M)));
   }
 
@@ -58,7 +58,7 @@ public:
   /// @brief Get the address of the given symbol in the context of the module
   ///        represented by the VModuleKey K. This call is forwarded to the base
   ///        layer's implementation.
-  /// @param H The handle for the module to search in.
+  /// @param K The VModuleKey for the module to search in.
   /// @param Name The name of the symbol to search for.
   /// @param ExportedSymbolsOnly If true, search only for exported symbols.
   /// @return A handle for the given named symbol, if it is found in the
@@ -70,7 +70,7 @@ public:
 
   /// @brief Immediately emit and finalize the module represented by the given
   ///        VModuleKey.
-  /// @param H Handle for module to emit/finalize.
+  /// @param K The VModuleKey for the module to emit/finalize.
   Error emitAndFinalize(VModuleKey K) { return BaseLayer.emitAndFinalize(K); }
 
   /// @brief Access the transform functor directly.

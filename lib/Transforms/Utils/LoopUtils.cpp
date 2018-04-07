@@ -16,8 +16,10 @@
 #include "llvm/Analysis/AliasAnalysis.h"
 #include "llvm/Analysis/BasicAliasAnalysis.h"
 #include "llvm/Analysis/GlobalsModRef.h"
+#include "llvm/Analysis/InstructionSimplify.h"
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/Analysis/LoopPass.h"
+#include "llvm/Analysis/MustExecute.h"
 #include "llvm/Analysis/ScalarEvolution.h"
 #include "llvm/Analysis/ScalarEvolutionAliasAnalysis.h"
 #include "llvm/Analysis/ScalarEvolutionExpander.h"
@@ -921,13 +923,13 @@ bool InductionDescriptor::isFPInductionPHI(PHINode *Phi, const Loop *TheLoop,
 }
 
 /// This function is called when we suspect that the update-chain of a phi node
-/// (whose symbolic SCEV expression sin \p PhiScev) contains redundant casts, 
-/// that can be ignored. (This can happen when the PSCEV rewriter adds a runtime 
-/// predicate P under which the SCEV expression for the phi can be the 
-/// AddRecurrence \p AR; See createAddRecFromPHIWithCast). We want to find the 
-/// cast instructions that are involved in the update-chain of this induction. 
-/// A caller that adds the required runtime predicate can be free to drop these 
-/// cast instructions, and compute the phi using \p AR (instead of some scev 
+/// (whose symbolic SCEV expression sin \p PhiScev) contains redundant casts,
+/// that can be ignored. (This can happen when the PSCEV rewriter adds a runtime
+/// predicate P under which the SCEV expression for the phi can be the
+/// AddRecurrence \p AR; See createAddRecFromPHIWithCast). We want to find the
+/// cast instructions that are involved in the update-chain of this induction.
+/// A caller that adds the required runtime predicate can be free to drop these
+/// cast instructions, and compute the phi using \p AR (instead of some scev
 /// expression with casts).
 ///
 /// For example, without a predicate the scev expression can take the following
@@ -962,7 +964,7 @@ static bool getCastsForInductionPHI(PredicatedScalarEvolution &PSE,
   assert(PSE.getSCEV(PN) == AR && "Unexpected phi node SCEV expression");
   const Loop *L = AR->getLoop();
 
-  // Find any cast instructions that participate in the def-use chain of 
+  // Find any cast instructions that participate in the def-use chain of
   // PhiScev in the loop.
   // FORNOW/TODO: We currently expect the def-use chain to include only
   // two-operand instructions, where one of the operands is an invariant.
@@ -1479,48 +1481,6 @@ void llvm::deleteDeadLoop(Loop *L, DominatorTree *DT = nullptr,
     // The last step is to update LoopInfo now that we've eliminated this loop.
     LI->erase(L);
   }
-}
-
-/// Returns true if the instruction in a loop is guaranteed to execute at least
-/// once.
-bool llvm::isGuaranteedToExecute(const Instruction &Inst,
-                                 const DominatorTree *DT, const Loop *CurLoop,
-                                 const LoopSafetyInfo *SafetyInfo) {
-  // We have to check to make sure that the instruction dominates all
-  // of the exit blocks.  If it doesn't, then there is a path out of the loop
-  // which does not execute this instruction, so we can't hoist it.
-
-  // If the instruction is in the header block for the loop (which is very
-  // common), it is always guaranteed to dominate the exit blocks.  Since this
-  // is a common case, and can save some work, check it now.
-  if (Inst.getParent() == CurLoop->getHeader())
-    // If there's a throw in the header block, we can't guarantee we'll reach
-    // Inst.
-    return !SafetyInfo->HeaderMayThrow;
-
-  // Somewhere in this loop there is an instruction which may throw and make us
-  // exit the loop.
-  if (SafetyInfo->MayThrow)
-    return false;
-
-  // Get the exit blocks for the current loop.
-  SmallVector<BasicBlock *, 8> ExitBlocks;
-  CurLoop->getExitBlocks(ExitBlocks);
-
-  // Verify that the block dominates each of the exit blocks of the loop.
-  for (BasicBlock *ExitBlock : ExitBlocks)
-    if (!DT->dominates(Inst.getParent(), ExitBlock))
-      return false;
-
-  // As a degenerate case, if the loop is statically infinite then we haven't
-  // proven anything since there are no exit blocks.
-  if (ExitBlocks.empty())
-    return false;
-
-  // FIXME: In general, we have to prove that the loop isn't an infinite loop.
-  // See http::llvm.org/PR24078 .  (The "ExitBlocks.empty()" check above is
-  // just a special case of this.)
-  return true;
 }
 
 Optional<unsigned> llvm::getLoopEstimatedTripCount(Loop *L) {

@@ -26,6 +26,10 @@
 
 using namespace llvm;
 
+// Include the auto-generated portion of the compress emitter.
+#define GEN_COMPRESS_INSTR
+#include "RISCVGenCompressInstEmitter.inc"
+
 namespace {
 struct RISCVOperand;
 
@@ -273,12 +277,13 @@ public:
            (VK == RISCVMCExpr::VK_RISCV_None || VK == RISCVMCExpr::VK_RISCV_LO);
   }
 
-  bool isUImm6NonZero() const {
+  bool isCLUIImm() const {
     int64_t Imm;
     RISCVMCExpr::VariantKind VK;
     bool IsConstantImm = evaluateConstantImm(Imm, VK);
-    return IsConstantImm && isUInt<6>(Imm) && (Imm != 0) &&
-           VK == RISCVMCExpr::VK_RISCV_None;
+    return IsConstantImm && (Imm != 0) &&
+           (isUInt<5>(Imm) || (Imm >= 0xfffe0 && Imm <= 0xfffff)) &&
+            VK == RISCVMCExpr::VK_RISCV_None;
   }
 
   bool isUImm7Lsb00() const {
@@ -594,10 +599,14 @@ bool RISCVAsmParser::MatchAndEmitInstruction(SMLoc IDLoc, unsigned &Opcode,
   switch (MatchInstructionImpl(Operands, Inst, ErrorInfo, MatchingInlineAsm)) {
   default:
     break;
-  case Match_Success:
+  case Match_Success: {
+    MCInst CInst;
+    bool Res = compressInst(CInst, Inst, getSTI(), Out.getContext());
+    CInst.setLoc(IDLoc);
     Inst.setLoc(IDLoc);
-    Out.EmitInstruction(Inst, getSTI());
+    Out.EmitInstruction((Res ? CInst : Inst), getSTI());
     return false;
+  }
   case Match_MissingFeature:
     return Error(IDLoc, "instruction use requires an option to be enabled");
   case Match_MnemonicFail:
@@ -631,8 +640,10 @@ bool RISCVAsmParser::MatchAndEmitInstruction(SMLoc IDLoc, unsigned &Opcode,
     return generateImmOutOfRangeError(Operands, ErrorInfo, -(1 << 5),
                                       (1 << 5) - 1,
         "immediate must be non-zero in the range");
-  case Match_InvalidUImm6NonZero:
-    return generateImmOutOfRangeError(Operands, ErrorInfo, 1, (1 << 6) - 1);
+  case Match_InvalidCLUIImm:
+    return generateImmOutOfRangeError(
+        Operands, ErrorInfo, 1, (1 << 5) - 1,
+        "immediate must be in [0xfffe0, 0xfffff] or");
   case Match_InvalidUImm7Lsb00:
     return generateImmOutOfRangeError(
         Operands, ErrorInfo, 0, (1 << 7) - 4,

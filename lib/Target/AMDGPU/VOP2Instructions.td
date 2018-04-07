@@ -61,17 +61,9 @@ class VOP2_SDWA9Ae <bits<6> op, VOPProfile P> : VOP_SDWA9Ae <P> {
 }
 
 class VOP2_Pseudo <string opName, VOPProfile P, list<dag> pattern=[], string suffix = "_e32"> :
-  InstSI <P.Outs32, P.Ins32, "", pattern>,
-  VOP <opName>,
-  SIMCInstr <opName#suffix, SIEncodingFamily.NONE>,
-  MnemonicAlias<opName#suffix, opName> {
+  VOP_Pseudo <opName, suffix, P, P.Outs32, P.Ins32, "", pattern> {
 
-  let isPseudo = 1;
-  let isCodeGenOnly = 1;
-  let UseNamedOperandTable = 1;
-
-  string Mnemonic = opName;
-  string AsmOperands = P.Asm32;
+  let AsmOperands = P.Asm32;
 
   let Size = 4;
   let mayLoad = 0;
@@ -84,8 +76,6 @@ class VOP2_Pseudo <string opName, VOPProfile P, list<dag> pattern=[], string suf
   let Uses = [EXEC];
 
   let AsmVariantName = AMDGPUAsmVariants.Default;
-
-  VOPProfile Pfl = P;
 }
 
 class VOP2_Real <VOP2_Pseudo ps, int EncodingFamily> :
@@ -323,15 +313,17 @@ def VOP_READLANE : VOPProfile<[i32, i32, i32]> {
   let HasSDWA9 = 0;
 }
 
-def VOP_WRITELANE : VOPProfile<[i32, i32, i32]> {
+def VOP_WRITELANE : VOPProfile<[i32, i32, i32, i32]> {
   let Outs32 = (outs VGPR_32:$vdst);
   let Outs64 = Outs32;
-  let Ins32 = (ins SCSrc_b32:$src0, SCSrc_b32:$src1);
+  let Ins32 = (ins SCSrc_b32:$src0, SCSrc_b32:$src1, VGPR_32:$vdst_in);
   let Ins64 = Ins32;
   let Asm32 = " $vdst, $src0, $src1";
   let Asm64 = Asm32;
   let HasExt = 0;
   let HasSDWA9 = 0;
+  let HasSrc2 = 0;
+  let HasSrc2Mods = 0;
 }
 
 //===----------------------------------------------------------------------===//
@@ -399,7 +391,10 @@ let isConvergent = 1, Uses = []<Register> in {
 def V_READLANE_B32 : VOP2_Pseudo<"v_readlane_b32", VOP_READLANE,
   [(set i32:$vdst, (int_amdgcn_readlane i32:$src0, i32:$src1))], "">;
 
-def V_WRITELANE_B32 : VOP2_Pseudo<"v_writelane_b32", VOP_WRITELANE, [], "">;
+let Constraints = "$vdst = $vdst_in", DisableEncoding="$vdst_in" in {
+def V_WRITELANE_B32 : VOP2_Pseudo<"v_writelane_b32", VOP_WRITELANE,
+  [(set i32:$vdst, (int_amdgcn_writelane i32:$src0, i32:$src1, i32:$vdst_in))], "">;
+} // End $vdst = $vdst_in, DisableEncoding $vdst_in
 } // End isConvergent = 1
 
 defm V_BFM_B32 : VOP2Inst <"v_bfm_b32", VOP_NO_EXT<VOP_I32_I32_I32>>;
@@ -640,7 +635,7 @@ defm V_SUBBREV_U32        : VOP2be_Real_e32e64_si <0x2a>;
 
 defm V_READLANE_B32       : VOP2_Real_si <0x01>;
 
-let InOperandList = (ins SSrc_b32:$src0, SCSrc_b32:$src1) in {
+let InOperandList = (ins SSrc_b32:$src0, SCSrc_b32:$src1, VSrc_b32:$vdst_in) in {
 defm V_WRITELANE_B32      : VOP2_Real_si <0x02>;
 }
 

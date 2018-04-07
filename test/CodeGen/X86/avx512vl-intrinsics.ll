@@ -720,10 +720,11 @@ define i8 @test_cmpps_256(<8 x float> %a, <8 x float> %b) {
 ; CHECK-NEXT:    kmovw %k0, %eax ## encoding: [0xc5,0xf8,0x93,0xc0]
 ; CHECK-NEXT:    ## kill: def $al killed $al killed $eax
 ; CHECK-NEXT:    retq ## encoding: [0xc3]
-   %res = call i8 @llvm.x86.avx512.mask.cmp.ps.256(<8 x float> %a, <8 x float> %b, i32 2, i8 -1)
-   ret i8 %res
- }
- declare i8 @llvm.x86.avx512.mask.cmp.ps.256(<8 x float> , <8 x float> , i32, i8)
+  %res = call <8 x i1> @llvm.x86.avx512.mask.cmp.ps.256(<8 x float> %a, <8 x float> %b, i32 2)
+  %1 = bitcast <8 x i1> %res to i8
+  ret i8 %1
+}
+declare <8 x i1> @llvm.x86.avx512.mask.cmp.ps.256(<8 x float>, <8 x float>, i32)
 
 define i8 @test_cmpps_128(<4 x float> %a, <4 x float> %b) {
 ; CHECK-LABEL: test_cmpps_128:
@@ -732,10 +733,12 @@ define i8 @test_cmpps_128(<4 x float> %a, <4 x float> %b) {
 ; CHECK-NEXT:    kmovw %k0, %eax ## encoding: [0xc5,0xf8,0x93,0xc0]
 ; CHECK-NEXT:    ## kill: def $al killed $al killed $eax
 ; CHECK-NEXT:    retq ## encoding: [0xc3]
-   %res = call i8 @llvm.x86.avx512.mask.cmp.ps.128(<4 x float> %a, <4 x float> %b, i32 2, i8 -1)
-   ret i8 %res
- }
- declare i8 @llvm.x86.avx512.mask.cmp.ps.128(<4 x float> , <4 x float> , i32, i8)
+  %res = call <4 x i1> @llvm.x86.avx512.mask.cmp.ps.128(<4 x float> %a, <4 x float> %b, i32 2)
+  %1 = shufflevector <4 x i1> %res, <4 x i1> zeroinitializer, <8 x i32> <i32 0, i32 1, i32 2, i32 3, i32 4, i32 5, i32 6, i32 7>
+  %2 = bitcast <8 x i1> %1 to i8
+  ret i8 %2
+}
+declare <4 x i1> @llvm.x86.avx512.mask.cmp.ps.128(<4 x float>, <4 x float>, i32)
 
 define i8 @test_cmppd_256(<4 x double> %a, <4 x double> %b) {
 ; CHECK-LABEL: test_cmppd_256:
@@ -744,10 +747,12 @@ define i8 @test_cmppd_256(<4 x double> %a, <4 x double> %b) {
 ; CHECK-NEXT:    kmovw %k0, %eax ## encoding: [0xc5,0xf8,0x93,0xc0]
 ; CHECK-NEXT:    ## kill: def $al killed $al killed $eax
 ; CHECK-NEXT:    retq ## encoding: [0xc3]
-   %res = call i8 @llvm.x86.avx512.mask.cmp.pd.256(<4 x double> %a, <4 x double> %b, i32 2, i8 -1)
-   ret i8 %res
- }
- declare i8 @llvm.x86.avx512.mask.cmp.pd.256(<4 x double> , <4 x double> , i32, i8)
+  %res = call <4 x i1> @llvm.x86.avx512.mask.cmp.pd.256(<4 x double> %a, <4 x double> %b, i32 2)
+  %1 = shufflevector <4 x i1> %res, <4 x i1> zeroinitializer, <8 x i32> <i32 0, i32 1, i32 2, i32 3, i32 4, i32 5, i32 6, i32 7>
+  %2 = bitcast <8 x i1> %1 to i8
+  ret i8 %2
+}
+declare <4 x i1> @llvm.x86.avx512.mask.cmp.pd.256(<4 x double>, <4 x double>, i32)
 
 define i8 @test_cmppd_128(<2 x double> %a, <2 x double> %b) {
 ; CHECK-LABEL: test_cmppd_128:
@@ -756,10 +761,12 @@ define i8 @test_cmppd_128(<2 x double> %a, <2 x double> %b) {
 ; CHECK-NEXT:    kmovw %k0, %eax ## encoding: [0xc5,0xf8,0x93,0xc0]
 ; CHECK-NEXT:    ## kill: def $al killed $al killed $eax
 ; CHECK-NEXT:    retq ## encoding: [0xc3]
-   %res = call i8 @llvm.x86.avx512.mask.cmp.pd.128(<2 x double> %a, <2 x double> %b, i32 2, i8 -1)
-   ret i8 %res
- }
- declare i8 @llvm.x86.avx512.mask.cmp.pd.128(<2 x double> , <2 x double> , i32, i8)
+  %res = call <2 x i1> @llvm.x86.avx512.mask.cmp.pd.128(<2 x double> %a, <2 x double> %b, i32 2)
+  %1 = shufflevector <2 x i1> %res, <2 x i1> zeroinitializer, <8 x i32> <i32 0, i32 1, i32 2, i32 3, i32 2, i32 3, i32 2, i32 3>
+  %2 = bitcast <8 x i1> %1 to i8
+  ret i8 %2
+}
+declare <2 x i1> @llvm.x86.avx512.mask.cmp.pd.128(<2 x double>, <2 x double>, i32)
 
 define <8 x float> @test_mm512_maskz_max_ps_256(<8 x float> %a0, <8 x float> %a1, i8 %mask) {
 ; CHECK-LABEL: test_mm512_maskz_max_ps_256:
@@ -2694,7 +2701,7 @@ define <4 x float>@test_int_x86_avx512_mask_rndscale_ps_128(<4 x float> %x0, <4 
 ; CHECK:       ## %bb.0:
 ; CHECK-NEXT:    kmovw %edi, %k1 ## encoding: [0xc5,0xf8,0x92,0xcf]
 ; CHECK-NEXT:    vrndscaleps $88, %xmm0, %xmm1 {%k1} ## encoding: [0x62,0xf3,0x7d,0x09,0x08,0xc8,0x58]
-; CHECK-NEXT:    vrndscaleps $4, %xmm0, %xmm0 ## encoding: [0x62,0xf3,0x7d,0x08,0x08,0xc0,0x04]
+; CHECK-NEXT:    vroundps $4, %xmm0, %xmm0 ## EVEX TO VEX Compression encoding: [0xc4,0xe3,0x79,0x08,0xc0,0x04]
 ; CHECK-NEXT:    vaddps %xmm0, %xmm1, %xmm0 ## EVEX TO VEX Compression encoding: [0xc5,0xf0,0x58,0xc0]
 ; CHECK-NEXT:    retq ## encoding: [0xc3]
   %res = call <4 x float> @llvm.x86.avx512.mask.rndscale.ps.128(<4 x float> %x0, i32 88, <4 x float> %x2, i8 %x3)
@@ -4085,6 +4092,7 @@ define <8 x float> @test_mask_vfmadd256_ps(<8 x float> %a0, <8 x float> %a1, <8 
 ; CHECK:       ## %bb.0:
 ; CHECK-NEXT:    kmovw %edi, %k1 ## encoding: [0xc5,0xf8,0x92,0xcf]
 ; CHECK-NEXT:    vfmadd132ps %ymm1, %ymm2, %ymm0 {%k1} ## encoding: [0x62,0xf2,0x6d,0x29,0x98,0xc1]
+; CHECK-NEXT:    ## ymm0 = (ymm0 * ymm1) + ymm2
 ; CHECK-NEXT:    retq ## encoding: [0xc3]
   %res = call <8 x float> @llvm.x86.avx512.mask.vfmadd.ps.256(<8 x float> %a0, <8 x float> %a1, <8 x float> %a2, i8 %mask) nounwind
   ret <8 x float> %res
@@ -4097,6 +4105,7 @@ define <4 x float> @test_mask_vfmadd128_ps(<4 x float> %a0, <4 x float> %a1, <4 
 ; CHECK:       ## %bb.0:
 ; CHECK-NEXT:    kmovw %edi, %k1 ## encoding: [0xc5,0xf8,0x92,0xcf]
 ; CHECK-NEXT:    vfmadd132ps %xmm1, %xmm2, %xmm0 {%k1} ## encoding: [0x62,0xf2,0x6d,0x09,0x98,0xc1]
+; CHECK-NEXT:    ## xmm0 = (xmm0 * xmm1) + xmm2
 ; CHECK-NEXT:    retq ## encoding: [0xc3]
   %res = call <4 x float> @llvm.x86.avx512.mask.vfmadd.ps.128(<4 x float> %a0, <4 x float> %a1, <4 x float> %a2, i8 %mask) nounwind
   ret <4 x float> %res
@@ -4109,6 +4118,7 @@ define <4 x double> @test_mask_fmadd256_pd(<4 x double> %a, <4 x double> %b, <4 
 ; CHECK:       ## %bb.0:
 ; CHECK-NEXT:    kmovw %edi, %k1 ## encoding: [0xc5,0xf8,0x92,0xcf]
 ; CHECK-NEXT:    vfmadd132pd %ymm1, %ymm2, %ymm0 {%k1} ## encoding: [0x62,0xf2,0xed,0x29,0x98,0xc1]
+; CHECK-NEXT:    ## ymm0 = (ymm0 * ymm1) + ymm2
 ; CHECK-NEXT:    retq ## encoding: [0xc3]
   %res = call <4 x double> @llvm.x86.avx512.mask.vfmadd.pd.256(<4 x double> %a, <4 x double> %b, <4 x double> %c, i8 %mask)
   ret <4 x double> %res
@@ -4121,6 +4131,7 @@ define <2 x double> @test_mask_fmadd128_pd(<2 x double> %a, <2 x double> %b, <2 
 ; CHECK:       ## %bb.0:
 ; CHECK-NEXT:    kmovw %edi, %k1 ## encoding: [0xc5,0xf8,0x92,0xcf]
 ; CHECK-NEXT:    vfmadd132pd %xmm1, %xmm2, %xmm0 {%k1} ## encoding: [0x62,0xf2,0xed,0x09,0x98,0xc1]
+; CHECK-NEXT:    ## xmm0 = (xmm0 * xmm1) + xmm2
 ; CHECK-NEXT:    retq ## encoding: [0xc3]
   %res = call <2 x double> @llvm.x86.avx512.mask.vfmadd.pd.128(<2 x double> %a, <2 x double> %b, <2 x double> %c, i8 %mask)
   ret <2 x double> %res
@@ -4132,7 +4143,9 @@ define <2 x double>@test_int_x86_avx512_mask_vfmadd_pd_128(<2 x double> %x0, <2 
 ; CHECK-NEXT:    kmovw %edi, %k1 ## encoding: [0xc5,0xf8,0x92,0xcf]
 ; CHECK-NEXT:    vmovapd %xmm1, %xmm3 ## EVEX TO VEX Compression encoding: [0xc5,0xf9,0x28,0xd9]
 ; CHECK-NEXT:    vfmadd213pd %xmm2, %xmm0, %xmm3 ## EVEX TO VEX Compression encoding: [0xc4,0xe2,0xf9,0xa8,0xda]
+; CHECK-NEXT:    ## xmm3 = (xmm0 * xmm3) + xmm2
 ; CHECK-NEXT:    vfmadd132pd %xmm1, %xmm2, %xmm0 {%k1} ## encoding: [0x62,0xf2,0xed,0x09,0x98,0xc1]
+; CHECK-NEXT:    ## xmm0 = (xmm0 * xmm1) + xmm2
 ; CHECK-NEXT:    vaddpd %xmm3, %xmm0, %xmm0 ## EVEX TO VEX Compression encoding: [0xc5,0xf9,0x58,0xc3]
 ; CHECK-NEXT:    retq ## encoding: [0xc3]
   %res = call <2 x double> @llvm.x86.avx512.mask.vfmadd.pd.128(<2 x double> %x0, <2 x double> %x1, <2 x double> %x2, i8 %x3)
@@ -4149,7 +4162,9 @@ define <2 x double>@test_int_x86_avx512_mask3_vfmadd_pd_128(<2 x double> %x0, <2
 ; CHECK-NEXT:    kmovw %edi, %k1 ## encoding: [0xc5,0xf8,0x92,0xcf]
 ; CHECK-NEXT:    vmovapd %xmm1, %xmm3 ## EVEX TO VEX Compression encoding: [0xc5,0xf9,0x28,0xd9]
 ; CHECK-NEXT:    vfmadd213pd %xmm2, %xmm0, %xmm3 ## EVEX TO VEX Compression encoding: [0xc4,0xe2,0xf9,0xa8,0xda]
+; CHECK-NEXT:    ## xmm3 = (xmm0 * xmm3) + xmm2
 ; CHECK-NEXT:    vfmadd231pd %xmm1, %xmm0, %xmm2 {%k1} ## encoding: [0x62,0xf2,0xfd,0x09,0xb8,0xd1]
+; CHECK-NEXT:    ## xmm2 = (xmm0 * xmm1) + xmm2
 ; CHECK-NEXT:    vaddpd %xmm3, %xmm2, %xmm0 ## EVEX TO VEX Compression encoding: [0xc5,0xe9,0x58,0xc3]
 ; CHECK-NEXT:    retq ## encoding: [0xc3]
   %res = call <2 x double> @llvm.x86.avx512.mask3.vfmadd.pd.128(<2 x double> %x0, <2 x double> %x1, <2 x double> %x2, i8 %x3)
@@ -4166,7 +4181,9 @@ define <2 x double>@test_int_x86_avx512_maskz_vfmadd_pd_128(<2 x double> %x0, <2
 ; CHECK-NEXT:    kmovw %edi, %k1 ## encoding: [0xc5,0xf8,0x92,0xcf]
 ; CHECK-NEXT:    vmovapd %xmm1, %xmm3 ## EVEX TO VEX Compression encoding: [0xc5,0xf9,0x28,0xd9]
 ; CHECK-NEXT:    vfmadd213pd %xmm2, %xmm0, %xmm3 ## EVEX TO VEX Compression encoding: [0xc4,0xe2,0xf9,0xa8,0xda]
+; CHECK-NEXT:    ## xmm3 = (xmm0 * xmm3) + xmm2
 ; CHECK-NEXT:    vfmadd213pd %xmm2, %xmm0, %xmm1 {%k1} {z} ## encoding: [0x62,0xf2,0xfd,0x89,0xa8,0xca]
+; CHECK-NEXT:    ## xmm1 = (xmm0 * xmm1) + xmm2
 ; CHECK-NEXT:    vaddpd %xmm3, %xmm1, %xmm0 ## EVEX TO VEX Compression encoding: [0xc5,0xf1,0x58,0xc3]
 ; CHECK-NEXT:    retq ## encoding: [0xc3]
   %res = call <2 x double> @llvm.x86.avx512.maskz.vfmadd.pd.128(<2 x double> %x0, <2 x double> %x1, <2 x double> %x2, i8 %x3)
@@ -4181,7 +4198,9 @@ define <4 x double>@test_int_x86_avx512_mask_vfmadd_pd_256(<4 x double> %x0, <4 
 ; CHECK-NEXT:    kmovw %edi, %k1 ## encoding: [0xc5,0xf8,0x92,0xcf]
 ; CHECK-NEXT:    vmovapd %ymm1, %ymm3 ## EVEX TO VEX Compression encoding: [0xc5,0xfd,0x28,0xd9]
 ; CHECK-NEXT:    vfmadd213pd %ymm2, %ymm0, %ymm3 ## EVEX TO VEX Compression encoding: [0xc4,0xe2,0xfd,0xa8,0xda]
+; CHECK-NEXT:    ## ymm3 = (ymm0 * ymm3) + ymm2
 ; CHECK-NEXT:    vfmadd132pd %ymm1, %ymm2, %ymm0 {%k1} ## encoding: [0x62,0xf2,0xed,0x29,0x98,0xc1]
+; CHECK-NEXT:    ## ymm0 = (ymm0 * ymm1) + ymm2
 ; CHECK-NEXT:    vaddpd %ymm3, %ymm0, %ymm0 ## EVEX TO VEX Compression encoding: [0xc5,0xfd,0x58,0xc3]
 ; CHECK-NEXT:    retq ## encoding: [0xc3]
   %res = call <4 x double> @llvm.x86.avx512.mask.vfmadd.pd.256(<4 x double> %x0, <4 x double> %x1, <4 x double> %x2, i8 %x3)
@@ -4198,7 +4217,9 @@ define <4 x double>@test_int_x86_avx512_mask3_vfmadd_pd_256(<4 x double> %x0, <4
 ; CHECK-NEXT:    kmovw %edi, %k1 ## encoding: [0xc5,0xf8,0x92,0xcf]
 ; CHECK-NEXT:    vmovapd %ymm1, %ymm3 ## EVEX TO VEX Compression encoding: [0xc5,0xfd,0x28,0xd9]
 ; CHECK-NEXT:    vfmadd213pd %ymm2, %ymm0, %ymm3 ## EVEX TO VEX Compression encoding: [0xc4,0xe2,0xfd,0xa8,0xda]
+; CHECK-NEXT:    ## ymm3 = (ymm0 * ymm3) + ymm2
 ; CHECK-NEXT:    vfmadd231pd %ymm1, %ymm0, %ymm2 {%k1} ## encoding: [0x62,0xf2,0xfd,0x29,0xb8,0xd1]
+; CHECK-NEXT:    ## ymm2 = (ymm0 * ymm1) + ymm2
 ; CHECK-NEXT:    vaddpd %ymm3, %ymm2, %ymm0 ## EVEX TO VEX Compression encoding: [0xc5,0xed,0x58,0xc3]
 ; CHECK-NEXT:    retq ## encoding: [0xc3]
   %res = call <4 x double> @llvm.x86.avx512.mask3.vfmadd.pd.256(<4 x double> %x0, <4 x double> %x1, <4 x double> %x2, i8 %x3)
@@ -4215,7 +4236,9 @@ define <4 x double>@test_int_x86_avx512_maskz_vfmadd_pd_256(<4 x double> %x0, <4
 ; CHECK-NEXT:    kmovw %edi, %k1 ## encoding: [0xc5,0xf8,0x92,0xcf]
 ; CHECK-NEXT:    vmovapd %ymm1, %ymm3 ## EVEX TO VEX Compression encoding: [0xc5,0xfd,0x28,0xd9]
 ; CHECK-NEXT:    vfmadd213pd %ymm2, %ymm0, %ymm3 ## EVEX TO VEX Compression encoding: [0xc4,0xe2,0xfd,0xa8,0xda]
+; CHECK-NEXT:    ## ymm3 = (ymm0 * ymm3) + ymm2
 ; CHECK-NEXT:    vfmadd213pd %ymm2, %ymm0, %ymm1 {%k1} {z} ## encoding: [0x62,0xf2,0xfd,0xa9,0xa8,0xca]
+; CHECK-NEXT:    ## ymm1 = (ymm0 * ymm1) + ymm2
 ; CHECK-NEXT:    vaddpd %ymm3, %ymm1, %ymm0 ## EVEX TO VEX Compression encoding: [0xc5,0xf5,0x58,0xc3]
 ; CHECK-NEXT:    retq ## encoding: [0xc3]
   %res = call <4 x double> @llvm.x86.avx512.maskz.vfmadd.pd.256(<4 x double> %x0, <4 x double> %x1, <4 x double> %x2, i8 %x3)
@@ -4230,7 +4253,9 @@ define <4 x float>@test_int_x86_avx512_mask_vfmadd_ps_128(<4 x float> %x0, <4 x 
 ; CHECK-NEXT:    kmovw %edi, %k1 ## encoding: [0xc5,0xf8,0x92,0xcf]
 ; CHECK-NEXT:    vmovaps %xmm1, %xmm3 ## EVEX TO VEX Compression encoding: [0xc5,0xf8,0x28,0xd9]
 ; CHECK-NEXT:    vfmadd213ps %xmm2, %xmm0, %xmm3 ## EVEX TO VEX Compression encoding: [0xc4,0xe2,0x79,0xa8,0xda]
+; CHECK-NEXT:    ## xmm3 = (xmm0 * xmm3) + xmm2
 ; CHECK-NEXT:    vfmadd132ps %xmm1, %xmm2, %xmm0 {%k1} ## encoding: [0x62,0xf2,0x6d,0x09,0x98,0xc1]
+; CHECK-NEXT:    ## xmm0 = (xmm0 * xmm1) + xmm2
 ; CHECK-NEXT:    vaddps %xmm3, %xmm0, %xmm0 ## EVEX TO VEX Compression encoding: [0xc5,0xf8,0x58,0xc3]
 ; CHECK-NEXT:    retq ## encoding: [0xc3]
   %res = call <4 x float> @llvm.x86.avx512.mask.vfmadd.ps.128(<4 x float> %x0, <4 x float> %x1, <4 x float> %x2, i8 %x3)
@@ -4247,7 +4272,9 @@ define <4 x float>@test_int_x86_avx512_mask3_vfmadd_ps_128(<4 x float> %x0, <4 x
 ; CHECK-NEXT:    kmovw %edi, %k1 ## encoding: [0xc5,0xf8,0x92,0xcf]
 ; CHECK-NEXT:    vmovaps %xmm1, %xmm3 ## EVEX TO VEX Compression encoding: [0xc5,0xf8,0x28,0xd9]
 ; CHECK-NEXT:    vfmadd213ps %xmm2, %xmm0, %xmm3 ## EVEX TO VEX Compression encoding: [0xc4,0xe2,0x79,0xa8,0xda]
+; CHECK-NEXT:    ## xmm3 = (xmm0 * xmm3) + xmm2
 ; CHECK-NEXT:    vfmadd231ps %xmm1, %xmm0, %xmm2 {%k1} ## encoding: [0x62,0xf2,0x7d,0x09,0xb8,0xd1]
+; CHECK-NEXT:    ## xmm2 = (xmm0 * xmm1) + xmm2
 ; CHECK-NEXT:    vaddps %xmm3, %xmm2, %xmm0 ## EVEX TO VEX Compression encoding: [0xc5,0xe8,0x58,0xc3]
 ; CHECK-NEXT:    retq ## encoding: [0xc3]
   %res = call <4 x float> @llvm.x86.avx512.mask3.vfmadd.ps.128(<4 x float> %x0, <4 x float> %x1, <4 x float> %x2, i8 %x3)
@@ -4264,7 +4291,9 @@ define <4 x float>@test_int_x86_avx512_maskz_vfmadd_ps_128(<4 x float> %x0, <4 x
 ; CHECK-NEXT:    kmovw %edi, %k1 ## encoding: [0xc5,0xf8,0x92,0xcf]
 ; CHECK-NEXT:    vmovaps %xmm1, %xmm3 ## EVEX TO VEX Compression encoding: [0xc5,0xf8,0x28,0xd9]
 ; CHECK-NEXT:    vfmadd213ps %xmm2, %xmm0, %xmm3 ## EVEX TO VEX Compression encoding: [0xc4,0xe2,0x79,0xa8,0xda]
+; CHECK-NEXT:    ## xmm3 = (xmm0 * xmm3) + xmm2
 ; CHECK-NEXT:    vfmadd213ps %xmm2, %xmm0, %xmm1 {%k1} {z} ## encoding: [0x62,0xf2,0x7d,0x89,0xa8,0xca]
+; CHECK-NEXT:    ## xmm1 = (xmm0 * xmm1) + xmm2
 ; CHECK-NEXT:    vaddps %xmm3, %xmm1, %xmm0 ## EVEX TO VEX Compression encoding: [0xc5,0xf0,0x58,0xc3]
 ; CHECK-NEXT:    retq ## encoding: [0xc3]
   %res = call <4 x float> @llvm.x86.avx512.maskz.vfmadd.ps.128(<4 x float> %x0, <4 x float> %x1, <4 x float> %x2, i8 %x3)
@@ -4279,7 +4308,9 @@ define <8 x float>@test_int_x86_avx512_mask_vfmadd_ps_256(<8 x float> %x0, <8 x 
 ; CHECK-NEXT:    kmovw %edi, %k1 ## encoding: [0xc5,0xf8,0x92,0xcf]
 ; CHECK-NEXT:    vmovaps %ymm1, %ymm3 ## EVEX TO VEX Compression encoding: [0xc5,0xfc,0x28,0xd9]
 ; CHECK-NEXT:    vfmadd213ps %ymm2, %ymm0, %ymm3 ## EVEX TO VEX Compression encoding: [0xc4,0xe2,0x7d,0xa8,0xda]
+; CHECK-NEXT:    ## ymm3 = (ymm0 * ymm3) + ymm2
 ; CHECK-NEXT:    vfmadd132ps %ymm1, %ymm2, %ymm0 {%k1} ## encoding: [0x62,0xf2,0x6d,0x29,0x98,0xc1]
+; CHECK-NEXT:    ## ymm0 = (ymm0 * ymm1) + ymm2
 ; CHECK-NEXT:    vaddps %ymm3, %ymm0, %ymm0 ## EVEX TO VEX Compression encoding: [0xc5,0xfc,0x58,0xc3]
 ; CHECK-NEXT:    retq ## encoding: [0xc3]
   %res = call <8 x float> @llvm.x86.avx512.mask.vfmadd.ps.256(<8 x float> %x0, <8 x float> %x1, <8 x float> %x2, i8 %x3)
@@ -4296,7 +4327,9 @@ define <8 x float>@test_int_x86_avx512_mask3_vfmadd_ps_256(<8 x float> %x0, <8 x
 ; CHECK-NEXT:    kmovw %edi, %k1 ## encoding: [0xc5,0xf8,0x92,0xcf]
 ; CHECK-NEXT:    vmovaps %ymm1, %ymm3 ## EVEX TO VEX Compression encoding: [0xc5,0xfc,0x28,0xd9]
 ; CHECK-NEXT:    vfmadd213ps %ymm2, %ymm0, %ymm3 ## EVEX TO VEX Compression encoding: [0xc4,0xe2,0x7d,0xa8,0xda]
+; CHECK-NEXT:    ## ymm3 = (ymm0 * ymm3) + ymm2
 ; CHECK-NEXT:    vfmadd231ps %ymm1, %ymm0, %ymm2 {%k1} ## encoding: [0x62,0xf2,0x7d,0x29,0xb8,0xd1]
+; CHECK-NEXT:    ## ymm2 = (ymm0 * ymm1) + ymm2
 ; CHECK-NEXT:    vaddps %ymm3, %ymm2, %ymm0 ## EVEX TO VEX Compression encoding: [0xc5,0xec,0x58,0xc3]
 ; CHECK-NEXT:    retq ## encoding: [0xc3]
   %res = call <8 x float> @llvm.x86.avx512.mask3.vfmadd.ps.256(<8 x float> %x0, <8 x float> %x1, <8 x float> %x2, i8 %x3)
@@ -4313,7 +4346,9 @@ define <8 x float>@test_int_x86_avx512_maskz_vfmadd_ps_256(<8 x float> %x0, <8 x
 ; CHECK-NEXT:    kmovw %edi, %k1 ## encoding: [0xc5,0xf8,0x92,0xcf]
 ; CHECK-NEXT:    vmovaps %ymm1, %ymm3 ## EVEX TO VEX Compression encoding: [0xc5,0xfc,0x28,0xd9]
 ; CHECK-NEXT:    vfmadd213ps %ymm2, %ymm0, %ymm3 ## EVEX TO VEX Compression encoding: [0xc4,0xe2,0x7d,0xa8,0xda]
+; CHECK-NEXT:    ## ymm3 = (ymm0 * ymm3) + ymm2
 ; CHECK-NEXT:    vfmadd213ps %ymm2, %ymm0, %ymm1 {%k1} {z} ## encoding: [0x62,0xf2,0x7d,0xa9,0xa8,0xca]
+; CHECK-NEXT:    ## ymm1 = (ymm0 * ymm1) + ymm2
 ; CHECK-NEXT:    vaddps %ymm3, %ymm1, %ymm0 ## EVEX TO VEX Compression encoding: [0xc5,0xf4,0x58,0xc3]
 ; CHECK-NEXT:    retq ## encoding: [0xc3]
   %res = call <8 x float> @llvm.x86.avx512.maskz.vfmadd.ps.256(<8 x float> %x0, <8 x float> %x1, <8 x float> %x2, i8 %x3)
@@ -4331,7 +4366,9 @@ define <2 x double>@test_int_x86_avx512_mask3_vfmsub_pd_128(<2 x double> %x0, <2
 ; CHECK-NEXT:    kmovw %edi, %k1 ## encoding: [0xc5,0xf8,0x92,0xcf]
 ; CHECK-NEXT:    vmovapd %xmm1, %xmm3 ## EVEX TO VEX Compression encoding: [0xc5,0xf9,0x28,0xd9]
 ; CHECK-NEXT:    vfmsub213pd %xmm2, %xmm0, %xmm3 ## EVEX TO VEX Compression encoding: [0xc4,0xe2,0xf9,0xaa,0xda]
+; CHECK-NEXT:    ## xmm3 = (xmm0 * xmm3) - xmm2
 ; CHECK-NEXT:    vfmsub231pd %xmm1, %xmm0, %xmm2 {%k1} ## encoding: [0x62,0xf2,0xfd,0x09,0xba,0xd1]
+; CHECK-NEXT:    ## xmm2 = (xmm0 * xmm1) - xmm2
 ; CHECK-NEXT:    vaddpd %xmm3, %xmm2, %xmm0 ## EVEX TO VEX Compression encoding: [0xc5,0xe9,0x58,0xc3]
 ; CHECK-NEXT:    retq ## encoding: [0xc3]
   %res = call <2 x double> @llvm.x86.avx512.mask3.vfmsub.pd.128(<2 x double> %x0, <2 x double> %x1, <2 x double> %x2, i8 %x3)
@@ -4349,7 +4386,9 @@ define <4 x double>@test_int_x86_avx512_mask3_vfmsub_pd_256(<4 x double> %x0, <4
 ; CHECK-NEXT:    kmovw %edi, %k1 ## encoding: [0xc5,0xf8,0x92,0xcf]
 ; CHECK-NEXT:    vmovapd %ymm1, %ymm3 ## EVEX TO VEX Compression encoding: [0xc5,0xfd,0x28,0xd9]
 ; CHECK-NEXT:    vfmsub213pd %ymm2, %ymm0, %ymm3 ## EVEX TO VEX Compression encoding: [0xc4,0xe2,0xfd,0xaa,0xda]
+; CHECK-NEXT:    ## ymm3 = (ymm0 * ymm3) - ymm2
 ; CHECK-NEXT:    vfmsub231pd %ymm1, %ymm0, %ymm2 {%k1} ## encoding: [0x62,0xf2,0xfd,0x29,0xba,0xd1]
+; CHECK-NEXT:    ## ymm2 = (ymm0 * ymm1) - ymm2
 ; CHECK-NEXT:    vaddpd %ymm3, %ymm2, %ymm0 ## EVEX TO VEX Compression encoding: [0xc5,0xed,0x58,0xc3]
 ; CHECK-NEXT:    retq ## encoding: [0xc3]
   %res = call <4 x double> @llvm.x86.avx512.mask3.vfmsub.pd.256(<4 x double> %x0, <4 x double> %x1, <4 x double> %x2, i8 %x3)
@@ -4366,7 +4405,9 @@ define <4 x float>@test_int_x86_avx512_mask3_vfmsub_ps_128(<4 x float> %x0, <4 x
 ; CHECK-NEXT:    kmovw %edi, %k1 ## encoding: [0xc5,0xf8,0x92,0xcf]
 ; CHECK-NEXT:    vmovaps %xmm1, %xmm3 ## EVEX TO VEX Compression encoding: [0xc5,0xf8,0x28,0xd9]
 ; CHECK-NEXT:    vfmsub213ps %xmm2, %xmm0, %xmm3 ## EVEX TO VEX Compression encoding: [0xc4,0xe2,0x79,0xaa,0xda]
+; CHECK-NEXT:    ## xmm3 = (xmm0 * xmm3) - xmm2
 ; CHECK-NEXT:    vfmsub231ps %xmm1, %xmm0, %xmm2 {%k1} ## encoding: [0x62,0xf2,0x7d,0x09,0xba,0xd1]
+; CHECK-NEXT:    ## xmm2 = (xmm0 * xmm1) - xmm2
 ; CHECK-NEXT:    vaddps %xmm3, %xmm2, %xmm0 ## EVEX TO VEX Compression encoding: [0xc5,0xe8,0x58,0xc3]
 ; CHECK-NEXT:    retq ## encoding: [0xc3]
   %res = call <4 x float> @llvm.x86.avx512.mask3.vfmsub.ps.128(<4 x float> %x0, <4 x float> %x1, <4 x float> %x2, i8 %x3)
@@ -4383,7 +4424,9 @@ define <8 x float>@test_int_x86_avx512_mask3_vfmsub_ps_256(<8 x float> %x0, <8 x
 ; CHECK-NEXT:    kmovw %edi, %k1 ## encoding: [0xc5,0xf8,0x92,0xcf]
 ; CHECK-NEXT:    vmovaps %ymm1, %ymm3 ## EVEX TO VEX Compression encoding: [0xc5,0xfc,0x28,0xd9]
 ; CHECK-NEXT:    vfmsub213ps %ymm2, %ymm0, %ymm3 ## EVEX TO VEX Compression encoding: [0xc4,0xe2,0x7d,0xaa,0xda]
+; CHECK-NEXT:    ## ymm3 = (ymm0 * ymm3) - ymm2
 ; CHECK-NEXT:    vfmsub231ps %ymm1, %ymm0, %ymm2 {%k1} ## encoding: [0x62,0xf2,0x7d,0x29,0xba,0xd1]
+; CHECK-NEXT:    ## ymm2 = (ymm0 * ymm1) - ymm2
 ; CHECK-NEXT:    vaddps %ymm3, %ymm2, %ymm0 ## EVEX TO VEX Compression encoding: [0xc5,0xec,0x58,0xc3]
 ; CHECK-NEXT:    retq ## encoding: [0xc3]
   %res = call <8 x float> @llvm.x86.avx512.mask3.vfmsub.ps.256(<8 x float> %x0, <8 x float> %x1, <8 x float> %x2, i8 %x3)
@@ -4399,6 +4442,7 @@ define <8 x float> @test_mask_vfnmadd256_ps(<8 x float> %a0, <8 x float> %a1, <8
 ; CHECK:       ## %bb.0:
 ; CHECK-NEXT:    kmovw %edi, %k1 ## encoding: [0xc5,0xf8,0x92,0xcf]
 ; CHECK-NEXT:    vfnmadd132ps %ymm1, %ymm2, %ymm0 {%k1} ## encoding: [0x62,0xf2,0x6d,0x29,0x9c,0xc1]
+; CHECK-NEXT:    ## ymm0 = -(ymm0 * ymm1) + ymm2
 ; CHECK-NEXT:    retq ## encoding: [0xc3]
   %res = call <8 x float> @llvm.x86.avx512.mask.vfnmadd.ps.256(<8 x float> %a0, <8 x float> %a1, <8 x float> %a2, i8 %mask) nounwind
   ret <8 x float> %res
@@ -4411,6 +4455,7 @@ define <4 x float> @test_mask_vfnmadd128_ps(<4 x float> %a0, <4 x float> %a1, <4
 ; CHECK:       ## %bb.0:
 ; CHECK-NEXT:    kmovw %edi, %k1 ## encoding: [0xc5,0xf8,0x92,0xcf]
 ; CHECK-NEXT:    vfnmadd132ps %xmm1, %xmm2, %xmm0 {%k1} ## encoding: [0x62,0xf2,0x6d,0x09,0x9c,0xc1]
+; CHECK-NEXT:    ## xmm0 = -(xmm0 * xmm1) + xmm2
 ; CHECK-NEXT:    retq ## encoding: [0xc3]
   %res = call <4 x float> @llvm.x86.avx512.mask.vfnmadd.ps.128(<4 x float> %a0, <4 x float> %a1, <4 x float> %a2, i8 %mask) nounwind
   ret <4 x float> %res
@@ -4423,6 +4468,7 @@ define <4 x double> @test_mask_vfnmadd256_pd(<4 x double> %a0, <4 x double> %a1,
 ; CHECK:       ## %bb.0:
 ; CHECK-NEXT:    kmovw %edi, %k1 ## encoding: [0xc5,0xf8,0x92,0xcf]
 ; CHECK-NEXT:    vfnmadd132pd %ymm1, %ymm2, %ymm0 {%k1} ## encoding: [0x62,0xf2,0xed,0x29,0x9c,0xc1]
+; CHECK-NEXT:    ## ymm0 = -(ymm0 * ymm1) + ymm2
 ; CHECK-NEXT:    retq ## encoding: [0xc3]
   %res = call <4 x double> @llvm.x86.avx512.mask.vfnmadd.pd.256(<4 x double> %a0, <4 x double> %a1, <4 x double> %a2, i8 %mask) nounwind
   ret <4 x double> %res
@@ -4435,6 +4481,7 @@ define <2 x double> @test_mask_vfnmadd128_pd(<2 x double> %a0, <2 x double> %a1,
 ; CHECK:       ## %bb.0:
 ; CHECK-NEXT:    kmovw %edi, %k1 ## encoding: [0xc5,0xf8,0x92,0xcf]
 ; CHECK-NEXT:    vfnmadd132pd %xmm1, %xmm2, %xmm0 {%k1} ## encoding: [0x62,0xf2,0xed,0x09,0x9c,0xc1]
+; CHECK-NEXT:    ## xmm0 = -(xmm0 * xmm1) + xmm2
 ; CHECK-NEXT:    retq ## encoding: [0xc3]
   %res = call <2 x double> @llvm.x86.avx512.mask.vfnmadd.pd.128(<2 x double> %a0, <2 x double> %a1, <2 x double> %a2, i8 %mask) nounwind
   ret <2 x double> %res
@@ -4447,6 +4494,7 @@ define <8 x float> @test_mask_vfnmsub256_ps(<8 x float> %a0, <8 x float> %a1, <8
 ; CHECK:       ## %bb.0:
 ; CHECK-NEXT:    kmovw %edi, %k1 ## encoding: [0xc5,0xf8,0x92,0xcf]
 ; CHECK-NEXT:    vfnmsub132ps %ymm1, %ymm2, %ymm0 {%k1} ## encoding: [0x62,0xf2,0x6d,0x29,0x9e,0xc1]
+; CHECK-NEXT:    ## ymm0 = -(ymm0 * ymm1) - ymm2
 ; CHECK-NEXT:    retq ## encoding: [0xc3]
   %res = call <8 x float> @llvm.x86.avx512.mask.vfnmsub.ps.256(<8 x float> %a0, <8 x float> %a1, <8 x float> %a2, i8 %mask) nounwind
   ret <8 x float> %res
@@ -4459,6 +4507,7 @@ define <4 x float> @test_mask_vfnmsub128_ps(<4 x float> %a0, <4 x float> %a1, <4
 ; CHECK:       ## %bb.0:
 ; CHECK-NEXT:    kmovw %edi, %k1 ## encoding: [0xc5,0xf8,0x92,0xcf]
 ; CHECK-NEXT:    vfnmsub132ps %xmm1, %xmm2, %xmm0 {%k1} ## encoding: [0x62,0xf2,0x6d,0x09,0x9e,0xc1]
+; CHECK-NEXT:    ## xmm0 = -(xmm0 * xmm1) - xmm2
 ; CHECK-NEXT:    retq ## encoding: [0xc3]
   %res = call <4 x float> @llvm.x86.avx512.mask.vfnmsub.ps.128(<4 x float> %a0, <4 x float> %a1, <4 x float> %a2, i8 %mask) nounwind
   ret <4 x float> %res
@@ -4471,6 +4520,7 @@ define <4 x double> @test_mask_vfnmsub256_pd(<4 x double> %a0, <4 x double> %a1,
 ; CHECK:       ## %bb.0:
 ; CHECK-NEXT:    kmovw %edi, %k1 ## encoding: [0xc5,0xf8,0x92,0xcf]
 ; CHECK-NEXT:    vfnmsub132pd %ymm1, %ymm2, %ymm0 {%k1} ## encoding: [0x62,0xf2,0xed,0x29,0x9e,0xc1]
+; CHECK-NEXT:    ## ymm0 = -(ymm0 * ymm1) - ymm2
 ; CHECK-NEXT:    retq ## encoding: [0xc3]
   %res = call <4 x double> @llvm.x86.avx512.mask.vfnmsub.pd.256(<4 x double> %a0, <4 x double> %a1, <4 x double> %a2, i8 %mask) nounwind
   ret <4 x double> %res
@@ -4483,6 +4533,7 @@ define <2 x double> @test_mask_vfnmsub128_pd(<2 x double> %a0, <2 x double> %a1,
 ; CHECK:       ## %bb.0:
 ; CHECK-NEXT:    kmovw %edi, %k1 ## encoding: [0xc5,0xf8,0x92,0xcf]
 ; CHECK-NEXT:    vfnmsub132pd %xmm1, %xmm2, %xmm0 {%k1} ## encoding: [0x62,0xf2,0xed,0x09,0x9e,0xc1]
+; CHECK-NEXT:    ## xmm0 = -(xmm0 * xmm1) - xmm2
 ; CHECK-NEXT:    retq ## encoding: [0xc3]
   %res = call <2 x double> @llvm.x86.avx512.mask.vfnmsub.pd.128(<2 x double> %a0, <2 x double> %a1, <2 x double> %a2, i8 %mask) nounwind
   ret <2 x double> %res
@@ -4495,7 +4546,9 @@ define <2 x double>@test_int_x86_avx512_mask_vfnmsub_pd_128(<2 x double> %x0, <2
 ; CHECK-NEXT:    kmovw %edi, %k1 ## encoding: [0xc5,0xf8,0x92,0xcf]
 ; CHECK-NEXT:    vmovapd %xmm1, %xmm3 ## EVEX TO VEX Compression encoding: [0xc5,0xf9,0x28,0xd9]
 ; CHECK-NEXT:    vfnmsub213pd %xmm2, %xmm0, %xmm3 ## EVEX TO VEX Compression encoding: [0xc4,0xe2,0xf9,0xae,0xda]
+; CHECK-NEXT:    ## xmm3 = -(xmm0 * xmm3) - xmm2
 ; CHECK-NEXT:    vfnmsub132pd %xmm1, %xmm2, %xmm0 {%k1} ## encoding: [0x62,0xf2,0xed,0x09,0x9e,0xc1]
+; CHECK-NEXT:    ## xmm0 = -(xmm0 * xmm1) - xmm2
 ; CHECK-NEXT:    vaddpd %xmm3, %xmm0, %xmm0 ## EVEX TO VEX Compression encoding: [0xc5,0xf9,0x58,0xc3]
 ; CHECK-NEXT:    retq ## encoding: [0xc3]
   %res = call <2 x double> @llvm.x86.avx512.mask.vfnmsub.pd.128(<2 x double> %x0, <2 x double> %x1, <2 x double> %x2, i8 %x3)
@@ -4512,7 +4565,9 @@ define <2 x double>@test_int_x86_avx512_mask3_vfnmsub_pd_128(<2 x double> %x0, <
 ; CHECK-NEXT:    kmovw %edi, %k1 ## encoding: [0xc5,0xf8,0x92,0xcf]
 ; CHECK-NEXT:    vmovapd %xmm1, %xmm3 ## EVEX TO VEX Compression encoding: [0xc5,0xf9,0x28,0xd9]
 ; CHECK-NEXT:    vfnmsub213pd %xmm2, %xmm0, %xmm3 ## EVEX TO VEX Compression encoding: [0xc4,0xe2,0xf9,0xae,0xda]
+; CHECK-NEXT:    ## xmm3 = -(xmm0 * xmm3) - xmm2
 ; CHECK-NEXT:    vfnmsub231pd %xmm1, %xmm0, %xmm2 {%k1} ## encoding: [0x62,0xf2,0xfd,0x09,0xbe,0xd1]
+; CHECK-NEXT:    ## xmm2 = -(xmm0 * xmm1) - xmm2
 ; CHECK-NEXT:    vaddpd %xmm3, %xmm2, %xmm0 ## EVEX TO VEX Compression encoding: [0xc5,0xe9,0x58,0xc3]
 ; CHECK-NEXT:    retq ## encoding: [0xc3]
   %res = call <2 x double> @llvm.x86.avx512.mask3.vfnmsub.pd.128(<2 x double> %x0, <2 x double> %x1, <2 x double> %x2, i8 %x3)
@@ -4527,7 +4582,9 @@ define <4 x double>@test_int_x86_avx512_mask_vfnmsub_pd_256(<4 x double> %x0, <4
 ; CHECK-NEXT:    kmovw %edi, %k1 ## encoding: [0xc5,0xf8,0x92,0xcf]
 ; CHECK-NEXT:    vmovapd %ymm1, %ymm3 ## EVEX TO VEX Compression encoding: [0xc5,0xfd,0x28,0xd9]
 ; CHECK-NEXT:    vfnmsub213pd %ymm2, %ymm0, %ymm3 ## EVEX TO VEX Compression encoding: [0xc4,0xe2,0xfd,0xae,0xda]
+; CHECK-NEXT:    ## ymm3 = -(ymm0 * ymm3) - ymm2
 ; CHECK-NEXT:    vfnmsub132pd %ymm1, %ymm2, %ymm0 {%k1} ## encoding: [0x62,0xf2,0xed,0x29,0x9e,0xc1]
+; CHECK-NEXT:    ## ymm0 = -(ymm0 * ymm1) - ymm2
 ; CHECK-NEXT:    vaddpd %ymm3, %ymm0, %ymm0 ## EVEX TO VEX Compression encoding: [0xc5,0xfd,0x58,0xc3]
 ; CHECK-NEXT:    retq ## encoding: [0xc3]
   %res = call <4 x double> @llvm.x86.avx512.mask.vfnmsub.pd.256(<4 x double> %x0, <4 x double> %x1, <4 x double> %x2, i8 %x3)
@@ -4544,7 +4601,9 @@ define <4 x double>@test_int_x86_avx512_mask3_vfnmsub_pd_256(<4 x double> %x0, <
 ; CHECK-NEXT:    kmovw %edi, %k1 ## encoding: [0xc5,0xf8,0x92,0xcf]
 ; CHECK-NEXT:    vmovapd %ymm1, %ymm3 ## EVEX TO VEX Compression encoding: [0xc5,0xfd,0x28,0xd9]
 ; CHECK-NEXT:    vfnmsub213pd %ymm2, %ymm0, %ymm3 ## EVEX TO VEX Compression encoding: [0xc4,0xe2,0xfd,0xae,0xda]
+; CHECK-NEXT:    ## ymm3 = -(ymm0 * ymm3) - ymm2
 ; CHECK-NEXT:    vfnmsub231pd %ymm1, %ymm0, %ymm2 {%k1} ## encoding: [0x62,0xf2,0xfd,0x29,0xbe,0xd1]
+; CHECK-NEXT:    ## ymm2 = -(ymm0 * ymm1) - ymm2
 ; CHECK-NEXT:    vaddpd %ymm3, %ymm2, %ymm0 ## EVEX TO VEX Compression encoding: [0xc5,0xed,0x58,0xc3]
 ; CHECK-NEXT:    retq ## encoding: [0xc3]
   %res = call <4 x double> @llvm.x86.avx512.mask3.vfnmsub.pd.256(<4 x double> %x0, <4 x double> %x1, <4 x double> %x2, i8 %x3)
@@ -4559,7 +4618,9 @@ define <4 x float>@test_int_x86_avx512_mask_vfnmsub_ps_128(<4 x float> %x0, <4 x
 ; CHECK-NEXT:    kmovw %edi, %k1 ## encoding: [0xc5,0xf8,0x92,0xcf]
 ; CHECK-NEXT:    vmovaps %xmm1, %xmm3 ## EVEX TO VEX Compression encoding: [0xc5,0xf8,0x28,0xd9]
 ; CHECK-NEXT:    vfnmsub213ps %xmm2, %xmm0, %xmm3 ## EVEX TO VEX Compression encoding: [0xc4,0xe2,0x79,0xae,0xda]
+; CHECK-NEXT:    ## xmm3 = -(xmm0 * xmm3) - xmm2
 ; CHECK-NEXT:    vfnmsub132ps %xmm1, %xmm2, %xmm0 {%k1} ## encoding: [0x62,0xf2,0x6d,0x09,0x9e,0xc1]
+; CHECK-NEXT:    ## xmm0 = -(xmm0 * xmm1) - xmm2
 ; CHECK-NEXT:    vaddps %xmm3, %xmm0, %xmm0 ## EVEX TO VEX Compression encoding: [0xc5,0xf8,0x58,0xc3]
 ; CHECK-NEXT:    retq ## encoding: [0xc3]
   %res = call <4 x float> @llvm.x86.avx512.mask.vfnmsub.ps.128(<4 x float> %x0, <4 x float> %x1, <4 x float> %x2, i8 %x3)
@@ -4576,7 +4637,9 @@ define <4 x float>@test_int_x86_avx512_mask3_vfnmsub_ps_128(<4 x float> %x0, <4 
 ; CHECK-NEXT:    kmovw %edi, %k1 ## encoding: [0xc5,0xf8,0x92,0xcf]
 ; CHECK-NEXT:    vmovaps %xmm1, %xmm3 ## EVEX TO VEX Compression encoding: [0xc5,0xf8,0x28,0xd9]
 ; CHECK-NEXT:    vfnmsub213ps %xmm2, %xmm0, %xmm3 ## EVEX TO VEX Compression encoding: [0xc4,0xe2,0x79,0xae,0xda]
+; CHECK-NEXT:    ## xmm3 = -(xmm0 * xmm3) - xmm2
 ; CHECK-NEXT:    vfnmsub231ps %xmm1, %xmm0, %xmm2 {%k1} ## encoding: [0x62,0xf2,0x7d,0x09,0xbe,0xd1]
+; CHECK-NEXT:    ## xmm2 = -(xmm0 * xmm1) - xmm2
 ; CHECK-NEXT:    vaddps %xmm3, %xmm2, %xmm0 ## EVEX TO VEX Compression encoding: [0xc5,0xe8,0x58,0xc3]
 ; CHECK-NEXT:    retq ## encoding: [0xc3]
   %res = call <4 x float> @llvm.x86.avx512.mask3.vfnmsub.ps.128(<4 x float> %x0, <4 x float> %x1, <4 x float> %x2, i8 %x3)
@@ -4591,7 +4654,9 @@ define <8 x float>@test_int_x86_avx512_mask_vfnmsub_ps_256(<8 x float> %x0, <8 x
 ; CHECK-NEXT:    kmovw %edi, %k1 ## encoding: [0xc5,0xf8,0x92,0xcf]
 ; CHECK-NEXT:    vmovaps %ymm1, %ymm3 ## EVEX TO VEX Compression encoding: [0xc5,0xfc,0x28,0xd9]
 ; CHECK-NEXT:    vfnmsub213ps %ymm2, %ymm0, %ymm3 ## EVEX TO VEX Compression encoding: [0xc4,0xe2,0x7d,0xae,0xda]
+; CHECK-NEXT:    ## ymm3 = -(ymm0 * ymm3) - ymm2
 ; CHECK-NEXT:    vfnmsub132ps %ymm1, %ymm2, %ymm0 {%k1} ## encoding: [0x62,0xf2,0x6d,0x29,0x9e,0xc1]
+; CHECK-NEXT:    ## ymm0 = -(ymm0 * ymm1) - ymm2
 ; CHECK-NEXT:    vaddps %ymm3, %ymm0, %ymm0 ## EVEX TO VEX Compression encoding: [0xc5,0xfc,0x58,0xc3]
 ; CHECK-NEXT:    retq ## encoding: [0xc3]
   %res = call <8 x float> @llvm.x86.avx512.mask.vfnmsub.ps.256(<8 x float> %x0, <8 x float> %x1, <8 x float> %x2, i8 %x3)
@@ -4608,7 +4673,9 @@ define <8 x float>@test_int_x86_avx512_mask3_vfnmsub_ps_256(<8 x float> %x0, <8 
 ; CHECK-NEXT:    kmovw %edi, %k1 ## encoding: [0xc5,0xf8,0x92,0xcf]
 ; CHECK-NEXT:    vmovaps %ymm1, %ymm3 ## EVEX TO VEX Compression encoding: [0xc5,0xfc,0x28,0xd9]
 ; CHECK-NEXT:    vfnmsub213ps %ymm2, %ymm0, %ymm3 ## EVEX TO VEX Compression encoding: [0xc4,0xe2,0x7d,0xae,0xda]
+; CHECK-NEXT:    ## ymm3 = -(ymm0 * ymm3) - ymm2
 ; CHECK-NEXT:    vfnmsub231ps %ymm1, %ymm0, %ymm2 {%k1} ## encoding: [0x62,0xf2,0x7d,0x29,0xbe,0xd1]
+; CHECK-NEXT:    ## ymm2 = -(ymm0 * ymm1) - ymm2
 ; CHECK-NEXT:    vaddps %ymm3, %ymm2, %ymm0 ## EVEX TO VEX Compression encoding: [0xc5,0xec,0x58,0xc3]
 ; CHECK-NEXT:    retq ## encoding: [0xc3]
   %res = call <8 x float> @llvm.x86.avx512.mask3.vfnmsub.ps.256(<8 x float> %x0, <8 x float> %x1, <8 x float> %x2, i8 %x3)
@@ -4623,7 +4690,9 @@ define <2 x double>@test_int_x86_avx512_mask_vfnmadd_pd_128(<2 x double> %x0, <2
 ; CHECK-NEXT:    kmovw %edi, %k1 ## encoding: [0xc5,0xf8,0x92,0xcf]
 ; CHECK-NEXT:    vmovapd %xmm1, %xmm3 ## EVEX TO VEX Compression encoding: [0xc5,0xf9,0x28,0xd9]
 ; CHECK-NEXT:    vfnmadd213pd %xmm2, %xmm0, %xmm3 ## EVEX TO VEX Compression encoding: [0xc4,0xe2,0xf9,0xac,0xda]
+; CHECK-NEXT:    ## xmm3 = -(xmm0 * xmm3) + xmm2
 ; CHECK-NEXT:    vfnmadd132pd %xmm1, %xmm2, %xmm0 {%k1} ## encoding: [0x62,0xf2,0xed,0x09,0x9c,0xc1]
+; CHECK-NEXT:    ## xmm0 = -(xmm0 * xmm1) + xmm2
 ; CHECK-NEXT:    vaddpd %xmm3, %xmm0, %xmm0 ## EVEX TO VEX Compression encoding: [0xc5,0xf9,0x58,0xc3]
 ; CHECK-NEXT:    retq ## encoding: [0xc3]
   %res = call <2 x double> @llvm.x86.avx512.mask.vfnmadd.pd.128(<2 x double> %x0, <2 x double> %x1, <2 x double> %x2, i8 %x3)
@@ -4638,7 +4707,9 @@ define <4 x double>@test_int_x86_avx512_mask_vfnmadd_pd_256(<4 x double> %x0, <4
 ; CHECK-NEXT:    kmovw %edi, %k1 ## encoding: [0xc5,0xf8,0x92,0xcf]
 ; CHECK-NEXT:    vmovapd %ymm1, %ymm3 ## EVEX TO VEX Compression encoding: [0xc5,0xfd,0x28,0xd9]
 ; CHECK-NEXT:    vfnmadd213pd %ymm2, %ymm0, %ymm3 ## EVEX TO VEX Compression encoding: [0xc4,0xe2,0xfd,0xac,0xda]
+; CHECK-NEXT:    ## ymm3 = -(ymm0 * ymm3) + ymm2
 ; CHECK-NEXT:    vfnmadd132pd %ymm1, %ymm2, %ymm0 {%k1} ## encoding: [0x62,0xf2,0xed,0x29,0x9c,0xc1]
+; CHECK-NEXT:    ## ymm0 = -(ymm0 * ymm1) + ymm2
 ; CHECK-NEXT:    vaddpd %ymm3, %ymm0, %ymm0 ## EVEX TO VEX Compression encoding: [0xc5,0xfd,0x58,0xc3]
 ; CHECK-NEXT:    retq ## encoding: [0xc3]
   %res = call <4 x double> @llvm.x86.avx512.mask.vfnmadd.pd.256(<4 x double> %x0, <4 x double> %x1, <4 x double> %x2, i8 %x3)
@@ -4653,7 +4724,9 @@ define <4 x float>@test_int_x86_avx512_mask_vfnmadd_ps_128(<4 x float> %x0, <4 x
 ; CHECK-NEXT:    kmovw %edi, %k1 ## encoding: [0xc5,0xf8,0x92,0xcf]
 ; CHECK-NEXT:    vmovaps %xmm1, %xmm3 ## EVEX TO VEX Compression encoding: [0xc5,0xf8,0x28,0xd9]
 ; CHECK-NEXT:    vfnmadd213ps %xmm2, %xmm0, %xmm3 ## EVEX TO VEX Compression encoding: [0xc4,0xe2,0x79,0xac,0xda]
+; CHECK-NEXT:    ## xmm3 = -(xmm0 * xmm3) + xmm2
 ; CHECK-NEXT:    vfnmadd132ps %xmm1, %xmm2, %xmm0 {%k1} ## encoding: [0x62,0xf2,0x6d,0x09,0x9c,0xc1]
+; CHECK-NEXT:    ## xmm0 = -(xmm0 * xmm1) + xmm2
 ; CHECK-NEXT:    vaddps %xmm3, %xmm0, %xmm0 ## EVEX TO VEX Compression encoding: [0xc5,0xf8,0x58,0xc3]
 ; CHECK-NEXT:    retq ## encoding: [0xc3]
   %res = call <4 x float> @llvm.x86.avx512.mask.vfnmadd.ps.128(<4 x float> %x0, <4 x float> %x1, <4 x float> %x2, i8 %x3)
@@ -4668,7 +4741,9 @@ define <8 x float>@test_int_x86_avx512_mask_vfnmadd_ps_256(<8 x float> %x0, <8 x
 ; CHECK-NEXT:    kmovw %edi, %k1 ## encoding: [0xc5,0xf8,0x92,0xcf]
 ; CHECK-NEXT:    vmovaps %ymm1, %ymm3 ## EVEX TO VEX Compression encoding: [0xc5,0xfc,0x28,0xd9]
 ; CHECK-NEXT:    vfnmadd213ps %ymm2, %ymm0, %ymm3 ## EVEX TO VEX Compression encoding: [0xc4,0xe2,0x7d,0xac,0xda]
+; CHECK-NEXT:    ## ymm3 = -(ymm0 * ymm3) + ymm2
 ; CHECK-NEXT:    vfnmadd132ps %ymm1, %ymm2, %ymm0 {%k1} ## encoding: [0x62,0xf2,0x6d,0x29,0x9c,0xc1]
+; CHECK-NEXT:    ## ymm0 = -(ymm0 * ymm1) + ymm2
 ; CHECK-NEXT:    vaddps %ymm3, %ymm0, %ymm0 ## EVEX TO VEX Compression encoding: [0xc5,0xfc,0x58,0xc3]
 ; CHECK-NEXT:    retq ## encoding: [0xc3]
   %res = call <8 x float> @llvm.x86.avx512.mask.vfnmadd.ps.256(<8 x float> %x0, <8 x float> %x1, <8 x float> %x2, i8 %x3)
@@ -4684,6 +4759,7 @@ define <8 x float> @test_mask_fmaddsub256_ps(<8 x float> %a, <8 x float> %b, <8 
 ; CHECK:       ## %bb.0:
 ; CHECK-NEXT:    kmovw %edi, %k1 ## encoding: [0xc5,0xf8,0x92,0xcf]
 ; CHECK-NEXT:    vfmaddsub132ps %ymm1, %ymm2, %ymm0 {%k1} ## encoding: [0x62,0xf2,0x6d,0x29,0x96,0xc1]
+; CHECK-NEXT:    ## ymm0 = (ymm0 * ymm1) +/- ymm2
 ; CHECK-NEXT:    retq ## encoding: [0xc3]
   %res = call <8 x float> @llvm.x86.avx512.mask.vfmaddsub.ps.256(<8 x float> %a, <8 x float> %b, <8 x float> %c, i8 %mask)
   ret <8 x float> %res
@@ -4696,6 +4772,7 @@ define <4 x float> @test_mask_fmaddsub128_ps(<4 x float> %a, <4 x float> %b, <4 
 ; CHECK:       ## %bb.0:
 ; CHECK-NEXT:    kmovw %edi, %k1 ## encoding: [0xc5,0xf8,0x92,0xcf]
 ; CHECK-NEXT:    vfmaddsub132ps %xmm1, %xmm2, %xmm0 {%k1} ## encoding: [0x62,0xf2,0x6d,0x09,0x96,0xc1]
+; CHECK-NEXT:    ## xmm0 = (xmm0 * xmm1) +/- xmm2
 ; CHECK-NEXT:    retq ## encoding: [0xc3]
   %res = call <4 x float> @llvm.x86.avx512.mask.vfmaddsub.ps.128(<4 x float> %a, <4 x float> %b, <4 x float> %c, i8 %mask)
   ret <4 x float> %res
@@ -4708,6 +4785,7 @@ define <4 x double> @test_mask_vfmaddsub256_pd(<4 x double> %a0, <4 x double> %a
 ; CHECK:       ## %bb.0:
 ; CHECK-NEXT:    kmovw %edi, %k1 ## encoding: [0xc5,0xf8,0x92,0xcf]
 ; CHECK-NEXT:    vfmaddsub132pd %ymm1, %ymm2, %ymm0 {%k1} ## encoding: [0x62,0xf2,0xed,0x29,0x96,0xc1]
+; CHECK-NEXT:    ## ymm0 = (ymm0 * ymm1) +/- ymm2
 ; CHECK-NEXT:    retq ## encoding: [0xc3]
   %res = call <4 x double> @llvm.x86.avx512.mask.vfmaddsub.pd.256(<4 x double> %a0, <4 x double> %a1, <4 x double> %a2, i8 %mask) nounwind
   ret <4 x double> %res
@@ -4720,6 +4798,7 @@ define <2 x double> @test_mask_vfmaddsub128_pd(<2 x double> %a0, <2 x double> %a
 ; CHECK:       ## %bb.0:
 ; CHECK-NEXT:    kmovw %edi, %k1 ## encoding: [0xc5,0xf8,0x92,0xcf]
 ; CHECK-NEXT:    vfmaddsub132pd %xmm1, %xmm2, %xmm0 {%k1} ## encoding: [0x62,0xf2,0xed,0x09,0x96,0xc1]
+; CHECK-NEXT:    ## xmm0 = (xmm0 * xmm1) +/- xmm2
 ; CHECK-NEXT:    retq ## encoding: [0xc3]
   %res = call <2 x double> @llvm.x86.avx512.mask.vfmaddsub.pd.128(<2 x double> %a0, <2 x double> %a1, <2 x double> %a2, i8 %mask) nounwind
   ret <2 x double> %res
@@ -4731,7 +4810,9 @@ define <2 x double>@test_int_x86_avx512_mask_vfmaddsub_pd_128(<2 x double> %x0, 
 ; CHECK-NEXT:    kmovw %edi, %k1 ## encoding: [0xc5,0xf8,0x92,0xcf]
 ; CHECK-NEXT:    vmovapd %xmm1, %xmm3 ## EVEX TO VEX Compression encoding: [0xc5,0xf9,0x28,0xd9]
 ; CHECK-NEXT:    vfmaddsub213pd %xmm2, %xmm0, %xmm3 ## EVEX TO VEX Compression encoding: [0xc4,0xe2,0xf9,0xa6,0xda]
+; CHECK-NEXT:    ## xmm3 = (xmm0 * xmm3) +/- xmm2
 ; CHECK-NEXT:    vfmaddsub132pd %xmm1, %xmm2, %xmm0 {%k1} ## encoding: [0x62,0xf2,0xed,0x09,0x96,0xc1]
+; CHECK-NEXT:    ## xmm0 = (xmm0 * xmm1) +/- xmm2
 ; CHECK-NEXT:    vaddpd %xmm3, %xmm0, %xmm0 ## EVEX TO VEX Compression encoding: [0xc5,0xf9,0x58,0xc3]
 ; CHECK-NEXT:    retq ## encoding: [0xc3]
   %res = call <2 x double> @llvm.x86.avx512.mask.vfmaddsub.pd.128(<2 x double> %x0, <2 x double> %x1, <2 x double> %x2, i8 %x3)
@@ -4748,7 +4829,9 @@ define <2 x double>@test_int_x86_avx512_mask3_vfmaddsub_pd_128(<2 x double> %x0,
 ; CHECK-NEXT:    kmovw %edi, %k1 ## encoding: [0xc5,0xf8,0x92,0xcf]
 ; CHECK-NEXT:    vmovapd %xmm1, %xmm3 ## EVEX TO VEX Compression encoding: [0xc5,0xf9,0x28,0xd9]
 ; CHECK-NEXT:    vfmaddsub213pd %xmm2, %xmm0, %xmm3 ## EVEX TO VEX Compression encoding: [0xc4,0xe2,0xf9,0xa6,0xda]
+; CHECK-NEXT:    ## xmm3 = (xmm0 * xmm3) +/- xmm2
 ; CHECK-NEXT:    vfmaddsub231pd %xmm1, %xmm0, %xmm2 {%k1} ## encoding: [0x62,0xf2,0xfd,0x09,0xb6,0xd1]
+; CHECK-NEXT:    ## xmm2 = (xmm0 * xmm1) +/- xmm2
 ; CHECK-NEXT:    vaddpd %xmm3, %xmm2, %xmm0 ## EVEX TO VEX Compression encoding: [0xc5,0xe9,0x58,0xc3]
 ; CHECK-NEXT:    retq ## encoding: [0xc3]
   %res = call <2 x double> @llvm.x86.avx512.mask3.vfmaddsub.pd.128(<2 x double> %x0, <2 x double> %x1, <2 x double> %x2, i8 %x3)
@@ -4765,7 +4848,9 @@ define <2 x double>@test_int_x86_avx512_maskz_vfmaddsub_pd_128(<2 x double> %x0,
 ; CHECK-NEXT:    kmovw %edi, %k1 ## encoding: [0xc5,0xf8,0x92,0xcf]
 ; CHECK-NEXT:    vmovapd %xmm1, %xmm3 ## EVEX TO VEX Compression encoding: [0xc5,0xf9,0x28,0xd9]
 ; CHECK-NEXT:    vfmaddsub213pd %xmm2, %xmm0, %xmm3 ## EVEX TO VEX Compression encoding: [0xc4,0xe2,0xf9,0xa6,0xda]
+; CHECK-NEXT:    ## xmm3 = (xmm0 * xmm3) +/- xmm2
 ; CHECK-NEXT:    vfmaddsub213pd %xmm2, %xmm0, %xmm1 {%k1} {z} ## encoding: [0x62,0xf2,0xfd,0x89,0xa6,0xca]
+; CHECK-NEXT:    ## xmm1 = (xmm0 * xmm1) +/- xmm2
 ; CHECK-NEXT:    vaddpd %xmm3, %xmm1, %xmm0 ## EVEX TO VEX Compression encoding: [0xc5,0xf1,0x58,0xc3]
 ; CHECK-NEXT:    retq ## encoding: [0xc3]
   %res = call <2 x double> @llvm.x86.avx512.maskz.vfmaddsub.pd.128(<2 x double> %x0, <2 x double> %x1, <2 x double> %x2, i8 %x3)
@@ -4780,7 +4865,9 @@ define <4 x double>@test_int_x86_avx512_mask_vfmaddsub_pd_256(<4 x double> %x0, 
 ; CHECK-NEXT:    kmovw %edi, %k1 ## encoding: [0xc5,0xf8,0x92,0xcf]
 ; CHECK-NEXT:    vmovapd %ymm1, %ymm3 ## EVEX TO VEX Compression encoding: [0xc5,0xfd,0x28,0xd9]
 ; CHECK-NEXT:    vfmaddsub213pd %ymm2, %ymm0, %ymm3 ## EVEX TO VEX Compression encoding: [0xc4,0xe2,0xfd,0xa6,0xda]
+; CHECK-NEXT:    ## ymm3 = (ymm0 * ymm3) +/- ymm2
 ; CHECK-NEXT:    vfmaddsub132pd %ymm1, %ymm2, %ymm0 {%k1} ## encoding: [0x62,0xf2,0xed,0x29,0x96,0xc1]
+; CHECK-NEXT:    ## ymm0 = (ymm0 * ymm1) +/- ymm2
 ; CHECK-NEXT:    vaddpd %ymm3, %ymm0, %ymm0 ## EVEX TO VEX Compression encoding: [0xc5,0xfd,0x58,0xc3]
 ; CHECK-NEXT:    retq ## encoding: [0xc3]
   %res = call <4 x double> @llvm.x86.avx512.mask.vfmaddsub.pd.256(<4 x double> %x0, <4 x double> %x1, <4 x double> %x2, i8 %x3)
@@ -4797,7 +4884,9 @@ define <4 x double>@test_int_x86_avx512_mask3_vfmaddsub_pd_256(<4 x double> %x0,
 ; CHECK-NEXT:    kmovw %edi, %k1 ## encoding: [0xc5,0xf8,0x92,0xcf]
 ; CHECK-NEXT:    vmovapd %ymm1, %ymm3 ## EVEX TO VEX Compression encoding: [0xc5,0xfd,0x28,0xd9]
 ; CHECK-NEXT:    vfmaddsub213pd %ymm2, %ymm0, %ymm3 ## EVEX TO VEX Compression encoding: [0xc4,0xe2,0xfd,0xa6,0xda]
+; CHECK-NEXT:    ## ymm3 = (ymm0 * ymm3) +/- ymm2
 ; CHECK-NEXT:    vfmaddsub231pd %ymm1, %ymm0, %ymm2 {%k1} ## encoding: [0x62,0xf2,0xfd,0x29,0xb6,0xd1]
+; CHECK-NEXT:    ## ymm2 = (ymm0 * ymm1) +/- ymm2
 ; CHECK-NEXT:    vaddpd %ymm3, %ymm2, %ymm0 ## EVEX TO VEX Compression encoding: [0xc5,0xed,0x58,0xc3]
 ; CHECK-NEXT:    retq ## encoding: [0xc3]
   %res = call <4 x double> @llvm.x86.avx512.mask3.vfmaddsub.pd.256(<4 x double> %x0, <4 x double> %x1, <4 x double> %x2, i8 %x3)
@@ -4814,7 +4903,9 @@ define <4 x double>@test_int_x86_avx512_maskz_vfmaddsub_pd_256(<4 x double> %x0,
 ; CHECK-NEXT:    kmovw %edi, %k1 ## encoding: [0xc5,0xf8,0x92,0xcf]
 ; CHECK-NEXT:    vmovapd %ymm1, %ymm3 ## EVEX TO VEX Compression encoding: [0xc5,0xfd,0x28,0xd9]
 ; CHECK-NEXT:    vfmaddsub213pd %ymm2, %ymm0, %ymm3 ## EVEX TO VEX Compression encoding: [0xc4,0xe2,0xfd,0xa6,0xda]
+; CHECK-NEXT:    ## ymm3 = (ymm0 * ymm3) +/- ymm2
 ; CHECK-NEXT:    vfmaddsub213pd %ymm2, %ymm0, %ymm1 {%k1} {z} ## encoding: [0x62,0xf2,0xfd,0xa9,0xa6,0xca]
+; CHECK-NEXT:    ## ymm1 = (ymm0 * ymm1) +/- ymm2
 ; CHECK-NEXT:    vaddpd %ymm3, %ymm1, %ymm0 ## EVEX TO VEX Compression encoding: [0xc5,0xf5,0x58,0xc3]
 ; CHECK-NEXT:    retq ## encoding: [0xc3]
   %res = call <4 x double> @llvm.x86.avx512.maskz.vfmaddsub.pd.256(<4 x double> %x0, <4 x double> %x1, <4 x double> %x2, i8 %x3)
@@ -4829,7 +4920,9 @@ define <4 x float>@test_int_x86_avx512_mask_vfmaddsub_ps_128(<4 x float> %x0, <4
 ; CHECK-NEXT:    kmovw %edi, %k1 ## encoding: [0xc5,0xf8,0x92,0xcf]
 ; CHECK-NEXT:    vmovaps %xmm1, %xmm3 ## EVEX TO VEX Compression encoding: [0xc5,0xf8,0x28,0xd9]
 ; CHECK-NEXT:    vfmaddsub213ps %xmm2, %xmm0, %xmm3 ## EVEX TO VEX Compression encoding: [0xc4,0xe2,0x79,0xa6,0xda]
+; CHECK-NEXT:    ## xmm3 = (xmm0 * xmm3) +/- xmm2
 ; CHECK-NEXT:    vfmaddsub132ps %xmm1, %xmm2, %xmm0 {%k1} ## encoding: [0x62,0xf2,0x6d,0x09,0x96,0xc1]
+; CHECK-NEXT:    ## xmm0 = (xmm0 * xmm1) +/- xmm2
 ; CHECK-NEXT:    vaddps %xmm3, %xmm0, %xmm0 ## EVEX TO VEX Compression encoding: [0xc5,0xf8,0x58,0xc3]
 ; CHECK-NEXT:    retq ## encoding: [0xc3]
   %res = call <4 x float> @llvm.x86.avx512.mask.vfmaddsub.ps.128(<4 x float> %x0, <4 x float> %x1, <4 x float> %x2, i8 %x3)
@@ -4846,7 +4939,9 @@ define <4 x float>@test_int_x86_avx512_mask3_vfmaddsub_ps_128(<4 x float> %x0, <
 ; CHECK-NEXT:    kmovw %edi, %k1 ## encoding: [0xc5,0xf8,0x92,0xcf]
 ; CHECK-NEXT:    vmovaps %xmm1, %xmm3 ## EVEX TO VEX Compression encoding: [0xc5,0xf8,0x28,0xd9]
 ; CHECK-NEXT:    vfmaddsub213ps %xmm2, %xmm0, %xmm3 ## EVEX TO VEX Compression encoding: [0xc4,0xe2,0x79,0xa6,0xda]
+; CHECK-NEXT:    ## xmm3 = (xmm0 * xmm3) +/- xmm2
 ; CHECK-NEXT:    vfmaddsub231ps %xmm1, %xmm0, %xmm2 {%k1} ## encoding: [0x62,0xf2,0x7d,0x09,0xb6,0xd1]
+; CHECK-NEXT:    ## xmm2 = (xmm0 * xmm1) +/- xmm2
 ; CHECK-NEXT:    vaddps %xmm3, %xmm2, %xmm0 ## EVEX TO VEX Compression encoding: [0xc5,0xe8,0x58,0xc3]
 ; CHECK-NEXT:    retq ## encoding: [0xc3]
   %res = call <4 x float> @llvm.x86.avx512.mask3.vfmaddsub.ps.128(<4 x float> %x0, <4 x float> %x1, <4 x float> %x2, i8 %x3)
@@ -4863,7 +4958,9 @@ define <4 x float>@test_int_x86_avx512_maskz_vfmaddsub_ps_128(<4 x float> %x0, <
 ; CHECK-NEXT:    kmovw %edi, %k1 ## encoding: [0xc5,0xf8,0x92,0xcf]
 ; CHECK-NEXT:    vmovaps %xmm1, %xmm3 ## EVEX TO VEX Compression encoding: [0xc5,0xf8,0x28,0xd9]
 ; CHECK-NEXT:    vfmaddsub213ps %xmm2, %xmm0, %xmm3 ## EVEX TO VEX Compression encoding: [0xc4,0xe2,0x79,0xa6,0xda]
+; CHECK-NEXT:    ## xmm3 = (xmm0 * xmm3) +/- xmm2
 ; CHECK-NEXT:    vfmaddsub213ps %xmm2, %xmm0, %xmm1 {%k1} {z} ## encoding: [0x62,0xf2,0x7d,0x89,0xa6,0xca]
+; CHECK-NEXT:    ## xmm1 = (xmm0 * xmm1) +/- xmm2
 ; CHECK-NEXT:    vaddps %xmm3, %xmm1, %xmm0 ## EVEX TO VEX Compression encoding: [0xc5,0xf0,0x58,0xc3]
 ; CHECK-NEXT:    retq ## encoding: [0xc3]
   %res = call <4 x float> @llvm.x86.avx512.maskz.vfmaddsub.ps.128(<4 x float> %x0, <4 x float> %x1, <4 x float> %x2, i8 %x3)
@@ -4878,7 +4975,9 @@ define <8 x float>@test_int_x86_avx512_mask_vfmaddsub_ps_256(<8 x float> %x0, <8
 ; CHECK-NEXT:    kmovw %edi, %k1 ## encoding: [0xc5,0xf8,0x92,0xcf]
 ; CHECK-NEXT:    vmovaps %ymm1, %ymm3 ## EVEX TO VEX Compression encoding: [0xc5,0xfc,0x28,0xd9]
 ; CHECK-NEXT:    vfmaddsub213ps %ymm2, %ymm0, %ymm3 ## EVEX TO VEX Compression encoding: [0xc4,0xe2,0x7d,0xa6,0xda]
+; CHECK-NEXT:    ## ymm3 = (ymm0 * ymm3) +/- ymm2
 ; CHECK-NEXT:    vfmaddsub132ps %ymm1, %ymm2, %ymm0 {%k1} ## encoding: [0x62,0xf2,0x6d,0x29,0x96,0xc1]
+; CHECK-NEXT:    ## ymm0 = (ymm0 * ymm1) +/- ymm2
 ; CHECK-NEXT:    vaddps %ymm3, %ymm0, %ymm0 ## EVEX TO VEX Compression encoding: [0xc5,0xfc,0x58,0xc3]
 ; CHECK-NEXT:    retq ## encoding: [0xc3]
   %res = call <8 x float> @llvm.x86.avx512.mask.vfmaddsub.ps.256(<8 x float> %x0, <8 x float> %x1, <8 x float> %x2, i8 %x3)
@@ -4895,7 +4994,9 @@ define <8 x float>@test_int_x86_avx512_mask3_vfmaddsub_ps_256(<8 x float> %x0, <
 ; CHECK-NEXT:    kmovw %edi, %k1 ## encoding: [0xc5,0xf8,0x92,0xcf]
 ; CHECK-NEXT:    vmovaps %ymm1, %ymm3 ## EVEX TO VEX Compression encoding: [0xc5,0xfc,0x28,0xd9]
 ; CHECK-NEXT:    vfmaddsub213ps %ymm2, %ymm0, %ymm3 ## EVEX TO VEX Compression encoding: [0xc4,0xe2,0x7d,0xa6,0xda]
+; CHECK-NEXT:    ## ymm3 = (ymm0 * ymm3) +/- ymm2
 ; CHECK-NEXT:    vfmaddsub231ps %ymm1, %ymm0, %ymm2 {%k1} ## encoding: [0x62,0xf2,0x7d,0x29,0xb6,0xd1]
+; CHECK-NEXT:    ## ymm2 = (ymm0 * ymm1) +/- ymm2
 ; CHECK-NEXT:    vaddps %ymm3, %ymm2, %ymm0 ## EVEX TO VEX Compression encoding: [0xc5,0xec,0x58,0xc3]
 ; CHECK-NEXT:    retq ## encoding: [0xc3]
   %res = call <8 x float> @llvm.x86.avx512.mask3.vfmaddsub.ps.256(<8 x float> %x0, <8 x float> %x1, <8 x float> %x2, i8 %x3)
@@ -4912,7 +5013,9 @@ define <8 x float>@test_int_x86_avx512_maskz_vfmaddsub_ps_256(<8 x float> %x0, <
 ; CHECK-NEXT:    kmovw %edi, %k1 ## encoding: [0xc5,0xf8,0x92,0xcf]
 ; CHECK-NEXT:    vmovaps %ymm1, %ymm3 ## EVEX TO VEX Compression encoding: [0xc5,0xfc,0x28,0xd9]
 ; CHECK-NEXT:    vfmaddsub213ps %ymm2, %ymm0, %ymm3 ## EVEX TO VEX Compression encoding: [0xc4,0xe2,0x7d,0xa6,0xda]
+; CHECK-NEXT:    ## ymm3 = (ymm0 * ymm3) +/- ymm2
 ; CHECK-NEXT:    vfmaddsub213ps %ymm2, %ymm0, %ymm1 {%k1} {z} ## encoding: [0x62,0xf2,0x7d,0xa9,0xa6,0xca]
+; CHECK-NEXT:    ## ymm1 = (ymm0 * ymm1) +/- ymm2
 ; CHECK-NEXT:    vaddps %ymm3, %ymm1, %ymm0 ## EVEX TO VEX Compression encoding: [0xc5,0xf4,0x58,0xc3]
 ; CHECK-NEXT:    retq ## encoding: [0xc3]
   %res = call <8 x float> @llvm.x86.avx512.maskz.vfmaddsub.ps.256(<8 x float> %x0, <8 x float> %x1, <8 x float> %x2, i8 %x3)
@@ -4929,7 +5032,9 @@ define <2 x double>@test_int_x86_avx512_mask3_vfmsubadd_pd_128(<2 x double> %x0,
 ; CHECK-NEXT:    kmovw %edi, %k1 ## encoding: [0xc5,0xf8,0x92,0xcf]
 ; CHECK-NEXT:    vmovapd %xmm1, %xmm3 ## EVEX TO VEX Compression encoding: [0xc5,0xf9,0x28,0xd9]
 ; CHECK-NEXT:    vfmsubadd213pd %xmm2, %xmm0, %xmm3 ## EVEX TO VEX Compression encoding: [0xc4,0xe2,0xf9,0xa7,0xda]
+; CHECK-NEXT:    ## xmm3 = (xmm0 * xmm3) -/+ xmm2
 ; CHECK-NEXT:    vfmsubadd231pd %xmm1, %xmm0, %xmm2 {%k1} ## encoding: [0x62,0xf2,0xfd,0x09,0xb7,0xd1]
+; CHECK-NEXT:    ## xmm2 = (xmm0 * xmm1) -/+ xmm2
 ; CHECK-NEXT:    vaddpd %xmm3, %xmm2, %xmm0 ## EVEX TO VEX Compression encoding: [0xc5,0xe9,0x58,0xc3]
 ; CHECK-NEXT:    retq ## encoding: [0xc3]
   %res = call <2 x double> @llvm.x86.avx512.mask3.vfmsubadd.pd.128(<2 x double> %x0, <2 x double> %x1, <2 x double> %x2, i8 %x3)
@@ -4946,7 +5051,9 @@ define <4 x double>@test_int_x86_avx512_mask3_vfmsubadd_pd_256(<4 x double> %x0,
 ; CHECK-NEXT:    kmovw %edi, %k1 ## encoding: [0xc5,0xf8,0x92,0xcf]
 ; CHECK-NEXT:    vmovapd %ymm1, %ymm3 ## EVEX TO VEX Compression encoding: [0xc5,0xfd,0x28,0xd9]
 ; CHECK-NEXT:    vfmsubadd213pd %ymm2, %ymm0, %ymm3 ## EVEX TO VEX Compression encoding: [0xc4,0xe2,0xfd,0xa7,0xda]
+; CHECK-NEXT:    ## ymm3 = (ymm0 * ymm3) -/+ ymm2
 ; CHECK-NEXT:    vfmsubadd231pd %ymm1, %ymm0, %ymm2 {%k1} ## encoding: [0x62,0xf2,0xfd,0x29,0xb7,0xd1]
+; CHECK-NEXT:    ## ymm2 = (ymm0 * ymm1) -/+ ymm2
 ; CHECK-NEXT:    vaddpd %ymm3, %ymm2, %ymm0 ## EVEX TO VEX Compression encoding: [0xc5,0xed,0x58,0xc3]
 ; CHECK-NEXT:    retq ## encoding: [0xc3]
   %res = call <4 x double> @llvm.x86.avx512.mask3.vfmsubadd.pd.256(<4 x double> %x0, <4 x double> %x1, <4 x double> %x2, i8 %x3)
@@ -4963,7 +5070,9 @@ define <4 x float>@test_int_x86_avx512_mask3_vfmsubadd_ps_128(<4 x float> %x0, <
 ; CHECK-NEXT:    kmovw %edi, %k1 ## encoding: [0xc5,0xf8,0x92,0xcf]
 ; CHECK-NEXT:    vmovaps %xmm1, %xmm3 ## EVEX TO VEX Compression encoding: [0xc5,0xf8,0x28,0xd9]
 ; CHECK-NEXT:    vfmsubadd213ps %xmm2, %xmm0, %xmm3 ## EVEX TO VEX Compression encoding: [0xc4,0xe2,0x79,0xa7,0xda]
+; CHECK-NEXT:    ## xmm3 = (xmm0 * xmm3) -/+ xmm2
 ; CHECK-NEXT:    vfmsubadd231ps %xmm1, %xmm0, %xmm2 {%k1} ## encoding: [0x62,0xf2,0x7d,0x09,0xb7,0xd1]
+; CHECK-NEXT:    ## xmm2 = (xmm0 * xmm1) -/+ xmm2
 ; CHECK-NEXT:    vaddps %xmm3, %xmm2, %xmm0 ## EVEX TO VEX Compression encoding: [0xc5,0xe8,0x58,0xc3]
 ; CHECK-NEXT:    retq ## encoding: [0xc3]
   %res = call <4 x float> @llvm.x86.avx512.mask3.vfmsubadd.ps.128(<4 x float> %x0, <4 x float> %x1, <4 x float> %x2, i8 %x3)
@@ -4980,7 +5089,9 @@ define <8 x float>@test_int_x86_avx512_mask3_vfmsubadd_ps_256(<8 x float> %x0, <
 ; CHECK-NEXT:    kmovw %edi, %k1 ## encoding: [0xc5,0xf8,0x92,0xcf]
 ; CHECK-NEXT:    vmovaps %ymm1, %ymm3 ## EVEX TO VEX Compression encoding: [0xc5,0xfc,0x28,0xd9]
 ; CHECK-NEXT:    vfmsubadd213ps %ymm2, %ymm0, %ymm3 ## EVEX TO VEX Compression encoding: [0xc4,0xe2,0x7d,0xa7,0xda]
+; CHECK-NEXT:    ## ymm3 = (ymm0 * ymm3) -/+ ymm2
 ; CHECK-NEXT:    vfmsubadd231ps %ymm1, %ymm0, %ymm2 {%k1} ## encoding: [0x62,0xf2,0x7d,0x29,0xb7,0xd1]
+; CHECK-NEXT:    ## ymm2 = (ymm0 * ymm1) -/+ ymm2
 ; CHECK-NEXT:    vaddps %ymm3, %ymm2, %ymm0 ## EVEX TO VEX Compression encoding: [0xc5,0xec,0x58,0xc3]
 ; CHECK-NEXT:    retq ## encoding: [0xc3]
   %res = call <8 x float> @llvm.x86.avx512.mask3.vfmsubadd.ps.256(<8 x float> %x0, <8 x float> %x1, <8 x float> %x2, i8 %x3)
@@ -4995,6 +5106,7 @@ define <4 x float> @test_mask_vfmadd128_ps_r(<4 x float> %a0, <4 x float> %a1, <
 ; CHECK:       ## %bb.0:
 ; CHECK-NEXT:    kmovw %edi, %k1 ## encoding: [0xc5,0xf8,0x92,0xcf]
 ; CHECK-NEXT:    vfmadd132ps %xmm1, %xmm2, %xmm0 {%k1} ## encoding: [0x62,0xf2,0x6d,0x09,0x98,0xc1]
+; CHECK-NEXT:    ## xmm0 = (xmm0 * xmm1) + xmm2
 ; CHECK-NEXT:    retq ## encoding: [0xc3]
   %res = call <4 x float> @llvm.x86.avx512.mask.vfmadd.ps.128(<4 x float> %a0, <4 x float> %a1, <4 x float> %a2, i8 %mask) nounwind
   ret <4 x float> %res
@@ -5004,6 +5116,7 @@ define <4 x float> @test_mask_vfmadd128_ps_rz(<4 x float> %a0, <4 x float> %a1, 
 ; CHECK-LABEL: test_mask_vfmadd128_ps_rz:
 ; CHECK:       ## %bb.0:
 ; CHECK-NEXT:    vfmadd213ps %xmm2, %xmm1, %xmm0 ## EVEX TO VEX Compression encoding: [0xc4,0xe2,0x71,0xa8,0xc2]
+; CHECK-NEXT:    ## xmm0 = (xmm1 * xmm0) + xmm2
 ; CHECK-NEXT:    retq ## encoding: [0xc3]
   %res = call <4 x float> @llvm.x86.avx512.mask.vfmadd.ps.128(<4 x float> %a0, <4 x float> %a1, <4 x float> %a2, i8 -1) nounwind
   ret <4 x float> %res
@@ -5014,6 +5127,7 @@ define <4 x float> @test_mask_vfmadd128_ps_rmk(<4 x float> %a0, <4 x float> %a1,
 ; CHECK:       ## %bb.0:
 ; CHECK-NEXT:    kmovw %esi, %k1 ## encoding: [0xc5,0xf8,0x92,0xce]
 ; CHECK-NEXT:    vfmadd213ps (%rdi), %xmm1, %xmm0 {%k1} ## encoding: [0x62,0xf2,0x75,0x09,0xa8,0x07]
+; CHECK-NEXT:    ## xmm0 = (xmm1 * xmm0) + mem
 ; CHECK-NEXT:    retq ## encoding: [0xc3]
   %a2 = load <4 x float>, <4 x float>* %ptr_a2
   %res = call <4 x float> @llvm.x86.avx512.mask.vfmadd.ps.128(<4 x float> %a0, <4 x float> %a1, <4 x float> %a2, i8 %mask) nounwind
@@ -5025,6 +5139,7 @@ define <4 x float> @test_mask_vfmadd128_ps_rmka(<4 x float> %a0, <4 x float> %a1
 ; CHECK:       ## %bb.0:
 ; CHECK-NEXT:    kmovw %esi, %k1 ## encoding: [0xc5,0xf8,0x92,0xce]
 ; CHECK-NEXT:    vfmadd213ps (%rdi), %xmm1, %xmm0 {%k1} ## encoding: [0x62,0xf2,0x75,0x09,0xa8,0x07]
+; CHECK-NEXT:    ## xmm0 = (xmm1 * xmm0) + mem
 ; CHECK-NEXT:    retq ## encoding: [0xc3]
   %a2 = load <4 x float>, <4 x float>* %ptr_a2, align 8
   %res = call <4 x float> @llvm.x86.avx512.mask.vfmadd.ps.128(<4 x float> %a0, <4 x float> %a1, <4 x float> %a2, i8 %mask) nounwind
@@ -5035,6 +5150,7 @@ define <4 x float> @test_mask_vfmadd128_ps_rmkz(<4 x float> %a0, <4 x float> %a1
 ; CHECK-LABEL: test_mask_vfmadd128_ps_rmkz:
 ; CHECK:       ## %bb.0:
 ; CHECK-NEXT:    vfmadd213ps (%rdi), %xmm1, %xmm0 ## EVEX TO VEX Compression encoding: [0xc4,0xe2,0x71,0xa8,0x07]
+; CHECK-NEXT:    ## xmm0 = (xmm1 * xmm0) + mem
 ; CHECK-NEXT:    retq ## encoding: [0xc3]
   %a2 = load <4 x float>, <4 x float>* %ptr_a2
   %res = call <4 x float> @llvm.x86.avx512.mask.vfmadd.ps.128(<4 x float> %a0, <4 x float> %a1, <4 x float> %a2, i8 -1) nounwind
@@ -5045,6 +5161,7 @@ define <4 x float> @test_mask_vfmadd128_ps_rmkza(<4 x float> %a0, <4 x float> %a
 ; CHECK-LABEL: test_mask_vfmadd128_ps_rmkza:
 ; CHECK:       ## %bb.0:
 ; CHECK-NEXT:    vfmadd213ps (%rdi), %xmm1, %xmm0 ## EVEX TO VEX Compression encoding: [0xc4,0xe2,0x71,0xa8,0x07]
+; CHECK-NEXT:    ## xmm0 = (xmm1 * xmm0) + mem
 ; CHECK-NEXT:    retq ## encoding: [0xc3]
   %a2 = load <4 x float>, <4 x float>* %ptr_a2, align 4
   %res = call <4 x float> @llvm.x86.avx512.mask.vfmadd.ps.128(<4 x float> %a0, <4 x float> %a1, <4 x float> %a2, i8 -1) nounwind
@@ -5056,6 +5173,7 @@ define <4 x float> @test_mask_vfmadd128_ps_rmb(<4 x float> %a0, <4 x float> %a1,
 ; CHECK:       ## %bb.0:
 ; CHECK-NEXT:    kmovw %esi, %k1 ## encoding: [0xc5,0xf8,0x92,0xce]
 ; CHECK-NEXT:    vfmadd213ps (%rdi){1to4}, %xmm1, %xmm0 {%k1} ## encoding: [0x62,0xf2,0x75,0x19,0xa8,0x07]
+; CHECK-NEXT:    ## xmm0 = (xmm1 * xmm0) + mem
 ; CHECK-NEXT:    retq ## encoding: [0xc3]
   %q = load float, float* %ptr_a2
   %vecinit.i = insertelement <4 x float> undef, float %q, i32 0
@@ -5071,6 +5189,7 @@ define <4 x float> @test_mask_vfmadd128_ps_rmba(<4 x float> %a0, <4 x float> %a1
 ; CHECK:       ## %bb.0:
 ; CHECK-NEXT:    kmovw %esi, %k1 ## encoding: [0xc5,0xf8,0x92,0xce]
 ; CHECK-NEXT:    vfmadd213ps (%rdi){1to4}, %xmm1, %xmm0 {%k1} ## encoding: [0x62,0xf2,0x75,0x19,0xa8,0x07]
+; CHECK-NEXT:    ## xmm0 = (xmm1 * xmm0) + mem
 ; CHECK-NEXT:    retq ## encoding: [0xc3]
   %q = load float, float* %ptr_a2, align 4
   %vecinit.i = insertelement <4 x float> undef, float %q, i32 0
@@ -5085,6 +5204,7 @@ define <4 x float> @test_mask_vfmadd128_ps_rmbz(<4 x float> %a0, <4 x float> %a1
 ; CHECK-LABEL: test_mask_vfmadd128_ps_rmbz:
 ; CHECK:       ## %bb.0:
 ; CHECK-NEXT:    vfmadd213ps (%rdi){1to4}, %xmm1, %xmm0 ## encoding: [0x62,0xf2,0x75,0x18,0xa8,0x07]
+; CHECK-NEXT:    ## xmm0 = (xmm1 * xmm0) + mem
 ; CHECK-NEXT:    retq ## encoding: [0xc3]
   %q = load float, float* %ptr_a2
   %vecinit.i = insertelement <4 x float> undef, float %q, i32 0
@@ -5099,6 +5219,7 @@ define <4 x float> @test_mask_vfmadd128_ps_rmbza(<4 x float> %a0, <4 x float> %a
 ; CHECK-LABEL: test_mask_vfmadd128_ps_rmbza:
 ; CHECK:       ## %bb.0:
 ; CHECK-NEXT:    vfmadd213ps (%rdi){1to4}, %xmm1, %xmm0 ## encoding: [0x62,0xf2,0x75,0x18,0xa8,0x07]
+; CHECK-NEXT:    ## xmm0 = (xmm1 * xmm0) + mem
 ; CHECK-NEXT:    retq ## encoding: [0xc3]
   %q = load float, float* %ptr_a2, align 4
   %vecinit.i = insertelement <4 x float> undef, float %q, i32 0
@@ -5114,6 +5235,7 @@ define <2 x double> @test_mask_vfmadd128_pd_r(<2 x double> %a0, <2 x double> %a1
 ; CHECK:       ## %bb.0:
 ; CHECK-NEXT:    kmovw %edi, %k1 ## encoding: [0xc5,0xf8,0x92,0xcf]
 ; CHECK-NEXT:    vfmadd132pd %xmm1, %xmm2, %xmm0 {%k1} ## encoding: [0x62,0xf2,0xed,0x09,0x98,0xc1]
+; CHECK-NEXT:    ## xmm0 = (xmm0 * xmm1) + xmm2
 ; CHECK-NEXT:    retq ## encoding: [0xc3]
   %res = call <2 x double> @llvm.x86.avx512.mask.vfmadd.pd.128(<2 x double> %a0, <2 x double> %a1, <2 x double> %a2, i8 %mask) nounwind
   ret <2 x double> %res
@@ -5123,6 +5245,7 @@ define <2 x double> @test_mask_vfmadd128_pd_rz(<2 x double> %a0, <2 x double> %a
 ; CHECK-LABEL: test_mask_vfmadd128_pd_rz:
 ; CHECK:       ## %bb.0:
 ; CHECK-NEXT:    vfmadd213pd %xmm2, %xmm1, %xmm0 ## EVEX TO VEX Compression encoding: [0xc4,0xe2,0xf1,0xa8,0xc2]
+; CHECK-NEXT:    ## xmm0 = (xmm1 * xmm0) + xmm2
 ; CHECK-NEXT:    retq ## encoding: [0xc3]
   %res = call <2 x double> @llvm.x86.avx512.mask.vfmadd.pd.128(<2 x double> %a0, <2 x double> %a1, <2 x double> %a2, i8 -1) nounwind
   ret <2 x double> %res
@@ -5133,6 +5256,7 @@ define <2 x double> @test_mask_vfmadd128_pd_rmk(<2 x double> %a0, <2 x double> %
 ; CHECK:       ## %bb.0:
 ; CHECK-NEXT:    kmovw %esi, %k1 ## encoding: [0xc5,0xf8,0x92,0xce]
 ; CHECK-NEXT:    vfmadd213pd (%rdi), %xmm1, %xmm0 {%k1} ## encoding: [0x62,0xf2,0xf5,0x09,0xa8,0x07]
+; CHECK-NEXT:    ## xmm0 = (xmm1 * xmm0) + mem
 ; CHECK-NEXT:    retq ## encoding: [0xc3]
   %a2 = load <2 x double>, <2 x double>* %ptr_a2
   %res = call <2 x double> @llvm.x86.avx512.mask.vfmadd.pd.128(<2 x double> %a0, <2 x double> %a1, <2 x double> %a2, i8 %mask) nounwind
@@ -5143,6 +5267,7 @@ define <2 x double> @test_mask_vfmadd128_pd_rmkz(<2 x double> %a0, <2 x double> 
 ; CHECK-LABEL: test_mask_vfmadd128_pd_rmkz:
 ; CHECK:       ## %bb.0:
 ; CHECK-NEXT:    vfmadd213pd (%rdi), %xmm1, %xmm0 ## EVEX TO VEX Compression encoding: [0xc4,0xe2,0xf1,0xa8,0x07]
+; CHECK-NEXT:    ## xmm0 = (xmm1 * xmm0) + mem
 ; CHECK-NEXT:    retq ## encoding: [0xc3]
   %a2 = load <2 x double>, <2 x double>* %ptr_a2
   %res = call <2 x double> @llvm.x86.avx512.mask.vfmadd.pd.128(<2 x double> %a0, <2 x double> %a1, <2 x double> %a2, i8 -1) nounwind
@@ -5154,6 +5279,7 @@ define <4 x double> @test_mask_vfmadd256_pd_r(<4 x double> %a0, <4 x double> %a1
 ; CHECK:       ## %bb.0:
 ; CHECK-NEXT:    kmovw %edi, %k1 ## encoding: [0xc5,0xf8,0x92,0xcf]
 ; CHECK-NEXT:    vfmadd132pd %ymm1, %ymm2, %ymm0 {%k1} ## encoding: [0x62,0xf2,0xed,0x29,0x98,0xc1]
+; CHECK-NEXT:    ## ymm0 = (ymm0 * ymm1) + ymm2
 ; CHECK-NEXT:    retq ## encoding: [0xc3]
   %res = call <4 x double> @llvm.x86.avx512.mask.vfmadd.pd.256(<4 x double> %a0, <4 x double> %a1, <4 x double> %a2, i8 %mask) nounwind
   ret <4 x double> %res
@@ -5163,6 +5289,7 @@ define <4 x double> @test_mask_vfmadd256_pd_rz(<4 x double> %a0, <4 x double> %a
 ; CHECK-LABEL: test_mask_vfmadd256_pd_rz:
 ; CHECK:       ## %bb.0:
 ; CHECK-NEXT:    vfmadd213pd %ymm2, %ymm1, %ymm0 ## EVEX TO VEX Compression encoding: [0xc4,0xe2,0xf5,0xa8,0xc2]
+; CHECK-NEXT:    ## ymm0 = (ymm1 * ymm0) + ymm2
 ; CHECK-NEXT:    retq ## encoding: [0xc3]
   %res = call <4 x double> @llvm.x86.avx512.mask.vfmadd.pd.256(<4 x double> %a0, <4 x double> %a1, <4 x double> %a2, i8 -1) nounwind
   ret <4 x double> %res
@@ -5173,6 +5300,7 @@ define <4 x double> @test_mask_vfmadd256_pd_rmk(<4 x double> %a0, <4 x double> %
 ; CHECK:       ## %bb.0:
 ; CHECK-NEXT:    kmovw %esi, %k1 ## encoding: [0xc5,0xf8,0x92,0xce]
 ; CHECK-NEXT:    vfmadd213pd (%rdi), %ymm1, %ymm0 {%k1} ## encoding: [0x62,0xf2,0xf5,0x29,0xa8,0x07]
+; CHECK-NEXT:    ## ymm0 = (ymm1 * ymm0) + mem
 ; CHECK-NEXT:    retq ## encoding: [0xc3]
   %a2 = load <4 x double>, <4 x double>* %ptr_a2
   %res = call <4 x double> @llvm.x86.avx512.mask.vfmadd.pd.256(<4 x double> %a0, <4 x double> %a1, <4 x double> %a2, i8 %mask) nounwind
@@ -5183,6 +5311,7 @@ define <4 x double> @test_mask_vfmadd256_pd_rmkz(<4 x double> %a0, <4 x double> 
 ; CHECK-LABEL: test_mask_vfmadd256_pd_rmkz:
 ; CHECK:       ## %bb.0:
 ; CHECK-NEXT:    vfmadd213pd (%rdi), %ymm1, %ymm0 ## EVEX TO VEX Compression encoding: [0xc4,0xe2,0xf5,0xa8,0x07]
+; CHECK-NEXT:    ## ymm0 = (ymm1 * ymm0) + mem
 ; CHECK-NEXT:    retq ## encoding: [0xc3]
   %a2 = load <4 x double>, <4 x double>* %ptr_a2
   %res = call <4 x double> @llvm.x86.avx512.mask.vfmadd.pd.256(<4 x double> %a0, <4 x double> %a1, <4 x double> %a2, i8 -1) nounwind

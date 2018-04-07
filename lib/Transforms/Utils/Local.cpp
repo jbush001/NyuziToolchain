@@ -12,7 +12,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "llvm/Transforms/Utils/Local.h"
+#include "llvm/Analysis/Utils/Local.h"
 #include "llvm/ADT/APInt.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseMapInfo.h"
@@ -431,6 +431,7 @@ llvm::RecursivelyDeleteTriviallyDeadInstructions(Value *V,
 
   do {
     I = DeadInsts.pop_back_val();
+    salvageDebugInfo(*I);
 
     // Null out all of the instruction's operands to see if any operand becomes
     // dead as we go.
@@ -503,6 +504,8 @@ simplifyAndDCEInstruction(Instruction *I,
                           const DataLayout &DL,
                           const TargetLibraryInfo *TLI) {
   if (isInstructionTriviallyDead(I, TLI)) {
+    salvageDebugInfo(*I);
+
     // Null out all of the instruction's operands to see if any operand becomes
     // dead as we go.
     for (unsigned i = 0, e = I->getNumOperands(); i != e; ++i) {
@@ -1319,25 +1322,36 @@ bool llvm::LowerDbgDeclare(Function &F) {
     // stored on the stack, while the dbg.declare can only describe
     // the stack slot (and at a lexical-scope granularity). Later
     // passes will attempt to elide the stack slot.
-    if (AI && !isArray(AI)) {
-      for (auto &AIUse : AI->uses()) {
-        User *U = AIUse.getUser();
-        if (StoreInst *SI = dyn_cast<StoreInst>(U)) {
-          if (AIUse.getOperandNo() == 1)
-            ConvertDebugDeclareToDebugValue(DDI, SI, DIB);
-        } else if (LoadInst *LI = dyn_cast<LoadInst>(U)) {
-          ConvertDebugDeclareToDebugValue(DDI, LI, DIB);
-        } else if (CallInst *CI = dyn_cast<CallInst>(U)) {
-          // This is a call by-value or some other instruction that
-          // takes a pointer to the variable. Insert a *value*
-          // intrinsic that describes the alloca.
-          DIB.insertDbgValueIntrinsic(AI, DDI->getVariable(),
-                                      DDI->getExpression(), DDI->getDebugLoc(),
-                                      CI);
-        }
+    if (!AI || isArray(AI))
+      continue;
+
+    // A volatile load/store means that the alloca can't be elided anyway.
+    if (llvm::any_of(AI->users(), [](User *U) -> bool {
+          if (LoadInst *LI = dyn_cast<LoadInst>(U))
+            return LI->isVolatile();
+          if (StoreInst *SI = dyn_cast<StoreInst>(U))
+            return SI->isVolatile();
+          return false;
+        }))
+      continue;
+
+    for (auto &AIUse : AI->uses()) {
+      User *U = AIUse.getUser();
+      if (StoreInst *SI = dyn_cast<StoreInst>(U)) {
+        if (AIUse.getOperandNo() == 1)
+          ConvertDebugDeclareToDebugValue(DDI, SI, DIB);
+      } else if (LoadInst *LI = dyn_cast<LoadInst>(U)) {
+        ConvertDebugDeclareToDebugValue(DDI, LI, DIB);
+      } else if (CallInst *CI = dyn_cast<CallInst>(U)) {
+        // This is a call by-value or some other instruction that
+        // takes a pointer to the variable. Insert a *value*
+        // intrinsic that describes the alloca.
+        DIB.insertDbgValueIntrinsic(AI, DDI->getVariable(),
+                                    DDI->getExpression(), DDI->getDebugLoc(),
+                                    CI);
       }
-      DDI->eraseFromParent();
     }
+    DDI->eraseFromParent();
   }
   return true;
 }
@@ -1365,14 +1379,17 @@ void llvm::insertDebugValuesForPHIs(BasicBlock *BB,
   // propagate the info through the new PHI.
   LLVMContext &C = BB->getContext();
   for (auto PHI : InsertedPHIs) {
+    BasicBlock *Parent = PHI->getParent();
+    // Avoid inserting an intrinsic into an EH block.
+    if (Parent->getFirstNonPHI()->isEHPad())
+      continue;
+    auto PhiMAV = MetadataAsValue::get(C, ValueAsMetadata::get(PHI));
     for (auto VI : PHI->operand_values()) {
       auto V = DbgValueMap.find(VI);
       if (V != DbgValueMap.end()) {
         auto *DbgII = cast<DbgInfoIntrinsic>(V->second);
         Instruction *NewDbgII = DbgII->clone();
-        auto PhiMAV = MetadataAsValue::get(C, ValueAsMetadata::get(PHI));
         NewDbgII->setOperand(0, PhiMAV);
-        BasicBlock *Parent = PHI->getParent();
         auto InsertionPt = Parent->getFirstInsertionPt();
         assert(InsertionPt != Parent->end() && "Ill-formed basic block");
         NewDbgII->insertBefore(&*InsertionPt);
@@ -1486,37 +1503,57 @@ void llvm::replaceDbgValueForAlloca(AllocaInst *AI, Value *NewAllocaAddress,
 }
 
 void llvm::salvageDebugInfo(Instruction &I) {
+  // This function is hot. An early check to determine whether the instruction
+  // has any metadata to save allows it to return earlier on average.
+  if (!I.isUsedByMetadata())
+    return;
+
   SmallVector<DbgInfoIntrinsic *, 1> DbgUsers;
   findDbgUsers(DbgUsers, &I);
   if (DbgUsers.empty())
     return;
 
   auto &M = *I.getModule();
+  auto &DL = M.getDataLayout();
 
   auto wrapMD = [&](Value *V) {
     return MetadataAsValue::get(I.getContext(), ValueAsMetadata::get(V));
   };
 
-  auto applyOffset = [&](DbgInfoIntrinsic *DII, uint64_t Offset) {
+  auto doSalvage = [&](DbgInfoIntrinsic *DII, SmallVectorImpl<uint64_t> &Ops) {
     auto *DIExpr = DII->getExpression();
-    DIExpr = DIExpression::prepend(DIExpr, DIExpression::NoDeref, Offset,
-                                   DIExpression::NoDeref,
-                                   DIExpression::WithStackValue);
+    DIExpr = DIExpression::doPrepend(DIExpr, Ops,
+                                     DIExpression::WithStackValue);
     DII->setOperand(0, wrapMD(I.getOperand(0)));
     DII->setOperand(2, MetadataAsValue::get(I.getContext(), DIExpr));
     DEBUG(dbgs() << "SALVAGE: " << *DII << '\n');
   };
 
-  if (isa<BitCastInst>(&I) || isa<IntToPtrInst>(&I)) {
-    // Bitcasts are entirely irrelevant for debug info. Rewrite dbg.value,
-    // dbg.addr, and dbg.declare to use the cast's source.
+  auto applyOffset = [&](DbgInfoIntrinsic *DII, uint64_t Offset) {
+    SmallVector<uint64_t, 8> Ops;
+    DIExpression::appendOffset(Ops, Offset);
+    doSalvage(DII, Ops);
+  };
+
+  auto applyOps = [&](DbgInfoIntrinsic *DII,
+                      std::initializer_list<uint64_t> Opcodes) {
+    SmallVector<uint64_t, 8> Ops(Opcodes);
+    doSalvage(DII, Ops);
+  };
+
+  if (auto *CI = dyn_cast<CastInst>(&I)) {
+    if (!CI->isNoopCast(DL))
+      return;
+
+    // No-op casts are irrelevant for debug info.
+    MetadataAsValue *CastSrc = wrapMD(I.getOperand(0));
     for (auto *DII : DbgUsers) {
-      DII->setOperand(0, wrapMD(I.getOperand(0)));
+      DII->setOperand(0, CastSrc);
       DEBUG(dbgs() << "SALVAGE: " << *DII << '\n');
     }
   } else if (auto *GEP = dyn_cast<GetElementPtrInst>(&I)) {
     unsigned BitWidth =
-        M.getDataLayout().getPointerSizeInBits(GEP->getPointerAddressSpace());
+        M.getDataLayout().getIndexSizeInBits(GEP->getPointerAddressSpace());
     // Rewrite a constant GEP into a DIExpression.  Since we are performing
     // arithmetic to compute the variable's *value* in the DIExpression, we
     // need to mark the expression with a DW_OP_stack_value.
@@ -1525,11 +1562,52 @@ void llvm::salvageDebugInfo(Instruction &I) {
       for (auto *DII : DbgUsers)
         applyOffset(DII, Offset.getSExtValue());
   } else if (auto *BI = dyn_cast<BinaryOperator>(&I)) {
-    if (BI->getOpcode() == Instruction::Add)
-      if (auto *ConstInt = dyn_cast<ConstantInt>(I.getOperand(1)))
-        if (ConstInt->getBitWidth() <= 64)
-          for (auto *DII : DbgUsers)
-            applyOffset(DII, ConstInt->getSExtValue());
+    // Rewrite binary operations with constant integer operands.
+    auto *ConstInt = dyn_cast<ConstantInt>(I.getOperand(1));
+    if (!ConstInt || ConstInt->getBitWidth() > 64)
+      return;
+
+    uint64_t Val = ConstInt->getSExtValue();
+    for (auto *DII : DbgUsers) {
+      switch (BI->getOpcode()) {
+      case Instruction::Add:
+        applyOffset(DII, Val);
+        break;
+      case Instruction::Sub:
+        applyOffset(DII, -int64_t(Val));
+        break;
+      case Instruction::Mul:
+        applyOps(DII, {dwarf::DW_OP_constu, Val, dwarf::DW_OP_mul});
+        break;
+      case Instruction::SDiv:
+        applyOps(DII, {dwarf::DW_OP_constu, Val, dwarf::DW_OP_div});
+        break;
+      case Instruction::SRem:
+        applyOps(DII, {dwarf::DW_OP_constu, Val, dwarf::DW_OP_mod});
+        break;
+      case Instruction::Or:
+        applyOps(DII, {dwarf::DW_OP_constu, Val, dwarf::DW_OP_or});
+        break;
+      case Instruction::And:
+        applyOps(DII, {dwarf::DW_OP_constu, Val, dwarf::DW_OP_and});
+        break;
+      case Instruction::Xor:
+        applyOps(DII, {dwarf::DW_OP_constu, Val, dwarf::DW_OP_xor});
+        break;
+      case Instruction::Shl:
+        applyOps(DII, {dwarf::DW_OP_constu, Val, dwarf::DW_OP_shl});
+        break;
+      case Instruction::LShr:
+        applyOps(DII, {dwarf::DW_OP_constu, Val, dwarf::DW_OP_shr});
+        break;
+      case Instruction::AShr:
+        applyOps(DII, {dwarf::DW_OP_constu, Val, dwarf::DW_OP_shra});
+        break;
+      default:
+        // TODO: Salvage constants from each kind of binop we know about.
+        continue;
+      }
+    }
   } else if (isa<LoadInst>(&I)) {
     MetadataAsValue *AddrMD = wrapMD(I.getOperand(0));
     for (auto *DII : DbgUsers) {
@@ -2106,7 +2184,7 @@ void llvm::copyRangeMetadata(const DataLayout &DL, const LoadInst &OldLI,
   if (!NewTy->isPointerTy())
     return;
 
-  unsigned BitWidth = DL.getTypeSizeInBits(NewTy);
+  unsigned BitWidth = DL.getIndexTypeSizeInBits(NewTy);
   if (!getConstantRangeFromMetadata(*N).contains(APInt(BitWidth, 0))) {
     MDNode *NN = MDNode::get(OldLI.getContext(), None);
     NewLI.setMetadata(LLVMContext::MD_nonnull, NN);

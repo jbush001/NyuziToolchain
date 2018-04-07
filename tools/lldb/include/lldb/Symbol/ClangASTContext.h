@@ -253,6 +253,9 @@ public:
           &type_fields,
       bool packed = false);
 
+  static bool IsOperator(const char *name,
+                         clang::OverloadedOperatorKind &op_kind);
+
   //------------------------------------------------------------------
   // Structure, Unions, Classes
   //------------------------------------------------------------------
@@ -301,6 +304,9 @@ public:
   CreateClassTemplateDecl(clang::DeclContext *decl_ctx,
                           lldb::AccessType access_type, const char *class_name,
                           int kind, const TemplateParameterInfos &infos);
+
+  clang::TemplateTemplateParmDecl *
+  CreateTemplateTemplateParmDecl(const char *template_name);
 
   clang::ClassTemplateSpecializationDecl *CreateClassTemplateSpecializationDecl(
       clang::DeclContext *decl_ctx,
@@ -821,6 +827,7 @@ public:
 
   clang::CXXMethodDecl *
   AddMethodToCXXRecordType(lldb::opaque_compiler_type_t type, const char *name,
+                           const char *mangled_name,
                            const CompilerType &method_type,
                            lldb::AccessType access, bool is_virtual,
                            bool is_static, bool is_inline, bool is_explicit,

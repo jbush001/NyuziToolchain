@@ -138,8 +138,8 @@ static ClangASTMap &GetASTMap() {
   return *g_map_ptr;
 }
 
-static bool IsOperator(const char *name,
-                       clang::OverloadedOperatorKind &op_kind) {
+bool ClangASTContext::IsOperator(const char *name,
+                                 clang::OverloadedOperatorKind &op_kind) {
   if (name == nullptr || name[0] == '\0')
     return false;
 
@@ -1482,6 +1482,29 @@ ClassTemplateDecl *ClangASTContext::CreateClassTemplateDecl(
   return class_template_decl;
 }
 
+TemplateTemplateParmDecl *
+ClangASTContext::CreateTemplateTemplateParmDecl(const char *template_name) {
+  ASTContext *ast = getASTContext();
+
+  auto *decl_ctx = ast->getTranslationUnitDecl();
+
+  IdentifierInfo &identifier_info = ast->Idents.get(template_name);
+  llvm::SmallVector<NamedDecl *, 8> template_param_decls;
+
+  ClangASTContext::TemplateParameterInfos template_param_infos;
+  TemplateParameterList *template_param_list = CreateTemplateParameterList(
+      ast, template_param_infos, template_param_decls);
+
+  // LLDB needs to create those decls only to be able to display a
+  // type that includes a template template argument. Only the name
+  // matters for this purpose, so we use dummy values for the other
+  // characterisitcs of the type.
+  return TemplateTemplateParmDecl::Create(
+      *ast, decl_ctx, SourceLocation(),
+      /*Depth*/ 0, /*Position*/ 0,
+      /*IsParameterPack*/ false, &identifier_info, template_param_list);
+}
+
 ClassTemplateSpecializationDecl *
 ClangASTContext::CreateClassTemplateSpecializationDecl(
     DeclContext *decl_ctx, ClassTemplateDecl *class_template_decl, int kind,
@@ -2120,51 +2143,6 @@ ClangASTContext::CreateEnumerationType(const char *name, DeclContext *decl_ctx,
   }
   return CompilerType();
 }
-
-// Disable this for now since I can't seem to get a nicely formatted float
-// out of the APFloat class without just getting the float, double or quad
-// and then using a formatted print on it which defeats the purpose. We ideally
-// would like to get perfect string values for any kind of float semantics
-// so we can support remote targets. The code below also requires a patch to
-// llvm::APInt.
-// bool
-// ClangASTContext::ConvertFloatValueToString (ASTContext *ast,
-// lldb::opaque_compiler_type_t clang_type, const uint8_t* bytes, size_t
-// byte_size, int apint_byte_order, std::string &float_str)
-//{
-//  uint32_t count = 0;
-//  bool is_complex = false;
-//  if (ClangASTContext::IsFloatingPointType (clang_type, count, is_complex))
-//  {
-//      unsigned num_bytes_per_float = byte_size / count;
-//      unsigned num_bits_per_float = num_bytes_per_float * 8;
-//
-//      float_str.clear();
-//      uint32_t i;
-//      for (i=0; i<count; i++)
-//      {
-//          APInt ap_int(num_bits_per_float, bytes + i * num_bytes_per_float,
-//          (APInt::ByteOrder)apint_byte_order);
-//          bool is_ieee = false;
-//          APFloat ap_float(ap_int, is_ieee);
-//          char s[1024];
-//          unsigned int hex_digits = 0;
-//          bool upper_case = false;
-//
-//          if (ap_float.convertToHexString(s, hex_digits, upper_case,
-//          APFloat::rmNearestTiesToEven) > 0)
-//          {
-//              if (i > 0)
-//                  float_str.append(", ");
-//              float_str.append(s);
-//              if (i == 1 && is_complex)
-//                  float_str.append(1, 'i');
-//          }
-//      }
-//      return !float_str.empty();
-//  }
-//  return false;
-//}
 
 CompilerType ClangASTContext::GetIntTypeFromBitSize(clang::ASTContext *ast,
                                                     size_t bit_size,
@@ -3964,7 +3942,10 @@ ClangASTContext::GetTypeInfo(lldb::opaque_compiler_type_t type,
   case clang::Type::DependentTemplateSpecialization:
     return eTypeIsTemplate;
   case clang::Type::Decltype:
-    return 0;
+    return CompilerType(
+               getASTContext(),
+               llvm::cast<clang::DecltypeType>(qual_type)->getUnderlyingType())
+        .GetTypeInfo(pointee_or_element_clang_type);
 
   case clang::Type::Enum:
     if (pointee_or_element_clang_type)
@@ -4046,9 +4027,16 @@ ClangASTContext::GetTypeInfo(lldb::opaque_compiler_type_t type,
                             ->getUnderlyingType())
                .GetTypeInfo(pointee_or_element_clang_type);
   case clang::Type::TypeOfExpr:
-    return 0;
+    return CompilerType(getASTContext(),
+                        llvm::cast<clang::TypeOfExprType>(qual_type)
+                            ->getUnderlyingExpr()
+                            ->getType())
+        .GetTypeInfo(pointee_or_element_clang_type);
   case clang::Type::TypeOf:
-    return 0;
+    return CompilerType(
+               getASTContext(),
+               llvm::cast<clang::TypeOfType>(qual_type)->getUnderlyingType())
+        .GetTypeInfo(pointee_or_element_clang_type);
   case clang::Type::UnresolvedUsing:
     return 0;
 
@@ -4255,11 +4243,21 @@ ClangASTContext::GetTypeClass(lldb::opaque_compiler_type_t type) {
     break;
 
   case clang::Type::TypeOfExpr:
-    break;
+    return CompilerType(getASTContext(),
+                        llvm::cast<clang::TypeOfExprType>(qual_type)
+                            ->getUnderlyingExpr()
+                            ->getType())
+        .GetTypeClass();
   case clang::Type::TypeOf:
-    break;
+    return CompilerType(
+               getASTContext(),
+               llvm::cast<clang::TypeOfType>(qual_type)->getUnderlyingType())
+        .GetTypeClass();
   case clang::Type::Decltype:
-    break;
+    return CompilerType(
+               getASTContext(),
+               llvm::cast<clang::TypeOfType>(qual_type)->getUnderlyingType())
+        .GetTypeClass();
   case clang::Type::TemplateSpecialization:
     break;
   case clang::Type::DeducedTemplateSpecialization:
@@ -5060,7 +5058,22 @@ lldb::Encoding ClangASTContext::GetEncoding(lldb::opaque_compiler_type_t type,
     return CompilerType(getASTContext(),
                         llvm::cast<clang::ParenType>(qual_type)->desugar())
         .GetEncoding(count);
-
+  case clang::Type::TypeOfExpr:
+    return CompilerType(getASTContext(),
+                        llvm::cast<clang::TypeOfExprType>(qual_type)
+                            ->getUnderlyingExpr()
+                            ->getType())
+        .GetEncoding(count);
+  case clang::Type::TypeOf:
+    return CompilerType(
+               getASTContext(),
+               llvm::cast<clang::TypeOfType>(qual_type)->getUnderlyingType())
+        .GetEncoding(count);
+  case clang::Type::Decltype:
+    return CompilerType(
+               getASTContext(),
+               llvm::cast<clang::DecltypeType>(qual_type)->getUnderlyingType())
+        .GetEncoding(count);
   case clang::Type::DependentSizedArray:
   case clang::Type::DependentSizedExtVector:
   case clang::Type::UnresolvedUsing:
@@ -5074,9 +5087,6 @@ lldb::Encoding ClangASTContext::GetEncoding(lldb::opaque_compiler_type_t type,
   case clang::Type::PackExpansion:
   case clang::Type::ObjCObject:
 
-  case clang::Type::TypeOfExpr:
-  case clang::Type::TypeOf:
-  case clang::Type::Decltype:
   case clang::Type::TemplateSpecialization:
   case clang::Type::DeducedTemplateSpecialization:
   case clang::Type::Atomic:
@@ -5214,6 +5224,22 @@ lldb::Format ClangASTContext::GetFormat(lldb::opaque_compiler_type_t type) {
                getASTContext(),
                llvm::cast<clang::ElaboratedType>(qual_type)->getNamedType())
         .GetFormat();
+  case clang::Type::TypeOfExpr:
+    return CompilerType(getASTContext(),
+                        llvm::cast<clang::TypeOfExprType>(qual_type)
+                            ->getUnderlyingExpr()
+                            ->getType())
+        .GetFormat();
+  case clang::Type::TypeOf:
+    return CompilerType(
+               getASTContext(),
+               llvm::cast<clang::TypeOfType>(qual_type)->getUnderlyingType())
+        .GetFormat();
+  case clang::Type::Decltype:
+    return CompilerType(
+               getASTContext(),
+               llvm::cast<clang::DecltypeType>(qual_type)->getUnderlyingType())
+        .GetFormat();
   case clang::Type::DependentSizedArray:
   case clang::Type::DependentSizedExtVector:
   case clang::Type::UnresolvedUsing:
@@ -5227,9 +5253,6 @@ lldb::Format ClangASTContext::GetFormat(lldb::opaque_compiler_type_t type) {
   case clang::Type::PackExpansion:
   case clang::Type::ObjCObject:
 
-  case clang::Type::TypeOfExpr:
-  case clang::Type::TypeOf:
-  case clang::Type::Decltype:
   case clang::Type::TemplateSpecialization:
   case clang::Type::DeducedTemplateSpecialization:
   case clang::Type::Atomic:
@@ -6264,11 +6287,15 @@ uint32_t ClangASTContext::GetNumPointeeChildren(clang::QualType type) {
     return GetNumPointeeChildren(
         llvm::cast<clang::ElaboratedType>(qual_type)->getNamedType());
   case clang::Type::TypeOfExpr:
-    return 0;
+    return GetNumPointeeChildren(llvm::cast<clang::TypeOfExprType>(qual_type)
+                                     ->getUnderlyingExpr()
+                                     ->getType());
   case clang::Type::TypeOf:
-    return 0;
+    return GetNumPointeeChildren(
+        llvm::cast<clang::TypeOfType>(qual_type)->getUnderlyingType());
   case clang::Type::Decltype:
-    return 0;
+    return GetNumPointeeChildren(
+        llvm::cast<clang::DecltypeType>(qual_type)->getUnderlyingType());
   case clang::Type::Record:
     return 0;
   case clang::Type::Enum:
@@ -7885,7 +7912,7 @@ clang::VarDecl *ClangASTContext::AddVariableToRecordType(
 }
 
 clang::CXXMethodDecl *ClangASTContext::AddMethodToCXXRecordType(
-    lldb::opaque_compiler_type_t type, const char *name,
+    lldb::opaque_compiler_type_t type, const char *name, const char *mangled_name,
     const CompilerType &method_clang_type, lldb::AccessType access,
     bool is_virtual, bool is_static, bool is_inline, bool is_explicit,
     bool is_attr_used, bool is_artificial) {
@@ -8004,6 +8031,11 @@ clang::CXXMethodDecl *ClangASTContext::AddMethodToCXXRecordType(
 
   if (is_attr_used)
     cxx_method_decl->addAttr(clang::UsedAttr::CreateImplicit(*getASTContext()));
+
+  if (mangled_name != NULL) {
+    cxx_method_decl->addAttr(
+        clang::AsmLabelAttr::CreateImplicit(*getASTContext(), mangled_name));
+  }
 
   // Populate the method decl with parameter decls
 
@@ -10086,4 +10118,3 @@ ClangASTContextForExpressions::GetMergerUnchecked() {
   lldbassert(m_scratch_ast_source_ap != nullptr);
   return m_scratch_ast_source_ap->GetMergerUnchecked();
 }
-

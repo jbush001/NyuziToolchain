@@ -35,17 +35,17 @@ class SymbolTableSection;
 class RelocationSection;
 class DynamicRelocationSection;
 class GnuDebugLinkSection;
+class GroupSection;
 class Segment;
 class Object;
 
 class SectionTableRef {
-private:
   MutableArrayRef<std::unique_ptr<SectionBase>> Sections;
 
 public:
   using iterator = pointee_iterator<std::unique_ptr<SectionBase> *>;
 
-  SectionTableRef(MutableArrayRef<std::unique_ptr<SectionBase>> Secs)
+  explicit SectionTableRef(MutableArrayRef<std::unique_ptr<SectionBase>> Secs)
       : Sections(Secs) {}
   SectionTableRef(const SectionTableRef &) = default;
 
@@ -71,6 +71,7 @@ public:
   virtual void visit(const RelocationSection &Sec) = 0;
   virtual void visit(const DynamicRelocationSection &Sec) = 0;
   virtual void visit(const GnuDebugLinkSection &Sec) = 0;
+  virtual void visit(const GroupSection &Sec) = 0;
 };
 
 class SectionWriter : public SectionVisitor {
@@ -87,6 +88,7 @@ public:
   virtual void visit(const SymbolTableSection &Sec) override = 0;
   virtual void visit(const RelocationSection &Sec) override = 0;
   virtual void visit(const GnuDebugLinkSection &Sec) override = 0;
+  virtual void visit(const GroupSection &Sec) override = 0;
 
   SectionWriter(FileOutputBuffer &Buf) : Out(Buf) {}
 };
@@ -102,6 +104,7 @@ public:
   void visit(const SymbolTableSection &Sec) override;
   void visit(const RelocationSection &Sec) override;
   void visit(const GnuDebugLinkSection &Sec) override;
+  void visit(const GroupSection &Sec) override;
 
   ELFSectionWriter(FileOutputBuffer &Buf) : SectionWriter(Buf) {}
 };
@@ -117,6 +120,8 @@ public:
   void visit(const SymbolTableSection &Sec) override;
   void visit(const RelocationSection &Sec) override;
   void visit(const GnuDebugLinkSection &Sec) override;
+  void visit(const GroupSection &Sec) override;
+
   BinarySectionWriter(FileOutputBuffer &Buf) : SectionWriter(Buf) {}
 };
 
@@ -237,7 +242,8 @@ public:
   uint64_t OriginalOffset;
   Segment *ParentSegment = nullptr;
 
-  Segment(ArrayRef<uint8_t> Data) : Contents(Data) {}
+  explicit Segment(ArrayRef<uint8_t> Data) : Contents(Data) {}
+  Segment() {}
 
   const SectionBase *firstSection() const {
     if (!Sections.empty())
@@ -252,11 +258,10 @@ public:
 class Section : public SectionBase {
   MAKE_SEC_WRITER_FRIEND
 
-private:
   ArrayRef<uint8_t> Contents;
 
 public:
-  Section(ArrayRef<uint8_t> Data) : Contents(Data) {}
+  explicit Section(ArrayRef<uint8_t> Data) : Contents(Data) {}
 
   void accept(SectionVisitor &Visitor) const override;
 };
@@ -264,7 +269,6 @@ public:
 class OwnedDataSection : public SectionBase {
   MAKE_SEC_WRITER_FRIEND
 
-private:
   std::vector<uint8_t> Data;
 
 public:
@@ -290,7 +294,6 @@ public:
 class StringTableSection : public SectionBase {
   MAKE_SEC_WRITER_FRIEND
 
-private:
   StringTableBuilder StrTabBuilder;
 
 public:
@@ -342,6 +345,9 @@ struct Symbol {
 class SymbolTableSection : public SectionBase {
   MAKE_SEC_WRITER_FRIEND
 
+  void setStrTab(StringTableSection *StrTab) { SymbolNames = StrTab; }
+  void assignIndices();
+
 protected:
   std::vector<std::unique_ptr<Symbol>> Symbols;
   StringTableSection *SymbolNames = nullptr;
@@ -349,7 +355,6 @@ protected:
   using SymPtr = std::unique_ptr<Symbol>;
 
 public:
-  void setStrTab(StringTableSection *StrTab) { SymbolNames = StrTab; }
   void addSymbol(StringRef Name, uint8_t Bind, uint8_t Type,
                  SectionBase *DefinedIn, uint64_t Value, uint8_t Visibility,
                  uint16_t Shndx, uint64_t Sz);
@@ -400,14 +405,13 @@ public:
 // that code between the two symbol table types.
 template <class SymTabType>
 class RelocSectionWithSymtabBase : public RelocationSectionBase {
-private:
   SymTabType *Symbols = nullptr;
+  void setSymTab(SymTabType *SymTab) { Symbols = SymTab; }
 
 protected:
   RelocSectionWithSymtabBase() = default;
 
 public:
-  void setSymTab(SymTabType *StrTab) { Symbols = StrTab; }
   void removeSectionReferences(const SectionBase *Sec) override;
   void initialize(SectionTableRef SecTable) override;
   void finalize() override;
@@ -417,7 +421,6 @@ class RelocationSection
     : public RelocSectionWithSymtabBase<SymbolTableSection> {
   MAKE_SEC_WRITER_FRIEND
 
-private:
   std::vector<Relocation> Relocations;
 
 public:
@@ -431,14 +434,43 @@ public:
   }
 };
 
-class SectionWithStrTab : public Section {
-private:
-  const SectionBase *StrTab = nullptr;
+// TODO: The way stripping and groups interact is complicated
+// and still needs to be worked on.
+
+class GroupSection : public SectionBase {
+  MAKE_SEC_WRITER_FRIEND
+  const SymbolTableSection *SymTab = nullptr;
+  const Symbol *Sym = nullptr;
+  ELF::Elf32_Word FlagWord;
+  SmallVector<SectionBase *, 3> GroupMembers;
 
 public:
-  SectionWithStrTab(ArrayRef<uint8_t> Data) : Section(Data) {}
+  // TODO: Contents is present in several classes of the hierarchy.
+  // This needs to be refactored to avoid duplication.
+  ArrayRef<uint8_t> Contents;
 
+  explicit GroupSection(ArrayRef<uint8_t> Data) : Contents(Data) {}
+
+  void setSymTab(const SymbolTableSection *SymTabSec) { SymTab = SymTabSec; }
+  void setSymbol(const Symbol *S) { Sym = S; }
+  void setFlagWord(ELF::Elf32_Word W) { FlagWord = W; }
+  void addMember(SectionBase *Sec) { GroupMembers.push_back(Sec); }
+
+  void initialize(SectionTableRef SecTable) override {};
+  void accept(SectionVisitor &) const override;
+  void finalize() override;
+
+  static bool classof(const SectionBase *S) {
+    return S->Type == ELF::SHT_GROUP;
+  }
+};
+
+class SectionWithStrTab : public Section {
+  const SectionBase *StrTab = nullptr;
   void setStrTab(const SectionBase *StringTable) { StrTab = StringTable; }
+
+public:
+  explicit SectionWithStrTab(ArrayRef<uint8_t> Data) : Section(Data) {}
   void removeSectionReferences(const SectionBase *Sec) override;
   void initialize(SectionTableRef SecTable) override;
   void finalize() override;
@@ -447,7 +479,8 @@ public:
 
 class DynamicSymbolTableSection : public SectionWithStrTab {
 public:
-  DynamicSymbolTableSection(ArrayRef<uint8_t> Data) : SectionWithStrTab(Data) {}
+  explicit DynamicSymbolTableSection(ArrayRef<uint8_t> Data)
+      : SectionWithStrTab(Data) {}
 
   static bool classof(const SectionBase *S) {
     return S->Type == ELF::SHT_DYNSYM;
@@ -456,7 +489,7 @@ public:
 
 class DynamicSection : public SectionWithStrTab {
 public:
-  DynamicSection(ArrayRef<uint8_t> Data) : SectionWithStrTab(Data) {}
+  explicit DynamicSection(ArrayRef<uint8_t> Data) : SectionWithStrTab(Data) {}
 
   static bool classof(const SectionBase *S) {
     return S->Type == ELF::SHT_DYNAMIC;
@@ -471,7 +504,7 @@ private:
   ArrayRef<uint8_t> Contents;
 
 public:
-  DynamicRelocationSection(ArrayRef<uint8_t> Data) : Contents(Data) {}
+  explicit DynamicRelocationSection(ArrayRef<uint8_t> Data) : Contents(Data) {}
 
   void accept(SectionVisitor &) const override;
 
@@ -486,7 +519,6 @@ class GnuDebugLinkSection : public SectionBase {
   MAKE_SEC_WRITER_FRIEND
 
 private:
-
   StringRef FileName;
   uint32_t CRC32;
 
@@ -494,7 +526,7 @@ private:
 
 public:
   // If we add this section from an external source we can use this ctor.
-  GnuDebugLinkSection(StringRef File);
+  explicit GnuDebugLinkSection(StringRef File);
   void accept(SectionVisitor &Visitor) const override;
 };
 
@@ -504,19 +536,23 @@ public:
   virtual std::unique_ptr<Object> create() const = 0;
 };
 
-using object::OwningBinary;
 using object::Binary;
 using object::ELFFile;
 using object::ELFObjectFile;
+using object::OwningBinary;
 
 template <class ELFT> class ELFBuilder {
 private:
+  using Elf_Addr = typename ELFT::Addr;
   using Elf_Shdr = typename ELFT::Shdr;
+  using Elf_Ehdr = typename ELFT::Ehdr;
 
   const ELFFile<ELFT> &ElfFile;
   Object &Obj;
 
+  void setParentSegment(Segment &Child);
   void readProgramHeaders();
+  void initGroupSection(GroupSection *GroupSec);
   void initSymbolTable(SymbolTableSection *SymTab);
   void readSectionHeaders();
   SectionBase &makeSection(const Elf_Shdr &Shdr);
@@ -557,6 +593,15 @@ public:
   using ConstRange = iterator_range<pointee_iterator<
       typename std::vector<std::unique_ptr<T>>::const_iterator>>;
 
+  // It is often the case that the ELF header and the program header table are
+  // not present in any segment. This could be a problem during file layout,
+  // because other segments may get assigned an offset where either of the
+  // two should reside, which will effectively corrupt the resulting binary.
+  // Other than that we use these segments to track program header offsets
+  // when they may not follow the ELF header.
+  Segment ElfHdrSegment;
+  Segment ProgramHdrSegment;
+
   uint8_t Ident[16];
   uint64_t Entry;
   uint64_t SHOffset;
@@ -568,7 +613,8 @@ public:
   StringTableSection *SectionNames = nullptr;
   SymbolTableSection *SymbolTable = nullptr;
 
-  Object(std::shared_ptr<MemoryBuffer> Data) : OwnedData(Data) {}
+  explicit Object(std::shared_ptr<MemoryBuffer> Data)
+      : OwnedData(std::move(Data)) {}
   virtual ~Object() = default;
 
   void sortSections();
@@ -591,7 +637,6 @@ public:
     return *Segments.back();
   }
 };
-
 } // end namespace llvm
 
 #endif // LLVM_TOOLS_OBJCOPY_OBJECT_H

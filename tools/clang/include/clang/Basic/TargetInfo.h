@@ -61,6 +61,8 @@ protected:
   bool TLSSupported;
   bool VLASupported;
   bool NoAsmVariants;  // True if {|} are normal characters.
+  bool HasLegalHalfType; // True if the backend supports operations on the half
+                         // LLVM IR type.
   bool HasFloat128;
   unsigned char PointerWidth, PointerAlign;
   unsigned char BoolWidth, BoolAlign;
@@ -358,8 +360,11 @@ public:
 
   /// \brief Determine whether the __int128 type is supported on this target.
   virtual bool hasInt128Type() const {
-    return getPointerWidth(0) >= 64;
+    return (getPointerWidth(0) >= 64) || getTargetOpts().ForceEnableInt128;
   } // FIXME
+
+  /// \brief Determine whether _Float16 is supported on this target.
+  virtual bool hasLegalHalfType() const { return HasLegalHalfType; }
 
   /// \brief Determine whether the __float128 type is supported on this target.
   virtual bool hasFloat128Type() const { return HasFloat128; }
@@ -1047,6 +1052,14 @@ public:
         return CCCR_OK;
     }
   }
+
+  enum CallingConvKind {
+    CCK_Default,
+    CCK_ClangABI4OrPS4,
+    CCK_MicrosoftX86_64
+  };
+
+  virtual CallingConvKind getCallingConvKind(bool ClangABICompat4) const;
 
   /// Controls if __builtin_longjmp / __builtin_setjmp can be lowered to
   /// llvm.eh.sjlj.longjmp / llvm.eh.sjlj.setjmp.

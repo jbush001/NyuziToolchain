@@ -18,13 +18,14 @@
 #include "clang/AST/ASTMutationListener.h"
 #include "clang/AST/DeclTemplate.h"
 #include "clang/AST/Expr.h"
+#include "clang/AST/PrettyDeclStackTrace.h"
 #include "clang/Basic/LangOptions.h"
 #include "clang/Sema/DeclSpec.h"
 #include "clang/Sema/Initialization.h"
 #include "clang/Sema/Lookup.h"
-#include "clang/Sema/PrettyDeclStackTrace.h"
 #include "clang/Sema/Template.h"
 #include "clang/Sema/TemplateDeduction.h"
+#include "clang/Sema/TemplateInstCallback.h"
 
 using namespace clang;
 using namespace sema;
@@ -199,6 +200,10 @@ bool Sema::CodeSynthesisContext::isInstantiationRecord() const {
   case DeclaringSpecialMember:
   case DefiningSynthesizedFunction:
     return false;
+       
+  // This function should never be called when Kind's value is Memoization.
+  case Memoization:
+    break;
   }
 
   llvm_unreachable("Invalid SynthesisKind!");
@@ -235,6 +240,7 @@ Sema::InstantiatingTemplate::InstantiatingTemplate(
         !SemaRef.InstantiatingSpecializations
              .insert(std::make_pair(Inst.Entity->getCanonicalDecl(), Inst.Kind))
              .second;
+    atTemplateBegin(SemaRef.TemplateInstCallbacks, SemaRef, Inst);
   }
 }
 
@@ -394,8 +400,10 @@ void Sema::InstantiatingTemplate::Clear() {
           std::make_pair(Active.Entity, Active.Kind));
     }
 
-    SemaRef.popCodeSynthesisContext();
+    atTemplateEnd(SemaRef.TemplateInstCallbacks, SemaRef,
+                  SemaRef.CodeSynthesisContexts.back());
 
+    SemaRef.popCodeSynthesisContext();
     Invalid = true;
   }
 }
@@ -626,7 +634,7 @@ void Sema::PrintInstantiationStack() {
         << cast<CXXRecordDecl>(Active->Entity) << Active->SpecialMember;
       break;
 
-    case CodeSynthesisContext::DefiningSynthesizedFunction:
+    case CodeSynthesisContext::DefiningSynthesizedFunction: {
       // FIXME: For synthesized members other than special members, produce a note.
       auto *MD = dyn_cast<CXXMethodDecl>(Active->Entity);
       auto CSM = MD ? getSpecialMember(MD) : CXXInvalid;
@@ -635,6 +643,10 @@ void Sema::PrintInstantiationStack() {
                      diag::note_member_synthesized_at)
           << CSM << Context.getTagDeclType(MD->getParent());
       }
+      break;
+    }
+
+    case CodeSynthesisContext::Memoization:
       break;
     }
   }
@@ -682,6 +694,9 @@ Optional<TemplateDeductionInfo *> Sema::isSFINAEContext() const {
       // This happens in a context unrelated to template instantiation, so
       // there is no SFINAE.
       return None;
+
+    case CodeSynthesisContext::Memoization:
+      break;
     }
 
     // The inner context was transparent for SFINAE. If it occurred within a
@@ -1197,11 +1212,11 @@ TemplateInstantiator::TransformTemplateParmRefExpr(DeclRefExpr *E,
                                               NTTP->getDeclName());
       if (TargetType.isNull())
         return ExprError();
-      
-      return new (SemaRef.Context) SubstNonTypeTemplateParmPackExpr(TargetType,
-                                                                    NTTP, 
-                                                              E->getLocation(),
-                                                                    Arg);
+
+      return new (SemaRef.Context) SubstNonTypeTemplateParmPackExpr(
+          TargetType.getNonLValueExprType(SemaRef.Context),
+          TargetType->isReferenceType() ? VK_LValue : VK_RValue, NTTP,
+          E->getLocation(), Arg);
     }
     
     Arg = getPackSubstitutedTemplateArgument(getSema(), Arg);
@@ -1246,7 +1261,7 @@ ExprResult TemplateInstantiator::transformNonTypeTemplateParmRef(
              arg.getKind() == TemplateArgument::NullPtr) {
     ValueDecl *VD;
     if (arg.getKind() == TemplateArgument::Declaration) {
-      VD = cast<ValueDecl>(arg.getAsDecl());
+      VD = arg.getAsDecl();
 
       // Find the instantiation of the template argument.  This is
       // required for nested templates.
@@ -2011,7 +2026,7 @@ Sema::InstantiateClass(SourceLocation PointOfInstantiation,
   if (Inst.isInvalid())
     return true;
   assert(!Inst.isAlreadyInstantiating() && "should have been caught by caller");
-  PrettyDeclStackTraceEntry CrashInfo(*this, Instantiation, SourceLocation(),
+  PrettyDeclStackTraceEntry CrashInfo(Context, Instantiation, SourceLocation(),
                                       "instantiating class definition");
 
   // Enter the scope of this instantiation. We don't use
@@ -2238,7 +2253,7 @@ bool Sema::InstantiateEnum(SourceLocation PointOfInstantiation,
     return true;
   if (Inst.isAlreadyInstantiating())
     return false;
-  PrettyDeclStackTraceEntry CrashInfo(*this, Instantiation, SourceLocation(),
+  PrettyDeclStackTraceEntry CrashInfo(Context, Instantiation, SourceLocation(),
                                       "instantiating enum definition");
 
   // The instantiation is visible here, even if it was first declared in an
@@ -2314,7 +2329,7 @@ bool Sema::InstantiateInClassInitializer(
       << Instantiation;
     return true;
   }
-  PrettyDeclStackTraceEntry CrashInfo(*this, Instantiation, SourceLocation(),
+  PrettyDeclStackTraceEntry CrashInfo(Context, Instantiation, SourceLocation(),
                                       "instantiating default member init");
 
   // Enter the scope of this instantiation. We don't use PushDeclContext because

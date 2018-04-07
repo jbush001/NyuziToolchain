@@ -44,17 +44,17 @@ public:
   using CompileLayerT = IRCompileLayer<ObjLayerT, SimpleCompiler>;
 
   KaleidoscopeJIT()
-      : ES(SSP),
-        Resolver(createLegacyLookupResolver(
+      : Resolver(createLegacyLookupResolver(
             [this](const std::string &Name) {
               return ObjectLayer.findSymbol(Name, true);
             },
             [](Error Err) { cantFail(std::move(Err), "lookupFlags failed"); })),
         TM(EngineBuilder().selectTarget()), DL(TM->createDataLayout()),
-        ObjectLayer(
-            ES,
-            [](VModuleKey) { return std::make_shared<SectionMemoryManager>(); },
-            [this](VModuleKey) { return Resolver; }),
+        ObjectLayer(ES,
+                    [this](VModuleKey) {
+                      return ObjLayerT::Resources{
+                          std::make_shared<SectionMemoryManager>(), Resolver};
+                    }),
         CompileLayer(ObjectLayer, SimpleCompiler(*TM)) {
     llvm::sys::DynamicLibrary::LoadLibraryPermanently(nullptr);
   }
@@ -125,7 +125,6 @@ private:
     return nullptr;
   }
 
-  SymbolStringPool SSP;
   ExecutionSession ES;
   std::shared_ptr<SymbolResolver> Resolver;
   std::unique_ptr<TargetMachine> TM;

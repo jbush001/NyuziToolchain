@@ -83,6 +83,14 @@ def uimmlog2xlen : Operand<XLenVT>, ImmLeaf<XLenVT, [{
   let ParserMatchClass = UImmLog2XLenAsmOperand;
   // TODO: should ensure invalid shamt is rejected when decoding.
   let DecoderMethod = "decodeUImmOperand<6>";
+  let MCOperandPredicate = [{
+    int64_t Imm;
+    if (!MCOp.evaluateAsConstantImm(Imm))
+      return false;
+    if (STI.getTargetTriple().isArch64Bit())
+      return  isUInt<6>(Imm);
+    return isUInt<5>(Imm);
+  }];
 }
 
 def uimm5 : Operand<XLenVT>, ImmLeaf<XLenVT, [{return isUInt<5>(Imm);}]> {
@@ -94,6 +102,12 @@ def simm12 : Operand<XLenVT>, ImmLeaf<XLenVT, [{return isInt<12>(Imm);}]> {
   let ParserMatchClass = SImmAsmOperand<12>;
   let EncoderMethod = "getImmOpValue";
   let DecoderMethod = "decodeSImmOperand<12>";
+  let MCOperandPredicate = [{
+    int64_t Imm;
+    if (MCOp.evaluateAsConstantImm(Imm))
+      return isInt<12>(Imm);
+    return MCOp.isBareSymbolRef();
+  }];
 }
 
 def uimm12 : Operand<XLenVT> {
@@ -106,12 +120,24 @@ def simm13_lsb0 : Operand<OtherVT> {
   let ParserMatchClass = SImmAsmOperand<13, "Lsb0">;
   let EncoderMethod = "getImmOpValueAsr1";
   let DecoderMethod = "decodeSImmOperandAndLsl1<13>";
+  let MCOperandPredicate = [{
+    int64_t Imm;
+    if (MCOp.evaluateAsConstantImm(Imm))
+      return isShiftedInt<12, 1>(Imm);
+    return MCOp.isBareSymbolRef();
+  }];
 }
 
 def uimm20 : Operand<XLenVT> {
   let ParserMatchClass = UImmAsmOperand<20>;
   let EncoderMethod = "getImmOpValue";
   let DecoderMethod = "decodeUImmOperand<20>";
+  let MCOperandPredicate = [{
+    int64_t Imm;
+    if (MCOp.evaluateAsConstantImm(Imm))
+      return isUInt<20>(Imm);
+    return MCOp.isBareSymbolRef();
+  }];
 }
 
 // A 21-bit signed immediate where the least significant bit is zero.
@@ -119,6 +145,12 @@ def simm21_lsb0 : Operand<OtherVT> {
   let ParserMatchClass = SImmAsmOperand<21, "Lsb0">;
   let EncoderMethod = "getImmOpValueAsr1";
   let DecoderMethod = "decodeSImmOperandAndLsl1<21>";
+  let MCOperandPredicate = [{
+    int64_t Imm;
+    if (MCOp.evaluateAsConstantImm(Imm))
+      return isShiftedInt<20, 1>(Imm);
+    return MCOp.isBareSymbolRef();
+  }];
 }
 
 // A parameterized register class alternative to i32imm/i64imm from Target.td.
@@ -536,11 +568,14 @@ def : Pat<(setge GPR:$rs1, GPR:$rs2), (XORI (SLT GPR:$rs1, GPR:$rs2), 1)>;
 def : Pat<(setle GPR:$rs1, GPR:$rs2), (XORI (SLT GPR:$rs2, GPR:$rs1), 1)>;
 
 let usesCustomInserter = 1 in
-def Select_GPR_Using_CC_GPR
-    : Pseudo<(outs GPR:$dst),
-             (ins GPR:$lhs, GPR:$rhs, ixlenimm:$imm, GPR:$src, GPR:$src2),
-             [(set XLenVT:$dst, (SelectCC GPR:$lhs, GPR:$rhs,
-              (XLenVT imm:$imm), GPR:$src, GPR:$src2))]>;
+class SelectCC_rrirr<RegisterClass valty, RegisterClass cmpty>
+    : Pseudo<(outs valty:$dst),
+             (ins cmpty:$lhs, cmpty:$rhs, ixlenimm:$imm,
+              valty:$truev, valty:$falsev),
+             [(set valty:$dst, (SelectCC cmpty:$lhs, cmpty:$rhs,
+              (XLenVT imm:$imm), valty:$truev, valty:$falsev))]>;
+
+def Select_GPR_Using_CC_GPR : SelectCC_rrirr<GPR, GPR>;
 
 /// Branches and jumps
 
@@ -616,20 +651,20 @@ defm : LdPat<zextloadi16, LHU>;
 
 /// Stores
 
-multiclass StPat<PatFrag StoreOp, RVInst Inst> {
-  def : Pat<(StoreOp GPR:$rs2, GPR:$rs1), (Inst GPR:$rs2, GPR:$rs1, 0)>;
-  def : Pat<(StoreOp GPR:$rs2, AddrFI:$rs1), (Inst GPR:$rs2, AddrFI:$rs1, 0)>;
-  def : Pat<(StoreOp GPR:$rs2, (add GPR:$rs1, simm12:$imm12)),
-            (Inst GPR:$rs2, GPR:$rs1, simm12:$imm12)>;
-  def : Pat<(StoreOp GPR:$rs2, (add AddrFI:$rs1, simm12:$imm12)),
-            (Inst GPR:$rs2, AddrFI:$rs1, simm12:$imm12)>;
-  def : Pat<(StoreOp GPR:$rs2, (IsOrAdd AddrFI:$rs1, simm12:$imm12)),
-            (Inst GPR:$rs2, AddrFI:$rs1, simm12:$imm12)>;
+multiclass StPat<PatFrag StoreOp, RVInst Inst, RegisterClass StTy> {
+  def : Pat<(StoreOp StTy:$rs2, GPR:$rs1), (Inst StTy:$rs2, GPR:$rs1, 0)>;
+  def : Pat<(StoreOp StTy:$rs2, AddrFI:$rs1), (Inst StTy:$rs2, AddrFI:$rs1, 0)>;
+  def : Pat<(StoreOp StTy:$rs2, (add GPR:$rs1, simm12:$imm12)),
+            (Inst StTy:$rs2, GPR:$rs1, simm12:$imm12)>;
+  def : Pat<(StoreOp StTy:$rs2, (add AddrFI:$rs1, simm12:$imm12)),
+            (Inst StTy:$rs2, AddrFI:$rs1, simm12:$imm12)>;
+  def : Pat<(StoreOp StTy:$rs2, (IsOrAdd AddrFI:$rs1, simm12:$imm12)),
+            (Inst StTy:$rs2, AddrFI:$rs1, simm12:$imm12)>;
 }
 
-defm : StPat<truncstorei8, SB>;
-defm : StPat<truncstorei16, SH>;
-defm : StPat<store, SW>;
+defm : StPat<truncstorei8, SB, GPR>;
+defm : StPat<truncstorei16, SH, GPR>;
+defm : StPat<store, SW, GPR>;
 
 /// Other pseudo-instructions
 

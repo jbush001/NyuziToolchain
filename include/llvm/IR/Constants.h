@@ -283,6 +283,11 @@ public:
   /// for simple constant values like 2.0/1.0 etc, that are known-valid both as
   /// host double and as the target format.
   static Constant *get(Type* Ty, double V);
+
+  /// If Ty is a vector type, return a Constant with a splat of the given
+  /// value. Otherwise return a ConstantFP for the given value.
+  static Constant *get(Type *Ty, const APFloat &V);
+
   static Constant *get(Type* Ty, StringRef Str);
   static ConstantFP *get(LLVMContext &Context, const APFloat &V);
   static Constant *getNaN(Type *Ty, bool Negative = false, unsigned type = 0);
@@ -687,15 +692,23 @@ class ConstantDataArray final : public ConstantDataSequential {
 public:
   ConstantDataArray(const ConstantDataArray &) = delete;
 
-  /// get() constructors - Return a constant with array type with an element
+  /// get() constructor - Return a constant with array type with an element
   /// count and element type matching the ArrayRef passed in.  Note that this
   /// can return a ConstantAggregateZero object.
-  static Constant *get(LLVMContext &Context, ArrayRef<uint8_t> Elts);
-  static Constant *get(LLVMContext &Context, ArrayRef<uint16_t> Elts);
-  static Constant *get(LLVMContext &Context, ArrayRef<uint32_t> Elts);
-  static Constant *get(LLVMContext &Context, ArrayRef<uint64_t> Elts);
-  static Constant *get(LLVMContext &Context, ArrayRef<float> Elts);
-  static Constant *get(LLVMContext &Context, ArrayRef<double> Elts);
+  template <typename ElementTy>
+  static Constant *get(LLVMContext &Context, ArrayRef<ElementTy> Elts) {
+    const char *Data = reinterpret_cast<const char *>(Elts.data());
+    Type *Ty =
+        ArrayType::get(Type::getScalarTy<ElementTy>(Context), Elts.size());
+    return getImpl(StringRef(Data, Elts.size() * sizeof(ElementTy)), Ty);
+  }
+
+  /// get() constructor - ArrayTy needs to be compatible with
+  /// ArrayRef<ElementTy>. Calls get(LLVMContext, ArrayRef<ElementTy>).
+  template <typename ArrayTy>
+  static Constant *get(LLVMContext &Context, ArrayTy &Elts) {
+    return ConstantDataArray::get(Context, makeArrayRef(Elts));
+  }
 
   /// getFP() constructors - Return a constant with array type with an element
   /// count and element type of float with precision matching the number of

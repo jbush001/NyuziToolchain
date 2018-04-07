@@ -35,11 +35,11 @@
 #include "llvm/ADT/Optional.h"
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/Statistic.h"
-#include "llvm/CodeGen/MachineValueType.h"
 #include "llvm/Support/CodeGenCoverage.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Error.h"
 #include "llvm/Support/LowLevelTypeImpl.h"
+#include "llvm/Support/MachineValueType.h"
 #include "llvm/Support/ScopedPrinter.h"
 #include "llvm/TableGen/Error.h"
 #include "llvm/TableGen/Record.h"
@@ -148,7 +148,7 @@ public:
 
   const LLT &get() const { return Ty; }
 
-  /// This ordering is used for std::unique() and std::sort(). There's no
+  /// This ordering is used for std::unique() and llvm::sort(). There's no
   /// particular logic behind the order but either A < B or B < A must be
   /// true if A != B.
   bool operator<(const LLTCodeGen &Other) const {
@@ -2207,7 +2207,7 @@ public:
       std::vector<unsigned> MergeInsnIDs;
       for (const auto &IDMatcherPair : Rule.defined_insn_vars())
         MergeInsnIDs.push_back(IDMatcherPair.second);
-      std::sort(MergeInsnIDs.begin(), MergeInsnIDs.end());
+      llvm::sort(MergeInsnIDs.begin(), MergeInsnIDs.end());
       for (const auto &MergeInsnID : MergeInsnIDs)
         Table << MatchTable::IntValue(MergeInsnID);
       Table << MatchTable::NamedValue("GIU_MergeMemOperands_EndOfList")
@@ -2435,7 +2435,7 @@ void RuleMatcher::emit(MatchTable &Table) {
 
       InsnIDs.push_back(Pair.second);
     }
-    std::sort(InsnIDs.begin(), InsnIDs.end());
+    llvm::sort(InsnIDs.begin(), InsnIDs.end());
 
     for (const auto &InsnID : InsnIDs) {
       // Reject the difficult cases until we have a more accurate check.
@@ -2593,6 +2593,10 @@ private:
   /// GICustomOperandRenderer. Map entries are specified by subclassing
   /// GISDNodeXFormEquiv.
   DenseMap<const Record *, const Record *> SDNodeXFormEquivs;
+
+  /// Keep track of Scores of PatternsToMatch similar to how the DAG does.
+  /// This adds compatibility for RuleMatchers to use this for ordering rules.
+  DenseMap<uint64_t, int> RuleMatcherScores;
 
   // Map of predicates to their subtarget features.
   SubtargetFeatureInfoMap SubtargetFeatures;
@@ -3378,7 +3382,9 @@ Error GlobalISelEmitter::importImplicitDefRenderers(
 
 Expected<RuleMatcher> GlobalISelEmitter::runOnPattern(const PatternToMatch &P) {
   // Keep track of the matchers and actions to emit.
+  int Score = P.getPatternComplexity(CGP);
   RuleMatcher M(P.getSrcRecord()->getLoc());
+  RuleMatcherScores[M.getRuleID()] = Score;
   M.addAction<DebugCommentAction>(llvm::to_string(*P.getSrcPattern()) +
                                   "  =>  " +
                                   llvm::to_string(*P.getDstPattern()));
@@ -3726,11 +3732,11 @@ void GlobalISelEmitter::run(raw_ostream &OS) {
 
   std::vector<Record *> ComplexPredicates =
       RK.getAllDerivedDefinitions("GIComplexOperandMatcher");
-  std::sort(ComplexPredicates.begin(), ComplexPredicates.end(), orderByName);
+  llvm::sort(ComplexPredicates.begin(), ComplexPredicates.end(), orderByName);
 
   std::vector<Record *> CustomRendererFns =
       RK.getAllDerivedDefinitions("GICustomOperandRenderer");
-  std::sort(CustomRendererFns.begin(), CustomRendererFns.end(), orderByName);
+  llvm::sort(CustomRendererFns.begin(), CustomRendererFns.end(), orderByName);
 
   unsigned MaxTemporaries = 0;
   for (const auto &Rule : Rules)
@@ -3806,7 +3812,7 @@ void GlobalISelEmitter::run(raw_ostream &OS) {
   std::vector<LLTCodeGen> TypeObjects;
   for (const auto &Ty : LLTOperandMatcher::KnownTypes)
     TypeObjects.push_back(Ty);
-  std::sort(TypeObjects.begin(), TypeObjects.end());
+  llvm::sort(TypeObjects.begin(), TypeObjects.end());
   OS << "// LLT Objects.\n"
      << "enum {\n";
   for (const auto &TypeObject : TypeObjects) {
@@ -3828,7 +3834,7 @@ void GlobalISelEmitter::run(raw_ostream &OS) {
   std::vector<std::vector<Record *>> FeatureBitsets;
   for (auto &Rule : Rules)
     FeatureBitsets.push_back(Rule.getRequiredFeatures());
-  std::sort(
+  llvm::sort(
       FeatureBitsets.begin(), FeatureBitsets.end(),
       [&](const std::vector<Record *> &A, const std::vector<Record *> &B) {
         if (A.size() < B.size())
@@ -3934,6 +3940,12 @@ void GlobalISelEmitter::run(raw_ostream &OS) {
 
   std::stable_sort(Rules.begin(), Rules.end(), [&](const RuleMatcher &A,
                                                    const RuleMatcher &B) {
+    int ScoreA = RuleMatcherScores[A.getRuleID()];
+    int ScoreB = RuleMatcherScores[B.getRuleID()];
+    if (ScoreA > ScoreB)
+      return true;
+    if (ScoreB > ScoreA)
+      return false;
     if (A.isHigherPriorityThan(B)) {
       assert(!B.isHigherPriorityThan(A) && "Cannot be more important "
                                            "and less important at "

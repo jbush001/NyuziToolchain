@@ -963,6 +963,17 @@ storeRegToStackSlot(MachineBasicBlock &MBB, MachineBasicBlock::iterator I,
       MFI.getObjectSize(FI), Align);
 
   switch (TRI->getSpillSize(*RC)) {
+    case 2:
+      if (ARM::HPRRegClass.hasSubClassEq(RC)) {
+        BuildMI(MBB, I, DL, get(ARM::VSTRH))
+            .addReg(SrcReg, getKillRegState(isKill))
+            .addFrameIndex(FI)
+            .addImm(0)
+            .addMemOperand(MMO)
+            .add(predOps(ARMCC::AL));
+      } else
+        llvm_unreachable("Unknown reg class!");
+      break;
     case 4:
       if (ARM::GPRRegClass.hasSubClassEq(RC)) {
         BuildMI(MBB, I, DL, get(ARM::STRi12))
@@ -1161,6 +1172,16 @@ loadRegFromStackSlot(MachineBasicBlock &MBB, MachineBasicBlock::iterator I,
       MFI.getObjectSize(FI), Align);
 
   switch (TRI->getSpillSize(*RC)) {
+  case 2:
+    if (ARM::HPRRegClass.hasSubClassEq(RC)) {
+      BuildMI(MBB, I, DL, get(ARM::VLDRH), DestReg)
+          .addFrameIndex(FI)
+          .addImm(0)
+          .addMemOperand(MMO)
+          .add(predOps(ARMCC::AL));
+    } else
+      llvm_unreachable("Unknown reg class!");
+    break;
   case 4:
     if (ARM::GPRRegClass.hasSubClassEq(RC)) {
       BuildMI(MBB, I, DL, get(ARM::LDRi12), DestReg)
@@ -1168,7 +1189,6 @@ loadRegFromStackSlot(MachineBasicBlock &MBB, MachineBasicBlock::iterator I,
           .addImm(0)
           .addMemOperand(MMO)
           .add(predOps(ARMCC::AL));
-
     } else if (ARM::SPRRegClass.hasSubClassEq(RC)) {
       BuildMI(MBB, I, DL, get(ARM::VLDRS), DestReg)
           .addFrameIndex(FI)
@@ -1358,7 +1378,6 @@ void ARMBaseInstrInfo::expandMEMCPY(MachineBasicBlock::iterator MI) const {
   MachineInstrBuilder LDM, STM;
   if (isThumb1 || !MI->getOperand(1).isDead()) {
     MachineOperand LDWb(MI->getOperand(1));
-    LDWb.setIsRenamable(false);
     LDM = BuildMI(*BB, MI, dl, TII->get(isThumb2 ? ARM::t2LDMIA_UPD
                                                  : isThumb1 ? ARM::tLDMIA_UPD
                                                             : ARM::LDMIA_UPD))
@@ -1369,7 +1388,6 @@ void ARMBaseInstrInfo::expandMEMCPY(MachineBasicBlock::iterator MI) const {
 
   if (isThumb1 || !MI->getOperand(0).isDead()) {
     MachineOperand STWb(MI->getOperand(0));
-    STWb.setIsRenamable(false);
     STM = BuildMI(*BB, MI, dl, TII->get(isThumb2 ? ARM::t2STMIA_UPD
                                                  : isThumb1 ? ARM::tSTMIA_UPD
                                                             : ARM::STMIA_UPD))
@@ -1379,11 +1397,9 @@ void ARMBaseInstrInfo::expandMEMCPY(MachineBasicBlock::iterator MI) const {
   }
 
   MachineOperand LDBase(MI->getOperand(3));
-  LDBase.setIsRenamable(false);
   LDM.add(LDBase).add(predOps(ARMCC::AL));
 
   MachineOperand STBase(MI->getOperand(2));
-  STBase.setIsRenamable(false);
   STM.add(STBase).add(predOps(ARMCC::AL));
 
   // Sort the scratch registers into ascending order.
@@ -1391,12 +1407,12 @@ void ARMBaseInstrInfo::expandMEMCPY(MachineBasicBlock::iterator MI) const {
   SmallVector<unsigned, 6> ScratchRegs;
   for(unsigned I = 5; I < MI->getNumOperands(); ++I)
     ScratchRegs.push_back(MI->getOperand(I).getReg());
-  std::sort(ScratchRegs.begin(), ScratchRegs.end(),
-            [&TRI](const unsigned &Reg1,
-                   const unsigned &Reg2) -> bool {
-              return TRI.getEncodingValue(Reg1) <
-                     TRI.getEncodingValue(Reg2);
-            });
+  llvm::sort(ScratchRegs.begin(), ScratchRegs.end(),
+             [&TRI](const unsigned &Reg1,
+                    const unsigned &Reg2) -> bool {
+               return TRI.getEncodingValue(Reg1) <
+                      TRI.getEncodingValue(Reg2);
+             });
 
   for (const auto &Reg : ScratchRegs) {
     LDM.addReg(Reg, RegState::Define);
@@ -4198,6 +4214,7 @@ ARMBaseInstrInfo::getOperandLatency(const InstrItineraryData *ItinData,
     case ARM::VLD3d32Pseudo:
     case ARM::VLD1d64TPseudo:
     case ARM::VLD1d64TPseudoWB_fixed:
+    case ARM::VLD1d64TPseudoWB_register:
     case ARM::VLD3d8Pseudo_UPD:
     case ARM::VLD3d16Pseudo_UPD:
     case ARM::VLD3d32Pseudo_UPD:
@@ -4215,6 +4232,7 @@ ARMBaseInstrInfo::getOperandLatency(const InstrItineraryData *ItinData,
     case ARM::VLD4d32Pseudo:
     case ARM::VLD1d64QPseudo:
     case ARM::VLD1d64QPseudoWB_fixed:
+    case ARM::VLD1d64QPseudoWB_register:
     case ARM::VLD4d8Pseudo_UPD:
     case ARM::VLD4d16Pseudo_UPD:
     case ARM::VLD4d32Pseudo_UPD:

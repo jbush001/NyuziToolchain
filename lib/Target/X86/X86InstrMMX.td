@@ -221,6 +221,8 @@ multiclass sse12_cvt_pint_3addr<bits<8> opc, RegisterClass SrcRC,
 // MMX EMMS Instruction
 //===----------------------------------------------------------------------===//
 
+// FIXME: Is there a better scheduler class for EMMS/FEMMS?
+let SchedRW = [WriteMicrocoded] in
 def MMX_EMMS  : MMXI<0x77, RawFrm, (outs), (ins), "emms",
                      [(int_x86_mmx_emms)], IIC_MMX_EMMS>;
 
@@ -315,7 +317,7 @@ def MMX_MOVQ64mr : MMXI<0x7F, MRMDestMem, (outs), (ins i64mem:$dst, VR64:$src),
                         [(store (x86mmx VR64:$src), addr:$dst)],
                         IIC_MMX_MOVQ_RM>;
 
-let SchedRW = [WriteMove] in {
+let SchedRW = [WriteVecMove] in {
 def MMX_MOVDQ2Qrr : MMXSDIi8<0xD6, MRMSrcReg, (outs VR64:$dst),
                              (ins VR128:$src), "movdq2q\t{$src, $dst|$dst, $src}",
                              [(set VR64:$dst,
@@ -633,7 +635,7 @@ def MMX_PMOVMSKBrr : MMXI<0xD7, MRMSrcReg, (outs GR32orGR64:$dst),
                           "pmovmskb\t{$src, $dst|$dst, $src}",
                           [(set GR32orGR64:$dst,
                                 (int_x86_mmx_pmovmskb VR64:$src))],
-                          IIC_MMX_MOVMSK>, Sched<[WriteVecLogic]>;
+                          IIC_MMX_MOVMSK>, Sched<[WriteMMXMOVMSK]>;
 
 // Low word of XMM to MMX.
 def MMX_X86movdq2q : SDNode<"X86ISD::MOVDQ2Q", SDTypeProfile<1, 1,
@@ -666,7 +668,7 @@ def : Pat<(f64 (bitconvert (x86mmx VR64:$src))),
 def : Pat<(x86mmx (bitconvert (f64 FR64:$src))),
           (MMX_MOVFR642Qrr FR64:$src)>;
 def : Pat<(x86mmx (MMX_X86movdq2q
-                   (bc_v2i64 (v4i32 (int_x86_sse2_cvtps2dq VR128:$src))))),
+                   (bc_v2i64 (v4i32 (X86cvtp2Int (v4f32 VR128:$src)))))),
           (MMX_CVTPS2PIirr VR128:$src)>;
 def : Pat<(x86mmx (MMX_X86movdq2q
                    (bc_v2i64 (v4i32 (fp_to_sint (v4f32 VR128:$src)))))),

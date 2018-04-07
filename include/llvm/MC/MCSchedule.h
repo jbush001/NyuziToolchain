@@ -15,18 +15,18 @@
 #ifndef LLVM_MC_MCSCHEDULE_H
 #define LLVM_MC_MCSCHEDULE_H
 
+#include "llvm/ADT/Optional.h"
 #include "llvm/Support/DataTypes.h"
 #include <cassert>
 
 namespace llvm {
 
 struct InstrItinerary;
+class MCSubtargetInfo;
 
 /// Define a kind of processor resource that will be modeled by the scheduler.
 struct MCProcResourceDesc {
-#if !defined(NDEBUG) || defined(LLVM_ENABLE_DUMP)
   const char *Name;
-#endif
   unsigned NumUnits; // Number of resource of this kind
   unsigned SuperIdx; // Index of the resources kind that contains this kind.
 
@@ -58,8 +58,8 @@ struct MCProcResourceDesc {
 /// Identify one of the processor resource kinds consumed by a particular
 /// scheduling class for the specified number of cycles.
 struct MCWriteProcResEntry {
-  unsigned ProcResourceIdx;
-  unsigned Cycles;
+  uint16_t ProcResourceIdx;
+  uint16_t Cycles;
 
   bool operator==(const MCWriteProcResEntry &Other) const {
     return ProcResourceIdx == Other.ProcResourceIdx && Cycles == Other.Cycles;
@@ -72,8 +72,8 @@ struct MCWriteProcResEntry {
 /// the WriteResources of this def. When the operand expands to a sequence of
 /// writes, this ID is the last write in the sequence.
 struct MCWriteLatencyEntry {
-  int Cycles;
-  unsigned WriteResourceID;
+  int16_t Cycles;
+  uint16_t WriteResourceID;
 
   bool operator==(const MCWriteLatencyEntry &Other) const {
     return Cycles == Other.Cycles && WriteResourceID == Other.WriteResourceID;
@@ -104,21 +104,21 @@ struct MCReadAdvanceEntry {
 ///
 /// Defined as an aggregate struct for creating tables with initializer lists.
 struct MCSchedClassDesc {
-  static const unsigned short InvalidNumMicroOps = UINT16_MAX;
-  static const unsigned short VariantNumMicroOps = UINT16_MAX - 1;
+  static const unsigned short InvalidNumMicroOps = (1U << 14) - 1;
+  static const unsigned short VariantNumMicroOps = InvalidNumMicroOps - 1;
 
 #if !defined(NDEBUG) || defined(LLVM_ENABLE_DUMP)
   const char* Name;
 #endif
-  unsigned short NumMicroOps;
-  bool     BeginGroup;
-  bool     EndGroup;
-  unsigned WriteProcResIdx; // First index into WriteProcResTable.
-  unsigned NumWriteProcResEntries;
-  unsigned WriteLatencyIdx; // First index into WriteLatencyTable.
-  unsigned NumWriteLatencyEntries;
-  unsigned ReadAdvanceIdx; // First index into ReadAdvanceTable.
-  unsigned NumReadAdvanceEntries;
+  uint16_t NumMicroOps : 14;
+  bool     BeginGroup : 1;
+  bool     EndGroup : 1;
+  uint16_t WriteProcResIdx; // First index into WriteProcResTable.
+  uint16_t NumWriteProcResEntries;
+  uint16_t WriteLatencyIdx; // First index into WriteLatencyTable.
+  uint16_t NumWriteLatencyEntries;
+  uint16_t ReadAdvanceIdx; // First index into ReadAdvanceTable.
+  uint16_t NumReadAdvanceEntries;
 
   bool isValid() const {
     return NumMicroOps != InvalidNumMicroOps;
@@ -126,6 +126,52 @@ struct MCSchedClassDesc {
   bool isVariant() const {
     return NumMicroOps == VariantNumMicroOps;
   }
+};
+
+/// Specify the cost of a register definition in terms of number of physical
+/// register allocated at register renaming stage. For example, AMD Jaguar.
+/// natively supports 128-bit data types, and operations on 256-bit registers
+/// (i.e. YMM registers) are internally split into two COPs (complex operations)
+/// and each COP updates a physical register. Basically, on Jaguar, a YMM
+/// register write effectively consumes two physical registers. That means,
+/// the cost of a YMM write in the BtVer2 model is 2.
+struct MCRegisterCostEntry {
+  unsigned RegisterClassID;
+  unsigned Cost;
+};
+
+/// A register file descriptor.
+///
+/// This struct allows to describe processor register files. In particular, it
+/// helps describing the size of the register file, as well as the cost of
+/// allocating a register file at register renaming stage.
+/// FIXME: this struct can be extended to provide information about the number
+/// of read/write ports to the register file.  A value of zero for field
+/// 'NumPhysRegs' means: this register file has an unbounded number of physical
+/// registers.
+struct MCRegisterFileDesc {
+  const char *Name;
+  uint16_t NumPhysRegs;
+  uint16_t NumRegisterCostEntries;
+  // Index of the first cost entry in MCExtraProcessorInfo::RegisterCostTable.
+  uint16_t RegisterCostEntryIdx;
+};
+
+/// Provide extra details about the machine processor.
+///
+/// This is a collection of "optional" processor information that is not
+/// normally used by the LLVM machine schedulers, but that can be consumed by
+/// external tools like llvm-mca to improve the quality of the peformance
+/// analysis.
+struct MCExtraProcessorInfo {
+  // Actual size of the reorder buffer in hardware.
+  unsigned ReorderBufferSize;
+  // Number of instructions retired per cycle.
+  unsigned MaxRetirePerCycle;
+  const MCRegisterFileDesc *RegisterFiles;
+  unsigned NumRegisterFiles;
+  const MCRegisterCostEntry *RegisterCostTable;
+  unsigned NumRegisterCostEntries;
 };
 
 /// Machine model for scheduling, bundling, and heuristics.
@@ -198,10 +244,20 @@ struct MCSchedModel {
   friend class InstrItineraryData;
   const InstrItinerary *InstrItineraries;
 
+  const MCExtraProcessorInfo *ExtraProcessorInfo;
+
+  bool hasExtraProcessorInfo() const { return ExtraProcessorInfo; }
+
   unsigned getProcessorID() const { return ProcID; }
 
   /// Does this machine model include instruction-level scheduling.
   bool hasInstrSchedModel() const { return SchedClassTable; }
+
+  const MCExtraProcessorInfo &getExtraProcessorInfo() const {
+    assert(hasExtraProcessorInfo() &&
+           "No extra information available for this model");
+    return *ExtraProcessorInfo;
+  }
 
   /// Return true if this machine model data for all instructions with a
   /// scheduling class (itinerary class or SchedRW list).
@@ -227,6 +283,15 @@ struct MCSchedModel {
     assert(SchedClassIdx < NumSchedClasses && "bad scheduling class idx");
     return &SchedClassTable[SchedClassIdx];
   }
+
+  /// Returns the latency value for the scheduling class.
+  static int computeInstrLatency(const MCSubtargetInfo &STI,
+                                 const MCSchedClassDesc &SCDesc);
+
+  /// Returns the reciprocal throughput information from a MCSchedClassDesc.
+  static Optional<double>
+  getReciprocalThroughput(const MCSubtargetInfo &STI,
+                          const MCSchedClassDesc &SCDesc);
 
   /// Returns the default initialized model.
   static const MCSchedModel &GetDefaultSchedModel() { return Default; }

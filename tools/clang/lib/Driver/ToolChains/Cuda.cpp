@@ -21,6 +21,7 @@
 #include "llvm/Option/ArgList.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/Path.h"
+#include "llvm/Support/Process.h"
 #include "llvm/Support/Program.h"
 #include <system_error>
 
@@ -183,7 +184,7 @@ CudaInstallationDetector::CudaInstallationDetector(
         StringRef GpuArch = FileName.slice(
             LibDeviceName.size(), FileName.find('.', LibDeviceName.size()));
         LibDeviceMap[GpuArch] = FilePath.str();
-        // Insert map entries for specifc devices with this compute
+        // Insert map entries for specific devices with this compute
         // capability. NVCC's choice of the libdevice library version is
         // rather peculiar and depends on the CUDA version.
         if (GpuArch == "compute_20") {
@@ -355,11 +356,17 @@ void NVPTX::Assembler::ConstructJob(Compilation &C, const JobAction &JA,
   for (const auto& A : Args.getAllArgValues(options::OPT_Xcuda_ptxas))
     CmdArgs.push_back(Args.MakeArgString(A));
 
-  // In OpenMP we need to generate relocatable code.
-  if (JA.isOffloading(Action::OFK_OpenMP) &&
-      Args.hasFlag(options::OPT_fopenmp_relocatable_target,
-                   options::OPT_fnoopenmp_relocatable_target,
-                   /*Default=*/ true))
+  bool Relocatable = false;
+  if (JA.isOffloading(Action::OFK_OpenMP))
+    // In OpenMP we need to generate relocatable code.
+    Relocatable = Args.hasFlag(options::OPT_fopenmp_relocatable_target,
+                               options::OPT_fnoopenmp_relocatable_target,
+                               /*Default=*/true);
+  else if (JA.isOffloading(Action::OFK_Cuda))
+    Relocatable = Args.hasFlag(options::OPT_fcuda_rdc,
+                               options::OPT_fno_cuda_rdc, /*Default=*/false);
+
+  if (Relocatable)
     CmdArgs.push_back("-c");
 
   const char *Exec;
@@ -540,6 +547,10 @@ void CudaToolChain::addClangTargetOptions(
     if (DriverArgs.hasFlag(options::OPT_fcuda_approx_transcendentals,
                            options::OPT_fno_cuda_approx_transcendentals, false))
       CC1Args.push_back("-fcuda-approx-transcendentals");
+
+    if (DriverArgs.hasFlag(options::OPT_fcuda_rdc, options::OPT_fno_cuda_rdc,
+                           false))
+      CC1Args.push_back("-fcuda-rdc");
   }
 
   if (DriverArgs.hasArg(options::OPT_nocudalib))
@@ -569,6 +580,44 @@ void CudaToolChain::addClangTargetOptions(
     // came with CUDA-7.0.
     CC1Args.push_back("-target-feature");
     CC1Args.push_back("+ptx42");
+  }
+
+  if (DeviceOffloadingKind == Action::OFK_OpenMP) {
+    SmallVector<StringRef, 8> LibraryPaths;
+    // Add path to lib and/or lib64 folders.
+    SmallString<256> DefaultLibPath =
+      llvm::sys::path::parent_path(getDriver().Dir);
+    llvm::sys::path::append(DefaultLibPath,
+        Twine("lib") + CLANG_LIBDIR_SUFFIX);
+    LibraryPaths.emplace_back(DefaultLibPath.c_str());
+
+    // Add user defined library paths from LIBRARY_PATH.
+    llvm::Optional<std::string> LibPath =
+        llvm::sys::Process::GetEnv("LIBRARY_PATH");
+    if (LibPath) {
+      SmallVector<StringRef, 8> Frags;
+      const char EnvPathSeparatorStr[] = {llvm::sys::EnvPathSeparator, '\0'};
+      llvm::SplitString(*LibPath, Frags, EnvPathSeparatorStr);
+      for (StringRef Path : Frags)
+        LibraryPaths.emplace_back(Path.trim());
+    }
+
+    std::string LibOmpTargetName =
+      "libomptarget-nvptx-" + GpuArch.str() + ".bc";
+    bool FoundBCLibrary = false;
+    for (StringRef LibraryPath : LibraryPaths) {
+      SmallString<128> LibOmpTargetFile(LibraryPath);
+      llvm::sys::path::append(LibOmpTargetFile, LibOmpTargetName);
+      if (llvm::sys::fs::exists(LibOmpTargetFile)) {
+        CC1Args.push_back("-mlink-cuda-bitcode");
+        CC1Args.push_back(DriverArgs.MakeArgString(LibOmpTargetFile));
+        FoundBCLibrary = true;
+        break;
+      }
+    }
+    if (!FoundBCLibrary)
+      getDriver().Diag(diag::warn_drv_omp_offload_target_missingbcruntime)
+          << LibOmpTargetName;
   }
 }
 

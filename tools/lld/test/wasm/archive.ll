@@ -4,12 +4,12 @@
 ; RUN: llc -filetype=obj %S/Inputs/hello.ll -o %t.a3.o
 ; RUN: llvm-ar rcs %t.a %t.a1.o %t.a2.o %t.a3.o
 ; RUN: rm -f %t.imports
-; RUN: not lld -flavor wasm --check-signatures %t.a %t.o -o %t.wasm 2>&1 | FileCheck -check-prefix=CHECK-UNDEFINED %s
+; RUN: not wasm-ld --check-signatures %t.a %t.o -o %t.wasm 2>&1 | FileCheck -check-prefix=CHECK-UNDEFINED %s
 
 ; CHECK-UNDEFINED: undefined symbol: missing_func
 
 ; RUN: echo 'missing_func' > %t.imports
-; RUN: lld -flavor wasm --check-signatures %t.a %t.o -o %t.wasm
+; RUN: wasm-ld --check-signatures -r %t.a %t.o -o %t.wasm
 
 ; RUN: llvm-nm -a %t.wasm | FileCheck %s
 
@@ -25,15 +25,19 @@ entry:
   ret void
 }
 
-; Verify that multually dependant object files in an archive is handled
-; correctly.
+; Verify that mutually dependant object files in an archive is handled
+; correctly.  Since we're using llvm-nm, we must link with --relocatable.
+;
+; TODO(ncw): Update LLD so that the symbol table is written out for
+;   non-relocatable output (with an option to strip it)
 
 ; CHECK:      00000003 T _start
 ; CHECK-NEXT: 00000001 T bar
 ; CHECK-NEXT: 00000002 T foo
+; CHECK-NEXT:          U missing_func
 
 ; Verify that symbols from unused objects don't appear in the symbol table
 ; CHECK-NOT: hello
 
 ; Specifying the same archive twice is allowed.
-; RUN: lld -flavor wasm --check-signatures %t.a %t.a %t.o -o %t.wasm
+; RUN: wasm-ld --check-signatures %t.a %t.a %t.o -o %t.wasm

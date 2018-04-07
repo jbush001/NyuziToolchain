@@ -99,6 +99,7 @@ class LLVM_LIBRARY_VISIBILITY X86TargetInfo : public TargetInfo {
   bool HasRDPID = false;
   bool HasRetpoline = false;
   bool HasRetpolineExternalThunk = false;
+  bool HasLAHFSAHF = false;
 
 protected:
   /// \brief Enumeration of all of the X86 CPUs supported by Clang.
@@ -286,6 +287,7 @@ public:
     case CC_X86VectorCall:
     case CC_X86RegCall:
     case CC_C:
+    case CC_PreserveMost:
     case CC_Swift:
     case CC_X86Pascal:
     case CC_IntelOclBicc:
@@ -726,6 +728,11 @@ public:
     WindowsX86_64TargetInfo::getVisualStudioDefines(Opts, Builder);
     Builder.defineMacro("_M_X64", "100");
     Builder.defineMacro("_M_AMD64", "100");
+  }
+
+  TargetInfo::CallingConvKind
+  getCallingConvKind(bool ClangABICompat4) const override {
+    return CCK_MicrosoftX86_64;
   }
 };
 

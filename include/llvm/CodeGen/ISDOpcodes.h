@@ -495,7 +495,8 @@ namespace ISD {
     ZERO_EXTEND_VECTOR_INREG,
 
     /// FP_TO_[US]INT - Convert a floating point value to a signed or unsigned
-    /// integer.
+    /// integer. These have the same semantics as fptosi and fptoui in IR. If
+    /// the FP value cannot fit in the integer type, the results are undefined.
     FP_TO_SINT,
     FP_TO_UINT,
 
@@ -779,6 +780,7 @@ namespace ISD {
     ATOMIC_LOAD_ADD,
     ATOMIC_LOAD_SUB,
     ATOMIC_LOAD_AND,
+    ATOMIC_LOAD_CLR,
     ATOMIC_LOAD_OR,
     ATOMIC_LOAD_XOR,
     ATOMIC_LOAD_NAND,

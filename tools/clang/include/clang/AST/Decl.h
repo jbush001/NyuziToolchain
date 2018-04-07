@@ -937,6 +937,9 @@ protected:
     /// for-range statement.
     unsigned CXXForRangeDecl : 1;
 
+    /// Whether this variable is the for-in loop declaration in Objective-C.
+    unsigned ObjCForDecl : 1;
+
     /// Whether this variable is an ARC pseudo-__strong
     /// variable;  see isARCPseudoStrong() for details.
     unsigned ARCPseudoStrong : 1;
@@ -1332,6 +1335,16 @@ public:
   void setCXXForRangeDecl(bool FRD) {
     assert(!isa<ParmVarDecl>(this));
     NonParmVarDeclBits.CXXForRangeDecl = FRD;
+  }
+
+  /// \brief Determine whether this variable is a for-loop declaration for a
+  /// for-in statement in Objective-C.
+  bool isObjCForDecl() const {
+    return NonParmVarDeclBits.ObjCForDecl;
+  }
+
+  void setObjCForDecl(bool FRD) {
+    NonParmVarDeclBits.ObjCForDecl = FRD;
   }
 
   /// \brief Determine whether this variable is an ARC pseudo-__strong
@@ -1925,11 +1938,25 @@ public:
 
   SourceRange getSourceRange() const override LLVM_READONLY;
 
-  /// \brief Returns true if the function has a body (definition). The
-  /// function body might be in any of the (re-)declarations of this
-  /// function. The variant that accepts a FunctionDecl pointer will
-  /// set that function declaration to the actual declaration
-  /// containing the body (if there is one).
+  // Function definitions.
+  //
+  // A function declaration may be:
+  // - a non defining declaration,
+  // - a definition. A function may be defined because:
+  //   - it has a body, or will have it in the case of late parsing.
+  //   - it has an uninstantiated body. The body does not exist because the
+  //     function is not used yet, but the declaration is considered a
+  //     definition and does not allow other definition of this function.
+  //   - it does not have a user specified body, but it does not allow
+  //     redefinition, because it is deleted/defaulted or is defined through
+  //     some other mechanism (alias, ifunc).
+
+  /// Returns true if the function has a body.
+  ///
+  /// The function body might be in any of the (re-)declarations of this
+  /// function. The variant that accepts a FunctionDecl pointer will set that
+  /// function declaration to the actual declaration containing the body (if
+  /// there is one).
   bool hasBody(const FunctionDecl *&Definition) const;
 
   bool hasBody() const override {
@@ -1941,9 +1968,11 @@ public:
   /// specific codegen.
   bool hasTrivialBody() const;
 
-  /// Returns true if the function is defined at all, including a deleted
-  /// definition. Except for the behavior when the function is deleted, behaves
-  /// like hasBody.
+  /// Returns true if the function has a definition that does not need to be
+  /// instantiated.
+  ///
+  /// The variant that accepts a FunctionDecl pointer will set that function
+  /// declaration to the declaration that is a definition (if there is one).
   bool isDefined(const FunctionDecl *&Definition) const;
 
   virtual bool isDefined() const {
@@ -1985,8 +2014,7 @@ public:
            IsLateTemplateParsed || WillHaveBody || hasDefiningAttr();
   }
 
-  /// Returns whether this specific declaration of the function has a body -
-  /// that is, if it is a non-deleted definition.
+  /// Returns whether this specific declaration of the function has a body.
   bool doesThisDeclarationHaveABody() const {
     return Body || IsLateTemplateParsed;
   }
@@ -2606,6 +2634,11 @@ public:
     InitStorage.setPointer(getInClassInitializer());
     BitField = false;
   }
+
+  /// Is this a zero-length bit-field? Such bit-fields aren't really bit-fields
+  /// at all and instead act as a separator between contiguous runs of other
+  /// bit-fields.
+  bool isZeroLengthBitField(const ASTContext &Ctx) const;
 
   /// Get the kind of (C++11) default member initializer that this field has.
   InClassInitStyle getInClassInitStyle() const {
@@ -3449,7 +3482,9 @@ public:
 
   /// \brief Returns true if this can be considered a complete type.
   bool isComplete() const {
-    return isCompleteDefinition() || isFixed();
+    // IntegerType is set for fixed type enums and non-fixed but implicitly
+    // int-sized Microsoft enums.
+    return isCompleteDefinition() || IntegerType;
   }
 
   /// Returns true if this enum is either annotated with
@@ -3531,6 +3566,22 @@ class RecordDecl : public TagDecl {
   /// when needed.
   mutable bool LoadedFieldsFromExternalStorage : 1;
 
+  /// Basic properties of non-trivial C structs.
+  bool NonTrivialToPrimitiveDefaultInitialize : 1;
+  bool NonTrivialToPrimitiveCopy : 1;
+  bool NonTrivialToPrimitiveDestroy : 1;
+
+  /// True if this class can be passed in a non-address-preserving fashion
+  /// (such as in registers).
+  /// This does not imply anything about how the ABI in use will actually
+  /// pass an object of this class.
+  bool CanPassInRegisters : 1;
+
+  /// Indicates whether this struct is destroyed in the callee. This flag is
+  /// meaningless when Microsoft ABI is used since parameters are always
+  /// destroyed in the callee.
+  bool ParamDestroyedInCallee : 1;
+
 protected:
   RecordDecl(Kind DK, TagKind TK, const ASTContext &C, DeclContext *DC,
              SourceLocation StartLoc, SourceLocation IdLoc,
@@ -3587,6 +3638,51 @@ public:
   }
   void setHasLoadedFieldsFromExternalStorage(bool val) {
     LoadedFieldsFromExternalStorage = val;
+  }
+
+  /// Functions to query basic properties of non-trivial C structs.
+  bool isNonTrivialToPrimitiveDefaultInitialize() const {
+    return NonTrivialToPrimitiveDefaultInitialize;
+  }
+
+  void setNonTrivialToPrimitiveDefaultInitialize(bool V) {
+    NonTrivialToPrimitiveDefaultInitialize = V;
+  }
+
+  bool isNonTrivialToPrimitiveCopy() const {
+    return NonTrivialToPrimitiveCopy;
+  }
+
+  void setNonTrivialToPrimitiveCopy(bool V) {
+    NonTrivialToPrimitiveCopy = V;
+  }
+
+  bool isNonTrivialToPrimitiveDestroy() const {
+    return NonTrivialToPrimitiveDestroy;
+  }
+
+  void setNonTrivialToPrimitiveDestroy(bool V) {
+    NonTrivialToPrimitiveDestroy = V;
+  }
+
+  /// Determine whether this class can be passed in registers. In C++ mode,
+  /// it must have at least one trivial, non-deleted copy or move constructor.
+  /// FIXME: This should be set as part of completeDefinition.
+  bool canPassInRegisters() const {
+    return CanPassInRegisters;
+  }
+
+  /// Set that we can pass this RecordDecl in registers.
+  void setCanPassInRegisters(bool CanPass) {
+    CanPassInRegisters = CanPass;
+  }
+
+  bool isParamDestroyedInCallee() const {
+    return ParamDestroyedInCallee;
+  }
+
+  void setParamDestroyedInCallee(bool V) {
+    ParamDestroyedInCallee = V;
   }
 
   /// \brief Determines whether this declaration represents the
@@ -3755,6 +3851,10 @@ private:
   bool BlockMissingReturnType : 1;
   bool IsConversionFromLambda : 1;
 
+  /// A bit that indicates this block is passed directly to a function as a
+  /// non-escaping parameter.
+  bool DoesNotEscape : 1;
+
   /// A new[]'d array of pointers to ParmVarDecls for the formal
   /// parameters of this function.  This is null if a prototype or if there are
   /// no formals.
@@ -3774,7 +3874,7 @@ protected:
   BlockDecl(DeclContext *DC, SourceLocation CaretLoc)
       : Decl(Block, DC, CaretLoc), DeclContext(Block), IsVariadic(false),
         CapturesCXXThis(false), BlockMissingReturnType(true),
-        IsConversionFromLambda(false) {}
+        IsConversionFromLambda(false), DoesNotEscape(false) {}
 
 public:
   static BlockDecl *Create(ASTContext &C, DeclContext *DC, SourceLocation L); 
@@ -3845,6 +3945,9 @@ public:
 
   bool isConversionFromLambda() const { return IsConversionFromLambda; }
   void setIsConversionFromLambda(bool val) { IsConversionFromLambda = val; }
+
+  bool doesNotEscape() const { return DoesNotEscape; }
+  void setDoesNotEscape() { DoesNotEscape = true; }
 
   bool capturesVariable(const VarDecl *var) const;
 

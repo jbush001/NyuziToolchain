@@ -38,7 +38,7 @@ define void @test_f2xm1() optsize {
 ; SANDY-NEXT:    #APP
 ; SANDY-NEXT:    f2xm1 # sched: [100:0.33]
 ; SANDY-NEXT:    #NO_APP
-; SANDY-NEXT:    retl # sched: [5:1.00]
+; SANDY-NEXT:    retl # sched: [6:1.00]
 ;
 ; HASWELL-LABEL: test_f2xm1:
 ; HASWELL:       # %bb.0:
@@ -71,7 +71,7 @@ define void @test_f2xm1() optsize {
 ; BTVER2-LABEL: test_f2xm1:
 ; BTVER2:       # %bb.0:
 ; BTVER2-NEXT:    #APP
-; BTVER2-NEXT:    f2xm1 # sched: [100:0.17]
+; BTVER2-NEXT:    f2xm1 # sched: [100:0.50]
 ; BTVER2-NEXT:    #NO_APP
 ; BTVER2-NEXT:    retl # sched: [4:1.00]
 ;
@@ -112,7 +112,7 @@ define void @test_fabs() optsize {
 ; SANDY-NEXT:    #APP
 ; SANDY-NEXT:    fabs # sched: [1:1.00]
 ; SANDY-NEXT:    #NO_APP
-; SANDY-NEXT:    retl # sched: [5:1.00]
+; SANDY-NEXT:    retl # sched: [6:1.00]
 ;
 ; HASWELL-LABEL: test_fabs:
 ; HASWELL:       # %bb.0:
@@ -177,10 +177,10 @@ define void @test_fadd(float *%a0, double *%a1) optsize {
 ; ATOM-NEXT:    movl {{[0-9]+}}(%esp), %eax # sched: [1:1.00]
 ; ATOM-NEXT:    movl {{[0-9]+}}(%esp), %ecx # sched: [1:1.00]
 ; ATOM-NEXT:    #APP
-; ATOM-NEXT:    fadd %st(0), %st(1)
-; ATOM-NEXT:    fadd %st(2)
-; ATOM-NEXT:    fadds (%ecx)
-; ATOM-NEXT:    faddl (%eax)
+; ATOM-NEXT:    fadd %st(0), %st(1) # sched: [0:?]
+; ATOM-NEXT:    fadd %st(2) # sched: [0:?]
+; ATOM-NEXT:    fadds (%ecx) # sched: [0:?]
+; ATOM-NEXT:    faddl (%eax) # sched: [0:?]
 ; ATOM-NEXT:    #NO_APP
 ; ATOM-NEXT:    retl # sched: [79:39.50]
 ;
@@ -206,7 +206,7 @@ define void @test_fadd(float *%a0, double *%a1) optsize {
 ; SANDY-NEXT:    fadds (%ecx) # sched: [10:1.00]
 ; SANDY-NEXT:    faddl (%eax) # sched: [10:1.00]
 ; SANDY-NEXT:    #NO_APP
-; SANDY-NEXT:    retl # sched: [5:1.00]
+; SANDY-NEXT:    retl # sched: [6:1.00]
 ;
 ; HASWELL-LABEL: test_fadd:
 ; HASWELL:       # %bb.0:
@@ -301,10 +301,10 @@ define void @test_faddp_fiadd(i16 *%a0, i32 *%a1) optsize {
 ; ATOM-NEXT:    movl {{[0-9]+}}(%esp), %eax # sched: [1:1.00]
 ; ATOM-NEXT:    movl {{[0-9]+}}(%esp), %ecx # sched: [1:1.00]
 ; ATOM-NEXT:    #APP
-; ATOM-NEXT:    faddp %st(1)
-; ATOM-NEXT:    faddp %st(2)
-; ATOM-NEXT:    fiadds (%ecx)
-; ATOM-NEXT:    fiaddl (%eax)
+; ATOM-NEXT:    faddp %st(1) # sched: [0:?]
+; ATOM-NEXT:    faddp %st(2) # sched: [0:?]
+; ATOM-NEXT:    fiadds (%ecx) # sched: [0:?]
+; ATOM-NEXT:    fiaddl (%eax) # sched: [0:?]
 ; ATOM-NEXT:    #NO_APP
 ; ATOM-NEXT:    retl # sched: [79:39.50]
 ;
@@ -330,7 +330,7 @@ define void @test_faddp_fiadd(i16 *%a0, i32 *%a1) optsize {
 ; SANDY-NEXT:    fiadds (%ecx) # sched: [13:2.00]
 ; SANDY-NEXT:    fiaddl (%eax) # sched: [13:2.00]
 ; SANDY-NEXT:    #NO_APP
-; SANDY-NEXT:    retl # sched: [5:1.00]
+; SANDY-NEXT:    retl # sched: [6:1.00]
 ;
 ; HASWELL-LABEL: test_faddp_fiadd:
 ; HASWELL:       # %bb.0:
@@ -421,8 +421,8 @@ define void @test_fbld_fbstp(i8* %a0) optsize {
 ; ATOM:       # %bb.0:
 ; ATOM-NEXT:    movl {{[0-9]+}}(%esp), %eax # sched: [1:1.00]
 ; ATOM-NEXT:    #APP
-; ATOM-NEXT:    fbld (%eax)
-; ATOM-NEXT:    fbstp (%eax)
+; ATOM-NEXT:    fbld (%eax) # sched: [0:?]
+; ATOM-NEXT:    fbstp (%eax) # sched: [0:?]
 ; ATOM-NEXT:    #NO_APP
 ; ATOM-NEXT:    retl # sched: [79:39.50]
 ;
@@ -442,7 +442,7 @@ define void @test_fbld_fbstp(i8* %a0) optsize {
 ; SANDY-NEXT:    fbld (%eax) # sched: [100:0.33]
 ; SANDY-NEXT:    fbstp (%eax) # sched: [100:0.33]
 ; SANDY-NEXT:    #NO_APP
-; SANDY-NEXT:    retl # sched: [5:1.00]
+; SANDY-NEXT:    retl # sched: [6:1.00]
 ;
 ; HASWELL-LABEL: test_fbld_fbstp:
 ; HASWELL:       # %bb.0:
@@ -484,8 +484,8 @@ define void @test_fbld_fbstp(i8* %a0) optsize {
 ; BTVER2:       # %bb.0:
 ; BTVER2-NEXT:    movl {{[0-9]+}}(%esp), %eax # sched: [5:1.00]
 ; BTVER2-NEXT:    #APP
-; BTVER2-NEXT:    fbld (%eax) # sched: [100:0.17]
-; BTVER2-NEXT:    fbstp (%eax) # sched: [100:0.17]
+; BTVER2-NEXT:    fbld (%eax) # sched: [100:0.50]
+; BTVER2-NEXT:    fbstp (%eax) # sched: [100:0.50]
 ; BTVER2-NEXT:    #NO_APP
 ; BTVER2-NEXT:    retl # sched: [4:1.00]
 ;
@@ -528,7 +528,7 @@ define void @test_fchs() optsize {
 ; SANDY-NEXT:    #APP
 ; SANDY-NEXT:    fchs # sched: [1:1.00]
 ; SANDY-NEXT:    #NO_APP
-; SANDY-NEXT:    retl # sched: [5:1.00]
+; SANDY-NEXT:    retl # sched: [6:1.00]
 ;
 ; HASWELL-LABEL: test_fchs:
 ; HASWELL:       # %bb.0:
@@ -606,13 +606,13 @@ define void @test_fclex() optsize {
 ; SANDY-NEXT:    wait # sched: [100:0.33]
 ; SANDY-NEXT:    fnclex # sched: [100:0.33]
 ; SANDY-NEXT:    #NO_APP
-; SANDY-NEXT:    retl # sched: [5:1.00]
+; SANDY-NEXT:    retl # sched: [6:1.00]
 ;
 ; HASWELL-LABEL: test_fclex:
 ; HASWELL:       # %bb.0:
 ; HASWELL-NEXT:    #APP
-; HASWELL-NEXT:    wait # sched: [1:0.50]
-; HASWELL-NEXT:    fnclex # sched: [1:1.25]
+; HASWELL-NEXT:    wait # sched: [2:0.50]
+; HASWELL-NEXT:    fnclex # sched: [4:1.00]
 ; HASWELL-NEXT:    #NO_APP
 ; HASWELL-NEXT:    retl # sched: [7:1.00]
 ;
@@ -643,8 +643,8 @@ define void @test_fclex() optsize {
 ; BTVER2-LABEL: test_fclex:
 ; BTVER2:       # %bb.0:
 ; BTVER2-NEXT:    #APP
-; BTVER2-NEXT:    wait # sched: [100:0.17]
-; BTVER2-NEXT:    fnclex # sched: [100:0.17]
+; BTVER2-NEXT:    wait # sched: [100:0.50]
+; BTVER2-NEXT:    fnclex # sched: [100:0.50]
 ; BTVER2-NEXT:    #NO_APP
 ; BTVER2-NEXT:    retl # sched: [4:1.00]
 ;
@@ -686,12 +686,12 @@ define void @test_fnclex() optsize {
 ; SANDY-NEXT:    #APP
 ; SANDY-NEXT:    fnclex # sched: [100:0.33]
 ; SANDY-NEXT:    #NO_APP
-; SANDY-NEXT:    retl # sched: [5:1.00]
+; SANDY-NEXT:    retl # sched: [6:1.00]
 ;
 ; HASWELL-LABEL: test_fnclex:
 ; HASWELL:       # %bb.0:
 ; HASWELL-NEXT:    #APP
-; HASWELL-NEXT:    fnclex # sched: [1:1.25]
+; HASWELL-NEXT:    fnclex # sched: [4:1.00]
 ; HASWELL-NEXT:    #NO_APP
 ; HASWELL-NEXT:    retl # sched: [7:1.00]
 ;
@@ -719,7 +719,7 @@ define void @test_fnclex() optsize {
 ; BTVER2-LABEL: test_fnclex:
 ; BTVER2:       # %bb.0:
 ; BTVER2-NEXT:    #APP
-; BTVER2-NEXT:    fnclex # sched: [100:0.17]
+; BTVER2-NEXT:    fnclex # sched: [100:0.50]
 ; BTVER2-NEXT:    #NO_APP
 ; BTVER2-NEXT:    retl # sched: [4:1.00]
 ;
@@ -788,7 +788,7 @@ define void @test_fcmov() optsize {
 ; SANDY-NEXT:    fcmovnu %st(1), %st(0) # sched: [3:2.00]
 ; SANDY-NEXT:    fcmovu %st(1), %st(0) # sched: [3:2.00]
 ; SANDY-NEXT:    #NO_APP
-; SANDY-NEXT:    retl # sched: [5:1.00]
+; SANDY-NEXT:    retl # sched: [6:1.00]
 ;
 ; HASWELL-LABEL: test_fcmov:
 ; HASWELL:       # %bb.0:
@@ -895,10 +895,10 @@ define void @test_fcom(float *%a0, double *%a1) optsize {
 ; ATOM-NEXT:    movl {{[0-9]+}}(%esp), %eax # sched: [1:1.00]
 ; ATOM-NEXT:    movl {{[0-9]+}}(%esp), %ecx # sched: [1:1.00]
 ; ATOM-NEXT:    #APP
-; ATOM-NEXT:    fcom %st(1)
-; ATOM-NEXT:    fcom %st(3)
-; ATOM-NEXT:    fcoms (%ecx)
-; ATOM-NEXT:    fcoml (%eax)
+; ATOM-NEXT:    fcom %st(1) # sched: [0:?]
+; ATOM-NEXT:    fcom %st(3) # sched: [0:?]
+; ATOM-NEXT:    fcoms (%ecx) # sched: [0:?]
+; ATOM-NEXT:    fcoml (%eax) # sched: [0:?]
 ; ATOM-NEXT:    #NO_APP
 ; ATOM-NEXT:    retl # sched: [79:39.50]
 ;
@@ -924,7 +924,7 @@ define void @test_fcom(float *%a0, double *%a1) optsize {
 ; SANDY-NEXT:    fcoms (%ecx) # sched: [8:1.00]
 ; SANDY-NEXT:    fcoml (%eax) # sched: [8:1.00]
 ; SANDY-NEXT:    #NO_APP
-; SANDY-NEXT:    retl # sched: [5:1.00]
+; SANDY-NEXT:    retl # sched: [6:1.00]
 ;
 ; HASWELL-LABEL: test_fcom:
 ; HASWELL:       # %bb.0:
@@ -1020,10 +1020,10 @@ define void @test_fcomp_fcompp(float *%a0, double *%a1) optsize {
 ; ATOM-NEXT:    movl {{[0-9]+}}(%esp), %eax # sched: [1:1.00]
 ; ATOM-NEXT:    movl {{[0-9]+}}(%esp), %ecx # sched: [1:1.00]
 ; ATOM-NEXT:    #APP
-; ATOM-NEXT:    fcomp %st(1)
-; ATOM-NEXT:    fcomp %st(3)
-; ATOM-NEXT:    fcomps (%ecx)
-; ATOM-NEXT:    fcompl (%eax)
+; ATOM-NEXT:    fcomp %st(1) # sched: [0:?]
+; ATOM-NEXT:    fcomp %st(3) # sched: [0:?]
+; ATOM-NEXT:    fcomps (%ecx) # sched: [0:?]
+; ATOM-NEXT:    fcompl (%eax) # sched: [0:?]
 ; ATOM-NEXT:    fcompp # sched: [1:1.00]
 ; ATOM-NEXT:    #NO_APP
 ; ATOM-NEXT:    retl # sched: [79:39.50]
@@ -1052,7 +1052,7 @@ define void @test_fcomp_fcompp(float *%a0, double *%a1) optsize {
 ; SANDY-NEXT:    fcompl (%eax) # sched: [8:1.00]
 ; SANDY-NEXT:    fcompp # sched: [100:0.33]
 ; SANDY-NEXT:    #NO_APP
-; SANDY-NEXT:    retl # sched: [5:1.00]
+; SANDY-NEXT:    retl # sched: [6:1.00]
 ;
 ; HASWELL-LABEL: test_fcomp_fcompp:
 ; HASWELL:       # %bb.0:
@@ -1115,7 +1115,7 @@ define void @test_fcomp_fcompp(float *%a0, double *%a1) optsize {
 ; BTVER2-NEXT:    fcomp %st(3) # sched: [3:1.00]
 ; BTVER2-NEXT:    fcomps (%ecx) # sched: [8:1.00]
 ; BTVER2-NEXT:    fcompl (%eax) # sched: [8:1.00]
-; BTVER2-NEXT:    fcompp # sched: [100:0.17]
+; BTVER2-NEXT:    fcompp # sched: [100:0.50]
 ; BTVER2-NEXT:    #NO_APP
 ; BTVER2-NEXT:    retl # sched: [4:1.00]
 ;
@@ -1166,7 +1166,7 @@ define void @test_fcomi_fcomip() optsize {
 ; SANDY-NEXT:    fcomi %st(3) # sched: [3:1.00]
 ; SANDY-NEXT:    fcompi %st(3) # sched: [3:1.00]
 ; SANDY-NEXT:    #NO_APP
-; SANDY-NEXT:    retl # sched: [5:1.00]
+; SANDY-NEXT:    retl # sched: [6:1.00]
 ;
 ; HASWELL-LABEL: test_fcomi_fcomip:
 ; HASWELL:       # %bb.0:
@@ -1246,7 +1246,7 @@ define void @test_fcos() optsize {
 ; SANDY-NEXT:    #APP
 ; SANDY-NEXT:    fcos # sched: [100:0.33]
 ; SANDY-NEXT:    #NO_APP
-; SANDY-NEXT:    retl # sched: [5:1.00]
+; SANDY-NEXT:    retl # sched: [6:1.00]
 ;
 ; HASWELL-LABEL: test_fcos:
 ; HASWELL:       # %bb.0:
@@ -1279,7 +1279,7 @@ define void @test_fcos() optsize {
 ; BTVER2-LABEL: test_fcos:
 ; BTVER2:       # %bb.0:
 ; BTVER2-NEXT:    #APP
-; BTVER2-NEXT:    fcos # sched: [100:0.17]
+; BTVER2-NEXT:    fcos # sched: [100:0.50]
 ; BTVER2-NEXT:    #NO_APP
 ; BTVER2-NEXT:    retl # sched: [4:1.00]
 ;
@@ -1320,7 +1320,7 @@ define void @test_fdecstp() optsize {
 ; SANDY-NEXT:    #APP
 ; SANDY-NEXT:    fdecstp # sched: [1:1.00]
 ; SANDY-NEXT:    #NO_APP
-; SANDY-NEXT:    retl # sched: [5:1.00]
+; SANDY-NEXT:    retl # sched: [6:1.00]
 ;
 ; HASWELL-LABEL: test_fdecstp:
 ; HASWELL:       # %bb.0:
@@ -1353,7 +1353,7 @@ define void @test_fdecstp() optsize {
 ; BTVER2-LABEL: test_fdecstp:
 ; BTVER2:       # %bb.0:
 ; BTVER2-NEXT:    #APP
-; BTVER2-NEXT:    fdecstp # sched: [100:0.17]
+; BTVER2-NEXT:    fdecstp # sched: [100:0.50]
 ; BTVER2-NEXT:    #NO_APP
 ; BTVER2-NEXT:    retl # sched: [4:1.00]
 ;
@@ -1385,10 +1385,10 @@ define void @test_fdiv(float *%a0, double *%a1) optsize {
 ; ATOM-NEXT:    movl {{[0-9]+}}(%esp), %eax # sched: [1:1.00]
 ; ATOM-NEXT:    movl {{[0-9]+}}(%esp), %ecx # sched: [1:1.00]
 ; ATOM-NEXT:    #APP
-; ATOM-NEXT:    fdiv %st(0), %st(1)
-; ATOM-NEXT:    fdiv %st(2)
-; ATOM-NEXT:    fdivs (%ecx)
-; ATOM-NEXT:    fdivl (%eax)
+; ATOM-NEXT:    fdiv %st(0), %st(1) # sched: [0:?]
+; ATOM-NEXT:    fdiv %st(2) # sched: [0:?]
+; ATOM-NEXT:    fdivs (%ecx) # sched: [0:?]
+; ATOM-NEXT:    fdivl (%eax) # sched: [0:?]
 ; ATOM-NEXT:    #NO_APP
 ; ATOM-NEXT:    retl # sched: [79:39.50]
 ;
@@ -1414,7 +1414,7 @@ define void @test_fdiv(float *%a0, double *%a1) optsize {
 ; SANDY-NEXT:    fdivs (%ecx) # sched: [31:1.00]
 ; SANDY-NEXT:    fdivl (%eax) # sched: [31:1.00]
 ; SANDY-NEXT:    #NO_APP
-; SANDY-NEXT:    retl # sched: [5:1.00]
+; SANDY-NEXT:    retl # sched: [6:1.00]
 ;
 ; HASWELL-LABEL: test_fdiv:
 ; HASWELL:       # %bb.0:
@@ -1509,10 +1509,10 @@ define void @test_fdivp_fidiv(i16 *%a0, i32 *%a1) optsize {
 ; ATOM-NEXT:    movl {{[0-9]+}}(%esp), %eax # sched: [1:1.00]
 ; ATOM-NEXT:    movl {{[0-9]+}}(%esp), %ecx # sched: [1:1.00]
 ; ATOM-NEXT:    #APP
-; ATOM-NEXT:    fdivp %st(1)
-; ATOM-NEXT:    fdivp %st(2)
-; ATOM-NEXT:    fidivs (%ecx)
-; ATOM-NEXT:    fidivl (%eax)
+; ATOM-NEXT:    fdivp %st(1) # sched: [0:?]
+; ATOM-NEXT:    fdivp %st(2) # sched: [0:?]
+; ATOM-NEXT:    fidivs (%ecx) # sched: [0:?]
+; ATOM-NEXT:    fidivl (%eax) # sched: [0:?]
 ; ATOM-NEXT:    #NO_APP
 ; ATOM-NEXT:    retl # sched: [79:39.50]
 ;
@@ -1538,7 +1538,7 @@ define void @test_fdivp_fidiv(i16 *%a0, i32 *%a1) optsize {
 ; SANDY-NEXT:    fidivs (%ecx) # sched: [34:1.00]
 ; SANDY-NEXT:    fidivl (%eax) # sched: [34:1.00]
 ; SANDY-NEXT:    #NO_APP
-; SANDY-NEXT:    retl # sched: [5:1.00]
+; SANDY-NEXT:    retl # sched: [6:1.00]
 ;
 ; HASWELL-LABEL: test_fdivp_fidiv:
 ; HASWELL:       # %bb.0:
@@ -1633,10 +1633,10 @@ define void @test_fdivr(float *%a0, double *%a1) optsize {
 ; ATOM-NEXT:    movl {{[0-9]+}}(%esp), %eax # sched: [1:1.00]
 ; ATOM-NEXT:    movl {{[0-9]+}}(%esp), %ecx # sched: [1:1.00]
 ; ATOM-NEXT:    #APP
-; ATOM-NEXT:    fdivr %st(0), %st(1)
-; ATOM-NEXT:    fdivr %st(2)
-; ATOM-NEXT:    fdivrs (%ecx)
-; ATOM-NEXT:    fdivrl (%eax)
+; ATOM-NEXT:    fdivr %st(0), %st(1) # sched: [0:?]
+; ATOM-NEXT:    fdivr %st(2) # sched: [0:?]
+; ATOM-NEXT:    fdivrs (%ecx) # sched: [0:?]
+; ATOM-NEXT:    fdivrl (%eax) # sched: [0:?]
 ; ATOM-NEXT:    #NO_APP
 ; ATOM-NEXT:    retl # sched: [79:39.50]
 ;
@@ -1662,7 +1662,7 @@ define void @test_fdivr(float *%a0, double *%a1) optsize {
 ; SANDY-NEXT:    fdivrs (%ecx) # sched: [31:1.00]
 ; SANDY-NEXT:    fdivrl (%eax) # sched: [31:1.00]
 ; SANDY-NEXT:    #NO_APP
-; SANDY-NEXT:    retl # sched: [5:1.00]
+; SANDY-NEXT:    retl # sched: [6:1.00]
 ;
 ; HASWELL-LABEL: test_fdivr:
 ; HASWELL:       # %bb.0:
@@ -1757,10 +1757,10 @@ define void @test_fdivrp_fidivr(i16 *%a0, i32 *%a1) optsize {
 ; ATOM-NEXT:    movl {{[0-9]+}}(%esp), %eax # sched: [1:1.00]
 ; ATOM-NEXT:    movl {{[0-9]+}}(%esp), %ecx # sched: [1:1.00]
 ; ATOM-NEXT:    #APP
-; ATOM-NEXT:    fdivrp %st(1)
-; ATOM-NEXT:    fdivrp %st(2)
-; ATOM-NEXT:    fidivrs (%ecx)
-; ATOM-NEXT:    fidivrl (%eax)
+; ATOM-NEXT:    fdivrp %st(1) # sched: [0:?]
+; ATOM-NEXT:    fdivrp %st(2) # sched: [0:?]
+; ATOM-NEXT:    fidivrs (%ecx) # sched: [0:?]
+; ATOM-NEXT:    fidivrl (%eax) # sched: [0:?]
 ; ATOM-NEXT:    #NO_APP
 ; ATOM-NEXT:    retl # sched: [79:39.50]
 ;
@@ -1786,7 +1786,7 @@ define void @test_fdivrp_fidivr(i16 *%a0, i32 *%a1) optsize {
 ; SANDY-NEXT:    fidivrs (%ecx) # sched: [34:1.00]
 ; SANDY-NEXT:    fidivrl (%eax) # sched: [34:1.00]
 ; SANDY-NEXT:    #NO_APP
-; SANDY-NEXT:    retl # sched: [5:1.00]
+; SANDY-NEXT:    retl # sched: [6:1.00]
 ;
 ; HASWELL-LABEL: test_fdivrp_fidivr:
 ; HASWELL:       # %bb.0:
@@ -1890,7 +1890,7 @@ define void @test_ffree() optsize {
 ; SANDY-NEXT:    #APP
 ; SANDY-NEXT:    ffree %st(0) # sched: [1:1.00]
 ; SANDY-NEXT:    #NO_APP
-; SANDY-NEXT:    retl # sched: [5:1.00]
+; SANDY-NEXT:    retl # sched: [6:1.00]
 ;
 ; HASWELL-LABEL: test_ffree:
 ; HASWELL:       # %bb.0:
@@ -1923,7 +1923,7 @@ define void @test_ffree() optsize {
 ; BTVER2-LABEL: test_ffree:
 ; BTVER2:       # %bb.0:
 ; BTVER2-NEXT:    #APP
-; BTVER2-NEXT:    ffree %st(0) # sched: [100:0.17]
+; BTVER2-NEXT:    ffree %st(0) # sched: [100:0.50]
 ; BTVER2-NEXT:    #NO_APP
 ; BTVER2-NEXT:    retl # sched: [4:1.00]
 ;
@@ -1955,10 +1955,10 @@ define void @test_ficom(i16 *%a0, i32 *%a1) optsize {
 ; ATOM-NEXT:    movl {{[0-9]+}}(%esp), %eax # sched: [1:1.00]
 ; ATOM-NEXT:    movl {{[0-9]+}}(%esp), %ecx # sched: [1:1.00]
 ; ATOM-NEXT:    #APP
-; ATOM-NEXT:    ficoms (%ecx)
-; ATOM-NEXT:    ficoml (%eax)
-; ATOM-NEXT:    ficomps (%ecx)
-; ATOM-NEXT:    ficompl (%eax)
+; ATOM-NEXT:    ficoms (%ecx) # sched: [0:?]
+; ATOM-NEXT:    ficoml (%eax) # sched: [0:?]
+; ATOM-NEXT:    ficomps (%ecx) # sched: [0:?]
+; ATOM-NEXT:    ficompl (%eax) # sched: [0:?]
 ; ATOM-NEXT:    #NO_APP
 ; ATOM-NEXT:    retl # sched: [79:39.50]
 ;
@@ -1984,7 +1984,7 @@ define void @test_ficom(i16 *%a0, i32 *%a1) optsize {
 ; SANDY-NEXT:    ficomps (%ecx) # sched: [11:2.00]
 ; SANDY-NEXT:    ficompl (%eax) # sched: [11:2.00]
 ; SANDY-NEXT:    #NO_APP
-; SANDY-NEXT:    retl # sched: [5:1.00]
+; SANDY-NEXT:    retl # sched: [6:1.00]
 ;
 ; HASWELL-LABEL: test_ficom:
 ; HASWELL:       # %bb.0:
@@ -2108,7 +2108,7 @@ define void @test_fild(i16 *%a0, i32 *%a1, i64 *%a2) optsize {
 ; SANDY-NEXT:    fildl (%ecx) # sched: [10:1.00]
 ; SANDY-NEXT:    fildll (%eax) # sched: [10:1.00]
 ; SANDY-NEXT:    #NO_APP
-; SANDY-NEXT:    retl # sched: [5:1.00]
+; SANDY-NEXT:    retl # sched: [6:1.00]
 ;
 ; HASWELL-LABEL: test_fild:
 ; HASWELL:       # %bb.0:
@@ -2212,7 +2212,7 @@ define void @test_fincstp() optsize {
 ; SANDY-NEXT:    #APP
 ; SANDY-NEXT:    fincstp # sched: [1:1.00]
 ; SANDY-NEXT:    #NO_APP
-; SANDY-NEXT:    retl # sched: [5:1.00]
+; SANDY-NEXT:    retl # sched: [6:1.00]
 ;
 ; HASWELL-LABEL: test_fincstp:
 ; HASWELL:       # %bb.0:
@@ -2245,7 +2245,7 @@ define void @test_fincstp() optsize {
 ; BTVER2-LABEL: test_fincstp:
 ; BTVER2:       # %bb.0:
 ; BTVER2-NEXT:    #APP
-; BTVER2-NEXT:    fincstp # sched: [100:0.17]
+; BTVER2-NEXT:    fincstp # sched: [100:0.50]
 ; BTVER2-NEXT:    #NO_APP
 ; BTVER2-NEXT:    retl # sched: [4:1.00]
 ;
@@ -2290,13 +2290,13 @@ define void @test_finit() optsize {
 ; SANDY-NEXT:    wait # sched: [100:0.33]
 ; SANDY-NEXT:    fninit # sched: [5:1.33]
 ; SANDY-NEXT:    #NO_APP
-; SANDY-NEXT:    retl # sched: [5:1.00]
+; SANDY-NEXT:    retl # sched: [6:1.00]
 ;
 ; HASWELL-LABEL: test_finit:
 ; HASWELL:       # %bb.0:
 ; HASWELL-NEXT:    #APP
-; HASWELL-NEXT:    wait # sched: [1:0.50]
-; HASWELL-NEXT:    fninit # sched: [1:?]
+; HASWELL-NEXT:    wait # sched: [2:0.50]
+; HASWELL-NEXT:    fninit # sched: [75:6.00]
 ; HASWELL-NEXT:    #NO_APP
 ; HASWELL-NEXT:    retl # sched: [7:1.00]
 ;
@@ -2327,8 +2327,8 @@ define void @test_finit() optsize {
 ; BTVER2-LABEL: test_finit:
 ; BTVER2:       # %bb.0:
 ; BTVER2-NEXT:    #APP
-; BTVER2-NEXT:    wait # sched: [100:0.17]
-; BTVER2-NEXT:    fninit # sched: [100:0.17]
+; BTVER2-NEXT:    wait # sched: [100:0.50]
+; BTVER2-NEXT:    fninit # sched: [100:0.50]
 ; BTVER2-NEXT:    #NO_APP
 ; BTVER2-NEXT:    retl # sched: [4:1.00]
 ;
@@ -2370,12 +2370,12 @@ define void @test_fninit() optsize {
 ; SANDY-NEXT:    #APP
 ; SANDY-NEXT:    fninit # sched: [5:1.33]
 ; SANDY-NEXT:    #NO_APP
-; SANDY-NEXT:    retl # sched: [5:1.00]
+; SANDY-NEXT:    retl # sched: [6:1.00]
 ;
 ; HASWELL-LABEL: test_fninit:
 ; HASWELL:       # %bb.0:
 ; HASWELL-NEXT:    #APP
-; HASWELL-NEXT:    fninit # sched: [1:?]
+; HASWELL-NEXT:    fninit # sched: [75:6.00]
 ; HASWELL-NEXT:    #NO_APP
 ; HASWELL-NEXT:    retl # sched: [7:1.00]
 ;
@@ -2403,7 +2403,7 @@ define void @test_fninit() optsize {
 ; BTVER2-LABEL: test_fninit:
 ; BTVER2:       # %bb.0:
 ; BTVER2-NEXT:    #APP
-; BTVER2-NEXT:    fninit # sched: [100:0.17]
+; BTVER2-NEXT:    fninit # sched: [100:0.50]
 ; BTVER2-NEXT:    #NO_APP
 ; BTVER2-NEXT:    retl # sched: [4:1.00]
 ;
@@ -2484,7 +2484,7 @@ define void @test_fist_fistp_fisttp(i16* %a0, i32* %a1, i64 *%a2) optsize {
 ; SANDY-NEXT:    fisttpl (%ecx) # sched: [5:1.00]
 ; SANDY-NEXT:    fisttpll (%eax) # sched: [5:1.00]
 ; SANDY-NEXT:    #NO_APP
-; SANDY-NEXT:    retl # sched: [5:1.00]
+; SANDY-NEXT:    retl # sched: [6:1.00]
 ;
 ; HASWELL-LABEL: test_fist_fistp_fisttp:
 ; HASWELL:       # %bb.0:
@@ -2642,7 +2642,7 @@ define void @test_fld(i16* %a0, i32* %a1, i64 *%a2) optsize {
 ; SANDY-NEXT:    fldl (%ecx) # sched: [9:1.00]
 ; SANDY-NEXT:    fldt (%eax) # sched: [9:1.00]
 ; SANDY-NEXT:    #NO_APP
-; SANDY-NEXT:    retl # sched: [5:1.00]
+; SANDY-NEXT:    retl # sched: [6:1.00]
 ;
 ; HASWELL-LABEL: test_fld:
 ; HASWELL:       # %bb.0:
@@ -2740,7 +2740,7 @@ define void @test_fldcw_fldenv(i8* %a0) optsize {
 ; ATOM-NEXT:    movl {{[0-9]+}}(%esp), %eax # sched: [1:1.00]
 ; ATOM-NEXT:    #APP
 ; ATOM-NEXT:    fldcw (%eax) # sched: [5:2.50]
-; ATOM-NEXT:    fldenv (%eax)
+; ATOM-NEXT:    fldenv (%eax) # sched: [0:?]
 ; ATOM-NEXT:    #NO_APP
 ; ATOM-NEXT:    retl # sched: [79:39.50]
 ;
@@ -2760,7 +2760,7 @@ define void @test_fldcw_fldenv(i8* %a0) optsize {
 ; SANDY-NEXT:    fldcw (%eax) # sched: [8:2.00]
 ; SANDY-NEXT:    fldenv (%eax) # sched: [100:0.33]
 ; SANDY-NEXT:    #NO_APP
-; SANDY-NEXT:    retl # sched: [5:1.00]
+; SANDY-NEXT:    retl # sched: [6:1.00]
 ;
 ; HASWELL-LABEL: test_fldcw_fldenv:
 ; HASWELL:       # %bb.0:
@@ -2803,7 +2803,7 @@ define void @test_fldcw_fldenv(i8* %a0) optsize {
 ; BTVER2-NEXT:    movl {{[0-9]+}}(%esp), %eax # sched: [5:1.00]
 ; BTVER2-NEXT:    #APP
 ; BTVER2-NEXT:    fldcw (%eax) # sched: [5:1.00]
-; BTVER2-NEXT:    fldenv (%eax) # sched: [100:0.17]
+; BTVER2-NEXT:    fldenv (%eax) # sched: [100:0.50]
 ; BTVER2-NEXT:    #NO_APP
 ; BTVER2-NEXT:    retl # sched: [4:1.00]
 ;
@@ -2866,15 +2866,15 @@ define void @test_fld1_fldl2e_fldl2t_fldlg2_fldln2_fldpi_fldz() optsize {
 ; SANDY-NEXT:    fldpi # sched: [100:0.33]
 ; SANDY-NEXT:    fldz # sched: [1:?]
 ; SANDY-NEXT:    #NO_APP
-; SANDY-NEXT:    retl # sched: [5:1.00]
+; SANDY-NEXT:    retl # sched: [6:1.00]
 ;
 ; HASWELL-LABEL: test_fld1_fldl2e_fldl2t_fldlg2_fldln2_fldpi_fldz:
 ; HASWELL:       # %bb.0:
 ; HASWELL-NEXT:    #APP
 ; HASWELL-NEXT:    fld1 # sched: [1:?]
-; HASWELL-NEXT:    fldl2e # sched: [100:0.25]
-; HASWELL-NEXT:    fldl2t # sched: [100:0.25]
-; HASWELL-NEXT:    fldln2 # sched: [100:0.25]
+; HASWELL-NEXT:    fldl2e # sched: [1:0.50]
+; HASWELL-NEXT:    fldl2t # sched: [1:0.50]
+; HASWELL-NEXT:    fldln2 # sched: [1:0.50]
 ; HASWELL-NEXT:    fldpi # sched: [1:0.50]
 ; HASWELL-NEXT:    fldz # sched: [1:0.50]
 ; HASWELL-NEXT:    #NO_APP
@@ -2920,10 +2920,10 @@ define void @test_fld1_fldl2e_fldl2t_fldlg2_fldln2_fldpi_fldz() optsize {
 ; BTVER2:       # %bb.0:
 ; BTVER2-NEXT:    #APP
 ; BTVER2-NEXT:    fld1 # sched: [1:?]
-; BTVER2-NEXT:    fldl2e # sched: [100:0.17]
-; BTVER2-NEXT:    fldl2t # sched: [100:0.17]
-; BTVER2-NEXT:    fldln2 # sched: [100:0.17]
-; BTVER2-NEXT:    fldpi # sched: [100:0.17]
+; BTVER2-NEXT:    fldl2e # sched: [100:0.50]
+; BTVER2-NEXT:    fldl2t # sched: [100:0.50]
+; BTVER2-NEXT:    fldln2 # sched: [100:0.50]
+; BTVER2-NEXT:    fldpi # sched: [100:0.50]
 ; BTVER2-NEXT:    fldz # sched: [1:?]
 ; BTVER2-NEXT:    #NO_APP
 ; BTVER2-NEXT:    retl # sched: [4:1.00]
@@ -2932,9 +2932,9 @@ define void @test_fld1_fldl2e_fldl2t_fldlg2_fldln2_fldpi_fldz() optsize {
 ; ZNVER1:       # %bb.0:
 ; ZNVER1-NEXT:    #APP
 ; ZNVER1-NEXT:    fld1 # sched: [11:1.00]
-; ZNVER1-NEXT:    fldl2e # sched: [100:?]
-; ZNVER1-NEXT:    fldl2t # sched: [100:?]
-; ZNVER1-NEXT:    fldln2 # sched: [100:?]
+; ZNVER1-NEXT:    fldl2e # sched: [11:1.00]
+; ZNVER1-NEXT:    fldl2t # sched: [11:1.00]
+; ZNVER1-NEXT:    fldln2 # sched: [11:1.00]
 ; ZNVER1-NEXT:    fldpi # sched: [11:1.00]
 ; ZNVER1-NEXT:    fldz # sched: [8:0.50]
 ; ZNVER1-NEXT:    #NO_APP
@@ -2961,10 +2961,10 @@ define void @test_fmul(float *%a0, double *%a1) optsize {
 ; ATOM-NEXT:    movl {{[0-9]+}}(%esp), %eax # sched: [1:1.00]
 ; ATOM-NEXT:    movl {{[0-9]+}}(%esp), %ecx # sched: [1:1.00]
 ; ATOM-NEXT:    #APP
-; ATOM-NEXT:    fmul %st(0), %st(1)
-; ATOM-NEXT:    fmul %st(2)
-; ATOM-NEXT:    fmuls (%ecx)
-; ATOM-NEXT:    fmull (%eax)
+; ATOM-NEXT:    fmul %st(0), %st(1) # sched: [0:?]
+; ATOM-NEXT:    fmul %st(2) # sched: [0:?]
+; ATOM-NEXT:    fmuls (%ecx) # sched: [0:?]
+; ATOM-NEXT:    fmull (%eax) # sched: [0:?]
 ; ATOM-NEXT:    #NO_APP
 ; ATOM-NEXT:    retl # sched: [79:39.50]
 ;
@@ -2990,7 +2990,7 @@ define void @test_fmul(float *%a0, double *%a1) optsize {
 ; SANDY-NEXT:    fmuls (%ecx) # sched: [12:1.00]
 ; SANDY-NEXT:    fmull (%eax) # sched: [12:1.00]
 ; SANDY-NEXT:    #NO_APP
-; SANDY-NEXT:    retl # sched: [5:1.00]
+; SANDY-NEXT:    retl # sched: [6:1.00]
 ;
 ; HASWELL-LABEL: test_fmul:
 ; HASWELL:       # %bb.0:
@@ -3085,10 +3085,10 @@ define void @test_fmulp_fimul(i16 *%a0, i32 *%a1) optsize {
 ; ATOM-NEXT:    movl {{[0-9]+}}(%esp), %eax # sched: [1:1.00]
 ; ATOM-NEXT:    movl {{[0-9]+}}(%esp), %ecx # sched: [1:1.00]
 ; ATOM-NEXT:    #APP
-; ATOM-NEXT:    fmulp %st(1)
-; ATOM-NEXT:    fmulp %st(2)
-; ATOM-NEXT:    fimuls (%ecx)
-; ATOM-NEXT:    fimull (%eax)
+; ATOM-NEXT:    fmulp %st(1) # sched: [0:?]
+; ATOM-NEXT:    fmulp %st(2) # sched: [0:?]
+; ATOM-NEXT:    fimuls (%ecx) # sched: [0:?]
+; ATOM-NEXT:    fimull (%eax) # sched: [0:?]
 ; ATOM-NEXT:    #NO_APP
 ; ATOM-NEXT:    retl # sched: [79:39.50]
 ;
@@ -3114,7 +3114,7 @@ define void @test_fmulp_fimul(i16 *%a0, i32 *%a1) optsize {
 ; SANDY-NEXT:    fimuls (%ecx) # sched: [15:1.00]
 ; SANDY-NEXT:    fimull (%eax) # sched: [15:1.00]
 ; SANDY-NEXT:    #NO_APP
-; SANDY-NEXT:    retl # sched: [5:1.00]
+; SANDY-NEXT:    retl # sched: [6:1.00]
 ;
 ; HASWELL-LABEL: test_fmulp_fimul:
 ; HASWELL:       # %bb.0:
@@ -3209,7 +3209,7 @@ define void @test_fnop() optsize {
 ; SLM-LABEL: test_fnop:
 ; SLM:       # %bb.0:
 ; SLM-NEXT:    #APP
-; SLM-NEXT:    fnop # sched: [100:1.00]
+; SLM-NEXT:    fnop # sched: [1:?]
 ; SLM-NEXT:    #NO_APP
 ; SLM-NEXT:    retl # sched: [4:1.00]
 ;
@@ -3218,7 +3218,7 @@ define void @test_fnop() optsize {
 ; SANDY-NEXT:    #APP
 ; SANDY-NEXT:    fnop # sched: [1:1.00]
 ; SANDY-NEXT:    #NO_APP
-; SANDY-NEXT:    retl # sched: [5:1.00]
+; SANDY-NEXT:    retl # sched: [6:1.00]
 ;
 ; HASWELL-LABEL: test_fnop:
 ; HASWELL:       # %bb.0:
@@ -3251,7 +3251,7 @@ define void @test_fnop() optsize {
 ; BTVER2-LABEL: test_fnop:
 ; BTVER2:       # %bb.0:
 ; BTVER2-NEXT:    #APP
-; BTVER2-NEXT:    fnop # sched: [100:0.17]
+; BTVER2-NEXT:    fnop # sched: [1:0.50]
 ; BTVER2-NEXT:    #NO_APP
 ; BTVER2-NEXT:    retl # sched: [4:1.00]
 ;
@@ -3292,7 +3292,7 @@ define void @test_fpatan() optsize {
 ; SANDY-NEXT:    #APP
 ; SANDY-NEXT:    fpatan # sched: [100:0.33]
 ; SANDY-NEXT:    #NO_APP
-; SANDY-NEXT:    retl # sched: [5:1.00]
+; SANDY-NEXT:    retl # sched: [6:1.00]
 ;
 ; HASWELL-LABEL: test_fpatan:
 ; HASWELL:       # %bb.0:
@@ -3325,7 +3325,7 @@ define void @test_fpatan() optsize {
 ; BTVER2-LABEL: test_fpatan:
 ; BTVER2:       # %bb.0:
 ; BTVER2-NEXT:    #APP
-; BTVER2-NEXT:    fpatan # sched: [100:0.17]
+; BTVER2-NEXT:    fpatan # sched: [100:0.50]
 ; BTVER2-NEXT:    #NO_APP
 ; BTVER2-NEXT:    retl # sched: [4:1.00]
 ;
@@ -3370,13 +3370,13 @@ define void @test_fprem_fprem1() optsize {
 ; SANDY-NEXT:    fprem # sched: [100:0.33]
 ; SANDY-NEXT:    fprem1 # sched: [100:0.33]
 ; SANDY-NEXT:    #NO_APP
-; SANDY-NEXT:    retl # sched: [5:1.00]
+; SANDY-NEXT:    retl # sched: [6:1.00]
 ;
 ; HASWELL-LABEL: test_fprem_fprem1:
 ; HASWELL:       # %bb.0:
 ; HASWELL-NEXT:    #APP
 ; HASWELL-NEXT:    fprem # sched: [19:?]
-; HASWELL-NEXT:    fprem1 # sched: [19:?]
+; HASWELL-NEXT:    fprem1 # sched: [27:?]
 ; HASWELL-NEXT:    #NO_APP
 ; HASWELL-NEXT:    retl # sched: [7:1.00]
 ;
@@ -3407,8 +3407,8 @@ define void @test_fprem_fprem1() optsize {
 ; BTVER2-LABEL: test_fprem_fprem1:
 ; BTVER2:       # %bb.0:
 ; BTVER2-NEXT:    #APP
-; BTVER2-NEXT:    fprem # sched: [100:0.17]
-; BTVER2-NEXT:    fprem1 # sched: [100:0.17]
+; BTVER2-NEXT:    fprem # sched: [100:0.50]
+; BTVER2-NEXT:    fprem1 # sched: [100:0.50]
 ; BTVER2-NEXT:    #NO_APP
 ; BTVER2-NEXT:    retl # sched: [4:1.00]
 ;
@@ -3450,7 +3450,7 @@ define void @test_fptan() optsize {
 ; SANDY-NEXT:    #APP
 ; SANDY-NEXT:    fptan # sched: [100:0.33]
 ; SANDY-NEXT:    #NO_APP
-; SANDY-NEXT:    retl # sched: [5:1.00]
+; SANDY-NEXT:    retl # sched: [6:1.00]
 ;
 ; HASWELL-LABEL: test_fptan:
 ; HASWELL:       # %bb.0:
@@ -3483,7 +3483,7 @@ define void @test_fptan() optsize {
 ; BTVER2-LABEL: test_fptan:
 ; BTVER2:       # %bb.0:
 ; BTVER2-NEXT:    #APP
-; BTVER2-NEXT:    fptan # sched: [100:0.17]
+; BTVER2-NEXT:    fptan # sched: [100:0.50]
 ; BTVER2-NEXT:    #NO_APP
 ; BTVER2-NEXT:    retl # sched: [4:1.00]
 ;
@@ -3524,7 +3524,7 @@ define void @test_frndint() optsize {
 ; SANDY-NEXT:    #APP
 ; SANDY-NEXT:    frndint # sched: [100:0.33]
 ; SANDY-NEXT:    #NO_APP
-; SANDY-NEXT:    retl # sched: [5:1.00]
+; SANDY-NEXT:    retl # sched: [6:1.00]
 ;
 ; HASWELL-LABEL: test_frndint:
 ; HASWELL:       # %bb.0:
@@ -3557,7 +3557,7 @@ define void @test_frndint() optsize {
 ; BTVER2-LABEL: test_frndint:
 ; BTVER2:       # %bb.0:
 ; BTVER2-NEXT:    #APP
-; BTVER2-NEXT:    frndint # sched: [100:0.17]
+; BTVER2-NEXT:    frndint # sched: [100:0.50]
 ; BTVER2-NEXT:    #NO_APP
 ; BTVER2-NEXT:    retl # sched: [4:1.00]
 ;
@@ -3584,7 +3584,7 @@ define void @test_frstor(i8* %a0) optsize {
 ; ATOM:       # %bb.0:
 ; ATOM-NEXT:    movl {{[0-9]+}}(%esp), %eax # sched: [1:1.00]
 ; ATOM-NEXT:    #APP
-; ATOM-NEXT:    frstor (%eax)
+; ATOM-NEXT:    frstor (%eax) # sched: [0:?]
 ; ATOM-NEXT:    #NO_APP
 ; ATOM-NEXT:    retl # sched: [79:39.50]
 ;
@@ -3602,7 +3602,7 @@ define void @test_frstor(i8* %a0) optsize {
 ; SANDY-NEXT:    #APP
 ; SANDY-NEXT:    frstor (%eax) # sched: [100:0.33]
 ; SANDY-NEXT:    #NO_APP
-; SANDY-NEXT:    retl # sched: [5:1.00]
+; SANDY-NEXT:    retl # sched: [6:1.00]
 ;
 ; HASWELL-LABEL: test_frstor:
 ; HASWELL:       # %bb.0:
@@ -3640,7 +3640,7 @@ define void @test_frstor(i8* %a0) optsize {
 ; BTVER2:       # %bb.0:
 ; BTVER2-NEXT:    movl {{[0-9]+}}(%esp), %eax # sched: [5:1.00]
 ; BTVER2-NEXT:    #APP
-; BTVER2-NEXT:    frstor (%eax) # sched: [100:0.17]
+; BTVER2-NEXT:    frstor (%eax) # sched: [100:0.50]
 ; BTVER2-NEXT:    #NO_APP
 ; BTVER2-NEXT:    retl # sched: [4:1.00]
 ;
@@ -3670,7 +3670,7 @@ define void @test_fsave(i8* %a0) optsize {
 ; ATOM-NEXT:    movl {{[0-9]+}}(%esp), %eax # sched: [1:1.00]
 ; ATOM-NEXT:    #APP
 ; ATOM-NEXT:    wait # sched: [1:0.50]
-; ATOM-NEXT:    fnsave (%eax)
+; ATOM-NEXT:    fnsave (%eax) # sched: [0:?]
 ; ATOM-NEXT:    #NO_APP
 ; ATOM-NEXT:    retl # sched: [79:39.50]
 ;
@@ -3690,13 +3690,13 @@ define void @test_fsave(i8* %a0) optsize {
 ; SANDY-NEXT:    wait # sched: [100:0.33]
 ; SANDY-NEXT:    fnsave (%eax) # sched: [100:0.33]
 ; SANDY-NEXT:    #NO_APP
-; SANDY-NEXT:    retl # sched: [5:1.00]
+; SANDY-NEXT:    retl # sched: [6:1.00]
 ;
 ; HASWELL-LABEL: test_fsave:
 ; HASWELL:       # %bb.0:
 ; HASWELL-NEXT:    movl {{[0-9]+}}(%esp), %eax # sched: [5:0.50]
 ; HASWELL-NEXT:    #APP
-; HASWELL-NEXT:    wait # sched: [1:0.50]
+; HASWELL-NEXT:    wait # sched: [2:0.50]
 ; HASWELL-NEXT:    fnsave (%eax) # sched: [1:?]
 ; HASWELL-NEXT:    #NO_APP
 ; HASWELL-NEXT:    retl # sched: [7:1.00]
@@ -3732,8 +3732,8 @@ define void @test_fsave(i8* %a0) optsize {
 ; BTVER2:       # %bb.0:
 ; BTVER2-NEXT:    movl {{[0-9]+}}(%esp), %eax # sched: [5:1.00]
 ; BTVER2-NEXT:    #APP
-; BTVER2-NEXT:    wait # sched: [100:0.17]
-; BTVER2-NEXT:    fnsave (%eax) # sched: [100:0.17]
+; BTVER2-NEXT:    wait # sched: [100:0.50]
+; BTVER2-NEXT:    fnsave (%eax) # sched: [100:0.50]
 ; BTVER2-NEXT:    #NO_APP
 ; BTVER2-NEXT:    retl # sched: [4:1.00]
 ;
@@ -3762,7 +3762,7 @@ define void @test_fnsave(i8* %a0) optsize {
 ; ATOM:       # %bb.0:
 ; ATOM-NEXT:    movl {{[0-9]+}}(%esp), %eax # sched: [1:1.00]
 ; ATOM-NEXT:    #APP
-; ATOM-NEXT:    fnsave (%eax)
+; ATOM-NEXT:    fnsave (%eax) # sched: [0:?]
 ; ATOM-NEXT:    #NO_APP
 ; ATOM-NEXT:    retl # sched: [79:39.50]
 ;
@@ -3780,7 +3780,7 @@ define void @test_fnsave(i8* %a0) optsize {
 ; SANDY-NEXT:    #APP
 ; SANDY-NEXT:    fnsave (%eax) # sched: [100:0.33]
 ; SANDY-NEXT:    #NO_APP
-; SANDY-NEXT:    retl # sched: [5:1.00]
+; SANDY-NEXT:    retl # sched: [6:1.00]
 ;
 ; HASWELL-LABEL: test_fnsave:
 ; HASWELL:       # %bb.0:
@@ -3818,7 +3818,7 @@ define void @test_fnsave(i8* %a0) optsize {
 ; BTVER2:       # %bb.0:
 ; BTVER2-NEXT:    movl {{[0-9]+}}(%esp), %eax # sched: [5:1.00]
 ; BTVER2-NEXT:    #APP
-; BTVER2-NEXT:    fnsave (%eax) # sched: [100:0.17]
+; BTVER2-NEXT:    fnsave (%eax) # sched: [100:0.50]
 ; BTVER2-NEXT:    #NO_APP
 ; BTVER2-NEXT:    retl # sched: [4:1.00]
 ;
@@ -3860,7 +3860,7 @@ define void @test_fscale() optsize {
 ; SANDY-NEXT:    #APP
 ; SANDY-NEXT:    fscale # sched: [100:0.33]
 ; SANDY-NEXT:    #NO_APP
-; SANDY-NEXT:    retl # sched: [5:1.00]
+; SANDY-NEXT:    retl # sched: [6:1.00]
 ;
 ; HASWELL-LABEL: test_fscale:
 ; HASWELL:       # %bb.0:
@@ -3893,7 +3893,7 @@ define void @test_fscale() optsize {
 ; BTVER2-LABEL: test_fscale:
 ; BTVER2:       # %bb.0:
 ; BTVER2-NEXT:    #APP
-; BTVER2-NEXT:    fscale # sched: [100:0.17]
+; BTVER2-NEXT:    fscale # sched: [100:0.50]
 ; BTVER2-NEXT:    #NO_APP
 ; BTVER2-NEXT:    retl # sched: [4:1.00]
 ;
@@ -3934,7 +3934,7 @@ define void @test_fsin() optsize {
 ; SANDY-NEXT:    #APP
 ; SANDY-NEXT:    fsin # sched: [100:0.33]
 ; SANDY-NEXT:    #NO_APP
-; SANDY-NEXT:    retl # sched: [5:1.00]
+; SANDY-NEXT:    retl # sched: [6:1.00]
 ;
 ; HASWELL-LABEL: test_fsin:
 ; HASWELL:       # %bb.0:
@@ -3967,7 +3967,7 @@ define void @test_fsin() optsize {
 ; BTVER2-LABEL: test_fsin:
 ; BTVER2:       # %bb.0:
 ; BTVER2-NEXT:    #APP
-; BTVER2-NEXT:    fsin # sched: [100:0.17]
+; BTVER2-NEXT:    fsin # sched: [100:0.50]
 ; BTVER2-NEXT:    #NO_APP
 ; BTVER2-NEXT:    retl # sched: [4:1.00]
 ;
@@ -4008,7 +4008,7 @@ define void @test_fsincos() optsize {
 ; SANDY-NEXT:    #APP
 ; SANDY-NEXT:    fsincos # sched: [100:0.33]
 ; SANDY-NEXT:    #NO_APP
-; SANDY-NEXT:    retl # sched: [5:1.00]
+; SANDY-NEXT:    retl # sched: [6:1.00]
 ;
 ; HASWELL-LABEL: test_fsincos:
 ; HASWELL:       # %bb.0:
@@ -4041,7 +4041,7 @@ define void @test_fsincos() optsize {
 ; BTVER2-LABEL: test_fsincos:
 ; BTVER2:       # %bb.0:
 ; BTVER2-NEXT:    #APP
-; BTVER2-NEXT:    fsincos # sched: [100:0.17]
+; BTVER2-NEXT:    fsincos # sched: [100:0.50]
 ; BTVER2-NEXT:    #NO_APP
 ; BTVER2-NEXT:    retl # sched: [4:1.00]
 ;
@@ -4082,7 +4082,7 @@ define void @test_fsqrt() optsize {
 ; SANDY-NEXT:    #APP
 ; SANDY-NEXT:    fsqrt # sched: [14:1.00]
 ; SANDY-NEXT:    #NO_APP
-; SANDY-NEXT:    retl # sched: [5:1.00]
+; SANDY-NEXT:    retl # sched: [6:1.00]
 ;
 ; HASWELL-LABEL: test_fsqrt:
 ; HASWELL:       # %bb.0:
@@ -4192,7 +4192,7 @@ define void @test_fst_fstp(i16* %a0, i32* %a1, i64 *%a2) optsize {
 ; SANDY-NEXT:    fstpl (%ecx) # sched: [6:1.00]
 ; SANDY-NEXT:    fstpt (%eax) # sched: [6:1.00]
 ; SANDY-NEXT:    #NO_APP
-; SANDY-NEXT:    retl # sched: [5:1.00]
+; SANDY-NEXT:    retl # sched: [6:1.00]
 ;
 ; HASWELL-LABEL: test_fst_fstp:
 ; HASWELL:       # %bb.0:
@@ -4314,9 +4314,9 @@ define void @test_fstcw_fstenv_fstsw(i8* %a0) optsize {
 ; ATOM-NEXT:    wait # sched: [1:0.50]
 ; ATOM-NEXT:    fnstcw (%eax) # sched: [8:4.00]
 ; ATOM-NEXT:    wait # sched: [1:0.50]
-; ATOM-NEXT:    fnstenv (%eax)
+; ATOM-NEXT:    fnstenv (%eax) # sched: [0:?]
 ; ATOM-NEXT:    wait # sched: [1:0.50]
-; ATOM-NEXT:    fnstsw (%eax)
+; ATOM-NEXT:    fnstsw (%eax) # sched: [0:?]
 ; ATOM-NEXT:    #NO_APP
 ; ATOM-NEXT:    retl # sched: [79:39.50]
 ;
@@ -4344,17 +4344,17 @@ define void @test_fstcw_fstenv_fstsw(i8* %a0) optsize {
 ; SANDY-NEXT:    wait # sched: [100:0.33]
 ; SANDY-NEXT:    fnstsw (%eax) # sched: [7:1.00]
 ; SANDY-NEXT:    #NO_APP
-; SANDY-NEXT:    retl # sched: [5:1.00]
+; SANDY-NEXT:    retl # sched: [6:1.00]
 ;
 ; HASWELL-LABEL: test_fstcw_fstenv_fstsw:
 ; HASWELL:       # %bb.0:
 ; HASWELL-NEXT:    movl {{[0-9]+}}(%esp), %eax # sched: [5:0.50]
 ; HASWELL-NEXT:    #APP
-; HASWELL-NEXT:    wait # sched: [1:0.50]
+; HASWELL-NEXT:    wait # sched: [2:0.50]
 ; HASWELL-NEXT:    fnstcw (%eax) # sched: [2:1.00]
-; HASWELL-NEXT:    wait # sched: [1:0.50]
+; HASWELL-NEXT:    wait # sched: [2:0.50]
 ; HASWELL-NEXT:    fnstenv (%eax) # sched: [115:19.50]
-; HASWELL-NEXT:    wait # sched: [1:0.50]
+; HASWELL-NEXT:    wait # sched: [2:0.50]
 ; HASWELL-NEXT:    fnstsw (%eax) # sched: [4:1.00]
 ; HASWELL-NEXT:    #NO_APP
 ; HASWELL-NEXT:    retl # sched: [7:1.00]
@@ -4402,12 +4402,12 @@ define void @test_fstcw_fstenv_fstsw(i8* %a0) optsize {
 ; BTVER2:       # %bb.0:
 ; BTVER2-NEXT:    movl {{[0-9]+}}(%esp), %eax # sched: [5:1.00]
 ; BTVER2-NEXT:    #APP
-; BTVER2-NEXT:    wait # sched: [100:0.17]
+; BTVER2-NEXT:    wait # sched: [100:0.50]
 ; BTVER2-NEXT:    fnstcw (%eax) # sched: [1:0.50]
-; BTVER2-NEXT:    wait # sched: [100:0.17]
-; BTVER2-NEXT:    fnstenv (%eax) # sched: [100:0.17]
-; BTVER2-NEXT:    wait # sched: [100:0.17]
-; BTVER2-NEXT:    fnstsw (%eax) # sched: [100:0.17]
+; BTVER2-NEXT:    wait # sched: [100:0.50]
+; BTVER2-NEXT:    fnstenv (%eax) # sched: [100:0.50]
+; BTVER2-NEXT:    wait # sched: [100:0.50]
+; BTVER2-NEXT:    fnstsw (%eax) # sched: [100:0.50]
 ; BTVER2-NEXT:    #NO_APP
 ; BTVER2-NEXT:    retl # sched: [4:1.00]
 ;
@@ -4443,8 +4443,8 @@ define void @test_fnstcw_fnstenv_fnstsw(i8* %a0) optsize {
 ; ATOM-NEXT:    movl {{[0-9]+}}(%esp), %eax # sched: [1:1.00]
 ; ATOM-NEXT:    #APP
 ; ATOM-NEXT:    fnstcw (%eax) # sched: [8:4.00]
-; ATOM-NEXT:    fnstenv (%eax)
-; ATOM-NEXT:    fnstsw (%eax)
+; ATOM-NEXT:    fnstenv (%eax) # sched: [0:?]
+; ATOM-NEXT:    fnstsw (%eax) # sched: [0:?]
 ; ATOM-NEXT:    #NO_APP
 ; ATOM-NEXT:    retl # sched: [79:39.50]
 ;
@@ -4466,7 +4466,7 @@ define void @test_fnstcw_fnstenv_fnstsw(i8* %a0) optsize {
 ; SANDY-NEXT:    fnstenv (%eax) # sched: [100:0.33]
 ; SANDY-NEXT:    fnstsw (%eax) # sched: [7:1.00]
 ; SANDY-NEXT:    #NO_APP
-; SANDY-NEXT:    retl # sched: [5:1.00]
+; SANDY-NEXT:    retl # sched: [6:1.00]
 ;
 ; HASWELL-LABEL: test_fnstcw_fnstenv_fnstsw:
 ; HASWELL:       # %bb.0:
@@ -4513,8 +4513,8 @@ define void @test_fnstcw_fnstenv_fnstsw(i8* %a0) optsize {
 ; BTVER2-NEXT:    movl {{[0-9]+}}(%esp), %eax # sched: [5:1.00]
 ; BTVER2-NEXT:    #APP
 ; BTVER2-NEXT:    fnstcw (%eax) # sched: [1:0.50]
-; BTVER2-NEXT:    fnstenv (%eax) # sched: [100:0.17]
-; BTVER2-NEXT:    fnstsw (%eax) # sched: [100:0.17]
+; BTVER2-NEXT:    fnstenv (%eax) # sched: [100:0.50]
+; BTVER2-NEXT:    fnstsw (%eax) # sched: [100:0.50]
 ; BTVER2-NEXT:    #NO_APP
 ; BTVER2-NEXT:    retl # sched: [4:1.00]
 ;
@@ -4549,10 +4549,10 @@ define void @test_fsub(float *%a0, double *%a1) optsize {
 ; ATOM-NEXT:    movl {{[0-9]+}}(%esp), %eax # sched: [1:1.00]
 ; ATOM-NEXT:    movl {{[0-9]+}}(%esp), %ecx # sched: [1:1.00]
 ; ATOM-NEXT:    #APP
-; ATOM-NEXT:    fsub %st(0), %st(1)
-; ATOM-NEXT:    fsub %st(2)
-; ATOM-NEXT:    fsubs (%ecx)
-; ATOM-NEXT:    fsubl (%eax)
+; ATOM-NEXT:    fsub %st(0), %st(1) # sched: [0:?]
+; ATOM-NEXT:    fsub %st(2) # sched: [0:?]
+; ATOM-NEXT:    fsubs (%ecx) # sched: [0:?]
+; ATOM-NEXT:    fsubl (%eax) # sched: [0:?]
 ; ATOM-NEXT:    #NO_APP
 ; ATOM-NEXT:    retl # sched: [79:39.50]
 ;
@@ -4578,7 +4578,7 @@ define void @test_fsub(float *%a0, double *%a1) optsize {
 ; SANDY-NEXT:    fsubs (%ecx) # sched: [10:1.00]
 ; SANDY-NEXT:    fsubl (%eax) # sched: [10:1.00]
 ; SANDY-NEXT:    #NO_APP
-; SANDY-NEXT:    retl # sched: [5:1.00]
+; SANDY-NEXT:    retl # sched: [6:1.00]
 ;
 ; HASWELL-LABEL: test_fsub:
 ; HASWELL:       # %bb.0:
@@ -4673,10 +4673,10 @@ define void @test_fsubp_fisub(i16 *%a0, i32 *%a1) optsize {
 ; ATOM-NEXT:    movl {{[0-9]+}}(%esp), %eax # sched: [1:1.00]
 ; ATOM-NEXT:    movl {{[0-9]+}}(%esp), %ecx # sched: [1:1.00]
 ; ATOM-NEXT:    #APP
-; ATOM-NEXT:    fsubp %st(1)
-; ATOM-NEXT:    fsubp %st(2)
-; ATOM-NEXT:    fisubs (%ecx)
-; ATOM-NEXT:    fisubl (%eax)
+; ATOM-NEXT:    fsubp %st(1) # sched: [0:?]
+; ATOM-NEXT:    fsubp %st(2) # sched: [0:?]
+; ATOM-NEXT:    fisubs (%ecx) # sched: [0:?]
+; ATOM-NEXT:    fisubl (%eax) # sched: [0:?]
 ; ATOM-NEXT:    #NO_APP
 ; ATOM-NEXT:    retl # sched: [79:39.50]
 ;
@@ -4702,7 +4702,7 @@ define void @test_fsubp_fisub(i16 *%a0, i32 *%a1) optsize {
 ; SANDY-NEXT:    fisubs (%ecx) # sched: [13:2.00]
 ; SANDY-NEXT:    fisubl (%eax) # sched: [13:2.00]
 ; SANDY-NEXT:    #NO_APP
-; SANDY-NEXT:    retl # sched: [5:1.00]
+; SANDY-NEXT:    retl # sched: [6:1.00]
 ;
 ; HASWELL-LABEL: test_fsubp_fisub:
 ; HASWELL:       # %bb.0:
@@ -4797,10 +4797,10 @@ define void @test_fsubr(float *%a0, double *%a1) optsize {
 ; ATOM-NEXT:    movl {{[0-9]+}}(%esp), %eax # sched: [1:1.00]
 ; ATOM-NEXT:    movl {{[0-9]+}}(%esp), %ecx # sched: [1:1.00]
 ; ATOM-NEXT:    #APP
-; ATOM-NEXT:    fsubr %st(0), %st(1)
-; ATOM-NEXT:    fsubr %st(2)
-; ATOM-NEXT:    fsubrs (%ecx)
-; ATOM-NEXT:    fsubrl (%eax)
+; ATOM-NEXT:    fsubr %st(0), %st(1) # sched: [0:?]
+; ATOM-NEXT:    fsubr %st(2) # sched: [0:?]
+; ATOM-NEXT:    fsubrs (%ecx) # sched: [0:?]
+; ATOM-NEXT:    fsubrl (%eax) # sched: [0:?]
 ; ATOM-NEXT:    #NO_APP
 ; ATOM-NEXT:    retl # sched: [79:39.50]
 ;
@@ -4826,7 +4826,7 @@ define void @test_fsubr(float *%a0, double *%a1) optsize {
 ; SANDY-NEXT:    fsubrs (%ecx) # sched: [10:1.00]
 ; SANDY-NEXT:    fsubrl (%eax) # sched: [10:1.00]
 ; SANDY-NEXT:    #NO_APP
-; SANDY-NEXT:    retl # sched: [5:1.00]
+; SANDY-NEXT:    retl # sched: [6:1.00]
 ;
 ; HASWELL-LABEL: test_fsubr:
 ; HASWELL:       # %bb.0:
@@ -4921,10 +4921,10 @@ define void @test_fsubrp_fisubr(i16 *%a0, i32 *%a1) optsize {
 ; ATOM-NEXT:    movl {{[0-9]+}}(%esp), %eax # sched: [1:1.00]
 ; ATOM-NEXT:    movl {{[0-9]+}}(%esp), %ecx # sched: [1:1.00]
 ; ATOM-NEXT:    #APP
-; ATOM-NEXT:    fsubrp %st(1)
-; ATOM-NEXT:    fsubrp %st(2)
-; ATOM-NEXT:    fisubrs (%ecx)
-; ATOM-NEXT:    fisubrl (%eax)
+; ATOM-NEXT:    fsubrp %st(1) # sched: [0:?]
+; ATOM-NEXT:    fsubrp %st(2) # sched: [0:?]
+; ATOM-NEXT:    fisubrs (%ecx) # sched: [0:?]
+; ATOM-NEXT:    fisubrl (%eax) # sched: [0:?]
 ; ATOM-NEXT:    #NO_APP
 ; ATOM-NEXT:    retl # sched: [79:39.50]
 ;
@@ -4950,7 +4950,7 @@ define void @test_fsubrp_fisubr(i16 *%a0, i32 *%a1) optsize {
 ; SANDY-NEXT:    fisubrs (%ecx) # sched: [13:2.00]
 ; SANDY-NEXT:    fisubrl (%eax) # sched: [13:2.00]
 ; SANDY-NEXT:    #NO_APP
-; SANDY-NEXT:    retl # sched: [5:1.00]
+; SANDY-NEXT:    retl # sched: [6:1.00]
 ;
 ; HASWELL-LABEL: test_fsubrp_fisubr:
 ; HASWELL:       # %bb.0:
@@ -5054,7 +5054,7 @@ define void @test_ftst() optsize {
 ; SANDY-NEXT:    #APP
 ; SANDY-NEXT:    ftst # sched: [3:1.00]
 ; SANDY-NEXT:    #NO_APP
-; SANDY-NEXT:    retl # sched: [5:1.00]
+; SANDY-NEXT:    retl # sched: [6:1.00]
 ;
 ; HASWELL-LABEL: test_ftst:
 ; HASWELL:       # %bb.0:
@@ -5144,7 +5144,7 @@ define void @test_fucom_fucomp_fucompp() optsize {
 ; SANDY-NEXT:    fucomp %st(3) # sched: [1:1.00]
 ; SANDY-NEXT:    fucompp # sched: [3:1.00]
 ; SANDY-NEXT:    #NO_APP
-; SANDY-NEXT:    retl # sched: [5:1.00]
+; SANDY-NEXT:    retl # sched: [6:1.00]
 ;
 ; HASWELL-LABEL: test_fucom_fucomp_fucompp:
 ; HASWELL:       # %bb.0:
@@ -5246,7 +5246,7 @@ define void @test_fucomi_fucomip() optsize {
 ; SANDY-NEXT:    fucomi %st(3) # sched: [3:1.00]
 ; SANDY-NEXT:    fucompi %st(3) # sched: [3:1.00]
 ; SANDY-NEXT:    #NO_APP
-; SANDY-NEXT:    retl # sched: [5:1.00]
+; SANDY-NEXT:    retl # sched: [6:1.00]
 ;
 ; HASWELL-LABEL: test_fucomi_fucomip:
 ; HASWELL:       # %bb.0:
@@ -5326,12 +5326,12 @@ define void @test_fwait() optsize {
 ; SANDY-NEXT:    #APP
 ; SANDY-NEXT:    wait # sched: [100:0.33]
 ; SANDY-NEXT:    #NO_APP
-; SANDY-NEXT:    retl # sched: [5:1.00]
+; SANDY-NEXT:    retl # sched: [6:1.00]
 ;
 ; HASWELL-LABEL: test_fwait:
 ; HASWELL:       # %bb.0:
 ; HASWELL-NEXT:    #APP
-; HASWELL-NEXT:    wait # sched: [1:0.50]
+; HASWELL-NEXT:    wait # sched: [2:0.50]
 ; HASWELL-NEXT:    #NO_APP
 ; HASWELL-NEXT:    retl # sched: [7:1.00]
 ;
@@ -5359,7 +5359,7 @@ define void @test_fwait() optsize {
 ; BTVER2-LABEL: test_fwait:
 ; BTVER2:       # %bb.0:
 ; BTVER2-NEXT:    #APP
-; BTVER2-NEXT:    wait # sched: [100:0.17]
+; BTVER2-NEXT:    wait # sched: [100:0.50]
 ; BTVER2-NEXT:    #NO_APP
 ; BTVER2-NEXT:    retl # sched: [4:1.00]
 ;
@@ -5400,7 +5400,7 @@ define void @test_fxam() optsize {
 ; SANDY-NEXT:    #APP
 ; SANDY-NEXT:    fxam # sched: [100:0.33]
 ; SANDY-NEXT:    #NO_APP
-; SANDY-NEXT:    retl # sched: [5:1.00]
+; SANDY-NEXT:    retl # sched: [6:1.00]
 ;
 ; HASWELL-LABEL: test_fxam:
 ; HASWELL:       # %bb.0:
@@ -5433,7 +5433,7 @@ define void @test_fxam() optsize {
 ; BTVER2-LABEL: test_fxam:
 ; BTVER2:       # %bb.0:
 ; BTVER2-NEXT:    #APP
-; BTVER2-NEXT:    fxam # sched: [100:0.17]
+; BTVER2-NEXT:    fxam # sched: [100:0.50]
 ; BTVER2-NEXT:    #NO_APP
 ; BTVER2-NEXT:    retl # sched: [4:1.00]
 ;
@@ -5478,7 +5478,7 @@ define void @test_fxch() optsize {
 ; SANDY-NEXT:    fxch %st(1) # sched: [1:0.33]
 ; SANDY-NEXT:    fxch %st(3) # sched: [1:0.33]
 ; SANDY-NEXT:    #NO_APP
-; SANDY-NEXT:    retl # sched: [5:1.00]
+; SANDY-NEXT:    retl # sched: [6:1.00]
 ;
 ; HASWELL-LABEL: test_fxch:
 ; HASWELL:       # %bb.0:
@@ -5566,7 +5566,7 @@ define void @test_fxrstor_fxsave(i8* %a0) optsize {
 ; SANDY-NEXT:    fxrstor (%eax) # sched: [5:2.00]
 ; SANDY-NEXT:    fxsave (%eax) # sched: [100:0.33]
 ; SANDY-NEXT:    #NO_APP
-; SANDY-NEXT:    retl # sched: [5:1.00]
+; SANDY-NEXT:    retl # sched: [6:1.00]
 ;
 ; HASWELL-LABEL: test_fxrstor_fxsave:
 ; HASWELL:       # %bb.0:
@@ -5608,8 +5608,8 @@ define void @test_fxrstor_fxsave(i8* %a0) optsize {
 ; BTVER2:       # %bb.0:
 ; BTVER2-NEXT:    movl {{[0-9]+}}(%esp), %eax # sched: [5:1.00]
 ; BTVER2-NEXT:    #APP
-; BTVER2-NEXT:    fxrstor (%eax) # sched: [100:0.17]
-; BTVER2-NEXT:    fxsave (%eax) # sched: [100:0.17]
+; BTVER2-NEXT:    fxrstor (%eax) # sched: [100:0.50]
+; BTVER2-NEXT:    fxsave (%eax) # sched: [100:0.50]
 ; BTVER2-NEXT:    #NO_APP
 ; BTVER2-NEXT:    retl # sched: [4:1.00]
 ;
@@ -5652,7 +5652,7 @@ define void @test_fxtract() optsize {
 ; SANDY-NEXT:    #APP
 ; SANDY-NEXT:    fxtract # sched: [100:0.33]
 ; SANDY-NEXT:    #NO_APP
-; SANDY-NEXT:    retl # sched: [5:1.00]
+; SANDY-NEXT:    retl # sched: [6:1.00]
 ;
 ; HASWELL-LABEL: test_fxtract:
 ; HASWELL:       # %bb.0:
@@ -5685,7 +5685,7 @@ define void @test_fxtract() optsize {
 ; BTVER2-LABEL: test_fxtract:
 ; BTVER2:       # %bb.0:
 ; BTVER2-NEXT:    #APP
-; BTVER2-NEXT:    fxtract # sched: [100:0.17]
+; BTVER2-NEXT:    fxtract # sched: [100:0.50]
 ; BTVER2-NEXT:    #NO_APP
 ; BTVER2-NEXT:    retl # sched: [4:1.00]
 ;
@@ -5726,7 +5726,7 @@ define void @test_fyl2x() optsize {
 ; SANDY-NEXT:    #APP
 ; SANDY-NEXT:    fyl2x # sched: [100:0.33]
 ; SANDY-NEXT:    #NO_APP
-; SANDY-NEXT:    retl # sched: [5:1.00]
+; SANDY-NEXT:    retl # sched: [6:1.00]
 ;
 ; HASWELL-LABEL: test_fyl2x:
 ; HASWELL:       # %bb.0:
@@ -5759,7 +5759,7 @@ define void @test_fyl2x() optsize {
 ; BTVER2-LABEL: test_fyl2x:
 ; BTVER2:       # %bb.0:
 ; BTVER2-NEXT:    #APP
-; BTVER2-NEXT:    fyl2x # sched: [100:0.17]
+; BTVER2-NEXT:    fyl2x # sched: [100:0.50]
 ; BTVER2-NEXT:    #NO_APP
 ; BTVER2-NEXT:    retl # sched: [4:1.00]
 ;
@@ -5800,7 +5800,7 @@ define void @test_fyl2xp1() optsize {
 ; SANDY-NEXT:    #APP
 ; SANDY-NEXT:    fyl2xp1 # sched: [100:0.33]
 ; SANDY-NEXT:    #NO_APP
-; SANDY-NEXT:    retl # sched: [5:1.00]
+; SANDY-NEXT:    retl # sched: [6:1.00]
 ;
 ; HASWELL-LABEL: test_fyl2xp1:
 ; HASWELL:       # %bb.0:
@@ -5833,7 +5833,7 @@ define void @test_fyl2xp1() optsize {
 ; BTVER2-LABEL: test_fyl2xp1:
 ; BTVER2:       # %bb.0:
 ; BTVER2-NEXT:    #APP
-; BTVER2-NEXT:    fyl2xp1 # sched: [100:0.17]
+; BTVER2-NEXT:    fyl2xp1 # sched: [100:0.50]
 ; BTVER2-NEXT:    #NO_APP
 ; BTVER2-NEXT:    retl # sched: [4:1.00]
 ;

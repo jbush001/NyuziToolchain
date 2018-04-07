@@ -106,6 +106,7 @@
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/Compression.h"
 #include "llvm/Support/Compiler.h"
+#include "llvm/Support/DJB.h"
 #include "llvm/Support/Endian.h"
 #include "llvm/Support/Error.h"
 #include "llvm/Support/ErrorHandling.h"
@@ -395,8 +396,8 @@ static bool checkTargetOptions(const TargetOptions &TargetOpts,
                                              ExistingTargetOpts.FeaturesAsWritten.end());
   SmallVector<StringRef, 4> ReadFeatures(TargetOpts.FeaturesAsWritten.begin(),
                                          TargetOpts.FeaturesAsWritten.end());
-  std::sort(ExistingFeatures.begin(), ExistingFeatures.end());
-  std::sort(ReadFeatures.begin(), ReadFeatures.end());
+  llvm::sort(ExistingFeatures.begin(), ExistingFeatures.end());
+  llvm::sort(ReadFeatures.begin(), ReadFeatures.end());
 
   // We compute the set difference in both directions explicitly so that we can
   // diagnose the differences differently.
@@ -870,7 +871,7 @@ ASTSelectorLookupTrait::ReadData(Selector, const unsigned char* d,
 }
 
 unsigned ASTIdentifierLookupTraitBase::ComputeHash(const internal_key_type& a) {
-  return llvm::HashString(a);
+  return llvm::djbHash(a);
 }
 
 std::pair<unsigned, unsigned>
@@ -2136,7 +2137,7 @@ InputFile ASTReader::getInputFile(ModuleFile &F, unsigned ID, bool Complain) {
   }
 
   // Check if there was a request to override the contents of the file
-  // that was part of the precompiled header. Overridding such a file
+  // that was part of the precompiled header. Overriding such a file
   // can lead to problems when lexing using the source locations from the
   // PCH.
   SourceManager &SM = getSourceManager();
@@ -3226,7 +3227,7 @@ ASTReader::ReadASTBlock(ModuleFile &F, unsigned ClientLoadCapabilities) {
         PP.getPreprocessingRecord()->SetExternalSource(*this);
       F.BasePreprocessedSkippedRangeID = PP.getPreprocessingRecord()
           ->allocateSkippedRanges(F.NumPreprocessedSkippedRanges);
-      
+
       if (F.NumPreprocessedSkippedRanges > 0)
         GlobalSkippedRangeMap.insert(
             std::make_pair(F.BasePreprocessedSkippedRangeID, &F));
@@ -6004,13 +6005,14 @@ QualType ASTReader::readTypeRecord(unsigned Index) {
   }
 
   case TYPE_FUNCTION_NO_PROTO: {
-    if (Record.size() != 7) {
+    if (Record.size() != 8) {
       Error("incorrect encoding of no-proto function type");
       return QualType();
     }
     QualType ResultType = readType(*Loc.F, Record, Idx);
     FunctionType::ExtInfo Info(Record[1], Record[2], Record[3],
-                               (CallingConv)Record[4], Record[5], Record[6]);
+                               (CallingConv)Record[4], Record[5], Record[6], 
+                               Record[7]);
     return Context.getFunctionNoProtoType(ResultType, Info);
   }
 
@@ -6023,9 +6025,10 @@ QualType ASTReader::readTypeRecord(unsigned Index) {
                                         /*regparm*/ Record[3],
                                         static_cast<CallingConv>(Record[4]),
                                         /*produces*/ Record[5],
-                                        /*nocallersavedregs*/ Record[6]);
+                                        /*nocallersavedregs*/ Record[6],
+                                        /*nocfcheck*/ Record[7]);
 
-    unsigned Idx = 7;
+    unsigned Idx = 8;
 
     EPI.Variadic = Record[Idx++];
     EPI.HasTrailingReturn = Record[Idx++];
@@ -9067,8 +9070,7 @@ void ASTReader::ReadComments() {
         bool IsTrailingComment = Record[Idx++];
         bool IsAlmostTrailingComment = Record[Idx++];
         Comments.push_back(new (Context) RawComment(
-            SR, Kind, IsTrailingComment, IsAlmostTrailingComment,
-            Context.getLangOpts().CommentOpts.ParseAllComments));
+            SR, Kind, IsTrailingComment, IsAlmostTrailingComment));
         break;
       }
       }
@@ -9076,8 +9078,8 @@ void ASTReader::ReadComments() {
   NextCursor:
     // De-serialized SourceLocations get negative FileIDs for other modules,
     // potentially invalidating the original order. Sort it again.
-    std::sort(Comments.begin(), Comments.end(),
-              BeforeThanCompare<RawComment>(SourceMgr));
+    llvm::sort(Comments.begin(), Comments.end(),
+               BeforeThanCompare<RawComment>(SourceMgr));
     Context.Comments.addDeserializedComments(Comments);
   }
 }

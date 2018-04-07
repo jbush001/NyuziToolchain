@@ -221,35 +221,6 @@ void tools::gcc::Linker::RenderExtraToolArgs(const JobAction &JA,
   // The types are (hopefully) good enough.
 }
 
-static bool addXRayRuntime(const ToolChain &TC, const ArgList &Args,
-                           ArgStringList &CmdArgs) {
-  // Do not add the XRay runtime to shared libraries.
-  if (Args.hasArg(options::OPT_shared))
-    return false;
-
-  if (Args.hasFlag(options::OPT_fxray_instrument,
-                   options::OPT_fnoxray_instrument, false)) {
-    CmdArgs.push_back("-whole-archive");
-    CmdArgs.push_back(TC.getCompilerRTArgString(Args, "xray", false));
-    CmdArgs.push_back("-no-whole-archive");
-    return true;
-  }
-
-  return false;
-}
-
-static void linkXRayRuntimeDeps(const ToolChain &TC, const ArgList &Args,
-                                ArgStringList &CmdArgs) {
-  CmdArgs.push_back("--no-as-needed");
-  CmdArgs.push_back("-lpthread");
-  CmdArgs.push_back("-lrt");
-  CmdArgs.push_back("-lm");
-
-  if (TC.getTriple().getOS() != llvm::Triple::FreeBSD &&
-      TC.getTriple().getOS() != llvm::Triple::NetBSD)
-    CmdArgs.push_back("-ldl");
-}
-
 static const char *getLDMOption(const llvm::Triple &T, const ArgList &Args) {
   switch (T.getArch()) {
   case llvm::Triple::x86:
@@ -305,7 +276,8 @@ static const char *getLDMOption(const llvm::Triple &T, const ArgList &Args) {
 }
 
 static bool getPIE(const ArgList &Args, const toolchains::Linux &ToolChain) {
-  if (Args.hasArg(options::OPT_shared) || Args.hasArg(options::OPT_static))
+  if (Args.hasArg(options::OPT_shared) || Args.hasArg(options::OPT_static) ||
+      Args.hasArg(options::OPT_r))
     return false;
 
   Arg *A = Args.getLastArg(options::OPT_pie, options::OPT_no_pie,
@@ -378,9 +350,7 @@ void tools::gnutools::Linker::ConstructJob(Compilation &C, const JobAction &JA,
   for (const auto &Opt : ToolChain.ExtraOpts)
     CmdArgs.push_back(Opt.c_str());
 
-  if (!Args.hasArg(options::OPT_static)) {
-    CmdArgs.push_back("--eh-frame-hdr");
-  }
+  CmdArgs.push_back("--eh-frame-hdr");
 
   if (const char *LDMOption = getLDMOption(ToolChain.getTriple(), Args)) {
     CmdArgs.push_back("-m");
@@ -495,7 +465,7 @@ void tools::gnutools::Linker::ConstructJob(Compilation &C, const JobAction &JA,
         linkSanitizerRuntimeDeps(ToolChain, CmdArgs);
 
       if (NeedsXRayDeps)
-        linkXRayRuntimeDeps(ToolChain, Args, CmdArgs);
+        linkXRayRuntimeDeps(ToolChain, CmdArgs);
 
       bool WantPthread = Args.hasArg(options::OPT_pthread) ||
                          Args.hasArg(options::OPT_pthreads);

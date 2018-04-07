@@ -65,6 +65,19 @@ static bool UpgradeX86IntrinsicsWith8BitMask(Function *F, Intrinsic::ID IID,
   return true;
 }
 
+// Upgrade the declaration of fp compare intrinsics that change return type
+// from scalar to vXi1 mask.
+static bool UpgradeX86MaskedFPCompare(Function *F, Intrinsic::ID IID,
+                                      Function *&NewFn) {
+  // Check if the return type is a vector.
+  if (F->getReturnType()->isVectorTy())
+    return false;
+
+  rename(F);
+  NewFn = Intrinsic::getDeclaration(F->getParent(), IID);
+  return true;
+}
+
 static bool ShouldUpgradeX86Intrinsic(Function *F, StringRef Name) {
   // All of the intrinsics matches below should be marked with which llvm
   // version started autoupgrading them. At some point in the future we would
@@ -157,6 +170,9 @@ static bool ShouldUpgradeX86Intrinsic(Function *F, StringRef Name) {
       Name.startswith("avx512.mask.cvtudq2pd.") || // Added in 4.0
       Name.startswith("avx512.mask.pmul.dq.") || // Added in 4.0
       Name.startswith("avx512.mask.pmulu.dq.") || // Added in 4.0
+      Name.startswith("avx512.mask.pmul.hr.sw.") || // Added in 7.0
+      Name.startswith("avx512.mask.pmulh.w.") || // Added in 7.0
+      Name.startswith("avx512.mask.pmulhu.w.") || // Added in 7.0
       Name.startswith("avx512.mask.packsswb.") || // Added in 5.0
       Name.startswith("avx512.mask.packssdw.") || // Added in 5.0
       Name.startswith("avx512.mask.packuswb.") || // Added in 5.0
@@ -322,6 +338,24 @@ static bool UpgradeX86IntrinsicFunction(Function *F, StringRef Name,
   if (Name == "avx2.mpsadbw") // Added in 3.6
     return UpgradeX86IntrinsicsWith8BitMask(F, Intrinsic::x86_avx2_mpsadbw,
                                             NewFn);
+  if (Name == "avx512.mask.cmp.pd.128") // Added in 7.0
+    return UpgradeX86MaskedFPCompare(F, Intrinsic::x86_avx512_mask_cmp_pd_128,
+                                     NewFn);
+  if (Name == "avx512.mask.cmp.pd.256") // Added in 7.0
+    return UpgradeX86MaskedFPCompare(F, Intrinsic::x86_avx512_mask_cmp_pd_256,
+                                     NewFn);
+  if (Name == "avx512.mask.cmp.pd.512") // Added in 7.0
+    return UpgradeX86MaskedFPCompare(F, Intrinsic::x86_avx512_mask_cmp_pd_512,
+                                     NewFn);
+  if (Name == "avx512.mask.cmp.ps.128") // Added in 7.0
+    return UpgradeX86MaskedFPCompare(F, Intrinsic::x86_avx512_mask_cmp_ps_128,
+                                     NewFn);
+  if (Name == "avx512.mask.cmp.ps.256") // Added in 7.0
+    return UpgradeX86MaskedFPCompare(F, Intrinsic::x86_avx512_mask_cmp_ps_256,
+                                     NewFn);
+  if (Name == "avx512.mask.cmp.ps.512") // Added in 7.0
+    return UpgradeX86MaskedFPCompare(F, Intrinsic::x86_avx512_mask_cmp_ps_512,
+                                     NewFn);
 
   // frcz.ss/sd may need to have an argument dropped. Added in 3.2
   if (Name.startswith("xop.vfrcz.ss") && F->arg_size() == 2) {
@@ -1124,7 +1158,8 @@ void llvm::UpgradeIntrinsicCall(CallInst *CI, Function *NewFn) {
       RHS = Builder.CreateShuffleVector(RHS, RHS,
                                         makeArrayRef(Indices, NumElts / 2));
       // Concat the vectors.
-      Rep = Builder.CreateShuffleVector(LHS, RHS,
+      // NOTE: Operands have to be swapped to match intrinsic definition.
+      Rep = Builder.CreateShuffleVector(RHS, LHS,
                                         makeArrayRef(Indices, NumElts));
       Rep = Builder.CreateBitCast(Rep, CI->getType());
     } else if (IsX86 && Name == "avx512.kand.w") {
@@ -1931,6 +1966,46 @@ void llvm::UpgradeIntrinsicCall(CallInst *CI, Function *NewFn) {
                                { CI->getArgOperand(0), CI->getArgOperand(1) });
       Rep = EmitX86Select(Builder, CI->getArgOperand(3), Rep,
                           CI->getArgOperand(2));
+    } else if (IsX86 && Name.startswith("avx512.mask.pmul.hr.sw.")) {
+      VectorType *VecTy = cast<VectorType>(CI->getType());
+      Intrinsic::ID IID;
+      if (VecTy->getPrimitiveSizeInBits() == 128)
+        IID = Intrinsic::x86_ssse3_pmul_hr_sw_128;
+      else if (VecTy->getPrimitiveSizeInBits() == 256)
+        IID = Intrinsic::x86_avx2_pmul_hr_sw;
+      else if (VecTy->getPrimitiveSizeInBits() == 512)
+        IID = Intrinsic::x86_avx512_pmul_hr_sw_512;
+      else
+        llvm_unreachable("Unexpected intrinsic");
+
+      Rep = Builder.CreateCall(Intrinsic::getDeclaration(F->getParent(), IID),
+                               { CI->getArgOperand(0), CI->getArgOperand(1) });
+      Rep = EmitX86Select(Builder, CI->getArgOperand(3), Rep,
+                          CI->getArgOperand(2));
+    } else if (IsX86 && (Name.startswith("avx512.mask.pmulh.w.") ||
+                         Name.startswith("avx512.mask.pmulhu.w."))) {
+      bool IsUnsigned = Name[17] == 'u';
+      VectorType *VecTy = cast<VectorType>(CI->getType());
+      Intrinsic::ID IID;
+      if (!IsUnsigned && VecTy->getPrimitiveSizeInBits() == 128)
+        IID = Intrinsic::x86_sse2_pmulh_w;
+      else if (!IsUnsigned && VecTy->getPrimitiveSizeInBits() == 256)
+        IID = Intrinsic::x86_avx2_pmulh_w;
+      else if (!IsUnsigned && VecTy->getPrimitiveSizeInBits() == 512)
+        IID = Intrinsic::x86_avx512_pmulh_w_512;
+      else if (IsUnsigned && VecTy->getPrimitiveSizeInBits() == 128)
+        IID = Intrinsic::x86_sse2_pmulhu_w;
+      else if (IsUnsigned && VecTy->getPrimitiveSizeInBits() == 256)
+        IID = Intrinsic::x86_avx2_pmulhu_w;
+      else if (IsUnsigned && VecTy->getPrimitiveSizeInBits() == 512)
+        IID = Intrinsic::x86_avx512_pmulhu_w_512;
+      else
+        llvm_unreachable("Unexpected intrinsic");
+
+      Rep = Builder.CreateCall(Intrinsic::getDeclaration(F->getParent(), IID),
+                               { CI->getArgOperand(0), CI->getArgOperand(1) });
+      Rep = EmitX86Select(Builder, CI->getArgOperand(3), Rep,
+                          CI->getArgOperand(2));
     } else if (IsX86 && Name.startswith("avx512.mask.pack")) {
       bool IsUnsigned = Name[16] == 'u';
       bool IsDW = Name[18] == 'd';
@@ -2417,6 +2492,34 @@ void llvm::UpgradeIntrinsicCall(CallInst *CI, Function *NewFn) {
     break;
   }
 
+  case Intrinsic::x86_avx512_mask_cmp_pd_128:
+  case Intrinsic::x86_avx512_mask_cmp_pd_256:
+  case Intrinsic::x86_avx512_mask_cmp_pd_512:
+  case Intrinsic::x86_avx512_mask_cmp_ps_128:
+  case Intrinsic::x86_avx512_mask_cmp_ps_256:
+  case Intrinsic::x86_avx512_mask_cmp_ps_512: {
+    SmallVector<Value *, 4> Args;
+    Args.push_back(CI->getArgOperand(0));
+    Args.push_back(CI->getArgOperand(1));
+    Args.push_back(CI->getArgOperand(2));
+    if (CI->getNumArgOperands() == 5)
+      Args.push_back(CI->getArgOperand(4));
+
+    NewCall = Builder.CreateCall(NewFn, Args);
+    unsigned NumElts = Args[0]->getType()->getVectorNumElements();
+    Value *Res = ApplyX86MaskOn1BitsVec(Builder, NewCall, CI->getArgOperand(3),
+                                        NumElts);
+
+    std::string Name = CI->getName();
+    if (!Name.empty()) {
+      CI->setName(Name + ".old");
+      NewCall->setName(Name);
+    }
+    CI->replaceAllUsesWith(Res);
+    CI->eraseFromParent();
+    return;
+  }
+
   case Intrinsic::thread_pointer: {
     NewCall = Builder.CreateCall(NewFn, {});
     break;
@@ -2580,6 +2683,30 @@ bool llvm::UpgradeDebugInfo(Module &M) {
     M.getContext().diagnose(DiagVersion);
   }
   return Modified;
+}
+
+bool llvm::UpgradeRetainReleaseMarker(Module &M) {
+  bool Changed = false;
+  NamedMDNode *ModRetainReleaseMarker =
+      M.getNamedMetadata("clang.arc.retainAutoreleasedReturnValueMarker");
+  if (ModRetainReleaseMarker) {
+    MDNode *Op = ModRetainReleaseMarker->getOperand(0);
+    if (Op) {
+      MDString *ID = dyn_cast_or_null<MDString>(Op->getOperand(0));
+      if (ID) {
+        SmallVector<StringRef, 4> ValueComp;
+        ID->getString().split(ValueComp, "#");
+        if (ValueComp.size() == 2) {
+          std::string NewValue = ValueComp[0].str() + ";" + ValueComp[1].str();
+          Metadata *Ops[1] = {MDString::get(M.getContext(), NewValue)};
+          ModRetainReleaseMarker->setOperand(0,
+                                             MDNode::get(M.getContext(), Ops));
+          Changed = true;
+        }
+      }
+    }
+  }
+  return Changed;
 }
 
 bool llvm::UpgradeModuleFlags(Module &M) {

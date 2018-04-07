@@ -18,7 +18,7 @@
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/MapVector.h"
-#include "llvm/ADT/None.h"
+#include "llvm/ADT/Optional.h"
 #include "llvm/ADT/SetVector.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
@@ -141,11 +141,13 @@ namespace llvm {
     /// Create a file descriptor to hold debugging information for a file.
     /// \param Filename  File name.
     /// \param Directory Directory.
-    /// \param CSKind    Checksum kind (e.g. CSK_None, CSK_MD5, CSK_SHA1, etc.).
-    /// \param Checksum  Checksum data.
-    DIFile *createFile(StringRef Filename, StringRef Directory,
-                       DIFile::ChecksumKind CSKind = DIFile::CSK_None,
-                       StringRef Checksum = StringRef());
+    /// \param Checksum  Optional checksum kind (e.g. CSK_MD5, CSK_SHA1, etc.)
+    ///                  and value.
+    /// \param Source    Optional source text.
+    DIFile *
+    createFile(StringRef Filename, StringRef Directory,
+               Optional<DIFile::ChecksumInfo<StringRef>> Checksum = None,
+               Optional<StringRef> Source = None);
 
     /// Create debugging information entry for a macro.
     /// \param Parent     Macro parent (could be nullptr).
@@ -166,7 +168,7 @@ namespace llvm {
                                      DIFile *File);
 
     /// Create a single enumerator value.
-    DIEnumerator *createEnumerator(StringRef Name, int64_t Val);
+    DIEnumerator *createEnumerator(StringRef Name, int64_t Val, bool IsUnsigned = false);
 
     /// Create a DWARF unspecified type.
     DIBasicType *createUnspecifiedType(StringRef Name);
@@ -487,10 +489,11 @@ namespace llvm {
     /// \param Elements       Enumeration elements.
     /// \param UnderlyingType Underlying type of a C++11/ObjC fixed enum.
     /// \param UniqueIdentifier A unique identifier for the enum.
+    /// \param IsFixed Boolean flag indicate if this is C++11/ObjC fixed enum.
     DICompositeType *createEnumerationType(
         DIScope *Scope, StringRef Name, DIFile *File, unsigned LineNumber,
         uint64_t SizeInBits, uint32_t AlignInBits, DINodeArray Elements,
-        DIType *UnderlyingType, StringRef UniqueIdentifier = "");
+        DIType *UnderlyingType, StringRef UniqueIdentifier = "", bool IsFixed = false);
 
     /// Create subroutine type.
     /// \param ParameterTypes  An array of subroutine parameter types. This

@@ -31,6 +31,7 @@
 #include "clang/Driver/SanitizerArgs.h"
 #include "clang/Driver/ToolChain.h"
 #include "clang/Driver/Util.h"
+#include "clang/Driver/XRayArgs.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/StringExtras.h"
@@ -455,7 +456,7 @@ void tools::AddGoldPlugin(const ToolChain &ToolChain, const ArgList &Args,
   // Need this flag to turn on new pass manager via Gold plugin.
   if (Args.hasFlag(options::OPT_fexperimental_new_pass_manager,
                    options::OPT_fno_experimental_new_pass_manager,
-                   /* Default */ false)) {
+                   /* Default */ ENABLE_EXPERIMENTAL_NEW_PASS_MANAGER)) {
     CmdArgs.push_back("-plugin-opt=new-pass-manager");
   }
 
@@ -463,6 +464,10 @@ void tools::AddGoldPlugin(const ToolChain &ToolChain, const ArgList &Args,
 
 void tools::addArchSpecificRPath(const ToolChain &TC, const ArgList &Args,
                                  ArgStringList &CmdArgs) {
+  if (!Args.hasFlag(options::OPT_frtlib_add_rpath,
+                    options::OPT_fno_rtlib_add_rpath, false))
+    return;
+
   std::string CandidateRPath = TC.getArchSpecificLibPath();
   if (TC.getVFS().exists(CandidateRPath)) {
     CmdArgs.push_back("-rpath");
@@ -542,24 +547,20 @@ void tools::linkSanitizerRuntimeDeps(const ToolChain &TC,
   // There's no libpthread or librt on RTEMS.
   if (TC.getTriple().getOS() != llvm::Triple::RTEMS) {
     CmdArgs.push_back("-lpthread");
-    CmdArgs.push_back("-lrt");
+    if (TC.getTriple().getOS() != llvm::Triple::OpenBSD)
+      CmdArgs.push_back("-lrt");
   }
   CmdArgs.push_back("-lm");
   // There's no libdl on all OSes.
   if (TC.getTriple().getOS() != llvm::Triple::FreeBSD &&
       TC.getTriple().getOS() != llvm::Triple::NetBSD &&
+      TC.getTriple().getOS() != llvm::Triple::OpenBSD &&
       TC.getTriple().getOS() != llvm::Triple::RTEMS)
     CmdArgs.push_back("-ldl");
-  // Required for functions like forkpty on some OSes
-  if (TC.getTriple().getOS() == llvm::Triple::NetBSD)
-    CmdArgs.push_back("-lutil");
   // Required for backtrace on some OSes
   if (TC.getTriple().getOS() == llvm::Triple::NetBSD ||
       TC.getTriple().getOS() == llvm::Triple::FreeBSD)
     CmdArgs.push_back("-lexecinfo");
-  // Required for kvm (kernel memory interface) on some OSes
-  if (TC.getTriple().getOS() == llvm::Triple::NetBSD)
-    CmdArgs.push_back("-lkvm");
 }
 
 static void
@@ -703,6 +704,33 @@ bool tools::addSanitizerRuntimes(const ToolChain &TC, const ArgList &Args,
     CmdArgs.push_back("-export-dynamic-symbol=__cfi_check");
 
   return !StaticRuntimes.empty() || !NonWholeStaticRuntimes.empty();
+}
+
+bool tools::addXRayRuntime(const ToolChain&TC, const ArgList &Args, ArgStringList &CmdArgs) {
+  if (Args.hasArg(options::OPT_shared))
+    return false;
+
+  if (TC.getXRayArgs().needsXRayRt()) {
+    CmdArgs.push_back("-whole-archive");
+    CmdArgs.push_back(TC.getCompilerRTArgString(Args, "xray", false));
+    CmdArgs.push_back("-no-whole-archive");
+    return true;
+  }
+
+  return false;
+}
+
+void tools::linkXRayRuntimeDeps(const ToolChain &TC, ArgStringList &CmdArgs) {
+  CmdArgs.push_back("--no-as-needed");
+  CmdArgs.push_back("-lpthread");
+  if (TC.getTriple().getOS() != llvm::Triple::OpenBSD)
+    CmdArgs.push_back("-lrt");
+  CmdArgs.push_back("-lm");
+
+  if (TC.getTriple().getOS() != llvm::Triple::FreeBSD &&
+      TC.getTriple().getOS() != llvm::Triple::NetBSD &&
+      TC.getTriple().getOS() != llvm::Triple::OpenBSD)
+    CmdArgs.push_back("-ldl");
 }
 
 bool tools::areOptimizationsEnabled(const ArgList &Args) {
@@ -864,6 +892,10 @@ tools::ParsePICArgs(const ToolChain &ToolChain, const ArgList &Args) {
     }
   }
 
+  // AMDGPU-specific defaults for PIC.
+  if (Triple.getArch() == llvm::Triple::amdgcn)
+    PIC = true;
+
   // The last argument relating to either PIC or PIE wins, and no
   // other argument is used. If the last argument is any flavor of the
   // '-fno-...' arguments, both PIC and PIE are disabled. Any PIE
@@ -969,7 +1001,7 @@ tools::ParsePICArgs(const ToolChain &ToolChain, const ArgList &Args) {
     RWPI = true;
   }
 
-  // ROPI and RWPI are not comaptible with PIC or PIE.
+  // ROPI and RWPI are not compatible with PIC or PIE.
   if ((ROPI || RWPI) && (PIC || PIE))
     ToolChain.getDriver().Diag(diag::err_drv_ropi_rwpi_incompatible_with_pic);
 

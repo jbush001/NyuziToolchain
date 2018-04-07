@@ -122,11 +122,11 @@ namespace X86Local {
   };
 
   enum {
-    OB = 0, TB = 1, T8 = 2, TA = 3, XOP8 = 4, XOP9 = 5, XOPA = 6
+    OB = 0, TB = 1, T8 = 2, TA = 3, XOP8 = 4, XOP9 = 5, XOPA = 6, ThreeDNow = 7
   };
 
   enum {
-    PS = 1, PD = 2, XS = 3, XD = 4
+    PD = 1, XS = 2, XD = 3, PS = 4
   };
 
   enum {
@@ -210,12 +210,12 @@ private:
   /// Indicates whether the instruction should be emitted into the decode
   /// tables; regardless, it will be emitted into the instruction info table
   bool ShouldBeEmitted;
-  
+
   /// The operands of the instruction, as listed in the CodeGenInstruction.
   /// They are not one-to-one with operands listed in the MCInst; for example,
   /// memory operands expand to 5 operands in the MCInst
   const std::vector<CGIOperandList::OperandInfo>* Operands;
-  
+
   /// The description of the instruction that is emitted into the instruction
   /// info table
   InstructionSpecifier* Spec;
@@ -283,7 +283,7 @@ private:
   ///                               operand exists.
   /// @param operandIndex         - The index into the generated operand table.
   ///                               Incremented by this function one or more
-  ///                               times to reflect possible duplicate 
+  ///                               times to reflect possible duplicate
   ///                               operands).
   /// @param physicalOperandIndex - The index of the current operand into the
   ///                               set of non-duplicate ('physical') operands.
@@ -314,12 +314,12 @@ private:
   bool shouldBeEmitted() const {
     return ShouldBeEmitted;
   }
-  
+
   /// emitInstructionSpecifier - Loads the instruction specifier for the current
   ///   instruction into a DisassemblerTables.
   ///
   void emitInstructionSpecifier();
-  
+
   /// emitDecodePath - Populates the proper fields in the decode tables
   ///   corresponding to the decode paths for this instruction.
   ///
@@ -349,7 +349,7 @@ public:
                            const CodeGenInstruction &insn,
                            InstrUID uid);
 };
-  
+
 } // namespace X86Disassembler
 
 } // namespace llvm

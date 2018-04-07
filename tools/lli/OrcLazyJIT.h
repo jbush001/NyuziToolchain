@@ -51,7 +51,7 @@ public:
   using ObjLayerT = orc::RTDyldObjectLinkingLayer;
   using CompileLayerT = orc::IRCompileLayer<ObjLayerT, orc::SimpleCompiler>;
   using TransformFtor =
-          std::function<std::shared_ptr<Module>(std::shared_ptr<Module>)>;
+      std::function<std::unique_ptr<Module>(std::unique_ptr<Module>)>;
   using IRDumpLayerT = orc::IRTransformLayer<CompileLayerT, TransformFtor>;
   using CODLayerT = orc::CompileOnDemandLayer<IRDumpLayerT, CompileCallbackMgr>;
   using IndirectStubsManagerBuilder = CODLayerT::IndirectStubsManagerBuilderT;
@@ -60,19 +60,19 @@ public:
              std::unique_ptr<CompileCallbackMgr> CCMgr,
              IndirectStubsManagerBuilder IndirectStubsMgrBuilder,
              bool InlineStubs)
-      : ES(SSP), TM(std::move(TM)), DL(this->TM->createDataLayout()),
+      : TM(std::move(TM)),
+        DL(this->TM->createDataLayout()),
         CCMgr(std::move(CCMgr)),
         ObjectLayer(ES,
-                    [](orc::VModuleKey) {
-                      return std::make_shared<SectionMemoryManager>();
-                    },
-                    [&](orc::VModuleKey K) {
+                    [this](orc::VModuleKey K) {
                       auto ResolverI = Resolvers.find(K);
                       assert(ResolverI != Resolvers.end() &&
                              "Missing resolver for module K");
                       auto Resolver = std::move(ResolverI->second);
                       Resolvers.erase(ResolverI);
-                      return Resolver;
+                      return ObjLayerT::Resources{
+                          std::make_shared<SectionMemoryManager>(),
+                          std::move(Resolver)};
                     }),
         CompileLayer(ObjectLayer, orc::SimpleCompiler(*this->TM)),
         IRDumpLayer(CompileLayer, createDebugDumper()),
@@ -107,7 +107,7 @@ public:
       }
   }
 
-  Error addModule(std::shared_ptr<Module> M) {
+  Error addModule(std::unique_ptr<Module> M) {
     if (M->getDataLayout().isDefault())
       M->setDataLayout(DL);
 
@@ -174,9 +174,9 @@ public:
             }
             return std::move(*NotFoundViaLegacyLookup);
           },
-          [LegacyLookup](orc::AsynchronousSymbolQuery &Query,
+          [LegacyLookup](std::shared_ptr<orc::AsynchronousSymbolQuery> Query,
                          orc::SymbolNameSet Symbols) {
-            return lookupWithLegacyFn(Query, Symbols, LegacyLookup);
+            return lookupWithLegacyFn(*Query, Symbols, LegacyLookup);
           });
 
       // Add the module to the JIT.

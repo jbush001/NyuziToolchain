@@ -16,9 +16,8 @@
 #define LLD_ELF_SYMBOLS_H
 
 #include "InputSection.h"
-#include "Strings.h"
-
 #include "lld/Common/LLVM.h"
+#include "lld/Common/Strings.h"
 #include "llvm/Object/Archive.h"
 #include "llvm/Object/ELF.h"
 
@@ -81,9 +80,6 @@ public:
   // True if this symbol is specified by --trace-symbol option.
   unsigned Traced : 1;
 
-  // This symbol version was found in a version script.
-  unsigned InVersionScript : 1;
-
   // The file from which this symbol was created.
   InputFile *File;
 
@@ -100,10 +96,10 @@ public:
     return SymbolKind == LazyArchiveKind || SymbolKind == LazyObjectKind;
   }
 
-  // True is this is an undefined weak symbol. This only works once
+  // True if this is an undefined weak symbol. This only works once
   // all input files have been added.
   bool isUndefWeak() const {
-    // See comment on Lazy the details.
+    // See comment on lazy symbols for details.
     return isWeak() && (isUndefined() || isLazy());
   }
 
@@ -155,6 +151,7 @@ public:
   // True if this symbol is in the Igot sub-section of the .got.plt or .got.
   unsigned IsInIgot : 1;
 
+  // True if this symbol is preemptible at load time.
   unsigned IsPreemptible : 1;
 
   // True if an undefined or shared symbol is used from a live section.
@@ -251,42 +248,30 @@ public:
   uint32_t Alignment;
 };
 
-// This represents a symbol that is not yet in the link, but we know where to
-// find it if needed. If the resolver finds both Undefined and Lazy for the same
-// name, it will ask the Lazy to load a file.
+// LazyArchive and LazyObject represent a symbols that is not yet in the link,
+// but we know where to find it if needed. If the resolver finds both Undefined
+// and Lazy for the same name, it will ask the Lazy to load a file.
 //
 // A special complication is the handling of weak undefined symbols. They should
 // not load a file, but we have to remember we have seen both the weak undefined
 // and the lazy. We represent that with a lazy symbol with a weak binding. This
 // means that code looking for undefined symbols normally also has to take lazy
 // symbols into consideration.
-class Lazy : public Symbol {
-public:
-  static bool classof(const Symbol *S) { return S->isLazy(); }
-
-  // Returns an object file for this symbol, or a nullptr if the file
-  // was already returned.
-  InputFile *fetch();
-
-protected:
-  Lazy(Kind K, InputFile &File, StringRef Name, uint8_t Type)
-      : Symbol(K, &File, Name, llvm::ELF::STB_GLOBAL, llvm::ELF::STV_DEFAULT,
-               Type) {}
-};
 
 // This class represents a symbol defined in an archive file. It is
 // created from an archive file header, and it knows how to load an
 // object file from an archive to replace itself with a defined
 // symbol.
-class LazyArchive : public Lazy {
+class LazyArchive : public Symbol {
 public:
   LazyArchive(InputFile &File, const llvm::object::Archive::Symbol S,
               uint8_t Type)
-      : Lazy(LazyArchiveKind, File, S.getName(), Type), Sym(S) {}
+      : Symbol(LazyArchiveKind, &File, S.getName(), llvm::ELF::STB_GLOBAL,
+               llvm::ELF::STV_DEFAULT, Type),
+        Sym(S) {}
 
   static bool classof(const Symbol *S) { return S->kind() == LazyArchiveKind; }
 
-  ArchiveFile &getFile();
   InputFile *fetch();
 
 private:
@@ -295,15 +280,13 @@ private:
 
 // LazyObject symbols represents symbols in object files between
 // --start-lib and --end-lib options.
-class LazyObject : public Lazy {
+class LazyObject : public Symbol {
 public:
   LazyObject(InputFile &File, StringRef Name, uint8_t Type)
-      : Lazy(LazyObjectKind, File, Name, Type) {}
+      : Symbol(LazyObjectKind, &File, Name, llvm::ELF::STB_GLOBAL,
+               llvm::ELF::STV_DEFAULT, Type) {}
 
   static bool classof(const Symbol *S) { return S->kind() == LazyObjectKind; }
-
-  LazyObjFile &getFile();
-  InputFile *fetch();
 };
 
 // Some linker-generated symbols need to be created as
@@ -350,6 +333,8 @@ void printTraceSymbol(Symbol *Sym);
 
 template <typename T, typename... ArgT>
 void replaceSymbol(Symbol *S, ArgT &&... Arg) {
+  static_assert(std::is_trivially_destructible<T>(),
+                "Symbol types must be trivially destructible");
   static_assert(sizeof(T) <= sizeof(SymbolUnion), "SymbolUnion too small");
   static_assert(alignof(T) <= alignof(SymbolUnion),
                 "SymbolUnion not aligned enough");
@@ -366,7 +351,6 @@ void replaceSymbol(Symbol *S, ArgT &&... Arg) {
   S->ExportDynamic = Sym.ExportDynamic;
   S->CanInline = Sym.CanInline;
   S->Traced = Sym.Traced;
-  S->InVersionScript = Sym.InVersionScript;
 
   // Print out a log message if --trace-symbol was specified.
   // This is for debugging.

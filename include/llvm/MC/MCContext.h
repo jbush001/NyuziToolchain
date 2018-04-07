@@ -11,6 +11,7 @@
 #define LLVM_MC_MCCONTEXT_H
 
 #include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/Optional.h"
 #include "llvm/ADT/SetVector.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/SmallVector.h"
@@ -18,11 +19,13 @@
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/Twine.h"
 #include "llvm/BinaryFormat/Dwarf.h"
+#include "llvm/MC/MCAsmMacro.h"
 #include "llvm/MC/MCDwarf.h"
 #include "llvm/MC/MCSubtargetInfo.h"
 #include "llvm/MC/SectionKind.h"
 #include "llvm/Support/Allocator.h"
 #include "llvm/Support/Compiler.h"
+#include "llvm/Support/Error.h"
 #include "llvm/Support/MD5.h"
 #include "llvm/Support/raw_ostream.h"
 #include <algorithm>
@@ -269,6 +272,9 @@ namespace llvm {
                                        unsigned UniqueID,
                                        const MCSymbolELF *Associated);
 
+    /// \brief Map of currently defined macros.
+    StringMap<MCAsmMacro> MacroMap;
+
   public:
     explicit MCContext(const MCAsmInfo *MAI, const MCRegisterInfo *MRI,
                        const MCObjectFileInfo *MOFI,
@@ -489,9 +495,10 @@ namespace llvm {
     void setMainFileName(StringRef S) { MainFileName = S; }
 
     /// Creates an entry in the dwarf file and directory tables.
-    unsigned getDwarfFile(StringRef Directory, StringRef FileName,
-                          unsigned FileNumber, MD5::MD5Result *Checksum,
-                          unsigned CUID);
+    Expected<unsigned> getDwarfFile(StringRef Directory, StringRef FileName,
+                                    unsigned FileNumber,
+                                    MD5::MD5Result *Checksum,
+                                    Optional<StringRef> Source, unsigned CUID);
 
     bool isValidDwarfFileNumber(unsigned FileNumber, unsigned CUID = 0);
 
@@ -530,8 +537,13 @@ namespace llvm {
       DwarfCompileUnitID = CUIndex;
     }
 
-    void setMCLineTableCompilationDir(unsigned CUID, StringRef CompilationDir) {
-      getMCDwarfLineTable(CUID).setCompilationDir(CompilationDir);
+    /// Specifies the "root" file and directory of the compilation unit.
+    /// These are "file 0" and "directory 0" in DWARF v5.
+    void setMCLineTableRootFile(unsigned CUID, StringRef CompilationDir,
+                                StringRef Filename, MD5::MD5Result *Checksum,
+                                Optional<StringRef> Source) {
+      getMCDwarfLineTable(CUID).setRootFile(CompilationDir, Filename, Checksum,
+                                            Source);
     }
 
     /// Saves the information from the currently parsed dwarf .loc directive
@@ -620,6 +632,17 @@ namespace llvm {
     // FIXME: We should really do something about that.
     LLVM_ATTRIBUTE_NORETURN void reportFatalError(SMLoc L,
                                                   const Twine &Msg);
+
+    const MCAsmMacro *lookupMacro(StringRef Name) {
+      StringMap<MCAsmMacro>::iterator I = MacroMap.find(Name);
+      return (I == MacroMap.end()) ? nullptr : &I->getValue();
+    }
+
+    void defineMacro(StringRef Name, MCAsmMacro Macro) {
+      MacroMap.insert(std::make_pair(Name, std::move(Macro)));
+    }
+
+    void undefineMacro(StringRef Name) { MacroMap.erase(Name); }
   };
 
 } // end namespace llvm

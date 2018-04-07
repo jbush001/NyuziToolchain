@@ -42,7 +42,6 @@ namespace orc {
 
 class KaleidoscopeJIT {
 private:
-  SymbolStringPool SSP;
   ExecutionSession ES;
   std::shared_ptr<SymbolResolver> Resolver;
   std::unique_ptr<TargetMachine> TM;
@@ -51,15 +50,13 @@ private:
   IRCompileLayer<decltype(ObjectLayer), SimpleCompiler> CompileLayer;
 
   using OptimizeFunction =
-      std::function<std::shared_ptr<Module>(std::shared_ptr<Module>)>;
+      std::function<std::unique_ptr<Module>(std::unique_ptr<Module>)>;
 
   IRTransformLayer<decltype(CompileLayer), OptimizeFunction> OptimizeLayer;
 
 public:
-
   KaleidoscopeJIT()
-      : ES(SSP),
-        Resolver(createLegacyLookupResolver(
+      : Resolver(createLegacyLookupResolver(
             [this](const std::string &Name) -> JITSymbol {
               if (auto Sym = OptimizeLayer.findSymbol(Name, false))
                 return Sym;
@@ -72,12 +69,13 @@ public:
             },
             [](Error Err) { cantFail(std::move(Err), "lookupFlags failed"); })),
         TM(EngineBuilder().selectTarget()), DL(TM->createDataLayout()),
-        ObjectLayer(
-            ES,
-            [](VModuleKey) { return std::make_shared<SectionMemoryManager>(); },
-            [this](VModuleKey K) { return Resolver; }),
+        ObjectLayer(ES,
+                    [this](VModuleKey) {
+                      return RTDyldObjectLinkingLayer::Resources{
+                          std::make_shared<SectionMemoryManager>(), Resolver};
+                    }),
         CompileLayer(ObjectLayer, SimpleCompiler(*TM)),
-        OptimizeLayer(CompileLayer, [this](std::shared_ptr<Module> M) {
+        OptimizeLayer(CompileLayer, [this](std::unique_ptr<Module> M) {
           return optimizeModule(std::move(M));
         }) {
     llvm::sys::DynamicLibrary::LoadLibraryPermanently(nullptr);
@@ -104,7 +102,7 @@ public:
   }
 
 private:
-  std::shared_ptr<Module> optimizeModule(std::shared_ptr<Module> M) {
+  std::unique_ptr<Module> optimizeModule(std::unique_ptr<Module> M) {
     // Create a function pass manager.
     auto FPM = llvm::make_unique<legacy::FunctionPassManager>(M.get());
 

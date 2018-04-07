@@ -31,7 +31,6 @@
 #include "llvm/ADT/iterator_range.h"
 #include "llvm/CodeGen/ISDOpcodes.h"
 #include "llvm/CodeGen/MachineMemOperand.h"
-#include "llvm/CodeGen/MachineValueType.h"
 #include "llvm/CodeGen/ValueTypes.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DebugLoc.h"
@@ -42,6 +41,7 @@
 #include "llvm/Support/AtomicOrdering.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/MachineValueType.h"
 #include <algorithm>
 #include <cassert>
 #include <climits>
@@ -189,8 +189,10 @@ public:
   inline bool isUndef() const;
   inline unsigned getMachineOpcode() const;
   inline const DebugLoc &getDebugLoc() const;
-  inline void dump(const SelectionDAG *G = nullptr) const;
-  inline void dumpr(const SelectionDAG *G = nullptr) const;
+  inline void dump() const;
+  inline void dump(const SelectionDAG *G) const;
+  inline void dumpr() const;
+  inline void dumpr(const SelectionDAG *G) const;
 
   /// Return true if this operand (which must be a chain) reaches the
   /// specified operand without crossing any side-effecting instructions.
@@ -466,11 +468,13 @@ protected:
     friend class SDNode;
     friend class MemIntrinsicSDNode;
     friend class MemSDNode;
+    friend class SelectionDAG;
 
     uint16_t HasDebugValue : 1;
     uint16_t IsMemIntrinsic : 1;
+    uint16_t IsDivergent : 1;
   };
-  enum { NumSDNodeBits = 2 };
+  enum { NumSDNodeBits = 3 };
 
   class ConstantSDNodeBitfields {
     friend class ConstantSDNode;
@@ -662,6 +666,8 @@ public:
   bool getHasDebugValue() const { return SDNodeBits.HasDebugValue; }
   void setHasDebugValue(bool b) { SDNodeBits.HasDebugValue = b; }
 
+  bool isDivergent() const { return SDNodeBits.IsDivergent; }
+
   /// Return true if there are no uses of this node.
   bool use_empty() const { return UseList == nullptr; }
 
@@ -811,13 +817,19 @@ public:
 
     // Node Id's are assigned in three places: As a topological
     // ordering (> 0), during legalization (results in values set to
-    // 0), and new nodes (set to -1). If N has a topolgical id then we
+    // 0), new nodes (set to -1). If N has a topolgical id then we
     // know that all nodes with ids smaller than it cannot be
     // successors and we need not check them. Filter out all node
     // that can't be matches. We add them to the worklist before exit
-    // in case of multiple calls.
+    // in case of multiple calls. Note that during selection the topological id
+    // may be violated if a node's predecessor is selected before it. We mark
+    // this at selection negating the id of unselected successors and
+    // restricting topological pruning to positive ids.
 
     int NId = N->getNodeId();
+    // If we Invalidated the Id, reconstruct original NId.
+    if (NId < -1)
+      NId = -(NId + 1);
 
     bool Found = false;
     while (!Worklist.empty()) {
@@ -842,6 +854,9 @@ public:
     }
     // Push deferred nodes back on worklist.
     Worklist.append(DeferredNodes.begin(), DeferredNodes.end());
+    // If we bailed early, conservatively return found.
+    if (MaxSteps != 0 && Visited.size() >= MaxSteps)
+      return true;
     return Found;
   }
 
@@ -1113,8 +1128,16 @@ inline const DebugLoc &SDValue::getDebugLoc() const {
   return Node->getDebugLoc();
 }
 
+inline void SDValue::dump() const {
+  return Node->dump();
+}
+
 inline void SDValue::dump(const SelectionDAG *G) const {
   return Node->dump(G);
+}
+
+inline void SDValue::dumpr() const {
+  return Node->dumpr();
 }
 
 inline void SDValue::dumpr(const SelectionDAG *G) const {
@@ -1214,7 +1237,8 @@ public:
   /// encoding of the volatile flag, as well as bits used by subclasses. This
   /// function should only be used to compute a FoldingSetNodeID value.
   /// The HasDebugValue bit is masked out because CSE map needs to match
-  /// nodes with debug info with nodes without debug info.
+  /// nodes with debug info with nodes without debug info. Same is about
+  /// isDivergent bit.
   unsigned getRawSubclassData() const {
     uint16_t Data;
     union {
@@ -1223,6 +1247,7 @@ public:
     };
     memcpy(&RawSDNodeBits, &this->RawSDNodeBits, sizeof(this->RawSDNodeBits));
     SDNodeBits.HasDebugValue = 0;
+    SDNodeBits.IsDivergent = false;
     memcpy(&Data, &RawSDNodeBits, sizeof(RawSDNodeBits));
     return Data;
   }
@@ -1291,6 +1316,7 @@ public:
            N->getOpcode() == ISD::ATOMIC_LOAD_ADD     ||
            N->getOpcode() == ISD::ATOMIC_LOAD_SUB     ||
            N->getOpcode() == ISD::ATOMIC_LOAD_AND     ||
+           N->getOpcode() == ISD::ATOMIC_LOAD_CLR     ||
            N->getOpcode() == ISD::ATOMIC_LOAD_OR      ||
            N->getOpcode() == ISD::ATOMIC_LOAD_XOR     ||
            N->getOpcode() == ISD::ATOMIC_LOAD_NAND    ||
@@ -1342,6 +1368,7 @@ public:
            N->getOpcode() == ISD::ATOMIC_LOAD_ADD     ||
            N->getOpcode() == ISD::ATOMIC_LOAD_SUB     ||
            N->getOpcode() == ISD::ATOMIC_LOAD_AND     ||
+           N->getOpcode() == ISD::ATOMIC_LOAD_CLR     ||
            N->getOpcode() == ISD::ATOMIC_LOAD_OR      ||
            N->getOpcode() == ISD::ATOMIC_LOAD_XOR     ||
            N->getOpcode() == ISD::ATOMIC_LOAD_NAND    ||
@@ -2353,6 +2380,17 @@ namespace ISD {
     return isa<StoreSDNode>(N) &&
       cast<StoreSDNode>(N)->getAddressingMode() == ISD::UNINDEXED;
   }
+
+  /// Attempt to match a unary predicate against a scalar/splat constant or
+  /// every element of a constant BUILD_VECTOR.
+  bool matchUnaryPredicate(SDValue Op,
+                           std::function<bool(ConstantSDNode *)> Match);
+
+  /// Attempt to match a binary predicate against a pair of scalar/splat
+  /// constants or every element of a pair of constant BUILD_VECTORs.
+  bool matchBinaryPredicate(
+      SDValue LHS, SDValue RHS,
+      std::function<bool(ConstantSDNode *, ConstantSDNode *)> Match);
 
 } // end namespace ISD
 

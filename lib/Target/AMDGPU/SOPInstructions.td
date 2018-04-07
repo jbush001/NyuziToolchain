@@ -19,17 +19,28 @@ def GPRIdxMode : Operand<i32> {
   let OperandType = "OPERAND_IMMEDIATE";
 }
 
+class SOP_Pseudo<string opName, dag outs, dag ins, string asmOps,
+                  list<dag> pattern=[]> :
+    InstSI<outs, ins, "", pattern>,
+    SIMCInstr<opName, SIEncodingFamily.NONE> {
+
+  let isPseudo = 1;
+  let isCodeGenOnly = 1;
+  let SubtargetPredicate = isGCN;
+
+  string Mnemonic = opName;
+  string AsmOperands = asmOps;
+
+  bits<1> has_sdst = 0;
+}
+
 //===----------------------------------------------------------------------===//
 // SOP1 Instructions
 //===----------------------------------------------------------------------===//
 
 class SOP1_Pseudo <string opName, dag outs, dag ins,
                    string asmOps, list<dag> pattern=[]> :
-  InstSI <outs, ins, "", pattern>,
-  SIMCInstr<opName, SIEncodingFamily.NONE> {
-  let isPseudo = 1;
-  let isCodeGenOnly = 1;
-  let SubtargetPredicate = isGCN;
+  SOP_Pseudo<opName, outs, ins, asmOps, pattern> {
 
   let mayLoad = 0;
   let mayStore = 0;
@@ -39,9 +50,6 @@ class SOP1_Pseudo <string opName, dag outs, dag ins,
   let SchedRW = [WriteSALU];
   let Size = 4;
   let UseNamedOperandTable = 1;
-
-  string Mnemonic = opName;
-  string AsmOperands = asmOps;
 
   bits<1> has_src0 = 1;
   bits<1> has_sdst = 1;
@@ -247,17 +255,25 @@ def S_SET_GPR_IDX_IDX : SOP1_0_32<"s_set_gpr_idx_idx"> {
 }
 }
 
+let SubtargetPredicate = isGFX9 in {
+  let hasSideEffects = 1, Defs = [EXEC, SCC], Uses = [EXEC] in {
+    def S_ANDN1_SAVEEXEC_B64 : SOP1_64<"s_andn1_saveexec_b64">;
+    def S_ORN1_SAVEEXEC_B64  : SOP1_64<"s_orn1_saveexec_b64">;
+    def S_ANDN1_WREXEC_B64   : SOP1_64<"s_andn1_wrexec_b64">;
+    def S_ANDN2_WREXEC_B64   : SOP1_64<"s_andn2_wrexec_b64">;
+  } // End hasSideEffects = 1, Defs = [EXEC, SCC], Uses = [EXEC]
+
+  def S_BITREPLICATE_B64_B32 : SOP1_64_32<"s_bitreplicate_b64_b32">;
+} // End SubtargetPredicate = isGFX9
+
 //===----------------------------------------------------------------------===//
 // SOP2 Instructions
 //===----------------------------------------------------------------------===//
 
 class SOP2_Pseudo<string opName, dag outs, dag ins,
                   string asmOps, list<dag> pattern=[]> :
-  InstSI<outs, ins, "", pattern>,
-  SIMCInstr<opName, SIEncodingFamily.NONE> {
-  let isPseudo = 1;
-  let isCodeGenOnly = 1;
-  let SubtargetPredicate = isGCN;
+  SOP_Pseudo<opName, outs, ins, asmOps, pattern> {
+
   let mayLoad = 0;
   let mayStore = 0;
   let hasSideEffects = 0;
@@ -266,10 +282,7 @@ class SOP2_Pseudo<string opName, dag outs, dag ins,
   let SchedRW = [WriteSALU];
   let UseNamedOperandTable = 1;
 
-  string Mnemonic = opName;
-  string AsmOperands = asmOps;
-
-  bits<1> has_sdst = 1;
+  let has_sdst = 1;
 
   // Pseudo instructions have no encodings, but adding this field here allows
   // us to do:
@@ -279,7 +292,7 @@ class SOP2_Pseudo<string opName, dag outs, dag ins,
   // let Size = 4; // Do we need size here?
 }
 
-class SOP2_Real<bits<7> op, SOP2_Pseudo ps> :
+class SOP2_Real<bits<7> op, SOP_Pseudo ps> :
   InstSI <ps.OutOperandList, ps.InOperandList,
           ps.Mnemonic # " " # ps.AsmOperands, []>,
   Enc32 {
@@ -659,6 +672,16 @@ def S_SETREG_IMM32_B32 : SOPK_Pseudo <
 
 } // End hasSideEffects = 1
 
+let SubtargetPredicate = isGFX9 in {
+  def S_CALL_B64 : SOPK_Pseudo<
+      "s_call_b64",
+      (outs SReg_64:$sdst),
+      (ins s16imm:$simm16),
+      "$sdst, $simm16"> {
+    let isCall = 1;
+  }
+}
+
 //===----------------------------------------------------------------------===//
 // SOPC Instructions
 //===----------------------------------------------------------------------===//
@@ -805,6 +828,13 @@ def S_ENDPGM_SAVED : SOPP <0x0000001B, (ins), "s_endpgm_saved"> {
   let isReturn = 1;
 }
 }
+
+let SubtargetPredicate = isGFX9 in {
+  let isBarrier = 1, isReturn = 1, simm16 = 0 in {
+    def S_ENDPGM_ORDERED_PS_DONE :
+      SOPP<0x01e, (ins), "s_endpgm_ordered_ps_done">;
+  } // End isBarrier = 1, isReturn = 1, simm16 = 0
+} // End SubtargetPredicate = isGFX9
 
 let isBranch = 1, SchedRW = [WriteBranch] in {
 def S_BRANCH : SOPP <
@@ -1312,3 +1342,15 @@ def S_SETREG_B32_vi        : SOPK_Real_vi <0x12, S_SETREG_B32>;
 //def S_GETREG_REGRD_B32_vi  : SOPK_Real_vi <0x13, S_GETREG_REGRD_B32>; // see pseudo for comments
 def S_SETREG_IMM32_B32_vi  : SOPK_Real64<0x14, S_SETREG_IMM32_B32>,
                              Select_vi<S_SETREG_IMM32_B32.Mnemonic>;
+
+def S_CALL_B64_vi          : SOPK_Real_vi <0x15, S_CALL_B64>;
+
+//===----------------------------------------------------------------------===//
+// SOP1 - GFX9.
+//===----------------------------------------------------------------------===//
+
+def S_ANDN1_SAVEEXEC_B64_vi   : SOP1_Real_vi<0x33, S_ANDN1_SAVEEXEC_B64>;
+def S_ORN1_SAVEEXEC_B64_vi    : SOP1_Real_vi<0x34, S_ORN1_SAVEEXEC_B64>;
+def S_ANDN1_WREXEC_B64_vi     : SOP1_Real_vi<0x35, S_ANDN1_WREXEC_B64>;
+def S_ANDN2_WREXEC_B64_vi     : SOP1_Real_vi<0x36, S_ANDN2_WREXEC_B64>;
+def S_BITREPLICATE_B64_B32_vi : SOP1_Real_vi<0x37, S_BITREPLICATE_B64_B32>;

@@ -40,6 +40,27 @@ Non-comprehensive list of changes in this release
    functionality, or simply have a lot to talk about), see the `NOTE` below
    for adding a new subsection.
 
+* Libraries have been renamed from 7.0 to 7. This change also impacts
+  downstream libraries like lldb.
+
+* The LoopInstSimplify pass (-loop-instsimplify) has been removed.
+
+* Symbols starting with ``?`` are no longer mangled by LLVM when using the
+  Windows ``x`` or ``w`` IR mangling schemes.
+
+* A new tool named :doc:`llvm-exegesis <CommandGuide/llvm-exegesis>` has been
+  added. :program:`llvm-exegesis` automatically measures instruction scheduling
+  properties (latency/uops) and provides a principled way to edit scheduling
+  models.
+
+* A new tool named :doc:`llvm-mca <CommandGuide/llvm-mca>` has been added.
+  :program:`llvm-mca` is a  static performance analysis tool that uses
+  information available in LLVM to statically predict the performance of
+  machine code for a specific CPU.
+
+* The optimization flag to merge constants (-fmerge-all-constants) is no longer
+  applied by default.
+
 * Note..
 
 .. NOTE

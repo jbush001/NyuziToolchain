@@ -7,6 +7,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "llvm/ADT/Optional.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/StringExtras.h"
@@ -86,26 +87,24 @@ public:
 
   void EmitCommentsAndEOL();
 
-  /// isVerboseAsm - Return true if this streamer supports verbose assembly at
-  /// all.
+  /// Return true if this streamer supports verbose assembly at all.
   bool isVerboseAsm() const override { return IsVerboseAsm; }
 
-  /// hasRawTextSupport - We support EmitRawText.
+  /// Do we support EmitRawText?
   bool hasRawTextSupport() const override { return true; }
 
-  /// AddComment - Add a comment that can be emitted to the generated .s
-  /// file if applicable as a QoI issue to make the output of the compiler
-  /// more readable.  This only affects the MCAsmStreamer, and only when
-  /// verbose assembly output is enabled.
+  /// Add a comment that can be emitted to the generated .s file to make the
+  /// output of the compiler more readable. This only affects the MCAsmStreamer
+  /// and only when verbose assembly output is enabled.
   void AddComment(const Twine &T, bool EOL = true) override;
 
-  /// AddEncodingComment - Add a comment showing the encoding of an instruction.
-  /// If PrintSchedInfo - is true then the comment sched:[x:y] should
-  //    be added to output if it's being supported by target
+  /// Add a comment showing the encoding of an instruction.
+  /// If PrintSchedInfo is true, then the comment sched:[x:y] will be added to
+  /// the output if supported by the target.
   void AddEncodingComment(const MCInst &Inst, const MCSubtargetInfo &,
                           bool PrintSchedInfo);
 
-  /// GetCommentOS - Return a raw_ostream that comments can be written to.
+  /// Return a raw_ostream that comments can be written to.
   /// Unlike AddComment, you are required to terminate comments with \n if you
   /// use this method.
   raw_ostream &GetCommentOS() override {
@@ -119,7 +118,7 @@ public:
   void addExplicitComment(const Twine &T) override;
   void emitExplicitComments() override;
 
-  /// AddBlankLine - Emit a blank line to a .s file to pretty it up.
+  /// Emit a blank line to a .s file to pretty it up.
   void AddBlankLine() override {
     EmitEOL();
   }
@@ -128,6 +127,9 @@ public:
   /// @{
 
   void ChangeSection(MCSection *Section, const MCExpr *Subsection) override;
+
+  void emitELFSymverDirective(StringRef AliasName,
+                              const MCSymbol *Aliasee) override;
 
   void EmitLOHDirective(MCLOHType Kind, const MCLOHArgs &Args) override;
   void EmitLabel(MCSymbol *Symbol, SMLoc Loc = SMLoc()) override;
@@ -158,7 +160,7 @@ public:
   void EmitCommonSymbol(MCSymbol *Symbol, uint64_t Size,
                         unsigned ByteAlignment) override;
 
-  /// EmitLocalCommonSymbol - Emit a local common (.lcomm) symbol.
+  /// Emit a local common (.lcomm) symbol.
   ///
   /// @param Symbol - The common symbol to emit.
   /// @param Size - The size of the common symbol.
@@ -211,10 +213,16 @@ public:
                          SMLoc Loc) override;
 
   void EmitFileDirective(StringRef Filename) override;
-  unsigned EmitDwarfFileDirective(unsigned FileNo, StringRef Directory,
-                                  StringRef Filename,
-                                  MD5::MD5Result *Checksum = 0,
-                                  unsigned CUID = 0) override;
+  Expected<unsigned> tryEmitDwarfFileDirective(unsigned FileNo,
+                                               StringRef Directory,
+                                               StringRef Filename,
+                                               MD5::MD5Result *Checksum = 0,
+                                               Optional<StringRef> Source = None,
+                                               unsigned CUID = 0) override;
+  void emitDwarfFile0Directive(StringRef Directory, StringRef Filename,
+                               MD5::MD5Result *Checksum,
+                               Optional<StringRef> Source,
+                               unsigned CUID = 0) override;
   void EmitDwarfLocDirective(unsigned FileNo, unsigned Line,
                              unsigned Column, unsigned Flags,
                              unsigned Isa, unsigned Discriminator,
@@ -297,9 +305,9 @@ public:
   bool EmitRelocDirective(const MCExpr &Offset, StringRef Name,
                           const MCExpr *Expr, SMLoc Loc) override;
 
-  /// EmitRawText - If this file is backed by an assembly streamer, this dumps
-  /// the specified string in the output .s file.  This capability is
-  /// indicated by the hasRawTextSupport() predicate.
+  /// If this file is backed by an assembly streamer, this dumps the specified
+  /// string in the output .s file. This capability is indicated by the
+  /// hasRawTextSupport() predicate.
   void EmitRawTextImpl(StringRef String) override;
 
   void FinishImpl() override;
@@ -307,11 +315,6 @@ public:
 
 } // end anonymous namespace.
 
-/// AddComment - Add a comment that can be emitted to the generated .s
-/// file if applicable as a QoI issue to make the output of the compiler
-/// more readable.  This only affects the MCAsmStreamer, and only when
-/// verbose assembly output is enabled.
-/// By deafult EOL is set to true so that each comment goes on its own line.
 void MCAsmStreamer::AddComment(const Twine &T, bool EOL) {
   if (!IsVerboseAsm) return;
 
@@ -409,6 +412,14 @@ void MCAsmStreamer::ChangeSection(MCSection *Section,
         *MAI, getContext().getObjectFileInfo()->getTargetTriple(), OS,
         Subsection);
   }
+}
+
+void MCAsmStreamer::emitELFSymverDirective(StringRef AliasName,
+                                           const MCSymbol *Aliasee) {
+  OS << ".symver ";
+  Aliasee->print(OS, MAI);
+  OS << ", " << AliasName;
+  EmitEOL();
 }
 
 void MCAsmStreamer::EmitLabel(MCSymbol *Symbol, SMLoc Loc) {
@@ -525,8 +536,9 @@ void MCAsmStreamer::EmitThumbFunc(MCSymbol *Func) {
 }
 
 void MCAsmStreamer::EmitAssignment(MCSymbol *Symbol, const MCExpr *Value) {
+  OS << ".set ";
   Symbol->print(OS, MAI);
-  OS << " = ";
+  OS << ", ";
   Value->print(OS, MAI);
 
   EmitEOL();
@@ -694,10 +706,6 @@ void MCAsmStreamer::EmitCommonSymbol(MCSymbol *Symbol, uint64_t Size,
   EmitEOL();
 }
 
-/// EmitLocalCommonSymbol - Emit a local common (.lcomm) symbol.
-///
-/// @param Symbol - The common symbol to emit.
-/// @param Size - The size of the common symbol.
 void MCAsmStreamer::EmitLocalCommonSymbol(MCSymbol *Symbol, uint64_t Size,
                                           unsigned ByteAlign) {
   OS << "\t.lcomm\t";
@@ -910,7 +918,7 @@ void MCAsmStreamer::EmitULEB128Value(const MCExpr *Value) {
     EmitULEB128IntValue(IntValue);
     return;
   }
-  OS << ".uleb128 ";
+  OS << "\t.uleb128 ";
   Value->print(OS, MAI);
   EmitEOL();
 }
@@ -921,7 +929,7 @@ void MCAsmStreamer::EmitSLEB128Value(const MCExpr *Value) {
     EmitSLEB128IntValue(IntValue);
     return;
   }
-  OS << ".sleb128 ";
+  OS << "\t.sleb128 ";
   Value->print(OS, MAI);
   EmitEOL();
 }
@@ -1073,21 +1081,12 @@ void MCAsmStreamer::EmitFileDirective(StringRef Filename) {
   EmitEOL();
 }
 
-unsigned MCAsmStreamer::EmitDwarfFileDirective(unsigned FileNo,
-                                               StringRef Directory,
-                                               StringRef Filename,
-                                               MD5::MD5Result *Checksum,
-                                               unsigned CUID) {
-  assert(CUID == 0);
-
-  MCDwarfLineTable &Table = getContext().getMCDwarfLineTable(CUID);
-  unsigned NumFiles = Table.getMCDwarfFiles().size();
-  FileNo = Table.getFile(Directory, Filename, Checksum, FileNo);
-  if (FileNo == 0)
-    return 0;
-  if (NumFiles == Table.getMCDwarfFiles().size())
-    return FileNo;
-
+static void printDwarfFileDirective(unsigned FileNo, StringRef Directory,
+                                    StringRef Filename,
+                                    MD5::MD5Result *Checksum,
+                                    Optional<StringRef> Source,
+                                    bool UseDwarfDirectory,
+                                    raw_svector_ostream &OS) {
   SmallString<128> FullPathName;
 
   if (!UseDwarfDirectory && !Directory.empty()) {
@@ -1101,25 +1100,69 @@ unsigned MCAsmStreamer::EmitDwarfFileDirective(unsigned FileNo,
     }
   }
 
+  OS << "\t.file\t" << FileNo << ' ';
+  if (!Directory.empty()) {
+    PrintQuotedString(Directory, OS);
+    OS << ' ';
+  }
+  PrintQuotedString(Filename, OS);
+  if (Checksum) {
+    OS << " md5 ";
+    PrintQuotedString(Checksum->digest(), OS);
+  }
+  if (Source) {
+    OS << " source ";
+    PrintQuotedString(*Source, OS);
+  }
+}
+
+Expected<unsigned> MCAsmStreamer::tryEmitDwarfFileDirective(
+    unsigned FileNo, StringRef Directory, StringRef Filename,
+    MD5::MD5Result *Checksum, Optional<StringRef> Source, unsigned CUID) {
+  assert(CUID == 0 && "multiple CUs not supported by MCAsmStreamer");
+
+  MCDwarfLineTable &Table = getContext().getMCDwarfLineTable(CUID);
+  unsigned NumFiles = Table.getMCDwarfFiles().size();
+  Expected<unsigned> FileNoOrErr =
+      Table.tryGetFile(Directory, Filename, Checksum, Source, FileNo);
+  if (!FileNoOrErr)
+    return FileNoOrErr.takeError();
+  FileNo = FileNoOrErr.get();
+  if (NumFiles == Table.getMCDwarfFiles().size())
+    return FileNo;
+
   SmallString<128> Str;
   raw_svector_ostream OS1(Str);
-  OS1 << "\t.file\t" << FileNo << ' ';
-  if (!Directory.empty()) {
-    PrintQuotedString(Directory, OS1);
-    OS1 << ' ';
-  }
-  PrintQuotedString(Filename, OS1);
-  if (Checksum) {
-    OS1 << " md5 ";
-    PrintQuotedString(Checksum->digest(), OS1);
-  }
-  if (MCTargetStreamer *TS = getTargetStreamer()) {
+  printDwarfFileDirective(FileNo, Directory, Filename, Checksum, Source,
+                          UseDwarfDirectory, OS1);
+
+  if (MCTargetStreamer *TS = getTargetStreamer())
     TS->emitDwarfFileDirective(OS1.str());
-  } else {
+  else
     EmitRawText(OS1.str());
-  }
 
   return FileNo;
+}
+
+void MCAsmStreamer::emitDwarfFile0Directive(StringRef Directory,
+                                            StringRef Filename,
+                                            MD5::MD5Result *Checksum,
+                                            Optional<StringRef> Source,
+                                            unsigned CUID) {
+  assert(CUID == 0);
+  // .file 0 is new for DWARF v5.
+  if (getContext().getDwarfVersion() < 5)
+    return;
+
+  SmallString<128> Str;
+  raw_svector_ostream OS1(Str);
+  printDwarfFileDirective(0, Directory, Filename, Checksum, Source,
+                          UseDwarfDirectory, OS1);
+
+  if (MCTargetStreamer *TS = getTargetStreamer())
+    TS->emitDwarfFileDirective(OS1.str());
+  else
+    EmitRawText(OS1.str());
 }
 
 void MCAsmStreamer::EmitDwarfLocDirective(unsigned FileNo, unsigned Line,
@@ -1128,27 +1171,29 @@ void MCAsmStreamer::EmitDwarfLocDirective(unsigned FileNo, unsigned Line,
                                           unsigned Discriminator,
                                           StringRef FileName) {
   OS << "\t.loc\t" << FileNo << " " << Line << " " << Column;
-  if (Flags & DWARF2_FLAG_BASIC_BLOCK)
-    OS << " basic_block";
-  if (Flags & DWARF2_FLAG_PROLOGUE_END)
-    OS << " prologue_end";
-  if (Flags & DWARF2_FLAG_EPILOGUE_BEGIN)
-    OS << " epilogue_begin";
+  if (MAI->supportsExtendedDwarfLocDirective()) {
+    if (Flags & DWARF2_FLAG_BASIC_BLOCK)
+      OS << " basic_block";
+    if (Flags & DWARF2_FLAG_PROLOGUE_END)
+      OS << " prologue_end";
+    if (Flags & DWARF2_FLAG_EPILOGUE_BEGIN)
+      OS << " epilogue_begin";
 
-  unsigned OldFlags = getContext().getCurrentDwarfLoc().getFlags();
-  if ((Flags & DWARF2_FLAG_IS_STMT) != (OldFlags & DWARF2_FLAG_IS_STMT)) {
-    OS << " is_stmt ";
+    unsigned OldFlags = getContext().getCurrentDwarfLoc().getFlags();
+    if ((Flags & DWARF2_FLAG_IS_STMT) != (OldFlags & DWARF2_FLAG_IS_STMT)) {
+      OS << " is_stmt ";
 
-    if (Flags & DWARF2_FLAG_IS_STMT)
-      OS << "1";
-    else
-      OS << "0";
+      if (Flags & DWARF2_FLAG_IS_STMT)
+        OS << "1";
+      else
+        OS << "0";
+    }
+
+    if (Isa)
+      OS << " isa " << Isa;
+    if (Discriminator)
+      OS << " discriminator " << Discriminator;
   }
-
-  if (Isa)
-    OS << " isa " << Isa;
-  if (Discriminator)
-    OS << " discriminator " << Discriminator;
 
   if (IsVerboseAsm) {
     OS.PadToColumn(MAI->getCommentColumn());

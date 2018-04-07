@@ -180,7 +180,7 @@ Checkers = ",".join([
     "nullability"
 ])
 
-Verbose = 1
+Verbose = 0
 
 #------------------------------------------------------------------------------
 # Test harness logic.
@@ -566,10 +566,13 @@ def runCmpResults(Dir, Strictness=0):
                                RefDir, NewDir))
 
         PatchedSourceDirPath = os.path.join(Dir, PatchedSourceDirName)
-        Opts = CmpRuns.CmpOptions(rootA="", rootB=PatchedSourceDirPath)
+        Opts, Args = CmpRuns.generate_option_parser().parse_args(
+            ["--rootA", "", "--rootB", PatchedSourceDirPath])
         # Scan the results, delete empty plist files.
         NumDiffs, ReportsInRef, ReportsInNew = \
-            CmpRuns.dumpScanBuildResultsDiff(RefDir, NewDir, Opts, False)
+            CmpRuns.dumpScanBuildResultsDiff(RefDir, NewDir, Opts,
+                                             deleteEmpty=False,
+                                             Stdout=Local.stdout)
         if (NumDiffs > 0):
             Local.stdout.write("Warning: %s differences in diagnostics.\n"
                                % NumDiffs)

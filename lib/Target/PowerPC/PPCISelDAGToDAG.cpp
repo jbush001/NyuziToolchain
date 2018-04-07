@@ -32,7 +32,6 @@
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
-#include "llvm/CodeGen/MachineValueType.h"
 #include "llvm/CodeGen/SelectionDAG.h"
 #include "llvm/CodeGen/SelectionDAGISel.h"
 #include "llvm/CodeGen/SelectionDAGNodes.h"
@@ -53,6 +52,7 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/KnownBits.h"
+#include "llvm/Support/MachineValueType.h"
 #include "llvm/Support/MathExtras.h"
 #include "llvm/Support/raw_ostream.h"
 #include <algorithm>
@@ -99,6 +99,11 @@ static cl::opt<bool> BPermRewriterNoMasking(
 static cl::opt<bool> EnableBranchHint(
   "ppc-use-branch-hint", cl::init(true),
     cl::desc("Enable static hinting of branches on ppc"),
+    cl::Hidden);
+
+static cl::opt<bool> EnableTLSOpt(
+  "ppc-tls-opt", cl::init(true),
+    cl::desc("Enable tls optimization peephole"),
     cl::Hidden);
 
 enum ICmpInGPRType { ICGPR_All, ICGPR_None, ICGPR_I32, ICGPR_I64,
@@ -199,6 +204,14 @@ namespace {
     bool tryBitPermutation(SDNode *N);
     bool tryIntCompareInGPR(SDNode *N);
 
+    // tryTLSXFormLoad - Convert an ISD::LOAD fed by a PPCISD::ADD_TLS into
+    // an X-Form load instruction with the offset being a relocation coming from
+    // the PPCISD::ADD_TLS.
+    bool tryTLSXFormLoad(LoadSDNode *N);
+    // tryTLSXFormStore - Convert an ISD::STORE fed by a PPCISD::ADD_TLS into
+    // an X-Form store instruction with the offset being a relocation coming from
+    // the PPCISD::ADD_TLS.
+    bool tryTLSXFormStore(StoreSDNode *N);
     /// SelectCC - Select a comparison of the specified values with the
     /// specified condition code, returning the CR# of the expression.
     SDValue SelectCC(SDValue LHS, SDValue RHS, ISD::CondCode CC,
@@ -417,6 +430,16 @@ SDNode *PPCDAGToDAGISel::getGlobalBaseReg() {
         BuildMI(FirstMBB, MBBI, dl, TII.get(PPC::MFLR), GlobalBaseReg);
       }
     } else {
+      // We must ensure that this sequence is dominated by the prologue.
+      // FIXME: This is a bit of a big hammer since we don't get the benefits
+      // of shrink-wrapping whenever we emit this instruction. Considering
+      // this is used in any function where we emit a jump table, this may be
+      // a significant limitation. We should consider inserting this in the
+      // block where it is used and then commoning this sequence up if it
+      // appears in multiple places.
+      // Note: on ISA 3.0 cores, we can use lnia (addpcis) insteand of
+      // MovePCtoLR8.
+      MF->getInfo<PPCFunctionInfo>()->setShrinkWrapDisabled(true);
       GlobalBaseReg = RegInfo->createVirtualRegister(&PPC::G8RC_and_G8RC_NOX0RegClass);
       BuildMI(FirstMBB, MBBI, dl, TII.get(PPC::MovePCtoLR8));
       BuildMI(FirstMBB, MBBI, dl, TII.get(PPC::MFLR8), GlobalBaseReg);
@@ -570,6 +593,90 @@ bool PPCDAGToDAGISel::isRotateAndMask(SDNode *N, unsigned Mask,
     return isRunOfOnes(Mask, MB, ME);
   }
   return false;
+}
+
+bool PPCDAGToDAGISel::tryTLSXFormStore(StoreSDNode *ST) {
+  SDValue Base = ST->getBasePtr();
+  if (Base.getOpcode() != PPCISD::ADD_TLS)
+    return false;
+  SDValue Offset = ST->getOffset();
+  if (!Offset.isUndef())
+    return false;
+
+  SDLoc dl(ST);
+  EVT MemVT = ST->getMemoryVT();
+  EVT RegVT = ST->getValue().getValueType();
+
+  unsigned Opcode;
+  switch (MemVT.getSimpleVT().SimpleTy) {
+    default:
+      return false;
+    case MVT::i8: {
+      Opcode = (RegVT == MVT::i32) ? PPC::STBXTLS_32 : PPC::STBXTLS;
+      break;
+    }
+    case MVT::i16: {
+      Opcode = (RegVT == MVT::i32) ? PPC::STHXTLS_32 : PPC::STHXTLS;
+      break;
+    }
+    case MVT::i32: {
+      Opcode = (RegVT == MVT::i32) ? PPC::STWXTLS_32 : PPC::STWXTLS;
+      break;
+    }
+    case MVT::i64: {
+      Opcode = PPC::STDXTLS;
+      break;
+    }
+  }
+  SDValue Chain = ST->getChain();
+  SDVTList VTs = ST->getVTList();
+  SDValue Ops[] = {ST->getValue(), Base.getOperand(0), Base.getOperand(1),
+                   Chain};
+  SDNode *MN = CurDAG->getMachineNode(Opcode, dl, VTs, Ops);
+  transferMemOperands(ST, MN);
+  ReplaceNode(ST, MN);
+  return true;
+}
+
+bool PPCDAGToDAGISel::tryTLSXFormLoad(LoadSDNode *LD) {
+  SDValue Base = LD->getBasePtr();
+  if (Base.getOpcode() != PPCISD::ADD_TLS)
+    return false;
+  SDValue Offset = LD->getOffset();
+  if (!Offset.isUndef())
+    return false;
+
+  SDLoc dl(LD);
+  EVT MemVT = LD->getMemoryVT();
+  EVT RegVT = LD->getValueType(0);
+  unsigned Opcode;
+  switch (MemVT.getSimpleVT().SimpleTy) {
+    default:
+      return false;
+    case MVT::i8: {
+      Opcode = (RegVT == MVT::i32) ? PPC::LBZXTLS_32 : PPC::LBZXTLS;
+      break;
+    }
+    case MVT::i16: {
+      Opcode = (RegVT == MVT::i32) ? PPC::LHZXTLS_32 : PPC::LHZXTLS;
+      break;
+    }
+    case MVT::i32: {
+      Opcode = (RegVT == MVT::i32) ? PPC::LWZXTLS_32 : PPC::LWZXTLS;
+      break;
+    }
+    case MVT::i64: {
+      Opcode = PPC::LDXTLS;
+      break;
+    }
+  }
+  SDValue Chain = LD->getChain();
+  SDVTList VTs = LD->getVTList();
+  SDValue Ops[] = {Base.getOperand(0), Base.getOperand(1), Chain};
+  SDNode *MN = CurDAG->getMachineNode(Opcode, dl, VTs, Ops);
+  transferMemOperands(LD, MN);
+  ReplaceNode(LD, MN);
+  return true;
 }
 
 /// Turn an or of two masked values into the rotate left word immediate then
@@ -3830,19 +3937,27 @@ bool PPCDAGToDAGISel::isOffsetMultipleOf(SDNode *N, unsigned Val) const {
   else if (STN)
     AddrOp = STN->getOperand(2);
 
+  // If the address points a frame object or a frame object with an offset,
+  // we need to check the object alignment.
   short Imm = 0;
-  if (AddrOp.getOpcode() == ISD::ADD) {
+  if (FrameIndexSDNode *FI = dyn_cast<FrameIndexSDNode>(
+          AddrOp.getOpcode() == ISD::ADD ? AddrOp.getOperand(0) :
+                                           AddrOp)) {
     // If op0 is a frame index that is under aligned, we can't do it either,
     // because it is translated to r31 or r1 + slot + offset. We won't know the
     // slot number until the stack frame is finalized.
-    if (FrameIndexSDNode *FI = dyn_cast<FrameIndexSDNode>(AddrOp.getOperand(0))) {
-      const MachineFrameInfo &MFI = CurDAG->getMachineFunction().getFrameInfo();
-      unsigned SlotAlign = MFI.getObjectAlignment(FI->getIndex());
-      if ((SlotAlign % Val) != 0)
-        return false;
-    }
-    return isIntS16Immediate(AddrOp.getOperand(1), Imm) && !(Imm % Val);
+    const MachineFrameInfo &MFI = CurDAG->getMachineFunction().getFrameInfo();
+    unsigned SlotAlign = MFI.getObjectAlignment(FI->getIndex());
+    if ((SlotAlign % Val) != 0)
+      return false;
+
+    // If we have an offset, we need further check on the offset.
+    if (AddrOp.getOpcode() != ISD::ADD)
+      return true;
   }
+
+  if (AddrOp.getOpcode() == ISD::ADD)
+    return isIntS16Immediate(AddrOp.getOperand(1), Imm) && !(Imm % Val);
 
   // If the address comes from the outside, the offset will be zero.
   return AddrOp.getOpcode() == ISD::CopyFromReg;
@@ -3894,6 +4009,27 @@ void PPCDAGToDAGISel::Select(SDNode *N) {
       return;
     break;
 
+  case PPCISD::CALL: {
+    const Module *M = MF->getFunction().getParent();
+
+    if (PPCLowering->getPointerTy(CurDAG->getDataLayout()) != MVT::i32 ||
+        !PPCSubTarget->isSecurePlt() || !PPCSubTarget->isTargetELF() ||
+        M->getPICLevel() == PICLevel::SmallPIC)
+      break;
+
+    SDValue Op = N->getOperand(1);
+
+    if (GlobalAddressSDNode *GA = dyn_cast<GlobalAddressSDNode>(Op)) {
+      if (GA->getTargetFlags() == PPCII::MO_PLT)
+        getGlobalBaseReg();
+    }
+    else if (ExternalSymbolSDNode *ES = dyn_cast<ExternalSymbolSDNode>(Op)) {
+      if (ES->getTargetFlags() == PPCII::MO_PLT)
+        getGlobalBaseReg();
+    }
+  }
+    break;
+
   case PPCISD::GlobalBaseReg:
     ReplaceNode(N, getGlobalBaseReg());
     return;
@@ -3939,14 +4075,28 @@ void PPCDAGToDAGISel::Select(SDNode *N) {
     }
   }
 
+  case ISD::STORE: {
+    // Change TLS initial-exec D-form stores to X-form stores.
+    StoreSDNode *ST = cast<StoreSDNode>(N);
+    if (EnableTLSOpt && PPCSubTarget->isELFv2ABI() &&
+        ST->getAddressingMode() != ISD::PRE_INC)
+      if (tryTLSXFormStore(ST))
+        return;
+    break;
+  }
   case ISD::LOAD: {
     // Handle preincrement loads.
     LoadSDNode *LD = cast<LoadSDNode>(N);
     EVT LoadedVT = LD->getMemoryVT();
 
     // Normal loads are handled by code generated from the .td file.
-    if (LD->getAddressingMode() != ISD::PRE_INC)
+    if (LD->getAddressingMode() != ISD::PRE_INC) {
+      // Change TLS initial-exec D-form loads to X-form loads.
+      if (EnableTLSOpt && PPCSubTarget->isELFv2ABI())
+        if (tryTLSXFormLoad(LD))
+          return;
       break;
+    }
 
     SDValue Offset = LD->getOffset();
     if (Offset.getOpcode() == ISD::TargetConstant ||

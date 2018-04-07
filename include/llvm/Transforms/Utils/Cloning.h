@@ -49,15 +49,15 @@ class ReturnInst;
 
 /// Return an exact copy of the specified module
 ///
-std::unique_ptr<Module> CloneModule(const Module *M);
-std::unique_ptr<Module> CloneModule(const Module *M, ValueToValueMapTy &VMap);
+std::unique_ptr<Module> CloneModule(const Module &M);
+std::unique_ptr<Module> CloneModule(const Module &M, ValueToValueMapTy &VMap);
 
 /// Return a copy of the specified module. The ShouldCloneDefinition function
 /// controls whether a specific GlobalValue's definition is cloned. If the
 /// function returns false, the module copy will contain an external reference
 /// in place of the global definition.
 std::unique_ptr<Module>
-CloneModule(const Module *M, ValueToValueMapTy &VMap,
+CloneModule(const Module &M, ValueToValueMapTy &VMap,
             function_ref<bool(const GlobalValue *)> ShouldCloneDefinition);
 
 /// ClonedCodeInfo - This struct can be used to capture information about code
@@ -265,7 +265,8 @@ void remapInstructionsInBlocks(const SmallVectorImpl<BasicBlock *> &Blocks,
 BasicBlock *
 DuplicateInstructionsInSplitBetween(BasicBlock *BB, BasicBlock *PredBB,
                                     Instruction *StopAt,
-                                    ValueToValueMapTy &ValueMapping);
+                                    ValueToValueMapTy &ValueMapping,
+                                    DominatorTree *DT = nullptr);
 } // end namespace llvm
 
 #endif // LLVM_TRANSFORMS_UTILS_CLONING_H

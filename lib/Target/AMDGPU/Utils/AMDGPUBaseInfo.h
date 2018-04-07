@@ -372,7 +372,6 @@ LLVM_READNONE
 bool isInlinableLiteralV216(int32_t Literal, bool HasInv2Pi);
 
 bool isArgPassedInSGPR(const Argument *Arg);
-bool isUniformMMO(const MachineMemOperand *MMO);
 
 /// \returns The encoding that will be used for \p ByteOffset in the SMRD
 /// offset field.
@@ -382,6 +381,9 @@ int64_t getSMRDEncodedOffset(const MCSubtargetInfo &ST, int64_t ByteOffset);
 /// offset field.  \p ByteOffset should be the offset in bytes and
 /// not the encoded offset.
 bool isLegalSMRDImmOffset(const MCSubtargetInfo &ST, int64_t ByteOffset);
+
+/// \returns true if the intrinsic is divergent
+bool isIntrinsicSourceOfDivergence(unsigned IntrID);
 
 } // end namespace AMDGPU
 } // end namespace llvm

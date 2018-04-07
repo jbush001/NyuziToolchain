@@ -29,9 +29,9 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
+#include "llvm/Analysis/DivergenceAnalysis.h"
 #include "llvm/CodeGen/DAGCombine.h"
 #include "llvm/CodeGen/ISDOpcodes.h"
-#include "llvm/CodeGen/MachineValueType.h"
 #include "llvm/CodeGen/RuntimeLibcalls.h"
 #include "llvm/CodeGen/SelectionDAG.h"
 #include "llvm/CodeGen/SelectionDAGNodes.h"
@@ -52,6 +52,7 @@
 #include "llvm/Support/AtomicOrdering.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/MachineValueType.h"
 #include "llvm/Target/TargetMachine.h"
 #include <algorithm>
 #include <cassert>
@@ -253,7 +254,8 @@ public:
   /// A documentation for this function would be nice...
   virtual MVT getScalarShiftAmountTy(const DataLayout &, EVT) const;
 
-  EVT getShiftAmountTy(EVT LHSTy, const DataLayout &DL) const;
+  EVT getShiftAmountTy(EVT LHSTy, const DataLayout &DL,
+                       bool LegalTypes = true) const;
 
   /// Returns the type to be used for the index operand of:
   /// ISD::INSERT_VECTOR_ELT, ISD::EXTRACT_VECTOR_ELT,
@@ -812,7 +814,7 @@ public:
   bool rangeFitsInWord(const APInt &Low, const APInt &High,
                        const DataLayout &DL) const {
     // FIXME: Using the pointer type doesn't seem ideal.
-    uint64_t BW = DL.getPointerSizeInBits();
+    uint64_t BW = DL.getIndexSizeInBits(0u);
     uint64_t Range = (High - Low).getLimitedValue(UINT64_MAX - 1) + 1;
     return Range <= BW;
   }
@@ -986,9 +988,14 @@ public:
 
   /// Return true if the specified condition code is legal on this target.
   bool isCondCodeLegal(ISD::CondCode CC, MVT VT) const {
-    return
-      getCondCodeAction(CC, VT) == Legal ||
-      getCondCodeAction(CC, VT) == Custom;
+    return getCondCodeAction(CC, VT) == Legal;
+  }
+
+  /// Return true if the specified condition code is legal or custom on this
+  /// target.
+  bool isCondCodeLegalOrCustom(ISD::CondCode CC, MVT VT) const {
+    return getCondCodeAction(CC, VT) == Legal ||
+           getCondCodeAction(CC, VT) == Custom;
   }
 
   /// If the action for this operation is to promote, this method returns the
@@ -2110,6 +2117,9 @@ public:
     return false;
   }
 
+  /// Return true if the target has a vector blend instruction.
+  virtual bool hasVectorBlend() const { return false; }
+
   /// \brief Get the maximum supported factor for interleaved memory accesses.
   /// Default to be the minimum interleave factor: 2.
   virtual unsigned getMaxSupportedInterleaveFactor() const { return 2; }
@@ -2556,6 +2566,16 @@ public:
 
   bool isPositionIndependent() const;
 
+  virtual bool isSDNodeSourceOfDivergence(const SDNode *N,
+                                          FunctionLoweringInfo *FLI,
+                                          DivergenceAnalysis *DA) const {
+    return false;
+  }
+
+  virtual bool isSDNodeAlwaysUniform(const SDNode * N) const {
+    return false;
+  }
+
   /// Returns true by value, base pointer and offset pointer and addressing mode
   /// by reference if the node's address can be legally represented as
   /// pre-indexed load / store address.
@@ -2707,6 +2727,30 @@ public:
   bool SimplifyDemandedBits(SDValue Op, const APInt &DemandedMask,
                             DAGCombinerInfo &DCI) const;
 
+  /// Look at Vector Op. At this point, we know that only the DemandedElts
+  /// elements of the result of Op are ever used downstream.  If we can use
+  /// this information to simplify Op, create a new simplified DAG node and
+  /// return true, storing the original and new nodes in TLO.
+  /// Otherwise, analyze the expression and return a mask of KnownUndef and
+  /// KnownZero elements for the expression (used to simplify the caller).
+  /// The KnownUndef/Zero elements may only be accurate for those bits
+  /// in the DemandedMask.
+  /// \p AssumeSingleUse When this parameter is true, this function will
+  ///    attempt to simplify \p Op even if there are multiple uses.
+  ///    Callers are responsible for correctly updating the DAG based on the
+  ///    results of this function, because simply replacing replacing TLO.Old
+  ///    with TLO.New will be incorrect when this parameter is true and TLO.Old
+  ///    has multiple uses.
+  bool SimplifyDemandedVectorElts(SDValue Op, const APInt &DemandedElts,
+                                  APInt &KnownUndef, APInt &KnownZero,
+                                  TargetLoweringOpt &TLO, unsigned Depth = 0,
+                                  bool AssumeSingleUse = false) const;
+
+  /// Helper wrapper around SimplifyDemandedVectorElts
+  bool SimplifyDemandedVectorElts(SDValue Op, const APInt &DemandedElts,
+                                  APInt &KnownUndef, APInt &KnownZero,
+                                  DAGCombinerInfo &DCI) const;
+
   /// Determine which of the bits specified in Mask are known to be either zero
   /// or one and return them in the KnownZero/KnownOne bitsets. The DemandedElts
   /// argument allows us to only collect the known bits that are shared by the
@@ -2735,6 +2779,15 @@ public:
                                                    const SelectionDAG &DAG,
                                                    unsigned Depth = 0) const;
 
+  /// Attempt to simplify any target nodes based on the demanded vector
+  /// elements, returning true on success. Otherwise, analyze the expression and
+  /// return a mask of KnownUndef and KnownZero elements for the expression
+  /// (used to simplify the caller). The KnownUndef/Zero elements may only be
+  /// accurate for those bits in the DemandedMask
+  virtual bool SimplifyDemandedVectorEltsForTargetNode(
+      SDValue Op, const APInt &DemandedElts, APInt &KnownUndef,
+      APInt &KnownZero, TargetLoweringOpt &TLO, unsigned Depth = 0) const;
+
   struct DAGCombinerInfo {
     void *DC;  // The DAG Combiner object.
     CombineLevel Level;
@@ -2748,7 +2801,7 @@ public:
 
     bool isBeforeLegalize() const { return Level == BeforeLegalizeTypes; }
     bool isBeforeLegalizeOps() const { return Level < AfterLegalizeVectorOps; }
-    bool isAfterLegalizeVectorOps() const {
+    bool isAfterLegalizeDAG() const {
       return Level == AfterLegalizeDAG;
     }
     CombineLevel getDAGCombineLevel() { return Level; }
@@ -2769,10 +2822,6 @@ public:
   /// Return if the N is a constant or constant vector equal to the false value
   /// from getBooleanContents().
   bool isConstFalseVal(const SDNode *N) const;
-
-  /// Return a constant of type VT that contains a true value that respects
-  /// getBooleanContents()
-  SDValue getConstTrueVal(SelectionDAG &DAG, EVT VT, const SDLoc &DL) const;
 
   /// Return if \p N is a True value when extended to \p VT.
   bool isExtendedTrueVal(const ConstantSDNode *N, EVT VT, bool Signed) const;
@@ -3534,6 +3583,13 @@ public:
   /// Lower TLS global address SDNode for target independent emulated TLS model.
   virtual SDValue LowerToTLSEmulatedModel(const GlobalAddressSDNode *GA,
                                           SelectionDAG &DAG) const;
+
+  /// Expands target specific indirect branch for the case of JumpTable
+  /// expanasion.
+  virtual SDValue expandIndirectJTBranch(const SDLoc& dl, SDValue Value, SDValue Addr,
+                                         SelectionDAG &DAG) const {
+    return DAG.getNode(ISD::BRIND, dl, MVT::Other, Value, Addr);
+  }
 
   // seteq(x, 0) -> truncate(srl(ctlz(zext(x)), log2(#bits)))
   // If we're comparing for equality to zero and isCtlzFast is true, expose the

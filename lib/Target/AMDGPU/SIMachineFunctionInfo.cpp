@@ -47,7 +47,8 @@ SIMachineFunctionInfo::SIMachineFunctionInfo(const MachineFunction &MF)
     WorkItemIDZ(false),
     ImplicitBufferPtr(false),
     ImplicitArgPtr(false),
-    GITPtrHigh(0xffffffff) {
+    GITPtrHigh(0xffffffff),
+    HighBitsOf32BitAddress(0) {
   const SISubtarget &ST = MF.getSubtarget<SISubtarget>();
   const Function &F = MF.getFunction();
   FlatWorkGroupSizes = ST.getFlatWorkGroupSizes(F);
@@ -164,6 +165,11 @@ SIMachineFunctionInfo::SIMachineFunctionInfo(const MachineFunction &MF)
   StringRef S = A.getValueAsString();
   if (!S.empty())
     S.consumeInteger(0, GITPtrHigh);
+
+  A = F.getFnAttribute("amdgpu-32bit-address-high-bits");
+  S = A.getValueAsString();
+  if (!S.empty())
+    S.consumeInteger(0, HighBitsOf32BitAddress);
 }
 
 unsigned SIMachineFunctionInfo::addPrivateSegmentBuffer(
@@ -267,10 +273,9 @@ bool SIMachineFunctionInfo::allocateSGPRSpillToVGPR(MachineFunction &MF,
       }
 
       Optional<int> CSRSpillFI;
-      if (FrameInfo.hasCalls() && CSRegs && isCalleeSavedReg(CSRegs, LaneVGPR)) {
-        // TODO: Should this be a CreateSpillStackObject? This is technically a
-        // weird CSR spill.
-        CSRSpillFI = FrameInfo.CreateStackObject(4, 4, false);
+      if ((FrameInfo.hasCalls() || !isEntryFunction()) && CSRegs &&
+          isCalleeSavedReg(CSRegs, LaneVGPR)) {
+        CSRSpillFI = FrameInfo.CreateSpillStackObject(4, 4);
       }
 
       SpillVGPRs.push_back(SGPRSpillVGPRCSR(LaneVGPR, CSRSpillFI));
