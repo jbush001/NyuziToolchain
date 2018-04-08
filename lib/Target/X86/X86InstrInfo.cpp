@@ -614,7 +614,7 @@ X86InstrInfo::X86InstrInfo(X86Subtarget &STI)
     { X86::MOVSLDUPrr,      X86::MOVSLDUPrm,          TB_ALIGN_16 },
     { X86::MOVSX16rr8,      X86::MOVSX16rm8,          0 },
     { X86::MOVSX32rr16,     X86::MOVSX32rm16,         0 },
-    { X86::MOVSX32_NOREXrr8, X86::MOVSX32_NOREXrm8,   0 },
+    { X86::MOVSX32rr8_NOREX, X86::MOVSX32rm8_NOREX,   0 },
     { X86::MOVSX32rr8,      X86::MOVSX32rm8,          0 },
     { X86::MOVSX64rr16,     X86::MOVSX64rm16,         0 },
     { X86::MOVSX64rr32,     X86::MOVSX64rm32,         0 },
@@ -624,7 +624,7 @@ X86InstrInfo::X86InstrInfo(X86Subtarget &STI)
     { X86::MOVZPQILo2PQIrr, X86::MOVQI2PQIrm,         TB_NO_REVERSE },
     { X86::MOVZX16rr8,      X86::MOVZX16rm8,          0 },
     { X86::MOVZX32rr16,     X86::MOVZX32rm16,         0 },
-    { X86::MOVZX32_NOREXrr8, X86::MOVZX32_NOREXrm8,   0 },
+    { X86::MOVZX32rr8_NOREX, X86::MOVZX32rm8_NOREX,   0 },
     { X86::MOVZX32rr8,      X86::MOVZX32rm8,          0 },
     { X86::MOVZX64rr16,     X86::MOVZX64rm16,         0 },
     { X86::MOVZX64rr8,      X86::MOVZX64rm8,          0 },
@@ -793,8 +793,8 @@ X86InstrInfo::X86InstrInfo(X86Subtarget &STI)
     { X86::VPERMILPSYri,    X86::VPERMILPSYmi,        0 },
     { X86::VPTESTYrr,       X86::VPTESTYrm,           0 },
     { X86::VRCPPSYr,        X86::VRCPPSYm,            0 },
-    { X86::VROUNDYPDr,      X86::VROUNDYPDm,          0 },
-    { X86::VROUNDYPSr,      X86::VROUNDYPSm,          0 },
+    { X86::VROUNDPDYr,      X86::VROUNDPDYm,          0 },
+    { X86::VROUNDPSYr,      X86::VROUNDPSYm,          0 },
     { X86::VRSQRTPSYr,      X86::VRSQRTPSYm,          0 },
     { X86::VSQRTPDYr,       X86::VSQRTPDYm,           0 },
     { X86::VSQRTPSYr,       X86::VSQRTPSYm,           0 },
@@ -5399,18 +5399,7 @@ MachineInstr *X86InstrInfo::commuteInstructionImpl(MachineInstr &MI, bool NewMI,
   case X86::VPCMPWZrrik:    case X86::VPCMPUWZrrik: {
     // Flip comparison mode immediate (if necessary).
     unsigned Imm = MI.getOperand(MI.getNumOperands() - 1).getImm() & 0x7;
-    switch (Imm) {
-    default: llvm_unreachable("Unreachable!");
-    case 0x01: Imm = 0x06; break; // LT  -> NLE
-    case 0x02: Imm = 0x05; break; // LE  -> NLT
-    case 0x05: Imm = 0x02; break; // NLT -> LE
-    case 0x06: Imm = 0x01; break; // NLE -> LT
-    case 0x00: // EQ
-    case 0x03: // FALSE
-    case 0x04: // NE
-    case 0x07: // TRUE
-      break;
-    }
+    Imm = X86::getSwappedVPCMPImm(Imm);
     auto &WorkingMI = cloneIfNew(MI);
     WorkingMI.getOperand(MI.getNumOperands() - 1).setImm(Imm);
     return TargetInstrInfo::commuteInstructionImpl(WorkingMI, /*NewMI=*/false,
@@ -5422,18 +5411,7 @@ MachineInstr *X86InstrInfo::commuteInstructionImpl(MachineInstr &MI, bool NewMI,
   case X86::VPCOMWri: case X86::VPCOMUWri: {
     // Flip comparison mode immediate (if necessary).
     unsigned Imm = MI.getOperand(3).getImm() & 0x7;
-    switch (Imm) {
-    default: llvm_unreachable("Unreachable!");
-    case 0x00: Imm = 0x02; break; // LT -> GT
-    case 0x01: Imm = 0x03; break; // LE -> GE
-    case 0x02: Imm = 0x00; break; // GT -> LT
-    case 0x03: Imm = 0x01; break; // GE -> LE
-    case 0x04: // EQ
-    case 0x05: // NE
-    case 0x06: // FALSE
-    case 0x07: // TRUE
-      break;
-    }
+    Imm = X86::getSwappedVPCOMImm(Imm);
     auto &WorkingMI = cloneIfNew(MI);
     WorkingMI.getOperand(3).setImm(Imm);
     return TargetInstrInfo::commuteInstructionImpl(WorkingMI, /*NewMI=*/false,
@@ -5854,7 +5832,7 @@ bool X86InstrInfo::findCommutedOpIndices(MachineInstr &MI, unsigned &SrcOpIdx1,
   return false;
 }
 
-static X86::CondCode getCondFromBranchOpc(unsigned BrOpc) {
+X86::CondCode X86::getCondFromBranchOpc(unsigned BrOpc) {
   switch (BrOpc) {
   default: return X86::COND_INVALID;
   case X86::JE_1:  return X86::COND_E;
@@ -5877,7 +5855,7 @@ static X86::CondCode getCondFromBranchOpc(unsigned BrOpc) {
 }
 
 /// Return condition code of a SET opcode.
-static X86::CondCode getCondFromSETOpc(unsigned Opc) {
+X86::CondCode X86::getCondFromSETOpc(unsigned Opc) {
   switch (Opc) {
   default: return X86::COND_INVALID;
   case X86::SETAr:  case X86::SETAm:  return X86::COND_A;
@@ -6133,6 +6111,42 @@ unsigned X86::getCMovFromCond(CondCode CC, unsigned RegBytes,
   }
 }
 
+/// \brief Get the VPCMP immediate if the opcodes are swapped.
+unsigned X86::getSwappedVPCMPImm(unsigned Imm) {
+  switch (Imm) {
+  default: llvm_unreachable("Unreachable!");
+  case 0x01: Imm = 0x06; break; // LT  -> NLE
+  case 0x02: Imm = 0x05; break; // LE  -> NLT
+  case 0x05: Imm = 0x02; break; // NLT -> LE
+  case 0x06: Imm = 0x01; break; // NLE -> LT
+  case 0x00: // EQ
+  case 0x03: // FALSE
+  case 0x04: // NE
+  case 0x07: // TRUE
+    break;
+  }
+
+  return Imm;
+}
+
+/// \brief Get the VPCOM immediate if the opcodes are swapped.
+unsigned X86::getSwappedVPCOMImm(unsigned Imm) {
+  switch (Imm) {
+  default: llvm_unreachable("Unreachable!");
+  case 0x00: Imm = 0x02; break; // LT -> GT
+  case 0x01: Imm = 0x03; break; // LE -> GE
+  case 0x02: Imm = 0x00; break; // GT -> LT
+  case 0x03: Imm = 0x01; break; // GE -> LE
+  case 0x04: // EQ
+  case 0x05: // NE
+  case 0x06: // FALSE
+  case 0x07: // TRUE
+    break;
+  }
+
+  return Imm;
+}
+
 bool X86InstrInfo::isUnpredicatedTerminator(const MachineInstr &MI) const {
   if (!MI.isTerminator()) return false;
 
@@ -6202,7 +6216,7 @@ void X86InstrInfo::replaceBranchWithTailCall(
     if (!I->isBranch())
       assert(0 && "Can't find the branch to replace!");
 
-    X86::CondCode CC = getCondFromBranchOpc(I->getOpcode());
+    X86::CondCode CC = X86::getCondFromBranchOpc(I->getOpcode());
     assert(BranchCond.size() == 1);
     if (CC != BranchCond[0].getImm())
       continue;
@@ -6309,7 +6323,7 @@ bool X86InstrInfo::AnalyzeBranchImpl(
     }
 
     // Handle conditional branches.
-    X86::CondCode BranchCode = getCondFromBranchOpc(I->getOpcode());
+    X86::CondCode BranchCode = X86::getCondFromBranchOpc(I->getOpcode());
     if (BranchCode == X86::COND_INVALID)
       return true;  // Can't handle indirect branch.
 
@@ -6505,7 +6519,7 @@ unsigned X86InstrInfo::removeBranch(MachineBasicBlock &MBB,
     if (I->isDebugValue())
       continue;
     if (I->getOpcode() != X86::JMP_1 &&
-        getCondFromBranchOpc(I->getOpcode()) == X86::COND_INVALID)
+        X86::getCondFromBranchOpc(I->getOpcode()) == X86::COND_INVALID)
       break;
     // Remove the branch.
     I->eraseFromParent();
@@ -6634,7 +6648,7 @@ static bool isHReg(unsigned Reg) {
 }
 
 // Try and copy between VR128/VR64 and GR64 registers.
-static unsigned CopyToFromAsymmetricReg(unsigned &DestReg, unsigned &SrcReg,
+static unsigned CopyToFromAsymmetricReg(unsigned DestReg, unsigned SrcReg,
                                         const X86Subtarget &Subtarget) {
   bool HasAVX = Subtarget.hasAVX();
   bool HasAVX512 = Subtarget.hasAVX512();
@@ -7541,9 +7555,9 @@ bool X86InstrInfo::optimizeCompareInstr(MachineInstr &CmpInstr, unsigned SrcReg,
     if (IsCmpZero || IsSwapped) {
       // We decode the condition code from opcode.
       if (Instr.isBranch())
-        OldCC = getCondFromBranchOpc(Instr.getOpcode());
+        OldCC = X86::getCondFromBranchOpc(Instr.getOpcode());
       else {
-        OldCC = getCondFromSETOpc(Instr.getOpcode());
+        OldCC = X86::getCondFromSETOpc(Instr.getOpcode());
         if (OldCC != X86::COND_INVALID)
           OpcIsSET = true;
         else
@@ -11184,8 +11198,12 @@ bool X86InstrInfo::isFunctionSafeToOutlineFrom(MachineFunction &MF,
 
   // Does the function use a red zone? If it does, then we can't risk messing
   // with the stack.
-  if (!F.hasFnAttribute(Attribute::NoRedZone))
+  if (!F.hasFnAttribute(Attribute::NoRedZone)) {
+    // It could have a red zone. If it does, then we don't want to touch it.
+    const X86MachineFunctionInfo *X86FI = MF.getInfo<X86MachineFunctionInfo>();
+    if (!X86FI || X86FI->getUsesRedZone())
       return false;
+  }
 
   // If we *don't* want to outline from things that could potentially be deduped
   // then return false.
@@ -11201,6 +11219,11 @@ X86InstrInfo::getOutliningType(MachineBasicBlock::iterator &MIT,  unsigned Flags
   MachineInstr &MI = *MIT;
   // Don't allow debug values to impact outlining type.
   if (MI.isDebugValue() || MI.isIndirectDebugValue())
+    return MachineOutlinerInstrType::Invisible;
+
+  // At this point, KILL instructions don't really tell us much so we can go
+  // ahead and skip over them.
+  if (MI.isKill())
     return MachineOutlinerInstrType::Invisible;
 
   // Is this a tail call? If yes, we can outline as a tail call.

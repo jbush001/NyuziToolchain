@@ -362,6 +362,8 @@ MIRParserImpl::initializeMachineFunction(const yaml::MachineFunction &YamlMF,
         MachineFunctionProperties::Property::RegBankSelected);
   if (YamlMF.Selected)
     MF.getProperties().set(MachineFunctionProperties::Property::Selected);
+  if (YamlMF.FailedISel)
+    MF.getProperties().set(MachineFunctionProperties::Property::FailedISel);
 
   PerFunctionMIParsingState PFS(MF, SM, IRSlots, Names2RegClasses,
                                 Names2RegBanks);
@@ -510,13 +512,12 @@ bool MIRParserImpl::setupRegisterInfo(const PerFunctionMIParsingState &PFS,
   MachineRegisterInfo &MRI = MF.getRegInfo();
   bool Error = false;
   // Create VRegs
-  for (auto P : PFS.VRegInfos) {
-    const VRegInfo &Info = *P.second;
+  auto populateVRegInfo = [&] (const VRegInfo &Info, Twine Name) {
     unsigned Reg = Info.VReg;
     switch (Info.Kind) {
     case VRegInfo::UNKNOWN:
       error(Twine("Cannot determine class/bank of virtual register ") +
-            Twine(P.first) + " in function '" + MF.getName() + "'");
+            Name + " in function '" + MF.getName() + "'");
       Error = true;
       break;
     case VRegInfo::NORMAL:
@@ -530,6 +531,17 @@ bool MIRParserImpl::setupRegisterInfo(const PerFunctionMIParsingState &PFS,
       MRI.setRegBank(Reg, *Info.D.RegBank);
       break;
     }
+  };
+
+  for (auto I = PFS.VRegInfosNamed.begin(), E = PFS.VRegInfosNamed.end();
+       I != E; I++) {
+    const VRegInfo &Info = *I->second;
+    populateVRegInfo(Info, Twine(I->first()));
+  }
+
+  for (auto P : PFS.VRegInfos) {
+    const VRegInfo &Info = *P.second;
+    populateVRegInfo(Info, Twine(P.first));
   }
 
   // Compute MachineRegisterInfo::UsedPhysRegMask
@@ -570,6 +582,7 @@ bool MIRParserImpl::initializeFrameInfo(PerFunctionMIParsingState &PFS,
   MFI.setHasOpaqueSPAdjustment(YamlMFI.HasOpaqueSPAdjustment);
   MFI.setHasVAStart(YamlMFI.HasVAStart);
   MFI.setHasMustTailInVarArgFunc(YamlMFI.HasMustTailInVarArgFunc);
+  MFI.setLocalFrameSize(YamlMFI.LocalFrameSize);
   if (!YamlMFI.SavePoint.Value.empty()) {
     MachineBasicBlock *MBB = nullptr;
     if (parseMBBReference(PFS, MBB, YamlMFI.SavePoint))

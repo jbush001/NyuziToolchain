@@ -698,24 +698,20 @@ struct SemiNCAInfo {
       return;
 
     // Recalculate the set of roots.
-    DT.Roots = FindRoots(DT, BUI);
-    for (const NodePtr R : DT.Roots) {
-      const TreeNodePtr TN = DT.getNode(R);
-      // A CFG node was selected as a tree root, but the corresponding tree node
-      // is not connected to the virtual root. This is because the incremental
-      // algorithm does not really know or use the set of roots and can make a
-      // different (implicit) decision about which nodes within an infinite loop
-      // becomes a root.
-      if (TN && !DT.isVirtualRoot(TN->getIDom())) {
-        DEBUG(dbgs() << "Root " << BlockNamePrinter(R)
-                     << " is not virtual root's child\n"
-                     << "The entire tree needs to be rebuilt\n");
-        // It should be possible to rotate the subtree instead of recalculating
-        // the whole tree, but this situation happens extremely rarely in
-        // practice.
-        CalculateFromScratch(DT, BUI);
-        return;
-      }
+    auto Roots = FindRoots(DT, BUI);
+    if (DT.Roots.size() != Roots.size() ||
+        !std::is_permutation(DT.Roots.begin(), DT.Roots.end(), Roots.begin())) {
+      // The roots chosen in the CFG have changed. This is because the
+      // incremental algorithm does not really know or use the set of roots and
+      // can make a different (implicit) decision about which node within an
+      // infinite loop becomes a root.
+
+      DEBUG(dbgs() << "Roots are different in updated trees\n"
+                   << "The entire tree needs to be rebuilt\n");
+      // It may be possible to update the tree without recalculating it, but
+      // we do not know yet how to do it, and it happens rarely in practise.
+      CalculateFromScratch(DT, BUI);
+      return;
     }
   }
 
@@ -1245,11 +1241,11 @@ struct SemiNCAInfo {
         Operations[{U.getTo(), U.getFrom()}] = int(i);
     }
 
-    std::sort(Result.begin(), Result.end(),
-              [&Operations](const UpdateT &A, const UpdateT &B) {
-                return Operations[{A.getFrom(), A.getTo()}] >
-                       Operations[{B.getFrom(), B.getTo()}];
-              });
+    llvm::sort(Result.begin(), Result.end(),
+               [&Operations](const UpdateT &A, const UpdateT &B) {
+                 return Operations[{A.getFrom(), A.getTo()}] >
+                        Operations[{B.getFrom(), B.getTo()}];
+               });
   }
 
   static void ApplyNextUpdate(DomTreeT &DT, BatchUpdateInfo &BUI) {
@@ -1434,10 +1430,10 @@ struct SemiNCAInfo {
       // Make a copy and sort it such that it is possible to check if there are
       // no gaps between DFS numbers of adjacent children.
       SmallVector<TreeNodePtr, 8> Children(Node->begin(), Node->end());
-      std::sort(Children.begin(), Children.end(),
-                [](const TreeNodePtr Ch1, const TreeNodePtr Ch2) {
-                  return Ch1->getDFSNumIn() < Ch2->getDFSNumIn();
-                });
+      llvm::sort(Children.begin(), Children.end(),
+                 [](const TreeNodePtr Ch1, const TreeNodePtr Ch2) {
+                   return Ch1->getDFSNumIn() < Ch2->getDFSNumIn();
+                 });
 
       auto PrintChildrenError = [Node, &Children, PrintNodeAndDFSNums](
           const TreeNodePtr FirstCh, const TreeNodePtr SecondCh) {
@@ -1606,7 +1602,8 @@ struct SemiNCAInfo {
     const bool Different = DT.compare(FreshTree);
 
     if (Different) {
-      errs() << "DominatorTree is different than a freshly computed one!\n"
+      errs() << (DT.isPostDominator() ? "Post" : "")
+             << "DominatorTree is different than a freshly computed one!\n"
              << "\tCurrent:\n";
       DT.print(errs());
       errs() << "\n\tFreshly computed tree:\n";
@@ -1646,25 +1643,27 @@ void ApplyUpdates(DomTreeT &DT,
 template <class DomTreeT>
 bool Verify(const DomTreeT &DT, typename DomTreeT::VerificationLevel VL) {
   SemiNCAInfo<DomTreeT> SNCA(nullptr);
-  const bool InitialChecks = SNCA.verifyRoots(DT) &&
-                             SNCA.verifyReachability(DT) &&
-                             SNCA.VerifyLevels(DT) && SNCA.VerifyDFSNumbers(DT);
 
-  if (!InitialChecks)
+  // Simplist check is to compare against a new tree. This will also
+  // usefully print the old and new trees, if they are different.
+  if (!SNCA.IsSameAsFreshTree(DT))
     return false;
 
-  switch (VL) {
-  case DomTreeT::VerificationLevel::Fast:
-    return SNCA.IsSameAsFreshTree(DT);
+  // Common checks to verify the properties of the tree. O(N log N) at worst
+  if (!SNCA.verifyRoots(DT) || !SNCA.verifyReachability(DT) ||
+      !SNCA.VerifyLevels(DT) || !SNCA.VerifyDFSNumbers(DT))
+    return false;
 
-  case DomTreeT::VerificationLevel::Basic:
-    return SNCA.verifyParentProperty(DT) && SNCA.IsSameAsFreshTree(DT);
+  // Extra checks depending on VerificationLevel. Up to O(N^3)
+  if (VL == DomTreeT::VerificationLevel::Basic ||
+      VL == DomTreeT::VerificationLevel::Full)
+    if (!SNCA.verifyParentProperty(DT))
+      return false;
+  if (VL == DomTreeT::VerificationLevel::Full)
+    if (!SNCA.verifySiblingProperty(DT))
+      return false;
 
-  case DomTreeT::VerificationLevel::Full:
-    return SNCA.verifyParentProperty(DT) && SNCA.verifySiblingProperty(DT);
-  }
-
-  llvm_unreachable("Unhandled DomTree VerificationLevel");
+  return true;
 }
 
 }  // namespace DomTreeBuilder

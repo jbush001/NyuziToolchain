@@ -2,11 +2,11 @@
 # This test is to make sure that we can handle implicit addends properly.
 
 # RUN: llvm-mc -filetype=obj -triple=i386-unknown-linux %s -o %t
-# RUN: ld.lld %t -o %t2 --icf=all --verbose 2>&1 | FileCheck %s
+# RUN: ld.lld %t -o %t2 --icf=all --print-icf-sections 2>&1 | FileCheck %s
 
-# CHECK:     selected section '.text.f1' from file [[T:'.*']]
-# CHECK:       removing identical section '.text.f2' from file [[T]]
-# CHECK-NOT:   removing identical section '.text.f3' from file [[T]]
+# CHECK:     selected section {{.*}}:(.text.f1)
+# CHECK:       removing identical section {{.*}}:(.text.f2)
+# CHECK-NOT:   removing identical section {{.*}}:(.text.f3)
 
 .globl _start, f1, f2, f3
 _start:

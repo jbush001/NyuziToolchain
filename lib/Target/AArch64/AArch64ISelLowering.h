@@ -309,6 +309,9 @@ public:
                           MachineFunction &MF,
                           unsigned Intrinsic) const override;
 
+  bool shouldReduceLoadWidth(SDNode *Load, ISD::LoadExtType ExtTy,
+                             EVT NewVT) const override;
+
   bool isTruncateFree(Type *Ty1, Type *Ty2) const override;
   bool isTruncateFree(EVT VT1, EVT VT2) const override;
 
@@ -364,6 +367,11 @@ public:
   /// to just the constant itself.
   bool shouldConvertConstantLoadToIntImm(const APInt &Imm,
                                          Type *Ty) const override;
+
+  /// Return true if EXTRACT_SUBVECTOR is cheap for this result type
+  /// with this index.
+  bool isExtractSubvectorCheap(EVT ResVT, EVT SrcVT,
+                               unsigned Index) const override;
 
   Value *emitLoadLinked(IRBuilder<> &Builder, Value *Addr,
                         AtomicOrdering Ord) const override;
@@ -555,6 +563,7 @@ private:
   SDValue LowerELFGlobalTLSAddress(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerELFTLSDescCallSeq(SDValue SymAddr, const SDLoc &DL,
                                  SelectionDAG &DAG) const;
+  SDValue LowerWindowsGlobalTLSAddress(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerSETCC(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerBR_CC(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerSELECT(SDValue Op, SelectionDAG &DAG) const;
@@ -596,6 +605,12 @@ private:
   SDValue LowerCONCAT_VECTORS(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerFSINCOS(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerVECREDUCE(SDValue Op, SelectionDAG &DAG) const;
+  SDValue LowerATOMIC_LOAD_SUB(SDValue Op, SelectionDAG &DAG) const;
+  SDValue LowerATOMIC_LOAD_AND(SDValue Op, SelectionDAG &DAG) const;
+  SDValue LowerDYNAMIC_STACKALLOC(SDValue Op, SelectionDAG &DAG) const;
+  SDValue LowerWindowsDYNAMIC_STACKALLOC(SDValue Op, SDValue Chain,
+                                         SDValue &Size,
+                                         SelectionDAG &DAG) const;
 
   SDValue BuildSDIVPow2(SDNode *N, const APInt &Divisor, SelectionDAG &DAG,
                         std::vector<SDNode *> *Created) const override;

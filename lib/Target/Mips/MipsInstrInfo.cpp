@@ -298,7 +298,6 @@ unsigned MipsInstrInfo::getEquivalentCompactForm(
     case Mips::JR:
     case Mips::PseudoReturn:
     case Mips::PseudoIndirectBranch:
-    case Mips::TAILCALLREG:
       canUseShortMicroMipsCTI = true;
       break;
     }
@@ -377,18 +376,18 @@ unsigned MipsInstrInfo::getEquivalentCompactForm(
     // For MIPSR6, the instruction 'jic' can be used for these cases. Some
     // tools will accept 'jrc reg' as an alias for 'jic 0, $reg'.
     case Mips::JR:
+    case Mips::PseudoIndirectBranchR6:
     case Mips::PseudoReturn:
-    case Mips::PseudoIndirectBranch:
-    case Mips::TAILCALLREG:
+    case Mips::TAILCALLR6REG:
       if (canUseShortMicroMipsCTI)
         return Mips::JRC16_MM;
       return Mips::JIC;
     case Mips::JALRPseudo:
       return Mips::JIALC;
     case Mips::JR64:
+    case Mips::PseudoIndirectBranch64R6:
     case Mips::PseudoReturn64:
-    case Mips::PseudoIndirectBranch64:
-    case Mips::TAILCALLREG64:
+    case Mips::TAILCALL64R6REG:
       return Mips::JIC64;
     case Mips::JALR64Pseudo:
       return Mips::JIALC64;
@@ -599,7 +598,7 @@ bool MipsInstrInfo::verifyInstruction(const MachineInstr &MI,
     case Mips::DINS:
       return verifyInsExtInstruction(MI, ErrInfo, 0, 32, 0, 32, 0, 32);
     case Mips::DINSM:
-      // The ISA spec has a subtle difference difference between dinsm and dextm
+      // The ISA spec has a subtle difference between dinsm and dextm
       // in that it says:
       // 2 <= size <= 64 for 'dinsm' but 'dextm' has 32 < size <= 64.
       // To make the bounds checks similar, the range 1 < size <= 64 is checked
@@ -617,6 +616,18 @@ bool MipsInstrInfo::verifyInstruction(const MachineInstr &MI,
       return verifyInsExtInstruction(MI, ErrInfo, 0, 32, 32, 64, 32, 64);
     case Mips::DEXTU:
       return verifyInsExtInstruction(MI, ErrInfo, 32, 64, 0, 32, 32, 64);
+    case Mips::TAILCALLREG:
+    case Mips::PseudoIndirectBranch:
+    case Mips::JR:
+    case Mips::JR64:
+    case Mips::JALR:
+    case Mips::JALR64:
+    case Mips::JALRPseudo:
+      if (!Subtarget.useIndirectJumpsHazard())
+        return true;
+
+      ErrInfo = "invalid instruction when using jump guards!";
+      return false;
     default:
       return true;
   }

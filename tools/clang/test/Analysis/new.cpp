@@ -138,7 +138,7 @@ void testNewDeleteNoWarn() {
 // unix.Malloc does not know about operators new/delete.
 void testDeleteMallocked() {
   int *x = (int *)malloc(sizeof(int));
-  delete x; // FIXME: Shoud detect pointer escape and keep silent after 'delete' is modeled properly.
+  delete x; // FIXME: Should detect pointer escape and keep silent after 'delete' is modeled properly.
 } // expected-warning{{Potential leak of memory pointed to by 'x'}}
 
 void testDeleteOpAfterFree() {
@@ -311,7 +311,8 @@ void testArrayNull() {
 void testArrayDestr() {
   NoReturnDtor *p = new NoReturnDtor[2];
   delete[] p; // Calls the base destructor which aborts, checked below
-  clang_analyzer_eval(true); // no-warning
+   //TODO: clang_analyzer_eval should not be called
+  clang_analyzer_eval(true); // expected-warning{{TRUE}}
 }
 
 // Invalidate Region even in case of default destructor

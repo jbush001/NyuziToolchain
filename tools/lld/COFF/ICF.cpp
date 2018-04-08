@@ -18,6 +18,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "ICF.h"
 #include "Chunks.h"
 #include "Symbols.h"
 #include "lld/Common/ErrorHandler.h"
@@ -167,6 +168,7 @@ bool ICF::equalsVariable(const SectionChunk *A, const SectionChunk *B) {
   return std::equal(A->Relocs.begin(), A->Relocs.end(), B->Relocs.begin(), Eq);
 }
 
+// Find the first Chunk after Begin that has a different class from Begin.
 size_t ICF::findBoundary(size_t Begin, size_t End) {
   for (size_t I = Begin + 1; I < End; ++I)
     if (Chunks[Begin]->Class[Cnt % 2] != Chunks[I]->Class[Cnt % 2])
@@ -176,11 +178,8 @@ size_t ICF::findBoundary(size_t Begin, size_t End) {
 
 void ICF::forEachClassRange(size_t Begin, size_t End,
                             std::function<void(size_t, size_t)> Fn) {
-  if (Begin > 0)
-    Begin = findBoundary(Begin - 1, End);
-
   while (Begin < End) {
-    size_t Mid = findBoundary(Begin, Chunks.size());
+    size_t Mid = findBoundary(Begin, End);
     Fn(Begin, Mid);
     Begin = Mid;
   }
@@ -196,12 +195,22 @@ void ICF::forEachClass(std::function<void(size_t, size_t)> Fn) {
     return;
   }
 
-  // Split sections into 256 shards and call Fn in parallel.
-  size_t NumShards = 256;
+  // Shard into non-overlapping intervals, and call Fn in parallel.
+  // The sharding must be completed before any calls to Fn are made
+  // so that Fn can modify the Chunks in its shard without causing data
+  // races.
+  const size_t NumShards = 256;
   size_t Step = Chunks.size() / NumShards;
-  for_each_n(parallel::par, size_t(0), NumShards, [&](size_t I) {
-    size_t End = (I == NumShards - 1) ? Chunks.size() : (I + 1) * Step;
-    forEachClassRange(I * Step, End, Fn);
+  size_t Boundaries[NumShards + 1];
+  Boundaries[0] = 0;
+  Boundaries[NumShards] = Chunks.size();
+  for_each_n(parallel::par, size_t(1), NumShards, [&](size_t I) {
+    Boundaries[I] = findBoundary((I - 1) * Step, Chunks.size());
+  });
+  for_each_n(parallel::par, size_t(1), NumShards + 1, [&](size_t I) {
+    if (Boundaries[I - 1] < Boundaries[I]) {
+      forEachClassRange(Boundaries[I - 1], Boundaries[I], Fn);
+    }
   });
   ++Cnt;
 }
@@ -222,6 +231,12 @@ void ICF::run(ArrayRef<Chunk *> Vec) {
         SC->Class[0] = NextId++;
     }
   }
+
+  // Make sure that ICF doesn't merge sections that are being handled by string
+  // tail merging.
+  for (auto &P : MergeChunk::Instances)
+    for (SectionChunk *SC : P.second->Sections)
+      SC->Class[0] = NextId++;
 
   // Initially, we use hash values to partition sections.
   for_each(parallel::par, Chunks.begin(), Chunks.end(), [&](SectionChunk *SC) {

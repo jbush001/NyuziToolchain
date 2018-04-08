@@ -182,7 +182,8 @@ NyuziTargetLowering::NyuziTargetLowering(const TargetMachine &TM,
     { ISD::FFLOOR, MVT::v16f32 },
     { ISD::BR_JT, MVT::Other },
     { ISD::UINT_TO_FP, MVT::i32 },
-    { ISD::UINT_TO_FP, MVT::v16i32 }
+    { ISD::UINT_TO_FP, MVT::v16i32 },
+    { ISD::FTRUNC, MVT::v16f32 }
   };
 
   for (auto Action : ExpandActions)

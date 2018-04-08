@@ -1,15 +1,16 @@
-; RUN: llc -show-mc-encoding -mattr=+promote-alloca -amdgpu-load-store-vectorizer=0 -enable-amdgpu-aa=0 -verify-machineinstrs -march=amdgcn < %s | FileCheck -enable-var-scope -check-prefix=SI-PROMOTE -check-prefix=SI -check-prefix=FUNC %s
-; RUN: llc -show-mc-encoding -mattr=+promote-alloca -amdgpu-load-store-vectorizer=0 -enable-amdgpu-aa=0 -verify-machineinstrs -mtriple=amdgcn--amdhsa -mcpu=kaveri -mattr=-unaligned-buffer-access < %s | FileCheck -enable-var-scope -check-prefix=SI-PROMOTE -check-prefix=SI -check-prefix=FUNC -check-prefix=HSA-PROMOTE %s
+; RUN: llc -show-mc-encoding -mattr=+promote-alloca -disable-promote-alloca-to-vector -amdgpu-load-store-vectorizer=0 -enable-amdgpu-aa=0 -verify-machineinstrs -march=amdgcn < %s | FileCheck -enable-var-scope -check-prefix=SI-PROMOTE -check-prefix=SI -check-prefix=FUNC %s
+; RUN: llc -show-mc-encoding -mattr=+promote-alloca -disable-promote-alloca-to-vector -amdgpu-load-store-vectorizer=0 -enable-amdgpu-aa=0 -verify-machineinstrs -mtriple=amdgcn--amdhsa -mcpu=kaveri -mattr=-unaligned-buffer-access < %s | FileCheck -enable-var-scope -check-prefix=SI-PROMOTE -check-prefix=SI -check-prefix=FUNC -check-prefix=HSA-PROMOTE %s
 ; RUN: llc -show-mc-encoding -mattr=-promote-alloca -amdgpu-load-store-vectorizer=0 -enable-amdgpu-aa=0 -verify-machineinstrs -march=amdgcn < %s | FileCheck %s -check-prefix=SI-ALLOCA -check-prefix=SI -check-prefix=FUNC
 ; RUN: llc -show-mc-encoding -mattr=-promote-alloca -amdgpu-load-store-vectorizer=0 -enable-amdgpu-aa=0 -verify-machineinstrs -mtriple=amdgcn-amdhsa -mcpu=kaveri -mattr=-unaligned-buffer-access < %s | FileCheck -enable-var-scope -check-prefix=SI-ALLOCA -check-prefix=SI -check-prefix=FUNC -check-prefix=HSA-ALLOCA %s
-; RUN: llc -show-mc-encoding -mattr=+promote-alloca -amdgpu-load-store-vectorizer=0 -enable-amdgpu-aa=0 -verify-machineinstrs -mtriple=amdgcn-amdhsa -march=amdgcn -mcpu=tonga -mattr=-unaligned-buffer-access < %s | FileCheck -enable-var-scope -check-prefix=SI-PROMOTE -check-prefix=SI -check-prefix=FUNC %s
+; RUN: llc -show-mc-encoding -mattr=+promote-alloca -disable-promote-alloca-to-vector -amdgpu-load-store-vectorizer=0 -enable-amdgpu-aa=0 -verify-machineinstrs -mtriple=amdgcn-amdhsa -march=amdgcn -mcpu=tonga -mattr=-unaligned-buffer-access < %s | FileCheck -enable-var-scope -check-prefix=SI-PROMOTE -check-prefix=SI -check-prefix=FUNC %s
+; RUN: llc -show-mc-encoding -mattr=+promote-alloca -amdgpu-load-store-vectorizer=0 -enable-amdgpu-aa=0 -verify-machineinstrs -mtriple=amdgcn-amdhsa -march=amdgcn -mcpu=tonga -mattr=-unaligned-buffer-access < %s | FileCheck -enable-var-scope -check-prefix=SI-PROMOTE-VECT -check-prefix=SI -check-prefix=FUNC %s
 ; RUN: llc -show-mc-encoding -mattr=-promote-alloca -amdgpu-load-store-vectorizer=0 -enable-amdgpu-aa=0 -verify-machineinstrs -mtriple=amdgcn-amdhsa -march=amdgcn -mcpu=tonga -mattr=-unaligned-buffer-access < %s | FileCheck -enable-var-scope -check-prefix=SI-ALLOCA -check-prefix=SI -check-prefix=FUNC %s
 
-; RUN: opt -S -mtriple=amdgcn-unknown-amdhsa -data-layout=A5 -mcpu=kaveri -amdgpu-promote-alloca < %s | FileCheck -enable-var-scope -check-prefix=HSAOPT -check-prefix=OPT %s
-; RUN: opt -S -mtriple=amdgcn-unknown-unknown -data-layout=A5 -mcpu=kaveri -amdgpu-promote-alloca < %s | FileCheck -enable-var-scope -check-prefix=NOHSAOPT -check-prefix=OPT %s
+; RUN: opt -S -mtriple=amdgcn-unknown-amdhsa -data-layout=A5 -mcpu=kaveri -amdgpu-promote-alloca -disable-promote-alloca-to-vector < %s | FileCheck -enable-var-scope -check-prefix=HSAOPT -check-prefix=OPT %s
+; RUN: opt -S -mtriple=amdgcn-unknown-unknown -data-layout=A5 -mcpu=kaveri -amdgpu-promote-alloca -disable-promote-alloca-to-vector < %s | FileCheck -enable-var-scope -check-prefix=NOHSAOPT -check-prefix=OPT %s
 
-; RUN: llc -march=r600 -mcpu=cypress < %s | FileCheck %s -check-prefix=R600 -check-prefix=FUNC
-
+; RUN: llc -march=r600 -mcpu=cypress -disable-promote-alloca-to-vector < %s | FileCheck %s -check-prefix=R600 -check-prefix=FUNC
+; RUN: llc -march=r600 -mcpu=cypress < %s | FileCheck %s -check-prefix=R600-VECT -check-prefix=FUNC
 
 ; HSAOPT: @mova_same_clause.stack = internal unnamed_addr addrspace(3) global [256 x [5 x i32]] undef, align 4
 ; HSAOPT: @high_alignment.stack = internal unnamed_addr addrspace(3) global [256 x [8 x i32]] undef, align 16
@@ -48,12 +49,12 @@
 ; SI-ALLOCA: buffer_store_dword v{{[0-9]+}}, v{{[0-9]+}}, s[{{[0-9]+:[0-9]+}}], s{{[0-9]+}} offen ; encoding: [0x00,0x10,0x70,0xe0
 
 
-; HSAOPT: [[DISPATCH_PTR:%[0-9]+]] = call noalias nonnull dereferenceable(64) i8 addrspace(2)* @llvm.amdgcn.dispatch.ptr()
-; HSAOPT: [[CAST_DISPATCH_PTR:%[0-9]+]] = bitcast i8 addrspace(2)* [[DISPATCH_PTR]] to i32 addrspace(2)*
-; HSAOPT: [[GEP0:%[0-9]+]] = getelementptr inbounds i32, i32 addrspace(2)* [[CAST_DISPATCH_PTR]], i64 1
-; HSAOPT: [[LDXY:%[0-9]+]] = load i32, i32 addrspace(2)* [[GEP0]], align 4, !invariant.load !0
-; HSAOPT: [[GEP1:%[0-9]+]] = getelementptr inbounds i32, i32 addrspace(2)* [[CAST_DISPATCH_PTR]], i64 2
-; HSAOPT: [[LDZU:%[0-9]+]] = load i32, i32 addrspace(2)* [[GEP1]], align 4, !range !1, !invariant.load !0
+; HSAOPT: [[DISPATCH_PTR:%[0-9]+]] = call noalias nonnull dereferenceable(64) i8 addrspace(4)* @llvm.amdgcn.dispatch.ptr()
+; HSAOPT: [[CAST_DISPATCH_PTR:%[0-9]+]] = bitcast i8 addrspace(4)* [[DISPATCH_PTR]] to i32 addrspace(4)*
+; HSAOPT: [[GEP0:%[0-9]+]] = getelementptr inbounds i32, i32 addrspace(4)* [[CAST_DISPATCH_PTR]], i64 1
+; HSAOPT: [[LDXY:%[0-9]+]] = load i32, i32 addrspace(4)* [[GEP0]], align 4, !invariant.load !0
+; HSAOPT: [[GEP1:%[0-9]+]] = getelementptr inbounds i32, i32 addrspace(4)* [[CAST_DISPATCH_PTR]], i64 2
+; HSAOPT: [[LDZU:%[0-9]+]] = load i32, i32 addrspace(4)* [[GEP1]], align 4, !range !1, !invariant.load !0
 ; HSAOPT: [[EXTRACTY:%[0-9]+]] = lshr i32 [[LDXY]], 16
 
 ; HSAOPT: [[WORKITEM_ID_X:%[0-9]+]] = call i32 @llvm.amdgcn.workitem.id.x(), !range !2
@@ -223,16 +224,16 @@ for.end:
 
 ; FUNC-LABEL: {{^}}short_array:
 
-; R600: MOVA_INT
+; R600-VECT: MOVA_INT
 
 ; SI-ALLOCA-DAG: buffer_store_short v{{[0-9]+}}, off, s[{{[0-9]+:[0-9]+}}], s{{[0-9]+}} offset:6 ; encoding: [0x06,0x00,0x68,0xe0
 ; SI-ALLOCA-DAG: buffer_store_short v{{[0-9]+}}, off, s[{{[0-9]+:[0-9]+}}], s{{[0-9]+}} offset:4 ; encoding: [0x04,0x00,0x68,0xe0
 ; Loaded value is 0 or 1, so sext will become zext, so we get buffer_load_ushort instead of buffer_load_sshort.
 ; SI-ALLOCA: buffer_load_sshort v{{[0-9]+}}, v{{[0-9]+}}, s[{{[0-9]+:[0-9]+}}], s{{[0-9]+}}
 
-; SI-PROMOTE: s_load_dword [[IDX:s[0-9]+]]
-; SI-PROMOTE: s_lshl_b32 [[SCALED_IDX:s[0-9]+]], [[IDX]], 16
-; SI-PROMOTE: v_bfe_u32 v{{[0-9]+}}, v{{[0-9]+}}, [[SCALED_IDX]], 16
+; SI-PROMOTE-VECT: s_load_dword [[IDX:s[0-9]+]]
+; SI-PROMOTE-VECT: s_lshl_b32 [[SCALED_IDX:s[0-9]+]], [[IDX]], 16
+; SI-PROMOTE-VECT: v_bfe_u32 v{{[0-9]+}}, v{{[0-9]+}}, [[SCALED_IDX]], 16
 define amdgpu_kernel void @short_array(i32 addrspace(1)* %out, i32 %index) #0 {
 entry:
   %0 = alloca [2 x i16], addrspace(5)
@@ -249,10 +250,10 @@ entry:
 
 ; FUNC-LABEL: {{^}}char_array:
 
-; R600: MOVA_INT
+; R600-VECT: MOVA_INT
 
-; SI-PROMOTE-DAG: buffer_store_byte v{{[0-9]+}}, off, s[{{[0-9]+:[0-9]+}}], s{{[0-9]+}} offset:4 ; encoding:
-; SI-PROMOTE-DAG: buffer_store_byte v{{[0-9]+}}, off, s[{{[0-9]+:[0-9]+}}], s{{[0-9]+}} offset:5 ; encoding:
+; SI-PROMOTE-VECT-DAG: buffer_store_byte v{{[0-9]+}}, off, s[{{[0-9]+:[0-9]+}}], s{{[0-9]+}} offset:4 ; encoding:
+; SI-PROMOTE-VECT-DAG: buffer_store_byte v{{[0-9]+}}, off, s[{{[0-9]+:[0-9]+}}], s{{[0-9]+}} offset:5 ; encoding:
 
 ; SI-ALLOCA-DAG: buffer_store_byte v{{[0-9]+}}, off, s[{{[0-9]+:[0-9]+}}], s{{[0-9]+}} offset:4 ; encoding: [0x04,0x00,0x60,0xe0
 ; SI-ALLOCA-DAG: buffer_store_byte v{{[0-9]+}}, off, s[{{[0-9]+:[0-9]+}}], s{{[0-9]+}} offset:5 ; encoding: [0x05,0x00,0x60,0xe0

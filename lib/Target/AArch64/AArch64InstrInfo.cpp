@@ -741,31 +741,73 @@ bool AArch64InstrInfo::isAsCheapAsAMove(const MachineInstr &MI) const {
 }
 
 bool AArch64InstrInfo::isExynosResetFast(const MachineInstr &MI) const {
+  unsigned Reg, Imm, Shift;
+
   switch (MI.getOpcode()) {
   default:
     return false;
 
+  // MOV Rd, SP
+  case AArch64::ADDWri:
+  case AArch64::ADDXri:
+    if (!MI.getOperand(1).isReg() || !MI.getOperand(2).isImm())
+      return false;
+
+    Reg = MI.getOperand(1).getReg();
+    Imm = MI.getOperand(2).getImm();
+    return ((Reg == AArch64::WSP || Reg == AArch64::SP) && Imm == 0);
+
+  // Literal
   case AArch64::ADR:
   case AArch64::ADRP:
+    return true;
 
+  // MOVI Vd, #0
+  case AArch64::MOVID:
+  case AArch64::MOVIv8b_ns:
+  case AArch64::MOVIv2d_ns:
+  case AArch64::MOVIv16b_ns:
+    Imm = MI.getOperand(1).getImm();
+    return (Imm == 0);
+
+  // MOVI Vd, #0
+  case AArch64::MOVIv2i32:
+  case AArch64::MOVIv4i16:
+  case AArch64::MOVIv4i32:
+  case AArch64::MOVIv8i16:
+    Imm = MI.getOperand(1).getImm();
+    Shift = MI.getOperand(2).getImm();
+    return (Imm == 0 && Shift == 0);
+
+  // MOV Rd, Imm
   case AArch64::MOVNWi:
   case AArch64::MOVNXi:
+
+  // MOV Rd, Imm
   case AArch64::MOVZWi:
   case AArch64::MOVZXi:
     return true;
 
-  case AArch64::MOVID:
-  case AArch64::MOVIv2d_ns:
-  case AArch64::MOVIv8b_ns:
-  case AArch64::MOVIv16b_ns:
-    return (MI.getOperand(1).getImm() == 0);
+  // MOV Rd, Imm
+  case AArch64::ORRWri:
+  case AArch64::ORRXri:
+    if (!MI.getOperand(1).isReg())
+      return false;
 
-  case AArch64::MOVIv2i32:
-  case AArch64::MOVIv4i32:
-  case AArch64::MOVIv4i16:
-  case AArch64::MOVIv8i16:
-    return (MI.getOperand(1).getImm() == 0 &&
-            MI.getOperand(2).getImm() == 0);
+    Reg = MI.getOperand(1).getReg();
+    Imm = MI.getOperand(2).getImm();
+    return ((Reg == AArch64::WZR || Reg == AArch64::XZR) && Imm == 0);
+
+  // MOV Rd, Rm
+  case AArch64::ORRWrs:
+  case AArch64::ORRXrs:
+    if (!MI.getOperand(1).isReg())
+      return false;
+
+    Reg = MI.getOperand(1).getReg();
+    Imm = MI.getOperand(3).getImm();
+    Shift = AArch64_AM::getShiftValue(Imm);
+    return ((Reg == AArch64::WZR || Reg == AArch64::XZR) && Shift == 0);
   }
 }
 
@@ -1607,7 +1649,7 @@ bool AArch64InstrInfo::expandPostRAPseudo(MachineInstr &MI) const {
 }
 
 /// Return true if this is this instruction has a non-zero immediate
-bool AArch64InstrInfo::hasShiftedReg(const MachineInstr &MI) const {
+bool AArch64InstrInfo::hasShiftedReg(const MachineInstr &MI) {
   switch (MI.getOpcode()) {
   default:
     break;
@@ -1645,7 +1687,7 @@ bool AArch64InstrInfo::hasShiftedReg(const MachineInstr &MI) const {
 }
 
 /// Return true if this is this instruction has a non-zero immediate
-bool AArch64InstrInfo::hasExtendedReg(const MachineInstr &MI) const {
+bool AArch64InstrInfo::hasExtendedReg(const MachineInstr &MI) {
   switch (MI.getOpcode()) {
   default:
     break;
@@ -1673,7 +1715,7 @@ bool AArch64InstrInfo::hasExtendedReg(const MachineInstr &MI) const {
 
 // Return true if this instruction simply sets its single destination register
 // to zero. This is equivalent to a register rename of the zero-register.
-bool AArch64InstrInfo::isGPRZero(const MachineInstr &MI) const {
+bool AArch64InstrInfo::isGPRZero(const MachineInstr &MI) {
   switch (MI.getOpcode()) {
   default:
     break;
@@ -1697,7 +1739,7 @@ bool AArch64InstrInfo::isGPRZero(const MachineInstr &MI) const {
 
 // Return true if this instruction simply renames a general register without
 // modifying bits.
-bool AArch64InstrInfo::isGPRCopy(const MachineInstr &MI) const {
+bool AArch64InstrInfo::isGPRCopy(const MachineInstr &MI) {
   switch (MI.getOpcode()) {
   default:
     break;
@@ -1727,7 +1769,7 @@ bool AArch64InstrInfo::isGPRCopy(const MachineInstr &MI) const {
 
 // Return true if this instruction simply renames a general register without
 // modifying bits.
-bool AArch64InstrInfo::isFPRCopy(const MachineInstr &MI) const {
+bool AArch64InstrInfo::isFPRCopy(const MachineInstr &MI) {
   switch (MI.getOpcode()) {
   default:
     break;
@@ -1796,7 +1838,7 @@ unsigned AArch64InstrInfo::isStoreToStackSlot(const MachineInstr &MI,
 /// Return true if this is load/store scales or extends its register offset.
 /// This refers to scaling a dynamic index as opposed to scaled immediates.
 /// MI should be a memory op that allows scaled addressing.
-bool AArch64InstrInfo::isScaledAddr(const MachineInstr &MI) const {
+bool AArch64InstrInfo::isScaledAddr(const MachineInstr &MI) {
   switch (MI.getOpcode()) {
   default:
     break;
@@ -1855,27 +1897,27 @@ bool AArch64InstrInfo::isScaledAddr(const MachineInstr &MI) const {
 }
 
 /// Check all MachineMemOperands for a hint to suppress pairing.
-bool AArch64InstrInfo::isLdStPairSuppressed(const MachineInstr &MI) const {
+bool AArch64InstrInfo::isLdStPairSuppressed(const MachineInstr &MI) {
   return llvm::any_of(MI.memoperands(), [](MachineMemOperand *MMO) {
     return MMO->getFlags() & MOSuppressPair;
   });
 }
 
 /// Set a flag on the first MachineMemOperand to suppress pairing.
-void AArch64InstrInfo::suppressLdStPair(MachineInstr &MI) const {
+void AArch64InstrInfo::suppressLdStPair(MachineInstr &MI) {
   if (MI.memoperands_empty())
     return;
   (*MI.memoperands_begin())->setFlags(MOSuppressPair);
 }
 
 /// Check all MachineMemOperands for a hint that the load/store is strided.
-bool AArch64InstrInfo::isStridedAccess(const MachineInstr &MI) const {
+bool AArch64InstrInfo::isStridedAccess(const MachineInstr &MI) {
   return llvm::any_of(MI.memoperands(), [](MachineMemOperand *MMO) {
     return MMO->getFlags() & MOStridedAccess;
   });
 }
 
-bool AArch64InstrInfo::isUnscaledLdSt(unsigned Opc) const {
+bool AArch64InstrInfo::isUnscaledLdSt(unsigned Opc) {
   switch (Opc) {
   default:
     return false;
@@ -1900,8 +1942,124 @@ bool AArch64InstrInfo::isUnscaledLdSt(unsigned Opc) const {
   }
 }
 
-bool AArch64InstrInfo::isUnscaledLdSt(MachineInstr &MI) const {
-  return isUnscaledLdSt(MI.getOpcode());
+bool AArch64InstrInfo::isPairableLdStInst(const MachineInstr &MI) {
+  switch (MI.getOpcode()) {
+  default:
+    return false;
+  // Scaled instructions.
+  case AArch64::STRSui:
+  case AArch64::STRDui:
+  case AArch64::STRQui:
+  case AArch64::STRXui:
+  case AArch64::STRWui:
+  case AArch64::LDRSui:
+  case AArch64::LDRDui:
+  case AArch64::LDRQui:
+  case AArch64::LDRXui:
+  case AArch64::LDRWui:
+  case AArch64::LDRSWui:
+  // Unscaled instructions.
+  case AArch64::STURSi:
+  case AArch64::STURDi:
+  case AArch64::STURQi:
+  case AArch64::STURWi:
+  case AArch64::STURXi:
+  case AArch64::LDURSi:
+  case AArch64::LDURDi:
+  case AArch64::LDURQi:
+  case AArch64::LDURWi:
+  case AArch64::LDURXi:
+  case AArch64::LDURSWi:
+    return true;
+  }
+}
+
+unsigned AArch64InstrInfo::convertToFlagSettingOpc(unsigned Opc,
+                                                   bool &Is64Bit) {
+  switch (Opc) {
+  default:
+    llvm_unreachable("Opcode has no flag setting equivalent!");
+  // 32-bit cases:
+  case AArch64::ADDWri:
+    Is64Bit = false;
+    return AArch64::ADDSWri;
+  case AArch64::ADDWrr:
+    Is64Bit = false;
+    return AArch64::ADDSWrr;
+  case AArch64::ADDWrs:
+    Is64Bit = false;
+    return AArch64::ADDSWrs;
+  case AArch64::ADDWrx:
+    Is64Bit = false;
+    return AArch64::ADDSWrx;
+  case AArch64::ANDWri:
+    Is64Bit = false;
+    return AArch64::ANDSWri;
+  case AArch64::ANDWrr:
+    Is64Bit = false;
+    return AArch64::ANDSWrr;
+  case AArch64::ANDWrs:
+    Is64Bit = false;
+    return AArch64::ANDSWrs;
+  case AArch64::BICWrr:
+    Is64Bit = false;
+    return AArch64::BICSWrr;
+  case AArch64::BICWrs:
+    Is64Bit = false;
+    return AArch64::BICSWrs;
+  case AArch64::SUBWri:
+    Is64Bit = false;
+    return AArch64::SUBSWri;
+  case AArch64::SUBWrr:
+    Is64Bit = false;
+    return AArch64::SUBSWrr;
+  case AArch64::SUBWrs:
+    Is64Bit = false;
+    return AArch64::SUBSWrs;
+  case AArch64::SUBWrx:
+    Is64Bit = false;
+    return AArch64::SUBSWrx;
+  // 64-bit cases:
+  case AArch64::ADDXri:
+    Is64Bit = true;
+    return AArch64::ADDSXri;
+  case AArch64::ADDXrr:
+    Is64Bit = true;
+    return AArch64::ADDSXrr;
+  case AArch64::ADDXrs:
+    Is64Bit = true;
+    return AArch64::ADDSXrs;
+  case AArch64::ADDXrx:
+    Is64Bit = true;
+    return AArch64::ADDSXrx;
+  case AArch64::ANDXri:
+    Is64Bit = true;
+    return AArch64::ANDSXri;
+  case AArch64::ANDXrr:
+    Is64Bit = true;
+    return AArch64::ANDSXrr;
+  case AArch64::ANDXrs:
+    Is64Bit = true;
+    return AArch64::ANDSXrs;
+  case AArch64::BICXrr:
+    Is64Bit = true;
+    return AArch64::BICSXrr;
+  case AArch64::BICXrs:
+    Is64Bit = true;
+    return AArch64::BICSXrs;
+  case AArch64::SUBXri:
+    Is64Bit = true;
+    return AArch64::SUBSXri;
+  case AArch64::SUBXrr:
+    Is64Bit = true;
+    return AArch64::SUBSXrr;
+  case AArch64::SUBXrs:
+    Is64Bit = true;
+    return AArch64::SUBSXrs;
+  case AArch64::SUBXrx:
+    Is64Bit = true;
+    return AArch64::SUBSXrx;
+  }
 }
 
 // Is this a candidate for ld/st merging or pairing?  For example, we don't
@@ -4827,15 +4985,18 @@ bool AArch64InstrInfo::isFunctionSafeToOutlineFrom(
     MachineFunction &MF, bool OutlineFromLinkOnceODRs) const {
   const Function &F = MF.getFunction();
 
-  // If F uses a redzone, then don't outline from it because it might mess up
-  // the stack.
-  if (!F.hasFnAttribute(Attribute::NoRedZone))
-    return false;
-
   // Can F be deduplicated by the linker? If it can, don't outline from it.
   if (!OutlineFromLinkOnceODRs && F.hasLinkOnceODRLinkage())
     return false;
 
+  // Outlining from functions with redzones is unsafe since the outliner may
+  // modify the stack. Check if hasRedZone is true or unknown; if yes, don't
+  // outline from it.
+  AArch64FunctionInfo *AFI = MF.getInfo<AArch64FunctionInfo>();
+  if (!AFI || AFI->hasRedZone().getValueOr(true))
+    return false;
+
+  // It's safe to outline from MF.
   return true;
 }
 
@@ -4878,6 +5039,11 @@ AArch64InstrInfo::getOutliningType(MachineBasicBlock::iterator &MIT,
   // Don't allow debug values to impact outlining type.
   if (MI.isDebugValue() || MI.isIndirectDebugValue()) 
     return MachineOutlinerInstrType::Invisible;
+
+  // At this point, KILL instructions don't really tell us much so we can go
+  // ahead and skip over them.
+  if (MI.isKill())
+    return MachineOutlinerInstrType::Invisible;
   
   // Is this a terminator for a basic block?
   if (MI.isTerminator()) {
@@ -4890,13 +5056,26 @@ AArch64InstrInfo::getOutliningType(MachineBasicBlock::iterator &MIT,
     return MachineOutlinerInstrType::Illegal;
   }
 
+  // Make sure none of the operands are un-outlinable.
+  for (const MachineOperand &MOP : MI.operands()) {
+    if (MOP.isCPI() || MOP.isJTI() || MOP.isCFIIndex() || MOP.isFI() ||
+        MOP.isTargetIndex())
+      return MachineOutlinerInstrType::Illegal;
+  }
+
   // Special cases for instructions that can always be outlined, but will fail
   // the later tests. e.g, ADRPs, which are PC-relative use LR, but can always
   // be outlined because they don't require a *specific* value to be in LR.
   if (MI.getOpcode() == AArch64::ADRP)
     return MachineOutlinerInstrType::Legal;
 
-  // Outline calls without stack parameters or aggregate parameters.
+  // If MI is a call we might be able to outline it. We don't want to outline
+  // any calls that rely on the position of items on the stack. When we outline
+  // something containing a call, we have to emit a save and restore of LR in
+  // the outlined function. Currently, this always happens by saving LR to the
+  // stack. Thus, if we outline, say, half the parameters for a function call
+  // plus the call, then we'll break the callee's expectations for the layout
+  // of the stack.
   if (MI.isCall()) {
     const Module *M = MF->getFunction().getParent();
     assert(M && "No module?");
@@ -4919,44 +5098,25 @@ AArch64InstrInfo::getOutliningType(MachineBasicBlock::iterator &MIT,
     // Only handle functions that we have information about.
     if (!Callee)
       return MachineOutlinerInstrType::Illegal;
-    
+
     // We have a function we have information about. Check it if it's something
     // can safely outline.
-
-    // If the callee is vararg, it passes parameters on the stack. Don't touch
-    // it.
-    // FIXME: Functions like printf are very common and we should be able to
-    // outline them.
-    if (Callee->isVarArg())
-      return MachineOutlinerInstrType::Illegal;
-
-    // Check if any of the arguments are a pointer to a struct. We don't want
-    // to outline these since they might be loaded in two instructions.
-    for (Argument &Arg : Callee->args()) {
-      if (Arg.getType()->isPointerTy() &&
-          Arg.getType()->getPointerElementType()->isAggregateType()) 
-        return MachineOutlinerInstrType::Illegal;
-    }
-
-    // If the thing we're calling doesn't access memory at all, then we're good
-    // to go.
-    if (Callee->doesNotAccessMemory()) 
-      return MachineOutlinerInstrType::Legal;
-    
-
-    // It accesses memory. Get the machine function for the callee to see if
-    // it's safe to outline.
     MachineFunction *CalleeMF = MF->getMMI().getMachineFunction(*Callee);
 
     // We don't know what's going on with the callee at all. Don't touch it.
-    if (!CalleeMF) 
+    if (!CalleeMF)
       return MachineOutlinerInstrType::Illegal;
 
-    // Does it pass anything on the stack? If it does, don't outline it.
-    if (CalleeMF->getInfo<AArch64FunctionInfo>()->getBytesInStackArgArea() != 0)
+    // Check if we know anything about the callee saves on the function. If we
+    // don't, then don't touch it, since that implies that we haven't
+    // computed anything about its stack frame yet.
+    MachineFrameInfo &MFI = CalleeMF->getFrameInfo();
+    if (!MFI.isCalleeSavedInfoValid() || MFI.getStackSize() > 0 ||
+        MFI.getNumObjects() > 0)
       return MachineOutlinerInstrType::Illegal;
-    
-    // It doesn't, so it's safe to outline and we're done.
+
+    // At this point, we can say that CalleeMF ought to not pass anything on the
+    // stack. Therefore, we can outline it.
     return MachineOutlinerInstrType::Legal;
   }
 
@@ -4968,17 +5128,6 @@ AArch64InstrInfo::getOutliningType(MachineBasicBlock::iterator &MIT,
   if (MI.readsRegister(AArch64::W30, &getRegisterInfo()) ||
       MI.modifiesRegister(AArch64::W30, &getRegisterInfo()))
     return MachineOutlinerInstrType::Illegal;
-
-  // Make sure none of the operands are un-outlinable.
-  for (const MachineOperand &MOP : MI.operands()) {
-    if (MOP.isCPI() || MOP.isJTI() || MOP.isCFIIndex() || MOP.isFI() ||
-        MOP.isTargetIndex())
-      return MachineOutlinerInstrType::Illegal;
-
-    // Don't outline anything that uses the link register.
-    if (MOP.isReg() && getRegisterInfo().regsOverlap(MOP.getReg(), AArch64::LR))
-      return MachineOutlinerInstrType::Illegal;
-  }
 
   // Does this use the stack?
   if (MI.modifiesRegister(AArch64::SP, &RI) ||
@@ -5118,6 +5267,25 @@ void AArch64InstrInfo::insertOutlinerEpilogue(
                                 .addReg(AArch64::SP)
                                 .addImm(-16);
     It = MBB.insert(It, STRXpre);
+
+    const TargetSubtargetInfo &STI = MF.getSubtarget();
+    const MCRegisterInfo *MRI = STI.getRegisterInfo();
+    unsigned DwarfReg = MRI->getDwarfRegNum(AArch64::LR, true);
+
+    // Add a CFI saying the stack was moved 16 B down.
+    int64_t StackPosEntry =
+        MF.addFrameInst(MCCFIInstruction::createDefCfaOffset(nullptr, 16));
+    BuildMI(MBB, It, DebugLoc(), get(AArch64::CFI_INSTRUCTION))
+        .addCFIIndex(StackPosEntry)
+        .setMIFlags(MachineInstr::FrameSetup);
+
+    // Add a CFI saying that the LR that we want to find is now 16 B higher than
+    // before.
+    int64_t LRPosEntry =
+        MF.addFrameInst(MCCFIInstruction::createOffset(nullptr, DwarfReg, 16));
+    BuildMI(MBB, It, DebugLoc(), get(AArch64::CFI_INSTRUCTION))
+        .addCFIIndex(LRPosEntry)
+        .setMIFlags(MachineInstr::FrameSetup);
 
     // Insert a restore before the terminator for the function.
     MachineInstr *LDRXpost = BuildMI(MF, DebugLoc(), get(AArch64::LDRXpost))

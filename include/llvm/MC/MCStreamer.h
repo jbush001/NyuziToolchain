@@ -16,6 +16,7 @@
 
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/Optional.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/MC/MCDirectives.h"
@@ -23,6 +24,7 @@
 #include "llvm/MC/MCLinkerOptimizationHint.h"
 #include "llvm/MC/MCSymbol.h"
 #include "llvm/MC/MCWinEH.h"
+#include "llvm/Support/Error.h"
 #include "llvm/Support/MD5.h"
 #include "llvm/Support/SMLoc.h"
 #include "llvm/Support/TargetParser.h"
@@ -523,9 +525,10 @@ public:
   ///
   /// This corresponds to an assembler statement such as:
   ///  .symver _start, foo@@SOME_VERSION
-  /// \param Alias - The versioned alias (i.e. "foo@@SOME_VERSION")
+  /// \param AliasName - The versioned alias (i.e. "foo@@SOME_VERSION")
   /// \param Aliasee - The aliased symbol (i.e. "_start")
-  virtual void emitELFSymverDirective(MCSymbol *Alias, const MCSymbol *Aliasee);
+  virtual void emitELFSymverDirective(StringRef AliasName,
+                                      const MCSymbol *Aliasee);
 
   /// \brief Emit a Linker Optimization Hint (LOH) directive.
   /// \param Args - Arguments of the LOH.
@@ -608,10 +611,6 @@ public:
   /// \brief Special case of EmitULEB128Value that avoids the client having to
   /// pass in a MCExpr for constant integers.
   void EmitULEB128IntValue(uint64_t Value);
-
-  /// \brief Like EmitULEB128Value but pads the output to specific number of
-  /// bytes.
-  void EmitPaddedULEB128IntValue(uint64_t Value, unsigned PadTo);
 
   /// \brief Special case of EmitSLEB128Value that avoids the client having to
   /// pass in a MCExpr for constant integers.
@@ -756,10 +755,31 @@ public:
 
   /// \brief Associate a filename with a specified logical file number.  This
   /// implements the DWARF2 '.file 4 "foo.c"' assembler directive.
-  virtual unsigned EmitDwarfFileDirective(unsigned FileNo, StringRef Directory,
-                                          StringRef Filename,
-                                          MD5::MD5Result *Checksum = nullptr,
-                                          unsigned CUID = 0);
+  unsigned EmitDwarfFileDirective(unsigned FileNo, StringRef Directory,
+                                  StringRef Filename,
+                                  MD5::MD5Result *Checksum = nullptr,
+                                  Optional<StringRef> Source = None,
+                                  unsigned CUID = 0) {
+    return cantFail(
+        tryEmitDwarfFileDirective(FileNo, Directory, Filename, Checksum,
+                                  Source, CUID));
+  }
+
+  /// Associate a filename with a specified logical file number.
+  /// Also associate a directory, optional checksum, and optional source
+  /// text with the logical file.  This implements the DWARF2
+  /// '.file 4 "dir/foo.c"' assembler directive, and the DWARF5
+  /// '.file 4 "dir/foo.c" md5 "..." source "..."' assembler directive.
+  virtual Expected<unsigned> tryEmitDwarfFileDirective(
+      unsigned FileNo, StringRef Directory, StringRef Filename,
+      MD5::MD5Result *Checksum = nullptr, Optional<StringRef> Source = None,
+      unsigned CUID = 0);
+
+  /// Specify the "root" file of the compilation, using the ".file 0" extension.
+  virtual void emitDwarfFile0Directive(StringRef Directory, StringRef Filename,
+                                       MD5::MD5Result *Checksum,
+                                       Optional<StringRef> Source,
+                                       unsigned CUID = 0);
 
   /// \brief This implements the DWARF2 '.loc fileno lineno ...' assembler
   /// directive.
@@ -827,6 +847,10 @@ public:
   /// \pre Offset of \c Hi is greater than the offset \c Lo.
   virtual void emitAbsoluteSymbolDiff(const MCSymbol *Hi, const MCSymbol *Lo,
                                       unsigned Size);
+
+  /// Emit the absolute difference between two symbols encoded with ULEB128.
+  virtual void emitAbsoluteSymbolDiffAsULEB128(const MCSymbol *Hi,
+                                               const MCSymbol *Lo);
 
   virtual MCSymbol *getDwarfLineTableSymbol(unsigned CUID);
   virtual void EmitCFISections(bool EH, bool Debug);

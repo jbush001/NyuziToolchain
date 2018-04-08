@@ -3,23 +3,6 @@
 ; RUN: llc < %s -mtriple=x86_64-unknown-unknown -mattr=+avx2 | FileCheck %s --check-prefixes=CHECK,AVX,AVX2-SLOW
 ; RUN: llc < %s -mtriple=x86_64-unknown-unknown -mattr=+avx2,+fast-variable-shuffle | FileCheck %s --check-prefixes=CHECK,AVX,AVX2-FAST
 
-; fold (sra undef, x) -> undef
-define i32 @combine_lshr_undef0(i32 %x) {
-; CHECK-LABEL: combine_lshr_undef0:
-; CHECK:       # %bb.0:
-; CHECK-NEXT:    retq
-  %1 = ashr i32 undef, %x
-  ret i32 %1
-}
-
-define <4 x i32> @combine_vec_ashr_undef0(<4 x i32> %x) {
-; CHECK-LABEL: combine_vec_ashr_undef0:
-; CHECK:       # %bb.0:
-; CHECK-NEXT:    retq
-  %1 = ashr <4 x i32> undef, %x
-  ret <4 x i32> %1
-}
-
 ; fold (sra 0, x) -> 0
 define <4 x i32> @combine_vec_ashr_zero(<4 x i32> %x) {
 ; SSE-LABEL: combine_vec_ashr_zero:
@@ -214,9 +197,7 @@ define <4 x i32> @combine_vec_ashr_trunc_and(<4 x i32> %x, <4 x i64> %y) {
 define <4 x i32> @combine_vec_ashr_trunc_lshr(<4 x i64> %x) {
 ; SSE-LABEL: combine_vec_ashr_trunc_lshr:
 ; SSE:       # %bb.0:
-; SSE-NEXT:    psrlq $32, %xmm1
-; SSE-NEXT:    psrlq $32, %xmm0
-; SSE-NEXT:    shufps {{.*#+}} xmm0 = xmm0[0,2],xmm1[0,2]
+; SSE-NEXT:    shufps {{.*#+}} xmm0 = xmm0[1,3],xmm1[1,3]
 ; SSE-NEXT:    movaps %xmm0, %xmm2
 ; SSE-NEXT:    movaps %xmm0, %xmm1
 ; SSE-NEXT:    psrad $2, %xmm1
@@ -256,10 +237,7 @@ define <4 x i32> @combine_vec_ashr_trunc_lshr(<4 x i64> %x) {
 define <4 x i32> @combine_vec_ashr_trunc_ashr(<4 x i64> %x) {
 ; SSE-LABEL: combine_vec_ashr_trunc_ashr:
 ; SSE:       # %bb.0:
-; SSE-NEXT:    pshufd {{.*#+}} xmm2 = xmm1[1,1,3,3]
-; SSE-NEXT:    psrad $31, %xmm1
-; SSE-NEXT:    pblendw {{.*#+}} xmm1 = xmm2[0,1],xmm1[2,3],xmm2[4,5],xmm1[6,7]
-; SSE-NEXT:    shufps {{.*#+}} xmm0 = xmm0[1,3],xmm1[0,2]
+; SSE-NEXT:    shufps {{.*#+}} xmm0 = xmm0[1,3],xmm1[1,3]
 ; SSE-NEXT:    movaps %xmm0, %xmm2
 ; SSE-NEXT:    movaps %xmm0, %xmm1
 ; SSE-NEXT:    psrad $2, %xmm1

@@ -12,12 +12,14 @@
 //===----------------------------------------------------------------------===//
 
 #include "CoroutineStmtBuilder.h"
+#include "clang/AST/ASTLambda.h"
 #include "clang/AST/Decl.h"
 #include "clang/AST/ExprCXX.h"
 #include "clang/AST/StmtCXX.h"
 #include "clang/Lex/Preprocessor.h"
 #include "clang/Sema/Initialization.h"
 #include "clang/Sema/Overload.h"
+#include "clang/Sema/ScopeInfo.h"
 #include "clang/Sema/SemaInternal.h"
 
 using namespace clang;
@@ -360,12 +362,21 @@ static ExprResult buildMemberCall(Sema &S, Expr *Base, SourceLocation Loc,
   if (Result.isInvalid())
     return ExprError();
 
+  // We meant exactly what we asked for. No need for typo correction.
+  if (auto *TE = dyn_cast<TypoExpr>(Result.get())) {
+    S.clearDelayedTypo(TE);
+    S.Diag(Loc, diag::err_no_member)
+        << NameInfo.getName() << Base->getType()->getAsCXXRecordDecl()
+        << Base->getSourceRange();
+    return ExprError();
+  }
+
   return S.ActOnCallExpr(nullptr, Result.get(), Loc, Args, Loc, nullptr);
 }
 
 // See if return type is coroutine-handle and if so, invoke builtin coro-resume
 // on its address. This is to enable experimental support for coroutine-handle
-// returning await_suspend that results in a guranteed tail call to the target
+// returning await_suspend that results in a guaranteed tail call to the target
 // coroutine.
 static Expr *maybeTailCall(Sema &S, QualType RetType, Expr *E,
                            SourceLocation Loc) {
@@ -506,24 +517,15 @@ VarDecl *Sema::buildCoroutinePromise(SourceLocation Loc) {
 
     auto RefExpr = ExprEmpty();
     auto Move = Moves.find(PD);
-    if (Move != Moves.end()) {
-      // If a reference to the function parameter exists in the coroutine
-      // frame, use that reference.
-      auto *MoveDecl =
-          cast<VarDecl>(cast<DeclStmt>(Move->second)->getSingleDecl());
-      RefExpr = BuildDeclRefExpr(MoveDecl, MoveDecl->getType(),
-                                 ExprValueKind::VK_LValue, FD->getLocation());
-    } else {
-      // If the function parameter doesn't exist in the coroutine frame, it
-      // must be a scalar value. Use it directly.
-      assert(!PD->getType()->getAsCXXRecordDecl() &&
-             "Non-scalar types should have been moved and inserted into the "
-             "parameter moves map");
-      RefExpr =
-          BuildDeclRefExpr(PD, PD->getOriginalType().getNonReferenceType(),
-                           ExprValueKind::VK_LValue, FD->getLocation());
-    }
-
+    assert(Move != Moves.end() &&
+           "Coroutine function parameter not inserted into move map");
+    // If a reference to the function parameter exists in the coroutine
+    // frame, use that reference.
+    auto *MoveDecl =
+        cast<VarDecl>(cast<DeclStmt>(Move->second)->getSingleDecl());
+    RefExpr =
+        BuildDeclRefExpr(MoveDecl, MoveDecl->getType().getNonReferenceType(),
+                         ExprValueKind::VK_LValue, FD->getLocation());
     if (RefExpr.isInvalid())
       return nullptr;
     CtorArgExprs.push_back(RefExpr.get());
@@ -715,9 +717,14 @@ ExprResult Sema::BuildResolvedCoawaitExpr(SourceLocation Loc, Expr *E,
   if (E->getValueKind() == VK_RValue)
     E = CreateMaterializeTemporaryExpr(E->getType(), E, true);
 
+  // The location of the `co_await` token cannot be used when constructing
+  // the member call expressions since it's before the location of `Expr`, which
+  // is used as the start of the member call expression.
+  SourceLocation CallLoc = E->getExprLoc();
+
   // Build the await_ready, await_suspend, await_resume calls.
   ReadySuspendResumeResult RSS =
-      buildCoawaitCalls(*this, Coroutine->CoroutinePromise, Loc, E);
+      buildCoawaitCalls(*this, Coroutine->CoroutinePromise, CallLoc, E);
   if (RSS.IsInvalid)
     return ExprError();
 
@@ -1050,7 +1057,12 @@ bool CoroutineStmtBuilder::makeNewAndDeleteExpr() {
 
   const bool RequiresNoThrowAlloc = ReturnStmtOnAllocFailure != nullptr;
 
-  // FIXME: Add support for stateful allocators.
+  // [dcl.fct.def.coroutine]/7
+  // Lookup allocation functions using a parameter list composed of the
+  // requested size of the coroutine state being allocated, followed by
+  // the coroutine function's arguments. If a matching allocation function
+  // exists, use it. Otherwise, use an allocation function that just takes
+  // the requested size.
 
   FunctionDecl *OperatorNew = nullptr;
   FunctionDecl *OperatorDelete = nullptr;
@@ -1058,10 +1070,73 @@ bool CoroutineStmtBuilder::makeNewAndDeleteExpr() {
   bool PassAlignment = false;
   SmallVector<Expr *, 1> PlacementArgs;
 
-  S.FindAllocationFunctions(Loc, SourceRange(),
-                            /*UseGlobal*/ false, PromiseType,
+  // [dcl.fct.def.coroutine]/7
+  // "The allocation function’s name is looked up in the scope of P.
+  // [...] If the lookup finds an allocation function in the scope of P,
+  // overload resolution is performed on a function call created by assembling
+  // an argument list. The first argument is the amount of space requested,
+  // and has type std::size_t. The lvalues p1 ... pn are the succeeding
+  // arguments."
+  //
+  // ...where "p1 ... pn" are defined earlier as:
+  //
+  // [dcl.fct.def.coroutine]/3
+  // "For a coroutine f that is a non-static member function, let P1 denote the
+  // type of the implicit object parameter (13.3.1) and P2 ... Pn be the types
+  // of the function parameters; otherwise let P1 ... Pn be the types of the
+  // function parameters. Let p1 ... pn be lvalues denoting those objects."
+  if (auto *MD = dyn_cast<CXXMethodDecl>(&FD)) {
+    if (MD->isInstance() && !isLambdaCallOperator(MD)) {
+      ExprResult ThisExpr = S.ActOnCXXThis(Loc);
+      if (ThisExpr.isInvalid())
+        return false;
+      ThisExpr = S.CreateBuiltinUnaryOp(Loc, UO_Deref, ThisExpr.get());
+      if (ThisExpr.isInvalid())
+        return false;
+      PlacementArgs.push_back(ThisExpr.get());
+    }
+  }
+  for (auto *PD : FD.parameters()) {
+    if (PD->getType()->isDependentType())
+      continue;
+
+    // Build a reference to the parameter.
+    auto PDLoc = PD->getLocation();
+    ExprResult PDRefExpr =
+        S.BuildDeclRefExpr(PD, PD->getOriginalType().getNonReferenceType(),
+                           ExprValueKind::VK_LValue, PDLoc);
+    if (PDRefExpr.isInvalid())
+      return false;
+
+    PlacementArgs.push_back(PDRefExpr.get());
+  }
+  S.FindAllocationFunctions(Loc, SourceRange(), /*NewScope*/ Sema::AFS_Class,
+                            /*DeleteScope*/ Sema::AFS_Both, PromiseType,
                             /*isArray*/ false, PassAlignment, PlacementArgs,
-                            OperatorNew, UnusedResult);
+                            OperatorNew, UnusedResult, /*Diagnose*/ false);
+
+  // [dcl.fct.def.coroutine]/7
+  // "If no matching function is found, overload resolution is performed again
+  // on a function call created by passing just the amount of space required as
+  // an argument of type std::size_t."
+  if (!OperatorNew && !PlacementArgs.empty()) {
+    PlacementArgs.clear();
+    S.FindAllocationFunctions(Loc, SourceRange(), /*NewScope*/ Sema::AFS_Class,
+                              /*DeleteScope*/ Sema::AFS_Both, PromiseType,
+                              /*isArray*/ false, PassAlignment, PlacementArgs,
+                              OperatorNew, UnusedResult, /*Diagnose*/ false);
+  }
+
+  // [dcl.fct.def.coroutine]/7
+  // "The allocation function’s name is looked up in the scope of P. If this
+  // lookup fails, the allocation function’s name is looked up in the global
+  // scope."
+  if (!OperatorNew) {
+    S.FindAllocationFunctions(Loc, SourceRange(), /*NewScope*/ Sema::AFS_Global,
+                              /*DeleteScope*/ Sema::AFS_Both, PromiseType,
+                              /*isArray*/ false, PassAlignment, PlacementArgs,
+                              OperatorNew, UnusedResult);
+  }
 
   bool IsGlobalOverload =
       OperatorNew && !isa<CXXRecordDecl>(OperatorNew->getDeclContext());
@@ -1074,13 +1149,14 @@ bool CoroutineStmtBuilder::makeNewAndDeleteExpr() {
       return false;
     PlacementArgs = {StdNoThrow};
     OperatorNew = nullptr;
-    S.FindAllocationFunctions(Loc, SourceRange(),
-                              /*UseGlobal*/ true, PromiseType,
+    S.FindAllocationFunctions(Loc, SourceRange(), /*NewScope*/ Sema::AFS_Both,
+                              /*DeleteScope*/ Sema::AFS_Both, PromiseType,
                               /*isArray*/ false, PassAlignment, PlacementArgs,
                               OperatorNew, UnusedResult);
   }
 
-  assert(OperatorNew && "expected definition of operator new to be found");
+  if (!OperatorNew)
+    return false;
 
   if (RequiresNoThrowAlloc) {
     const auto *FT = OperatorNew->getType()->getAs<FunctionProtoType>();
@@ -1386,25 +1462,28 @@ bool Sema::buildCoroutineParameterMoves(SourceLocation Loc) {
     if (PD->getType()->isDependentType())
       continue;
 
-    // No need to copy scalars, LLVM will take care of them.
-    if (PD->getType()->getAsCXXRecordDecl()) {
-      ExprResult PDRefExpr = BuildDeclRefExpr(
-          PD, PD->getType(), ExprValueKind::VK_LValue, Loc); // FIXME: scope?
-      if (PDRefExpr.isInvalid())
-        return false;
+    ExprResult PDRefExpr =
+        BuildDeclRefExpr(PD, PD->getType().getNonReferenceType(),
+                         ExprValueKind::VK_LValue, Loc); // FIXME: scope?
+    if (PDRefExpr.isInvalid())
+      return false;
 
-      Expr *CExpr = castForMoving(*this, PDRefExpr.get());
+    Expr *CExpr = nullptr;
+    if (PD->getType()->getAsCXXRecordDecl() ||
+        PD->getType()->isRValueReferenceType())
+      CExpr = castForMoving(*this, PDRefExpr.get());
+    else
+      CExpr = PDRefExpr.get();
 
-      auto D = buildVarDecl(*this, Loc, PD->getType(), PD->getIdentifier());
-      AddInitializerToDecl(D, CExpr, /*DirectInit=*/true);
+    auto D = buildVarDecl(*this, Loc, PD->getType(), PD->getIdentifier());
+    AddInitializerToDecl(D, CExpr, /*DirectInit=*/true);
 
-      // Convert decl to a statement.
-      StmtResult Stmt = ActOnDeclStmt(ConvertDeclToDeclGroup(D), Loc, Loc);
-      if (Stmt.isInvalid())
-        return false;
+    // Convert decl to a statement.
+    StmtResult Stmt = ActOnDeclStmt(ConvertDeclToDeclGroup(D), Loc, Loc);
+    if (Stmt.isInvalid())
+      return false;
 
-      ScopeInfo->CoroutineParameterMoves.insert(std::make_pair(PD, Stmt.get()));
-    }
+    ScopeInfo->CoroutineParameterMoves.insert(std::make_pair(PD, Stmt.get()));
   }
   return true;
 }

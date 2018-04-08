@@ -70,15 +70,11 @@ public:
   }
 
   bool isAliased(const MachineFrameInfo *) const override {
-    // FIXME: If we ever change image intrinsics to accept fat pointers, then
-    // this could be true for some cases.
-    return false;
+    return true;
   }
 
   bool mayAlias(const MachineFrameInfo *) const override {
-    // FIXME: If we ever change image intrinsics to accept fat pointers, then
-    // this could be true for some cases.
-    return false;
+    return true;
   }
 };
 
@@ -146,6 +142,7 @@ private:
   bool HasSpilledSGPRs = false;
   bool HasSpilledVGPRs = false;
   bool HasNonSpillStackObjects = false;
+  bool IsStackRealigned = false;
 
   unsigned NumSpilledSGPRs = 0;
   unsigned NumSpilledVGPRs = 0;
@@ -185,6 +182,8 @@ private:
   // for AMDPAL OS type. 0xffffffff represents no hard-wired high half, since
   // current hardware only allows a 16 bit value.
   unsigned GITPtrHigh;
+
+  unsigned HighBitsOf32BitAddress;
 
   MCPhysReg getNextUserSGPR() const {
     assert(NumSystemSGPRs == 0 && "System SGPRs must be added after user SGPRs");
@@ -411,6 +410,10 @@ public:
     return GITPtrHigh;
   }
 
+  unsigned get32BitAddressHighBits() const {
+    return HighBitsOf32BitAddress;
+  }
+
   unsigned getNumUserSGPRs() const {
     return NumUserSGPRs;
   }
@@ -491,6 +494,14 @@ public:
 
   void setHasNonSpillStackObjects(bool StackObject = true) {
     HasNonSpillStackObjects = StackObject;
+  }
+
+  bool isStackRealigned() const {
+    return IsStackRealigned;
+  }
+
+  void setIsStackRealigned(bool Realigned = true) {
+    IsStackRealigned = Realigned;
   }
 
   unsigned getNumSpilledSGPRs() const {

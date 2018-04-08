@@ -29,6 +29,7 @@
 #include "llvm/Analysis/ScalarEvolution.h"
 #include "llvm/Analysis/ScalarEvolutionExpressions.h"
 #include "llvm/Analysis/TargetLibraryInfo.h"
+#include "llvm/Analysis/Utils/Local.h"
 #include "llvm/CodeGen/TargetLowering.h"
 #include "llvm/CodeGen/TargetPassConfig.h"
 #include "llvm/CodeGen/TargetSubtargetInfo.h"
@@ -63,7 +64,6 @@
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
 #include "llvm/Transforms/Utils/Cloning.h"
-#include "llvm/Transforms/Utils/Local.h"
 #include <algorithm>
 #include <cassert>
 #include <cstdint>
@@ -557,6 +557,7 @@ Value *SafeStack::moveStaticAllocasToUnsafeStack(
 
   for (Argument *Arg : ByValArguments) {
     unsigned Offset = SSL.getObjectOffset(Arg);
+    unsigned Align = SSL.getObjectAlignment(Arg);
     Type *Ty = Arg->getType()->getPointerElementType();
 
     uint64_t Size = DL.getTypeStoreSize(Ty);
@@ -573,7 +574,7 @@ Value *SafeStack::moveStaticAllocasToUnsafeStack(
                       DIExpression::NoDeref, -Offset, DIExpression::NoDeref);
     Arg->replaceAllUsesWith(NewArg);
     IRB.SetInsertPoint(cast<Instruction>(NewArg)->getNextNode());
-    IRB.CreateMemCpy(Off, Arg, Size, Arg->getParamAlignment());
+    IRB.CreateMemCpy(Off, Align, Arg, Arg->getParamAlignment(), Size);
   }
 
   // Allocate space for every unsafe static AllocaInst on the unsafe stack.

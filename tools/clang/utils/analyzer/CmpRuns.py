@@ -26,9 +26,11 @@ Usage:
 
 """
 
+import sys
 import os
 import plistlib
 from math import log
+from optparse import OptionParser
 
 
 # Information about analysis run:
@@ -100,20 +102,6 @@ class AnalysisDiagnostic:
     # version to another.
     def getRawData(self):
         return self._data
-
-
-class CmpOptions:
-    """
-    Fake output of option parser with manually constructed options.
-    """
-
-    def __init__(self, verboseLog=None, rootA="", rootB=""):
-        self.rootA = rootA
-        self.rootB = rootB
-        self.verboseLog = verboseLog
-        self.relative_path_histogram = False
-        self.relative_log_path_histogram = False
-        self.absolute_path_histogram = False
 
 
 class AnalysisReport:
@@ -277,7 +265,8 @@ def compareResults(A, B, opts):
     return res
 
 
-def dumpScanBuildResultsDiff(dirA, dirB, opts, deleteEmpty=True):
+def dumpScanBuildResultsDiff(dirA, dirB, opts, deleteEmpty=True,
+                             Stdout=sys.stdout):
     # Load the run results.
     resultsA = loadResults(dirA, opts, opts.rootA, deleteEmpty)
     resultsB = loadResults(dirB, opts, opts.rootB, deleteEmpty)
@@ -295,36 +284,34 @@ def dumpScanBuildResultsDiff(dirA, dirB, opts, deleteEmpty=True):
     for res in diff:
         a, b = res
         if a is None:
-            print "ADDED: %r" % b.getReadableName()
+            Stdout.write("ADDED: %r\n" % b.getReadableName())
             foundDiffs += 1
             totalAdded += 1
             if auxLog:
-                print >>auxLog, ("('ADDED', %r, %r)" % (b.getReadableName(),
-                                                        b.getReport()))
+                auxLog.write("('ADDED', %r, %r)\n" % (b.getReadableName(),
+                                                      b.getReport()))
         elif b is None:
-            print "REMOVED: %r" % a.getReadableName()
+            Stdout.write("REMOVED: %r\n" % a.getReadableName())
             foundDiffs += 1
             totalRemoved += 1
             if auxLog:
-                print >>auxLog, ("('REMOVED', %r, %r)" % (a.getReadableName(),
-                                                          a.getReport()))
+                auxLog.write("('REMOVED', %r, %r)\n" % (a.getReadableName(),
+                                                        a.getReport()))
         else:
             pass
 
     TotalReports = len(resultsB.diagnostics)
-    print "TOTAL REPORTS: %r" % TotalReports
-    print "TOTAL DIFFERENCES: %r" % foundDiffs
-    print "TOTAL ADDED: %r" % totalAdded
-    print "TOTAL REMOVED: %r" % totalRemoved
+    Stdout.write("TOTAL REPORTS: %r\n" % TotalReports)
+    Stdout.write("TOTAL ADDED: %r\n" % totalAdded)
+    Stdout.write("TOTAL REMOVED: %r\n" % totalRemoved)
     if auxLog:
-        print >>auxLog, "('TOTAL NEW REPORTS', %r)" % TotalReports
-        print >>auxLog, "('TOTAL DIFFERENCES', %r)" % foundDiffs
+        auxLog.write("('TOTAL NEW REPORTS', %r)\n" % TotalReports)
+        auxLog.write("('TOTAL DIFFERENCES', %r)\n" % foundDiffs)
+        auxLog.close()
 
     return foundDiffs, len(resultsA.diagnostics), len(resultsB.diagnostics)
 
-
-def main():
-    from optparse import OptionParser
+def generate_option_parser():
     parser = OptionParser("usage: %prog [options] [dir A] [dir B]")
     parser.add_option("", "--rootA", dest="rootA",
                       help="Prefix to ignore on source files for directory A",
@@ -334,24 +321,29 @@ def main():
                       action="store", type=str, default="")
     parser.add_option("", "--verbose-log", dest="verboseLog",
                       help="Write additional information to LOG \
-                      [default=None]",
+                           [default=None]",
                       action="store", type=str, default=None,
                       metavar="LOG")
     parser.add_option("--relative-path-differences-histogram",
                       action="store_true", dest="relative_path_histogram",
                       default=False,
                       help="Show histogram of relative paths differences. \
-                      Requires matplotlib")
+                            Requires matplotlib")
     parser.add_option("--relative-log-path-differences-histogram",
                       action="store_true", dest="relative_log_path_histogram",
                       default=False,
                       help="Show histogram of log relative paths differences. \
-                      Requires matplotlib")
+                            Requires matplotlib")
     parser.add_option("--absolute-path-differences-histogram",
                       action="store_true", dest="absolute_path_histogram",
                       default=False,
                       help="Show histogram of absolute paths differences. \
-                      Requires matplotlib")
+                            Requires matplotlib")
+    return parser
+
+
+def main():
+    parser = generate_option_parser()
     (opts, args) = parser.parse_args()
 
     if len(args) != 2:

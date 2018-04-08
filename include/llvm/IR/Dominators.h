@@ -174,12 +174,6 @@ class DominatorTree : public DominatorTreeBase<BasicBlock, false> {
   /// \brief Provide an overload for a Use.
   bool isReachableFromEntry(const Use &U) const;
 
-  /// \brief Verify the correctness of the domtree by re-computing it.
-  ///
-  /// This should only be used for debugging as it aborts the program if the
-  /// verification fails.
-  void verifyDomTree() const;
-
   // Pop up a GraphViz/gv window with the Dominator Tree rendered using `dot`.
   void viewGraph(const Twine &Name, const Twine &Title);
   void viewGraph();
@@ -334,6 +328,9 @@ public:
 
   /// \brief Returns true if DelBB is awaiting deletion at a flush() event.
   bool pendingDeletedBB(BasicBlock *DelBB);
+
+  /// \brief Returns true if pending DT updates are queued for a flush() event.
+  bool pending();
 
   /// \brief Flushes all pending updates and block deletions. Returns a
   /// correct DominatorTree reference to be used by the caller for analysis.

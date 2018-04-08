@@ -1160,7 +1160,7 @@ RValue CodeGenFunction::EmitAtomicExpr(AtomicExpr *E) {
     if (UseOptimizedLibcall && Res.getScalarVal()) {
       llvm::Value *ResVal = Res.getScalarVal();
       if (PostOp) {
-        llvm::Value *LoadVal1 = Args[1].RV.getScalarVal();
+        llvm::Value *LoadVal1 = Args[1].getRValue(*this).getScalarVal();
         ResVal = Builder.CreateBinOp(PostOp, ResVal, LoadVal1);
       }
       if (E->getOp() == AtomicExpr::AO__atomic_nand_fetch)
@@ -1513,7 +1513,8 @@ void AtomicInfo::emitCopyIntoMemory(RValue rvalue) const {
                                     getAtomicType());
     bool IsVolatile = rvalue.isVolatileQualified() ||
                       LVal.isVolatileQualified();
-    CGF.EmitAggregateCopy(Dest, Src, getAtomicType(), IsVolatile);
+    CGF.EmitAggregateCopy(Dest, Src, getAtomicType(),
+                          AggValueSlot::DoesNotOverlap, IsVolatile);
     return;
   }
 
@@ -2008,6 +2009,7 @@ void CodeGenFunction::EmitAtomicInit(Expr *init, LValue dest) {
                                         AggValueSlot::IsNotDestructed,
                                         AggValueSlot::DoesNotNeedGCBarriers,
                                         AggValueSlot::IsNotAliased,
+                                        AggValueSlot::DoesNotOverlap,
                                         Zeroed ? AggValueSlot::IsZeroed :
                                                  AggValueSlot::IsNotZeroed);
 

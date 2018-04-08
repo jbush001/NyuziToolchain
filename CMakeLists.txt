@@ -151,7 +151,10 @@ if(LLVM_CCACHE_BUILD)
   if(CCACHE_PROGRAM)
       set(LLVM_CCACHE_MAXSIZE "" CACHE STRING "Size of ccache")
       set(LLVM_CCACHE_DIR "" CACHE STRING "Directory to keep ccached data")
-      set(CCACHE_PROGRAM "CCACHE_CPP2=yes CCACHE_HASHDIR=yes ${CCACHE_PROGRAM}")
+      set(LLVM_CCACHE_PARAMS "CCACHE_CPP2=yes CCACHE_HASHDIR=yes"
+          CACHE STRING "Parameters to pass through to ccache")
+
+      set(CCACHE_PROGRAM "${LLVM_CCACHE_PARAMS} ${CCACHE_PROGRAM}")
       if (LLVM_CCACHE_MAXSIZE)
         set(CCACHE_PROGRAM "CCACHE_MAXSIZE=${LLVM_CCACHE_MAXSIZE} ${CCACHE_PROGRAM}")
       endif()
@@ -197,6 +200,9 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS 1)
 
 option(LLVM_INSTALL_BINUTILS_SYMLINKS
   "Install symlinks from the binutils tool names to the corresponding LLVM tools." OFF)
+
+option(LLVM_INSTALL_CCTOOLS_SYMLINKS
+  "Install symlinks from the cctools tool names to the corresponding LLVM tools." OFF)
 
 option(LLVM_INSTALL_UTILS "Include utility binaries in the 'install' target." OFF)
 
@@ -745,9 +751,6 @@ configure_file(
 configure_file(
   ${LLVM_MAIN_INCLUDE_DIR}/llvm/Config/abi-breaking.h.cmake
   ${LLVM_INCLUDE_DIR}/llvm/Config/abi-breaking.h)
-configure_file(
-  ${LLVM_MAIN_INCLUDE_DIR}/llvm/Support/DataTypes.h.cmake
-  ${LLVM_INCLUDE_DIR}/llvm/Support/DataTypes.h)
 
 # Add target for generating source rpm package.
 set(LLVM_SRPM_USER_BINARY_SPECFILE ${CMAKE_CURRENT_SOURCE_DIR}/llvm.spec.in
@@ -967,7 +970,7 @@ if (NOT LLVM_INSTALL_TOOLCHAIN_ONLY)
     PATTERN ".svn" EXCLUDE
     )
 
-  install(DIRECTORY ${LLVM_INCLUDE_DIR}/llvm
+  install(DIRECTORY ${LLVM_INCLUDE_DIR}/llvm ${LLVM_INCLUDE_DIR}/llvm-c
     DESTINATION include
     COMPONENT llvm-headers
     FILES_MATCHING
@@ -1029,4 +1032,3 @@ endif()
 if (MSVC AND CMAKE_HOST_SYSTEM_NAME STREQUAL "Windows")
   include(InstallRequiredSystemLibraries)
 endif()
-

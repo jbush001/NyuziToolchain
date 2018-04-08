@@ -2404,7 +2404,7 @@ bool Sema::AttachBaseSpecifiers(CXXRecordDecl *Class,
           // The Microsoft extension __interface does not permit bases that
           // are not themselves public interfaces.
           Diag(KnownBase->getLocStart(), diag::err_invalid_base_in_interface)
-            << getRecordDiagFromTagKind(RD->getTagKind()) << RD->getName()
+            << getRecordDiagFromTagKind(RD->getTagKind()) << RD
             << RD->getSourceRange();
           Invalid = true;
         }
@@ -2862,7 +2862,7 @@ void Sema::CheckShadowInheritedFields(const SourceLocation &Loc,
     if (AS_none !=
         CXXRecordDecl::MergeAccess(P.Access, BaseField->getAccess())) {
       Diag(Loc, diag::warn_shadow_field)
-        << FieldName.getAsString() << RD->getName() << Base->getName();
+        << FieldName << RD << Base;
       Diag(BaseField->getLocation(), diag::note_shadow_field);
       Bases.erase(It);
     }
@@ -3051,7 +3051,9 @@ Sema::ActOnCXXMemberDeclarator(Scope *S, AccessSpecifier AS, Declarator &D,
       //   int X::member;
       // };
       if (DeclContext *DC = computeDeclContext(SS, false))
-        diagnoseQualifiedDeclaration(SS, DC, Name, D.getIdentifierLoc());
+        diagnoseQualifiedDeclaration(SS, DC, Name, D.getIdentifierLoc(),
+                                     D.getName().getKind() ==
+                                         UnqualifiedIdKind::IK_TemplateId);
       else
         Diag(D.getIdentifierLoc(), diag::err_member_qualification)
           << Name << SS.getRange();
@@ -4333,7 +4335,7 @@ BuildImplicitMemberInitializer(Sema &SemaRef, CXXConstructorDecl *Constructor,
     QualType ParamType = Param->getType().getNonReferenceType();
 
     // Suppress copying zero-width bitfields.
-    if (Field->isBitField() && Field->getBitWidthValue(SemaRef.Context) == 0)
+    if (Field->isZeroLengthBitField(SemaRef.Context))
       return false;
 
     Expr *MemberExprBase =
@@ -5476,7 +5478,7 @@ static void CheckAbstractClassUsage(AbstractUsageInfo &Info,
   }
 }
 
-static void ReferenceDllExportedMethods(Sema &S, CXXRecordDecl *Class) {
+static void ReferenceDllExportedMembers(Sema &S, CXXRecordDecl *Class) {
   Attr *ClassAttr = getDLLAttr(Class);
   if (!ClassAttr)
     return;
@@ -5491,6 +5493,14 @@ static void ReferenceDllExportedMethods(Sema &S, CXXRecordDecl *Class) {
     return;
 
   for (Decl *Member : Class->decls()) {
+    // Defined static variables that are members of an exported base
+    // class must be marked export too.
+    auto *VD = dyn_cast<VarDecl>(Member);
+    if (VD && Member->getAttr<DLLExportAttr>() &&
+        VD->getStorageClass() == SC_Static &&
+        TSK == TSK_ImplicitInstantiation)
+      S.MarkVariableReferenced(VD->getLocation(), VD);
+
     auto *MD = dyn_cast<CXXMethodDecl>(Member);
     if (!MD)
       continue;
@@ -5518,7 +5528,7 @@ static void ReferenceDllExportedMethods(Sema &S, CXXRecordDecl *Class) {
         S.MarkFunctionReferenced(Class->getLocation(), MD);
         if (Trap.hasErrorOccurred()) {
           S.Diag(ClassAttr->getLocation(), diag::note_due_to_dllexported_class)
-              << Class->getName() << !S.getLangOpts().CPlusPlus11;
+              << Class << !S.getLangOpts().CPlusPlus11;
           break;
         }
 
@@ -5677,6 +5687,21 @@ void Sema::checkClassLevelDLLAttribute(CXXRecordDecl *Class) {
           cast<InheritableAttr>(ClassAttr->clone(getASTContext()));
       NewAttr->setInherited(true);
       Member->addAttr(NewAttr);
+
+      if (MD) {
+        // Propagate DLLAttr to friend re-declarations of MD that have already
+        // been constructed.
+        for (FunctionDecl *FD = MD->getMostRecentDecl(); FD;
+             FD = FD->getPreviousDecl()) {
+          if (FD->getFriendObjectKind() == Decl::FOK_None)
+            continue;
+          assert(!getDLLAttr(FD) &&
+                 "friend re-decl should not already have a DLLAttr");
+          NewAttr = cast<InheritableAttr>(ClassAttr->clone(getASTContext()));
+          NewAttr->setInherited(true);
+          FD->addAttr(NewAttr);
+        }
+      }
     }
   }
 
@@ -5766,11 +5791,20 @@ static void DefineImplicitSpecialMember(Sema &S, CXXMethodDecl *MD,
   }
 }
 
-/// Determine whether a type is permitted to be passed or returned in
-/// registers, per C++ [class.temporary]p3.
-static bool computeCanPassInRegisters(Sema &S, CXXRecordDecl *D) {
+/// Determine whether a type would be destructed in the callee if it had a
+/// non-trivial destructor. The rules here are based on C++ [class.temporary]p3,
+/// which determines whether a struct can be passed to or returned from
+/// functions in registers.
+static bool paramCanBeDestroyedInCallee(Sema &S, CXXRecordDecl *D,
+                                        TargetInfo::CallingConvKind CCK) {
   if (D->isDependentType() || D->isInvalidDecl())
     return false;
+
+  // Clang <= 4 used the pre-C++11 rule, which ignores move operations.
+  // The PS4 platform ABI follows the behavior of Clang 3.2.
+  if (CCK == TargetInfo::CCK_ClangABI4OrPS4)
+    return !D->hasNonTrivialDestructorForCall() &&
+           !D->hasNonTrivialCopyConstructorForCall();
 
   // Per C++ [class.temporary]p3, the relevant condition is:
   //   each copy constructor, move constructor, and destructor of X is
@@ -5811,6 +5845,77 @@ static bool computeCanPassInRegisters(Sema &S, CXXRecordDecl *D) {
   }
 
   return HasNonDeletedCopyOrMove;
+}
+
+static bool computeCanPassInRegister(bool DestroyedInCallee,
+                                     const CXXRecordDecl *RD,
+                                     TargetInfo::CallingConvKind CCK,
+                                     Sema &S) {
+  if (RD->isDependentType() || RD->isInvalidDecl())
+    return true;
+
+  // The param cannot be passed in registers if CanPassInRegisters is already
+  // set to false.
+  if (!RD->canPassInRegisters())
+    return false;
+
+  if (CCK != TargetInfo::CCK_MicrosoftX86_64)
+    return DestroyedInCallee;
+
+  bool CopyCtorIsTrivial = false, CopyCtorIsTrivialForCall = false;
+  bool DtorIsTrivialForCall = false;
+
+  // If a class has at least one non-deleted, trivial copy constructor, it
+  // is passed according to the C ABI. Otherwise, it is passed indirectly.
+  //
+  // Note: This permits classes with non-trivial copy or move ctors to be
+  // passed in registers, so long as they *also* have a trivial copy ctor,
+  // which is non-conforming.
+  if (RD->needsImplicitCopyConstructor()) {
+    if (!RD->defaultedCopyConstructorIsDeleted()) {
+      if (RD->hasTrivialCopyConstructor())
+        CopyCtorIsTrivial = true;
+      if (RD->hasTrivialCopyConstructorForCall())
+        CopyCtorIsTrivialForCall = true;
+    }
+  } else {
+    for (const CXXConstructorDecl *CD : RD->ctors()) {
+      if (CD->isCopyConstructor() && !CD->isDeleted()) {
+        if (CD->isTrivial())
+          CopyCtorIsTrivial = true;
+        if (CD->isTrivialForCall())
+          CopyCtorIsTrivialForCall = true;
+      }
+    }
+  }
+
+  if (RD->needsImplicitDestructor()) {
+    if (!RD->defaultedDestructorIsDeleted() &&
+        RD->hasTrivialDestructorForCall())
+      DtorIsTrivialForCall = true;
+  } else if (const auto *D = RD->getDestructor()) {
+    if (!D->isDeleted() && D->isTrivialForCall())
+      DtorIsTrivialForCall = true;
+  }
+
+  // If the copy ctor and dtor are both trivial-for-calls, pass direct.
+  if (CopyCtorIsTrivialForCall && DtorIsTrivialForCall)
+    return true;
+
+  // If a class has a destructor, we'd really like to pass it indirectly
+  // because it allows us to elide copies.  Unfortunately, MSVC makes that
+  // impossible for small types, which it will pass in a single register or
+  // stack slot. Most objects with dtors are large-ish, so handle that early.
+  // We can't call out all large objects as being indirect because there are
+  // multiple x64 calling conventions and the C++ ABI code shouldn't dictate
+  // how we pass large POD types.
+
+  // Note: This permits small classes with nontrivial destructors to be
+  // passed in registers, which is non-conforming.
+  if (CopyCtorIsTrivial &&
+      S.getASTContext().getTypeSize(RD->getTypeForDecl()) <= 64)
+    return true;
+  return false;
 }
 
 /// \brief Perform semantic checks on a class definition that has been
@@ -5976,7 +6081,17 @@ void Sema::CheckCompletedCXXClass(CXXRecordDecl *Record) {
 
   checkClassLevelDLLAttribute(Record);
 
-  Record->setCanPassInRegisters(computeCanPassInRegisters(*this, Record));
+  bool ClangABICompat4 =
+      Context.getLangOpts().getClangABICompat() <= LangOptions::ClangABI::Ver4;
+  TargetInfo::CallingConvKind CCK =
+      Context.getTargetInfo().getCallingConvKind(ClangABICompat4);
+  bool DestroyedInCallee = paramCanBeDestroyedInCallee(*this, Record, CCK);
+
+  if (Record->hasNonTrivialDestructor())
+    Record->setParamDestroyedInCallee(DestroyedInCallee);
+
+  Record->setCanPassInRegisters(
+      computeCanPassInRegister(DestroyedInCallee, Record, CCK, *this));
 }
 
 /// Look up the special member function that would be called by a special
@@ -9028,7 +9143,7 @@ Decl *Sema::ActOnUsingDirective(Scope *S,
 
     // Find enclosing context containing both using-directive and
     // nominated namespace.
-    DeclContext *CommonAncestor = cast<DeclContext>(NS);
+    DeclContext *CommonAncestor = NS;
     while (CommonAncestor && !CommonAncestor->Encloses(CurContext))
       CommonAncestor = CommonAncestor->getParent();
 
@@ -10902,12 +11017,12 @@ void Sema::ActOnFinishCXXNonNestedClass(Decl *D) {
 
 void Sema::referenceDLLExportedClassMethods() {
   if (!DelayedDllExportClasses.empty()) {
-    // Calling ReferenceDllExportedMethods might cause the current function to
+    // Calling ReferenceDllExportedMembers might cause the current function to
     // be called again, so use a local copy of DelayedDllExportClasses.
     SmallVector<CXXRecordDecl *, 4> WorkList;
     std::swap(DelayedDllExportClasses, WorkList);
     for (CXXRecordDecl *Class : WorkList)
-      ReferenceDllExportedMethods(*this, Class);
+      ReferenceDllExportedMembers(*this, Class);
   }
 }
 
@@ -11625,7 +11740,7 @@ void Sema::DefineImplicitCopyAssignment(SourceLocation CurrentLocation,
     }
 
     // Suppress assigning zero-width bitfields.
-    if (Field->isBitField() && Field->getBitWidthValue(Context) == 0)
+    if (Field->isZeroLengthBitField(Context))
       continue;
 
     QualType FieldType = Field->getType().getNonReferenceType();
@@ -11992,7 +12107,7 @@ void Sema::DefineImplicitMoveAssignment(SourceLocation CurrentLocation,
     }
 
     // Suppress assigning zero-width bitfields.
-    if (Field->isBitField() && Field->getBitWidthValue(Context) == 0)
+    if (Field->isZeroLengthBitField(Context))
       continue;
 
     QualType FieldType = Field->getType().getNonReferenceType();
@@ -14528,7 +14643,7 @@ void Sema::MarkVTableUsed(SourceLocation Loc, CXXRecordDecl *Class,
 
   // Try to insert this class into the map.
   LoadExternalVTableUses();
-  Class = cast<CXXRecordDecl>(Class->getCanonicalDecl());
+  Class = Class->getCanonicalDecl();
   std::pair<llvm::DenseMap<CXXRecordDecl *, bool>::iterator, bool>
     Pos = VTablesUsed.insert(std::make_pair(Class, DefinitionRequired));
   if (!Pos.second) {
@@ -14640,7 +14755,7 @@ bool Sema::DefineUsedVTables() {
     // vtable for this class is required.
     DefinedAnything = true;
     MarkVirtualMembersReferenced(Loc, Class);
-    CXXRecordDecl *Canonical = cast<CXXRecordDecl>(Class->getCanonicalDecl());
+    CXXRecordDecl *Canonical = Class->getCanonicalDecl();
     if (VTablesUsed[Canonical])
       Consumer.HandleVTable(Class);
 

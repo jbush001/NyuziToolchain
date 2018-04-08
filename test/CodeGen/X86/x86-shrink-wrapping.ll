@@ -314,7 +314,7 @@ if.end:                                           ; preds = %if.else, %for.end
 ; ENABLE: addl %esi, %esi
 ; ENABLE-NEXT: movl %esi, %eax
 ; ENABLE-NEXT: retq
-define i32 @loopInfoRestoreOutsideLoop(i32 %cond, i32 %N) #0 {
+define i32 @loopInfoRestoreOutsideLoop(i32 %cond, i32 %N) nounwind {
 entry:
   %tobool = icmp eq i32 %cond, 0
   br i1 %tobool, label %if.else, label %if.then
@@ -808,10 +808,9 @@ end:
 ; DISABLE-NEXT: subq $16, %rsp
 ;
 ; Load the value of b.
-; CHECK: movb _b(%rip), [[BOOL:%cl]]
 ; Create the zero value for the select assignment.
-; CHECK-NEXT: xorl [[CMOVE_VAL:%eax]], [[CMOVE_VAL]]
-; CHECK-NEXT: testb [[BOOL]], [[BOOL]]
+; CHECK: xorl [[CMOVE_VAL:%eax]], [[CMOVE_VAL]]
+; CHECK-NEXT: cmpb $0, _b(%rip)
 ; CHECK-NEXT: jne [[STOREC_LABEL:LBB[0-9_]+]]
 ;
 ; CHECK: movb $48, [[CMOVE_VAL:%al]]

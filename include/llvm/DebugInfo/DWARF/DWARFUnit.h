@@ -56,7 +56,8 @@ public:
 protected:
   ~DWARFUnitSectionBase() = default;
 
-  virtual void parseImpl(DWARFContext &Context, const DWARFSection &Section,
+  virtual void parseImpl(DWARFContext &Context, const DWARFObject &Obj,
+                         const DWARFSection &Section,
                          const DWARFDebugAbbrev *DA, const DWARFSection *RS,
                          StringRef SS, const DWARFSection &SOS,
                          const DWARFSection *AOS, const DWARFSection &LS,
@@ -116,14 +117,14 @@ public:
   }
 
 private:
-  void parseImpl(DWARFContext &Context, const DWARFSection &Section,
-                 const DWARFDebugAbbrev *DA, const DWARFSection *RS,
-                 StringRef SS, const DWARFSection &SOS, const DWARFSection *AOS,
-                 const DWARFSection &LS, bool LE, bool IsDWO,
-                 bool Lazy) override {
+  void parseImpl(DWARFContext &Context, const DWARFObject &Obj,
+                 const DWARFSection &Section, const DWARFDebugAbbrev *DA,
+                 const DWARFSection *RS, StringRef SS, const DWARFSection &SOS,
+                 const DWARFSection *AOS, const DWARFSection &LS, bool LE,
+                 bool IsDWO, bool Lazy) override {
     if (Parsed)
       return;
-    DataExtractor Data(Section.Data, LE, 0);
+    DWARFDataExtractor Data(Obj, Section, LE, 0);
     if (!Parser) {
       const DWARFUnitIndex *Index = nullptr;
       if (IsDWO)
@@ -170,7 +171,7 @@ struct StrOffsetsContributionDescriptor {
   uint64_t Base = 0;
   uint64_t Size = 0;
   /// Format and version.
-  DWARFFormParams FormParams = {0, 0, dwarf::DwarfFormat::DWARF32};
+  dwarf::FormParams FormParams = {0, 0, dwarf::DwarfFormat::DWARF32};
 
   StrOffsetsContributionDescriptor(uint64_t Base, uint64_t Size,
                                    uint8_t Version, dwarf::DwarfFormat Format)
@@ -206,7 +207,7 @@ class DWARFUnit {
   const DWARFUnitSectionBase &UnitSection;
 
   // Version, address size, and DWARF format.
-  DWARFFormParams FormParams;
+  dwarf::FormParams FormParams;
   /// Start, length, and DWARF format of the unit's contribution to the string
   /// offsets table (DWARF v5).
   Optional<StrOffsetsContributionDescriptor> StringOffsetsTableContribution;
@@ -220,40 +221,10 @@ class DWARFUnit {
   /// The compile unit debug information entry items.
   std::vector<DWARFDebugInfoEntry> DieArray;
 
-  /// The vector of inlined subroutine DIEs that we can map directly to from
-  /// their subprogram below.
-  std::vector<DWARFDie> InlinedSubroutineDIEs;
-
-  /// A type representing a subprogram DIE and a map (built using a sorted
-  /// vector) into that subprogram's inlined subroutine DIEs.
-  struct SubprogramDIEAddrInfo {
-    DWARFDie SubprogramDIE;
-
-    uint64_t SubprogramBasePC;
-
-    /// A vector sorted to allow mapping from a relative PC to the inlined
-    /// subroutine DIE with the most specific address range covering that PC.
-    ///
-    /// The PCs are relative to the `SubprogramBasePC`.
-    ///
-    /// The vector is sorted in ascending order of the first int which
-    /// represents the relative PC for an interval in the map. The second int
-    /// represents the index into the `InlinedSubroutineDIEs` vector of the DIE
-    /// that interval maps to. An index of '-1` indicates an empty mapping. The
-    /// interval covered is from the `.first` relative PC to the next entry's
-    /// `.first` relative PC.
-    std::vector<std::pair<uint32_t, int32_t>> InlinedSubroutineDIEAddrMap;
-  };
-
-  /// Vector of the subprogram DIEs and their subroutine address maps.
-  std::vector<SubprogramDIEAddrInfo> SubprogramDIEAddrInfos;
-
-  /// A vector sorted to allow mapping from a PC to the subprogram DIE (and
-  /// associated addr map) index. Subprograms with overlapping PC ranges aren't
-  /// supported here. Nothing will crash, but the mapping may be inaccurate.
-  /// This vector may also contain "empty" ranges marked by an address with
-  /// a DIE index of '-1'.
-  std::vector<std::pair<uint64_t, int64_t>> SubprogramDIEAddrMap;
+  /// Map from range's start address to end address and corresponding DIE.
+  /// IntervalMap does not support range removal, as a result, we use the
+  /// std::map::upper_bound for address range lookup.
+  std::map<uint64_t, std::pair<uint64_t, DWARFDie>> AddrDieMap;
 
   using die_iterator_range =
       iterator_range<std::vector<DWARFDebugInfoEntry>::iterator>;
@@ -269,7 +240,8 @@ class DWARFUnit {
   }
 
 protected:
-  virtual bool extractImpl(DataExtractor debug_info, uint32_t *offset_ptr);
+  virtual bool extractImpl(const DWARFDataExtractor &debug_info,
+                           uint32_t *offset_ptr);
 
   /// Size in bytes of the unit header.
   virtual uint32_t getHeaderSize() const { return getVersion() <= 4 ? 11 : 12; }
@@ -312,6 +284,9 @@ public:
     AddrOffsetSectionBase = Base;
   }
 
+  /// Recursively update address to Die map.
+  void updateAddressDieMap(DWARFDie Die);
+
   void setRangesSection(const DWARFSection *RS, uint32_t Base) {
     RangeSection = RS;
     RangeSectionBase = Base;
@@ -326,7 +301,7 @@ public:
     return DataExtractor(StringSection, false, 0);
   }
 
-  bool extract(DataExtractor debug_info, uint32_t* offset_ptr);
+  bool extract(const DWARFDataExtractor &debug_info, uint32_t *offset_ptr);
 
   /// extractRangeList - extracts the range list referenced by this compile
   /// unit from .debug_ranges section. Returns true on success.
@@ -342,7 +317,7 @@ public:
   getStringOffsetsTableContribution() const {
     return StringOffsetsTableContribution;
   }
-  const DWARFFormParams &getFormParams() const { return FormParams; }
+  const dwarf::FormParams &getFormParams() const { return FormParams; }
   uint16_t getVersion() const { return FormParams.Version; }
   dwarf::DwarfFormat getFormat() const { return FormParams.Format; }
   uint8_t getAddressByteSize() const { return FormParams.AddrSize; }
@@ -506,9 +481,6 @@ private:
   /// parseDWO - Parses .dwo file for current compile unit. Returns true if
   /// it was actually constructed.
   bool parseDWO();
-
-  void buildSubprogramDIEAddrMap();
-  void buildInlinedSubroutineDIEAddrMap(SubprogramDIEAddrInfo &SPInfo);
 };
 
 } // end namespace llvm

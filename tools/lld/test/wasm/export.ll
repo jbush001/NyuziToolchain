@@ -1,6 +1,6 @@
 ; RUN: llc -filetype=obj %s -o %t.o
-; RUN: not lld -flavor wasm --check-signatures --export=missing -o %t.wasm %t.o 2>&1 | FileCheck -check-prefix=CHECK-ERROR %s
-; RUN: lld -flavor wasm --check-signatures --export=hidden_function -o %t.wasm %t.o
+; RUN: not wasm-ld --check-signatures --export=missing -o %t.wasm %t.o 2>&1 | FileCheck -check-prefix=CHECK-ERROR %s
+; RUN: wasm-ld --check-signatures --export=hidden_function -o %t.wasm %t.o
 ; RUN: obj2yaml %t.wasm | FileCheck %s
 
 target triple = "wasm32-unknown-unknown-wasm"
@@ -22,16 +22,16 @@ entry:
 ; CHECK-NEXT:       - Name:            memory
 ; CHECK-NEXT:         Kind:            MEMORY
 ; CHECK-NEXT:         Index:           0
-; CHECK-NEXT:       - Name:            hidden_function
-; CHECK-NEXT:         Kind:            FUNCTION
-; CHECK-NEXT:         Index:           0
-; CHECK-NEXT:       - Name:            _start
-; CHECK-NEXT:         Kind:            FUNCTION
-; CHECK-NEXT:         Index:           1
 ; CHECK-NEXT:       - Name:            __heap_base
 ; CHECK-NEXT:         Kind:            GLOBAL
 ; CHECK-NEXT:         Index:           1
 ; CHECK-NEXT:       - Name:            __data_end
 ; CHECK-NEXT:         Kind:            GLOBAL
 ; CHECK-NEXT:         Index:           2
+; CHECK-NEXT:       - Name:            _start
+; CHECK-NEXT:         Kind:            FUNCTION
+; CHECK-NEXT:         Index:           2
+; CHECK-NEXT:       - Name:            hidden_function
+; CHECK-NEXT:         Kind:            FUNCTION
+; CHECK-NEXT:         Index:           1
 ; CHECK-NEXT:   - Type:            CODE

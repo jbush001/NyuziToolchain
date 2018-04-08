@@ -32,10 +32,11 @@ def Combineq: OutPatFrag<(ops node:$Qs, node:$Qt),
 def LoVec: OutPatFrag<(ops node:$Vs), (EXTRACT_SUBREG $Vs, vsub_lo)>;
 def HiVec: OutPatFrag<(ops node:$Vs), (EXTRACT_SUBREG $Vs, vsub_hi)>;
 
-def HexagonVZERO:  SDNode<"HexagonISD::VZERO",  SDTVecLeaf>;
-def HexagonQCAT:   SDNode<"HexagonISD::QCAT",   SDTVecBinOp>;
-def HexagonQTRUE:  SDNode<"HexagonISD::QTRUE",  SDTVecLeaf>;
-def HexagonQFALSE: SDNode<"HexagonISD::QFALSE", SDTVecLeaf>;
+def HexagonVZERO:      SDNode<"HexagonISD::VZERO",      SDTVecLeaf>;
+def HexagonQCAT:       SDNode<"HexagonISD::QCAT",       SDTVecBinOp>;
+def HexagonQTRUE:      SDNode<"HexagonISD::QTRUE",      SDTVecLeaf>;
+def HexagonQFALSE:     SDNode<"HexagonISD::QFALSE",     SDTVecLeaf>;
+
 def vzero:  PatFrag<(ops), (HexagonVZERO)>;
 def qtrue:  PatFrag<(ops), (HexagonQTRUE)>;
 def qfalse: PatFrag<(ops), (HexagonQFALSE)>;
@@ -62,41 +63,75 @@ def SplatH: SDNodeXForm<imm, [{
   return CurDAG->getTargetConstant(V << 16 | V, SDLoc(N), MVT::i32);
 }]>;
 
+def IsVecOff : PatLeaf<(i32 imm), [{
+  int32_t V = N->getSExtValue();
+  int32_t VecSize = HRI->getSpillSize(Hexagon::HvxVRRegClass);
+  assert(isPowerOf2_32(VecSize));
+  if ((uint32_t(V) & (uint32_t(VecSize)-1)) != 0)
+    return false;
+  int32_t L = Log2_32(VecSize);
+  return isInt<4>(V >> L);
+}]>;
+
+
+def alignedload: PatFrag<(ops node:$a), (load $a), [{
+  return isAlignedMemNode(dyn_cast<MemSDNode>(N));
+}]>;
+
+def unalignedload: PatFrag<(ops node:$a), (load $a), [{
+  return !isAlignedMemNode(dyn_cast<MemSDNode>(N));
+}]>;
+
+def alignedstore: PatFrag<(ops node:$v, node:$a), (store $v, $a), [{
+  return isAlignedMemNode(dyn_cast<MemSDNode>(N));
+}]>;
+
+def unalignedstore: PatFrag<(ops node:$v, node:$a), (store $v, $a), [{
+  return !isAlignedMemNode(dyn_cast<MemSDNode>(N));
+}]>;
+
 
 // HVX loads
 
-multiclass HvxLd_pat<InstHexagon MI, PatFrag Load, ValueType VT,
+multiclass HvxLd_pat<InstHexagon MI, PatFrag Load, ValueType ResType,
                      PatFrag ImmPred> {
-  def: Pat<(VT (Load I32:$Rt)),                   (MI I32:$Rt, 0)>;
-  def: Pat<(VT (Load (add I32:$Rt, ImmPred:$s))), (MI I32:$Rt, imm:$s)>;
+  def: Pat<(ResType (Load I32:$Rt)),
+           (MI I32:$Rt, 0)>;
+  def: Pat<(ResType (Load (add I32:$Rt, ImmPred:$s))),
+           (MI I32:$Rt, imm:$s)>;
   // The HVX selection code for shuffles can generate vector constants.
   // Calling "Select" on the resulting loads from CP fails without these
   // patterns.
-  def: Pat<(VT (Load (HexagonCP tconstpool:$A))), (MI (A2_tfrsi imm:$A), 0)>;
-  def: Pat<(VT (Load (HexagonAtPcrel tconstpool:$A))),
+  def: Pat<(ResType (Load (HexagonCP tconstpool:$A))),
+           (MI (A2_tfrsi imm:$A), 0)>;
+  def: Pat<(ResType (Load (HexagonAtPcrel tconstpool:$A))),
            (MI (C4_addipc imm:$A), 0)>;
 }
 
-let Predicates = [UseHVX] in {
-  multiclass HvxLdVs_pat<InstHexagon MI, PatFrag Load> {
-    defm: HvxLd_pat<MI, Load, VecI8,  IsVecOff>;
-    defm: HvxLd_pat<MI, Load, VecI16, IsVecOff>;
-    defm: HvxLd_pat<MI, Load, VecI32, IsVecOff>;
+multiclass HvxLda_pat<InstHexagon MI, PatFrag Load, ValueType ResType,
+                      PatFrag ImmPred> {
+  let AddedComplexity = 50 in {
+    def: Pat<(ResType (Load (valignaddr I32:$Rt))),
+             (MI I32:$Rt, 0)>;
+    def: Pat<(ResType (Load (add (valignaddr I32:$Rt), ImmPred:$Off))),
+             (MI I32:$Rt, imm:$Off)>;
   }
-  defm: HvxLdVs_pat<V6_vL32b_nt_ai, alignednontemporalload>;
-  defm: HvxLdVs_pat<V6_vL32b_ai,    alignedload>;
-  defm: HvxLdVs_pat<V6_vL32Ub_ai,   unalignedload>;
-
-  multiclass HvxLdWs_pat<InstHexagon MI, PatFrag Load> {
-    defm: HvxLd_pat<MI, Load, VecPI8,  IsVecOff>;
-    defm: HvxLd_pat<MI, Load, VecPI16, IsVecOff>;
-    defm: HvxLd_pat<MI, Load, VecPI32, IsVecOff>;
-  }
-  defm: HvxLdWs_pat<PS_vloadrw_nt_ai, alignednontemporalload>;
-  defm: HvxLdWs_pat<PS_vloadrw_ai,    alignedload>;
-  defm: HvxLdWs_pat<PS_vloadrwu_ai,   unalignedload>;
+  defm: HvxLd_pat<MI, Load, ResType, ImmPred>;
 }
 
+let Predicates = [UseHVX] in {
+  defm: HvxLda_pat<V6_vL32b_nt_ai, alignednontemporalload, VecI8,  IsVecOff>;
+  defm: HvxLda_pat<V6_vL32b_nt_ai, alignednontemporalload, VecI16, IsVecOff>;
+  defm: HvxLda_pat<V6_vL32b_nt_ai, alignednontemporalload, VecI32, IsVecOff>;
+
+  defm: HvxLda_pat<V6_vL32b_ai, alignedload, VecI8,  IsVecOff>;
+  defm: HvxLda_pat<V6_vL32b_ai, alignedload, VecI16, IsVecOff>;
+  defm: HvxLda_pat<V6_vL32b_ai, alignedload, VecI32, IsVecOff>;
+
+  defm: HvxLd_pat<V6_vL32Ub_ai,  unalignedload, VecI8,  IsVecOff>;
+  defm: HvxLd_pat<V6_vL32Ub_ai,  unalignedload, VecI16, IsVecOff>;
+  defm: HvxLd_pat<V6_vL32Ub_ai,  unalignedload, VecI32, IsVecOff>;
+}
 
 // HVX stores
 
@@ -109,23 +144,17 @@ multiclass HvxSt_pat<InstHexagon MI, PatFrag Store, PatFrag ImmPred,
 }
 
 let Predicates = [UseHVX] in {
-  multiclass HvxStVs_pat<InstHexagon MI, PatFrag Store> {
-    defm: HvxSt_pat<MI, Store, IsVecOff, HVI8>;
-    defm: HvxSt_pat<MI, Store, IsVecOff, HVI16>;
-    defm: HvxSt_pat<MI, Store, IsVecOff, HVI32>;
-  }
-  defm: HvxStVs_pat<V6_vS32b_nt_ai, alignednontemporalstore>;
-  defm: HvxStVs_pat<V6_vS32b_ai,    alignedstore>;
-  defm: HvxStVs_pat<V6_vS32Ub_ai,   unalignedstore>;
+  defm: HvxSt_pat<V6_vS32b_nt_ai, alignednontemporalstore, IsVecOff, HVI8>;
+  defm: HvxSt_pat<V6_vS32b_nt_ai, alignednontemporalstore, IsVecOff, HVI16>;
+  defm: HvxSt_pat<V6_vS32b_nt_ai, alignednontemporalstore, IsVecOff, HVI32>;
 
-  multiclass HvxStWs_pat<InstHexagon MI, PatFrag Store> {
-    defm: HvxSt_pat<MI, Store, IsVecOff, HWI8>;
-    defm: HvxSt_pat<MI, Store, IsVecOff, HWI16>;
-    defm: HvxSt_pat<MI, Store, IsVecOff, HWI32>;
-  }
-  defm: HvxStWs_pat<PS_vstorerw_nt_ai, alignednontemporalstore>;
-  defm: HvxStWs_pat<PS_vstorerw_ai,    alignedstore>;
-  defm: HvxStWs_pat<PS_vstorerwu_ai,   unalignedstore>;
+  defm: HvxSt_pat<V6_vS32b_ai, alignedstore, IsVecOff, HVI8>;
+  defm: HvxSt_pat<V6_vS32b_ai, alignedstore, IsVecOff, HVI16>;
+  defm: HvxSt_pat<V6_vS32b_ai, alignedstore, IsVecOff, HVI32>;
+
+  defm: HvxSt_pat<V6_vS32Ub_ai, unalignedstore, IsVecOff, HVI8>;
+  defm: HvxSt_pat<V6_vS32Ub_ai, unalignedstore, IsVecOff, HVI16>;
+  defm: HvxSt_pat<V6_vS32Ub_ai, unalignedstore, IsVecOff, HVI32>;
 }
 
 
@@ -290,6 +319,13 @@ let Predicates = [UseHVX] in {
   def: Pat<(sra HVI32:$Vs, HVI32:$Vt), (V6_vasrwv HvxVR:$Vs, HvxVR:$Vt)>;
   def: Pat<(srl HVI16:$Vs, HVI16:$Vt), (V6_vlsrhv HvxVR:$Vs, HvxVR:$Vt)>;
   def: Pat<(srl HVI32:$Vs, HVI32:$Vt), (V6_vlsrwv HvxVR:$Vs, HvxVR:$Vt)>;
+
+  def: Pat<(VecQ8   (qtrue)), (PS_qtrue)>;
+  def: Pat<(VecQ16  (qtrue)), (PS_qtrue)>;
+  def: Pat<(VecQ32  (qtrue)), (PS_qtrue)>;
+  def: Pat<(VecQ8  (qfalse)), (PS_qfalse)>;
+  def: Pat<(VecQ16 (qfalse)), (PS_qfalse)>;
+  def: Pat<(VecQ32 (qfalse)), (PS_qfalse)>;
 
   def: Pat<(vnot  HQ8:$Qs), (V6_pred_not HvxQR:$Qs)>;
   def: Pat<(vnot HQ16:$Qs), (V6_pred_not HvxQR:$Qs)>;

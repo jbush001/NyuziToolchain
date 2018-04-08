@@ -1047,19 +1047,21 @@ static Comdat::SelectionKind getDecodedComdatSelectionKind(unsigned Val) {
 
 static FastMathFlags getDecodedFastMathFlags(unsigned Val) {
   FastMathFlags FMF;
-  if (0 != (Val & FastMathFlags::AllowReassoc))
+  if (0 != (Val & bitc::UnsafeAlgebra))
+    FMF.setFast();
+  if (0 != (Val & bitc::AllowReassoc))
     FMF.setAllowReassoc();
-  if (0 != (Val & FastMathFlags::NoNaNs))
+  if (0 != (Val & bitc::NoNaNs))
     FMF.setNoNaNs();
-  if (0 != (Val & FastMathFlags::NoInfs))
+  if (0 != (Val & bitc::NoInfs))
     FMF.setNoInfs();
-  if (0 != (Val & FastMathFlags::NoSignedZeros))
+  if (0 != (Val & bitc::NoSignedZeros))
     FMF.setNoSignedZeros();
-  if (0 != (Val & FastMathFlags::AllowReciprocal))
+  if (0 != (Val & bitc::AllowReciprocal))
     FMF.setAllowReciprocal();
-  if (0 != (Val & FastMathFlags::AllowContract))
+  if (0 != (Val & bitc::AllowContract))
     FMF.setAllowContract(true);
-  if (0 != (Val & FastMathFlags::ApproxFunc))
+  if (0 != (Val & bitc::ApproxFunc))
     FMF.setApproxFunc();
   return FMF;
 }
@@ -1158,6 +1160,9 @@ static uint64_t getRawAttributeMask(Attribute::AttrKind Val) {
   case Attribute::Speculatable:    return 1ULL << 54;
   case Attribute::StrictFP:        return 1ULL << 55;
   case Attribute::SanitizeHWAddress: return 1ULL << 56;
+  case Attribute::NoCfCheck:       return 1ULL << 57;
+  case Attribute::OptForFuzzing:   return 1ULL << 58;
+  case Attribute::ShadowCallStack: return 1ULL << 59;
   case Attribute::Dereferenceable:
     llvm_unreachable("dereferenceable attribute not supported in raw format");
     break;
@@ -1336,8 +1341,12 @@ static Attribute::AttrKind getAttrFromCode(uint64_t Code) {
     return Attribute::NoRedZone;
   case bitc::ATTR_KIND_NO_RETURN:
     return Attribute::NoReturn;
+  case bitc::ATTR_KIND_NOCF_CHECK:
+    return Attribute::NoCfCheck;
   case bitc::ATTR_KIND_NO_UNWIND:
     return Attribute::NoUnwind;
+  case bitc::ATTR_KIND_OPT_FOR_FUZZING:
+    return Attribute::OptForFuzzing;
   case bitc::ATTR_KIND_OPTIMIZE_FOR_SIZE:
     return Attribute::OptimizeForSize;
   case bitc::ATTR_KIND_OPTIMIZE_NONE:
@@ -1364,6 +1373,8 @@ static Attribute::AttrKind getAttrFromCode(uint64_t Code) {
     return Attribute::StackProtectStrong;
   case bitc::ATTR_KIND_SAFESTACK:
     return Attribute::SafeStack;
+  case bitc::ATTR_KIND_SHADOWCALLSTACK:
+    return Attribute::ShadowCallStack;
   case bitc::ATTR_KIND_STRICT_FP:
     return Attribute::StrictFP;
   case bitc::ATTR_KIND_STRUCT_RET:
@@ -4777,6 +4788,9 @@ Error BitcodeReader::materializeModule() {
   UpgradeDebugInfo(*TheModule);
 
   UpgradeModuleFlags(*TheModule);
+
+  UpgradeRetainReleaseMarker(*TheModule);
+
   return Error::success();
 }
 
@@ -5071,6 +5085,56 @@ ModuleSummaryIndexBitcodeReader::makeCallList(ArrayRef<uint64_t> Record,
   return Ret;
 }
 
+static void
+parseWholeProgramDevirtResolutionByArg(ArrayRef<uint64_t> Record, size_t &Slot,
+                                       WholeProgramDevirtResolution &Wpd) {
+  uint64_t ArgNum = Record[Slot++];
+  WholeProgramDevirtResolution::ByArg &B =
+      Wpd.ResByArg[{Record.begin() + Slot, Record.begin() + Slot + ArgNum}];
+  Slot += ArgNum;
+
+  B.TheKind =
+      static_cast<WholeProgramDevirtResolution::ByArg::Kind>(Record[Slot++]);
+  B.Info = Record[Slot++];
+  B.Byte = Record[Slot++];
+  B.Bit = Record[Slot++];
+}
+
+static void parseWholeProgramDevirtResolution(ArrayRef<uint64_t> Record,
+                                              StringRef Strtab, size_t &Slot,
+                                              TypeIdSummary &TypeId) {
+  uint64_t Id = Record[Slot++];
+  WholeProgramDevirtResolution &Wpd = TypeId.WPDRes[Id];
+
+  Wpd.TheKind = static_cast<WholeProgramDevirtResolution::Kind>(Record[Slot++]);
+  Wpd.SingleImplName = {Strtab.data() + Record[Slot],
+                        static_cast<size_t>(Record[Slot + 1])};
+  Slot += 2;
+
+  uint64_t ResByArgNum = Record[Slot++];
+  for (uint64_t I = 0; I != ResByArgNum; ++I)
+    parseWholeProgramDevirtResolutionByArg(Record, Slot, Wpd);
+}
+
+static void parseTypeIdSummaryRecord(ArrayRef<uint64_t> Record,
+                                     StringRef Strtab,
+                                     ModuleSummaryIndex &TheIndex) {
+  size_t Slot = 0;
+  TypeIdSummary &TypeId = TheIndex.getOrInsertTypeIdSummary(
+      {Strtab.data() + Record[Slot], static_cast<size_t>(Record[Slot + 1])});
+  Slot += 2;
+
+  TypeId.TTRes.TheKind = static_cast<TypeTestResolution::Kind>(Record[Slot++]);
+  TypeId.TTRes.SizeM1BitWidth = Record[Slot++];
+  TypeId.TTRes.AlignLog2 = Record[Slot++];
+  TypeId.TTRes.SizeM1 = Record[Slot++];
+  TypeId.TTRes.BitMask = Record[Slot++];
+  TypeId.TTRes.InlineBits = Record[Slot++];
+
+  while (Slot < Record.size())
+    parseWholeProgramDevirtResolution(Record, Strtab, Slot, TypeId);
+}
+
 // Eagerly parse the entire summary block. This populates the GlobalValueSummary
 // objects in the index.
 Error ModuleSummaryIndexBitcodeReader::parseEntireSummary(unsigned ID) {
@@ -5136,11 +5200,14 @@ Error ModuleSummaryIndexBitcodeReader::parseEntireSummary(unsigned ID) {
     case bitc::FS_FLAGS: {  // [flags]
       uint64_t Flags = Record[0];
       // Scan flags (set only on the combined index).
-      assert(Flags <= 1 && "Unexpected bits in flag");
+      assert(Flags <= 0x3 && "Unexpected bits in flag");
 
       // 1 bit: WithGlobalValueDeadStripping flag.
       if (Flags & 0x1)
         TheIndex.setWithGlobalValueDeadStripping();
+      // 1 bit: SkipModuleByDistributedBackend flag.
+      if (Flags & 0x2)
+        TheIndex.setSkipModuleByDistributedBackend();
       break;
     }
     case bitc::FS_VALUE_GUID: { // [valueid, refguid]
@@ -5388,6 +5455,7 @@ Error ModuleSummaryIndexBitcodeReader::parseEntireSummary(unsigned ID) {
             {Strtab.data() + Record[I], static_cast<size_t>(Record[I + 1])});
       break;
     }
+
     case bitc::FS_CFI_FUNCTION_DECLS: {
       std::set<std::string> &CfiFunctionDecls = TheIndex.cfiFunctionDecls();
       for (unsigned I = 0; I != Record.size(); I += 2)
@@ -5395,6 +5463,10 @@ Error ModuleSummaryIndexBitcodeReader::parseEntireSummary(unsigned ID) {
             {Strtab.data() + Record[I], static_cast<size_t>(Record[I + 1])});
       break;
     }
+
+    case bitc::FS_TYPE_ID:
+      parseTypeIdSummaryRecord(Record, Strtab, TheIndex);
+      break;
     }
   }
   llvm_unreachable("Exit infinite loop");

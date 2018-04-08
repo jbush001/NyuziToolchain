@@ -8,6 +8,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "AMDGPUBaseInfo.h"
+#include "AMDGPUTargetTransformInfo.h"
 #include "AMDGPU.h"
 #include "SIDefines.h"
 #include "llvm/ADT/StringRef.h"
@@ -205,10 +206,10 @@ IsaVersion getIsaVersion(const FeatureBitset &Features) {
     return {7, 0, 3};
   if (Features.test(FeatureISAVersion7_0_4))
     return {7, 0, 4};
+  if (Features.test(FeatureSeaIslands))
+    return {7, 0, 0};
 
   // GCN GFX8 (Volcanic Islands (VI)).
-  if (Features.test(FeatureISAVersion8_0_0))
-    return {8, 0, 0};
   if (Features.test(FeatureISAVersion8_0_1))
     return {8, 0, 1};
   if (Features.test(FeatureISAVersion8_0_2))
@@ -217,12 +218,16 @@ IsaVersion getIsaVersion(const FeatureBitset &Features) {
     return {8, 0, 3};
   if (Features.test(FeatureISAVersion8_1_0))
     return {8, 1, 0};
+  if (Features.test(FeatureVolcanicIslands))
+    return {8, 0, 0};
 
   // GCN GFX9.
   if (Features.test(FeatureISAVersion9_0_0))
     return {9, 0, 0};
   if (Features.test(FeatureISAVersion9_0_2))
     return {9, 0, 2};
+  if (Features.test(FeatureGFX9))
+    return {9, 0, 0};
 
   if (!Features.test(FeatureGCN) || Features.test(FeatureSouthernIslands))
     return {0, 0, 0};
@@ -447,7 +452,8 @@ bool isGlobalSegment(const GlobalValue *GV) {
 }
 
 bool isReadOnlySegment(const GlobalValue *GV) {
-  return GV->getType()->getAddressSpace() == AMDGPUAS::CONSTANT_ADDRESS;
+  return GV->getType()->getAddressSpace() == AMDGPUAS::CONSTANT_ADDRESS ||
+         GV->getType()->getAddressSpace() == AMDGPUAS::CONSTANT_ADDRESS_32BIT;
 }
 
 bool shouldEmitConstantsToTextSection(const Triple &TT) {
@@ -905,24 +911,6 @@ bool isArgPassedInSGPR(const Argument *A) {
   }
 }
 
-// TODO: Should largely merge with AMDGPUTTIImpl::isSourceOfDivergence.
-bool isUniformMMO(const MachineMemOperand *MMO) {
-  const Value *Ptr = MMO->getValue();
-  // UndefValue means this is a load of a kernel input.  These are uniform.
-  // Sometimes LDS instructions have constant pointers.
-  // If Ptr is null, then that means this mem operand contains a
-  // PseudoSourceValue like GOT.
-  if (!Ptr || isa<UndefValue>(Ptr) ||
-      isa<Constant>(Ptr) || isa<GlobalValue>(Ptr))
-    return true;
-
-  if (const Argument *Arg = dyn_cast<Argument>(Ptr))
-    return isArgPassedInSGPR(Arg);
-
-  const Instruction *I = dyn_cast<Instruction>(Ptr);
-  return I && I->getMetadata("amdgpu.uniform");
-}
-
 int64_t getSMRDEncodedOffset(const MCSubtargetInfo &ST, int64_t ByteOffset) {
   if (isGCN3Encoding(ST))
     return ByteOffset;
@@ -946,7 +934,7 @@ AMDGPUAS getAMDGPUAS(Triple T) {
   AMDGPUAS AS;
   AS.FLAT_ADDRESS = 0;
   AS.PRIVATE_ADDRESS = 5;
-  AS.REGION_ADDRESS = 4;
+  AS.REGION_ADDRESS = 2;
   return AS;
 }
 
@@ -956,6 +944,22 @@ AMDGPUAS getAMDGPUAS(const TargetMachine &M) {
 
 AMDGPUAS getAMDGPUAS(const Module &M) {
   return getAMDGPUAS(Triple(M.getTargetTriple()));
+}
+
+namespace {
+
+struct SourceOfDivergence {
+  unsigned Intr;
+};
+const SourceOfDivergence *lookupSourceOfDivergenceByIntr(unsigned Intr);
+
+#define GET_SOURCEOFDIVERGENCE_IMPL
+#include "AMDGPUGenSearchableTables.inc"
+
+} // end anonymous namespace
+
+bool isIntrinsicSourceOfDivergence(unsigned IntrID) {
+  return lookupSourceOfDivergenceByIntr(IntrID);
 }
 } // namespace AMDGPU
 } // namespace llvm

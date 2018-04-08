@@ -31,14 +31,19 @@ protected:
     return *Result;
   }
 
-  static std::string format(llvm::StringRef Code) {
-    FormatStyle Style = getGoogleStyle(FormatStyle::LK_TextProto);
-    Style.ColumnLimit = 60; // To make writing tests easier.
+  static std::string format(llvm::StringRef Code, const FormatStyle &Style) {
     return format(Code, 0, Code.size(), Style);
   }
 
+  static void verifyFormat(llvm::StringRef Code, const FormatStyle &Style) {
+    EXPECT_EQ(Code.str(), format(Code, Style)) << "Expected code is not stable";
+    EXPECT_EQ(Code.str(), format(test::messUp(Code), Style));
+  }
+
   static void verifyFormat(llvm::StringRef Code) {
-    EXPECT_EQ(Code.str(), format(test::messUp(Code)));
+    FormatStyle Style = getGoogleStyle(FormatStyle::LK_TextProto);
+    Style.ColumnLimit = 60; // To make writing tests easier.
+    verifyFormat(Code, Style);
   }
 };
 
@@ -137,6 +142,23 @@ TEST_F(FormatTestTextProto, AddsNewlinesAfterTrailingComments) {
                "msg_field {\n"
                "  field_b: OK  // Comment\n"
                "}");
+}
+
+TEST_F(FormatTestTextProto, ImplicitStringLiteralConcatenation) {
+  verifyFormat("field_a: 'aaaaa'\n"
+               "         'bbbbb'");
+  verifyFormat("field_a: \"aaaaa\"\n"
+               "         \"bbbbb\"");
+  FormatStyle Style = getGoogleStyle(FormatStyle::LK_TextProto);
+  Style.AlwaysBreakBeforeMultilineStrings = true;
+  verifyFormat("field_a:\n"
+               "    'aaaaa'\n"
+               "    'bbbbb'",
+               Style);
+  verifyFormat("field_a:\n"
+               "    \"aaaaa\"\n"
+               "    \"bbbbb\"",
+               Style);
 }
 
 TEST_F(FormatTestTextProto, SupportsAngleBracketMessageFields) {
@@ -313,5 +335,165 @@ TEST_F(FormatTestTextProto, KeepsLongStringLiteralsOnSameLine) {
       "  text: \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaasaaaaaaaaaa\"\n"
       "}");
 }
+
+TEST_F(FormatTestTextProto, KeepsCommentsIndentedInList) {
+  verifyFormat("aaaaaaaaaa: 100\n"
+               "bbbbbbbbbbbbbbbbbbbbbbbbbbb: 200\n"
+               "# Single line comment for stuff here.\n"
+               "cccccccccccccccccccccccc: 3849\n"
+               "# Multiline comment for stuff here.\n"
+               "# Multiline comment for stuff here.\n"
+               "# Multiline comment for stuff here.\n"
+               "cccccccccccccccccccccccc: 3849");
+}
+
+TEST_F(FormatTestTextProto, FormatsExtensions) {
+  verifyFormat("[type] { key: value }");
+  verifyFormat("[type] {\n"
+               "  keyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy: value\n"
+               "}");
+  verifyFormat("[type.type] { key: value }");
+  verifyFormat("[type.type] < key: value >");
+  verifyFormat("[type.type/type.type] { key: value }");
+  verifyFormat("msg {\n"
+               "  [type.type] { key: value }\n"
+               "}");
+  verifyFormat("msg {\n"
+               "  [type.type] {\n"
+               "    keyyyyyyyyyyyyyy: valuuuuuuuuuuuuuuuuuuuuuuuuue\n"
+               "  }\n"
+               "}");
+  verifyFormat("key: value\n"
+               "[a.b] { key: value }");
+  verifyFormat("msg: <\n"
+               "  key: value\n"
+               "  [a.b.c/d.e]: < key: value >\n"
+               "  [f.g]: <\n"
+               "    key: valueeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\n"
+               "    key: {}\n"
+               "  >\n"
+               "  key {}\n"
+               "  [h.i.j] < key: value >\n"
+               "  [a]: {\n"
+               "    [b.c]: {}\n"
+               "    [d] <>\n"
+               "    [e/f]: 1\n"
+               "  }\n"
+               ">");
+  verifyFormat("[longg.long.long.long.long.long.long.long.long.long.long\n"
+               "     .longg.longlong] { key: value }");
+  verifyFormat("[longg.long.long.long.long.long.long.long.long.long.long\n"
+               "     .longg.longlong] {\n"
+               "  key: value\n"
+               "  key: value\n"
+               "  key: value\n"
+               "  key: value\n"
+               "}");
+  verifyFormat("[longg.long.long.long.long.long.long.long.long.long\n"
+               "     .long/longg.longlong] { key: value }");
+  verifyFormat("[aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/\n"
+               " bbbbbbbbbbbbbb] { key: value }");
+  // These go over the column limit intentionally, since the alternative
+  // [aa..a\n] is worse.
+  verifyFormat("[aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa] {\n"
+               "  key: value\n"
+               "}");
+  verifyFormat("[aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa] {\n"
+               "  [type.type] {\n"
+               "    keyyyyyyyyyyyyyy: valuuuuuuuuuuuuuuuuuuuuuuuuue\n"
+               "  }\n"
+               "}");
+  verifyFormat("[aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/\n"
+               " bbbbbbb] {\n"
+               "  [type.type] {\n"
+               "    keyyyyyyyyyyyyyy: valuuuuuuuuuuuuuuuuuuuuuuuuue\n"
+               "  }\n"
+               "}");
+  verifyFormat(
+      "aaaaaaaaaaaaaaa {\n"
+      "  bbbbbb {\n"
+      "    [a.b/cy] {\n"
+      "      eeeeeeeeeeeee: \"The lazy coo cat jumps over the lazy hot dog\"\n"
+      "    }\n"
+      "  }\n"
+      "}");
+}
+
+TEST_F(FormatTestTextProto, SpacesAroundPercents) {
+  verifyFormat("key: %d");
+  verifyFormat("key: 0x%04x");
+  verifyFormat("key: \"%d %d\"");
+}
+
+TEST_F(FormatTestTextProto, FormatsRepeatedListInitializers) {
+  verifyFormat("keys: []");
+  verifyFormat("keys: [ 1 ]");
+  verifyFormat("keys: [ 'ala', 'bala' ]");
+  verifyFormat("keys:\n"
+               "    [ 'ala', 'bala', 'porto', 'kala', 'too', 'long', 'ng' ]");
+  verifyFormat("key: item\n"
+               "keys: [\n"
+               "  'ala',\n"
+               "  'bala',\n"
+               "  'porto',\n"
+               "  'kala',\n"
+               "  'too',\n"
+               "  'long',\n"
+               "  'long',\n"
+               "  'long'\n"
+               "]\n"
+               "key: item\n"
+               "msg {\n"
+               "  key: item\n"
+               "  keys: [\n"
+               "    'ala',\n"
+               "    'bala',\n"
+               "    'porto',\n"
+               "    'kala',\n"
+               "    'too',\n"
+               "    'long',\n"
+               "    'long'\n"
+               "  ]\n"
+               "}\n"
+               "key: value"
+               );
+  FormatStyle Style = getGoogleStyle(FormatStyle::LK_TextProto);
+  Style.ColumnLimit = 60; // To make writing tests easier.
+  Style.Cpp11BracedListStyle = true;
+  verifyFormat("keys: [1]", Style);
+}
+
+TEST_F(FormatTestTextProto, AcceptsOperatorAsKey) {
+  verifyFormat("aaaaaaaaaaa: <\n"
+               "  bbbbbbbbb: <\n"
+               "    ccccccccccccccccccccccc: <\n"
+               "      operator: 1\n"
+               "      operator: 2\n"
+               "      operator { key: value }\n"
+               "    >\n"
+               "  >\n"
+               ">");
+}
+
+TEST_F(FormatTestTextProto, BreaksConsecutiveStringLiterals) {
+  verifyFormat("ala: \"str1\"\n"
+               "     \"str2\"\n");
+}
+
+TEST_F(FormatTestTextProto, PutsMultipleEntriesInExtensionsOnNewlines) {
+  FormatStyle Style = getGoogleStyle(FormatStyle::LK_TextProto);
+  verifyFormat("pppppppppp: {\n"
+               "  ssssss: \"http://example.com/blahblahblah\"\n"
+               "  ppppppp: \"sssss/MMMMMMMMMMMM\"\n"
+               "  [ns.sssss.eeeeeeeee.eeeeeeeeeeeeeee] { begin: 24 end: 252 }\n"
+               "  [ns.sssss.eeeeeeeee.eeeeeeeeeeeeeee] {\n"
+               "    begin: 24\n"
+               "    end: 252\n"
+               "    key: value\n"
+               "    key: value\n"
+               "  }\n"
+               "}", Style);
+}
+
 } // end namespace tooling
 } // end namespace clang

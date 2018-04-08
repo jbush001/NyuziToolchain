@@ -33,8 +33,7 @@ using namespace llvm;
 /// A utility function for allocating memory, checking for allocation failures,
 /// and ensuring the contents are zeroed.
 inline static uint64_t* getClearedMemory(unsigned numWords) {
-  uint64_t * result = new uint64_t[numWords];
-  assert(result && "APInt memory allocation fails!");
+  uint64_t *result = new uint64_t[numWords];
   memset(result, 0, numWords * sizeof(uint64_t));
   return result;
 }
@@ -42,9 +41,7 @@ inline static uint64_t* getClearedMemory(unsigned numWords) {
 /// A utility function for allocating memory and checking for allocation
 /// failure.  The content is not zeroed.
 inline static uint64_t* getMemory(unsigned numWords) {
-  uint64_t * result = new uint64_t[numWords];
-  assert(result && "APInt memory allocation fails!");
-  return result;
+  return new uint64_t[numWords];
 }
 
 /// A utility function that converts a character to a digit.
@@ -428,11 +425,12 @@ APInt APInt::extractBits(unsigned numBits, unsigned bitPosition) const {
   unsigned NumSrcWords = getNumWords();
   unsigned NumDstWords = Result.getNumWords();
 
+  uint64_t *DestPtr = Result.isSingleWord() ? &Result.U.VAL : Result.U.pVal;
   for (unsigned word = 0; word < NumDstWords; ++word) {
     uint64_t w0 = U.pVal[loWord + word];
     uint64_t w1 =
         (loWord + word + 1) < NumSrcWords ? U.pVal[loWord + word + 1] : 0;
-    Result.U.pVal[word] = (w0 >> loBit) | (w1 << (APINT_BITS_PER_WORD - loBit));
+    DestPtr[word] = (w0 >> loBit) | (w1 << (APINT_BITS_PER_WORD - loBit));
   }
 
   return Result.clearUnusedBits();

@@ -27,12 +27,12 @@
 #include "llvm/ADT/APInt.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
+#include "llvm/Analysis/DivergenceAnalysis.h"
 #include "llvm/Analysis/ValueTracking.h"
 #include "llvm/CodeGen/FunctionLoweringInfo.h"
 #include "llvm/CodeGen/ISDOpcodes.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
-#include "llvm/CodeGen/MachineValueType.h"
 #include "llvm/CodeGen/SelectionDAG.h"
 #include "llvm/CodeGen/SelectionDAGISel.h"
 #include "llvm/CodeGen/SelectionDAGNodes.h"
@@ -43,6 +43,7 @@
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/CodeGen.h"
 #include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/MachineValueType.h"
 #include "llvm/Support/MathExtras.h"
 #include <cassert>
 #include <cstdint>
@@ -83,6 +84,7 @@ public:
 
   void getAnalysisUsage(AnalysisUsage &AU) const override {
     AU.addRequired<AMDGPUArgumentUsageInfo>();
+    AU.addRequired<DivergenceAnalysis>();
     SelectionDAGISel::getAnalysisUsage(AU);
   }
 
@@ -162,6 +164,7 @@ private:
 
   bool SelectSMRDOffset(SDValue ByteOffsetNode, SDValue &Offset,
                         bool &Imm) const;
+  SDValue Expand32BitAddress(SDValue Addr) const;
   bool SelectSMRD(SDValue Addr, SDValue &SBase, SDValue &Offset,
                   bool &Imm) const;
   bool SelectSMRDImm(SDValue Addr, SDValue &SBase, SDValue &Offset) const;
@@ -636,7 +639,8 @@ bool AMDGPUDAGToDAGISel::isConstantLoad(const MemSDNode *N, int CbId) const {
   if (!N->readMem())
     return false;
   if (CbId == -1)
-    return N->getAddressSpace() == AMDGPUASI.CONSTANT_ADDRESS;
+    return N->getAddressSpace() == AMDGPUASI.CONSTANT_ADDRESS ||
+           N->getAddressSpace() == AMDGPUASI.CONSTANT_ADDRESS_32BIT;
 
   return N->getAddressSpace() == AMDGPUASI.CONSTANT_BUFFER_0 + CbId;
 }
@@ -762,12 +766,11 @@ void AMDGPUDAGToDAGISel::SelectADD_SUB_I64(SDNode *N) {
 
   if (ProduceCarry) {
     // Replace the carry-use
-    CurDAG->ReplaceAllUsesOfValueWith(SDValue(N, 1), SDValue(AddHi, 1));
+    ReplaceUses(SDValue(N, 1), SDValue(AddHi, 1));
   }
 
   // Replace the remaining uses.
-  CurDAG->ReplaceAllUsesWith(N, RegSequence);
-  CurDAG->RemoveDeadNode(N);
+  ReplaceNode(N, RegSequence);
 }
 
 void AMDGPUDAGToDAGISel::SelectUADDO_USUBO(SDNode *N) {
@@ -1438,19 +1441,45 @@ bool AMDGPUDAGToDAGISel::SelectSMRDOffset(SDValue ByteOffsetNode,
   return true;
 }
 
+SDValue AMDGPUDAGToDAGISel::Expand32BitAddress(SDValue Addr) const {
+  if (Addr.getValueType() != MVT::i32)
+    return Addr;
+
+  // Zero-extend a 32-bit address.
+  SDLoc SL(Addr);
+
+  const MachineFunction &MF = CurDAG->getMachineFunction();
+  const SIMachineFunctionInfo *Info = MF.getInfo<SIMachineFunctionInfo>();
+  unsigned AddrHiVal = Info->get32BitAddressHighBits();
+  SDValue AddrHi = CurDAG->getTargetConstant(AddrHiVal, SL, MVT::i32);
+
+  const SDValue Ops[] = {
+    CurDAG->getTargetConstant(AMDGPU::SReg_64_XEXECRegClassID, SL, MVT::i32),
+    Addr,
+    CurDAG->getTargetConstant(AMDGPU::sub0, SL, MVT::i32),
+    SDValue(CurDAG->getMachineNode(AMDGPU::S_MOV_B32, SL, MVT::i32, AddrHi),
+            0),
+    CurDAG->getTargetConstant(AMDGPU::sub1, SL, MVT::i32),
+  };
+
+  return SDValue(CurDAG->getMachineNode(AMDGPU::REG_SEQUENCE, SL, MVT::i64,
+                                        Ops), 0);
+}
+
 bool AMDGPUDAGToDAGISel::SelectSMRD(SDValue Addr, SDValue &SBase,
                                      SDValue &Offset, bool &Imm) const {
   SDLoc SL(Addr);
+
   if (CurDAG->isBaseWithConstantOffset(Addr)) {
     SDValue N0 = Addr.getOperand(0);
     SDValue N1 = Addr.getOperand(1);
 
     if (SelectSMRDOffset(N1, Offset, Imm)) {
-      SBase = N0;
+      SBase = Expand32BitAddress(N0);
       return true;
     }
   }
-  SBase = Addr;
+  SBase = Expand32BitAddress(Addr);
   Offset = CurDAG->getTargetConstant(0, SL, MVT::i32);
   Imm = true;
   return true;

@@ -50,7 +50,26 @@ public:
   /// Return -1 if the target-specific opcode for the pseudo instruction does
   /// not exist. If Opcode is not a pseudo instruction, this is identity.
   int pseudoToMCOpcode(int Opcode) const;
+
+  static bool isUniformMMO(const MachineMemOperand *MMO);
 };
+
+namespace AMDGPU {
+
+struct RsrcIntrinsic {
+  unsigned Intr;
+  uint8_t RsrcArg;
+  bool IsImage;
+};
+const RsrcIntrinsic *lookupRsrcIntrinsicByIntr(unsigned Intr);
+
+struct D16ImageDimIntrinsic {
+  unsigned Intr;
+  unsigned D16HelperIntr;
+};
+const D16ImageDimIntrinsic *lookupD16ImageDimIntrinsicByIntr(unsigned Intr);
+
+} // end AMDGPU namespace
 } // End llvm namespace
 
 #endif

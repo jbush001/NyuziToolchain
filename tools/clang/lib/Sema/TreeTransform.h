@@ -57,7 +57,7 @@ using namespace sema;
 /// subclasses to customize any of its operations. Thus, a subclass can
 /// override any of the transformation or rebuild operators by providing an
 /// operation with the same signature as the default implementation. The
-/// overridding function should not be virtual.
+/// overriding function should not be virtual.
 ///
 /// Semantic tree transformations are split into two stages, either of which
 /// can be replaced by a subclass. The "transform" step transforms an AST node
@@ -10388,7 +10388,7 @@ bool TreeTransform<Derived>::TransformOverloadExprDecls(OverloadExpr *Old,
   //   the corresponding pack is empty
   if (AllEmptyPacks && !RequiresADL) {
     getSema().Diag(Old->getNameLoc(), diag::err_using_pack_expansion_empty)
-        << isa<UnresolvedMemberExpr>(Old) << Old->getNameInfo().getName();
+        << isa<UnresolvedMemberExpr>(Old) << Old->getName();
     return true;
   }
 
@@ -11392,8 +11392,10 @@ TreeTransform<Derived>::TransformSizeOfPackExpr(SizeOfPackExpr *E) {
         ArgStorage = TemplateArgument(TemplateName(TTPD), None);
       } else {
         auto *VD = cast<ValueDecl>(Pack);
-        ExprResult DRE = getSema().BuildDeclRefExpr(VD, VD->getType(),
-                                                    VK_RValue, E->getPackLoc());
+        ExprResult DRE = getSema().BuildDeclRefExpr(
+            VD, VD->getType().getNonLValueExprType(getSema().Context),
+            VD->getType()->isReferenceType() ? VK_LValue : VK_RValue,
+            E->getPackLoc());
         if (DRE.isInvalid())
           return ExprError();
         ArgStorage = new (getSema().Context) PackExpansionExpr(

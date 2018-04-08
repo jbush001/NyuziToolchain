@@ -13,11 +13,13 @@ add_lldb_test_executable(thread_inferior inferior/thread_inferior.cpp)
 add_lldb_test_executable(environment_check inferior/environment_check.cpp)
 
 # Disabled for cross compiling Nyuzi
-#if (CMAKE_SYSTEM_NAME MATCHES "Darwin")
-#  add_definitions(-DLLDB_SERVER="$<TARGET_FILE:debugserver>" -DLLDB_SERVER_IS_DEBUGSERVER=1)
-#else()
-#  add_definitions(-DLLDB_SERVER="$<TARGET_FILE:lldb-server>" -DLLDB_SERVER_IS_DEBUGSERVER=0)
-#endif()
+if (false)
+if (CMAKE_SYSTEM_NAME MATCHES "Darwin")
+  add_definitions(-DLLDB_SERVER="${DEBUGSERVER_PATH}" -DLLDB_SERVER_IS_DEBUGSERVER=1)
+else()
+  add_definitions(-DLLDB_SERVER="$<TARGET_FILE:lldb-server>" -DLLDB_SERVER_IS_DEBUGSERVER=0)
+endif()
+endif()
 
 add_definitions(
   -DLLDB_TEST_INFERIOR_PATH="${CMAKE_CURRENT_BINARY_DIR}/${CMAKE_CFG_INTDIR}"

@@ -205,6 +205,8 @@ extern int cc1_main(ArrayRef<const char *> Argv, const char *Argv0,
                     void *MainAddr);
 extern int cc1as_main(ArrayRef<const char *> Argv, const char *Argv0,
                       void *MainAddr);
+extern int cc1gen_reproducer_main(ArrayRef<const char *> Argv,
+                                  const char *Argv0, void *MainAddr);
 
 static void insertTargetAndModeArgs(const ParsedClangName &NameParts,
                                     SmallVectorImpl<const char *> &ArgVector,
@@ -212,20 +214,21 @@ static void insertTargetAndModeArgs(const ParsedClangName &NameParts,
   // Put target and mode arguments at the start of argument list so that
   // arguments specified in command line could override them. Avoid putting
   // them at index 0, as an option like '-cc1' must remain the first.
-  auto InsertionPoint = ArgVector.begin();
-  if (InsertionPoint != ArgVector.end())
+  int InsertionPoint = 0;
+  if (ArgVector.size() > 0)
     ++InsertionPoint;
 
   if (NameParts.DriverMode) {
     // Add the mode flag to the arguments.
-    ArgVector.insert(InsertionPoint,
+    ArgVector.insert(ArgVector.begin() + InsertionPoint,
                      GetStableCStr(SavedStrings, NameParts.DriverMode));
   }
 
   if (NameParts.TargetIsValid) {
     const char *arr[] = {"-target", GetStableCStr(SavedStrings,
                                                   NameParts.TargetPrefix)};
-    ArgVector.insert(InsertionPoint, std::begin(arr), std::end(arr));
+    ArgVector.insert(ArgVector.begin() + InsertionPoint,
+                     std::begin(arr), std::end(arr));
   }
 }
 
@@ -309,6 +312,8 @@ static int ExecuteCC1Tool(ArrayRef<const char *> argv, StringRef Tool) {
     return cc1_main(argv.slice(2), argv[0], GetExecutablePathVP);
   if (Tool == "as")
     return cc1as_main(argv.slice(2), argv[0], GetExecutablePathVP);
+  if (Tool == "gen-reproducer")
+    return cc1gen_reproducer_main(argv.slice(2), argv[0], GetExecutablePathVP);
 
   // Reject unknown tools.
   llvm::errs() << "error: unknown integrated tool '" << Tool << "'. "

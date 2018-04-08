@@ -2116,7 +2116,8 @@ void ClangExpressionDeclMap::AddOneFunction(NameSearchContext &context,
   parser_vars->m_llvm_value = NULL;
 
   if (log) {
-    ASTDumper ast_dumper(function_decl);
+    std::string function_str =
+        function_decl ? ASTDumper(function_decl).GetCString() : "nullptr";
 
     StreamString ss;
 
@@ -2127,7 +2128,7 @@ void ClangExpressionDeclMap::AddOneFunction(NameSearchContext &context,
     log->Printf(
         "  CEDM::FEVD[%u] Found %s function %s (description %s), returned %s",
         current_id, (function ? "specific" : "generic"), decl_name.c_str(),
-        ss.GetData(), ast_dumper.GetCString());
+        ss.GetData(), function_str.c_str());
   }
 }
 
@@ -2165,7 +2166,7 @@ void ClangExpressionDeclMap::AddThisType(NameSearchContext &context,
     CXXMethodDecl *method_decl =
         ClangASTContext::GetASTContext(m_ast_context)
             ->AddMethodToCXXRecordType(
-                copied_clang_type.GetOpaqueQualType(), "$__lldb_expr",
+                copied_clang_type.GetOpaqueQualType(), "$__lldb_expr", NULL,
                 method_type, lldb::eAccessPublic, is_virtual, is_static,
                 is_inline, is_explicit, is_attr_used, is_artificial);
 

@@ -72,6 +72,12 @@ enum class DebugType {
   Fixup = 0x4,  /// Relocation Table
 };
 
+enum class GuardCFLevel {
+  Off,
+  NoLongJmp, // Emit gfids but no longjmp tables
+  Full,      // Enable all protections.
+};
+
 // Global configuration.
 struct Configuration {
   enum ManifestKind { SideBySide, Embed, No };
@@ -93,6 +99,7 @@ struct Configuration {
   bool DebugGHashes = false;
   bool ShowTiming = false;
   unsigned DebugTypes = static_cast<unsigned>(DebugType::None);
+  std::vector<std::string> NatvisFiles;
   llvm::SmallString<128> PDBPath;
   std::vector<llvm::StringRef> Argv;
 
@@ -113,7 +120,7 @@ struct Configuration {
   bool SaveTemps = false;
 
   // /guard:cf
-  bool GuardCF;
+  GuardCFLevel GuardCF = GuardCFLevel::Off;
 
   // Used for SafeSEH.
   Symbol *SEHTable = nullptr;
@@ -181,8 +188,10 @@ struct Configuration {
   bool HighEntropyVA = false;
   bool AppContainer = false;
   bool MinGW = false;
+  bool WarnMissingOrderSymbol = true;
   bool WarnLocallyDefinedImported = true;
   bool Incremental = true;
+  bool KillAt = false;
 };
 
 extern Configuration *Config;

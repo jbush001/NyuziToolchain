@@ -154,15 +154,6 @@ static bool beforeThanCompareGroups(const GroupInfo *LHS, const GroupInfo *RHS){
                            RHS->DiagsInGroup.front());
 }
 
-static SMRange findSuperClassRange(const Record *R, StringRef SuperName) {
-  ArrayRef<std::pair<Record *, SMRange>> Supers = R->getSuperClasses();
-  auto I = std::find_if(Supers.begin(), Supers.end(),
-                        [&](const std::pair<Record *, SMRange> &SuperPair) {
-                          return SuperPair.first->getName() == SuperName;
-                        });
-  return (I != Supers.end()) ? I->second : SMRange();
-}
-
 /// \brief Invert the 1-[0/1] mapping of diags to group into a one to many
 /// mapping of groups to diags in the group.
 static void groupDiagnostics(const std::vector<Record*> &Diags,
@@ -216,9 +207,9 @@ static void groupDiagnostics(const std::vector<Record*> &Diags,
                                               E = SortedGroups.end();
        I != E; ++I) {
     MutableArrayRef<const Record *> GroupDiags = (*I)->DiagsInGroup;
-    std::sort(GroupDiags.begin(), GroupDiags.end(), beforeThanCompare);
+    llvm::sort(GroupDiags.begin(), GroupDiags.end(), beforeThanCompare);
   }
-  std::sort(SortedGroups.begin(), SortedGroups.end(), beforeThanCompareGroups);
+  llvm::sort(SortedGroups.begin(), SortedGroups.end(), beforeThanCompareGroups);
 
   // Warn about the same group being used anonymously in multiple places.
   for (SmallVectorImpl<GroupInfo *>::const_iterator I = SortedGroups.begin(),
@@ -236,22 +227,10 @@ static void groupDiagnostics(const std::vector<Record*> &Diags,
         if (NextDiagGroup == (*I)->ExplicitDef)
           continue;
 
-        SMRange InGroupRange = findSuperClassRange(*DI, "InGroup");
-        SmallString<64> Replacement;
-        if (InGroupRange.isValid()) {
-          Replacement += "InGroup<";
-          Replacement += (*I)->ExplicitDef->getName();
-          Replacement += ">";
-        }
-        SMFixIt FixIt(InGroupRange, Replacement);
-
-        SrcMgr.PrintMessage(NextDiagGroup->getLoc().front(),
+        SrcMgr.PrintMessage((*DI)->getLoc().front(),
                             SourceMgr::DK_Error,
                             Twine("group '") + Name +
-                              "' is referred to anonymously",
-                            None,
-                            InGroupRange.isValid() ? FixIt
-                                                   : ArrayRef<SMFixIt>());
+                              "' is referred to anonymously");
         SrcMgr.PrintMessage((*I)->ExplicitDef->getLoc().front(),
                             SourceMgr::DK_Note, "group defined here");
       }
@@ -266,19 +245,14 @@ static void groupDiagnostics(const std::vector<Record*> &Diags,
       const Record *NextDiagGroup = GroupInit->getDef();
       std::string Name = NextDiagGroup->getValueAsString("GroupName");
 
-      SMRange InGroupRange = findSuperClassRange(*DI, "InGroup");
-      SrcMgr.PrintMessage(NextDiagGroup->getLoc().front(),
+      SrcMgr.PrintMessage((*DI)->getLoc().front(),
                           SourceMgr::DK_Error,
                           Twine("group '") + Name +
-                            "' is referred to anonymously",
-                          InGroupRange);
+                            "' is referred to anonymously");
 
       for (++DI; DI != DE; ++DI) {
-        GroupInit = cast<DefInit>((*DI)->getValueInit("Group"));
-        InGroupRange = findSuperClassRange(*DI, "InGroup");
-        SrcMgr.PrintMessage(GroupInit->getDef()->getLoc().front(),
-                            SourceMgr::DK_Note, "also referenced here",
-                            InGroupRange);
+        SrcMgr.PrintMessage((*DI)->getLoc().front(),
+                            SourceMgr::DK_Note, "also referenced here");
       }
     }
   }
@@ -889,9 +863,10 @@ void EmitClangDiagsIndexName(RecordKeeper &Records, raw_ostream &OS) {
     Index.push_back(RecordIndexElement(R));
   }
 
-  std::sort(Index.begin(), Index.end(),
-            [](const RecordIndexElement &Lhs,
-               const RecordIndexElement &Rhs) { return Lhs.Name < Rhs.Name; });
+  llvm::sort(Index.begin(), Index.end(),
+             [](const RecordIndexElement &Lhs, const RecordIndexElement &Rhs) {
+               return Lhs.Name < Rhs.Name;
+            });
 
   for (unsigned i = 0, e = Index.size(); i != e; ++i) {
     const RecordIndexElement &R = Index[i];
@@ -1238,7 +1213,7 @@ void EmitClangDiagDocs(RecordKeeper &Records, raw_ostream &OS) {
       Records.getAllDerivedDefinitions("Diagnostic");
   std::vector<Record*> DiagGroups =
       Records.getAllDerivedDefinitions("DiagGroup");
-  std::sort(DiagGroups.begin(), DiagGroups.end(), diagGroupBeforeByName);
+  llvm::sort(DiagGroups.begin(), DiagGroups.end(), diagGroupBeforeByName);
 
   DiagGroupParentMap DGParentMap(Records);
 
@@ -1257,10 +1232,10 @@ void EmitClangDiagDocs(RecordKeeper &Records, raw_ostream &OS) {
                               DiagsInPedanticSet.end());
     RecordVec GroupsInPedantic(GroupsInPedanticSet.begin(),
                                GroupsInPedanticSet.end());
-    std::sort(DiagsInPedantic.begin(), DiagsInPedantic.end(),
-              beforeThanCompare);
-    std::sort(GroupsInPedantic.begin(), GroupsInPedantic.end(),
-              beforeThanCompare);
+    llvm::sort(DiagsInPedantic.begin(), DiagsInPedantic.end(),
+               beforeThanCompare);
+    llvm::sort(GroupsInPedantic.begin(), GroupsInPedantic.end(),
+               beforeThanCompare);
     PedDiags.DiagsInGroup.insert(PedDiags.DiagsInGroup.end(),
                                  DiagsInPedantic.begin(),
                                  DiagsInPedantic.end());
@@ -1309,7 +1284,7 @@ void EmitClangDiagDocs(RecordKeeper &Records, raw_ostream &OS) {
         OS << "Also controls ";
 
       bool First = true;
-      std::sort(GroupInfo.SubGroups.begin(), GroupInfo.SubGroups.end());
+      llvm::sort(GroupInfo.SubGroups.begin(), GroupInfo.SubGroups.end());
       for (const auto &Name : GroupInfo.SubGroups) {
         if (!First) OS << ", ";
         OS << "`" << (IsRemarkGroup ? "-R" : "-W") << Name << "`_";

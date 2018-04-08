@@ -957,6 +957,11 @@ public:
   /// even if it has glue.
   virtual bool canCopyGluedNodeDuringSchedule(SDNode *N) const { return false; }
 
+  /// Remember what registers the specified instruction uses and modifies.
+  virtual void trackRegDefsUses(const MachineInstr &MI, BitVector &ModifiedRegs,
+                                BitVector &UsedRegs,
+                                const TargetRegisterInfo *TRI) const;
+
 protected:
   /// Target-dependent implementation for foldMemoryOperand.
   /// Target-independent code in foldMemoryOperand will
@@ -1569,6 +1574,9 @@ public:
     return false;
   }
 
+  /// Returns true if the target implements the MachineOutliner.
+  virtual bool useMachineOutliner() const { return false; }
+
   /// \brief Describes the number of instructions that it will take to call and
   /// construct a frame for a given outlining candidate.
   struct MachineOutlinerInfo {
@@ -1603,7 +1611,7 @@ public:
           std::pair<MachineBasicBlock::iterator, MachineBasicBlock::iterator>>
           &RepeatedSequenceLocs) const {
     llvm_unreachable(
-        "Target didn't implement TargetInstrInfo::getOutliningOverhead!");
+        "Target didn't implement TargetInstrInfo::getOutliningCandidateInfo!");
   }
 
   /// Represents how an instruction should be mapped by the outliner.

@@ -350,6 +350,8 @@ public:
             MemRec->getValueAsBit("hasREX_WPrefix") ||
         RegRec->getValueAsBit("hasLockPrefix") !=
             MemRec->getValueAsBit("hasLockPrefix") ||
+        RegRec->getValueAsBit("hasNoTrackPrefix") !=
+            MemRec->getValueAsBit("hasNoTrackPrefix") ||
         !equalBitsInits(RegRec->getValueAsBitsInit("EVEX_LL"),
                         MemRec->getValueAsBitsInit("EVEX_LL")) ||
         !equalBitsInits(RegRec->getValueAsBitsInit("VEX_WPrefix"),
@@ -549,7 +551,7 @@ void X86FoldTablesEmitter::updateTables(const CodeGenInstruction *RegInstr,
     }
   } else if (MemInSize == RegInSize + 1 && MemOutSize + 1 == RegOutSize) {
     // Store-Folding cases.
-    // If the memory form instruction performs performs a store, the *output*
+    // If the memory form instruction performs a store, the *output*
     // register of the register form instructions disappear and instead a
     // memory *input* operand appears in the memory form instruction.
     // For example:

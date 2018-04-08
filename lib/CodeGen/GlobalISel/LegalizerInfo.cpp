@@ -36,6 +36,11 @@ using namespace LegalizeActions;
 
 #define DEBUG_TYPE "legalizer-info"
 
+cl::opt<bool> llvm::DisableGISelLegalityCheck(
+    "disable-gisel-legality-check",
+    cl::desc("Don't verify that MIR is fully legal between GlobalISel passes"),
+    cl::Hidden);
+
 raw_ostream &LegalityQuery::print(raw_ostream &OS) const {
   OS << Opcode << ", {";
   for (const auto &Type : Types) {
@@ -143,15 +148,16 @@ void LegalizerInfo::computeTables() {
         if (TypeIdx < ScalarSizeChangeStrategies[OpcodeIdx].size() &&
             ScalarSizeChangeStrategies[OpcodeIdx][TypeIdx] != nullptr)
           S = ScalarSizeChangeStrategies[OpcodeIdx][TypeIdx];
-        std::sort(ScalarSpecifiedActions.begin(), ScalarSpecifiedActions.end());
+        llvm::sort(ScalarSpecifiedActions.begin(),
+                   ScalarSpecifiedActions.end());
         checkPartialSizeAndActionsVector(ScalarSpecifiedActions);
         setScalarAction(Opcode, TypeIdx, S(ScalarSpecifiedActions));
       }
 
       // 2. Handle pointer types
       for (auto PointerSpecifiedActions : AddressSpace2SpecifiedActions) {
-        std::sort(PointerSpecifiedActions.second.begin(),
-                  PointerSpecifiedActions.second.end());
+        llvm::sort(PointerSpecifiedActions.second.begin(),
+                   PointerSpecifiedActions.second.end());
         checkPartialSizeAndActionsVector(PointerSpecifiedActions.second);
         // For pointer types, we assume that there isn't a meaningfull way
         // to change the number of bits used in the pointer.
@@ -163,8 +169,8 @@ void LegalizerInfo::computeTables() {
       // 3. Handle vector types
       SizeAndActionsVec ElementSizesSeen;
       for (auto VectorSpecifiedActions : ElemSize2SpecifiedActions) {
-        std::sort(VectorSpecifiedActions.second.begin(),
-                  VectorSpecifiedActions.second.end());
+        llvm::sort(VectorSpecifiedActions.second.begin(),
+                   VectorSpecifiedActions.second.end());
         const uint16_t ElementSize = VectorSpecifiedActions.first;
         ElementSizesSeen.push_back({ElementSize, Legal});
         checkPartialSizeAndActionsVector(VectorSpecifiedActions.second);
@@ -182,7 +188,7 @@ void LegalizerInfo::computeTables() {
             Opcode, TypeIdx, ElementSize,
             moreToWiderTypesAndLessToWidest(NumElementsActions));
       }
-      std::sort(ElementSizesSeen.begin(), ElementSizesSeen.end());
+      llvm::sort(ElementSizesSeen.begin(), ElementSizesSeen.end());
       SizeChangeStrategy VectorElementSizeChangeStrategy =
           &unsupportedForDifferentSizes;
       if (TypeIdx < VectorElementSizeChangeStrategies[OpcodeIdx].size() &&
@@ -260,6 +266,10 @@ LegalizeRuleSet &LegalizerInfo::getActionDefinitionsBuilder(unsigned Opcode) {
 LegalizeRuleSet &LegalizerInfo::getActionDefinitionsBuilder(
     std::initializer_list<unsigned> Opcodes) {
   unsigned Representative = *Opcodes.begin();
+
+  assert(Opcodes.begin() != Opcodes.end() &&
+         Opcodes.begin() + 1 != Opcodes.end() &&
+         "Initializer list must have at least two opcodes");
 
   for (auto I = Opcodes.begin() + 1, E = Opcodes.end(); I != E; ++I)
     aliasActionDefinitions(Representative, *I);
@@ -491,3 +501,21 @@ LegalizerInfo::findVectorLegalAction(const InstrAspect &Aspect) const {
           LLT::vector(NumElementsAndAction.first,
                       IntermediateType.getScalarSizeInBits())};
 }
+
+#ifndef NDEBUG
+// FIXME: This should be in the MachineVerifier, but it can't use the
+// LegalizerInfo as it's currently in the separate GlobalISel library.
+// Note that RegBankSelected property already checked in the verifier
+// has the same layering problem, but we only use inline methods so
+// end up not needing to link against the GlobalISel library.
+const MachineInstr *llvm::machineFunctionIsIllegal(const MachineFunction &MF) {
+  if (const LegalizerInfo *MLI = MF.getSubtarget().getLegalizerInfo()) {
+    const MachineRegisterInfo &MRI = MF.getRegInfo();
+    for (const MachineBasicBlock &MBB : MF)
+      for (const MachineInstr &MI : MBB)
+        if (isPreISelGenericOpcode(MI.getOpcode()) && !MLI->isLegal(MI, MRI))
+	  return &MI;
+  }
+  return nullptr;
+}
+#endif

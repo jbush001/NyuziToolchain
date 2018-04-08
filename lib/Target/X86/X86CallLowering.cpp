@@ -33,7 +33,6 @@
 #include "llvm/CodeGen/MachineMemOperand.h"
 #include "llvm/CodeGen/MachineOperand.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
-#include "llvm/CodeGen/MachineValueType.h"
 #include "llvm/CodeGen/TargetInstrInfo.h"
 #include "llvm/CodeGen/TargetSubtargetInfo.h"
 #include "llvm/CodeGen/ValueTypes.h"
@@ -43,6 +42,7 @@
 #include "llvm/IR/Value.h"
 #include "llvm/MC/MCRegisterInfo.h"
 #include "llvm/Support/LowLevelTypeImpl.h"
+#include "llvm/Support/MachineValueType.h"
 #include <cassert>
 #include <cstdint>
 
@@ -438,8 +438,7 @@ bool X86CallLowering::lowerCall(MachineIRBuilder &MIRBuilder,
   if (Callee.isReg())
     MIB->getOperand(0).setReg(constrainOperandRegClass(
         MF, *TRI, MRI, *MF.getSubtarget().getInstrInfo(),
-        *MF.getSubtarget().getRegBankInfo(), *MIB, MIB->getDesc(),
-        Callee.getReg(), 0));
+        *MF.getSubtarget().getRegBankInfo(), *MIB, MIB->getDesc(), Callee, 0));
 
   // Finally we can copy the returned value back into its virtual-register. In
   // symmetry with the arguments, the physical register must be an

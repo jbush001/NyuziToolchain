@@ -87,6 +87,18 @@ bool ARMFrameLowering::noFramePointerElim(const MachineFunction &MF) const {
          MF.getSubtarget<ARMSubtarget>().useFastISel();
 }
 
+/// Returns true if the target can safely skip saving callee-saved registers
+/// for noreturn nounwind functions.
+bool ARMFrameLowering::enableCalleeSaveSkip(const MachineFunction &MF) const {
+  assert(MF.getFunction().hasFnAttribute(Attribute::NoReturn) &&
+         MF.getFunction().hasFnAttribute(Attribute::NoUnwind) &&
+         !MF.getFunction().hasFnAttribute(Attribute::UWTable));
+
+  // Frame pointer and link register are not treated as normal CSR, thus we
+  // can always skip CSR saves for nonreturning functions.
+  return true;
+}
+
 /// hasFP - Return true if the specified function should have a dedicated frame
 /// pointer register.  This is true if the function has variable sized allocas
 /// or if frame pointer elimination is disabled.
@@ -209,7 +221,8 @@ static bool WindowsRequiresStackProbe(const MachineFunction &MF,
     F.getFnAttribute("stack-probe-size")
         .getValueAsString()
         .getAsInteger(0, StackProbeSize);
-  return StackSizeInBytes >= StackProbeSize;
+  return (StackSizeInBytes >= StackProbeSize) &&
+         !F.hasFnAttribute("no-stack-arg-probe");
 }
 
 namespace {
@@ -918,15 +931,17 @@ ARMFrameLowering::ResolveFrameIndexReference(const MachineFunction &MF,
           return FPOffset;
         }
       }
-    } else if (AFI->isThumb2Function()) {
+    } else if (AFI->isThumbFunction()) {
+      // Prefer SP to base pointer, if the offset is suitably aligned and in
+      // range as the effective range of the immediate offset is bigger when
+      // basing off SP.
       // Use  add <rd>, sp, #<imm8>
       //      ldr <rd>, [sp, #<imm8>]
-      // if at all possible to save space.
       if (Offset >= 0 && (Offset & 3) == 0 && Offset <= 1020)
         return Offset;
       // In Thumb2 mode, the negative offset is very limited. Try to avoid
       // out of range references. ldr <rt>,[<rn>, #-<imm8>]
-      if (FPOffset >= -255 && FPOffset < 0) {
+      if (AFI->isThumb2Function() && FPOffset >= -255 && FPOffset < 0) {
         FrameReg = RegInfo->getFrameRegister(MF);
         return FPOffset;
       }
@@ -991,8 +1006,8 @@ void ARMFrameLowering::emitPushInst(MachineBasicBlock &MBB,
     if (Regs.empty())
       continue;
 
-    std::sort(Regs.begin(), Regs.end(), [&](const RegAndKill &LHS,
-                                            const RegAndKill &RHS) {
+    llvm::sort(Regs.begin(), Regs.end(), [&](const RegAndKill &LHS,
+                                             const RegAndKill &RHS) {
       return TRI.getEncodingValue(LHS.first) < TRI.getEncodingValue(RHS.first);
     });
 
@@ -1065,6 +1080,7 @@ void ARMFrameLowering::emitPopInst(MachineBasicBlock &MBB,
           !isTrap && STI.hasV5TOps()) {
         if (MBB.succ_empty()) {
           Reg = ARM::PC;
+          // Fold the return instruction into the LDM.
           DeleteRet = true;
           LdmOpc = AFI->isThumbFunction() ? ARM::t2LDMIA_RET : ARM::LDMIA_RET;
           // We 'restore' LR into PC so it is not live out of the return block:
@@ -1072,7 +1088,6 @@ void ARMFrameLowering::emitPopInst(MachineBasicBlock &MBB,
           Info.setRestored(false);
         } else
           LdmOpc = AFI->isThumbFunction() ? ARM::t2LDMIA_UPD : ARM::LDMIA_UPD;
-        // Fold the return instruction into the LDM.
       }
 
       // If NoGap is true, pop consecutive registers and then leave the rest
@@ -1088,7 +1103,7 @@ void ARMFrameLowering::emitPopInst(MachineBasicBlock &MBB,
     if (Regs.empty())
       continue;
 
-    std::sort(Regs.begin(), Regs.end(), [&](unsigned LHS, unsigned RHS) {
+    llvm::sort(Regs.begin(), Regs.end(), [&](unsigned LHS, unsigned RHS) {
       return TRI.getEncodingValue(LHS) < TRI.getEncodingValue(RHS);
     });
 

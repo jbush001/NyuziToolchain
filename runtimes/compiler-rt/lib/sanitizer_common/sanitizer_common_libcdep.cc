@@ -24,6 +24,7 @@
 
 #if SANITIZER_POSIX
 #include "sanitizer_posix.h"
+#include <sys/mman.h>
 #endif
 
 namespace __sanitizer {
@@ -58,11 +59,6 @@ bool ColorizeReports() {
          (internal_strcmp(flag, "auto") == 0 && ReportSupportsColors());
 }
 
-static void (*sandboxing_callback)();
-void SetSandboxingCallback(void (*f)()) {
-  sandboxing_callback = f;
-}
-
 void ReportErrorSummary(const char *error_type, const StackTrace *stack,
                         const char *alt_tool_name) {
 #if !SANITIZER_GO
@@ -78,6 +74,35 @@ void ReportErrorSummary(const char *error_type, const StackTrace *stack,
   SymbolizedStack *frame = Symbolizer::GetOrInit()->SymbolizePC(pc);
   ReportErrorSummary(error_type, frame->info, alt_tool_name);
   frame->ClearAll();
+#endif
+}
+
+void ReportMmapWriteExec(int prot) {
+#if SANITIZER_POSIX && (!SANITIZER_GO && !SANITIZER_ANDROID)
+  if ((prot & (PROT_WRITE | PROT_EXEC)) != (PROT_WRITE | PROT_EXEC))
+    return;
+
+  ScopedErrorReportLock l;
+  SanitizerCommonDecorator d;
+
+  InternalScopedBuffer<BufferedStackTrace> stack_buffer(1);
+  BufferedStackTrace *stack = stack_buffer.data();
+  stack->Reset();
+  uptr top = 0;
+  uptr bottom = 0;
+  GET_CALLER_PC_BP_SP;
+  (void)sp;
+  bool fast = common_flags()->fast_unwind_on_fatal;
+  if (fast)
+    GetThreadStackTopAndBottom(false, &top, &bottom);
+  stack->Unwind(kStackTraceMax, pc, bp, nullptr, top, bottom, fast);
+
+  Printf("%s", d.Warning());
+  Report("WARNING: %s: writable-executable page usage\n", SanitizerToolName);
+  Printf("%s", d.Default());
+
+  stack->Print();
+  ReportErrorSummary("w-and-x-usage", stack);
 #endif
 }
 
@@ -339,11 +364,16 @@ void ScopedErrorReportLock::CheckLocked() {
   CommonSanitizerReportMutex.CheckLocked();
 }
 
+static void (*sandboxing_callback)();
+void SetSandboxingCallback(void (*f)()) {
+  sandboxing_callback = f;
+}
+
 }  // namespace __sanitizer
 
 SANITIZER_INTERFACE_WEAK_DEF(void, __sanitizer_sandbox_on_notify,
                              __sanitizer_sandbox_arguments *args) {
-  __sanitizer::PrepareForSandboxing(args);
+  __sanitizer::PlatformPrepareForSandboxing(args);
   if (__sanitizer::sandboxing_callback)
     __sanitizer::sandboxing_callback();
 }

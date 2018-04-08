@@ -157,8 +157,11 @@ X86Subtarget::classifyGlobalFunctionReference(const GlobalValue *GV,
       // In Regcall calling convention those registers are used for passing
       // parameters. Thus we need to prevent lazy binding in Regcall.
       return X86II::MO_GOTPCREL;
-    if (F && F->hasFnAttribute(Attribute::NonLazyBind) && is64Bit())
-      return X86II::MO_GOTPCREL;
+    // If PLT must be avoided then the call should be via GOTPCREL.
+    if (((F && F->hasFnAttribute(Attribute::NonLazyBind)) ||
+         (!F && M.getRtLibUseGOT())) &&
+        is64Bit())
+       return X86II::MO_GOTPCREL;
     return X86II::MO_PLT;
   }
 
@@ -373,11 +376,13 @@ X86Subtarget &X86Subtarget::initializeSubtargetDependencies(StringRef CPU,
 X86Subtarget::X86Subtarget(const Triple &TT, StringRef CPU, StringRef FS,
                            const X86TargetMachine &TM,
                            unsigned StackAlignOverride,
-                           unsigned PreferVectorWidthOverride)
+                           unsigned PreferVectorWidthOverride,
+                           unsigned RequiredVectorWidth)
     : X86GenSubtargetInfo(TT, CPU, FS), X86ProcFamily(Others),
       PICStyle(PICStyles::None), TM(TM), TargetTriple(TT),
       StackAlignOverride(StackAlignOverride),
       PreferVectorWidthOverride(PreferVectorWidthOverride),
+      RequiredVectorWidth(RequiredVectorWidth),
       In64BitMode(TargetTriple.getArch() == Triple::x86_64),
       In32BitMode(TargetTriple.getArch() == Triple::x86 &&
                   TargetTriple.getEnvironment() != Triple::CODE16),

@@ -12,6 +12,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/CodeGen/AccelTable.h"
+#include "DwarfCompileUnit.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/Twine.h"
@@ -29,169 +30,50 @@
 
 using namespace llvm;
 
-void AppleAccelTableHeader::emit(AsmPrinter *Asm) {
-  // Emit Header.
-  Asm->OutStreamer->AddComment("Header Magic");
-  Asm->EmitInt32(Header.Magic);
-  Asm->OutStreamer->AddComment("Header Version");
-  Asm->EmitInt16(Header.Version);
-  Asm->OutStreamer->AddComment("Header Hash Function");
-  Asm->EmitInt16(Header.HashFunction);
-  Asm->OutStreamer->AddComment("Header Bucket Count");
-  Asm->EmitInt32(Header.BucketCount);
-  Asm->OutStreamer->AddComment("Header Hash Count");
-  Asm->EmitInt32(Header.HashCount);
-  Asm->OutStreamer->AddComment("Header Data Length");
-  Asm->EmitInt32(Header.HeaderDataLength);
-
-  //  Emit Header Data
-  Asm->OutStreamer->AddComment("HeaderData Die Offset Base");
-  Asm->EmitInt32(HeaderData.DieOffsetBase);
-  Asm->OutStreamer->AddComment("HeaderData Atom Count");
-  Asm->EmitInt32(HeaderData.Atoms.size());
-
-  for (size_t i = 0; i < HeaderData.Atoms.size(); i++) {
-    Atom A = HeaderData.Atoms[i];
-    Asm->OutStreamer->AddComment(dwarf::AtomTypeString(A.Type));
-    Asm->EmitInt16(A.Type);
-    Asm->OutStreamer->AddComment(dwarf::FormEncodingString(A.Form));
-    Asm->EmitInt16(A.Form);
-  }
-}
-
-void AppleAccelTableHeader::setBucketAndHashCount(uint32_t HashCount) {
-  if (HashCount > 1024)
-    Header.BucketCount = HashCount / 4;
-  else if (HashCount > 16)
-    Header.BucketCount = HashCount / 2;
-  else
-    Header.BucketCount = HashCount > 0 ? HashCount : 1;
-
-  Header.HashCount = HashCount;
-}
-
-void AppleAccelTableBase::emitHeader(AsmPrinter *Asm) { Header.emit(Asm); }
-
-void AppleAccelTableBase::emitBuckets(AsmPrinter *Asm) {
-  unsigned index = 0;
-  for (size_t i = 0, e = Buckets.size(); i < e; ++i) {
-    Asm->OutStreamer->AddComment("Bucket " + Twine(i));
-    if (!Buckets[i].empty())
-      Asm->EmitInt32(index);
-    else
-      Asm->EmitInt32(std::numeric_limits<uint32_t>::max());
-    // Buckets point in the list of hashes, not to the data. Do not increment
-    // the index multiple times in case of hash collisions.
-    uint64_t PrevHash = std::numeric_limits<uint64_t>::max();
-    for (auto *HD : Buckets[i]) {
-      uint32_t HashValue = HD->HashValue;
-      if (PrevHash != HashValue)
-        ++index;
-      PrevHash = HashValue;
-    }
-  }
-}
-
-void AppleAccelTableBase::emitHashes(AsmPrinter *Asm) {
-  uint64_t PrevHash = std::numeric_limits<uint64_t>::max();
-  unsigned BucketIdx = 0;
-  for (auto &Bucket : Buckets) {
-    for (auto &Hash : Bucket) {
-      uint32_t HashValue = Hash->HashValue;
-      if (PrevHash == HashValue)
-        continue;
-      Asm->OutStreamer->AddComment("Hash in Bucket " + Twine(BucketIdx));
-      Asm->EmitInt32(HashValue);
-      PrevHash = HashValue;
-    }
-    BucketIdx++;
-  }
-}
-
-void AppleAccelTableBase::emitOffsets(AsmPrinter *Asm,
-                                      const MCSymbol *SecBegin) {
-  uint64_t PrevHash = std::numeric_limits<uint64_t>::max();
-  for (size_t i = 0, e = Buckets.size(); i < e; ++i) {
-    for (auto HI = Buckets[i].begin(), HE = Buckets[i].end(); HI != HE; ++HI) {
-      uint32_t HashValue = (*HI)->HashValue;
-      if (PrevHash == HashValue)
-        continue;
-      PrevHash = HashValue;
-      Asm->OutStreamer->AddComment("Offset in Bucket " + Twine(i));
-      MCContext &Context = Asm->OutStreamer->getContext();
-      const MCExpr *Sub = MCBinaryExpr::createSub(
-          MCSymbolRefExpr::create((*HI)->Sym, Context),
-          MCSymbolRefExpr::create(SecBegin, Context), Context);
-      Asm->OutStreamer->EmitValue(Sub, sizeof(uint32_t));
-    }
-  }
-}
-
-void AppleAccelTableBase::emitData(AsmPrinter *Asm) {
-  for (size_t i = 0, e = Buckets.size(); i < e; ++i) {
-    uint64_t PrevHash = std::numeric_limits<uint64_t>::max();
-    for (auto &Hash : Buckets[i]) {
-      // Terminate the previous entry if there is no hash collision with the
-      // current one.
-      if (PrevHash != std::numeric_limits<uint64_t>::max() &&
-          PrevHash != Hash->HashValue)
-        Asm->EmitInt32(0);
-      // Remember to emit the label for our offset.
-      Asm->OutStreamer->EmitLabel(Hash->Sym);
-      Asm->OutStreamer->AddComment(Hash->Name.getString());
-      Asm->emitDwarfStringOffset(Hash->Name);
-      Asm->OutStreamer->AddComment("Num DIEs");
-      Asm->EmitInt32(Hash->Values.size());
-      for (const auto *V : Hash->Values) {
-        V->emit(Asm);
-      }
-      PrevHash = Hash->HashValue;
-    }
-    // Emit the final end marker for the bucket.
-    if (!Buckets[i].empty())
-      Asm->EmitInt32(0);
-  }
-}
-
-void AppleAccelTableBase::computeBucketCount() {
+void AccelTableBase::computeBucketCount() {
   // First get the number of unique hashes.
-  std::vector<uint32_t> uniques;
-  uniques.reserve(Entries.size());
+  std::vector<uint32_t> Uniques;
+  Uniques.reserve(Entries.size());
   for (const auto &E : Entries)
-    uniques.push_back(E.second.HashValue);
-  array_pod_sort(uniques.begin(), uniques.end());
-  std::vector<uint32_t>::iterator p =
-      std::unique(uniques.begin(), uniques.end());
+    Uniques.push_back(E.second.HashValue);
+  array_pod_sort(Uniques.begin(), Uniques.end());
+  std::vector<uint32_t>::iterator P =
+      std::unique(Uniques.begin(), Uniques.end());
 
-  // Compute the hashes count and use it to set that together with the bucket
-  // count in the header.
-  Header.setBucketAndHashCount(std::distance(uniques.begin(), p));
+  UniqueHashCount = std::distance(Uniques.begin(), P);
+
+  if (UniqueHashCount > 1024)
+    BucketCount = UniqueHashCount / 4;
+  else if (UniqueHashCount > 16)
+    BucketCount = UniqueHashCount / 2;
+  else
+    BucketCount = std::max<uint32_t>(UniqueHashCount, 1);
 }
 
-void AppleAccelTableBase::finalizeTable(AsmPrinter *Asm, StringRef Prefix) {
+void AccelTableBase::finalize(AsmPrinter *Asm, StringRef Prefix) {
   // Create the individual hash data outputs.
   for (auto &E : Entries) {
     // Unique the entries.
     std::stable_sort(E.second.Values.begin(), E.second.Values.end(),
-                     [](const AppleAccelTableData *A,
-                        const AppleAccelTableData *B) { return *A < *B; });
+                     [](const AccelTableData *A, const AccelTableData *B) {
+                       return *A < *B;
+                     });
     E.second.Values.erase(
         std::unique(E.second.Values.begin(), E.second.Values.end()),
         E.second.Values.end());
   }
 
   // Figure out how many buckets we need, then compute the bucket contents and
-  // the final ordering. We'll emit the hashes and offsets by doing a walk
-  // during the emission phase. We add temporary symbols to the data so that we
-  // can reference them during the offset later, we'll emit them when we emit
-  // the data.
+  // the final ordering. The hashes and offsets can be emitted by walking these
+  // data structures. We add temporary symbols to the data so they can be
+  // referenced when emitting the offsets.
   computeBucketCount();
 
   // Compute bucket contents and final ordering.
-  Buckets.resize(Header.getBucketCount());
+  Buckets.resize(BucketCount);
   for (auto &E : Entries) {
-    uint32_t bucket = E.second.HashValue % Header.getBucketCount();
-    Buckets[bucket].push_back(&E.second);
+    uint32_t Bucket = E.second.HashValue % BucketCount;
+    Buckets[Bucket].push_back(&E.second);
     E.second.Sym = Asm->createTempSymbol(Prefix);
   }
 
@@ -204,62 +86,509 @@ void AppleAccelTableBase::finalizeTable(AsmPrinter *Asm, StringRef Prefix) {
                      });
 }
 
+namespace {
+/// Base class for writing out Accelerator tables. It holds the common
+/// functionality for the two Accelerator table types.
+class AccelTableEmitter {
+protected:
+  AsmPrinter *const Asm;          ///< Destination.
+  const AccelTableBase &Contents; ///< Data to emit.
+
+  /// Controls whether to emit duplicate hash and offset table entries for names
+  /// with identical hashes. Apple tables don't emit duplicate entries, DWARF v5
+  /// tables do.
+  const bool SkipIdenticalHashes;
+
+  void emitHashes() const;
+
+  /// Emit offsets to lists of entries with identical names. The offsets are
+  /// relative to the Base argument.
+  void emitOffsets(const MCSymbol *Base) const;
+
+public:
+  AccelTableEmitter(AsmPrinter *Asm, const AccelTableBase &Contents,
+                    bool SkipIdenticalHashes)
+      : Asm(Asm), Contents(Contents), SkipIdenticalHashes(SkipIdenticalHashes) {
+  }
+};
+
+class AppleAccelTableEmitter : public AccelTableEmitter {
+  using Atom = AppleAccelTableData::Atom;
+
+  /// The fixed header of an Apple Accelerator Table.
+  struct Header {
+    uint32_t Magic = MagicHash;
+    uint16_t Version = 1;
+    uint16_t HashFunction = dwarf::DW_hash_function_djb;
+    uint32_t BucketCount;
+    uint32_t HashCount;
+    uint32_t HeaderDataLength;
+
+    /// 'HASH' magic value to detect endianness.
+    static const uint32_t MagicHash = 0x48415348;
+
+    Header(uint32_t BucketCount, uint32_t UniqueHashCount, uint32_t DataLength)
+        : BucketCount(BucketCount), HashCount(UniqueHashCount),
+          HeaderDataLength(DataLength) {}
+
+    void emit(AsmPrinter *Asm) const;
+#ifndef NDEBUG
+    void print(raw_ostream &OS) const;
+    void dump() const { print(dbgs()); }
+#endif
+  };
+
+  /// The HeaderData describes the structure of an Apple accelerator table
+  /// through a list of Atoms.
+  struct HeaderData {
+    /// In the case of data that is referenced via DW_FORM_ref_* the offset
+    /// base is used to describe the offset for all forms in the list of atoms.
+    uint32_t DieOffsetBase;
+
+    const SmallVector<Atom, 4> Atoms;
+
+    HeaderData(ArrayRef<Atom> AtomList, uint32_t Offset = 0)
+        : DieOffsetBase(Offset), Atoms(AtomList.begin(), AtomList.end()) {}
+
+    void emit(AsmPrinter *Asm) const;
+#ifndef NDEBUG
+    void print(raw_ostream &OS) const;
+    void dump() const { print(dbgs()); }
+#endif
+  };
+
+  Header Header;
+  HeaderData HeaderData;
+  const MCSymbol *SecBegin;
+
+  void emitBuckets() const;
+  void emitData() const;
+
+public:
+  AppleAccelTableEmitter(AsmPrinter *Asm, const AccelTableBase &Contents,
+                         ArrayRef<Atom> Atoms, const MCSymbol *SecBegin)
+      : AccelTableEmitter(Asm, Contents, true),
+        Header(Contents.getBucketCount(), Contents.getUniqueHashCount(),
+               8 + (Atoms.size() * 4)),
+        HeaderData(Atoms), SecBegin(SecBegin) {}
+
+  void emit() const;
+
+#ifndef NDEBUG
+  void print(raw_ostream &OS) const;
+  void dump() const { print(dbgs()); }
+#endif
+};
+
+/// Class responsible for emitting a DWARF v5 Accelerator Table. The only public
+/// function is emit(), which performs the actual emission.
+class Dwarf5AccelTableEmitter : public AccelTableEmitter {
+  struct Header {
+    uint32_t UnitLength = 0;
+    uint16_t Version = 5;
+    uint16_t Padding = 0;
+    uint32_t CompUnitCount;
+    uint32_t LocalTypeUnitCount = 0;
+    uint32_t ForeignTypeUnitCount = 0;
+    uint32_t BucketCount;
+    uint32_t NameCount;
+    uint32_t AbbrevTableSize = 0;
+    uint32_t AugmentationStringSize = sizeof(AugmentationString);
+    char AugmentationString[8] = {'L', 'L', 'V', 'M', '0', '7', '0', '0'};
+
+    Header(uint32_t CompUnitCount, uint32_t BucketCount, uint32_t NameCount)
+        : CompUnitCount(CompUnitCount), BucketCount(BucketCount),
+          NameCount(NameCount) {}
+
+    void emit(const Dwarf5AccelTableEmitter &Ctx) const;
+  };
+  struct AttributeEncoding {
+    dwarf::Index Index;
+    dwarf::Form Form;
+  };
+
+  Header Header;
+  DenseMap<uint32_t, SmallVector<AttributeEncoding, 2>> Abbreviations;
+  const DwarfDebug &DD;
+  ArrayRef<std::unique_ptr<DwarfCompileUnit>> CompUnits;
+  MCSymbol *ContributionStart = Asm->createTempSymbol("names_start");
+  MCSymbol *ContributionEnd = Asm->createTempSymbol("names_end");
+  MCSymbol *AbbrevStart = Asm->createTempSymbol("names_abbrev_start");
+  MCSymbol *AbbrevEnd = Asm->createTempSymbol("names_abbrev_end");
+  MCSymbol *EntryPool = Asm->createTempSymbol("names_entries");
+
+  DenseSet<uint32_t> getUniqueTags() const;
+
+  // Right now, we emit uniform attributes for all tags.
+  SmallVector<AttributeEncoding, 2> getUniformAttributes() const;
+
+  void emitCUList() const;
+  void emitBuckets() const;
+  void emitStringOffsets() const;
+  void emitAbbrevs() const;
+  void emitEntry(const DWARF5AccelTableData &Data) const;
+  void emitData() const;
+
+public:
+  Dwarf5AccelTableEmitter(
+      AsmPrinter *Asm, const AccelTableBase &Contents, const DwarfDebug &DD,
+      ArrayRef<std::unique_ptr<DwarfCompileUnit>> CompUnits);
+
+  void emit() const;
+};
+} // namespace
+
+void AccelTableEmitter::emitHashes() const {
+  uint64_t PrevHash = std::numeric_limits<uint64_t>::max();
+  unsigned BucketIdx = 0;
+  for (auto &Bucket : Contents.getBuckets()) {
+    for (auto &Hash : Bucket) {
+      uint32_t HashValue = Hash->HashValue;
+      if (SkipIdenticalHashes && PrevHash == HashValue)
+        continue;
+      Asm->OutStreamer->AddComment("Hash in Bucket " + Twine(BucketIdx));
+      Asm->emitInt32(HashValue);
+      PrevHash = HashValue;
+    }
+    BucketIdx++;
+  }
+}
+
+void AccelTableEmitter::emitOffsets(const MCSymbol *Base) const {
+  const auto &Buckets = Contents.getBuckets();
+  uint64_t PrevHash = std::numeric_limits<uint64_t>::max();
+  for (size_t i = 0, e = Buckets.size(); i < e; ++i) {
+    for (auto *Hash : Buckets[i]) {
+      uint32_t HashValue = Hash->HashValue;
+      if (SkipIdenticalHashes && PrevHash == HashValue)
+        continue;
+      PrevHash = HashValue;
+      Asm->OutStreamer->AddComment("Offset in Bucket " + Twine(i));
+      Asm->EmitLabelDifference(Hash->Sym, Base, sizeof(uint32_t));
+    }
+  }
+}
+
+void AppleAccelTableEmitter::Header::emit(AsmPrinter *Asm) const {
+  Asm->OutStreamer->AddComment("Header Magic");
+  Asm->emitInt32(Magic);
+  Asm->OutStreamer->AddComment("Header Version");
+  Asm->emitInt16(Version);
+  Asm->OutStreamer->AddComment("Header Hash Function");
+  Asm->emitInt16(HashFunction);
+  Asm->OutStreamer->AddComment("Header Bucket Count");
+  Asm->emitInt32(BucketCount);
+  Asm->OutStreamer->AddComment("Header Hash Count");
+  Asm->emitInt32(HashCount);
+  Asm->OutStreamer->AddComment("Header Data Length");
+  Asm->emitInt32(HeaderDataLength);
+}
+
+void AppleAccelTableEmitter::HeaderData::emit(AsmPrinter *Asm) const {
+  Asm->OutStreamer->AddComment("HeaderData Die Offset Base");
+  Asm->emitInt32(DieOffsetBase);
+  Asm->OutStreamer->AddComment("HeaderData Atom Count");
+  Asm->emitInt32(Atoms.size());
+
+  for (const Atom &A : Atoms) {
+    Asm->OutStreamer->AddComment(dwarf::AtomTypeString(A.Type));
+    Asm->emitInt16(A.Type);
+    Asm->OutStreamer->AddComment(dwarf::FormEncodingString(A.Form));
+    Asm->emitInt16(A.Form);
+  }
+}
+
+void AppleAccelTableEmitter::emitBuckets() const {
+  const auto &Buckets = Contents.getBuckets();
+  unsigned index = 0;
+  for (size_t i = 0, e = Buckets.size(); i < e; ++i) {
+    Asm->OutStreamer->AddComment("Bucket " + Twine(i));
+    if (!Buckets[i].empty())
+      Asm->emitInt32(index);
+    else
+      Asm->emitInt32(std::numeric_limits<uint32_t>::max());
+    // Buckets point in the list of hashes, not to the data. Do not increment
+    // the index multiple times in case of hash collisions.
+    uint64_t PrevHash = std::numeric_limits<uint64_t>::max();
+    for (auto *HD : Buckets[i]) {
+      uint32_t HashValue = HD->HashValue;
+      if (PrevHash != HashValue)
+        ++index;
+      PrevHash = HashValue;
+    }
+  }
+}
+
+void AppleAccelTableEmitter::emitData() const {
+  const auto &Buckets = Contents.getBuckets();
+  for (size_t i = 0, e = Buckets.size(); i < e; ++i) {
+    uint64_t PrevHash = std::numeric_limits<uint64_t>::max();
+    for (auto &Hash : Buckets[i]) {
+      // Terminate the previous entry if there is no hash collision with the
+      // current one.
+      if (PrevHash != std::numeric_limits<uint64_t>::max() &&
+          PrevHash != Hash->HashValue)
+        Asm->emitInt32(0);
+      // Remember to emit the label for our offset.
+      Asm->OutStreamer->EmitLabel(Hash->Sym);
+      Asm->OutStreamer->AddComment(Hash->Name.getString());
+      Asm->emitDwarfStringOffset(Hash->Name);
+      Asm->OutStreamer->AddComment("Num DIEs");
+      Asm->emitInt32(Hash->Values.size());
+      for (const auto *V : Hash->Values)
+        static_cast<const AppleAccelTableData *>(V)->emit(Asm);
+      PrevHash = Hash->HashValue;
+    }
+    // Emit the final end marker for the bucket.
+    if (!Buckets[i].empty())
+      Asm->emitInt32(0);
+  }
+}
+
+void AppleAccelTableEmitter::emit() const {
+  Header.emit(Asm);
+  HeaderData.emit(Asm);
+  emitBuckets();
+  emitHashes();
+  emitOffsets(SecBegin);
+  emitData();
+}
+
+void Dwarf5AccelTableEmitter::Header::emit(
+    const Dwarf5AccelTableEmitter &Ctx) const {
+  AsmPrinter *Asm = Ctx.Asm;
+  Asm->OutStreamer->AddComment("Header: unit length");
+  Asm->EmitLabelDifference(Ctx.ContributionEnd, Ctx.ContributionStart,
+                           sizeof(uint32_t));
+  Asm->OutStreamer->EmitLabel(Ctx.ContributionStart);
+  Asm->OutStreamer->AddComment("Header: version");
+  Asm->emitInt16(Version);
+  Asm->OutStreamer->AddComment("Header: padding");
+  Asm->emitInt16(Padding);
+  Asm->OutStreamer->AddComment("Header: compilation unit count");
+  Asm->emitInt32(CompUnitCount);
+  Asm->OutStreamer->AddComment("Header: local type unit count");
+  Asm->emitInt32(LocalTypeUnitCount);
+  Asm->OutStreamer->AddComment("Header: foreign type unit count");
+  Asm->emitInt32(ForeignTypeUnitCount);
+  Asm->OutStreamer->AddComment("Header: bucket count");
+  Asm->emitInt32(BucketCount);
+  Asm->OutStreamer->AddComment("Header: name count");
+  Asm->emitInt32(NameCount);
+  Asm->OutStreamer->AddComment("Header: abbreviation table size");
+  Asm->EmitLabelDifference(Ctx.AbbrevEnd, Ctx.AbbrevStart, sizeof(uint32_t));
+  Asm->OutStreamer->AddComment("Header: augmentation string size");
+  assert(AugmentationStringSize % 4 == 0);
+  Asm->emitInt32(AugmentationStringSize);
+  Asm->OutStreamer->AddComment("Header: augmentation string");
+  Asm->OutStreamer->EmitBytes({AugmentationString, AugmentationStringSize});
+}
+
+DenseSet<uint32_t> Dwarf5AccelTableEmitter::getUniqueTags() const {
+  DenseSet<uint32_t> UniqueTags;
+  for (auto &Bucket : Contents.getBuckets()) {
+    for (auto *Hash : Bucket) {
+      for (auto *Value : Hash->Values) {
+        const DIE &Die =
+            static_cast<const DWARF5AccelTableData *>(Value)->getDie();
+        UniqueTags.insert(Die.getTag());
+      }
+    }
+  }
+  return UniqueTags;
+}
+
+SmallVector<Dwarf5AccelTableEmitter::AttributeEncoding, 2>
+Dwarf5AccelTableEmitter::getUniformAttributes() const {
+  SmallVector<AttributeEncoding, 2> UA;
+  if (CompUnits.size() > 1) {
+    size_t LargestCUIndex = CompUnits.size() - 1;
+    dwarf::Form Form = DIEInteger::BestForm(/*IsSigned*/ false, LargestCUIndex);
+    UA.push_back({dwarf::DW_IDX_compile_unit, Form});
+  }
+  UA.push_back({dwarf::DW_IDX_die_offset, dwarf::DW_FORM_ref4});
+  return UA;
+}
+
+void Dwarf5AccelTableEmitter::emitCUList() const {
+  for (const auto &CU : enumerate(CompUnits)) {
+    assert(CU.index() == CU.value()->getUniqueID());
+    Asm->OutStreamer->AddComment("Compilation unit " + Twine(CU.index()));
+    Asm->emitDwarfSymbolReference(CU.value()->getLabelBegin());
+  }
+}
+
+void Dwarf5AccelTableEmitter::emitBuckets() const {
+  uint32_t Index = 1;
+  for (const auto &Bucket : enumerate(Contents.getBuckets())) {
+    Asm->OutStreamer->AddComment("Bucket " + Twine(Bucket.index()));
+    Asm->emitInt32(Bucket.value().empty() ? 0 : Index);
+    Index += Bucket.value().size();
+  }
+}
+
+void Dwarf5AccelTableEmitter::emitStringOffsets() const {
+  for (const auto &Bucket : enumerate(Contents.getBuckets())) {
+    for (auto *Hash : Bucket.value()) {
+      DwarfStringPoolEntryRef String = Hash->Name;
+      Asm->OutStreamer->AddComment("String in Bucket " + Twine(Bucket.index()) +
+                                   ": " + String.getString());
+      Asm->emitDwarfStringOffset(String);
+    }
+  }
+}
+
+void Dwarf5AccelTableEmitter::emitAbbrevs() const {
+  Asm->OutStreamer->EmitLabel(AbbrevStart);
+  for (const auto &Abbrev : Abbreviations) {
+    Asm->OutStreamer->AddComment("Abbrev code");
+    assert(Abbrev.first != 0);
+    Asm->EmitULEB128(Abbrev.first);
+    Asm->OutStreamer->AddComment(dwarf::TagString(Abbrev.first));
+    Asm->EmitULEB128(Abbrev.first);
+    for (const auto &AttrEnc : Abbrev.second) {
+      Asm->EmitULEB128(AttrEnc.Index, dwarf::IndexString(AttrEnc.Index).data());
+      Asm->EmitULEB128(AttrEnc.Form,
+                       dwarf::FormEncodingString(AttrEnc.Form).data());
+    }
+    Asm->EmitULEB128(0, "End of abbrev");
+    Asm->EmitULEB128(0, "End of abbrev");
+  }
+  Asm->EmitULEB128(0, "End of abbrev list");
+  Asm->OutStreamer->EmitLabel(AbbrevEnd);
+}
+
+void Dwarf5AccelTableEmitter::emitEntry(
+    const DWARF5AccelTableData &Entry) const {
+  auto AbbrevIt = Abbreviations.find(Entry.getDie().getTag());
+  assert(AbbrevIt != Abbreviations.end() &&
+         "Why wasn't this abbrev generated?");
+
+  Asm->EmitULEB128(AbbrevIt->first, "Abbreviation code");
+  for (const auto &AttrEnc : AbbrevIt->second) {
+    Asm->OutStreamer->AddComment(dwarf::IndexString(AttrEnc.Index));
+    switch (AttrEnc.Index) {
+    case dwarf::DW_IDX_compile_unit: {
+      const DIE *CUDie = Entry.getDie().getUnitDie();
+      DIEInteger ID(DD.lookupCU(CUDie)->getUniqueID());
+      ID.EmitValue(Asm, AttrEnc.Form);
+      break;
+    }
+    case dwarf::DW_IDX_die_offset:
+      assert(AttrEnc.Form == dwarf::DW_FORM_ref4);
+      Asm->emitInt32(Entry.getDie().getOffset());
+      break;
+    default:
+      llvm_unreachable("Unexpected index attribute!");
+    }
+  }
+}
+
+void Dwarf5AccelTableEmitter::emitData() const {
+  Asm->OutStreamer->EmitLabel(EntryPool);
+  for (auto &Bucket : Contents.getBuckets()) {
+    for (auto *Hash : Bucket) {
+      // Remember to emit the label for our offset.
+      Asm->OutStreamer->EmitLabel(Hash->Sym);
+      for (const auto *Value : Hash->Values)
+        emitEntry(*static_cast<const DWARF5AccelTableData *>(Value));
+      Asm->OutStreamer->AddComment("End of list: " + Hash->Name.getString());
+      Asm->emitInt32(0);
+    }
+  }
+}
+
+Dwarf5AccelTableEmitter::Dwarf5AccelTableEmitter(
+    AsmPrinter *Asm, const AccelTableBase &Contents, const DwarfDebug &DD,
+    ArrayRef<std::unique_ptr<DwarfCompileUnit>> CompUnits)
+    : AccelTableEmitter(Asm, Contents, false),
+      Header(CompUnits.size(), Contents.getBucketCount(),
+             Contents.getUniqueNameCount()),
+      DD(DD), CompUnits(CompUnits) {
+  DenseSet<uint32_t> UniqueTags = getUniqueTags();
+  SmallVector<AttributeEncoding, 2> UniformAttributes = getUniformAttributes();
+
+  Abbreviations.reserve(UniqueTags.size());
+  for (uint32_t Tag : UniqueTags)
+    Abbreviations.try_emplace(Tag, UniformAttributes);
+}
+
+void Dwarf5AccelTableEmitter::emit() const {
+  Header.emit(*this);
+  emitCUList();
+  emitBuckets();
+  emitHashes();
+  emitStringOffsets();
+  emitOffsets(EntryPool);
+  emitAbbrevs();
+  emitData();
+  Asm->OutStreamer->EmitValueToAlignment(4, 0);
+  Asm->OutStreamer->EmitLabel(ContributionEnd);
+}
+
+void llvm::emitAppleAccelTableImpl(AsmPrinter *Asm, AccelTableBase &Contents,
+                                   StringRef Prefix, const MCSymbol *SecBegin,
+                                   ArrayRef<AppleAccelTableData::Atom> Atoms) {
+  Contents.finalize(Asm, Prefix);
+  AppleAccelTableEmitter(Asm, Contents, Atoms, SecBegin).emit();
+}
+
+void llvm::emitDWARF5AccelTable(
+    AsmPrinter *Asm, AccelTable<DWARF5AccelTableData> &Contents,
+    const DwarfDebug &DD, ArrayRef<std::unique_ptr<DwarfCompileUnit>> CUs) {
+  Contents.finalize(Asm, "names");
+  Dwarf5AccelTableEmitter(Asm, Contents, DD, CUs).emit();
+}
+
 void AppleAccelTableOffsetData::emit(AsmPrinter *Asm) const {
-  Asm->EmitInt32(Die->getDebugSectionOffset());
+  Asm->emitInt32(Die->getDebugSectionOffset());
 }
 
 void AppleAccelTableTypeData::emit(AsmPrinter *Asm) const {
-  Asm->EmitInt32(Die->getDebugSectionOffset());
-  Asm->EmitInt16(Die->getTag());
-  Asm->EmitInt8(0);
+  Asm->emitInt32(Die->getDebugSectionOffset());
+  Asm->emitInt16(Die->getTag());
+  Asm->emitInt8(0);
 }
 
 void AppleAccelTableStaticOffsetData::emit(AsmPrinter *Asm) const {
-  Asm->EmitInt32(Offset);
+  Asm->emitInt32(Offset);
 }
 
 void AppleAccelTableStaticTypeData::emit(AsmPrinter *Asm) const {
-  Asm->EmitInt32(Offset);
-  Asm->EmitInt16(Tag);
-  Asm->EmitInt8(ObjCClassIsImplementation ? dwarf::DW_FLAG_type_implementation
+  Asm->emitInt32(Offset);
+  Asm->emitInt16(Tag);
+  Asm->emitInt8(ObjCClassIsImplementation ? dwarf::DW_FLAG_type_implementation
                                           : 0);
-  Asm->EmitInt32(QualifiedNameHash);
+  Asm->emitInt32(QualifiedNameHash);
 }
 
 #ifndef _MSC_VER
 // The lines below are rejected by older versions (TBD) of MSVC.
-constexpr AppleAccelTableHeader::Atom AppleAccelTableTypeData::Atoms[];
-constexpr AppleAccelTableHeader::Atom AppleAccelTableOffsetData::Atoms[];
-constexpr AppleAccelTableHeader::Atom AppleAccelTableStaticOffsetData::Atoms[];
-constexpr AppleAccelTableHeader::Atom AppleAccelTableStaticTypeData::Atoms[];
+constexpr AppleAccelTableData::Atom AppleAccelTableTypeData::Atoms[];
+constexpr AppleAccelTableData::Atom AppleAccelTableOffsetData::Atoms[];
+constexpr AppleAccelTableData::Atom AppleAccelTableStaticOffsetData::Atoms[];
+constexpr AppleAccelTableData::Atom AppleAccelTableStaticTypeData::Atoms[];
 #else
 // FIXME: Erase this path once the minimum MSCV version has been bumped.
-const SmallVector<AppleAccelTableHeader::Atom, 4>
-    AppleAccelTableOffsetData::Atoms = {AppleAccelTableHeader::Atom(
-        dwarf::DW_ATOM_die_offset, dwarf::DW_FORM_data4)};
-const SmallVector<AppleAccelTableHeader::Atom, 4>
-    AppleAccelTableTypeData::Atoms = {
-        AppleAccelTableHeader::Atom(dwarf::DW_ATOM_die_offset,
-                                    dwarf::DW_FORM_data4),
-        AppleAccelTableHeader::Atom(dwarf::DW_ATOM_die_tag,
-                                    dwarf::DW_FORM_data2),
-        AppleAccelTableHeader::Atom(dwarf::DW_ATOM_type_flags,
-                                    dwarf::DW_FORM_data1)};
-const SmallVector<AppleAccelTableHeader::Atom, 4>
-    AppleAccelTableStaticOffsetData::Atoms = {AppleAccelTableHeader::Atom(
-        dwarf::DW_ATOM_die_offset, dwarf::DW_FORM_data4)};
-const SmallVector<AppleAccelTableHeader::Atom, 4>
+const SmallVector<AppleAccelTableData::Atom, 4>
+    AppleAccelTableOffsetData::Atoms = {
+        Atom(dwarf::DW_ATOM_die_offset, dwarf::DW_FORM_data4)};
+const SmallVector<AppleAccelTableData::Atom, 4> AppleAccelTableTypeData::Atoms =
+    {Atom(dwarf::DW_ATOM_die_offset, dwarf::DW_FORM_data4),
+     Atom(dwarf::DW_ATOM_die_tag, dwarf::DW_FORM_data2),
+     Atom(dwarf::DW_ATOM_type_flags, dwarf::DW_FORM_data1)};
+const SmallVector<AppleAccelTableData::Atom, 4>
+    AppleAccelTableStaticOffsetData::Atoms = {
+        Atom(dwarf::DW_ATOM_die_offset, dwarf::DW_FORM_data4)};
+const SmallVector<AppleAccelTableData::Atom, 4>
     AppleAccelTableStaticTypeData::Atoms = {
-        AppleAccelTableHeader::Atom(dwarf::DW_ATOM_die_offset,
-                                    dwarf::DW_FORM_data4),
-        AppleAccelTableHeader::Atom(dwarf::DW_ATOM_die_tag,
-                                    dwarf::DW_FORM_data2),
-        AppleAccelTableHeader::Atom(5, dwarf::DW_FORM_data1),
-        AppleAccelTableHeader::Atom(6, dwarf::DW_FORM_data4)};
+        Atom(dwarf::DW_ATOM_die_offset, dwarf::DW_FORM_data4),
+        Atom(dwarf::DW_ATOM_die_tag, dwarf::DW_FORM_data2),
+        Atom(5, dwarf::DW_FORM_data1), Atom(6, dwarf::DW_FORM_data4)};
 #endif
 
 #ifndef NDEBUG
-void AppleAccelTableHeader::Header::print(raw_ostream &OS) const {
+void AppleAccelTableEmitter::Header::print(raw_ostream &OS) const {
   OS << "Magic: " << format("0x%x", Magic) << "\n"
      << "Version: " << Version << "\n"
      << "Hash Function: " << HashFunction << "\n"
@@ -267,23 +596,25 @@ void AppleAccelTableHeader::Header::print(raw_ostream &OS) const {
      << "Header Data Length: " << HeaderDataLength << "\n";
 }
 
-void AppleAccelTableHeader::Atom::print(raw_ostream &OS) const {
+void AppleAccelTableData::Atom::print(raw_ostream &OS) const {
   OS << "Type: " << dwarf::AtomTypeString(Type) << "\n"
      << "Form: " << dwarf::FormEncodingString(Form) << "\n";
 }
 
-void AppleAccelTableHeader::HeaderData::print(raw_ostream &OS) const {
+void AppleAccelTableEmitter::HeaderData::print(raw_ostream &OS) const {
   OS << "DIE Offset Base: " << DieOffsetBase << "\n";
   for (auto Atom : Atoms)
     Atom.print(OS);
 }
 
-void AppleAccelTableHeader::print(raw_ostream &OS) const {
+void AppleAccelTableEmitter::print(raw_ostream &OS) const {
   Header.print(OS);
   HeaderData.print(OS);
+  Contents.print(OS);
+  SecBegin->print(OS, nullptr);
 }
 
-void AppleAccelTableBase::HashData::print(raw_ostream &OS) const {
+void AccelTableBase::HashData::print(raw_ostream &OS) const {
   OS << "Name: " << Name.getString() << "\n";
   OS << "  Hash Value: " << format("0x%x", HashValue) << "\n";
   OS << "  Symbol: ";
@@ -296,10 +627,7 @@ void AppleAccelTableBase::HashData::print(raw_ostream &OS) const {
     Value->print(OS);
 }
 
-void AppleAccelTableBase::print(raw_ostream &OS) const {
-  // Print Header.
-  Header.print(OS);
-
+void AccelTableBase::print(raw_ostream &OS) const {
   // Print Content.
   OS << "Entries: \n";
   for (const auto &Entry : Entries) {
@@ -316,6 +644,11 @@ void AppleAccelTableBase::print(raw_ostream &OS) const {
   OS << "Data: \n";
   for (auto &E : Entries)
     E.second.print(OS);
+}
+
+void DWARF5AccelTableData::print(raw_ostream &OS) const {
+  OS << "  Offset: " << Die.getOffset() << "\n";
+  OS << "  Tag: " << dwarf::TagString(Die.getTag()) << "\n";
 }
 
 void AppleAccelTableOffsetData::print(raw_ostream &OS) const {

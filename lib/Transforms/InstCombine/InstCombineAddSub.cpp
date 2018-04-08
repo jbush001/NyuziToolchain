@@ -964,7 +964,7 @@ Instruction *InstCombiner::foldAddWithConstant(BinaryOperator &Add) {
   if (!match(Op1, m_Constant(Op1C)))
     return nullptr;
 
-  if (Instruction *NV = foldOpWithConstantIntoOperand(Add))
+  if (Instruction *NV = foldBinOpIntoSelectOrPhi(Add))
     return NV;
 
   Value *X;
@@ -1304,25 +1304,17 @@ Instruction *InstCombiner::visitFAdd(BinaryOperator &I) {
                                   SQ.getWithInstruction(&I)))
     return replaceInstUsesWith(I, V);
 
-  if (isa<Constant>(RHS))
-    if (Instruction *FoldedFAdd = foldOpWithConstantIntoOperand(I))
-      return FoldedFAdd;
+  if (Instruction *FoldedFAdd = foldBinOpIntoSelectOrPhi(I))
+    return FoldedFAdd;
 
   // -A + B  -->  B - A
-  // -A + -B  -->  -(A + B)
-  if (Value *LHSV = dyn_castFNegVal(LHS)) {
-    Instruction *RI = BinaryOperator::CreateFSub(RHS, LHSV);
-    RI->copyFastMathFlags(&I);
-    return RI;
-  }
+  if (Value *LHSV = dyn_castFNegVal(LHS))
+    return BinaryOperator::CreateFSubFMF(RHS, LHSV, &I);
 
   // A + -B  -->  A - B
   if (!isa<Constant>(RHS))
-    if (Value *V = dyn_castFNegVal(RHS)) {
-      Instruction *RI = BinaryOperator::CreateFSub(LHS, V);
-      RI->copyFastMathFlags(&I);
-      return RI;
-    }
+    if (Value *V = dyn_castFNegVal(RHS))
+      return BinaryOperator::CreateFSubFMF(LHS, V, &I);
 
   // Check for (fadd double (sitofp x), y), see if we can merge this into an
   // integer add followed by a promotion.
@@ -1519,6 +1511,11 @@ Instruction *InstCombiner::visitSub(BinaryOperator &I) {
   if (match(Op0, m_AllOnes()))
     return BinaryOperator::CreateNot(Op1);
 
+  // (~X) - (~Y) --> Y - X
+  Value *X, *Y;
+  if (match(Op0, m_Not(m_Value(X))) && match(Op1, m_Not(m_Value(Y))))
+    return BinaryOperator::CreateSub(Y, X);
+
   if (Constant *C = dyn_cast<Constant>(Op0)) {
     Value *X;
     // C - zext(bool) -> bool ? C - 1 : C
@@ -1701,12 +1698,23 @@ Instruction *InstCombiner::visitFSub(BinaryOperator &I) {
                                   SQ.getWithInstruction(&I)))
     return replaceInstUsesWith(I, V);
 
+  // Subtraction from -0.0 is the canonical form of fneg.
   // fsub nsz 0, X ==> fsub nsz -0.0, X
-  if (I.getFastMathFlags().noSignedZeros() && match(Op0, m_Zero())) {
-    // Subtraction from -0.0 is the canonical form of fneg.
-    Instruction *NewI = BinaryOperator::CreateFNeg(Op1);
-    NewI->copyFastMathFlags(&I);
-    return NewI;
+  if (I.hasNoSignedZeros() && match(Op0, m_PosZeroFP()))
+    return BinaryOperator::CreateFNegFMF(Op1, &I);
+
+  // If Op0 is not -0.0 or we can ignore -0.0: Z - (X - Y) --> Z + (Y - X)
+  // Canonicalize to fadd to make analysis easier.
+  // This can also help codegen because fadd is commutative.
+  // Note that if this fsub was really an fneg, the fadd with -0.0 will get
+  // killed later. We still limit that particular transform with 'hasOneUse'
+  // because an fneg is assumed better/cheaper than a generic fsub.
+  Value *X, *Y;
+  if (I.hasNoSignedZeros() || CannotBeNegativeZero(Op0, SQ.TLI)) {
+    if (match(Op1, m_OneUse(m_FSub(m_Value(X), m_Value(Y))))) {
+      Value *NewSub = Builder.CreateFSubFMF(Y, X, &I);
+      return BinaryOperator::CreateFAddFMF(Op0, NewSub, &I);
+    }
   }
 
   if (isa<Constant>(Op0))
@@ -1714,26 +1722,24 @@ Instruction *InstCombiner::visitFSub(BinaryOperator &I) {
       if (Instruction *NV = FoldOpIntoSelect(I, SI))
         return NV;
 
-  // If this is a 'B = x-(-A)', change to B = x+A, potentially looking
-  // through FP extensions/truncations along the way.
-  if (Value *V = dyn_castFNegVal(Op1)) {
-    Instruction *NewI = BinaryOperator::CreateFAdd(Op0, V);
-    NewI->copyFastMathFlags(&I);
-    return NewI;
-  }
+  // X - C --> X + (-C)
+  Constant *C;
+  if (match(Op1, m_Constant(C)))
+    return BinaryOperator::CreateFAddFMF(Op0, ConstantExpr::getFNeg(C), &I);
+  
+  // X - (-Y) --> X + Y
+  if (match(Op1, m_FNeg(m_Value(Y))))
+    return BinaryOperator::CreateFAddFMF(Op0, Y, &I);
+
   if (FPTruncInst *FPTI = dyn_cast<FPTruncInst>(Op1)) {
     if (Value *V = dyn_castFNegVal(FPTI->getOperand(0))) {
       Value *NewTrunc = Builder.CreateFPTrunc(V, I.getType());
-      Instruction *NewI = BinaryOperator::CreateFAdd(Op0, NewTrunc);
-      NewI->copyFastMathFlags(&I);
-      return NewI;
+      return BinaryOperator::CreateFAddFMF(Op0, NewTrunc, &I);
     }
   } else if (FPExtInst *FPEI = dyn_cast<FPExtInst>(Op1)) {
     if (Value *V = dyn_castFNegVal(FPEI->getOperand(0))) {
       Value *NewExt = Builder.CreateFPExt(V, I.getType());
-      Instruction *NewI = BinaryOperator::CreateFAdd(Op0, NewExt);
-      NewI->copyFastMathFlags(&I);
-      return NewI;
+      return BinaryOperator::CreateFAddFMF(Op0, NewExt, &I);
     }
   }
 

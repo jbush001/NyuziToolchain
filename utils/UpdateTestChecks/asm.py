@@ -1,9 +1,17 @@
 import re
-import string
+import sys
 
 from . import common
 
+if sys.version_info[0] > 2:
+  class string:
+    expandtabs = str.expandtabs
+else:
+  import string
+
 # RegEx: this is where the magic happens.
+
+##### Assembly parser
 
 ASM_FUNCTION_X86_RE = re.compile(
     r'^_?(?P<func>[^:]+):[ \t]*#+[ \t]*@(?P=func)\n[^:]*?'
@@ -67,6 +75,10 @@ SCRUB_X86_SHUFFLES_RE = (
     re.compile(
         r'^(\s*\w+) [^#\n]+#+ ((?:[xyz]mm\d+|mem)( \{%k\d+\}( \{z\})?)? = .*)$',
         flags=re.M))
+SCRUB_X86_SPILL_RELOAD_RE = (
+    re.compile(
+        r'-?\d+\(%([er])[sb]p\)(.*(?:Spill|Reload))$',
+        flags=re.M))
 SCRUB_X86_SP_RE = re.compile(r'\d+\(%(esp|rsp)\)')
 SCRUB_X86_RIP_RE = re.compile(r'[.\w]+\(%rip\)')
 SCRUB_X86_LCP_RE = re.compile(r'\.LCPI[0-9]+_[0-9]+')
@@ -80,13 +92,16 @@ def scrub_asm_x86(asm, args):
   asm = string.expandtabs(asm, 2)
   # Detect shuffle asm comments and hide the operands in favor of the comments.
   asm = SCRUB_X86_SHUFFLES_RE.sub(r'\1 {{.*#+}} \2', asm)
+  # Detect stack spills and reloads and hide their exact offset and whether
+  # they used the stack pointer or frame pointer.
+  asm = SCRUB_X86_SPILL_RELOAD_RE.sub(r'{{[-0-9]+}}(%\1{{[sb]}}p)\2', asm)
   # Generically match the stack offset of a memory operand.
   asm = SCRUB_X86_SP_RE.sub(r'{{[0-9]+}}(%\1)', asm)
   # Generically match a RIP-relative memory operand.
   asm = SCRUB_X86_RIP_RE.sub(r'{{.*}}(%rip)', asm)
   # Generically match a LCP symbol.
   asm = SCRUB_X86_LCP_RE.sub(r'{{\.LCPI.*}}', asm)
-  if args.x86_extra_scrub:
+  if getattr(args, 'x86_extra_scrub', False):
     # Avoid generating different checks for 32- and 64-bit because of 'retl' vs 'retq'.
     asm = SCRUB_X86_RET_RE.sub(r'ret{{[l|q]}}', asm)
   # Strip kill operands inserted into the asm.
@@ -197,3 +212,10 @@ def build_function_body_dictionary_for_triple(args, raw_tool_output, triple, pre
   common.build_function_body_dictionary(
           function_re, scrubber, [args], raw_tool_output, prefixes,
           func_dict, args.verbose)
+
+##### Generator of assembly CHECK lines
+
+def add_asm_checks(output_lines, comment_marker, prefix_list, func_dict, func_name):
+  # Label format is based on ASM string.
+  check_label_format = '{} %s-LABEL: %s:'.format(comment_marker)
+  common.add_checks(output_lines, comment_marker, prefix_list, func_dict, func_name, check_label_format, True, False)

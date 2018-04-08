@@ -28,6 +28,7 @@
 #include "llvm/Support/Parallel.h"
 #include "llvm/Support/Path.h"
 #include "llvm/Support/RandomNumberGenerator.h"
+#include "llvm/Support/xxhash.h"
 #include <algorithm>
 #include <cstdio>
 #include <map>
@@ -42,8 +43,40 @@ using namespace llvm::support::endian;
 using namespace lld;
 using namespace lld::coff;
 
+/* To re-generate DOSProgram:
+$ cat > /tmp/DOSProgram.asm
+org 0
+        ; Copy cs to ds.
+        push cs
+        pop ds
+        ; Point ds:dx at the $-terminated string.
+        mov dx, str
+        ; Int 21/AH=09h: Write string to standard output.
+        mov ah, 0x9
+        int 0x21
+        ; Int 21/AH=4Ch: Exit with return code (in AL).
+        mov ax, 0x4C01
+        int 0x21
+str:
+        db 'This program cannot be run in DOS mode.$'
+align 8, db 0
+$ nasm -fbin /tmp/DOSProgram.asm -o /tmp/DOSProgram.bin
+$ xxd -i /tmp/DOSProgram.bin
+*/
+static unsigned char DOSProgram[] = {
+  0x0e, 0x1f, 0xba, 0x0e, 0x00, 0xb4, 0x09, 0xcd, 0x21, 0xb8, 0x01, 0x4c,
+  0xcd, 0x21, 0x54, 0x68, 0x69, 0x73, 0x20, 0x70, 0x72, 0x6f, 0x67, 0x72,
+  0x61, 0x6d, 0x20, 0x63, 0x61, 0x6e, 0x6e, 0x6f, 0x74, 0x20, 0x62, 0x65,
+  0x20, 0x72, 0x75, 0x6e, 0x20, 0x69, 0x6e, 0x20, 0x44, 0x4f, 0x53, 0x20,
+  0x6d, 0x6f, 0x64, 0x65, 0x2e, 0x24, 0x00, 0x00
+};
+static_assert(sizeof(DOSProgram) % 8 == 0,
+              "DOSProgram size must be multiple of 8");
+
 static const int SectorSize = 512;
-static const int DOSStubSize = 64;
+static const int DOSStubSize = sizeof(dos_header) + sizeof(DOSProgram);
+static_assert(DOSStubSize % 8 == 0, "DOSStub size must be multiple of 8");
+
 static const int NumberfOfDataDirectory = 16;
 
 namespace {
@@ -71,11 +104,18 @@ public:
       uint64_t Offs = OS->getFileOff() + (Record->getRVA() - OS->getRVA());
       D->PointerToRawData = Offs;
 
+      TimeDateStamps.push_back(&D->TimeDateStamp);
       ++D;
     }
   }
 
+  void setTimeDateStamp(uint32_t TimeDateStamp) {
+    for (support::ulittle32_t *TDS : TimeDateStamps)
+      *TDS = TimeDateStamp;
+  }
+
 private:
+  mutable std::vector<support::ulittle32_t *> TimeDateStamps;
   const std::vector<Chunk *> &Records;
 };
 
@@ -123,13 +163,13 @@ private:
   void createSymbolAndStringTable();
   void openFile(StringRef OutputPath);
   template <typename PEHeaderTy> void writeHeader();
-  void createSEHTable(OutputSection *RData);
-  void createGFIDTable(OutputSection *RData);
+  void createSEHTable();
+  void createGuardCFTables();
   void markSymbolsForRVATable(ObjFile *File,
                               ArrayRef<SectionChunk *> SymIdxChunks,
                               SymbolRVASet &TableSymbols);
-  void maybeAddRVATable(OutputSection *RData, SymbolRVASet TableSymbols,
-                        StringRef TableSym, StringRef CountSym);
+  void maybeAddRVATable(SymbolRVASet TableSymbols, StringRef TableSym,
+                        StringRef CountSym);
   void setSectionPermissions();
   void writeSections();
   void writeBuildId();
@@ -139,9 +179,8 @@ private:
   size_t addEntryToStringTable(StringRef Str);
 
   OutputSection *findSection(StringRef Name);
-  OutputSection *createSection(StringRef Name);
-  void addBaserels(OutputSection *Dest);
-  void addBaserelBlocks(OutputSection *Dest, std::vector<Baserel> &V);
+  void addBaserels();
+  void addBaserelBlocks(std::vector<Baserel> &V);
 
   uint32_t getSizeOfInitializedData();
   std::map<StringRef, std::vector<DefinedImportData *>> binImports();
@@ -156,7 +195,7 @@ private:
   RVATableChunk *GuardFidsTable = nullptr;
   RVATableChunk *SEHTable = nullptr;
 
-  Chunk *DebugDirectory = nullptr;
+  DebugDirectoryChunk *DebugDirectory = nullptr;
   std::vector<Chunk *> DebugRecords;
   CVDebugRecordChunk *BuildId = nullptr;
   Optional<codeview::DebugInfo> PreviousBuildId;
@@ -166,6 +205,27 @@ private:
   uint32_t PointerToSymbolTable = 0;
   uint64_t SizeOfImage;
   uint64_t SizeOfHeaders;
+
+  OutputSection *TextSec;
+  OutputSection *RdataSec;
+  OutputSection *DataSec;
+  OutputSection *IdataSec;
+  OutputSection *EdataSec;
+  OutputSection *DidatSec;
+  OutputSection *RsrcSec;
+  OutputSection *RelocSec;
+
+  // The first and last .pdata sections in the output file.
+  //
+  // We need to keep track of the location of .pdata in whichever section it
+  // gets merged into so that we can sort its contents and emit a correct data
+  // directory entry for the exception table. This is also the case for some
+  // other sections (such as .edata) but because the contents of those sections
+  // are entirely linker-generated we can keep track of their locations using
+  // the chunks that the linker creates. All .pdata chunks come from input
+  // files, so we need to keep track of them separately.
+  Chunk *FirstPdata = nullptr;
+  Chunk *LastPdata;
 };
 } // anonymous namespace
 
@@ -177,37 +237,9 @@ static Timer DiskCommitTimer("Commit Output File", Timer::root());
 
 void writeResult() { Writer().run(); }
 
-void OutputSection::setRVA(uint64_t RVA) {
-  Header.VirtualAddress = RVA;
-  for (Chunk *C : Chunks)
-    C->setRVA(C->getRVA() + RVA);
-}
-
-void OutputSection::setFileOffset(uint64_t Off) {
-  // If a section has no actual data (i.e. BSS section), we want to
-  // set 0 to its PointerToRawData. Otherwise the output is rejected
-  // by the loader.
-  if (Header.SizeOfRawData == 0)
-    return;
-
-  // It is possible that this assignment could cause an overflow of the u32,
-  // but that should be caught by the FileSize check in OutputSection::run().
-  Header.PointerToRawData = Off;
-}
-
 void OutputSection::addChunk(Chunk *C) {
   Chunks.push_back(C);
   C->setOutputSection(this);
-  uint64_t Off = Header.VirtualSize;
-  Off = alignTo(Off, C->Alignment);
-  C->setRVA(Off);
-  C->OutputSectionOff = Off;
-  Off += C->getSize();
-  if (Off > UINT32_MAX)
-    error("section larger than 4 GiB: " + Name);
-  Header.VirtualSize = Off;
-  if (C->hasData())
-    Header.SizeOfRawData = alignTo(Off, SectorSize);
 }
 
 void OutputSection::addPermissions(uint32_t C) {
@@ -305,8 +337,6 @@ void Writer::run() {
   createMiscChunks();
   createImportTables();
   createExportTable();
-  if (Config->Relocatable)
-    createSection(".reloc");
   assignAddresses();
   removeEmptySections();
   setSectionPermissions();
@@ -343,17 +373,12 @@ void Writer::run() {
     fatal("failed to write the output file: " + toString(std::move(E)));
 }
 
-static StringRef getOutputSection(StringRef Name) {
+static StringRef getOutputSectionName(StringRef Name) {
   StringRef S = Name.split('$').first;
 
   // Treat a later period as a separator for MinGW, for sections like
   // ".ctors.01234".
-  S = S.substr(0, S.find('.', 1));
-
-  auto It = Config->Merge.find(S);
-  if (It == Config->Merge.end())
-    return S;
-  return It->second;
+  return S.substr(0, S.find('.', 1));
 }
 
 // For /order.
@@ -373,7 +398,42 @@ static void sortBySectionOrder(std::vector<Chunk *> &Chunks) {
 
 // Create output section objects and add them to OutputSections.
 void Writer::createSections() {
-  // First, bin chunks by name.
+  // First, create the builtin sections.
+  const uint32_t DATA = IMAGE_SCN_CNT_INITIALIZED_DATA;
+  const uint32_t BSS = IMAGE_SCN_CNT_UNINITIALIZED_DATA;
+  const uint32_t CODE = IMAGE_SCN_CNT_CODE;
+  const uint32_t DISCARDABLE = IMAGE_SCN_MEM_DISCARDABLE;
+  const uint32_t R = IMAGE_SCN_MEM_READ;
+  const uint32_t W = IMAGE_SCN_MEM_WRITE;
+  const uint32_t X = IMAGE_SCN_MEM_EXECUTE;
+
+  SmallDenseMap<StringRef, OutputSection *> Sections;
+  auto CreateSection = [&](StringRef Name, uint32_t Perms) {
+    auto I = Config->Merge.find(Name);
+    if (I != Config->Merge.end())
+      Name = I->second;
+    OutputSection *&Sec = Sections[Name];
+    if (!Sec) {
+      Sec = make<OutputSection>(Name);
+      OutputSections.push_back(Sec);
+    }
+    Sec->addPermissions(Perms);
+    return Sec;
+  };
+
+  // Try to match the section order used by link.exe.
+  TextSec = CreateSection(".text", CODE | R | X);
+  CreateSection(".bss", BSS | R | W);
+  RdataSec = CreateSection(".rdata", DATA | R);
+  DataSec = CreateSection(".data", DATA | R | W);
+  CreateSection(".pdata", DATA | R);
+  IdataSec = CreateSection(".idata", DATA | R);
+  EdataSec = CreateSection(".edata", DATA | R);
+  DidatSec = CreateSection(".didat", DATA | R);
+  RsrcSec = CreateSection(".rsrc", DATA | R);
+  RelocSec = CreateSection(".reloc", DATA | DISCARDABLE | R);
+
+  // Then bin chunks by name.
   std::map<StringRef, std::vector<Chunk *>> Map;
   for (Chunk *C : Symtab->getChunks()) {
     auto *SC = dyn_cast<SectionChunk>(C);
@@ -394,29 +454,52 @@ void Writer::createSections() {
   // '$' and all following characters in input section names are
   // discarded when determining output section. So, .text$foo
   // contributes to .text, for example. See PE/COFF spec 3.2.
-  SmallDenseMap<StringRef, OutputSection *> Sections;
   for (auto Pair : Map) {
-    StringRef Name = getOutputSection(Pair.first);
-    OutputSection *&Sec = Sections[Name];
-    if (!Sec) {
-      Sec = make<OutputSection>(Name);
-      OutputSections.push_back(Sec);
+    StringRef Name = getOutputSectionName(Pair.first);
+    if (Name == ".pdata") {
+      if (!FirstPdata)
+        FirstPdata = Pair.second.front();
+      LastPdata = Pair.second.back();
     }
+    OutputSection *Sec = CreateSection(Name, 0);
     std::vector<Chunk *> &Chunks = Pair.second;
     for (Chunk *C : Chunks) {
       Sec->addChunk(C);
       Sec->addPermissions(C->getPermissions());
     }
   }
+
+  // Finally, move some output sections to the end.
+  auto SectionOrder = [&](OutputSection *S) {
+    // .reloc should come last of all since it refers to RVAs of data in the
+    // previous sections.
+    if (S == RelocSec)
+      return 3;
+    // Move DISCARDABLE (or non-memory-mapped) sections to the end of file because
+    // the loader cannot handle holes.
+    if (S->getPermissions() & IMAGE_SCN_MEM_DISCARDABLE)
+      return 2;
+    // .rsrc should come at the end of the non-discardable sections because its
+    // size may change by the Win32 UpdateResources() function, causing
+    // subsequent sections to move (see https://crbug.com/827082).
+    if (S == RsrcSec)
+      return 1;
+    return 0;
+  };
+  std::stable_sort(OutputSections.begin(), OutputSections.end(),
+                   [&](OutputSection *S, OutputSection *T) {
+                     return SectionOrder(S) < SectionOrder(T);
+                   });
 }
 
 void Writer::createMiscChunks() {
-  OutputSection *RData = createSection(".rdata");
+  for (auto &P : MergeChunk::Instances)
+    RdataSec->addChunk(P.second);
 
   // Create thunks for locally-dllimported symbols.
   if (!Symtab->LocalImportChunks.empty()) {
     for (Chunk *C : Symtab->LocalImportChunks)
-      RData->addChunk(C);
+      RdataSec->addChunk(C);
   }
 
   // Create Debug Information Chunks
@@ -431,18 +514,18 @@ void Writer::createMiscChunks() {
     BuildId = CVChunk;
     DebugRecords.push_back(CVChunk);
 
-    RData->addChunk(DebugDirectory);
+    RdataSec->addChunk(DebugDirectory);
     for (Chunk *C : DebugRecords)
-      RData->addChunk(C);
+      RdataSec->addChunk(C);
   }
 
   // Create SEH table. x86-only.
   if (Config->Machine == I386)
-    createSEHTable(RData);
+    createSEHTable();
 
-  // Create the guard function id table if requested.
-  if (Config->GuardCF)
-    createGFIDTable(RData);
+  // Create /guard:cf tables if requested.
+  if (Config->GuardCF != GuardCFLevel::Off)
+    createGuardCFTables();
 }
 
 // Create .idata section for the DLL-imported symbol table.
@@ -465,13 +548,12 @@ void Writer::createImportTables() {
       Config->DLLOrder[DLL] = Config->DLLOrder.size();
   }
 
-  OutputSection *Text = createSection(".text");
   for (ImportFile *File : ImportFile::Instances) {
     if (!File->Live)
       continue;
 
     if (DefinedImportThunk *Thunk = File->ThunkSym)
-      Text->addChunk(Thunk->getChunk());
+      TextSec->addChunk(Thunk->getChunk());
 
     if (Config->DelayLoads.count(StringRef(File->DLLName).lower())) {
       if (!File->ThunkSym)
@@ -483,33 +565,27 @@ void Writer::createImportTables() {
     }
   }
 
-  if (!Idata.empty()) {
-    OutputSection *Sec = createSection(".idata");
+  if (!Idata.empty())
     for (Chunk *C : Idata.getChunks())
-      Sec->addChunk(C);
-  }
+      IdataSec->addChunk(C);
 
   if (!DelayIdata.empty()) {
     Defined *Helper = cast<Defined>(Config->DelayLoadHelper);
     DelayIdata.create(Helper);
-    OutputSection *Sec = createSection(".didat");
     for (Chunk *C : DelayIdata.getChunks())
-      Sec->addChunk(C);
-    Sec = createSection(".data");
+      DidatSec->addChunk(C);
     for (Chunk *C : DelayIdata.getDataChunks())
-      Sec->addChunk(C);
-    Sec = createSection(".text");
+      DataSec->addChunk(C);
     for (Chunk *C : DelayIdata.getCodeChunks())
-      Sec->addChunk(C);
+      TextSec->addChunk(C);
   }
 }
 
 void Writer::createExportTable() {
   if (Config->Exports.empty())
     return;
-  OutputSection *Sec = createSection(".edata");
   for (Chunk *C : Edata.Chunks)
-    Sec->addChunk(C);
+    EdataSec->addChunk(C);
 }
 
 // The Windows loader doesn't seem to like empty sections,
@@ -587,19 +663,20 @@ Optional<coff_symbol16> Writer::createSymbol(Defined *Def) {
 }
 
 void Writer::createSymbolAndStringTable() {
-  // Name field in the section table is 8 byte long. Longer names need
-  // to be written to the string table. First, construct string table.
+  // PE/COFF images are limited to 8 byte section names. Longer names can be
+  // supported by writing a non-standard string table, but this string table is
+  // not mapped at runtime and the long names will therefore be inaccessible.
+  // link.exe always truncates section names to 8 bytes, whereas binutils always
+  // preserves long section names via the string table. LLD adopts a hybrid
+  // solution where discardable sections have long names preserved and
+  // non-discardable sections have their names truncated, to ensure that any
+  // section which is mapped at runtime also has its name mapped at runtime.
   for (OutputSection *Sec : OutputSections) {
-    StringRef Name = Sec->getName();
-    if (Name.size() <= COFF::NameSize)
+    if (Sec->Name.size() <= COFF::NameSize)
       continue;
-    // If a section isn't discardable (i.e. will be mapped at runtime),
-    // prefer a truncated section name over a long section name in
-    // the string table that is unavailable at runtime. Note that link.exe
-    // always truncates, even for discardable sections.
     if ((Sec->getPermissions() & IMAGE_SCN_MEM_DISCARDABLE) == 0)
       continue;
-    Sec->setStringTableOff(addEntryToStringTable(Name));
+    Sec->setStringTableOff(addEntryToStringTable(Sec->Name));
   }
 
   if (Config->DebugDwarf) {
@@ -638,32 +715,54 @@ void Writer::assignAddresses() {
   SizeOfHeaders = alignTo(SizeOfHeaders, SectorSize);
   uint64_t RVA = PageSize; // The first page is kept unmapped.
   FileSize = SizeOfHeaders;
-  // Move DISCARDABLE (or non-memory-mapped) sections to the end of file because
-  // the loader cannot handle holes.
-  std::stable_partition(
-      OutputSections.begin(), OutputSections.end(), [](OutputSection *S) {
-        return (S->getPermissions() & IMAGE_SCN_MEM_DISCARDABLE) == 0;
-      });
+
   for (OutputSection *Sec : OutputSections) {
-    if (Sec->getName() == ".reloc")
-      addBaserels(Sec);
-    Sec->setRVA(RVA);
-    Sec->setFileOffset(FileSize);
-    RVA += alignTo(Sec->getVirtualSize(), PageSize);
-    FileSize += alignTo(Sec->getRawSize(), SectorSize);
+    if (Sec == RelocSec)
+      addBaserels();
+    uint64_t RawSize = 0, VirtualSize = 0;
+    Sec->Header.VirtualAddress = RVA;
+    for (Chunk *C : Sec->getChunks()) {
+      VirtualSize = alignTo(VirtualSize, C->Alignment);
+      C->setRVA(RVA + VirtualSize);
+      C->OutputSectionOff = VirtualSize;
+      C->finalizeContents();
+      VirtualSize += C->getSize();
+      if (C->hasData())
+        RawSize = alignTo(VirtualSize, SectorSize);
+    }
+    if (VirtualSize > UINT32_MAX)
+      error("section larger than 4 GiB: " + Sec->Name);
+    Sec->Header.VirtualSize = VirtualSize;
+    Sec->Header.SizeOfRawData = RawSize;
+    if (RawSize != 0)
+      Sec->Header.PointerToRawData = FileSize;
+    RVA += alignTo(VirtualSize, PageSize);
+    FileSize += alignTo(RawSize, SectorSize);
   }
   SizeOfImage = alignTo(RVA, PageSize);
 }
 
 template <typename PEHeaderTy> void Writer::writeHeader() {
-  // Write DOS stub
+  // Write DOS header. For backwards compatibility, the first part of a PE/COFF
+  // executable consists of an MS-DOS MZ executable. If the executable is run
+  // under DOS, that program gets run (usually to just print an error message).
+  // When run under Windows, the loader looks at AddressOfNewExeHeader and uses
+  // the PE header instead.
   uint8_t *Buf = Buffer->getBufferStart();
   auto *DOS = reinterpret_cast<dos_header *>(Buf);
-  Buf += DOSStubSize;
+  Buf += sizeof(dos_header);
   DOS->Magic[0] = 'M';
   DOS->Magic[1] = 'Z';
+  DOS->UsedBytesInTheLastPage = DOSStubSize % 512;
+  DOS->FileSizeInPages = divideCeil(DOSStubSize, 512);
+  DOS->HeaderSizeInParagraphs = sizeof(dos_header) / 16;
+
   DOS->AddressOfRelocationTable = sizeof(dos_header);
   DOS->AddressOfNewExeHeader = DOSStubSize;
+
+  // Write DOS program.
+  memcpy(Buf, DOSProgram, sizeof(DOSProgram));
+  Buf += sizeof(DOSProgram);
 
   // Write PE magic
   memcpy(Buf, PEMagic, sizeof(PEMagic));
@@ -734,7 +833,7 @@ template <typename PEHeaderTy> void Writer::writeHeader() {
     PE->DLLCharacteristics |= IMAGE_DLL_CHARACTERISTICS_NX_COMPAT;
   if (!Config->AllowIsolation)
     PE->DLLCharacteristics |= IMAGE_DLL_CHARACTERISTICS_NO_ISOLATION;
-  if (Config->GuardCF)
+  if (Config->GuardCF != GuardCFLevel::Off)
     PE->DLLCharacteristics |= IMAGE_DLL_CHARACTERISTICS_GUARD_CF;
   if (Config->Machine == I386 && !SEHTable &&
       !Symtab->findUnderscore("_load_config_used"))
@@ -742,18 +841,18 @@ template <typename PEHeaderTy> void Writer::writeHeader() {
   if (Config->TerminalServerAware)
     PE->DLLCharacteristics |= IMAGE_DLL_CHARACTERISTICS_TERMINAL_SERVER_AWARE;
   PE->NumberOfRvaAndSize = NumberfOfDataDirectory;
-  if (OutputSection *Text = findSection(".text")) {
-    PE->BaseOfCode = Text->getRVA();
-    PE->SizeOfCode = Text->getRawSize();
+  if (TextSec->getVirtualSize()) {
+    PE->BaseOfCode = TextSec->getRVA();
+    PE->SizeOfCode = TextSec->getRawSize();
   }
   PE->SizeOfInitializedData = getSizeOfInitializedData();
 
   // Write data directory
   auto *Dir = reinterpret_cast<data_directory *>(Buf);
   Buf += sizeof(*Dir) * NumberfOfDataDirectory;
-  if (OutputSection *Sec = findSection(".edata")) {
-    Dir[EXPORT_TABLE].RelativeVirtualAddress = Sec->getRVA();
-    Dir[EXPORT_TABLE].Size = Sec->getVirtualSize();
+  if (!Config->Exports.empty()) {
+    Dir[EXPORT_TABLE].RelativeVirtualAddress = Edata.getRVA();
+    Dir[EXPORT_TABLE].Size = Edata.getSize();
   }
   if (!Idata.empty()) {
     Dir[IMPORT_TABLE].RelativeVirtualAddress = Idata.getDirRVA();
@@ -761,17 +860,18 @@ template <typename PEHeaderTy> void Writer::writeHeader() {
     Dir[IAT].RelativeVirtualAddress = Idata.getIATRVA();
     Dir[IAT].Size = Idata.getIATSize();
   }
-  if (OutputSection *Sec = findSection(".rsrc")) {
-    Dir[RESOURCE_TABLE].RelativeVirtualAddress = Sec->getRVA();
-    Dir[RESOURCE_TABLE].Size = Sec->getVirtualSize();
+  if (RsrcSec->getVirtualSize()) {
+    Dir[RESOURCE_TABLE].RelativeVirtualAddress = RsrcSec->getRVA();
+    Dir[RESOURCE_TABLE].Size = RsrcSec->getVirtualSize();
   }
-  if (OutputSection *Sec = findSection(".pdata")) {
-    Dir[EXCEPTION_TABLE].RelativeVirtualAddress = Sec->getRVA();
-    Dir[EXCEPTION_TABLE].Size = Sec->getVirtualSize();
+  if (FirstPdata) {
+    Dir[EXCEPTION_TABLE].RelativeVirtualAddress = FirstPdata->getRVA();
+    Dir[EXCEPTION_TABLE].Size =
+        LastPdata->getRVA() + LastPdata->getSize() - FirstPdata->getRVA();
   }
-  if (OutputSection *Sec = findSection(".reloc")) {
-    Dir[BASE_RELOCATION_TABLE].RelativeVirtualAddress = Sec->getRVA();
-    Dir[BASE_RELOCATION_TABLE].Size = Sec->getVirtualSize();
+  if (RelocSec->getVirtualSize()) {
+    Dir[BASE_RELOCATION_TABLE].RelativeVirtualAddress = RelocSec->getRVA();
+    Dir[BASE_RELOCATION_TABLE].Size = RelocSec->getVirtualSize();
   }
   if (Symbol *Sym = Symtab->findUnderscore("_tls_used")) {
     if (Defined *B = dyn_cast<Defined>(Sym)) {
@@ -840,7 +940,7 @@ void Writer::openFile(StringRef Path) {
       "failed to open " + Path);
 }
 
-void Writer::createSEHTable(OutputSection *RData) {
+void Writer::createSEHTable() {
   SymbolRVASet Handlers;
   for (ObjFile *File : ObjFile::Instances) {
     // FIXME: We should error here instead of earlier unless /safeseh:no was
@@ -851,7 +951,7 @@ void Writer::createSEHTable(OutputSection *RData) {
     markSymbolsForRVATable(File, File->getSXDataChunks(), Handlers);
   }
 
-  maybeAddRVATable(RData, std::move(Handlers), "__safe_se_handler_table",
+  maybeAddRVATable(std::move(Handlers), "__safe_se_handler_table",
                    "__safe_se_handler_count");
 }
 
@@ -896,30 +996,41 @@ static void markSymbolsWithRelocations(ObjFile *File,
 // Create the guard function id table. This is a table of RVAs of all
 // address-taken functions. It is sorted and uniqued, just like the safe SEH
 // table.
-void Writer::createGFIDTable(OutputSection *RData) {
+void Writer::createGuardCFTables() {
   SymbolRVASet AddressTakenSyms;
+  SymbolRVASet LongJmpTargets;
   for (ObjFile *File : ObjFile::Instances) {
-    // If the object was compiled with /guard:cf, the address taken symbols are
-    // in the .gfids$y sections. Otherwise, we approximate the set of address
-    // taken symbols by checking which symbols were used by relocations in live
-    // sections.
-    if (File->hasGuardCF())
+    // If the object was compiled with /guard:cf, the address taken symbols
+    // are in .gfids$y sections, and the longjmp targets are in .gljmp$y
+    // sections. If the object was not compiled with /guard:cf, we assume there
+    // were no setjmp targets, and that all code symbols with relocations are
+    // possibly address-taken.
+    if (File->hasGuardCF()) {
       markSymbolsForRVATable(File, File->getGuardFidChunks(), AddressTakenSyms);
-    else
+      markSymbolsForRVATable(File, File->getGuardLJmpChunks(), LongJmpTargets);
+    } else {
       markSymbolsWithRelocations(File, AddressTakenSyms);
+    }
   }
 
   // Mark the image entry as address-taken.
   if (Config->Entry)
     addSymbolToRVASet(AddressTakenSyms, cast<Defined>(Config->Entry));
 
-  maybeAddRVATable(RData, std::move(AddressTakenSyms), "__guard_fids_table",
+  maybeAddRVATable(std::move(AddressTakenSyms), "__guard_fids_table",
                    "__guard_fids_count");
+
+  // Add the longjmp target table unless the user told us not to.
+  if (Config->GuardCF == GuardCFLevel::Full)
+    maybeAddRVATable(std::move(LongJmpTargets), "__guard_longjmp_table",
+                     "__guard_longjmp_count");
 
   // Set __guard_flags, which will be used in the load config to indicate that
   // /guard:cf was enabled.
   uint32_t GuardFlags = uint32_t(coff_guard_flags::CFInstrumented) |
                         uint32_t(coff_guard_flags::HasFidTable);
+  if (Config->GuardCF == GuardCFLevel::Full)
+    GuardFlags |= uint32_t(coff_guard_flags::HasLongJmpTable);
   Symbol *FlagSym = Symtab->findUnderscore("__guard_flags");
   cast<DefinedAbsolute>(FlagSym)->setVA(GuardFlags);
 }
@@ -968,14 +1079,13 @@ void Writer::markSymbolsForRVATable(ObjFile *File,
 // Replace the absolute table symbol with a synthetic symbol pointing to
 // TableChunk so that we can emit base relocations for it and resolve section
 // relative relocations.
-void Writer::maybeAddRVATable(OutputSection *RData,
-                              SymbolRVASet TableSymbols,
-                              StringRef TableSym, StringRef CountSym) {
+void Writer::maybeAddRVATable(SymbolRVASet TableSymbols, StringRef TableSym,
+                              StringRef CountSym) {
   if (TableSymbols.empty())
     return;
 
   RVATableChunk *TableChunk = make<RVATableChunk>(std::move(TableSymbols));
-  RData->addChunk(TableChunk);
+  RdataSec->addChunk(TableChunk);
 
   Symbol *T = Symtab->findUnderscore(TableSym);
   Symbol *C = Symtab->findUnderscore(CountSym);
@@ -996,9 +1106,9 @@ void Writer::setSectionPermissions() {
 
 // Write section contents to a mmap'ed file.
 void Writer::writeSections() {
-  // Record the section index that should be used when resolving a section
-  // relocation against an absolute symbol.
-  DefinedAbsolute::OutputSectionIndex = OutputSections.size() + 1;
+  // Record the number of sections to apply section index relocations
+  // against absolute symbols. See applySecIdx in Chunks.cpp..
+  DefinedAbsolute::NumOutputSections = OutputSections.size();
 
   uint8_t *Buf = Buffer->getBufferStart();
   for (OutputSection *Sec : OutputSections) {
@@ -1014,32 +1124,63 @@ void Writer::writeSections() {
 }
 
 void Writer::writeBuildId() {
-  // If we're not writing a build id (e.g. because /debug is not specified),
-  // then just return;
-  if (!Config->Debug)
-    return;
-
-  assert(BuildId && "BuildId is not set!");
-
-  if (PreviousBuildId.hasValue()) {
-    *BuildId->BuildId = *PreviousBuildId;
-    BuildId->BuildId->PDB70.Age = BuildId->BuildId->PDB70.Age + 1;
-    return;
+  // There are two important parts to the build ID.
+  // 1) If building with debug info, the COFF debug directory contains a
+  //    timestamp as well as a Guid and Age of the PDB.
+  // 2) In all cases, the PE COFF file header also contains a timestamp.
+  // For reproducibility, instead of a timestamp we want to use a hash of the
+  // binary, however when building with debug info the hash needs to take into
+  // account the debug info, since it's possible to add blank lines to a file
+  // which causes the debug info to change but not the generated code.
+  //
+  // To handle this, we first set the Guid and Age in the debug directory (but
+  // only if we're doing a debug build).  Then, we hash the binary (thus causing
+  // the hash to change if only the debug info changes, since the Age will be
+  // different).  Finally, we write that hash into the debug directory (if
+  // present) as well as the COFF file header (always).
+  if (Config->Debug) {
+    assert(BuildId && "BuildId is not set!");
+    if (PreviousBuildId.hasValue()) {
+      *BuildId->BuildId = *PreviousBuildId;
+      BuildId->BuildId->PDB70.Age = BuildId->BuildId->PDB70.Age + 1;
+    } else {
+      BuildId->BuildId->Signature.CVSignature = OMF::Signature::PDB70;
+      BuildId->BuildId->PDB70.Age = 1;
+      llvm::getRandomBytes(BuildId->BuildId->PDB70.Signature, 16);
+    }
   }
 
-  BuildId->BuildId->Signature.CVSignature = OMF::Signature::PDB70;
-  BuildId->BuildId->PDB70.Age = 1;
-  llvm::getRandomBytes(BuildId->BuildId->PDB70.Signature, 16);
+  // At this point the only fields in the COFF file which remain unset are the
+  // "timestamp" in the COFF file header, and the ones in the coff debug
+  // directory.  Now we can hash the file and write that hash to the various
+  // timestamp fields in the file.
+  StringRef OutputFileData(
+      reinterpret_cast<const char *>(Buffer->getBufferStart()),
+      Buffer->getBufferSize());
+
+  uint32_t Hash = static_cast<uint32_t>(xxHash64(OutputFileData));
+
+  if (DebugDirectory)
+    DebugDirectory->setTimeDateStamp(Hash);
+
+  uint8_t *Buf = Buffer->getBufferStart();
+  Buf += DOSStubSize + sizeof(PEMagic);
+  object::coff_file_header *CoffHeader =
+      reinterpret_cast<coff_file_header *>(Buf);
+  CoffHeader->TimeDateStamp = Hash;
 }
 
 // Sort .pdata section contents according to PE/COFF spec 5.5.
 void Writer::sortExceptionTable() {
-  OutputSection *Sec = findSection(".pdata");
-  if (!Sec)
+  if (!FirstPdata)
     return;
   // We assume .pdata contains function table entries only.
-  uint8_t *Begin = Buffer->getBufferStart() + Sec->getFileOff();
-  uint8_t *End = Begin + Sec->getVirtualSize();
+  auto BufAddr = [&](Chunk *C) {
+    return Buffer->getBufferStart() + C->getOutputSection()->getFileOff() +
+           C->getRVA() - C->getOutputSection()->getRVA();
+  };
+  uint8_t *Begin = BufAddr(FirstPdata);
+  uint8_t *End = BufAddr(LastPdata) + LastPdata->getSize();
   if (Config->Machine == AMD64) {
     struct Entry { ulittle32_t Begin, End, Unwind; };
     sort(parallel::par, (Entry *)Begin, (Entry *)End,
@@ -1057,7 +1198,7 @@ void Writer::sortExceptionTable() {
 
 OutputSection *Writer::findSection(StringRef Name) {
   for (OutputSection *Sec : OutputSections)
-    if (Sec->getName() == Name)
+    if (Sec->Name == Name)
       return Sec;
   return nullptr;
 }
@@ -1070,50 +1211,26 @@ uint32_t Writer::getSizeOfInitializedData() {
   return Res;
 }
 
-// Returns an existing section or create a new one if not found.
-OutputSection *Writer::createSection(StringRef Name) {
-  if (auto *Sec = findSection(Name))
-    return Sec;
-  const auto DATA = IMAGE_SCN_CNT_INITIALIZED_DATA;
-  const auto BSS = IMAGE_SCN_CNT_UNINITIALIZED_DATA;
-  const auto CODE = IMAGE_SCN_CNT_CODE;
-  const auto DISCARDABLE = IMAGE_SCN_MEM_DISCARDABLE;
-  const auto R = IMAGE_SCN_MEM_READ;
-  const auto W = IMAGE_SCN_MEM_WRITE;
-  const auto X = IMAGE_SCN_MEM_EXECUTE;
-  uint32_t Perms = StringSwitch<uint32_t>(Name)
-                       .Case(".bss", BSS | R | W)
-                       .Case(".data", DATA | R | W)
-                       .Cases(".didat", ".edata", ".idata", ".rdata", DATA | R)
-                       .Case(".reloc", DATA | DISCARDABLE | R)
-                       .Case(".text", CODE | R | X)
-                       .Default(0);
-  if (!Perms)
-    llvm_unreachable("unknown section name");
-  auto Sec = make<OutputSection>(Name);
-  Sec->addPermissions(Perms);
-  OutputSections.push_back(Sec);
-  return Sec;
-}
-
-// Dest is .reloc section. Add contents to that section.
-void Writer::addBaserels(OutputSection *Dest) {
+// Add base relocations to .reloc section.
+void Writer::addBaserels() {
+  if (!Config->Relocatable)
+    return;
   std::vector<Baserel> V;
   for (OutputSection *Sec : OutputSections) {
-    if (Sec == Dest)
+    if (Sec == RelocSec)
       continue;
     // Collect all locations for base relocations.
     for (Chunk *C : Sec->getChunks())
       C->getBaserels(&V);
     // Add the addresses to .reloc section.
     if (!V.empty())
-      addBaserelBlocks(Dest, V);
+      addBaserelBlocks(V);
     V.clear();
   }
 }
 
 // Add addresses to .reloc section. Note that addresses are grouped by page.
-void Writer::addBaserelBlocks(OutputSection *Dest, std::vector<Baserel> &V) {
+void Writer::addBaserelBlocks(std::vector<Baserel> &V) {
   const uint32_t Mask = ~uint32_t(PageSize - 1);
   uint32_t Page = V[0].RVA & Mask;
   size_t I = 0, J = 1;
@@ -1121,11 +1238,11 @@ void Writer::addBaserelBlocks(OutputSection *Dest, std::vector<Baserel> &V) {
     uint32_t P = V[J].RVA & Mask;
     if (P == Page)
       continue;
-    Dest->addChunk(make<BaserelChunk>(Page, &V[I], &V[0] + J));
+    RelocSec->addChunk(make<BaserelChunk>(Page, &V[I], &V[0] + J));
     I = J;
     Page = P;
   }
   if (I == J)
     return;
-  Dest->addChunk(make<BaserelChunk>(Page, &V[I], &V[0] + J));
+  RelocSec->addChunk(make<BaserelChunk>(Page, &V[I], &V[0] + J));
 }

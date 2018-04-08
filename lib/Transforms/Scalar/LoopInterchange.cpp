@@ -15,6 +15,7 @@
 
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/ADT/Statistic.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Analysis/AliasAnalysis.h"
 #include "llvm/Analysis/DependenceAnalysis.h"
@@ -40,6 +41,7 @@
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Transforms/Scalar.h"
+#include "llvm/Transforms/Utils.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
 #include "llvm/Transforms/Utils/LoopUtils.h"
 #include <cassert>
@@ -49,6 +51,8 @@
 using namespace llvm;
 
 #define DEBUG_TYPE "loop-interchange"
+
+STATISTIC(LoopsInterchanged, "Number of loops interchanged");
 
 static cl::opt<int> LoopInterchangeCostThreshold(
     "loop-interchange-threshold", cl::init(0), cl::Hidden,
@@ -173,9 +177,6 @@ static bool populateDependencyMatrix(CharMatrix &DepMatrix, unsigned Level,
     }
   }
 
-  // We don't have a DepMatrix to check legality return false.
-  if (DepMatrix.empty())
-    return false;
   return true;
 }
 
@@ -404,7 +405,9 @@ public:
 
   /// Interchange OuterLoop and InnerLoop.
   bool transform();
-  void restructureLoops(Loop *InnerLoop, Loop *OuterLoop);
+  void restructureLoops(Loop *NewInner, Loop *NewOuter,
+                        BasicBlock *OrigInnerPreHeader,
+                        BasicBlock *OrigOuterPreHeader);
   void removeChildLoop(Loop *OuterLoop, Loop *InnerLoop);
 
 private:
@@ -453,6 +456,9 @@ struct LoopInterchange : public FunctionPass {
     AU.addRequiredID(LoopSimplifyID);
     AU.addRequiredID(LCSSAID);
     AU.addRequired<OptimizationRemarkEmitterWrapperPass>();
+
+    AU.addPreserved<DominatorTreeWrapperPass>();
+    AU.addPreserved<LoopInfoWrapperPass>();
   }
 
   bool runOnFunction(Function &F) override {
@@ -462,8 +468,7 @@ struct LoopInterchange : public FunctionPass {
     SE = &getAnalysis<ScalarEvolutionWrapperPass>().getSE();
     LI = &getAnalysis<LoopInfoWrapperPass>().getLoopInfo();
     DI = &getAnalysis<DependenceAnalysisWrapperPass>().getDI();
-    auto *DTWP = getAnalysisIfAvailable<DominatorTreeWrapperPass>();
-    DT = DTWP ? &DTWP->getDomTree() : nullptr;
+    DT = &getAnalysis<DominatorTreeWrapperPass>().getDomTree();
     ORE = &getAnalysis<OptimizationRemarkEmitterWrapperPass>().getORE();
     PreserveLCSSA = mustPreserveAnalysisID(LCSSAID);
 
@@ -541,7 +546,7 @@ struct LoopInterchange : public FunctionPass {
     BasicBlock *OuterMostLoopLatch = OuterMostLoop->getLoopLatch();
     BranchInst *OuterMostLoopLatchBI =
         dyn_cast<BranchInst>(OuterMostLoopLatch->getTerminator());
-    if (!OuterMostLoopLatchBI)
+    if (!OuterMostLoopLatchBI || OuterMostLoopLatchBI->getNumSuccessors() != 2)
       return false;
 
     // Since we currently do not handle LCSSA PHI's any failure in loop
@@ -573,7 +578,6 @@ struct LoopInterchange : public FunctionPass {
 
       // Update the DependencyMatrix
       interChangeDependencies(DependencyMatrix, i, i - 1);
-      DT->recalculate(F);
 #ifdef DUMP_DEP_MATRICIES
       DEBUG(dbgs() << "Dependence after interchange\n");
       printDepMatrix(DependencyMatrix);
@@ -594,13 +598,13 @@ struct LoopInterchange : public FunctionPass {
     LoopInterchangeLegality LIL(OuterLoop, InnerLoop, SE, LI, DT,
                                 PreserveLCSSA, ORE);
     if (!LIL.canInterchangeLoops(InnerLoopId, OuterLoopId, DependencyMatrix)) {
-      DEBUG(dbgs() << "Not interchanging Loops. Cannot prove legality\n");
+      DEBUG(dbgs() << "Not interchanging loops. Cannot prove legality.\n");
       return false;
     }
     DEBUG(dbgs() << "Loops are legal to interchange\n");
     LoopInterchangeProfitability LIP(OuterLoop, InnerLoop, SE, ORE);
     if (!LIP.isProfitable(InnerLoopId, OuterLoopId, DependencyMatrix)) {
-      DEBUG(dbgs() << "Interchanging loops not profitable\n");
+      DEBUG(dbgs() << "Interchanging loops not profitable.\n");
       return false;
     }
 
@@ -614,7 +618,8 @@ struct LoopInterchange : public FunctionPass {
     LoopInterchangeTransform LIT(OuterLoop, InnerLoop, SE, LI, DT,
                                  LoopNestExit, LIL.hasInnerLoopReduction());
     LIT.transform();
-    DEBUG(dbgs() << "Loops interchanged\n");
+    DEBUG(dbgs() << "Loops interchanged.\n");
+    LoopsInterchanged++;
     return true;
   }
 };
@@ -987,6 +992,13 @@ bool LoopInterchangeLegality::canInterchangeLoops(unsigned InnerLoopId,
           continue;
         DEBUG(dbgs() << "Loops with call instructions cannot be interchanged "
                      << "safely.");
+        ORE->emit([&]() {
+          return OptimizationRemarkMissed(DEBUG_TYPE, "CallInst",
+                                          CI->getDebugLoc(),
+                                          CI->getParent())
+                 << "Cannot interchange loops due to call instruction.";
+        });
+
         return false;
       }
 
@@ -1148,23 +1160,77 @@ void LoopInterchangeTransform::removeChildLoop(Loop *OuterLoop,
   llvm_unreachable("Couldn't find loop");
 }
 
-void LoopInterchangeTransform::restructureLoops(Loop *InnerLoop,
-                                                Loop *OuterLoop) {
+/// Update LoopInfo, after interchanging. NewInner and NewOuter refer to the
+/// new inner and outer loop after interchanging: NewInner is the original
+/// outer loop and NewOuter is the original inner loop.
+///
+/// Before interchanging, we have the following structure
+/// Outer preheader
+//  Outer header
+//    Inner preheader
+//    Inner header
+//      Inner body
+//      Inner latch
+//   outer bbs
+//   Outer latch
+//
+// After interchanging:
+// Inner preheader
+// Inner header
+//   Outer preheader
+//   Outer header
+//     Inner body
+//     outer bbs
+//     Outer latch
+//   Inner latch
+void LoopInterchangeTransform::restructureLoops(
+    Loop *NewInner, Loop *NewOuter, BasicBlock *OrigInnerPreHeader,
+    BasicBlock *OrigOuterPreHeader) {
   Loop *OuterLoopParent = OuterLoop->getParentLoop();
+  // The original inner loop preheader moves from the new inner loop to
+  // the parent loop, if there is one.
+  NewInner->removeBlockFromLoop(OrigInnerPreHeader);
+  LI->changeLoopFor(OrigInnerPreHeader, OuterLoopParent);
+
+  // Switch the loop levels.
   if (OuterLoopParent) {
     // Remove the loop from its parent loop.
-    removeChildLoop(OuterLoopParent, OuterLoop);
-    removeChildLoop(OuterLoop, InnerLoop);
-    OuterLoopParent->addChildLoop(InnerLoop);
+    removeChildLoop(OuterLoopParent, NewInner);
+    removeChildLoop(NewInner, NewOuter);
+    OuterLoopParent->addChildLoop(NewOuter);
   } else {
-    removeChildLoop(OuterLoop, InnerLoop);
-    LI->changeTopLevelLoop(OuterLoop, InnerLoop);
+    removeChildLoop(NewInner, NewOuter);
+    LI->changeTopLevelLoop(NewInner, NewOuter);
+  }
+  while (!NewOuter->empty())
+    NewInner->addChildLoop(NewOuter->removeChildLoop(NewOuter->begin()));
+  NewOuter->addChildLoop(NewInner);
+
+  // BBs from the original inner loop.
+  SmallVector<BasicBlock *, 8> OrigInnerBBs(NewOuter->blocks());
+
+  // Add BBs from the original outer loop to the original inner loop (excluding
+  // BBs already in inner loop)
+  for (BasicBlock *BB : NewInner->blocks())
+    if (LI->getLoopFor(BB) == NewInner)
+      NewOuter->addBlockEntry(BB);
+
+  // Now remove inner loop header and latch from the new inner loop and move
+  // other BBs (the loop body) to the new inner loop.
+  BasicBlock *OuterHeader = NewOuter->getHeader();
+  BasicBlock *OuterLatch = NewOuter->getLoopLatch();
+  for (BasicBlock *BB : OrigInnerBBs) {
+    // Remove the new outer loop header and latch from the new inner loop.
+    if (BB == OuterHeader || BB == OuterLatch)
+      NewInner->removeBlockFromLoop(BB);
+    else
+      LI->changeLoopFor(BB, NewInner);
   }
 
-  while (!InnerLoop->empty())
-    OuterLoop->addChildLoop(InnerLoop->removeChildLoop(InnerLoop->begin()));
-
-  InnerLoop->addChildLoop(OuterLoop);
+  // The preheader of the original outer loop becomes part of the new
+  // outer loop.
+  NewOuter->addBlockEntry(OrigOuterPreHeader);
+  LI->changeLoopFor(OrigOuterPreHeader, NewOuter);
 }
 
 bool LoopInterchangeTransform::transform() {
@@ -1207,7 +1273,6 @@ bool LoopInterchangeTransform::transform() {
     return false;
   }
 
-  restructureLoops(InnerLoop, OuterLoop);
   return true;
 }
 
@@ -1222,17 +1287,12 @@ void LoopInterchangeTransform::splitInnerLoopHeader() {
   // stay in the innerloop body.
   BasicBlock *InnerLoopHeader = InnerLoop->getHeader();
   BasicBlock *InnerLoopPreHeader = InnerLoop->getLoopPreheader();
+  SplitBlock(InnerLoopHeader, InnerLoopHeader->getFirstNonPHI(), DT, LI);
   if (InnerLoopHasReduction) {
-    // Note: The induction PHI must be the first PHI for this to work
-    BasicBlock *New = InnerLoopHeader->splitBasicBlock(
-        ++(InnerLoopHeader->begin()), InnerLoopHeader->getName() + ".split");
-    if (LI)
-      if (Loop *L = LI->getLoopFor(InnerLoopHeader))
-        L->addBasicBlockToLoop(New, *LI);
-
-    // Adjust Reduction PHI's in the block.
+    // Adjust Reduction PHI's in the block. The induction PHI must be the first
+    // PHI in InnerLoopHeader for this to work.
     SmallVector<PHINode *, 8> PHIVec;
-    for (auto I = New->begin(); isa<PHINode>(I); ++I) {
+    for (auto I = std::next(InnerLoopHeader->begin()); isa<PHINode>(I); ++I) {
       PHINode *PHI = dyn_cast<PHINode>(I);
       Value *V = PHI->getIncomingValueForBlock(InnerLoopPreHeader);
       PHI->replaceAllUsesWith(V);
@@ -1241,8 +1301,6 @@ void LoopInterchangeTransform::splitInnerLoopHeader() {
     for (PHINode *P : PHIVec) {
       P->eraseFromParent();
     }
-  } else {
-    SplitBlock(InnerLoopHeader, InnerLoopHeader->getFirstNonPHI(), DT, LI);
   }
 
   DEBUG(dbgs() << "Output of splitInnerLoopHeader InnerLoopHeaderSucc & "
@@ -1272,8 +1330,31 @@ void LoopInterchangeTransform::updateIncomingBlock(BasicBlock *CurrBlock,
   }
 }
 
+/// \brief Update BI to jump to NewBB instead of OldBB. Records updates to
+/// the dominator tree in DTUpdates, if DT should be preserved.
+static void updateSuccessor(BranchInst *BI, BasicBlock *OldBB,
+                            BasicBlock *NewBB,
+                            std::vector<DominatorTree::UpdateType> &DTUpdates) {
+  assert(llvm::count_if(BI->successors(),
+                        [OldBB](BasicBlock *BB) { return BB == OldBB; }) < 2 &&
+         "BI must jump to OldBB at most once.");
+  for (unsigned i = 0, e = BI->getNumSuccessors(); i < e; ++i) {
+    if (BI->getSuccessor(i) == OldBB) {
+      BI->setSuccessor(i, NewBB);
+
+      DTUpdates.push_back(
+          {DominatorTree::UpdateKind::Insert, BI->getParent(), NewBB});
+      DTUpdates.push_back(
+          {DominatorTree::UpdateKind::Delete, BI->getParent(), OldBB});
+      break;
+    }
+  }
+}
+
 bool LoopInterchangeTransform::adjustLoopBranches() {
   DEBUG(dbgs() << "adjustLoopBranches called\n");
+  std::vector<DominatorTree::UpdateType> DTUpdates;
+
   // Adjust the loop preheader
   BasicBlock *InnerLoopHeader = InnerLoop->getHeader();
   BasicBlock *OuterLoopHeader = OuterLoop->getHeader();
@@ -1313,27 +1394,18 @@ bool LoopInterchangeTransform::adjustLoopBranches() {
     return false;
 
   // Adjust Loop Preheader and headers
-
-  unsigned NumSucc = OuterLoopPredecessorBI->getNumSuccessors();
-  for (unsigned i = 0; i < NumSucc; ++i) {
-    if (OuterLoopPredecessorBI->getSuccessor(i) == OuterLoopPreHeader)
-      OuterLoopPredecessorBI->setSuccessor(i, InnerLoopPreHeader);
-  }
-
-  NumSucc = OuterLoopHeaderBI->getNumSuccessors();
-  for (unsigned i = 0; i < NumSucc; ++i) {
-    if (OuterLoopHeaderBI->getSuccessor(i) == OuterLoopLatch)
-      OuterLoopHeaderBI->setSuccessor(i, LoopExit);
-    else if (OuterLoopHeaderBI->getSuccessor(i) == InnerLoopPreHeader)
-      OuterLoopHeaderBI->setSuccessor(i, InnerLoopHeaderSuccessor);
-  }
+  updateSuccessor(OuterLoopPredecessorBI, OuterLoopPreHeader,
+                  InnerLoopPreHeader, DTUpdates);
+  updateSuccessor(OuterLoopHeaderBI, OuterLoopLatch, LoopExit, DTUpdates);
+  updateSuccessor(OuterLoopHeaderBI, InnerLoopPreHeader,
+                  InnerLoopHeaderSuccessor, DTUpdates);
 
   // Adjust reduction PHI's now that the incoming block has changed.
   updateIncomingBlock(InnerLoopHeaderSuccessor, InnerLoopHeader,
                       OuterLoopHeader);
 
-  BranchInst::Create(OuterLoopPreHeader, InnerLoopHeaderBI);
-  InnerLoopHeaderBI->eraseFromParent();
+  updateSuccessor(InnerLoopHeaderBI, InnerLoopHeaderSuccessor,
+                  OuterLoopPreHeader, DTUpdates);
 
   // -------------Adjust loop latches-----------
   if (InnerLoopLatchBI->getSuccessor(0) == InnerLoopHeader)
@@ -1341,11 +1413,8 @@ bool LoopInterchangeTransform::adjustLoopBranches() {
   else
     InnerLoopLatchSuccessor = InnerLoopLatchBI->getSuccessor(0);
 
-  NumSucc = InnerLoopLatchPredecessorBI->getNumSuccessors();
-  for (unsigned i = 0; i < NumSucc; ++i) {
-    if (InnerLoopLatchPredecessorBI->getSuccessor(i) == InnerLoopLatch)
-      InnerLoopLatchPredecessorBI->setSuccessor(i, InnerLoopLatchSuccessor);
-  }
+  updateSuccessor(InnerLoopLatchPredecessorBI, InnerLoopLatch,
+                  InnerLoopLatchSuccessor, DTUpdates);
 
   // Adjust PHI nodes in InnerLoopLatchSuccessor. Update all uses of PHI with
   // the value and remove this PHI node from inner loop.
@@ -1365,18 +1434,16 @@ bool LoopInterchangeTransform::adjustLoopBranches() {
   else
     OuterLoopLatchSuccessor = OuterLoopLatchBI->getSuccessor(0);
 
-  if (InnerLoopLatchBI->getSuccessor(1) == InnerLoopLatchSuccessor)
-    InnerLoopLatchBI->setSuccessor(1, OuterLoopLatchSuccessor);
-  else
-    InnerLoopLatchBI->setSuccessor(0, OuterLoopLatchSuccessor);
+  updateSuccessor(InnerLoopLatchBI, InnerLoopLatchSuccessor,
+                  OuterLoopLatchSuccessor, DTUpdates);
+  updateSuccessor(OuterLoopLatchBI, OuterLoopLatchSuccessor, InnerLoopLatch,
+                  DTUpdates);
 
   updateIncomingBlock(OuterLoopLatchSuccessor, OuterLoopLatch, InnerLoopLatch);
 
-  if (OuterLoopLatchBI->getSuccessor(0) == OuterLoopLatchSuccessor) {
-    OuterLoopLatchBI->setSuccessor(0, InnerLoopLatch);
-  } else {
-    OuterLoopLatchBI->setSuccessor(1, InnerLoopLatch);
-  }
+  DT->applyUpdates(DTUpdates);
+  restructureLoops(OuterLoop, InnerLoop, InnerLoopPreHeader,
+                   OuterLoopPreHeader);
 
   return true;
 }

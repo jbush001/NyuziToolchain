@@ -30,7 +30,7 @@ public:
   void relocateOne(uint8_t *Loc, uint32_t Type, uint64_t Val) const override;
   RelExpr getRelExpr(RelType Type, const Symbol &S,
                      const uint8_t *Loc) const override;
-  bool isPicRel(RelType Type) const override;
+  RelType getDynRel(RelType Type) const override;
 };
 
 template <uint8_t SIZE, uint8_t BASE>
@@ -44,6 +44,7 @@ Nyuzi::Nyuzi() {
   PageSize = 0x1000;
   DefaultImageBase = 0;
 
+  GotBaseSymInGotPlt = false;
   GotRel = R_NYUZI_ABS32;
   PltRel = -1;
   TlsDescRel = -1;
@@ -64,12 +65,12 @@ void Nyuzi::relocateOne(uint8_t *Loc, uint32_t Type, uint64_t Val) const {
     break;
   case R_NYUZI_BRANCH20:
     Offset = static_cast<int64_t>(Val) / 4;
-    checkInt<20>(Loc, Offset, Type);
+    checkInt(Loc, Offset, 20, Type);
     applyNyuziReloc<20, 5>(Loc, Type, Offset);
     break;
   case R_NYUZI_BRANCH25:
     Offset = static_cast<int64_t>(Val) / 4;
-    checkInt<25>(Loc, Offset, Type);
+    checkInt(Loc, Offset, 25, Type);
     applyNyuziReloc<25, 0>(Loc, Type, Offset);
     break;
   case R_NYUZI_HI19:
@@ -80,7 +81,7 @@ void Nyuzi::relocateOne(uint8_t *Loc, uint32_t Type, uint64_t Val) const {
     applyNyuziReloc<13, 10>(Loc, Type, Val & 0x1fff);
     break;
   case R_NYUZI_GOT:
-    checkInt<15>(Loc, static_cast<int64_t>(Val), Type);
+    checkInt(Loc, static_cast<int64_t>(Val), 15, Type);
     applyNyuziReloc<15, 10>(Loc, Type, Val & 0x7fff);
     break;
   }
@@ -105,10 +106,12 @@ RelExpr Nyuzi::getRelExpr(RelType Type, const Symbol&,
   }
 }
 
-bool Nyuzi::isPicRel(RelType Type) const {
-  return Type == R_NYUZI_ABS32;
-}
+RelType Nyuzi::getDynRel(RelType Type) const {
+  if (Type == R_NYUZI_ABS32)
+      return Type;
 
+  return R_NYUZI_NONE;
+}
 
 TargetInfo *elf::getNyuziTargetInfo() {
   static Nyuzi Target;

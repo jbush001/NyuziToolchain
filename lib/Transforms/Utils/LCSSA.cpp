@@ -36,13 +36,14 @@
 #include "llvm/Analysis/LoopPass.h"
 #include "llvm/Analysis/ScalarEvolution.h"
 #include "llvm/Analysis/ScalarEvolutionAliasAnalysis.h"
+#include "llvm/Analysis/Utils/Local.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/Dominators.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/PredIteratorCache.h"
 #include "llvm/Pass.h"
-#include "llvm/Transforms/Scalar.h"
+#include "llvm/Transforms/Utils.h"
 #include "llvm/Transforms/Utils/LoopUtils.h"
 #include "llvm/Transforms/Utils/SSAUpdater.h"
 using namespace llvm;
@@ -214,11 +215,15 @@ bool llvm::formLCSSAForInstructions(SmallVectorImpl<Instruction *> &Worklist,
         Worklist.push_back(PostProcessPN);
 
     // Keep track of PHI nodes that we want to remove because they did not have
-    // any uses rewritten.
+    // any uses rewritten. If the new PHI is used, store it so that we can
+    // try to propagate dbg.value intrinsics to it.
+    SmallVector<PHINode *, 2> NeedDbgValues;
     for (PHINode *PN : AddedPHIs)
       if (PN->use_empty())
         PHIsToRemove.insert(PN);
-
+      else
+        NeedDbgValues.push_back(PN);
+    insertDebugValuesForPHIs(InstBB, NeedDbgValues);
     Changed = true;
   }
   // Remove PHI nodes that did not have any uses rewritten.

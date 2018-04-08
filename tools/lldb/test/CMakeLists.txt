@@ -6,8 +6,6 @@ function(add_python_test_target name test_script args comment)
     )
 
   add_custom_target(${name}
-    # Clear the test directory first.
-    COMMAND ${CMAKE_COMMAND} -E remove_directory ${CMAKE_BINARY_DIR}/lldb-test-build.noindex
     COMMAND ${PYTHON_TEST_COMMAND} ${ARG_DEFAULT_ARGS}
     COMMENT "${comment}"
     DEPENDS ${LLDB_TEST_DEPS}
@@ -25,7 +23,7 @@ endif()
 if(TARGET lldb-server)
   list(APPEND LLDB_TEST_DEPS lldb-server)
 endif()
-  
+
 if(TARGET debugserver)
   if(NOT CMAKE_HOST_APPLE OR LLDB_CODESIGN_IDENTITY)
     list(APPEND LLDB_TEST_DEPS debugserver)
@@ -38,6 +36,10 @@ endif()
 
 if(NOT LLDB_BUILT_STANDALONE)
   list(APPEND LLDB_TEST_DEPS yaml2obj)
+endif()
+
+if(TARGET liblldb)
+  list(APPEND LLDB_TEST_DEPS liblldb)
 endif()
 
 # The default architecture with which to compile test executables is the default LLVM target
@@ -78,7 +80,7 @@ set(LLDB_TEST_COMMON_ARGS
 if ( CMAKE_SYSTEM_NAME MATCHES "Windows" )
   # All tests are currently flaky on Windows, so rerun them all once when they fail.
   set(LLDB_TEST_COMMON_ARGS ${LLDB_TEST_COMMON_ARGS} --rerun-all-issues)
-  
+
   set(LLDB_TEST_DEBUG_TEST_CRASHES
     0
     CACHE BOOL "(Windows only) Enables debugging of tests in the test suite by showing the crash dialog when lldb crashes")
@@ -112,19 +114,12 @@ endif()
 # XXX nyuzi disable debugserver for cross compiling
 if(FALSE)
 if(CMAKE_HOST_APPLE)
-  if(LLDB_CODESIGN_IDENTITY)
-    set(DEBUGSERVER_PATH $<TARGET_FILE:debugserver>)
-  else()
-    execute_process(
-      COMMAND xcode-select -p
-      OUTPUT_VARIABLE XCODE_DEV_DIR)
-    string(STRIP ${XCODE_DEV_DIR} XCODE_DEV_DIR)
-    set(DEBUGSERVER_PATH
-      "${XCODE_DEV_DIR}/../SharedFrameworks/LLDB.framework/Resources/debugserver")
-  endif()
-  message(STATUS "Path to the lldb debugserver: ${DEBUGSERVER_PATH}")
   list(APPEND LLDB_TEST_COMMON_ARGS --server ${DEBUGSERVER_PATH})
 endif()
+endif()
+
+if(SKIP_DEBUGSERVER)
+  list(APPEND LLDB_TEST_COMMON_ARGS --out-of-tree-debugserver)
 endif()
 
 set(LLDB_DOTEST_ARGS ${LLDB_TEST_COMMON_ARGS};${LLDB_TEST_USER_ARGS})
@@ -143,6 +138,23 @@ add_python_test_target(check-lldb
   "Testing LLDB (parallel execution, with a separate subprocess per test)"
   )
 
+# Generate a wrapper for dotest.py in the bin directory.
+# We need configure_file to substitute variables.
+configure_file(
+  lldb-dotest.in
+  ${CMAKE_CURRENT_BINARY_DIR}/lldb-dotest.configured
+  )
+# We need this to expand the generator expressions.
+file(GENERATE
+  OUTPUT
+  $<TARGET_FILE_DIR:lldb>/lldb-dotest
+  INPUT
+  ${CMAKE_CURRENT_BINARY_DIR}/lldb-dotest.configured
+  )
+# Make this a custom target.
+add_custom_target(lldb-dotest)
+add_dependencies(lldb-dotest ${LLDB_TEST_DEPS})
+
 # If we're building with an in-tree clang, then list clang as a dependency
 # to run tests.
 if (TARGET clang)
@@ -157,6 +169,9 @@ if (CMAKE_SYSTEM_NAME MATCHES "Windows")
     message(WARNING "lld required to test LLDB on Windows")
   endif ()
 endif ()
+
+# Run the lit-style tests and the unittests as part of the check-lldb target.
+add_dependencies(check-lldb check-lldb-lit)
 
 add_custom_target(lldb-test-depends DEPENDS ${LLDB_TEST_DEPENDS})
 # This will add LLDB's test dependencies to the depenednecies for check-all and

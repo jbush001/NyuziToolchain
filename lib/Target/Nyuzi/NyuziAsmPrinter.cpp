@@ -29,7 +29,7 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/TargetRegistry.h"
 #include "llvm/Support/raw_ostream.h"
-#include "llvm/CodeGen/TargetLoweringObjectFile.h"
+#include "llvm/Target/TargetLoweringObjectFile.h"
 
 using namespace llvm;
 

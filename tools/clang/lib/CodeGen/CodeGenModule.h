@@ -721,8 +721,16 @@ public:
   /// Set the visibility for the given LLVM GlobalValue.
   void setGlobalVisibility(llvm::GlobalValue *GV, const NamedDecl *D) const;
 
-  void setDSOLocal(llvm::GlobalValue *GV, const NamedDecl *D) const;
+  void setGlobalVisibilityAndLocal(llvm::GlobalValue *GV,
+                                   const NamedDecl *D) const;
 
+  void setDSOLocal(llvm::GlobalValue *GV) const;
+
+  void setDLLImportDLLExport(llvm::GlobalValue *GV, GlobalDecl D) const;
+  void setDLLImportDLLExport(llvm::GlobalValue *GV, const NamedDecl *D) const;
+  /// Set visibility, dllimport/dllexport and dso_local.
+  /// This must be called after dllimport/dllexport is set.
+  void setGVProperties(llvm::GlobalValue *GV, GlobalDecl GD) const;
   void setGVProperties(llvm::GlobalValue *GV, const NamedDecl *D) const;
 
   /// Set the TLS mode for the given LLVM GlobalValue for the thread-local
@@ -769,7 +777,7 @@ public:
   /// Return the llvm::Constant for the address of the given global variable.
   /// If Ty is non-null and if the global doesn't exist, then it will be created
   /// with the specified type instead of whatever the normal requested type
-  /// would be. If IsForDefinition is true, it is guranteed that an actual
+  /// would be. If IsForDefinition is true, it is guaranteed that an actual
   /// global with type Ty will be returned, not conversion of a variable with
   /// the same mangled name but some other type.
   llvm::Constant *GetAddrOfGlobalVar(const VarDecl *D,
@@ -792,7 +800,8 @@ public:
   ConstantAddress GetAddrOfUuidDescriptor(const CXXUuidofExpr* E);
 
   /// Get the address of the thunk for the given global decl.
-  llvm::Constant *GetAddrOfThunk(GlobalDecl GD, const ThunkInfo &Thunk);
+  llvm::Constant *GetAddrOfThunk(StringRef Name, llvm::Type *FnTy,
+                                 GlobalDecl GD);
 
   /// Get a reference to the target of VD.
   ConstantAddress GetWeakRefReference(const ValueDecl *VD);
@@ -1014,7 +1023,7 @@ public:
   /// Set the attributes on the LLVM function for the given decl and function
   /// info. This applies attributes necessary for handling the ABI as well as
   /// user specified attributes like section.
-  void SetInternalFunctionAttributes(const Decl *D, llvm::Function *F,
+  void SetInternalFunctionAttributes(GlobalDecl GD, llvm::Function *F,
                                      const CGFunctionInfo &FI);
 
   /// Set the LLVM function attributes (sext, zext, etc).
@@ -1105,9 +1114,6 @@ public:
     F->setLinkage(getFunctionLinkage(GD));
   }
 
-  /// Set the DLL storage class on F.
-  void setFunctionDLLStorageClass(GlobalDecl GD, llvm::Function *F);
-
   /// Return the appropriate linkage for the vtable, VTT, and type information
   /// of the given class.
   llvm::GlobalVariable::LinkageTypes getVTableLinkage(const CXXRecordDecl *RD);
@@ -1172,16 +1178,12 @@ public:
     DeferredVTables.push_back(RD);
   }
 
-  /// Emit code for a singal global function or var decl. Forward declarations
+  /// Emit code for a single global function or var decl. Forward declarations
   /// are emitted lazily.
   void EmitGlobal(GlobalDecl D);
 
   bool TryEmitDefinitionAsAlias(GlobalDecl Alias, GlobalDecl Target);
   bool TryEmitBaseDestructorAsAlias(const CXXDestructorDecl *D);
-
-  /// Set attributes for a global definition.
-  void setFunctionDefinitionAttributes(const FunctionDecl *D,
-                                       llvm::Function *F);
 
   llvm::GlobalValue *GetGlobalValue(StringRef Ref);
 
@@ -1189,13 +1191,7 @@ public:
   /// Objective-C method, function, global variable).
   ///
   /// NOTE: This should only be called for definitions.
-  void SetCommonAttributes(const Decl *D, llvm::GlobalValue *GV);
-
-  /// Set attributes which must be preserved by an alias. This includes common
-  /// attributes (i.e. it includes a call to SetCommonAttributes).
-  ///
-  /// NOTE: This should only be called for definitions.
-  void setAliasAttributes(const Decl *D, llvm::GlobalValue *GV);
+  void SetCommonAttributes(GlobalDecl GD, llvm::GlobalValue *GV);
 
   void addReplacement(StringRef Name, llvm::Constant *C);
 
@@ -1273,7 +1269,9 @@ private:
                                         ForDefinition_t IsForDefinition
                                           = NotForDefinition);
 
-  void setNonAliasAttributes(const Decl *D, llvm::GlobalObject *GO);
+  bool GetCPUAndFeaturesAttributes(const Decl *D,
+                                   llvm::AttrBuilder &AttrBuilder);
+  void setNonAliasAttributes(GlobalDecl GD, llvm::GlobalObject *GO);
 
   /// Set function attributes for a function declaration.
   void SetFunctionAttributes(GlobalDecl GD, llvm::Function *F,

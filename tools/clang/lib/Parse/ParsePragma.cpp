@@ -220,6 +220,12 @@ struct PragmaMSIntrinsicHandler : public PragmaHandler {
                     Token &FirstToken) override;
 };
 
+struct PragmaMSOptimizeHandler : public PragmaHandler {
+  PragmaMSOptimizeHandler() : PragmaHandler("optimize") {}
+  void HandlePragma(Preprocessor &PP, PragmaIntroducerKind Introducer,
+                    Token &FirstToken) override;
+};
+
 struct PragmaForceCUDAHostDeviceHandler : public PragmaHandler {
   PragmaForceCUDAHostDeviceHandler(Sema &Actions)
       : PragmaHandler("force_cuda_host_device"), Actions(Actions) {}
@@ -324,6 +330,8 @@ void Parser::initializePragmaHandlers() {
     PP.AddPragmaHandler(MSRuntimeChecks.get());
     MSIntrinsic.reset(new PragmaMSIntrinsicHandler());
     PP.AddPragmaHandler(MSIntrinsic.get());
+    MSOptimize.reset(new PragmaMSOptimizeHandler());
+    PP.AddPragmaHandler(MSOptimize.get());
   }
 
   if (getLangOpts().CUDA) {
@@ -410,6 +418,8 @@ void Parser::resetPragmaHandlers() {
     MSRuntimeChecks.reset();
     PP.RemovePragmaHandler(MSIntrinsic.get());
     MSIntrinsic.reset();
+    PP.RemovePragmaHandler(MSOptimize.get());
+    MSOptimize.reset();
   }
 
   if (getLangOpts().CUDA) {
@@ -1235,7 +1245,7 @@ bool Parser::ParsePragmaAttributeSubjectMatchRuleSet(
 
 namespace {
 
-/// Describes the stage at which attribute subject rule parsing was interruped.
+/// Describes the stage at which attribute subject rule parsing was interrupted.
 enum class MissingAttributeSubjectRulesRecoveryPoint {
   Comma,
   ApplyTo,
@@ -2117,9 +2127,21 @@ PragmaOpenMPHandler::HandlePragma(Preprocessor &PP,
   Tok.setKind(tok::annot_pragma_openmp);
   Tok.setLocation(FirstTok.getLocation());
 
-  while (Tok.isNot(tok::eod)) {
+  while (Tok.isNot(tok::eod) && Tok.isNot(tok::eof)) {
     Pragma.push_back(Tok);
     PP.Lex(Tok);
+    if (Tok.is(tok::annot_pragma_openmp)) {
+      PP.Diag(Tok, diag::err_omp_unexpected_directive) << 0;
+      unsigned InnerPragmaCnt = 1;
+      while (InnerPragmaCnt != 0) {
+        PP.Lex(Tok);
+        if (Tok.is(tok::annot_pragma_openmp))
+          ++InnerPragmaCnt;
+        else if (Tok.is(tok::annot_pragma_openmp_end))
+          --InnerPragmaCnt;
+      }
+      PP.Lex(Tok);
+    }
   }
   SourceLocation EodLoc = Tok.getLocation();
   Tok.startToken();
@@ -2342,7 +2364,7 @@ void PragmaMSPragma::HandlePragma(Preprocessor &PP,
     TokenVector.push_back(Tok);
     AnnotTok.setAnnotationEndLoc(Tok.getLocation());
   }
-  // Add a sentinal EoF token to the end of the list.
+  // Add a sentinel EoF token to the end of the list.
   TokenVector.push_back(EoF);
   // We must allocate this array with new because EnterTokenStream is going to
   // delete it later.
@@ -2937,6 +2959,61 @@ void PragmaMSIntrinsicHandler::HandlePragma(Preprocessor &PP,
     PP.Diag(Tok.getLocation(), diag::warn_pragma_extra_tokens_at_eol)
         << "intrinsic";
 }
+
+// #pragma optimize("gsty", on|off)
+void PragmaMSOptimizeHandler::HandlePragma(Preprocessor &PP,
+                                           PragmaIntroducerKind Introducer,
+                                           Token &Tok) {
+  SourceLocation StartLoc = Tok.getLocation();
+  PP.Lex(Tok);
+
+  if (Tok.isNot(tok::l_paren)) {
+    PP.Diag(Tok.getLocation(), diag::warn_pragma_expected_lparen) << "optimize";
+    return;
+  }
+  PP.Lex(Tok);
+
+  if (Tok.isNot(tok::string_literal)) {
+    PP.Diag(Tok.getLocation(), diag::warn_pragma_expected_string) << "optimize";
+    return;
+  }
+  // We could syntax check the string but it's probably not worth the effort.
+  PP.Lex(Tok);
+
+  if (Tok.isNot(tok::comma)) {
+    PP.Diag(Tok.getLocation(), diag::warn_pragma_expected_comma) << "optimize";
+    return;
+  }
+  PP.Lex(Tok);
+
+  if (Tok.is(tok::eod) || Tok.is(tok::r_paren)) {
+    PP.Diag(Tok.getLocation(), diag::warn_pragma_missing_argument)
+        << "optimize" << /*Expected=*/true << "'on' or 'off'";
+    return;
+  }
+  IdentifierInfo *II = Tok.getIdentifierInfo();
+  if (!II || (!II->isStr("on") && !II->isStr("off"))) {
+    PP.Diag(Tok.getLocation(), diag::warn_pragma_invalid_argument)
+        << PP.getSpelling(Tok) << "optimize" << /*Expected=*/true
+        << "'on' or 'off'";
+    return;
+  }
+  PP.Lex(Tok);
+
+  if (Tok.isNot(tok::r_paren)) {
+    PP.Diag(Tok.getLocation(), diag::warn_pragma_expected_rparen) << "optimize";
+    return;
+  }
+  PP.Lex(Tok);
+
+  if (Tok.isNot(tok::eod)) {
+    PP.Diag(Tok.getLocation(), diag::warn_pragma_extra_tokens_at_eol)
+        << "optimize";
+    return;
+  }
+  PP.Diag(StartLoc, diag::warn_pragma_optimize);
+}
+
 void PragmaForceCUDAHostDeviceHandler::HandlePragma(
     Preprocessor &PP, PragmaIntroducerKind Introducer, Token &Tok) {
   Token FirstTok = Tok;

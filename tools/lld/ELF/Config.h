@@ -18,7 +18,6 @@
 #include "llvm/Support/CachePruning.h"
 #include "llvm/Support/CodeGen.h"
 #include "llvm/Support/Endian.h"
-
 #include <vector>
 
 namespace lld {
@@ -114,6 +113,7 @@ struct Configuration {
   bool BsymbolicFunctions;
   bool CheckSections;
   bool CompressDebugSections;
+  bool Cref;
   bool DefineCommon;
   bool Demangle = true;
   bool DisableVerify;
@@ -152,9 +152,11 @@ struct Configuration {
   bool UndefinedVersion;
   bool WarnCommon;
   bool WarnMissingEntry;
+  bool WarnSymbolOrdering;
   bool WriteAddends;
   bool ZCombreloc;
   bool ZExecstack;
+  bool ZHazardplt;
   bool ZNocopyreloc;
   bool ZNodelete;
   bool ZNodlopen;
@@ -164,7 +166,6 @@ struct Configuration {
   bool ZRodynamic;
   bool ZText;
   bool ZRetpolineplt;
-  bool ExitEarly;
   bool ZWxneeded;
   DiscardPolicy Discard;
   OrphanHandlingPolicy OrphanHandling;

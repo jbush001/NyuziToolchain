@@ -128,13 +128,19 @@ void parseVersion(StringRef Arg, uint32_t *Major, uint32_t *Minor) {
     fatal("invalid number: " + S2);
 }
 
-void parseGuard(StringRef Arg) {
-  if (Arg.equals_lower("no"))
-    Config->GuardCF = false;
-  else if (Arg.equals_lower("cf"))
-    Config->GuardCF = true;
-  else
-    fatal("invalid argument to /GUARD: " + Arg);
+void parseGuard(StringRef FullArg) {
+  SmallVector<StringRef, 1> SplitArgs;
+  FullArg.split(SplitArgs, ",");
+  for (StringRef Arg : SplitArgs) {
+    if (Arg.equals_lower("no"))
+      Config->GuardCF = GuardCFLevel::Off;
+    else if (Arg.equals_lower("nolongjmp"))
+      Config->GuardCF = GuardCFLevel::NoLongJmp;
+    else if (Arg.equals_lower("cf") || Arg.equals_lower("longjmp"))
+      Config->GuardCF = GuardCFLevel::Full;
+    else
+      fatal("invalid argument to /guard: " + Arg);
+  }
 }
 
 // Parses a string in the form of "<subsystem>[,<integer>[.<integer>]]".
@@ -179,6 +185,10 @@ void parseMerge(StringRef S) {
   std::tie(From, To) = S.split('=');
   if (From.empty() || To.empty())
     fatal("/merge: invalid argument: " + S);
+  if (From == ".rsrc" || To == ".rsrc")
+    fatal("/merge: cannot merge '.rsrc' with any section");
+  if (From == ".reloc" || To == ".reloc")
+    fatal("/merge: cannot merge '.reloc' with any section");
   auto Pair = Config->Merge.insert(std::make_pair(From, To));
   bool Inserted = Pair.second;
   if (!Inserted) {
@@ -576,6 +586,26 @@ static StringRef undecorate(StringRef Sym) {
   return Sym.startswith("_") ? Sym.substr(1) : Sym;
 }
 
+// Convert stdcall/fastcall style symbols into unsuffixed symbols,
+// with or without a leading underscore. (MinGW specific.)
+static StringRef killAt(StringRef Sym, bool Prefix) {
+  if (Sym.empty())
+    return Sym;
+  // Strip any trailing stdcall suffix
+  Sym = Sym.substr(0, Sym.find('@', 1));
+  if (!Sym.startswith("@")) {
+    if (Prefix && !Sym.startswith("_"))
+      return Saver.save("_" + Sym);
+    return Sym;
+  }
+  // For fastcall, remove the leading @ and replace it with an
+  // underscore, if prefixes are used.
+  Sym = Sym.substr(1);
+  if (Prefix)
+    Sym = Saver.save("_" + Sym);
+  return Sym;
+}
+
 // Performs error checking on all /export arguments.
 // It also sets ordinals.
 void fixupExports() {
@@ -605,6 +635,15 @@ void fixupExports() {
       E.ExportName = undecorate(E.Name);
     } else {
       E.ExportName = undecorate(E.ExtName.empty() ? E.Name : E.ExtName);
+    }
+  }
+
+  if (Config->KillAt && Config->Machine == I386) {
+    for (Export &E : Config->Exports) {
+      E.Name = killAt(E.Name, true);
+      E.ExportName = killAt(E.ExportName, false);
+      E.ExtName = killAt(E.ExtName, true);
+      E.SymbolName = killAt(E.SymbolName, true);
     }
   }
 

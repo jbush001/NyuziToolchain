@@ -1714,7 +1714,7 @@ Stmt *RewriteModernObjC::RewriteObjCForCollectionStmt(ObjCForCollectionStmt *S,
   else {
     DeclRefExpr *DR = cast<DeclRefExpr>(S->getElement());
     elementName = DR->getDecl()->getName();
-    ValueDecl *VD = cast<ValueDecl>(DR->getDecl());
+    ValueDecl *VD = DR->getDecl();
     if (VD->getType()->isObjCQualifiedIdType() ||
         VD->getType()->isObjCQualifiedInterfaceType())
       // Simply use 'id' for all qualified types.
@@ -6747,9 +6747,9 @@ static void Write_IvarOffsetVar(RewriteModernObjC &RewriteObj,
    if (Ivar->getAccessControl() == ObjCIvarDecl::Private ||
        Ivar->getAccessControl() == ObjCIvarDecl::Package ||
        Class->getVisibility() == HiddenVisibility)
-     Visibility shoud be: HiddenVisibility;
+     Visibility should be: HiddenVisibility;
    else
-     Visibility shoud be: DefaultVisibility;
+     Visibility should be: DefaultVisibility;
   */
   
   Result += "\n";

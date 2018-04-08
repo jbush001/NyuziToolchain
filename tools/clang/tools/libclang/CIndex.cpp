@@ -1039,8 +1039,8 @@ bool CursorVisitor::VisitObjCContainerDecl(ObjCContainerDecl *D) {
   }
 
   // Now sort the Decls so that they appear in lexical order.
-  std::sort(DeclsInContainer.begin(), DeclsInContainer.end(),
-            [&SM](Decl *A, Decl *B) {
+  llvm::sort(DeclsInContainer.begin(), DeclsInContainer.end(),
+             [&SM](Decl *A, Decl *B) {
     SourceLocation L_A = A->getLocStart();
     SourceLocation L_B = B->getLocStart();
     return L_A != L_B ?
@@ -2593,7 +2593,7 @@ void EnqueueVisitor::VisitMemberExpr(const MemberExpr *M) {
     return;
 
   // Ignore base anonymous struct/union fields, otherwise they will shadow the
-  // real field that that we are interested in.
+  // real field that we are interested in.
   if (auto *SubME = dyn_cast<MemberExpr>(M->getBase())) {
     if (auto *FD = dyn_cast_or_null<FieldDecl>(SubME->getMemberDecl())) {
       if (FD->isAnonymousStructOrUnion()) {
@@ -6666,7 +6666,8 @@ void clang_tokenize(CXTranslationUnit TU, CXSourceRange Range,
   if (CXTokens.empty())
     return;
 
-  *Tokens = (CXToken *)malloc(sizeof(CXToken) * CXTokens.size());
+  *Tokens = static_cast<CXToken *>(
+      llvm::safe_malloc(sizeof(CXToken) * CXTokens.size()));
   memmove(*Tokens, CXTokens.data(), sizeof(CXToken) * CXTokens.size());
   *NumTokens = CXTokens.size();
 }
@@ -7572,10 +7573,10 @@ static void getCursorPlatformAvailabilityForDecl(
   if (AvailabilityAttrs.empty())
     return;
 
-  std::sort(AvailabilityAttrs.begin(), AvailabilityAttrs.end(),
-            [](AvailabilityAttr *LHS, AvailabilityAttr *RHS) {
-              return LHS->getPlatform()->getName() <
-                     RHS->getPlatform()->getName();
+  llvm::sort(AvailabilityAttrs.begin(), AvailabilityAttrs.end(),
+             [](AvailabilityAttr *LHS, AvailabilityAttr *RHS) {
+               return LHS->getPlatform()->getName() <
+                      RHS->getPlatform()->getName();
             });
   ASTContext &Ctx = D->getASTContext();
   auto It = std::unique(
@@ -7694,7 +7695,7 @@ CXTLSKind clang_getCursorTLSKind(CXCursor cursor) {
 }
 
  /// \brief If the given cursor is the "templated" declaration
- /// descibing a class or function template, return the class or
+ /// describing a class or function template, return the class or
  /// function template.
 static const Decl *maybeGetTemplateCursor(const Decl *D) {
   if (!D)

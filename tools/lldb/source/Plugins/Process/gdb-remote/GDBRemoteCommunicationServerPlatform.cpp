@@ -14,6 +14,7 @@
 // C Includes
 // C++ Includes
 #include <chrono>
+#include <csignal>
 #include <cstring>
 #include <mutex>
 #include <sstream>
@@ -38,7 +39,7 @@
 #include "lldb/Utility/UriParser.h"
 
 // Project includes
-#include "Utility/StringExtractorGDBRemote.h"
+#include "lldb/Utility/StringExtractorGDBRemote.h"
 
 using namespace lldb;
 using namespace lldb_private;

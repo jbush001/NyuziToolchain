@@ -203,9 +203,7 @@ public:
     MSVC,
     Itanium,
     Cygnus,
-    AMDOpenCL,
     CoreCLR,
-    OpenCL,
     Simulator,  // Simulator variants of other systems, e.g., Apple's iOS
     LastEnvironmentType = Simulator
   };
@@ -664,6 +662,11 @@ public:
   /// Tests whether the target supports comdat
   bool supportsCOMDAT() const {
     return !isOSBinFormatMachO();
+  }
+
+  /// Tests whether the target uses emulated TLS as default.
+  bool hasDefaultEmulatedTLS() const {
+    return isAndroid() || isOSOpenBSD() || isWindowsCygwinEnvironment();
   }
 
   /// @}

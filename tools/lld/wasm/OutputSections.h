@@ -35,7 +35,7 @@ public:
       : Type(Type), Name(Name) {}
   virtual ~OutputSection() = default;
 
-  std::string getSectionName() const;
+  StringRef getSectionName() const;
   void setOffset(size_t NewOffset) {
     log("setOffset: " + toString(*this) + ": " + Twine(NewOffset));
     Offset = NewOffset;
@@ -60,7 +60,7 @@ public:
   SyntheticSection(uint32_t Type, std::string Name = "")
       : OutputSection(Type, Name), BodyOutputStream(Body) {
     if (!Name.empty())
-      writeStr(BodyOutputStream, Name);
+      writeStr(BodyOutputStream, Name, "section name");
   }
 
   void writeTo(uint8_t *Buf) override {
@@ -83,22 +83,6 @@ public:
 
 protected:
   raw_string_ostream BodyOutputStream;
-};
-
-// Some synthetic sections (e.g. "name" and "linking") have subsections.
-// Just like the synthetic sections themselves these need to be created before
-// they can be written out (since they are preceded by their length). This
-// class is used to create subsections and then write them into the stream
-// of the parent section.
-class SubSection : public SyntheticSection {
-public:
-  explicit SubSection(uint32_t Type) : SyntheticSection(Type) {}
-
-  std::string getSectionName() const;
-  void writeToStream(raw_ostream &OS) {
-    writeBytes(OS, Header.data(), Header.size());
-    writeBytes(OS, Body.data(), Body.size());
-  }
 };
 
 class CodeSection : public OutputSection {

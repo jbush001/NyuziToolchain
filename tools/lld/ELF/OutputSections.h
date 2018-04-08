@@ -14,7 +14,6 @@
 #include "InputSection.h"
 #include "LinkerScript.h"
 #include "Relocations.h"
-
 #include "lld/Common/LLVM.h"
 #include "llvm/MC/StringTableBuilder.h"
 #include "llvm/Object/ELF.h"
@@ -52,7 +51,7 @@ public:
   uint64_t getLMA() const { return PtLoad ? Addr + PtLoad->LMAOffset : Addr; }
   template <typename ELFT> void writeHeaderTo(typename ELFT::Shdr *SHdr);
 
-  unsigned SectionIndex;
+  uint32_t SectionIndex = UINT32_MAX;
   unsigned SortRank;
 
   uint32_t getPhdrFlags() const;
@@ -100,7 +99,9 @@ public:
   std::string Location;
   std::string MemoryRegionName;
   std::string LMARegionName;
+  bool NonAlloc = false;
   bool Noload = false;
+  bool ExpressionsUseSymbols = false;
 
   template <class ELFT> void finalize();
   template <class ELFT> void writeTo(uint8_t *Buf);
@@ -119,6 +120,8 @@ private:
 };
 
 int getPriority(StringRef S);
+
+std::vector<InputSection *> getInputSections(OutputSection* OS);
 
 // All output sections that are handled by the linker specially are
 // globally accessible. Writer initializes them, so don't use them

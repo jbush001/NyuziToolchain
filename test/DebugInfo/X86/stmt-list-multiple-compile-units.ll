@@ -27,11 +27,15 @@
 ; CHECK-NEXT: debug_line[{{.*}}]
 ; CHECK-NEXT: Line table prologue:
 ; CHECK-NEXT: total_length: 0x00000038
-; CHECK: file_names[  1]    0 0x00000000 0x00000000 "simple.c"
+; CHECK: file_names[  1]:
+; CHECK-NEXT: name: "simple.c"
+; CHECK-NEXT: dir_index: 0
 ; CHECK: debug_line[{{.*}}]
 ; CHECK-NEXT: Line table prologue:
 ; CHECK-NEXT: total_length: 0x00000039
-; CHECK: file_names[  1]    0 0x00000000 0x00000000 "simple2.c"
+; CHECK: file_names[  1]:
+; CHECK-NEXT: name: "simple2.c"
+; CHECK-NEXT: dir_index: 0
 ; CHECK-NOT: file_names
 
 ; DWARF3: .debug_info contents:
@@ -46,21 +50,25 @@
 ; DWARF3-NEXT: debug_line[{{.*}}]
 ; DWARF3-NEXT: Line table prologue:
 ; DWARF3-NEXT: total_length: 0x00000038
-; DWARF3: file_names[  1]    0 0x00000000 0x00000000 "simple.c"
+; DWARF3: file_names[  1]:
+; DWARF3-NEXT: name: "simple.c"
+; DWARF3-NEXT: dir_index: 0
 ; DWARF3: debug_line[{{.*}}]
 ; DWARF3-NEXT: Line table prologue:
 ; DWARF3-NEXT: total_length: 0x00000039
-; DWARF3: file_names[  1]    0 0x00000000 0x00000000 "simple2.c"
+; DWARF3: file_names[  1]:
+; DWARF3-NEXT: name: "simple2.c"
+; DWARF3-NEXT: dir_index: 0
 ; DWARF3-NOT: file_names
 
 ; PR15408
 ; ASM: Lcu_begin0:
 ; ASM-NOT: Lcu_begin
-; ASM: Lset[[LT:[0-9]+]] = Lline_table_start0-Lsection_line ## DW_AT_stmt_list
+; ASM: .set Lset[[LT:[0-9]+]], Lline_table_start0-Lsection_line ## DW_AT_stmt_list
 ; ASM-NEXT: .long   Lset[[LT]]
 ; ASM: Lcu_begin1:
 ; ASM-NOT: Lcu_begin
-; ASM: Lset[[LT:[0-9]+]] = Lline_table_start0-Lsection_line ## DW_AT_stmt_list
+; ASM: .set Lset[[LT:[0-9]+]], Lline_table_start0-Lsection_line ## DW_AT_stmt_list
 ; ASM-NEXT: .long   Lset[[LT]]
 define i32 @test(i32 %a) nounwind uwtable ssp !dbg !5 {
 entry:

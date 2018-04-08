@@ -525,7 +525,7 @@ SDValue DAGTypeLegalizer::ScalarizeVecOp_UnaryOp(SDNode *N) {
                            N->getValueType(0).getScalarType(), Elt);
   // Revectorize the result so the types line up with what the uses of this
   // expression expect.
-  return DAG.getBuildVector(N->getValueType(0), SDLoc(N), Op);
+  return DAG.getNode(ISD::SCALAR_TO_VECTOR, SDLoc(N), N->getValueType(0), Op);
 }
 
 /// The vectors to concatenate have length one - use a BUILD_VECTOR instead.
@@ -1210,15 +1210,15 @@ void DAGTypeLegalizer::SplitVecRes_MLOAD(MaskedLoadSDNode *MLD,
 
   Ptr = TLI.IncrementMemoryAddress(Ptr, MaskLo, dl, LoMemVT, DAG,
                                    MLD->isExpandingLoad());
+  unsigned HiOffset = LoMemVT.getStoreSize();
 
-  MMO = DAG.getMachineFunction().
-    getMachineMemOperand(MLD->getPointerInfo(),
-                         MachineMemOperand::MOLoad,  HiMemVT.getStoreSize(),
-                         SecondHalfAlignment, MLD->getAAInfo(), MLD->getRanges());
+  MMO = DAG.getMachineFunction().getMachineMemOperand(
+      MLD->getPointerInfo().getWithOffset(HiOffset), MachineMemOperand::MOLoad,
+      HiMemVT.getStoreSize(), SecondHalfAlignment, MLD->getAAInfo(),
+      MLD->getRanges());
 
   Hi = DAG.getMaskedLoad(HiVT, dl, Ch, Ptr, MaskHi, Src0Hi, HiMemVT, MMO,
                          ExtType, MLD->isExpandingLoad());
-
 
   // Build a factor node to remember that this load is independent of the
   // other one.
@@ -1694,8 +1694,8 @@ SDValue DAGTypeLegalizer::SplitVecOp_VECREDUCE(SDNode *N, unsigned OpNo) {
 
   // Use the appropriate scalar instruction on the split subvectors before
   // reducing the now partially reduced smaller vector.
-  SDValue Partial = DAG.getNode(CombineOpc, dl, LoOpVT, Lo, Hi);
-  return DAG.getNode(N->getOpcode(), dl, ResVT, Partial);
+  SDValue Partial = DAG.getNode(CombineOpc, dl, LoOpVT, Lo, Hi, N->getFlags());
+  return DAG.getNode(N->getOpcode(), dl, ResVT, Partial, N->getFlags());
 }
 
 SDValue DAGTypeLegalizer::SplitVecOp_UnaryOp(SDNode *N) {
@@ -1928,10 +1928,12 @@ SDValue DAGTypeLegalizer::SplitVecOp_MSTORE(MaskedStoreSDNode *N,
 
   Ptr = TLI.IncrementMemoryAddress(Ptr, MaskLo, DL, LoMemVT, DAG,
                                    N->isCompressingStore());
-  MMO = DAG.getMachineFunction().
-    getMachineMemOperand(N->getPointerInfo(),
-                         MachineMemOperand::MOStore,  HiMemVT.getStoreSize(),
-                         SecondHalfAlignment, N->getAAInfo(), N->getRanges());
+  unsigned HiOffset = LoMemVT.getStoreSize();
+
+  MMO = DAG.getMachineFunction().getMachineMemOperand(
+      N->getPointerInfo().getWithOffset(HiOffset), MachineMemOperand::MOStore,
+      HiMemVT.getStoreSize(), SecondHalfAlignment, N->getAAInfo(),
+      N->getRanges());
 
   Hi = DAG.getMaskedStore(Ch, DL, DataHi, Ptr, MaskHi, HiMemVT, MMO,
                           N->isTruncatingStore(), N->isCompressingStore());
@@ -2106,9 +2108,9 @@ SDValue DAGTypeLegalizer::SplitVecOp_TruncateHelper(SDNode *N) {
     return SplitVecOp_UnaryOp(N);
   SDLoc DL(N);
 
-  // Extract the halves of the input via extract_subvector.
+  // Get the split input vector.
   SDValue InLoVec, InHiVec;
-  std::tie(InLoVec, InHiVec) = DAG.SplitVector(InVec, DL);
+  GetSplitVector(InVec, InLoVec, InHiVec);
   // Truncate them to 1/2 the element size.
   EVT HalfElementVT = IsFloat ?
     EVT::getFloatingPointVT(InElementSize/2) :

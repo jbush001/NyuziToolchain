@@ -277,27 +277,31 @@ include_directories(BEFORE
 
 if (NOT LLVM_INSTALL_TOOLCHAIN_ONLY)
   install(DIRECTORY include/
-    COMPONENT lldb_headers
+    COMPONENT lldb-headers
     DESTINATION include
     FILES_MATCHING
     PATTERN "*.h"
     PATTERN ".svn" EXCLUDE
     PATTERN ".cmake" EXCLUDE
     PATTERN "Config.h" EXCLUDE
-    PATTERN "lldb-*.h" EXCLUDE
-    PATTERN "API/*.h" EXCLUDE
     )
 
   install(DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/include/
-    COMPONENT lldb_headers
+    COMPONENT lldb-headers
     DESTINATION include
     FILES_MATCHING
     PATTERN "*.h"
     PATTERN ".svn" EXCLUDE
     PATTERN ".cmake" EXCLUDE
-    PATTERN "lldb-*.h" EXCLUDE
-    PATTERN "API/*.h" EXCLUDE
     )
+
+  add_custom_target(lldb-headers)
+  set_target_properties(lldb-headers PROPERTIES FOLDER "Misc")
+
+  if (NOT CMAKE_CONFIGURATION_TYPES)
+    add_llvm_install_targets(install-lldb-headers
+                             COMPONENT lldb-headers)
+  endif()
 endif()
 
 if (NOT LIBXML2_FOUND AND NOT (CMAKE_SYSTEM_NAME MATCHES "Windows"))
@@ -342,17 +346,20 @@ else()
 
 endif()
 
-if (HAVE_LIBPTHREAD)
-  list(APPEND system_libs pthread)
-endif(HAVE_LIBPTHREAD)
-
-if (HAVE_LIBDL)
-  list(APPEND system_libs ${CMAKE_DL_LIBS})
+if( WIN32 AND NOT CYGWIN )
+  set(PURE_WINDOWS 1)
 endif()
 
-# XXX disable lldb-server and debugserver for Nyuzi
+if(NOT PURE_WINDOWS)
+  set(CMAKE_THREAD_PREFER_PTHREAD TRUE)
+  find_package(Threads REQUIRED)
+  list(APPEND system_libs ${CMAKE_THREAD_LIBS_INIT})
+endif()
+
+list(APPEND system_libs ${CMAKE_DL_LIBS})
 
 # Figure out if lldb could use lldb-server.  If so, then we'll
+# XXX disable lldb-server and debugserver for Nyuzi
 # ensure we build lldb-server when an lldb target is being built.
 #if (CMAKE_SYSTEM_NAME MATCHES "Android|Darwin|FreeBSD|Linux|NetBSD")
 #    set(LLDB_CAN_USE_LLDB_SERVER 1)

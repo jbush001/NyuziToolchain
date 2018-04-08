@@ -53,7 +53,8 @@ static void EmitDeclInit(CodeGenFunction &CGF, const VarDecl &D,
   case TEK_Aggregate:
     CGF.EmitAggExpr(Init, AggValueSlot::forLValue(lv,AggValueSlot::IsDestructed,
                                           AggValueSlot::DoesNotNeedGCBarriers,
-                                                  AggValueSlot::IsNotAliased));
+                                                  AggValueSlot::IsNotAliased,
+                                                  AggValueSlot::DoesNotOverlap));
     return;
   }
   llvm_unreachable("bad evaluation kind");
@@ -79,6 +80,7 @@ static void EmitDeclDestroy(CodeGenFunction &CGF, const VarDecl &D,
 
   case QualType::DK_objc_strong_lifetime:
   case QualType::DK_objc_weak_lifetime:
+  case QualType::DK_nontrivial_c_struct:
     // We don't care about releasing objects during process teardown.
     assert(!D.getTLSKind() && "should have rejected this");
     return;
@@ -311,7 +313,7 @@ llvm::Function *CodeGenModule::CreateGlobalInitOrDestructFunction(
       Fn->setSection(Section);
   }
 
-  SetInternalFunctionAttributes(nullptr, Fn, FI);
+  SetInternalFunctionAttributes(GlobalDecl(), Fn, FI);
 
   Fn->setCallingConv(getRuntimeCC());
 
@@ -341,6 +343,10 @@ llvm::Function *CodeGenModule::CreateGlobalInitOrDestructFunction(
   if (getLangOpts().Sanitize.has(SanitizerKind::SafeStack) &&
       !isInSanitizerBlacklist(SanitizerKind::SafeStack, Fn, Loc))
     Fn->addFnAttr(llvm::Attribute::SafeStack);
+
+  if (getLangOpts().Sanitize.has(SanitizerKind::ShadowCallStack) &&
+      !isInSanitizerBlacklist(SanitizerKind::ShadowCallStack, Fn, Loc))
+    Fn->addFnAttr(llvm::Attribute::ShadowCallStack);
 
   return Fn;
 }
@@ -376,6 +382,10 @@ CodeGenModule::EmitCXXGlobalVarDeclInitFunc(const VarDecl *D,
   if (getLangOpts().CUDA && getLangOpts().CUDAIsDevice &&
       (D->hasAttr<CUDADeviceAttr>() || D->hasAttr<CUDAConstantAttr>() ||
        D->hasAttr<CUDASharedAttr>()))
+    return;
+
+  if (getLangOpts().OpenMP &&
+      getOpenMPRuntime().emitDeclareTargetVarDefinition(D, Addr, PerformInit))
     return;
 
   // Check if we've already initialized this decl.

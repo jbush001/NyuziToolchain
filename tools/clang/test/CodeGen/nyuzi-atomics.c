@@ -44,8 +44,10 @@ void atomic_test_set(volatile int *lockvar)
 	while (!__sync_lock_test_and_set(lockvar, 1))
 		;
 
-	// CHECK: load_sync [[SCRATCH1:s[0-9]+]], (s0)
-	// CHECK: move {{s[0-9]+}}, [[SCRATCH1]]
-	// CHECK: store_sync [[SCRATCH1]], (s0)
-	// CHECK: bz [[SCRATCH1]],
+    // CHECK: move [[SCRATCH1:s[0-9]+]], 1
+    // CHECK: [[LABEL:\.LBB[0-9]_[0-9]]]
+	// CHECK: load_sync [[SCRATCH2:s[0-9]+]], (s0)
+	// CHECK: move [[SCRATCH3:s[0-9]+]], [[SCRATCH1]]
+	// CHECK: store_sync [[SCRATCH3]], (s0)
+	// CHECK: bz [[SCRATCH3]], [[LABEL]]
 }

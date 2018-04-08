@@ -719,7 +719,7 @@ Parser::DeclGroupPtrTy Parser::ParseOpenMPDeclarativeDirectiveWithExtDecl(
     SourceLocation DTLoc = ConsumeAnyToken();
     if (Tok.isNot(tok::annot_pragma_openmp_end)) {
       // OpenMP 4.5 syntax with list of entities.
-      llvm::SmallSetVector<const NamedDecl*, 16> SameDirectiveDecls;
+      Sema::NamedDeclSetType SameDirectiveDecls;
       while (Tok.isNot(tok::annot_pragma_openmp_end)) {
         OMPDeclareTargetDeclAttr::MapTypeTy MT =
             OMPDeclareTargetDeclAttr::MT_To;
@@ -736,11 +736,12 @@ Parser::DeclGroupPtrTy Parser::ParseOpenMPDeclarativeDirectiveWithExtDecl(
           ConsumeToken();
         }
         auto Callback = [this, MT, &SameDirectiveDecls](
-            CXXScopeSpec &SS, DeclarationNameInfo NameInfo) {
+                            CXXScopeSpec &SS, DeclarationNameInfo NameInfo) {
           Actions.ActOnOpenMPDeclareTargetName(getCurScope(), SS, NameInfo, MT,
                                                SameDirectiveDecls);
         };
-        if (ParseOpenMPSimpleVarList(OMPD_declare_target, Callback, true))
+        if (ParseOpenMPSimpleVarList(OMPD_declare_target, Callback,
+                                     /*AllowScopeSpecifier=*/true))
           break;
 
         // Consume optional ','.
@@ -749,7 +750,13 @@ Parser::DeclGroupPtrTy Parser::ParseOpenMPDeclarativeDirectiveWithExtDecl(
       }
       SkipUntil(tok::annot_pragma_openmp_end, StopBeforeMatch);
       ConsumeAnyToken();
-      return DeclGroupPtrTy();
+      SmallVector<Decl *, 4> Decls;
+      Decls.reserve(SameDirectiveDecls.size());
+      for (Decl *D : SameDirectiveDecls)
+        Decls.emplace_back(D);
+      if (Decls.empty())
+        return DeclGroupPtrTy();
+      return Actions.BuildDeclaratorGroup(Decls);
     }
 
     // Skip the last annot_pragma_openmp_end.
@@ -758,6 +765,7 @@ Parser::DeclGroupPtrTy Parser::ParseOpenMPDeclarativeDirectiveWithExtDecl(
     if (!Actions.ActOnStartOpenMPDeclareTargetDirective(DTLoc))
       return DeclGroupPtrTy();
 
+    llvm::SmallVector<Decl *, 4>  Decls;
     DKind = ParseOpenMPDirectiveKind(*this);
     while (DKind != OMPD_end_declare_target && DKind != OMPD_declare_target &&
            Tok.isNot(tok::eof) && Tok.isNot(tok::r_brace)) {
@@ -771,6 +779,10 @@ Parser::DeclGroupPtrTy Parser::ParseOpenMPDeclarativeDirectiveWithExtDecl(
       } else {
         Ptr =
             ParseCXXClassMemberDeclarationWithPragmas(AS, Attrs, TagType, Tag);
+      }
+      if (Ptr) {
+        DeclGroupRef Ref = Ptr.get();
+        Decls.append(Ref.begin(), Ref.end());
       }
       if (Tok.isAnnotation() && Tok.is(tok::annot_pragma_openmp)) {
         TentativeParsingAction TPA(*this);
@@ -797,7 +809,7 @@ Parser::DeclGroupPtrTy Parser::ParseOpenMPDeclarativeDirectiveWithExtDecl(
       Diag(DTLoc, diag::note_matching) << "'#pragma omp declare target'";
     }
     Actions.ActOnFinishOpenMPDeclareTargetDirective();
-    return DeclGroupPtrTy();
+    return Actions.BuildDeclaratorGroup(Decls);
   }
   case OMPD_unknown:
     Diag(Tok, diag::err_omp_unknown_directive);
@@ -851,7 +863,7 @@ Parser::DeclGroupPtrTy Parser::ParseOpenMPDeclarativeDirectiveWithExtDecl(
   case OMPD_target_teams_distribute_parallel_for_simd:
   case OMPD_target_teams_distribute_simd:
     Diag(Tok, diag::err_omp_unexpected_directive)
-        << getOpenMPDirectiveName(DKind);
+        << 1 << getOpenMPDirectiveName(DKind);
     break;
   }
   while (Tok.isNot(tok::annot_pragma_openmp_end))
@@ -1107,7 +1119,7 @@ StmtResult Parser::ParseOpenMPDeclarativeOrExecutableDirective(
   case OMPD_declare_target:
   case OMPD_end_declare_target:
     Diag(Tok, diag::err_omp_unexpected_directive)
-        << getOpenMPDirectiveName(DKind);
+        << 1 << getOpenMPDirectiveName(DKind);
     SkipUntil(tok::annot_pragma_openmp_end);
     break;
   case OMPD_unknown:

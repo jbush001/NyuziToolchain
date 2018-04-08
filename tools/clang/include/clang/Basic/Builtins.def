@@ -89,7 +89,7 @@
 //  S:N: -> similar to the s:N: attribute, but the function is like vscanf
 //          in that it accepts its arguments as a va_list rather than
 //          through an ellipsis
-//  e -> const, but only when -fmath-errno=0
+//  e -> const, but only when -fno-math-errno
 //  j -> returns_twice (like setjmp)
 //  u -> arguments are not evaluated for their side-effects
 //  FIXME: gcc has nonnull
@@ -803,7 +803,7 @@ LIBBUILTIN(_setjmpex, "iJ", "fj",   "setjmpex.h", ALL_MS_LANGUAGES)
 
 // C99 library functions
 // C99 stdarg.h
-LIBBUILTIN(va_start, "vA.",       "fnt",   "stdarg.h", ALL_LANGUAGES)
+LIBBUILTIN(va_start, "vA.",       "fn",    "stdarg.h", ALL_LANGUAGES)
 LIBBUILTIN(va_end, "vA",          "fn",    "stdarg.h", ALL_LANGUAGES)
 LIBBUILTIN(va_copy, "vAA",        "fn",    "stdarg.h", ALL_LANGUAGES)
 // C99 stdlib.h
@@ -1371,8 +1371,8 @@ BUILTIN(__builtin_smulll_overflow, "bSLLiCSLLiCSLLi*", "n")
 
 // Clang builtins (not available in GCC).
 BUILTIN(__builtin_addressof, "v*v&", "nct")
-BUILTIN(__builtin_operator_new, "v*z", "c")
-BUILTIN(__builtin_operator_delete, "vv*", "n")
+BUILTIN(__builtin_operator_new, "v*z", "tc")
+BUILTIN(__builtin_operator_delete, "vv*", "tn")
 BUILTIN(__builtin_char_memchr, "c*cC*iz", "n")
 
 // Safestack builtins
@@ -1391,6 +1391,7 @@ BUILTIN(__builtin_coro_promise, "v*v*IiIb", "n")
 
 BUILTIN(__builtin_coro_size, "z", "n")
 BUILTIN(__builtin_coro_frame, "v*", "n")
+BUILTIN(__builtin_coro_noop, "v*", "n")
 BUILTIN(__builtin_coro_free, "v*v*", "n")
 
 BUILTIN(__builtin_coro_id, "v*Iiv*v*v*", "n")

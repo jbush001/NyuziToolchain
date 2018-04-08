@@ -1479,8 +1479,9 @@ static ExprResult LookupMemberExpr(Sema &S, LookupResult &R,
         IsArrow);
 
     if (IV->getType().getObjCLifetime() == Qualifiers::OCL_Weak) {
-      if (!S.Diags.isIgnored(diag::warn_arc_repeated_use_of_weak, MemberLoc))
-        S.recordUseOfEvaluatedWeak(Result);
+      if (!S.isUnevaluatedContext() &&
+          !S.Diags.isIgnored(diag::warn_arc_repeated_use_of_weak, MemberLoc))
+        S.getCurFunction()->recordUseOfWeak(Result);
     }
 
     return Result;
@@ -1567,6 +1568,9 @@ static ExprResult LookupMemberExpr(Sema &S, LookupResult &R,
       // Also must look for a getter name which uses property syntax.
       Selector Sel = S.PP.getSelectorTable().getNullarySelector(Member);
       ObjCInterfaceDecl *IFace = MD->getClassInterface();
+      if (!IFace)
+        goto fail;
+
       ObjCMethodDecl *Getter;
       if ((Getter = IFace->lookupClassMethod(Sel))) {
         // Check the use of this method.

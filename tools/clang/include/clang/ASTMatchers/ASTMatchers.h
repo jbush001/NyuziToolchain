@@ -693,7 +693,7 @@ AST_POLYMORPHIC_MATCHER_P(
 ///    varDecl(hasInitializer(cxxConstructExpr()))
 /// \endcode
 /// only match the declarations for b and c.
-AST_MATCHER_P(Expr, ignoringImplicit, ast_matchers::internal::Matcher<Expr>,
+AST_MATCHER_P(Expr, ignoringImplicit, internal::Matcher<Expr>,
               InnerMatcher) {
   return InnerMatcher.matches(*Node.IgnoreImplicit(), Finder, Builder);
 }
@@ -2313,9 +2313,7 @@ inline internal::Matcher<Stmt> sizeOfExpr(
 ///   namespace a { namespace b { class X; } }
 /// \endcode
 inline internal::Matcher<NamedDecl> hasName(const std::string &Name) {
-  std::vector<std::string> Names;
-  Names.push_back(Name);
-  return internal::Matcher<NamedDecl>(new internal::HasNameMatcher(Names));
+  return internal::Matcher<NamedDecl>(new internal::HasNameMatcher({Name}));
 }
 
 /// \brief Matches NamedDecl nodes that have any of the specified names.
@@ -2711,7 +2709,7 @@ AST_MATCHER_P(ObjCMessageExpr, hasReceiverType, internal::Matcher<QualType>,
   const QualType TypeDecl = Node.getReceiverType();
   return InnerMatcher.matches(TypeDecl, Finder, Builder);
 }
-  
+
 /// \brief Matches when BaseName == Selector.getAsString()
 ///
 ///  matcher = objCMessageExpr(hasSelector("loadHTMLString:baseURL:"));
@@ -2725,7 +2723,21 @@ AST_MATCHER_P(ObjCMessageExpr, hasSelector, std::string, BaseName) {
   return BaseName.compare(Sel.getAsString()) == 0;
 }
 
-  
+
+/// \brief Matches when at least one of the supplied string equals to the
+/// Selector.getAsString()
+///
+///  matcher = objCMessageExpr(hasSelector("methodA:", "methodB:"));
+///  matches both of the expressions below:
+/// \code
+///     [myObj methodA:argA];
+///     [myObj methodB:argB];
+/// \endcode
+extern const internal::VariadicFunction<internal::Matcher<ObjCMessageExpr>,
+                                        StringRef,
+                                        internal::hasAnySelectorFunc>
+                                        hasAnySelector;
+
 /// \brief Matches ObjC selectors whose name contains
 /// a substring matched by the given RegExp.
 ///  matcher = objCMessageExpr(matchesSelector("loadHTMLString\:baseURL?"));
@@ -2843,8 +2855,10 @@ AST_MATCHER_P_OVERLOAD(CallExpr, callee, internal::Matcher<Decl>, InnerMatcher,
 AST_POLYMORPHIC_MATCHER_P_OVERLOAD(
     hasType, AST_POLYMORPHIC_SUPPORTED_TYPES(Expr, TypedefNameDecl, ValueDecl),
     internal::Matcher<QualType>, InnerMatcher, 0) {
-  return InnerMatcher.matches(internal::getUnderlyingType(Node),
-                              Finder, Builder);
+  QualType QT = internal::getUnderlyingType(Node);
+  if (!QT.isNull())
+    return InnerMatcher.matches(QT, Finder, Builder);
+  return false;
 }
 
 /// \brief Overloaded to match the declaration of the expression's or value
@@ -3410,7 +3424,7 @@ AST_MATCHER(CXXCtorInitializer, isMemberInitializer) {
 }
 
 /// \brief Matches any argument of a call expression or a constructor call
-/// expression.
+/// expression, or an ObjC-message-send expression.
 ///
 /// Given
 /// \code
@@ -3420,9 +3434,18 @@ AST_MATCHER(CXXCtorInitializer, isMemberInitializer) {
 ///   matches x(1, y, 42)
 /// with hasAnyArgument(...)
 ///   matching y
+///
+/// For ObjectiveC, given
+/// \code
+///   @interface I - (void) f:(int) y; @end
+///   void foo(I *i) { [i f:12]; }
+/// \endcode
+/// objcMessageExpr(hasAnyArgument(integerLiteral(equals(12))))
+///   matches [i f:12]
 AST_POLYMORPHIC_MATCHER_P(hasAnyArgument,
                           AST_POLYMORPHIC_SUPPORTED_TYPES(CallExpr,
-                                                          CXXConstructExpr),
+                                                          CXXConstructExpr,
+                                                          ObjCMessageExpr),
                           internal::Matcher<Expr>, InnerMatcher) {
   for (const Expr *Arg : Node.arguments()) {
     BoundNodesTreeBuilder Result(*Builder);
@@ -3455,7 +3478,8 @@ AST_MATCHER(CXXConstructExpr, requiresZeroInitialization) {
   return Node.requiresZeroInitialization();
 }
 
-/// \brief Matches the n'th parameter of a function declaration.
+/// \brief Matches the n'th parameter of a function or an ObjC method
+/// declaration.
 ///
 /// Given
 /// \code
@@ -3465,12 +3489,22 @@ AST_MATCHER(CXXConstructExpr, requiresZeroInitialization) {
 ///   matches f(int x) {}
 /// with hasParameter(...)
 ///   matching int x
-AST_MATCHER_P2(FunctionDecl, hasParameter,
-               unsigned, N, internal::Matcher<ParmVarDecl>,
-               InnerMatcher) {
-  return (N < Node.getNumParams() &&
-          InnerMatcher.matches(
-              *Node.getParamDecl(N), Finder, Builder));
+///
+/// For ObjectiveC, given
+/// \code
+///   @interface I - (void) f:(int) y; @end
+/// \endcode
+//
+/// the matcher objcMethodDecl(hasParameter(0, hasName("y")))
+/// matches the declaration of method f with hasParameter
+/// matching y.
+AST_POLYMORPHIC_MATCHER_P2(hasParameter,
+                           AST_POLYMORPHIC_SUPPORTED_TYPES(FunctionDecl,
+                                                           ObjCMethodDecl),
+                           unsigned, N, internal::Matcher<ParmVarDecl>,
+                           InnerMatcher) {
+  return (N < Node.parameters().size()
+          && InnerMatcher.matches(*Node.parameters()[N], Finder, Builder));
 }
 
 /// \brief Matches all arguments and their respective ParmVarDecl.
@@ -3527,7 +3561,7 @@ AST_POLYMORPHIC_MATCHER_P2(forEachArgumentWithParam,
   return Matched;
 }
 
-/// \brief Matches any parameter of a function declaration.
+/// \brief Matches any parameter of a function or ObjC method declaration.
 ///
 /// Does not match the 'this' parameter of a method.
 ///
@@ -3539,8 +3573,20 @@ AST_POLYMORPHIC_MATCHER_P2(forEachArgumentWithParam,
 ///   matches f(int x, int y, int z) {}
 /// with hasAnyParameter(...)
 ///   matching int y
-AST_MATCHER_P(FunctionDecl, hasAnyParameter,
-              internal::Matcher<ParmVarDecl>, InnerMatcher) {
+///
+/// For ObjectiveC, given
+/// \code
+///   @interface I - (void) f:(int) y; @end
+/// \endcode
+//
+/// the matcher objcMethodDecl(hasAnyParameter(hasName("y")))
+/// matches the declaration of method f with hasParameter
+/// matching y.
+AST_POLYMORPHIC_MATCHER_P(hasAnyParameter,
+                          AST_POLYMORPHIC_SUPPORTED_TYPES(FunctionDecl,
+                                                          ObjCMethodDecl),
+                          internal::Matcher<ParmVarDecl>,
+                          InnerMatcher) {
   return matchesFirstInPointerRange(InnerMatcher, Node.param_begin(),
                                     Node.param_end(), Finder, Builder);
 }
@@ -3992,6 +4038,26 @@ AST_POLYMORPHIC_MATCHER_P(hasOperatorName,
   return Name == Node.getOpcodeStr(Node.getOpcode());
 }
 
+/// \brief Matches on all kinds of assignment operators.
+///
+/// Example 1: matches a += b (matcher = binaryOperator(isAssignmentOperator()))
+/// \code
+///   if (a == b)
+///     a += b;
+/// \endcode
+///
+/// Example 2: matches s1 = s2
+///            (matcher = cxxOperatorCallExpr(isAssignmentOperator()))
+/// \code
+///   struct S { S& operator=(const S&); };
+///   void x() { S s1, s2; s1 = s2; })
+/// \endcode
+AST_POLYMORPHIC_MATCHER(isAssignmentOperator,
+                        AST_POLYMORPHIC_SUPPORTED_TYPES(BinaryOperator,
+                                                        CXXOperatorCallExpr)) {
+  return Node.isAssignmentOp();
+}
+
 /// \brief Matches the left hand side of binary operator expressions.
 ///
 /// Example matches a (matcher = binaryOperator(hasLHS()))
@@ -4232,7 +4298,7 @@ AST_MATCHER_P(CXXMethodDecl, ofClass,
           InnerMatcher.matches(*Parent, Finder, Builder));
 }
 
-/// \brief Matches each method overriden by the given method. This matcher may
+/// \brief Matches each method overridden by the given method. This matcher may
 /// produce multiple matches.
 ///
 /// Given
@@ -4649,6 +4715,10 @@ AST_MATCHER_P(UsingShadowDecl, hasTargetDecl,
 /// \code
 ///   template <typename T> class X {}; class A {}; template class X<A>;
 /// \endcode
+/// or
+/// \code
+///   template <typename T> class X {}; class A {}; extern template class X<A>;
+/// \endcode
 /// cxxRecordDecl(hasName("::X"), isTemplateInstantiation())
 ///   matches the template instantiation of X<A>.
 ///
@@ -4666,7 +4736,9 @@ AST_POLYMORPHIC_MATCHER(isTemplateInstantiation,
                                                         CXXRecordDecl)) {
   return (Node.getTemplateSpecializationKind() == TSK_ImplicitInstantiation ||
           Node.getTemplateSpecializationKind() ==
-          TSK_ExplicitInstantiationDefinition);
+              TSK_ExplicitInstantiationDefinition ||
+          Node.getTemplateSpecializationKind() ==
+              TSK_ExplicitInstantiationDeclaration);
 }
 
 /// \brief Matches declarations that are template instantiations or are inside

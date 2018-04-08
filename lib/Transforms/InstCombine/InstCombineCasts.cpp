@@ -1411,45 +1411,83 @@ Instruction *InstCombiner::visitSExt(SExtInst &CI) {
 
 /// Return a Constant* for the specified floating-point constant if it fits
 /// in the specified FP type without changing its value.
-static Constant *fitsInFPType(ConstantFP *CFP, const fltSemantics &Sem) {
+static bool fitsInFPType(ConstantFP *CFP, const fltSemantics &Sem) {
   bool losesInfo;
   APFloat F = CFP->getValueAPF();
   (void)F.convert(Sem, APFloat::rmNearestTiesToEven, &losesInfo);
-  if (!losesInfo)
-    return ConstantFP::get(CFP->getContext(), F);
+  return !losesInfo;
+}
+
+static Type *shrinkFPConstant(ConstantFP *CFP) {
+  if (CFP->getType() == Type::getPPC_FP128Ty(CFP->getContext()))
+    return nullptr;  // No constant folding of this.
+  // See if the value can be truncated to half and then reextended.
+  if (fitsInFPType(CFP, APFloat::IEEEhalf()))
+    return Type::getHalfTy(CFP->getContext());
+  // See if the value can be truncated to float and then reextended.
+  if (fitsInFPType(CFP, APFloat::IEEEsingle()))
+    return Type::getFloatTy(CFP->getContext());
+  if (CFP->getType()->isDoubleTy())
+    return nullptr;  // Won't shrink.
+  if (fitsInFPType(CFP, APFloat::IEEEdouble()))
+    return Type::getDoubleTy(CFP->getContext());
+  // Don't try to shrink to various long double types.
   return nullptr;
 }
 
-/// Look through floating-point extensions until we get the source value.
-static Value *lookThroughFPExtensions(Value *V) {
-  while (auto *FPExt = dyn_cast<FPExtInst>(V))
-    V = FPExt->getOperand(0);
+// Determine if this is a vector of ConstantFPs and if so, return the minimal
+// type we can safely truncate all elements to.
+// TODO: Make these support undef elements.
+static Type *shrinkFPConstantVector(Value *V) {
+  auto *CV = dyn_cast<Constant>(V);
+  if (!CV || !CV->getType()->isVectorTy())
+    return nullptr;
+
+  Type *MinType = nullptr;
+
+  unsigned NumElts = CV->getType()->getVectorNumElements();
+  for (unsigned i = 0; i != NumElts; ++i) {
+    auto *CFP = dyn_cast_or_null<ConstantFP>(CV->getAggregateElement(i));
+    if (!CFP)
+      return nullptr;
+
+    Type *T = shrinkFPConstant(CFP);
+    if (!T)
+      return nullptr;
+
+    // If we haven't found a type yet or this type has a larger mantissa than
+    // our previous type, this is our new minimal type.
+    if (!MinType || T->getFPMantissaWidth() > MinType->getFPMantissaWidth())
+      MinType = T;
+  }
+
+  // Make a vector type from the minimal type.
+  return VectorType::get(MinType, NumElts);
+}
+
+/// Find the minimum FP type we can safely truncate to.
+static Type *getMinimumFPType(Value *V) {
+  if (auto *FPExt = dyn_cast<FPExtInst>(V))
+    return FPExt->getOperand(0)->getType();
 
   // If this value is a constant, return the constant in the smallest FP type
   // that can accurately represent it.  This allows us to turn
   // (float)((double)X+2.0) into x+2.0f.
-  if (auto *CFP = dyn_cast<ConstantFP>(V)) {
-    if (CFP->getType() == Type::getPPC_FP128Ty(V->getContext()))
-      return V;  // No constant folding of this.
-    // See if the value can be truncated to half and then reextended.
-    if (Value *V = fitsInFPType(CFP, APFloat::IEEEhalf()))
-      return V;
-    // See if the value can be truncated to float and then reextended.
-    if (Value *V = fitsInFPType(CFP, APFloat::IEEEsingle()))
-      return V;
-    if (CFP->getType()->isDoubleTy())
-      return V;  // Won't shrink.
-    if (Value *V = fitsInFPType(CFP, APFloat::IEEEdouble()))
-      return V;
-    // Don't try to shrink to various long double types.
-  }
+  if (auto *CFP = dyn_cast<ConstantFP>(V))
+    if (Type *T = shrinkFPConstant(CFP))
+      return T;
 
-  return V;
+  // Try to shrink a vector of FP constants.
+  if (Type *T = shrinkFPConstantVector(V))
+    return T;
+
+  return V->getType();
 }
 
-Instruction *InstCombiner::visitFPTrunc(FPTruncInst &CI) {
-  if (Instruction *I = commonCastTransforms(CI))
+Instruction *InstCombiner::visitFPTrunc(FPTruncInst &FPT) {
+  if (Instruction *I = commonCastTransforms(FPT))
     return I;
+
   // If we have fptrunc(OpI (fpextend x), (fpextend y)), we would like to
   // simplify this expression to avoid one or more of the trunc/extend
   // operations if we can do so without changing the numerical results.
@@ -1457,15 +1495,16 @@ Instruction *InstCombiner::visitFPTrunc(FPTruncInst &CI) {
   // The exact manner in which the widths of the operands interact to limit
   // what we can and cannot do safely varies from operation to operation, and
   // is explained below in the various case statements.
-  BinaryOperator *OpI = dyn_cast<BinaryOperator>(CI.getOperand(0));
+  Type *Ty = FPT.getType();
+  BinaryOperator *OpI = dyn_cast<BinaryOperator>(FPT.getOperand(0));
   if (OpI && OpI->hasOneUse()) {
-    Value *LHSOrig = lookThroughFPExtensions(OpI->getOperand(0));
-    Value *RHSOrig = lookThroughFPExtensions(OpI->getOperand(1));
+    Type *LHSMinType = getMinimumFPType(OpI->getOperand(0));
+    Type *RHSMinType = getMinimumFPType(OpI->getOperand(1));
     unsigned OpWidth = OpI->getType()->getFPMantissaWidth();
-    unsigned LHSWidth = LHSOrig->getType()->getFPMantissaWidth();
-    unsigned RHSWidth = RHSOrig->getType()->getFPMantissaWidth();
+    unsigned LHSWidth = LHSMinType->getFPMantissaWidth();
+    unsigned RHSWidth = RHSMinType->getFPMantissaWidth();
     unsigned SrcWidth = std::max(LHSWidth, RHSWidth);
-    unsigned DstWidth = CI.getType()->getFPMantissaWidth();
+    unsigned DstWidth = Ty->getFPMantissaWidth();
     switch (OpI->getOpcode()) {
       default: break;
       case Instruction::FAdd:
@@ -1489,12 +1528,9 @@ Instruction *InstCombiner::visitFPTrunc(FPTruncInst &CI) {
         // could be tightened for those cases, but they are rare (the main
         // case of interest here is (float)((double)float + float)).
         if (OpWidth >= 2*DstWidth+1 && DstWidth >= SrcWidth) {
-          if (LHSOrig->getType() != CI.getType())
-            LHSOrig = Builder.CreateFPExt(LHSOrig, CI.getType());
-          if (RHSOrig->getType() != CI.getType())
-            RHSOrig = Builder.CreateFPExt(RHSOrig, CI.getType());
-          Instruction *RI =
-            BinaryOperator::Create(OpI->getOpcode(), LHSOrig, RHSOrig);
+          Value *LHS = Builder.CreateFPTrunc(OpI->getOperand(0), Ty);
+          Value *RHS = Builder.CreateFPTrunc(OpI->getOperand(1), Ty);
+          Instruction *RI = BinaryOperator::Create(OpI->getOpcode(), LHS, RHS);
           RI->copyFastMathFlags(OpI);
           return RI;
         }
@@ -1506,14 +1542,9 @@ Instruction *InstCombiner::visitFPTrunc(FPTruncInst &CI) {
         // rounding can possibly occur; we can safely perform the operation
         // in the destination format if it can represent both sources.
         if (OpWidth >= LHSWidth + RHSWidth && DstWidth >= SrcWidth) {
-          if (LHSOrig->getType() != CI.getType())
-            LHSOrig = Builder.CreateFPExt(LHSOrig, CI.getType());
-          if (RHSOrig->getType() != CI.getType())
-            RHSOrig = Builder.CreateFPExt(RHSOrig, CI.getType());
-          Instruction *RI =
-            BinaryOperator::CreateFMul(LHSOrig, RHSOrig);
-          RI->copyFastMathFlags(OpI);
-          return RI;
+          Value *LHS = Builder.CreateFPTrunc(OpI->getOperand(0), Ty);
+          Value *RHS = Builder.CreateFPTrunc(OpI->getOperand(1), Ty);
+          return BinaryOperator::CreateFMulFMF(LHS, RHS, OpI);
         }
         break;
       case Instruction::FDiv:
@@ -1524,42 +1555,36 @@ Instruction *InstCombiner::visitFPTrunc(FPTruncInst &CI) {
         // condition used here is a good conservative first pass.
         // TODO: Tighten bound via rigorous analysis of the unbalanced case.
         if (OpWidth >= 2*DstWidth && DstWidth >= SrcWidth) {
-          if (LHSOrig->getType() != CI.getType())
-            LHSOrig = Builder.CreateFPExt(LHSOrig, CI.getType());
-          if (RHSOrig->getType() != CI.getType())
-            RHSOrig = Builder.CreateFPExt(RHSOrig, CI.getType());
-          Instruction *RI =
-            BinaryOperator::CreateFDiv(LHSOrig, RHSOrig);
-          RI->copyFastMathFlags(OpI);
-          return RI;
+          Value *LHS = Builder.CreateFPTrunc(OpI->getOperand(0), Ty);
+          Value *RHS = Builder.CreateFPTrunc(OpI->getOperand(1), Ty);
+          return BinaryOperator::CreateFDivFMF(LHS, RHS, OpI);
         }
         break;
-      case Instruction::FRem:
+      case Instruction::FRem: {
         // Remainder is straightforward.  Remainder is always exact, so the
         // type of OpI doesn't enter into things at all.  We simply evaluate
         // in whichever source type is larger, then convert to the
         // destination type.
         if (SrcWidth == OpWidth)
           break;
-        if (LHSWidth < SrcWidth)
-          LHSOrig = Builder.CreateFPExt(LHSOrig, RHSOrig->getType());
-        else if (RHSWidth <= SrcWidth)
-          RHSOrig = Builder.CreateFPExt(RHSOrig, LHSOrig->getType());
-        if (LHSOrig != OpI->getOperand(0) || RHSOrig != OpI->getOperand(1)) {
-          Value *ExactResult = Builder.CreateFRem(LHSOrig, RHSOrig);
-          if (Instruction *RI = dyn_cast<Instruction>(ExactResult))
-            RI->copyFastMathFlags(OpI);
-          return CastInst::CreateFPCast(ExactResult, CI.getType());
+        Value *LHS, *RHS;
+        if (LHSWidth == SrcWidth) {
+           LHS = Builder.CreateFPTrunc(OpI->getOperand(0), LHSMinType);
+           RHS = Builder.CreateFPTrunc(OpI->getOperand(1), LHSMinType);
+        } else {
+           LHS = Builder.CreateFPTrunc(OpI->getOperand(0), RHSMinType);
+           RHS = Builder.CreateFPTrunc(OpI->getOperand(1), RHSMinType);
         }
+
+        Value *ExactResult = Builder.CreateFRemFMF(LHS, RHS, OpI);
+        return CastInst::CreateFPCast(ExactResult, Ty);
+      }
     }
 
     // (fptrunc (fneg x)) -> (fneg (fptrunc x))
     if (BinaryOperator::isFNeg(OpI)) {
-      Value *InnerTrunc = Builder.CreateFPTrunc(OpI->getOperand(1),
-                                                CI.getType());
-      Instruction *RI = BinaryOperator::CreateFNeg(InnerTrunc);
-      RI->copyFastMathFlags(OpI);
-      return RI;
+      Value *InnerTrunc = Builder.CreateFPTrunc(OpI->getOperand(1), Ty);
+      return BinaryOperator::CreateFNegFMF(InnerTrunc, OpI);
     }
   }
 
@@ -1570,26 +1595,25 @@ Instruction *InstCombiner::visitFPTrunc(FPTruncInst &CI) {
   // ruin min/max canonical form which is to have the select and
   // compare's operands be of the same type with no casts to look through.
   Value *LHS, *RHS;
-  SelectInst *SI = dyn_cast<SelectInst>(CI.getOperand(0));
+  SelectInst *SI = dyn_cast<SelectInst>(FPT.getOperand(0));
   if (SI &&
       (isa<ConstantFP>(SI->getOperand(1)) ||
        isa<ConstantFP>(SI->getOperand(2))) &&
       matchSelectPattern(SI, LHS, RHS).Flavor == SPF_UNKNOWN) {
-    Value *LHSTrunc = Builder.CreateFPTrunc(SI->getOperand(1), CI.getType());
-    Value *RHSTrunc = Builder.CreateFPTrunc(SI->getOperand(2), CI.getType());
+    Value *LHSTrunc = Builder.CreateFPTrunc(SI->getOperand(1), Ty);
+    Value *RHSTrunc = Builder.CreateFPTrunc(SI->getOperand(2), Ty);
     return SelectInst::Create(SI->getOperand(0), LHSTrunc, RHSTrunc);
   }
 
-  IntrinsicInst *II = dyn_cast<IntrinsicInst>(CI.getOperand(0));
-  if (II) {
+  if (auto *II = dyn_cast<IntrinsicInst>(FPT.getOperand(0))) {
     switch (II->getIntrinsicID()) {
     default: break;
-    case Intrinsic::fabs:
     case Intrinsic::ceil:
+    case Intrinsic::fabs:
     case Intrinsic::floor:
+    case Intrinsic::nearbyint:
     case Intrinsic::rint:
     case Intrinsic::round:
-    case Intrinsic::nearbyint:
     case Intrinsic::trunc: {
       Value *Src = II->getArgOperand(0);
       if (!Src->hasOneUse())
@@ -1600,30 +1624,26 @@ Instruction *InstCombiner::visitFPTrunc(FPTruncInst &CI) {
       // truncating.
       if (II->getIntrinsicID() != Intrinsic::fabs) {
         FPExtInst *FPExtSrc = dyn_cast<FPExtInst>(Src);
-        if (!FPExtSrc || FPExtSrc->getOperand(0)->getType() != CI.getType())
+        if (!FPExtSrc || FPExtSrc->getSrcTy() != Ty)
           break;
       }
 
       // Do unary FP operation on smaller type.
       // (fptrunc (fabs x)) -> (fabs (fptrunc x))
-      Value *InnerTrunc = Builder.CreateFPTrunc(Src, CI.getType());
-      Type *IntrinsicType[] = { CI.getType() };
-      Function *Overload = Intrinsic::getDeclaration(
-        CI.getModule(), II->getIntrinsicID(), IntrinsicType);
-
+      Value *InnerTrunc = Builder.CreateFPTrunc(Src, Ty);
+      Function *Overload = Intrinsic::getDeclaration(FPT.getModule(),
+                                                     II->getIntrinsicID(), Ty);
       SmallVector<OperandBundleDef, 1> OpBundles;
       II->getOperandBundlesAsDefs(OpBundles);
-
-      Value *Args[] = { InnerTrunc };
-      CallInst *NewCI =  CallInst::Create(Overload, Args,
-                                          OpBundles, II->getName());
+      CallInst *NewCI = CallInst::Create(Overload, { InnerTrunc }, OpBundles,
+                                         II->getName());
       NewCI->copyFastMathFlags(II);
       return NewCI;
     }
     }
   }
 
-  if (Instruction *I = shrinkInsertElt(CI, Builder))
+  if (Instruction *I = shrinkInsertElt(FPT, Builder))
     return I;
 
   return nullptr;
@@ -1761,7 +1781,7 @@ Instruction *InstCombiner::visitPtrToInt(PtrToIntInst &CI) {
   Type *Ty = CI.getType();
   unsigned AS = CI.getPointerAddressSpace();
 
-  if (Ty->getScalarSizeInBits() == DL.getPointerSizeInBits(AS))
+  if (Ty->getScalarSizeInBits() == DL.getIndexSizeInBits(AS))
     return commonPointerCastTransforms(CI);
 
   Type *PtrTy = DL.getIntPtrType(CI.getContext(), AS);
@@ -2014,13 +2034,13 @@ static Instruction *foldBitCastBitwiseLogic(BitCastInst &BitCast,
       !match(BitCast.getOperand(0), m_OneUse(m_BinOp(BO))) ||
       !BO->isBitwiseLogicOp())
     return nullptr;
-  
+
   // FIXME: This transform is restricted to vector types to avoid backend
   // problems caused by creating potentially illegal operations. If a fix-up is
   // added to handle that situation, we can remove this check.
   if (!DestTy->isVectorTy() || !BO->getType()->isVectorTy())
     return nullptr;
-  
+
   Value *X;
   if (match(BO->getOperand(0), m_OneUse(m_BitCast(m_Value(X)))) &&
       X->getType() == DestTy && !isa<Constant>(X)) {

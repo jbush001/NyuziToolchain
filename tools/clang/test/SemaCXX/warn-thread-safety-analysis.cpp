@@ -1048,7 +1048,7 @@ void main() {
 namespace thread_annot_lock_61_modified {
   // Modified to fix the compiler errors
   // Test the fix for a bug introduced by the support of pass-by-reference
-  // paramters.
+  // parameters.
   struct Foo { Foo &operator<< (bool) {return *this;} };
   Foo &getFoo();
   struct Bar { Foo &func () {return getFoo();} };
@@ -1804,7 +1804,7 @@ struct TestTryLock {
     bool b = mu.TryLock();
 
     while (cond) {
-      if (b) {   // b should be uknown at this point b/c of the loop
+      if (b) {   // b should be unknown at this point b/c of the loop
         a = 10;  // expected-warning {{writing variable 'a' requires holding mutex 'mu' exclusively}}
       }
       b = !b;
@@ -1933,7 +1933,7 @@ void test() {
 
   f1.mu_.Unlock();
   bt.barTD(&f1);  // \
-    // expected-warning {{calling function 'barTD' requires holding mutex 'f1.mu_' exclusively}} \
+    // expected-warning {{calling function 'barTD<TestTemplateAttributeInstantiation::Foo1>' requires holding mutex 'f1.mu_' exclusively}} \
     // expected-note {{found near match 'bt.fooBase.mu_'}}
 
   bt.fooBase.mu_.Unlock();
@@ -2130,10 +2130,10 @@ void test() {
   myFoo.foo3(&myFoo);  // \
     // expected-warning {{calling function 'foo3' requires holding mutex 'myFoo.mu_' exclusively}}
   myFoo.fooT1(dummy);  // \
-    // expected-warning {{calling function 'fooT1' requires holding mutex 'myFoo.mu_' exclusively}}
+    // expected-warning {{calling function 'fooT1<int>' requires holding mutex 'myFoo.mu_' exclusively}}
 
   myFoo.fooT2(dummy);  // \
-    // expected-warning {{calling function 'fooT2' requires holding mutex 'myFoo.mu_' exclusively}}
+    // expected-warning {{calling function 'fooT2<int>' requires holding mutex 'myFoo.mu_' exclusively}}
 
   fooF1(&myFoo);  // \
     // expected-warning {{calling function 'fooF1' requires holding mutex 'myFoo.mu_' exclusively}}
@@ -3565,7 +3565,7 @@ void Foo::elr(Cell<T>* c1) { }
 void Foo::test() {
   Cell<int> cell;
   elr(&cell); // \
-    // expected-warning {{calling function 'elr' requires holding mutex 'cell.mu_' exclusively}}
+    // expected-warning {{calling function 'elr<int>' requires holding mutex 'cell.mu_' exclusively}}
 }
 
 
@@ -3578,7 +3578,7 @@ void globalELR(Cell<T>* c1) { }
 void globalTest() {
   Cell<int> cell;
   globalELR(&cell); // \
-    // expected-warning {{calling function 'globalELR' requires holding mutex 'cell.mu_' exclusively}}
+    // expected-warning {{calling function 'globalELR<int>' requires holding mutex 'cell.mu_' exclusively}}
 }
 
 
@@ -3599,7 +3599,7 @@ void globalELR2(Cell<T>* c4);
 void globalTest2() {
   Cell<int> cell;
   globalELR2(&cell); // \
-    // expected-warning {{calling function 'globalELR2' requires holding mutex 'cell.mu_' exclusively}}
+    // expected-warning {{calling function 'globalELR2<int>' requires holding mutex 'cell.mu_' exclusively}}
 }
 
 
