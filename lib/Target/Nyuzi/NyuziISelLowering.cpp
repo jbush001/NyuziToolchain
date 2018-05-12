@@ -937,7 +937,7 @@ SDValue NyuziTargetLowering::LowerBUILD_VECTOR(SDValue Op,
 SDValue NyuziTargetLowering::LowerVECTOR_SHUFFLE(SDValue Op,
                                                  SelectionDAG &DAG) const {
   MVT VT = Op.getValueType().getSimpleVT();
-  ShuffleVectorSDNode *ShuffleNode = dyn_cast<ShuffleVectorSDNode>(Op);
+  ShuffleVectorSDNode *ShuffleNode = cast<ShuffleVectorSDNode>(Op);
   SDLoc DL(Op);
 
   if (VT == MVT::v16i1) {
@@ -1003,7 +1003,7 @@ SDValue NyuziTargetLowering::LowerVECTOR_SHUFFLE(SDValue Op,
     //                         <16 x i32> <...index...>
     if (Op.getOperand(0).getOpcode() == ISD::INSERT_VECTOR_ELT &&
         SplatIndex ==
-            dyn_cast<ConstantSDNode>(Op.getOperand(0).getOperand(2))
+            cast<ConstantSDNode>(Op.getOperand(0).getOperand(2))
                 ->getSExtValue()) {
       return DAG.getNode(NyuziISD::SPLAT, DL, VT,
                          Op.getOperand(0).getOperand(1));
