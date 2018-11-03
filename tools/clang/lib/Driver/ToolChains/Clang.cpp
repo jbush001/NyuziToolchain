@@ -4443,7 +4443,6 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
                     options::OPT_fno_gnu_inline_asm, true))
     CmdArgs.push_back("-fno-gnu-inline-asm");
 
-#if 0
   // XXX Nyuzi: disable loop vectorizer by default, because it does not
   // work correctly on this target.  This is a hack. I couldn't find an
   // easy way to do it in the target.
@@ -4465,7 +4464,6 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
   if (Args.hasFlag(options::OPT_fslp_vectorize, SLPVectAliasOption,
                    options::OPT_fno_slp_vectorize, EnableSLPVec))
     CmdArgs.push_back("-vectorize-slp");
-#endif
 
   ParseMPreferVectorWidth(D, Args, CmdArgs);
 

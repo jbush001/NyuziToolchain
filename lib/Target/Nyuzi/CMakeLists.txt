@@ -24,6 +24,7 @@ add_llvm_target(NyuziCodeGen
   NyuziTargetMachine.cpp
   NyuziMCInstLower.cpp
   NyuziTargetObjectFile.cpp
+  NyuziTargetTransformInfo.cpp
   )
 
 add_dependencies(LLVMNyuziCodeGen intrinsics_gen)
