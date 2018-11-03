@@ -15,6 +15,7 @@
 #define LLVM_LIB_TARGET_NYUZI_NYUZITARGETMACHINE_H
 
 #include "NyuziSubtarget.h"
+#include "llvm/Analysis/TargetTransformInfo.h"
 #include "llvm/Target/TargetMachine.h"
 
 namespace llvm {
@@ -42,6 +43,8 @@ public:
   bool isMachineVerifierClean() const override {
     return false;
   }
+
+  TargetTransformInfo getTargetTransformInfo(const Function &F) override;
 };
 
 } // end namespace llvm
