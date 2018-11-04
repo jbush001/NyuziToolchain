@@ -4443,10 +4443,6 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
                     options::OPT_fno_gnu_inline_asm, true))
     CmdArgs.push_back("-fno-gnu-inline-asm");
 
-  // XXX Nyuzi: disable loop vectorizer by default, because it does not
-  // work correctly on this target.  This is a hack. I couldn't find an
-  // easy way to do it in the target.
-
   // Enable vectorization per default according to the optimization level
   // selected. For optimization levels that want vectorization we use the alias
   // option to simplify the hasFlag logic.
