@@ -15,7 +15,7 @@
 #include "llvm/ADT/Statistic.h"
 #include "llvm/Bitcode/BitcodeReader.h"
 #include "llvm/Bitcode/BitcodeWriter.h"
-#include "llvm/CodeGen/CommandFlags.def"
+#include "llvm/CodeGen/CommandFlags.inc"
 #include "llvm/Config/config.h" // plugin-api.h requires HAVE_STDINT_H
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DiagnosticPrinter.h"
@@ -115,6 +115,7 @@ static ld_plugin_add_input_file add_input_file = nullptr;
 static ld_plugin_set_extra_library_path set_extra_library_path = nullptr;
 static ld_plugin_get_view get_view = nullptr;
 static bool IsExecutable = false;
+static bool SplitSections = true;
 static Optional<Reloc::Model> RelocationModel = None;
 static std::string output_name = "";
 static std::list<claimed_file> Modules;
@@ -199,6 +200,14 @@ namespace options {
   static bool new_pass_manager = false;
   // Debug new pass manager
   static bool debug_pass_manager = false;
+  // Directory to store the .dwo files.
+  static std::string dwo_dir;
+  /// Statistics output filename.
+  static std::string stats_file;
+
+  // Optimization remarks filename and hotness options
+  static std::string OptRemarksFilename;
+  static bool OptRemarksWithHotness = false;
 
   static void process_plugin_option(const char *opt_)
   {
@@ -262,6 +271,14 @@ namespace options {
       new_pass_manager = true;
     } else if (opt == "debug-pass-manager") {
       debug_pass_manager = true;
+    } else if (opt.startswith("dwo_dir=")) {
+      dwo_dir = opt.substr(strlen("dwo_dir="));
+    } else if (opt.startswith("opt-remarks-filename=")) {
+      OptRemarksFilename = opt.substr(strlen("opt-remarks-filename="));
+    } else if (opt == "opt-remarks-with-hotness") {
+      OptRemarksWithHotness = true;
+    } else if (opt.startswith("stats-file=")) {
+      stats_file = opt.substr(strlen("stats-file="));
     } else {
       // Save this option to pass to the code generator.
       // ParseCommandLineOptions() expects argv[0] to be program name. Lazily
@@ -308,6 +325,7 @@ ld_plugin_status onload(ld_plugin_tv *tv) {
       switch (tv->tv_u.tv_val) {
       case LDPO_REL: // .o
         IsExecutable = false;
+        SplitSections = false;
         break;
       case LDPO_DYN: // .so
         IsExecutable = false;
@@ -429,8 +447,8 @@ static void diagnosticHandler(const DiagnosticInfo &DI) {
   ld_plugin_level Level;
   switch (DI.getSeverity()) {
   case DS_Error:
-    message(LDPL_FATAL, "LLVM gold plugin has failed to create LTO module: %s",
-            ErrStorage.c_str());
+    Level = LDPL_FATAL;
+    break;
   case DS_Warning:
     Level = LDPL_WARNING;
     break;
@@ -649,13 +667,9 @@ static void getThinLTOOldAndNewSuffix(std::string &OldSuffix,
 /// suffix matching \p OldSuffix with \p NewSuffix.
 static std::string getThinLTOObjectFileName(StringRef Path, StringRef OldSuffix,
                                             StringRef NewSuffix) {
-  if (OldSuffix.empty() && NewSuffix.empty())
-    return Path;
-  StringRef NewPath = Path;
-  NewPath.consume_back(OldSuffix);
-  std::string NewNewPath = NewPath;
-  NewNewPath += NewSuffix;
-  return NewNewPath;
+  if (Path.consume_back(OldSuffix))
+    return (Path + NewSuffix).str();
+  return Path;
 }
 
 // Returns true if S is valid as a C language identifier.
@@ -771,7 +785,7 @@ static int getOutputFileName(StringRef InFilename, bool TempOutFile,
     if (TaskID > 0)
       NewFilename += utostr(TaskID);
     std::error_code EC =
-        sys::fs::openFileForWrite(NewFilename, FD, sys::fs::F_None);
+        sys::fs::openFileForWrite(NewFilename, FD, sys::fs::CD_CreateAlways);
     if (EC)
       message(LDPL_FATAL, "Could not open file %s: %s", NewFilename.c_str(),
               EC.message().c_str());
@@ -818,12 +832,13 @@ static std::unique_ptr<LTO> createLTO(IndexWriteCallback OnIndexWrite,
   // FIXME: Check the gold version or add a new option to enable them.
   Conf.Options.RelaxELFRelocations = false;
 
-  // Enable function/data sections by default.
-  Conf.Options.FunctionSections = true;
-  Conf.Options.DataSections = true;
+  // Toggle function/data sections.
+  Conf.Options.FunctionSections = SplitSections;
+  Conf.Options.DataSections = SplitSections;
 
   Conf.MAttrs = MAttrs;
   Conf.RelocModel = RelocationModel;
+  Conf.CodeModel = getCodeModel();
   Conf.CGOptLevel = getCGOptLevel();
   Conf.DisableVerify = options::DisableVerify;
   Conf.OptLevel = options::OptLevel;
@@ -870,11 +885,18 @@ static std::unique_ptr<LTO> createLTO(IndexWriteCallback OnIndexWrite,
   if (!options::sample_profile.empty())
     Conf.SampleProfile = options::sample_profile;
 
+  Conf.DwoDir = options::dwo_dir;
+
+  // Set up optimization remarks handling.
+  Conf.RemarksFilename = options::OptRemarksFilename;
+  Conf.RemarksWithHotness = options::OptRemarksWithHotness;
+
   // Use new pass manager if set in driver
   Conf.UseNewPM = options::new_pass_manager;
   // Debug new pass manager if requested
   Conf.DebugPassManager = options::debug_pass_manager;
 
+  Conf.StatsFile = options::stats_file;
   return llvm::make_unique<LTO>(std::move(Conf), Backend,
                                 options::ParallelCodeGenParallelismLevel);
 }
@@ -904,7 +926,7 @@ static void writeEmptyDistributedBuildOutputs(const std::string &ModulePath,
               (NewModulePath + ".thinlto.bc").c_str(), EC.message().c_str());
 
     if (SkipModule) {
-      ModuleSummaryIndex Index(false);
+      ModuleSummaryIndex Index(/*HaveGVs*/ false);
       Index.setSkipModuleByDistributedBackend();
       WriteIndexToFile(Index, OS, nullptr);
     }
@@ -1037,8 +1059,7 @@ static ld_plugin_status allSymbolsReadHook() {
     return LDPS_OK;
 
   if (options::thinlto_index_only) {
-    if (llvm::AreStatisticsEnabled())
-      llvm::PrintStatistics();
+    llvm_shutdown();
     cleanup_hook();
     exit(0);
   }

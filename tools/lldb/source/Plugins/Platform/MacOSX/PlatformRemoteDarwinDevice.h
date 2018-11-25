@@ -10,12 +10,8 @@
 #ifndef liblldb_PlatformRemoteDarwinDevice_h_
 #define liblldb_PlatformRemoteDarwinDevice_h_
 
-// C Includes
-// C++ Includes
 #include <string>
 
-// Other libraries and framework includes
-// Project includes
 #include "PlatformDarwin.h"
 #include "lldb/Utility/FileSpec.h"
 
@@ -60,9 +56,7 @@ protected:
     SDKDirectoryInfo(const lldb_private::FileSpec &sdk_dir_spec);
     lldb_private::FileSpec directory;
     lldb_private::ConstString build;
-    uint32_t version_major;
-    uint32_t version_minor;
-    uint32_t version_update;
+    llvm::VersionTuple version;
     bool user_cached;
   };
 
@@ -86,10 +80,10 @@ protected:
 
   const SDKDirectoryInfo *GetSDKDirectoryForCurrentOSVersion();
 
-  static lldb_private::FileSpec::EnumerateDirectoryResult
-  GetContainedFilesIntoVectorOfStringsCallback(
-      void *baton, llvm::sys::fs::file_type ft,
-      const lldb_private::FileSpec &file_spec);
+  static lldb_private::FileSystem::EnumerateDirectoryResult
+  GetContainedFilesIntoVectorOfStringsCallback(void *baton,
+                                               llvm::sys::fs::file_type ft,
+                                               llvm::StringRef path);
 
   uint32_t FindFileInAllSDKs(const char *platform_file_path,
                              lldb_private::FileSpecList &file_list);

@@ -1,3 +1,5 @@
+include_directories(include)
+
 set(LLVM_LINK_COMPONENTS
   AllTargetsAsmPrinters
   AllTargetsAsmParsers
@@ -10,22 +12,21 @@ set(LLVM_LINK_COMPONENTS
   )
 
 add_llvm_tool(llvm-mca
-  Backend.cpp
-  BackendPrinter.cpp
-  BackendStatistics.cpp
-  Dispatch.cpp
-  HWEventListener.cpp
-  InstrBuilder.cpp
-  Instruction.cpp
-  InstructionInfoView.cpp
-  InstructionTables.cpp
-  LSUnit.cpp
   llvm-mca.cpp
-  RegisterFileStatistics.cpp
-  ResourcePressureView.cpp
-  Scheduler.cpp
-  Support.cpp
-  SummaryView.cpp
-  TimelineView.cpp
-  View.cpp
+  CodeRegion.cpp
+  CodeRegionGenerator.cpp
+  PipelinePrinter.cpp
+  Views/DispatchStatistics.cpp
+  Views/InstructionInfoView.cpp
+  Views/RegisterFileStatistics.cpp
+  Views/ResourcePressureView.cpp
+  Views/RetireControlUnitStatistics.cpp
+  Views/SchedulerStatistics.cpp
+  Views/SummaryView.cpp
+  Views/TimelineView.cpp
+  Views/View.cpp
   )
+
+set(LLVM_MCA_SOURCE_DIR ${CURRENT_SOURCE_DIR})
+add_subdirectory(lib)
+target_link_libraries(llvm-mca PRIVATE LLVMMCA)

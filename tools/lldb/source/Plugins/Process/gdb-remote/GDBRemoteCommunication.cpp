@@ -9,21 +9,22 @@
 
 #include "GDBRemoteCommunication.h"
 
-// C Includes
+#include <future>
 #include <limits.h>
 #include <string.h>
 #include <sys/stat.h>
 
-// C++ Includes
-// Other libraries and framework includes
 #include "lldb/Core/StreamFile.h"
 #include "lldb/Host/ConnectionFileDescriptor.h"
+#include "lldb/Host/FileSystem.h"
 #include "lldb/Host/Host.h"
 #include "lldb/Host/HostInfo.h"
 #include "lldb/Host/Pipe.h"
 #include "lldb/Host/Socket.h"
 #include "lldb/Host/StringConvert.h"
 #include "lldb/Host/ThreadLauncher.h"
+#include "lldb/Host/common/TCPSocket.h"
+#include "lldb/Host/posix/ConnectionFileDescriptorPosix.h"
 #include "lldb/Target/Platform.h"
 #include "lldb/Target/Process.h"
 #include "lldb/Utility/FileSpec.h"
@@ -33,7 +34,6 @@
 #include "llvm/ADT/SmallString.h"
 #include "llvm/Support/ScopedPrinter.h"
 
-// Project includes
 #include "ProcessGDBRemoteLog.h"
 
 #if defined(__APPLE__)
@@ -53,78 +53,6 @@
 using namespace lldb;
 using namespace lldb_private;
 using namespace lldb_private::process_gdb_remote;
-
-GDBRemoteCommunication::History::History(uint32_t size)
-    : m_packets(), m_curr_idx(0), m_total_packet_count(0),
-      m_dumped_to_log(false) {
-  m_packets.resize(size);
-}
-
-GDBRemoteCommunication::History::~History() {}
-
-void GDBRemoteCommunication::History::AddPacket(char packet_char,
-                                                PacketType type,
-                                                uint32_t bytes_transmitted) {
-  const size_t size = m_packets.size();
-  if (size > 0) {
-    const uint32_t idx = GetNextIndex();
-    m_packets[idx].packet.assign(1, packet_char);
-    m_packets[idx].type = type;
-    m_packets[idx].bytes_transmitted = bytes_transmitted;
-    m_packets[idx].packet_idx = m_total_packet_count;
-    m_packets[idx].tid = llvm::get_threadid();
-  }
-}
-
-void GDBRemoteCommunication::History::AddPacket(const std::string &src,
-                                                uint32_t src_len,
-                                                PacketType type,
-                                                uint32_t bytes_transmitted) {
-  const size_t size = m_packets.size();
-  if (size > 0) {
-    const uint32_t idx = GetNextIndex();
-    m_packets[idx].packet.assign(src, 0, src_len);
-    m_packets[idx].type = type;
-    m_packets[idx].bytes_transmitted = bytes_transmitted;
-    m_packets[idx].packet_idx = m_total_packet_count;
-    m_packets[idx].tid = llvm::get_threadid();
-  }
-}
-
-void GDBRemoteCommunication::History::Dump(Stream &strm) const {
-  const uint32_t size = GetNumPacketsInHistory();
-  const uint32_t first_idx = GetFirstSavedPacketIndex();
-  const uint32_t stop_idx = m_curr_idx + size;
-  for (uint32_t i = first_idx; i < stop_idx; ++i) {
-    const uint32_t idx = NormalizeIndex(i);
-    const Entry &entry = m_packets[idx];
-    if (entry.type == ePacketTypeInvalid || entry.packet.empty())
-      break;
-    strm.Printf("history[%u] tid=0x%4.4" PRIx64 " <%4u> %s packet: %s\n",
-                entry.packet_idx, entry.tid, entry.bytes_transmitted,
-                (entry.type == ePacketTypeSend) ? "send" : "read",
-                entry.packet.c_str());
-  }
-}
-
-void GDBRemoteCommunication::History::Dump(Log *log) const {
-  if (log && !m_dumped_to_log) {
-    m_dumped_to_log = true;
-    const uint32_t size = GetNumPacketsInHistory();
-    const uint32_t first_idx = GetFirstSavedPacketIndex();
-    const uint32_t stop_idx = m_curr_idx + size;
-    for (uint32_t i = first_idx; i < stop_idx; ++i) {
-      const uint32_t idx = NormalizeIndex(i);
-      const Entry &entry = m_packets[idx];
-      if (entry.type == ePacketTypeInvalid || entry.packet.empty())
-        break;
-      log->Printf("history[%u] tid=0x%4.4" PRIx64 " <%4u> %s packet: %s",
-                  entry.packet_idx, entry.tid, entry.bytes_transmitted,
-                  (entry.type == ePacketTypeSend) ? "send" : "read",
-                  entry.packet.c_str());
-    }
-  }
-}
 
 //----------------------------------------------------------------------
 // GDBRemoteCommunication constructor
@@ -150,9 +78,8 @@ GDBRemoteCommunication::~GDBRemoteCommunication() {
     Disconnect();
   }
 
-  // Stop the communications read thread which is used to parse all
-  // incoming packets.  This function will block until the read
-  // thread returns.
+  // Stop the communications read thread which is used to parse all incoming
+  // packets.  This function will block until the read thread returns.
   if (m_read_thread_enabled)
     StopReadThread();
 }
@@ -173,7 +100,8 @@ size_t GDBRemoteCommunication::SendAck() {
   const size_t bytes_written = Write(&ch, 1, status, NULL);
   if (log)
     log->Printf("<%4" PRIu64 "> send packet: %c", (uint64_t)bytes_written, ch);
-  m_history.AddPacket(ch, History::ePacketTypeSend, bytes_written);
+  m_history.AddPacket(ch, GDBRemoteCommunicationHistory::ePacketTypeSend,
+                      bytes_written);
   return bytes_written;
 }
 
@@ -184,26 +112,31 @@ size_t GDBRemoteCommunication::SendNack() {
   const size_t bytes_written = Write(&ch, 1, status, NULL);
   if (log)
     log->Printf("<%4" PRIu64 "> send packet: %c", (uint64_t)bytes_written, ch);
-  m_history.AddPacket(ch, History::ePacketTypeSend, bytes_written);
+  m_history.AddPacket(ch, GDBRemoteCommunicationHistory::ePacketTypeSend,
+                      bytes_written);
   return bytes_written;
 }
 
 GDBRemoteCommunication::PacketResult
 GDBRemoteCommunication::SendPacketNoLock(llvm::StringRef payload) {
-  if (IsConnected()) {
     StreamString packet(0, 4, eByteOrderBig);
-
     packet.PutChar('$');
     packet.Write(payload.data(), payload.size());
     packet.PutChar('#');
     packet.PutHex8(CalculcateChecksum(payload));
+    std::string packet_str = packet.GetString();
 
+    return SendRawPacketNoLock(packet_str);
+}
+
+GDBRemoteCommunication::PacketResult
+GDBRemoteCommunication::SendRawPacketNoLock(llvm::StringRef packet,
+                                            bool skip_ack) {
+  if (IsConnected()) {
     Log *log(ProcessGDBRemoteLog::GetLogIfAllCategoriesSet(GDBR_LOG_PACKETS));
     ConnectionStatus status = eConnectionStatusSuccess;
-    // TODO: Don't shimmy through a std::string, just use StringRef.
-    std::string packet_str = packet.GetString();
-    const char *packet_data = packet_str.c_str();
-    const size_t packet_length = packet.GetSize();
+    const char *packet_data = packet.data();
+    const size_t packet_length = packet.size();
     size_t bytes_written = Write(packet_data, packet_length, status, NULL);
     if (log) {
       size_t binary_start_offset = 0;
@@ -217,12 +150,10 @@ GDBRemoteCommunication::SendPacketNoLock(llvm::StringRef payload) {
         }
       }
 
-      // If logging was just enabled and we have history, then dump out what
-      // we have to the log so we get the historical context. The Dump() call
-      // that
+      // If logging was just enabled and we have history, then dump out what we
+      // have to the log so we get the historical context. The Dump() call that
       // logs all of the packet will set a boolean so that we don't dump this
-      // more
-      // than once
+      // more than once
       if (!m_history.DidDumpToLog())
         m_history.Dump(log);
 
@@ -244,11 +175,12 @@ GDBRemoteCommunication::SendPacketNoLock(llvm::StringRef payload) {
                     (int)packet_length, packet_data);
     }
 
-    m_history.AddPacket(packet.GetString(), packet_length,
-                        History::ePacketTypeSend, bytes_written);
+    m_history.AddPacket(packet.str(), packet_length,
+                        GDBRemoteCommunicationHistory::ePacketTypeSend,
+                        bytes_written);
 
     if (bytes_written == packet_length) {
-      if (GetSendAcks())
+      if (!skip_ack && GetSendAcks())
         return GetAck();
       else
         return PacketResult::Success;
@@ -303,8 +235,8 @@ GDBRemoteCommunication::ReadPacket(StringExtractorGDBRemote &response,
 
 // This function is called when a packet is requested.
 // A whole packet is popped from the packet queue and returned to the caller.
-// Packets are placed into this queue from the communication read thread.
-// See GDBRemoteCommunication::AppendBytesToCache.
+// Packets are placed into this queue from the communication read thread. See
+// GDBRemoteCommunication::AppendBytesToCache.
 GDBRemoteCommunication::PacketResult
 GDBRemoteCommunication::PopPacketFromQueue(StringExtractorGDBRemote &response,
                                            Timeout<std::micro> timeout) {
@@ -424,11 +356,9 @@ GDBRemoteCommunication::WaitForPacketNoLock(StringExtractorGDBRemote &packet,
                   break;
                 } else if (successful_responses == 1) {
                   // We got something else back as the first successful
-                  // response, it probably is
-                  // the  response to the packet we actually wanted, so copy it
-                  // over if this
-                  // is the first success and continue to try to get the qEcho
-                  // response
+                  // response, it probably is the  response to the packet we
+                  // actually wanted, so copy it over if this is the first
+                  // success and continue to try to get the qEcho response
                   packet = echo_response;
                   got_actual_response = true;
                 }
@@ -441,14 +371,13 @@ GDBRemoteCommunication::WaitForPacketNoLock(StringExtractorGDBRemote &packet,
           }
 
           // We weren't able to sync back up with the server, we must abort
-          // otherwise
-          // all responses might not be from the right packets...
+          // otherwise all responses might not be from the right packets...
           if (sync_success) {
             // We timed out, but were able to recover
             if (got_actual_response) {
               // We initially timed out, but we did get a response that came in
-              // before the successful
-              // reply to our qEcho packet, so lets say everything is fine...
+              // before the successful reply to our qEcho packet, so lets say
+              // everything is fine...
               return PacketResult::Success;
             }
           } else {
@@ -490,10 +419,9 @@ bool GDBRemoteCommunication::DecompressPacket() {
 
   size_t pkt_size = m_bytes.size();
 
-  // Smallest possible compressed packet is $N#00 - an uncompressed empty reply,
-  // most commonly indicating
-  // an unsupported packet.  Anything less than 5 characters, it's definitely
-  // not a compressed packet.
+  // Smallest possible compressed packet is $N#00 - an uncompressed empty
+  // reply, most commonly indicating an unsupported packet.  Anything less than
+  // 5 characters, it's definitely not a compressed packet.
   if (pkt_size < 5)
     return true;
 
@@ -522,17 +450,15 @@ bool GDBRemoteCommunication::DecompressPacket() {
       1; // The first character of the two hex checksum characters
 
   // Normally size_of_first_packet == m_bytes.size() but m_bytes may contain
-  // multiple packets.
-  // size_of_first_packet is the size of the initial packet which we'll replace
-  // with the decompressed
-  // version of, leaving the rest of m_bytes unmodified.
+  // multiple packets. size_of_first_packet is the size of the initial packet
+  // which we'll replace with the decompressed version of, leaving the rest of
+  // m_bytes unmodified.
   size_t size_of_first_packet = hash_mark_idx + 3;
 
   // Compressed packets ("$C") start with a base10 number which is the size of
-  // the uncompressed payload,
-  // then a : and then the compressed data.  e.g. $C1024:<binary>#00
-  // Update content_start and content_length to only include the <binary> part
-  // of the packet.
+  // the uncompressed payload, then a : and then the compressed data.  e.g.
+  // $C1024:<binary>#00 Update content_start and content_length to only include
+  // the <binary> part of the packet.
 
   uint64_t decompressed_bufsize = ULONG_MAX;
   if (m_bytes[1] == 'C') {
@@ -581,15 +507,14 @@ bool GDBRemoteCommunication::DecompressPacket() {
   }
 
   if (m_bytes[1] == 'N') {
-    // This packet was not compressed -- delete the 'N' character at the
-    // start and the packet may be processed as-is.
+    // This packet was not compressed -- delete the 'N' character at the start
+    // and the packet may be processed as-is.
     m_bytes.erase(1, 1);
     return true;
   }
 
-  // Reverse the gdb-remote binary escaping that was done to the compressed text
-  // to
-  // guard characters like '$', '#', '}', etc.
+  // Reverse the gdb-remote binary escaping that was done to the compressed
+  // text to guard characters like '$', '#', '}', etc.
   std::vector<uint8_t> unescaped_content;
   unescaped_content.reserve(content_length);
   size_t i = content_start;
@@ -630,12 +555,10 @@ bool GDBRemoteCommunication::DecompressPacket() {
     else if (m_compression_type == CompressionType::LZMA)
       compression_type = COMPRESSION_LZMA;
 
-    // If we have the expected size of the decompressed payload, we can allocate
-    // the right-sized buffer and do it.  If we don't have that information,
-    // we'll
-    // need to try decoding into a big buffer and if the buffer wasn't big
-    // enough,
-    // increase it and try again.
+    // If we have the expected size of the decompressed payload, we can
+    // allocate the right-sized buffer and do it.  If we don't have that
+    // information, we'll need to try decoding into a big buffer and if the
+    // buffer wasn't big enough, increase it and try again.
 
     if (decompressed_bufsize != ULONG_MAX && decompressed_buffer != nullptr) {
       decompressed_bytes = compression_decode_buffer(
@@ -723,9 +646,8 @@ GDBRemoteCommunication::CheckForPacket(const uint8_t *src, size_t src_len,
 
   // Parse up the packets into gdb remote packets
   if (!m_bytes.empty()) {
-    // end_idx must be one past the last valid packet byte. Start
-    // it off with an invalid value that is the same as the current
-    // index.
+    // end_idx must be one past the last valid packet byte. Start it off with
+    // an invalid value that is the same as the current index.
     size_t content_start = 0;
     size_t content_length = 0;
     size_t total_length = 0;
@@ -760,7 +682,8 @@ GDBRemoteCommunication::CheckForPacket(const uint8_t *src, size_t src_len,
             checksum_idx = hash_pos + 1;
             // Skip the dollar sign
             content_start = 1;
-            // Don't include the # in the content or the $ in the content length
+            // Don't include the # in the content or the $ in the content
+            // length
             content_length = hash_pos - 1;
 
             total_length =
@@ -774,11 +697,10 @@ GDBRemoteCommunication::CheckForPacket(const uint8_t *src, size_t src_len,
       break;
 
     default: {
-      // We have an unexpected byte and we need to flush all bad
-      // data that is in m_bytes, so we need to find the first
-      // byte that is a '+' (ACK), '-' (NACK), \x03 (CTRL+C interrupt),
-      // or '$' character (start of packet header) or of course,
-      // the end of the data in m_bytes...
+      // We have an unexpected byte and we need to flush all bad data that is
+      // in m_bytes, so we need to find the first byte that is a '+' (ACK), '-'
+      // (NACK), \x03 (CTRL+C interrupt), or '$' character (start of packet
+      // header) or of course, the end of the data in m_bytes...
       const size_t bytes_len = m_bytes.size();
       bool done = false;
       uint32_t idx;
@@ -819,16 +741,14 @@ GDBRemoteCommunication::CheckForPacket(const uint8_t *src, size_t src_len,
       if (log) {
         // If logging was just enabled and we have history, then dump out what
         // we have to the log so we get the historical context. The Dump() call
-        // that
-        // logs all of the packet will set a boolean so that we don't dump this
-        // more
-        // than once
+        // that logs all of the packet will set a boolean so that we don't dump
+        // this more than once
         if (!m_history.DidDumpToLog())
           m_history.Dump(log);
 
         bool binary = false;
-        // Only detect binary for packets that start with a '$' and have a '#CC'
-        // checksum
+        // Only detect binary for packets that start with a '$' and have a
+        // '#CC' checksum
         if (m_bytes[0] == '$' && total_length > 4) {
           for (size_t i = 0; !binary && i < total_length; ++i) {
             unsigned char c = m_bytes[i];
@@ -851,8 +771,8 @@ GDBRemoteCommunication::CheckForPacket(const uint8_t *src, size_t src_len,
             // Remove binary escaped bytes when displaying the packet...
             const char ch = m_bytes[i];
             if (ch == 0x7d) {
-              // 0x7d is the escape character.  The next character is to
-              // be XOR'd with 0x20.
+              // 0x7d is the escape character.  The next character is to be
+              // XOR'd with 0x20.
               const char escapee = m_bytes[++i] ^ 0x20;
               strm.Printf("%2.2x", escapee);
             } else {
@@ -875,31 +795,31 @@ GDBRemoteCommunication::CheckForPacket(const uint8_t *src, size_t src_len,
         }
       }
 
-      m_history.AddPacket(m_bytes, total_length, History::ePacketTypeRecv,
+      m_history.AddPacket(m_bytes, total_length,
+                          GDBRemoteCommunicationHistory::ePacketTypeRecv,
                           total_length);
 
       // Clear packet_str in case there is some existing data in it.
       packet_str.clear();
-      // Copy the packet from m_bytes to packet_str expanding the
-      // run-length encoding in the process.
-      // Reserve enough byte for the most common case (no RLE used)
+      // Copy the packet from m_bytes to packet_str expanding the run-length
+      // encoding in the process. Reserve enough byte for the most common case
+      // (no RLE used)
       packet_str.reserve(m_bytes.length());
       for (std::string::const_iterator c = m_bytes.begin() + content_start;
            c != m_bytes.begin() + content_end; ++c) {
         if (*c == '*') {
-          // '*' indicates RLE. Next character will give us the
-          // repeat count and previous character is what is to be
-          // repeated.
+          // '*' indicates RLE. Next character will give us the repeat count
+          // and previous character is what is to be repeated.
           char char_to_repeat = packet_str.back();
           // Number of time the previous character is repeated
           int repeat_count = *++c + 3 - ' ';
-          // We have the char_to_repeat and repeat_count. Now push
-          // it in the packet.
+          // We have the char_to_repeat and repeat_count. Now push it in the
+          // packet.
           for (int i = 0; i < repeat_count; ++i)
             packet_str.push_back(char_to_repeat);
         } else if (*c == 0x7d) {
-          // 0x7d is the escape character.  The next character is to
-          // be XOR'd with 0x20.
+          // 0x7d is the escape character.  The next character is to be XOR'd
+          // with 0x20.
           char escapee = *++c ^ 0x20;
           packet_str.push_back(escapee);
         } else {
@@ -1009,25 +929,26 @@ Status GDBRemoteCommunication::StartDebugserverProcess(
   char debugserver_path[PATH_MAX];
   FileSpec &debugserver_file_spec = launch_info.GetExecutableFile();
 
-  // Always check to see if we have an environment override for the path
-  // to the debugserver to use and use it if we do.
+  // Always check to see if we have an environment override for the path to the
+  // debugserver to use and use it if we do.
   const char *env_debugserver_path = getenv("LLDB_DEBUGSERVER_PATH");
   if (env_debugserver_path) {
-    debugserver_file_spec.SetFile(env_debugserver_path, false);
+    debugserver_file_spec.SetFile(env_debugserver_path,
+                                  FileSpec::Style::native);
     if (log)
       log->Printf("GDBRemoteCommunication::%s() gdb-remote stub exe path set "
                   "from environment variable: %s",
                   __FUNCTION__, env_debugserver_path);
   } else
     debugserver_file_spec = g_debugserver_file_spec;
-  bool debugserver_exists = debugserver_file_spec.Exists();
+  bool debugserver_exists =
+      FileSystem::Instance().Exists(debugserver_file_spec);
   if (!debugserver_exists) {
-    // The debugserver binary is in the LLDB.framework/Resources
-    // directory.
-    if (HostInfo::GetLLDBPath(ePathTypeSupportExecutableDir,
-                              debugserver_file_spec)) {
+    // The debugserver binary is in the LLDB.framework/Resources directory.
+    debugserver_file_spec = HostInfo::GetSupportExeDir();
+    if (debugserver_file_spec) {
       debugserver_file_spec.AppendPathComponent(DEBUGSERVER_BASENAME);
-      debugserver_exists = debugserver_file_spec.Exists();
+      debugserver_exists = FileSystem::Instance().Exists(debugserver_file_spec);
       if (debugserver_exists) {
         if (log)
           log->Printf(
@@ -1049,8 +970,7 @@ Status GDBRemoteCommunication::StartDebugserverProcess(
                         __FUNCTION__, debugserver_file_spec.GetPath().c_str());
         }
         // Don't cache the platform specific GDB server binary as it could
-        // change
-        // from platform to platform
+        // change from platform to platform
         g_debugserver_file_spec.Clear();
       }
     }
@@ -1098,14 +1018,14 @@ Status GDBRemoteCommunication::StartDebugserverProcess(
     // once data is written to the pipe, debug server is up and running.
     Pipe socket_pipe;
 
-    // port is null when debug server should listen on domain socket -
-    // we're not interested in port value but rather waiting for debug server
-    // to become available.
+    // port is null when debug server should listen on domain socket - we're
+    // not interested in port value but rather waiting for debug server to
+    // become available.
     if (pass_comm_fd == -1) {
       if (url) {
-// Create a temporary file to get the stdout/stderr and redirect the
-// output of the command into this file. We will later read this file
-// if all goes well and fill the data into "command_output_ptr"
+// Create a temporary file to get the stdout/stderr and redirect the output of
+// the command into this file. We will later read this file if all goes well
+// and fill the data into "command_output_ptr"
 #if defined(__APPLE__)
         // Binding to port zero, we need to figure out what port it ends up
         // using using a named pipe...
@@ -1138,8 +1058,7 @@ Status GDBRemoteCommunication::StartDebugserverProcess(
 #endif
       } else {
         // No host and port given, so lets listen on our end and make the
-        // debugserver
-        // connect to us..
+        // debugserver connect to us..
         error = StartListenThread("127.0.0.1", 0);
         if (error.Fail()) {
           if (log)
@@ -1152,7 +1071,7 @@ Status GDBRemoteCommunication::StartDebugserverProcess(
         ConnectionFileDescriptor *connection =
             (ConnectionFileDescriptor *)GetConnection();
         // Wait for 10 seconds to resolve the bound port
-        uint16_t port_ = connection->GetListeningPort(10);
+        uint16_t port_ = connection->GetListeningPort(std::chrono::seconds(10));
         if (port_ > 0) {
           char port_cstr[32];
           snprintf(port_cstr, sizeof(port_cstr), "127.0.0.1:%i", port_);
@@ -1322,6 +1241,42 @@ Status GDBRemoteCommunication::StartDebugserverProcess(
 
 void GDBRemoteCommunication::DumpHistory(Stream &strm) { m_history.Dump(strm); }
 
+void GDBRemoteCommunication::SetHistoryStream(llvm::raw_ostream *strm) {
+  m_history.SetStream(strm);
+};
+
+llvm::Error
+GDBRemoteCommunication::ConnectLocally(GDBRemoteCommunication &client,
+                                       GDBRemoteCommunication &server) {
+  const bool child_processes_inherit = false;
+  const int backlog = 5;
+  TCPSocket listen_socket(true, child_processes_inherit);
+  if (llvm::Error error =
+          listen_socket.Listen("127.0.0.1:0", backlog).ToError())
+    return error;
+
+  Socket *accept_socket;
+  std::future<Status> accept_status = std::async(
+      std::launch::async, [&] { return listen_socket.Accept(accept_socket); });
+
+  llvm::SmallString<32> remote_addr;
+  llvm::raw_svector_ostream(remote_addr)
+      << "connect://localhost:" << listen_socket.GetLocalPortNumber();
+
+  std::unique_ptr<ConnectionFileDescriptor> conn_up(
+      new ConnectionFileDescriptor());
+  if (conn_up->Connect(remote_addr, nullptr) != lldb::eConnectionStatusSuccess)
+    return llvm::make_error<llvm::StringError>("Unable to connect",
+                                               llvm::inconvertibleErrorCode());
+
+  client.SetConnection(conn_up.release());
+  if (llvm::Error error = accept_status.get().ToError())
+    return error;
+
+  server.SetConnection(new ConnectionFileDescriptor(accept_socket));
+  return llvm::Error::success();
+}
+
 GDBRemoteCommunication::ScopedTimeout::ScopedTimeout(
     GDBRemoteCommunication &gdb_comm, std::chrono::seconds timeout)
   : m_gdb_comm(gdb_comm), m_timeout_modified(false) {
@@ -1341,14 +1296,11 @@ GDBRemoteCommunication::ScopedTimeout::~ScopedTimeout() {
 }
 
 // This function is called via the Communications class read thread when bytes
-// become available
-// for this connection. This function will consume all incoming bytes and try to
-// parse whole
-// packets as they become available. Full packets are placed in a queue, so that
-// all packet
-// requests can simply pop from this queue. Async notification packets will be
-// dispatched
-// immediately to the ProcessGDBRemote Async thread via an event.
+// become available for this connection. This function will consume all
+// incoming bytes and try to parse whole packets as they become available. Full
+// packets are placed in a queue, so that all packet requests can simply pop
+// from this queue. Async notification packets will be dispatched immediately
+// to the ProcessGDBRemote Async thread via an event.
 void GDBRemoteCommunication::AppendBytesToCache(const uint8_t *bytes,
                                                 size_t len, bool broadcast,
                                                 lldb::ConnectionStatus status) {
@@ -1357,8 +1309,8 @@ void GDBRemoteCommunication::AppendBytesToCache(const uint8_t *bytes,
   while (true) {
     PacketType type = CheckForPacket(bytes, len, packet);
 
-    // scrub the data so we do not pass it back to CheckForPacket
-    // on future passes of the loop
+    // scrub the data so we do not pass it back to CheckForPacket on future
+    // passes of the loop
     bytes = nullptr;
     len = 0;
 
@@ -1382,8 +1334,8 @@ void GDBRemoteCommunication::AppendBytesToCache(const uint8_t *bytes,
       // put this packet into an event
       const char *pdata = packet.GetStringRef().c_str();
 
-      // as the communication class, we are a broadcaster and the
-      // async thread is tuned to listen to us
+      // as the communication class, we are a broadcaster and the async thread
+      // is tuned to listen to us
       BroadcastEvent(eBroadcastBitGdbReadThreadGotNotify,
                      new EventDataBytes(pdata));
     }

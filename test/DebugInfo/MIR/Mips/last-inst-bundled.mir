@@ -21,7 +21,7 @@
 #
 # Check that last bundled instruction of block gets recognized as end of basic block.
 # CHECK: bb.2.if.end
-# CHECK-NEXT: DBG_VALUE debug-use $s0, debug-use $noreg, !12, !DIExpression(), debug-location !17
+# CHECK-NEXT: DBG_VALUE $s0, $noreg, !12, !DIExpression(), debug-location !17
 
 --- |
   ; ModuleID = '<stdin>'
@@ -83,7 +83,7 @@
   !4 = !{i32 2, !"Debug Info Version", i32 3}
   !5 = !{i32 1, !"wchar_size", i32 4}
   !6 = !{!"clang version 6.0.0 "}
-  !7 = distinct !DISubprogram(name: "foo", scope: !1, file: !1, line: 4, type: !8, isLocal: false, isDefinition: true, scopeLine: 5, flags: DIFlagPrototyped, isOptimized: true, unit: !0, variables: !11)
+  !7 = distinct !DISubprogram(name: "foo", scope: !1, file: !1, line: 4, type: !8, isLocal: false, isDefinition: true, scopeLine: 5, flags: DIFlagPrototyped, isOptimized: true, unit: !0, retainedNodes: !11)
   !8 = !DISubroutineType(types: !9)
   !9 = !{null, !10}
   !10 = !DIBasicType(name: "int", size: 32, encoding: DW_ATE_signed)
@@ -140,13 +140,16 @@ fixedStack:
 stack:
   - { id: 0, name: condition, type: default, offset: -12, size: 4, alignment: 4,
       stack-id: 0, callee-saved-register: '', callee-saved-restored: true,
-      di-variable: '', di-expression: '', di-location: '' }
+      debug-info-variable: '', debug-info-expression: '',
+      debug-info-location: '' }
   - { id: 1, name: '', type: spill-slot, offset: -4, size: 4, alignment: 4,
       stack-id: 0, callee-saved-register: '$ra', callee-saved-restored: true,
-      di-variable: '', di-expression: '', di-location: '' }
+      debug-info-variable: '', debug-info-expression: '',
+      debug-info-location: '' }
   - { id: 2, name: '', type: spill-slot, offset: -8, size: 4, alignment: 4,
       stack-id: 0, callee-saved-register: '$s0', callee-saved-restored: true,
-      di-variable: '', di-expression: '', di-location: '' }
+      debug-info-variable: '', debug-info-expression: '',
+      debug-info-location: '' }
 constants:
 body:             |
   bb.0.entry:
@@ -158,15 +161,15 @@ body:             |
     SW killed $s0, $sp, 24 :: (store 4 into %stack.2)
     CFI_INSTRUCTION offset $ra_64, -4
     CFI_INSTRUCTION offset $s0_64, -8
-    DBG_VALUE debug-use $a0, debug-use $noreg, !12, !DIExpression(), debug-location !17
+    DBG_VALUE $a0, $noreg, !12, !DIExpression(), debug-location !17
     $s0 = OR $a0, $zero
-    DBG_VALUE debug-use $s0, debug-use $noreg, !12, !DIExpression(), debug-location !17
+    DBG_VALUE $s0, $noreg, !12, !DIExpression(), debug-location !17
     DBG_VALUE $sp, 0, !13, !DIExpression(DW_OP_plus_uconst, 20), debug-location !19
     JAL @set_cond, csr_o32, implicit-def dead $ra, implicit $a0, implicit $a1, implicit-def $sp, debug-location !20 {
       renamable $a1 = LEA_ADDiu $sp, 20
     }
     renamable $at = LW $sp, 20, debug-location !21 :: (dereferenceable load 4 from %ir.condition, !tbaa !23)
-    DBG_VALUE debug-use $at, debug-use $noreg, !13, !DIExpression(), debug-location !19
+    DBG_VALUE $at, $noreg, !13, !DIExpression(), debug-location !19
     BEQ killed renamable $at, $zero, %bb.2, implicit-def $at, debug-location !27 {
       NOP debug-location !27
     }

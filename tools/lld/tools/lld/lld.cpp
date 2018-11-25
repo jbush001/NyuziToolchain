@@ -7,12 +7,22 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// This is the entry point to the lld driver. This is a thin wrapper which
-// dispatches to the given platform specific driver.
+// This file contains the main function of the lld executable. The main
+// function is a thin wrapper which dispatches to the platform specific
+// driver.
 //
-// If there is -flavor option, it is dispatched according to the arguments.
-// If the flavor parameter is not present, then it is dispatched according
-// to argv[0].
+// lld is a single executable that contains four different linkers for ELF,
+// COFF, WebAssembly and Mach-O. The main function dispatches according to
+// argv[0] (i.e. command name). The most common name for each target is shown
+// below:
+//
+//  - ld.lld:    ELF (Unix)
+//  - ld64:      Mach-O (macOS)
+//  - lld-link:  COFF (Windows)
+//  - ld-wasm:   WebAssembly
+//
+// lld can be invoked as "lld" along with "-flavor" option. This is for
+// backward compatibility and not recommended.
 //
 //===----------------------------------------------------------------------===//
 
@@ -20,10 +30,8 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/StringSwitch.h"
 #include "llvm/ADT/Twine.h"
-#include "llvm/Support/ManagedStatic.h"
+#include "llvm/Support/InitLLVM.h"
 #include "llvm/Support/Path.h"
-#include "llvm/Support/PrettyStackTrace.h"
-#include "llvm/Support/Signals.h"
 #include <cstdlib>
 
 using namespace lld;
@@ -114,10 +122,7 @@ static bool canExitEarly() { return StringRef(getenv("LLD_IN_TEST")) != "1"; }
 /// Universal linker main(). This linker emulates the gnu, darwin, or
 /// windows linker based on the argv[0] or -flavor option.
 int main(int Argc, const char **Argv) {
-  // Standard set up, so program fails gracefully.
-  sys::PrintStackTraceOnErrorSignal(Argv[0]);
-  PrettyStackTraceProgram StackPrinter(Argc, Argv);
-  llvm_shutdown_obj Shutdown;
+  InitLLVM X(Argc, Argv);
 
   std::vector<const char *> Args(Argv, Argv + Argc);
   switch (parseFlavor(Args)) {
@@ -128,11 +133,12 @@ int main(int Argc, const char **Argv) {
   case WinLink:
     return !coff::link(Args, canExitEarly());
   case Darwin:
-    return !mach_o::link(Args);
+    return !mach_o::link(Args, canExitEarly());
   case Wasm:
     return !wasm::link(Args, canExitEarly());
   default:
     die("lld is a generic driver.\n"
-        "Invoke ld.lld (Unix), ld64.lld (macOS) or lld-link (Windows) instead.");
+        "Invoke ld.lld (Unix), ld64.lld (macOS), lld-link (Windows), wasm-ld"
+        " (WebAssembly) instead");
   }
 }

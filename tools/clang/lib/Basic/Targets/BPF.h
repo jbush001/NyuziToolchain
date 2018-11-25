@@ -47,7 +47,7 @@ public:
                         MacroBuilder &Builder) const override;
 
   bool hasFeature(StringRef Feature) const override {
-    return Feature == "bpf" || Feature == "alu32";
+    return Feature == "bpf" || Feature == "alu32" || Feature == "dwarfris";
   }
 
   void setFeatureEnabled(llvm::StringMap<bool> &Features, StringRef Name,
@@ -63,6 +63,7 @@ public:
     return TargetInfo::VoidPtrBuiltinVaList;
   }
 
+  bool isValidGCCRegisterName(StringRef Name) const override { return true; }
   ArrayRef<const char *> getGCCRegNames() const override { return None; }
 
   bool validateAsmConstraint(const char *&Name,

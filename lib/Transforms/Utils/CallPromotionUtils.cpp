@@ -177,8 +177,8 @@ static void createRetBitCast(CallSite CS, Type *RetTy, CastInst **RetBitCast) {
     InsertBefore = &*std::next(CS.getInstruction()->getIterator());
 
   // Bitcast the return value to the correct type.
-  auto *Cast = CastInst::Create(Instruction::BitCast, CS.getInstruction(),
-                                RetTy, "", InsertBefore);
+  auto *Cast = CastInst::CreateBitOrPointerCast(CS.getInstruction(), RetTy, "",
+                                                InsertBefore);
   if (RetBitCast)
     *RetBitCast = Cast;
 
@@ -270,8 +270,8 @@ static Instruction *versionCallSite(CallSite CS, Value *Callee,
   // Create an if-then-else structure. The original instruction is moved into
   // the "else" block, and a clone of the original instruction is placed in the
   // "then" block.
-  TerminatorInst *ThenTerm = nullptr;
-  TerminatorInst *ElseTerm = nullptr;
+  Instruction *ThenTerm = nullptr;
+  Instruction *ElseTerm = nullptr;
   SplitBlockAndInsertIfThenElse(Cond, CS.getInstruction(), &ThenTerm, &ElseTerm,
                                 BranchWeights);
   BasicBlock *ThenBlock = ThenTerm->getParent();
@@ -321,12 +321,14 @@ bool llvm::isLegalToPromote(CallSite CS, Function *Callee,
                             const char **FailureReason) {
   assert(!CS.getCalledFunction() && "Only indirect call sites can be promoted");
 
+  auto &DL = Callee->getParent()->getDataLayout();
+
   // Check the return type. The callee's return value type must be bitcast
   // compatible with the call site's type.
   Type *CallRetTy = CS.getInstruction()->getType();
   Type *FuncRetTy = Callee->getReturnType();
   if (CallRetTy != FuncRetTy)
-    if (!CastInst::isBitCastable(FuncRetTy, CallRetTy)) {
+    if (!CastInst::isBitOrNoopPointerCastable(FuncRetTy, CallRetTy, DL)) {
       if (FailureReason)
         *FailureReason = "Return type mismatch";
       return false;
@@ -351,7 +353,7 @@ bool llvm::isLegalToPromote(CallSite CS, Function *Callee,
     Type *ActualTy = CS.getArgument(I)->getType();
     if (FormalTy == ActualTy)
       continue;
-    if (!CastInst::isBitCastable(ActualTy, FormalTy)) {
+    if (!CastInst::isBitOrNoopPointerCastable(ActualTy, FormalTy, DL)) {
       if (FailureReason)
         *FailureReason = "Argument type mismatch";
       return false;
@@ -389,13 +391,15 @@ Instruction *llvm::promoteCall(CallSite CS, Function *Callee,
   // Inspect the arguments of the call site. If an argument's type doesn't
   // match the corresponding formal argument's type in the callee, bitcast it
   // to the correct type.
-  for (Use &U : CS.args()) {
-    unsigned ArgNo = CS.getArgumentNo(&U);
-    Type *FormalTy = Callee->getFunctionType()->getParamType(ArgNo);
-    Type *ActualTy = U.get()->getType();
+  auto CalleeType = Callee->getFunctionType();
+  auto CalleeParamNum = CalleeType->getNumParams();
+  for (unsigned ArgNo = 0; ArgNo < CalleeParamNum; ++ArgNo) {
+    auto *Arg = CS.getArgument(ArgNo);
+    Type *FormalTy = CalleeType->getParamType(ArgNo);
+    Type *ActualTy = Arg->getType();
     if (FormalTy != ActualTy) {
-      auto *Cast = CastInst::Create(Instruction::BitCast, U.get(), FormalTy, "",
-                                    CS.getInstruction());
+      auto *Cast = CastInst::CreateBitOrPointerCast(Arg, FormalTy, "",
+                                                    CS.getInstruction());
       CS.setArgument(ArgNo, Cast);
     }
   }

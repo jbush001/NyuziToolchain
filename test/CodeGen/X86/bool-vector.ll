@@ -29,14 +29,12 @@ define i32 @PR15215_bad(<4 x i32> %input) {
 ; X32-SSE2-LABEL: PR15215_bad:
 ; X32-SSE2:       # %bb.0: # %entry
 ; X32-SSE2-NEXT:    pslld $31, %xmm0
-; X32-SSE2-NEXT:    psrad $31, %xmm0
 ; X32-SSE2-NEXT:    movmskps %xmm0, %eax
 ; X32-SSE2-NEXT:    retl
 ;
 ; X32-AVX2-LABEL: PR15215_bad:
 ; X32-AVX2:       # %bb.0: # %entry
 ; X32-AVX2-NEXT:    vpslld $31, %xmm0, %xmm0
-; X32-AVX2-NEXT:    vpsrad $31, %xmm0, %xmm0
 ; X32-AVX2-NEXT:    vmovmskps %xmm0, %eax
 ; X32-AVX2-NEXT:    retl
 ;
@@ -58,14 +56,12 @@ define i32 @PR15215_bad(<4 x i32> %input) {
 ; X64-SSE2-LABEL: PR15215_bad:
 ; X64-SSE2:       # %bb.0: # %entry
 ; X64-SSE2-NEXT:    pslld $31, %xmm0
-; X64-SSE2-NEXT:    psrad $31, %xmm0
 ; X64-SSE2-NEXT:    movmskps %xmm0, %eax
 ; X64-SSE2-NEXT:    retq
 ;
 ; X64-AVX2-LABEL: PR15215_bad:
 ; X64-AVX2:       # %bb.0: # %entry
 ; X64-AVX2-NEXT:    vpslld $31, %xmm0, %xmm0
-; X64-AVX2-NEXT:    vpsrad $31, %xmm0, %xmm0
 ; X64-AVX2-NEXT:    vmovmskps %xmm0, %eax
 ; X64-AVX2-NEXT:    retq
 entry:
@@ -93,6 +89,7 @@ define i32 @PR15215_good(<4 x i32> %input) {
 ; X32-NEXT:    leal (%eax,%edx,4), %eax
 ; X32-NEXT:    leal (%eax,%esi,8), %eax
 ; X32-NEXT:    popl %esi
+; X32-NEXT:    .cfi_def_cfa_offset 4
 ; X32-NEXT:    retl
 ;
 ; X32-SSE2-LABEL: PR15215_good:
@@ -115,6 +112,7 @@ define i32 @PR15215_good(<4 x i32> %input) {
 ; X32-SSE2-NEXT:    leal (%eax,%edx,4), %eax
 ; X32-SSE2-NEXT:    leal (%eax,%esi,8), %eax
 ; X32-SSE2-NEXT:    popl %esi
+; X32-SSE2-NEXT:    .cfi_def_cfa_offset 4
 ; X32-SSE2-NEXT:    retl
 ;
 ; X32-AVX2-LABEL: PR15215_good:
@@ -134,6 +132,7 @@ define i32 @PR15215_good(<4 x i32> %input) {
 ; X32-AVX2-NEXT:    leal (%eax,%edx,4), %eax
 ; X32-AVX2-NEXT:    leal (%eax,%esi,8), %eax
 ; X32-AVX2-NEXT:    popl %esi
+; X32-AVX2-NEXT:    .cfi_def_cfa_offset 4
 ; X32-AVX2-NEXT:    retl
 ;
 ; X64-LABEL: PR15215_good:

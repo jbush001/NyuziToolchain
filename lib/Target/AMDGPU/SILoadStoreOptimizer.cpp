@@ -45,6 +45,7 @@
 #include "AMDGPUSubtarget.h"
 #include "SIInstrInfo.h"
 #include "SIRegisterInfo.h"
+#include "MCTargetDesc/AMDGPUMCTargetDesc.h"
 #include "Utils/AMDGPUBaseInfo.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/SmallVector.h"
@@ -102,7 +103,7 @@ class SILoadStoreOptimizer : public MachineFunctionPass {
    };
 
 private:
-  const SISubtarget *STM = nullptr;
+  const GCNSubtarget *STM = nullptr;
   const SIInstrInfo *TII = nullptr;
   const SIRegisterInfo *TRI = nullptr;
   MachineRegisterInfo *MRI = nullptr;
@@ -513,6 +514,7 @@ MachineBasicBlock::iterator  SILoadStoreOptimizer::mergeRead2Pair(
   DebugLoc DL = CI.I->getDebugLoc();
 
   unsigned BaseReg = AddrReg->getReg();
+  unsigned BaseSubReg = AddrReg->getSubReg();
   unsigned BaseRegFlags = 0;
   if (CI.BaseOff) {
     unsigned ImmReg = MRI->createVirtualRegister(&AMDGPU::SGPR_32RegClass);
@@ -524,16 +526,16 @@ MachineBasicBlock::iterator  SILoadStoreOptimizer::mergeRead2Pair(
 
     TII->getAddNoCarry(*MBB, CI.Paired, DL, BaseReg)
       .addReg(ImmReg)
-      .addReg(AddrReg->getReg());
+      .addReg(AddrReg->getReg(), 0, BaseSubReg);
+    BaseSubReg = 0;
   }
 
-  MachineInstrBuilder Read2 =
-    BuildMI(*MBB, CI.Paired, DL, Read2Desc, DestReg)
-      .addReg(BaseReg, BaseRegFlags) // addr
-      .addImm(NewOffset0)            // offset0
-      .addImm(NewOffset1)            // offset1
-      .addImm(0)                     // gds
-      .setMemRefs(CI.I->mergeMemRefsWith(*CI.Paired));
+  MachineInstrBuilder Read2 = BuildMI(*MBB, CI.Paired, DL, Read2Desc, DestReg)
+                        .addReg(BaseReg, BaseRegFlags, BaseSubReg) // addr
+                        .addImm(NewOffset0)                        // offset0
+                        .addImm(NewOffset1)                        // offset1
+                        .addImm(0)                                 // gds
+                        .cloneMergedMemRefs({&*CI.I, &*CI.Paired});
 
   (void)Read2;
 
@@ -553,7 +555,7 @@ MachineBasicBlock::iterator  SILoadStoreOptimizer::mergeRead2Pair(
   CI.I->eraseFromParent();
   CI.Paired->eraseFromParent();
 
-  DEBUG(dbgs() << "Inserted read2: " << *Read2 << '\n');
+  LLVM_DEBUG(dbgs() << "Inserted read2: " << *Read2 << '\n');
   return Next;
 }
 
@@ -601,6 +603,7 @@ MachineBasicBlock::iterator SILoadStoreOptimizer::mergeWrite2Pair(
   DebugLoc DL = CI.I->getDebugLoc();
 
   unsigned BaseReg = AddrReg->getReg();
+  unsigned BaseSubReg = AddrReg->getSubReg();
   unsigned BaseRegFlags = 0;
   if (CI.BaseOff) {
     unsigned ImmReg = MRI->createVirtualRegister(&AMDGPU::SGPR_32RegClass);
@@ -612,18 +615,18 @@ MachineBasicBlock::iterator SILoadStoreOptimizer::mergeWrite2Pair(
 
     TII->getAddNoCarry(*MBB, CI.Paired, DL, BaseReg)
       .addReg(ImmReg)
-      .addReg(AddrReg->getReg());
+      .addReg(AddrReg->getReg(), 0, BaseSubReg);
+    BaseSubReg = 0;
   }
 
-  MachineInstrBuilder Write2 =
-    BuildMI(*MBB, CI.Paired, DL, Write2Desc)
-      .addReg(BaseReg, BaseRegFlags) // addr
-      .add(*Data0)                   // data0
-      .add(*Data1)                   // data1
-      .addImm(NewOffset0)            // offset0
-      .addImm(NewOffset1)            // offset1
-      .addImm(0)                     // gds
-      .setMemRefs(CI.I->mergeMemRefsWith(*CI.Paired));
+  MachineInstrBuilder Write2 = BuildMI(*MBB, CI.Paired, DL, Write2Desc)
+                        .addReg(BaseReg, BaseRegFlags, BaseSubReg) // addr
+                        .add(*Data0)                               // data0
+                        .add(*Data1)                               // data1
+                        .addImm(NewOffset0)                        // offset0
+                        .addImm(NewOffset1)                        // offset1
+                        .addImm(0)                                 // gds
+                        .cloneMergedMemRefs({&*CI.I, &*CI.Paired});
 
   moveInstsAfter(Write2, CI.InstsToMove);
 
@@ -631,7 +634,7 @@ MachineBasicBlock::iterator SILoadStoreOptimizer::mergeWrite2Pair(
   CI.I->eraseFromParent();
   CI.Paired->eraseFromParent();
 
-  DEBUG(dbgs() << "Inserted write2 inst: " << *Write2 << '\n');
+  LLVM_DEBUG(dbgs() << "Inserted write2 inst: " << *Write2 << '\n');
   return Next;
 }
 
@@ -651,7 +654,7 @@ MachineBasicBlock::iterator SILoadStoreOptimizer::mergeSBufferLoadImmPair(
       .add(*TII->getNamedOperand(*CI.I, AMDGPU::OpName::sbase))
       .addImm(MergedOffset) // offset
       .addImm(CI.GLC0)      // glc
-      .setMemRefs(CI.I->mergeMemRefsWith(*CI.Paired));
+      .cloneMergedMemRefs({&*CI.I, &*CI.Paired});
 
   unsigned SubRegIdx0 = CI.IsX2 ? AMDGPU::sub0_sub1 : AMDGPU::sub0;
   unsigned SubRegIdx1 = CI.IsX2 ? AMDGPU::sub2_sub3 : AMDGPU::sub1;
@@ -710,7 +713,7 @@ MachineBasicBlock::iterator SILoadStoreOptimizer::mergeBufferLoadPair(
       .addImm(CI.GLC0)      // glc
       .addImm(CI.SLC0)      // slc
       .addImm(0)            // tfe
-      .setMemRefs(CI.I->mergeMemRefsWith(*CI.Paired));
+      .cloneMergedMemRefs({&*CI.I, &*CI.Paired});
 
   unsigned SubRegIdx0 = CI.IsX2 ? AMDGPU::sub0_sub1 : AMDGPU::sub0;
   unsigned SubRegIdx1 = CI.IsX2 ? AMDGPU::sub2_sub3 : AMDGPU::sub1;
@@ -810,10 +813,10 @@ MachineBasicBlock::iterator SILoadStoreOptimizer::mergeBufferStorePair(
   MIB.add(*TII->getNamedOperand(*CI.I, AMDGPU::OpName::srsrc))
       .add(*TII->getNamedOperand(*CI.I, AMDGPU::OpName::soffset))
       .addImm(std::min(CI.Offset0, CI.Offset1)) // offset
-      .addImm(CI.GLC0)      // glc
-      .addImm(CI.SLC0)      // slc
-      .addImm(0)            // tfe
-      .setMemRefs(CI.I->mergeMemRefsWith(*CI.Paired));
+      .addImm(CI.GLC0)                          // glc
+      .addImm(CI.SLC0)                          // slc
+      .addImm(0)                                // tfe
+      .cloneMergedMemRefs({&*CI.I, &*CI.Paired});
 
   moveInstsAfter(MIB, CI.InstsToMove);
 
@@ -938,7 +941,7 @@ bool SILoadStoreOptimizer::runOnMachineFunction(MachineFunction &MF) {
   if (skipFunction(MF.getFunction()))
     return false;
 
-  STM = &MF.getSubtarget<SISubtarget>();
+  STM = &MF.getSubtarget<GCNSubtarget>();
   if (!STM->loadStoreOptEnabled())
     return false;
 
@@ -950,7 +953,7 @@ bool SILoadStoreOptimizer::runOnMachineFunction(MachineFunction &MF) {
 
   assert(MRI->isSSA() && "Must be run on SSA");
 
-  DEBUG(dbgs() << "Running SILoadStoreOptimizer\n");
+  LLVM_DEBUG(dbgs() << "Running SILoadStoreOptimizer\n");
 
   bool Modified = false;
 

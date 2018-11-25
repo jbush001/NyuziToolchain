@@ -6,9 +6,9 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#include "gtest/gtest.h"
-
 #include "Plugins/Language/CPlusPlus/CPlusPlusLanguage.h"
+#include "gmock/gmock.h"
+#include "gtest/gtest.h"
 
 using namespace lldb_private;
 
@@ -138,7 +138,14 @@ TEST(CPlusPlusLanguage, ExtractContextAndIdentifier) {
       {"std::vector<Class, std::allocator<Class>>"
        "::_M_emplace_back_aux<Class const&>",
        "std::vector<Class, std::allocator<Class>>",
-       "_M_emplace_back_aux<Class const&>"}};
+       "_M_emplace_back_aux<Class const&>"},
+      {"`anonymous namespace'::foo", "`anonymous namespace'", "foo"},
+      {"`operator<<A>'::`2'::B<0>::operator>",
+       "`operator<<A>'::`2'::B<0>",
+       "operator>"},
+      {"`anonymous namespace'::S::<<::__l2::Foo",
+       "`anonymous namespace'::S::<<::__l2",
+       "Foo"}};
 
   llvm::StringRef context, basename;
   for (const auto &test : test_cases) {
@@ -162,4 +169,27 @@ TEST(CPlusPlusLanguage, ExtractContextAndIdentifier) {
       "abc::", context, basename));
   EXPECT_FALSE(CPlusPlusLanguage::ExtractContextAndIdentifier(
       "f<A<B><C>>", context, basename));
+}
+
+static std::set<std::string> FindAlternate(llvm::StringRef Name) {
+  std::set<ConstString> Results;
+  uint32_t Count = CPlusPlusLanguage::FindAlternateFunctionManglings(
+      ConstString(Name), Results);
+  EXPECT_EQ(Count, Results.size());
+  std::set<std::string> Strings;
+  for (ConstString Str : Results)
+    Strings.insert(Str.GetStringRef());
+  return Strings;
+}
+
+TEST(CPlusPlusLanguage, FindAlternateFunctionManglings) {
+  using namespace testing;
+
+  EXPECT_THAT(FindAlternate("_ZN1A1fEv"),
+              UnorderedElementsAre("_ZNK1A1fEv", "_ZLN1A1fEv"));
+  EXPECT_THAT(FindAlternate("_ZN1A1fEa"), Contains("_ZN1A1fEc"));
+  EXPECT_THAT(FindAlternate("_ZN1A1fEx"), Contains("_ZN1A1fEl"));
+  EXPECT_THAT(FindAlternate("_ZN1A1fEy"), Contains("_ZN1A1fEm"));
+  EXPECT_THAT(FindAlternate("_ZN1A1fEai"), Contains("_ZN1A1fEci"));
+  EXPECT_THAT(FindAlternate("_bogus"), IsEmpty());
 }

@@ -90,8 +90,8 @@ void CommandObject::SetHelpLong(llvm::StringRef str) { m_cmd_help_long = str; }
 void CommandObject::SetSyntax(llvm::StringRef str) { m_cmd_syntax = str; }
 
 Options *CommandObject::GetOptions() {
-  // By default commands don't have options unless this virtual function
-  // is overridden by base classes.
+  // By default commands don't have options unless this virtual function is
+  // overridden by base classes.
   return nullptr;
 }
 
@@ -138,10 +138,10 @@ bool CommandObject::ParseOptions(Args &args, CommandReturnObject &result) {
 
 bool CommandObject::CheckRequirements(CommandReturnObject &result) {
 #ifdef LLDB_CONFIGURATION_DEBUG
-  // Nothing should be stored in m_exe_ctx between running commands as m_exe_ctx
-  // has shared pointers to the target, process, thread and frame and we don't
-  // want any CommandObject instances to keep any of these objects around
-  // longer than for a single command. Every command should call
+  // Nothing should be stored in m_exe_ctx between running commands as
+  // m_exe_ctx has shared pointers to the target, process, thread and frame and
+  // we don't want any CommandObject instances to keep any of these objects
+  // around longer than for a single command. Every command should call
   // CommandObject::Cleanup() after it has completed
   assert(m_exe_ctx.GetTargetPtr() == NULL);
   assert(m_exe_ctx.GetProcessPtr() == NULL);
@@ -149,9 +149,9 @@ bool CommandObject::CheckRequirements(CommandReturnObject &result) {
   assert(m_exe_ctx.GetFramePtr() == NULL);
 #endif
 
-  // Lock down the interpreter's execution context prior to running the
-  // command so we guarantee the selected target, process, thread and frame
-  // can't go away during the execution
+  // Lock down the interpreter's execution context prior to running the command
+  // so we guarantee the selected target, process, thread and frame can't go
+  // away during the execution
   m_exe_ctx = m_interpreter.GetExecutionContext();
 
   const uint32_t flags = GetFlags().Get();
@@ -260,19 +260,13 @@ void CommandObject::Cleanup() {
     m_api_locker.unlock();
 }
 
-int CommandObject::HandleCompletion(Args &input, int &cursor_index,
-                                    int &cursor_char_position,
-                                    int match_start_point,
-                                    int max_return_elements,
-                                    bool &word_complete, StringList &matches) {
+int CommandObject::HandleCompletion(CompletionRequest &request) {
   // Default implementation of WantsCompletion() is !WantsRawCommandString().
-  // Subclasses who want raw command string but desire, for example,
-  // argument completion should override WantsCompletion() to return true,
-  // instead.
+  // Subclasses who want raw command string but desire, for example, argument
+  // completion should override WantsCompletion() to return true, instead.
   if (WantsRawCommandString() && !WantsCompletion()) {
     // FIXME: Abstract telling the completion to insert the completion
     // character.
-    matches.Clear();
     return -1;
   } else {
     // Can we do anything generic with the options?
@@ -281,21 +275,17 @@ int CommandObject::HandleCompletion(Args &input, int &cursor_index,
     OptionElementVector opt_element_vector;
 
     if (cur_options != nullptr) {
-      opt_element_vector = cur_options->ParseForCompletion(input, cursor_index);
+      opt_element_vector = cur_options->ParseForCompletion(
+          request.GetParsedLine(), request.GetCursorIndex());
 
-      bool handled_by_options;
-      handled_by_options = cur_options->HandleOptionCompletion(
-          input, opt_element_vector, cursor_index, cursor_char_position,
-          match_start_point, max_return_elements, GetCommandInterpreter(),
-          word_complete, matches);
+      bool handled_by_options = cur_options->HandleOptionCompletion(
+          request, opt_element_vector, GetCommandInterpreter());
       if (handled_by_options)
-        return matches.GetSize();
+        return request.GetNumberOfMatches();
     }
 
     // If we got here, the last word is not an option or an option argument.
-    return HandleArgumentCompletion(
-        input, cursor_index, cursor_char_position, opt_element_vector,
-        match_start_point, max_return_elements, word_complete, matches);
+    return HandleArgumentCompletion(request, opt_element_vector);
   }
 }
 
@@ -332,6 +322,22 @@ bool CommandObject::HelpTextContainsWord(llvm::StringRef search_word,
   }
 
   return found_word;
+}
+
+bool CommandObject::ParseOptionsAndNotify(Args &args,
+                                          CommandReturnObject &result,
+                                          OptionGroupOptions &group_options,
+                                          ExecutionContext &exe_ctx) {
+  if (!ParseOptions(args, result))
+    return false;
+
+  Status error(group_options.NotifyOptionParsingFinished(&exe_ctx));
+  if (error.Fail()) {
+    result.AppendError(error.AsCString());
+    result.SetStatus(eReturnStatusFailed);
+    return false;
+  }
+  return true;
 }
 
 int CommandObject::GetNumArgumentEntries() { return m_arguments.size(); }
@@ -424,9 +430,10 @@ OptSetFiltered(uint32_t opt_set_mask,
   return ret_val;
 }
 
-// Default parameter value of opt_set_mask is LLDB_OPT_SET_ALL, which means take
-// all the argument data into account.  On rare cases where some argument sticks
-// with certain option sets, this function returns the option set filtered args.
+// Default parameter value of opt_set_mask is LLDB_OPT_SET_ALL, which means
+// take all the argument data into account.  On rare cases where some argument
+// sticks with certain option sets, this function returns the option set
+// filtered args.
 void CommandObject::GetFormattedCommandArguments(Stream &str,
                                                  uint32_t opt_set_mask) {
   int num_args = m_arguments.size();
@@ -466,8 +473,7 @@ void CommandObject::GetFormattedCommandArguments(Stream &str,
                    first_name, second_name);
         break;
       // Explicitly test for all the rest of the cases, so if new types get
-      // added we will notice the
-      // missing case statement(s).
+      // added we will notice the missing case statement(s).
       case eArgRepeatPlain:
       case eArgRepeatOptional:
       case eArgRepeatPlus:
@@ -503,8 +509,7 @@ void CommandObject::GetFormattedCommandArguments(Stream &str,
         str.Printf("<%s_1> .. <%s_n>", name_str.c_str(), name_str.c_str());
         break;
       // Explicitly test for all the rest of the cases, so if new types get
-      // added we will notice the
-      // missing case statement(s).
+      // added we will notice the missing case statement(s).
       case eArgRepeatPairPlain:
       case eArgRepeatPairOptional:
       case eArgRepeatPairPlus:
@@ -512,8 +517,8 @@ void CommandObject::GetFormattedCommandArguments(Stream &str,
       case eArgRepeatPairRange:
       case eArgRepeatPairRangeOptional:
         // These should not be hit, as they should pass the IsPairType test
-        // above, and control should
-        // have gone into the other branch of the if statement.
+        // above, and control should have gone into the other branch of the if
+        // statement.
         break;
       }
     }
@@ -857,9 +862,8 @@ void CommandObject::GenerateHelpText(Stream &output_strm) {
   if (!IsDashDashCommand() && options && options->NumCommandOptions() > 0) {
     if (WantsRawCommandString() && !WantsCompletion()) {
       // Emit the message about using ' -- ' between the end of the command
-      // options and the raw input
-      // conditionally, i.e., only if the command object does not want
-      // completion.
+      // options and the raw input conditionally, i.e., only if the command
+      // object does not want completion.
       interpreter.OutputFormattedHelpText(
           output_strm, "", "",
           "\nImportant Note: Because this command takes 'raw' input, if you "
@@ -899,8 +903,8 @@ void CommandObject::AddIDsArgumentData(CommandArgumentEntry &arg,
   id_range_arg.arg_repetition = eArgRepeatOptional;
 
   // The first (and only) argument for this command could be either an id or an
-  // id_range.
-  // Push both variants into the entry for the first argument for this command.
+  // id_range. Push both variants into the entry for the first argument for
+  // this command.
   arg.push_back(id_arg);
   arg.push_back(id_range_arg);
 }
@@ -1004,7 +1008,8 @@ static llvm::StringRef arch_helper() {
   static StreamString g_archs_help;
   if (g_archs_help.Empty()) {
     StringList archs;
-    ArchSpec::AutoComplete(llvm::StringRef(), archs);
+
+    ArchSpec::ListSupportedArchNames(archs);
     g_archs_help.Printf("These are the supported architecture names:\n");
     archs.Join("\n", g_archs_help);
   }

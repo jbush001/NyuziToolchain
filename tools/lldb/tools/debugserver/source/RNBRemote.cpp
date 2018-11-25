@@ -50,7 +50,7 @@
 #include <zlib.h>
 #endif
 
-#include <TargetConditionals.h> // for endianness predefines
+#include <TargetConditionals.h>
 #include <iomanip>
 #include <sstream>
 #include <unordered_set>
@@ -3690,7 +3690,7 @@ rnb_err_t RNBRemote::HandlePacket_v(const char *p) {
           return HandlePacket_ILLFORMED(
               __FILE__, __LINE__, p, "Could not parse signal in vCont packet");
       // Fall through to next case...
-
+        [[clang::fallthrough]];
       case 'c':
         // Continue
         thread_action.state = eStateRunning;
@@ -3703,7 +3703,7 @@ rnb_err_t RNBRemote::HandlePacket_v(const char *p) {
           return HandlePacket_ILLFORMED(
               __FILE__, __LINE__, p, "Could not parse signal in vCont packet");
       // Fall through to next case...
-
+        [[clang::fallthrough]];
       case 's':
         // Step
         thread_action.state = eStateStepping;
@@ -5446,11 +5446,6 @@ rnb_err_t RNBRemote::HandlePacket_jThreadExtendedInfo(const char *p) {
                                                  p);
     uint64_t dti_qos_class_index =
         get_integer_value_for_key_name_from_json("dti_qos_class_index", p);
-    // Commented out the two variables below as they are not being used
-    //        uint64_t dti_queue_index =
-    //        get_integer_value_for_key_name_from_json ("dti_queue_index", p);
-    //        uint64_t dti_voucher_index =
-    //        get_integer_value_for_key_name_from_json ("dti_voucher_index", p);
 
     if (tid != INVALID_NUB_ADDRESS) {
       nub_addr_t pthread_t_value = DNBGetPThreadT(pid, tid);
@@ -6091,6 +6086,7 @@ rnb_err_t RNBRemote::HandlePacket_qProcessInfo(const char *p) {
       for (uint32_t i = 0; i < mh.ncmds && !os_handled; ++i) {
         const nub_size_t bytes_read =
             DNBProcessMemoryRead(pid, load_command_addr, sizeof(lc), &lc);
+        (void)bytes_read;
 
         uint32_t major_version, minor_version, patch_version;
         auto *platform = DNBGetDeploymentInfo(pid, lc, load_command_addr,

@@ -37,7 +37,6 @@
 #include "clang/Basic/SourceManager.h"
 #include "clang/Basic/TargetInfo.h"
 #include "clang/Basic/TargetOptions.h"
-#include "clang/Basic/VirtualFileSystem.h"
 #include "clang/Frontend/CompilerInstance.h"
 #include "clang/Frontend/CompilerInvocation.h"
 #include "clang/Frontend/FrontendAction.h"
@@ -88,6 +87,7 @@
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/Mutex.h"
 #include "llvm/Support/Timer.h"
+#include "llvm/Support/VirtualFileSystem.h"
 #include "llvm/Support/raw_ostream.h"
 #include <algorithm>
 #include <atomic>
@@ -151,12 +151,12 @@ static bool moveOnNoError(llvm::ErrorOr<T> Val, T &Output) {
   return true;
 }
 
-/// \brief Get a source buffer for \p MainFilePath, handling all file-to-file
+/// Get a source buffer for \p MainFilePath, handling all file-to-file
 /// and file-to-buffer remappings inside \p Invocation.
 static std::unique_ptr<llvm::MemoryBuffer>
 getBufferForFileHandlingRemapping(const CompilerInvocation &Invocation,
-                                  vfs::FileSystem *VFS,
-                                  StringRef FilePath) {
+                                  llvm::vfs::FileSystem *VFS,
+                                  StringRef FilePath, bool isVolatile) {
   const auto &PreprocessorOpts = Invocation.getPreprocessorOpts();
 
   // Try to determine if the main file has been remapped, either from the
@@ -176,7 +176,7 @@ getBufferForFileHandlingRemapping(const CompilerInvocation &Invocation,
         llvm::sys::fs::UniqueID MID = MPathStatus->getUniqueID();
         if (MainFileID == MID) {
           // We found a remapping. Try to load the resulting, remapped source.
-          BufferOwner = valueOrNull(VFS->getBufferForFile(RF.second));
+          BufferOwner = valueOrNull(VFS->getBufferForFile(RF.second, -1, true, isVolatile));
           if (!BufferOwner)
             return nullptr;
         }
@@ -201,7 +201,7 @@ getBufferForFileHandlingRemapping(const CompilerInvocation &Invocation,
 
   // If the main source file was not remapped, load it now.
   if (!Buffer && !BufferOwner) {
-    BufferOwner = valueOrNull(VFS->getBufferForFile(FilePath));
+    BufferOwner = valueOrNull(VFS->getBufferForFile(FilePath, -1, true, isVolatile));
     if (!BufferOwner)
       return nullptr;
   }
@@ -226,13 +226,13 @@ void ASTUnit::clearFileLevelDecls() {
   llvm::DeleteContainerSeconds(FileDecls);
 }
 
-/// \brief After failing to build a precompiled preamble (due to
+/// After failing to build a precompiled preamble (due to
 /// errors in the source that occurs in the preamble), the number of
 /// reparses during which we'll skip even trying to precompile the
 /// preamble.
 const unsigned DefaultPreambleRebuildInterval = 5;
 
-/// \brief Tracks the number of ASTUnit objects that are currently active.
+/// Tracks the number of ASTUnit objects that are currently active.
 ///
 /// Used for debugging purposes only.
 static std::atomic<unsigned> ActiveASTUnitObjects;
@@ -274,9 +274,15 @@ void ASTUnit::setPreprocessor(std::shared_ptr<Preprocessor> PP) {
   this->PP = std::move(PP);
 }
 
-/// \brief Determine the set of code-completion contexts in which this
+void ASTUnit::enableSourceFileDiagnostics() {
+  assert(getDiagnostics().getClient() && Ctx &&
+      "Bad context for source file");
+  getDiagnostics().getClient()->BeginSourceFile(Ctx->getLangOpts(), PP.get());
+}
+
+/// Determine the set of code-completion contexts in which this
 /// declaration should be shown.
-static unsigned getDeclShowContexts(const NamedDecl *ND,
+static uint64_t getDeclShowContexts(const NamedDecl *ND,
                                     const LangOptions &LangOpts,
                                     bool &IsNestedNameSpecifier) {
   IsNestedNameSpecifier = false;
@@ -430,14 +436,15 @@ void ASTUnit::CacheCodeCompletionResults() {
           | (1LL << CodeCompletionContext::CCC_UnionTag)
           | (1LL << CodeCompletionContext::CCC_ClassOrStructTag)
           | (1LL << CodeCompletionContext::CCC_Type)
-          | (1LL << CodeCompletionContext::CCC_PotentiallyQualifiedName)
+          | (1LL << CodeCompletionContext::CCC_Symbol)
+          | (1LL << CodeCompletionContext::CCC_SymbolOrNewName)
           | (1LL << CodeCompletionContext::CCC_ParenthesizedExpression);
 
         if (isa<NamespaceDecl>(R.Declaration) ||
             isa<NamespaceAliasDecl>(R.Declaration))
           NNSContexts |= (1LL << CodeCompletionContext::CCC_Namespace);
 
-        if (unsigned RemainingContexts
+        if (uint64_t RemainingContexts
                                 = NNSContexts & ~CachedResult.ShowInContexts) {
           // If there any contexts where this completion can be a
           // nested-name-specifier but isn't already an option, create a
@@ -504,7 +511,7 @@ void ASTUnit::ClearCachedCompletionResults() {
 
 namespace {
 
-/// \brief Gathers information from ASTReader that will be used to initialize
+/// Gathers information from ASTReader that will be used to initialize
 /// a Preprocessor.
 class ASTInfoCollector : public ASTReaderListener {
   Preprocessor &PP;
@@ -601,7 +608,7 @@ private:
   }
 };
 
-/// \brief Diagnostic consumer that saves each diagnostic it is given.
+/// Diagnostic consumer that saves each diagnostic it is given.
 class StoredDiagnosticConsumer : public DiagnosticConsumer {
   SmallVectorImpl<StoredDiagnostic> *StoredDiags;
   SmallVectorImpl<ASTUnit::StandaloneDiagnostic> *StandaloneDiags;
@@ -628,7 +635,7 @@ public:
                         const Diagnostic &Info) override;
 };
 
-/// \brief RAII object that optionally captures diagnostics, if
+/// RAII object that optionally captures diagnostics, if
 /// there is no diagnostic client to capture them already.
 class CaptureDroppedDiagnostics {
   DiagnosticsEngine &Diags;
@@ -707,7 +714,7 @@ ASTDeserializationListener *ASTUnit::getDeserializationListener() {
 std::unique_ptr<llvm::MemoryBuffer>
 ASTUnit::getBufferForFile(StringRef Filename, std::string *ErrorStr) {
   assert(FileMgr);
-  auto Buffer = FileMgr->getBufferForFile(Filename);
+  auto Buffer = FileMgr->getBufferForFile(Filename, UserFilesAreVolatile);
   if (Buffer)
     return std::move(*Buffer);
   if (ErrorStr)
@@ -715,7 +722,7 @@ ASTUnit::getBufferForFile(StringRef Filename, std::string *ErrorStr) {
   return nullptr;
 }
 
-/// \brief Configure the diagnostics object for use with ASTUnit.
+/// Configure the diagnostics object for use with ASTUnit.
 void ASTUnit::ConfigureDiags(IntrusiveRefCntPtr<DiagnosticsEngine> Diags,
                              ASTUnit &AST, bool CaptureDiagnostics) {
   assert(Diags.get() && "no DiagnosticsEngine was provided");
@@ -745,7 +752,8 @@ std::unique_ptr<ASTUnit> ASTUnit::LoadFromASTFile(
   AST->OnlyLocalDecls = OnlyLocalDecls;
   AST->CaptureDiagnostics = CaptureDiagnostics;
   AST->Diagnostics = Diags;
-  IntrusiveRefCntPtr<vfs::FileSystem> VFS = vfs::getRealFileSystem();
+  IntrusiveRefCntPtr<llvm::vfs::FileSystem> VFS =
+      llvm::vfs::getRealFileSystem();
   AST->FileMgr = new FileManager(FileSystemOpts, VFS);
   AST->UserFilesAreVolatile = UserFilesAreVolatile;
   AST->SourceMgr = new SourceManager(AST->getDiagnostics(),
@@ -837,14 +845,14 @@ std::unique_ptr<ASTUnit> ASTUnit::LoadFromASTFile(
   return AST;
 }
 
-/// \brief Add the given macro to the hash of all top-level entities.
+/// Add the given macro to the hash of all top-level entities.
 static void AddDefinedMacroToHash(const Token &MacroNameTok, unsigned &Hash) {
   Hash = llvm::djbHash(MacroNameTok.getIdentifierInfo()->getName(), Hash);
 }
 
 namespace {
 
-/// \brief Preprocessor callback class that updates a hash value with the names
+/// Preprocessor callback class that updates a hash value with the names
 /// of all macros that have been defined by the translation unit.
 class MacroDefinitionTrackerPPCallbacks : public PPCallbacks {
   unsigned &Hash;
@@ -860,7 +868,7 @@ public:
 
 } // namespace
 
-/// \brief Add the given declaration to the hash of all top-level entities.
+/// Add the given declaration to the hash of all top-level entities.
 static void AddTopLevelDeclarationToHash(Decl *D, unsigned &Hash) {
   if (!D)
     return;
@@ -1067,7 +1075,7 @@ static void checkAndSanitizeDiags(SmallVectorImpl<StoredDiagnostic> &
 /// contain any translation-unit information, false otherwise.
 bool ASTUnit::Parse(std::shared_ptr<PCHContainerOperations> PCHContainerOps,
                     std::unique_ptr<llvm::MemoryBuffer> OverrideMainBuffer,
-                    IntrusiveRefCntPtr<vfs::FileSystem> VFS) {
+                    IntrusiveRefCntPtr<llvm::vfs::FileSystem> VFS) {
   if (!Invocation)
     return true;
 
@@ -1075,7 +1083,7 @@ bool ASTUnit::Parse(std::shared_ptr<PCHContainerOperations> PCHContainerOps,
   if (OverrideMainBuffer) {
     assert(Preamble &&
            "No preamble was built, but OverrideMainBuffer is not null");
-    IntrusiveRefCntPtr<vfs::FileSystem> OldVFS = VFS;
+    IntrusiveRefCntPtr<llvm::vfs::FileSystem> OldVFS = VFS;
     Preamble->AddImplicitPreamble(*CCInvocation, VFS, OverrideMainBuffer.get());
     if (OldVFS != VFS && FileMgr) {
       assert(OldVFS == FileMgr->getVirtualFileSystem() &&
@@ -1248,7 +1256,7 @@ makeStandaloneDiagnostic(const LangOptions &LangOpts,
   return OutDiag;
 }
 
-/// \brief Attempt to build or re-use a precompiled preamble when (re-)parsing
+/// Attempt to build or re-use a precompiled preamble when (re-)parsing
 /// the source file.
 ///
 /// This routine will compute the preamble of the main source file. If a
@@ -1271,14 +1279,14 @@ makeStandaloneDiagnostic(const LangOptions &LangOpts,
 std::unique_ptr<llvm::MemoryBuffer>
 ASTUnit::getMainBufferWithPrecompiledPreamble(
     std::shared_ptr<PCHContainerOperations> PCHContainerOps,
-    const CompilerInvocation &PreambleInvocationIn,
-    IntrusiveRefCntPtr<vfs::FileSystem> VFS, bool AllowRebuild,
+    CompilerInvocation &PreambleInvocationIn,
+    IntrusiveRefCntPtr<llvm::vfs::FileSystem> VFS, bool AllowRebuild,
     unsigned MaxLines) {
   auto MainFilePath =
       PreambleInvocationIn.getFrontendOpts().Inputs[0].getFile();
   std::unique_ptr<llvm::MemoryBuffer> MainFileBuffer =
       getBufferForFileHandlingRemapping(PreambleInvocationIn, VFS.get(),
-                                        MainFilePath);
+                                        MainFilePath, UserFilesAreVolatile);
   if (!MainFileBuffer)
     return nullptr;
 
@@ -1338,16 +1346,24 @@ ASTUnit::getMainBufferWithPrecompiledPreamble(
     SimpleTimer PreambleTimer(WantTiming);
     PreambleTimer.setOutput("Precompiling preamble");
 
+    const bool PreviousSkipFunctionBodies =
+        PreambleInvocationIn.getFrontendOpts().SkipFunctionBodies;
+    if (SkipFunctionBodies == SkipFunctionBodiesScope::Preamble)
+      PreambleInvocationIn.getFrontendOpts().SkipFunctionBodies = true;
+
     llvm::ErrorOr<PrecompiledPreamble> NewPreamble = PrecompiledPreamble::Build(
         PreambleInvocationIn, MainFileBuffer.get(), Bounds, *Diagnostics, VFS,
         PCHContainerOps, /*StoreInMemory=*/false, Callbacks);
+
+    PreambleInvocationIn.getFrontendOpts().SkipFunctionBodies =
+        PreviousSkipFunctionBodies;
+
     if (NewPreamble) {
       Preamble = std::move(*NewPreamble);
       PreambleRebuildCounter = 1;
     } else {
       switch (static_cast<BuildPreambleError>(NewPreamble.getError().value())) {
       case BuildPreambleError::CouldntCreateTempFile:
-      case BuildPreambleError::PreambleIsEmpty:
         // Try again next time.
         PreambleRebuildCounter = 1;
         return nullptr;
@@ -1453,7 +1469,7 @@ ASTUnit::create(std::shared_ptr<CompilerInvocation> CI,
                 bool CaptureDiagnostics, bool UserFilesAreVolatile) {
   std::unique_ptr<ASTUnit> AST(new ASTUnit(false));
   ConfigureDiags(Diags, *AST, CaptureDiagnostics);
-  IntrusiveRefCntPtr<vfs::FileSystem> VFS =
+  IntrusiveRefCntPtr<llvm::vfs::FileSystem> VFS =
       createVFSFromCompilerInvocation(*CI, *Diags);
   AST->Diagnostics = Diags;
   AST->FileSystemOpts = CI->getFileSystemOpts();
@@ -1615,7 +1631,7 @@ ASTUnit *ASTUnit::LoadFromCompilerInvocationAction(
 bool ASTUnit::LoadFromCompilerInvocation(
     std::shared_ptr<PCHContainerOperations> PCHContainerOps,
     unsigned PrecompilePreambleAfterNParses,
-    IntrusiveRefCntPtr<vfs::FileSystem> VFS) {
+    IntrusiveRefCntPtr<llvm::vfs::FileSystem> VFS) {
   if (!Invocation)
     return true;
 
@@ -1691,10 +1707,10 @@ ASTUnit *ASTUnit::LoadFromCommandLine(
     ArrayRef<RemappedFile> RemappedFiles, bool RemappedFilesKeepOriginalName,
     unsigned PrecompilePreambleAfterNParses, TranslationUnitKind TUKind,
     bool CacheCodeCompletionResults, bool IncludeBriefCommentsInCodeCompletion,
-    bool AllowPCHWithCompilerErrors, bool SkipFunctionBodies,
+    bool AllowPCHWithCompilerErrors, SkipFunctionBodiesScope SkipFunctionBodies,
     bool SingleFileParse, bool UserFilesAreVolatile, bool ForSerialization,
     llvm::Optional<StringRef> ModuleFormat, std::unique_ptr<ASTUnit> *ErrAST,
-    IntrusiveRefCntPtr<vfs::FileSystem> VFS) {
+    IntrusiveRefCntPtr<llvm::vfs::FileSystem> VFS) {
   assert(Diags.get() && "no DiagnosticsEngine was provided");
 
   SmallVector<StoredDiagnostic, 4> StoredDiagnostics;
@@ -1724,7 +1740,8 @@ ASTUnit *ASTUnit::LoadFromCommandLine(
   // Override the resources path.
   CI->getHeaderSearchOpts().ResourceDir = ResourceFilesPath;
 
-  CI->getFrontendOpts().SkipFunctionBodies = SkipFunctionBodies;
+  CI->getFrontendOpts().SkipFunctionBodies =
+      SkipFunctionBodies == SkipFunctionBodiesScope::PreambleAndMainFile;
 
   if (ModuleFormat)
     CI->getHeaderSearchOpts().ModuleFormat = ModuleFormat.getValue();
@@ -1738,7 +1755,7 @@ ASTUnit *ASTUnit::LoadFromCommandLine(
   AST->Diagnostics = Diags;
   AST->FileSystemOpts = CI->getFileSystemOpts();
   if (!VFS)
-    VFS = vfs::getRealFileSystem();
+    VFS = llvm::vfs::getRealFileSystem();
   VFS = createVFSFromCompilerInvocation(*CI, *Diags, VFS);
   AST->FileMgr = new FileManager(AST->FileSystemOpts, VFS);
   AST->PCMCache = new MemoryBufferCache;
@@ -1750,6 +1767,7 @@ ASTUnit *ASTUnit::LoadFromCommandLine(
     = IncludeBriefCommentsInCodeCompletion;
   AST->UserFilesAreVolatile = UserFilesAreVolatile;
   AST->Invocation = CI;
+  AST->SkipFunctionBodies = SkipFunctionBodies;
   if (ForSerialization)
     AST->WriterData.reset(new ASTWriterData(*AST->PCMCache));
   // Zero out now to ease cleanup during crash recovery.
@@ -1777,7 +1795,7 @@ ASTUnit *ASTUnit::LoadFromCommandLine(
 
 bool ASTUnit::Reparse(std::shared_ptr<PCHContainerOperations> PCHContainerOps,
                       ArrayRef<RemappedFile> RemappedFiles,
-                      IntrusiveRefCntPtr<vfs::FileSystem> VFS) {
+                      IntrusiveRefCntPtr<llvm::vfs::FileSystem> VFS) {
   if (!Invocation)
     return true;
 
@@ -1852,7 +1870,7 @@ void ASTUnit::ResetForParse() {
 
 namespace {
 
-  /// \brief Code completion consumer that combines the cached code-completion
+  /// Code completion consumer that combines the cached code-completion
   /// results from an ASTUnit with the code-completion results provided to it,
   /// then passes the result on to
   class AugmentedCodeCompleteConsumer : public CodeCompleteConsumer {
@@ -1894,8 +1912,10 @@ namespace {
 
     void ProcessOverloadCandidates(Sema &S, unsigned CurrentArg,
                                    OverloadCandidate *Candidates,
-                                   unsigned NumCandidates) override {
-      Next.ProcessOverloadCandidates(S, CurrentArg, Candidates, NumCandidates);
+                                   unsigned NumCandidates,
+                                   SourceLocation OpenParLoc) override {
+      Next.ProcessOverloadCandidates(S, CurrentArg, Candidates, NumCandidates,
+                                     OpenParLoc);
     }
 
     CodeCompletionAllocator &getAllocator() override {
@@ -1909,7 +1929,7 @@ namespace {
 
 } // namespace
 
-/// \brief Helper function that computes which global names are hidden by the
+/// Helper function that computes which global names are hidden by the
 /// local code-completion results.
 static void CalculateHiddenNames(const CodeCompletionContext &Context,
                                  CodeCompletionResult *Results,
@@ -1932,8 +1952,8 @@ static void CalculateHiddenNames(const CodeCompletionContext &Context,
   case CodeCompletionContext::CCC_ObjCPropertyAccess:
   case CodeCompletionContext::CCC_Namespace:
   case CodeCompletionContext::CCC_Type:
-  case CodeCompletionContext::CCC_Name:
-  case CodeCompletionContext::CCC_PotentiallyQualifiedName:
+  case CodeCompletionContext::CCC_Symbol:
+  case CodeCompletionContext::CCC_SymbolOrNewName:
   case CodeCompletionContext::CCC_ParenthesizedExpression:
   case CodeCompletionContext::CCC_ObjCInterfaceName:
     break;
@@ -1957,6 +1977,8 @@ static void CalculateHiddenNames(const CodeCompletionContext &Context,
   case CodeCompletionContext::CCC_ObjCInstanceMessage:
   case CodeCompletionContext::CCC_ObjCClassMessage:
   case CodeCompletionContext::CCC_ObjCCategoryName:
+  case CodeCompletionContext::CCC_IncludedFile:
+  case CodeCompletionContext::CCC_NewName:
     // We're looking for nothing, or we're looking for names that cannot
     // be hidden.
     return;
@@ -2111,6 +2133,7 @@ void ASTUnit::CodeComplete(
   CodeCompleteOpts.IncludeGlobals = CachedCompletionResults.empty();
   CodeCompleteOpts.IncludeBriefComments = IncludeBriefComments;
   CodeCompleteOpts.LoadExternal = Consumer.loadExternal();
+  CodeCompleteOpts.IncludeFixIts = Consumer.includeFixIts();
 
   assert(IncludeBriefComments == this->IncludeBriefCommentsInCodeCompletion);
 
@@ -2459,7 +2482,7 @@ SourceLocation ASTUnit::getLocation(const FileEntry *File,
   return SM.getMacroArgExpandedLocation(FileLoc.getLocWithOffset(Offset));
 }
 
-/// \brief If \arg Loc is a loaded location from the preamble, returns
+/// If \arg Loc is a loaded location from the preamble, returns
 /// the corresponding local location of the main file, otherwise it returns
 /// \arg Loc.
 SourceLocation ASTUnit::mapLocationFromPreamble(SourceLocation Loc) const {
@@ -2480,7 +2503,7 @@ SourceLocation ASTUnit::mapLocationFromPreamble(SourceLocation Loc) const {
   return Loc;
 }
 
-/// \brief If \arg Loc is a local location of the main file but inside the
+/// If \arg Loc is a local location of the main file but inside the
 /// preamble chunk, returns the corresponding loaded location from the
 /// preamble, otherwise it returns \arg Loc.
 SourceLocation ASTUnit::mapLocationToPreamble(SourceLocation Loc) const {
@@ -2625,9 +2648,9 @@ InputKind ASTUnit::getInputKind() const {
   else if (LangOpts.RenderScript)
     Lang = InputKind::RenderScript;
   else if (LangOpts.CPlusPlus)
-    Lang = LangOpts.ObjC1 ? InputKind::ObjCXX : InputKind::CXX;
+    Lang = LangOpts.ObjC ? InputKind::ObjCXX : InputKind::CXX;
   else
-    Lang = LangOpts.ObjC1 ? InputKind::ObjC : InputKind::C;
+    Lang = LangOpts.ObjC ? InputKind::ObjC : InputKind::C;
 
   InputKind::Format Fmt = InputKind::Source;
   if (LangOpts.getCompilingModule() == LangOptions::CMK_ModuleMap)

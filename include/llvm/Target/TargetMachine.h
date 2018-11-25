@@ -84,11 +84,10 @@ protected: // Can only create subclasses.
   CodeGenOpt::Level OptLevel = CodeGenOpt::Default;
 
   /// Contains target specific asm information.
-  const MCAsmInfo *AsmInfo;
-
-  const MCRegisterInfo *MRI;
-  const MCInstrInfo *MII;
-  const MCSubtargetInfo *STI;
+  std::unique_ptr<const MCAsmInfo> AsmInfo;
+  std::unique_ptr<const MCRegisterInfo> MRI;
+  std::unique_ptr<const MCInstrInfo> MII;
+  std::unique_ptr<const MCSubtargetInfo> STI;
 
   unsigned RequireStructuredCFG : 1;
   unsigned O0WantsFastISel : 1;
@@ -154,17 +153,17 @@ public:
     return DL.getPointerSize(DL.getAllocaAddrSpace());
   }
 
-  /// \brief Reset the target options based on the function's attributes.
+  /// Reset the target options based on the function's attributes.
   // FIXME: Remove TargetOptions that affect per-function code generation
   // from TargetMachine.
   void resetTargetOptions(const Function &F) const;
 
   /// Return target specific asm information.
-  const MCAsmInfo *getMCAsmInfo() const { return AsmInfo; }
+  const MCAsmInfo *getMCAsmInfo() const { return AsmInfo.get(); }
 
-  const MCRegisterInfo *getMCRegisterInfo() const { return MRI; }
-  const MCInstrInfo *getMCInstrInfo() const { return MII; }
-  const MCSubtargetInfo *getMCSubtargetInfo() const { return STI; }
+  const MCRegisterInfo *getMCRegisterInfo() const { return MRI.get(); }
+  const MCInstrInfo *getMCInstrInfo() const { return MII.get(); }
+  const MCSubtargetInfo *getMCSubtargetInfo() const { return STI.get(); }
 
   /// If intrinsic information is available, return it.  If not, return null.
   virtual const TargetIntrinsicInfo *getIntrinsicInfo() const {
@@ -195,13 +194,19 @@ public:
   /// Returns the optimization level: None, Less, Default, or Aggressive.
   CodeGenOpt::Level getOptLevel() const;
 
-  /// \brief Overrides the optimization level.
+  /// Overrides the optimization level.
   void setOptLevel(CodeGenOpt::Level Level);
 
   void setFastISel(bool Enable) { Options.EnableFastISel = Enable; }
   bool getO0WantsFastISel() { return O0WantsFastISel; }
   void setO0WantsFastISel(bool Enable) { O0WantsFastISel = Enable; }
   void setGlobalISel(bool Enable) { Options.EnableGlobalISel = Enable; }
+  void setMachineOutliner(bool Enable) {
+    Options.EnableMachineOutliner = Enable;
+  }
+  void setSupportsDefaultOutlining(bool Enable) {
+    Options.SupportsDefaultOutlining = Enable;
+  }
 
   bool shouldPrintMachineCode() const { return Options.PrintMachineCode; }
 
@@ -219,14 +224,14 @@ public:
     return Options.FunctionSections;
   }
 
-  /// \brief Get a \c TargetIRAnalysis appropriate for the target.
+  /// Get a \c TargetIRAnalysis appropriate for the target.
   ///
   /// This is used to construct the new pass manager's target IR analysis pass,
   /// set up appropriately for this target machine. Even the old pass manager
   /// uses this to answer queries about the IR.
   TargetIRAnalysis getTargetIRAnalysis();
 
-  /// \brief Return a TargetTransformInfo for a given function.
+  /// Return a TargetTransformInfo for a given function.
   ///
   /// The returned TargetTransformInfo is specialized to the subtarget
   /// corresponding to \p F.
@@ -252,7 +257,7 @@ public:
   /// \p MMI is an optional parameter that, if set to non-nullptr,
   /// will be used to set the MachineModuloInfo for this PM.
   virtual bool addPassesToEmitFile(PassManagerBase &, raw_pwrite_stream &,
-                                   CodeGenFileType,
+                                   raw_pwrite_stream *, CodeGenFileType,
                                    bool /*DisableVerify*/ = true,
                                    MachineModuleInfo *MMI = nullptr) {
     return true;
@@ -279,18 +284,6 @@ public:
   void getNameWithPrefix(SmallVectorImpl<char> &Name, const GlobalValue *GV,
                          Mangler &Mang, bool MayAlwaysUsePrivate = false) const;
   MCSymbol *getSymbol(const GlobalValue *GV) const;
-
-  /// True if the target uses physical regs at Prolog/Epilog insertion
-  /// time. If true (most machines), all vregs must be allocated before
-  /// PEI. If false (virtual-register machines), then callee-save register
-  /// spilling and scavenging are not needed or used.
-  virtual bool usesPhysRegsForPEI() const { return true; }
-
-  /// True if the target wants to use interprocedural register allocation by
-  /// default. The -enable-ipra flag can be used to override this.
-  virtual bool useIPRA() const {
-    return false;
-  }
 };
 
 /// This class describes a target machine that is implemented with the LLVM
@@ -299,14 +292,14 @@ public:
 class LLVMTargetMachine : public TargetMachine {
 protected: // Can only create subclasses.
   LLVMTargetMachine(const Target &T, StringRef DataLayoutString,
-                    const Triple &TargetTriple, StringRef CPU, StringRef FS,
+                    const Triple &TT, StringRef CPU, StringRef FS,
                     const TargetOptions &Options, Reloc::Model RM,
                     CodeModel::Model CM, CodeGenOpt::Level OL);
 
   void initAsmInfo();
 
 public:
-  /// \brief Get a TargetTransformInfo implementation for the target.
+  /// Get a TargetTransformInfo implementation for the target.
   ///
   /// The TTI returned uses the common code generator to answer queries about
   /// the IR.
@@ -321,7 +314,8 @@ public:
   /// \p MMI is an optional parameter that, if set to non-nullptr,
   /// will be used to set the MachineModuloInfofor this PM.
   bool addPassesToEmitFile(PassManagerBase &PM, raw_pwrite_stream &Out,
-                           CodeGenFileType FileType, bool DisableVerify = true,
+                           raw_pwrite_stream *DwoOut, CodeGenFileType FileType,
+                           bool DisableVerify = true,
                            MachineModuleInfo *MMI = nullptr) override;
 
   /// Add passes to the specified pass manager to get machine code emitted with
@@ -329,7 +323,7 @@ public:
   /// fills the MCContext Ctx pointer which can be used to build custom
   /// MCStreamer.
   bool addPassesToEmitMC(PassManagerBase &PM, MCContext *&Ctx,
-                         raw_pwrite_stream &OS,
+                         raw_pwrite_stream &Out,
                          bool DisableVerify = true) override;
 
   /// Returns true if the target is expected to pass all machine verifier
@@ -338,10 +332,23 @@ public:
   /// EXPENSIVE_CHECKS is enabled.
   virtual bool isMachineVerifierClean() const { return true; }
 
-  /// \brief Adds an AsmPrinter pass to the pipeline that prints assembly or
+  /// Adds an AsmPrinter pass to the pipeline that prints assembly or
   /// machine code from the MI representation.
   bool addAsmPrinter(PassManagerBase &PM, raw_pwrite_stream &Out,
-                     CodeGenFileType FileTYpe, MCContext &Context);
+                     raw_pwrite_stream *DwoOut, CodeGenFileType FileTYpe,
+                     MCContext &Context);
+
+  /// True if the target uses physical regs at Prolog/Epilog insertion
+  /// time. If true (most machines), all vregs must be allocated before
+  /// PEI. If false (virtual-register machines), then callee-save register
+  /// spilling and scavenging are not needed or used.
+  virtual bool usesPhysRegsForPEI() const { return true; }
+
+  /// True if the target wants to use interprocedural register allocation by
+  /// default. The -enable-ipra flag can be used to override this.
+  virtual bool useIPRA() const {
+    return false;
+  }
 };
 
 } // end namespace llvm

@@ -9,10 +9,6 @@
 
 #include "lldb/Breakpoint/BreakpointList.h"
 
-// C Includes
-// C++ Includes
-// Other libraries and framework includes
-// Project includes
 #include "lldb/Target/Target.h"
 
 using namespace lldb;
@@ -99,7 +95,7 @@ void BreakpointList::RemoveAll(bool notify) {
 
 void BreakpointList::RemoveAllowed(bool notify) {
   std::lock_guard<std::recursive_mutex> guard(m_mutex);
-  
+
   bp_collection::iterator pos, end = m_breakpoints.end();
   if (notify) {
     for (pos = m_breakpoints.begin(); pos != end; ++pos) {
@@ -116,10 +112,12 @@ void BreakpointList::RemoveAllowed(bool notify) {
   }
   pos = m_breakpoints.begin();
   while ( pos != end) {
-      if((*pos)->AllowDelete())
-        pos = m_breakpoints.erase(pos);
-      else
-        pos++;
+    auto bp = *pos;
+    if (bp->AllowDelete()) {
+      bp->ClearAllBreakpointSites();
+      pos = m_breakpoints.erase(pos);
+    } else
+      pos++;
   }
 }
 

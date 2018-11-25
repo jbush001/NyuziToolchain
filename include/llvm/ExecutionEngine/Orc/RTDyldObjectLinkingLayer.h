@@ -19,6 +19,7 @@
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ExecutionEngine/JITSymbol.h"
 #include "llvm/ExecutionEngine/Orc/Core.h"
+#include "llvm/ExecutionEngine/Orc/Layer.h"
 #include "llvm/ExecutionEngine/Orc/Legacy.h"
 #include "llvm/ExecutionEngine/RuntimeDyld.h"
 #include "llvm/Object/ObjectFile.h"
@@ -35,13 +36,98 @@
 namespace llvm {
 namespace orc {
 
-class RTDyldObjectLinkingLayerBase {
+class RTDyldObjectLinkingLayer : public ObjectLayer {
+public:
+  /// Functor for receiving object-loaded notifications.
+  using NotifyLoadedFunction =
+      std::function<void(VModuleKey, const object::ObjectFile &Obj,
+                         const RuntimeDyld::LoadedObjectInfo &)>;
+
+  /// Functor for receiving finalization notifications.
+  using NotifyEmittedFunction = std::function<void(VModuleKey)>;
+
+  using GetMemoryManagerFunction =
+      std::function<std::unique_ptr<RuntimeDyld::MemoryManager>()>;
+
+  /// Construct an ObjectLinkingLayer with the given NotifyLoaded,
+  ///        and NotifyEmitted functors.
+  RTDyldObjectLinkingLayer(
+      ExecutionSession &ES, GetMemoryManagerFunction GetMemoryManager,
+      NotifyLoadedFunction NotifyLoaded = NotifyLoadedFunction(),
+      NotifyEmittedFunction NotifyEmitted = NotifyEmittedFunction());
+
+  /// Emit the object.
+  void emit(MaterializationResponsibility R,
+            std::unique_ptr<MemoryBuffer> O) override;
+
+  /// Set the 'ProcessAllSections' flag.
+  ///
+  /// If set to true, all sections in each object file will be allocated using
+  /// the memory manager, rather than just the sections required for execution.
+  ///
+  /// This is kludgy, and may be removed in the future.
+  RTDyldObjectLinkingLayer &setProcessAllSections(bool ProcessAllSections) {
+    this->ProcessAllSections = ProcessAllSections;
+    return *this;
+  }
+
+  /// Instructs this RTDyldLinkingLayer2 instance to override the symbol flags
+  /// returned by RuntimeDyld for any given object file with the flags supplied
+  /// by the MaterializationResponsibility instance. This is a workaround to
+  /// support symbol visibility in COFF, which does not use the libObject's
+  /// SF_Exported flag. Use only when generating / adding COFF object files.
+  ///
+  /// FIXME: We should be able to remove this if/when COFF properly tracks
+  /// exported symbols.
+  RTDyldObjectLinkingLayer &
+  setOverrideObjectFlagsWithResponsibilityFlags(bool OverrideObjectFlags) {
+    this->OverrideObjectFlags = OverrideObjectFlags;
+    return *this;
+  }
+
+  /// If set, this RTDyldObjectLinkingLayer instance will claim responsibility
+  /// for any symbols provided by a given object file that were not already in
+  /// the MaterializationResponsibility instance. Setting this flag allows
+  /// higher-level program representations (e.g. LLVM IR) to be added based on
+  /// only a subset of the symbols they provide, without having to write
+  /// intervening layers to scan and add the additional symbols. This trades
+  /// diagnostic quality for convenience however: If all symbols are enumerated
+  /// up-front then clashes can be detected and reported early (and usually
+  /// deterministically). If this option is set, clashes for the additional
+  /// symbols may not be detected until late, and detection may depend on
+  /// the flow of control through JIT'd code. Use with care.
+  RTDyldObjectLinkingLayer &
+  setAutoClaimResponsibilityForObjectSymbols(bool AutoClaimObjectSymbols) {
+    this->AutoClaimObjectSymbols = AutoClaimObjectSymbols;
+    return *this;
+  }
+
+private:
+  Error onObjLoad(VModuleKey K, MaterializationResponsibility &R,
+                  object::ObjectFile &Obj,
+                  std::unique_ptr<RuntimeDyld::LoadedObjectInfo> LoadedObjInfo,
+                  std::map<StringRef, JITEvaluatedSymbol> Resolved,
+                  std::set<StringRef> &InternalSymbols);
+
+  void onObjEmit(VModuleKey K, MaterializationResponsibility &R, Error Err);
+
+  mutable std::mutex RTDyldLayerMutex;
+  GetMemoryManagerFunction GetMemoryManager;
+  NotifyLoadedFunction NotifyLoaded;
+  NotifyEmittedFunction NotifyEmitted;
+  bool ProcessAllSections = false;
+  bool OverrideObjectFlags = false;
+  bool AutoClaimObjectSymbols = false;
+  std::vector<std::unique_ptr<RuntimeDyld::MemoryManager>> MemMgrs;
+};
+
+class LegacyRTDyldObjectLinkingLayerBase {
 public:
   using ObjectPtr = std::unique_ptr<MemoryBuffer>;
 
 protected:
 
-  /// @brief Holds an object to be allocated/linked as a unit in the JIT.
+  /// Holds an object to be allocated/linked as a unit in the JIT.
   ///
   /// An instance of this class will be created for each object added
   /// via JITObjectLayer::addObject. Deleting the instance (via
@@ -81,24 +167,29 @@ protected:
   };
 };
 
-/// @brief Bare bones object linking layer.
+/// Bare bones object linking layer.
 ///
 ///   This class is intended to be used as the base layer for a JIT. It allows
 /// object files to be loaded into memory, linked, and the addresses of their
 /// symbols queried. All objects added to this layer can see each other's
 /// symbols.
-class RTDyldObjectLinkingLayer : public RTDyldObjectLinkingLayerBase {
+class LegacyRTDyldObjectLinkingLayer : public LegacyRTDyldObjectLinkingLayerBase {
 public:
 
-  using RTDyldObjectLinkingLayerBase::ObjectPtr;
+  using LegacyRTDyldObjectLinkingLayerBase::ObjectPtr;
 
-  /// @brief Functor for receiving object-loaded notifications.
+  /// Functor for receiving object-loaded notifications.
   using NotifyLoadedFtor =
       std::function<void(VModuleKey, const object::ObjectFile &Obj,
                          const RuntimeDyld::LoadedObjectInfo &)>;
 
-  /// @brief Functor for receiving finalization notifications.
-  using NotifyFinalizedFtor = std::function<void(VModuleKey)>;
+  /// Functor for receiving finalization notifications.
+  using NotifyFinalizedFtor =
+      std::function<void(VModuleKey, const object::ObjectFile &Obj,
+                         const RuntimeDyld::LoadedObjectInfo &)>;
+
+  /// Functor for receiving deallocation notifications.
+  using NotifyFreedFtor = std::function<void(VModuleKey, const object::ObjectFile &Obj)>;
 
 private:
   using OwnedObject = object::OwningBinary<object::ObjectFile>;
@@ -106,25 +197,31 @@ private:
   template <typename MemoryManagerPtrT>
   class ConcreteLinkedObject : public LinkedObject {
   public:
-    ConcreteLinkedObject(RTDyldObjectLinkingLayer &Parent, VModuleKey K,
+    ConcreteLinkedObject(LegacyRTDyldObjectLinkingLayer &Parent, VModuleKey K,
                          OwnedObject Obj, MemoryManagerPtrT MemMgr,
                          std::shared_ptr<SymbolResolver> Resolver,
                          bool ProcessAllSections)
-        : MemMgr(std::move(MemMgr)),
+        : K(std::move(K)),
+          Parent(Parent),
+          MemMgr(std::move(MemMgr)),
           PFC(llvm::make_unique<PreFinalizeContents>(
-              Parent, std::move(K), std::move(Obj), std::move(Resolver),
+              std::move(Obj), std::move(Resolver),
               ProcessAllSections)) {
       buildInitialSymbolTable(PFC->Obj);
     }
 
     ~ConcreteLinkedObject() override {
+      if (this->Parent.NotifyFreed && ObjForNotify.getBinary())
+        this->Parent.NotifyFreed(K, *ObjForNotify.getBinary());
+
       MemMgr->deregisterEHFrames();
     }
 
     Error finalize() override {
       assert(PFC && "mapSectionAddress called on finalized LinkedObject");
 
-      JITSymbolResolverAdapter ResolverAdapter(PFC->Parent.ES, *PFC->Resolver);
+      JITSymbolResolverAdapter ResolverAdapter(Parent.ES, *PFC->Resolver,
+					       nullptr);
       PFC->RTDyld = llvm::make_unique<RuntimeDyld>(*MemMgr, ResolverAdapter);
       PFC->RTDyld->setProcessAllSections(PFC->ProcessAllSections);
 
@@ -140,8 +237,8 @@ private:
           SymbolTable[KV.first] = KV.second;
       }
 
-      if (PFC->Parent.NotifyLoaded)
-        PFC->Parent.NotifyLoaded(PFC->K, *PFC->Obj.getBinary(), *Info);
+      if (Parent.NotifyLoaded)
+        Parent.NotifyLoaded(K, *PFC->Obj.getBinary(), *Info);
 
       PFC->RTDyld->finalizeWithMemoryManagerLocking();
 
@@ -149,10 +246,12 @@ private:
         return make_error<StringError>(PFC->RTDyld->getErrorString(),
                                        inconvertibleErrorCode());
 
-      if (PFC->Parent.NotifyFinalized)
-        PFC->Parent.NotifyFinalized(PFC->K);
+      if (Parent.NotifyFinalized)
+        Parent.NotifyFinalized(K, *PFC->Obj.getBinary(), *Info);
 
       // Release resources.
+      if (this->Parent.NotifyFreed)
+        ObjForNotify = std::move(PFC->Obj); // needed for callback
       PFC = nullptr;
       return Error::success();
     }
@@ -186,38 +285,43 @@ private:
           consumeError(SymbolName.takeError());
           continue;
         }
+        // FIXME: Raise an error for bad symbols.
         auto Flags = JITSymbolFlags::fromObjectSymbol(Symbol);
+        if (!Flags) {
+          consumeError(Flags.takeError());
+          continue;
+        }
         SymbolTable.insert(
-          std::make_pair(*SymbolName, JITEvaluatedSymbol(0, Flags)));
+            std::make_pair(*SymbolName, JITEvaluatedSymbol(0, *Flags)));
       }
     }
 
     // Contains the information needed prior to finalization: the object files,
     // memory manager, resolver, and flags needed for RuntimeDyld.
     struct PreFinalizeContents {
-      PreFinalizeContents(RTDyldObjectLinkingLayer &Parent, VModuleKey K,
-                          OwnedObject Obj,
+      PreFinalizeContents(OwnedObject Obj,
                           std::shared_ptr<SymbolResolver> Resolver,
                           bool ProcessAllSections)
-          : Parent(Parent), K(std::move(K)), Obj(std::move(Obj)),
+          : Obj(std::move(Obj)),
             Resolver(std::move(Resolver)),
             ProcessAllSections(ProcessAllSections) {}
 
-      RTDyldObjectLinkingLayer &Parent;
-      VModuleKey K;
       OwnedObject Obj;
       std::shared_ptr<SymbolResolver> Resolver;
       bool ProcessAllSections;
       std::unique_ptr<RuntimeDyld> RTDyld;
     };
 
+    VModuleKey K;
+    LegacyRTDyldObjectLinkingLayer &Parent;
     MemoryManagerPtrT MemMgr;
+    OwnedObject ObjForNotify;
     std::unique_ptr<PreFinalizeContents> PFC;
   };
 
   template <typename MemoryManagerPtrT>
   std::unique_ptr<ConcreteLinkedObject<MemoryManagerPtrT>>
-  createLinkedObject(RTDyldObjectLinkingLayer &Parent, VModuleKey K,
+  createLinkedObject(LegacyRTDyldObjectLinkingLayer &Parent, VModuleKey K,
                      OwnedObject Obj, MemoryManagerPtrT MemMgr,
                      std::shared_ptr<SymbolResolver> Resolver,
                      bool ProcessAllSections) {
@@ -235,18 +339,21 @@ public:
 
   using ResourcesGetter = std::function<Resources(VModuleKey)>;
 
-  /// @brief Construct an ObjectLinkingLayer with the given NotifyLoaded,
+  /// Construct an ObjectLinkingLayer with the given NotifyLoaded,
   ///        and NotifyFinalized functors.
-  RTDyldObjectLinkingLayer(
+  LegacyRTDyldObjectLinkingLayer(
       ExecutionSession &ES, ResourcesGetter GetResources,
       NotifyLoadedFtor NotifyLoaded = NotifyLoadedFtor(),
-      NotifyFinalizedFtor NotifyFinalized = NotifyFinalizedFtor())
+      NotifyFinalizedFtor NotifyFinalized = NotifyFinalizedFtor(),
+      NotifyFreedFtor NotifyFreed = NotifyFreedFtor())
       : ES(ES), GetResources(std::move(GetResources)),
         NotifyLoaded(std::move(NotifyLoaded)),
-        NotifyFinalized(std::move(NotifyFinalized)), ProcessAllSections(false) {
+        NotifyFinalized(std::move(NotifyFinalized)),
+        NotifyFreed(std::move(NotifyFreed)),
+        ProcessAllSections(false) {
   }
 
-  /// @brief Set the 'ProcessAllSections' flag.
+  /// Set the 'ProcessAllSections' flag.
   ///
   /// If set to true, all sections in each object file will be allocated using
   /// the memory manager, rather than just the sections required for execution.
@@ -256,7 +363,7 @@ public:
     this->ProcessAllSections = ProcessAllSections;
   }
 
-  /// @brief Add an object to the JIT.
+  /// Add an object to the JIT.
   Error addObject(VModuleKey K, ObjectPtr ObjBuffer) {
 
     auto Obj =
@@ -275,7 +382,7 @@ public:
     return Error::success();
   }
 
-  /// @brief Remove the object associated with VModuleKey K.
+  /// Remove the object associated with VModuleKey K.
   ///
   ///   All memory allocated for the object will be freed, and the sections and
   /// symbols it provided will no longer be available. No attempt is made to
@@ -290,7 +397,7 @@ public:
     return Error::success();
   }
 
-  /// @brief Search for the given named symbol.
+  /// Search for the given named symbol.
   /// @param Name The name of the symbol to search for.
   /// @param ExportedSymbolsOnly If true, search only for exported symbols.
   /// @return A handle for the given named symbol, if it exists.
@@ -304,7 +411,7 @@ public:
     return nullptr;
   }
 
-  /// @brief Search for the given named symbol in the context of the loaded
+  /// Search for the given named symbol in the context of the loaded
   ///        object represented by the VModuleKey K.
   /// @param K The VModuleKey for the object to search in.
   /// @param Name The name of the symbol to search for.
@@ -317,7 +424,7 @@ public:
     return LinkedObjects[K]->getSymbol(Name, ExportedSymbolsOnly);
   }
 
-  /// @brief Map section addresses for the object associated with the
+  /// Map section addresses for the object associated with the
   ///        VModuleKey K.
   void mapSectionAddress(VModuleKey K, const void *LocalAddress,
                          JITTargetAddress TargetAddr) {
@@ -325,7 +432,7 @@ public:
     LinkedObjects[K]->mapSectionAddress(LocalAddress, TargetAddr);
   }
 
-  /// @brief Immediately emit and finalize the object represented by the given
+  /// Immediately emit and finalize the object represented by the given
   ///        VModuleKey.
   /// @param K VModuleKey for object to emit/finalize.
   Error emitAndFinalize(VModuleKey K) {
@@ -340,6 +447,7 @@ private:
   ResourcesGetter GetResources;
   NotifyLoadedFtor NotifyLoaded;
   NotifyFinalizedFtor NotifyFinalized;
+  NotifyFreedFtor NotifyFreed;
   bool ProcessAllSections = false;
 };
 

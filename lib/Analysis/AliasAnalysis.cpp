@@ -178,7 +178,6 @@ ModRefInfo AAResults::getModRefInfo(ImmutableCallSite CS,
     Result = clearRef(Result);
 
   if (onlyAccessesArgPointees(MRB) || onlyAccessesInaccessibleOrArgMem(MRB)) {
-    bool DoesAlias = false;
     bool IsMustAlias = true;
     ModRefInfo AllArgsMask = ModRefInfo::NoModRef;
     if (doesAccessArgPointees(MRB)) {
@@ -191,7 +190,6 @@ ModRefInfo AAResults::getModRefInfo(ImmutableCallSite CS,
         AliasResult ArgAlias = alias(ArgLoc, Loc);
         if (ArgAlias != NoAlias) {
           ModRefInfo ArgMask = getArgModRefInfo(CS, ArgIdx);
-          DoesAlias = true;
           AllArgsMask = unionModRef(AllArgsMask, ArgMask);
         }
         // Conservatively clear IsMustAlias unless only MustAlias is found.
@@ -199,7 +197,7 @@ ModRefInfo AAResults::getModRefInfo(ImmutableCallSite CS,
       }
     }
     // Return NoModRef if no alias found with any argument.
-    if (!DoesAlias)
+    if (isNoModRef(AllArgsMask))
       return ModRefInfo::NoModRef;
     // Logical & between other AA analyses and argument analysis.
     Result = intersectModRef(Result, AllArgsMask);
@@ -372,6 +370,24 @@ FunctionModRefBehavior AAResults::getModRefBehavior(const Function *F) {
   return Result;
 }
 
+raw_ostream &llvm::operator<<(raw_ostream &OS, AliasResult AR) {
+  switch (AR) {
+  case NoAlias:
+    OS << "NoAlias";
+    break;
+  case MustAlias:
+    OS << "MustAlias";
+    break;
+  case MayAlias:
+    OS << "MayAlias";
+    break;
+  case PartialAlias:
+    OS << "PartialAlias";
+    break;
+  }
+  return OS;
+}
+
 //===----------------------------------------------------------------------===//
 // Helper method implementation
 //===----------------------------------------------------------------------===//
@@ -521,7 +537,7 @@ ModRefInfo AAResults::getModRefInfo(const AtomicRMWInst *RMW,
   return ModRefInfo::ModRef;
 }
 
-/// \brief Return information about whether a particular call site modifies
+/// Return information about whether a particular call site modifies
 /// or reads the specified memory location \p MemLoc before instruction \p I
 /// in a BasicBlock. An ordered basic block \p OBB can be used to speed up
 /// instruction-ordering queries inside the BasicBlock containing \p I.
@@ -554,7 +570,7 @@ ModRefInfo AAResults::callCapturesBefore(const Instruction *I,
 
   unsigned ArgNo = 0;
   ModRefInfo R = ModRefInfo::NoModRef;
-  bool MustAlias = true;
+  bool IsMustAlias = true;
   // Set flag only if no May found and all operands processed.
   for (auto CI = CS.data_operands_begin(), CE = CS.data_operands_end();
        CI != CE; ++CI, ++ArgNo) {
@@ -572,7 +588,7 @@ ModRefInfo AAResults::callCapturesBefore(const Instruction *I,
     // assume that the call could touch the pointer, even though it doesn't
     // escape.
     if (AR != MustAlias)
-      MustAlias = false;
+      IsMustAlias = false;
     if (AR == NoAlias)
       continue;
     if (CS.doesNotAccessMemory(ArgNo))
@@ -584,7 +600,7 @@ ModRefInfo AAResults::callCapturesBefore(const Instruction *I,
     // Not returning MustModRef since we have not seen all the arguments.
     return ModRefInfo::ModRef;
   }
-  return MustAlias ? setMust(R) : clearMust(R);
+  return IsMustAlias ? setMust(R) : clearMust(R);
 }
 
 /// canBasicBlockModify - Return true if it is possible for execution of the
@@ -624,28 +640,6 @@ AnalysisKey AAManager::Key;
 
 namespace {
 
-/// A wrapper pass for external alias analyses. This just squirrels away the
-/// callback used to run any analyses and register their results.
-struct ExternalAAWrapperPass : ImmutablePass {
-  using CallbackT = std::function<void(Pass &, Function &, AAResults &)>;
-
-  CallbackT CB;
-
-  static char ID;
-
-  ExternalAAWrapperPass() : ImmutablePass(ID) {
-    initializeExternalAAWrapperPassPass(*PassRegistry::getPassRegistry());
-  }
-
-  explicit ExternalAAWrapperPass(CallbackT CB)
-      : ImmutablePass(ID), CB(std::move(CB)) {
-    initializeExternalAAWrapperPassPass(*PassRegistry::getPassRegistry());
-  }
-
-  void getAnalysisUsage(AnalysisUsage &AU) const override {
-    AU.setPreservesAll();
-  }
-};
 
 } // end anonymous namespace
 

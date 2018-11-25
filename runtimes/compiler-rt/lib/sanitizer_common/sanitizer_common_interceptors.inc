@@ -78,6 +78,7 @@
 #define ctime_r __ctime_r50
 #define devname __devname50
 #define getitimer __getitimer50
+#define getmntinfo __getmntinfo13
 #define getpwent __getpwent50
 #define getpwnam __getpwnam50
 #define getpwnam_r __getpwnam_r50
@@ -1189,6 +1190,50 @@ INTERCEPTOR(SSIZE_T, pwritev64, int fd, __sanitizer_iovec *iov, int iovcnt,
 #define INIT_PWRITEV64
 #endif
 
+#if SANITIZER_INTERCEPT_FGETS
+INTERCEPTOR(char *, fgets, char *s, SIZE_T size, void *file) {
+  // libc file streams can call user-supplied functions, see fopencookie.
+  void *ctx;
+  COMMON_INTERCEPTOR_ENTER(ctx, fgets, s, size, file);
+  // FIXME: under ASan the call below may write to freed memory and corrupt
+  // its metadata. See
+  // https://github.com/google/sanitizers/issues/321.
+  char *res = REAL(fgets)(s, size, file);
+  if (res)
+    COMMON_INTERCEPTOR_WRITE_RANGE(ctx, s, REAL(strlen)(s) + 1);
+  return res;
+}
+#define INIT_FGETS COMMON_INTERCEPT_FUNCTION(fgets)
+#else
+#define INIT_FGETS
+#endif
+
+#if SANITIZER_INTERCEPT_FPUTS
+INTERCEPTOR_WITH_SUFFIX(int, fputs, char *s, void *file) {
+  // libc file streams can call user-supplied functions, see fopencookie.
+  void *ctx;
+  COMMON_INTERCEPTOR_ENTER(ctx, fputs, s, file);
+  COMMON_INTERCEPTOR_READ_RANGE(ctx, s, REAL(strlen)(s) + 1);
+  return REAL(fputs)(s, file);
+}
+#define INIT_FPUTS COMMON_INTERCEPT_FUNCTION(fputs)
+#else
+#define INIT_FPUTS
+#endif
+
+#if SANITIZER_INTERCEPT_PUTS
+INTERCEPTOR(int, puts, char *s) {
+  // libc file streams can call user-supplied functions, see fopencookie.
+  void *ctx;
+  COMMON_INTERCEPTOR_ENTER(ctx, puts, s);
+  COMMON_INTERCEPTOR_READ_RANGE(ctx, s, REAL(strlen)(s) + 1);
+  return REAL(puts)(s);
+}
+#define INIT_PUTS COMMON_INTERCEPT_FUNCTION(puts)
+#else
+#define INIT_PUTS
+#endif
+
 #if SANITIZER_INTERCEPT_PRCTL
 INTERCEPTOR(int, prctl, int option, unsigned long arg2,
             unsigned long arg3,                        // NOLINT
@@ -1766,7 +1811,10 @@ INTERCEPTOR(int, ioctl, int d, unsigned long request, ...) {
 
 #if SANITIZER_INTERCEPT_GETPWNAM_AND_FRIENDS || \
     SANITIZER_INTERCEPT_GETPWENT || SANITIZER_INTERCEPT_FGETPWENT || \
-    SANITIZER_INTERCEPT_GETPWENT_R || SANITIZER_INTERCEPT_GETPWNAM_R_AND_FRIENDS
+    SANITIZER_INTERCEPT_GETPWENT_R || \
+    SANITIZER_INTERCEPT_GETPWNAM_R_AND_FRIENDS || \
+    SANITIZER_INTERCEPT_FGETPWENT_R || \
+    SANITIZER_INTERCEPT_FGETGRENT_R
 static void unpoison_passwd(void *ctx, __sanitizer_passwd *pwd) {
   if (pwd) {
     COMMON_INTERCEPTOR_WRITE_RANGE(ctx, pwd, sizeof(*pwd));
@@ -1990,21 +2038,6 @@ INTERCEPTOR(int, getpwent_r, __sanitizer_passwd *pwbuf, char *buf,
   if (pwbufp) COMMON_INTERCEPTOR_WRITE_RANGE(ctx, pwbufp, sizeof(*pwbufp));
   return res;
 }
-INTERCEPTOR(int, fgetpwent_r, void *fp, __sanitizer_passwd *pwbuf, char *buf,
-            SIZE_T buflen, __sanitizer_passwd **pwbufp) {
-  void *ctx;
-  COMMON_INTERCEPTOR_ENTER(ctx, fgetpwent_r, fp, pwbuf, buf, buflen, pwbufp);
-  // FIXME: under ASan the call below may write to freed memory and corrupt
-  // its metadata. See
-  // https://github.com/google/sanitizers/issues/321.
-  int res = REAL(fgetpwent_r)(fp, pwbuf, buf, buflen, pwbufp);
-  if (!res) {
-    if (pwbufp && *pwbufp) unpoison_passwd(ctx, *pwbufp);
-    COMMON_INTERCEPTOR_WRITE_RANGE(ctx, buf, buflen);
-  }
-  if (pwbufp) COMMON_INTERCEPTOR_WRITE_RANGE(ctx, pwbufp, sizeof(*pwbufp));
-  return res;
-}
 INTERCEPTOR(int, getgrent_r, __sanitizer_group *pwbuf, char *buf, SIZE_T buflen,
             __sanitizer_group **pwbufp) {
   void *ctx;
@@ -2020,6 +2053,36 @@ INTERCEPTOR(int, getgrent_r, __sanitizer_group *pwbuf, char *buf, SIZE_T buflen,
   if (pwbufp) COMMON_INTERCEPTOR_WRITE_RANGE(ctx, pwbufp, sizeof(*pwbufp));
   return res;
 }
+#define INIT_GETPWENT_R                   \
+  COMMON_INTERCEPT_FUNCTION(getpwent_r);  \
+  COMMON_INTERCEPT_FUNCTION(getgrent_r);
+#else
+#define INIT_GETPWENT_R
+#endif
+
+#if SANITIZER_INTERCEPT_FGETPWENT_R
+INTERCEPTOR(int, fgetpwent_r, void *fp, __sanitizer_passwd *pwbuf, char *buf,
+            SIZE_T buflen, __sanitizer_passwd **pwbufp) {
+  void *ctx;
+  COMMON_INTERCEPTOR_ENTER(ctx, fgetpwent_r, fp, pwbuf, buf, buflen, pwbufp);
+  // FIXME: under ASan the call below may write to freed memory and corrupt
+  // its metadata. See
+  // https://github.com/google/sanitizers/issues/321.
+  int res = REAL(fgetpwent_r)(fp, pwbuf, buf, buflen, pwbufp);
+  if (!res) {
+    if (pwbufp && *pwbufp) unpoison_passwd(ctx, *pwbufp);
+    COMMON_INTERCEPTOR_WRITE_RANGE(ctx, buf, buflen);
+  }
+  if (pwbufp) COMMON_INTERCEPTOR_WRITE_RANGE(ctx, pwbufp, sizeof(*pwbufp));
+  return res;
+}
+#define INIT_FGETPWENT_R                  \
+  COMMON_INTERCEPT_FUNCTION(fgetpwent_r);
+#else
+#define INIT_FGETPWENT_R
+#endif
+
+#if SANITIZER_INTERCEPT_FGETGRENT_R
 INTERCEPTOR(int, fgetgrent_r, void *fp, __sanitizer_group *pwbuf, char *buf,
             SIZE_T buflen, __sanitizer_group **pwbufp) {
   void *ctx;
@@ -2035,13 +2098,10 @@ INTERCEPTOR(int, fgetgrent_r, void *fp, __sanitizer_group *pwbuf, char *buf,
   if (pwbufp) COMMON_INTERCEPTOR_WRITE_RANGE(ctx, pwbufp, sizeof(*pwbufp));
   return res;
 }
-#define INIT_GETPWENT_R                   \
-  COMMON_INTERCEPT_FUNCTION(getpwent_r);  \
-  COMMON_INTERCEPT_FUNCTION(fgetpwent_r); \
-  COMMON_INTERCEPT_FUNCTION(getgrent_r);  \
+#define INIT_FGETGRENT_R                  \
   COMMON_INTERCEPT_FUNCTION(fgetgrent_r);
 #else
-#define INIT_GETPWENT_R
+#define INIT_FGETGRENT_R
 #endif
 
 #if SANITIZER_INTERCEPT_SETPWENT
@@ -2105,6 +2165,8 @@ INTERCEPTOR(int, clock_gettime, u32 clk_id, void *tp) {
 namespace __sanitizer {
 extern "C" {
 int real_clock_gettime(u32 clk_id, void *tp) {
+  if (COMMON_INTERCEPTOR_NOTHING_IS_INITIALIZED)
+    return internal_clock_gettime(clk_id, tp);
   return REAL(clock_gettime)(clk_id, tp);
 }
 }  // extern "C"
@@ -3301,14 +3363,14 @@ INTERCEPTOR(INTMAX_T, strtoimax, const char *nptr, char **endptr, int base) {
   return res;
 }
 
-INTERCEPTOR(INTMAX_T, strtoumax, const char *nptr, char **endptr, int base) {
+INTERCEPTOR(UINTMAX_T, strtoumax, const char *nptr, char **endptr, int base) {
   void *ctx;
   COMMON_INTERCEPTOR_ENTER(ctx, strtoumax, nptr, endptr, base);
   // FIXME: under ASan the call below may write to freed memory and corrupt
   // its metadata. See
   // https://github.com/google/sanitizers/issues/321.
   char *real_endptr;
-  INTMAX_T res = REAL(strtoumax)(nptr, &real_endptr, base);
+  UINTMAX_T res = REAL(strtoumax)(nptr, &real_endptr, base);
   StrtolFixAndCheck(ctx, nptr, endptr, real_endptr, base);
   return res;
 }
@@ -4021,7 +4083,7 @@ INTERCEPTOR(void, _exit, int status) {
 #define INIT__EXIT
 #endif
 
-#if SANITIZER_INTERCEPT_PHTREAD_MUTEX
+#if SANITIZER_INTERCEPT_PTHREAD_MUTEX
 INTERCEPTOR(int, pthread_mutex_lock, void *m) {
   void *ctx;
   COMMON_INTERCEPTOR_ENTER(ctx, pthread_mutex_lock, m);
@@ -4054,13 +4116,42 @@ INTERCEPTOR(int, pthread_mutex_unlock, void *m) {
 #define INIT_PTHREAD_MUTEX_UNLOCK
 #endif
 
-#if SANITIZER_NETBSD
-INTERCEPTOR(int, __libc_mutex_lock, void *m) \
-  ALIAS(WRAPPER_NAME(pthread_mutex_lock));
-INTERCEPTOR(int, __libc_mutex_unlock, void *m) \
-  ALIAS(WRAPPER_NAME(pthread_mutex_unlock));
-INTERCEPTOR(int, __libc_thr_setcancelstate, int state, int *oldstate) \
-  ALIAS(WRAPPER_NAME(pthread_setcancelstate));
+#if SANITIZER_INTERCEPT___PTHREAD_MUTEX
+INTERCEPTOR(int, __pthread_mutex_lock, void *m) {
+  return WRAP(pthread_mutex_lock)(m);
+}
+
+INTERCEPTOR(int, __pthread_mutex_unlock, void *m) {
+  return WRAP(pthread_mutex_unlock)(m);
+}
+
+#define INIT___PTHREAD_MUTEX_LOCK \
+  COMMON_INTERCEPT_FUNCTION(__pthread_mutex_lock)
+#define INIT___PTHREAD_MUTEX_UNLOCK \
+  COMMON_INTERCEPT_FUNCTION(__pthread_mutex_unlock)
+#else
+#define INIT___PTHREAD_MUTEX_LOCK
+#define INIT___PTHREAD_MUTEX_UNLOCK
+#endif
+
+#if SANITIZER_INTERCEPT___LIBC_MUTEX
+INTERCEPTOR(int, __libc_mutex_lock, void *m)
+ALIAS(WRAPPER_NAME(pthread_mutex_lock));
+
+INTERCEPTOR(int, __libc_mutex_unlock, void *m)
+ALIAS(WRAPPER_NAME(pthread_mutex_unlock));
+
+INTERCEPTOR(int, __libc_thr_setcancelstate, int state, int *oldstate)
+ALIAS(WRAPPER_NAME(pthread_setcancelstate));
+
+#define INIT___LIBC_MUTEX_LOCK COMMON_INTERCEPT_FUNCTION(__libc_mutex_lock)
+#define INIT___LIBC_MUTEX_UNLOCK COMMON_INTERCEPT_FUNCTION(__libc_mutex_unlock)
+#define INIT___LIBC_THR_SETCANCELSTATE \
+  COMMON_INTERCEPT_FUNCTION(__libc_thr_setcancelstate)
+#else
+#define INIT___LIBC_MUTEX_LOCK
+#define INIT___LIBC_MUTEX_UNLOCK
+#define INIT___LIBC_THR_SETCANCELSTATE
 #endif
 
 #if SANITIZER_INTERCEPT_GETMNTENT || SANITIZER_INTERCEPT_GETMNTENT_R
@@ -4387,6 +4478,7 @@ INTERCEPTOR(int, random_r, void *buf, u32 *result) {
 // its metadata. See
 // https://github.com/google/sanitizers/issues/321.
 #if SANITIZER_INTERCEPT_PTHREAD_ATTR_GET ||              \
+    SANITIZER_INTERCEPT_PTHREAD_ATTR_GET_SCHED ||        \
     SANITIZER_INTERCEPT_PTHREAD_ATTR_GETINHERITSSCHED || \
     SANITIZER_INTERCEPT_PTHREAD_MUTEXATTR_GET ||         \
     SANITIZER_INTERCEPT_PTHREAD_RWLOCKATTR_GET ||        \
@@ -4745,6 +4837,14 @@ INTERCEPTOR(float, remquof, float x, float y, int *quo) {
   if (quo) COMMON_INTERCEPTOR_WRITE_RANGE(ctx, quo, sizeof(*quo));
   return res;
 }
+#define INIT_REMQUO                   \
+  COMMON_INTERCEPT_FUNCTION(remquo);  \
+  COMMON_INTERCEPT_FUNCTION(remquof);
+#else
+#define INIT_REMQUO
+#endif
+
+#if SANITIZER_INTERCEPT_REMQUOL
 INTERCEPTOR(long double, remquol, long double x, long double y, int *quo) {
   void *ctx;
   COMMON_INTERCEPTOR_ENTER(ctx, remquol, x, y, quo);
@@ -4755,12 +4855,10 @@ INTERCEPTOR(long double, remquol, long double x, long double y, int *quo) {
   if (quo) COMMON_INTERCEPTOR_WRITE_RANGE(ctx, quo, sizeof(*quo));
   return res;
 }
-#define INIT_REMQUO                   \
-  COMMON_INTERCEPT_FUNCTION(remquo);  \
-  COMMON_INTERCEPT_FUNCTION(remquof); \
+#define INIT_REMQUOL                  \
   COMMON_INTERCEPT_FUNCTION_LDBL(remquol);
 #else
-#define INIT_REMQUO
+#define INIT_REMQUOL
 #endif
 
 #if SANITIZER_INTERCEPT_LGAMMA
@@ -4779,6 +4877,14 @@ INTERCEPTOR(float, lgammaf, float x) {
   COMMON_INTERCEPTOR_WRITE_RANGE(ctx, &signgam, sizeof(signgam));
   return res;
 }
+#define INIT_LGAMMA                   \
+  COMMON_INTERCEPT_FUNCTION(lgamma);  \
+  COMMON_INTERCEPT_FUNCTION(lgammaf);
+#else
+#define INIT_LGAMMA
+#endif
+
+#if SANITIZER_INTERCEPT_LGAMMAL
 INTERCEPTOR(long double, lgammal, long double x) {
   void *ctx;
   COMMON_INTERCEPTOR_ENTER(ctx, lgammal, x);
@@ -4786,12 +4892,10 @@ INTERCEPTOR(long double, lgammal, long double x) {
   COMMON_INTERCEPTOR_WRITE_RANGE(ctx, &signgam, sizeof(signgam));
   return res;
 }
-#define INIT_LGAMMA                   \
-  COMMON_INTERCEPT_FUNCTION(lgamma);  \
-  COMMON_INTERCEPT_FUNCTION(lgammaf); \
+#define INIT_LGAMMAL                  \
   COMMON_INTERCEPT_FUNCTION_LDBL(lgammal);
 #else
-#define INIT_LGAMMA
+#define INIT_LGAMMAL
 #endif
 
 #if SANITIZER_INTERCEPT_LGAMMA_R
@@ -6537,6 +6641,7 @@ INTERCEPTOR(wchar_t *, wcsncat, wchar_t *dst, const wchar_t *src, SIZE_T n) {
 #define INIT_WCSCAT
 #endif
 
+#if SANITIZER_INTERCEPT_STRXFRM
 static SIZE_T RealStrLen(const char *str) { return REAL(strlen)(str); }
 
 static SIZE_T RealStrLen(const wchar_t *str) { return REAL(wcslen)(str); }
@@ -6553,7 +6658,6 @@ static SIZE_T RealStrLen(const wchar_t *str) { return REAL(wcslen)(str); }
     return res;                                                            \
   }
 
-#if SANITIZER_INTERCEPT_STRXFRM
 INTERCEPTOR(SIZE_T, strxfrm, char *dest, const char *src, SIZE_T len) {
   STRXFRM_INTERCEPTOR_IMPL(strxfrm, dest, src, len);
 }
@@ -7161,6 +7265,89 @@ INTERCEPTOR(struct __sanitizer_netent *, getnetbyaddr, u32 net, int type) {
 #define INIT_NETENT
 #endif
 
+#if SANITIZER_INTERCEPT_GETMNTINFO
+INTERCEPTOR(int, getmntinfo, void **mntbufp, int flags) {
+  void *ctx;
+  COMMON_INTERCEPTOR_ENTER(ctx, getmntinfo, mntbufp, flags);
+  int cnt = REAL(getmntinfo)(mntbufp, flags);
+  if (cnt > 0 && mntbufp) {
+    COMMON_INTERCEPTOR_WRITE_RANGE(ctx, mntbufp, sizeof(void *));
+    if (*mntbufp)
+      COMMON_INTERCEPTOR_WRITE_RANGE(ctx, *mntbufp, cnt * struct_statvfs_sz);
+  }
+  return cnt;
+}
+#define INIT_GETMNTINFO COMMON_INTERCEPT_FUNCTION(getmntinfo)
+#else
+#define INIT_GETMNTINFO
+#endif
+
+#if SANITIZER_INTERCEPT_MI_VECTOR_HASH
+INTERCEPTOR(void, mi_vector_hash, const void *key, SIZE_T len, u32 seed,
+            u32 hashes[3]) {
+  void *ctx;
+  COMMON_INTERCEPTOR_ENTER(ctx, mi_vector_hash, key, len, seed, hashes);
+  if (key)
+    COMMON_INTERCEPTOR_READ_RANGE(ctx, key, len);
+  REAL(mi_vector_hash)(key, len, seed, hashes);
+  if (hashes)
+    COMMON_INTERCEPTOR_WRITE_RANGE(ctx, hashes, sizeof(hashes[0]) * 3);
+}
+#define INIT_MI_VECTOR_HASH COMMON_INTERCEPT_FUNCTION(mi_vector_hash)
+#else
+#define INIT_MI_VECTOR_HASH
+#endif
+
+#if SANITIZER_INTERCEPT_SETVBUF
+INTERCEPTOR(int, setvbuf, __sanitizer_FILE *stream, char *buf, int mode,
+  SIZE_T size) {
+  void *ctx;
+  COMMON_INTERCEPTOR_ENTER(ctx, setvbuf, stream, buf, mode, size);
+  int ret = REAL(setvbuf)(stream, buf, mode, size);
+  if (buf)
+    COMMON_INTERCEPTOR_WRITE_RANGE(ctx, buf, size);
+  if (stream)
+      unpoison_file(stream);
+  return ret;
+}
+
+INTERCEPTOR(void, setbuf, __sanitizer_FILE *stream, char *buf) {
+  void *ctx;
+  COMMON_INTERCEPTOR_ENTER(ctx, setbuf, stream, buf);
+  REAL(setbuf)(stream, buf);
+  if (buf) {
+    COMMON_INTERCEPTOR_WRITE_RANGE(ctx, buf, __sanitizer_bufsiz);
+  }
+  if (stream)
+      unpoison_file(stream);
+}
+
+INTERCEPTOR(void, setbuffer, __sanitizer_FILE *stream, char *buf, int mode) {
+  void *ctx;
+  COMMON_INTERCEPTOR_ENTER(ctx, setbuffer, stream, buf, mode);
+  REAL(setbuffer)(stream, buf, mode);
+  if (buf) {
+    COMMON_INTERCEPTOR_WRITE_RANGE(ctx, buf, __sanitizer_bufsiz);
+  }
+  if (stream)
+    unpoison_file(stream);
+}
+
+INTERCEPTOR(void, setlinebuf, __sanitizer_FILE *stream) {
+  void *ctx;
+  COMMON_INTERCEPTOR_ENTER(ctx, setlinebuf, stream);
+  REAL(setlinebuf)(stream);
+  if (stream)
+    unpoison_file(stream);
+}
+#define INIT_SETVBUF COMMON_INTERCEPT_FUNCTION(setvbuf); \
+    COMMON_INTERCEPT_FUNCTION(setbuf); \
+    COMMON_INTERCEPT_FUNCTION(setbuffer); \
+    COMMON_INTERCEPT_FUNCTION(setlinebuf)
+#else
+#define INIT_SETVBUF
+#endif
+
 static void InitializeCommonInterceptors() {
   static u64 metadata_mem[sizeof(MetadataHashMap) / sizeof(u64) + 1];
   interceptor_metadata_map = new((void *)&metadata_mem) MetadataHashMap();
@@ -7207,6 +7394,9 @@ static void InitializeCommonInterceptors() {
   INIT_WRITEV;
   INIT_PWRITEV;
   INIT_PWRITEV64;
+  INIT_FGETS;
+  INIT_FPUTS;
+  INIT_PUTS;
   INIT_PRCTL;
   INIT_LOCALTIME_AND_FRIENDS;
   INIT_STRPTIME;
@@ -7222,6 +7412,8 @@ static void InitializeCommonInterceptors() {
   INIT_GETPWENT;
   INIT_FGETPWENT;
   INIT_GETPWENT_R;
+  INIT_FGETPWENT_R;
+  INIT_FGETGRENT_R;
   INIT_SETPWENT;
   INIT_CLOCK_GETTIME;
   INIT_GETITIMER;
@@ -7291,6 +7483,11 @@ static void InitializeCommonInterceptors() {
   INIT__EXIT;
   INIT_PTHREAD_MUTEX_LOCK;
   INIT_PTHREAD_MUTEX_UNLOCK;
+  INIT___PTHREAD_MUTEX_LOCK;
+  INIT___PTHREAD_MUTEX_UNLOCK;
+  INIT___LIBC_MUTEX_LOCK;
+  INIT___LIBC_MUTEX_UNLOCK;
+  INIT___LIBC_THR_SETCANCELSTATE;
   INIT_GETMNTENT;
   INIT_GETMNTENT_R;
   INIT_STATFS;
@@ -7326,7 +7523,9 @@ static void InitializeCommonInterceptors() {
   INIT_PTHREAD_GETNAME_NP;
   INIT_SINCOS;
   INIT_REMQUO;
+  INIT_REMQUOL;
   INIT_LGAMMA;
+  INIT_LGAMMAL;
   INIT_LGAMMA_R;
   INIT_LGAMMAL_R;
   INIT_DRAND48_R;
@@ -7402,12 +7601,9 @@ static void InitializeCommonInterceptors() {
   INIT_TTYENT;
   INIT_PROTOENT;
   INIT_NETENT;
-
-#if SANITIZER_NETBSD
-  COMMON_INTERCEPT_FUNCTION(__libc_mutex_lock);
-  COMMON_INTERCEPT_FUNCTION(__libc_mutex_unlock);
-  COMMON_INTERCEPT_FUNCTION(__libc_thr_setcancelstate);
-#endif
+  INIT_GETMNTINFO;
+  INIT_MI_VECTOR_HASH;
+  INIT_SETVBUF;
 
   INIT___PRINTF_CHK;
 }

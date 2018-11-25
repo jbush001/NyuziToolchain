@@ -22,6 +22,7 @@
 #include "MarkLive.h"
 #include "Config.h"
 #include "InputChunks.h"
+#include "InputGlobal.h"
 #include "SymbolTable.h"
 #include "Symbols.h"
 
@@ -29,24 +30,21 @@
 
 using namespace llvm;
 using namespace llvm::wasm;
-using namespace lld;
-using namespace lld::wasm;
 
 void lld::wasm::markLive() {
   if (!Config->GcSections)
     return;
 
-  DEBUG(dbgs() << "markLive\n");
+  LLVM_DEBUG(dbgs() << "markLive\n");
   SmallVector<InputChunk *, 256> Q;
 
   auto Enqueue = [&](Symbol *Sym) {
-    if (!Sym)
+    if (!Sym || Sym->isLive())
       return;
-    InputChunk *Chunk = Sym->getChunk();
-    if (!Chunk || Chunk->Live)
-      return;
-    Chunk->Live = true;
-    Q.push_back(Chunk);
+    LLVM_DEBUG(dbgs() << "markLive: " << Sym->getName() << "\n");
+    Sym->markLive();
+    if (InputChunk *Chunk = Sym->getChunk())
+      Q.push_back(Chunk);
   };
 
   // Add GC root symbols.
@@ -54,9 +52,9 @@ void lld::wasm::markLive() {
     Enqueue(Symtab->find(Config->Entry));
   Enqueue(WasmSym::CallCtors);
 
-  // By default we export all non-hidden, so they are gc roots too
+  // We need to preserve any exported symbol
   for (Symbol *Sym : Symtab->getSymbols())
-    if (!Sym->isHidden())
+    if (Sym->isExported())
       Enqueue(Sym);
 
   // The ctor functions are all used in the synthetic __wasm_call_ctors
@@ -104,6 +102,15 @@ void lld::wasm::markLive() {
       for (InputChunk *C : Obj->Segments)
         if (!C->Live)
           message("removing unused section " + toString(C));
+      for (InputGlobal *G : Obj->Globals)
+        if (!G->Live)
+          message("removing unused section " + toString(G));
     }
+    for (InputChunk *C : Symtab->SyntheticFunctions)
+      if (!C->Live)
+        message("removing unused section " + toString(C));
+    for (InputGlobal *G : Symtab->SyntheticGlobals)
+      if (!G->Live)
+        message("removing unused section " + toString(G));
   }
 }

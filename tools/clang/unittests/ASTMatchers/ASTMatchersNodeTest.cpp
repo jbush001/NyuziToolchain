@@ -27,7 +27,7 @@ TEST(Finder, DynamicOnlyAcceptsSomeMatchers) {
                                        nullptr));
 
   // Do not accept non-toplevel matchers.
-  EXPECT_FALSE(Finder.addDynamicMatcher(isArrow(), nullptr));
+  EXPECT_FALSE(Finder.addDynamicMatcher(isMain(), nullptr));
   EXPECT_FALSE(Finder.addDynamicMatcher(hasName("x"), nullptr));
 }
 
@@ -158,6 +158,16 @@ TEST(ValueDecl, Matches) {
                       valueDecl(hasType(asString("enum EnumType")))));
   EXPECT_TRUE(matches("void FunctionDecl();",
                       valueDecl(hasType(asString("void (void)")))));
+}
+
+TEST(FriendDecl, Matches) {
+  EXPECT_TRUE(matches("class Y { friend class X; };",
+                      friendDecl(hasType(asString("class X")))));
+  EXPECT_TRUE(matches("class Y { friend class X; };",
+                      friendDecl(hasType(recordDecl(hasName("X"))))));
+
+  EXPECT_TRUE(matches("class Y { friend void f(); };",
+                      functionDecl(hasName("f"), hasParent(friendDecl()))));
 }
 
 TEST(Enum, DoesNotMatchClasses) {
@@ -412,10 +422,17 @@ TEST(UnaryExprOrTypeTraitExpr, MatchesSizeOfAndAlignOf) {
 
 TEST(MemberExpression, DoesNotMatchClasses) {
   EXPECT_TRUE(notMatches("class Y { void x() {} };", memberExpr()));
+  EXPECT_TRUE(notMatches("class Y { void x() {} };", unresolvedMemberExpr()));
+  EXPECT_TRUE(
+      notMatches("class Y { void x() {} };", cxxDependentScopeMemberExpr()));
 }
 
 TEST(MemberExpression, MatchesMemberFunctionCall) {
   EXPECT_TRUE(matches("class Y { void x() { x(); } };", memberExpr()));
+  EXPECT_TRUE(matches("class Y { template <class T> void x() { x<T>(); } };",
+                      unresolvedMemberExpr()));
+  EXPECT_TRUE(matches("template <class T> void x() { T t; t.f(); }",
+                      cxxDependentScopeMemberExpr()));
 }
 
 TEST(MemberExpression, MatchesVariable) {
@@ -425,6 +442,13 @@ TEST(MemberExpression, MatchesVariable) {
     matches("class Y { void x() { y; } int y; };", memberExpr()));
   EXPECT_TRUE(
     matches("class Y { void x() { Y y; y.y; } int y; };", memberExpr()));
+  EXPECT_TRUE(matches("template <class T>"
+                      "class X : T { void f() { this->T::v; } };",
+                      cxxDependentScopeMemberExpr()));
+  EXPECT_TRUE(matches("template <class T> class X : T { void f() { T::v; } };",
+                      cxxDependentScopeMemberExpr()));
+  EXPECT_TRUE(matches("template <class T> void x() { T t; t.v; }",
+                      cxxDependentScopeMemberExpr()));
 }
 
 TEST(MemberExpression, MatchesStaticVariable) {
@@ -736,23 +760,23 @@ TEST(Matcher, Initializers) {
                                has(
                                  designatedInitExpr(
                                    designatorCountIs(2),
-                                   has(floatLiteral(
+                                   hasDescendant(floatLiteral(
                                      equals(1.0))),
-                                   has(integerLiteral(
+                                   hasDescendant(integerLiteral(
                                      equals(2))))),
                                has(
                                  designatedInitExpr(
                                    designatorCountIs(2),
-                                   has(floatLiteral(
+                                   hasDescendant(floatLiteral(
                                      equals(2.0))),
-                                   has(integerLiteral(
+                                   hasDescendant(integerLiteral(
                                      equals(2))))),
                                has(
                                  designatedInitExpr(
                                    designatorCountIs(2),
-                                   has(floatLiteral(
+                                   hasDescendant(floatLiteral(
                                      equals(1.0))),
-                                   has(integerLiteral(
+                                   hasDescendant(integerLiteral(
                                      equals(0)))))
                              )))));
 }
@@ -1123,6 +1147,14 @@ TEST(ParenExpression, SimpleCases) {
                          parenExpr()));
 }
 
+TEST(ParenExpression, IgnoringParens) {
+  EXPECT_FALSE(matches("const char* str = (\"my-string\");",
+                       implicitCastExpr(hasSourceExpression(stringLiteral()))));
+  EXPECT_TRUE(matches(
+      "const char* str = (\"my-string\");",
+      implicitCastExpr(hasSourceExpression(ignoringParens(stringLiteral())))));
+}
+
 TEST(TypeMatching, MatchesTypes) {
   EXPECT_TRUE(matches("struct S {};", qualType().bind("loc")));
 }
@@ -1194,6 +1226,12 @@ TEST(TypeMatching, MatchesAutoTypes) {
   //                    autoType(hasDeducedType(isInteger()))));
   //EXPECT_TRUE(notMatches("auto b = 2.0;",
   //                       autoType(hasDeducedType(isInteger()))));
+}
+
+TEST(TypeMatching, MatchesDeclTypes) {
+  EXPECT_TRUE(matches("decltype(1 + 1) sum = 1 + 1;", decltypeType()));
+  EXPECT_TRUE(matches("decltype(1 + 1) sum = 1 + 1;",
+                      decltypeType(hasUnderlyingType(isInteger()))));
 }
 
 TEST(TypeMatching, MatchesFunctionTypes) {
@@ -1450,6 +1488,10 @@ TEST(NNS, MatchesNestedNameSpecifierPrefixes) {
     "struct A { struct B { struct C {}; }; }; A::B::C c;",
     nestedNameSpecifierLoc(hasPrefix(
       specifiesTypeLoc(loc(qualType(asString("struct A"))))))));
+  EXPECT_TRUE(matches(
+    "namespace N { struct A { struct B { struct C {}; }; }; } N::A::B::C c;",
+    nestedNameSpecifierLoc(hasPrefix(
+      specifiesTypeLoc(loc(qualType(asString("struct N::A"))))))));
 }
 
 
@@ -1671,6 +1713,18 @@ TEST(ObjCStmtMatcher, ExceptionStmts) {
   EXPECT_TRUE(matchesObjC(
     ObjCString,
     objcFinallyStmt()));
+}
+
+TEST(ObjCAutoreleaseMatcher, AutoreleasePool) {
+  std::string ObjCString =
+    "void f() {"
+    "@autoreleasepool {"
+    "  int x = 1;"
+    "}"
+    "}";
+  EXPECT_TRUE(matchesObjC(ObjCString, autoreleasePoolStmt()));
+  std::string ObjCStringNoPool = "void f() { int x = 1; }";
+  EXPECT_FALSE(matchesObjC(ObjCStringNoPool, autoreleasePoolStmt()));
 }
 
 } // namespace ast_matchers

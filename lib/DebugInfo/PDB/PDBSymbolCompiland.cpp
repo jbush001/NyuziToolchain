@@ -1,4 +1,4 @@
-//===- PDBSymbolCompiland.cpp - compiland details --------*- C++ -*-===//
+//===- PDBSymbolCompiland.cpp - compiland details ---------------*- C++ -*-===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -11,8 +11,8 @@
 #include "llvm/DebugInfo/PDB/IPDBSourceFile.h"
 
 #include "llvm/DebugInfo/PDB/PDBSymbolCompiland.h"
-#include "llvm/DebugInfo/PDB/PDBSymbolCompilandEnv.h"
 #include "llvm/DebugInfo/PDB/PDBSymbolCompilandDetails.h"
+#include "llvm/DebugInfo/PDB/PDBSymbolCompilandEnv.h"
 #include "llvm/DebugInfo/PDB/PDBSymDumper.h"
 
 #include "llvm/ADT/StringSwitch.h"
@@ -22,18 +22,12 @@
 using namespace llvm;
 using namespace llvm::pdb;
 
-PDBSymbolCompiland::PDBSymbolCompiland(const IPDBSession &PDBSession,
-                                       std::unique_ptr<IPDBRawSymbol> Symbol)
-    : PDBSymbol(PDBSession, std::move(Symbol)) {
-  assert(RawSymbol->getSymTag() == PDB_SymType::Compiland);
-}
-
 void PDBSymbolCompiland::dump(PDBSymDumper &Dumper) const {
   Dumper.dump(*this);
 }
 
 std::string PDBSymbolCompiland::getSourceFileName() const {
-  return llvm::sys::path::filename(getSourceFileFullPath()).str();
+  return sys::path::filename(getSourceFileFullPath()).str();
 }
 
 std::string PDBSymbolCompiland::getSourceFileFullPath() const {
@@ -60,7 +54,7 @@ std::string PDBSymbolCompiland::getSourceFileFullPath() const {
         }
         if (Var == "src") {
           EnvSrc = Env->getValue();
-          if (llvm::sys::path::is_absolute(EnvSrc))
+          if (sys::path::is_absolute(EnvSrc))
             return EnvSrc;
           RecordedResult = EnvSrc;
           continue;
@@ -72,7 +66,7 @@ std::string PDBSymbolCompiland::getSourceFileFullPath() const {
           std::string Path = EnvWorkingDir + "\\" + EnvSrc;
           std::replace(Path.begin(), Path.end(), '/', '\\');
           // We will return it as full path if we can't find a better one.
-          if (llvm::sys::path::is_absolute(Path))
+          if (sys::path::is_absolute(Path))
             SourceFileFullPath = Path;
         }
       }
@@ -80,13 +74,12 @@ std::string PDBSymbolCompiland::getSourceFileFullPath() const {
   }
 
   if (!RecordedResult.empty()) {
-    if (llvm::sys::path::is_absolute(RecordedResult))
+    if (sys::path::is_absolute(RecordedResult))
       return RecordedResult;
 
     // This searches name that has same basename as the one in RecordedResult.
-    auto OneSrcFile =
-        Session.findOneSourceFile(this, RecordedResult,
-                                  PDB_NameSearchFlags::NS_CaseInsensitive);
+    auto OneSrcFile = Session.findOneSourceFile(
+        this, RecordedResult, PDB_NameSearchFlags::NS_CaseInsensitive);
     if (OneSrcFile)
       return OneSrcFile->getFileName();
   }
@@ -101,14 +94,14 @@ std::string PDBSymbolCompiland::getSourceFileFullPath() const {
     bool LangC = (Lang == PDB_Lang::Cpp || Lang == PDB_Lang::C);
     while (auto File = SrcFiles->getNext()) {
       std::string FileName = File->getFileName();
-      auto file_extension = llvm::sys::path::extension(FileName);
+      auto file_extension = sys::path::extension(FileName);
       if (StringSwitch<bool>(file_extension.lower())
-        .Case(".cpp", LangC)
-        .Case(".c", LangC)
-        .Case(".cc", LangC)
-        .Case(".cxx", LangC)
-        .Case(".asm", Lang == PDB_Lang::Masm)
-        .Default(false))
+              .Case(".cpp", LangC)
+              .Case(".c", LangC)
+              .Case(".cc", LangC)
+              .Case(".cxx", LangC)
+              .Case(".asm", Lang == PDB_Lang::Masm)
+              .Default(false))
         return File->getFileName();
     }
   }

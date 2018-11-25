@@ -647,6 +647,8 @@ defm : DSReadPat_mc <DS_READ_I16, i32, "sextloadi16_local">;
 defm : DSReadPat_mc <DS_READ_U16, i32, "az_extloadi16_local">;
 defm : DSReadPat_mc <DS_READ_U16, i16, "load_local">;
 defm : DSReadPat_mc <DS_READ_B32, i32, "load_local">;
+defm : DSReadPat_mc <DS_READ_B32, i32, "atomic_load_32_local">;
+defm : DSReadPat_mc <DS_READ_B64, i64, "atomic_load_64_local">;
 
 let AddedComplexity = 100 in {
 
@@ -655,7 +657,7 @@ defm : DSReadPat_mc <DS_READ_B128, v4i32, "load_align16_local">;
 
 } // End AddedComplexity = 100
 
-let OtherPredicates = [HasD16LoadStore] in {
+let OtherPredicates = [D16PreservesUnusedBits] in {
 let AddedComplexity = 100 in {
 defm : DSReadPat_Hi16<DS_READ_U16_D16_HI, load_local>;
 defm : DSReadPat_Hi16<DS_READ_U8_D16_HI, az_extloadi8_local>;
@@ -683,13 +685,32 @@ multiclass DSWritePat_mc <DS_Pseudo inst, ValueType vt, string frag> {
   }
 }
 
+// Irritatingly, atomic_store reverses the order of operands from a
+// normal store.
+class DSAtomicWritePat <DS_Pseudo inst, ValueType vt, PatFrag frag> : GCNPat <
+  (frag (DS1Addr1Offset i32:$ptr, i32:$offset), vt:$value),
+  (inst $ptr, $value, (as_i16imm $offset), (i1 0))
+>;
+
+multiclass DSAtomicWritePat_mc <DS_Pseudo inst, ValueType vt, string frag> {
+  let OtherPredicates = [LDSRequiresM0Init] in {
+    def : DSAtomicWritePat<inst, vt, !cast<PatFrag>(frag#"_m0")>;
+  }
+
+  let OtherPredicates = [NotLDSRequiresM0Init] in {
+    def : DSAtomicWritePat<!cast<DS_Pseudo>(!cast<string>(inst)#"_gfx9"), vt, !cast<PatFrag>(frag)>;
+  }
+}
+
 defm : DSWritePat_mc <DS_WRITE_B8, i32, "truncstorei8_local">;
 defm : DSWritePat_mc <DS_WRITE_B16, i32, "truncstorei16_local">;
 defm : DSWritePat_mc <DS_WRITE_B8, i16, "truncstorei8_local">;
 defm : DSWritePat_mc <DS_WRITE_B16, i16, "store_local">;
 defm : DSWritePat_mc <DS_WRITE_B32, i32, "store_local">;
+defm : DSAtomicWritePat_mc <DS_WRITE_B32, i32, "atomic_store_local">;
+defm : DSAtomicWritePat_mc <DS_WRITE_B64, i64, "atomic_store_local">;
 
-let OtherPredicates = [HasD16LoadStore] in {
+let OtherPredicates = [D16PreservesUnusedBits] in {
 def : DSWritePat <DS_WRITE_B16_D16_HI, i32, store_local_hi16>;
 def : DSWritePat <DS_WRITE_B8_D16_HI, i32, truncstorei8_local_hi16>;
 }
@@ -707,7 +728,9 @@ class DS64Bit4ByteAlignedWritePat<DS_Pseudo inst, PatFrag frag> : GCNPat<
               (i1 0))
 >;
 
-let OtherPredicates = [LDSRequiresM0Init] in {
+// v2i32 loads are split into i32 loads on SI during lowering, due to a bug
+// related to bounds checking.
+let OtherPredicates = [LDSRequiresM0Init, isCIVI] in {
 def : DS64Bit4ByteAlignedReadPat<DS_READ2_B32, load_local_m0>;
 def : DS64Bit4ByteAlignedWritePat<DS_WRITE2_B32, store_local_m0>;
 }

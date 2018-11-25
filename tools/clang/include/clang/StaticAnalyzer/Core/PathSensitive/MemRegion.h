@@ -122,41 +122,41 @@ public:
   /// Each region is a subregion of itself.
   virtual bool isSubRegionOf(const MemRegion *R) const;
 
-  const MemRegion *StripCasts(bool StripBaseCasts = true) const;
+  const MemRegion *StripCasts(bool StripBaseAndDerivedCasts = true) const;
 
-  /// \brief If this is a symbolic region, returns the region. Otherwise,
+  /// If this is a symbolic region, returns the region. Otherwise,
   /// goes up the base chain looking for the first symbolic base region.
   const SymbolicRegion *getSymbolicBase() const;
 
   bool hasGlobalsOrParametersStorage() const;
 
   bool hasStackStorage() const;
-  
+
   bool hasStackNonParametersStorage() const;
-  
+
   bool hasStackParametersStorage() const;
 
   /// Compute the offset within the top level memory object.
   RegionOffset getAsOffset() const;
 
-  /// \brief Get a string representation of a region for debug use.
+  /// Get a string representation of a region for debug use.
   std::string getString() const;
 
   virtual void dumpToStream(raw_ostream &os) const;
 
   void dump() const;
 
-  /// \brief Returns true if this region can be printed in a user-friendly way.
+  /// Returns true if this region can be printed in a user-friendly way.
   virtual bool canPrintPretty() const;
 
-  /// \brief Print the region for use in diagnostics.
+  /// Print the region for use in diagnostics.
   virtual void printPretty(raw_ostream &os) const;
 
-  /// \brief Returns true if this region's textual representation can be used
+  /// Returns true if this region's textual representation can be used
   /// as part of a larger expression.
   virtual bool canPrintPrettyAsExpr() const;
 
-  /// \brief Print the region as expression.
+  /// Print the region as expression.
   ///
   /// When this region represents a subexpression, the method is for printing
   /// an expression containing it.
@@ -244,7 +244,7 @@ public:
   }
 };
 
-/// \brief The region of the static variables within the current CodeTextRegion
+/// The region of the static variables within the current CodeTextRegion
 /// scope.
 ///
 /// Currently, only the static locals are placed there, so we know that these
@@ -253,7 +253,7 @@ class StaticGlobalSpaceRegion : public GlobalsSpaceRegion {
   friend class MemRegionManager;
 
   const CodeTextRegion *CR;
-  
+
   StaticGlobalSpaceRegion(MemRegionManager *mgr, const CodeTextRegion *cr)
       : GlobalsSpaceRegion(mgr, StaticGlobalSpaceRegionKind), CR(cr) {
     assert(cr);
@@ -271,7 +271,7 @@ public:
   }
 };
 
-/// \brief The region for all the non-static global variables.
+/// The region for all the non-static global variables.
 ///
 /// This class is further split into subclasses for efficient implementation of
 /// invalidating a set of related global values as is done in
@@ -294,7 +294,7 @@ public:
   }
 };
 
-/// \brief The region containing globals which are defined in system/external
+/// The region containing globals which are defined in system/external
 /// headers and are considered modifiable by system calls (ex: errno).
 class GlobalSystemSpaceRegion : public NonStaticGlobalSpaceRegion {
   friend class MemRegionManager;
@@ -310,7 +310,7 @@ public:
   }
 };
 
-/// \brief The region containing globals which are considered not to be modified
+/// The region containing globals which are considered not to be modified
 /// or point to data which could be modified as a result of a function call
 /// (system or internal). Ex: Const global scalars would be modeled as part of
 /// this region. This region also includes most system globals since they have
@@ -329,7 +329,7 @@ public:
   }
 };
 
-/// \brief The region containing globals which can be modified by calls to
+/// The region containing globals which can be modified by calls to
 /// "internally" defined functions - (for now just) functions other then system
 /// calls.
 class GlobalInternalSpaceRegion : public NonStaticGlobalSpaceRegion {
@@ -348,7 +348,7 @@ public:
 
 class HeapSpaceRegion : public MemSpaceRegion {
   friend class MemRegionManager;
-  
+
   HeapSpaceRegion(MemRegionManager *mgr)
       : MemSpaceRegion(mgr, HeapSpaceRegionKind) {}
 
@@ -359,7 +359,7 @@ public:
     return R->getKind() == HeapSpaceRegionKind;
   }
 };
-  
+
 class UnknownSpaceRegion : public MemSpaceRegion {
   friend class MemRegionManager;
 
@@ -613,7 +613,7 @@ public:
     return R->getKind() == FunctionCodeRegionKind;
   }
 };
-  
+
 /// BlockCodeRegion - A region that represents code texts of blocks (closures).
 ///  Blocks are represented with two kinds of regions.  BlockCodeRegions
 ///  represent the "code", while BlockDataRegions represent instances of blocks,
@@ -643,7 +643,7 @@ public:
   QualType getLocationType() const override {
     return locTy;
   }
-  
+
   const BlockDecl *getDecl() const {
     return BD;
   }
@@ -658,7 +658,7 @@ public:
     return R->getKind() == BlockCodeRegionKind;
   }
 };
-  
+
 /// BlockDataRegion - A region that represents a block instance.
 ///  Blocks are represented with two kinds of regions.  BlockCodeRegions
 ///  represent the "code", while BlockDataRegions represent instances of blocks,
@@ -733,9 +733,9 @@ public:
   /// Return the original region for a captured region, if
   /// one exists.
   const VarRegion *getOriginalRegion(const VarRegion *VR) const;
-      
+
   referenced_vars_iterator referenced_vars_begin() const;
-  referenced_vars_iterator referenced_vars_end() const;  
+  referenced_vars_iterator referenced_vars_end() const;
 
   void dumpToStream(raw_ostream &os) const override;
 
@@ -763,10 +763,15 @@ class SymbolicRegion : public SubRegion {
 
   SymbolicRegion(const SymbolRef s, const MemSpaceRegion *sreg)
       : SubRegion(sreg, SymbolicRegionKind), sym(s) {
-    assert(s);
+    // Because pointer arithmetic is represented by ElementRegion layers,
+    // the base symbol here should not contain any arithmetic.
+    assert(s && isa<SymbolData>(s));
     assert(s->getType()->isAnyPointerType() ||
            s->getType()->isReferenceType() ||
            s->getType()->isBlockPointerType());
+
+    // populateWorklistFromSymbol() relies on this assertion, and needs to be
+    // updated if more cases are introduced.
     assert(isa<UnknownSpaceRegion>(sreg) || isa<HeapSpaceRegion>(sreg));
   }
 
@@ -824,7 +829,7 @@ public:
     return R->getKind() == StringRegionKind;
   }
 };
-  
+
 /// The region associated with an ObjCStringLiteral.
 class ObjCStringRegion : public TypedValueRegion {
   friend class MemRegionManager;
@@ -840,7 +845,7 @@ class ObjCStringRegion : public TypedValueRegion {
   static void ProfileRegion(llvm::FoldingSetNodeID &ID,
                             const ObjCStringLiteral *Str,
                             const MemRegion *superRegion);
-  
+
 public:
   const ObjCStringLiteral *getObjCStringLiteral() const { return Str; }
 
@@ -897,9 +902,9 @@ public:
 
 class DeclRegion : public TypedValueRegion {
 protected:
-  const Decl *D;
+  const ValueDecl *D;
 
-  DeclRegion(const Decl *d, const MemRegion *sReg, Kind k)
+  DeclRegion(const ValueDecl *d, const MemRegion *sReg, Kind k)
       : TypedValueRegion(sReg, k), D(d) {
     assert(classof(this));
     assert(d);
@@ -909,7 +914,7 @@ protected:
                       const MemRegion* superRegion, Kind k);
 
 public:
-  const Decl *getDecl() const { return D; }
+  const ValueDecl *getDecl() const { return D; }
   void Profile(llvm::FoldingSetNodeID& ID) const override;
 
   static bool classof(const MemRegion* R) {
@@ -959,7 +964,7 @@ public:
     return R->getKind() == VarRegionKind;
   }
 };
-  
+
 /// CXXThisRegion - Represents the region for the implicit 'this' parameter
 ///  in a call to a C++ method.  This region doesn't represent the object
 ///  referred to by 'this', but rather 'this' itself.
@@ -1072,7 +1077,7 @@ public:
   void dump() const;
 };
 
-/// \brief ElementRegin is used to represent both array elements and casts.
+/// ElementRegin is used to represent both array elements and casts.
 class ElementRegion : public TypedValueRegion {
   friend class MemRegionManager;
 
@@ -1141,7 +1146,7 @@ public:
   }
 };
 
-// CXXBaseObjectRegion represents a base object within a C++ object. It is 
+// CXXBaseObjectRegion represents a base object within a C++ object. It is
 // identified by the base class declaration and the region of its parent object.
 class CXXBaseObjectRegion : public TypedValueRegion {
   friend class MemRegionManager;
@@ -1176,6 +1181,47 @@ public:
   }
 };
 
+// CXXDerivedObjectRegion represents a derived-class object that surrounds
+// a C++ object. It is identified by the derived class declaration and the
+// region of its parent object. It is a bit counter-intuitive (but not otherwise
+// unseen) that this region represents a larger segment of memory that its
+// super-region.
+class CXXDerivedObjectRegion : public TypedValueRegion {
+  friend class MemRegionManager;
+
+  const CXXRecordDecl *DerivedD;
+
+  CXXDerivedObjectRegion(const CXXRecordDecl *DerivedD, const SubRegion *SReg)
+      : TypedValueRegion(SReg, CXXDerivedObjectRegionKind), DerivedD(DerivedD) {
+    assert(DerivedD);
+    // In case of a concrete region, it should always be possible to model
+    // the base-to-derived cast by undoing a previous derived-to-base cast,
+    // otherwise the cast is most likely ill-formed.
+    assert(SReg->getSymbolicBase() &&
+           "Should have unwrapped a base region instead!");
+  }
+
+  static void ProfileRegion(llvm::FoldingSetNodeID &ID, const CXXRecordDecl *RD,
+                            const MemRegion *SReg);
+
+public:
+  const CXXRecordDecl *getDecl() const { return DerivedD; }
+
+  QualType getValueType() const override;
+
+  void dumpToStream(raw_ostream &os) const override;
+
+  void Profile(llvm::FoldingSetNodeID &ID) const override;
+
+  bool canPrintPrettyAsExpr() const override;
+
+  void printPrettyAsExpr(raw_ostream &os) const override;
+
+  static bool classof(const MemRegion *region) {
+    return region->getKind() == CXXDerivedObjectRegionKind;
+  }
+};
+
 template<typename RegionTy>
 const RegionTy* MemRegion::getAs() const {
   if (const auto *RT = dyn_cast<RegionTy>(this))
@@ -1197,7 +1243,7 @@ class MemRegionManager {
   GlobalSystemSpaceRegion *SystemGlobals = nullptr;
   GlobalImmutableSpaceRegion *ImmutableGlobals = nullptr;
 
-  llvm::DenseMap<const StackFrameContext *, StackLocalsSpaceRegion *> 
+  llvm::DenseMap<const StackFrameContext *, StackLocalsSpaceRegion *>
     StackLocalsSpaceRegions;
   llvm::DenseMap<const StackFrameContext *, StackArgumentsSpaceRegion *>
     StackArgumentsSpaceRegions;
@@ -1213,7 +1259,7 @@ public:
   ~MemRegionManager();
 
   ASTContext &getContext() { return C; }
-  
+
   llvm::BumpPtrAllocator &getAllocator() { return A; }
 
   /// getStackLocalsRegion - Retrieve the memory region associated with the
@@ -1251,16 +1297,16 @@ public:
   const CompoundLiteralRegion*
   getCompoundLiteralRegion(const CompoundLiteralExpr *CL,
                            const LocationContext *LC);
-  
+
   /// getCXXThisRegion - Retrieve the [artificial] region associated with the
   ///  parameter 'this'.
   const CXXThisRegion *getCXXThisRegion(QualType thisPointerTy,
                                         const LocationContext *LC);
 
-  /// \brief Retrieve or create a "symbolic" memory region.
+  /// Retrieve or create a "symbolic" memory region.
   const SymbolicRegion* getSymbolicRegion(SymbolRef Sym);
 
-  /// \brief Return a unique symbolic region belonging to heap memory space.
+  /// Return a unique symbolic region belonging to heap memory space.
   const SymbolicRegion *getSymbolicHeapRegion(SymbolRef sym);
 
   const StringRegion *getStringRegion(const StringLiteral *Str);
@@ -1320,17 +1366,25 @@ public:
   /// Create a CXXBaseObjectRegion with the same CXXRecordDecl but a different
   /// super region.
   const CXXBaseObjectRegion *
-  getCXXBaseObjectRegionWithSuper(const CXXBaseObjectRegion *baseReg, 
+  getCXXBaseObjectRegionWithSuper(const CXXBaseObjectRegion *baseReg,
                                   const SubRegion *superRegion) {
     return getCXXBaseObjectRegion(baseReg->getDecl(), superRegion,
                                   baseReg->isVirtual());
   }
 
+  /// Create a CXXDerivedObjectRegion with the given derived class for region
+  /// \p Super. This should not be used for casting an existing
+  /// CXXBaseObjectRegion back to the derived type; instead, CXXBaseObjectRegion
+  /// should be removed.
+  const CXXDerivedObjectRegion *
+  getCXXDerivedObjectRegion(const CXXRecordDecl *BaseClass,
+                            const SubRegion *Super);
+
   const FunctionCodeRegion *getFunctionCodeRegion(const NamedDecl *FD);
   const BlockCodeRegion *getBlockCodeRegion(const BlockDecl *BD,
                                             CanQualType locTy,
                                             AnalysisDeclContext *AC);
-  
+
   /// getBlockDataRegion - Get the memory region associated with an instance
   ///  of a block.  Unlike many other MemRegions, the LocationContext*
   ///  argument is allowed to be NULL for cases where we have no known
@@ -1363,7 +1417,7 @@ private:
 
   template <typename REG>
   const REG* LazyAllocate(REG*& region);
-  
+
   template <typename REG, typename ARG>
   const REG* LazyAllocate(REG*& region, ARG a);
 };
@@ -1393,7 +1447,7 @@ class RegionAndSymbolInvalidationTraits {
       llvm::DenseMap<SymbolRef, StorageTypeForKinds>::const_iterator;
 
 public:
-  /// \brief Describes different invalidation traits.
+  /// Describes different invalidation traits.
   enum InvalidationKinds {
     /// Tells that a region's contents is not changed.
     TK_PreserveContents = 0x1,
@@ -1408,7 +1462,7 @@ public:
     /// should be invalidated.
     TK_EntireMemSpace = 0x8
 
-    // Do not forget to extend StorageTypeForKinds if number of traits exceed 
+    // Do not forget to extend StorageTypeForKinds if number of traits exceed
     // the number of bits StorageTypeForKinds can store.
   };
 

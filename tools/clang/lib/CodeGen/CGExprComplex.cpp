@@ -101,6 +101,9 @@ public:
     llvm_unreachable("Stmt can't have complex result type!");
   }
   ComplexPairTy VisitExpr(Expr *S);
+  ComplexPairTy VisitConstantExpr(ConstantExpr *E) {
+    return Visit(E->getSubExpr());
+  }
   ComplexPairTy VisitParenExpr(ParenExpr *PE) { return Visit(PE->getSubExpr());}
   ComplexPairTy VisitGenericSelectionExpr(GenericSelectionExpr *GE) {
     return Visit(GE->getResultExpr());
@@ -505,10 +508,11 @@ ComplexPairTy ComplexExprEmitter::EmitCast(CastKind CK, Expr *Op,
   case CK_ARCExtendBlockObject:
   case CK_CopyAndAutoreleaseBlockObject:
   case CK_BuiltinFnToFnPtr:
-  case CK_ZeroToOCLEvent:
-  case CK_ZeroToOCLQueue:
+  case CK_ZeroToOCLOpaqueType:
   case CK_AddressSpaceConversion:
   case CK_IntToOCLSampler:
+  case CK_FixedPointCast:
+  case CK_FixedPointToBoolean:
     llvm_unreachable("invalid cast kind for complex value");
 
   case CK_FloatingRealToComplex:
@@ -595,7 +599,7 @@ ComplexPairTy ComplexExprEmitter::EmitBinSub(const BinOpInfo &Op) {
   return ComplexPairTy(ResR, ResI);
 }
 
-/// \brief Emit a libcall for a binary operation on complex types.
+/// Emit a libcall for a binary operation on complex types.
 ComplexPairTy ComplexExprEmitter::EmitComplexBinOpLibCall(StringRef LibCallName,
                                                           const BinOpInfo &Op) {
   CallArgList Args;
@@ -633,7 +637,7 @@ ComplexPairTy ComplexExprEmitter::EmitComplexBinOpLibCall(StringRef LibCallName,
   return Res.getComplexVal();
 }
 
-/// \brief Lookup the libcall name for a given floating point type complex
+/// Lookup the libcall name for a given floating point type complex
 /// multiply.
 static StringRef getComplexMultiplyLibCallName(llvm::Type *Ty) {
   switch (Ty->getTypeID()) {

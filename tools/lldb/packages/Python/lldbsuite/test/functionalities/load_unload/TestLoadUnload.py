@@ -19,6 +19,8 @@ class LoadUnloadTestCase(TestBase):
 
     mydir = TestBase.compute_mydir(__file__)
 
+    NO_DEBUG_INFO_TESTCASE = True
+
     def setUp(self):
         # Call super's setUp().
         TestBase.setUp(self)
@@ -208,7 +210,7 @@ class LoadUnloadTestCase(TestBase):
         if not self.platformIsDarwin():
             env_cmd_string += ":" + wd
         self.runCmd(env_cmd_string)
-        
+
         # This time, the hidden library should be picked up.
         self.expect("run", substrs=["return", "12345"])
 

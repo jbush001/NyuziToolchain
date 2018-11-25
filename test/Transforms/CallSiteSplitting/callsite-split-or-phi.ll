@@ -37,9 +37,9 @@ End:
 
 ;CHECK-LABEL: @test_eq_eq_eq
 ;CHECK-LABEL: Header2.split:
-;CHECK: %[[CALL1:.*]] = call i32 @callee(i32* null, i32 %v, i32 10)
+;CHECK: %[[CALL1:.*]] = call i32 @callee(i32* %a, i32 %v, i32 10)
 ;CHECK-LABEL: TBB.split:
-;CHECK: %[[CALL2:.*]] = call i32 @callee(i32* null, i32 1, i32 %p)
+;CHECK: %[[CALL2:.*]] = call i32 @callee(i32* %a, i32 1, i32 %p)
 ;CHECK-LABEL: Tail
 ;CHECK: %[[MERGED:.*]] = phi i32 [ %[[CALL1]], %Header2.split ], [ %[[CALL2]], %TBB.split ]
 ;CHECK: ret i32 %[[MERGED]]
@@ -123,14 +123,14 @@ End:
 ;CHECK-LABEL: Header2.split:
 ;CHECK: %[[CALL1:.*]] = call i32 @callee(i32* nonnull %a, i32 %v, i32 10)
 ;CHECK-LABEL: TBB.split:
-;CHECK: %[[CALL2:.*]] = call i32 @callee(i32* nonnull %a, i32 %v, i32 %p)
+;CHECK: %[[CALL2:.*]] = call i32 @callee(i32* %a, i32 %v, i32 %p)
 ;CHECK-LABEL: Tail
 ;CHECK: %[[MERGED:.*]] = phi i32 [ %[[CALL1]], %Header2.split ], [ %[[CALL2]], %TBB.split ]
 ;CHECK: ret i32 %[[MERGED]]
 define i32 @test_ne_eq_ne(i32* %a, i32 %v, i32 %p) {
 Header:
   %tobool1 = icmp ne i32* %a, null
-  br i1 %tobool1, label %Header2, label %End
+  br i1 %tobool1, label %Header2, label %TBB
 
 Header2:
   %tobool2 = icmp eq i32 %p, 10
@@ -178,14 +178,14 @@ End:
 ;CHECK-LABEL: Header2.split:
 ;CHECK: %[[CALL1:.*]] = call i32 @callee(i32* nonnull %a, i32 %v, i32 %p)
 ;CHECK-LABEL: TBB.split:
-;CHECK: %[[CALL2:.*]] = call i32 @callee(i32* nonnull %a, i32 %v, i32 %p)
+;CHECK: %[[CALL2:.*]] = call i32 @callee(i32* %a, i32 %v, i32 %p)
 ;CHECK-LABEL: Tail
 ;CHECK: %[[MERGED:.*]] = phi i32 [ %[[CALL1]], %Header2.split ], [ %[[CALL2]], %TBB.split ]
 ;CHECK: ret i32 %[[MERGED]]
 define i32 @test_ne_ne_ne_constrain_same_pointer_arg(i32* %a, i32 %v, i32 %p, i32* %a2, i32* %a3) {
 Header:
   %tobool1 = icmp ne i32* %a, null
-  br i1 %tobool1, label %Header2, label %End
+  br i1 %tobool1, label %Header2, label %TBB
 
 Header2:
   %tobool2 = icmp ne i32* %a, %a2
@@ -235,14 +235,14 @@ End:
 ;CHECK-LABEL: Header2.split:
 ;CHECK: %[[CALL1:.*]] = call i32 @callee(i32* nonnull %a, i32 %v, i32 10)
 ;CHECK-LABEL: TBB.split:
-;CHECK: %[[CALL2:.*]] = call i32 @callee(i32* nonnull %a, i32 1, i32 %p)
+;CHECK: %[[CALL2:.*]] = call i32 @callee(i32* %a, i32 1, i32 %p)
 ;CHECK-LABEL: Tail
 ;CHECK: %[[MERGED:.*]] = phi i32 [ %[[CALL1]], %Header2.split ], [ %[[CALL2]], %TBB.split ]
 ;CHECK: ret i32 %[[MERGED]]
 define i32 @test_eq_eq_eq_untaken(i32* %a, i32 %v, i32 %p) {
 Header:
   %tobool1 = icmp eq i32* %a, null
-  br i1 %tobool1, label %End, label %Header2
+  br i1 %tobool1, label %TBB, label %Header2
 
 Header2:
   %tobool2 = icmp eq i32 %p, 10
@@ -290,14 +290,14 @@ End:
 ;CHECK-LABEL: Header2.split:
 ;CHECK: %[[CALL1:.*]] = call i32 @callee(i32* null, i32 %v, i32 10)
 ;CHECK-LABEL: TBB.split:
-;CHECK: %[[CALL2:.*]] = call i32 @callee(i32* null, i32 %v, i32 %p)
+;CHECK: %[[CALL2:.*]] = call i32 @callee(i32* %a, i32 %v, i32 %p)
 ;CHECK-LABEL: Tail
 ;CHECK: %[[MERGED:.*]] = phi i32 [ %[[CALL1]], %Header2.split ], [ %[[CALL2]], %TBB.split ]
 ;CHECK: ret i32 %[[MERGED]]
 define i32 @test_ne_eq_ne_untaken(i32* %a, i32 %v, i32 %p) {
 Header:
   %tobool1 = icmp ne i32* %a, null
-  br i1 %tobool1, label %End, label %Header2
+  br i1 %tobool1, label %TBB, label %Header2
 
 Header2:
   %tobool2 = icmp eq i32 %p, 10
@@ -489,6 +489,31 @@ End:
   ret i32 %v
 }
 
+;CHECK-LABEL: @test_cond_no_effect
+;CHECK-NOT: Header.split:
+;CHECK-NOT: TBB.split:
+;CHECK-LABEL: Tail:
+;CHECK: %r = call i32 @callee(i32* %a, i32 %v, i32 0)
+;CHECK: ret i32 %r
+define i32 @test_cond_no_effect(i32* %a, i32 %v) {
+Entry:
+  %tobool1 = icmp eq i32* %a, null
+  br i1 %tobool1, label %Header, label %End
+
+Header:
+  br i1 undef, label %Tail, label %TBB
+
+TBB:
+  br i1 undef, label %Tail, label %End
+
+Tail:
+  %r = call i32 @callee(i32* %a, i32 %v, i32 0)
+  ret i32 %r
+
+End:
+  ret i32 %v
+}
+
 ;CHECK-LABEL: @test_unreachable
 ;CHECK-LABEL: Header.split:
 ;CHECK: %[[CALL1:.*]] = call i32 @callee(i32* %a, i32 %v, i32 10)
@@ -532,3 +557,32 @@ End:
 
 declare void @dummy(i32*, i32)
 declare void @dummy2(i32, i32)
+
+; Make sure we remove the non-nullness on constant paramater.
+;
+;CHECK-LABEL: @caller2
+;CHECK-LABEL: Top1.split:
+;CHECK: call i32 @callee(i32* inttoptr (i64 4643 to i32*)
+define void @caller2(i32 %c, i32* %a_elt, i32* %b_elt) {
+entry:
+  br label %Top0
+
+Top0:
+  %tobool1 = icmp eq i32* %a_elt, inttoptr (i64 4643 to  i32*) 
+  br i1 %tobool1, label %Top1, label %NextCond
+
+Top1:
+  %tobool2 = icmp ne i32* %a_elt, null
+  br i1 %tobool2, label %CallSiteBB, label %NextCond
+
+NextCond:
+  %cmp = icmp ne i32* %b_elt, null
+  br i1 %cmp, label %CallSiteBB, label %End
+
+CallSiteBB:
+  call i32 @callee(i32* %a_elt, i32 %c, i32 %c)
+  br label %End
+
+End:
+  ret void
+}

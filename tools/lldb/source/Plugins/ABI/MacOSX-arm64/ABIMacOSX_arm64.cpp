@@ -9,18 +9,13 @@
 
 #include "ABIMacOSX_arm64.h"
 
-// C Includes
-// C++ Includes
 #include <vector>
 
-// Other libraries and framework includes
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/Triple.h"
 
 #include "lldb/Core/Module.h"
 #include "lldb/Core/PluginManager.h"
-#include "lldb/Core/RegisterValue.h"
-#include "lldb/Core/Scalar.h"
 #include "lldb/Core/Value.h"
 #include "lldb/Core/ValueObjectConstResult.h"
 #include "lldb/Symbol/UnwindPlan.h"
@@ -30,6 +25,8 @@
 #include "lldb/Target/Thread.h"
 #include "lldb/Utility/ConstString.h"
 #include "lldb/Utility/Log.h"
+#include "lldb/Utility/RegisterValue.h"
+#include "lldb/Utility/Scalar.h"
 #include "lldb/Utility/Status.h"
 
 #include "Utility/ARM64_DWARF_Registers.h"
@@ -1667,15 +1664,12 @@ size_t ABIMacOSX_arm64::GetRedZoneSize() const { return 128; }
 
 ABISP
 ABIMacOSX_arm64::CreateInstance(ProcessSP process_sp, const ArchSpec &arch) {
-  static ABISP g_abi_sp;
   const llvm::Triple::ArchType arch_type = arch.GetTriple().getArch();
   const llvm::Triple::VendorType vendor_type = arch.GetTriple().getVendor();
 
   if (vendor_type == llvm::Triple::Apple) {
     if (arch_type == llvm::Triple::aarch64) {
-      if (!g_abi_sp)
-        g_abi_sp.reset(new ABIMacOSX_arm64(process_sp));
-      return g_abi_sp;
+      return ABISP(new ABIMacOSX_arm64(process_sp));
     }
   }
 
@@ -1760,8 +1754,8 @@ bool ABIMacOSX_arm64::GetArgumentValues(Thread &thread,
   addr_t sp = 0;
 
   for (uint32_t value_idx = 0; value_idx < num_values; ++value_idx) {
-    // We currently only support extracting values with Clang QualTypes.
-    // Do we care about others?
+    // We currently only support extracting values with Clang QualTypes. Do we
+    // care about others?
     Value *value = values.GetValueAtIndex(value_idx);
 
     if (!value)
@@ -2022,10 +2016,9 @@ bool ABIMacOSX_arm64::CreateDefaultUnwindPlan(UnwindPlan &unwind_plan) {
 }
 
 // AAPCS64 (Procedure Call Standard for the ARM 64-bit Architecture) says
-// registers x19 through x28 and sp are callee preserved.
-// v8-v15 are non-volatile (and specifically only the lower 8 bytes of these
-// regs),
-// the rest of the fp/SIMD registers are volatile.
+// registers x19 through x28 and sp are callee preserved. v8-v15 are non-
+// volatile (and specifically only the lower 8 bytes of these regs), the rest
+// of the fp/SIMD registers are volatile.
 
 // We treat x29 as callee preserved also, else the unwinder won't try to
 // retrieve fp saves.
@@ -2209,14 +2202,14 @@ static bool LoadValueFromConsecutiveGPRRegisters(
   } else {
     const RegisterInfo *reg_info = nullptr;
     if (is_return_value) {
-      // We are assuming we are decoding this immediately after returning
-      // from a function call and that the address of the structure is in x8
+      // We are assuming we are decoding this immediately after returning from
+      // a function call and that the address of the structure is in x8
       reg_info = reg_ctx->GetRegisterInfoByName("x8", 0);
     } else {
       // We are assuming we are stopped at the first instruction in a function
-      // and that the ABI is being respected so all parameters appear where they
-      // should be (functions with no external linkage can legally violate the
-      // ABI).
+      // and that the ABI is being respected so all parameters appear where
+      // they should be (functions with no external linkage can legally violate
+      // the ABI).
       if (NGRN >= 8)
         return false;
 

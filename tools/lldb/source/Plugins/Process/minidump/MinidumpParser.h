@@ -11,12 +11,12 @@
 #ifndef liblldb_MinidumpParser_h_
 #define liblldb_MinidumpParser_h_
 
-// Project includes
 #include "MinidumpTypes.h"
 
 #include "lldb/Utility/ArchSpec.h"
 #include "lldb/Utility/DataBuffer.h"
 #include "lldb/Utility/Status.h"
+#include "lldb/Utility/UUID.h"
 
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/DenseMap.h"
@@ -54,6 +54,8 @@ public:
 
   llvm::Optional<std::string> GetMinidumpString(uint32_t rva);
 
+  UUID GetModuleUUID(const MinidumpModule* module);
+
   llvm::ArrayRef<MinidumpThread> GetThreads();
 
   llvm::ArrayRef<uint8_t> GetThreadContext(const MinidumpThread &td);
@@ -86,14 +88,16 @@ public:
 
   llvm::Optional<MemoryRegionInfo> GetMemoryRegionInfo(lldb::addr_t);
 
+  // Perform consistency checks and initialize internal data structures
+  Status Initialize();
+
+private:
+  MinidumpParser(const lldb::DataBufferSP &data_buf_sp);
+
 private:
   lldb::DataBufferSP m_data_sp;
-  const MinidumpHeader *m_header;
   llvm::DenseMap<uint32_t, MinidumpLocationDescriptor> m_directory_map;
-
-  MinidumpParser(
-      const lldb::DataBufferSP &data_buf_sp, const MinidumpHeader *header,
-      llvm::DenseMap<uint32_t, MinidumpLocationDescriptor> &&directory_map);
+  ArchSpec m_arch;
 };
 
 } // end namespace minidump

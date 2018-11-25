@@ -103,7 +103,7 @@ public:
   }
 };
 
-/// \brief Subclasses \c clang::FixItRewriter to not count fixed errors/warnings
+/// Subclasses \c clang::FixItRewriter to not count fixed errors/warnings
 /// in the final error counts.
 ///
 /// This has the side-effect that clang-check -fixit exits with code 0 on
@@ -120,9 +120,9 @@ public:
   bool IncludeInDiagnosticCounts() const override { return false; }
 };
 
-/// \brief Subclasses \c clang::FixItAction so that we can install the custom
+/// Subclasses \c clang::FixItAction so that we can install the custom
 /// \c FixItRewriter.
-class FixItAction : public clang::FixItAction {
+class ClangCheckFixItAction : public clang::FixItAction {
 public:
   bool BeginSourceFileAction(clang::CompilerInstance& CI) override {
     FixItOpts.reset(new FixItOptions);
@@ -180,7 +180,7 @@ int main(int argc, const char **argv) {
   if (Analyze)
     FrontendFactory = newFrontendActionFactory<clang::ento::AnalysisAction>();
   else if (Fixit)
-    FrontendFactory = newFrontendActionFactory<FixItAction>();
+    FrontendFactory = newFrontendActionFactory<ClangCheckFixItAction>();
   else
     FrontendFactory = newFrontendActionFactory(&CheckFactory);
 

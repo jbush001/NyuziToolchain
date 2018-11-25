@@ -43,7 +43,6 @@ class MemoryBuffer {
   const char *BufferStart; // Start of the buffer.
   const char *BufferEnd;   // End of the buffer.
 
-
 protected:
   MemoryBuffer() = default;
 

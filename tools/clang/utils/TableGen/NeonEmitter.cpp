@@ -494,6 +494,7 @@ private:
     std::pair<Type, std::string> emitDagSaveTemp(DagInit *DI);
     std::pair<Type, std::string> emitDagSplat(DagInit *DI);
     std::pair<Type, std::string> emitDagDup(DagInit *DI);
+    std::pair<Type, std::string> emitDagDupTyped(DagInit *DI);
     std::pair<Type, std::string> emitDagShuffle(DagInit *DI);
     std::pair<Type, std::string> emitDagCast(DagInit *DI, bool IsBitCast);
     std::pair<Type, std::string> emitDagCall(DagInit *DI);
@@ -897,6 +898,18 @@ void Type::applyModifier(char Mod) {
     Float = true;
     ElementBitwidth = 16;
     break;
+  case '0':
+    Float = true;
+    if (AppliedQuad)
+      Bitwidth /= 2;
+    ElementBitwidth = 16;
+    break;
+  case '1':
+    Float = true;
+    if (!AppliedQuad)
+      Bitwidth *= 2;
+    ElementBitwidth = 16;
+    break;
   case 'g':
     if (AppliedQuad)
       Bitwidth /= 2;
@@ -994,6 +1007,19 @@ void Type::applyModifier(char Mod) {
     NumVectors = 4;
     if (!AppliedQuad)
       Bitwidth *= 2;
+    break;
+  case '7':
+    if (AppliedQuad)
+      Bitwidth /= 2;
+    ElementBitwidth = 8;
+    break;
+  case '8':
+    ElementBitwidth = 8;
+    break;
+  case '9':
+    if (!AppliedQuad)
+      Bitwidth *= 2;
+    ElementBitwidth = 8;
     break;
   default:
     llvm_unreachable("Unhandled character!");
@@ -1494,6 +1520,8 @@ std::pair<Type, std::string> Intrinsic::DagEmitter::emitDag(DagInit *DI) {
     return emitDagShuffle(DI);
   if (Op == "dup")
     return emitDagDup(DI);
+  if (Op == "dup_typed")
+    return emitDagDupTyped(DI);
   if (Op == "splat")
     return emitDagSplat(DI);
   if (Op == "save_temp")
@@ -1758,6 +1786,28 @@ std::pair<Type, std::string> Intrinsic::DagEmitter::emitDagDup(DagInit *DI) {
   return std::make_pair(T, S);
 }
 
+std::pair<Type, std::string> Intrinsic::DagEmitter::emitDagDupTyped(DagInit *DI) {
+  assert_with_loc(DI->getNumArgs() == 2, "dup_typed() expects two arguments");
+  std::pair<Type, std::string> A = emitDagArg(DI->getArg(0),
+                                              DI->getArgNameStr(0));
+  std::pair<Type, std::string> B = emitDagArg(DI->getArg(1),
+                                              DI->getArgNameStr(1));
+  assert_with_loc(B.first.isScalar(),
+                  "dup_typed() requires a scalar as the second argument");
+
+  Type T = A.first;
+  assert_with_loc(T.isVector(), "dup_typed() used but target type is scalar!");
+  std::string S = "(" + T.str() + ") {";
+  for (unsigned I = 0; I < T.getNumElements(); ++I) {
+    if (I != 0)
+      S += ", ";
+    S += B.second;
+  }
+  S += "}";
+
+  return std::make_pair(T, S);
+}
+
 std::pair<Type, std::string> Intrinsic::DagEmitter::emitDagSplat(DagInit *DI) {
   assert_with_loc(DI->getNumArgs() == 2, "splat() expects two arguments");
   std::pair<Type, std::string> A = emitDagArg(DI->getArg(0),
@@ -2007,7 +2057,7 @@ void NeonEmitter::createIntrinsic(Record *R,
     }
   }
 
-  llvm::sort(NewTypeSpecs.begin(), NewTypeSpecs.end());
+  llvm::sort(NewTypeSpecs);
   NewTypeSpecs.erase(std::unique(NewTypeSpecs.begin(), NewTypeSpecs.end()),
 		     NewTypeSpecs.end());
   auto &Entry = IntrinsicMap[Name];
@@ -2149,8 +2199,7 @@ void NeonEmitter::genOverloadTypeCheckCode(raw_ostream &OS,
   OS << "#endif\n\n";
 }
 
-void
-NeonEmitter::genIntrinsicRangeCheckCode(raw_ostream &OS,
+void NeonEmitter::genIntrinsicRangeCheckCode(raw_ostream &OS,
                                         SmallVectorImpl<Intrinsic *> &Defs) {
   OS << "#ifdef GET_NEON_IMMEDIATE_CHECK\n";
 
@@ -2175,11 +2224,15 @@ NeonEmitter::genIntrinsicRangeCheckCode(raw_ostream &OS,
     Record *R = Def->getRecord();
     if (R->getValueAsBit("isVCVT_N")) {
       // VCVT between floating- and fixed-point values takes an immediate
-      // in the range [1, 32) for f32 or [1, 64) for f64.
+      // in the range [1, 32) for f32 or [1, 64) for f64 or [1, 16) for f16.
       LowerBound = "1";
-      if (Def->getBaseType().getElementSizeInBits() == 32)
+	  if (Def->getBaseType().getElementSizeInBits() == 16 ||
+		  Def->getName().find('h') != std::string::npos)
+		// VCVTh operating on FP16 intrinsics in range [1, 16)
+		UpperBound = "15";
+	  else if (Def->getBaseType().getElementSizeInBits() == 32)
         UpperBound = "31";
-      else
+	  else
         UpperBound = "63";
     } else if (R->getValueAsBit("isScalarShift")) {
       // Right shifts have an 'r' in the name, left shifts do not. Convert
@@ -2393,7 +2446,7 @@ void NeonEmitter::run(raw_ostream &OS) {
     OS << "#endif\n";
   OS << "\n";
 
-  OS << "#define __ai static inline __attribute__((__always_inline__, "
+  OS << "#define __ai static __inline__ __attribute__((__always_inline__, "
         "__nodebug__))\n\n";
 
   SmallVector<Intrinsic *, 128> Defs;
@@ -2502,7 +2555,7 @@ void NeonEmitter::runFP16(raw_ostream &OS) {
 
   OS << "typedef __fp16 float16_t;\n";
 
-  OS << "#define __ai static inline __attribute__((__always_inline__, "
+  OS << "#define __ai static __inline__ __attribute__((__always_inline__, "
         "__nodebug__))\n\n";
 
   SmallVector<Intrinsic *, 128> Defs;

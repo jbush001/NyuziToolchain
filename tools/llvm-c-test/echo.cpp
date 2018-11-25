@@ -16,6 +16,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm-c-test.h"
+#include "llvm-c/DebugInfo.h"
 #include "llvm-c/Target.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/Support/ErrorHandling.h"
@@ -174,8 +175,9 @@ static ValueMap clone_params(LLVMValueRef Src, LLVMValueRef Dst) {
   LLVMValueRef SrcNext = nullptr;
   LLVMValueRef DstNext = nullptr;
   while (true) {
-    const char *Name = LLVMGetValueName(SrcCur);
-    LLVMSetValueName(DstCur, Name);
+    size_t NameLen;
+    const char *Name = LLVMGetValueName2(SrcCur, &NameLen);
+    LLVMSetValueName2(DstCur, Name, NameLen);
 
     VMap[SrcCur] = DstCur;
 
@@ -232,12 +234,23 @@ static LLVMValueRef clone_constant_impl(LLVMValueRef Cst, LLVMModuleRef M) {
 
   // Maybe it is a symbol
   if (LLVMIsAGlobalValue(Cst)) {
-    const char *Name = LLVMGetValueName(Cst);
+    size_t NameLen;
+    const char *Name = LLVMGetValueName2(Cst, &NameLen);
 
     // Try function
     if (LLVMIsAFunction(Cst)) {
       check_value_kind(Cst, LLVMFunctionValueKind);
-      LLVMValueRef Dst = LLVMGetNamedFunction(M, Name);
+
+      LLVMValueRef Dst = nullptr;
+      // Try an intrinsic
+      unsigned ID = LLVMGetIntrinsicID(Cst);
+      if (ID > 0 && !LLVMIntrinsicIsOverloaded(ID)) {
+        Dst = LLVMGetIntrinsicDeclaration(M, ID, nullptr, 0);
+      } else {
+        // Try a normal function
+        Dst = LLVMGetNamedFunction(M, Name);
+      }
+
       if (Dst)
         return Dst;
       report_fatal_error("Could not find function");
@@ -246,10 +259,19 @@ static LLVMValueRef clone_constant_impl(LLVMValueRef Cst, LLVMModuleRef M) {
     // Try global variable
     if (LLVMIsAGlobalVariable(Cst)) {
       check_value_kind(Cst, LLVMGlobalVariableValueKind);
-      LLVMValueRef Dst  = LLVMGetNamedGlobal(M, Name);
+      LLVMValueRef Dst = LLVMGetNamedGlobal(M, Name);
       if (Dst)
         return Dst;
-      report_fatal_error("Could not find function");
+      report_fatal_error("Could not find variable");
+    }
+
+    // Try global alias
+    if (LLVMIsAGlobalAlias(Cst)) {
+      check_value_kind(Cst, LLVMGlobalAliasValueKind);
+      LLVMValueRef Dst = LLVMGetNamedGlobalAlias(M, Name, NameLen);
+      if (Dst)
+        return Dst;
+      report_fatal_error("Could not find alias");
     }
 
     fprintf(stderr, "Could not find @%s\n", Name);
@@ -402,7 +424,8 @@ struct FunCloner {
     if (!LLVMIsAInstruction(Src))
       report_fatal_error("Expected an instruction");
 
-    const char *Name = LLVMGetValueName(Src);
+    size_t NameLen;
+    const char *Name = LLVMGetValueName2(Src, &NameLen);
 
     // Check if this is something we already computed.
     {
@@ -716,6 +739,19 @@ struct FunCloner {
       exit(-1);
     }
 
+    auto Ctx = LLVMGetModuleContext(M);
+    size_t NumMetadataEntries;
+    auto *AllMetadata =
+        LLVMInstructionGetAllMetadataOtherThanDebugLoc(Src,
+                                                       &NumMetadataEntries);
+    for (unsigned i = 0; i < NumMetadataEntries; ++i) {
+      unsigned Kind = LLVMValueMetadataEntriesGetKind(AllMetadata, i);
+      LLVMMetadataRef MD = LLVMValueMetadataEntriesGetMetadata(AllMetadata, i);
+      LLVMSetMetadata(Dst, Kind, LLVMMetadataAsValue(Ctx, MD));
+    }
+    LLVMDisposeValueMetadataEntries(AllMetadata);
+    LLVMSetInstDebugLocation(Builder, Dst);
+
     check_value_kind(Dst, LLVMInstructionValueKind);
     return VMap[Src] = Dst;
   }
@@ -734,7 +770,8 @@ struct FunCloner {
       report_fatal_error("Basic block is not a basic block");
 
     const char *Name = LLVMGetBasicBlockName(Src);
-    const char *VName = LLVMGetValueName(V);
+    size_t NameLen;
+    const char *VName = LLVMGetValueName2(V, &NameLen);
     if (Name != VName)
       report_fatal_error("Basic block name mismatch");
 
@@ -818,6 +855,8 @@ struct FunCloner {
 };
 
 static void declare_symbols(LLVMModuleRef Src, LLVMModuleRef M) {
+  auto Ctx = LLVMGetModuleContext(M);
+
   LLVMValueRef Begin = LLVMGetFirstGlobal(Src);
   LLVMValueRef End = LLVMGetLastGlobal(Src);
 
@@ -830,7 +869,8 @@ static void declare_symbols(LLVMModuleRef Src, LLVMModuleRef M) {
   }
 
   while (true) {
-    const char *Name = LLVMGetValueName(Cur);
+    size_t NameLen;
+    const char *Name = LLVMGetValueName2(Cur, &NameLen);
     if (LLVMGetNamedGlobal(M, Name))
       report_fatal_error("GlobalVariable already cloned");
     LLVMAddGlobal(M, LLVMGetElementType(TypeCloner(M).Clone(Cur)), Name);
@@ -855,15 +895,14 @@ FunDecl:
   if (!Begin) {
     if (End != nullptr)
       report_fatal_error("Range has an end but no beginning");
-    return;
+    goto AliasDecl;
   }
-
-  auto Ctx = LLVMGetModuleContext(M);
 
   Cur = Begin;
   Next = nullptr;
   while (true) {
-    const char *Name = LLVMGetValueName(Cur);
+    size_t NameLen;
+    const char *Name = LLVMGetValueName2(Cur, &NameLen);
     if (LLVMGetNamedFunction(M, Name))
       report_fatal_error("Function already cloned");
     auto Ty = LLVMGetElementType(TypeCloner(M).Clone(Cur));
@@ -894,6 +933,72 @@ FunDecl:
 
     Cur = Next;
   }
+
+AliasDecl:
+  Begin = LLVMGetFirstGlobalAlias(Src);
+  End = LLVMGetLastGlobalAlias(Src);
+  if (!Begin) {
+    if (End != nullptr)
+      report_fatal_error("Range has an end but no beginning");
+    goto NamedMDDecl;
+  }
+
+  Cur = Begin;
+  Next = nullptr;
+  while (true) {
+    size_t NameLen;
+    const char *Name = LLVMGetValueName2(Cur, &NameLen);
+    if (LLVMGetNamedGlobalAlias(M, Name, NameLen))
+      report_fatal_error("Global alias already cloned");
+    LLVMTypeRef CurType = TypeCloner(M).Clone(Cur);
+    // FIXME: Allow NULL aliasee.
+    LLVMAddAlias(M, CurType, LLVMGetUndef(CurType), Name);
+
+    Next = LLVMGetNextGlobalAlias(Cur);
+    if (Next == nullptr) {
+      if (Cur != End)
+        report_fatal_error("");
+      break;
+    }
+
+    LLVMValueRef Prev = LLVMGetPreviousGlobalAlias(Next);
+    if (Prev != Cur)
+      report_fatal_error("Next.Previous global is not Current");
+
+    Cur = Next;
+  }
+
+NamedMDDecl:
+  LLVMNamedMDNodeRef BeginMD = LLVMGetFirstNamedMetadata(Src);
+  LLVMNamedMDNodeRef EndMD = LLVMGetLastNamedMetadata(Src);
+  if (!BeginMD) {
+    if (EndMD != nullptr)
+      report_fatal_error("Range has an end but no beginning");
+    return;
+  }
+
+  LLVMNamedMDNodeRef CurMD = BeginMD;
+  LLVMNamedMDNodeRef NextMD = nullptr;
+  while (true) {
+    size_t NameLen;
+    const char *Name = LLVMGetNamedMetadataName(CurMD, &NameLen);
+    if (LLVMGetNamedMetadata(M, Name, NameLen))
+      report_fatal_error("Named Metadata Node already cloned");
+    LLVMGetOrInsertNamedMetadata(M, Name, NameLen);
+
+    NextMD = LLVMGetNextNamedMetadata(CurMD);
+    if (NextMD == nullptr) {
+      if (CurMD != EndMD)
+        report_fatal_error("");
+      break;
+    }
+
+    LLVMNamedMDNodeRef PrevMD = LLVMGetPreviousNamedMetadata(NextMD);
+    if (PrevMD != CurMD)
+      report_fatal_error("Next.Previous global is not Current");
+
+    CurMD = NextMD;
+  }
 }
 
 static void clone_symbols(LLVMModuleRef Src, LLVMModuleRef M) {
@@ -909,7 +1014,8 @@ static void clone_symbols(LLVMModuleRef Src, LLVMModuleRef M) {
   }
 
   while (true) {
-    const char *Name = LLVMGetValueName(Cur);
+    size_t NameLen;
+    const char *Name = LLVMGetValueName2(Cur, &NameLen);
     LLVMValueRef G = LLVMGetNamedGlobal(M, Name);
     if (!G)
       report_fatal_error("GlobalVariable must have been declared already");
@@ -917,6 +1023,15 @@ static void clone_symbols(LLVMModuleRef Src, LLVMModuleRef M) {
     if (auto I = LLVMGetInitializer(Cur))
       LLVMSetInitializer(G, clone_constant(I, M));
 
+    size_t NumMetadataEntries;
+    auto *AllMetadata = LLVMGlobalCopyAllMetadata(Cur, &NumMetadataEntries);
+    for (unsigned i = 0; i < NumMetadataEntries; ++i) {
+      unsigned Kind = LLVMValueMetadataEntriesGetKind(AllMetadata, i);
+      LLVMMetadataRef MD = LLVMValueMetadataEntriesGetMetadata(AllMetadata, i);
+      LLVMGlobalSetMetadata(G, Kind, MD);
+    }
+    LLVMDisposeValueMetadataEntries(AllMetadata);
+    
     LLVMSetGlobalConstant(G, LLVMIsGlobalConstant(Cur));
     LLVMSetThreadLocal(G, LLVMIsThreadLocal(Cur));
     LLVMSetExternallyInitialized(G, LLVMIsExternallyInitialized(Cur));
@@ -946,24 +1061,36 @@ FunClone:
   if (!Begin) {
     if (End != nullptr)
       report_fatal_error("Range has an end but no beginning");
-    return;
+    goto AliasClone;
   }
 
   Cur = Begin;
   Next = nullptr;
   while (true) {
-    const char *Name = LLVMGetValueName(Cur);
+    size_t NameLen;
+    const char *Name = LLVMGetValueName2(Cur, &NameLen);
     LLVMValueRef Fun = LLVMGetNamedFunction(M, Name);
     if (!Fun)
       report_fatal_error("Function must have been declared already");
 
     if (LLVMHasPersonalityFn(Cur)) {
-      const char *FName = LLVMGetValueName(LLVMGetPersonalityFn(Cur));
+      size_t FNameLen;
+      const char *FName = LLVMGetValueName2(LLVMGetPersonalityFn(Cur),
+                                           &FNameLen);
       LLVMValueRef P = LLVMGetNamedFunction(M, FName);
       if (!P)
         report_fatal_error("Could not find personality function");
       LLVMSetPersonalityFn(Fun, P);
     }
+
+    size_t NumMetadataEntries;
+    auto *AllMetadata = LLVMGlobalCopyAllMetadata(Cur, &NumMetadataEntries);
+    for (unsigned i = 0; i < NumMetadataEntries; ++i) {
+      unsigned Kind = LLVMValueMetadataEntriesGetKind(AllMetadata, i);
+      LLVMMetadataRef MD = LLVMValueMetadataEntriesGetMetadata(AllMetadata, i);
+      LLVMGlobalSetMetadata(Fun, Kind, MD);
+    }
+    LLVMDisposeValueMetadataEntries(AllMetadata);
 
     FunCloner FC(Cur, Fun);
     FC.CloneBBs(Cur);
@@ -980,6 +1107,86 @@ FunClone:
       report_fatal_error("Next.Previous function is not Current");
 
     Cur = Next;
+  }
+
+AliasClone:
+  Begin = LLVMGetFirstGlobalAlias(Src);
+  End = LLVMGetLastGlobalAlias(Src);
+  if (!Begin) {
+    if (End != nullptr)
+      report_fatal_error("Range has an end but no beginning");
+    goto NamedMDClone;
+  }
+
+  Cur = Begin;
+  Next = nullptr;
+  while (true) {
+    size_t NameLen;
+    const char *Name = LLVMGetValueName2(Cur, &NameLen);
+    LLVMValueRef Alias = LLVMGetNamedGlobalAlias(M, Name, NameLen);
+    if (!Alias)
+      report_fatal_error("Global alias must have been declared already");
+
+    if (LLVMValueRef Aliasee = LLVMAliasGetAliasee(Cur)) {
+      LLVMAliasSetAliasee(Alias, clone_constant(Aliasee, M));
+    }
+
+    LLVMSetLinkage(Alias, LLVMGetLinkage(Cur));
+    LLVMSetUnnamedAddress(Alias, LLVMGetUnnamedAddress(Cur));
+
+    Next = LLVMGetNextGlobalAlias(Cur);
+    if (Next == nullptr) {
+      if (Cur != End)
+        report_fatal_error("Last global alias does not match End");
+      break;
+    }
+
+    LLVMValueRef Prev = LLVMGetPreviousGlobalAlias(Next);
+    if (Prev != Cur)
+      report_fatal_error("Next.Previous global alias is not Current");
+
+    Cur = Next;
+  }
+
+NamedMDClone:
+  LLVMNamedMDNodeRef BeginMD = LLVMGetFirstNamedMetadata(Src);
+  LLVMNamedMDNodeRef EndMD = LLVMGetLastNamedMetadata(Src);
+  if (!BeginMD) {
+    if (EndMD != nullptr)
+      report_fatal_error("Range has an end but no beginning");
+    return;
+  }
+
+  LLVMNamedMDNodeRef CurMD = BeginMD;
+  LLVMNamedMDNodeRef NextMD = nullptr;
+  while (true) {
+    size_t NameLen;
+    const char *Name = LLVMGetNamedMetadataName(CurMD, &NameLen);
+    LLVMNamedMDNodeRef NamedMD = LLVMGetNamedMetadata(M, Name, NameLen);
+    if (!NamedMD)
+      report_fatal_error("Named MD Node must have been declared already");
+
+    unsigned OperandCount = LLVMGetNamedMetadataNumOperands(Src, Name);
+    LLVMValueRef *OperandBuf = static_cast<LLVMValueRef *>(
+              safe_malloc(OperandCount * sizeof(LLVMValueRef)));
+    LLVMGetNamedMetadataOperands(Src, Name, OperandBuf);
+    for (unsigned i = 0, e = OperandCount; i != e; ++i) {
+      LLVMAddNamedMetadataOperand(M, Name, OperandBuf[i]);
+    }
+    free(OperandBuf);
+
+    NextMD = LLVMGetNextNamedMetadata(CurMD);
+    if (NextMD == nullptr) {
+      if (CurMD != EndMD)
+        report_fatal_error("Last Named MD Node does not match End");
+      break;
+    }
+
+    LLVMNamedMDNodeRef PrevMD = LLVMGetPreviousNamedMetadata(NextMD);
+    if (PrevMD != CurMD)
+      report_fatal_error("Next.Previous Named MD Node is not Current");
+
+    CurMD = NextMD;
   }
 }
 

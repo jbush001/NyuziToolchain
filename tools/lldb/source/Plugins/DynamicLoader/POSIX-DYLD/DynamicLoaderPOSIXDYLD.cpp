@@ -10,10 +10,8 @@
 // Main header include
 #include "DynamicLoaderPOSIXDYLD.h"
 
-// Project includes
 #include "AuxVector.h"
 
-// Other libraries and framework includes
 #include "lldb/Breakpoint/BreakpointLocation.h"
 #include "lldb/Core/Module.h"
 #include "lldb/Core/ModuleSpec.h"
@@ -29,8 +27,6 @@
 #include "lldb/Target/ThreadPlanRunToAddress.h"
 #include "lldb/Utility/Log.h"
 
-// C++ Includes
-// C Includes
 
 using namespace lldb;
 using namespace lldb_private;
@@ -155,8 +151,8 @@ void DynamicLoaderPOSIXDYLD::DidAttach() {
 
     LoadAllCurrentModules();
     if (!SetRendezvousBreakpoint()) {
-      // If we cannot establish rendezvous breakpoint right now
-      // we'll try again at entry point.
+      // If we cannot establish rendezvous breakpoint right now we'll try again
+      // at entry point.
       ProbeEntry();
     }
 
@@ -199,8 +195,8 @@ void DynamicLoaderPOSIXDYLD::DidLaunch() {
                   __FUNCTION__);
 
     if (!SetRendezvousBreakpoint()) {
-      // If we cannot establish rendezvous breakpoint right now
-      // we'll try again at entry point.
+      // If we cannot establish rendezvous breakpoint right now we'll try again
+      // at entry point.
       ProbeEntry();
     }
 
@@ -259,11 +255,11 @@ void DynamicLoaderPOSIXDYLD::ProbeEntry() {
 }
 
 // The runtime linker has run and initialized the rendezvous structure once the
-// process has hit its entry point.  When we hit the corresponding breakpoint we
-// interrogate the rendezvous structure to get the load addresses of all
+// process has hit its entry point.  When we hit the corresponding breakpoint
+// we interrogate the rendezvous structure to get the load addresses of all
 // dependent modules for the process.  Similarly, we can discover the runtime
-// linker function and setup a breakpoint to notify us of any dynamically loaded
-// modules (via dlopen).
+// linker function and setup a breakpoint to notify us of any dynamically
+// loaded modules (via dlopen).
 bool DynamicLoaderPOSIXDYLD::EntryBreakpointHit(
     void *baton, StoppointCallbackContext *context, user_id_t break_id,
     user_id_t break_loc_id) {
@@ -281,13 +277,11 @@ bool DynamicLoaderPOSIXDYLD::EntryBreakpointHit(
                                          : LLDB_INVALID_PROCESS_ID);
 
   // Disable the breakpoint --- if a stop happens right after this, which we've
-  // seen on occasion, we don't
-  // want the breakpoint stepping thread-plan logic to show a breakpoint
-  // instruction at the disassembled
-  // entry point to the program.  Disabling it prevents it.  (One-shot is not
-  // enough - one-shot removal logic
-  // only happens after the breakpoint goes public, which wasn't happening in
-  // our scenario).
+  // seen on occasion, we don't want the breakpoint stepping thread-plan logic
+  // to show a breakpoint instruction at the disassembled entry point to the
+  // program.  Disabling it prevents it.  (One-shot is not enough - one-shot
+  // removal logic only happens after the breakpoint goes public, which wasn't
+  // happening in our scenario).
   if (dyld_instance->m_process) {
     BreakpointSP breakpoint_sp =
         dyld_instance->m_process->GetTarget().GetBreakpointByID(break_id);
@@ -345,8 +339,8 @@ bool DynamicLoaderPOSIXDYLD::SetRendezvousBreakpoint() {
       return false;
     }
 
-    // Function names from different dynamic loaders that are known
-    // to be used as rendezvous between the loader and debuggers.
+    // Function names from different dynamic loaders that are known to be used
+    // as rendezvous between the loader and debuggers.
     static std::vector<std::string> DebugStateCandidates{
         "_dl_debug_state", "rtld_db_dlactivity", "__dl_rtld_db_dlactivity",
         "r_debug_state",   "_r_debug_state",     "_rtld_debug_state",
@@ -514,7 +508,7 @@ void DynamicLoaderPOSIXDYLD::LoadVDSO() {
   if (m_vdso_base == LLDB_INVALID_ADDRESS)
     return;
 
-  FileSpec file("[vdso]", false);
+  FileSpec file("[vdso]");
 
   MemoryRegionInfo info;
   Status status = m_process->GetMemoryRegionInfo(m_vdso_base, info);
@@ -545,7 +539,7 @@ ModuleSP DynamicLoaderPOSIXDYLD::LoadInterpreterModule() {
     return nullptr;
   }
 
-  FileSpec file(info.GetName().GetCString(), false);
+  FileSpec file(info.GetName().GetCString());
   ModuleSpec module_spec(file, target.GetArchitecture());
 
   if (ModuleSP module_sp = target.GetSharedModule(module_spec)) {
@@ -572,8 +566,8 @@ void DynamicLoaderPOSIXDYLD::LoadAllCurrentModules() {
     return;
   }
 
-  // The rendezvous class doesn't enumerate the main module, so track
-  // that ourselves here.
+  // The rendezvous class doesn't enumerate the main module, so track that
+  // ourselves here.
   ModuleSP executable = GetTargetExecutable();
   m_loaded_modules[executable] = m_rendezvous.GetLinkMapAddress();
 
@@ -758,7 +752,7 @@ void DynamicLoaderPOSIXDYLD::ResolveExecutableModule(
     return;
   }
 
-  target.SetExecutableModule(module_sp, false);
+  target.SetExecutableModule(module_sp, eLoadDependentsNo);
 }
 
 bool DynamicLoaderPOSIXDYLD::AlwaysRelyOnEHUnwindInfo(

@@ -40,7 +40,8 @@ llvm_config.use_lld()
 
 tool_patterns = [
     'llc', 'llvm-as', 'llvm-mc', 'llvm-nm', 'llvm-objdump', 'llvm-pdbutil',
-    'llvm-readelf', 'llvm-readobj', 'obj2yaml', 'yaml2obj']
+    'llvm-dwarfdump', 'llvm-readelf', 'llvm-readobj', 'obj2yaml', 'yaml2obj',
+    'opt', 'llvm-dis']
 
 llvm_config.add_tool_substitutions(tool_patterns)
 
@@ -64,8 +65,10 @@ llvm_config.feature_config(
                           'AMDGPU': 'amdgpu',
                           'ARM': 'arm',
                           'AVR': 'avr',
+                          'Hexagon': 'hexagon',
                           'Mips': 'mips',
                           'PowerPC': 'ppc',
+                          'RISCV': 'riscv',
                           'Sparc': 'sparc',
                           'WebAssembly': 'wasm',
                           'X86': 'x86'})

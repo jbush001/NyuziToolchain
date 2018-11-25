@@ -12,8 +12,9 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "llvm/IR/DebugInfoMetadata.h"
 #include "llvm/ProfileData/SampleProf.h"
+#include "llvm/Config/llvm-config.h"
+#include "llvm/IR/DebugInfoMetadata.h"
 #include "llvm/Support/Compiler.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
@@ -24,6 +25,14 @@
 
 using namespace llvm;
 using namespace sampleprof;
+
+namespace llvm {
+namespace sampleprof {
+SampleProfileFormat FunctionSamples::Format;
+DenseMap<uint64_t, StringRef> FunctionSamples::GUIDToFuncNameMap;
+Module *FunctionSamples::CurrentModule;
+} // namespace sampleprof
+} // namespace llvm
 
 namespace {
 
@@ -58,6 +67,8 @@ class SampleProfErrorCategoryType : public std::error_category {
       return "Unimplemented feature";
     case sampleprof_error::counter_overflow:
       return "Counter overflow";
+    case sampleprof_error::ostream_seek_unsupported:
+      return "Ostream does not support seek";
     }
     llvm_unreachable("A value of sampleprof_error has no message.");
   }
@@ -87,7 +98,7 @@ raw_ostream &llvm::sampleprof::operator<<(raw_ostream &OS,
 LLVM_DUMP_METHOD void LineLocation::dump() const { print(dbgs()); }
 #endif
 
-/// \brief Print the sample record to the stream \p OS indented by \p Indent.
+/// Print the sample record to the stream \p OS indented by \p Indent.
 void SampleRecord::print(raw_ostream &OS, unsigned Indent) const {
   OS << NumSamples;
   if (hasCalls()) {
@@ -108,7 +119,7 @@ raw_ostream &llvm::sampleprof::operator<<(raw_ostream &OS,
   return OS;
 }
 
-/// \brief Print the samples collected for a function on stream \p OS.
+/// Print the samples collected for a function on stream \p OS.
 void FunctionSamples::print(raw_ostream &OS, unsigned Indent) const {
   OS << TotalSamples << ", " << TotalHeadSamples << ", " << BodySamples.size()
      << " sampled lines\n";

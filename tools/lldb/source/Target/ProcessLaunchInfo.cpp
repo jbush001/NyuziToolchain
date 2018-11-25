@@ -7,12 +7,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-// C Includes
-// C++ Includes
 #include <climits>
 
-// Other libraries and framework includes
-// Project includes
 #include "lldb/Core/Debugger.h"
 #include "lldb/Host/Config.h"
 #include "lldb/Host/FileSystem.h"
@@ -108,8 +104,7 @@ bool ProcessLaunchInfo::AppendOpenFileAction(int fd, const FileSpec &file_spec,
 bool ProcessLaunchInfo::AppendSuppressFileAction(int fd, bool read,
                                                  bool write) {
   FileAction file_action;
-  if (file_action.Open(fd, FileSpec{FileSystem::DEV_NULL, false}, read,
-                       write)) {
+  if (file_action.Open(fd, FileSpec(FileSystem::DEV_NULL), read, write)) {
     AppendFileAction(file_action);
     return true;
   }
@@ -151,7 +146,7 @@ const FileSpec &ProcessLaunchInfo::GetShell() const { return m_shell; }
 void ProcessLaunchInfo::SetShell(const FileSpec &shell) {
   m_shell = shell;
   if (m_shell) {
-    m_shell.ResolveExecutableLocation();
+    FileSystem::Instance().ResolveExecutableLocation(m_shell);
     m_flags.Set(lldb::eLaunchFlagLaunchInShell);
   } else
     m_flags.Clear(lldb::eLaunchFlagLaunchInShell);
@@ -189,6 +184,13 @@ void ProcessLaunchInfo::SetMonitorProcessCallback(
   m_monitor_signals = monitor_signals;
 }
 
+bool ProcessLaunchInfo::NoOpMonitorCallback(lldb::pid_t pid, bool exited, int signal, int status) {
+  Log *log = lldb_private::GetLogIfAllCategoriesSet(LIBLLDB_LOG_PROCESS);
+  LLDB_LOG(log, "pid = {0}, exited = {1}, signal = {2}, status = {3}", pid,
+           exited, signal, status);
+  return true;
+}
+
 bool ProcessLaunchInfo::MonitorProcess() const {
   if (m_monitor_callback && ProcessIDIsValid()) {
     Host::StartMonitoringChildProcess(m_monitor_callback, GetProcessID(),
@@ -210,8 +212,7 @@ void ProcessLaunchInfo::FinalizeFileActions(Target *target,
   Log *log(lldb_private::GetLogIfAllCategoriesSet(LIBLLDB_LOG_PROCESS));
 
   // If nothing for stdin or stdout or stderr was specified, then check the
-  // process for any default
-  // settings that were set with "settings set"
+  // process for any default settings that were set with "settings set"
   if (GetFileActionForFD(STDIN_FILENO) == nullptr ||
       GetFileActionForFD(STDOUT_FILENO) == nullptr ||
       GetFileActionForFD(STDERR_FILENO) == nullptr) {
@@ -221,8 +222,8 @@ void ProcessLaunchInfo::FinalizeFileActions(Target *target,
                   __FUNCTION__);
 
     if (m_flags.Test(eLaunchFlagLaunchInTTY)) {
-      // Do nothing, if we are launching in a remote terminal
-      // no file actions should be done at all.
+      // Do nothing, if we are launching in a remote terminal no file actions
+      // should be done at all.
       return;
     }
 
@@ -235,16 +236,15 @@ void ProcessLaunchInfo::FinalizeFileActions(Target *target,
       AppendSuppressFileAction(STDOUT_FILENO, false, true);
       AppendSuppressFileAction(STDERR_FILENO, false, true);
     } else {
-      // Check for any values that might have gotten set with any of:
-      // (lldb) settings set target.input-path
-      // (lldb) settings set target.output-path
+      // Check for any values that might have gotten set with any of: (lldb)
+      // settings set target.input-path (lldb) settings set target.output-path
       // (lldb) settings set target.error-path
       FileSpec in_file_spec;
       FileSpec out_file_spec;
       FileSpec err_file_spec;
       if (target) {
-        // Only override with the target settings if we don't already have
-        // an action for in, out or error
+        // Only override with the target settings if we don't already have an
+        // action for in, out or error
         if (GetFileActionForFD(STDIN_FILENO) == nullptr)
           in_file_spec = target->GetStandardInputPath();
         if (GetFileActionForFD(STDOUT_FILENO) == nullptr)
@@ -295,14 +295,13 @@ void ProcessLaunchInfo::FinalizeFileActions(Target *target,
 
         int open_flags = O_RDWR | O_NOCTTY;
 #if !defined(_WIN32)
-        // We really shouldn't be specifying platform specific flags
-        // that are intended for a system call in generic code.  But
-        // this will have to do for now.
+        // We really shouldn't be specifying platform specific flags that are
+        // intended for a system call in generic code.  But this will have to
+        // do for now.
         open_flags |= O_CLOEXEC;
 #endif
         if (m_pty->OpenFirstAvailableMaster(open_flags, nullptr, 0)) {
-          const FileSpec slave_file_spec{m_pty->GetSlaveName(nullptr, 0),
-                                         false};
+          const FileSpec slave_file_spec(m_pty->GetSlaveName(nullptr, 0));
 
           // Only use the slave tty if we don't have anything specified for
           // input and don't have an action for stdin
@@ -351,14 +350,13 @@ bool ProcessLaunchInfo::ConvertArgumentsForLaunchingInShell(
 
       StreamString shell_command;
       if (will_debug) {
-        // Add a modified PATH environment variable in case argv[0]
-        // is a relative path.
+        // Add a modified PATH environment variable in case argv[0] is a
+        // relative path.
         const char *argv0 = argv[0];
-        FileSpec arg_spec(argv0, false);
+        FileSpec arg_spec(argv0);
         if (arg_spec.IsRelative()) {
-          // We have a relative path to our executable which may not work if
-          // we just try to run "a.out" (without it being converted to
-          // "./a.out")
+          // We have a relative path to our executable which may not work if we
+          // just try to run "a.out" (without it being converted to "./a.out")
           FileSpec working_dir = GetWorkingDirectory();
           // Be sure to put quotes around PATH's value in case any paths have
           // spaces...
@@ -410,8 +408,8 @@ bool ProcessLaunchInfo::ConvertArgumentsForLaunchingInShell(
       }
 
       if (first_arg_is_full_shell_command) {
-        // There should only be one argument that is the shell command itself to
-        // be used as is
+        // There should only be one argument that is the shell command itself
+        // to be used as is
         if (argv[0] && !argv[1])
           shell_command.Printf("%s", argv[0]);
         else

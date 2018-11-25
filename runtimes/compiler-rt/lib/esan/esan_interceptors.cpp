@@ -316,13 +316,6 @@ INTERCEPTOR(int, unlink, char *path) {
   return REAL(unlink)(path);
 }
 
-INTERCEPTOR(int, puts, const char *s) {
-  void *ctx;
-  COMMON_INTERCEPTOR_ENTER(ctx, puts, s);
-  COMMON_INTERCEPTOR_READ_RANGE(ctx, s, internal_strlen(s));
-  return REAL(puts)(s);
-}
-
 INTERCEPTOR(int, rmdir, char *path) {
   void *ctx;
   COMMON_INTERCEPTOR_ENTER(ctx, rmdir, path);
@@ -334,7 +327,7 @@ INTERCEPTOR(int, rmdir, char *path) {
 // Signal-related interceptors
 //===----------------------------------------------------------------------===//
 
-#if SANITIZER_LINUX
+#if SANITIZER_LINUX || SANITIZER_FREEBSD
 typedef void (*signal_handler_t)(int);
 INTERCEPTOR(signal_handler_t, signal, int signum, signal_handler_t handler) {
   void *ctx;
@@ -351,7 +344,7 @@ INTERCEPTOR(signal_handler_t, signal, int signum, signal_handler_t handler) {
 #define ESAN_MAYBE_INTERCEPT_SIGNAL
 #endif
 
-#if SANITIZER_LINUX
+#if SANITIZER_LINUX || SANITIZER_FREEBSD
 DECLARE_REAL(int, sigaction, int signum, const struct sigaction *act,
              struct sigaction *oldact)
 INTERCEPTOR(int, sigaction, int signum, const struct sigaction *act,
@@ -370,7 +363,11 @@ int real_sigaction(int signum, const void *act, void *oldact) {
   if (REAL(sigaction) == nullptr) {
     // With an instrumented allocator, this is called during interceptor init
     // and we need a raw syscall solution.
+#if SANITIZER_LINUX
     return internal_sigaction_syscall(signum, act, oldact);
+#else
+    return internal_sigaction(signum, act, oldact);
+#endif
   }
   return REAL(sigaction)(signum, (const struct sigaction *)act,
                          (struct sigaction *)oldact);
@@ -383,7 +380,7 @@ int real_sigaction(int signum, const void *act, void *oldact) {
 #define ESAN_MAYBE_INTERCEPT_SIGACTION
 #endif
 
-#if SANITIZER_LINUX
+#if SANITIZER_LINUX || SANITIZER_FREEBSD
 INTERCEPTOR(int, sigprocmask, int how, __sanitizer_sigset_t *set,
             __sanitizer_sigset_t *oldset) {
   void *ctx;
@@ -493,9 +490,6 @@ void initializeInterceptors() {
   INTERCEPT_FUNCTION(creat);
   ESAN_MAYBE_INTERCEPT_CREAT64;
   INTERCEPT_FUNCTION(unlink);
-  INTERCEPT_FUNCTION(fread);
-  INTERCEPT_FUNCTION(fwrite);
-  INTERCEPT_FUNCTION(puts);
   INTERCEPT_FUNCTION(rmdir);
 
   ESAN_MAYBE_INTERCEPT_SIGNAL;

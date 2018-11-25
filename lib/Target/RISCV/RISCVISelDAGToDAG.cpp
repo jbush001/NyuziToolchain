@@ -11,9 +11,10 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "RISCV.h"
 #include "MCTargetDesc/RISCVMCTargetDesc.h"
+#include "RISCV.h"
 #include "RISCVTargetMachine.h"
+#include "Utils/RISCVMatInt.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/SelectionDAGISel.h"
 #include "llvm/Support/Debug.h"
@@ -59,41 +60,69 @@ private:
 };
 }
 
-void RISCVDAGToDAGISel::PostprocessISelDAG() { doPeepholeLoadStoreADDI(); }
+void RISCVDAGToDAGISel::PostprocessISelDAG() {
+  doPeepholeLoadStoreADDI();
+}
+
+static SDNode *selectImm(SelectionDAG *CurDAG, const SDLoc &DL, int64_t Imm,
+                         MVT XLenVT) {
+  RISCVMatInt::InstSeq Seq;
+  RISCVMatInt::generateInstSeq(Imm, XLenVT == MVT::i64, Seq);
+
+  SDNode *Result;
+  SDValue SrcReg = CurDAG->getRegister(RISCV::X0, XLenVT);
+  for (RISCVMatInt::Inst &Inst : Seq) {
+    SDValue SDImm = CurDAG->getTargetConstant(Inst.Imm, DL, XLenVT);
+    if (Inst.Opc == RISCV::LUI)
+      Result = CurDAG->getMachineNode(RISCV::LUI, DL, XLenVT, SDImm);
+    else
+      Result = CurDAG->getMachineNode(Inst.Opc, DL, XLenVT, SrcReg, SDImm);
+
+    // Only the first instruction has X0 as its source.
+    SrcReg = SDValue(Result, 0);
+  }
+
+  return Result;
+}
 
 void RISCVDAGToDAGISel::Select(SDNode *Node) {
-  unsigned Opcode = Node->getOpcode();
-  MVT XLenVT = Subtarget->getXLenVT();
-
-  // If we have a custom node, we have already selected
+  // If we have a custom node, we have already selected.
   if (Node->isMachineOpcode()) {
-    DEBUG(dbgs() << "== "; Node->dump(CurDAG); dbgs() << "\n");
+    LLVM_DEBUG(dbgs() << "== "; Node->dump(CurDAG); dbgs() << "\n");
     Node->setNodeId(-1);
     return;
   }
 
   // Instruction Selection not handled by the auto-generated tablegen selection
   // should be handled here.
+  unsigned Opcode = Node->getOpcode();
+  MVT XLenVT = Subtarget->getXLenVT();
+  SDLoc DL(Node);
   EVT VT = Node->getValueType(0);
-  if (Opcode == ISD::Constant && VT == XLenVT) {
-    auto *ConstNode = cast<ConstantSDNode>(Node);
-    // Materialize zero constants as copies from X0. This allows the coalescer
-    // to propagate these into other instructions.
-    if (ConstNode->isNullValue()) {
+
+  switch (Opcode) {
+  case ISD::Constant: {
+    auto ConstNode = cast<ConstantSDNode>(Node);
+    if (VT == XLenVT && ConstNode->isNullValue()) {
       SDValue New = CurDAG->getCopyFromReg(CurDAG->getEntryNode(), SDLoc(Node),
                                            RISCV::X0, XLenVT);
       ReplaceNode(Node, New.getNode());
       return;
     }
+    int64_t Imm = ConstNode->getSExtValue();
+    if (XLenVT == MVT::i64) {
+      ReplaceNode(Node, selectImm(CurDAG, SDLoc(Node), Imm, XLenVT));
+      return;
+    }
+    break;
   }
-  if (Opcode == ISD::FrameIndex) {
-    SDLoc DL(Node);
+  case ISD::FrameIndex: {
     SDValue Imm = CurDAG->getTargetConstant(0, DL, XLenVT);
-    int FI = dyn_cast<FrameIndexSDNode>(Node)->getIndex();
-    EVT VT = Node->getValueType(0);
+    int FI = cast<FrameIndexSDNode>(Node)->getIndex();
     SDValue TFI = CurDAG->getTargetFrameIndex(FI, VT);
     ReplaceNode(Node, CurDAG->getMachineNode(RISCV::ADDI, DL, VT, TFI, Imm));
     return;
+  }
   }
 
   // Select the default instruction.
@@ -192,11 +221,11 @@ void RISCVDAGToDAGISel::doPeepholeLoadStoreADDI() {
       continue;
     }
 
-    DEBUG(dbgs() << "Folding add-immediate into mem-op:\nBase:    ");
-    DEBUG(Base->dump(CurDAG));
-    DEBUG(dbgs() << "\nN: ");
-    DEBUG(N->dump(CurDAG));
-    DEBUG(dbgs() << "\n");
+    LLVM_DEBUG(dbgs() << "Folding add-immediate into mem-op:\nBase:    ");
+    LLVM_DEBUG(Base->dump(CurDAG));
+    LLVM_DEBUG(dbgs() << "\nN: ");
+    LLVM_DEBUG(N->dump(CurDAG));
+    LLVM_DEBUG(dbgs() << "\n");
 
     // Modify the offset operand of the load/store.
     if (BaseOpIdx == 0) // Load

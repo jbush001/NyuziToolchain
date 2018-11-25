@@ -339,42 +339,32 @@ bool TargetInstrInfo::PredicateInstruction(
   return MadeChange;
 }
 
-bool TargetInstrInfo::hasLoadFromStackSlot(const MachineInstr &MI,
-                                           const MachineMemOperand *&MMO,
-                                           int &FrameIndex) const {
+bool TargetInstrInfo::hasLoadFromStackSlot(
+    const MachineInstr &MI,
+    SmallVectorImpl<const MachineMemOperand *> &Accesses) const {
+  size_t StartSize = Accesses.size();
   for (MachineInstr::mmo_iterator o = MI.memoperands_begin(),
                                   oe = MI.memoperands_end();
        o != oe; ++o) {
-    if ((*o)->isLoad()) {
-      if (const FixedStackPseudoSourceValue *Value =
-          dyn_cast_or_null<FixedStackPseudoSourceValue>(
-              (*o)->getPseudoValue())) {
-        FrameIndex = Value->getFrameIndex();
-        MMO = *o;
-        return true;
-      }
-    }
+    if ((*o)->isLoad() &&
+        dyn_cast_or_null<FixedStackPseudoSourceValue>((*o)->getPseudoValue()))
+      Accesses.push_back(*o);
   }
-  return false;
+  return Accesses.size() != StartSize;
 }
 
-bool TargetInstrInfo::hasStoreToStackSlot(const MachineInstr &MI,
-                                          const MachineMemOperand *&MMO,
-                                          int &FrameIndex) const {
+bool TargetInstrInfo::hasStoreToStackSlot(
+    const MachineInstr &MI,
+    SmallVectorImpl<const MachineMemOperand *> &Accesses) const {
+  size_t StartSize = Accesses.size();
   for (MachineInstr::mmo_iterator o = MI.memoperands_begin(),
                                   oe = MI.memoperands_end();
        o != oe; ++o) {
-    if ((*o)->isStore()) {
-      if (const FixedStackPseudoSourceValue *Value =
-          dyn_cast_or_null<FixedStackPseudoSourceValue>(
-              (*o)->getPseudoValue())) {
-        FrameIndex = Value->getFrameIndex();
-        MMO = *o;
-        return true;
-      }
-    }
+    if ((*o)->isStore() &&
+        dyn_cast_or_null<FixedStackPseudoSourceValue>((*o)->getPseudoValue()))
+      Accesses.push_back(*o);
   }
-  return false;
+  return Accesses.size() != StartSize;
 }
 
 bool TargetInstrInfo::getStackSlotRange(const TargetRegisterClass *RC,
@@ -388,8 +378,7 @@ bool TargetInstrInfo::getStackSlotRange(const TargetRegisterClass *RC,
     return true;
   }
   unsigned BitSize = TRI->getSubRegIdxSize(SubIdx);
-  // Convert bit size to byte size to be consistent with
-  // MCRegisterClass::getSize().
+  // Convert bit size to byte size.
   if (BitSize % 8)
     return false;
 
@@ -584,7 +573,7 @@ MachineInstr *TargetInstrInfo::foldMemoryOperand(MachineInstr &MI,
   }
 
   if (NewMI) {
-    NewMI->setMemRefs(MI.memoperands_begin(), MI.memoperands_end());
+    NewMI->setMemRefs(MF, MI.memoperands());
     // Add a memory operand, foldMemoryOperandImpl doesn't do that.
     assert((!(Flags & MachineMemOperand::MOStore) ||
             NewMI->mayStore()) &&
@@ -654,10 +643,10 @@ MachineInstr *TargetInstrInfo::foldMemoryOperand(MachineInstr &MI,
 
   // Copy the memoperands from the load to the folded instruction.
   if (MI.memoperands_empty()) {
-    NewMI->setMemRefs(LoadMI.memoperands_begin(), LoadMI.memoperands_end());
+    NewMI->setMemRefs(MF, LoadMI.memoperands());
   } else {
     // Handle the rare case of folding multiple loads.
-    NewMI->setMemRefs(MI.memoperands_begin(), MI.memoperands_end());
+    NewMI->setMemRefs(MF, MI.memoperands());
     for (MachineInstr::mmo_iterator I = LoadMI.memoperands_begin(),
                                     E = LoadMI.memoperands_end();
          I != E; ++I) {
@@ -880,33 +869,6 @@ void TargetInstrInfo::genAlternativeCodeSequence(
   assert(Prev && "Unknown pattern for machine combiner");
 
   reassociateOps(Root, *Prev, Pattern, InsInstrs, DelInstrs, InstIdxForVirtReg);
-}
-
-void TargetInstrInfo::trackRegDefsUses(const MachineInstr &MI,
-                                       BitVector &ModifiedRegs,
-                                       BitVector &UsedRegs,
-                                       const TargetRegisterInfo *TRI) const {
-  for (const MachineOperand &MO : MI.operands()) {
-    if (MO.isRegMask())
-      ModifiedRegs.setBitsNotInMask(MO.getRegMask());
-    if (!MO.isReg())
-      continue;
-    unsigned Reg = MO.getReg();
-    if (!Reg)
-      continue;
-    if (MO.isDef()) {
-      // Some architectures (e.g. AArch64 XZR/WZR) have registers that are
-      // constant and may be used as destinations to indicate the generated
-      // value is discarded. No need to track such case as a def.
-      if (!TRI->isConstantPhysReg(Reg))
-        for (MCRegAliasIterator AI(Reg, TRI, true); AI.isValid(); ++AI)
-          ModifiedRegs.set(*AI);
-    } else {
-      assert(MO.isUse() && "Reg operand not a def and not a use");
-      for (MCRegAliasIterator AI(Reg, TRI, true); AI.isValid(); ++AI)
-        UsedRegs.set(*AI);
-    }
-  }
 }
 
 bool TargetInstrInfo::isReallyTriviallyReMaterializableGeneric(

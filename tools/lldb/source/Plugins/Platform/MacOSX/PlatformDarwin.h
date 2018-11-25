@@ -10,12 +10,9 @@
 #ifndef liblldb_PlatformDarwin_h_
 #define liblldb_PlatformDarwin_h_
 
-// C Includes
-// C++ Includes
 
-// Other libraries and framework includes
-// Project includes
 #include "Plugins/Platform/POSIX/PlatformPOSIX.h"
+#include "lldb/Host/FileSystem.h"
 #include "lldb/Utility/FileSpec.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/FileSystem.h"
@@ -69,8 +66,8 @@ public:
 
   void CalculateTrapHandlerSymbolNames() override;
 
-  bool GetOSVersion(uint32_t &major, uint32_t &minor, uint32_t &update,
-                    lldb_private::Process *process = nullptr) override;
+  llvm::VersionTuple
+  GetOSVersion(lldb_private::Process *process = nullptr) override;
 
   bool SupportsModules() override { return true; }
 
@@ -82,8 +79,14 @@ public:
   lldb_private::Status
   LaunchProcess(lldb_private::ProcessLaunchInfo &launch_info) override;
 
-  static std::tuple<uint32_t, uint32_t, uint32_t, llvm::StringRef>
+  static std::tuple<llvm::VersionTuple, llvm::StringRef>
   ParseVersionBuildDir(llvm::StringRef str);
+
+  enum SDKType : unsigned {
+    MacOSX = 0,
+    iPhoneSimulator,
+    iPhoneOS,
+  };
 
 protected:
   void ReadLibdispatchOffsetsAddress(lldb_private::Process *process);
@@ -95,14 +98,7 @@ protected:
       const lldb_private::FileSpecList *module_search_paths_ptr,
       lldb::ModuleSP *old_module_sp_ptr, bool *did_create_ptr);
 
-  enum class SDKType {
-    MacOSX = 0,
-    iPhoneSimulator,
-    iPhoneOS,
-  };
-
-  static bool SDKSupportsModules(SDKType sdk_type, uint32_t major,
-                                 uint32_t minor, uint32_t micro);
+  static bool SDKSupportsModules(SDKType sdk_type, llvm::VersionTuple version);
 
   static bool SDKSupportsModules(SDKType desired_type,
                                  const lldb_private::FileSpec &sdk_path);
@@ -112,9 +108,9 @@ protected:
     SDKType sdk_type;
   };
 
-  static lldb_private::FileSpec::EnumerateDirectoryResult
+  static lldb_private::FileSystem::EnumerateDirectoryResult
   DirectoryEnumerator(void *baton, llvm::sys::fs::file_type file_type,
-                      const lldb_private::FileSpec &spec);
+                      llvm::StringRef path);
 
   static lldb_private::FileSpec
   FindSDKInXcodeForModules(SDKType sdk_type,

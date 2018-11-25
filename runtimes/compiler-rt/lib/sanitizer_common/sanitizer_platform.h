@@ -15,7 +15,8 @@
 
 #if !defined(__linux__) && !defined(__FreeBSD__) && !defined(__NetBSD__) && \
   !defined(__OpenBSD__) && !defined(__APPLE__) && !defined(_WIN32) && \
-  !defined(__Fuchsia__) && !(defined(__sun__) && defined(__srv4__))
+  !defined(__Fuchsia__) && !defined(__rtems__) && \
+  !(defined(__sun__) && defined(__svr4__))
 # error "This operating system is not supported"
 #endif
 
@@ -102,6 +103,12 @@
 # define SANITIZER_FUCHSIA 1
 #else
 # define SANITIZER_FUCHSIA 0
+#endif
+
+#if defined(__rtems__)
+# define SANITIZER_RTEMS 1
+#else
+# define SANITIZER_RTEMS 0
 #endif
 
 #define SANITIZER_POSIX \
@@ -201,6 +208,12 @@
 # define SANITIZER_SOLARIS32 0
 #endif
 
+#if defined(__myriad2__)
+# define SANITIZER_MYRIAD2 1
+#else
+# define SANITIZER_MYRIAD2 0
+#endif
+
 // By default we allow to use SizeClassAllocator64 on 64-bit platform.
 // But in some cases (e.g. AArch64's 39-bit address space) SizeClassAllocator64
 // does not work well and we need to fallback to SizeClassAllocator32.
@@ -222,7 +235,12 @@
 #if defined(__mips__)
 # define SANITIZER_MMAP_RANGE_SIZE FIRST_32_SECOND_64(1ULL << 32, 1ULL << 40)
 #elif defined(__aarch64__)
-# define SANITIZER_MMAP_RANGE_SIZE FIRST_32_SECOND_64(1ULL << 32, 1ULL << 48)
+# if SANITIZER_MAC
+// Darwin iOS/ARM64 has a 36-bit VMA, 64GiB VM
+#  define SANITIZER_MMAP_RANGE_SIZE FIRST_32_SECOND_64(1ULL << 32, 1ULL << 36)
+# else
+#  define SANITIZER_MMAP_RANGE_SIZE FIRST_32_SECOND_64(1ULL << 32, 1ULL << 48)
+# endif
 #else
 # define SANITIZER_MMAP_RANGE_SIZE FIRST_32_SECOND_64(1ULL << 32, 1ULL << 47)
 #endif
@@ -315,6 +333,13 @@
 # define SANITIZER_CACHE_LINE_SIZE 128
 #else
 # define SANITIZER_CACHE_LINE_SIZE 64
+#endif
+
+// Enable offline markup symbolizer for Fuchsia and RTEMS.
+#if SANITIZER_FUCHSIA || SANITIZER_RTEMS
+#define SANITIZER_SYMBOLIZER_MARKUP 1
+#else
+#define SANITIZER_SYMBOLIZER_MARKUP 0
 #endif
 
 #endif // SANITIZER_PLATFORM_H

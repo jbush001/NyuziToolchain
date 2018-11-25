@@ -1,7 +1,7 @@
-; RUN:  llc -amdgpu-scalarize-global-loads=false  -march=amdgcn -mtriple=amdgcn---amdgiz -verify-machineinstrs < %s | FileCheck -enable-var-scope -check-prefix=GCN -check-prefix=SI -check-prefix=FUNC %s
-; RUN:  llc -amdgpu-scalarize-global-loads=false  -march=amdgcn -mtriple=amdgcn---amdgiz -mcpu=tonga -mattr=-flat-for-global -verify-machineinstrs < %s | FileCheck -enable-var-scope -check-prefix=GCN -check-prefix=VI -check-prefix=GFX89 -check-prefix=FUNC %s
-; RUN:  llc -amdgpu-scalarize-global-loads=false  -march=amdgcn -mtriple=amdgcn---amdgiz -mcpu=gfx900 -mattr=-flat-for-global -verify-machineinstrs -enable-packed-inlinable-literals < %s | FileCheck -enable-var-scope -check-prefix=GCN -check-prefix=GFX9 -check-prefix=GFX89 -check-prefix=FUNC %s
-; RUN:  llc -amdgpu-scalarize-global-loads=false  -march=r600 -mtriple=r600---amdgiz -mcpu=cypress < %s | FileCheck -enable-var-scope -check-prefix=EG -check-prefix=FUNC %s
+; RUN:  llc -amdgpu-scalarize-global-loads=false  -march=amdgcn -mtriple=amdgcn-- -verify-machineinstrs < %s | FileCheck -enable-var-scope -check-prefix=GCN -check-prefix=SI -check-prefix=FUNC %s
+; RUN:  llc -amdgpu-scalarize-global-loads=false  -march=amdgcn -mtriple=amdgcn-- -mcpu=tonga -mattr=-flat-for-global -verify-machineinstrs < %s | FileCheck -enable-var-scope -check-prefix=GCN -check-prefix=VI -check-prefix=GFX89 -check-prefix=FUNC %s
+; RUN:  llc -amdgpu-scalarize-global-loads=false  -march=amdgcn -mtriple=amdgcn-- -mcpu=gfx900 -mattr=-flat-for-global -verify-machineinstrs < %s | FileCheck -enable-var-scope -check-prefix=GCN -check-prefix=GFX9 -check-prefix=GFX89 -check-prefix=FUNC %s
+; RUN:  llc -amdgpu-scalarize-global-loads=false  -march=r600 -mtriple=r600-- -mcpu=cypress < %s | FileCheck -enable-var-scope -check-prefix=EG -check-prefix=FUNC %s
 
 ; FIXME: i16 promotion pass ruins the scalar cases when legal.
 ; FIXME: r600 fails verifier
@@ -663,10 +663,10 @@ define amdgpu_kernel void @sext_in_reg_v2i1_to_v2i16(<2 x i16> addrspace(1)* %ou
 
 ; FUNC-LABEL: {{^}}sext_in_reg_v3i1_to_v3i16:
 ; GFX9: v_pk_add_u16
-; GFX9: v_pk_lshlrev_b16 v{{[0-9]+}}, 15, v{{[0-9]+}}
-; GFX9: v_pk_ashrrev_i16 v{{[0-9]+}}, 15, v{{[0-9]+}}
 ; GFX9: v_pk_add_u16
 ; GFX9: v_pk_lshlrev_b16 v{{[0-9]+}}, 15, v{{[0-9]+}}
+; GFX9: v_pk_lshlrev_b16 v{{[0-9]+}}, 15, v{{[0-9]+}}
+; GFX9: v_pk_ashrrev_i16 v{{[0-9]+}}, 15, v{{[0-9]+}}
 ; GFX9: v_pk_ashrrev_i16 v{{[0-9]+}}, 15, v{{[0-9]+}}
 define amdgpu_kernel void @sext_in_reg_v3i1_to_v3i16(<3 x i16> addrspace(1)* %out, <3 x i16> %a, <3 x i16> %b) #0 {
   %c = add <3 x i16> %a, %b ; add to prevent folding into extload
@@ -702,11 +702,10 @@ define amdgpu_kernel void @sext_in_reg_v2i8_to_v2i16(<2 x i16> addrspace(1)* %ou
 
 ; FUNC-LABEL: {{^}}sext_in_reg_v3i8_to_v3i16:
 ; GFX9: v_pk_add_u16
-; GFX9: v_pk_lshlrev_b16 v{{[0-9]+}}, 8, v{{[0-9]+}}
-; GFX9: v_pk_ashrrev_i16 v{{[0-9]+}}, 8, v{{[0-9]+}}
-
 ; GFX9: v_pk_add_u16
 ; GFX9: v_pk_lshlrev_b16 v{{[0-9]+}}, 8, v{{[0-9]+}}
+; GFX9: v_pk_lshlrev_b16 v{{[0-9]+}}, 8, v{{[0-9]+}}
+; GFX9: v_pk_ashrrev_i16 v{{[0-9]+}}, 8, v{{[0-9]+}}
 ; GFX9: v_pk_ashrrev_i16 v{{[0-9]+}}, 8, v{{[0-9]+}}
 define amdgpu_kernel void @sext_in_reg_v3i8_to_v3i16(<3 x i16> addrspace(1)* %out, <3 x i16> %a, <3 x i16> %b) #0 {
   %c = add <3 x i16> %a, %b ; add to prevent folding into extload

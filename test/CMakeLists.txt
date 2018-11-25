@@ -8,6 +8,7 @@ llvm_canonicalize_cmake_booleans(
   HAVE_LIBXAR
   LLVM_ENABLE_DIA_SDK
   LLVM_ENABLE_FFI
+  LLVM_ENABLE_THREADS
   BUILD_SHARED_LIBS
   LLVM_LINK_LLVM_DYLIB
   )
@@ -48,20 +49,21 @@ set(LLVM_TEST_DEPENDS
           llvm-c-test
           llvm-cat
           llvm-cfi-verify
-          llvm-cxxfilt
           llvm-config
           llvm-cov
-          llvm-cxxdump
           llvm-cvtres
+          llvm-cxxdump
+          llvm-cxxfilt
+          llvm-cxxmap
           llvm-diff
           llvm-dis
           llvm-dlltool
           dsymutil
           llvm-dwarfdump
           llvm-dwp
+          llvm-exegesis
           llvm-extract
           llvm-isel-fuzzer
-          llvm-opt-fuzzer
           llvm-lib
           llvm-link
           llvm-lto2
@@ -72,6 +74,7 @@ set(LLVM_TEST_DEPENDS
           llvm-nm
           llvm-objcopy
           llvm-objdump
+          llvm-opt-fuzzer
           llvm-opt-report
           llvm-pdbutil
           llvm-profdata
@@ -83,8 +86,10 @@ set(LLVM_TEST_DEPENDS
           llvm-size
           llvm-split
           llvm-strings
+          llvm-strip
           llvm-symbolizer
           llvm-tblgen
+          llvm-undname
           llvm-xray
           not
           obj2yaml

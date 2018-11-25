@@ -89,11 +89,20 @@ struct AP64VeryCompact {
   static const uptr kFlags = 0;
 };
 
+struct AP64Dense {
+  static const uptr kSpaceBeg = kAllocatorSpace;
+  static const uptr kSpaceSize = kAllocatorSize;
+  static const uptr kMetadataSize = 16;
+  typedef DenseSizeClassMap SizeClassMap;
+  typedef NoOpMapUnmapCallback MapUnmapCallback;
+  static const uptr kFlags = 0;
+};
 
 typedef SizeClassAllocator64<AP64> Allocator64;
 typedef SizeClassAllocator64<AP64Dyn> Allocator64Dynamic;
 typedef SizeClassAllocator64<AP64Compact> Allocator64Compact;
 typedef SizeClassAllocator64<AP64VeryCompact> Allocator64VeryCompact;
+typedef SizeClassAllocator64<AP64Dense> Allocator64Dense;
 #elif defined(__mips64)
 static const u64 kAddressSpaceSize = 1ULL << 40;
 #elif defined(__aarch64__)
@@ -142,6 +151,10 @@ TEST(SanitizerCommon, VeryCompactSizeClassMap) {
 
 TEST(SanitizerCommon, InternalSizeClassMap) {
   TestSizeClassMap<InternalSizeClassMap>();
+}
+
+TEST(SanitizerCommon, DenseSizeClassMap) {
+  TestSizeClassMap<VeryCompactSizeClassMap>();
 }
 
 template <class Allocator>
@@ -226,8 +239,13 @@ TEST(SanitizerCommon, SizeClassAllocator64Dynamic) {
 }
 
 #if !SANITIZER_ANDROID
+//FIXME(kostyak): find values so that those work on Android as well.
 TEST(SanitizerCommon, SizeClassAllocator64Compact) {
   TestSizeClassAllocator<Allocator64Compact>();
+}
+
+TEST(SanitizerCommon, SizeClassAllocator64Dense) {
+  TestSizeClassAllocator<Allocator64Dense>();
 }
 #endif
 
@@ -813,11 +831,11 @@ TEST(Allocator, LargeAlloc) {
 TEST(Allocator, ScopedBuffer) {
   const int kSize = 512;
   {
-    InternalScopedBuffer<int> int_buf(kSize);
-    EXPECT_EQ(sizeof(int) * kSize, int_buf.size());  // NOLINT
+    InternalMmapVector<int> int_buf(kSize);
+    EXPECT_EQ((uptr)kSize, int_buf.size()); // NOLINT
   }
-  InternalScopedBuffer<char> char_buf(kSize);
-  EXPECT_EQ(sizeof(char) * kSize, char_buf.size());  // NOLINT
+  InternalMmapVector<char> char_buf(kSize);
+  EXPECT_EQ((uptr)kSize, char_buf.size()); // NOLINT
   internal_memset(char_buf.data(), 'c', kSize);
   for (int i = 0; i < kSize; i++) {
     EXPECT_EQ('c', char_buf[i]);
@@ -1289,7 +1307,7 @@ TEST(SanitizerCommon, TwoLevelByteMap) {
   const u64 kSize1 = 1 << 6, kSize2 = 1 << 12;
   const u64 n = kSize1 * kSize2;
   TwoLevelByteMap<kSize1, kSize2> m;
-  m.TestOnlyInit();
+  m.Init();
   for (u64 i = 0; i < n; i += 7) {
     m.set(i, (i % 100) + 1);
   }
@@ -1324,7 +1342,7 @@ void *TwoLevelByteMapUserThread(void *param) {
 
 TEST(SanitizerCommon, ThreadedTwoLevelByteMap) {
   TestByteMap m;
-  m.TestOnlyInit();
+  m.Init();
   TestMapUnmapCallback::map_count = 0;
   TestMapUnmapCallback::unmap_count = 0;
   static const int kNumThreads = 4;

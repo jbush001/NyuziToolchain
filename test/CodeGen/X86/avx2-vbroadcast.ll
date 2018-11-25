@@ -615,13 +615,13 @@ entry:
 define <8 x float> @V113(<8 x float> %in) nounwind uwtable readnone ssp {
 ; X32-AVX2-LABEL: V113:
 ; X32-AVX2:       ## %bb.0: ## %entry
-; X32-AVX2-NEXT:    vbroadcastss {{.*#+}} ymm1 = [-0.0078125,-0.0078125,-0.0078125,-0.0078125,-0.0078125,-0.0078125,-0.0078125,-0.0078125]
+; X32-AVX2-NEXT:    vbroadcastss {{.*#+}} ymm1 = [-7.8125E-3,-7.8125E-3,-7.8125E-3,-7.8125E-3,-7.8125E-3,-7.8125E-3,-7.8125E-3,-7.8125E-3]
 ; X32-AVX2-NEXT:    vaddps %ymm1, %ymm0, %ymm0
 ; X32-AVX2-NEXT:    retl
 ;
 ; X64-AVX2-LABEL: V113:
 ; X64-AVX2:       ## %bb.0: ## %entry
-; X64-AVX2-NEXT:    vbroadcastss {{.*#+}} ymm1 = [-0.0078125,-0.0078125,-0.0078125,-0.0078125,-0.0078125,-0.0078125,-0.0078125,-0.0078125]
+; X64-AVX2-NEXT:    vbroadcastss {{.*#+}} ymm1 = [-7.8125E-3,-7.8125E-3,-7.8125E-3,-7.8125E-3,-7.8125E-3,-7.8125E-3,-7.8125E-3,-7.8125E-3]
 ; X64-AVX2-NEXT:    vaddps %ymm1, %ymm0, %ymm0
 ; X64-AVX2-NEXT:    retq
 ;
@@ -642,12 +642,12 @@ entry:
 define <4 x float> @_e2(float* %ptr) nounwind uwtable readnone ssp {
 ; X32-LABEL: _e2:
 ; X32:       ## %bb.0:
-; X32-NEXT:    vbroadcastss {{.*#+}} xmm0 = [-0.0078125,-0.0078125,-0.0078125,-0.0078125]
+; X32-NEXT:    vbroadcastss {{.*#+}} xmm0 = [-7.8125E-3,-7.8125E-3,-7.8125E-3,-7.8125E-3]
 ; X32-NEXT:    retl
 ;
 ; X64-LABEL: _e2:
 ; X64:       ## %bb.0:
-; X64-NEXT:    vbroadcastss {{.*#+}} xmm0 = [-0.0078125,-0.0078125,-0.0078125,-0.0078125]
+; X64-NEXT:    vbroadcastss {{.*#+}} xmm0 = [-7.8125E-3,-7.8125E-3,-7.8125E-3,-7.8125E-3]
 ; X64-NEXT:    retq
   %vecinit.i = insertelement <4 x float> undef, float        0xbf80000000000000, i32 0
   %vecinit2.i = insertelement <4 x float> %vecinit.i, float  0xbf80000000000000, i32 1
@@ -686,7 +686,7 @@ define void @crash() nounwind alwaysinline {
 ; X32-NEXT:  ## %bb.2: ## %ret
 ; X32-NEXT:    retl
 ; X32-NEXT:    .p2align 4, 0x90
-; X32-NEXT:  LBB33_1: ## %footer349VF
+; X32-NEXT:  LBB33_1: ## %footer329VF
 ; X32-NEXT:    ## =>This Inner Loop Header: Depth=1
 ; X32-NEXT:    jmp LBB33_1
 ;
@@ -698,7 +698,7 @@ define void @crash() nounwind alwaysinline {
 ; X64-NEXT:  ## %bb.2: ## %ret
 ; X64-NEXT:    retq
 ; X64-NEXT:    .p2align 4, 0x90
-; X64-NEXT:  LBB33_1: ## %footer349VF
+; X64-NEXT:  LBB33_1: ## %footer329VF
 ; X64-NEXT:    ## =>This Inner Loop Header: Depth=1
 ; X64-NEXT:    jmp LBB33_1
 WGLoopsEntry:

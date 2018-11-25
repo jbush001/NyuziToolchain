@@ -384,6 +384,11 @@ class DwarfRegAlias<Register reg> {
 }
 
 //===----------------------------------------------------------------------===//
+// Pull in the common support for MCPredicate (portable scheduling predicates).
+//
+include "llvm/Target/TargetInstrPredicate.td"
+
+//===----------------------------------------------------------------------===//
 // Pull in the common support for scheduling
 //
 include "llvm/Target/TargetSchedule.td"
@@ -434,14 +439,17 @@ class Instruction {
   // instruction.
   bit isReturn     = 0;     // Is this instruction a return instruction?
   bit isBranch     = 0;     // Is this instruction a branch instruction?
+  bit isEHScopeReturn = 0;  // Does this instruction end an EH scope?
   bit isIndirectBranch = 0; // Is this instruction an indirect branch?
   bit isCompare    = 0;     // Is this instruction a comparison instruction?
   bit isMoveImm    = 0;     // Is this instruction a move immediate instruction?
+  bit isMoveReg    = 0;     // Is this instruction a move register instruction?
   bit isBitcast    = 0;     // Is this instruction a bitcast instruction?
   bit isSelect     = 0;     // Is this instruction a select instruction?
   bit isBarrier    = 0;     // Can control flow fall through this instruction?
   bit isCall       = 0;     // Is this instruction a call instruction?
   bit isAdd        = 0;     // Is this instruction an add instruction?
+  bit isTrap       = 0;     // Is this instruction a trap instruction?
   bit canFoldAsLoad = 0;    // Can this be folded as a simple memory operand?
   bit mayLoad      = ?;     // Is it possible for this inst to read memory?
   bit mayStore     = ?;     // Is it possible for this inst to write memory?
@@ -568,6 +576,12 @@ class Instruction {
   /// can be queried via the getNamedOperandIdx() function which is generated
   /// by TableGen.
   bit UseNamedOperandTable = 0;
+
+  /// Should FastISel ignore this instruction. For certain ISAs, they have
+  /// instructions which map to the same ISD Opcode, value type operands and
+  /// instruction selection predicates. FastISel cannot handle such cases, but
+  /// SelectionDAG can.
+  bit FastISelShouldIgnore = 0;
 }
 
 /// PseudoInstExpansion - Expansion information for a pseudo-instruction.
@@ -997,6 +1011,12 @@ def DBG_VALUE : StandardPseudoInstruction {
   let AsmString = "DBG_VALUE";
   let hasSideEffects = 0;
 }
+def DBG_LABEL : StandardPseudoInstruction {
+  let OutOperandList = (outs);
+  let InOperandList = (ins unknown:$label);
+  let AsmString = "DBG_LABEL";
+  let hasSideEffects = 0;
+}
 def REG_SEQUENCE : StandardPseudoInstruction {
   let OutOperandList = (outs unknown:$dst);
   let InOperandList = (ins unknown:$supersrc, variable_ops);
@@ -1084,7 +1104,7 @@ def FAULTING_OP : StandardPseudoInstruction {
   let isBranch = 1;
 }
 def PATCHABLE_OP : StandardPseudoInstruction {
-  let OutOperandList = (outs unknown:$dst);
+  let OutOperandList = (outs);
   let InOperandList = (ins variable_ops);
   let usesCustomInserter = 1;
   let mayLoad = 1;
@@ -1099,7 +1119,7 @@ def PATCHABLE_FUNCTION_ENTER : StandardPseudoInstruction {
   let hasSideEffects = 0;
 }
 def PATCHABLE_RET : StandardPseudoInstruction {
-  let OutOperandList = (outs unknown:$dst);
+  let OutOperandList = (outs);
   let InOperandList = (ins variable_ops);
   let AsmString = "# XRay Function Patchable RET.";
   let usesCustomInserter = 1;
@@ -1116,7 +1136,7 @@ def PATCHABLE_FUNCTION_EXIT : StandardPseudoInstruction {
   let isReturn = 0; // Original return instruction will follow
 }
 def PATCHABLE_TAIL_CALL : StandardPseudoInstruction {
-  let OutOperandList = (outs unknown:$dst);
+  let OutOperandList = (outs);
   let InOperandList = (ins variable_ops);
   let AsmString = "# XRay Tail Call Exit.";
   let usesCustomInserter = 1;
@@ -1133,9 +1153,19 @@ def PATCHABLE_EVENT_CALL : StandardPseudoInstruction {
   let mayStore = 1;
   let hasSideEffects = 1;
 }
+def PATCHABLE_TYPED_EVENT_CALL : StandardPseudoInstruction {
+  let OutOperandList = (outs);
+  let InOperandList = (ins i16imm:$type, ptr_rc:$event, i32imm:$size);
+  let AsmString = "# XRay Typed Event Log.";
+  let usesCustomInserter = 1;
+  let isCall = 1;
+  let mayLoad = 1;
+  let mayStore = 1;
+  let hasSideEffects = 1;
+}
 def FENTRY_CALL : StandardPseudoInstruction {
-  let OutOperandList = (outs unknown:$dst);
-  let InOperandList = (ins variable_ops);
+  let OutOperandList = (outs);
+  let InOperandList = (ins);
   let AsmString = "# FEntry call";
   let usesCustomInserter = 1;
   let mayLoad = 1;
@@ -1298,7 +1328,7 @@ class MnemonicAlias<string From, string To, string VariantName = ""> {
 /// InstAlias - This defines an alternate assembly syntax that is allowed to
 /// match an instruction that has a different (more canonical) assembly
 /// representation.
-class InstAlias<string Asm, dag Result, int Emit = 1> {
+class InstAlias<string Asm, dag Result, int Emit = 1, string VariantName = ""> {
   string AsmString = Asm;      // The .s format to match the instruction with.
   dag ResultInst = Result;     // The MCInst to generate.
 
@@ -1322,7 +1352,7 @@ class InstAlias<string Asm, dag Result, int Emit = 1> {
 
   // Assembler variant name to use for this alias. If not specified then
   // assembler variants will be determined based on AsmString
-  string AsmVariantName = "";
+  string AsmVariantName = VariantName;
 }
 
 //===----------------------------------------------------------------------===//
@@ -1525,3 +1555,8 @@ include "llvm/Target/GlobalISel/Target.td"
 // Pull in the common support for the Global ISel DAG-based selector generation.
 //
 include "llvm/Target/GlobalISel/SelectionDAGCompat.td"
+
+//===----------------------------------------------------------------------===//
+// Pull in the common support for Pfm Counters generation.
+//
+include "llvm/Target/TargetPfmCounters.td"

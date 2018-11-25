@@ -260,7 +260,7 @@ public:
   }
   unsigned getNumAttrs() const { return (unsigned)CXAttrs.size(); }
 
-  /// \brief Retain/Release only useful when we allocate a AttrListInfo from the
+  /// Retain/Release only useful when we allocate a AttrListInfo from the
   /// BumpPtrAllocator, and not from the stack; so that we keep a pointer
   // in the EntityInfo
   void Retain() { ++ref_cnt; }
@@ -465,12 +465,11 @@ public:
 private:
   bool handleDeclOccurence(const Decl *D, index::SymbolRoleSet Roles,
                            ArrayRef<index::SymbolRelation> Relations,
-                           FileID FID, unsigned Offset,
-                           ASTNodeInfo ASTNode) override;
+                           SourceLocation Loc, ASTNodeInfo ASTNode) override;
 
-  bool handleModuleOccurence(const ImportDecl *ImportD,
+  bool handleModuleOccurence(const ImportDecl *ImportD, const Module *Mod,
                              index::SymbolRoleSet Roles,
-                             FileID FID, unsigned Offset) override;
+                             SourceLocation Loc) override;
 
   void finish() override;
 

@@ -2788,6 +2788,10 @@
 // CHECK:  encoding: [0x0f,0x09]
         	wbinvd
 
+// CHECK: wbnoinvd
+// CHECK:  encoding: [0xf3,0x0f,0x09]
+        	wbnoinvd
+
 // CHECK: cpuid
 // CHECK:  encoding: [0x0f,0xa2]
         	cpuid
@@ -10741,3 +10745,66 @@ btcl $4, (%eax)
 // CHECK:  encoding: [0xf0,0x01,0x37]
         	lock add %esi, (%edi)
 
+// CHECK: cldemote 4(%eax)
+// CHECK:  encoding: [0x0f,0x1c,0x40,0x04]
+        	cldemote 4(%eax)
+
+// CHECK: cldemote 3735928559(%ebx,%ecx,8)
+// CHECK:  encoding: [0x0f,0x1c,0x84,0xcb,0xef,0xbe,0xad,0xde]
+        	cldemote 0xdeadbeef(%ebx,%ecx,8)
+
+// CHECK: umonitor %eax
+// CHECK:  encoding: [0xf3,0x0f,0xae,0xf0]
+	umonitor %eax
+
+// CHECK: umonitor %ax
+// CHECK:  encoding: [0x67,0xf3,0x0f,0xae,0xf0]
+	umonitor %ax
+
+// CHECK: umwait %eax
+// CHECK:  encoding: [0xf2,0x0f,0xae,0xf0]
+	umwait %eax
+
+// CHECK: tpause %eax
+// CHECK:  encoding: [0x66,0x0f,0xae,0xf0]
+	tpause %eax
+
+// CHECK: movdiri %eax, 64(%edx,%edi)
+// CHECK: # encoding: [0x0f,0x38,0xf9,0x44,0x3a,0x40]
+          movdiri %eax, 64(%edx,%edi)
+
+// CHECK: movdir64b 485498096, %ecx
+// CHECK: # encoding: [0x66,0x0f,0x38,0xf8,0x0d,0xf0,0x1c,0xf0,0x1c]
+          movdir64b 485498096, %ecx
+
+// CHECK: movdir64b 485498096, %cx
+// CHECK: # encoding: [0x67,0x66,0x0f,0x38,0xf8,0x0d,0xf0,0x1c,0xf0,0x1c]
+          movdir64b 485498096, %cx
+
+// CHECK: movdir64b (%edx), %eax
+// CHECK: # encoding: [0x66,0x0f,0x38,0xf8,0x02]
+          movdir64b (%edx), %eax
+
+// CHECK: movdir64b (%esi), %eax
+// CHECK: # encoding: [0x66,0x0f,0x38,0xf8,0x06]
+          movdir64b (%esi), %eax
+
+// CHECK: movdir64b (%si), %ax
+// CHECK: # encoding: [0x67,0x66,0x0f,0x38,0xf8,0x04]
+          movdir64b (%si), %ax
+
+// CHECK: pconfig
+// CHECK: # encoding: [0x0f,0x01,0xc5]
+pconfig
+
+// CHECK: encls
+// CHECK: encoding: [0x0f,0x01,0xcf]
+encls
+
+// CHECK: enclu
+// CHECK: encoding: [0x0f,0x01,0xd7]
+enclu
+
+// CHECK: enclv
+// CHECK: encoding: [0x0f,0x01,0xc0]
+enclv

@@ -26,7 +26,6 @@ class ModulePass;
 class Pass;
 class GetElementPtrInst;
 class PassInfo;
-class TerminatorInst;
 class TargetLowering;
 class TargetMachine;
 
@@ -80,7 +79,6 @@ FunctionPass *createDeadStoreEliminationPass();
 // values.
 FunctionPass *createCallSiteSplittingPass();
 
-
 //===----------------------------------------------------------------------===//
 //
 // AggressiveDCE - This pass uses the SSA based Aggressive DCE algorithm.  This
@@ -89,7 +87,6 @@ FunctionPass *createCallSiteSplittingPass();
 //
 FunctionPass *createAggressiveDCEPass();
 
-
 //===----------------------------------------------------------------------===//
 //
 // GuardWidening - An optimization over the @llvm.experimental.guard intrinsic
@@ -97,6 +94,16 @@ FunctionPass *createAggressiveDCEPass();
 // at runtime.
 //
 FunctionPass *createGuardWideningPass();
+
+
+//===----------------------------------------------------------------------===//
+//
+// LoopGuardWidening - Analogous to the GuardWidening pass, but restricted to a
+// single loop at a time for use within a LoopPassManager.  Desired effect is
+// to widen guards into preheader or a single guard within loop if that's not
+// possible.
+//
+Pass *createLoopGuardWideningPass();
 
 
 //===----------------------------------------------------------------------===//
@@ -125,27 +132,6 @@ Pass *createInductiveRangeCheckEliminationPass();
 // use a single canonical induction variable per loop.
 //
 Pass *createIndVarSimplifyPass();
-
-//===----------------------------------------------------------------------===//
-//
-// InstructionCombining - Combine instructions to form fewer, simple
-// instructions. This pass does not modify the CFG, and has a tendency to make
-// instructions dead, so a subsequent DCE pass is useful.
-//
-// This pass combines things like:
-//    %Y = add int 1, %X
-//    %Z = add int 1, %Y
-// into:
-//    %Z = add int 2, %X
-//
-FunctionPass *createInstructionCombiningPass(bool ExpensiveCombines = true);
-
-//===----------------------------------------------------------------------===//
-//
-// AggressiveInstCombiner - Combine expression patterns to form expressions with
-// fewer, simple instructions. This pass does not modify the CFG.
-//
-FunctionPass *createAggressiveInstCombinerPass();
 
 //===----------------------------------------------------------------------===//
 //
@@ -189,6 +175,12 @@ Pass *createLoopUnswitchPass(bool OptimizeForSize = false,
 
 //===----------------------------------------------------------------------===//
 //
+// LoopInstSimplify - This pass simplifies instructions in a loop's body.
+//
+Pass *createLoopInstSimplifyPass();
+
+//===----------------------------------------------------------------------===//
+//
 // LoopUnroll - This pass is a simple loop unrolling pass.
 //
 Pass *createLoopUnrollPass(int OptLevel = 2, int Threshold = -1, int Count = -1,
@@ -196,6 +188,12 @@ Pass *createLoopUnrollPass(int OptLevel = 2, int Threshold = -1, int Count = -1,
                            int UpperBound = -1, int AllowPeeling = -1);
 // Create an unrolling pass for full unrolling that uses exact trip count only.
 Pass *createSimpleLoopUnrollPass(int OptLevel = 2);
+
+//===----------------------------------------------------------------------===//
+//
+// LoopUnrollAndJam - This pass is a simple loop unroll and jam pass.
+//
+Pass *createLoopUnrollAndJamPass(int OptLevel = 2);
 
 //===----------------------------------------------------------------------===//
 //
@@ -392,12 +390,6 @@ FunctionPass *createLowerExpectIntrinsicPass();
 // calls such as sqrt.
 //
 FunctionPass *createPartiallyInlineLibCallsPass();
-
-//===----------------------------------------------------------------------===//
-//
-// ScalarizerPass - Converts vector operations into scalar operations
-//
-FunctionPass *createScalarizerPass();
 
 //===----------------------------------------------------------------------===//
 //

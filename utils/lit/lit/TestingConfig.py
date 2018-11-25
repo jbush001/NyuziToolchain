@@ -25,7 +25,8 @@ class TestingConfig:
                      'CLANG', 'LD_PRELOAD', 'ASAN_OPTIONS', 'UBSAN_OPTIONS',
                      'LSAN_OPTIONS', 'ADB', 'ANDROID_SERIAL',
                      'SANITIZER_IGNORE_CVE_2016_2143', 'TMPDIR', 'TMP', 'TEMP',
-                     'TEMPDIR', 'AVRLIT_BOARD', 'AVRLIT_PORT']
+                     'TEMPDIR', 'AVRLIT_BOARD', 'AVRLIT_PORT',
+                     'FILECHECK_DUMP_INPUT_ON_FAILURE', 'FILECHECK_OPTS']
         for var in pass_vars:
             val = os.environ.get(var, '')
             # Check for empty string as some variables such as LD_PRELOAD cannot be empty
@@ -99,7 +100,6 @@ class TestingConfig:
             litConfig.fatal(
                 'unable to parse config file %r, traceback: %s' % (
                     path, traceback.format_exc()))
-
         self.finish(litConfig)
 
     def __init__(self, parent, name, suffixes, test_format,
@@ -170,4 +170,10 @@ class SubstituteCaptures:
 
     def __str__(self):
         return self.substitution
+
+    def __len__(self):
+        return len(self.substitution)
+
+    def __getitem__(self, item):
+        return self.substitution.__getitem__(item)
 

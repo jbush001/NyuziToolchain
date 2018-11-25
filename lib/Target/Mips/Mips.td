@@ -59,6 +59,7 @@ include "MipsRegisterInfo.td"
 include "MipsSchedule.td"
 include "MipsInstrInfo.td"
 include "MipsCallingConv.td"
+include "MipsRegisterBanks.td"
 
 // Avoid forward declaration issues.
 include "MipsScheduleP5600.td"
@@ -177,6 +178,12 @@ def FeatureMSA : SubtargetFeature<"msa", "HasMSA", "true", "Mips MSA ASE">;
 def FeatureEVA : SubtargetFeature<"eva", "HasEVA", "true", "Mips EVA ASE">;
 
 def FeatureCRC : SubtargetFeature<"crc", "HasCRC", "true", "Mips R6 CRC ASE">;
+
+def FeatureVirt : SubtargetFeature<"virt", "HasVirt", "true",
+                                   "Mips Virtualization ASE">;
+
+def FeatureGINV : SubtargetFeature<"ginv", "HasGINV", "true",
+                                   "Mips Global Invalidate ASE">;
 
 def FeatureMicroMips  : SubtargetFeature<"micromips", "InMicroMipsMode", "true",
                                          "microMips mode">;

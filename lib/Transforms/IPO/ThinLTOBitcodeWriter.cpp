@@ -18,6 +18,7 @@
 #include "llvm/IR/Intrinsics.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/PassManager.h"
+#include "llvm/Object/ModuleSymbolTable.h"
 #include "llvm/Pass.h"
 #include "llvm/Support/ScopedPrinter.h"
 #include "llvm/Support/raw_ostream.h"
@@ -129,8 +130,7 @@ void promoteTypeIds(Module &M, StringRef ModuleId) {
       }
       GO.addMetadata(
           LLVMContext::MD_type,
-          *MDNode::get(M.getContext(),
-                       ArrayRef<Metadata *>{MD->getOperand(0), I->second}));
+          *MDNode::get(M.getContext(), {MD->getOperand(0), I->second}));
     }
   }
 }
@@ -200,13 +200,19 @@ void splitAndWriteThinLTOBitcode(
     function_ref<AAResults &(Function &)> AARGetter, Module &M) {
   std::string ModuleId = getUniqueModuleId(&M);
   if (ModuleId.empty()) {
-    // We couldn't generate a module ID for this module, just write it out as a
-    // regular LTO module.
-    WriteBitcodeToFile(M, OS);
+    // We couldn't generate a module ID for this module, write it out as a
+    // regular LTO module with an index for summary-based dead stripping.
+    ProfileSummaryInfo PSI(M);
+    M.addModuleFlag(Module::Error, "ThinLTO", uint32_t(0));
+    ModuleSummaryIndex Index = buildModuleSummaryIndex(M, nullptr, &PSI);
+    WriteBitcodeToFile(M, OS, /*ShouldPreserveUseListOrder=*/false, &Index);
+
     if (ThinLinkOS)
       // We don't have a ThinLTO part, but still write the module to the
       // ThinLinkOS if requested so that the expected output file is produced.
-      WriteBitcodeToFile(M, *ThinLinkOS);
+      WriteBitcodeToFile(M, *ThinLinkOS, /*ShouldPreserveUseListOrder=*/false,
+                         &Index);
+
     return;
   }
 
@@ -215,10 +221,8 @@ void splitAndWriteThinLTOBitcode(
   // Returns whether a global has attached type metadata. Such globals may
   // participate in CFI or whole-program devirtualization, so they need to
   // appear in the merged module instead of the thin LTO module.
-  auto HasTypeMetadata = [&](const GlobalObject *GO) {
-    SmallVector<MDNode *, 1> MDs;
-    GO->getMetadata(LLVMContext::MD_type, MDs);
-    return !MDs.empty();
+  auto HasTypeMetadata = [](const GlobalObject *GO) {
+    return GO->hasMetadata(LLVMContext::MD_type);
   };
 
   // Collect the set of virtual functions that are eligible for virtual constant
@@ -233,7 +237,7 @@ void splitAndWriteThinLTOBitcode(
   // sound because the virtual constant propagation optimizations effectively
   // inline all implementations of the virtual function into each call site,
   // rather than using function attributes to perform local optimization.
-  std::set<const Function *> EligibleVirtualFns;
+  DenseSet<const Function *> EligibleVirtualFns;
   // If any member of a comdat lives in MergedM, put all members of that
   // comdat in MergedM to keep the comdat together.
   DenseSet<const Comdat *> MergedMComdats;
@@ -301,13 +305,13 @@ void splitAndWriteThinLTOBitcode(
   promoteInternals(*MergedM, M, ModuleId, CfiFunctions);
   promoteInternals(M, *MergedM, ModuleId, CfiFunctions);
 
+  auto &Ctx = MergedM->getContext();
   SmallVector<MDNode *, 8> CfiFunctionMDs;
   for (auto V : CfiFunctions) {
     Function &F = *cast<Function>(V);
     SmallVector<MDNode *, 2> Types;
     F.getMetadata(LLVMContext::MD_type, Types);
 
-    auto &Ctx = MergedM->getContext();
     SmallVector<Metadata *, 4> Elts;
     Elts.push_back(MDString::get(Ctx, F.getName()));
     CfiFunctionLinkage Linkage;
@@ -336,15 +340,15 @@ void splitAndWriteThinLTOBitcode(
       continue;
 
     auto *F = cast<Function>(A.getAliasee());
-    auto &Ctx = MergedM->getContext();
-    SmallVector<Metadata *, 4> Elts;
 
-    Elts.push_back(MDString::get(Ctx, A.getName()));
-    Elts.push_back(MDString::get(Ctx, F->getName()));
-    Elts.push_back(ConstantAsMetadata::get(
-        llvm::ConstantInt::get(Type::getInt8Ty(Ctx), A.getVisibility())));
-    Elts.push_back(ConstantAsMetadata::get(
-        llvm::ConstantInt::get(Type::getInt8Ty(Ctx), A.isWeakForLinker())));
+    Metadata *Elts[] = {
+        MDString::get(Ctx, A.getName()),
+        MDString::get(Ctx, F->getName()),
+        ConstantAsMetadata::get(
+            ConstantInt::get(Type::getInt8Ty(Ctx), A.getVisibility())),
+        ConstantAsMetadata::get(
+            ConstantInt::get(Type::getInt8Ty(Ctx), A.isWeakForLinker())),
+    };
 
     FunctionAliases.push_back(MDTuple::get(Ctx, Elts));
   }
@@ -352,6 +356,22 @@ void splitAndWriteThinLTOBitcode(
   if (!FunctionAliases.empty()) {
     NamedMDNode *NMD = MergedM->getOrInsertNamedMetadata("aliases");
     for (auto MD : FunctionAliases)
+      NMD->addOperand(MD);
+  }
+
+  SmallVector<MDNode *, 8> Symvers;
+  ModuleSymbolTable::CollectAsmSymvers(M, [&](StringRef Name, StringRef Alias) {
+    Function *F = M.getFunction(Name);
+    if (!F || F->use_empty())
+      return;
+
+    Symvers.push_back(MDTuple::get(
+        Ctx, {MDString::get(Ctx, Name), MDString::get(Ctx, Alias)}));
+  });
+
+  if (!Symvers.empty()) {
+    NamedMDNode *NMD = MergedM->getOrInsertNamedMetadata("symvers");
+    for (auto MD : Symvers)
       NMD->addOperand(MD);
   }
 
@@ -399,10 +419,8 @@ void splitAndWriteThinLTOBitcode(
 
 // Returns whether this module needs to be split because it uses type metadata.
 bool requiresSplit(Module &M) {
-  SmallVector<MDNode *, 1> MDs;
   for (auto &GO : M.global_objects()) {
-    GO.getMetadata(LLVMContext::MD_type, MDs);
-    if (!MDs.empty())
+    if (GO.hasMetadata(LLVMContext::MD_type))
       return true;
   }
 

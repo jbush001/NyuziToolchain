@@ -596,10 +596,8 @@ const StructLayout *DataLayout::getStructLayout(StructType *Ty) const {
   // Otherwise, create the struct layout.  Because it is variable length, we
   // malloc it, then use placement new.
   int NumElts = Ty->getNumElements();
-  StructLayout *L =
-    (StructLayout *)malloc(sizeof(StructLayout)+(NumElts-1) * sizeof(uint64_t));
-  if (L == nullptr)
-    report_bad_alloc_error("Allocation of StructLayout elements failed.");
+  StructLayout *L = (StructLayout *)
+      safe_malloc(sizeof(StructLayout)+(NumElts-1) * sizeof(uint64_t));
 
   // Set SL before calling StructLayout's ctor.  The ctor could cause other
   // entries to be added to TheMap, invalidating our reference.
@@ -810,15 +808,29 @@ int64_t DataLayout::getIndexedOffsetInType(Type *ElemTy,
 /// global.  This includes an explicitly requested alignment (if the global
 /// has one).
 unsigned DataLayout::getPreferredAlignment(const GlobalVariable *GV) const {
+  unsigned GVAlignment = GV->getAlignment();
+  // If a section is specified, always precisely honor explicit alignment,
+  // so we don't insert padding into a section we don't control.
+  if (GVAlignment && GV->hasSection())
+    return GVAlignment;
+
+  // If no explicit alignment is specified, compute the alignment based on
+  // the IR type. If an alignment is specified, increase it to match the ABI
+  // alignment of the IR type.
+  //
+  // FIXME: Not sure it makes sense to use the alignment of the type if
+  // there's already an explicit alignment specification.
   Type *ElemType = GV->getValueType();
   unsigned Alignment = getPrefTypeAlignment(ElemType);
-  unsigned GVAlignment = GV->getAlignment();
   if (GVAlignment >= Alignment) {
     Alignment = GVAlignment;
   } else if (GVAlignment != 0) {
     Alignment = std::max(GVAlignment, getABITypeAlignment(ElemType));
   }
 
+  // If no explicit alignment is specified, and the global is large, increase
+  // the alignment to 16.
+  // FIXME: Why 16, specifically?
   if (GV->hasInitializer() && GVAlignment == 0) {
     if (Alignment < 16) {
       // If the global is not external, see if it is large.  If so, give it a

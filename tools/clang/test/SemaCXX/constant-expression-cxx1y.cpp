@@ -374,6 +374,30 @@ namespace compound_assign {
   }
   static_assert(test_float(), "");
 
+  constexpr bool test_bool() {
+    bool b = false;
+    b |= 2;
+    if (b != true) return false;
+    b <<= 1;
+    if (b != true) return false;
+    b *= 2;
+    if (b != true) return false;
+    b -= 1;
+    if (b != false) return false;
+    b -= 1;
+    if (b != true) return false;
+    b += -1;
+    if (b != false) return false;
+    b += 1;
+    if (b != true) return false;
+    b += 1;
+    if (b != true) return false;
+    b ^= b;
+    if (b != false) return false;
+    return true;
+  }
+  static_assert(test_bool(), "");
+
   constexpr bool test_ptr() {
     int arr[123] = {};
     int *p = arr;
@@ -852,7 +876,6 @@ namespace Lifetime {
   static_assert(h(2) == 0, ""); // expected-error {{constant expression}} expected-note {{in call}}
   static_assert(h(3) == 0, ""); // expected-error {{constant expression}} expected-note {{in call}}
 
-  // FIXME: This function should be treated as non-constant.
   constexpr void lifetime_versus_loops() {
     int *p = 0;
     for (int i = 0; i != 2; ++i) {
@@ -862,10 +885,10 @@ namespace Lifetime {
       if (i)
         // This modifies the 'n' from the previous iteration of the loop outside
         // its lifetime.
-        ++*q;
+        ++*q; // expected-note {{increment of object outside its lifetime}}
     }
   }
-  static_assert((lifetime_versus_loops(), true), "");
+  static_assert((lifetime_versus_loops(), true), ""); // expected-error {{constant expression}} expected-note {{in call}}
 }
 
 namespace Bitfields {
@@ -880,7 +903,7 @@ namespace Bitfields {
     --a.n;
     --a.u;
     a.n = -a.n * 3;
-    return a.b == false && a.n == 3 && a.u == 31;
+    return a.b == true && a.n == 3 && a.u == 31;
   }
   static_assert(test(), "");
 }

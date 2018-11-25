@@ -7,14 +7,10 @@
 //
 //===----------------------------------------------------------------------===//
 
-// C Includes
-// C++ Includes
 #include <mutex>
 
-// Other libraries and framework includes
 #include "clang/AST/DeclCXX.h"
 
-// Project includes
 #include "NSDictionary.h"
 
 #include "Plugins/LanguageRuntime/ObjC/AppleObjCRuntime/AppleObjCRuntime.h"
@@ -397,6 +393,7 @@ bool lldb_private::formatters::NSDictionarySummaryProvider(
   static const ConstString g_DictionaryMImmutable("__NSDictionaryM_Immutable");
   static const ConstString g_Dictionary1("__NSSingleEntryDictionaryI");
   static const ConstString g_Dictionary0("__NSDictionary0");
+  static const ConstString g_DictionaryCF("__NSCFDictionary");
 
   if (class_name.IsEmpty())
     return false;
@@ -408,7 +405,8 @@ bool lldb_private::formatters::NSDictionarySummaryProvider(
     if (error.Fail())
       return false;
     value &= (is_64bit ? ~0xFC00000000000000UL : ~0xFC000000U);
-  } else if (class_name == g_DictionaryM || class_name == g_DictionaryMLegacy) {
+  } else if (class_name == g_DictionaryM || class_name == g_DictionaryMLegacy ||
+             class_name == g_DictionaryCF) {
     AppleObjCRuntime *apple_runtime =
     llvm::dyn_cast_or_null<AppleObjCRuntime>(runtime);
     Status error;
@@ -667,11 +665,7 @@ lldb_private::formatters::NSDictionary1SyntheticFrontEnd::
 size_t lldb_private::formatters::NSDictionary1SyntheticFrontEnd::
     GetIndexOfChildWithName(const ConstString &name) {
   static const ConstString g_zero("[0]");
-
-  if (name == g_zero)
-    return 0;
-
-  return UINT32_MAX;
+  return name == g_zero ? 0 : UINT32_MAX;
 }
 
 size_t lldb_private::formatters::NSDictionary1SyntheticFrontEnd::

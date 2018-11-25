@@ -11,24 +11,22 @@
 
 #include <errno.h>
 
-// C Includes
 
 #ifdef __APPLE__
 #include <TargetConditionals.h>
 #endif
 
-// C++ Includes
 #include <chrono>
 #include <cstring>
 
-// Other libraries and framework includes
 #include "lldb/Core/ModuleSpec.h"
 #include "lldb/Host/Config.h"
 #include "lldb/Host/File.h"
 #include "lldb/Host/FileSystem.h"
 #include "lldb/Host/Host.h"
 #include "lldb/Host/HostInfo.h"
-#include "lldb/Interpreter/Args.h"
+#include "lldb/Host/SafeMachO.h"
+#include "lldb/Interpreter/OptionArgParser.h"
 #include "lldb/Symbol/ObjectFile.h"
 #include "lldb/Target/FileAction.h"
 #include "lldb/Target/Platform.h"
@@ -36,12 +34,10 @@
 #include "lldb/Utility/Endian.h"
 #include "lldb/Utility/JSON.h"
 #include "lldb/Utility/Log.h"
-#include "lldb/Utility/SafeMachO.h"
 #include "lldb/Utility/StreamGDBRemote.h"
 #include "lldb/Utility/StreamString.h"
 #include "llvm/ADT/Triple.h"
 
-// Project includes
 #include "ProcessGDBRemoteLog.h"
 #include "lldb/Utility/StringExtractorGDBRemote.h"
 
@@ -269,19 +265,10 @@ GDBRemoteCommunicationServerCommon::Handle_qHostInfo(
     break;
   }
 
-  uint32_t major = UINT32_MAX;
-  uint32_t minor = UINT32_MAX;
-  uint32_t update = UINT32_MAX;
-  if (HostInfo::GetOSVersion(major, minor, update)) {
-    if (major != UINT32_MAX) {
-      response.Printf("os_version:%u", major);
-      if (minor != UINT32_MAX) {
-        response.Printf(".%u", minor);
-        if (update != UINT32_MAX)
-          response.Printf(".%u", update);
-      }
-      response.PutChar(';');
-    }
+  llvm::VersionTuple version = HostInfo::GetOSVersion();
+  if (!version.empty()) {
+    response.Format("os_version:{0}", version.getAsString());
+    response.PutChar(';');
   }
 
   std::string s;
@@ -299,9 +286,9 @@ GDBRemoteCommunicationServerCommon::Handle_qHostInfo(
 #if defined(__APPLE__)
 
 #if defined(__arm__) || defined(__arm64__) || defined(__aarch64__)
-  // For iOS devices, we are connected through a USB Mux so we never pretend
-  // to actually have a hostname as far as the remote lldb that is connecting
-  // to this lldb-platform is concerned
+  // For iOS devices, we are connected through a USB Mux so we never pretend to
+  // actually have a hostname as far as the remote lldb that is connecting to
+  // this lldb-platform is concerned
   response.PutCString("hostname:");
   response.PutCStringAsRawHex8("127.0.0.1");
   response.PutChar(';');
@@ -361,7 +348,8 @@ GDBRemoteCommunicationServerCommon::Handle_qfProcessInfo(
         StringExtractor extractor(value);
         std::string file;
         extractor.GetHexByteString(file);
-        match_info.GetProcessInfo().GetExecutableFile().SetFile(file, false);
+        match_info.GetProcessInfo().GetExecutableFile().SetFile(
+            file, FileSpec::Style::native);
       } else if (key.equals("name_match")) {
         NameMatch name_match = llvm::StringSwitch<NameMatch>(value)
                                    .Case("equals", NameMatch::Equals)
@@ -405,7 +393,7 @@ GDBRemoteCommunicationServerCommon::Handle_qfProcessInfo(
         match_info.GetProcessInfo().SetEffectiveGroupID(gid);
       } else if (key.equals("all_users")) {
         match_info.SetMatchAllUsers(
-            Args::StringToBoolean(value, false, &success));
+            OptionArgParser::ToBoolean(value, false, &success));
       } else if (key.equals("triple")) {
         match_info.GetProcessInfo().GetArchitecture() =
             HostInfo::GetAugmentedArchSpec(value);
@@ -419,8 +407,8 @@ GDBRemoteCommunicationServerCommon::Handle_qfProcessInfo(
   }
 
   if (Host::FindProcesses(match_info, m_proc_infos)) {
-    // We found something, return the first item by calling the get
-    // subsequent process info packet handler...
+    // We found something, return the first item by calling the get subsequent
+    // process info packet handler...
     return Handle_qsProcessInfo(packet);
   }
   return SendErrorResponse(3);
@@ -528,7 +516,8 @@ GDBRemoteCommunicationServerCommon::Handle_vFile_Open(
       if (packet.GetChar() == ',') {
         mode_t mode = packet.GetHexMaxU32(false, 0600);
         Status error;
-        const FileSpec path_spec{path, true};
+        FileSpec path_spec(path);
+        FileSystem::Instance().Resolve(path_spec);
         int fd = ::open(path_spec.GetCString(), flags, mode);
         const int save_errno = fd == -1 ? errno : 0;
         StreamString response;
@@ -667,12 +656,14 @@ GDBRemoteCommunicationServerCommon::Handle_vFile_Mode(
   std::string path;
   packet.GetHexByteString(path);
   if (!path.empty()) {
-    Status error;
-    const uint32_t mode = File::GetPermissions(FileSpec{path, true}, error);
+    FileSpec file_spec(path);
+    FileSystem::Instance().Resolve(file_spec);
+    std::error_code ec;
+    const uint32_t mode = FileSystem::Instance().GetPermissions(file_spec, ec);
     StreamString response;
     response.Printf("F%u", mode);
-    if (mode == 0 || error.Fail())
-      response.Printf(",%i", (int)error.GetError());
+    if (mode == 0 || ec)
+      response.Printf(",%i", (int)Status(ec).GetError());
     return SendPacketNoLock(response.GetString());
   }
   return SendErrorResponse(23);
@@ -706,7 +697,11 @@ GDBRemoteCommunicationServerCommon::Handle_vFile_symlink(
   packet.GetHexByteStringTerminatedBy(dst, ',');
   packet.GetChar(); // Skip ',' char
   packet.GetHexByteString(src);
-  Status error = FileSystem::Symlink(FileSpec{src, true}, FileSpec{dst, false});
+
+  FileSpec src_spec(src);
+  FileSystem::Instance().Resolve(src_spec);
+  Status error = FileSystem::Instance().Symlink(src_spec, FileSpec(dst));
+
   StreamString response;
   response.Printf("F%u,%u", error.GetError(), error.GetError());
   return SendPacketNoLock(response.GetString());
@@ -735,14 +730,15 @@ GDBRemoteCommunicationServerCommon::Handle_qPlatform_shell(
     if (packet.GetChar() == ',') {
       // FIXME: add timeout to qPlatform_shell packet
       // uint32_t timeout = packet.GetHexMaxU32(false, 32);
-      uint32_t timeout = 10;
       if (packet.GetChar() == ',')
         packet.GetHexByteString(working_dir);
       int status, signo;
       std::string output;
+      FileSpec working_spec(working_dir);
+      FileSystem::Instance().Resolve(working_spec);
       Status err =
-          Host::RunShellCommand(path.c_str(), FileSpec{working_dir, true},
-                                &status, &signo, &output, timeout);
+          Host::RunShellCommand(path.c_str(), working_spec, &status, &signo,
+                                &output, std::chrono::seconds(10));
       StreamGDBRemote response;
       if (err.Fail()) {
         response.PutCString("F,");
@@ -893,7 +889,7 @@ GDBRemoteCommunicationServerCommon::Handle_QSetSTDIN(
   packet.GetHexByteString(path);
   const bool read = true;
   const bool write = false;
-  if (file_action.Open(STDIN_FILENO, FileSpec{path, false}, read, write)) {
+  if (file_action.Open(STDIN_FILENO, FileSpec(path), read, write)) {
     m_process_launch_info.AppendFileAction(file_action);
     return SendOKResponse();
   }
@@ -909,7 +905,7 @@ GDBRemoteCommunicationServerCommon::Handle_QSetSTDOUT(
   packet.GetHexByteString(path);
   const bool read = false;
   const bool write = true;
-  if (file_action.Open(STDOUT_FILENO, FileSpec{path, false}, read, write)) {
+  if (file_action.Open(STDOUT_FILENO, FileSpec(path), read, write)) {
     m_process_launch_info.AppendFileAction(file_action);
     return SendOKResponse();
   }
@@ -925,7 +921,7 @@ GDBRemoteCommunicationServerCommon::Handle_QSetSTDERR(
   packet.GetHexByteString(path);
   const bool read = false;
   const bool write = true;
-  if (file_action.Open(STDERR_FILENO, FileSpec{path, false}, read, write)) {
+  if (file_action.Open(STDERR_FILENO, FileSpec(path), read, write)) {
     m_process_launch_info.AppendFileAction(file_action);
     return SendOKResponse();
   }
@@ -984,11 +980,11 @@ GDBRemoteCommunicationServerCommon::Handle_QLaunchArch(
 
 GDBRemoteCommunication::PacketResult
 GDBRemoteCommunicationServerCommon::Handle_A(StringExtractorGDBRemote &packet) {
-  // The 'A' packet is the most over designed packet ever here with
-  // redundant argument indexes, redundant argument lengths and needed hex
-  // encoded argument string values. Really all that is needed is a comma
-  // separated hex encoded argument value list, but we will stay true to the
-  // documented version of the 'A' packet here...
+  // The 'A' packet is the most over designed packet ever here with redundant
+  // argument indexes, redundant argument lengths and needed hex encoded
+  // argument string values. Really all that is needed is a comma separated hex
+  // encoded argument value list, but we will stay true to the documented
+  // version of the 'A' packet here...
 
   Log *log(GetLogIfAnyCategoriesSet(LIBLLDB_LOG_PROCESS));
   int actual_arg_index = 0;
@@ -996,8 +992,8 @@ GDBRemoteCommunicationServerCommon::Handle_A(StringExtractorGDBRemote &packet) {
   packet.SetFilePos(1); // Skip the 'A'
   bool success = true;
   while (success && packet.GetBytesLeft() > 0) {
-    // Decode the decimal argument string length. This length is the
-    // number of hex nibbles in the argument string value.
+    // Decode the decimal argument string length. This length is the number of
+    // hex nibbles in the argument string value.
     const uint32_t arg_len = packet.GetU32(UINT32_MAX);
     if (arg_len == UINT32_MAX)
       success = false;
@@ -1006,8 +1002,8 @@ GDBRemoteCommunicationServerCommon::Handle_A(StringExtractorGDBRemote &packet) {
       if (packet.GetChar() != ',')
         success = false;
       else {
-        // Decode the argument index. We ignore this really because
-        // who would really send down the arguments in a random order???
+        // Decode the argument index. We ignore this really because who would
+        // really send down the arguments in a random order???
         const uint32_t arg_idx = packet.GetU32(UINT32_MAX);
         if (arg_idx == UINT32_MAX)
           success = false;
@@ -1016,9 +1012,9 @@ GDBRemoteCommunicationServerCommon::Handle_A(StringExtractorGDBRemote &packet) {
           if (packet.GetChar() != ',')
             success = false;
           else {
-            // Decode the argument string value from hex bytes
-            // back into a UTF8 string and make sure the length
-            // matches the one supplied in the packet
+            // Decode the argument string value from hex bytes back into a UTF8
+            // string and make sure the length matches the one supplied in the
+            // packet
             std::string arg;
             if (packet.GetHexByteStringFixedLength(arg, arg_len) !=
                 (arg_len / 2))
@@ -1032,7 +1028,8 @@ GDBRemoteCommunicationServerCommon::Handle_A(StringExtractorGDBRemote &packet) {
 
               if (success) {
                 if (arg_idx == 0)
-                  m_process_launch_info.GetExecutableFile().SetFile(arg, false);
+                  m_process_launch_info.GetExecutableFile().SetFile(
+                      arg, FileSpec::Style::native);
                 m_process_launch_info.GetArguments().AppendArgument(arg);
                 if (log)
                   log->Printf("LLGSPacketHandler::%s added arg %d: \"%s\"",
@@ -1257,8 +1254,8 @@ void GDBRemoteCommunicationServerCommon::
       // Nothing.
       break;
     }
-    // In case of MIPS64, pointer size is depend on ELF ABI
-    // For N32 the pointer size is 4 and for N64 it is 8
+    // In case of MIPS64, pointer size is depend on ELF ABI For N32 the pointer
+    // size is 4 and for N64 it is 8
     std::string abi = proc_arch.GetTargetABI();
     if (!abi.empty())
       response.Printf("elf_abi:%s;", abi.c_str());
@@ -1271,7 +1268,9 @@ FileSpec GDBRemoteCommunicationServerCommon::FindModuleFile(
 #ifdef __ANDROID__
   return HostInfoAndroid::ResolveLibraryPath(module_path, arch);
 #else
-  return FileSpec(module_path, true);
+  FileSpec file_spec(module_path);
+  FileSystem::Instance().Resolve(file_spec);
+  return file_spec;
 #endif
 }
 
@@ -1280,7 +1279,9 @@ GDBRemoteCommunicationServerCommon::GetModuleInfo(llvm::StringRef module_path,
                                                   llvm::StringRef triple) {
   ArchSpec arch(triple);
 
-  const FileSpec req_module_path_spec(module_path, true);
+  FileSpec req_module_path_spec(module_path);
+  FileSystem::Instance().Resolve(req_module_path_spec);
+
   const FileSpec module_path_spec =
       FindModuleFile(req_module_path_spec.GetPath(), arch);
   const ModuleSpec module_spec(module_path_spec, arch);

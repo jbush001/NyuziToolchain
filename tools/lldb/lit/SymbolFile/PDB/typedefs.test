@@ -1,6 +1,6 @@
-REQUIRES: windows
-RUN: clang-cl -m32 /Z7 /c /GS- %S/Inputs/SimpleTypesTest.cpp /o %T/SimpleTypesTest.cpp.typedefs.obj
-RUN: link %T/SimpleTypesTest.cpp.typedefs.obj /DEBUG /nodefaultlib /ENTRY:main /OUT:%T/SimpleTypesTest.cpp.typedefs.exe
+REQUIRES: system-windows, msvc
+RUN: %clang_cl -m32 /Z7 /c /GS- %S/Inputs/SimpleTypesTest.cpp /o %T/SimpleTypesTest.cpp.typedefs.obj
+RUN: %msvc_link %T/SimpleTypesTest.cpp.typedefs.obj /DEBUG /nodefaultlib /ENTRY:main /OUT:%T/SimpleTypesTest.cpp.typedefs.exe
 RUN: lldb-test symbols %T/SimpleTypesTest.cpp.typedefs.exe | FileCheck %s
 
 ; Generate 32-bit target
@@ -26,6 +26,8 @@ CHECK-DAG: Type{{.*}} , size = 4, compiler_type = {{.*}} double *
 CHECK-DAG: Type{{.*}} , size = 4, compiler_type = {{.*}} double *&
 CHECK-DAG: Type{{.*}} , name = "RefTypedef", compiler_type = {{.*}} typedef RefTypedef
 
+CHECK-DAG: Type{{.*}} , name = "wchar_t", size = 2, compiler_type = {{.*}} wchar_t
+
 CHECK-DAG: Type{{.*}} , name = "int", size = 4, compiler_type = {{.*}} int
 CHECK-DAG: Type{{.*}} , size = 4, compiler_type = {{.*}} int &
 CHECK-DAG: Type{{.*}} , name = "unsigned char", size = 1, compiler_type = {{.*}} unsigned char
@@ -44,9 +46,10 @@ CHECK-DAG: Type{{.*}} , size = 4, compiler_type = {{.*}} void *
 CHECK-DAG: Type{{.*}} , name = "long", size = 4, compiler_type = {{.*}} long
 CHECK-DAG: Type{{.*}} , name = "unsigned short", size = 2, compiler_type = {{.*}} unsigned short
 CHECK-DAG: Type{{.*}} , name = "unsigned int", size = 4, compiler_type = {{.*}} unsigned int
+CHECK-DAG: Type{{.*}} , name = "char", size = 1, compiler_type = {{.*}} char
 CHECK-DAG: Type{{.*}} , name = "signed char", size = 1, compiler_type = {{.*}} signed char
-CHECK-DAG: Type{{.*}} , compiler_type = {{.*}} signed char (void *, long, unsigned short, unsigned int, ...)
-CHECK-DAG: Type{{.*}} , size = 4, compiler_type = {{.*}} signed char (*)(void *, long, unsigned short, unsigned int, ...)
+CHECK-DAG: Type{{.*}} , compiler_type = {{.*}} char (void *, long, unsigned short, unsigned int, ...)
+CHECK-DAG: Type{{.*}} , size = 4, compiler_type = {{.*}} char (*)(void *, long, unsigned short, unsigned int, ...)
 CHECK-DAG: Type{{.*}} , name = "VarArgsFuncTypedef", compiler_type = {{.*}} typedef VarArgsFuncTypedef
 
 CHECK-DAG: Type{{.*}} , name = "float", size = 4, compiler_type = {{.*}} float

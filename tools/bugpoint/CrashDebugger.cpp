@@ -17,7 +17,7 @@
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/StringSet.h"
 #include "llvm/Analysis/TargetTransformInfo.h"
-#include "llvm/Analysis/Utils/Local.h"
+#include "llvm/Transforms/Utils/Local.h"
 #include "llvm/IR/CFG.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DebugInfo.h"
@@ -409,7 +409,7 @@ bool ReduceCrashingBlocks::TestBlocks(std::vector<const BasicBlock *> &BBs) {
         for (BasicBlock *Succ : successors(&BB))
           Succ->removePredecessor(&BB);
 
-        TerminatorInst *BBTerm = BB.getTerminator();
+        Instruction *BBTerm = BB.getTerminator();
         if (BBTerm->isEHPad() || BBTerm->getType()->isTokenTy())
           continue;
         if (!BBTerm->getType()->isVoidTy())
@@ -703,7 +703,7 @@ bool ReduceCrashingInstructions::TestInsts(
   // Convert list to set for fast lookup...
   SmallPtrSet<Instruction *, 32> Instructions;
   for (unsigned i = 0, e = Insts.size(); i != e; ++i) {
-    assert(!isa<TerminatorInst>(Insts[i]));
+    assert(!Insts[i]->isTerminator());
     Instructions.insert(cast<Instruction>(VMap[Insts[i]]));
   }
 
@@ -717,7 +717,7 @@ bool ReduceCrashingInstructions::TestInsts(
     for (Function::iterator FI = MI->begin(), FE = MI->end(); FI != FE; ++FI)
       for (BasicBlock::iterator I = FI->begin(), E = FI->end(); I != E;) {
         Instruction *Inst = &*I++;
-        if (!Instructions.count(Inst) && !isa<TerminatorInst>(Inst) &&
+        if (!Instructions.count(Inst) && !Inst->isTerminator() &&
             !Inst->isEHPad() && !Inst->getType()->isTokenTy() &&
             !Inst->isSwiftError()) {
           if (!Inst->getType()->isVoidTy())
@@ -950,7 +950,7 @@ static Error ReduceInsts(BugDriver &BD, BugTester TestFn) {
     for (const Function &F : BD.getProgram())
       for (const BasicBlock &BB : F)
         for (const Instruction &I : BB)
-          if (!isa<TerminatorInst>(&I))
+          if (!I.isTerminator())
             Insts.push_back(&I);
 
     Expected<bool> Result =
@@ -1161,7 +1161,7 @@ static Error DebugACrash(BugDriver &BD, BugTester TestFn) {
   if (!BugpointIsInterrupted) {
     outs() << "\n*** Attempting to perform final cleanups: ";
     std::unique_ptr<Module> M = CloneModule(BD.getProgram());
-    M = BD.performFinalCleanups(M.release(), true);
+    M = BD.performFinalCleanups(std::move(M), true);
 
     // Find out if the pass still crashes on the cleaned up program...
     if (M && TestFn(BD, M.get()))

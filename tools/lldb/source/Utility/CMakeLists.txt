@@ -22,7 +22,9 @@ if (NOT HAVE_CXX_ATOMICS64_WITHOUT_LIB )
     list(APPEND LLDB_SYSTEM_LIBS atomic)
 endif()
 
-list(APPEND LLDB_SYSTEM_LIBS ${Backtrace_LIBRARY})
+if(Backtrace_FOUND)
+  list(APPEND LLDB_SYSTEM_LIBS ${Backtrace_LIBRARY})
+endif()
 
 if (NOT LLDB_DISABLE_PYTHON AND NOT LLVM_BUILD_STATIC)
   list(APPEND LLDB_SYSTEM_LIBS ${PYTHON_LIBRARIES})
@@ -41,17 +43,17 @@ endif()
 
 add_lldb_library(lldbUtility
   ArchSpec.cpp
+  Args.cpp
   Baton.cpp
   Connection.cpp
   ConstString.cpp
+  CompletionRequest.cpp
   DataBufferHeap.cpp
   DataBufferLLVM.cpp
   DataEncoder.cpp
   DataExtractor.cpp
   Environment.cpp
-  FastDemangle.cpp
   FileSpec.cpp
-  History.cpp
   IOObject.cpp
   JSON.cpp
   LLDBAssert.cpp
@@ -59,9 +61,13 @@ add_lldb_library(lldbUtility
   Logging.cpp
   NameMatches.cpp
   Range.cpp
+  RegisterValue.cpp
   RegularExpression.cpp
+  Reproducer.cpp
+  Scalar.cpp
   SelectHelper.cpp
   SharingPtr.cpp
+  State.cpp
   Status.cpp
   Stream.cpp
   StreamCallback.cpp

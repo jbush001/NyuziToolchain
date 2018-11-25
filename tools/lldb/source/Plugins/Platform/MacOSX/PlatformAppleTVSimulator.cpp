@@ -9,10 +9,6 @@
 
 #include "PlatformAppleTVSimulator.h"
 
-// C Includes
-// C++ Includes
-// Other libraries and framework includes
-// Project includes
 #include "lldb/Breakpoint/BreakpointLocation.h"
 #include "lldb/Core/Module.h"
 #include "lldb/Core/ModuleList.h"
@@ -90,9 +86,9 @@ PlatformSP PlatformAppleTVSimulator::CreateInstance(bool force,
         break;
 
 #if defined(__APPLE__)
-      // Only accept "unknown" for the vendor if the host is Apple and
-      // it "unknown" wasn't specified (it was just returned because it
-      // was NOT specified)
+      // Only accept "unknown" for the vendor if the host is Apple and it
+      // "unknown" wasn't specified (it was just returned because it was NOT
+      // specified)
       case llvm::Triple::UnknownArch:
         create = !arch->TripleVendorWasSpecified();
         break;
@@ -107,9 +103,9 @@ PlatformSP PlatformAppleTVSimulator::CreateInstance(bool force,
           break;
 
 #if defined(__APPLE__)
-        // Only accept "unknown" for the OS if the host is Apple and
-        // it "unknown" wasn't specified (it was just returned because it
-        // was NOT specified)
+        // Only accept "unknown" for the OS if the host is Apple and it
+        // "unknown" wasn't specified (it was just returned because it was NOT
+        // specified)
         case llvm::Triple::UnknownOS:
           create = !arch->TripleOSWasSpecified();
           break;
@@ -190,7 +186,7 @@ Status PlatformAppleTVSimulator::ResolveExecutable(
   // ourselves
   Host::ResolveExecutableInBundle(resolved_module_spec.GetFileSpec());
 
-  if (resolved_module_spec.GetFileSpec().Exists()) {
+  if (FileSystem::Instance().Exists(resolved_module_spec.GetFileSpec())) {
     if (resolved_module_spec.GetArchitecture().IsValid()) {
       error = ModuleList::GetSharedModule(resolved_module_spec, exe_module_sp,
                                           NULL, NULL, NULL);
@@ -199,9 +195,9 @@ Status PlatformAppleTVSimulator::ResolveExecutable(
         return error;
       exe_module_sp.reset();
     }
-    // No valid architecture was specified or the exact ARM slice wasn't
-    // found so ask the platform for the architectures that we should be
-    // using (in the correct order) and see if we can find a match that way
+    // No valid architecture was specified or the exact ARM slice wasn't found
+    // so ask the platform for the architectures that we should be using (in
+    // the correct order) and see if we can find a match that way
     StreamString arch_names;
     ArchSpec platform_arch;
     for (uint32_t idx = 0; GetSupportedArchitectureAtIndex(
@@ -228,7 +224,7 @@ Status PlatformAppleTVSimulator::ResolveExecutable(
     }
 
     if (error.Fail() || !exe_module_sp) {
-      if (resolved_module_spec.GetFileSpec().Readable()) {
+      if (FileSystem::Instance().Readable(resolved_module_spec.GetFileSpec())) {
         error.SetErrorStringWithFormat(
             "'%s' doesn't contain any '%s' platform architectures: %s",
             resolved_module_spec.GetFileSpec().GetPath().c_str(),
@@ -247,19 +243,20 @@ Status PlatformAppleTVSimulator::ResolveExecutable(
   return error;
 }
 
-static FileSpec::EnumerateDirectoryResult
+static FileSystem::EnumerateDirectoryResult
 EnumerateDirectoryCallback(void *baton, llvm::sys::fs::file_type ft,
-                           const FileSpec &file_spec) {
+                           llvm::StringRef path) {
   if (ft == llvm::sys::fs::file_type::directory_file) {
+    FileSpec file_spec(path);
     const char *filename = file_spec.GetFilename().GetCString();
     if (filename &&
         strncmp(filename, "AppleTVSimulator", strlen("AppleTVSimulator")) ==
             0) {
       ::snprintf((char *)baton, PATH_MAX, "%s", filename);
-      return FileSpec::eEnumerateDirectoryResultQuit;
+      return FileSystem::eEnumerateDirectoryResultQuit;
     }
   }
-  return FileSpec::eEnumerateDirectoryResultNext;
+  return FileSystem::eEnumerateDirectoryResultNext;
 }
 
 const char *PlatformAppleTVSimulator::GetSDKDirectoryAsCString() {
@@ -277,9 +274,9 @@ const char *PlatformAppleTVSimulator::GetSDKDirectoryAsCString() {
       bool find_directories = true;
       bool find_files = false;
       bool find_other = false;
-      FileSpec::EnumerateDirectory(sdks_directory, find_directories, find_files,
-                                   find_other, EnumerateDirectoryCallback,
-                                   sdk_dirname);
+      FileSystem::Instance().EnumerateDirectory(
+          sdks_directory, find_directories, find_files, find_other,
+          EnumerateDirectoryCallback, sdk_dirname);
 
       if (sdk_dirname[0]) {
         m_sdk_directory = sdks_directory;
@@ -293,8 +290,8 @@ const char *PlatformAppleTVSimulator::GetSDKDirectoryAsCString() {
     m_sdk_directory.assign(1, '\0');
   }
 
-  // We should have put a single NULL character into m_sdk_directory
-  // or it should have a valid path if the code gets here
+  // We should have put a single NULL character into m_sdk_directory or it
+  // should have a valid path if the code gets here
   assert(m_sdk_directory.empty() == false);
   if (m_sdk_directory[0])
     return m_sdk_directory.c_str();
@@ -315,13 +312,15 @@ Status PlatformAppleTVSimulator::GetSymbolFile(const FileSpec &platform_file,
                  platform_file_path);
 
       // First try in the SDK and see if the file is in there
-      local_file.SetFile(resolved_path, true);
-      if (local_file.Exists())
+      local_file.SetFile(resolved_path, FileSpec::Style::native);
+      FileSystem::Instance().Resolve(local_file);
+      if (FileSystem::Instance().Exists(local_file))
         return error;
 
       // Else fall back to the actual path itself
-      local_file.SetFile(platform_file_path, true);
-      if (local_file.Exists())
+      local_file.SetFile(platform_file_path, FileSpec::Style::native);
+      FileSystem::Instance().Resolve(local_file);
+      if (FileSystem::Instance().Exists(local_file))
         return error;
     }
     error.SetErrorStringWithFormat(
@@ -337,10 +336,9 @@ Status PlatformAppleTVSimulator::GetSharedModule(
     const ModuleSpec &module_spec, lldb_private::Process *process,
     ModuleSP &module_sp, const FileSpecList *module_search_paths_ptr,
     ModuleSP *old_module_sp_ptr, bool *did_create_ptr) {
-  // For AppleTV, the SDK files are all cached locally on the host
-  // system. So first we ask for the file in the cached SDK,
-  // then we attempt to get a shared module for the right architecture
-  // with the right UUID.
+  // For AppleTV, the SDK files are all cached locally on the host system. So
+  // first we ask for the file in the cached SDK, then we attempt to get a
+  // shared module for the right architecture with the right UUID.
   Status error;
   ModuleSpec platform_module_spec(module_spec);
   const FileSpec &platform_file = module_spec.GetFileSpec();

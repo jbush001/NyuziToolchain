@@ -18,7 +18,6 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SetVector.h"
 #include "llvm/ADT/SmallPtrSet.h"
-#include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/Analysis/AliasAnalysis.h"
@@ -67,6 +66,7 @@ using namespace llvm;
 
 STATISTIC(NumReadNone, "Number of functions marked readnone");
 STATISTIC(NumReadOnly, "Number of functions marked readonly");
+STATISTIC(NumWriteOnly, "Number of functions marked writeonly");
 STATISTIC(NumNoCapture, "Number of arguments marked nocapture");
 STATISTIC(NumReturned, "Number of arguments marked returned");
 STATISTIC(NumReadNoneArg, "Number of arguments marked readnone");
@@ -114,12 +114,16 @@ static MemoryAccessKind checkFunctionMemoryAccess(Function &F, bool ThisBody,
     if (AliasAnalysis::onlyReadsMemory(MRB))
       return MAK_ReadOnly;
 
-    // Conservatively assume it writes to memory.
+    if (AliasAnalysis::doesNotReadMemory(MRB))
+      return MAK_WriteOnly;
+
+    // Conservatively assume it reads and writes to memory.
     return MAK_MayWrite;
   }
 
   // Scan the function body for instructions that may read or write memory.
   bool ReadsMemory = false;
+  bool WritesMemory = false;
   for (inst_iterator II = inst_begin(F), E = inst_end(F); II != E; ++II) {
     Instruction *I = &*II;
 
@@ -142,9 +146,9 @@ static MemoryAccessKind checkFunctionMemoryAccess(Function &F, bool ThisBody,
         continue;
 
       if (!AliasAnalysis::onlyAccessesArgPointees(MRB)) {
-        // The call could access any memory. If that includes writes, give up.
+        // The call could access any memory. If that includes writes, note it.
         if (isModSet(MRI))
-          return MAK_MayWrite;
+          WritesMemory = true;
         // If it reads, note it.
         if (isRefSet(MRI))
           ReadsMemory = true;
@@ -161,7 +165,7 @@ static MemoryAccessKind checkFunctionMemoryAccess(Function &F, bool ThisBody,
 
         AAMDNodes AAInfo;
         I->getAAMetadata(AAInfo);
-        MemoryLocation Loc(Arg, MemoryLocation::UnknownSize, AAInfo);
+        MemoryLocation Loc(Arg, LocationSize::unknown(), AAInfo);
 
         // Skip accesses to local or constant memory as they don't impact the
         // externally visible mod/ref behavior.
@@ -169,8 +173,8 @@ static MemoryAccessKind checkFunctionMemoryAccess(Function &F, bool ThisBody,
           continue;
 
         if (isModSet(MRI))
-          // Writes non-local memory.  Give up.
-          return MAK_MayWrite;
+          // Writes non-local memory.
+          WritesMemory = true;
         if (isRefSet(MRI))
           // Ok, it reads non-local memory.
           ReadsMemory = true;
@@ -199,12 +203,19 @@ static MemoryAccessKind checkFunctionMemoryAccess(Function &F, bool ThisBody,
 
     // Any remaining instructions need to be taken seriously!  Check if they
     // read or write memory.
-    if (I->mayWriteToMemory())
-      // Writes memory.  Just give up.
-      return MAK_MayWrite;
+    //
+    // Writes memory, remember that.
+    WritesMemory |= I->mayWriteToMemory();
 
     // If this instruction may read memory, remember that.
     ReadsMemory |= I->mayReadFromMemory();
+  }
+
+  if (WritesMemory) { 
+    if (!ReadsMemory)
+      return MAK_WriteOnly;
+    else
+      return MAK_MayWrite;
   }
 
   return ReadsMemory ? MAK_ReadOnly : MAK_ReadNone;
@@ -221,6 +232,7 @@ static bool addReadAttrs(const SCCNodeSet &SCCNodes, AARGetterT &&AARGetter) {
   // Check if any of the functions in the SCC read or write memory.  If they
   // write memory then they can't be marked readnone or readonly.
   bool ReadsMemory = false;
+  bool WritesMemory = false;
   for (Function *F : SCCNodes) {
     // Call the callable parameter to look up AA results for this function.
     AAResults &AAR = AARGetter(*F);
@@ -235,6 +247,9 @@ static bool addReadAttrs(const SCCNodeSet &SCCNodes, AARGetterT &&AARGetter) {
     case MAK_ReadOnly:
       ReadsMemory = true;
       break;
+    case MAK_WriteOnly:
+      WritesMemory = true;
+      break;
     case MAK_ReadNone:
       // Nothing to do!
       break;
@@ -244,6 +259,9 @@ static bool addReadAttrs(const SCCNodeSet &SCCNodes, AARGetterT &&AARGetter) {
   // Success!  Functions in this SCC do not access memory, or only read memory.
   // Give them the appropriate attribute.
   bool MadeChange = false;
+
+  assert(!(ReadsMemory && WritesMemory) &&
+          "Function marked read-only and write-only");
   for (Function *F : SCCNodes) {
     if (F->doesNotAccessMemory())
       // Already perfect!
@@ -253,16 +271,32 @@ static bool addReadAttrs(const SCCNodeSet &SCCNodes, AARGetterT &&AARGetter) {
       // No change.
       continue;
 
+    if (F->doesNotReadMemory() && WritesMemory)
+      continue;
+
     MadeChange = true;
 
     // Clear out any existing attributes.
     F->removeFnAttr(Attribute::ReadOnly);
     F->removeFnAttr(Attribute::ReadNone);
+    F->removeFnAttr(Attribute::WriteOnly);
+
+    if (!WritesMemory && !ReadsMemory) {
+      // Clear out any "access range attributes" if readnone was deduced.
+      F->removeFnAttr(Attribute::ArgMemOnly);
+      F->removeFnAttr(Attribute::InaccessibleMemOnly);
+      F->removeFnAttr(Attribute::InaccessibleMemOrArgMemOnly);
+    }
 
     // Add in the new attribute.
-    F->addFnAttr(ReadsMemory ? Attribute::ReadOnly : Attribute::ReadNone);
+    if (WritesMemory && !ReadsMemory)
+      F->addFnAttr(Attribute::WriteOnly);
+    else
+      F->addFnAttr(ReadsMemory ? Attribute::ReadOnly : Attribute::ReadNone);
 
-    if (ReadsMemory)
+    if (WritesMemory && !ReadsMemory)
+      ++NumWriteOnly;
+    else if (ReadsMemory)
       ++NumReadOnly;
     else
       ++NumReadNone;
@@ -406,7 +440,7 @@ static Attribute::AttrKind
 determinePointerReadAttrs(Argument *A,
                           const SmallPtrSet<Argument *, 8> &SCCNodes) {
   SmallVector<Use *, 32> Worklist;
-  SmallSet<Use *, 32> Visited;
+  SmallPtrSet<Use *, 32> Visited;
 
   // inalloca arguments are always clobbered by the call.
   if (A->hasInAllocaAttr())
@@ -618,7 +652,7 @@ static bool addArgumentAttrsFromCallsites(Function &F) {
     if (!isGuaranteedToTransferExecutionToSuccessor(&I))
       break;
   }
-  
+
   return Changed;
 }
 
@@ -1013,7 +1047,8 @@ static bool addNonNullAttrs(const SCCNodeSet &SCCNodes) {
       if (!Speculative) {
         // Mark the function eagerly since we may discover a function
         // which prevents us from speculating about the entire SCC
-        DEBUG(dbgs() << "Eagerly marking " << F->getName() << " as nonnull\n");
+        LLVM_DEBUG(dbgs() << "Eagerly marking " << F->getName()
+                          << " as nonnull\n");
         F->addAttribute(AttributeList::ReturnIndex, Attribute::NonNull);
         ++NumNonNullReturn;
         MadeChange = true;
@@ -1032,7 +1067,7 @@ static bool addNonNullAttrs(const SCCNodeSet &SCCNodes) {
           !F->getReturnType()->isPointerTy())
         continue;
 
-      DEBUG(dbgs() << "SCC marking " << F->getName() << " as nonnull\n");
+      LLVM_DEBUG(dbgs() << "SCC marking " << F->getName() << " as nonnull\n");
       F->addAttribute(AttributeList::ReturnIndex, Attribute::NonNull);
       ++NumNonNullReturn;
       MadeChange = true;
@@ -1218,8 +1253,8 @@ static bool inferAttrsFromFunctionBodies(const SCCNodeSet &SCCNodes) {
         return InstrBreaksNonConvergent(I, SCCNodes);
       },
       [](Function &F) {
-        DEBUG(dbgs() << "Removing convergent attr from fn " << F.getName()
-                     << "\n");
+        LLVM_DEBUG(dbgs() << "Removing convergent attr from fn " << F.getName()
+                          << "\n");
         F.setNotConvergent();
       },
       /* RequiresExactDefinition= */ false});
@@ -1239,7 +1274,8 @@ static bool inferAttrsFromFunctionBodies(const SCCNodeSet &SCCNodes) {
           return InstrBreaksNonThrowing(I, SCCNodes);
         },
         [](Function &F) {
-          DEBUG(dbgs() << "Adding nounwind attr to fn " << F.getName() << "\n");
+          LLVM_DEBUG(dbgs()
+                     << "Adding nounwind attr to fn " << F.getName() << "\n");
           F.setDoesNotThrow();
           ++NumNoUnwind;
         },
@@ -1285,6 +1321,31 @@ static bool addNoRecurseAttrs(const SCCNodeSet &SCCNodes) {
   return setDoesNotRecurse(*F);
 }
 
+template <typename AARGetterT>
+static bool deriveAttrsInPostOrder(SCCNodeSet &SCCNodes, AARGetterT &&AARGetter,
+                                   bool HasUnknownCall) {
+  bool Changed = false;
+
+  // Bail if the SCC only contains optnone functions.
+  if (SCCNodes.empty())
+    return Changed;
+
+  Changed |= addArgumentReturnedAttrs(SCCNodes);
+  Changed |= addReadAttrs(SCCNodes, AARGetter);
+  Changed |= addArgumentAttrs(SCCNodes);
+
+  // If we have no external nodes participating in the SCC, we can deduce some
+  // more precise attributes as well.
+  if (!HasUnknownCall) {
+    Changed |= addNoAliasAttrs(SCCNodes);
+    Changed |= addNonNullAttrs(SCCNodes);
+    Changed |= inferAttrsFromFunctionBodies(SCCNodes);
+    Changed |= addNoRecurseAttrs(SCCNodes);
+  }
+
+  return Changed;
+}
+
 PreservedAnalyses PostOrderFunctionAttrsPass::run(LazyCallGraph::SCC &C,
                                                   CGSCCAnalysisManager &AM,
                                                   LazyCallGraph &CG,
@@ -1327,21 +1388,10 @@ PreservedAnalyses PostOrderFunctionAttrsPass::run(LazyCallGraph::SCC &C,
     SCCNodes.insert(&F);
   }
 
-  bool Changed = false;
-  Changed |= addArgumentReturnedAttrs(SCCNodes);
-  Changed |= addReadAttrs(SCCNodes, AARGetter);
-  Changed |= addArgumentAttrs(SCCNodes);
+  if (deriveAttrsInPostOrder(SCCNodes, AARGetter, HasUnknownCall))
+    return PreservedAnalyses::none();
 
-  // If we have no external nodes participating in the SCC, we can deduce some
-  // more precise attributes as well.
-  if (!HasUnknownCall) {
-    Changed |= addNoAliasAttrs(SCCNodes);
-    Changed |= addNonNullAttrs(SCCNodes);
-    Changed |= inferAttrsFromFunctionBodies(SCCNodes);
-    Changed |= addNoRecurseAttrs(SCCNodes);
-  }
-
-  return Changed ? PreservedAnalyses::none() : PreservedAnalyses::all();
+  return PreservedAnalyses::all();
 }
 
 namespace {
@@ -1381,7 +1431,6 @@ Pass *llvm::createPostOrderFunctionAttrsLegacyPass() {
 
 template <typename AARGetterT>
 static bool runImpl(CallGraphSCC &SCC, AARGetterT AARGetter) {
-  bool Changed = false;
 
   // Fill SCCNodes with the elements of the SCC. Used for quickly looking up
   // whether a given CallGraphNode is in this SCC. Also track whether there are
@@ -1402,24 +1451,7 @@ static bool runImpl(CallGraphSCC &SCC, AARGetterT AARGetter) {
     SCCNodes.insert(F);
   }
 
-  // Skip it if the SCC only contains optnone functions.
-  if (SCCNodes.empty())
-    return Changed;
-
-  Changed |= addArgumentReturnedAttrs(SCCNodes);
-  Changed |= addReadAttrs(SCCNodes, AARGetter);
-  Changed |= addArgumentAttrs(SCCNodes);
-
-  // If we have no external nodes participating in the SCC, we can deduce some
-  // more precise attributes as well.
-  if (!ExternalNode) {
-    Changed |= addNoAliasAttrs(SCCNodes);
-    Changed |= addNonNullAttrs(SCCNodes);
-    Changed |= inferAttrsFromFunctionBodies(SCCNodes);
-    Changed |= addNoRecurseAttrs(SCCNodes);
-  }
-
-  return Changed;
+  return deriveAttrsInPostOrder(SCCNodes, AARGetter, ExternalNode);
 }
 
 bool PostOrderFunctionAttrsLegacyPass::runOnSCC(CallGraphSCC &SCC) {

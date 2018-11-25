@@ -85,8 +85,9 @@ CodeSection::CodeSection(ArrayRef<InputFunction *> Functions)
   OS.flush();
   BodySize = CodeSectionHeader.size();
 
-  for (InputChunk *Func : Functions) {
+  for (InputFunction *Func : Functions) {
     Func->OutputOffset = BodySize;
+    Func->calculateSize();
     BodySize += Func->getSize();
   }
 
@@ -135,9 +136,17 @@ DataSection::DataSection(ArrayRef<OutputSegment *> Segments)
   for (OutputSegment *Segment : Segments) {
     raw_string_ostream OS(Segment->Header);
     writeUleb128(OS, 0, "memory index");
-    writeUleb128(OS, WASM_OPCODE_I32_CONST, "opcode:i32const");
-    writeSleb128(OS, Segment->StartVA, "memory offset");
-    writeUleb128(OS, WASM_OPCODE_END, "opcode:end");
+    WasmInitExpr InitExpr;
+    if (Config->Pic) {
+      assert(Segments.size() <= 1 &&
+             "Currenly only a single data segment is supported in PIC mode");
+      InitExpr.Opcode = WASM_OPCODE_GET_GLOBAL;
+      InitExpr.Value.Global = WasmSym::MemoryBase->getGlobalIndex();
+    } else {
+      InitExpr.Opcode = WASM_OPCODE_I32_CONST;
+      InitExpr.Value.Int32 = Segment->StartVA;
+    }
+    writeInitExpr(OS, InitExpr);
     writeUleb128(OS, Segment->Size, "segment size");
     OS.flush();
 
@@ -188,4 +197,51 @@ void DataSection::writeRelocations(raw_ostream &OS) const {
   for (const OutputSegment *Seg : Segments)
     for (const InputChunk *C : Seg->InputSegments)
       C->writeRelocations(OS);
+}
+
+CustomSection::CustomSection(std::string Name,
+                             ArrayRef<InputSection *> InputSections)
+    : OutputSection(WASM_SEC_CUSTOM, Name), PayloadSize(0),
+      InputSections(InputSections) {
+  raw_string_ostream OS(NameData);
+  encodeULEB128(Name.size(), OS);
+  OS << Name;
+  OS.flush();
+
+  for (InputSection *Section : InputSections) {
+    Section->OutputOffset = PayloadSize;
+    PayloadSize += Section->getSize();
+  }
+
+  createHeader(PayloadSize + NameData.size());
+}
+
+void CustomSection::writeTo(uint8_t *Buf) {
+  log("writing " + toString(*this) + " size=" + Twine(getSize()) +
+      " chunks=" + Twine(InputSections.size()));
+
+  assert(Offset);
+  Buf += Offset;
+
+  // Write section header
+  memcpy(Buf, Header.data(), Header.size());
+  Buf += Header.size();
+  memcpy(Buf, NameData.data(), NameData.size());
+  Buf += NameData.size();
+
+  // Write custom sections payload
+  parallelForEach(InputSections,
+                  [&](const InputSection *Section) { Section->writeTo(Buf); });
+}
+
+uint32_t CustomSection::numRelocations() const {
+  uint32_t Count = 0;
+  for (const InputSection *InputSect : InputSections)
+    Count += InputSect->NumRelocations();
+  return Count;
+}
+
+void CustomSection::writeRelocations(raw_ostream &OS) const {
+  for (const InputSection *S : InputSections)
+    S->writeRelocations(OS);
 }

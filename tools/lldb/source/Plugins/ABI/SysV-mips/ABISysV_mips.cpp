@@ -9,16 +9,11 @@
 
 #include "ABISysV_mips.h"
 
-// C Includes
-// C++ Includes
-// Other libraries and framework includes
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/Triple.h"
 
-// Project includes
 #include "lldb/Core/Module.h"
 #include "lldb/Core/PluginManager.h"
-#include "lldb/Core/RegisterValue.h"
 #include "lldb/Core/Value.h"
 #include "lldb/Core/ValueObjectConstResult.h"
 #include "lldb/Core/ValueObjectMemory.h"
@@ -32,6 +27,7 @@
 #include "lldb/Utility/ConstString.h"
 #include "lldb/Utility/DataExtractor.h"
 #include "lldb/Utility/Log.h"
+#include "lldb/Utility/RegisterValue.h"
 #include "lldb/Utility/Status.h"
 
 using namespace lldb;
@@ -560,13 +556,10 @@ size_t ABISysV_mips::GetRedZoneSize() const { return 0; }
 
 ABISP
 ABISysV_mips::CreateInstance(lldb::ProcessSP process_sp, const ArchSpec &arch) {
-  static ABISP g_abi_sp;
   const llvm::Triple::ArchType arch_type = arch.GetTriple().getArch();
   if ((arch_type == llvm::Triple::mips) ||
       (arch_type == llvm::Triple::mipsel)) {
-    if (!g_abi_sp)
-      g_abi_sp.reset(new ABISysV_mips(process_sp));
-    return g_abi_sp;
+    return ABISP(new ABISysV_mips(process_sp));
   }
   return ABISP();
 }
@@ -698,8 +691,8 @@ bool ABISysV_mips::PrepareTrivialCall(Thread &thread, addr_t sp,
   if (log)
     log->Printf("Writing r25: 0x%" PRIx64, (uint64_t)func_addr);
 
-  // All callers of position independent functions must place the address of the
-  // called function in t9 (r25)
+  // All callers of position independent functions must place the address of
+  // the called function in t9 (r25)
   if (!reg_ctx->WriteRegisterFromUnsigned(r25_info, func_addr))
     return false;
 
@@ -867,8 +860,8 @@ ValueObjectSP ABISysV_mips::GetReturnValueObjectImpl(
         UINT32_MAX;
     value.GetScalar() = ptr;
   } else if (return_compiler_type.IsAggregateType()) {
-    // Structure/Vector is always passed in memory and pointer to that memory is
-    // passed in r2.
+    // Structure/Vector is always passed in memory and pointer to that memory
+    // is passed in r2.
     uint64_t mem_address = reg_ctx->ReadRegisterAsUnsigned(
         reg_ctx->GetRegisterInfoByName("r2", 0), 0);
     // We have got the address. Create a memory object out of it

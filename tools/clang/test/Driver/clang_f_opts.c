@@ -116,6 +116,7 @@
 // RUN: %clang -### -S -fcoverage-mapping %s 2>&1 | FileCheck -check-prefix=CHECK-COVERAGE-AND-GEN %s
 // RUN: %clang -### -S -fcoverage-mapping -fno-coverage-mapping %s 2>&1 | FileCheck -check-prefix=CHECK-DISABLE-COVERAGE %s
 // RUN: %clang -### -S -fprofile-instr-generate -fcoverage-mapping -fno-coverage-mapping %s 2>&1 | FileCheck -check-prefix=CHECK-DISABLE-COVERAGE %s
+// RUN: %clang -### -S -fprofile-remapping-file foo/bar.txt %s 2>&1 | FileCheck -check-prefix=CHECK-PROFILE-REMAP %s
 // CHECK-PROFILE-GENERATE: "-fprofile-instrument=clang"
 // CHECK-PROFILE-GENERATE-LLVM: "-fprofile-instrument=llvm"
 // CHECK-PROFILE-GENERATE-DIR: "-fprofile-instrument-path=/some/dir{{/|\\\\}}{{.*}}"
@@ -126,6 +127,7 @@
 // CHECK-DISABLE-USE-NOT: "-fprofile-instr-use"
 // CHECK-COVERAGE-AND-GEN: '-fcoverage-mapping' only allowed with '-fprofile-instr-generate'
 // CHECK-DISABLE-COVERAGE-NOT: "-fcoverage-mapping"
+// CHECK-PROFILE-REMAP: "-fprofile-remapping-file=foo/bar.txt"
 
 // RUN: %clang -### -S -fprofile-use %s 2>&1 | FileCheck -check-prefix=CHECK-PROFILE-USE %s
 // RUN: %clang -### -S -fprofile-instr-use %s 2>&1 | FileCheck -check-prefix=CHECK-PROFILE-USE %s
@@ -302,8 +304,6 @@
 // RUN: -fkeep-inline-functions                                               \
 // RUN: -fno-keep-inline-functions                                            \
 // RUN: -freorder-blocks                                                      \
-// RUN: -falign-functions                                                     \
-// RUN: -falign-functions=1                                                   \
 // RUN: -ffloat-store                                                         \
 // RUN: -fgcse                                                                \
 // RUN: -fivopts                                                              \
@@ -350,7 +350,6 @@
 // RUN: -fwhole-program                                                       \
 // RUN: -fcaller-saves                                                        \
 // RUN: -freorder-blocks                                                      \
-// RUN: -fdelete-null-pointer-checks                                          \
 // RUN: -ffat-lto-objects                                                     \
 // RUN: -fmerge-constants                                                     \
 // RUN: -finline-small-functions                                              \
@@ -370,8 +369,6 @@
 // CHECK-WARNING-DAG: optimization flag '-fkeep-inline-functions' is not supported
 // CHECK-WARNING-DAG: optimization flag '-fno-keep-inline-functions' is not supported
 // CHECK-WARNING-DAG: optimization flag '-freorder-blocks' is not supported
-// CHECK-WARNING-DAG: optimization flag '-falign-functions' is not supported
-// CHECK-WARNING-DAG: optimization flag '-falign-functions=1' is not supported
 // CHECK-WARNING-DAG: optimization flag '-ffloat-store' is not supported
 // CHECK-WARNING-DAG: optimization flag '-fgcse' is not supported
 // CHECK-WARNING-DAG: optimization flag '-fivopts' is not supported
@@ -418,7 +415,6 @@
 // CHECK-WARNING-DAG: optimization flag '-fwhole-program' is not supported
 // CHECK-WARNING-DAG: optimization flag '-fcaller-saves' is not supported
 // CHECK-WARNING-DAG: optimization flag '-freorder-blocks' is not supported
-// CHECK-WARNING-DAG: optimization flag '-fdelete-null-pointer-checks' is not supported
 // CHECK-WARNING-DAG: optimization flag '-ffat-lto-objects' is not supported
 // CHECK-WARNING-DAG: optimization flag '-fmerge-constants' is not supported
 // CHECK-WARNING-DAG: optimization flag '-finline-small-functions' is not supported
@@ -530,3 +526,15 @@
 // RUN: %clang -### -S -fno-merge-all-constants -fmerge-all-constants %s 2>&1 | FileCheck -check-prefix=CHECK-MERGE-ALL-CONSTANTS %s
 // CHECK-NO-MERGE-ALL-CONSTANTS-NOT: "-fmerge-all-constants"
 // CHECK-MERGE-ALL-CONSTANTS: "-fmerge-all-constants"
+
+// RUN: %clang -### -S -fdelete-null-pointer-checks %s 2>&1 | FileCheck -check-prefix=CHECK-NULL-POINTER-CHECKS %s
+// RUN: %clang -### -S -fno-delete-null-pointer-checks %s 2>&1 | FileCheck -check-prefix=CHECK-NO-NULL-POINTER-CHECKS %s
+// RUN: %clang -### -S -fdelete-null-pointer-checks -fno-delete-null-pointer-checks %s 2>&1 | FileCheck -check-prefix=CHECK-NO-NULL-POINTER-CHECKS %s
+// RUN: %clang -### -S -fno-delete-null-pointer-checks -fdelete-null-pointer-checks %s 2>&1 | FileCheck -check-prefix=CHECK-NULL-POINTER-CHECKS %s
+// CHECK-NO-NULL-POINTER-CHECKS: "-fno-delete-null-pointer-checks"
+// CHECK-NULL-POINTER-CHECKS-NOT: "-fno-delete-null-pointer-checks"
+
+// RUN: %clang -### -S -fomit-frame-pointer -pg %s 2>&1 | FileCheck -check-prefix=CHECK-NO-MIX-OMIT-FP-PG %s
+// RUN: %clang -### -S -fomit-frame-pointer -fno-omit-frame-pointer -pg %s 2>&1 | FileCheck -check-prefix=CHECK-MIX-NO-OMIT-FP-PG %s
+// CHECK-NO-MIX-OMIT-FP-PG: '-fomit-frame-pointer' not allowed with '-pg'
+// CHECK-MIX-NO-OMIT-FP-PG-NOT: '-fomit-frame-pointer' not allowed with '-pg'

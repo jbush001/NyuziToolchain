@@ -12,8 +12,6 @@
 
 #include "GDBRemoteClientBase.h"
 
-// C Includes
-// C++ Includes
 #include <chrono>
 #include <map>
 #include <mutex>
@@ -266,7 +264,7 @@ public:
 
   bool GetDefaultThreadId(lldb::tid_t &tid);
 
-  bool GetOSVersion(uint32_t &major, uint32_t &minor, uint32_t &update);
+  llvm::VersionTuple GetOSVersion();
 
   bool GetOSBuildString(std::string &s);
 
@@ -404,8 +402,7 @@ public:
                        // the process to exit
       std::string
           *command_output, // Pass nullptr if you don't want the command output
-      uint32_t timeout_sec); // Timeout in seconds to wait for shell program to
-                             // finish
+      const Timeout<std::micro> &timeout);
 
   bool CalculateMD5(const FileSpec &file_spec, uint64_t &high, uint64_t &low);
 
@@ -574,9 +571,7 @@ protected:
 
   ArchSpec m_host_arch;
   ArchSpec m_process_arch;
-  uint32_t m_os_version_major;
-  uint32_t m_os_version_minor;
-  uint32_t m_os_version_update;
+  llvm::VersionTuple m_os_version;
   std::string m_os_build;
   std::string m_os_kernel;
   std::string m_hostname;

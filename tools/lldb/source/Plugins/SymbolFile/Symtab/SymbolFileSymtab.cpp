@@ -46,7 +46,7 @@ SymbolFile *SymbolFileSymtab::CreateInstance(ObjectFile *obj_file) {
 }
 
 size_t SymbolFileSymtab::GetTypes(SymbolContextScope *sc_scope,
-                                  uint32_t type_mask,
+                                  TypeClass type_mask,
                                   lldb_private::TypeList &type_list) {
   return 0;
 }
@@ -63,9 +63,9 @@ uint32_t SymbolFileSymtab::CalculateAbilities() {
     const Symtab *symtab = m_obj_file->GetSymtab();
     if (symtab) {
       //----------------------------------------------------------------------
-      // The snippet of code below will get the indexes the module symbol
-      // table entries that are code, data, or function related (debug info),
-      // sort them by value (address) and dump the sorted symbols.
+      // The snippet of code below will get the indexes the module symbol table
+      // entries that are code, data, or function related (debug info), sort
+      // them by value (address) and dump the sorted symbols.
       //----------------------------------------------------------------------
       if (symtab->AppendSymbolIndexesWithType(eSymbolTypeSourceFile,
                                               m_source_indexes)) {
@@ -105,24 +105,21 @@ uint32_t SymbolFileSymtab::CalculateAbilities() {
 }
 
 uint32_t SymbolFileSymtab::GetNumCompileUnits() {
-  // If we don't have any source file symbols we will just have one compile unit
-  // for
-  // the entire object file
+  // If we don't have any source file symbols we will just have one compile
+  // unit for the entire object file
   if (m_source_indexes.empty())
     return 0;
 
   // If we have any source file symbols we will logically organize the object
-  // symbols
-  // using these.
+  // symbols using these.
   return m_source_indexes.size();
 }
 
 CompUnitSP SymbolFileSymtab::ParseCompileUnitAtIndex(uint32_t idx) {
   CompUnitSP cu_sp;
 
-  // If we don't have any source file symbols we will just have one compile unit
-  // for
-  // the entire object file
+  // If we don't have any source file symbols we will just have one compile
+  // unit for the entire object file
   if (idx < m_source_indexes.size()) {
     const Symbol *cu_symbol =
         m_obj_file->GetSymtab()->SymbolAtIndex(m_source_indexes[idx]);
@@ -152,13 +149,12 @@ size_t SymbolFileSymtab::ParseCompileUnitFunctions(const SymbolContext &sc) {
   //
   //  const uint32_t prefix_len = strlen(prefix);
 
-  // If we don't have any source file symbols we will just have one compile unit
-  // for
-  // the entire object file
+  // If we don't have any source file symbols we will just have one compile
+  // unit for the entire object file
   if (m_source_indexes.empty()) {
-    // The only time we will have a user ID of zero is when we don't have
-    // and source file symbols and we declare one compile unit for the
-    // entire object file
+    // The only time we will have a user ID of zero is when we don't have and
+    // source file symbols and we declare one compile unit for the entire
+    // object file
     if (!m_func_indexes.empty()) {
     }
 
@@ -243,12 +239,18 @@ Type *SymbolFileSymtab::ResolveTypeUID(lldb::user_id_t type_uid) {
   return NULL;
 }
 
+llvm::Optional<SymbolFile::ArrayInfo>
+SymbolFileSymtab::GetDynamicArrayInfoForUID(
+    lldb::user_id_t type_uid, const lldb_private::ExecutionContext *exe_ctx) {
+  return llvm::None;
+}
+
 bool SymbolFileSymtab::CompleteType(lldb_private::CompilerType &compiler_type) {
   return false;
 }
 
 uint32_t SymbolFileSymtab::ResolveSymbolContext(const Address &so_addr,
-                                                uint32_t resolve_scope,
+                                                SymbolContextItem resolve_scope,
                                                 SymbolContext &sc) {
   if (m_obj_file->GetSymtab() == NULL)
     return 0;

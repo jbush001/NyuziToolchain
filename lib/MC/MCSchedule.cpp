@@ -12,6 +12,9 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/MC/MCSchedule.h"
+#include "llvm/MC/MCInst.h"
+#include "llvm/MC/MCInstrDesc.h"
+#include "llvm/MC/MCInstrInfo.h"
 #include "llvm/MC/MCSubtargetInfo.h"
 #include <type_traits>
 
@@ -51,26 +54,99 @@ int MCSchedModel::computeInstrLatency(const MCSubtargetInfo &STI,
   return Latency;
 }
 
+int MCSchedModel::computeInstrLatency(const MCSubtargetInfo &STI,
+                                      unsigned SchedClass) const {
+  const MCSchedClassDesc &SCDesc = *getSchedClassDesc(SchedClass);
+  if (!SCDesc.isValid())
+    return 0;
+  if (!SCDesc.isVariant())
+    return MCSchedModel::computeInstrLatency(STI, SCDesc);
 
-Optional<double>
+  llvm_unreachable("unsupported variant scheduling class");
+}
+
+int MCSchedModel::computeInstrLatency(const MCSubtargetInfo &STI,
+                                      const MCInstrInfo &MCII,
+                                      const MCInst &Inst) const {
+  unsigned SchedClass = MCII.get(Inst.getOpcode()).getSchedClass();
+  const MCSchedClassDesc *SCDesc = getSchedClassDesc(SchedClass);
+  if (!SCDesc->isValid())
+    return 0;
+
+  unsigned CPUID = getProcessorID();
+  while (SCDesc->isVariant()) {
+    SchedClass = STI.resolveVariantSchedClass(SchedClass, &Inst, CPUID);
+    SCDesc = getSchedClassDesc(SchedClass);
+  }
+
+  if (SchedClass)
+    return MCSchedModel::computeInstrLatency(STI, *SCDesc);
+
+  llvm_unreachable("unsupported variant scheduling class");
+}
+
+double
 MCSchedModel::getReciprocalThroughput(const MCSubtargetInfo &STI,
                                       const MCSchedClassDesc &SCDesc) {
   Optional<double> Throughput;
-  const MCSchedModel &SchedModel = STI.getSchedModel();
+  const MCSchedModel &SM = STI.getSchedModel();
+  const MCWriteProcResEntry *I = STI.getWriteProcResBegin(&SCDesc);
+  const MCWriteProcResEntry *E = STI.getWriteProcResEnd(&SCDesc);
+  for (; I != E; ++I) {
+    if (!I->Cycles)
+      continue;
+    unsigned NumUnits = SM.getProcResource(I->ProcResourceIdx)->NumUnits;
+    double Temp = NumUnits * 1.0 / I->Cycles;
+    Throughput = Throughput ? std::min(Throughput.getValue(), Temp) : Temp;
+  }
+  if (Throughput.hasValue())
+    return 1.0 / Throughput.getValue();
 
-  for (const MCWriteProcResEntry *WPR = STI.getWriteProcResBegin(&SCDesc),
-                                 *WEnd = STI.getWriteProcResEnd(&SCDesc);
-       WPR != WEnd; ++WPR) {
-    if (WPR->Cycles) {
-      unsigned NumUnits =
-          SchedModel.getProcResource(WPR->ProcResourceIdx)->NumUnits;
-      double Temp = NumUnits * 1.0 / WPR->Cycles;
-      Throughput =
-          Throughput.hasValue() ? std::min(Throughput.getValue(), Temp) : Temp;
-    }
+  // If no throughput value was calculated, assume that we can execute at the
+  // maximum issue width scaled by number of micro-ops for the schedule class.
+  return ((double)SCDesc.NumMicroOps) / SM.IssueWidth;
+}
+
+double
+MCSchedModel::getReciprocalThroughput(const MCSubtargetInfo &STI,
+                                      const MCInstrInfo &MCII,
+                                      const MCInst &Inst) const {
+  unsigned SchedClass = MCII.get(Inst.getOpcode()).getSchedClass();
+  const MCSchedClassDesc *SCDesc = getSchedClassDesc(SchedClass);
+
+  // If there's no valid class, assume that the instruction executes/completes
+  // at the maximum issue width.
+  if (!SCDesc->isValid())
+    return 1.0 / IssueWidth;
+
+  unsigned CPUID = getProcessorID();
+  while (SCDesc->isVariant()) {
+    SchedClass = STI.resolveVariantSchedClass(SchedClass, &Inst, CPUID);
+    SCDesc = getSchedClassDesc(SchedClass);
   }
 
+  if (SchedClass)
+    return MCSchedModel::getReciprocalThroughput(STI, *SCDesc);
+
+  llvm_unreachable("unsupported variant scheduling class");
+}
+
+double
+MCSchedModel::getReciprocalThroughput(unsigned SchedClass,
+                                      const InstrItineraryData &IID) {
+  Optional<double> Throughput;
+  const InstrStage *I = IID.beginStage(SchedClass);
+  const InstrStage *E = IID.endStage(SchedClass);
+  for (; I != E; ++I) {
+    if (!I->getCycles())
+      continue;
+    double Temp = countPopulation(I->getUnits()) * 1.0 / I->getCycles();
+    Throughput = Throughput ? std::min(Throughput.getValue(), Temp) : Temp;
+  }
   if (Throughput.hasValue())
-    return 1 / Throughput.getValue();
-  return Throughput;
+    return 1.0 / Throughput.getValue();
+
+  // If there are no execution resources specified for this class, then assume
+  // that it can execute at the maximum default issue width.
+  return 1.0 / DefaultIssueWidth;
 }

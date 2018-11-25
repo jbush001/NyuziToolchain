@@ -60,7 +60,7 @@
   !5 = !{i32 2, !"Debug Info Version", i32 3}
   !6 = !{i32 1, !"wchar_size", i32 2}
   !7 = !{!"clang version 6.0.0 "}
-  !8 = distinct !DISubprogram(name: "shrink_wrap_basic", linkageName: "\01@shrink_wrap_basic@16", scope: !1, file: !1, line: 2, type: !9, isLocal: false, isDefinition: true, scopeLine: 2, flags: DIFlagPrototyped, isOptimized: true, unit: !0, variables: !12)
+  !8 = distinct !DISubprogram(name: "shrink_wrap_basic", linkageName: "\01@shrink_wrap_basic@16", scope: !1, file: !1, line: 2, type: !9, isLocal: false, isDefinition: true, scopeLine: 2, flags: DIFlagPrototyped, isOptimized: true, unit: !0, retainedNodes: !12)
   !9 = !DISubroutineType(cc: DW_CC_BORLAND_msfastcall, types: !10)
   !10 = !{!11, !11, !11, !11, !11}
   !11 = !DIBasicType(name: "int", size: 32, encoding: DW_ATE_signed)
@@ -136,8 +136,8 @@ body:             |
     successors: %bb.4(0x40000000), %bb.1(0x40000000)
     liveins: $ecx, $edx
   
-    DBG_VALUE debug-use $edx, debug-use $noreg, !15, !DIExpression(), debug-location !25
-    DBG_VALUE debug-use $ecx, debug-use $noreg, !16, !DIExpression(), debug-location !26
+    DBG_VALUE $edx, $noreg, !15, !DIExpression(), debug-location !25
+    DBG_VALUE $ecx, $noreg, !16, !DIExpression(), debug-location !26
     $eax = COPY $ecx
     DBG_VALUE %fixed-stack.0, 0, !16, !DIExpression(), debug-location !26
     DBG_VALUE %fixed-stack.1, 0, !15, !DIExpression(), debug-location !25
@@ -149,9 +149,9 @@ body:             |
     successors: %bb.2(0x80000000)
   
     $esi = MOV32rm %fixed-stack.0, 1, $noreg, 0, $noreg :: (load 4 from %fixed-stack.0)
-    DBG_VALUE debug-use $esi, debug-use $noreg, !13, !DIExpression(), debug-location !19
+    DBG_VALUE $esi, $noreg, !13, !DIExpression(), debug-location !19
     $edi = MOV32rm %fixed-stack.1, 1, $noreg, 0, $noreg :: (load 4 from %fixed-stack.1)
-    DBG_VALUE debug-use $edi, debug-use $noreg, !14, !DIExpression(), debug-location !20
+    DBG_VALUE $edi, $noreg, !14, !DIExpression(), debug-location !20
     $edi = DEC32r killed $edi, implicit-def dead $eflags, debug-location !30
     $ebx = LEA32r %fixed-stack.1, 1, $noreg, 0, $noreg
   

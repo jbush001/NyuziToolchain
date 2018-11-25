@@ -187,13 +187,13 @@ namespace __sanitizer {
 #endif // SANITIZER_LINUX || SANITIZER_FREEBSD
 
 #if SANITIZER_ANDROID
-  struct __sanitizer_mallinfo {
+  struct __sanitizer_struct_mallinfo {
     uptr v[10];
   };
 #endif
 
 #if SANITIZER_LINUX && !SANITIZER_ANDROID
-  struct __sanitizer_mallinfo {
+  struct __sanitizer_struct_mallinfo {
     int v[10];
   };
 
@@ -1072,6 +1072,8 @@ struct __sanitizer_cookie_io_functions_t {
   extern unsigned struct_unimapdesc_sz;
   extern unsigned struct_unimapinit_sz;
 #endif  // SANITIZER_LINUX && !SANITIZER_ANDROID
+
+  extern const unsigned long __sanitizer_bufsiz;
 
 #if (SANITIZER_LINUX || SANITIZER_FREEBSD) && !SANITIZER_ANDROID
   extern unsigned struct_audio_buf_info_sz;

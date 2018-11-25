@@ -155,13 +155,10 @@ CXSymbolRole getSymbolRole(SymbolRoleSet Role) {
 }
 }
 
-bool CXIndexDataConsumer::handleDeclOccurence(const Decl *D,
-                                              SymbolRoleSet Roles,
-                                             ArrayRef<SymbolRelation> Relations,
-                                              FileID FID, unsigned Offset,
-                                              ASTNodeInfo ASTNode) {
-  SourceLocation Loc = getASTContext().getSourceManager()
-      .getLocForStartOfFile(FID).getLocWithOffset(Offset);
+bool CXIndexDataConsumer::handleDeclOccurence(
+    const Decl *D, SymbolRoleSet Roles, ArrayRef<SymbolRelation> Relations,
+    SourceLocation Loc, ASTNodeInfo ASTNode) {
+  Loc = getASTContext().getSourceManager().getFileLoc(Loc);
 
   if (Roles & (unsigned)SymbolRole::Reference) {
     const NamedDecl *ND = dyn_cast<NamedDecl>(D);
@@ -225,10 +222,11 @@ bool CXIndexDataConsumer::handleDeclOccurence(const Decl *D,
 }
 
 bool CXIndexDataConsumer::handleModuleOccurence(const ImportDecl *ImportD,
+                                                const Module *Mod,
                                                 SymbolRoleSet Roles,
-                                                FileID FID,
-                                                unsigned Offset) {
-  IndexingDeclVisitor(*this, SourceLocation(), nullptr).Visit(ImportD);
+                                                SourceLocation Loc) {
+  if (Roles & (SymbolRoleSet)SymbolRole::Declaration)
+    IndexingDeclVisitor(*this, SourceLocation(), nullptr).Visit(ImportD);
   return !shouldAbort();
 }
 
@@ -311,7 +309,7 @@ AttrListInfo::AttrListInfo(const Decl *D, CXIndexDataConsumer &IdxCtx)
     const IBOutletCollectionAttr *
       IBAttr = cast<IBOutletCollectionAttr>(IBInfo.A);
     SourceLocation InterfaceLocStart =
-        IBAttr->getInterfaceLoc()->getTypeLoc().getLocStart();
+        IBAttr->getInterfaceLoc()->getTypeLoc().getBeginLoc();
     IBInfo.IBCollInfo.attrInfo = &IBInfo;
     IBInfo.IBCollInfo.classLoc = IdxCtx.getIndexLoc(InterfaceLocStart);
     IBInfo.IBCollInfo.objcClass = nullptr;

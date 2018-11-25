@@ -13,35 +13,6 @@ function(add_python_test_target name test_script args comment)
     )
 endfunction()
 
-set(LLDB_TEST_DEPS lldb)
-
-# darwin-debug is an hard dependency for the testsuite.
-if (CMAKE_SYSTEM_NAME MATCHES "Darwin")
-  list(APPEND LLDB_TEST_DEPS darwin-debug)
-endif()
-
-if(TARGET lldb-server)
-  list(APPEND LLDB_TEST_DEPS lldb-server)
-endif()
-
-if(TARGET debugserver)
-  if(NOT CMAKE_HOST_APPLE OR LLDB_CODESIGN_IDENTITY)
-    list(APPEND LLDB_TEST_DEPS debugserver)
-  endif()
-endif()
-
-if(TARGET lldb-mi)
-  list(APPEND LLDB_TEST_DEPS lldb-mi)
-endif()
-
-if(NOT LLDB_BUILT_STANDALONE)
-  list(APPEND LLDB_TEST_DEPS yaml2obj)
-endif()
-
-if(TARGET liblldb)
-  list(APPEND LLDB_TEST_DEPS liblldb)
-endif()
-
 # The default architecture with which to compile test executables is the default LLVM target
 # architecture, which itself defaults to the host architecture.
 string(TOLOWER "${LLVM_TARGET_ARCH}" LLDB_DEFAULT_TEST_ARCH)
@@ -51,22 +22,21 @@ endif ()
 
 # Allow the user to override the default by setting LLDB_TEST_ARCH
 set(LLDB_TEST_ARCH
-	${LLDB_DEFAULT_TEST_ARCH}
-	CACHE STRING "Specify the architecture to run LLDB tests as (x86|x64).  Determines whether tests are compiled with -m32 or -m64")
+  ${LLDB_DEFAULT_TEST_ARCH}
+  CACHE STRING "Specify the architecture to run LLDB tests as (x86|x64).  Determines whether tests are compiled with -m32 or -m64")
 
 # Users can override LLDB_TEST_USER_ARGS to specify arbitrary arguments to pass to the script
 set(LLDB_TEST_USER_ARGS
   ""
   CACHE STRING "Specify additional arguments to pass to test runner. For example: '-C gcc -C clang -A i386 -A x86_64'")
 
-# The .nodindex suffix is a marker for Spotlight to never index the
+# The .noindex suffix is a marker for Spotlight to never index the
 # build directory.  LLDB queries Spotlight to locate .dSYM bundles
 # based on the UUID embedded in a binary, and because the UUID is a
 # hash of filename and .text section, there *will* be conflicts inside
 # the build directory.
 set(LLDB_TEST_COMMON_ARGS
   --arch=${LLDB_TEST_ARCH}
-  --executable $<TARGET_FILE:lldb>
   -s
   ${CMAKE_BINARY_DIR}/lldb-test-traces
   --build-dir
@@ -74,6 +44,12 @@ set(LLDB_TEST_COMMON_ARGS
   -S nm
   -u CXXFLAGS
   -u CFLAGS
+  )
+
+list(APPEND LLDB_TEST_COMMON_ARGS
+  --executable ${LLDB_TEST_EXECUTABLE}
+  --dsymutil ${LLDB_TEST_DSYMUTIL}
+  --filecheck ${LLDB_TEST_FILECHECK}
   -C ${LLDB_TEST_C_COMPILER}
   )
 
@@ -103,7 +79,7 @@ if(LLDB_CODESIGN_IDENTITY)
 endif()
 
 if(LLDB_BUILD_FRAMEWORK)
-  list(APPEND LLDB_TEST_COMMON_ARGS --framework $<TARGET_FILE_DIR:liblldb>)
+  list(APPEND LLDB_TEST_COMMON_ARGS --framework ${LLDB_FRAMEWORK_DIR}/LLDB.framework)
 endif()
 
 if (NOT ${CMAKE_SYSTEM_NAME} MATCHES "Windows|Darwin")
@@ -111,15 +87,22 @@ if (NOT ${CMAKE_SYSTEM_NAME} MATCHES "Windows|Darwin")
     --env ARCHIVER=${CMAKE_AR} --env OBJCOPY=${CMAKE_OBJCOPY})
 endif()
 
-if(CMAKE_HOST_APPLE)
+if (NOT "${LLDB_LIT_TOOLS_DIR}" STREQUAL "")
+  if (NOT EXISTS "${LLDB_LIT_TOOLS_DIR}")
+    message(WARNING "LLDB_LIT_TOOLS_DIR ${LLDB_LIT_TOOLS_DIR} does not exist.")
+  endif()
+endif()
+
+if(CMAKE_HOST_APPLE AND DEBUGSERVER_PATH)
   list(APPEND LLDB_TEST_COMMON_ARGS --server ${DEBUGSERVER_PATH})
 endif()
 
-if(SKIP_DEBUGSERVER)
+if(SKIP_TEST_DEBUGSERVER)
   list(APPEND LLDB_TEST_COMMON_ARGS --out-of-tree-debugserver)
 endif()
 
 set(LLDB_DOTEST_ARGS ${LLDB_TEST_COMMON_ARGS};${LLDB_TEST_USER_ARGS})
+set_property(GLOBAL PROPERTY LLDB_DOTEST_ARGS_PROPERTY ${LLDB_DOTEST_ARGS})
 
 add_python_test_target(check-lldb-single
   ${LLDB_SOURCE_DIR}/test/dotest.py
@@ -129,28 +112,7 @@ add_python_test_target(check-lldb-single
 
 # If tests crash cause LLDB to crash, or things are otherwise unstable, or if machine-parsable
 # output is desired (i.e. in continuous integration contexts) check-lldb-single is a better target.
-add_python_test_target(check-lldb
-  ${LLDB_SOURCE_DIR}/test/dotest.py
-  "-q;${LLDB_DOTEST_ARGS}"
-  "Testing LLDB (parallel execution, with a separate subprocess per test)"
-  )
-
-# Generate a wrapper for dotest.py in the bin directory.
-# We need configure_file to substitute variables.
-configure_file(
-  lldb-dotest.in
-  ${CMAKE_CURRENT_BINARY_DIR}/lldb-dotest.configured
-  )
-# We need this to expand the generator expressions.
-file(GENERATE
-  OUTPUT
-  $<TARGET_FILE_DIR:lldb>/lldb-dotest
-  INPUT
-  ${CMAKE_CURRENT_BINARY_DIR}/lldb-dotest.configured
-  )
-# Make this a custom target.
-add_custom_target(lldb-dotest)
-add_dependencies(lldb-dotest ${LLDB_TEST_DEPS})
+add_custom_target(check-lldb)
 
 # If we're building with an in-tree clang, then list clang as a dependency
 # to run tests.
@@ -171,6 +133,6 @@ endif ()
 add_dependencies(check-lldb check-lldb-lit)
 
 add_custom_target(lldb-test-depends DEPENDS ${LLDB_TEST_DEPENDS})
-# This will add LLDB's test dependencies to the depenednecies for check-all and
+# This will add LLDB's test dependencies to the dependencies for check-all and
 # include them in the test-depends target.
 set_property(GLOBAL APPEND PROPERTY LLVM_LIT_DEPENDS ${ARG_DEPENDS})

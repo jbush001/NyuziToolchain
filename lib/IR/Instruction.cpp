@@ -12,6 +12,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/IR/Instruction.h"
+#include "llvm/IR/IntrinsicInst.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/Instructions.h"
@@ -302,6 +303,9 @@ const char *Instruction::getOpcodeName(unsigned OpCode) {
   case CatchPad: return "catchpad";
   case CatchSwitch: return "catchswitch";
 
+  // Standard unary operators...
+  case FNeg: return "fneg";
+
   // Standard binary operators...
   case Add: return "add";
   case FAdd: return "fadd";
@@ -591,7 +595,21 @@ bool Instruction::mayThrow() const {
 
 bool Instruction::isSafeToRemove() const {
   return (!isa<CallInst>(this) || !this->mayHaveSideEffects()) &&
-         !isa<TerminatorInst>(this);
+         !this->isTerminator();
+}
+
+const Instruction *Instruction::getNextNonDebugInstruction() const {
+  for (const Instruction *I = getNextNode(); I; I = I->getNextNode())
+    if (!isa<DbgInfoIntrinsic>(I))
+      return I;
+  return nullptr;
+}
+
+const Instruction *Instruction::getPrevNonDebugInstruction() const {
+  for (const Instruction *I = getPrevNode(); I; I = I->getPrevNode())
+    if (!isa<DbgInfoIntrinsic>(I))
+      return I;
+  return nullptr;
 }
 
 bool Instruction::isAssociative() const {
@@ -602,10 +620,47 @@ bool Instruction::isAssociative() const {
   switch (Opcode) {
   case FMul:
   case FAdd:
-    return cast<FPMathOperator>(this)->isFast();
+    return cast<FPMathOperator>(this)->hasAllowReassoc() &&
+           cast<FPMathOperator>(this)->hasNoSignedZeros();
   default:
     return false;
   }
+}
+
+unsigned Instruction::getNumSuccessors() const {
+  switch (getOpcode()) {
+#define HANDLE_TERM_INST(N, OPC, CLASS)                                        \
+  case Instruction::OPC:                                                       \
+    return static_cast<const CLASS *>(this)->getNumSuccessors();
+#include "llvm/IR/Instruction.def"
+  default:
+    break;
+  }
+  llvm_unreachable("not a terminator");
+}
+
+BasicBlock *Instruction::getSuccessor(unsigned idx) const {
+  switch (getOpcode()) {
+#define HANDLE_TERM_INST(N, OPC, CLASS)                                        \
+  case Instruction::OPC:                                                       \
+    return static_cast<const CLASS *>(this)->getSuccessor(idx);
+#include "llvm/IR/Instruction.def"
+  default:
+    break;
+  }
+  llvm_unreachable("not a terminator");
+}
+
+void Instruction::setSuccessor(unsigned idx, BasicBlock *B) {
+  switch (getOpcode()) {
+#define HANDLE_TERM_INST(N, OPC, CLASS)                                        \
+  case Instruction::OPC:                                                       \
+    return static_cast<CLASS *>(this)->setSuccessor(idx, B);
+#include "llvm/IR/Instruction.def"
+  default:
+    break;
+  }
+  llvm_unreachable("not a terminator");
 }
 
 Instruction *Instruction::cloneImpl() const {

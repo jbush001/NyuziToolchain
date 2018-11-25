@@ -28,6 +28,7 @@
 #include "llvm/DebugInfo/PDB/PDBSymbolThunk.h"
 #include "llvm/DebugInfo/PDB/PDBSymbolTypeFunctionSig.h"
 #include "llvm/DebugInfo/PDB/PDBSymbolUnknown.h"
+#include "llvm/DebugInfo/PDB/PDBSymbolUsingNamespace.h"
 #include "llvm/Support/Format.h"
 #include "llvm/Support/Path.h"
 #include "llvm/Support/raw_ostream.h"
@@ -60,6 +61,12 @@ void CompilandDumper::start(const PDBSymbolCompiland &Symbol,
       while (auto File = Files->getNext()) {
         Printer.NewLine();
         WithColor(Printer, PDB_ColorItem::Path).get() << File->getFileName();
+        if (File->getChecksumType() != PDB_Checksum::None) {
+          auto ChecksumType = File->getChecksumType();
+          auto ChecksumHexString = toHex(File->getChecksum());
+          WithColor(Printer, PDB_ColorItem::Comment).get()
+              << " (" << ChecksumType << ": " << ChecksumHexString << ")";
+        }
 
         auto Lines = Session.findLineNumbers(Symbol, *File);
         if (!Lines)
@@ -209,4 +216,14 @@ void CompilandDumper::dump(const PDBSymbolTypeTypedef &Symbol) {}
 void CompilandDumper::dump(const PDBSymbolUnknown &Symbol) {
   Printer.NewLine();
   Printer << "unknown (" << Symbol.getSymTag() << ")";
+}
+
+void CompilandDumper::dump(const PDBSymbolUsingNamespace &Symbol) {
+  if (Printer.IsSymbolExcluded(Symbol.getName()))
+    return;
+
+  Printer.NewLine();
+  Printer << "using namespace ";
+  std::string Name = Symbol.getName();
+  WithColor(Printer, PDB_ColorItem::Identifier).get() << Name;
 }

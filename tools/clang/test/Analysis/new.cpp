@@ -1,5 +1,5 @@
-// RUN: %clang_analyze_cc1 -analyzer-checker=core,unix.Malloc,debug.ExprInspection -analyzer-store region -std=c++11 -verify %s
-// RUN: %clang_analyze_cc1 -analyzer-checker=core,unix.Malloc,debug.ExprInspection -analyzer-store region -std=c++11 -DTEST_INLINABLE_ALLOCATORS -verify %s
+// RUN: %clang_analyze_cc1 -analyzer-checker=core,unix.Malloc,debug.ExprInspection -analyzer-store region -std=c++11 -verify -analyzer-config eagerly-assume=false %s
+// RUN: %clang_analyze_cc1 -analyzer-checker=core,unix.Malloc,debug.ExprInspection -analyzer-store region -std=c++11 -DTEST_INLINABLE_ALLOCATORS -verify -analyzer-config eagerly-assume=false %s
 #include "Inputs/system-header-simulator-cxx.h"
 
 void clang_analyzer_eval(bool);
@@ -272,6 +272,24 @@ void test_var_delete() {
   int *v = new int;
   delete v;  // no crash/warn
   clang_analyzer_eval(true); // expected-warning{{TRUE}}
+}
+
+void test_array_delete() {
+  class C {
+  public:
+    ~C() {}
+  };
+
+  auto c1 = new C[2][3];
+  delete[] c1; // no-crash // no-warning
+
+  C c2[4];
+  // FIXME: Should warn.
+  delete[] &c2; // no-crash
+
+  C c3[7][6];
+  // FIXME: Should warn.
+  delete[] &c3; // no-crash
 }
 
 void testDeleteNull() {
