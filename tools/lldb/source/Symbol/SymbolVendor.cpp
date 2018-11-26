@@ -9,10 +9,6 @@
 
 #include "lldb/Symbol/SymbolVendor.h"
 
-// C Includes
-// C++ Includes
-// Other libraries and framework includes
-// Project includes
 #include "lldb/Core/Module.h"
 #include "lldb/Core/PluginManager.h"
 #include "lldb/Symbol/CompileUnit.h"
@@ -26,9 +22,9 @@ using namespace lldb_private;
 //----------------------------------------------------------------------
 // FindPlugin
 //
-// Platforms can register a callback to use when creating symbol
-// vendors to allow for complex debug information file setups, and to
-// also allow for finding separate debug information files.
+// Platforms can register a callback to use when creating symbol vendors to
+// allow for complex debug information file setups, and to also allow for
+// finding separate debug information files.
 //----------------------------------------------------------------------
 SymbolVendor *SymbolVendor::FindPlugin(const lldb::ModuleSP &module_sp,
                                        lldb_private::Stream *feedback_strm) {
@@ -45,8 +41,8 @@ SymbolVendor *SymbolVendor::FindPlugin(const lldb::ModuleSP &module_sp,
       return instance_ap.release();
     }
   }
-  // The default implementation just tries to create debug information using the
-  // file representation for the module.
+  // The default implementation just tries to create debug information using
+  // the file representation for the module.
   instance_ap.reset(new SymbolVendor(module_sp));
   if (instance_ap.get()) {
     ObjectFile *objfile = module_sp->GetObjectFile();
@@ -88,11 +84,11 @@ bool SymbolVendor::SetCompileUnitAtIndex(size_t idx, const CompUnitSP &cu_sp) {
     std::lock_guard<std::recursive_mutex> guard(module_sp->GetMutex());
     const size_t num_compile_units = GetNumCompileUnits();
     if (idx < num_compile_units) {
-      // Fire off an assertion if this compile unit already exists for now.
-      // The partial parsing should take care of only setting the compile
-      // unit once, so if this assertion fails, we need to make sure that
-      // we don't have a race condition, or have a second parse of the same
-      // compile unit.
+      // Fire off an assertion if this compile unit already exists for now. The
+      // partial parsing should take care of only setting the compile unit
+      // once, so if this assertion fails, we need to make sure that we don't
+      // have a race condition, or have a second parse of the same compile
+      // unit.
       assert(m_compile_units[idx].get() == nullptr);
       m_compile_units[idx] = cu_sp;
       return true;
@@ -111,10 +107,10 @@ size_t SymbolVendor::GetNumCompileUnits() {
     std::lock_guard<std::recursive_mutex> guard(module_sp->GetMutex());
     if (m_compile_units.empty()) {
       if (m_sym_file_ap.get()) {
-        // Resize our array of compile unit shared pointers -- which will
-        // each remain NULL until someone asks for the actual compile unit
-        // information. When this happens, the symbol file will be asked
-        // to parse this compile unit information.
+        // Resize our array of compile unit shared pointers -- which will each
+        // remain NULL until someone asks for the actual compile unit
+        // information. When this happens, the symbol file will be asked to
+        // parse this compile unit information.
         m_compile_units.resize(m_sym_file_ap->GetNumCompileUnits());
       }
     }
@@ -235,7 +231,7 @@ Type *SymbolVendor::ResolveTypeUID(lldb::user_id_t type_uid) {
 }
 
 uint32_t SymbolVendor::ResolveSymbolContext(const Address &so_addr,
-                                            uint32_t resolve_scope,
+                                            SymbolContextItem resolve_scope,
                                             SymbolContext &sc) {
   ModuleSP module_sp(GetModule());
   if (module_sp) {
@@ -248,7 +244,7 @@ uint32_t SymbolVendor::ResolveSymbolContext(const Address &so_addr,
 
 uint32_t SymbolVendor::ResolveSymbolContext(const FileSpec &file_spec,
                                             uint32_t line, bool check_inlines,
-                                            uint32_t resolve_scope,
+                                            SymbolContextItem resolve_scope,
                                             SymbolContextList &sc_list) {
   ModuleSP module_sp(GetModule());
   if (module_sp) {
@@ -260,35 +256,35 @@ uint32_t SymbolVendor::ResolveSymbolContext(const FileSpec &file_spec,
   return 0;
 }
 
-size_t SymbolVendor::FindGlobalVariables(
-    const ConstString &name, const CompilerDeclContext *parent_decl_ctx,
-    bool append, size_t max_matches, VariableList &variables) {
+size_t
+SymbolVendor::FindGlobalVariables(const ConstString &name,
+                                  const CompilerDeclContext *parent_decl_ctx,
+                                  size_t max_matches, VariableList &variables) {
   ModuleSP module_sp(GetModule());
   if (module_sp) {
     std::lock_guard<std::recursive_mutex> guard(module_sp->GetMutex());
     if (m_sym_file_ap.get())
-      return m_sym_file_ap->FindGlobalVariables(name, parent_decl_ctx, append,
+      return m_sym_file_ap->FindGlobalVariables(name, parent_decl_ctx,
                                                 max_matches, variables);
   }
   return 0;
 }
 
 size_t SymbolVendor::FindGlobalVariables(const RegularExpression &regex,
-                                         bool append, size_t max_matches,
+                                         size_t max_matches,
                                          VariableList &variables) {
   ModuleSP module_sp(GetModule());
   if (module_sp) {
     std::lock_guard<std::recursive_mutex> guard(module_sp->GetMutex());
     if (m_sym_file_ap.get())
-      return m_sym_file_ap->FindGlobalVariables(regex, append, max_matches,
-                                                variables);
+      return m_sym_file_ap->FindGlobalVariables(regex, max_matches, variables);
   }
   return 0;
 }
 
 size_t SymbolVendor::FindFunctions(const ConstString &name,
                                    const CompilerDeclContext *parent_decl_ctx,
-                                   uint32_t name_type_mask,
+                                   FunctionNameType name_type_mask,
                                    bool include_inlines, bool append,
                                    SymbolContextList &sc_list) {
   ModuleSP module_sp(GetModule());
@@ -345,7 +341,7 @@ size_t SymbolVendor::FindTypes(const std::vector<CompilerContext> &context,
   return 0;
 }
 
-size_t SymbolVendor::GetTypes(SymbolContextScope *sc_scope, uint32_t type_mask,
+size_t SymbolVendor::GetTypes(SymbolContextScope *sc_scope, TypeClass type_mask,
                               lldb_private::TypeList &type_list) {
   ModuleSP module_sp(GetModule());
   if (module_sp) {
@@ -392,6 +388,8 @@ void SymbolVendor::Dump(Stream *s) {
       }
     }
     s->EOL();
+    if (m_sym_file_ap)
+      m_sym_file_ap->Dump(*s);
     s->IndentMore();
     m_type_list.Dump(s, show_context);
 

@@ -10,13 +10,12 @@
 #ifndef LLD_WASM_SYMBOLS_H
 #define LLD_WASM_SYMBOLS_H
 
+#include "Config.h"
 #include "lld/Common/LLVM.h"
 #include "llvm/Object/Archive.h"
 #include "llvm/Object/Wasm.h"
 
 using llvm::object::Archive;
-using llvm::object::WasmSymbol;
-using llvm::wasm::WasmGlobal;
 using llvm::wasm::WasmGlobalType;
 using llvm::wasm::WasmSignature;
 using llvm::wasm::WasmSymbolType;
@@ -29,6 +28,7 @@ class InputChunk;
 class InputSegment;
 class InputFunction;
 class InputGlobal;
+class InputSection;
 
 #define INVALID_INDEX UINT32_MAX
 
@@ -39,6 +39,7 @@ public:
     DefinedFunctionKind,
     DefinedDataKind,
     DefinedGlobalKind,
+    SectionKind,
     UndefinedFunctionKind,
     UndefinedDataKind,
     UndefinedGlobalKind,
@@ -49,7 +50,7 @@ public:
 
   bool isDefined() const {
     return SymbolKind == DefinedFunctionKind || SymbolKind == DefinedDataKind ||
-           SymbolKind == DefinedGlobalKind;
+           SymbolKind == DefinedGlobalKind || SymbolKind == SectionKind;
   }
 
   bool isUndefined() const {
@@ -71,8 +72,13 @@ public:
 
   InputChunk *getChunk() const;
 
-  // Indicates that this symbol will be included in the final image.
+  // Indicates that the section or import for this symbol will be included in
+  // the final image.
   bool isLive() const;
+
+  // Marks the symbol's InputChunk as Live, so that it will be included in the
+  // final image.
+  void markLive();
 
   void setHidden(bool IsHidden);
 
@@ -82,16 +88,23 @@ public:
   void setOutputSymbolIndex(uint32_t Index);
 
   WasmSymbolType getWasmType() const;
+  bool isExported() const;
+
+  // True if this symbol was referenced by a regular (non-bitcode) object.
+  unsigned IsUsedInRegularObj : 1;
+  unsigned ForceExport : 1;
 
 protected:
   Symbol(StringRef Name, Kind K, uint32_t Flags, InputFile *F)
-      : Name(Name), SymbolKind(K), Flags(Flags), File(F) {}
+      : IsUsedInRegularObj(false), ForceExport(false), Name(Name),
+        SymbolKind(K), Flags(Flags), File(F), Referenced(!Config->GcSections) {}
 
   StringRef Name;
   Kind SymbolKind;
   uint32_t Flags;
   InputFile *File;
   uint32_t OutputSymbolIndex = INVALID_INDEX;
+  bool Referenced;
 };
 
 class FunctionSymbol : public Symbol {
@@ -100,8 +113,6 @@ public:
     return S->kind() == DefinedFunctionKind ||
            S->kind() == UndefinedFunctionKind;
   }
-
-  const WasmSignature *getFunctionType() const { return FunctionType; }
 
   // Get/set the table index
   void setTableIndex(uint32_t Index);
@@ -113,6 +124,8 @@ public:
   void setFunctionIndex(uint32_t Index);
   bool hasFunctionIndex() const;
 
+  const WasmSignature *FunctionType;
+
 protected:
   FunctionSymbol(StringRef Name, Kind K, uint32_t Flags, InputFile *F,
                  const WasmSignature *Type)
@@ -120,8 +133,6 @@ protected:
 
   uint32_t TableIndex = INVALID_INDEX;
   uint32_t FunctionIndex = INVALID_INDEX;
-
-  const WasmSignature *FunctionType;
 };
 
 class DefinedFunction : public FunctionSymbol {
@@ -147,6 +158,23 @@ public:
   }
 };
 
+class SectionSymbol : public Symbol {
+public:
+  static bool classof(const Symbol *S) { return S->kind() == SectionKind; }
+
+  SectionSymbol(StringRef Name, uint32_t Flags, const InputSection *S,
+                InputFile *F = nullptr)
+      : Symbol(Name, SectionKind, Flags, F), Section(S) {}
+
+  const InputSection *Section;
+
+  uint32_t getOutputSectionIndex() const;
+  void setOutputSectionIndex(uint32_t Index);
+
+protected:
+  uint32_t OutputSectionIndex = INVALID_INDEX;
+};
+
 class DataSymbol : public Symbol {
 public:
   static bool classof(const Symbol *S) {
@@ -160,7 +188,7 @@ protected:
 
 class DefinedData : public DataSymbol {
 public:
-  // Constructor for for regular data symbols originating from input files.
+  // Constructor for regular data symbols originating from input files.
   DefinedData(StringRef Name, uint32_t Flags, InputFile *F,
               InputSegment *Segment, uint32_t Offset, uint32_t Size)
       : DataSymbol(Name, DefinedDataKind, Flags, F), Segment(Segment),
@@ -215,8 +243,6 @@ protected:
                const WasmGlobalType *GlobalType)
       : Symbol(Name, K, Flags, F), GlobalType(GlobalType) {}
 
-  // Explicit function type, needed for undefined or synthetic functions only.
-  // For regular defined globals this information comes from the InputChunk.
   const WasmGlobalType *GlobalType;
   uint32_t GlobalIndex = INVALID_INDEX;
 };
@@ -261,7 +287,7 @@ struct WasmSym {
   // __stack_pointer
   // Global that holds the address of the top of the explicit value stack in
   // linear memory.
-  static DefinedGlobal *StackPointer;
+  static GlobalSymbol *StackPointer;
 
   // __data_end
   // Symbol marking the end of the data and bss.
@@ -280,6 +306,14 @@ struct WasmSym {
   // __dso_handle
   // Symbol used in calls to __cxa_atexit to determine current DLL
   static DefinedData *DsoHandle;
+
+  // __table_base
+  // Used in PIC code for offset of indirect function table
+  static UndefinedGlobal *TableBase;
+
+  // __memory_base
+  // Used in PIC code for offset of global data
+  static UndefinedGlobal *MemoryBase;
 };
 
 // A buffer class that is large enough to hold any Symbol-derived
@@ -293,18 +327,25 @@ union SymbolUnion {
   alignas(UndefinedFunction) char E[sizeof(UndefinedFunction)];
   alignas(UndefinedData) char F[sizeof(UndefinedData)];
   alignas(UndefinedGlobal) char G[sizeof(UndefinedGlobal)];
+  alignas(SectionSymbol) char I[sizeof(SectionSymbol)];
 };
 
 template <typename T, typename... ArgT>
 T *replaceSymbol(Symbol *S, ArgT &&... Arg) {
   static_assert(std::is_trivially_destructible<T>(),
                 "Symbol types must be trivially destructible");
-  static_assert(sizeof(T) <= sizeof(SymbolUnion), "Symbol too small");
+  static_assert(sizeof(T) <= sizeof(SymbolUnion), "SymbolUnion too small");
   static_assert(alignof(T) <= alignof(SymbolUnion),
                 "SymbolUnion not aligned enough");
   assert(static_cast<Symbol *>(static_cast<T *>(nullptr)) == nullptr &&
          "Not a Symbol");
-  return new (S) T(std::forward<ArgT>(Arg)...);
+
+  Symbol SymCopy = *S;
+
+  T *S2 = new (S) T(std::forward<ArgT>(Arg)...);
+  S2->IsUsedInRegularObj = SymCopy.IsUsedInRegularObj;
+  S2->ForceExport = SymCopy.ForceExport;
+  return S2;
 }
 
 } // namespace wasm
@@ -312,7 +353,7 @@ T *replaceSymbol(Symbol *S, ArgT &&... Arg) {
 // Returns a symbol name for an error message.
 std::string toString(const wasm::Symbol &Sym);
 std::string toString(wasm::Symbol::Kind Kind);
-std::string toString(WasmSymbolType Type);
+std::string maybeDemangleSymbol(StringRef Name);
 
 } // namespace lld
 

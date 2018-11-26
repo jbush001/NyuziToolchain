@@ -19,6 +19,7 @@
 
 
 .macro SAVE_REGISTERS
+	pushfq
 	subq $240, %rsp
 	CFI_DEF_CFA_OFFSET(248)
 	movq %rbp, 232(%rsp)
@@ -69,6 +70,7 @@
 	movq  8(%rsp), %r14
 	movq  0(%rsp), %r15
 	addq	$240, %rsp
+	popfq
 	CFI_DEF_CFA_OFFSET(8)
 .endm
 
@@ -99,6 +101,7 @@
 	.globl ASM_SYMBOL(__xray_FunctionEntry)
 	.align 16, 0x90
 	ASM_TYPE_FUNCTION(__xray_FunctionEntry)
+# LLVM-MCA-BEGIN __xray_FunctionEntry
 ASM_SYMBOL(__xray_FunctionEntry):
 	CFI_STARTPROC
 	SAVE_REGISTERS
@@ -117,6 +120,7 @@ ASM_SYMBOL(__xray_FunctionEntry):
 .Ltmp0:
 	RESTORE_REGISTERS
 	retq
+# LLVM-MCA-END
 	ASM_SIZE(__xray_FunctionEntry)
 	CFI_ENDPROC
 
@@ -125,6 +129,7 @@ ASM_SYMBOL(__xray_FunctionEntry):
 	.globl ASM_SYMBOL(__xray_FunctionExit)
 	.align 16, 0x90
 	ASM_TYPE_FUNCTION(__xray_FunctionExit)
+# LLVM-MCA-BEGIN __xray_FunctionExit
 ASM_SYMBOL(__xray_FunctionExit):
 	CFI_STARTPROC
 	// Save the important registers first. Since we're assuming that this
@@ -155,6 +160,7 @@ ASM_SYMBOL(__xray_FunctionExit):
 	addq	$56, %rsp
 	CFI_DEF_CFA_OFFSET(8)
 	retq
+# LLVM-MCA-END
 	ASM_SIZE(__xray_FunctionExit)
 	CFI_ENDPROC
 
@@ -163,6 +169,7 @@ ASM_SYMBOL(__xray_FunctionExit):
 	.globl ASM_SYMBOL(__xray_FunctionTailExit)
 	.align 16, 0x90
 	ASM_TYPE_FUNCTION(__xray_FunctionTailExit)
+# LLVM-MCA-BEGIN __xray_FunctionTailExit
 ASM_SYMBOL(__xray_FunctionTailExit):
 	CFI_STARTPROC
 	SAVE_REGISTERS
@@ -179,6 +186,7 @@ ASM_SYMBOL(__xray_FunctionTailExit):
 .Ltmp4:
 	RESTORE_REGISTERS
 	retq
+# LLVM-MCA-END
 	ASM_SIZE(__xray_FunctionTailExit)
 	CFI_ENDPROC
 
@@ -187,6 +195,7 @@ ASM_SYMBOL(__xray_FunctionTailExit):
 	.globl ASM_SYMBOL(__xray_ArgLoggerEntry)
 	.align 16, 0x90
 	ASM_TYPE_FUNCTION(__xray_ArgLoggerEntry)
+# LLVM-MCA-BEGIN __xray_ArgLoggerEntry
 ASM_SYMBOL(__xray_ArgLoggerEntry):
 	CFI_STARTPROC
 	SAVE_REGISTERS
@@ -216,6 +225,7 @@ ASM_SYMBOL(__xray_ArgLoggerEntry):
 .Larg1entryFail:
 	RESTORE_REGISTERS
 	retq
+# LLVM-MCA-END
 	ASM_SIZE(__xray_ArgLoggerEntry)
 	CFI_ENDPROC
 
@@ -224,6 +234,7 @@ ASM_SYMBOL(__xray_ArgLoggerEntry):
 	.global ASM_SYMBOL(__xray_CustomEvent)
 	.align 16, 0x90
 	ASM_TYPE_FUNCTION(__xray_CustomEvent)
+# LLVM-MCA-BEGIN __xray_CustomEvent
 ASM_SYMBOL(__xray_CustomEvent):
 	CFI_STARTPROC
 	SAVE_REGISTERS
@@ -239,7 +250,35 @@ ASM_SYMBOL(__xray_CustomEvent):
 .LcustomEventCleanup:
 	RESTORE_REGISTERS
 	retq
+# LLVM-MCA-END
 	ASM_SIZE(__xray_CustomEvent)
 	CFI_ENDPROC
+
+//===----------------------------------------------------------------------===//
+
+	.global ASM_SYMBOL(__xray_TypedEvent)
+	.align 16, 0x90
+	ASM_TYPE_FUNCTION(__xray_TypedEvent)
+# LLVM-MCA-BEGIN __xray_TypedEvent
+ASM_SYMBOL(__xray_TypedEvent):
+	CFI_STARTPROC
+	SAVE_REGISTERS
+
+	// We pass three arguments to this trampoline, which should be in rdi, rsi
+	// and rdx without our intervention.
+	movq ASM_SYMBOL(_ZN6__xray21XRayPatchedTypedEventE)(%rip), %rax
+	testq %rax,%rax
+	je .LtypedEventCleanup
+
+	ALIGNED_CALL_RAX
+
+.LtypedEventCleanup:
+	RESTORE_REGISTERS
+	retq
+# LLVM-MCA-END
+	ASM_SIZE(__xray_TypedEvent)
+	CFI_ENDPROC
+
+//===----------------------------------------------------------------------===//
 
 NO_EXEC_STACK_DIRECTIVE

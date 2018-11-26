@@ -14,7 +14,7 @@ else:
 ##### Assembly parser
 
 ASM_FUNCTION_X86_RE = re.compile(
-    r'^_?(?P<func>[^:]+):[ \t]*#+[ \t]*@(?P=func)\n[^:]*?'
+    r'^_?(?P<func>[^:]+):[ \t]*#+[ \t]*@(?P=func)\n(?:\s*.Lfunc_begin[^:\n]*:\n)?[^:]*?'
     r'(?P<body>^##?[ \t]+[^:]+:.*?)\s*'
     r'^\s*(?:[^:\n]+?:\s*\n\s*\.size|\.cfi_endproc|\.globl|\.comm|\.(?:sub)?section|#+ -- End function)',
     flags=(re.M | re.S))
@@ -28,11 +28,18 @@ ASM_FUNCTION_ARM_RE = re.compile(
 
 ASM_FUNCTION_AARCH64_RE = re.compile(
      r'^_?(?P<func>[^:]+):[ \t]*\/\/[ \t]*@(?P=func)\n'
-     r'[ \t]+.cfi_startproc\n'
+     r'(?:[ \t]+.cfi_startproc\n)?'  # drop optional cfi noise 
      r'(?P<body>.*?)\n'
      # This list is incomplete
      r'.Lfunc_end[0-9]+:\n',
      flags=(re.M | re.S))
+
+ASM_FUNCTION_AMDGPU_RE = re.compile(
+    r'^_?(?P<func>[^:]+):[ \t]*;+[ \t]*@(?P=func)\n[^:]*?'
+    r'(?P<body>.*?)\n' # (body of the function)
+    # This list is incomplete
+    r'.Lfunc_end[0-9]+:\n',
+    flags=(re.M | re.S))
 
 ASM_FUNCTION_MIPS_RE = re.compile(
     r'^_?(?P<func>[^:]+):[ \t]*#+[ \t]*@(?P=func)\n[^:]*?' # f: (name of func)
@@ -45,6 +52,7 @@ ASM_FUNCTION_MIPS_RE = re.compile(
 
 ASM_FUNCTION_PPC_RE = re.compile(
     r'^_?(?P<func>[^:]+):[ \t]*#+[ \t]*@(?P=func)\n'
+    r'.*?'
     r'\.Lfunc_begin[0-9]+:\n'
     r'(?:[ \t]+.cfi_startproc\n)?'
     r'(?:\.Lfunc_[gl]ep[0-9]+:\n(?:[ \t]+.*?\n)*)*'
@@ -57,6 +65,12 @@ ASM_FUNCTION_PPC_RE = re.compile(
 ASM_FUNCTION_RISCV_RE = re.compile(
     r'^_?(?P<func>[^:]+):[ \t]*#+[ \t]*@(?P=func)\n[^:]*?'
     r'(?P<body>^##?[ \t]+[^:]+:.*?)\s*'
+    r'.Lfunc_end[0-9]+:\n',
+    flags=(re.M | re.S))
+
+ASM_FUNCTION_SPARC_RE = re.compile(
+    r'^_?(?P<func>[^:]+):[ \t]*!+[ \t]*@(?P=func)\n'
+    r'(?P<body>.*?)\s*'
     r'.Lfunc_end[0-9]+:\n',
     flags=(re.M | re.S))
 
@@ -97,15 +111,26 @@ def scrub_asm_x86(asm, args):
   asm = SCRUB_X86_SPILL_RELOAD_RE.sub(r'{{[-0-9]+}}(%\1{{[sb]}}p)\2', asm)
   # Generically match the stack offset of a memory operand.
   asm = SCRUB_X86_SP_RE.sub(r'{{[0-9]+}}(%\1)', asm)
-  # Generically match a RIP-relative memory operand.
-  asm = SCRUB_X86_RIP_RE.sub(r'{{.*}}(%rip)', asm)
+  if getattr(args, 'x86_scrub_rip', False):
+    # Generically match a RIP-relative memory operand.
+    asm = SCRUB_X86_RIP_RE.sub(r'{{.*}}(%rip)', asm)
   # Generically match a LCP symbol.
   asm = SCRUB_X86_LCP_RE.sub(r'{{\.LCPI.*}}', asm)
-  if getattr(args, 'x86_extra_scrub', False):
+  if getattr(args, 'extra_scrub', False):
     # Avoid generating different checks for 32- and 64-bit because of 'retl' vs 'retq'.
     asm = SCRUB_X86_RET_RE.sub(r'ret{{[l|q]}}', asm)
   # Strip kill operands inserted into the asm.
   asm = common.SCRUB_KILL_COMMENT_RE.sub('', asm)
+  # Strip trailing whitespace.
+  asm = common.SCRUB_TRAILING_WHITESPACE_RE.sub(r'', asm)
+  return asm
+
+def scrub_asm_amdgpu(asm, args):
+  # Scrub runs of whitespace out of the assembly, but leave the leading
+  # whitespace in place.
+  asm = common.SCRUB_WHITESPACE_RE.sub(r' ', asm)
+  # Expand the tabs used for indentation.
+  asm = string.expandtabs(asm, 2)
   # Strip trailing whitespace.
   asm = common.SCRUB_TRAILING_WHITESPACE_RE.sub(r'', asm)
   return asm
@@ -154,6 +179,16 @@ def scrub_asm_riscv(asm, args):
   asm = common.SCRUB_TRAILING_WHITESPACE_RE.sub(r'', asm)
   return asm
 
+def scrub_asm_sparc(asm, args):
+  # Scrub runs of whitespace out of the assembly, but leave the leading
+  # whitespace in place.
+  asm = common.SCRUB_WHITESPACE_RE.sub(r' ', asm)
+  # Expand the tabs used for indentation.
+  asm = string.expandtabs(asm, 2)
+  # Strip trailing whitespace.
+  asm = common.SCRUB_TRAILING_WHITESPACE_RE.sub(r'', asm)
+  return asm
+
 def scrub_asm_systemz(asm, args):
   # Scrub runs of whitespace out of the assembly, but leave the leading
   # whitespace in place.
@@ -172,6 +207,8 @@ def build_function_body_dictionary_for_triple(args, raw_tool_output, triple, pre
       'x86': (scrub_asm_x86, ASM_FUNCTION_X86_RE),
       'i386': (scrub_asm_x86, ASM_FUNCTION_X86_RE),
       'aarch64': (scrub_asm_arm_eabi, ASM_FUNCTION_AARCH64_RE),
+      'r600': (scrub_asm_amdgpu, ASM_FUNCTION_AMDGPU_RE),
+      'amdgcn': (scrub_asm_amdgpu, ASM_FUNCTION_AMDGPU_RE),
       'arm-eabi': (scrub_asm_arm_eabi, ASM_FUNCTION_ARM_RE),
       'thumb-eabi': (scrub_asm_arm_eabi, ASM_FUNCTION_ARM_RE),
       'thumbv6': (scrub_asm_arm_eabi, ASM_FUNCTION_ARM_RE),
@@ -198,6 +235,8 @@ def build_function_body_dictionary_for_triple(args, raw_tool_output, triple, pre
       'powerpc64le': (scrub_asm_powerpc64, ASM_FUNCTION_PPC_RE),
       'riscv32': (scrub_asm_riscv, ASM_FUNCTION_RISCV_RE),
       'riscv64': (scrub_asm_riscv, ASM_FUNCTION_RISCV_RE),
+      'sparc': (scrub_asm_sparc, ASM_FUNCTION_SPARC_RE),
+      'sparcv9': (scrub_asm_sparc, ASM_FUNCTION_SPARC_RE),
       's390x': (scrub_asm_systemz, ASM_FUNCTION_SYSTEMZ_RE),
   }
   handlers = None

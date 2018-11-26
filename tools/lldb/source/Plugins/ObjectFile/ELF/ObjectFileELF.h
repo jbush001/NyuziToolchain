@@ -10,10 +10,8 @@
 #ifndef liblldb_ObjectFileELF_h_
 #define liblldb_ObjectFileELF_h_
 
-// C Includes
 #include <stdint.h>
 
-// C++ Includes
 #include <vector>
 
 #include "lldb/Symbol/ObjectFile.h"
@@ -54,10 +52,10 @@ struct ELFNote {
 
 //------------------------------------------------------------------------------
 /// @class ObjectFileELF
-/// @brief Generic ELF object file reader.
+/// Generic ELF object file reader.
 ///
-/// This class provides a generic ELF (32/64 bit) reader plugin implementing the
-/// ObjectFile protocol.
+/// This class provides a generic ELF (32/64 bit) reader plugin implementing
+/// the ObjectFile protocol.
 class ObjectFileELF : public lldb_private::ObjectFile {
 public:
   ~ObjectFileELF() override;
@@ -113,7 +111,7 @@ public:
 
   uint32_t GetAddressByteSize() const override;
 
-  lldb::AddressClass GetAddressClass(lldb::addr_t file_addr) override;
+  lldb_private::AddressClass GetAddressClass(lldb::addr_t file_addr) override;
 
   lldb_private::Symtab *GetSymtab() override;
 
@@ -191,7 +189,7 @@ private:
   typedef DynamicSymbolColl::iterator DynamicSymbolCollIter;
   typedef DynamicSymbolColl::const_iterator DynamicSymbolCollConstIter;
 
-  typedef std::map<lldb::addr_t, lldb::AddressClass>
+  typedef std::map<lldb::addr_t, lldb_private::AddressClass>
       FileAddressToAddressClassMap;
 
   /// Version of this reader common to all plugins based on this class.
@@ -260,8 +258,8 @@ private:
                                  uint64_t length,
                                  lldb_private::ArchSpec &arch_spec);
 
-  /// Parses the elf section headers and returns the uuid, debug link name, crc,
-  /// archspec.
+  /// Parses the elf section headers and returns the uuid, debug link name,
+  /// crc, archspec.
   static size_t GetSectionHeaderInfo(SectionHeaderColl &section_headers,
                                      lldb_private::DataExtractor &object_data,
                                      const elf::ELFHeader &header,

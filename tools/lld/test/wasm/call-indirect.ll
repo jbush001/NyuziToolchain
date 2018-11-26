@@ -1,6 +1,6 @@
 ; RUN: llc -filetype=obj %p/Inputs/call-indirect.ll -o %t2.o
 ; RUN: llc -filetype=obj %s -o %t.o
-; RUN: wasm-ld --check-signatures -o %t.wasm %t2.o %t.o
+; RUN: wasm-ld --export-dynamic -o %t.wasm %t2.o %t.o
 ; RUN: obj2yaml %t.wasm | FileCheck %s
 
 ; bitcode generated from the following C code:
@@ -8,7 +8,7 @@
 ; int (*indirect_func)(void) = &foo;
 ; void _start(void) { indirect_func(); }
 
-target triple = "wasm32-unknown-unknown-wasm"
+target triple = "wasm32-unknown-unknown"
 
 @indirect_func = local_unnamed_addr global i32 ()* @foo, align 4
 
@@ -105,9 +105,6 @@ define void @call_ptr(i64 (i64)* %arg) {
 ; CHECK-NEXT:       - Name:            __data_end
 ; CHECK-NEXT:         Kind:            GLOBAL
 ; CHECK-NEXT:         Index:           2
-; CHECK-NEXT:       - Name:            _start
-; CHECK-NEXT:         Kind:            FUNCTION
-; CHECK-NEXT:         Index:           4
 ; CHECK-NEXT:       - Name:            bar
 ; CHECK-NEXT:         Kind:            FUNCTION
 ; CHECK-NEXT:         Index:           1
@@ -117,6 +114,9 @@ define void @call_ptr(i64 (i64)* %arg) {
 ; CHECK-NEXT:       - Name:            foo
 ; CHECK-NEXT:         Kind:            FUNCTION
 ; CHECK-NEXT:         Index:           3
+; CHECK-NEXT:       - Name:            _start
+; CHECK-NEXT:         Kind:            FUNCTION
+; CHECK-NEXT:         Index:           4
 ; CHECK-NEXT:       - Name:            indirect_func
 ; CHECK-NEXT:         Kind:            GLOBAL
 ; CHECK-NEXT:         Index:           3

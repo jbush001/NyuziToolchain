@@ -26,19 +26,18 @@
 
 namespace llvm {
 class MemoryBuffer;
-}
-
-namespace clang {
 namespace vfs {
 class FileSystem;
 }
+} // namespace llvm
 
+namespace clang {
 class CompilerInstance;
 class CompilerInvocation;
 class DeclGroupRef;
 class PCHContainerOperations;
 
-/// \brief Runs lexer to compute suggested preamble bounds.
+/// Runs lexer to compute suggested preamble bounds.
 PreambleBounds ComputePreambleBounds(const LangOptions &LangOpts,
                                      llvm::MemoryBuffer *Buffer,
                                      unsigned MaxLines);
@@ -53,7 +52,7 @@ class PrecompiledPreamble {
   struct PreambleFileHash;
 
 public:
-  /// \brief Try to build PrecompiledPreamble for \p Invocation. See
+  /// Try to build PrecompiledPreamble for \p Invocation. See
   /// BuildPreambleError for possible error codes.
   ///
   /// \param Invocation Original CompilerInvocation with options to compile the
@@ -80,7 +79,8 @@ public:
   static llvm::ErrorOr<PrecompiledPreamble>
   Build(const CompilerInvocation &Invocation,
         const llvm::MemoryBuffer *MainFileBuffer, PreambleBounds Bounds,
-        DiagnosticsEngine &Diagnostics, IntrusiveRefCntPtr<vfs::FileSystem> VFS,
+        DiagnosticsEngine &Diagnostics,
+        IntrusiveRefCntPtr<llvm::vfs::FileSystem> VFS,
         std::shared_ptr<PCHContainerOperations> PCHContainerOps,
         bool StoreInMemory, PreambleCallbacks &Callbacks);
 
@@ -99,7 +99,7 @@ public:
   /// MainFileBuffer) of the main file.
   bool CanReuse(const CompilerInvocation &Invocation,
                 const llvm::MemoryBuffer *MainFileBuffer, PreambleBounds Bounds,
-                vfs::FileSystem *VFS) const;
+                llvm::vfs::FileSystem *VFS) const;
 
   /// Changes options inside \p CI to use PCH from this preamble. Also remaps
   /// main file to \p MainFileBuffer and updates \p VFS to ensure the preamble
@@ -110,14 +110,14 @@ public:
   /// responsible for making sure the PrecompiledPreamble instance outlives the
   /// compiler run and the AST that will be using the PCH.
   void AddImplicitPreamble(CompilerInvocation &CI,
-                           IntrusiveRefCntPtr<vfs::FileSystem> &VFS,
+                           IntrusiveRefCntPtr<llvm::vfs::FileSystem> &VFS,
                            llvm::MemoryBuffer *MainFileBuffer) const;
 
   /// Configure \p CI to use this preamble.
   /// Like AddImplicitPreamble, but doesn't assume CanReuse() is true.
   /// If this preamble does not match the file, it may parse differently.
   void OverridePreamble(CompilerInvocation &CI,
-                        IntrusiveRefCntPtr<vfs::FileSystem> &VFS,
+                        IntrusiveRefCntPtr<llvm::vfs::FileSystem> &VFS,
                         llvm::MemoryBuffer *MainFileBuffer) const;
 
 private:
@@ -233,15 +233,16 @@ private:
   /// Helper function to set up PCH for the preamble into \p CI and \p VFS to
   /// with the specified \p Bounds.
   void configurePreamble(PreambleBounds Bounds, CompilerInvocation &CI,
-                         IntrusiveRefCntPtr<vfs::FileSystem> &VFS,
+                         IntrusiveRefCntPtr<llvm::vfs::FileSystem> &VFS,
                          llvm::MemoryBuffer *MainFileBuffer) const;
 
   /// Sets up the PreprocessorOptions and changes VFS, so that PCH stored in \p
   /// Storage is accessible to clang. This method is an implementation detail of
   /// AddImplicitPreamble.
-  static void setupPreambleStorage(const PCHStorage &Storage,
-                                   PreprocessorOptions &PreprocessorOpts,
-                                   IntrusiveRefCntPtr<vfs::FileSystem> &VFS);
+  static void
+  setupPreambleStorage(const PCHStorage &Storage,
+                       PreprocessorOptions &PreprocessorOpts,
+                       IntrusiveRefCntPtr<llvm::vfs::FileSystem> &VFS);
 
   /// Manages the memory buffer or temporary file that stores the PCH.
   PCHStorage Storage;
@@ -286,8 +287,7 @@ public:
 };
 
 enum class BuildPreambleError {
-  PreambleIsEmpty = 1,
-  CouldntCreateTempFile,
+  CouldntCreateTempFile = 1,
   CouldntCreateTargetInfo,
   BeginSourceFileFailed,
   CouldntEmitPCH

@@ -52,7 +52,6 @@
 ; CHECK:   Pointer (0x1001) {
 ; CHECK:     TypeLeafKind: LF_POINTER (0x1002)
 ; CHECK:     PointeeType: const volatile int (0x1000)
-; CHECK:     PointerAttributes: 0x1100C
 ; CHECK:     PtrType: Near64 (0xC)
 ; CHECK:     PtrMode: Pointer (0x0)
 ; CHECK:     IsFlat: 0
@@ -99,7 +98,6 @@
 ; CHECK:   Pointer (0x1006) {
 ; CHECK:     TypeLeafKind: LF_POINTER (0x1002)
 ; CHECK:     PointeeType: int (0x74)
-; CHECK:     PointerAttributes: 0x1100C
 ; CHECK:     PtrType: Near64 (0xC)
 ; CHECK:     PtrMode: Pointer (0x0)
 ; CHECK:     IsFlat: 0
@@ -112,7 +110,6 @@
 ; CHECK:   Pointer (0x1007) {
 ; CHECK:     TypeLeafKind: LF_POINTER (0x1002)
 ; CHECK:     PointeeType: float (0x40)
-; CHECK:     PointerAttributes: 0x1100C
 ; CHECK:     PtrType: Near64 (0xC)
 ; CHECK:     PtrMode: Pointer (0x0)
 ; CHECK:     IsFlat: 0
@@ -125,7 +122,6 @@
 ; CHECK:   Pointer (0x1008) {
 ; CHECK:     TypeLeafKind: LF_POINTER (0x1002)
 ; CHECK:     PointeeType: int (0x74)
-; CHECK:     PointerAttributes: 0x1120C
 ; CHECK:     PtrType: Near64 (0xC)
 ; CHECK:     PtrMode: Pointer (0x0)
 ; CHECK:     IsFlat: 0
@@ -170,7 +166,6 @@
 ; CHECK:   Pointer (0x100E) {
 ; CHECK:     TypeLeafKind: LF_POINTER (0x1002)
 ; CHECK:     PointeeType: const int (0x100D)
-; CHECK:     PointerAttributes: 0x1000C
 ; CHECK:     PtrType: Near64 (0xC)
 ; CHECK:     PtrMode: Pointer (0x0)
 ; CHECK:     IsFlat: 0
@@ -183,7 +178,6 @@
 ; CHECK:   Pointer (0x100F) {
 ; CHECK:     TypeLeafKind: LF_POINTER (0x1002)
 ; CHECK:     PointeeType: int (0x74)
-; CHECK:     PointerAttributes: 0x1102C
 ; CHECK:     PtrType: Near64 (0xC)
 ; CHECK:     PtrMode: LValueReference (0x1)
 ; CHECK:     IsFlat: 0
@@ -252,11 +246,10 @@
 ; CHECK:   Pointer (0x1017) {
 ; CHECK:     TypeLeafKind: LF_POINTER (0x1002)
 ; CHECK:     PointeeType: h::Foo (0x1016)
-; CHECK:     PointerAttributes: 0x1000C
 ; CHECK:     PtrType: Near64 (0xC)
 ; CHECK:     PtrMode: Pointer (0x0)
 ; CHECK:     IsFlat: 0
-; CHECK:     IsConst: 0
+; CHECK:     IsConst: 1
 ; CHECK:     IsVolatile: 0
 ; CHECK:     IsUnaligned: 0
 ; CHECK:     IsRestrict: 0
@@ -273,7 +266,7 @@
 ; CHECK:     TypeLeafKind: LF_MFUNCTION (0x1009)
 ; CHECK:     ReturnType: int (0x74)
 ; CHECK:     ClassType: h::Foo (0x1016)
-; CHECK:     ThisType: h::Foo* (0x1017)
+; CHECK:     ThisType: h::Foo* const (0x1017)
 ; CHECK:     CallingConvention: NearC (0x0)
 ; CHECK:     FunctionOptions [ (0x0)
 ; CHECK:     ]
@@ -313,7 +306,6 @@
 ; CHECK:   Pointer (0x101D) {
 ; CHECK:     TypeLeafKind: LF_POINTER (0x1002)
 ; CHECK:     PointeeType: int (0x74)
-; CHECK:     PointerAttributes: 0x904C
 ; CHECK:     PtrType: Near64 (0xC)
 ; CHECK:     PtrMode: PointerToDataMember (0x2)
 ; CHECK:     IsFlat: 0
@@ -328,7 +320,6 @@
 ; CHECK:   Pointer (0x101E) {
 ; CHECK:     TypeLeafKind: LF_POINTER (0x1002)
 ; CHECK:     PointeeType: int h::Foo::(int) (0x1019)
-; CHECK:     PointerAttributes: 0x1006C
 ; CHECK:     PtrType: Near64 (0xC)
 ; CHECK:     PtrMode: PointerToMemberFunction (0x3)
 ; CHECK:     IsFlat: 0
@@ -346,16 +337,28 @@
 ; CHECK:     FunctionType: int h::Foo::(int) (0x1019)
 ; CHECK:     Name: func
 ; CHECK:   }
-; CHECK:   Modifier (0x1020) {
+; CHECK:   Pointer (0x1020) {
+; CHECK:     TypeLeafKind: LF_POINTER (0x1002)
+; CHECK:     PointeeType: h::Foo (0x1016)
+; CHECK:     PtrType: Near64 (0xC)
+; CHECK:     PtrMode: Pointer (0x0)
+; CHECK:     IsFlat: 0
+; CHECK:     IsConst: 0
+; CHECK:     IsVolatile: 0
+; CHECK:     IsUnaligned: 0
+; CHECK:     IsRestrict: 0
+; CHECK:     SizeOf: 8
+; CHECK:   }
+; CHECK:   Modifier (0x1021) {
 ; CHECK:     TypeLeafKind: LF_MODIFIER (0x1001)
 ; CHECK:     ModifiedType: char (0x70)
 ; CHECK:     Modifiers [ (0x1)
 ; CHECK:       Const (0x1)
 ; CHECK:     ]
 ; CHECK:   }
-; CHECK:   Array (0x1021) {
+; CHECK:   Array (0x1022) {
 ; CHECK:     TypeLeafKind: LF_ARRAY (0x1503)
-; CHECK:     ElementType: const char (0x1020)
+; CHECK:     ElementType: const char (0x1021)
 ; CHECK:     IndexType: unsigned __int64 (0x23)
 ; CHECK:     SizeOf: 4
 ; CHECK:     Name:
@@ -482,7 +485,7 @@ attributes #2 = { argmemonly nounwind }
 
 !0 = !DIGlobalVariableExpression(var: !1, expr: !DIExpression())
 !1 = distinct !DIGlobalVariable(name: "str", scope: !2, file: !3, line: 18, type: !12, isLocal: true, isDefinition: true)
-!2 = distinct !DISubprogram(name: "g", linkageName: "\01?g@@YAXAEIAH@Z", scope: !3, file: !3, line: 16, type: !4, isLocal: false, isDefinition: true, scopeLine: 16, flags: DIFlagPrototyped, isOptimized: false, unit: !9, variables: !10)
+!2 = distinct !DISubprogram(name: "g", linkageName: "\01?g@@YAXAEIAH@Z", scope: !3, file: !3, line: 16, type: !4, isLocal: false, isDefinition: true, scopeLine: 16, flags: DIFlagPrototyped, isOptimized: false, unit: !9, retainedNodes: !10)
 !3 = !DIFile(filename: "m.cpp", directory: "C:\5CUsers\5CHui\5Ctmp\5Chui", checksumkind: CSK_MD5, checksum: "a8da0f4dca948db1ef1129c8728a881c")
 !4 = !DISubroutineType(types: !5)
 !5 = !{null, !6}
@@ -502,7 +505,7 @@ attributes #2 = { argmemonly nounwind }
 !19 = !{i32 1, !"wchar_size", i32 2}
 !20 = !{i32 7, !"PIC Level", i32 2}
 !21 = !{!"clang version 7.0.0 "}
-!22 = distinct !DISubprogram(name: "f", linkageName: "\01?f@@YAHPEIDH@Z", scope: !3, file: !3, line: 9, type: !23, isLocal: false, isDefinition: true, scopeLine: 9, flags: DIFlagPrototyped, isOptimized: false, unit: !9, variables: !10)
+!22 = distinct !DISubprogram(name: "f", linkageName: "\01?f@@YAHPEIDH@Z", scope: !3, file: !3, line: 9, type: !23, isLocal: false, isDefinition: true, scopeLine: 9, flags: DIFlagPrototyped, isOptimized: false, unit: !9, retainedNodes: !10)
 !23 = !DISubroutineType(types: !24)
 !24 = !{!8, !25}
 !25 = !DIDerivedType(tag: DW_TAG_restrict_type, baseType: !26)
@@ -536,7 +539,7 @@ attributes #2 = { argmemonly nounwind }
 !53 = !DILocalVariable(name: "x", scope: !2, file: !3, line: 17, type: !46)
 !54 = !DILocation(line: 17, column: 14, scope: !2)
 !55 = !DILocation(line: 19, column: 2, scope: !2)
-!56 = distinct !DISubprogram(name: "h", linkageName: "\01?h@@YAXXZ", scope: !3, file: !3, line: 21, type: !57, isLocal: false, isDefinition: true, scopeLine: 21, flags: DIFlagPrototyped, isOptimized: false, unit: !9, variables: !10)
+!56 = distinct !DISubprogram(name: "h", linkageName: "\01?h@@YAXXZ", scope: !3, file: !3, line: 21, type: !57, isLocal: false, isDefinition: true, scopeLine: 21, flags: DIFlagPrototyped, isOptimized: false, unit: !9, retainedNodes: !10)
 !57 = !DISubroutineType(types: !58)
 !58 = !{null}
 !59 = !DILocalVariable(name: "s", scope: !56, file: !3, line: 27, type: !60)
@@ -564,7 +567,7 @@ attributes #2 = { argmemonly nounwind }
 !77 = !DIDerivedType(tag: DW_TAG_ptr_to_member_type, baseType: !64, size: 64, flags: DIFlagSingleInheritance, extraData: !60)
 !78 = !DILocation(line: 33, column: 16, scope: !56)
 !79 = !DILocation(line: 34, column: 2, scope: !56)
-!80 = distinct !DISubprogram(name: "func", linkageName: "\01?func@Foo@?1??h@@YAXXZ@QEIAAHH@Z", scope: !60, file: !3, line: 24, type: !64, isLocal: true, isDefinition: true, scopeLine: 24, flags: DIFlagPrototyped, isOptimized: false, unit: !9, declaration: !63, variables: !10)
+!80 = distinct !DISubprogram(name: "func", linkageName: "\01?func@Foo@?1??h@@YAXXZ@QEIAAHH@Z", scope: !60, file: !3, line: 24, type: !64, isLocal: true, isDefinition: true, scopeLine: 24, flags: DIFlagPrototyped, isOptimized: false, unit: !9, declaration: !63, retainedNodes: !10)
 !81 = !DILocalVariable(name: "x", arg: 2, scope: !80, file: !3, line: 24, type: !8)
 !82 = !DILocation(line: 24, column: 19, scope: !80)
 !83 = !DILocalVariable(name: "this", arg: 1, scope: !80, type: !84, flags: DIFlagArtificial | DIFlagObjectPointer)

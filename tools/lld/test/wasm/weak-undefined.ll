@@ -1,11 +1,11 @@
 ; RUN: llc -filetype=obj -o %t.o %s
-; RUN: wasm-ld --check-signatures -strip-debug %t.o -o %t.wasm
+; RUN: wasm-ld -strip-debug %t.o -o %t.wasm
 ; RUN: obj2yaml %t.wasm | FileCheck %s
 
 ; Test that undefined weak externals (global_var) and (foo) don't cause
 ; link failures and resolve to zero.
 
-target triple = "wasm32-unknown-unknown-wasm"
+target triple = "wasm32-unknown-unknown"
 
 @global_var = extern_weak global i32, align 4
 
@@ -22,7 +22,8 @@ define i32* @get_address_of_global_var() #0 {
 
 define void @_start() #0 {
 entry:
-    %call = call i32* @get_address_of_global_var()
+    %call1 = call i32* @get_address_of_global_var()
+    %call2 = call i8* @get_address_of_foo()
     ret void
 }
 
@@ -84,12 +85,6 @@ entry:
 ; CHECK-NEXT:       - Name:            _start
 ; CHECK-NEXT:         Kind:            FUNCTION
 ; CHECK-NEXT:         Index:           3
-; CHECK-NEXT:       - Name:            get_address_of_foo
-; CHECK-NEXT:         Kind:            FUNCTION
-; CHECK-NEXT:         Index:           1
-; CHECK-NEXT:       - Name:            get_address_of_global_var
-; CHECK-NEXT:         Kind:            FUNCTION
-; CHECK-NEXT:         Index:           2
 ; CHECK-NEXT:   - Type:            CODE
 ; CHECK-NEXT:     Functions:
 ; CHECK-NEXT:       - Index:           0
@@ -103,5 +98,5 @@ entry:
 ; CHECK-NEXT:         Body:            4180808080000B
 ; CHECK-NEXT:       - Index:           3
 ; CHECK-NEXT:         Locals:
-; CHECK-NEXT:         Body:            1082808080001A0B
+; CHECK-NEXT:         Body:            1082808080001A1081808080001A0B
 ; CHECK-NEXT: ...

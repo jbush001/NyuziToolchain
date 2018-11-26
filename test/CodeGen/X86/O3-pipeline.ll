@@ -1,4 +1,7 @@
-; RUN: llc -mtriple=x86_64-- -O3 -debug-pass=Structure < %s -o /dev/null 2>&1 | FileCheck %s
+; When EXPENSIVE_CHECKS are enabled, the machine verifier appears between each
+; pass. Ignore it with 'grep -v'.
+; RUN: llc -mtriple=x86_64-- -O3 -debug-pass=Structure < %s -o /dev/null 2>&1 \
+; RUN:   | grep -v 'Verify generated machine code' | FileCheck %s
 
 ; REQUIRES: asserts
 
@@ -26,6 +29,8 @@
 ; CHECK-NEXT:       Loop Pass Manager
 ; CHECK-NEXT:         Induction Variable Users
 ; CHECK-NEXT:         Loop Strength Reduction
+; CHECK-NEXT:       Basic Alias Analysis (stateless AA impl)
+; CHECK-NEXT:         Function Alias Analysis Results
 ; CHECK-NEXT:       Merge contiguous icmps into a memcmp
 ; CHECK-NEXT:       Expand memcmp() to load/stores
 ; CHECK-NEXT:       Lower Garbage Collection Instructions
@@ -90,6 +95,9 @@
 ; CHECK-NEXT:       X86 LEA Optimize
 ; CHECK-NEXT:       X86 Optimize Call Frame
 ; CHECK-NEXT:       X86 Avoid Store Forwarding Block
+; CHECK-NEXT:       X86 speculative load hardening
+; CHECK-NEXT:       MachineDominator Tree Construction
+; CHECK-NEXT:       X86 EFLAGS copy lowering
 ; CHECK-NEXT:       X86 WinAlloca Expander
 ; CHECK-NEXT:       Detect Dead Lanes
 ; CHECK-NEXT:       Process Implicit Definitions
@@ -123,9 +131,9 @@
 ; CHECK-NEXT:       PostRA Machine Sink
 ; CHECK-NEXT:       Machine Block Frequency Analysis
 ; CHECK-NEXT:       MachinePostDominator Tree Construction
-; CHECK-NEXT:       Shrink Wrapping analysis
 ; CHECK-NEXT:       Lazy Machine Block Frequency Analysis
 ; CHECK-NEXT:       Machine Optimization Remark Emitter
+; CHECK-NEXT:       Shrink Wrapping analysis
 ; CHECK-NEXT:       Prologue/Epilogue Insertion & Frame Finalization
 ; CHECK-NEXT:       Control Flow Optimizer
 ; CHECK-NEXT:       Tail Duplication
@@ -158,10 +166,9 @@
 ; CHECK-NEXT:       Insert XRay ops
 ; CHECK-NEXT:       Implement the 'patchable-function' attribute
 ; CHECK-NEXT:       X86 Retpoline Thunks
+; CHECK-NEXT:       Check CFA info and insert CFI instructions if needed
 ; CHECK-NEXT:       Lazy Machine Block Frequency Analysis
 ; CHECK-NEXT:       Machine Optimization Remark Emitter
-; CHECK-NEXT:       MachineDominator Tree Construction
-; CHECK-NEXT:       Machine Natural Loop Construction
 ; CHECK-NEXT:       X86 Assembly Printer
 ; CHECK-NEXT:       Free MachineFunction
 

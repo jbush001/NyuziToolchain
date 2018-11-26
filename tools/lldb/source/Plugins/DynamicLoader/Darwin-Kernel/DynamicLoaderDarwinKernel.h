@@ -10,14 +10,13 @@
 #ifndef liblldb_DynamicLoaderDarwinKernel_h_
 #define liblldb_DynamicLoaderDarwinKernel_h_
 
-// C Includes
-// C++ Includes
 #include <mutex>
 #include <string>
 #include <vector>
 
-// Other libraries and framework includes
-// Project includes
+
+#include "lldb/Host/SafeMachO.h"
+
 #include "lldb/Target/DynamicLoader.h"
 #include "lldb/Target/Process.h"
 #include "lldb/Utility/FileSpec.h"
@@ -283,6 +282,9 @@ protected:
 
   static lldb::addr_t
   SearchForKernelViaExhaustiveSearch(lldb_private::Process *process);
+
+  static bool
+  ReadMachHeader(lldb::addr_t addr, lldb_private::Process *process, llvm::MachO::mach_header &mh);
 
   static lldb_private::UUID
   CheckForKernelImageAtAddress(lldb::addr_t addr,

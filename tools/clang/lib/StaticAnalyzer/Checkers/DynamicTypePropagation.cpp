@@ -59,7 +59,7 @@ class DynamicTypePropagation:
   const ObjCObjectType *getObjectTypeForAllocAndNew(const ObjCMessageExpr *MsgE,
                                                     CheckerContext &C) const;
 
-  /// \brief Return a better dynamic type if one can be derived from the cast.
+  /// Return a better dynamic type if one can be derived from the cast.
   const ObjCObjectPointerType *getBetterObjCType(const Expr *CastE,
                                                  CheckerContext &C) const;
 
@@ -74,7 +74,7 @@ class DynamicTypePropagation:
           new BugType(this, "Generics", categories::CoreFoundationObjectiveC));
   }
 
-  class GenericsBugVisitor : public BugReporterVisitorImpl<GenericsBugVisitor> {
+  class GenericsBugVisitor : public BugReporterVisitor {
   public:
     GenericsBugVisitor(SymbolRef S) : Sym(S) {}
 
@@ -85,7 +85,6 @@ class DynamicTypePropagation:
     }
 
     std::shared_ptr<PathDiagnosticPiece> VisitNode(const ExplodedNode *N,
-                                                   const ExplodedNode *PrevN,
                                                    BugReporterContext &BRC,
                                                    BugReport &BR) override;
 
@@ -937,11 +936,10 @@ void DynamicTypePropagation::reportGenericsBug(
 
 std::shared_ptr<PathDiagnosticPiece>
 DynamicTypePropagation::GenericsBugVisitor::VisitNode(const ExplodedNode *N,
-                                                      const ExplodedNode *PrevN,
                                                       BugReporterContext &BRC,
                                                       BugReport &BR) {
   ProgramStateRef state = N->getState();
-  ProgramStateRef statePrev = PrevN->getState();
+  ProgramStateRef statePrev = N->getFirstPred()->getState();
 
   const ObjCObjectPointerType *const *TrackedType =
       state->get<MostSpecializedTypeArgsMap>(Sym);

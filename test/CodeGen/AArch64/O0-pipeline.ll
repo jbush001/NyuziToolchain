@@ -33,6 +33,7 @@
 ; CHECK-NEXT:       Insert stack protectors
 ; CHECK-NEXT:       Module Verifier
 ; CHECK-NEXT:       IRTranslator
+; CHECK-NEXT:       AArch64PreLegalizerCombiner
 ; CHECK-NEXT:       Legalizer
 ; CHECK-NEXT:       RegBankSelect
 ; CHECK-NEXT:       Localizer
@@ -51,6 +52,7 @@
 ; CHECK-NEXT:       AArch64 pseudo instruction expansion pass
 ; CHECK-NEXT:       Analyze Machine Code For Garbage Collection
 ; CHECK-NEXT:       Branch relaxation pass
+; CHECK-NEXT:       AArch64 Branch Targets
 ; CHECK-NEXT:       Contiguously Lay Out Funclets
 ; CHECK-NEXT:       StackMap Liveness Analysis
 ; CHECK-NEXT:       Live DEBUG_VALUE analysis
@@ -59,8 +61,6 @@
 ; CHECK-NEXT:       Implement the 'patchable-function' attribute
 ; CHECK-NEXT:       Lazy Machine Block Frequency Analysis
 ; CHECK-NEXT:       Machine Optimization Remark Emitter
-; CHECK-NEXT:       MachineDominator Tree Construction
-; CHECK-NEXT:       Machine Natural Loop Construction
 ; CHECK-NEXT:       AArch64 Assembly Printer
 ; CHECK-NEXT:       Free MachineFunction
 

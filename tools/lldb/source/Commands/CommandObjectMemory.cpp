@@ -7,14 +7,10 @@
 //
 //===----------------------------------------------------------------------===//
 
-// C Includes
 #include <inttypes.h>
 
-// C++ Includes
-// Other libraries and framework includes
 #include "clang/AST/Decl.h"
 
-// Project includes
 #include "CommandObjectMemory.h"
 #include "Plugins/ExpressionParser/Clang/ClangPersistentVariables.h"
 #include "lldb/Core/Debugger.h"
@@ -24,9 +20,9 @@
 #include "lldb/Core/ValueObjectMemory.h"
 #include "lldb/DataFormatters/ValueObjectPrinter.h"
 #include "lldb/Host/OptionParser.h"
-#include "lldb/Interpreter/Args.h"
 #include "lldb/Interpreter/CommandInterpreter.h"
 #include "lldb/Interpreter/CommandReturnObject.h"
+#include "lldb/Interpreter/OptionArgParser.h"
 #include "lldb/Interpreter/OptionGroupFormat.h"
 #include "lldb/Interpreter/OptionGroupOutputFile.h"
 #include "lldb/Interpreter/OptionGroupValueObjectDisplay.h"
@@ -40,6 +36,7 @@
 #include "lldb/Target/Process.h"
 #include "lldb/Target/StackFrame.h"
 #include "lldb/Target/Thread.h"
+#include "lldb/Utility/Args.h"
 #include "lldb/Utility/DataBufferHeap.h"
 #include "lldb/Utility/DataBufferLLVM.h"
 #include "lldb/Utility/StreamString.h"
@@ -49,16 +46,16 @@
 using namespace lldb;
 using namespace lldb_private;
 
-static OptionDefinition g_read_memory_options[] = {
+static constexpr OptionDefinition g_read_memory_options[] = {
     // clang-format off
-  {LLDB_OPT_SET_1, false, "num-per-line", 'l', OptionParser::eRequiredArgument, nullptr, nullptr, 0, eArgTypeNumberPerLine, "The number of items per line to display." },
-  {LLDB_OPT_SET_2, false, "binary",       'b', OptionParser::eNoArgument,       nullptr, nullptr, 0, eArgTypeNone,          "If true, memory will be saved as binary. If false, the memory is saved save as an ASCII dump that "
+  {LLDB_OPT_SET_1, false, "num-per-line", 'l', OptionParser::eRequiredArgument, nullptr, {}, 0, eArgTypeNumberPerLine, "The number of items per line to display." },
+  {LLDB_OPT_SET_2, false, "binary",       'b', OptionParser::eNoArgument,       nullptr, {}, 0, eArgTypeNone,          "If true, memory will be saved as binary. If false, the memory is saved save as an ASCII dump that "
                                                                                                                             "uses the format, size, count and number per line settings." },
-  {LLDB_OPT_SET_3, true , "type",         't', OptionParser::eRequiredArgument, nullptr, nullptr, 0, eArgTypeNone,          "The name of a type to view memory as." },
-  {LLDB_OPT_SET_3, false, "offset",       'E', OptionParser::eRequiredArgument, nullptr, nullptr, 0, eArgTypeCount,         "How many elements of the specified type to skip before starting to display data." },
+  {LLDB_OPT_SET_3, true , "type",         't', OptionParser::eRequiredArgument, nullptr, {}, 0, eArgTypeNone,          "The name of a type to view memory as." },
+  {LLDB_OPT_SET_3, false, "offset",       'E', OptionParser::eRequiredArgument, nullptr, {}, 0, eArgTypeCount,         "How many elements of the specified type to skip before starting to display data." },
   {LLDB_OPT_SET_1 |
    LLDB_OPT_SET_2 |
-   LLDB_OPT_SET_3, false, "force",        'r', OptionParser::eNoArgument,       nullptr, nullptr, 0, eArgTypeNone,          "Necessary if reading over target.max-memory-read-size bytes." },
+   LLDB_OPT_SET_3, false, "force",        'r', OptionParser::eNoArgument,       nullptr, {}, 0, eArgTypeNone,          "Necessary if reading over target.max-memory-read-size bytes." },
     // clang-format on
 };
 
@@ -553,8 +550,8 @@ protected:
     lldb::addr_t addr;
     size_t total_byte_size = 0;
     if (argc == 0) {
-      // Use the last address and byte size and all options as they were
-      // if no options have been set
+      // Use the last address and byte size and all options as they were if no
+      // options have been set
       addr = m_next_addr;
       total_byte_size = m_prev_byte_size;
       clang_ast_type = m_prev_clang_ast_type;
@@ -573,8 +570,8 @@ protected:
 
     // TODO For non-8-bit byte addressable architectures this needs to be
     // revisited to fully support all lldb's range of formatting options.
-    // Furthermore code memory reads (for those architectures) will not
-    // be correctly formatted even w/o formatting options.
+    // Furthermore code memory reads (for those architectures) will not be
+    // correctly formatted even w/o formatting options.
     size_t item_byte_size =
         target->GetArchitecture().GetDataByteSize() > 1
             ? target->GetArchitecture().GetDataByteSize()
@@ -590,8 +587,8 @@ protected:
     }
 
     if (argc > 0)
-      addr = Args::StringToAddress(&m_exe_ctx, command[0].ref,
-                                   LLDB_INVALID_ADDRESS, &error);
+      addr = OptionArgParser::ToAddress(&m_exe_ctx, command[0].ref,
+                                        LLDB_INVALID_ADDRESS, &error);
 
     if (addr == LLDB_INVALID_ADDRESS) {
       result.AppendError("invalid start address expression.");
@@ -601,7 +598,7 @@ protected:
     }
 
     if (argc == 2) {
-      lldb::addr_t end_addr = Args::StringToAddress(
+      lldb::addr_t end_addr = OptionArgParser::ToAddress(
           &m_exe_ctx, command[1].ref, LLDB_INVALID_ADDRESS, nullptr);
       if (end_addr == LLDB_INVALID_ADDRESS) {
         result.AppendError("invalid end address expression.");
@@ -761,9 +758,9 @@ protected:
     Stream *output_stream = nullptr;
     const FileSpec &outfile_spec =
         m_outfile_options.GetFile().GetCurrentValue();
+
+    std::string path = outfile_spec.GetPath();
     if (outfile_spec) {
-      char path[PATH_MAX];
-      outfile_spec.GetPath(path, sizeof(path));
 
       uint32_t open_options =
           File::eOpenOptionWrite | File::eOpenOptionCanCreate;
@@ -771,19 +768,21 @@ protected:
       if (append)
         open_options |= File::eOpenOptionAppend;
 
-      if (outfile_stream.GetFile().Open(path, open_options).Success()) {
+      Status error = FileSystem::Instance().Open(outfile_stream.GetFile(),
+                                                 outfile_spec, open_options);
+      if (error.Success()) {
         if (m_memory_options.m_output_as_binary) {
           const size_t bytes_written =
               outfile_stream.Write(data_sp->GetBytes(), bytes_read);
           if (bytes_written > 0) {
             result.GetOutputStream().Printf(
                 "%zi bytes %s to '%s'\n", bytes_written,
-                append ? "appended" : "written", path);
+                append ? "appended" : "written", path.c_str());
             return true;
           } else {
             result.AppendErrorWithFormat("Failed to write %" PRIu64
                                          " bytes to '%s'.\n",
-                                         (uint64_t)bytes_read, path);
+                                         (uint64_t)bytes_read, path.c_str());
             result.SetStatus(eReturnStatusFailed);
             return false;
           }
@@ -793,8 +792,8 @@ protected:
           output_stream = &outfile_stream;
         }
       } else {
-        result.AppendErrorWithFormat("Failed to open file '%s' for %s.\n", path,
-                                     append ? "append" : "write");
+        result.AppendErrorWithFormat("Failed to open file '%s' for %s.\n",
+                                     path.c_str(), append ? "append" : "write");
         result.SetStatus(eReturnStatusFailed);
         return false;
       }
@@ -843,16 +842,14 @@ protected:
       if (!m_format_options.GetCountValue().OptionWasSet() || item_count == 1) {
         // this turns requests such as
         // memory read -fc -s10 -c1 *charPtrPtr
-        // which make no sense (what is a char of size 10?)
-        // into a request for fetching 10 chars of size 1 from the same memory
-        // location
+        // which make no sense (what is a char of size 10?) into a request for
+        // fetching 10 chars of size 1 from the same memory location
         format = eFormatCharArray;
         item_count = item_byte_size;
         item_byte_size = 1;
       } else {
-        // here we passed a count, and it was not 1
-        // so we have a byte_size and a count
-        // we could well multiply those, but instead let's just fail
+        // here we passed a count, and it was not 1 so we have a byte_size and
+        // a count we could well multiply those, but instead let's just fail
         result.AppendErrorWithFormat(
             "reading memory as characters of size %" PRIu64 " is not supported",
             (uint64_t)item_byte_size);
@@ -885,12 +882,12 @@ protected:
   CompilerType m_prev_clang_ast_type;
 };
 
-OptionDefinition g_memory_find_option_table[] = {
+static constexpr OptionDefinition g_memory_find_option_table[] = {
     // clang-format off
-  {LLDB_OPT_SET_1,   true,  "expression",  'e', OptionParser::eRequiredArgument, nullptr, nullptr, 0, eArgTypeExpression, "Evaluate an expression to obtain a byte pattern."},
-  {LLDB_OPT_SET_2,   true,  "string",      's', OptionParser::eRequiredArgument, nullptr, nullptr, 0, eArgTypeName,       "Use text to find a byte pattern."},
-  {LLDB_OPT_SET_ALL, false, "count",       'c', OptionParser::eRequiredArgument, nullptr, nullptr, 0, eArgTypeCount,      "How many times to perform the search."},
-  {LLDB_OPT_SET_ALL, false, "dump-offset", 'o', OptionParser::eRequiredArgument, nullptr, nullptr, 0, eArgTypeOffset,     "When dumping memory for a match, an offset from the match location to start dumping from."},
+  {LLDB_OPT_SET_1,   true,  "expression",  'e', OptionParser::eRequiredArgument, nullptr, {}, 0, eArgTypeExpression, "Evaluate an expression to obtain a byte pattern."},
+  {LLDB_OPT_SET_2,   true,  "string",      's', OptionParser::eRequiredArgument, nullptr, {}, 0, eArgTypeName,       "Use text to find a byte pattern."},
+  {LLDB_OPT_SET_ALL, false, "count",       'c', OptionParser::eRequiredArgument, nullptr, {}, 0, eArgTypeCount,      "How many times to perform the search."},
+  {LLDB_OPT_SET_ALL, false, "dump-offset", 'o', OptionParser::eRequiredArgument, nullptr, {}, 0, eArgTypeOffset,     "When dumping memory for a match, an offset from the match location to start dumping from."},
     // clang-format on
 };
 
@@ -1036,13 +1033,13 @@ protected:
     }
 
     Status error;
-    lldb::addr_t low_addr = Args::StringToAddress(&m_exe_ctx, command[0].ref,
-                                                  LLDB_INVALID_ADDRESS, &error);
+    lldb::addr_t low_addr = OptionArgParser::ToAddress(
+        &m_exe_ctx, command[0].ref, LLDB_INVALID_ADDRESS, &error);
     if (low_addr == LLDB_INVALID_ADDRESS || error.Fail()) {
       result.AppendError("invalid low address");
       return false;
     }
-    lldb::addr_t high_addr = Args::StringToAddress(
+    lldb::addr_t high_addr = OptionArgParser::ToAddress(
         &m_exe_ctx, command[1].ref, LLDB_INVALID_ADDRESS, &error);
     if (high_addr == LLDB_INVALID_ADDRESS || error.Fail()) {
       result.AppendError("invalid high address");
@@ -1180,10 +1177,10 @@ protected:
   OptionGroupFindMemory m_memory_options;
 };
 
-OptionDefinition g_memory_write_option_table[] = {
+static constexpr OptionDefinition g_memory_write_option_table[] = {
     // clang-format off
-  {LLDB_OPT_SET_1, true,  "infile", 'i', OptionParser::eRequiredArgument, nullptr, nullptr, 0, eArgTypeFilename, "Write memory using the contents of a file."},
-  {LLDB_OPT_SET_1, false, "offset", 'o', OptionParser::eRequiredArgument, nullptr, nullptr, 0, eArgTypeOffset,   "Start writing bytes from an offset within the input file."},
+  {LLDB_OPT_SET_1, true,  "infile", 'i', OptionParser::eRequiredArgument, nullptr, {}, 0, eArgTypeFilename, "Write memory using the contents of a file."},
+  {LLDB_OPT_SET_1, false, "offset", 'o', OptionParser::eRequiredArgument, nullptr, {}, 0, eArgTypeOffset,   "Start writing bytes from an offset within the input file."},
     // clang-format on
 };
 
@@ -1210,8 +1207,9 @@ public:
 
       switch (short_option) {
       case 'i':
-        m_infile.SetFile(option_value, true);
-        if (!m_infile.Exists()) {
+        m_infile.SetFile(option_value, FileSpec::Style::native);
+        FileSystem::Instance().Resolve(m_infile);
+        if (!FileSystem::Instance().Exists(m_infile)) {
           m_infile.Clear();
           error.SetErrorStringWithFormat("input file does not exist: '%s'",
                                          option_value.str().c_str());
@@ -1345,8 +1343,8 @@ protected:
     size_t item_byte_size = byte_size_value.GetCurrentValue();
 
     Status error;
-    lldb::addr_t addr = Args::StringToAddress(&m_exe_ctx, command[0].ref,
-                                              LLDB_INVALID_ADDRESS, &error);
+    lldb::addr_t addr = OptionArgParser::ToAddress(
+        &m_exe_ctx, command[0].ref, LLDB_INVALID_ADDRESS, &error);
 
     if (addr == LLDB_INVALID_ADDRESS) {
       result.AppendError("invalid address expression\n");
@@ -1359,7 +1357,7 @@ protected:
       size_t length = SIZE_MAX;
       if (item_byte_size > 1)
         length = item_byte_size;
-      auto data_sp = DataBufferLLVM::CreateSliceFromPath(
+      auto data_sp = FileSystem::Instance().CreateDataBuffer(
           m_memory_options.m_infile.GetPath(), length,
           m_memory_options.m_infile_offset);
       if (data_sp) {
@@ -1469,7 +1467,7 @@ protected:
         break;
       }
       case eFormatBoolean:
-        uval64 = Args::StringToBoolean(entry.ref, false, &success);
+        uval64 = OptionArgParser::ToBoolean(entry.ref, false, &success);
         if (!success) {
           result.AppendErrorWithFormat(
               "'%s' is not a valid boolean string value.\n", entry.c_str());
@@ -1642,8 +1640,8 @@ protected:
     }
 
     Status error;
-    lldb::addr_t addr = Args::StringToAddress(&m_exe_ctx, command[0].ref,
-                                              LLDB_INVALID_ADDRESS, &error);
+    lldb::addr_t addr = OptionArgParser::ToAddress(
+        &m_exe_ctx, command[0].ref, LLDB_INVALID_ADDRESS, &error);
 
     if (addr == LLDB_INVALID_ADDRESS) {
       result.AppendError("invalid address expression");
@@ -1709,10 +1707,10 @@ protected:
                                      m_cmd_name.c_str(), m_cmd_syntax.c_str());
         result.SetStatus(eReturnStatusFailed);
       } else {
-        auto load_addr_str = command[0].ref;
         if (command.GetArgumentCount() == 1) {
-          load_addr = Args::StringToAddress(&m_exe_ctx, load_addr_str,
-                                            LLDB_INVALID_ADDRESS, &error);
+          auto load_addr_str = command[0].ref;
+          load_addr = OptionArgParser::ToAddress(&m_exe_ctx, load_addr_str,
+                                                 LLDB_INVALID_ADDRESS, &error);
           if (error.Fail() || load_addr == LLDB_INVALID_ADDRESS) {
             result.AppendErrorWithFormat(
                 "invalid address argument \"%s\": %s\n", command[0].c_str(),

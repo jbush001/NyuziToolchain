@@ -7,7 +7,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-// Other libraries and framework includes
 #include "AdbClient.h"
 
 #include "llvm/ADT/STLExtras.h"
@@ -165,8 +164,8 @@ Status AdbClient::GetDevices(DeviceIDList &device_list) {
   for (const auto device : devices)
     device_list.push_back(device.split('\t').first);
 
-  // Force disconnect since ADB closes connection after host:devices
-  // response is sent.
+  // Force disconnect since ADB closes connection after host:devices response
+  // is sent.
   m_conn.reset();
   return error;
 }
@@ -484,7 +483,7 @@ Status AdbClient::SyncService::internalPushFile(const FileSpec &local_file,
       return Status("Failed to send file chunk: %s", error.AsCString());
   }
   error = SendSyncRequest(
-      kDONE, llvm::sys::toTimeT(FileSystem::GetModificationTime(local_file)),
+      kDONE, llvm::sys::toTimeT(FileSystem::Instance().GetModificationTime(local_file)),
       nullptr);
   if (error.Fail())
     return error;

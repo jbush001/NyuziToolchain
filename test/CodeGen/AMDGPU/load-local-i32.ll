@@ -4,9 +4,9 @@
 ; RUN: llc -march=r600 -mcpu=redwood < %s | FileCheck -check-prefix=EG -check-prefix=FUNC %s
 
 ; Testing for ds_read/write_128
-; RUN: llc -march=amdgcn -mcpu=tahiti -amdgpu-ds128 < %s | FileCheck -check-prefixes=SI,FUNC %s
-; RUN: llc -march=amdgcn -mcpu=tonga -amdgpu-ds128 < %s | FileCheck -check-prefixes=CIVI,FUNC %s
-; RUN: llc -march=amdgcn -mcpu=gfx900 -amdgpu-ds128 < %s | FileCheck -check-prefixes=CIVI,FUNC %s
+; RUN: llc -march=amdgcn -mcpu=tahiti -mattr=+enable-ds128 < %s | FileCheck -check-prefixes=SI,FUNC %s
+; RUN: llc -march=amdgcn -mcpu=tonga -mattr=+enable-ds128 < %s | FileCheck -check-prefixes=CIVI,FUNC %s
+; RUN: llc -march=amdgcn -mcpu=gfx900 -mattr=+enable-ds128 < %s | FileCheck -check-prefixes=CIVI,FUNC %s
 
 ; FUNC-LABEL: {{^}}local_load_i32:
 ; GCN-NOT: s_wqm_b64
@@ -262,6 +262,16 @@ define amdgpu_kernel void @local_zextload_v32i32_to_v32i64(<32 x i64> addrspace(
   %ld = load <32 x i32>, <32 x i32> addrspace(3)* %in
   %ext = zext <32 x i32> %ld to <32 x i64>
   store <32 x i64> %ext, <32 x i64> addrspace(3)* %out
+  ret void
+}
+
+; FUNC-LABEL: {{^}}local_load_v32i32:
+; SICIVI: s_mov_b32 m0, -1
+; GFX9-NOT: m0
+
+define amdgpu_kernel void @local_load_v32i32(<32 x i32> addrspace(3)* %out, <32 x i32> addrspace(3)* %in) #0 {
+  %ld = load <32 x i32>, <32 x i32> addrspace(3)* %in
+  store <32 x i32> %ld, <32 x i32> addrspace(3)* %out
   ret void
 }
 

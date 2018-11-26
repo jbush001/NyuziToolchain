@@ -1,5 +1,9 @@
 # RUN: llvm-mc -triple x86_64-unknown-linux %s -filetype=obj -o %t.o
-# RUN: llvm-dwarfdump -v %t.o | FileCheck --check-prefix=COMMON --check-prefix=SPLIT %s
+# RUN: llvm-dwarfdump -v %t.o 2> %t.err | FileCheck --check-prefix=COMMON --check-prefix=SPLIT %s
+# RUN: llvm-dwarfdump -verify %t.o | FileCheck --check-prefix=VERIFY %s
+# 
+# Check that we don't report an error on a non-existent range list table.
+# RUN: FileCheck -allow-empty --check-prefix ERR %s < %t.err
 
 # Test object to verify dwarfdump handles v5 string offset tables.
 # We have 2 v5 CUs, a v5 TU, and a split v5 CU and TU.
@@ -32,7 +36,7 @@ str_Variable3:
 # Every unit contributes to the string_offsets table.
         .section .debug_str_offsets,"",@progbits
 # CU1's contribution
-        .long .debug_str_offsets_segment0_end-.debug_str_offsets_base0
+        .long .debug_str_offsets_segment0_end-.debug_str_offsets_base0+4
         .short 5    # DWARF version
         .short 0    # Padding
 .debug_str_offsets_base0:
@@ -48,7 +52,7 @@ str_Variable3:
         .long 0
 # CU2's contribution in DWARF64 format
         .long 0xffffffff
-        .quad .debug_str_offsets_segment1_end-.debug_str_offsets_base1
+        .quad .debug_str_offsets_segment1_end-.debug_str_offsets_base1+4
         .short 5    # DWARF version
         .short 0    # Padding
 .debug_str_offsets_base1:
@@ -57,7 +61,7 @@ str_Variable3:
         .quad str_CU2_dir
 .debug_str_offsets_segment1_end:
 # The TU's contribution
-        .long .debug_str_offsets_segment2_end-.debug_str_offsets_base2
+        .long .debug_str_offsets_segment2_end-.debug_str_offsets_base2+4
         .short 5    # DWARF version
         .short 0    # Padding
 .debug_str_offsets_base2:
@@ -79,7 +83,7 @@ dwo_str_TU_5_type:
 
         .section .debug_str_offsets.dwo,"",@progbits
 # One contribution only in a .dwo file
-        .long .debug_dwo_str_offsets_segment0_end-.debug_dwo_str_offsets_base0
+        .long .debug_dwo_str_offsets_segment0_end-.debug_dwo_str_offsets_base0+4
         .short 5    # DWARF version
         .short 0    # Padding
 .debug_dwo_str_offsets_base0:
@@ -133,6 +137,8 @@ dwo_str_TU_5_type:
         .byte 0x00  # DW_CHILDREN_no
         .byte 0x03  # DW_AT_name
         .byte 0x26  # DW_FORM_strx2
+        .byte 0x49  # DW_AT_type
+        .byte 0x13  # DW_FORM_ref4
         .byte 0x00  # EOM(1)
         .byte 0x00  # EOM(2)
         .byte 0x06  # Abbrev code
@@ -140,6 +146,8 @@ dwo_str_TU_5_type:
         .byte 0x00  # DW_CHILDREN_no
         .byte 0x03  # DW_AT_name
         .byte 0x27  # DW_FORM_strx3
+        .byte 0x49  # DW_AT_type
+        .byte 0x13  # DW_FORM_ref4
         .byte 0x00  # EOM(1)
         .byte 0x00  # EOM(2)
         .byte 0x07  # Abbrev code
@@ -147,6 +155,15 @@ dwo_str_TU_5_type:
         .byte 0x00  # DW_CHILDREN_no
         .byte 0x03  # DW_AT_name
         .byte 0x28  # DW_FORM_strx4
+        .byte 0x49  # DW_AT_type
+        .byte 0x13  # DW_FORM_ref4
+        .byte 0x00  # EOM(1)
+        .byte 0x00  # EOM(2)
+        .byte 0x08  # Abbrev code
+        .byte 0x24  # DW_TAG_base_type
+        .byte 0x00  # DW_CHILDREN_no
+        .byte 0x3e  # DW_AT_encoding
+        .byte 0x0b  # DW_FORM_data1
         .byte 0x00  # EOM(1)
         .byte 0x00  # EOM(2)
         .byte 0x00  # EOM(3)
@@ -199,17 +216,24 @@ CU1_5_version:
 # A subprogram DIE with DW_AT_name, using DW_FORM_strx1.
         .byte 4                # Abbreviation code
         .byte 3                # Subprogram name string (DW_FORM_strx1)
-# A variable DIE with DW_AT_name, using DW_FORM_strx2.
+# A variable DIE with DW_AT_name, using DW_FORM_strx2, and DW_AT_type.
         .byte 5                # Abbreviation code
         .short 0x0004          # Subprogram name string (DW_FORM_strx2)
-# A variable DIE with DW_AT_name, using DW_FORM_strx3.
+        .long TypeDie-.debug_info
+# A variable DIE with DW_AT_name, using DW_FORM_strx3, and DW_AT_type.
         .byte 6                # Abbreviation code
         .byte 5                # Subprogram name string (DW_FORM_strx3)
         .short 0               # Subprogram name string (DW_FORM_strx3)
-# A variable DIE with DW_AT_name, using DW_FORM_strx4.
+        .long TypeDie-.debug_info
+# A variable DIE with DW_AT_name, using DW_FORM_strx4, and DW_AT_type.
         .byte 7                # Abbreviation code
-        .quad 0x00000006       # Subprogram name string (DW_FORM_strx4)
+        .long 6                # Subprogram name string (DW_FORM_strx4)
+        .long TypeDie-.debug_info
         .byte 0 # NULL
+# A base type DIE with DW_AT_encoding.
+TypeDie:
+        .byte 8                # Abbreviation code
+        .byte 5                # DW_ATE_signed
         .byte 0 # NULL
         .byte 0 # NULL
 CU1_5_end:
@@ -358,7 +382,7 @@ TU_split_5_end:
 # 
 # The .debug_str_offsets section
 # COMMON:      .debug_str_offsets contents:
-# COMMON-NEXT: 0x00000000: Contribution size = 28, Format = DWARF32, Version = 5
+# COMMON-NEXT: 0x00000000: Contribution size = 32, Format = DWARF32, Version = 5
 # COMMON-NEXT: 0x00000008: 00000000 "Handmade DWARF producer"
 # COMMON-NEXT: 0x0000000c: 00000018 "Compile_Unit_1"
 # COMMON-NEXT: 0x00000010: 00000027 "/home/test/CU1"
@@ -367,18 +391,22 @@ TU_split_5_end:
 # COMMON-NEXT: 0x0000001c: 00000075 "MyVar2"
 # COMMON-NEXT: 0x00000020: 0000007c "MyVar3"
 # COMMON-NEXT: Gap, length = 4
-# COMMON-NEXT: 0x00000028: Contribution size = 24, Format = DWARF64, Version = 5
+# COMMON-NEXT: 0x00000028: Contribution size = 28, Format = DWARF64, Version = 5
 # COMMON-NEXT: 0x00000038: 00000000 "Handmade DWARF producer"
 # COMMON-NEXT: 0x00000040: 00000036 "Compile_Unit_2"
 # COMMON-NEXT: 0x00000048: 00000045 "/home/test/CU2"
-# COMMON-NEXT: 0x00000050: Contribution size = 8, Format = DWARF32, Version = 5
+# COMMON-NEXT: 0x00000050: Contribution size = 12, Format = DWARF32, Version = 5
 # COMMON-NEXT: 0x00000058: 00000054 "Type_Unit"
 # COMMON-NEXT: 0x0000005c: 0000005e "MyStruct"
 # 
 # SPLIT:       .debug_str_offsets.dwo contents:
-# SPLIT-NEXT:  0x00000000: Contribution size = 20, Format = DWARF32, Version = 5
+# SPLIT-NEXT:  0x00000000: Contribution size = 24, Format = DWARF32, Version = 5
 # SPLIT-NEXT:  0x00000008: 00000000 "Handmade split DWARF producer"
 # SPLIT-NEXT:  0x0000000c: 0000001e "V5_split_compile_unit"
 # SPLIT-NEXT:  0x00000010: 00000034 "/home/test/splitCU"
 # SPLIT-NEXT:  0x00000014: 00000047 "V5_split_type_unit"
 # SPLIT-NEXT:  0x00000018: 0000005a "V5_split_Mystruct"
+
+# VERIFY: No errors.
+
+# ERR-NOT: parsing a range list table:

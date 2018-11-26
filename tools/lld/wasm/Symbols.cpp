@@ -27,15 +27,19 @@ DefinedFunction *WasmSym::CallCtors;
 DefinedData *WasmSym::DsoHandle;
 DefinedData *WasmSym::DataEnd;
 DefinedData *WasmSym::HeapBase;
-DefinedGlobal *WasmSym::StackPointer;
+GlobalSymbol *WasmSym::StackPointer;
+UndefinedGlobal *WasmSym::TableBase;
+UndefinedGlobal *WasmSym::MemoryBase;
 
 WasmSymbolType Symbol::getWasmType() const {
   if (isa<FunctionSymbol>(this))
-    return llvm::wasm::WASM_SYMBOL_TYPE_FUNCTION;
+    return WASM_SYMBOL_TYPE_FUNCTION;
   if (isa<DataSymbol>(this))
-    return llvm::wasm::WASM_SYMBOL_TYPE_DATA;
+    return WASM_SYMBOL_TYPE_DATA;
   if (isa<GlobalSymbol>(this))
-    return llvm::wasm::WASM_SYMBOL_TYPE_GLOBAL;
+    return WASM_SYMBOL_TYPE_GLOBAL;
+  if (isa<SectionSymbol>(this))
+    return WASM_SYMBOL_TYPE_SECTION;
   llvm_unreachable("invalid symbol kind");
 }
 
@@ -52,8 +56,15 @@ bool Symbol::isLive() const {
     return G->Global->Live;
   if (InputChunk *C = getChunk())
     return C->Live;
-  // Assume any other kind of symbol is live.
-  return true;
+  return Referenced;
+}
+
+void Symbol::markLive() {
+  if (auto *G = dyn_cast<DefinedGlobal>(this))
+    G->Global->Live = true;
+  if (InputChunk *C = getChunk())
+    C->Live = true;
+  Referenced = true;
 }
 
 uint32_t Symbol::getOutputSymbolIndex() const {
@@ -62,7 +73,8 @@ uint32_t Symbol::getOutputSymbolIndex() const {
 }
 
 void Symbol::setOutputSymbolIndex(uint32_t Index) {
-  DEBUG(dbgs() << "setOutputSymbolIndex " << Name << " -> " << Index << "\n");
+  LLVM_DEBUG(dbgs() << "setOutputSymbolIndex " << Name << " -> " << Index
+                    << "\n");
   assert(OutputSymbolIndex == INVALID_INDEX);
   OutputSymbolIndex = Index;
 }
@@ -80,12 +92,25 @@ bool Symbol::isHidden() const {
 }
 
 void Symbol::setHidden(bool IsHidden) {
-  DEBUG(dbgs() << "setHidden: " << Name << " -> " << IsHidden << "\n");
+  LLVM_DEBUG(dbgs() << "setHidden: " << Name << " -> " << IsHidden << "\n");
   Flags &= ~WASM_SYMBOL_VISIBILITY_MASK;
   if (IsHidden)
     Flags |= WASM_SYMBOL_VISIBILITY_HIDDEN;
   else
     Flags |= WASM_SYMBOL_VISIBILITY_DEFAULT;
+}
+
+bool Symbol::isExported() const {
+  if (!isDefined() || isLocal())
+    return false;
+
+  if (ForceExport || Config->ExportAll)
+    return true;
+
+  if (Config->ExportDynamic && !isHidden())
+    return true;
+
+  return false;
 }
 
 uint32_t FunctionSymbol::getFunctionIndex() const {
@@ -96,7 +121,7 @@ uint32_t FunctionSymbol::getFunctionIndex() const {
 }
 
 void FunctionSymbol::setFunctionIndex(uint32_t Index) {
-  DEBUG(dbgs() << "setFunctionIndex " << Name << " -> " << Index << "\n");
+  LLVM_DEBUG(dbgs() << "setFunctionIndex " << Name << " -> " << Index << "\n");
   assert(FunctionIndex == INVALID_INDEX);
   FunctionIndex = Index;
 }
@@ -128,7 +153,7 @@ void FunctionSymbol::setTableIndex(uint32_t Index) {
     F->Function->setTableIndex(Index);
     return;
   }
-  DEBUG(dbgs() << "setTableIndex " << Name << " -> " << Index << "\n");
+  LLVM_DEBUG(dbgs() << "setTableIndex " << Name << " -> " << Index << "\n");
   assert(TableIndex == INVALID_INDEX);
   TableIndex = Index;
 }
@@ -140,25 +165,25 @@ DefinedFunction::DefinedFunction(StringRef Name, uint32_t Flags, InputFile *F,
       Function(Function) {}
 
 uint32_t DefinedData::getVirtualAddress() const {
-  DEBUG(dbgs() << "getVirtualAddress: " << getName() << "\n");
+  LLVM_DEBUG(dbgs() << "getVirtualAddress: " << getName() << "\n");
   if (Segment)
     return Segment->OutputSeg->StartVA + Segment->OutputSegmentOffset + Offset;
   return Offset;
 }
 
 void DefinedData::setVirtualAddress(uint32_t Value) {
-  DEBUG(dbgs() << "setVirtualAddress " << Name << " -> " << Value << "\n");
+  LLVM_DEBUG(dbgs() << "setVirtualAddress " << Name << " -> " << Value << "\n");
   assert(!Segment);
   Offset = Value;
 }
 
 uint32_t DefinedData::getOutputSegmentOffset() const {
-  DEBUG(dbgs() << "getOutputSegmentOffset: " << getName() << "\n");
+  LLVM_DEBUG(dbgs() << "getOutputSegmentOffset: " << getName() << "\n");
   return Segment->OutputSegmentOffset + Offset;
 }
 
 uint32_t DefinedData::getOutputSegmentIndex() const {
-  DEBUG(dbgs() << "getOutputSegmentIndex: " << getName() << "\n");
+  LLVM_DEBUG(dbgs() << "getOutputSegmentIndex: " << getName() << "\n");
   return Segment->OutputSeg->Index;
 }
 
@@ -170,7 +195,7 @@ uint32_t GlobalSymbol::getGlobalIndex() const {
 }
 
 void GlobalSymbol::setGlobalIndex(uint32_t Index) {
-  DEBUG(dbgs() << "setGlobalIndex " << Name << " -> " << Index << "\n");
+  LLVM_DEBUG(dbgs() << "setGlobalIndex " << Name << " -> " << Index << "\n");
   assert(GlobalIndex == INVALID_INDEX);
   GlobalIndex = Index;
 }
@@ -187,13 +212,30 @@ DefinedGlobal::DefinedGlobal(StringRef Name, uint32_t Flags, InputFile *File,
                    Global ? &Global->getType() : nullptr),
       Global(Global) {}
 
+uint32_t SectionSymbol::getOutputSectionIndex() const {
+  LLVM_DEBUG(dbgs() << "getOutputSectionIndex: " << getName() << "\n");
+  assert(OutputSectionIndex != INVALID_INDEX);
+  return OutputSectionIndex;
+}
+
+void SectionSymbol::setOutputSectionIndex(uint32_t Index) {
+  LLVM_DEBUG(dbgs() << "setOutputSectionIndex: " << getName() << " -> " << Index
+                    << "\n");
+  assert(Index != INVALID_INDEX);
+  OutputSectionIndex = Index;
+}
+
 void LazySymbol::fetch() { cast<ArchiveFile>(File)->addMember(&ArchiveSymbol); }
 
 std::string lld::toString(const wasm::Symbol &Sym) {
+  return lld::maybeDemangleSymbol(Sym.getName());
+}
+
+std::string lld::maybeDemangleSymbol(StringRef Name) {
   if (Config->Demangle)
-    if (Optional<std::string> S = demangleItanium(Sym.getName()))
+    if (Optional<std::string> S = demangleItanium(Name))
       return *S;
-  return Sym.getName();
+  return Name;
 }
 
 std::string lld::toString(wasm::Symbol::Kind Kind) {
@@ -212,18 +254,8 @@ std::string lld::toString(wasm::Symbol::Kind Kind) {
     return "UndefinedGlobal";
   case wasm::Symbol::LazyKind:
     return "LazyKind";
+  case wasm::Symbol::SectionKind:
+    return "SectionKind";
   }
   llvm_unreachable("invalid symbol kind");
-}
-
-std::string lld::toString(WasmSymbolType Type) {
-  switch (Type) {
-  case llvm::wasm::WASM_SYMBOL_TYPE_FUNCTION:
-    return "Function";
-  case llvm::wasm::WASM_SYMBOL_TYPE_DATA:
-    return "Data";
-  case llvm::wasm::WASM_SYMBOL_TYPE_GLOBAL:
-    return "Global";
-  }
-  llvm_unreachable("invalid symbol type");
 }

@@ -13,10 +13,10 @@
 
 #include "lldb/Core/Address.h"
 #include "lldb/Core/PluginManager.h"
-#include "lldb/Core/RegisterValue.h"
 #include "lldb/Symbol/UnwindPlan.h"
 #include "lldb/Utility/ArchSpec.h"
 #include "lldb/Utility/ConstString.h"
+#include "lldb/Utility/RegisterValue.h"
 #include "lldb/Utility/Stream.h"
 
 #include "Plugins/Process/Utility/ARMDefines.h"
@@ -41,8 +41,7 @@
 #include "Plugins/Process/Utility/RegisterInfos_arm64.h"
 
 #include "llvm/ADT/STLExtras.h"
-#include "llvm/Support/MathExtras.h" // for SignExtend32 template function
-                                     // and CountTrailingZeros_32 function
+#include "llvm/Support/MathExtras.h"
 
 #include "Plugins/Process/Utility/InstructionUtils.h"
 
@@ -506,8 +505,8 @@ bool EmulateInstructionARM64::UsingAArch32() {
 bool EmulateInstructionARM64::BranchTo(const Context &context, uint32_t N,
                                        addr_t target) {
 #if 0
-    // Set program counter to a new address, with a branch reason hint
-    // for possible use by hardware fetching the next instruction.
+    // Set program counter to a new address, with a branch reason hint for
+    // possible use by hardware fetching the next instruction.
     BranchTo(bits(N) target, BranchType branch_type)
         Hint_Branch(branch_type);
         if N == 32 then
@@ -555,10 +554,9 @@ bool EmulateInstructionARM64::BranchTo(const Context &context, uint32_t N,
 }
 
 bool EmulateInstructionARM64::ConditionHolds(const uint32_t cond) {
-  // If we are ignoring conditions, then always return true.
-  // this allows us to iterate over disassembly code and still
-  // emulate an instruction even if we don't have all the right
-  // bits set in the CPSR register...
+  // If we are ignoring conditions, then always return true. this allows us to
+  // iterate over disassembly code and still emulate an instruction even if we
+  // don't have all the right bits set in the CPSR register...
   if (m_ignore_conditions)
     return true;
 
@@ -690,8 +688,8 @@ bool EmulateInstructionARM64::EmulateADDSUBImm(const uint32_t opcode) {
     context.SetRegisterPlusOffset(reg_info_Rn, imm);
 
   if (n == GetFramePointerRegisterNumber() && d == gpr_sp_arm64 && !setflags) {
-    // 'mov sp, fp' - common epilogue instruction, CFA is now in terms
-    // of the stack pointer, instead of frame pointer.
+    // 'mov sp, fp' - common epilogue instruction, CFA is now in terms of the
+    // stack pointer, instead of frame pointer.
     context.type = EmulateInstruction::eContextRestoreStackPointer;
   } else if ((n == gpr_sp_arm64 || n == GetFramePointerRegisterNumber()) &&
              d == gpr_sp_arm64 && !setflags) {

@@ -12,6 +12,10 @@
 // RUN:   %s -o - | FileCheck %s -check-prefix=CHECK-X86
 // RUN: %clang_cc1 -emit-llvm -triple amd64-pc-openbsd -std=c++11 \
 // RUN:   %s -o - | FileCheck %s -check-prefix=CHECK-X86
+// RUN: %clang_cc1 -emit-llvm -triple i386-pc-solaris2.11 -std=c++11 \
+// RUN:   %s -o - | FileCheck %s -check-prefix=CHECK-X86
+// RUN: %clang_cc1 -emit-llvm -triple x86_64-pc-solaris2.11 -std=c++11 \
+// RUN:   %s -o - | FileCheck %s -check-prefix=CHECK-X86
 //
 /*  Various contexts where type __float128 can appear. The different check
     prefixes are due to different mangling on X86 and different calling
@@ -88,7 +92,7 @@ int main(void) {
 // CHECK-DAG: define linkonce_odr void @_ZN2C1C2EU10__float128(%class.C1* %this, fp128 %arg)
 // CHECK-DAG: define linkonce_odr fp128 @_ZN2C16func2cEU10__float128(fp128 %arg)
 // CHECK-DAG: define linkonce_odr fp128 @_Z6func1tIU10__float128ET_S0_(fp128 %arg)
-// CHECK-DAG: @_ZZ4mainE2s1 = private unnamed_addr constant %struct.S1 { fp128 0xL00000000000000004006080000000000 }
+// CHECK-DAG: @__const.main.s1 = private unnamed_addr constant %struct.S1 { fp128 0xL00000000000000004006080000000000 }
 // CHECK-DAG: store fp128 0xLF0AFD0EBFF292DCE42E0B38CDD83F26F, fp128* %f1l, align 16
 // CHECK-DAG: store fp128 0xL00000000000000008000000000000000, fp128* %f2l, align 16
 // CHECK-DAG: store fp128 0xLFFFFFFFFFFFFFFFF7FFEFFFFFFFFFFFF, fp128* %f3l, align 16
@@ -110,7 +114,7 @@ int main(void) {
 // CHECK-X86-DAG: define linkonce_odr void @_ZN2C1C2Eg(%class.C1* %this, fp128 %arg)
 // CHECK-X86-DAG: define linkonce_odr fp128 @_ZN2C16func2cEg(fp128 %arg)
 // CHECK-X86-DAG: define linkonce_odr fp128 @_Z6func1tIgET_S0_(fp128 %arg)
-// CHECK-X86-DAG: @_ZZ4mainE2s1 = private unnamed_addr constant %struct.S1 { fp128 0xL00000000000000004006080000000000 }
+// CHECK-X86-DAG: @__const.main.s1 = private unnamed_addr constant %struct.S1 { fp128 0xL00000000000000004006080000000000 }
 // CHECK-X86-DAG: store fp128 0xLF0AFD0EBFF292DCE42E0B38CDD83F26F, fp128* %f1l, align 16
 // CHECK-X86-DAG: store fp128 0xL00000000000000008000000000000000, fp128* %f2l, align 16
 // CHECK-X86-DAG: store fp128 0xLFFFFFFFFFFFFFFFF7FFEFFFFFFFFFFFF, fp128* %f3l, align 16
@@ -132,7 +136,7 @@ int main(void) {
 // CHECK-SYSZ-DAG: define linkonce_odr void @_ZN2C1C2EU10__float128(%class.C1* %this, fp128*
 // CHECK-SYSZ-DAG: define linkonce_odr void @_ZN2C16func2cEU10__float128(fp128*
 // CHECK-SYSZ-DAG: define linkonce_odr void @_Z6func1tIU10__float128ET_S0_(fp128*
-// CHECK-SYSZ-DAG: @_ZZ4mainE2s1 = private unnamed_addr constant %struct.S1 { fp128 0xL00000000000000004006080000000000 }
+// CHECK-SYSZ-DAG: @__const.main.s1 = private unnamed_addr constant %struct.S1 { fp128 0xL00000000000000004006080000000000 }
 // CHECK-SYSZ-DAG: store fp128 0xLF0AFD0EBFF292DCE42E0B38CDD83F26F, fp128* %f1l, align 16
 // CHECK-SYSZ-DAG: store fp128 0xL00000000000000008000000000000000, fp128* %f2l, align 16
 // CHECK-SYSZ-DAG: store fp128 0xLFFFFFFFFFFFFFFFF7FFEFFFFFFFFFFFF, fp128* %f3l, align 16

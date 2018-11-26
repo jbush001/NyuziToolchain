@@ -9,23 +9,18 @@
 
 #include "NativeProcessNetBSD.h"
 
-// C Includes
 
-// C++ Includes
 
-// Other libraries and framework includes
 #include "Plugins/Process/POSIX/ProcessPOSIXLog.h"
-#include "lldb/Core/State.h"
 #include "lldb/Host/HostProcess.h"
-#include "lldb/Host/common/NativeBreakpoint.h"
 #include "lldb/Host/common/NativeRegisterContext.h"
 #include "lldb/Host/posix/ProcessLauncherPosixFork.h"
 #include "lldb/Target/Process.h"
+#include "lldb/Utility/State.h"
 #include "llvm/Support/Errno.h"
 
 // System includes - They have to be included after framework includes because
-// they define some
-// macros which collide with variable names in other modules
+// they define some macros which collide with variable names in other modules
 // clang-format off
 #include <sys/types.h>
 #include <sys/ptrace.h>
@@ -323,100 +318,6 @@ Status NativeProcessNetBSD::PtraceWrapper(int req, lldb::pid_t pid, void *addr,
   return error;
 }
 
-Status NativeProcessNetBSD::GetSoftwareBreakpointPCOffset(
-    uint32_t &actual_opcode_size) {
-  // FIXME put this behind a breakpoint protocol class that can be
-  // set per architecture.  Need ARM, MIPS support here.
-  static const uint8_t g_i386_opcode[] = {0xCC};
-  switch (m_arch.GetMachine()) {
-  case llvm::Triple::x86_64:
-    actual_opcode_size = static_cast<uint32_t>(sizeof(g_i386_opcode));
-    return Status();
-  default:
-    assert(false && "CPU type not supported!");
-    return Status("CPU type not supported");
-  }
-}
-
-Status
-NativeProcessNetBSD::FixupBreakpointPCAsNeeded(NativeThreadNetBSD &thread) {
-  Log *log(ProcessPOSIXLog::GetLogIfAllCategoriesSet(POSIX_LOG_BREAKPOINTS));
-  Status error;
-  // Find out the size of a breakpoint (might depend on where we are in the
-  // code).
-  NativeRegisterContext& context = thread.GetRegisterContext();
-  uint32_t breakpoint_size = 0;
-  error = GetSoftwareBreakpointPCOffset(breakpoint_size);
-  if (error.Fail()) {
-    LLDB_LOG(log, "GetBreakpointSize() failed: {0}", error);
-    return error;
-  } else
-    LLDB_LOG(log, "breakpoint size: {0}", breakpoint_size);
-  // First try probing for a breakpoint at a software breakpoint location: PC
-  // - breakpoint size.
-  const lldb::addr_t initial_pc_addr =
-      context.GetPCfromBreakpointLocation();
-  lldb::addr_t breakpoint_addr = initial_pc_addr;
-  if (breakpoint_size > 0) {
-    // Do not allow breakpoint probe to wrap around.
-    if (breakpoint_addr >= breakpoint_size)
-      breakpoint_addr -= breakpoint_size;
-  }
-  // Check if we stopped because of a breakpoint.
-  NativeBreakpointSP breakpoint_sp;
-  error = m_breakpoint_list.GetBreakpoint(breakpoint_addr, breakpoint_sp);
-  if (!error.Success() || !breakpoint_sp) {
-    // We didn't find one at a software probe location.  Nothing to do.
-    LLDB_LOG(log,
-             "pid {0} no lldb breakpoint found at current pc with "
-             "adjustment: {1}",
-             GetID(), breakpoint_addr);
-    return Status();
-  }
-  // If the breakpoint is not a software breakpoint, nothing to do.
-  if (!breakpoint_sp->IsSoftwareBreakpoint()) {
-    LLDB_LOG(
-        log,
-        "pid {0} breakpoint found at {1:x}, not software, nothing to adjust",
-        GetID(), breakpoint_addr);
-    return Status();
-  }
-  //
-  // We have a software breakpoint and need to adjust the PC.
-  //
-  // Sanity check.
-  if (breakpoint_size == 0) {
-    // Nothing to do!  How did we get here?
-    LLDB_LOG(log,
-             "pid {0} breakpoint found at {1:x}, it is software, but the "
-             "size is zero, nothing to do (unexpected)",
-             GetID(), breakpoint_addr);
-    return Status();
-  }
-  //
-  // We have a software breakpoint and need to adjust the PC.
-  //
-  // Sanity check.
-  if (breakpoint_size == 0) {
-    // Nothing to do!  How did we get here?
-    LLDB_LOG(log,
-             "pid {0} breakpoint found at {1:x}, it is software, but the "
-             "size is zero, nothing to do (unexpected)",
-             GetID(), breakpoint_addr);
-    return Status();
-  }
-  // Change the program counter.
-  LLDB_LOG(log, "pid {0} tid {1}: changing PC from {2:x} to {3:x}", GetID(),
-           thread.GetID(), initial_pc_addr, breakpoint_addr);
-  error = context.SetPC(breakpoint_addr);
-  if (error.Fail()) {
-    LLDB_LOG(log, "pid {0} tid {1}: failed to set PC: {2}", GetID(),
-             thread.GetID(), error);
-    return error;
-  }
-  return error;
-}
-
 Status NativeProcessNetBSD::Resume(const ResumeActionList &resume_actions) {
   Log *log(ProcessPOSIXLog::GetLogIfAllCategoriesSet(POSIX_LOG_PROCESS));
   LLDB_LOG(log, "pid {0}", GetID());
@@ -562,8 +463,8 @@ Status NativeProcessNetBSD::GetMemoryRegionInfo(lldb::addr_t load_addr,
            "descending memory map entries detected, unexpected");
     prev_base_address = proc_entry_info.GetRange().GetRangeBase();
     UNUSED_IF_ASSERT_DISABLED(prev_base_address);
-    // If the target address comes before this entry, indicate distance to
-    // next region.
+    // If the target address comes before this entry, indicate distance to next
+    // region.
     if (load_addr < proc_entry_info.GetRange().GetRangeBase()) {
       range_info.GetRange().SetRangeBase(load_addr);
       range_info.GetRange().SetByteSize(
@@ -582,9 +483,8 @@ Status NativeProcessNetBSD::GetMemoryRegionInfo(lldb::addr_t load_addr,
     // parsed.
   }
   // If we made it here, we didn't find an entry that contained the given
-  // address. Return the
-  // load_addr as start and the amount of bytes betwwen load address and the
-  // end of the memory as size.
+  // address. Return the load_addr as start and the amount of bytes betwwen
+  // load address and the end of the memory as size.
   range_info.GetRange().SetRangeBase(load_addr);
   range_info.GetRange().SetRangeEnd(LLDB_INVALID_ADDRESS);
   range_info.SetReadable(MemoryRegionInfo::OptionalBool::eNo);
@@ -639,13 +539,13 @@ Status NativeProcessNetBSD::PopulateMemoryRegionCache() {
       info.SetName(vm[i].kve_path);
 
     m_mem_region_cache.emplace_back(
-        info, FileSpec(info.GetName().GetCString(), true));
+        info, FileSpec(info.GetName().GetCString()));
   }
   free(vm);
 
   if (m_mem_region_cache.empty()) {
-    // No entries after attempting to read them.  This shouldn't happen.
-    // Assume we don't support map entries.
+    // No entries after attempting to read them.  This shouldn't happen. Assume
+    // we don't support map entries.
     LLDB_LOG(log, "failed to find any vmmap entries, assuming no support "
                   "for memory region metadata retrieval");
     m_supports_mem_region = LazyBool::eLazyBoolNo;
@@ -682,23 +582,6 @@ Status NativeProcessNetBSD::SetBreakpoint(lldb::addr_t addr, uint32_t size,
     return Status("NativeProcessNetBSD does not support hardware breakpoints");
   else
     return SetSoftwareBreakpoint(addr, size);
-}
-
-Status NativeProcessNetBSD::GetSoftwareBreakpointTrapOpcode(
-    size_t trap_opcode_size_hint, size_t &actual_opcode_size,
-    const uint8_t *&trap_opcode_bytes) {
-  static const uint8_t g_i386_opcode[] = {0xCC};
-
-  switch (m_arch.GetMachine()) {
-  case llvm::Triple::x86:
-  case llvm::Triple::x86_64:
-    trap_opcode_bytes = g_i386_opcode;
-    actual_opcode_size = sizeof(g_i386_opcode);
-    return Status();
-  default:
-    assert(false && "CPU type not supported!");
-    return Status("CPU type not supported");
-  }
 }
 
 Status NativeProcessNetBSD::GetLoadedModuleFileSpec(const char *module_path,
@@ -781,8 +664,8 @@ Status NativeProcessNetBSD::Attach() {
     return status;
 
   int wstatus;
-  // Need to use WALLSIG otherwise we receive an error with errno=ECHLD
-  // At this point we should have a thread stopped if waitpid succeeds.
+  // Need to use WALLSIG otherwise we receive an error with errno=ECHLD At this
+  // point we should have a thread stopped if waitpid succeeds.
   if ((wstatus = waitpid(m_pid, NULL, WALLSIG)) < 0)
     return Status(errno, eErrorTypePOSIX);
 
@@ -824,15 +707,6 @@ Status NativeProcessNetBSD::ReadMemory(lldb::addr_t addr, void *buf,
   } while (bytes_read < size);
 
   return Status();
-}
-
-Status NativeProcessNetBSD::ReadMemoryWithoutTrap(lldb::addr_t addr, void *buf,
-                                                  size_t size,
-                                                  size_t &bytes_read) {
-  Status error = ReadMemory(addr, buf, size, bytes_read);
-  if (error.Fail())
-    return error;
-  return m_breakpoint_list.RemoveTrapsFromBuffer(addr, buf, size);
 }
 
 Status NativeProcessNetBSD::WriteMemory(lldb::addr_t addr, const void *buf,

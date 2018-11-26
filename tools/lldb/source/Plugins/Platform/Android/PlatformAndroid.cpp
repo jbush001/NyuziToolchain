@@ -9,15 +9,14 @@
 
 #include "lldb/Core/Module.h"
 #include "lldb/Core/PluginManager.h"
-#include "lldb/Core/Scalar.h"
 #include "lldb/Core/Section.h"
 #include "lldb/Core/ValueObject.h"
 #include "lldb/Host/HostInfo.h"
 #include "lldb/Host/StringConvert.h"
 #include "lldb/Utility/Log.h"
+#include "lldb/Utility/Scalar.h"
 #include "lldb/Utility/UriParser.h"
 
-// Project includes
 #include "AdbClient.h"
 #include "PlatformAndroid.h"
 #include "PlatformAndroidRemoteGDBServer.h"
@@ -83,9 +82,9 @@ PlatformSP PlatformAndroid::CreateInstance(bool force, const ArchSpec *arch) {
       break;
 
 #if defined(__ANDROID__)
-    // Only accept "unknown" for the vendor if the host is android and
-    // it "unknown" wasn't specified (it was just returned because it
-    // was NOT specified_
+    // Only accept "unknown" for the vendor if the host is android and if
+    // "unknown" wasn't specified (it was just returned because it was NOT
+    // specified).
     case llvm::Triple::VendorType::UnknownVendor:
       create = !arch->TripleVendorWasSpecified();
       break;
@@ -95,16 +94,16 @@ PlatformSP PlatformAndroid::CreateInstance(bool force, const ArchSpec *arch) {
     }
 
     if (create) {
-      switch (triple.getOS()) {
+      switch (triple.getEnvironment()) {
       case llvm::Triple::Android:
         break;
 
 #if defined(__ANDROID__)
-      // Only accept "unknown" for the OS if the host is android and
-      // it "unknown" wasn't specified (it was just returned because it
-      // was NOT specified)
-      case llvm::Triple::OSType::UnknownOS:
-        create = !arch->TripleOSWasSpecified();
+      // Only accept "unknown" for the OS if the host is android and it
+      // "unknown" wasn't specified (it was just returned because it was NOT
+      // specified)
+      case llvm::Triple::EnvironmentType::UnknownEnvironment:
+        create = !arch->TripleEnvironmentWasSpecified();
         break;
 #endif
       default:
@@ -193,8 +192,7 @@ Status PlatformAndroid::GetFile(const FileSpec &source,
   if (IsHost() || !m_remote_platform_sp)
     return PlatformLinux::GetFile(source, destination);
 
-  FileSpec source_spec(source.GetPath(false), false,
-                       FileSpec::ePathSyntaxPosix);
+  FileSpec source_spec(source.GetPath(false), FileSpec::Style::posix);
   if (source_spec.IsRelative())
     source_spec = GetRemoteWorkingDirectory().CopyByAppendingPathComponent(
         source_spec.GetCString(false));
@@ -222,8 +220,8 @@ Status PlatformAndroid::GetFile(const FileSpec &source,
   if (strchr(source_file, '\'') != nullptr)
     return Status("Doesn't support single-quotes in filenames");
 
-  // mode == 0 can signify that adbd cannot access the file
-  // due security constraints - try "cat ..." as a fallback.
+  // mode == 0 can signify that adbd cannot access the file due security
+  // constraints - try "cat ..." as a fallback.
   AdbClient adb(m_device_id);
 
   char cmd[PATH_MAX];
@@ -238,8 +236,7 @@ Status PlatformAndroid::PutFile(const FileSpec &source,
   if (IsHost() || !m_remote_platform_sp)
     return PlatformLinux::PutFile(source, destination, uid, gid);
 
-  FileSpec destination_spec(destination.GetPath(false), false,
-                            FileSpec::ePathSyntaxPosix);
+  FileSpec destination_spec(destination.GetPath(false), FileSpec::Style::posix);
   if (destination_spec.IsRelative())
     destination_spec = GetRemoteWorkingDirectory().CopyByAppendingPathComponent(
         destination_spec.GetCString(false));
@@ -306,7 +303,7 @@ Status PlatformAndroid::DownloadSymbolFile(const lldb::ModuleSP &module_sp,
                                            const FileSpec &dst_file_spec) {
   // For oat file we can try to fetch additional debug info from the device
   ConstString extension = module_sp->GetFileSpec().GetFileNameExtension();
-  if (extension != ConstString("oat") && extension != ConstString("odex"))
+  if (extension != ConstString(".oat") && extension != ConstString(".odex"))
     return Status(
         "Symbol file downloading only supported for oat and odex files");
 
@@ -344,7 +341,7 @@ Status PlatformAndroid::DownloadSymbolFile(const lldb::ModuleSP &module_sp,
       log->Printf("Failed to remove temp directory: %s", error.AsCString());
   });
 
-  FileSpec symfile_platform_filespec(tmpdir, false);
+  FileSpec symfile_platform_filespec(tmpdir);
   symfile_platform_filespec.AppendPathComponent("symbolized.oat");
 
   // Execute oatdump on the remote device to generate a file with symtab
@@ -361,10 +358,8 @@ Status PlatformAndroid::DownloadSymbolFile(const lldb::ModuleSP &module_sp,
 }
 
 bool PlatformAndroid::GetRemoteOSVersion() {
-  m_major_os_version = GetSdkVersion();
-  m_minor_os_version = 0;
-  m_update_os_version = 0;
-  return m_major_os_version != 0;
+  m_os_version = llvm::VersionTuple(GetSdkVersion());
+  return !m_os_version.empty();
 }
 
 llvm::StringRef

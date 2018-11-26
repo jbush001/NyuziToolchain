@@ -25,16 +25,14 @@
 using namespace llvm;
 using namespace llvm::dwarf;
 using namespace llvm::object;
+using namespace llvm::support::endian;
 using namespace llvm::ELF;
 
 using namespace lld;
 using namespace lld::elf;
 
 uint8_t Out::First;
-OutputSection *Out::Opd;
-uint8_t *Out::OpdBuf;
 PhdrEntry *Out::TlsPhdr;
-OutputSection *Out::DebugInfo;
 OutputSection *Out::ElfHeader;
 OutputSection *Out::ProgramHeaders;
 OutputSection *Out::PreinitArray;
@@ -123,7 +121,6 @@ void OutputSection::addSection(InputSection *IS) {
   Flags = AndFlags | OrFlags;
 
   Alignment = std::max(Alignment, IS->Alignment);
-  IS->OutSecOff = Size++;
 
   // If this section contains a table of fixed-size entries, sh_entsize
   // holds the element size. If it contains elements of different size we
@@ -142,7 +139,7 @@ void OutputSection::addSection(InputSection *IS) {
 }
 
 static void sortByOrder(MutableArrayRef<InputSection *> In,
-                        std::function<int(InputSectionBase *S)> Order) {
+                        llvm::function_ref<int(InputSectionBase *S)> Order) {
   typedef std::pair<int, InputSection *> Pair;
   auto Comp = [](const Pair &A, const Pair &B) { return A.first < B.first; };
 
@@ -165,7 +162,7 @@ bool OutputSection::classof(const BaseCommand *C) {
   return C->Kind == OutputSectionKind;
 }
 
-void OutputSection::sort(std::function<int(InputSectionBase *S)> Order) {
+void OutputSection::sort(llvm::function_ref<int(InputSectionBase *S)> Order) {
   assert(Live);
   for (BaseCommand *B : SectionCommands)
     if (auto *ISD = dyn_cast<InputSectionDescription>(B))
@@ -174,11 +171,12 @@ void OutputSection::sort(std::function<int(InputSectionBase *S)> Order) {
 
 // Fill [Buf, Buf + Size) with Filler.
 // This is used for linker script "=fillexp" command.
-static void fill(uint8_t *Buf, size_t Size, uint32_t Filler) {
+static void fill(uint8_t *Buf, size_t Size,
+                 const std::array<uint8_t, 4> &Filler) {
   size_t I = 0;
   for (; I + 4 < Size; I += 4)
-    memcpy(Buf + I, &Filler, 4);
-  memcpy(Buf + I, &Filler, Size - I);
+    memcpy(Buf + I, Filler.data(), 4);
+  memcpy(Buf + I, Filler.data(), Size - I);
 }
 
 // Compress section contents if this section contains debug info.
@@ -239,8 +237,9 @@ template <class ELFT> void OutputSection::writeTo(uint8_t *Buf) {
 
   // Write leading padding.
   std::vector<InputSection *> Sections = getInputSections(this);
-  uint32_t Filler = getFiller();
-  if (Filler)
+  std::array<uint8_t, 4> Filler = getFiller();
+  bool NonZeroFiller = read32(Filler.data()) != 0;
+  if (NonZeroFiller)
     fill(Buf, Sections.empty() ? Size : Sections[0]->OutSecOff, Filler);
 
   parallelForEachN(0, Sections.size(), [&](size_t I) {
@@ -248,7 +247,7 @@ template <class ELFT> void OutputSection::writeTo(uint8_t *Buf) {
     IS->writeTo<ELFT>(Buf);
 
     // Fill gaps between sections.
-    if (Filler) {
+    if (NonZeroFiller) {
       uint8_t *Start = Buf + IS->OutSecOff + IS->getSize();
       uint8_t *End;
       if (I + 1 == Sections.size())
@@ -273,13 +272,13 @@ static void finalizeShtGroup(OutputSection *OS,
 
   // sh_link field for SHT_GROUP sections should contain the section index of
   // the symbol table.
-  OS->Link = InX::SymTab->getParent()->SectionIndex;
+  OS->Link = In.SymTab->getParent()->SectionIndex;
 
   // sh_info then contain index of an entry in symbol table section which
   // provides signature of the section group.
   ObjFile<ELFT> *Obj = Section->getFile<ELFT>();
   ArrayRef<Symbol *> Symbols = Obj->getSymbols();
-  OS->Info = InX::SymTab->getSymbolIndex(Symbols[Section->Info]);
+  OS->Info = In.SymTab->getSymbolIndex(Symbols[Section->Info]);
 }
 
 template <class ELFT> void OutputSection::finalize() {
@@ -311,7 +310,7 @@ template <class ELFT> void OutputSection::finalize() {
   if (isa<SyntheticSection>(First))
     return;
 
-  Link = InX::SymTab->getParent()->SectionIndex;
+  Link = In.SymTab->getParent()->SectionIndex;
   // sh_info for SHT_REL[A] sections should contain the section header index of
   // the section to which the relocation applies.
   InputSectionBase *S = First->getRelocatedSection();
@@ -409,12 +408,12 @@ void OutputSection::sortInitFini() {
   sort([](InputSectionBase *S) { return getPriority(S->Name); });
 }
 
-uint32_t OutputSection::getFiller() {
+std::array<uint8_t, 4> OutputSection::getFiller() {
   if (Filler)
     return *Filler;
   if (Flags & SHF_EXECINSTR)
     return Target->TrapInstr;
-  return 0;
+  return {0, 0, 0, 0};
 }
 
 template void OutputSection::writeHeaderTo<ELF32LE>(ELF32LE::Shdr *Shdr);

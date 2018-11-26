@@ -23,6 +23,7 @@ class MCAsmBackend;
 class MCCodeEmitter;
 class MCContext;
 class MCInstrInfo;
+class MCObjectTargetWriter;
 class MCObjectWriter;
 class MCRegisterInfo;
 class MCSubtargetInfo;
@@ -37,8 +38,7 @@ MCCodeEmitter *createNyuziMCCodeEmitter(const MCInstrInfo &MCII,
                                         const MCRegisterInfo &MRI,
                                         MCContext &Ctx);
 
-std::unique_ptr<MCObjectWriter> createNyuziELFObjectWriter(raw_pwrite_stream &OS,
-                                                           uint8_t OSABI);
+std::unique_ptr<MCObjectTargetWriter> createNyuziELFObjectWriter(uint8_t OSABI);
 
 MCAsmBackend *createNyuziAsmBackend(const Target &T,
                                     const MCSubtargetInfo &STI,

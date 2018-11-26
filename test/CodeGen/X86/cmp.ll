@@ -247,10 +247,13 @@ define i32 @test12() ssp uwtable {
 ; CHECK-NEXT:  # %bb.1: # %T
 ; CHECK-NEXT:    movl $1, %eax # encoding: [0xb8,0x01,0x00,0x00,0x00]
 ; CHECK-NEXT:    popq %rcx # encoding: [0x59]
+; CHECK-NEXT:    .cfi_def_cfa_offset 8
 ; CHECK-NEXT:    retq # encoding: [0xc3]
 ; CHECK-NEXT:  .LBB12_2: # %F
+; CHECK-NEXT:    .cfi_def_cfa_offset 16
 ; CHECK-NEXT:    movl $2, %eax # encoding: [0xb8,0x02,0x00,0x00,0x00]
 ; CHECK-NEXT:    popq %rcx # encoding: [0x59]
+; CHECK-NEXT:    .cfi_def_cfa_offset 8
 ; CHECK-NEXT:    retq # encoding: [0xc3]
 entry:
   %tmp1 = call zeroext i1 @test12b()
@@ -268,9 +271,9 @@ declare zeroext i1 @test12b()
 define i32 @test13(i32 %mask, i32 %base, i32 %intra) {
 ; CHECK-LABEL: test13:
 ; CHECK:       # %bb.0: # %entry
-; CHECK-NEXT:    testb $8, %dil # encoding: [0x40,0xf6,0xc7,0x08]
-; CHECK-NEXT:    cmovnel %edx, %esi # encoding: [0x0f,0x45,0xf2]
 ; CHECK-NEXT:    movl %esi, %eax # encoding: [0x89,0xf0]
+; CHECK-NEXT:    testb $8, %dil # encoding: [0x40,0xf6,0xc7,0x08]
+; CHECK-NEXT:    cmovnel %edx, %eax # encoding: [0x0f,0x45,0xc2]
 ; CHECK-NEXT:    retq # encoding: [0xc3]
 entry:
   %and = and i32 %mask, 8
@@ -283,9 +286,9 @@ entry:
 define i32 @test14(i32 %mask, i32 %base, i32 %intra) {
 ; CHECK-LABEL: test14:
 ; CHECK:       # %bb.0: # %entry
-; CHECK-NEXT:    shrl $7, %edi # encoding: [0xc1,0xef,0x07]
-; CHECK-NEXT:    cmovnsl %edx, %esi # encoding: [0x0f,0x49,0xf2]
 ; CHECK-NEXT:    movl %esi, %eax # encoding: [0x89,0xf0]
+; CHECK-NEXT:    shrl $7, %edi # encoding: [0xc1,0xef,0x07]
+; CHECK-NEXT:    cmovnsl %edx, %eax # encoding: [0x0f,0x49,0xc2]
 ; CHECK-NEXT:    retq # encoding: [0xc3]
 entry:
   %s = lshr i32 %mask, 7

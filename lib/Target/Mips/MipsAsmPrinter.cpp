@@ -160,6 +160,8 @@ void MipsAsmPrinter::EmitInstruction(const MachineInstr *MI) {
     PrintDebugValueComment(MI, OS);
     return;
   }
+  if (MI->isDebugLabel())
+    return;
 
   // If we just ended a constant pool, mark it as such.
   if (InConstantPool && Opc != Mips::CONSTPOOL_ENTRY) {
@@ -559,6 +561,7 @@ bool MipsAsmPrinter::PrintAsmOperand(const MachineInstr *MI, unsigned OpNum,
         O << '$' << MipsInstPrinter::getRegisterName(Reg);
         return false;
       }
+      break;
     }
     case 'w':
       // Print MSA registers for the 'f' constraint
@@ -1092,7 +1095,7 @@ void MipsAsmPrinter::EmitSled(const MachineInstr &MI, SledKind Kind) {
   //   ALIGN
   //   B .tmpN
   //   11 NOP instructions (44 bytes)
-  //   ADDIU T9, T9, 52 
+  //   ADDIU T9, T9, 52
   // .tmpN
   //
   // We need the 44 bytes (11 instructions) because at runtime, we'd
@@ -1238,8 +1241,12 @@ void MipsAsmPrinter::NaClAlignIndirectJumpTargets(MachineFunction &MF) {
 
 bool MipsAsmPrinter::isLongBranchPseudo(int Opcode) const {
   return (Opcode == Mips::LONG_BRANCH_LUi
+          || Opcode == Mips::LONG_BRANCH_LUi2Op
+          || Opcode == Mips::LONG_BRANCH_LUi2Op_64
           || Opcode == Mips::LONG_BRANCH_ADDiu
-          || Opcode == Mips::LONG_BRANCH_DADDiu);
+          || Opcode == Mips::LONG_BRANCH_ADDiu2Op
+          || Opcode == Mips::LONG_BRANCH_DADDiu
+          || Opcode == Mips::LONG_BRANCH_DADDiu2Op);
 }
 
 // Force static initialization.

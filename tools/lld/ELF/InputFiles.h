@@ -86,7 +86,9 @@ public:
 
   // Returns object file symbols. It is a runtime error to call this
   // function on files of other types.
-  ArrayRef<Symbol *> getSymbols() {
+  ArrayRef<Symbol *> getSymbols() { return getMutableSymbols(); }
+
+  std::vector<Symbol *> &getMutableSymbols() {
     assert(FileKind == BinaryKind || FileKind == ObjKind ||
            FileKind == BitcodeKind);
     return Symbols;
@@ -111,6 +113,17 @@ public:
 
   // True if this is an argument for --just-symbols. Usually false.
   bool JustSymbols = false;
+
+  // GroupId is used for --warn-backrefs which is an optional error
+  // checking feature. All files within the same --{start,end}-group or
+  // --{start,end}-lib get the same group ID. Otherwise, each file gets a new
+  // group ID. For more info, see checkDependency() in SymbolTable.cpp.
+  uint32_t GroupId;
+  static bool IsInGroup;
+  static uint32_t NextGroupId;
+
+  // Index of MIPS GOT built for this file.
+  llvm::Optional<size_t> MipsGotIndex;
 
 protected:
   InputFile(Kind K, MemoryBufferRef M);
@@ -158,6 +171,7 @@ template <class ELFT> class ObjFile : public ELFFileBase<ELFT> {
   typedef typename ELFT::Sym Elf_Sym;
   typedef typename ELFT::Shdr Elf_Shdr;
   typedef typename ELFT::Word Elf_Word;
+  typedef typename ELFT::CGProfile Elf_CGProfile;
 
   StringRef getShtGroupSignature(ArrayRef<Elf_Shdr> Sections,
                                  const Elf_Shdr &Sec);
@@ -183,9 +197,6 @@ public:
     return getSymbol(SymIndex);
   }
 
-  // Returns source line information for a given offset.
-  // If no information is available, returns "".
-  std::string getLineInfo(InputSectionBase *S, uint64_t Offset);
   llvm::Optional<llvm::DILineInfo> getDILineInfo(InputSectionBase *, uint64_t);
   llvm::Optional<std::pair<std::string, unsigned>> getVariableLoc(StringRef Name);
 
@@ -198,6 +209,20 @@ public:
   // or empty string if there is no such symbol in object file
   // symbol table.
   StringRef SourceFile;
+
+  // True if the file defines functions compiled with
+  // -fsplit-stack. Usually false.
+  bool SplitStack = false;
+
+  // True if the file defines functions compiled with -fsplit-stack,
+  // but had one or more functions with the no_split_stack attribute.
+  bool SomeNoSplitStack = false;
+
+  // Pointer to this input file's .llvm_addrsig section, if it has one.
+  const Elf_Shdr *AddrsigSec = nullptr;
+
+  // SHT_LLVM_CALL_GRAPH_PROFILE table
+  ArrayRef<Elf_CGProfile> CGProfile;
 
 private:
   void
@@ -221,7 +246,6 @@ private:
   // parse it only once for each object file we link.
   std::unique_ptr<llvm::DWARFContext> Dwarf;
   std::vector<const llvm::DWARFDebugLine::LineTable *> LineTables;
-  std::unique_ptr<llvm::DWARFDebugLine> DwarfLine;
   struct VarLoc {
     const llvm::DWARFDebugLine::LineTable *LT;
     unsigned File;
@@ -251,11 +275,9 @@ public:
   template <class ELFT> void parse();
   MemoryBufferRef getBuffer();
   InputFile *fetch();
+  bool AddedToLink = false;
 
 private:
-  template <class ELFT> void addElfSymbols();
-
-  bool Seen = false;
   uint64_t OffsetInArchive;
 };
 
@@ -343,8 +365,15 @@ InputFile *createObjectFile(MemoryBufferRef MB, StringRef ArchiveName = "",
                             uint64_t OffsetInArchive = 0);
 InputFile *createSharedFile(MemoryBufferRef MB, StringRef DefaultSoName);
 
+inline bool isBitcode(MemoryBufferRef MB) {
+  return identify_magic(MB.getBuffer()) == llvm::file_magic::bitcode;
+}
+
+std::string replaceThinLTOSuffix(StringRef Path);
+
 extern std::vector<BinaryFile *> BinaryFiles;
 extern std::vector<BitcodeFile *> BitcodeFiles;
+extern std::vector<LazyObjFile *> LazyObjFiles;
 extern std::vector<InputFile *> ObjectFiles;
 extern std::vector<InputFile *> SharedFiles;
 

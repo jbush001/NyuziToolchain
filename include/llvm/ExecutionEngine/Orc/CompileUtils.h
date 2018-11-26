@@ -16,13 +16,14 @@
 
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ExecutionEngine/ObjectCache.h"
-#include "llvm/ExecutionEngine/ObjectMemoryBuffer.h"
+#include "llvm/ExecutionEngine/Orc/JITTargetMachineBuilder.h"
 #include "llvm/IR/LegacyPassManager.h"
 #include "llvm/Object/Binary.h"
 #include "llvm/Object/ObjectFile.h"
 #include "llvm/Support/Error.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/MemoryBuffer.h"
+#include "llvm/Support/SmallVectorMemoryBuffer.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Target/TargetMachine.h"
 #include <algorithm>
@@ -35,35 +36,21 @@ class Module;
 
 namespace orc {
 
-/// @brief Simple compile functor: Takes a single IR module and returns an
-///        ObjectFile.
+/// Simple compile functor: Takes a single IR module and returns an ObjectFile.
+/// This compiler supports a single compilation thread and LLVMContext only.
+/// For multithreaded compilation, use ConcurrentIRCompiler below.
 class SimpleCompiler {
-private:
-  class SmallVectorMemoryBuffer : public MemoryBuffer {
-  public:
-    SmallVectorMemoryBuffer(SmallVector<char, 0> Buffer)
-        : Buffer(std::move(Buffer)) {
-      init(this->Buffer.data(), this->Buffer.data() + this->Buffer.size(),
-           false);
-    }
-
-    BufferKind getBufferKind() const override { return MemoryBuffer_Malloc; }
-
-  private:
-    SmallVector<char, 0> Buffer;
-  };
-
 public:
   using CompileResult = std::unique_ptr<MemoryBuffer>;
 
-  /// @brief Construct a simple compile functor with the given target.
+  /// Construct a simple compile functor with the given target.
   SimpleCompiler(TargetMachine &TM, ObjectCache *ObjCache = nullptr)
     : TM(TM), ObjCache(ObjCache) {}
 
-  /// @brief Set an ObjectCache to query before compiling.
+  /// Set an ObjectCache to query before compiling.
   void setObjectCache(ObjectCache *NewCache) { ObjCache = NewCache; }
 
-  /// @brief Compile a Module to an ObjectFile.
+  /// Compile a Module to an ObjectFile.
   CompileResult operator()(Module &M) {
     CompileResult CachedObject = tryToLoadFromObjectCache(M);
     if (CachedObject)
@@ -111,6 +98,29 @@ private:
   }
 
   TargetMachine &TM;
+  ObjectCache *ObjCache = nullptr;
+};
+
+/// A thread-safe version of SimpleCompiler.
+///
+/// This class creates a new TargetMachine and SimpleCompiler instance for each
+/// compile.
+class ConcurrentIRCompiler {
+public:
+  ConcurrentIRCompiler(JITTargetMachineBuilder JTMB,
+                       ObjectCache *ObjCache = nullptr)
+      : JTMB(std::move(JTMB)), ObjCache(ObjCache) {}
+
+  void setObjectCache(ObjectCache *ObjCache) { this->ObjCache = ObjCache; }
+
+  std::unique_ptr<MemoryBuffer> operator()(Module &M) {
+    auto TM = cantFail(JTMB.createTargetMachine());
+    SimpleCompiler C(*TM, ObjCache);
+    return C(M);
+  }
+
+private:
+  JITTargetMachineBuilder JTMB;
   ObjectCache *ObjCache = nullptr;
 };
 

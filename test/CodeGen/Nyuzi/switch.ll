@@ -19,13 +19,13 @@ entry:
 
   ; CHECK-STATIC-DAG: movehi [[A:s[0-9]+]], hi(.LJTI0_0)
   ; CHECK-STATIC-DAG: or [[B:s[0-9]+]], [[A]], lo(.LJTI0_0)
-  ; CHECK-STATIC-DAG: shl [[D:s[0-9]+]], s0, 2
+  ; CHECK-STATIC-DAG: shl [[D:s[0-9]+]], s{{[0-9+]}}, 2
   ; CHECK-STATIC-DAG: add_i [[E:s[0-9]+]], [[D]], [[B]]
   ; CHECK-STATIC: load_32 [[C:s[0-9]+]], ([[E]])
   ; CHECK-STATIC: b [[C]]
 
 	; CHECK-PIC-DAG: load_32 [[A:s[0-9]+]], got(.LJTI0_0)(gp)
-	; CHECK-PIC-DAG: shl [[B:s[0-9]+]], s0, 2
+	; CHECK-PIC-DAG: shl [[B:s[0-9]+]], s{{[0-9+]}}, 2
 	; CHECK-PIC-DAG: add_i [[C:s[0-9]+]], [[B]], [[A]]
 	; CHECK-PIC-DAG: load_32 [[C:s[0-9]+]], ([[C]])
 	; CHECK-PIC: add_i [[D:s[0-9]+]], [[C]], [[A]]
@@ -66,4 +66,3 @@ return:
 ; CHECK-PIC: .long	.LBB0_3-.LJTI0_0
 ; CHECK-PIC: .long	.LBB0_4-.LJTI0_0
 ; CHECK-PIC: .long	.LBB0_5-.LJTI0_0
-

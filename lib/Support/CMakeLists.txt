@@ -33,7 +33,16 @@ elseif( CMAKE_HOST_UNIX )
   if( UNIX AND NOT (BEOS OR HAIKU) )
     set(system_libs ${system_libs} m)
   endif()
+  if( FUCHSIA )
+    set(system_libs ${system_libs} zircon)
+  endif()
 endif( MSVC OR MINGW )
+
+# Delay load shell32.dll if possible to speed up process startup.
+set (delayload_flags)
+if (MSVC)
+  set (delayload_flags delayimp -delayload:shell32.dll -delayload:ole32.dll)
+endif()
 
 add_llvm_library(LLVMSupport
   AMDGPUMetadata.cpp
@@ -50,6 +59,7 @@ add_llvm_library(LLVMSupport
   BinaryStreamWriter.cpp
   BlockFrequency.cpp
   BranchProbability.cpp
+  BuryPointer.cpp
   CachePruning.cpp
   circular_raw_ostream.cpp
   Chrono.cpp
@@ -68,6 +78,7 @@ add_llvm_library(LLVMSupport
   DJB.cpp
   Error.cpp
   ErrorHandling.cpp
+  FileCheck.cpp
   FileUtilities.cpp
   FileOutputBuffer.cpp
   FoldingSet.cpp
@@ -76,9 +87,12 @@ add_llvm_library(LLVMSupport
   GlobPattern.cpp
   GraphWriter.cpp
   Hashing.cpp
+  InitLLVM.cpp
   IntEqClasses.cpp
   IntervalMap.cpp
+  ItaniumManglingCanonicalizer.cpp
   JamCRC.cpp
+  JSON.cpp
   KnownBits.cpp
   LEB128.cpp
   LineIterator.cpp
@@ -109,6 +123,7 @@ add_llvm_library(LLVMSupport
   StringPool.cpp
   StringSaver.cpp
   StringRef.cpp
+  SymbolRemappingReader.cpp
   SystemUtils.cpp
   TarWriter.cpp
   TargetParser.cpp
@@ -120,6 +135,8 @@ add_llvm_library(LLVMSupport
   Twine.cpp
   Unicode.cpp
   UnicodeCaseFold.cpp
+  VersionTuple.cpp
+  VirtualFileSystem.cpp
   WithColor.cpp
   YAMLParser.cpp
   YAMLTraits.cpp
@@ -156,7 +173,7 @@ add_llvm_library(LLVMSupport
   ${LLVM_MAIN_INCLUDE_DIR}/llvm/ADT
   ${LLVM_MAIN_INCLUDE_DIR}/llvm/Support
   ${Backtrace_INCLUDE_DIRS}
-  LINK_LIBS ${system_libs}
+  LINK_LIBS ${system_libs} ${delayload_flags}
   )
 
 set_property(TARGET LLVMSupport PROPERTY LLVM_SYSTEM_LIBS "${system_libs}")

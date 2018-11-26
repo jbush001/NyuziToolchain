@@ -29,6 +29,10 @@
 #include "sanitizer_placement_new.h"
 #include "sanitizer_win_defs.h"
 
+#if defined(PSAPI_VERSION) && PSAPI_VERSION == 1
+#pragma comment(lib, "psapi")
+#endif
+
 // A macro to tell the compiler that this part of the code cannot be reached,
 // if the compiler supports this feature. Since we're using this in
 // code that is called when terminating the process, the expansion of the
@@ -202,7 +206,7 @@ void *MmapAlignedOrDieOnFatalError(uptr size, uptr alignment,
   return (void *)mapped_addr;
 }
 
-void *MmapFixedNoReserve(uptr fixed_addr, uptr size, const char *name) {
+bool MmapFixedNoReserve(uptr fixed_addr, uptr size, const char *name) {
   // FIXME: is this really "NoReserve"? On Win32 this does not matter much,
   // but on Win64 it does.
   (void)name;  // unsupported
@@ -215,11 +219,13 @@ void *MmapFixedNoReserve(uptr fixed_addr, uptr size, const char *name) {
   void *p = VirtualAlloc((LPVOID)fixed_addr, size, MEM_RESERVE | MEM_COMMIT,
                          PAGE_READWRITE);
 #endif
-  if (p == 0)
+  if (p == 0) {
     Report("ERROR: %s failed to "
            "allocate %p (%zd) bytes at %p (error code: %d)\n",
            SanitizerToolName, size, size, fixed_addr, GetLastError());
-  return p;
+    return false;
+  }
+  return true;
 }
 
 // Memory space mapped by 'MmapFixedOrDie' must have been reserved by
@@ -247,15 +253,12 @@ uptr ReservedAddressRange::MapOrDie(uptr fixed_addr, uptr size) {
 }
 
 void ReservedAddressRange::Unmap(uptr addr, uptr size) {
-  void* addr_as_void = reinterpret_cast<void*>(addr);
-  uptr base_as_uptr = reinterpret_cast<uptr>(base_);
   // Only unmap if it covers the entire range.
-  CHECK((addr == base_as_uptr) && (size == size_));
-  UnmapOrDie(addr_as_void, size);
-  if (addr_as_void == base_) {
-    base_ = reinterpret_cast<void*>(addr + size);
-  }
-  size_ = size_ - size;
+  CHECK((addr == reinterpret_cast<uptr>(base_)) && (size == size_));
+  // We unmap the whole range, just null out the base.
+  base_ = nullptr;
+  size_ = 0;
+  UnmapOrDie(reinterpret_cast<void*>(addr), size);
 }
 
 void *MmapFixedOrDieOnFatalError(uptr fixed_addr, uptr size) {
@@ -276,11 +279,7 @@ void *MmapNoReserveOrDie(uptr size, const char *mem_type) {
 }
 
 uptr ReservedAddressRange::Init(uptr size, const char *name, uptr fixed_addr) {
-  if (fixed_addr) {
-    base_ = MmapFixedNoAccess(fixed_addr, size, name);
-  } else {
-    base_ = MmapNoAccess(size);
-  }
+  base_ = fixed_addr ? MmapFixedNoAccess(fixed_addr, size) : MmapNoAccess(size);
   size_ = size;
   name_ = name;
   (void)os_handle_;  // unsupported
@@ -318,13 +317,15 @@ void ReleaseMemoryPagesToOS(uptr beg, uptr end) {
   // FIXME: add madvise-analog when we move to 64-bits.
 }
 
-void NoHugePagesInRegion(uptr addr, uptr size) {
+bool NoHugePagesInRegion(uptr addr, uptr size) {
   // FIXME: probably similar to ReleaseMemoryToOS.
+  return true;
 }
 
-void DontDumpShadowMemory(uptr addr, uptr length) {
+bool DontDumpShadowMemory(uptr addr, uptr length) {
   // This is almost useless on 32-bits.
   // FIXME: add madvise-analog when we move to 64-bits.
+  return true;
 }
 
 uptr FindAvailableMemoryRange(uptr size, uptr alignment, uptr left_padding,
@@ -431,7 +432,7 @@ void DumpProcessMap() {
   modules.init();
   uptr num_modules = modules.size();
 
-  InternalScopedBuffer<ModuleInfo> module_infos(num_modules);
+  InternalMmapVector<ModuleInfo> module_infos(num_modules);
   for (size_t i = 0; i < num_modules; ++i) {
     module_infos[i].filepath = modules[i].full_name();
     module_infos[i].base_address = modules[i].ranges().front()->beg;
@@ -499,7 +500,7 @@ void SleepForMillis(int millis) {
 }
 
 u64 NanoTime() {
-  static LARGE_INTEGER frequency = {0};
+  static LARGE_INTEGER frequency = {};
   LARGE_INTEGER counter;
   if (UNLIKELY(frequency.QuadPart == 0)) {
     QueryPerformanceFrequency(&frequency);
@@ -770,43 +771,22 @@ void *internal_start_thread(void (*func)(void *arg), void *arg) { return 0; }
 void internal_join_thread(void *th) { }
 
 // ---------------------- BlockingMutex ---------------- {{{1
-const uptr LOCK_UNINITIALIZED = 0;
-const uptr LOCK_READY = (uptr)-1;
-
-BlockingMutex::BlockingMutex(LinkerInitialized li) {
-  // FIXME: see comments in BlockingMutex::Lock() for the details.
-  CHECK(li == LINKER_INITIALIZED || owner_ == LOCK_UNINITIALIZED);
-
-  CHECK(sizeof(CRITICAL_SECTION) <= sizeof(opaque_storage_));
-  InitializeCriticalSection((LPCRITICAL_SECTION)opaque_storage_);
-  owner_ = LOCK_READY;
-}
 
 BlockingMutex::BlockingMutex() {
-  CHECK(sizeof(CRITICAL_SECTION) <= sizeof(opaque_storage_));
-  InitializeCriticalSection((LPCRITICAL_SECTION)opaque_storage_);
-  owner_ = LOCK_READY;
+  CHECK(sizeof(SRWLOCK) <= sizeof(opaque_storage_));
+  internal_memset(this, 0, sizeof(*this));
 }
 
 void BlockingMutex::Lock() {
-  if (owner_ == LOCK_UNINITIALIZED) {
-    // FIXME: hm, global BlockingMutex objects are not initialized?!?
-    // This might be a side effect of the clang+cl+link Frankenbuild...
-    new(this) BlockingMutex((LinkerInitialized)(LINKER_INITIALIZED + 1));
-
-    // FIXME: If it turns out the linker doesn't invoke our
-    // constructors, we should probably manually Lock/Unlock all the global
-    // locks while we're starting in one thread to avoid double-init races.
-  }
-  EnterCriticalSection((LPCRITICAL_SECTION)opaque_storage_);
-  CHECK_EQ(owner_, LOCK_READY);
+  AcquireSRWLockExclusive((PSRWLOCK)opaque_storage_);
+  CHECK_EQ(owner_, 0);
   owner_ = GetThreadSelf();
 }
 
 void BlockingMutex::Unlock() {
-  CHECK_EQ(owner_, GetThreadSelf());
-  owner_ = LOCK_READY;
-  LeaveCriticalSection((LPCRITICAL_SECTION)opaque_storage_);
+  CheckLocked();
+  owner_ = 0;
+  ReleaseSRWLockExclusive((PSRWLOCK)opaque_storage_);
 }
 
 void BlockingMutex::CheckLocked() {
@@ -1028,11 +1008,24 @@ void CheckVMASize() {
   // Do nothing.
 }
 
+void InitializePlatformEarly() {
+  // Do nothing.
+}
+
 void MaybeReexec() {
   // No need to re-exec on Windows.
 }
 
+void CheckASLR() {
+  // Do nothing
+}
+
 char **GetArgv() {
+  // FIXME: Actually implement this function.
+  return 0;
+}
+
+char **GetEnviron() {
   // FIXME: Actually implement this function.
   return 0;
 }
@@ -1066,7 +1059,7 @@ bool GetRandom(void *buffer, uptr length, bool blocking) {
 }
 
 u32 GetNumberOfCPUs() {
-  SYSTEM_INFO sysinfo = {0};
+  SYSTEM_INFO sysinfo = {};
   GetNativeSystemInfo(&sysinfo);
   return sysinfo.dwNumberOfProcessors;
 }

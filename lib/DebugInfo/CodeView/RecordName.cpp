@@ -236,6 +236,16 @@ Error TypeNameComputer::visitKnownRecord(CVType &CVR, LabelRecord &R) {
   return Error::success();
 }
 
+Error TypeNameComputer::visitKnownRecord(CVType &CVR,
+                                         PrecompRecord &Precomp) {
+  return Error::success();
+}
+
+Error TypeNameComputer::visitKnownRecord(CVType &CVR,
+                                         EndPrecompRecord &EndPrecomp) {
+  return Error::success();
+}
+
 std::string llvm::codeview::computeTypeName(TypeCollection &Types,
                                             TypeIndex Index) {
   TypeNameComputer Computer(Types);
@@ -276,6 +286,8 @@ static int getSymbolNameOffset(CVSymbol Sym) {
   case SymbolKind::S_GMANDATA:
   case SymbolKind::S_LTHREAD32:
   case SymbolKind::S_GTHREAD32:
+  case SymbolKind::S_PROCREF:
+  case SymbolKind::S_LPROCREF:
     return 10;
   // See RegisterSym and LocalSym
   case SymbolKind::S_REGISTER:
@@ -295,6 +307,9 @@ static int getSymbolNameOffset(CVSymbol Sym) {
   // See BPRelativeSym
   case SymbolKind::S_BPREL32:
     return 8;
+  // See UsingNamespaceSym
+  case SymbolKind::S_UNAMESPACE:
+    return 0;
   default:
     return -1;
   }

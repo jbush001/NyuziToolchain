@@ -190,14 +190,25 @@ static unsigned countToEliminateCompares(Loop &L, unsigned MaxPeelCount,
 
     const SCEVAddRecExpr *LeftAR = cast<SCEVAddRecExpr>(LeftSCEV);
 
-    // Avoid huge SCEV computations in the loop below and make sure we only
-    // consider AddRecs of the loop we are trying to peel.
-    if (!LeftAR->isAffine() || LeftAR->getLoop() != &L)
+    // Avoid huge SCEV computations in the loop below, make sure we only
+    // consider AddRecs of the loop we are trying to peel and avoid
+    // non-monotonic predicates, as we will not be able to simplify the loop
+    // body.
+    // FIXME: For the non-monotonic predicates ICMP_EQ and ICMP_NE we can
+    //        simplify the loop, if we peel 1 additional iteration, if there
+    //        is no wrapping.
+    bool Increasing;
+    if (!LeftAR->isAffine() || LeftAR->getLoop() != &L ||
+        !SE.isMonotonicPredicate(LeftAR, Pred, Increasing))
       continue;
+    (void)Increasing;
 
-    // Check if extending DesiredPeelCount lets us evaluate Pred.
+    // Check if extending the current DesiredPeelCount lets us evaluate Pred
+    // or !Pred in the loop body statically.
+    unsigned NewPeelCount = DesiredPeelCount;
+
     const SCEV *IterVal = LeftAR->evaluateAtIteration(
-        SE.getConstant(LeftSCEV->getType(), DesiredPeelCount), SE);
+        SE.getConstant(LeftSCEV->getType(), NewPeelCount), SE);
 
     // If the original condition is not known, get the negated predicate
     // (which holds on the else branch) and check if it is known. This allows
@@ -206,11 +217,18 @@ static unsigned countToEliminateCompares(Loop &L, unsigned MaxPeelCount,
       Pred = ICmpInst::getInversePredicate(Pred);
 
     const SCEV *Step = LeftAR->getStepRecurrence(SE);
-    while (DesiredPeelCount < MaxPeelCount &&
+    while (NewPeelCount < MaxPeelCount &&
            SE.isKnownPredicate(Pred, IterVal, RightSCEV)) {
       IterVal = SE.getAddExpr(IterVal, Step);
-      DesiredPeelCount++;
+      NewPeelCount++;
     }
+
+    // Only peel the loop if the monotonic predicate !Pred becomes known in the
+    // first iteration of the loop body after peeling.
+    if (NewPeelCount > DesiredPeelCount &&
+        SE.isKnownPredicate(ICmpInst::getInversePredicate(Pred), IterVal,
+                            RightSCEV))
+      DesiredPeelCount = NewPeelCount;
   }
 
   return DesiredPeelCount;
@@ -235,8 +253,8 @@ void llvm::computePeelCount(Loop *L, unsigned LoopSize,
   // If the user provided a peel count, use that.
   bool UserPeelCount = UnrollForcePeelCount.getNumOccurrences() > 0;
   if (UserPeelCount) {
-    DEBUG(dbgs() << "Force-peeling first " << UnrollForcePeelCount
-                 << " iterations.\n");
+    LLVM_DEBUG(dbgs() << "Force-peeling first " << UnrollForcePeelCount
+                      << " iterations.\n");
     UP.PeelCount = UnrollForcePeelCount;
     return;
   }
@@ -280,8 +298,9 @@ void llvm::computePeelCount(Loop *L, unsigned LoopSize,
       DesiredPeelCount = std::min(DesiredPeelCount, MaxPeelCount);
       // Consider max peel count limitation.
       assert(DesiredPeelCount > 0 && "Wrong loop size estimation?");
-      DEBUG(dbgs() << "Peel " << DesiredPeelCount << " iteration(s) to turn"
-                   << " some Phis into invariants.\n");
+      LLVM_DEBUG(dbgs() << "Peel " << DesiredPeelCount
+                        << " iteration(s) to turn"
+                        << " some Phis into invariants.\n");
       UP.PeelCount = DesiredPeelCount;
       return;
     }
@@ -302,28 +321,30 @@ void llvm::computePeelCount(Loop *L, unsigned LoopSize,
     if (!PeelCount)
       return;
 
-    DEBUG(dbgs() << "Profile-based estimated trip count is " << *PeelCount
-                 << "\n");
+    LLVM_DEBUG(dbgs() << "Profile-based estimated trip count is " << *PeelCount
+                      << "\n");
 
     if (*PeelCount) {
       if ((*PeelCount <= UnrollPeelMaxCount) &&
           (LoopSize * (*PeelCount + 1) <= UP.Threshold)) {
-        DEBUG(dbgs() << "Peeling first " << *PeelCount << " iterations.\n");
+        LLVM_DEBUG(dbgs() << "Peeling first " << *PeelCount
+                          << " iterations.\n");
         UP.PeelCount = *PeelCount;
         return;
       }
-      DEBUG(dbgs() << "Requested peel count: " << *PeelCount << "\n");
-      DEBUG(dbgs() << "Max peel count: " << UnrollPeelMaxCount << "\n");
-      DEBUG(dbgs() << "Peel cost: " << LoopSize * (*PeelCount + 1) << "\n");
-      DEBUG(dbgs() << "Max peel cost: " << UP.Threshold << "\n");
+      LLVM_DEBUG(dbgs() << "Requested peel count: " << *PeelCount << "\n");
+      LLVM_DEBUG(dbgs() << "Max peel count: " << UnrollPeelMaxCount << "\n");
+      LLVM_DEBUG(dbgs() << "Peel cost: " << LoopSize * (*PeelCount + 1)
+                        << "\n");
+      LLVM_DEBUG(dbgs() << "Max peel cost: " << UP.Threshold << "\n");
     }
   }
 }
 
-/// \brief Update the branch weights of the latch of a peeled-off loop
+/// Update the branch weights of the latch of a peeled-off loop
 /// iteration.
 /// This sets the branch weights for the latch of the recently peeled off loop
-/// iteration correctly. 
+/// iteration correctly.
 /// Our goal is to make sure that:
 /// a) The total weight of all the copies of the loop body is preserved.
 /// b) The total weight of the loop exit is preserved.
@@ -361,7 +382,7 @@ static void updateBranchWeights(BasicBlock *Header, BranchInst *LatchBR,
   }
 }
 
-/// \brief Clones the body of the loop L, putting it between \p InsertTop and \p
+/// Clones the body of the loop L, putting it between \p InsertTop and \p
 /// InsertBot.
 /// \param IterNumber The serial number of the iteration currently being
 /// peeled off.
@@ -470,7 +491,7 @@ static void cloneLoopBlocks(Loop *L, unsigned IterNumber, BasicBlock *InsertTop,
     LVMap[KV.first] = KV.second;
 }
 
-/// \brief Peel off the first \p PeelCount iterations of loop \p L.
+/// Peel off the first \p PeelCount iterations of loop \p L.
 ///
 /// Note that this does not peel them off as a single straight-line block.
 /// Rather, each iteration is peeled off separately, and needs to check the
@@ -523,7 +544,7 @@ bool llvm::peelLoop(Loop *L, unsigned PeelCount, LoopInfo *LI,
   //
   // Each following iteration will split the current bottom anchor in two,
   // and put the new copy of the loop body between these two blocks. That is,
-  // after peeling another iteration from the example above, we'll split 
+  // after peeling another iteration from the example above, we'll split
   // InsertBot, and get:
   //
   // InsertTop:
@@ -597,8 +618,12 @@ bool llvm::peelLoop(Loop *L, unsigned PeelCount, LoopInfo *LI,
       assert(DT->verify(DominatorTree::VerificationLevel::Fast));
     }
 
-    updateBranchWeights(InsertBot, cast<BranchInst>(VMap[LatchBR]), Iter,
+    auto *LatchBRCopy = cast<BranchInst>(VMap[LatchBR]);
+    updateBranchWeights(InsertBot, LatchBRCopy, Iter,
                         PeelCount, ExitWeight);
+    // Remove Loop metadata from the latch branch instruction
+    // because it is not the Loop's latch branch anymore.
+    LatchBRCopy->setMetadata(LLVMContext::MD_loop, nullptr);
 
     InsertTop = InsertBot;
     InsertBot = SplitBlock(InsertBot, InsertBot->getTerminator(), DT, LI);

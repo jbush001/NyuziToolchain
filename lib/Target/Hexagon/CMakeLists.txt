@@ -29,7 +29,6 @@ add_llvm_target(HexagonCodeGen
   HexagonExpandCondsets.cpp
   HexagonFixupHwLoops.cpp
   HexagonFrameLowering.cpp
-  HexagonGatherPacketize.cpp
   HexagonGenExtract.cpp
   HexagonGenInsert.cpp
   HexagonGenMux.cpp
@@ -71,7 +70,6 @@ add_llvm_target(HexagonCodeGen
 )
 
 add_subdirectory(AsmParser)
-add_subdirectory(TargetInfo)
-add_subdirectory(MCTargetDesc)
 add_subdirectory(Disassembler)
-
+add_subdirectory(MCTargetDesc)
+add_subdirectory(TargetInfo)

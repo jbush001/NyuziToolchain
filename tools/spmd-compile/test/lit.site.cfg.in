@@ -1,4 +1,0 @@
-@LIT_SITE_CFG_IN_HEADER@
-
-lit_config.load_config(config, '@SPMD_COMPILE_SOURCE_DIR@/test/lit.cfg')
-

@@ -55,10 +55,10 @@ public:
     bpfel,          // eBPF or extended BPF or 64-bit BPF (little endian)
     bpfeb,          // eBPF or extended BPF or 64-bit BPF (big endian)
     hexagon,        // Hexagon: hexagon
-    mips,           // MIPS: mips, mipsallegrex
-    mipsel,         // MIPSEL: mipsel, mipsallegrexel
-    mips64,         // MIPS64: mips64
-    mips64el,       // MIPS64EL: mips64el
+    mips,           // MIPS: mips, mipsallegrex, mipsr6
+    mipsel,         // MIPSEL: mipsel, mipsallegrexe, mipsr6el
+    mips64,         // MIPS64: mips64, mips64r6, mipsn32, mipsn32r6
+    mips64el,       // MIPS64EL: mips64el, mips64r6el, mipsn32el, mipsn32r6el
     msp430,         // MSP430: msp430
     nios2,          // NIOSII: nios2
     ppc,            // PPC: powerpc
@@ -102,6 +102,8 @@ public:
   enum SubArchType {
     NoSubArch,
 
+    ARMSubArch_v8_5a,
+    ARMSubArch_v8_4a,
     ARMSubArch_v8_3a,
     ARMSubArch_v8_2a,
     ARMSubArch_v8_1a,
@@ -125,7 +127,9 @@ public:
 
     KalimbaSubArch_v3,
     KalimbaSubArch_v4,
-    KalimbaSubArch_v5
+    KalimbaSubArch_v5,
+
+    MipsSubArch_r6
   };
   enum VendorType {
     UnknownVendor,
@@ -145,7 +149,8 @@ public:
     AMD,
     Mesa,
     SUSE,
-    LastVendorType = SUSE
+    OpenEmbedded,
+    LastVendorType = OpenEmbedded
   };
   enum OSType {
     UnknownOS,
@@ -181,7 +186,8 @@ public:
     Mesa3D,
     Contiki,
     AMDPAL,     // AMD PAL Runtime
-    LastOSType = AMDPAL
+    HermitCore, // HermitCore Unikernel/Multikernel
+    LastOSType = HermitCore
   };
   enum EnvironmentType {
     UnknownEnvironment,
@@ -657,6 +663,21 @@ public:
   /// Tests whether the target is AArch64 (little and big endian).
   bool isAArch64() const {
     return getArch() == Triple::aarch64 || getArch() == Triple::aarch64_be;
+  }
+
+  /// Tests whether the target is MIPS 32-bit (little and big endian).
+  bool isMIPS32() const {
+    return getArch() == Triple::mips || getArch() == Triple::mipsel;
+  }
+
+  /// Tests whether the target is MIPS 64-bit (little and big endian).
+  bool isMIPS64() const {
+    return getArch() == Triple::mips64 || getArch() == Triple::mips64el;
+  }
+
+  /// Tests whether the target is MIPS (little and big endian, 32- or 64-bit).
+  bool isMIPS() const {
+    return isMIPS32() || isMIPS64();
   }
 
   /// Tests whether the target supports comdat

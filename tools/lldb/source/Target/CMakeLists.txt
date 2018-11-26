@@ -1,5 +1,3 @@
-include_directories(../Plugins/Process/Utility)
-
 add_lldb_library(lldbTarget
   ABI.cpp
   CPPLanguageRuntime.cpp
@@ -30,6 +28,7 @@ add_lldb_library(lldbTarget
   SectionLoadList.cpp
   StackFrame.cpp
   StackFrameList.cpp
+  StackFrameRecognizer.cpp
   StackID.cpp
   StopInfo.cpp
   StructuredDataPlugin.cpp

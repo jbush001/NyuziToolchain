@@ -19,6 +19,13 @@ void foo(int arg) {
   {}
 }
 #else
+
+struct SREF {
+  int &a;
+  int b;
+  SREF(int &a) : a(a) {}
+};
+
 template <typename T, int I>
 struct SA {
   static int ss;
@@ -31,13 +38,14 @@ struct SA {
   T *f;
   int bf : 20;
   void func(int arg) {
+    SREF sref(arg);
     #pragma omp target
     {
       a = 0.0;
       func(arg);
       bf = 20;
     }
-    #pragma omp target map(arg,a,d)
+    #pragma omp target map(arg,a,d,sref.b)
     {}
     #pragma omp target map(arg[2:2],a,d) // expected-error {{subscripted value is not an array or pointer}}
     {}
@@ -583,9 +591,7 @@ int main(int argc, char **argv) {
 #pragma omp target map(s.b[:5])
 // expected-error@+1 {{variable already marked as mapped in current construct}}
   { s.a++; }
-// expected-note@+1 {{used here}}
 #pragma omp target map(s.p[:5])
-// expected-error@+1 {{variable already marked as mapped in current construct}}
   { s.a++; }
 // expected-note@+1 {{used here}}
 #pragma omp target map(s.s.sa[3].a)

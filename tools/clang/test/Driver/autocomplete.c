@@ -25,6 +25,7 @@
 // STDLIBALL-NEXT: platform
 // RUN: %clang --autocomplete=-meabi,d | FileCheck %s -check-prefix=MEABI
 // MEABI: default
+// RUN: %clang --autocomplete=-meabi, | FileCheck %s -check-prefix=MEABIALL
 // RUN: %clang --autocomplete=-meabi | FileCheck %s -check-prefix=MEABIALL
 // MEABIALL: 4
 // MEABIALL-NEXT: 5
@@ -33,7 +34,8 @@
 // RUN: %clang --autocomplete=-cl-std=,CL2 | FileCheck %s -check-prefix=CLSTD
 // CLSTD: CL2.0
 // RUN: %clang --autocomplete=-cl-std= | FileCheck %s -check-prefix=CLSTDALL
-// CLSTDALL: cl
+// CLSTDALL: c++
+// CLSTDALL-NEXT: cl
 // CLSTDALL-NEXT: CL
 // CLSTDALL-NEXT: cl1.1
 // CLSTDALL-NEXT: CL1.1
@@ -114,3 +116,14 @@
 // Check if they can autocomplete values with coron
 // RUN: %clang --autocomplete=foo,bar,,,-fno-sanitize-coverage=,f | FileCheck %s -check-prefix=FNOSANICOVER-CORON
 // FNOSANICOVER-CORON: func
+
+// Clang should return empty string when no value completion was found, which will fall back to file autocompletion
+// RUN: %clang --autocomplete=-fmodule-file= | FileCheck %s -check-prefix=MODULE_FILE_EQUAL
+// MODULE_FILE_EQUAL-NOT: -fmodule-file=
+// RUN: %clang --autocomplete=-fmodule-file | FileCheck %s -check-prefix=MODULE_FILE
+// MODULE_FILE: -fmodule-file=
+
+// RUN: %clang --autocomplete=-Qunused-arguments, | FileCheck %s -check-prefix=QUNUSED_COMMA
+// QUNUSED_COMMA-NOT: -Qunused-arguments
+// RUN: %clang --autocomplete=-Qunused-arguments | FileCheck %s -check-prefix=QUNUSED
+// QUNUSED: -Qunused-arguments

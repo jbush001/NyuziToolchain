@@ -27,6 +27,7 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/Parallel.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/Support/xxhash.h"
 #include <algorithm>
 #include <atomic>
 #include <vector>
@@ -44,6 +45,8 @@ public:
 
 private:
   void segregate(size_t Begin, size_t End, bool Constant);
+
+  bool assocEquals(const SectionChunk *A, const SectionChunk *B);
 
   bool equalsConstant(const SectionChunk *A, const SectionChunk *B);
   bool equalsVariable(const SectionChunk *A, const SectionChunk *B);
@@ -63,13 +66,6 @@ private:
   std::atomic<bool> Repeat = {false};
 };
 
-// Returns a hash value for S.
-uint32_t ICF::getHash(SectionChunk *C) {
-  return hash_combine(C->getPermissions(), C->SectionName, C->NumRelocs,
-                      C->Alignment, uint32_t(C->Header->SizeOfRawData),
-                      C->Checksum, C->getContents());
-}
-
 // Returns true if section S is subject of ICF.
 //
 // Microsoft's documentation
@@ -77,21 +73,31 @@ uint32_t ICF::getHash(SectionChunk *C) {
 // 2017) says that /opt:icf folds both functions and read-only data.
 // Despite that, the MSVC linker folds only functions. We found
 // a few instances of programs that are not safe for data merging.
-// Therefore, we merge only functions just like the MSVC tool. However, we merge
-// identical .xdata sections, because the address of unwind information is
-// insignificant to the user program and the Visual C++ linker does this.
+// Therefore, we merge only functions just like the MSVC tool. However, we also
+// merge read-only sections in a couple of cases where the address of the
+// section is insignificant to the user program and the behaviour matches that
+// of the Visual C++ linker.
 bool ICF::isEligible(SectionChunk *C) {
   // Non-comdat chunks, dead chunks, and writable chunks are not elegible.
-  bool Writable = C->getPermissions() & llvm::COFF::IMAGE_SCN_MEM_WRITE;
-  if (!C->isCOMDAT() || !C->isLive() || Writable)
+  bool Writable = C->getOutputCharacteristics() & llvm::COFF::IMAGE_SCN_MEM_WRITE;
+  if (!C->isCOMDAT() || !C->Live || Writable)
     return false;
 
   // Code sections are eligible.
-  if (C->getPermissions() & llvm::COFF::IMAGE_SCN_MEM_EXECUTE)
+  if (C->getOutputCharacteristics() & llvm::COFF::IMAGE_SCN_MEM_EXECUTE)
     return true;
 
-  // .xdata unwind info sections are eligble.
-  return C->getSectionName().split('$').first == ".xdata";
+  // .pdata and .xdata unwind info sections are eligible.
+  StringRef OutSecName = C->getSectionName().split('$').first;
+  if (OutSecName == ".pdata" || OutSecName == ".xdata")
+    return true;
+
+  // So are vtables.
+  if (C->Sym && C->Sym->getName().startswith("??_7"))
+    return true;
+
+  // Anything else not in an address-significance table is eligible.
+  return !C->KeepUnique;
 }
 
 // Split an equivalence class into smaller classes.
@@ -120,10 +126,23 @@ void ICF::segregate(size_t Begin, size_t End, bool Constant) {
   }
 }
 
+// Returns true if two sections' associative children are equal.
+bool ICF::assocEquals(const SectionChunk *A, const SectionChunk *B) {
+  auto ChildClasses = [&](const SectionChunk *SC) {
+    std::vector<uint32_t> Classes;
+    for (const SectionChunk *C : SC->children())
+      if (!C->SectionName.startswith(".debug") &&
+          C->SectionName != ".gfids$y" && C->SectionName != ".gljmp$y")
+        Classes.push_back(C->Class[Cnt % 2]);
+    return Classes;
+  };
+  return ChildClasses(A) == ChildClasses(B);
+}
+
 // Compare "non-moving" part of two sections, namely everything
 // except relocation targets.
 bool ICF::equalsConstant(const SectionChunk *A, const SectionChunk *B) {
-  if (A->NumRelocs != B->NumRelocs)
+  if (A->Relocs.size() != B->Relocs.size())
     return false;
 
   // Compare relocations.
@@ -146,10 +165,11 @@ bool ICF::equalsConstant(const SectionChunk *A, const SectionChunk *B) {
     return false;
 
   // Compare section attributes and contents.
-  return A->getPermissions() == B->getPermissions() &&
-         A->SectionName == B->SectionName && A->Alignment == B->Alignment &&
+  return A->getOutputCharacteristics() == B->getOutputCharacteristics() &&
+         A->SectionName == B->SectionName &&
          A->Header->SizeOfRawData == B->Header->SizeOfRawData &&
-         A->Checksum == B->Checksum && A->getContents() == B->getContents();
+         A->Checksum == B->Checksum && A->getContents() == B->getContents() &&
+         assocEquals(A, B);
 }
 
 // Compare "moving" part of two sections, namely relocation targets.
@@ -165,7 +185,9 @@ bool ICF::equalsVariable(const SectionChunk *A, const SectionChunk *B) {
         return D1->getChunk()->Class[Cnt % 2] == D2->getChunk()->Class[Cnt % 2];
     return false;
   };
-  return std::equal(A->Relocs.begin(), A->Relocs.end(), B->Relocs.begin(), Eq);
+  return std::equal(A->Relocs.begin(), A->Relocs.end(), B->Relocs.begin(),
+                    Eq) &&
+         assocEquals(A, B);
 }
 
 // Find the first Chunk after Begin that has a different class from Begin.
@@ -240,8 +262,18 @@ void ICF::run(ArrayRef<Chunk *> Vec) {
 
   // Initially, we use hash values to partition sections.
   for_each(parallel::par, Chunks.begin(), Chunks.end(), [&](SectionChunk *SC) {
+    SC->Class[1] = xxHash64(SC->getContents());
+  });
+
+  // Combine the hashes of the sections referenced by each section into its
+  // hash.
+  for_each(parallel::par, Chunks.begin(), Chunks.end(), [&](SectionChunk *SC) {
+    uint32_t Hash = SC->Class[1];
+    for (Symbol *B : SC->symbols())
+      if (auto *Sym = dyn_cast_or_null<DefinedRegular>(B))
+        Hash ^= Sym->getChunk()->Class[1];
     // Set MSB to 1 to avoid collisions with non-hash classs.
-    SC->Class[0] = getHash(SC) | (1 << 31);
+    SC->Class[0] = Hash | (1U << 31);
   });
 
   // From now on, sections in Chunks are ordered so that sections in

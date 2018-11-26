@@ -23,9 +23,9 @@
 #include "clang/Basic/OpenMPKinds.h"
 #include "clang/Basic/Sanitizers.h"
 #include "clang/Basic/SourceLocation.h"
-#include "clang/Basic/VersionTuple.h"
 #include "llvm/ADT/StringSwitch.h"
 #include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/VersionTuple.h"
 #include "llvm/Support/raw_ostream.h"
 #include <algorithm>
 #include <cassert>
@@ -86,7 +86,7 @@ public:
   attr::Kind getKind() const {
     return static_cast<attr::Kind>(AttrKind);
   }
-  
+
   unsigned getSpellingListIndex() const { return SpellingListIndex; }
   const char *getSpelling() const;
 
@@ -96,7 +96,7 @@ public:
 
   bool isInherited() const { return Inherited; }
 
-  /// \brief Returns true if the attribute has been implicitly created instead
+  /// Returns true if the attribute has been implicitly created instead
   /// of explicitly written by the user.
   bool isImplicit() const { return Implicit; }
   void setImplicit(bool I) { Implicit = I; }
@@ -111,6 +111,19 @@ public:
 
   // Pretty print this attribute.
   void printPretty(raw_ostream &OS, const PrintingPolicy &Policy) const;
+};
+
+class TypeAttr : public Attr {
+protected:
+  TypeAttr(attr::Kind AK, SourceRange R, unsigned SpellingListIndex,
+           bool IsLateParsed)
+      : Attr(AK, R, SpellingListIndex, IsLateParsed) {}
+
+public:
+  static bool classof(const Attr *A) {
+    return A->getKind() >= attr::FirstTypeAttr &&
+           A->getKind() <= attr::LastTypeAttr;
+  }
 };
 
 class StmtAttr : public Attr {

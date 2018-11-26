@@ -122,8 +122,9 @@ public:
                                 const yaml::StringValue &RegisterSource,
                                 bool IsRestored, int FrameIdx);
 
+  template <typename T>
   bool parseStackObjectsDebugInfo(PerFunctionMIParsingState &PFS,
-                                  const yaml::MachineStackObject &Object,
+                                  const T &Object,
                                   int FrameIdx);
 
   bool initializeConstantPool(PerFunctionMIParsingState &PFS,
@@ -354,6 +355,7 @@ MIRParserImpl::initializeMachineFunction(const yaml::MachineFunction &YamlMF,
   if (YamlMF.Alignment)
     MF.setAlignment(YamlMF.Alignment);
   MF.setExposesReturnsTwice(YamlMF.ExposesReturnsTwice);
+  MF.setHasWinCFI(YamlMF.HasWinCFI);
 
   if (YamlMF.Legalized)
     MF.getProperties().set(MachineFunctionProperties::Property::Legalized);
@@ -579,6 +581,7 @@ bool MIRParserImpl::initializeFrameInfo(PerFunctionMIParsingState &PFS,
   MFI.setHasCalls(YamlMFI.HasCalls);
   if (YamlMFI.MaxCallFrameSize != ~0u)
     MFI.setMaxCallFrameSize(YamlMFI.MaxCallFrameSize);
+  MFI.setCVBytesOfCalleeSavedRegisters(YamlMFI.CVBytesOfCalleeSavedRegisters);
   MFI.setHasOpaqueSPAdjustment(YamlMFI.HasOpaqueSPAdjustment);
   MFI.setHasVAStart(YamlMFI.HasVAStart);
   MFI.setHasMustTailInVarArgFunc(YamlMFI.HasMustTailInVarArgFunc);
@@ -615,6 +618,8 @@ bool MIRParserImpl::initializeFrameInfo(PerFunctionMIParsingState &PFS,
                        Twine(Object.ID.Value) + "'");
     if (parseCalleeSavedRegister(PFS, CSIInfo, Object.CalleeSavedRegister,
                                  Object.CalleeSavedRestored, ObjectIdx))
+      return true;
+    if (parseStackObjectsDebugInfo(PFS, Object, ObjectIdx))
       return true;
   }
 
@@ -700,11 +705,11 @@ static bool typecheckMDNode(T *&Result, MDNode *Node,
   return false;
 }
 
+template <typename T>
 bool MIRParserImpl::parseStackObjectsDebugInfo(PerFunctionMIParsingState &PFS,
-    const yaml::MachineStackObject &Object, int FrameIdx) {
+    const T &Object, int FrameIdx) {
   // Debug information can only be attached to stack objects; Fixed stack
   // objects aren't supported.
-  assert(FrameIdx >= 0 && "Expected a stack object frame index");
   MDNode *Var = nullptr, *Expr = nullptr, *Loc = nullptr;
   if (parseMDNode(PFS, Var, Object.DebugVar) ||
       parseMDNode(PFS, Expr, Object.DebugExpr) ||
@@ -719,7 +724,7 @@ bool MIRParserImpl::parseStackObjectsDebugInfo(PerFunctionMIParsingState &PFS,
       typecheckMDNode(DIExpr, Expr, Object.DebugExpr, "DIExpression", *this) ||
       typecheckMDNode(DILoc, Loc, Object.DebugLoc, "DILocation", *this))
     return true;
-  PFS.MF.setVariableDbgInfo(DIVar, DIExpr, unsigned(FrameIdx), DILoc);
+  PFS.MF.setVariableDbgInfo(DIVar, DIExpr, FrameIdx, DILoc);
   return false;
 }
 

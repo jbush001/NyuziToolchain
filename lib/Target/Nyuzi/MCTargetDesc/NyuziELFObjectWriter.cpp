@@ -84,9 +84,7 @@ unsigned NyuziELFObjectWriter::getRelocType(MCContext &Ctx,
   return Type;
 }
 
-std::unique_ptr<MCObjectWriter>
-llvm::createNyuziELFObjectWriter(raw_pwrite_stream &OS,
-                                 uint8_t OSABI) {
-  return createELFObjectWriter(llvm::make_unique<NyuziELFObjectWriter>(OSABI),
-                               OS, true);
+std::unique_ptr<MCObjectTargetWriter>
+llvm::createNyuziELFObjectWriter(uint8_t OSABI) {
+  return llvm::make_unique<NyuziELFObjectWriter>(OSABI);
 }

@@ -6,6 +6,7 @@
 // CHECK-V8A: #define __ARM_FEATURE_DIRECTED_ROUNDING 1
 // CHECK-V8A: #define __ARM_FEATURE_NUMERIC_MAXMIN 1
 // CHECK-V8A-NOT: #define __ARM_FP 0x
+// CHECK-V8A-NOT: #define __ARM_FEATURE_DOTPROD
 
 // RUN: %clang -target armv8a-none-linux-gnueabi -x c -E -dM %s -o - | FileCheck -match-full-lines --check-prefix=CHECK-V8A-ALLOW-FP-INSTR %s
 // RUN: %clang -target armv8a-none-linux-gnueabihf -x c -E -dM %s -o - | FileCheck -match-full-lines --check-prefix=CHECK-V8A-ALLOW-FP-INSTR %s
@@ -18,18 +19,62 @@
 // CHECK-V8A-ALLOW-FP-INSTR: #define __ARM_FP 0xe
 // CHECK-V8A-ALLOW-FP-INSTR: #define __ARM_FP16_ARGS 1
 // CHECK-V8A-ALLOW-FP-INSTR: #define __ARM_FP16_FORMAT_IEEE 1
+// CHECK-V8A-ALLOW-FP-INSTR-V8A-NOT: #define __ARM_FEATURE_DOTPROD
 
-// RUN: %clang -target arm-none-linux-gnueabi -march=armv8.2a+fp16 -x c -E -dM %s -o - | FileCheck -match-full-lines --check-prefix=CHECK-FULLFP16-VECTOR-SCALAR %s
+// RUN: %clang -target arm-none-linux-gnueabi -march=armv8.2-a+nofp16fml+fp16 -x c -E -dM %s -o - | FileCheck -match-full-lines --check-prefix=CHECK-FULLFP16-VECTOR-SCALAR %s
+// RUN: %clang -target arm-none-linux-gnueabi -march=armv8.2-a+nofp16+fp16fml -x c -E -dM %s -o - | FileCheck -match-full-lines --check-prefix=CHECK-FULLFP16-VECTOR-SCALAR %s
+// RUN: %clang -target arm-none-linux-gnueabi -march=armv8.2-a+fp16+nofp16fml -x c -E -dM %s -o - | FileCheck -match-full-lines --check-prefix=CHECK-FULLFP16-VECTOR-SCALAR %s
+// RUN: %clang -target arm-none-linux-gnueabi -march=armv8-a+fp16fml -x c -E -dM %s -o - | FileCheck -match-full-lines --check-prefix=CHECK-FULLFP16-VECTOR-SCALAR %s
+// RUN: %clang -target arm-none-linux-gnueabi -march=armv8-a+fp16 -x c -E -dM %s -o - | FileCheck -match-full-lines --check-prefix=CHECK-FULLFP16-VECTOR-SCALAR %s
+// RUN: %clang -target arm-none-linux-gnueabi -march=armv8.4-a+nofp16fml+fp16 -x c -E -dM %s -o - | FileCheck -match-full-lines --check-prefix=CHECK-FULLFP16-VECTOR-SCALAR %s
+// RUN: %clang -target arm-none-linux-gnueabi -march=armv8.4-a+nofp16+fp16fml -x c -E -dM %s -o - | FileCheck -match-full-lines --check-prefix=CHECK-FULLFP16-VECTOR-SCALAR %s
+// RUN: %clang -target arm-none-linux-gnueabi -march=armv8.4-a+fp16+nofp16fml -x c -E -dM %s -o - | FileCheck -match-full-lines --check-prefix=CHECK-FULLFP16-VECTOR-SCALAR %s
+// RUN: %clang -target arm-none-linux-gnueabi -march=armv8.4-a+fp16fml -x c -E -dM %s -o - | FileCheck -match-full-lines --check-prefix=CHECK-FULLFP16-VECTOR-SCALAR %s
+// RUN: %clang -target arm-none-linux-gnueabi -march=armv8.4-a+fp16 -x c -E -dM %s -o - | FileCheck -match-full-lines --check-prefix=CHECK-FULLFP16-VECTOR-SCALAR %s
 // CHECK-FULLFP16-VECTOR-SCALAR: #define __ARM_FEATURE_FP16_SCALAR_ARITHMETIC 1
 // CHECK-FULLFP16-VECTOR-SCALAR: #define __ARM_FEATURE_FP16_VECTOR_ARITHMETIC 1
 // CHECK-FULLFP16-VECTOR-SCALAR: #define __ARM_FP 0xe
 // CHECK-FULLFP16-VECTOR-SCALAR: #define __ARM_FP16_FORMAT_IEEE 1
 
-// RUN: %clang -target arm-none-linux-gnueabi -march=armv8.2a+fp16 -mfpu=vfp4 -x c -E -dM %s -o - | FileCheck -match-full-lines --check-prefix=CHECK-FULLFP16-SCALAR %s
+// +fp16fml without neon doesn't make sense as the fp16fml instructions all require SIMD.
+// However, as +fp16fml implies +fp16 there is a set of defines that we would expect.
+// RUN: %clang -target arm-none-linux-gnueabi -march=armv8-a+fp16fml -mfpu=vfp4 -x c -E -dM %s -o - | FileCheck -match-full-lines --check-prefix=CHECK-FULLFP16-SCALAR %s
+// RUN: %clang -target arm-none-linux-gnueabi -march=armv8-a+fp16 -mfpu=vfp4 -x c -E -dM %s -o - | FileCheck -match-full-lines --check-prefix=CHECK-FULLFP16-SCALAR %s
+// RUN: %clang -target arm-none-linux-gnueabi -march=armv8.4-a+fp16fml -mfpu=vfp4 -x c -E -dM %s -o - | FileCheck -match-full-lines --check-prefix=CHECK-FULLFP16-SCALAR %s
+// RUN: %clang -target arm-none-linux-gnueabi -march=armv8.4-a+fp16 -mfpu=vfp4 -x c -E -dM %s -o - | FileCheck -match-full-lines --check-prefix=CHECK-FULLFP16-SCALAR %s
 // CHECK-FULLFP16-SCALAR:       #define __ARM_FEATURE_FP16_SCALAR_ARITHMETIC 1
 // CHECK-FULLFP16-SCALAR-NOT:   #define __ARM_FEATURE_FP16_VECTOR_ARITHMETIC 1
 // CHECK-FULLFP16-SCALAR:       #define __ARM_FP 0xe
 // CHECK-FULLFP16-SCALAR:       #define __ARM_FP16_FORMAT_IEEE 1
+
+// RUN: %clang -target arm-none-linux-gnueabi -march=armv8.2-a -x c -E -dM %s -o - | FileCheck -match-full-lines --check-prefix=CHECK-FULLFP16-NOFML-VECTOR-SCALAR %s
+// RUN: %clang -target arm-none-linux-gnueabi -march=armv8.2-a+nofp16 -x c -E -dM %s -o - | FileCheck -match-full-lines --check-prefix=CHECK-FULLFP16-NOFML-VECTOR-SCALAR %s
+// RUN: %clang -target arm-none-linux-gnueabi -march=armv8.2-a+nofp16fml -x c -E -dM %s -o - | FileCheck -match-full-lines --check-prefix=CHECK-FULLFP16-NOFML-VECTOR-SCALAR %s
+// RUN: %clang -target arm-none-linux-gnueabi -march=armv8.2-a+fp16fml+nofp16 -x c -E -dM %s -o - | FileCheck -match-full-lines --check-prefix=CHECK-FULLFP16-NOFML-VECTOR-SCALAR %s
+// RUN: %clang -target arm-none-linux-gnueabi -march=armv8.4-a -x c -E -dM %s -o - | FileCheck -match-full-lines --check-prefix=CHECK-FULLFP16-NOFML-VECTOR-SCALAR %s
+// RUN: %clang -target arm-none-linux-gnueabi -march=armv8.4-a+nofp16 -x c -E -dM %s -o - | FileCheck -match-full-lines --check-prefix=CHECK-FULLFP16-NOFML-VECTOR-SCALAR %s
+// RUN: %clang -target arm-none-linux-gnueabi -march=armv8.4-a+nofp16fml -x c -E -dM %s -o - | FileCheck -match-full-lines --check-prefix=CHECK-FULLFP16-NOFML-VECTOR-SCALAR %s
+// RUN: %clang -target arm-none-linux-gnueabi -march=armv8.4-a+fp16fml+nofp16 -x c -E -dM %s -o - | FileCheck -match-full-lines --check-prefix=CHECK-FULLFP16-NOFML-VECTOR-SCALAR %s
+// CHECK-FULLFP16-NOFML-VECTOR-SCALAR-NOT: #define __ARM_FEATURE_FP16_SCALAR_ARITHMETIC 1
+// CHECK-FULLFP16-NOFML-VECTOR-SCALAR-NOT: #define __ARM_FEATURE_FP16_VECTOR_ARITHMETIC 1
+// CHECK-FULLFP16-NOFML-VECTOR-SCALAR: #define __ARM_FP 0xe
+// CHECK-FULLFP16-NOFML-VECTOR-SCALAR: #define __ARM_FP16_FORMAT_IEEE 1
+
+// RUN: %clang -target arm -march=armv8-a+fp16 -x c -E -dM %s -o - | FileCheck -match-full-lines --check-prefix=CHECK-FULLFP16-SOFT %s
+// RUN: %clang -target arm -march=armv8-a+fp16fml -x c -E -dM %s -o - | FileCheck -match-full-lines --check-prefix=CHECK-FULLFP16-SOFT %s
+// RUN: %clang -target arm -march=armv8-a+fp16+fp16fml -x c -E -dM %s -o - | FileCheck -match-full-lines --check-prefix=CHECK-FULLFP16-SOFT %s
+// RUN: %clang -target arm -march=armv8-a+fp16fml+fp16 -x c -E -dM %s -o - | FileCheck -match-full-lines --check-prefix=CHECK-FULLFP16-SOFT %s
+// RUN: %clang -target arm -march=armv8.4-a+fp16 -x c -E -dM %s -o - | FileCheck -match-full-lines --check-prefix=CHECK-FULLFP16-SOFT %s
+// RUN: %clang -target arm -march=armv8.4-a+fp16fml -x c -E -dM %s -o - | FileCheck -match-full-lines --check-prefix=CHECK-FULLFP16-SOFT %s
+// RUN: %clang -target arm -march=armv8.4-a+fp16+fp16fml -x c -E -dM %s -o - | FileCheck -match-full-lines --check-prefix=CHECK-FULLFP16-SOFT %s
+// RUN: %clang -target arm -march=armv8.4-a+fp16fml+fp16 -x c -E -dM %s -o - | FileCheck -match-full-lines --check-prefix=CHECK-FULLFP16-SOFT %s
+// CHECK-FULLFP16-SOFT-NOT: #define __ARM_FEATURE_FP16_SCALAR_ARITHMETIC
+// CHECK-FULLFP16-SOFT-NOT: #define __ARM_FEATURE_FP16_VECTOR_ARITHMETIC
+// CHECK-FULLFP16-SOFT-NOT: #define __ARM_FEATURE_FP16_SCALAR_ARITHMETIC
+// CHECK-FULLFP16-SOFT-NOT: #define __ARM_FEATURE_FP16_VECTOR_ARITHMETIC
+
+// RUN: %clang -target arm-none-linux-gnueabi -march=armv8.2a+dotprod -x c -E -dM %s -o - | FileCheck -match-full-lines --check-prefix=CHECK-DOTPROD %s
+// CHECK-DOTPROD: #define __ARM_FEATURE_DOTPROD 1
 
 // RUN: %clang -target armv8r-none-linux-gnu -x c -E -dM %s -o - | FileCheck -match-full-lines --check-prefix=CHECK-V8R %s
 // CHECK-V8R: #define __ARMEL__ 1
@@ -480,6 +525,15 @@
 // RUN: %clang -target armv8 -mthumb -mcpu=cortex-a72 -x c -E -dM %s -o - | FileCheck -match-full-lines --check-prefix=ARMV8 %s
 // RUN: %clang -target armv8 -mcpu=cortex-a73 -x c -E -dM %s -o - | FileCheck -match-full-lines --check-prefix=ARMV8 %s
 // RUN: %clang -target armv8 -mthumb -mcpu=cortex-a73 -x c -E -dM %s -o - | FileCheck -match-full-lines --check-prefix=ARMV8 %s
+//
+// RUN: %clang -target armv8 -mcpu=exynos-m1 -x c -E -dM %s -o - | FileCheck -match-full-lines --check-prefix=ARMV8 %s
+// RUN: %clang -target armv8 -mthumb -mcpu=exynos-m1 -x c -E -dM %s -o - | FileCheck -match-full-lines --check-prefix=ARMV8 %s
+// RUN: %clang -target armv8 -mcpu=exynos-m2 -x c -E -dM %s -o - | FileCheck -match-full-lines --check-prefix=ARMV8 %s
+// RUN: %clang -target armv8 -mthumb -mcpu=exynos-m2 -x c -E -dM %s -o - | FileCheck -match-full-lines --check-prefix=ARMV8 %s
+// RUN: %clang -target armv8 -mcpu=exynos-m3 -x c -E -dM %s -o - | FileCheck -match-full-lines --check-prefix=ARMV8 %s
+// RUN: %clang -target armv8 -mthumb -mcpu=exynos-m3 -x c -E -dM %s -o - | FileCheck -match-full-lines --check-prefix=ARMV8 %s
+// RUN: %clang -target armv8 -mcpu=exynos-m4 -x c -E -dM %s -o - | FileCheck -match-full-lines --check-prefix=ARMV8 %s
+// RUN: %clang -target armv8 -mthumb -mcpu=exynos-m4 -x c -E -dM %s -o - | FileCheck -match-full-lines --check-prefix=ARMV8 %s
 // ARMV8:#define __ARM_ARCH_EXT_IDIV__ 1
 // ARMV8:#define __ARM_FEATURE_DSP 1
 // ARMV8-NOT:#define __ARM_FP 0x
@@ -497,6 +551,15 @@
 // RUN: %clang -target armv8-eabi -mthumb -mcpu=cortex-a72 -x c -E -dM %s -o - | FileCheck -match-full-lines --check-prefix=ARMV8-ALLOW-FP-INSTR %s
 // RUN: %clang -target armv8-eabi -mcpu=cortex-a73 -x c -E -dM %s -o - | FileCheck -match-full-lines --check-prefix=ARMV8-ALLOW-FP-INSTR %s
 // RUN: %clang -target armv8-eabi -mthumb -mcpu=cortex-a73 -x c -E -dM %s -o - | FileCheck -match-full-lines --check-prefix=ARMV8-ALLOW-FP-INSTR %s
+//
+// RUN: %clang -target armv8-eabi -mcpu=exynos-m1 -x c -E -dM %s -o - | FileCheck -match-full-lines --check-prefix=ARMV8-ALLOW-FP-INSTR %s
+// RUN: %clang -target armv8-eabi -mthumb -mcpu=exynos-m1 -x c -E -dM %s -o - | FileCheck -match-full-lines --check-prefix=ARMV8-ALLOW-FP-INSTR %s
+// RUN: %clang -target armv8-eabi -mcpu=exynos-m2 -x c -E -dM %s -o - | FileCheck -match-full-lines --check-prefix=ARMV8-ALLOW-FP-INSTR %s
+// RUN: %clang -target armv8-eabi -mthumb -mcpu=exynos-m2 -x c -E -dM %s -o - | FileCheck -match-full-lines --check-prefix=ARMV8-ALLOW-FP-INSTR %s
+// RUN: %clang -target armv8-eabi -mcpu=exynos-m3 -x c -E -dM %s -o - | FileCheck -match-full-lines --check-prefix=ARMV8-ALLOW-FP-INSTR %s
+// RUN: %clang -target armv8-eabi -mthumb -mcpu=exynos-m3 -x c -E -dM %s -o - | FileCheck -match-full-lines --check-prefix=ARMV8-ALLOW-FP-INSTR %s
+// RUN: %clang -target armv8-eabi -mcpu=exynos-m4 -x c -E -dM %s -o - | FileCheck -match-full-lines --check-prefix=ARMV8-ALLOW-FP-INSTR %s
+// RUN: %clang -target armv8-eabi -mthumb -mcpu=exynos-m4 -x c -E -dM %s -o - | FileCheck -match-full-lines --check-prefix=ARMV8-ALLOW-FP-INSTR %s
 // ARMV8-ALLOW-FP-INSTR:#define __ARM_ARCH_EXT_IDIV__ 1
 // ARMV8-ALLOW-FP-INSTR:#define __ARM_FEATURE_DSP 1
 // ARMV8-ALLOW-FP-INSTR:#define __ARM_FP 0xe
@@ -674,3 +737,18 @@
 // CHECK-V82A: #define __ARM_ARCH_PROFILE 'A'
 // CHECK-V82A: #define __ARM_FEATURE_QRDMX 1
 // CHECK-V82A: #define __ARM_FP 0xe
+
+// RUN: %clang -target armv8.3a-none-none-eabi -x c -E -dM %s -o - | FileCheck -match-full-lines --check-prefix=CHECK-V83A %s
+// CHECK-V83A: #define __ARM_ARCH 8
+// CHECK-V83A: #define __ARM_ARCH_8_3A__ 1
+// CHECK-V83A: #define __ARM_ARCH_PROFILE 'A'
+
+// RUN: %clang -target armv8.4a-none-none-eabi -x c -E -dM %s -o - | FileCheck -match-full-lines --check-prefix=CHECK-V84A %s
+// CHECK-V84A: #define __ARM_ARCH 8
+// CHECK-V84A: #define __ARM_ARCH_8_4A__ 1
+// CHECK-V84A: #define __ARM_ARCH_PROFILE 'A'
+
+// RUN: %clang -target armv8.5a-none-none-eabi -x c -E -dM %s -o - | FileCheck -match-full-lines --check-prefix=CHECK-V85A %s
+// CHECK-V85A: #define __ARM_ARCH 8
+// CHECK-V85A: #define __ARM_ARCH_8_5A__ 1
+// CHECK-V85A: #define __ARM_ARCH_PROFILE 'A'

@@ -9,7 +9,6 @@
 
 #define DEBUG_TYPE "hexagon-disassembler"
 
-#include "Hexagon.h"
 #include "MCTargetDesc/HexagonBaseInfo.h"
 #include "MCTargetDesc/HexagonMCChecker.h"
 #include "MCTargetDesc/HexagonMCInstrInfo.h"
@@ -40,7 +39,7 @@ using DecodeStatus = MCDisassembler::DecodeStatus;
 
 namespace {
 
-/// \brief Hexagon disassembler for all Hexagon platforms.
+/// Hexagon disassembler for all Hexagon platforms.
 class HexagonDisassembler : public MCDisassembler {
 public:
   std::unique_ptr<MCInstrInfo const> const MCII;

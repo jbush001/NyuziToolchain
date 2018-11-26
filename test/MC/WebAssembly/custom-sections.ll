@@ -2,7 +2,7 @@
 
 ; Test the mechanism for defining user custom sections.
 
-target triple = "wasm32-unknown-unknown-wasm"
+target triple = "wasm32-unknown-unknown"
 
 !0 = !{ !"red", !"foo" }
 !1 = !{ !"green", !"bar" }
@@ -11,13 +11,13 @@ target triple = "wasm32-unknown-unknown-wasm"
 
 ; CHECK:  Section {
 ; CHECK:    Type: CUSTOM (0x0)
-; CHECK:    Size: 7
+; CHECK:    Size: 3
 ; CHECK:    Offset: 72
 ; CHECK:    Name: red
 ; CHECK:  }
 ; CHECK:  Section {
 ; CHECK:    Type: CUSTOM (0x0)
-; CHECK:    Size: 12
+; CHECK:    Size: 6
 ; CHECK:    Offset: 85
 ; CHECK:    Name: green
 ; CHECK:  }

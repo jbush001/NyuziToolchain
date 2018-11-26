@@ -146,11 +146,25 @@ define <16 x i1> @selmask1(i32 %a, <16 x i1> %b, <16 x i1> %c) { ; CHECK-LABEL: 
 define <16 x i1> @selmask2(i1 %a, <16 x i1> %b, <16 x i1> %c) { ; CHECK-LABEL: selmask2
   %val = select i1 %a, <16 x i1> %b, <16 x i1> %c
 
-  ; CHECK: cmpne_i s0, s0, 0
-  ; CHECK: bnz s0, [[TRUELABEL:[\.A-Z0-9a-z_]+]]
-  ; CHECK: move s1, s2
-  ; CHECK: [[TRUELABEL]]:
+  ; CHECK: cmpne_i [[RESULT:s[0-9]+]], s0, 0
   ; CHECK: move s0, s1
+  ; CHECK: bnz [[RESULT]], [[EXITLABEL:[\.A-Z0-9a-z_]+]]
+  ; CHECK: move s0, s2
+  ; CHECK: [[EXITLABEL]]:
+  ; CHECK: ret
+
+  ret <16 x i1> %val
+}
+
+define <16 x i1> @selmask3(<16 x i1> %mask, <16 x i1> %a, <16 x i1> %b) { ; CHECK-LABEL: selmask3
+  %val = select <16 x i1> %mask, <16 x i1> %a, <16 x i1> %b
+
+  ; CHECK: movehi s3, 7
+  ; CHECK: or s3, s3, 8191
+  ; CHECK: and s1, s1, s0
+  ; CHECK: xor s0, s0, s3
+  ; CHECK: and s0, s2, s0
+  ; CHECK: or s0, s1, s0
   ; CHECK: ret
 
   ret <16 x i1> %val

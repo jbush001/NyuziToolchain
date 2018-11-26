@@ -86,8 +86,14 @@ void LLVMAddLoopRerollPass(LLVMPassManagerRef PM);
 /** See llvm::createLoopUnrollPass function. */
 void LLVMAddLoopUnrollPass(LLVMPassManagerRef PM);
 
+/** See llvm::createLoopUnrollAndJamPass function. */
+void LLVMAddLoopUnrollAndJamPass(LLVMPassManagerRef PM);
+
 /** See llvm::createLoopUnswitchPass function. */
 void LLVMAddLoopUnswitchPass(LLVMPassManagerRef PM);
+
+/** See llvm::createLowerAtomicPass function. */
+void LLVMAddLowerAtomicPass(LLVMPassManagerRef PM);
 
 /** See llvm::createMemCpyOptPass function. */
 void LLVMAddMemCpyOptPass(LLVMPassManagerRef PM);
@@ -146,6 +152,9 @@ void LLVMAddScopedNoAliasAAPass(LLVMPassManagerRef PM);
 
 /** See llvm::createBasicAliasAnalysisPass function */
 void LLVMAddBasicAliasAnalysisPass(LLVMPassManagerRef PM);
+
+/** See llvm::createUnifyFunctionExitNodesPass function */
+void LLVMAddUnifyFunctionExitNodesPass(LLVMPassManagerRef PM);
 
 /**
  * @}

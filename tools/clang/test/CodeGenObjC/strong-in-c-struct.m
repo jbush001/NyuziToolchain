@@ -70,6 +70,11 @@ typedef struct {
   volatile char i6;
 } Bitfield1;
 
+typedef struct {
+  id x;
+  volatile int a[16];
+} VolatileArray ;
+
 #endif
 
 #ifdef USESTRUCT
@@ -414,11 +419,11 @@ void test_copy_constructor_StrongVolatile1(Strong *s) {
 // CHECK: call void @__destructor_8_s16(
 // CHECK: ret void
 
-// CHECK: define internal void @__copy_helper_block_.1(i8*, i8*)
+// CHECK: define linkonce_odr hidden void @__copy_helper_block_8_32n13_8_8_t0w16_s16(i8*, i8*)
 // CHECK: call void @__copy_constructor_8_8_t0w16_s16(
 // CHECK: ret void
 
-// CHECK: define internal void @__destroy_helper_block_.2(
+// CHECK: define linkonce_odr hidden void @__destroy_helper_block_8_32n5_8_s16(
 // CHECK: call void @__destructor_8_s16(
 // CHECK: ret void
 
@@ -480,7 +485,38 @@ void test_constructor_destructor_StructArray(void) {
   StructArray t;
 }
 
+// Test that StructArray's field 'd' is copied before entering the loop.
+
+// CHECK: define linkonce_odr hidden void @__copy_constructor_8_8_t0w8_AB8s24n4_t8w16_s24_AE(i8** %[[DST:.*]], i8** %[[SRC:.*]])
+// CHECK: entry:
+// CHECK: %[[DST_ADDR:.*]] = alloca i8**, align 8
+// CHECK: %[[SRC_ADDR:.*]] = alloca i8**, align 8
+// CHECK: store i8** %[[DST]], i8*** %[[DST_ADDR]], align 8
+// CHECK: store i8** %[[SRC]], i8*** %[[SRC_ADDR]], align 8
+// CHECK: %[[V0:.*]] = load i8**, i8*** %[[DST_ADDR]], align 8
+// CHECK: %[[V1:.*]] = load i8**, i8*** %[[SRC_ADDR]], align 8
+// CHECK: %[[V2:.*]] = bitcast i8** %[[V0]] to i64*
+// CHECK: %[[V3:.*]] = bitcast i8** %[[V1]] to i64*
+// CHECK: %[[V4:.*]] = load i64, i64* %[[V3]], align 8
+// CHECK: store i64 %[[V4]], i64* %[[V2]], align 8
+
+// CHECK: phi i8**
+// CHECK: phi i8**
+
+// CHECK: phi i8**
+// CHECK: phi i8**
+
+// CHECK-NOT: load i64, i64* %
+// CHECK-NOT: store i64 %
+// CHECK: call void @__copy_constructor_8_8_t0w16_s16(
+
+void test_copy_constructor_StructArray(StructArray a) {
+  StructArray t = a;
+}
+
 // Check that IRGen copies the 9-bit bitfield emitting i16 load and store.
+
+// CHECK: define void @test_copy_constructor_Bitfield0(
 
 // CHECK: define linkonce_odr hidden void @__copy_constructor_8_8_s0_t8w2(
 // CHECK: %[[V4:.*]] = bitcast i8** %{{.*}} to i8*
@@ -538,6 +574,21 @@ void test_copy_constructor_Bitfield1(Bitfield1 *a) {
 
 void test_strong_in_union() {
   U t;
+}
+
+// CHECK: define void @test_copy_constructor_VolatileArray(
+// CHECK: call void @__copy_constructor_8_8_s0_AB8s4n16_tv64w32_AE(
+
+// CHECK: define linkonce_odr hidden void @__copy_constructor_8_8_s0_AB8s4n16_tv64w32_AE(
+// CHECK: %[[ADDR_CUR:.*]] = phi i8**
+// CHECK: %[[ADDR_CUR1:.*]] = phi i8**
+// CHECK: %[[V12:.*]] = bitcast i8** %[[ADDR_CUR]] to i32*
+// CHECK: %[[V13:.*]] = bitcast i8** %[[ADDR_CUR1]] to i32*
+// CHECK: %[[V14:.*]] = load volatile i32, i32* %[[V13]], align 4
+// CHECK: store volatile i32 %[[V14]], i32* %[[V12]], align 4
+
+void test_copy_constructor_VolatileArray(VolatileArray *a) {
+  VolatileArray t = *a;
 }
 
 #endif /* USESTRUCT */

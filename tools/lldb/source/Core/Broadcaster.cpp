@@ -12,16 +12,16 @@
 #include "lldb/Core/Event.h"
 #include "lldb/Core/Listener.h"
 #include "lldb/Utility/Log.h"
-#include "lldb/Utility/Logging.h" // for GetLogIfAnyCategoriesSet, Get...
-#include "lldb/Utility/Stream.h"  // for Stream
+#include "lldb/Utility/Logging.h"
+#include "lldb/Utility/Stream.h"
 #include "lldb/Utility/StreamString.h"
 
-#include <algorithm>   // for find_if
-#include <memory>      // for make_shared
-#include <type_traits> // for move
+#include <algorithm>
+#include <memory>
+#include <type_traits>
 
-#include <assert.h> // for assert
-#include <stddef.h> // for size_t
+#include <assert.h>
+#include <stddef.h>
 
 using namespace lldb;
 using namespace lldb_private;
@@ -74,9 +74,8 @@ Broadcaster::BroadcasterImpl::GetListeners() {
 void Broadcaster::BroadcasterImpl::Clear() {
   std::lock_guard<std::recursive_mutex> guard(m_listeners_mutex);
 
-  // Make sure the listener forgets about this broadcaster. We do
-  // this in the broadcaster in case the broadcaster object initiates
-  // the removal.
+  // Make sure the listener forgets about this broadcaster. We do this in the
+  // broadcaster in case the broadcaster object initiates the removal.
   for (auto &pair : GetListeners())
     pair.first->BroadcasterWillDestruct(&m_broadcaster);
 

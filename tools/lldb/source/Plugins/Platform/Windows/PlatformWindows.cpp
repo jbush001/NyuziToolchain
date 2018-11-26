@@ -9,16 +9,12 @@
 
 #include "PlatformWindows.h"
 
-// C Includes
 #include <stdio.h>
 #if defined(_WIN32)
 #include "lldb/Host/windows/windows.h"
 #include <winsock2.h>
 #endif
 
-// C++ Includes
-// Other libraries and framework includes
-// Project includes
 #include "lldb/Breakpoint/BreakpointLocation.h"
 #include "lldb/Breakpoint/BreakpointSite.h"
 #include "lldb/Core/Debugger.h"
@@ -78,7 +74,7 @@ PlatformSP PlatformWindows::CreateInstance(bool force,
       create = true;
       break;
 
-    case llvm::Triple::UnknownArch:
+    case llvm::Triple::UnknownVendor:
       create = !arch->TripleVendorWasSpecified();
       break;
 
@@ -192,15 +188,18 @@ Status PlatformWindows::ResolveExecutable(
   if (IsHost()) {
     // if we cant resolve the executable loation based on the current path
     // variables
-    if (!resolved_module_spec.GetFileSpec().Exists()) {
+    if (!FileSystem::Instance().Exists(resolved_module_spec.GetFileSpec())) {
       resolved_module_spec.GetFileSpec().GetPath(exe_path, sizeof(exe_path));
-      resolved_module_spec.GetFileSpec().SetFile(exe_path, true);
+      resolved_module_spec.GetFileSpec().SetFile(exe_path,
+                                                 FileSpec::Style::native);
+      FileSystem::Instance().Resolve(resolved_module_spec.GetFileSpec());
     }
 
-    if (!resolved_module_spec.GetFileSpec().Exists())
-      resolved_module_spec.GetFileSpec().ResolveExecutableLocation();
+    if (!FileSystem::Instance().Exists(resolved_module_spec.GetFileSpec()))
+      FileSystem::Instance().ResolveExecutableLocation(
+          resolved_module_spec.GetFileSpec());
 
-    if (resolved_module_spec.GetFileSpec().Exists())
+    if (FileSystem::Instance().Exists(resolved_module_spec.GetFileSpec()))
       error.Clear();
     else {
       ms.GetFileSpec().GetPath(exe_path, sizeof(exe_path));
@@ -214,7 +213,7 @@ Status PlatformWindows::ResolveExecutable(
     } else {
       // We may connect to a process and use the provided executable (Don't use
       // local $PATH).
-      if (resolved_module_spec.GetFileSpec().Exists())
+      if (FileSystem::Instance().Exists(resolved_module_spec.GetFileSpec()))
         error.Clear();
       else
         error.SetErrorStringWithFormat("the platform is not currently "
@@ -237,9 +236,9 @@ Status PlatformWindows::ResolveExecutable(
             resolved_module_spec.GetArchitecture().GetArchitectureName());
       }
     } else {
-      // No valid architecture was specified, ask the platform for
-      // the architectures that we should be using (in the correct order)
-      // and see if we can find a match that way
+      // No valid architecture was specified, ask the platform for the
+      // architectures that we should be using (in the correct order) and see
+      // if we can find a match that way
       StreamString arch_names;
       for (uint32_t idx = 0; GetSupportedArchitectureAtIndex(
                idx, resolved_module_spec.GetArchitecture());
@@ -261,7 +260,8 @@ Status PlatformWindows::ResolveExecutable(
       }
 
       if (error.Fail() || !exe_module_sp) {
-        if (resolved_module_spec.GetFileSpec().Readable()) {
+        if (FileSystem::Instance().Readable(
+                resolved_module_spec.GetFileSpec())) {
           error.SetErrorStringWithFormat(
               "'%s' doesn't contain any '%s' platform architectures: %s",
               resolved_module_spec.GetFileSpec().GetPath().c_str(),
@@ -279,9 +279,10 @@ Status PlatformWindows::ResolveExecutable(
 }
 
 bool PlatformWindows::GetRemoteOSVersion() {
-  if (m_remote_platform_sp)
-    return m_remote_platform_sp->GetOSVersion(
-        m_major_os_version, m_minor_os_version, m_update_os_version);
+  if (m_remote_platform_sp) {
+    m_os_version = m_remote_platform_sp->GetOSVersion();
+    return !m_os_version.empty();
+  }
   return false;
 }
 
@@ -413,29 +414,23 @@ ProcessSP PlatformWindows::DebugProcess(ProcessLaunchInfo &launch_info,
                                         Debugger &debugger, Target *target,
                                         Status &error) {
   // Windows has special considerations that must be followed when launching or
-  // attaching to a process.  The
-  // key requirement is that when launching or attaching to a process, you must
-  // do it from the same the thread
-  // that will go into a permanent loop which will then receive debug events
-  // from the process.  In particular,
-  // this means we can't use any of LLDB's generic mechanisms to do it for us,
-  // because it doesn't have the
-  // special knowledge required for setting up the background thread or passing
-  // the right flags.
+  // attaching to a process.  The key requirement is that when launching or
+  // attaching to a process, you must do it from the same the thread that will
+  // go into a permanent loop which will then receive debug events from the
+  // process.  In particular, this means we can't use any of LLDB's generic
+  // mechanisms to do it for us, because it doesn't have the special knowledge
+  // required for setting up the background thread or passing the right flags.
   //
   // Another problem is that that LLDB's standard model for debugging a process
-  // is to first launch it, have
-  // it stop at the entry point, and then attach to it.  In Windows this doesn't
-  // quite work, you have to
-  // specify as an argument to CreateProcess() that you're going to debug the
-  // process.  So we override DebugProcess
-  // here to handle this.  Launch operations go directly to the process plugin,
-  // and attach operations almost go
-  // directly to the process plugin (but we hijack the events first).  In
-  // essence, we encapsulate all the logic
-  // of Launching and Attaching in the process plugin, and
-  // PlatformWindows::DebugProcess is just a pass-through
-  // to get to the process plugin.
+  // is to first launch it, have it stop at the entry point, and then attach to
+  // it.  In Windows this doesn't quite work, you have to specify as an
+  // argument to CreateProcess() that you're going to debug the process.  So we
+  // override DebugProcess here to handle this.  Launch operations go directly
+  // to the process plugin, and attach operations almost go directly to the
+  // process plugin (but we hijack the events first).  In essence, we
+  // encapsulate all the logic of Launching and Attaching in the process
+  // plugin, and PlatformWindows::DebugProcess is just a pass-through to get to
+  // the process plugin.
 
   if (launch_info.GetProcessID() != LLDB_INVALID_PROCESS_ID) {
     // This is a process attach.  Don't need to launch anything.
@@ -474,8 +469,8 @@ lldb::ProcessSP PlatformWindows::Attach(ProcessAttachInfo &attach_info,
     FileSpec emptyFileSpec;
     ArchSpec emptyArchSpec;
 
-    error = debugger.GetTargetList().CreateTarget(debugger, "", "", false,
-                                                  nullptr, new_target_sp);
+    error = debugger.GetTargetList().CreateTarget(
+        debugger, "", "", eLoadDependentsNo, nullptr, new_target_sp);
     target = new_target_sp.get();
   }
 
@@ -538,8 +533,8 @@ Status PlatformWindows::GetSharedModule(
   module_sp.reset();
 
   if (IsRemote()) {
-    // If we have a remote platform always, let it try and locate
-    // the shared module first.
+    // If we have a remote platform always, let it try and locate the shared
+    // module first.
     if (m_remote_platform_sp) {
       error = m_remote_platform_sp->GetSharedModule(
           module_spec, process, module_sp, module_search_paths_ptr,
@@ -572,16 +567,8 @@ void PlatformWindows::GetStatus(Stream &strm) {
   Platform::GetStatus(strm);
 
 #ifdef _WIN32
-  uint32_t major;
-  uint32_t minor;
-  uint32_t update;
-  if (!HostInfo::GetOSVersion(major, minor, update)) {
-    strm << "Windows";
-    return;
-  }
-
-  strm << "Host: Windows " << major << '.' << minor << " Build: " << update
-       << '\n';
+  llvm::VersionTuple version = HostInfo::GetOSVersion();
+  strm << "Host: Windows " << version.getAsString() << '\n';
 #endif
 }
 

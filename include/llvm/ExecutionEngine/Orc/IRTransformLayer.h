@@ -15,7 +15,7 @@
 #define LLVM_EXECUTIONENGINE_ORC_IRTRANSFORMLAYER_H
 
 #include "llvm/ExecutionEngine/JITSymbol.h"
-#include "llvm/ExecutionEngine/Orc/Core.h"
+#include "llvm/ExecutionEngine/Orc/Layer.h"
 #include <memory>
 #include <string>
 
@@ -23,20 +23,45 @@ namespace llvm {
 class Module;
 namespace orc {
 
-/// @brief IR mutating layer.
+class IRTransformLayer : public IRLayer {
+public:
+  using TransformFunction = std::function<Expected<ThreadSafeModule>(
+      ThreadSafeModule, const MaterializationResponsibility &R)>;
+
+  IRTransformLayer(ExecutionSession &ES, IRLayer &BaseLayer,
+                   TransformFunction Transform = identityTransform);
+
+  void setTransform(TransformFunction Transform) {
+    this->Transform = std::move(Transform);
+  }
+
+  void emit(MaterializationResponsibility R, ThreadSafeModule TSM) override;
+
+  static ThreadSafeModule
+  identityTransform(ThreadSafeModule TSM,
+                    const MaterializationResponsibility &R) {
+    return TSM;
+  }
+
+private:
+  IRLayer &BaseLayer;
+  TransformFunction Transform;
+};
+
+/// IR mutating layer.
 ///
 ///   This layer applies a user supplied transform to each module that is added,
 /// then adds the transformed module to the layer below.
 template <typename BaseLayerT, typename TransformFtor>
-class IRTransformLayer {
+class LegacyIRTransformLayer {
 public:
 
-  /// @brief Construct an IRTransformLayer with the given BaseLayer
-  IRTransformLayer(BaseLayerT &BaseLayer,
+  /// Construct an LegacyIRTransformLayer with the given BaseLayer
+  LegacyIRTransformLayer(BaseLayerT &BaseLayer,
                    TransformFtor Transform = TransformFtor())
     : BaseLayer(BaseLayer), Transform(std::move(Transform)) {}
 
-  /// @brief Apply the transform functor to the module, then add the module to
+  /// Apply the transform functor to the module, then add the module to
   ///        the layer below, along with the memory manager and symbol resolver.
   ///
   /// @return A handle for the added modules.
@@ -44,10 +69,10 @@ public:
     return BaseLayer.addModule(std::move(K), Transform(std::move(M)));
   }
 
-  /// @brief Remove the module associated with the VModuleKey K.
+  /// Remove the module associated with the VModuleKey K.
   Error removeModule(VModuleKey K) { return BaseLayer.removeModule(K); }
 
-  /// @brief Search for the given named symbol.
+  /// Search for the given named symbol.
   /// @param Name The name of the symbol to search for.
   /// @param ExportedSymbolsOnly If true, search only for exported symbols.
   /// @return A handle for the given named symbol, if it exists.
@@ -55,7 +80,7 @@ public:
     return BaseLayer.findSymbol(Name, ExportedSymbolsOnly);
   }
 
-  /// @brief Get the address of the given symbol in the context of the module
+  /// Get the address of the given symbol in the context of the module
   ///        represented by the VModuleKey K. This call is forwarded to the base
   ///        layer's implementation.
   /// @param K The VModuleKey for the module to search in.
@@ -68,15 +93,15 @@ public:
     return BaseLayer.findSymbolIn(K, Name, ExportedSymbolsOnly);
   }
 
-  /// @brief Immediately emit and finalize the module represented by the given
+  /// Immediately emit and finalize the module represented by the given
   ///        VModuleKey.
   /// @param K The VModuleKey for the module to emit/finalize.
   Error emitAndFinalize(VModuleKey K) { return BaseLayer.emitAndFinalize(K); }
 
-  /// @brief Access the transform functor directly.
+  /// Access the transform functor directly.
   TransformFtor& getTransform() { return Transform; }
 
-  /// @brief Access the mumate functor directly.
+  /// Access the mumate functor directly.
   const TransformFtor& getTransform() const { return Transform; }
 
 private:

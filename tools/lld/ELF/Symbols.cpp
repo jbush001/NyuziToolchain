@@ -38,6 +38,7 @@ Defined *ElfSym::GlobalOffsetTable;
 Defined *ElfSym::MipsGp;
 Defined *ElfSym::MipsGpDisp;
 Defined *ElfSym::MipsLocalGp;
+Defined *ElfSym::RelaIpltEnd;
 
 static uint64_t getSymVA(const Symbol &Sym, int64_t &Addend) {
   switch (Sym.kind()) {
@@ -55,6 +56,8 @@ static uint64_t getSymVA(const Symbol &Sym, int64_t &Addend) {
     // This is an absolute symbol.
     if (!IS)
       return D.Value;
+
+    IS = IS->Repl;
 
     uint64_t Offset = D.Value;
 
@@ -87,27 +90,27 @@ static uint64_t getSymVA(const Symbol &Sym, int64_t &Addend) {
     uint64_t VA = IS->getVA(Offset);
 
     if (D.isTls() && !Config->Relocatable) {
-      if (!Out::TlsPhdr)
+      // Use the address of the TLS segment's first section rather than the
+      // segment's address, because segment addresses aren't initialized until
+      // after sections are finalized. (e.g. Measuring the size of .rela.dyn
+      // for Android relocation packing requires knowing TLS symbol addresses
+      // during section finalization.)
+      if (!Out::TlsPhdr || !Out::TlsPhdr->FirstSec)
         fatal(toString(D.File) +
               " has an STT_TLS symbol but doesn't have an SHF_TLS section");
-      return VA - Out::TlsPhdr->p_vaddr;
+      return VA - Out::TlsPhdr->FirstSec->Addr;
     }
     return VA;
   }
-  case Symbol::SharedKind: {
-    auto &SS = cast<SharedSymbol>(Sym);
-    if (SS.CopyRelSec)
-      return SS.CopyRelSec->getVA(0);
-    if (SS.NeedsPltAddr)
-      return Sym.getPltVA();
-    return 0;
-  }
+  case Symbol::SharedKind:
   case Symbol::UndefinedKind:
     return 0;
   case Symbol::LazyArchiveKind:
   case Symbol::LazyObjectKind:
     assert(Sym.IsUsedInRegularObj && "lazy symbol reached writer");
     return 0;
+  case Symbol::PlaceholderKind:
+    llvm_unreachable("placeholder symbol reached writer");
   }
   llvm_unreachable("invalid symbol kind");
 }
@@ -117,7 +120,7 @@ uint64_t Symbol::getVA(int64_t Addend) const {
   return OutVA + Addend;
 }
 
-uint64_t Symbol::getGotVA() const { return InX::Got->getVA() + getGotOffset(); }
+uint64_t Symbol::getGotVA() const { return In.Got->getVA() + getGotOffset(); }
 
 uint64_t Symbol::getGotOffset() const {
   return GotIndex * Target->GotEntrySize;
@@ -125,41 +128,53 @@ uint64_t Symbol::getGotOffset() const {
 
 uint64_t Symbol::getGotPltVA() const {
   if (this->IsInIgot)
-    return InX::IgotPlt->getVA() + getGotPltOffset();
-  return InX::GotPlt->getVA() + getGotPltOffset();
+    return In.IgotPlt->getVA() + getGotPltOffset();
+  return In.GotPlt->getVA() + getGotPltOffset();
 }
 
 uint64_t Symbol::getGotPltOffset() const {
-  return GotPltIndex * Target->GotPltEntrySize;
+  if (IsInIgot)
+    return PltIndex * Target->GotPltEntrySize;
+  return (PltIndex + Target->GotPltHeaderEntriesNum) * Target->GotPltEntrySize;
+}
+
+uint64_t Symbol::getPPC64LongBranchOffset() const {
+  assert(PPC64BranchltIndex != 0xffff);
+  return PPC64BranchltIndex * Target->GotPltEntrySize;
 }
 
 uint64_t Symbol::getPltVA() const {
-  if (this->IsInIplt)
-    return InX::Iplt->getVA() + PltIndex * Target->PltEntrySize;
-  return InX::Plt->getVA() + Target->getPltEntryOffset(PltIndex);
+  if (this->IsInIplt) {
+    if (Config->ZRetpolineplt)
+      return In.Iplt->getVA() + Target->getPltEntryOffset(PltIndex);
+    return In.Iplt->getVA() + PltIndex * Target->PltEntrySize;
+  }
+  return In.Plt->getVA() + Target->getPltEntryOffset(PltIndex);
+}
+
+uint64_t Symbol::getPltOffset() const {
+  assert(!this->IsInIplt);
+  return Target->getPltEntryOffset(PltIndex);
+}
+
+uint64_t Symbol::getPPC64LongBranchTableVA() const {
+  assert(PPC64BranchltIndex != 0xffff);
+  return In.PPC64LongBranchTarget->getVA() +
+         PPC64BranchltIndex * Target->GotPltEntrySize;
 }
 
 uint64_t Symbol::getSize() const {
   if (const auto *DR = dyn_cast<Defined>(this))
     return DR->Size;
-  if (const auto *S = dyn_cast<SharedSymbol>(this))
-    return S->Size;
-  return 0;
+  return cast<SharedSymbol>(this)->Size;
 }
 
 OutputSection *Symbol::getOutputSection() const {
   if (auto *S = dyn_cast<Defined>(this)) {
     if (auto *Sec = S->Section)
-      return Sec->getOutputSection();
+      return Sec->Repl->getOutputSection();
     return nullptr;
   }
-
-  if (auto *S = dyn_cast<SharedSymbol>(this)) {
-    if (S->CopyRelSec)
-      return S->CopyRelSec->getParent();
-    return nullptr;
-  }
-
   return nullptr;
 }
 
@@ -175,7 +190,7 @@ void Symbol::parseSymbolVersion() {
     return;
 
   // Truncate the symbol name so that it doesn't include the version string.
-  Name = {S.data(), Pos};
+  NameSize = Pos;
 
   // If this is not in this DSO, it is not a definition.
   if (!isDefined())
@@ -201,20 +216,31 @@ void Symbol::parseSymbolVersion() {
   // It is an error if the specified version is not defined.
   // Usually version script is not provided when linking executable,
   // but we may still want to override a versioned symbol from DSO,
-  // so we do not report error in this case.
-  if (Config->Shared)
+  // so we do not report error in this case. We also do not error
+  // if the symbol has a local version as it won't be in the dynamic
+  // symbol table.
+  if (Config->Shared && VersionId != VER_NDX_LOCAL)
     error(toString(File) + ": symbol " + S + " has undefined version " +
           Verstr);
 }
 
 InputFile *LazyArchive::fetch() { return cast<ArchiveFile>(File)->fetch(Sym); }
 
+MemoryBufferRef LazyArchive::getMemberBuffer() {
+  Archive::Child C = CHECK(
+      Sym.getMember(), "could not get the member for symbol " + Sym.getName());
+
+  return CHECK(C.getMemoryBufferRef(),
+               "could not get the buffer for the member defining symbol " +
+                   Sym.getName());
+}
+
 uint8_t Symbol::computeBinding() const {
   if (Config->Relocatable)
     return Binding;
   if (Visibility != STV_DEFAULT && Visibility != STV_PROTECTED)
     return STB_LOCAL;
-  if (VersionId == VER_NDX_LOCAL && isDefined())
+  if (VersionId == VER_NDX_LOCAL && isDefined() && !IsPreemptible)
     return STB_LOCAL;
   if (!Config->GnuUnique && Binding == STB_GNU_UNIQUE)
     return STB_GLOBAL;
@@ -246,6 +272,36 @@ void elf::printTraceSymbol(Symbol *Sym) {
     S = ": definition of ";
 
   message(toString(Sym->File) + S + Sym->getName());
+}
+
+void elf::maybeWarnUnorderableSymbol(const Symbol *Sym) {
+  if (!Config->WarnSymbolOrdering)
+    return;
+
+  // If UnresolvedPolicy::Ignore is used, no "undefined symbol" error/warning
+  // is emitted. It makes sense to not warn on undefined symbols.
+  //
+  // Note, ld.bfd --symbol-ordering-file= does not warn on undefined symbols,
+  // but we don't have to be compatible here.
+  if (Sym->isUndefined() &&
+      Config->UnresolvedSymbols == UnresolvedPolicy::Ignore)
+    return;
+
+  const InputFile *File = Sym->File;
+  auto *D = dyn_cast<Defined>(Sym);
+
+  auto Warn = [&](StringRef S) { warn(toString(File) + S + Sym->getName()); };
+
+  if (Sym->isUndefined())
+    Warn(": unable to order undefined symbol: ");
+  else if (Sym->isShared())
+    Warn(": unable to order shared symbol: ");
+  else if (D && !D->Section)
+    Warn(": unable to order absolute symbol: ");
+  else if (D && isa<OutputSection>(D->Section))
+    Warn(": unable to order synthetic symbol: ");
+  else if (D && !D->Section->Repl->Live)
+    Warn(": unable to order discarded symbol: ");
 }
 
 // Returns a symbol for an error message.

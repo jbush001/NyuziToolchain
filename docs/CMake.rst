@@ -228,10 +228,6 @@ LLVM-specific variables
   Install symlinks from the binutils tool names to the corresponding LLVM tools.
   For example, ar will be symlinked to llvm-ar.
 
-**LLVM_INSTALL_CCTOOLS_SYMLINKS**:BOOL
-  Install symliks from the cctools tool names to the corresponding LLVM tools.
-  For example, dsymutil will be symlinked to llvm-dsymutil.
-
 **LLVM_BUILD_EXAMPLES**:BOOL
   Build LLVM examples. Defaults to OFF. Targets for building each example are
   generated in any case. See documentation for *LLVM_BUILD_TOOLS* above for more
@@ -253,6 +249,12 @@ LLVM-specific variables
   Generate build targets for the LLVM unit tests. Defaults to ON. You can use
   this option to disable the generation of build targets for the LLVM unit
   tests.
+
+**LLVM_BUILD_BENCHMARKS**:BOOL
+  Adds benchmarks to the list of default targets. Defaults to OFF.
+
+**LLVM_INCLUDE_BENCHMARKS**:BOOL
+  Generate build targets for the LLVM benchmarks. Defaults to ON.
 
 **LLVM_APPEND_VC_REV**:BOOL
   Embed version control revision info (svn revision number or Git revision id).
@@ -373,6 +375,14 @@ LLVM-specific variables
 
 **LLVM_USE_INTEL_JITEVENTS**:BOOL
   Enable building support for Intel JIT Events API. Defaults to OFF.
+
+**LLVM_ENABLE_LIBPFM**:BOOL
+  Enable building with libpfm to support hardware counter measurements in LLVM
+  tools.
+  Defaults to ON.
+
+  **LLVM_USE_PERF**:BOOL
+  Enable building support for Perf (linux profiling tool) JIT support. Defaults to OFF.
 
 **LLVM_ENABLE_ZLIB**:BOOL
   Enable building with zlib to support compression/uncompression in LLVM tools.
@@ -598,8 +608,8 @@ A few notes about CMake Caches:
 For more information about some of the advanced build configurations supported
 via Cache files see :doc:`AdvancedBuilds`.
 
-Executing the test suite
-========================
+Executing the Tests
+===================
 
 Testing is performed when the *check-all* target is built. For instance, if you are
 using Makefiles, execute this command in the root of your build directory:

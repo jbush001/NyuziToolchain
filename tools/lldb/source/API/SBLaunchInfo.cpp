@@ -128,7 +128,7 @@ const char *SBLaunchInfo::GetWorkingDirectory() const {
 }
 
 void SBLaunchInfo::SetWorkingDirectory(const char *working_dir) {
-  m_opaque_sp->SetWorkingDirectory(FileSpec{working_dir, false});
+  m_opaque_sp->SetWorkingDirectory(FileSpec(working_dir));
 }
 
 uint32_t SBLaunchInfo::GetLaunchFlags() {
@@ -148,14 +148,14 @@ void SBLaunchInfo::SetProcessPluginName(const char *plugin_name) {
 }
 
 const char *SBLaunchInfo::GetShell() {
-  // Constify this string so that it is saved in the string pool.  Otherwise
-  // it would be freed when this function goes out of scope.
+  // Constify this string so that it is saved in the string pool.  Otherwise it
+  // would be freed when this function goes out of scope.
   ConstString shell(m_opaque_sp->GetShell().GetPath().c_str());
   return shell.AsCString();
 }
 
 void SBLaunchInfo::SetShell(const char *path) {
-  m_opaque_sp->SetShell(FileSpec(path, false));
+  m_opaque_sp->SetShell(FileSpec(path));
 }
 
 bool SBLaunchInfo::GetShellExpandArguments() {
@@ -184,8 +184,7 @@ bool SBLaunchInfo::AddDuplicateFileAction(int fd, int dup_fd) {
 
 bool SBLaunchInfo::AddOpenFileAction(int fd, const char *path, bool read,
                                      bool write) {
-  return m_opaque_sp->AppendOpenFileAction(fd, FileSpec{path, false}, read,
-                                           write);
+  return m_opaque_sp->AppendOpenFileAction(fd, FileSpec(path), read, write);
 }
 
 bool SBLaunchInfo::AddSuppressFileAction(int fd, bool read, bool write) {

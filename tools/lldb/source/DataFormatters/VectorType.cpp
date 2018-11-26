@@ -7,10 +7,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-// C Includes
-// C++ Includes
-// Other libraries and framework includes
-// Project includes
 #include "lldb/DataFormatters/VectorType.h"
 
 #include "lldb/Core/ValueObject.h"
@@ -157,9 +153,8 @@ static lldb::Format GetItemFormatForFormat(lldb::Format format,
 
   case lldb::eFormatDefault: {
     // special case the (default, char) combination to actually display as an
-    // integer value
-    // most often, you won't want to see the ASCII characters... (and if you do,
-    // eFormatChar is a keystroke away)
+    // integer value most often, you won't want to see the ASCII characters...
+    // (and if you do, eFormatChar is a keystroke away)
     bool is_char = element_type.IsCharType();
     bool is_signed = false;
     element_type.IsIntegerType(is_signed);

@@ -12,12 +12,12 @@
 
 #include "lldb/Utility/Status.h"
 #include "lldb/Utility/StringExtractor.h"
-#include "llvm/ADT/StringRef.h" // for StringRef
+#include "llvm/ADT/StringRef.h"
 
 #include <string>
 
-#include <stddef.h> // for size_t
-#include <stdint.h> // for uint8_t
+#include <stddef.h>
+#include <stdint.h>
 
 class StringExtractorGDBRemote : public StringExtractor {
 public:
@@ -188,8 +188,8 @@ public:
 
   bool IsErrorResponse() const;
 
-  // Returns zero if the packet isn't a EXX packet where XX are two hex
-  // digits. Otherwise the error encoded in XX is returned.
+  // Returns zero if the packet isn't a EXX packet where XX are two hex digits.
+  // Otherwise the error encoded in XX is returned.
   uint8_t GetError();
 
   lldb_private::Status GetStatus();

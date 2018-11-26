@@ -30,12 +30,13 @@ namespace lld {
 namespace elf {
 
 class Defined;
-class Symbol;
-class InputSectionBase;
 class InputSection;
-class OutputSection;
 class InputSectionBase;
+class InputSectionBase;
+class OutputSection;
 class SectionBase;
+class Symbol;
+class ThunkSection;
 
 // This represents an r-value in the linker script.
 struct ExprValue {
@@ -75,7 +76,6 @@ enum SectionsCommandKind {
   AssignmentKind, // . = expr or <sym> = expr
   OutputSectionKind,
   InputSectionKind,
-  AssertKind, // ASSERT(expr)
   ByteKind    // BYTE(expr), SHORT(expr), LONG(expr) or QUAD(expr)
 };
 
@@ -154,7 +154,6 @@ struct SectionPattern {
   SortSectionPolicy SortInner;
 };
 
-class ThunkSection;
 struct InputSectionDescription : BaseCommand {
   InputSectionDescription(StringRef FilePattern)
       : BaseCommand(InputSectionKind), FilePat(FilePattern) {}
@@ -175,15 +174,6 @@ struct InputSectionDescription : BaseCommand {
   // they were created in. This is used to insert newly created ThunkSections
   // into Sections at the end of a createThunks() pass.
   std::vector<std::pair<ThunkSection *, uint32_t>> ThunkSections;
-};
-
-// Represents an ASSERT().
-struct AssertCommand : BaseCommand {
-  AssertCommand(Expr E) : BaseCommand(AssertKind), Expression(E) {}
-
-  static bool classof(const BaseCommand *C) { return C->Kind == AssertKind; }
-
-  Expr Expression;
 };
 
 // Represents BYTE(), SHORT(), LONG(), or QUAD().

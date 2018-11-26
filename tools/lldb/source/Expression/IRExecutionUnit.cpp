@@ -33,6 +33,7 @@
 #include "lldb/Utility/Log.h"
 
 #include "lldb/../../source/Plugins/Language/CPlusPlus/CPlusPlusLanguage.h"
+#include "lldb/../../source/Plugins/ObjectFile/JIT/ObjectFileJIT.h"
 
 using namespace lldb_private;
 
@@ -362,13 +363,10 @@ void IRExecutionUnit::GetRunnableInfo(Status &error, lldb::addr_t &func_addr,
   ReportAllocations(*m_execution_engine_ap);
 
   // We have to do this after calling ReportAllocations because for the MCJIT,
-  // getGlobalValueAddress
-  // will cause the JIT to perform all relocations.  That can only be done once,
-  // and has to happen
-  // after we do the remapping from local -> remote.
-  // That means we don't know the local address of the Variables, but we don't
-  // need that for anything,
-  // so that's okay.
+  // getGlobalValueAddress will cause the JIT to perform all relocations.  That
+  // can only be done once, and has to happen after we do the remapping from
+  // local -> remote. That means we don't know the local address of the
+  // Variables, but we don't need that for anything, so that's okay.
 
   std::function<void(llvm::GlobalValue &)> RegisterOneValue = [this](
       llvm::GlobalValue &val) {
@@ -379,8 +377,8 @@ void IRExecutionUnit::GetRunnableInfo(Status &error, lldb::addr_t &func_addr,
       lldb::addr_t remote_addr = GetRemoteAddressForLocal(var_ptr_addr);
 
       // This is a really unfortunae API that sometimes returns local addresses
-      // and sometimes returns remote addresses, based on whether
-      // the variable was relocated during ReportAllocations or not.
+      // and sometimes returns remote addresses, based on whether the variable
+      // was relocated during ReportAllocations or not.
 
       if (remote_addr == LLDB_INVALID_ADDRESS) {
         remote_addr = var_ptr_addr;
@@ -555,6 +553,8 @@ lldb::SectionType IRExecutionUnit::GetSectionTypeFromSectionName(
           sect_type = lldb::eSectionTypeDWARFDebugLine;
         else if (dwarf_name.equals("loc"))
           sect_type = lldb::eSectionTypeDWARFDebugLoc;
+        else if (dwarf_name.equals("loclists"))
+          sect_type = lldb::eSectionTypeDWARFDebugLocLists;
         break;
 
       case 'm':
@@ -709,9 +709,10 @@ FindBestAlternateMangledName(const ConstString &demangled,
 
 struct IRExecutionUnit::SearchSpec {
   ConstString name;
-  uint32_t mask;
+  lldb::FunctionNameType mask;
 
-  SearchSpec(ConstString n, uint32_t m = lldb::eFunctionNameTypeFull)
+  SearchSpec(ConstString n,
+             lldb::FunctionNameType m = lldb::eFunctionNameTypeFull)
       : name(n), mask(m) {}
 };
 
@@ -882,8 +883,8 @@ lldb::addr_t IRExecutionUnit::FindInSymbols(
     if (get_external_load_address(load_address, sc_list, sc)) {
       return load_address;
     }
-    // if there are any searches we try after this, add an sc_list.Clear() in an
-    // "else" clause here
+    // if there are any searches we try after this, add an sc_list.Clear() in
+    // an "else" clause here
 
     if (best_internal_load_address != LLDB_INVALID_ADDRESS) {
       return best_internal_load_address;
@@ -1090,6 +1091,7 @@ bool IRExecutionUnit::CommitOneAllocation(lldb::ProcessSP &process_sp,
   case lldb::eSectionTypeDWARFDebugInfo:
   case lldb::eSectionTypeDWARFDebugLine:
   case lldb::eSectionTypeDWARFDebugLoc:
+  case lldb::eSectionTypeDWARFDebugLocLists:
   case lldb::eSectionTypeDWARFDebugMacInfo:
   case lldb::eSectionTypeDWARFDebugPubNames:
   case lldb::eSectionTypeDWARFDebugPubTypes:
@@ -1100,6 +1102,7 @@ bool IRExecutionUnit::CommitOneAllocation(lldb::ProcessSP &process_sp,
   case lldb::eSectionTypeDWARFAppleTypes:
   case lldb::eSectionTypeDWARFAppleNamespaces:
   case lldb::eSectionTypeDWARFAppleObjC:
+  case lldb::eSectionTypeDWARFGNUDebugAltLink:
     error.Clear();
     break;
   default:
@@ -1227,15 +1230,18 @@ bool IRExecutionUnit::GetArchitecture(lldb_private::ArchSpec &arch) {
 lldb::ModuleSP IRExecutionUnit::GetJITModule() {
   ExecutionContext exe_ctx(GetBestExecutionContextScope());
   Target *target = exe_ctx.GetTargetPtr();
-  if (target) {
-    lldb::ModuleSP jit_module_sp = lldb_private::Module::CreateJITModule(
-        std::static_pointer_cast<lldb_private::ObjectFileJITDelegate>(
-            shared_from_this()));
-    if (jit_module_sp) {
-      bool changed = false;
-      jit_module_sp->SetLoadAddress(*target, 0, true, changed);
-    }
-    return jit_module_sp;
-  }
-  return lldb::ModuleSP();
+  if (!target)
+    return nullptr;
+
+  auto Delegate = std::static_pointer_cast<lldb_private::ObjectFileJITDelegate>(
+      shared_from_this());
+
+  lldb::ModuleSP jit_module_sp =
+      lldb_private::Module::CreateModuleFromObjectFile<ObjectFileJIT>(Delegate);
+  if (!jit_module_sp)
+    return nullptr;
+
+  bool changed = false;
+  jit_module_sp->SetLoadAddress(*target, 0, true, changed);
+  return jit_module_sp;
 }

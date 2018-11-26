@@ -18,7 +18,7 @@ the WebAssembly tool conventions
 https://github.com/WebAssembly/tool-conventions/blob/master/Linking.md.
 
 This is object format that the llvm will produce when run with the
-``wasm32-unknown-unknown-wasm`` target.  To build llvm with WebAssembly support
+``wasm32-unknown-unknown`` target.  To build llvm with WebAssembly support
 currently requires enabling the experimental backed using
 ``-DLLVM_EXPERIMENTAL_TARGETS_TO_BUILD=WebAssembly``.
 
@@ -29,6 +29,8 @@ Missing features
 There are several key features that are not yet implement in the WebAssembly
 ports:
 
+- Support for building shared libraries via ``-shared`` is still as work in
+  progress.
 - COMDAT support.  This means that support for C++ is still very limited.
 - Function stripping.  Currently there is no support for ``--gc-sections`` so
   functions and data from a given object will linked as a unit.

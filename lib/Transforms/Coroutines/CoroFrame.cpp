@@ -19,7 +19,8 @@
 
 #include "CoroInternal.h"
 #include "llvm/ADT/BitVector.h"
-#include "llvm/Analysis/Utils/Local.h"
+#include "llvm/Transforms/Utils/Local.h"
+#include "llvm/Config/llvm-config.h"
 #include "llvm/IR/CFG.h"
 #include "llvm/IR/Dominators.h"
 #include "llvm/IR/IRBuilder.h"
@@ -48,7 +49,7 @@ public:
   BlockToIndexMapping(Function &F) {
     for (BasicBlock &BB : F)
       V.push_back(&BB);
-    std::sort(V.begin(), V.end());
+    llvm::sort(V);
   }
 
   size_t blockToIndex(BasicBlock *BB) const {
@@ -105,8 +106,8 @@ struct SuspendCrossingInfo {
 
     assert(Block[UseIndex].Consumes[DefIndex] && "use must consume def");
     bool const Result = Block[UseIndex].Kills[DefIndex];
-    DEBUG(dbgs() << UseBB->getName() << " => " << DefBB->getName()
-                 << " answer is " << Result << "\n");
+    LLVM_DEBUG(dbgs() << UseBB->getName() << " => " << DefBB->getName()
+                      << " answer is " << Result << "\n");
     return Result;
   }
 
@@ -194,8 +195,8 @@ SuspendCrossingInfo::SuspendCrossingInfo(Function &F, coro::Shape &Shape)
 
   bool Changed;
   do {
-    DEBUG(dbgs() << "iteration " << ++Iteration);
-    DEBUG(dbgs() << "==============\n");
+    LLVM_DEBUG(dbgs() << "iteration " << ++Iteration);
+    LLVM_DEBUG(dbgs() << "==============\n");
 
     Changed = false;
     for (size_t I = 0; I < N; ++I) {
@@ -239,20 +240,20 @@ SuspendCrossingInfo::SuspendCrossingInfo(Function &F, coro::Shape &Shape)
         Changed |= (S.Kills != SavedKills) || (S.Consumes != SavedConsumes);
 
         if (S.Kills != SavedKills) {
-          DEBUG(dbgs() << "\nblock " << I << " follower " << SI->getName()
-                       << "\n");
-          DEBUG(dump("S.Kills", S.Kills));
-          DEBUG(dump("SavedKills", SavedKills));
+          LLVM_DEBUG(dbgs() << "\nblock " << I << " follower " << SI->getName()
+                            << "\n");
+          LLVM_DEBUG(dump("S.Kills", S.Kills));
+          LLVM_DEBUG(dump("SavedKills", SavedKills));
         }
         if (S.Consumes != SavedConsumes) {
-          DEBUG(dbgs() << "\nblock " << I << " follower " << SI << "\n");
-          DEBUG(dump("S.Consume", S.Consumes));
-          DEBUG(dump("SavedCons", SavedConsumes));
+          LLVM_DEBUG(dbgs() << "\nblock " << I << " follower " << SI << "\n");
+          LLVM_DEBUG(dump("S.Consume", S.Consumes));
+          LLVM_DEBUG(dump("SavedCons", SavedConsumes));
         }
       }
     }
   } while (Changed);
-  DEBUG(dump());
+  LLVM_DEBUG(dump());
 }
 
 #undef DEBUG_TYPE // "coro-suspend-crossing"
@@ -545,7 +546,8 @@ static Instruction *insertSpills(SpillInfo &Spills, coro::Shape &Shape) {
         } else {
           // For all other values, the spill is placed immediately after
           // the definition.
-          assert(!isa<TerminatorInst>(E.def()) && "unexpected terminator");
+          assert(!cast<Instruction>(E.def())->isTerminator() &&
+                 "unexpected terminator");
           InsertPt = cast<Instruction>(E.def())->getNextNode();
         }
 
@@ -599,7 +601,7 @@ static Instruction *insertSpills(SpillInfo &Spills, coro::Shape &Shape) {
 }
 
 // Sets the unwind edge of an instruction to a particular successor.
-static void setUnwindEdgeTo(TerminatorInst *TI, BasicBlock *Succ) {
+static void setUnwindEdgeTo(Instruction *TI, BasicBlock *Succ) {
   if (auto *II = dyn_cast<InvokeInst>(TI))
     II->setUnwindDest(Succ);
   else if (auto *CS = dyn_cast<CatchSwitchInst>(TI))
@@ -820,7 +822,7 @@ static void moveSpillUsesAfterCoroBegin(Function &F, SpillInfo const &Spills,
     for (User *U : CurrentValue->users()) {
       Instruction *I = cast<Instruction>(U);
       if (!DT.dominates(CoroBegin, I)) {
-        DEBUG(dbgs() << "will move: " << *I << "\n");
+        LLVM_DEBUG(dbgs() << "will move: " << *I << "\n");
 
         // TODO: Make this more robust. Currently if we run into a situation
         // where simple instruction move won't work we panic and
@@ -905,7 +907,7 @@ void coro::buildCoroutineFrame(Function &F, Shape &Shape) {
       break;
 
     // Rewrite materializable instructions to be materialized at the use point.
-    DEBUG(dump("Materializations", Spills));
+    LLVM_DEBUG(dump("Materializations", Spills));
     rewriteMaterializableInstructions(Builder, Spills);
     Spills.clear();
   }
@@ -935,7 +937,7 @@ void coro::buildCoroutineFrame(Function &F, Shape &Shape) {
         Spills.emplace_back(&I, U);
       }
   }
-  DEBUG(dump("Spills", Spills));
+  LLVM_DEBUG(dump("Spills", Spills));
   moveSpillUsesAfterCoroBegin(F, Spills, Shape.CoroBegin);
   Shape.FrameTy = buildFrameType(F, Shape, Spills);
   Shape.FramePtr = insertSpills(Spills, Shape);

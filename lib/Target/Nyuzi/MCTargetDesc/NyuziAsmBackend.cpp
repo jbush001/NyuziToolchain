@@ -36,12 +36,12 @@ class NyuziAsmBackend : public MCAsmBackend {
 
 public:
   NyuziAsmBackend(const Target &T, Triple::OSType _OSType)
-      : MCAsmBackend(), OSType(_OSType) {}
+      : MCAsmBackend(support::little), OSType(_OSType) {}
 
-  std::unique_ptr<MCObjectWriter>
-  createObjectWriter(raw_pwrite_stream &OS) const override {
+  std::unique_ptr<MCObjectTargetWriter>
+  createObjectTargetWriter() const override {
     return createNyuziELFObjectWriter(
-        OS, MCELFObjectTargetWriter::getOSABI(OSType));
+        MCELFObjectTargetWriter::getOSABI(OSType));
   }
 
   unsigned adjustFixupValue(const MCFixup &Fixup, uint64_t Value,
@@ -72,7 +72,8 @@ public:
 
   void applyFixup(const MCAssembler &Asm, const MCFixup &Fixup,
                   const MCValue &Target, MutableArrayRef<char> Data,
-                  uint64_t Value, bool IsResolved) const override {
+                  uint64_t Value, bool IsResolved,
+                  const MCSubtargetInfo*) const override {
     const MCFixupKindInfo &Info = getFixupKindInfo(Fixup.getKind());
     Value = adjustFixupValue(Fixup, Value, &Asm.getContext());
     unsigned Offset = Fixup.getOffset();
@@ -116,7 +117,10 @@ public:
     return Infos[Kind - FirstTargetFixupKind];
   }
 
-  bool mayNeedRelaxation(const MCInst &Inst) const override { return false; }
+  bool mayNeedRelaxation(const MCInst &Inst,
+                        const MCSubtargetInfo &STI) const override {
+    return false;
+  }
 
   /// fixupNeedsRelaxation - Target specific predicate for whether a given
   /// fixup requires the associated instruction to be relaxed.
@@ -134,8 +138,8 @@ public:
   // This gets called to align. If strings are emitted in the text area,
   // this may not be a multiple of the instruction size. Just fill with
   // zeroes.
-  bool writeNopData(uint64_t Count, MCObjectWriter *OW) const override {
-    OW->WriteZeros(Count);
+  bool writeNopData(raw_ostream &OS, uint64_t Count) const override {
+    OS.write_zeros(Count);
     return true;
   }
 

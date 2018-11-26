@@ -169,7 +169,11 @@ int main (int argc, const char * argv[])
 	    NSNumber* num_at3 = @12.5;
 	    NSNumber* num_at4 = @-12.5;
 
-		NSDecimalNumber* decimal_one = [NSDecimalNumber one];
+	    NSDecimalNumber* decimal_number = [NSDecimalNumber decimalNumberWithMantissa:123456 exponent:-10 isNegative:NO];
+	    NSDecimalNumber* decimal_number_neg = [NSDecimalNumber decimalNumberWithMantissa:123456 exponent:10 isNegative:YES];
+	    NSDecimalNumber* decimal_one = [NSDecimalNumber one];
+	    NSDecimalNumber* decimal_zero = [NSDecimalNumber zero];
+	    NSDecimalNumber* decimal_nan = [NSDecimalNumber notANumber];
 
 	    NSString *str0 = [num6 stringValue];
 
@@ -380,6 +384,11 @@ int main (int argc, const char * argv[])
 	    [newMutableDictionary setObject:@"foo" forKey:@"bar18"];
 	    [newMutableDictionary setObject:@"foo" forKey:@"bar19"];
 	    [newMutableDictionary setObject:@"foo" forKey:@"bar20"];
+
+	    id cfKeys[2] = { @"foo", @"bar", @"baz", @"quux" };
+	    id cfValues[2] = { @"foo", @"bar", @"baz", @"quux" };
+	    NSDictionary *nsDictionary = CFBridgingRelease(CFDictionaryCreate(nil, (void *)cfKeys, (void *)cfValues, 2, nil, nil));
+	    CFDictionaryRef cfDictionaryRef = CFDictionaryCreate(nil, (void *)cfKeys, (void *)cfValues, 3, nil, nil);
 
 	    NSAttributedString* attrString = [[NSAttributedString alloc] initWithString:@"hello world from foo" attributes:newDictionary];
 	    [attrString isEqual:nil];

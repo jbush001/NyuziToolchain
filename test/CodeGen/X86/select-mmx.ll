@@ -17,8 +17,8 @@ define i64 @test47(i64 %arg)  {
 ; X64-NEXT:    xorl %eax, %eax
 ; X64-NEXT:    testq %rdi, %rdi
 ; X64-NEXT:    movl $7, %ecx
-; X64-NEXT:    cmoveq %rcx, %rax
-; X64-NEXT:    movq %rax, %mm0
+; X64-NEXT:    cmovneq %rax, %rcx
+; X64-NEXT:    movq %rcx, %mm0
 ; X64-NEXT:    psllw %mm0, %mm0
 ; X64-NEXT:    movq %mm0, %rax
 ; X64-NEXT:    retq
@@ -48,6 +48,7 @@ define i64 @test47(i64 %arg)  {
 ; I32-NEXT:    movl {{[0-9]+}}(%esp), %edx
 ; I32-NEXT:    movl %ebp, %esp
 ; I32-NEXT:    popl %ebp
+; I32-NEXT:    .cfi_def_cfa %esp, 4
 ; I32-NEXT:    retl
   %cond = icmp eq i64 %arg, 0
   %slct = select i1 %cond, x86_mmx bitcast (i64 7 to x86_mmx), x86_mmx bitcast (i64 0 to x86_mmx)
@@ -100,6 +101,7 @@ define i64 @test49(i64 %arg, i64 %x, i64 %y) {
 ; I32-NEXT:    movl {{[0-9]+}}(%esp), %edx
 ; I32-NEXT:    movl %ebp, %esp
 ; I32-NEXT:    popl %ebp
+; I32-NEXT:    .cfi_def_cfa %esp, 4
 ; I32-NEXT:    retl
   %cond = icmp eq i64 %arg, 0
   %xmmx = bitcast i64 %x to x86_mmx

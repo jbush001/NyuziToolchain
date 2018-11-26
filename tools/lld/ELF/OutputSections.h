@@ -17,6 +17,7 @@
 #include "lld/Common/LLVM.h"
 #include "llvm/MC/StringTableBuilder.h"
 #include "llvm/Object/ELF.h"
+#include <array>
 
 namespace lld {
 namespace elf {
@@ -94,7 +95,7 @@ public:
   Expr SubalignExpr;
   std::vector<BaseCommand *> SectionCommands;
   std::vector<StringRef> Phdrs;
-  llvm::Optional<uint32_t> Filler;
+  llvm::Optional<std::array<uint8_t, 4>> Filler;
   ConstraintKind Constraint = ConstraintKind::NoConstraint;
   std::string Location;
   std::string MemoryRegionName;
@@ -102,12 +103,13 @@ public:
   bool NonAlloc = false;
   bool Noload = false;
   bool ExpressionsUseSymbols = false;
+  bool InOverlay = false;
 
   template <class ELFT> void finalize();
   template <class ELFT> void writeTo(uint8_t *Buf);
   template <class ELFT> void maybeCompress();
 
-  void sort(std::function<int(InputSectionBase *S)> Order);
+  void sort(llvm::function_ref<int(InputSectionBase *S)> Order);
   void sortInitFini();
   void sortCtorsDtors();
 
@@ -116,7 +118,7 @@ private:
   std::vector<uint8_t> ZDebugHeader;
   llvm::SmallVector<char, 1> CompressedData;
 
-  uint32_t getFiller();
+  std::array<uint8_t, 4> getFiller();
 };
 
 int getPriority(StringRef S);
@@ -128,10 +130,7 @@ std::vector<InputSection *> getInputSections(OutputSection* OS);
 // until Writer is initialized.
 struct Out {
   static uint8_t First;
-  static OutputSection *Opd;
-  static uint8_t *OpdBuf;
   static PhdrEntry *TlsPhdr;
-  static OutputSection *DebugInfo;
   static OutputSection *ElfHeader;
   static OutputSection *ProgramHeaders;
   static OutputSection *PreinitArray;

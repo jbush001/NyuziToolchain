@@ -51,6 +51,15 @@ tx ftemplate(int n) {
     b[2] += 1;
   }
 
+  #pragma omp target
+  {
+    #pragma omp parallel
+    {
+    #pragma omp critical
+    ++a;
+    }
+    ++a;
+  }
   return a;
 }
 
@@ -62,7 +71,13 @@ int bar(int n){
   return a;
 }
 
-  // CHECK-NOT: define {{.*}}void {{@__omp_offloading_.+template.+l17}}_worker()
+// CHECK: [[MEM_TY:%.+]] = type { [4 x i8] }
+// CHECK-DAG: [[SHARED_GLOBAL_RD:@.+]] = common addrspace(3) global [[MEM_TY]] zeroinitializer
+// CHECK-DAG: [[KERNEL_PTR:@.+]] = internal addrspace(3) global i8* null
+// CHECK-DAG: [[KERNEL_SIZE:@.+]] = internal unnamed_addr constant i{{64|32}} 4
+// CHECK-DAG: [[KERNEL_SHARED:@.+]] = internal unnamed_addr constant i16 1
+
+// CHECK-NOT: define {{.*}}void {{@__omp_offloading_.+template.+l17}}_worker()
 
 // CHECK-LABEL: define {{.*}}void {{@__omp_offloading_.+template.+l26}}_worker()
 // CHECK-DAG: [[OMP_EXEC_STATUS:%.+]] = alloca i8,
@@ -303,4 +318,43 @@ int bar(int n){
 // CHECK: [[A:%.+]] = alloca i[[SZ:32|64]],
 // CHECK: store i[[SZ]] 45, i[[SZ]]* %a,
 // CHECK: ret void
+
+// CHECK-LABEL: define {{.*}}void {{@__omp_offloading_.+template.+l54}}_worker()
+// CHECK-LABEL: define {{.*}}void {{@__omp_offloading_.+template.+l54}}(
+// CHECK-32: [[A_ADDR:%.+]] = alloca i32,
+// CHECK-64: [[A_ADDR:%.+]] = alloca i64,
+// CHECK-64: [[CONV:%.+]] = bitcast i64* [[A_ADDR]] to i32*
+// CHECK: [[IS_SHARED:%.+]] = load i16, i16* [[KERNEL_SHARED]],
+// CHECK: [[SIZE:%.+]] = load i{{64|32}}, i{{64|32}}* [[KERNEL_SIZE]],
+// CHECK: call void @__kmpc_get_team_static_memory(i8* addrspacecast (i8 addrspace(3)* getelementptr inbounds ([[MEM_TY]], [[MEM_TY]] addrspace(3)* [[SHARED_GLOBAL_RD]], i32 0, i32 0, i32 0) to i8*), i{{64|32}} [[SIZE]], i16 [[IS_SHARED]], i8** addrspacecast (i8* addrspace(3)* [[KERNEL_PTR]] to i8**))
+// CHECK: [[KERNEL_RD:%.+]] = load i8*, i8* addrspace(3)* [[KERNEL_PTR]],
+// CHECK: [[STACK:%.+]] = getelementptr inbounds i8, i8* [[KERNEL_RD]], i{{64|32}} 0
+// CHECK: [[BC:%.+]] = bitcast i8* [[STACK]] to %struct._globalized_locals_ty*
+// CHECK-32: [[A:%.+]] = load i32, i32* [[A_ADDR]],
+// CHECK-64: [[A:%.+]] = load i32, i32* [[CONV]],
+// CHECK: [[GLOBAL_A_ADDR:%.+]] = getelementptr inbounds %struct._globalized_locals_ty, %struct._globalized_locals_ty* [[BC]], i{{[0-9]+}} 0, i{{[0-9]+}} 0
+// CHECK: store i32 [[A]], i32* [[GLOBAL_A_ADDR]],
+// CHECK: [[IS_SHARED:%.+]] = load i16, i16* [[KERNEL_SHARED]],
+// CHECK: call void @__kmpc_restore_team_static_memory(i16 [[IS_SHARED]])
+
+// CHECK-LABEL: define internal void @{{.+}}(i32* noalias %{{.+}}, i32* noalias %{{.+}}, i32* dereferenceable{{.*}})
+// CHECK:  [[CC:%.+]] = alloca i32,
+// CHECK:  [[TID:%.+]] = call i32 @llvm.nvvm.read.ptx.sreg.tid.x()
+// CHECK:  [[NUM_THREADS:%.+]] = call i32 @llvm.nvvm.read.ptx.sreg.ntid.x()
+// CHECK:  store i32 0, i32* [[CC]],
+// CHECK:  br label
+
+// CHECK:  [[CC_VAL:%.+]] = load i32, i32* [[CC]],
+// CHECK:  [[RES:%.+]] = icmp slt i32 [[CC_VAL]], [[NUM_THREADS]]
+// CHECK:  br i1 [[RES]], label
+
+// CHECK:  [[CC_VAL:%.+]] = load i32, i32* [[CC]],
+// CHECK:  [[RES:%.+]] = icmp eq i32 [[TID]], [[CC_VAL]]
+// CHECK:  br i1 [[RES]], label
+
+// CHECK:  call void @llvm.nvvm.barrier0()
+// CHECK:  [[NEW_CC_VAL:%.+]] = add nsw i32 [[CC_VAL]], 1
+// CHECK:  store i32 [[NEW_CC_VAL]], i32* [[CC]],
+// CHECK:  br label
+
 #endif

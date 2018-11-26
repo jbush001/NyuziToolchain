@@ -12,14 +12,14 @@
 #include "lldb/Utility/FileSpec.h"
 #include "lldb/Utility/JSON.h"
 #include "lldb/Utility/Status.h"
-#include "lldb/Utility/Stream.h" // for Stream
+#include "lldb/Utility/Stream.h"
 #include "lldb/Utility/StreamString.h"
-#include "llvm/ADT/STLExtras.h" // for make_unique
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/MemoryBuffer.h"
 #include <cerrno>
 #include <cstdlib>
 #include <inttypes.h>
-#include <limits> // for numeric_limits
+#include <limits>
 
 using namespace lldb_private;
 
@@ -33,11 +33,6 @@ static StructuredData::ObjectSP ParseJSONArray(JSONParser &json_parser);
 StructuredData::ObjectSP
 StructuredData::ParseJSONFromFile(const FileSpec &input_spec, Status &error) {
   StructuredData::ObjectSP return_sp;
-  if (!input_spec.Exists()) {
-    error.SetErrorStringWithFormatv("input file {0} does not exist.",
-                                    input_spec);
-    return return_sp;
-  }
 
   auto buffer_or_error = llvm::MemoryBuffer::getFile(input_spec.GetPath());
   if (!buffer_or_error) {
@@ -85,8 +80,7 @@ static StructuredData::ObjectSP ParseJSONObject(JSONParser &json_parser) {
 
 static StructuredData::ObjectSP ParseJSONArray(JSONParser &json_parser) {
   // The "JSONParser::Token::ObjectStart" token should have already been
-  // consumed
-  // by the time this function is called
+  // consumed by the time this function is called
   auto array_up = llvm::make_unique<StructuredData::Array>();
 
   std::string value;
@@ -162,8 +156,8 @@ StructuredData::Object::GetObjectForDotSeparatedPath(llvm::StringRef path) {
     std::string key = match.first.str();
     ObjectSP value = this->GetAsDictionary()->GetValueForKey(key);
     if (value.get()) {
-      // Do we have additional words to descend?  If not, return the
-      // value we're at right now.
+      // Do we have additional words to descend?  If not, return the value
+      // we're at right now.
       if (match.second.empty()) {
         return value;
       } else {

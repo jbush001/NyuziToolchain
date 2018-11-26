@@ -11,8 +11,8 @@
 #include "lldb/Host/HostInfo.h"
 #include "lldb/Host/common/TCPSocket.h"
 #include "lldb/Host/posix/ConnectionFileDescriptorPosix.h"
-#include "lldb/Interpreter/Args.h"
 #include "lldb/Target/ProcessLaunchInfo.h"
+#include "lldb/Utility/Args.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/Support/Path.h"
 #include "llvm/Testing/Support/Error.h"
@@ -29,8 +29,7 @@ using namespace llgs_tests;
 
 TestClient::TestClient(std::unique_ptr<Connection> Conn) {
   SetConnection(Conn.release());
-
-  SendAck(); // Send this as a handshake.
+  SetPacketTimeout(std::chrono::seconds(10));
 }
 
 TestClient::~TestClient() {
@@ -38,6 +37,18 @@ TestClient::~TestClient() {
     return;
 
   EXPECT_THAT_ERROR(SendMessage("k"), Succeeded());
+}
+
+Error TestClient::initializeConnection() {
+  if (SendAck() == 0)
+    return make_error<StringError>("Sending initial ACK failed.",
+                                   inconvertibleErrorCode());
+
+  if (Error E = SendMessage("QStartNoAckMode"))
+    return E;
+
+  m_send_acks = false;
+  return Error::success();
 }
 
 Expected<std::unique_ptr<TestClient>> TestClient::launch(StringRef Log) {
@@ -86,6 +97,11 @@ Expected<std::unique_ptr<TestClient>> TestClient::launchCustom(StringRef Log, Ar
   Info.SetArchitecture(arch_spec);
   Info.SetArguments(args, true);
   Info.GetEnvironment() = Host::GetEnvironment();
+  // TODO: Use this callback to detect botched launches. If lldb-server does not
+  // start, we can print a nice error message here instead of hanging in
+  // Accept().
+  Info.SetMonitorProcessCallback(&ProcessLaunchInfo::NoOpMonitorCallback,
+                                 false);
 
   status = Host::LaunchProcess(Info);
   if (status.Fail())
@@ -95,6 +111,9 @@ Expected<std::unique_ptr<TestClient>> TestClient::launchCustom(StringRef Log, Ar
   listen_socket.Accept(accept_socket);
   auto Conn = llvm::make_unique<ConnectionFileDescriptor>(accept_socket);
   auto Client = std::unique_ptr<TestClient>(new TestClient(std::move(Conn)));
+
+  if (Error E = Client->initializeConnection())
+    return std::move(E);
 
   if (!InferiorArgs.empty()) {
     if (Error E = Client->queryProcess())
@@ -162,13 +181,9 @@ Error TestClient::SendMessage(StringRef message) {
 Error TestClient::SendMessage(StringRef message, std::string &response_string) {
   if (Error E = SendMessage(message, response_string, PacketResult::Success))
     return E;
-  if (response_string[0] == 'E') {
-    return make_error<StringError>(
-        formatv("Error `{0}` while sending message: {1}", response_string,
-                message)
-            .str(),
-        inconvertibleErrorCode());
-  }
+  StringExtractorGDBRemote Extractor(response_string);
+  if (Extractor.IsErrorResponse())
+    return Extractor.GetStatus().ToError();
   return Error::success();
 }
 

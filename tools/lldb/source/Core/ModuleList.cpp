@@ -8,39 +8,39 @@
 //===----------------------------------------------------------------------===//
 
 #include "lldb/Core/ModuleList.h"
-#include "lldb/Core/FileSpecList.h" // for FileSpecList
+#include "lldb/Core/FileSpecList.h"
 #include "lldb/Core/Module.h"
 #include "lldb/Core/ModuleSpec.h"
 #include "lldb/Host/FileSystem.h"
 #include "lldb/Host/Symbols.h"
-#include "lldb/Interpreter/OptionValueProperties.h"
 #include "lldb/Interpreter/OptionValueFileSpec.h"
+#include "lldb/Interpreter/OptionValueProperties.h"
 #include "lldb/Interpreter/Property.h"
 #include "lldb/Symbol/ObjectFile.h"
-#include "lldb/Symbol/SymbolContext.h" // for SymbolContextList, SymbolCon...
+#include "lldb/Symbol/SymbolContext.h"
 #include "lldb/Symbol/VariableList.h"
-#include "lldb/Utility/ArchSpec.h"    // for ArchSpec
-#include "lldb/Utility/ConstString.h" // for ConstString
+#include "lldb/Utility/ArchSpec.h"
+#include "lldb/Utility/ConstString.h"
 #include "lldb/Utility/Log.h"
-#include "lldb/Utility/Logging.h" // for GetLogIfAnyCategoriesSet
-#include "lldb/Utility/UUID.h"    // for UUID, operator!=, operator==
-#include "lldb/lldb-defines.h"    // for LLDB_INVALID_INDEX32
+#include "lldb/Utility/Logging.h"
+#include "lldb/Utility/UUID.h"
+#include "lldb/lldb-defines.h"
 
-#if defined(LLVM_ON_WIN32)
-#include "lldb/Host/windows/PosixApi.h" // for PATH_MAX
+#if defined(_WIN32)
+#include "lldb/Host/windows/PosixApi.h"
 #endif
 
-#include "llvm/ADT/StringRef.h" // for StringRef
+#include "clang/Driver/Driver.h"
+#include "llvm/ADT/StringRef.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/Threading.h"
-#include "llvm/Support/raw_ostream.h" // for fs
-#include "clang/Driver/Driver.h"
+#include "llvm/Support/raw_ostream.h"
 
-#include <chrono> // for operator!=, time_point
-#include <memory> // for shared_ptr
+#include <chrono>
+#include <memory>
 #include <mutex>
-#include <string>  // for string
-#include <utility> // for distance
+#include <string>
+#include <utility>
 
 namespace lldb_private {
 class Function;
@@ -66,16 +66,15 @@ using namespace lldb_private;
 
 namespace {
 
-PropertyDefinition g_properties[] = {
+static constexpr PropertyDefinition g_properties[] = {
     {"enable-external-lookup", OptionValue::eTypeBoolean, true, true, nullptr,
-     nullptr,
+     {},
      "Control the use of external tools or libraries to locate symbol files. "
      "On macOS, Spotlight is used to locate a matching .dSYM bundle based on "
      "the UUID of the executable."},
     {"clang-modules-cache-path", OptionValue::eTypeFileSpec, true, 0, nullptr,
-     nullptr,
-     "The path to the clang modules cache directory (-fmodules-cache-path)."},
-    {nullptr, OptionValue::eTypeInvalid, false, 0, nullptr, nullptr, nullptr}};
+     {},
+     "The path to the clang modules cache directory (-fmodules-cache-path)."}};
 
 enum { ePropertyEnableExternalLookup, ePropertyClangModulesCachePath };
 
@@ -132,8 +131,8 @@ const ModuleList &ModuleList::operator=(const ModuleList &rhs) {
     //  in thread A: | in thread B:
     //    x = y;     |   y = x;
     //
-    // This establishes correct(same) lock taking order and thus
-    // avoids priority inversion.
+    // This establishes correct(same) lock taking order and thus avoids
+    // priority inversion.
     if (uintptr_t(this) > uintptr_t(&rhs)) {
       std::lock_guard<std::recursive_mutex> lhs_guard(m_modules_mutex);
       std::lock_guard<std::recursive_mutex> rhs_guard(rhs.m_modules_mutex);
@@ -339,8 +338,9 @@ ModuleSP ModuleList::GetModuleAtIndexUnlocked(size_t idx) const {
 }
 
 size_t ModuleList::FindFunctions(const ConstString &name,
-                                 uint32_t name_type_mask, bool include_symbols,
-                                 bool include_inlines, bool append,
+                                 FunctionNameType name_type_mask,
+                                 bool include_symbols, bool include_inlines,
+                                 bool append,
                                  SymbolContextList &sc_list) const {
   if (!append)
     sc_list.Clear();
@@ -374,7 +374,7 @@ size_t ModuleList::FindFunctions(const ConstString &name,
 }
 
 size_t ModuleList::FindFunctionSymbols(const ConstString &name,
-                                       uint32_t name_type_mask,
+                                       lldb::FunctionNameType name_type_mask,
                                        SymbolContextList &sc_list) {
   const size_t old_size = sc_list.GetSize();
 
@@ -432,27 +432,26 @@ size_t ModuleList::FindCompileUnits(const FileSpec &path, bool append,
   return sc_list.GetSize();
 }
 
-size_t ModuleList::FindGlobalVariables(const ConstString &name, bool append,
+size_t ModuleList::FindGlobalVariables(const ConstString &name,
                                        size_t max_matches,
                                        VariableList &variable_list) const {
   size_t initial_size = variable_list.GetSize();
   std::lock_guard<std::recursive_mutex> guard(m_modules_mutex);
   collection::const_iterator pos, end = m_modules.end();
   for (pos = m_modules.begin(); pos != end; ++pos) {
-    (*pos)->FindGlobalVariables(name, nullptr, append, max_matches,
-                                variable_list);
+    (*pos)->FindGlobalVariables(name, nullptr, max_matches, variable_list);
   }
   return variable_list.GetSize() - initial_size;
 }
 
 size_t ModuleList::FindGlobalVariables(const RegularExpression &regex,
-                                       bool append, size_t max_matches,
+                                       size_t max_matches,
                                        VariableList &variable_list) const {
   size_t initial_size = variable_list.GetSize();
   std::lock_guard<std::recursive_mutex> guard(m_modules_mutex);
   collection::const_iterator pos, end = m_modules.end();
   for (pos = m_modules.begin(); pos != end; ++pos) {
-    (*pos)->FindGlobalVariables(regex, append, max_matches, variable_list);
+    (*pos)->FindGlobalVariables(regex, max_matches, variable_list);
   }
   return variable_list.GetSize() - initial_size;
 }
@@ -545,8 +544,8 @@ ModuleList::FindTypes(const SymbolContext &sc, const ConstString &name,
   size_t total_matches = 0;
   collection::const_iterator pos, end = m_modules.end();
   if (sc.module_sp) {
-    // The symbol context "sc" contains a module so we want to search that
-    // one first if it is in our list...
+    // The symbol context "sc" contains a module so we want to search that one
+    // first if it is in our list...
     for (pos = m_modules.begin(); pos != end; ++pos) {
       if (sc.module_sp.get() == (*pos).get()) {
         total_matches +=
@@ -563,8 +562,8 @@ ModuleList::FindTypes(const SymbolContext &sc, const ConstString &name,
     SymbolContext world_sc;
     for (pos = m_modules.begin(); pos != end; ++pos) {
       // Search the module if the module is not equal to the one in the symbol
-      // context "sc". If "sc" contains a empty module shared pointer, then
-      // the comparison will always be true (valid_module_ptr != nullptr).
+      // context "sc". If "sc" contains a empty module shared pointer, then the
+      // comparison will always be true (valid_module_ptr != nullptr).
       if (sc.module_sp.get() != (*pos).get())
         total_matches +=
             (*pos)->FindTypes(world_sc, name, name_is_fully_qualified,
@@ -664,9 +663,10 @@ bool ModuleList::ResolveFileAddress(lldb::addr_t vm_addr,
   return false;
 }
 
-uint32_t ModuleList::ResolveSymbolContextForAddress(const Address &so_addr,
-                                                    uint32_t resolve_scope,
-                                                    SymbolContext &sc) const {
+uint32_t
+ModuleList::ResolveSymbolContextForAddress(const Address &so_addr,
+                                           SymbolContextItem resolve_scope,
+                                           SymbolContext &sc) const {
   // The address is already section offset so it has a module
   uint32_t resolved_flags = 0;
   ModuleSP module_sp(so_addr.GetModule());
@@ -689,15 +689,15 @@ uint32_t ModuleList::ResolveSymbolContextForAddress(const Address &so_addr,
 
 uint32_t ModuleList::ResolveSymbolContextForFilePath(
     const char *file_path, uint32_t line, bool check_inlines,
-    uint32_t resolve_scope, SymbolContextList &sc_list) const {
-  FileSpec file_spec(file_path, false);
+    SymbolContextItem resolve_scope, SymbolContextList &sc_list) const {
+  FileSpec file_spec(file_path);
   return ResolveSymbolContextsForFileSpec(file_spec, line, check_inlines,
                                           resolve_scope, sc_list);
 }
 
 uint32_t ModuleList::ResolveSymbolContextsForFileSpec(
     const FileSpec &file_spec, uint32_t line, bool check_inlines,
-    uint32_t resolve_scope, SymbolContextList &sc_list) const {
+    SymbolContextItem resolve_scope, SymbolContextList &sc_list) const {
   std::lock_guard<std::recursive_mutex> guard(m_modules_mutex);
   collection::const_iterator pos, end = m_modules.end();
   for (pos = m_modules.begin(); pos != end; ++pos) {
@@ -791,8 +791,8 @@ Status ModuleList::GetSharedModule(const ModuleSpec &module_spec,
   const ArchSpec &arch = module_spec.GetArchitecture();
 
   // Make sure no one else can try and get or create a module while this
-  // function is actively working on it by doing an extra lock on the
-  // global mutex list.
+  // function is actively working on it by doing an extra lock on the global
+  // mutex list.
   if (!always_create) {
     ModuleList matching_module_list;
     const size_t num_matching_modules =
@@ -815,8 +815,8 @@ Status ModuleList::GetSharedModule(const ModuleSpec &module_spec,
           shared_module_list.Remove(module_sp);
           module_sp.reset();
         } else {
-          // The module matches and the module was not modified from
-          // when it was last loaded.
+          // The module matches and the module was not modified from when it
+          // was last loaded.
           return error;
         }
       }
@@ -827,12 +827,12 @@ Status ModuleList::GetSharedModule(const ModuleSpec &module_spec,
     return error;
 
   module_sp.reset(new Module(module_spec));
-  // Make sure there are a module and an object file since we can specify
-  // a valid file path with an architecture that might not be in that file.
-  // By getting the object file we can guarantee that the architecture matches
+  // Make sure there are a module and an object file since we can specify a
+  // valid file path with an architecture that might not be in that file. By
+  // getting the object file we can guarantee that the architecture matches
   if (module_sp->GetObjectFile()) {
-    // If we get in here we got the correct arch, now we just need
-    // to verify the UUID if one was given
+    // If we get in here we got the correct arch, now we just need to verify
+    // the UUID if one was given
     if (uuid_ptr && *uuid_ptr != module_sp->GetUUID()) {
       module_sp.reset();
     } else {
@@ -857,22 +857,21 @@ Status ModuleList::GetSharedModule(const ModuleSpec &module_spec,
     const auto num_directories = module_search_paths_ptr->GetSize();
     for (size_t idx = 0; idx < num_directories; ++idx) {
       auto search_path_spec = module_search_paths_ptr->GetFileSpecAtIndex(idx);
-      if (!search_path_spec.ResolvePath())
-        continue;
+      FileSystem::Instance().Resolve(search_path_spec);
       namespace fs = llvm::sys::fs;
-      if (!fs::is_directory(search_path_spec.GetPath()))
+      if (!FileSystem::Instance().IsDirectory(search_path_spec))
         continue;
       search_path_spec.AppendPathComponent(
           module_spec.GetFileSpec().GetFilename().AsCString());
-      if (!search_path_spec.Exists())
+      if (!FileSystem::Instance().Exists(search_path_spec))
         continue;
 
       auto resolved_module_spec(module_spec);
       resolved_module_spec.GetFileSpec() = search_path_spec;
       module_sp.reset(new Module(resolved_module_spec));
       if (module_sp->GetObjectFile()) {
-        // If we get in here we got the correct arch, now we just need
-        // to verify the UUID if one was given
+        // If we get in here we got the correct arch, now we just need to
+        // verify the UUID if one was given
         if (uuid_ptr && *uuid_ptr != module_sp->GetUUID()) {
           module_sp.reset();
         } else {
@@ -897,21 +896,23 @@ Status ModuleList::GetSharedModule(const ModuleSpec &module_spec,
   // we now have to use more extreme measures to try and find the appropriate
   // module.
 
-  // Fixup the incoming path in case the path points to a valid file, yet
-  // the arch or UUID (if one was passed in) don't match.
+  // Fixup the incoming path in case the path points to a valid file, yet the
+  // arch or UUID (if one was passed in) don't match.
   ModuleSpec located_binary_modulespec =
       Symbols::LocateExecutableObjectFile(module_spec);
 
   // Don't look for the file if it appears to be the same one we already
   // checked for above...
   if (located_binary_modulespec.GetFileSpec() != module_file_spec) {
-    if (!located_binary_modulespec.GetFileSpec().Exists()) {
+    if (!FileSystem::Instance().Exists(
+            located_binary_modulespec.GetFileSpec())) {
       located_binary_modulespec.GetFileSpec().GetPath(path, sizeof(path));
       if (path[0] == '\0')
         module_file_spec.GetPath(path, sizeof(path));
       // How can this check ever be true? This branch it is false, and we
       // haven't modified file_spec.
-      if (located_binary_modulespec.GetFileSpec().Exists()) {
+      if (FileSystem::Instance().Exists(
+              located_binary_modulespec.GetFileSpec())) {
         std::string uuid_str;
         if (uuid_ptr && uuid_ptr->IsValid())
           uuid_str = uuid_ptr->GetAsString();
@@ -935,8 +936,8 @@ Status ModuleList::GetSharedModule(const ModuleSpec &module_spec,
     }
 
     // Make sure no one else can try and get or create a module while this
-    // function is actively working on it by doing an extra lock on the
-    // global mutex list.
+    // function is actively working on it by doing an extra lock on the global
+    // mutex list.
     ModuleSpec platform_module_spec(module_spec);
     platform_module_spec.GetFileSpec() =
         located_binary_modulespec.GetFileSpec();
@@ -952,7 +953,7 @@ Status ModuleList::GetSharedModule(const ModuleSpec &module_spec,
       // If we didn't have a UUID in mind when looking for the object file,
       // then we should make sure the modification time hasn't changed!
       if (platform_module_spec.GetUUIDPtr() == nullptr) {
-        auto file_spec_mod_time = FileSystem::GetModificationTime(
+        auto file_spec_mod_time = FileSystem::Instance().GetModificationTime(
             located_binary_modulespec.GetFileSpec());
         if (file_spec_mod_time != llvm::sys::TimePoint<>()) {
           if (file_spec_mod_time != module_sp->GetModificationTime()) {
@@ -967,8 +968,8 @@ Status ModuleList::GetSharedModule(const ModuleSpec &module_spec,
 
     if (!module_sp) {
       module_sp.reset(new Module(platform_module_spec));
-      // Make sure there are a module and an object file since we can specify
-      // a valid file path with an architecture that might not be in that file.
+      // Make sure there are a module and an object file since we can specify a
+      // valid file path with an architecture that might not be in that file.
       // By getting the object file we can guarantee that the architecture
       // matches
       if (module_sp && module_sp->GetObjectFile()) {

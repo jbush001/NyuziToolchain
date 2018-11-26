@@ -276,6 +276,7 @@ struct coff_symbol_generic {
 };
 
 struct coff_aux_section_definition;
+struct coff_aux_weak_external;
 
 class COFFSymbolRef {
 public:
@@ -358,6 +359,13 @@ public:
         getStorageClass() != COFF::IMAGE_SYM_CLASS_STATIC)
       return nullptr;
     return getAux<coff_aux_section_definition>();
+  }
+
+  const coff_aux_weak_external *getWeakExternal() const {
+    if (!getNumberOfAuxSymbols() ||
+        getStorageClass() != COFF::IMAGE_SYM_CLASS_WEAK_EXTERNAL)
+      return nullptr;
+    return getAux<coff_aux_weak_external>();
   }
 
   bool isAbsolute() const {
@@ -452,11 +460,12 @@ struct coff_section {
     if (Characteristics & COFF::IMAGE_SCN_TYPE_NO_PAD)
       return 1;
 
-    // Bit [20:24] contains section alignment. Both 0 and 1 mean alignment 1.
+    // Bit [20:24] contains section alignment. 0 means use a default alignment
+    // of 16.
     uint32_t Shift = (Characteristics >> 20) & 0xF;
     if (Shift > 0)
       return 1U << (Shift - 1);
-    return 1;
+    return 16;
   }
 };
 
@@ -584,6 +593,8 @@ enum class coff_guard_flags : uint32_t {
   HasLongJmpTable = 0x00010000,
   FidTableHasFlags = 0x10000000, // Indicates that fid tables are 5 bytes
 };
+
+enum class frame_type : uint16_t { Fpo = 0, Trap = 1, Tss = 2, NonFpo = 3 };
 
 struct coff_load_config_code_integrity {
   support::ulittle16_t Flags;
@@ -874,6 +885,7 @@ public:
     assert(is64());
     return reinterpret_cast<const coff_load_configuration64 *>(LoadConfig);
   }
+  StringRef getRelocationTypeName(uint16_t Type) const;
 
 protected:
   void moveSymbolNext(DataRefImpl &Symb) const override;
@@ -927,6 +939,7 @@ public:
   uint8_t getBytesInAddress() const override;
   StringRef getFileFormatName() const override;
   Triple::ArchType getArch() const override;
+  Expected<uint64_t> getStartAddress() const override;
   SubtargetFeatures getFeatures() const override { return SubtargetFeatures(); }
 
   import_directory_iterator import_directory_begin() const;
@@ -963,6 +976,8 @@ public:
   std::error_code getDataDirectory(uint32_t index,
                                    const data_directory *&Res) const;
   std::error_code getSection(int32_t index, const coff_section *&Res) const;
+  std::error_code getSection(StringRef SectionName,
+                             const coff_section *&Res) const;
 
   template <typename coff_symbol_type>
   std::error_code getSymbol(uint32_t Index,
@@ -1012,8 +1027,7 @@ public:
     llvm_unreachable("null symbol table pointer!");
   }
 
-  iterator_range<const coff_relocation *>
-  getRelocations(const coff_section *Sec) const;
+  ArrayRef<coff_relocation> getRelocations(const coff_section *Sec) const;
 
   std::error_code getSectionName(const coff_section *Sec, StringRef &Res) const;
   uint64_t getSectionSize(const coff_section *Sec) const;
@@ -1216,7 +1230,7 @@ struct FpoData {
   bool useBP() const { return (Attributes >> 10) & 1; }
 
   // cbFrame: frame pointer
-  int getFP() const { return Attributes >> 14; }
+  frame_type getFP() const { return static_cast<frame_type>(Attributes >> 14); }
 };
 
 } // end namespace object

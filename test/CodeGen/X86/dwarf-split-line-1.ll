@@ -1,17 +1,18 @@
 ; Verify that split type units with no source locations don't have a
 ; DW_AT_stmt_list attribute, and the .debug_line.dwo section is suppressed.
 
-; RUN: llc -split-dwarf-file=foo.dwo -dwarf-version=5 -generate-type-units \
-; RUN:     -filetype=obj -O0 -mtriple=x86_64-unknown-linux-gnu < %s \
-; RUN:     | llvm-dwarfdump -v - | FileCheck %s
+; RUN: llc -split-dwarf-file=foo.dwo -split-dwarf-output=%t.dwo \
+; RUN:     -dwarf-version=5 -generate-type-units \
+; RUN:     -filetype=obj -O0 -mtriple=x86_64-unknown-linux-gnu < %s
+; RUN: llvm-dwarfdump -v %t.dwo | FileCheck %s
 
-; FIXME: V5 wants type units in .debug_info.dwo not .debug_types.dwo.
 ; CHECK-NOT: .debug_line.dwo
-; CHECK: .debug_types.dwo contents:
+; CHECK: .debug_info.dwo contents:
 ; CHECK: 0x00000000: Type Unit: {{.*}} version = 0x0005 unit_type = DW_UT_split_type abbr_offset
 ; CHECK: 0x00000018: DW_TAG_type_unit
 ; CHECK-NOT: DW_AT_stmt_list
 ; CHECK-NOT: DW_AT_decl_file
+; CHECK: Compile Unit:
 ; CHECK-NOT: .debug_line.dwo
 
 ; ModuleID = 't.cpp'

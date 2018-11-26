@@ -7,14 +7,11 @@
 //
 //===----------------------------------------------------------------------===//
 
-// C Includes
 #include "lldb/Host/windows/AutoHandle.h"
 #include "lldb/Host/windows/windows.h"
 #include <stdio.h>
 
-// C++ Includes
-// Other libraries and framework includes
-// Project includes
+#include "lldb/Host/FileSystem.h"
 #include "lldb/Host/Host.h"
 #include "lldb/Host/HostInfo.h"
 #include "lldb/Target/Process.h"
@@ -35,10 +32,10 @@ using namespace lldb_private;
 namespace {
 bool GetTripleForProcess(const FileSpec &executable, llvm::Triple &triple) {
   // Open the PE File as a binary file, and parse just enough information to
-  // determine the
-  // machine type.
-  File imageBinary(executable.GetPath().c_str(), File::eOpenOptionRead,
-                   lldb::eFilePermissionsUserRead);
+  // determine the machine type.
+  File imageBinary;
+  FileSystem::Instance().Open(imageBinary, executable, File::eOpenOptionRead,
+                              lldb::eFilePermissionsUserRead);
   imageBinary.SeekFromStart(0x3c);
   int32_t peOffset = 0;
   uint32_t peHead = 0;
@@ -63,8 +60,8 @@ bool GetTripleForProcess(const FileSpec &executable, llvm::Triple &triple) {
 }
 
 bool GetExecutableForProcess(const AutoHandle &handle, std::string &path) {
-  // Get the process image path.  MAX_PATH isn't long enough, paths can actually
-  // be up to 32KB.
+  // Get the process image path.  MAX_PATH isn't long enough, paths can
+  // actually be up to 32KB.
   std::vector<wchar_t> buffer(PATH_MAX);
   DWORD dwSize = buffer.size();
   if (!::QueryFullProcessImageNameW(handle.get(), 0, &buffer[0], &dwSize))
@@ -75,17 +72,16 @@ bool GetExecutableForProcess(const AutoHandle &handle, std::string &path) {
 void GetProcessExecutableAndTriple(const AutoHandle &handle,
                                    ProcessInstanceInfo &process) {
   // We may not have permissions to read the path from the process.  So start
-  // off by
-  // setting the executable file to whatever Toolhelp32 gives us, and then try
-  // to
-  // enhance this with more detailed information, but fail gracefully.
+  // off by setting the executable file to whatever Toolhelp32 gives us, and
+  // then try to enhance this with more detailed information, but fail
+  // gracefully.
   std::string executable;
   llvm::Triple triple;
   triple.setVendor(llvm::Triple::PC);
   triple.setOS(llvm::Triple::Win32);
   triple.setArch(llvm::Triple::UnknownArch);
   if (GetExecutableForProcess(handle, executable)) {
-    FileSpec executableFile(executable.c_str(), false);
+    FileSpec executableFile(executable.c_str());
     process.SetExecutableFile(executableFile, true);
     GetTripleForProcess(executableFile, triple);
   }
@@ -124,7 +120,7 @@ FileSpec Host::GetModuleFileSpecForHostAddress(const void *host_addr) {
   std::string path;
   if (!llvm::convertWideToUTF8(buffer.data(), path))
     return module_filespec;
-  module_filespec.SetFile(path, false);
+  module_filespec.SetFile(path, FileSpec::Style::native);
   return module_filespec;
 }
 
@@ -147,7 +143,7 @@ uint32_t Host::FindProcesses(const ProcessInstanceInfoMatch &match_info,
       ProcessInstanceInfo process;
       std::string exeFile;
       llvm::convertWideToUTF8(pe.szExeFile, exeFile);
-      process.SetExecutableFile(FileSpec(exeFile, false), true);
+      process.SetExecutableFile(FileSpec(exeFile), true);
       process.SetProcessID(pe.th32ProcessID);
       process.SetParentProcessID(pe.th32ParentProcessID);
       GetProcessExecutableAndTriple(handle, process);
@@ -184,15 +180,14 @@ HostThread Host::StartMonitoringChildProcess(
 Status Host::ShellExpandArguments(ProcessLaunchInfo &launch_info) {
   Status error;
   if (launch_info.GetFlags().Test(eLaunchFlagShellExpandArguments)) {
-    FileSpec expand_tool_spec;
-    if (!HostInfo::GetLLDBPath(lldb::ePathTypeSupportExecutableDir,
-                               expand_tool_spec)) {
+    FileSpec expand_tool_spec = HostInfo::GetSupportExeDir();
+    if (!expand_tool_spec) {
       error.SetErrorString("could not find support executable directory for "
                            "the lldb-argdumper tool");
       return error;
     }
     expand_tool_spec.AppendPathComponent("lldb-argdumper.exe");
-    if (!expand_tool_spec.Exists()) {
+    if (!FileSystem::Instance().Exists(expand_tool_spec)) {
       error.SetErrorString("could not find the lldb-argdumper tool");
       return error;
     }
@@ -209,7 +204,7 @@ Status Host::ShellExpandArguments(ProcessLaunchInfo &launch_info) {
     std::string output;
     std::string command = expand_command.GetString();
     RunShellCommand(command.c_str(), launch_info.GetWorkingDirectory(), &status,
-                    nullptr, &output, 10);
+                    nullptr, &output, std::chrono::seconds(10));
 
     if (status != 0) {
       error.SetErrorStringWithFormat("lldb-argdumper exited with error %d",

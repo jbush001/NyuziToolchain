@@ -9,16 +9,11 @@
 
 #include "ABISysV_ppc.h"
 
-// C Includes
-// C++ Includes
-// Other libraries and framework includes
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/Triple.h"
 
-// Project includes
 #include "lldb/Core/Module.h"
 #include "lldb/Core/PluginManager.h"
-#include "lldb/Core/RegisterValue.h"
 #include "lldb/Core/Value.h"
 #include "lldb/Core/ValueObjectConstResult.h"
 #include "lldb/Core/ValueObjectMemory.h"
@@ -32,6 +27,7 @@
 #include "lldb/Utility/ConstString.h"
 #include "lldb/Utility/DataExtractor.h"
 #include "lldb/Utility/Log.h"
+#include "lldb/Utility/RegisterValue.h"
 #include "lldb/Utility/Status.h"
 
 using namespace lldb;
@@ -224,11 +220,8 @@ size_t ABISysV_ppc::GetRedZoneSize() const { return 224; }
 
 ABISP
 ABISysV_ppc::CreateInstance(lldb::ProcessSP process_sp, const ArchSpec &arch) {
-  static ABISP g_abi_sp;
   if (arch.GetTriple().getArch() == llvm::Triple::ppc) {
-    if (!g_abi_sp)
-      g_abi_sp.reset(new ABISysV_ppc(process_sp));
-    return g_abi_sp;
+     return ABISP(new ABISysV_ppc(process_sp));
   }
   return ABISP();
 }
@@ -402,8 +395,8 @@ bool ABISysV_ppc::GetArgumentValues(Thread &thread, ValueList &values) const {
     if (!value)
       return false;
 
-    // We currently only support extracting values with Clang QualTypes.
-    // Do we care about others?
+    // We currently only support extracting values with Clang QualTypes. Do we
+    // care about others?
     CompilerType compiler_type = value->GetCompilerType();
     if (!compiler_type)
       return false;
@@ -501,8 +494,8 @@ Status ABISysV_ppc::SetReturnValueObject(lldb::StackFrameSP &frame_sp,
 
   if (!set_it_simple) {
     // Okay we've got a structure or something that doesn't fit in a simple
-    // register.
-    // We should figure out where it really goes, but we don't support this yet.
+    // register. We should figure out where it really goes, but we don't
+    // support this yet.
     error.SetErrorString("We only support setting simple integer and float "
                          "return types at present.");
   }
@@ -735,10 +728,9 @@ ValueObjectSP ABISysV_ppc::GetReturnValueObjectImpl(
             copy_from_offset = integer_bytes - 8;
             integer_bytes += field_byte_width;
           } else {
-            // The last field didn't fit.  I can't see how that would happen w/o
-            // the overall size being
-            // greater than 16 bytes.  For now, return a nullptr return value
-            // object.
+            // The last field didn't fit.  I can't see how that would happen
+            // w/o the overall size being greater than 16 bytes.  For now,
+            // return a nullptr return value object.
             return return_valobj_sp;
           }
         } else if (field_compiler_type.IsFloatingPointType(count, is_complex)) {
@@ -751,10 +743,9 @@ ValueObjectSP ABISysV_ppc::GetReturnValueObjectImpl(
             fp_bytes += field_byte_width;
           } else if (field_bit_width == 32) {
             // This one is kind of complicated.  If we are in an "eightbyte"
-            // with another float, we'll
-            // be stuffed into an xmm register with it.  If we are in an
-            // "eightbyte" with one or more ints,
-            // then we will be stuffed into the appropriate GPR with them.
+            // with another float, we'll be stuffed into an xmm register with
+            // it.  If we are in an "eightbyte" with one or more ints, then we
+            // will be stuffed into the appropriate GPR with them.
             bool in_gpr;
             if (field_byte_offset % 8 == 0) {
               // We are at the beginning of one of the eightbytes, so check the
@@ -776,9 +767,9 @@ ValueObjectSP ABISysV_ppc::GetReturnValueObjectImpl(
                 }
               }
             } else if (field_byte_offset % 4 == 0) {
-              // We are inside of an eightbyte, so see if the field before us is
-              // floating point:
-              // This could happen if somebody put padding in the structure.
+              // We are inside of an eightbyte, so see if the field before us
+              // is floating point: This could happen if somebody put padding
+              // in the structure.
               if (idx == 0)
                 in_gpr = false;
               else {
@@ -819,9 +810,9 @@ ValueObjectSP ABISysV_ppc::GetReturnValueObjectImpl(
           }
         }
 
-        // These two tests are just sanity checks.  If I somehow get the
-        // type calculation wrong above it is better to just return nothing
-        // than to assert or crash.
+        // These two tests are just sanity checks.  If I somehow get the type
+        // calculation wrong above it is better to just return nothing than to
+        // assert or crash.
         if (!copy_from_extractor)
           return return_valobj_sp;
         if (copy_from_offset + field_byte_width >
@@ -845,9 +836,8 @@ ValueObjectSP ABISysV_ppc::GetReturnValueObjectImpl(
     // FIXME: This is just taking a guess, r3 may very well no longer hold the
     // return storage location.
     // If we are going to do this right, when we make a new frame we should
-    // check to see if it uses a memory
-    // return, and if we are at the first instruction and if so stash away the
-    // return location.  Then we would
+    // check to see if it uses a memory return, and if we are at the first
+    // instruction and if so stash away the return location.  Then we would
     // only return the memory return value if we know it is valid.
 
     if (is_memory) {
@@ -918,9 +908,9 @@ bool ABISysV_ppc::RegisterIsVolatile(const RegisterInfo *reg_info) {
 
 // See "Register Usage" in the
 // "System V Application Binary Interface"
-// "64-bit PowerPC ELF Application Binary Interface Supplement"
-// current version is 1.9 released 2004 at
-// http://refspecs.linuxfoundation.org/ELF/ppc/PPC-elf64abi-1.9.pdf
+// "64-bit PowerPC ELF Application Binary Interface Supplement" current version
+// is 1.9 released 2004 at http://refspecs.linuxfoundation.org/ELF/ppc/PPC-
+// elf64abi-1.9.pdf
 
 bool ABISysV_ppc::RegisterIsCalleeSaved(const RegisterInfo *reg_info) {
   if (reg_info) {

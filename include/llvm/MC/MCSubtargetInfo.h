@@ -27,7 +27,6 @@
 
 namespace llvm {
 
-class MachineInstr;
 class MCInst;
 
 //===----------------------------------------------------------------------===//
@@ -160,6 +159,13 @@ public:
   /// Initialize an InstrItineraryData instance.
   void initInstrItins(InstrItineraryData &InstrItins) const;
 
+  /// Resolve a variant scheduling class for the given MCInst and CPU.
+  virtual unsigned
+  resolveVariantSchedClass(unsigned SchedClass, const MCInst *MI,
+                           unsigned CPUID) const {
+    return 0;
+  }
+
   /// Check whether the CPU string is valid.
   bool isCPUStringValid(StringRef CPU) const {
     auto Found = std::lower_bound(ProcDesc.begin(), ProcDesc.end(), CPU);
@@ -167,10 +173,6 @@ public:
   }
 
   /// Returns string representation of scheduler comment
-  virtual std::string getSchedInfoStr(const MachineInstr &MI) const {
-    return {};
-  }
-
   virtual std::string getSchedInfoStr(MCInst const &MCI) const {
     return {};
   }

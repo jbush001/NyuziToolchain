@@ -77,8 +77,8 @@ int ARMTTIImpl::getIntImmCost(const APInt &Imm, Type *Ty) {
       return 1;
     return ST->hasV6T2Ops() ? 2 : 3;
   }
-  // Thumb1.
-  if (SImmVal >= 0 && SImmVal < 256)
+  // Thumb1, any i8 imm cost 1.
+  if (Bits == 8 || (SImmVal >= 0 && SImmVal < 256))
     return 1;
   if ((~SImmVal < 256) || ARM_AM::isThumbImmShiftedVal(ZImmVal))
     return 2;
@@ -389,7 +389,7 @@ int ARMTTIImpl::getAddressComputationCost(Type *Ty, ScalarEvolution *SE,
   unsigned NumVectorInstToHideOverhead = 10;
   int MaxMergeDistance = 64;
 
-  if (Ty->isVectorTy() && SE && 
+  if (Ty->isVectorTy() && SE &&
       !BaseT::isConstantStridedAccessLessThan(SE, Ptr, MaxMergeDistance + 1))
     return NumVectorInstToHideOverhead;
 
@@ -400,10 +400,29 @@ int ARMTTIImpl::getAddressComputationCost(Type *Ty, ScalarEvolution *SE,
 
 int ARMTTIImpl::getShuffleCost(TTI::ShuffleKind Kind, Type *Tp, int Index,
                                Type *SubTp) {
-  // We only handle costs of reverse and alternate shuffles for now.
-  if (Kind != TTI::SK_Reverse && Kind != TTI::SK_Alternate)
-    return BaseT::getShuffleCost(Kind, Tp, Index, SubTp);
+  if (Kind == TTI::SK_Broadcast) {
+    static const CostTblEntry NEONDupTbl[] = {
+        // VDUP handles these cases.
+        {ISD::VECTOR_SHUFFLE, MVT::v2i32, 1},
+        {ISD::VECTOR_SHUFFLE, MVT::v2f32, 1},
+        {ISD::VECTOR_SHUFFLE, MVT::v2i64, 1},
+        {ISD::VECTOR_SHUFFLE, MVT::v2f64, 1},
+        {ISD::VECTOR_SHUFFLE, MVT::v4i16, 1},
+        {ISD::VECTOR_SHUFFLE, MVT::v8i8,  1},
 
+        {ISD::VECTOR_SHUFFLE, MVT::v4i32, 1},
+        {ISD::VECTOR_SHUFFLE, MVT::v4f32, 1},
+        {ISD::VECTOR_SHUFFLE, MVT::v8i16, 1},
+        {ISD::VECTOR_SHUFFLE, MVT::v16i8, 1}};
+
+    std::pair<int, MVT> LT = TLI->getTypeLegalizationCost(DL, Tp);
+
+    if (const auto *Entry = CostTableLookup(NEONDupTbl, ISD::VECTOR_SHUFFLE,
+                                            LT.second))
+      return LT.first * Entry->Cost;
+
+    return BaseT::getShuffleCost(Kind, Tp, Index, SubTp);
+  }
   if (Kind == TTI::SK_Reverse) {
     static const CostTblEntry NEONShuffleTbl[] = {
         // Reverse shuffle cost one instruction if we are shuffling within a
@@ -412,6 +431,8 @@ int ARMTTIImpl::getShuffleCost(TTI::ShuffleKind Kind, Type *Tp, int Index,
         {ISD::VECTOR_SHUFFLE, MVT::v2f32, 1},
         {ISD::VECTOR_SHUFFLE, MVT::v2i64, 1},
         {ISD::VECTOR_SHUFFLE, MVT::v2f64, 1},
+        {ISD::VECTOR_SHUFFLE, MVT::v4i16, 1},
+        {ISD::VECTOR_SHUFFLE, MVT::v8i8,  1},
 
         {ISD::VECTOR_SHUFFLE, MVT::v4i32, 2},
         {ISD::VECTOR_SHUFFLE, MVT::v4f32, 2},
@@ -426,9 +447,9 @@ int ARMTTIImpl::getShuffleCost(TTI::ShuffleKind Kind, Type *Tp, int Index,
 
     return BaseT::getShuffleCost(Kind, Tp, Index, SubTp);
   }
-  if (Kind == TTI::SK_Alternate) {
-    static const CostTblEntry NEONAltShuffleTbl[] = {
-        // Alt shuffle cost table for ARM. Cost is the number of instructions
+  if (Kind == TTI::SK_Select) {
+    static const CostTblEntry NEONSelShuffleTbl[] = {
+        // Select shuffle cost table for ARM. Cost is the number of instructions
         // required to create the shuffled vector.
 
         {ISD::VECTOR_SHUFFLE, MVT::v2f32, 1},
@@ -445,7 +466,7 @@ int ARMTTIImpl::getShuffleCost(TTI::ShuffleKind Kind, Type *Tp, int Index,
         {ISD::VECTOR_SHUFFLE, MVT::v16i8, 32}};
 
     std::pair<int, MVT> LT = TLI->getTypeLegalizationCost(DL, Tp);
-    if (const auto *Entry = CostTableLookup(NEONAltShuffleTbl,
+    if (const auto *Entry = CostTableLookup(NEONSelShuffleTbl,
                                             ISD::VECTOR_SHUFFLE, LT.second))
       return LT.first * Entry->Cost;
     return BaseT::getShuffleCost(Kind, Tp, Index, SubTp);
@@ -542,14 +563,17 @@ int ARMTTIImpl::getInterleavedMemoryOpCost(unsigned Opcode, Type *VecTy,
                                            unsigned Factor,
                                            ArrayRef<unsigned> Indices,
                                            unsigned Alignment,
-                                           unsigned AddressSpace) {
+                                           unsigned AddressSpace,
+                                           bool UseMaskForCond,
+                                           bool UseMaskForGaps) {
   assert(Factor >= 2 && "Invalid interleave factor");
   assert(isa<VectorType>(VecTy) && "Expect a vector type");
 
   // vldN/vstN doesn't support vector types of i64/f64 element.
   bool EltIs64Bits = DL.getTypeSizeInBits(VecTy->getScalarType()) == 64;
 
-  if (Factor <= TLI->getMaxSupportedInterleaveFactor() && !EltIs64Bits) {
+  if (Factor <= TLI->getMaxSupportedInterleaveFactor() && !EltIs64Bits &&
+      !UseMaskForCond && !UseMaskForGaps) {
     unsigned NumElts = VecTy->getVectorNumElements();
     auto *SubVecTy = VectorType::get(VecTy->getScalarType(), NumElts / Factor);
 
@@ -562,7 +586,8 @@ int ARMTTIImpl::getInterleavedMemoryOpCost(unsigned Opcode, Type *VecTy,
   }
 
   return BaseT::getInterleavedMemoryOpCost(Opcode, VecTy, Factor, Indices,
-                                           Alignment, AddressSpace);
+                                           Alignment, AddressSpace,
+                                           UseMaskForCond, UseMaskForGaps);
 }
 
 void ARMTTIImpl::getUnrollingPreferences(Loop *L, ScalarEvolution &SE,
@@ -583,9 +608,9 @@ void ARMTTIImpl::getUnrollingPreferences(Loop *L, ScalarEvolution &SE,
 
   SmallVector<BasicBlock*, 4> ExitingBlocks;
   L->getExitingBlocks(ExitingBlocks);
-  DEBUG(dbgs() << "Loop has:\n"
-      << "Blocks: " << L->getNumBlocks() << "\n"
-      << "Exit blocks: " << ExitingBlocks.size() << "\n");
+  LLVM_DEBUG(dbgs() << "Loop has:\n"
+                    << "Blocks: " << L->getNumBlocks() << "\n"
+                    << "Exit blocks: " << ExitingBlocks.size() << "\n");
 
   // Only allow another exit other than the latch. This acts as an early exit
   // as it mirrors the profitability calculation of the runtime unroller.
@@ -616,12 +641,14 @@ void ARMTTIImpl::getUnrollingPreferences(Loop *L, ScalarEvolution &SE,
     }
   }
 
-  DEBUG(dbgs() << "Cost of loop: " << Cost << "\n");
+  LLVM_DEBUG(dbgs() << "Cost of loop: " << Cost << "\n");
 
   UP.Partial = true;
   UP.Runtime = true;
   UP.UnrollRemainder = true;
   UP.DefaultUnrollRuntimeCount = 4;
+  UP.UnrollAndJam = true;
+  UP.UnrollAndJamInnerLoopThreshold = 60;
 
   // Force unrolling small loops can be very useful because of the branch
   // taken cost of the backedge.

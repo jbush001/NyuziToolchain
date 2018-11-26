@@ -142,6 +142,48 @@
 // RUN:   -c %s 2>&1 \
 // RUN: | FileCheck -check-prefix ARCHALLERROR %s
 
+
+// Verify that --[no-]cuda-include-ptx arguments are handled correctly.
+// a) by default we're including PTX for all GPUs.
+// RUN: %clang -### -target x86_64-linux-gnu \
+// RUN:   --cuda-gpu-arch=sm_35 --cuda-gpu-arch=sm_30 \
+// RUN:   -c %s 2>&1 \
+// RUN: | FileCheck -check-prefixes FATBIN-COMMON,PTX-SM35,PTX-SM30 %s
+
+// b) --no-cuda-include-ptx=all disables PTX inclusion for all GPUs
+// RUN: %clang -### -target x86_64-linux-gnu \
+// RUN:   --cuda-gpu-arch=sm_35 --cuda-gpu-arch=sm_30 \
+// RUN:   --no-cuda-include-ptx=all \
+// RUN:   -c %s 2>&1 \
+// RUN: | FileCheck -check-prefixes FATBIN-COMMON,NOPTX-SM35,NOPTX-SM30 %s
+
+// c) --no-cuda-include-ptx=sm_XX disables PTX inclusion for that GPU only.
+// RUN: %clang -### -target x86_64-linux-gnu \
+// RUN:   --cuda-gpu-arch=sm_35 --cuda-gpu-arch=sm_30 \
+// RUN:   --no-cuda-include-ptx=sm_35 \
+// RUN:   -c %s 2>&1 \
+// RUN: | FileCheck -check-prefixes FATBIN-COMMON,NOPTX-SM35,PTX-SM30 %s
+// RUN: %clang -### -target x86_64-linux-gnu \
+// RUN:   --cuda-gpu-arch=sm_35 --cuda-gpu-arch=sm_30 \
+// RUN:   --no-cuda-include-ptx=sm_30 \
+// RUN:   -c %s 2>&1 \
+// RUN: | FileCheck -check-prefixes FATBIN-COMMON,PTX-SM35,NOPTX-SM30 %s
+
+// d) --cuda-include-ptx=all overrides preceding --no-cuda-include-ptx=all
+// RUN: %clang -### -target x86_64-linux-gnu \
+// RUN:   --cuda-gpu-arch=sm_35 --cuda-gpu-arch=sm_30 \
+// RUN:   --no-cuda-include-ptx=all --cuda-include-ptx=all \
+// RUN:   -c %s 2>&1 \
+// RUN: | FileCheck -check-prefixes FATBIN-COMMON,PTX-SM35,PTX-SM30 %s
+
+// e) --cuda-include-ptx=all overrides preceding --no-cuda-include-ptx=sm_XX
+// RUN: %clang -### -target x86_64-linux-gnu \
+// RUN:   --cuda-gpu-arch=sm_35 --cuda-gpu-arch=sm_30 \
+// RUN:   --no-cuda-include-ptx=sm_30 --cuda-include-ptx=all \
+// RUN:   -c %s 2>&1 \
+// RUN: | FileCheck -check-prefixes FATBIN-COMMON,PTX-SM35,PTX-SM30 %s
+
+
 // ARCH-SM20: "-cc1"{{.*}}"-target-cpu" "sm_20"
 // NOARCH-SM20-NOT: "-cc1"{{.*}}"-target-cpu" "sm_20"
 // ARCH-SM30: "-cc1"{{.*}}"-target-cpu" "sm_30"
@@ -152,18 +194,18 @@
 
 // Match device-side preprocessor and compiler phases with -save-temps.
 // DEVICE-SAVE: "-cc1" "-triple" "nvptx64-nvidia-cuda"
-// DEVICE-SAVE-SAME: "-aux-triple" "x86_64--linux-gnu"
+// DEVICE-SAVE-SAME: "-aux-triple" "x86_64-unknown-linux-gnu"
 // DEVICE-SAVE-SAME: "-fcuda-is-device"
 // DEVICE-SAVE-SAME: "-x" "cuda"
 
 // DEVICE-SAVE: "-cc1" "-triple" "nvptx64-nvidia-cuda"
-// DEVICE-SAVE-SAME: "-aux-triple" "x86_64--linux-gnu"
+// DEVICE-SAVE-SAME: "-aux-triple" "x86_64-unknown-linux-gnu"
 // DEVICE-SAVE-SAME: "-fcuda-is-device"
 // DEVICE-SAVE-SAME: "-x" "cuda-cpp-output"
 
 // Match the job that produces PTX assembly.
 // DEVICE: "-cc1" "-triple" "nvptx64-nvidia-cuda"
-// DEVICE-NOSAVE-SAME: "-aux-triple" "x86_64--linux-gnu"
+// DEVICE-NOSAVE-SAME: "-aux-triple" "x86_64-unknown-linux-gnu"
 // DEVICE-SAME: "-fcuda-is-device"
 // DEVICE-SM30-SAME: "-target-cpu" "sm_30"
 // DEVICE-SAME: "-o" "[[PTXFILE:[^"]*]]"
@@ -178,7 +220,7 @@
 
 // Match another device-side compilation.
 // DEVICE2: "-cc1" "-triple" "nvptx64-nvidia-cuda"
-// DEVICE2-SAME: "-aux-triple" "x86_64--linux-gnu"
+// DEVICE2-SAME: "-aux-triple" "x86_64-unknown-linux-gnu"
 // DEVICE2-SAME: "-fcuda-is-device"
 // DEVICE2-SM35-SAME: "-target-cpu" "sm_35"
 // DEVICE2-SAME: "-o" "[[PTXFILE2:[^"]*]]"
@@ -202,13 +244,13 @@
 // INCLUDES-DEVICE2-DAG: "--image=profile=compute_{{[0-9]+}},file=[[PTXFILE2]]"
 
 // Match host-side preprocessor job with -save-temps.
-// HOST-SAVE: "-cc1" "-triple" "x86_64--linux-gnu"
+// HOST-SAVE: "-cc1" "-triple" "x86_64-unknown-linux-gnu"
 // HOST-SAVE-SAME: "-aux-triple" "nvptx64-nvidia-cuda"
 // HOST-SAVE-NOT: "-fcuda-is-device"
 // HOST-SAVE-SAME: "-x" "cuda"
 
 // Match host-side compilation.
-// HOST: "-cc1" "-triple" "x86_64--linux-gnu"
+// HOST: "-cc1" "-triple" "x86_64-unknown-linux-gnu"
 // HOST-SAME: "-aux-triple" "nvptx64-nvidia-cuda"
 // HOST-NOT: "-fcuda-is-device"
 // HOST-SAME: "-o" "[[HOSTOUTPUT:[^"]*]]"
@@ -236,3 +278,12 @@
 
 // Match no linker.
 // NOLINK-NOT: "{{.*}}{{ld|link}}{{(.exe)?}}"
+
+// FATBIN-COMMON:fatbinary
+// FATBIN-COMMON: "--create" "[[FATBINARY:[^"]*]]"
+// FATBIN-COMMON: "--image=profile=sm_30,file=
+// PTX-SM30: "--image=profile=compute_30,file=
+// NOPTX-SM30-NOT: "--image=profile=compute_30,file=
+// FATBIN-COMMON: "--image=profile=sm_35,file=
+// PTX-SM35: "--image=profile=compute_35,file=
+// NOPTX-SM35-NOT: "--image=profile=compute_35,file=

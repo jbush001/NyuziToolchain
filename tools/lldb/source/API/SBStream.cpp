@@ -10,6 +10,7 @@
 #include "lldb/API/SBStream.h"
 
 #include "lldb/Core/StreamFile.h"
+#include "lldb/Host/FileSystem.h"
 #include "lldb/Utility/Status.h"
 #include "lldb/Utility/Stream.h"
 #include "lldb/Utility/StreamString.h"
@@ -26,8 +27,8 @@ SBStream::~SBStream() {}
 
 bool SBStream::IsValid() const { return (m_opaque_ap.get() != NULL); }
 
-// If this stream is not redirected to a file, it will maintain a local
-// cache for the stream data which can be accessed using this accessor.
+// If this stream is not redirected to a file, it will maintain a local cache
+// for the stream data which can be accessed using this accessor.
 const char *SBStream::GetData() {
   if (m_is_file || m_opaque_ap.get() == NULL)
     return NULL;
@@ -35,9 +36,8 @@ const char *SBStream::GetData() {
   return static_cast<StreamString *>(m_opaque_ap.get())->GetData();
 }
 
-// If this stream is not redirected to a file, it will maintain a local
-// cache for the stream output whose length can be accessed using this
-// accessor.
+// If this stream is not redirected to a file, it will maintain a local cache
+// for the stream output whose length can be accessed using this accessor.
 size_t SBStream::GetSize() {
   if (m_is_file || m_opaque_ap.get() == NULL)
     return 0;
@@ -71,9 +71,9 @@ void SBStream::RedirectToFile(const char *path, bool append) {
     open_options |= File::eOpenOptionAppend;
   else
     open_options |= File::eOpenOptionTruncate;
-  stream_file->GetFile().Open(path, open_options,
-                              lldb::eFilePermissionsFileDefault);
 
+  FileSystem::Instance().Open(stream_file->GetFile(), FileSpec(path),
+                              open_options);
   m_opaque_ap.reset(stream_file);
 
   if (m_opaque_ap.get()) {

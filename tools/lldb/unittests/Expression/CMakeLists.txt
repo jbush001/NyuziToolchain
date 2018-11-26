@@ -1,7 +1,9 @@
 add_lldb_unittest(ExpressionTests
-  GoParserTest.cpp
+  ClangParserTest.cpp
 
   LINK_LIBS
     lldbCore
-    lldbPluginExpressionParserGo
+    lldbPluginExpressionParserClang
+    lldbUtility
+    lldbUtilityHelpers
   )

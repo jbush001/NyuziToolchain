@@ -337,7 +337,7 @@ public:
   FunctionInfo(const Function &, const SmallVectorImpl<Value *> &,
                const ReachabilitySet &, const AliasAttrMap &);
 
-  bool mayAlias(const Value *, uint64_t, const Value *, uint64_t) const;
+  bool mayAlias(const Value *, LocationSize, const Value *, LocationSize) const;
   const AliasSummary &getAliasSummary() const { return Summary; }
 };
 
@@ -395,7 +395,7 @@ populateAliasMap(DenseMap<const Value *, std::vector<OffsetValue>> &AliasMap,
     }
 
     // Sort AliasList for faster lookup
-    llvm::sort(AliasList.begin(), AliasList.end());
+    llvm::sort(AliasList);
   }
 }
 
@@ -479,7 +479,7 @@ static void populateExternalRelations(
   }
 
   // Remove duplicates in ExtRelations
-  llvm::sort(ExtRelations.begin(), ExtRelations.end());
+  llvm::sort(ExtRelations);
   ExtRelations.erase(std::unique(ExtRelations.begin(), ExtRelations.end()),
                      ExtRelations.end());
 }
@@ -515,10 +515,9 @@ CFLAndersAAResult::FunctionInfo::getAttrs(const Value *V) const {
   return None;
 }
 
-bool CFLAndersAAResult::FunctionInfo::mayAlias(const Value *LHS,
-                                               uint64_t LHSSize,
-                                               const Value *RHS,
-                                               uint64_t RHSSize) const {
+bool CFLAndersAAResult::FunctionInfo::mayAlias(
+    const Value *LHS, LocationSize MaybeLHSSize, const Value *RHS,
+    LocationSize MaybeRHSSize) const {
   assert(LHS && RHS);
 
   // Check if we've seen LHS and RHS before. Sometimes LHS or RHS can be created
@@ -557,10 +556,13 @@ bool CFLAndersAAResult::FunctionInfo::mayAlias(const Value *LHS,
                                       OffsetValue{RHS, 0}, Comparator);
 
     if (RangePair.first != RangePair.second) {
-      // Be conservative about UnknownSize
-      if (LHSSize == MemoryLocation::UnknownSize ||
-          RHSSize == MemoryLocation::UnknownSize)
+      // Be conservative about unknown sizes
+      if (MaybeLHSSize == LocationSize::unknown() ||
+          MaybeRHSSize == LocationSize::unknown())
         return true;
+
+      const uint64_t LHSSize = MaybeLHSSize.getValue();
+      const uint64_t RHSSize = MaybeRHSSize.getValue();
 
       for (const auto &OVal : make_range(RangePair)) {
         // Be conservative about UnknownOffset
@@ -855,8 +857,9 @@ AliasResult CFLAndersAAResult::query(const MemoryLocation &LocA,
     if (!Fn) {
       // The only times this is known to happen are when globals + InlineAsm are
       // involved
-      DEBUG(dbgs()
-            << "CFLAndersAA: could not extract parent function information.\n");
+      LLVM_DEBUG(
+          dbgs()
+          << "CFLAndersAA: could not extract parent function information.\n");
       return MayAlias;
     }
   } else {

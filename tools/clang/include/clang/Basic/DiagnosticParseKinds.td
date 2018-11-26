@@ -53,6 +53,10 @@ def ext_extra_semi_cxx11 : Extension<
 def warn_extra_semi_after_mem_fn_def : Warning<
   "extra ';' after member function definition">,
   InGroup<ExtraSemi>, DefaultIgnore;
+def warn_null_statement : Warning<
+  "empty expression statement has no effect; "
+  "remove unnecessary ';' to silence this warning">,
+  InGroup<ExtraSemiStmt>, DefaultIgnore;
 
 def ext_thread_before : Extension<"'__thread' before '%0'">;
 def ext_keyword_as_ident : ExtWarn<
@@ -86,11 +90,14 @@ def err_enumerator_list_missing_comma : Error<
 def err_enumerator_unnamed_no_def : Error<
   "unnamed enumeration must be a definition">;
 def ext_cxx11_enum_fixed_underlying_type : Extension<
-  "enumeration types with a fixed underlying type are a C++11 extension">, 
+  "enumeration types with a fixed underlying type are a C++11 extension">,
   InGroup<CXX11>;
-def ext_c_enum_fixed_underlying_type : Extension<
+def ext_ms_c_enum_fixed_underlying_type : Extension<
   "enumeration types with a fixed underlying type are a Microsoft extension">,
   InGroup<MicrosoftFixedEnum>;
+def ext_clang_c_enum_fixed_underlying_type : Extension<
+  "enumeration types with a fixed underlying type are a Clang extension">,
+  InGroup<DiagGroup<"fixed-enum-extension">>;
 def warn_cxx98_compat_enum_fixed_underlying_type : Warning<
   "enumeration types with a fixed underlying type are incompatible with C++98">,
   InGroup<CXX98Compat>, DefaultIgnore;
@@ -101,7 +108,7 @@ def ext_alignof_expr : ExtWarn<
   "%0 applied to an expression is a GNU extension">, InGroup<GNUAlignofExpression>;
 
 def warn_microsoft_dependent_exists : Warning<
-  "dependent %select{__if_not_exists|__if_exists}0 declarations are ignored">, 
+  "dependent %select{__if_not_exists|__if_exists}0 declarations are ignored">,
   InGroup<DiagGroup<"microsoft-exists">>;
 def warn_microsoft_qualifiers_ignored : Warning<
   "qualifiers after comma in declarator list are ignored">,
@@ -134,14 +141,14 @@ def ext_gnu_conditional_expr : Extension<
   "use of GNU ?: conditional expression extension, omitting middle operand">, InGroup<GNUConditionalOmittedOperand>;
 def ext_gnu_empty_initializer : Extension<
   "use of GNU empty initializer extension">, InGroup<GNUEmptyInitializer>;
-def ext_gnu_array_range : Extension<"use of GNU array range extension">, 
+def ext_gnu_array_range : Extension<"use of GNU array range extension">,
   InGroup<GNUDesignator>;
 def ext_gnu_missing_equal_designator : ExtWarn<
-  "use of GNU 'missing =' extension in designator">, 
+  "use of GNU 'missing =' extension in designator">,
   InGroup<GNUDesignator>;
 def err_expected_equal_designator : Error<"expected '=' or another designator">;
 def ext_gnu_old_style_field_designator : ExtWarn<
-  "use of GNU old-style field designator extension">, 
+  "use of GNU old-style field designator extension">,
   InGroup<GNUDesignator>;
 def ext_gnu_case_range : Extension<"use of GNU case range extension">,
   InGroup<GNUCaseRange>;
@@ -168,13 +175,16 @@ def err_unexpected_semi : Error<"unexpected ';' before %0">;
 def err_expected_fn_body : Error<
   "expected function body after function declarator">;
 def warn_attribute_on_function_definition : Warning<
-  "GCC does not allow %0 attribute in this position on a function definition">, 
+  "GCC does not allow %0 attribute in this position on a function definition">,
   InGroup<GccCompat>;
 def warn_gcc_attribute_location : Warning<
-  "GCC does not allow an attribute in this position on a function declaration">, 
+  "GCC does not allow an attribute in this position on a function declaration">,
   InGroup<GccCompat>;
+def warn_gcc_variable_decl_in_for_loop : Warning<
+  "GCC does not allow variable declarations in for loop initializers before "
+  "C99">, InGroup<GccCompat>;
 def warn_attribute_no_decl : Warning<
-  "attribute %0 ignored, because it is not attached to a declaration">, 
+  "attribute %0 ignored, because it is not attached to a declaration">,
   InGroup<IgnoredAttributes>;
 def err_ms_attributes_not_enabled : Error<
   "'__declspec' attributes are not enabled; use '-fdeclspec' or "
@@ -216,6 +226,11 @@ def ext_nested_namespace_definition : ExtWarn<
 def warn_cxx14_compat_nested_namespace_definition : Warning<
   "nested namespace definition is incompatible with C++ standards before C++17">,
   InGroup<CXXPre17Compat>, DefaultIgnore;
+def ext_inline_nested_namespace_definition : ExtWarn<
+  "inline nested namespace definition is a C++2a extension">, InGroup<CXX2a>;
+def warn_cxx17_compat_inline_nested_namespace_definition : Warning<
+  "inline nested namespace definition is incompatible with C++ standards before"
+  " C++2a">, InGroup<CXXPre2aCompat>, DefaultIgnore;
 def err_inline_nested_namespace_definition : Error<
   "nested namespace definition cannot be 'inline'">;
 def err_expected_semi_after_attribute_list : Error<
@@ -247,6 +262,11 @@ def err_expected_property_name : Error<"expected property name">;
 def err_unexpected_at : Error<"unexpected '@' in program">;
 def err_atimport : Error<
 "use of '@import' when modules are disabled">;
+
+def warn_atimport_in_framework_header : Warning<
+  "use of '@import' in framework header is discouraged, "
+  "including this header requires -fmodules">,
+  InGroup<FrameworkHdrAtImport>;
 
 def err_invalid_reference_qualifier_application : Error<
   "'%0' qualifier may not be applied to a reference">;
@@ -311,7 +331,7 @@ def warn_cxx98_compat_decltype : Warning<
 def err_unexpected_scope_on_base_decltype : Error<
   "unexpected namespace scope prior to decltype">;
 def err_expected_class_name : Error<"expected class name">;
-def err_expected_class_name_not_template : 
+def err_expected_class_name_not_template :
   Error<"'typename' is redundant; base classes are implicitly types">;
 def err_unspecified_vla_size_with_static : Error<
   "'static' may not be used with an unspecified variable length array size">;
@@ -387,7 +407,7 @@ def warn_arc_bridge_cast_nonarc : Warning<
   "'%0' casts have no effect when not using ARC">,
   InGroup<DiagGroup<"arc-bridge-casts-disallowed-in-nonarc">>;
 }
-  
+
 def err_objc_illegal_visibility_spec : Error<
   "illegal visibility specification">;
 def err_objc_illegal_interface_qual : Error<"illegal interface qualifier">;
@@ -532,6 +552,15 @@ def ext_init_statement : ExtWarn<
 def warn_cxx14_compat_init_statement : Warning<
   "%select{if|switch}0 initialization statements are incompatible with "
   "C++ standards before C++17">, DefaultIgnore, InGroup<CXXPre17Compat>;
+def ext_for_range_init_stmt : ExtWarn<
+  "range-based for loop initialization statements are a C++2a extension">,
+  InGroup<CXX2a>;
+def warn_cxx17_compat_for_range_init_stmt : Warning<
+  "range-based for loop initialization statements are incompatible with "
+  "C++ standards before C++2a">, DefaultIgnore, InGroup<CXXPre2aCompat>;
+def warn_empty_init_statement : Warning<
+  "empty initialization statement of '%select{if|switch|range-based for}0' "
+  "has no effect">, InGroup<EmptyInitStatement>, DefaultIgnore;
 
 // C++ derived classes
 def err_dup_virtual : Error<"duplicate 'virtual' in base specifier">;
@@ -558,6 +587,9 @@ def warn_cxx98_compat_noexcept_expr : Warning<
 def warn_cxx98_compat_nullptr : Warning<
   "'nullptr' is incompatible with C++98">, InGroup<CXX98Compat>, DefaultIgnore;
 
+def warn_wrong_clang_attr_namespace : Warning<
+  "'__clang__' is a predefined macro name, not an attribute scope specifier; "
+  "did you mean '_Clang' instead?">, InGroup<IgnoredAttributes>;
 def ext_ns_enum_attribute : Extension<
   "attributes on %select{a namespace|an enumerator}0 declaration are "
   "a C++17 extension">, InGroup<CXX17>;
@@ -633,6 +665,8 @@ def err_template_spec_syntax_non_template : Error<
   "<unused>|refers to a variable template|<unused>}1">;
 def err_id_after_template_in_nested_name_spec : Error<
   "expected template name after 'template' keyword in nested name specifier">;
+def err_unexpected_template_in_unqualified_id : Error<
+  "'template' keyword not permitted here">;
 def err_two_right_angle_brackets_need_space : Error<
   "a space is required between consecutive right angle brackets (use '> >')">;
 def err_right_angle_bracket_equal_needs_space : Error<
@@ -677,7 +711,7 @@ def warn_cxx98_compat_extern_template : Warning<
 def warn_static_inline_explicit_inst_ignored : Warning<
   "ignoring '%select{static|inline}0' keyword on explicit template "
   "instantiation">, InGroup<DiagGroup<"static-inline-explicit-instantiation">>;
-  
+
 // Constructor template diagnostics.
 def err_out_of_line_constructor_template_id : Error<
   "out-of-line constructor for %0 cannot have template arguments">;
@@ -693,7 +727,7 @@ def err_expected_type_name_after_typename : Error<
   "expected an identifier or template-id after '::'">;
 def err_explicit_spec_non_template : Error<
   "explicit %select{specialization|instantiation}0 of non-template %1 %2">;
-  
+
 def err_default_template_template_parameter_not_template : Error<
   "default template argument for a template template parameter must be a class "
   "template">;
@@ -840,7 +874,7 @@ def err_zero_version : Error<
   "version number must have non-zero major, minor, or sub-minor version">;
 def err_availability_expected_platform : Error<
   "expected a platform name, e.g., 'macos'">;
-  
+
 // objc_bridge_related attribute
 def err_objcbridge_related_expected_related_class : Error<
   "expected a related ObjectiveC class name, e.g., 'NSColor'">;
@@ -984,7 +1018,7 @@ def warn_pragma_init_seg_unsupported_target : Warning<
 // - #pragma fp_contract
 def err_pragma_fp_contract_scope : Error<
   "'#pragma fp_contract' can only appear at file scope or at the start of a "
-  "compound statement">; 
+  "compound statement">;
 // - #pragma stdc unknown
 def ext_stdc_pragma_ignored : ExtWarn<"unknown pragma in STDC namespace">,
    InGroup<UnknownPragmas>;
@@ -1013,8 +1047,8 @@ def err_pragma_optimize_invalid_argument : Error<
 def err_pragma_optimize_extra_argument : Error<
   "unexpected extra argument '%0' to '#pragma clang optimize'">;
 // - #pragma clang attribute
-def err_pragma_attribute_expected_push_pop : Error<
-  "expected 'push' or 'pop' after '#pragma clang attribute'">;
+def err_pragma_attribute_expected_push_pop_paren : Error<
+  "expected 'push', 'pop', or '(' after '#pragma clang attribute'">;
 def err_pragma_attribute_invalid_argument : Error<
   "unexpected argument '%0' to '#pragma clang attribute'; "
   "expected 'push' or 'pop'">;
@@ -1073,6 +1107,12 @@ def err_opencl_taking_function_address_parser : Error<
 def err_opencl_logical_exclusive_or : Error<
   "^^ is a reserved operator in OpenCL">;
 
+// OpenCL C++.
+def err_openclcxx_virtual_function : Error<
+  "virtual functions are not supported in OpenCL C++">;
+def err_openclcxx_reserved : Error<
+  "'%0' is a reserved keyword in OpenCL C++">;
+
 // OpenMP support.
 def warn_pragma_omp_ignored : Warning<
   "unexpected '#pragma omp ...' in program">, InGroup<SourceUsesOpenMP>, DefaultIgnore;
@@ -1109,6 +1149,8 @@ def err_expected_end_declare_target : Error<
   "expected '#pragma omp end declare target'">;
 def err_omp_declare_target_unexpected_clause: Error<
   "unexpected '%0' clause, only 'to' or 'link' clauses expected">;
+def err_omp_expected_clause: Error<
+  "expected at least one clause on '#pragma omp %0' directive">;
 
 // Pragma loop support.
 def err_pragma_loop_missing_argument : Error<

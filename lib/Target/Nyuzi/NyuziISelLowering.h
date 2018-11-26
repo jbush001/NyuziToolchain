@@ -100,6 +100,7 @@ private:
   SDValue LowerSCALAR_TO_VECTOR(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerSELECT_CC(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerSELECT(SDValue Op, SelectionDAG &DAG) const;
+  SDValue LowerVSELECT(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerSETCC(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerFDIV(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerFNEG(SDValue Op, SelectionDAG &DAG) const;

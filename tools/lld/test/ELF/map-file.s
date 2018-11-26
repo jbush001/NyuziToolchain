@@ -53,7 +53,7 @@ labs = 0x1AB5
 // CHECK-NEXT: 2002d0           2002d0       30     8         <internal>:(.rela.dyn)
 // CHECK-NEXT: 200300           200300       30     8 .rela.plt
 // CHECK-NEXT: 200300           200300       30     8         <internal>:(.rela.plt)
-// CHECK-NEXT: 200330           200330       60     8 .eh_frame
+// CHECK-NEXT: 200330           200330       64     8 .eh_frame
 // CHECK-NEXT: 200330           200330       2c     1         {{.*}}{{/|\\}}map-file.s.tmp1.o:(.eh_frame+0x0)
 // CHECK-NEXT: 200360           200360       14     1         {{.*}}{{/|\\}}map-file.s.tmp1.o:(.eh_frame+0x2c)
 // CHECK-NEXT: 200378           200378       18     1         {{.*}}{{/|\\}}map-file.s.tmp2.o:(.eh_frame+0x18)
@@ -73,8 +73,8 @@ labs = 0x1AB5
 // CHECK-NEXT: 20102c           20102c        0     1                 baz
 // CHECK-NEXT: 201030           201030       30    16 .plt
 // CHECK-NEXT: 201030           201030       30    16         <internal>:(.plt)
-// CHECK-NEXT: 201040                0        0     1                 sharedFunc1
-// CHECK-NEXT: 201050                0        0     1                 sharedFunc2
+// CHECK-NEXT: 201040           201040        0     1                 sharedFunc1
+// CHECK-NEXT: 201050           201050        0     1                 sharedFunc2
 // CHECK-NEXT: 202000           202000       28     8 .got.plt
 // CHECK-NEXT: 202000           202000       28     8         <internal>:(.got.plt)
 // CHECK-NEXT: 203000           203000      100     8 .dynamic
@@ -94,6 +94,7 @@ labs = 0x1AB5
 // CHECK-NEXT:      0                0       84     1         <internal>:(.shstrtab)
 // CHECK-NEXT:      0                0       6d     1 .strtab
 // CHECK-NEXT:      0                0       6d     1         <internal>:(.strtab)
+
 
 // RUN: not ld.lld %t1.o %t2.o %t3.o %t4.a -o %t -Map=/ 2>&1 \
 // RUN:  | FileCheck -check-prefix=FAIL %s

@@ -7,7 +7,7 @@
 # CHECK:      Sections:
 # CHECK-NEXT:  Idx Name          Size      Address          Type
 # CHECK-NEXT:    0               00000000 0000000000000000
-# CHECK-NEXT:    1 .text         00000001 0000000000100000 TEXT DATA
+# CHECK-NEXT:    1 .text         00000001 0000000000100000 TEXT
 # CHECK-NEXT:    2 .data         00000004 0000000000110000 DATA
 # CHECK-NEXT:    3 .bss          00000004 0000000000200000 BSS
 
@@ -35,11 +35,11 @@
 # RUN: llvm-objdump -section-headers %t4 | FileCheck %s
 
 ## Errors:
-# RUN: not ld.lld %t.o --section-start .text100000 -o %t2 2>&1 \
+# RUN: not ld.lld %t.o --section-start .text100000 -o /dev/null 2>&1 \
 # RUN:    | FileCheck -check-prefix=ERR1 %s
 # ERR1: invalid argument: --section-start .text100000
 
-# RUN: not ld.lld %t.o --section-start .text=1Q0000 -o %t3 2>&1 \
+# RUN: not ld.lld %t.o --section-start .text=1Q0000 -o /dev/null 2>&1 \
 # RUN:    | FileCheck -check-prefix=ERR2 %s
 # ERR2: invalid argument: --section-start .text=1Q0000
 

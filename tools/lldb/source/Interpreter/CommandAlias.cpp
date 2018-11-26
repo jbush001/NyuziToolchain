@@ -114,26 +114,17 @@ bool CommandAlias::WantsCompletion() {
   return false;
 }
 
-int CommandAlias::HandleCompletion(Args &input, int &cursor_index,
-                                   int &cursor_char_position,
-                                   int match_start_point,
-                                   int max_return_elements, bool &word_complete,
-                                   StringList &matches) {
+int CommandAlias::HandleCompletion(CompletionRequest &request) {
   if (IsValid())
-    return m_underlying_command_sp->HandleCompletion(
-        input, cursor_index, cursor_char_position, match_start_point,
-        max_return_elements, word_complete, matches);
+    return m_underlying_command_sp->HandleCompletion(request);
   return -1;
 }
 
 int CommandAlias::HandleArgumentCompletion(
-    Args &input, int &cursor_index, int &cursor_char_position,
-    OptionElementVector &opt_element_vector, int match_start_point,
-    int max_return_elements, bool &word_complete, StringList &matches) {
+    CompletionRequest &request, OptionElementVector &opt_element_vector) {
   if (IsValid())
     return m_underlying_command_sp->HandleArgumentCompletion(
-        input, cursor_index, cursor_char_position, opt_element_vector,
-        match_start_point, max_return_elements, word_complete, matches);
+        request, opt_element_vector);
   return -1;
 }
 
@@ -196,8 +187,8 @@ bool CommandAlias::IsDashDashCommand() {
     }
   }
 
-  // if this is a nested alias, it may be adding arguments on top of an
-  // already dash-dash alias
+  // if this is a nested alias, it may be adding arguments on top of an already
+  // dash-dash alias
   if ((m_is_dashdash_alias == eLazyBoolNo) && IsNestedAlias())
     m_is_dashdash_alias =
         (GetUnderlyingCommand()->IsDashDashCommand() ? eLazyBoolYes
@@ -228,8 +219,7 @@ std::pair<lldb::CommandObjectSP, OptionArgVectorSP> CommandAlias::Desugar() {
 }
 
 // allow CommandAlias objects to provide their own help, but fallback to the
-// info
-// for the underlying command if no customization has been provided
+// info for the underlying command if no customization has been provided
 void CommandAlias::SetHelp(llvm::StringRef str) {
   this->CommandObject::SetHelp(str);
   m_did_set_help = true;

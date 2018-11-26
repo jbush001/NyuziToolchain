@@ -8,7 +8,7 @@
 //===----------------------------------------------------------------------===//
 //
 // \file
-// \brief This file implements the Attribute, AttributeImpl, AttrBuilder,
+// This file implements the Attribute, AttributeImpl, AttrBuilder,
 // AttributeListImpl, and AttributeList classes.
 //
 //===----------------------------------------------------------------------===//
@@ -24,6 +24,7 @@
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/Twine.h"
+#include "llvm/Config/llvm-config.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Type.h"
@@ -322,6 +323,8 @@ std::string Attribute::getAsString(bool InAttrGrp) const {
     return "returns_twice";
   if (hasAttribute(Attribute::SExt))
     return "signext";
+  if (hasAttribute(Attribute::SpeculativeLoadHardening))
+    return "speculative_load_hardening";
   if (hasAttribute(Attribute::Speculatable))
     return "speculatable";
   if (hasAttribute(Attribute::StackProtect))
@@ -418,7 +421,7 @@ std::string Attribute::getAsString(bool InAttrGrp) const {
     {
       raw_string_ostream OS(Result);
       OS << "=\"";
-      PrintEscapedString(AttrVal, OS);
+      printEscapedString(AttrVal, OS);
       OS << "\"";
     }
     return Result;
@@ -636,7 +639,7 @@ LLVM_DUMP_METHOD void AttributeSet::dump() const {
 AttributeSetNode::AttributeSetNode(ArrayRef<Attribute> Attrs)
     : AvailableAttrs(0), NumAttrs(Attrs.size()) {
   // There's memory after the node where we can store the entries in.
-  std::copy(Attrs.begin(), Attrs.end(), getTrailingObjects<Attribute>());
+  llvm::copy(Attrs, getTrailingObjects<Attribute>());
 
   for (const auto I : *this) {
     if (!I.isStringAttribute()) {
@@ -655,7 +658,7 @@ AttributeSetNode *AttributeSetNode::get(LLVMContext &C,
   FoldingSetNodeID ID;
 
   SmallVector<Attribute, 8> SortedAttrs(Attrs.begin(), Attrs.end());
-  llvm::sort(SortedAttrs.begin(), SortedAttrs.end());
+  llvm::sort(SortedAttrs);
 
   for (const auto Attr : SortedAttrs)
     Attr.Profile(ID);
@@ -806,7 +809,7 @@ AttributeListImpl::AttributeListImpl(LLVMContext &C,
   assert(!Sets.empty() && "pointless AttributeListImpl");
 
   // There's memory after the node where we can store the entries in.
-  std::copy(Sets.begin(), Sets.end(), getTrailingObjects<AttributeSet>());
+  llvm::copy(Sets, getTrailingObjects<AttributeSet>());
 
   // Initialize AvailableFunctionAttrs summary bitset.
   static_assert(Attribute::EndAttrKinds <=
@@ -922,6 +925,10 @@ AttributeList::get(LLVMContext &C,
          "Pointless attribute!");
 
   unsigned MaxIndex = Attrs.back().first;
+  // If the MaxIndex is FunctionIndex and there are other indices in front
+  // of it, we need to use the largest of those to get the right size.
+  if (MaxIndex == FunctionIndex && Attrs.size() > 1)
+    MaxIndex = Attrs[Attrs.size() - 2].first;
 
   SmallVector<AttributeSet, 4> AttrVec(attrIdxToArrayIdx(MaxIndex) + 1);
   for (const auto Pair : Attrs)
@@ -1564,7 +1571,7 @@ bool AttrBuilder::operator==(const AttrBuilder &B) {
 // AttributeFuncs Function Defintions
 //===----------------------------------------------------------------------===//
 
-/// \brief Which attributes cannot be applied to a type.
+/// Which attributes cannot be applied to a type.
 AttrBuilder AttributeFuncs::typeIncompatible(Type *Ty) {
   AttrBuilder Incompatible;
 
@@ -1596,7 +1603,7 @@ static bool isEqual(const Function &Caller, const Function &Callee) {
          Callee.getFnAttribute(AttrClass::getKind());
 }
 
-/// \brief Compute the logical AND of the attributes of the caller and the
+/// Compute the logical AND of the attributes of the caller and the
 /// callee.
 ///
 /// This function sets the caller's attribute to false if the callee's attribute
@@ -1608,7 +1615,7 @@ static void setAND(Function &Caller, const Function &Callee) {
     AttrClass::set(Caller, AttrClass::getKind(), false);
 }
 
-/// \brief Compute the logical OR of the attributes of the caller and the
+/// Compute the logical OR of the attributes of the caller and the
 /// callee.
 ///
 /// This function sets the caller's attribute to true if the callee's attribute
@@ -1620,7 +1627,7 @@ static void setOR(Function &Caller, const Function &Callee) {
     AttrClass::set(Caller, AttrClass::getKind(), true);
 }
 
-/// \brief If the inlined function had a higher stack protection level than the
+/// If the inlined function had a higher stack protection level than the
 /// calling function, then bump up the caller's stack protection level.
 static void adjustCallerSSPLevel(Function &Caller, const Function &Callee) {
   // If upgrading the SSP attribute, clear out the old SSP Attributes first.
@@ -1644,7 +1651,7 @@ static void adjustCallerSSPLevel(Function &Caller, const Function &Callee) {
     Caller.addFnAttr(Attribute::StackProtect);
 }
 
-/// \brief If the inlined function required stack probes, then ensure that
+/// If the inlined function required stack probes, then ensure that
 /// the calling function has those too.
 static void adjustCallerStackProbes(Function &Caller, const Function &Callee) {
   if (!Caller.hasFnAttribute("probe-stack") &&
@@ -1653,7 +1660,7 @@ static void adjustCallerStackProbes(Function &Caller, const Function &Callee) {
   }
 }
 
-/// \brief If the inlined function defines the size of guard region
+/// If the inlined function defines the size of guard region
 /// on the stack, then ensure that the calling function defines a guard region
 /// that is no larger.
 static void
@@ -1674,6 +1681,42 @@ adjustCallerStackProbeSize(Function &Caller, const Function &Callee) {
     } else {
       Caller.addFnAttr(Callee.getFnAttribute("stack-probe-size"));
     }
+  }
+}
+
+/// If the inlined function defines a min legal vector width, then ensure
+/// the calling function has the same or larger min legal vector width. This
+/// function is called after the inlining decision has been made so we have to
+/// merge the attribute this way. Heuristics that would use
+/// min-legal-vector-width to determine inline compatibility would need to be
+/// handled as part of inline cost analysis.
+static void
+adjustMinLegalVectorWidth(Function &Caller, const Function &Callee) {
+  if (Callee.hasFnAttribute("min-legal-vector-width")) {
+    uint64_t CalleeVectorWidth;
+    Callee.getFnAttribute("min-legal-vector-width")
+          .getValueAsString()
+          .getAsInteger(0, CalleeVectorWidth);
+    if (Caller.hasFnAttribute("min-legal-vector-width")) {
+      uint64_t CallerVectorWidth;
+      Caller.getFnAttribute("min-legal-vector-width")
+            .getValueAsString()
+            .getAsInteger(0, CallerVectorWidth);
+      if (CallerVectorWidth < CalleeVectorWidth) {
+        Caller.addFnAttr(Callee.getFnAttribute("min-legal-vector-width"));
+      }
+    } else {
+      Caller.addFnAttr(Callee.getFnAttribute("min-legal-vector-width"));
+    }
+  }
+}
+
+/// If the inlined function has "null-pointer-is-valid=true" attribute,
+/// set this attribute in the caller post inlining.
+static void
+adjustNullPointerValidAttr(Function &Caller, const Function &Callee) {
+  if (Callee.nullPointerIsDefined() && !Caller.nullPointerIsDefined()) {
+    Caller.addFnAttr(Callee.getFnAttribute("null-pointer-is-valid"));
   }
 }
 

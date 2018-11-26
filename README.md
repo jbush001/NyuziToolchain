@@ -4,8 +4,7 @@ This is a toolchain for a parallel processor architecture called
 linker and debugger (lldb).
 
 While this project includes a C/C++ compiler, the LLVM backend can support
-any language.  There is a small, experimental SPMD parallel compiler in
-tools/spmd_compiler.
+any language.
 
 Questions or issues can be directed to the [mailing list](https://groups.google.com/forum/#!forum/nyuzi-processor-dev) or...
 [![Chat at https://gitter.im/jbush001/NyuziProcessor](https://badges.gitter.im/Join%20Chat.svg)](https://gitter.im/jbush001/NyuziProcessor?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
@@ -97,7 +96,6 @@ directory):
 export PATH=<BUILDDIR>/build/bin:$PATH
 llvm-lit test
 llvm-lit tools/clang/test/CodeGen/
-llvm-lit tools/spmd-compile/test/
 llvm-lit tools/lld/test/ELF/nyuzi-*
 ```
 

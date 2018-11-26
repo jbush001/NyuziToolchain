@@ -25,7 +25,7 @@
 #include "llvm/Analysis/MemoryDependenceAnalysis.h"
 #include "llvm/Analysis/MemoryLocation.h"
 #include "llvm/Analysis/TargetLibraryInfo.h"
-#include "llvm/Analysis/Utils/Local.h"
+#include "llvm/Transforms/Utils/Local.h"
 #include "llvm/Analysis/ValueTracking.h"
 #include "llvm/IR/Argument.h"
 #include "llvm/IR/BasicBlock.h"
@@ -398,7 +398,7 @@ Instruction *MemCpyOptPass::tryMergingIntoMemset(Instruction *StartInst,
   MemsetRanges Ranges(DL);
 
   BasicBlock::iterator BI(StartInst);
-  for (++BI; !isa<TerminatorInst>(BI); ++BI) {
+  for (++BI; !BI->isTerminator(); ++BI) {
     if (!isa<StoreInst>(BI) && !isa<MemSetInst>(BI)) {
       // If the instruction is readnone, ignore it, otherwise bail out.  We
       // don't even allow readonly here because we don't want something like:
@@ -413,7 +413,10 @@ Instruction *MemCpyOptPass::tryMergingIntoMemset(Instruction *StartInst,
       if (!NextStore->isSimple()) break;
 
       // Check to see if this stored value is of the same byte-splattable value.
-      if (ByteVal != isBytewiseValue(NextStore->getOperand(0)))
+      Value *StoredByte = isBytewiseValue(NextStore->getOperand(0));
+      if (isa<UndefValue>(ByteVal) && StoredByte)
+        ByteVal = StoredByte;
+      if (ByteVal != StoredByte)
         break;
 
       // Check to see if this store is to a constant offset from the start ptr.
@@ -479,10 +482,10 @@ Instruction *MemCpyOptPass::tryMergingIntoMemset(Instruction *StartInst,
     AMemSet =
       Builder.CreateMemSet(StartPtr, ByteVal, Range.End-Range.Start, Alignment);
 
-    DEBUG(dbgs() << "Replace stores:\n";
-          for (Instruction *SI : Range.TheStores)
-            dbgs() << *SI << '\n';
-          dbgs() << "With: " << *AMemSet << '\n');
+    LLVM_DEBUG(dbgs() << "Replace stores:\n"; for (Instruction *SI
+                                                   : Range.TheStores) dbgs()
+                                              << *SI << '\n';
+               dbgs() << "With: " << *AMemSet << '\n');
 
     if (!Range.TheStores.empty())
       AMemSet->setDebugLoc(Range.TheStores[0]->getDebugLoc());
@@ -531,7 +534,7 @@ static bool moveUp(AliasAnalysis &AA, StoreInst *SI, Instruction *P,
     return false;
 
   // Keep track of the arguments of all instruction we plan to lift
-  // so we can make sure to lift them as well if apropriate.
+  // so we can make sure to lift them as well if appropriate.
   DenseSet<Instruction*> Args;
   if (auto *Ptr = dyn_cast<Instruction>(SI->getPointerOperand()))
     if (Ptr->getParent() == SI->getParent())
@@ -603,7 +606,7 @@ static bool moveUp(AliasAnalysis &AA, StoreInst *SI, Instruction *P,
 
   // We made it, we need to lift
   for (auto *I : llvm::reverse(ToLift)) {
-    DEBUG(dbgs() << "Lifting " << *I << " before " << *P << "\n");
+    LLVM_DEBUG(dbgs() << "Lifting " << *I << " before " << *P << "\n");
     I->moveBefore(P);
   }
 
@@ -680,8 +683,8 @@ bool MemCpyOptPass::processStore(StoreInst *SI, BasicBlock::iterator &BBI) {
                 LI->getPointerOperand(), findLoadAlignment(DL, LI), Size,
                 SI->isVolatile());
 
-          DEBUG(dbgs() << "Promoting " << *LI << " to " << *SI
-                       << " => " << *M << "\n");
+          LLVM_DEBUG(dbgs() << "Promoting " << *LI << " to " << *SI << " => "
+                            << *M << "\n");
 
           MD->removeInstruction(SI);
           SI->eraseFromParent();
@@ -770,7 +773,7 @@ bool MemCpyOptPass::processStore(StoreInst *SI, BasicBlock::iterator &BBI) {
       auto *M = Builder.CreateMemSet(SI->getPointerOperand(), ByteVal,
                                      Size, Align, SI->isVolatile());
 
-      DEBUG(dbgs() << "Promoting " << *SI << " to " << *M << "\n");
+      LLVM_DEBUG(dbgs() << "Promoting " << *SI << " to " << *M << "\n");
 
       MD->removeInstruction(SI);
       SI->eraseFromParent();
@@ -994,7 +997,7 @@ bool MemCpyOptPass::performCallSlotOptzn(Instruction *cpy, Value *cpyDest,
   unsigned KnownIDs[] = {LLVMContext::MD_tbaa, LLVMContext::MD_alias_scope,
                          LLVMContext::MD_noalias,
                          LLVMContext::MD_invariant_group};
-  combineMetadata(C, cpy, KnownIDs);
+  combineMetadata(C, cpy, KnownIDs, true);
 
   // Remove the memcpy.
   MD->removeInstruction(cpy);
@@ -1294,8 +1297,8 @@ bool MemCpyOptPass::processMemMove(MemMoveInst *M) {
                     MemoryLocation::getForSource(M)))
     return false;
 
-  DEBUG(dbgs() << "MemCpyOptPass: Optimizing memmove -> memcpy: " << *M
-               << "\n");
+  LLVM_DEBUG(dbgs() << "MemCpyOptPass: Optimizing memmove -> memcpy: " << *M
+                    << "\n");
 
   // If not, then we know we can transform this.
   Type *ArgTys[3] = { M->getRawDest()->getType(),
@@ -1377,9 +1380,9 @@ bool MemCpyOptPass::processByValArgument(CallSite CS, unsigned ArgNo) {
     TmpCast = new BitCastInst(MDep->getSource(), ByValArg->getType(),
                               "tmpcast", CS.getInstruction());
 
-  DEBUG(dbgs() << "MemCpyOptPass: Forwarding memcpy to byval:\n"
-               << "  " << *MDep << "\n"
-               << "  " << *CS.getInstruction() << "\n");
+  LLVM_DEBUG(dbgs() << "MemCpyOptPass: Forwarding memcpy to byval:\n"
+                    << "  " << *MDep << "\n"
+                    << "  " << *CS.getInstruction() << "\n");
 
   // Otherwise we're good!  Update the byval argument.
   CS.setArgument(ArgNo, TmpCast);
@@ -1391,10 +1394,19 @@ bool MemCpyOptPass::processByValArgument(CallSite CS, unsigned ArgNo) {
 bool MemCpyOptPass::iterateOnFunction(Function &F) {
   bool MadeChange = false;
 
+  DominatorTree &DT = LookupDomTree();
+
   // Walk all instruction in the function.
   for (BasicBlock &BB : F) {
+    // Skip unreachable blocks. For example processStore assumes that an
+    // instruction in a BB can't be dominated by a later instruction in the
+    // same BB (which is a scenario that can happen for an unreachable BB that
+    // has itself as a predecessor).
+    if (!DT.isReachableFromEntry(&BB))
+      continue;
+
     for (BasicBlock::iterator BI = BB.begin(), BE = BB.end(); BI != BE;) {
-      // Avoid invalidating the iterator.
+        // Avoid invalidating the iterator.
       Instruction *I = &*BI++;
 
       bool RepeatInstruction = false;

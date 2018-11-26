@@ -8,7 +8,7 @@
 //===----------------------------------------------------------------------===//
 ///
 /// \file
-/// \brief This file implements a clang-format tool that automatically formats
+/// This file implements a clang-format tool that automatically formats
 /// (fragments of) C++ code.
 ///
 //===----------------------------------------------------------------------===//
@@ -22,8 +22,8 @@
 #include "clang/Rewrite/Core/Rewriter.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/FileSystem.h"
+#include "llvm/Support/InitLLVM.h"
 #include "llvm/Support/Process.h"
-#include "llvm/Support/Signals.h"
 
 using namespace llvm;
 using clang::tooling::Replacements;
@@ -60,17 +60,18 @@ LineRanges("lines", cl::desc("<start line>:<end line> - format a range of\n"
                              "Can only be used with one input file."),
            cl::cat(ClangFormatCategory));
 static cl::opt<std::string>
-    Style("style",
-          cl::desc(clang::format::StyleOptionHelpDescription),
-          cl::init("file"), cl::cat(ClangFormatCategory));
+    Style("style", cl::desc(clang::format::StyleOptionHelpDescription),
+          cl::init(clang::format::DefaultFormatStyle),
+          cl::cat(ClangFormatCategory));
 static cl::opt<std::string>
-FallbackStyle("fallback-style",
-              cl::desc("The name of the predefined style used as a\n"
-                       "fallback in case clang-format is invoked with\n"
-                       "-style=file, but can not find the .clang-format\n"
-                       "file to use.\n"
-                       "Use -fallback-style=none to skip formatting."),
-              cl::init("LLVM"), cl::cat(ClangFormatCategory));
+    FallbackStyle("fallback-style",
+                  cl::desc("The name of the predefined style used as a\n"
+                           "fallback in case clang-format is invoked with\n"
+                           "-style=file, but can not find the .clang-format\n"
+                           "file to use.\n"
+                           "Use -fallback-style=none to skip formatting."),
+                  cl::init(clang::format::DefaultFallbackStyle),
+                  cl::cat(ClangFormatCategory));
 
 static cl::opt<std::string>
 AssumeFileName("assume-filename",
@@ -115,7 +116,7 @@ namespace format {
 
 static FileID createInMemoryFile(StringRef FileName, MemoryBuffer *Source,
                                  SourceManager &Sources, FileManager &Files,
-                                 vfs::InMemoryFileSystem *MemFS) {
+                                 llvm::vfs::InMemoryFileSystem *MemFS) {
   MemFS->addFileNoOwn(FileName, 0, Source);
   return Sources.createFileID(Files.getFile(FileName), SourceLocation(),
                               SrcMgr::C_User);
@@ -132,8 +133,8 @@ static bool parseLineRange(StringRef Input, unsigned &FromLine,
 
 static bool fillRanges(MemoryBuffer *Code,
                        std::vector<tooling::Range> &Ranges) {
-  IntrusiveRefCntPtr<vfs::InMemoryFileSystem> InMemoryFileSystem(
-      new vfs::InMemoryFileSystem);
+  IntrusiveRefCntPtr<llvm::vfs::InMemoryFileSystem> InMemoryFileSystem(
+      new llvm::vfs::InMemoryFileSystem);
   FileManager Files(FileSystemOptions(), InMemoryFileSystem);
   DiagnosticsEngine Diagnostics(
       IntrusiveRefCntPtr<DiagnosticIDs>(new DiagnosticIDs),
@@ -300,8 +301,8 @@ static bool format(StringRef FileName) {
     outputReplacementsXML(Replaces);
     outs() << "</replacements>\n";
   } else {
-    IntrusiveRefCntPtr<vfs::InMemoryFileSystem> InMemoryFileSystem(
-        new vfs::InMemoryFileSystem);
+    IntrusiveRefCntPtr<llvm::vfs::InMemoryFileSystem> InMemoryFileSystem(
+        new llvm::vfs::InMemoryFileSystem);
     FileManager Files(FileSystemOptions(), InMemoryFileSystem);
     DiagnosticsEngine Diagnostics(
         IntrusiveRefCntPtr<DiagnosticIDs>(new DiagnosticIDs),
@@ -338,21 +339,13 @@ static void PrintVersion(raw_ostream &OS) {
 }
 
 int main(int argc, const char **argv) {
-  llvm::sys::PrintStackTraceOnErrorSignal(argv[0]);
-
-  SmallVector<const char *, 256> Args;
-  llvm::SpecificBumpPtrAllocator<char> ArgAllocator;
-  std::error_code EC = llvm::sys::Process::GetArgumentVector(
-      Args, llvm::makeArrayRef(argv, argc), ArgAllocator);
-  if (EC) {
-    llvm::errs() << "error: couldn't get arguments: " << EC.message() << '\n';
-  }
+  llvm::InitLLVM X(argc, argv);
 
   cl::HideUnrelatedOptions(ClangFormatCategory);
 
   cl::SetVersionPrinter(PrintVersion);
   cl::ParseCommandLineOptions(
-      Args.size(), &Args[0],
+      argc, argv,
       "A tool to format C/C++/Java/JavaScript/Objective-C/Protobuf code.\n\n"
       "If no arguments are specified, it formats the code from standard input\n"
       "and writes the result to the standard output.\n"

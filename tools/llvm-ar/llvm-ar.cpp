@@ -15,8 +15,6 @@
 #include "llvm/ADT/StringSwitch.h"
 #include "llvm/ADT/Triple.h"
 #include "llvm/IR/LLVMContext.h"
-#include "llvm/ToolDrivers/llvm-dlltool/DlltoolDriver.h"
-#include "llvm/ToolDrivers/llvm-lib/LibDriver.h"
 #include "llvm/Object/Archive.h"
 #include "llvm/Object/ArchiveWriter.h"
 #include "llvm/Object/MachO.h"
@@ -26,17 +24,18 @@
 #include "llvm/Support/Errc.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/Format.h"
+#include "llvm/Support/FormatVariadic.h"
+#include "llvm/Support/InitLLVM.h"
 #include "llvm/Support/LineIterator.h"
-#include "llvm/Support/ManagedStatic.h"
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/Path.h"
-#include "llvm/Support/PrettyStackTrace.h"
 #include "llvm/Support/Process.h"
-#include "llvm/Support/Signals.h"
 #include "llvm/Support/StringSaver.h"
 #include "llvm/Support/TargetSelect.h"
 #include "llvm/Support/ToolOutputFile.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/ToolDrivers/llvm-dlltool/DlltoolDriver.h"
+#include "llvm/ToolDrivers/llvm-lib/LibDriver.h"
 
 #if !defined(_MSC_VER) && !defined(__MINGW32__)
 #include <unistd.h>
@@ -65,53 +64,52 @@ OPTIONS:
 )";
 
 const char ArHelp[] = R"(
-OVERVIEW: LLVM Archiver (llvm-ar)
+OVERVIEW: LLVM Archiver
 
-  This program archives bitcode files into single libraries
-
-USAGE: llvm-ar [options] [relpos] [count] <archive-file> [members]...
+USAGE: llvm-ar [options] [-]<operation>[modifiers] [relpos] <archive> [files]
+       llvm-ar -M [<mri-script]
 
 OPTIONS:
-  -M                                -
-  -format                           - Archive format to create
-    =default                        -   default
-    =gnu                            -   gnu
-    =darwin                         -   darwin
-    =bsd                            -   bsd
-  -plugin=<string>                  - plugin (ignored for compatibility
-  -help                             - Display available options
-  -version                          - Display the version of this program
+  --format              - Archive format to create
+    =default            -   default
+    =gnu                -   gnu
+    =darwin             -   darwin
+    =bsd                -   bsd
+  --plugin=<string>     - Ignored for compatibility
+  --help                - Display available options
+  --version             - Display the version of this program
 
 OPERATIONS:
-  d[NsS]       - delete file(s) from the archive
-  m[abiSs]     - move file(s) in the archive
-  p[kN]        - print file(s) found in the archive
-  q[ufsS]      - quick append file(s) to the archive
-  r[abfiuRsS]  - replace or insert file(s) into the archive
-  t            - display contents of archive
-  x[No]        - extract file(s) from the archive
+  d - delete [files] from the archive
+  m - move [files] in the archive
+  p - print [files] found in the archive
+  q - quick append [files] to the archive
+  r - replace or insert [files] into the archive
+  s - act as ranlib
+  t - display contents of archive
+  x - extract [files] from the archive
 
-MODIFIERS (operation specific):
-  [a] - put file(s) after [relpos]
-  [b] - put file(s) before [relpos] (same as [i])
+MODIFIERS:
+  [a] - put [files] after [relpos]
+  [b] - put [files] before [relpos] (same as [i])
+  [c] - do not warn if archive had to be created
   [D] - use zero for timestamps and uids/gids (default)
-  [i] - put file(s) before [relpos] (same as [b])
+  [i] - put [files] before [relpos] (same as [b])
+  [l] - ignored for compatibility
+  [L] - add archive's contents
   [o] - preserve original dates
   [s] - create an archive index (cf. ranlib)
   [S] - do not build a symbol table
   [T] - create a thin archive
-  [u] - update only files newer than archive contents
+  [u] - update only [files] newer than archive contents
   [U] - use actual timestamps and uids/gids
-
-MODIFIERS (generic):
-  [c] - do not warn if the library had to be created
   [v] - be verbose about actions taken
 )";
 
 void printHelpMessage() {
-  if (Stem.find("ranlib") != StringRef::npos)
+  if (Stem.contains_lower("ranlib"))
     outs() << RanlibHelp;
-  else if (Stem.find("ar") != StringRef::npos)
+  else if (Stem.contains_lower("ar"))
     outs() << ArHelp;
 }
 
@@ -144,7 +142,7 @@ static void failIfError(Error E, Twine Context = "") {
   });
 }
 
-SmallVector<const char *, 256> PositionalArgs;
+static SmallVector<const char *, 256> PositionalArgs;
 
 static bool MRI;
 
@@ -159,14 +157,14 @@ static std::string Options;
 // This enumeration delineates the kinds of operations on an archive
 // that are permitted.
 enum ArchiveOperation {
-  Print,            ///< Print the contents of the archive
-  Delete,           ///< Delete the specified members
-  Move,             ///< Move members to end or as given by {a,b,i} modifiers
-  QuickAppend,      ///< Quickly append to end of archive
-  ReplaceOrInsert,  ///< Replace or Insert members
-  DisplayTable,     ///< Display the table of contents
-  Extract,          ///< Extract files back to file system
-  CreateSymTab      ///< Create a symbol table in an existing archive
+  Print,           ///< Print the contents of the archive
+  Delete,          ///< Delete the specified members
+  Move,            ///< Move members to end or as given by {a,b,i} modifiers
+  QuickAppend,     ///< Quickly append to end of archive
+  ReplaceOrInsert, ///< Replace or Insert members
+  DisplayTable,    ///< Display the table of contents
+  Extract,         ///< Extract files back to file system
+  CreateSymTab     ///< Create a symbol table in an existing archive
 };
 
 // Modifiers to follow operation to vary behavior
@@ -179,6 +177,7 @@ static bool Verbose = false;       ///< 'v' modifier
 static bool Symtab = true;         ///< 's' modifier
 static bool Deterministic = true;  ///< 'D' and 'U' modifiers
 static bool Thin = false;          ///< 'T' modifier
+static bool AddLibrary = false;    ///< 'L' modifier
 
 // Relative Positional Argument (for insert/move). This variable holds
 // the name of the archive member to which the 'a', 'b' or 'i' modifier
@@ -217,6 +216,21 @@ static void getMembers() {
     Members.push_back(Arg);
 }
 
+std::vector<std::unique_ptr<MemoryBuffer>> ArchiveBuffers;
+std::vector<std::unique_ptr<object::Archive>> Archives;
+
+static object::Archive &readLibrary(const Twine &Library) {
+  auto BufOrErr = MemoryBuffer::getFile(Library, -1, false);
+  failIfError(BufOrErr.getError(), "Could not open library");
+  ArchiveBuffers.push_back(std::move(*BufOrErr));
+  auto LibOrErr =
+      object::Archive::create(ArchiveBuffers.back()->getMemBufferRef());
+  failIfError(errorToErrorCode(LibOrErr.takeError()),
+              "Could not parse library");
+  Archives.push_back(std::move(*LibOrErr));
+  return *Archives.back();
+}
+
 static void runMRIScript();
 
 // Parse the command line options as presented and return the operation
@@ -242,18 +256,44 @@ static ArchiveOperation parseCommandLine() {
 
   bool MaybeJustCreateSymTab = false;
 
-  for(unsigned i=0; i<Options.size(); ++i) {
-    switch(Options[i]) {
-    case 'd': ++NumOperations; Operation = Delete; break;
-    case 'm': ++NumOperations; Operation = Move ; break;
-    case 'p': ++NumOperations; Operation = Print; break;
-    case 'q': ++NumOperations; Operation = QuickAppend; break;
-    case 'r': ++NumOperations; Operation = ReplaceOrInsert; break;
-    case 't': ++NumOperations; Operation = DisplayTable; break;
-    case 'x': ++NumOperations; Operation = Extract; break;
-    case 'c': Create = true; break;
-    case 'l': /* accepted but unused */ break;
-    case 'o': OriginalDates = true; break;
+  for (unsigned i = 0; i < Options.size(); ++i) {
+    switch (Options[i]) {
+    case 'd':
+      ++NumOperations;
+      Operation = Delete;
+      break;
+    case 'm':
+      ++NumOperations;
+      Operation = Move;
+      break;
+    case 'p':
+      ++NumOperations;
+      Operation = Print;
+      break;
+    case 'q':
+      ++NumOperations;
+      Operation = QuickAppend;
+      break;
+    case 'r':
+      ++NumOperations;
+      Operation = ReplaceOrInsert;
+      break;
+    case 't':
+      ++NumOperations;
+      Operation = DisplayTable;
+      break;
+    case 'x':
+      ++NumOperations;
+      Operation = Extract;
+      break;
+    case 'c':
+      Create = true;
+      break;
+    case 'l': /* accepted but unused */
+      break;
+    case 'o':
+      OriginalDates = true;
+      break;
     case 's':
       Symtab = true;
       MaybeJustCreateSymTab = true;
@@ -261,8 +301,12 @@ static ArchiveOperation parseCommandLine() {
     case 'S':
       Symtab = false;
       break;
-    case 'u': OnlyUpdate = true; break;
-    case 'v': Verbose = true; break;
+    case 'u':
+      OnlyUpdate = true;
+      break;
+    case 'v':
+      Verbose = true;
+      break;
     case 'a':
       getRelPos();
       AddAfter = true;
@@ -287,6 +331,9 @@ static ArchiveOperation parseCommandLine() {
     case 'T':
       Thin = true;
       break;
+    case 'L':
+      AddLibrary = true;
+      break;
     default:
       fail(std::string("unknown option ") + Options[i]);
     }
@@ -299,7 +346,7 @@ static ArchiveOperation parseCommandLine() {
   // Everything on the command line at this point is a member.
   getMembers();
 
- if (NumOperations == 0 && MaybeJustCreateSymTab) {
+  if (NumOperations == 0 && MaybeJustCreateSymTab) {
     NumOperations = 1;
     Operation = CreateSymTab;
     if (!Members.empty())
@@ -323,6 +370,8 @@ static ArchiveOperation parseCommandLine() {
     fail("The 'o' modifier is only applicable to the 'x' operation");
   if (OnlyUpdate && Operation != ReplaceOrInsert)
     fail("The 'u' modifier is only applicable to the 'r' operation");
+  if (AddLibrary && Operation != QuickAppend)
+    fail("The 'L' modifier is only applicable to the 'q' operation");
 
   // Return the parsed operation to the caller
   return Operation;
@@ -371,7 +420,11 @@ static void doDisplayTable(StringRef Name, const object::Archive::Child &C) {
     outs() << ' ' << format("%6llu", Size.get());
     auto ModTimeOrErr = C.getLastModified();
     failIfError(ModTimeOrErr.takeError());
-    outs() << ' ' << ModTimeOrErr.get();
+    // Note: formatv() only handles the default TimePoint<>, which is in
+    // nanoseconds.
+    // TODO: fix format_provider<TimePoint<>> to allow other units.
+    sys::TimePoint<> ModTimeInNs = ModTimeOrErr.get();
+    outs() << ' ' << formatv("{0:%b %e %H:%M %Y}", ModTimeInNs);
     outs() << ' ';
   }
 
@@ -392,6 +445,7 @@ static void doExtract(StringRef Name, const object::Archive::Child &C) {
 
   int FD;
   failIfError(sys::fs::openFileForWrite(sys::path::filename(Name), FD,
+                                        sys::fs::CD_CreateAlways,
                                         sys::fs::F_None, Mode),
               Name);
 
@@ -413,7 +467,7 @@ static void doExtract(StringRef Name, const object::Archive::Child &C) {
     auto ModTimeOrErr = C.getLastModified();
     failIfError(ModTimeOrErr.takeError());
     failIfError(
-        sys::fs::setLastModificationAndAccessTime(FD, ModTimeOrErr.get()));
+        sys::fs::setLastAccessAndModificationTime(FD, ModTimeOrErr.get()));
   }
 
   if (close(FD))
@@ -508,6 +562,26 @@ static void addMember(std::vector<NewArchiveMember> &Members,
     Members.push_back(std::move(*NMOrErr));
   else
     Members[Pos] = std::move(*NMOrErr);
+}
+
+static void addLibMember(std::vector<NewArchiveMember> &Members,
+                         StringRef FileName) {
+  Expected<NewArchiveMember> NMOrErr =
+      NewArchiveMember::getFile(FileName, Deterministic);
+  failIfError(NMOrErr.takeError(), FileName);
+  if (identify_magic(NMOrErr->Buf->getBuffer()) == file_magic::archive) {
+    object::Archive &Lib = readLibrary(FileName);
+    Error Err = Error::success();
+
+    for (auto &Child : Lib.children(Err))
+      addMember(Members, Child);
+
+    failIfError(std::move(Err));
+  } else {
+    // Use the basename of the object path for the member name.
+    NMOrErr->MemberName = sys::path::filename(NMOrErr->MemberName);
+    Members.push_back(std::move(*NMOrErr));
+  }
 }
 
 enum InsertAction {
@@ -632,6 +706,13 @@ computeNewArchiveMembers(ArchiveOperation Operation,
     ++Pos;
   }
 
+  if (AddLibrary) {
+    assert(Operation == QuickAppend);
+    for (auto &Member : Members)
+      addLibMember(Ret, Member);
+    return Ret;
+  }
+
   for (unsigned I = 0; I != Members.size(); ++I)
     Ret.insert(Ret.begin() + InsertPos, NewArchiveMember());
   Pos = InsertPos;
@@ -663,11 +744,10 @@ static object::Archive::Kind getKindFromMember(const NewArchiveMember &Member) {
   return getDefaultForHost();
 }
 
-static void
-performWriteOperation(ArchiveOperation Operation,
-                      object::Archive *OldArchive,
-                      std::unique_ptr<MemoryBuffer> OldArchiveBuf,
-                      std::vector<NewArchiveMember> *NewMembersP) {
+static void performWriteOperation(ArchiveOperation Operation,
+                                  object::Archive *OldArchive,
+                                  std::unique_ptr<MemoryBuffer> OldArchiveBuf,
+                                  std::vector<NewArchiveMember> *NewMembersP) {
   std::vector<NewArchiveMember> NewMembers;
   if (!NewMembersP)
     NewMembers = computeNewArchiveMembers(Operation, OldArchive);
@@ -789,11 +869,14 @@ static void runMRIScript() {
   const MemoryBuffer &Ref = *Buf.get();
   bool Saved = false;
   std::vector<NewArchiveMember> NewMembers;
-  std::vector<std::unique_ptr<MemoryBuffer>> ArchiveBuffers;
-  std::vector<std::unique_ptr<object::Archive>> Archives;
 
-  for (line_iterator I(Ref, /*SkipBlanks*/ true, ';'), E; I != E; ++I) {
+  for (line_iterator I(Ref, /*SkipBlanks*/ false), E; I != E; ++I) {
     StringRef Line = *I;
+    Line = Line.split(';').first;
+    Line = Line.split('*').first;
+    Line = Line.trim();
+    if (Line.empty())
+      continue;
     StringRef CommandStr, Rest;
     std::tie(CommandStr, Rest) = Line.split(' ');
     Rest = Rest.trim();
@@ -810,15 +893,7 @@ static void runMRIScript() {
 
     switch (Command) {
     case MRICommand::AddLib: {
-      auto BufOrErr = MemoryBuffer::getFile(Rest, -1, false);
-      failIfError(BufOrErr.getError(), "Could not open library");
-      ArchiveBuffers.push_back(std::move(*BufOrErr));
-      auto LibOrErr =
-          object::Archive::create(ArchiveBuffers.back()->getMemBufferRef());
-      failIfError(errorToErrorCode(LibOrErr.takeError()),
-                  "Could not parse library");
-      Archives.push_back(std::move(*LibOrErr));
-      object::Archive &Lib = *Archives.back();
+      object::Archive &Lib = readLibrary(Rest);
       {
         Error Err = Error::success();
         for (auto &Member : Lib.children(Err))
@@ -877,7 +952,7 @@ static int ar_main(int argc, char **argv) {
   BumpPtrAllocator Alloc;
   StringSaver Saver(Alloc);
   cl::ExpandResponseFiles(Saver, cl::TokenizeGNUCommandLine, Argv);
-  for(size_t i = 1; i < Argv.size(); ++i) {
+  for (size_t i = 1; i < Argv.size(); ++i) {
     StringRef Arg = Argv[i];
     const char *match;
     auto MatchFlagWithArg = [&](const char *expected) {
@@ -888,8 +963,7 @@ static int ar_main(int argc, char **argv) {
         match = Argv[i];
         return true;
       }
-      if (Arg.startswith(expected) && Arg.size() > len &&
-                 Arg[len] == '=') {
+      if (Arg.startswith(expected) && Arg.size() > len && Arg[len] == '=') {
         match = Arg.data() + len + 1;
         return true;
       }
@@ -898,7 +972,7 @@ static int ar_main(int argc, char **argv) {
     if (handleGenericOption(Argv[i]))
       return 0;
     if (Arg == "--") {
-      for(; i < Argv.size(); ++i)
+      for (; i < Argv.size(); ++i)
         PositionalArgs.push_back(Argv[i]);
       break;
     }
@@ -911,11 +985,11 @@ static int ar_main(int argc, char **argv) {
         MRI = true;
       } else if (MatchFlagWithArg("format")) {
         FormatType = StringSwitch<Format>(match)
-            .Case("default", Default)
-            .Case("gnu", GNU)
-            .Case("darwin", DARWIN)
-            .Case("bsd", BSD)
-            .Default(Unknown);
+                         .Case("default", Default)
+                         .Case("gnu", GNU)
+                         .Case("darwin", DARWIN)
+                         .Case("bsd", BSD)
+                         .Default(Unknown);
         if (FormatType == Unknown)
           fail(std::string("Invalid format ") + match);
       } else if (MatchFlagWithArg("plugin")) {
@@ -935,7 +1009,7 @@ static int ar_main(int argc, char **argv) {
 
 static int ranlib_main(int argc, char **argv) {
   bool ArchiveSpecified = false;
-  for(int i = 1; i < argc; ++i) {
+  for (int i = 1; i < argc; ++i) {
     if (handleGenericOption(argv[i])) {
       return 0;
     } else {
@@ -949,27 +1023,24 @@ static int ranlib_main(int argc, char **argv) {
 }
 
 int main(int argc, char **argv) {
+  InitLLVM X(argc, argv);
   ToolName = argv[0];
-  // Print a stack trace if we signal out.
-  sys::PrintStackTraceOnErrorSignal(argv[0]);
-  PrettyStackTraceProgram X(argc, argv);
-  llvm_shutdown_obj Y;  // Call llvm_shutdown() on exit.
 
   llvm::InitializeAllTargetInfos();
   llvm::InitializeAllTargetMCs();
   llvm::InitializeAllAsmParsers();
 
   Stem = sys::path::stem(ToolName);
-  if (Stem.find("dlltool") != StringRef::npos)
+  if (Stem.contains_lower("dlltool"))
     return dlltoolDriverMain(makeArrayRef(argv, argc));
 
-  if (Stem.find("ranlib") != StringRef::npos)
+  if (Stem.contains_lower("ranlib"))
     return ranlib_main(argc, argv);
 
-  if (Stem.find("lib") != StringRef::npos)
+  if (Stem.contains_lower("lib"))
     return libDriverMain(makeArrayRef(argv, argc));
 
-  if (Stem.find("ar") != StringRef::npos)
+  if (Stem.contains_lower("ar"))
     return ar_main(argc, argv);
   fail("Not ranlib, ar, lib or dlltool!");
 }

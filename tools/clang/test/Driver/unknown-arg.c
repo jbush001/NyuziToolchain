@@ -14,7 +14,7 @@
 // RUN: FileCheck %s --check-prefix=CL-ERROR-DID-YOU-MEAN
 // RUN: %clang_cl -cake-is-lie -%0 -%d -HHHH -munknown-to-clang-option -print-stats -funknown-to-clang-option -c -Wno-unknown-argument -### -- %s 2>&1 | \
 // RUN: FileCheck %s --check-prefix=SILENT
-// RUN: not %clang -cc1as -hell --version -debug-info-macros 2>&1 | \
+// RUN: not %clang -cc1as -hell --version 2>&1 | \
 // RUN: FileCheck %s --check-prefix=CC1AS-DID-YOU-MEAN
 // RUN: not %clang -cc1asphalt -help 2>&1 | \
 // RUN: FileCheck %s --check-prefix=UNKNOWN-INTEGRATED
@@ -51,7 +51,6 @@
 // SILENT-NOT: warning:
 // CC1AS-DID-YOU-MEAN: error: unknown argument '-hell', did you mean '-help'?
 // CC1AS-DID-YOU-MEAN: error: unknown argument '--version', did you mean '-version'?
-// CC1AS-DID-YOU-MEAN: error: unknown argument '-debug-info-macros', did you mean '-debug-info-macro'?
 // UNKNOWN-INTEGRATED: error: unknown integrated tool 'asphalt'. Valid tools include '-cc1' and '-cc1as'.
 
 // RUN: %clang -S %s -o %t.s  -Wunknown-to-clang-option 2>&1 | FileCheck --check-prefix=IGNORED %s

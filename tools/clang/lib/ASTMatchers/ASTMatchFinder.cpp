@@ -511,7 +511,7 @@ private:
     TimeBucketRegion() : Bucket(nullptr) {}
     ~TimeBucketRegion() { setBucket(nullptr); }
 
-    /// \brief Start timing for \p NewBucket.
+    /// Start timing for \p NewBucket.
     ///
     /// If there was a bucket already set, it will finish the timing for that
     /// other bucket.
@@ -534,7 +534,7 @@ private:
     llvm::TimeRecord *Bucket;
   };
 
-  /// \brief Runs all the \p Matchers on \p Node.
+  /// Runs all the \p Matchers on \p Node.
   ///
   /// Used by \c matchDispatch() below.
   template <typename T, typename MC>
@@ -590,7 +590,7 @@ private:
   }
 
   /// @{
-  /// \brief Overloads to pair the different node types to their matchers.
+  /// Overloads to pair the different node types to their matchers.
   void matchDispatch(const Decl *Node) {
     return matchWithFilter(ast_type_traits::DynTypedNode::create(*Node));
   }
@@ -635,10 +635,6 @@ private:
   bool memoizedMatchesAncestorOfRecursively(
       const ast_type_traits::DynTypedNode &Node, const DynTypedMatcher &Matcher,
       BoundNodesTreeBuilder *Builder, AncestorMatchMode MatchMode) {
-    if (Node.get<TranslationUnitDecl>() ==
-        ActiveASTContext->getTranslationUnitDecl())
-      return false;
-
     // For AST-nodes that don't have an identity, we can't memoize.
     if (!Builder->isComparable())
       return matchesAncestorOfRecursively(Node, Matcher, Builder, MatchMode);
@@ -673,7 +669,22 @@ private:
                                     BoundNodesTreeBuilder *Builder,
                                     AncestorMatchMode MatchMode) {
     const auto &Parents = ActiveASTContext->getParents(Node);
-    assert(!Parents.empty() && "Found node that is not in the parent map.");
+    if (Parents.empty()) {
+      // Nodes may have no parents if:
+      //  a) the node is the TranslationUnitDecl
+      //  b) we have a limited traversal scope that excludes the parent edges
+      //  c) there is a bug in the AST, and the node is not reachable
+      // Usually the traversal scope is the whole AST, which precludes b.
+      // Bugs are common enough that it's worthwhile asserting when we can.
+      assert((Node.get<TranslationUnitDecl>() ||
+              /* Traversal scope is limited if none of the bounds are the TU */
+              llvm::none_of(ActiveASTContext->getTraversalScope(),
+                            [](Decl *D) {
+                              return D->getKind() == Decl::TranslationUnit;
+                            })) &&
+             "Found node that is not in the complete parent map!");
+      return false;
+    }
     if (Parents.size() == 1) {
       // Only one parent - do recursive memoization.
       const ast_type_traits::DynTypedNode Parent = Parents[0];
@@ -752,14 +763,14 @@ private:
     return false;
   }
 
-  /// \brief Bucket to record map.
+  /// Bucket to record map.
   ///
   /// Used to get the appropriate bucket for each matcher.
   llvm::StringMap<llvm::TimeRecord> TimeByBucket;
 
   const MatchFinder::MatchersByType *Matchers;
 
-  /// \brief Filtered list of matcher indices for each matcher kind.
+  /// Filtered list of matcher indices for each matcher kind.
   ///
   /// \c Decl and \c Stmt toplevel matchers usually apply to a specific node
   /// kind (and derived kinds) so it is a waste to try every matcher on every
@@ -1019,7 +1030,7 @@ void MatchFinder::matchAST(ASTContext &Context) {
   internal::MatchASTVisitor Visitor(&Matchers, Options);
   Visitor.set_active_ast_context(&Context);
   Visitor.onStartOfTranslationUnit();
-  Visitor.TraverseDecl(Context.getTranslationUnitDecl());
+  Visitor.TraverseAST(Context);
   Visitor.onEndOfTranslationUnit();
 }
 

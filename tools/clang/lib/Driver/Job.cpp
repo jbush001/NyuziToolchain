@@ -35,7 +35,8 @@ using namespace clang;
 using namespace driver;
 
 Command::Command(const Action &Source, const Tool &Creator,
-                 const char *Executable, const ArgStringList &Arguments,
+                 const char *Executable,
+                 const llvm::opt::ArgStringList &Arguments,
                  ArrayRef<InputInfo> Inputs)
     : Source(Source), Creator(Creator), Executable(Executable),
       Arguments(Arguments) {
@@ -44,7 +45,7 @@ Command::Command(const Action &Source, const Tool &Creator,
       InputFilenames.push_back(II.getFilename());
 }
 
-/// @brief Check if the compiler flag in question should be skipped when
+/// Check if the compiler flag in question should be skipped when
 /// emitting a reproducer. Also track how many arguments it has and if the
 /// option is some kind of include path.
 static bool skipArgs(const char *Flag, bool HaveCrashVFS, int &SkipNum,
@@ -171,7 +172,7 @@ void Command::buildArgvForResponseFile(
   }
 }
 
-/// @brief Rewrite relative include-like flag paths to absolute ones.
+/// Rewrite relative include-like flag paths to absolute ones.
 static void
 rewriteIncludes(const llvm::ArrayRef<const char *> &Args, size_t Idx,
                 size_t NumArgs,
@@ -315,15 +316,21 @@ void Command::setEnvironment(llvm::ArrayRef<const char *> NewEnvironment) {
 
 int Command::Execute(ArrayRef<llvm::Optional<StringRef>> Redirects,
                      std::string *ErrMsg, bool *ExecutionFailed) const {
+  if (PrintInputFilenames) {
+    for (const char *Arg : InputFilenames)
+      llvm::outs() << llvm::sys::path::filename(Arg) << "\n";
+    llvm::outs().flush();
+  }
+
   SmallVector<const char*, 128> Argv;
 
-  const char **Envp;
-  if (Environment.empty()) {
-    Envp = nullptr;
-  } else {
+  Optional<ArrayRef<StringRef>> Env;
+  std::vector<StringRef> ArgvVectorStorage;
+  if (!Environment.empty()) {
     assert(Environment.back() == nullptr &&
            "Environment vector should be null-terminated by now");
-    Envp = const_cast<const char **>(Environment.data());
+    ArgvVectorStorage = llvm::toStringRefArray(Environment.data());
+    Env = makeArrayRef(ArgvVectorStorage);
   }
 
   if (ResponseFile == nullptr) {
@@ -331,8 +338,9 @@ int Command::Execute(ArrayRef<llvm::Optional<StringRef>> Redirects,
     Argv.append(Arguments.begin(), Arguments.end());
     Argv.push_back(nullptr);
 
+    auto Args = llvm::toStringRefArray(Argv.data());
     return llvm::sys::ExecuteAndWait(
-        Executable, Argv.data(), Envp, Redirects, /*secondsToWait*/ 0,
+        Executable, Args, Env, Redirects, /*secondsToWait*/ 0,
         /*memoryLimit*/ 0, ErrMsg, ExecutionFailed);
   }
 
@@ -357,14 +365,15 @@ int Command::Execute(ArrayRef<llvm::Optional<StringRef>> Redirects,
     return -1;
   }
 
-  return llvm::sys::ExecuteAndWait(Executable, Argv.data(), Envp, Redirects,
+  auto Args = llvm::toStringRefArray(Argv.data());
+  return llvm::sys::ExecuteAndWait(Executable, Args, Env, Redirects,
                                    /*secondsToWait*/ 0,
                                    /*memoryLimit*/ 0, ErrMsg, ExecutionFailed);
 }
 
 FallbackCommand::FallbackCommand(const Action &Source_, const Tool &Creator_,
                                  const char *Executable_,
-                                 const ArgStringList &Arguments_,
+                                 const llvm::opt::ArgStringList &Arguments_,
                                  ArrayRef<InputInfo> Inputs,
                                  std::unique_ptr<Command> Fallback_)
     : Command(Source_, Creator_, Executable_, Arguments_, Inputs),
@@ -403,11 +412,9 @@ int FallbackCommand::Execute(ArrayRef<llvm::Optional<StringRef>> Redirects,
   return SecondaryStatus;
 }
 
-ForceSuccessCommand::ForceSuccessCommand(const Action &Source_,
-                                         const Tool &Creator_,
-                                         const char *Executable_,
-                                         const ArgStringList &Arguments_,
-                                         ArrayRef<InputInfo> Inputs)
+ForceSuccessCommand::ForceSuccessCommand(
+    const Action &Source_, const Tool &Creator_, const char *Executable_,
+    const llvm::opt::ArgStringList &Arguments_, ArrayRef<InputInfo> Inputs)
     : Command(Source_, Creator_, Executable_, Arguments_, Inputs) {}
 
 void ForceSuccessCommand::Print(raw_ostream &OS, const char *Terminator,

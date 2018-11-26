@@ -7,10 +7,9 @@
 //
 //===----------------------------------------------------------------------===//
 
-// C Includes
-// C++ Includes
-// Other libraries and framework includes
-// Project includes
+
+#include "SystemInitializerFull.h"
+
 #include "lldb/API/SBDebugger.h"
 
 #include "lldb/lldb-private.h"
@@ -35,21 +34,21 @@
 #include "lldb/API/SBTypeNameSpecifier.h"
 #include "lldb/API/SBTypeSummary.h"
 #include "lldb/API/SBTypeSynthetic.h"
-#include "lldb/API/SystemInitializerFull.h"
 
 #include "lldb/Core/Debugger.h"
 #include "lldb/Core/PluginManager.h"
-#include "lldb/Core/State.h"
 #include "lldb/Core/StreamFile.h"
 #include "lldb/Core/StructuredDataImpl.h"
 #include "lldb/DataFormatters/DataVisualization.h"
 #include "lldb/Host/XML.h"
 #include "lldb/Initialization/SystemLifetimeManager.h"
-#include "lldb/Interpreter/Args.h"
 #include "lldb/Interpreter/CommandInterpreter.h"
+#include "lldb/Interpreter/OptionArgParser.h"
 #include "lldb/Interpreter/OptionGroupPlatform.h"
 #include "lldb/Target/Process.h"
 #include "lldb/Target/TargetList.h"
+#include "lldb/Utility/Args.h"
+#include "lldb/Utility/State.h"
 
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/StringRef.h"
@@ -87,7 +86,7 @@ static llvm::sys::DynamicLibrary LoadPlugin(const lldb::DebuggerSP &debugger_sp,
                            "lldb::PluginInitialize(lldb::SBDebugger)");
     }
   } else {
-    if (spec.Exists())
+    if (FileSystem::Instance().Exists(spec))
       error.SetErrorString("this file does not represent a loadable dylib");
     else
       error.SetErrorString("no such file");
@@ -167,14 +166,10 @@ SBDebugger SBDebugger::Create(bool source_init_files,
   SBDebugger debugger;
 
   // Currently we have issues if this function is called simultaneously on two
-  // different
-  // threads. The issues mainly revolve around the fact that the
-  // lldb_private::FormatManager
-  // uses global collections and having two threads parsing the .lldbinit files
-  // can cause
-  // mayhem. So to get around this for now we need to use a mutex to prevent bad
-  // things
-  // from happening.
+  // different threads. The issues mainly revolve around the fact that the
+  // lldb_private::FormatManager uses global collections and having two threads
+  // parsing the .lldbinit files can cause mayhem. So to get around this for
+  // now we need to use a mutex to prevent bad things from happening.
   static std::recursive_mutex g_mutex;
   std::lock_guard<std::recursive_mutex> guard(g_mutex);
 
@@ -219,10 +214,10 @@ void SBDebugger::Destroy(SBDebugger &debugger) {
 }
 
 void SBDebugger::MemoryPressureDetected() {
-  // Since this function can be call asynchronously, we allow it to be
-  // non-mandatory. We have seen deadlocks with this function when called
-  // so we need to safeguard against this until we can determine what is
-  // causing the deadlocks.
+  // Since this function can be call asynchronously, we allow it to be non-
+  // mandatory. We have seen deadlocks with this function when called so we
+  // need to safeguard against this until we can determine what is causing the
+  // deadlocks.
   Log *log(GetLogIfAllCategoriesSet(LIBLLDB_LOG_API));
 
   const bool mandatory = false;
@@ -255,9 +250,9 @@ void SBDebugger::SkipAppInitFiles(bool b) {
     m_opaque_sp->GetCommandInterpreter().SkipAppInitFiles(b);
 }
 
-// Shouldn't really be settable after initialization as this could cause lots of
-// problems; don't want users
-// trying to switch modes in the middle of a debugging session.
+// Shouldn't really be settable after initialization as this could cause lots
+// of problems; don't want users trying to switch modes in the middle of a
+// debugging session.
 void SBDebugger::SetInputFileHandle(FILE *fh, bool transfer_ownership) {
   Log *log(GetLogIfAllCategoriesSet(LIBLLDB_LOG_API));
 
@@ -480,8 +475,8 @@ bool SBDebugger::SetDefaultArchitecture(const char *arch_name) {
 ScriptLanguage
 SBDebugger::GetScriptingLanguage(const char *script_language_name) {
   if (!script_language_name) return eScriptLanguageDefault;
-  return Args::StringToScriptLanguage(llvm::StringRef(script_language_name),
-                                      eScriptLanguageDefault, nullptr);
+  return OptionArgParser::ToScriptLanguage(
+      llvm::StringRef(script_language_name), eScriptLanguageDefault, nullptr);
 }
 
 const char *SBDebugger::GetVersionString() {
@@ -501,11 +496,23 @@ static void AddBoolConfigEntry(StructuredData::Dictionary &dict,
   dict.AddItem(name, std::move(entry_up));
 }
 
+static void AddLLVMTargets(StructuredData::Dictionary &dict) {
+  auto array_up = llvm::make_unique<StructuredData::Array>();
+#define LLVM_TARGET(target)                                                    \
+  array_up->AddItem(llvm::make_unique<StructuredData::String>(#target));
+#include "llvm/Config/Targets.def"
+  auto entry_up = llvm::make_unique<StructuredData::Dictionary>();
+  entry_up->AddItem("value", std::move(array_up));
+  entry_up->AddStringItem("description", "A list of configured LLVM targets.");
+  dict.AddItem("targets", std::move(entry_up));
+}
+
 SBStructuredData SBDebugger::GetBuildConfiguration() {
   auto config_up = llvm::make_unique<StructuredData::Dictionary>();
   AddBoolConfigEntry(
       *config_up, "xml", XMLDocument::XMLEnabled(),
       "A boolean value that indicates if XML support is enabled in LLDB");
+  AddLLVMTargets(*config_up);
 
   SBStructuredData data;
   data.m_impl_up->SetObjectSP(std::move(config_up));
@@ -547,7 +554,8 @@ lldb::SBTarget SBDebugger::CreateTarget(const char *filename,
     platform_options.SetPlatformName(platform_name);
 
     sb_error.ref() = m_opaque_sp->GetTargetList().CreateTarget(
-        *m_opaque_sp, filename, target_triple, add_dependent_modules,
+        *m_opaque_sp, filename, target_triple,
+        add_dependent_modules ? eLoadDependentsYes : eLoadDependentsNo,
         &platform_options, target_sp);
 
     if (sb_error.Success())
@@ -576,7 +584,8 @@ SBDebugger::CreateTargetWithFileAndTargetTriple(const char *filename,
   if (m_opaque_sp) {
     const bool add_dependent_modules = true;
     Status error(m_opaque_sp->GetTargetList().CreateTarget(
-        *m_opaque_sp, filename, target_triple, add_dependent_modules, nullptr,
+        *m_opaque_sp, filename, target_triple,
+        add_dependent_modules ? eLoadDependentsYes : eLoadDependentsNo, nullptr,
         target_sp));
     sb_target.SetSP(target_sp);
   }
@@ -602,7 +611,8 @@ SBTarget SBDebugger::CreateTargetWithFileAndArch(const char *filename,
     const bool add_dependent_modules = true;
 
     error = m_opaque_sp->GetTargetList().CreateTarget(
-        *m_opaque_sp, filename, arch_cstr, add_dependent_modules, nullptr,
+        *m_opaque_sp, filename, arch_cstr,
+        add_dependent_modules ? eLoadDependentsYes : eLoadDependentsNo, nullptr,
         target_sp);
 
     if (error.Success()) {
@@ -627,7 +637,9 @@ SBTarget SBDebugger::CreateTarget(const char *filename) {
     Status error;
     const bool add_dependent_modules = true;
     error = m_opaque_sp->GetTargetList().CreateTarget(
-        *m_opaque_sp, filename, "", add_dependent_modules, nullptr, target_sp);
+        *m_opaque_sp, filename, "",
+        add_dependent_modules ? eLoadDependentsYes : eLoadDependentsNo, nullptr,
+        target_sp);
 
     if (error.Success()) {
       m_opaque_sp->GetTargetList().SetSelectedTarget(target_sp.get());
@@ -719,7 +731,7 @@ SBTarget SBDebugger::FindTargetWithFileAndArch(const char *filename,
         m_opaque_sp->GetPlatformList().GetSelectedPlatform().get(), arch_name);
     TargetSP target_sp(
         m_opaque_sp->GetTargetList().FindTargetWithExecutableAndArchitecture(
-            FileSpec(filename, false), arch_name ? &arch : nullptr));
+            FileSpec(filename), arch_name ? &arch : nullptr));
     sb_target.SetSP(target_sp);
   }
   return sb_target;
@@ -1037,6 +1049,17 @@ const char *SBDebugger::GetPrompt() const {
 void SBDebugger::SetPrompt(const char *prompt) {
   if (m_opaque_sp)
     m_opaque_sp->SetPrompt(llvm::StringRef::withNullAsEmpty(prompt));
+}
+
+const char *SBDebugger::GetReproducerPath() const {
+  return (m_opaque_sp
+              ? ConstString(m_opaque_sp->GetReproducerPath()).GetCString()
+              : nullptr);
+}
+
+void SBDebugger::SetReproducerPath(const char *p) {
+  if (m_opaque_sp)
+    m_opaque_sp->SetReproducerPath(llvm::StringRef::withNullAsEmpty(p));
 }
 
 ScriptLanguage SBDebugger::GetScriptLanguage() const {

@@ -474,7 +474,7 @@ bool HexagonStoreWidening::createWideStores(InstrGroup &OG, InstrGroup &NG,
 // from OG was (in the order in which they appeared in the basic block).
 // (The ordering in OG does not have to match the order in the basic block.)
 bool HexagonStoreWidening::replaceStores(InstrGroup &OG, InstrGroup &NG) {
-  DEBUG({
+  LLVM_DEBUG({
     dbgs() << "Replacing:\n";
     for (auto I : OG)
       dbgs() << "  " << *I;
@@ -578,7 +578,7 @@ bool HexagonStoreWidening::processBasicBlock(MachineBasicBlock &MBB) {
   };
   for (auto &G : SGs) {
     assert(G.size() > 1 && "Store group with fewer than 2 elements");
-    llvm::sort(G.begin(), G.end(), Less);
+    llvm::sort(G, Less);
 
     Changed |= processStoreGroup(G);
   }

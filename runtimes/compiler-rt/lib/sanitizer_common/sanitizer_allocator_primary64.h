@@ -72,10 +72,11 @@ class SizeClassAllocator64 {
   void Init(s32 release_to_os_interval_ms) {
     uptr TotalSpaceSize = kSpaceSize + AdditionalSize();
     if (kUsingConstantSpaceBeg) {
-      CHECK_EQ(kSpaceBeg, address_range.Init(TotalSpaceSize, AllocatorName(),
-                                             kSpaceBeg));
+      CHECK_EQ(kSpaceBeg, address_range.Init(TotalSpaceSize,
+                                             PrimaryAllocatorName, kSpaceBeg));
     } else {
-      NonConstSpaceBeg = address_range.Init(TotalSpaceSize, AllocatorName());
+      NonConstSpaceBeg = address_range.Init(TotalSpaceSize,
+                                            PrimaryAllocatorName);
       CHECK_NE(NonConstSpaceBeg, ~(uptr)0);
     }
     SetReleaseToOSIntervalMs(release_to_os_interval_ms);
@@ -117,8 +118,12 @@ class SizeClassAllocator64 {
     // Failure to allocate free array space while releasing memory is non
     // recoverable.
     if (UNLIKELY(!EnsureFreeArraySpace(region, region_beg,
-                                       new_num_freed_chunks)))
-      DieOnFailure::OnOOM();
+                                       new_num_freed_chunks))) {
+      Report("FATAL: Internal error: %s's allocator exhausted the free list "
+             "space for size class %zd (%zd bytes).\n", SanitizerToolName,
+             class_id, ClassIdToSize(class_id));
+      Die();
+    }
     for (uptr i = 0; i < n_chunks; i++)
       free_array[old_num_chunks + i] = chunks[i];
     region->num_freed_chunks = new_num_freed_chunks;
@@ -546,7 +551,6 @@ class SizeClassAllocator64 {
   friend class MemoryMapper;
 
   ReservedAddressRange address_range;
-  static const char *AllocatorName() { return "sanitizer_allocator"; }
 
   static const uptr kRegionSize = kSpaceSize / kNumClassesRounded;
   // FreeArray is the array of free-d chunks (stored as 4-byte offsets).

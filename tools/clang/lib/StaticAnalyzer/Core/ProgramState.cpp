@@ -11,6 +11,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "clang/StaticAnalyzer/Core/PathSensitive/AnalysisManager.h"
 #include "clang/StaticAnalyzer/Core/PathSensitive/ProgramState.h"
 #include "clang/Analysis/CFG.h"
 #include "clang/StaticAnalyzer/Core/PathSensitive/CallEvent.h"
@@ -66,6 +67,13 @@ ProgramState::ProgramState(const ProgramState &RHS)
 ProgramState::~ProgramState() {
   if (store)
     stateMgr->getStoreManager().decrementReferenceCount(store);
+}
+
+int64_t ProgramState::getID() const {
+  Optional<int64_t> Out = getStateManager().Alloc.identifyObject(this);
+  assert(Out && "Wrong allocator used");
+  assert(*Out % alignof(ProgramState) == 0 && "Wrong alignment information");
+  return *Out / alignof(ProgramState);
 }
 
 ProgramStateManager::ProgramStateManager(ASTContext &Ctx,
@@ -126,16 +134,27 @@ ProgramStateRef ProgramState::bindLoc(Loc LV,
   return newState;
 }
 
-ProgramStateRef ProgramState::bindDefault(SVal loc,
-                                          SVal V,
-                                          const LocationContext *LCtx) const {
+ProgramStateRef
+ProgramState::bindDefaultInitial(SVal loc, SVal V,
+                                 const LocationContext *LCtx) const {
   ProgramStateManager &Mgr = getStateManager();
   const MemRegion *R = loc.castAs<loc::MemRegionVal>().getRegion();
-  const StoreRef &newStore = Mgr.StoreMgr->BindDefault(getStore(), R, V);
+  const StoreRef &newStore = Mgr.StoreMgr->BindDefaultInitial(getStore(), R, V);
   ProgramStateRef new_state = makeWithStore(newStore);
-  return Mgr.getOwningEngine() ?
-           Mgr.getOwningEngine()->processRegionChange(new_state, R, LCtx) :
-           new_state;
+  return Mgr.getOwningEngine()
+             ? Mgr.getOwningEngine()->processRegionChange(new_state, R, LCtx)
+             : new_state;
+}
+
+ProgramStateRef
+ProgramState::bindDefaultZero(SVal loc, const LocationContext *LCtx) const {
+  ProgramStateManager &Mgr = getStateManager();
+  const MemRegion *R = loc.castAs<loc::MemRegionVal>().getRegion();
+  const StoreRef &newStore = Mgr.StoreMgr->BindDefaultZero(getStore(), R);
+  ProgramStateRef new_state = makeWithStore(newStore);
+  return Mgr.getOwningEngine()
+             ? Mgr.getOwningEngine()->processRegionChange(new_state, R, LCtx)
+             : new_state;
 }
 
 typedef ArrayRef<const MemRegion *> RegionList;
@@ -203,7 +222,7 @@ ProgramState::invalidateRegionsImpl(ValueList Values,
     if (CausedByPointerEscape) {
       newState = Eng->notifyCheckersOfPointerEscape(newState, IS,
                                                     TopLevelInvalidated,
-                                                    Invalidated, Call,
+                                                    Call,
                                                     *ITraits);
     }
 
@@ -325,9 +344,8 @@ ProgramStateRef ProgramState::assumeInBound(DefinedOrUnknownSVal Idx,
 
   // Get the offset: the minimum value of the array index type.
   BasicValueFactory &BVF = svalBuilder.getBasicValueFactory();
-  // FIXME: This should be using ValueManager::ArrayindexTy...somehow.
   if (indexTy.isNull())
-    indexTy = Ctx.IntTy;
+    indexTy = svalBuilder.getArrayIndexType();
   nonloc::ConcreteInt Min(BVF.getMinValue(indexTy));
 
   // Adjust the index.
@@ -438,14 +456,16 @@ void ProgramState::setStore(const StoreRef &newStore) {
 //  State pretty-printing.
 //===----------------------------------------------------------------------===//
 
-void ProgramState::print(raw_ostream &Out, const char *NL, const char *Sep,
+void ProgramState::print(raw_ostream &Out,
+                         const char *NL, const char *Sep,
                          const LocationContext *LC) const {
   // Print the store.
   ProgramStateManager &Mgr = getStateManager();
-  Mgr.getStoreManager().print(getStore(), Out, NL, Sep);
+  const ASTContext &Context = getStateManager().getContext();
+  Mgr.getStoreManager().print(getStore(), Out, NL);
 
   // Print out the environment.
-  Env.print(Out, NL, Sep, LC);
+  Env.print(Out, NL, Sep, Context, LC);
 
   // Print out the constraints.
   Mgr.getConstraintManager().print(this, Out, NL, Sep);
@@ -454,13 +474,14 @@ void ProgramState::print(raw_ostream &Out, const char *NL, const char *Sep,
   printDynamicTypeInfo(this, Out, NL, Sep);
 
   // Print out tainted symbols.
-  printTaint(Out, NL, Sep);
+  printTaint(Out, NL);
 
   // Print checker-specific data.
   Mgr.getOwningEngine()->printState(Out, this, NL, Sep, LC);
 }
 
-void ProgramState::printDOT(raw_ostream &Out, const LocationContext *LC) const {
+void ProgramState::printDOT(raw_ostream &Out,
+                            const LocationContext *LC) const {
   print(Out, "\\l", "\\|", LC);
 }
 
@@ -469,7 +490,7 @@ LLVM_DUMP_METHOD void ProgramState::dump() const {
 }
 
 void ProgramState::printTaint(raw_ostream &Out,
-                              const char *NL, const char *Sep) const {
+                              const char *NL) const {
   TaintMapImpl TM = get<TaintMap>();
 
   if (!TM.isEmpty())
@@ -482,6 +503,10 @@ void ProgramState::printTaint(raw_ostream &Out,
 
 void ProgramState::dumpTaint() const {
   printTaint(llvm::errs());
+}
+
+AnalysisManager& ProgramState::getAnalysisManager() const {
+  return stateMgr->getOwningEngine()->getAnalysisManager();
 }
 
 //===----------------------------------------------------------------------===//
@@ -637,22 +662,12 @@ bool ProgramState::scanReachableSymbols(SVal val, SymbolVisitor& visitor) const 
   return S.scan(val);
 }
 
-bool ProgramState::scanReachableSymbols(const SVal *I, const SVal *E,
-                                   SymbolVisitor &visitor) const {
+bool ProgramState::scanReachableSymbols(
+    llvm::iterator_range<region_iterator> Reachable,
+    SymbolVisitor &visitor) const {
   ScanReachableSymbols S(this, visitor);
-  for ( ; I != E; ++I) {
-    if (!S.scan(*I))
-      return false;
-  }
-  return true;
-}
-
-bool ProgramState::scanReachableSymbols(const MemRegion * const *I,
-                                   const MemRegion * const *E,
-                                   SymbolVisitor &visitor) const {
-  ScanReachableSymbols S(this, visitor);
-  for ( ; I != E; ++I) {
-    if (!S.scan(*I))
+  for (const MemRegion *R : Reachable) {
+    if (!S.scan(R))
       return false;
   }
   return true;
@@ -820,4 +835,3 @@ bool ProgramState::isTainted(SymbolRef Sym, TaintTagType Kind) const {
 
   return false;
 }
-

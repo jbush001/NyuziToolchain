@@ -20,6 +20,10 @@ def align   : P<"align", "Section alignment">;
 def aligncomm : P<"aligncomm", "Set common symbol alignment">;
 def alternatename : P<"alternatename", "Define weak alias">;
 def base    : P<"base", "Base address of the program">;
+def color_diagnostics: Flag<["--"], "color-diagnostics">,
+  HelpText<"Use colors in diagnostics">;
+def color_diagnostics_eq: Joined<["--"], "color-diagnostics=">,
+  HelpText<"Use colors in diagnostics; one of 'always', 'never', 'auto'">;
 def defaultlib : P<"defaultlib", "Add the library to the list of input files">;
 def delayload : P<"delayload", "Delay loaded DLL name">;
 def entry   : P<"entry", "Name of entry point symbol">;
@@ -32,6 +36,8 @@ def guard   : P<"guard", "Control flow guard">;
 def heap    : P<"heap", "Size of the heap">;
 def ignore : P<"ignore", "Specify warning codes to ignore">;
 def implib  : P<"implib", "Import library name">;
+def lib : F<"lib">,
+    HelpText<"Act like lib.exe; must be first argument if present">;
 def libpath : P<"libpath", "Additional library search path">;
 def linkrepro : P<"linkrepro", "Dump linker invocation and input files for debugging">;
 def lldltocache : P<"lldltocache", "Path to ThinLTO cached object file directory">;
@@ -46,11 +52,15 @@ def opt     : P<"opt", "Control optimizations">;
 def order   : P<"order", "Put functions in order">;
 def out     : P<"out", "Path to file to write output">;
 def natvis : P<"natvis", "Path to natvis file to embed in the PDB">;
+def no_color_diagnostics: F<"no-color-diagnostics">,
+  HelpText<"Do not use colors in diagnostics">;
 def pdb : P<"pdb", "PDB file path">;
+def pdbaltpath : P<"pdbaltpath", "PDB file path to embed in the image">;
 def section : P<"section", "Specify section attributes">;
 def stack   : P<"stack", "Size of the stack">;
 def stub    : P<"stub", "Specify DOS stub file">;
 def subsystem : P<"subsystem", "Specify subsystem">;
+def timestamp : P<"timestamp", "Specify the PE header timestamp">;
 def version : P<"version", "Specify a version number in the PE header">;
 def wholearchive_file : P<"wholearchive", "Include all object files from this archive">;
 
@@ -75,20 +85,25 @@ def deffile : Joined<["/", "-"], "def:">,
     HelpText<"Use module-definition file">;
 
 def debug : F<"debug">, HelpText<"Embed a symbol table in the image">;
+def debug_opt : P<"debug", "Embed a symbol table in the image with option">;
 def debugtype : P<"debugtype", "Debug Info Options">;
 def dll : F<"dll">, HelpText<"Create a DLL">;
 def driver : P<"driver", "Generate a Windows NT Kernel Mode Driver">;
 def nodefaultlib_all : F<"nodefaultlib">;
 def noentry : F<"noentry">;
 def profile : F<"profile">;
+def repro : F<"Brepro">, HelpText<"Use a hash of the executable as the PE header timestamp">;
 def swaprun_cd : F<"swaprun:cd">;
 def swaprun_net : F<"swaprun:net">;
 def verbose : F<"verbose">;
 def wholearchive_flag : F<"wholearchive">;
 
 def force : F<"force">,
+    HelpText<"Allow undefined and multiply defined symbols when creating executables">;
+def force_unresolved : F<"force:unresolved">,
     HelpText<"Allow undefined symbols when creating executables">;
-def force_unresolved : F<"force:unresolved">;
+def force_multiple : F<"force:multiple">,
+    HelpText<"Allow multiply defined symbols when creating executables">;
 defm WX : B<"WX", "Treat warnings as errors", "Don't treat warnings as errors">;
 
 defm allowbind : B<"allowbind", "Enable DLL binding (default)",
@@ -107,7 +122,10 @@ defm highentropyva : B<"highentropyva",
                        "Disable 64-bit ASLR">;
 defm incremental : B<"incremental",
                      "Keep original import library if contents are unchanged",
-                     "Replace import library file even if contents are unchanged">;
+                     "Overwrite import library even if contents are unchanged">;
+defm integritycheck : B<"integritycheck",
+                        "Set FORCE_INTEGRITY bit in PE header",
+                        "No effect (default)">;
 defm largeaddressaware : B<"largeaddressaware",
                            "Enable large addresses (default on 64-bit)",
                            "Disable large addresses (default on 32-bit)">;
@@ -124,13 +142,12 @@ def help : F<"help">;
 def help_q : Flag<["/?", "-?"], "">, Alias<help>;
 
 // LLD extensions
-def debug_ghash : F<"debug:ghash">;
-def debug_dwarf : F<"debug:dwarf">;
 def export_all_symbols : F<"export-all-symbols">;
 def kill_at : F<"kill-at">;
 def lldmingw : F<"lldmingw">;
-def msvclto : F<"msvclto">;
 def output_def : Joined<["/", "-"], "output-def:">;
+def pdb_source_path : P<"pdbsourcepath",
+                        "Base path used to make relative source file path absolute in PDB">;
 def rsp_quoting : Joined<["--"], "rsp-quoting=">,
   HelpText<"Quoting style for response files, 'windows' (default) or 'posix'">;
 def dash_dash_version : Flag<["--"], "version">,
@@ -163,7 +180,6 @@ def delay : QF<"delay">;
 def errorreport : QF<"errorreport">;
 def idlout : QF<"idlout">;
 def maxilksize : QF<"maxilksize">;
-def pdbaltpath : QF<"pdbaltpath">;
 def tlbid : QF<"tlbid">;
 def tlbout : QF<"tlbout">;
 def verbose_all : QF<"verbose">;

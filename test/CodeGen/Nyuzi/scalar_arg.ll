@@ -103,7 +103,7 @@ define i32 @main() {  ; CHECK-LABEL: main:
   ; CHECK-DAG: store_32 [[PARAMTMP3]], 4(sp)
   ; CHECK-DAG: move [[PARAMTMP4:s[0-9]+]], 9
   ; CHECK-DAG: store_32 [[PARAMTMP4]], (sp)
-  ; CHECK-DAG: move s0, 1
+  ; CHECK-DAG: load_32 s0,
   ; CHECK-DAG: move s1, 2
   ; CHECK-DAG: move s2, 3
   ; CHECK-DAG: move s3, 4

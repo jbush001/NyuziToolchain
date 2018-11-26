@@ -1,4 +1,4 @@
-; RUN: llc -filetype=obj -O0 -relocation-model=pic < %s -mtriple mips-unknown-linux-gnu | llvm-dwarfdump -a - | FileCheck %s
+; RUN: llc -fast-isel-sink-local-values -filetype=obj -O0 -relocation-model=pic < %s -mtriple mips-unknown-linux-gnu | llvm-dwarfdump -a - | FileCheck %s
 ; PR19815
 
 ; Generated using clang -target mips-linux-gnu -g test.c -S -o - -flto|opt -sroa -S
@@ -57,7 +57,7 @@ attributes #1 = { nounwind readnone }
 !0 = distinct !DICompileUnit(language: DW_LANG_C99, producer: "clang version 3.5.0 ", isOptimized: false, emissionKind: FullDebug, file: !1, enums: !2, retainedTypes: !2, globals: !2, imports: !2)
 !1 = !DIFile(filename: "test.c", directory: "/tmp")
 !2 = !{}
-!4 = distinct !DISubprogram(name: "foo", line: 1, isLocal: false, isDefinition: true, virtualIndex: 6, flags: DIFlagPrototyped, isOptimized: false, unit: !0, scopeLine: 1, file: !1, scope: !5, type: !6, variables: !2)
+!4 = distinct !DISubprogram(name: "foo", line: 1, isLocal: false, isDefinition: true, virtualIndex: 6, flags: DIFlagPrototyped, isOptimized: false, unit: !0, scopeLine: 1, file: !1, scope: !5, type: !6, retainedNodes: !2)
 !5 = !DIFile(filename: "test.c", directory: "/tmp")
 !6 = !DISubroutineType(types: !7)
 !7 = !{!8, !8}

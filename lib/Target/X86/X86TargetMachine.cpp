@@ -54,18 +54,10 @@ static cl::opt<bool> EnableMachineCombinerPass("x86-machine-combiner",
                                cl::desc("Enable the machine combiner pass"),
                                cl::init(true), cl::Hidden);
 
-namespace llvm {
-
-void initializeWinEHStatePassPass(PassRegistry &);
-void initializeFixupLEAPassPass(PassRegistry &);
-void initializeShadowCallStackPass(PassRegistry &);
-void initializeX86CallFrameOptimizationPass(PassRegistry &);
-void initializeX86CmovConverterPassPass(PassRegistry &);
-void initializeX86ExecutionDomainFixPass(PassRegistry &);
-void initializeX86DomainReassignmentPass(PassRegistry &);
-void initializeX86AvoidSFBPassPass(PassRegistry &);
-
-} // end namespace llvm
+static cl::opt<bool> EnableCondBrFoldingPass("x86-condbr-folding",
+                               cl::desc("Enable the conditional branch "
+                                        "folding pass"),
+                               cl::init(false), cl::Hidden);
 
 extern "C" void LLVMInitializeX86Target() {
   // Register the target.
@@ -84,6 +76,8 @@ extern "C" void LLVMInitializeX86Target() {
   initializeX86ExecutionDomainFixPass(PR);
   initializeX86DomainReassignmentPass(PR);
   initializeX86AvoidSFBPassPass(PR);
+  initializeX86SpeculativeLoadHardeningPassPass(PR);
+  initializeX86FlagsCopyLoweringPassPass(PR);
 }
 
 static std::unique_ptr<TargetLoweringObjectFile> createTLOF(const Triple &TT) {
@@ -103,8 +97,6 @@ static std::unique_ptr<TargetLoweringObjectFile> createTLOF(const Triple &TT) {
     return llvm::make_unique<X86FuchsiaTargetObjectFile>();
   if (TT.isOSBinFormatELF())
     return llvm::make_unique<X86ELFTargetObjectFile>();
-  if (TT.isKnownWindowsMSVCEnvironment() || TT.isWindowsCoreCLREnvironment())
-    return llvm::make_unique<X86WindowsTargetObjectFile>();
   if (TT.isOSBinFormatCOFF())
     return llvm::make_unique<TargetLoweringObjectFileCOFF>();
   llvm_unreachable("unknown subtarget type");
@@ -156,9 +148,15 @@ static std::string computeDataLayout(const Triple &TT) {
 }
 
 static Reloc::Model getEffectiveRelocModel(const Triple &TT,
+                                           bool JIT,
                                            Optional<Reloc::Model> RM) {
   bool is64Bit = TT.getArch() == Triple::x86_64;
   if (!RM.hasValue()) {
+    // JIT codegen should use static relocations by default, since it's
+    // typically executed in process and not relocatable.
+    if (JIT)
+      return Reloc::Static;
+
     // Darwin defaults to PIC in 64 bit mode and dynamic-no-pic in 32 bit mode.
     // Win64 requires rip-rel addressing, thus we force it to PIC. Otherwise we
     // use static relocation model by default.
@@ -210,7 +208,7 @@ X86TargetMachine::X86TargetMachine(const Target &T, const Triple &TT,
                                    CodeGenOpt::Level OL, bool JIT)
     : LLVMTargetMachine(
           T, computeDataLayout(TT), TT, CPU, FS, Options,
-          getEffectiveRelocModel(TT, RM),
+          getEffectiveRelocModel(TT, JIT, RM),
           getEffectiveCodeModel(CM, JIT, TT.getArch() == Triple::x86_64), OL),
       TLOF(createTLOF(getTargetTriple())) {
   // Windows stack unwinder gets confused when execution flow "falls through"
@@ -222,8 +220,15 @@ X86TargetMachine::X86TargetMachine(const Target &T, const Triple &TT,
   // The check here for 64-bit windows is a bit icky, but as we're unlikely
   // to ever want to mix 32 and 64-bit windows code in a single module
   // this should be fine.
-  if ((TT.isOSWindows() && TT.getArch() == Triple::x86_64) || TT.isPS4())
+  if ((TT.isOSWindows() && TT.getArch() == Triple::x86_64) || TT.isPS4() ||
+      TT.isOSBinFormatMachO()) {
     this->Options.TrapUnreachable = true;
+    this->Options.NoTrapAfterNoreturn = TT.isOSBinFormatMachO();
+  }
+
+  // Outlining is available for x86-64.
+  if (TT.getArch() == Triple::x86_64)
+    setMachineOutliner(true);
 
   initAsmInfo();
 }
@@ -275,13 +280,14 @@ X86TargetMachine::getSubtargetImpl(const Function &F) const {
     }
   }
 
-  // Extract required-vector-width attribute.
+  // Extract min-legal-vector-width attribute.
   unsigned RequiredVectorWidth = UINT32_MAX;
-  if (F.hasFnAttribute("required-vector-width")) {
-    StringRef Val = F.getFnAttribute("required-vector-width").getValueAsString();
+  if (F.hasFnAttribute("min-legal-vector-width")) {
+    StringRef Val =
+        F.getFnAttribute("min-legal-vector-width").getValueAsString();
     unsigned Width;
     if (!Val.getAsInteger(0, Width)) {
-      Key += ",required-vector-width=";
+      Key += ",min-legal-vector-width=";
       Key += Val;
       RequiredVectorWidth = Width;
     }
@@ -432,6 +438,8 @@ bool X86PassConfig::addGlobalInstructionSelect() {
 }
 
 bool X86PassConfig::addILPOpts() {
+  if (EnableCondBrFoldingPass)
+    addPass(createX86CondBrFolding());
   addPass(&EarlyIfConverterID);
   if (EnableMachineCombinerPass)
     addPass(&MachineCombinerID);
@@ -456,6 +464,8 @@ void X86PassConfig::addPreRegAlloc() {
     addPass(createX86AvoidStoreForwardingBlocks());
   }
 
+  addPass(createX86SpeculativeLoadHardeningPass());
+  addPass(createX86FlagsCopyLoweringPass());
   addPass(createX86WinAllocaExpander());
 }
 void X86PassConfig::addMachineSSAOptimization() {
@@ -491,4 +501,10 @@ void X86PassConfig::addPreEmitPass() {
 
 void X86PassConfig::addPreEmitPass2() {
   addPass(createX86RetpolineThunksPass());
+  // Verify basic block incoming and outgoing cfa offset and register values and
+  // correct CFA calculation rule where needed by inserting appropriate CFI
+  // instructions.
+  const Triple &TT = TM->getTargetTriple();
+  if (!TT.isOSDarwin() && !TT.isOSWindows())
+    addPass(createCFIInstrInserter());
 }

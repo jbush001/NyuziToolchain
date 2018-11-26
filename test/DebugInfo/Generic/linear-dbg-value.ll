@@ -1,4 +1,5 @@
-; RUN: llc -stop-before=expand-isel-pseudos -pre-RA-sched=linearize < %s | FileCheck %s
+; FIXME: Fix machine verifier issues and remove -verify-machineinstrs=0. PR39452.
+; RUN: llc -stop-before=expand-isel-pseudos -pre-RA-sched=linearize -verify-machineinstrs=0 < %s | FileCheck %s
 source_filename = "linear-dbg-value.ll"
 
 ; Function Attrs: nounwind readonly uwtable
@@ -51,7 +52,7 @@ attributes #1 = { nounwind readnone speculatable }
 !3 = !{i32 2, !"Dwarf Version", i32 4}
 !4 = !{i32 2, !"Debug Info Version", i32 3}
 !5 = !{!"clang version 4.0.1 "}
-!6 = distinct !DISubprogram(name: "foo", scope: !1, file: !1, line: 2, type: !7, isLocal: false, isDefinition: true, scopeLine: 2, flags: DIFlagPrototyped, isOptimized: true, unit: !0, variables: !8)
+!6 = distinct !DISubprogram(name: "foo", scope: !1, file: !1, line: 2, type: !7, isLocal: false, isDefinition: true, scopeLine: 2, flags: DIFlagPrototyped, isOptimized: true, unit: !0, retainedNodes: !8)
 !7 = !DISubroutineType(types: !2)
 !8 = !{!9}
 !9 = !DILocalVariable(name: "x", scope: !6, file: !1, line: 3, type: !10)

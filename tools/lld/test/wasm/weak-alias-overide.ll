@@ -1,12 +1,12 @@
 ; RUN: llc -filetype=obj -o %t.o %s
 ; RUN: llc -filetype=obj %S/Inputs/weak-alias.ll -o %t2.o
-; RUN: wasm-ld --check-signatures %t.o %t2.o -o %t.wasm
+; RUN: wasm-ld --export-dynamic %t.o %t2.o -o %t.wasm
 ; RUN: obj2yaml %t.wasm | FileCheck %s
 
 ; Test that the strongly defined alias_fn from this file is used both here
 ; and in call_alias.
 
-target triple = "wasm32-unknown-unknown-wasm"
+target triple = "wasm32-unknown-unknown"
 
 define i32 @alias_fn() local_unnamed_addr #1 {
   ret i32 1
@@ -74,12 +74,12 @@ entry:
 ; CHECK-NEXT:       - Name:            __data_end
 ; CHECK-NEXT:         Kind:            GLOBAL
 ; CHECK-NEXT:         Index:           2
-; CHECK-NEXT:       - Name:            _start
-; CHECK-NEXT:         Kind:            FUNCTION
-; CHECK-NEXT:         Index:           2
 ; CHECK-NEXT:       - Name:            alias_fn
 ; CHECK-NEXT:         Kind:            FUNCTION
 ; CHECK-NEXT:         Index:           1
+; CHECK-NEXT:       - Name:            _start
+; CHECK-NEXT:         Kind:            FUNCTION
+; CHECK-NEXT:         Index:           2
 ; CHECK-NEXT:       - Name:            direct_fn
 ; CHECK-NEXT:         Kind:            FUNCTION
 ; CHECK-NEXT:         Index:           3

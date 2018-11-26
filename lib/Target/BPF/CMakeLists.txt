@@ -20,13 +20,15 @@ add_llvm_target(BPFCodeGen
   BPFISelLowering.cpp
   BPFMCInstLower.cpp
   BPFRegisterInfo.cpp
+  BPFSelectionDAGInfo.cpp
   BPFSubtarget.cpp
   BPFTargetMachine.cpp
   BPFMIPeephole.cpp
+  BPFMIChecking.cpp
   )
 
 add_subdirectory(AsmParser)
 add_subdirectory(Disassembler)
 add_subdirectory(InstPrinter)
-add_subdirectory(TargetInfo)
 add_subdirectory(MCTargetDesc)
+add_subdirectory(TargetInfo)
