@@ -1,0 +1,2 @@
+RUN: not elf2hex -o %t %p/Inputs/truncated-headers.bin 2>&1 | FileCheck %s
+CHECK: error reading program header

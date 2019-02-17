@@ -1,0 +1,2 @@
+RUN: not elf2hex -o %t/this/does/not/exist %p/Inputs/basic.bin 2>&1 | FileCheck %s
+CHECK: Error opening output file

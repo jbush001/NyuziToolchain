@@ -92,7 +92,11 @@ int main(int argc, const char *argv[]) {
 
   for (int segment = 0; segment < eheader.e_phnum; segment++) {
     if (pheader[segment].p_type == PT_LOAD) {
-      fseek(inputFile, pheader[segment].p_offset, SEEK_SET);
+      if (fseek(inputFile, pheader[segment].p_offset, SEEK_SET) < 0) {
+        errs() << "Error reading segment " << segment << "\n";
+        return 1;
+      }
+
       if (fread(memoryImage + pheader[segment].p_vaddr - BaseAddress, 1,
                 pheader[segment].p_filesz,
                 inputFile) != pheader[segment].p_filesz) {
@@ -110,7 +114,7 @@ int main(int argc, const char *argv[]) {
 
   FILE *outputFile = fopen(OutputFilename.c_str(), "wb");
   if (!outputFile) {
-    errs() << "error opening output file";
+    errs() << "Error opening output file";
     return 1;
   }
 

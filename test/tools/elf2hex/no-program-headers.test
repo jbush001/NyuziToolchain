@@ -1,0 +1,2 @@
+RUN: not elf2hex -o %t %p/Inputs/no-program-headers.bin 2>&1 | FileCheck %s
+CHECK: File has no program header

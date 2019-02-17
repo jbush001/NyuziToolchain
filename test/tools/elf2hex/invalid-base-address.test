@@ -1,0 +1,4 @@
+RUN: not elf2hex -b 0x80000000 -o %t %p/Inputs/basic.bin 2>&1 | FileCheck %s
+# basic.bin starts at address 0, which is out of range for this base address.
+
+CHECK: Program segment 1 @0 is before requested base address 2147483648

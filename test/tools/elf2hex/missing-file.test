@@ -1,0 +1,2 @@
+RUN: not elf2hex -o %t floadfadfadf.bin 2>&1 | FileCheck %s
+CHECK: Error opening input file
