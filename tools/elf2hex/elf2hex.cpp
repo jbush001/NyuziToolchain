@@ -28,7 +28,12 @@ cl::opt<std::string>
 InputFilename(cl::Positional, cl::desc("<input ELF file>"), cl::init("a.out"));
 
 cl::opt<std::string> OutputFilename("o", cl::desc("Output hex file"),
-                                           cl::value_desc("filename"));
+                                    cl::value_desc("filename"));
+
+// The base offset allows initially loading at a different address than the
+// executable is linked at. It is used for booting kernels.
+cl::opt<unsigned int> BaseOffset("b", cl::desc("Base Offset"),
+                                  cl::init(0));
 
 int writeHex(FILE *outputFile, FILE *inputFile, int length) {
   for (int i = 0; i < length; i++) {
@@ -108,7 +113,7 @@ int main(int argc, const char *argv[]) {
   bool first = true;
   for (int segment = 0; segment < eheader.e_phnum; segment++) {
     if (pheader[segment].p_type == PT_LOAD) {
-      fprintf(outputFile, "@%08x\n", pheader[segment].p_vaddr / 4);
+      fprintf(outputFile, "@%08x\n", (pheader[segment].p_vaddr - BaseOffset) / 4);
       if (fseek(inputFile, pheader[segment].p_offset, SEEK_SET) < 0) {
         errs() << "Error reading segment " << segment << ": "
           << strerror(errno) << "\n";
