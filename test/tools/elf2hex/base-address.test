@@ -1,6 +1,7 @@
-RUN: elf2hex -b 0x80000000 -o %t %p/Inputs/high-address.bin && FileCheck --input-file %t %s
+RUN: elf2hex -o %t %p/Inputs/high-address.bin && FileCheck --input-file %t %s
 
 # Branch statement
+CHECK: @80000000
 CHECK: 400000f6
 
 # Unused elf header
@@ -49,5 +50,6 @@ CHECK-NEXT: 00000000
 CHECK-NEXT: 06000000
 
 # First word of text segment
-CHECK-COUNT-20: 00000000
+CHECK: @80000100
 CHECK-NEXT: 000000f6
+CHECK-COUNT-20: 00000000
