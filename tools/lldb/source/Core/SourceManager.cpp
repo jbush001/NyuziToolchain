@@ -1,9 +1,8 @@
 //===-- SourceManager.cpp ---------------------------------------*- C++ -*-===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -486,7 +485,7 @@ uint32_t SourceManager::File::GetLineLength(uint32_t line,
 
   if (end_offset > start_offset) {
     uint32_t length = end_offset - start_offset;
-    if (include_newline_chars == false) {
+    if (!include_newline_chars) {
       const char *line_start =
           (const char *)m_data_sp->GetBytes() + start_offset;
       while (length > 0) {

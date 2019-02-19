@@ -1,10 +1,9 @@
 //===-- PlatformDarwinKernel.cpp -----------------------------------*- C++
 //-*-===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -35,6 +34,8 @@
 #include "llvm/Support/FileSystem.h"
 
 #include <CoreFoundation/CoreFoundation.h>
+
+#include <memory>
 
 #include "Host/macosx/cfcpp/CFCBundle.h"
 
@@ -91,7 +92,7 @@ PlatformSP PlatformDarwinKernel::CreateInstance(bool force,
   // ArchSpec for normal userland debugging.  It is only useful in kernel debug
   // sessions and the DynamicLoaderDarwinPlugin (or a user doing 'platform
   // select') will force the creation of this Platform plugin.
-  if (force == false) {
+  if (!force) {
     if (log)
       log->Printf("PlatformDarwinKernel::%s() aborting creation of platform "
                   "because force == false",
@@ -102,7 +103,7 @@ PlatformSP PlatformDarwinKernel::CreateInstance(bool force,
   bool create = force;
   LazyBool is_ios_debug_session = eLazyBoolCalculate;
 
-  if (create == false && arch && arch->IsValid()) {
+  if (!create && arch && arch->IsValid()) {
     const llvm::Triple &triple = arch->GetTriple();
     switch (triple.getVendor()) {
     case llvm::Triple::Apple:
@@ -111,7 +112,7 @@ PlatformSP PlatformDarwinKernel::CreateInstance(bool force,
 
     // Only accept "unknown" for vendor if the host is Apple and it "unknown"
     // wasn't specified (it was just returned because it was NOT specified)
-    case llvm::Triple::UnknownArch:
+    case llvm::Triple::UnknownVendor:
       create = !arch->TripleVendorWasSpecified();
       break;
     default:
@@ -201,7 +202,7 @@ public:
   }
 
   PlatformDarwinKernelProperties() : Properties() {
-    m_collection_sp.reset(new OptionValueProperties(GetSettingName()));
+    m_collection_sp = std::make_shared<OptionValueProperties>(GetSettingName());
     m_collection_sp->Initialize(g_properties);
   }
 
@@ -229,7 +230,7 @@ typedef std::shared_ptr<PlatformDarwinKernelProperties>
 static const PlatformDarwinKernelPropertiesSP &GetGlobalProperties() {
   static PlatformDarwinKernelPropertiesSP g_settings_sp;
   if (!g_settings_sp)
-    g_settings_sp.reset(new PlatformDarwinKernelProperties());
+    g_settings_sp = std::make_shared<PlatformDarwinKernelProperties>();
   return g_settings_sp;
 }
 
@@ -640,10 +641,7 @@ bool PlatformDarwinKernel::KextHasdSYMSibling(
   shallow_bundle_str += ".dSYM";
   dsym_fspec.SetFile(shallow_bundle_str, FileSpec::Style::native);
   FileSystem::Instance().Resolve(dsym_fspec);
-  if (FileSystem::Instance().IsDirectory(dsym_fspec)) {
-    return true;
-  }
-  return false;
+  return FileSystem::Instance().IsDirectory(dsym_fspec);
 }
 
 // Given a FileSpec of /dir/dir/mach.development.t7004 Return true if a dSYM
@@ -654,10 +652,7 @@ bool PlatformDarwinKernel::KernelHasdSYMSibling(const FileSpec &kernel_binary) {
   std::string filename = kernel_binary.GetFilename().AsCString();
   filename += ".dSYM";
   kernel_dsym.GetFilename() = ConstString(filename);
-  if (FileSystem::Instance().IsDirectory(kernel_dsym)) {
-    return true;
-  }
-  return false;
+  return FileSystem::Instance().IsDirectory(kernel_dsym);
 }
 
 Status PlatformDarwinKernel::GetSharedModule(
@@ -716,8 +711,7 @@ Status PlatformDarwinKernel::GetSharedModule(
     }
   }
 
-  if (kext_bundle_id.compare("mach_kernel") == 0 &&
-      module_spec.GetUUID().IsValid()) {
+  if (kext_bundle_id == "mach_kernel" && module_spec.GetUUID().IsValid()) {
     // First try all kernel binaries that have a dSYM next to them
     for (auto possible_kernel : m_kernel_binaries_with_dsyms) {
       if (FileSystem::Instance().Exists(possible_kernel)) {

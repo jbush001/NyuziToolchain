@@ -1,9 +1,8 @@
 //===-- llvm/CodeGen/ISDOpcodes.h - CodeGen opcodes -------------*- C++ -*-===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -272,6 +271,13 @@ namespace ISD {
     /// resulting value is this minimum value.
     SSUBSAT, USUBSAT,
 
+    /// RESULT = [US]MULFIX(LHS, RHS, SCALE) - Perform fixed point multiplication on
+    /// 2 integers with the same width and scale. SCALE represents the scale of
+    /// both operands as fixed point numbers. This SCALE parameter must be a
+    /// constant integer. A scale of zero is effectively performing
+    /// multiplication on 2 integers.
+    SMULFIX, UMULFIX,
+
     /// Simple binary floating point operators.
     FADD, FSUB, FMUL, FDIV, FREM,
 
@@ -394,9 +400,13 @@ namespace ISD {
     /// When the 1st operand is a vector, the shift amount must be in the same
     /// type. (TLI.getShiftAmountTy() will return the same type when the input
     /// type is a vector.)
-    /// For rotates, the shift amount is treated as an unsigned amount modulo
-    /// the element size of the first operand.
-    SHL, SRA, SRL, ROTL, ROTR,
+    /// For rotates and funnel shifts, the shift amount is treated as an unsigned
+    /// amount modulo the element size of the first operand.
+    ///
+    /// Funnel 'double' shifts take 3 operands, 2 inputs and the shift amount.
+    /// fshl(X,Y,Z): (X << (Z % BW)) | (Y >> (BW - (Z % BW)))
+    /// fshr(X,Y,Z): (X << (BW - (Z % BW))) | (Y >> (Z % BW))
+    SHL, SRA, SRL, ROTL, ROTR, FSHL, FSHR,
 
     /// Byte Swap and Counting operators.
     BSWAP, CTTZ, CTLZ, CTPOP, BITREVERSE,
@@ -569,7 +579,9 @@ namespace ISD {
     /// is often a storage-only type but has native conversions.
     FP16_TO_FP, FP_TO_FP16,
 
-    /// Perform various unary floating-point operations inspired by libm.
+    /// Perform various unary floating-point operations inspired by libm. For
+    /// FPOWI, the result is undefined if if the integer operand doesn't fit
+    /// into 32 bits.
     FNEG, FABS, FSQRT, FCBRT, FSIN, FCOS, FPOWI, FPOW,
     FLOG, FLOG2, FLOG10, FEXP, FEXP2,
     FCEIL, FTRUNC, FRINT, FNEARBYINT, FROUND, FFLOOR,
@@ -654,6 +666,9 @@ namespace ISD {
     /// modes as a single "operand", even though they may have multiple
     /// SDOperands.
     INLINEASM,
+
+    /// INLINEASM_BR - Terminator version of inline asm. Used by asm-goto.
+    INLINEASM_BR,
 
     /// EH_LABEL - Represents a label in mid basic block used to track
     /// locations needed for debug and exception handling tables.  These nodes
@@ -808,6 +823,8 @@ namespace ISD {
     ATOMIC_LOAD_MAX,
     ATOMIC_LOAD_UMIN,
     ATOMIC_LOAD_UMAX,
+    ATOMIC_LOAD_FADD,
+    ATOMIC_LOAD_FSUB,
 
     // Masked load and store - consecutive vector load and store operations
     // with additional mask operand that prevents memory accesses to the

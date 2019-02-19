@@ -1,9 +1,8 @@
 //===---- MachineOutliner.h - Outliner data structures ------*- C++ -*-===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 ///
@@ -61,9 +60,6 @@ public:
   /// \p OutlinedFunctions.
   unsigned FunctionIdx;
 
-  /// Set to false if the candidate overlapped with another candidate.
-  bool InCandidateList = true;
-
   /// Identifier denoting the instructions to emit to call an outlined function
   /// from this point. Defined by the target.
   unsigned CallConstructionID;
@@ -105,9 +101,7 @@ public:
   }
 
   /// Returns the call overhead of this candidate if it is in the list.
-  unsigned getCallOverhead() const {
-    return InCandidateList ? CallOverhead : 0;
-  }
+  unsigned getCallOverhead() const { return CallOverhead; }
 
   MachineBasicBlock::iterator &front() { return FirstInst; }
   MachineBasicBlock::iterator &back() { return LastInst; }
@@ -168,20 +162,12 @@ public:
 /// class of candidate.
 struct OutlinedFunction {
 
-private:
-  /// The number of candidates for this \p OutlinedFunction.
-  unsigned OccurrenceCount = 0;
-
 public:
-  std::vector<std::shared_ptr<Candidate>> Candidates;
+  std::vector<Candidate> Candidates;
 
   /// The actual outlined function created.
   /// This is initialized after we go through and create the actual function.
   MachineFunction *MF = nullptr;
-
-  /// The sequence of integers corresponding to the instructions in this
-  /// function.
-  std::vector<unsigned> Sequence;
 
   /// Represents the size of a sequence in bytes. (Some instructions vary
   /// widely in size, so just counting the instructions isn't very useful.)
@@ -194,49 +180,41 @@ public:
   unsigned FrameConstructionID;
 
   /// Return the number of candidates for this \p OutlinedFunction.
-  unsigned getOccurrenceCount() { return OccurrenceCount; }
-
-  /// Decrement the occurrence count of this OutlinedFunction and return the
-  /// new count.
-  unsigned decrement() {
-    assert(OccurrenceCount > 0 && "Can't decrement an empty function!");
-    OccurrenceCount--;
-    return getOccurrenceCount();
-  }
+  unsigned getOccurrenceCount() const { return Candidates.size(); }
 
   /// Return the number of bytes it would take to outline this
   /// function.
-  unsigned getOutliningCost() {
+  unsigned getOutliningCost() const {
     unsigned CallOverhead = 0;
-    for (std::shared_ptr<Candidate> &C : Candidates)
-      CallOverhead += C->getCallOverhead();
+    for (const Candidate &C : Candidates)
+      CallOverhead += C.getCallOverhead();
     return CallOverhead + SequenceSize + FrameOverhead;
   }
 
   /// Return the size in bytes of the unoutlined sequences.
-  unsigned getNotOutlinedCost() { return OccurrenceCount * SequenceSize; }
+  unsigned getNotOutlinedCost() const {
+    return getOccurrenceCount() * SequenceSize;
+  }
 
   /// Return the number of instructions that would be saved by outlining
   /// this function.
-  unsigned getBenefit() {
+  unsigned getBenefit() const {
     unsigned NotOutlinedCost = getNotOutlinedCost();
     unsigned OutlinedCost = getOutliningCost();
     return (NotOutlinedCost < OutlinedCost) ? 0
                                             : NotOutlinedCost - OutlinedCost;
   }
 
-  OutlinedFunction(std::vector<Candidate> &Cands,
-                   unsigned SequenceSize, unsigned FrameOverhead,
-                   unsigned FrameConstructionID)
-      : SequenceSize(SequenceSize), FrameOverhead(FrameOverhead),
-        FrameConstructionID(FrameConstructionID) {
-    OccurrenceCount = Cands.size();
-    for (Candidate &C : Cands)
-      Candidates.push_back(std::make_shared<outliner::Candidate>(C));
+  /// Return the number of instructions in this sequence.
+  unsigned getNumInstrs() const { return Candidates[0].getLength(); }
 
-    unsigned B = getBenefit();
-    for (std::shared_ptr<Candidate> &C : Candidates)
-      C->Benefit = B;
+  OutlinedFunction(std::vector<Candidate> &Candidates, unsigned SequenceSize,
+                   unsigned FrameOverhead, unsigned FrameConstructionID)
+      : Candidates(Candidates), SequenceSize(SequenceSize),
+        FrameOverhead(FrameOverhead), FrameConstructionID(FrameConstructionID) {
+    const unsigned B = getBenefit();
+    for (Candidate &C : Candidates)
+      C.Benefit = B;
   }
 
   OutlinedFunction() {}

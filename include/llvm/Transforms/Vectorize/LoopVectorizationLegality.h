@@ -1,9 +1,8 @@
 //===- llvm/Transforms/Vectorize/LoopVectorizationLegality.h ----*- C++ -*-===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -95,17 +94,14 @@ public:
     FK_Enabled = 1,    ///< Forcing enabled.
   };
 
-  LoopVectorizeHints(const Loop *L, bool DisableInterleaving,
+  LoopVectorizeHints(const Loop *L, bool InterleaveOnlyWhenForced,
                      OptimizationRemarkEmitter &ORE);
 
   /// Mark the loop L as already vectorized by setting the width to 1.
-  void setAlreadyVectorized() {
-    IsVectorized.Value = 1;
-    Hint Hints[] = {IsVectorized};
-    writeHintsToMetadata(Hints);
-  }
+  void setAlreadyVectorized();
 
-  bool allowVectorization(Function *F, Loop *L, bool AlwaysVectorize) const;
+  bool allowVectorization(Function *F, Loop *L,
+                          bool VectorizeOnlyWhenForced) const;
 
   /// Dumps all the hint information.
   void emitRemarkWithHints() const;
@@ -113,7 +109,12 @@ public:
   unsigned getWidth() const { return Width.Value; }
   unsigned getInterleave() const { return Interleave.Value; }
   unsigned getIsVectorized() const { return IsVectorized.Value; }
-  enum ForceKind getForce() const { return (ForceKind)Force.Value; }
+  enum ForceKind getForce() const {
+    if ((ForceKind)Force.Value == FK_Undefined &&
+        hasDisableAllTransformsHint(TheLoop))
+      return FK_Disabled;
+    return (ForceKind)Force.Value;
+  }
 
   /// If hints are provided that force vectorization, use the AlwaysPrint
   /// pass name to force the frontend to print the diagnostic.
@@ -145,15 +146,6 @@ private:
 
   /// Checks string hint with one operand and set value if valid.
   void setHint(StringRef Name, Metadata *Arg);
-
-  /// Create a new hint from name / value pair.
-  MDNode *createHintMetadata(StringRef Name, unsigned V) const;
-
-  /// Matches metadata with hint name.
-  bool matchesHintMetadataName(MDNode *Node, ArrayRef<Hint> HintTypes);
-
-  /// Sets current hints into loop metadata, keeping other values intact.
-  void writeHintsToMetadata(ArrayRef<Hint> HintTypes);
 
   /// The loop these hints belong to.
   const Loop *TheLoop;

@@ -1,9 +1,8 @@
 //===- Transform/Utils/CodeExtractor.h - Code extraction util ---*- C++ -*-===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -18,6 +17,7 @@
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SetVector.h"
+#include "llvm/ADT/SmallPtrSet.h"
 #include <limits>
 
 namespace llvm {
@@ -26,6 +26,8 @@ class BasicBlock;
 class BlockFrequency;
 class BlockFrequencyInfo;
 class BranchProbabilityInfo;
+class AssumptionCache;
+class CallInst;
 class DominatorTree;
 class Function;
 class Instruction;
@@ -55,6 +57,7 @@ class Value;
     const bool AggregateArgs;
     BlockFrequencyInfo *BFI;
     BranchProbabilityInfo *BPI;
+    AssumptionCache *AC;
 
     // If true, varargs functions can be extracted.
     bool AllowVarArgs;
@@ -83,6 +86,7 @@ class Value;
     CodeExtractor(ArrayRef<BasicBlock *> BBs, DominatorTree *DT = nullptr,
                   bool AggregateArgs = false, BlockFrequencyInfo *BFI = nullptr,
                   BranchProbabilityInfo *BPI = nullptr,
+                  AssumptionCache *AC = nullptr,
                   bool AllowVarArgs = false, bool AllowAlloca = false,
                   std::string Suffix = "");
 
@@ -93,6 +97,7 @@ class Value;
     CodeExtractor(DominatorTree &DT, Loop &L, bool AggregateArgs = false,
                   BlockFrequencyInfo *BFI = nullptr,
                   BranchProbabilityInfo *BPI = nullptr,
+                  AssumptionCache *AC = nullptr,
                   std::string Suffix = "");
 
     /// Perform the extraction, returning the new function.
@@ -146,7 +151,8 @@ class Value;
     BasicBlock *findOrCreateBlockForHoisting(BasicBlock *CommonExitBlock);
 
   private:
-    void severSplitPHINodes(BasicBlock *&Header);
+    void severSplitPHINodesOfEntry(BasicBlock *&Header);
+    void severSplitPHINodesOfExits(const SmallPtrSetImpl<BasicBlock *> &Exits);
     void splitReturnBlocks();
 
     Function *constructFunction(const ValueSet &inputs,
@@ -162,10 +168,9 @@ class Value;
         DenseMap<BasicBlock *, BlockFrequency> &ExitWeights,
         BranchProbabilityInfo *BPI);
 
-    void emitCallAndSwitchStatement(Function *newFunction,
-                                    BasicBlock *newHeader,
-                                    ValueSet &inputs,
-                                    ValueSet &outputs);
+    CallInst *emitCallAndSwitchStatement(Function *newFunction,
+                                         BasicBlock *newHeader,
+                                         ValueSet &inputs, ValueSet &outputs);
   };
 
 } // end namespace llvm

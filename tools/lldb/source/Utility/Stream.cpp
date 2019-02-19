@@ -1,9 +1,8 @@
 //===-- Stream.cpp ----------------------------------------------*- C++ -*-===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -93,9 +92,9 @@ void Stream::QuotedCString(const char *cstr, const char *format) {
 //------------------------------------------------------------------
 void Stream::Address(uint64_t addr, uint32_t addr_size, const char *prefix,
                      const char *suffix) {
-  if (prefix == NULL)
+  if (prefix == nullptr)
     prefix = "";
-  if (suffix == NULL)
+  if (suffix == nullptr)
     suffix = "";
   //    int addr_width = m_addr_size << 1;
   //    Printf ("%s0x%0*" PRIx64 "%s", prefix, addr_width, addr, suffix);
@@ -494,14 +493,12 @@ size_t Stream::PutBytesAsRawHex8(const void *s, size_t src_len,
   return *delta;
 }
 
-size_t Stream::PutCStringAsRawHex8(const char *s) {
+size_t Stream::PutStringAsRawHex8(llvm::StringRef s) {
   ByteDelta delta(*this);
   bool binary_is_set = m_flags.Test(eBinary);
   m_flags.Clear(eBinary);
-  while(*s) {
-    _PutHex8(*s, false);
-    ++s;
-  }
+  for (char c : s)
+    _PutHex8(c, false);
   if (binary_is_set)
     m_flags.Set(eBinary);
   return *delta;

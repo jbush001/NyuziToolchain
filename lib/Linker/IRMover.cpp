@@ -1,9 +1,8 @@
 //===- lib/Linker/IRMover.cpp ---------------------------------------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -1062,6 +1061,16 @@ void IRLinker::prepareCompileUnitsForImport() {
     ValueMap.MD()[CU->getRawEnumTypes()].reset(nullptr);
     ValueMap.MD()[CU->getRawMacros()].reset(nullptr);
     ValueMap.MD()[CU->getRawRetainedTypes()].reset(nullptr);
+    // The original definition (or at least its debug info - if the variable is
+    // internalized an optimized away) will remain in the source module, so
+    // there's no need to import them.
+    // If LLVM ever does more advanced optimizations on global variables
+    // (removing/localizing write operations, for instance) that can track
+    // through debug info, this decision may need to be revisited - but do so
+    // with care when it comes to debug info size. Emitting small CUs containing
+    // only a few imported entities into every destination module may be very
+    // size inefficient.
+    ValueMap.MD()[CU->getRawGlobalVariables()].reset(nullptr);
 
     // Imported entities only need to be mapped in if they have local
     // scope, as those might correspond to an imported entity inside a

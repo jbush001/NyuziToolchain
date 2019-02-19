@@ -1,9 +1,8 @@
 //===-- SIFixupVectorISel.cpp - Fixup post ISel vector issues -------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 /// \file
 /// SIFixupVectorISel pass cleans up post ISEL Vector issues.
@@ -42,6 +41,11 @@
 #define DEBUG_TYPE "si-fixup-vector-isel"
 
 using namespace llvm;
+
+static cl::opt<bool> EnableGlobalSGPRAddr(
+  "amdgpu-enable-global-sgpr-addr",
+  cl::desc("Enable use of SGPR regs for GLOBAL LOAD/STORE instructions"),
+  cl::init(false));
 
 STATISTIC(NumSGPRGlobalOccurs, "Number of global ld/st opportunities");
 STATISTIC(NumSGPRGlobalSaddrs, "Number of global sgpr instructions converted");
@@ -155,6 +159,8 @@ static bool fixupGlobalSaddr(MachineBasicBlock &MBB,
                              const GCNSubtarget &ST,
                              const SIInstrInfo *TII,
                              const SIRegisterInfo *TRI) {
+  if (!EnableGlobalSGPRAddr)
+    return false;
   bool FuncModified = false;
   MachineBasicBlock::iterator I, Next;
   for (I = MBB.begin(); I != MBB.end(); I = Next) {

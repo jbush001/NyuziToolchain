@@ -1,9 +1,8 @@
 //===-- GenericOpcodes.td - Opcodes used with GlobalISel ---*- tablegen -*-===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -93,12 +92,14 @@ def G_BITCAST : GenericInstruction {
   let hasSideEffects = 0;
 }
 
+// Only supports scalar result types
 def G_CONSTANT : GenericInstruction {
   let OutOperandList = (outs type0:$dst);
   let InOperandList = (ins unknown:$imm);
   let hasSideEffects = 0;
 }
 
+// Only supports scalar result types
 def G_FCONSTANT : GenericInstruction {
   let OutOperandList = (outs type0:$dst);
   let InOperandList = (ins unknown:$imm);
@@ -122,31 +123,31 @@ def G_VAARG : GenericInstruction {
 
 def G_CTLZ : GenericInstruction {
   let OutOperandList = (outs type0:$dst);
-  let InOperandList = (ins type0:$src);
+  let InOperandList = (ins type1:$src);
   let hasSideEffects = 0;
 }
 
 def G_CTLZ_ZERO_UNDEF : GenericInstruction {
   let OutOperandList = (outs type0:$dst);
-  let InOperandList = (ins type0:$src);
+  let InOperandList = (ins type1:$src);
   let hasSideEffects = 0;
 }
 
 def G_CTTZ : GenericInstruction {
   let OutOperandList = (outs type0:$dst);
-  let InOperandList = (ins type0:$src);
+  let InOperandList = (ins type1:$src);
   let hasSideEffects = 0;
 }
 
 def G_CTTZ_ZERO_UNDEF : GenericInstruction {
   let OutOperandList = (outs type0:$dst);
-  let InOperandList = (ins type0:$src);
+  let InOperandList = (ins type1:$src);
   let hasSideEffects = 0;
 }
 
 def G_CTPOP : GenericInstruction {
   let OutOperandList = (outs type0:$dst);
-  let InOperandList = (ins type0:$src);
+  let InOperandList = (ins type1:$src);
   let hasSideEffects = 0;
 }
 
@@ -255,21 +256,21 @@ def G_XOR : GenericInstruction {
 // Generic left-shift.
 def G_SHL : GenericInstruction {
   let OutOperandList = (outs type0:$dst);
-  let InOperandList = (ins type0:$src1, type0:$src2);
+  let InOperandList = (ins type0:$src1, type1:$src2);
   let hasSideEffects = 0;
 }
 
 // Generic logical right-shift.
 def G_LSHR : GenericInstruction {
   let OutOperandList = (outs type0:$dst);
-  let InOperandList = (ins type0:$src1, type0:$src2);
+  let InOperandList = (ins type0:$src1, type1:$src2);
   let hasSideEffects = 0;
 }
 
 // Generic arithmetic right-shift.
 def G_ASHR : GenericInstruction {
   let OutOperandList = (outs type0:$dst);
-  let InOperandList = (ins type0:$src1, type0:$src2);
+  let InOperandList = (ins type0:$src1, type1:$src2);
   let hasSideEffects = 0;
 }
 
@@ -454,6 +455,12 @@ def G_FABS : GenericInstruction {
   let hasSideEffects = 0;
 }
 
+def G_FCANONICALIZE : GenericInstruction {
+  let OutOperandList = (outs type0:$dst);
+  let InOperandList = (ins type0:$src);
+  let hasSideEffects = 0;
+}
+
 //------------------------------------------------------------------------------
 // Floating Point Binary ops.
 //------------------------------------------------------------------------------
@@ -535,6 +542,51 @@ def G_FLOG : GenericInstruction {
 
 // Floating point base-2 logarithm of a value.
 def G_FLOG2 : GenericInstruction {
+  let OutOperandList = (outs type0:$dst);
+  let InOperandList = (ins type0:$src1);
+  let hasSideEffects = 0;
+}
+
+// Floating point base-10 logarithm of a value.
+def G_FLOG10 : GenericInstruction {
+  let OutOperandList = (outs type0:$dst);
+  let InOperandList = (ins type0:$src1);
+  let hasSideEffects = 0;
+}
+
+// Floating point ceiling of a value.
+def G_FCEIL : GenericInstruction {
+  let OutOperandList = (outs type0:$dst);
+  let InOperandList = (ins type0:$src1);
+  let hasSideEffects = 0;
+}
+
+// Floating point cosine of a value.
+def G_FCOS : GenericInstruction {
+  let OutOperandList = (outs type0:$dst);
+  let InOperandList = (ins type0:$src1);
+  let hasSideEffects = 0;
+}
+
+// Floating point sine of a value.
+def G_FSIN : GenericInstruction {
+  let OutOperandList = (outs type0:$dst);
+  let InOperandList = (ins type0:$src1);
+  let hasSideEffects = 0;
+}
+
+// Floating point square root of a value.
+// This returns NaN for negative nonzero values.
+// NOTE: Unlike libm sqrt(), this never sets errno. In all other respects it's
+// libm-conformant.
+def G_FSQRT : GenericInstruction {
+  let OutOperandList = (outs type0:$dst);
+  let InOperandList = (ins type0:$src1);
+  let hasSideEffects = 0;
+}
+
+// Floating point floor of a value.
+def G_FFLOOR : GenericInstruction {
   let OutOperandList = (outs type0:$dst);
   let InOperandList = (ins type0:$src1);
   let hasSideEffects = 0;
@@ -670,6 +722,30 @@ def G_INSERT : GenericInstruction {
 //   %0:(s32) = G_MERGE_VALUES %bits_0_7:(s8), %bits_8_15:(s8),
 //                             %bits_16_23:(s8), %bits_24_31:(s8)
 def G_MERGE_VALUES : GenericInstruction {
+  let OutOperandList = (outs type0:$dst);
+  let InOperandList = (ins type1:$src0, variable_ops);
+  let hasSideEffects = 0;
+}
+
+/// Create a vector from multiple scalar registers. No implicit
+/// conversion is performed (i.e. the result element type must be the
+/// same as all source operands)
+def G_BUILD_VECTOR : GenericInstruction {
+  let OutOperandList = (outs type0:$dst);
+  let InOperandList = (ins type1:$src0, variable_ops);
+  let hasSideEffects = 0;
+}
+
+/// Like G_BUILD_VECTOR, but truncates the larger operand types to fit the
+/// destination vector elt type.
+def G_BUILD_VECTOR_TRUNC : GenericInstruction {
+  let OutOperandList = (outs type0:$dst);
+  let InOperandList = (ins type1:$src0, variable_ops);
+  let hasSideEffects = 0;
+}
+
+/// Create a vector by concatenating vectors together.
+def G_CONCAT_VECTORS : GenericInstruction {
   let OutOperandList = (outs type0:$dst);
   let InOperandList = (ins type1:$src0, variable_ops);
   let hasSideEffects = 0;

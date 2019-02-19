@@ -1,9 +1,8 @@
 //===- InstrInfoEmitter.cpp - Generate a Instruction Set Desc. --*- C++ -*-===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -358,8 +357,8 @@ void InstrInfoEmitter::emitMCIIHelperMethods(raw_ostream &OS,
   if (TIIPredicates.empty())
     return;
 
-  OS << "#ifdef GET_GENINSTRINFO_MC_DECL\n";
-  OS << "#undef GET_GENINSTRINFO_MC_DECL\n\n";
+  OS << "#ifdef GET_INSTRINFO_MC_HELPER_DECLS\n";
+  OS << "#undef GET_INSTRINFO_MC_HELPER_DECLS\n\n";
 
   OS << "namespace llvm {\n";
   OS << "class MCInst;\n\n";
@@ -374,10 +373,10 @@ void InstrInfoEmitter::emitMCIIHelperMethods(raw_ostream &OS,
   OS << "\n} // end " << TargetName << "_MC namespace\n";
   OS << "} // end llvm namespace\n\n";
 
-  OS << "#endif // GET_GENINSTRINFO_MC_DECL\n\n";
+  OS << "#endif // GET_INSTRINFO_MC_HELPER_DECLS\n\n";
 
-  OS << "#ifdef GET_GENINSTRINFO_MC_HELPERS\n";
-  OS << "#undef GET_GENINSTRINFO_MC_HELPERS\n\n";
+  OS << "#ifdef GET_INSTRINFO_MC_HELPERS\n";
+  OS << "#undef GET_INSTRINFO_MC_HELPERS\n\n";
 
   OS << "namespace llvm {\n";
   OS << "namespace " << TargetName << "_MC {\n\n";
@@ -391,10 +390,10 @@ void InstrInfoEmitter::emitMCIIHelperMethods(raw_ostream &OS,
 
     OS.indent(PE.getIndentLevel() * 2);
     PE.expandStatement(OS, Rec->getValueAsDef("Body"));
-    OS << "\n}\n";
+    OS << "\n}\n\n";
   }
 
-  OS << "\n} // end " << TargetName << "_MC namespace\n";
+  OS << "} // end " << TargetName << "_MC namespace\n";
   OS << "} // end llvm namespace\n\n";
 
   OS << "#endif // GET_GENISTRINFO_MC_HELPERS\n";
@@ -409,10 +408,9 @@ void InstrInfoEmitter::emitTIIHelperMethods(raw_ostream &OS,
 
   PredicateExpander PE(TargetName);
   PE.setExpandForMC(false);
-  PE.setIndentLevel(2);
 
   for (const Record *Rec : TIIPredicates) {
-    OS << "\n  " << (ExpandDefinition ? "" : "static ") << "bool ";
+    OS << (ExpandDefinition ? "" : "static ") << "bool ";
     if (ExpandDefinition)
       OS << TargetName << "InstrInfo::";
     OS << Rec->getValueAsString("FunctionName");
@@ -423,10 +421,9 @@ void InstrInfoEmitter::emitTIIHelperMethods(raw_ostream &OS,
     }
 
     OS << " {\n";
-
     OS.indent(PE.getIndentLevel() * 2);
     PE.expandStatement(OS, Rec->getValueAsDef("Body"));
-    OS << "\n  }\n";
+    OS << "\n}\n\n";
   }
 }
 
@@ -533,15 +530,16 @@ void InstrInfoEmitter::run(raw_ostream &OS) {
 
   OS << "#endif // GET_INSTRINFO_HEADER\n\n";
 
-  OS << "#ifdef GET_TII_HELPER_DECLS\n";
-  OS << "#undef GET_TII_HELPER_DECLS\n";
+  OS << "#ifdef GET_INSTRINFO_HELPER_DECLS\n";
+  OS << "#undef GET_INSTRINFO_HELPER_DECLS\n\n";
   emitTIIHelperMethods(OS, TargetName, /* ExpandDefintion = */false);
-  OS << "#endif // GET_TII_HELPER_DECLS\n\n";
+  OS << "\n";
+  OS << "#endif // GET_INSTRINFO_HELPER_DECLS\n\n";
 
-  OS << "#ifdef GET_TII_HELPERS\n";
-  OS << "#undef GET_TII_HELPERS\n";
+  OS << "#ifdef GET_INSTRINFO_HELPERS\n";
+  OS << "#undef GET_INSTRINFO_HELPERS\n\n";
   emitTIIHelperMethods(OS, TargetName, /* ExpandDefintion = */true);
-  OS << "#endif // GET_TTI_HELPERS\n\n";
+  OS << "#endif // GET_INSTRINFO_HELPERS\n\n";
 
   OS << "#ifdef GET_INSTRINFO_CTOR_DTOR\n";
   OS << "#undef GET_INSTRINFO_CTOR_DTOR\n";
@@ -625,17 +623,19 @@ void InstrInfoEmitter::emitRecord(const CodeGenInstruction &Inst, unsigned Num,
   if (Inst.isExtractSubreg) OS << "|(1ULL<<MCID::ExtractSubreg)";
   if (Inst.isInsertSubreg) OS << "|(1ULL<<MCID::InsertSubreg)";
   if (Inst.isConvergent) OS << "|(1ULL<<MCID::Convergent)";
+  if (Inst.variadicOpsAreDefs) OS << "|(1ULL<<MCID::VariadicOpsAreDefs)";
 
   // Emit all of the target-specific flags...
   BitsInit *TSF = Inst.TheDef->getValueAsBitsInit("TSFlags");
   if (!TSF)
-    PrintFatalError("no TSFlags?");
+    PrintFatalError(Inst.TheDef->getLoc(), "no TSFlags?");
   uint64_t Value = 0;
   for (unsigned i = 0, e = TSF->getNumBits(); i != e; ++i) {
     if (const auto *Bit = dyn_cast<BitInit>(TSF->getBit(i)))
       Value |= uint64_t(Bit->getValue()) << i;
     else
-      PrintFatalError("Invalid TSFlags bit in " + Inst.TheDef->getName());
+      PrintFatalError(Inst.TheDef->getLoc(),
+                      "Invalid TSFlags bit in " + Inst.TheDef->getName());
   }
   OS << ", 0x";
   OS.write_hex(Value);

@@ -1,9 +1,8 @@
 //===-- lldb-enumerations.h -------------------------------------*- C++ -*-===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -12,22 +11,25 @@
 
 #include <type_traits>
 
+#ifndef SWIG
 // Macro to enable bitmask operations on an enum.  Without this, Enum | Enum
 // gets promoted to an int, so you have to say Enum a = Enum(eFoo | eBar).  If
 // you mark Enum with LLDB_MARK_AS_BITMASK_ENUM(Enum), however, you can simply
 // write Enum a = eFoo | eBar.
+// Unfortunately, swig<3.0 doesn't recognise the constexpr keyword, so remove
+// this entire block, as it is not necessary for swig processing.
 #define LLDB_MARK_AS_BITMASK_ENUM(Enum)                                        \
-  inline Enum operator|(Enum a, Enum b) {                                      \
+  constexpr Enum operator|(Enum a, Enum b) {                                   \
     return static_cast<Enum>(                                                  \
         static_cast<std::underlying_type<Enum>::type>(a) |                     \
         static_cast<std::underlying_type<Enum>::type>(b));                     \
   }                                                                            \
-  inline Enum operator&(Enum a, Enum b) {                                      \
+  constexpr Enum operator&(Enum a, Enum b) {                                   \
     return static_cast<Enum>(                                                  \
         static_cast<std::underlying_type<Enum>::type>(a) &                     \
         static_cast<std::underlying_type<Enum>::type>(b));                     \
   }                                                                            \
-  inline Enum operator~(Enum a) {                                              \
+  constexpr Enum operator~(Enum a) {                                           \
     return static_cast<Enum>(                                                  \
         ~static_cast<std::underlying_type<Enum>::type>(a));                    \
   }                                                                            \
@@ -39,6 +41,9 @@
     a = a & b;                                                                 \
     return a;                                                                  \
   }
+#else
+#define LLDB_MARK_AS_BITMASK_ENUM(Enum)
+#endif
 
 #ifndef SWIG
 // With MSVC, the default type of an enum is always signed, even if one of the
@@ -395,6 +400,7 @@ LLDB_MARK_AS_BITMASK_ENUM(SymbolContextItem)
 FLAGS_ENUM(Permissions){ePermissionsWritable = (1u << 0),
                         ePermissionsReadable = (1u << 1),
                         ePermissionsExecutable = (1u << 2)};
+LLDB_MARK_AS_BITMASK_ENUM(Permissions)
 
 enum InputReaderAction {
   eInputReaderActivate, // reader is newly pushed onto the reader stack

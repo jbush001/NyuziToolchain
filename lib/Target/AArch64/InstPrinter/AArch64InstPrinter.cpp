@@ -1,9 +1,8 @@
 //==-- AArch64InstPrinter.cpp - Convert AArch64 MCInst to assembly syntax --==//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -69,6 +68,11 @@ void AArch64InstPrinter::printInst(const MCInst *MI, raw_ostream &O,
       printAnnotation(O, Annot);
       return;
     }
+
+  if (atomicBarrierDroppedOnZero(Opcode) &&
+      (MI->getOperand(0).getReg() == AArch64::XZR ||
+       MI->getOperand(0).getReg() == AArch64::WZR))
+    printAnnotation(O, "acquire semantics dropped since destination is zero");
 
   // SBFM/UBFM should print to a nicer aliased form if possible.
   if (Opcode == AArch64::SBFMXri || Opcode == AArch64::SBFMWri ||

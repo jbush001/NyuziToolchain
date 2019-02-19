@@ -1,9 +1,8 @@
 //===- FunctionImport.cpp - ThinLTO Summary-based Function Import ---------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -293,9 +292,21 @@ static void computeImportForReferencedGlobals(
 
     LLVM_DEBUG(dbgs() << " ref -> " << VI << "\n");
 
+    // If this is a local variable, make sure we import the copy
+    // in the caller's module. The only time a local variable can
+    // share an entry in the index is if there is a local with the same name
+    // in another module that had the same source file name (in a different
+    // directory), where each was compiled in their own directory so there
+    // was not distinguishing path.
+    auto LocalNotInModule = [&](const GlobalValueSummary *RefSummary) -> bool {
+      return GlobalValue::isLocalLinkage(RefSummary->linkage()) &&
+             RefSummary->modulePath() != Summary.modulePath();
+    };
+
     for (auto &RefSummary : VI.getSummaryList())
       if (isa<GlobalVarSummary>(RefSummary.get()) &&
-          canImportGlobalVar(RefSummary.get())) {
+          canImportGlobalVar(RefSummary.get()) &&
+          !LocalNotInModule(RefSummary.get())) {
         auto ILI = ImportList[RefSummary->modulePath()].insert(VI.getGUID());
         // Only update stat if we haven't already imported this variable.
         if (ILI.second)
@@ -765,9 +776,12 @@ void llvm::computeDeadSymbols(
     VI = updateValueInfoForIndirectCalls(Index, VI);
     if (!VI)
       return;
-    for (auto &S : VI.getSummaryList())
-      if (S->isLive())
-        return;
+
+    if (llvm::any_of(VI.getSummaryList(),
+                     [](const std::unique_ptr<llvm::GlobalValueSummary> &S) {
+                       return S->isLive();
+                     }))
+      return;
 
     // We only keep live symbols that are known to be non-prevailing if any are
     // available_externally, linkonceodr, weakodr. Those symbols are discarded
@@ -803,12 +817,23 @@ void llvm::computeDeadSymbols(
   while (!Worklist.empty()) {
     auto VI = Worklist.pop_back_val();
     for (auto &Summary : VI.getSummaryList()) {
-      GlobalValueSummary *Base = Summary->getBaseObject();
-      // Set base value live in case it is an alias.
-      Base->setLive(true);
-      for (auto Ref : Base->refs())
+      if (auto *AS = dyn_cast<AliasSummary>(Summary.get())) {
+        // If this is an alias, visit the aliasee VI to ensure that all copies
+        // are marked live and it is added to the worklist for further
+        // processing of its references.
+        // FIXME: The aliasee GUID is only populated in the summary when we
+        // read them from bitcode, which is currently the only way we can
+        // get here (we don't yet support reading the summary index directly
+        // from LLVM assembly code in tools that can perform a thin link).
+        // If that ever changes, the below call to getAliaseGUID will assert.
+        visit(Index.getValueInfo(AS->getAliaseeGUID()));
+        continue;
+      }
+
+      Summary->setLive(true);
+      for (auto Ref : Summary->refs())
         visit(Ref);
-      if (auto *FS = dyn_cast<FunctionSummary>(Base))
+      if (auto *FS = dyn_cast<FunctionSummary>(Summary.get()))
         for (auto Call : FS->calls())
           visit(Call.first);
     }
@@ -899,7 +924,8 @@ bool llvm::convertToDeclaration(GlobalValue &GV) {
     if (GV.getValueType()->isFunctionTy())
       NewGV =
           Function::Create(cast<FunctionType>(GV.getValueType()),
-                           GlobalValue::ExternalLinkage, "", GV.getParent());
+                           GlobalValue::ExternalLinkage, GV.getAddressSpace(),
+                           "", GV.getParent());
     else
       NewGV =
           new GlobalVariable(*GV.getParent(), GV.getValueType(),

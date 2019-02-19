@@ -1,9 +1,8 @@
 //===- MCExpr.cpp - Assembly Level Expression Implementation --------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -557,6 +556,11 @@ static void AttemptToFoldSymbolOffsetDifference(
   // Pointers to Thumb symbols need to have their low-bit set to allow
   // for interworking.
   if (Asm->isThumbFunc(&SA))
+    Addend |= 1;
+
+  // If symbol is labeled as micromips, we set low-bit to ensure
+  // correct offset in .gcc_except_table
+  if (Asm->getBackend().isMicroMips(&SA))
     Addend |= 1;
 
   // Clear the symbol expr pointers to indicate we have folded these

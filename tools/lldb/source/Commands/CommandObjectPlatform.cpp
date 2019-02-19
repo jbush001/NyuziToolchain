@@ -1,9 +1,8 @@
 //===-- CommandObjectPlatform.cpp -------------------------------*- C++ -*-===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -1038,7 +1037,7 @@ protected:
       Module *exe_module = target->GetExecutableModulePointer();
       if (exe_module) {
         m_options.launch_info.GetExecutableFile() = exe_module->GetFileSpec();
-        llvm::SmallString<PATH_MAX> exe_path;
+        llvm::SmallString<128> exe_path;
         m_options.launch_info.GetExecutableFile().GetPath(exe_path);
         if (!exe_path.empty())
           m_options.launch_info.GetArguments().AppendArgument(exe_path);

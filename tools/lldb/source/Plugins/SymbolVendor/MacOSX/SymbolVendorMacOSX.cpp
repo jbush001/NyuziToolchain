@@ -1,9 +1,8 @@
 //===-- SymbolVendorMacOSX.cpp ----------------------------------*- C++ -*-===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -40,9 +39,8 @@ static bool UUIDsMatch(Module *module, ObjectFile *ofile,
                        lldb_private::Stream *feedback_strm) {
   if (module && ofile) {
     // Make sure the UUIDs match
-    lldb_private::UUID dsym_uuid;
-
-    if (!ofile->GetUUID(&dsym_uuid)) {
+    lldb_private::UUID dsym_uuid = ofile->GetUUID();
+    if (!dsym_uuid) {
       if (feedback_strm) {
         feedback_strm->PutCString(
             "warning: failed to get the uuid for object file: '");
@@ -163,8 +161,8 @@ SymbolVendorMacOSX::CreateInstance(const lldb::ModuleSP &module_sp,
           char dsym_path[PATH_MAX];
           if (module_sp->GetSourceMappingList().IsEmpty() &&
               dsym_fspec.GetPath(dsym_path, sizeof(dsym_path))) {
-            lldb_private::UUID dsym_uuid;
-            if (dsym_objfile_sp->GetUUID(&dsym_uuid)) {
+            lldb_private::UUID dsym_uuid = dsym_objfile_sp->GetUUID();
+            if (dsym_uuid) {
               std::string uuid_str = dsym_uuid.GetAsString();
               if (!uuid_str.empty()) {
                 char *resources = strstr(dsym_path, "/Contents/Resources/");
@@ -237,8 +235,7 @@ SymbolVendorMacOSX::CreateInstance(const lldb::ModuleSP &module_sp,
                                 // object is DBGSourcePath
                                 std::string DBGSourcePath =
                                     object->GetStringValue();
-                                if (new_style_source_remapping_dictionary ==
-                                        false &&
+                                if (!new_style_source_remapping_dictionary &&
                                     !original_DBGSourcePath_value.empty()) {
                                   DBGSourcePath = original_DBGSourcePath_value;
                                 }

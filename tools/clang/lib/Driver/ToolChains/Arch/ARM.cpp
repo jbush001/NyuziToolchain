@@ -1,9 +1,8 @@
 //===--- ARM.cpp - ARM (not AArch64) Helpers for Tools ----------*- C++ -*-===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -379,9 +378,7 @@ void arm::getARMTargetFeatures(const ToolChain &TC,
   } else if (FPUArg) {
     getARMFPUFeatures(D, FPUArg, Args, FPUArg->getValue(), Features);
   } else if (Triple.isAndroid() && getARMSubArchVersionNumber(Triple) >= 7) {
-    // Android mandates minimum FPU requirements based on OS version.
-    const char *AndroidFPU =
-        Triple.isAndroidVersionLT(23) ? "vfpv3-d16" : "neon";
+    const char *AndroidFPU = "neon";
     if (!llvm::ARM::getFPUFeatures(llvm::ARM::parseFPU(AndroidFPU), Features))
       D.Diag(clang::diag::err_drv_clang_unsupported)
           << std::string("-mfpu=") + AndroidFPU;

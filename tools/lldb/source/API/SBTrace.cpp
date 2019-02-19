@@ -1,9 +1,8 @@
 //===-- SBTrace.cpp ---------------------------------------------*- C++ -*-===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -12,6 +11,8 @@
 
 #include "lldb/API/SBTrace.h"
 #include "lldb/API/SBTraceOptions.h"
+
+#include <memory>
 
 using namespace lldb;
 using namespace lldb_private;
@@ -93,7 +94,7 @@ void SBTrace::SetTraceUID(lldb::user_id_t uid) {
 }
 
 SBTrace::SBTrace() {
-  m_trace_impl_sp.reset(new TraceImpl);
+  m_trace_impl_sp = std::make_shared<TraceImpl>();
   if (m_trace_impl_sp)
     m_trace_impl_sp->uid = LLDB_INVALID_UID;
 }

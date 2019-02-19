@@ -1,9 +1,8 @@
 //===-- NSException.cpp -----------------------------------------*- C++ -*-===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -144,11 +143,8 @@ public:
     m_userinfo_sp.reset();
     m_reserved_sp.reset();
 
-    if (!ExtractFields(m_backend, &m_name_sp, &m_reason_sp, &m_userinfo_sp,
-                       &m_reserved_sp)) {
-      return false;
-    }
-    return true;
+    return ExtractFields(m_backend, &m_name_sp, &m_reason_sp, &m_userinfo_sp,
+                         &m_reserved_sp);
   }
 
   bool MightHaveChildren() override { return true; }

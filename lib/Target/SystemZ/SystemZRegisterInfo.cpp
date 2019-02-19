@@ -1,9 +1,8 @@
 //===-- SystemZRegisterInfo.cpp - SystemZ register information ------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -63,6 +62,10 @@ SystemZRegisterInfo::getRegAllocationHints(unsigned VirtReg,
                                            const LiveRegMatrix *Matrix) const {
   const MachineRegisterInfo *MRI = &MF.getRegInfo();
   const TargetRegisterInfo *TRI = MF.getSubtarget().getRegisterInfo();
+
+  bool BaseImplRetVal = TargetRegisterInfo::getRegAllocationHints(
+      VirtReg, Order, Hints, MF, VRM, Matrix);
+
   if (MRI->getRegClass(VirtReg) == &SystemZ::GRX32BitRegClass) {
     SmallVector<unsigned, 8> Worklist;
     SmallSet<unsigned, 4> DoneRegs;
@@ -84,8 +87,18 @@ SystemZRegisterInfo::getRegAllocationHints(unsigned VirtReg,
             TRI->getCommonSubClass(getRC32(FalseMO, VRM, MRI),
                                    getRC32(TrueMO, VRM, MRI));
           if (RC && RC != &SystemZ::GRX32BitRegClass) {
+            // Pass the registers of RC as hints while making sure that if
+            // any of these registers are copy hints, hint them first.
+            SmallSet<unsigned, 4> CopyHints;
+            CopyHints.insert(Hints.begin(), Hints.end());
+            Hints.clear();
             for (MCPhysReg Reg : Order)
-              if (RC->contains(Reg) && !MRI->isReserved(Reg))
+              if (CopyHints.count(Reg) &&
+                  RC->contains(Reg) && !MRI->isReserved(Reg))
+                Hints.push_back(Reg);
+            for (MCPhysReg Reg : Order)
+              if (!CopyHints.count(Reg) &&
+                  RC->contains(Reg) && !MRI->isReserved(Reg))
                 Hints.push_back(Reg);
             // Return true to make these hints the only regs available to
             // RA. This may mean extra spilling but since the alternative is
@@ -102,8 +115,7 @@ SystemZRegisterInfo::getRegAllocationHints(unsigned VirtReg,
     }
   }
 
-  return TargetRegisterInfo::getRegAllocationHints(VirtReg, Order, Hints, MF,
-                                                   VRM, Matrix);
+  return BaseImplRetVal;
 }
 
 const MCPhysReg *

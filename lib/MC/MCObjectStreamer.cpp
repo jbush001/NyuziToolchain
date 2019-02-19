@@ -1,9 +1,8 @@
 //===- lib/MC/MCObjectStreamer.cpp - Object File MCStreamer Interface -----===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -315,7 +314,7 @@ bool MCObjectStreamer::mayHaveInstructions(MCSection &Sec) const {
 }
 
 void MCObjectStreamer::EmitInstruction(const MCInst &Inst,
-                                       const MCSubtargetInfo &STI, bool) {
+                                       const MCSubtargetInfo &STI) {
   getAssembler().getBackend().handleCodePaddingInstructionBegin(Inst);
   EmitInstructionImpl(Inst, STI);
   getAssembler().getBackend().handleCodePaddingInstructionEnd(Inst);
@@ -497,7 +496,11 @@ void MCObjectStreamer::EmitCVInlineLinetableDirective(
 void MCObjectStreamer::EmitCVDefRangeDirective(
     ArrayRef<std::pair<const MCSymbol *, const MCSymbol *>> Ranges,
     StringRef FixedSizePortion) {
-  getContext().getCVContext().emitDefRange(*this, Ranges, FixedSizePortion);
+  MCFragment *Frag =
+      getContext().getCVContext().emitDefRange(*this, Ranges, FixedSizePortion);
+  // Attach labels that were pending before we created the defrange fragment to
+  // the beginning of the new fragment.
+  flushPendingLabels(Frag, 0);
   this->MCStreamer::EmitCVDefRangeDirective(Ranges, FixedSizePortion);
 }
 

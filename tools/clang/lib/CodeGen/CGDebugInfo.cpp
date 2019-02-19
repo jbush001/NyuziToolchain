@@ -1,9 +1,8 @@
 //===--- CGDebugInfo.cpp - Emit Debug Information for a Module ------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -25,10 +24,10 @@
 #include "clang/AST/DeclTemplate.h"
 #include "clang/AST/Expr.h"
 #include "clang/AST/RecordLayout.h"
+#include "clang/Basic/CodeGenOptions.h"
 #include "clang/Basic/FileManager.h"
 #include "clang/Basic/SourceManager.h"
 #include "clang/Basic/Version.h"
-#include "clang/Frontend/CodeGenOptions.h"
 #include "clang/Frontend/FrontendOptions.h"
 #include "clang/Lex/HeaderSearchOptions.h"
 #include "clang/Lex/ModuleMap.h"
@@ -181,8 +180,7 @@ void CGDebugInfo::setLocation(SourceLocation Loc) {
   SourceManager &SM = CGM.getContext().getSourceManager();
   auto *Scope = cast<llvm::DIScope>(LexicalBlockStack.back());
   PresumedLoc PCLoc = SM.getPresumedLoc(CurLoc);
-
-  if (PCLoc.isInvalid() || Scope->getFilename() == PCLoc.getFilename())
+  if (PCLoc.isInvalid() || Scope->getFile() == getOrCreateFile(CurLoc))
     return;
 
   if (auto *LBF = dyn_cast<llvm::DILexicalBlockFile>(Scope)) {
@@ -221,7 +219,7 @@ llvm::DIScope *CGDebugInfo::getContextDescriptor(const Decl *Context,
   if (const auto *RDecl = dyn_cast<RecordDecl>(Context))
     if (!RDecl->isDependentType())
       return getOrCreateType(CGM.getContext().getTypeDeclType(RDecl),
-                             getOrCreateMainFile());
+                             TheCU->getFile());
   return Default;
 }
 
@@ -235,6 +233,9 @@ PrintingPolicy CGDebugInfo::getPrintingPolicy() const {
   if (CGM.getCodeGenOpts().EmitCodeView)
     PP.MSVCFormatting = true;
 
+  // Apply -fdebug-prefix-map.
+  PP.RemapFilePaths = true;
+  PP.remapPath = [this](StringRef Path) { return remapDIPath(Path); };
   return PP;
 }
 
@@ -402,19 +403,18 @@ Optional<StringRef> CGDebugInfo::getSource(const SourceManager &SM,
 llvm::DIFile *CGDebugInfo::getOrCreateFile(SourceLocation Loc) {
   if (!Loc.isValid())
     // If Location is not valid then use main input file.
-    return getOrCreateMainFile();
+    return TheCU->getFile();
 
   SourceManager &SM = CGM.getContext().getSourceManager();
   PresumedLoc PLoc = SM.getPresumedLoc(Loc);
 
-  if (PLoc.isInvalid() || StringRef(PLoc.getFilename()).empty())
+  StringRef FileName = PLoc.getFilename();
+  if (PLoc.isInvalid() || FileName.empty())
     // If the location is not valid then use main input file.
-    return getOrCreateMainFile();
+    return TheCU->getFile();
 
   // Cache the results.
-  const char *fname = PLoc.getFilename();
-  auto It = DIFileCache.find(fname);
-
+  auto It = DIFileCache.find(FileName.data());
   if (It != DIFileCache.end()) {
     // Verify that the information still exists.
     if (llvm::Metadata *V = It->second)
@@ -427,20 +427,46 @@ llvm::DIFile *CGDebugInfo::getOrCreateFile(SourceLocation Loc) {
   Optional<llvm::DIFile::ChecksumInfo<StringRef>> CSInfo;
   if (CSKind)
     CSInfo.emplace(*CSKind, Checksum);
-
-  llvm::DIFile *F = DBuilder.createFile(
-      remapDIPath(PLoc.getFilename()), remapDIPath(getCurrentDirname()), CSInfo,
-      getSource(SM, SM.getFileID(Loc)));
-
-  DIFileCache[fname].reset(F);
-  return F;
+  return createFile(FileName, CSInfo, getSource(SM, SM.getFileID(Loc)));
 }
 
-llvm::DIFile *CGDebugInfo::getOrCreateMainFile() {
-  return DBuilder.createFile(
-      remapDIPath(TheCU->getFilename()), remapDIPath(TheCU->getDirectory()),
-      TheCU->getFile()->getChecksum(),
-      CGM.getCodeGenOpts().EmbedSource ? TheCU->getSource() : None);
+llvm::DIFile *
+CGDebugInfo::createFile(StringRef FileName,
+                        Optional<llvm::DIFile::ChecksumInfo<StringRef>> CSInfo,
+                        Optional<StringRef> Source) {
+  StringRef Dir;
+  StringRef File;
+  std::string RemappedFile = remapDIPath(FileName);
+  std::string CurDir = remapDIPath(getCurrentDirname());
+  SmallString<128> DirBuf;
+  SmallString<128> FileBuf;
+  if (llvm::sys::path::is_absolute(RemappedFile)) {
+    // Strip the common prefix (if it is more than just "/") from current
+    // directory and FileName for a more space-efficient encoding.
+    auto FileIt = llvm::sys::path::begin(RemappedFile);
+    auto FileE = llvm::sys::path::end(RemappedFile);
+    auto CurDirIt = llvm::sys::path::begin(CurDir);
+    auto CurDirE = llvm::sys::path::end(CurDir);
+    for (; CurDirIt != CurDirE && *CurDirIt == *FileIt; ++CurDirIt, ++FileIt)
+      llvm::sys::path::append(DirBuf, *CurDirIt);
+    if (std::distance(llvm::sys::path::begin(CurDir), CurDirIt) == 1) {
+      // Don't strip the common prefix if it is only the root "/"
+      // since that would make LLVM diagnostic locations confusing.
+      Dir = {};
+      File = RemappedFile;
+    } else {
+      for (; FileIt != FileE; ++FileIt)
+        llvm::sys::path::append(FileBuf, *FileIt);
+      Dir = DirBuf;
+      File = FileBuf;
+    }
+  } else {
+    Dir = CurDir;
+    File = RemappedFile;
+  }
+  llvm::DIFile *F = DBuilder.createFile(File, Dir, CSInfo, Source);
+  DIFileCache[FileName.data()].reset(F);
+  return F;
 }
 
 std::string CGDebugInfo::remapDIPath(StringRef Path) const {
@@ -567,24 +593,27 @@ void CGDebugInfo::CreateCompileUnit() {
     break;
   }
 
+  uint64_t DwoId = 0;
+  auto &CGOpts = CGM.getCodeGenOpts();
+  // The DIFile used by the CU is distinct from the main source
+  // file. Its directory part specifies what becomes the
+  // DW_AT_comp_dir (the compilation directory), even if the source
+  // file was specified with an absolute path.
   if (CSKind)
     CSInfo.emplace(*CSKind, Checksum);
+  llvm::DIFile *CUFile = DBuilder.createFile(
+      remapDIPath(MainFileName), remapDIPath(getCurrentDirname()), CSInfo,
+      getSource(SM, SM.getMainFileID()));
 
   // Create new compile unit.
-  // FIXME - Eliminate TheCU.
-  auto &CGOpts = CGM.getCodeGenOpts();
   TheCU = DBuilder.createCompileUnit(
-      LangTag,
-      DBuilder.createFile(remapDIPath(MainFileName),
-                          remapDIPath(getCurrentDirname()), CSInfo,
-                          getSource(SM, SM.getMainFileID())),
-      CGOpts.EmitVersionIdentMetadata ? Producer : "",
+      LangTag, CUFile, CGOpts.EmitVersionIdentMetadata ? Producer : "",
       LO.Optimize || CGOpts.PrepareForLTO || CGOpts.PrepareForThinLTO,
       CGOpts.DwarfDebugFlags, RuntimeVers,
       (CGOpts.getSplitDwarfMode() != CodeGenOptions::NoFission)
           ? ""
           : CGOpts.SplitDwarfFile,
-      EmissionKind, 0 /* DWOid */, CGOpts.SplitDwarfInlining,
+      EmissionKind, DwoId, CGOpts.SplitDwarfInlining,
       CGOpts.DebugInfoForProfiling,
       CGM.getTarget().getTriple().isNVPTX()
           ? llvm::DICompileUnit::DebugNameTableKind::None
@@ -608,9 +637,9 @@ llvm::DIType *CGDebugInfo::CreateType(const BuiltinType *BT) {
     return nullptr;
   case BuiltinType::ObjCClass:
     if (!ClassTy)
-      ClassTy = DBuilder.createForwardDecl(llvm::dwarf::DW_TAG_structure_type,
-                                           "objc_class", TheCU,
-                                           getOrCreateMainFile(), 0);
+      ClassTy =
+          DBuilder.createForwardDecl(llvm::dwarf::DW_TAG_structure_type,
+                                     "objc_class", TheCU, TheCU->getFile(), 0);
     return ClassTy;
   case BuiltinType::ObjCId: {
     // typedef struct objc_class *Class;
@@ -622,21 +651,21 @@ llvm::DIType *CGDebugInfo::CreateType(const BuiltinType *BT) {
       return ObjTy;
 
     if (!ClassTy)
-      ClassTy = DBuilder.createForwardDecl(llvm::dwarf::DW_TAG_structure_type,
-                                           "objc_class", TheCU,
-                                           getOrCreateMainFile(), 0);
+      ClassTy =
+          DBuilder.createForwardDecl(llvm::dwarf::DW_TAG_structure_type,
+                                     "objc_class", TheCU, TheCU->getFile(), 0);
 
     unsigned Size = CGM.getContext().getTypeSize(CGM.getContext().VoidPtrTy);
 
     auto *ISATy = DBuilder.createPointerType(ClassTy, Size);
 
-    ObjTy = DBuilder.createStructType(
-        TheCU, "objc_object", getOrCreateMainFile(), 0, 0, 0,
-        llvm::DINode::FlagZero, nullptr, llvm::DINodeArray());
+    ObjTy = DBuilder.createStructType(TheCU, "objc_object", TheCU->getFile(), 0,
+                                      0, 0, llvm::DINode::FlagZero, nullptr,
+                                      llvm::DINodeArray());
 
     DBuilder.replaceArrays(
         ObjTy, DBuilder.getOrCreateArray(&*DBuilder.createMemberType(
-                   ObjTy, "isa", getOrCreateMainFile(), 0, Size, 0, 0,
+                   ObjTy, "isa", TheCU->getFile(), 0, Size, 0, 0,
                    llvm::DINode::FlagZero, ISATy)));
     return ObjTy;
   }
@@ -644,7 +673,7 @@ llvm::DIType *CGDebugInfo::CreateType(const BuiltinType *BT) {
     if (!SelTy)
       SelTy = DBuilder.createForwardDecl(llvm::dwarf::DW_TAG_structure_type,
                                          "objc_selector", TheCU,
-                                         getOrCreateMainFile(), 0);
+                                         TheCU->getFile(), 0);
     return SelTy;
   }
 
@@ -965,7 +994,7 @@ llvm::DIType *CGDebugInfo::getOrCreateStructPtrType(StringRef Name,
   if (Cache)
     return Cache;
   Cache = DBuilder.createForwardDecl(llvm::dwarf::DW_TAG_structure_type, Name,
-                                     TheCU, getOrCreateMainFile(), 0);
+                                     TheCU, TheCU->getFile(), 0);
   unsigned Size = CGM.getContext().getTypeSize(CGM.getContext().VoidPtrTy);
   Cache = DBuilder.createPointerType(Cache, Size);
   return Cache;
@@ -1102,6 +1131,7 @@ static unsigned getDwarfCC(CallingConv CC) {
   case CC_X86_64SysV:
     return llvm::dwarf::DW_CC_LLVM_X86_64SysV;
   case CC_AAPCS:
+  case CC_AArch64VectorCall:
     return llvm::dwarf::DW_CC_LLVM_AAPCS;
   case CC_AAPCS_VFP:
     return llvm::dwarf::DW_CC_LLVM_AAPCS_VFP;
@@ -1397,8 +1427,7 @@ CGDebugInfo::getOrCreateMethodType(const CXXMethodDecl *Method,
   if (Method->isStatic())
     return cast_or_null<llvm::DISubroutineType>(
         getOrCreateType(QualType(Func, 0), Unit));
-  return getOrCreateInstanceMethodType(Method->getThisType(CGM.getContext()),
-                                       Func, Unit);
+  return getOrCreateInstanceMethodType(Method->getThisType(), Func, Unit);
 }
 
 llvm::DISubroutineType *CGDebugInfo::getOrCreateInstanceMethodType(
@@ -2267,7 +2296,14 @@ CGDebugInfo::getOrCreateModuleRef(ExternalASTSource::ASTSourceDescriptor Mod,
   }
 
   bool IsRootModule = M ? !M->Parent : true;
-  if (CreateSkeletonCU && IsRootModule) {
+  // When a module name is specified as -fmodule-name, that module gets a
+  // clang::Module object, but it won't actually be built or imported; it will
+  // be textual.
+  if (CreateSkeletonCU && IsRootModule && Mod.getASTFile().empty() && M)
+    assert(StringRef(M->Name).startswith(CGM.getLangOpts().ModuleName) &&
+           "clang module without ASTFile must be specified by -fmodule-name");
+
+  if (CreateSkeletonCU && IsRootModule && !Mod.getASTFile().empty()) {
     // PCH files don't have a signature field in the control block,
     // but LLVM detects skeleton CUs by looking for a non-zero DWO id.
     // We use the lower 64 bits for debug info.
@@ -2284,6 +2320,7 @@ CGDebugInfo::getOrCreateModuleRef(ExternalASTSource::ASTSourceDescriptor Mod,
                           Signature);
     DIB.finalize();
   }
+
   llvm::DIModule *Parent =
       IsRootModule ? nullptr
                    : getOrCreateModuleRef(
@@ -2590,9 +2627,9 @@ llvm::DIType *CGDebugInfo::CreateType(const MemberPointerType *Ty,
   const FunctionProtoType *FPT =
       Ty->getPointeeType()->getAs<FunctionProtoType>();
   return DBuilder.createMemberPointerType(
-      getOrCreateInstanceMethodType(CGM.getContext().getPointerType(QualType(
-                                        Ty->getClass(), FPT->getTypeQuals())),
-                                    FPT, U),
+      getOrCreateInstanceMethodType(
+          CXXMethodDecl::getThisType(FPT, Ty->getMostRecentCXXRecordDecl()),
+          FPT, U),
       ClassType, Size, /*Align=*/0, Flags);
 }
 
@@ -2680,7 +2717,7 @@ llvm::DIType *CGDebugInfo::CreateTypeDefinition(const EnumType *Ty) {
   llvm::DIType *ClassTy = getOrCreateType(ED->getIntegerType(), DefUnit);
   return DBuilder.createEnumerationType(EnumContext, ED->getName(), DefUnit,
                                         Line, Size, Align, EltArray, ClassTy,
-                                        Identifier, ED->isFixed());
+                                        Identifier, ED->isScoped());
 }
 
 llvm::DIMacro *CGDebugInfo::CreateMacro(llvm::DIMacroFile *Parent,
@@ -3833,6 +3870,32 @@ CGDebugInfo::EmitDeclareOfAutoVariable(const VarDecl *VD, llvm::Value *Storage,
   return EmitDeclare(VD, Storage, llvm::None, Builder);
 }
 
+void CGDebugInfo::EmitLabel(const LabelDecl *D, CGBuilderTy &Builder) {
+  assert(DebugKind >= codegenoptions::LimitedDebugInfo);
+  assert(!LexicalBlockStack.empty() && "Region stack mismatch, stack empty!");
+
+  if (D->hasAttr<NoDebugAttr>())
+    return;
+
+  auto *Scope = cast<llvm::DIScope>(LexicalBlockStack.back());
+  llvm::DIFile *Unit = getOrCreateFile(D->getLocation());
+
+  // Get location information.
+  unsigned Line = getLineNumber(D->getLocation());
+  unsigned Column = getColumnNumber(D->getLocation());
+
+  StringRef Name = D->getName();
+
+  // Create the descriptor for the label.
+  auto *L =
+      DBuilder.createLabel(Scope, Name, Unit, Line, CGM.getLangOpts().Optimize);
+
+  // Insert an llvm.dbg.label into the current block.
+  DBuilder.insertLabel(L,
+                       llvm::DebugLoc::get(Line, Column, Scope, CurInlinedAt),
+                       Builder.GetInsertBlock());
+}
+
 llvm::DIType *CGDebugInfo::CreateSelfType(const QualType &QualTy,
                                           llvm::DIType *Ty) {
   llvm::DIType *CachedTy = getTypeOrNull(QualTy);
@@ -4033,7 +4096,7 @@ void CGDebugInfo::EmitDeclareOfBlockLiteralArgVariable(const CGBlockInfo &block,
       QualType type;
       if (auto *Method =
               cast_or_null<CXXMethodDecl>(blockDecl->getNonClosureContext()))
-        type = Method->getThisType(C);
+        type = Method->getThisType();
       else if (auto *RDecl = dyn_cast<CXXRecordDecl>(blockDecl->getParent()))
         type = QualType(RDecl->getTypeForDecl(), 0);
       else
@@ -4177,6 +4240,14 @@ void CGDebugInfo::EmitGlobalVariable(llvm::GlobalVariable *Var,
     SmallVector<int64_t, 4> Expr;
     unsigned AddressSpace =
         CGM.getContext().getTargetAddressSpace(D->getType());
+    if (CGM.getLangOpts().CUDA && CGM.getLangOpts().CUDAIsDevice) {
+      if (D->hasAttr<CUDASharedAttr>())
+        AddressSpace =
+            CGM.getContext().getTargetAddressSpace(LangAS::cuda_shared);
+      else if (D->hasAttr<CUDAConstantAttr>())
+        AddressSpace =
+            CGM.getContext().getTargetAddressSpace(LangAS::cuda_constant);
+    }
     AppendAddressSpaceXDeref(AddressSpace, Expr);
 
     GVE = DBuilder.createGlobalVariableExpression(
@@ -4442,7 +4513,7 @@ void CGDebugInfo::EmitExplicitCastType(QualType Ty) {
   if (CGM.getCodeGenOpts().getDebugInfo() < codegenoptions::LimitedDebugInfo)
     return;
 
-  if (auto *DieTy = getOrCreateType(Ty, getOrCreateMainFile()))
+  if (auto *DieTy = getOrCreateType(Ty, TheCU->getFile()))
     // Don't ignore in case of explicit cast where it is referenced indirectly.
     DBuilder.retainType(DieTy);
 }

@@ -1,10 +1,9 @@
 //===-- AppleGetItemInfoHandler.cpp -------------------------------*- C++
 //-*-===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -143,7 +142,7 @@ lldb::addr_t AppleGetItemInfoHandler::SetupGetItemInfoFunction(
     // First stage is to make the UtilityFunction to hold our injected
     // function:
 
-    if (!m_get_item_info_impl_code.get()) {
+    if (!m_get_item_info_impl_code) {
       if (g_get_item_info_function_code != NULL) {
         Status error;
         m_get_item_info_impl_code.reset(
@@ -238,7 +237,7 @@ AppleGetItemInfoHandler::GetItemInfo(Thread &thread, uint64_t item,
 
   error.Clear();
 
-  if (thread.SafeToCallFunctions() == false) {
+  if (!thread.SafeToCallFunctions()) {
     if (log)
       log->Printf("Not safe to call functions on thread 0x%" PRIx64,
                   thread.GetID());

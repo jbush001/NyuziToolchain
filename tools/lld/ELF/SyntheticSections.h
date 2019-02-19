@@ -1,9 +1,8 @@
 //===- SyntheticSection.h ---------------------------------------*- C++ -*-===//
 //
-//                             The LLVM Linker
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -170,7 +169,9 @@ private:
 class BssSection final : public SyntheticSection {
 public:
   BssSection(StringRef Name, uint64_t Size, uint32_t Alignment);
-  void writeTo(uint8_t *) override {}
+  void writeTo(uint8_t *) override {
+    llvm_unreachable("unexpected writeTo() call for SHT_NOBITS section");
+  }
   bool empty() const override { return getSize() == 0; }
   size_t getSize() const override { return Size; }
 
@@ -315,8 +316,9 @@ private:
     size_t StartIndex = 0;
 
     struct PageBlock {
-      size_t FirstIndex = 0;
-      size_t Count = 0;
+      size_t FirstIndex;
+      size_t Count;
+      PageBlock() : FirstIndex(0), Count(0) {}
     };
 
     // Map output sections referenced by MIPS GOT relocations
@@ -617,7 +619,8 @@ public:
   void addSymbols(std::vector<SymbolTableEntry> &Symbols);
 
 private:
-  enum { Shift2 = 6 };
+  // See the comment in writeBloomFilter.
+  enum { Shift2 = 26 };
 
   void writeBloomFilter(uint8_t *Buf);
   void writeHashTable(uint8_t *Buf);
@@ -657,13 +660,13 @@ public:
   size_t getSize() const override;
   bool empty() const override { return Entries.empty(); }
   void addSymbols();
-
   template <class ELFT> void addEntry(Symbol &Sym);
+
+  size_t HeaderSize;
 
 private:
   unsigned getPltRelocOff() const;
   std::vector<std::pair<const Symbol *, unsigned>> Entries;
-  size_t HeaderSize;
   bool IsIplt;
 };
 

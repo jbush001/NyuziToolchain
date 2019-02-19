@@ -1,9 +1,8 @@
 //===- DWARF.h -----------------------------------------------*- C++ -*-===//
 //
-//                             The LLVM Linker
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===-------------------------------------------------------------------===//
 
@@ -37,8 +36,16 @@ public:
     return RangeSection;
   }
 
+  const llvm::DWARFSection &getRnglistsSection() const override {
+    return RngListsSection;
+  }
+
   const llvm::DWARFSection &getLineSection() const override {
     return LineSection;
+  }
+
+  const llvm::DWARFSection &getAddrSection() const override {
+    return AddrSection;
   }
 
   const llvm::DWARFSection &getGnuPubNamesSection() const override {
@@ -71,8 +78,9 @@ private:
   LLDDWARFSection GnuPubTypesSection;
   LLDDWARFSection InfoSection;
   LLDDWARFSection RangeSection;
+  LLDDWARFSection RngListsSection;
   LLDDWARFSection LineSection;
-
+  LLDDWARFSection AddrSection;
   StringRef AbbrevSection;
   StringRef StrSection;
   StringRef LineStringSection;

@@ -1,9 +1,8 @@
 //===- ELFObjectFile.h - ELF object file implementation ---------*- C++ -*-===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -260,6 +259,8 @@ protected:
   bool isSectionData(DataRefImpl Sec) const override;
   bool isSectionBSS(DataRefImpl Sec) const override;
   bool isSectionVirtual(DataRefImpl Sec) const override;
+  bool isBerkeleyText(DataRefImpl Sec) const override;
+  bool isBerkeleyData(DataRefImpl Sec) const override;
   relocation_iterator section_rel_begin(DataRefImpl Sec) const override;
   relocation_iterator section_rel_end(DataRefImpl Sec) const override;
   std::vector<SectionRef> dynamic_relocation_sections() const override;
@@ -439,7 +440,16 @@ Expected<StringRef> ELFObjectFile<ELFT>::getSymbolName(DataRefImpl Sym) const {
   auto SymStrTabOrErr = EF.getStringTable(StringTableSec);
   if (!SymStrTabOrErr)
     return SymStrTabOrErr.takeError();
-  return ESym->getName(*SymStrTabOrErr);
+  Expected<StringRef> Name = ESym->getName(*SymStrTabOrErr);
+
+  // If the symbol name is empty use the section name.
+  if ((!Name || Name->empty()) && ESym->getType() == ELF::STT_SECTION) {
+    StringRef SecName;
+    Expected<section_iterator> Sec = getSymbolSection(Sym);
+    if (Sec && !(*Sec)->getName(SecName))
+      return SecName;
+  }
+  return Name;
 }
 
 template <class ELFT>
@@ -757,6 +767,20 @@ ELFObjectFile<ELFT>::dynamic_relocation_sections() const {
 template <class ELFT>
 bool ELFObjectFile<ELFT>::isSectionVirtual(DataRefImpl Sec) const {
   return getSection(Sec)->sh_type == ELF::SHT_NOBITS;
+}
+
+template <class ELFT>
+bool ELFObjectFile<ELFT>::isBerkeleyText(DataRefImpl Sec) const {
+  return getSection(Sec)->sh_flags & ELF::SHF_ALLOC &&
+         (getSection(Sec)->sh_flags & ELF::SHF_EXECINSTR ||
+          !(getSection(Sec)->sh_flags & ELF::SHF_WRITE));
+}
+
+template <class ELFT>
+bool ELFObjectFile<ELFT>::isBerkeleyData(DataRefImpl Sec) const {
+  const Elf_Shdr *EShdr = getSection(Sec);
+  return !isBerkeleyText(Sec) && EShdr->sh_type != ELF::SHT_NOBITS &&
+         EShdr->sh_flags & ELF::SHF_ALLOC;
 }
 
 template <class ELFT>

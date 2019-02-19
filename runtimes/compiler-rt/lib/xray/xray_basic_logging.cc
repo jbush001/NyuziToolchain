@@ -1,9 +1,8 @@
 //===-- xray_basic_logging.cc -----------------------------------*- C++ -*-===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -55,7 +54,7 @@ struct alignas(16) StackEntry {
 
 static_assert(sizeof(StackEntry) == 16, "Wrong size for StackEntry");
 
-struct alignas(64) ThreadLocalData {
+struct XRAY_TLS_ALIGNAS(64) ThreadLocalData {
   void *InMemoryBuffer = nullptr;
   size_t BufferSize = 0;
   size_t BufferOffset = 0;

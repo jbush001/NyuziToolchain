@@ -1,9 +1,8 @@
 //===- SubtargetFeature.cpp - CPU characteristics Implementation ----------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -128,8 +127,8 @@ void SetImpliedBits(FeatureBitset &Bits, const SubtargetFeatureKV &FeatureEntry,
   for (const SubtargetFeatureKV &FE : FeatureTable) {
     if (FeatureEntry.Value == FE.Value) continue;
 
-    if ((FeatureEntry.Implies & FE.Value).any()) {
-      Bits |= FE.Value;
+    if (FeatureEntry.Implies.test(FE.Value)) {
+      Bits.set(FE.Value);
       SetImpliedBits(Bits, FE, FeatureTable);
     }
   }
@@ -143,8 +142,8 @@ void ClearImpliedBits(FeatureBitset &Bits,
   for (const SubtargetFeatureKV &FE : FeatureTable) {
     if (FeatureEntry.Value == FE.Value) continue;
 
-    if ((FE.Implies & FeatureEntry.Value).any()) {
-      Bits &= ~FE.Value;
+    if (FE.Implies.test(FeatureEntry.Value)) {
+      Bits.reset(FE.Value);
       ClearImpliedBits(Bits, FE, FeatureTable);
     }
   }
@@ -158,12 +157,12 @@ SubtargetFeatures::ToggleFeature(FeatureBitset &Bits, StringRef Feature,
       Find(StripFlag(Feature), FeatureTable);
   // If there is a match
   if (FeatureEntry) {
-    if ((Bits & FeatureEntry->Value) == FeatureEntry->Value) {
-      Bits &= ~FeatureEntry->Value;
+    if (Bits.test(FeatureEntry->Value)) {
+      Bits.reset(FeatureEntry->Value);
       // For each feature that implies this, clear it.
       ClearImpliedBits(Bits, *FeatureEntry, FeatureTable);
     } else {
-      Bits |=  FeatureEntry->Value;
+      Bits.set(FeatureEntry->Value);
 
       // For each feature that this implies, set it.
       SetImpliedBits(Bits, *FeatureEntry, FeatureTable);
@@ -185,12 +184,12 @@ void SubtargetFeatures::ApplyFeatureFlag(FeatureBitset &Bits, StringRef Feature,
   if (FeatureEntry) {
     // Enable/disable feature in bits
     if (isEnabled(Feature)) {
-      Bits |= FeatureEntry->Value;
+      Bits.set(FeatureEntry->Value);
 
       // For each feature that this implies, set it.
       SetImpliedBits(Bits, *FeatureEntry, FeatureTable);
     } else {
-      Bits &= ~FeatureEntry->Value;
+      Bits.reset(FeatureEntry->Value);
 
       // For each feature that implies this, clear it.
       ClearImpliedBits(Bits, *FeatureEntry, FeatureTable);
@@ -226,11 +225,11 @@ SubtargetFeatures::getFeatureBits(StringRef CPU,
     // If there is a match
     if (CPUEntry) {
       // Set base feature bits
-      Bits = CPUEntry->Value;
+      Bits = CPUEntry->Implies;
 
       // Set the feature implied by this CPU feature, if any.
       for (auto &FE : FeatureTable) {
-        if ((CPUEntry->Value & FE.Value).any())
+        if (CPUEntry->Implies.test(FE.Value))
           SetImpliedBits(Bits, FE, FeatureTable);
       }
     } else {

@@ -1,9 +1,8 @@
 //===--- SemaStmtAsm.cpp - Semantic Analysis for Asm Statements -----------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -379,16 +378,16 @@ StmtResult Sema::ActOnGCCAsmStmt(SourceLocation AsmLoc, bool IsSimple,
     } else if (Info.requiresImmediateConstant() && !Info.allowsRegister()) {
       if (!InputExpr->isValueDependent()) {
         Expr::EvalResult EVResult;
-        if (!InputExpr->EvaluateAsInt(EVResult, Context))
+        if (!InputExpr->EvaluateAsRValue(EVResult, Context, true))
           return StmtError(
               Diag(InputExpr->getBeginLoc(), diag::err_asm_immediate_expected)
               << Info.getConstraintStr() << InputExpr->getSourceRange());
         llvm::APSInt Result = EVResult.Val.getInt();
-         if (!Info.isValidAsmImmediate(Result))
-           return StmtError(Diag(InputExpr->getBeginLoc(),
-                                 diag::err_invalid_asm_value_for_constraint)
-                            << Result.toString(10) << Info.getConstraintStr()
-                            << InputExpr->getSourceRange());
+        if (!Info.isValidAsmImmediate(Result))
+          return StmtError(Diag(InputExpr->getBeginLoc(),
+                                diag::err_invalid_asm_value_for_constraint)
+                           << Result.toString(10) << Info.getConstraintStr()
+                           << InputExpr->getSourceRange());
       }
 
     } else {

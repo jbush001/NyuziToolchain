@@ -1,9 +1,8 @@
 //===- StackProtector.cpp - Stack Protector Insertion ---------------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -157,14 +156,6 @@ bool StackProtector::ContainsProtectableArray(Type *Ty, bool &IsLarge,
   return NeedsProtector;
 }
 
-static bool isLifetimeInst(const Instruction *I) {
-  if (const auto Intrinsic = dyn_cast<IntrinsicInst>(I)) {
-    const auto Id = Intrinsic->getIntrinsicID();
-    return Id == Intrinsic::lifetime_start || Id == Intrinsic::lifetime_end;
-  }
-  return false;
-}
-
 bool StackProtector::HasAddressTaken(const Instruction *AI) {
   for (const User *U : AI->users()) {
     if (const StoreInst *SI = dyn_cast<StoreInst>(U)) {
@@ -175,7 +166,7 @@ bool StackProtector::HasAddressTaken(const Instruction *AI) {
         return true;
     } else if (const CallInst *CI = dyn_cast<CallInst>(U)) {
       // Ignore intrinsics that are not calls. TODO: Use isLoweredToCall().
-      if (!isa<DbgInfoIntrinsic>(CI) && !isLifetimeInst(CI))
+      if (!isa<DbgInfoIntrinsic>(CI) && !CI->isLifetimeStartOrEnd())
         return true;
     } else if (isa<InvokeInst>(U)) {
       return true;
@@ -199,6 +190,18 @@ bool StackProtector::HasAddressTaken(const Instruction *AI) {
   return false;
 }
 
+/// Search for the first call to the llvm.stackprotector intrinsic and return it
+/// if present.
+static const CallInst *findStackProtectorIntrinsic(Function &F) {
+  for (const BasicBlock &BB : F)
+    for (const Instruction &I : BB)
+      if (const CallInst *CI = dyn_cast<CallInst>(&I))
+        if (CI->getCalledFunction() ==
+            Intrinsic::getDeclaration(F.getParent(), Intrinsic::stackprotector))
+          return CI;
+  return nullptr;
+}
+
 /// Check whether or not this function needs a stack protector based
 /// upon the stack protector level.
 ///
@@ -215,13 +218,7 @@ bool StackProtector::HasAddressTaken(const Instruction *AI) {
 bool StackProtector::RequiresStackProtector() {
   bool Strong = false;
   bool NeedsProtector = false;
-  for (const BasicBlock &BB : *F)
-    for (const Instruction &I : BB)
-      if (const CallInst *CI = dyn_cast<CallInst>(&I))
-        if (CI->getCalledFunction() ==
-            Intrinsic::getDeclaration(F->getParent(),
-                                      Intrinsic::stackprotector))
-          HasPrologue = true;
+  HasPrologue = findStackProtectorIntrinsic(*F);
 
   if (F->hasFnAttribute(Attribute::SafeStack))
     return false;
@@ -325,7 +322,7 @@ static Value *getStackGuard(const TargetLoweringBase *TLI, Module *M,
                             IRBuilder<> &B,
                             bool *SupportsSelectionDAGSP = nullptr) {
   if (Value *Guard = TLI->getIRStackGuard(B))
-    return B.CreateLoad(Guard, true, "StackGuard");
+    return B.CreateLoad(B.getInt8PtrTy(), Guard, true, "StackGuard");
 
   // Use SelectionDAG SSP handling, since there isn't an IR guard.
   //
@@ -379,7 +376,8 @@ bool StackProtector::InsertStackProtectors() {
   // protection in SDAG.
   bool SupportsSelectionDAGSP =
       TLI->useStackGuardXorFP() ||
-      (EnableSelectionDAGSP && !TM->Options.EnableFastISel);
+      (EnableSelectionDAGSP && !TM->Options.EnableFastISel &&
+       !TM->Options.EnableGlobalISel);
   AllocaInst *AI = nullptr;       // Place on stack that stores the stack guard.
 
   for (Function::iterator I = F->begin(), E = F->end(); I != E;) {
@@ -399,6 +397,14 @@ bool StackProtector::InsertStackProtectors() {
     if (SupportsSelectionDAGSP)
       break;
 
+    // Find the stack guard slot if the prologue was not created by this pass
+    // itself via a previous call to CreatePrologue().
+    if (!AI) {
+      const CallInst *SPCall = findStackProtectorIntrinsic(*F);
+      assert(SPCall && "Call to llvm.stackprotector is missing");
+      AI = cast<AllocaInst>(SPCall->getArgOperand(1));
+    }
+
     // Set HasIRCheck to true, so that SelectionDAG will not generate its own
     // version. SelectionDAG called 'shouldEmitSDCheck' to check whether
     // instrumentation has already been generated.
@@ -407,15 +413,14 @@ bool StackProtector::InsertStackProtectors() {
     // Generate epilogue instrumentation. The epilogue intrumentation can be
     // function-based or inlined depending on which mechanism the target is
     // providing.
-    if (Value* GuardCheck = TLI->getSSPStackGuardCheck(*M)) {
+    if (Function *GuardCheck = TLI->getSSPStackGuardCheck(*M)) {
       // Generate the function-based epilogue instrumentation.
       // The target provides a guard check function, generate a call to it.
       IRBuilder<> B(RI);
-      LoadInst *Guard = B.CreateLoad(AI, true, "Guard");
+      LoadInst *Guard = B.CreateLoad(B.getInt8PtrTy(), AI, true, "Guard");
       CallInst *Call = B.CreateCall(GuardCheck, {Guard});
-      llvm::Function *Function = cast<llvm::Function>(GuardCheck);
-      Call->setAttributes(Function->getAttributes());
-      Call->setCallingConv(Function->getCallingConv());
+      Call->setAttributes(GuardCheck->getAttributes());
+      Call->setCallingConv(GuardCheck->getCallingConv());
     } else {
       // Generate the epilogue with inline instrumentation.
       // If we do not support SelectionDAG based tail calls, generate IR level
@@ -467,7 +472,7 @@ bool StackProtector::InsertStackProtectors() {
       // Generate the stack protector instructions in the old basic block.
       IRBuilder<> B(BB);
       Value *Guard = getStackGuard(TLI, M, B);
-      LoadInst *LI2 = B.CreateLoad(AI, true);
+      LoadInst *LI2 = B.CreateLoad(B.getInt8PtrTy(), AI, true);
       Value *Cmp = B.CreateICmpEQ(Guard, LI2);
       auto SuccessProb =
           BranchProbabilityInfo::getBranchProbStackProtector(true);
@@ -493,14 +498,13 @@ BasicBlock *StackProtector::CreateFailBB() {
   IRBuilder<> B(FailBB);
   B.SetCurrentDebugLocation(DebugLoc::get(0, 0, F->getSubprogram()));
   if (Trip.isOSOpenBSD()) {
-    Constant *StackChkFail =
-        M->getOrInsertFunction("__stack_smash_handler",
-                               Type::getVoidTy(Context),
-                               Type::getInt8PtrTy(Context));
+    FunctionCallee StackChkFail = M->getOrInsertFunction(
+        "__stack_smash_handler", Type::getVoidTy(Context),
+        Type::getInt8PtrTy(Context));
 
     B.CreateCall(StackChkFail, B.CreateGlobalStringPtr(F->getName(), "SSH"));
   } else {
-    Constant *StackChkFail =
+    FunctionCallee StackChkFail =
         M->getOrInsertFunction("__stack_chk_fail", Type::getVoidTy(Context));
 
     B.CreateCall(StackChkFail, {});

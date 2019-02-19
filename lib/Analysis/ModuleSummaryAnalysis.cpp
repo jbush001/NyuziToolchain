@@ -1,9 +1,8 @@
 //===- ModuleSummaryAnalysis.cpp - Module summary index builder -----------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -70,6 +69,11 @@ cl::opt<FunctionSummary::ForceSummaryHotnessType, true> FSEC(
                clEnumValN(FunctionSummary::FSHT_AllNonCritical,
                           "all-non-critical", "All non-critical edges."),
                clEnumValN(FunctionSummary::FSHT_All, "all", "All edges.")));
+
+cl::opt<std::string> ModuleSummaryDotFile(
+    "module-summary-dot-file", cl::init(""), cl::Hidden,
+    cl::value_desc("filename"),
+    cl::desc("File to emit dot graph of new summary into."));
 
 // Walk through the operands of a given User via worklist iteration and populate
 // the set of GlobalValue references encountered. Invoked either on an
@@ -256,15 +260,10 @@ static void computeFunctionSummary(ModuleSummaryIndex &Index, const Module &M,
   std::vector<const Instruction *> NonVolatileLoads;
 
   bool HasInlineAsmMaybeReferencingInternal = false;
-  bool InitsVarArgs = false;
   for (const BasicBlock &BB : F)
     for (const Instruction &I : BB) {
       if (isa<DbgInfoIntrinsic>(I))
         continue;
-      if (const IntrinsicInst *II = dyn_cast<IntrinsicInst>(&I)) {
-        if (II->getIntrinsicID() == Intrinsic::vastart)
-          InitsVarArgs = true;
-      }
       ++NumInsts;
       if (isNonVolatileLoad(&I)) {
         // Postpone processing of non-volatile load instructions
@@ -397,15 +396,13 @@ static void computeFunctionSummary(ModuleSummaryIndex &Index, const Module &M,
       F.hasFnAttribute(Attribute::ReadNone),
       F.hasFnAttribute(Attribute::ReadOnly),
       F.hasFnAttribute(Attribute::NoRecurse), F.returnDoesNotAlias(),
-      // Inliner doesn't handle variadic functions with va_start calls.
       // FIXME: refactor this to use the same code that inliner is using.
-      InitsVarArgs ||
-          // Don't try to import functions with noinline attribute.
-          F.getAttributes().hasFnAttribute(Attribute::NoInline)};
+      // Don't try to import functions with noinline attribute.
+      F.getAttributes().hasFnAttribute(Attribute::NoInline)};
   auto FuncSummary = llvm::make_unique<FunctionSummary>(
-      Flags, NumInsts, FunFlags, std::move(Refs), CallGraphEdges.takeVector(),
-      TypeTests.takeVector(), TypeTestAssumeVCalls.takeVector(),
-      TypeCheckedLoadVCalls.takeVector(),
+      Flags, NumInsts, FunFlags, /*EntryCount=*/0, std::move(Refs),
+      CallGraphEdges.takeVector(), TypeTests.takeVector(),
+      TypeTestAssumeVCalls.takeVector(), TypeCheckedLoadVCalls.takeVector(),
       TypeTestAssumeConstVCalls.takeVector(),
       TypeCheckedLoadConstVCalls.takeVector());
   if (NonRenamableLocal)
@@ -464,7 +461,11 @@ ModuleSummaryIndex llvm::buildModuleSummaryIndex(
     std::function<BlockFrequencyInfo *(const Function &F)> GetBFICallback,
     ProfileSummaryInfo *PSI) {
   assert(PSI);
-  ModuleSummaryIndex Index(/*HaveGVs=*/true);
+  bool EnableSplitLTOUnit = false;
+  if (auto *MD = mdconst::extract_or_null<ConstantInt>(
+          M.getModuleFlag("EnableSplitLTOUnit")))
+    EnableSplitLTOUnit = MD->getZExtValue();
+  ModuleSummaryIndex Index(/*HaveGVs=*/true, EnableSplitLTOUnit);
 
   // Identify the local values in the llvm.used and llvm.compiler.used sets,
   // which should not be exported as they would then require renaming and
@@ -516,14 +517,15 @@ ModuleSummaryIndex llvm::buildModuleSummaryIndex(
           if (Function *F = dyn_cast<Function>(GV)) {
             std::unique_ptr<FunctionSummary> Summary =
                 llvm::make_unique<FunctionSummary>(
-                    GVFlags, 0,
+                    GVFlags, /*InstCount=*/0,
                     FunctionSummary::FFlags{
                         F->hasFnAttribute(Attribute::ReadNone),
                         F->hasFnAttribute(Attribute::ReadOnly),
                         F->hasFnAttribute(Attribute::NoRecurse),
                         F->returnDoesNotAlias(),
                         /* NoInline = */ false},
-                    ArrayRef<ValueInfo>{}, ArrayRef<FunctionSummary::EdgeTy>{},
+                    /*EntryCount=*/0, ArrayRef<ValueInfo>{},
+                    ArrayRef<FunctionSummary::EdgeTy>{},
                     ArrayRef<GlobalValue::GUID>{},
                     ArrayRef<FunctionSummary::VFuncId>{},
                     ArrayRef<FunctionSummary::VFuncId>{},
@@ -626,6 +628,15 @@ ModuleSummaryIndex llvm::buildModuleSummaryIndex(
       if (!AllCallsCanBeExternallyReferenced)
         Summary->setNotEligibleToImport();
     }
+  }
+
+  if (!ModuleSummaryDotFile.empty()) {
+    std::error_code EC;
+    raw_fd_ostream OSDot(ModuleSummaryDotFile, EC, sys::fs::OpenFlags::F_None);
+    if (EC)
+      report_fatal_error(Twine("Failed to open dot file ") +
+                         ModuleSummaryDotFile + ": " + EC.message() + "\n");
+    Index.exportToDot(OSDot);
   }
 
   return Index;

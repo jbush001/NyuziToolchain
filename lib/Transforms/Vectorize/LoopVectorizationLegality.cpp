@@ -1,9 +1,8 @@
 //===- LoopVectorizationLegality.cpp --------------------------------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -22,6 +21,8 @@ using namespace llvm;
 
 #define LV_NAME "loop-vectorize"
 #define DEBUG_TYPE LV_NAME
+
+extern cl::opt<bool> EnableVPlanPredication;
 
 static cl::opt<bool>
     EnableIfConversion("enable-if-conversion", cl::init(true), cl::Hidden,
@@ -80,10 +81,11 @@ bool LoopVectorizeHints::Hint::validate(unsigned Val) {
   return false;
 }
 
-LoopVectorizeHints::LoopVectorizeHints(const Loop *L, bool DisableInterleaving,
+LoopVectorizeHints::LoopVectorizeHints(const Loop *L,
+                                       bool InterleaveOnlyWhenForced,
                                        OptimizationRemarkEmitter &ORE)
     : Width("vectorize.width", VectorizerParams::VectorizationFactor, HK_WIDTH),
-      Interleave("interleave.count", DisableInterleaving, HK_UNROLL),
+      Interleave("interleave.count", InterleaveOnlyWhenForced, HK_UNROLL),
       Force("vectorize.enable", FK_Undefined, HK_FORCE),
       IsVectorized("isvectorized", 0, HK_ISVECTORIZED), TheLoop(L), ORE(ORE) {
   // Populate values with existing loop metadata.
@@ -98,19 +100,38 @@ LoopVectorizeHints::LoopVectorizeHints(const Loop *L, bool DisableInterleaving,
     // consider the loop to have been already vectorized because there's
     // nothing more that we can do.
     IsVectorized.Value = Width.Value == 1 && Interleave.Value == 1;
-  LLVM_DEBUG(if (DisableInterleaving && Interleave.Value == 1) dbgs()
+  LLVM_DEBUG(if (InterleaveOnlyWhenForced && Interleave.Value == 1) dbgs()
              << "LV: Interleaving disabled by the pass manager\n");
 }
 
-bool LoopVectorizeHints::allowVectorization(Function *F, Loop *L,
-                                            bool AlwaysVectorize) const {
+void LoopVectorizeHints::setAlreadyVectorized() {
+  LLVMContext &Context = TheLoop->getHeader()->getContext();
+
+  MDNode *IsVectorizedMD = MDNode::get(
+      Context,
+      {MDString::get(Context, "llvm.loop.isvectorized"),
+       ConstantAsMetadata::get(ConstantInt::get(Context, APInt(32, 1)))});
+  MDNode *LoopID = TheLoop->getLoopID();
+  MDNode *NewLoopID =
+      makePostTransformationMetadata(Context, LoopID,
+                                     {Twine(Prefix(), "vectorize.").str(),
+                                      Twine(Prefix(), "interleave.").str()},
+                                     {IsVectorizedMD});
+  TheLoop->setLoopID(NewLoopID);
+
+  // Update internal cache.
+  IsVectorized.Value = 1;
+}
+
+bool LoopVectorizeHints::allowVectorization(
+    Function *F, Loop *L, bool VectorizeOnlyWhenForced) const {
   if (getForce() == LoopVectorizeHints::FK_Disabled) {
     LLVM_DEBUG(dbgs() << "LV: Not vectorizing: #pragma vectorize disable.\n");
     emitRemarkWithHints();
     return false;
   }
 
-  if (!AlwaysVectorize && getForce() != LoopVectorizeHints::FK_Enabled) {
+  if (VectorizeOnlyWhenForced && getForce() != LoopVectorizeHints::FK_Enabled) {
     LLVM_DEBUG(dbgs() << "LV: Not vectorizing: No #pragma vectorize enable.\n");
     emitRemarkWithHints();
     return false;
@@ -227,57 +248,6 @@ void LoopVectorizeHints::setHint(StringRef Name, Metadata *Arg) {
       break;
     }
   }
-}
-
-MDNode *LoopVectorizeHints::createHintMetadata(StringRef Name,
-                                               unsigned V) const {
-  LLVMContext &Context = TheLoop->getHeader()->getContext();
-  Metadata *MDs[] = {
-      MDString::get(Context, Name),
-      ConstantAsMetadata::get(ConstantInt::get(Type::getInt32Ty(Context), V))};
-  return MDNode::get(Context, MDs);
-}
-
-bool LoopVectorizeHints::matchesHintMetadataName(MDNode *Node,
-                                                 ArrayRef<Hint> HintTypes) {
-  MDString *Name = dyn_cast<MDString>(Node->getOperand(0));
-  if (!Name)
-    return false;
-
-  for (auto H : HintTypes)
-    if (Name->getString().endswith(H.Name))
-      return true;
-  return false;
-}
-
-void LoopVectorizeHints::writeHintsToMetadata(ArrayRef<Hint> HintTypes) {
-  if (HintTypes.empty())
-    return;
-
-  // Reserve the first element to LoopID (see below).
-  SmallVector<Metadata *, 4> MDs(1);
-  // If the loop already has metadata, then ignore the existing operands.
-  MDNode *LoopID = TheLoop->getLoopID();
-  if (LoopID) {
-    for (unsigned i = 1, ie = LoopID->getNumOperands(); i < ie; ++i) {
-      MDNode *Node = cast<MDNode>(LoopID->getOperand(i));
-      // If node in update list, ignore old value.
-      if (!matchesHintMetadataName(Node, HintTypes))
-        MDs.push_back(Node);
-    }
-  }
-
-  // Now, add the missing hints.
-  for (auto H : HintTypes)
-    MDs.push_back(createHintMetadata(Twine(Prefix(), H.Name).str(), H.Value));
-
-  // Replace current metadata node with new one.
-  LLVMContext &Context = TheLoop->getHeader()->getContext();
-  MDNode *NewLoopID = MDNode::get(Context, MDs);
-  // Set operand 0 to refer to the loop id itself.
-  NewLoopID->replaceOperandWith(0, NewLoopID);
-
-  TheLoop->setLoopID(NewLoopID);
 }
 
 bool LoopVectorizationRequirements::doesNotMeet(
@@ -487,7 +457,10 @@ bool LoopVectorizationLegality::canVectorizeOuterLoop() {
     // Check whether the BranchInst is a supported one. Only unconditional
     // branches, conditional branches with an outer loop invariant condition or
     // backedges are supported.
-    if (Br && Br->isConditional() &&
+    // FIXME: We skip these checks when VPlan predication is enabled as we
+    // want to allow divergent branches. This whole check will be removed
+    // once VPlan predication is on by default.
+    if (!EnableVPlanPredication && Br && Br->isConditional() &&
         !TheLoop->isLoopInvariant(Br->getCondition()) &&
         !LI->isLoopHeader(Br->getSuccessor(0)) &&
         !LI->isLoopHeader(Br->getSuccessor(1))) {
@@ -713,10 +686,30 @@ bool LoopVectorizationLegality::canVectorizeInstrs() {
           !isa<DbgInfoIntrinsic>(CI) &&
           !(CI->getCalledFunction() && TLI &&
             TLI->isFunctionVectorizable(CI->getCalledFunction()->getName()))) {
-        ORE->emit(createMissedAnalysis("CantVectorizeCall", CI)
-                  << "call instruction cannot be vectorized");
+        // If the call is a recognized math libary call, it is likely that
+        // we can vectorize it given loosened floating-point constraints.
+        LibFunc Func;
+        bool IsMathLibCall =
+            TLI && CI->getCalledFunction() &&
+            CI->getType()->isFloatingPointTy() &&
+            TLI->getLibFunc(CI->getCalledFunction()->getName(), Func) &&
+            TLI->hasOptimizedCodeGen(Func);
+
+        if (IsMathLibCall) {
+          // TODO: Ideally, we should not use clang-specific language here,
+          // but it's hard to provide meaningful yet generic advice.
+          // Also, should this be guarded by allowExtraAnalysis() and/or be part
+          // of the returned info from isFunctionVectorizable()?
+          ORE->emit(createMissedAnalysis("CantVectorizeLibcall", CI)
+              << "library call cannot be vectorized. "
+                 "Try compiling with -fno-math-errno, -ffast-math, "
+                 "or similar flags");
+        } else {
+          ORE->emit(createMissedAnalysis("CantVectorizeCall", CI)
+                    << "call instruction cannot be vectorized");
+        }
         LLVM_DEBUG(
-            dbgs() << "LV: Found a non-intrinsic, non-libfunc callsite.\n");
+            dbgs() << "LV: Found a non-intrinsic callsite.\n");
         return false;
       }
 

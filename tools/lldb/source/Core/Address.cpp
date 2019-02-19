@@ -1,9 +1,8 @@
 //===-- Address.cpp ---------------------------------------------*- C++ -*-===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -988,8 +987,10 @@ AddressClass Address::GetAddressClass() const {
   if (module_sp) {
     ObjectFile *obj_file = module_sp->GetObjectFile();
     if (obj_file) {
-      // Give the symbol vendor a chance to add to the unified section list.
-      module_sp->GetSymbolVendor();
+      // Give the symbol vendor a chance to add to the unified section list
+      // and to symtab from symbol file
+      if (SymbolVendor *vendor = module_sp->GetSymbolVendor())
+        vendor->GetSymtab();
       return obj_file->GetAddressClass(GetFileAddress());
     }
   }

@@ -1,9 +1,8 @@
 //===- AArch64InstrFormats.td - AArch64 Instruction Formats --*- tblgen -*-===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -1818,6 +1817,14 @@ multiclass Shift<bits<2> shift_type, string asm, SDNode OpNode> {
 
   def : Pat<(i32 (OpNode GPR32:$Rn, (i64 (sext GPR32:$Rm)))),
             (!cast<Instruction>(NAME # "Wr") GPR32:$Rn, GPR32:$Rm)>;
+
+  def : Pat<(i64 (OpNode GPR64:$Rn, (i64 (sext GPR32:$Rm)))),
+            (!cast<Instruction>(NAME # "Xr") GPR64:$Rn,
+                (SUBREG_TO_REG (i32 0), GPR32:$Rm, sub_32))>;
+
+  def : Pat<(i64 (OpNode GPR64:$Rn, (i64 (zext GPR32:$Rm)))),
+            (!cast<Instruction>(NAME # "Xr") GPR64:$Rn,
+                (SUBREG_TO_REG (i32 0), GPR32:$Rm, sub_32))>;
 }
 
 class ShiftAlias<string asm, Instruction inst, RegisterClass regtype>
@@ -9989,9 +9996,10 @@ class BaseSIMDThreeSameVectorComplex<bit Q, bit U, bits<2> size, bits<3> opcode,
   let Inst{4-0}   = Rd;
 }
 
+//8.3 CompNum - Floating-point complex number support
 multiclass SIMDThreeSameVectorComplexHSD<bit U, bits<3> opcode, Operand rottype,
                                           string asm, SDPatternOperator OpNode>{
-  let Predicates = [HasV8_3a, HasNEON, HasFullFP16] in {
+  let Predicates = [HasComplxNum, HasNEON, HasFullFP16] in {
   def v4f16 : BaseSIMDThreeSameVectorComplex<0, U, 0b01, opcode, V64, rottype,
               asm, ".4h",
               [(set (v4f16 V64:$dst), (OpNode (v4f16 V64:$Rd),
@@ -10007,7 +10015,7 @@ multiclass SIMDThreeSameVectorComplexHSD<bit U, bits<3> opcode, Operand rottype,
                                                (rottype i32:$rot)))]>;
   }
 
-  let Predicates = [HasV8_3a, HasNEON] in {
+  let Predicates = [HasComplxNum, HasNEON] in {
   def v2f32 : BaseSIMDThreeSameVectorComplex<0, U, 0b10, opcode, V64, rottype,
               asm, ".2s",
               [(set (v2f32 V64:$dst), (OpNode (v2f32 V64:$Rd),
@@ -10063,7 +10071,7 @@ class BaseSIMDThreeSameVectorTiedComplex<bit Q, bit U, bits<2> size,
 multiclass SIMDThreeSameVectorTiedComplexHSD<bit U, bits<3> opcode,
                                              Operand rottype, string asm,
                                              SDPatternOperator OpNode> {
-  let Predicates = [HasV8_3a, HasNEON, HasFullFP16] in {
+  let Predicates = [HasComplxNum, HasNEON, HasFullFP16] in {
   def v4f16 : BaseSIMDThreeSameVectorTiedComplex<0, U, 0b01, opcode, V64,
               rottype, asm, ".4h",
               [(set (v4f16 V64:$dst), (OpNode (v4f16 V64:$Rd),
@@ -10079,7 +10087,7 @@ multiclass SIMDThreeSameVectorTiedComplexHSD<bit U, bits<3> opcode,
                                                (rottype i32:$rot)))]>;
   }
 
-  let Predicates = [HasV8_3a, HasNEON] in {
+  let Predicates = [HasComplxNum, HasNEON] in {
   def v2f32 : BaseSIMDThreeSameVectorTiedComplex<0, U, 0b10, opcode, V64,
               rottype, asm, ".2s",
               [(set (v2f32 V64:$dst), (OpNode (v2f32 V64:$Rd),
@@ -10145,7 +10153,7 @@ class BaseSIMDIndexedTiedComplex<bit Q, bit U, bit Scalar, bits<2> size,
 // classes.
 multiclass SIMDIndexedTiedComplexHSD<bit U, bit opc1, bit opc2, Operand rottype,
                                      string asm, SDPatternOperator OpNode> {
-  let Predicates = [HasV8_3a,HasNEON,HasFullFP16] in {
+  let Predicates = [HasComplxNum, HasNEON, HasFullFP16] in {
   def v4f16_indexed : BaseSIMDIndexedTiedComplex<0, 1, 0, 0b01, opc1, opc2, V64,
                       V64, V128, VectorIndexD, rottype, asm, ".4h", ".4h",
                       ".4h", ".h", []> {
@@ -10161,9 +10169,9 @@ multiclass SIMDIndexedTiedComplexHSD<bit U, bit opc1, bit opc2, Operand rottype,
     let Inst{11} = idx{1};
     let Inst{21} = idx{0};
   }
-  } // Predicates = [HasV8_3a,HasNEON,HasFullFP16]
+  } // Predicates = HasComplxNum, HasNEON, HasFullFP16]
 
-  let Predicates = [HasV8_3a,HasNEON] in {
+  let Predicates = [HasComplxNum, HasNEON] in {
   def v4f32_indexed : BaseSIMDIndexedTiedComplex<1, 1, 0, 0b10, opc1, opc2,
                       V128, V128, V128, VectorIndexD, rottype, asm, ".4s",
                       ".4s", ".4s", ".s", []> {
@@ -10171,7 +10179,7 @@ multiclass SIMDIndexedTiedComplexHSD<bit U, bit opc1, bit opc2, Operand rottype,
     let Inst{11} = idx{0};
     let Inst{21} = 0;
   }
-  } // Predicates = [HasV8_3a,HasNEON]
+  } // Predicates = [HasComplxNum, HasNEON]
 }
 
 //----------------------------------------------------------------------------

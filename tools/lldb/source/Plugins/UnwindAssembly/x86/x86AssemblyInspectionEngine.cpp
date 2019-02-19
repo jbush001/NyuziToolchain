@@ -1,13 +1,14 @@
 //===-- x86AssemblyInspectionEngine.cpp -------------------------*- C++ -*-===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
 #include "x86AssemblyInspectionEngine.h"
+
+#include <memory>
 
 #include "llvm-c/Disassembler.h"
 
@@ -304,26 +305,20 @@ bool x86AssemblyInspectionEngine::nonvolatile_reg_p(int machine_regno) {
 // pushq %rbp [0x55]
 bool x86AssemblyInspectionEngine::push_rbp_pattern_p() {
   uint8_t *p = m_cur_insn;
-  if (*p == 0x55)
-    return true;
-  return false;
+  return *p == 0x55;
 }
 
 // pushq $0 ; the first instruction in start() [0x6a 0x00]
 bool x86AssemblyInspectionEngine::push_0_pattern_p() {
   uint8_t *p = m_cur_insn;
-  if (*p == 0x6a && *(p + 1) == 0x0)
-    return true;
-  return false;
+  return *p == 0x6a && *(p + 1) == 0x0;
 }
 
 // pushq $0
 // pushl $0
 bool x86AssemblyInspectionEngine::push_imm_pattern_p() {
   uint8_t *p = m_cur_insn;
-  if (*p == 0x68 || *p == 0x6a)
-    return true;
-  return false;
+  return *p == 0x68 || *p == 0x6a;
 }
 
 // pushl imm8(%esp)
@@ -371,8 +366,8 @@ bool x86AssemblyInspectionEngine::push_reg_p(int &regno) {
   uint8_t *p = m_cur_insn;
   int regno_prefix_bit = 0;
   // If we have a rex prefix byte, check to see if a B bit is set
-  if (m_wordsize == 8 && *p == 0x41) {
-    regno_prefix_bit = 1 << 3;
+  if (m_wordsize == 8 && (*p & 0xfe) == 0x40) {
+    regno_prefix_bit = (*p & 1) << 3;
     p++;
   }
   if (*p >= 0x50 && *p <= 0x57) {
@@ -569,8 +564,8 @@ bool x86AssemblyInspectionEngine::pop_reg_p(int &regno) {
   uint8_t *p = m_cur_insn;
   int regno_prefix_bit = 0;
   // If we have a rex prefix byte, check to see if a B bit is set
-  if (m_wordsize == 8 && *p == 0x41) {
-    regno_prefix_bit = 1 << 3;
+  if (m_wordsize == 8 && (*p & 0xfe) == 0x40) {
+    regno_prefix_bit = (*p & 1) << 3;
     p++;
   }
   if (*p >= 0x58 && *p <= 0x5f) {
@@ -672,12 +667,10 @@ bool x86AssemblyInspectionEngine::mov_reg_to_local_stack_frame_p(
   return false;
 }
 
-// ret [0xc9] or [0xc2 imm8] or [0xca imm8]
+// ret [0xc3] or [0xcb] or [0xc2 imm16] or [0xca imm16]
 bool x86AssemblyInspectionEngine::ret_pattern_p() {
   uint8_t *p = m_cur_insn;
-  if (*p == 0xc9 || *p == 0xc2 || *p == 0xca || *p == 0xc3)
-    return true;
-  return false;
+  return *p == 0xc3 || *p == 0xc2 || *p == 0xca || *p == 0xcb;
 }
 
 uint32_t x86AssemblyInspectionEngine::extract_4(uint8_t *b) {
@@ -723,7 +716,7 @@ bool x86AssemblyInspectionEngine::GetNonCallSiteUnwindPlanFromAssembly(
   if (data == nullptr || size == 0)
     return false;
 
-  if (m_register_map_initialized == false)
+  if (!m_register_map_initialized)
     return false;
 
   addr_t current_func_text_offset = 0;
@@ -864,7 +857,7 @@ bool x86AssemblyInspectionEngine::GetNonCallSiteUnwindPlanFromAssembly(
       // on the stack
       if (nonvolatile_reg_p(machine_regno) &&
           machine_regno_to_lldb_regno(machine_regno, lldb_regno) &&
-          saved_registers[machine_regno] == false) {
+          !saved_registers[machine_regno]) {
         UnwindPlan::Row::RegisterLocation regloc;
         if (is_aligned)
             regloc.SetAtAFAPlusOffset(-current_sp_bytes_offset_from_fa);
@@ -881,7 +874,7 @@ bool x86AssemblyInspectionEngine::GetNonCallSiteUnwindPlanFromAssembly(
 
       if (nonvolatile_reg_p(machine_regno) &&
           machine_regno_to_lldb_regno(machine_regno, lldb_regno) &&
-          saved_registers[machine_regno] == true) {
+          saved_registers[machine_regno]) {
         saved_registers[machine_regno] = false;
         row->RemoveRegisterInfo(lldb_regno);
 
@@ -953,7 +946,7 @@ bool x86AssemblyInspectionEngine::GetNonCallSiteUnwindPlanFromAssembly(
     else if (mov_reg_to_local_stack_frame_p(machine_regno, stack_offset) &&
              nonvolatile_reg_p(machine_regno) &&
              machine_regno_to_lldb_regno(machine_regno, lldb_regno) &&
-             saved_registers[machine_regno] == false) {
+             !saved_registers[machine_regno]) {
       saved_registers[machine_regno] = true;
 
       UnwindPlan::Row::RegisterLocation regloc;
@@ -1081,7 +1074,7 @@ bool x86AssemblyInspectionEngine::GetNonCallSiteUnwindPlanFromAssembly(
       }
     }
 
-    if (in_epilogue == false && row_updated) {
+    if (!in_epilogue && row_updated) {
       // If we're not in an epilogue sequence, save the updated Row
       UnwindPlan::Row *newrow = new UnwindPlan::Row;
       *newrow = *row.get();
@@ -1096,7 +1089,7 @@ bool x86AssemblyInspectionEngine::GetNonCallSiteUnwindPlanFromAssembly(
 
     // We may change the sp value without adding a new Row necessarily -- keep
     // track of it either way.
-    if (in_epilogue == false) {
+    if (!in_epilogue) {
       prologue_completed_sp_bytes_offset_from_cfa =
           current_sp_bytes_offset_from_fa;
       prologue_completed_is_aligned = is_aligned;
@@ -1181,7 +1174,7 @@ bool x86AssemblyInspectionEngine::AugmentUnwindPlanFromCallSite(
       *new_row = *original_last_row;
       new_row->SetOffset(offset);
       unwind_plan.AppendRow(new_row);
-      row.reset(new UnwindPlan::Row());
+      row = std::make_shared<UnwindPlan::Row>();
       *row = *new_row;
       reinstate_unwind_state = false;
       unwind_plan_updated = true;
@@ -1362,7 +1355,7 @@ bool x86AssemblyInspectionEngine::FindFirstNonPrologueInstruction(
     uint8_t *data, size_t size, size_t &offset) {
   offset = 0;
 
-  if (m_register_map_initialized == false)
+  if (!m_register_map_initialized)
     return false;
 
   while (offset < size) {

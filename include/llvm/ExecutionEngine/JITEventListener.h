@@ -1,9 +1,8 @@
 //===- JITEventListener.h - Exposes events from JIT compilation -*- C++ -*-===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -42,23 +41,26 @@ class ObjectFile;
 /// The default implementation of each method does nothing.
 class JITEventListener {
 public:
+  using ObjectKey = uint64_t;
+
   JITEventListener() = default;
   virtual ~JITEventListener() = default;
 
-  /// NotifyObjectEmitted - Called after an object has been successfully
-  /// emitted to memory.  NotifyFunctionEmitted will not be called for
+  /// notifyObjectLoaded - Called after an object has had its sections allocated
+  /// and addresses assigned to all symbols. Note: Section memory will not have
+  /// been relocated yet. notifyFunctionLoaded will not be called for
   /// individual functions in the object.
   ///
   /// ELF-specific information
   /// The ObjectImage contains the generated object image
   /// with section headers updated to reflect the address at which sections
   /// were loaded and with relocations performed in-place on debug sections.
-  virtual void NotifyObjectEmitted(const object::ObjectFile &Obj,
-                                   const RuntimeDyld::LoadedObjectInfo &L) {}
+  virtual void notifyObjectLoaded(ObjectKey K, const object::ObjectFile &Obj,
+                                  const RuntimeDyld::LoadedObjectInfo &L) {}
 
-  /// NotifyFreeingObject - Called just before the memory associated with
+  /// notifyFreeingObject - Called just before the memory associated with
   /// a previously emitted object is released.
-  virtual void NotifyFreeingObject(const object::ObjectFile &Obj) {}
+  virtual void notifyFreeingObject(ObjectKey K) {}
 
   // Get a pointe to the GDB debugger registration listener.
   static JITEventListener *createGDBRegistrationListener();

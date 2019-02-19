@@ -1,9 +1,8 @@
 //===--- X86.cpp - Implement X86 target feature support -------------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -142,7 +141,6 @@ bool X86TargetInfo::initFeatureMap(
     setFeatureEnabledImpl(Features, "gfni", true);
     setFeatureEnabledImpl(Features, "vpclmulqdq", true);
     setFeatureEnabledImpl(Features, "avx512bitalg", true);
-    setFeatureEnabledImpl(Features, "avx512vnni", true);
     setFeatureEnabledImpl(Features, "avx512vbmi2", true);
     setFeatureEnabledImpl(Features, "avx512vpopcntdq", true);
     setFeatureEnabledImpl(Features, "rdpid", true);
@@ -151,6 +149,12 @@ bool X86TargetInfo::initFeatureMap(
     setFeatureEnabledImpl(Features, "avx512ifma", true);
     setFeatureEnabledImpl(Features, "avx512vbmi", true);
     setFeatureEnabledImpl(Features, "sha", true);
+    LLVM_FALLTHROUGH;
+  case CK_Cascadelake:
+    //Cannonlake has no VNNI feature inside while Icelake has
+    if (Kind != CK_Cannonlake)
+      // CLK inherits all SKX features plus AVX512_VNNI
+      setFeatureEnabledImpl(Features, "avx512vnni", true);
     LLVM_FALLTHROUGH;
   case CK_SkylakeServer:
     setFeatureEnabledImpl(Features, "avx512f", true);
@@ -166,7 +170,9 @@ bool X86TargetInfo::initFeatureMap(
     setFeatureEnabledImpl(Features, "xsavec", true);
     setFeatureEnabledImpl(Features, "xsaves", true);
     setFeatureEnabledImpl(Features, "mpx", true);
-    if (Kind != CK_SkylakeServer) // SKX inherits all SKL features, except SGX
+    if (Kind != CK_SkylakeServer
+        && Kind != CK_Cascadelake)
+      // SKX/CLX inherits all SKL features, except SGX
       setFeatureEnabledImpl(Features, "sgx", true);
     setFeatureEnabledImpl(Features, "clflushopt", true);
     setFeatureEnabledImpl(Features, "aes", true);
@@ -858,6 +864,9 @@ bool X86TargetInfo::handleTargetFeatures(std::vector<std::string> &Features,
 /// definitions for this particular subtarget.
 void X86TargetInfo::getTargetDefines(const LangOptions &Opts,
                                      MacroBuilder &Builder) const {
+  // Inline assembly supports X86 flag outputs. 
+  Builder.defineMacro("__GCC_ASM_FLAG_OUTPUTS__");
+
   std::string CodeModel = getTargetOpts().CodeModel;
   if (CodeModel == "default")
     CodeModel = "small";
@@ -949,6 +958,7 @@ void X86TargetInfo::getTargetDefines(const LangOptions &Opts,
   case CK_Broadwell:
   case CK_SkylakeClient:
   case CK_SkylakeServer:
+  case CK_Cascadelake:
   case CK_Cannonlake:
   case CK_IcelakeClient:
   case CK_IcelakeServer:
@@ -1546,6 +1556,40 @@ bool X86TargetInfo::validateCpuIs(StringRef FeatureStr) const {
       .Default(false);
 }
 
+static unsigned matchAsmCCConstraint(const char *&Name) {
+  auto RV = llvm::StringSwitch<unsigned>(Name)
+                .Case("@cca", 4)
+                .Case("@ccae", 5)
+                .Case("@ccb", 4)
+                .Case("@ccbe", 5)
+                .Case("@ccc", 4)
+                .Case("@cce", 4)
+                .Case("@ccz", 4)
+                .Case("@ccg", 4)
+                .Case("@ccge", 5)
+                .Case("@ccl", 4)
+                .Case("@ccle", 5)
+                .Case("@ccna", 5)
+                .Case("@ccnae", 6)
+                .Case("@ccnb", 5)
+                .Case("@ccnbe", 6)
+                .Case("@ccnc", 5)
+                .Case("@ccne", 5)
+                .Case("@ccnz", 5)
+                .Case("@ccng", 5)
+                .Case("@ccnge", 6)
+                .Case("@ccnl", 5)
+                .Case("@ccnle", 6)
+                .Case("@ccno", 5)
+                .Case("@ccnp", 5)
+                .Case("@ccns", 5)
+                .Case("@cco", 4)
+                .Case("@ccp", 4)
+                .Case("@ccs", 4)
+                .Default(0);
+  return RV;
+}
+
 bool X86TargetInfo::validateAsmConstraint(
     const char *&Name, TargetInfo::ConstraintInfo &Info) const {
   switch (*Name) {
@@ -1628,6 +1672,14 @@ bool X86TargetInfo::validateAsmConstraint(
   case 'C': // SSE floating point constant.
   case 'G': // x87 floating point constant.
     return true;
+  case '@':
+    // CC condition changes.
+    if (auto Len = matchAsmCCConstraint(Name)) {
+      Name += Len - 1;
+      Info.setAllowsRegister();
+      return true;
+    }
+    return false;
   }
 }
 
@@ -1699,6 +1751,13 @@ bool X86TargetInfo::validateOperandSize(StringRef Constraint,
 
 std::string X86TargetInfo::convertConstraint(const char *&Constraint) const {
   switch (*Constraint) {
+  case '@':
+    if (auto Len = matchAsmCCConstraint(Constraint)) {
+      std::string Converted = "{" + std::string(Constraint, Len) + "}";
+      Constraint += Len - 1;
+      return Converted;
+    }
+    return std::string(1, *Constraint);
   case 'a':
     return std::string("{ax}");
   case 'b':

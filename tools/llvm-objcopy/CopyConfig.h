@@ -1,9 +1,8 @@
 //===- CopyConfig.h -------------------------------------------------------===//
 //
-//                      The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -15,9 +14,10 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/StringRef.h"
+#include "llvm/Support/Allocator.h"
+#include "llvm/Support/Regex.h"
 // Necessary for llvm::DebugCompressionType::None
 #include "llvm/Target/TargetOptions.h"
-#include <string>
 #include <vector>
 
 namespace llvm {
@@ -38,6 +38,28 @@ struct SectionRename {
   Optional<uint64_t> NewFlags;
 };
 
+struct SectionFlagsUpdate {
+  StringRef Name;
+  uint64_t NewFlags;
+};
+
+enum class DiscardType {
+  None,   // Default
+  All,    // --discard-all (-x)
+  Locals, // --discard-locals (-X)
+};
+
+class NameOrRegex {
+  StringRef Name;
+  // Regex is shared between multiple CopyConfig instances.
+  std::shared_ptr<Regex> R;
+
+public:
+  NameOrRegex(StringRef Pattern, bool IsRegex);
+  bool operator==(StringRef S) const { return R ? R->match(S) : Name == S; }
+  bool operator!=(StringRef S) const { return !operator==(S); }
+};
+
 // Configuration for copying/stripping a single file.
 struct CopyConfig {
   // Main input/output options
@@ -46,34 +68,41 @@ struct CopyConfig {
   StringRef OutputFilename;
   StringRef OutputFormat;
 
-  // Only applicable for --input-format=Binary
+  // Only applicable for --input-format=binary
   MachineInfo BinaryArch;
+  // Only applicable when --output-format!=binary (e.g. elf64-x86-64).
+  Optional<MachineInfo> OutputArch;
 
   // Advanced options
   StringRef AddGnuDebugLink;
+  StringRef BuildIdLinkDir;
+  Optional<StringRef> BuildIdLinkInput;
+  Optional<StringRef> BuildIdLinkOutput;
   StringRef SplitDWO;
   StringRef SymbolsPrefix;
+  DiscardType DiscardMode = DiscardType::None;
 
   // Repeated options
   std::vector<StringRef> AddSection;
   std::vector<StringRef> DumpSection;
-  std::vector<StringRef> KeepSection;
-  std::vector<StringRef> OnlyKeep;
-  std::vector<StringRef> SymbolsToGlobalize;
-  std::vector<StringRef> SymbolsToKeep;
-  std::vector<StringRef> SymbolsToLocalize;
-  std::vector<StringRef> SymbolsToRemove;
-  std::vector<StringRef> SymbolsToWeaken;
-  std::vector<StringRef> ToRemove;
-  std::vector<std::string> SymbolsToKeepGlobal;
+  std::vector<NameOrRegex> KeepSection;
+  std::vector<NameOrRegex> OnlySection;
+  std::vector<NameOrRegex> SymbolsToGlobalize;
+  std::vector<NameOrRegex> SymbolsToKeep;
+  std::vector<NameOrRegex> SymbolsToLocalize;
+  std::vector<NameOrRegex> SymbolsToRemove;
+  std::vector<NameOrRegex> UnneededSymbolsToRemove;
+  std::vector<NameOrRegex> SymbolsToWeaken;
+  std::vector<NameOrRegex> ToRemove;
+  std::vector<NameOrRegex> SymbolsToKeepGlobal;
 
   // Map options
   StringMap<SectionRename> SectionsToRename;
+  StringMap<SectionFlagsUpdate> SetSectionFlags;
   StringMap<StringRef> SymbolsToRename;
 
   // Boolean options
   bool DeterministicArchives = true;
-  bool DiscardAll = false;
   bool ExtractDWO = false;
   bool KeepFileSymbols = false;
   bool LocalizeHidden = false;
@@ -96,6 +125,7 @@ struct CopyConfig {
 // will contain one or more CopyConfigs.
 struct DriverConfig {
   SmallVector<CopyConfig, 1> CopyConfigs;
+  BumpPtrAllocator Alloc;
 };
 
 // ParseObjcopyOptions returns the config and sets the input arguments. If a

@@ -1,9 +1,8 @@
 //===- BugReporterVisitors.cpp - Helpers for reporting bugs ---------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -152,6 +151,32 @@ const Expr *bugreporter::getDerefExpr(const Stmt *S) {
       E = CE->getSubExpr();
 
   return E;
+}
+
+/// Comparing internal representations of symbolic values (via
+/// SVal::operator==()) is a valid way to check if the value was updated,
+/// unless it's a LazyCompoundVal that may have a different internal
+/// representation every time it is loaded from the state. In this function we
+/// do an approximate comparison for lazy compound values, checking that they
+/// are the immediate snapshots of the tracked region's bindings within the
+/// node's respective states but not really checking that these snapshots
+/// actually contain the same set of bindings.
+bool hasVisibleUpdate(const ExplodedNode *LeftNode, SVal LeftVal,
+                      const ExplodedNode *RightNode, SVal RightVal) {
+  if (LeftVal == RightVal)
+    return true;
+
+  const auto LLCV = LeftVal.getAs<nonloc::LazyCompoundVal>();
+  if (!LLCV)
+    return false;
+
+  const auto RLCV = RightVal.getAs<nonloc::LazyCompoundVal>();
+  if (!RLCV)
+    return false;
+
+  return LLCV->getRegion() == RLCV->getRegion() &&
+    LLCV->getStore() == LeftNode->getState()->getStore() &&
+    RLCV->getStore() == RightNode->getState()->getStore();
 }
 
 //===----------------------------------------------------------------------===//
@@ -308,9 +333,8 @@ public:
         if (RegionOfInterest->isSubRegionOf(SelfRegion) &&
             potentiallyWritesIntoIvar(Call->getRuntimeDefinition().getDecl(),
                                       IvarR->getDecl()))
-          return notModifiedDiagnostics(Ctx, *CallExitLoc, Call, {}, SelfRegion,
-                                        "self", /*FirstIsReferenceType=*/false,
-                                        1);
+          return notModifiedDiagnostics(N, {}, SelfRegion, "self",
+                                        /*FirstIsReferenceType=*/false, 1);
       }
     }
 
@@ -318,8 +342,7 @@ public:
       const MemRegion *ThisR = CCall->getCXXThisVal().getAsRegion();
       if (RegionOfInterest->isSubRegionOf(ThisR)
           && !CCall->getDecl()->isImplicit())
-        return notModifiedDiagnostics(Ctx, *CallExitLoc, Call, {}, ThisR,
-                                      "this",
+        return notModifiedDiagnostics(N, {}, ThisR, "this",
                                       /*FirstIsReferenceType=*/false, 1);
 
       // Do not generate diagnostics for not modified parameters in
@@ -338,18 +361,17 @@ public:
       QualType T = PVD->getType();
       while (const MemRegion *R = S.getAsRegion()) {
         if (RegionOfInterest->isSubRegionOf(R) && !isPointerToConst(T))
-          return notModifiedDiagnostics(Ctx, *CallExitLoc, Call, {}, R,
-                                        ParamName, ParamIsReferenceType,
-                                        IndirectionLevel);
+          return notModifiedDiagnostics(N, {}, R, ParamName,
+                                        ParamIsReferenceType, IndirectionLevel);
 
         QualType PT = T->getPointeeType();
         if (PT.isNull() || PT->isVoidType()) break;
 
         if (const RecordDecl *RD = PT->getAsRecordDecl())
           if (auto P = findRegionOfInterestInRecord(RD, State, R))
-            return notModifiedDiagnostics(
-              Ctx, *CallExitLoc, Call, *P, RegionOfInterest, ParamName,
-              ParamIsReferenceType, IndirectionLevel);
+            return notModifiedDiagnostics(N, *P, RegionOfInterest, ParamName,
+                                          ParamIsReferenceType,
+                                          IndirectionLevel);
 
         S = State->getSVal(R, PT);
         T = PT;
@@ -523,19 +545,12 @@ private:
 
   /// \return Diagnostics piece for region not modified in the current function.
   std::shared_ptr<PathDiagnosticPiece>
-  notModifiedDiagnostics(const LocationContext *Ctx, CallExitBegin &CallExitLoc,
-                         CallEventRef<> Call, const RegionVector &FieldChain,
+  notModifiedDiagnostics(const ExplodedNode *N, const RegionVector &FieldChain,
                          const MemRegion *MatchedRegion, StringRef FirstElement,
                          bool FirstIsReferenceType, unsigned IndirectionLevel) {
 
-    PathDiagnosticLocation L;
-    if (const ReturnStmt *RS = CallExitLoc.getReturnStmt()) {
-      L = PathDiagnosticLocation::createBegin(RS, SM, Ctx);
-    } else {
-      L = PathDiagnosticLocation(
-          Call->getRuntimeDefinition().getDecl()->getSourceRange().getEnd(),
-          SM);
-    }
+    PathDiagnosticLocation L =
+        PathDiagnosticLocation::create(N->getLocation(), SM);
 
     SmallString<256> sbuf;
     llvm::raw_svector_ostream os(sbuf);
@@ -676,8 +691,8 @@ public:
         bool EnableNullFPSuppression, BugReport &BR,
         const SVal V) {
     AnalyzerOptions &Options = N->getState()->getAnalysisManager().options;
-    if (EnableNullFPSuppression && Options.shouldSuppressNullReturnPaths()
-          && V.getAs<Loc>())
+    if (EnableNullFPSuppression &&
+        Options.ShouldSuppressNullReturnPaths && V.getAs<Loc>())
       BR.addVisitor(llvm::make_unique<MacroNullReturnSuppressionVisitor>(
               R->getAs<SubRegion>(), V));
   }
@@ -808,7 +823,8 @@ public:
     AnalyzerOptions &Options = State->getAnalysisManager().options;
 
     bool EnableNullFPSuppression = false;
-    if (InEnableNullFPSuppression && Options.shouldSuppressNullReturnPaths())
+    if (InEnableNullFPSuppression &&
+        Options.ShouldSuppressNullReturnPaths)
       if (Optional<Loc> RetLoc = RetVal.getAs<Loc>())
         EnableNullFPSuppression = State->isNull(*RetLoc).isConstrainedTrue();
 
@@ -877,7 +893,7 @@ public:
         // future nodes. We want to emit a path note as well, in case
         // the report is resurrected as valid later on.
         if (EnableNullFPSuppression &&
-            Options.shouldAvoidSuppressingNullArgumentPaths())
+            Options.ShouldAvoidSuppressingNullArgumentPaths)
           Mode = MaybeUnsuppress;
 
         if (RetE->getType()->isObjCObjectPointerType()) {
@@ -925,7 +941,7 @@ public:
   visitNodeMaybeUnsuppress(const ExplodedNode *N,
                            BugReporterContext &BRC, BugReport &BR) {
 #ifndef NDEBUG
-    assert(Options.shouldAvoidSuppressingNullArgumentPaths());
+    assert(Options.ShouldAvoidSuppressingNullArgumentPaths);
 #endif
 
     // Are we at the entry node for this call?
@@ -1187,7 +1203,7 @@ FindLastStoreBRVisitor::VisitNode(const ExplodedNode *Succ,
     if (Succ->getState()->getSVal(R) != V)
       return nullptr;
 
-    if (Pred->getState()->getSVal(R) == V) {
+    if (hasVisibleUpdate(Pred, Pred->getState()->getSVal(R), Succ, V)) {
       Optional<PostStore> PS = Succ->getLocationAs<PostStore>();
       if (!PS || PS->getLocationValue() != R)
         return nullptr;
@@ -1208,6 +1224,7 @@ FindLastStoreBRVisitor::VisitNode(const ExplodedNode *Succ,
     // UndefinedVal.)
     if (Optional<CallEnter> CE = Succ->getLocationAs<CallEnter>()) {
       if (const auto *VR = dyn_cast<VarRegion>(R)) {
+
         const auto *Param = cast<ParmVarDecl>(VR->getDecl());
 
         ProgramStateManager &StateMgr = BRC.getStateManager();
@@ -1378,7 +1395,7 @@ SuppressInlineDefensiveChecksVisitor(DefinedSVal Value, const ExplodedNode *N)
     : V(Value) {
   // Check if the visitor is disabled.
   AnalyzerOptions &Options = N->getState()->getAnalysisManager().options;
-  if (!Options.shouldSuppressInlinedDefensiveChecks())
+  if (!Options.ShouldSuppressInlinedDefensiveChecks)
     IsSatisfied = true;
 
   assert(N->getState()->isNull(V).isConstrainedTrue() &&
@@ -2219,7 +2236,7 @@ void LikelyFalsePositiveSuppressionBRVisitor::finalizeVisitor(
     // the user's fault, we currently don't report them very well, and
     // Note that this will not help for any other data structure libraries, like
     // TR1, Boost, or llvm/ADT.
-    if (Options.shouldSuppressFromCXXStandardLibrary()) {
+    if (Options.ShouldSuppressFromCXXStandardLibrary) {
       BR.markInvalid(getTag(), nullptr);
       return;
     } else {

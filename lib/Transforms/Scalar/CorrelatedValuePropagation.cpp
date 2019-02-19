@@ -1,9 +1,8 @@
 //===- CorrelatedValuePropagation.cpp - Propagate CFG-derived info --------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -16,6 +15,7 @@
 #include "llvm/ADT/Optional.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/Statistic.h"
+#include "llvm/Analysis/DomTreeUpdater.h"
 #include "llvm/Analysis/GlobalsModRef.h"
 #include "llvm/Analysis/InstructionSimplify.h"
 #include "llvm/Analysis/LazyValueInfo.h"
@@ -27,7 +27,6 @@
 #include "llvm/IR/ConstantRange.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DerivedTypes.h"
-#include "llvm/IR/DomTreeUpdater.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/InstrTypes.h"
@@ -273,10 +272,11 @@ static bool processMemAccess(Instruction *I, LazyValueInfo *LVI) {
 /// information is sufficient to prove this comparison. Even for local
 /// conditions, this can sometimes prove conditions instcombine can't by
 /// exploiting range information.
-static bool processCmp(CmpInst *C, LazyValueInfo *LVI) {
-  Value *Op0 = C->getOperand(0);
-  Constant *Op1 = dyn_cast<Constant>(C->getOperand(1));
-  if (!Op1) return false;
+static bool processCmp(CmpInst *Cmp, LazyValueInfo *LVI) {
+  Value *Op0 = Cmp->getOperand(0);
+  auto *C = dyn_cast<Constant>(Cmp->getOperand(1));
+  if (!C)
+    return false;
 
   // As a policy choice, we choose not to waste compile time on anything where
   // the comparison is testing local values.  While LVI can sometimes reason
@@ -284,20 +284,18 @@ static bool processCmp(CmpInst *C, LazyValueInfo *LVI) {
   // the block local query for uses from terminator instructions, but that's
   // handled in the code for each terminator.
   auto *I = dyn_cast<Instruction>(Op0);
-  if (I && I->getParent() == C->getParent())
+  if (I && I->getParent() == Cmp->getParent())
     return false;
 
   LazyValueInfo::Tristate Result =
-    LVI->getPredicateAt(C->getPredicate(), Op0, Op1, C);
-  if (Result == LazyValueInfo::Unknown) return false;
+      LVI->getPredicateAt(Cmp->getPredicate(), Op0, C, Cmp);
+  if (Result == LazyValueInfo::Unknown)
+    return false;
 
   ++NumCmps;
-  if (Result == LazyValueInfo::True)
-    C->replaceAllUsesWith(ConstantInt::getTrue(C->getContext()));
-  else
-    C->replaceAllUsesWith(ConstantInt::getFalse(C->getContext()));
-  C->eraseFromParent();
-
+  Constant *TorF = ConstantInt::get(Type::getInt1Ty(Cmp->getContext()), Result);
+  Cmp->replaceAllUsesWith(TorF);
+  Cmp->eraseFromParent();
   return true;
 }
 
@@ -308,7 +306,8 @@ static bool processCmp(CmpInst *C, LazyValueInfo *LVI) {
 /// that cannot fire no matter what the incoming edge can safely be removed. If
 /// a case fires on every incoming edge then the entire switch can be removed
 /// and replaced with a branch to the case destination.
-static bool processSwitch(SwitchInst *SI, LazyValueInfo *LVI, DominatorTree *DT) {
+static bool processSwitch(SwitchInst *SI, LazyValueInfo *LVI,
+                          DominatorTree *DT) {
   DomTreeUpdater DTU(*DT, DomTreeUpdater::UpdateStrategy::Lazy);
   Value *Cond = SI->getCondition();
   BasicBlock *BB = SI->getParent();
@@ -461,6 +460,30 @@ static bool processCallSite(CallSite CS, LazyValueInfo *LVI) {
       processOverflowIntrinsic(II);
       return true;
     }
+  }
+
+  // Deopt bundle operands are intended to capture state with minimal
+  // perturbance of the code otherwise.  If we can find a constant value for
+  // any such operand and remove a use of the original value, that's
+  // desireable since it may allow further optimization of that value (e.g. via
+  // single use rules in instcombine).  Since deopt uses tend to,
+  // idiomatically, appear along rare conditional paths, it's reasonable likely
+  // we may have a conditional fact with which LVI can fold.   
+  if (auto DeoptBundle = CS.getOperandBundle(LLVMContext::OB_deopt)) {
+    bool Progress = false;
+    for (const Use &ConstU : DeoptBundle->Inputs) {
+      Use &U = const_cast<Use&>(ConstU);
+      Value *V = U.get();
+      if (V->getType()->isVectorTy()) continue;
+      if (isa<Constant>(V)) continue;
+
+      Constant *C = LVI->getConstant(V, CS.getParent(), CS.getInstruction());
+      if (!C) continue;
+      U.set(C);
+      Progress = true;
+    }
+    if (Progress)
+      return true;
   }
 
   for (Value *V : CS.args()) {

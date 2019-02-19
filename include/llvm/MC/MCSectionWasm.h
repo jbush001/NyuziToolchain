@@ -1,9 +1,8 @@
 //===- MCSectionWasm.h - Wasm Machine Code Sections -------------*- C++ -*-===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -49,14 +48,10 @@ class MCSectionWasm final : public MCSection {
       : MCSection(SV_Wasm, K, Begin), SectionName(Section), UniqueID(UniqueID),
         Group(group) {}
 
-  void setSectionName(StringRef Name) { SectionName = Name; }
-
 public:
-  ~MCSectionWasm();
-
   /// Decides whether a '.section' directive should be printed before the
   /// section name
-  bool ShouldOmitSectionDirective(StringRef Name, const MCAsmInfo &MAI) const;
+  bool shouldOmitSectionDirective(StringRef Name, const MCAsmInfo &MAI) const;
 
   StringRef getSectionName() const { return SectionName; }
   const MCSymbolWasm *getGroup() const { return Group; }

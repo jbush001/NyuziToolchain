@@ -1,9 +1,8 @@
 //==- SystemZInstrVector.td - SystemZ Vector instructions ------*- tblgen-*-==//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -61,7 +60,7 @@ let Predicates = [FeatureVector] in {
     // Generate byte mask.
     def VZERO : InherentVRIa<"vzero", 0xE744, 0>;
     def VONE  : InherentVRIa<"vone", 0xE744, 0xffff>;
-    def VGBM  : UnaryVRIa<"vgbm", 0xE744, z_byte_mask, v128b, imm32zx16>;
+    def VGBM  : UnaryVRIa<"vgbm", 0xE744, null_frag, v128b, imm32zx16>;
 
     // Generate mask.
     def VGM  : BinaryVRIbGeneric<"vgm", 0xE746>;
@@ -151,13 +150,13 @@ let Predicates = [FeatureVector] in {
   def VLLEZH : UnaryVRX<"vllezh", 0xE704, z_vllezi16, v128h, 2, 1>;
   def VLLEZF : UnaryVRX<"vllezf", 0xE704, z_vllezi32, v128f, 4, 2>;
   def VLLEZG : UnaryVRX<"vllezg", 0xE704, z_vllezi64, v128g, 8, 3>;
-  def : Pat<(v4f32 (z_vllezf32 bdxaddr12only:$addr)),
+  def : Pat<(z_vllezf32 bdxaddr12only:$addr),
             (VLLEZF bdxaddr12only:$addr)>;
-  def : Pat<(v2f64 (z_vllezf64 bdxaddr12only:$addr)),
+  def : Pat<(z_vllezf64 bdxaddr12only:$addr),
             (VLLEZG bdxaddr12only:$addr)>;
   let Predicates = [FeatureVectorEnhancements1] in {
     def VLLEZLF : UnaryVRX<"vllezlf", 0xE704, z_vllezli32, v128f, 4, 6>;
-    def : Pat<(v4f32 (z_vllezlf32 bdxaddr12only:$addr)),
+    def : Pat<(z_vllezlf32 bdxaddr12only:$addr),
               (VLLEZLF bdxaddr12only:$addr)>;
   }
 

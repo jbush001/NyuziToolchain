@@ -1,9 +1,8 @@
 //===- Driver.cpp ---------------------------------------------------------===//
 //
-//                             The LLVM Linker
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -225,23 +224,33 @@ void LinkerDriver::addArchiveBuffer(MemoryBufferRef MB, StringRef SymName,
 void LinkerDriver::enqueueArchiveMember(const Archive::Child &C,
                                         StringRef SymName,
                                         StringRef ParentName) {
+
+  auto ReportBufferError = [=](Error &&E,
+                              StringRef ChildName) {
+    fatal("could not get the buffer for the member defining symbol " +
+          SymName + ": " + ParentName + "(" + ChildName + "): " +
+          toString(std::move(E)));
+  };
+
   if (!C.getParent()->isThin()) {
-    MemoryBufferRef MB = CHECK(
-        C.getMemoryBufferRef(),
-        "could not get the buffer for the member defining symbol " + SymName);
+    Expected<MemoryBufferRef> MBOrErr = C.getMemoryBufferRef();
+    if (!MBOrErr)
+      ReportBufferError(MBOrErr.takeError(), check(C.getFullName()));
+    MemoryBufferRef MB = MBOrErr.get();
     enqueueTask([=]() { Driver->addArchiveBuffer(MB, SymName, ParentName); });
     return;
   }
 
-  auto Future = std::make_shared<std::future<MBErrPair>>(createFutureForFile(
-      CHECK(C.getFullName(),
-            "could not get the filename for the member defining symbol " +
-                SymName)));
+  std::string ChildName = CHECK(
+      C.getFullName(),
+      "could not get the filename for the member defining symbol " +
+      SymName);
+  auto Future = std::make_shared<std::future<MBErrPair>>(
+      createFutureForFile(ChildName));
   enqueueTask([=]() {
     auto MBOrErr = Future->get();
     if (MBOrErr.second)
-      fatal("could not get the buffer for the member defining " + SymName +
-            ": " + MBOrErr.second.message());
+      ReportBufferError(errorCodeToError(MBOrErr.second), ChildName);
     Driver->addArchiveBuffer(takeBuffer(std::move(MBOrErr.first)), SymName,
                              ParentName);
   });
@@ -986,11 +995,17 @@ void LinkerDriver::link(ArrayRef<const char *> ArgsArr) {
 
   // Handle /ignore
   for (auto *Arg : Args.filtered(OPT_ignore)) {
-    if (StringRef(Arg->getValue()) == "4037")
-      Config->WarnMissingOrderSymbol = false;
-    else if (StringRef(Arg->getValue()) == "4217")
-      Config->WarnLocallyDefinedImported = false;
-    // Other warning numbers are ignored.
+    SmallVector<StringRef, 8> Vec;
+    StringRef(Arg->getValue()).split(Vec, ',');
+    for (StringRef S : Vec) {
+      if (S == "4037")
+        Config->WarnMissingOrderSymbol = false;
+      else if (S == "4099")
+        Config->WarnDebugInfoUnusable = false;
+      else if (S == "4217")
+        Config->WarnLocallyDefinedImported = false;
+      // Other warning numbers are ignored.
+    }
   }
 
   // Handle /out

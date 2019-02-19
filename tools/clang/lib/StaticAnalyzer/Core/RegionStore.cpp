@@ -1,9 +1,8 @@
 //== RegionStore.cpp - Field-sensitive store model --------------*- C++ -*--==//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -131,10 +130,6 @@ namespace llvm {
     return os;
   }
 
-  template <typename T> struct isPodLike;
-  template <> struct isPodLike<BindingKey> {
-    static const bool value = true;
-  };
 } // end llvm namespace
 
 #ifndef NDEBUG
@@ -347,11 +342,9 @@ public:
     : StoreManager(mgr), Features(f),
       RBFactory(mgr.getAllocator()), CBFactory(mgr.getAllocator()),
       SmallStructLimit(0) {
-    if (SubEngine *Eng = StateMgr.getOwningEngine()) {
-      AnalyzerOptions &Options = Eng->getAnalysisManager().options;
-      SmallStructLimit =
-        Options.getRegionStoreSmallStructLimit();
-    }
+    SubEngine &Eng = StateMgr.getOwningEngine();
+    AnalyzerOptions &Options = Eng.getAnalysisManager().options;
+    SmallStructLimit = Options.RegionStoreSmallStructLimit;
   }
 
 
@@ -2393,10 +2386,7 @@ RegionStoreManager::bindAggregate(RegionBindingsConstRef B,
 namespace {
 class RemoveDeadBindingsWorker
     : public ClusterAnalysis<RemoveDeadBindingsWorker> {
-  using ChildrenListTy = SmallVector<const SymbolDerived *, 4>;
-  using MapParentsToDerivedTy = llvm::DenseMap<SymbolRef, ChildrenListTy>;
-
-  MapParentsToDerivedTy ParentsToDerived;
+  SmallVector<const SymbolicRegion *, 12> Postponed;
   SymbolReaper &SymReaper;
   const StackFrameContext *CurrentLCtx;
 
@@ -2417,10 +2407,8 @@ public:
 
   bool AddToWorkList(const MemRegion *R);
 
+  bool UpdatePostponed();
   void VisitBinding(SVal V);
-
-private:
-  void populateWorklistFromSymbol(SymbolRef s);
 };
 }
 
@@ -2440,11 +2428,10 @@ void RemoveDeadBindingsWorker::VisitAddedToCluster(const MemRegion *baseR,
   }
 
   if (const SymbolicRegion *SR = dyn_cast<SymbolicRegion>(baseR)) {
-    if (SymReaper.isLive(SR->getSymbol())) {
+    if (SymReaper.isLive(SR->getSymbol()))
       AddToWorkList(SR, &C);
-    } else if (const auto *SD = dyn_cast<SymbolDerived>(SR->getSymbol())) {
-      ParentsToDerived[SD->getParentSymbol()].push_back(SD);
-    }
+    else
+      Postponed.push_back(SR);
 
     return;
   }
@@ -2457,7 +2444,7 @@ void RemoveDeadBindingsWorker::VisitAddedToCluster(const MemRegion *baseR,
   // CXXThisRegion in the current or parent location context is live.
   if (const CXXThisRegion *TR = dyn_cast<CXXThisRegion>(baseR)) {
     const auto *StackReg =
-      cast<StackArgumentsSpaceRegion>(TR->getSuperRegion());
+        cast<StackArgumentsSpaceRegion>(TR->getSuperRegion());
     const StackFrameContext *RegCtx = StackReg->getStackFrame();
     if (CurrentLCtx &&
         (RegCtx == CurrentLCtx || RegCtx->isParentOf(CurrentLCtx)))
@@ -2501,15 +2488,6 @@ void RemoveDeadBindingsWorker::VisitBinding(SVal V) {
   // If V is a region, then add it to the worklist.
   if (const MemRegion *R = V.getAsRegion()) {
     AddToWorkList(R);
-
-    if (const auto *TVR = dyn_cast<TypedValueRegion>(R)) {
-      DefinedOrUnknownSVal RVS =
-          RM.getSValBuilder().getRegionValueSymbolVal(TVR);
-      if (const MemRegion *SR = RVS.getAsRegion()) {
-        AddToWorkList(SR);
-      }
-    }
-
     SymReaper.markLive(R);
 
     // All regions captured by a block are also live.
@@ -2523,30 +2501,25 @@ void RemoveDeadBindingsWorker::VisitBinding(SVal V) {
 
 
   // Update the set of live symbols.
-  for (auto SI = V.symbol_begin(), SE = V.symbol_end(); SI != SE; ++SI) {
-    populateWorklistFromSymbol(*SI);
-
-    for (const auto *SD : ParentsToDerived[*SI])
-      populateWorklistFromSymbol(SD);
-
+  for (auto SI = V.symbol_begin(), SE = V.symbol_end(); SI!=SE; ++SI)
     SymReaper.markLive(*SI);
-  }
 }
 
-void RemoveDeadBindingsWorker::populateWorklistFromSymbol(SymbolRef S) {
-  if (const auto *SD = dyn_cast<SymbolData>(S)) {
-    if (Loc::isLocType(SD->getType()) && !SymReaper.isLive(SD)) {
-      const SymbolicRegion *SR = RM.getRegionManager().getSymbolicRegion(SD);
+bool RemoveDeadBindingsWorker::UpdatePostponed() {
+  // See if any postponed SymbolicRegions are actually live now, after
+  // having done a scan.
+  bool Changed = false;
 
-      if (B.contains(SR))
-        AddToWorkList(SR);
-
-      const SymbolicRegion *SHR =
-          RM.getRegionManager().getSymbolicHeapRegion(SD);
-      if (B.contains(SHR))
-        AddToWorkList(SHR);
+  for (auto I = Postponed.begin(), E = Postponed.end(); I != E; ++I) {
+    if (const SymbolicRegion *SR = *I) {
+      if (SymReaper.isLive(SR->getSymbol())) {
+        Changed |= AddToWorkList(SR);
+        *I = nullptr;
+      }
     }
   }
+
+  return Changed;
 }
 
 StoreRef RegionStoreManager::removeDeadBindings(Store store,
@@ -2562,7 +2535,7 @@ StoreRef RegionStoreManager::removeDeadBindings(Store store,
     W.AddToWorkList(*I);
   }
 
-  W.RunWorkList();
+  do W.RunWorkList(); while (W.UpdatePostponed());
 
   // We have now scanned the store, marking reachable regions and symbols
   // as live.  We now remove all the regions that are dead from the store
@@ -2571,24 +2544,9 @@ StoreRef RegionStoreManager::removeDeadBindings(Store store,
     const MemRegion *Base = I.getKey();
 
     // If the cluster has been visited, we know the region has been marked.
-    if (W.isVisited(Base))
-      continue;
-
-    // Remove the dead entry.
-    B = B.remove(Base);
-
-    if (const SymbolicRegion *SymR = dyn_cast<SymbolicRegion>(Base))
-      SymReaper.maybeDead(SymR->getSymbol());
-
-    // Mark all non-live symbols that this binding references as dead.
-    const ClusterBindings &Cluster = I.getData();
-    for (ClusterBindings::iterator CI = Cluster.begin(), CE = Cluster.end();
-         CI != CE; ++CI) {
-      SVal X = CI.getData();
-      SymExpr::symbol_iterator SI = X.symbol_begin(), SE = X.symbol_end();
-      for (; SI != SE; ++SI)
-        SymReaper.maybeDead(*SI);
-    }
+    // Otherwise, remove the dead entry.
+    if (!W.isVisited(Base))
+      B = B.remove(Base);
   }
 
   return StoreRef(B.asStore(), *this);

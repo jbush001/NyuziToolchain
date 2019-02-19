@@ -1,9 +1,8 @@
 //===-- RegisterContextLLDB.cpp --------------------------------*- C++ -*-===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -34,6 +33,8 @@
 #include "lldb/lldb-private.h"
 
 #include "RegisterContextLLDB.h"
+
+#include <memory>
 
 using namespace lldb;
 using namespace lldb_private;
@@ -238,9 +239,8 @@ void RegisterContextLLDB::InitializeZerothFrame() {
 
     if (m_sym_ctx_valid) {
       func_unwinders_sp =
-          pc_module_sp->GetObjectFile()
-              ->GetUnwindTable()
-              .GetFuncUnwindersContainingAddress(m_current_pc, m_sym_ctx);
+          pc_module_sp->GetUnwindTable().GetFuncUnwindersContainingAddress(
+              m_current_pc, m_sym_ctx);
     }
 
     if (func_unwinders_sp.get() != nullptr)
@@ -324,7 +324,7 @@ void RegisterContextLLDB::InitializeNonZerothFrame() {
     above_trap_handler = true;
 
   if (pc == 0 || pc == 0x1) {
-    if (above_trap_handler == false) {
+    if (!above_trap_handler) {
       m_frame_type = eNotAValidFrame;
       UnwindLogMsg("this frame has a pc of 0x0");
       return;
@@ -370,7 +370,8 @@ void RegisterContextLLDB::InitializeNonZerothFrame() {
 
     if (abi) {
       m_fast_unwind_plan_sp.reset();
-      m_full_unwind_plan_sp.reset(new UnwindPlan(lldb::eRegisterKindGeneric));
+      m_full_unwind_plan_sp =
+          std::make_shared<UnwindPlan>(lldb::eRegisterKindGeneric);
       abi->CreateDefaultUnwindPlan(*m_full_unwind_plan_sp);
       if (m_frame_type != eSkipFrame) // don't override eSkipFrame
       {
@@ -474,7 +475,7 @@ void RegisterContextLLDB::InitializeNonZerothFrame() {
   bool decr_pc_and_recompute_addr_range = false;
 
   // If the symbol lookup failed...
-  if (m_sym_ctx_valid == false)
+  if (!m_sym_ctx_valid)
     decr_pc_and_recompute_addr_range = true;
 
   // Or if we're in the middle of the stack (and not "above" an asynchronous
@@ -670,9 +671,8 @@ UnwindPlanSP RegisterContextLLDB::GetFastUnwindPlanForFrame() {
     return unwind_plan_sp;
 
   FuncUnwindersSP func_unwinders_sp(
-      pc_module_sp->GetObjectFile()
-          ->GetUnwindTable()
-          .GetFuncUnwindersContainingAddress(m_current_pc, m_sym_ctx));
+      pc_module_sp->GetUnwindTable().GetFuncUnwindersContainingAddress(
+          m_current_pc, m_sym_ctx));
   if (!func_unwinders_sp)
     return unwind_plan_sp;
 
@@ -717,8 +717,8 @@ UnwindPlanSP RegisterContextLLDB::GetFullUnwindPlanForFrame() {
   Process *process = exe_ctx.GetProcessPtr();
   ABI *abi = process ? process->GetABI().get() : NULL;
   if (abi) {
-    arch_default_unwind_plan_sp.reset(
-        new UnwindPlan(lldb::eRegisterKindGeneric));
+    arch_default_unwind_plan_sp =
+        std::make_shared<UnwindPlan>(lldb::eRegisterKindGeneric);
     abi->CreateDefaultUnwindPlan(*arch_default_unwind_plan_sp);
   } else {
     UnwindLogMsg(
@@ -753,7 +753,8 @@ UnwindPlanSP RegisterContextLLDB::GetFullUnwindPlanForFrame() {
          process->GetLoadAddressPermissions(current_pc_addr, permissions) &&
          (permissions & ePermissionsExecutable) == 0)) {
       if (abi) {
-        unwind_plan_sp.reset(new UnwindPlan(lldb::eRegisterKindGeneric));
+        unwind_plan_sp =
+            std::make_shared<UnwindPlan>(lldb::eRegisterKindGeneric);
         abi->CreateFunctionEntryUnwindPlan(*unwind_plan_sp);
         m_frame_type = eNormalFrame;
         return unwind_plan_sp;
@@ -772,9 +773,8 @@ UnwindPlanSP RegisterContextLLDB::GetFullUnwindPlanForFrame() {
   FuncUnwindersSP func_unwinders_sp;
   if (m_sym_ctx_valid) {
     func_unwinders_sp =
-        pc_module_sp->GetObjectFile()
-            ->GetUnwindTable()
-            .GetFuncUnwindersContainingAddress(m_current_pc, m_sym_ctx);
+        pc_module_sp->GetUnwindTable().GetFuncUnwindersContainingAddress(
+            m_current_pc, m_sym_ctx);
   }
 
   // No FuncUnwinders available for this pc (stripped function symbols, lldb
@@ -792,9 +792,9 @@ UnwindPlanSP RegisterContextLLDB::GetFullUnwindPlanForFrame() {
     // Even with -fomit-frame-pointer, we can try eh_frame to get back on
     // track.
     DWARFCallFrameInfo *eh_frame =
-        pc_module_sp->GetObjectFile()->GetUnwindTable().GetEHFrameInfo();
+        pc_module_sp->GetUnwindTable().GetEHFrameInfo();
     if (eh_frame) {
-      unwind_plan_sp.reset(new UnwindPlan(lldb::eRegisterKindGeneric));
+      unwind_plan_sp = std::make_shared<UnwindPlan>(lldb::eRegisterKindGeneric);
       if (eh_frame->GetUnwindPlan(m_current_pc, *unwind_plan_sp))
         return unwind_plan_sp;
       else
@@ -802,9 +802,9 @@ UnwindPlanSP RegisterContextLLDB::GetFullUnwindPlanForFrame() {
     }
 
     ArmUnwindInfo *arm_exidx =
-        pc_module_sp->GetObjectFile()->GetUnwindTable().GetArmUnwindInfo();
+        pc_module_sp->GetUnwindTable().GetArmUnwindInfo();
     if (arm_exidx) {
-      unwind_plan_sp.reset(new UnwindPlan(lldb::eRegisterKindGeneric));
+      unwind_plan_sp = std::make_shared<UnwindPlan>(lldb::eRegisterKindGeneric);
       if (arm_exidx->GetUnwindPlan(exe_ctx.GetTargetRef(), m_current_pc,
                                    *unwind_plan_sp))
         return unwind_plan_sp;
@@ -1250,7 +1250,7 @@ RegisterContextLLDB::SavedLocationForRegister(
       // Address register and it hasn't been saved anywhere yet -- that is,
       // it's still live in the actual register. Handle this specially.
 
-      if (have_unwindplan_regloc == false && return_address_reg.IsValid() &&
+      if (!have_unwindplan_regloc && return_address_reg.IsValid() &&
           IsFrameZero()) {
         if (return_address_reg.GetAsKind(eRegisterKindLLDB) !=
             LLDB_INVALID_REGNUM) {
@@ -1329,11 +1329,7 @@ RegisterContextLLDB::SavedLocationForRegister(
             }
           }
 
-          if (can_fetch_pc_value && can_fetch_cfa) {
-            have_unwindplan_regloc = true;
-          } else {
-            have_unwindplan_regloc = false;
-          }
+          have_unwindplan_regloc = can_fetch_pc_value && can_fetch_cfa;
         } else {
           // We were unable to fall back to another unwind plan
           have_unwindplan_regloc = false;
@@ -1344,7 +1340,7 @@ RegisterContextLLDB::SavedLocationForRegister(
 
   ExecutionContext exe_ctx(m_thread.shared_from_this());
   Process *process = exe_ctx.GetProcessPtr();
-  if (have_unwindplan_regloc == false) {
+  if (!have_unwindplan_regloc) {
     // If the UnwindPlan failed to give us an unwind location for this
     // register, we may be able to fall back to some ABI-defined default.  For
     // example, some ABIs allow to determine the caller's SP via the CFA. Also,
@@ -1363,7 +1359,7 @@ RegisterContextLLDB::SavedLocationForRegister(
     }
   }
 
-  if (have_unwindplan_regloc == false) {
+  if (!have_unwindplan_regloc) {
     if (IsFrameZero()) {
       // This is frame 0 - we should return the actual live register context
       // value
@@ -1409,7 +1405,7 @@ RegisterContextLLDB::SavedLocationForRegister(
   }
 
   if (unwindplan_regloc.IsSame()) {
-    if (IsFrameZero() == false &&
+    if (!IsFrameZero() &&
         (regnum.GetAsKind(eRegisterKindGeneric) == LLDB_REGNUM_GENERIC_PC ||
          regnum.GetAsKind(eRegisterKindGeneric) == LLDB_REGNUM_GENERIC_RA)) {
       UnwindLogMsg("register %s (%d) is marked as 'IsSame' - it is a pc or "
@@ -2051,12 +2047,8 @@ bool RegisterContextLLDB::ReadPC(addr_t &pc) {
             pc = abi->FixCodeAddress(pc);
     }
 
-    if (m_all_registers_available == false && above_trap_handler == false &&
-        (pc == 0 || pc == 1)) {
-      return false;
-    }
-
-    return true;
+    return !(m_all_registers_available == false &&
+             above_trap_handler == false && (pc == 0 || pc == 1));
   } else {
     return false;
   }

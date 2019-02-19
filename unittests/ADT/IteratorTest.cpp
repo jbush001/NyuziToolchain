@@ -1,9 +1,8 @@
 //===- IteratorTest.cpp - Unit tests for iterator utilities ---------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -326,6 +325,40 @@ TEST(ZipIteratorTest, ZipFirstBasic) {
   }
 
   EXPECT_EQ(iters, 4u);
+}
+
+TEST(ZipIteratorTest, ZipLongestBasic) {
+  using namespace std;
+  const vector<unsigned> pi{3, 1, 4, 1, 5, 9};
+  const vector<StringRef> e{"2", "7", "1", "8"};
+
+  {
+    // Check left range longer than right.
+    const vector<tuple<Optional<unsigned>, Optional<StringRef>>> expected{
+        make_tuple(3, StringRef("2")), make_tuple(1, StringRef("7")),
+        make_tuple(4, StringRef("1")), make_tuple(1, StringRef("8")),
+        make_tuple(5, None),           make_tuple(9, None)};
+    size_t iters = 0;
+    for (auto tup : zip_longest(pi, e)) {
+      EXPECT_EQ(tup, expected[iters]);
+      iters += 1;
+    }
+    EXPECT_EQ(iters, expected.size());
+  }
+
+  {
+    // Check right range longer than left.
+    const vector<tuple<Optional<StringRef>, Optional<unsigned>>> expected{
+        make_tuple(StringRef("2"), 3), make_tuple(StringRef("7"), 1),
+        make_tuple(StringRef("1"), 4), make_tuple(StringRef("8"), 1),
+        make_tuple(None, 5),           make_tuple(None, 9)};
+    size_t iters = 0;
+    for (auto tup : zip_longest(e, pi)) {
+      EXPECT_EQ(tup, expected[iters]);
+      iters += 1;
+    }
+    EXPECT_EQ(iters, expected.size());
+  }
 }
 
 TEST(ZipIteratorTest, Mutability) {

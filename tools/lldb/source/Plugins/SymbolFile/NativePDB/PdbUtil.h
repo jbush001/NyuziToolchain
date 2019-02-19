@@ -1,20 +1,25 @@
 //===-- PdbUtil.h -----------------------------------------------*- C++ -*-===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
 #ifndef LLDB_PLUGINS_SYMBOLFILENATIVEPDB_PDBUTIL_H
 #define LLDB_PLUGINS_SYMBOLFILENATIVEPDB_PDBUTIL_H
 
+#include "lldb/Expression/DWARFExpression.h"
+#include "lldb/Symbol/Variable.h"
 #include "lldb/lldb-enumerations.h"
 
+#include "llvm/ADT/Optional.h"
+#include "llvm/DebugInfo/CodeView/CodeView.h"
 #include "llvm/DebugInfo/CodeView/SymbolRecord.h"
 #include "llvm/DebugInfo/CodeView/TypeRecord.h"
 #include "llvm/DebugInfo/PDB/PDBTypes.h"
+
+#include "PdbSymUid.h"
 
 #include <tuple>
 #include <utility>
@@ -28,7 +33,7 @@ class TpiStream;
 namespace lldb_private {
 namespace npdb {
 
-struct PdbTypeSymId;
+class PdbIndex;
 
 struct CVTagRecord {
   enum Kind { Class, Struct, Union, Enum };
@@ -60,6 +65,14 @@ struct CVTagRecord {
     return cvunion;
   }
 
+  llvm::StringRef name() const {
+    if (m_kind == Struct || m_kind == Union)
+      return cvclass.Name;
+    if (m_kind == Enum)
+      return cvenum.Name;
+    return cvunion.Name;
+  }
+
 private:
   CVTagRecord(llvm::codeview::ClassRecord &&c);
   CVTagRecord(llvm::codeview::UnionRecord &&u);
@@ -87,6 +100,13 @@ struct SegmentOffsetLength {
   uint32_t length = 0;
 };
 
+struct VariableInfo {
+  llvm::StringRef name;
+  llvm::codeview::TypeIndex type;
+  llvm::Optional<DWARFExpression> location;
+  llvm::Optional<Variable::RangeList> ranges;
+};
+
 llvm::pdb::PDB_SymType CVSymToPDBSym(llvm::codeview::SymbolKind kind);
 llvm::pdb::PDB_SymType CVTypeToPDBType(llvm::codeview::TypeLeafKind kind);
 
@@ -108,6 +128,7 @@ inline bool IsValidRecord(const llvm::codeview::ProcRefSym &sym) {
 
 bool IsForwardRefUdt(llvm::codeview::CVType cvt);
 bool IsTagRecord(llvm::codeview::CVType cvt);
+bool IsClassStructUnion(llvm::codeview::CVType cvt);
 
 bool IsForwardRefUdt(const PdbTypeSymId &id, llvm::pdb::TpiStream &tpi);
 bool IsTagRecord(const PdbTypeSymId &id, llvm::pdb::TpiStream &tpi);
@@ -118,6 +139,18 @@ llvm::codeview::TypeIndex
 LookThroughModifierRecord(llvm::codeview::CVType modifier);
 
 llvm::StringRef DropNameScope(llvm::StringRef name);
+
+VariableInfo GetVariableNameInfo(llvm::codeview::CVSymbol symbol);
+VariableInfo GetVariableLocationInfo(PdbIndex &index, PdbCompilandSymId var_id, Block& block,
+                                     lldb::ModuleSP module);
+
+size_t GetTypeSizeForSimpleKind(llvm::codeview::SimpleTypeKind kind);
+lldb::BasicType
+GetCompilerTypeForSimpleKind(llvm::codeview::SimpleTypeKind kind);
+
+PdbTypeSymId GetBestPossibleDecl(PdbTypeSymId id, llvm::pdb::TpiStream &tpi);
+
+size_t GetSizeOfType(PdbTypeSymId id, llvm::pdb::TpiStream &tpi);
 
 } // namespace npdb
 } // namespace lldb_private

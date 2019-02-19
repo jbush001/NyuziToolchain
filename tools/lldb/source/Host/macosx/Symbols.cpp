@@ -1,9 +1,8 @@
 //===-- Symbols.cpp ---------------------------------------------*- C++ -*-===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -399,7 +398,7 @@ static bool GetModuleSpecInfoFromUUIDDictionary(CFDictionaryRef uuid_dict,
             // DBGSourcePath values (the "values" half of key-value path pairs)
             // were wrong.  Ignore them and use the universal DBGSourcePath
             // string from earlier.
-            if (new_style_source_remapping_dictionary == true &&
+            if (new_style_source_remapping_dictionary &&
                 !original_DBGSourcePath_value.empty()) {
               DBGSourcePath = original_DBGSourcePath_value;
             }
@@ -475,7 +474,7 @@ bool Symbols::DownloadObjectAndSymbolFile(ModuleSpec &module_spec,
   // it once per lldb run and cache the result.
   static bool g_have_checked_for_dbgshell_command = false;
   static const char *g_dbgshell_command = NULL;
-  if (g_have_checked_for_dbgshell_command == false) {
+  if (!g_have_checked_for_dbgshell_command) {
     g_have_checked_for_dbgshell_command = true;
     CFTypeRef defaults_setting = CFPreferencesCopyAppValue(
         CFSTR("DBGShellCommands"), CFSTR("com.apple.DebugSymbols"));
@@ -495,7 +494,7 @@ bool Symbols::DownloadObjectAndSymbolFile(ModuleSpec &module_spec,
 
   // When g_dbgshell_command is NULL, the user has not enabled the use of an
   // external program to find the symbols, don't run it for them.
-  if (force_lookup == false && g_dbgshell_command == NULL) {
+  if (!force_lookup && g_dbgshell_command == NULL) {
     return false;
   }
 

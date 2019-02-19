@@ -1,9 +1,8 @@
 //===- ARMInstructionSelector.cpp ----------------------------*- C++ -*-==//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 /// \file
@@ -76,6 +75,56 @@ private:
   const ARMRegisterBankInfo &RBI;
   const ARMSubtarget &STI;
 
+  // Store the opcodes that we might need, so we don't have to check what kind
+  // of subtarget (ARM vs Thumb) we have all the time.
+  struct OpcodeCache {
+    unsigned ZEXT16;
+    unsigned SEXT16;
+
+    unsigned ZEXT8;
+    unsigned SEXT8;
+
+    // Used for implementing ZEXT/SEXT from i1
+    unsigned AND;
+    unsigned RSB;
+
+    unsigned STORE32;
+    unsigned LOAD32;
+
+    unsigned STORE16;
+    unsigned LOAD16;
+
+    unsigned STORE8;
+    unsigned LOAD8;
+
+    unsigned ADDrr;
+
+    // Used for G_ICMP
+    unsigned CMPrr;
+    unsigned MOVi;
+    unsigned MOVCCi;
+
+    // Used for G_SELECT
+    unsigned CMPri;
+    unsigned MOVCCr;
+
+    unsigned TSTri;
+    unsigned Bcc;
+
+    OpcodeCache(const ARMSubtarget &STI);
+  } const Opcodes;
+
+  // Select the opcode for simple extensions (that translate to a single SXT/UXT
+  // instruction). Extension operations more complicated than that should not
+  // invoke this. Returns the original opcode if it doesn't know how to select a
+  // better one.
+  unsigned selectSimpleExtOpc(unsigned Opc, unsigned Size) const;
+
+  // Select the opcode for simple loads and stores. Returns the original opcode
+  // if it doesn't know how to select a better one.
+  unsigned selectLoadStoreOpCode(unsigned Opc, unsigned RegBank,
+                                 unsigned Size) const;
+
 #define GET_GLOBALISEL_PREDICATES_DECL
 #include "ARMGenGlobalISel.inc"
 #undef GET_GLOBALISEL_PREDICATES_DECL
@@ -107,7 +156,7 @@ ARMInstructionSelector::ARMInstructionSelector(const ARMBaseTargetMachine &TM,
                                                const ARMSubtarget &STI,
                                                const ARMRegisterBankInfo &RBI)
     : InstructionSelector(), TII(*STI.getInstrInfo()),
-      TRI(*STI.getRegisterInfo()), TM(TM), RBI(RBI), STI(STI),
+      TRI(*STI.getRegisterInfo()), TM(TM), RBI(RBI), STI(STI), Opcodes(STI),
 #define GET_GLOBALISEL_PREDICATES_INIT
 #include "ARMGenGlobalISel.inc"
 #undef GET_GLOBALISEL_PREDICATES_INIT
@@ -225,41 +274,75 @@ static bool selectUnmergeValues(MachineInstrBuilder &MIB,
   return true;
 }
 
-/// Select the opcode for simple extensions (that translate to a single SXT/UXT
-/// instruction). Extension operations more complicated than that should not
-/// invoke this. Returns the original opcode if it doesn't know how to select a
-/// better one.
-static unsigned selectSimpleExtOpc(unsigned Opc, unsigned Size) {
+ARMInstructionSelector::OpcodeCache::OpcodeCache(const ARMSubtarget &STI) {
+  bool isThumb = STI.isThumb();
+
+  using namespace TargetOpcode;
+
+#define STORE_OPCODE(VAR, OPC) VAR = isThumb ? ARM::t2##OPC : ARM::OPC
+  STORE_OPCODE(SEXT16, SXTH);
+  STORE_OPCODE(ZEXT16, UXTH);
+
+  STORE_OPCODE(SEXT8, SXTB);
+  STORE_OPCODE(ZEXT8, UXTB);
+
+  STORE_OPCODE(AND, ANDri);
+  STORE_OPCODE(RSB, RSBri);
+
+  STORE_OPCODE(STORE32, STRi12);
+  STORE_OPCODE(LOAD32, LDRi12);
+
+  // LDRH/STRH are special...
+  STORE16 = isThumb ? ARM::t2STRHi12 : ARM::STRH;
+  LOAD16 = isThumb ? ARM::t2LDRHi12 : ARM::LDRH;
+
+  STORE_OPCODE(STORE8, STRBi12);
+  STORE_OPCODE(LOAD8, LDRBi12);
+
+  STORE_OPCODE(ADDrr, ADDrr);
+
+  STORE_OPCODE(CMPrr, CMPrr);
+  STORE_OPCODE(MOVi, MOVi);
+  STORE_OPCODE(MOVCCi, MOVCCi);
+
+  STORE_OPCODE(CMPri, CMPri);
+  STORE_OPCODE(MOVCCr, MOVCCr);
+
+  STORE_OPCODE(TSTri, TSTri);
+  STORE_OPCODE(Bcc, Bcc);
+#undef MAP_OPCODE
+}
+
+unsigned ARMInstructionSelector::selectSimpleExtOpc(unsigned Opc,
+                                                    unsigned Size) const {
   using namespace TargetOpcode;
 
   if (Size != 8 && Size != 16)
     return Opc;
 
   if (Opc == G_SEXT)
-    return Size == 8 ? ARM::SXTB : ARM::SXTH;
+    return Size == 8 ? Opcodes.SEXT8 : Opcodes.SEXT16;
 
   if (Opc == G_ZEXT)
-    return Size == 8 ? ARM::UXTB : ARM::UXTH;
+    return Size == 8 ? Opcodes.ZEXT8 : Opcodes.ZEXT16;
 
   return Opc;
 }
 
-/// Select the opcode for simple loads and stores. For types smaller than 32
-/// bits, the value will be zero extended. Returns the original opcode if it
-/// doesn't know how to select a better one.
-static unsigned selectLoadStoreOpCode(unsigned Opc, unsigned RegBank,
-                                      unsigned Size) {
+unsigned ARMInstructionSelector::selectLoadStoreOpCode(unsigned Opc,
+                                                       unsigned RegBank,
+                                                       unsigned Size) const {
   bool isStore = Opc == TargetOpcode::G_STORE;
 
   if (RegBank == ARM::GPRRegBankID) {
     switch (Size) {
     case 1:
     case 8:
-      return isStore ? ARM::STRBi12 : ARM::LDRBi12;
+      return isStore ? Opcodes.STORE8 : Opcodes.LOAD8;
     case 16:
-      return isStore ? ARM::STRH : ARM::LDRH;
+      return isStore ? Opcodes.STORE16 : Opcodes.LOAD16;
     case 32:
-      return isStore ? ARM::STRi12 : ARM::LDRi12;
+      return isStore ? Opcodes.STORE32 : Opcodes.LOAD32;
     default:
       return Opc;
     }
@@ -350,10 +433,11 @@ getComparePreds(CmpInst::Predicate Pred) {
 }
 
 struct ARMInstructionSelector::CmpConstants {
-  CmpConstants(unsigned CmpOpcode, unsigned FlagsOpcode, unsigned OpRegBank,
-               unsigned OpSize)
+  CmpConstants(unsigned CmpOpcode, unsigned FlagsOpcode, unsigned SelectOpcode,
+               unsigned OpRegBank, unsigned OpSize)
       : ComparisonOpcode(CmpOpcode), ReadFlagsOpcode(FlagsOpcode),
-        OperandRegBankID(OpRegBank), OperandSize(OpSize) {}
+        SelectResultOpcode(SelectOpcode), OperandRegBankID(OpRegBank),
+        OperandSize(OpSize) {}
 
   // The opcode used for performing the comparison.
   const unsigned ComparisonOpcode;
@@ -361,6 +445,9 @@ struct ARMInstructionSelector::CmpConstants {
   // The opcode used for reading the flags set by the comparison. May be
   // ARM::INSTRUCTION_LIST_END if we don't need to read the flags.
   const unsigned ReadFlagsOpcode;
+
+  // The opcode used for materializing the result of the comparison.
+  const unsigned SelectResultOpcode;
 
   // The assumed register bank ID for the operands.
   const unsigned OperandRegBankID;
@@ -381,7 +468,7 @@ struct ARMInstructionSelector::InsertInfo {
 
 void ARMInstructionSelector::putConstant(InsertInfo I, unsigned DestReg,
                                          unsigned Constant) const {
-  (void)BuildMI(I.MBB, I.InsertBefore, I.DbgLoc, TII.get(ARM::MOVi))
+  (void)BuildMI(I.MBB, I.InsertBefore, I.DbgLoc, TII.get(Opcodes.MOVi))
       .addDef(DestReg)
       .addImm(Constant)
       .add(predOps(ARMCC::AL))
@@ -484,7 +571,8 @@ bool ARMInstructionSelector::insertComparison(CmpConstants Helper, InsertInfo I,
   }
 
   // Select either 1 or the previous result based on the value of the flags.
-  auto Mov1I = BuildMI(I.MBB, I.InsertBefore, I.DbgLoc, TII.get(ARM::MOVCCi))
+  auto Mov1I = BuildMI(I.MBB, I.InsertBefore, I.DbgLoc,
+                       TII.get(Helper.SelectResultOpcode))
                    .addDef(ResReg)
                    .addUse(PrevRes)
                    .addImm(1)
@@ -511,7 +599,7 @@ bool ARMInstructionSelector::selectGlobal(MachineInstrBuilder &MIB,
   auto &MBB = *MIB->getParent();
   auto &MF = *MBB.getParent();
 
-  bool UseMovt = STI.useMovt(MF);
+  bool UseMovt = STI.useMovt();
 
   unsigned Size = TM.getPointerSize(0);
   unsigned Alignment = 4;
@@ -626,7 +714,7 @@ bool ARMInstructionSelector::selectSelect(MachineInstrBuilder &MIB,
   auto CondReg = MIB->getOperand(1).getReg();
   assert(validReg(MRI, CondReg, 1, ARM::GPRRegBankID) &&
          "Unsupported types for select operation");
-  auto CmpI = BuildMI(MBB, InsertBefore, DbgLoc, TII.get(ARM::CMPri))
+  auto CmpI = BuildMI(MBB, InsertBefore, DbgLoc, TII.get(Opcodes.CMPri))
                   .addUse(CondReg)
                   .addImm(0)
                   .add(predOps(ARMCC::AL));
@@ -641,7 +729,7 @@ bool ARMInstructionSelector::selectSelect(MachineInstrBuilder &MIB,
   assert(validOpRegPair(MRI, ResReg, TrueReg, 32, ARM::GPRRegBankID) &&
          validOpRegPair(MRI, TrueReg, FalseReg, 32, ARM::GPRRegBankID) &&
          "Unsupported types for select operation");
-  auto Mov1I = BuildMI(MBB, InsertBefore, DbgLoc, TII.get(ARM::MOVCCr))
+  auto Mov1I = BuildMI(MBB, InsertBefore, DbgLoc, TII.get(Opcodes.MOVCCr))
                    .addDef(ResReg)
                    .addUse(TrueReg)
                    .addUse(FalseReg)
@@ -702,7 +790,7 @@ bool ARMInstructionSelector::select(MachineInstr &I,
     switch (SrcSize) {
     case 1: {
       // ZExt boils down to & 0x1; for SExt we also subtract that from 0
-      I.setDesc(TII.get(ARM::ANDri));
+      I.setDesc(TII.get(Opcodes.AND));
       MIB.addImm(1).add(predOps(ARMCC::AL)).add(condCodeOp());
 
       if (isSExt) {
@@ -714,7 +802,7 @@ bool ARMInstructionSelector::select(MachineInstr &I,
 
         auto InsertBefore = std::next(I.getIterator());
         auto SubI =
-            BuildMI(MBB, InsertBefore, I.getDebugLoc(), TII.get(ARM::RSBri))
+            BuildMI(MBB, InsertBefore, I.getDebugLoc(), TII.get(Opcodes.RSB))
                 .addDef(SExtResult)
                 .addUse(AndResult)
                 .addImm(0)
@@ -842,8 +930,8 @@ bool ARMInstructionSelector::select(MachineInstr &I,
   case G_SELECT:
     return selectSelect(MIB, MRI);
   case G_ICMP: {
-    CmpConstants Helper(ARM::CMPrr, ARM::INSTRUCTION_LIST_END,
-                        ARM::GPRRegBankID, 32);
+    CmpConstants Helper(Opcodes.CMPrr, ARM::INSTRUCTION_LIST_END,
+                        Opcodes.MOVCCi, ARM::GPRRegBankID, 32);
     return selectCmp(Helper, MIB, MRI);
   }
   case G_FCMP: {
@@ -862,7 +950,7 @@ bool ARMInstructionSelector::select(MachineInstr &I,
     }
 
     CmpConstants Helper(Size == 32 ? ARM::VCMPS : ARM::VCMPD, ARM::FMSTAT,
-                        ARM::FPRRegBankID, Size);
+                        Opcodes.MOVCCi, ARM::FPRRegBankID, Size);
     return selectCmp(Helper, MIB, MRI);
   }
   case G_LSHR:
@@ -873,7 +961,7 @@ bool ARMInstructionSelector::select(MachineInstr &I,
     return selectShift(ARM_AM::ShiftOpc::lsl, MIB);
   }
   case G_GEP:
-    I.setDesc(TII.get(ARM::ADDrr));
+    I.setDesc(TII.get(Opcodes.ADDrr));
     MIB.add(predOps(ARMCC::AL)).add(condCodeOp());
     break;
   case G_FRAME_INDEX:
@@ -930,17 +1018,19 @@ bool ARMInstructionSelector::select(MachineInstr &I,
     }
 
     // Set the flags.
-    auto Test = BuildMI(*I.getParent(), I, I.getDebugLoc(), TII.get(ARM::TSTri))
-                    .addReg(I.getOperand(0).getReg())
-                    .addImm(1)
-                    .add(predOps(ARMCC::AL));
+    auto Test =
+        BuildMI(*I.getParent(), I, I.getDebugLoc(), TII.get(Opcodes.TSTri))
+            .addReg(I.getOperand(0).getReg())
+            .addImm(1)
+            .add(predOps(ARMCC::AL));
     if (!constrainSelectedInstRegOperands(*Test, TII, TRI, RBI))
       return false;
 
     // Branch conditionally.
-    auto Branch = BuildMI(*I.getParent(), I, I.getDebugLoc(), TII.get(ARM::Bcc))
-                      .add(I.getOperand(1))
-                      .add(predOps(ARMCC::NE, ARM::CPSR));
+    auto Branch =
+        BuildMI(*I.getParent(), I, I.getDebugLoc(), TII.get(Opcodes.Bcc))
+            .add(I.getOperand(1))
+            .add(predOps(ARMCC::NE, ARM::CPSR));
     if (!constrainSelectedInstRegOperands(*Branch, TII, TRI, RBI))
       return false;
     I.eraseFromParent();

@@ -1,9 +1,8 @@
 //===-- FileSystemTest.cpp --------------------------------------*- C++ -*-===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -232,7 +231,7 @@ TEST(FileSystemTest, MakeAbsolute) {
     FileSpec file_spec("foo");
     auto EC = fs.MakeAbsolute(file_spec);
     EXPECT_FALSE(EC);
-    EXPECT_EQ("/foo", file_spec.GetPath());
+    EXPECT_EQ(FileSpec("/foo"), file_spec);
   }
 }
 
@@ -249,7 +248,7 @@ TEST(FileSystemTest, Resolve) {
   {
     FileSpec file_spec("foo");
     fs.Resolve(file_spec);
-    EXPECT_EQ("/foo", file_spec.GetPath());
+    EXPECT_EQ(FileSpec("/foo"), file_spec);
   }
 
   {
@@ -262,7 +261,7 @@ TEST(FileSystemTest, Resolve) {
   {
     FileSpec file_spec("bogus");
     fs.Resolve(file_spec);
-    EXPECT_EQ("bogus", file_spec.GetPath());
+    EXPECT_EQ(FileSpec("bogus"), file_spec);
   }
 }
 

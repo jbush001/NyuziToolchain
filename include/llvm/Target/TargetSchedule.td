@@ -1,9 +1,8 @@
 //===- TargetSchedule.td - Target Independent Scheduling ---*- tablegen -*-===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -561,3 +560,13 @@ class RetireControlUnit<int bufferSize, int retirePerCycle> {
   int MaxRetirePerCycle = retirePerCycle;
   SchedMachineModel SchedModel = ?;
 }
+
+// Base class for Load/StoreQueue.  It is used to identify processor resources
+// which describe load/store queues in the LS unit.
+class MemoryQueue<ProcResource PR> {
+  ProcResource QueueDescriptor = PR;
+  SchedMachineModel SchedModel = ?;
+}
+
+class LoadQueue<ProcResource LDQueue> : MemoryQueue<LDQueue>;
+class StoreQueue<ProcResource STQueue> : MemoryQueue<STQueue>;

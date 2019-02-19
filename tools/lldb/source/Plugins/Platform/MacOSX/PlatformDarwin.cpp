@@ -1,9 +1,8 @@
 //===-- PlatformDarwin.cpp --------------------------------------*- C++ -*-===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -12,6 +11,7 @@
 #include <string.h>
 
 #include <algorithm>
+#include <memory>
 #include <mutex>
 
 #include "lldb/Breakpoint/BreakpointLocation.h"
@@ -190,25 +190,12 @@ FileSpecList PlatformDarwin::LocateExecutableScriptingResources(
 Status PlatformDarwin::ResolveSymbolFile(Target &target,
                                          const ModuleSpec &sym_spec,
                                          FileSpec &sym_file) {
-  Status error;
   sym_file = sym_spec.GetSymbolFileSpec();
-
-  llvm::sys::fs::file_status st;
-  if (status(sym_file.GetPath(), st, false)) {
-    error.SetErrorString("Could not stat file!");
-    return error;
+  if (FileSystem::Instance().IsDirectory(sym_file)) {
+    sym_file = Symbols::FindSymbolFileInBundle(sym_file, sym_spec.GetUUIDPtr(),
+                                               sym_spec.GetArchitecturePtr());
   }
-
-  if (exists(st)) {
-    if (is_directory(st)) {
-      sym_file = Symbols::FindSymbolFileInBundle(
-          sym_file, sym_spec.GetUUIDPtr(), sym_spec.GetArchitecturePtr());
-    }
-  } else {
-    if (sym_spec.GetUUID().IsValid()) {
-    }
-  }
-  return error;
+  return {};
 }
 
 static lldb_private::Status
@@ -276,7 +263,7 @@ lldb_private::Status PlatformDarwin::GetSharedModuleWithLocalCache(
                         module_spec.GetFileSpec().GetFilename().AsCString());
           ModuleSpec local_spec(module_cache_spec,
                                 module_spec.GetArchitecture());
-          module_sp.reset(new Module(local_spec));
+          module_sp = std::make_shared<Module>(local_spec);
           module_sp->SetPlatformFileSpec(module_spec.GetFileSpec());
           return Status();
         }
@@ -314,7 +301,7 @@ lldb_private::Status PlatformDarwin::GetSharedModuleWithLocalCache(
         }
 
         ModuleSpec local_spec(module_cache_spec, module_spec.GetArchitecture());
-        module_sp.reset(new Module(local_spec));
+        module_sp = std::make_shared<Module>(local_spec);
         module_sp->SetPlatformFileSpec(module_spec.GetFileSpec());
         Log *log(GetLogIfAnyCategoriesSet(LIBLLDB_LOG_PLATFORM));
         if (log)
@@ -342,7 +329,7 @@ lldb_private::Status PlatformDarwin::GetSharedModuleWithLocalCache(
                       module_spec.GetFileSpec().GetDirectory().AsCString(),
                       module_spec.GetFileSpec().GetFilename().AsCString());
         ModuleSpec local_spec(module_cache_spec, module_spec.GetArchitecture());
-        module_sp.reset(new Module(local_spec));
+        module_sp = std::make_shared<Module>(local_spec);
         module_sp->SetPlatformFileSpec(module_spec.GetFileSpec());
         return Status();
       } else
@@ -502,10 +489,7 @@ bool PlatformDarwin::ModuleIsExcludedForUnconstrainedSearches(
     return false;
 
   ObjectFile::Type obj_type = obj_file->GetType();
-  if (obj_type == ObjectFile::eTypeDynamicLinker)
-    return true;
-  else
-    return false;
+  return obj_type == ObjectFile::eTypeDynamicLinker;
 }
 
 bool PlatformDarwin::x86GetSupportedArchitectureAtIndex(uint32_t idx,
@@ -1716,12 +1700,12 @@ PlatformDarwin::FindBundleBinaryInExecSearchPaths (const ModuleSpec &module_spec
     // "UIFoundation" and "UIFoundation.framework" -- most likely the latter
     // will be the one we find there.
 
-    FileSpec platform_pull_apart(platform_file);
+    FileSpec platform_pull_upart(platform_file);
     std::vector<std::string> path_parts;
     path_parts.push_back(
-        platform_pull_apart.GetLastPathComponent().AsCString());
-    while (platform_pull_apart.RemoveLastPathComponent()) {
-      ConstString part = platform_pull_apart.GetLastPathComponent();
+        platform_pull_upart.GetLastPathComponent().AsCString());
+    while (platform_pull_upart.RemoveLastPathComponent()) {
+      ConstString part = platform_pull_upart.GetLastPathComponent();
       path_parts.push_back(part.AsCString());
     }
     const size_t path_parts_size = path_parts.size();

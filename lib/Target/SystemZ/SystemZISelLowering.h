@@ -1,9 +1,8 @@
 //===-- SystemZISelLowering.h - SystemZ DAG lowering interface --*- C++ -*-===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -16,6 +15,7 @@
 #define LLVM_LIB_TARGET_SYSTEMZ_SYSTEMZISELLOWERING_H
 
 #include "SystemZ.h"
+#include "SystemZInstrInfo.h"
 #include "llvm/CodeGen/MachineBasicBlock.h"
 #include "llvm/CodeGen/SelectionDAG.h"
 #include "llvm/CodeGen/TargetLowering.h"
@@ -161,10 +161,6 @@ enum NodeType : unsigned {
 
   // Transaction end.  Just the chain operand.  Returns CC value and chain.
   TEND,
-
-  // Create a vector constant by filling byte N of the result with bit
-  // 15-N of the single operand.
-  BYTE_MASK,
 
   // Create a vector constant by replicating an element-sized RISBG-style mask.
   // The first operand specifies the starting set bit and the second operand
@@ -396,6 +392,7 @@ public:
       return TypeWidenVector;
     return TargetLoweringBase::getPreferredVectorAction(VT);
   }
+  bool isCheapToSpeculateCtlz() const override { return true; }
   EVT getSetCCResultType(const DataLayout &DL, LLVMContext &,
                          EVT) const override;
   bool isFMAFasterThanFMulAndFAdd(EVT VT) const override;
@@ -516,6 +513,9 @@ public:
     return true;
   }
 
+  static bool tryBuildVectorByteMask(BuildVectorSDNode *BVN, uint64_t &Mask);
+  static bool analyzeFPImm(const APFloat &Imm, unsigned BitWidth,
+                 unsigned &Start, unsigned &End, const SystemZInstrInfo *TII);
 private:
   const SystemZSubtarget &Subtarget;
 
@@ -592,11 +592,14 @@ private:
   SDValue combineEXTRACT_VECTOR_ELT(SDNode *N, DAGCombinerInfo &DCI) const;
   SDValue combineJOIN_DWORDS(SDNode *N, DAGCombinerInfo &DCI) const;
   SDValue combineFP_ROUND(SDNode *N, DAGCombinerInfo &DCI) const;
+  SDValue combineFP_EXTEND(SDNode *N, DAGCombinerInfo &DCI) const;
   SDValue combineBSWAP(SDNode *N, DAGCombinerInfo &DCI) const;
   SDValue combineBR_CCMASK(SDNode *N, DAGCombinerInfo &DCI) const;
   SDValue combineSELECT_CCMASK(SDNode *N, DAGCombinerInfo &DCI) const;
   SDValue combineGET_CCMASK(SDNode *N, DAGCombinerInfo &DCI) const;
   SDValue combineIntDIVREM(SDNode *N, DAGCombinerInfo &DCI) const;
+
+  SDValue unwrapAddress(SDValue N) const override;
 
   // If the last instruction before MBBI in MBB was some form of COMPARE,
   // try to replace it with a COMPARE AND BRANCH just before MBBI.

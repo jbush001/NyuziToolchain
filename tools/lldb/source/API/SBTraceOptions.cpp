@@ -1,9 +1,8 @@
 //===-- SBTraceOptions.cpp --------------------------------------*- C++ -*-===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -14,11 +13,13 @@
 #include "lldb/Utility/Log.h"
 #include "lldb/Utility/TraceOptions.h"
 
+#include <memory>
+
 using namespace lldb;
 using namespace lldb_private;
 
 SBTraceOptions::SBTraceOptions() {
-  m_traceoptions_sp.reset(new TraceOptions());
+  m_traceoptions_sp = std::make_shared<TraceOptions>();
 }
 
 lldb::TraceType SBTraceOptions::getType() const {

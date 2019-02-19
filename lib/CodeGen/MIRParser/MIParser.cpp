@@ -1,9 +1,8 @@
 //===- MIParser.cpp - Machine instructions parser implementation ----------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -226,6 +225,7 @@ public:
   bool parseMCSymbolOperand(MachineOperand &Dest);
   bool parseMDNode(MDNode *&Node);
   bool parseDIExpression(MDNode *&Expr);
+  bool parseDILocation(MDNode *&Expr);
   bool parseMetadataOperand(MachineOperand &Dest);
   bool parseCFIOffset(int &Offset);
   bool parseCFIRegister(unsigned &Reg);
@@ -776,11 +776,15 @@ bool MIParser::parse(MachineInstr *&MI) {
   DebugLoc DebugLocation;
   if (Token.is(MIToken::kw_debug_location)) {
     lex();
-    if (Token.isNot(MIToken::exclaim))
-      return error("expected a metadata node after 'debug-location'");
     MDNode *Node = nullptr;
-    if (parseMDNode(Node))
-      return true;
+    if (Token.is(MIToken::exclaim)) {
+      if (parseMDNode(Node))
+        return true;
+    } else if (Token.is(MIToken::md_dilocation)) {
+      if (parseDILocation(Node))
+        return true;
+    } else
+      return error("expected a metadata node after 'debug-location'");
     if (!isa<DILocation>(Node))
       return error("referenced metadata is not a DILocation");
     DebugLocation = DebugLoc(Node);
@@ -897,6 +901,9 @@ bool MIParser::parseStandaloneMDNode(MDNode *&Node) {
       return true;
   } else if (Token.is(MIToken::md_diexpr)) {
     if (parseDIExpression(Node))
+      return true;
+  } else if (Token.is(MIToken::md_dilocation)) {
+    if (parseDILocation(Node))
       return true;
   } else
     return error("expected a metadata node");
@@ -1333,6 +1340,19 @@ bool MIParser::parseIRConstant(StringRef::iterator Loc, const Constant *&C) {
   return false;
 }
 
+// See LLT implemntation for bit size limits.
+static bool verifyScalarSize(uint64_t Size) {
+  return Size != 0 && isUInt<16>(Size);
+}
+
+static bool verifyVectorElementCount(uint64_t NumElts) {
+  return NumElts != 0 && isUInt<16>(NumElts);
+}
+
+static bool verifyAddrSpace(uint64_t AddrSpace) {
+  return isUInt<24>(AddrSpace);
+}
+
 bool MIParser::parseLowLevelType(StringRef::iterator Loc, LLT &Ty) {
   if (Token.range().front() == 's' || Token.range().front() == 'p') {
     StringRef SizeStr = Token.range().drop_front();
@@ -1341,12 +1361,19 @@ bool MIParser::parseLowLevelType(StringRef::iterator Loc, LLT &Ty) {
   }
 
   if (Token.range().front() == 's') {
-    Ty = LLT::scalar(APSInt(Token.range().drop_front()).getZExtValue());
+    auto ScalarSize = APSInt(Token.range().drop_front()).getZExtValue();
+    if (!verifyScalarSize(ScalarSize))
+      return error("invalid size for scalar type");
+
+    Ty = LLT::scalar(ScalarSize);
     lex();
     return false;
   } else if (Token.range().front() == 'p') {
     const DataLayout &DL = MF.getDataLayout();
-    unsigned AS = APSInt(Token.range().drop_front()).getZExtValue();
+    uint64_t AS = APSInt(Token.range().drop_front()).getZExtValue();
+    if (!verifyAddrSpace(AS))
+      return error("invalid address space number");
+
     Ty = LLT::pointer(AS, DL.getPointerSizeInBits(AS));
     lex();
     return false;
@@ -1361,6 +1388,9 @@ bool MIParser::parseLowLevelType(StringRef::iterator Loc, LLT &Ty) {
   if (Token.isNot(MIToken::IntegerLiteral))
     return error(Loc, "expected <M x sN> or <M x pA> for vector type");
   uint64_t NumElements = Token.integerValue().getZExtValue();
+  if (!verifyVectorElementCount(NumElements))
+    return error("invalid number of vector elements");
+
   lex();
 
   if (Token.isNot(MIToken::Identifier) || Token.stringValue() != "x")
@@ -1373,11 +1403,17 @@ bool MIParser::parseLowLevelType(StringRef::iterator Loc, LLT &Ty) {
   if (SizeStr.size() == 0 || !llvm::all_of(SizeStr, isdigit))
     return error("expected integers after 's'/'p' type character");
 
-  if (Token.range().front() == 's')
-    Ty = LLT::scalar(APSInt(Token.range().drop_front()).getZExtValue());
-  else if (Token.range().front() == 'p') {
+  if (Token.range().front() == 's') {
+    auto ScalarSize = APSInt(Token.range().drop_front()).getZExtValue();
+    if (!verifyScalarSize(ScalarSize))
+      return error("invalid size for scalar type");
+    Ty = LLT::scalar(ScalarSize);
+  } else if (Token.range().front() == 'p') {
     const DataLayout &DL = MF.getDataLayout();
-    unsigned AS = APSInt(Token.range().drop_front()).getZExtValue();
+    uint64_t AS = APSInt(Token.range().drop_front()).getZExtValue();
+    if (!verifyAddrSpace(AS))
+      return error("invalid address space number");
+
     Ty = LLT::pointer(AS, DL.getPointerSizeInBits(AS));
   } else
     return error(Loc, "expected <M x sN> or <M x pA> for vector type");
@@ -1684,6 +1720,109 @@ bool MIParser::parseDIExpression(MDNode *&Expr) {
   return false;
 }
 
+bool MIParser::parseDILocation(MDNode *&Loc) {
+  assert(Token.is(MIToken::md_dilocation));
+  lex();
+
+  bool HaveLine = false;
+  unsigned Line = 0;
+  unsigned Column = 0;
+  MDNode *Scope = nullptr;
+  MDNode *InlinedAt = nullptr;
+  bool ImplicitCode = false;
+
+  if (expectAndConsume(MIToken::lparen))
+    return true;
+
+  if (Token.isNot(MIToken::rparen)) {
+    do {
+      if (Token.is(MIToken::Identifier)) {
+        if (Token.stringValue() == "line") {
+          lex();
+          if (expectAndConsume(MIToken::colon))
+            return true;
+          if (Token.isNot(MIToken::IntegerLiteral) ||
+              Token.integerValue().isSigned())
+            return error("expected unsigned integer");
+          Line = Token.integerValue().getZExtValue();
+          HaveLine = true;
+          lex();
+          continue;
+        }
+        if (Token.stringValue() == "column") {
+          lex();
+          if (expectAndConsume(MIToken::colon))
+            return true;
+          if (Token.isNot(MIToken::IntegerLiteral) ||
+              Token.integerValue().isSigned())
+            return error("expected unsigned integer");
+          Column = Token.integerValue().getZExtValue();
+          lex();
+          continue;
+        }
+        if (Token.stringValue() == "scope") {
+          lex();
+          if (expectAndConsume(MIToken::colon))
+            return true;
+          if (parseMDNode(Scope))
+            return error("expected metadata node");
+          if (!isa<DIScope>(Scope))
+            return error("expected DIScope node");
+          continue;
+        }
+        if (Token.stringValue() == "inlinedAt") {
+          lex();
+          if (expectAndConsume(MIToken::colon))
+            return true;
+          if (Token.is(MIToken::exclaim)) {
+            if (parseMDNode(InlinedAt))
+              return true;
+          } else if (Token.is(MIToken::md_dilocation)) {
+            if (parseDILocation(InlinedAt))
+              return true;
+          } else
+            return error("expected metadata node");
+          if (!isa<DILocation>(InlinedAt))
+            return error("expected DILocation node");
+          continue;
+        }
+        if (Token.stringValue() == "isImplicitCode") {
+          lex();
+          if (expectAndConsume(MIToken::colon))
+            return true;
+          if (!Token.is(MIToken::Identifier))
+            return error("expected true/false");
+          // As far as I can see, we don't have any existing need for parsing
+          // true/false in MIR yet. Do it ad-hoc until there's something else
+          // that needs it.
+          if (Token.stringValue() == "true")
+            ImplicitCode = true;
+          else if (Token.stringValue() == "false")
+            ImplicitCode = false;
+          else
+            return error("expected true/false");
+          lex();
+          continue;
+        }
+      }
+      return error(Twine("invalid DILocation argument '") +
+                   Token.stringValue() + "'");
+    } while (consumeIfPresent(MIToken::comma));
+  }
+
+  if (expectAndConsume(MIToken::rparen))
+    return true;
+
+  if (!HaveLine)
+    return error("DILocation requires line number");
+  if (!Scope)
+    return error("DILocation requires a scope");
+
+  Loc = DILocation::get(MF.getFunction().getContext(), Line, Column, Scope,
+                        InlinedAt, ImplicitCode);
+  return false;
+}
+
 bool MIParser::parseMetadataOperand(MachineOperand &Dest) {
   MDNode *Node = nullptr;
   if (Token.is(MIToken::exclaim)) {
@@ -1819,6 +1958,9 @@ bool MIParser::parseCFIOperand(MachineOperand &Dest) {
   }
   case MIToken::kw_cfi_window_save:
     CFIIndex = MF.addFrameInst(MCCFIInstruction::createWindowSave(nullptr));
+    break;
+  case MIToken::kw_cfi_aarch64_negate_ra_sign_state:
+    CFIIndex = MF.addFrameInst(MCCFIInstruction::createNegateRAState(nullptr));
     break;
   case MIToken::kw_cfi_escape: {
     std::string Values;
@@ -2112,6 +2254,7 @@ bool MIParser::parseMachineOperand(MachineOperand &Dest,
   case MIToken::kw_cfi_restore_state:
   case MIToken::kw_cfi_undefined:
   case MIToken::kw_cfi_window_save:
+  case MIToken::kw_cfi_aarch64_negate_ra_sign_state:
     return parseCFIOperand(Dest);
   case MIToken::kw_blockaddress:
     return parseBlockAddressOperand(Dest);
@@ -2210,6 +2353,10 @@ bool MIParser::parseAlignment(unsigned &Alignment) {
   if (getUnsigned(Alignment))
     return true;
   lex();
+
+  if (!isPowerOf2_32(Alignment))
+    return error("expected a power-of-2 literal after 'align'");
+
   return false;
 }
 

@@ -1,10 +1,9 @@
 //===-- ItaniumABILanguageRuntime.cpp --------------------------------------*-
 //C++ -*-===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -16,6 +15,9 @@
 #include "lldb/Core/PluginManager.h"
 #include "lldb/Core/ValueObject.h"
 #include "lldb/Core/ValueObjectMemory.h"
+#include "lldb/DataFormatters/FormattersHelpers.h"
+#include "lldb/Expression/DiagnosticManager.h"
+#include "lldb/Expression/FunctionCaller.h"
 #include "lldb/Interpreter/CommandObject.h"
 #include "lldb/Interpreter/CommandObjectMultiword.h"
 #include "lldb/Interpreter/CommandReturnObject.h"
@@ -98,7 +100,7 @@ TypeAndOrName ItaniumABILanguageRuntime::GetTypeInfoFromVTableAddress(
             llvm::DenseSet<SymbolFile *> searched_symbol_files;
             if (sc.module_sp) {
               num_matches = sc.module_sp->FindTypes(
-                  sc, ConstString(lookup_name), exact_match, 1,
+                  ConstString(lookup_name), exact_match, 1,
                   searched_symbol_files, class_types);
             }
 
@@ -106,7 +108,7 @@ TypeAndOrName ItaniumABILanguageRuntime::GetTypeInfoFromVTableAddress(
             // list in the target and get as many unique matches as possible
             if (num_matches == 0) {
               num_matches = target.GetImages().FindTypes(
-                  sc, ConstString(lookup_name), exact_match, UINT32_MAX,
+                  nullptr, ConstString(lookup_name), exact_match, UINT32_MAX,
                   searched_symbol_files, class_types);
             }
 
@@ -309,10 +311,7 @@ bool ItaniumABILanguageRuntime::IsVTableName(const char *name) {
     return false;
 
   // Can we maybe ask Clang about this?
-  if (strstr(name, "_vptr$") == name)
-    return true;
-  else
-    return false;
+  return strstr(name, "_vptr$") == name;
 }
 
 //------------------------------------------------------------------
@@ -550,6 +549,64 @@ bool ItaniumABILanguageRuntime::ExceptionBreakpointsExplainStop(
   uint64_t break_site_id = stop_reason->GetValue();
   return m_process->GetBreakpointSiteList().BreakpointSiteContainsBreakpoint(
       break_site_id, m_cxx_exception_bp_sp->GetID());
+}
+
+ValueObjectSP ItaniumABILanguageRuntime::GetExceptionObjectForThread(
+    ThreadSP thread_sp) {
+  if (!thread_sp->SafeToCallFunctions())
+    return {};
+
+  ClangASTContext *clang_ast_context =
+      m_process->GetTarget().GetScratchClangASTContext();
+  CompilerType voidstar =
+      clang_ast_context->GetBasicType(eBasicTypeVoid).GetPointerType();
+
+  DiagnosticManager diagnostics;
+  ExecutionContext exe_ctx;
+  EvaluateExpressionOptions options;
+
+  options.SetUnwindOnError(true);
+  options.SetIgnoreBreakpoints(true);
+  options.SetStopOthers(true);
+  options.SetTimeout(std::chrono::milliseconds(500));
+  options.SetTryAllThreads(false);
+  thread_sp->CalculateExecutionContext(exe_ctx);
+
+  const ModuleList &modules = m_process->GetTarget().GetImages();
+  SymbolContextList contexts;
+  SymbolContext context;
+
+  modules.FindSymbolsWithNameAndType(
+      ConstString("__cxa_current_exception_type"), eSymbolTypeCode, contexts);
+  contexts.GetContextAtIndex(0, context);
+  Address addr = context.symbol->GetAddress();
+
+  Status error;
+  FunctionCaller *function_caller =
+      m_process->GetTarget().GetFunctionCallerForLanguage(
+          eLanguageTypeC, voidstar, addr, ValueList(), "caller", error);
+
+  ExpressionResults func_call_ret;
+  Value results;
+  func_call_ret = function_caller->ExecuteFunction(exe_ctx, nullptr, options,
+                                                   diagnostics, results);
+  if (func_call_ret != eExpressionCompleted || !error.Success()) {
+    return ValueObjectSP();
+  }
+
+  size_t ptr_size = m_process->GetAddressByteSize();
+  addr_t result_ptr = results.GetScalar().ULongLong(LLDB_INVALID_ADDRESS);
+  addr_t exception_addr =
+      m_process->ReadPointerFromMemory(result_ptr - ptr_size, error);
+
+  lldb_private::formatters::InferiorSizedWord exception_isw(exception_addr,
+                                                            *m_process);
+  ValueObjectSP exception = ValueObject::CreateValueObjectFromData(
+      "exception", exception_isw.GetAsData(m_process->GetByteOrder()), exe_ctx,
+      voidstar);
+  exception = exception->GetDynamicValue(eDynamicDontRunTarget);
+
+  return exception;
 }
 
 TypeAndOrName ItaniumABILanguageRuntime::GetDynamicTypeInfo(

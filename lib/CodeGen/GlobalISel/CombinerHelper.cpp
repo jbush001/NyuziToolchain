@@ -1,35 +1,58 @@
-//== ---lib/CodeGen/GlobalISel/GICombinerHelper.cpp --------------------- == //
+//===-- lib/CodeGen/GlobalISel/GICombinerHelper.cpp -----------------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
-#include "llvm/CodeGen/GlobalISel/Combiner.h"
 #include "llvm/CodeGen/GlobalISel/CombinerHelper.h"
+#include "llvm/CodeGen/GlobalISel/Combiner.h"
+#include "llvm/CodeGen/GlobalISel/GISelChangeObserver.h"
 #include "llvm/CodeGen/GlobalISel/MachineIRBuilder.h"
 #include "llvm/CodeGen/GlobalISel/Utils.h"
 #include "llvm/CodeGen/MachineInstr.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
 #include "llvm/CodeGen/TargetInstrInfo.h"
 
-#define DEBUG_TYPE "gi-combine"
+#define DEBUG_TYPE "gi-combiner"
 
 using namespace llvm;
 
-CombinerHelper::CombinerHelper(CombinerChangeObserver &Observer,
+CombinerHelper::CombinerHelper(GISelChangeObserver &Observer,
                                MachineIRBuilder &B)
     : Builder(B), MRI(Builder.getMF().getRegInfo()), Observer(Observer) {}
 
-void CombinerHelper::eraseInstr(MachineInstr &MI) {
-  Observer.erasedInstr(MI);
+void CombinerHelper::replaceRegWith(MachineRegisterInfo &MRI, unsigned FromReg,
+                                    unsigned ToReg) const {
+  Observer.changingAllUsesOfReg(MRI, FromReg);
+
+  if (MRI.constrainRegAttrs(ToReg, FromReg))
+    MRI.replaceRegWith(FromReg, ToReg);
+  else
+    Builder.buildCopy(ToReg, FromReg);
+
+  Observer.finishedChangingAllUsesOfReg();
 }
-void CombinerHelper::scheduleForVisit(MachineInstr &MI) {
-  Observer.createdInstr(MI);
+
+void CombinerHelper::replaceRegOpWith(MachineRegisterInfo &MRI,
+                                      MachineOperand &FromRegOp,
+                                      unsigned ToReg) const {
+  assert(FromRegOp.getParent() && "Expected an operand in an MI");
+  Observer.changingInstr(*FromRegOp.getParent());
+
+  FromRegOp.setReg(ToReg);
+
+  Observer.changedInstr(*FromRegOp.getParent());
 }
 
 bool CombinerHelper::tryCombineCopy(MachineInstr &MI) {
+  if (matchCombineCopy(MI)) {
+    applyCombineCopy(MI);
+    return true;
+  }
+  return false;
+}
+bool CombinerHelper::matchCombineCopy(MachineInstr &MI) {
   if (MI.getOpcode() != TargetOpcode::COPY)
     return false;
   unsigned DstReg = MI.getOperand(0).getReg();
@@ -38,20 +61,18 @@ bool CombinerHelper::tryCombineCopy(MachineInstr &MI) {
   LLT SrcTy = MRI.getType(SrcReg);
   // Simple Copy Propagation.
   // a(sx) = COPY b(sx) -> Replace all uses of a with b.
-  if (DstTy.isValid() && SrcTy.isValid() && DstTy == SrcTy) {
-    MI.eraseFromParent();
-    MRI.replaceRegWith(DstReg, SrcReg);
+  if (DstTy.isValid() && SrcTy.isValid() && DstTy == SrcTy)
     return true;
-  }
   return false;
+}
+void CombinerHelper::applyCombineCopy(MachineInstr &MI) {
+  unsigned DstReg = MI.getOperand(0).getReg();
+  unsigned SrcReg = MI.getOperand(1).getReg();
+  MI.eraseFromParent();
+  replaceRegWith(MRI, DstReg, SrcReg);
 }
 
 namespace {
-struct PreferredTuple {
-  LLT Ty;                // The result type of the extend.
-  unsigned ExtendOpcode; // G_ANYEXT/G_SEXT/G_ZEXT
-  MachineInstr *MI;
-};
 
 /// Select a preference between two uses. CurrentUse is the current preference
 /// while *ForCandidate is attributes of the candidate under consideration.
@@ -136,16 +157,16 @@ static void InsertInsnsWithoutSideEffectsBeforeUse(
 } // end anonymous namespace
 
 bool CombinerHelper::tryCombineExtendingLoads(MachineInstr &MI) {
-  struct InsertionPoint {
-    MachineOperand *UseMO;
-    MachineBasicBlock *InsertIntoBB;
-    MachineBasicBlock::iterator InsertBefore;
-    InsertionPoint(MachineOperand *UseMO, MachineBasicBlock *InsertIntoBB,
-                   MachineBasicBlock::iterator InsertBefore)
-        : UseMO(UseMO), InsertIntoBB(InsertIntoBB), InsertBefore(InsertBefore) {
-    }
-  };
+  PreferredTuple Preferred;
+  if (matchCombineExtendingLoads(MI, Preferred)) {
+    applyCombineExtendingLoads(MI, Preferred);
+    return true;
+  }
+  return false;
+}
 
+bool CombinerHelper::matchCombineExtendingLoads(MachineInstr &MI,
+                                                PreferredTuple &Preferred) {
   // We match the loads and follow the uses to the extend instead of matching
   // the extends and following the def to the load. This is because the load
   // must remain in the same position for correctness (unless we also add code
@@ -165,6 +186,14 @@ bool CombinerHelper::tryCombineExtendingLoads(MachineInstr &MI) {
   if (!LoadValueTy.isScalar())
     return false;
 
+  // Most architectures are going to legalize <s8 loads into at least a 1 byte
+  // load, and the MMOs can only describe memory accesses in multiples of bytes.
+  // If we try to perform extload combining on those, we can end up with
+  // %a(s8) = extload %ptr (load 1 byte from %ptr)
+  // ... which is an illegal extload instruction.
+  if (LoadValueTy.getSizeInBits() < 8)
+    return false;
+
   // Find the preferred type aside from the any-extends (unless it's the only
   // one) and non-extending ops. We'll emit an extending load to that type and
   // and emit a variant of (extend (trunc X)) for the others according to the
@@ -175,7 +204,7 @@ bool CombinerHelper::tryCombineExtendingLoads(MachineInstr &MI) {
                                  : MI.getOpcode() == TargetOpcode::G_SEXTLOAD
                                        ? TargetOpcode::G_SEXT
                                        : TargetOpcode::G_ZEXT;
-  PreferredTuple Preferred = {LLT(), PreferredOpcode, nullptr};
+  Preferred = {LLT(), PreferredOpcode, nullptr};
   for (auto &UseMI : MRI.use_instructions(LoadValue.getReg())) {
     if (UseMI.getOpcode() == TargetOpcode::G_SEXT ||
         UseMI.getOpcode() == TargetOpcode::G_ZEXT ||
@@ -193,8 +222,25 @@ bool CombinerHelper::tryCombineExtendingLoads(MachineInstr &MI) {
   // type since by definition the result of an extend is larger.
   assert(Preferred.Ty != LoadValueTy && "Extending to same type?");
 
+  LLVM_DEBUG(dbgs() << "Preferred use is: " << *Preferred.MI);
+  return true;
+}
+
+void CombinerHelper::applyCombineExtendingLoads(MachineInstr &MI,
+                                                PreferredTuple &Preferred) {
+  struct InsertionPoint {
+    MachineOperand *UseMO;
+    MachineBasicBlock *InsertIntoBB;
+    MachineBasicBlock::iterator InsertBefore;
+    InsertionPoint(MachineOperand *UseMO, MachineBasicBlock *InsertIntoBB,
+                   MachineBasicBlock::iterator InsertBefore)
+        : UseMO(UseMO), InsertIntoBB(InsertIntoBB), InsertBefore(InsertBefore) {
+    }
+  };
+
   // Rewrite the load to the chosen extending load.
   unsigned ChosenDstReg = Preferred.MI->getOperand(0).getReg();
+  Observer.changingInstr(MI);
   MI.setDesc(
       Builder.getTII().get(Preferred.ExtendOpcode == TargetOpcode::G_SEXT
                                ? TargetOpcode::G_SEXTLOAD
@@ -205,6 +251,7 @@ bool CombinerHelper::tryCombineExtendingLoads(MachineInstr &MI) {
   // Rewrite all the uses to fix up the types.
   SmallVector<MachineInstr *, 1> ScheduleForErase;
   SmallVector<InsertionPoint, 4> ScheduleForInsert;
+  auto &LoadValue = MI.getOperand(0);
   for (auto &UseMO : MRI.use_operands(LoadValue.getReg())) {
     MachineInstr *UseMI = UseMO.getParent();
 
@@ -213,7 +260,7 @@ bool CombinerHelper::tryCombineExtendingLoads(MachineInstr &MI) {
     if (UseMI->getOpcode() == Preferred.ExtendOpcode ||
         UseMI->getOpcode() == TargetOpcode::G_ANYEXT) {
       unsigned UseDstReg = UseMI->getOperand(0).getReg();
-      unsigned UseSrcReg = UseMI->getOperand(1).getReg();
+      MachineOperand &UseSrcMO = UseMI->getOperand(1);
       const LLT &UseDstTy = MRI.getType(UseDstReg);
       if (UseDstReg != ChosenDstReg) {
         if (Preferred.Ty == UseDstTy) {
@@ -226,7 +273,7 @@ bool CombinerHelper::tryCombineExtendingLoads(MachineInstr &MI) {
           // rewrites to:
           //    %2:_(s32) = G_SEXTLOAD ...
           //    ... = ... %2(s32)
-          MRI.replaceRegWith(UseDstReg, ChosenDstReg);
+          replaceRegWith(MRI, UseDstReg, ChosenDstReg);
           ScheduleForErase.push_back(UseMO.getParent());
         } else if (Preferred.Ty.getSizeInBits() < UseDstTy.getSizeInBits()) {
           // If the preferred size is smaller, then keep the extend but extend
@@ -239,7 +286,7 @@ bool CombinerHelper::tryCombineExtendingLoads(MachineInstr &MI) {
           //    %2:_(s32) = G_SEXTLOAD ...
           //    %3:_(s64) = G_ANYEXT %2:_(s32)
           //    ... = ... %3(s64)
-          MRI.replaceRegWith(UseSrcReg, ChosenDstReg);
+          replaceRegOpWith(MRI, UseSrcMO, ChosenDstReg);
         } else {
           // If the preferred size is large, then insert a truncate. For
           // example:
@@ -286,7 +333,9 @@ bool CombinerHelper::tryCombineExtendingLoads(MachineInstr &MI) {
 
     MachineInstr *PreviouslyEmitted = EmittedInsns.lookup(InsertIntoBB);
     if (PreviouslyEmitted) {
+      Observer.changingInstr(*UseMO->getParent());
       UseMO->setReg(PreviouslyEmitted->getOperand(0).getReg());
+      Observer.changedInstr(*UseMO->getParent());
       continue;
     }
 
@@ -294,16 +343,14 @@ bool CombinerHelper::tryCombineExtendingLoads(MachineInstr &MI) {
     unsigned NewDstReg = MRI.cloneVirtualRegister(MI.getOperand(0).getReg());
     MachineInstr *NewMI = Builder.buildTrunc(NewDstReg, ChosenDstReg);
     EmittedInsns[InsertIntoBB] = NewMI;
-    UseMO->setReg(NewDstReg);
-    Observer.createdInstr(*NewMI);
+    replaceRegOpWith(MRI, *UseMO, NewDstReg);
   }
   for (auto &EraseMI : ScheduleForErase) {
+    Observer.erasingInstr(*EraseMI);
     EraseMI->eraseFromParent();
-    Observer.erasedInstr(*EraseMI);
   }
   MI.getOperand(0).setReg(ChosenDstReg);
-
-  return true;
+  Observer.changedInstr(MI);
 }
 
 bool CombinerHelper::tryCombine(MachineInstr &MI) {

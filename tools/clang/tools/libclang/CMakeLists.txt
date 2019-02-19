@@ -36,15 +36,26 @@ set(SOURCES
 set(LIBS
   clangAST
   clangBasic
+  clangDriver
   clangFrontend
   clangIndex
   clangLex
   clangSema
+  clangSerialization
   clangTooling
 )
 
 if (CLANG_ENABLE_ARCMT)
   list(APPEND LIBS clangARCMigrate)
+endif ()
+
+if (TARGET clangTidyPlugin)
+  add_definitions(-DCLANG_TOOL_EXTRA_BUILD)
+  list(APPEND LIBS clangTidyPlugin)
+  list(APPEND LIBS clangIncludeFixerPlugin)
+  if(LLVM_ENABLE_MODULES)
+    list(APPEND LLVM_COMPILE_FLAGS "-fmodules-ignore-macro=CLANG_TOOL_EXTRA_BUILD")
+  endif()
 endif ()
 
 find_library(DL_LIBRARY_PATH dl)
@@ -64,7 +75,7 @@ if(MSVC)
   set(LLVM_EXPORTED_SYMBOL_FILE)
 endif()
 
-if( LLVM_ENABLE_PIC )
+if(LLVM_ENABLE_PIC OR WIN32)
   set(ENABLE_SHARED SHARED)
 endif()
 

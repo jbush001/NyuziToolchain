@@ -1,9 +1,8 @@
 //===-- llvm-mca.cpp - Machine Code Analyzer -------------------*- C++ -* -===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -24,8 +23,6 @@
 #include "CodeRegion.h"
 #include "CodeRegionGenerator.h"
 #include "PipelinePrinter.h"
-#include "Stages/EntryStage.h"
-#include "Stages/InstructionTables.h"
 #include "Views/DispatchStatistics.h"
 #include "Views/InstructionInfoView.h"
 #include "Views/RegisterFileStatistics.h"
@@ -34,13 +31,15 @@
 #include "Views/SchedulerStatistics.h"
 #include "Views/SummaryView.h"
 #include "Views/TimelineView.h"
-#include "include/Context.h"
-#include "include/Pipeline.h"
-#include "include/Support.h"
 #include "llvm/MC/MCAsmInfo.h"
 #include "llvm/MC/MCContext.h"
 #include "llvm/MC/MCObjectFileInfo.h"
 #include "llvm/MC/MCRegisterInfo.h"
+#include "llvm/MCA/Context.h"
+#include "llvm/MCA/Pipeline.h"
+#include "llvm/MCA/Stages/EntryStage.h"
+#include "llvm/MCA/Stages/InstructionTables.h"
+#include "llvm/MCA/Support.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/ErrorOr.h"
@@ -149,15 +148,13 @@ static cl::opt<bool>
                   cl::desc("If set, assume that loads and stores do not alias"),
                   cl::cat(ToolOptions), cl::init(true));
 
-static cl::opt<unsigned>
-    LoadQueueSize("lqueue",
-                  cl::desc("Size of the load queue (unbound by default)"),
-                  cl::cat(ToolOptions), cl::init(0));
+static cl::opt<unsigned> LoadQueueSize("lqueue",
+                                       cl::desc("Size of the load queue"),
+                                       cl::cat(ToolOptions), cl::init(0));
 
-static cl::opt<unsigned>
-    StoreQueueSize("squeue",
-                   cl::desc("Size of the store queue (unbound by default)"),
-                   cl::cat(ToolOptions), cl::init(0));
+static cl::opt<unsigned> StoreQueueSize("squeue",
+                                        cl::desc("Size of the store queue"),
+                                        cl::cat(ToolOptions), cl::init(0));
 
 static cl::opt<bool>
     PrintInstructionTables("instruction-tables",
@@ -240,8 +237,9 @@ static void processViewOptions() {
 // Returns true on success.
 static bool runPipeline(mca::Pipeline &P) {
   // Handle pipeline errors here.
-  if (auto Err = P.run()) {
-    WithColor::error() << toString(std::move(Err));
+  Expected<unsigned> Cycles = P.run();
+  if (!Cycles) {
+    WithColor::error() << toString(Cycles.takeError());
     return false;
   }
   return true;
@@ -338,8 +336,14 @@ int main(int argc, char **argv) {
   // Parse the input and create CodeRegions that llvm-mca can analyze.
   mca::AsmCodeRegionGenerator CRG(*TheTarget, SrcMgr, Ctx, *MAI, *STI, *MCII);
   Expected<const mca::CodeRegions &> RegionsOrErr = CRG.parseCodeRegions();
-  if (auto Err = RegionsOrErr.takeError()) {
-    WithColor::error() << Err << "\n";
+  if (!RegionsOrErr) {
+    if (auto Err =
+            handleErrors(RegionsOrErr.takeError(), [](const StringError &E) {
+              WithColor::error() << E.getMessage() << '\n';
+            })) {
+      // Default case.
+      WithColor::error() << toString(std::move(Err)) << '\n';
+    }
     return 1;
   }
   const mca::CodeRegions &Regions = *RegionsOrErr;
@@ -377,7 +381,7 @@ int main(int argc, char **argv) {
     Width = DispatchWidth;
 
   // Create an instruction builder.
-  mca::InstrBuilder IB(*STI, *MCII, *MRI, *MCIA);
+  mca::InstrBuilder IB(*STI, *MCII, *MRI, MCIA.get());
 
   // Create a context to control ownership of the pipeline hardware.
   mca::Context MCA(*MRI, *STI);

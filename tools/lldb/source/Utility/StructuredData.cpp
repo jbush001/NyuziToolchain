@@ -1,9 +1,8 @@
 //===---------------------StructuredData.cpp ---------------------*- C++-*-===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -144,7 +143,7 @@ static StructuredData::ObjectSP ParseJSONValue(JSONParser &json_parser) {
 }
 
 StructuredData::ObjectSP StructuredData::ParseJSON(std::string json_text) {
-  JSONParser json_parser(json_text.c_str());
+  JSONParser json_parser(json_text);
   StructuredData::ObjectSP object_sp = ParseJSONValue(json_parser);
   return object_sp;
 }
@@ -169,11 +168,11 @@ StructuredData::Object::GetObjectForDotSeparatedPath(llvm::StringRef path) {
 
   if (this->GetType() == lldb::eStructuredDataTypeArray) {
     std::pair<llvm::StringRef, llvm::StringRef> match = path.split('[');
-    if (match.second.size() == 0) {
+    if (match.second.empty()) {
       return this->shared_from_this();
     }
     errno = 0;
-    uint64_t val = strtoul(match.second.str().c_str(), NULL, 10);
+    uint64_t val = strtoul(match.second.str().c_str(), nullptr, 10);
     if (errno == 0) {
       return this->GetAsArray()->GetItemAtIndex(val);
     }
@@ -226,7 +225,7 @@ void StructuredData::Float::Dump(Stream &s, bool pretty_print) const {
 }
 
 void StructuredData::Boolean::Dump(Stream &s, bool pretty_print) const {
-  if (m_value == true)
+  if (m_value)
     s.PutCString("true");
   else
     s.PutCString("false");

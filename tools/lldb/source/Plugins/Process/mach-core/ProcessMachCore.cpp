@@ -1,10 +1,9 @@
 //===-- ProcessMachCore.cpp ------------------------------------------*- C++
 //-*-===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -13,7 +12,6 @@
 
 #include "llvm/Support/MathExtras.h"
 #include "llvm/Support/Threading.h"
-#include <mutex>
 
 #include "lldb/Core/Debugger.h"
 #include "lldb/Core/Module.h"
@@ -39,6 +37,9 @@
 #include "Plugins/DynamicLoader/Darwin-Kernel/DynamicLoaderDarwinKernel.h"
 #include "Plugins/DynamicLoader/MacOSX-DYLD/DynamicLoaderMacOSXDYLD.h"
 #include "Plugins/ObjectFile/Mach-O/ObjectFileMachO.h"
+
+#include <memory>
+#include <mutex>
 
 using namespace lldb;
 using namespace lldb_private;
@@ -71,8 +72,8 @@ lldb::ProcessSP ProcessMachCore::CreateInstance(lldb::TargetSP target_sp,
       llvm::MachO::mach_header mach_header;
       if (ObjectFileMachO::ParseHeader(data, &data_offset, mach_header)) {
         if (mach_header.filetype == llvm::MachO::MH_CORE)
-          process_sp.reset(
-              new ProcessMachCore(target_sp, listener_sp, *crash_file));
+          process_sp = std::make_shared<ProcessMachCore>(target_sp, listener_sp,
+                                                         *crash_file);
       }
     }
   }
@@ -302,36 +303,38 @@ Status ProcessMachCore::DoLoadCore() {
   // LC_IDENT is very obsolete and should not be used in new code, but if the
   // load command is present, let's use the contents.
   std::string corefile_identifier = core_objfile->GetIdentifierString();
-  if (found_main_binary_definitively == false 
-      && corefile_identifier.find("Darwin Kernel") != std::string::npos) {
-      UUID uuid;
-      addr_t addr = LLDB_INVALID_ADDRESS;
-      if (corefile_identifier.find("UUID=") != std::string::npos) {
-          size_t p = corefile_identifier.find("UUID=") + strlen("UUID=");
-          std::string uuid_str = corefile_identifier.substr(p, 36);
-          uuid.SetFromStringRef(uuid_str);
+  if (!found_main_binary_definitively &&
+      corefile_identifier.find("Darwin Kernel") != std::string::npos) {
+    UUID uuid;
+    addr_t addr = LLDB_INVALID_ADDRESS;
+    if (corefile_identifier.find("UUID=") != std::string::npos) {
+      size_t p = corefile_identifier.find("UUID=") + strlen("UUID=");
+      std::string uuid_str = corefile_identifier.substr(p, 36);
+      uuid.SetFromStringRef(uuid_str);
+    }
+    if (corefile_identifier.find("stext=") != std::string::npos) {
+      size_t p = corefile_identifier.find("stext=") + strlen("stext=");
+      if (corefile_identifier[p] == '0' && corefile_identifier[p + 1] == 'x') {
+        errno = 0;
+        addr = ::strtoul(corefile_identifier.c_str() + p, NULL, 16);
+        if (errno != 0 || addr == 0)
+          addr = LLDB_INVALID_ADDRESS;
       }
-      if (corefile_identifier.find("stext=") != std::string::npos) {
-          size_t p = corefile_identifier.find("stext=") + strlen("stext=");
-          if (corefile_identifier[p] == '0' && corefile_identifier[p + 1] == 'x') {
-              errno = 0;
-              addr = ::strtoul(corefile_identifier.c_str() + p, NULL, 16);
-              if (errno != 0 || addr == 0)
-                  addr = LLDB_INVALID_ADDRESS;
-          }
-      }
-      if (uuid.IsValid() && addr != LLDB_INVALID_ADDRESS) {
-          m_mach_kernel_addr = addr;
-          found_main_binary_definitively = true;
-          if (log)
-            log->Printf("ProcessMachCore::DoLoadCore: Using the kernel address 0x%" PRIx64
-                        " from LC_IDENT/LC_NOTE 'kern ver str' string: '%s'", addr, corefile_identifier.c_str());
-      }
+    }
+    if (uuid.IsValid() && addr != LLDB_INVALID_ADDRESS) {
+      m_mach_kernel_addr = addr;
+      found_main_binary_definitively = true;
+      if (log)
+        log->Printf(
+            "ProcessMachCore::DoLoadCore: Using the kernel address 0x%" PRIx64
+            " from LC_IDENT/LC_NOTE 'kern ver str' string: '%s'",
+            addr, corefile_identifier.c_str());
+    }
   }
 
-  if (found_main_binary_definitively == false
-      && (m_dyld_addr == LLDB_INVALID_ADDRESS
-          || m_mach_kernel_addr == LLDB_INVALID_ADDRESS)) {
+  if (!found_main_binary_definitively &&
+      (m_dyld_addr == LLDB_INVALID_ADDRESS ||
+       m_mach_kernel_addr == LLDB_INVALID_ADDRESS)) {
     // We need to locate the main executable in the memory ranges we have in
     // the core file.  We need to search for both a user-process dyld binary
     // and a kernel binary in memory; we must look at all the pages in the
@@ -352,16 +355,15 @@ Status ProcessMachCore::DoLoadCore() {
     }
   }
 
-  if (found_main_binary_definitively == false 
-       && m_mach_kernel_addr != LLDB_INVALID_ADDRESS) {
+  if (!found_main_binary_definitively &&
+      m_mach_kernel_addr != LLDB_INVALID_ADDRESS) {
     // In the case of multiple kernel images found in the core file via
     // exhaustive search, we may not pick the correct one.  See if the
     // DynamicLoaderDarwinKernel's search heuristics might identify the correct
     // one. Most of the time, I expect the address from SearchForDarwinKernel()
     // will be the same as the address we found via exhaustive search.
 
-    if (GetTarget().GetArchitecture().IsValid() == false &&
-        m_core_module_sp.get()) {
+    if (!GetTarget().GetArchitecture().IsValid() && m_core_module_sp.get()) {
       GetTarget().SetArchitecture(m_core_module_sp->GetArchitecture());
     }
 
@@ -453,11 +455,11 @@ Status ProcessMachCore::DoLoadCore() {
 }
 
 lldb_private::DynamicLoader *ProcessMachCore::GetDynamicLoader() {
-  if (m_dyld_ap.get() == NULL)
-    m_dyld_ap.reset(DynamicLoader::FindPlugin(
+  if (m_dyld_up.get() == NULL)
+    m_dyld_up.reset(DynamicLoader::FindPlugin(
         this,
         m_dyld_plugin_name.IsEmpty() ? NULL : m_dyld_plugin_name.GetCString()));
-  return m_dyld_ap.get();
+  return m_dyld_up.get();
 }
 
 bool ProcessMachCore::UpdateThreadList(ThreadList &old_thread_list,

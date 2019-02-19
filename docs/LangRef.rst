@@ -1643,19 +1643,15 @@ example:
 ``speculative_load_hardening``
     This attribute indicates that
     `Speculative Load Hardening <https://llvm.org/docs/SpeculativeLoadHardening.html>`_
-    should be enabled for the function body. This is a best-effort attempt to
-    mitigate all known speculative execution information leak vulnerabilities
-    that are based on the fundamental principles of modern processors'
-    speculative execution. These vulnerabilities are classified as "Spectre
-    variant #1" vulnerabilities typically. Notably, this does not attempt to
-    mitigate any vulnerabilities where the speculative execution and/or
-    prediction devices of specific processors can be *completely* undermined
-    (such as "Branch Target Injection", a.k.a, "Spectre variant #2"). Instead,
-    this is a target-independent request to harden against the completely
-    generic risk posed by speculative execution to incorrectly load secret data,
-    making it available to some micro-architectural side-channel for information
-    leak. For a processor without any speculative execution or predictors, this
-    is expected to be a no-op.
+    should be enabled for the function body.
+
+    Speculative Load Hardening is a best-effort mitigation against
+    information leak attacks that make use of control flow
+    miss-speculation - specifically miss-speculation of whether a branch
+    is taken or not. Typically vulnerabilities enabling such attacks are
+    classified as "Spectre variant #1". Notably, this does not attempt to
+    mitigate against miss-speculation of branch target, classified as
+    "Spectre variant #2" vulnerabilities.
 
     When inlining, the attribute is sticky. Inlining a function that carries
     this attribute will cause the caller to gain the attribute. This is intended
@@ -2184,6 +2180,24 @@ volatile operations or change their order of execution relative to other
 volatile operations. The optimizers *may* change the order of volatile
 operations relative to non-volatile operations. This is not Java's
 "volatile" and has no cross-thread synchronization behavior.
+
+A volatile load or store may have additional target-specific semantics.
+Any volatile operation can have side effects, and any volatile operation
+can read and/or modify state which is not accessible via a regular load
+or store in this module. Volatile operations may use addresses which do
+not point to memory (like MMIO registers). This means the compiler may
+not use a volatile operation to prove a non-volatile access to that
+address has defined behavior.
+
+The allowed side-effects for volatile accesses are limited.  If a
+non-volatile store to a given address would be legal, a volatile
+operation may modify the memory at that address. A volatile operation
+may not modify any other memory accessible by the module being compiled.
+A volatile operation may not call any code in the current module.
+
+The compiler may assume execution will continue after a volatile operation,
+so operations which modify memory or may have undefined behavior can be
+hoisted past a volatile operation.
 
 IR-level volatile loads and stores cannot safely be optimized into
 llvm.memcpy or llvm.memmove intrinsics even when those intrinsics are
@@ -4497,13 +4511,36 @@ DIGlobalVariable
 
 .. code-block:: text
 
-    !0 = !DIGlobalVariable(name: "foo", linkageName: "foo", scope: !1,
-                           file: !2, line: 7, type: !3, isLocal: true,
-                           isDefinition: false, variable: i32* @foo,
-                           declaration: !4)
+    @foo = global i32, !dbg !0
+    !0 = !DIGlobalVariableExpression(var: !1, expr: !DIExpression())
+    !1 = !DIGlobalVariable(name: "foo", linkageName: "foo", scope: !2,
+                           file: !3, line: 7, type: !4, isLocal: true,
+                           isDefinition: false, declaration: !5)
 
-All global variables should be referenced by the `globals:` field of a
-:ref:`compile unit <DICompileUnit>`.
+
+DIGlobalVariableExpression
+""""""""""""""""""""""""""
+
+``DIGlobalVariableExpression`` nodes tie a :ref:`DIGlobalVariable` together
+with a :ref:`DIExpression`.
+
+.. code-block:: text
+
+    @lower = global i32, !dbg !0
+    @upper = global i32, !dbg !1
+    !0 = !DIGlobalVariableExpression(
+             var: !2,
+             expr: !DIExpression(DW_OP_LLVM_fragment, 0, 32)
+             )
+    !1 = !DIGlobalVariableExpression(
+             var: !2,
+             expr: !DIExpression(DW_OP_LLVM_fragment, 32, 32)
+             )
+    !2 = !DIGlobalVariable(name: "split64", linkageName: "split64", scope: !3,
+                           file: !4, line: 8, type: !5, declaration: !6)
+
+All global variable expressions should be referenced by the `globals:` field of
+a :ref:`compile unit <DICompileUnit>`.
 
 .. _DISubprogram:
 
@@ -4602,6 +4639,8 @@ parameter, and it will be included in the ``variables:`` field of its
     !1 = !DILocalVariable(name: "x", arg: 2, scope: !4, file: !2, line: 7,
                           type: !3)
     !2 = !DILocalVariable(name: "y", scope: !5, file: !2, line: 7, type: !3)
+
+.. _DIExpression:
 
 DIExpression
 """"""""""""
@@ -5070,6 +5109,80 @@ For example, in the code below, the call instruction may only target the
     ...
     !0 = !{i64 (i64, i64)* @add, i64 (i64, i64)* @sub}
 
+'``callback``' Metadata
+^^^^^^^^^^^^^^^^^^^^^^^
+
+``callback`` metadata may be attached to a function declaration, or definition.
+(Call sites are excluded only due to the lack of a use case.) For ease of
+exposition, we'll refer to the function annotated w/ metadata as a broker
+function. The metadata describes how the arguments of a call to the broker are
+in turn passed to the callback function specified by the metadata. Thus, the
+``callback`` metadata provides a partial description of a call site inside the
+broker function with regards to the arguments of a call to the broker. The only
+semantic restriction on the broker function itself is that it is not allowed to
+inspect or modify arguments referenced in the ``callback`` metadata as
+pass-through to the callback function.
+
+The broker is not required to actually invoke the callback function at runtime.
+However, the assumptions about not inspecting or modifying arguments that would
+be passed to the specified callback function still hold, even if the callback
+function is not dynamically invoked. The broker is allowed to invoke the
+callback function more than once per invocation of the broker. The broker is
+also allowed to invoke (directly or indirectly) the function passed as a
+callback through another use. Finally, the broker is also allowed to relay the
+callback callee invocation to a different thread.
+
+The metadata is structured as follows: At the outer level, ``callback``
+metadata is a list of ``callback`` encodings. Each encoding starts with a
+constant ``i64`` which describes the argument position of the callback function
+in the call to the broker. The following elements, except the last, describe
+what arguments are passed to the callback function. Each element is again an
+``i64`` constant identifying the argument of the broker that is passed through,
+or ``i64 -1`` to indicate an unknown or inspected argument. The order in which
+they are listed has to be the same in which they are passed to the callback
+callee. The last element of the encoding is a boolean which specifies how
+variadic arguments of the broker are handled. If it is true, all variadic
+arguments of the broker are passed through to the callback function *after* the
+arguments encoded explicitly before.
+
+In the code below, the ``pthread_create`` function is marked as a broker
+through the ``!callback !1`` metadata. In the example, there is only one
+callback encoding, namely ``!2``, associated with the broker. This encoding
+identifies the callback function as the second argument of the broker (``i64
+2``) and the sole argument of the callback function as the third one of the
+broker function (``i64 3``).
+
+.. FIXME why does the llvm-sphinx-docs builder give a highlighting
+   error if the below is set to highlight as 'llvm', despite that we
+   have misc.highlighting_failure set?
+
+.. code-block:: text
+
+    declare !callback !1 dso_local i32 @pthread_create(i64*, %union.pthread_attr_t*, i8* (i8*)*, i8*)
+
+    ...
+    !2 = !{i64 2, i64 3, i1 false}
+    !1 = !{!2}
+
+Another example is shown below. The callback callee is the second argument of
+the ``__kmpc_fork_call`` function (``i64 2``). The callee is given two unknown
+values (each identified by a ``i64 -1``) and afterwards all
+variadic arguments that are passed to the ``__kmpc_fork_call`` call (due to the
+final ``i1 true``).
+
+.. FIXME why does the llvm-sphinx-docs builder give a highlighting
+   error if the below is set to highlight as 'llvm', despite that we
+   have misc.highlighting_failure set?
+
+.. code-block:: text
+
+    declare !callback !0 dso_local void @__kmpc_fork_call(%struct.ident_t*, i32, void (i32*, i32*, ...)*, ...)
+
+    ...
+    !1 = !{i64 2, i64 -1, i64 -1, i1 true}
+    !0 = !{!1}
+
+
 '``unpredictable``' Metadata
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
@@ -5079,6 +5192,8 @@ flow. Similar to the llvm.expect intrinsic, it may be used to alter
 optimizations related to compare and branch instructions. The metadata
 is treated as a boolean value; if it exists, it signals that the branch
 or switch that it is attached to is completely unpredictable.
+
+.. _llvm.loop:
 
 '``llvm.loop``'
 ^^^^^^^^^^^^^^^
@@ -5113,6 +5228,26 @@ suggests an unroll factor to the loop unroller:
     !0 = !{!0, !1}
     !1 = !{!"llvm.loop.unroll.count", i32 4}
 
+'``llvm.loop.disable_nonforced``'
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+This metadata disables all optional loop transformations unless
+explicitly instructed using other transformation metdata such as
+``llvm.loop.unroll.enable``. That is, no heuristic will try to determine
+whether a transformation is profitable. The purpose is to avoid that the
+loop is transformed to a different loop before an explicitly requested
+(forced) transformation is applied. For instance, loop fusion can make
+other transformations impossible. Mandatory loop canonicalizations such
+as loop rotation are still applied.
+
+It is recommended to use this metadata in addition to any llvm.loop.*
+transformation directive. Also, any loop should have at most one
+directive applied to it (and a sequence of transformations built using
+followup-attributes). Otherwise, which transformation will be applied
+depends on implementation details such as the pass pipeline order.
+
+See :ref:`transformation-metadata` for details.
+
 '``llvm.loop.vectorize``' and '``llvm.loop.interleave``'
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
@@ -5122,7 +5257,7 @@ vectorization width and interleave count. These metadata should be used in
 conjunction with ``llvm.loop`` loop identification metadata. The
 ``llvm.loop.vectorize`` and ``llvm.loop.interleave`` metadata are only
 optimization hints and the optimizer will only interleave and vectorize loops if
-it believes it is safe to do so. The ``llvm.mem.parallel_loop_access`` metadata
+it believes it is safe to do so. The ``llvm.loop.parallel_accesses`` metadata
 which contains information about loop-carried memory dependencies can be helpful
 in determining the safety of these transformations.
 
@@ -5170,6 +5305,29 @@ Note that setting ``llvm.loop.vectorize.width`` to 1 disables
 vectorization of the loop. If ``llvm.loop.vectorize.width`` is set to
 0 or if the loop does not have this metadata the width will be
 determined automatically.
+
+'``llvm.loop.vectorize.followup_vectorized``' Metadata
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+This metadata defines which loop attributes the vectorized loop will
+have. See :ref:`transformation-metadata` for details.
+
+'``llvm.loop.vectorize.followup_epilogue``' Metadata
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+This metadata defines which loop attributes the epilogue will have. The
+epilogue is not vectorized and is executed when either the vectorized
+loop is not known to preserve semantics (because e.g., it processes two
+arrays that are found to alias by a runtime check) or for the last
+iterations that do not fill a complete set of vector lanes. See
+:ref:`Transformation Metadata <transformation-metadata>` for details.
+
+'``llvm.loop.vectorize.followup_all``' Metadata
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Attributes in the metadata will be added to both the vectorized and
+epilogue loop.
+See :ref:`Transformation Metadata <transformation-metadata>` for details.
 
 '``llvm.loop.unroll``'
 ^^^^^^^^^^^^^^^^^^^^^^
@@ -5239,6 +5397,19 @@ For example:
 
    !0 = !{!"llvm.loop.unroll.full"}
 
+'``llvm.loop.unroll.followup``' Metadata
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+This metadata defines which loop attributes the unrolled loop will have.
+See :ref:`Transformation Metadata <transformation-metadata>` for details.
+
+'``llvm.loop.unroll.followup_remainder``' Metadata
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+This metadata defines which loop attributes the remainder loop after
+partial/runtime unrolling will have. See
+:ref:`Transformation Metadata <transformation-metadata>` for details.
+
 '``llvm.loop.unroll_and_jam``'
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
@@ -5292,6 +5463,43 @@ string ``llvm.loop.unroll_and_jam.enable``.  For example:
 
    !0 = !{!"llvm.loop.unroll_and_jam.enable"}
 
+'``llvm.loop.unroll_and_jam.followup_outer``' Metadata
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+This metadata defines which loop attributes the outer unrolled loop will
+have. See :ref:`Transformation Metadata <transformation-metadata>` for
+details.
+
+'``llvm.loop.unroll_and_jam.followup_inner``' Metadata
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+This metadata defines which loop attributes the inner jammed loop will
+have. See :ref:`Transformation Metadata <transformation-metadata>` for
+details.
+
+'``llvm.loop.unroll_and_jam.followup_remainder_outer``' Metadata
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+This metadata defines which attributes the epilogue of the outer loop
+will have. This loop is usually unrolled, meaning there is no such
+loop. This attribute will be ignored in this case. See
+:ref:`Transformation Metadata <transformation-metadata>` for details.
+
+'``llvm.loop.unroll_and_jam.followup_remainder_inner``' Metadata
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+This metadata defines which attributes the inner loop of the epilogue
+will have. The outer epilogue will usually be unrolled, meaning there
+can be multiple inner remainder loops. See
+:ref:`Transformation Metadata <transformation-metadata>` for details.
+
+'``llvm.loop.unroll_and_jam.followup_all``' Metadata
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Attributes specified in the metadata is added to all
+``llvm.loop.unroll_and_jam.*`` loops. See
+:ref:`Transformation Metadata <transformation-metadata>` for details.
+
 '``llvm.loop.licm_versioning.disable``' Metadata
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
@@ -5324,89 +5532,147 @@ enabled. A value of 0 disables distribution:
 This metadata should be used in conjunction with ``llvm.loop`` loop
 identification metadata.
 
-'``llvm.mem``'
-^^^^^^^^^^^^^^^
+'``llvm.loop.distribute.followup_coincident``' Metadata
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Metadata types used to annotate memory accesses with information helpful
-for optimizations are prefixed with ``llvm.mem``.
+This metadata defines which attributes extracted loops with no cyclic
+dependencies will have (i.e. can be vectorized). See
+:ref:`Transformation Metadata <transformation-metadata>` for details.
 
-'``llvm.mem.parallel_loop_access``' Metadata
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+'``llvm.loop.distribute.followup_sequential``' Metadata
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-The ``llvm.mem.parallel_loop_access`` metadata refers to a loop identifier,
-or metadata containing a list of loop identifiers for nested loops.
-The metadata is attached to memory accessing instructions and denotes that
-no loop carried memory dependence exist between it and other instructions denoted
-with the same loop identifier. The metadata on memory reads also implies that
-if conversion (i.e. speculative execution within a loop iteration) is safe.
+This metadata defines which attributes the isolated loops with unsafe
+memory dependencies will have. See
+:ref:`Transformation Metadata <transformation-metadata>` for details.
 
-Precisely, given two instructions ``m1`` and ``m2`` that both have the
-``llvm.mem.parallel_loop_access`` metadata, with ``L1`` and ``L2`` being the
-set of loops associated with that metadata, respectively, then there is no loop
-carried dependence between ``m1`` and ``m2`` for loops in both ``L1`` and
-``L2``.
+'``llvm.loop.distribute.followup_fallback``' Metadata
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-As a special case, if all memory accessing instructions in a loop have
-``llvm.mem.parallel_loop_access`` metadata that refers to that loop, then the
-loop has no loop carried memory dependences and is considered to be a parallel
-loop.
+If loop versioning is necessary, this metadata defined the attributes
+the non-distributed fallback version will have. See
+:ref:`Transformation Metadata <transformation-metadata>` for details.
 
-Note that if not all memory access instructions have such metadata referring to
-the loop, then the loop is considered not being trivially parallel. Additional
+'``llvm.loop.distribute.followup_all``' Metadata
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Thes attributes in this metdata is added to all followup loops of the
+loop distribution pass. See
+:ref:`Transformation Metadata <transformation-metadata>` for details.
+
+'``llvm.access.group``' Metadata
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+``llvm.access.group`` metadata can be attached to any instruction that
+potentially accesses memory. It can point to a single distinct metadata
+node, which we call access group. This node represents all memory access
+instructions referring to it via ``llvm.access.group``. When an
+instruction belongs to multiple access groups, it can also point to a
+list of accesses groups, illustrated by the following example.
+
+.. code-block:: llvm
+
+   %val = load i32, i32* %arrayidx, !llvm.access.group !0
+   ...
+   !0 = !{!1, !2}
+   !1 = distinct !{}
+   !2 = distinct !{}
+
+It is illegal for the list node to be empty since it might be confused
+with an access group.
+
+The access group metadata node must be 'distinct' to avoid collapsing
+multiple access groups by content. A access group metadata node must
+always be empty which can be used to distinguish an access group
+metadata node from a list of access groups. Being empty avoids the
+situation that the content must be updated which, because metadata is
+immutable by design, would required finding and updating all references
+to the access group node.
+
+The access group can be used to refer to a memory access instruction
+without pointing to it directly (which is not possible in global
+metadata). Currently, the only metadata making use of it is
+``llvm.loop.parallel_accesses``.
+
+'``llvm.loop.parallel_accesses``' Metadata
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+The ``llvm.loop.parallel_accesses`` metadata refers to one or more
+access group metadata nodes (see ``llvm.access.group``). It denotes that
+no loop-carried memory dependence exist between it and other instructions
+in the loop with this metadata.
+
+Let ``m1`` and ``m2`` be two instructions that both have the
+``llvm.access.group`` metadata to the access group ``g1``, respectively
+``g2`` (which might be identical). If a loop contains both access groups
+in its ``llvm.loop.parallel_accesses`` metadata, then the compiler can
+assume that there is no dependency between ``m1`` and ``m2`` carried by
+this loop. Instructions that belong to multiple access groups are
+considered having this property if at least one of the access groups
+matches the ``llvm.loop.parallel_accesses`` list.
+
+If all memory-accessing instructions in a loop have
+``llvm.loop.parallel_accesses`` metadata that refers to that loop, then the
+loop has no loop carried memory dependences and is considered to be a
+parallel loop.
+
+Note that if not all memory access instructions belong to an access
+group referred to by ``llvm.loop.parallel_accesses``, then the loop must
+not be considered trivially parallel. Additional
 memory dependence analysis is required to make that determination. As a fail
 safe mechanism, this causes loops that were originally parallel to be considered
 sequential (if optimization passes that are unaware of the parallel semantics
 insert new memory instructions into the loop body).
 
 Example of a loop that is considered parallel due to its correct use of
-both ``llvm.loop`` and ``llvm.mem.parallel_loop_access``
-metadata types that refer to the same loop identifier metadata.
+both ``llvm.access.group`` and ``llvm.loop.parallel_accesses``
+metadata types.
 
 .. code-block:: llvm
 
    for.body:
      ...
-     %val0 = load i32, i32* %arrayidx, !llvm.mem.parallel_loop_access !0
+     %val0 = load i32, i32* %arrayidx, !llvm.access.group !1
      ...
-     store i32 %val0, i32* %arrayidx1, !llvm.mem.parallel_loop_access !0
+     store i32 %val0, i32* %arrayidx1, !llvm.access.group !1
      ...
      br i1 %exitcond, label %for.end, label %for.body, !llvm.loop !0
 
    for.end:
    ...
-   !0 = !{!0}
+   !0 = distinct !{!0, !{!"llvm.loop.parallel_accesses", !1}}
+   !1 = distinct !{}
 
-It is also possible to have nested parallel loops. In that case the
-memory accesses refer to a list of loop identifier metadata nodes instead of
-the loop identifier metadata node directly:
+It is also possible to have nested parallel loops:
 
 .. code-block:: llvm
 
    outer.for.body:
      ...
-     %val1 = load i32, i32* %arrayidx3, !llvm.mem.parallel_loop_access !2
+     %val1 = load i32, i32* %arrayidx3, !llvm.access.group !4
      ...
      br label %inner.for.body
 
    inner.for.body:
      ...
-     %val0 = load i32, i32* %arrayidx1, !llvm.mem.parallel_loop_access !0
+     %val0 = load i32, i32* %arrayidx1, !llvm.access.group !3
      ...
-     store i32 %val0, i32* %arrayidx2, !llvm.mem.parallel_loop_access !0
+     store i32 %val0, i32* %arrayidx2, !llvm.access.group !3
      ...
      br i1 %exitcond, label %inner.for.end, label %inner.for.body, !llvm.loop !1
 
    inner.for.end:
      ...
-     store i32 %val1, i32* %arrayidx4, !llvm.mem.parallel_loop_access !2
+     store i32 %val1, i32* %arrayidx4, !llvm.access.group !4
      ...
      br i1 %exitcond, label %outer.for.end, label %outer.for.body, !llvm.loop !2
 
    outer.for.end:                                          ; preds = %for.body
    ...
-   !0 = !{!1, !2} ; a list of loop identifiers
-   !1 = !{!1} ; an identifier for the inner loop
-   !2 = !{!2} ; an identifier for the outer loop
+   !1 = distinct !{!1, !{!"llvm.loop.parallel_accesses", !3}}     ; metadata for the inner loop
+   !2 = distinct !{!2, !{!"llvm.loop.parallel_accesses", !3, !4}} ; metadata for the outer loop
+   !3 = distinct !{} ; access group for instructions in the inner loop (which are implicitly contained in outer loop as well)
+   !4 = distinct !{} ; access group for instructions in the outer, but not the inner loop
 
 '``irr_loop``' Metadata
 ^^^^^^^^^^^^^^^^^^^^^^^
@@ -6247,6 +6513,7 @@ control flow, not values (the one exception being the
 The terminator instructions are: ':ref:`ret <i_ret>`',
 ':ref:`br <i_br>`', ':ref:`switch <i_switch>`',
 ':ref:`indirectbr <i_indirectbr>`', ':ref:`invoke <i_invoke>`',
+':ref:`callbr <i_callbr>`'
 ':ref:`resume <i_resume>`', ':ref:`catchswitch <i_catchswitch>`',
 ':ref:`catchret <i_catchret>`',
 ':ref:`cleanupret <i_cleanupret>`',
@@ -6282,7 +6549,7 @@ The '``ret``' instruction optionally accepts a single argument, the
 return value. The type of the return value must be a ':ref:`first
 class <t_firstclass>`' type.
 
-A function is not :ref:`well formed <wellformed>` if it it has a non-void
+A function is not :ref:`well formed <wellformed>` if it has a non-void
 return type and contains a '``ret``' instruction with no return value or
 a return value with a type that does not match its type, or if it has a
 void return type and contains a '``ret``' instruction with a return
@@ -6517,7 +6784,7 @@ This instruction requires several arguments:
 #. The optional :ref:`Parameter Attributes <paramattrs>` list for return
    values. Only '``zeroext``', '``signext``', and '``inreg``' attributes
    are valid here.
-#. The optional addrspace attribute can be used to indicate the adress space
+#. The optional addrspace attribute can be used to indicate the address space
    of the called function. If it is not specified, the program address space
    from the :ref:`datalayout string<langref_datalayout>` will be used.
 #. '``ty``': the type of the call instruction itself which is also the
@@ -6570,6 +6837,85 @@ Example:
                   unwind label %TestCleanup              ; i32:retval set
       %retval = invoke coldcc i32 %Testfnptr(i32 15) to label %Continue
                   unwind label %TestCleanup              ; i32:retval set
+
+.. _i_callbr:
+
+'``callbr``' Instruction
+^^^^^^^^^^^^^^^^^^^^^^^^
+
+Syntax:
+"""""""
+
+::
+
+      <result> = callbr [cconv] [ret attrs] [addrspace(<num>)] [<ty>|<fnty> <fnptrval>(<function args>) [fn attrs]
+                    [operand bundles] to label <normal label> or jump [other labels]
+
+Overview:
+"""""""""
+
+The '``callbr``' instruction causes control to transfer to a specified
+function, with the possibility of control flow transfer to either the
+'``normal``' label or one of the '``other``' labels.
+
+This instruction should only be used to implement the "goto" feature of gcc
+style inline assembly. Any other usage is an error in the IR verifier.
+
+Arguments:
+""""""""""
+
+This instruction requires several arguments:
+
+#. The optional "cconv" marker indicates which :ref:`calling
+   convention <callingconv>` the call should use. If none is
+   specified, the call defaults to using C calling conventions.
+#. The optional :ref:`Parameter Attributes <paramattrs>` list for return
+   values. Only '``zeroext``', '``signext``', and '``inreg``' attributes
+   are valid here.
+#. The optional addrspace attribute can be used to indicate the address space
+   of the called function. If it is not specified, the program address space
+   from the :ref:`datalayout string<langref_datalayout>` will be used.
+#. '``ty``': the type of the call instruction itself which is also the
+   type of the return value. Functions that return no value are marked
+   ``void``.
+#. '``fnty``': shall be the signature of the function being called. The
+   argument types must match the types implied by this signature. This
+   type can be omitted if the function is not varargs.
+#. '``fnptrval``': An LLVM value containing a pointer to a function to
+   be called. In most cases, this is a direct function call, but
+   indirect ``callbr``'s are just as possible, calling an arbitrary pointer
+   to function value.
+#. '``function args``': argument list whose types match the function
+   signature argument types and parameter attributes. All arguments must
+   be of :ref:`first class <t_firstclass>` type. If the function signature
+   indicates the function accepts a variable number of arguments, the
+   extra arguments can be specified.
+#. '``normal label``': the label reached when the called function
+   executes a '``ret``' instruction.
+#. '``other labels``': the labels reached when a callee transfers control
+   to a location other than the normal '``normal label``'
+#. The optional :ref:`function attributes <fnattrs>` list.
+#. The optional :ref:`operand bundles <opbundles>` list.
+
+Semantics:
+""""""""""
+
+This instruction is designed to operate as a standard '``call``'
+instruction in most regards. The primary difference is that it
+establishes an association with additional labels to define where control
+flow goes after the call.
+
+The only use of this today is to implement the "goto" feature of gcc inline
+assembly where additional labels can be provided as locations for the inline
+assembly to jump to.
+
+Example:
+""""""""
+
+.. code-block:: text
+
+      callbr void asm "", "r,x"(i32 %x, i8 *blockaddress(@foo, %fail))
+                  to label %normal or jump [label %fail]
 
 .. _i_resume:
 
@@ -6822,7 +7168,7 @@ Arguments:
 
 The argument to the '``fneg``' instruction must be a
 :ref:`floating-point <t_floating>` or :ref:`vector <t_vector>` of
-floating-point values. 
+floating-point values.
 
 Semantics:
 """"""""""
@@ -8434,14 +8780,18 @@ operation. The operation must be one of the following keywords:
 -  min
 -  umax
 -  umin
+-  fadd
+-  fsub
 
-The type of '<value>' must be an integer type whose bit width is a power
-of two greater than or equal to eight and less than or equal to a
-target-specific size limit. The type of the '``<pointer>``' operand must
-be a pointer to that type. If the ``atomicrmw`` is marked as
-``volatile``, then the optimizer is not allowed to modify the number or
-order of execution of this ``atomicrmw`` with other :ref:`volatile
-operations <volatile>`.
+For most of these operations, the type of '<value>' must be an integer
+type whose bit width is a power of two greater than or equal to eight
+and less than or equal to a target-specific size limit. For xchg, this
+may also be a floating point type with the same size constraints as
+integers.  For fadd/fsub, this must be a floating point type.  The
+type of the '``<pointer>``' operand must be a pointer to that type. If
+the ``atomicrmw`` is marked as ``volatile``, then the optimizer is not
+allowed to modify the number or order of execution of this
+``atomicrmw`` with other :ref:`volatile operations <volatile>`.
 
 A ``atomicrmw`` instruction can also take an optional
 ":ref:`syncscope <syncscope>`" argument.
@@ -8467,6 +8817,8 @@ operation argument:
    comparison)
 -  umin: ``*ptr = *ptr < val ? *ptr : val`` (using an unsigned
    comparison)
+- fadd: ``*ptr = *ptr + val`` (using floating point arithmetic)
+- fsub: ``*ptr = *ptr - val`` (using floating point arithmetic)
 
 Example:
 """"""""
@@ -9653,7 +10005,7 @@ This instruction requires several arguments:
 #. The optional :ref:`Parameter Attributes <paramattrs>` list for return
    values. Only '``zeroext``', '``signext``', and '``inreg``' attributes
    are valid here.
-#. The optional addrspace attribute can be used to indicate the adress space
+#. The optional addrspace attribute can be used to indicate the address space
    of the called function. If it is not specified, the program address space
    from the :ref:`datalayout string<langref_datalayout>` will be used.
 #. '``ty``': the type of the call instruction itself which is also the
@@ -11978,19 +12330,22 @@ integer type.
       declare i16 @llvm.bitreverse.i16(i16 <id>)
       declare i32 @llvm.bitreverse.i32(i32 <id>)
       declare i64 @llvm.bitreverse.i64(i64 <id>)
+      declare <4 x i32> @llvm.bitreverse.v4i32(<4 x i32> <id>)
 
 Overview:
 """""""""
 
 The '``llvm.bitreverse``' family of intrinsics is used to reverse the
-bitpattern of an integer value; for example ``0b10110110`` becomes
-``0b01101101``.
+bitpattern of an integer value or vector of integer values; for example
+``0b10110110`` becomes ``0b01101101``.
 
 Semantics:
 """"""""""
 
 The ``llvm.bitreverse.iN`` intrinsic returns an iN value that has bit
-``M`` in the input moved to bit ``N-M`` in the output.
+``M`` in the input moved to bit ``N-M`` in the output. The vector
+intrinsics, such as ``llvm.bitreverse.v4i32``, operate on a per-element
+basis and the element order is not affected.
 
 '``llvm.bswap.*``' Intrinsics
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -12006,14 +12361,14 @@ integer type that is an even number of bytes (i.e. BitWidth % 16 == 0).
       declare i16 @llvm.bswap.i16(i16 <id>)
       declare i32 @llvm.bswap.i32(i32 <id>)
       declare i64 @llvm.bswap.i64(i64 <id>)
+      declare <4 x i32> @llvm.bswap.v4i32(<4 x i32> <id>)
 
 Overview:
 """""""""
 
-The '``llvm.bswap``' family of intrinsics is used to byte swap integer
-values with an even number of bytes (positive multiple of 16 bits).
-These are useful for performing operations on data that is not in the
-target's native byte order.
+The '``llvm.bswap``' family of intrinsics is used to byte swap an integer
+value or vector of integer values with an even number of bytes (positive
+multiple of 16 bits).
 
 Semantics:
 """"""""""
@@ -12025,7 +12380,8 @@ swapped, so that if the input bytes are numbered 0, 1, 2, 3 then the
 returned i32 will have its bytes in 3, 2, 1, 0 order. The
 ``llvm.bswap.i48``, ``llvm.bswap.i64`` and other intrinsics extend this
 concept to additional even-byte lengths (6 bytes, 8 bytes and more,
-respectively).
+respectively). The vector intrinsics, such as ``llvm.bswap.v4i32``,
+operate on a per-element basis and the element order is not affected.
 
 '``llvm.ctpop.*``' Intrinsic
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -12774,6 +13130,136 @@ Examples
 
       %res = call i4 @llvm.usub.sat.i4(i4 2, i4 1)  ; %res = 1
       %res = call i4 @llvm.usub.sat.i4(i4 2, i4 6)  ; %res = 0
+
+
+Fixed Point Arithmetic Intrinsics
+---------------------------------
+
+A fixed point number represents a real data type for a number that has a fixed
+number of digits after a radix point (equivalent to the decimal point '.').
+The number of digits after the radix point is referred as the ``scale``. These
+are useful for representing fractional values to a specific precision. The
+following intrinsics perform fixed point arithmetic operations on 2 operands
+of the same scale, specified as the third argument.
+
+
+'``llvm.smul.fix.*``' Intrinsics
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Syntax
+"""""""
+
+This is an overloaded intrinsic. You can use ``llvm.smul.fix``
+on any integer bit width or vectors of integers.
+
+::
+
+      declare i16 @llvm.smul.fix.i16(i16 %a, i16 %b, i32 %scale)
+      declare i32 @llvm.smul.fix.i32(i32 %a, i32 %b, i32 %scale)
+      declare i64 @llvm.smul.fix.i64(i64 %a, i64 %b, i32 %scale)
+      declare <4 x i32> @llvm.smul.fix.v4i32(<4 x i32> %a, <4 x i32> %b, i32 %scale)
+
+Overview
+"""""""""
+
+The '``llvm.smul.fix``' family of intrinsic functions perform signed
+fixed point multiplication on 2 arguments of the same scale.
+
+Arguments
+""""""""""
+
+The arguments (%a and %b) and the result may be of integer types of any bit
+width, but they must have the same bit width. The arguments may also work with
+int vectors of the same length and int size. ``%a`` and ``%b`` are the two
+values that will undergo signed fixed point multiplication. The argument
+``%scale`` represents the scale of both operands, and must be a constant
+integer.
+
+Semantics:
+""""""""""
+
+This operation performs fixed point multiplication on the 2 arguments of a
+specified scale. The result will also be returned in the same scale specified
+in the third argument.
+
+If the result value cannot be precisely represented in the given scale, the
+value is rounded up or down to the closest representable value. The rounding
+direction is unspecified.
+
+It is undefined behavior if the result value does not fit within the range of
+the fixed point type.
+
+
+Examples
+"""""""""
+
+.. code-block:: llvm
+
+      %res = call i4 @llvm.smul.fix.i4(i4 3, i4 2, i32 0)  ; %res = 6 (2 x 3 = 6)
+      %res = call i4 @llvm.smul.fix.i4(i4 3, i4 2, i32 1)  ; %res = 3 (1.5 x 1 = 1.5)
+      %res = call i4 @llvm.smul.fix.i4(i4 3, i4 -2, i32 1)  ; %res = -3 (1.5 x -1 = -1.5)
+
+      ; The result in the following could be rounded up to -2 or down to -2.5
+      %res = call i4 @llvm.smul.fix.i4(i4 3, i4 -3, i32 1)  ; %res = -5 (or -4) (1.5 x -1.5 = -2.25)
+
+
+'``llvm.umul.fix.*``' Intrinsics
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Syntax
+"""""""
+
+This is an overloaded intrinsic. You can use ``llvm.umul.fix``
+on any integer bit width or vectors of integers.
+
+::
+
+      declare i16 @llvm.umul.fix.i16(i16 %a, i16 %b, i32 %scale)
+      declare i32 @llvm.umul.fix.i32(i32 %a, i32 %b, i32 %scale)
+      declare i64 @llvm.umul.fix.i64(i64 %a, i64 %b, i32 %scale)
+      declare <4 x i32> @llvm.umul.fix.v4i32(<4 x i32> %a, <4 x i32> %b, i32 %scale)
+
+Overview
+"""""""""
+
+The '``llvm.umul.fix``' family of intrinsic functions perform unsigned
+fixed point multiplication on 2 arguments of the same scale.
+
+Arguments
+""""""""""
+
+The arguments (%a and %b) and the result may be of integer types of any bit
+width, but they must have the same bit width. The arguments may also work with
+int vectors of the same length and int size. ``%a`` and ``%b`` are the two
+values that will undergo unsigned fixed point multiplication. The argument
+``%scale`` represents the scale of both operands, and must be a constant
+integer.
+
+Semantics:
+""""""""""
+
+This operation performs unsigned fixed point multiplication on the 2 arguments of a
+specified scale. The result will also be returned in the same scale specified
+in the third argument.
+
+If the result value cannot be precisely represented in the given scale, the
+value is rounded up or down to the closest representable value. The rounding
+direction is unspecified.
+
+It is undefined behavior if the result value does not fit within the range of
+the fixed point type.
+
+
+Examples
+"""""""""
+
+.. code-block:: llvm
+
+      %res = call i4 @llvm.umul.fix.i4(i4 3, i4 2, i32 0)  ; %res = 6 (2 x 3 = 6)
+      %res = call i4 @llvm.umul.fix.i4(i4 3, i4 2, i32 1)  ; %res = 3 (1.5 x 1 = 1.5)
+
+      ; The result in the following could be rounded down to 3.5 or up to 4
+      %res = call i4 @llvm.umul.fix.i4(i4 15, i4 1, i32 1)  ; %res = 7 (or 8) (7.5 x 0.5 = 3.75)
 
 
 Specialised Arithmetic Intrinsics
@@ -14768,13 +15254,13 @@ Syntax:
 Overview:
 """""""""
 
-The '``llvm.experimental.constrained.maxnum``' intrinsic returns the maximum 
+The '``llvm.experimental.constrained.maxnum``' intrinsic returns the maximum
 of the two arguments.
 
 Arguments:
 """"""""""
 
-The first two arguments and the return value are floating-point numbers 
+The first two arguments and the return value are floating-point numbers
 of the same type.
 
 The third and forth arguments specify the rounding mode and exception
@@ -14842,7 +15328,7 @@ Syntax:
 Overview:
 """""""""
 
-The '``llvm.experimental.constrained.ceil``' intrinsic returns the ceiling of the 
+The '``llvm.experimental.constrained.ceil``' intrinsic returns the ceiling of the
 first operand.
 
 Arguments:
@@ -14878,7 +15364,7 @@ Syntax:
 Overview:
 """""""""
 
-The '``llvm.experimental.constrained.floor``' intrinsic returns the floor of the 
+The '``llvm.experimental.constrained.floor``' intrinsic returns the floor of the
 first operand.
 
 Arguments:
@@ -14895,7 +15381,7 @@ Semantics:
 """"""""""
 
 This function returns the same values as the libm ``floor`` functions
-would and handles error conditions in the same way. 
+would and handles error conditions in the same way.
 
 
 '``llvm.experimental.constrained.round``' Intrinsic
@@ -14914,7 +15400,7 @@ Syntax:
 Overview:
 """""""""
 
-The '``llvm.experimental.constrained.round``' intrinsic returns the first 
+The '``llvm.experimental.constrained.round``' intrinsic returns the first
 operand rounded to the nearest integer.
 
 Arguments:
@@ -14950,8 +15436,8 @@ Syntax:
 Overview:
 """""""""
 
-The '``llvm.experimental.constrained.trunc``' intrinsic returns the first 
-operand rounded to the nearest integer not larger in magnitude than the 
+The '``llvm.experimental.constrained.trunc``' intrinsic returns the first
+operand rounded to the nearest integer not larger in magnitude than the
 operand.
 
 Arguments:
@@ -15239,40 +15725,40 @@ Syntax:
 
 ::
 
-      declare i32 @llvm.objectsize.i32(i8* <object>, i1 <min>, i1 <nullunknown>)
-      declare i64 @llvm.objectsize.i64(i8* <object>, i1 <min>, i1 <nullunknown>)
+      declare i32 @llvm.objectsize.i32(i8* <object>, i1 <min>, i1 <nullunknown>, i1 <dynamic>)
+      declare i64 @llvm.objectsize.i64(i8* <object>, i1 <min>, i1 <nullunknown>, i1 <dynamic>)
 
 Overview:
 """""""""
 
-The ``llvm.objectsize`` intrinsic is designed to provide information to
-the optimizers to determine at compile time whether a) an operation
-(like memcpy) will overflow a buffer that corresponds to an object, or
-b) that a runtime check for overflow isn't necessary. An object in this
-context means an allocation of a specific class, structure, array, or
-other object.
+The ``llvm.objectsize`` intrinsic is designed to provide information to the
+optimizer to determine whether a) an operation (like memcpy) will overflow a
+buffer that corresponds to an object, or b) that a runtime check for overflow
+isn't necessary. An object in this context means an allocation of a specific
+class, structure, array, or other object.
 
 Arguments:
 """"""""""
 
-The ``llvm.objectsize`` intrinsic takes three arguments. The first argument is
-a pointer to or into the ``object``. The second argument determines whether
-``llvm.objectsize`` returns 0 (if true) or -1 (if false) when the object size
-is unknown. The third argument controls how ``llvm.objectsize`` acts when
-``null`` in address space 0 is used as its pointer argument. If it's ``false``,
+The ``llvm.objectsize`` intrinsic takes four arguments. The first argument is a
+pointer to or into the ``object``. The second argument determines whether
+``llvm.objectsize`` returns 0 (if true) or -1 (if false) when the object size is
+unknown. The third argument controls how ``llvm.objectsize`` acts when ``null``
+in address space 0 is used as its pointer argument. If it's ``false``,
 ``llvm.objectsize`` reports 0 bytes available when given ``null``. Otherwise, if
 the ``null`` is in a non-zero address space or if ``true`` is given for the
-third argument of ``llvm.objectsize``, we assume its size is unknown.
+third argument of ``llvm.objectsize``, we assume its size is unknown. The fourth
+argument to ``llvm.objectsize`` determines if the value should be evaluated at
+runtime.
 
-The second and third arguments only accept constants.
+The second, third, and fourth arguments only accept constants.
 
 Semantics:
 """"""""""
 
-The ``llvm.objectsize`` intrinsic is lowered to a constant representing
-the size of the object concerned. If the size cannot be determined at
-compile time, ``llvm.objectsize`` returns ``i32/i64 -1 or 0`` (depending
-on the ``min`` argument).
+The ``llvm.objectsize`` intrinsic is lowered to a value representing the size of
+the object concerned. If the size cannot be determined, ``llvm.objectsize``
+returns ``i32/i64 -1 or 0`` (depending on the ``min`` argument).
 
 '``llvm.expect``' Intrinsic
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -15606,6 +16092,145 @@ i.e. without the original condition being false (hence the "not only
 if"); and this allows for "check widening" type optimizations.
 
 ``@llvm.experimental.guard`` cannot be invoked.
+
+
+'``llvm.experimental.widenable.condition``' Intrinsic
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Syntax:
+"""""""
+
+::
+
+      declare i1 @llvm.experimental.widenable.condition()
+
+Overview:
+"""""""""
+
+This intrinsic represents a "widenable condition" which is
+boolean expressions with the following property: whether this
+expression is `true` or `false`, the program is correct and
+well-defined.
+
+Together with :ref:`deoptimization operand bundles <deopt_opbundles>`,
+``@llvm.experimental.widenable.condition`` allows frontends to
+express guards or checks on optimistic assumptions made during
+compilation and represent them as branch instructions on special
+conditions.
+
+While this may appear similar in semantics to `undef`, it is very
+different in that an invocation produces a particular, singular
+value. It is also intended to be lowered late, and remain available
+for specific optimizations and transforms that can benefit from its
+special properties.
+
+Arguments:
+""""""""""
+
+None.
+
+Semantics:
+""""""""""
+
+The intrinsic ``@llvm.experimental.widenable.condition()``
+returns either `true` or `false`. For each evaluation of a call
+to this intrinsic, the program must be valid and correct both if
+it returns `true` and if it returns `false`. This allows
+transformation passes to replace evaluations of this intrinsic
+with either value whenever one is beneficial.
+
+When used in a branch condition, it allows us to choose between
+two alternative correct solutions for the same problem, like
+in example below:
+
+.. code-block:: text
+
+    %cond = call i1 @llvm.experimental.widenable.condition()
+    br i1 %cond, label %solution_1, label %solution_2
+
+  label %fast_path:
+    ; Apply memory-consuming but fast solution for a task.
+
+  label %slow_path:
+    ; Cheap in memory but slow solution.
+
+Whether the result of intrinsic's call is `true` or `false`,
+it should be correct to pick either solution. We can switch
+between them by replacing the result of
+``@llvm.experimental.widenable.condition`` with different
+`i1` expressions.
+
+This is how it can be used to represent guards as widenable branches:
+
+.. code-block:: text
+
+  block:
+    ; Unguarded instructions
+    call void @llvm.experimental.guard(i1 %cond, <args...>) ["deopt"(<deopt_args...>)]
+    ; Guarded instructions
+
+Can be expressed in an alternative equivalent form of explicit branch using
+``@llvm.experimental.widenable.condition``:
+
+.. code-block:: text
+
+  block:
+    ; Unguarded instructions
+    %widenable_condition = call i1 @llvm.experimental.widenable.condition()
+    %guard_condition = and i1 %cond, %widenable_condition
+    br i1 %guard_condition, label %guarded, label %deopt
+
+  guarded:
+    ; Guarded instructions
+
+  deopt:
+    call type @llvm.experimental.deoptimize(<args...>) [ "deopt"(<deopt_args...>) ]
+
+So the block `guarded` is only reachable when `%cond` is `true`,
+and it should be valid to go to the block `deopt` whenever `%cond`
+is `true` or `false`.
+
+``@llvm.experimental.widenable.condition`` will never throw, thus
+it cannot be invoked.
+
+Guard widening:
+"""""""""""""""
+
+When ``@llvm.experimental.widenable.condition()`` is used in
+condition of a guard represented as explicit branch, it is
+legal to widen the guard's condition with any additional
+conditions.
+
+Guard widening looks like replacement of
+
+.. code-block:: text
+
+  %widenable_cond = call i1 @llvm.experimental.widenable.condition()
+  %guard_cond = and i1 %cond, %widenable_cond
+  br i1 %guard_cond, label %guarded, label %deopt
+
+with
+
+.. code-block:: text
+
+  %widenable_cond = call i1 @llvm.experimental.widenable.condition()
+  %new_cond = and i1 %any_other_cond, %widenable_cond
+  %new_guard_cond = and i1 %cond, %new_cond
+  br i1 %new_guard_cond, label %guarded, label %deopt
+
+for this branch. Here `%any_other_cond` is an arbitrarily chosen
+well-defined `i1` value. By making guard widening, we may
+impose stricter conditions on `guarded` block and bail to the
+deopt when the new condition is not met.
+
+Lowering:
+"""""""""
+
+Default lowering strategy is replacing the result of
+call of ``@llvm.experimental.widenable.condition``  with
+constant `true`. However it is always correct to replace
+it with any other `i1` value. Any pass can
+freely do it if it can benefit from non-default lowering.
 
 
 '``llvm.load.relative``' Intrinsic
@@ -15943,3 +16568,263 @@ lowered to a call to the symbol ``__llvm_memset_element_unordered_atomic_*``. Wh
 is replaced with an actual element size.
 
 The optimizer is allowed to inline the memory assignment when it's profitable to do so.
+
+Objective-C ARC Runtime Intrinsics
+----------------------------------
+
+LLVM provides intrinsics that lower to Objective-C ARC runtime entry points.
+LLVM is aware of the semantics of these functions, and optimizes based on that
+knowledge. You can read more about the details of Objective-C ARC `here
+<https://clang.llvm.org/docs/AutomaticReferenceCounting.html>`_.
+
+'``llvm.objc.autorelease``' Intrinsic
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Syntax:
+"""""""
+::
+
+      declare i8* @llvm.objc.autorelease(i8*)
+
+Lowering:
+"""""""""
+
+Lowers to a call to `objc_autorelease <https://clang.llvm.org/docs/AutomaticReferenceCounting.html#arc-runtime-objc-autorelease>`_.
+
+'``llvm.objc.autoreleasePoolPop``' Intrinsic
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Syntax:
+"""""""
+::
+
+      declare void @llvm.objc.autoreleasePoolPop(i8*)
+
+Lowering:
+"""""""""
+
+Lowers to a call to `objc_autoreleasePoolPop <https://clang.llvm.org/docs/AutomaticReferenceCounting.html#void-objc-autoreleasepoolpop-void-pool>`_.
+
+'``llvm.objc.autoreleasePoolPush``' Intrinsic
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Syntax:
+"""""""
+::
+
+      declare i8* @llvm.objc.autoreleasePoolPush()
+
+Lowering:
+"""""""""
+
+Lowers to a call to `objc_autoreleasePoolPush <https://clang.llvm.org/docs/AutomaticReferenceCounting.html#void-objc-autoreleasepoolpush-void>`_.
+
+'``llvm.objc.autoreleaseReturnValue``' Intrinsic
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Syntax:
+"""""""
+::
+
+      declare i8* @llvm.objc.autoreleaseReturnValue(i8*)
+
+Lowering:
+"""""""""
+
+Lowers to a call to `objc_autoreleaseReturnValue <https://clang.llvm.org/docs/AutomaticReferenceCounting.html#arc-runtime-objc-autoreleasereturnvalue>`_.
+
+'``llvm.objc.copyWeak``' Intrinsic
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Syntax:
+"""""""
+::
+
+      declare void @llvm.objc.copyWeak(i8**, i8**)
+
+Lowering:
+"""""""""
+
+Lowers to a call to `objc_copyWeak <https://clang.llvm.org/docs/AutomaticReferenceCounting.html#void-objc-copyweak-id-dest-id-src>`_.
+
+'``llvm.objc.destroyWeak``' Intrinsic
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Syntax:
+"""""""
+::
+
+      declare void @llvm.objc.destroyWeak(i8**)
+
+Lowering:
+"""""""""
+
+Lowers to a call to `objc_destroyWeak <https://clang.llvm.org/docs/AutomaticReferenceCounting.html#void-objc-destroyweak-id-object>`_.
+
+'``llvm.objc.initWeak``' Intrinsic
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Syntax:
+"""""""
+::
+
+      declare i8* @llvm.objc.initWeak(i8**, i8*)
+
+Lowering:
+"""""""""
+
+Lowers to a call to `objc_initWeak <https://clang.llvm.org/docs/AutomaticReferenceCounting.html#arc-runtime-objc-initweak>`_.
+
+'``llvm.objc.loadWeak``' Intrinsic
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Syntax:
+"""""""
+::
+
+      declare i8* @llvm.objc.loadWeak(i8**)
+
+Lowering:
+"""""""""
+
+Lowers to a call to `objc_loadWeak <https://clang.llvm.org/docs/AutomaticReferenceCounting.html#arc-runtime-objc-loadweak>`_.
+
+'``llvm.objc.loadWeakRetained``' Intrinsic
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Syntax:
+"""""""
+::
+
+      declare i8* @llvm.objc.loadWeakRetained(i8**)
+
+Lowering:
+"""""""""
+
+Lowers to a call to `objc_loadWeakRetained <https://clang.llvm.org/docs/AutomaticReferenceCounting.html#arc-runtime-objc-loadweakretained>`_.
+
+'``llvm.objc.moveWeak``' Intrinsic
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Syntax:
+"""""""
+::
+
+      declare void @llvm.objc.moveWeak(i8**, i8**)
+
+Lowering:
+"""""""""
+
+Lowers to a call to `objc_moveWeak <https://clang.llvm.org/docs/AutomaticReferenceCounting.html#void-objc-moveweak-id-dest-id-src>`_.
+
+'``llvm.objc.release``' Intrinsic
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Syntax:
+"""""""
+::
+
+      declare void @llvm.objc.release(i8*)
+
+Lowering:
+"""""""""
+
+Lowers to a call to `objc_release <https://clang.llvm.org/docs/AutomaticReferenceCounting.html#void-objc-release-id-value>`_.
+
+'``llvm.objc.retain``' Intrinsic
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Syntax:
+"""""""
+::
+
+      declare i8* @llvm.objc.retain(i8*)
+
+Lowering:
+"""""""""
+
+Lowers to a call to `objc_retain <https://clang.llvm.org/docs/AutomaticReferenceCounting.html#arc-runtime-objc-retain>`_.
+
+'``llvm.objc.retainAutorelease``' Intrinsic
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Syntax:
+"""""""
+::
+
+      declare i8* @llvm.objc.retainAutorelease(i8*)
+
+Lowering:
+"""""""""
+
+Lowers to a call to `objc_retainAutorelease <https://clang.llvm.org/docs/AutomaticReferenceCounting.html#arc-runtime-objc-retainautorelease>`_.
+
+'``llvm.objc.retainAutoreleaseReturnValue``' Intrinsic
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Syntax:
+"""""""
+::
+
+      declare i8* @llvm.objc.retainAutoreleaseReturnValue(i8*)
+
+Lowering:
+"""""""""
+
+Lowers to a call to `objc_retainAutoreleaseReturnValue <https://clang.llvm.org/docs/AutomaticReferenceCounting.html#arc-runtime-objc-retainautoreleasereturnvalue>`_.
+
+'``llvm.objc.retainAutoreleasedReturnValue``' Intrinsic
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Syntax:
+"""""""
+::
+
+      declare i8* @llvm.objc.retainAutoreleasedReturnValue(i8*)
+
+Lowering:
+"""""""""
+
+Lowers to a call to `objc_retainAutoreleasedReturnValue <https://clang.llvm.org/docs/AutomaticReferenceCounting.html#arc-runtime-objc-retainautoreleasedreturnvalue>`_.
+
+'``llvm.objc.retainBlock``' Intrinsic
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Syntax:
+"""""""
+::
+
+      declare i8* @llvm.objc.retainBlock(i8*)
+
+Lowering:
+"""""""""
+
+Lowers to a call to `objc_retainBlock <https://clang.llvm.org/docs/AutomaticReferenceCounting.html#arc-runtime-objc-retainblock>`_.
+
+'``llvm.objc.storeStrong``' Intrinsic
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Syntax:
+"""""""
+::
+
+      declare void @llvm.objc.storeStrong(i8**, i8*)
+
+Lowering:
+"""""""""
+
+Lowers to a call to `objc_storeStrong <https://clang.llvm.org/docs/AutomaticReferenceCounting.html#void-objc-storestrong-id-object-id-value>`_.
+
+'``llvm.objc.storeWeak``' Intrinsic
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Syntax:
+"""""""
+::
+
+      declare i8* @llvm.objc.storeWeak(i8**, i8*)
+
+Lowering:
+"""""""""
+
+Lowers to a call to `objc_storeWeak <https://clang.llvm.org/docs/AutomaticReferenceCounting.html#arc-runtime-objc-storeweak>`_.

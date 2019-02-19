@@ -1,9 +1,8 @@
 //===-- X86TargetMachine.cpp - Define TargetMachine for the X86 -----------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -78,6 +77,7 @@ extern "C" void LLVMInitializeX86Target() {
   initializeX86AvoidSFBPassPass(PR);
   initializeX86SpeculativeLoadHardeningPassPass(PR);
   initializeX86FlagsCopyLoweringPassPass(PR);
+  initializeX86CondBrFoldingPassPass(PR);
 }
 
 static std::unique_ptr<TargetLoweringObjectFile> createTLOF(const Triple &TT) {
@@ -189,10 +189,13 @@ static Reloc::Model getEffectiveRelocModel(const Triple &TT,
   return *RM;
 }
 
-static CodeModel::Model getEffectiveCodeModel(Optional<CodeModel::Model> CM,
-                                              bool JIT, bool Is64Bit) {
-  if (CM)
+static CodeModel::Model getEffectiveX86CodeModel(Optional<CodeModel::Model> CM,
+                                                 bool JIT, bool Is64Bit) {
+  if (CM) {
+    if (*CM == CodeModel::Tiny)
+      report_fatal_error("Target does not support the tiny CodeModel");
     return *CM;
+  }
   if (JIT)
     return Is64Bit ? CodeModel::Large : CodeModel::Small;
   return CodeModel::Small;
@@ -209,7 +212,8 @@ X86TargetMachine::X86TargetMachine(const Target &T, const Triple &TT,
     : LLVMTargetMachine(
           T, computeDataLayout(TT), TT, CPU, FS, Options,
           getEffectiveRelocModel(TT, JIT, RM),
-          getEffectiveCodeModel(CM, JIT, TT.getArch() == Triple::x86_64), OL),
+          getEffectiveX86CodeModel(CM, JIT, TT.getArch() == Triple::x86_64),
+          OL),
       TLOF(createTLOF(getTargetTriple())) {
   // Windows stack unwinder gets confused when execution flow "falls through"
   // after a call to 'noreturn' function.
@@ -497,6 +501,8 @@ void X86PassConfig::addPreEmitPass() {
     addPass(createX86FixupLEAs());
     addPass(createX86EvexToVexInsts());
   }
+  addPass(createX86DiscriminateMemOpsPass());
+  addPass(createX86InsertPrefetchPass());
 }
 
 void X86PassConfig::addPreEmitPass2() {
