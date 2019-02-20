@@ -1,9 +1,8 @@
 //===-- NativeProcessLinux.cpp -------------------------------- -*- C++ -*-===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -24,6 +23,7 @@
 #include "lldb/Core/ModuleSpec.h"
 #include "lldb/Host/Host.h"
 #include "lldb/Host/HostProcess.h"
+#include "lldb/Host/ProcessLaunchInfo.h"
 #include "lldb/Host/PseudoTerminal.h"
 #include "lldb/Host/ThreadLauncher.h"
 #include "lldb/Host/common/NativeRegisterContext.h"
@@ -32,7 +32,6 @@
 #include "lldb/Host/posix/ProcessLauncherPosixFork.h"
 #include "lldb/Symbol/ObjectFile.h"
 #include "lldb/Target/Process.h"
-#include "lldb/Target/ProcessLaunchInfo.h"
 #include "lldb/Target/Target.h"
 #include "lldb/Utility/LLDBAssert.h"
 #include "lldb/Utility/RegisterValue.h"
@@ -45,6 +44,7 @@
 
 #include "NativeThreadLinux.h"
 #include "Plugins/Process/POSIX/ProcessPOSIXLog.h"
+#include "Plugins/Process/Utility/LinuxProcMaps.h"
 #include "Procfs.h"
 
 #include <linux/unistd.h>
@@ -412,9 +412,9 @@ void NativeProcessLinux::MonitorCallback(lldb::pid_t pid, bool exited,
   // Handle when the thread exits.
   if (exited) {
     LLDB_LOG(log,
-             "got exit signal({0}) , tid = {1} ({2} main thread), process "
+             "got exit status({0}) , tid = {1} ({2} main thread), process "
              "state = {3}",
-             signal, pid, is_main_thread ? "is" : "is not", GetState());
+             status, pid, is_main_thread ? "is" : "is not", GetState());
 
     // This is a thread that exited.  Ensure we're not tracking it anymore.
     StopTrackingThread(pid);
@@ -495,9 +495,9 @@ void NativeProcessLinux::MonitorCallback(lldb::pid_t pid, bool exited,
       const bool thread_found = StopTrackingThread(pid);
 
       LLDB_LOG(log,
-               "GetSignalInfo failed: {0}, tid = {1}, signal = {2}, "
+               "GetSignalInfo failed: {0}, tid = {1}, status = {2}, "
                "status = {3}, main_thread = {4}, thread_found: {5}",
-               info_err, pid, signal, status, is_main_thread, thread_found);
+               info_err, pid, status, status, is_main_thread, thread_found);
 
       if (is_main_thread) {
         // Notify the delegate - our process is not available but appears to
@@ -948,25 +948,25 @@ NativeProcessLinux::SetupSoftwareSingleStepping(NativeThreadLinux &thread) {
   Status error;
   NativeRegisterContext& register_context = thread.GetRegisterContext();
 
-  std::unique_ptr<EmulateInstruction> emulator_ap(
+  std::unique_ptr<EmulateInstruction> emulator_up(
       EmulateInstruction::FindPlugin(m_arch, eInstructionTypePCModifying,
                                      nullptr));
 
-  if (emulator_ap == nullptr)
+  if (emulator_up == nullptr)
     return Status("Instruction emulator not found!");
 
   EmulatorBaton baton(*this, register_context);
-  emulator_ap->SetBaton(&baton);
-  emulator_ap->SetReadMemCallback(&ReadMemoryCallback);
-  emulator_ap->SetReadRegCallback(&ReadRegisterCallback);
-  emulator_ap->SetWriteMemCallback(&WriteMemoryCallback);
-  emulator_ap->SetWriteRegCallback(&WriteRegisterCallback);
+  emulator_up->SetBaton(&baton);
+  emulator_up->SetReadMemCallback(&ReadMemoryCallback);
+  emulator_up->SetReadRegCallback(&ReadRegisterCallback);
+  emulator_up->SetWriteMemCallback(&WriteMemoryCallback);
+  emulator_up->SetWriteRegCallback(&WriteRegisterCallback);
 
-  if (!emulator_ap->ReadInstruction())
+  if (!emulator_up->ReadInstruction())
     return Status("Read instruction failed!");
 
   bool emulation_result =
-      emulator_ap->EvaluateInstruction(eEmulateInstructionOptionAutoAdvancePC);
+      emulator_up->EvaluateInstruction(eEmulateInstructionOptionAutoAdvancePC);
 
   const RegisterInfo *reg_info_pc = register_context.GetRegisterInfo(
       eRegisterKindGeneric, LLDB_REGNUM_GENERIC_PC);
@@ -994,7 +994,7 @@ NativeProcessLinux::SetupSoftwareSingleStepping(NativeThreadLinux &thread) {
     // the size of the current opcode because the emulation of all
     // PC modifying instruction should be successful. The failure most
     // likely caused by a not supported instruction which don't modify PC.
-    next_pc = register_context.GetPC() + emulator_ap->GetOpcode().GetByteSize();
+    next_pc = register_context.GetPC() + emulator_up->GetOpcode().GetByteSize();
     next_flags = ReadFlags(register_context);
   } else {
     // The instruction emulation failed after it modified the PC. It is an
@@ -1232,90 +1232,6 @@ Status NativeProcessLinux::Kill() {
   return error;
 }
 
-static Status
-ParseMemoryRegionInfoFromProcMapsLine(llvm::StringRef &maps_line,
-                                      MemoryRegionInfo &memory_region_info) {
-  memory_region_info.Clear();
-
-  StringExtractor line_extractor(maps_line);
-
-  // Format: {address_start_hex}-{address_end_hex} perms offset  dev   inode
-  // pathname perms: rwxp   (letter is present if set, '-' if not, final
-  // character is p=private, s=shared).
-
-  // Parse out the starting address
-  lldb::addr_t start_address = line_extractor.GetHexMaxU64(false, 0);
-
-  // Parse out hyphen separating start and end address from range.
-  if (!line_extractor.GetBytesLeft() || (line_extractor.GetChar() != '-'))
-    return Status(
-        "malformed /proc/{pid}/maps entry, missing dash between address range");
-
-  // Parse out the ending address
-  lldb::addr_t end_address = line_extractor.GetHexMaxU64(false, start_address);
-
-  // Parse out the space after the address.
-  if (!line_extractor.GetBytesLeft() || (line_extractor.GetChar() != ' '))
-    return Status(
-        "malformed /proc/{pid}/maps entry, missing space after range");
-
-  // Save the range.
-  memory_region_info.GetRange().SetRangeBase(start_address);
-  memory_region_info.GetRange().SetRangeEnd(end_address);
-
-  // Any memory region in /proc/{pid}/maps is by definition mapped into the
-  // process.
-  memory_region_info.SetMapped(MemoryRegionInfo::OptionalBool::eYes);
-
-  // Parse out each permission entry.
-  if (line_extractor.GetBytesLeft() < 4)
-    return Status("malformed /proc/{pid}/maps entry, missing some portion of "
-                  "permissions");
-
-  // Handle read permission.
-  const char read_perm_char = line_extractor.GetChar();
-  if (read_perm_char == 'r')
-    memory_region_info.SetReadable(MemoryRegionInfo::OptionalBool::eYes);
-  else if (read_perm_char == '-')
-    memory_region_info.SetReadable(MemoryRegionInfo::OptionalBool::eNo);
-  else
-    return Status("unexpected /proc/{pid}/maps read permission char");
-
-  // Handle write permission.
-  const char write_perm_char = line_extractor.GetChar();
-  if (write_perm_char == 'w')
-    memory_region_info.SetWritable(MemoryRegionInfo::OptionalBool::eYes);
-  else if (write_perm_char == '-')
-    memory_region_info.SetWritable(MemoryRegionInfo::OptionalBool::eNo);
-  else
-    return Status("unexpected /proc/{pid}/maps write permission char");
-
-  // Handle execute permission.
-  const char exec_perm_char = line_extractor.GetChar();
-  if (exec_perm_char == 'x')
-    memory_region_info.SetExecutable(MemoryRegionInfo::OptionalBool::eYes);
-  else if (exec_perm_char == '-')
-    memory_region_info.SetExecutable(MemoryRegionInfo::OptionalBool::eNo);
-  else
-    return Status("unexpected /proc/{pid}/maps exec permission char");
-
-  line_extractor.GetChar();              // Read the private bit
-  line_extractor.SkipSpaces();           // Skip the separator
-  line_extractor.GetHexMaxU64(false, 0); // Read the offset
-  line_extractor.GetHexMaxU64(false, 0); // Read the major device number
-  line_extractor.GetChar();              // Read the device id separator
-  line_extractor.GetHexMaxU64(false, 0); // Read the major device number
-  line_extractor.SkipSpaces();           // Skip the separator
-  line_extractor.GetU64(0, 10);          // Read the inode number
-
-  line_extractor.SkipSpaces();
-  const char *name = line_extractor.Peek();
-  if (name)
-    memory_region_info.SetName(name);
-
-  return Status();
-}
-
 Status NativeProcessLinux::GetMemoryRegionInfo(lldb::addr_t load_addr,
                                                MemoryRegionInfo &range_info) {
   // FIXME review that the final memory region returned extends to the end of
@@ -1401,23 +1317,23 @@ Status NativeProcessLinux::PopulateMemoryRegionCache() {
     m_supports_mem_region = LazyBool::eLazyBoolNo;
     return BufferOrError.getError();
   }
-  StringRef Rest = BufferOrError.get()->getBuffer();
-  while (! Rest.empty()) {
-    StringRef Line;
-    std::tie(Line, Rest) = Rest.split('\n');
-    MemoryRegionInfo info;
-    const Status parse_error =
-        ParseMemoryRegionInfoFromProcMapsLine(Line, info);
-    if (parse_error.Fail()) {
-      LLDB_LOG(log, "failed to parse proc maps line '{0}': {1}", Line,
-               parse_error);
-      m_supports_mem_region = LazyBool::eLazyBoolNo;
-      return parse_error;
-    }
-    FileSpec file_spec(info.GetName().GetCString());
-    FileSystem::Instance().Resolve(file_spec);
-    m_mem_region_cache.emplace_back(info, file_spec);
-  }
+  Status Result;
+  ParseLinuxMapRegions(BufferOrError.get()->getBuffer(),
+                       [&](const MemoryRegionInfo &Info, const Status &ST) {
+                         if (ST.Success()) {
+                           FileSpec file_spec(Info.GetName().GetCString());
+                           FileSystem::Instance().Resolve(file_spec);
+                           m_mem_region_cache.emplace_back(Info, file_spec);
+                           return true;
+                         } else {
+                           m_supports_mem_region = LazyBool::eLazyBoolNo;
+                           LLDB_LOG(log, "failed to parse proc maps: {0}", ST);
+                           Result = ST;
+                           return false;
+                         }
+                       });
+  if (Result.Fail())
+    return Result;
 
   if (m_mem_region_cache.empty()) {
     // No entries after attempting to read them.  This shouldn't happen if

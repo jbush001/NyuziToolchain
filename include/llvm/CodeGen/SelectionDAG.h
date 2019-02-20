@@ -1,9 +1,8 @@
 //===- llvm/CodeGen/SelectionDAG.h - InstSelection DAG ----------*- C++ -*-===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -308,6 +307,9 @@ public:
         : DAGUpdateListener(DAG), Callback(std::move(Callback)) {}
 
     void NodeDeleted(SDNode *N, SDNode *E) override { Callback(N, E); }
+
+   private:
+    virtual void anchor();
   };
 
   /// When true, additional steps are taken to
@@ -979,20 +981,10 @@ public:
   /// a success flag (initially i1), and a chain.
   SDValue getAtomicCmpSwap(unsigned Opcode, const SDLoc &dl, EVT MemVT,
                            SDVTList VTs, SDValue Chain, SDValue Ptr,
-                           SDValue Cmp, SDValue Swp, MachinePointerInfo PtrInfo,
-                           unsigned Alignment, AtomicOrdering SuccessOrdering,
-                           AtomicOrdering FailureOrdering,
-                           SyncScope::ID SSID);
-  SDValue getAtomicCmpSwap(unsigned Opcode, const SDLoc &dl, EVT MemVT,
-                           SDVTList VTs, SDValue Chain, SDValue Ptr,
                            SDValue Cmp, SDValue Swp, MachineMemOperand *MMO);
 
   /// Gets a node for an atomic op, produces result (if relevant)
   /// and chain and takes 2 operands.
-  SDValue getAtomic(unsigned Opcode, const SDLoc &dl, EVT MemVT, SDValue Chain,
-                    SDValue Ptr, SDValue Val, const Value *PtrVal,
-                    unsigned Alignment, AtomicOrdering Ordering,
-                    SyncScope::ID SSID);
   SDValue getAtomic(unsigned Opcode, const SDLoc &dl, EVT MemVT, SDValue Chain,
                     SDValue Ptr, SDValue Val, MachineMemOperand *MMO);
 
@@ -1128,6 +1120,13 @@ public:
   /// Expand the specified \c ISD::VACOPY node as the Legalize pass would.
   SDValue expandVACopy(SDNode *Node);
 
+  /// Returs an GlobalAddress of the function from the current module with
+  /// name matching the given ExternalSymbol. Additionally can provide the
+  /// matched function.
+  /// Panics the function doesn't exists.
+  SDValue getSymbolFunctionGlobalAddress(SDValue Op,
+                                         Function **TargetFunction = nullptr);
+
   /// *Mutate* the specified node in-place to have the
   /// specified operands.  If the resultant node already exists in the DAG,
   /// this does not modify the specified node, instead it returns the node that
@@ -1143,6 +1142,11 @@ public:
   SDNode *UpdateNodeOperands(SDNode *N, SDValue Op1, SDValue Op2,
                                SDValue Op3, SDValue Op4, SDValue Op5);
   SDNode *UpdateNodeOperands(SDNode *N, ArrayRef<SDValue> Ops);
+
+  /// Creates a new TokenFactor containing \p Vals. If \p Vals contains 64k
+  /// values or more, move values into new TokenFactors in 64k-1 blocks, until
+  /// the final TokenFactor has less than 64k operands.
+  SDValue getTokenFactor(const SDLoc &DL, SmallVectorImpl<SDValue> &Vals);
 
   /// *Mutate* the specified machine node's memory references to the provided
   /// list.
@@ -1348,21 +1352,20 @@ public:
   /// with this SelectionDAG.
   bool hasDebugValues() const { return !DbgInfo->empty(); }
 
-  SDDbgInfo::DbgIterator DbgBegin() { return DbgInfo->DbgBegin(); }
-  SDDbgInfo::DbgIterator DbgEnd()   { return DbgInfo->DbgEnd(); }
+  SDDbgInfo::DbgIterator DbgBegin() const { return DbgInfo->DbgBegin(); }
+  SDDbgInfo::DbgIterator DbgEnd() const  { return DbgInfo->DbgEnd(); }
 
-  SDDbgInfo::DbgIterator ByvalParmDbgBegin() {
+  SDDbgInfo::DbgIterator ByvalParmDbgBegin() const {
     return DbgInfo->ByvalParmDbgBegin();
   }
-
-  SDDbgInfo::DbgIterator ByvalParmDbgEnd()   {
+  SDDbgInfo::DbgIterator ByvalParmDbgEnd() const {
     return DbgInfo->ByvalParmDbgEnd();
   }
 
-  SDDbgInfo::DbgLabelIterator DbgLabelBegin() {
+  SDDbgInfo::DbgLabelIterator DbgLabelBegin() const {
     return DbgInfo->DbgLabelBegin();
   }
-  SDDbgInfo::DbgLabelIterator DbgLabelEnd() {
+  SDDbgInfo::DbgLabelIterator DbgLabelEnd() const {
     return DbgInfo->DbgLabelEnd();
   }
 
@@ -1385,11 +1388,11 @@ public:
                            const SDNode *N2);
 
   SDValue FoldConstantArithmetic(unsigned Opcode, const SDLoc &DL, EVT VT,
-                                 SDNode *Cst1, SDNode *Cst2);
+                                 SDNode *N1, SDNode *N2);
 
   SDValue FoldConstantArithmetic(unsigned Opcode, const SDLoc &DL, EVT VT,
-                                 const ConstantSDNode *Cst1,
-                                 const ConstantSDNode *Cst2);
+                                 const ConstantSDNode *C1,
+                                 const ConstantSDNode *C2);
 
   SDValue FoldConstantVectorArithmetic(unsigned Opcode, const SDLoc &DL, EVT VT,
                                        ArrayRef<SDValue> Ops,
@@ -1431,18 +1434,6 @@ public:
   /// TargetLowering class to allow target nodes to be understood.
   KnownBits computeKnownBits(SDValue Op, const APInt &DemandedElts,
                              unsigned Depth = 0) const;
-
-  /// \copydoc SelectionDAG::computeKnownBits(SDValue,unsigned)
-  void computeKnownBits(SDValue Op, KnownBits &Known,
-                        unsigned Depth = 0) const {
-    Known = computeKnownBits(Op, Depth);
-  }
-
-  /// \copydoc SelectionDAG::computeKnownBits(SDValue,const APInt&,unsigned)
-  void computeKnownBits(SDValue Op, KnownBits &Known, const APInt &DemandedElts,
-                        unsigned Depth = 0) const {
-    Known = computeKnownBits(Op, DemandedElts, Depth);
-  }
 
   /// Used to represent the possible overflow behavior of an operation.
   /// Never: the operation cannot overflow.
@@ -1514,6 +1505,18 @@ public:
   /// Return true if A and B have no common bits set. As an example, this can
   /// allow an 'add' to be transformed into an 'or'.
   bool haveNoCommonBitsSet(SDValue A, SDValue B) const;
+
+  /// Test whether \p V has a splatted value for all the demanded elements.
+  ///
+  /// On success \p UndefElts will indicate the elements that have UNDEF
+  /// values instead of the splat value, this is only guaranteed to be correct
+  /// for \p DemandedElts.
+  ///
+  /// NOTE: The function will return true for a demanded splat of UNDEF values.
+  bool isSplatValue(SDValue V, const APInt &DemandedElts, APInt &UndefElts);
+
+  /// Test whether \p V has a splatted value.
+  bool isSplatValue(SDValue V, bool AllowUndefs = false);
 
   /// Match a binop + shuffle pyramid that represents a horizontal reduction
   /// over the elements of a vector starting from the EXTRACT_VECTOR_ELT node /p

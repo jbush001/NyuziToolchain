@@ -1,9 +1,8 @@
 //===-- AMDGPULibFunc.cpp -------------------------------------------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -961,8 +960,8 @@ Function *AMDGPULibFunc::getFunction(Module *M, const AMDGPULibFunc &fInfo) {
   return nullptr;
 }
 
-Function *AMDGPULibFunc::getOrInsertFunction(Module *M,
-                                             const AMDGPULibFunc &fInfo) {
+FunctionCallee AMDGPULibFunc::getOrInsertFunction(Module *M,
+                                                  const AMDGPULibFunc &fInfo) {
   std::string const FuncName = fInfo.mangle();
   Function *F = dyn_cast_or_null<Function>(
     M->getValueSymbolTable().lookup(FuncName));
@@ -988,19 +987,21 @@ Function *AMDGPULibFunc::getOrInsertFunction(Module *M,
     }
   }
 
-  Constant *C = nullptr;
+  FunctionCallee C;
   if (hasPtr) {
     // Do not set extra attributes for functions with pointer arguments.
     C = M->getOrInsertFunction(FuncName, FuncTy);
   } else {
     AttributeList Attr;
     LLVMContext &Ctx = M->getContext();
-    Attr.addAttribute(Ctx, AttributeList::FunctionIndex, Attribute::ReadOnly);
-    Attr.addAttribute(Ctx, AttributeList::FunctionIndex, Attribute::NoUnwind);
+    Attr = Attr.addAttribute(Ctx, AttributeList::FunctionIndex,
+                             Attribute::ReadOnly);
+    Attr = Attr.addAttribute(Ctx, AttributeList::FunctionIndex,
+                             Attribute::NoUnwind);
     C = M->getOrInsertFunction(FuncName, FuncTy, Attr);
   }
 
-  return cast<Function>(C);
+  return C;
 }
 
 bool UnmangledFuncInfo::lookup(StringRef Name, ID &Id) {

@@ -1,9 +1,8 @@
 //===-- ValueObject.cpp -----------------------------------------*- C++ -*-===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -214,7 +213,7 @@ bool ValueObject::UpdateValueIfNeeded(bool update_format) {
 
       if (first_update)
         SetValueDidChange(false);
-      else if (!m_value_did_change && success == false) {
+      else if (!m_value_did_change && !success) {
         // The value wasn't gotten successfully, so we mark this as changed if
         // the value used to be valid and now isn't
         SetValueDidChange(value_was_valid);
@@ -442,10 +441,7 @@ bool ValueObject::IsLogicalTrue(Status &error) {
   }
 
   bool ret;
-  if (scalar_value.ULongLong(1) == 0)
-    ret = false;
-  else
-    ret = true;
+  ret = scalar_value.ULongLong(1) != 0;
   error.Clear();
   return ret;
 }
@@ -639,7 +635,7 @@ ValueObject *ValueObject::CreateChildAtIndex(size_t idx,
   bool child_is_deref_of_parent = false;
   uint64_t language_flags = 0;
 
-  const bool transparent_pointers = synthetic_array_member == false;
+  const bool transparent_pointers = !synthetic_array_member;
   CompilerType child_compiler_type;
 
   ExecutionContext exe_ctx(GetExecutionContextRef());
@@ -759,10 +755,13 @@ size_t ValueObject::GetPointeeData(DataExtractor &data, uint32_t item_idx,
 
   ExecutionContext exe_ctx(GetExecutionContextRef());
 
-  const uint64_t item_type_size = pointee_or_element_compiler_type.GetByteSize(
-      exe_ctx.GetBestExecutionContextScope());
-  const uint64_t bytes = item_count * item_type_size;
-  const uint64_t offset = item_idx * item_type_size;
+  llvm::Optional<uint64_t> item_type_size =
+      pointee_or_element_compiler_type.GetByteSize(
+          exe_ctx.GetBestExecutionContextScope());
+  if (!item_type_size)
+    return 0;
+  const uint64_t bytes = item_count * *item_type_size;
+  const uint64_t offset = item_idx * *item_type_size;
 
   if (item_idx == 0 && item_count == 1) // simply a deref
   {
@@ -825,10 +824,10 @@ size_t ValueObject::GetPointeeData(DataExtractor &data, uint32_t item_idx,
       }
     } break;
     case eAddressTypeHost: {
-      const uint64_t max_bytes =
+      auto max_bytes =
           GetCompilerType().GetByteSize(exe_ctx.GetBestExecutionContextScope());
-      if (max_bytes > offset) {
-        size_t bytes_read = std::min<uint64_t>(max_bytes - offset, bytes);
+      if (max_bytes && *max_bytes > offset) {
+        size_t bytes_read = std::min<uint64_t>(*max_bytes - offset, bytes);
         addr = m_value.GetScalar().ULongLong(LLDB_INVALID_ADDRESS);
         if (addr == 0 || addr == LLDB_INVALID_ADDRESS)
           break;
@@ -929,7 +928,7 @@ bool ValueObject::SetData(DataExtractor &data, Status &error) {
 
 static bool CopyStringDataToBufferSP(const StreamString &source,
                                      lldb::DataBufferSP &destination) {
-  destination.reset(new DataBufferHeap(source.GetSize() + 1, 0));
+  destination = std::make_shared<DataBufferHeap>(source.GetSize() + 1, 0);
   memcpy(destination->GetBytes(), source.GetString().data(), source.GetSize());
   return true;
 }
@@ -992,7 +991,7 @@ ValueObject::ReadPointedString(lldb::DataBufferSP &buffer_sp, Status &error,
           CopyStringDataToBufferSP(s, buffer_sp);
           return {0, was_capped};
         }
-        buffer_sp.reset(new DataBufferHeap(cstr_len, 0));
+        buffer_sp = std::make_shared<DataBufferHeap>(cstr_len, 0);
         memcpy(buffer_sp->GetBytes(), cstr, cstr_len);
         return {cstr_len, was_capped};
       } else {
@@ -1169,7 +1168,7 @@ const char *ValueObject::GetValueAsCString() {
     if (my_format != m_last_format || m_value_str.empty()) {
       m_last_format = my_format;
       if (!format_sp)
-        format_sp.reset(new TypeFormatImpl_Format(my_format));
+        format_sp = std::make_shared<TypeFormatImpl_Format>(my_format);
       if (GetValueAsCString(*format_sp.get(), m_value_str)) {
         if (!m_value_did_change && m_old_value_valid) {
           // The value was gotten successfully, so we consider the value as
@@ -1821,14 +1820,16 @@ ValueObjectSP ValueObject::GetSyntheticChildAtOffset(
     return synthetic_child_sp;
 
   if (!can_create)
-    return ValueObjectSP();
+    return {};
 
   ExecutionContext exe_ctx(GetExecutionContextRef());
-
-  ValueObjectChild *synthetic_child = new ValueObjectChild(
-      *this, type, name_const_str,
-      type.GetByteSize(exe_ctx.GetBestExecutionContextScope()), offset, 0, 0,
-      false, false, eAddressTypeInvalid, 0);
+  llvm::Optional<uint64_t> size =
+      type.GetByteSize(exe_ctx.GetBestExecutionContextScope());
+  if (!size)
+    return {};
+  ValueObjectChild *synthetic_child =
+      new ValueObjectChild(*this, type, name_const_str, *size, offset, 0, 0,
+                           false, false, eAddressTypeInvalid, 0);
   if (synthetic_child) {
     AddSyntheticChild(name_const_str, synthetic_child);
     synthetic_child_sp = synthetic_child->GetSP();
@@ -1859,16 +1860,18 @@ ValueObjectSP ValueObject::GetSyntheticBase(uint32_t offset,
     return synthetic_child_sp;
 
   if (!can_create)
-    return ValueObjectSP();
+    return {};
 
   const bool is_base_class = true;
 
   ExecutionContext exe_ctx(GetExecutionContextRef());
-
-  ValueObjectChild *synthetic_child = new ValueObjectChild(
-      *this, type, name_const_str,
-      type.GetByteSize(exe_ctx.GetBestExecutionContextScope()), offset, 0, 0,
-      is_base_class, false, eAddressTypeInvalid, 0);
+  llvm::Optional<uint64_t> size =
+      type.GetByteSize(exe_ctx.GetBestExecutionContextScope());
+  if (!size)
+    return {};
+  ValueObjectChild *synthetic_child =
+      new ValueObjectChild(*this, type, name_const_str, *size, offset, 0, 0,
+                           is_base_class, false, eAddressTypeInvalid, 0);
   if (synthetic_child) {
     AddSyntheticChild(name_const_str, synthetic_child);
     synthetic_child_sp = synthetic_child->GetSP();
@@ -1921,11 +1924,11 @@ ValueObject::GetSyntheticExpressionPathChild(const char *expression,
 }
 
 void ValueObject::CalculateSyntheticValue(bool use_synthetic) {
-  if (use_synthetic == false)
+  if (!use_synthetic)
     return;
 
   TargetSP target_sp(GetTargetSP());
-  if (target_sp && target_sp->GetEnableSyntheticValue() == false) {
+  if (target_sp && !target_sp->GetEnableSyntheticValue()) {
     m_synthetic_value = NULL;
     return;
   }
@@ -1976,7 +1979,7 @@ ValueObjectSP ValueObject::GetStaticValue() { return GetSP(); }
 lldb::ValueObjectSP ValueObject::GetNonSyntheticValue() { return GetSP(); }
 
 ValueObjectSP ValueObject::GetSyntheticValue(bool use_synthetic) {
-  if (use_synthetic == false)
+  if (!use_synthetic)
     return ValueObjectSP();
 
   CalculateSyntheticValue(use_synthetic);
@@ -1995,10 +1998,7 @@ bool ValueObject::HasSyntheticValue() {
 
   CalculateSyntheticValue(true);
 
-  if (m_synthetic_value)
-    return true;
-  else
-    return false;
+  return m_synthetic_value != nullptr;
 }
 
 bool ValueObject::GetBaseClassPath(Stream &s) {
@@ -3195,7 +3195,7 @@ ValueObject *
 ValueObject::FollowParentChain(std::function<bool(ValueObject *)> f) {
   ValueObject *vo = this;
   while (vo) {
-    if (f(vo) == false)
+    if (!f(vo))
       break;
     vo = vo->m_parent;
   }
@@ -3264,8 +3264,7 @@ bool ValueObject::CanProvideValue() {
   // board debugging scenarios have no notion of types, but still manage to
   // have raw numeric values for things like registers. sigh.
   const CompilerType &type(GetCompilerType());
-  return (false == type.IsValid()) ||
-         (0 != (type.GetTypeInfo() & eTypeHasValue));
+  return (!type.IsValid()) || (0 != (type.GetTypeInfo() & eTypeHasValue));
 }
 
 bool ValueObject::IsChecksumEmpty() { return m_value_checksum.empty(); }

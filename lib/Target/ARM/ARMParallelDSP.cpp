@@ -1,9 +1,8 @@
 //===- ParallelDSP.cpp - Parallel DSP Pass --------------------------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -525,26 +524,20 @@ static void MatchParallelMACSequences(Reduction &R,
     if (!I)
       return false;
 
-    Value *MulOp0, *MulOp1;
-
     switch (I->getOpcode()) {
     case Instruction::Add:
       if (Match(I->getOperand(0)) || (Match(I->getOperand(1))))
         return true;
       break;
-    case Instruction::Mul:
-      if (match (I, (m_Mul(m_Value(MulOp0), m_Value(MulOp1))))) {
+    case Instruction::Mul: {
+      Value *MulOp0 = I->getOperand(0);
+      Value *MulOp1 = I->getOperand(1);
+      if (isa<SExtInst>(MulOp0) && isa<SExtInst>(MulOp1))
         AddMACCandidate(Candidates, I, MulOp0, MulOp1);
-        return false;
-      }
-      break;
+      return false;
+    }
     case Instruction::SExt:
-      if (match (I, (m_SExt(m_Mul(m_Value(MulOp0), m_Value(MulOp1)))))) {
-        Instruction *Mul = cast<Instruction>(I->getOperand(0));
-        AddMACCandidate(Candidates, Mul, MulOp0, MulOp1);
-        return false;
-      }
-      break;
+      return Match(I->getOperand(0));
     }
     return false;
   };
@@ -695,12 +688,12 @@ bool ARMParallelDSP::MatchSMLAD(Function &F) {
 }
 
 static LoadInst *CreateLoadIns(IRBuilder<NoFolder> &IRB, LoadInst &BaseLoad,
-                               const Type *LoadTy) {
+                               Type *LoadTy) {
   const unsigned AddrSpace = BaseLoad.getPointerAddressSpace();
 
   Value *VecPtr = IRB.CreateBitCast(BaseLoad.getPointerOperand(),
                                     LoadTy->getPointerTo(AddrSpace));
-  return IRB.CreateAlignedLoad(VecPtr, BaseLoad.getAlignment());
+  return IRB.CreateAlignedLoad(LoadTy, VecPtr, BaseLoad.getAlignment());
 }
 
 Instruction *ARMParallelDSP::CreateSMLADCall(LoadInst *VecLd0, LoadInst *VecLd1,
@@ -716,7 +709,7 @@ Instruction *ARMParallelDSP::CreateSMLADCall(LoadInst *VecLd0, LoadInst *VecLd1,
                               ++BasicBlock::iterator(InsertAfter));
 
   // Replace the reduction chain with an intrinsic call
-  const Type *Ty = IntegerType::get(M->getContext(), 32);
+  Type *Ty = IntegerType::get(M->getContext(), 32);
   LoadInst *NewLd0 = CreateLoadIns(Builder, VecLd0[0], Ty);
   LoadInst *NewLd1 = CreateLoadIns(Builder, VecLd1[0], Ty);
   Value* Args[] = { NewLd0, NewLd1, Acc };

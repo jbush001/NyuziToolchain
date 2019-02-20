@@ -1,9 +1,8 @@
 //===-- SBSymbolContext.cpp -------------------------------------*- C++ -*-===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -18,19 +17,19 @@
 using namespace lldb;
 using namespace lldb_private;
 
-SBSymbolContext::SBSymbolContext() : m_opaque_ap() {}
+SBSymbolContext::SBSymbolContext() : m_opaque_up() {}
 
-SBSymbolContext::SBSymbolContext(const SymbolContext *sc_ptr) : m_opaque_ap() {
+SBSymbolContext::SBSymbolContext(const SymbolContext *sc_ptr) : m_opaque_up() {
   if (sc_ptr)
-    m_opaque_ap.reset(new SymbolContext(*sc_ptr));
+    m_opaque_up.reset(new SymbolContext(*sc_ptr));
 }
 
-SBSymbolContext::SBSymbolContext(const SBSymbolContext &rhs) : m_opaque_ap() {
+SBSymbolContext::SBSymbolContext(const SBSymbolContext &rhs) : m_opaque_up() {
   if (rhs.IsValid()) {
-    if (m_opaque_ap.get())
-      *m_opaque_ap = *rhs.m_opaque_ap;
+    if (m_opaque_up)
+      *m_opaque_up = *rhs.m_opaque_up;
     else
-      ref() = *rhs.m_opaque_ap;
+      ref() = *rhs.m_opaque_up;
   }
 }
 
@@ -39,33 +38,32 @@ SBSymbolContext::~SBSymbolContext() {}
 const SBSymbolContext &SBSymbolContext::operator=(const SBSymbolContext &rhs) {
   if (this != &rhs) {
     if (rhs.IsValid())
-      m_opaque_ap.reset(
-          new lldb_private::SymbolContext(*rhs.m_opaque_ap.get()));
+      m_opaque_up.reset(new lldb_private::SymbolContext(*rhs.m_opaque_up));
   }
   return *this;
 }
 
 void SBSymbolContext::SetSymbolContext(const SymbolContext *sc_ptr) {
   if (sc_ptr) {
-    if (m_opaque_ap.get())
-      *m_opaque_ap = *sc_ptr;
+    if (m_opaque_up)
+      *m_opaque_up = *sc_ptr;
     else
-      m_opaque_ap.reset(new SymbolContext(*sc_ptr));
+      m_opaque_up.reset(new SymbolContext(*sc_ptr));
   } else {
-    if (m_opaque_ap.get())
-      m_opaque_ap->Clear(true);
+    if (m_opaque_up)
+      m_opaque_up->Clear(true);
   }
 }
 
-bool SBSymbolContext::IsValid() const { return m_opaque_ap.get() != NULL; }
+bool SBSymbolContext::IsValid() const { return m_opaque_up != NULL; }
 
 SBModule SBSymbolContext::GetModule() {
   Log *log(lldb_private::GetLogIfAllCategoriesSet(LIBLLDB_LOG_API));
 
   SBModule sb_module;
   ModuleSP module_sp;
-  if (m_opaque_ap.get()) {
-    module_sp = m_opaque_ap->module_sp;
+  if (m_opaque_up) {
+    module_sp = m_opaque_up->module_sp;
     sb_module.SetSP(module_sp);
   }
 
@@ -73,7 +71,7 @@ SBModule SBSymbolContext::GetModule() {
     SBStream sstr;
     sb_module.GetDescription(sstr);
     log->Printf("SBSymbolContext(%p)::GetModule () => SBModule(%p): %s",
-                static_cast<void *>(m_opaque_ap.get()),
+                static_cast<void *>(m_opaque_up.get()),
                 static_cast<void *>(module_sp.get()), sstr.GetData());
   }
 
@@ -81,7 +79,7 @@ SBModule SBSymbolContext::GetModule() {
 }
 
 SBCompileUnit SBSymbolContext::GetCompileUnit() {
-  return SBCompileUnit(m_opaque_ap.get() ? m_opaque_ap->comp_unit : NULL);
+  return SBCompileUnit(m_opaque_up ? m_opaque_up->comp_unit : NULL);
 }
 
 SBFunction SBSymbolContext::GetFunction() {
@@ -89,33 +87,33 @@ SBFunction SBSymbolContext::GetFunction() {
 
   Function *function = NULL;
 
-  if (m_opaque_ap.get())
-    function = m_opaque_ap->function;
+  if (m_opaque_up)
+    function = m_opaque_up->function;
 
   SBFunction sb_function(function);
 
   if (log)
     log->Printf("SBSymbolContext(%p)::GetFunction () => SBFunction(%p)",
-                static_cast<void *>(m_opaque_ap.get()),
+                static_cast<void *>(m_opaque_up.get()),
                 static_cast<void *>(function));
 
   return sb_function;
 }
 
 SBBlock SBSymbolContext::GetBlock() {
-  return SBBlock(m_opaque_ap.get() ? m_opaque_ap->block : NULL);
+  return SBBlock(m_opaque_up ? m_opaque_up->block : NULL);
 }
 
 SBLineEntry SBSymbolContext::GetLineEntry() {
   Log *log(lldb_private::GetLogIfAllCategoriesSet(LIBLLDB_LOG_API));
 
   SBLineEntry sb_line_entry;
-  if (m_opaque_ap.get())
-    sb_line_entry.SetLineEntry(m_opaque_ap->line_entry);
+  if (m_opaque_up)
+    sb_line_entry.SetLineEntry(m_opaque_up->line_entry);
 
   if (log) {
     log->Printf("SBSymbolContext(%p)::GetLineEntry () => SBLineEntry(%p)",
-                static_cast<void *>(m_opaque_ap.get()),
+                static_cast<void *>(m_opaque_up.get()),
                 static_cast<void *>(sb_line_entry.get()));
   }
 
@@ -127,14 +125,14 @@ SBSymbol SBSymbolContext::GetSymbol() {
 
   Symbol *symbol = NULL;
 
-  if (m_opaque_ap.get())
-    symbol = m_opaque_ap->symbol;
+  if (m_opaque_up)
+    symbol = m_opaque_up->symbol;
 
   SBSymbol sb_symbol(symbol);
 
   if (log)
     log->Printf("SBSymbolContext(%p)::GetSymbol () => SBSymbol(%p)",
-                static_cast<void *>(m_opaque_ap.get()),
+                static_cast<void *>(m_opaque_up.get()),
                 static_cast<void *>(symbol));
 
   return sb_symbol;
@@ -168,35 +166,35 @@ void SBSymbolContext::SetSymbol(lldb::SBSymbol symbol) {
 }
 
 lldb_private::SymbolContext *SBSymbolContext::operator->() const {
-  return m_opaque_ap.get();
+  return m_opaque_up.get();
 }
 
 const lldb_private::SymbolContext &SBSymbolContext::operator*() const {
-  assert(m_opaque_ap.get());
-  return *m_opaque_ap.get();
+  assert(m_opaque_up.get());
+  return *m_opaque_up;
 }
 
 lldb_private::SymbolContext &SBSymbolContext::operator*() {
-  if (m_opaque_ap.get() == NULL)
-    m_opaque_ap.reset(new SymbolContext);
-  return *m_opaque_ap.get();
+  if (m_opaque_up == NULL)
+    m_opaque_up.reset(new SymbolContext);
+  return *m_opaque_up;
 }
 
 lldb_private::SymbolContext &SBSymbolContext::ref() {
-  if (m_opaque_ap.get() == NULL)
-    m_opaque_ap.reset(new SymbolContext);
-  return *m_opaque_ap.get();
+  if (m_opaque_up == NULL)
+    m_opaque_up.reset(new SymbolContext);
+  return *m_opaque_up;
 }
 
 lldb_private::SymbolContext *SBSymbolContext::get() const {
-  return m_opaque_ap.get();
+  return m_opaque_up.get();
 }
 
 bool SBSymbolContext::GetDescription(SBStream &description) {
   Stream &strm = description.ref();
 
-  if (m_opaque_ap.get()) {
-    m_opaque_ap->GetDescription(&strm, lldb::eDescriptionLevelFull, NULL);
+  if (m_opaque_up) {
+    m_opaque_up->GetDescription(&strm, lldb::eDescriptionLevelFull, NULL);
   } else
     strm.PutCString("No value");
 
@@ -207,8 +205,8 @@ SBSymbolContext
 SBSymbolContext::GetParentOfInlinedScope(const SBAddress &curr_frame_pc,
                                          SBAddress &parent_frame_addr) const {
   SBSymbolContext sb_sc;
-  if (m_opaque_ap.get() && curr_frame_pc.IsValid()) {
-    if (m_opaque_ap->GetParentOfInlinedScope(curr_frame_pc.ref(), sb_sc.ref(),
+  if (m_opaque_up.get() && curr_frame_pc.IsValid()) {
+    if (m_opaque_up->GetParentOfInlinedScope(curr_frame_pc.ref(), sb_sc.ref(),
                                              parent_frame_addr.ref()))
       return sb_sc;
   }

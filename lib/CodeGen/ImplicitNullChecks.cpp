@@ -1,9 +1,8 @@
 //===- ImplicitNullChecks.cpp - Fold null checks into memory accesses -----===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -236,8 +235,11 @@ bool ImplicitNullChecks::canHandle(const MachineInstr *MI) {
   assert(!llvm::any_of(MI->operands(), IsRegMask) &&
          "Calls were filtered out above!");
 
-  auto IsUnordered = [](MachineMemOperand *MMO) { return MMO->isUnordered(); };
-  return llvm::all_of(MI->memoperands(), IsUnordered);
+  // TODO: This should be isUnordered (see D57601) once test cases are written
+  // demonstrating that.
+  auto IsSimple = [](MachineMemOperand *MMO) {
+    return !MMO->isVolatile() && !MMO->isAtomic(); };
+  return llvm::all_of(MI->memoperands(), IsSimple);
 }
 
 ImplicitNullChecks::DependenceResult
@@ -360,10 +362,10 @@ ImplicitNullChecks::SuitabilityResult
 ImplicitNullChecks::isSuitableMemoryOp(MachineInstr &MI, unsigned PointerReg,
                                        ArrayRef<MachineInstr *> PrevInsts) {
   int64_t Offset;
-  unsigned BaseReg;
+  MachineOperand *BaseOp;
 
-  if (!TII->getMemOpBaseRegImmOfs(MI, BaseReg, Offset, TRI) ||
-      BaseReg != PointerReg)
+  if (!TII->getMemOperandWithOffset(MI, BaseOp, Offset, TRI) ||
+      !BaseOp->isReg() || BaseOp->getReg() != PointerReg)
     return SR_Unsuitable;
 
   // We want the mem access to be issued at a sane offset from PointerReg,

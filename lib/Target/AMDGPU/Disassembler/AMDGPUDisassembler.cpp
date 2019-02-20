@@ -1,9 +1,8 @@
 //===- AMDGPUDisassembler.cpp - Disassembler for AMDGPU ISA ---------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -782,6 +781,7 @@ MCOperand AMDGPUDisassembler::decodeSpecialReg32(unsigned Val) const {
     // ToDo: no support for execz register
   case 252: break;
   case 253: return createRegOperand(SCC);
+  case 254: return createRegOperand(LDS_DIRECT);
   default: break;
   }
   return errOperand(Val, "unknown operand encoding " + Twine(Val));

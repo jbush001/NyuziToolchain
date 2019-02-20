@@ -1,9 +1,8 @@
 //===-- ARMBaseInstrInfo.cpp - ARM Instruction Information ----------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -2266,7 +2265,7 @@ bool llvm::tryFoldSPUpdateIntoPushPop(const ARMSubtarget &Subtarget,
                                       unsigned NumBytes) {
   // This optimisation potentially adds lots of load and store
   // micro-operations, it's only really a great benefit to code-size.
-  if (!MF.getFunction().optForMinSize())
+  if (!Subtarget.optForMinSize())
     return false;
 
   // If only one register is pushed/popped, LLVM can use an LDR/STR
@@ -2620,20 +2619,16 @@ inline static ARMCC::CondCodes getCmpToAddCondition(ARMCC::CondCodes CC) {
 inline static bool isRedundantFlagInstr(const MachineInstr *CmpI,
                                         unsigned SrcReg, unsigned SrcReg2,
                                         int ImmValue, const MachineInstr *OI) {
-  if ((CmpI->getOpcode() == ARM::CMPrr ||
-       CmpI->getOpcode() == ARM::t2CMPrr) &&
-      (OI->getOpcode() == ARM::SUBrr ||
-       OI->getOpcode() == ARM::t2SUBrr) &&
+  if ((CmpI->getOpcode() == ARM::CMPrr || CmpI->getOpcode() == ARM::t2CMPrr) &&
+      (OI->getOpcode() == ARM::SUBrr || OI->getOpcode() == ARM::t2SUBrr) &&
       ((OI->getOperand(1).getReg() == SrcReg &&
         OI->getOperand(2).getReg() == SrcReg2) ||
        (OI->getOperand(1).getReg() == SrcReg2 &&
         OI->getOperand(2).getReg() == SrcReg)))
     return true;
 
-  if ((CmpI->getOpcode() == ARM::CMPri ||
-       CmpI->getOpcode() == ARM::t2CMPri) &&
-      (OI->getOpcode() == ARM::SUBri ||
-       OI->getOpcode() == ARM::t2SUBri) &&
+  if ((CmpI->getOpcode() == ARM::CMPri || CmpI->getOpcode() == ARM::t2CMPri) &&
+      (OI->getOpcode() == ARM::SUBri || OI->getOpcode() == ARM::t2SUBri) &&
       OI->getOperand(1).getReg() == SrcReg &&
       OI->getOperand(2).getImm() == ImmValue)
     return true;
@@ -2830,8 +2825,11 @@ bool ARMBaseInstrInfo::optimizeCompareInstr(
   if (!MI && !SubAdd)
     return false;
 
-  // The single candidate is called MI.
-  if (!MI) MI = SubAdd;
+  // If we found a SubAdd, use it as it will be closer to the CMP
+  if (SubAdd) {
+    MI = SubAdd;
+    IsThumb1 = false;
+  }
 
   // We can't use a predicated instruction - it doesn't always write the flags.
   if (isPredicated(*MI))

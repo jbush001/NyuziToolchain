@@ -1,9 +1,8 @@
 //===-- ValueObjectConstResultImpl.cpp ---------------------------*- C++-*-===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -66,7 +65,7 @@ ValueObject *ValueObjectConstResultImpl::CreateChildAtIndex(
   bool child_is_deref_of_parent = false;
   uint64_t language_flags;
 
-  const bool transparent_pointers = synthetic_array_member == false;
+  const bool transparent_pointers = !synthetic_array_member;
   CompilerType compiler_type = m_impl_backend->GetCompilerType();
   CompilerType child_compiler_type;
 

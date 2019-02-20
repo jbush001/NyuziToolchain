@@ -1,9 +1,8 @@
 //===-- HostInfoBase.h ------------------------------------------*- C++ -*-===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -93,12 +92,6 @@ public:
   /// FileSpec is filled in.
   static FileSpec GetGlobalTempDir();
 
-  /// Returns the reproducer temporary directory. This directory will **not**
-  /// be automatically cleaned up when this process exits, but might be removed
-  /// by the reproducer generator. Only the directory member of the FileSpec is
-  /// filled in.
-  static FileSpec GetReproducerTempDir();
-
   //---------------------------------------------------------------------------
   /// If the triple does not specify the vendor, os, and environment parts, we
   /// "augment" these using information from the host and return the resulting
@@ -111,7 +104,6 @@ protected:
   static bool ComputeSupportExeDirectory(FileSpec &file_spec);
   static bool ComputeProcessTempFileDirectory(FileSpec &file_spec);
   static bool ComputeGlobalTempFileDirectory(FileSpec &file_spec);
-  static bool ComputeReproducerTempFileDirectory(FileSpec &file_spec);
   static bool ComputeTempFileBaseDirectory(FileSpec &file_spec);
   static bool ComputeHeaderDirectory(FileSpec &file_spec);
   static bool ComputeSystemPluginsDirectory(FileSpec &file_spec);

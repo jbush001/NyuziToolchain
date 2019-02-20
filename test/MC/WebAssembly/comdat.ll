@@ -41,7 +41,7 @@ define linkonce_odr i32 @sharedFn() #1 comdat($sharedComdat) {
 ; CHECK-NEXT:         Field:           __indirect_function_table
 ; CHECK-NEXT:         Kind:            TABLE
 ; CHECK-NEXT:         Table:           
-; CHECK-NEXT:           ElemType:        ANYFUNC
+; CHECK-NEXT:           ElemType:        FUNCREF
 ; CHECK-NEXT:           Limits:          
 ; CHECK-NEXT:             Initial:         0x00000000
 ; CHECK-NEXT:       - Module:          env
@@ -52,7 +52,7 @@ define linkonce_odr i32 @sharedFn() #1 comdat($sharedComdat) {
 ; CHECK-NEXT:     FunctionTypes:   [ 0, 0, 0 ]
 ; CHECK-NEXT:  - Type:            CODE
 ; CHECK-NEXT:    Relocations:
-; CHECK-NEXT:      - Type:            R_WEBASSEMBLY_FUNCTION_INDEX_LEB
+; CHECK-NEXT:      - Type:            R_WASM_FUNCTION_INDEX_LEB
 ; CHECK-NEXT:        Index:           1
 ; CHECK-NEXT:        Offset:          0x00000004
 ; CHECK-NEXT:    Functions:
@@ -75,7 +75,7 @@ define linkonce_odr i32 @sharedFn() #1 comdat($sharedComdat) {
 ; CHECK-NEXT:        Content:         '616263'
 ; CHECK-NEXT:  - Type:            CUSTOM
 ; CHECK-NEXT:    Name:            linking
-; CHECK-NEXT:    Version:         1
+; CHECK-NEXT:    Version:         2
 ; CHECK-NEXT:    SymbolTable:
 ; CHECK-NEXT:       - Index:           0
 ; CHECK-NEXT:         Kind:            FUNCTION
@@ -106,7 +106,7 @@ define linkonce_odr i32 @sharedFn() #1 comdat($sharedComdat) {
 ; CHECK-NEXT:    SegmentInfo:
 ; CHECK-NEXT:      - Index:           0
 ; CHECK-NEXT:        Name:            .rodata.constantData
-; CHECK-NEXT:        Alignment:       1
+; CHECK-NEXT:        Alignment:       0
 ; CHECK-NEXT:        Flags:           [  ]
 ; CHECK-NEXT:    Comdats:
 ; CHECK-NEXT:        Name:            basicInlineFn

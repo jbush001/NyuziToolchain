@@ -1,9 +1,8 @@
 //===- InstCombineAndOrXor.cpp --------------------------------------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -53,11 +52,11 @@ static unsigned getFCmpCode(FCmpInst::Predicate CC) {
 /// operands into either a constant true or false, or a brand new ICmp
 /// instruction. The sign is passed in to determine which kind of predicate to
 /// use in the new icmp instruction.
-static Value *getNewICmpValue(bool Sign, unsigned Code, Value *LHS, Value *RHS,
+static Value *getNewICmpValue(unsigned Code, bool Sign, Value *LHS, Value *RHS,
                               InstCombiner::BuilderTy &Builder) {
   ICmpInst::Predicate NewPred;
-  if (Value *NewConstant = getICmpValue(Sign, Code, LHS, RHS, NewPred))
-    return NewConstant;
+  if (Constant *TorF = getPredForICmpCode(Code, Sign, LHS->getType(), NewPred))
+    return TorF;
   return Builder.CreateICmp(NewPred, LHS, RHS);
 }
 
@@ -1033,7 +1032,7 @@ Value *InstCombiner::foldAndOfICmps(ICmpInst *LHS, ICmpInst *RHS,
   ICmpInst::Predicate PredL = LHS->getPredicate(), PredR = RHS->getPredicate();
 
   // (icmp1 A, B) & (icmp2 A, B) --> (icmp3 A, B)
-  if (PredicatesFoldable(PredL, PredR)) {
+  if (predicatesFoldable(PredL, PredR)) {
     if (LHS->getOperand(0) == RHS->getOperand(1) &&
         LHS->getOperand(1) == RHS->getOperand(0))
       LHS->swapOperands();
@@ -1041,8 +1040,8 @@ Value *InstCombiner::foldAndOfICmps(ICmpInst *LHS, ICmpInst *RHS,
         LHS->getOperand(1) == RHS->getOperand(1)) {
       Value *Op0 = LHS->getOperand(0), *Op1 = LHS->getOperand(1);
       unsigned Code = getICmpCode(LHS) & getICmpCode(RHS);
-      bool isSigned = LHS->isSigned() || RHS->isSigned();
-      return getNewICmpValue(isSigned, Code, Op0, Op1, Builder);
+      bool IsSigned = LHS->isSigned() || RHS->isSigned();
+      return getNewICmpValue(Code, IsSigned, Op0, Op1, Builder);
     }
   }
 
@@ -1131,7 +1130,7 @@ Value *InstCombiner::foldAndOfICmps(ICmpInst *LHS, ICmpInst *RHS,
     return nullptr;
 
   // We can't fold (ugt x, C) & (sgt x, C2).
-  if (!PredicatesFoldable(PredL, PredR))
+  if (!predicatesFoldable(PredL, PredR))
     return nullptr;
 
   // Ensure that the larger constant is on the RHS.
@@ -1810,6 +1809,61 @@ Instruction *InstCombiner::matchBSwap(BinaryOperator &Or) {
   return LastInst;
 }
 
+/// Transform UB-safe variants of bitwise rotate to the funnel shift intrinsic.
+static Instruction *matchRotate(Instruction &Or) {
+  // TODO: Can we reduce the code duplication between this and the related
+  // rotate matching code under visitSelect and visitTrunc?
+  unsigned Width = Or.getType()->getScalarSizeInBits();
+  if (!isPowerOf2_32(Width))
+    return nullptr;
+
+  // First, find an or'd pair of opposite shifts with the same shifted operand:
+  // or (lshr ShVal, ShAmt0), (shl ShVal, ShAmt1)
+  BinaryOperator *Or0, *Or1;
+  if (!match(Or.getOperand(0), m_BinOp(Or0)) ||
+      !match(Or.getOperand(1), m_BinOp(Or1)))
+    return nullptr;
+
+  Value *ShVal, *ShAmt0, *ShAmt1;
+  if (!match(Or0, m_OneUse(m_LogicalShift(m_Value(ShVal), m_Value(ShAmt0)))) ||
+      !match(Or1, m_OneUse(m_LogicalShift(m_Specific(ShVal), m_Value(ShAmt1)))))
+    return nullptr;
+
+  BinaryOperator::BinaryOps ShiftOpcode0 = Or0->getOpcode();
+  BinaryOperator::BinaryOps ShiftOpcode1 = Or1->getOpcode();
+  if (ShiftOpcode0 == ShiftOpcode1)
+    return nullptr;
+
+  // Match the shift amount operands for a rotate pattern. This always matches
+  // a subtraction on the R operand.
+  auto matchShiftAmount = [](Value *L, Value *R, unsigned Width) -> Value * {
+    // The shift amount may be masked with negation:
+    // (shl ShVal, (X & (Width - 1))) | (lshr ShVal, ((-X) & (Width - 1)))
+    Value *X;
+    unsigned Mask = Width - 1;
+    if (match(L, m_And(m_Value(X), m_SpecificInt(Mask))) &&
+        match(R, m_And(m_Neg(m_Specific(X)), m_SpecificInt(Mask))))
+      return X;
+
+    return nullptr;
+  };
+
+  Value *ShAmt = matchShiftAmount(ShAmt0, ShAmt1, Width);
+  bool SubIsOnLHS = false;
+  if (!ShAmt) {
+    ShAmt = matchShiftAmount(ShAmt1, ShAmt0, Width);
+    SubIsOnLHS = true;
+  }
+  if (!ShAmt)
+    return nullptr;
+
+  bool IsFshl = (!SubIsOnLHS && ShiftOpcode0 == BinaryOperator::Shl) ||
+                (SubIsOnLHS && ShiftOpcode1 == BinaryOperator::Shl);
+  Intrinsic::ID IID = IsFshl ? Intrinsic::fshl : Intrinsic::fshr;
+  Function *F = Intrinsic::getDeclaration(Or.getModule(), IID, Or.getType());
+  return IntrinsicInst::Create(F, { ShVal, ShVal, ShAmt });
+}
+
 /// If all elements of two constant vectors are 0/-1 and inverses, return true.
 static bool areInverseVectorBitmasks(Constant *C1, Constant *C2) {
   unsigned NumElts = C1->getType()->getVectorNumElements();
@@ -1976,7 +2030,7 @@ Value *InstCombiner::foldOrOfICmps(ICmpInst *LHS, ICmpInst *RHS,
   }
 
   // (icmp1 A, B) | (icmp2 A, B) --> (icmp3 A, B)
-  if (PredicatesFoldable(PredL, PredR)) {
+  if (predicatesFoldable(PredL, PredR)) {
     if (LHS->getOperand(0) == RHS->getOperand(1) &&
         LHS->getOperand(1) == RHS->getOperand(0))
       LHS->swapOperands();
@@ -1984,8 +2038,8 @@ Value *InstCombiner::foldOrOfICmps(ICmpInst *LHS, ICmpInst *RHS,
         LHS->getOperand(1) == RHS->getOperand(1)) {
       Value *Op0 = LHS->getOperand(0), *Op1 = LHS->getOperand(1);
       unsigned Code = getICmpCode(LHS) | getICmpCode(RHS);
-      bool isSigned = LHS->isSigned() || RHS->isSigned();
-      return getNewICmpValue(isSigned, Code, Op0, Op1, Builder);
+      bool IsSigned = LHS->isSigned() || RHS->isSigned();
+      return getNewICmpValue(Code, IsSigned, Op0, Op1, Builder);
     }
   }
 
@@ -2066,7 +2120,7 @@ Value *InstCombiner::foldOrOfICmps(ICmpInst *LHS, ICmpInst *RHS,
     return nullptr;
 
   // We can't fold (ugt x, C) | (sgt x, C2).
-  if (!PredicatesFoldable(PredL, PredR))
+  if (!predicatesFoldable(PredL, PredR))
     return nullptr;
 
   // Ensure that the larger constant is on the RHS.
@@ -2169,6 +2223,9 @@ Instruction *InstCombiner::visitOr(BinaryOperator &I) {
 
   if (Instruction *BSwap = matchBSwap(I))
     return BSwap;
+
+  if (Instruction *Rotate = matchRotate(I))
+    return Rotate;
 
   Value *X, *Y;
   const APInt *CV;
@@ -2462,7 +2519,7 @@ static Instruction *foldXorToXor(BinaryOperator &I,
 }
 
 Value *InstCombiner::foldXorOfICmps(ICmpInst *LHS, ICmpInst *RHS) {
-  if (PredicatesFoldable(LHS->getPredicate(), RHS->getPredicate())) {
+  if (predicatesFoldable(LHS->getPredicate(), RHS->getPredicate())) {
     if (LHS->getOperand(0) == RHS->getOperand(1) &&
         LHS->getOperand(1) == RHS->getOperand(0))
       LHS->swapOperands();
@@ -2471,8 +2528,8 @@ Value *InstCombiner::foldXorOfICmps(ICmpInst *LHS, ICmpInst *RHS) {
       // (icmp1 A, B) ^ (icmp2 A, B) --> (icmp3 A, B)
       Value *Op0 = LHS->getOperand(0), *Op1 = LHS->getOperand(1);
       unsigned Code = getICmpCode(LHS) ^ getICmpCode(RHS);
-      bool isSigned = LHS->isSigned() || RHS->isSigned();
-      return getNewICmpValue(isSigned, Code, Op0, Op1, Builder);
+      bool IsSigned = LHS->isSigned() || RHS->isSigned();
+      return getNewICmpValue(Code, IsSigned, Op0, Op1, Builder);
     }
   }
 

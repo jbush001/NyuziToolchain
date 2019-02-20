@@ -1,9 +1,8 @@
 //===-- llvm/Target/TargetMachine.h - Target Information --------*- C++ -*-===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -201,6 +200,9 @@ public:
   bool getO0WantsFastISel() { return O0WantsFastISel; }
   void setO0WantsFastISel(bool Enable) { O0WantsFastISel = Enable; }
   void setGlobalISel(bool Enable) { Options.EnableGlobalISel = Enable; }
+  void setGlobalISelAbort(GlobalISelAbortMode Mode) {
+    Options.GlobalISelAbort = Mode;
+  }
   void setMachineOutliner(bool Enable) {
     Options.EnableMachineOutliner = Enable;
   }
@@ -350,6 +352,23 @@ public:
     return false;
   }
 };
+
+/// Helper method for getting the code model, returning Default if
+/// CM does not have a value. The tiny and kernel models will produce
+/// an error, so targets that support them or require more complex codemodel
+/// selection logic should implement and call their own getEffectiveCodeModel.
+inline CodeModel::Model getEffectiveCodeModel(Optional<CodeModel::Model> CM,
+                                              CodeModel::Model Default) {
+  if (CM) {
+    // By default, targets do not support the tiny and kernel models.
+    if (*CM == CodeModel::Tiny)
+      report_fatal_error("Target does not support the tiny CodeModel");
+    if (*CM == CodeModel::Kernel)
+      report_fatal_error("Target does not support the kernel CodeModel");
+    return *CM;
+  }
+  return Default;
+}
 
 } // end namespace llvm
 

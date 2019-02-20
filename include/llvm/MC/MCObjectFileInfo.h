@@ -1,9 +1,8 @@
 //===-- llvm/MC/MCObjectFileInfo.h - Object File Info -----------*- C++ -*-===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -18,6 +17,7 @@
 #include "llvm/ADT/Triple.h"
 #include "llvm/MC/MCSymbol.h"
 #include "llvm/Support/CodeGen.h"
+#include "llvm/Support/VersionTuple.h"
 
 namespace llvm {
 class MCContext;
@@ -390,6 +390,7 @@ private:
   bool PositionIndependent;
   MCContext *Ctx;
   Triple TT;
+  VersionTuple SDKVersion;
 
   void initMachOMCObjectFileInfo(const Triple &T);
   void initELFMCObjectFileInfo(const Triple &T, bool Large);
@@ -399,6 +400,12 @@ private:
 
 public:
   const Triple &getTargetTriple() const { return TT; }
+
+  void setSDKVersion(const VersionTuple &TheSDKVersion) {
+    SDKVersion = TheSDKVersion;
+  }
+
+  const VersionTuple &getSDKVersion() const { return SDKVersion; }
 };
 
 } // end namespace llvm

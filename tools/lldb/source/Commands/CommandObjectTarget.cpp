@@ -1,9 +1,8 @@
 //===-- CommandObjectTarget.cpp ---------------------------------*- C++ -*-===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -1348,7 +1347,7 @@ static void DumpModuleUUID(Stream &strm, Module *module) {
 static uint32_t DumpCompileUnitLineTable(CommandInterpreter &interpreter,
                                          Stream &strm, Module *module,
                                          const FileSpec &file_spec,
-                                         bool load_addresses) {
+                                         lldb::DescriptionLevel desc_level) {
   uint32_t num_matches = 0;
   if (module) {
     SymbolContextList sc_list;
@@ -1367,7 +1366,7 @@ static uint32_t DumpCompileUnitLineTable(CommandInterpreter &interpreter,
         if (line_table)
           line_table->GetDescription(
               &strm, interpreter.GetExecutionContext().GetTargetPtr(),
-              lldb::eDescriptionLevelBrief);
+              desc_level);
         else
           strm << "No line table";
       }
@@ -1672,12 +1671,11 @@ static size_t LookupTypeInModule(CommandInterpreter &interpreter, Stream &strm,
     const uint32_t max_num_matches = UINT32_MAX;
     size_t num_matches = 0;
     bool name_is_fully_qualified = false;
-    SymbolContext sc;
 
     ConstString name(name_cstr);
     llvm::DenseSet<lldb_private::SymbolFile *> searched_symbol_files;
     num_matches =
-        module->FindTypes(sc, name, name_is_fully_qualified, max_num_matches,
+        module->FindTypes(name, name_is_fully_qualified, max_num_matches,
                           searched_symbol_files, type_list);
 
     if (num_matches) {
@@ -1715,11 +1713,8 @@ static size_t LookupTypeInModule(CommandInterpreter &interpreter, Stream &strm,
 }
 
 static size_t LookupTypeHere(CommandInterpreter &interpreter, Stream &strm,
-                             const SymbolContext &sym_ctx,
-                             const char *name_cstr, bool name_is_regex) {
-  if (!sym_ctx.module_sp)
-    return 0;
-
+                             Module &module, const char *name_cstr,
+                             bool name_is_regex) {
   TypeList type_list;
   const uint32_t max_num_matches = UINT32_MAX;
   size_t num_matches = 1;
@@ -1727,14 +1722,13 @@ static size_t LookupTypeHere(CommandInterpreter &interpreter, Stream &strm,
 
   ConstString name(name_cstr);
   llvm::DenseSet<SymbolFile *> searched_symbol_files;
-  num_matches = sym_ctx.module_sp->FindTypes(
-      sym_ctx, name, name_is_fully_qualified, max_num_matches,
-      searched_symbol_files, type_list);
+  num_matches = module.FindTypes(name, name_is_fully_qualified, max_num_matches,
+                                 searched_symbol_files, type_list);
 
   if (num_matches) {
     strm.Indent();
     strm.PutCString("Best match found in ");
-    DumpFullpath(strm, &sym_ctx.module_sp->GetFileSpec(), 0);
+    DumpFullpath(strm, &module.GetFileSpec(), 0);
     strm.PutCString(":\n");
 
     TypeSP type_sp(type_list.GetTypeAtIndex(0));
@@ -2411,6 +2405,8 @@ public:
 
   ~CommandObjectTargetModulesDumpLineTable() override = default;
 
+  Options *GetOptions() override { return &m_options; }
+
 protected:
   bool DoExecute(Args &command, CommandReturnObject &result) override {
     Target *target = m_exe_ctx.GetTargetPtr();
@@ -2443,8 +2439,9 @@ protected:
             if (DumpCompileUnitLineTable(
                     m_interpreter, result.GetOutputStream(),
                     target_modules.GetModulePointerAtIndexUnlocked(i),
-                    file_spec, m_exe_ctx.GetProcessPtr() &&
-                                   m_exe_ctx.GetProcessRef().IsAlive()))
+                    file_spec,
+                    m_options.m_verbose ? eDescriptionLevelFull
+                                        : eDescriptionLevelBrief))
               num_dumped++;
           }
           if (num_dumped == 0)
@@ -2464,6 +2461,43 @@ protected:
     }
     return result.Succeeded();
   }
+
+  class CommandOptions : public Options {
+  public:
+    CommandOptions() : Options() { OptionParsingStarting(nullptr); }
+
+    Status SetOptionValue(uint32_t option_idx, llvm::StringRef option_arg,
+                          ExecutionContext *execution_context) override {
+      assert(option_idx == 0 && "We only have one option.");
+      m_verbose = true;
+
+      return Status();
+    }
+
+    void OptionParsingStarting(ExecutionContext *execution_context) override {
+      m_verbose = false;
+    }
+
+    llvm::ArrayRef<OptionDefinition> GetDefinitions() override {
+      static constexpr OptionDefinition g_options[] = {
+          {LLDB_OPT_SET_ALL,
+           false,
+           "verbose",
+           'v',
+           OptionParser::eNoArgument,
+           nullptr,
+           {},
+           0,
+           eArgTypeNone,
+           "Enable verbose dump."},
+      };
+      return llvm::makeArrayRef(g_options);
+    }
+
+    bool m_verbose;
+  };
+
+  CommandOptions m_options;
 };
 
 #pragma mark CommandObjectTargetModulesDump
@@ -2969,8 +3003,8 @@ static constexpr OptionDefinition g_target_modules_list_options[] = {
   { LLDB_OPT_SET_1, false, "address",        'a', OptionParser::eRequiredArgument, nullptr, {}, 0, eArgTypeAddressOrExpression, "Display the image at this address." },
   { LLDB_OPT_SET_1, false, "arch",           'A', OptionParser::eOptionalArgument, nullptr, {}, 0, eArgTypeWidth,               "Display the architecture when listing images." },
   { LLDB_OPT_SET_1, false, "triple",         't', OptionParser::eOptionalArgument, nullptr, {}, 0, eArgTypeWidth,               "Display the triple when listing images." },
-  { LLDB_OPT_SET_1, false, "header",         'h', OptionParser::eNoArgument,       nullptr, {}, 0, eArgTypeNone,                "Display the image header address as a load address if debugging, a file address otherwise." },
-  { LLDB_OPT_SET_1, false, "offset",         'o', OptionParser::eNoArgument,       nullptr, {}, 0, eArgTypeNone,                "Display the image header address offset from the header file address (the slide amount)." },
+  { LLDB_OPT_SET_1, false, "header",         'h', OptionParser::eNoArgument,       nullptr, {}, 0, eArgTypeNone,                "Display the image base address as a load address if debugging, a file address otherwise." },
+  { LLDB_OPT_SET_1, false, "offset",         'o', OptionParser::eNoArgument,       nullptr, {}, 0, eArgTypeNone,                "Display the image load address offset from the base file address (the slide amount)." },
   { LLDB_OPT_SET_1, false, "uuid",           'u', OptionParser::eNoArgument,       nullptr, {}, 0, eArgTypeNone,                "Display the UUID when listing images." },
   { LLDB_OPT_SET_1, false, "fullpath",       'f', OptionParser::eOptionalArgument, nullptr, {}, 0, eArgTypeWidth,               "Display the fullpath to the image object file." },
   { LLDB_OPT_SET_1, false, "directory",      'd', OptionParser::eOptionalArgument, nullptr, {}, 0, eArgTypeWidth,               "Display the directory with optional width for the image object file." },
@@ -3229,13 +3263,13 @@ protected:
 
           ObjectFile *objfile = module->GetObjectFile();
           if (objfile) {
-            Address header_addr(objfile->GetHeaderAddress());
-            if (header_addr.IsValid()) {
+            Address base_addr(objfile->GetBaseAddress());
+            if (base_addr.IsValid()) {
               if (target && !target->GetSectionLoadList().IsEmpty()) {
-                lldb::addr_t header_load_addr =
-                    header_addr.GetLoadAddress(target);
-                if (header_load_addr == LLDB_INVALID_ADDRESS) {
-                  header_addr.Dump(&strm, target,
+                lldb::addr_t load_addr =
+                    base_addr.GetLoadAddress(target);
+                if (load_addr == LLDB_INVALID_ADDRESS) {
+                  base_addr.Dump(&strm, target,
                                    Address::DumpStyleModuleWithFileAddress,
                                    Address::DumpStyleFileAddress);
                 } else {
@@ -3243,18 +3277,18 @@ protected:
                     // Show the offset of slide for the image
                     strm.Printf(
                         "0x%*.*" PRIx64, addr_nibble_width, addr_nibble_width,
-                        header_load_addr - header_addr.GetFileAddress());
+                        load_addr - base_addr.GetFileAddress());
                   } else {
                     // Show the load address of the image
                     strm.Printf("0x%*.*" PRIx64, addr_nibble_width,
-                                addr_nibble_width, header_load_addr);
+                                addr_nibble_width, load_addr);
                   }
                 }
                 break;
               }
               // The address was valid, but the image isn't loaded, output the
               // address in an appropriate format
-              header_addr.Dump(&strm, target, Address::DumpStyleFileAddress);
+              base_addr.Dump(&strm, target, Address::DumpStyleFileAddress);
               break;
             }
           }
@@ -3499,8 +3533,7 @@ protected:
         start_addr = abi->FixCodeAddress(start_addr);
 
       FuncUnwindersSP func_unwinders_sp(
-          sc.module_sp->GetObjectFile()
-              ->GetUnwindTable()
+          sc.module_sp->GetUnwindTable()
               .GetUncachedFuncUnwindersContainingAddress(start_addr, sc));
       if (!func_unwinders_sp)
         continue;
@@ -3832,8 +3865,9 @@ public:
       return false;
     case eLookupTypeType:
       if (!m_options.m_str.empty()) {
-        if (LookupTypeHere(m_interpreter, result.GetOutputStream(), sym_ctx,
-                           m_options.m_str.c_str(), m_options.m_use_regex)) {
+        if (LookupTypeHere(m_interpreter, result.GetOutputStream(),
+                           *sym_ctx.module_sp, m_options.m_str.c_str(),
+                           m_options.m_use_regex)) {
           result.SetStatus(eReturnStatusSuccessFinishResult);
           return true;
         }
@@ -4735,49 +4769,49 @@ protected:
       Target::StopHookSP new_hook_sp = target->CreateStopHook();
 
       //  First step, make the specifier.
-      std::unique_ptr<SymbolContextSpecifier> specifier_ap;
+      std::unique_ptr<SymbolContextSpecifier> specifier_up;
       if (m_options.m_sym_ctx_specified) {
-        specifier_ap.reset(new SymbolContextSpecifier(
+        specifier_up.reset(new SymbolContextSpecifier(
             m_interpreter.GetDebugger().GetSelectedTarget()));
 
         if (!m_options.m_module_name.empty()) {
-          specifier_ap->AddSpecification(
+          specifier_up->AddSpecification(
               m_options.m_module_name.c_str(),
               SymbolContextSpecifier::eModuleSpecified);
         }
 
         if (!m_options.m_class_name.empty()) {
-          specifier_ap->AddSpecification(
+          specifier_up->AddSpecification(
               m_options.m_class_name.c_str(),
               SymbolContextSpecifier::eClassOrNamespaceSpecified);
         }
 
         if (!m_options.m_file_name.empty()) {
-          specifier_ap->AddSpecification(
+          specifier_up->AddSpecification(
               m_options.m_file_name.c_str(),
               SymbolContextSpecifier::eFileSpecified);
         }
 
         if (m_options.m_line_start != 0) {
-          specifier_ap->AddLineSpecification(
+          specifier_up->AddLineSpecification(
               m_options.m_line_start,
               SymbolContextSpecifier::eLineStartSpecified);
         }
 
         if (m_options.m_line_end != UINT_MAX) {
-          specifier_ap->AddLineSpecification(
+          specifier_up->AddLineSpecification(
               m_options.m_line_end, SymbolContextSpecifier::eLineEndSpecified);
         }
 
         if (!m_options.m_function_name.empty()) {
-          specifier_ap->AddSpecification(
+          specifier_up->AddSpecification(
               m_options.m_function_name.c_str(),
               SymbolContextSpecifier::eFunctionSpecified);
         }
       }
 
-      if (specifier_ap)
-        new_hook_sp->SetSpecifier(specifier_ap.release());
+      if (specifier_up)
+        new_hook_sp->SetSpecifier(specifier_up.release());
 
       // Next see if any of the thread options have been entered:
 

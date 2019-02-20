@@ -11,10 +11,10 @@ target triple = "wasm32-unknown-unknown"
 
 ; CHECK:        - Type:            DATA
 ; CHECK-NEXT:     Relocations:     
-; CHECK-NEXT:       - Type:            R_WEBASSEMBLY_MEMORY_ADDR_I32
+; CHECK-NEXT:       - Type:            R_WASM_MEMORY_ADDR_I32
 ; CHECK-NEXT:         Index:           0
 ; CHECK-NEXT:         Offset:          0x0000001C
-; CHECK-NEXT:       - Type:            R_WEBASSEMBLY_MEMORY_ADDR_I32
+; CHECK-NEXT:       - Type:            R_WASM_MEMORY_ADDR_I32
 ; CHECK-NEXT:         Index:           1
 ; CHECK-NEXT:         Offset:          0x00000025
 ; CHECK-NEXT:     Segments:        
@@ -44,7 +44,7 @@ target triple = "wasm32-unknown-unknown"
 ; CHECK-NEXT:         Content:         '06000000'
 ; CHECK-NEXT:   - Type:            CUSTOM
 ; CHECK-NEXT:     Name:            linking
-; CHECK-NEXT:     Version:         1
+; CHECK-NEXT:     Version:         2
 ; CHECK-NEXT:     SymbolTable:      
 ; CHECK-NEXT:       - Index:           0
 ; CHECK-NEXT:         Kind:            DATA
@@ -73,18 +73,18 @@ target triple = "wasm32-unknown-unknown"
 ; CHECK-NEXT:     SegmentInfo:    
 ; CHECK-NEXT:       - Index:       0
 ; CHECK-NEXT:         Name:        .rodata..L.str1
-; CHECK-NEXT:         Alignment:   1
+; CHECK-NEXT:         Alignment:   0
 ; CHECK-NEXT:         Flags:       [ ]
 ; CHECK-NEXT:       - Index:       1
 ; CHECK-NEXT:         Name:        .rodata..L.str2
-; CHECK-NEXT:         Alignment:   1
+; CHECK-NEXT:         Alignment:   0
 ; CHECK-NEXT:         Flags:       [ ]
 ; CHECK-NEXT:       - Index:       2
 ; CHECK-NEXT:         Name:        .data.a
-; CHECK-NEXT:         Alignment:   8
+; CHECK-NEXT:         Alignment:   3
 ; CHECK-NEXT:         Flags:       [ ]
 ; CHECK-NEXT:       - Index:       3
 ; CHECK-NEXT:         Name:        .data.b
-; CHECK-NEXT:         Alignment:   8
+; CHECK-NEXT:         Alignment:   3
 ; CHECK-NEXT:         Flags:       [ ]
 ; CHECK_NEXT:   ...

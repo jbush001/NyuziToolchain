@@ -1,9 +1,8 @@
 //===- AsmWriter.cpp - Printing LLVM as an assembly file ------------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -36,7 +35,6 @@
 #include "llvm/IR/Attributes.h"
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/CFG.h"
-#include "llvm/IR/CallSite.h"
 #include "llvm/IR/CallingConv.h"
 #include "llvm/IR/Comdat.h"
 #include "llvm/IR/Constant.h"
@@ -998,9 +996,9 @@ void SlotTracker::processFunction() {
 
       // We allow direct calls to any llvm.foo function here, because the
       // target may not be linked into the optimizer.
-      if (auto CS = ImmutableCallSite(&I)) {
+      if (const auto *Call = dyn_cast<CallBase>(&I)) {
         // Add all the call attributes to the table.
-        AttributeSet Attrs = CS.getAttributes().getFnAttributes();
+        AttributeSet Attrs = Call->getAttributes().getFnAttributes();
         if (Attrs.hasAttributes())
           CreateAttributeSetSlot(Attrs);
       }
@@ -1607,6 +1605,7 @@ struct MDFieldPrinter {
   void printInt(StringRef Name, IntTy Int, bool ShouldSkipZero = true);
   void printBool(StringRef Name, bool Value, Optional<bool> Default = None);
   void printDIFlags(StringRef Name, DINode::DIFlags Flags);
+  void printDISPFlags(StringRef Name, DISubprogram::DISPFlags Flags);
   template <class IntTy, class Stringifier>
   void printDwarfEnum(StringRef Name, IntTy Value, Stringifier toString,
                       bool ShouldSkipZero = true);
@@ -1698,6 +1697,30 @@ void MDFieldPrinter::printDIFlags(StringRef Name, DINode::DIFlags Flags) {
   FieldSeparator FlagsFS(" | ");
   for (auto F : SplitFlags) {
     auto StringF = DINode::getFlagString(F);
+    assert(!StringF.empty() && "Expected valid flag");
+    Out << FlagsFS << StringF;
+  }
+  if (Extra || SplitFlags.empty())
+    Out << FlagsFS << Extra;
+}
+
+void MDFieldPrinter::printDISPFlags(StringRef Name,
+                                    DISubprogram::DISPFlags Flags) {
+  // Always print this field, because no flags in the IR at all will be
+  // interpreted as old-style isDefinition: true.
+  Out << FS << Name << ": ";
+
+  if (!Flags) {
+    Out << 0;
+    return;
+  }
+
+  SmallVector<DISubprogram::DISPFlags, 8> SplitFlags;
+  auto Extra = DISubprogram::splitFlags(Flags, SplitFlags);
+
+  FieldSeparator FlagsFS(" | ");
+  for (auto F : SplitFlags) {
+    auto StringF = DISubprogram::getFlagString(F);
     assert(!StringF.empty() && "Expected valid flag");
     Out << FlagsFS << StringF;
   }
@@ -1925,18 +1948,14 @@ static void writeDISubprogram(raw_ostream &Out, const DISubprogram *N,
   Printer.printMetadata("file", N->getRawFile());
   Printer.printInt("line", N->getLine());
   Printer.printMetadata("type", N->getRawType());
-  Printer.printBool("isLocal", N->isLocalToUnit());
-  Printer.printBool("isDefinition", N->isDefinition());
   Printer.printInt("scopeLine", N->getScopeLine());
   Printer.printMetadata("containingType", N->getRawContainingType());
-  Printer.printDwarfEnum("virtuality", N->getVirtuality(),
-                         dwarf::VirtualityString);
   if (N->getVirtuality() != dwarf::DW_VIRTUALITY_none ||
       N->getVirtualIndex() != 0)
     Printer.printInt("virtualIndex", N->getVirtualIndex(), false);
   Printer.printInt("thisAdjustment", N->getThisAdjustment());
   Printer.printDIFlags("flags", N->getFlags());
-  Printer.printBool("isOptimized", N->isOptimized());
+  Printer.printDISPFlags("spFlags", N->getSPFlags());
   Printer.printMetadata("unit", N->getRawUnit());
   Printer.printMetadata("templateParams", N->getRawTemplateParams());
   Printer.printMetadata("declaration", N->getRawDeclaration());
@@ -2273,11 +2292,15 @@ static void WriteAsOperandInternal(raw_ostream &Out, const Metadata *MD,
       Machine = MachineStorage.get();
     }
     int Slot = Machine->getMetadataSlot(N);
-    if (Slot == -1)
+    if (Slot == -1) {
+      if (const DILocation *Loc = dyn_cast<DILocation>(N)) {
+        writeDILocation(Out, Loc, TypePrinter, Machine, Context);
+        return;
+      }
       // Give the pointer value instead of "badref", since this comes up all
       // the time when debugging.
       Out << "<" << N << ">";
-    else
+    } else
       Out << '!' << Slot;
     return;
   }
@@ -2334,7 +2357,7 @@ public:
 
   void writeOperand(const Value *Op, bool PrintType);
   void writeParamOperand(const Value *Operand, AttributeSet Attrs);
-  void writeOperandBundles(ImmutableCallSite CS);
+  void writeOperandBundles(const CallBase *Call);
   void writeSyncScope(const LLVMContext &Context,
                       SyncScope::ID SSID);
   void writeAtomic(const LLVMContext &Context,
@@ -2485,15 +2508,15 @@ void AssemblyWriter::writeParamOperand(const Value *Operand,
   WriteAsOperandInternal(Out, Operand, &TypePrinter, &Machine, TheModule);
 }
 
-void AssemblyWriter::writeOperandBundles(ImmutableCallSite CS) {
-  if (!CS.hasOperandBundles())
+void AssemblyWriter::writeOperandBundles(const CallBase *Call) {
+  if (!Call->hasOperandBundles())
     return;
 
   Out << " [ ";
 
   bool FirstBundle = true;
-  for (unsigned i = 0, e = CS.getNumOperandBundles(); i != e; ++i) {
-    OperandBundleUse BU = CS.getOperandBundleAt(i);
+  for (unsigned i = 0, e = Call->getNumOperandBundles(); i != e; ++i) {
+    OperandBundleUse BU = Call->getOperandBundleAt(i);
 
     if (!FirstBundle)
       Out << ", ";
@@ -3813,6 +3836,51 @@ void AssemblyWriter::printInstruction(const Instruction &I) {
     writeOperand(II->getNormalDest(), true);
     Out << " unwind ";
     writeOperand(II->getUnwindDest(), true);
+  } else if (const CallBrInst *CBI = dyn_cast<CallBrInst>(&I)) {
+    Operand = CBI->getCalledValue();
+    FunctionType *FTy = CBI->getFunctionType();
+    Type *RetTy = FTy->getReturnType();
+    const AttributeList &PAL = CBI->getAttributes();
+
+    // Print the calling convention being used.
+    if (CBI->getCallingConv() != CallingConv::C) {
+      Out << " ";
+      PrintCallingConv(CBI->getCallingConv(), Out);
+    }
+
+    if (PAL.hasAttributes(AttributeList::ReturnIndex))
+      Out << ' ' << PAL.getAsString(AttributeList::ReturnIndex);
+
+    // If possible, print out the short form of the callbr instruction. We can
+    // only do this if the first argument is a pointer to a nonvararg function,
+    // and if the return type is not a pointer to a function.
+    //
+    Out << ' ';
+    TypePrinter.print(FTy->isVarArg() ? FTy : RetTy, Out);
+    Out << ' ';
+    writeOperand(Operand, false);
+    Out << '(';
+    for (unsigned op = 0, Eop = CBI->getNumArgOperands(); op < Eop; ++op) {
+      if (op)
+        Out << ", ";
+      writeParamOperand(CBI->getArgOperand(op), PAL.getParamAttributes(op));
+    }
+
+    Out << ')';
+    if (PAL.hasAttributes(AttributeList::FunctionIndex))
+      Out << " #" << Machine.getAttributeGroupSlot(PAL.getFnAttributes());
+
+    writeOperandBundles(CBI);
+
+    Out << "\n          to ";
+    writeOperand(CBI->getDefaultDest(), true);
+    Out << " [";
+    for (unsigned i = 0, e = CBI->getNumIndirectDests(); i != e; ++i) {
+      if (i != 0)
+        Out << ", ";
+      writeOperand(CBI->getIndirectDest(i), true);
+    }
+    Out << ']';
   } else if (const AllocaInst *AI = dyn_cast<AllocaInst>(&I)) {
     Out << ' ';
     if (AI->isUsedWithInAlloca())

@@ -1,9 +1,8 @@
 //===--- AArch64.cpp - AArch64 (not ARM) Helpers for Tools ------*- C++ -*-===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -19,10 +18,17 @@ using namespace clang::driver::tools;
 using namespace clang;
 using namespace llvm::opt;
 
+/// \returns true if the given triple can determine the default CPU type even
+/// if -arch is not specified.
+static bool isCPUDeterminedByTriple(const llvm::Triple &Triple) {
+  return Triple.isOSDarwin();
+}
+
 /// getAArch64TargetCPU - Get the (LLVM) name of the AArch64 cpu we are
 /// targeting. Set \p A to the Arg corresponding to the -mcpu argument if it is
 /// provided, or to nullptr otherwise.
-std::string aarch64::getAArch64TargetCPU(const ArgList &Args, Arg *&A) {
+std::string aarch64::getAArch64TargetCPU(const ArgList &Args,
+                                         const llvm::Triple &Triple, Arg *&A) {
   std::string CPU;
   // If we have -mcpu, use that.
   if ((A = Args.getLastArg(options::OPT_mcpu_EQ))) {
@@ -36,9 +42,9 @@ std::string aarch64::getAArch64TargetCPU(const ArgList &Args, Arg *&A) {
   else if (CPU.size())
     return CPU;
 
-  // Make sure we pick "cyclone" if -arch is used.
-  // FIXME: Should this be picked by checking the target triple instead?
-  if (Args.getLastArg(options::OPT_arch))
+  // Make sure we pick "cyclone" if -arch is used or when targetting a Darwin
+  // OS.
+  if (Args.getLastArg(options::OPT_arch) || Triple.isOSDarwin())
     return "cyclone";
 
   return "generic";
@@ -152,7 +158,9 @@ getAArch64MicroArchFeaturesFromMcpu(const Driver &D, StringRef Mcpu,
   return getAArch64MicroArchFeaturesFromMtune(D, CPU, Args, Features);
 }
 
-void aarch64::getAArch64TargetFeatures(const Driver &D, const ArgList &Args,
+void aarch64::getAArch64TargetFeatures(const Driver &D,
+                                       const llvm::Triple &Triple,
+                                       const ArgList &Args,
                                        std::vector<StringRef> &Features) {
   Arg *A;
   bool success = true;
@@ -162,9 +170,9 @@ void aarch64::getAArch64TargetFeatures(const Driver &D, const ArgList &Args,
     success = getAArch64ArchFeaturesFromMarch(D, A->getValue(), Args, Features);
   else if ((A = Args.getLastArg(options::OPT_mcpu_EQ)))
     success = getAArch64ArchFeaturesFromMcpu(D, A->getValue(), Args, Features);
-  else if (Args.hasArg(options::OPT_arch))
-    success = getAArch64ArchFeaturesFromMcpu(D, getAArch64TargetCPU(Args, A),
-                                             Args, Features);
+  else if (Args.hasArg(options::OPT_arch) || isCPUDeterminedByTriple(Triple))
+    success = getAArch64ArchFeaturesFromMcpu(
+        D, getAArch64TargetCPU(Args, Triple, A), Args, Features);
 
   if (success && (A = Args.getLastArg(clang::driver::options::OPT_mtune_EQ)))
     success =
@@ -172,9 +180,10 @@ void aarch64::getAArch64TargetFeatures(const Driver &D, const ArgList &Args,
   else if (success && (A = Args.getLastArg(options::OPT_mcpu_EQ)))
     success =
         getAArch64MicroArchFeaturesFromMcpu(D, A->getValue(), Args, Features);
-  else if (success && Args.hasArg(options::OPT_arch))
+  else if (success &&
+           (Args.hasArg(options::OPT_arch) || isCPUDeterminedByTriple(Triple)))
     success = getAArch64MicroArchFeaturesFromMcpu(
-        D, getAArch64TargetCPU(Args, A), Args, Features);
+        D, getAArch64TargetCPU(Args, Triple, A), Args, Features);
 
   if (!success)
     D.Diag(diag::err_drv_clang_unsupported) << A->getAsString(Args);
@@ -198,7 +207,7 @@ void aarch64::getAArch64TargetFeatures(const Driver &D, const ArgList &Args,
   // TargetParser rewrite.
   const auto ItRNoFullFP16 = std::find(Features.rbegin(), Features.rend(), "-fullfp16");
   const auto ItRFP16FML = std::find(Features.rbegin(), Features.rend(), "+fp16fml");
-  if (std::find(Features.begin(), Features.end(), "+v8.4a") != Features.end()) {
+  if (llvm::is_contained(Features, "+v8.4a")) {
     const auto ItRFullFP16  = std::find(Features.rbegin(), Features.rend(), "+fullfp16");
     if (ItRFullFP16 < ItRNoFullFP16 && ItRFullFP16 < ItRFP16FML) {
       // Only entangled feature that can be to the right of this +fullfp16 is -fp16fml.
@@ -208,8 +217,7 @@ void aarch64::getAArch64TargetFeatures(const Driver &D, const ArgList &Args,
     }
     else
       goto fp16_fml_fallthrough;
-  }
-  else {
+  } else {
 fp16_fml_fallthrough:
     // In both of these cases, putting the 'other' feature on the end of the vector will
     // result in the same effect as placing it immediately after the current feature.
@@ -326,11 +334,56 @@ fp16_fml_fallthrough:
   if (Args.hasArg(options::OPT_ffixed_x7))
     Features.push_back("+reserve-x7");
 
+  if (Args.hasArg(options::OPT_ffixed_x9))
+    Features.push_back("+reserve-x9");
+
+  if (Args.hasArg(options::OPT_ffixed_x10))
+    Features.push_back("+reserve-x10");
+
+  if (Args.hasArg(options::OPT_ffixed_x11))
+    Features.push_back("+reserve-x11");
+
+  if (Args.hasArg(options::OPT_ffixed_x12))
+    Features.push_back("+reserve-x12");
+
+  if (Args.hasArg(options::OPT_ffixed_x13))
+    Features.push_back("+reserve-x13");
+
+  if (Args.hasArg(options::OPT_ffixed_x14))
+    Features.push_back("+reserve-x14");
+
+  if (Args.hasArg(options::OPT_ffixed_x15))
+    Features.push_back("+reserve-x15");
+
   if (Args.hasArg(options::OPT_ffixed_x18))
     Features.push_back("+reserve-x18");
 
   if (Args.hasArg(options::OPT_ffixed_x20))
     Features.push_back("+reserve-x20");
+
+  if (Args.hasArg(options::OPT_ffixed_x21))
+    Features.push_back("+reserve-x21");
+
+  if (Args.hasArg(options::OPT_ffixed_x22))
+    Features.push_back("+reserve-x22");
+
+  if (Args.hasArg(options::OPT_ffixed_x23))
+    Features.push_back("+reserve-x23");
+
+  if (Args.hasArg(options::OPT_ffixed_x24))
+    Features.push_back("+reserve-x24");
+
+  if (Args.hasArg(options::OPT_ffixed_x25))
+    Features.push_back("+reserve-x25");
+
+  if (Args.hasArg(options::OPT_ffixed_x26))
+    Features.push_back("+reserve-x26");
+
+  if (Args.hasArg(options::OPT_ffixed_x27))
+    Features.push_back("+reserve-x27");
+
+  if (Args.hasArg(options::OPT_ffixed_x28))
+    Features.push_back("+reserve-x28");
 
   if (Args.hasArg(options::OPT_fcall_saved_x8))
     Features.push_back("+call-saved-x8");

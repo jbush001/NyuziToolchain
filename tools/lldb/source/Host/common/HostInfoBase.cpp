@@ -1,9 +1,8 @@
 //===-- HostInfoBase.cpp ----------------------------------------*- C++ -*-===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -194,19 +193,6 @@ FileSpec HostInfoBase::GetGlobalTempDir() {
   return success ? g_fields->m_lldb_global_tmp_dir : FileSpec();
 }
 
-FileSpec HostInfoBase::GetReproducerTempDir() {
-  static llvm::once_flag g_once_flag;
-  static bool success = false;
-  llvm::call_once(g_once_flag, []() {
-    success = HostInfo::ComputeReproducerTempFileDirectory(
-        g_fields->m_lldb_global_tmp_dir);
-    Log *log = lldb_private::GetLogIfAllCategoriesSet(LIBLLDB_LOG_HOST);
-    LLDB_LOG(log, "reproducer temp dir -> `{0}`",
-             g_fields->m_lldb_global_tmp_dir);
-  });
-  return success ? g_fields->m_lldb_global_tmp_dir : FileSpec();
-}
-
 ArchSpec HostInfoBase::GetAugmentedArchSpec(llvm::StringRef triple) {
   if (triple.empty())
     return ArchSpec();
@@ -282,26 +268,6 @@ bool HostInfoBase::ComputeGlobalTempFileDirectory(FileSpec &file_spec) {
     return false;
 
   temp_file_spec.AppendPathComponent("lldb");
-  if (llvm::sys::fs::create_directory(temp_file_spec.GetPath()))
-    return false;
-
-  file_spec.GetDirectory().SetCString(temp_file_spec.GetCString());
-  return true;
-}
-
-bool HostInfoBase::ComputeReproducerTempFileDirectory(FileSpec &file_spec) {
-  file_spec.Clear();
-
-  FileSpec temp_file_spec;
-  if (!HostInfo::ComputeTempFileBaseDirectory(temp_file_spec))
-    return false;
-
-  temp_file_spec.AppendPathComponent("reproducer");
-  if (llvm::sys::fs::create_directory(temp_file_spec.GetPath()))
-    return false;
-
-  std::string pid_str{llvm::to_string(Host::GetCurrentProcessID())};
-  temp_file_spec.AppendPathComponent(pid_str);
   if (llvm::sys::fs::create_directory(temp_file_spec.GetPath()))
     return false;
 

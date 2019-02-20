@@ -1,9 +1,8 @@
 //===-- ObjectFile.h --------------------------------------------*- C++ -*-===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -40,7 +39,7 @@ public:
   virtual void PopulateSectionList(lldb_private::ObjectFile *obj_file,
                                    lldb_private::SectionList &section_list) = 0;
 
-  virtual bool GetArchitecture(lldb_private::ArchSpec &arch) = 0;
+  virtual ArchSpec GetArchitecture() = 0;
 };
 
 //----------------------------------------------------------------------
@@ -305,19 +304,13 @@ public:
   virtual const FileSpec &GetFileSpec() const { return m_file; }
 
   //------------------------------------------------------------------
-  /// Get the name of the cpu, vendor and OS for this object file.
-  ///
-  /// This value is a string that represents the target triple where the cpu
-  /// type, the vendor and the OS are encoded into a string.
-  ///
-  /// @param[out] target_triple
-  ///     The string value of the target triple.
+  /// Get the ArchSpec for this object file.
   ///
   /// @return
-  ///     \b True if the target triple was able to be computed, \b
-  ///     false otherwise.
+  ///     The ArchSpec of this object file. In case of error, an invalid
+  ///     ArchSpec object is returned.
   //------------------------------------------------------------------
-  virtual bool GetArchitecture(ArchSpec &arch) = 0;
+  virtual ArchSpec GetArchitecture() = 0;
 
   //------------------------------------------------------------------
   /// Gets the section list for the currently selected architecture (and
@@ -415,10 +408,10 @@ public:
   /// bytes for the object file (or memory for memory based object files).
   ///
   /// @return
-  ///     Returns \b true if a UUID was successfully extracted into
-  ///     \a uuid, \b false otherwise.
+  ///     The object file's UUID. In case of an error, an empty UUID is
+  ///     returned.
   //------------------------------------------------------------------
-  virtual bool GetUUID(lldb_private::UUID *uuid) = 0;
+  virtual UUID GetUUID() = 0;
 
   //------------------------------------------------------------------
   /// Gets the symbol file spec list for this object file.
@@ -485,20 +478,6 @@ public:
   virtual bool ParseHeader() = 0;
 
   //------------------------------------------------------------------
-  /// Returns a reference to the UnwindTable for this ObjectFile
-  ///
-  /// The UnwindTable contains FuncUnwinders objects for any function in this
-  /// ObjectFile.  If a FuncUnwinders object hasn't been created yet (i.e. the
-  /// function has yet to be unwound in a stack walk), it will be created when
-  /// requested.  Specifically, we do not create FuncUnwinders objects for
-  /// functions until they are needed.
-  ///
-  /// @return
-  ///     Returns the unwind table for this object file.
-  //------------------------------------------------------------------
-  virtual lldb_private::UnwindTable &GetUnwindTable() { return m_unwind_table; }
-
-  //------------------------------------------------------------------
   /// Returns if the function bounds for symbols in this symbol file are
   /// likely accurate.
   ///
@@ -551,18 +530,16 @@ public:
   virtual lldb_private::Address GetEntryPointAddress() { return Address(); }
 
   //------------------------------------------------------------------
-  /// Returns the address that represents the header of this object file.
+  /// Returns base address of this object file.
   ///
-  /// The header address is defined as where the header for the object file is
-  /// that describes the content of the file. If the header doesn't appear in
-  /// a section that is defined in the object file, an address with no section
-  /// is returned that has the file offset set in the m_file_offset member of
-  /// the lldb_private::Address object.
-  ///
-  /// @return
-  ///     Returns the entry address for this module.
+  /// This also sometimes referred to as the "preferred load address" or the
+  /// "image base address". Addresses within object files are often expressed
+  /// relative to this base. If this address corresponds to a specific section
+  /// (usually the first byte of the first section) then the returned address
+  /// will have this section set. Otherwise, the address will just have the
+  /// offset member filled in, indicating that this represents a file address.
   //------------------------------------------------------------------
-  virtual lldb_private::Address GetHeaderAddress() {
+  virtual lldb_private::Address GetBaseAddress() {
     return Address(m_memory_addr);
   }
 
@@ -783,13 +760,10 @@ protected:
                          ///determined).
   DataExtractor
       m_data; ///< The data for this object file so things can be parsed lazily.
-  lldb_private::UnwindTable m_unwind_table; /// < Table of FuncUnwinders objects
-                                            /// created for this ObjectFile's
-                                            /// functions
   lldb::ProcessWP m_process_wp;
   const lldb::addr_t m_memory_addr;
-  std::unique_ptr<lldb_private::SectionList> m_sections_ap;
-  std::unique_ptr<lldb_private::Symtab> m_symtab_ap;
+  std::unique_ptr<lldb_private::SectionList> m_sections_up;
+  std::unique_ptr<lldb_private::Symtab> m_symtab_up;
   uint32_t m_synthetic_symbol_idx;
 
   //------------------------------------------------------------------
@@ -816,5 +790,17 @@ private:
 };
 
 } // namespace lldb_private
+
+namespace llvm {
+template <> struct format_provider<lldb_private::ObjectFile::Type> {
+  static void format(const lldb_private::ObjectFile::Type &type,
+                     raw_ostream &OS, StringRef Style);
+};
+
+template <> struct format_provider<lldb_private::ObjectFile::Strata> {
+  static void format(const lldb_private::ObjectFile::Strata &strata,
+                     raw_ostream &OS, StringRef Style);
+};
+} // namespace llvm
 
 #endif // liblldb_ObjectFile_h_

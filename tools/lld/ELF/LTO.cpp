@@ -1,9 +1,8 @@
 //===- LTO.cpp ------------------------------------------------------------===//
 //
-//                             The LLVM Linker
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -13,6 +12,7 @@
 #include "LinkerScript.h"
 #include "SymbolTable.h"
 #include "Symbols.h"
+#include "lld/Common/Args.h"
 #include "lld/Common/ErrorHandler.h"
 #include "lld/Common/TargetOptionsCommandFlags.h"
 #include "llvm/ADT/STLExtras.h"
@@ -68,7 +68,7 @@ static lto::Config createConfig() {
   lto::Config C;
 
   // LLD supports the new relocations and address-significance tables.
-  C.Options = InitTargetOptionsFromCodeGenFlags();
+  C.Options = initTargetOptionsFromCodeGenFlags();
   C.Options.RelaxELFRelocations = true;
   C.Options.EmitAddrsig = true;
 
@@ -83,12 +83,13 @@ static lto::Config createConfig() {
   else
     C.RelocModel = Reloc::Static;
 
-  C.CodeModel = GetCodeModelFromCMModel();
+  C.CodeModel = getCodeModelFromCMModel();
   C.DisableVerify = Config->DisableVerify;
   C.DiagHandler = diagnosticHandler;
   C.OptLevel = Config->LTOO;
-  C.CPU = GetCPUStr();
-  C.MAttrs = GetMAttrs();
+  C.CPU = getCPUStr();
+  C.MAttrs = getMAttrs();
+  C.CGOptLevel = args::getCGOptLevel(Config->LTOO);
 
   // Set up a custom pipeline if we've been asked to.
   C.OptPipeline = Config->LTONewPmPasses;
@@ -102,6 +103,14 @@ static lto::Config createConfig() {
   C.UseNewPM = Config->LTONewPassManager;
   C.DebugPassManager = Config->LTODebugPassManager;
   C.DwoDir = Config->DwoDir;
+
+  if (Config->EmitLLVM) {
+    C.PostInternalizeModuleHook = [](size_t Task, const Module &M) {
+      if (std::unique_ptr<raw_fd_ostream> OS = openFile(Config->OutputFile))
+        WriteBitcodeToFile(M, *OS, false);
+      return false;
+    };
+  }
 
   if (Config->SaveTemps)
     checkError(C.addSaveTemps(Config->OutputFile.str() + ".",

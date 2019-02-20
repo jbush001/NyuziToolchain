@@ -1,9 +1,8 @@
 //===- Parsing, selection, and construction of pass pipelines --*- C++ -*--===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 /// \file
@@ -56,7 +55,7 @@ struct PGOOptions {
 
 /// This class provides access to building LLVM's passes.
 ///
-/// It's members provide the baseline state available to passes during their
+/// Its members provide the baseline state available to passes during their
 /// construction. The \c PassRegistry.def file specifies how to construct all
 /// of the built-in passes, and those may reference these members during
 /// construction.
@@ -275,7 +274,8 @@ public:
   /// require some transformations for semantic reasons, they should explicitly
   /// build them.
   ModulePassManager buildModuleOptimizationPipeline(OptimizationLevel Level,
-                                                    bool DebugLogging = false);
+                                                    bool DebugLogging = false,
+                                                    bool LTOPreLink = false);
 
   /// Build a per-module default optimization pipeline.
   ///
@@ -289,7 +289,8 @@ public:
   /// require some transformations for semantic reasons, they should explicitly
   /// build them.
   ModulePassManager buildPerModuleDefaultPipeline(OptimizationLevel Level,
-                                                  bool DebugLogging = false);
+                                                  bool DebugLogging = false,
+                                                  bool LTOPreLink = false);
 
   /// Build a pre-link, ThinLTO-targeting default optimization pipeline to
   /// a pass manager.

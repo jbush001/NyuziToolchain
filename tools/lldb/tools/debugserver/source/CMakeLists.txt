@@ -5,7 +5,6 @@ include_directories(${LLDB_SOURCE_DIR}/source)
 include_directories(MacOSX/DarwinLog)
 
 include_directories(MacOSX)
-#include_directories(${CMAKE_CURRENT_BINARY_DIR}/MacOSX)
 
 set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -stdlib=libc++ -Wl,-sectcreate,__TEXT,__info_plist,${CMAKE_CURRENT_SOURCE_DIR}/../resources/lldb-debugserver-Info.plist")
 
@@ -31,70 +30,24 @@ check_library_exists(compression compression_encode_buffer "" HAVE_LIBCOMPRESSIO
 
 add_subdirectory(MacOSX)
 
-set(generated_mach_interfaces
-  ${CMAKE_CURRENT_BINARY_DIR}/mach_exc.h
-  ${CMAKE_CURRENT_BINARY_DIR}/mach_excServer.c
-  ${CMAKE_CURRENT_BINARY_DIR}/mach_excUser.c
-  )
-add_custom_command(OUTPUT ${generated_mach_interfaces}
-  COMMAND mig ${CMAKE_CURRENT_SOURCE_DIR}/MacOSX/dbgnub-mig.defs
-  DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/MacOSX/dbgnub-mig.defs
-  )
+# LLDB-specific identity, currently used for code signing debugserver.
+set(LLDB_CODESIGN_IDENTITY "" CACHE STRING
+    "Override code sign identity for debugserver and for use in tests; falls back to LLVM_CODESIGNING_IDENTITY if set or lldb_codesign otherwise (Darwin only)")
 
-set(DEBUGSERVER_VERS_GENERATED_FILE ${CMAKE_CURRENT_BINARY_DIR}/debugserver_vers.c)
-set_source_files_properties(${DEBUGSERVER_VERS_GENERATED_FILE} PROPERTIES GENERATED 1)
+# Determine which identity to use and store it in the separate cache entry.
+# We will query it later for LLDB_TEST_COMMON_ARGS.
+if(LLDB_CODESIGN_IDENTITY)
+  set(LLDB_CODESIGN_IDENTITY_USED ${LLDB_CODESIGN_IDENTITY} CACHE INTERNAL "" FORCE)
+elseif(LLVM_CODESIGNING_IDENTITY)
+  set(LLDB_CODESIGN_IDENTITY_USED ${LLVM_CODESIGNING_IDENTITY} CACHE INTERNAL "" FORCE)
+else()
+  set(LLDB_CODESIGN_IDENTITY_USED lldb_codesign CACHE INTERNAL "" FORCE)
+endif()
 
-add_custom_command(OUTPUT ${DEBUGSERVER_VERS_GENERATED_FILE}
-  COMMAND ${LLDB_SOURCE_DIR}/scripts/generate-vers.pl
-          ${LLDB_SOURCE_DIR}/lldb.xcodeproj/project.pbxproj debugserver
-          > ${DEBUGSERVER_VERS_GENERATED_FILE}
-  DEPENDS ${LLDB_SOURCE_DIR}/scripts/generate-vers.pl
-          ${LLDB_SOURCE_DIR}/lldb.xcodeproj/project.pbxproj
-  )
+# Override locally, so the identity is used for targets created in this scope.
+set(LLVM_CODESIGNING_IDENTITY ${LLDB_CODESIGN_IDENTITY_USED})
 
-set(lldbDebugserverCommonSources
-  DNBArch.cpp
-  DNBBreakpoint.cpp
-  DNB.cpp
-  DNBDataRef.cpp
-  DNBError.cpp
-  DNBLog.cpp
-  DNBRegisterInfo.cpp
-  DNBThreadResumeActions.cpp
-  JSON.cpp
-  StdStringExtractor.cpp
-  # JSON reader depends on the following LLDB-common files
-  ${LLDB_SOURCE_DIR}/source/Host/common/StringConvert.cpp
-  ${LLDB_SOURCE_DIR}/source/Host/common/SocketAddress.cpp
-  # end JSON reader dependencies
-  libdebugserver.cpp
-  PseudoTerminal.cpp
-  PThreadEvent.cpp
-  PThreadMutex.cpp
-  RNBContext.cpp
-  RNBRemote.cpp
-  RNBServices.cpp
-  RNBSocket.cpp
-  SysSignal.cpp
-  TTYState.cpp
-
-  MacOSX/CFBundle.cpp
-  MacOSX/CFString.cpp
-  MacOSX/Genealogy.cpp
-  MacOSX/MachException.cpp
-  MacOSX/MachProcess.mm
-  MacOSX/MachTask.mm
-  MacOSX/MachThread.cpp
-  MacOSX/MachThreadList.cpp
-  MacOSX/MachVMMemory.cpp
-  MacOSX/MachVMRegion.cpp
-  MacOSX/OsLogger.cpp
-  ${generated_mach_interfaces}
-  ${DEBUGSERVER_VERS_GENERATED_FILE})
-
-add_library(lldbDebugserverCommon ${lldbDebugserverCommonSources})
-
-option(LLDB_NO_DEBUGSERVER "Disable the debugserver target" OFF)
+option(LLDB_NO_DEBUGSERVER "Disable the debugserver target" ON)
 option(LLDB_USE_SYSTEM_DEBUGSERVER "Use the system's debugserver instead of building it from source (Darwin only)." OFF)
 
 # Incompatible options
@@ -140,13 +93,15 @@ elseif(NOT LLDB_NO_DEBUGSERVER)
   # Default case: on Darwin we need the right code signing ID.
   # See lldb/docs/code-signing.txt for details.
   if(CMAKE_HOST_APPLE AND NOT LLVM_CODESIGNING_IDENTITY STREQUAL "lldb_codesign")
-    set(msg "Cannot code sign debugserver with identity '${LLVM_CODESIGNING_IDENTITY}'.")
+    set(problem "Cannot code sign debugserver with LLVM_CODESIGNING_IDENTITY '${LLVM_CODESIGNING_IDENTITY}'.")
+    set(advice "Pass -DLLDB_CODESIGN_IDENTITY=lldb_codesign to override the LLVM value for debugserver.")
     if(system_debugserver)
-      message(WARNING "${msg} Will fall back to system's debugserver.")
+      set(effect "Will fall back to system's debugserver.")
       set(use_system_debugserver ON)
     else()
-      message(WARNING "${msg} debugserver will not be available.")
+      set(effect "debugserver will not be available.")
     endif()
+    message(WARNING "${problem} ${effect} ${advice}")
   else()
     set(build_and_sign_debugserver ON)
   endif()
@@ -156,7 +111,7 @@ endif()
 # because the value of DEBUGSERVER_PATH is used to build LLDB_DOTEST_ARGS,
 # which is used for configuring lldb-dotest.in, which does not have a generator
 # step at the moment.
-set(default_debugserver_path "${LLVM_TOOLS_BINARY_DIR}/debugserver${CMAKE_EXECUTABLE_SUFFIX}")
+set(default_debugserver_path "${LLVM_RUNTIME_OUTPUT_INTDIR}/debugserver${CMAKE_EXECUTABLE_SUFFIX}")
 
 # Remember where debugserver binary goes and whether or not we have to test it.
 set(DEBUGSERVER_PATH "" CACHE FILEPATH "Path to debugserver")
@@ -166,7 +121,7 @@ set(SKIP_TEST_DEBUGSERVER OFF CACHE BOOL "Building the in-tree debugserver was s
 if(use_system_debugserver)
   add_custom_target(debugserver
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            ${system_debugserver} ${LLVM_TOOLS_BINARY_DIR}
+            ${system_debugserver} ${LLVM_RUNTIME_OUTPUT_INTDIR}
     COMMENT "Copying the system debugserver to LLDB's binaries directory.")
 
   # Don't test debugserver itself.
@@ -223,6 +178,69 @@ if(LLDB_USE_ENTITLEMENTS)
 endif()
 
 if(build_and_sign_debugserver)
+  set(generated_mach_interfaces
+    ${CMAKE_CURRENT_BINARY_DIR}/mach_exc.h
+    ${CMAKE_CURRENT_BINARY_DIR}/mach_excServer.c
+    ${CMAKE_CURRENT_BINARY_DIR}/mach_excUser.c
+    )
+  add_custom_command(OUTPUT ${generated_mach_interfaces}
+    COMMAND mig ${CMAKE_CURRENT_SOURCE_DIR}/MacOSX/dbgnub-mig.defs
+    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/MacOSX/dbgnub-mig.defs
+    )
+
+  set(DEBUGSERVER_VERS_GENERATED_FILE ${CMAKE_CURRENT_BINARY_DIR}/debugserver_vers.c)
+  set_source_files_properties(${DEBUGSERVER_VERS_GENERATED_FILE} PROPERTIES GENERATED 1)
+
+  add_custom_command(OUTPUT ${DEBUGSERVER_VERS_GENERATED_FILE}
+    COMMAND ${LLDB_SOURCE_DIR}/scripts/generate-vers.pl
+            ${LLDB_SOURCE_DIR}/lldb.xcodeproj/project.pbxproj debugserver
+            > ${DEBUGSERVER_VERS_GENERATED_FILE}
+    DEPENDS ${LLDB_SOURCE_DIR}/scripts/generate-vers.pl
+            ${LLDB_SOURCE_DIR}/lldb.xcodeproj/project.pbxproj
+    )
+
+  set(lldbDebugserverCommonSources
+    DNBArch.cpp
+    DNBBreakpoint.cpp
+    DNB.cpp
+    DNBDataRef.cpp
+    DNBError.cpp
+    DNBLog.cpp
+    DNBRegisterInfo.cpp
+    DNBThreadResumeActions.cpp
+    JSON.cpp
+    StdStringExtractor.cpp
+    # JSON reader depends on the following LLDB-common files
+    ${LLDB_SOURCE_DIR}/source/Host/common/StringConvert.cpp
+    ${LLDB_SOURCE_DIR}/source/Host/common/SocketAddress.cpp
+    # end JSON reader dependencies
+    libdebugserver.cpp
+    PseudoTerminal.cpp
+    PThreadEvent.cpp
+    PThreadMutex.cpp
+    RNBContext.cpp
+    RNBRemote.cpp
+    RNBServices.cpp
+    RNBSocket.cpp
+    SysSignal.cpp
+    TTYState.cpp
+
+    MacOSX/CFBundle.cpp
+    MacOSX/CFString.cpp
+    MacOSX/Genealogy.cpp
+    MacOSX/MachException.cpp
+    MacOSX/MachProcess.mm
+    MacOSX/MachTask.mm
+    MacOSX/MachThread.cpp
+    MacOSX/MachThreadList.cpp
+    MacOSX/MachVMMemory.cpp
+    MacOSX/MachVMRegion.cpp
+    MacOSX/OsLogger.cpp
+    ${generated_mach_interfaces}
+    ${DEBUGSERVER_VERS_GENERATED_FILE})
+
+  add_library(lldbDebugserverCommon ${lldbDebugserverCommonSources})
+
   target_link_libraries(lldbDebugserverCommon
                         INTERFACE ${COCOA_LIBRARY}
                         ${CORE_FOUNDATION_LIBRARY}
@@ -240,7 +258,7 @@ if(build_and_sign_debugserver)
                  COMPILE_DEFINITIONS HAVE_LIBCOMPRESSION)
   endif()
   set(LLVM_OPTIONAL_SOURCES ${lldbDebugserverCommonSources})
-  add_lldb_tool(debugserver INCLUDE_IN_SUITE
+  add_lldb_tool(debugserver
     debugserver.cpp
 
     LINK_LIBS
@@ -249,6 +267,7 @@ if(build_and_sign_debugserver)
     ENTITLEMENTS
       ${entitlements}
     )
+
   if(IOS)
     set_property(TARGET lldbDebugserverCommon APPEND PROPERTY COMPILE_DEFINITIONS
       WITH_LOCKDOWN
@@ -263,30 +282,28 @@ if(build_and_sign_debugserver)
     set_property(TARGET lldbDebugserverCommon APPEND PROPERTY COMPILE_FLAGS
       -F${CMAKE_OSX_SYSROOT}/System/Library/PrivateFrameworks
       )
+
+    add_library(lldbDebugserverCommon_NonUI ${lldbDebugserverCommonSources})
+    target_link_libraries(lldbDebugserverCommon_NonUI
+                        INTERFACE ${COCOA_LIBRARY}
+                        ${CORE_FOUNDATION_LIBRARY}
+                        ${FOUNDATION_LIBRARY}
+                        lldbDebugserverArchSupport
+                        lldbDebugserverDarwin_DarwinLog
+                        ${LIBCOMPRESSION})
+    if(HAVE_LIBCOMPRESSION)
+      set_property(TARGET lldbDebugserverCommon_NonUI APPEND PROPERTY
+                   COMPILE_DEFINITIONS HAVE_LIBCOMPRESSION)
+    endif()
+
+    add_lldb_tool(debugserver-nonui
+      debugserver.cpp
+
+      LINK_LIBS
+        lldbDebugserverCommon_NonUI
+
+      ENTITLEMENTS
+        ${entitlements}
+      )
   endif()
-endif()
-
-if(IOS)
-  add_library(lldbDebugserverCommon_NonUI ${lldbDebugserverCommonSources})
-  target_link_libraries(lldbDebugserverCommon_NonUI
-                      INTERFACE ${COCOA_LIBRARY}
-                      ${CORE_FOUNDATION_LIBRARY}
-                      ${FOUNDATION_LIBRARY}
-                      lldbDebugserverArchSupport
-                      lldbDebugserverDarwin_DarwinLog
-                      ${LIBCOMPRESSION})
-  if(HAVE_LIBCOMPRESSION)
-    set_property(TARGET lldbDebugserverCommon_NonUI APPEND PROPERTY
-                 COMPILE_DEFINITIONS HAVE_LIBCOMPRESSION)
-  endif()
-
-  add_lldb_tool(debugserver-nonui
-    debugserver.cpp
-
-    LINK_LIBS
-      lldbDebugserverCommon_NonUI
-
-    ENTITLEMENTS
-      ${entitlements}
-    )
 endif()

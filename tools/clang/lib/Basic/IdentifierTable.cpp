@@ -1,9 +1,8 @@
 //===- IdentifierTable.cpp - Hash table for identifier lookup -------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -32,28 +31,6 @@
 #include <string>
 
 using namespace clang;
-
-//===----------------------------------------------------------------------===//
-// IdentifierInfo Implementation
-//===----------------------------------------------------------------------===//
-
-IdentifierInfo::IdentifierInfo() {
-  TokenID = tok::identifier;
-  ObjCOrBuiltinID = 0;
-  HasMacro = false;
-  HadMacro = false;
-  IsExtension = false;
-  IsFutureCompatKeyword = false;
-  IsPoisoned = false;
-  IsCPPOperatorKeyword = false;
-  NeedsHandleIdentifier = false;
-  IsFromAST = false;
-  ChangedAfterLoad = false;
-  FEChangedAfterLoad = false;
-  RevertedTokenID = false;
-  OutOfDate = false;
-  IsModulesImport = false;
-}
 
 //===----------------------------------------------------------------------===//
 // IdentifierTable Implementation
@@ -122,6 +99,7 @@ namespace {
     KEYMODULES    = 0x100000,
     KEYCXX2A      = 0x200000,
     KEYOPENCLCXX  = 0x400000,
+    KEYMSCOMPAT   = 0x800000,
     KEYALLCXX = KEYCXX | KEYCXX11 | KEYCXX2A,
     KEYALL = (0xffffff & ~KEYNOMS18 &
               ~KEYNOOPENCL) // KEYNOMS18 and KEYNOOPENCL are used to exclude.
@@ -148,6 +126,7 @@ static KeywordStatus getKeywordStatus(const LangOptions &LangOpts,
   if (LangOpts.C99 && (Flags & KEYC99)) return KS_Enabled;
   if (LangOpts.GNUKeywords && (Flags & KEYGNU)) return KS_Extension;
   if (LangOpts.MicrosoftExt && (Flags & KEYMS)) return KS_Extension;
+  if (LangOpts.MSVCCompat && (Flags & KEYMSCOMPAT)) return KS_Enabled;
   if (LangOpts.Borland && (Flags & KEYBORLAND)) return KS_Extension;
   if (LangOpts.Bool && (Flags & BOOLSUPPORT)) return KS_Enabled;
   if (LangOpts.Half && (Flags & HALFSUPPORT)) return KS_Enabled;

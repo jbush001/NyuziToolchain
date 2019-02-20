@@ -1,13 +1,13 @@
 //===-- Process.cpp ---------------------------------------------*- C++ -*-===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
 #include <atomic>
+#include <memory>
 #include <mutex>
 
 #include "llvm/Support/ScopedPrinter.h"
@@ -17,7 +17,6 @@
 #include "lldb/Breakpoint/BreakpointLocation.h"
 #include "lldb/Breakpoint/StoppointCallbackContext.h"
 #include "lldb/Core/Debugger.h"
-#include "lldb/Core/Event.h"
 #include "lldb/Core/Module.h"
 #include "lldb/Core/ModuleSpec.h"
 #include "lldb/Core/PluginManager.h"
@@ -62,6 +61,7 @@
 #include "lldb/Target/ThreadPlan.h"
 #include "lldb/Target/ThreadPlanBase.h"
 #include "lldb/Target/UnixSignals.h"
+#include "lldb/Utility/Event.h"
 #include "lldb/Utility/Log.h"
 #include "lldb/Utility/NameMatches.h"
 #include "lldb/Utility/SelectHelper.h"
@@ -164,15 +164,15 @@ ProcessProperties::ProcessProperties(lldb_private::Process *process)
 {
   if (process == nullptr) {
     // Global process properties, set them up one time
-    m_collection_sp.reset(
-        new ProcessOptionValueProperties(ConstString("process")));
+    m_collection_sp =
+        std::make_shared<ProcessOptionValueProperties>(ConstString("process"));
     m_collection_sp->Initialize(g_properties);
     m_collection_sp->AppendProperty(
         ConstString("thread"), ConstString("Settings specific to threads."),
         true, Thread::GetGlobalProperties()->GetValueProperties());
   } else {
-    m_collection_sp.reset(
-        new ProcessOptionValueProperties(Process::GetGlobalProperties().get()));
+    m_collection_sp = std::make_shared<ProcessOptionValueProperties>(
+        Process::GetGlobalProperties().get());
     m_collection_sp->SetValueChangedCallback(
         ePropertyPythonOSPluginPath,
         ProcessProperties::OptionValueChangedCallback, this);
@@ -734,13 +734,13 @@ Process::Process(lldb::TargetSP target_sp, ListenerSP listener_sp,
       m_thread_list(this), m_extended_thread_list(this),
       m_extended_thread_stop_id(0), m_queue_list(this), m_queue_list_stop_id(0),
       m_notifications(), m_image_tokens(), m_listener_sp(listener_sp),
-      m_breakpoint_site_list(), m_dynamic_checkers_ap(),
+      m_breakpoint_site_list(), m_dynamic_checkers_up(),
       m_unix_signals_sp(unix_signals_sp), m_abi_sp(), m_process_input_reader(),
       m_stdio_communication("process.stdio"), m_stdio_communication_mutex(),
       m_stdin_forward(false), m_stdout_data(), m_stderr_data(),
       m_profile_data_comm_mutex(), m_profile_data(), m_iohandler_sync(0),
       m_memory_cache(*this), m_allocated_memory_cache(*this),
-      m_should_detach(false), m_next_event_action_ap(), m_public_run_lock(),
+      m_should_detach(false), m_next_event_action_up(), m_public_run_lock(),
       m_private_run_lock(), m_finalizing(false), m_finalize_called(false),
       m_clear_thread_plans_on_stop(false), m_force_next_event_delivery(false),
       m_last_broadcast_state(eStateInvalid), m_destroy_in_process(false),
@@ -848,12 +848,12 @@ void Process::Finalize() {
   // We need to destroy the loader before the derived Process class gets
   // destroyed since it is very likely that undoing the loader will require
   // access to the real process.
-  m_dynamic_checkers_ap.reset();
+  m_dynamic_checkers_up.reset();
   m_abi_sp.reset();
-  m_os_ap.reset();
-  m_system_runtime_ap.reset();
-  m_dyld_ap.reset();
-  m_jit_loaders_ap.reset();
+  m_os_up.reset();
+  m_system_runtime_up.reset();
+  m_dyld_up.reset();
+  m_jit_loaders_up.reset();
   m_thread_list_real.Destroy();
   m_thread_list.Destroy();
   m_extended_thread_list.Destroy();
@@ -866,7 +866,7 @@ void Process::Finalize() {
   m_allocated_memory_cache.Clear();
   m_language_runtimes.clear();
   m_instrumentation_runtimes.clear();
-  m_next_event_action_ap.reset();
+  m_next_event_action_up.reset();
   // Clear the last natural stop ID since it has a strong reference to this
   // process
   m_mod_id.SetStopEventForLastNaturalStopID(EventSP());
@@ -1506,12 +1506,12 @@ void Process::UpdateThreadListIfNeeded() {
 }
 
 void Process::UpdateQueueListIfNeeded() {
-  if (m_system_runtime_ap) {
+  if (m_system_runtime_up) {
     if (m_queue_list.GetSize() == 0 ||
         m_queue_list_stop_id != GetLastNaturalStopID()) {
       const StateType state = GetPrivateState();
       if (StateIsStoppedState(state, true)) {
-        m_system_runtime_ap->PopulateQueueList(m_queue_list);
+        m_system_runtime_up->PopulateQueueList(m_queue_list);
         m_queue_list_stop_id = GetLastNaturalStopID();
       }
     }
@@ -1792,7 +1792,7 @@ bool Process::IsPossibleDynamicValue(ValueObject &in_value) {
 }
 
 void Process::SetDynamicCheckers(DynamicCheckerFunctions *dynamic_checkers) {
-  m_dynamic_checkers_ap.reset(dynamic_checkers);
+  m_dynamic_checkers_up.reset(dynamic_checkers);
 }
 
 BreakpointSiteList &Process::GetBreakpointSiteList() {
@@ -2708,7 +2708,7 @@ Process::WaitForProcessStopPrivate(EventSP &event_sp,
 void Process::LoadOperatingSystemPlugin(bool flush) {
   if (flush)
     m_thread_list.Clear();
-  m_os_ap.reset(OperatingSystem::FindPlugin(this, nullptr));
+  m_os_up.reset(OperatingSystem::FindPlugin(this, nullptr));
   if (flush)
     Flush();
 }
@@ -2716,10 +2716,10 @@ void Process::LoadOperatingSystemPlugin(bool flush) {
 Status Process::Launch(ProcessLaunchInfo &launch_info) {
   Status error;
   m_abi_sp.reset();
-  m_dyld_ap.reset();
-  m_jit_loaders_ap.reset();
-  m_system_runtime_ap.reset();
-  m_os_ap.reset();
+  m_dyld_up.reset();
+  m_jit_loaders_up.reset();
+  m_system_runtime_up.reset();
+  m_os_up.reset();
   m_process_input_reader.reset();
 
   Module *exe_module = GetTarget().GetExecutableModulePointer();
@@ -2789,8 +2789,8 @@ Status Process::Launch(ProcessLaunchInfo &launch_info) {
             if (system_runtime)
               system_runtime->DidLaunch();
 
-            if (!m_os_ap)
-                LoadOperatingSystemPlugin(false);
+            if (!m_os_up)
+              LoadOperatingSystemPlugin(false);
 
             // We successfully launched the process and stopped, now it the
             // right time to set up signal filters before resuming.
@@ -2850,7 +2850,7 @@ Status Process::LoadCore() {
     if (system_runtime)
       system_runtime->DidAttach();
 
-    if (!m_os_ap)
+    if (!m_os_up)
       LoadOperatingSystemPlugin(false);
 
     // We successfully loaded a core file, now pretend we stopped so we can
@@ -2876,25 +2876,25 @@ Status Process::LoadCore() {
 }
 
 DynamicLoader *Process::GetDynamicLoader() {
-  if (!m_dyld_ap)
-    m_dyld_ap.reset(DynamicLoader::FindPlugin(this, nullptr));
-  return m_dyld_ap.get();
+  if (!m_dyld_up)
+    m_dyld_up.reset(DynamicLoader::FindPlugin(this, nullptr));
+  return m_dyld_up.get();
 }
 
 const lldb::DataBufferSP Process::GetAuxvData() { return DataBufferSP(); }
 
 JITLoaderList &Process::GetJITLoaders() {
-  if (!m_jit_loaders_ap) {
-    m_jit_loaders_ap.reset(new JITLoaderList());
-    JITLoader::LoadPlugins(this, *m_jit_loaders_ap);
+  if (!m_jit_loaders_up) {
+    m_jit_loaders_up.reset(new JITLoaderList());
+    JITLoader::LoadPlugins(this, *m_jit_loaders_up);
   }
-  return *m_jit_loaders_ap;
+  return *m_jit_loaders_up;
 }
 
 SystemRuntime *Process::GetSystemRuntime() {
-  if (!m_system_runtime_ap)
-    m_system_runtime_ap.reset(SystemRuntime::FindPlugin(this));
-  return m_system_runtime_ap.get();
+  if (!m_system_runtime_up)
+    m_system_runtime_up.reset(SystemRuntime::FindPlugin(this));
+  return m_system_runtime_up.get();
 }
 
 Process::AttachCompletionHandler::AttachCompletionHandler(Process *process,
@@ -2984,10 +2984,10 @@ ListenerSP ProcessAttachInfo::GetListenerForProcess(Debugger &debugger) {
 Status Process::Attach(ProcessAttachInfo &attach_info) {
   m_abi_sp.reset();
   m_process_input_reader.reset();
-  m_dyld_ap.reset();
-  m_jit_loaders_ap.reset();
-  m_system_runtime_ap.reset();
-  m_os_ap.reset();
+  m_dyld_up.reset();
+  m_jit_loaders_up.reset();
+  m_system_runtime_up.reset();
+  m_os_up.reset();
 
   lldb::pid_t attach_pid = attach_info.GetProcessID();
   Status error;
@@ -3193,7 +3193,7 @@ void Process::CompleteAttach() {
     }
   }
 
-  if (!m_os_ap)
+  if (!m_os_up)
     LoadOperatingSystemPlugin(false);
   // Figure out which one is the executable, and set that in our target:
   const ModuleList &target_modules = GetTarget().GetImages();
@@ -3291,6 +3291,11 @@ Status Process::PrivateResume() {
           m_thread_list.DidResume();
           if (log)
             log->Printf("Process thinks the process has resumed.");
+        } else {
+          if (log)
+            log->Printf(
+                "Process::PrivateResume() DoResume failed.");
+          return error;
         }
       }
     } else {
@@ -3846,9 +3851,9 @@ void Process::HandlePrivateEvent(EventSP &event_sp) {
       Process::ProcessEventData::GetStateFromEvent(event_sp.get());
 
   // First check to see if anybody wants a shot at this event:
-  if (m_next_event_action_ap) {
+  if (m_next_event_action_up) {
     NextEventAction::EventActionResult action_result =
-        m_next_event_action_ap->PerformAction(event_sp);
+        m_next_event_action_up->PerformAction(event_sp);
     if (log)
       log->Printf("Ran next event action, result was %d.", action_result);
 
@@ -3866,7 +3871,7 @@ void Process::HandlePrivateEvent(EventSP &event_sp) {
       // to exit so the next event will kill us.
       if (new_state != eStateExited) {
         // FIXME: should cons up an exited event, and discard this one.
-        SetExitStatus(0, m_next_event_action_ap->GetExitString());
+        SetExitStatus(0, m_next_event_action_up->GetExitString());
         SetNextEventAction(nullptr);
         return;
       }
@@ -4653,11 +4658,11 @@ protected:
 void Process::SetSTDIOFileDescriptor(int fd) {
   // First set up the Read Thread for reading/handling process I/O
 
-  std::unique_ptr<ConnectionFileDescriptor> conn_ap(
+  std::unique_ptr<ConnectionFileDescriptor> conn_up(
       new ConnectionFileDescriptor(fd, true));
 
-  if (conn_ap) {
-    m_stdio_communication.SetConnection(conn_ap.release());
+  if (conn_up) {
+    m_stdio_communication.SetConnection(conn_up.release());
     if (m_stdio_communication.IsConnected()) {
       m_stdio_communication.SetReadThreadBytesReceivedCallback(
           STDIOReadThreadBytesReceived, this);
@@ -4666,7 +4671,8 @@ void Process::SetSTDIOFileDescriptor(int fd) {
       // Now read thread is set up, set up input reader.
 
       if (!m_process_input_reader)
-        m_process_input_reader.reset(new IOHandlerProcessSTDIO(this, fd));
+        m_process_input_reader =
+            std::make_shared<IOHandlerProcessSTDIO>(this, fd);
     }
   }
 }
@@ -5777,12 +5783,12 @@ void Process::DidExec() {
   Target &target = GetTarget();
   target.CleanupProcess();
   target.ClearModules(false);
-  m_dynamic_checkers_ap.reset();
+  m_dynamic_checkers_up.reset();
   m_abi_sp.reset();
-  m_system_runtime_ap.reset();
-  m_os_ap.reset();
-  m_dyld_ap.reset();
-  m_jit_loaders_ap.reset();
+  m_system_runtime_up.reset();
+  m_os_up.reset();
+  m_dyld_up.reset();
+  m_jit_loaders_up.reset();
   m_image_tokens.clear();
   m_allocated_memory_cache.Clear();
   m_language_runtimes.clear();
@@ -5866,7 +5872,7 @@ void Process::ModulesDidLoad(ModuleList &module_list) {
 
   // If we don't have an operating system plug-in, try to load one since
   // loading shared libraries might cause a new one to try and load
-  if (!m_os_ap)
+  if (!m_os_up)
     LoadOperatingSystemPlugin(false);
 
   // Give structured-data plugins a chance to see the modified modules.
@@ -5940,7 +5946,8 @@ ThreadCollectionSP Process::GetHistoryThreads(lldb::addr_t addr) {
     return threads;
   }
 
-  threads.reset(new ThreadCollection(memory_history->GetHistoryThreads(addr)));
+  threads = std::make_shared<ThreadCollection>(
+      memory_history->GetHistoryThreads(addr));
 
   return threads;
 }
@@ -6030,7 +6037,7 @@ Process::AdvanceAddressToNextBranchInstruction(Address default_stop_addr,
 }
 
 Status
-Process::GetMemoryRegions(std::vector<lldb::MemoryRegionInfoSP> &region_list) {
+Process::GetMemoryRegions(lldb_private::MemoryRegionInfos &region_list) {
 
   Status error;
 
@@ -6038,17 +6045,17 @@ Process::GetMemoryRegions(std::vector<lldb::MemoryRegionInfoSP> &region_list) {
 
   region_list.clear();
   do {
-    lldb::MemoryRegionInfoSP region_info(new lldb_private::MemoryRegionInfo());
-    error = GetMemoryRegionInfo(range_end, *region_info);
+    lldb_private::MemoryRegionInfo region_info;
+    error = GetMemoryRegionInfo(range_end, region_info);
     // GetMemoryRegionInfo should only return an error if it is unimplemented.
     if (error.Fail()) {
       region_list.clear();
       break;
     }
 
-    range_end = region_info->GetRange().GetRangeEnd();
-    if (region_info->GetMapped() == MemoryRegionInfo::eYes) {
-      region_list.push_back(region_info);
+    range_end = region_info.GetRange().GetRangeEnd();
+    if (region_info.GetMapped() == MemoryRegionInfo::eYes) {
+      region_list.push_back(std::move(region_info));
     }
   } while (range_end != LLDB_INVALID_ADDRESS);
 

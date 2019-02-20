@@ -1,9 +1,8 @@
 //===-- llvm-nm.cpp - Symbol table dumping utility for llvm ---------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -91,6 +90,8 @@ cl::opt<bool> BSDFormat("B", cl::desc("Alias for --format=bsd"),
                         cl::Grouping);
 cl::opt<bool> POSIXFormat("P", cl::desc("Alias for --format=posix"),
                           cl::Grouping);
+cl::alias Portability("portability", cl::desc("Alias for --format=posix"),
+                      cl::aliasopt(POSIXFormat), cl::NotHidden);
 cl::opt<bool> DarwinFormat("m", cl::desc("Alias for --format=darwin"),
                            cl::Grouping);
 
@@ -553,6 +554,11 @@ static void darwinPrintSymbol(SymbolicFile &Obj, SymbolListT::iterator I,
       (NDesc & MachO::N_ALT_ENTRY) == MachO::N_ALT_ENTRY)
     outs() << "[alt entry] ";
 
+  if (Filetype == MachO::MH_OBJECT &&
+      ((NType & MachO::N_TYPE) != MachO::N_UNDF) &&
+      (NDesc & MachO::N_COLD_FUNC) == MachO::N_COLD_FUNC)
+    outs() << "[cold func] ";
+
   if ((NDesc & MachO::N_ARM_THUMB_DEF) == MachO::N_ARM_THUMB_DEF)
     outs() << "[Thumb] ";
 
@@ -677,7 +683,7 @@ static void darwinPrintStab(MachOObjectFile *MachO, SymbolListT::iterator I) {
 }
 
 static Optional<std::string> demangle(StringRef Name, bool StripUnderscore) {
-  if (StripUnderscore && Name.size() > 0 && Name[0] == '_')
+  if (StripUnderscore && !Name.empty() && Name[0] == '_')
     Name = Name.substr(1);
 
   if (!Name.startswith("_Z"))
@@ -796,8 +802,7 @@ static void sortAndPrintSymbolList(SymbolicFile &Obj, bool printName,
     bool Global = SymFlags & SymbolRef::SF_Global;
     bool Weak = SymFlags & SymbolRef::SF_Weak;
     if ((!Undefined && UndefinedOnly) || (Undefined && DefinedOnly) ||
-        (!Global && ExternalOnly) || (SizeSort && !PrintAddress) ||
-        (Weak && NoWeakSymbols))
+        (!Global && ExternalOnly) || (Weak && NoWeakSymbols))
       continue;
     if (PrintFileName)
       writeFileName(outs());
@@ -930,6 +935,7 @@ static char getSymbolNMTypeChar(ELFObjectFileBase &Obj,
     return StringSwitch<char>(*Name)
         .StartsWith(".debug", 'N')
         .StartsWith(".note", 'n')
+        .StartsWith(".comment", 'n')
         .Default('?');
   }
 
@@ -1163,7 +1169,7 @@ dumpSymbolNamesFromObject(SymbolicFile &Obj, bool printName,
   // file get the section number for that section in this object file.
   unsigned int Nsect = 0;
   MachOObjectFile *MachO = dyn_cast<MachOObjectFile>(&Obj);
-  if (SegSect.size() != 0 && MachO) {
+  if (!SegSect.empty() && MachO) {
     Nsect = getNsectForSegSect(MachO);
     // If this section is not in the object file no symbols are printed.
     if (Nsect == 0)
@@ -1184,10 +1190,8 @@ dumpSymbolNamesFromObject(SymbolicFile &Obj, bool printName,
       NMSymbol S = {};
       S.Size = 0;
       S.Address = 0;
-      if (PrintSize) {
-        if (isa<ELFObjectFileBase>(&Obj))
-          S.Size = ELFSymbolRef(Sym).getSize();
-      }
+      if (isa<ELFObjectFileBase>(&Obj))
+        S.Size = ELFSymbolRef(Sym).getSize();
       if (PrintAddress && isa<ObjectFile>(Obj)) {
         SymbolRef SymRef(Sym);
         Expected<uint64_t> AddressOrErr = SymRef.getAddress();
@@ -1733,8 +1737,9 @@ static void dumpSymbolNamesFromFile(std::string &Filename) {
     return;
 
   LLVMContext Context;
-  Expected<std::unique_ptr<Binary>> BinaryOrErr = createBinary(
-      BufferOrErr.get()->getMemBufferRef(), NoLLVMBitcode ? nullptr : &Context);
+  LLVMContext *ContextPtr = NoLLVMBitcode ? nullptr : &Context;
+  Expected<std::unique_ptr<Binary>> BinaryOrErr =
+      createBinary(BufferOrErr.get()->getMemBufferRef(), ContextPtr);
   if (!BinaryOrErr) {
     error(BinaryOrErr.takeError(), Filename);
     return;
@@ -1768,7 +1773,8 @@ static void dumpSymbolNamesFromFile(std::string &Filename) {
     {
       Error Err = Error::success();
       for (auto &C : A->children(Err)) {
-        Expected<std::unique_ptr<Binary>> ChildOrErr = C.getAsBinary(&Context);
+        Expected<std::unique_ptr<Binary>> ChildOrErr =
+            C.getAsBinary(ContextPtr);
         if (!ChildOrErr) {
           if (auto E = isNotObjectErrorInvalidFileType(ChildOrErr.takeError()))
             error(std::move(E), Filename, C);
@@ -1800,7 +1806,7 @@ static void dumpSymbolNamesFromFile(std::string &Filename) {
   }
   if (MachOUniversalBinary *UB = dyn_cast<MachOUniversalBinary>(&Bin)) {
     // If we have a list of architecture flags specified dump only those.
-    if (!ArchAll && ArchFlags.size() != 0) {
+    if (!ArchAll && !ArchFlags.empty()) {
       // Look for a slice in the universal binary that matches each ArchFlag.
       bool ArchFound;
       for (unsigned i = 0; i < ArchFlags.size(); ++i) {
@@ -1839,7 +1845,7 @@ static void dumpSymbolNamesFromFile(std::string &Filename) {
               Error Err = Error::success();
               for (auto &C : A->children(Err)) {
                 Expected<std::unique_ptr<Binary>> ChildOrErr =
-                    C.getAsBinary(&Context);
+                    C.getAsBinary(ContextPtr);
                 if (!ChildOrErr) {
                   if (auto E = isNotObjectErrorInvalidFileType(
                                        ChildOrErr.takeError())) {
@@ -1910,7 +1916,7 @@ static void dumpSymbolNamesFromFile(std::string &Filename) {
             Error Err = Error::success();
             for (auto &C : A->children(Err)) {
               Expected<std::unique_ptr<Binary>> ChildOrErr =
-                  C.getAsBinary(&Context);
+                  C.getAsBinary(ContextPtr);
               if (!ChildOrErr) {
                 if (auto E = isNotObjectErrorInvalidFileType(
                                      ChildOrErr.takeError()))
@@ -1977,7 +1983,7 @@ static void dumpSymbolNamesFromFile(std::string &Filename) {
         Error Err = Error::success();
         for (auto &C : A->children(Err)) {
           Expected<std::unique_ptr<Binary>> ChildOrErr =
-            C.getAsBinary(&Context);
+            C.getAsBinary(ContextPtr);
           if (!ChildOrErr) {
             if (auto E = isNotObjectErrorInvalidFileType(
                                  ChildOrErr.takeError()))
@@ -2071,7 +2077,7 @@ int main(int argc, char **argv) {
     }
   }
 
-  if (SegSect.size() != 0 && SegSect.size() != 2)
+  if (!SegSect.empty() && SegSect.size() != 2)
     error("bad number of arguments (must be two arguments)",
           "for the -s option");
 

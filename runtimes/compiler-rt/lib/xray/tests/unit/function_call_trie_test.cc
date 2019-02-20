@@ -1,9 +1,8 @@
 //===-- function_call_trie_test.cc ----------------------------------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -307,6 +306,36 @@ TEST(FunctionCallTrieTest, MergeInto) {
   EXPECT_EQ(F2.CallCount, 2u);
   EXPECT_EQ(F2.CumulativeLocalTime, 2u);
   EXPECT_EQ(F2.Callees.size(), 0u);
+}
+
+TEST(FunctionCallTrieTest, PlacementNewOnAlignedStorage) {
+  profilingFlags()->setDefaults();
+  typename std::aligned_storage<sizeof(FunctionCallTrie::Allocators),
+                                alignof(FunctionCallTrie::Allocators)>::type
+      AllocatorsStorage;
+  new (&AllocatorsStorage)
+      FunctionCallTrie::Allocators(FunctionCallTrie::InitAllocators());
+  auto *A =
+      reinterpret_cast<FunctionCallTrie::Allocators *>(&AllocatorsStorage);
+
+  typename std::aligned_storage<sizeof(FunctionCallTrie),
+                                alignof(FunctionCallTrie)>::type FCTStorage;
+  new (&FCTStorage) FunctionCallTrie(*A);
+  auto *T = reinterpret_cast<FunctionCallTrie *>(&FCTStorage);
+
+  // Put some data into it.
+  T->enterFunction(1, 0, 0);
+  T->exitFunction(1, 1, 0);
+
+  // Re-initialize the objects in storage.
+  T->~FunctionCallTrie();
+  A->~Allocators();
+  new (A) FunctionCallTrie::Allocators(FunctionCallTrie::InitAllocators());
+  new (T) FunctionCallTrie(*A);
+
+  // Then put some data into it again.
+  T->enterFunction(1, 0, 0);
+  T->exitFunction(1, 1, 0);
 }
 
 } // namespace

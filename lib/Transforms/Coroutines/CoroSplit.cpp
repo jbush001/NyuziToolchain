@@ -1,9 +1,8 @@
 //===- CoroSplit.cpp - Converts a coroutine into a state machine ----------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 // This pass builds the coroutine frame and outlines resume and destroy parts
@@ -94,7 +93,7 @@ static BasicBlock *createResumeEntryBlock(Function &F, coro::Shape &Shape) {
   auto *FrameTy = Shape.FrameTy;
   auto *GepIndex = Builder.CreateConstInBoundsGEP2_32(
       FrameTy, FramePtr, 0, coro::Shape::IndexField, "index.addr");
-  auto *Index = Builder.CreateLoad(GepIndex, "index");
+  auto *Index = Builder.CreateLoad(Shape.getIndexType(), GepIndex, "index");
   auto *Switch =
       Builder.CreateSwitch(Index, UnreachBB, Shape.CoroSuspends.size());
   Shape.ResumeSwitch = Switch;
@@ -230,7 +229,8 @@ static void handleFinalSuspend(IRBuilder<> &Builder, Value *FramePtr,
     Builder.SetInsertPoint(OldSwitchBB->getTerminator());
     auto *GepIndex = Builder.CreateConstInBoundsGEP2_32(Shape.FrameTy, FramePtr,
                                                         0, 0, "ResumeFn.addr");
-    auto *Load = Builder.CreateLoad(GepIndex);
+    auto *Load = Builder.CreateLoad(
+        Shape.FrameTy->getElementType(coro::Shape::ResumeField), GepIndex);
     auto *NullPtr =
         ConstantPointerNull::get(cast<PointerType>(Load->getType()));
     auto *Cond = Builder.CreateICmpEQ(Load, NullPtr);
@@ -538,43 +538,92 @@ static void handleNoSuspendCoroutine(CoroBeginInst *CoroBegin, Type *FrameTy) {
   CoroBegin->eraseFromParent();
 }
 
-// look for a very simple pattern
-//    coro.save
-//    no other calls
-//    resume or destroy call
-//    coro.suspend
-//
-// If there are other calls between coro.save and coro.suspend, they can
-// potentially resume or destroy the coroutine, so it is unsafe to eliminate a
-// suspend point.
+// SimplifySuspendPoint needs to check that there is no calls between
+// coro_save and coro_suspend, since any of the calls may potentially resume
+// the coroutine and if that is the case we cannot eliminate the suspend point.
+static bool hasCallsInBlockBetween(Instruction *From, Instruction *To) {
+  for (Instruction *I = From; I != To; I = I->getNextNode()) {
+    // Assume that no intrinsic can resume the coroutine.
+    if (isa<IntrinsicInst>(I))
+      continue;
+
+    if (CallSite(I))
+      return true;
+  }
+  return false;
+}
+
+static bool hasCallsInBlocksBetween(BasicBlock *SaveBB, BasicBlock *ResDesBB) {
+  SmallPtrSet<BasicBlock *, 8> Set;
+  SmallVector<BasicBlock *, 8> Worklist;
+
+  Set.insert(SaveBB);
+  Worklist.push_back(ResDesBB);
+
+  // Accumulate all blocks between SaveBB and ResDesBB. Because CoroSaveIntr
+  // returns a token consumed by suspend instruction, all blocks in between
+  // will have to eventually hit SaveBB when going backwards from ResDesBB.
+  while (!Worklist.empty()) {
+    auto *BB = Worklist.pop_back_val();
+    Set.insert(BB);
+    for (auto *Pred : predecessors(BB))
+      if (Set.count(Pred) == 0)
+        Worklist.push_back(Pred);
+  }
+
+  // SaveBB and ResDesBB are checked separately in hasCallsBetween.
+  Set.erase(SaveBB);
+  Set.erase(ResDesBB);
+
+  for (auto *BB : Set)
+    if (hasCallsInBlockBetween(BB->getFirstNonPHI(), nullptr))
+      return true;
+
+  return false;
+}
+
+static bool hasCallsBetween(Instruction *Save, Instruction *ResumeOrDestroy) {
+  auto *SaveBB = Save->getParent();
+  auto *ResumeOrDestroyBB = ResumeOrDestroy->getParent();
+
+  if (SaveBB == ResumeOrDestroyBB)
+    return hasCallsInBlockBetween(Save->getNextNode(), ResumeOrDestroy);
+
+  // Any calls from Save to the end of the block?
+  if (hasCallsInBlockBetween(Save->getNextNode(), nullptr))
+    return true;
+
+  // Any calls from begging of the block up to ResumeOrDestroy?
+  if (hasCallsInBlockBetween(ResumeOrDestroyBB->getFirstNonPHI(),
+                             ResumeOrDestroy))
+    return true;
+
+  // Any calls in all of the blocks between SaveBB and ResumeOrDestroyBB?
+  if (hasCallsInBlocksBetween(SaveBB, ResumeOrDestroyBB))
+    return true;
+
+  return false;
+}
+
+// If a SuspendIntrin is preceded by Resume or Destroy, we can eliminate the
+// suspend point and replace it with nornal control flow.
 static bool simplifySuspendPoint(CoroSuspendInst *Suspend,
                                  CoroBeginInst *CoroBegin) {
-  auto *Save = Suspend->getCoroSave();
-  auto *BB = Suspend->getParent();
-  if (BB != Save->getParent())
-    return false;
-
-  CallSite SingleCallSite;
-
-  // Check that we have only one CallSite.
-  for (Instruction *I = Save->getNextNode(); I != Suspend;
-       I = I->getNextNode()) {
-    if (isa<CoroFrameInst>(I))
-      continue;
-    if (isa<CoroSubFnInst>(I))
-      continue;
-    if (CallSite CS = CallSite(I)) {
-      if (SingleCallSite)
-        return false;
-      else
-        SingleCallSite = CS;
-    }
+  Instruction *Prev = Suspend->getPrevNode();
+  if (!Prev) {
+    auto *Pred = Suspend->getParent()->getSinglePredecessor();
+    if (!Pred)
+      return false;
+    Prev = Pred->getTerminator();
   }
-  auto *CallInstr = SingleCallSite.getInstruction();
-  if (!CallInstr)
+
+  CallSite CS{Prev};
+  if (!CS)
     return false;
 
-  auto *Callee = SingleCallSite.getCalledValue()->stripPointerCasts();
+  auto *CallInstr = CS.getInstruction();
+
+  auto *Callee = CS.getCalledValue()->stripPointerCasts();
 
   // See if the callsite is for resumption or destruction of the coroutine.
   auto *SubFn = dyn_cast<CoroSubFnInst>(Callee);
@@ -585,6 +634,13 @@ static bool simplifySuspendPoint(CoroSuspendInst *Suspend,
   if (SubFn->getFrame() != CoroBegin)
     return false;
 
+  // See if the transformation is safe. Specifically, see if there are any
+  // calls in between Save and CallInstr. They can potenitally resume the
+  // coroutine rendering this optimization unsafe.
+  auto *Save = Suspend->getCoroSave();
+  if (hasCallsBetween(Save, CallInstr))
+    return false;
+
   // Replace llvm.coro.suspend with the value that results in resumption over
   // the resume or cleanup path.
   Suspend->replaceAllUsesWith(SubFn->getRawIndex());
@@ -592,8 +648,20 @@ static bool simplifySuspendPoint(CoroSuspendInst *Suspend,
   Save->eraseFromParent();
 
   // No longer need a call to coro.resume or coro.destroy.
+  if (auto *Invoke = dyn_cast<InvokeInst>(CallInstr)) {
+    BranchInst::Create(Invoke->getNormalDest(), Invoke);
+  }
+
+  // Grab the CalledValue from CS before erasing the CallInstr.
+  auto *CalledValue = CS.getCalledValue();
   CallInstr->eraseFromParent();
 
+  // If no more users remove it. Usually it is a bitcast of SubFn.
+  if (CalledValue != SubFn && CalledValue->user_empty())
+    if (auto *I = dyn_cast<Instruction>(CalledValue))
+      I->eraseFromParent();
+
+  // Now we are good to remove SubFn.
   if (SubFn->user_empty())
     SubFn->eraseFromParent();
 
@@ -760,6 +828,7 @@ static void splitCoroutine(Function &F, CallGraph &CG, CallGraphSCC &SCC) {
 // split.
 static void prepareForSplit(Function &F, CallGraph &CG) {
   Module &M = *F.getParent();
+  LLVMContext &Context = F.getContext();
 #ifndef NDEBUG
   Function *DevirtFn = M.getFunction(CORO_DEVIRT_TRIGGER_FN);
   assert(DevirtFn && "coro.devirt.trigger function not found");
@@ -774,10 +843,12 @@ static void prepareForSplit(Function &F, CallGraph &CG) {
   //    call void %1(i8* null)
   coro::LowererBase Lowerer(M);
   Instruction *InsertPt = F.getEntryBlock().getTerminator();
-  auto *Null = ConstantPointerNull::get(Type::getInt8PtrTy(F.getContext()));
+  auto *Null = ConstantPointerNull::get(Type::getInt8PtrTy(Context));
   auto *DevirtFnAddr =
       Lowerer.makeSubFnCall(Null, CoroSubFnInst::RestartTrigger, InsertPt);
-  auto *IndirectCall = CallInst::Create(DevirtFnAddr, Null, "", InsertPt);
+  FunctionType *FnTy = FunctionType::get(Type::getVoidTy(Context),
+                                         {Type::getInt8PtrTy(Context)}, false);
+  auto *IndirectCall = CallInst::Create(FnTy, DevirtFnAddr, Null, "", InsertPt);
 
   // Update CG graph with an indirect call we just added.
   CG[&F]->addCalledFunction(IndirectCall, CG.getCallsExternalNode());

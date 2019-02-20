@@ -1,9 +1,8 @@
 //===- SymbolizableObjectFile.cpp -----------------------------------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -137,6 +136,11 @@ std::error_code SymbolizableObjectFile::addSymbol(const SymbolRef &Symbol,
                                                   uint64_t SymbolSize,
                                                   DataExtractor *OpdExtractor,
                                                   uint64_t OpdAddress) {
+  // Avoid adding symbols from an unknown/undefined section.
+  const ObjectFile *Obj = Symbol.getObject();
+  Expected<section_iterator> Sec = Symbol.getSection();
+  if (!Sec || (Obj && Obj->section_end() == *Sec))
+    return std::error_code();
   Expected<SymbolRef::Type> SymbolTypeOrErr = Symbol.getType();
   if (!SymbolTypeOrErr)
     return errorToErrorCode(SymbolTypeOrErr.takeError());

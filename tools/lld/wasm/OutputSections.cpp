@@ -1,9 +1,8 @@
 //===- OutputSections.cpp -------------------------------------------------===//
 //
-//                             The LLVM Linker
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -40,6 +39,8 @@ static StringRef sectionTypeToString(uint32_t SectionType) {
     return "MEMORY";
   case WASM_SEC_GLOBAL:
     return "GLOBAL";
+  case WASM_SEC_EVENT:
+    return "EVENT";
   case WASM_SEC_EXPORT:
     return "EXPORT";
   case WASM_SEC_START:
@@ -140,7 +141,7 @@ DataSection::DataSection(ArrayRef<OutputSegment *> Segments)
     if (Config->Pic) {
       assert(Segments.size() <= 1 &&
              "Currenly only a single data segment is supported in PIC mode");
-      InitExpr.Opcode = WASM_OPCODE_GET_GLOBAL;
+      InitExpr.Opcode = WASM_OPCODE_GLOBAL_GET;
       InitExpr.Value.Global = WasmSym::MemoryBase->getGlobalIndex();
     } else {
       InitExpr.Opcode = WASM_OPCODE_I32_CONST;

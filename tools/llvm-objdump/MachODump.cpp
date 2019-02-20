@@ -1,9 +1,8 @@
 //===-- MachODump.cpp - Object file dumping utility for llvm --------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -340,6 +339,264 @@ static void getSectionsAndSymbols(MachOObjectFile *MachOObj,
       }
     }
   }
+}
+
+static void printRelocationTargetName(const MachOObjectFile *O,
+                                      const MachO::any_relocation_info &RE,
+                                      raw_string_ostream &Fmt) {
+  // Target of a scattered relocation is an address.  In the interest of
+  // generating pretty output, scan through the symbol table looking for a
+  // symbol that aligns with that address.  If we find one, print it.
+  // Otherwise, we just print the hex address of the target.
+  if (O->isRelocationScattered(RE)) {
+    uint32_t Val = O->getPlainRelocationSymbolNum(RE);
+
+    for (const SymbolRef &Symbol : O->symbols()) {
+      Expected<uint64_t> Addr = Symbol.getAddress();
+      if (!Addr)
+        report_error(O->getFileName(), Addr.takeError());
+      if (*Addr != Val)
+        continue;
+      Expected<StringRef> Name = Symbol.getName();
+      if (!Name)
+        report_error(O->getFileName(), Name.takeError());
+      Fmt << *Name;
+      return;
+    }
+
+    // If we couldn't find a symbol that this relocation refers to, try
+    // to find a section beginning instead.
+    for (const SectionRef &Section : ToolSectionFilter(*O)) {
+      std::error_code ec;
+
+      StringRef Name;
+      uint64_t Addr = Section.getAddress();
+      if (Addr != Val)
+        continue;
+      if ((ec = Section.getName(Name)))
+        report_error(O->getFileName(), ec);
+      Fmt << Name;
+      return;
+    }
+
+    Fmt << format("0x%x", Val);
+    return;
+  }
+
+  StringRef S;
+  bool isExtern = O->getPlainRelocationExternal(RE);
+  uint64_t Val = O->getPlainRelocationSymbolNum(RE);
+
+  if (O->getAnyRelocationType(RE) == MachO::ARM64_RELOC_ADDEND) {
+    Fmt << format("0x%0" PRIx64, Val);
+    return;
+  }
+
+  if (isExtern) {
+    symbol_iterator SI = O->symbol_begin();
+    advance(SI, Val);
+    Expected<StringRef> SOrErr = SI->getName();
+    if (!SOrErr)
+      report_error(O->getFileName(), SOrErr.takeError());
+    S = *SOrErr;
+  } else {
+    section_iterator SI = O->section_begin();
+    // Adjust for the fact that sections are 1-indexed.
+    if (Val == 0) {
+      Fmt << "0 (?,?)";
+      return;
+    }
+    uint32_t I = Val - 1;
+    while (I != 0 && SI != O->section_end()) {
+      --I;
+      advance(SI, 1);
+    }
+    if (SI == O->section_end())
+      Fmt << Val << " (?,?)";
+    else
+      SI->getName(S);
+  }
+
+  Fmt << S;
+}
+
+std::error_code
+llvm::getMachORelocationValueString(const MachOObjectFile *Obj,
+                                    const RelocationRef &RelRef,
+                                    SmallVectorImpl<char> &Result) {
+  DataRefImpl Rel = RelRef.getRawDataRefImpl();
+  MachO::any_relocation_info RE = Obj->getRelocation(Rel);
+
+  unsigned Arch = Obj->getArch();
+
+  std::string FmtBuf;
+  raw_string_ostream Fmt(FmtBuf);
+  unsigned Type = Obj->getAnyRelocationType(RE);
+  bool IsPCRel = Obj->getAnyRelocationPCRel(RE);
+
+  // Determine any addends that should be displayed with the relocation.
+  // These require decoding the relocation type, which is triple-specific.
+
+  // X86_64 has entirely custom relocation types.
+  if (Arch == Triple::x86_64) {
+    switch (Type) {
+    case MachO::X86_64_RELOC_GOT_LOAD:
+    case MachO::X86_64_RELOC_GOT: {
+      printRelocationTargetName(Obj, RE, Fmt);
+      Fmt << "@GOT";
+      if (IsPCRel)
+        Fmt << "PCREL";
+      break;
+    }
+    case MachO::X86_64_RELOC_SUBTRACTOR: {
+      DataRefImpl RelNext = Rel;
+      Obj->moveRelocationNext(RelNext);
+      MachO::any_relocation_info RENext = Obj->getRelocation(RelNext);
+
+      // X86_64_RELOC_SUBTRACTOR must be followed by a relocation of type
+      // X86_64_RELOC_UNSIGNED.
+      // NOTE: Scattered relocations don't exist on x86_64.
+      unsigned RType = Obj->getAnyRelocationType(RENext);
+      if (RType != MachO::X86_64_RELOC_UNSIGNED)
+        report_error(Obj->getFileName(), "Expected X86_64_RELOC_UNSIGNED after "
+                                         "X86_64_RELOC_SUBTRACTOR.");
+
+      // The X86_64_RELOC_UNSIGNED contains the minuend symbol;
+      // X86_64_RELOC_SUBTRACTOR contains the subtrahend.
+      printRelocationTargetName(Obj, RENext, Fmt);
+      Fmt << "-";
+      printRelocationTargetName(Obj, RE, Fmt);
+      break;
+    }
+    case MachO::X86_64_RELOC_TLV:
+      printRelocationTargetName(Obj, RE, Fmt);
+      Fmt << "@TLV";
+      if (IsPCRel)
+        Fmt << "P";
+      break;
+    case MachO::X86_64_RELOC_SIGNED_1:
+      printRelocationTargetName(Obj, RE, Fmt);
+      Fmt << "-1";
+      break;
+    case MachO::X86_64_RELOC_SIGNED_2:
+      printRelocationTargetName(Obj, RE, Fmt);
+      Fmt << "-2";
+      break;
+    case MachO::X86_64_RELOC_SIGNED_4:
+      printRelocationTargetName(Obj, RE, Fmt);
+      Fmt << "-4";
+      break;
+    default:
+      printRelocationTargetName(Obj, RE, Fmt);
+      break;
+    }
+    // X86 and ARM share some relocation types in common.
+  } else if (Arch == Triple::x86 || Arch == Triple::arm ||
+             Arch == Triple::ppc) {
+    // Generic relocation types...
+    switch (Type) {
+    case MachO::GENERIC_RELOC_PAIR: // prints no info
+      return std::error_code();
+    case MachO::GENERIC_RELOC_SECTDIFF: {
+      DataRefImpl RelNext = Rel;
+      Obj->moveRelocationNext(RelNext);
+      MachO::any_relocation_info RENext = Obj->getRelocation(RelNext);
+
+      // X86 sect diff's must be followed by a relocation of type
+      // GENERIC_RELOC_PAIR.
+      unsigned RType = Obj->getAnyRelocationType(RENext);
+
+      if (RType != MachO::GENERIC_RELOC_PAIR)
+        report_error(Obj->getFileName(), "Expected GENERIC_RELOC_PAIR after "
+                                         "GENERIC_RELOC_SECTDIFF.");
+
+      printRelocationTargetName(Obj, RE, Fmt);
+      Fmt << "-";
+      printRelocationTargetName(Obj, RENext, Fmt);
+      break;
+    }
+    }
+
+    if (Arch == Triple::x86 || Arch == Triple::ppc) {
+      switch (Type) {
+      case MachO::GENERIC_RELOC_LOCAL_SECTDIFF: {
+        DataRefImpl RelNext = Rel;
+        Obj->moveRelocationNext(RelNext);
+        MachO::any_relocation_info RENext = Obj->getRelocation(RelNext);
+
+        // X86 sect diff's must be followed by a relocation of type
+        // GENERIC_RELOC_PAIR.
+        unsigned RType = Obj->getAnyRelocationType(RENext);
+        if (RType != MachO::GENERIC_RELOC_PAIR)
+          report_error(Obj->getFileName(), "Expected GENERIC_RELOC_PAIR after "
+                                           "GENERIC_RELOC_LOCAL_SECTDIFF.");
+
+        printRelocationTargetName(Obj, RE, Fmt);
+        Fmt << "-";
+        printRelocationTargetName(Obj, RENext, Fmt);
+        break;
+      }
+      case MachO::GENERIC_RELOC_TLV: {
+        printRelocationTargetName(Obj, RE, Fmt);
+        Fmt << "@TLV";
+        if (IsPCRel)
+          Fmt << "P";
+        break;
+      }
+      default:
+        printRelocationTargetName(Obj, RE, Fmt);
+      }
+    } else { // ARM-specific relocations
+      switch (Type) {
+      case MachO::ARM_RELOC_HALF:
+      case MachO::ARM_RELOC_HALF_SECTDIFF: {
+        // Half relocations steal a bit from the length field to encode
+        // whether this is an upper16 or a lower16 relocation.
+        bool isUpper = (Obj->getAnyRelocationLength(RE) & 0x1) == 1;
+
+        if (isUpper)
+          Fmt << ":upper16:(";
+        else
+          Fmt << ":lower16:(";
+        printRelocationTargetName(Obj, RE, Fmt);
+
+        DataRefImpl RelNext = Rel;
+        Obj->moveRelocationNext(RelNext);
+        MachO::any_relocation_info RENext = Obj->getRelocation(RelNext);
+
+        // ARM half relocs must be followed by a relocation of type
+        // ARM_RELOC_PAIR.
+        unsigned RType = Obj->getAnyRelocationType(RENext);
+        if (RType != MachO::ARM_RELOC_PAIR)
+          report_error(Obj->getFileName(), "Expected ARM_RELOC_PAIR after "
+                                           "ARM_RELOC_HALF");
+
+        // NOTE: The half of the target virtual address is stashed in the
+        // address field of the secondary relocation, but we can't reverse
+        // engineer the constant offset from it without decoding the movw/movt
+        // instruction to find the other half in its immediate field.
+
+        // ARM_RELOC_HALF_SECTDIFF encodes the second section in the
+        // symbol/section pointer of the follow-on relocation.
+        if (Type == MachO::ARM_RELOC_HALF_SECTDIFF) {
+          Fmt << "-";
+          printRelocationTargetName(Obj, RENext, Fmt);
+        }
+
+        Fmt << ")";
+        break;
+      }
+      default: {
+        printRelocationTargetName(Obj, RE, Fmt);
+      }
+      }
+    }
+  } else
+    printRelocationTargetName(Obj, RE, Fmt);
+
+  Fmt.flush();
+  Result.append(FmtBuf.begin(), FmtBuf.end());
+  return std::error_code();
 }
 
 static void PrintIndirectSymbolTable(MachOObjectFile *O, bool verbose,
@@ -1412,7 +1669,7 @@ static void DumpSectionContents(StringRef Filename, MachOObjectFile *O,
     std::pair<StringRef, StringRef> DumpSegSectName;
     DumpSegSectName = DumpSection.split(',');
     StringRef DumpSegName, DumpSectName;
-    if (DumpSegSectName.second.size()) {
+    if (!DumpSegSectName.second.empty()) {
       DumpSegName = DumpSegSectName.first;
       DumpSectName = DumpSegSectName.second;
     } else {
@@ -1582,7 +1839,7 @@ static void ProcessMachO(StringRef Name, MachOObjectFile *MachOOF,
   if (Disassemble || Relocations || PrivateHeaders || ExportsTrie || Rebase ||
       Bind || SymbolTable || LazyBind || WeakBind || IndirectSymbols ||
       DataInCode || LinkOptHints || DylibsUsed || DylibId || ObjcMetaData ||
-      (FilterSections.size() != 0)) {
+      (!FilterSections.empty())) {
     if (!NoLeadingHeaders) {
       outs() << Name;
       if (!ArchiveMemberName.empty())
@@ -1607,12 +1864,22 @@ static void ProcessMachO(StringRef Name, MachOObjectFile *MachOOF,
   // If we need the symbol table to do the operation then check it here to
   // produce a good error message as to where the Mach-O file comes from in
   // the error message.
-  if (Disassemble || IndirectSymbols || FilterSections.size() != 0 ||
-      UnwindInfo)
+  if (Disassemble || IndirectSymbols || !FilterSections.empty() || UnwindInfo)
     if (Error Err = MachOOF->checkSymbolTable())
       report_error(ArchiveName, FileName, std::move(Err), ArchitectureName);
-
-  if (Disassemble) {
+  
+  if (DisassembleAll) {
+    for (const SectionRef &Section : MachOOF->sections()) {
+      StringRef SectName;
+      Section.getName(SectName);
+      if (SectName.equals("__text")) {
+        DataRefImpl Ref = Section.getRawDataRefImpl();
+        StringRef SegName = MachOOF->getSectionFinalSegmentName(Ref);
+        DisassembleMachO(FileName, MachOOF, SegName, SectName);
+      }
+    }
+  }
+  else if (Disassemble) {
     if (MachOOF->getHeader().filetype == MachO::MH_KEXT_BUNDLE &&
         MachOOF->getHeader().cputype == MachO::CPU_TYPE_ARM64)
       DisassembleMachO(FileName, MachOOF, "__TEXT_EXEC", "__text");
@@ -1628,10 +1895,10 @@ static void ProcessMachO(StringRef Name, MachOObjectFile *MachOOF,
   if (Relocations)
     PrintRelocations(MachOOF, !NonVerbose);
   if (SectionHeaders)
-    PrintSectionHeaders(MachOOF);
+    printSectionHeaders(MachOOF);
   if (SectionContents)
-    PrintSectionContents(MachOOF);
-  if (FilterSections.size() != 0)
+    printSectionContents(MachOOF);
+  if (!FilterSections.empty())
     DumpSectionContents(FileName, MachOOF, !NonVerbose);
   if (InfoPlist)
     DumpInfoPlistSectionContents(FileName, MachOOF);
@@ -1640,7 +1907,7 @@ static void ProcessMachO(StringRef Name, MachOObjectFile *MachOOF,
   if (DylibId)
     PrintDylibs(MachOOF, true);
   if (SymbolTable)
-    PrintSymbolTable(MachOOF, ArchiveName, ArchitectureName);
+    printSymbolTable(MachOOF, ArchiveName, ArchitectureName);
   if (UnwindInfo)
     printMachOUnwindInfo(MachOOF);
   if (PrivateHeaders) {
@@ -1960,7 +2227,7 @@ static bool ValidateArchFlags() {
 // -arch flags selecting just those slices as specified by them and also parses
 // archive files.  Then for each individual Mach-O file ProcessMachO() is
 // called to process the file based on the command line options.
-void llvm::ParseInputMachO(StringRef Filename) {
+void llvm::parseInputMachO(StringRef Filename) {
   if (!ValidateArchFlags())
     return;
 
@@ -1999,7 +2266,7 @@ void llvm::ParseInputMachO(StringRef Filename) {
     return;
   }
   if (MachOUniversalBinary *UB = dyn_cast<MachOUniversalBinary>(&Bin)) {
-    ParseInputMachO(UB);
+    parseInputMachO(UB);
     return;
   }
   if (ObjectFile *O = dyn_cast<ObjectFile>(&Bin)) {
@@ -2016,7 +2283,7 @@ void llvm::ParseInputMachO(StringRef Filename) {
   llvm_unreachable("Input object can't be invalid at this point");
 }
 
-void llvm::ParseInputMachO(MachOUniversalBinary *UB) {
+void llvm::parseInputMachO(MachOUniversalBinary *UB) {
   if (!ValidateArchFlags())
     return;
 
@@ -2026,7 +2293,7 @@ void llvm::ParseInputMachO(MachOUniversalBinary *UB) {
     printMachOUniversalHeaders(UB, !NonVerbose);
 
   // If we have a list of architecture flags specified dump only those.
-  if (!ArchAll && ArchFlags.size() != 0) {
+  if (!ArchAll && !ArchFlags.empty()) {
     // Look for a slice in the universal binary that matches each ArchFlag.
     bool ArchFound;
     for (unsigned i = 0; i < ArchFlags.size(); ++i) {
@@ -5626,7 +5893,9 @@ static void print_image_info64(SectionRef S, struct DisassembleInfo *info) {
     else if(swift_version == 5)
       outs() << " Swift 4.0";
     else if(swift_version == 6)
-      outs() << " Swift 4.1";
+      outs() << " Swift 4.1/Swift 4.2";
+    else if(swift_version == 7)
+      outs() << " Swift 5 or later";
     else
       outs() << " unknown future Swift version (" << swift_version << ")";
   }
@@ -5677,7 +5946,9 @@ static void print_image_info32(SectionRef S, struct DisassembleInfo *info) {
     else if(swift_version == 5)
       outs() << " Swift 4.0";
     else if(swift_version == 6)
-      outs() << " Swift 4.1";
+      outs() << " Swift 4.1/Swift 4.2";
+    else if(swift_version == 7)
+      outs() << " Swift 5 or later";
     else
       outs() << " unknown future Swift version (" << swift_version << ")";
   }
@@ -6827,7 +7098,7 @@ static void DisassembleMachO(StringRef Filename, MachOObjectFile *MachOOF,
 
   // Package up features to be passed to target/subtarget
   std::string FeaturesStr;
-  if (MAttrs.size()) {
+  if (!MAttrs.empty()) {
     SubtargetFeatures Features;
     for (unsigned i = 0; i != MAttrs.size(); ++i)
       Features.AddFeature(MAttrs[i]);
@@ -6967,15 +7238,18 @@ static void DisassembleMachO(StringRef Filename, MachOObjectFile *MachOOF,
       ErrorOr<std::unique_ptr<MemoryBuffer>> BufOrErr =
           MemoryBuffer::getFileOrSTDIN(DSYMFile);
       if (std::error_code EC = BufOrErr.getError()) {
-        WithColor::error(errs(), "llvm-objdump")
-            << Filename << ": " << EC.message() << '\n';
+        report_error(DSYMFile, errorCodeToError(EC));
         return;
       }
+
       Expected<std::unique_ptr<MachOObjectFile>> DbgObjCheck =
           ObjectFile::createMachOObjectFile(BufOrErr.get()->getMemBufferRef());
 
-      if (DbgObjCheck.takeError())
-        report_error(MachOOF->getFileName(), DbgObjCheck.takeError());
+      if (Error E = DbgObjCheck.takeError()) {
+        report_error(DSYMFile, std::move(E));
+        return;
+      }
+
       DbgObj = DbgObjCheck.get().release();
       // We need to keep the file alive, because we're replacing DbgObj with it.
       DSYMBuf = std::move(BufOrErr.get());
@@ -6985,7 +7259,7 @@ static void DisassembleMachO(StringRef Filename, MachOObjectFile *MachOOF,
     diContext = DWARFContext::create(*DbgObj);
   }
 
-  if (FilterSections.size() == 0)
+  if (FilterSections.empty())
     outs() << "(" << DisSegName << "," << DisSectName << ") section\n";
 
   for (unsigned SectIdx = 0; SectIdx != Sections.size(); SectIdx++) {
@@ -7048,7 +7322,7 @@ static void DisassembleMachO(StringRef Filename, MachOObjectFile *MachOOF,
     unsigned int Arch = MachOOF->getArch();
 
     // Skip all symbols if this is a stubs file.
-    if (Bytes.size() == 0)
+    if (Bytes.empty())
       return;
 
     // If the section has symbols but no symbol at the start of the section

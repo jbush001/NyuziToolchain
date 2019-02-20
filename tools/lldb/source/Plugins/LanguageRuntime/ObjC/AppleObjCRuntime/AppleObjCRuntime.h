@@ -1,9 +1,8 @@
 //===-- AppleObjCRuntime.h --------------------------------------*- C++ -*-===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -86,6 +85,14 @@ public:
   bool ExceptionBreakpointsExplainStop(lldb::StopInfoSP stop_reason) override;
 
   lldb::SearchFilterSP CreateExceptionSearchFilter() override;
+  
+  static std::tuple<FileSpec, ConstString> GetExceptionThrowLocation();
+
+  lldb::ValueObjectSP GetExceptionObjectForThread(
+      lldb::ThreadSP thread_sp) override;
+
+  lldb::ThreadSP GetBacktraceThreadFromException(
+      lldb::ValueObjectSP thread_sp) override;
 
   uint32_t GetFoundationVersion();
 
@@ -112,7 +119,7 @@ protected:
   std::unique_ptr<Address> m_PrintForDebugger_addr;
   bool m_read_objc_library;
   std::unique_ptr<lldb_private::AppleObjCTrampolineHandler>
-      m_objc_trampoline_handler_ap;
+      m_objc_trampoline_handler_up;
   lldb::BreakpointSP m_objc_exception_bp_sp;
   lldb::ModuleWP m_objc_module_wp;
   std::unique_ptr<FunctionCaller> m_print_object_caller_up;

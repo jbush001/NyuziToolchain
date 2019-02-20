@@ -1,16 +1,13 @@
 //===-- TargetList.cpp ------------------------------------------*- C++ -*-===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
 #include "lldb/Target/TargetList.h"
-#include "lldb/Core/Broadcaster.h"
 #include "lldb/Core/Debugger.h"
-#include "lldb/Core/Event.h"
 #include "lldb/Core/Module.h"
 #include "lldb/Core/ModuleSpec.h"
 #include "lldb/Host/Host.h"
@@ -20,6 +17,8 @@
 #include "lldb/Symbol/ObjectFile.h"
 #include "lldb/Target/Platform.h"
 #include "lldb/Target/Process.h"
+#include "lldb/Utility/Broadcaster.h"
+#include "lldb/Utility/Event.h"
 #include "lldb/Utility/State.h"
 #include "lldb/Utility/TildeExpressionResolver.h"
 #include "lldb/Utility/Timer.h"
@@ -234,7 +233,7 @@ Status TargetList::CreateTargetInternal(
             // All platforms for all modules in the executable match, so we can
             // select this platform
             platform_sp = platforms.front();
-          } else if (more_than_one_platforms == false) {
+          } else if (!more_than_one_platforms) {
             // No platforms claim to support this file
             error.SetErrorString("No matching platforms found for this file, "
                                  "specify one with the --platform option");

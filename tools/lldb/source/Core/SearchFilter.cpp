@@ -1,9 +1,8 @@
 //===-- SearchFilter.cpp ----------------------------------------*- C++ -*-===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -328,9 +327,7 @@ SearchFilter::DoCUIteration(const ModuleSP &module_sp,
           SymbolVendor *sym_vendor = module_sp->GetSymbolVendor();
           if (!sym_vendor)
             continue;
-          SymbolContext sym_ctx;
-          cu_sp->CalculateSymbolContext(&sym_ctx);
-          if (!sym_vendor->ParseCompileUnitFunctions(sym_ctx))
+          if (!sym_vendor->ParseFunctions(*cu_sp))
             continue;
           // If we got any functions, use ForeachFunction to do the iteration.
           cu_sp->ForeachFunction([&](const FunctionSP &func_sp) {
@@ -388,10 +385,7 @@ SearchFilterForUnconstrainedSearches::SerializeToStructuredData() {
 
 bool SearchFilterForUnconstrainedSearches::ModulePasses(
     const FileSpec &module_spec) {
-  if (m_target_sp->ModuleIsExcludedForUnconstrainedSearches(module_spec))
-    return false;
-  else
-    return true;
+  return !m_target_sp->ModuleIsExcludedForUnconstrainedSearches(module_spec);
 }
 
 bool SearchFilterForUnconstrainedSearches::ModulePasses(
@@ -570,22 +564,15 @@ bool SearchFilterByModuleList::ModulePasses(const ModuleSP &module_sp) {
   if (m_module_spec_list.GetSize() == 0)
     return true;
 
-  if (module_sp &&
-      m_module_spec_list.FindFileIndex(0, module_sp->GetFileSpec(), false) !=
-          UINT32_MAX)
-    return true;
-  else
-    return false;
+  return module_sp && m_module_spec_list.FindFileIndex(
+                          0, module_sp->GetFileSpec(), false) != UINT32_MAX;
 }
 
 bool SearchFilterByModuleList::ModulePasses(const FileSpec &spec) {
   if (m_module_spec_list.GetSize() == 0)
     return true;
 
-  if (m_module_spec_list.FindFileIndex(0, spec, true) != UINT32_MAX)
-    return true;
-  else
-    return false;
+  return m_module_spec_list.FindFileIndex(0, spec, true) != UINT32_MAX;
 }
 
 bool SearchFilterByModuleList::AddressPasses(Address &address) {

@@ -1,9 +1,8 @@
 //===-- RuntimeDyldCOFFX86_64.h --- COFF/X86_64 specific code ---*- C++ -*-===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -128,6 +127,13 @@ public:
       break;
     }
 
+    case COFF::IMAGE_REL_AMD64_SECREL: {
+      assert(static_cast<int64_t>(RE.Addend) <= INT32_MAX && "Relocation overflow");
+      assert(static_cast<int64_t>(RE.Addend) >= INT32_MIN && "Relocation underflow");
+      writeBytesUnaligned(RE.Addend, Target, 4);
+      break;
+    }
+
     default:
       llvm_unreachable("Relocation type not implemented yet!");
       break;
@@ -180,21 +186,21 @@ public:
     return std::make_tuple(Offset, RelType, Addend);
   }
 
-  Expected<relocation_iterator>
+  Expected<object::relocation_iterator>
   processRelocationRef(unsigned SectionID,
-                       relocation_iterator RelI,
-                       const ObjectFile &Obj,
+                       object::relocation_iterator RelI,
+                       const object::ObjectFile &Obj,
                        ObjSectionToIDMap &ObjSectionToID,
                        StubMap &Stubs) override {
     // If possible, find the symbol referred to in the relocation,
     // and the section that contains it.
-    symbol_iterator Symbol = RelI->getSymbol();
+    object::symbol_iterator Symbol = RelI->getSymbol();
     if (Symbol == Obj.symbol_end())
       report_fatal_error("Unknown symbol in relocation");
     auto SectionOrError = Symbol->getSection();
     if (!SectionOrError)
       return SectionOrError.takeError();
-    section_iterator SecI = *SectionOrError;
+    object::section_iterator SecI = *SectionOrError;
     // If there is no section, this must be an external reference.
     const bool IsExtern = SecI == Obj.section_end();
 
@@ -273,11 +279,11 @@ public:
     UnregisteredEHFrameSections.clear();
   }
 
-  Error finalizeLoad(const ObjectFile &Obj,
+  Error finalizeLoad(const object::ObjectFile &Obj,
                      ObjSectionToIDMap &SectionMap) override {
     // Look for and record the EH frame section IDs.
     for (const auto &SectionPair : SectionMap) {
-      const SectionRef &Section = SectionPair.first;
+      const object::SectionRef &Section = SectionPair.first;
       StringRef Name;
       if (auto EC = Section.getName(Name))
         return errorCodeToError(EC);

@@ -414,8 +414,8 @@ A simple function that does something interesting if it receives the input
     return 0;
   }
   EOF
-  # Build test_fuzzer.cc with asan and link against libFuzzer.a
-  clang++ -fsanitize=address -fsanitize-coverage=trace-pc-guard test_fuzzer.cc libFuzzer.a
+  # Build test_fuzzer.cc with asan and link against libFuzzer.
+  clang++ -fsanitize=address,fuzzer test_fuzzer.cc
   # Run the fuzzer with no corpus.
   ./a.out
 
@@ -483,7 +483,7 @@ the fuzzing but is very likely to improve the results.
 Value Profile
 -------------
 
-With  ``-fsanitize-coverage=trace-cmp``
+With  ``-fsanitize-coverage=trace-cmp`` (default with ``-fsanitize=fuzzer``)
 and extra run-time flag ``-use_value_profile=1`` the fuzzer will
 collect value profiles for the parameters of compare instructions
 and treat some new values as new coverage.
@@ -544,7 +544,7 @@ Periodically restart both fuzzers so that they can use each other's findings.
 Currently, there is no simple way to run both fuzzing engines in parallel while sharing the same corpus dir.
 
 You may also use AFL on your target function ``LLVMFuzzerTestOneInput``:
-see an example `here <https://github.com/llvm-mirror/compiler-rt/tree/master/lib/fuzzer/afl>`__.
+see an example `here <https://github.com/llvm/llvm-project/tree/master/compiler-rt/lib/fuzzer/afl>`__.
 
 How good is my fuzzer?
 ----------------------
@@ -562,8 +562,9 @@ to visualize and study your code coverage
 User-supplied mutators
 ----------------------
 
-LibFuzzer allows to use custom (user-supplied) mutators,
-see FuzzerInterface.h_
+LibFuzzer allows to use custom (user-supplied) mutators, see
+`Structure-Aware Fuzzing <https://github.com/google/fuzzer-test-suite/blob/master/tutorial/structure-aware-fuzzing.md>`_
+for more details.
 
 Startup initialization
 ----------------------
@@ -645,10 +646,20 @@ coverage set of the process (since the fuzzer is in-process). In other words, by
 using more external dependencies we will slow down the fuzzer while the main
 reason for it to exist is extreme speed.
 
-Q. What about Windows then? The fuzzer contains code that does not build on Windows.
+Q. Does libFuzzer Support Windows?
 ------------------------------------------------------------------------------------
 
-Volunteers are welcome.
+Yes, libFuzzer now supports Windows. Initial support was added in r341082.
+Any build of Clang 9 supports it. You can download a build of Clang for Windows
+that has libFuzzer from
+`LLVM Snapshot Builds <https://llvm.org/builds/>`_.
+
+Using libFuzzer on Windows without ASAN is unsupported. Building fuzzers with the
+``/MD`` (dynamic runtime library) compile option is unsupported. Support for these
+may be added in the future. Linking fuzzers with the ``/INCREMENTAL`` link option
+(or the ``/DEBUG`` option which implies it) is also unsupported.
+
+Send any questions or comments to the mailing list: libfuzzer(#)googlegroups.com
 
 Q. When libFuzzer is not a good solution for a problem?
 ---------------------------------------------------------
@@ -741,7 +752,7 @@ Trophies
 .. _AddressSanitizer: http://clang.llvm.org/docs/AddressSanitizer.html
 .. _LeakSanitizer: http://clang.llvm.org/docs/LeakSanitizer.html
 .. _Heartbleed: http://en.wikipedia.org/wiki/Heartbleed
-.. _FuzzerInterface.h: https://github.com/llvm-mirror/compiler-rt/blob/master/lib/fuzzer/FuzzerInterface.h
+.. _FuzzerInterface.h: https://github.com/llvm/llvm-project/blob/master/compiler-rt/lib/fuzzer/FuzzerInterface.h
 .. _3.7.0: http://llvm.org/releases/3.7.0/docs/LibFuzzer.html
 .. _building Clang from trunk: http://clang.llvm.org/get_started.html
 .. _MemorySanitizer: http://clang.llvm.org/docs/MemorySanitizer.html

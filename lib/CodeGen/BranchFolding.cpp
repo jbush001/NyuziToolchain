@@ -1,9 +1,8 @@
 //===- BranchFolding.cpp - Fold machine code branch instructions ----------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -298,7 +297,7 @@ static unsigned HashEndOfMBB(const MachineBasicBlock &MBB) {
 
 ///  Whether MI should be counted as an instruction when calculating common tail.
 static bool countsAsInstruction(const MachineInstr &MI) {
-  return !(MI.isDebugValue() || MI.isCFIInstruction());
+  return !(MI.isDebugInstr() || MI.isCFIInstruction());
 }
 
 /// ComputeCommonTailLength - Given two machine basic blocks, compute the number
@@ -1183,29 +1182,6 @@ bool BranchFolder::TailMergeBlocks(MachineFunction &MF) {
           }
         }
 
-        // Failing case: the only way IBB can be reached from PBB is via
-        // exception handling.  Happens for landing pads.  Would be nice to have
-        // a bit in the edge so we didn't have to do all this.
-        if (IBB->isEHPad()) {
-          MachineFunction::iterator IP = ++PBB->getIterator();
-          MachineBasicBlock *PredNextBB = nullptr;
-          if (IP != MF.end())
-            PredNextBB = &*IP;
-          if (!TBB) {
-            if (IBB != PredNextBB)      // fallthrough
-              continue;
-          } else if (FBB) {
-            if (TBB != IBB && FBB != IBB)   // cbr then ubr
-              continue;
-          } else if (Cond.empty()) {
-            if (TBB != IBB)               // ubr
-              continue;
-          } else {
-            if (TBB != IBB && IBB != PredNextBB)  // cbr
-              continue;
-          }
-        }
-
         // Remove the unconditional branch at the end, if any.
         if (TBB && (Cond.empty() || FBB)) {
           DebugLoc dl = PBB->findBranchDebugLoc();
@@ -1363,9 +1339,9 @@ static void copyDebugInfoToPredecessor(const TargetInstrInfo *TII,
                                        MachineBasicBlock &PredMBB) {
   auto InsertBefore = PredMBB.getFirstTerminator();
   for (MachineInstr &MI : MBB.instrs())
-    if (MI.isDebugValue()) {
+    if (MI.isDebugInstr()) {
       TII->duplicate(PredMBB, InsertBefore, MI);
-      LLVM_DEBUG(dbgs() << "Copied debug value from empty block to pred: "
+      LLVM_DEBUG(dbgs() << "Copied debug entity from empty block to pred: "
                         << MI);
     }
 }
@@ -1375,9 +1351,9 @@ static void copyDebugInfoToSuccessor(const TargetInstrInfo *TII,
                                      MachineBasicBlock &SuccMBB) {
   auto InsertBefore = SuccMBB.SkipPHIsAndLabels(SuccMBB.begin());
   for (MachineInstr &MI : MBB.instrs())
-    if (MI.isDebugValue()) {
+    if (MI.isDebugInstr()) {
       TII->duplicate(SuccMBB, InsertBefore, MI);
-      LLVM_DEBUG(dbgs() << "Copied debug value from empty block to succ: "
+      LLVM_DEBUG(dbgs() << "Copied debug entity from empty block to succ: "
                         << MI);
     }
 }

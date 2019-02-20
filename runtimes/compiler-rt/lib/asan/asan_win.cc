@@ -1,9 +1,8 @@
 //===-- asan_win.cc -------------------------------------------------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -154,14 +153,6 @@ INTERCEPTOR_WINAPI(DWORD, CreateThread,
                             asan_thread_start, t, thr_flags, tid);
 }
 
-INTERCEPTOR_WINAPI(LONG, NtTerminateThread, HANDLE handle, LONG status) {
-  // Unpoison the terminating thread's stack because the memory may be re-used.
-  NT_TIB *tib = (NT_TIB *)NtCurrentTeb();
-  uptr stackSize = (uptr)tib->StackBase - (uptr)tib->StackLimit;
-  __asan_unpoison_memory_region(tib->StackLimit, stackSize);
-  return REAL(NtTerminateThread(handle, status));
-}
-
 // }}}
 
 namespace __asan {
@@ -177,9 +168,7 @@ void InitializePlatformInterceptors() {
 
   ASAN_INTERCEPT_FUNC(CreateThread);
   ASAN_INTERCEPT_FUNC(SetUnhandledExceptionFilter);
-  CHECK(::__interception::OverrideFunction("NtTerminateThread",
-                                           (uptr)WRAP(NtTerminateThread),
-                                           (uptr *)&REAL(NtTerminateThread)));
+
 #ifdef _WIN64
   ASAN_INTERCEPT_FUNC(__C_specific_handler);
 #else
@@ -330,6 +319,13 @@ int __asan_set_seh_filter() {
   if (prev_seh_handler != &SEHHandler)
     default_seh_handler = prev_seh_handler;
   return 0;
+}
+
+bool HandleDlopenInit() {
+  // Not supported on this platform.
+  static_assert(!SANITIZER_SUPPORTS_INIT_FOR_DLOPEN,
+                "Expected SANITIZER_SUPPORTS_INIT_FOR_DLOPEN to be false");
+  return false;
 }
 
 #if !ASAN_DYNAMIC

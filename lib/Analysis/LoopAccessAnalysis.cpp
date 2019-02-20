@@ -1,9 +1,8 @@
 //===- LoopAccessAnalysis.cpp - Loop Access Analysis Implementation --------==//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -342,7 +341,7 @@ void RuntimePointerChecking::groupChecks(
   //
   // The above case requires that we have an UnknownDependence between
   // accesses to the same underlying object. This cannot happen unless
-  // ShouldRetryWithRuntimeCheck is set, and therefore UseDependencies
+  // FoundNonConstantDistanceDependence is set, and therefore UseDependencies
   // is also false. In this case we will use the fallback path and create
   // separate checking groups for all pointers.
 
@@ -556,7 +555,7 @@ public:
   /// perform dependency checking.
   ///
   /// Note that this can later be cleared if we retry memcheck analysis without
-  /// dependency checking (i.e. ShouldRetryWithRuntimeCheck).
+  /// dependency checking (i.e. FoundNonConstantDistanceDependence).
   bool isDependencyCheckNeeded() { return !CheckDeps.empty(); }
 
   /// We decided that no dependence analysis would be used.  Reset the state.
@@ -604,8 +603,8 @@ private:
   ///
   /// Note that, this is different from isDependencyCheckNeeded.  When we retry
   /// memcheck analysis without dependency checking
-  /// (i.e. ShouldRetryWithRuntimeCheck), isDependencyCheckNeeded is cleared
-  /// while this remains set if we have potentially dependent accesses.
+  /// (i.e. FoundNonConstantDistanceDependence), isDependencyCheckNeeded is
+  /// cleared while this remains set if we have potentially dependent accesses.
   bool IsRTCheckAnalysisNeeded;
 
   /// The SCEV predicate containing all the SCEV-related assumptions.
@@ -1014,7 +1013,7 @@ int64_t llvm::getPtrStride(PredicatedScalarEvolution &PSE, Value *Ptr,
     return 0;
   }
 
-  // The accesss function must stride over the innermost loop.
+  // The access function must stride over the innermost loop.
   if (Lp != AR->getLoop()) {
     LLVM_DEBUG(dbgs() << "LAA: Bad stride - Not striding over innermost loop "
                       << *Ptr << " SCEV: " << *AR << "\n");
@@ -1086,7 +1085,7 @@ int64_t llvm::getPtrStride(PredicatedScalarEvolution &PSE, Value *Ptr,
     if (Assume) {
       // We can avoid this case by adding a run-time check.
       LLVM_DEBUG(dbgs() << "LAA: Non unit strided pointer which is not either "
-                        << "inbouds or in address space 0 may wrap:\n"
+                        << "inbounds or in address space 0 may wrap:\n"
                         << "LAA:   Pointer: " << *Ptr << "\n"
                         << "LAA:   SCEV: " << *AR << "\n"
                         << "LAA:   Added an overflow assumption\n");
@@ -1221,18 +1220,20 @@ bool llvm::isConsecutiveAccess(Value *A, Value *B, const DataLayout &DL,
   return X == PtrSCEVB;
 }
 
-bool MemoryDepChecker::Dependence::isSafeForVectorization(DepType Type) {
+MemoryDepChecker::VectorizationSafetyStatus
+MemoryDepChecker::Dependence::isSafeForVectorization(DepType Type) {
   switch (Type) {
   case NoDep:
   case Forward:
   case BackwardVectorizable:
-    return true;
+    return VectorizationSafetyStatus::Safe;
 
   case Unknown:
+    return VectorizationSafetyStatus::PossiblySafeWithRtChecks;
   case ForwardButPreventsForwarding:
   case Backward:
   case BackwardVectorizableButPreventsForwarding:
-    return false;
+    return VectorizationSafetyStatus::Unsafe;
   }
   llvm_unreachable("unexpected DepType!");
 }
@@ -1317,6 +1318,11 @@ bool MemoryDepChecker::couldPreventStoreLoadForward(uint64_t Distance,
   return false;
 }
 
+void MemoryDepChecker::mergeInStatus(VectorizationSafetyStatus S) {
+  if (Status < S)
+    Status = S;
+}
+
 /// Given a non-constant (unknown) dependence-distance \p Dist between two
 /// memory accesses, that have the same stride whose absolute value is given
 /// in \p Stride, and that have the same type size \p TypeByteSize,
@@ -1339,7 +1345,7 @@ static bool isSafeDependenceDistance(const DataLayout &DL, ScalarEvolution &SE,
   // where Step is the absolute stride of the memory accesses in bytes,
   // then there is no dependence.
   //
-  // Ratioanle:
+  // Rationale:
   // We basically want to check if the absolute distance (|Dist/Step|)
   // is >= the loop iteration count (or > BackedgeTakenCount).
   // This is equivalent to the Strong SIV Test (Practical Dependence Testing,
@@ -1362,7 +1368,7 @@ static bool isSafeDependenceDistance(const DataLayout &DL, ScalarEvolution &SE,
 
   // The dependence distance can be positive/negative, so we sign extend Dist;
   // The multiplication of the absolute stride in bytes and the
-  // backdgeTakenCount is non-negative, so we zero extend Product.
+  // backedgeTakenCount is non-negative, so we zero extend Product.
   if (DistTypeSize > ProductTypeSize)
     CastedProduct = SE.getZeroExtendExpr(Product, Dist.getType());
   else
@@ -1485,7 +1491,7 @@ MemoryDepChecker::isDependent(const MemAccessInfo &A, unsigned AIdx,
       return Dependence::NoDep;
 
     LLVM_DEBUG(dbgs() << "LAA: Dependence because of non-constant distance\n");
-    ShouldRetryWithRuntimeCheck = true;
+    FoundNonConstantDistanceDependence = true;
     return Dependence::Unknown;
   }
 
@@ -1652,7 +1658,7 @@ bool MemoryDepChecker::areDepsSafe(DepCandidates &AccessSets,
 
             Dependence::DepType Type =
                 isDependent(*A.first, A.second, *B.first, B.second, Strides);
-            SafeForVectorization &= Dependence::isSafeForVectorization(Type);
+            mergeInStatus(Dependence::isSafeForVectorization(Type));
 
             // Gather dependences unless we accumulated MaxDependences
             // dependences.  In that case return as soon as we find the first
@@ -1669,7 +1675,7 @@ bool MemoryDepChecker::areDepsSafe(DepCandidates &AccessSets,
                            << "Too many dependences, stopped recording\n");
               }
             }
-            if (!RecordDependences && !SafeForVectorization)
+            if (!RecordDependences && !isSafeForVectorization())
               return false;
           }
         ++OI;
@@ -1679,7 +1685,7 @@ bool MemoryDepChecker::areDepsSafe(DepCandidates &AccessSets,
   }
 
   LLVM_DEBUG(dbgs() << "Total Dependences: " << Dependences.size() << "\n");
-  return SafeForVectorization;
+  return isSafeForVectorization();
 }
 
 SmallVector<Instruction *, 4>
@@ -2245,7 +2251,7 @@ void LoopAccessInfo::collectStridedAccess(Value *MemAccess) {
 
   // Match the types so we can compare the stride and the BETakenCount.
   // The Stride can be positive/negative, so we sign extend Stride;
-  // The backdgeTakenCount is non-negative, so we zero extend BETakenCount.
+  // The backedgeTakenCount is non-negative, so we zero extend BETakenCount.
   const DataLayout &DL = TheLoop->getHeader()->getModule()->getDataLayout();
   uint64_t StrideTypeSize = DL.getTypeAllocSize(StrideExpr->getType());
   uint64_t BETypeSize = DL.getTypeAllocSize(BETakenCount->getType());

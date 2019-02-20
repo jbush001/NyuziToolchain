@@ -1,9 +1,8 @@
 //===-- Disassembler.cpp ----------------------------------------*- C++ -*-===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -452,8 +451,7 @@ bool Disassembler::PrintInstructions(Disassembler *disasm_ptr,
           if (mixed_source_and_assembly && sc.line_entry.IsValid()) {
             if (sc.symbol != previous_symbol) {
               SourceLine decl_line = GetFunctionDeclLineEntry(sc);
-              if (ElideMixedSourceAndDisassemblyLine(exe_ctx, sc, decl_line) ==
-                  false)
+              if (!ElideMixedSourceAndDisassemblyLine(exe_ctx, sc, decl_line))
                 AddLineToSourceLineTables(decl_line, source_lines_seen);
             }
             if (sc.line_entry.IsValid()) {
@@ -461,8 +459,7 @@ bool Disassembler::PrintInstructions(Disassembler *disasm_ptr,
               this_line.file = sc.line_entry.file;
               this_line.line = sc.line_entry.line;
               this_line.column = sc.line_entry.column;
-              if (ElideMixedSourceAndDisassemblyLine(exe_ctx, sc, this_line) ==
-                  false)
+              if (!ElideMixedSourceAndDisassemblyLine(exe_ctx, sc, this_line))
                 AddLineToSourceLineTables(this_line, source_lines_seen);
             }
           }
@@ -506,8 +503,8 @@ bool Disassembler::PrintInstructions(Disassembler *disasm_ptr,
               previous_symbol = sc.symbol;
               if (sc.function && sc.line_entry.IsValid()) {
                 LineEntry prologue_end_line = sc.line_entry;
-                if (ElideMixedSourceAndDisassemblyLine(
-                        exe_ctx, sc, prologue_end_line) == false) {
+                if (!ElideMixedSourceAndDisassemblyLine(exe_ctx, sc,
+                                                        prologue_end_line)) {
                   FileSpec func_decl_file;
                   uint32_t func_decl_line;
                   sc.function->GetStartLineSourceInfo(func_decl_file,
@@ -547,8 +544,8 @@ bool Disassembler::PrintInstructions(Disassembler *disasm_ptr,
                 this_line.file = sc.line_entry.file;
                 this_line.line = sc.line_entry.line;
 
-                if (ElideMixedSourceAndDisassemblyLine(exe_ctx, sc,
-                                                       this_line) == false) {
+                if (!ElideMixedSourceAndDisassemblyLine(exe_ctx, sc,
+                                                        this_line)) {
                   // Only print this source line if it is different from the
                   // last source line we printed.  There may have been inlined
                   // functions between these lines that we elided, resulting in
@@ -744,11 +741,11 @@ void Instruction::Dump(lldb_private::Stream *s, uint32_t max_opcode_byte_size,
 }
 
 bool Instruction::DumpEmulation(const ArchSpec &arch) {
-  std::unique_ptr<EmulateInstruction> insn_emulator_ap(
+  std::unique_ptr<EmulateInstruction> insn_emulator_up(
       EmulateInstruction::FindPlugin(arch, eInstructionTypeAny, nullptr));
-  if (insn_emulator_ap) {
-    insn_emulator_ap->SetInstruction(GetOpcode(), GetAddress(), nullptr);
-    return insn_emulator_ap->EvaluateInstruction(0);
+  if (insn_emulator_up) {
+    insn_emulator_up->SetInstruction(GetOpcode(), GetAddress(), nullptr);
+    return insn_emulator_up->EvaluateInstruction(0);
   }
 
   return false;
@@ -995,11 +992,11 @@ bool Instruction::TestEmulation(Stream *out_stream, const char *file_name) {
   arch.SetTriple(llvm::Triple(value_sp->GetStringValue()));
 
   bool success = false;
-  std::unique_ptr<EmulateInstruction> insn_emulator_ap(
+  std::unique_ptr<EmulateInstruction> insn_emulator_up(
       EmulateInstruction::FindPlugin(arch, eInstructionTypeAny, nullptr));
-  if (insn_emulator_ap)
+  if (insn_emulator_up)
     success =
-        insn_emulator_ap->TestEmulation(out_stream, arch, data_dictionary);
+        insn_emulator_up->TestEmulation(out_stream, arch, data_dictionary);
 
   if (success)
     out_stream->Printf("Emulation test succeeded.");
@@ -1015,14 +1012,14 @@ bool Instruction::Emulate(
     EmulateInstruction::WriteMemoryCallback write_mem_callback,
     EmulateInstruction::ReadRegisterCallback read_reg_callback,
     EmulateInstruction::WriteRegisterCallback write_reg_callback) {
-  std::unique_ptr<EmulateInstruction> insn_emulator_ap(
+  std::unique_ptr<EmulateInstruction> insn_emulator_up(
       EmulateInstruction::FindPlugin(arch, eInstructionTypeAny, nullptr));
-  if (insn_emulator_ap) {
-    insn_emulator_ap->SetBaton(baton);
-    insn_emulator_ap->SetCallbacks(read_mem_callback, write_mem_callback,
+  if (insn_emulator_up) {
+    insn_emulator_up->SetBaton(baton);
+    insn_emulator_up->SetCallbacks(read_mem_callback, write_mem_callback,
                                    read_reg_callback, write_reg_callback);
-    insn_emulator_ap->SetInstruction(GetOpcode(), GetAddress(), nullptr);
-    return insn_emulator_ap->EvaluateInstruction(evaluate_options);
+    insn_emulator_up->SetInstruction(GetOpcode(), GetAddress(), nullptr);
+    return insn_emulator_up->EvaluateInstruction(evaluate_options);
   }
 
   return false;

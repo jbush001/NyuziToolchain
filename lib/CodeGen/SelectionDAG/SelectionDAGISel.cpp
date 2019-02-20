@@ -1,9 +1,8 @@
 //===- SelectionDAGISel.cpp - Implement the SelectionDAGISel class --------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -42,6 +41,7 @@
 #include "llvm/CodeGen/MachineInstr.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/CodeGen/MachineMemOperand.h"
+#include "llvm/CodeGen/MachineModuleInfo.h"
 #include "llvm/CodeGen/MachineOperand.h"
 #include "llvm/CodeGen/MachinePassRegistry.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
@@ -63,6 +63,7 @@
 #include "llvm/IR/Dominators.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/InlineAsm.h"
+#include "llvm/IR/InstIterator.h"
 #include "llvm/IR/InstrTypes.h"
 #include "llvm/IR/Instruction.h"
 #include "llvm/IR/Instructions.h"
@@ -379,6 +380,30 @@ static void SplitCriticalSideEffectEdges(Function &Fn, DominatorTree *DT,
   }
 }
 
+static void computeUsesMSVCFloatingPoint(const Triple &TT, const Function &F,
+                                         MachineModuleInfo &MMI) {
+  // Only needed for MSVC
+  if (!TT.isKnownWindowsMSVCEnvironment())
+    return;
+
+  // If it's already set, nothing to do.
+  if (MMI.usesMSVCFloatingPoint())
+    return;
+
+  for (const Instruction &I : instructions(F)) {
+    if (I.getType()->isFPOrFPVectorTy()) {
+      MMI.setUsesMSVCFloatingPoint(true);
+      return;
+    }
+    for (const auto &Op : I.operands()) {
+      if (Op->getType()->isFPOrFPVectorTy()) {
+        MMI.setUsesMSVCFloatingPoint(true);
+        return;
+      }
+    }
+  }
+}
+
 bool SelectionDAGISel::runOnMachineFunction(MachineFunction &mf) {
   // If we already selected that function, we do not need to run SDISel.
   if (mf.getProperties().hasProperty(
@@ -590,6 +615,9 @@ bool SelectionDAGISel::runOnMachineFunction(MachineFunction &mf) {
   // Determine if there is a call to setjmp in the machine function.
   MF->setExposesReturnsTwice(Fn.callsFunctionThatReturnsTwice());
 
+  // Determine if floating point is used for msvc
+  computeUsesMSVCFloatingPoint(TM.getTargetTriple(), Fn, MF->getMMI());
+
   // Replace forward-declared registers with the registers containing
   // the desired value.
   MachineRegisterInfo &MRI = MF->getRegInfo();
@@ -663,6 +691,7 @@ void SelectionDAGISel::SelectBasicBlock(BasicBlock::const_iterator Begin,
   // Make sure the root of the DAG is up-to-date.
   CurDAG->setRoot(SDB->getControlRoot());
   HadTailCall = SDB->HasTailCall;
+  SDB->resolveOrClearDbgInfo();
   SDB->clear();
 
   // Final step, emit the lowered DAG as machine code.
@@ -704,7 +733,7 @@ void SelectionDAGISel::ComputeLiveOutVRegInfo() {
       continue;
 
     unsigned NumSignBits = CurDAG->ComputeNumSignBits(Src);
-    CurDAG->computeKnownBits(Src, Known);
+    Known = CurDAG->computeKnownBits(Src);
     FuncInfo->AddLiveOutRegInfo(DestReg, NumSignBits, Known);
   } while (!Worklist.empty());
 }
@@ -2211,9 +2240,7 @@ bool SelectionDAGISel::CheckOrMask(SDValue LHS, ConstantSDNode *RHS,
   // Otherwise, the DAG Combiner may have proven that the value coming in is
   // either already zero or is not demanded.  Check for known zero input bits.
   APInt NeededMask = DesiredMask & ~ActualMask;
-
-  KnownBits Known;
-  CurDAG->computeKnownBits(LHS, Known);
+  KnownBits Known = CurDAG->computeKnownBits(LHS);
 
   // If all the missing bits in the or are already known to be set, match!
   if (NeededMask.isSubsetOf(Known.One))
@@ -2415,14 +2442,14 @@ bool SelectionDAGISel::IsLegalToFold(SDValue N, SDNode *U, SDNode *Root,
   return !findNonImmUse(Root, N.getNode(), U, IgnoreChains);
 }
 
-void SelectionDAGISel::Select_INLINEASM(SDNode *N) {
+void SelectionDAGISel::Select_INLINEASM(SDNode *N, bool Branch) {
   SDLoc DL(N);
 
   std::vector<SDValue> Ops(N->op_begin(), N->op_end());
   SelectInlineAsmMemoryOperands(Ops, DL);
 
   const EVT VTs[] = {MVT::Other, MVT::Glue};
-  SDValue New = CurDAG->getNode(ISD::INLINEASM, DL, VTs, Ops);
+  SDValue New = CurDAG->getNode(Branch ? ISD::INLINEASM_BR : ISD::INLINEASM, DL, VTs, Ops);
   New->setNodeId(-1);
   ReplaceUses(N, New.getNode());
   CurDAG->RemoveDeadNode(N);
@@ -2972,7 +2999,9 @@ void SelectionDAGISel::SelectCodeCommon(SDNode *NodeToMatch,
     CurDAG->RemoveDeadNode(NodeToMatch);
     return;
   case ISD::INLINEASM:
-    Select_INLINEASM(NodeToMatch);
+  case ISD::INLINEASM_BR:
+    Select_INLINEASM(NodeToMatch,
+                     NodeToMatch->getOpcode() == ISD::INLINEASM_BR);
     return;
   case ISD::READ_REGISTER:
     Select_READ_REGISTER(NodeToMatch);
@@ -3207,6 +3236,18 @@ void SelectionDAGISel::SelectCodeCommon(SDNode *NodeToMatch,
                                 N.getNode()))
         break;
       continue;
+    case OPC_CheckPredicateWithOperands: {
+      unsigned OpNum = MatcherTable[MatcherIndex++];
+      SmallVector<SDValue, 8> Operands;
+
+      for (unsigned i = 0; i < OpNum; ++i)
+        Operands.push_back(RecordedNodes[MatcherTable[MatcherIndex++]].first);
+
+      unsigned PredNo = MatcherTable[MatcherIndex++];
+      if (!CheckNodePredicateWithOperands(N.getNode(), PredNo, Operands))
+        break;
+      continue;
+    }
     case OPC_CheckComplexPat: {
       unsigned CPNum = MatcherTable[MatcherIndex++];
       unsigned RecNo = MatcherTable[MatcherIndex++];

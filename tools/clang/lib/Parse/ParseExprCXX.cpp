@@ -1,9 +1,8 @@
 //===--- ParseExprCXX.cpp - C++ Expression Parsing ------------------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -235,6 +234,20 @@ bool Parser::ParseOptionalCXXScopeSpecifier(CXXScopeSpec &SS,
 
   while (true) {
     if (HasScopeSpecifier) {
+      if (Tok.is(tok::code_completion)) {
+        // Code completion for a nested-name-specifier, where the code
+        // completion token follows the '::'.
+        Actions.CodeCompleteQualifiedId(getCurScope(), SS, EnteringContext,
+                                        ObjectType.get());
+        // Include code completion token into the range of the scope otherwise
+        // when we try to annotate the scope tokens the dangling code completion
+        // token will cause assertion in
+        // Preprocessor::AnnotatePreviousCachedTokens.
+        SS.setEndLoc(Tok.getLocation());
+        cutOffParsing();
+        return true;
+      }
+
       // C++ [basic.lookup.classref]p5:
       //   If the qualified-id has the form
       //
@@ -246,19 +259,6 @@ bool Parser::ParseOptionalCXXScopeSpecifier(CXXScopeSpec &SS,
       // To implement this, we clear out the object type as soon as we've
       // seen a leading '::' or part of a nested-name-specifier.
       ObjectType = nullptr;
-
-      if (Tok.is(tok::code_completion)) {
-        // Code completion for a nested-name-specifier, where the code
-        // completion token follows the '::'.
-        Actions.CodeCompleteQualifiedId(getCurScope(), SS, EnteringContext);
-        // Include code completion token into the range of the scope otherwise
-        // when we try to annotate the scope tokens the dangling code completion
-        // token will cause assertion in
-        // Preprocessor::AnnotatePreviousCachedTokens.
-        SS.setEndLoc(Tok.getLocation());
-        cutOffParsing();
-        return true;
-      }
     }
 
     // nested-name-specifier:
@@ -1205,12 +1205,8 @@ ExprResult Parser::ParseLambdaExpressionAfterIntroducer(
                       /*hasProto=*/true,
                       /*isAmbiguous=*/false, LParenLoc, ParamInfo.data(),
                       ParamInfo.size(), EllipsisLoc, RParenLoc,
-                      DS.getTypeQualifiers(),
                       /*RefQualifierIsLValueRef=*/true,
-                      /*RefQualifierLoc=*/NoLoc,
-                      /*ConstQualifierLoc=*/NoLoc,
-                      /*VolatileQualifierLoc=*/NoLoc,
-                      /*RestrictQualifierLoc=*/NoLoc, MutableLoc, ESpecType,
+                      /*RefQualifierLoc=*/NoLoc, MutableLoc, ESpecType,
                       ESpecRange, DynamicExceptions.data(),
                       DynamicExceptionRanges.data(), DynamicExceptions.size(),
                       NoexceptExpr.isUsable() ? NoexceptExpr.get() : nullptr,
@@ -1272,12 +1268,8 @@ ExprResult Parser::ParseLambdaExpressionAfterIntroducer(
                       /*NumParams=*/0,
                       /*EllipsisLoc=*/NoLoc,
                       /*RParenLoc=*/NoLoc,
-                      /*TypeQuals=*/0,
                       /*RefQualifierIsLValueRef=*/true,
-                      /*RefQualifierLoc=*/NoLoc,
-                      /*ConstQualifierLoc=*/NoLoc,
-                      /*VolatileQualifierLoc=*/NoLoc,
-                      /*RestrictQualifierLoc=*/NoLoc, MutableLoc, EST_None,
+                      /*RefQualifierLoc=*/NoLoc, MutableLoc, EST_None,
                       /*ESpecRange=*/SourceRange(),
                       /*Exceptions=*/nullptr,
                       /*ExceptionRanges=*/nullptr,
@@ -1680,6 +1672,8 @@ Parser::ParseCXXTypeConstructExpression(const DeclSpec &DS) {
     BalancedDelimiterTracker T(*this, tok::l_paren);
     T.consumeOpen();
 
+    PreferredType.enterTypeCast(Tok.getLocation(), TypeRep.get());
+
     ExprVector Exprs;
     CommaLocsTy CommaLocs;
 
@@ -1747,6 +1741,7 @@ Sema::ConditionResult Parser::ParseCXXCondition(StmtResult *InitStmt,
                                                 Sema::ConditionKind CK,
                                                 ForRangeInfo *FRI) {
   ParenBraceBracketBalancer BalancerRAIIObj(*this);
+  PreferredType.enterCondition(Actions, Tok.getLocation());
 
   if (Tok.is(tok::code_completion)) {
     Actions.CodeCompleteOrdinaryName(getCurScope(), Sema::PCC_Condition);
@@ -1866,6 +1861,7 @@ Sema::ConditionResult Parser::ParseCXXCondition(StmtResult *InitStmt,
          diag::warn_cxx98_compat_generalized_initializer_lists);
     InitExpr = ParseBraceInitializer();
   } else if (CopyInitialization) {
+    PreferredType.enterVariableInit(Tok.getLocation(), DeclOut);
     InitExpr = ParseAssignmentExpression();
   } else if (Tok.is(tok::l_paren)) {
     // This was probably an attempt to initialize the variable.
@@ -2002,6 +1998,13 @@ void Parser::ParseCXXSimpleTypeSpecifier(DeclSpec &DS) {
   case tok::kw_bool:
     DS.SetTypeSpecType(DeclSpec::TST_bool, Loc, PrevSpec, DiagID, Policy);
     break;
+#define GENERIC_IMAGE_TYPE(ImgType, Id)                                        \
+  case tok::kw_##ImgType##_t:                                                  \
+    DS.SetTypeSpecType(DeclSpec::TST_##ImgType##_t, Loc, PrevSpec, DiagID,     \
+                       Policy);                                                \
+    break;
+#include "clang/Basic/OpenCLImageTypes.def"
+
   case tok::annot_decltype:
   case tok::kw_decltype:
     DS.SetRangeEnd(ParseDecltypeSpecifier(DS));

@@ -1,27 +1,52 @@
 //===-- PdbUtil.cpp ---------------------------------------------*- C++ -*-===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
 #include "PdbUtil.h"
+
+#include "DWARFLocationExpression.h"
+#include "PdbIndex.h"
 #include "PdbSymUid.h"
 
 #include "llvm/DebugInfo/CodeView/SymbolDeserializer.h"
 #include "llvm/DebugInfo/CodeView/TypeDeserializer.h"
+#include "llvm/DebugInfo/PDB/Native/DbiStream.h"
 #include "llvm/DebugInfo/PDB/Native/TpiStream.h"
 
+#include "Plugins/Language/CPlusPlus/MSVCUndecoratedNameParser.h"
+#include "lldb/Symbol/Block.h"
 #include "lldb/Utility/LLDBAssert.h"
-
 #include "lldb/lldb-enumerations.h"
 
 using namespace lldb_private;
 using namespace lldb_private::npdb;
 using namespace llvm::codeview;
 using namespace llvm::pdb;
+
+static Variable::RangeList
+MakeRangeList(const PdbIndex &index, const LocalVariableAddrRange &range,
+              llvm::ArrayRef<LocalVariableAddrGap> gaps) {
+  lldb::addr_t start =
+      index.MakeVirtualAddress(range.ISectStart, range.OffsetStart);
+  lldb::addr_t end = start + range.Range;
+
+  Variable::RangeList result;
+  while (!gaps.empty()) {
+    const LocalVariableAddrGap &gap = gaps.front();
+
+    lldb::addr_t size = gap.GapStartOffset - start;
+    result.Append(start, size);
+    start += gap.Range;
+    gaps = gaps.drop_front();
+  }
+
+  result.Append(start, end - start);
+  return result;
+}
 
 CVTagRecord CVTagRecord::create(CVType type) {
   assert(IsTagRecord(type) && "type is not a tag record!");
@@ -354,6 +379,17 @@ bool lldb_private::npdb::IsTagRecord(llvm::codeview::CVType cvt) {
   }
 }
 
+bool lldb_private::npdb::IsClassStructUnion(llvm::codeview::CVType cvt) {
+  switch (cvt.kind()) {
+  case LF_CLASS:
+  case LF_STRUCTURE:
+  case LF_UNION:
+    return true;
+  default:
+    return false;
+  }
+}
+
 bool lldb_private::npdb::IsForwardRefUdt(const PdbTypeSymId &id,
                                          TpiStream &tpi) {
   if (id.is_ipi || id.index.isSimple())
@@ -414,14 +450,428 @@ TypeIndex lldb_private::npdb::LookThroughModifierRecord(CVType modifier) {
 }
 
 llvm::StringRef lldb_private::npdb::DropNameScope(llvm::StringRef name) {
-  // Not all PDB names can be parsed with CPlusPlusNameParser.
-  // E.g. it fails on names containing `anonymous namespace'.
-  // So we simply drop everything before '::'
+  return MSVCUndecoratedNameParser::DropScope(name);
+}
 
-  auto offset = name.rfind("::");
-  if (offset == llvm::StringRef::npos)
-    return name;
-  assert(offset + 2 <= name.size());
+VariableInfo lldb_private::npdb::GetVariableNameInfo(CVSymbol sym) {
+  VariableInfo result;
 
-  return name.substr(offset + 2);
+  if (sym.kind() == S_REGREL32) {
+    RegRelativeSym reg(SymbolRecordKind::RegRelativeSym);
+    cantFail(SymbolDeserializer::deserializeAs<RegRelativeSym>(sym, reg));
+    result.type = reg.Type;
+    result.name = reg.Name;
+    return result;
+  }
+
+  if (sym.kind() == S_REGISTER) {
+    RegisterSym reg(SymbolRecordKind::RegisterSym);
+    cantFail(SymbolDeserializer::deserializeAs<RegisterSym>(sym, reg));
+    result.type = reg.Index;
+    result.name = reg.Name;
+    return result;
+  }
+
+  if (sym.kind() == S_LOCAL) {
+    LocalSym local(SymbolRecordKind::LocalSym);
+    cantFail(SymbolDeserializer::deserializeAs<LocalSym>(sym, local));
+    result.type = local.Type;
+    result.name = local.Name;
+    return result;
+  }
+
+  if (sym.kind() == S_GDATA32 || sym.kind() == S_LDATA32) {
+    DataSym data(SymbolRecordKind::DataSym);
+    cantFail(SymbolDeserializer::deserializeAs<DataSym>(sym, data));
+    result.type = data.Type;
+    result.name = data.Name;
+    return result;
+  }
+
+  if (sym.kind() == S_GTHREAD32 || sym.kind() == S_LTHREAD32) {
+    ThreadLocalDataSym data(SymbolRecordKind::ThreadLocalDataSym);
+    cantFail(SymbolDeserializer::deserializeAs<ThreadLocalDataSym>(sym, data));
+    result.type = data.Type;
+    result.name = data.Name;
+    return result;
+  }
+
+  if (sym.kind() == S_CONSTANT) {
+    ConstantSym constant(SymbolRecordKind::ConstantSym);
+    cantFail(SymbolDeserializer::deserializeAs<ConstantSym>(sym, constant));
+    result.type = constant.Type;
+    result.name = constant.Name;
+    return result;
+  }
+
+  lldbassert(false && "Invalid variable record kind!");
+  return {};
+}
+
+static llvm::FixedStreamArray<FrameData>::Iterator
+GetCorrespondingFrameData(lldb::addr_t load_addr,
+                          const DebugFrameDataSubsectionRef &fpo_data,
+                          const Variable::RangeList &ranges) {
+  lldbassert(!ranges.IsEmpty());
+
+  // assume that all variable ranges correspond to one frame data
+  using RangeListEntry = Variable::RangeList::Entry;
+  const RangeListEntry &range = ranges.GetEntryRef(0);
+
+  auto it = fpo_data.begin();
+
+  // start by searching first frame data range containing variable range
+  for (; it != fpo_data.end(); ++it) {
+    RangeListEntry fd_range(load_addr + it->RvaStart, it->CodeSize);
+
+    if (fd_range.Contains(range)) {
+      break;
+    }
+  }
+
+  // then first most nested entry that still contains variable range
+  auto found = it;
+  for (; it != fpo_data.end(); ++it) {
+    RangeListEntry fd_range(load_addr + it->RvaStart, it->CodeSize);
+
+    if (!fd_range.Contains(range)) {
+      break;
+    }
+    found = it;
+  }
+
+  return found;
+}
+
+static bool GetFrameDataProgram(PdbIndex &index,
+                                const Variable::RangeList &ranges,
+                                llvm::StringRef &out_program) {
+  const DebugFrameDataSubsectionRef &new_fpo_data =
+      index.dbi().getNewFpoRecords();
+
+  auto frame_data_it =
+      GetCorrespondingFrameData(index.GetLoadAddress(), new_fpo_data, ranges);
+  if (frame_data_it == new_fpo_data.end())
+    return false;
+
+  PDBStringTable &strings = cantFail(index.pdb().getStringTable());
+  out_program = cantFail(strings.getStringForID(frame_data_it->FrameFunc));
+  return true;
+}
+
+static RegisterId GetBaseFrameRegister(PdbIndex &index,
+                                       PdbCompilandSymId frame_proc_id,
+                                       bool is_parameter) {
+  CVSymbol frame_proc_cvs = index.ReadSymbolRecord(frame_proc_id);
+  lldbassert(frame_proc_cvs.kind() == S_FRAMEPROC);
+
+  FrameProcSym frame_proc(SymbolRecordKind::FrameProcSym);
+  cantFail(SymbolDeserializer::deserializeAs<FrameProcSym>(frame_proc_cvs,
+                                                           frame_proc));
+
+  CPUType cpu_type = index.compilands()
+                         .GetCompiland(frame_proc_id.modi)
+                         ->m_compile_opts->Machine;
+
+  return is_parameter ? frame_proc.getParamFramePtrReg(cpu_type)
+                      : frame_proc.getLocalFramePtrReg(cpu_type);
+}
+
+VariableInfo lldb_private::npdb::GetVariableLocationInfo(
+    PdbIndex &index, PdbCompilandSymId var_id, Block &block,
+    lldb::ModuleSP module) {
+
+  CVSymbol sym = index.ReadSymbolRecord(var_id);
+
+  VariableInfo result = GetVariableNameInfo(sym);
+
+  if (sym.kind() == S_REGREL32) {
+    RegRelativeSym reg(SymbolRecordKind::RegRelativeSym);
+    cantFail(SymbolDeserializer::deserializeAs<RegRelativeSym>(sym, reg));
+    result.location =
+        MakeRegRelLocationExpression(reg.Register, reg.Offset, module);
+    result.ranges.emplace();
+    return result;
+  }
+
+  if (sym.kind() == S_REGISTER) {
+    RegisterSym reg(SymbolRecordKind::RegisterSym);
+    cantFail(SymbolDeserializer::deserializeAs<RegisterSym>(sym, reg));
+    result.location = MakeEnregisteredLocationExpression(reg.Register, module);
+    result.ranges.emplace();
+    return result;
+  }
+
+  if (sym.kind() == S_LOCAL) {
+    LocalSym local(SymbolRecordKind::LocalSym);
+    cantFail(SymbolDeserializer::deserializeAs<LocalSym>(sym, local));
+
+    PdbCompilandSymId loc_specifier_id(var_id.modi,
+                                       var_id.offset + sym.RecordData.size());
+    CVSymbol loc_specifier_cvs = index.ReadSymbolRecord(loc_specifier_id);
+    if (loc_specifier_cvs.kind() == S_DEFRANGE_FRAMEPOINTER_REL) {
+      DefRangeFramePointerRelSym loc(
+          SymbolRecordKind::DefRangeFramePointerRelSym);
+      cantFail(SymbolDeserializer::deserializeAs<DefRangeFramePointerRelSym>(
+          loc_specifier_cvs, loc));
+
+      Variable::RangeList ranges = MakeRangeList(index, loc.Range, loc.Gaps);
+
+      // TODO: may be better to pass function scope and not lookup it every
+      // time? find nearest parent function block
+      Block *cur = &block;
+      while (cur->GetParent()) {
+        cur = cur->GetParent();
+      }
+      PdbCompilandSymId func_scope_id =
+          PdbSymUid(cur->GetID()).asCompilandSym();
+      CVSymbol func_block_cvs = index.ReadSymbolRecord(func_scope_id);
+      lldbassert(func_block_cvs.kind() == S_GPROC32 ||
+                 func_block_cvs.kind() == S_LPROC32);
+
+      PdbCompilandSymId frame_proc_id(
+          func_scope_id.modi, func_scope_id.offset + func_block_cvs.length());
+
+      bool is_parameter =
+          ((local.Flags & LocalSymFlags::IsParameter) != LocalSymFlags::None);
+      RegisterId base_reg =
+          GetBaseFrameRegister(index, frame_proc_id, is_parameter);
+
+      if (base_reg == RegisterId::VFRAME) {
+        llvm::StringRef program;
+        if (GetFrameDataProgram(index, ranges, program)) {
+          result.location =
+              MakeVFrameRelLocationExpression(program, loc.Offset, module);
+          result.ranges = std::move(ranges);
+        } else {
+          // invalid variable
+        }
+      } else {
+        result.location =
+            MakeRegRelLocationExpression(base_reg, loc.Offset, module);
+        result.ranges = std::move(ranges);
+      }
+    } else if (loc_specifier_cvs.kind() == S_DEFRANGE_REGISTER_REL) {
+      DefRangeRegisterRelSym loc(SymbolRecordKind::DefRangeRegisterRelSym);
+      cantFail(SymbolDeserializer::deserializeAs<DefRangeRegisterRelSym>(
+          loc_specifier_cvs, loc));
+
+      Variable::RangeList ranges = MakeRangeList(index, loc.Range, loc.Gaps);
+
+      RegisterId base_reg = (RegisterId)(uint16_t)loc.Hdr.Register;
+
+      if (base_reg == RegisterId::VFRAME) {
+        llvm::StringRef program;
+        if (GetFrameDataProgram(index, ranges, program)) {
+          result.location = MakeVFrameRelLocationExpression(
+              program, loc.Hdr.BasePointerOffset, module);
+          result.ranges = std::move(ranges);
+        } else {
+          // invalid variable
+        }
+      } else {
+        result.location = MakeRegRelLocationExpression(
+            base_reg, loc.Hdr.BasePointerOffset, module);
+        result.ranges = std::move(ranges);
+      }
+    }
+
+    // FIXME: Handle other kinds
+    return result;
+  }
+  llvm_unreachable("Symbol is not a local variable!");
+  return result;
+}
+
+lldb::BasicType
+lldb_private::npdb::GetCompilerTypeForSimpleKind(SimpleTypeKind kind) {
+  switch (kind) {
+  case SimpleTypeKind::Boolean128:
+  case SimpleTypeKind::Boolean16:
+  case SimpleTypeKind::Boolean32:
+  case SimpleTypeKind::Boolean64:
+  case SimpleTypeKind::Boolean8:
+    return lldb::eBasicTypeBool;
+  case SimpleTypeKind::Byte:
+  case SimpleTypeKind::UnsignedCharacter:
+    return lldb::eBasicTypeUnsignedChar;
+  case SimpleTypeKind::NarrowCharacter:
+    return lldb::eBasicTypeChar;
+  case SimpleTypeKind::SignedCharacter:
+  case SimpleTypeKind::SByte:
+    return lldb::eBasicTypeSignedChar;
+  case SimpleTypeKind::Character16:
+    return lldb::eBasicTypeChar16;
+  case SimpleTypeKind::Character32:
+    return lldb::eBasicTypeChar32;
+  case SimpleTypeKind::Complex80:
+    return lldb::eBasicTypeLongDoubleComplex;
+  case SimpleTypeKind::Complex64:
+    return lldb::eBasicTypeDoubleComplex;
+  case SimpleTypeKind::Complex32:
+    return lldb::eBasicTypeFloatComplex;
+  case SimpleTypeKind::Float128:
+  case SimpleTypeKind::Float80:
+    return lldb::eBasicTypeLongDouble;
+  case SimpleTypeKind::Float64:
+    return lldb::eBasicTypeDouble;
+  case SimpleTypeKind::Float32:
+    return lldb::eBasicTypeFloat;
+  case SimpleTypeKind::Float16:
+    return lldb::eBasicTypeHalf;
+  case SimpleTypeKind::Int128:
+    return lldb::eBasicTypeInt128;
+  case SimpleTypeKind::Int64:
+  case SimpleTypeKind::Int64Quad:
+    return lldb::eBasicTypeLongLong;
+  case SimpleTypeKind::Int32:
+    return lldb::eBasicTypeInt;
+  case SimpleTypeKind::Int16:
+  case SimpleTypeKind::Int16Short:
+    return lldb::eBasicTypeShort;
+  case SimpleTypeKind::UInt128:
+    return lldb::eBasicTypeUnsignedInt128;
+  case SimpleTypeKind::UInt64:
+  case SimpleTypeKind::UInt64Quad:
+    return lldb::eBasicTypeUnsignedLongLong;
+  case SimpleTypeKind::HResult:
+  case SimpleTypeKind::UInt32:
+    return lldb::eBasicTypeUnsignedInt;
+  case SimpleTypeKind::UInt16:
+  case SimpleTypeKind::UInt16Short:
+    return lldb::eBasicTypeUnsignedShort;
+  case SimpleTypeKind::Int32Long:
+    return lldb::eBasicTypeLong;
+  case SimpleTypeKind::UInt32Long:
+    return lldb::eBasicTypeUnsignedLong;
+  case SimpleTypeKind::Void:
+    return lldb::eBasicTypeVoid;
+  case SimpleTypeKind::WideCharacter:
+    return lldb::eBasicTypeWChar;
+  default:
+    return lldb::eBasicTypeInvalid;
+  }
+}
+
+size_t lldb_private::npdb::GetTypeSizeForSimpleKind(SimpleTypeKind kind) {
+  switch (kind) {
+  case SimpleTypeKind::Boolean128:
+  case SimpleTypeKind::Int128:
+  case SimpleTypeKind::UInt128:
+  case SimpleTypeKind::Float128:
+    return 16;
+  case SimpleTypeKind::Complex80:
+  case SimpleTypeKind::Float80:
+    return 10;
+  case SimpleTypeKind::Boolean64:
+  case SimpleTypeKind::Complex64:
+  case SimpleTypeKind::UInt64:
+  case SimpleTypeKind::UInt64Quad:
+  case SimpleTypeKind::Float64:
+  case SimpleTypeKind::Int64:
+  case SimpleTypeKind::Int64Quad:
+    return 8;
+  case SimpleTypeKind::Boolean32:
+  case SimpleTypeKind::Character32:
+  case SimpleTypeKind::Complex32:
+  case SimpleTypeKind::Float32:
+  case SimpleTypeKind::Int32:
+  case SimpleTypeKind::Int32Long:
+  case SimpleTypeKind::UInt32Long:
+  case SimpleTypeKind::HResult:
+  case SimpleTypeKind::UInt32:
+    return 4;
+  case SimpleTypeKind::Boolean16:
+  case SimpleTypeKind::Character16:
+  case SimpleTypeKind::Float16:
+  case SimpleTypeKind::Int16:
+  case SimpleTypeKind::Int16Short:
+  case SimpleTypeKind::UInt16:
+  case SimpleTypeKind::UInt16Short:
+  case SimpleTypeKind::WideCharacter:
+    return 2;
+  case SimpleTypeKind::Boolean8:
+  case SimpleTypeKind::Byte:
+  case SimpleTypeKind::UnsignedCharacter:
+  case SimpleTypeKind::NarrowCharacter:
+  case SimpleTypeKind::SignedCharacter:
+  case SimpleTypeKind::SByte:
+    return 1;
+  case SimpleTypeKind::Void:
+  default:
+    return 0;
+  }
+}
+
+PdbTypeSymId lldb_private::npdb::GetBestPossibleDecl(PdbTypeSymId id,
+                                                     TpiStream &tpi) {
+  if (id.index.isSimple())
+    return id;
+
+  CVType cvt = tpi.getType(id.index);
+
+  // Only tag records have a best and a worst record.
+  if (!IsTagRecord(cvt))
+    return id;
+
+  // Tag records that are not forward decls are full decls, hence they are the
+  // best.
+  if (!IsForwardRefUdt(cvt))
+    return id;
+
+  return llvm::cantFail(tpi.findFullDeclForForwardRef(id.index));
+}
+
+template <typename RecordType> static size_t GetSizeOfTypeInternal(CVType cvt) {
+  RecordType record;
+  llvm::cantFail(TypeDeserializer::deserializeAs<RecordType>(cvt, record));
+  return record.getSize();
+}
+
+size_t lldb_private::npdb::GetSizeOfType(PdbTypeSymId id,
+                                         llvm::pdb::TpiStream &tpi) {
+  if (id.index.isSimple()) {
+    switch (id.index.getSimpleMode()) {
+    case SimpleTypeMode::Direct:
+      return GetTypeSizeForSimpleKind(id.index.getSimpleKind());
+    case SimpleTypeMode::NearPointer32:
+    case SimpleTypeMode::FarPointer32:
+      return 4;
+    case SimpleTypeMode::NearPointer64:
+      return 8;
+    case SimpleTypeMode::NearPointer128:
+      return 16;
+    default:
+      break;
+    }
+    return 0;
+  }
+
+  TypeIndex index = id.index;
+  if (IsForwardRefUdt(index, tpi))
+    index = llvm::cantFail(tpi.findFullDeclForForwardRef(index));
+
+  CVType cvt = tpi.getType(index);
+  switch (cvt.kind()) {
+  case LF_MODIFIER:
+    return GetSizeOfType({LookThroughModifierRecord(cvt)}, tpi);
+  case LF_ENUM: {
+    EnumRecord record;
+    llvm::cantFail(TypeDeserializer::deserializeAs<EnumRecord>(cvt, record));
+    return GetSizeOfType({record.UnderlyingType}, tpi);
+  }
+  case LF_POINTER:
+    return GetSizeOfTypeInternal<PointerRecord>(cvt);
+  case LF_ARRAY:
+    return GetSizeOfTypeInternal<ArrayRecord>(cvt);
+  case LF_CLASS:
+  case LF_STRUCTURE:
+  case LF_INTERFACE:
+    return GetSizeOfTypeInternal<ClassRecord>(cvt);
+  case LF_UNION:
+    return GetSizeOfTypeInternal<UnionRecord>(cvt);
+  default:
+    break;
+  }
+  return 0;
 }

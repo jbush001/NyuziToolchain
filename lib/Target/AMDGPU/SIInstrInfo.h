@@ -1,9 +1,8 @@
 //===- SIInstrInfo.h - SI Instruction Info Interface ------------*- C++ -*-===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -89,6 +88,14 @@ private:
   void lowerScalarXnor(SetVectorType &Worklist,
                        MachineInstr &Inst) const;
 
+  void splitScalarNotBinop(SetVectorType &Worklist,
+                           MachineInstr &Inst,
+                           unsigned Opcode) const;
+
+  void splitScalarBinOpN2(SetVectorType &Worklist,
+                          MachineInstr &Inst,
+                          unsigned Opcode) const;
+
   void splitScalar64BitUnaryOp(SetVectorType &Worklist,
                                MachineInstr &Inst, unsigned Opcode) const;
 
@@ -99,12 +106,13 @@ private:
                                 unsigned Opcode,
                                 MachineDominatorTree *MDT = nullptr) const;
 
+  void splitScalar64BitXnor(SetVectorType &Worklist, MachineInstr &Inst,
+                                MachineDominatorTree *MDT = nullptr) const;
+
   void splitScalar64BitBCNT(SetVectorType &Worklist,
                             MachineInstr &Inst) const;
   void splitScalar64BitBFE(SetVectorType &Worklist,
                            MachineInstr &Inst) const;
-  void splitScalarBuffer(SetVectorType &Worklist,
-                         MachineInstr &Inst) const;
   void movePackToVALU(SetVectorType &Worklist,
                       MachineRegisterInfo &MRI,
                       MachineInstr &Inst) const;
@@ -164,12 +172,11 @@ public:
                                int64_t &Offset1,
                                int64_t &Offset2) const override;
 
-  bool getMemOpBaseRegImmOfs(MachineInstr &LdSt, unsigned &BaseReg,
-                             int64_t &Offset,
-                             const TargetRegisterInfo *TRI) const final;
+  bool getMemOperandWithOffset(MachineInstr &LdSt, MachineOperand *&BaseOp,
+                               int64_t &Offset,
+                               const TargetRegisterInfo *TRI) const final;
 
-  bool shouldClusterMemOps(MachineInstr &FirstLdSt, unsigned BaseReg1,
-                           MachineInstr &SecondLdSt, unsigned BaseReg2,
+  bool shouldClusterMemOps(MachineOperand &BaseOp1, MachineOperand &BaseOp2,
                            unsigned NumLoads) const override;
 
   bool shouldScheduleLoadsNear(SDNode *Load0, SDNode *Load1, int64_t Offset0,
@@ -442,6 +449,8 @@ public:
     return get(Opcode).TSFlags & SIInstrFlags::DS;
   }
 
+  bool isAlwaysGDS(uint16_t Opcode) const;
+
   static bool isMIMG(const MachineInstr &MI) {
     return MI.getDesc().TSFlags & SIInstrFlags::MIMG;
   }
@@ -596,6 +605,14 @@ public:
       return MI.getDesc().TSFlags & ClampFlags;
   }
 
+  static bool usesFPDPRounding(const MachineInstr &MI) {
+    return MI.getDesc().TSFlags & SIInstrFlags::FPDPRounding;
+  }
+
+  bool usesFPDPRounding(uint16_t Opcode) const {
+    return get(Opcode).TSFlags & SIInstrFlags::FPDPRounding;
+  }
+
   bool isVGPRCopy(const MachineInstr &MI) const {
     assert(MI.isCopy());
     unsigned Dest = MI.getOperand(0).getReg();
@@ -745,10 +762,6 @@ public:
     return RI.getRegSizeInBits(*getOpRegClass(MI, OpNo)) / 8;
   }
 
-  /// \returns true if it is legal for the operand at index \p OpNo
-  /// to read a VGPR.
-  bool canReadVGPR(const MachineInstr &MI, unsigned OpNo) const;
-
   /// Legalize the \p OpIndex operand of this instruction by inserting
   /// a MOV.  For example:
   /// ADD_I32_e32 VGPR0, 15
@@ -820,7 +833,7 @@ public:
   void insertReturn(MachineBasicBlock &MBB) const;
   /// Return the number of wait states that result from executing this
   /// instruction.
-  unsigned getNumWaitStates(const MachineInstr &MI) const;
+  static unsigned getNumWaitStates(const MachineInstr &MI);
 
   /// Returns the operand named \p Op.  If \p MI does not have an
   /// operand named \c Op, this function returns nullptr.
@@ -910,8 +923,41 @@ public:
   /// Return -1 if the target-specific opcode for the pseudo instruction does
   /// not exist. If Opcode is not a pseudo instruction, this is identity.
   int pseudoToMCOpcode(int Opcode) const;
-
 };
+
+/// \brief Returns true if a reg:subreg pair P has a TRC class
+inline bool isOfRegClass(const TargetInstrInfo::RegSubRegPair &P,
+                         const TargetRegisterClass &TRC,
+                         MachineRegisterInfo &MRI) {
+  auto *RC = MRI.getRegClass(P.Reg);
+  if (!P.SubReg)
+    return RC == &TRC;
+  auto *TRI = MRI.getTargetRegisterInfo();
+  return RC == TRI->getMatchingSuperRegClass(RC, &TRC, P.SubReg);
+}
+
+/// \brief Create RegSubRegPair from a register MachineOperand
+inline
+TargetInstrInfo::RegSubRegPair getRegSubRegPair(const MachineOperand &O) {
+  assert(O.isReg());
+  return TargetInstrInfo::RegSubRegPair(O.getReg(), O.getSubReg());
+}
+
+/// \brief Return the SubReg component from REG_SEQUENCE
+TargetInstrInfo::RegSubRegPair getRegSequenceSubReg(MachineInstr &MI,
+                                                    unsigned SubReg);
+
+/// \brief Return the defining instruction for a given reg:subreg pair
+/// skipping copy like instructions and subreg-manipulation pseudos.
+/// Following another subreg of a reg:subreg isn't supported.
+MachineInstr *getVRegSubRegDef(const TargetInstrInfo::RegSubRegPair &P,
+                               MachineRegisterInfo &MRI);
+
+/// \brief Return true if EXEC mask isnt' changed between the def and
+/// all uses of VReg. Currently if def and uses are in different BBs -
+/// simply return false. Should be run on SSA.
+bool isEXECMaskConstantBetweenDefAndUses(unsigned VReg,
+                                         MachineRegisterInfo &MRI);
 
 namespace AMDGPU {
 
@@ -923,6 +969,9 @@ namespace AMDGPU {
 
   LLVM_READONLY
   int getSDWAOp(uint16_t Opcode);
+
+  LLVM_READONLY
+  int getDPPOp32(uint16_t Opcode);
 
   LLVM_READONLY
   int getBasicFromSDWAOp(uint16_t Opcode);

@@ -1,9 +1,8 @@
 //===-- PdbIndex.cpp --------------------------------------------*- C++ -*-===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -131,23 +130,12 @@ void PdbIndex::BuildAddrToSymbolMap(CompilandIndexItem &cci) {
     SegmentOffset so = GetSegmentAndOffset(*iter);
     lldb::addr_t va = MakeVirtualAddress(so);
 
-    // We need to add 4 here to adjust for the codeview debug magic
-    // at the beginning of the debug info stream.
-    uint32_t sym_offset = iter.offset() + 4;
-    PdbCompilandSymId cu_sym_id(modi, sym_offset);
+    PdbCompilandSymId cu_sym_id(modi, iter.offset());
 
     // If the debug info is incorrect, we could have multiple symbols with the
     // same address.  So use try_emplace instead of insert, and the first one
     // will win.
-    auto insert_result =
-        cci.m_symbols_by_va.insert(std::make_pair(va, PdbSymUid(cu_sym_id)));
-    (void)insert_result;
-
-    // The odds of an error in some function such as GetSegmentAndOffset or
-    // MakeVirtualAddress are much higher than the odds of encountering bad
-    // debug info, so assert that this item was inserted in the map as opposed
-    // to having already been there.
-    lldbassert(insert_result.second);
+    cci.m_symbols_by_va.insert(std::make_pair(va, PdbSymUid(cu_sym_id)));
   }
 }
 
@@ -201,7 +189,11 @@ CVSymbol PdbIndex::ReadSymbolRecord(PdbCompilandSymId cu_sym) const {
   // We need to subtract 4 here to adjust for the codeview debug magic
   // at the beginning of the debug info stream.
   const CompilandIndexItem *cci = compilands().GetCompiland(cu_sym.modi);
-  auto iter = cci->m_debug_stream.getSymbolArray().at(cu_sym.offset - 4);
+  auto iter = cci->m_debug_stream.getSymbolArray().at(cu_sym.offset);
   lldbassert(iter != cci->m_debug_stream.getSymbolArray().end());
   return *iter;
+}
+
+CVSymbol PdbIndex::ReadSymbolRecord(PdbGlobalSymId global) const {
+  return symrecords().readRecord(global.offset);
 }

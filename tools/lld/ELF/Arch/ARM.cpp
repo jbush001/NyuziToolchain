@@ -1,9 +1,8 @@
 //===- ARM.cpp ------------------------------------------------------------===//
 //
-//                             The LLVM Linker
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -134,6 +133,12 @@ RelExpr ARM::getRelExpr(RelType Type, const Symbol &S,
     return R_NONE;
   case R_ARM_TLS_LE32:
     return R_TLS;
+  case R_ARM_V4BX:
+    // V4BX is just a marker to indicate there's a "bx rN" instruction at the
+    // given address. It can be used to implement a special linker mode which
+    // rewrites ARMv4T inputs to ARMv4. Since we support only ARMv4 input and
+    // not ARMv4 output, we can just ignore it.
+    return R_HINT;
   default:
     return R_ABS;
   }
@@ -485,14 +490,12 @@ void ARM::relocateOne(uint8_t *Loc, RelType Type, uint64_t Val) const {
     break;
   case R_ARM_MOVT_ABS:
   case R_ARM_MOVT_PREL:
-    checkInt(Loc, Val, 32, Type);
     write32le(Loc, (read32le(Loc) & ~0x000f0fff) |
                        (((Val >> 16) & 0xf000) << 4) | ((Val >> 16) & 0xfff));
     break;
   case R_ARM_THM_MOVT_ABS:
   case R_ARM_THM_MOVT_PREL:
     // Encoding T1: A = imm4:i:imm3:imm8
-    checkInt(Loc, Val, 32, Type);
     write16le(Loc,
               0xf2c0 |                     // opcode
                   ((Val >> 17) & 0x0400) | // i
@@ -513,12 +516,6 @@ void ARM::relocateOne(uint8_t *Loc, RelType Type, uint64_t Val) const {
               (read16le(Loc + 2) & 0x8f00) | // opcode
                   ((Val << 4) & 0x7000) |    // imm3
                   (Val & 0x00ff));           // imm8
-    break;
-  case R_ARM_V4BX:
-    // V4BX is just a marker to indicate there's a "bx rN" instruction at the
-    // given address. It can be used to implement a special linker mode which
-    // rewrites ARMv4T inputs to ARMv4. Since we support only ARMv4 input and
-    // not ARMv4 output, we can just ignore it.
     break;
   default:
     error(getErrorLocation(Loc) + "unrecognized reloc " + Twine(Type));

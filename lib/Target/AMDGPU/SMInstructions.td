@@ -1,9 +1,8 @@
 //===---- SMInstructions.td - Scalar Memory Instruction Defintions --------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -34,7 +33,6 @@ class SM_Pseudo <string opName, dag outs, dag ins, string asmOps, list<dag> patt
   let hasSideEffects = 0;
   let UseNamedOperandTable = 1;
   let SchedRW = [WriteSMEM];
-  let SubtargetPredicate = isGCN;
 
   string Mnemonic = opName;
   string AsmOperands = asmOps;
@@ -751,6 +749,12 @@ defm : SMLoad_Pattern <"S_BUFFER_LOAD_DWORDX2",   v2i32>;
 defm : SMLoad_Pattern <"S_BUFFER_LOAD_DWORDX4",   v4i32>;
 defm : SMLoad_Pattern <"S_BUFFER_LOAD_DWORDX8",   v8i32>;
 defm : SMLoad_Pattern <"S_BUFFER_LOAD_DWORDX16",  v16i32>;
+
+defm : SMLoad_Pattern <"S_BUFFER_LOAD_DWORD",     f32>;
+defm : SMLoad_Pattern <"S_BUFFER_LOAD_DWORDX2",   v2f32>;
+defm : SMLoad_Pattern <"S_BUFFER_LOAD_DWORDX4",   v4f32>;
+defm : SMLoad_Pattern <"S_BUFFER_LOAD_DWORDX8",   v8f32>;
+defm : SMLoad_Pattern <"S_BUFFER_LOAD_DWORDX16",  v16f32>;
 } // End let AddedComplexity = 100
 
 let OtherPredicates = [isSICI] in {

@@ -1,9 +1,8 @@
 //==-- WebAssemblyTargetStreamer.cpp - WebAssembly Target Streamer Methods --=//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 ///
@@ -39,14 +38,15 @@ WebAssemblyTargetAsmStreamer::WebAssemblyTargetAsmStreamer(
 WebAssemblyTargetWasmStreamer::WebAssemblyTargetWasmStreamer(MCStreamer &S)
     : WebAssemblyTargetStreamer(S) {}
 
-static void PrintTypes(formatted_raw_ostream &OS, ArrayRef<wasm::ValType> Types) {
+static void printTypes(formatted_raw_ostream &OS,
+                       ArrayRef<wasm::ValType> Types) {
   bool First = true;
   for (auto Type : Types) {
     if (First)
       First = false;
     else
       OS << ", ";
-    OS << WebAssembly::TypeToString(Type);
+    OS << WebAssembly::typeToString(Type);
   }
   OS << '\n';
 }
@@ -54,54 +54,73 @@ static void PrintTypes(formatted_raw_ostream &OS, ArrayRef<wasm::ValType> Types)
 void WebAssemblyTargetAsmStreamer::emitLocal(ArrayRef<wasm::ValType> Types) {
   if (!Types.empty()) {
     OS << "\t.local  \t";
-    PrintTypes(OS, Types);
+    printTypes(OS, Types);
   }
 }
 
 void WebAssemblyTargetAsmStreamer::emitEndFunc() { OS << "\t.endfunc\n"; }
 
-void WebAssemblyTargetAsmStreamer::emitFunctionType(MCSymbolWasm *Symbol) {
-  OS << "\t.functype\t" << Symbol->getName() << " (";
-  auto &Params = Symbol->getSignature()->Params;
-  for (auto &Ty : Params) {
-    if (&Ty != &Params[0]) OS << ", ";
-    OS << WebAssembly::TypeToString(Ty);
-  }
+void WebAssemblyTargetAsmStreamer::emitSignature(
+    const wasm::WasmSignature *Sig) {
+  OS << "(";
+  emitParamList(Sig);
   OS << ") -> (";
-  auto &Returns = Symbol->getSignature()->Returns;
+  emitReturnList(Sig);
+  OS << ")";
+}
+
+void WebAssemblyTargetAsmStreamer::emitParamList(
+    const wasm::WasmSignature *Sig) {
+  auto &Params = Sig->Params;
+  for (auto &Ty : Params) {
+    if (&Ty != &Params[0])
+      OS << ", ";
+    OS << WebAssembly::typeToString(Ty);
+  }
+}
+
+void WebAssemblyTargetAsmStreamer::emitReturnList(
+    const wasm::WasmSignature *Sig) {
+  auto &Returns = Sig->Returns;
   for (auto &Ty : Returns) {
-    if (&Ty != &Returns[0]) OS << ", ";
-    OS << WebAssembly::TypeToString(Ty);
+    if (&Ty != &Returns[0])
+      OS << ", ";
+    OS << WebAssembly::typeToString(Ty);
   }
-  OS << ")\n";
 }
 
-void WebAssemblyTargetAsmStreamer::emitGlobalType(MCSymbolWasm *Sym) {
+void WebAssemblyTargetAsmStreamer::emitFunctionType(const MCSymbolWasm *Sym) {
+  assert(Sym->isFunction());
+  OS << "\t.functype\t" << Sym->getName() << " ";
+  emitSignature(Sym->getSignature());
+  OS << "\n";
+}
+
+void WebAssemblyTargetAsmStreamer::emitGlobalType(const MCSymbolWasm *Sym) {
   assert(Sym->isGlobal());
-  OS << "\t.globaltype\t" << Sym->getName() << ", " <<
-        WebAssembly::TypeToString(
-          static_cast<wasm::ValType>(Sym->getGlobalType().Type)) <<
-        '\n';
+  OS << "\t.globaltype\t" << Sym->getName() << ", "
+     << WebAssembly::typeToString(
+            static_cast<wasm::ValType>(Sym->getGlobalType().Type))
+     << '\n';
 }
 
-void WebAssemblyTargetAsmStreamer::emitEventType(MCSymbolWasm *Sym) {
+void WebAssemblyTargetAsmStreamer::emitEventType(const MCSymbolWasm *Sym) {
   assert(Sym->isEvent());
-  OS << "\t.eventtype\t" << Sym->getName();
-  if (Sym->getSignature()->Returns.empty())
-    OS << ", void";
-  else {
-    assert(Sym->getSignature()->Returns.size() == 1);
-    OS << ", "
-       << WebAssembly::TypeToString(Sym->getSignature()->Returns.front());
-  }
-  for (auto Ty : Sym->getSignature()->Params)
-    OS << ", " << WebAssembly::TypeToString(Ty);
-  OS << '\n';
+  OS << "\t.eventtype\t" << Sym->getName() << " ";
+  emitParamList(Sym->getSignature());
+  OS << "\n";
 }
 
-void WebAssemblyTargetAsmStreamer::emitImportModule(MCSymbolWasm *Sym,
-                                                    StringRef ModuleName) {
-  OS << "\t.import_module\t" << Sym->getName() << ", " << ModuleName << '\n';
+void WebAssemblyTargetAsmStreamer::emitImportModule(const MCSymbolWasm *Sym,
+                                                    StringRef ImportModule) {
+  OS << "\t.import_module\t" << Sym->getName() << ", "
+                             << ImportModule << '\n';
+}
+
+void WebAssemblyTargetAsmStreamer::emitImportName(const MCSymbolWasm *Sym,
+                                                  StringRef ImportName) {
+  OS << "\t.import_name\t" << Sym->getName() << ", "
+                           << ImportName << '\n';
 }
 
 void WebAssemblyTargetAsmStreamer::emitIndIdx(const MCExpr *Value) {
@@ -130,21 +149,4 @@ void WebAssemblyTargetWasmStreamer::emitEndFunc() {
 
 void WebAssemblyTargetWasmStreamer::emitIndIdx(const MCExpr *Value) {
   llvm_unreachable(".indidx encoding not yet implemented");
-}
-
-void WebAssemblyTargetWasmStreamer::emitFunctionType(MCSymbolWasm *Symbol) {
-  // Symbol already has its arguments and result set.
-  Symbol->setType(wasm::WASM_SYMBOL_TYPE_FUNCTION);
-}
-
-void WebAssemblyTargetWasmStreamer::emitGlobalType(MCSymbolWasm *Sym) {
-  // Not needed.
-}
-
-void WebAssemblyTargetWasmStreamer::emitEventType(MCSymbolWasm *Sym) {
-  // Not needed.
-}
-void WebAssemblyTargetWasmStreamer::emitImportModule(MCSymbolWasm *Sym,
-                                                     StringRef ModuleName) {
-  Sym->setModuleName(ModuleName);
 }

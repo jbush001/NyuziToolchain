@@ -626,6 +626,44 @@ define <8 x i32> @f64to8si(<8 x double> %a) {
   ret <8 x i32> %b
 }
 
+define <8 x i16> @f64to8ss(<8 x double> %f) {
+; NOVL-LABEL: f64to8ss:
+; NOVL:       # %bb.0:
+; NOVL-NEXT:    vcvttpd2dq %zmm0, %ymm0
+; NOVL-NEXT:    vpmovdw %zmm0, %ymm0
+; NOVL-NEXT:    # kill: def $xmm0 killed $xmm0 killed $ymm0
+; NOVL-NEXT:    vzeroupper
+; NOVL-NEXT:    retq
+;
+; VL-LABEL: f64to8ss:
+; VL:       # %bb.0:
+; VL-NEXT:    vcvttpd2dq %zmm0, %ymm0
+; VL-NEXT:    vpmovdw %ymm0, %xmm0
+; VL-NEXT:    vzeroupper
+; VL-NEXT:    retq
+  %res = fptosi <8 x double> %f to <8 x i16>
+  ret <8 x i16> %res
+}
+
+define <8 x i8> @f64to8sc(<8 x double> %f) {
+; NOVL-LABEL: f64to8sc:
+; NOVL:       # %bb.0:
+; NOVL-NEXT:    vcvttpd2dq %zmm0, %ymm0
+; NOVL-NEXT:    vpmovdw %zmm0, %ymm0
+; NOVL-NEXT:    # kill: def $xmm0 killed $xmm0 killed $ymm0
+; NOVL-NEXT:    vzeroupper
+; NOVL-NEXT:    retq
+;
+; VL-LABEL: f64to8sc:
+; VL:       # %bb.0:
+; VL-NEXT:    vcvttpd2dq %zmm0, %ymm0
+; VL-NEXT:    vpmovdw %ymm0, %xmm0
+; VL-NEXT:    vzeroupper
+; VL-NEXT:    retq
+  %res = fptosi <8 x double> %f to <8 x i8>
+  ret <8 x i8> %res
+}
+
 define <4 x i32> @f64to4si(<4 x double> %a) {
 ; ALL-LABEL: f64to4si:
 ; ALL:       # %bb.0:
@@ -1859,8 +1897,6 @@ define <8 x float> @ubto8f32(<8 x i32> %a) {
 define <8 x double> @ubto8f64(<8 x i32> %a) {
 ; ALL-LABEL: ubto8f64:
 ; ALL:       # %bb.0:
-; ALL-NEXT:    vpxor %xmm1, %xmm1, %xmm1
-; ALL-NEXT:    vpcmpgtd %ymm0, %ymm1, %ymm0
 ; ALL-NEXT:    vpsrld $31, %ymm0, %ymm0
 ; ALL-NEXT:    vcvtdq2pd %ymm0, %zmm0
 ; ALL-NEXT:    retq
@@ -1892,8 +1928,6 @@ define <4 x float> @ubto4f32(<4 x i32> %a) {
 define <4 x double> @ubto4f64(<4 x i32> %a) {
 ; ALL-LABEL: ubto4f64:
 ; ALL:       # %bb.0:
-; ALL-NEXT:    vpxor %xmm1, %xmm1, %xmm1
-; ALL-NEXT:    vpcmpgtd %xmm0, %xmm1, %xmm0
 ; ALL-NEXT:    vpsrld $31, %xmm0, %xmm0
 ; ALL-NEXT:    vcvtdq2pd %xmm0, %ymm0
 ; ALL-NEXT:    retq

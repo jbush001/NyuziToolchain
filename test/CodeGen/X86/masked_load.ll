@@ -556,7 +556,7 @@ define <8 x float> @load_v8f32_v8i32(<8 x i32> %trigger, <8 x float>* %addr, <8 
 ; SSE2-NEXT:    movss {{.*#+}} xmm5 = mem[0],zero,zero,zero
 ; SSE2-NEXT:    movss {{.*#+}} xmm2 = xmm5[0],xmm2[1,2,3]
 ; SSE2-NEXT:  LBB6_2: ## %else
-; SSE2-NEXT:    packssdw %xmm0, %xmm4
+; SSE2-NEXT:    psrlq $16, %xmm4
 ; SSE2-NEXT:    movd %xmm4, %eax
 ; SSE2-NEXT:    shrl $16, %eax
 ; SSE2-NEXT:    testb $1, %al
@@ -1388,7 +1388,7 @@ define <2 x i32> @load_v2i32_v2i32(<2 x i32> %trigger, <2 x i32>* %addr, <2 x i3
 ; AVX1-NEXT:    vmaskmovps (%rdi), %xmm0, %xmm2
 ; AVX1-NEXT:    vpermilps {{.*#+}} xmm1 = xmm1[0,2,2,3]
 ; AVX1-NEXT:    vblendvps %xmm0, %xmm2, %xmm1, %xmm0
-; AVX1-NEXT:    vpmovsxdq %xmm0, %xmm0
+; AVX1-NEXT:    vpmovzxdq {{.*#+}} xmm0 = xmm0[0],zero,xmm0[1],zero
 ; AVX1-NEXT:    retq
 ;
 ; AVX2-LABEL: load_v2i32_v2i32:
@@ -1400,7 +1400,7 @@ define <2 x i32> @load_v2i32_v2i32(<2 x i32> %trigger, <2 x i32>* %addr, <2 x i3
 ; AVX2-NEXT:    vpmaskmovd (%rdi), %xmm0, %xmm2
 ; AVX2-NEXT:    vpermilps {{.*#+}} xmm1 = xmm1[0,2,2,3]
 ; AVX2-NEXT:    vblendvps %xmm0, %xmm2, %xmm1, %xmm0
-; AVX2-NEXT:    vpmovsxdq %xmm0, %xmm0
+; AVX2-NEXT:    vpmovzxdq {{.*#+}} xmm0 = xmm0[0],zero,xmm0[1],zero
 ; AVX2-NEXT:    retq
 ;
 ; AVX512F-LABEL: load_v2i32_v2i32:
@@ -1412,7 +1412,7 @@ define <2 x i32> @load_v2i32_v2i32(<2 x i32> %trigger, <2 x i32>* %addr, <2 x i3
 ; AVX512F-NEXT:    kshiftlw $14, %k0, %k0
 ; AVX512F-NEXT:    kshiftrw $14, %k0, %k1
 ; AVX512F-NEXT:    vmovdqu32 (%rdi), %zmm0 {%k1}
-; AVX512F-NEXT:    vpmovsxdq %xmm0, %xmm0
+; AVX512F-NEXT:    vpmovzxdq {{.*#+}} xmm0 = xmm0[0],zero,xmm0[1],zero
 ; AVX512F-NEXT:    vzeroupper
 ; AVX512F-NEXT:    retq
 ;
@@ -1423,7 +1423,7 @@ define <2 x i32> @load_v2i32_v2i32(<2 x i32> %trigger, <2 x i32>* %addr, <2 x i3
 ; AVX512VLBW-NEXT:    vptestnmq %xmm0, %xmm0, %k1
 ; AVX512VLBW-NEXT:    vpshufd {{.*#+}} xmm0 = xmm1[0,2,2,3]
 ; AVX512VLBW-NEXT:    vmovdqu32 (%rdi), %xmm0 {%k1}
-; AVX512VLBW-NEXT:    vpmovsxdq %xmm0, %xmm0
+; AVX512VLBW-NEXT:    vpmovzxdq {{.*#+}} xmm0 = xmm0[0],zero,xmm0[1],zero
 ; AVX512VLBW-NEXT:    retq
   %mask = icmp eq <2 x i32> %trigger, zeroinitializer
   %res = call <2 x i32> @llvm.masked.load.v2i32.p0v2i32(<2 x i32>* %addr, i32 4, <2 x i1>%mask, <2 x i32>%dst)

@@ -1,5 +1,5 @@
-// RUN: llvm-mc -mattr=+code-object-v3 -triple amdgcn-amd-amdhsa -mcpu=gfx900 -mattr=+xnack < %s | FileCheck --check-prefix=ASM %s
-// RUN: llvm-mc -mattr=+code-object-v3 -triple amdgcn-amd-amdhsa -mcpu=gfx900 -mattr=+xnack -filetype=obj < %s > %t
+// RUN: llvm-mc -mattr=+code-object-v3 -triple amdgcn-amd-amdhsa -mcpu=gfx904 -mattr=+xnack < %s | FileCheck --check-prefix=ASM %s
+// RUN: llvm-mc -mattr=+code-object-v3 -triple amdgcn-amd-amdhsa -mcpu=gfx904 -mattr=+xnack -filetype=obj < %s > %t
 // RUN: llvm-readobj -elf-output-style=GNU -sections -symbols -relocations %t | FileCheck --check-prefix=READOBJ %s
 // RUN: llvm-objdump -s -j .rodata %t | FileCheck --check-prefix=OBJDUMP %s
 
@@ -44,8 +44,8 @@
 .text
 // ASM: .text
 
-.amdgcn_target "amdgcn-amd-amdhsa--gfx900+xnack"
-// ASM: .amdgcn_target "amdgcn-amd-amdhsa--gfx900+xnack"
+.amdgcn_target "amdgcn-amd-amdhsa--gfx904+xnack"
+// ASM: .amdgcn_target "amdgcn-amd-amdhsa--gfx904+xnack"
 
 .p2align 8
 .type minimal,@function
@@ -187,6 +187,12 @@ special_sgpr:
 .byte .amdgcn.gfx_generation_number
 // ASM: .byte 9
 
+.byte .amdgcn.gfx_generation_minor
+// ASM: .byte 0
+
+.byte .amdgcn.gfx_generation_stepping
+// ASM: .byte 4
+
 .byte .amdgcn.next_free_vgpr
 // ASM: .byte 0
 .byte .amdgcn.next_free_sgpr
@@ -213,3 +219,59 @@ v_mov_b32_e32 v16, s3
 // ASM: .byte 17
 .byte .amdgcn.next_free_sgpr
 // ASM: .byte 4
+
+// Metadata
+
+.amdgpu_metadata
+  amdhsa.version:
+    - 3
+    - 0
+  amdhsa.kernels:
+    - .name:       amd_kernel_code_t_test_all
+      .symbol: amd_kernel_code_t_test_all@kd
+      .kernarg_segment_size: 8
+      .group_segment_fixed_size: 16
+      .private_segment_fixed_size: 32
+      .kernarg_segment_align: 64
+      .wavefront_size: 128
+      .sgpr_count: 14
+      .vgpr_count: 40
+      .max_flat_workgroup_size: 256
+    - .name:       amd_kernel_code_t_minimal
+      .symbol: amd_kernel_code_t_minimal@kd
+      .kernarg_segment_size: 8
+      .group_segment_fixed_size: 16
+      .private_segment_fixed_size: 32
+      .kernarg_segment_align: 64
+      .wavefront_size: 128
+      .sgpr_count: 14
+      .vgpr_count: 40
+      .max_flat_workgroup_size: 256
+.end_amdgpu_metadata
+
+// ASM: .amdgpu_metadata
+// ASM:    amdhsa.kernels:
+// ASM:  - .sgpr_count:     14
+// ASM:    .max_flat_workgroup_size: 256
+// ASM:    .symbol:         'amd_kernel_code_t_test_all@kd'
+// ASM:    .kernarg_segment_size: 8
+// ASM:    .group_segment_fixed_size: 16
+// ASM:    .private_segment_fixed_size: 32
+// ASM:    .vgpr_count:     40
+// ASM:    .kernarg_segment_align: 64
+// ASM:    .wavefront_size: 128
+// ASM:    .name:           amd_kernel_code_t_test_all
+// ASM:  - .sgpr_count:     14
+// ASM:    .max_flat_workgroup_size: 256
+// ASM:    .symbol:         'amd_kernel_code_t_minimal@kd'
+// ASM:    .kernarg_segment_size: 8
+// ASM:    .group_segment_fixed_size: 16
+// ASM:    .private_segment_fixed_size: 32
+// ASM:    .vgpr_count:     40
+// ASM:    .kernarg_segment_align: 64
+// ASM:    .wavefront_size: 128
+// ASM:    .name:           amd_kernel_code_t_minimal
+// ASM:    amdhsa.version:
+// ASM-NEXT: - 3
+// ASM-NEXT: - 0
+// ASM: .end_amdgpu_metadata

@@ -30,7 +30,7 @@ declare void @func3()
 ; CHECK-NEXT:         Field:           __indirect_function_table
 ; CHECK-NEXT:         Kind:            TABLE
 ; CHECK-NEXT:         Table:           
-; CHECK-NEXT:           ElemType:        ANYFUNC
+; CHECK-NEXT:           ElemType:        FUNCREF
 ; CHECK-NEXT:           Limits:          
 ; CHECK-NEXT:             Initial:         0x00000002
 ; CHECK-NEXT:       - Module:          env
@@ -63,28 +63,28 @@ declare void @func3()
 ; CHECK-NEXT:         Functions:       [ 5, 7 ]
 ; CHECK-NEXT:   - Type:            CODE
 ; CHECK-NEXT:     Relocations:     
-; CHECK-NEXT:       - Type:            R_WEBASSEMBLY_FUNCTION_INDEX_LEB
+; CHECK-NEXT:       - Type:            R_WASM_FUNCTION_INDEX_LEB
 ; CHECK-NEXT:         Index:           1
 ; CHECK-NEXT:         Offset:          0x00000004
-; CHECK-NEXT:       - Type:            R_WEBASSEMBLY_TABLE_INDEX_SLEB
+; CHECK-NEXT:       - Type:            R_WASM_TABLE_INDEX_SLEB
 ; CHECK-NEXT:         Index:           0
 ; CHECK-NEXT:         Offset:          0x0000000F
-; CHECK-NEXT:       - Type:            R_WEBASSEMBLY_MEMORY_ADDR_SLEB
+; CHECK-NEXT:       - Type:            R_WASM_MEMORY_ADDR_SLEB
 ; CHECK-NEXT:         Index:           3
 ; CHECK-NEXT:         Offset:          0x00000017
-; CHECK-NEXT:       - Type:            R_WEBASSEMBLY_FUNCTION_INDEX_LEB
+; CHECK-NEXT:       - Type:            R_WASM_FUNCTION_INDEX_LEB
 ; CHECK-NEXT:         Index:           4
 ; CHECK-NEXT:         Offset:          0x0000001D
-; CHECK-NEXT:       - Type:            R_WEBASSEMBLY_FUNCTION_INDEX_LEB
+; CHECK-NEXT:       - Type:            R_WASM_FUNCTION_INDEX_LEB
 ; CHECK-NEXT:         Index:           6
 ; CHECK-NEXT:         Offset:          0x0000002C
-; CHECK-NEXT:       - Type:            R_WEBASSEMBLY_TABLE_INDEX_SLEB
+; CHECK-NEXT:       - Type:            R_WASM_TABLE_INDEX_SLEB
 ; CHECK-NEXT:         Index:           5
 ; CHECK-NEXT:         Offset:          0x00000037
-; CHECK-NEXT:       - Type:            R_WEBASSEMBLY_MEMORY_ADDR_SLEB
+; CHECK-NEXT:       - Type:            R_WASM_MEMORY_ADDR_SLEB
 ; CHECK-NEXT:         Index:           3
 ; CHECK-NEXT:         Offset:          0x0000003F
-; CHECK-NEXT:       - Type:            R_WEBASSEMBLY_FUNCTION_INDEX_LEB
+; CHECK-NEXT:       - Type:            R_WASM_FUNCTION_INDEX_LEB
 ; CHECK-NEXT:         Index:           4
 ; CHECK-NEXT:         Offset:          0x00000045
 ; CHECK-NEXT:     Functions:       
@@ -110,7 +110,7 @@ declare void @func3()
 ; CHECK-NEXT:         Content:         '01040000'
 ; CHECK-NEXT:   - Type:            CUSTOM
 ; CHECK-NEXT:     Name:            linking
-; CHECK-NEXT:     Version:         1
+; CHECK-NEXT:     Version:         2
 ; CHECK-NEXT:     SymbolTable:
 ; CHECK-NEXT:       - Index:           0
 ; CHECK-NEXT:         Kind:            FUNCTION
@@ -170,7 +170,7 @@ declare void @func3()
 ; CHECK-NEXT:     SegmentInfo:
 ; CHECK-NEXT:       - Index:           0
 ; CHECK-NEXT:         Name:            .data.global1
-; CHECK-NEXT:         Alignment:       8
+; CHECK-NEXT:         Alignment:       3
 ; CHECK-NEXT:         Flags:           [ ]
 ; CHECK-NEXT:     InitFunctions:     
 ; CHECK-NEXT:       - Priority: 42

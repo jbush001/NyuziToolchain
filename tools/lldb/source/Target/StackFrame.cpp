@@ -1,9 +1,8 @@
 //===-- StackFrame.cpp ------------------------------------------*- C++ -*-===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -33,6 +32,8 @@
 #include "lldb/Utility/RegisterValue.h"
 
 #include "lldb/lldb-enumerations.h"
+
+#include <memory>
 
 using namespace lldb;
 using namespace lldb_private;
@@ -423,7 +424,7 @@ VariableList *StackFrame::GetVariableList(bool get_file_globals) {
       const bool get_child_variables = true;
       const bool can_create = true;
       const bool stop_if_child_block_is_inlined_function = true;
-      m_variable_list_sp.reset(new VariableList());
+      m_variable_list_sp = std::make_shared<VariableList>();
       frame_block->AppendBlockVariables(can_create, get_child_variables,
                                         stop_if_child_block_is_inlined_function,
                                         [](Variable *v) { return true; },
@@ -1079,9 +1080,9 @@ bool StackFrame::GetFrameBaseValue(Scalar &frame_base, Status *error_ptr) {
             m_sc.function->GetAddressRange().GetBaseAddress().GetLoadAddress(
                 exe_ctx.GetTargetPtr());
 
-      if (m_sc.function->GetFrameBaseExpression().Evaluate(
+      if (!m_sc.function->GetFrameBaseExpression().Evaluate(
               &exe_ctx, nullptr, loclist_base_addr, nullptr, nullptr,
-              expr_value, &m_frame_base_error) == false) {
+              expr_value, &m_frame_base_error)) {
         // We should really have an error if evaluate returns, but in case we
         // don't, lets set the error to something at least.
         if (m_frame_base_error.Success())
@@ -1174,7 +1175,7 @@ ValueObjectSP StackFrame::TrackGlobalVariable(const VariableSP &variable_sp,
     VariableList *var_list = GetVariableList(true);
     // If this frame has no variables, create a new list
     if (var_list == nullptr)
-      m_variable_list_sp.reset(new VariableList());
+      m_variable_list_sp = std::make_shared<VariableList>();
 
     // Add the global/static variable to this frame
     m_variable_list_sp->AddVariable(variable_sp);

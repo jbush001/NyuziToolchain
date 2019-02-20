@@ -1,9 +1,8 @@
 //===- BreakCriticalEdges.cpp - Critical Edge Elimination Pass ------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -145,6 +144,10 @@ llvm::SplitCriticalEdge(Instruction *TI, unsigned SuccNum,
   // it in this generic function.
   if (DestBB->isEHPad()) return nullptr;
 
+  // Don't split the non-fallthrough edge from a callbr.
+  if (isa<CallBrInst>(TI) && SuccNum > 0)
+    return nullptr;
+
   // Create a new basic block, linking it into the CFG.
   BasicBlock *NewBB = BasicBlock::Create(TI->getContext(),
                       TIBB->getName() + "." + DestBB->getName() + "_crit_edge");
@@ -189,7 +192,7 @@ llvm::SplitCriticalEdge(Instruction *TI, unsigned SuccNum,
       if (TI->getSuccessor(i) != DestBB) continue;
 
       // Remove an entry for TIBB from DestBB phi nodes.
-      DestBB->removePredecessor(TIBB, Options.DontDeleteUselessPHIs);
+      DestBB->removePredecessor(TIBB, Options.KeepOneInputPHIs);
 
       // We found another edge to DestBB, go to NewBB instead.
       TI->setSuccessor(i, NewBB);

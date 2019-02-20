@@ -1,9 +1,8 @@
 //===-- ValueObjectPrinter.cpp -----------------------------------*- C++-*-===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -129,13 +128,13 @@ bool ValueObjectPrinter::GetMostSpecializedValue() {
     }
 
     if (m_valobj->IsSynthetic()) {
-      if (m_options.m_use_synthetic == false) {
+      if (!m_options.m_use_synthetic) {
         ValueObject *non_synthetic = m_valobj->GetNonSyntheticValue().get();
         if (non_synthetic)
           m_valobj = non_synthetic;
       }
     } else {
-      if (m_options.m_use_synthetic == true) {
+      if (m_options.m_use_synthetic) {
         ValueObject *synthetic = m_valobj->GetSyntheticValue().get();
         if (synthetic)
           m_valobj = synthetic;
@@ -166,7 +165,7 @@ const char *ValueObjectPrinter::GetRootNameForDisplay(const char *if_fail) {
 bool ValueObjectPrinter::ShouldPrintValueObject() {
   if (m_should_print == eLazyBoolCalculate)
     m_should_print =
-        (m_options.m_flat_output == false || m_type_flags.Test(eTypeHasValue))
+        (!m_options.m_flat_output || m_type_flags.Test(eTypeHasValue))
             ? eLazyBoolYes
             : eLazyBoolNo;
   return m_should_print == eLazyBoolYes;
@@ -326,7 +325,7 @@ bool ValueObjectPrinter::CheckScopeIfNeeded() {
 }
 
 TypeSummaryImpl *ValueObjectPrinter::GetSummaryFormatter(bool null_if_omitted) {
-  if (m_summary_formatter.second == false) {
+  if (!m_summary_formatter.second) {
     TypeSummaryImpl *entry = m_options.m_summary_sp
                                  ? m_options.m_summary_sp.get()
                                  : m_valobj->GetSummaryFormat().get();
@@ -458,7 +457,7 @@ bool ValueObjectPrinter::PrintObjectDescriptionIfNeeded(bool value_printed,
         else
             m_stream->Printf("%s\n", object_desc);        
         return true;
-      } else if (value_printed == false && summary_printed == false)
+      } else if (!value_printed && !summary_printed)
         return true;
       else
         return false;
@@ -625,7 +624,7 @@ bool ValueObjectPrinter::ShouldPrintEmptyBrackets(bool value_printed,
   if (!IsAggregate())
     return false;
 
-  if (m_options.m_reveal_empty_aggregates == false) {
+  if (!m_options.m_reveal_empty_aggregates) {
     if (value_printed || summary_printed)
       return false;
   }

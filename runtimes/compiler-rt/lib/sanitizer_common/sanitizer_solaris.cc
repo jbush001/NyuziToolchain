@@ -1,7 +1,8 @@
 //===-- sanitizer_solaris.cc ----------------------------------------------===//
 //
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -88,8 +89,8 @@ uptr internal_open(const char *filename, int flags, u32 mode) {
 }
 
 uptr OpenFile(const char *filename, bool write) {
-  return internal_open(filename,
-      write ? O_WRONLY | O_CREAT : O_RDONLY, 0660);
+  return ReserveStandardFds(
+      internal_open(filename, write ? O_WRONLY | O_CREAT : O_RDONLY, 0660));
 }
 
 DECLARE__REAL_AND_INTERNAL(uptr, read, fd_t fd, void *buf, uptr count) {

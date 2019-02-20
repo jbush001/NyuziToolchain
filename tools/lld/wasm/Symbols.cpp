@@ -1,15 +1,15 @@
 //===- Symbols.cpp --------------------------------------------------------===//
 //
-//                             The LLVM Linker
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
 #include "Symbols.h"
 #include "Config.h"
 #include "InputChunks.h"
+#include "InputEvent.h"
 #include "InputFiles.h"
 #include "InputGlobal.h"
 #include "OutputSegment.h"
@@ -38,6 +38,8 @@ WasmSymbolType Symbol::getWasmType() const {
     return WASM_SYMBOL_TYPE_DATA;
   if (isa<GlobalSymbol>(this))
     return WASM_SYMBOL_TYPE_GLOBAL;
+  if (isa<EventSymbol>(this))
+    return WASM_SYMBOL_TYPE_EVENT;
   if (isa<SectionSymbol>(this))
     return WASM_SYMBOL_TYPE_SECTION;
   llvm_unreachable("invalid symbol kind");
@@ -54,6 +56,8 @@ InputChunk *Symbol::getChunk() const {
 bool Symbol::isLive() const {
   if (auto *G = dyn_cast<DefinedGlobal>(this))
     return G->Global->Live;
+  if (auto *E = dyn_cast<DefinedEvent>(this))
+    return E->Event->Live;
   if (InputChunk *C = getChunk())
     return C->Live;
   return Referenced;
@@ -62,6 +66,8 @@ bool Symbol::isLive() const {
 void Symbol::markLive() {
   if (auto *G = dyn_cast<DefinedGlobal>(this))
     G->Global->Live = true;
+  if (auto *E = dyn_cast<DefinedEvent>(this))
+    E->Event->Live = true;
   if (InputChunk *C = getChunk())
     C->Live = true;
   Referenced = true;
@@ -110,7 +116,7 @@ bool Symbol::isExported() const {
   if (Config->ExportDynamic && !isHidden())
     return true;
 
-  return false;
+  return Flags & WASM_SYMBOL_EXPORTED;
 }
 
 uint32_t FunctionSymbol::getFunctionIndex() const {
@@ -212,6 +218,32 @@ DefinedGlobal::DefinedGlobal(StringRef Name, uint32_t Flags, InputFile *File,
                    Global ? &Global->getType() : nullptr),
       Global(Global) {}
 
+uint32_t EventSymbol::getEventIndex() const {
+  if (auto *F = dyn_cast<DefinedEvent>(this))
+    return F->Event->getEventIndex();
+  assert(EventIndex != INVALID_INDEX);
+  return EventIndex;
+}
+
+void EventSymbol::setEventIndex(uint32_t Index) {
+  LLVM_DEBUG(dbgs() << "setEventIndex " << Name << " -> " << Index << "\n");
+  assert(EventIndex == INVALID_INDEX);
+  EventIndex = Index;
+}
+
+bool EventSymbol::hasEventIndex() const {
+  if (auto *F = dyn_cast<DefinedEvent>(this))
+    return F->Event->hasEventIndex();
+  return EventIndex != INVALID_INDEX;
+}
+
+DefinedEvent::DefinedEvent(StringRef Name, uint32_t Flags, InputFile *File,
+                           InputEvent *Event)
+    : EventSymbol(Name, DefinedEventKind, Flags, File,
+                  Event ? &Event->getType() : nullptr,
+                  Event ? &Event->Signature : nullptr),
+      Event(Event) {}
+
 uint32_t SectionSymbol::getOutputSectionIndex() const {
   LLVM_DEBUG(dbgs() << "getOutputSectionIndex: " << getName() << "\n");
   assert(OutputSectionIndex != INVALID_INDEX);
@@ -246,6 +278,8 @@ std::string lld::toString(wasm::Symbol::Kind Kind) {
     return "DefinedData";
   case wasm::Symbol::DefinedGlobalKind:
     return "DefinedGlobal";
+  case wasm::Symbol::DefinedEventKind:
+    return "DefinedEvent";
   case wasm::Symbol::UndefinedFunctionKind:
     return "UndefinedFunction";
   case wasm::Symbol::UndefinedDataKind:
@@ -258,4 +292,17 @@ std::string lld::toString(wasm::Symbol::Kind Kind) {
     return "SectionKind";
   }
   llvm_unreachable("invalid symbol kind");
+}
+
+// Print out a log message for --trace-symbol.
+void lld::wasm::printTraceSymbol(Symbol *Sym) {
+  std::string S;
+  if (Sym->isUndefined())
+    S = ": reference to ";
+  else if (Sym->isLazy())
+    S = ": lazy definition of ";
+  else
+    S = ": definition of ";
+
+  message(toString(Sym->getFile()) + S + Sym->getName());
 }

@@ -1,9 +1,8 @@
 //===- CodeGenPrepare.cpp - Prepare a function for code generation --------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -376,6 +375,8 @@ class TypePromotionTransaction;
         SmallVectorImpl<Instruction *> &SpeculativelyMovedExts);
     bool splitBranchCondition(Function &F);
     bool simplifyOffsetableRelocate(Instruction &I);
+
+    bool tryToSinkFreeOperands(Instruction *I);
   };
 
 } // end anonymous namespace
@@ -653,6 +654,16 @@ bool CodeGenPrepare::isMergingEmptyBlockProfitable(BasicBlock *BB,
       !(BB->getSinglePredecessor() &&
         BB->getSinglePredecessor()->getSingleSuccessor()))
     return false;
+
+  // Skip merging if the block's successor is also a successor to any callbr
+  // that leads to this block.
+  // FIXME: Is this really needed? Is this a correctness issue?
+  for (pred_iterator PI = pred_begin(BB), E = pred_end(BB); PI != E; ++PI) {
+    if (auto *CBI = dyn_cast<CallBrInst>((*PI)->getTerminator()))
+      for (unsigned i = 0, e = CBI->getNumSuccessors(); i != e; ++i)
+        if (DestBB == CBI->getSuccessor(i))
+          return false;
+  }
 
   // Try to skip merging if the unique predecessor of BB is terminated by a
   // switch or indirect branch instruction, and BB is used as an incoming block
@@ -1148,54 +1159,116 @@ static bool OptimizeNoopCopyExpression(CastInst *CI, const TargetLowering &TLI,
   return SinkCast(CI);
 }
 
-/// Try to combine CI into a call to the llvm.uadd.with.overflow intrinsic if
-/// possible.
-///
-/// Return true if any changes were made.
-static bool CombineUAddWithOverflow(CmpInst *CI) {
+static void replaceMathCmpWithIntrinsic(BinaryOperator *BO, CmpInst *Cmp,
+                                        Instruction *InsertPt,
+                                        Intrinsic::ID IID) {
+  Value *Arg0 = BO->getOperand(0);
+  Value *Arg1 = BO->getOperand(1);
+
+  // We allow matching the canonical IR (add X, C) back to (usubo X, -C).
+  if (BO->getOpcode() == Instruction::Add &&
+      IID == Intrinsic::usub_with_overflow) {
+    assert(isa<Constant>(Arg1) && "Unexpected input for usubo");
+    Arg1 = ConstantExpr::getNeg(cast<Constant>(Arg1));
+  }
+
+  IRBuilder<> Builder(InsertPt);
+  Value *MathOV = Builder.CreateBinaryIntrinsic(IID, Arg0, Arg1);
+  Value *Math = Builder.CreateExtractValue(MathOV, 0, "math");
+  Value *OV = Builder.CreateExtractValue(MathOV, 1, "ov");
+  BO->replaceAllUsesWith(Math);
+  Cmp->replaceAllUsesWith(OV);
+  BO->eraseFromParent();
+  Cmp->eraseFromParent();
+}
+
+/// Try to combine the compare into a call to the llvm.uadd.with.overflow
+/// intrinsic. Return true if any changes were made.
+static bool combineToUAddWithOverflow(CmpInst *Cmp, const TargetLowering &TLI,
+                                      const DataLayout &DL) {
   Value *A, *B;
-  Instruction *AddI;
-  if (!match(CI,
-             m_UAddWithOverflow(m_Value(A), m_Value(B), m_Instruction(AddI))))
+  BinaryOperator *Add;
+  if (!match(Cmp, m_UAddWithOverflow(m_Value(A), m_Value(B), m_BinOp(Add))))
     return false;
 
-  Type *Ty = AddI->getType();
-  if (!isa<IntegerType>(Ty))
+  if (!TLI.shouldFormOverflowOp(ISD::UADDO,
+                                TLI.getValueType(DL, Add->getType())))
     return false;
 
-  // We don't want to move around uses of condition values this late, so we we
+  // We don't want to move around uses of condition values this late, so we
   // check if it is legal to create the call to the intrinsic in the basic
-  // block containing the icmp:
-
-  if (AddI->getParent() != CI->getParent() && !AddI->hasOneUse())
+  // block containing the icmp.
+  if (Add->getParent() != Cmp->getParent() && !Add->hasOneUse())
     return false;
 
 #ifndef NDEBUG
   // Someday m_UAddWithOverflow may get smarter, but this is a safe assumption
   // for now:
-  if (AddI->hasOneUse())
-    assert(*AddI->user_begin() == CI && "expected!");
+  if (Add->hasOneUse())
+    assert(*Add->user_begin() == Cmp && "expected!");
 #endif
 
-  Module *M = CI->getModule();
-  Value *F = Intrinsic::getDeclaration(M, Intrinsic::uadd_with_overflow, Ty);
+  Instruction *InPt = Add->hasOneUse() ? cast<Instruction>(Cmp)
+                                       : cast<Instruction>(Add);
+  replaceMathCmpWithIntrinsic(Add, Cmp, InPt, Intrinsic::uadd_with_overflow);
+  return true;
+}
 
-  auto *InsertPt = AddI->hasOneUse() ? CI : AddI;
+static bool combineToUSubWithOverflow(CmpInst *Cmp, const TargetLowering &TLI,
+                                      const DataLayout &DL, bool &ModifiedDT) {
+  // Convert (A u> B) to (A u< B) to simplify pattern matching.
+  Value *A = Cmp->getOperand(0), *B = Cmp->getOperand(1);
+  ICmpInst::Predicate Pred = Cmp->getPredicate();
+  if (Pred == ICmpInst::ICMP_UGT) {
+    std::swap(A, B);
+    Pred = ICmpInst::ICMP_ULT;
+  }
+  // Convert special-case: (A == 0) is the same as (A u< 1).
+  if (Pred == ICmpInst::ICMP_EQ && match(B, m_ZeroInt())) {
+    B = ConstantInt::get(B->getType(), 1);
+    Pred = ICmpInst::ICMP_ULT;
+  }
+  if (Pred != ICmpInst::ICMP_ULT)
+    return false;
 
-  DebugLoc Loc = CI->getDebugLoc();
-  auto *UAddWithOverflow =
-      CallInst::Create(F, {A, B}, "uadd.overflow", InsertPt);
-  UAddWithOverflow->setDebugLoc(Loc);
-  auto *UAdd = ExtractValueInst::Create(UAddWithOverflow, 0, "uadd", InsertPt);
-  UAdd->setDebugLoc(Loc);
-  auto *Overflow =
-      ExtractValueInst::Create(UAddWithOverflow, 1, "overflow", InsertPt);
-  Overflow->setDebugLoc(Loc);
+  // Walk the users of a variable operand of a compare looking for a subtract or
+  // add with that same operand. Also match the 2nd operand of the compare to
+  // the add/sub, but that may be a negated constant operand of an add.
+  Value *CmpVariableOperand = isa<Constant>(A) ? B : A;
+  BinaryOperator *Sub = nullptr;
+  for (User *U : CmpVariableOperand->users()) {
+    // A - B, A u< B --> usubo(A, B)
+    if (match(U, m_Sub(m_Specific(A), m_Specific(B)))) {
+      Sub = cast<BinaryOperator>(U);
+      break;
+    }
 
-  CI->replaceAllUsesWith(Overflow);
-  AddI->replaceAllUsesWith(UAdd);
-  CI->eraseFromParent();
-  AddI->eraseFromParent();
+    // A + (-C), A u< C (canonicalized form of (sub A, C))
+    const APInt *CmpC, *AddC;
+    if (match(U, m_Add(m_Specific(A), m_APInt(AddC))) &&
+        match(B, m_APInt(CmpC)) && *AddC == -(*CmpC)) {
+      Sub = cast<BinaryOperator>(U);
+      break;
+    }
+  }
+  if (!Sub)
+    return false;
+
+  if (!TLI.shouldFormOverflowOp(ISD::USUBO,
+                                TLI.getValueType(DL, Sub->getType())))
+    return false;
+
+  // Pattern matched and profitability checked. Check dominance to determine the
+  // insertion point for an intrinsic that replaces the subtract and compare.
+  DominatorTree DT(*Sub->getFunction());
+  bool SubDominates = DT.dominates(Sub, Cmp);
+  if (!SubDominates && !DT.dominates(Cmp, Sub))
+    return false;
+  Instruction *InPt = SubDominates ? cast<Instruction>(Sub)
+                                   : cast<Instruction>(Cmp);
+  replaceMathCmpWithIntrinsic(Sub, Cmp, InPt, Intrinsic::usub_with_overflow);
+  // Reset callers - do not crash by iterating over a dead instruction.
+  ModifiedDT = true;
   return true;
 }
 
@@ -1205,18 +1278,19 @@ static bool CombineUAddWithOverflow(CmpInst *CI) {
 /// lose; some adjustment may be wanted there.
 ///
 /// Return true if any changes are made.
-static bool SinkCmpExpression(CmpInst *CI, const TargetLowering *TLI) {
-  BasicBlock *DefBB = CI->getParent();
+static bool sinkCmpExpression(CmpInst *Cmp, const TargetLowering &TLI) {
+  if (TLI.hasMultipleConditionRegisters())
+    return false;
 
   // Avoid sinking soft-FP comparisons, since this can move them into a loop.
-  if (TLI && TLI->useSoftFloat() && isa<FCmpInst>(CI))
+  if (TLI.useSoftFloat() && isa<FCmpInst>(Cmp))
     return false;
 
   // Only insert a cmp in each block once.
   DenseMap<BasicBlock*, CmpInst*> InsertedCmps;
 
   bool MadeChange = false;
-  for (Value::user_iterator UI = CI->user_begin(), E = CI->user_end();
+  for (Value::user_iterator UI = Cmp->user_begin(), E = Cmp->user_end();
        UI != E; ) {
     Use &TheUse = UI.getUse();
     Instruction *User = cast<Instruction>(*UI);
@@ -1230,6 +1304,7 @@ static bool SinkCmpExpression(CmpInst *CI, const TargetLowering *TLI) {
 
     // Figure out which BB this cmp is used in.
     BasicBlock *UserBB = User->getParent();
+    BasicBlock *DefBB = Cmp->getParent();
 
     // If this user is in the same block as the cmp, don't change the cmp.
     if (UserBB == DefBB) continue;
@@ -1241,10 +1316,11 @@ static bool SinkCmpExpression(CmpInst *CI, const TargetLowering *TLI) {
       BasicBlock::iterator InsertPt = UserBB->getFirstInsertionPt();
       assert(InsertPt != UserBB->end());
       InsertedCmp =
-          CmpInst::Create(CI->getOpcode(), CI->getPredicate(),
-                          CI->getOperand(0), CI->getOperand(1), "", &*InsertPt);
+          CmpInst::Create(Cmp->getOpcode(), Cmp->getPredicate(),
+                          Cmp->getOperand(0), Cmp->getOperand(1), "",
+                          &*InsertPt);
       // Propagate the debug info.
-      InsertedCmp->setDebugLoc(CI->getDebugLoc());
+      InsertedCmp->setDebugLoc(Cmp->getDebugLoc());
     }
 
     // Replace a use of the cmp with a use of the new cmp.
@@ -1254,19 +1330,23 @@ static bool SinkCmpExpression(CmpInst *CI, const TargetLowering *TLI) {
   }
 
   // If we removed all uses, nuke the cmp.
-  if (CI->use_empty()) {
-    CI->eraseFromParent();
+  if (Cmp->use_empty()) {
+    Cmp->eraseFromParent();
     MadeChange = true;
   }
 
   return MadeChange;
 }
 
-static bool OptimizeCmpExpression(CmpInst *CI, const TargetLowering *TLI) {
-  if (SinkCmpExpression(CI, TLI))
+static bool optimizeCmp(CmpInst *Cmp, const TargetLowering &TLI,
+                        const DataLayout &DL, bool &ModifiedDT) {
+  if (sinkCmpExpression(Cmp, TLI))
     return true;
 
-  if (CombineUAddWithOverflow(CI))
+  if (combineToUAddWithOverflow(Cmp, TLI, DL))
+    return true;
+
+  if (combineToUSubWithOverflow(Cmp, TLI, DL, ModifiedDT))
     return true;
 
   return false;
@@ -1704,9 +1784,23 @@ bool CodeGenPrepare::optimizeCallInst(CallInst *CI, bool &ModifiedDT) {
   if (II) {
     switch (II->getIntrinsicID()) {
     default: break;
+    case Intrinsic::experimental_widenable_condition: {
+      // Give up on future widening oppurtunties so that we can fold away dead
+      // paths and merge blocks before going into block-local instruction
+      // selection.   
+      if (II->use_empty()) {
+        II->eraseFromParent();
+        return true;
+      }
+      Constant *RetVal = ConstantInt::getTrue(II->getContext());
+      resetIteratorIfInvalidatedWhileCalling(BB, [&]() {
+        replaceAndRecursivelySimplify(CI, RetVal, TLInfo, nullptr);
+      });
+      return true;
+    }
     case Intrinsic::objectsize: {
       // Lower all uses of llvm.objectsize.*
-      ConstantInt *RetVal =
+      Value *RetVal =
           lowerObjectSizeCall(II, *DL, TLInfo, /*MustSucceed=*/true);
 
       resetIteratorIfInvalidatedWhileCalling(BB, [&]() {
@@ -1735,6 +1829,7 @@ bool CodeGenPrepare::optimizeCallInst(CallInst *CI, bool &ModifiedDT) {
       InsertedInsts.insert(ExtVal);
       return true;
     }
+
     case Intrinsic::launder_invariant_group:
     case Intrinsic::strip_invariant_group: {
       Value *ArgVal = II->getArgOperand(0);
@@ -1846,10 +1941,8 @@ bool CodeGenPrepare::dupRetToEnableTailCallOpts(BasicBlock *BB) {
   // return is the first instruction in the block.
   if (PN) {
     BasicBlock::iterator BI = BB->begin();
-    do { ++BI; } while (isa<DbgInfoIntrinsic>(BI));
-    if (&*BI == BCI)
-      // Also skip over the bitcast.
-      ++BI;
+    // Skip over debug and the bitcast.
+    do { ++BI; } while (isa<DbgInfoIntrinsic>(BI) || &*BI == BCI);
     if (&*BI != RetI)
       return false;
   } else {
@@ -2362,6 +2455,8 @@ class TypePromotionTransaction {
 
     /// Keep track of the original uses (pair Instruction, Index).
     SmallVector<InstructionAndIdx, 4> OriginalUses;
+    /// Keep track of the debug users.
+    SmallVector<DbgValueInst *, 1> DbgValues;
 
     using use_iterator = SmallVectorImpl<InstructionAndIdx>::iterator;
 
@@ -2375,6 +2470,10 @@ class TypePromotionTransaction {
         Instruction *UserI = cast<Instruction>(U.getUser());
         OriginalUses.push_back(InstructionAndIdx(UserI, U.getOperandNo()));
       }
+      // Record the debug uses separately. They are not in the instruction's
+      // use list, but they are replaced by RAUW.
+      findDbgValues(DbgValues, Inst);
+
       // Now, we can replace the uses.
       Inst->replaceAllUsesWith(New);
     }
@@ -2386,6 +2485,15 @@ class TypePromotionTransaction {
                         EndIt = OriginalUses.end();
            UseIt != EndIt; ++UseIt) {
         UseIt->Inst->setOperand(UseIt->Idx, Inst);
+      }
+      // RAUW has replaced all original uses with references to the new value,
+      // including the debug uses. Since we are undoing the replacements,
+      // the original debug uses must also be reinstated to maintain the
+      // correctness and utility of debug value instructions.
+      for (auto *DVI: DbgValues) {
+        LLVMContext &Ctx = Inst->getType()->getContext();
+        auto *MV = MetadataAsValue::get(Ctx, ValueAsMetadata::get(Inst));
+        DVI->setOperand(0, MV);
       }
     }
   };
@@ -2896,8 +3004,7 @@ public:
 
 /// A helper class for combining addressing modes.
 class AddressingModeCombiner {
-  typedef std::pair<Value *, BasicBlock *> ValueInBB;
-  typedef DenseMap<ValueInBB, Value *> FoldAddrToValueMapping;
+  typedef DenseMap<Value *, Value *> FoldAddrToValueMapping;
   typedef std::pair<PHINode *, PHINode *> PHIPair;
 
 private:
@@ -2917,10 +3024,10 @@ private:
   const SimplifyQuery &SQ;
 
   /// Original Address.
-  ValueInBB Original;
+  Value *Original;
 
 public:
-  AddressingModeCombiner(const SimplifyQuery &_SQ, ValueInBB OriginalValue)
+  AddressingModeCombiner(const SimplifyQuery &_SQ, Value *OriginalValue)
       : CommonType(nullptr), SQ(_SQ), Original(OriginalValue) {}
 
   /// Get the combined AddrMode
@@ -3016,46 +3123,40 @@ public:
   }
 
 private:
-  /// Initialize Map with anchor values. For address seen in some BB
+  /// Initialize Map with anchor values. For address seen
   /// we set the value of different field saw in this address.
-  /// If address is not an instruction than basic block is set to null.
   /// At the same time we find a common type for different field we will
   /// use to create new Phi/Select nodes. Keep it in CommonType field.
   /// Return false if there is no common type found.
   bool initializeMap(FoldAddrToValueMapping &Map) {
     // Keep track of keys where the value is null. We will need to replace it
     // with constant null when we know the common type.
-    SmallVector<ValueInBB, 2> NullValue;
+    SmallVector<Value *, 2> NullValue;
     Type *IntPtrTy = SQ.DL.getIntPtrType(AddrModes[0].OriginalValue->getType());
     for (auto &AM : AddrModes) {
-      BasicBlock *BB = nullptr;
-      if (Instruction *I = dyn_cast<Instruction>(AM.OriginalValue))
-        BB = I->getParent();
-
       Value *DV = AM.GetFieldAsValue(DifferentField, IntPtrTy);
       if (DV) {
         auto *Type = DV->getType();
         if (CommonType && CommonType != Type)
           return false;
         CommonType = Type;
-        Map[{ AM.OriginalValue, BB }] = DV;
+        Map[AM.OriginalValue] = DV;
       } else {
-        NullValue.push_back({ AM.OriginalValue, BB });
+        NullValue.push_back(AM.OriginalValue);
       }
     }
     assert(CommonType && "At least one non-null value must be!");
-    for (auto VIBB : NullValue)
-      Map[VIBB] = Constant::getNullValue(CommonType);
+    for (auto *V : NullValue)
+      Map[V] = Constant::getNullValue(CommonType);
     return true;
   }
 
-  /// We have mapping between value A and basic block where value A
-  /// seen to other value B where B was a field in addressing mode represented
-  /// by A. Also we have an original value C representing an address in some
-  /// basic block. Traversing from C through phi and selects we ended up with
-  /// A's in a map. This utility function tries to find a value V which is a
-  /// field in addressing mode C and traversing through phi nodes and selects
-  /// we will end up in corresponded values B in a map.
+  /// We have mapping between value A and other value B where B was a field in
+  /// addressing mode represented by A. Also we have an original value C
+  /// representing an address we start with. Traversing from C through phi and
+  /// selects we ended up with A's in a map. This utility function tries to find
+  /// a value V which is a field in addressing mode C and traversing through phi
+  /// nodes and selects we will end up in corresponded values B in a map.
   /// The utility will create a new Phi/Selects if needed.
   // The simple example looks as follows:
   // BB1:
@@ -3068,22 +3169,24 @@ private:
   //   p = phi [p1, BB1], [p2, BB2]
   //   v = load p
   // Map is
-  //   <p1, BB1> -> b1
-  //   <p2, BB2> -> b2
+  //   p1 -> b1
+  //   p2 -> b2
   // Request is
-  //   <p, BB3> -> ?
-  // The function tries to find or build phi [b1, BB1], [b2, BB2] in BB3
+  //   p -> ?
+  // The function tries to find or build phi [b1, BB1], [b2, BB2] in BB3.
   Value *findCommon(FoldAddrToValueMapping &Map) {
     // Tracks the simplification of newly created phi nodes. The reason we use
     // this mapping is because we will add new created Phi nodes in AddrToBase.
     // Simplification of Phi nodes is recursive, so some Phi node may
-    // be simplified after we added it to AddrToBase.
+    // be simplified after we added it to AddrToBase. In reality this
+    // simplification is possible only if original phi/selects were not
+    // simplified yet.
     // Using this mapping we can find the current value in AddrToBase.
     SimplificationTracker ST(SQ);
 
     // First step, DFS to create PHI nodes for all intermediate blocks.
     // Also fill traverse order for the second step.
-    SmallVector<ValueInBB, 32> TraverseOrder;
+    SmallVector<Value *, 32> TraverseOrder;
     InsertPlaceholders(Map, TraverseOrder, ST);
 
     // Second Step, fill new nodes by merged values and simplify if possible.
@@ -3206,125 +3309,82 @@ private:
     }
     return true;
   }
-  /// Fill the placeholder with values from predecessors and simplify it.
+  /// Fill the placeholders with values from predecessors and simplify them.
   void FillPlaceholders(FoldAddrToValueMapping &Map,
-                        SmallVectorImpl<ValueInBB> &TraverseOrder,
+                        SmallVectorImpl<Value *> &TraverseOrder,
                         SimplificationTracker &ST) {
     while (!TraverseOrder.empty()) {
-      auto Current = TraverseOrder.pop_back_val();
+      Value *Current = TraverseOrder.pop_back_val();
       assert(Map.find(Current) != Map.end() && "No node to fill!!!");
-      Value *CurrentValue = Current.first;
-      BasicBlock *CurrentBlock = Current.second;
       Value *V = Map[Current];
 
       if (SelectInst *Select = dyn_cast<SelectInst>(V)) {
         // CurrentValue also must be Select.
-        auto *CurrentSelect = cast<SelectInst>(CurrentValue);
+        auto *CurrentSelect = cast<SelectInst>(Current);
         auto *TrueValue = CurrentSelect->getTrueValue();
-        ValueInBB TrueItem = { TrueValue, isa<Instruction>(TrueValue)
-                                              ? CurrentBlock
-                                              : nullptr };
-        assert(Map.find(TrueItem) != Map.end() && "No True Value!");
-        Select->setTrueValue(ST.Get(Map[TrueItem]));
+        assert(Map.find(TrueValue) != Map.end() && "No True Value!");
+        Select->setTrueValue(ST.Get(Map[TrueValue]));
         auto *FalseValue = CurrentSelect->getFalseValue();
-        ValueInBB FalseItem = { FalseValue, isa<Instruction>(FalseValue)
-                                                ? CurrentBlock
-                                                : nullptr };
-        assert(Map.find(FalseItem) != Map.end() && "No False Value!");
-        Select->setFalseValue(ST.Get(Map[FalseItem]));
+        assert(Map.find(FalseValue) != Map.end() && "No False Value!");
+        Select->setFalseValue(ST.Get(Map[FalseValue]));
       } else {
         // Must be a Phi node then.
         PHINode *PHI = cast<PHINode>(V);
+        auto *CurrentPhi = dyn_cast<PHINode>(Current);
         // Fill the Phi node with values from predecessors.
-        bool IsDefinedInThisBB =
-            cast<Instruction>(CurrentValue)->getParent() == CurrentBlock;
-        auto *CurrentPhi = dyn_cast<PHINode>(CurrentValue);
-        for (auto B : predecessors(CurrentBlock)) {
-          Value *PV = IsDefinedInThisBB
-                          ? CurrentPhi->getIncomingValueForBlock(B)
-                          : CurrentValue;
-          ValueInBB item = { PV, isa<Instruction>(PV) ? B : nullptr };
-          assert(Map.find(item) != Map.end() && "No predecessor Value!");
-          PHI->addIncoming(ST.Get(Map[item]), B);
+        for (auto B : predecessors(PHI->getParent())) {
+          Value *PV = CurrentPhi->getIncomingValueForBlock(B);
+          assert(Map.find(PV) != Map.end() && "No predecessor Value!");
+          PHI->addIncoming(ST.Get(Map[PV]), B);
         }
       }
-      // Simplify if possible.
       Map[Current] = ST.Simplify(V);
     }
   }
 
-  /// Starting from value recursively iterates over predecessors up to known
-  /// ending values represented in a map. For each traversed block inserts
-  /// a placeholder Phi or Select.
+  /// Starting from original value recursively iterates over def-use chain up to
+  /// known ending values represented in a map. For each traversed phi/select
+  /// inserts a placeholder Phi or Select.
   /// Reports all new created Phi/Select nodes by adding them to set.
-  /// Also reports and order in what basic blocks have been traversed.
+  /// Also reports and order in what values have been traversed.
   void InsertPlaceholders(FoldAddrToValueMapping &Map,
-                          SmallVectorImpl<ValueInBB> &TraverseOrder,
+                          SmallVectorImpl<Value *> &TraverseOrder,
                           SimplificationTracker &ST) {
-    SmallVector<ValueInBB, 32> Worklist;
-    assert((isa<PHINode>(Original.first) || isa<SelectInst>(Original.first)) &&
+    SmallVector<Value *, 32> Worklist;
+    assert((isa<PHINode>(Original) || isa<SelectInst>(Original)) &&
            "Address must be a Phi or Select node");
     auto *Dummy = UndefValue::get(CommonType);
     Worklist.push_back(Original);
     while (!Worklist.empty()) {
-      auto Current = Worklist.pop_back_val();
-      // If value is not an instruction it is something global, constant,
-      // parameter and we can say that this value is observable in any block.
-      // Set block to null to denote it.
-      // Also please take into account that it is how we build anchors.
-      if (!isa<Instruction>(Current.first))
-        Current.second = nullptr;
+      Value *Current = Worklist.pop_back_val();
       // if it is already visited or it is an ending value then skip it.
       if (Map.find(Current) != Map.end())
         continue;
       TraverseOrder.push_back(Current);
 
-      Value *CurrentValue = Current.first;
-      BasicBlock *CurrentBlock = Current.second;
       // CurrentValue must be a Phi node or select. All others must be covered
       // by anchors.
-      Instruction *CurrentI = cast<Instruction>(CurrentValue);
-      bool IsDefinedInThisBB = CurrentI->getParent() == CurrentBlock;
-
-      unsigned PredCount = pred_size(CurrentBlock);
-      // if Current Value is not defined in this basic block we are interested
-      // in values in predecessors.
-      if (!IsDefinedInThisBB) {
-        assert(PredCount && "Unreachable block?!");
-        PHINode *PHI = PHINode::Create(CommonType, PredCount, "sunk_phi",
-                                       &CurrentBlock->front());
-        Map[Current] = PHI;
-        ST.insertNewPhi(PHI);
-        // Add all predecessors in work list.
-        for (auto B : predecessors(CurrentBlock))
-          Worklist.push_back({ CurrentValue, B });
-        continue;
-      }
-      // Value is defined in this basic block.
-      if (SelectInst *OrigSelect = dyn_cast<SelectInst>(CurrentI)) {
+      if (SelectInst *CurrentSelect = dyn_cast<SelectInst>(Current)) {
         // Is it OK to get metadata from OrigSelect?!
         // Create a Select placeholder with dummy value.
-        SelectInst *Select =
-            SelectInst::Create(OrigSelect->getCondition(), Dummy, Dummy,
-                               OrigSelect->getName(), OrigSelect, OrigSelect);
+        SelectInst *Select = SelectInst::Create(
+            CurrentSelect->getCondition(), Dummy, Dummy,
+            CurrentSelect->getName(), CurrentSelect, CurrentSelect);
         Map[Current] = Select;
         ST.insertNewSelect(Select);
-        // We are interested in True and False value in this basic block.
-        Worklist.push_back({ OrigSelect->getTrueValue(), CurrentBlock });
-        Worklist.push_back({ OrigSelect->getFalseValue(), CurrentBlock });
+        // We are interested in True and False values.
+        Worklist.push_back(CurrentSelect->getTrueValue());
+        Worklist.push_back(CurrentSelect->getFalseValue());
       } else {
         // It must be a Phi node then.
-        auto *CurrentPhi = cast<PHINode>(CurrentI);
-        // Create new Phi node for merge of bases.
-        assert(PredCount && "Unreachable block?!");
-        PHINode *PHI = PHINode::Create(CommonType, PredCount, "sunk_phi",
-                                       &CurrentBlock->front());
+        PHINode *CurrentPhi = cast<PHINode>(Current);
+        unsigned PredCount = CurrentPhi->getNumIncomingValues();
+        PHINode *PHI =
+            PHINode::Create(CommonType, PredCount, "sunk_phi", CurrentPhi);
         Map[Current] = PHI;
         ST.insertNewPhi(PHI);
-
-        // Add all predecessors in work list.
-        for (auto B : predecessors(CurrentBlock))
-          Worklist.push_back({ CurrentPhi->getIncomingValueForBlock(B), B });
+        for (Value *P : CurrentPhi->incoming_values())
+          Worklist.push_back(P);
       }
     }
   }
@@ -4543,7 +4603,7 @@ bool CodeGenPrepare::optimizeMemoryInst(Instruction *MemoryInst, Value *Addr,
   bool PhiOrSelectSeen = false;
   SmallVector<Instruction*, 16> AddrModeInsts;
   const SimplifyQuery SQ(*DL, TLInfo);
-  AddressingModeCombiner AddrModes(SQ, { Addr, MemoryInst->getParent() });
+  AddressingModeCombiner AddrModes(SQ, Addr);
   TypePromotionTransaction TPT(RemovedInsts);
   TypePromotionTransaction::ConstRestorationPt LastKnownGood =
       TPT.getRestorationPoint();
@@ -5193,11 +5253,11 @@ bool CodeGenPrepare::splitLargeGEPOffsets() {
       }
 
       // Generate a new GEP to replace the current one.
-      IRBuilder<> Builder(GEP);
+      LLVMContext &Ctx = GEP->getContext();
       Type *IntPtrTy = DL->getIntPtrType(GEP->getType());
       Type *I8PtrTy =
-          Builder.getInt8PtrTy(GEP->getType()->getPointerAddressSpace());
-      Type *I8Ty = Builder.getInt8Ty();
+          Type::getInt8PtrTy(Ctx, GEP->getType()->getPointerAddressSpace());
+      Type *I8Ty = Type::getInt8Ty(Ctx);
 
       if (!NewBaseGEP) {
         // Create a new base if we don't have one yet.  Find the insertion
@@ -5233,6 +5293,7 @@ bool CodeGenPrepare::splitLargeGEPOffsets() {
         NewGEPBases.insert(NewBaseGEP);
       }
 
+      IRBuilder<> Builder(GEP);
       Value *NewGEP = NewBaseGEP;
       if (Offset == BaseOffset) {
         if (GEP->getType() != I8PtrTy)
@@ -5990,6 +6051,48 @@ bool CodeGenPrepare::optimizeShuffleVectorInst(ShuffleVectorInst *SVI) {
   return MadeChange;
 }
 
+bool CodeGenPrepare::tryToSinkFreeOperands(Instruction *I) {
+  // If the operands of I can be folded into a target instruction together with
+  // I, duplicate and sink them.
+  SmallVector<Use *, 4> OpsToSink;
+  if (!TLI || !TLI->shouldSinkOperands(I, OpsToSink))
+    return false;
+
+  // OpsToSink can contain multiple uses in a use chain (e.g.
+  // (%u1 with %u1 = shufflevector), (%u2 with %u2 = zext %u1)). The dominating
+  // uses must come first, which means they are sunk first, temporarily creating
+  // invalid IR. This will be fixed once their dominated users are sunk and
+  // updated.
+  BasicBlock *TargetBB = I->getParent();
+  bool Changed = false;
+  SmallVector<Use *, 4> ToReplace;
+  for (Use *U : OpsToSink) {
+    auto *UI = cast<Instruction>(U->get());
+    if (UI->getParent() == TargetBB || isa<PHINode>(UI))
+      continue;
+    ToReplace.push_back(U);
+  }
+
+  SmallPtrSet<Instruction *, 4> MaybeDead;
+  for (Use *U : ToReplace) {
+    auto *UI = cast<Instruction>(U->get());
+    Instruction *NI = UI->clone();
+    MaybeDead.insert(UI);
+    LLVM_DEBUG(dbgs() << "Sinking " << *UI << " to user " << *I << "\n");
+    NI->insertBefore(I);
+    InsertedInsts.insert(NI);
+    U->set(NI);
+    Changed = true;
+  }
+
+  // Remove instructions that are dead after sinking.
+  for (auto *I : MaybeDead)
+    if (!I->hasNUsesOrMore(1))
+      I->eraseFromParent();
+
+  return Changed;
+}
+
 bool CodeGenPrepare::optimizeSwitchInst(SwitchInst *SI) {
   if (!TLI || !DL)
     return false;
@@ -6732,9 +6835,9 @@ bool CodeGenPrepare::optimizeInst(Instruction *I, bool &ModifiedDT) {
     return false;
   }
 
-  if (CmpInst *CI = dyn_cast<CmpInst>(I))
-    if (!TLI || !TLI->hasMultipleConditionRegisters())
-      return OptimizeCmpExpression(CI, TLI);
+  if (auto *Cmp = dyn_cast<CmpInst>(I))
+    if (TLI && optimizeCmp(Cmp, *TLI, *DL, ModifiedDT))
+      return true;
 
   if (LoadInst *LI = dyn_cast<LoadInst>(I)) {
     LI->setMetadata(LLVMContext::MD_invariant_group, nullptr);
@@ -6803,6 +6906,9 @@ bool CodeGenPrepare::optimizeInst(Instruction *I, bool &ModifiedDT) {
     }
     return false;
   }
+
+  if (tryToSinkFreeOperands(I))
+    return true;
 
   if (CallInst *CI = dyn_cast<CallInst>(I))
     return optimizeCallInst(CI, ModifiedDT);

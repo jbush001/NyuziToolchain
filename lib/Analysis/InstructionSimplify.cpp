@@ -1,9 +1,8 @@
 //===- InstructionSimplify.cpp - Fold instruction operands ----------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -34,6 +33,8 @@
 #include "llvm/IR/Dominators.h"
 #include "llvm/IR/GetElementPtrTypeIterator.h"
 #include "llvm/IR/GlobalAlias.h"
+#include "llvm/IR/InstrTypes.h"
+#include "llvm/IR/Instructions.h"
 #include "llvm/IR/Operator.h"
 #include "llvm/IR/PatternMatch.h"
 #include "llvm/IR/ValueHandle.h"
@@ -672,8 +673,8 @@ static Constant *stripAndComputeConstantOffsets(const DataLayout &DL, Value *&V,
         break;
       V = GA->getAliasee();
     } else {
-      if (auto CS = CallSite(V))
-        if (Value *RV = CS.getReturnedArgOperand()) {
+      if (auto *Call = dyn_cast<CallBase>(V))
+        if (Value *RV = Call->getReturnedArgOperand()) {
           V = RV;
           continue;
         }
@@ -2630,6 +2631,70 @@ static void setLimitsForBinOp(BinaryOperator &BO, APInt &Lower, APInt &Upper,
   }
 }
 
+/// Some intrinsics with a constant operand have an easy-to-compute range of
+/// outputs. This can be used to fold a comparison to always true or always
+/// false.
+static void setLimitsForIntrinsic(IntrinsicInst &II, APInt &Lower,
+                                  APInt &Upper) {
+  unsigned Width = Lower.getBitWidth();
+  const APInt *C;
+  switch (II.getIntrinsicID()) {
+  case Intrinsic::uadd_sat:
+    // uadd.sat(x, C) produces [C, UINT_MAX].
+    if (match(II.getOperand(0), m_APInt(C)) ||
+        match(II.getOperand(1), m_APInt(C)))
+      Lower = *C;
+    break;
+  case Intrinsic::sadd_sat:
+    if (match(II.getOperand(0), m_APInt(C)) ||
+        match(II.getOperand(1), m_APInt(C))) {
+      if (C->isNegative()) {
+        // sadd.sat(x, -C) produces [SINT_MIN, SINT_MAX + (-C)].
+        Lower = APInt::getSignedMinValue(Width);
+        Upper = APInt::getSignedMaxValue(Width) + *C + 1;
+      } else {
+        // sadd.sat(x, +C) produces [SINT_MIN + C, SINT_MAX].
+        Lower = APInt::getSignedMinValue(Width) + *C;
+        Upper = APInt::getSignedMaxValue(Width) + 1;
+      }
+    }
+    break;
+  case Intrinsic::usub_sat:
+    // usub.sat(C, x) produces [0, C].
+    if (match(II.getOperand(0), m_APInt(C)))
+      Upper = *C + 1;
+    // usub.sat(x, C) produces [0, UINT_MAX - C].
+    else if (match(II.getOperand(1), m_APInt(C)))
+      Upper = APInt::getMaxValue(Width) - *C + 1;
+    break;
+  case Intrinsic::ssub_sat:
+    if (match(II.getOperand(0), m_APInt(C))) {
+      if (C->isNegative()) {
+        // ssub.sat(-C, x) produces [SINT_MIN, -SINT_MIN + (-C)].
+        Lower = APInt::getSignedMinValue(Width);
+        Upper = *C - APInt::getSignedMinValue(Width) + 1;
+      } else {
+        // ssub.sat(+C, x) produces [-SINT_MAX + C, SINT_MAX].
+        Lower = *C - APInt::getSignedMaxValue(Width);
+        Upper = APInt::getSignedMaxValue(Width) + 1;
+      }
+    } else if (match(II.getOperand(1), m_APInt(C))) {
+      if (C->isNegative()) {
+        // ssub.sat(x, -C) produces [SINT_MIN - (-C), SINT_MAX]:
+        Lower = APInt::getSignedMinValue(Width) - *C;
+        Upper = APInt::getSignedMaxValue(Width) + 1;
+      } else {
+        // ssub.sat(x, +C) produces [SINT_MIN, SINT_MAX - C].
+        Lower = APInt::getSignedMinValue(Width);
+        Upper = APInt::getSignedMaxValue(Width) - *C + 1;
+      }
+    }
+    break;
+  default:
+    break;
+  }
+}
+
 static Value *simplifyICmpWithConstant(CmpInst::Predicate Pred, Value *LHS,
                                        Value *RHS, const InstrInfoQuery &IIQ) {
   Type *ITy = GetCompareTy(RHS); // The return type.
@@ -2663,6 +2728,8 @@ static Value *simplifyICmpWithConstant(CmpInst::Predicate Pred, Value *LHS,
   APInt Upper = APInt(Width, 0);
   if (auto *BO = dyn_cast<BinaryOperator>(LHS))
     setLimitsForBinOp(*BO, Lower, Upper, IIQ);
+  else if (auto *II = dyn_cast<IntrinsicInst>(LHS))
+    setLimitsForIntrinsic(*II, Lower, Upper);
 
   ConstantRange LHS_CR =
       Lower != Upper ? ConstantRange(Lower, Upper) : ConstantRange(Width, true);
@@ -3966,6 +4033,10 @@ static Value *SimplifySelectInst(Value *Cond, Value *TrueVal, Value *FalseVal,
   if (Value *V = foldSelectWithBinaryOp(Cond, TrueVal, FalseVal))
     return V;
 
+  Optional<bool> Imp = isImpliedByDomCondition(Cond, Q.CxtI, Q.DL);
+  if (Imp)
+    return *Imp ? TrueVal : FalseVal;
+
   return nullptr;
 }
 
@@ -4871,7 +4942,15 @@ static Value *simplifyUnaryIntrinsic(Function *F, Value *Op0,
   case Intrinsic::log2:
     // log2(exp2(x)) -> x
     if (Q.CxtI->hasAllowReassoc() &&
-        match(Op0, m_Intrinsic<Intrinsic::exp2>(m_Value(X)))) return X;
+        (match(Op0, m_Intrinsic<Intrinsic::exp2>(m_Value(X))) ||
+         match(Op0, m_Intrinsic<Intrinsic::pow>(m_SpecificFP(2.0),
+                                                m_Value(X))))) return X;
+    break;
+  case Intrinsic::log10:
+    // log10(pow(10.0, x)) -> x
+    if (Q.CxtI->hasAllowReassoc() &&
+        match(Op0, m_Intrinsic<Intrinsic::pow>(m_SpecificFP(10.0),
+                                               m_Value(X)))) return X;
     break;
   default:
     break;
@@ -5068,7 +5147,7 @@ static Value *simplifyIntrinsic(Function *F, IterTy ArgBegin, IterTy ArgEnd,
 }
 
 template <typename IterTy>
-static Value *SimplifyCall(ImmutableCallSite CS, Value *V, IterTy ArgBegin,
+static Value *SimplifyCall(CallBase *Call, Value *V, IterTy ArgBegin,
                            IterTy ArgEnd, const SimplifyQuery &Q,
                            unsigned MaxRecurse) {
   Type *Ty = V->getType();
@@ -5089,7 +5168,7 @@ static Value *SimplifyCall(ImmutableCallSite CS, Value *V, IterTy ArgBegin,
     if (Value *Ret = simplifyIntrinsic(F, ArgBegin, ArgEnd, Q))
       return Ret;
 
-  if (!canConstantFoldCallTo(CS, F))
+  if (!canConstantFoldCallTo(Call, F))
     return nullptr;
 
   SmallVector<Constant *, 4> ConstantArgs;
@@ -5101,24 +5180,22 @@ static Value *SimplifyCall(ImmutableCallSite CS, Value *V, IterTy ArgBegin,
     ConstantArgs.push_back(C);
   }
 
-  return ConstantFoldCall(CS, F, ConstantArgs, Q.TLI);
+  return ConstantFoldCall(Call, F, ConstantArgs, Q.TLI);
 }
 
-Value *llvm::SimplifyCall(ImmutableCallSite CS, Value *V,
-                          User::op_iterator ArgBegin, User::op_iterator ArgEnd,
+Value *llvm::SimplifyCall(CallBase *Call, Value *V, User::op_iterator ArgBegin,
+                          User::op_iterator ArgEnd, const SimplifyQuery &Q) {
+  return ::SimplifyCall(Call, V, ArgBegin, ArgEnd, Q, RecursionLimit);
+}
+
+Value *llvm::SimplifyCall(CallBase *Call, Value *V, ArrayRef<Value *> Args,
                           const SimplifyQuery &Q) {
-  return ::SimplifyCall(CS, V, ArgBegin, ArgEnd, Q, RecursionLimit);
+  return ::SimplifyCall(Call, V, Args.begin(), Args.end(), Q, RecursionLimit);
 }
 
-Value *llvm::SimplifyCall(ImmutableCallSite CS, Value *V,
-                          ArrayRef<Value *> Args, const SimplifyQuery &Q) {
-  return ::SimplifyCall(CS, V, Args.begin(), Args.end(), Q, RecursionLimit);
-}
-
-Value *llvm::SimplifyCall(ImmutableCallSite ICS, const SimplifyQuery &Q) {
-  CallSite CS(const_cast<Instruction*>(ICS.getInstruction()));
-  return ::SimplifyCall(CS, CS.getCalledValue(), CS.arg_begin(), CS.arg_end(),
-                        Q, RecursionLimit);
+Value *llvm::SimplifyCall(CallBase *Call, const SimplifyQuery &Q) {
+  return ::SimplifyCall(Call, Call->getCalledValue(), Call->arg_begin(),
+                        Call->arg_end(), Q, RecursionLimit);
 }
 
 /// See if we can compute a simplified version of this instruction.
@@ -5257,8 +5334,7 @@ Value *llvm::SimplifyInstruction(Instruction *I, const SimplifyQuery &SQ,
     Result = SimplifyPHINode(cast<PHINode>(I), Q);
     break;
   case Instruction::Call: {
-    CallSite CS(cast<CallInst>(I));
-    Result = SimplifyCall(CS, Q);
+    Result = SimplifyCall(cast<CallInst>(I), Q);
     break;
   }
 #define HANDLE_CAST_INST(num, opc, clas) case Instruction::opc:

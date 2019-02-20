@@ -1,9 +1,8 @@
 //===--- UnwrappedLineParser.cpp - Format C++ code ------------------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 ///
@@ -1423,9 +1422,13 @@ bool UnwrappedLineParser::tryToParseLambda() {
     case tok::numeric_constant:
     case tok::coloncolon:
     case tok::kw_mutable:
+    case tok::kw_noexcept:
       nextToken();
       break;
     case tok::arrow:
+      // This might or might not actually be a lambda arrow (this could be an
+      // ObjC method invocation followed by a dereferencing arrow). We might
+      // reset this back to TT_Unknown in TokenAnnotator.
       FormatTok->Type = TT_LambdaArrow;
       nextToken();
       break;

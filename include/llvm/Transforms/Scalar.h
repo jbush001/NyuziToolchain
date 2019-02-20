@@ -1,9 +1,8 @@
 //===-- Scalar.h - Scalar Transformations -----------------------*- C++ -*-===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -183,11 +182,12 @@ Pass *createLoopInstSimplifyPass();
 //
 // LoopUnroll - This pass is a simple loop unrolling pass.
 //
-Pass *createLoopUnrollPass(int OptLevel = 2, int Threshold = -1, int Count = -1,
+Pass *createLoopUnrollPass(int OptLevel = 2, bool OnlyWhenForced = false,
+                           int Threshold = -1, int Count = -1,
                            int AllowPartial = -1, int Runtime = -1,
                            int UpperBound = -1, int AllowPeeling = -1);
 // Create an unrolling pass for full unrolling that uses exact trip count only.
-Pass *createSimpleLoopUnrollPass(int OptLevel = 2);
+Pass *createSimpleLoopUnrollPass(int OptLevel = 2, bool OnlyWhenForced = false);
 
 //===----------------------------------------------------------------------===//
 //
@@ -359,6 +359,12 @@ Pass *createLowerGuardIntrinsicPass();
 
 //===----------------------------------------------------------------------===//
 //
+// LowerWidenableCondition - Lower widenable condition to i1 true.
+//
+Pass *createLowerWidenableConditionPass();
+
+//===----------------------------------------------------------------------===//
+//
 // MergeICmps - Merge integer comparison chains into a memcmp
 //
 Pass *createMergeICmpsPass();
@@ -470,6 +476,7 @@ FunctionPass *createLoopDataPrefetchPass();
 
 ///===---------------------------------------------------------------------===//
 ModulePass *createNameAnonGlobalPass();
+ModulePass *createCanonicalizeAliasesPass();
 
 //===----------------------------------------------------------------------===//
 //
@@ -484,6 +491,13 @@ FunctionPass *createLibCallsShrinkWrapPass();
 // primarily to help other loop passes.
 //
 Pass *createLoopSimplifyCFGPass();
+
+//===----------------------------------------------------------------------===//
+//
+// WarnMissedTransformations - This pass emits warnings for leftover forced
+// transformations.
+//
+Pass *createWarnMissedTransformationsPass();
 } // End llvm namespace
 
 #endif

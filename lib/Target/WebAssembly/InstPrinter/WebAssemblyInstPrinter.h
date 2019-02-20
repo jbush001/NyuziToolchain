@@ -1,9 +1,8 @@
 // WebAssemblyInstPrinter.h - Print wasm MCInst to assembly syntax -*- C++ -*-//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 ///
@@ -43,6 +42,7 @@ public:
 
   // Used by tblegen code.
   void printOperand(const MCInst *MI, unsigned OpNo, raw_ostream &O);
+  void printBrList(const MCInst *MI, unsigned OpNo, raw_ostream &O);
   void printWebAssemblyP2AlignOperand(const MCInst *MI, unsigned OpNo,
                                       raw_ostream &O);
   void printWebAssemblySignatureOperand(const MCInst *MI, unsigned OpNo,
@@ -55,7 +55,8 @@ public:
 
 namespace WebAssembly {
 
-const char *TypeToString(wasm::ValType Ty);
+const char *typeToString(wasm::ValType Ty);
+const char *anyTypeToString(unsigned Ty);
 
 } // end namespace WebAssembly
 

@@ -1,19 +1,18 @@
 //===-- SBCommandInterpreter.cpp --------------------------------*- C++ -*-===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
 #include "lldb/lldb-types.h"
 
-#include "lldb/Core/Listener.h"
 #include "lldb/Interpreter/CommandInterpreter.h"
 #include "lldb/Interpreter/CommandObjectMultiword.h"
 #include "lldb/Interpreter/CommandReturnObject.h"
 #include "lldb/Target/Target.h"
+#include "lldb/Utility/Listener.h"
 
 #include "lldb/API/SBBroadcaster.h"
 #include "lldb/API/SBCommandInterpreter.h"
@@ -25,6 +24,8 @@
 #include "lldb/API/SBStream.h"
 #include "lldb/API/SBStringList.h"
 #include "lldb/API/SBTarget.h"
+
+#include <memory>
 
 using namespace lldb;
 using namespace lldb_private;
@@ -98,7 +99,7 @@ SBCommandInterpreterRunOptions::get() const {
 
 lldb_private::CommandInterpreterRunOptions &
 SBCommandInterpreterRunOptions::ref() const {
-  return *m_opaque_up.get();
+  return *m_opaque_up;
 }
 
 class CommandPluginInterfaceImplementation : public CommandObjectParsed {
@@ -556,8 +557,8 @@ lldb::SBCommand SBCommandInterpreter::AddMultiwordCommand(const char *name,
 lldb::SBCommand SBCommandInterpreter::AddCommand(
     const char *name, lldb::SBCommandPluginInterface *impl, const char *help) {
   lldb::CommandObjectSP new_command_sp;
-  new_command_sp.reset(new CommandPluginInterfaceImplementation(
-      *m_opaque_ptr, name, impl, help));
+  new_command_sp = std::make_shared<CommandPluginInterfaceImplementation>(
+      *m_opaque_ptr, name, impl, help);
 
   if (new_command_sp &&
       m_opaque_ptr->AddUserCommand(name, new_command_sp, true))
@@ -570,8 +571,8 @@ SBCommandInterpreter::AddCommand(const char *name,
                                  lldb::SBCommandPluginInterface *impl,
                                  const char *help, const char *syntax) {
   lldb::CommandObjectSP new_command_sp;
-  new_command_sp.reset(new CommandPluginInterfaceImplementation(
-      *m_opaque_ptr, name, impl, help, syntax));
+  new_command_sp = std::make_shared<CommandPluginInterfaceImplementation>(
+      *m_opaque_ptr, name, impl, help, syntax);
 
   if (new_command_sp &&
       m_opaque_ptr->AddUserCommand(name, new_command_sp, true))
@@ -632,8 +633,8 @@ lldb::SBCommand SBCommand::AddCommand(const char *name,
   if (!m_opaque_sp->IsMultiwordObject())
     return lldb::SBCommand();
   lldb::CommandObjectSP new_command_sp;
-  new_command_sp.reset(new CommandPluginInterfaceImplementation(
-      m_opaque_sp->GetCommandInterpreter(), name, impl, help));
+  new_command_sp = std::make_shared<CommandPluginInterfaceImplementation>(
+      m_opaque_sp->GetCommandInterpreter(), name, impl, help);
   if (new_command_sp && m_opaque_sp->LoadSubCommand(name, new_command_sp))
     return lldb::SBCommand(new_command_sp);
   return lldb::SBCommand();
@@ -647,8 +648,8 @@ lldb::SBCommand SBCommand::AddCommand(const char *name,
   if (!m_opaque_sp->IsMultiwordObject())
     return lldb::SBCommand();
   lldb::CommandObjectSP new_command_sp;
-  new_command_sp.reset(new CommandPluginInterfaceImplementation(
-      m_opaque_sp->GetCommandInterpreter(), name, impl, help, syntax));
+  new_command_sp = std::make_shared<CommandPluginInterfaceImplementation>(
+      m_opaque_sp->GetCommandInterpreter(), name, impl, help, syntax);
   if (new_command_sp && m_opaque_sp->LoadSubCommand(name, new_command_sp))
     return lldb::SBCommand(new_command_sp);
   return lldb::SBCommand();

@@ -1,9 +1,8 @@
 //===----- ARMCodeGenPrepare.cpp ------------------------------------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -114,7 +113,11 @@ class IRPromoter {
   SmallPtrSet<Value*, 8> Promoted;
   Module *M = nullptr;
   LLVMContext &Ctx;
+  // The type we promote to: always i32
   IntegerType *ExtTy = nullptr;
+  // The type of the value that the search began from, either i8 or i16.
+  // This defines the max range of the values that we allow in the promoted
+  // tree.
   IntegerType *OrigTy = nullptr;
   SmallPtrSetImpl<Value*> *Visited;
   SmallPtrSetImpl<Value*> *Sources;
@@ -327,7 +330,7 @@ bool ARMCodeGenPrepare::isSafeOverflow(Instruction *I) {
   // - (255 >= 254) == (0xFFFFFFFF >= 254) == true
   //
   // To demonstrate why we can't handle increasing values:
-  // 
+  //
   // %add = add i8 %a, 2
   // %cmp = icmp ult i8 %add, 127
   //
@@ -605,7 +608,7 @@ void IRPromoter::PromoteTree() {
 
     if (!shouldPromote(I) || SafeToPromote->count(I) || NewInsts.count(I))
       continue;
-  
+
     assert(EnableDSP && "DSP intrinisc insertion not enabled!");
 
     // Replace unsafe instructions with appropriate intrinsic calls.
@@ -683,13 +686,14 @@ void IRPromoter::TruncateSinks() {
 }
 
 void IRPromoter::Cleanup() {
+  LLVM_DEBUG(dbgs() << "ARM CGP: Cleanup..\n");
   // Some zexts will now have become redundant, along with their trunc
   // operands, so remove them
   for (auto V : *Visited) {
-    if (!isa<CastInst>(V))
+    if (!isa<ZExtInst>(V))
       continue;
 
-    auto ZExt = cast<CastInst>(V);
+    auto ZExt = cast<ZExtInst>(V);
     if (ZExt->getDestTy() != ExtTy)
       continue;
 
@@ -701,9 +705,11 @@ void IRPromoter::Cleanup() {
       continue;
     }
 
-    // For any truncs that we insert to handle zexts, we can replace the
-    // result of the zext with the input to the trunc.
-    if (NewInsts.count(Src) && isa<ZExtInst>(V) && isa<TruncInst>(Src)) {
+    // Unless they produce a value that is narrower than ExtTy, we can
+    // replace the result of the zext with the input of a newly inserted
+    // trunc.
+    if (NewInsts.count(Src) && isa<TruncInst>(Src) &&
+        Src->getType() == OrigTy) {
       auto *Trunc = cast<TruncInst>(Src);
       assert(Trunc->getOperand(0)->getType() == ExtTy &&
              "expected inserted trunc to be operating on i32");
@@ -724,6 +730,7 @@ void IRPromoter::Cleanup() {
 }
 
 void IRPromoter::ConvertTruncs() {
+  LLVM_DEBUG(dbgs() << "ARM CGP: Converting truncs..\n");
   IRBuilder<> Builder{Ctx};
 
   for (auto *V : *Visited) {
@@ -731,12 +738,13 @@ void IRPromoter::ConvertTruncs() {
       continue;
 
     auto *Trunc = cast<TruncInst>(V);
-    assert(LessThanTypeSize(Trunc) && "expected narrow trunc");
-
     Builder.SetInsertPoint(Trunc);
-    unsigned NumBits =
-      cast<IntegerType>(Trunc->getType())->getScalarSizeInBits();
-    ConstantInt *Mask = ConstantInt::get(Ctx, APInt::getMaxValue(NumBits));
+    IntegerType *SrcTy = cast<IntegerType>(Trunc->getOperand(0)->getType());
+    IntegerType *DestTy = cast<IntegerType>(TruncTysMap[Trunc][0]);
+
+    unsigned NumBits = DestTy->getScalarSizeInBits();
+    ConstantInt *Mask =
+      ConstantInt::get(SrcTy, APInt::getMaxValue(NumBits).getZExtValue());
     Value *Masked = Builder.CreateAnd(Trunc->getOperand(0), Mask);
 
     if (auto *I = dyn_cast<Instruction>(Masked))
@@ -778,6 +786,12 @@ void IRPromoter::Mutate(Type *OrigTy,
         TruncTysMap[I].push_back(I->getOperand(i)->getType());
     }
   }
+  for (auto *V : Visited) {
+    if (!isa<TruncInst>(V) || Sources.count(V))
+      continue;
+    auto *Trunc = cast<TruncInst>(V);
+    TruncTysMap[Trunc].push_back(Trunc->getDestTy());
+  }
 
   // Convert adds and subs using negative immediates to equivalent instructions
   // that use positive constants.
@@ -786,13 +800,13 @@ void IRPromoter::Mutate(Type *OrigTy,
   // Insert zext instructions between sources and their users.
   ExtendSources();
 
-  // Convert any truncs, that aren't sources, into AND masks.
-  ConvertTruncs();
-
   // Promote visited instructions, mutating their types in place. Also insert
   // DSP intrinsics, if enabled, for adds and subs which would be unsafe to
   // promote.
   PromoteTree();
+
+  // Convert any truncs, that aren't sources, into AND masks.
+  ConvertTruncs();
 
   // Insert trunc instructions for use by calls, stores etc...
   TruncateSinks();

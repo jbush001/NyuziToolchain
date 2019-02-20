@@ -1,9 +1,8 @@
 //===-- Module.h ------------------------------------------------*- C++ -*-===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -164,13 +163,18 @@ public:
     lldb::ModuleSP module_sp(new Module());
     module_sp->m_objfile_sp =
         std::make_shared<ObjFilePlugin>(module_sp, std::forward<Args>(args)...);
+    module_sp->m_did_load_objfile.store(true, std::memory_order_relaxed);
 
-    // Once we get the object file, update our module with the object file's
-    // architecture since it might differ in vendor/os if some parts were
-    // unknown.
-    if (!module_sp->m_objfile_sp->GetArchitecture(module_sp->m_arch))
+    // Once we get the object file, set module ArchSpec to the one we get from
+    // the object file. If the object file does not have an architecture, we
+    // consider the creation a failure.
+    ArchSpec arch = module_sp->m_objfile_sp->GetArchitecture();
+    if (!arch)
       return nullptr;
+    module_sp->m_arch = arch;
 
+    // Also copy the object file's FileSpec.
+    module_sp->m_file = module_sp->m_objfile_sp->GetFileSpec();
     return module_sp;
   }
 
@@ -498,10 +502,6 @@ public:
   /// have to specify complete scoping on all expressions, but it also allows
   /// for exact matching when required.
   ///
-  /// @param[in] sc
-  ///     A symbol context that scopes where to extract a type list
-  ///     from.
-  ///
   /// @param[in] type_name
   ///     The name of the type we are looking for that is a fully
   ///     or partially qualified type name.
@@ -520,8 +520,7 @@ public:
   ///     The number of matches added to \a type_list.
   //------------------------------------------------------------------
   size_t
-  FindTypes(const SymbolContext &sc, const ConstString &type_name,
-            bool exact_match, size_t max_matches,
+  FindTypes(const ConstString &type_name, bool exact_match, size_t max_matches,
             llvm::DenseSet<lldb_private::SymbolFile *> &searched_symbol_files,
             TypeList &types);
 
@@ -532,10 +531,6 @@ public:
   /// Find types by name that are in a namespace. This function is used by the
   /// expression parser when searches need to happen in an exact namespace
   /// scope.
-  ///
-  /// @param[in] sc
-  ///     A symbol context that scopes where to extract a type list
-  ///     from.
   ///
   /// @param[in] type_name
   ///     The name of a type within a namespace that should not include
@@ -550,8 +545,7 @@ public:
   /// @return
   ///     The number of matches added to \a type_list.
   //------------------------------------------------------------------
-  size_t FindTypesInNamespace(const SymbolContext &sc,
-                              const ConstString &type_name,
+  size_t FindTypesInNamespace(const ConstString &type_name,
                               const CompilerDeclContext *parent_decl_ctx,
                               size_t max_matches, TypeList &type_list);
 
@@ -702,6 +696,21 @@ public:
   /// cache.
   //------------------------------------------------------------------
   virtual void SectionFileAddressesChanged();
+
+  //------------------------------------------------------------------
+  /// Returns a reference to the UnwindTable for this Module
+  ///
+  /// The UnwindTable contains FuncUnwinders objects for any function in this
+  /// Module.  If a FuncUnwinders object hasn't been created yet (i.e. the
+  /// function has yet to be unwound in a stack walk), it will be created when
+  /// requested.  Specifically, we do not create FuncUnwinders objects for
+  /// functions until they are needed.
+  ///
+  /// @return
+  ///     Returns the unwind table for this module. If this object has no
+  ///     associated object file, an empty UnwindTable is returned.
+  //------------------------------------------------------------------
+  UnwindTable &GetUnwindTable() { return m_unwind_table; }
 
   llvm::VersionTuple GetVersion();
 
@@ -1100,8 +1109,10 @@ protected:
   lldb::ObjectFileSP m_objfile_sp; ///< A shared pointer to the object file
                                    ///parser for this module as it may or may
                                    ///not be shared with the SymbolFile
+  UnwindTable m_unwind_table{*this}; ///< Table of FuncUnwinders objects created
+                                     /// for this Module's functions
   lldb::SymbolVendorUP
-      m_symfile_ap; ///< A pointer to the symbol vendor for this module.
+      m_symfile_up; ///< A pointer to the symbol vendor for this module.
   std::vector<lldb::SymbolVendorUP>
       m_old_symfiles; ///< If anyone calls Module::SetSymbolFileFileSpec() and
                       ///changes the symbol file,
@@ -1113,9 +1124,9 @@ protected:
                                      ///when you have debug info for a module
                                      ///that doesn't match where the sources
                                      ///currently are
-  lldb::SectionListUP m_sections_ap; ///< Unified section list for module that
-                                     ///is used by the ObjectFile and and
-                                     ///ObjectFile instances for the debug info
+  lldb::SectionListUP m_sections_up; ///< Unified section list for module that
+                                     /// is used by the ObjectFile and and
+                                     /// ObjectFile instances for the debug info
 
   std::atomic<bool> m_did_load_objfile{false};
   std::atomic<bool> m_did_load_symbol_vendor{false};
@@ -1181,9 +1192,8 @@ private:
   Module(); // Only used internally by CreateJITModule ()
 
   size_t FindTypes_Impl(
-      const SymbolContext &sc, const ConstString &name,
-      const CompilerDeclContext *parent_decl_ctx, bool append,
-      size_t max_matches,
+      const ConstString &name, const CompilerDeclContext *parent_decl_ctx,
+      bool append, size_t max_matches,
       llvm::DenseSet<lldb_private::SymbolFile *> &searched_symbol_files,
       TypeMap &types);
 

@@ -1,9 +1,8 @@
 //===- WriterUtils.cpp ----------------------------------------------------===//
 //
-//                             The LLVM Linker
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -83,7 +82,7 @@ void wasm::writeInitExpr(raw_ostream &OS, const WasmInitExpr &InitExpr) {
   case WASM_OPCODE_I64_CONST:
     writeSleb128(OS, InitExpr.Value.Int64, "literal (i64)");
     break;
-  case WASM_OPCODE_GET_GLOBAL:
+  case WASM_OPCODE_GLOBAL_GET:
     writeUleb128(OS, InitExpr.Value.Global, "literal (global index)");
     break;
   default:
@@ -110,8 +109,17 @@ void wasm::writeGlobal(raw_ostream &OS, const WasmGlobal &Global) {
   writeInitExpr(OS, Global.InitExpr);
 }
 
+void wasm::writeEventType(raw_ostream &OS, const WasmEventType &Type) {
+  writeUleb128(OS, Type.Attribute, "event attribute");
+  writeUleb128(OS, Type.SigIndex, "sig index");
+}
+
+void wasm::writeEvent(raw_ostream &OS, const WasmEvent &Event) {
+  writeEventType(OS, Event.Type);
+}
+
 void wasm::writeTableType(raw_ostream &OS, const llvm::wasm::WasmTable &Type) {
-  writeU8(OS, WASM_TYPE_ANYFUNC, "table type");
+  writeU8(OS, WASM_TYPE_FUNCREF, "table type");
   writeLimits(OS, Type.Limits);
 }
 
@@ -125,6 +133,9 @@ void wasm::writeImport(raw_ostream &OS, const WasmImport &Import) {
     break;
   case WASM_EXTERNAL_GLOBAL:
     writeGlobalType(OS, Import.Global);
+    break;
+  case WASM_EXTERNAL_EVENT:
+    writeEventType(OS, Import.Event);
     break;
   case WASM_EXTERNAL_MEMORY:
     writeLimits(OS, Import.Memory);
@@ -192,7 +203,13 @@ std::string lld::toString(const WasmSignature &Sig) {
   return S.str();
 }
 
-std::string lld::toString(const WasmGlobalType &Sig) {
-  return (Sig.Mutable ? "var " : "const ") +
-         toString(static_cast<ValType>(Sig.Type));
+std::string lld::toString(const WasmGlobalType &Type) {
+  return (Type.Mutable ? "var " : "const ") +
+         toString(static_cast<ValType>(Type.Type));
+}
+
+std::string lld::toString(const WasmEventType &Type) {
+  if (Type.Attribute == WASM_EVENT_ATTRIBUTE_EXCEPTION)
+    return "exception";
+  return "unknown";
 }

@@ -1,9 +1,8 @@
 //===-- ProcessGDBRemote.cpp ------------------------------------*- C++ -*-===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -24,6 +23,7 @@
 #include <algorithm>
 #include <csignal>
 #include <map>
+#include <memory>
 #include <mutex>
 #include <sstream>
 
@@ -125,7 +125,7 @@ public:
   }
 
   PluginProperties() : Properties() {
-    m_collection_sp.reset(new OptionValueProperties(GetSettingName()));
+    m_collection_sp = std::make_shared<OptionValueProperties>(GetSettingName());
     m_collection_sp->Initialize(g_properties);
   }
 
@@ -153,20 +153,28 @@ typedef std::shared_ptr<PluginProperties> ProcessKDPPropertiesSP;
 static const ProcessKDPPropertiesSP &GetGlobalPluginProperties() {
   static ProcessKDPPropertiesSP g_settings_sp;
   if (!g_settings_sp)
-    g_settings_sp.reset(new PluginProperties());
+    g_settings_sp = std::make_shared<PluginProperties>();
   return g_settings_sp;
 }
 
-class ProcessGDBRemoteProvider : public repro::Provider {
+struct ProcessGDBRemoteInfo {
+  static const char *name;
+  static const char *file;
+};
+
+const char *ProcessGDBRemoteInfo::name = "gdb-remote";
+const char *ProcessGDBRemoteInfo::file = "gdb-remote.yaml";
+
+class ProcessGDBRemoteProvider
+    : public repro::Provider<ProcessGDBRemoteProvider> {
 public:
+  typedef ProcessGDBRemoteInfo info;
+
   ProcessGDBRemoteProvider(const FileSpec &directory) : Provider(directory) {
-    m_info.name = "gdb-remote";
-    m_info.files.push_back("gdb-remote.yaml");
   }
 
   raw_ostream *GetHistoryStream() {
-    FileSpec history_file =
-        GetDirectory().CopyByAppendingPathComponent("gdb-remote.yaml");
+    FileSpec history_file = GetRoot().CopyByAppendingPathComponent(info::file);
 
     std::error_code EC;
     m_stream_up = llvm::make_unique<raw_fd_ostream>(history_file.GetPath(), EC,
@@ -182,10 +190,14 @@ public:
 
   void Discard() override { m_callback(); }
 
+  static char ID;
+
 private:
   std::function<void()> m_callback;
   std::unique_ptr<raw_fd_ostream> m_stream_up;
 };
+
+char ProcessGDBRemoteProvider::ID = 0;
 
 } // namespace
 
@@ -235,7 +247,7 @@ ProcessGDBRemote::CreateInstance(lldb::TargetSP target_sp,
                                  const FileSpec *crash_file_path) {
   lldb::ProcessSP process_sp;
   if (crash_file_path == NULL)
-    process_sp.reset(new ProcessGDBRemote(target_sp, listener_sp));
+    process_sp = std::make_shared<ProcessGDBRemote>(target_sp, listener_sp);
   return process_sp;
 }
 
@@ -297,10 +309,9 @@ ProcessGDBRemote::ProcessGDBRemote(lldb::TargetSP target_sp,
   m_async_broadcaster.SetEventName(eBroadcastBitAsyncThreadDidExit,
                                    "async thread did exit");
 
-  repro::Generator *generator = repro::Reproducer::Instance().GetGenerator();
-  if (generator) {
+  if (repro::Generator *g = repro::Reproducer::Instance().GetGenerator()) {
     ProcessGDBRemoteProvider &provider =
-        generator->CreateProvider<ProcessGDBRemoteProvider>();
+        g->GetOrCreate<ProcessGDBRemoteProvider>();
     // Set the history stream to the stream owned by the provider.
     m_gdb_comm.SetHistoryStream(provider.GetHistoryStream());
     // Make sure to clear the stream again when we're finished.
@@ -679,7 +690,7 @@ void ProcessGDBRemote::BuildDynamicRegisterInfo(bool force) {
   m_register_info.Finalize(GetTarget().GetArchitecture());
 }
 
-Status ProcessGDBRemote::WillLaunch(Module *module) {
+Status ProcessGDBRemote::WillLaunch(lldb_private::Module *module) {
   return WillLaunchOrAttach();
 }
 
@@ -795,7 +806,7 @@ Status ProcessGDBRemote::WillLaunchOrAttach() {
 //----------------------------------------------------------------------
 // Process Control
 //----------------------------------------------------------------------
-Status ProcessGDBRemote::DoLaunch(Module *exe_module,
+Status ProcessGDBRemote::DoLaunch(lldb_private::Module *exe_module,
                                   ProcessLaunchInfo &launch_info) {
   Log *log(ProcessGDBRemoteLog::GetLogIfAllCategoriesSet(GDBR_LOG_PROCESS));
   Status error;
@@ -1009,14 +1020,14 @@ Status ProcessGDBRemote::ConnectToDebugserver(llvm::StringRef connect_url) {
     if (log)
       log->Printf("ProcessGDBRemote::%s Connecting to %s", __FUNCTION__,
                   connect_url.str().c_str());
-    std::unique_ptr<ConnectionFileDescriptor> conn_ap(
+    std::unique_ptr<ConnectionFileDescriptor> conn_up(
         new ConnectionFileDescriptor());
-    if (conn_ap.get()) {
+    if (conn_up) {
       const uint32_t max_retry_count = 50;
       uint32_t retry_count = 0;
       while (!m_gdb_comm.IsConnected()) {
-        if (conn_ap->Connect(connect_url, &error) == eConnectionStatusSuccess) {
-          m_gdb_comm.SetConnection(conn_ap.release());
+        if (conn_up->Connect(connect_url, &error) == eConnectionStatusSuccess) {
+          m_gdb_comm.SetConnection(conn_up.release());
           break;
         } else if (error.WasInterrupted()) {
           // If we were interrupted, don't keep retrying.
@@ -1524,7 +1535,7 @@ Status ProcessGDBRemote::DoResume() {
           new EventDataBytes(continue_packet.GetString().data(),
                              continue_packet.GetSize()));
 
-      if (listener_sp->GetEvent(event_sp, std::chrono::seconds(5)) == false) {
+      if (!listener_sp->GetEvent(event_sp, std::chrono::seconds(5))) {
         error.SetErrorString("Resume timed out.");
         if (log)
           log->Printf("ProcessGDBRemote::DoResume: Resume timed out.");
@@ -1698,7 +1709,7 @@ bool ProcessGDBRemote::UpdateThreadList(ThreadList &old_thread_list,
       ThreadSP thread_sp(
           old_thread_list_copy.RemoveThreadByProtocolID(tid, false));
       if (!thread_sp) {
-        thread_sp.reset(new ThreadGDBRemote(*this, tid));
+        thread_sp = std::make_shared<ThreadGDBRemote>(*this, tid);
         LLDB_LOGV(log, "Making new thread: {0} for thread ID: {1:x}.",
                   thread_sp.get(), thread_sp->GetID());
       } else {
@@ -1814,7 +1825,7 @@ ThreadSP ProcessGDBRemote::SetThreadStopInfo(
 
       if (!thread_sp) {
         // Create the thread if we need to
-        thread_sp.reset(new ThreadGDBRemote(*this, tid));
+        thread_sp = std::make_shared<ThreadGDBRemote>(*this, tid);
         m_thread_list_real.AddThread(thread_sp);
       }
     }
@@ -1878,7 +1889,7 @@ ThreadSP ProcessGDBRemote::SetThreadStopInfo(
           bool handled = false;
           bool did_exec = false;
           if (!reason.empty()) {
-            if (reason.compare("trace") == 0) {
+            if (reason == "trace") {
               addr_t pc = thread_sp->GetRegisterContext()->GetPC();
               lldb::BreakpointSiteSP bp_site_sp = thread_sp->GetProcess()
                                                       ->GetBreakpointSiteList()
@@ -1896,7 +1907,7 @@ ThreadSP ProcessGDBRemote::SetThreadStopInfo(
                 thread_sp->SetStopInfo(
                     StopInfo::CreateStopReasonToTrace(*thread_sp));
               handled = true;
-            } else if (reason.compare("breakpoint") == 0) {
+            } else if (reason == "breakpoint") {
               addr_t pc = thread_sp->GetRegisterContext()->GetPC();
               lldb::BreakpointSiteSP bp_site_sp = thread_sp->GetProcess()
                                                       ->GetBreakpointSiteList()
@@ -1917,9 +1928,9 @@ ThreadSP ProcessGDBRemote::SetThreadStopInfo(
                   thread_sp->SetStopInfo(invalid_stop_info_sp);
                 }
               }
-            } else if (reason.compare("trap") == 0) {
+            } else if (reason == "trap") {
               // Let the trap just use the standard signal stop reason below...
-            } else if (reason.compare("watchpoint") == 0) {
+            } else if (reason == "watchpoint") {
               StringExtractor desc_extractor(description.c_str());
               addr_t wp_addr = desc_extractor.GetU64(LLDB_INVALID_ADDRESS);
               uint32_t wp_index = desc_extractor.GetU32(LLDB_INVALID_INDEX32);
@@ -1951,11 +1962,11 @@ ThreadSP ProcessGDBRemote::SetThreadStopInfo(
               thread_sp->SetStopInfo(StopInfo::CreateStopReasonWithWatchpointID(
                   *thread_sp, watch_id, wp_hit_addr));
               handled = true;
-            } else if (reason.compare("exception") == 0) {
+            } else if (reason == "exception") {
               thread_sp->SetStopInfo(StopInfo::CreateStopReasonWithException(
                   *thread_sp, description.c_str()));
               handled = true;
-            } else if (reason.compare("exec") == 0) {
+            } else if (reason == "exec") {
               did_exec = true;
               thread_sp->SetStopInfo(
                   StopInfo::CreateStopReasonWithExec(*thread_sp));
@@ -1980,7 +1991,7 @@ ThreadSP ProcessGDBRemote::SetThreadStopInfo(
             }
           }
 
-          if (!handled && signo && did_exec == false) {
+          if (!handled && signo && !did_exec) {
             if (signo == SIGTRAP) {
               // Currently we are going to assume SIGTRAP means we are either
               // hitting a breakpoint or hardware single stepping.
@@ -2694,7 +2705,7 @@ void ProcessGDBRemote::SetLastStopPacket(
 
     // We are are not using non-stop mode, there can only be one last stop
     // reply packet, so clear the list.
-    if (GetTarget().GetNonStopModeEnabled() == false)
+    if (!GetTarget().GetNonStopModeEnabled())
       m_stop_packet_stack.clear();
 
     // Add this stop packet to the stop packet stack This stack will get popped
@@ -3428,16 +3439,10 @@ Status ProcessGDBRemote::ConnectToReplayServer(repro::Loader *loader) {
   if (!loader)
     return Status("No loader provided.");
 
-  auto provider_info = loader->GetProviderInfo("gdb-remote");
-  if (!provider_info)
-    return Status("No provider for gdb-remote.");
-
-  if (provider_info->files.empty())
-    return Status("Provider for  gdb-remote contains no files.");
-
   // Construct replay history path.
-  FileSpec history_file(loader->GetDirectory());
-  history_file.AppendPathComponent(provider_info->files.front());
+  FileSpec history_file = loader->GetFile<ProcessGDBRemoteInfo>();
+  if (!history_file)
+    return Status("No provider for gdb-remote.");
 
   // Enable replay mode.
   m_replay_mode = true;
@@ -4027,9 +4032,9 @@ bool ProcessGDBRemote::StopNoticingNewThreads() {
 }
 
 DynamicLoader *ProcessGDBRemote::GetDynamicLoader() {
-  if (m_dyld_ap.get() == NULL)
-    m_dyld_ap.reset(DynamicLoader::FindPlugin(this, NULL));
-  return m_dyld_ap.get();
+  if (m_dyld_up.get() == NULL)
+    m_dyld_up.reset(DynamicLoader::FindPlugin(this, NULL));
+  return m_dyld_up.get();
 }
 
 Status ProcessGDBRemote::SendEventData(const char *data) {
@@ -4056,8 +4061,8 @@ const DataBufferSP ProcessGDBRemote::GetAuxvData() {
     if (m_gdb_comm.SendPacketsAndConcatenateResponses("qXfer:auxv:read::",
                                                       response_string) ==
         GDBRemoteCommunication::PacketResult::Success)
-      buf.reset(new DataBufferHeap(response_string.c_str(),
-                                   response_string.length()));
+      buf = std::make_shared<DataBufferHeap>(response_string.c_str(),
+                                             response_string.length());
   }
   return buf;
 }
@@ -4925,7 +4930,7 @@ Status ProcessGDBRemote::GetFileLoadAddress(const FileSpec &file,
 
   StreamString packet;
   packet.PutCString("qFileLoadAddress:");
-  packet.PutCStringAsRawHex8(file_path.c_str());
+  packet.PutStringAsRawHex8(file_path);
 
   StringExtractorGDBRemote response;
   if (m_gdb_comm.SendPacketAndWaitForResponse(packet.GetString(), response,
@@ -5420,7 +5425,7 @@ public:
 
 CommandObject *ProcessGDBRemote::GetPluginCommandObject() {
   if (!m_command_sp)
-    m_command_sp.reset(new CommandObjectMultiwordProcessGDBRemote(
-        GetTarget().GetDebugger().GetCommandInterpreter()));
+    m_command_sp = std::make_shared<CommandObjectMultiwordProcessGDBRemote>(
+        GetTarget().GetDebugger().GetCommandInterpreter());
   return m_command_sp.get();
 }

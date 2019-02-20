@@ -1,9 +1,8 @@
 //===-- SystemZISelDAGToDAG.cpp - A dag to dag inst selector for SystemZ --===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -12,6 +11,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "SystemZTargetMachine.h"
+#include "SystemZISelLowering.h"
 #include "llvm/Analysis/AliasAnalysis.h"
 #include "llvm/CodeGen/SelectionDAGISel.h"
 #include "llvm/Support/Debug.h"
@@ -728,8 +728,7 @@ bool SystemZDAGToDAGISel::detectOrAndInsertion(SDValue &Op,
   // The inner check covers all cases but is more expensive.
   uint64_t Used = allOnes(Op.getValueSizeInBits());
   if (Used != (AndMask | InsertMask)) {
-    KnownBits Known;
-    CurDAG->computeKnownBits(Op.getOperand(0), Known);
+    KnownBits Known = CurDAG->computeKnownBits(Op.getOperand(0));
     if (Used != (AndMask | InsertMask | Known.Zero.getZExtValue()))
       return false;
   }
@@ -787,8 +786,7 @@ bool SystemZDAGToDAGISel::expandRxSBG(RxSBGOperands &RxSBG) const {
       // If some bits of Input are already known zeros, those bits will have
       // been removed from the mask.  See if adding them back in makes the
       // mask suitable.
-      KnownBits Known;
-      CurDAG->computeKnownBits(Input, Known);
+      KnownBits Known = CurDAG->computeKnownBits(Input);
       Mask |= Known.Zero.getZExtValue();
       if (!refineRxSBGMask(RxSBG, Mask))
         return false;
@@ -811,8 +809,7 @@ bool SystemZDAGToDAGISel::expandRxSBG(RxSBGOperands &RxSBG) const {
       // If some bits of Input are already known ones, those bits will have
       // been removed from the mask.  See if adding them back in makes the
       // mask suitable.
-      KnownBits Known;
-      CurDAG->computeKnownBits(Input, Known);
+      KnownBits Known = CurDAG->computeKnownBits(Input);
       Mask &= ~Known.One.getZExtValue();
       if (!refineRxSBGMask(RxSBG, Mask))
         return false;
@@ -1147,7 +1144,7 @@ bool SystemZDAGToDAGISel::tryGather(SDNode *N, unsigned Opcode) {
     return false;
 
   auto *Load = dyn_cast<LoadSDNode>(N->getOperand(1));
-  if (!Load || !Load->hasOneUse())
+  if (!Load || !Load->hasNUsesOfValue(1, 0))
     return false;
   if (Load->getMemoryVT().getSizeInBits() !=
       Load->getValueType(0).getSizeInBits())
@@ -1528,6 +1525,44 @@ void SystemZDAGToDAGISel::Select(SDNode *Node) {
         return;
     }
     break;
+  }
+
+  case ISD::BUILD_VECTOR: {
+    auto *BVN = cast<BuildVectorSDNode>(Node);
+    SDLoc DL(Node);
+    EVT VT = Node->getValueType(0);
+    uint64_t Mask = 0;
+    if (SystemZTargetLowering::tryBuildVectorByteMask(BVN, Mask)) {
+      SDNode *Res = CurDAG->getMachineNode(SystemZ::VGBM, DL, VT,
+                                CurDAG->getTargetConstant(Mask, DL, MVT::i32));
+      ReplaceNode(Node, Res);
+      return;
+    }
+    break;
+  }
+
+  case ISD::ConstantFP: {
+    APFloat Imm = cast<ConstantFPSDNode>(Node)->getValueAPF();
+    if (Imm.isZero() || Imm.isNegZero())
+      break;
+    const SystemZInstrInfo *TII = getInstrInfo();
+    EVT VT = Node->getValueType(0);
+    unsigned Start, End;
+    unsigned BitWidth = VT.getSizeInBits();
+    bool Success = SystemZTargetLowering::analyzeFPImm(Imm, BitWidth, Start,
+              End, static_cast<const SystemZInstrInfo *>(TII)); (void)Success;
+    assert(Success && "Expected legal FP immediate");
+    SDLoc DL(Node);
+    unsigned Opcode = (BitWidth == 32 ? SystemZ::VGMF : SystemZ::VGMG);
+    SDNode *Res = CurDAG->getMachineNode(Opcode, DL, VT,
+                            CurDAG->getTargetConstant(Start, DL, MVT::i32),
+                            CurDAG->getTargetConstant(End, DL, MVT::i32));
+    unsigned SubRegIdx = (BitWidth == 32 ? SystemZ::subreg_h32
+                                         : SystemZ::subreg_h64);
+    Res = CurDAG->getTargetExtractSubreg(SubRegIdx, DL, VT, SDValue(Res, 0))
+            .getNode();
+    ReplaceNode(Node, Res);
+    return;
   }
 
   case ISD::STORE: {

@@ -1,9 +1,8 @@
 //===-- FileCache.cpp -------------------------------------------*- C++ -*-===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -32,7 +31,7 @@ lldb::user_id_t FileCache::OpenFile(const FileSpec &file_spec, uint32_t flags,
   }
   FileSP file_sp(new File());
   error = FileSystem::Instance().Open(*file_sp, file_spec, flags, mode);
-  if (file_sp->IsValid() == false)
+  if (!file_sp->IsValid())
     return UINT64_MAX;
   lldb::user_id_t fd = file_sp->GetDescriptor();
   m_cache[fd] = file_sp;

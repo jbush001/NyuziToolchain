@@ -1,9 +1,8 @@
 //===- SubtargetEmitter.cpp - Generate subtarget enumerations -------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -93,6 +92,8 @@ class SubtargetEmitter {
                          &ProcItinLists);
   unsigned EmitRegisterFileTables(const CodeGenProcModel &ProcModel,
                                   raw_ostream &OS);
+  void EmitLoadStoreQueueInfo(const CodeGenProcModel &ProcModel,
+                              raw_ostream &OS);
   void EmitExtraProcessorInfo(const CodeGenProcModel &ProcModel,
                               raw_ostream &OS);
   void EmitProcessorProp(raw_ostream &OS, const Record *R, StringRef Name,
@@ -202,7 +203,7 @@ unsigned SubtargetEmitter::FeatureKeyValues(raw_ostream &OS) {
     OS << "  { "
        << "\"" << CommandLineName << "\", "
        << "\"" << Desc << "\", "
-       << "{ " << Target << "::" << Name << " }, ";
+       << Target << "::" << Name << ", ";
 
     RecVec ImpliesList = Feature->getValueAsListOfDefs("Implies");
 
@@ -241,18 +242,18 @@ unsigned SubtargetEmitter::CPUKeyValues(raw_ostream &OS) {
     StringRef Name = Processor->getValueAsString("Name");
     RecVec FeatureList = Processor->getValueAsListOfDefs("Features");
 
-    // Emit as { "cpu", "description", { f1 , f2 , ... fn } },
-    OS << "  { "
+    // Emit as { "cpu", "description", 0, { f1 , f2 , ... fn } },
+    // The 0 is for the feature id which isn't used for CPUs.
+    OS << " { "
        << "\"" << Name << "\", "
-       << "\"Select the " << Name << " processor\", ";
+       << "\"Select the " << Name << " processor\", 0, ";
 
     OS << "{";
     for (unsigned j = 0, M = FeatureList.size(); j < M;) {
       OS << " " << Target << "::" << FeatureList[j]->getName();
       if (++j < M) OS << ",";
     }
-    // The { } is for the "implies" section of this data structure.
-    OS << " }, { } },\n";
+    OS << " } },\n";
   }
 
   // End processor table
@@ -697,6 +698,30 @@ SubtargetEmitter::EmitRegisterFileTables(const CodeGenProcModel &ProcModel,
   return CostTblIndex;
 }
 
+void SubtargetEmitter::EmitLoadStoreQueueInfo(const CodeGenProcModel &ProcModel,
+                                              raw_ostream &OS) {
+  unsigned QueueID = 0;
+  if (ProcModel.LoadQueue) {
+    const Record *Queue = ProcModel.LoadQueue->getValueAsDef("QueueDescriptor");
+    QueueID =
+        1 + std::distance(ProcModel.ProcResourceDefs.begin(),
+                          std::find(ProcModel.ProcResourceDefs.begin(),
+                                    ProcModel.ProcResourceDefs.end(), Queue));
+  }
+  OS << "  " << QueueID << ", // Resource Descriptor for the Load Queue\n";
+
+  QueueID = 0;
+  if (ProcModel.StoreQueue) {
+    const Record *Queue =
+        ProcModel.StoreQueue->getValueAsDef("QueueDescriptor");
+    QueueID =
+        1 + std::distance(ProcModel.ProcResourceDefs.begin(),
+                          std::find(ProcModel.ProcResourceDefs.begin(),
+                                    ProcModel.ProcResourceDefs.end(), Queue));
+  }
+  OS << "  " << QueueID << ", // Resource Descriptor for the Store Queue\n";
+}
+
 void SubtargetEmitter::EmitExtraProcessorInfo(const CodeGenProcModel &ProcModel,
                                               raw_ostream &OS) {
   // Generate a table of register file descriptors (one entry per each user
@@ -714,6 +739,9 @@ void SubtargetEmitter::EmitExtraProcessorInfo(const CodeGenProcModel &ProcModel,
   // file descriptors and register costs).
   EmitRegisterFileInfo(ProcModel, ProcModel.RegisterFiles.size(),
                        NumCostEntries, OS);
+
+  // Add information about load/store queues.
+  EmitLoadStoreQueueInfo(ProcModel, OS);
 
   OS << "};\n";
 }

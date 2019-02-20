@@ -1,9 +1,8 @@
 //===-- SBModule.cpp --------------------------------------------*- C++ -*-===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -37,7 +36,7 @@ SBModule::SBModule(const lldb::ModuleSP &module_sp) : m_opaque_sp(module_sp) {}
 
 SBModule::SBModule(const SBModuleSpec &module_spec) : m_opaque_sp() {
   ModuleSP module_sp;
-  Status error = ModuleList::GetSharedModule(*module_spec.m_opaque_ap,
+  Status error = ModuleList::GetSharedModule(*module_spec.m_opaque_up,
                                              module_sp, NULL, NULL, NULL);
   if (module_sp)
     SetSP(module_sp);
@@ -440,13 +439,12 @@ lldb::SBTypeList SBModule::FindTypes(const char *type) {
 
   ModuleSP module_sp(GetSP());
   if (type && module_sp) {
-    SymbolContext sc;
     TypeList type_list;
     const bool exact_match = false;
     ConstString name(type);
     llvm::DenseSet<SymbolFile *> searched_symbol_files;
     const uint32_t num_matches = module_sp->FindTypes(
-        sc, name, exact_match, UINT32_MAX, searched_symbol_files, type_list);
+        name, exact_match, UINT32_MAX, searched_symbol_files, type_list);
 
     if (num_matches > 0) {
       for (size_t idx = 0; idx < num_matches; idx++) {
@@ -494,7 +492,7 @@ lldb::SBTypeList SBModule::GetTypes(uint32_t type_mask) {
   TypeClass type_class = static_cast<TypeClass>(type_mask);
   TypeList type_list;
   vendor->GetTypes(NULL, type_class, type_list);
-  sb_type_list.m_opaque_ap->Append(type_list);
+  sb_type_list.m_opaque_up->Append(type_list);
   return sb_type_list;
 }
 
@@ -587,7 +585,18 @@ lldb::SBAddress SBModule::GetObjectFileHeaderAddress() const {
   if (module_sp) {
     ObjectFile *objfile_ptr = module_sp->GetObjectFile();
     if (objfile_ptr)
-      sb_addr.ref() = objfile_ptr->GetHeaderAddress();
+      sb_addr.ref() = objfile_ptr->GetBaseAddress();
+  }
+  return sb_addr;
+}
+
+lldb::SBAddress SBModule::GetObjectFileEntryPointAddress() const {
+  lldb::SBAddress sb_addr;
+  ModuleSP module_sp(GetSP());
+  if (module_sp) {
+    ObjectFile *objfile_ptr = module_sp->GetObjectFile();
+    if (objfile_ptr)
+      sb_addr.ref() = objfile_ptr->GetEntryPointAddress();
   }
   return sb_addr;
 }

@@ -1,9 +1,8 @@
 //===-- SBInstruction.cpp ---------------------------------------*- C++ -*-===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -11,6 +10,7 @@
 
 #include "lldb/API/SBAddress.h"
 #include "lldb/API/SBFrame.h"
+
 #include "lldb/API/SBInstruction.h"
 #include "lldb/API/SBStream.h"
 #include "lldb/API/SBTarget.h"
@@ -25,6 +25,8 @@
 #include "lldb/Utility/ArchSpec.h"
 #include "lldb/Utility/DataBufferHeap.h"
 #include "lldb/Utility/DataExtractor.h"
+
+#include <memory>
 
 //----------------------------------------------------------------------
 // We recently fixed a leak in one of the Instruction subclasses where the
@@ -191,7 +193,7 @@ lldb::InstructionSP SBInstruction::GetOpaque() {
 
 void SBInstruction::SetOpaque(const lldb::DisassemblerSP &disasm_sp,
                               const lldb::InstructionSP &inst_sp) {
-  m_opaque_sp.reset(new InstructionImpl(disasm_sp, inst_sp));
+  m_opaque_sp = std::make_shared<InstructionImpl>(disasm_sp, inst_sp);
 }
 
 bool SBInstruction::GetDescription(lldb::SBStream &s) {

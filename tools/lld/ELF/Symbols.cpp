@@ -1,9 +1,8 @@
 //===- Symbols.cpp --------------------------------------------------------===//
 //
-//                             The LLVM Linker
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -38,6 +37,7 @@ Defined *ElfSym::GlobalOffsetTable;
 Defined *ElfSym::MipsGp;
 Defined *ElfSym::MipsGpDisp;
 Defined *ElfSym::MipsLocalGp;
+Defined *ElfSym::RelaIpltStart;
 Defined *ElfSym::RelaIpltEnd;
 
 static uint64_t getSymVA(const Symbol &Sym, int64_t &Addend) {
@@ -120,20 +120,24 @@ uint64_t Symbol::getVA(int64_t Addend) const {
   return OutVA + Addend;
 }
 
-uint64_t Symbol::getGotVA() const { return In.Got->getVA() + getGotOffset(); }
+uint64_t Symbol::getGotVA() const {
+  if (GotInIgot)
+    return In.IgotPlt->getVA() + getGotPltOffset();
+  return In.Got->getVA() + getGotOffset();
+}
 
 uint64_t Symbol::getGotOffset() const {
   return GotIndex * Target->GotEntrySize;
 }
 
 uint64_t Symbol::getGotPltVA() const {
-  if (this->IsInIgot)
+  if (IsInIplt)
     return In.IgotPlt->getVA() + getGotPltOffset();
   return In.GotPlt->getVA() + getGotPltOffset();
 }
 
 uint64_t Symbol::getGotPltOffset() const {
-  if (IsInIgot)
+  if (IsInIplt)
     return PltIndex * Target->GotPltEntrySize;
   return (PltIndex + Target->GotPltHeaderEntriesNum) * Target->GotPltEntrySize;
 }
@@ -144,17 +148,8 @@ uint64_t Symbol::getPPC64LongBranchOffset() const {
 }
 
 uint64_t Symbol::getPltVA() const {
-  if (this->IsInIplt) {
-    if (Config->ZRetpolineplt)
-      return In.Iplt->getVA() + Target->getPltEntryOffset(PltIndex);
-    return In.Iplt->getVA() + PltIndex * Target->PltEntrySize;
-  }
-  return In.Plt->getVA() + Target->getPltEntryOffset(PltIndex);
-}
-
-uint64_t Symbol::getPltOffset() const {
-  assert(!this->IsInIplt);
-  return Target->getPltEntryOffset(PltIndex);
+  PltSection *Plt = IsInIplt ? In.Iplt : In.Plt;
+  return Plt->getVA() + Plt->HeaderSize + PltIndex * Target->PltEntrySize;
 }
 
 uint64_t Symbol::getPPC64LongBranchTableVA() const {

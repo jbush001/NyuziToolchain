@@ -80,9 +80,16 @@ and from the command line.
   -verify``. With this option FileCheck will verify that input does not contain
   warnings not covered by any ``CHECK:`` patterns.
 
+.. option:: --dump-input <mode>
+
+  Dump input to stderr, adding annotations representing currently enabled
+  diagnostics.  Do this either 'always', on 'fail', or 'never'.  Specify 'help'
+  to explain the dump format and quit.
+
 .. option:: --dump-input-on-failure
 
-  When the check fails, dump all of the original input.
+  When the check fails, dump all of the original input.  This option is
+  deprecated in favor of `--dump-input=fail`.
 
 .. option:: --enable-var-scope
 
@@ -104,13 +111,16 @@ and from the command line.
 
 .. option:: -v
 
-  Print directive pattern matches.
+  Print good directive pattern matches.  However, if ``-input-dump=fail`` or
+  ``-input-dump=always``, add those matches as input annotations instead.
 
 .. option:: -vv
 
   Print information helpful in diagnosing internal FileCheck issues, such as
   discarded overlapping ``CHECK-DAG:`` matches, implicit EOF pattern matches,
   and ``CHECK-NOT:`` patterns that do not have matches.  Implies ``-v``.
+  However, if ``-input-dump=fail`` or ``-input-dump=always``, just add that
+  information as input annotations instead.
 
 .. option:: --allow-deprecated-dag-overlap
 

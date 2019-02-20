@@ -1,9 +1,8 @@
 //===-- hwasan.cc ---------------------------------------------------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -13,20 +12,21 @@
 //===----------------------------------------------------------------------===//
 
 #include "hwasan.h"
-#include "hwasan_mapping.h"
+#include "hwasan_checks.h"
+#include "hwasan_dynamic_shadow.h"
 #include "hwasan_poisoning.h"
 #include "hwasan_report.h"
 #include "hwasan_thread.h"
 #include "hwasan_thread_list.h"
 #include "sanitizer_common/sanitizer_atomic.h"
 #include "sanitizer_common/sanitizer_common.h"
-#include "sanitizer_common/sanitizer_flags.h"
 #include "sanitizer_common/sanitizer_flag_parser.h"
+#include "sanitizer_common/sanitizer_flags.h"
 #include "sanitizer_common/sanitizer_libc.h"
 #include "sanitizer_common/sanitizer_procmaps.h"
+#include "sanitizer_common/sanitizer_stackdepot.h"
 #include "sanitizer_common/sanitizer_stacktrace.h"
 #include "sanitizer_common/sanitizer_symbolizer.h"
-#include "sanitizer_common/sanitizer_stackdepot.h"
 #include "ubsan/ubsan_flags.h"
 #include "ubsan/ubsan_init.h"
 
@@ -58,7 +58,7 @@ Flags *flags() {
 }
 
 int hwasan_inited = 0;
-int hwasan_shadow_inited = 0;
+int hwasan_instrumentation_inited = 0;
 bool hwasan_init_is_running;
 
 int hwasan_report_count = 0;
@@ -88,6 +88,8 @@ static void InitializeFlags() {
     cf.check_printf = false;
     cf.intercept_tls_get_addr = true;
     cf.exitcode = 99;
+    // 8 shadow pages ~512kB, small enough to cover common stack sizes.
+    cf.clear_shadow_mmap_threshold = 4096 * (SANITIZER_ANDROID ? 2 : 8);
     // Sigtrap is used in error reporting.
     cf.handle_sigtrap = kHandleSignalExclusive;
 
@@ -188,17 +190,13 @@ static void HwasanFormatMemoryUsage(InternalScopedString &s) {
 #if SANITIZER_ANDROID
 static char *memory_usage_buffer = nullptr;
 
-#define PR_SET_VMA 0x53564d41
-#define PR_SET_VMA_ANON_NAME 0
-
 static void InitMemoryUsage() {
   memory_usage_buffer =
       (char *)MmapOrDie(kMemoryUsageBufferSize, "memory usage string");
   CHECK(memory_usage_buffer);
   memory_usage_buffer[0] = '\0';
-  CHECK(internal_prctl(PR_SET_VMA, PR_SET_VMA_ANON_NAME,
-                       (uptr)memory_usage_buffer, kMemoryUsageBufferSize,
-                       (uptr)memory_usage_buffer) == 0);
+  DecorateMapping((uptr)memory_usage_buffer, kMemoryUsageBufferSize,
+                  memory_usage_buffer);
 }
 
 void UpdateMemoryUsage() {
@@ -229,8 +227,8 @@ static InternalMmapVectorNoCtor<FrameDescriptionArray> AllFrames;
 void InitFrameDescriptors(uptr b, uptr e) {
   FrameDescription *beg = reinterpret_cast<FrameDescription *>(b);
   FrameDescription *end = reinterpret_cast<FrameDescription *>(e);
-  // Must have at least one entry, which we can use for a linked list.
-  CHECK_GE(end - beg, 1U);
+  if (beg == end)
+    return;
   AllFrames.push_back({beg, end});
   if (Verbosity())
     for (FrameDescription *frame_descr = beg; frame_descr < end; frame_descr++)
@@ -245,6 +243,22 @@ const char *GetStackFrameDescr(uptr pc) {
   return nullptr;
 }
 
+// Prepare to run instrumented code on the main thread.
+void InitInstrumentation() {
+  if (hwasan_instrumentation_inited) return;
+
+  if (!InitShadow()) {
+    Printf("FATAL: HWAddressSanitizer cannot mmap the shadow memory.\n");
+    DumpProcessMap();
+    Die();
+  }
+
+  InitThreads();
+  hwasanThreadList().CreateCurrentThread();
+
+  hwasan_instrumentation_inited = 1;
+}
+
 } // namespace __hwasan
 
 // Interface.
@@ -253,18 +267,13 @@ using namespace __hwasan;
 
 uptr __hwasan_shadow_memory_dynamic_address;  // Global interface symbol.
 
-void __hwasan_shadow_init() {
-  if (hwasan_shadow_inited) return;
-  if (!InitShadow()) {
-    Printf("FATAL: HWAddressSanitizer cannot mmap the shadow memory.\n");
-    DumpProcessMap();
-    Die();
-  }
-  hwasan_shadow_inited = 1;
-}
-
 void __hwasan_init_frames(uptr beg, uptr end) {
   InitFrameDescriptors(beg, end);
+}
+
+void __hwasan_init_static() {
+  InitShadowGOT();
+  InitInstrumentation();
 }
 
 void __hwasan_init() {
@@ -283,12 +292,15 @@ void __hwasan_init() {
 
   __sanitizer_set_report_path(common_flags()->log_path);
 
+  AndroidTestTlsSlot();
+
   DisableCoreDumperIfNecessary();
 
-  __hwasan_shadow_init();
+  InitInstrumentation();
 
-  InitThreads();
-  hwasanThreadList().CreateCurrentThread();
+  // Needs to be called here because flags()->random_tags might not have been
+  // initialized when InitInstrumentation() was called.
+  GetCurrentThread()->InitRandomState();
 
   MadviseShadow();
 
@@ -333,14 +345,14 @@ sptr __hwasan_test_shadow(const void *p, uptr sz) {
   if (sz == 0)
     return -1;
   tag_t ptr_tag = GetTagFromPointer((uptr)p);
-  if (ptr_tag == 0)
-    return -1;
   uptr ptr_raw = UntagAddr(reinterpret_cast<uptr>(p));
   uptr shadow_first = MemToShadow(ptr_raw);
   uptr shadow_last = MemToShadow(ptr_raw + sz - 1);
   for (uptr s = shadow_first; s <= shadow_last; ++s)
-    if (*(tag_t*)s != ptr_tag)
-      return ShadowToMem(s) - ptr_raw;
+    if (*(tag_t *)s != ptr_tag) {
+      sptr offset = ShadowToMem(s) - ptr_raw;
+      return offset < 0 ? 0 : offset;
+    }
   return -1;
 }
 
@@ -361,63 +373,6 @@ void __sanitizer_unaligned_store32(uu32 *p, u32 x) {
 }
 void __sanitizer_unaligned_store64(uu64 *p, u64 x) {
   *p = x;
-}
-
-template<unsigned X>
-__attribute__((always_inline))
-static void SigTrap(uptr p) {
-#if defined(__aarch64__)
-  (void)p;
-  // 0x900 is added to do not interfere with the kernel use of lower values of
-  // brk immediate.
-  // FIXME: Add a constraint to put the pointer into x0, the same as x86 branch.
-  asm("brk %0\n\t" ::"n"(0x900 + X));
-#elif defined(__x86_64__)
-  // INT3 + NOP DWORD ptr [EAX + X] to pass X to our signal handler, 5 bytes
-  // total. The pointer is passed via rdi.
-  // 0x40 is added as a safeguard, to help distinguish our trap from others and
-  // to avoid 0 offsets in the command (otherwise it'll be reduced to a
-  // different nop command, the three bytes one).
-  asm volatile(
-      "int3\n"
-      "nopl %c0(%%rax)\n"
-      :: "n"(0x40 + X), "D"(p));
-#else
-  // FIXME: not always sigill.
-  __builtin_trap();
-#endif
-  // __builtin_unreachable();
-}
-
-enum class ErrorAction { Abort, Recover };
-enum class AccessType { Load, Store };
-
-template <ErrorAction EA, AccessType AT, unsigned LogSize>
-__attribute__((always_inline, nodebug)) static void CheckAddress(uptr p) {
-  tag_t ptr_tag = GetTagFromPointer(p);
-  uptr ptr_raw = p & ~kAddressTagMask;
-  tag_t mem_tag = *(tag_t *)MemToShadow(ptr_raw);
-  if (UNLIKELY(ptr_tag != mem_tag)) {
-    SigTrap<0x20 * (EA == ErrorAction::Recover) +
-           0x10 * (AT == AccessType::Store) + LogSize>(p);
-    if (EA == ErrorAction::Abort) __builtin_unreachable();
-  }
-}
-
-template <ErrorAction EA, AccessType AT>
-__attribute__((always_inline, nodebug)) static void CheckAddressSized(uptr p,
-                                                                      uptr sz) {
-  CHECK_NE(0, sz);
-  tag_t ptr_tag = GetTagFromPointer(p);
-  uptr ptr_raw = p & ~kAddressTagMask;
-  tag_t *shadow_first = (tag_t *)MemToShadow(ptr_raw);
-  tag_t *shadow_last = (tag_t *)MemToShadow(ptr_raw + sz - 1);
-  for (tag_t *t = shadow_first; t <= shadow_last; ++t)
-    if (UNLIKELY(ptr_tag != *t)) {
-      SigTrap<0x20 * (EA == ErrorAction::Recover) +
-             0x10 * (AT == AccessType::Store) + 0xf>(p);
-      if (EA == ErrorAction::Abort) __builtin_unreachable();
-    }
 }
 
 void __hwasan_loadN(uptr p, uptr sz) {

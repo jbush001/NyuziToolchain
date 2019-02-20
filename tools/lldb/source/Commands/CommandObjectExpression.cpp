@@ -1,9 +1,8 @@
 //===-- CommandObjectExpression.cpp -----------------------------*- C++ -*-===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -364,7 +363,7 @@ int CommandObjectExpression::HandleCompletion(CompletionRequest &request) {
   Status error;
   lldb::UserExpressionSP expr(target->GetUserExpressionForLanguage(
       code, llvm::StringRef(), language, UserExpression::eResultTypeAny,
-      options, error));
+      options, nullptr, error));
   if (error.Fail())
     return 0;
 
@@ -420,8 +419,7 @@ bool CommandObjectExpression::EvaluateExpression(llvm::StringRef expr,
     if (m_command_options.auto_apply_fixits == eLazyBoolCalculate)
       auto_apply_fixits = target->GetEnableAutoApplyFixIts();
     else
-      auto_apply_fixits =
-          m_command_options.auto_apply_fixits == eLazyBoolYes ? true : false;
+      auto_apply_fixits = m_command_options.auto_apply_fixits == eLazyBoolYes;
 
     options.SetAutoApplyFixIts(auto_apply_fixits);
 

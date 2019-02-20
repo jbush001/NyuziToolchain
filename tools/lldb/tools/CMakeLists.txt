@@ -1,14 +1,16 @@
-if (CMAKE_SYSTEM_NAME MATCHES "Darwin")
-# XXX Nyuzi: disable debugserver because this doesn't run on target
-#  add_subdirectory(debugserver)
-#  add_subdirectory(darwin-debug)
-endif()
 add_subdirectory(argdumper)
 add_subdirectory(driver)
+add_subdirectory(intel-features)
+add_subdirectory(lldb-instr)
 add_subdirectory(lldb-mi)
+add_subdirectory(lldb-test)
 add_subdirectory(lldb-vscode)
+
+if (CMAKE_SYSTEM_NAME MATCHES "Darwin")
+  add_subdirectory(darwin-debug)
+#  add_subdirectory(debugserver)
+endif()
+
 if (LLDB_CAN_USE_LLDB_SERVER AND NOT SKIP_LLDB_SERVER_BUILD)
   add_subdirectory(lldb-server)
 endif()
-add_subdirectory(intel-features)
-add_subdirectory(lldb-test)

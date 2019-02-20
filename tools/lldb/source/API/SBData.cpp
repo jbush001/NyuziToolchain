@@ -1,13 +1,10 @@
 //===-- SBData.cpp ----------------------------------------------*- C++ -*-===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
-
-#include <inttypes.h>
 
 #include "lldb/API/SBData.h"
 #include "lldb/API/SBError.h"
@@ -18,6 +15,9 @@
 #include "lldb/Utility/DataExtractor.h"
 #include "lldb/Utility/Log.h"
 #include "lldb/Utility/Stream.h"
+
+#include <cinttypes>
+#include <memory>
 
 using namespace lldb;
 using namespace lldb_private;
@@ -382,7 +382,7 @@ void SBData::SetData(lldb::SBError &error, const void *buf, size_t size,
                      lldb::ByteOrder endian, uint8_t addr_size) {
   Log *log(lldb_private::GetLogIfAllCategoriesSet(LIBLLDB_LOG_API));
   if (!m_opaque_sp.get())
-    m_opaque_sp.reset(new DataExtractor(buf, size, endian, addr_size));
+    m_opaque_sp = std::make_shared<DataExtractor>(buf, size, endian, addr_size);
   else
   {
     m_opaque_sp->SetData(buf, size, endian);
@@ -531,8 +531,8 @@ bool SBData::SetDataFromCString(const char *data) {
   lldb::DataBufferSP buffer_sp(new DataBufferHeap(data, data_len));
 
   if (!m_opaque_sp.get())
-    m_opaque_sp.reset(
-        new DataExtractor(buffer_sp, GetByteOrder(), GetAddressByteSize()));
+    m_opaque_sp = std::make_shared<DataExtractor>(buffer_sp, GetByteOrder(),
+                                                  GetAddressByteSize());
   else
     m_opaque_sp->SetData(buffer_sp);
 
@@ -561,8 +561,8 @@ bool SBData::SetDataFromUInt64Array(uint64_t *array, size_t array_len) {
   lldb::DataBufferSP buffer_sp(new DataBufferHeap(array, data_len));
 
   if (!m_opaque_sp.get())
-    m_opaque_sp.reset(
-        new DataExtractor(buffer_sp, GetByteOrder(), GetAddressByteSize()));
+    m_opaque_sp = std::make_shared<DataExtractor>(buffer_sp, GetByteOrder(),
+                                                  GetAddressByteSize());
   else
     m_opaque_sp->SetData(buffer_sp);
 
@@ -593,8 +593,8 @@ bool SBData::SetDataFromUInt32Array(uint32_t *array, size_t array_len) {
   lldb::DataBufferSP buffer_sp(new DataBufferHeap(array, data_len));
 
   if (!m_opaque_sp.get())
-    m_opaque_sp.reset(
-        new DataExtractor(buffer_sp, GetByteOrder(), GetAddressByteSize()));
+    m_opaque_sp = std::make_shared<DataExtractor>(buffer_sp, GetByteOrder(),
+                                                  GetAddressByteSize());
   else
     m_opaque_sp->SetData(buffer_sp);
 
@@ -625,8 +625,8 @@ bool SBData::SetDataFromSInt64Array(int64_t *array, size_t array_len) {
   lldb::DataBufferSP buffer_sp(new DataBufferHeap(array, data_len));
 
   if (!m_opaque_sp.get())
-    m_opaque_sp.reset(
-        new DataExtractor(buffer_sp, GetByteOrder(), GetAddressByteSize()));
+    m_opaque_sp = std::make_shared<DataExtractor>(buffer_sp, GetByteOrder(),
+                                                  GetAddressByteSize());
   else
     m_opaque_sp->SetData(buffer_sp);
 
@@ -657,8 +657,8 @@ bool SBData::SetDataFromSInt32Array(int32_t *array, size_t array_len) {
   lldb::DataBufferSP buffer_sp(new DataBufferHeap(array, data_len));
 
   if (!m_opaque_sp.get())
-    m_opaque_sp.reset(
-        new DataExtractor(buffer_sp, GetByteOrder(), GetAddressByteSize()));
+    m_opaque_sp = std::make_shared<DataExtractor>(buffer_sp, GetByteOrder(),
+                                                  GetAddressByteSize());
   else
     m_opaque_sp->SetData(buffer_sp);
 
@@ -689,8 +689,8 @@ bool SBData::SetDataFromDoubleArray(double *array, size_t array_len) {
   lldb::DataBufferSP buffer_sp(new DataBufferHeap(array, data_len));
 
   if (!m_opaque_sp.get())
-    m_opaque_sp.reset(
-        new DataExtractor(buffer_sp, GetByteOrder(), GetAddressByteSize()));
+    m_opaque_sp = std::make_shared<DataExtractor>(buffer_sp, GetByteOrder(),
+                                                  GetAddressByteSize());
   else
     m_opaque_sp->SetData(buffer_sp);
 

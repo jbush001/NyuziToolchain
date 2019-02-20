@@ -1,9 +1,8 @@
 //===-- RISCVMCExpr.h - RISCV specific MC expression classes ----*- C++ -*-===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -29,6 +28,7 @@ public:
     VK_RISCV_HI,
     VK_RISCV_PCREL_LO,
     VK_RISCV_PCREL_HI,
+    VK_RISCV_GOT_HI,
     VK_RISCV_CALL,
     VK_RISCV_Invalid
   };
@@ -38,6 +38,9 @@ private:
   const VariantKind Kind;
 
   int64_t evaluateAsInt64(int64_t Value) const;
+
+  bool evaluatePCRelLo(MCValue &Res, const MCAsmLayout *Layout,
+                       const MCFixup *Fixup) const;
 
   explicit RISCVMCExpr(const MCExpr *Expr, VariantKind Kind)
       : Expr(Expr), Kind(Kind) {}
@@ -49,6 +52,13 @@ public:
   VariantKind getKind() const { return Kind; }
 
   const MCExpr *getSubExpr() const { return Expr; }
+
+  /// Get the corresponding PC-relative HI fixup that a VK_RISCV_PCREL_LO
+  /// points to.
+  ///
+  /// \returns nullptr if this isn't a VK_RISCV_PCREL_LO pointing to a
+  /// known PC-relative HI fixup.
+  const MCFixup *getPCRelHiFixup() const;
 
   void printImpl(raw_ostream &OS, const MCAsmInfo *MAI) const override;
   bool evaluateAsRelocatableImpl(MCValue &Res, const MCAsmLayout *Layout,
