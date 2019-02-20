@@ -30,7 +30,7 @@ The following sections describe how to install these packages.
 - swig 3.0.11+ (http://www.swig.org/) with python wrappers
 - libedit (http://thrysoee.dk/editline/)
 - ncurses
-- ninja
+- ninja 1.3+
 
 ## Building on Linux
 
@@ -41,7 +41,7 @@ a recent version of your Linux distribution. Instructions are below are for Ubun
 for other distributions:
 
     sudo apt-get install libxml2-dev cmake gcc g++ python bison flex \
-        zlib1g-dev swig python-dev libedit-dev libncurses5-dev ninja
+        zlib1g-dev swig python-dev libedit-dev libncurses5-dev ninja-build
 
     git clone git@github.com:jbush001/NyuziToolchain.git
     cd NyuziToolchain
