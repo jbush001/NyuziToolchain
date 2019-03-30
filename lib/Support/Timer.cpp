@@ -19,6 +19,7 @@
 #include "llvm/Support/ManagedStatic.h"
 #include "llvm/Support/Mutex.h"
 #include "llvm/Support/Process.h"
+#include "llvm/Support/Signposts.h"
 #include "llvm/Support/YAMLTraits.h"
 #include "llvm/Support/raw_ostream.h"
 #include <limits>
@@ -38,6 +39,9 @@ static std::string &getLibSupportInfoOutputFilename() {
 }
 
 static ManagedStatic<sys::SmartMutex<true> > TimerLock;
+
+/// Allows llvm::Timer to emit signposts when supported.
+static ManagedStatic<SignpostEmitter> Signposts;
 
 namespace {
   static cl::opt<bool>
@@ -133,6 +137,7 @@ TimeRecord TimeRecord::getCurrentTime(bool Start) {
 void Timer::startTimer() {
   assert(!Running && "Cannot start a running timer");
   Running = Triggered = true;
+  Signposts->startTimerInterval(this);
   StartTime = TimeRecord::getCurrentTime(true);
 }
 
@@ -141,6 +146,7 @@ void Timer::stopTimer() {
   Running = false;
   Time += TimeRecord::getCurrentTime(false);
   Time -= StartTime;
+  Signposts->endTimerInterval(this);
 }
 
 void Timer::clear() {
@@ -341,7 +347,7 @@ void TimerGroup::PrintQueuedTimers(raw_ostream &OS) {
   TimersToPrint.clear();
 }
 
-void TimerGroup::prepareToPrintList() {
+void TimerGroup::prepareToPrintList(bool ResetTime) {
   // See if any of our timers were started, if so add them to TimersToPrint.
   for (Timer *T = FirstTimer; T; T = T->Next) {
     if (!T->hasTriggered()) continue;
@@ -351,15 +357,20 @@ void TimerGroup::prepareToPrintList() {
 
     TimersToPrint.emplace_back(T->Time, T->Name, T->Description);
 
+    if (ResetTime)
+      T->clear();
+
     if (WasRunning)
       T->startTimer();
   }
 }
 
-void TimerGroup::print(raw_ostream &OS) {
-  sys::SmartScopedLock<true> L(*TimerLock);
-
-  prepareToPrintList();
+void TimerGroup::print(raw_ostream &OS, bool ResetAfterPrint) {
+  {
+    // After preparing the timers we can free the lock
+    sys::SmartScopedLock<true> L(*TimerLock);
+    prepareToPrintList(ResetAfterPrint);
+  }
 
   // If any timers were started, print the group.
   if (!TimersToPrint.empty())
@@ -399,7 +410,7 @@ void TimerGroup::printJSONValue(raw_ostream &OS, const PrintRecord &R,
 const char *TimerGroup::printJSONValues(raw_ostream &OS, const char *delim) {
   sys::SmartScopedLock<true> L(*TimerLock);
 
-  prepareToPrintList();
+  prepareToPrintList(false);
   for (const PrintRecord &R : TimersToPrint) {
     OS << delim;
     delim = ",\n";

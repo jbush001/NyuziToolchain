@@ -14,7 +14,7 @@ _start:   load_32 s0, got(a_symbol)(gp)   # @ 0x1000
           .globl a_symbol
           .globl b_symbol
           .globl c_symbol
-a_symbol: .long 0                       # @ 2000
+a_symbol: .long 0                       # @ 3000
 b_symbol: .long 0
 c_symbol: .long 0
 
@@ -22,13 +22,11 @@ c_symbol: .long 0
 # - Each of the GOT entries points to the proper location in the data segment
 #   (these are all byte reversed because it's little endian)
 # - Each of the instructions points to the proper GOT index.
+# This assumes the linker will put the got at 0x2000 and the data segment at
+# 0x3000, but that's not guaranteed.
 
 # GOT_CONTENTS: Contents of section .got:
-# GOT_CONTENTS: 3000 00200000 04200000 08200000
+# GOT_CONTENTS: 2000 00300000 04300000 08300000
 # DISASM: load_32 s0, (gp)
 # DISASM: load_32 s1, 4(gp)
 # DISASM: load_32 s2, 8(gp)
-
-
-
-

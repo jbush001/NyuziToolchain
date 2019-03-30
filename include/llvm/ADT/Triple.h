@@ -220,6 +220,7 @@ public:
     ELF,
     MachO,
     Wasm,
+    XCOFF,
   };
 
 private:
@@ -599,6 +600,11 @@ public:
            !isAndroid();
   }
 
+  /// Tests whether the OS is AIX.
+  bool isOSAIX() const {
+    return getOS() == Triple::AIX;
+  }
+
   /// Tests whether the OS uses the ELF binary format.
   bool isOSBinFormatELF() const {
     return getObjectFormat() == Triple::ELF;
@@ -617,6 +623,11 @@ public:
   /// Tests whether the OS uses the Wasm binary format.
   bool isOSBinFormatWasm() const {
     return getObjectFormat() == Triple::Wasm;
+  }
+
+  /// Tests whether the OS uses the XCOFF binary format.
+  bool isOSBinFormatXCOFF() const {
+    return getObjectFormat() == Triple::XCOFF;
   }
 
   /// Tests whether the target is the PS4 CPU

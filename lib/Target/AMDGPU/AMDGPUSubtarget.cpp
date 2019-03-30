@@ -45,7 +45,7 @@ GCNSubtarget::~GCNSubtarget() = default;
 R600Subtarget &
 R600Subtarget::initializeSubtargetDependencies(const Triple &TT,
                                                StringRef GPU, StringRef FS) {
-  SmallString<256> FullFS("+promote-alloca,+dx10-clamp,");
+  SmallString<256> FullFS("+promote-alloca,");
   FullFS += FS;
   ParseSubtargetFeatures(GPU, FullFS);
 
@@ -77,10 +77,10 @@ GCNSubtarget::initializeSubtargetDependencies(const Triple &TT,
   // Similarly we want enable-prt-strict-null to be on by default and not to
   // unset everything else if it is disabled
 
-  SmallString<256> FullFS("+promote-alloca,+dx10-clamp,+load-store-opt,");
+  SmallString<256> FullFS("+promote-alloca,+load-store-opt,");
 
   if (isAmdHsaOS()) // Turn on FlatForGlobal for HSA.
-    FullFS += "+flat-address-space,+flat-for-global,+unaligned-buffer-access,+trap-handler,";
+    FullFS += "+flat-for-global,+unaligned-buffer-access,+trap-handler,";
 
   // FIXME: I don't think think Evergreen has any useful support for
   // denormals, but should be checked. Should we issue a warning somewhere
@@ -155,7 +155,7 @@ GCNSubtarget::GCNSubtarget(const Triple &TT, StringRef GPU, StringRef FS,
     AMDGPUGenSubtargetInfo(TT, GPU, FS),
     AMDGPUSubtarget(TT),
     TargetTriple(TT),
-    Gen(SOUTHERN_ISLANDS),
+    Gen(TT.getOS() == Triple::AMDHSA ? SEA_ISLANDS : SOUTHERN_ISLANDS),
     InstrItins(getInstrItineraryForCPU(GPU)),
     LDSBankCount(0),
     MaxPrivateElementSize(0),
@@ -164,7 +164,6 @@ GCNSubtarget::GCNSubtarget(const Triple &TT, StringRef GPU, StringRef FS,
     HalfRate64Ops(false),
 
     FP64FP16Denormals(false),
-    DX10Clamp(false),
     FlatForGlobal(false),
     AutoWaitcntBeforeBarrier(false),
     CodeObjectV3(false),
@@ -174,8 +173,6 @@ GCNSubtarget::GCNSubtarget(const Triple &TT, StringRef GPU, StringRef FS,
     HasApertureRegs(false),
     EnableXNACK(false),
     TrapHandler(false),
-    DebuggerInsertNops(false),
-    DebuggerEmitPrologue(false),
 
     EnableHugePrivateBuffer(false),
     EnableLoadStoreOpt(false),
@@ -463,7 +460,6 @@ R600Subtarget::R600Subtarget(const Triple &TT, StringRef GPU, StringRef FS,
   FMA(false),
   CaymanISA(false),
   CFALUBug(false),
-  DX10Clamp(false),
   HasVertexCache(false),
   R600ALUInst(false),
   FP64(false),
@@ -634,9 +630,7 @@ struct MemOpClusterMutation : ScheduleDAGMutation {
 
   MemOpClusterMutation(const SIInstrInfo *tii) : TII(tii) {}
 
-  void apply(ScheduleDAGInstrs *DAGInstrs) override {
-    ScheduleDAGMI *DAG = static_cast<ScheduleDAGMI*>(DAGInstrs);
-
+  void apply(ScheduleDAGInstrs *DAG) override {
     SUnit *SUa = nullptr;
     // Search for two consequent memory operations and link them
     // to prevent scheduler from moving them apart.

@@ -45,6 +45,14 @@ WasmSymbolType Symbol::getWasmType() const {
   llvm_unreachable("invalid symbol kind");
 }
 
+const WasmSignature *Symbol::getSignature() const {
+  if (auto* F = dyn_cast<FunctionSymbol>(this))
+    return F->Signature;
+  if (auto *L = dyn_cast<LazySymbol>(this))
+    return L->Signature;
+  return nullptr;
+}
+
 InputChunk *Symbol::getChunk() const {
   if (auto *F = dyn_cast<DefinedFunction>(this))
     return F->Function;
@@ -83,6 +91,12 @@ void Symbol::setOutputSymbolIndex(uint32_t Index) {
                     << "\n");
   assert(OutputSymbolIndex == INVALID_INDEX);
   OutputSymbolIndex = Index;
+}
+
+void Symbol::setGOTIndex(uint32_t Index) {
+  LLVM_DEBUG(dbgs() << "setGOTIndex " << Name << " -> " << Index << "\n");
+  assert(GOTIndex == INVALID_INDEX);
+  GOTIndex = Index;
 }
 
 bool Symbol::isWeak() const {

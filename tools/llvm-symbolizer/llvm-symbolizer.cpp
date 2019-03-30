@@ -198,29 +198,32 @@ static void symbolizeInput(StringRef InputString, LLVMSymbolizer &Symbolizer,
                            DIPrinter &Printer) {
   bool IsData = false;
   std::string ModuleName;
-  uint64_t ModuleOffset = 0;
-  if (!parseCommand(StringRef(InputString), IsData, ModuleName, ModuleOffset)) {
+  uint64_t Offset = 0;
+  if (!parseCommand(StringRef(InputString), IsData, ModuleName, Offset)) {
     outs() << InputString;
     return;
   }
 
   if (ClPrintAddress) {
     outs() << "0x";
-    outs().write_hex(ModuleOffset);
+    outs().write_hex(Offset);
     StringRef Delimiter = ClPrettyPrint ? ": " : "\n";
     outs() << Delimiter;
   }
-  ModuleOffset -= ClAdjustVMA;
+  Offset -= ClAdjustVMA;
   if (IsData) {
-    auto ResOrErr = Symbolizer.symbolizeData(ModuleName, ModuleOffset);
+    auto ResOrErr = Symbolizer.symbolizeData(
+        ModuleName, {Offset, object::SectionedAddress::UndefSection});
     Printer << (error(ResOrErr) ? DIGlobal() : ResOrErr.get());
   } else if (ClPrintInlining) {
-    auto ResOrErr =
-        Symbolizer.symbolizeInlinedCode(ModuleName, ModuleOffset, ClDwpName);
+    auto ResOrErr = Symbolizer.symbolizeInlinedCode(
+        ModuleName, {Offset, object::SectionedAddress::UndefSection},
+        ClDwpName);
     Printer << (error(ResOrErr) ? DIInliningInfo() : ResOrErr.get());
   } else {
-    auto ResOrErr =
-        Symbolizer.symbolizeCode(ModuleName, ModuleOffset, ClDwpName);
+    auto ResOrErr = Symbolizer.symbolizeCode(
+        ModuleName, {Offset, object::SectionedAddress::UndefSection},
+        ClDwpName);
     Printer << (error(ResOrErr) ? DILineInfo() : ResOrErr.get());
   }
   outs() << "\n";

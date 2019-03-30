@@ -1529,7 +1529,7 @@ void Driver::PrintVersion(const Compilation &C, raw_ostream &OS) const {
     if (TC.isThreadModelSupported(A->getValue()))
       OS << "Thread model: " << A->getValue();
   } else
-    OS << "Thread model: " << TC.getThreadModel(C.getArgs());
+    OS << "Thread model: " << TC.getThreadModel();
   OS << '\n';
 
   // Print out the install directory.
@@ -1641,11 +1641,7 @@ bool Driver::HandleImmediateArgs(const Compilation &C) {
   if (C.getArgs().hasArg(options::OPT_dumpversion)) {
     // Since -dumpversion is only implemented for pedantic GCC compatibility, we
     // return an answer which matches our definition of __VERSION__.
-    //
-    // If we want to return a more correct answer some day, then we should
-    // introduce a non-pedantically GCC compatible mode to Clang in which we
-    // provide sensible definitions for -dumpversion, __VERSION__, etc.
-    llvm::outs() << "4.2.1\n";
+    llvm::outs() << CLANG_VERSION_STRING << "\n";
     return false;
   }
 
@@ -2294,6 +2290,9 @@ class OffloadingActionBuilder final {
 
     /// Flag that is set to true if this builder acted on the current input.
     bool IsActive = false;
+
+    /// Flag for -fgpu-rdc.
+    bool Relocatable = false;
   public:
     CudaActionBuilderBase(Compilation &C, DerivedArgList &Args,
                           const Driver::InputList &Inputs,
@@ -2339,6 +2338,12 @@ class OffloadingActionBuilder final {
 
       // If this is an unbundling action use it as is for each CUDA toolchain.
       if (auto *UA = dyn_cast<OffloadUnbundlingJobAction>(HostAction)) {
+
+        // If -fgpu-rdc is disabled, should not unbundle since there is no
+        // device code to link.
+        if (!Relocatable)
+          return ABRT_Inactive;
+
         CudaDeviceActions.clear();
         auto *IA = cast<InputAction>(UA->getInputs().back());
         std::string FileName = IA->getInputArg().getAsString(Args);
@@ -2409,6 +2414,9 @@ class OffloadingActionBuilder final {
       if (AssociatedOffloadKind == Action::OFK_HIP &&
           !C.hasOffloadToolChain<Action::OFK_HIP>())
         return false;
+
+      Relocatable = Args.hasFlag(options::OPT_fgpu_rdc,
+          options::OPT_fno_gpu_rdc, /*Default=*/false);
 
       const ToolChain *HostTC = C.getSingleOffloadToolChain<Action::OFK_Host>();
       assert(HostTC && "No toolchain for host compilation.");
@@ -2595,13 +2603,11 @@ class OffloadingActionBuilder final {
   class HIPActionBuilder final : public CudaActionBuilderBase {
     /// The linker inputs obtained for each device arch.
     SmallVector<ActionList, 8> DeviceLinkerInputs;
-    bool Relocatable;
 
   public:
     HIPActionBuilder(Compilation &C, DerivedArgList &Args,
                      const Driver::InputList &Inputs)
-        : CudaActionBuilderBase(C, Args, Inputs, Action::OFK_HIP),
-          Relocatable(false) {}
+        : CudaActionBuilderBase(C, Args, Inputs, Action::OFK_HIP) {}
 
     bool canUseBundlerUnbundler() const override { return true; }
 
@@ -2705,13 +2711,6 @@ class OffloadingActionBuilder final {
                CudaArchToString(GpuArchList[I]), AssociatedOffloadKind);
         ++I;
       }
-    }
-
-    bool initialize() override {
-      Relocatable = Args.hasFlag(options::OPT_fgpu_rdc,
-          options::OPT_fno_gpu_rdc, /*Default=*/false);
-
-      return CudaActionBuilderBase::initialize();
     }
   };
 

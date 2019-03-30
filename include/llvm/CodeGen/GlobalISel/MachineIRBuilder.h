@@ -421,6 +421,21 @@ public:
   MachineInstrBuilder buildPtrMask(unsigned Res, unsigned Op0,
                                    uint32_t NumBits);
 
+  /// Build and insert \p Res, \p CarryOut = G_UADDO \p Op0, \p Op1
+  ///
+  /// G_UADDO sets \p Res to \p Op0 + \p Op1 (truncated to the bit width) and
+  /// sets \p CarryOut to 1 if the result overflowed in unsigned arithmetic.
+  ///
+  /// \pre setBasicBlock or setMI must have been called.
+  /// \pre \p Res, \p Op0 and \p Op1 must be generic virtual registers with the
+  /// same scalar type.
+  ////\pre \p CarryOut must be generic virtual register with scalar type
+  ///(typically s1)
+  ///
+  /// \return The newly created instruction.
+  MachineInstrBuilder buildUAddo(const DstOp &Res, const DstOp &CarryOut,
+                                 const SrcOp &Op0, const SrcOp &Op1);
+
   /// Build and insert \p Res, \p CarryOut = G_UADDE \p Op0,
   /// \p Op1, \p CarryIn
   ///
@@ -472,6 +487,11 @@ public:
   /// Build and insert a G_PTRTOINT instruction.
   MachineInstrBuilder buildPtrToInt(const DstOp &Dst, const SrcOp &Src) {
     return buildInstr(TargetOpcode::G_PTRTOINT, {Dst}, {Src});
+  }
+
+  /// Build and insert \p Dst = G_BITCAST \p Src
+  MachineInstrBuilder buildBitcast(const DstOp &Dst, const SrcOp &Src) {
+    return buildInstr(TargetOpcode::G_BITCAST, {Dst}, {Src});
   }
 
   /// \return The opcode of the extension the target wants to use for boolean
@@ -771,7 +791,7 @@ public:
   /// \pre setBasicBlock or setMI must have been called.
   ///
   /// \return a MachineInstrBuilder for the newly created instruction.
-  MachineInstrBuilder buildIntrinsic(Intrinsic::ID ID, unsigned Res,
+  MachineInstrBuilder buildIntrinsic(Intrinsic::ID ID, ArrayRef<unsigned> Res,
                                      bool HasSideEffects);
 
   /// Build and insert \p Res = G_FPTRUNC \p Op

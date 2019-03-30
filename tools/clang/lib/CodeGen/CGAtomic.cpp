@@ -35,7 +35,6 @@ namespace {
     uint64_t ValueSizeInBits;
     CharUnits AtomicAlign;
     CharUnits ValueAlign;
-    CharUnits LValueAlign;
     TypeEvaluationKind EvaluationKind;
     bool UseLibcall;
     LValue LVal;
@@ -132,7 +131,6 @@ namespace {
     QualType getAtomicType() const { return AtomicTy; }
     QualType getValueType() const { return ValueTy; }
     CharUnits getAtomicAlignment() const { return AtomicAlign; }
-    CharUnits getValueAlignment() const { return ValueAlign; }
     uint64_t getAtomicSizeInBits() const { return AtomicSizeInBits; }
     uint64_t getValueSizeInBits() const { return ValueSizeInBits; }
     TypeEvaluationKind getEvaluationKind() const { return EvaluationKind; }
@@ -679,7 +677,8 @@ static void EmitAtomicOp(CodeGenFunction &CGF, AtomicExpr *Expr, Address Dest,
   // Handle constant scope.
   if (auto SC = dyn_cast<llvm::ConstantInt>(Scope)) {
     auto SCID = CGF.getTargetHooks().getLLVMSyncScopeID(
-        ScopeModel->map(SC->getZExtValue()), CGF.CGM.getLLVMContext());
+        CGF.CGM.getLangOpts(), ScopeModel->map(SC->getZExtValue()),
+        Order, CGF.CGM.getLLVMContext());
     EmitAtomicOp(CGF, Expr, Dest, Ptr, Val1, Val2, IsWeak, FailureOrder, Size,
                  Order, SCID);
     return;
@@ -708,7 +707,9 @@ static void EmitAtomicOp(CodeGenFunction &CGF, AtomicExpr *Expr, Address Dest,
     Builder.SetInsertPoint(B);
     EmitAtomicOp(CGF, Expr, Dest, Ptr, Val1, Val2, IsWeak, FailureOrder, Size,
                  Order,
-                 CGF.getTargetHooks().getLLVMSyncScopeID(ScopeModel->map(S),
+                 CGF.getTargetHooks().getLLVMSyncScopeID(CGF.CGM.getLangOpts(),
+                                                         ScopeModel->map(S),
+                                                         Order,
                                                          CGF.getLLVMContext()));
     Builder.CreateBr(ContBB);
   }

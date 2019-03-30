@@ -49,6 +49,8 @@ private:
   int writeSectionContent(raw_ostream &OS, WasmYAML::NameSection &Section);
   int writeSectionContent(raw_ostream &OS, WasmYAML::LinkingSection &Section);
   int writeSectionContent(raw_ostream &OS, WasmYAML::ProducersSection &Section);
+  int writeSectionContent(raw_ostream &OS,
+                          WasmYAML::TargetFeaturesSection &Section);
   WasmYAML::Object &Obj;
   uint32_t NumImportedFunctions = 0;
   uint32_t NumImportedGlobals = 0;
@@ -280,6 +282,17 @@ int WasmWriter::writeSectionContent(raw_ostream &OS,
 }
 
 int WasmWriter::writeSectionContent(raw_ostream &OS,
+                                    WasmYAML::TargetFeaturesSection &Section) {
+  writeStringRef(Section.Name, OS);
+  encodeULEB128(Section.Features.size(), OS);
+  for (auto &E : Section.Features) {
+    writeUint8(OS, E.Prefix);
+    writeStringRef(E.Name, OS);
+  }
+  return 0;
+}
+
+int WasmWriter::writeSectionContent(raw_ostream &OS,
                                     WasmYAML::CustomSection &Section) {
   if (auto S = dyn_cast<WasmYAML::DylinkSection>(&Section)) {
     if (auto Err = writeSectionContent(OS, *S))
@@ -291,6 +304,9 @@ int WasmWriter::writeSectionContent(raw_ostream &OS,
     if (auto Err = writeSectionContent(OS, *S))
       return Err;
   } else if (auto S = dyn_cast<WasmYAML::ProducersSection>(&Section)) {
+    if (auto Err = writeSectionContent(OS, *S))
+      return Err;
+  } else if (auto S = dyn_cast<WasmYAML::TargetFeaturesSection>(&Section)) {
     if (auto Err = writeSectionContent(OS, *S))
       return Err;
   } else {
@@ -487,8 +503,11 @@ int WasmWriter::writeSectionContent(raw_ostream &OS,
                                     WasmYAML::DataSection &Section) {
   encodeULEB128(Section.Segments.size(), OS);
   for (auto &Segment : Section.Segments) {
-    encodeULEB128(Segment.MemoryIndex, OS);
-    writeInitExpr(Segment.Offset, OS);
+    encodeULEB128(Segment.InitFlags, OS);
+    if (Segment.InitFlags & wasm::WASM_SEGMENT_HAS_MEMINDEX)
+      encodeULEB128(Segment.MemoryIndex, OS);
+    if ((Segment.InitFlags & wasm::WASM_SEGMENT_IS_PASSIVE) == 0)
+      writeInitExpr(Segment.Offset, OS);
     encodeULEB128(Segment.Content.binary_size(), OS);
     Segment.Content.writeAsBinary(OS);
   }

@@ -225,8 +225,8 @@ StringRef llvm::object::getELFSectionTypeName(uint32_t Machine, unsigned Type) {
     switch (Type) {
       STRINGIFY_ENUM_CASE(ELF, SHT_MIPS_REGINFO);
       STRINGIFY_ENUM_CASE(ELF, SHT_MIPS_OPTIONS);
-      STRINGIFY_ENUM_CASE(ELF, SHT_MIPS_ABIFLAGS);
       STRINGIFY_ENUM_CASE(ELF, SHT_MIPS_DWARF);
+      STRINGIFY_ENUM_CASE(ELF, SHT_MIPS_ABIFLAGS);
     }
     break;
   default:
@@ -430,7 +430,7 @@ ELFFile<ELFT>::android_relas(const Elf_Shdr *Sec) const {
 }
 
 template <class ELFT>
-const char *ELFFile<ELFT>::getDynamicTagAsString(unsigned Arch,
+std::string ELFFile<ELFT>::getDynamicTagAsString(unsigned Arch,
                                                  uint64_t Type) const {
 #define DYNAMIC_STRINGIFY_ENUM(tag, value)                                     \
   case value:                                                                  \
@@ -444,6 +444,7 @@ const char *ELFFile<ELFT>::getDynamicTagAsString(unsigned Arch,
 #include "llvm/BinaryFormat/DynamicTags.def"
 #undef HEXAGON_DYNAMIC_TAG
     }
+    break;
 
   case ELF::EM_MIPS:
     switch (Type) {
@@ -451,6 +452,7 @@ const char *ELFFile<ELFT>::getDynamicTagAsString(unsigned Arch,
 #include "llvm/BinaryFormat/DynamicTags.def"
 #undef MIPS_DYNAMIC_TAG
     }
+    break;
 
   case ELF::EM_PPC64:
     switch (Type) {
@@ -458,6 +460,7 @@ const char *ELFFile<ELFT>::getDynamicTagAsString(unsigned Arch,
 #include "llvm/BinaryFormat/DynamicTags.def"
 #undef PPC64_DYNAMIC_TAG
     }
+    break;
   }
 #undef DYNAMIC_TAG
   switch (Type) {
@@ -476,12 +479,12 @@ const char *ELFFile<ELFT>::getDynamicTagAsString(unsigned Arch,
 #undef DYNAMIC_TAG_MARKER
 #undef DYNAMIC_STRINGIFY_ENUM
   default:
-    return "unknown";
+    return "<unknown:>0x" + utohexstr(Type, true);
   }
 }
 
 template <class ELFT>
-const char *ELFFile<ELFT>::getDynamicTagAsString(uint64_t Type) const {
+std::string ELFFile<ELFT>::getDynamicTagAsString(uint64_t Type) const {
   return getDynamicTagAsString(getHeader()->e_machine, Type);
 }
 

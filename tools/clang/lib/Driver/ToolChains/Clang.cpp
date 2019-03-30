@@ -1,4 +1,4 @@
-//===--- LLVM.cpp - Clang+LLVM ToolChain Implementations --------*- C++ -*-===//
+//===-- Clang.cpp - Clang+LLVM ToolChain Implementations --------*- C++ -*-===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -731,6 +731,13 @@ static void addPGOAndCoverageFlags(Compilation &C, const Driver &D,
       PGOGenerateArg->getOption().matches(options::OPT_fno_profile_generate))
     PGOGenerateArg = nullptr;
 
+  auto *CSPGOGenerateArg = Args.getLastArg(options::OPT_fcs_profile_generate,
+                                           options::OPT_fcs_profile_generate_EQ,
+                                           options::OPT_fno_profile_generate);
+  if (CSPGOGenerateArg &&
+      CSPGOGenerateArg->getOption().matches(options::OPT_fno_profile_generate))
+    CSPGOGenerateArg = nullptr;
+
   auto *ProfileGenerateArg = Args.getLastArg(
       options::OPT_fprofile_instr_generate,
       options::OPT_fprofile_instr_generate_EQ,
@@ -754,6 +761,10 @@ static void addPGOAndCoverageFlags(Compilation &C, const Driver &D,
     D.Diag(diag::err_drv_argument_not_allowed_with)
         << ProfileGenerateArg->getSpelling() << ProfileUseArg->getSpelling();
 
+  if (CSPGOGenerateArg && PGOGenerateArg)
+    D.Diag(diag::err_drv_argument_not_allowed_with)
+        << CSPGOGenerateArg->getSpelling() << PGOGenerateArg->getSpelling();
+
   if (ProfileGenerateArg) {
     if (ProfileGenerateArg->getOption().matches(
             options::OPT_fprofile_instr_generate_EQ))
@@ -763,11 +774,22 @@ static void addPGOAndCoverageFlags(Compilation &C, const Driver &D,
     CmdArgs.push_back("-fprofile-instrument=clang");
   }
 
+  Arg *PGOGenArg = nullptr;
   if (PGOGenerateArg) {
+    assert(!CSPGOGenerateArg);
+    PGOGenArg = PGOGenerateArg;
     CmdArgs.push_back("-fprofile-instrument=llvm");
-    if (PGOGenerateArg->getOption().matches(
-            options::OPT_fprofile_generate_EQ)) {
-      SmallString<128> Path(PGOGenerateArg->getValue());
+  }
+  if (CSPGOGenerateArg) {
+    assert(!PGOGenerateArg);
+    PGOGenArg = CSPGOGenerateArg;
+    CmdArgs.push_back("-fprofile-instrument=csllvm");
+  }
+  if (PGOGenArg) {
+    if (PGOGenArg->getOption().matches(
+            PGOGenerateArg ? options::OPT_fprofile_generate_EQ
+                           : options::OPT_fcs_profile_generate_EQ)) {
+      SmallString<128> Path(PGOGenArg->getValue());
       llvm::sys::path::append(Path, "default_%m.profraw");
       CmdArgs.push_back(
           Args.MakeArgString(Twine("-fprofile-instrument-path=") + Path));
@@ -2033,6 +2055,7 @@ static void CollectArgsForIntegratedAssembler(Compilation &C,
   bool TakeNextArg = false;
 
   bool UseRelaxRelocations = C.getDefaultToolChain().useRelaxRelocations();
+  bool UseNoExecStack = C.getDefaultToolChain().isNoExecStackDefault();
   const char *MipsTargetFeature = nullptr;
   for (const Arg *A :
        Args.filtered(options::OPT_Wa_COMMA, options::OPT_Xassembler)) {
@@ -2114,7 +2137,7 @@ static void CollectArgsForIntegratedAssembler(Compilation &C,
       } else if (Value == "--fatal-warnings") {
         CmdArgs.push_back("-massembler-fatal-warnings");
       } else if (Value == "--noexecstack") {
-        CmdArgs.push_back("-mnoexecstack");
+        UseNoExecStack = true;
       } else if (Value.startswith("-compress-debug-sections") ||
                  Value.startswith("--compress-debug-sections") ||
                  Value == "-nocompress-debug-sections" ||
@@ -2177,6 +2200,8 @@ static void CollectArgsForIntegratedAssembler(Compilation &C,
   }
   if (UseRelaxRelocations)
     CmdArgs.push_back("--mrelax-relocations");
+  if (UseNoExecStack)
+    CmdArgs.push_back("-mnoexecstack");
   if (MipsTargetFeature != nullptr) {
     CmdArgs.push_back("-target-feature");
     CmdArgs.push_back(MipsTargetFeature);
@@ -3240,8 +3265,7 @@ static void RenderDebugOptions(const ToolChain &TC, const Driver &D,
 
   // -gsplit-dwarf should turn on -g and enable the backend dwarf
   // splitting and extraction.
-  // FIXME: Currently only works on Linux and Fuchsia.
-  if (T.isOSLinux() || T.isOSFuchsia()) {
+  if (T.isOSBinFormatELF()) {
     if (!SplitDWARFInlining)
       CmdArgs.push_back("-fno-split-dwarf-inlining");
 
@@ -3832,7 +3856,7 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
     CmdArgs.push_back(A->getValue());
   }
   else
-    CmdArgs.push_back(Args.MakeArgString(TC.getThreadModel(Args)));
+    CmdArgs.push_back(Args.MakeArgString(TC.getThreadModel()));
 
   Args.AddLastArg(CmdArgs, options::OPT_fveclib);
 
@@ -4057,13 +4081,13 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
   // Add the split debug info name to the command lines here so we
   // can propagate it to the backend.
   bool SplitDWARF = (DwarfFission != DwarfFissionKind::None) &&
-                    (RawTriple.isOSLinux() || RawTriple.isOSFuchsia()) &&
+                    TC.getTriple().isOSBinFormatELF() &&
                     (isa<AssembleJobAction>(JA) || isa<CompileJobAction>(JA) ||
                      isa<BackendJobAction>(JA));
   const char *SplitDWARFOut;
   if (SplitDWARF) {
     CmdArgs.push_back("-split-dwarf-file");
-    SplitDWARFOut = SplitDebugName(Args, Output);
+    SplitDWARFOut = SplitDebugName(Args, Input, Output);
     CmdArgs.push_back(SplitDWARFOut);
   }
 
@@ -4466,6 +4490,8 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
       Args.AddAllArgs(CmdArgs, options::OPT_fopenmp_version_EQ);
       Args.AddAllArgs(CmdArgs, options::OPT_fopenmp_cuda_number_of_sm_EQ);
       Args.AddAllArgs(CmdArgs, options::OPT_fopenmp_cuda_blocks_per_sm_EQ);
+      Args.AddAllArgs(CmdArgs,
+                      options::OPT_fopenmp_cuda_teams_reduction_recs_num_EQ);
       if (Args.hasFlag(options::OPT_fopenmp_optimistic_collapse,
                        options::OPT_fno_openmp_optimistic_collapse,
                        /*Default=*/false))
@@ -4525,6 +4551,7 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
   Args.AddLastArg(CmdArgs, options::OPT_fdiagnostics_parseable_fixits);
   Args.AddLastArg(CmdArgs, options::OPT_ftime_report);
   Args.AddLastArg(CmdArgs, options::OPT_ftrapv);
+  Args.AddLastArg(CmdArgs, options::OPT_malign_double);
 
   if (Arg *A = Args.getLastArg(options::OPT_ftrapv_handler_EQ)) {
     CmdArgs.push_back("-ftrapv-handler");
@@ -4613,6 +4640,14 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
   // Forward -f options with positive and negative forms; we translate
   // these by hand.
   if (Arg *A = getLastProfileSampleUseArg(Args)) {
+    auto *PGOArg = Args.getLastArg(
+        options::OPT_fprofile_generate, options::OPT_fprofile_generate_EQ,
+        options::OPT_fcs_profile_generate, options::OPT_fcs_profile_generate_EQ,
+        options::OPT_fprofile_use, options::OPT_fprofile_use_EQ);
+    if (PGOArg)
+      D.Diag(diag::err_drv_argument_not_allowed_with)
+          << "SampleUse with PGO options";
+
     StringRef fname = A->getValue();
     if (!llvm::sys::fs::exists(fname))
       D.Diag(diag::err_drv_no_such_file) << fname;
@@ -5005,8 +5040,11 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
                    options::OPT_fno_apple_pragma_pack, false))
     CmdArgs.push_back("-fapple-pragma-pack");
 
+  // Remarks can be enabled with any of the `-f.*optimization-record.*` flags.
   if (Args.hasFlag(options::OPT_fsave_optimization_record,
                    options::OPT_foptimization_record_file_EQ,
+                   options::OPT_fno_save_optimization_record, false) ||
+      Args.hasFlag(options::OPT_foptimization_record_passes_EQ,
                    options::OPT_fno_save_optimization_record, false)) {
     CmdArgs.push_back("-opt-record-file");
 
@@ -5040,6 +5078,11 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
 
       llvm::sys::path::replace_extension(F, "opt.yaml");
       CmdArgs.push_back(Args.MakeArgString(F));
+    }
+    if (const Arg *A =
+            Args.getLastArg(options::OPT_foptimization_record_passes_EQ)) {
+      CmdArgs.push_back("-opt-record-passes");
+      CmdArgs.push_back(A->getValue());
     }
   }
 
@@ -5308,6 +5351,17 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
     } else {
       CmdArgs.push_back("-global-isel=0");
     }
+  }
+
+  if (Args.hasArg(options::OPT_forder_file_instrumentation)) {
+     CmdArgs.push_back("-forder-file-instrumentation");
+     // Enable order file instrumentation when ThinLTO is not on. When ThinLTO is
+     // on, we need to pass these flags as linker flags and that will be handled
+     // outside of the compiler.
+     if (!D.isUsingLTO()) {
+       CmdArgs.push_back("-mllvm");
+       CmdArgs.push_back("-enable-order-file-instrumentation");
+     }
   }
 
   if (Arg *A = Args.getLastArg(options::OPT_fforce_enable_int128,
@@ -5884,6 +5938,15 @@ void ClangAs::AddX86TargetArgs(const ArgList &Args,
   }
 }
 
+void ClangAs::AddRISCVTargetArgs(const ArgList &Args,
+                               ArgStringList &CmdArgs) const {
+  const llvm::Triple &Triple = getToolChain().getTriple();
+  StringRef ABIName = riscv::getRISCVABI(Args, Triple);
+
+  CmdArgs.push_back("-target-abi");
+  CmdArgs.push_back(ABIName.data());
+}
+
 void ClangAs::ConstructJob(Compilation &C, const JobAction &JA,
                            const InputInfo &Output, const InputInfoList &Inputs,
                            const ArgList &Args,
@@ -6053,6 +6116,11 @@ void ClangAs::ConstructJob(Compilation &C, const JobAction &JA,
         CmdArgs.push_back("-arm-add-build-attributes");
     }
     break;
+
+  case llvm::Triple::riscv32:
+  case llvm::Triple::riscv64:
+    AddRISCVTargetArgs(Args, CmdArgs);
+    break;
   }
 
   // Consume all the warning flags. Usually this would be handled more
@@ -6073,10 +6141,10 @@ void ClangAs::ConstructJob(Compilation &C, const JobAction &JA,
 
   const llvm::Triple &T = getToolChain().getTriple();
   Arg *A;
-  if ((getDebugFissionKind(D, Args, A) == DwarfFissionKind::Split) &&
-      (T.isOSLinux() || T.isOSFuchsia())) {
+  if (getDebugFissionKind(D, Args, A) == DwarfFissionKind::Split &&
+      T.isOSBinFormatELF()) {
     CmdArgs.push_back("-split-dwarf-file");
-    CmdArgs.push_back(SplitDebugName(Args, Output));
+    CmdArgs.push_back(SplitDebugName(Args, Input, Output));
   }
 
   assert(Input.isFilename() && "Invalid input.");

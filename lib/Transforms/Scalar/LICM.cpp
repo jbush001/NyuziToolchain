@@ -1191,33 +1191,39 @@ bool llvm::canSinkOrHoistInst(Instruction &I, AAResults *AA, DominatorTree *DT,
     } else { // MSSAU
       if (isOnlyMemoryAccess(SI, CurLoop, MSSAU))
         return true;
-      if (*LicmMssaOptCounter < LicmMssaOptCap) {
-        auto *Source = MSSA->getSkipSelfWalker()->getClobberingMemoryAccess(SI);
-        (*LicmMssaOptCounter)++;
-        // If there are no clobbering Defs in the loop, we still need to check
-        // for interfering Uses. If there are more accesses than the Promotion
-        // cap, give up, we're not walking a list that long. Otherwise, walk the
-        // list, check each Use if it's optimized to an access outside the loop.
-        // If yes, store is safe to hoist. This is fairly restrictive, but
-        // conservatively correct.
-        // TODO: Cache set of Uses on the first walk in runOnLoop, update when
-        // moving accesses. Can also extend to dominating uses.
-        if ((!MSSA->isLiveOnEntryDef(Source) &&
-             CurLoop->contains(Source->getBlock())) ||
-            NoOfMemAccTooLarge)
-          return false;
-        for (auto *BB : CurLoop->getBlocks())
-          if (auto *Accesses = MSSA->getBlockAccesses(BB))
-            for (const auto &MA : *Accesses)
-              if (const auto *MU = dyn_cast<MemoryUse>(&MA)) {
-                auto *MD = MU->getDefiningAccess();
-                if (!MSSA->isLiveOnEntryDef(MD) &&
-                    CurLoop->contains(MD->getBlock()))
-                  return false;
+      // If there are more accesses than the Promotion cap, give up, we're not
+      // walking a list that long.
+      if (NoOfMemAccTooLarge)
+        return false;
+      // Check store only if there's still "quota" to check clobber.
+      if (*LicmMssaOptCounter >= LicmMssaOptCap)
+        return false;
+      // If there are interfering Uses (i.e. their defining access is in the
+      // loop), or ordered loads (stored as Defs!), don't move this store.
+      // Could do better here, but this is conservatively correct.
+      // TODO: Cache set of Uses on the first walk in runOnLoop, update when
+      // moving accesses. Can also extend to dominating uses.
+      for (auto *BB : CurLoop->getBlocks())
+        if (auto *Accesses = MSSA->getBlockAccesses(BB)) {
+          for (const auto &MA : *Accesses)
+            if (const auto *MU = dyn_cast<MemoryUse>(&MA)) {
+              auto *MD = MU->getDefiningAccess();
+              if (!MSSA->isLiveOnEntryDef(MD) &&
+                  CurLoop->contains(MD->getBlock()))
+                return false;
+            } else if (const auto *MD = dyn_cast<MemoryDef>(&MA))
+              if (auto *LI = dyn_cast<LoadInst>(MD->getMemoryInst())) {
+                (void)LI; // Silence warning.
+                assert(!LI->isUnordered() && "Expected unordered load");
+                return false;
               }
-        return true;
-      }
-      return false;
+        }
+
+      auto *Source = MSSA->getSkipSelfWalker()->getClobberingMemoryAccess(SI);
+      (*LicmMssaOptCounter)++;
+      // If there are no clobbering Defs in the loop, store is safe to hoist.
+      return MSSA->isLiveOnEntryDef(Source) ||
+             !CurLoop->contains(Source->getBlock());
     }
   }
 
@@ -1924,9 +1930,21 @@ bool llvm::promoteLoopAccessesToScalars(
         SawUnorderedAtomic |= Load->isAtomic();
         SawNotAtomic |= !Load->isAtomic();
 
-        if (!DereferenceableInPH)
-          DereferenceableInPH = isSafeToExecuteUnconditionally(
-              *Load, DT, CurLoop, SafetyInfo, ORE, Preheader->getTerminator());
+        unsigned InstAlignment = Load->getAlignment();
+        if (!InstAlignment)
+          InstAlignment =
+              MDL.getABITypeAlignment(Load->getType());
+
+        // Note that proving a load safe to speculate requires proving
+        // sufficient alignment at the target location.  Proving it guaranteed
+        // to execute does as well.  Thus we can increase our guaranteed
+        // alignment as well. 
+        if (!DereferenceableInPH || (InstAlignment > Alignment))
+          if (isSafeToExecuteUnconditionally(*Load, DT, CurLoop, SafetyInfo,
+                                             ORE, Preheader->getTerminator())) {
+            DereferenceableInPH = true;
+            Alignment = std::max(Alignment, InstAlignment);
+          }
       } else if (const StoreInst *Store = dyn_cast<StoreInst>(UI)) {
         // Stores *of* the pointer are not interesting, only stores *to* the
         // pointer.
@@ -1995,6 +2013,14 @@ bool llvm::promoteLoopAccessesToScalars(
   // might not be able to lower the result.  We can't downgrade since that
   // would violate memory model.  Also, align 0 is an error for atomics.
   if (SawUnorderedAtomic && SawNotAtomic)
+    return false;
+
+  // If we're inserting an atomic load in the preheader, we must be able to
+  // lower it.  We're only guaranteed to be able to lower naturally aligned
+  // atomics.
+  auto *SomePtrElemType = SomePtr->getType()->getPointerElementType();
+  if (SawUnorderedAtomic &&
+      Alignment < MDL.getTypeStoreSize(SomePtrElemType))
     return false;
 
   // If we couldn't prove we can hoist the load, bail.
@@ -2068,6 +2094,8 @@ bool llvm::promoteLoopAccessesToScalars(
   // stores in the loop.
   Promoter.run(LoopUses);
 
+  if (MSSAU && VerifyMemorySSA)
+    MSSAU->getMemorySSA()->verifyMemorySSA();
   // If the SSAUpdater didn't use the load in the preheader, just zap it now.
   if (PreheaderLoad->use_empty())
     eraseInstruction(*PreheaderLoad, *SafetyInfo, CurAST, MSSAU);

@@ -16,19 +16,76 @@
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/ErrorHandling.h"
 
+#include <iostream>
 #include <map>
+#include <type_traits>
+
+template <typename T,
+          typename std::enable_if<std::is_fundamental<T>::value, int>::type = 0>
+inline void log_append(llvm::raw_string_ostream &ss, const T &t) {
+  ss << t;
+}
+
+template <typename T, typename std::enable_if<!std::is_fundamental<T>::value,
+                                              int>::type = 0>
+inline void log_append(llvm::raw_string_ostream &ss, const T &t) {
+  ss << &t;
+}
+
+template <typename T>
+inline void log_append(llvm::raw_string_ostream &ss, const T *t) {
+  ss << reinterpret_cast<const void *>(t);
+}
+
+template <>
+inline void log_append<char>(llvm::raw_string_ostream &ss, const char *t) {
+  ss << t;
+}
+
+template <typename Head>
+inline void log_helper(llvm::raw_string_ostream &ss, const Head &head) {
+  log_append(ss, head);
+}
+
+template <typename Head, typename... Tail>
+inline void log_helper(llvm::raw_string_ostream &ss, const Head &head,
+                       const Tail &... tail) {
+  log_append(ss, head);
+  ss << ", ";
+  log_helper(ss, tail...);
+}
+
+template <typename... Ts> inline std::string log_args(const Ts &... ts) {
+  std::string buffer;
+  llvm::raw_string_ostream ss(buffer);
+  log_helper(ss, ts...);
+  return ss.str();
+}
+
+// Define LLDB_REPRO_INSTR_TRACE to trace to stderr instead of LLDB's log
+// infrastructure. This is useful when you need to see traces before the logger
+// is initialized or enabled.
+// #define LLDB_REPRO_INSTR_TRACE
 
 #define LLDB_REGISTER_CONSTRUCTOR(Class, Signature)                            \
-  Register<Class * Signature>(&construct<Class Signature>::doit)
+  R.Register<Class * Signature>(&construct<Class Signature>::doit, "", #Class, \
+                              #Class, #Signature)
 #define LLDB_REGISTER_METHOD(Result, Class, Method, Signature)                 \
-  Register(&invoke<Result(Class::*) Signature>::method<&Class::Method>::doit)
+  R.Register(                                                                  \
+      &invoke<Result(Class::*) Signature>::method<(&Class::Method)>::doit,     \
+      #Result, #Class, #Method, #Signature)
 #define LLDB_REGISTER_METHOD_CONST(Result, Class, Method, Signature)           \
-  Register(&invoke<Result(Class::*)                                            \
-                       Signature const>::method_const<&Class::Method>::doit)
+  R.Register(&invoke<Result(Class::*)                                          \
+                       Signature const>::method_const<(&Class::Method)>::doit, \
+           #Result, #Class, #Method, #Signature)
 #define LLDB_REGISTER_STATIC_METHOD(Result, Class, Method, Signature)          \
-  Register<Result Signature>(static_cast<Result(*) Signature>(&Class::Method))
+  R.Register<Result Signature>(                                                \
+      static_cast<Result(*) Signature>(&Class::Method), #Result, #Class,       \
+      #Method, #Signature)
 
 #define LLDB_RECORD_CONSTRUCTOR(Class, Signature, ...)                         \
+  LLDB_LOG(GetLogIfAllCategoriesSet(LIBLLDB_LOG_API), "{0} ({1})",             \
+           LLVM_PRETTY_FUNCTION, log_args(__VA_ARGS__));                       \
   if (lldb_private::repro::InstrumentationData data =                          \
           LLDB_GET_INSTRUMENTATION_DATA()) {                                   \
     lldb_private::repro::Recorder sb_recorder(                                 \
@@ -39,6 +96,8 @@
   }
 
 #define LLDB_RECORD_CONSTRUCTOR_NO_ARGS(Class)                                 \
+  LLDB_LOG(GetLogIfAllCategoriesSet(LIBLLDB_LOG_API), "{0}",                   \
+           LLVM_PRETTY_FUNCTION);                                              \
   if (lldb_private::repro::InstrumentationData data =                          \
           LLDB_GET_INSTRUMENTATION_DATA()) {                                   \
     lldb_private::repro::Recorder sb_recorder(                                 \
@@ -48,18 +107,22 @@
   }
 
 #define LLDB_RECORD_METHOD(Result, Class, Method, Signature, ...)              \
+  LLDB_LOG(GetLogIfAllCategoriesSet(LIBLLDB_LOG_API), "{0} ({1})",             \
+           LLVM_PRETTY_FUNCTION, log_args(__VA_ARGS__));                       \
   llvm::Optional<lldb_private::repro::Recorder> sb_recorder;                   \
   if (lldb_private::repro::InstrumentationData data =                          \
           LLDB_GET_INSTRUMENTATION_DATA()) {                                   \
     sb_recorder.emplace(data.GetSerializer(), data.GetRegistry(),              \
                         LLVM_PRETTY_FUNCTION);                                 \
     sb_recorder->Record(                                                       \
-        &lldb_private::repro::invoke<Result(                                   \
-            Class::*) Signature>::method<&Class::Method>::doit,                \
+        &lldb_private::repro::invoke<Result(Class::*) Signature>::method<(     \
+            &Class::Method)>::doit,                                            \
         this, __VA_ARGS__);                                                    \
   }
 
 #define LLDB_RECORD_METHOD_CONST(Result, Class, Method, Signature, ...)        \
+  LLDB_LOG(GetLogIfAllCategoriesSet(LIBLLDB_LOG_API), "{0} ({1})",             \
+           LLVM_PRETTY_FUNCTION, log_args(__VA_ARGS__));                       \
   llvm::Optional<lldb_private::repro::Recorder> sb_recorder;                   \
   if (lldb_private::repro::InstrumentationData data =                          \
           LLDB_GET_INSTRUMENTATION_DATA()) {                                   \
@@ -67,22 +130,26 @@
                         LLVM_PRETTY_FUNCTION);                                 \
     sb_recorder->Record(                                                       \
         &lldb_private::repro::invoke<Result(                                   \
-            Class::*) Signature const>::method_const<&Class::Method>::doit,    \
+            Class::*) Signature const>::method_const<(&Class::Method)>::doit,  \
         this, __VA_ARGS__);                                                    \
   }
 
 #define LLDB_RECORD_METHOD_NO_ARGS(Result, Class, Method)                      \
+  LLDB_LOG(GetLogIfAllCategoriesSet(LIBLLDB_LOG_API), "{0}",                   \
+           LLVM_PRETTY_FUNCTION);                                              \
   llvm::Optional<lldb_private::repro::Recorder> sb_recorder;                   \
   if (lldb_private::repro::InstrumentationData data =                          \
           LLDB_GET_INSTRUMENTATION_DATA()) {                                   \
     sb_recorder.emplace(data.GetSerializer(), data.GetRegistry(),              \
                         LLVM_PRETTY_FUNCTION);                                 \
     sb_recorder->Record(&lldb_private::repro::invoke<Result (                  \
-                            Class::*)()>::method<&Class::Method>::doit,        \
+                            Class::*)()>::method<(&Class::Method)>::doit,      \
                         this);                                                 \
   }
 
 #define LLDB_RECORD_METHOD_CONST_NO_ARGS(Result, Class, Method)                \
+  LLDB_LOG(GetLogIfAllCategoriesSet(LIBLLDB_LOG_API), "{0}",                   \
+           LLVM_PRETTY_FUNCTION);                                              \
   llvm::Optional<lldb_private::repro::Recorder> sb_recorder;                   \
   if (lldb_private::repro::InstrumentationData data =                          \
           LLDB_GET_INSTRUMENTATION_DATA()) {                                   \
@@ -90,11 +157,13 @@
                         LLVM_PRETTY_FUNCTION);                                 \
     sb_recorder->Record(                                                       \
         &lldb_private::repro::invoke<Result (                                  \
-            Class::*)() const>::method_const<&Class::Method>::doit,            \
+            Class::*)() const>::method_const<(&Class::Method)>::doit,          \
         this);                                                                 \
   }
 
 #define LLDB_RECORD_STATIC_METHOD(Result, Class, Method, Signature, ...)       \
+  LLDB_LOG(GetLogIfAllCategoriesSet(LIBLLDB_LOG_API), "{0} ({1})",             \
+           LLVM_PRETTY_FUNCTION, log_args(__VA_ARGS__));                       \
   llvm::Optional<lldb_private::repro::Recorder> sb_recorder;                   \
   if (lldb_private::repro::InstrumentationData data =                          \
           LLDB_GET_INSTRUMENTATION_DATA()) {                                   \
@@ -105,6 +174,8 @@
   }
 
 #define LLDB_RECORD_STATIC_METHOD_NO_ARGS(Result, Class, Method)               \
+  LLDB_LOG(GetLogIfAllCategoriesSet(LIBLLDB_LOG_API), "{0}",                   \
+           LLVM_PRETTY_FUNCTION);                                              \
   llvm::Optional<lldb_private::repro::Recorder> sb_recorder;                   \
   if (lldb_private::repro::InstrumentationData data =                          \
           LLDB_GET_INSTRUMENTATION_DATA()) {                                   \
@@ -115,6 +186,14 @@
 
 #define LLDB_RECORD_RESULT(Result)                                             \
   sb_recorder ? sb_recorder->RecordResult(Result) : Result;
+
+/// The LLDB_RECORD_DUMMY macro is special because it doesn't actually record
+/// anything. It's used to track API boundaries when we cannot record for
+/// technical reasons.
+#define LLDB_RECORD_DUMMY(Result, Class, Method, Signature, ...)               \
+  LLDB_LOG(GetLogIfAllCategoriesSet(LIBLLDB_LOG_API), "{0} ({1})",             \
+           LLVM_PRETTY_FUNCTION, log_args(__VA_ARGS__));                       \
+  llvm::Optional<lldb_private::repro::Recorder> sb_recorder;
 
 namespace lldb_private {
 namespace repro {
@@ -208,6 +287,9 @@ public:
 
   /// Deserialize and interpret value as T.
   template <typename T> T Deserialize() {
+#ifdef LLDB_REPRO_INSTR_TRACE
+    llvm::errs() << "Deserializing with " << LLVM_PRETTY_FUNCTION << "\n";
+#endif
     return Read<T>(typename serializer_tag<T>::type());
   }
 
@@ -233,6 +315,7 @@ public:
   void HandleReplayResultVoid() {
     unsigned result = Deserialize<unsigned>();
     assert(result == 0);
+    (void)result;
   }
 
 private:
@@ -355,19 +438,41 @@ struct DefaultReplayer<void(Args...)> : public Replayer {
 /// IDs can be serialized and deserialized to replay a function. Functions need
 /// to be registered with the registry for this to work.
 class Registry {
+private:
+  struct SignatureStr {
+    SignatureStr(llvm::StringRef result = {}, llvm::StringRef scope = {},
+                 llvm::StringRef name = {}, llvm::StringRef args = {})
+        : result(result), scope(scope), name(name), args(args) {}
+
+    std::string ToString() const;
+
+    llvm::StringRef result;
+    llvm::StringRef scope;
+    llvm::StringRef name;
+    llvm::StringRef args;
+  };
+
 public:
   Registry() = default;
   virtual ~Registry() = default;
 
   /// Register a default replayer for a function.
-  template <typename Signature> void Register(Signature *f) {
-    DoRegister(uintptr_t(f), llvm::make_unique<DefaultReplayer<Signature>>(f));
+  template <typename Signature>
+  void Register(Signature *f, llvm::StringRef result = {},
+                llvm::StringRef scope = {}, llvm::StringRef name = {},
+                llvm::StringRef args = {}) {
+    DoRegister(uintptr_t(f), llvm::make_unique<DefaultReplayer<Signature>>(f),
+               SignatureStr(result, scope, name, args));
   }
 
   /// Register a replayer that invokes a custom function with the same
   /// signature as the replayed function.
-  template <typename Signature> void Register(Signature *f, Signature *g) {
-    DoRegister(uintptr_t(f), llvm::make_unique<DefaultReplayer<Signature>>(g));
+  template <typename Signature>
+  void Register(Signature *f, Signature *g, llvm::StringRef result = {},
+                llvm::StringRef scope = {}, llvm::StringRef name = {},
+                llvm::StringRef args = {}) {
+    DoRegister(uintptr_t(f), llvm::make_unique<DefaultReplayer<Signature>>(g),
+               SignatureStr(result, scope, name, args));
   }
 
   /// Replay functions from a file.
@@ -381,15 +486,19 @@ public:
 
 protected:
   /// Register the given replayer for a function (and the ID mapping).
-  void DoRegister(uintptr_t RunID, std::unique_ptr<Replayer> replayer);
+  void DoRegister(uintptr_t RunID, std::unique_ptr<Replayer> replayer,
+                  SignatureStr signature);
 
 private:
+  std::string GetSignature(unsigned id);
+  Replayer *GetReplayer(unsigned id);
+
   /// Mapping of function addresses to replayers and their ID.
   std::map<uintptr_t, std::pair<std::unique_ptr<Replayer>, unsigned>>
       m_replayers;
 
   /// Mapping of IDs to replayer instances.
-  std::map<unsigned, Replayer *> m_ids;
+  std::map<unsigned, std::pair<Replayer *, SignatureStr>> m_ids;
 };
 
 /// To be used as the "Runtime ID" of a constructor. It also invokes the
@@ -535,8 +644,12 @@ public:
 
     unsigned id = m_registry.GetID(uintptr_t(f));
 
-    LLDB_LOG(GetLogIfAllCategoriesSet(LIBLLDB_LOG_API), "#{0} '{1}'", id,
-             m_pretty_func);
+#ifndef LLDB_REPRO_INSTR_TRACE
+    LLDB_LOG(GetLogIfAllCategoriesSet(LIBLLDB_LOG_API), "Recording {0}: {1}",
+             id, m_pretty_func);
+#else
+    llvm::errs() << "Recording " << id << ": " << m_pretty_func << "\n";
+#endif
 
     m_serializer.SerializeAll(id);
     m_serializer.SerializeAll(args...);
@@ -558,8 +671,12 @@ public:
 
     unsigned id = m_registry.GetID(uintptr_t(f));
 
-    LLDB_LOG(GetLogIfAllCategoriesSet(LIBLLDB_LOG_API), "#{0} '{1}'", id,
-             m_pretty_func);
+#ifndef LLDB_REPRO_INSTR_TRACE
+    LLDB_LOG(GetLogIfAllCategoriesSet(LIBLLDB_LOG_API), "Recording {0}: {1}",
+             id, m_pretty_func);
+#else
+    llvm::errs() << "Recording " << id << ": " << m_pretty_func << "\n";
+#endif
 
     m_serializer.SerializeAll(id);
     m_serializer.SerializeAll(args...);

@@ -1,7 +1,7 @@
 " Vim syntax file
 " Language:   llvm
 " Maintainer: The LLVM team, http://llvm.org/
-" Version:      $Revision: 353563 $
+" Version:      $Revision: 354934 $
 
 if version < 600
   syntax clear
@@ -148,6 +148,7 @@ syn keyword llvmKeyword
       \ sspstrong
       \ strictfp
       \ swiftcc
+      \ swiftself
       \ tail
       \ target
       \ thread_local

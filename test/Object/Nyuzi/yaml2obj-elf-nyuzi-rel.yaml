@@ -34,19 +34,14 @@ Sections:
         Symbol:          main
         Type:            R_NYUZI_ABS32
       - Offset:          0x4
-        Symbol:          a
         Type:            R_NYUZI_NONE
       - Offset:          0x8
-        Symbol:          b
         Type:            R_NYUZI_BRANCH20
       - Offset:          0xc
-        Symbol:          c
         Type:            R_NYUZI_BRANCH25
       - Offset:          0x10
-        Symbol:          d
         Type:            R_NYUZI_HI19
       - Offset:          0x14
-        Symbol:          e
         Type:            R_NYUZI_IMM_LO13
 
 Symbols:

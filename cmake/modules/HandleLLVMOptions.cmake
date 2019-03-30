@@ -10,6 +10,7 @@ include(CheckCompilerVersion)
 include(HandleLLVMStdlib)
 include(CheckCCompilerFlag)
 include(CheckCXXCompilerFlag)
+include(CheckSymbolExists)
 
 if(CMAKE_LINKER MATCHES "lld-link\.exe" OR (WIN32 AND LLVM_USE_LINKER STREQUAL "lld") OR LLVM_ENABLE_LLD)
   set(LINKER_IS_LLD_LINK TRUE)
@@ -134,12 +135,32 @@ if(APPLE)
   set(CMAKE_MODULE_LINKER_FLAGS "${CMAKE_MODULE_LINKER_FLAGS} -Wl,-flat_namespace -Wl,-undefined -Wl,suppress")
 endif()
 
+if(${CMAKE_SYSTEM_NAME} MATCHES "AIX")
+  if(NOT LLVM_BUILD_32_BITS)
+    if (CMAKE_CXX_COMPILER_ID MATCHES "XL")
+      append("-q64" CMAKE_CXX_FLAGS CMAKE_C_FLAGS)
+    else()
+      append("-maix64" CMAKE_CXX_FLAGS CMAKE_C_FLAGS)
+    endif()
+    set(CMAKE_CXX_ARCHIVE_CREATE "<CMAKE_AR> -X64 qc <TARGET> <LINK_FLAGS> <OBJECTS>")
+    set(CMAKE_CXX_ARCHIVE_APPEND "<CMAKE_AR> -X64 q  <TARGET> <LINK_FLAGS> <OBJECTS>")
+    set(CMAKE_C_ARCHIVE_FINISH "<CMAKE_RANLIB> -X64 <TARGET>")
+    set(CMAKE_CXX_ARCHIVE_FINISH "<CMAKE_RANLIB> -X64 <TARGET>")
+  endif()
+  # -fPIC does not enable the large code model for GCC on AIX but does for XL.
+  if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    append("-mcmodel=large" CMAKE_CXX_FLAGS CMAKE_C_FLAGS)
+  elseif(CMAKE_CXX_COMPILER_ID MATCHES "XL")
+    # XL generates a small number of relocations not of the large model, -bbigtoc is needed.
+    append("-Wl,-bbigtoc"
+           CMAKE_EXE_LINKER_FLAGS CMAKE_MODULE_LINKER_FLAGS CMAKE_SHARED_LINKER_FLAGS)
+  endif()
+endif()
+
 # Pass -Wl,-z,defs. This makes sure all symbols are defined. Otherwise a DSO
 # build might work on ELF but fail on MachO/COFF.
-if(NOT (${CMAKE_SYSTEM_NAME} MATCHES "Darwin" OR WIN32 OR CYGWIN OR
-        ${CMAKE_SYSTEM_NAME} MATCHES "FreeBSD" OR
-	${CMAKE_SYSTEM_NAME} MATCHES "OpenBSD" OR
-	${CMAKE_SYSTEM_NAME} MATCHES "DragonFly") AND
+if(NOT (${CMAKE_SYSTEM_NAME} MATCHES "Darwin|FreeBSD|OpenBSD|DragonFly|AIX" OR
+        WIN32 OR CYGWIN) AND
    NOT LLVM_USE_SANITIZER)
   set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,-z,defs")
 endif()
@@ -219,8 +240,9 @@ if( LLVM_ENABLE_PIC )
   endif()
 endif()
 
-if(NOT WIN32 AND NOT CYGWIN)
+if(NOT WIN32 AND NOT CYGWIN AND NOT (${CMAKE_SYSTEM_NAME} MATCHES "AIX" AND CMAKE_CXX_COMPILER_ID STREQUAL "GNU"))
   # MinGW warns if -fvisibility-inlines-hidden is used.
+  # GCC on AIX warns if -fvisibility-inlines-hidden is used.
   check_cxx_compiler_flag("-fvisibility-inlines-hidden" SUPPORTS_FVISIBILITY_INLINES_HIDDEN_FLAG)
   append_if(SUPPORTS_FVISIBILITY_INLINES_HIDDEN_FLAG "-fvisibility-inlines-hidden" CMAKE_CXX_FLAGS)
 endif()
@@ -808,6 +830,12 @@ if (LLVM_BUILD_INSTRUMENTED)
       CMAKE_C_FLAGS
       CMAKE_EXE_LINKER_FLAGS
       CMAKE_SHARED_LINKER_FLAGS)
+  elseif(uppercase_LLVM_BUILD_INSTRUMENTED STREQUAL "CSIR")
+    append("-fcs-profile-generate='${LLVM_CSPROFILE_DATA_DIR}'"
+      CMAKE_CXX_FLAGS
+      CMAKE_C_FLAGS
+      CMAKE_EXE_LINKER_FLAGS
+      CMAKE_SHARED_LINKER_FLAGS)
   else()
     append("-fprofile-instr-generate='${LLVM_PROFILE_FILE_PATTERN}'"
       CMAKE_CXX_FLAGS
@@ -815,6 +843,14 @@ if (LLVM_BUILD_INSTRUMENTED)
       CMAKE_EXE_LINKER_FLAGS
       CMAKE_SHARED_LINKER_FLAGS)
   endif()
+endif()
+
+# Need to pass -fprofile-instr-use to linker for context-sensitive PGO
+# compilation.
+if(LLVM_PROFDATA_FILE AND EXISTS ${LLVM_PROFDATA_FILE})
+    append("-fprofile-instr-use='${LLVM_PROFDATA_FILE}'"
+      CMAKE_EXE_LINKER_FLAGS
+      CMAKE_SHARED_LINKER_FLAGS)
 endif()
 
 option(LLVM_BUILD_INSTRUMENTED_COVERAGE "Build LLVM and tools with Code Coverage instrumentation" Off)
@@ -916,3 +952,32 @@ endfunction()
 get_compile_definitions()
 
 option(LLVM_FORCE_ENABLE_STATS "Enable statistics collection for builds that wouldn't normally enable it" OFF)
+
+check_symbol_exists(os_signpost_interval_begin "os/signpost.h" macos_signposts_available)
+if(macos_signposts_available)
+  check_cxx_source_compiles(
+    "#include <os/signpost.h>
+    int main() { os_signpost_interval_begin(nullptr, 0, \"\", \"\"); return 0; }"
+    macos_signposts_usable)
+  if(macos_signposts_usable)
+    set(LLVM_ENABLE_SUPPORT_XCODE_SIGNPOSTS "WITH_ASSERTS" CACHE STRING
+        "Enable support for Xcode signposts. Can be WITH_ASSERTS, FORCE_ON, FORCE_OFF")
+    string(TOUPPER "${LLVM_ENABLE_SUPPORT_XCODE_SIGNPOSTS}"
+                   uppercase_LLVM_ENABLE_SUPPORT_XCODE_SIGNPOSTS)
+    if( uppercase_LLVM_ENABLE_SUPPORT_XCODE_SIGNPOSTS STREQUAL "WITH_ASSERTS" )
+      if( LLVM_ENABLE_ASSERTIONS )
+        set( LLVM_SUPPORT_XCODE_SIGNPOSTS 1 )
+      endif()
+    elseif( uppercase_LLVM_ENABLE_SUPPORT_XCODE_SIGNPOSTS STREQUAL "FORCE_ON" )
+      set( LLVM_SUPPORT_XCODE_SIGNPOSTS 1 )
+    elseif( uppercase_LLVM_ENABLE_SUPPORT_XCODE_SIGNPOSTS STREQUAL "FORCE_OFF" )
+      # We don't need to do anything special to turn off signposts.
+    elseif( NOT DEFINED LLVM_ENABLE_SUPPORT_XCODE_SIGNPOSTS )
+      # Treat LLVM_ENABLE_SUPPORT_XCODE_SIGNPOSTS like "FORCE_OFF" when it has not been
+      # defined.
+    else()
+      message(FATAL_ERROR "Unknown value for LLVM_ENABLE_SUPPORT_XCODE_SIGNPOSTS:"
+                          " \"${LLVM_ENABLE_SUPPORT_XCODE_SIGNPOSTS}\"!")
+    endif()
+  endif()
+endif()

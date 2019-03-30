@@ -48,6 +48,11 @@ struct WasmProducerInfo {
   std::vector<std::pair<std::string, std::string>> SDKs;
 };
 
+struct WasmFeatureEntry {
+  uint8_t Prefix;
+  std::string Name;
+};
+
 struct WasmExport {
   StringRef Name;
   uint8_t Kind;
@@ -131,12 +136,13 @@ struct WasmFunction {
 };
 
 struct WasmDataSegment {
-  uint32_t MemoryIndex;
-  WasmInitExpr Offset;
+  uint32_t InitFlags;
+  uint32_t MemoryIndex; // present if InitFlags & WASM_SEGMENT_HAS_MEMINDEX
+  WasmInitExpr Offset; // present if InitFlags & WASM_SEGMENT_IS_PASSIVE == 0
   ArrayRef<uint8_t> Content;
   StringRef Name; // from the "segment info" section
   uint32_t Alignment;
-  uint32_t Flags;
+  uint32_t LinkerFlags;
   uint32_t Comdat; // from the "comdat info" section
 };
 
@@ -245,6 +251,18 @@ enum : unsigned {
 enum : unsigned {
   WASM_LIMITS_FLAG_HAS_MAX = 0x1,
   WASM_LIMITS_FLAG_IS_SHARED = 0x2,
+};
+
+enum : unsigned {
+  WASM_SEGMENT_IS_PASSIVE = 0x01,
+  WASM_SEGMENT_HAS_MEMINDEX = 0x02,
+};
+
+// Feature policy prefixes used in the custom "target_features" section
+enum : uint8_t {
+  WASM_FEATURE_PREFIX_USED = '+',
+  WASM_FEATURE_PREFIX_REQUIRED = '=',
+  WASM_FEATURE_PREFIX_DISALLOWED = '-',
 };
 
 // Kind codes used in the custom "name" section

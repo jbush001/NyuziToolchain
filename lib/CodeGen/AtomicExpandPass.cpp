@@ -430,6 +430,9 @@ bool AtomicExpand::expandAtomicLoadToLL(LoadInst *LI) {
 bool AtomicExpand::expandAtomicLoadToCmpXchg(LoadInst *LI) {
   IRBuilder<> Builder(LI);
   AtomicOrdering Order = LI->getOrdering();
+  if (Order == AtomicOrdering::Unordered)
+    Order = AtomicOrdering::Monotonic;
+
   Value *Addr = LI->getPointerOperand();
   Type *Ty = cast<PointerType>(Addr->getType())->getElementType();
   Constant *DummyVal = Constant::getNullValue(Ty);
@@ -1691,8 +1694,14 @@ bool AtomicExpand::expandAtomicOpToLibcall(
   }
 
   // 'ptr' argument.
-  Value *PtrVal =
-      Builder.CreateBitCast(PointerOperand, Type::getInt8PtrTy(Ctx));
+  // note: This assumes all address spaces share a common libfunc
+  // implementation and that addresses are convertable.  For systems without
+  // that property, we'd need to extend this mechanism to support AS-specific
+  // families of atomic intrinsics.
+  auto PtrTypeAS = PointerOperand->getType()->getPointerAddressSpace();
+  Value *PtrVal = Builder.CreateBitCast(PointerOperand,
+                                        Type::getInt8PtrTy(Ctx, PtrTypeAS));
+  PtrVal = Builder.CreateAddrSpaceCast(PtrVal, Type::getInt8PtrTy(Ctx));
   Args.push_back(PtrVal);
 
   // 'expected' argument, if present.

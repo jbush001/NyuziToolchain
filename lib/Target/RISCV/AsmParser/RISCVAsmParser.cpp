@@ -47,6 +47,7 @@ class RISCVAsmParser : public MCTargetAsmParser {
 
   SMLoc getLoc() const { return getParser().getTok().getLoc(); }
   bool isRV64() const { return getSTI().hasFeature(RISCV::Feature64Bit); }
+  bool isRV32E() const { return getSTI().hasFeature(RISCV::FeatureRV32E); }
 
   RISCVTargetStreamer &getTargetStreamer() {
     MCTargetStreamer &TS = *getParser().getStreamer().getTargetStreamer();
@@ -90,6 +91,10 @@ class RISCVAsmParser : public MCTargetAsmParser {
 
   // Helper to emit pseudo instruction "la" used in GOT/PC-rel addressing.
   void emitLoadAddress(MCInst &Inst, SMLoc IDLoc, MCStreamer &Out);
+
+  // Helper to emit pseudo load/store instruction with a symbol.
+  void emitLoadStoreSymbol(MCInst &Inst, unsigned Opcode, SMLoc IDLoc,
+                           MCStreamer &Out, bool HasTmpReg);
 
   /// Helper for processing MC instructions that have been successfully matched
   /// by MatchAndEmitInstruction. Modifications to the emitted instructions,
@@ -904,6 +909,20 @@ bool RISCVAsmParser::MatchAndEmitInstruction(SMLoc IDLoc, unsigned &Opcode,
   llvm_unreachable("Unknown match type detected!");
 }
 
+// Attempts to match Name as a register (either using the default name or
+// alternative ABI names), setting RegNo to the matching register. Upon
+// failure, returns true and sets RegNo to 0. If IsRV32E then registers
+// x16-x31 will be rejected.
+static bool matchRegisterNameHelper(bool IsRV32E, unsigned &RegNo,
+                                    StringRef Name) {
+  RegNo = MatchRegisterName(Name);
+  if (RegNo == 0)
+    RegNo = MatchRegisterAltName(Name);
+  if (IsRV32E && RegNo >= RISCV::X16 && RegNo <= RISCV::X31)
+    RegNo = 0;
+  return RegNo == 0;
+}
+
 bool RISCVAsmParser::ParseRegister(unsigned &RegNo, SMLoc &StartLoc,
                                    SMLoc &EndLoc) {
   const AsmToken &Tok = getParser().getTok();
@@ -912,12 +931,11 @@ bool RISCVAsmParser::ParseRegister(unsigned &RegNo, SMLoc &StartLoc,
   RegNo = 0;
   StringRef Name = getLexer().getTok().getIdentifier();
 
-  if (!MatchRegisterName(Name) || !MatchRegisterAltName(Name)) {
-    getParser().Lex(); // Eat identifier token.
-    return false;
-  }
+  if (matchRegisterNameHelper(isRV32E(), RegNo, Name))
+    return Error(StartLoc, "invalid register name");
 
-  return Error(StartLoc, "invalid register name");
+  getParser().Lex(); // Eat identifier token.
+  return false;
 }
 
 OperandMatchResultTy RISCVAsmParser::parseRegister(OperandVector &Operands,
@@ -940,14 +958,13 @@ OperandMatchResultTy RISCVAsmParser::parseRegister(OperandVector &Operands,
     return MatchOperand_NoMatch;
   case AsmToken::Identifier:
     StringRef Name = getLexer().getTok().getIdentifier();
-    unsigned RegNo = MatchRegisterName(Name);
+    unsigned RegNo;
+    matchRegisterNameHelper(isRV32E(), RegNo, Name);
+
     if (RegNo == 0) {
-      RegNo = MatchRegisterAltName(Name);
-      if (RegNo == 0) {
-        if (HadParens)
-          getLexer().UnLex(Buf[0]);
-        return MatchOperand_NoMatch;
-      }
+      if (HadParens)
+        getLexer().UnLex(Buf[0]);
+      return MatchOperand_NoMatch;
     }
     if (HadParens)
       Operands.push_back(RISCVOperand::createToken("(", FirstS, isRV64()));
@@ -1105,11 +1122,22 @@ OperandMatchResultTy RISCVAsmParser::parseBareSymbol(OperandVector &Operands) {
     return MatchOperand_NoMatch;
 
   StringRef Identifier;
+  AsmToken Tok = getLexer().getTok();
+
   if (getParser().parseIdentifier(Identifier))
     return MatchOperand_ParseFail;
 
   MCSymbol *Sym = getContext().getOrCreateSymbol(Identifier);
-  Res = MCSymbolRefExpr::create(Sym, MCSymbolRefExpr::VK_None, getContext());
+
+  if (Sym->isVariable()) {
+    const MCExpr *V = Sym->getVariableValue(/*SetUsed=*/false);
+    if (!isa<MCSymbolRefExpr>(V)) {
+      getLexer().UnLex(Tok); // Put back if it's not a bare symbol.
+      return MatchOperand_NoMatch;
+    }
+    Res = V;
+  } else
+    Res = MCSymbolRefExpr::create(Sym, MCSymbolRefExpr::VK_None, getContext());
   Operands.push_back(RISCVOperand::createImm(Res, S, E, isRV64()));
   return MatchOperand_Success;
 }
@@ -1487,6 +1515,25 @@ void RISCVAsmParser::emitLoadAddress(MCInst &Inst, SMLoc IDLoc,
   emitAuipcInstPair(DestReg, DestReg, Symbol, VKHi, SecondOpcode, IDLoc, Out);
 }
 
+void RISCVAsmParser::emitLoadStoreSymbol(MCInst &Inst, unsigned Opcode,
+                                         SMLoc IDLoc, MCStreamer &Out,
+                                         bool HasTmpReg) {
+  // The load/store pseudo-instruction does a pc-relative load with
+  // a symbol.
+  //
+  // The expansion looks like this
+  //
+  //   TmpLabel: AUIPC tmp, %pcrel_hi(symbol)
+  //             [S|L]X    rd, %pcrel_lo(TmpLabel)(tmp)
+  MCOperand DestReg = Inst.getOperand(0);
+  unsigned SymbolOpIdx = HasTmpReg ? 2 : 1;
+  unsigned TmpRegOpIdx = HasTmpReg ? 1 : 0;
+  MCOperand TmpReg = Inst.getOperand(TmpRegOpIdx);
+  const MCExpr *Symbol = Inst.getOperand(SymbolOpIdx).getExpr();
+  emitAuipcInstPair(DestReg, TmpReg, Symbol, RISCVMCExpr::VK_RISCV_PCREL_HI,
+                    Opcode, IDLoc, Out);
+}
+
 bool RISCVAsmParser::processInstruction(MCInst &Inst, SMLoc IDLoc,
                                         MCStreamer &Out) {
   Inst.setLoc(IDLoc);
@@ -1520,6 +1567,51 @@ bool RISCVAsmParser::processInstruction(MCInst &Inst, SMLoc IDLoc,
     return false;
   case RISCV::PseudoLA:
     emitLoadAddress(Inst, IDLoc, Out);
+    return false;
+  case RISCV::PseudoLB:
+    emitLoadStoreSymbol(Inst, RISCV::LB, IDLoc, Out, /*HasTmpReg=*/false);
+    return false;
+  case RISCV::PseudoLBU:
+    emitLoadStoreSymbol(Inst, RISCV::LBU, IDLoc, Out, /*HasTmpReg=*/false);
+    return false;
+  case RISCV::PseudoLH:
+    emitLoadStoreSymbol(Inst, RISCV::LH, IDLoc, Out, /*HasTmpReg=*/false);
+    return false;
+  case RISCV::PseudoLHU:
+    emitLoadStoreSymbol(Inst, RISCV::LHU, IDLoc, Out, /*HasTmpReg=*/false);
+    return false;
+  case RISCV::PseudoLW:
+    emitLoadStoreSymbol(Inst, RISCV::LW, IDLoc, Out, /*HasTmpReg=*/false);
+    return false;
+  case RISCV::PseudoLWU:
+    emitLoadStoreSymbol(Inst, RISCV::LWU, IDLoc, Out, /*HasTmpReg=*/false);
+    return false;
+  case RISCV::PseudoLD:
+    emitLoadStoreSymbol(Inst, RISCV::LD, IDLoc, Out, /*HasTmpReg=*/false);
+    return false;
+  case RISCV::PseudoFLW:
+    emitLoadStoreSymbol(Inst, RISCV::FLW, IDLoc, Out, /*HasTmpReg=*/true);
+    return false;
+  case RISCV::PseudoFLD:
+    emitLoadStoreSymbol(Inst, RISCV::FLD, IDLoc, Out, /*HasTmpReg=*/true);
+    return false;
+  case RISCV::PseudoSB:
+    emitLoadStoreSymbol(Inst, RISCV::SB, IDLoc, Out, /*HasTmpReg=*/true);
+    return false;
+  case RISCV::PseudoSH:
+    emitLoadStoreSymbol(Inst, RISCV::SH, IDLoc, Out, /*HasTmpReg=*/true);
+    return false;
+  case RISCV::PseudoSW:
+    emitLoadStoreSymbol(Inst, RISCV::SW, IDLoc, Out, /*HasTmpReg=*/true);
+    return false;
+  case RISCV::PseudoSD:
+    emitLoadStoreSymbol(Inst, RISCV::SD, IDLoc, Out, /*HasTmpReg=*/true);
+    return false;
+  case RISCV::PseudoFSW:
+    emitLoadStoreSymbol(Inst, RISCV::FSW, IDLoc, Out, /*HasTmpReg=*/true);
+    return false;
+  case RISCV::PseudoFSD:
+    emitLoadStoreSymbol(Inst, RISCV::FSD, IDLoc, Out, /*HasTmpReg=*/true);
     return false;
   }
 

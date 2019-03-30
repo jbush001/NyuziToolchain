@@ -286,7 +286,6 @@ protected:
 
   // Dynamially set bits that enable features.
   bool FP64FP16Denormals;
-  bool DX10Clamp;
   bool FlatForGlobal;
   bool AutoWaitcntBeforeBarrier;
   bool CodeObjectV3;
@@ -295,8 +294,6 @@ protected:
   bool HasApertureRegs;
   bool EnableXNACK;
   bool TrapHandler;
-  bool DebuggerInsertNops;
-  bool DebuggerEmitPrologue;
 
   // Used as options.
   bool EnableHugePrivateBuffer;
@@ -533,14 +530,6 @@ public:
     return getGeneration() >= AMDGPUSubtarget::GFX9;
   }
 
-  bool enableDX10Clamp() const {
-    return DX10Clamp;
-  }
-
-  bool enableIEEEBit(const MachineFunction &MF) const {
-    return AMDGPU::isCompute(MF.getFunction().getCallingConv());
-  }
-
   bool useFlatForGlobal() const {
     return FlatForGlobal;
   }
@@ -614,6 +603,10 @@ public:
 
   bool hasD16LoadStore() const {
     return getGeneration() >= GFX9;
+  }
+
+  bool d16PreservesUnusedBits() const {
+    return hasD16LoadStore() && !isSRAMECCEnabled();
   }
 
   /// Return if most LDS instructions have an m0 use that require m0 to be
@@ -789,18 +782,6 @@ public:
 
   bool enableSIScheduler() const {
     return EnableSIScheduler;
-  }
-
-  bool debuggerSupported() const {
-    return debuggerInsertNops() && debuggerEmitPrologue();
-  }
-
-  bool debuggerInsertNops() const {
-    return DebuggerInsertNops;
-  }
-
-  bool debuggerEmitPrologue() const {
-    return DebuggerEmitPrologue;
   }
 
   bool loadStoreOptEnabled() const {
@@ -980,7 +961,6 @@ private:
   bool FMA;
   bool CaymanISA;
   bool CFALUBug;
-  bool DX10Clamp;
   bool HasVertexCache;
   bool R600ALUInst;
   bool FP64;
