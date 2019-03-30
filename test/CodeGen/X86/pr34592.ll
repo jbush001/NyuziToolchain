@@ -21,8 +21,6 @@ define <16 x i64> @pluto(<16 x i64> %arg, <16 x i64> %arg1, <16 x i64> %arg2, <1
 ; CHECK-NEXT:    vmovaps 16(%rbp), %ymm15
 ; CHECK-NEXT:    vpblendd {{.*#+}} ymm2 = ymm6[0,1,2,3,4,5],ymm2[6,7]
 ; CHECK-NEXT:    vmovaps %xmm9, %xmm6
-; CHECK-NEXT:    vmovdqa %xmm6, %xmm9
-; CHECK-NEXT:    # kill: def $ymm9 killed $xmm9
 ; CHECK-NEXT:    vmovaps %ymm0, {{[-0-9]+}}(%r{{[sb]}}p) # 32-byte Spill
 ; CHECK-NEXT:    # implicit-def: $ymm0
 ; CHECK-NEXT:    vinserti128 $1, %xmm6, %ymm0, %ymm0

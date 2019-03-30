@@ -21,6 +21,7 @@
 #include "lld/Common/Version.h"
 #include "llvm/ADT/Twine.h"
 #include "llvm/Object/Wasm.h"
+#include "llvm/Option/Arg.h"
 #include "llvm/Option/ArgList.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Path.h"
@@ -292,6 +293,8 @@ static StringRef getEntry(opt::InputArgList &Args, StringRef Default) {
 // of these values.
 static void setConfigs(opt::InputArgList &Args) {
   Config->AllowUndefined = Args.hasArg(OPT_allow_undefined);
+  Config->CheckFeatures =
+      Args.hasFlag(OPT_check_features, OPT_no_check_features, true);
   Config->CompressRelocations = Args.hasArg(OPT_compress_relocations);
   Config->Demangle = Args.hasFlag(OPT_demangle, OPT_no_demangle, true);
   Config->DisableVerify = Args.hasArg(OPT_disable_verify);
@@ -331,6 +334,7 @@ static void setConfigs(opt::InputArgList &Args) {
       "--thinlto-cache-policy: invalid cache policy");
   Config->ThinLTOJobs = args::getInteger(Args, OPT_thinlto_jobs, -1u);
   errorHandler().Verbose = Args.hasArg(OPT_verbose);
+  LLVM_DEBUG(errorHandler().Verbose = true);
   ThreadsEnabled = Args.hasFlag(OPT_threads, OPT_no_threads, true);
 
   Config->InitialMemory = args::getInteger(Args, OPT_initial_memory, 0);
@@ -338,6 +342,13 @@ static void setConfigs(opt::InputArgList &Args) {
   Config->MaxMemory = args::getInteger(Args, OPT_max_memory, 0);
   Config->ZStackSize =
       args::getZOptionValue(Args, OPT_z, "stack-size", WasmPageSize);
+
+  if (auto *Arg = Args.getLastArg(OPT_features)) {
+    Config->Features =
+        llvm::Optional<std::vector<std::string>>(std::vector<std::string>());
+    for (StringRef S : Arg->getValues())
+      Config->Features->push_back(S);
+  }
 }
 
 // Some command line options or some combinations of them are not allowed.
@@ -508,6 +519,7 @@ void LinkerDriver::link(ArrayRef<const char *> ArgsArr) {
   }
 
   if (Config->Shared) {
+    Config->ImportMemory = true;
     Config->ExportDynamic = true;
     Config->AllowUndefined = true;
   }
@@ -534,17 +546,6 @@ void LinkerDriver::link(ArrayRef<const char *> ArgsArr) {
   for (auto *Arg : Args.filtered(OPT_undefined))
     handleUndefined(Arg->getValue());
 
-  // Handle the `--export <sym>` options
-  // This works like --undefined but also exports the symbol if its found
-  for (auto *Arg : Args.filtered(OPT_export)) {
-    Symbol *Sym = handleUndefined(Arg->getValue());
-    if (Sym && Sym->isDefined())
-      Sym->ForceExport = true;
-    else if (!Config->AllowUndefined)
-      error(Twine("symbol exported via --export not found: ") +
-            Arg->getValue());
-  }
-
   Symbol *EntrySym = nullptr;
   if (!Config->Relocatable) {
     if (!Config->Shared && !Config->Entry.empty()) {
@@ -555,14 +556,15 @@ void LinkerDriver::link(ArrayRef<const char *> ArgsArr) {
         error("entry symbol not defined (pass --no-entry to supress): " +
               Config->Entry);
     }
-
-    // Make sure we have resolved all symbols.
-    if (!Config->AllowUndefined)
-      Symtab->reportRemainingUndefines();
   }
 
   if (errorCount())
     return;
+
+  // Handle the `--export <sym>` options
+  // This works like --undefined but also exports the symbol if its found
+  for (auto *Arg : Args.filtered(OPT_export))
+    handleUndefined(Arg->getValue());
 
   // Do link-time optimization if given files are LLVM bitcode files.
   // This compiles bitcode files into real object files.
@@ -570,10 +572,30 @@ void LinkerDriver::link(ArrayRef<const char *> ArgsArr) {
   if (errorCount())
     return;
 
-  // Add synthetic dummies for weak undefined functions.  Must happen
-  // after LTO otherwise functions may not yet have signatures.
-  if (!Config->Relocatable)
+  // Resolve any variant symbols that were created due to signature
+  // mismatchs.
+  Symtab->handleSymbolVariants();
+  if (errorCount())
+    return;
+
+  for (auto *Arg : Args.filtered(OPT_export)) {
+    Symbol *Sym = Symtab->find(Arg->getValue());
+    if (Sym && Sym->isDefined())
+      Sym->ForceExport = true;
+    else if (!Config->AllowUndefined)
+      error(Twine("symbol exported via --export not found: ") +
+            Arg->getValue());
+  }
+
+  if (!Config->Relocatable) {
+    // Add synthetic dummies for weak undefined functions.  Must happen
+    // after LTO otherwise functions may not yet have signatures.
     Symtab->handleWeakUndefines();
+
+    // Make sure we have resolved all symbols.
+    if (!Config->AllowUndefined)
+      Symtab->reportRemainingUndefines();
+  }
 
   if (EntrySym)
     EntrySym->setHidden(false);

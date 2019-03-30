@@ -152,6 +152,34 @@ struct SysReg {
 #include "RISCVGenSystemOperands.inc"
 } // end namespace RISCVSysReg
 
+namespace RISCVABI {
+
+enum ABI {
+  ABI_ILP32,
+  ABI_ILP32F,
+  ABI_ILP32D,
+  ABI_ILP32E,
+  ABI_LP64,
+  ABI_LP64F,
+  ABI_LP64D,
+  ABI_Unknown
+};
+
+// Returns the target ABI, or else a StringError if the requested ABIName is
+// not supported for the given TT and FeatureBits combination.
+ABI computeTargetABI(const Triple &TT, FeatureBitset FeatureBits,
+                     StringRef ABIName);
+
+} // namespace RISCVABI
+
+namespace RISCVFeatures {
+
+// Validates if the given combination of features are valid for the target
+// triple. Exits with report_fatal_error if not.
+void validate(const Triple &TT, const FeatureBitset &FeatureBits);
+
+} // namespace RISCVFeatures
+
 } // namespace llvm
 
 #endif

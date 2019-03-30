@@ -222,10 +222,16 @@ bool SymbolizableObjectFile::shouldOverrideWithSymbolTable(
          isa<DWARFContext>(DebugInfoContext.get());
 }
 
-DILineInfo SymbolizableObjectFile::symbolizeCode(uint64_t ModuleOffset,
-                                                 FunctionNameKind FNKind,
-                                                 bool UseSymbolTable) const {
+DILineInfo
+SymbolizableObjectFile::symbolizeCode(object::SectionedAddress ModuleOffset,
+                                      FunctionNameKind FNKind,
+                                      bool UseSymbolTable) const {
   DILineInfo LineInfo;
+
+  if (ModuleOffset.SectionIndex == object::SectionedAddress::UndefSection)
+    ModuleOffset.SectionIndex =
+        getModuleSectionIndexForAddress(ModuleOffset.Address);
+
   if (DebugInfoContext) {
     LineInfo = DebugInfoContext->getLineInfoForAddress(
         ModuleOffset, getDILineInfoSpecifier(FNKind));
@@ -234,7 +240,7 @@ DILineInfo SymbolizableObjectFile::symbolizeCode(uint64_t ModuleOffset,
   if (shouldOverrideWithSymbolTable(FNKind, UseSymbolTable)) {
     std::string FunctionName;
     uint64_t Start, Size;
-    if (getNameFromSymbolTable(SymbolRef::ST_Function, ModuleOffset,
+    if (getNameFromSymbolTable(SymbolRef::ST_Function, ModuleOffset.Address,
                                FunctionName, Start, Size)) {
       LineInfo.FunctionName = FunctionName;
     }
@@ -243,8 +249,13 @@ DILineInfo SymbolizableObjectFile::symbolizeCode(uint64_t ModuleOffset,
 }
 
 DIInliningInfo SymbolizableObjectFile::symbolizeInlinedCode(
-    uint64_t ModuleOffset, FunctionNameKind FNKind, bool UseSymbolTable) const {
+    object::SectionedAddress ModuleOffset, FunctionNameKind FNKind,
+    bool UseSymbolTable) const {
   DIInliningInfo InlinedContext;
+
+  if (ModuleOffset.SectionIndex == object::SectionedAddress::UndefSection)
+    ModuleOffset.SectionIndex =
+        getModuleSectionIndexForAddress(ModuleOffset.Address);
 
   if (DebugInfoContext)
     InlinedContext = DebugInfoContext->getInliningInfoForAddress(
@@ -257,7 +268,7 @@ DIInliningInfo SymbolizableObjectFile::symbolizeInlinedCode(
   if (shouldOverrideWithSymbolTable(FNKind, UseSymbolTable)) {
     std::string FunctionName;
     uint64_t Start, Size;
-    if (getNameFromSymbolTable(SymbolRef::ST_Function, ModuleOffset,
+    if (getNameFromSymbolTable(SymbolRef::ST_Function, ModuleOffset.Address,
                                FunctionName, Start, Size)) {
       InlinedContext.getMutableFrame(InlinedContext.getNumberOfFrames() - 1)
           ->FunctionName = FunctionName;
@@ -267,9 +278,27 @@ DIInliningInfo SymbolizableObjectFile::symbolizeInlinedCode(
   return InlinedContext;
 }
 
-DIGlobal SymbolizableObjectFile::symbolizeData(uint64_t ModuleOffset) const {
+DIGlobal SymbolizableObjectFile::symbolizeData(
+    object::SectionedAddress ModuleOffset) const {
   DIGlobal Res;
-  getNameFromSymbolTable(SymbolRef::ST_Data, ModuleOffset, Res.Name, Res.Start,
-                         Res.Size);
+  getNameFromSymbolTable(SymbolRef::ST_Data, ModuleOffset.Address, Res.Name,
+                         Res.Start, Res.Size);
   return Res;
+}
+
+/// Search for the first occurence of specified Address in ObjectFile.
+uint64_t SymbolizableObjectFile::getModuleSectionIndexForAddress(
+    uint64_t Address) const {
+
+  for (SectionRef Sec : Module->sections()) {
+    if (!Sec.isText() || Sec.isVirtual())
+      continue;
+
+    if (Address >= Sec.getAddress() &&
+        Address <= Sec.getAddress() + Sec.getSize()) {
+      return Sec.getIndex();
+    }
+  }
+
+  return object::SectionedAddress::UndefSection;
 }

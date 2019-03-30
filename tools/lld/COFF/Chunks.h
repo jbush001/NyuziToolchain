@@ -63,13 +63,6 @@ public:
   // before calling this function.
   virtual void writeTo(uint8_t *Buf) const {}
 
-  // Called by the writer once before assigning addresses and writing
-  // the output.
-  virtual void readRelocTargets() {}
-
-  // Called if restarting thunk addition.
-  virtual void resetRelocTargets() {}
-
   // Called by the writer after an RVA is assigned, but before calling
   // getSize().
   virtual void finalizeContents() {}
@@ -107,6 +100,8 @@ public:
 
   // The alignment of this chunk. The writer uses the value.
   uint32_t Alignment = 1;
+
+  virtual bool isHotPatchable() const { return false; }
 
 protected:
   Chunk(Kind K = OtherKind) : ChunkKind(K) {}
@@ -151,8 +146,6 @@ public:
 
   SectionChunk(ObjFile *File, const coff_section *Header);
   static bool classof(const Chunk *C) { return C->kind() == SectionKind; }
-  void readRelocTargets() override;
-  void resetRelocTargets() override;
   size_t getSize() const override { return Header->SizeOfRawData; }
   ArrayRef<uint8_t> getContents() const;
   void writeTo(uint8_t *Buf) const override;
@@ -205,6 +198,16 @@ public:
   // The section ID this chunk belongs to in its Obj.
   uint32_t getSectionNumber() const;
 
+  ArrayRef<uint8_t> consumeDebugMagic();
+
+  static ArrayRef<uint8_t> consumeDebugMagic(ArrayRef<uint8_t> Data,
+                                             StringRef SectionName);
+
+  static SectionChunk *findByName(ArrayRef<SectionChunk *> Sections,
+                                  StringRef Name);
+
+  bool isHotPatchable() const override { return File->HotPatchable; }
+
   // A pointer pointing to a replacement for this chunk.
   // Initially it points to "this" object. If this chunk is merged
   // with other chunk by ICF, it points to another chunk,
@@ -230,10 +233,6 @@ public:
 
   // Used by the garbage collector.
   bool Live;
-
-  // When inserting a thunk, we need to adjust a relocation to point to
-  // the thunk instead of the actual original target Symbol.
-  std::vector<Symbol *> RelocTargets;
 
 private:
   StringRef SectionName;
@@ -321,6 +320,8 @@ public:
   size_t getSize() const override { return sizeof(ImportThunkX86); }
   void writeTo(uint8_t *Buf) const override;
 
+  bool isHotPatchable() const override { return true; }
+
 private:
   Defined *ImpSymbol;
 };
@@ -331,6 +332,8 @@ public:
   size_t getSize() const override { return sizeof(ImportThunkX86); }
   void getBaserels(std::vector<Baserel> *Res) override;
   void writeTo(uint8_t *Buf) const override;
+
+  bool isHotPatchable() const override { return true; }
 
 private:
   Defined *ImpSymbol;
@@ -343,6 +346,8 @@ public:
   void getBaserels(std::vector<Baserel> *Res) override;
   void writeTo(uint8_t *Buf) const override;
 
+  bool isHotPatchable() const override { return true; }
+
 private:
   Defined *ImpSymbol;
 };
@@ -352,6 +357,8 @@ public:
   explicit ImportThunkChunkARM64(Defined *S) : ImpSymbol(S) {}
   size_t getSize() const override { return sizeof(ImportThunkARM64); }
   void writeTo(uint8_t *Buf) const override;
+
+  bool isHotPatchable() const override { return true; }
 
 private:
   Defined *ImpSymbol;

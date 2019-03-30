@@ -41,6 +41,8 @@ struct Pod {
   unsigned long long k = 7;
   unsigned long l = 8;
   unsigned short m = 9;
+
+  Pod() {}
 };
 
 class TestingRegistry : public Registry {
@@ -220,6 +222,8 @@ void InstrumentedBar::Validate() {
 }
 
 TestingRegistry::TestingRegistry() {
+  Registry& R = *this;
+
   LLDB_REGISTER_CONSTRUCTOR(InstrumentedFoo, (int i));
   LLDB_REGISTER_CONSTRUCTOR(InstrumentedFoo, (const InstrumentedFoo &));
   LLDB_REGISTER_METHOD(InstrumentedFoo &,

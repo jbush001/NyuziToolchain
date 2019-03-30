@@ -81,20 +81,77 @@ public:
     return false;
   }
 
+  bool parseSectionFlags(StringRef FlagStr, bool &Passive) {
+    SmallVector<StringRef, 2> Flags;
+    // If there are no flags, keep Flags empty
+    FlagStr.split(Flags, ",", -1, false);
+    for (auto &Flag : Flags) {
+      if (Flag == "passive")
+        Passive = true;
+      else
+        return error("Expected section flags, instead got: ", Lexer->getTok());
+    }
+    return false;
+  }
+
   bool parseSectionDirective(StringRef, SMLoc) {
     StringRef Name;
     if (Parser->parseIdentifier(Name))
       return TokError("expected identifier in directive");
-    // FIXME: currently requiring this very fixed format.
-    if (expect(AsmToken::Comma, ",") || expect(AsmToken::String, "string") ||
-        expect(AsmToken::Comma, ",") || expect(AsmToken::At, "@") ||
+
+    if (expect(AsmToken::Comma, ","))
+      return true;
+
+    if (Lexer->isNot(AsmToken::String))
+      return error("expected string in directive, instead got: ", Lexer->getTok());
+
+    SectionKind Kind = StringSwitch<SectionKind>(Name)
+                       .StartsWith(".data", SectionKind::getData())
+                       .StartsWith(".rodata", SectionKind::getReadOnly())
+                       .StartsWith(".text", SectionKind::getText())
+                       .StartsWith(".custom_section", SectionKind::getMetadata());
+
+    MCSectionWasm* Section = getContext().getWasmSection(Name, Kind);
+
+    // Update section flags if present in this .section directive
+    bool Passive = false;
+    if (parseSectionFlags(getTok().getStringContents(), Passive))
+      return true;
+
+    if (Passive) {
+      if (!Section->isWasmData())
+        return Parser->Error(getTok().getLoc(),
+                             "Only data sections can be passive");
+      Section->setPassive();
+    }
+
+    Lex();
+
+    if (expect(AsmToken::Comma, ",") || expect(AsmToken::At, "@") ||
         expect(AsmToken::EndOfStatement, "eol"))
       return true;
-    // This is done automatically by the assembler for text sections currently,
-    // so we don't need to emit that here. This is what it would do (and may
-    // be needed later for other section types):
-    // auto WS = getContext().getWasmSection(Name, SectionKind::getText());
-    // getStreamer().SwitchSection(WS);
+    struct SectionType {
+      const char *Name;
+      SectionKind Kind;
+    };
+    static SectionType SectionTypes[] = {
+        {".text", SectionKind::getText()},
+        {".rodata", SectionKind::getReadOnly()},
+        {".data", SectionKind::getData()},
+        {".custom_section", SectionKind::getMetadata()},
+        // TODO: add more types.
+    };
+    for (size_t I = 0; I < sizeof(SectionTypes) / sizeof(SectionType); I++) {
+      if (Name.startswith(SectionTypes[I].Name)) {
+        auto WS = getContext().getWasmSection(Name, SectionTypes[I].Kind);
+        getStreamer().SwitchSection(WS);
+        return false;
+      }
+    }
+    // Not found, just ignore this section.
+    // For code in a text section WebAssemblyAsmParser automatically adds
+    // one section per function, so they're optional to be specified with
+    // this directive.
     return false;
   }
 
@@ -113,9 +170,8 @@ public:
     if (expect(AsmToken::EndOfStatement, "eol"))
       return true;
     // This is done automatically by the assembler for functions currently,
-    // so we don't need to emit that here. This is what it would do:
-    (void)Sym;
-    // getStreamer().emitELFSize(Sym, Expr);
+    // so this is only currently needed for data sections:
+    getStreamer().emitELFSize(Sym, Expr);
     return false;
   }
 

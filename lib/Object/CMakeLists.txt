@@ -13,10 +13,12 @@ add_llvm_library(LLVMObject
   IRSymtab.cpp
   MachOObjectFile.cpp
   MachOUniversal.cpp
+  Minidump.cpp
   ModuleSymbolTable.cpp
   Object.cpp
   ObjectFile.cpp
   RecordStreamer.cpp
+  RelocationResolver.cpp
   SymbolicFile.cpp
   SymbolSize.cpp
   WasmObjectFile.cpp

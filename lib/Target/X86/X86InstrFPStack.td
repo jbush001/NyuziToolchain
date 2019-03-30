@@ -113,7 +113,9 @@ def fpimmneg1 : FPImmLeaf<fAny, [{
 }]>;
 
 // Some 'special' instructions - expanded after instruction selection.
-let usesCustomInserter = 1, hasNoSchedulingInfo = 1 in {
+// Clobbers EFLAGS due to OR instruction used internally.
+// FIXME: Can we model this in SelectionDAG?
+let usesCustomInserter = 1, hasNoSchedulingInfo = 1, Defs = [EFLAGS] in {
   def FP32_TO_INT16_IN_MEM : PseudoI<(outs), (ins i16mem:$dst, RFP32:$src),
                               [(X86fp_to_i16mem RFP32:$src, addr:$dst)]>;
   def FP32_TO_INT32_IN_MEM : PseudoI<(outs), (ins i32mem:$dst, RFP32:$src),
@@ -178,7 +180,6 @@ def _Fp80 : FpI_<(outs RFP80:$dst), (ins RFP80:$src1, RFP80:$src2), TwoArgFP,
 // These instructions cannot address 80-bit memory.
 multiclass FPBinary<SDNode OpNode, Format fp, string asmstring,
                     bit Forward = 1> {
-let mayLoad = 1, hasSideEffects = 1 in {
 // ST(0) = ST(0) + [mem]
 def _Fp32m  : FpIf32<(outs RFP32:$dst),
                      (ins RFP32:$src1, f32mem:$src2), OneArgFPRW,
@@ -215,8 +216,10 @@ def _Fp80m64: FpI_<(outs RFP80:$dst),
                         (OpNode RFP80:$src1, (f80 (extloadf64 addr:$src2)))),
                        (set RFP80:$dst,
                         (OpNode (f80 (extloadf64 addr:$src2)), RFP80:$src1)))]>;
+let mayLoad = 1 in
 def _F32m  : FPI<0xD8, fp, (outs), (ins f32mem:$src),
                  !strconcat("f", asmstring, "{s}\t$src")>;
+let mayLoad = 1 in
 def _F64m  : FPI<0xDC, fp, (outs), (ins f64mem:$src),
                  !strconcat("f", asmstring, "{l}\t$src")>;
 // ST(0) = ST(0) + [memint]
@@ -262,11 +265,12 @@ def _FpI32m80 : FpI_<(outs RFP80:$dst), (ins RFP80:$src1, i32mem:$src2),
                            (OpNode RFP80:$src1, (X86fild32 addr:$src2))),
                           (set RFP80:$dst,
                            (OpNode (X86fild32 addr:$src2), RFP80:$src1)))]>;
+let mayLoad = 1 in
 def _FI16m  : FPI<0xDE, fp, (outs), (ins i16mem:$src),
                   !strconcat("fi", asmstring, "{s}\t$src")>;
+let mayLoad = 1 in
 def _FI32m  : FPI<0xDA, fp, (outs), (ins i32mem:$src),
                   !strconcat("fi", asmstring, "{l}\t$src")>;
-} // mayLoad = 1, hasSideEffects = 1
 }
 
 let Defs = [FPSW], Uses = [FPCW] in {

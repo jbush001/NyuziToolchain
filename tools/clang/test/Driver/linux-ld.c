@@ -176,6 +176,19 @@
 // CHECK-CLANG-NO-LIBGCC-STATIC: "{{.*}}ld{{(.exe)?}}" "--sysroot=[[SYSROOT:[^"]+]]"
 // CHECK-CLANG-NO-LIBGCC-STATIC: "--start-group" "-lgcc" "-lgcc_eh" "-lc" "--end-group"
 //
+// RUN: %clang -static-pie -no-canonical-prefixes %s -### -o %t.o 2>&1 \
+// RUN:     --target=x86_64-unknown-linux -rtlib=platform \
+// RUN:     --gcc-toolchain="" \
+// RUN:     --sysroot=%S/Inputs/basic_linux_tree \
+// RUN:   | FileCheck --check-prefix=CHECK-CLANG-LD-STATIC-PIE %s
+// CHECK-CLANG-LD-STATIC-PIE: "{{.*}}ld{{(.exe)?}}" "--sysroot=[[SYSROOT:[^"]+]]"
+// CHECK-CLANG-LD-STATIC-PIE: "-static"
+// CHECK-CLANG-LD-STATIC-PIE: "-pie"
+// CHECK-CLANG-LD-STATIC-PIE: "--no-dynamic-linker"
+// CHECK-CLANG-LD-STATIC-PIE: "-m" "elf_x86_64"
+// CHECK-CLANG-LD-STATIC-PIE: "{{.*}}rcrt1.o"
+// CHECK-CLANG-LD-STATIC-PIE: "--start-group" "-lgcc" "-lgcc_eh" "-lc" "--end-group"
+//
 // RUN: %clang -dynamic -no-canonical-prefixes %s -### -o %t.o 2>&1 \
 // RUN:     --target=x86_64-unknown-linux -rtlib=platform \
 // RUN:     --gcc-toolchain="" \
@@ -984,7 +997,22 @@
 // RUN:   | FileCheck --check-prefix=CHECK-ANDROID-HASH-STYLE-M %s
 // CHECK-ANDROID-HASH-STYLE-M: "{{.*}}ld{{(.exe)?}}"
 // CHECK-ANDROID-HASH-STYLE-M: "--hash-style=gnu"
-//
+
+// RUN: %clang %s -### -o %t.o 2>&1 \
+// RUN:     --target=armv7-linux-android21 \
+// RUN:   | FileCheck --check-prefix=CHECK-ANDROID-NOEXECSTACK %s
+// CHECK-ANDROID-NOEXECSTACK: "{{.*}}ld{{(.exe)?}}"
+// CHECK-ANDROID-NOEXECSTACK: "-z" "noexecstack"
+// CHECK-ANDROID-NOEXECSTACK-NOT: "-z" "execstack"
+// CHECK-ANDROID-NOEXECSTACK-NOT: "-z,execstack"
+// CHECK-ANDROID-NOEXECSTACK-NOT: "-zexecstack"
+
++// RUN: %clang %s -### -o %t.o 2>&1 \
++// RUN:     --target=armv7-linux-android21 \
++// RUN:   | FileCheck --check-prefix=CHECK-ANDROID-WARN-SHARED-TEXTREL %s
++// CHECK-ANDROID-WARN-SHARED-TEXTREL: "{{.*}}ld{{(.exe)?}}"
++// CHECK-ANDROID-WARN-SHARED-TEXTREL: "--warn-shared-textrel"
+
 // RUN: %clang %s -### -o %t.o 2>&1 --target=mips64-linux-gnuabin32 \
 // RUN:   | FileCheck --check-prefix=CHECK-MIPS64EL-GNUABIN32 %s
 // CHECK-MIPS64EL-GNUABIN32: "{{.*}}ld{{(.exe)?}}"

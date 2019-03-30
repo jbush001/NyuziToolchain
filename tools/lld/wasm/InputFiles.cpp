@@ -44,8 +44,13 @@ Optional<MemoryBufferRef> lld::wasm::readFile(StringRef Path) {
 
 InputFile *lld::wasm::createObjectFile(MemoryBufferRef MB) {
   file_magic Magic = identify_magic(MB.getBuffer());
-  if (Magic == file_magic::wasm_object)
+  if (Magic == file_magic::wasm_object) {
+    std::unique_ptr<Binary> Bin = check(createBinary(MB));
+    auto *Obj = cast<WasmObjectFile>(Bin.get());
+    if (Obj->isSharedObject())
+      return make<SharedFile>(MB);
     return make<ObjFile>(MB);
+  }
 
   if (Magic == file_magic::bitcode)
     return make<BitcodeFile>(MB);
@@ -147,9 +152,12 @@ uint32_t ObjFile::calcNewValue(const WasmRelocation &Reloc) const {
     return TypeMap[Reloc.Index];
   case R_WASM_FUNCTION_INDEX_LEB:
     return getFunctionSymbol(Reloc.Index)->getFunctionIndex();
-  case R_WASM_GLOBAL_INDEX_LEB:
-    return getGlobalSymbol(Reloc.Index)->getGlobalIndex();
-  case R_WASM_EVENT_INDEX_LEB:
+  case R_WASM_GLOBAL_INDEX_LEB: {
+    const Symbol* Sym = Symbols[Reloc.Index];
+    if (auto GS = dyn_cast<GlobalSymbol>(Sym))
+      return GS->getGlobalIndex();
+    return Sym->getGOTIndex();
+  } case R_WASM_EVENT_INDEX_LEB:
     return getEventSymbol(Reloc.Index)->getEventIndex();
   case R_WASM_FUNCTION_OFFSET_I32:
     if (auto *Sym = dyn_cast<DefinedFunction>(getFunctionSymbol(Reloc.Index))) {
@@ -239,8 +247,6 @@ void ObjFile::parse() {
       CustomSections.emplace_back(make<InputSection>(Section, this));
       CustomSections.back()->setRelocations(Section.Relocations);
       CustomSectionsByIndex[SectionIndex] = CustomSections.back();
-      if (Section.Name == "producers")
-        ProducersSection = &Section;
     }
     SectionIndex++;
   }

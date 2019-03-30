@@ -81,6 +81,12 @@ static void sectionMapping(IO &IO, WasmYAML::ProducersSection &Section) {
   IO.mapOptional("SDKs", Section.SDKs);
 }
 
+static void sectionMapping(IO &IO, WasmYAML::TargetFeaturesSection &Section) {
+  commonSectionMapping(IO, Section);
+  IO.mapRequired("Name", Section.Name);
+  IO.mapRequired("Features", Section.Features);
+}
+
 static void sectionMapping(IO &IO, WasmYAML::CustomSection &Section) {
   commonSectionMapping(IO, Section);
   IO.mapRequired("Name", Section.Name);
@@ -180,6 +186,10 @@ void MappingTraits<std::unique_ptr<WasmYAML::Section>>::mapping(
       if (!IO.outputting())
         Section.reset(new WasmYAML::ProducersSection());
       sectionMapping(IO, *cast<WasmYAML::ProducersSection>(Section.get()));
+    } else if (SectionName == "target_features") {
+      if (!IO.outputting())
+        Section.reset(new WasmYAML::TargetFeaturesSection());
+      sectionMapping(IO, *cast<WasmYAML::TargetFeaturesSection>(Section.get()));
     } else {
       if (!IO.outputting())
         Section.reset(new WasmYAML::CustomSection(SectionName));
@@ -310,6 +320,21 @@ void MappingTraits<WasmYAML::ProducerEntry>::mapping(
   IO.mapRequired("Version", ProducerEntry.Version);
 }
 
+void ScalarEnumerationTraits<WasmYAML::FeaturePolicyPrefix>::enumeration(
+    IO &IO, WasmYAML::FeaturePolicyPrefix &Kind) {
+#define ECase(X) IO.enumCase(Kind, #X, wasm::WASM_FEATURE_PREFIX_##X);
+  ECase(USED);
+  ECase(REQUIRED);
+  ECase(DISALLOWED);
+#undef ECase
+}
+
+void MappingTraits<WasmYAML::FeatureEntry>::mapping(
+    IO &IO, WasmYAML::FeatureEntry &FeatureEntry) {
+  IO.mapRequired("Prefix", FeatureEntry.Prefix);
+  IO.mapRequired("Name", FeatureEntry.Name);
+}
+
 void MappingTraits<WasmYAML::SegmentInfo>::mapping(
     IO &IO, WasmYAML::SegmentInfo &SegmentInfo) {
   IO.mapRequired("Index", SegmentInfo.Index);
@@ -403,8 +428,18 @@ void MappingTraits<wasm::WasmInitExpr>::mapping(IO &IO,
 void MappingTraits<WasmYAML::DataSegment>::mapping(
     IO &IO, WasmYAML::DataSegment &Segment) {
   IO.mapOptional("SectionOffset", Segment.SectionOffset);
-  IO.mapRequired("MemoryIndex", Segment.MemoryIndex);
-  IO.mapRequired("Offset", Segment.Offset);
+  IO.mapRequired("InitFlags", Segment.InitFlags);
+  if (Segment.InitFlags & wasm::WASM_SEGMENT_HAS_MEMINDEX) {
+    IO.mapRequired("MemoryIndex", Segment.MemoryIndex);
+  } else {
+    Segment.MemoryIndex = 0;
+  }
+  if ((Segment.InitFlags & wasm::WASM_SEGMENT_IS_PASSIVE) == 0) {
+    IO.mapRequired("Offset", Segment.Offset);
+  } else {
+    Segment.Offset.Opcode = wasm::WASM_OPCODE_I32_CONST;
+    Segment.Offset.Value.Int32 = 0;
+  }
   IO.mapRequired("Content", Segment.Content);
 }
 

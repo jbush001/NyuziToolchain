@@ -214,15 +214,34 @@ OPTIONS
  If non-empty, write inconsistencies found during analysis to this file. `-`
  prints to stdout. By default, this analysis is not run.
 
+.. option:: -analysis-clustering=[dbscan,naive]
+
+ Specify the clustering algorithm to use. By default DBSCAN will be used.
+ Naive clustering algorithm is better for doing further work on the
+ `-analysis-inconsistencies-output-file=` output, it will create one cluster
+ per opcode, and check that the cluster is stable (all points are neighbours).
+
 .. option:: -analysis-numpoints=<dbscan numPoints parameter>
 
  Specify the numPoints parameters to be used for DBSCAN clustering
+ (`analysis` mode, DBSCAN only).
+
+.. option:: -analysis-clustering-epsilon=<dbscan epsilon parameter>
+
+ Specify the epsilon parameter used for clustering of benchmark points
  (`analysis` mode).
 
-.. option:: -analysis-epsilon=<dbscan epsilon parameter>
+.. option:: -analysis-inconsistency-epsilon=<epsilon>
 
- Specify the numPoints parameters to be used for DBSCAN clustering
- (`analysis` mode).
+ Specify the epsilon parameter used for detection of when the cluster
+ is different from the LLVM schedule profile values (`analysis` mode).
+
+.. option:: -analysis-display-unstable-clusters
+
+ If there is more than one benchmark for an opcode, said benchmarks may end up
+ not being clustered into the same cluster if the measured performance
+ characteristics are different. by default all such opcodes are filtered out.
+ This flag will instead show only such unstable opcodes.
 
 .. option:: -ignore-invalid-sched-class=false
 

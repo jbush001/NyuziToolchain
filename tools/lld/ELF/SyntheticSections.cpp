@@ -509,7 +509,7 @@ void EhFrameSection::finalizeContents() {
 // to get an FDE from an address to which FDE is applied. This function
 // returns a list of such pairs.
 std::vector<EhFrameSection::FdeData> EhFrameSection::getFdeData() const {
-  uint8_t *Buf = getParent()->Loc + OutSecOff;
+  uint8_t *Buf = Out::BufferStart + getParent()->Offset + OutSecOff;
   std::vector<FdeData> Ret;
 
   uint64_t VA = In.EhFrameHdr->getVA();
@@ -595,6 +595,9 @@ void EhFrameSection::writeTo(uint8_t *Buf) {
   // getOffset() takes care of discontiguous section pieces.
   for (EhInputSection *S : Sections)
     S->relocateAlloc(Buf, nullptr);
+
+  if (In.EhFrameHdr && In.EhFrameHdr->getParent())
+    In.EhFrameHdr->write();
 }
 
 GotSection::GotSection()
@@ -647,10 +650,8 @@ void GotSection::finalizeContents() {
 
 bool GotSection::empty() const {
   // We need to emit a GOT even if it's empty if there's a relocation that is
-  // relative to GOT(such as GOTOFFREL) or there's a symbol that points to a GOT
-  // (i.e. _GLOBAL_OFFSET_TABLE_) that the target defines relative to the .got.
-  return NumEntries == 0 && !HasGotOffRel &&
-         !(ElfSym::GlobalOffsetTable && !Target->GotBaseSymInGotPlt);
+  // relative to GOT(such as GOTOFFREL).
+  return NumEntries == 0 && !HasGotOffRel;
 }
 
 void GotSection::writeTo(uint8_t *Buf) {
@@ -816,7 +817,7 @@ bool MipsGotSection::updateAllocSize() {
   return false;
 }
 
-template <class ELFT> void MipsGotSection::build() {
+void MipsGotSection::build() {
   if (Gots.empty())
     return;
 
@@ -1038,11 +1039,8 @@ void MipsGotSection::writeTo(uint8_t *Buf) {
   for (const FileGot &G : Gots) {
     auto Write = [&](size_t I, const Symbol *S, int64_t A) {
       uint64_t VA = A;
-      if (S) {
+      if (S)
         VA = S->getVA(A);
-        if (S->StOther & STO_MIPS_MICROMIPS)
-          VA |= 1;
-      }
       writeUint(Buf + I * Config->Wordsize, VA);
     };
     // Write 'page address' entries to the local part of the GOT.
@@ -1114,11 +1112,9 @@ void GotPltSection::writeTo(uint8_t *Buf) {
 }
 
 bool GotPltSection::empty() const {
-  // We need to emit a GOT.PLT even if it's empty if there's a symbol that
-  // references the _GLOBAL_OFFSET_TABLE_ and the Target defines the symbol
-  // relative to the .got.plt section.
-  return Entries.empty() &&
-         !(ElfSym::GlobalOffsetTable && Target->GotBaseSymInGotPlt);
+  // We need to emit GOTPLT even if it's empty if there's a relocation relative
+  // to it.
+  return Entries.empty() && !HasGotPltOffRel;
 }
 
 static StringRef getIgotPltName() {
@@ -1205,25 +1201,6 @@ DynamicSection<ELFT>::DynamicSection()
   // ftp://www.linux-mips.org/pub/linux/mips/doc/ABI/mipsabi.pdf
   if (Config->EMachine == EM_MIPS || Config->ZRodynamic)
     this->Flags = SHF_ALLOC;
-
-  // Add strings to .dynstr early so that .dynstr's size will be
-  // fixed early.
-  for (StringRef S : Config->FilterList)
-    addInt(DT_FILTER, In.DynStrTab->addString(S));
-  for (StringRef S : Config->AuxiliaryList)
-    addInt(DT_AUXILIARY, In.DynStrTab->addString(S));
-
-  if (!Config->Rpath.empty())
-    addInt(Config->EnableNewDtags ? DT_RUNPATH : DT_RPATH,
-           In.DynStrTab->addString(Config->Rpath));
-
-  for (InputFile *File : SharedFiles) {
-    SharedFile<ELFT> *F = cast<SharedFile<ELFT>>(File);
-    if (F->IsNeeded)
-      addInt(DT_NEEDED, In.DynStrTab->addString(F->SoName));
-  }
-  if (!Config->SoName.empty())
-    addInt(DT_SONAME, In.DynStrTab->addString(Config->SoName));
 }
 
 template <class ELFT>
@@ -1277,6 +1254,23 @@ static uint64_t addPltRelSz() {
 
 // Add remaining entries to complete .dynamic contents.
 template <class ELFT> void DynamicSection<ELFT>::finalizeContents() {
+  for (StringRef S : Config->FilterList)
+    addInt(DT_FILTER, In.DynStrTab->addString(S));
+  for (StringRef S : Config->AuxiliaryList)
+    addInt(DT_AUXILIARY, In.DynStrTab->addString(S));
+
+  if (!Config->Rpath.empty())
+    addInt(Config->EnableNewDtags ? DT_RUNPATH : DT_RPATH,
+           In.DynStrTab->addString(Config->Rpath));
+
+  for (InputFile *File : SharedFiles) {
+    SharedFile<ELFT> *F = cast<SharedFile<ELFT>>(File);
+    if (F->IsNeeded)
+      addInt(DT_NEEDED, In.DynStrTab->addString(F->SoName));
+  }
+  if (!Config->SoName.empty())
+    addInt(DT_SONAME, In.DynStrTab->addString(Config->SoName));
+
   // Set DT_FLAGS and DT_FLAGS_1.
   uint32_t DtFlags = 0;
   uint32_t DtFlags1 = 0;
@@ -1405,16 +1399,16 @@ template <class ELFT> void DynamicSection<ELFT>::finalizeContents() {
     if (B->isDefined())
       addSym(DT_FINI, B);
 
-  bool HasVerNeed = InX<ELFT>::VerNeed->getNeedNum() != 0;
+  bool HasVerNeed = In.VerNeed->getNeedNum() != 0;
   if (HasVerNeed || In.VerDef)
-    addInSec(DT_VERSYM, InX<ELFT>::VerSym);
+    addInSec(DT_VERSYM, In.VerSym);
   if (In.VerDef) {
     addInSec(DT_VERDEF, In.VerDef);
     addInt(DT_VERDEFNUM, getVerDefNum());
   }
   if (HasVerNeed) {
-    addInSec(DT_VERNEED, InX<ELFT>::VerNeed);
-    addInt(DT_VERNEEDNUM, InX<ELFT>::VerNeed->getNeedNum());
+    addInSec(DT_VERNEED, In.VerNeed);
+    addInt(DT_VERNEEDNUM, In.VerNeed->getNeedNum());
   }
 
   if (Config->EMachine == EM_MIPS) {
@@ -1517,9 +1511,8 @@ void RelocationBaseSection::finalizeContents() {
   // When linking glibc statically, .rel{,a}.plt contains R_*_IRELATIVE
   // relocations due to IFUNC (e.g. strcpy). sh_link will be set to 0 in that
   // case.
-  InputSection *SymTab = Config->Relocatable ? In.SymTab : In.DynSymTab;
-  if (SymTab && SymTab->getParent())
-    getParent()->Link = SymTab->getParent()->SectionIndex;
+  if (In.DynSymTab && In.DynSymTab->getParent())
+    getParent()->Link = In.DynSymTab->getParent()->SectionIndex;
   else
     getParent()->Link = 0;
 
@@ -1568,10 +1561,6 @@ template <class ELFT> void RelocationSection<ELFT>::writeTo(uint8_t *Buf) {
     encodeDynamicReloc<ELFT>(reinterpret_cast<Elf_Rela *>(Buf), Rel);
     Buf += Config->IsRela ? sizeof(Elf_Rela) : sizeof(Elf_Rel);
   }
-}
-
-template <class ELFT> unsigned RelocationSection<ELFT>::getRelocOffset() {
-  return this->Entsize * Relocs.size();
 }
 
 template <class ELFT>
@@ -2052,14 +2041,17 @@ template <class ELFT> void SymbolTableSection<ELFT>::writeTo(uint8_t *Buf) {
       if (Sym->isInPlt() && Sym->NeedsPltAddr)
         ESym->st_other |= STO_MIPS_PLT;
       if (isMicroMips()) {
-        // Set STO_MIPS_MICROMIPS flag and less-significant bit for
-        // a defined microMIPS symbol and symbol should point to its
-        // PLT entry (in case of microMIPS, PLT entries always contain
-        // microMIPS code).
+        // We already set the less-significant bit for symbols
+        // marked by the `STO_MIPS_MICROMIPS` flag and for microMIPS PLT
+        // records. That allows us to distinguish such symbols in
+        // the `MIPS<ELFT>::relocateOne()` routine. Now we should
+        // clear that bit for non-dynamic symbol table, so tools
+        // like `objdump` will be able to deal with a correct
+        // symbol position.
         if (Sym->isDefined() &&
             ((Sym->StOther & STO_MIPS_MICROMIPS) || Sym->NeedsPltAddr)) {
-          if (StrTabSec.isDynamic())
-            ESym->st_value |= 1;
+          if (!StrTabSec.isDynamic())
+            ESym->st_value &= ~1;
           ESym->st_other |= STO_MIPS_MICROMIPS;
         }
       }
@@ -2329,15 +2321,18 @@ PltSection::PltSection(bool IsIplt)
 void PltSection::writeTo(uint8_t *Buf) {
   // At beginning of PLT or retpoline IPLT, we have code to call the dynamic
   // linker to resolve dynsyms at runtime. Write such code.
-  if (HeaderSize > 0)
+  if (HeaderSize)
     Target->writePltHeader(Buf);
   size_t Off = HeaderSize;
-  // The IPlt is immediately after the Plt, account for this in RelOff
-  unsigned PltOff = getPltRelocOff();
 
-  for (auto &I : Entries) {
-    const Symbol *B = I.first;
-    unsigned RelOff = I.second + PltOff;
+  RelocationBaseSection *RelSec = IsIplt ? In.RelaIplt : In.RelaPlt;
+
+  // The IPlt is immediately after the Plt, account for this in RelOff
+  size_t PltOff = IsIplt ? In.Plt->getSize() : 0;
+
+  for (size_t I = 0, E = Entries.size(); I != E; ++I) {
+    const Symbol *B = Entries[I];
+    unsigned RelOff = RelSec->Entsize * I + PltOff;
     uint64_t Got = B->getGotPltVA();
     uint64_t Plt = this->getVA() + Off;
     Target->writePlt(Buf + Off, Got, Plt, B->PltIndex, RelOff);
@@ -2347,12 +2342,7 @@ void PltSection::writeTo(uint8_t *Buf) {
 
 template <class ELFT> void PltSection::addEntry(Symbol &Sym) {
   Sym.PltIndex = Entries.size();
-  RelocationBaseSection *PltRelocSection = In.RelaPlt;
-  if (IsIplt)
-    PltRelocSection = In.RelaIplt;
-  unsigned RelOff =
-      static_cast<RelocationSection<ELFT> *>(PltRelocSection)->getRelocOffset();
-  Entries.push_back(std::make_pair(&Sym, RelOff));
+  Entries.push_back(&Sym);
 }
 
 size_t PltSection::getSize() const {
@@ -2365,15 +2355,12 @@ void PltSection::addSymbols() {
   // The PLT may have symbols defined for the Header, the IPLT has no header
   if (!IsIplt)
     Target->addPltHeaderSymbols(*this);
+
   size_t Off = HeaderSize;
   for (size_t I = 0; I < Entries.size(); ++I) {
     Target->addPltSymbols(*this, Off);
     Off += Target->PltEntrySize;
   }
-}
-
-unsigned PltSection::getPltRelocOff() const {
-  return IsIplt ? In.Plt->getSize() : 0;
 }
 
 // The string hash function for .gdb_index.
@@ -2668,11 +2655,20 @@ bool GdbIndexSection::empty() const { return Chunks.empty(); }
 EhFrameHeader::EhFrameHeader()
     : SyntheticSection(SHF_ALLOC, SHT_PROGBITS, 4, ".eh_frame_hdr") {}
 
+void EhFrameHeader::writeTo(uint8_t *Buf) {
+  // Unlike most sections, the EhFrameHeader section is written while writing
+  // another section, namely EhFrameSection, which calls the write() function
+  // below from its writeTo() function. This is necessary because the contents
+  // of EhFrameHeader depend on the relocated contents of EhFrameSection and we
+  // don't know which order the sections will be written in.
+}
+
 // .eh_frame_hdr contains a binary search table of pointers to FDEs.
 // Each entry of the search table consists of two values,
 // the starting PC from where FDEs covers, and the FDE's address.
 // It is sorted by PC.
-void EhFrameHeader::writeTo(uint8_t *Buf) {
+void EhFrameHeader::write() {
+  uint8_t *Buf = Out::BufferStart + getParent()->Offset + OutSecOff;
   typedef EhFrameSection::FdeData FdeData;
 
   std::vector<FdeData> Fdes = In.EhFrame->getFdeData();
@@ -2758,24 +2754,23 @@ size_t VersionDefinitionSection::getSize() const {
 }
 
 // .gnu.version is a table where each entry is 2 byte long.
-template <class ELFT>
-VersionTableSection<ELFT>::VersionTableSection()
+VersionTableSection::VersionTableSection()
     : SyntheticSection(SHF_ALLOC, SHT_GNU_versym, sizeof(uint16_t),
                        ".gnu.version") {
   this->Entsize = 2;
 }
 
-template <class ELFT> void VersionTableSection<ELFT>::finalizeContents() {
+void VersionTableSection::finalizeContents() {
   // At the moment of june 2016 GNU docs does not mention that sh_link field
   // should be set, but Sun docs do. Also readelf relies on this field.
   getParent()->Link = In.DynSymTab->getParent()->SectionIndex;
 }
 
-template <class ELFT> size_t VersionTableSection<ELFT>::getSize() const {
+size_t VersionTableSection::getSize() const {
   return (In.DynSymTab->getSymbols().size() + 1) * 2;
 }
 
-template <class ELFT> void VersionTableSection<ELFT>::writeTo(uint8_t *Buf) {
+void VersionTableSection::writeTo(uint8_t *Buf) {
   Buf += 2;
   for (const SymbolTableEntry &S : In.DynSymTab->getSymbols()) {
     write16(Buf, S.Sym->VersionId);
@@ -2783,12 +2778,11 @@ template <class ELFT> void VersionTableSection<ELFT>::writeTo(uint8_t *Buf) {
   }
 }
 
-template <class ELFT> bool VersionTableSection<ELFT>::empty() const {
-  return !In.VerDef && InX<ELFT>::VerNeed->empty();
+bool VersionTableSection::empty() const {
+  return !In.VerDef && In.VerNeed->empty();
 }
 
-template <class ELFT>
-VersionNeedSection<ELFT>::VersionNeedSection()
+VersionNeedBaseSection::VersionNeedBaseSection()
     : SyntheticSection(SHF_ALLOC, SHT_GNU_verneed, sizeof(uint32_t),
                        ".gnu.version_r") {
   // Identifiers in verneed section start at 2 because 0 and 1 are reserved
@@ -3009,7 +3003,6 @@ void elf::mergeSections() {
     }
 
     StringRef OutsecName = getOutputSectionName(MS);
-    uint32_t Alignment = std::max<uint32_t>(MS->Alignment, MS->Entsize);
 
     auto I = llvm::find_if(MergeSections, [=](MergeSyntheticSection *Sec) {
       // While we could create a single synthetic section for two different
@@ -3021,11 +3014,11 @@ void elf::mergeSections() {
       // Using Entsize in here also allows us to propagate it to the synthetic
       // section.
       return Sec->Name == OutsecName && Sec->Flags == MS->Flags &&
-             Sec->Entsize == MS->Entsize && Sec->Alignment == Alignment;
+             Sec->Entsize == MS->Entsize && Sec->Alignment == MS->Alignment;
     });
     if (I == MergeSections.end()) {
       MergeSyntheticSection *Syn =
-          createMergeSynthetic(OutsecName, MS->Type, MS->Flags, Alignment);
+          createMergeSynthetic(OutsecName, MS->Type, MS->Flags, MS->Alignment);
       MergeSections.push_back(Syn);
       I = std::prev(MergeSections.end());
       S = Syn;
@@ -3046,33 +3039,194 @@ MipsRldMapSection::MipsRldMapSection()
     : SyntheticSection(SHF_ALLOC | SHF_WRITE, SHT_PROGBITS, Config->Wordsize,
                        ".rld_map") {}
 
-ARMExidxSentinelSection::ARMExidxSentinelSection()
+ARMExidxSyntheticSection::ARMExidxSyntheticSection()
     : SyntheticSection(SHF_ALLOC | SHF_LINK_ORDER, SHT_ARM_EXIDX,
-                       Config->Wordsize, ".ARM.exidx") {}
+                       Config->Wordsize, ".ARM.exidx") {
+  for (InputSectionBase *&IS : InputSections) {
+    if (isa<InputSection>(IS) && IS->Type == SHT_ARM_EXIDX) {
+      ExidxSections.push_back(cast<InputSection>(IS));
+      IS = nullptr;
+    } else if (IS->Live && isa<InputSection>(IS) &&
+               IS->kind() != SectionBase::Synthetic &&
+               (IS->Flags & SHF_ALLOC) && (IS->Flags & SHF_EXECINSTR) &&
+               IS->getSize() > 0) {
+      ExecutableSections.push_back(cast<InputSection>(IS));
+    }
+  }
+  setSizeAndOffsets();
 
-// Write a terminating sentinel entry to the end of the .ARM.exidx table.
-// This section will have been sorted last in the .ARM.exidx table.
-// This table entry will have the form:
-// | PREL31 upper bound of code that has exception tables | EXIDX_CANTUNWIND |
-// The sentinel must have the PREL31 value of an address higher than any
-// address described by any other table entry.
-void ARMExidxSentinelSection::writeTo(uint8_t *Buf) {
-  assert(Highest);
-  uint64_t S = Highest->getVA(Highest->getSize());
-  uint64_t P = getVA();
-  Target->relocateOne(Buf, R_ARM_PREL31, S - P);
-  write32le(Buf + 4, 1);
+  // FIXME: we do not output a relocation section when --emit-relocs is used
+  // as we do not have relocation sections for linker generated table entries
+  // and we would have to erase at a late stage relocations from merged entries.
+  // Given that exception tables are already position independent and a binary
+  // analyzer could derive the relocations we choose to erase the relocations.
+  if (Config->EmitRelocs)
+    for (InputSectionBase *&IS : InputSections)
+      if (IS && isa<InputSection>(IS) && IS->Type == SHT_REL) {
+        InputSection *RS = cast<InputSection>(IS);
+        if (InputSectionBase *EX = RS->getRelocatedSection())
+          if (isa<InputSection>(EX) && EX->Type == SHT_ARM_EXIDX)
+            IS = nullptr;
+      }
+
+  std::vector<InputSectionBase *> &V = InputSections;
+  V.erase(std::remove(V.begin(), V.end(), nullptr), V.end());
 }
 
-// The sentinel has to be removed if there are no other .ARM.exidx entries.
-bool ARMExidxSentinelSection::empty() const {
-  for (InputSection *IS : getInputSections(getParent()))
-    if (!isa<ARMExidxSentinelSection>(IS))
+static InputSection *findExidxSection(InputSection *IS) {
+  for (InputSection *D : IS->DependentSections)
+    if (D->Type == SHT_ARM_EXIDX)
+      return D;
+  return nullptr;
+}
+
+void ARMExidxSyntheticSection::setSizeAndOffsets() {
+  size_t Offset = 0;
+  Size = 0;
+  for (InputSection *IS : ExecutableSections) {
+    if (InputSection *D = findExidxSection(IS)) {
+      D->OutSecOff = Offset;
+      D->Parent = getParent();
+      Offset += D->getSize();
+      Empty = false;
+    } else {
+      Offset += 8;
+    }
+  }
+  // Size includes Sentinel.
+  Size = Offset + 8;
+}
+
+// References to .ARM.Extab Sections have bit 31 clear and are not the
+// special EXIDX_CANTUNWIND bit-pattern.
+static bool isExtabRef(uint32_t Unwind) {
+  return (Unwind & 0x80000000) == 0 && Unwind != 0x1;
+}
+
+// Return true if the .ARM.exidx section Cur can be merged into the .ARM.exidx
+// section Prev, where Cur follows Prev in the table. This can be done if the
+// unwinding instructions in Cur are identical to Prev. Linker generated
+// EXIDX_CANTUNWIND entries are represented by nullptr as they do not have an
+// InputSection.
+static bool isDuplicateArmExidxSec(InputSection *Prev, InputSection *Cur) {
+
+  struct ExidxEntry {
+    ulittle32_t Fn;
+    ulittle32_t Unwind;
+  };
+  // Get the last table Entry from the previous .ARM.exidx section. If Prev is
+  // nullptr then it will be a synthesized EXIDX_CANTUNWIND entry.
+  ExidxEntry PrevEntry = {ulittle32_t(0), ulittle32_t(1)};
+  if (Prev)
+    PrevEntry = Prev->getDataAs<ExidxEntry>().back();
+  if (isExtabRef(PrevEntry.Unwind))
+    return false;
+
+  // We consider the unwind instructions of an .ARM.exidx table entry
+  // a duplicate if the previous unwind instructions if:
+  // - Both are the special EXIDX_CANTUNWIND.
+  // - Both are the same inline unwind instructions.
+  // We do not attempt to follow and check links into .ARM.extab tables as
+  // consecutive identical entries are rare and the effort to check that they
+  // are identical is high.
+
+  // If Cur is nullptr then this is synthesized EXIDX_CANTUNWIND entry.
+  if (Cur == nullptr)
+    return PrevEntry.Unwind == 1;
+
+  for (const ExidxEntry Entry : Cur->getDataAs<ExidxEntry>())
+    if (isExtabRef(Entry.Unwind) || Entry.Unwind != PrevEntry.Unwind)
       return false;
+
+  // All table entries in this .ARM.exidx Section can be merged into the
+  // previous Section.
   return true;
 }
 
-bool ARMExidxSentinelSection::classof(const SectionBase *D) {
+// The .ARM.exidx table must be sorted in ascending order of the address of the
+// functions the table describes. Optionally duplicate adjacent table entries
+// can be removed. At the end of the function the ExecutableSections must be
+// sorted in ascending order of address, Sentinel is set to the InputSection
+// with the highest address and any InputSections that have mergeable
+// .ARM.exidx table entries are removed from it.
+void ARMExidxSyntheticSection::finalizeContents() {
+  // Sort the executable sections that may or may not have associated
+  // .ARM.exidx sections by order of ascending address. This requires the
+  // relative positions of InputSections to be known.
+  auto CompareByFilePosition = [](const InputSection *A,
+                                  const InputSection *B) {
+    OutputSection *AOut = A->getParent();
+    OutputSection *BOut = B->getParent();
+
+    if (AOut != BOut)
+      return AOut->SectionIndex < BOut->SectionIndex;
+    return A->OutSecOff < B->OutSecOff;
+  };
+  std::stable_sort(ExecutableSections.begin(), ExecutableSections.end(),
+                   CompareByFilePosition);
+  Sentinel = ExecutableSections.back();
+  // Optionally merge adjacent duplicate entries.
+  if (Config->MergeArmExidx) {
+    std::vector<InputSection *> SelectedSections;
+    SelectedSections.reserve(ExecutableSections.size());
+    SelectedSections.push_back(ExecutableSections[0]);
+    size_t Prev = 0;
+    for (size_t I = 1; I < ExecutableSections.size(); ++I) {
+      InputSection *EX1 = findExidxSection(ExecutableSections[Prev]);
+      InputSection *EX2 = findExidxSection(ExecutableSections[I]);
+      if (!isDuplicateArmExidxSec(EX1, EX2)) {
+        SelectedSections.push_back(ExecutableSections[I]);
+        Prev = I;
+      }
+    }
+    ExecutableSections = std::move(SelectedSections);
+  }
+  setSizeAndOffsets();
+}
+
+InputSection *ARMExidxSyntheticSection::getLinkOrderDep() const {
+  return ExecutableSections.front();
+}
+
+// To write the .ARM.exidx table from the ExecutableSections we have three cases
+// 1.) The InputSection has a .ARM.exidx InputSection in its dependent sections.
+//     We write the .ARM.exidx section contents and apply its relocations.
+// 2.) The InputSection does not have a dependent .ARM.exidx InputSection. We
+//     must write the contents of an EXIDX_CANTUNWIND directly. We use the
+//     start of the InputSection as the purpose of the linker generated
+//     section is to terminate the address range of the previous entry.
+// 3.) A trailing EXIDX_CANTUNWIND sentinel section is required at the end of
+//     the table to terminate the address range of the final entry.
+void ARMExidxSyntheticSection::writeTo(uint8_t *Buf) {
+
+  const uint8_t CantUnwindData[8] = {0, 0, 0, 0,  // PREL31 to target
+                                     1, 0, 0, 0}; // EXIDX_CANTUNWIND
+
+  uint64_t Offset = 0;
+  for (InputSection *IS : ExecutableSections) {
+    assert(IS->getParent() != nullptr);
+    if (InputSection *D = findExidxSection(IS)) {
+      memcpy(Buf + Offset, D->data().data(), D->data().size());
+      D->relocateAlloc(Buf, Buf + D->getSize());
+      Offset += D->getSize();
+    } else {
+      // A Linker generated CANTUNWIND section.
+      memcpy(Buf + Offset, CantUnwindData, sizeof(CantUnwindData));
+      uint64_t S = IS->getVA();
+      uint64_t P = getVA() + Offset;
+      Target->relocateOne(Buf + Offset, R_ARM_PREL31, S - P);
+      Offset += 8;
+    }
+  }
+  // Write Sentinel.
+  memcpy(Buf + Offset, CantUnwindData, sizeof(CantUnwindData));
+  uint64_t S = Sentinel->getVA(Sentinel->getSize());
+  uint64_t P = getVA() + Offset;
+  Target->relocateOne(Buf + Offset, R_ARM_PREL31, S - P);
+  assert(Size == Offset + 8);
+}
+
+bool ARMExidxSyntheticSection::classof(const SectionBase *D) {
   return D->kind() == InputSectionBase::Synthetic && D->Type == SHT_ARM_EXIDX;
 }
 
@@ -3183,11 +3337,6 @@ template void PltSection::addEntry<ELF32BE>(Symbol &Sym);
 template void PltSection::addEntry<ELF64LE>(Symbol &Sym);
 template void PltSection::addEntry<ELF64BE>(Symbol &Sym);
 
-template void MipsGotSection::build<ELF32LE>();
-template void MipsGotSection::build<ELF32BE>();
-template void MipsGotSection::build<ELF64LE>();
-template void MipsGotSection::build<ELF64BE>();
-
 template class elf::MipsAbiFlagsSection<ELF32LE>;
 template class elf::MipsAbiFlagsSection<ELF32BE>;
 template class elf::MipsAbiFlagsSection<ELF64LE>;
@@ -3227,11 +3376,6 @@ template class elf::SymbolTableSection<ELF32LE>;
 template class elf::SymbolTableSection<ELF32BE>;
 template class elf::SymbolTableSection<ELF64LE>;
 template class elf::SymbolTableSection<ELF64BE>;
-
-template class elf::VersionTableSection<ELF32LE>;
-template class elf::VersionTableSection<ELF32BE>;
-template class elf::VersionTableSection<ELF64LE>;
-template class elf::VersionTableSection<ELF64BE>;
 
 template class elf::VersionNeedSection<ELF32LE>;
 template class elf::VersionNeedSection<ELF32BE>;

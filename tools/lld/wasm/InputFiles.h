@@ -33,6 +33,7 @@ class InputFile {
 public:
   enum Kind {
     ObjectKind,
+    SharedKind,
     ArchiveKind,
     BitcodeKind,
   };
@@ -98,7 +99,6 @@ public:
 
   const WasmSection *CodeSection = nullptr;
   const WasmSection *DataSection = nullptr;
-  const WasmSection *ProducersSection = nullptr;
 
   // Maps input type indices to output type indices
   std::vector<uint32_t> TypeMap;
@@ -129,6 +129,16 @@ private:
   std::unique_ptr<WasmObjectFile> WasmObj;
 };
 
+// .so file.
+class SharedFile : public InputFile {
+public:
+  explicit SharedFile(MemoryBufferRef M) : InputFile(SharedKind, M) {}
+  static bool classof(const InputFile *F) { return F->kind() == SharedKind; }
+
+  void parse() override {}
+};
+
+// .bc file
 class BitcodeFile : public InputFile {
 public:
   explicit BitcodeFile(MemoryBufferRef M) : InputFile(BitcodeKind, M) {}
