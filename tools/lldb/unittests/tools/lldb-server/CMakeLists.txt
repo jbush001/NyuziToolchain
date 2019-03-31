@@ -17,7 +17,6 @@ if(DEBUGSERVER_PATH)
 else()
   add_definitions(-DLLDB_SERVER="$<TARGET_FILE:lldb-server>" -DLLDB_SERVER_IS_DEBUGSERVER=0)
 endif()
-endif()
 
 add_definitions(
   -DLLDB_TEST_INFERIOR_PATH="${CMAKE_CURRENT_BINARY_DIR}/${CMAKE_CFG_INTDIR}"
