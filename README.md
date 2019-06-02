@@ -118,4 +118,4 @@ Instructions are in that directory.
 
 In the same repository, there is also a test to validates the LLDB debugger by
 running a real program in the emulator:
-[tests/lldb](https://github.com/jbush001/NyuziProcessor/tree/master/tests/lldb)
+[tests/tools/lldb](https://github.com/jbush001/NyuziProcessor/tree/master/tests/tools/lldb)
