@@ -58,12 +58,12 @@ On Mavericks and later, you can install the host command line compiler like this
     xcode-select --install
 
 On earlier versions, you can download XCode from the app store. You will also
-need to install a package manager like [MacPorts](https://www.macports.org/) to
+need to install a package manager like [Homebrew](https://brew.sh/) to
 get the remaining dependencies. Open a new terminal to do the build after
-installing MacPorts, because it installs alternate versions of some utilities
+installing Brew, because it installs alternate versions of some utilities
 and updates the PATH. Once you have done this:
 
-    sudo port install cmake bison swig swig-python ninja
+    brew install cmake bison swig sdl2 emacs ninja
 
     git clone https://github.com/jbush001/NyuziToolchain.git
     cd NyuziToolchain
