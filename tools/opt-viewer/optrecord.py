@@ -10,7 +10,10 @@ except ImportError:
     print("For faster parsing, you may want to install libYAML for PyYAML")
     from yaml import Loader
 
-import cgi
+try:
+    from html import escape
+except ImportError:
+    from cgi import escape
 from collections import defaultdict
 import fnmatch
 import functools
@@ -57,10 +60,12 @@ class Remark(yaml.YAMLObject):
     yaml_loader = Loader
 
     default_demangler = 'c++filt -n'
+    demangler_command = default_demangler
     demangler_proc = None
 
     @classmethod
     def set_demangler(cls, demangler):
+        cls.demangler_command = demangler
         cls.demangler_proc = subprocess.Popen(demangler.split(), stdin=subprocess.PIPE, stdout=subprocess.PIPE)
         cls.demangler_lock = Lock()
 
@@ -158,7 +163,7 @@ class Remark(yaml.YAMLObject):
         (key, value) = list(mapping.items())[0]
 
         if key == 'Caller' or key == 'Callee' or key == 'DirectCallee':
-            value = cgi.escape(self.demangle(value))
+            value = escape(self.demangle(value), quote=False)
 
         if dl and key != 'Caller':
             dl_dict = dict(list(dl))

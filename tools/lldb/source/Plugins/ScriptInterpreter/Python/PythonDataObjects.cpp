@@ -414,7 +414,7 @@ llvm::StringRef PythonString::GetString() const {
 size_t PythonString::GetSize() const {
   if (IsValid()) {
 #if PY_MAJOR_VERSION >= 3
-    return PyUnicode_GetSize(m_py_obj);
+    return PyUnicode_GetLength(m_py_obj);
 #else
     return PyString_Size(m_py_obj);
 #endif

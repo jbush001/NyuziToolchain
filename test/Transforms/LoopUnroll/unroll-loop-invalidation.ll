@@ -5,7 +5,7 @@
 ;
 ; RUN: opt -S -passes='loop(require<access-info>),unroll,loop(print-access-info)' -debug-pass-manager < %s 2>&1 | FileCheck %s
 ;
-; CHECK: Starting llvm::Function pass manager run.
+; CHECK: Starting {{(llvm::)?}}Function pass manager run.
 ; CHECK: Running pass: FunctionToLoopPassAdaptor
 ; CHECK: Running analysis: LoopAnalysis
 ; CHECK: Running analysis: InnerAnalysisManagerProxy<

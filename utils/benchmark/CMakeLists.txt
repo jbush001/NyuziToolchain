@@ -1,4 +1,4 @@
-cmake_minimum_required (VERSION 2.8.12)
+cmake_minimum_required (VERSION 3.5)
 
 # Tell cmake 3.0+ that it's safe to clear the PROJECT_VERSION variable in the
 # call to project() below.

@@ -52,7 +52,7 @@ if(${CMAKE_SOURCE_DIR} STREQUAL ${CMAKE_CURRENT_SOURCE_DIR})
     set_property(GLOBAL APPEND PROPERTY SUB_COMPONENTS ${name})
   endfunction()
 
-  cmake_minimum_required(VERSION 3.4.3)
+  cmake_minimum_required(VERSION 3.5)
   project(Runtimes C CXX ASM)
 
   # Add the root project's CMake modules, and the LLVM build's modules to the

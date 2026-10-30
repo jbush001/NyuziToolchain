@@ -85,6 +85,7 @@ struct Configuration {
   llvm::CachePruningPolicy ThinLTOCachePolicy;
   llvm::StringMap<uint64_t> SectionStartMap;
   llvm::StringRef Chroot;
+  llvm::StringRef DependencyFile;
   llvm::StringRef DynamicLinker;
   llvm::StringRef DwoDir;
   llvm::StringRef Entry;

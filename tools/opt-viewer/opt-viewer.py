@@ -3,7 +3,10 @@
 from __future__ import print_function
 
 import argparse
-import cgi
+try:
+    from html import escape
+except ImportError:
+    from cgi import escape
 import codecs
 import errno
 import functools
@@ -118,7 +121,7 @@ class SourceFileRenderer:
         # Column is the number of characters *including* tabs, keep those and
         # replace everything else with spaces.
         indent = line[:max(r.Column, 1) - 1]
-        indent = re.sub('\S', ' ', indent)
+        indent = re.sub(r'\S', ' ', indent)
 
         # Create expanded message and link if we have a multiline message.
         lines = r.message.split('\n')
@@ -200,7 +203,7 @@ class IndexRenderer:
         self.max_hottest_remarks_on_index = max_hottest_remarks_on_index
 
     def render_entry(self, r, odd):
-        escaped_name = cgi.escape(r.DemangledFunctionName)
+        escaped_name = escape(r.DemangledFunctionName, quote=False)
         print(u'''
 <tr>
 <td class=\"column-entry-{odd}\"><a href={r.Link}>{r.DebugLocString}</a></td>
@@ -239,9 +242,12 @@ class IndexRenderer:
 </html>''', file=self.stream)
 
 
-def _render_file(source_dir, output_dir, ctx, no_highlight, entry, filter_):
+def _render_file(source_dir, output_dir, ctx, no_highlight, demangler, entry,
+                 filter_):
     global context
     context = ctx
+    if not optrecord.Remark.demangler_proc:
+        optrecord.Remark.set_demangler(demangler)
     filename, remarks = entry
     SourceFileRenderer(source_dir, output_dir, filename, no_highlight).render(remarks)
 
@@ -289,7 +295,9 @@ def generate_report(all_remarks,
     shutil.copy(os.path.join(os.path.dirname(os.path.realpath(__file__)),
             "style.css"), output_dir)
 
-    _render_file_bound = functools.partial(_render_file, source_dir, output_dir, context, no_highlight)
+    _render_file_bound = functools.partial(
+        _render_file, source_dir, output_dir, context, no_highlight,
+        optrecord.Remark.demangler_command)
     if should_print_progress:
         print('Rendering HTML files...')
     optpmap.pmap(_render_file_bound,

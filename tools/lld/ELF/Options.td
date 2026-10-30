@@ -42,6 +42,9 @@ defm compress_debug_sections:
 
 defm defsym: Eq<"defsym", "Define a symbol alias">, MetaVarName<"<symbol>=<value>">;
 
+defm dependency_file: Eq<"dependency-file", "Write a dependency file">,
+  MetaVarName<"<path>">;
+
 defm split_stack_adjust_size
     : Eq<"split-stack-adjust-size",
          "Specify adjustment to stack size when a split-stack function calls a "

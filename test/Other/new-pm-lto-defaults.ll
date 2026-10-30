@@ -24,9 +24,9 @@
 ; RUN:     --check-prefix=CHECK-O3 --check-prefix=CHECK-EP-Peephole
 
 ; CHECK-O: Running analysis: PassInstrumentationAnalysis
-; CHECK-O-NEXT: Starting llvm::Module pass manager run.
+; CHECK-O-NEXT: Starting {{(llvm::)?}}Module pass manager run.
 ; CHECK-O-NEXT: Running pass: PassManager<{{.*}}Module
-; CHECK-O-NEXT: Starting llvm::Module pass manager run.
+; CHECK-O-NEXT: Starting {{(llvm::)?}}Module pass manager run.
 ; CHECK-O-NEXT: Running pass: GlobalDCEPass
 ; CHECK-O-NEXT: Running pass: ForceFunctionAttrsPass
 ; CHECK-O-NEXT: Running pass: InferFunctionAttrsPass
@@ -34,12 +34,12 @@
 ; CHECK-O2-NEXT: Running pass: ModuleToFunctionPassAdaptor<{{.*}}PassManager{{.*}}>
 ; CHECK-O2-NEXT: Running analysis: InnerAnalysisManagerProxy<{{.*}}Module
 ; CHECK-O2-NEXT: Running analysis: PassInstrumentationAnalysis
-; CHECK-O2-NEXT: Starting llvm::Function pass manager run.
+; CHECK-O2-NEXT: Starting {{(llvm::)?}}Function pass manager run.
 ; CHECK-O2-NEXT: Running pass: CallSiteSplittingPass on foo
 ; CHECK-O2-NEXT: Running analysis: TargetLibraryAnalysis on foo
 ; CHECK-O2-NEXT: Running analysis: TargetIRAnalysis on foo
 ; CHECK-O2-NEXT: Running analysis: DominatorTreeAnalysis on foo
-; CHECK-O2-NEXT: Finished llvm::Function pass manager run.
+; CHECK-O2-NEXT: Finished {{(llvm::)?}}Function pass manager run.
 ; CHECK-O2-NEXT: PGOIndirectCallPromotion
 ; CHECK-O2-NEXT: Running analysis: ProfileSummaryAnalysis
 ; CHECK-O2-NEXT: Running analysis: OptimizationRemarkEmitterAnalysis
@@ -66,23 +66,23 @@
 ; CHECK-O2-NEXT: Running pass: ConstantMergePass
 ; CHECK-O2-NEXT: Running pass: DeadArgumentEliminationPass
 ; CHECK-O2-NEXT: Running pass: ModuleToFunctionPassAdaptor<{{.*}}PassManager{{.*}}>
-; CHECK-O2-NEXT: Starting llvm::Function pass manager run.
+; CHECK-O2-NEXT: Starting {{(llvm::)?}}Function pass manager run.
 ; CHECK-O3-NEXT: Running pass: AggressiveInstCombinePass
 ; CHECK-O2-NEXT: Running pass: InstCombinePass
 ; CHECK-EP-Peephole-NEXT: Running pass: NoOpFunctionPass
-; CHECK-O2-NEXT: Finished llvm::Function pass manager run.
+; CHECK-O2-NEXT: Finished {{(llvm::)?}}Function pass manager run.
 ; CHECK-O2-NEXT: Running pass: ModuleToPostOrderCGSCCPassAdaptor<{{.*}}InlinerPass>
 ; CHECK-O2-NEXT: Running pass: GlobalOptPass
 ; CHECK-O2-NEXT: Running pass: GlobalDCEPass
 ; CHECK-O2-NEXT: Running pass: ModuleToFunctionPassAdaptor<{{.*}}PassManager{{.*}}>
-; CHECK-O2-NEXT: Starting llvm::Function pass manager run.
+; CHECK-O2-NEXT: Starting {{(llvm::)?}}Function pass manager run.
 ; CHECK-O2-NEXT: Running pass: InstCombinePass
 ; CHECK-EP-Peephole-NEXT: Running pass: NoOpFunctionPass
 ; CHECK-O2-NEXT: Running pass: JumpThreadingPass
 ; CHECK-O2-NEXT: Running analysis: LazyValueAnalysis
 ; CHECK-O2-NEXT: Running pass: SROA on foo
 ; CHECK-O2-NEXT: Running pass: TailCallElimPass on foo
-; CHECK-O2-NEXT: Finished llvm::Function pass manager run.
+; CHECK-O2-NEXT: Finished {{(llvm::)?}}Function pass manager run.
 ; CHECK-O2-NEXT: Running pass: ModuleToPostOrderCGSCCPassAdaptor<{{.*}}PostOrderFunctionAttrsPass>
 ; CHECK-O2-NEXT: Running pass: ModuleToFunctionPassAdaptor<{{.*}}PassManager{{.*}}>
 ; CHECK-O2-NEXT: Running analysis: MemoryDependenceAnalysis
@@ -93,7 +93,7 @@
 ; CHECK-O2-NEXT: Running pass: ModuleToFunctionPassAdaptor<{{.*}}SimplifyCFGPass>
 ; CHECK-O2-NEXT: Running pass: EliminateAvailableExternallyPass
 ; CHECK-O2-NEXT: Running pass: GlobalDCEPass
-; CHECK-O-NEXT: Finished llvm::Module pass manager run.
+; CHECK-O-NEXT: Finished {{(llvm::)?}}Module pass manager run.
 ; CHECK-O-NEXT: Running pass: PrintModulePass
 
 ; Make sure we get the IR back out without changes when we print the module.
@@ -110,7 +110,7 @@
 ; CHECK-O-NEXT:   ret void
 ; CHECK-O-NEXT: }
 ;
-; CHECK-O-NEXT: Finished llvm::Module pass manager run.
+; CHECK-O-NEXT: Finished {{(llvm::)?}}Module pass manager run.
 
 declare void @bar() local_unnamed_addr
 

@@ -11,7 +11,6 @@ from __future__ import print_function
 
 # Python modules
 import argparse
-import imp
 import io
 import logging
 import os

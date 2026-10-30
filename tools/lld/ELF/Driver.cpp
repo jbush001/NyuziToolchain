@@ -778,6 +778,7 @@ void LinkerDriver::readConfigs(opt::InputArgList &Args) {
   Config->DefineCommon = Args.hasFlag(OPT_define_common, OPT_no_define_common,
                                       !Args.hasArg(OPT_relocatable));
   Config->Demangle = Args.hasFlag(OPT_demangle, OPT_no_demangle, true);
+  Config->DependencyFile = Args.getLastArgValue(OPT_dependency_file);
   Config->DisableVerify = Args.hasArg(OPT_disable_verify);
   Config->Discard = getDiscard(Args);
   Config->DwoDir = Args.getLastArgValue(OPT_plugin_opt_dwo_dir_eq);
@@ -1451,6 +1452,35 @@ static const char *LibcallRoutineNames[] = {
 #undef HANDLE_LIBCALL
 };
 
+void LinkerDriver::writeDependencyFile() {
+  if (Config->DependencyFile.empty())
+    return;
+
+  std::error_code EC;
+  raw_fd_ostream OS(Config->DependencyFile, EC, sys::fs::F_None);
+  if (EC) {
+    error("cannot open dependency file " + Config->DependencyFile + ": " +
+          EC.message());
+    return;
+  }
+
+  auto writePath = [&OS](StringRef Path) {
+    for (char C : Path) {
+      if (C == ' ' || C == '#' || C == '$' || C == '\\')
+        OS << '\\';
+      OS << C;
+    }
+  };
+
+  writePath(Config->OutputFile);
+  OS << ':';
+  for (InputFile *File : Files) {
+    OS << ' ';
+    writePath(File->getName());
+  }
+  OS << '\n';
+}
+
 // Do actual linking. Note that when this function is called,
 // all linker scripts have already been parsed.
 template <class ELFT> void LinkerDriver::link(opt::InputArgList &Args) {
@@ -1661,4 +1691,6 @@ template <class ELFT> void LinkerDriver::link(opt::InputArgList &Args) {
 
   // Write the result to the file.
   writeResult<ELFT>();
+  if (!errorCount())
+    writeDependencyFile();
 }

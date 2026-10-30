@@ -271,9 +271,12 @@ private:
     // The only case we should go further and acquire the GIL: it is unlocked.
     if (PyGILState_Check())
       return;
+    const bool threads_initialized = true;
+#else
+    const bool threads_initialized = PyEval_ThreadsInitialized();
 #endif
 
-    if (PyEval_ThreadsInitialized()) {
+    if (threads_initialized) {
       Log *log(lldb_private::GetLogIfAllCategoriesSet(LIBLLDB_LOG_SCRIPT));
 
       m_was_already_initialized = true;

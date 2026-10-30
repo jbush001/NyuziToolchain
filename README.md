@@ -21,7 +21,7 @@ separately.
 The following sections describe how to install these packages.
 
 - gcc 4.8+ or Apple clang 4.2+
-- cmake 3.4.3+
+- cmake 3.5+
 - python 2.7
 - libxml (including headers)
 - zlib (including headers)
@@ -40,8 +40,8 @@ a recent version of your Linux distribution. Instructions are below are for Ubun
 (which must be on at least version 16). You may need to change the package names
 for other distributions:
 
-    sudo apt-get install libxml2-dev cmake gcc g++ python bison flex \
-        zlib1g-dev swig python-dev libedit-dev libncurses5-dev ninja-build
+    sudo apt-get install libxml2-dev cmake gcc g++ python3 python3-dev bison \
+        flex zlib1g-dev swig libedit-dev libncurses-dev ninja-build
 
     git clone git@github.com:jbush001/NyuziToolchain.git
     cd NyuziToolchain

@@ -5,17 +5,17 @@
 ; This test is to make sure we invalidate the post dominator pass after loop rotate simplifies the loop latch.
 ; The adce passes are here to make sure post dominator analysis is required.
 
-; CHECK: Starting llvm::Function pass manager run.
+; CHECK: Starting {{(llvm::)?}}Function pass manager run.
 ; CHECK-NEXT: Running pass: ADCEPass on f
 ; CHECK-NEXT: Running analysis: PostDominatorTreeAnalysis on f
 ; CHECK-NEXT: Running pass: FunctionToLoopPassAdaptor{{.*}} on f
-; CHECK-NEXT: Starting llvm::Function pass manager run.
+; CHECK-NEXT: Starting {{(llvm::)?}}Function pass manager run.
 ; CHECK-NEXT: Running pass: LoopSimplifyPass on f
 ; CHECK-NEXT: Running analysis: LoopAnalysis on f
 ; CHECK-NEXT: Running analysis: DominatorTreeAnalysis on f
 ; CHECK-NEXT: Running analysis: AssumptionAnalysis on f
 ; CHECK-NEXT: Running pass: LCSSAPass on f
-; CHECK-NEXT: Finished llvm::Function pass manager run.
+; CHECK-NEXT: Finished {{(llvm::)?}}Function pass manager run.
 ; CHECK-NEXT: Running analysis: AAManager on f
 ; CHECK-NEXT: Running analysis: TargetLibraryAnalysis on f
 ; CHECK-NEXT: Running analysis: ScalarEvolutionAnalysis on f
@@ -31,19 +31,19 @@
 ; CHECK-NEXT: Invalidating analysis: PostDominatorTreeAnalysis on f
 ; CHECK-NEXT: Running pass: ADCEPass on f
 ; CHECK-NEXT: Running analysis: PostDominatorTreeAnalysis on f
-; CHECK-NEXT: Finished llvm::Function pass manager run.
+; CHECK-NEXT: Finished {{(llvm::)?}}Function pass manager run.
 
-; MSSA: Starting llvm::Function pass manager run.
+; MSSA: Starting {{(llvm::)?}}Function pass manager run.
 ; MSSA-NEXT: Running pass: ADCEPass on f
 ; MSSA-NEXT: Running analysis: PostDominatorTreeAnalysis on f
 ; MSSA-NEXT: Running pass: FunctionToLoopPassAdaptor{{.*}} on f
-; MSSA-NEXT: Starting llvm::Function pass manager run.
+; MSSA-NEXT: Starting {{(llvm::)?}}Function pass manager run.
 ; MSSA-NEXT: Running pass: LoopSimplifyPass on f
 ; MSSA-NEXT: Running analysis: LoopAnalysis on f
 ; MSSA-NEXT: Running analysis: DominatorTreeAnalysis on f
 ; MSSA-NEXT: Running analysis: AssumptionAnalysis on f
 ; MSSA-NEXT: Running pass: LCSSAPass on f
-; MSSA-NEXT: Finished llvm::Function pass manager run.
+; MSSA-NEXT: Finished {{(llvm::)?}}Function pass manager run.
 ; MSSA-NEXT: Running analysis: MemorySSAAnalysis on f
 ; MSSA-NEXT: Running analysis: AAManager on f
 ; MSSA-NEXT: Running analysis: TargetLibraryAnalysis on f
@@ -60,7 +60,7 @@
 ; MSSA-NEXT: Invalidating analysis: PostDominatorTreeAnalysis on f
 ; MSSA-NEXT: Running pass: ADCEPass on f
 ; MSSA-NEXT: Running analysis: PostDominatorTreeAnalysis on f
-; MSSA-NEXT: Finished llvm::Function pass manager run.
+; MSSA-NEXT: Finished {{(llvm::)?}}Function pass manager run.
 
 
 ; CHECK-LABEL: define i8 @f() {
